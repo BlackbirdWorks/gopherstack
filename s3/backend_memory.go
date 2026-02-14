@@ -150,6 +150,8 @@ func (b *InMemoryBackend) PutObject(
 		ETag:              fmt.Sprintf("\"%s\"", etag),
 		ChecksumAlgorithm: meta.ChecksumAlgorithm,
 		ChecksumValue:     checksumValue,
+		ContentType:       meta.ContentType,
+		UserMetadata:      meta.UserMetadata,
 		LastModified:      time.Now(),
 	}
 
@@ -466,6 +468,7 @@ func (b *InMemoryBackend) ListObjectVersions(bucketName, prefix string) ([]Objec
 		if results[i].Key != results[j].Key {
 			return results[i].Key < results[j].Key
 		}
+
 		return results[i].LastModified.After(results[j].LastModified)
 	})
 

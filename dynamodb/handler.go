@@ -27,6 +27,7 @@ func NewHandler() *Handler {
 		Logger: slog.Default(),
 	}
 	h.initDispatchMap()
+
 	return h
 }
 
@@ -54,6 +55,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		ops = append(ops, op)
 	}
 	sort.Strings(ops)
+
 	return ops
 }
 
@@ -111,6 +113,7 @@ func (h *Handler) dispatch(action string, body []byte) (any, error) {
 	if handler, ok := h.dispatchMap[action]; ok {
 		return handler(body)
 	}
+
 	return nil, fmt.Errorf("%w:%s", ErrUnknownOperation, action)
 }
 

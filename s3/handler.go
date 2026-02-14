@@ -317,6 +317,7 @@ func (h *Handler) putObject(w http.ResponseWriter, r *http.Request, bucketName, 
 	meta := ObjectMetadata{
 		Tags:              tags,
 		ContentType:       r.Header.Get("Content-Type"),
+		UserMetadata:      parseUserMetadata(r.Header),
 		ChecksumAlgorithm: algo,
 		ChecksumValue:     checksum,
 	}
@@ -368,7 +369,17 @@ func (h *Handler) getObject(w http.ResponseWriter, r *http.Request, bucketName, 
 	w.Header().Set("ETag", ver.ETag)
 	w.Header().Set("Content-Length", strconv.Itoa(len(ver.Data)))
 	w.Header().Set("Last-Modified", ver.LastModified.Format(http.TimeFormat))
-	w.Header().Set("Content-Type", "application/octet-stream")
+
+	contentType := ver.ContentType
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+	w.Header().Set("Content-Type", contentType)
+
+	for k, v := range ver.UserMetadata {
+		w.Header().Set("X-Amz-Meta-"+k, v)
+	}
 
 	if ver.ChecksumAlgorithm != "" {
 		w.Header().Set("X-Amz-Checksum-Algorithm", ver.ChecksumAlgorithm)
@@ -426,6 +437,17 @@ func (h *Handler) headObject(w http.ResponseWriter, r *http.Request, bucketName,
 	w.Header().Set("ETag", ver.ETag)
 	w.Header().Set("Content-Length", strconv.FormatInt(ver.Size, 10))
 	w.Header().Set("Last-Modified", ver.LastModified.Format(http.TimeFormat))
+
+	contentType := ver.ContentType
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+	w.Header().Set("Content-Type", contentType)
+
+	for k, v := range ver.UserMetadata {
+		w.Header().Set("X-Amz-Meta-"+k, v)
+	}
 
 	if ver.ChecksumAlgorithm != "" {
 		w.Header().Set("X-Amz-Checksum-Algorithm", ver.ChecksumAlgorithm)
@@ -510,7 +532,7 @@ func (h *Handler) listObjectVersions(w http.ResponseWriter, r *http.Request, buc
 		if v.Deleted {
 			resp.DeleteMarkers = append(resp.DeleteMarkers, DeleteMarkerXML{
 				Key:          v.Key,
-				VersionId:    v.VersionID,
+				VersionID:    v.VersionID,
 				IsLatest:     v.IsLatest,
 				LastModified: v.LastModified.Format(time.RFC3339),
 				Owner: &Owner{
@@ -521,7 +543,7 @@ func (h *Handler) listObjectVersions(w http.ResponseWriter, r *http.Request, buc
 		} else {
 			resp.Versions = append(resp.Versions, ObjectVersionXML{
 				Key:          v.Key,
-				VersionId:    v.VersionID,
+				VersionID:    v.VersionID,
 				IsLatest:     v.IsLatest,
 				LastModified: v.LastModified.Format(time.RFC3339),
 				ETag:         v.ETag,
@@ -642,4 +664,17 @@ func parseTaggingHeader(header string) map[string]string {
 	}
 
 	return tags
+}
+
+func parseUserMetadata(header http.Header) map[string]string {
+	meta := make(map[string]string)
+
+	for k, v := range header {
+		if strings.HasPrefix(strings.ToLower(k), "x-amz-meta-") {
+			key := strings.ToLower(k[len("x-amz-meta-"):])
+			meta[key] = v[0]
+		}
+	}
+
+	return meta
 }

@@ -36,12 +36,14 @@ type Object struct {
 
 // ObjectVersion represents a specific version of an S3 object.
 type ObjectVersion struct {
-	Key               string
 	LastModified      time.Time
+	UserMetadata      map[string]string
+	Key               string
 	VersionID         string
 	ETag              string
 	ChecksumAlgorithm string
 	ChecksumValue     string
+	ContentType       string
 	Data              []byte
 	Size              int64
 	IsLatest          bool
@@ -51,6 +53,7 @@ type ObjectVersion struct {
 // ObjectMetadata holds metadata provided with PutObject calls.
 type ObjectMetadata struct {
 	Tags              map[string]string
+	UserMetadata      map[string]string
 	ContentType       string
 	ChecksumAlgorithm string
 	ChecksumValue     string

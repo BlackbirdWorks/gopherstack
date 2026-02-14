@@ -81,14 +81,20 @@ func (db *InMemoryDB) DeleteTable(body []byte) (any, error) {
 	}
 
 	db.mu.Lock()
-	defer db.mu.Unlock()
-
 	table, exists := db.Tables[input.TableName]
 	if !exists {
+		db.mu.Unlock()
+
 		return nil, NewResourceNotFoundException(fmt.Sprintf("table not found: %s", input.TableName))
 	}
-
 	delete(db.Tables, input.TableName)
+	db.mu.Unlock()
+
+	// Acquire table lock after releasing db lock to avoid holding both simultaneously.
+	// In-flight item operations that already have a table pointer may still be running;
+	// table.mu.RLock ensures we don't read table.Items concurrently with a write.
+	table.mu.RLock()
+	defer table.mu.RUnlock()
 
 	gsiDescs := make([]GlobalSecondaryIndexDescription, len(table.GlobalSecondaryIndexes))
 	for i, gsi := range table.GlobalSecondaryIndexes {
@@ -124,12 +130,15 @@ func (db *InMemoryDB) DescribeTable(body []byte) (any, error) {
 	}
 
 	db.mu.RLock()
-	defer db.mu.RUnlock()
-
 	table, exists := db.Tables[input.TableName]
+	db.mu.RUnlock()
+
 	if !exists {
 		return nil, NewResourceNotFoundException(fmt.Sprintf("table not found: %s", input.TableName))
 	}
+
+	table.mu.RLock()
+	defer table.mu.RUnlock()
 
 	gsiDescs := make([]GlobalSecondaryIndexDescription, len(table.GlobalSecondaryIndexes))
 	for i, gsi := range table.GlobalSecondaryIndexes {

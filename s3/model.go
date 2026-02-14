@@ -70,27 +70,27 @@ type ListVersionsResult struct {
 	Prefix        string             `xml:"Prefix"`
 	KeyMarker     string             `xml:"KeyMarker"`
 	VersionMarker string             `xml:"VersionIdMarker"`
-	MaxKeys       int                `xml:"MaxKeys"`
-	IsTruncated   bool               `xml:"IsTruncated"`
 	Versions      []ObjectVersionXML `xml:"Version"`
 	DeleteMarkers []DeleteMarkerXML  `xml:"DeleteMarker"`
+	MaxKeys       int                `xml:"MaxKeys"`
+	IsTruncated   bool               `xml:"IsTruncated"`
 }
 
 type ObjectVersionXML struct {
+	Owner        *Owner `xml:"Owner"`
 	Key          string `xml:"Key"`
-	VersionId    string `xml:"VersionId"`
-	IsLatest     bool   `xml:"IsLatest"`
+	VersionID    string `xml:"VersionId"`
 	LastModified string `xml:"LastModified"`
 	ETag         string `xml:"ETag"`
-	Size         int64  `xml:"Size"`
-	Owner        *Owner `xml:"Owner"`
 	StorageClass string `xml:"StorageClass"`
+	Size         int64  `xml:"Size"`
+	IsLatest     bool   `xml:"IsLatest"`
 }
 
 type DeleteMarkerXML struct {
-	Key          string `xml:"Key"`
-	VersionId    string `xml:"VersionId"`
-	IsLatest     bool   `xml:"IsLatest"`
-	LastModified string `xml:"LastModified"`
 	Owner        *Owner `xml:"Owner"`
+	Key          string `xml:"Key"`
+	VersionID    string `xml:"VersionId"`
+	LastModified string `xml:"LastModified"`
+	IsLatest     bool   `xml:"IsLatest"`
 }

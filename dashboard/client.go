@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 )
 
-// InMemClient adapts an http.Handler to be used as an HTTP client.
+// InMemClient adapts an [http.Handler] to be used as an HTTP client.
 // It satisfies the aws.HTTPClient interface (implicitly by method signature).
 type InMemClient struct {
 	Handler http.Handler
@@ -50,7 +50,7 @@ func (c *InMemClient) RoundTrip(req *http.Request) (*http.Response, error) {
 // doesn't support reading from the written side simultaneously easily without
 // launching a goroutine. Given the constraints, httptest.ResponseRecorder is safe.
 
-// Ensure compilation fails if we don't satisfy the interface expected by AWS SDK
+// Ensure compilation fails if we don't satisfy the interface expected by AWS SDK.
 var _ interface {
 	Do(req *http.Request) (*http.Response, error)
 } = (*InMemClient)(nil)
