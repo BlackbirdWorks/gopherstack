@@ -84,6 +84,7 @@ func (db *InMemoryDB) DeleteTable(body []byte) (any, error) {
 	table, exists := db.Tables[input.TableName]
 	if !exists {
 		db.mu.Unlock()
+
 		return nil, NewResourceNotFoundException(fmt.Sprintf("table not found: %s", input.TableName))
 	}
 	delete(db.Tables, input.TableName)
