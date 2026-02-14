@@ -77,8 +77,8 @@ func TestScan(t *testing.T) {
 			}`
 		}
 
-		_, err := db.PutItem([]byte(itemJSON))
-		require.NoError(t, err)
+		_, putErr := db.PutItem([]byte(itemJSON))
+		require.NoError(t, putErr)
 	}
 
 	tests := []struct {
@@ -154,14 +154,14 @@ func TestScan(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			res, err := db.Scan([]byte(tc.input))
+			res, scanErr := db.Scan([]byte(tc.input))
 			if tc.wantErr {
-				require.Error(t, err)
+				require.Error(t, scanErr)
 
 				return
 			}
 
-			require.NoError(t, err)
+			require.NoError(t, scanErr)
 			out, ok := res.(dynamodb.ScanOutput)
 			require.True(t, ok)
 

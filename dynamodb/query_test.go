@@ -48,8 +48,8 @@ func TestQuery(t *testing.T) {
 					"data": {"S": "data-` + pk + `-` + strconv.Itoa(i) + `"}
 				}
 			}`
-			_, err := db.PutItem([]byte(itemJSON))
-			require.NoError(t, err)
+			_, putErr := db.PutItem([]byte(itemJSON))
+			require.NoError(t, putErr)
 		}
 	}
 
@@ -178,18 +178,18 @@ func TestQuery(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			res, err := db.Query([]byte(tc.input))
+			res, queryErr := db.Query([]byte(tc.input))
 			if tc.wantErr {
-				require.Error(t, err)
+				require.Error(t, queryErr)
 
 				if tc.errMessage != "" {
-					assert.Contains(t, err.Error(), tc.errMessage)
+					assert.Contains(t, queryErr.Error(), tc.errMessage)
 				}
 
 				return
 			}
 
-			require.NoError(t, err)
+			require.NoError(t, queryErr)
 			out, ok := res.(dynamodb.QueryOutput)
 			require.True(t, ok)
 

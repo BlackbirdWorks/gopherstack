@@ -12,7 +12,6 @@ type InMemoryDB struct {
 }
 
 type Table struct {
-	mu                     sync.RWMutex // per-table lock for better concurrency
 	pkIndex                map[string]int
 	pkskIndex              map[string]map[string]int
 	Name                   string
@@ -21,6 +20,7 @@ type Table struct {
 	GlobalSecondaryIndexes []GlobalSecondaryIndex
 	LocalSecondaryIndexes  []LocalSecondaryIndex
 	Items                  []map[string]any
+	mu                     sync.RWMutex // per-table lock for better concurrency
 }
 
 type KeySchemaElement struct {

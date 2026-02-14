@@ -393,12 +393,12 @@ func TestS3PrefixListing(t *testing.T) {
 			require.NoError(t, err)
 
 			for _, key := range tt.keys {
-				_, err := client.PutObject(ctx, &s3.PutObjectInput{
+				_, putErr := client.PutObject(ctx, &s3.PutObjectInput{
 					Bucket: aws.String("listing"),
 					Key:    aws.String(key),
 					Body:   strings.NewReader("data"),
 				})
-				require.NoError(t, err)
+				require.NoError(t, putErr)
 			}
 
 			out, err := client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{

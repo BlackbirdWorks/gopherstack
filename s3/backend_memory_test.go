@@ -710,8 +710,8 @@ func TestObjectTagging(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 
-				gotTags, err := backend.GetObjectTagging(tt.bucket, tt.key, "")
-				require.NoError(t, err)
+				gotTags, getErr := backend.GetObjectTagging(tt.bucket, tt.key, "")
+				require.NoError(t, getErr)
 				assert.Equal(t, tt.tags, gotTags)
 			}
 		})
@@ -814,8 +814,8 @@ func TestDeleteObjectTagging(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 
-				tags, err := backend.GetObjectTagging(tt.bucket, tt.key, "")
-				require.NoError(t, err)
+				tags, delErr := backend.GetObjectTagging(tt.bucket, tt.key, "")
+				require.NoError(t, delErr)
 				assert.Empty(t, tags)
 			}
 		})
