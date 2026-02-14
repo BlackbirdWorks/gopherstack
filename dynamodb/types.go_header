@@ -1,0 +1,21 @@
+package dynamodb
+
+// --- Constants ---
+
+const (
+	KeyTypeHash        = "HASH"
+	KeyTypeRange       = "RANGE"
+	ReturnValuesAllOld = "ALL_OLD"
+	TableStatusActive  = "ACTIVE"
+)
+
+// --- Request/Response Structs ---
+
+type CreateTableInput struct {
+	ProvisionedThroughput  any                    `json:"ProvisionedThroughput"`
+	TableName              string                 `json:"TableName"`
+	KeySchema              []KeySchemaElement     `json:"KeySchema"`
+	AttributeDefinitions   []AttributeDefinition  `json:"AttributeDefinitions"`
+	GlobalSecondaryIndexes []GlobalSecondaryIndex `json:"GlobalSecondaryIndexes,omitempty"`
+	LocalSecondaryIndexes  []LocalSecondaryIndex  `json:"LocalSecondaryIndexes,omitempty"`
+}

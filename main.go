@@ -1,106 +1,43 @@
 package main
 
 import (
-	"encoding/json"
-	"fmt"
-	"io"
-	"log"
+	"log/slog"
 	"net/http"
-	"strings"
+	"os"
+	"time"
 
 	"Gopherstack/dynamodb"
+	"Gopherstack/s3"
 )
 
-var db = dynamodb.NewInMemoryDB()
+const (
+	readTimeout  = 5 * time.Second
+	writeTimeout = 10 * time.Second
+	idleTimeout  = 120 * time.Second
+)
 
 func main() {
-	http.HandleFunc("/", handleRequest)
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	mux := http.NewServeMux()
+	mux.Handle("/", dynamodb.NewHandler())
+
+	s3Backend := s3.NewInMemoryBackend(&s3.GzipCompressor{})
+	s3Handler := s3.NewHandler(s3Backend)
+	mux.Handle("/s3/", http.StripPrefix("/s3", s3Handler))
+
 	port := ":8000"
-	fmt.Printf("Starting Gopherstack (DynamoDB local) on port %s...\n", port)
-	if err := http.ListenAndServe(port, nil); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
-	}
-}
+	logger.Info("Starting Gopherstack (DynamoDB & S3 local)", "port", port)
 
-func handleRequest(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
+	srv := &http.Server{
+		Addr:         port,
+		Handler:      mux,
+		ReadTimeout:  readTimeout,
+		WriteTimeout: writeTimeout,
+		IdleTimeout:  idleTimeout,
 	}
 
-	target := r.Header.Get("X-Amz-Target")
-	parts := strings.Split(target, ".")
-	if len(parts) != 2 {
-		http.Error(w, "Invalid Target", http.StatusBadRequest)
-		return
+	if err := srv.ListenAndServe(); err != nil {
+		logger.Error("Failed to start server", "error", err)
+		os.Exit(1)
 	}
-	action := parts[1]
-
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, "Failed to read body", http.StatusInternalServerError)
-		return
-	}
-	defer func() {
-		_ = r.Body.Close()
-	}()
-
-	w.Header().Set("Content-Type", "application/x-amz-json-1.0")
-
-	var response interface{}
-	var reqErr error
-
-	switch action {
-	case "CreateTable":
-		response, reqErr = db.CreateTable(body)
-	case "DeleteTable":
-		response, reqErr = db.DeleteTable(body)
-	case "DescribeTable":
-		response, reqErr = db.DescribeTable(body)
-	case "ListTables":
-		response, reqErr = db.ListTables(body)
-	case "PutItem":
-		response, reqErr = db.PutItem(body)
-	case "GetItem":
-		response, reqErr = db.GetItem(body)
-	case "DeleteItem":
-		response, reqErr = db.DeleteItem(body)
-	case "Scan":
-		response, reqErr = db.Scan(body)
-	case "UpdateItem":
-		response, reqErr = db.UpdateItem(body)
-	case "Query":
-		response, reqErr = db.Query(body)
-	case "BatchGetItem":
-		response, reqErr = db.BatchGetItem(body)
-	case "BatchWriteItem":
-		response, reqErr = db.BatchWriteItem(body)
-	default:
-		fmt.Printf("Unknown action: %s\n", action)
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(`{"__type":"com.amazon.coral.service#UnknownOperationException","message":"Action not supported"}`))
-		return
-	}
-
-	if reqErr != nil {
-		fmt.Printf("Error handling %s: %v\n", action, reqErr)
-
-		if awsErr, ok := reqErr.(*dynamodb.DynamoDBError); ok {
-			if strings.Contains(awsErr.Type, "InternalServerError") {
-				w.WriteHeader(http.StatusInternalServerError)
-			} else {
-				w.WriteHeader(http.StatusBadRequest)
-			}
-			jsonBytes, _ := json.Marshal(awsErr)
-			_, _ = w.Write(jsonBytes)
-		} else {
-			w.WriteHeader(http.StatusInternalServerError)
-			_, _ = w.Write([]byte(fmt.Sprintf(`{"__type":"com.amazonaws.dynamodb.v20120810#InternalServerError","message":"%v"}`, reqErr)))
-		}
-		return
-	}
-
-	jsonResponse, _ := json.Marshal(response)
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(jsonResponse)
 }

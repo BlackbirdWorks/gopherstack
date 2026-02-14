@@ -1,14 +1,29 @@
 package dynamodb
 
+// --- Constants ---
+
+const (
+	KeyTypeHash        = "HASH"
+	KeyTypeRange       = "RANGE"
+	ReturnValuesAllOld = "ALL_OLD"
+	ReturnValuesAllNew = "ALL_NEW"
+	TableStatusActive  = "ACTIVE"
+
+	DefaultReadCapacity  = 5
+	DefaultWriteCapacity = 5
+	ConsumedReadUnit     = 0.5
+	ConsumedWriteUnit    = 0.5
+)
+
 // --- Request/Response Structs ---
 
 type CreateTableInput struct {
+	ProvisionedThroughput  any                    `json:"ProvisionedThroughput"`
 	TableName              string                 `json:"TableName"`
 	KeySchema              []KeySchemaElement     `json:"KeySchema"`
 	AttributeDefinitions   []AttributeDefinition  `json:"AttributeDefinitions"`
 	GlobalSecondaryIndexes []GlobalSecondaryIndex `json:"GlobalSecondaryIndexes,omitempty"`
 	LocalSecondaryIndexes  []LocalSecondaryIndex  `json:"LocalSecondaryIndexes,omitempty"`
-	ProvisionedThroughput  interface{}            `json:"ProvisionedThroughput"`
 }
 
 type CreateTableOutput struct {
@@ -32,6 +47,7 @@ type DescribeTableOutput struct {
 }
 
 type TableDescription struct {
+	ProvisionedThroughput  *ProvisionedThroughputDescription `json:"ProvisionedThroughput,omitempty"`
 	TableName              string                            `json:"TableName"`
 	TableStatus            string                            `json:"TableStatus"`
 	KeySchema              []KeySchemaElement                `json:"KeySchema"`
@@ -39,7 +55,6 @@ type TableDescription struct {
 	GlobalSecondaryIndexes []GlobalSecondaryIndexDescription `json:"GlobalSecondaryIndexes,omitempty"`
 	LocalSecondaryIndexes  []LocalSecondaryIndexDescription  `json:"LocalSecondaryIndexes,omitempty"`
 	ItemCount              int                               `json:"ItemCount"`
-	ProvisionedThroughput  *ProvisionedThroughputDescription `json:"ProvisionedThroughput,omitempty"`
 }
 
 type ProvisionedThroughputDescription struct {
@@ -48,18 +63,18 @@ type ProvisionedThroughputDescription struct {
 }
 
 type GlobalSecondaryIndex struct {
-	IndexName             string                `json:"IndexName"`
-	KeySchema             []KeySchemaElement    `json:"KeySchema"`
-	Projection            Projection            `json:"Projection"`
 	ProvisionedThroughput ProvisionedThroughput `json:"ProvisionedThroughput"`
+	IndexName             string                `json:"IndexName"`
+	Projection            Projection            `json:"Projection"`
+	KeySchema             []KeySchemaElement    `json:"KeySchema"`
 }
 
 type GlobalSecondaryIndexDescription struct {
 	IndexName             string                           `json:"IndexName"`
-	KeySchema             []KeySchemaElement               `json:"KeySchema"`
-	Projection            Projection                       `json:"Projection"`
-	ProvisionedThroughput ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
 	IndexStatus           string                           `json:"IndexStatus"`
+	Projection            Projection                       `json:"Projection"`
+	KeySchema             []KeySchemaElement               `json:"KeySchema"`
+	ProvisionedThroughput ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
 	ItemCount             int                              `json:"ItemCount"`
 }
 
@@ -96,60 +111,60 @@ type ListTablesOutput struct {
 }
 
 type PutItemInput struct {
-	TableName                   string                 `json:"TableName"`
-	Item                        map[string]interface{} `json:"Item"`
-	ConditionExpression         string                 `json:"ConditionExpression,omitempty"`
-	ExpressionAttributeNames    map[string]string      `json:"ExpressionAttributeNames,omitempty"`
-	ExpressionAttributeValues   map[string]interface{} `json:"ExpressionAttributeValues,omitempty"`
-	ReturnValues                string                 `json:"ReturnValues,omitempty"`
-	ReturnConsumedCapacity      string                 `json:"ReturnConsumedCapacity,omitempty"`
-	ReturnItemCollectionMetrics string                 `json:"ReturnItemCollectionMetrics,omitempty"`
+	TableName                   string            `json:"TableName"`
+	Item                        map[string]any    `json:"Item"`
+	ConditionExpression         string            `json:"ConditionExpression,omitempty"`
+	ExpressionAttributeNames    map[string]string `json:"ExpressionAttributeNames,omitempty"`
+	ExpressionAttributeValues   map[string]any    `json:"ExpressionAttributeValues,omitempty"`
+	ReturnValues                string            `json:"ReturnValues,omitempty"`
+	ReturnConsumedCapacity      string            `json:"ReturnConsumedCapacity,omitempty"`
+	ReturnItemCollectionMetrics string            `json:"ReturnItemCollectionMetrics,omitempty"`
 }
 
 type PutItemOutput struct {
-	Attributes            map[string]interface{} `json:"Attributes,omitempty"`
+	Attributes            map[string]any         `json:"Attributes,omitempty"`
 	ConsumedCapacity      *ConsumedCapacity      `json:"ConsumedCapacity,omitempty"`
 	ItemCollectionMetrics *ItemCollectionMetrics `json:"ItemCollectionMetrics,omitempty"`
 }
 
 type UpdateItemInput struct {
-	TableName                   string                 `json:"TableName"`
-	Key                         map[string]interface{} `json:"Key"`
-	UpdateExpression            string                 `json:"UpdateExpression,omitempty"`
-	ConditionExpression         string                 `json:"ConditionExpression,omitempty"`
-	ExpressionAttributeNames    map[string]string      `json:"ExpressionAttributeNames,omitempty"`
-	ExpressionAttributeValues   map[string]interface{} `json:"ExpressionAttributeValues,omitempty"`
-	ReturnValues                string                 `json:"ReturnValues,omitempty"`
-	ReturnConsumedCapacity      string                 `json:"ReturnConsumedCapacity,omitempty"`
-	ReturnItemCollectionMetrics string                 `json:"ReturnItemCollectionMetrics,omitempty"`
+	TableName                   string            `json:"TableName"`
+	Key                         map[string]any    `json:"Key"`
+	UpdateExpression            string            `json:"UpdateExpression,omitempty"`
+	ConditionExpression         string            `json:"ConditionExpression,omitempty"`
+	ExpressionAttributeNames    map[string]string `json:"ExpressionAttributeNames,omitempty"`
+	ExpressionAttributeValues   map[string]any    `json:"ExpressionAttributeValues,omitempty"`
+	ReturnValues                string            `json:"ReturnValues,omitempty"`
+	ReturnConsumedCapacity      string            `json:"ReturnConsumedCapacity,omitempty"`
+	ReturnItemCollectionMetrics string            `json:"ReturnItemCollectionMetrics,omitempty"`
 }
 
 type UpdateItemOutput struct {
-	Attributes            map[string]interface{} `json:"Attributes,omitempty"`
+	Attributes            map[string]any         `json:"Attributes,omitempty"`
 	ConsumedCapacity      *ConsumedCapacity      `json:"ConsumedCapacity,omitempty"`
 	ItemCollectionMetrics *ItemCollectionMetrics `json:"ItemCollectionMetrics,omitempty"`
 }
 
 type QueryInput struct {
-	TableName                 string                 `json:"TableName"`
-	IndexName                 string                 `json:"IndexName,omitempty"`
-	KeyConditionExpression    string                 `json:"KeyConditionExpression"`
-	FilterExpression          string                 `json:"FilterExpression,omitempty"`
-	ProjectionExpression      string                 `json:"ProjectionExpression,omitempty"`
-	ExpressionAttributeNames  map[string]string      `json:"ExpressionAttributeNames,omitempty"`
-	ExpressionAttributeValues map[string]interface{} `json:"ExpressionAttributeValues,omitempty"`
-	ScanIndexForward          *bool                  `json:"ScanIndexForward,omitempty"`
-	Limit                     int32                  `json:"Limit,omitempty"`
-	ExclusiveStartKey         map[string]interface{} `json:"ExclusiveStartKey,omitempty"`
-	ReturnConsumedCapacity    string                 `json:"ReturnConsumedCapacity,omitempty"`
+	ExpressionAttributeNames  map[string]string `json:"ExpressionAttributeNames,omitempty"`
+	ExpressionAttributeValues map[string]any    `json:"ExpressionAttributeValues,omitempty"`
+	ScanIndexForward          *bool             `json:"ScanIndexForward,omitempty"`
+	ExclusiveStartKey         map[string]any    `json:"ExclusiveStartKey,omitempty"`
+	TableName                 string            `json:"TableName"`
+	IndexName                 string            `json:"IndexName,omitempty"`
+	KeyConditionExpression    string            `json:"KeyConditionExpression"`
+	FilterExpression          string            `json:"FilterExpression,omitempty"`
+	ProjectionExpression      string            `json:"ProjectionExpression,omitempty"`
+	ReturnConsumedCapacity    string            `json:"ReturnConsumedCapacity,omitempty"`
+	Limit                     int32             `json:"Limit,omitempty"`
 }
 
 type QueryOutput struct {
-	Items            []map[string]interface{} `json:"Items,omitempty"`
-	Count            int                      `json:"Count"`
-	ScannedCount     int                      `json:"ScannedCount"`
-	LastEvaluatedKey map[string]interface{}   `json:"LastEvaluatedKey,omitempty"`
-	ConsumedCapacity *ConsumedCapacity        `json:"ConsumedCapacity,omitempty"`
+	LastEvaluatedKey map[string]any    `json:"LastEvaluatedKey,omitempty"`
+	ConsumedCapacity *ConsumedCapacity `json:"ConsumedCapacity,omitempty"`
+	Items            []map[string]any  `json:"Items,omitempty"`
+	Count            int               `json:"Count"`
+	ScannedCount     int               `json:"ScannedCount"`
 }
 
 type BatchGetItemInput struct {
@@ -157,16 +172,16 @@ type BatchGetItemInput struct {
 }
 
 type KeysAndAttributes struct {
-	Keys                     []map[string]interface{} `json:"Keys"`
-	AttributesToGet          []string                 `json:"AttributesToGet,omitempty"` // Legacy
-	ProjectionExpression     string                   `json:"ProjectionExpression,omitempty"`
-	ExpressionAttributeNames map[string]string        `json:"ExpressionAttributeNames,omitempty"`
-	ConsistentRead           *bool                    `json:"ConsistentRead,omitempty"`
+	ExpressionAttributeNames map[string]string `json:"ExpressionAttributeNames,omitempty"`
+	ConsistentRead           *bool             `json:"ConsistentRead,omitempty"`
+	ProjectionExpression     string            `json:"ProjectionExpression,omitempty"`
+	Keys                     []map[string]any  `json:"Keys"`
+	AttributesToGet          []string          `json:"AttributesToGet,omitempty"`
 }
 
 type BatchGetItemOutput struct {
-	Responses       map[string][]map[string]interface{} `json:"Responses,omitempty"`
-	UnprocessedKeys map[string]KeysAndAttributes        `json:"UnprocessedKeys,omitempty"`
+	Responses       map[string][]map[string]any  `json:"Responses,omitempty"`
+	UnprocessedKeys map[string]KeysAndAttributes `json:"UnprocessedKeys,omitempty"`
 }
 
 type BatchWriteItemInput struct {
@@ -179,16 +194,16 @@ type WriteRequest struct {
 }
 
 type PutRequest struct {
-	Item map[string]interface{} `json:"Item"`
+	Item map[string]any `json:"Item"`
 }
 
 type DeleteRequest struct {
-	Key map[string]interface{} `json:"Key"`
+	Key map[string]any `json:"Key"`
 }
 
 type BatchWriteItemOutput struct {
 	UnprocessedItems      map[string][]WriteRequest `json:"UnprocessedItems,omitempty"`
-	ItemCollectionMetrics map[string][]interface{}  `json:"ItemCollectionMetrics,omitempty"` // Simplified for now
+	ItemCollectionMetrics map[string][]any          `json:"ItemCollectionMetrics,omitempty"` // Simplified for now
 	ConsumedCapacity      []ConsumedCapacity        `json:"ConsumedCapacity,omitempty"`
 }
 
@@ -200,42 +215,43 @@ type ConsumedCapacity struct {
 }
 
 type ItemCollectionMetrics struct {
-	ItemCollectionKey   map[string]interface{} `json:"ItemCollectionKey,omitempty"`
-	SizeEstimateRangeGB []float64              `json:"SizeEstimateRangeGB,omitempty"`
+	ItemCollectionKey   map[string]any `json:"ItemCollectionKey,omitempty"`
+	SizeEstimateRangeGB []float64      `json:"SizeEstimateRangeGB,omitempty"`
 }
 
 type GetItemInput struct {
-	TableName                string                 `json:"TableName"`
-	Key                      map[string]interface{} `json:"Key"`
-	ProjectionExpression     string                 `json:"ProjectionExpression,omitempty"`
-	ExpressionAttributeNames map[string]string      `json:"ExpressionAttributeNames,omitempty"`
+	Key                      map[string]any    `json:"Key"`
+	ExpressionAttributeNames map[string]string `json:"ExpressionAttributeNames,omitempty"`
+	TableName                string            `json:"TableName"`
+	ProjectionExpression     string            `json:"ProjectionExpression,omitempty"`
 }
 
 type GetItemOutput struct {
-	Item map[string]interface{} `json:"Item,omitempty"`
+	Item map[string]any `json:"Item,omitempty"`
 }
 
 type DeleteItemInput struct {
-	TableName                 string                 `json:"TableName"`
-	Key                       map[string]interface{} `json:"Key"`
-	ConditionExpression       string                 `json:"ConditionExpression,omitempty"`
-	ExpressionAttributeNames  map[string]string      `json:"ExpressionAttributeNames,omitempty"`
-	ExpressionAttributeValues map[string]interface{} `json:"ExpressionAttributeValues,omitempty"`
+	Key                       map[string]any    `json:"Key"`
+	ExpressionAttributeNames  map[string]string `json:"ExpressionAttributeNames,omitempty"`
+	ExpressionAttributeValues map[string]any    `json:"ExpressionAttributeValues,omitempty"`
+	TableName                 string            `json:"TableName"`
+	ConditionExpression       string            `json:"ConditionExpression,omitempty"`
 }
 
 type DeleteItemOutput struct{}
 
 type ScanInput struct {
-	TableName                 string                 `json:"TableName"`
-	IndexName                 string                 `json:"IndexName,omitempty"`
-	FilterExpression          string                 `json:"FilterExpression,omitempty"`
-	ProjectionExpression      string                 `json:"ProjectionExpression,omitempty"`
-	ExpressionAttributeNames  map[string]string      `json:"ExpressionAttributeNames,omitempty"`
-	ExpressionAttributeValues map[string]interface{} `json:"ExpressionAttributeValues,omitempty"`
+	Limit                     *int32            `json:"Limit,omitempty"`
+	ExpressionAttributeNames  map[string]string `json:"ExpressionAttributeNames,omitempty"`
+	ExpressionAttributeValues map[string]any    `json:"ExpressionAttributeValues,omitempty"`
+	TableName                 string            `json:"TableName"`
+	IndexName                 string            `json:"IndexName,omitempty"`
+	FilterExpression          string            `json:"FilterExpression,omitempty"`
+	ProjectionExpression      string            `json:"ProjectionExpression,omitempty"`
 }
 
 type ScanOutput struct {
-	Items        []map[string]interface{} `json:"Items"`
-	Count        int                      `json:"Count"`
-	ScannedCount int                      `json:"ScannedCount"`
+	Items        []map[string]any `json:"Items"`
+	Count        int              `json:"Count"`
+	ScannedCount int              `json:"ScannedCount"`
 }

@@ -1,0 +1,13 @@
+package s3
+
+import "errors"
+
+var (
+	ErrBucketAlreadyExists = errors.New("BucketAlreadyExists")
+	ErrNoSuchBucket        = errors.New("NoSuchBucket")
+	ErrNoSuchKey           = errors.New("NoSuchKey")
+	ErrInvalidBucketName   = errors.New("InvalidBucketName")
+	ErrBucketNotEmpty      = errors.New("BucketNotEmpty: The bucket you tried to delete is not empty")
+	ErrNotImplemented      = errors.New("NotImplemented")
+	ErrMethodNotAllowed    = errors.New("MethodNotAllowed")
+)

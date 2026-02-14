@@ -2,317 +2,251 @@ package dynamodb_test
 
 import (
 	"encoding/json"
-	"reflect"
 	"testing"
 
 	"Gopherstack/dynamodb"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestItemOperations(t *testing.T) {
+func TestPutItem(t *testing.T) {
 	t.Parallel()
-	tests := []struct {
-		name          string
-		setup         func(*dynamodb.InMemoryDB)
-		operation     func(*dynamodb.InMemoryDB) (interface{}, error)
-		validate      func(*testing.T, *dynamodb.InMemoryDB, interface{}, error)
-		expectedError bool
-	}{
-		// ... (content omitted for brevity, will rely on start/end lines matching or Context)
-		// Actually I need to be careful with replace.
-		// Let's just add t.Parallel() at start and inside loop.
 
+	tests := []struct {
+		setup    func(*dynamodb.InMemoryDB)
+		validate func(*testing.T, any, error)
+		input    dynamodb.PutItemInput
+		name     string
+	}{
 		{
-			name: "PutItem_Success",
+			name: "Success",
 			setup: func(db *dynamodb.InMemoryDB) {
 				createTable(db, "ItemsTable")
 			},
-			operation: func(db *dynamodb.InMemoryDB) (interface{}, error) {
-				input := dynamodb.PutItemInput{
-					TableName: "ItemsTable",
-					Item: map[string]interface{}{
-						"id":  map[string]interface{}{"S": "1"},
-						"val": map[string]interface{}{"S": "data"},
-					},
-				}
-				body, _ := json.Marshal(input)
-				return db.PutItem(body)
+			input: dynamodb.PutItemInput{
+				TableName: "ItemsTable",
+				Item: map[string]any{
+					"id":  map[string]any{"S": "1"},
+					"val": map[string]any{"S": "data"},
+				},
 			},
-			validate: func(t *testing.T, db *dynamodb.InMemoryDB, resp interface{}, err error) {
-				if err != nil {
-					t.Fatalf("Unexpected error: %v", err)
-				}
-				// Verify item exists
-				input := dynamodb.GetItemInput{
-					TableName: "ItemsTable",
-					Key: map[string]interface{}{
-						"id": map[string]interface{}{"S": "1"},
-					},
-				}
-				body, _ := json.Marshal(input)
-				getResp, _ := db.GetItem(body)
-				output := getResp.(dynamodb.GetItemOutput)
-				if output.Item == nil {
-					t.Error("Item should exist after PutItem")
-				}
+			validate: func(t *testing.T, _ any, err error) {
+				t.Helper()
+				require.NoError(t, err)
 			},
 		},
 		{
-			name: "PutItem_Overwrite",
+			name: "Overwrite",
 			setup: func(db *dynamodb.InMemoryDB) {
 				createTable(db, "ItemsTable")
-				putItem(db, "ItemsTable", "1", "original")
+				putItem(db, "1", "original")
 			},
-			operation: func(db *dynamodb.InMemoryDB) (interface{}, error) {
-				input := dynamodb.PutItemInput{
-					TableName: "ItemsTable",
-					Item: map[string]interface{}{
-						"id":  map[string]interface{}{"S": "1"},
-						"val": map[string]interface{}{"S": "updated"},
-					},
-				}
-				body, _ := json.Marshal(input)
-				return db.PutItem(body)
+			input: dynamodb.PutItemInput{
+				TableName: "ItemsTable",
+				Item: map[string]any{
+					"id":  map[string]any{"S": "1"},
+					"val": map[string]any{"S": "updated"},
+				},
 			},
-			validate: func(t *testing.T, db *dynamodb.InMemoryDB, resp interface{}, err error) {
-				if err != nil {
-					t.Fatalf("Unexpected error: %v", err)
-				}
-				// Verify item updated
-				input := dynamodb.GetItemInput{
-					TableName: "ItemsTable",
-					Key: map[string]interface{}{
-						"id": map[string]interface{}{"S": "1"},
-					},
-				}
-				body, _ := json.Marshal(input)
-				getResp, _ := db.GetItem(body)
-				output := getResp.(dynamodb.GetItemOutput)
-				val := output.Item["val"].(map[string]interface{})["S"]
-				if val != "updated" {
-					t.Errorf("Expected value 'updated', got '%v'", val)
-				}
+			validate: func(t *testing.T, _ any, err error) {
+				t.Helper()
+				require.NoError(t, err)
 			},
 		},
 		{
-			name: "PutItem_ReturnValues_ALL_OLD",
+			name: "ReturnValues_ALL_OLD",
 			setup: func(db *dynamodb.InMemoryDB) {
 				createTable(db, "ItemsTable")
-				putItem(db, "ItemsTable", "1", "original")
+				putItem(db, "1", "original")
 			},
-			operation: func(db *dynamodb.InMemoryDB) (interface{}, error) {
-				input := dynamodb.PutItemInput{
-					TableName: "ItemsTable",
-					Item: map[string]interface{}{
-						"id":  map[string]interface{}{"S": "1"},
-						"val": map[string]interface{}{"S": "updated"},
-					},
-					ReturnValues: "ALL_OLD",
-				}
-				body, _ := json.Marshal(input)
-				return db.PutItem(body)
+			input: dynamodb.PutItemInput{
+				TableName: "ItemsTable",
+				Item: map[string]any{
+					"id":  map[string]any{"S": "1"},
+					"val": map[string]any{"S": "updated"},
+				},
+				ReturnValues: dynamodb.ReturnValuesAllOld,
 			},
-			validate: func(t *testing.T, db *dynamodb.InMemoryDB, resp interface{}, err error) {
-				if err != nil {
-					t.Fatalf("Unexpected error: %v", err)
-				}
+			validate: func(t *testing.T, resp any, err error) {
+				t.Helper()
+				require.NoError(t, err)
 				output := resp.(dynamodb.PutItemOutput)
-				if output.Attributes == nil {
-					t.Fatal("Expected Attributes to be returned")
-				}
-				val := output.Attributes["val"].(map[string]interface{})["S"]
-				if val != "original" {
-					t.Errorf("Expected old value 'original', got '%v'", val)
-				}
+				require.NotNil(t, output.Attributes, "Expected Attributes to be returned")
+				val := output.Attributes["val"].(map[string]any)["S"]
+				assert.Equal(t, "original", val)
 			},
 		},
 		{
-			name: "PutItem_ReturnConsumedCapacity",
+			name: "ReturnConsumedCapacity",
 			setup: func(db *dynamodb.InMemoryDB) {
 				createTable(db, "ItemsTable")
 			},
-			operation: func(db *dynamodb.InMemoryDB) (interface{}, error) {
-				input := dynamodb.PutItemInput{
-					TableName:              "ItemsTable",
-					Item:                   map[string]interface{}{"pk": map[string]interface{}{"S": "1"}},
-					ReturnConsumedCapacity: "TOTAL",
-				}
-				body, _ := json.Marshal(input)
-				return db.PutItem(body)
+			input: dynamodb.PutItemInput{
+				TableName:              "ItemsTable",
+				Item:                   map[string]any{"id": map[string]any{"S": "1"}},
+				ReturnConsumedCapacity: "TOTAL",
 			},
-			validate: func(t *testing.T, db *dynamodb.InMemoryDB, resp interface{}, err error) {
-				if err != nil {
-					t.Fatalf("Unexpected error: %v", err)
-				}
+			validate: func(t *testing.T, resp any, err error) {
+				t.Helper()
+				require.NoError(t, err)
 				output := resp.(dynamodb.PutItemOutput)
-				if output.ConsumedCapacity == nil {
-					t.Fatal("Expected ConsumedCapacity to be returned")
-				}
-				if output.ConsumedCapacity.CapacityUnits != 1.0 {
-					t.Errorf("Expected CapacityUnits 1.0, got %f", output.ConsumedCapacity.CapacityUnits)
-				}
+				require.NotNil(t, output.ConsumedCapacity, "Expected ConsumedCapacity to be returned")
+				assert.InDelta(t, 1.0, output.ConsumedCapacity.CapacityUnits, 0.0001)
 			},
 		},
 		{
-			name: "PutItem_ReturnItemCollectionMetrics",
+			name: "ReturnItemCollectionMetrics",
 			setup: func(db *dynamodb.InMemoryDB) {
 				createTable(db, "ItemsTable")
 			},
-			operation: func(db *dynamodb.InMemoryDB) (interface{}, error) {
-				input := dynamodb.PutItemInput{
-					TableName:                   "ItemsTable",
-					Item:                        map[string]interface{}{"pk": map[string]interface{}{"S": "1"}},
-					ReturnItemCollectionMetrics: "SIZE",
-				}
-				body, _ := json.Marshal(input)
-				return db.PutItem(body)
+			input: dynamodb.PutItemInput{
+				TableName:                   "ItemsTable",
+				Item:                        map[string]any{"id": map[string]any{"S": "1"}},
+				ReturnItemCollectionMetrics: "SIZE",
 			},
-			validate: func(t *testing.T, db *dynamodb.InMemoryDB, resp interface{}, err error) {
-				if err != nil {
-					t.Fatalf("Unexpected error: %v", err)
-				}
+			validate: func(t *testing.T, resp any, err error) {
+				t.Helper()
+				require.NoError(t, err)
 				output := resp.(dynamodb.PutItemOutput)
-				if output.ItemCollectionMetrics == nil {
-					t.Fatal("Expected ItemCollectionMetrics to be returned")
-				}
-				// Verify pk is in ItemCollectionKey
-				pkVal, ok := output.ItemCollectionMetrics.ItemCollectionKey["pk"].(map[string]interface{})["S"]
-				if !ok || pkVal != "1" {
-					t.Errorf("Expected ItemCollectionKey to contain pk='1', got %v", output.ItemCollectionMetrics.ItemCollectionKey)
-				}
-			},
-		},
-		{
-			name: "GetItem_Success",
-			setup: func(db *dynamodb.InMemoryDB) {
-				createTable(db, "ItemsTable")
-				putItem(db, "ItemsTable", "1", "data")
-			},
-			operation: func(db *dynamodb.InMemoryDB) (interface{}, error) {
-				input := dynamodb.GetItemInput{
-					TableName: "ItemsTable",
-					Key: map[string]interface{}{
-						"id": map[string]interface{}{"S": "1"},
-					},
-				}
-				body, _ := json.Marshal(input)
-				return db.GetItem(body)
-			},
-			validate: func(t *testing.T, db *dynamodb.InMemoryDB, resp interface{}, err error) {
-				if err != nil {
-					t.Fatalf("Unexpected error: %v", err)
-				}
-				output := resp.(dynamodb.GetItemOutput)
-				expected := map[string]interface{}{
-					"id":  map[string]interface{}{"S": "1"},
-					"val": map[string]interface{}{"S": "data"},
-				}
-				if !reflect.DeepEqual(output.Item, expected) {
-					t.Errorf("Expected item %v, got %v", expected, output.Item)
-				}
-			},
-		},
-		{
-			name: "GetItem_NotFound",
-			setup: func(db *dynamodb.InMemoryDB) {
-				createTable(db, "ItemsTable")
-			},
-			operation: func(db *dynamodb.InMemoryDB) (interface{}, error) {
-				input := dynamodb.GetItemInput{
-					TableName: "ItemsTable",
-					Key: map[string]interface{}{
-						"id": map[string]interface{}{"S": "999"},
-					},
-				}
-				body, _ := json.Marshal(input)
-				return db.GetItem(body)
-			},
-			validate: func(t *testing.T, db *dynamodb.InMemoryDB, resp interface{}, err error) {
-				if err != nil {
-					t.Fatalf("Unexpected error: %v", err)
-				}
-				output := resp.(dynamodb.GetItemOutput)
-				if output.Item != nil {
-					t.Errorf("Expected nil item, got %v", output.Item)
-				}
-			},
-		},
-		{
-			name: "DeleteItem_Success",
-			setup: func(db *dynamodb.InMemoryDB) {
-				createTable(db, "ItemsTable")
-				putItem(db, "ItemsTable", "1", "data")
-			},
-			operation: func(db *dynamodb.InMemoryDB) (interface{}, error) {
-				input := dynamodb.DeleteItemInput{
-					TableName: "ItemsTable",
-					Key: map[string]interface{}{
-						"id": map[string]interface{}{"S": "1"},
-					},
-				}
-				body, _ := json.Marshal(input)
-				return db.DeleteItem(body)
-			},
-			validate: func(t *testing.T, db *dynamodb.InMemoryDB, resp interface{}, err error) {
-				if err != nil {
-					t.Fatalf("Unexpected error: %v", err)
-				}
-				// Verify item is gone
-				input := dynamodb.GetItemInput{
-					TableName: "ItemsTable",
-					Key: map[string]interface{}{
-						"id": map[string]interface{}{"S": "1"},
-					},
-				}
-				body, _ := json.Marshal(input)
-				getResp, _ := db.GetItem(body)
-				output := getResp.(dynamodb.GetItemOutput)
-				if output.Item != nil {
-					t.Error("Item should be nil after deletion")
-				}
-			},
-		},
-		{
-			name: "Scan_Success",
-			setup: func(db *dynamodb.InMemoryDB) {
-				createTable(db, "ItemsTable")
-				putItem(db, "ItemsTable", "1", "data1")
-				putItem(db, "ItemsTable", "2", "data2")
-			},
-			operation: func(db *dynamodb.InMemoryDB) (interface{}, error) {
-				input := dynamodb.ScanInput{TableName: "ItemsTable"}
-				body, _ := json.Marshal(input)
-				return db.Scan(body)
-			},
-			validate: func(t *testing.T, db *dynamodb.InMemoryDB, resp interface{}, err error) {
-				if err != nil {
-					t.Fatalf("Unexpected error: %v", err)
-				}
-				output := resp.(dynamodb.ScanOutput)
-				if output.Count != 2 {
-					t.Errorf("Expected count 2, got %d", output.Count)
-				}
+				require.NotNil(t, output.ItemCollectionMetrics, "Expected ItemCollectionMetrics to be returned")
+				pkVal, ok := output.ItemCollectionMetrics.ItemCollectionKey["id"].(map[string]any)["S"]
+				require.True(t, ok)
+				assert.Equal(t, "1", pkVal)
 			},
 		},
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			db := dynamodb.NewInMemoryDB()
 			if tt.setup != nil {
 				tt.setup(db)
 			}
-			resp, err := tt.operation(db)
-			if tt.expectedError {
-				if err == nil {
-					t.Errorf("Expected error, got nil")
-				}
-			} else {
-				if err != nil {
-					t.Errorf("Unexpected error: %v", err)
-				}
+
+			body, _ := json.Marshal(tt.input)
+			resp, err := db.PutItem(body)
+
+			if tt.validate != nil {
+				tt.validate(t, resp, err)
 			}
+		})
+	}
+}
+
+func TestGetItem(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(*dynamodb.InMemoryDB)
+		validate func(*testing.T, any, error)
+		input    dynamodb.GetItemInput
+		name     string
+	}{
+		{
+			name: "Success",
+			setup: func(db *dynamodb.InMemoryDB) {
+				createTable(db, "ItemsTable")
+				putItem(db, "1", "data")
+			},
+			input: dynamodb.GetItemInput{
+				TableName: "ItemsTable",
+				Key:       map[string]any{"id": map[string]any{"S": "1"}},
+			},
+			validate: func(t *testing.T, resp any, err error) {
+				t.Helper()
+				require.NoError(t, err)
+				output := resp.(dynamodb.GetItemOutput)
+				expected := map[string]any{
+					"id":  map[string]any{"S": "1"},
+					"val": map[string]any{"S": "data"},
+				}
+				assert.Equal(t, expected, output.Item)
+			},
+		},
+		{
+			name: "NotFound",
+			setup: func(db *dynamodb.InMemoryDB) {
+				createTable(db, "ItemsTable")
+			},
+			input: dynamodb.GetItemInput{
+				TableName: "ItemsTable",
+				Key:       map[string]any{"id": map[string]any{"S": "999"}},
+			},
+			validate: func(t *testing.T, resp any, err error) {
+				t.Helper()
+				require.NoError(t, err)
+				output := resp.(dynamodb.GetItemOutput)
+				assert.Nil(t, output.Item)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			db := dynamodb.NewInMemoryDB()
+			if tt.setup != nil {
+				tt.setup(db)
+			}
+
+			body, _ := json.Marshal(tt.input)
+			resp, err := db.GetItem(body)
+
+			if tt.validate != nil {
+				tt.validate(t, resp, err)
+			}
+		})
+	}
+}
+
+func TestDeleteItem(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(*dynamodb.InMemoryDB)
+		validate func(*testing.T, *dynamodb.InMemoryDB, any, error)
+		input    dynamodb.DeleteItemInput
+		name     string
+	}{
+		{
+			name: "Success",
+			setup: func(db *dynamodb.InMemoryDB) {
+				createTable(db, "ItemsTable")
+				putItem(db, "1", "data")
+			},
+			input: dynamodb.DeleteItemInput{
+				TableName: "ItemsTable",
+				Key:       map[string]any{"id": map[string]any{"S": "1"}},
+			},
+			validate: func(t *testing.T, db *dynamodb.InMemoryDB, _ any, err error) {
+				t.Helper()
+				require.NoError(t, err)
+				// Verify item is gone
+				getInput := dynamodb.GetItemInput{
+					TableName: "ItemsTable",
+					Key:       map[string]any{"id": map[string]any{"S": "1"}},
+				}
+				getBody, _ := json.Marshal(getInput)
+				getResp, _ := db.GetItem(getBody)
+				output := getResp.(dynamodb.GetItemOutput)
+				assert.Nil(t, output.Item)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			db := dynamodb.NewInMemoryDB()
+			if tt.setup != nil {
+				tt.setup(db)
+			}
+
+			body, _ := json.Marshal(tt.input)
+			resp, err := db.DeleteItem(body)
+
 			if tt.validate != nil {
 				tt.validate(t, db, resp, err)
 			}
@@ -320,12 +254,56 @@ func TestItemOperations(t *testing.T) {
 	}
 }
 
-func putItem(db *dynamodb.InMemoryDB, tableName, id, val string) {
+func TestItemOps_Scan(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(*dynamodb.InMemoryDB)
+		validate func(*testing.T, any, error)
+		input    dynamodb.ScanInput
+		name     string
+	}{
+		{
+			name: "Success",
+			setup: func(db *dynamodb.InMemoryDB) {
+				createTable(db, "ItemsTable")
+				putItem(db, "1", "data1")
+				putItem(db, "2", "data2")
+			},
+			input: dynamodb.ScanInput{TableName: "ItemsTable"},
+			validate: func(t *testing.T, resp any, err error) {
+				t.Helper()
+				require.NoError(t, err)
+				output := resp.(dynamodb.ScanOutput)
+				assert.Equal(t, 2, output.Count)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			db := dynamodb.NewInMemoryDB()
+			if tt.setup != nil {
+				tt.setup(db)
+			}
+
+			body, _ := json.Marshal(tt.input)
+			resp, err := db.Scan(body)
+
+			if tt.validate != nil {
+				tt.validate(t, resp, err)
+			}
+		})
+	}
+}
+
+func putItem(db *dynamodb.InMemoryDB, id, val string) {
 	input := dynamodb.PutItemInput{
-		TableName: tableName,
-		Item: map[string]interface{}{
-			"id":  map[string]interface{}{"S": id},
-			"val": map[string]interface{}{"S": val},
+		TableName: "ItemsTable",
+		Item: map[string]any{
+			"id":  map[string]any{"S": id},
+			"val": map[string]any{"S": val},
 		},
 	}
 	body, _ := json.Marshal(input)

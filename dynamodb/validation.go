@@ -3,7 +3,7 @@ package dynamodb
 import (
 	"encoding/json"
 	"fmt"
-	"reflect"
+	"strconv"
 )
 
 const (
@@ -12,11 +12,11 @@ const (
 	MaxSortKeySize      = 1024       // 1024 bytes
 )
 
-// calculateItemSize approximates the DynamoDB item size.
+// CalculateItemSize approximates the DynamoDB item size.
 // Size = sum of (len(attribute_name) + len(attribute_value))
 // For simplicity in V1, we serialize to JSON and use the length, which is a rough upper bound/approximation.
 // A more accurate specific calculation would iterate keys and values.
-func calculateItemSize(item map[string]interface{}) (int, error) {
+func CalculateItemSize(item map[string]any) (int, error) {
 	// Accurate calculation per AWS:
 	// Strings: UTF-8 bytes
 	// Numbers: Approximate bytes? JSON len is decent proxy.
@@ -34,21 +34,25 @@ func calculateItemSize(item map[string]interface{}) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+
 	return len(b), nil
 }
 
-func validateItemSize(item map[string]interface{}) error {
-	size, err := calculateItemSize(item)
+func ValidateItemSize(item map[string]any) error {
+	size, err := CalculateItemSize(item)
 	if err != nil {
 		return err // Internal validation error
 	}
 	if size > MaxItemSize {
-		return NewItemCollectionSizeLimitExceededException(fmt.Sprintf("Item size %d exceeds limit %d", size, MaxItemSize))
+		return NewItemCollectionSizeLimitExceededException(
+			fmt.Sprintf("Item size %d exceeds limit %d", size, MaxItemSize),
+		)
 	}
+
 	return nil
 }
 
-func validateKeySchema(item map[string]interface{}, schema []KeySchemaElement) error {
+func validateKeySchema(item map[string]any, schema []KeySchemaElement) error {
 	for _, k := range schema {
 		val, ok := item[k.AttributeName]
 		if !ok {
@@ -72,49 +76,100 @@ func validateKeySchema(item map[string]interface{}, schema []KeySchemaElement) e
 		}
 
 		if size > limit {
-			return NewValidationException(fmt.Sprintf("Key element %s size %d exceeds limit %d", k.AttributeName, size, limit))
+			return NewValidationException(
+				fmt.Sprintf("Key element %s size %d exceeds limit %d", k.AttributeName, size, limit),
+			)
 		}
 	}
+
 	return nil
 }
 
-// validateDataTypes checks basic type conformance.
-// E.g., if a value is flagged as "N", does it parse as a number?
-func validateDataTypes(item map[string]interface{}) error {
+// ValidateDataTypes checks basic type conformance.
+func ValidateDataTypes(item map[string]any) error {
 	for k, v := range item {
-		// v is expected to be map[string]interface{} like {"S": "some string"}
-		// or {"N": "123"}
-
-		valMap, ok := v.(map[string]interface{})
-		if !ok {
-			// If it's not a map, it might be raw value if we support simplified JSON?
-			// But our input structs suggest strict DynamoDB JSON.
-			// Let's assume strict validation.
-			// If it's a primitive in `Items` (storage), it might be raw, but input is usually wrapped.
-			// Let's inspect ONE key.
-			if reflect.TypeOf(v).Kind() == reflect.Map {
-				// It's a map (generic)
-			} else {
-				// Not a map, maybe acceptable?
-				continue
-			}
+		if err := validateAttribute(k, v); err != nil {
+			return err
 		}
-
-		if val, ok := valMap["N"]; ok {
-			// N must be a string representing a number
-			strVal, ok := val.(string)
-			if !ok {
-				return NewValidationException(fmt.Sprintf("Attribute %s of type N must be a string", k))
-			}
-			// Attempt parsing?
-			// We can use the logic from expressions.go/unwrap?
-			// For now, just ensuring it's a string is a good first step.
-			if strVal == "" {
-				// Empty number?
-			}
-		}
-
-		// Checking recursive for M/L types would be next step.
 	}
+
+	return nil
+}
+
+func validateAttribute(k string, v any) error {
+	valMap, ok := v.(map[string]any)
+	if !ok {
+		return NewValidationException(fmt.Sprintf("Attribute %s must be a map", k))
+	}
+
+	if len(valMap) != 1 {
+		return NewValidationException(fmt.Sprintf("Attribute %s must contain exactly one type specifier", k))
+	}
+
+	for t, val := range valMap {
+		if err := validateTypeValue(k, t, val); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func validateTypeValue(k, t string, val any) error {
+	switch t {
+	case "S", "N", "BOOL", "NULL", "B":
+		return validateScalarValue(k, t, val)
+	case "L", "M":
+		return validateComplexValue(k, t, val)
+	default:
+		return NewValidationException(fmt.Sprintf("Attribute %s has unknown type", k))
+	}
+}
+
+func validateScalarValue(k, t string, val any) error {
+	switch t {
+	case "S":
+		if _, ok := val.(string); !ok {
+			return NewValidationException(fmt.Sprintf("Attribute %s of type S must be a string", k))
+		}
+	case "N":
+		valStr, ok := val.(string)
+		if !ok {
+			return NewValidationException(fmt.Sprintf("Attribute %s of type N must be a string", k))
+		}
+		if _, err := strconv.ParseFloat(valStr, 64); err != nil {
+			return NewValidationException(fmt.Sprintf("Attribute %s of type N must be a valid number", k))
+		}
+	case "BOOL":
+		if _, ok := val.(bool); !ok {
+			return NewValidationException(fmt.Sprintf("Attribute %s of type BOOL must be a boolean", k))
+		}
+	case "B":
+		if _, ok := val.(string); !ok {
+			return NewValidationException(fmt.Sprintf("Attribute %s of type B must be a base64 string", k))
+		}
+	}
+
+	return nil
+}
+
+func validateComplexValue(k, t string, val any) error {
+	switch t {
+	case "L":
+		list, ok := val.([]any)
+		if !ok {
+			return NewValidationException(fmt.Sprintf("Attribute %s of type L must be a list", k))
+		}
+		_ = list
+	case "M":
+		m, ok := val.(map[string]any)
+		if !ok {
+			return NewValidationException(fmt.Sprintf("Attribute %s of type M must be a map", k))
+		}
+		if err := ValidateDataTypes(m); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }

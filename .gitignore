@@ -2,3 +2,7 @@
 /Gopherstack.iml
 /PLAN.md
 /new.sh
+/**/*.out
+*.out
+main 
+**/main

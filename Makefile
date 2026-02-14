@@ -1,4 +1,4 @@
-.PHONY: build install-deps lint test integration-test clean
+.PHONY: build install-deps lint lint-fix test integration-test clean
 
 BINARY_NAME=gopherstack
 GOLANGCI_LINT_VERSION=v1.64.5
@@ -23,16 +23,38 @@ install-deps:
 			brew upgrade golangci-lint || true; \
 		fi \
 	fi
+	@echo "Checking for fieldalignment..."
+	@if ! command -v fieldalignment >/dev/null 2>&1; then \
+		echo "Installing fieldalignment..."; \
+		go install golang.org/x/tools/go/analysis/passes/fieldalignment/cmd/fieldalignment@latest; \
+	else \
+		echo "fieldalignment is already installed."; \
+	fi
 
 lint: install-deps
 	golangci-lint run ./...
+
+lint-fix: install-deps
+	@echo "Running fieldalignment..."
+	fieldalignment -fix ./...
+	@echo "Running golangci-lint with --fix..."
+	golangci-lint run --fix ./...
 
 test:
 	go test -v ./dynamodb/...
 
 integration-test:
-	@echo "Running integration tests..."
-	go test -v -tags=integration -parallel 4 ./test/integration/...
+	@echo "Running DynamoDB integration tests (no cache)..."
+	go test -v -count=1 -tags=integration -parallel 4 ./test/integration/dynamodb/...
+	@echo "Running S3 integration tests (no cache)..."
+	go test -v -count=1 -parallel 4 ./test/integration/s3/...
 
 clean:
 	rm -rf bin/
+
+upgrade:
+	go get -u ./...
+	go mod tidy
+
+bench:
+	go test -bench=. -benchmem ./...

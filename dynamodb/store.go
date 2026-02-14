@@ -1,28 +1,31 @@
 package dynamodb
 
 import (
-	"reflect"
 	"sync"
 )
 
-// InMemoryDB stores tables and items
+// InMemoryDB stores tables and items.
 type InMemoryDB struct {
-	Tables map[string]*Table
-	mu     sync.RWMutex
+	Tables    map[string]*Table
+	exprCache *ExpressionCache
+	mu        sync.RWMutex
 }
 
 type Table struct {
+	mu                     sync.RWMutex // per-table lock for better concurrency
+	pkIndex                map[string]int
+	pkskIndex              map[string]map[string]int
 	Name                   string
 	KeySchema              []KeySchemaElement
 	AttributeDefinitions   []AttributeDefinition
 	GlobalSecondaryIndexes []GlobalSecondaryIndex
 	LocalSecondaryIndexes  []LocalSecondaryIndex
-	Items                  []map[string]interface{}
+	Items                  []map[string]any
 }
 
 type KeySchemaElement struct {
 	AttributeName string `json:"AttributeName"`
-	KeyType       string `json:"KeyType"` // "HASH" or "RANGE"
+	KeyType       string `json:"KeyType"` // KeyTypeHash or "RANGE"
 }
 
 type AttributeDefinition struct {
@@ -31,25 +34,78 @@ type AttributeDefinition struct {
 }
 
 func NewInMemoryDB() *InMemoryDB {
+	const exprCacheSize = 1000
+
 	return &InMemoryDB{
-		Tables: make(map[string]*Table),
+		Tables:    make(map[string]*Table),
+		exprCache: NewExpressionCache(exprCacheSize),
 	}
 }
 
-// Helper to check if an item matches the key schema
-// item1 is usually the stored item, item2 can be the Key map or another Item map
-func itemsMatchKey(item1, item2 map[string]interface{}, schema []KeySchemaElement) bool {
-	for _, keyElem := range schema {
-		val1, ok1 := item1[keyElem.AttributeName]
-		val2, ok2 := item2[keyElem.AttributeName]
+// BuildKeyString creates a key string from attribute values for indexing.
+func BuildKeyString(item map[string]any, attrName string) string {
+	if attrName == "" {
+		return ""
+	}
 
-		if !ok1 || !ok2 {
-			return false
+	val := item[attrName]
+	if val == nil {
+		return ""
+	}
+
+	// Fast path: Extract the actual value from DynamoDB attribute format
+	if m, ok := val.(map[string]any); ok {
+		// Common DynamoDB types: {"S": "value"}, {"N": "123"}, {"B": "..."}
+		if s, okS := m["S"].(string); okS {
+			return s
 		}
 
-		if !reflect.DeepEqual(val1, val2) {
-			return false
+		if n, okN := m["N"].(string); okN {
+			return n
+		}
+
+		if b, okB := m["B"].(string); okB {
+			return b
+		}
+
+		// Fallback for other types
+		for _, v := range m {
+			return toString(v)
 		}
 	}
-	return true
+
+	return toString(val)
+}
+
+// initializeIndexes creates empty index maps for a table.
+func (t *Table) initializeIndexes() {
+	hasSortKey := len(t.KeySchema) > 1
+
+	if hasSortKey {
+		t.pkskIndex = make(map[string]map[string]int)
+	} else {
+		t.pkIndex = make(map[string]int)
+	}
+}
+
+// rebuildIndexes rebuilds all indexes from existing items (used after table creation or batch updates).
+func (t *Table) rebuildIndexes() {
+	t.initializeIndexes()
+
+	pkDef, skDef := getPKAndSK(t.KeySchema)
+	hasSortKey := skDef.AttributeName != ""
+
+	for i, item := range t.Items {
+		pkVal := BuildKeyString(item, pkDef.AttributeName)
+
+		if hasSortKey {
+			skVal := BuildKeyString(item, skDef.AttributeName)
+			if t.pkskIndex[pkVal] == nil {
+				t.pkskIndex[pkVal] = make(map[string]int)
+			}
+			t.pkskIndex[pkVal][skVal] = i
+		} else {
+			t.pkIndex[pkVal] = i
+		}
+	}
 }

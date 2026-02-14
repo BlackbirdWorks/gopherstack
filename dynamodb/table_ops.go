@@ -5,7 +5,7 @@ import (
 	"fmt"
 )
 
-func (db *InMemoryDB) CreateTable(body []byte) (interface{}, error) {
+func (db *InMemoryDB) CreateTable(body []byte) (any, error) {
 	var input CreateTableInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, err
@@ -15,7 +15,7 @@ func (db *InMemoryDB) CreateTable(body []byte) (interface{}, error) {
 	defer db.mu.Unlock()
 
 	if _, exists := db.Tables[input.TableName]; exists {
-		return nil, fmt.Errorf("table already exists: %s", input.TableName)
+		return nil, NewResourceInUseException(fmt.Sprintf("table already exists: %s", input.TableName))
 	}
 
 	newTable := &Table{
@@ -24,8 +24,9 @@ func (db *InMemoryDB) CreateTable(body []byte) (interface{}, error) {
 		AttributeDefinitions:   input.AttributeDefinitions,
 		GlobalSecondaryIndexes: input.GlobalSecondaryIndexes,
 		LocalSecondaryIndexes:  input.LocalSecondaryIndexes,
-		Items:                  make([]map[string]interface{}, 0),
+		Items:                  make([]map[string]any, 0),
 	}
+	newTable.initializeIndexes()
 	db.Tables[input.TableName] = newTable
 
 	// Convert GSIs to Description
@@ -36,10 +37,10 @@ func (db *InMemoryDB) CreateTable(body []byte) (interface{}, error) {
 			KeySchema:  gsi.KeySchema,
 			Projection: gsi.Projection,
 			ProvisionedThroughput: ProvisionedThroughputDescription{
-				ReadCapacityUnits:  5,
-				WriteCapacityUnits: 5,
+				ReadCapacityUnits:  DefaultReadCapacity,
+				WriteCapacityUnits: DefaultWriteCapacity,
 			},
-			IndexStatus: "ACTIVE",
+			IndexStatus: TableStatusActive,
 			ItemCount:   0,
 		}
 	}
@@ -59,21 +60,21 @@ func (db *InMemoryDB) CreateTable(body []byte) (interface{}, error) {
 	return CreateTableOutput{
 		TableDescription: TableDescription{
 			TableName:              newTable.Name,
-			TableStatus:            "ACTIVE",
+			TableStatus:            TableStatusActive,
 			KeySchema:              newTable.KeySchema,
 			AttributeDefinitions:   newTable.AttributeDefinitions,
 			GlobalSecondaryIndexes: gsiDescs,
 			LocalSecondaryIndexes:  lsiDescs,
 			ItemCount:              0,
 			ProvisionedThroughput: &ProvisionedThroughputDescription{
-				ReadCapacityUnits:  5,
-				WriteCapacityUnits: 5,
+				ReadCapacityUnits:  DefaultReadCapacity,
+				WriteCapacityUnits: DefaultWriteCapacity,
 			},
 		},
 	}, nil
 }
 
-func (db *InMemoryDB) DeleteTable(body []byte) (interface{}, error) {
+func (db *InMemoryDB) DeleteTable(body []byte) (any, error) {
 	var input DeleteTableInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, err
@@ -84,7 +85,7 @@ func (db *InMemoryDB) DeleteTable(body []byte) (interface{}, error) {
 
 	table, exists := db.Tables[input.TableName]
 	if !exists {
-		return nil, fmt.Errorf("table not found: %s", input.TableName)
+		return nil, NewResourceNotFoundException(fmt.Sprintf("table not found: %s", input.TableName))
 	}
 
 	delete(db.Tables, input.TableName)
@@ -116,7 +117,7 @@ func (db *InMemoryDB) DeleteTable(body []byte) (interface{}, error) {
 	}, nil
 }
 
-func (db *InMemoryDB) DescribeTable(body []byte) (interface{}, error) {
+func (db *InMemoryDB) DescribeTable(body []byte) (any, error) {
 	var input DescribeTableInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, err
@@ -127,7 +128,7 @@ func (db *InMemoryDB) DescribeTable(body []byte) (interface{}, error) {
 
 	table, exists := db.Tables[input.TableName]
 	if !exists {
-		return nil, fmt.Errorf("table not found: %s", input.TableName)
+		return nil, NewResourceNotFoundException(fmt.Sprintf("table not found: %s", input.TableName))
 	}
 
 	gsiDescs := make([]GlobalSecondaryIndexDescription, len(table.GlobalSecondaryIndexes))
@@ -140,7 +141,7 @@ func (db *InMemoryDB) DescribeTable(body []byte) (interface{}, error) {
 				ReadCapacityUnits:  int(*gsi.ProvisionedThroughput.ReadCapacityUnits),
 				WriteCapacityUnits: int(*gsi.ProvisionedThroughput.WriteCapacityUnits),
 			},
-			IndexStatus: "ACTIVE",
+			IndexStatus: TableStatusActive,
 			ItemCount:   len(table.Items), // Simplified: full table count
 		}
 	}
@@ -160,21 +161,21 @@ func (db *InMemoryDB) DescribeTable(body []byte) (interface{}, error) {
 	return DescribeTableOutput{
 		Table: TableDescription{
 			TableName:              table.Name,
-			TableStatus:            "ACTIVE",
+			TableStatus:            TableStatusActive,
 			KeySchema:              table.KeySchema,
 			AttributeDefinitions:   table.AttributeDefinitions,
 			GlobalSecondaryIndexes: gsiDescs,
 			LocalSecondaryIndexes:  lsiDescs,
 			ItemCount:              len(table.Items),
 			ProvisionedThroughput: &ProvisionedThroughputDescription{
-				ReadCapacityUnits:  5,
-				WriteCapacityUnits: 5,
+				ReadCapacityUnits:  DefaultReadCapacity,
+				WriteCapacityUnits: DefaultWriteCapacity,
 			},
 		},
 	}, nil
 }
 
-func (db *InMemoryDB) ListTables(body []byte) (interface{}, error) {
+func (db *InMemoryDB) ListTables(body []byte) (any, error) {
 	var input ListTablesInput
 	if len(body) > 0 {
 		_ = json.Unmarshal(body, &input)

@@ -3,524 +3,802 @@ package dynamodb
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
+	"reflect"
+	"sort"
+	"strconv"
 	"strings"
 )
 
-func (db *InMemoryDB) PutItem(body []byte) (interface{}, error) {
+const (
+	estimatedMatchRateDivisor = 2
+	minScanAllocationSize     = 10
+	batchSizeLimit            = 25
+	estimatedMatchRateGSI     = 10
+	expectedPKParts           = 2
+)
+
+func (db *InMemoryDB) PutItem(body []byte) (any, error) {
 	var input PutItemInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, err
 	}
 
-	db.mu.Lock()
-	defer db.mu.Unlock()
+	table, err := db.getTable(input.TableName)
+	if err != nil {
+		return nil, err
+	}
 
-	table, exists := db.Tables[input.TableName]
+	table.mu.Lock()
+	defer table.mu.Unlock()
+
+	if errVal := db.validateItem(input.Item, table); errVal != nil {
+		return nil, errVal
+	}
+
+	oldItem, matchIndex := db.findMatchForPut(table, input.Item)
+
+	if errVal := db.checkPutCondition(&input, oldItem); errVal != nil {
+		return nil, errVal
+	}
+
+	db.doPut(table, &input, matchIndex)
+
+	return db.populatePutItemOutput(&input, table, oldItem), nil
+}
+
+func (db *InMemoryDB) getTable(name string) (*Table, error) {
+	db.mu.RLock()
+	table, exists := db.Tables[name]
+	db.mu.RUnlock()
+
 	if !exists {
-		return nil, NewResourceNotFoundException(fmt.Sprintf("Requested resource not found: Table: %s not found", input.TableName))
+		return nil, NewResourceNotFoundException(
+			fmt.Sprintf("Requested resource not found: Table: %s not found", name),
+		)
 	}
 
-	// Validation
-	if err := validateKeySchema(input.Item, table.KeySchema); err != nil {
-		return nil, err
-	}
-	if err := validateItemSize(input.Item); err != nil {
-		return nil, err
-	}
-	if err := validateDataTypes(input.Item); err != nil {
-		return nil, err
-	}
+	return table, nil
+}
 
-	// Condition Expression Stub
-	// Check ConditionExpression
-	if input.ConditionExpression != "" {
-		// Verify if item exists and matches condition
-		// Find existing item by Key (from input.Item)
-		// Naive scan for now as generic helper not yet extracted
-		var existingItem map[string]interface{}
+func (db *InMemoryDB) findMatchForPut(table *Table, item map[string]any) (map[string]any, int) {
+	pkDef, skDef := getPKAndSK(table.KeySchema)
+	pkVal := BuildKeyString(item, pkDef.AttributeName)
 
-		pkName := ""
-		for _, k := range table.KeySchema {
-			if k.KeyType == "HASH" {
-				pkName = k.AttributeName
-				break
-			}
+	if skDef.AttributeName == "" {
+		if idx, ok := table.pkIndex[pkVal]; ok {
+			return table.Items[idx], idx
 		}
 
-		if pkVal, ok := input.Item[pkName]; ok {
-			for _, it := range table.Items {
-				if p, ok := it[pkName]; ok {
-					b1, _ := json.Marshal(p)
-					b2, _ := json.Marshal(pkVal)
-					if string(b1) == string(b2) {
-						existingItem = it
-						break
-					}
-				}
-			}
-		}
-
-		match, err := evaluateExpression(input.ConditionExpression, existingItem, input.ExpressionAttributeValues, input.ExpressionAttributeNames)
-		if err != nil {
-			return nil, fmt.Errorf("Invalid ConditionExpression: %v", err)
-		}
-		if !match {
-			return nil, NewConditionalCheckFailedException("The conditional request failed")
-		}
+		return nil, -1
 	}
 
-	// Check if item exists with same key
-	idx := -1
-	for i, item := range table.Items {
-		if itemsMatchKey(item, input.Item, table.KeySchema) {
-			idx = i
-			break
-		}
+	skVal := BuildKeyString(item, skDef.AttributeName)
+	skMap, okVal := table.pkskIndex[pkVal]
+	if !okVal {
+		return nil, -1
 	}
 
-	var oldItem map[string]interface{}
-	if idx != -1 {
-		oldItem = table.Items[idx]
-		// Overwrite
-		table.Items[idx] = input.Item
+	if idx, okIdx := skMap[skVal]; okIdx {
+		return table.Items[idx], idx
+	}
+
+	return nil, -1
+}
+
+func (db *InMemoryDB) checkPutCondition(input *PutItemInput, oldItem map[string]any) error {
+	if input.ConditionExpression == "" {
+		return nil
+	}
+	match, err := evaluateExpression(
+		input.ConditionExpression,
+		oldItem,
+		input.ExpressionAttributeValues,
+		input.ExpressionAttributeNames,
+	)
+	if err != nil {
+		return err
+	}
+
+	if !match {
+		return NewConditionalCheckFailedException("The conditional request failed")
+	}
+
+	return nil
+}
+
+func (db *InMemoryDB) doPut(table *Table, input *PutItemInput, matchIndex int) {
+	if matchIndex != -1 {
+		table.Items[matchIndex] = input.Item
 	} else {
-		// Append
 		table.Items = append(table.Items, input.Item)
+		matchIndex = len(table.Items) - 1
 	}
 
+	pkDef, skDef := getPKAndSK(table.KeySchema)
+	pkVal := BuildKeyString(input.Item, pkDef.AttributeName)
+	if skDef.AttributeName != "" {
+		skVal := BuildKeyString(input.Item, skDef.AttributeName)
+		if table.pkskIndex[pkVal] == nil {
+			table.pkskIndex[pkVal] = make(map[string]int)
+		}
+		table.pkskIndex[pkVal][skVal] = matchIndex
+	} else {
+		table.pkIndex[pkVal] = matchIndex
+	}
+}
+
+func (db *InMemoryDB) validateItem(item map[string]any, table *Table) error {
+	if err := validateKeySchema(item, table.KeySchema); err != nil {
+		return err
+	}
+
+	if err := ValidateItemSize(item); err != nil {
+		return err
+	}
+
+	return ValidateDataTypes(item)
+}
+
+func (db *InMemoryDB) populatePutItemOutput(input *PutItemInput, table *Table, oldItem map[string]any) PutItemOutput {
 	output := PutItemOutput{}
-	if input.ReturnValues == "ALL_OLD" && oldItem != nil {
+	if input.ReturnValues == ReturnValuesAllOld && oldItem != nil {
 		output.Attributes = oldItem
-	}
-
-	if input.ReturnConsumedCapacity == "TOTAL" || input.ReturnConsumedCapacity == "INDEXES" {
-		output.ConsumedCapacity = &ConsumedCapacity{
-			TableName:          input.TableName,
-			CapacityUnits:      1.0, // Mocked value
-			ReadCapacityUnits:  0.5,
-			WriteCapacityUnits: 0.5,
-		}
-	}
-
-	if input.ReturnItemCollectionMetrics == "SIZE" {
-		output.ItemCollectionMetrics = &ItemCollectionMetrics{
-			ItemCollectionKey:   map[string]interface{}{"pk": input.Item["pk"]},
-			SizeEstimateRangeGB: []float64{0.0, 1.0},
-		}
-	}
-
-	return output, nil
-}
-
-func (db *InMemoryDB) GetItem(body []byte) (interface{}, error) {
-	var input GetItemInput
-	if err := json.Unmarshal(body, &input); err != nil {
-		return nil, err
-	}
-
-	db.mu.RLock()
-	defer db.mu.RUnlock()
-
-	table, exists := db.Tables[input.TableName]
-	if !exists {
-		return nil, NewResourceNotFoundException(fmt.Sprintf("Requested resource not found: Table: %s not found", input.TableName))
-	}
-
-	var foundItem map[string]interface{}
-
-	for _, item := range table.Items {
-		if itemsMatchKey(item, input.Key, table.KeySchema) {
-			foundItem = item
-			break
-		}
-	}
-
-	if foundItem != nil && input.ProjectionExpression != "" {
-		foundItem = projectItem(foundItem, input.ProjectionExpression, input.ExpressionAttributeNames)
-	}
-
-	return GetItemOutput{
-		Item: foundItem,
-	}, nil
-}
-
-func (db *InMemoryDB) DeleteItem(body []byte) (interface{}, error) {
-	var input DeleteItemInput
-	if err := json.Unmarshal(body, &input); err != nil {
-		return nil, err
-	}
-
-	db.mu.Lock()
-	defer db.mu.Unlock()
-
-	table, exists := db.Tables[input.TableName]
-	if !exists {
-		return nil, NewResourceNotFoundException(fmt.Sprintf("Requested resource not found: Table: %s not found", input.TableName))
-	}
-
-	idx := -1
-	for i, item := range table.Items {
-		if itemsMatchKey(item, input.Key, table.KeySchema) {
-			idx = i
-			break
-		}
-	}
-
-	if input.ConditionExpression != "" {
-		var existingItem map[string]interface{}
-		if idx != -1 {
-			existingItem = table.Items[idx]
-		}
-
-		match, err := evaluateExpression(input.ConditionExpression, existingItem, input.ExpressionAttributeValues, input.ExpressionAttributeNames)
-		if err != nil {
-			return nil, fmt.Errorf("Invalid ConditionExpression: %v", err)
-		}
-		if !match {
-			return nil, NewConditionalCheckFailedException("The conditional request failed")
-		}
-	}
-
-	if idx != -1 {
-		// Remove item
-		table.Items = append(table.Items[:idx], table.Items[idx+1:]...)
-	}
-
-	return DeleteItemOutput{}, nil
-}
-
-func (db *InMemoryDB) Scan(body []byte) (interface{}, error) {
-	var input ScanInput
-	if err := json.Unmarshal(body, &input); err != nil {
-		return nil, err
-	}
-
-	db.mu.RLock()
-	defer db.mu.RUnlock()
-
-	table, exists := db.Tables[input.TableName]
-	if !exists {
-		return nil, NewResourceNotFoundException(fmt.Sprintf("Requested resource not found: Table: %s not found", input.TableName))
-	}
-
-	var items []map[string]interface{}
-
-	// Check if IndexName is provided
-	var projection *Projection
-	var gsiSchema []KeySchemaElement
-	if input.IndexName != "" {
-		found := false
-		for _, gsi := range table.GlobalSecondaryIndexes {
-			if gsi.IndexName == input.IndexName {
-				projection = &gsi.Projection
-				gsiSchema = gsi.KeySchema
-				found = true
-				break
-			}
-		}
-		if !found {
-			return nil, NewResourceNotFoundException(fmt.Sprintf("Requested resource not found: Index: %s not found", input.IndexName))
-		}
-
-		// Scan GSI: Only items that contain the GSI Keys (Sparse Index)
-		for _, item := range table.Items {
-			hasKeys := true
-			for _, k := range gsiSchema {
-				if _, ok := item[k.AttributeName]; !ok {
-					hasKeys = false
-					break
-				}
-			}
-			if hasKeys {
-				// Apply GSI projection
-				projected := applyGSIProjection(item, *projection, table.KeySchema, gsiSchema)
-				items = append(items, projected)
-			}
-		}
-	} else {
-		items = table.Items
-	}
-
-	// Apply FilterExpression
-	if input.FilterExpression != "" {
-		var filteredItems []map[string]interface{}
-		for _, item := range items {
-			match, err := evaluateExpression(input.FilterExpression, item, input.ExpressionAttributeValues, input.ExpressionAttributeNames)
-			if err == nil && match {
-				filteredItems = append(filteredItems, item)
-			}
-		}
-		items = filteredItems
-	}
-
-	// Apply ProjectionExpression (Client requested projection)
-	// Apply AFTER GSI projection (which is conceptually the "source" table for the scan)
-	if input.ProjectionExpression != "" {
-		projectedItems := make([]map[string]interface{}, len(items))
-		for i, item := range items {
-			projectedItems[i] = projectItem(item, input.ProjectionExpression, input.ExpressionAttributeNames)
-		}
-		items = projectedItems
-	}
-
-	return ScanOutput{
-		Items: items,
-		Count: len(items),
-		ScannedCount: func() int {
-			if input.IndexName != "" {
-				return len(items) // In AWS this is the count of items in the index
-			} else {
-				return len(table.Items)
-			}
-		}(),
-	}, nil
-}
-
-func (db *InMemoryDB) UpdateItem(body []byte) (interface{}, error) {
-	var input UpdateItemInput
-	if err := json.Unmarshal(body, &input); err != nil {
-		return nil, err
-	}
-
-	db.mu.Lock()
-	defer db.mu.Unlock()
-
-	table, exists := db.Tables[input.TableName]
-	if !exists {
-		return nil, NewResourceNotFoundException(fmt.Sprintf("Requested resource not found: Table: %s not found", input.TableName))
-	}
-
-	// Check ConditionExpression
-	// We have the index `idx` from the loop below? No, we need to find it first.
-	// Reuse loop
-	idx := -1
-	for i, item := range table.Items {
-		if itemsMatchKey(item, input.Key, table.KeySchema) {
-			idx = i
-			break
-		}
-	}
-
-	var existingItem map[string]interface{}
-	if idx != -1 {
-		existingItem = table.Items[idx]
-	}
-
-	if input.ConditionExpression != "" {
-		match, err := evaluateExpression(input.ConditionExpression, existingItem, input.ExpressionAttributeValues, input.ExpressionAttributeNames)
-		if err != nil {
-			return nil, fmt.Errorf("Invalid ConditionExpression: %v", err)
-		}
-		if !match {
-			return nil, NewConditionalCheckFailedException("The conditional request failed")
-		}
-	}
-
-	var item map[string]interface{}
-	isNew := false
-
-	if idx != -1 {
-		item = table.Items[idx]
-	} else {
-		// New item, start with Key
-		item = make(map[string]interface{})
-		for k, v := range input.Key {
-			item[k] = v
-		}
-		isNew = true
-	}
-
-	// Create a deep copy for OLD values if needed
-	var oldItem map[string]interface{}
-	if input.ReturnValues == "ALL_OLD" || input.ReturnValues == "UPDATED_OLD" {
-		oldItem = make(map[string]interface{})
-		for k, v := range item {
-			oldItem[k] = v
-		}
-	}
-
-	// Parse UpdateExpression (Very basic SET support)
-	// Example: "SET #val = :v"
-	if input.UpdateExpression != "" {
-		parts := strings.Split(input.UpdateExpression, "SET ")
-		if len(parts) > 1 {
-			assignments := strings.Split(parts[1], ",")
-			for _, assignment := range assignments {
-				kv := strings.Split(assignment, "=")
-				if len(kv) == 2 {
-					key := strings.TrimSpace(kv[0])
-					valPlaceholder := strings.TrimSpace(kv[1])
-
-					if val, ok := input.ExpressionAttributeValues[valPlaceholder]; ok {
-						item[key] = val
-					}
-				}
-			}
-		}
-	}
-
-	if isNew {
-		// Validate new item
-		if err := validateItemSize(item); err != nil {
-			return nil, err
-		}
-		if err := validateDataTypes(item); err != nil {
-			return nil, err
-		}
-		table.Items = append(table.Items, item)
-	} else {
-		// Validate updated item
-		if err := validateItemSize(item); err != nil {
-			return nil, err
-		}
-		// optimize: validateDataTypes only on updated fields? Or full item for simplicity
-		if err := validateDataTypes(item); err != nil {
-			return nil, err
-		}
-		table.Items[idx] = item
-	}
-
-	output := UpdateItemOutput{}
-
-	if input.ReturnValues == "ALL_OLD" {
-		output.Attributes = oldItem
-	} else if input.ReturnValues == "ALL_NEW" {
-		output.Attributes = item
-	} else if input.ReturnValues == "UPDATED_NEW" {
-		output.Attributes = item
 	}
 
 	if input.ReturnConsumedCapacity == "TOTAL" || input.ReturnConsumedCapacity == "INDEXES" {
 		output.ConsumedCapacity = &ConsumedCapacity{
 			TableName:          input.TableName,
 			CapacityUnits:      1.0,
-			ReadCapacityUnits:  0.5,
-			WriteCapacityUnits: 0.5,
+			ReadCapacityUnits:  ConsumedReadUnit,
+			WriteCapacityUnits: ConsumedWriteUnit,
 		}
 	}
 
 	if input.ReturnItemCollectionMetrics == "SIZE" {
+		pkName := getHashKeyName(table.KeySchema)
 		output.ItemCollectionMetrics = &ItemCollectionMetrics{
-			ItemCollectionKey:   map[string]interface{}{"pk": input.Key["pk"]},
+			ItemCollectionKey:   map[string]any{pkName: input.Item[pkName]},
 			SizeEstimateRangeGB: []float64{0.0, 1.0},
 		}
 	}
 
-	return output, nil
+	return output
 }
 
-func (db *InMemoryDB) Query(body []byte) (interface{}, error) {
+func (db *InMemoryDB) GetItem(body []byte) (any, error) {
+	var input GetItemInput
+	if err := json.Unmarshal(body, &input); err != nil {
+		return nil, err
+	}
+
+	db.mu.RLock()
+	table, exists := db.Tables[input.TableName]
+	db.mu.RUnlock()
+
+	if !exists {
+		return nil, NewResourceNotFoundException(
+			fmt.Sprintf("Requested resource not found: Table: %s not found", input.TableName),
+		)
+	}
+
+	table.mu.RLock()
+	defer table.mu.RUnlock()
+
+	// Fast index-based lookup
+	pkDef, skDef := getPKAndSK(table.KeySchema)
+	foundItem := db.lookupItem(table, input.Key, pkDef.AttributeName, skDef.AttributeName)
+
+	if foundItem == nil {
+		return GetItemOutput{}, nil
+	}
+
+	result := foundItem
+	if input.ProjectionExpression != "" {
+		result = projectItem(foundItem, input.ProjectionExpression, input.ExpressionAttributeNames)
+	}
+
+	return GetItemOutput{Item: result}, nil
+}
+
+func (db *InMemoryDB) DeleteItem(body []byte) (any, error) {
+	var input DeleteItemInput
+	if err := json.Unmarshal(body, &input); err != nil {
+		return nil, err
+	}
+
+	db.mu.RLock()
+	table, exists := db.Tables[input.TableName]
+	db.mu.RUnlock()
+
+	if !exists {
+		return nil, NewResourceNotFoundException(
+			fmt.Sprintf("Requested resource not found: Table: %s not found", input.TableName),
+		)
+	}
+
+	table.mu.Lock()
+	defer table.mu.Unlock()
+
+	oldItem, matchIndex := findExistingItem(table.Items, input.Key, table.KeySchema)
+
+	if input.ConditionExpression != "" {
+		match, err := evaluateExpression(
+			input.ConditionExpression,
+			oldItem,
+			input.ExpressionAttributeValues,
+			input.ExpressionAttributeNames,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if !match {
+			return nil, NewConditionalCheckFailedException("The conditional request failed")
+		}
+	}
+
+	if matchIndex != -1 {
+		// Remove from items slice
+		table.Items = append(table.Items[:matchIndex], table.Items[matchIndex+1:]...)
+
+		// Rebuild indexes since indices have shifted
+		table.rebuildIndexes()
+	}
+
+	return DeleteItemOutput{}, nil
+}
+
+func (db *InMemoryDB) Scan(body []byte) (any, error) {
+	var input ScanInput
+	if err := json.Unmarshal(body, &input); err != nil {
+		return nil, err
+	}
+
+	table, err := db.getTable(input.TableName)
+	if err != nil {
+		return nil, err
+	}
+
+	table.mu.RLock()
+	defer table.mu.RUnlock()
+
+	items := table.Items
+	pkDef, skDef, err := db.getScanKeySchema(table, &input)
+	if err != nil {
+		return nil, err
+	}
+
+	results := db.doScan(items, &input, pkDef, skDef)
+
+	return ScanOutput{
+		Items:        results,
+		Count:        len(results),
+		ScannedCount: len(items),
+	}, nil
+}
+
+func (db *InMemoryDB) getScanKeySchema(table *Table, input *ScanInput) (KeySchemaElement, KeySchemaElement, error) {
+	if input.IndexName == "" {
+		return KeySchemaElement{}, KeySchemaElement{}, nil
+	}
+	keySchema, _, err := db.extractKeySchema(table, input.IndexName)
+	if err != nil {
+		return KeySchemaElement{}, KeySchemaElement{}, err
+	}
+
+	pk, sk := getPKAndSK(keySchema)
+
+	return pk, sk, nil
+}
+
+func (db *InMemoryDB) doScan(items []map[string]any, input *ScanInput, pkDef, skDef KeySchemaElement) []map[string]any {
+	estimatedResults := max(len(items)/estimatedMatchRateDivisor, minScanAllocationSize)
+	results := make([]map[string]any, 0, estimatedResults)
+
+	for _, item := range items {
+		if !db.shouldIncludeInScan(item, input, pkDef, skDef) {
+			continue
+		}
+
+		res := make(map[string]any, len(item))
+		maps.Copy(res, item)
+
+		if input.ProjectionExpression != "" {
+			res = projectItem(res, input.ProjectionExpression, input.ExpressionAttributeNames)
+		}
+
+		results = append(results, res)
+
+		if input.Limit != nil && len(results) >= int(*input.Limit) {
+			break
+		}
+	}
+
+	return results
+}
+
+func (db *InMemoryDB) shouldIncludeInScan(item map[string]any, input *ScanInput, pkDef, skDef KeySchemaElement) bool {
+	if input.IndexName != "" {
+		if _, hasPK := item[pkDef.AttributeName]; !hasPK {
+			return false
+		}
+		if skDef.AttributeName != "" {
+			if _, hasSK := item[skDef.AttributeName]; !hasSK {
+				return false
+			}
+		}
+	}
+
+	if input.FilterExpression != "" {
+		match, err := evaluateExpression(
+			input.FilterExpression,
+			item,
+			input.ExpressionAttributeValues,
+			input.ExpressionAttributeNames,
+		)
+		if err == nil && !match {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (db *InMemoryDB) UpdateItem(body []byte) (any, error) {
+	var input UpdateItemInput
+	if err := json.Unmarshal(body, &input); err != nil {
+		return nil, err
+	}
+
+	table, err := db.getTable(input.TableName)
+	if err != nil {
+		return nil, err
+	}
+
+	table.mu.Lock()
+	defer table.mu.Unlock()
+
+	existingItem, matchIndex := findExistingItem(table.Items, input.Key, table.KeySchema)
+
+	if errVal := db.checkUpdateCondition(&input, existingItem); errVal != nil {
+		return nil, errVal
+	}
+
+	newItem, err := db.doUpdate(table, &input, existingItem, matchIndex)
+	if err != nil {
+		return nil, err
+	}
+
+	return db.populateUpdateOutput(&input, table, existingItem, newItem), nil
+}
+
+func (db *InMemoryDB) checkUpdateCondition(input *UpdateItemInput, item map[string]any) error {
+	if input.ConditionExpression == "" {
+		return nil
+	}
+	match, err := evaluateExpression(
+		input.ConditionExpression,
+		item,
+		input.ExpressionAttributeValues,
+		input.ExpressionAttributeNames,
+	)
+	if err != nil {
+		return err
+	}
+	if !match {
+		return NewConditionalCheckFailedException("The conditional request failed")
+	}
+
+	return nil
+}
+
+func (db *InMemoryDB) doUpdate(
+	table *Table,
+	input *UpdateItemInput,
+	existing map[string]any,
+	matchIndex int,
+) (map[string]any, error) {
+	newItem := make(map[string]any)
+	if existing != nil {
+		maps.Copy(newItem, existing)
+	} else {
+		maps.Copy(newItem, input.Key)
+	}
+
+	if input.UpdateExpression != "" {
+		err := applyUpdate(
+			newItem,
+			input.UpdateExpression,
+			input.ExpressionAttributeNames,
+			input.ExpressionAttributeValues,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if existing == nil {
+		table.Items = append(table.Items, newItem)
+		matchIndex = len(table.Items) - 1
+	} else {
+		table.Items[matchIndex] = newItem
+	}
+
+	db.updateIndexes(table, newItem, matchIndex)
+
+	return newItem, nil
+}
+
+func (db *InMemoryDB) updateIndexes(table *Table, item map[string]any, index int) {
+	pkDef, skDef := getPKAndSK(table.KeySchema)
+	pkVal := BuildKeyString(item, pkDef.AttributeName)
+	if skDef.AttributeName != "" {
+		skVal := BuildKeyString(item, skDef.AttributeName)
+		if table.pkskIndex[pkVal] == nil {
+			table.pkskIndex[pkVal] = make(map[string]int)
+		}
+		table.pkskIndex[pkVal][skVal] = index
+	} else {
+		table.pkIndex[pkVal] = index
+	}
+}
+
+func (db *InMemoryDB) populateUpdateOutput(
+	input *UpdateItemInput,
+	table *Table,
+	oldItem, newItem map[string]any,
+) UpdateItemOutput {
+	output := UpdateItemOutput{}
+	if input.ReturnValues == ReturnValuesAllOld && oldItem != nil {
+		output.Attributes = oldItem
+	} else if input.ReturnValues == ReturnValuesAllNew {
+		output.Attributes = newItem
+	}
+
+	if input.ReturnConsumedCapacity == "TOTAL" || input.ReturnConsumedCapacity == "INDEXES" {
+		output.ConsumedCapacity = &ConsumedCapacity{
+			TableName:          input.TableName,
+			CapacityUnits:      1.0,
+			ReadCapacityUnits:  ConsumedReadUnit,
+			WriteCapacityUnits: ConsumedWriteUnit,
+		}
+	}
+
+	if input.ReturnItemCollectionMetrics == "SIZE" {
+		pkName := getHashKeyName(table.KeySchema)
+		output.ItemCollectionMetrics = &ItemCollectionMetrics{
+			ItemCollectionKey:   map[string]any{pkName: input.Key[pkName]},
+			SizeEstimateRangeGB: []float64{0.0, 1.0},
+		}
+	}
+
+	return output
+}
+
+func (db *InMemoryDB) Query(body []byte) (any, error) {
 	var input QueryInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, err
 	}
 
 	db.mu.RLock()
-	defer db.mu.RUnlock()
-
 	table, exists := db.Tables[input.TableName]
+	db.mu.RUnlock()
+
 	if !exists {
-		return nil, NewResourceNotFoundException(fmt.Sprintf("Requested resource not found: Table: %s not found", input.TableName))
+		return nil, NewResourceNotFoundException(
+			fmt.Sprintf("Requested resource not found: Table: %s not found", input.TableName),
+		)
 	}
 
-	// 1. Determine Key Schema (Table or GSI)
-	var keySchema []KeySchemaElement
-	var projection *Projection
+	table.mu.RLock()
+	defer table.mu.RUnlock()
 
-	if input.IndexName != "" {
-		// Find GSI
-		found := false
-		for _, gsi := range table.GlobalSecondaryIndexes {
-			if gsi.IndexName == input.IndexName {
-				keySchema = gsi.KeySchema
-				projection = &gsi.Projection
-				found = true
-				break
-			}
-		}
-		if !found {
-			// Find LSI
-			for _, lsi := range table.LocalSecondaryIndexes {
-				if lsi.IndexName == input.IndexName {
-					keySchema = lsi.KeySchema
-					projection = &lsi.Projection
-					found = true
-					break
-				}
-			}
-		}
-
-		if !found {
-			return nil, NewResourceNotFoundException(fmt.Sprintf("Requested resource not found: Index: %s not found", input.IndexName))
-		}
-	} else {
-		keySchema = table.KeySchema
+	keySchema, projection, err := db.extractKeySchema(table, input.IndexName)
+	if err != nil {
+		return nil, err
 	}
 
-	// 2. Identify PK and SK definitions
+	_, skDef := getPKAndSK(keySchema)
+
+	candidates, err := db.filterCandidatesForKeyCondition(table, &input, projection, keySchema)
+	if err != nil {
+		return nil, err
+	}
+
+	if skDef.AttributeName != "" {
+		db.sortCandidates(candidates, skDef, table, input.ScanIndexForward)
+	}
+
+	return db.processQueryResults(candidates, &input, keySchema), nil
+}
+
+func (db *InMemoryDB) extractKeySchema(table *Table, indexName string) ([]KeySchemaElement, *Projection, error) {
+	if indexName == "" {
+		return table.KeySchema, nil, nil
+	}
+
+	for _, gsi := range table.GlobalSecondaryIndexes {
+		if gsi.IndexName == indexName {
+			return gsi.KeySchema, &gsi.Projection, nil
+		}
+	}
+
+	for _, lsi := range table.LocalSecondaryIndexes {
+		if lsi.IndexName == indexName {
+			return lsi.KeySchema, &lsi.Projection, nil
+		}
+	}
+
+	return nil, nil, NewResourceNotFoundException(
+		fmt.Sprintf("Requested resource not found: Index: %s not found", indexName),
+	)
+}
+
+func getPKAndSK(keySchema []KeySchemaElement) (KeySchemaElement, KeySchemaElement) {
 	var pkDef, skDef KeySchemaElement
 	for _, k := range keySchema {
-		if k.KeyType == "HASH" {
+		switch k.KeyType {
+		case KeyTypeHash:
 			pkDef = k
-		} else if k.KeyType == "RANGE" {
+		case KeyTypeRange:
 			skDef = k
 		}
 	}
 
-	// 3. Parse KeyConditionExpression
-	// We need to extract PK value and potentially SK condition.
-	// Simple Parser for V1:
-	// Assumes "PK = :pkval [AND SK op :skval]" structure.
+	return pkDef, skDef
+}
 
-	// A robust parser is complex. We will implement a "split by AND" approach.
-	// Part 1 must be PK equality.
-	// Part 2 (optional) is SK condition.
-
+func (db *InMemoryDB) filterCandidatesForKeyCondition(
+	table *Table,
+	input *QueryInput,
+	projection *Projection,
+	keySchema []KeySchemaElement,
+) ([]map[string]any, error) {
 	exprParts := strings.Split(input.KeyConditionExpression, " AND ")
 	if len(exprParts) == 0 {
-		return nil, fmt.Errorf("Invalid KeyConditionExpression")
+		return nil, NewValidationException("invalid KeyConditionExpression")
 	}
 
-	// Parse PK Condition (Must be equality)
 	pkExpr := strings.TrimSpace(exprParts[0])
-	// Expect "pkName = :v"
-	// We can use evaluateExpression helper logic effectively by checking against item?
-	// But we need to EXTRACT the value to index lookup efficiently (scan optimization).
-	// For InMemoryDB, we scan all items, so evaluating per item is actually fine!
+	pkDef, skDef := getPKAndSK(keySchema)
 
-	// WAIT! We need candidates to sort.
-	// Filter Loop:
-	var candidates []map[string]interface{}
-
-	for _, item := range table.Items {
-		// 3.a Check PK Match
-		// We use `evaluateExpression` on the single PK part?
-		// Or manually parse. Manual is safer for strict "EQ" requirement.
-		// Let's rely on evaluateExpression for flexibility if it supports EQ.
-		// But AWS requires PK to be EQ.
-
-		matchPK, err := evaluateExpression(pkExpr, item, input.ExpressionAttributeValues, input.ExpressionAttributeNames)
-		if err != nil {
-			return nil, err
+	// Try to use index for primary table queries (not GSI/LSI)
+	if input.IndexName == "" {
+		candidates, ok := db.tryFilterUsingAuthoritativeIndex(
+			table,
+			input,
+			projection,
+			keySchema,
+			pkExpr,
+			pkDef,
+			skDef,
+			exprParts,
+		)
+		if ok {
+			return candidates, nil
 		}
-		if !matchPK {
+	}
+
+	// Fallback to full scan for GSI/LSI or complex expressions
+	return db.filterCandidatesScan(table, input, projection, keySchema, exprParts)
+}
+
+func (db *InMemoryDB) tryFilterUsingAuthoritativeIndex(
+	table *Table,
+	input *QueryInput,
+	projection *Projection,
+	keySchema []KeySchemaElement,
+	pkExpr string,
+	pkDef KeySchemaElement,
+	skDef KeySchemaElement,
+	exprParts []string,
+) ([]map[string]any, bool) {
+	pkVal := extractPKValueFromExpression(
+		pkExpr,
+		input.ExpressionAttributeValues,
+		input.ExpressionAttributeNames,
+		pkDef.AttributeName,
+	)
+
+	if pkVal == "" {
+		return nil, false
+	}
+
+	// Check composite index
+	if skDef.AttributeName != "" && len(table.pkskIndex) > 0 {
+		if skMap, ok := table.pkskIndex[pkVal]; ok {
+			indices := make([]int, 0, len(skMap))
+			for _, idx := range skMap {
+				indices = append(indices, idx)
+			}
+
+			res, _ := db.filterUsingIndices(table, input, projection, keySchema, indices, exprParts)
+
+			return res, true
+		}
+
+		return []map[string]any{}, true
+	}
+
+	// Check simple index
+	if skDef.AttributeName == "" && len(table.pkIndex) > 0 {
+		if idx, ok := table.pkIndex[pkVal]; ok {
+			res, _ := db.filterUsingIndices(table, input, projection, keySchema, []int{idx}, exprParts)
+
+			return res, true
+		}
+
+		return []map[string]any{}, true
+	}
+
+	return nil, false
+}
+
+func (db *InMemoryDB) filterUsingIndices(
+	table *Table,
+	input *QueryInput,
+	projection *Projection,
+	keySchema []KeySchemaElement,
+	indices []int,
+	exprParts []string,
+) ([]map[string]any, error) {
+	candidates := make([]map[string]any, 0, len(indices))
+	for _, idx := range indices {
+		if idx < 0 || idx >= len(table.Items) {
 			continue
 		}
+		item := table.Items[idx]
 
-		// 3.b Check SK Match (if exists)
 		matchSK := true
 		if len(exprParts) > 1 {
-			skExpr := strings.Join(exprParts[1:], " AND ") // Rejoin rest
-			matchSK, err = evaluateExpression(skExpr, item, input.ExpressionAttributeValues, input.ExpressionAttributeNames)
+			skExpr := strings.Join(exprParts[1:], " AND ")
+			var err error
+			matchSK, err = evaluateExpression(
+				skExpr,
+				item,
+				input.ExpressionAttributeValues,
+				input.ExpressionAttributeNames,
+			)
 			if err != nil {
 				return nil, err
 			}
 		}
 
 		if matchSK {
-			// Item matches Key Condition
+			candidate := item
+			if input.IndexName != "" && projection != nil {
+				candidate = applyGSIProjection(item, *projection, table.KeySchema, keySchema)
+			}
+			candidates = append(candidates, candidate)
+		}
+	}
 
-			// Apply GSI Projection immediately if GSI
+	return candidates, nil
+}
+
+func extractPKValueFromExpression(
+	expression string,
+	attrValues map[string]any,
+	attrNames map[string]string,
+	pkName string,
+) string {
+	parts := strings.Split(expression, "=")
+	if len(parts) != expectedPKParts {
+		return ""
+	}
+
+	left := strings.TrimSpace(parts[0])
+	right := strings.TrimSpace(parts[1])
+
+	valToken := dbResolvePKTarget(left, right, attrNames, pkName)
+	if valToken == "" {
+		return ""
+	}
+
+	return dbExtractValueFromToken(valToken, attrValues)
+}
+
+func dbResolvePKTarget(left, right string, attrNames map[string]string, pkName string) string {
+	resolvedLeft := resolveAttrName(left, attrNames)
+	if resolvedLeft == pkName {
+		return right
+	}
+
+	resolvedRight := resolveAttrName(right, attrNames)
+	if resolvedRight == pkName {
+		return left
+	}
+
+	return ""
+}
+
+func resolveAttrName(name string, attrNames map[string]string) string {
+	if strings.HasPrefix(name, "#") {
+		if resolved, ok := attrNames[name]; ok {
+			return resolved
+		}
+	}
+
+	return name
+}
+
+func dbExtractValueFromToken(token string, attrValues map[string]any) string {
+	if !strings.HasPrefix(token, ":") {
+		return ""
+	}
+
+	val, ok := attrValues[token]
+	if !ok {
+		return ""
+	}
+
+	if m, okM := val.(map[string]any); okM {
+		if s, okS := m["S"].(string); okS {
+			return s
+		}
+
+		if n, okN := m["N"].(string); okN {
+			return n
+		}
+
+		if b, okB := m["B"].(string); okB {
+			return b
+		}
+
+		for _, v := range m {
+			return toString(v)
+		}
+	}
+
+	return toString(val)
+}
+
+// filterCandidatesScan is the fallback full-scan method.
+func (db *InMemoryDB) filterCandidatesScan(
+	table *Table,
+	input *QueryInput,
+	projection *Projection,
+	keySchema []KeySchemaElement,
+	exprParts []string,
+) ([]map[string]any, error) {
+	pkExpr := strings.TrimSpace(exprParts[0])
+
+	// Pre-allocate with reasonable capacity (estimate 10% match rate)
+	estimatedSize := max(len(table.Items)/estimatedMatchRateGSI, minScanAllocationSize)
+	candidates := make([]map[string]any, 0, estimatedSize)
+
+	for _, item := range table.Items {
+		matchPK, err := evaluateExpression(
+			pkExpr,
+			item,
+			input.ExpressionAttributeValues,
+			input.ExpressionAttributeNames,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if !matchPK {
+			continue
+		}
+
+		matchSK := true
+		if len(exprParts) > 1 {
+			skExpr := strings.Join(exprParts[1:], " AND ")
+			matchSK, err = evaluateExpression(
+				skExpr,
+				item,
+				input.ExpressionAttributeValues,
+				input.ExpressionAttributeNames,
+			)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		if matchSK {
 			candidate := item
 			if input.IndexName != "" && projection != nil {
 				candidate = applyGSIProjection(item, *projection, table.KeySchema, keySchema)
@@ -530,196 +808,119 @@ func (db *InMemoryDB) Query(body []byte) (interface{}, error) {
 		}
 	}
 
-	// 4. Sort Items by Sort Key (if present)
-	if skDef.AttributeName != "" {
-		// We need to know the type of SK to sort correctly.
-		// In Validation we didn't store types. We have to infer or look at AttributeDefinitions?
-		// We have table.AttributeDefinitions.
-		skType := "S" // Default
-		for _, ad := range table.AttributeDefinitions {
-			if ad.AttributeName == skDef.AttributeName {
-				skType = ad.AttributeType
-				break
-			}
-		}
+	return candidates, nil
+}
 
-		sortCandidates(candidates, skDef.AttributeName, skType)
+func (db *InMemoryDB) sortCandidates(
+	candidates []map[string]any,
+	skDef KeySchemaElement,
+	table *Table,
+	scanIndexForward *bool,
+) {
+	// Try to get type from AttributeDefinitions first
+	skType := getAttributeType(table.AttributeDefinitions, skDef.AttributeName, "")
+
+	// If not found, infer from first candidate's actual value
+	if skType == "" {
+		skType = inferSKType(candidates, skDef.AttributeName)
+	}
+	if skType == "" {
+		skType = "S" // final fallback
 	}
 
-	// 5. Apply ScanIndexForward (Reverse if false)
-	if input.ScanIndexForward != nil && !*input.ScanIndexForward {
-		for i, j := 0, len(candidates)-1; i < j; i, j = i+1, j-1 {
-			candidates[i], candidates[j] = candidates[j], candidates[i]
+	sort.Slice(candidates, func(i, j int) bool {
+		v1 := unwrapAttributeValue(candidates[i][skDef.AttributeName])
+		v2 := unwrapAttributeValue(candidates[j][skDef.AttributeName])
+		res := compareAny(v1, v2, skType)
+		if scanIndexForward != nil && !*scanIndexForward {
+			return res > 0
 		}
+
+		return res < 0
+	})
+}
+
+func (db *InMemoryDB) processQueryResults(
+	candidates []map[string]any,
+	input *QueryInput,
+	keySchema []KeySchemaElement,
+) QueryOutput {
+	startIndex := findExclusiveStartIndex(candidates, input.ExclusiveStartKey, keySchema)
+
+	capacity := int(input.Limit)
+	if capacity == 0 || capacity > 100 {
+		capacity = 100
 	}
+	items := make([]map[string]any, 0, capacity)
 
-	// 6. Pagination: ExclusiveStartKey
-	startIndex := 0
-	if input.ExclusiveStartKey != nil {
-		// Find the index of the StartKey
-		// AWS: StartKey is the *last evaluated key* from previous page. We start *after* it.
-		// We match PK and SK.
-		for i, item := range candidates {
-			// Check if item keys match ExclusiveStartKey
-			matchesStartKey := true
-
-			// Check PK
-			if !compareAttributeValues(item[pkDef.AttributeName], input.ExclusiveStartKey[pkDef.AttributeName]) {
-				matchesStartKey = false
-			}
-			// Check SK if exists
-			if matchesStartKey && skDef.AttributeName != "" {
-				if !compareAttributeValues(item[skDef.AttributeName], input.ExclusiveStartKey[skDef.AttributeName]) {
-					matchesStartKey = false
-				}
-			}
-
-			if matchesStartKey {
-				startIndex = i + 1
-				break
-			}
-		}
-	}
-
-	// 7. Apply Limit and FilterExpression
-	var items []map[string]interface{}
-	var lastEvaluatedKey map[string]interface{}
-
+	var lastEvaluatedKey map[string]any
 	limit := int(input.Limit)
 	count := 0
 
 	for i := startIndex; i < len(candidates); i++ {
-		// Check Limit (Items Scanned/Evaluated limit in strict AWS, but Items Returned limit often for simple mocks)
-		// Implementing "Items Returned" limit for utility.
 		if limit > 0 && count >= limit {
-			// We reached limit. The *previous* item was the last one.
-			// Set LastEvaluatedKey to the PREVIOUS item's key.
 			lastEvaluatedKey = extractKey(items[len(items)-1], keySchema)
+
 			break
 		}
 
 		item := candidates[i]
-
-		// Apply FilterExpression
-		include := true
-		if input.FilterExpression != "" {
-			match, err := evaluateExpression(input.FilterExpression, item, input.ExpressionAttributeValues, input.ExpressionAttributeNames)
-			if err == nil && !match {
-				include = false
-			}
+		if !db.shouldIncludeInQuery(item, input) {
+			continue
 		}
 
-		if include {
-			items = append(items, item)
-			count++
+		processedItem := item
+		if input.ProjectionExpression != "" {
+			processedItem = projectItem(item, input.ProjectionExpression, input.ExpressionAttributeNames)
 		}
 
-		// If we are at the very end of loop and hit limit exactly?
-		if limit > 0 && count == limit {
-			// We just added the last allowed item.
-			lastEvaluatedKey = extractKey(item, keySchema)
-			// We can stop scanning?
-			// If we stop here, next loop check catches it?
-			// We need to return.
-			break
-		}
-	}
-
-	// 8. Apply ProjectionExpression (Final reduction)
-	if input.ProjectionExpression != "" {
-		projectedItems := make([]map[string]interface{}, len(items))
-		for i, item := range items {
-			projectedItems[i] = projectItem(item, input.ProjectionExpression, input.ExpressionAttributeNames)
-		}
-		items = projectedItems
+		items = append(items, processedItem)
+		count++
 	}
 
 	return QueryOutput{
 		Items:            items,
 		Count:            len(items),
-		ScannedCount:     len(candidates), // Approximation of scanned (post-key-condition)
+		ScannedCount:     len(candidates),
 		LastEvaluatedKey: lastEvaluatedKey,
-	}, nil
-}
-
-// Helpers
-
-func extractKey(item map[string]interface{}, schema []KeySchemaElement) map[string]interface{} {
-	key := make(map[string]interface{})
-	for _, k := range schema {
-		if val, ok := item[k.AttributeName]; ok {
-			key[k.AttributeName] = val
-		}
 	}
-	return key
 }
 
-func compareAttributeValues(v1, v2 interface{}) bool {
-	// Deep equality check for map[string]interface{} (AttributeValue)
-	b1, _ := json.Marshal(v1)
-	b2, _ := json.Marshal(v2)
-	return string(b1) == string(b2)
+func (db *InMemoryDB) shouldIncludeInQuery(item map[string]any, input *QueryInput) bool {
+	if input.FilterExpression == "" {
+		return true
+	}
+	match, err := evaluateExpression(
+		input.FilterExpression,
+		item,
+		input.ExpressionAttributeValues,
+		input.ExpressionAttributeNames,
+	)
+
+	return err == nil && match
 }
 
-func sortCandidates(items []map[string]interface{}, sortKey string, sortType string) {
-	// Bubble sort or Slice sort. Slice sort is easy.
-	// Since we are inside `item_ops.go`, we need to import "sort" if not present.
-	// The file only imports "encoding/json", "fmt", "strings".
-	// We'll bubble sort for minimal import changes or add import.
-	// Bubble sort is fine for in-memory small datasets.
+func findExistingItem(items []map[string]any, key map[string]any, schema []KeySchemaElement) (map[string]any, int) {
+	for i, existingItem := range items { // Renamed 'item' to 'existingItem' to avoid shadowing
+		match := true
 
-	n := len(items)
-	for i := 0; i < n-1; i++ {
-		for j := 0; j < n-i-1; j++ {
-			v1 := items[j][sortKey]
-			v2 := items[j+1][sortKey]
+		for _, k := range schema {
+			if !compareAttributeValues(existingItem[k.AttributeName], key[k.AttributeName]) {
+				match = false
 
-			swap := false
-			if sortType == "N" {
-				// Parse numbers
-				n1 := parseNum(v1)
-				n2 := parseNum(v2)
-				if n1 > n2 {
-					swap = true
-				}
-			} else {
-				// String compare (works for S and generic)
-				s1 := parseStr(v1)
-				s2 := parseStr(v2)
-				if s1 > s2 {
-					swap = true
-				}
-			}
-
-			if swap {
-				items[j], items[j+1] = items[j+1], items[j]
+				break
 			}
 		}
-	}
-}
 
-func parseStr(v interface{}) string {
-	// v is map[string]interface{} {"S": "val"}
-	if m, ok := v.(map[string]interface{}); ok {
-		if s, ok := m["S"]; ok {
-			return fmt.Sprint(s)
-		}
-		if n, ok := m["N"]; ok {
-			return fmt.Sprint(n)
+		if match {
+			return existingItem, i
 		}
 	}
-	return ""
+
+	return nil, -1
 }
 
-func parseNum(v interface{}) float64 {
-	// v is map[string]interface{} {"N": "123"}
-	s := parseStr(v)
-	var f float64
-	fmt.Sscanf(s, "%f", &f)
-	return f
-}
-
-func (db *InMemoryDB) BatchGetItem(body []byte) (interface{}, error) {
+func (db *InMemoryDB) BatchGetItem(body []byte) (any, error) {
 	var input BatchGetItemInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, err
@@ -728,247 +929,157 @@ func (db *InMemoryDB) BatchGetItem(body []byte) (interface{}, error) {
 	db.mu.RLock()
 	defer db.mu.RUnlock()
 
-	responses := make(map[string][]map[string]interface{})
-	unprocessed := make(map[string]KeysAndAttributes)
+	responses := make(map[string][]map[string]any)
+	// Validate batch size (max 25 items)
+	totalItems := 0
+	for _, requests := range input.RequestItems {
+		totalItems += len(requests.Keys)
+	}
+	if totalItems > batchSizeLimit {
+		return nil, NewValidationException("Batch size limit exceeded: Max 25 items per request")
+	}
 
 	for tableName, keysAndAttrs := range input.RequestItems {
 		table, exists := db.Tables[tableName]
 		if !exists {
-			// AWS behavior: invalid table in batch might return error or unprocessed?
-			// Usually ResourceNotFound for the whole request if a table is missing?
-			// Let's assume ResourceNotFound for simplicity for now.
-			return nil, NewResourceNotFoundException(fmt.Sprintf("Requested resource not found: Table: %s not found", tableName))
+			return nil, NewResourceNotFoundException(fmt.Sprintf("Table not found: %s", tableName))
 		}
 
-		// Find PK name
-		pkName := ""
-		for _, k := range table.KeySchema {
-			if k.KeyType == "HASH" {
-				pkName = k.AttributeName
-				break
-			}
-		}
-
-		var items []map[string]interface{}
+		tableResults := []map[string]any{}
 		for _, keyMap := range keysAndAttrs.Keys {
-			// Inefficient O(N) scan for each key, but allowed for InMemoryDB
-			// Ideally we should have an index.
-			// Reusing simple scan logic per key.
-			found := false
-			for _, item := range table.Items {
-				// Check PK match
-				if pkVal, ok := keyMap[pkName]; ok {
-					if itemPk, ok2 := item[pkName]; ok2 {
-						// Compare
-						pkJSON, _ := json.Marshal(pkVal)
-						itemPkJSON, _ := json.Marshal(itemPk)
-						if string(pkJSON) == string(itemPkJSON) {
-							// Found (assuming no Sort Key for now or exact match ignored SK)
-							// If SK exists in keyMap, we must match it too.
-							// Let's do a full key match check.
-							match := true
-							for k, v := range keyMap {
-								if iv, ok3 := item[k]; !ok3 {
-									match = false
-									break
-								} else {
-									vJSON, _ := json.Marshal(v)
-									ivJSON, _ := json.Marshal(iv)
-									if string(vJSON) != string(ivJSON) {
-										match = false
-										break
-									}
-								}
-							}
-							if match {
-								items = append(items, item)
-								found = true
-								break // Found the item for this key
-							}
-						}
-					}
+			item, _ := findExistingItem(table.Items, keyMap, table.KeySchema)
+			if item != nil {
+				result := item
+				if keysAndAttrs.ProjectionExpression != "" {
+					result = projectItem(item, keysAndAttrs.ProjectionExpression, keysAndAttrs.ExpressionAttributeNames)
 				}
-			}
-			if !found {
-				// Item not found, just ignored in Response (AWS behavior)
+
+				tableResults = append(tableResults, result)
 			}
 		}
 
-		// Apply ProjectionExpression (if present in KeysAndAttributes)
-		if keysAndAttrs.ProjectionExpression != "" {
-			projectedItems := make([]map[string]interface{}, len(items))
-			for i, item := range items {
-				projectedItems[i] = projectItem(item, keysAndAttrs.ProjectionExpression, keysAndAttrs.ExpressionAttributeNames)
-			}
-			items = projectedItems
-		}
-
-		if len(items) > 0 {
-			responses[tableName] = items
-		}
+		responses[tableName] = tableResults
 	}
 
-	return BatchGetItemOutput{
-		Responses:       responses,
-		UnprocessedKeys: unprocessed,
-	}, nil
+	return BatchGetItemOutput{Responses: responses}, nil
 }
 
-func (db *InMemoryDB) BatchWriteItem(body []byte) (interface{}, error) {
+func (db *InMemoryDB) BatchWriteItem(body []byte) (any, error) {
 	var input BatchWriteItemInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, err
 	}
 
-	db.mu.Lock()
-	defer db.mu.Unlock()
+	if len(input.RequestItems) == 0 {
+		return nil, NewValidationException("The batch write request cannot be empty")
+	}
 
-	// Validation phase (ensure all tables exist)
+	// Validate batch size (max 25 items)
+	totalItems := 0
+	for _, requests := range input.RequestItems {
+		totalItems += len(requests)
+	}
+	if totalItems > batchSizeLimit {
+		return nil, NewValidationException("Batch size limit exceeded: Max 25 items per request")
+	}
+
+	// Get table references with read lock
+	db.mu.RLock()
+	tables := make(map[string]*Table, len(input.RequestItems))
 	for tableName := range input.RequestItems {
-		if _, exists := db.Tables[tableName]; !exists {
-			return nil, NewResourceNotFoundException(fmt.Sprintf("Requested resource not found: Table: %s not found", tableName))
+		if table, exists := db.Tables[tableName]; exists {
+			tables[tableName] = table
+		} else {
+			db.mu.RUnlock()
+
+			return nil, NewResourceNotFoundException(fmt.Sprintf("Table not found: %s", tableName))
 		}
 	}
+	db.mu.RUnlock()
 
-	// Execution phase
-	// Note: We are already holding the lock! We cannot call db.PutItem/DeleteItem if they also lock.
-	// We need internal helpers or duplicate logic.
-	// Duplicating simple logic for now or refactoring later.
-	// Since PutItem/DeleteItem logic is small (update list), we can inline relevant parts or call unlocked helpers.
-	// BUT `item_ops.go` methods like `PutItem` take a lock.
-	// We must NOT call them.
-	// Let's implement inline for now.
-
+	// Process each table with its own lock
 	for tableName, requests := range input.RequestItems {
-		table := db.Tables[tableName]
-		// Find PK name again
-		pkName := ""
-		for _, k := range table.KeySchema {
-			if k.KeyType == "HASH" {
-				pkName = k.AttributeName
-				break
-			}
+		table := tables[tableName]
+		if err := db.processTableWriteRequests(table, requests); err != nil {
+			return nil, err
 		}
-
-		for _, req := range requests {
-			if req.PutRequest != nil {
-				// Put Logic
-				item := req.PutRequest.Item
-				// Remove existing if any (based on PK)
-				// Naive: loop and replace or append
-				// This is O(N) per item.
-				// Better: remove matching index
-
-				// Identify Key
-				key := make(map[string]interface{})
-				if pkVal, ok := item[pkName]; ok {
-					key[pkName] = pkVal
-				}
-				// SK?
-				// For now assume PK only or simple match
-
-				// Remove old
-				// Use the same matching logic as BatchGet but modify slice
-				// It's safer to rebuild the slice or swap remove
-
-				// Let's just append for now and filter duplicates? No, that's bad.
-				// Correct approach: Find index of existing item
-				matchIndex := -1
-				for i, existing := range table.Items {
-					// Match keys
-					match := true
-					for k, v := range key {
-						if iv, ok := existing[k]; !ok {
-							match = false
-							break
-						} else {
-							vJSON, _ := json.Marshal(v)
-							ivJSON, _ := json.Marshal(iv)
-							if string(vJSON) != string(ivJSON) {
-								match = false
-								break
-							}
-						}
-					}
-					if match {
-						matchIndex = i
-						break
-					}
-				}
-
-				if matchIndex != -1 {
-					// Replace
-					table.Items[matchIndex] = item
-				} else {
-					// Append
-					table.Items = append(table.Items, item)
-				}
-
-			} else if req.DeleteRequest != nil {
-				// Delete Logic
-				key := req.DeleteRequest.Key
-				matchIndex := -1
-				for i, existing := range table.Items {
-					match := true
-					for k, v := range key {
-						if iv, ok := existing[k]; !ok {
-							match = false
-							break
-						} else {
-							vJSON, _ := json.Marshal(v)
-							ivJSON, _ := json.Marshal(iv)
-							if string(vJSON) != string(ivJSON) {
-								match = false
-								break
-							}
-						}
-					}
-					if match {
-						matchIndex = i
-						break
-					}
-				}
-
-				if matchIndex != -1 {
-					// Remove
-					table.Items = append(table.Items[:matchIndex], table.Items[matchIndex+1:]...)
-				}
-			}
-		}
-		db.Tables[tableName] = table // Update map entry struct (since Table is a struct, not pointer in map? Wait, Table is struct)
-		// type Table struct { Items ... }
-		// db.Tables is map[string]Table
-		// So we MUST assign back to map.
 	}
 
-	return BatchWriteItemOutput{
-		UnprocessedItems: make(map[string][]WriteRequest),
-	}, nil
+	return BatchWriteItemOutput{UnprocessedItems: make(map[string][]WriteRequest)}, nil
 }
 
-// applyGSIProjection filters the item attributes based on GSI projection definition
-func applyGSIProjection(item map[string]interface{}, projection Projection, tableSchema, gsiSchema []KeySchemaElement) map[string]interface{} {
+func (db *InMemoryDB) processTableWriteRequests(table *Table, requests []WriteRequest) error {
+	table.mu.Lock()
+	defer table.mu.Unlock()
+
+	for _, req := range requests {
+		if req.PutRequest != nil {
+			db.handleBatchPut(table, req.PutRequest)
+		} else if req.DeleteRequest != nil {
+			db.handleBatchDelete(table, req.DeleteRequest)
+		}
+	}
+
+	// Rebuild indexes once after all operations
+	table.rebuildIndexes()
+
+	return nil
+}
+
+func (db *InMemoryDB) handleBatchPut(table *Table, req *PutRequest) {
+	_, matchIndex := findExistingItem(table.Items, req.Item, table.KeySchema)
+	if matchIndex != -1 {
+		table.Items[matchIndex] = req.Item
+	} else {
+		table.Items = append(table.Items, req.Item)
+	}
+}
+
+func (db *InMemoryDB) handleBatchDelete(table *Table, req *DeleteRequest) {
+	_, matchIndex := findExistingItem(table.Items, req.Key, table.KeySchema)
+	if matchIndex != -1 {
+		table.Items = append(table.Items[:matchIndex], table.Items[matchIndex+1:]...)
+	}
+}
+
+func extractKey(item map[string]any, schema []KeySchemaElement) map[string]any {
+	key := make(map[string]any)
+	for _, k := range schema {
+		if val, ok := item[k.AttributeName]; ok {
+			key[k.AttributeName] = val
+		}
+	}
+
+	return key
+}
+
+func compareAttributeValues(v1, v2 any) bool {
+	return reflect.DeepEqual(v1, v2)
+}
+
+func applyGSIProjection(
+	item map[string]any,
+	projection Projection,
+	tableSchema []KeySchemaElement,
+	gsiSchema []KeySchemaElement,
+) map[string]any {
 	if projection.ProjectionType == "ALL" {
 		return item
 	}
 
-	newItem := make(map[string]interface{})
-
-	// 1. Always include Table Keys
+	newItem := make(map[string]any)
 	for _, k := range tableSchema {
 		if val, ok := item[k.AttributeName]; ok {
 			newItem[k.AttributeName] = val
 		}
 	}
 
-	// 2. Always include GSI Keys
 	for _, k := range gsiSchema {
 		if val, ok := item[k.AttributeName]; ok {
 			newItem[k.AttributeName] = val
 		}
 	}
 
-	// 3. Include NonKeyAttributes if INCLUDE
 	if projection.ProjectionType == "INCLUDE" {
 		for _, attr := range projection.NonKeyAttributes {
 			if val, ok := item[attr]; ok {
@@ -978,4 +1089,160 @@ func applyGSIProjection(item map[string]interface{}, projection Projection, tabl
 	}
 
 	return newItem
+}
+
+func compareAny(v1, v2 any, typ string) int {
+	if v1 == nil || v2 == nil {
+		return 0
+	}
+
+	if typ == "N" {
+		f1 := parseNumber(v1)
+		f2 := parseNumber(v2)
+		if f1 < f2 {
+			return -1
+		}
+
+		if f1 > f2 {
+			return 1
+		}
+
+		return 0
+	}
+
+	s1 := fmt.Sprintf("%v", v1)
+	s2 := fmt.Sprintf("%v", v2)
+	if s1 < s2 {
+		return -1
+	}
+
+	if s1 > s2 {
+		return 1
+	}
+
+	return 0
+}
+
+func parseNumber(v any) float64 {
+	s := parseStr(v)
+	f, _ := strconv.ParseFloat(s, 64)
+
+	return f
+}
+
+func parseStr(v any) string {
+	if s, ok := v.(string); ok {
+		return s
+	}
+
+	if m, ok := v.(map[string]any); ok {
+		if s, ok2 := m["S"]; ok2 {
+			return fmt.Sprint(s)
+		}
+
+		if n, ok3 := m["N"]; ok3 {
+			return fmt.Sprint(n)
+		}
+	}
+
+	return fmt.Sprintf("%v", v)
+}
+
+// getHashKeyName returns the attribute name of the hash key from the key schema.
+func getHashKeyName(keySchema []KeySchemaElement) string {
+	for _, k := range keySchema {
+		if k.KeyType == KeyTypeHash {
+			return k.AttributeName
+		}
+	}
+
+	return ""
+}
+
+// getAttributeType returns the attribute type for a given attribute name, or defaultType if not found.
+func getAttributeType(attrDefs []AttributeDefinition, attrName string, defaultType string) string {
+	for _, ad := range attrDefs {
+		if ad.AttributeName == attrName {
+			return ad.AttributeType
+		}
+	}
+
+	return defaultType
+}
+
+// findExclusiveStartIndex finds the index after the ExclusiveStartKey in the candidates list.
+// Returns 0 if ExclusiveStartKey is nil or not found.
+func findExclusiveStartIndex(
+	candidates []map[string]any,
+	exclusiveStartKey map[string]any,
+	keySchema []KeySchemaElement,
+) int {
+	if exclusiveStartKey == nil {
+		return 0
+	}
+
+	pkDef, skDef := getPKAndSK(keySchema)
+
+	for i, item := range candidates {
+		matches := compareAttributeValues(item[pkDef.AttributeName], exclusiveStartKey[pkDef.AttributeName])
+		if matches && skDef.AttributeName != "" {
+			matches = compareAttributeValues(
+				item[skDef.AttributeName],
+				exclusiveStartKey[skDef.AttributeName],
+			)
+		}
+
+		if matches {
+			return i + 1
+		}
+	}
+
+	return 0
+}
+func (db *InMemoryDB) lookupItem(
+	table *Table,
+	key map[string]any,
+	pkName, skName string,
+) map[string]any {
+	pkVal := BuildKeyString(key, pkName)
+	if skName != "" {
+		skVal := BuildKeyString(key, skName)
+		if skMap, hasPK := table.pkskIndex[pkVal]; hasPK {
+			if itemIdx, hasSK := skMap[skVal]; hasSK {
+				return table.Items[itemIdx]
+			}
+		}
+
+		return nil
+	}
+
+	if itemIdx, found := table.pkIndex[pkVal]; found {
+		return table.Items[itemIdx]
+	}
+
+	return nil
+}
+
+func inferSKType(candidates []map[string]any, skName string) string {
+	if len(candidates) == 0 {
+		return ""
+	}
+
+	val, okVal := candidates[0][skName]
+	if !okVal {
+		return ""
+	}
+
+	m, okM := val.(map[string]any)
+	if !okM {
+		return ""
+	}
+
+	for _, t := range []string{"N", "S", "B"} {
+		if _, has := m[t]; has {
+			return t
+		}
+	}
+
+	return "S" // default
 }
