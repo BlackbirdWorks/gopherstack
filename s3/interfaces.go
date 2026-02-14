@@ -16,6 +16,7 @@ type StorageBackend interface {
 	HeadObject(bucket, key, versionID string) (*ObjectVersion, error)
 	DeleteObject(bucket, key, versionID string) (deleteMarkerVersionID string, err error)
 	ListObjects(bucket, prefix string) ([]*Object, error)
+	ListObjectVersions(bucket, prefix string) ([]ObjectVersion, error)
 
 	// Tagging
 	PutObjectTagging(bucket, key, versionID string, tags map[string]string) error

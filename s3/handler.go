@@ -31,6 +31,25 @@ func NewHandler(backend StorageBackend) *Handler {
 	}
 }
 
+// GetSupportedOperations returns a list of supported S3 operations.
+func (h *Handler) GetSupportedOperations() []string {
+	return []string{
+		"CreateBucket",
+		"DeleteBucket",
+		"ListBuckets",
+		"HeadBucket",
+		"GetBucketVersioning",
+		"PutBucketVersioning",
+		"PutObject",
+		"GetObject",
+		"HeadObject",
+		"DeleteObject",
+		"PutObjectTagging",
+		"GetObjectTagging",
+		"DeleteObjectTagging",
+	}
+}
+
 // ServeHTTP dispatches incoming requests to the appropriate bucket or object handler.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/")
@@ -91,6 +110,8 @@ func (h *Handler) routeBucketGet(w http.ResponseWriter, r *http.Request, bucket 
 	switch {
 	case r.URL.Query().Has("versioning"):
 		h.getBucketVersioning(w, r, bucket)
+	case r.URL.Query().Has("versions"):
+		h.listObjectVersions(w, r, bucket)
 	case r.URL.Query().Has("location"):
 		_, _ = w.Write([]byte(xml.Header + locationConstraintXML))
 	case r.URL.Query().Has("tagging"):
@@ -455,6 +476,63 @@ func (h *Handler) getBucketVersioning(w http.ResponseWriter, r *http.Request, bu
 
 	resp := VersioningConfiguration{
 		Status: string(b.Versioning),
+	}
+
+	h.writeXML(w, resp)
+}
+
+func (h *Handler) listObjectVersions(w http.ResponseWriter, r *http.Request, bucketName string) {
+	prefix := r.URL.Query().Get("prefix")
+
+	versions, err := h.Backend.ListObjectVersions(bucketName, prefix)
+	if errors.Is(err, ErrNoSuchBucket) {
+		h.writeError(w, r, err, http.StatusNotFound)
+
+		return
+	}
+
+	if err != nil {
+		h.writeError(w, r, err, http.StatusInternalServerError)
+
+		return
+	}
+
+	resp := ListVersionsResult{
+		Name:          bucketName,
+		Prefix:        prefix,
+		MaxKeys:       defaultMaxKeys,
+		IsTruncated:   false,
+		Versions:      []ObjectVersionXML{},
+		DeleteMarkers: []DeleteMarkerXML{},
+	}
+
+	for _, v := range versions {
+		if v.Deleted {
+			resp.DeleteMarkers = append(resp.DeleteMarkers, DeleteMarkerXML{
+				Key:          v.Key,
+				VersionId:    v.VersionID,
+				IsLatest:     v.IsLatest,
+				LastModified: v.LastModified.Format(time.RFC3339),
+				Owner: &Owner{
+					ID:          "gopherstack",
+					DisplayName: "gopherstack",
+				},
+			})
+		} else {
+			resp.Versions = append(resp.Versions, ObjectVersionXML{
+				Key:          v.Key,
+				VersionId:    v.VersionID,
+				IsLatest:     v.IsLatest,
+				LastModified: v.LastModified.Format(time.RFC3339),
+				ETag:         v.ETag,
+				Size:         v.Size,
+				Owner: &Owner{
+					ID:          "gopherstack",
+					DisplayName: "gopherstack",
+				},
+				StorageClass: "STANDARD",
+			})
+		}
 	}
 
 	h.writeXML(w, resp)

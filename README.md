@@ -22,6 +22,25 @@ Gopherstack is a lightweight, in-memory AWS stack implementation for Go. It prov
 - **Data Integrity**: Automatic checksum calculation supporting CRC32, CRC32C, SHA1, and SHA256.
 - **Compression**: Integrated Gzip compression for efficient memory usage.
 
+## Dashboard
+
+Gopherstack includes a built-in web dashboard for managing DynamoDB tables and S3 buckets.
+
+Access the dashboard at: `http://localhost:8000/dashboard`
+
+Features:
+- **DynamoDB**:
+  - List tables
+  - View table details (keys, indexes, item count)
+  - Query and Scan tables
+  - Create new tables
+- **S3**:
+  - List buckets
+  - File browser with folder support
+  - Upload and Download files
+  - Manage versioning
+  - View object metadata
+
 ## Usage
 
 ### Prerequisites

@@ -36,6 +36,7 @@ type Object struct {
 
 // ObjectVersion represents a specific version of an S3 object.
 type ObjectVersion struct {
+	Key               string
 	LastModified      time.Time
 	VersionID         string
 	ETag              string

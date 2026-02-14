@@ -1,0 +1,146 @@
+/* Custom styles for Gopherstack UI */
+
+/* JSON viewer styling */
+.json-viewer {
+    background-color: #f5f5f5;
+    border-radius: 0.5rem;
+    padding: 1rem;
+    overflow-x: auto;
+    font-family: 'Courier New', monospace;
+    font-size: 0.875rem;
+}
+
+.json-key {
+    color: #0066cc;
+    font-weight: 600;
+}
+
+.json-string {
+    color: #008000;
+}
+
+.json-number {
+    color: #ff6600;
+}
+
+.json-boolean {
+    color: #cc0066;
+}
+
+.json-null {
+    color: #999999;
+    font-style: italic;
+}
+
+/* File tree styling */
+.file-tree {
+    list-style: none;
+    padding-left: 0;
+}
+
+.file-tree li {
+    padding: 0.5rem;
+    cursor: pointer;
+    border-radius: 0.25rem;
+    transition: background-color 0.2s;
+}
+
+.file-tree li:hover {
+    background-color: #f0f0f0;
+}
+
+.file-tree .folder {
+    font-weight: 600;
+}
+
+.file-tree .file {
+    padding-left: 1.5rem;
+}
+
+/* Loading indicator */
+.htmx-indicator {
+    display: none;
+}
+
+.htmx-request .htmx-indicator {
+    display: inline-block;
+}
+
+.htmx-request.htmx-indicator {
+    display: inline-block;
+}
+
+/* Breadcrumb styling */
+.breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 1rem 0;
+}
+
+.breadcrumb-item {
+    color: #666;
+}
+
+.breadcrumb-item.active {
+    color: #000;
+    font-weight: 600;
+}
+
+/* Table responsive wrapper */
+.table-responsive {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* Code block styling */
+.code-block {
+    background-color: #1e1e1e;
+    color: #d4d4d4;
+    padding: 1rem;
+    border-radius: 0.5rem;
+    overflow-x: auto;
+    font-family: 'Courier New', monospace;
+    font-size: 0.875rem;
+}
+
+/* Alert styling enhancements */
+.alert-warning {
+    border-left: 4px solid #f59e0b;
+}
+
+.alert-info {
+    border-left: 4px solid #3b82f6;
+}
+
+.alert-success {
+    border-left: 4px solid #10b981;
+}
+
+.alert-error {
+    border-left: 4px solid #ef4444;
+}
+
+/* Smooth transitions */
+* {
+    transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}

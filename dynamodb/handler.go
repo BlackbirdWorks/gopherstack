@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 )
 
@@ -14,16 +15,46 @@ var ErrUnknownOperation = errors.New("UnknownOperationException")
 
 // Handler handles HTTP requests for DynamoDB operations.
 type Handler struct {
-	DB     *InMemoryDB
-	Logger *slog.Logger
+	DB          *InMemoryDB
+	Logger      *slog.Logger
+	dispatchMap map[string]func([]byte) (any, error)
 }
 
 // NewHandler creates a new DynamoDB handler.
 func NewHandler() *Handler {
-	return &Handler{
+	h := &Handler{
 		DB:     NewInMemoryDB(),
 		Logger: slog.Default(),
 	}
+	h.initDispatchMap()
+	return h
+}
+
+func (h *Handler) initDispatchMap() {
+	h.dispatchMap = map[string]func([]byte) (any, error){
+		"CreateTable":    h.DB.CreateTable,
+		"DeleteTable":    h.DB.DeleteTable,
+		"DescribeTable":  h.DB.DescribeTable,
+		"ListTables":     h.DB.ListTables,
+		"PutItem":        h.DB.PutItem,
+		"GetItem":        h.DB.GetItem,
+		"DeleteItem":     h.DB.DeleteItem,
+		"Scan":           h.DB.Scan,
+		"UpdateItem":     h.DB.UpdateItem,
+		"Query":          h.DB.Query,
+		"BatchGetItem":   h.DB.BatchGetItem,
+		"BatchWriteItem": h.DB.BatchWriteItem,
+	}
+}
+
+// GetSupportedOperations returns a sorted list of supported DynamoDB operations.
+func (h *Handler) GetSupportedOperations() []string {
+	ops := make([]string, 0, len(h.dispatchMap))
+	for op := range h.dispatchMap {
+		ops = append(ops, op)
+	}
+	sort.Strings(ops)
+	return ops
 }
 
 // ServeHTTP implements [http.Handler] interface.
@@ -77,34 +108,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) dispatch(action string, body []byte) (any, error) {
-	switch action {
-	case "CreateTable":
-		return h.DB.CreateTable(body)
-	case "DeleteTable":
-		return h.DB.DeleteTable(body)
-	case "DescribeTable":
-		return h.DB.DescribeTable(body)
-	case "ListTables":
-		return h.DB.ListTables(body)
-	case "PutItem":
-		return h.DB.PutItem(body)
-	case "GetItem":
-		return h.DB.GetItem(body)
-	case "DeleteItem":
-		return h.DB.DeleteItem(body)
-	case "Scan":
-		return h.DB.Scan(body)
-	case "UpdateItem":
-		return h.DB.UpdateItem(body)
-	case "Query":
-		return h.DB.Query(body)
-	case "BatchGetItem":
-		return h.DB.BatchGetItem(body)
-	case "BatchWriteItem":
-		return h.DB.BatchWriteItem(body)
-	default:
-		return nil, fmt.Errorf("%w:%s", ErrUnknownOperation, action)
+	if handler, ok := h.dispatchMap[action]; ok {
+		return handler(body)
 	}
+	return nil, fmt.Errorf("%w:%s", ErrUnknownOperation, action)
 }
 
 func (h *Handler) handleError(w http.ResponseWriter, action string, reqErr error) {

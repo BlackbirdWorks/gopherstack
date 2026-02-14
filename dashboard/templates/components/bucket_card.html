@@ -1,0 +1,39 @@
+{{define "bucket-card"}}
+<div class="card bg-base-100 shadow-xl hover:shadow-2xl transition-shadow">
+    <div class="card-body">
+        <h2 class="card-title">
+            <a href="/dashboard/s3/bucket/{{.Name}}" class="link link-hover">🪣 {{.Name}}</a>
+        </h2>
+        <div class="space-y-2 text-sm">
+            <div class="flex justify-between">
+                <span class="text-gray-600">Created:</span>
+                <span>{{.CreationDate}}</span>
+            </div>
+            <div class="flex justify-between">
+                <span class="text-gray-600">Versioning:</span>
+                {{if .VersioningEnabled}}
+                <span class="badge badge-success">Enabled</span>
+                {{else}}
+                <span class="badge">Disabled</span>
+                {{end}}
+            </div>
+            <div class="flex justify-between">
+                <span class="text-gray-600">Objects:</span>
+                <span class="badge badge-primary">{{.ObjectCount}}</span>
+            </div>
+        </div>
+        <div class="card-actions justify-end mt-4">
+            <button class="btn btn-sm btn-secondary" hx-put="/dashboard/s3/bucket/{{.Name}}/versioning"
+                hx-vals='{"enabled": {{if .VersioningEnabled}}false{{else}}true{{end}}}' hx-target="#bucket-list"
+                hx-swap="innerHTML">
+                {{if .VersioningEnabled}}Disable{{else}}Enable{{end}} Versioning
+            </button>
+            <button class="btn btn-sm btn-error" hx-delete="/dashboard/s3/bucket/{{.Name}}"
+                hx-confirm="Are you sure you want to delete bucket '{{.Name}}'?" hx-target="closest .card"
+                hx-swap="outerHTML">
+                Delete
+            </button>
+        </div>
+    </div>
+</div>
+{{end}}

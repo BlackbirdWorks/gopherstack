@@ -1,0 +1,129 @@
+{{define "content"}}
+<div class="space-y-6">
+    <!-- Breadcrumbs -->
+    <div class="text-sm breadcrumbs">
+        <ul>
+            <li><a href="/dashboard/s3">Buckets</a></li>
+            <li><a href="/dashboard/s3/bucket/{{.BucketName}}">{{.BucketName}}</a></li>
+            <li>{{.Key}}</li>
+        </ul>
+    </div>
+
+    <!-- File Header -->
+    <div class="flex justify-between items-center bg-base-100 p-6 rounded-lg shadow">
+        <div>
+            <h1 class="text-2xl font-bold flex items-center gap-2">
+                <span>📄</span> {{.Key}}
+            </h1>
+            <p class="text-base-content/60 mt-1">Bucket: {{.BucketName}}</p>
+        </div>
+        <div class="flex gap-2">
+            <a href="/dashboard/s3/bucket/{{.BucketName}}/download/{{.Key}}" class="btn btn-primary" download>
+                Download
+            </a>
+            <div class="dropdown dropdown-end">
+                <button class="btn btn-error btn-outline dropdown-toggle">Delete</button>
+                <ul class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-64 border border-base-300">
+                    <li><button hx-delete="/dashboard/s3/bucket/{{.BucketName}}/file/{{.Key}}"
+                            hx-confirm="Are you sure you want to delete the latest version? (Creates a delete marker)"
+                            hx-target="body" hx-push-url="/dashboard/s3/bucket/{{.BucketName}}"
+                            class="text-left w-full">Delete (Latest)</button></li>
+                    <li><button hx-delete="/dashboard/s3/bucket/{{.BucketName}}/file/{{.Key}}?deleteAll=true"
+                            hx-confirm="WARNING: This will permanently delete ALL versions of this file! Are you sure?"
+                            hx-target="body" hx-push-url="/dashboard/s3/bucket/{{.BucketName}}"
+                            class="text-error text-left w-full">Delete
+                            All Versions</button></li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- File Details -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="card bg-base-100 shadow">
+            <div class="card-body">
+                <h2 class="card-title text-sm uppercase tracking-wider text-base-content/60">Metadata</h2>
+                <div class="overflow-x-auto">
+                    <table class="table">
+                        <tbody>
+                            <tr>
+                                <td class="font-medium">Size</td>
+                                <td>{{.Size}}</td>
+                            </tr>
+                            <tr>
+                                <td class="font-medium">Last Modified</td>
+                                <td>{{.LastModified}}</td>
+                            </tr>
+                            <tr>
+                                <td class="font-medium">Content Type</td>
+                                <td>
+                                    <div class="badge badge-outline">{{.ContentType}}</div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="font-medium">ETag</td>
+                                <td class="font-mono text-xs">{{.ETag}}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                {{if .Tags}}
+                <div class="divider"></div>
+                <h3 class="font-bold text-sm mb-2">Tags</h3>
+                <div class="flex flex-wrap gap-2">
+                    {{range $key, $value := .Tags}}
+                    <div class="badge badge-neutral">{{$key}}: {{$value}}</div>
+                    {{end}}
+                </div>
+                {{end}}
+            </div>
+        </div>
+
+        {{if .VersioningEnabled}}
+        <div class="card bg-base-100 shadow">
+            <div class="card-body">
+                <h2 class="card-title text-sm uppercase tracking-wider text-base-content/60">Versions</h2>
+                {{if .Versions}}
+                <div class="overflow-x-auto">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Version ID</th>
+                                <th>Last Modified</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {{range .Versions}}
+                            <tr>
+                                <td class="font-mono text-xs">{{.VersionId}}</td>
+                                <td>{{.LastModified}}</td>
+                                <td>
+                                    <div class="flex gap-1">
+                                        <a href="/dashboard/s3/bucket/{{$.BucketName}}/download/{{$.Key}}?versionId={{.VersionId}}"
+                                            class="btn btn-xs btn-ghost">
+                                            Download
+                                        </a>
+                                        <button
+                                            hx-delete="/dashboard/s3/bucket/{{$.BucketName}}/file/{{$.Key}}?versionId={{.VersionId}}"
+                                            hx-confirm="Are you sure you want to permanently delete this specific version?"
+                                            hx-target="closest tr" hx-swap="outerHTML"
+                                            class="btn btn-xs btn-ghost text-error">
+                                            Delete
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                            {{end}}
+                        </tbody>
+                    </table>
+                </div>
+                {{else}}
+                <p class="text-base-content/60 italic">No previous versions found.</p>
+                {{end}}
+            </div>
+        </div>
+        {{end}}
+    </div>
+</div>
+{{end}}

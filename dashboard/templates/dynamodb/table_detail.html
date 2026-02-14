@@ -1,0 +1,290 @@
+{{define "content"}}
+<div class="space-y-6">
+    <!-- Breadcrumb -->
+    <div class="text-sm breadcrumbs">
+        <ul>
+            <li><a href="/dashboard/dynamodb">Tables</a></li>
+            <li>{{.TableName}}</li>
+        </ul>
+    </div>
+
+    <!-- Header -->
+    <div class="flex justify-between items-center">
+        <h1 class="text-3xl font-bold">{{.TableName}}</h1>
+        <button class="btn btn-error" hx-delete="/dashboard/dynamodb/table/{{.TableName}}"
+            hx-confirm="Are you sure you want to delete this table?">
+            Delete Table
+        </button>
+    </div>
+
+    <!-- Tabs -->
+    <div role="tablist" class="tabs tabs-bordered">
+        <input type="radio" name="table_tabs" role="tab" class="tab" aria-label="Overview" checked />
+        <div role="tabpanel" class="tab-content p-6">
+            {{template "table-overview" .}}
+        </div>
+
+        <input type="radio" name="table_tabs" role="tab" class="tab" aria-label="Query" />
+        <div role="tabpanel" class="tab-content p-6">
+            {{template "table-query" .}}
+        </div>
+
+        <input type="radio" name="table_tabs" role="tab" class="tab" aria-label="Scan" />
+        <div role="tabpanel" class="tab-content p-6">
+            {{template "table-scan" .}}
+        </div>
+    </div>
+</div>
+{{end}}
+
+{{define "table-overview"}}
+<div class="space-y-6">
+    <!-- Key Schema -->
+    <div class="card bg-base-100 shadow-xl">
+        <div class="card-body">
+            <h2 class="card-title">Key Schema</h2>
+            <div class="overflow-x-auto">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Attribute Name</th>
+                            <th>Key Type</th>
+                            <th>Attribute Type</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td class="font-mono">{{.PartitionKey}}</td>
+                            <td><span class="badge badge-primary">HASH</span></td>
+                            <td><span class="badge">{{.PartitionKeyType}}</span></td>
+                        </tr>
+                        {{if .SortKey}}
+                        <tr>
+                            <td class="font-mono">{{.SortKey}}</td>
+                            <td><span class="badge badge-secondary">RANGE</span></td>
+                            <td><span class="badge">{{.SortKeyType}}</span></td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Table Info -->
+    <div class="stats shadow w-full">
+        <div class="stat">
+            <div class="stat-title">Item Count</div>
+            <div class="stat-value">{{.ItemCount}}</div>
+        </div>
+        <div class="stat">
+            <div class="stat-title">Global Secondary Indexes</div>
+            <div class="stat-value">{{.GSICount}}</div>
+        </div>
+        <div class="stat">
+            <div class="stat-title">Local Secondary Indexes</div>
+            <div class="stat-value">{{.LSICount}}</div>
+        </div>
+    </div>
+
+    <!-- GSI List -->
+    {{if .GlobalSecondaryIndexes}}
+    <div class="card bg-base-100 shadow-xl">
+        <div class="card-body">
+            <h2 class="card-title">Global Secondary Indexes</h2>
+            <div class="overflow-x-auto">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Index Name</th>
+                            <th>Partition Key</th>
+                            <th>Sort Key</th>
+                            <th>Projection</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .GlobalSecondaryIndexes}}
+                        <tr>
+                            <td class="font-mono">{{.IndexName}}</td>
+                            <td class="font-mono">{{.PartitionKey}} ({{.PartitionKeyType}})</td>
+                            <td class="font-mono">{{if .SortKey}}{{.SortKey}} ({{.SortKeyType}}){{else}}-{{end}}</td>
+                            <td><span class="badge">{{.ProjectionType}}</span></td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {{end}}
+
+    <!-- LSI List -->
+    {{if .LocalSecondaryIndexes}}
+    <div class="card bg-base-100 shadow-xl">
+        <div class="card-body">
+            <h2 class="card-title">Local Secondary Indexes</h2>
+            <div class="overflow-x-auto">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Index Name</th>
+                            <th>Sort Key</th>
+                            <th>Projection</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .LocalSecondaryIndexes}}
+                        <tr>
+                            <td class="font-mono">{{.IndexName}}</td>
+                            <td class="font-mono">{{.SortKey}} ({{.SortKeyType}})</td>
+                            <td><span class="badge">{{.ProjectionType}}</span></td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {{end}}
+</div>
+{{end}}
+
+{{define "table-query"}}
+<div class="space-y-6">
+    <div class="alert alert-info">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-current shrink-0 w-6 h-6">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+        </svg>
+        <span>Query requires a partition key value. Sort key conditions are optional.</span>
+    </div>
+
+    <form hx-post="/dashboard/dynamodb/table/{{.TableName}}/query" hx-target="#query-results"
+        hx-indicator=".query-indicator" class="space-y-4">
+
+        <!-- Index Selection -->
+        <div class="form-control">
+            <label class="label">
+                <span class="label-text">Index (Optional)</span>
+            </label>
+            <select name="indexName" class="select select-bordered">
+                <option value="">Table (Default)</option>
+                {{range .GlobalSecondaryIndexes}}
+                <option value="{{.IndexName}}">{{.IndexName}} (GSI)</option>
+                {{end}}
+                {{range .LocalSecondaryIndexes}}
+                <option value="{{.IndexName}}">{{.IndexName}} (LSI)</option>
+                {{end}}
+            </select>
+        </div>
+
+        <!-- Partition Key -->
+        <div class="form-control">
+            <label class="label">
+                <span class="label-text">Partition Key Value ({{.PartitionKey}})</span>
+            </label>
+            <input type="text" name="partitionKeyValue" class="input input-bordered" required>
+        </div>
+
+        <!-- Sort Key Condition -->
+        {{if .SortKey}}
+        <div class="form-control">
+            <label class="label">
+                <span class="label-text">Sort Key Condition ({{.SortKey}})</span>
+            </label>
+            <div class="join w-full">
+                <select name="sortKeyOperator" class="select select-bordered join-item">
+                    <option value="">None</option>
+                    <option value="=">=</option>
+                    <option value="<">&lt;</option>
+                    <option value="<=">&lt;=</option>
+                    <option value=">">&gt;</option>
+                    <option value=">=">&gt;=</option>
+                    <option value="BETWEEN">BETWEEN</option>
+                    <option value="begins_with">begins_with</option>
+                </select>
+                <input type="text" name="sortKeyValue" class="input input-bordered join-item flex-1"
+                    placeholder="Value">
+                <input type="text" name="sortKeyValue2" class="input input-bordered join-item flex-1"
+                    placeholder="Value 2 (for BETWEEN)">
+            </div>
+        </div>
+        {{end}}
+
+        <!-- Filter Expression -->
+        <div class="form-control">
+            <label class="label">
+                <span class="label-text">Filter Expression (Optional)</span>
+            </label>
+            <textarea name="filterExpression" class="textarea textarea-bordered"
+                placeholder="attribute_exists(email)"></textarea>
+        </div>
+
+        <!-- Limit -->
+        <div class="form-control">
+            <label class="label">
+                <span class="label-text">Limit</span>
+            </label>
+            <input type="number" name="limit" class="input input-bordered" value="100" min="1">
+        </div>
+
+        <!-- Submit -->
+        <button type="submit" class="btn btn-primary">
+            <span class="query-indicator loading loading-spinner loading-sm htmx-indicator"></span>
+            Execute Query
+        </button>
+    </form>
+
+    <!-- Results -->
+    <div id="query-results"></div>
+</div>
+{{end}}
+
+{{define "table-scan"}}
+<div class="space-y-6">
+    <div class="alert alert-warning">
+        <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+        </svg>
+        <span>Scan operations read every item in the table and can be expensive for large tables.</span>
+    </div>
+
+    <form hx-post="/dashboard/dynamodb/table/{{.TableName}}/scan" hx-target="#scan-results"
+        hx-indicator=".scan-indicator" class="space-y-4">
+
+        <!-- Filter Expression -->
+        <div class="form-control">
+            <label class="label">
+                <span class="label-text">Filter Expression (Optional)</span>
+            </label>
+            <textarea name="filterExpression" class="textarea textarea-bordered" placeholder="age > :minAge"></textarea>
+        </div>
+
+        <!-- Projection Expression -->
+        <div class="form-control">
+            <label class="label">
+                <span class="label-text">Projection Expression (Optional)</span>
+            </label>
+            <input type="text" name="projectionExpression" class="input input-bordered" placeholder="id, name, email">
+        </div>
+
+        <!-- Limit -->
+        <div class="form-control">
+            <label class="label">
+                <span class="label-text">Limit</span>
+            </label>
+            <input type="number" name="limit" class="input input-bordered" value="100" min="1">
+        </div>
+
+        <!-- Submit -->
+        <button type="submit" class="btn btn-primary">
+            <span class="scan-indicator loading loading-spinner loading-sm htmx-indicator"></span>
+            Execute Scan
+        </button>
+    </form>
+
+    <!-- Results -->
+    <div id="scan-results"></div>
+</div>
+{{end}}

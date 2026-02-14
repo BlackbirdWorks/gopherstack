@@ -142,6 +142,7 @@ func (b *InMemoryBackend) PutObject(
 	}
 
 	newVersion := ObjectVersion{
+		Key:               key,
 		VersionID:         versionID,
 		IsLatest:          true,
 		Data:              compressedData,
@@ -436,6 +437,36 @@ func (b *InMemoryBackend) ListObjects(bucketName, prefix string) ([]*Object, err
 
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].Key < results[j].Key
+	})
+
+	return results, nil
+}
+
+// ListObjectVersions returns all versions for all objects matching the prefix.
+func (b *InMemoryBackend) ListObjectVersions(bucketName, prefix string) ([]ObjectVersion, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if _, exists := b.buckets[bucketName]; !exists {
+		return nil, ErrNoSuchBucket
+	}
+
+	var results []ObjectVersion
+
+	for _, obj := range b.objects[bucketName] {
+		if !strings.HasPrefix(obj.Key, prefix) {
+			continue
+		}
+
+		results = append(results, obj.Versions...)
+	}
+
+	// S3 sorts versions by key, then by LastModified descending
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].Key != results[j].Key {
+			return results[i].Key < results[j].Key
+		}
+		return results[i].LastModified.After(results[j].LastModified)
 	})
 
 	return results, nil

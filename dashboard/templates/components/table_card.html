@@ -1,0 +1,44 @@
+{{define "table-card"}}
+<div class="card bg-base-100 shadow-xl hover:shadow-2xl transition-shadow">
+    <div class="card-body">
+        <h2 class="card-title">
+            <a href="/dashboard/dynamodb/table/{{.TableName}}" class="link link-hover">{{.TableName}}</a>
+        </h2>
+        <div class="space-y-2 text-sm">
+            <div class="flex justify-between">
+                <span class="text-gray-600">Partition Key:</span>
+                <span class="font-mono">{{.PartitionKey}} ({{.PartitionKeyType}})</span>
+            </div>
+            {{if .SortKey}}
+            <div class="flex justify-between">
+                <span class="text-gray-600">Sort Key:</span>
+                <span class="font-mono">{{.SortKey}} ({{.SortKeyType}})</span>
+            </div>
+            {{end}}
+            <div class="flex justify-between">
+                <span class="text-gray-600">Item Count:</span>
+                <span class="badge badge-primary">{{.ItemCount}}</span>
+            </div>
+            {{if .GSICount}}
+            <div class="flex justify-between">
+                <span class="text-gray-600">GSI:</span>
+                <span class="badge badge-secondary">{{.GSICount}}</span>
+            </div>
+            {{end}}
+            {{if .LSICount}}
+            <div class="flex justify-between">
+                <span class="text-gray-600">LSI:</span>
+                <span class="badge badge-accent">{{.LSICount}}</span>
+            </div>
+            {{end}}
+        </div>
+        <div class="card-actions justify-end mt-4">
+            <button class="btn btn-sm btn-error" hx-delete="/dashboard/dynamodb/table/{{.TableName}}"
+                hx-confirm="Are you sure you want to delete table '{{.TableName}}'?" hx-target="#table-list"
+                hx-swap="innerHTML">
+                Delete
+            </button>
+        </div>
+    </div>
+</div>
+{{end}}

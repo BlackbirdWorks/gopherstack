@@ -1,0 +1,81 @@
+{{define "content"}}
+<div class="space-y-6">
+    <!-- Header -->
+    <div class="flex justify-between items-center">
+        <h1 class="text-3xl font-bold">DynamoDB Tables</h1>
+        <button class="btn btn-primary" onclick="document.getElementById('create_table_modal').showModal()">
+            + Create Table
+        </button>
+    </div>
+
+    <!-- Search/Filter -->
+    <div class="form-control">
+        <input type="text" placeholder="Search tables..." class="input input-bordered w-full max-w-xs"
+            hx-get="/dashboard/dynamodb/search" hx-trigger="keyup changed delay:300ms" hx-target="#table-list" name="q">
+    </div>
+
+    <!-- Loading indicator -->
+    <div class="htmx-indicator">
+        <span class="loading loading-spinner loading-lg"></span>
+    </div>
+
+    <!-- Table list -->
+    <div id="table-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
+        hx-get="/dashboard/dynamodb/tables" hx-trigger="load" hx-indicator=".htmx-indicator">
+        <!-- Tables will be loaded here -->
+    </div>
+</div>
+
+<!-- Create Table Modal -->
+<dialog id="create_table_modal" class="modal">
+    <div class="modal-box">
+        <h3 class="font-bold text-lg">Create Table</h3>
+        <form method="dialog" class="space-y-4 mt-4" hx-post="/dashboard/dynamodb/create" hx-target="#table-list"
+            hx-on::after-request="if(event.detail.successful) document.getElementById('create_table_modal').close()">
+            <div class="form-control">
+                <label class="label">
+                    <span class="label-text">Table Name</span>
+                </label>
+                <input type="text" name="tableName" placeholder="users" class="input input-bordered" required>
+            </div>
+            <div class="form-control">
+                <label class="label">
+                    <span class="label-text">Partition Key</span>
+                </label>
+                <input type="text" name="partitionKey" placeholder="id" class="input input-bordered" required>
+            </div>
+            <div class="form-control">
+                <label class="label">
+                    <span class="label-text">Partition Key Type</span>
+                </label>
+                <select name="partitionKeyType" class="select select-bordered">
+                    <option value="S">String</option>
+                    <option value="N">Number</option>
+                    <option value="B">Binary</option>
+                </select>
+            </div>
+            <div class="form-control">
+                <label class="label">
+                    <span class="label-text">Sort Key (Optional)</span>
+                </label>
+                <input type="text" name="sortKey" placeholder="timestamp" class="input input-bordered">
+            </div>
+            <div class="form-control">
+                <label class="label">
+                    <span class="label-text">Sort Key Type</span>
+                </label>
+                <select name="sortKeyType" class="select select-bordered">
+                    <option value="S">String</option>
+                    <option value="N">Number</option>
+                    <option value="B">Binary</option>
+                </select>
+            </div>
+            <div class="modal-action">
+                <button type="button" class="btn"
+                    onclick="document.getElementById('create_table_modal').close()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Create</button>
+            </div>
+        </form>
+    </div>
+</dialog>
+{{end}}

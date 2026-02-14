@@ -1,0 +1,52 @@
+{{define "content"}}
+<div class="space-y-6">
+    <!-- Header -->
+    <div class="flex justify-between items-center">
+        <h1 class="text-3xl font-bold">S3 Buckets</h1>
+        <button class="btn btn-primary" onclick="document.getElementById('create_bucket_modal').showModal()">
+            + Create Bucket
+        </button>
+    </div>
+
+    <!-- Bucket list -->
+    <div id="bucket-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" hx-get="/dashboard/s3/buckets"
+        hx-trigger="load" hx-indicator=".htmx-indicator">
+        <!-- Buckets will be loaded here -->
+    </div>
+
+    <!-- Loading indicator -->
+    <div class="htmx-indicator">
+        <span class="loading loading-spinner loading-lg"></span>
+    </div>
+</div>
+
+<!-- Create Bucket Modal -->
+<dialog id="create_bucket_modal" class="modal">
+    <div class="modal-box">
+        <h3 class="font-bold text-lg">Create Bucket</h3>
+        <form method="dialog" class="space-y-4 mt-4" hx-post="/dashboard/s3/create" hx-target="#bucket-list"
+            hx-on::after-request="if(event.detail.successful) document.getElementById('create_bucket_modal').close()">
+            <div class="form-control">
+                <label class="label">
+                    <span class="label-text">Bucket Name</span>
+                </label>
+                <input type="text" name="bucketName" placeholder="my-bucket" class="input input-bordered" required>
+                <label class="label">
+                    <span class="label-text-alt">Must be unique and follow S3 naming rules</span>
+                </label>
+            </div>
+            <div class="form-control">
+                <label class="label cursor-pointer">
+                    <span class="label-text">Enable Versioning</span>
+                    <input type="checkbox" name="versioning" class="checkbox" />
+                </label>
+            </div>
+            <div class="modal-action">
+                <button type="button" class="btn"
+                    onclick="document.getElementById('create_bucket_modal').close()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Create</button>
+            </div>
+        </form>
+    </div>
+</dialog>
+{{end}}

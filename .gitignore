@@ -6,3 +6,5 @@
 *.out
 main 
 **/main
+/gopherstack
+.DS_Store

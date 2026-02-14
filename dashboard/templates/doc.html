@@ -1,0 +1,43 @@
+{{define "content"}}
+<div class="prose max-w-none">
+    <h1 class="mb-4">Supported API Operations</h1>
+    <p class="mb-8">This page lists the DynamoDB and S3 operations currently supported by the Gopherstack local
+        emulator.</p>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+        <!-- DynamoDB Operations -->
+        <div class="card bg-base-100 shadow-xl">
+            <div class="card-body">
+                <h2 class="card-title text-primary flex items-center gap-2">
+                    <span>⚡</span> DynamoDB
+                </h2>
+                <div class="divider my-0"></div>
+                <ul class="menu bg-base-100 rounded-box">
+                    {{range .DynamoDBOps}}
+                    <li><a class="cursor-default hover:bg-base-200">{{.}}</a></li>
+                    {{else}}
+                    <li class="disabled"><span>No operations found</span></li>
+                    {{end}}
+                </ul>
+            </div>
+        </div>
+
+        <!-- S3 Operations -->
+        <div class="card bg-base-100 shadow-xl">
+            <div class="card-body">
+                <h2 class="card-title text-secondary flex items-center gap-2">
+                    <span>🪣</span> S3
+                </h2>
+                <div class="divider my-0"></div>
+                <ul class="menu bg-base-100 rounded-box">
+                    {{range .S3Ops}}
+                    <li><a class="cursor-default hover:bg-base-200">{{.}}</a></li>
+                    {{else}}
+                    <li class="disabled"><span>No operations found</span></li>
+                    {{end}}
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}

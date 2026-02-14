@@ -1,0 +1,73 @@
+{{define "content"}}
+<div class="space-y-6">
+    <!-- Breadcrumb -->
+    <div class="text-sm breadcrumbs">
+        <ul>
+            <li><a href="/dashboard/s3">Buckets</a></li>
+            <li>{{.BucketName}}</li>
+            {{range .PathParts}}
+            <li>{{.}}</li>
+            {{end}}
+        </ul>
+    </div>
+
+    <!-- Header -->
+    <div class="flex justify-between items-center">
+        <h1 class="text-3xl font-bold">{{.BucketName}}</h1>
+        <button class="btn btn-primary" onclick="document.getElementById('upload_modal').showModal()">
+            ⬆️ Upload File
+        </button>
+    </div>
+
+    <!-- File tree -->
+    <div class="card bg-base-100 shadow-xl">
+        <div class="card-body">
+            <div id="file-tree"
+                hx-get="/dashboard/s3/bucket/{{.BucketName}}/tree{{if .Prefix}}?prefix={{.Prefix}}{{end}}"
+                hx-trigger="load" hx-indicator=".htmx-indicator">
+                <!-- File tree will be loaded here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading indicator -->
+    <div class="htmx-indicator">
+        <span class="loading loading-spinner loading-lg"></span>
+    </div>
+</div>
+
+<!-- Upload Modal -->
+<dialog id="upload_modal" class="modal">
+    <div class="modal-box">
+        <h3 class="font-bold text-lg">Upload File</h3>
+        <form hx-post="/dashboard/s3/bucket/{{.BucketName}}/upload{{if .Prefix}}?prefix={{.Prefix}}{{end}}"
+            hx-encoding="multipart/form-data" hx-target="#file-tree"
+            hx-on::after-request="if(event.detail.successful) document.getElementById('upload_modal').close()"
+            class="space-y-4 mt-4">
+            <div class="form-control">
+                <label class="label">
+                    <span class="label-text">File</span>
+                </label>
+                <input type="file" name="file" class="file-input file-input-bordered w-full" required>
+            </div>
+            <div class="form-control">
+                <label class="label">
+                    <span class="label-text">Key (Optional - defaults to filename)</span>
+                </label>
+                <input type="text" name="key" class="input input-bordered" placeholder="path/to/file.txt">
+            </div>
+            <div class="form-control">
+                <label class="label">
+                    <span class="label-text">Tags (Optional - comma separated Key=Value)</span>
+                </label>
+                <input type="text" name="tags" class="input input-bordered" placeholder="Env=Dev, Project=Gopher">
+            </div>
+            <div class="modal-action">
+                <button type="button" class="btn"
+                    onclick="document.getElementById('upload_modal').close()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Upload</button>
+            </div>
+        </form>
+    </div>
+</dialog>
+{{end}}

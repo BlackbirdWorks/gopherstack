@@ -109,3 +109,25 @@ func (t *Table) rebuildIndexes() {
 		}
 	}
 }
+
+// ListAllTables returns a slice of all tables (for UI).
+func (db *InMemoryDB) ListAllTables() []*Table {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+
+	tables := make([]*Table, 0, len(db.Tables))
+	for _, table := range db.Tables {
+		tables = append(tables, table)
+	}
+
+	return tables
+}
+
+// GetTable returns a table by name (for UI).
+func (db *InMemoryDB) GetTable(name string) (*Table, bool) {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+
+	table, exists := db.Tables[name]
+	return table, exists
+}

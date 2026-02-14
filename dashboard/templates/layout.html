@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}} - Gopherstack</title>
+
+    <!-- Tailwind CSS + DaisyUI -->
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.6.0/dist/full.min.css" rel="stylesheet" type="text/css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- HTMX -->
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+
+    <!-- Custom styles -->
+    <link rel="stylesheet" href="/dashboard/static/styles.css">
+</head>
+
+<body class="bg-base-200">
+    <!-- Navbar -->
+    <div class="navbar bg-base-100 shadow-lg">
+        <div class="flex-1">
+            <a href="/dashboard" class="btn btn-ghost text-xl">
+                🐹 Gopherstack
+            </a>
+        </div>
+        <div class="flex-none">
+            <ul class="menu menu-horizontal px-1">
+                <li><a href="/dashboard/dynamodb" class="{{if eq .ActiveTab " dynamodb"}}active{{end}}">DynamoDB</a>
+                </li>
+                <li><a href="/dashboard/s3" class="{{if eq .ActiveTab " s3"}}active{{end}}">S3</a></li>
+                <li><a href="/dashboard/docs" class="{{if eq .ActiveTab " docs"}}active{{end}}">Docs</a></li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Alerts Container (for OOB swaps) -->
+    <div id="global-alerts"
+        class="fixed top-4 left-1/2 -translate-x-1/2 z-[1000] w-full max-w-2xl px-4 space-y-2 pointer-events-none">
+        <!-- Alerts will be injected here -->
+    </div>
+
+    <!-- Main content -->
+    <main class="container mx-auto px-4 py-8">
+        {{template "content" .}}
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer footer-center p-4 bg-base-100 text-base-content mt-8">
+        <div>
+            <p>Gopherstack - In-Memory AWS Stack for Go</p>
+        </div>
+    </footer>
+
+    <!-- Custom JavaScript -->
+    <script src="/dashboard/static/app.js"></script>
+</body>
+
+</html>

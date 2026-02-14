@@ -63,3 +63,34 @@ type ErrorResponse struct {
 	Resource  string   `xml:"Resource"`
 	RequestID string   `xml:"RequestId"`
 }
+
+type ListVersionsResult struct {
+	XMLName       xml.Name           `xml:"ListVersionsResult"`
+	Name          string             `xml:"Name"`
+	Prefix        string             `xml:"Prefix"`
+	KeyMarker     string             `xml:"KeyMarker"`
+	VersionMarker string             `xml:"VersionIdMarker"`
+	MaxKeys       int                `xml:"MaxKeys"`
+	IsTruncated   bool               `xml:"IsTruncated"`
+	Versions      []ObjectVersionXML `xml:"Version"`
+	DeleteMarkers []DeleteMarkerXML  `xml:"DeleteMarker"`
+}
+
+type ObjectVersionXML struct {
+	Key          string `xml:"Key"`
+	VersionId    string `xml:"VersionId"`
+	IsLatest     bool   `xml:"IsLatest"`
+	LastModified string `xml:"LastModified"`
+	ETag         string `xml:"ETag"`
+	Size         int64  `xml:"Size"`
+	Owner        *Owner `xml:"Owner"`
+	StorageClass string `xml:"StorageClass"`
+}
+
+type DeleteMarkerXML struct {
+	Key          string `xml:"Key"`
+	VersionId    string `xml:"VersionId"`
+	IsLatest     bool   `xml:"IsLatest"`
+	LastModified string `xml:"LastModified"`
+	Owner        *Owner `xml:"Owner"`
+}

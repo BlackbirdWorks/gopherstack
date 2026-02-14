@@ -1,7 +1,6 @@
-.PHONY: build install-deps lint lint-fix test integration-test clean
+.PHONY: build install-deps lint lint-fix test integration-test clean demo
 
 BINARY_NAME=gopherstack
-GOLANGCI_LINT_VERSION=v1.64.5
 
 build:
 	go build -o bin/$(BINARY_NAME) main.go
@@ -58,3 +57,8 @@ upgrade:
 
 bench:
 	go test -bench=. -benchmem ./...
+
+demo: 
+	docker compose down
+	docker compose build
+	docker compose up -d
