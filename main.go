@@ -49,16 +49,6 @@ func main() {
 		config.WithRegion("us-east-1"),
 		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("dummy", "dummy", "")),
 		config.WithHTTPClient(inMemClient),
-		config.WithEndpointResolverWithOptions(aws.EndpointResolverWithOptionsFunc(
-			func(service, region string, options ...interface{}) (aws.Endpoint, error) {
-				// URL doesn't matter much for in-memory client, but path routing does
-				// For S3, we want path-style addressing
-				if service == s3.ServiceID {
-					return aws.Endpoint{URL: "http://local/s3", SigningRegion: "us-east-1"}, nil
-				}
-				return aws.Endpoint{URL: "http://local", SigningRegion: "us-east-1"}, nil
-			},
-		)),
 	)
 	if err != nil {
 		logger.Error("Failed to load AWS config", "error", err)
@@ -66,15 +56,18 @@ func main() {
 	}
 
 	// Create SDK Clients
-	ddbClient := dynamodb.NewFromConfig(cfg)
+	ddbClient := dynamodb.NewFromConfig(cfg, func(o *dynamodb.Options) {
+		o.BaseEndpoint = aws.String("http://local")
+	})
 	s3Client := s3.NewFromConfig(cfg, func(o *s3.Options) {
 		o.UsePathStyle = true // Important for our simple S3 handler
+		o.BaseEndpoint = aws.String("http://local/s3")
 	})
 
 	// Load Demo Data
 	if os.Getenv("DEMO") == "true" {
 		logger.Info("Loading demo data...")
-		if err := demo.LoadData(context.Background(), ddbClient, s3Client); err != nil {
+		if err = demo.LoadData(context.Background(), logger, ddbClient, s3Client); err != nil {
 			logger.Error("Failed to load demo data", "error", err)
 		}
 	}
@@ -109,7 +102,7 @@ func main() {
 		IdleTimeout:  idleTimeout,
 	}
 
-	if err := srv.ListenAndServe(); err != nil {
+	if err = srv.ListenAndServe(); err != nil {
 		logger.Error("Failed to start server", "error", err)
 		os.Exit(1)
 	}

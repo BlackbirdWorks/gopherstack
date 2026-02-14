@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -12,8 +13,15 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
+const (
+	maxKeys            = 1000
+	maxMultipartMemory = 32 << 20 // 32 MB
+)
+
 // BucketInfo represents bucket information for display.
 type BucketInfo struct {
+	PageData
+
 	Name              string
 	CreationDate      string
 	VersioningEnabled bool
@@ -24,14 +32,14 @@ type BucketInfo struct {
 type FileTreeItem struct {
 	Name         string
 	FullPath     string
-	IsFolder     bool
 	Size         string
 	LastModified string
 	BucketName   string
+	IsFolder     bool
 }
 
 // s3Index renders the S3 index page.
-func (h *Handler) s3Index(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) s3Index(w http.ResponseWriter, _ *http.Request) {
 	data := PageData{
 		Title:     "S3 Buckets",
 		ActiveTab: "s3",
@@ -40,12 +48,13 @@ func (h *Handler) s3Index(w http.ResponseWriter, r *http.Request) {
 }
 
 // s3BucketList returns the list of buckets as HTML fragment.
-func (h *Handler) s3BucketList(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) s3BucketList(w http.ResponseWriter, _ *http.Request) {
 	ctx := context.Background()
 	output, err := h.S3.ListBuckets(ctx, &s3.ListBucketsInput{})
 	if err != nil {
 		h.Logger.Error("Failed to list buckets", "error", err)
 		http.Error(w, "Failed to list buckets", http.StatusInternalServerError)
+
 		return
 	}
 
@@ -59,7 +68,7 @@ func (h *Handler) s3BucketList(w http.ResponseWriter, r *http.Request) {
 		// Count objects (simplified)
 		objects, _ := h.S3.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
 			Bucket:  bucket.Name,
-			MaxKeys: aws.Int32(1000),
+			MaxKeys: aws.Int32(maxKeys),
 		})
 
 		info := BucketInfo{
@@ -85,6 +94,7 @@ func (h *Handler) s3BucketDetail(w http.ResponseWriter, r *http.Request, bucketN
 	_, err := h.S3.HeadBucket(ctx, &s3.HeadBucketInput{Bucket: &bucketName})
 	if err != nil {
 		http.NotFound(w, r)
+
 		return
 	}
 
@@ -96,6 +106,7 @@ func (h *Handler) s3BucketDetail(w http.ResponseWriter, r *http.Request, bucketN
 
 	data := struct {
 		PageData
+
 		BucketName string
 		Prefix     string
 		PathParts  []string
@@ -119,7 +130,7 @@ func (h *Handler) s3FileTree(w http.ResponseWriter, r *http.Request, bucketName 
 
 	input := &s3.ListObjectsV2Input{
 		Bucket:  &bucketName,
-		MaxKeys: aws.Int32(1000),
+		MaxKeys: aws.Int32(maxKeys),
 	}
 	if prefix != "" {
 		input.Prefix = &prefix
@@ -129,6 +140,7 @@ func (h *Handler) s3FileTree(w http.ResponseWriter, r *http.Request, bucketName 
 	if err != nil {
 		h.Logger.Error("Failed to list objects", "error", err)
 		http.Error(w, "Failed to list objects", http.StatusInternalServerError)
+
 		return
 	}
 
@@ -144,8 +156,8 @@ func (h *Handler) s3FileTree(w http.ResponseWriter, r *http.Request, bucketName 
 		}
 
 		// Check if this is a folder (contains /)
-		if idx := strings.Index(key, "/"); idx != -1 {
-			folderName := key[:idx]
+		if before, _, ok := strings.Cut(key, "/"); ok {
+			folderName := before
 			if !folders[folderName] {
 				folders[folderName] = true
 				items = append(items, FileTreeItem{
@@ -189,6 +201,7 @@ func (h *Handler) s3FileDetail(w http.ResponseWriter, r *http.Request, bucketNam
 	})
 	if err != nil {
 		http.NotFound(w, r)
+
 		return
 	}
 
@@ -225,11 +238,12 @@ func (h *Handler) s3FileDetail(w http.ResponseWriter, r *http.Request, bucketNam
 
 	// List versions
 	var versionList []struct {
-		VersionId    string
+		VersionID    string
 		LastModified string
 	}
+	var verOutput *s3.ListObjectVersionsOutput
 	if versioningEnabled {
-		verOutput, err := h.S3.ListObjectVersions(ctx, &s3.ListObjectVersionsInput{
+		verOutput, err = h.S3.ListObjectVersions(ctx, &s3.ListObjectVersionsInput{
 			Bucket: &bucketName,
 			Prefix: &key,
 		})
@@ -237,10 +251,10 @@ func (h *Handler) s3FileDetail(w http.ResponseWriter, r *http.Request, bucketNam
 			for _, v := range verOutput.Versions {
 				if *v.Key == key {
 					versionList = append(versionList, struct {
-						VersionId    string
+						VersionID    string
 						LastModified string
 					}{
-						VersionId:    *v.VersionId,
+						VersionID:    *v.VersionId,
 						LastModified: v.LastModified.Format("2006-01-02 15:04:05"),
 					})
 				}
@@ -250,18 +264,19 @@ func (h *Handler) s3FileDetail(w http.ResponseWriter, r *http.Request, bucketNam
 
 	data := struct {
 		PageData
-		BucketName        string
-		Key               string
-		Size              string
-		LastModified      string
-		ContentType       string
-		ETag              string
-		VersioningEnabled bool
-		Versions          []struct {
-			VersionId    string
+
+		Tags         map[string]string
+		BucketName   string
+		Key          string
+		Size         string
+		LastModified string
+		ContentType  string
+		ETag         string
+		Versions     []struct {
+			VersionID    string
 			LastModified string
 		}
-		Tags map[string]string
+		VersioningEnabled bool
 	}{
 		PageData: PageData{
 			Title:     key,
@@ -291,6 +306,7 @@ func (h *Handler) s3Download(w http.ResponseWriter, r *http.Request, bucketName,
 	})
 	if err != nil {
 		http.NotFound(w, r)
+
 		return
 	}
 	defer output.Body.Close()
@@ -301,7 +317,7 @@ func (h *Handler) s3Download(w http.ResponseWriter, r *http.Request, bucketName,
 		w.Header().Set("Content-Type", *output.ContentType)
 	}
 	if output.ContentLength != nil {
-		w.Header().Set("Content-Length", fmt.Sprintf("%d", *output.ContentLength))
+		w.Header().Set("Content-Length", strconv.FormatInt(*output.ContentLength, 10))
 	}
 
 	// Copy object data to response
@@ -312,20 +328,23 @@ func (h *Handler) s3Download(w http.ResponseWriter, r *http.Request, bucketName,
 func (h *Handler) s3Upload(w http.ResponseWriter, r *http.Request, bucketName string) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+
 		return
 	}
 
 	ctx := context.Background()
 
 	// Parse multipart form
-	if err := r.ParseMultipartForm(32 << 20); err != nil { // 32 MB max
+	if err := r.ParseMultipartForm(maxMultipartMemory); err != nil {
 		http.Error(w, "Failed to parse form", http.StatusBadRequest)
+
 		return
 	}
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
 		http.Error(w, "Failed to get file", http.StatusBadRequest)
+
 		return
 	}
 	defer file.Close()
@@ -363,8 +382,8 @@ func (h *Handler) s3Upload(w http.ResponseWriter, r *http.Request, bucketName st
 		// Wait, PutObjectInput.Tagging is a string.
 		// "The tag-set for the object. The tag-set must be encoded as URL Query parameters."
 		var tagParts []string
-		pairs := strings.Split(tagsInput, ",")
-		for _, p := range pairs {
+		pairs := strings.SplitSeq(tagsInput, ",")
+		for p := range pairs {
 			kv := strings.TrimSpace(p)
 			// Simple URL encoding of key and value if needed, but for now assuming simple text
 			tagParts = append(tagParts, kv)
@@ -375,22 +394,69 @@ func (h *Handler) s3Upload(w http.ResponseWriter, r *http.Request, bucketName st
 	_, err = h.S3.PutObject(ctx, input)
 	if err != nil {
 		h.Logger.Error("Failed to upload object", "bucket", bucketName, "key", key, "error", err)
-		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "Failed to upload file: %s", "type": "error"}}`, strings.ReplaceAll(err.Error(), `"`, `'`)))
+		toastMessage := fmt.Sprintf(`{"showToast": {"message": "Failed to upload file: %s", "type": "error"}}`,
+			strings.ReplaceAll(err.Error(), `"`, `'`))
+		w.Header().Set("Hx-Trigger", toastMessage)
 		w.WriteHeader(http.StatusUnprocessableEntity)
+
 		return
 	}
 
 	// Return success and refresh file tree
-	w.Header().Set("HX-Trigger", "fileUploaded")
+	w.Header().Set("Hx-Trigger", "fileUploaded")
 	// Instead of alert, return the updated file tree!
 	// This refreshes the list in place (target is #file-tree)
 	h.s3FileTree(w, r, bucketName)
+}
+
+// deleteAllVersions deletes all versions of an object including delete markers.
+func (h *Handler) deleteAllVersions(ctx context.Context, bucketName, key string) error {
+	output, err := h.S3.ListObjectVersions(ctx, &s3.ListObjectVersionsInput{
+		Bucket: &bucketName,
+		Prefix: &key,
+	})
+	if err != nil {
+		h.Logger.ErrorContext(ctx, "Failed to list versions for deletion", "error", err)
+
+		return err
+	}
+
+	for _, v := range output.Versions {
+		if *v.Key == key {
+			_, err = h.S3.DeleteObject(ctx, &s3.DeleteObjectInput{
+				Bucket:    &bucketName,
+				Key:       &key,
+				VersionId: v.VersionId,
+			})
+			if err != nil {
+				h.Logger.ErrorContext(ctx, "Failed to delete version",
+					"key", key, "versionId", *v.VersionId, "error", err)
+			}
+		}
+	}
+
+	for _, dm := range output.DeleteMarkers {
+		if *dm.Key == key {
+			_, err = h.S3.DeleteObject(ctx, &s3.DeleteObjectInput{
+				Bucket:    &bucketName,
+				Key:       &key,
+				VersionId: dm.VersionId,
+			})
+			if err != nil {
+				h.Logger.ErrorContext(ctx, "Failed to delete delete marker",
+					"key", key, "versionId", *dm.VersionId, "error", err)
+			}
+		}
+	}
+
+	return nil
 }
 
 // s3Versioning handles bucket versioning configuration.
 func (h *Handler) s3Versioning(w http.ResponseWriter, r *http.Request, bucketName string) {
 	if r.Method != http.MethodPut {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+
 		return
 	}
 
@@ -413,6 +479,7 @@ func (h *Handler) s3Versioning(w http.ResponseWriter, r *http.Request, bucketNam
 	if err != nil {
 		h.Logger.Error("Failed to update versioning", "error", err)
 		http.Error(w, "Failed to update versioning", http.StatusInternalServerError)
+
 		return
 	}
 
@@ -431,6 +498,7 @@ func formatBytes(bytes int64) string {
 		div *= unit
 		exp++
 	}
+
 	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
 
@@ -438,12 +506,14 @@ func formatBytes(bytes int64) string {
 func (h *Handler) s3CreateBucket(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+
 		return
 	}
 
 	if err := r.ParseForm(); err != nil {
 		h.Logger.Error("Failed to parse form", "error", err)
 		http.Error(w, "Bad request", http.StatusBadRequest)
+
 		return
 	}
 
@@ -458,14 +528,17 @@ func (h *Handler) s3CreateBucket(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		h.Logger.Error("Failed to create bucket", "bucket", bucketName, "error", err)
-		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "Failed to create bucket: %s", "type": "error"}}`, strings.ReplaceAll(err.Error(), `"`, `'`)))
+		toastMessage := fmt.Sprintf(`{"showToast": {"message": "Failed to create bucket: %s", "type": "error"}}`,
+			strings.ReplaceAll(err.Error(), `"`, `'`))
+		w.Header().Set("Hx-Trigger", toastMessage)
 		w.WriteHeader(http.StatusUnprocessableEntity)
+
 		return
 	}
 
 	// Enable versioning if requested
 	if versioningEnabled {
-		_, err := h.S3.PutBucketVersioning(ctx, &s3.PutBucketVersioningInput{
+		_, err = h.S3.PutBucketVersioning(ctx, &s3.PutBucketVersioningInput{
 			Bucket: &bucketName,
 			VersioningConfiguration: &types.VersioningConfiguration{
 				Status: types.BucketVersioningStatusEnabled,
@@ -488,6 +561,7 @@ func (h *Handler) s3DeleteFile(w http.ResponseWriter, r *http.Request, bucketNam
 	if r.Method != http.MethodDelete {
 		h.Logger.Warn("Method not allowed", "method", r.Method)
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+
 		return
 	}
 
@@ -499,40 +573,10 @@ func (h *Handler) s3DeleteFile(w http.ResponseWriter, r *http.Request, bucketNam
 	h.Logger.Info("Deletion parameters", "deleteAll", deleteAll, "versionID", versionID)
 
 	if deleteAll {
-		// List all versions and delete each one
-		output, err := h.S3.ListObjectVersions(ctx, &s3.ListObjectVersionsInput{
-			Bucket: &bucketName,
-			Prefix: &key,
-		})
-		if err != nil {
-			h.Logger.Error("Failed to list versions for deletion", "error", err)
-			http.Error(w, "Failed to list versions", http.StatusInternalServerError)
-			return
-		}
+		if err := h.deleteAllVersions(ctx, bucketName, key); err != nil {
+			http.Error(w, "Failed to delete all versions", http.StatusInternalServerError)
 
-		for _, v := range output.Versions {
-			if *v.Key == key {
-				_, err := h.S3.DeleteObject(ctx, &s3.DeleteObjectInput{
-					Bucket:    &bucketName,
-					Key:       &key,
-					VersionId: v.VersionId,
-				})
-				if err != nil {
-					h.Logger.Error("Failed to delete version", "key", key, "versionId", *v.VersionId, "error", err)
-				}
-			}
-		}
-		for _, dm := range output.DeleteMarkers {
-			if *dm.Key == key {
-				_, err := h.S3.DeleteObject(ctx, &s3.DeleteObjectInput{
-					Bucket:    &bucketName,
-					Key:       &key,
-					VersionId: dm.VersionId,
-				})
-				if err != nil {
-					h.Logger.Error("Failed to delete delete marker", "key", key, "versionId", *dm.VersionId, "error", err)
-				}
-			}
+			return
 		}
 	} else {
 		// Standard delete (creates delete marker or deletes specific version)
@@ -548,26 +592,29 @@ func (h *Handler) s3DeleteFile(w http.ResponseWriter, r *http.Request, bucketNam
 		if err != nil {
 			h.Logger.Error("Failed to delete object", "error", err)
 			http.Error(w, "Failed to delete object", http.StatusInternalServerError)
+
 			return
 		}
 	}
 
 	// Read HX-Trigger to determine source context (list vs detail)
 	// If HX-Target is body, likely from detail page, redirect to bucket
-	if r.Header.Get("HX-Target") == "body" {
-		w.Header().Set("HX-Redirect", fmt.Sprintf("/dashboard/s3/bucket/%s", bucketName))
+	if r.Header.Get("Hx-Target") == "body" {
+		w.Header().Set("Hx-Redirect", fmt.Sprintf("/dashboard/s3/bucket/%s", bucketName))
+
 		return
 	}
 
 	// Otherwise from list, just remove the element
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(" ")) // Write something to ensure HTMX triggers swap
+	_, _ = w.Write([]byte(" ")) // Write something to ensure HTMX triggers swap
 }
 
 // s3DeleteBucket handles bucket deletion.
 func (h *Handler) s3DeleteBucket(w http.ResponseWriter, r *http.Request, bucketName string) {
 	if r.Method != http.MethodDelete {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+
 		return
 	}
 
@@ -578,12 +625,15 @@ func (h *Handler) s3DeleteBucket(w http.ResponseWriter, r *http.Request, bucketN
 	if err != nil {
 		h.Logger.Error("Failed to delete bucket", "bucket", bucketName, "error", err)
 		// Set a trigger for the client-side toast
-		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "Failed to delete bucket: %s", "type": "error"}}`, strings.ReplaceAll(err.Error(), `"`, `'`)))
+		toastMessage := fmt.Sprintf(`{"showToast": {"message": "Failed to delete bucket: %s", "type": "error"}}`,
+			strings.ReplaceAll(err.Error(), `"`, `'`))
+		w.Header().Set("Hx-Trigger", toastMessage)
 		w.WriteHeader(http.StatusUnprocessableEntity)
+
 		return
 	}
 
 	// Success: return nothing to remove the card (target is .card with outerHTML)
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(" "))
+	_, _ = w.Write([]byte(" "))
 }

@@ -366,6 +366,42 @@ func TestHandler_HeadObject(t *testing.T) {
 	}
 }
 
+func TestHandler_HeadObjectWithMetadata(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	require.NoError(t, backend.CreateBucket("bkt"))
+
+	// 1. Put object with metadata and content-type
+	req := httptest.NewRequest(http.MethodPut, "/bkt/meta", strings.NewReader("data"))
+	req.Header.Set("Content-Type", "text/plain")
+	req.Header.Set("X-Amz-Meta-Author", "Antigravity")
+	req.Header.Set("X-Amz-Meta-Priority", "High")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// 2. Head object and verify headers
+	req = httptest.NewRequest(http.MethodHead, "/bkt/meta", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "text/plain", rec.Header().Get("Content-Type"))
+	assert.Equal(t, "Antigravity", rec.Header().Get("X-Amz-Meta-Author"))
+	assert.Equal(t, "High", rec.Header().Get("X-Amz-Meta-Priority"))
+
+	// 3. Get object and verify headers (should also work)
+	req = httptest.NewRequest(http.MethodGet, "/bkt/meta", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "text/plain", rec.Header().Get("Content-Type"))
+	assert.Equal(t, "Antigravity", rec.Header().Get("X-Amz-Meta-Author"))
+	assert.Equal(t, "High", rec.Header().Get("X-Amz-Meta-Priority"))
+}
+
 func TestHandler_ObjectTagging(t *testing.T) {
 	t.Parallel()
 

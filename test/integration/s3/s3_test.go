@@ -275,29 +275,40 @@ func TestS3ObjectCRUD(t *testing.T) {
 			},
 		},
 		{
-			name: "head object returns metadata",
+			name: "head object returns full metadata and content-type",
 			verify: func(t *testing.T, client *s3.Client) {
 				t.Helper()
 				ctx := t.Context()
 
 				_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{
-					Bucket: aws.String("bkt"),
+					Bucket: aws.String("meta-bkt"),
 				})
 				require.NoError(t, err)
 
 				_, err = client.PutObject(ctx, &s3.PutObjectInput{
-					Bucket: aws.String("bkt"),
-					Key:    aws.String("obj"),
-					Body:   strings.NewReader("hello"),
+					Bucket:      aws.String("meta-bkt"),
+					Key:         aws.String("obj"),
+					Body:        strings.NewReader("hello"),
+					ContentType: aws.String("text/plain"),
+					Metadata: map[string]string{
+						"Author":   "Antigravity",
+						"Priority": "High",
+					},
 				})
 				require.NoError(t, err)
 
 				head, err := client.HeadObject(ctx, &s3.HeadObjectInput{
-					Bucket: aws.String("bkt"),
+					Bucket: aws.String("meta-bkt"),
 					Key:    aws.String("obj"),
 				})
 				require.NoError(t, err)
+
+				assert.Equal(t, "text/plain", *head.ContentType)
+				assert.Equal(t, "Antigravity", head.Metadata["author"])
+				assert.Equal(t, "High", head.Metadata["priority"])
 				assert.NotNil(t, head.ContentLength)
+				assert.Equal(t, int64(5), *head.ContentLength)
+				assert.NotNil(t, head.LastModified)
 			},
 		},
 		{

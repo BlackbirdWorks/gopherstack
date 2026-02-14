@@ -13,29 +13,35 @@ import (
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
-// LoadData loads sample data into DynamoDB and S3.
-func LoadData(ctx context.Context, ddb *dynamodb.Client, s3Client *s3.Client) error {
-	slog.Info("Loading demo data...")
+const (
+	defaultCapacity = 5
+	helloFilesCount = 2
+)
 
-	if err := loadDynamoDB(ctx, ddb); err != nil {
+// LoadData loads sample data into DynamoDB and S3.
+func LoadData(ctx context.Context, logger *slog.Logger, ddb *dynamodb.Client, s3Client *s3.Client) error {
+	logger.InfoContext(ctx, "Loading demo data...")
+
+	if err := loadDynamoDB(ctx, logger, ddb); err != nil {
 		return fmt.Errorf("failed to load dynamodb data: %w", err)
 	}
 
-	if err := loadS3(ctx, s3Client); err != nil {
+	if err := loadS3(ctx, logger, s3Client); err != nil {
 		return fmt.Errorf("failed to load s3 data: %w", err)
 	}
 
-	slog.Info("Demo data loaded successfully")
+	logger.InfoContext(ctx, "Demo data loaded successfully")
+
 	return nil
 }
 
-func loadDynamoDB(ctx context.Context, ddb *dynamodb.Client) error {
+func loadDynamoDB(ctx context.Context, logger *slog.Logger, ddb *dynamodb.Client) error {
 	tableName := "Movies"
 
 	// Check if table exists
 	_, err := ddb.DescribeTable(ctx, &dynamodb.DescribeTableInput{TableName: &tableName})
 	if err == nil {
-		slog.Info("Table already exists, skipping creation", "table", tableName)
+		logger.InfoContext(ctx, "Table already exists, skipping creation", "table", tableName)
 	} else {
 		// Create Table
 		_, err = ddb.CreateTable(ctx, &dynamodb.CreateTableInput{
@@ -49,14 +55,14 @@ func loadDynamoDB(ctx context.Context, ddb *dynamodb.Client) error {
 				{AttributeName: aws.String("Title"), AttributeType: types.ScalarAttributeTypeS},
 			},
 			ProvisionedThroughput: &types.ProvisionedThroughput{
-				ReadCapacityUnits:  aws.Int64(5),
-				WriteCapacityUnits: aws.Int64(5),
+				ReadCapacityUnits:  aws.Int64(defaultCapacity),
+				WriteCapacityUnits: aws.Int64(defaultCapacity),
 			},
 		})
 		if err != nil {
 			return fmt.Errorf("failed to create table: %w", err)
 		}
-		slog.Info("Created table", "table", tableName)
+		logger.InfoContext(ctx, "Created table", "table", tableName)
 	}
 
 	// Insert Items
@@ -74,7 +80,7 @@ func loadDynamoDB(ctx context.Context, ddb *dynamodb.Client) error {
 	}
 
 	for _, item := range items {
-		_, err := ddb.PutItem(ctx, &dynamodb.PutItemInput{
+		_, err = ddb.PutItem(ctx, &dynamodb.PutItemInput{
 			TableName: &tableName,
 			Item:      item,
 		})
@@ -82,12 +88,12 @@ func loadDynamoDB(ctx context.Context, ddb *dynamodb.Client) error {
 			return fmt.Errorf("failed to put item: %w", err)
 		}
 	}
-	slog.Info("Loaded DynamoDB items", "count", len(items))
+	logger.InfoContext(ctx, "Loaded DynamoDB items", "count", len(items))
 
 	return nil
 }
 
-func loadS3(ctx context.Context, s3Client *s3.Client) error {
+func loadS3(ctx context.Context, logger *slog.Logger, s3Client *s3.Client) error {
 	bucketName := "demo-bucket"
 
 	// Create Bucket
@@ -99,12 +105,13 @@ func loadS3(ctx context.Context, s3Client *s3.Client) error {
 		// SDK returns specific error but for demo code we can just log and continue or assume it exists
 		// Wait, CreateBucket returns error if exists?
 		// "BucketAlreadyOwnedByYou"
-		if !strings.Contains(err.Error(), "BucketAlreadyOwnedByYou") && !strings.Contains(err.Error(), "BucketAlreadyExists") {
+		if !strings.Contains(err.Error(), "BucketAlreadyOwnedByYou") &&
+			!strings.Contains(err.Error(), "BucketAlreadyExists") {
 			// In-memory backend might return generic error or specific.
 			// We'll log and continue if it fails, maybe it already exists.
-			slog.Warn("Failed to create bucket (might exist)", "bucket", bucketName, "error", err)
+			logger.WarnContext(ctx, "Failed to create bucket (might exist)", "bucket", bucketName, "error", err)
 		}
-		slog.Info("Created bucket", "bucket", bucketName)
+		logger.InfoContext(ctx, "Created bucket", "bucket", bucketName)
 	}
 
 	_, err = s3Client.PutBucketVersioning(ctx, &s3.PutBucketVersioningInput{
@@ -114,9 +121,9 @@ func loadS3(ctx context.Context, s3Client *s3.Client) error {
 		},
 	})
 	if err != nil {
-		slog.Warn("Failed to enable versioning", "error", err)
+		logger.WarnContext(ctx, "Failed to enable versioning", "error", err)
 	} else {
-		slog.Info("Enabled versioning", "bucket", bucketName)
+		logger.InfoContext(ctx, "Enabled versioning", "bucket", bucketName)
 	}
 
 	// Upload Files (Multiple versions for hello.txt)
@@ -148,7 +155,7 @@ func loadS3(ctx context.Context, s3Client *s3.Client) error {
 	}
 
 	for key, content := range files {
-		_, err := s3Client.PutObject(ctx, &s3.PutObjectInput{
+		_, err = s3Client.PutObject(ctx, &s3.PutObjectInput{
 			Bucket:      &bucketName,
 			Key:         &key,
 			Body:        strings.NewReader(content),
@@ -158,7 +165,7 @@ func loadS3(ctx context.Context, s3Client *s3.Client) error {
 			return fmt.Errorf("failed to upload file %s: %w", key, err)
 		}
 	}
-	slog.Info("Loaded S3 files", "count", len(files)+2)
+	logger.InfoContext(ctx, "Loaded S3 files", "count", len(files)+helloFilesCount)
 
 	return nil
 }

@@ -11,6 +11,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
+const (
+	pathPartsCount = 2
+)
+
 // OperationsProvider defines an interface for retrieving supported operations.
 type OperationsProvider interface {
 	GetSupportedOperations() []string
@@ -50,13 +54,14 @@ func NewHandler(db *dynamodb.Client, s3Client *s3.Client, ddbOps, s3Ops Operatio
 	}
 }
 
-// ServeHTTP implements http.Handler interface.
+// ServeHTTP implements [http.Handler] interface.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/dashboard")
 
 	// Serve static files
 	if strings.HasPrefix(path, "/static/") {
 		http.FileServer(http.FS(staticFS)).ServeHTTP(w, r)
+
 		return
 	}
 
@@ -84,6 +89,7 @@ func (h *Handler) renderTemplate(w http.ResponseWriter, pageFile string, data an
 	if err != nil {
 		h.Logger.Error("Failed to clone layout template", "error", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
+
 		return
 	}
 
@@ -93,11 +99,12 @@ func (h *Handler) renderTemplate(w http.ResponseWriter, pageFile string, data an
 	if err != nil {
 		h.Logger.Error("Failed to parse page template", "page", pageFile, "error", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
+
 		return
 	}
 
 	// Execute layout.html which should include the content block
-	if err := tmpl.ExecuteTemplate(w, "layout.html", data); err != nil {
+	if err = tmpl.ExecuteTemplate(w, "layout.html", data); err != nil {
 		h.Logger.Error("Failed to execute template", "page", pageFile, "error", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}
@@ -113,10 +120,11 @@ func (h *Handler) renderFragment(w http.ResponseWriter, name string, data any) {
 	if err != nil {
 		h.Logger.Error("Failed to clone layout for fragment", "fragment", name, "error", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
+
 		return
 	}
 
-	if err := tmpl.ExecuteTemplate(w, name, data); err != nil {
+	if err = tmpl.ExecuteTemplate(w, name, data); err != nil {
 		h.Logger.Error("Failed to render fragment", "fragment", name, "error", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}
@@ -135,7 +143,7 @@ func (h *Handler) handleDynamoDB(w http.ResponseWriter, r *http.Request, path st
 		h.dynamoDBSearch(w, r)
 	case strings.HasPrefix(path, "/table/"):
 		tablePath := strings.TrimPrefix(path, "/table/")
-		parts := strings.SplitN(tablePath, "/", 2)
+		parts := strings.SplitN(tablePath, "/", pathPartsCount)
 		tableName := parts[0]
 
 		if len(parts) == 1 {
@@ -170,40 +178,56 @@ func (h *Handler) handleS3(w http.ResponseWriter, r *http.Request, path string) 
 	case path == "/create":
 		h.s3CreateBucket(w, r)
 	case strings.HasPrefix(path, "/bucket/"):
-		bucketPath := strings.TrimPrefix(path, "/bucket/")
-		parts := strings.SplitN(bucketPath, "/", 2)
-		bucketName := parts[0]
-
-		if len(parts) == 1 {
-			if r.Method == http.MethodDelete {
-				h.s3DeleteBucket(w, r, bucketName)
-			} else {
-				h.s3BucketDetail(w, r, bucketName)
-			}
-		} else {
-			action := parts[1]
-			switch {
-			case action == "tree":
-				h.s3FileTree(w, r, bucketName)
-			case action == "upload":
-				h.s3Upload(w, r, bucketName)
-			case action == "versioning":
-				h.s3Versioning(w, r, bucketName)
-			case strings.HasPrefix(action, "file/"):
-				key := strings.TrimPrefix(action, "file/")
-				if r.Method == http.MethodDelete {
-					h.s3DeleteFile(w, r, bucketName, key)
-				} else {
-					h.s3FileDetail(w, r, bucketName, key)
-				}
-			case strings.HasPrefix(action, "download/"):
-				key := strings.TrimPrefix(action, "download/")
-				h.s3Download(w, r, bucketName, key)
-			default:
-				http.NotFound(w, r)
-			}
-		}
+		h.handleS3Bucket(w, r, strings.TrimPrefix(path, "/bucket/"))
 	default:
 		http.NotFound(w, r)
+	}
+}
+
+// handleS3Bucket routes specific bucket operations.
+func (h *Handler) handleS3Bucket(w http.ResponseWriter, r *http.Request, bucketPath string) {
+	parts := strings.SplitN(bucketPath, "/", pathPartsCount)
+	bucketName := parts[0]
+
+	if len(parts) == 1 {
+		if r.Method == http.MethodDelete {
+			h.s3DeleteBucket(w, r, bucketName)
+		} else {
+			h.s3BucketDetail(w, r, bucketName)
+		}
+
+		return
+	}
+
+	action := parts[1]
+	switch {
+	case action == "tree":
+		h.s3FileTree(w, r, bucketName)
+	case action == "upload":
+		h.s3Upload(w, r, bucketName)
+	case action == "versioning":
+		h.s3Versioning(w, r, bucketName)
+	case strings.HasPrefix(action, "file/"):
+		h.handleS3File(w, r, bucketName, strings.TrimPrefix(action, "file/"))
+	case strings.HasPrefix(action, "download/"):
+		h.handleS3File(w, r, bucketName, action)
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+// handleS3File handles file-specific operations.
+func (h *Handler) handleS3File(w http.ResponseWriter, r *http.Request, bucketName, action string) {
+	if key, cut := strings.CutPrefix(action, "download/"); cut {
+		h.s3Download(w, r, bucketName, key)
+
+		return
+	}
+
+	key := action
+	if r.Method == http.MethodDelete {
+		h.s3DeleteFile(w, r, bucketName, key)
+	} else {
+		h.s3FileDetail(w, r, bucketName, key)
 	}
 }
