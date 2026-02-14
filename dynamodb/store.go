@@ -129,5 +129,6 @@ func (db *InMemoryDB) GetTable(name string) (*Table, bool) {
 	defer db.mu.RUnlock()
 
 	table, exists := db.Tables[name]
+
 	return table, exists
 }

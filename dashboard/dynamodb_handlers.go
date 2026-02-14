@@ -12,6 +12,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
 
+const (
+	defaultCapacity = 5
+)
+
 // PageData represents common page data.
 type PageData struct {
 	Title     string
@@ -25,11 +29,11 @@ type TableInfo struct {
 	PartitionKeyType       string
 	SortKey                string
 	SortKeyType            string
+	GlobalSecondaryIndexes []IndexInfo
+	LocalSecondaryIndexes  []IndexInfo
 	ItemCount              int64
 	GSICount               int
 	LSICount               int
-	GlobalSecondaryIndexes []IndexInfo
-	LocalSecondaryIndexes  []IndexInfo
 }
 
 // IndexInfo represents index information.
@@ -44,14 +48,14 @@ type IndexInfo struct {
 
 // QueryResult represents query results.
 type QueryResult struct {
+	LastEvaluatedKey map[string]types.AttributeValue
 	Items            []map[string]types.AttributeValue
 	Count            int32
 	ScannedCount     int32
-	LastEvaluatedKey map[string]types.AttributeValue
 }
 
 // dynamoDBIndex renders the DynamoDB index page.
-func (h *Handler) dynamoDBIndex(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) dynamoDBIndex(w http.ResponseWriter, _ *http.Request) {
 	data := PageData{
 		Title:     "DynamoDB Tables",
 		ActiveTab: "dynamodb",
@@ -60,18 +64,20 @@ func (h *Handler) dynamoDBIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 // dynamoDBTableList returns the list of tables as HTML fragment.
-func (h *Handler) dynamoDBTableList(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) dynamoDBTableList(w http.ResponseWriter, _ *http.Request) {
 	ctx := context.Background()
 	output, err := h.DynamoDB.ListTables(ctx, &dynamodb.ListTablesInput{})
 	if err != nil {
 		h.Logger.Error("Failed to list tables", "error", err)
 		http.Error(w, "Failed to list tables", http.StatusInternalServerError)
+
 		return
 	}
 
 	var tableInfos []TableInfo
 	for _, tableName := range output.TableNames {
-		desc, err := h.DynamoDB.DescribeTable(ctx, &dynamodb.DescribeTableInput{TableName: &tableName})
+		var desc *dynamodb.DescribeTableOutput
+		desc, err = h.DynamoDB.DescribeTable(ctx, &dynamodb.DescribeTableInput{TableName: &tableName})
 		if err != nil {
 			continue
 		}
@@ -86,17 +92,19 @@ func (h *Handler) dynamoDBTableList(w http.ResponseWriter, r *http.Request) {
 
 		// Extract keys from KeySchema and AttributeDefinitions
 		for _, key := range table.KeySchema {
-			if key.KeyType == types.KeyTypeHash {
+			switch key.KeyType {
+			case types.KeyTypeHash:
 				info.PartitionKey = *key.AttributeName
-			} else if key.KeyType == types.KeyTypeRange {
+			case types.KeyTypeRange:
 				info.SortKey = *key.AttributeName
 			}
 		}
 
 		for _, attr := range table.AttributeDefinitions {
-			if *attr.AttributeName == info.PartitionKey {
+			switch *attr.AttributeName {
+			case info.PartitionKey:
 				info.PartitionKeyType = string(attr.AttributeType)
-			} else if *attr.AttributeName == info.SortKey {
+			case info.SortKey:
 				info.SortKeyType = string(attr.AttributeType)
 			}
 		}
@@ -123,82 +131,10 @@ func (h *Handler) dynamoDBTableDetail(w http.ResponseWriter, r *http.Request, ta
 	output, err := h.DynamoDB.DescribeTable(ctx, &dynamodb.DescribeTableInput{TableName: &tableName})
 	if err != nil {
 		http.NotFound(w, r)
+
 		return
 	}
-	table := output.Table
-
-	info := TableInfo{
-		TableName: *table.TableName,
-		ItemCount: *table.ItemCount,
-		GSICount:  len(table.GlobalSecondaryIndexes),
-		LSICount:  len(table.LocalSecondaryIndexes),
-	}
-
-	// Extract keys
-	for _, key := range table.KeySchema {
-		if key.KeyType == types.KeyTypeHash {
-			info.PartitionKey = *key.AttributeName
-		} else if key.KeyType == types.KeyTypeRange {
-			info.SortKey = *key.AttributeName
-		}
-	}
-
-	for _, attr := range table.AttributeDefinitions {
-		if *attr.AttributeName == info.PartitionKey {
-			info.PartitionKeyType = string(attr.AttributeType)
-		} else if *attr.AttributeName == info.SortKey {
-			info.SortKeyType = string(attr.AttributeType)
-		}
-	}
-
-	// Add GSI information
-	for _, gsi := range table.GlobalSecondaryIndexes {
-		gsiInfo := IndexInfo{
-			IndexName:      *gsi.IndexName,
-			ProjectionType: string(gsi.Projection.ProjectionType),
-		}
-
-		for _, key := range gsi.KeySchema {
-			if key.KeyType == types.KeyTypeHash {
-				gsiInfo.PartitionKey = *key.AttributeName
-			} else if key.KeyType == types.KeyTypeRange {
-				gsiInfo.SortKey = *key.AttributeName
-			}
-		}
-
-		// Note: Attribute types for GSI keys must be looked up in AttributeDefinitions
-		for _, attr := range table.AttributeDefinitions {
-			if *attr.AttributeName == gsiInfo.PartitionKey {
-				gsiInfo.PartitionKeyType = string(attr.AttributeType)
-			} else if *attr.AttributeName == gsiInfo.SortKey {
-				gsiInfo.SortKeyType = string(attr.AttributeType)
-			}
-		}
-
-		info.GlobalSecondaryIndexes = append(info.GlobalSecondaryIndexes, gsiInfo)
-	}
-
-	// Add LSI information
-	for _, lsi := range table.LocalSecondaryIndexes {
-		lsiInfo := IndexInfo{
-			IndexName:      *lsi.IndexName,
-			ProjectionType: string(lsi.Projection.ProjectionType),
-		}
-
-		for _, key := range lsi.KeySchema {
-			if key.KeyType == types.KeyTypeRange {
-				lsiInfo.SortKey = *key.AttributeName
-			}
-		}
-
-		for _, attr := range table.AttributeDefinitions {
-			if *attr.AttributeName == lsiInfo.SortKey {
-				lsiInfo.SortKeyType = string(attr.AttributeType)
-			}
-		}
-
-		info.LocalSecondaryIndexes = append(info.LocalSecondaryIndexes, lsiInfo)
-	}
+	info := h.extractTableInfo(output.Table)
 
 	data := struct {
 		PageData
@@ -214,118 +150,121 @@ func (h *Handler) dynamoDBTableDetail(w http.ResponseWriter, r *http.Request, ta
 	h.renderTemplate(w, "dynamodb/table_detail.html", data)
 }
 
+// extractTableInfo extracts display information from a DescribeTable output.
+func (h *Handler) extractTableInfo(table *types.TableDescription) TableInfo {
+	info := TableInfo{
+		TableName: *table.TableName,
+		ItemCount: *table.ItemCount,
+		GSICount:  len(table.GlobalSecondaryIndexes),
+		LSICount:  len(table.LocalSecondaryIndexes),
+	}
+
+	// Extract keys
+	for _, key := range table.KeySchema {
+		switch key.KeyType {
+		case types.KeyTypeHash:
+			info.PartitionKey = *key.AttributeName
+		case types.KeyTypeRange:
+			info.SortKey = *key.AttributeName
+		}
+	}
+
+	for _, attr := range table.AttributeDefinitions {
+		switch *attr.AttributeName {
+		case info.PartitionKey:
+			info.PartitionKeyType = string(attr.AttributeType)
+		case info.SortKey:
+			info.SortKeyType = string(attr.AttributeType)
+		}
+	}
+
+	// Add GSI information
+	for _, gsi := range table.GlobalSecondaryIndexes {
+		gsiInfo := h.extractIndexInfo(gsi.IndexName, gsi.KeySchema, gsi.Projection, table.AttributeDefinitions)
+		info.GlobalSecondaryIndexes = append(info.GlobalSecondaryIndexes, gsiInfo)
+	}
+
+	// Add LSI information
+	for _, lsi := range table.LocalSecondaryIndexes {
+		lsiInfo := h.extractIndexInfo(lsi.IndexName, lsi.KeySchema, lsi.Projection, table.AttributeDefinitions)
+		info.LocalSecondaryIndexes = append(info.LocalSecondaryIndexes, lsiInfo)
+	}
+
+	return info
+}
+
+func (h *Handler) extractIndexInfo(
+	name *string,
+	keySchema []types.KeySchemaElement,
+	projection *types.Projection,
+	attrDefs []types.AttributeDefinition,
+) IndexInfo {
+	idxInfo := IndexInfo{
+		IndexName:      *name,
+		ProjectionType: string(projection.ProjectionType),
+	}
+
+	for _, key := range keySchema {
+		switch key.KeyType {
+		case types.KeyTypeHash:
+			idxInfo.PartitionKey = *key.AttributeName
+		case types.KeyTypeRange:
+			idxInfo.SortKey = *key.AttributeName
+		}
+	}
+
+	for _, attr := range attrDefs {
+		switch *attr.AttributeName {
+		case idxInfo.PartitionKey:
+			idxInfo.PartitionKeyType = string(attr.AttributeType)
+		case idxInfo.SortKey:
+			idxInfo.SortKeyType = string(attr.AttributeType)
+		}
+	}
+
+	return idxInfo
+}
+
 // dynamoDBQuery executes a query and returns results.
 func (h *Handler) dynamoDBQuery(w http.ResponseWriter, r *http.Request, tableName string) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+
 		return
 	}
 
-	// Parse form data
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Failed to parse form", http.StatusBadRequest)
-		return
-	}
-
-	indexName := r.FormValue("indexName")
-	partitionKeyValue := r.FormValue("partitionKeyValue")
-	sortKeyOperator := r.FormValue("sortKeyOperator")
-	sortKeyValue := r.FormValue("sortKeyValue")
-	sortKeyValue2 := r.FormValue("sortKeyValue2")
-	filterExp := r.FormValue("filterExpression")
-	limitStr := r.FormValue("limit")
-
-	if partitionKeyValue == "" {
-		http.Error(w, "Partition key value is required", http.StatusBadRequest)
+	params, ok := h.parseQueryRequest(w, r)
+	if !ok {
 		return
 	}
 
 	// Determine key schema from table/index
-	ctx := context.Background()
+	ctx := r.Context()
 	desc, err := h.DynamoDB.DescribeTable(ctx, &dynamodb.DescribeTableInput{TableName: &tableName})
 	if err != nil {
-		h.Logger.Error("Failed to describe table", "error", err)
+		h.Logger.ErrorContext(ctx, "Failed to describe table", "error", err)
 		http.Error(w, "Failed to describe table", http.StatusInternalServerError)
+
 		return
 	}
 
-	var pkName, skName string
-	var pkType, skType types.ScalarAttributeType
-
-	if indexName == "" {
-		// Base table
-		for _, key := range desc.Table.KeySchema {
-			if key.KeyType == types.KeyTypeHash {
-				pkName = *key.AttributeName
-			} else {
-				skName = *key.AttributeName
-			}
-		}
-		for _, attr := range desc.Table.AttributeDefinitions {
-			if *attr.AttributeName == pkName {
-				pkType = attr.AttributeType
-			}
-			if skName != "" && *attr.AttributeName == skName {
-				skType = attr.AttributeType
-			}
-		}
-	} else {
-		// Check GSIs
-		found := false
-		for _, gsi := range desc.Table.GlobalSecondaryIndexes {
-			if *gsi.IndexName == indexName {
-				for _, key := range gsi.KeySchema {
-					if key.KeyType == types.KeyTypeHash {
-						pkName = *key.AttributeName
-					} else {
-						skName = *key.AttributeName
-					}
-				}
-				found = true
-				break
-			}
-		}
-		if !found {
-			for _, lsi := range desc.Table.LocalSecondaryIndexes {
-				if *lsi.IndexName == indexName {
-					for _, key := range lsi.KeySchema {
-						if key.KeyType == types.KeyTypeHash {
-							pkName = *key.AttributeName
-						} else {
-							skName = *key.AttributeName
-						}
-					}
-					found = true
-					break
-				}
-			}
-		}
-		// Types are always in AttributeDefinitions
-		for _, attr := range desc.Table.AttributeDefinitions {
-			if *attr.AttributeName == pkName {
-				pkType = attr.AttributeType
-			}
-			if skName != "" && *attr.AttributeName == skName {
-				skType = attr.AttributeType
-			}
-		}
-	}
+	pkName, skName, pkType, skType := h.resolveKeySchema(desc, params.IndexName)
 
 	// Build Expressions
 	attrNames := map[string]string{
 		"#pk": pkName,
 	}
 	attrValues := map[string]types.AttributeValue{
-		":pkval": h.toAttributeValue(partitionKeyValue, pkType),
+		":pkval": h.toAttributeValue(params.PartitionKeyValue, pkType),
 	}
 
 	keyCondExp := "#pk = :pkval"
 
-	if skName != "" && sortKeyOperator != "" && sortKeyValue != "" {
+	if skName != "" && params.SortKeyOperator != "" && params.SortKeyValue != "" {
 		attrNames["#sk"] = skName
-		attrValues[":skval"] = h.toAttributeValue(sortKeyValue, skType)
+		attrValues[":skval"] = h.toAttributeValue(params.SortKeyValue, skType)
 
-		switch sortKeyOperator {
+		switch params.SortKeyOperator {
 		case "=":
 			keyCondExp += " AND #sk = :skval"
 		case "<":
@@ -339,13 +278,69 @@ func (h *Handler) dynamoDBQuery(w http.ResponseWriter, r *http.Request, tableNam
 		case "begins_with":
 			keyCondExp += " AND begins_with(#sk, :skval)"
 		case "BETWEEN":
-			if sortKeyValue2 != "" {
-				attrValues[":skval2"] = h.toAttributeValue(sortKeyValue2, skType)
+			if params.SortKeyValue2 != "" {
+				attrValues[":skval2"] = h.toAttributeValue(params.SortKeyValue2, skType)
 				keyCondExp += " AND #sk BETWEEN :skval AND :skval2"
 			}
 		}
 	}
 
+	h.executeAndRenderQuery(
+		ctx,
+		w,
+		tableName,
+		params.IndexName,
+		keyCondExp,
+		params.FilterExp,
+		params.LimitStr,
+		attrNames,
+		attrValues,
+	)
+}
+
+type QueryParams struct {
+	IndexName         string
+	PartitionKeyValue string
+	SortKeyOperator   string
+	SortKeyValue      string
+	SortKeyValue2     string
+	FilterExp         string
+	LimitStr          string
+}
+
+func (h *Handler) parseQueryRequest(w http.ResponseWriter, r *http.Request) (QueryParams, bool) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Failed to parse form", http.StatusBadRequest)
+
+		return QueryParams{}, false
+	}
+
+	params := QueryParams{
+		IndexName:         r.FormValue("indexName"),
+		PartitionKeyValue: r.FormValue("partitionKeyValue"),
+		SortKeyOperator:   r.FormValue("sortKeyOperator"),
+		SortKeyValue:      r.FormValue("sortKeyValue"),
+		SortKeyValue2:     r.FormValue("sortKeyValue2"),
+		FilterExp:         r.FormValue("filterExpression"),
+		LimitStr:          r.FormValue("limit"),
+	}
+
+	if params.PartitionKeyValue == "" {
+		http.Error(w, "Partition key value is required", http.StatusBadRequest)
+
+		return QueryParams{}, false
+	}
+
+	return params, true
+}
+
+func (h *Handler) executeAndRenderQuery(
+	ctx context.Context,
+	w http.ResponseWriter,
+	tableName, indexName, keyCondExp, filterExp, limitStr string,
+	attrNames map[string]string,
+	attrValues map[string]types.AttributeValue,
+) {
 	input := &dynamodb.QueryInput{
 		TableName:                 &tableName,
 		KeyConditionExpression:    aws.String(keyCondExp),
@@ -363,17 +358,19 @@ func (h *Handler) dynamoDBQuery(w http.ResponseWriter, r *http.Request, tableNam
 
 	if limitStr != "" {
 		var l int32
-		fmt.Sscanf(limitStr, "%d", &l)
-		if l > 0 {
+		if _, srr := fmt.Sscanf(limitStr, "%d", &l); srr == nil && l > 0 {
 			input.Limit = aws.Int32(l)
 		}
 	}
 
 	output, err := h.DynamoDB.Query(ctx, input)
 	if err != nil {
-		h.Logger.Error("Failed to query table", "error", err)
-		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "Failed to query table: %s", "type": "error"}}`, strings.ReplaceAll(err.Error(), `"`, `'`)))
+		h.Logger.ErrorContext(ctx, "Failed to query table", "error", err)
+		toastMessage := fmt.Sprintf(`{"showToast": {"message": "Failed to query table: %s", "type": "error"}}`,
+			strings.ReplaceAll(err.Error(), `"`, `'`))
+		w.Header().Set("Hx-Trigger", toastMessage)
 		w.WriteHeader(http.StatusUnprocessableEntity)
+
 		return
 	}
 
@@ -386,13 +383,78 @@ func (h *Handler) dynamoDBQuery(w http.ResponseWriter, r *http.Request, tableNam
 	h.renderQueryResults(w, result)
 }
 
+func (h *Handler) resolveKeySchema(
+	desc *dynamodb.DescribeTableOutput,
+	indexName string,
+) (string, string, types.ScalarAttributeType, types.ScalarAttributeType) {
+	var pkName, skName string
+	var pkType, skType types.ScalarAttributeType
+
+	if indexName == "" {
+		for _, key := range desc.Table.KeySchema {
+			if key.KeyType == types.KeyTypeHash {
+				pkName = *key.AttributeName
+			} else {
+				skName = *key.AttributeName
+			}
+		}
+	} else {
+		pkName, skName = h.resolveIndexKeys(desc, indexName)
+	}
+
+	for _, attr := range desc.Table.AttributeDefinitions {
+		if *attr.AttributeName == pkName {
+			pkType = attr.AttributeType
+		}
+
+		if skName != "" && *attr.AttributeName == skName {
+			skType = attr.AttributeType
+		}
+	}
+
+	return pkName, skName, pkType, skType
+}
+
+func (h *Handler) resolveIndexKeys(desc *dynamodb.DescribeTableOutput, indexName string) (string, string) {
+	for _, gsi := range desc.Table.GlobalSecondaryIndexes {
+		if *gsi.IndexName == indexName {
+			return h.extractKeys(gsi.KeySchema)
+		}
+	}
+
+	for _, lsi := range desc.Table.LocalSecondaryIndexes {
+		if *lsi.IndexName == indexName {
+			return h.extractKeys(lsi.KeySchema)
+		}
+	}
+
+	return "", ""
+}
+
+func (h *Handler) extractKeys(keySchema []types.KeySchemaElement) (string, string) {
+	var pk, sk string
+	for _, key := range keySchema {
+		if key.KeyType == types.KeyTypeHash {
+			pk = *key.AttributeName
+		} else {
+			sk = *key.AttributeName
+		}
+	}
+
+	return pk, sk
+}
+
 // toAttributeValue converts a string to a typed AttributeValue.
+//
+//nolint:ireturn // Legitimate pattern for AWS SDK AttributeValue interface
 func (h *Handler) toAttributeValue(val string, t types.ScalarAttributeType) types.AttributeValue {
 	switch t {
 	case types.ScalarAttributeTypeN:
 		return &types.AttributeValueMemberN{Value: val}
 	case types.ScalarAttributeTypeB:
 		return &types.AttributeValueMemberB{Value: []byte(val)}
+	case types.ScalarAttributeTypeS:
+		return &types.AttributeValueMemberS{Value: val}
 	default:
 		return &types.AttributeValueMemberS{Value: val}
 	}
@@ -402,6 +464,7 @@ func (h *Handler) toAttributeValue(val string, t types.ScalarAttributeType) type
 func (h *Handler) dynamoDBScan(w http.ResponseWriter, r *http.Request, tableName string) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+
 		return
 	}
 
@@ -422,10 +485,8 @@ func (h *Handler) dynamoDBScan(w http.ResponseWriter, r *http.Request, tableName
 
 	limit := r.FormValue("limit")
 	if limit != "" {
-		// Parse int
 		var l int32
-		fmt.Sscanf(limit, "%d", &l)
-		if l > 0 {
+		if _, err := fmt.Sscanf(limit, "%d", &l); err == nil && l > 0 {
 			input.Limit = aws.Int32(l)
 		}
 	}
@@ -433,8 +494,11 @@ func (h *Handler) dynamoDBScan(w http.ResponseWriter, r *http.Request, tableName
 	output, err := h.DynamoDB.Scan(ctx, input)
 	if err != nil {
 		h.Logger.Error("Failed to scan table", "error", err)
-		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "Failed to scan table: %s", "type": "error"}}`, strings.ReplaceAll(err.Error(), `"`, `'`)))
+		toastMessage := fmt.Sprintf(`{"showToast": {"message": "Failed to scan table: %s", "type": "error"}}`,
+			strings.ReplaceAll(err.Error(), `"`, `'`))
+		w.Header().Set("Hx-Trigger", toastMessage)
 		w.WriteHeader(http.StatusUnprocessableEntity)
+
 		return
 	}
 
@@ -454,6 +518,7 @@ func (h *Handler) renderQueryResults(w http.ResponseWriter, result QueryResult) 
 
 	if len(result.Items) == 0 {
 		fmt.Fprintf(w, `<div class="alert alert-info"><span>No items found</span></div>`)
+
 		return
 	}
 
@@ -481,12 +546,14 @@ func (h *Handler) renderQueryResults(w http.ResponseWriter, result QueryResult) 
 func (h *Handler) dynamoDBCreateTable(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+
 		return
 	}
 
 	if err := r.ParseForm(); err != nil {
 		h.Logger.Error("Failed to parse form", "error", err)
 		http.Error(w, "Bad request", http.StatusBadRequest)
+
 		return
 	}
 
@@ -514,16 +581,19 @@ func (h *Handler) dynamoDBCreateTable(w http.ResponseWriter, r *http.Request) {
 		AttributeDefinitions: attrs,
 		KeySchema:            keySchema,
 		ProvisionedThroughput: &types.ProvisionedThroughput{
-			ReadCapacityUnits:  aws.Int64(5),
-			WriteCapacityUnits: aws.Int64(5),
+			ReadCapacityUnits:  aws.Int64(defaultCapacity),
+			WriteCapacityUnits: aws.Int64(defaultCapacity),
 		},
 	}
 
 	_, err := h.DynamoDB.CreateTable(context.Background(), input)
 	if err != nil {
 		h.Logger.Error("Failed to create table", "error", err)
-		w.Header().Set("HX-Trigger", fmt.Sprintf(`{"showToast": {"message": "Failed to create table: %s", "type": "error"}}`, strings.ReplaceAll(err.Error(), `"`, `'`)))
+		toastMessage := fmt.Sprintf(`{"showToast": {"message": "Failed to create table: %s", "type": "error"}}`,
+			strings.ReplaceAll(err.Error(), `"`, `'`))
+		w.Header().Set("Hx-Trigger", toastMessage)
 		w.WriteHeader(http.StatusUnprocessableEntity)
+
 		return
 	}
 
@@ -535,6 +605,7 @@ func (h *Handler) dynamoDBCreateTable(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) dynamoDBDeleteTable(w http.ResponseWriter, r *http.Request, tableName string) {
 	if r.Method != http.MethodDelete {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+
 		return
 	}
 
@@ -550,6 +621,7 @@ func (h *Handler) dynamoDBDeleteTable(w http.ResponseWriter, r *http.Request, ta
 		// If HTMX request, we can handle error display gracefully
 		// For now, simpler error
 		http.Error(w, fmt.Sprintf("Failed to delete table: %v", err), http.StatusInternalServerError)
+
 		return
 	}
 
@@ -558,13 +630,13 @@ func (h *Handler) dynamoDBDeleteTable(w http.ResponseWriter, r *http.Request, ta
 	// If HX-Target is #table-list, it's list view.
 	// If it's detail view, we likely want to redirect.
 
-	if r.Header.Get("HX-Target") == "table-list" {
+	if r.Header.Get("Hx-Target") == "table-list" {
 		// List view: return updated list
 		h.dynamoDBTableList(w, r)
 	} else {
 		// Detail view: Redirect to index
 		// HTMX handles redirects via HX-Location header
-		w.Header().Set("HX-Location", "/dashboard/dynamodb")
+		w.Header().Set("Hx-Location", "/dashboard/dynamodb")
 		w.WriteHeader(http.StatusOK)
 	}
 }

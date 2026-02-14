@@ -1,7 +1,8 @@
-package demo
+package demo_test
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"testing"
 
@@ -11,13 +12,16 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"Gopherstack/dashboard"
+	"Gopherstack/demo"
 	ddbbackend "Gopherstack/dynamodb"
 	s3backend "Gopherstack/s3"
 )
 
 func TestLoadData(t *testing.T) {
+	t.Parallel()
 	// Setup Backends
 	ddbHandler := ddbbackend.NewHandler()
 	s3Backend := s3backend.NewInMemoryBackend(&s3backend.GzipCompressor{})
@@ -37,35 +41,30 @@ func TestLoadData(t *testing.T) {
 		config.WithRegion("us-east-1"),
 		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("dummy", "dummy", "")),
 		config.WithHTTPClient(inMemClient),
-		config.WithEndpointResolverWithOptions(aws.EndpointResolverWithOptionsFunc(
-			func(service, region string, options ...interface{}) (aws.Endpoint, error) {
-				if service == s3.ServiceID {
-					return aws.Endpoint{URL: "http://local/s3", SigningRegion: "us-east-1"}, nil
-				}
-				return aws.Endpoint{URL: "http://local", SigningRegion: "us-east-1"}, nil
-			},
-		)),
 	)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
-	ddbClient := dynamodb.NewFromConfig(cfg)
+	ddbClient := dynamodb.NewFromConfig(cfg, func(o *dynamodb.Options) {
+		o.BaseEndpoint = aws.String("http://local")
+	})
 	s3Client := s3.NewFromConfig(cfg, func(o *s3.Options) {
 		o.UsePathStyle = true
+		o.BaseEndpoint = aws.String("http://local/s3")
 	})
 
 	// Run LoadData
-	err = LoadData(context.Background(), ddbClient, s3Client)
-	assert.NoError(t, err)
+	err = demo.LoadData(context.Background(), slog.Default(), ddbClient, s3Client)
+	require.NoError(t, err)
 
 	// Verify DynamoDB
 	tableName := "Movies"
 	items, err := ddbClient.Scan(context.Background(), &dynamodb.ScanInput{TableName: &tableName})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, int32(2), items.Count)
 
 	// Verify S3
 	bucketName := "demo-bucket"
 	objects, err := s3Client.ListObjectsV2(context.Background(), &s3.ListObjectsV2Input{Bucket: &bucketName})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, int32(2), *objects.KeyCount)
 }

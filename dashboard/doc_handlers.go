@@ -3,9 +3,10 @@ package dashboard
 import "net/http"
 
 // docIndex renders the documentation page.
-func (h *Handler) docIndex(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) docIndex(w http.ResponseWriter, _ *http.Request) {
 	data := struct {
 		PageData
+
 		DynamoDBOps []string
 		S3Ops       []string
 	}{
