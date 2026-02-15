@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -23,12 +24,14 @@ const (
 // Handler implements [http.Handler] for S3-compatible API requests.
 type Handler struct {
 	Backend StorageBackend
+	Logger  *slog.Logger
 }
 
 // NewHandler creates a new S3 Handler with the given backend.
 func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{
 		Backend: backend,
+		Logger:  slog.Default(),
 	}
 }
 
@@ -114,7 +117,9 @@ func (h *Handler) routeBucketGet(w http.ResponseWriter, r *http.Request, bucket 
 	case r.URL.Query().Has("versions"):
 		h.listObjectVersions(w, r, bucket)
 	case r.URL.Query().Has("location"):
-		_, _ = w.Write([]byte(xml.Header + locationConstraintXML))
+		if _, err := w.Write([]byte(xml.Header + locationConstraintXML)); err != nil {
+			h.Logger.Error("failed to write location constraint response", "error", err)
+		}
 	case r.URL.Query().Has("tagging"):
 		h.writeError(w, r, ErrNotImplemented, http.StatusNotImplemented)
 	default:
@@ -495,7 +500,9 @@ func (h *Handler) getObject(w http.ResponseWriter, r *http.Request, bucketName, 
 	}
 
 	w.Header().Set("Content-Length", strconv.Itoa(len(ver.Data)))
-	_, _ = w.Write(ver.Data)
+	if _, wErr := w.Write(ver.Data); wErr != nil {
+		h.Logger.Error("failed to write object data", "error", wErr)
+	}
 }
 
 func (h *Handler) serveRange(w http.ResponseWriter, ver *ObjectVersion, rangeHeader string) {
@@ -512,7 +519,9 @@ func (h *Handler) serveRange(w http.ResponseWriter, ver *ObjectVersion, rangeHea
 	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, total))
 	w.Header().Set("Content-Length", strconv.FormatInt(end-start+1, 10))
 	w.WriteHeader(http.StatusPartialContent)
-	_, _ = w.Write(ver.Data[start : end+1])
+	if _, err := w.Write(ver.Data[start : end+1]); err != nil {
+		h.Logger.Error("failed to write partial object data", "error", err)
+	}
 }
 
 const rangeSpecMaxParts = 2
@@ -791,8 +800,14 @@ func (h *Handler) deleteObjectTagging(w http.ResponseWriter, r *http.Request, bu
 
 func (h *Handler) writeXML(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/xml")
-	_, _ = w.Write([]byte(xml.Header))
-	_ = xml.NewEncoder(w).Encode(v)
+	if _, err := w.Write([]byte(xml.Header)); err != nil {
+		h.Logger.Error("failed to write XML header", "error", err)
+
+		return
+	}
+	if err := xml.NewEncoder(w).Encode(v); err != nil {
+		h.Logger.Error("failed to encode XML response", "error", err)
+	}
 }
 
 func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, err error, code int) {

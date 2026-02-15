@@ -602,6 +602,10 @@ func (db *InMemoryDB) filterCandidatesForKeyCondition(
 	}
 
 	pkExpr := strings.TrimSpace(exprParts[0])
+	if strings.HasPrefix(pkExpr, "(") && strings.HasSuffix(pkExpr, ")") {
+		pkExpr = strings.TrimSpace(pkExpr[1 : len(pkExpr)-1])
+	}
+
 	pkDef, skDef := getPKAndSK(keySchema)
 
 	// Try to use index for primary table queries (not GSI/LSI)

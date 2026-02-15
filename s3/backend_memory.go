@@ -236,11 +236,12 @@ func (b *InMemoryBackend) GetObject(bucketName, key, versionID string) (*ObjectV
 		return nil, ErrNoSuchKey
 	}
 
-	if versionID == "" {
-		return b.getLatestVersion(obj)
+	v, err := b.findVersion(obj, versionID)
+	if err != nil {
+		return nil, err
 	}
 
-	return b.getSpecificVersion(obj, versionID)
+	return b.decompressVersion(v)
 }
 
 // HeadObject retrieves an object version's metadata without decompressing the data.
@@ -257,103 +258,36 @@ func (b *InMemoryBackend) HeadObject(bucketName, key, versionID string) (*Object
 		return nil, ErrNoSuchKey
 	}
 
-	var v *ObjectVersion
-	var err error
-	if versionID == "" {
-		v, err = b.findLatestVersion(obj)
-	} else {
-		v, err = b.findSpecificVersion(obj, versionID)
-	}
-
+	v, err := b.findVersion(obj, versionID)
 	if err != nil {
 		return nil, err
 	}
 
-	ret := *v
-	ret.Data = nil // Metadata only
+	v.Data = nil // Metadata only
 
-	return &ret, nil
+	return &v, nil
 }
 
-func (b *InMemoryBackend) findLatestVersion(obj *Object) (*ObjectVersion, error) {
+func (b *InMemoryBackend) findVersion(obj *Object, versionID string) (ObjectVersion, error) {
 	for _, v := range obj.Versions {
-		if !v.IsLatest {
-			continue
+		if versionID == "" {
+			if !v.IsLatest {
+				continue
+			}
+		} else {
+			if v.VersionID != versionID {
+				continue
+			}
 		}
 
 		if v.Deleted {
-			return nil, ErrNoSuchKey
+			return ObjectVersion{}, ErrNoSuchKey
 		}
 
-		cp := v
-		cp.Data = copyBytes(v.Data)
-
-		return &cp, nil
+		return v, nil
 	}
 
-	return nil, ErrNoSuchKey
-}
-
-func (b *InMemoryBackend) findSpecificVersion(obj *Object, versionID string) (*ObjectVersion, error) {
-	for _, v := range obj.Versions {
-		if v.VersionID != versionID {
-			continue
-		}
-
-		if v.Deleted {
-			return nil, ErrNoSuchKey
-		}
-
-		cp := v
-		cp.Data = copyBytes(v.Data)
-
-		return &cp, nil
-	}
-
-	return nil, ErrNoSuchKey
-}
-
-func copyBytes(b []byte) []byte {
-	if b == nil {
-		return nil
-	}
-
-	out := make([]byte, len(b))
-	copy(out, b)
-
-	return out
-}
-
-func (b *InMemoryBackend) getLatestVersion(obj *Object) (*ObjectVersion, error) {
-	for _, v := range obj.Versions {
-		if !v.IsLatest {
-			continue
-		}
-
-		if v.Deleted {
-			return nil, ErrNoSuchKey
-		}
-
-		return b.decompressVersion(v)
-	}
-
-	return nil, ErrNoSuchKey
-}
-
-func (b *InMemoryBackend) getSpecificVersion(obj *Object, versionID string) (*ObjectVersion, error) {
-	for _, v := range obj.Versions {
-		if v.VersionID != versionID {
-			continue
-		}
-
-		if v.Deleted {
-			return nil, ErrNoSuchKey
-		}
-
-		return b.decompressVersion(v)
-	}
-
-	return nil, ErrNoSuchKey
+	return ObjectVersion{}, ErrNoSuchKey
 }
 
 func (b *InMemoryBackend) decompressVersion(v ObjectVersion) (*ObjectVersion, error) {
