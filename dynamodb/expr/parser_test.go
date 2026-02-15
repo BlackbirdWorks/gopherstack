@@ -102,7 +102,6 @@ func TestConditionParsingAndEvaluation(t *testing.T) {
 
 func TestOperatorPrecedence(t *testing.T) {
 	t.Parallel()
-
 	tests := []struct {
 		exprStr string
 		want    bool
@@ -110,25 +109,16 @@ func TestOperatorPrecedence(t *testing.T) {
 		{"a = :one OR b = :two AND c = :four", true},    // (a=1) OR (b=2 AND c=4) -> true OR false -> true
 		{"(a = :one OR b = :two) AND c = :four", false}, // (1=1 OR 2=2) AND 3=4 -> true AND false -> false
 	}
-
 	for _, tc := range tests {
 		t.Run(tc.exprStr, func(t *testing.T) {
 			t.Parallel()
-			item := map[string]any{
-				"a": map[string]any{"N": "1"},
-				"b": map[string]any{"N": "2"},
-				"c": map[string]any{"N": "3"},
-			}
+			item := map[string]any{"a": map[string]any{"N": "1"}, "b": map[string]any{"N": "2"}, "c": map[string]any{"N": "3"}}
 			eval := &expr.Evaluator{Item: item}
 			l := expr.NewLexer(tc.exprStr)
 			p := expr.NewParser(l)
 			node, err := p.ParseCondition()
 			require.NoError(t, err)
-			vals := map[string]any{
-				":one":  map[string]any{"N": "1"},
-				":two":  map[string]any{"N": "2"},
-				":four": map[string]any{"N": "4"},
-			}
+			vals := map[string]any{":one": map[string]any{"N": "1"}, ":two": map[string]any{"N": "2"}, ":four": map[string]any{"N": "4"}}
 			eval.AttrValues = vals
 			result, err := eval.Evaluate(node)
 			require.NoError(t, err)
@@ -145,9 +135,9 @@ func TestUpdateParsing(t *testing.T) {
 	u, err := p.ParseUpdate()
 	require.NoError(t, err)
 
-	assert.Len(t, u.Actions, 2)
+	assert.Equal(t, 2, len(u.Actions))
 	assert.Equal(t, expr.TokenSET, u.Actions[0].Type)
-	assert.Len(t, u.Actions[0].Items, 2)
+	assert.Equal(t, 2, len(u.Actions[0].Items))
 	assert.Equal(t, expr.TokenREMOVE, u.Actions[1].Type)
-	assert.Len(t, u.Actions[1].Items, 1)
+	assert.Equal(t, 1, len(u.Actions[1].Items))
 }

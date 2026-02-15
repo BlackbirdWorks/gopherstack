@@ -1224,12 +1224,6 @@ func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, err error, 
 		resp.Message = "One or more of the specified parts could not be found. " +
 			"The part may not have been uploaded, or the specified entity tag may not match the part's entity tag."
 		w.WriteHeader(http.StatusBadRequest)
-	case errors.Is(err, ErrBucketAlreadyExists):
-		resp.Code = "BucketAlreadyExists"
-		resp.Message = "The requested bucket name is not available. " +
-			"The bucket namespace is shared by all users of the system. " +
-			"Please select a different name and try again."
-		w.WriteHeader(http.StatusConflict)
 	case errors.Is(err, ErrBucketNotEmpty):
 		resp.Code = "BucketNotEmpty"
 		resp.Message = "The bucket you tried to delete is not empty"
