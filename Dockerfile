@@ -13,7 +13,11 @@ RUN go mod download
 COPY . .
 
 # Build the Go app
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags="-w -s" -o gopherstack main.go
+RUN go build \
+    -tags 'netgo osusergo static_build' \
+    -trimpath \
+    -ldflags="-w -s -extldflags '-static -fno-PIC'" \
+    -o gopherstack
 
 # Final stage
 FROM scratch
