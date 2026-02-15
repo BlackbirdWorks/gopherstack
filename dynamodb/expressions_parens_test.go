@@ -1,7 +1,6 @@
 package dynamodb_test
 
 import (
-	"encoding/json"
 	"testing"
 
 	"Gopherstack/dynamodb"
@@ -14,10 +13,10 @@ func TestQuery_KeyCondition_WithParenthesesAndBeginsWith(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		attrNames              map[string]string
-		attrValues             map[string]any
 		name                   string
 		keyConditionExpression string
+		attrNames              map[string]string
+		attrValues             map[string]any
 		expectedCount          int
 	}{
 		{
@@ -55,18 +54,18 @@ func TestQuery_KeyCondition_WithParenthesesAndBeginsWith(t *testing.T) {
 			tableName := "TestTable_Parens"
 
 			// Create table
-			_, err := db.CreateTable([]byte(`{
-				"TableName": "` + tableName + `",
-				"KeySchema": [
-					{"AttributeName": "pk", "KeyType": "HASH"},
-					{"AttributeName": "sk", "KeyType": "RANGE"}
-				],
-				"AttributeDefinitions": [
-					{"AttributeName": "pk", "AttributeType": "S"},
-					{"AttributeName": "sk", "AttributeType": "S"}
-				],
-				"ProvisionedThroughput": {"ReadCapacityUnits": 1, "WriteCapacityUnits": 1}
-			}`))
+			ct := dynamodb.CreateTableInput{
+				TableName: tableName,
+				KeySchema: []dynamodb.KeySchemaElement{
+					{AttributeName: "pk", KeyType: "HASH"},
+					{AttributeName: "sk", KeyType: "RANGE"},
+				},
+				AttributeDefinitions: []dynamodb.AttributeDefinition{
+					{AttributeName: "pk", AttributeType: "S"},
+					{AttributeName: "sk", AttributeType: "S"},
+				},
+			}
+			_, err := db.CreateTable(dynamodb.ToSDKCreateTableInput(&ct))
 			require.NoError(t, err)
 
 			// Put items
@@ -81,38 +80,31 @@ func TestQuery_KeyCondition_WithParenthesesAndBeginsWith(t *testing.T) {
 			}
 
 			for _, item := range items {
-				_, putErr := db.PutItem([]byte(`{
-					"TableName": "` + tableName + `",
-					"Item": {
-						"pk": {"S": "` + item.pk + `"},
-						"sk": {"S": "` + item.sk + `"}
-					}
-				}`))
+				put := dynamodb.PutItemInput{
+					TableName: tableName,
+					Item: map[string]any{
+						"pk": map[string]any{"S": item.pk},
+						"sk": map[string]any{"S": item.sk},
+					},
+				}
+				sdkPut, _ := dynamodb.ToSDKPutItemInput(&put)
+				_, putErr := db.PutItem(sdkPut)
 				require.NoError(t, putErr)
 			}
 
-			queryInput := struct {
-				ExpressionAttributeNames  map[string]string `json:"ExpressionAttributeNames"`
-				ExpressionAttributeValues map[string]any    `json:"ExpressionAttributeValues"`
-				TableName                 string            `json:"TableName"`
-				KeyConditionExpression    string            `json:"KeyConditionExpression"`
-			}{
+			queryInput := dynamodb.QueryInput{
 				TableName:                 tableName,
 				KeyConditionExpression:    tt.keyConditionExpression,
 				ExpressionAttributeNames:  tt.attrNames,
 				ExpressionAttributeValues: tt.attrValues,
 			}
 
-			inputJSON, err := json.Marshal(queryInput)
+			sdkQuery, _ := dynamodb.ToSDKQueryInput(&queryInput)
+			result, err := db.Query(sdkQuery)
 			require.NoError(t, err)
+			require.NotNil(t, result)
 
-			result, err := db.Query(inputJSON)
-			require.NoError(t, err)
-
-			qOut, ok := result.(dynamodb.QueryOutput)
-			require.True(t, ok, "Result should be QueryOutput")
-
-			assert.Len(t, qOut.Items, tt.expectedCount)
+			assert.Len(t, result.Items, tt.expectedCount)
 		})
 	}
 }

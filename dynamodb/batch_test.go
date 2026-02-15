@@ -2,9 +2,9 @@ package dynamodb_test
 
 import (
 	"Gopherstack/dynamodb"
-	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -15,29 +15,58 @@ func TestBatchWriteItem(t *testing.T) {
 
 	// Setup tables
 	for _, name := range []string{"Table1", "Table2"} {
-		_, err := db.CreateTable([]byte(`{
-			"TableName": "` + name + `",
-			"KeySchema": [{"AttributeName": "pk", "KeyType": "HASH"}],
-			"AttributeDefinitions": [{"AttributeName": "pk", "AttributeType": "S"}],
-			"ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5}
-		}`))
+		ct := dynamodb.CreateTableInput{
+			TableName: name,
+			KeySchema: []dynamodb.KeySchemaElement{{AttributeName: "pk", KeyType: "HASH"}},
+			AttributeDefinitions: []dynamodb.AttributeDefinition{
+				{AttributeName: "pk", AttributeType: "S"},
+			},
+		}
+		_, err := db.CreateTable(dynamodb.ToSDKCreateTableInput(&ct))
 		require.NoError(t, err)
 	}
 
 	// Batch Write: Put items into Table1 and Table2
-	input := `{
-		"RequestItems": {
-			"Table1": [
-				{"PutRequest": {"Item": {"pk": {"S": "item1"}, "val": {"S": "v1"}}}},
-				{"PutRequest": {"Item": {"pk": {"S": "item2"}, "val": {"S": "v2"}}}}
-			],
-			"Table2": [
-				{"PutRequest": {"Item": {"pk": {"S": "item3"}, "val": {"S": "v3"}}}}
-			]
-		}
-	}`
+	input := dynamodb.BatchWriteItemInput{
+		RequestItems: map[string][]dynamodb.WriteRequest{
+			"Table1": {
+				{
+					PutRequest: &dynamodb.PutRequest{
+						Item: map[string]any{
+							"pk":  map[string]any{"S": "item1"},
+							"val": map[string]any{"S": "v1"},
+						},
+					},
+				},
+				{
+					PutRequest: &dynamodb.PutRequest{
+						Item: map[string]any{
+							"pk":  map[string]any{"S": "item2"},
+							"val": map[string]any{"S": "v2"},
+						},
+					},
+				},
+				{
+					PutRequest: &dynamodb.PutRequest{
+						Item: map[string]any{
+							"pk":  map[string]any{"S": "item3"},
+							"val": map[string]any{"S": "v3"},
+						},
+					},
+				},
+			},
+			"Table2": {
+				{
+					PutRequest: &dynamodb.PutRequest{
+						Item: map[string]any{"pk": map[string]any{"S": "item3"}, "val": map[string]any{"S": "v3"}},
+					},
+				},
+			},
+		},
+	}
 
-	_, err := db.BatchWriteItem([]byte(input))
+	sdkInput, _ := dynamodb.ToSDKBatchWriteItemInput(&input)
+	_, err := db.BatchWriteItem(sdkInput)
 	require.NoError(t, err)
 
 	// Verify items
@@ -46,14 +75,15 @@ func TestBatchWriteItem(t *testing.T) {
 	verifyItem(t, db, "Table2", "item3", true)
 
 	// Batch Write: Delete items from Table1
-	inputDelete := `{
-		"RequestItems": {
-			"Table1": [
-				{"DeleteRequest": {"Key": {"pk": {"S": "item1"}}}}
-			]
-		}
-	}`
-	_, err = db.BatchWriteItem([]byte(inputDelete))
+	inputDelete := dynamodb.BatchWriteItemInput{
+		RequestItems: map[string][]dynamodb.WriteRequest{
+			"Table1": {
+				{DeleteRequest: &dynamodb.DeleteRequest{Key: map[string]any{"pk": map[string]any{"S": "item1"}}}},
+			},
+		},
+	}
+	sdkInputDelete, _ := dynamodb.ToSDKBatchWriteItemInput(&inputDelete)
+	_, err = db.BatchWriteItem(sdkInputDelete)
 	require.NoError(t, err)
 
 	verifyItem(t, db, "Table1", "item1", false)
@@ -66,37 +96,56 @@ func TestBatchGetItem(t *testing.T) {
 
 	// Setup table and data
 	tableName := "BatchGetTable"
-	_, err := db.CreateTable([]byte(`{
-		"TableName": "` + tableName + `",
-		"KeySchema": [{"AttributeName": "pk", "KeyType": "HASH"}],
-		"AttributeDefinitions": [{"AttributeName": "pk", "AttributeType": "S"}],
-		"ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5}
-	}`))
+	ct := dynamodb.CreateTableInput{
+		TableName: tableName,
+		KeySchema: []dynamodb.KeySchemaElement{{AttributeName: "pk", KeyType: "HASH"}},
+		AttributeDefinitions: []dynamodb.AttributeDefinition{
+			{AttributeName: "pk", AttributeType: "S"},
+		},
+	}
+	_, err := db.CreateTable(dynamodb.ToSDKCreateTableInput(&ct))
 	require.NoError(t, err)
 
-	db.PutItem([]byte(`{"TableName": "` + tableName + `", "Item": {"pk": {"S": "item1"}, "val": {"S": "v1"}}}`))
-	db.PutItem([]byte(`{"TableName": "` + tableName + `", "Item": {"pk": {"S": "item2"}, "val": {"S": "v2"}}}`))
-	db.PutItem([]byte(`{"TableName": "` + tableName + `", "Item": {"pk": {"S": "item3"}, "val": {"S": "v3"}}}`))
+	put1 := dynamodb.PutItemInput{
+		TableName: tableName,
+		Item:      map[string]any{"pk": map[string]any{"S": "item1"}, "val": map[string]any{"S": "v1"}},
+	}
+	sdkPut1, _ := dynamodb.ToSDKPutItemInput(&put1)
+	_, _ = db.PutItem(sdkPut1)
+
+	put2 := dynamodb.PutItemInput{
+		TableName: tableName,
+		Item:      map[string]any{"pk": map[string]any{"S": "item2"}, "val": map[string]any{"S": "v2"}},
+	}
+	sdkPut2, _ := dynamodb.ToSDKPutItemInput(&put2)
+	_, _ = db.PutItem(sdkPut2)
+
+	put3 := dynamodb.PutItemInput{
+		TableName: tableName,
+		Item:      map[string]any{"pk": map[string]any{"S": "item3"}, "val": map[string]any{"S": "v3"}},
+	}
+	sdkPut3, _ := dynamodb.ToSDKPutItemInput(&put3)
+	_, _ = db.PutItem(sdkPut3)
 
 	// Batch Get
-	input := `{
-		"RequestItems": {
-			"` + tableName + `": {
-				"Keys": [
-					{"pk": {"S": "item1"}},
-					{"pk": {"S": "item3"}}
-				]
-			}
-		}
-	}`
+	input := dynamodb.BatchGetItemInput{
+		RequestItems: map[string]dynamodb.KeysAndAttributes{
+			tableName: {
+				Keys: []map[string]any{
+					{"pk": map[string]any{"S": "item1"}},
+					{"pk": map[string]any{"S": "item3"}},
+				},
+			},
+		},
+	}
 
-	res, err := db.BatchGetItem([]byte(input))
+	sdkInput, _ := dynamodb.ToSDKBatchGetItemInput(&input)
+	res, err := db.BatchGetItem(sdkInput)
 	require.NoError(t, err)
 
-	out, ok := res.(dynamodb.BatchGetItemOutput)
-	require.True(t, ok)
+	require.NotNil(t, res)
 
-	items, ok := out.Responses[tableName]
+	items, ok := res.Responses[tableName]
 	require.True(t, ok)
 	assert.Len(t, items, 2)
 
@@ -104,12 +153,18 @@ func TestBatchGetItem(t *testing.T) {
 	found1 := false
 	found3 := false
 	for _, item := range items {
-		pk := item["pk"].(map[string]any)["S"]
-		if pk == "item1" {
-			found1 = true
-		}
-		if pk == "item3" {
-			found3 = true
+		// item is map[string]types.AttributeValue
+		pkVal, ok := item["pk"]
+		require.True(t, ok)
+		// Assuming it is string
+		if s, ok := pkVal.(*types.AttributeValueMemberS); ok {
+			pk := s.Value
+			if pk == "item1" {
+				found1 = true
+			}
+			if pk == "item3" {
+				found3 = true
+			}
 		}
 	}
 	assert.True(t, found1, "item1 not found")
@@ -119,60 +174,73 @@ func TestBatchGetItem(t *testing.T) {
 func TestBatchWriteItem_ValidationErrors(t *testing.T) {
 	t.Parallel()
 	db := dynamodb.NewInMemoryDB()
-	// No tables created
 
 	// Table not found
-	input := `{
-		"RequestItems": {
-			"MissingTable": [
-				{"PutRequest": {"Item": {"pk": {"S": "item1"}}}}
-			]
-		}
-	}`
-	_, err := db.BatchWriteItem([]byte(input))
+	input := dynamodb.BatchWriteItemInput{
+		RequestItems: map[string][]dynamodb.WriteRequest{
+			"MissingTable": {
+				{PutRequest: &dynamodb.PutRequest{Item: map[string]any{"pk": map[string]any{"S": "item1"}}}},
+			},
+		},
+	}
+	sdkInput, _ := dynamodb.ToSDKBatchWriteItemInput(&input)
+	_, err := db.BatchWriteItem(sdkInput)
 	require.Error(t, err)
 	require.ErrorContains(t, err, "not found")
 
 	// Invalid RequestItems (empty)
-	inputEmpty := `{"RequestItems": {}}`
-	_, err = db.BatchWriteItem([]byte(inputEmpty))
+	inputEmpty := dynamodb.BatchWriteItemInput{
+		RequestItems: map[string][]dynamodb.WriteRequest{},
+	}
+	sdkInputEmpty, _ := dynamodb.ToSDKBatchWriteItemInput(&inputEmpty)
+	_, err = db.BatchWriteItem(sdkInputEmpty)
 	require.Error(t, err)
 	require.ErrorContains(t, err, "cannot be empty")
 
 	// Invalid Batch Size (> 25)
-	// Construct large batch
-	var hugeBatchBuilder strings.Builder
-	hugeBatchBuilder.WriteString(`{"RequestItems": {"T": [`)
-	for range 26 {
-		hugeBatchBuilder.WriteString(`{"PutRequest": {"Item": {"pk": {"S": "i"}}}},`)
+	requests := make([]dynamodb.WriteRequest, 26)
+	for i := range 26 {
+		requests[i] = dynamodb.WriteRequest{
+			PutRequest: &dynamodb.PutRequest{Item: map[string]any{"pk": map[string]any{"S": "i"}}},
+		}
 	}
-	hugeBatch := hugeBatchBuilder.String()
-	hugeBatch = hugeBatch[:len(hugeBatch)-1] + `]}}`
+	hugeBatch := dynamodb.BatchWriteItemInput{
+		RequestItems: map[string][]dynamodb.WriteRequest{
+			"T": requests,
+		},
+	}
 
 	// Create table T so table check passes, fail on size
-	db.CreateTable([]byte(`{
-		"TableName": "T",
-		"KeySchema": [{"AttributeName": "pk", "KeyType": "HASH"}],
-		"AttributeDefinitions": [{"AttributeName": "pk", "AttributeType": "S"}],
-		"ProvisionedThroughput": {"ReadCapacityUnits": 1, "WriteCapacityUnits": 1}
-	}`))
+	ct := dynamodb.CreateTableInput{
+		TableName: "T",
+		KeySchema: []dynamodb.KeySchemaElement{{AttributeName: "pk", KeyType: "HASH"}},
+		AttributeDefinitions: []dynamodb.AttributeDefinition{
+			{AttributeName: "pk", AttributeType: "S"},
+		},
+	}
+	_, _ = db.CreateTable(dynamodb.ToSDKCreateTableInput(&ct))
 
-	_, err = db.BatchWriteItem([]byte(hugeBatch))
+	sdkHugeBatch, _ := dynamodb.ToSDKBatchWriteItemInput(&hugeBatch)
+	_, err = db.BatchWriteItem(sdkHugeBatch)
 	require.Error(t, err)
 	require.ErrorContains(t, err, "limit exceeded")
 }
 
 func verifyItem(t *testing.T, db *dynamodb.InMemoryDB, tableName, pk string, shouldExist bool) {
 	t.Helper()
-	res, err := db.GetItem([]byte(`{
-		"TableName": "` + tableName + `",
-		"Key": {"pk": {"S": "` + pk + `"}}
-	}`))
+	input := dynamodb.GetItemInput{
+		TableName: tableName,
+		Key:       map[string]any{"pk": map[string]any{"S": pk}},
+	}
+	sdkInput, _ := dynamodb.ToSDKGetItemInput(&input)
+
+	res, err := db.GetItem(sdkInput)
 	require.NoError(t, err)
-	outItem := res.(dynamodb.GetItemOutput).Item
+
+	outItem := res.Item
 	if shouldExist {
-		assert.NotNil(t, outItem, "Item %s should exist in %s", pk, tableName)
+		assert.NotEmpty(t, outItem, "Item %s should exist in %s", pk, tableName)
 	} else {
-		assert.Nil(t, outItem, "Item %s should NOT exist in %s", pk, tableName)
+		assert.Empty(t, outItem, "Item %s should NOT exist in %s", pk, tableName)
 	}
 }

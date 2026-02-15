@@ -4,6 +4,7 @@ import (
 	"Gopherstack/dynamodb"
 	"testing"
 
+	dynamodb_sdk "github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -15,7 +16,7 @@ func TestUpdateItem(t *testing.T) {
 
 	tests := []struct {
 		setup      func(*dynamodb.InMemoryDB)
-		verifyFunc func(t *testing.T, db *dynamodb.InMemoryDB, out dynamodb.UpdateItemOutput)
+		verifyFunc func(t *testing.T, db *dynamodb.InMemoryDB, out *dynamodb_sdk.UpdateItemOutput)
 		name       string
 		input      string
 		wantErr    bool
@@ -29,7 +30,7 @@ func TestUpdateItem(t *testing.T) {
 				"ExpressionAttributeNames": {"#v": "value"},
 				"ExpressionAttributeValues": {":val": {"S": "test"}}
 			}`,
-			verifyFunc: func(t *testing.T, db *dynamodb.InMemoryDB, _ dynamodb.UpdateItemOutput) {
+			verifyFunc: func(t *testing.T, db *dynamodb.InMemoryDB, _ *dynamodb_sdk.UpdateItemOutput) {
 				t.Helper()
 				item := getItem(t, db, tableName, "new-item")
 				require.NotNil(t, item)
@@ -39,10 +40,15 @@ func TestUpdateItem(t *testing.T) {
 		{
 			name: "Update Existing Item (SET)",
 			setup: func(db *dynamodb.InMemoryDB) {
-				_, _ = db.PutItem([]byte(`{
-					"TableName": "` + tableName + `",
-					"Item": {"pk": {"S": "update-item"}, "count": {"N": "1"}}
-				}`))
+				putInput := dynamodb.PutItemInput{
+					TableName: tableName,
+					Item: map[string]any{
+						"pk":    map[string]any{"S": "update-item"},
+						"count": map[string]any{"N": "1"},
+					},
+				}
+				sdkPut, _ := dynamodb.ToSDKPutItemInput(&putInput)
+				_, _ = db.PutItem(sdkPut)
 			},
 			input: `{
 				"TableName": "` + tableName + `",
@@ -51,26 +57,33 @@ func TestUpdateItem(t *testing.T) {
 				"ExpressionAttributeValues": {":val": {"N": "5"}},
 				"ReturnValues": "ALL_NEW"
 			}`,
-			verifyFunc: func(t *testing.T, _ *dynamodb.InMemoryDB, out dynamodb.UpdateItemOutput) {
+			verifyFunc: func(t *testing.T, _ *dynamodb.InMemoryDB, out *dynamodb_sdk.UpdateItemOutput) {
 				t.Helper()
 				assert.NotNil(t, out.Attributes)
-				assert.Equal(t, "5", out.Attributes["count"].(map[string]any)["N"])
+				// Convert to wire format to check value easily
+				wireAttrs := dynamodb.FromSDKItem(out.Attributes)
+				assert.Equal(t, "5", wireAttrs["count"].(map[string]any)["N"])
 			},
 		},
 		{
 			name: "REMOVE Attribute",
 			setup: func(db *dynamodb.InMemoryDB) {
-				_, _ = db.PutItem([]byte(`{
-					"TableName": "` + tableName + `",
-					"Item": {"pk": {"S": "remove-item"}, "extra": {"S": "delete-me"}}
-				}`))
+				putInput := dynamodb.PutItemInput{
+					TableName: tableName,
+					Item: map[string]any{
+						"pk":    map[string]any{"S": "remove-item"},
+						"extra": map[string]any{"S": "delete-me"},
+					},
+				}
+				sdkPut, _ := dynamodb.ToSDKPutItemInput(&putInput)
+				_, _ = db.PutItem(sdkPut)
 			},
 			input: `{
 				"TableName": "` + tableName + `",
 				"Key": {"pk": {"S": "remove-item"}},
 				"UpdateExpression": "REMOVE extra"
 			}`,
-			verifyFunc: func(t *testing.T, db *dynamodb.InMemoryDB, _ dynamodb.UpdateItemOutput) {
+			verifyFunc: func(t *testing.T, db *dynamodb.InMemoryDB, _ *dynamodb_sdk.UpdateItemOutput) {
 				t.Helper()
 				item := getItem(t, db, tableName, "remove-item")
 				_, exists := item["extra"]
@@ -80,10 +93,15 @@ func TestUpdateItem(t *testing.T) {
 		{
 			name: "ADD Number",
 			setup: func(db *dynamodb.InMemoryDB) {
-				_, _ = db.PutItem([]byte(`{
-					"TableName": "` + tableName + `",
-					"Item": {"pk": {"S": "add-item"}, "counter": {"N": "10"}}
-				}`))
+				putInput := dynamodb.PutItemInput{
+					TableName: tableName,
+					Item: map[string]any{
+						"pk":      map[string]any{"S": "add-item"},
+						"counter": map[string]any{"N": "10"},
+					},
+				}
+				sdkPut, _ := dynamodb.ToSDKPutItemInput(&putInput)
+				_, _ = db.PutItem(sdkPut)
 			},
 			input: `{
 				"TableName": "` + tableName + `",
@@ -91,7 +109,7 @@ func TestUpdateItem(t *testing.T) {
 				"UpdateExpression": "ADD counter :incr",
 				"ExpressionAttributeValues": {":incr": {"N": "5"}}
 			}`,
-			verifyFunc: func(t *testing.T, db *dynamodb.InMemoryDB, _ dynamodb.UpdateItemOutput) {
+			verifyFunc: func(t *testing.T, db *dynamodb.InMemoryDB, _ *dynamodb_sdk.UpdateItemOutput) {
 				t.Helper()
 				item := getItem(t, db, tableName, "add-item")
 				assert.Equal(t, "15", item["counter"].(map[string]any)["N"])
@@ -100,10 +118,15 @@ func TestUpdateItem(t *testing.T) {
 		{
 			name: "Condition Check Failed",
 			setup: func(db *dynamodb.InMemoryDB) {
-				_, _ = db.PutItem([]byte(`{
-					"TableName": "` + tableName + `",
-					"Item": {"pk": {"S": "condition-item"}, "ver": {"N": "1"}}
-				}`))
+				putInput := dynamodb.PutItemInput{
+					TableName: tableName,
+					Item: map[string]any{
+						"pk":  map[string]any{"S": "condition-item"},
+						"ver": map[string]any{"N": "1"},
+					},
+				}
+				sdkPut, _ := dynamodb.ToSDKPutItemInput(&putInput)
+				_, _ = db.PutItem(sdkPut)
 			},
 			input: `{
 				"TableName": "` + tableName + `",
@@ -120,10 +143,15 @@ func TestUpdateItem(t *testing.T) {
 		{
 			name: "ReturnValues ALL_OLD",
 			setup: func(db *dynamodb.InMemoryDB) {
-				_, _ = db.PutItem([]byte(`{
-					"TableName": "` + tableName + `",
-					"Item": {"pk": {"S": "old-val-item"}, "data": {"S": "original"}}
-				}`))
+				putInput := dynamodb.PutItemInput{
+					TableName: tableName,
+					Item: map[string]any{
+						"pk":   map[string]any{"S": "old-val-item"},
+						"data": map[string]any{"S": "original"},
+					},
+				}
+				sdkPut, _ := dynamodb.ToSDKPutItemInput(&putInput)
+				_, _ = db.PutItem(sdkPut)
 			},
 			input: `{
 				"TableName": "` + tableName + `",
@@ -132,10 +160,11 @@ func TestUpdateItem(t *testing.T) {
 				"ExpressionAttributeValues": {":new": {"S": "updated"}},
 				"ReturnValues": "ALL_OLD"
 			}`,
-			verifyFunc: func(t *testing.T, _ *dynamodb.InMemoryDB, out dynamodb.UpdateItemOutput) {
+			verifyFunc: func(t *testing.T, _ *dynamodb.InMemoryDB, out *dynamodb_sdk.UpdateItemOutput) {
 				t.Helper()
 				assert.NotNil(t, out.Attributes)
-				assert.Equal(t, "original", out.Attributes["data"].(map[string]any)["S"])
+				wireAttrs := dynamodb.FromSDKItem(out.Attributes)
+				assert.Equal(t, "original", wireAttrs["data"].(map[string]any)["S"])
 			},
 		},
 	}
@@ -146,19 +175,22 @@ func TestUpdateItem(t *testing.T) {
 			db := dynamodb.NewInMemoryDB()
 
 			// Setup table
-			_, err := db.CreateTable([]byte(`{
-				"TableName": "` + tableName + `",
-				"KeySchema": [{"AttributeName": "pk", "KeyType": "HASH"}],
-				"AttributeDefinitions": [{"AttributeName": "pk", "AttributeType": "S"}],
-				"ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5}
-			}`))
+			ctInput := dynamodb.CreateTableInput{
+				TableName:            tableName,
+				KeySchema:            []dynamodb.KeySchemaElement{{AttributeName: "pk", KeyType: "HASH"}},
+				AttributeDefinitions: []dynamodb.AttributeDefinition{{AttributeName: "pk", AttributeType: "S"}},
+			}
+			_, err := db.CreateTable(dynamodb.ToSDKCreateTableInput(&ctInput))
 			require.NoError(t, err)
 
 			if tc.setup != nil {
 				tc.setup(db)
 			}
 
-			res, err := db.UpdateItem([]byte(tc.input))
+			updateInput := mustUnmarshal[dynamodb.UpdateItemInput](t, tc.input)
+			sdkUpdate, _ := dynamodb.ToSDKUpdateItemInput(&updateInput)
+
+			res, err := db.UpdateItem(sdkUpdate)
 			if tc.wantErr {
 				require.Error(t, err)
 
@@ -166,8 +198,7 @@ func TestUpdateItem(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			out, ok := res.(dynamodb.UpdateItemOutput)
-			require.True(t, ok)
+			out := res
 
 			if tc.verifyFunc != nil {
 				tc.verifyFunc(t, db, out)
@@ -178,12 +209,17 @@ func TestUpdateItem(t *testing.T) {
 
 func getItem(t *testing.T, db *dynamodb.InMemoryDB, tableName, pk string) map[string]any {
 	t.Helper()
-	res, err := db.GetItem([]byte(`{
-		"TableName": "` + tableName + `",
-		"Key": {"pk": {"S": "` + pk + `"}}
-	}`))
-	require.NoError(t, err)
-	out := res.(dynamodb.GetItemOutput)
+	input := dynamodb.GetItemInput{
+		TableName: tableName,
+		Key:       map[string]any{"pk": map[string]any{"S": pk}},
+	}
+	sdkInput, _ := dynamodb.ToSDKGetItemInput(&input)
 
-	return out.Item
+	res, err := db.GetItem(sdkInput)
+	require.NoError(t, err)
+	// res.Item is map[string]types.AttributeValue
+	if res.Item == nil {
+		return nil
+	}
+	return dynamodb.FromSDKItem(res.Item)
 }

@@ -17,8 +17,9 @@ func TestQuery(t *testing.T) {
 
 	// Setup table
 	tableName := "QueryTestTable"
-	createTableJSON := `{
-		"TableName": "` + tableName + `",
+
+	ctInput := mustUnmarshal[dynamodb.CreateTableInput](t, `{
+		"TableName": "`+tableName+`",
 		"KeySchema": [
 			{"AttributeName": "pk", "KeyType": "HASH"},
 			{"AttributeName": "sk", "KeyType": "RANGE"}
@@ -31,8 +32,8 @@ func TestQuery(t *testing.T) {
 			"ReadCapacityUnits": 5,
 			"WriteCapacityUnits": 5
 		}
-	}`
-	_, err := db.CreateTable([]byte(createTableJSON))
+	}`)
+	_, err := db.CreateTable(dynamodb.ToSDKCreateTableInput(&ctInput))
 	require.NoError(t, err)
 
 	// Insert items
@@ -40,15 +41,16 @@ func TestQuery(t *testing.T) {
 	// pk=B, sk=1..5
 	for _, pk := range []string{"A", "B"} {
 		for i := 1; i <= 5; i++ {
-			itemJSON := `{
-				"TableName": "` + tableName + `",
+			putInput := mustUnmarshal[dynamodb.PutItemInput](t, `{
+				"TableName": "`+tableName+`",
 				"Item": {
-					"pk": {"S": "` + pk + `"},
-					"sk": {"N": "` + strconv.Itoa(i) + `"},
-					"data": {"S": "data-` + pk + `-` + strconv.Itoa(i) + `"}
+					"pk": {"S": "`+pk+`"},
+					"sk": {"N": "`+strconv.Itoa(i)+`"},
+					"data": {"S": "data-`+pk+`-`+strconv.Itoa(i)+`"}
 				}
-			}`
-			_, putErr := db.PutItem([]byte(itemJSON))
+			}`)
+			sdkPut, _ := dynamodb.ToSDKPutItemInput(&putInput)
+			_, putErr := db.PutItem(sdkPut)
 			require.NoError(t, putErr)
 		}
 	}
@@ -178,7 +180,10 @@ func TestQuery(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			res, queryErr := db.Query([]byte(tc.input))
+			queryInput := mustUnmarshal[dynamodb.QueryInput](t, tc.input)
+			sdkQuery, _ := dynamodb.ToSDKQueryInput(&queryInput)
+
+			res, queryErr := db.Query(sdkQuery)
 			if tc.wantErr {
 				require.Error(t, queryErr)
 
@@ -190,13 +195,17 @@ func TestQuery(t *testing.T) {
 			}
 
 			require.NoError(t, queryErr)
-			out, ok := res.(dynamodb.QueryOutput)
-			require.True(t, ok)
+
+			// Unwrap output to wire format for comparison
+			var gotItems []map[string]any
+			for _, item := range res.Items {
+				gotItems = append(gotItems, dynamodb.FromSDKItem(item))
+			}
 
 			// Verify items
 			// We convert both to JSON for easier deep comparison ensuring types match
 			wantJSON, _ := json.Marshal(tc.wantItems)
-			gotJSON, _ := json.Marshal(out.Items)
+			gotJSON, _ := json.Marshal(gotItems)
 			assert.JSONEq(t, string(wantJSON), string(gotJSON))
 		})
 	}
@@ -233,3 +242,8 @@ func reverseItems(items []map[string]any) []map[string]any {
 
 	return reversed
 }
+
+// fromSDKItem is redundant if FromSDKItem is exported, using exported one.
+
+// FromSDKItem converts map[string]types.AttributeValue to map[string]any (wire format)
+// It is available in dynamodb package

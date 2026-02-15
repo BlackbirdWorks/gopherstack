@@ -23,13 +23,20 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 		{
 			name: "SET Nested Map Field",
 			setup: func(db *dynamodb.InMemoryDB) {
-				_, _ = db.PutItem([]byte(`{
-					"TableName": "` + tableName + `",
-					"Item": {
-						"pk": {"S": "nested-map"},
-						"info": {"M": {"author": {"S": "me"}, "year": {"N": "2020"}}}
-					}
-				}`))
+				putInput := dynamodb.PutItemInput{
+					TableName: tableName,
+					Item: map[string]any{
+						"pk": map[string]any{"S": "nested-map"},
+						"info": map[string]any{
+							"M": map[string]any{
+								"author": map[string]any{"S": "me"},
+								"year":   map[string]any{"N": "2020"},
+							},
+						},
+					},
+				}
+				sdkPut, _ := dynamodb.ToSDKPutItemInput(&putInput)
+				_, _ = db.PutItem(sdkPut)
 			},
 			input: `{
 				"TableName": "` + tableName + `",
@@ -47,13 +54,17 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 		{
 			name: "SET List Element by Index",
 			setup: func(db *dynamodb.InMemoryDB) {
-				_, _ = db.PutItem([]byte(`{
-					"TableName": "` + tableName + `",
-					"Item": {
-						"pk": {"S": "list-update"},
-						"tags": {"L": [{"S": "a"}, {"S": "b"}, {"S": "c"}]}
-					}
-				}`))
+				putInput := dynamodb.PutItemInput{
+					TableName: tableName,
+					Item: map[string]any{
+						"pk": map[string]any{"S": "list-update"},
+						"tags": map[string]any{
+							"L": []any{map[string]any{"S": "a"}, map[string]any{"S": "b"}, map[string]any{"S": "c"}},
+						},
+					},
+				}
+				sdkPut, _ := dynamodb.ToSDKPutItemInput(&putInput)
+				_, _ = db.PutItem(sdkPut)
 			},
 			input: `{
 				"TableName": "` + tableName + `",
@@ -71,15 +82,17 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 		{
 			name: "SET Nested List in Map",
 			setup: func(db *dynamodb.InMemoryDB) {
-				_, _ = db.PutItem([]byte(`{
-					"TableName": "` + tableName + `",
-					"Item": {
-						"pk": {"S": "nested-list"},
-						"data": {"M": {
-							"scores": {"L": [{"N": "10"}, {"N": "20"}]}
-						}}
-					}
-				}`))
+				putInput := dynamodb.PutItemInput{
+					TableName: tableName,
+					Item: map[string]any{
+						"pk": map[string]any{"S": "nested-list"},
+						"data": map[string]any{"M": map[string]any{
+							"scores": map[string]any{"L": []any{map[string]any{"N": "10"}, map[string]any{"N": "20"}}},
+						}},
+					},
+				}
+				sdkPut, _ := dynamodb.ToSDKPutItemInput(&putInput)
+				_, _ = db.PutItem(sdkPut)
 			},
 			input: `{
 				"TableName": "` + tableName + `",
@@ -98,13 +111,17 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 		{
 			name: "REMOVE List Element (Shift)",
 			setup: func(db *dynamodb.InMemoryDB) {
-				_, _ = db.PutItem([]byte(`{
-					"TableName": "` + tableName + `",
-					"Item": {
-						"pk": {"S": "remove-list"},
-						"tags": {"L": [{"S": "a"}, {"S": "b"}, {"S": "c"}]}
-					}
-				}`))
+				putInput := dynamodb.PutItemInput{
+					TableName: tableName,
+					Item: map[string]any{
+						"pk": map[string]any{"S": "remove-list"},
+						"tags": map[string]any{
+							"L": []any{map[string]any{"S": "a"}, map[string]any{"S": "b"}, map[string]any{"S": "c"}},
+						},
+					},
+				}
+				sdkPut, _ := dynamodb.ToSDKPutItemInput(&putInput)
+				_, _ = db.PutItem(sdkPut)
 			},
 			input: `{
 				"TableName": "` + tableName + `",
@@ -127,19 +144,15 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			db := dynamodb.NewInMemoryDB()
-			_, err := db.CreateTable([]byte(`{
-				"TableName": "` + tableName + `",
-				"KeySchema": [{"AttributeName": "pk", "KeyType": "HASH"}],
-				"AttributeDefinitions": [{"AttributeName": "pk", "AttributeType": "S"}],
-				"ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5}
-			}`))
-			require.NoError(t, err)
+			createTableHelper(t, db, tableName, "pk")
 
 			if tc.setup != nil {
 				tc.setup(db)
 			}
 
-			_, err = db.UpdateItem([]byte(tc.input))
+			updateInput := mustUnmarshal[dynamodb.UpdateItemInput](t, tc.input)
+			sdkUpdate, _ := dynamodb.ToSDKUpdateItemInput(&updateInput)
+			_, err := db.UpdateItem(sdkUpdate)
 			if tc.wantErr {
 				require.Error(t, err)
 			} else {

@@ -2,6 +2,7 @@ package dynamodb_test
 
 import (
 	"Gopherstack/dynamodb"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -13,29 +14,29 @@ func TestExtractKeySchema(t *testing.T) {
 	t.Parallel()
 	db := dynamodb.NewInMemoryDB()
 	tableName := "SchemaTable"
-	db.CreateTable([]byte(`{
-		"TableName": "` + tableName + `",
-		"KeySchema": [
-			{"AttributeName": "pk", "KeyType": "HASH"},
-			{"AttributeName": "sk", "KeyType": "RANGE"}
-		],
-		"AttributeDefinitions": [
-			{"AttributeName": "pk", "AttributeType": "S"},
-			{"AttributeName": "sk", "AttributeType": "N"}
-		],
-		"ProvisionedThroughput": {"ReadCapacityUnits": 1, "WriteCapacityUnits": 1},
-		"GlobalSecondaryIndexes": [
+	ctInput := dynamodb.CreateTableInput{
+		TableName: tableName,
+		KeySchema: []dynamodb.KeySchemaElement{
+			{AttributeName: "pk", KeyType: dynamodb.KeyTypeHash},
+			{AttributeName: "sk", KeyType: dynamodb.KeyTypeRange},
+		},
+		AttributeDefinitions: []dynamodb.AttributeDefinition{
+			{AttributeName: "pk", AttributeType: "S"},
+			{AttributeName: "sk", AttributeType: "N"},
+		},
+		GlobalSecondaryIndexes: []dynamodb.GlobalSecondaryIndex{
 			{
-				"IndexName": "GSI1",
-				"KeySchema": [
-					{"AttributeName": "gsiPK", "KeyType": "HASH"},
-					{"AttributeName": "gsiSK", "KeyType": "RANGE"}
-				],
-				"Projection": {"ProjectionType": "ALL"},
-				"ProvisionedThroughput": {"ReadCapacityUnits": 1, "WriteCapacityUnits": 1}
-			}
-		]
-	}`))
+				IndexName: "GSI1",
+				KeySchema: []dynamodb.KeySchemaElement{
+					{AttributeName: "gsiPK", KeyType: dynamodb.KeyTypeHash},
+					{AttributeName: "gsiSK", KeyType: dynamodb.KeyTypeRange},
+				},
+				Projection: dynamodb.Projection{ProjectionType: "ALL"},
+			},
+		},
+	}
+	_, err := db.CreateTable(dynamodb.ToSDKCreateTableInput(&ctInput))
+	require.NoError(t, err)
 
 	table := db.Tables[tableName]
 
@@ -46,6 +47,19 @@ func TestExtractKeySchema(t *testing.T) {
 	assert.Len(t, schema, 2)
 	assert.Equal(t, "pk", schema[0].AttributeName)
 	assert.Equal(t, "sk", schema[1].AttributeName)
+
+	// Test PutItem with oversized item
+	oversizedData := strings.Repeat("a", 400*1024)
+	input := fmt.Sprintf(
+		`{"TableName": "%s", "Item": {"pk": {"S": "oversized"}, "sk": {"N": "1"}, "data": {"S": "%s"}}}`,
+		tableName,
+		oversizedData,
+	)
+	putInput := mustUnmarshal[dynamodb.PutItemInput](t, input)
+	sdkPut, _ := dynamodb.ToSDKPutItemInput(&putInput)
+	_, err = db.PutItem(sdkPut)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "exceeds limit")
 
 	// Test GSI Schema
 	schema, idx, err = db.ExtractKeySchema(table, "GSI1")
@@ -85,7 +99,7 @@ func TestSortCandidates(t *testing.T) {
 	skDef := dynamodb.KeySchemaElement{AttributeName: "sk_n", KeyType: "RANGE"}
 	forward := true
 
-	db.SortCandidates(candidates, skDef, table, &forward)
+	db.SortCandidates(candidates, skDef, table, forward)
 
 	assert.Equal(t, "2", candidates[0]["sk_n"].(map[string]any)["N"])
 	assert.Equal(t, "10", candidates[1]["sk_n"].(map[string]any)["N"])
@@ -99,7 +113,7 @@ func TestSortCandidates(t *testing.T) {
 	}
 	skDefS := dynamodb.KeySchemaElement{AttributeName: "sk_s", KeyType: "RANGE"}
 
-	db.SortCandidates(candidatesRequest, skDefS, table, &forward)
+	db.SortCandidates(candidatesRequest, skDefS, table, forward)
 
 	assert.Equal(t, "a", candidatesRequest[0]["sk_s"].(map[string]any)["S"])
 	assert.Equal(t, "b", candidatesRequest[1]["sk_s"].(map[string]any)["S"])
@@ -107,7 +121,7 @@ func TestSortCandidates(t *testing.T) {
 
 	// Test Reverse Sorting
 	forward = false
-	db.SortCandidates(candidatesRequest, skDefS, table, &forward)
+	db.SortCandidates(candidatesRequest, skDefS, table, forward)
 	assert.Equal(t, "c", candidatesRequest[0]["sk_s"].(map[string]any)["S"])
 }
 
@@ -238,18 +252,19 @@ func TestRebuildIndexes(t *testing.T) {
 
 	// Create table manually to avoid triggering implicit rebuilds (though CreateTable calls it)
 	// We want to test the function itself.
-	db.CreateTable([]byte(`{
-		"TableName": "` + tableName + `",
-		"KeySchema": [
-			{"AttributeName": "pk", "KeyType": "HASH"},
-			{"AttributeName": "sk", "KeyType": "RANGE"}
-		],
-		"AttributeDefinitions": [
-			{"AttributeName": "pk", "AttributeType": "S"},
-			{"AttributeName": "sk", "AttributeType": "N"}
-		],
-		"ProvisionedThroughput": {"ReadCapacityUnits": 1, "WriteCapacityUnits": 1}
-	}`))
+	ctInput := dynamodb.CreateTableInput{
+		TableName: tableName,
+		KeySchema: []dynamodb.KeySchemaElement{
+			{AttributeName: "pk", KeyType: dynamodb.KeyTypeHash},
+			{AttributeName: "sk", KeyType: dynamodb.KeyTypeRange},
+		},
+		AttributeDefinitions: []dynamodb.AttributeDefinition{
+			{AttributeName: "pk", AttributeType: "S"},
+			{AttributeName: "sk", AttributeType: "N"},
+		},
+	}
+	_, err := db.CreateTable(dynamodb.ToSDKCreateTableInput(&ctInput))
+	require.NoError(t, err)
 
 	table := db.Tables[tableName]
 
@@ -288,7 +303,7 @@ func TestSortCandidates_InferredType(t *testing.T) {
 	skDef := dynamodb.KeySchemaElement{AttributeName: "sk", KeyType: "RANGE"}
 	forward := true
 
-	db.SortCandidates(candidates, skDef, table, &forward)
+	db.SortCandidates(candidates, skDef, table, forward)
 
 	assert.Equal(t, "2", candidates[0]["sk"].(map[string]any)["N"])
 	assert.Equal(t, "10", candidates[1]["sk"].(map[string]any)["N"])

@@ -45,12 +45,12 @@ func TestScan(t *testing.T) {
 			"WriteCapacityUnits": 5
 		}
 	}`
-	_, err := db.CreateTable([]byte(createTableJSON))
+
+	ctInput := mustUnmarshal[dynamodb.CreateTableInput](t, createTableJSON)
+	_, err := db.CreateTable(dynamodb.ToSDKCreateTableInput(&ctInput))
 	require.NoError(t, err)
 
 	// Insert 10 items
-	// pk=item-1..10
-	// half have gsiPK="active", half "inactive"
 	for i := 1; i <= 10; i++ {
 		status := "inactive"
 		if i%2 == 0 {
@@ -64,7 +64,6 @@ func TestScan(t *testing.T) {
 				"val": {"N": "` + strconv.Itoa(i*10) + `"}
 			}
 		}`
-		// Add gsiPK only for even items to test spare index scanning
 		if i%2 == 0 {
 			itemJSON = `{
 				"TableName": "` + tableName + `",
@@ -77,7 +76,9 @@ func TestScan(t *testing.T) {
 			}`
 		}
 
-		_, putErr := db.PutItem([]byte(itemJSON))
+		putInput := mustUnmarshal[dynamodb.PutItemInput](t, itemJSON)
+		sdkPutInput, _ := dynamodb.ToSDKPutItemInput(&putInput)
+		_, putErr := db.PutItem(sdkPutInput)
 		require.NoError(t, putErr)
 	}
 
@@ -154,23 +155,33 @@ func TestScan(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			res, scanErr := db.Scan([]byte(tc.input))
+
+			scanInput := mustUnmarshal[dynamodb.ScanInput](t, tc.input)
+			sdkScanInput, _ := dynamodb.ToSDKScanInput(&scanInput)
+
+			res, scanErr := db.Scan(sdkScanInput)
 			if tc.wantErr {
 				require.Error(t, scanErr)
-
 				return
 			}
 
 			require.NoError(t, scanErr)
-			out, ok := res.(dynamodb.ScanOutput)
-			require.True(t, ok)
+			// Unwrap items to map[string]any for verification
+			// ScanOutput.Items is []map[string]types.AttributeValue
+			// To verify, we can convert back to wire format or check logic.
+			// The existing verification functions expect []map[string]any (wire).
+
+			wireItems := make([]map[string]any, len(res.Items))
+			for i, item := range res.Items {
+				wireItems[i] = dynamodb.FromSDKItem(item)
+			}
 
 			if tc.wantCount >= 0 {
-				assert.Len(t, out.Items, tc.wantCount)
+				assert.Len(t, wireItems, tc.wantCount)
 			}
 
 			if tc.verifyFunc != nil {
-				tc.verifyFunc(t, out.Items)
+				tc.verifyFunc(t, wireItems)
 			}
 		})
 	}
@@ -180,12 +191,15 @@ func TestScan_ValidationErrors(t *testing.T) {
 	t.Parallel()
 	db := dynamodb.NewInMemoryDB()
 	tableName := "ScanValTable"
-	db.CreateTable([]byte(`{
-		"TableName": "` + tableName + `",
-		"KeySchema": [{"AttributeName": "pk", "KeyType": "HASH"}],
-		"AttributeDefinitions": [{"AttributeName": "pk", "AttributeType": "S"}],
-		"ProvisionedThroughput": {"ReadCapacityUnits": 1, "WriteCapacityUnits": 1}
-	}`))
+
+	ctInput := dynamodb.CreateTableInput{
+		TableName: tableName,
+		KeySchema: []dynamodb.KeySchemaElement{{AttributeName: "pk", KeyType: "HASH"}},
+		AttributeDefinitions: []dynamodb.AttributeDefinition{
+			{AttributeName: "pk", AttributeType: "S"},
+		},
+	}
+	_, _ = db.CreateTable(dynamodb.ToSDKCreateTableInput(&ctInput))
 
 	tests := []struct {
 		name      string
@@ -212,7 +226,10 @@ func TestScan_ValidationErrors(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := db.Scan([]byte(tc.input))
+			scanInput := mustUnmarshal[dynamodb.ScanInput](t, tc.input)
+			sdkScanInput, _ := dynamodb.ToSDKScanInput(&scanInput)
+
+			_, err := db.Scan(sdkScanInput)
 			require.Error(t, err)
 			if tc.wantError != "" && err != nil {
 				assert.Contains(t, err.Error(), tc.wantError)
