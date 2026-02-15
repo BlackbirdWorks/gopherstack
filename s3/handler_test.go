@@ -1,9 +1,11 @@
 package s3_test
 
 import (
+	"context"
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/xml"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -29,19 +31,19 @@ func TestHandler_ListBuckets(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup   func(*s3.InMemoryBackend)
+		setup   func(context.Context, *s3.InMemoryBackend)
 		name    string
 		wantLen int
 	}{
 		{
 			name:    "no buckets",
-			setup:   func(_ *s3.InMemoryBackend) {},
+			setup:   func(_ context.Context, _ *s3.InMemoryBackend) {},
 			wantLen: 0,
 		},
 		{
 			name: "one bucket",
-			setup: func(b *s3.InMemoryBackend) {
-				require.NoError(t, b.CreateBucket("test"))
+			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+				require.NoError(t, b.CreateBucket(ctx, "test"))
 			},
 			wantLen: 1,
 		},
@@ -52,7 +54,7 @@ func TestHandler_ListBuckets(t *testing.T) {
 			t.Parallel()
 
 			handler, backend := newTestHandler(t)
-			tt.setup(backend)
+			tt.setup(context.Background(), backend)
 
 			req := httptest.NewRequest(http.MethodGet, "/", nil)
 			rec := httptest.NewRecorder()
@@ -69,21 +71,21 @@ func TestHandler_CreateBucket(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		setup      func(*s3.InMemoryBackend)
+		setup      func(context.Context, *s3.InMemoryBackend)
 		bucket     string
 		wantStatus int
 	}{
 		{
 			name:       "create new bucket",
 			bucket:     "new-bucket",
-			setup:      func(_ *s3.InMemoryBackend) {},
+			setup:      func(_ context.Context, _ *s3.InMemoryBackend) {},
 			wantStatus: http.StatusOK,
 		},
 		{
 			name:   "create duplicate bucket",
 			bucket: "existing",
-			setup: func(b *s3.InMemoryBackend) {
-				require.NoError(t, b.CreateBucket("existing"))
+			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+				require.NoError(t, b.CreateBucket(ctx, "existing"))
 			},
 			wantStatus: http.StatusConflict,
 		},
@@ -94,7 +96,7 @@ func TestHandler_CreateBucket(t *testing.T) {
 			t.Parallel()
 
 			handler, backend := newTestHandler(t)
-			tt.setup(backend)
+			tt.setup(context.Background(), backend)
 
 			req := httptest.NewRequest(http.MethodPut, "/"+tt.bucket, nil)
 			rec := httptest.NewRecorder()
@@ -110,31 +112,31 @@ func TestHandler_DeleteBucket(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		setup      func(*s3.InMemoryBackend)
+		setup      func(context.Context, *s3.InMemoryBackend)
 		bucket     string
 		wantStatus int
 	}{
 		{
 			name:   "delete empty bucket",
 			bucket: "my-bucket",
-			setup: func(b *s3.InMemoryBackend) {
-				require.NoError(t, b.CreateBucket("my-bucket"))
+			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+				require.NoError(t, b.CreateBucket(ctx, "my-bucket"))
 			},
 			wantStatus: http.StatusNoContent,
 		},
 		{
 			name:       "delete non-existent bucket",
 			bucket:     "no-bucket",
-			setup:      func(_ *s3.InMemoryBackend) {},
+			setup:      func(_ context.Context, _ *s3.InMemoryBackend) {},
 			wantStatus: http.StatusNotFound,
 		},
 		{
 			name:   "delete non-empty bucket",
 			bucket: "full-bucket",
-			setup: func(b *s3.InMemoryBackend) {
-				require.NoError(t, b.CreateBucket("full-bucket"))
+			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+				require.NoError(t, b.CreateBucket(ctx, "full-bucket"))
 
-				_, err := b.PutObject("full-bucket", "k", []byte("d"), s3.ObjectMetadata{})
+				_, err := b.PutObject(ctx, "full-bucket", "k", []byte("d"), s3.ObjectMetadata{})
 				require.NoError(t, err)
 			},
 			wantStatus: http.StatusConflict,
@@ -146,7 +148,7 @@ func TestHandler_DeleteBucket(t *testing.T) {
 			t.Parallel()
 
 			handler, backend := newTestHandler(t)
-			tt.setup(backend)
+			tt.setup(context.Background(), backend)
 
 			req := httptest.NewRequest(http.MethodDelete, "/"+tt.bucket, nil)
 			rec := httptest.NewRecorder()
@@ -162,22 +164,22 @@ func TestHandler_HeadBucket(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		setup      func(*s3.InMemoryBackend)
+		setup      func(context.Context, *s3.InMemoryBackend)
 		bucket     string
 		wantStatus int
 	}{
 		{
 			name:   "existing bucket",
 			bucket: "my-bucket",
-			setup: func(b *s3.InMemoryBackend) {
-				require.NoError(t, b.CreateBucket("my-bucket"))
+			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+				require.NoError(t, b.CreateBucket(ctx, "my-bucket"))
 			},
 			wantStatus: http.StatusOK,
 		},
 		{
 			name:       "non-existent bucket",
 			bucket:     "no-bucket",
-			setup:      func(_ *s3.InMemoryBackend) {},
+			setup:      func(_ context.Context, _ *s3.InMemoryBackend) {},
 			wantStatus: http.StatusNotFound,
 		},
 	}
@@ -187,7 +189,7 @@ func TestHandler_HeadBucket(t *testing.T) {
 			t.Parallel()
 
 			handler, backend := newTestHandler(t)
-			tt.setup(backend)
+			tt.setup(context.Background(), backend)
 
 			req := httptest.NewRequest(http.MethodHead, "/"+tt.bucket, nil)
 			rec := httptest.NewRecorder()
@@ -203,7 +205,7 @@ func TestHandler_PutObject(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		setup      func(*s3.InMemoryBackend)
+		setup      func(context.Context, *s3.InMemoryBackend)
 		bucket     string
 		key        string
 		body       string
@@ -214,8 +216,8 @@ func TestHandler_PutObject(t *testing.T) {
 			bucket: "bkt",
 			key:    "key",
 			body:   "hello world",
-			setup: func(b *s3.InMemoryBackend) {
-				require.NoError(t, b.CreateBucket("bkt"))
+			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+				require.NoError(t, b.CreateBucket(ctx, "bkt"))
 			},
 			wantStatus: http.StatusOK,
 		},
@@ -224,7 +226,7 @@ func TestHandler_PutObject(t *testing.T) {
 			bucket:     "no-bkt",
 			key:        "key",
 			body:       "data",
-			setup:      func(_ *s3.InMemoryBackend) {},
+			setup:      func(_ context.Context, _ *s3.InMemoryBackend) {},
 			wantStatus: http.StatusNotFound,
 		},
 	}
@@ -234,7 +236,7 @@ func TestHandler_PutObject(t *testing.T) {
 			t.Parallel()
 
 			handler, backend := newTestHandler(t)
-			tt.setup(backend)
+			tt.setup(context.Background(), backend)
 
 			req := httptest.NewRequest(http.MethodPut, "/"+tt.bucket+"/"+tt.key, strings.NewReader(tt.body))
 			rec := httptest.NewRecorder()
@@ -249,7 +251,7 @@ func TestHandler_GetObject(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup      func(*s3.InMemoryBackend)
+		setup      func(context.Context, *s3.InMemoryBackend)
 		name       string
 		bucket     string
 		key        string
@@ -260,10 +262,10 @@ func TestHandler_GetObject(t *testing.T) {
 			name:   "get existing object",
 			bucket: "bkt",
 			key:    "key",
-			setup: func(b *s3.InMemoryBackend) {
-				require.NoError(t, b.CreateBucket("bkt"))
+			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+				require.NoError(t, b.CreateBucket(ctx, "bkt"))
 
-				_, err := b.PutObject("bkt", "key", []byte("content"), s3.ObjectMetadata{})
+				_, err := b.PutObject(ctx, "bkt", "key", []byte("content"), s3.ObjectMetadata{})
 				require.NoError(t, err)
 			},
 			wantStatus: http.StatusOK,
@@ -273,8 +275,8 @@ func TestHandler_GetObject(t *testing.T) {
 			name:   "get non-existent key",
 			bucket: "bkt",
 			key:    "no-key",
-			setup: func(b *s3.InMemoryBackend) {
-				require.NoError(t, b.CreateBucket("bkt"))
+			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+				require.NoError(t, b.CreateBucket(ctx, "bkt"))
 			},
 			wantStatus: http.StatusNotFound,
 		},
@@ -285,7 +287,7 @@ func TestHandler_GetObject(t *testing.T) {
 			t.Parallel()
 
 			handler, backend := newTestHandler(t)
-			tt.setup(backend)
+			tt.setup(context.Background(), backend)
 
 			req := httptest.NewRequest(http.MethodGet, "/"+tt.bucket+"/"+tt.key, nil)
 			rec := httptest.NewRecorder()
@@ -305,9 +307,10 @@ func TestHandler_DeleteObject(t *testing.T) {
 	t.Parallel()
 
 	handler, backend := newTestHandler(t)
-	require.NoError(t, backend.CreateBucket("bkt"))
+	ctx := context.Background()
+	require.NoError(t, backend.CreateBucket(ctx, "bkt"))
 
-	_, err := backend.PutObject("bkt", "key", []byte("data"), s3.ObjectMetadata{})
+	_, err := backend.PutObject(ctx, "bkt", "key", []byte("data"), s3.ObjectMetadata{})
 	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodDelete, "/bkt/key", nil)
@@ -322,7 +325,7 @@ func TestHandler_HeadObject(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		setup      func(*s3.InMemoryBackend)
+		setup      func(context.Context, *s3.InMemoryBackend)
 		bucket     string
 		key        string
 		wantStatus int
@@ -331,10 +334,10 @@ func TestHandler_HeadObject(t *testing.T) {
 			name:   "existing object",
 			bucket: "bkt",
 			key:    "key",
-			setup: func(b *s3.InMemoryBackend) {
-				require.NoError(t, b.CreateBucket("bkt"))
+			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+				require.NoError(t, b.CreateBucket(ctx, "bkt"))
 
-				_, err := b.PutObject("bkt", "key", []byte("data"), s3.ObjectMetadata{})
+				_, err := b.PutObject(ctx, "bkt", "key", []byte("data"), s3.ObjectMetadata{})
 				require.NoError(t, err)
 			},
 			wantStatus: http.StatusOK,
@@ -343,8 +346,8 @@ func TestHandler_HeadObject(t *testing.T) {
 			name:   "non-existent object",
 			bucket: "bkt",
 			key:    "no-key",
-			setup: func(b *s3.InMemoryBackend) {
-				require.NoError(t, b.CreateBucket("bkt"))
+			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+				require.NoError(t, b.CreateBucket(ctx, "bkt"))
 			},
 			wantStatus: http.StatusNotFound,
 		},
@@ -355,7 +358,7 @@ func TestHandler_HeadObject(t *testing.T) {
 			t.Parallel()
 
 			handler, backend := newTestHandler(t)
-			tt.setup(backend)
+			tt.setup(context.Background(), backend)
 
 			req := httptest.NewRequest(http.MethodHead, "/"+tt.bucket+"/"+tt.key, nil)
 			rec := httptest.NewRecorder()
@@ -370,7 +373,7 @@ func TestHandler_HeadObjectWithMetadata(t *testing.T) {
 	t.Parallel()
 
 	handler, backend := newTestHandler(t)
-	require.NoError(t, backend.CreateBucket("bkt"))
+	require.NoError(t, backend.CreateBucket(context.Background(), "bkt"))
 
 	// 1. Put object with metadata and content-type
 	req := httptest.NewRequest(http.MethodPut, "/bkt/meta", strings.NewReader("data"))
@@ -406,9 +409,10 @@ func TestHandler_ObjectTagging(t *testing.T) {
 	t.Parallel()
 
 	handler, backend := newTestHandler(t)
-	require.NoError(t, backend.CreateBucket("bkt"))
+	ctx := context.Background()
+	require.NoError(t, backend.CreateBucket(ctx, "bkt"))
 
-	_, err := backend.PutObject("bkt", "key", []byte("data"), s3.ObjectMetadata{})
+	_, err := backend.PutObject(ctx, "bkt", "key", []byte("data"), s3.ObjectMetadata{})
 	require.NoError(t, err)
 
 	// Put tagging
@@ -436,7 +440,7 @@ func TestHandler_BucketVersioning(t *testing.T) {
 	t.Parallel()
 
 	handler, backend := newTestHandler(t)
-	require.NoError(t, backend.CreateBucket("bkt"))
+	require.NoError(t, backend.CreateBucket(context.Background(), "bkt"))
 
 	// Put versioning
 	versioningXML := `<VersioningConfiguration><Status>Enabled</Status></VersioningConfiguration>`
@@ -496,7 +500,7 @@ func TestHandler_BucketLocationQuery(t *testing.T) {
 	t.Parallel()
 
 	handler, backend := newTestHandler(t)
-	require.NoError(t, backend.CreateBucket("bkt"))
+	require.NoError(t, backend.CreateBucket(context.Background(), "bkt"))
 
 	req := httptest.NewRequest(http.MethodGet, "/bkt?location", nil)
 	rec := httptest.NewRecorder()
@@ -528,9 +532,9 @@ func TestHandler_ObjectACLIgnored(t *testing.T) {
 	t.Parallel()
 
 	handler, backend := newTestHandler(t)
-	require.NoError(t, backend.CreateBucket("bkt"))
+	require.NoError(t, backend.CreateBucket(context.Background(), "bkt"))
 
-	_, err := backend.PutObject("bkt", "key", []byte("data"), s3.ObjectMetadata{})
+	_, err := backend.PutObject(context.Background(), "bkt", "key", []byte("data"), s3.ObjectMetadata{})
 	require.NoError(t, err)
 
 	// PUT ACL
@@ -550,12 +554,13 @@ func TestHandler_ListObjects(t *testing.T) {
 	t.Parallel()
 
 	handler, backend := newTestHandler(t)
-	require.NoError(t, backend.CreateBucket("bkt"))
+	ctx := context.Background()
+	require.NoError(t, backend.CreateBucket(ctx, "bkt"))
 
-	_, err := backend.PutObject("bkt", "file1.txt", []byte("a"), s3.ObjectMetadata{})
+	_, err := backend.PutObject(ctx, "bkt", "file1.txt", []byte("a"), s3.ObjectMetadata{})
 	require.NoError(t, err)
 
-	_, err = backend.PutObject("bkt", "file2.txt", []byte("b"), s3.ObjectMetadata{})
+	_, err = backend.PutObject(ctx, "bkt", "file2.txt", []byte("b"), s3.ObjectMetadata{})
 	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodGet, "/bkt", nil)
@@ -584,7 +589,7 @@ func TestHandler_PutBucketVersioning_InvalidXML(t *testing.T) {
 	t.Parallel()
 
 	handler, backend := newTestHandler(t)
-	require.NoError(t, backend.CreateBucket("bkt"))
+	require.NoError(t, backend.CreateBucket(context.Background(), "bkt"))
 
 	req := httptest.NewRequest(http.MethodPut, "/bkt?versioning", strings.NewReader("not xml"))
 	rec := httptest.NewRecorder()
@@ -607,7 +612,7 @@ func TestHandler_VersionedObjectLifecycle(t *testing.T) {
 	t.Parallel()
 
 	handler, backend := newTestHandler(t)
-	require.NoError(t, backend.CreateBucket("bkt"))
+	require.NoError(t, backend.CreateBucket(context.Background(), "bkt"))
 
 	enableVersioning(t, handler, "bkt")
 
@@ -671,7 +676,8 @@ func TestHandler_PutObjectWithTaggingHeader(t *testing.T) {
 	t.Parallel()
 
 	handler, backend := newTestHandler(t)
-	require.NoError(t, backend.CreateBucket("bkt"))
+	ctx := context.Background()
+	require.NoError(t, backend.CreateBucket(ctx, "bkt"))
 
 	req := httptest.NewRequest(http.MethodPut, "/bkt/key", strings.NewReader("data"))
 	req.Header.Set("X-Amz-Tagging", "env=prod&team=alpha")
@@ -680,7 +686,7 @@ func TestHandler_PutObjectWithTaggingHeader(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Verify tags were stored
-	tags, err := backend.GetObjectTagging("bkt", "key", "")
+	tags, err := backend.GetObjectTagging(ctx, "bkt", "key", "")
 	require.NoError(t, err)
 	assert.Equal(t, "prod", tags["env"])
 	assert.Equal(t, "alpha", tags["team"])
@@ -690,9 +696,10 @@ func TestHandler_PutObjectTagging_InvalidXML(t *testing.T) {
 	t.Parallel()
 
 	handler, backend := newTestHandler(t)
-	require.NoError(t, backend.CreateBucket("bkt"))
+	ctx := context.Background()
+	require.NoError(t, backend.CreateBucket(ctx, "bkt"))
 
-	_, err := backend.PutObject("bkt", "key", []byte("data"), s3.ObjectMetadata{})
+	_, err := backend.PutObject(ctx, "bkt", "key", []byte("data"), s3.ObjectMetadata{})
 	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPut, "/bkt/key?tagging", strings.NewReader("not xml"))
@@ -737,7 +744,7 @@ func TestHandler_ChecksumSupport(t *testing.T) {
 	t.Parallel()
 
 	handler, backend := newTestHandler(t)
-	require.NoError(t, backend.CreateBucket("bkt"))
+	require.NoError(t, backend.CreateBucket(context.Background(), "bkt"))
 
 	// 1. Put object with SHA256 checksum
 	body := "checksum test data"
@@ -764,5 +771,110 @@ func TestHandler_ChecksumSupport(t *testing.T) {
 		t,
 		"SHA256",
 		rec.Header().Get("X-Amz-Checksum-Algorithm"),
-	) // Wait, I didn't return algorithm header? Let me check.
+	)
+}
+
+func TestHandler_MultipartUpload(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	require.NoError(t, backend.CreateBucket(context.Background(), "bkt"))
+
+	// 1. Initiate
+	req := httptest.NewRequest(http.MethodPost, "/bkt/mp?uploads", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var initResp s3.InitiateMultipartUploadResult
+	require.NoError(t, xml.NewDecoder(rec.Body).Decode(&initResp))
+	uploadID := initResp.UploadID
+	assert.NotEmpty(t, uploadID)
+	assert.Equal(t, "bkt", initResp.Bucket)
+	assert.Equal(t, "mp", initResp.Key)
+
+	// 2. Upload Part 1
+	part1Data := "part1"
+	req = httptest.NewRequest(http.MethodPut, "/bkt/mp?partNumber=1&uploadId="+uploadID, strings.NewReader(part1Data))
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	etag1 := rec.Header().Get("ETag")
+	assert.NotEmpty(t, etag1)
+
+	// 3. Upload Part 2
+	part2Data := "part2"
+	req = httptest.NewRequest(http.MethodPut, "/bkt/mp?partNumber=2&uploadId="+uploadID, strings.NewReader(part2Data))
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	etag2 := rec.Header().Get("ETag")
+	assert.NotEmpty(t, etag2)
+
+	// 4. Complete
+	completeXML := fmt.Sprintf(`<CompleteMultipartUpload>
+		<Part><PartNumber>1</PartNumber><ETag>%s</ETag></Part>
+		<Part><PartNumber>2</PartNumber><ETag>%s</ETag></Part>
+	</CompleteMultipartUpload>`, etag1, etag2)
+	req = httptest.NewRequest(http.MethodPost, "/bkt/mp?uploadId="+uploadID, strings.NewReader(completeXML))
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// 5. Verify object content
+	req = httptest.NewRequest(http.MethodGet, "/bkt/mp", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	body, _ := io.ReadAll(rec.Body)
+	assert.Equal(t, "part1part2", string(body))
+}
+
+func TestHandler_MultipartUpload_Errors(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	require.NoError(t, backend.CreateBucket(context.Background(), "bkt"))
+
+	// 1. Upload Part to invalid UploadID
+	req := httptest.NewRequest(http.MethodPut, "/bkt/mp?partNumber=1&uploadId=invalid-id", strings.NewReader("data"))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Contains(t, rec.Body.String(), "NoSuchUpload")
+
+	// 2. Abort invalid UploadID
+	req = httptest.NewRequest(http.MethodDelete, "/bkt/mp?uploadId=invalid-id", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+
+	// 3. Initiate valid upload
+	req = httptest.NewRequest(http.MethodPost, "/bkt/mp?uploads", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	var initResp s3.InitiateMultipartUploadResult
+	_ = xml.NewDecoder(rec.Body).Decode(&initResp)
+	uploadID := initResp.UploadID
+
+	// 4. Complete with invalid part (wrong ETag)
+	completeXML := `<CompleteMultipartUpload>
+		<Part><PartNumber>1</PartNumber><ETag>"wrong-etag"</ETag></Part>
+	</CompleteMultipartUpload>`
+	req = httptest.NewRequest(http.MethodPost, "/bkt/mp?uploadId="+uploadID, strings.NewReader(completeXML))
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidPart")
+
+	// 5. Abort valid upload
+	req = httptest.NewRequest(http.MethodDelete, "/bkt/mp?uploadId="+uploadID, nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+
+	// 6. Verify upload is gone (Abort again fails)
+	req = httptest.NewRequest(http.MethodDelete, "/bkt/mp?uploadId="+uploadID, nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }

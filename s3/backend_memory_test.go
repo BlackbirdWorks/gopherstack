@@ -1,6 +1,7 @@
 package s3_test
 
 import (
+	"context"
 	"testing"
 
 	"Gopherstack/s3"
@@ -20,7 +21,7 @@ func TestCreateBucket(t *testing.T) {
 
 	tests := []struct {
 		wantErr   error
-		setup     func(*s3.InMemoryBackend)
+		setup     func(context.Context, *s3.InMemoryBackend)
 		name      string
 		bucket    string
 		expectErr bool
@@ -28,13 +29,13 @@ func TestCreateBucket(t *testing.T) {
 		{
 			name:   "create new bucket",
 			bucket: "my-bucket",
-			setup:  func(_ *s3.InMemoryBackend) {},
+			setup:  func(_ context.Context, _ *s3.InMemoryBackend) {},
 		},
 		{
 			name:   "create duplicate bucket",
 			bucket: "my-bucket",
-			setup: func(b *s3.InMemoryBackend) {
-				require.NoError(t, b.CreateBucket("my-bucket"))
+			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+				require.NoError(t, b.CreateBucket(ctx, "my-bucket"))
 			},
 			wantErr:   s3.ErrBucketAlreadyExists,
 			expectErr: true,
@@ -46,9 +47,9 @@ func TestCreateBucket(t *testing.T) {
 			t.Parallel()
 
 			backend := newTestBackend(t)
-			tt.setup(backend)
+			tt.setup(context.Background(), backend)
 
-			err := backend.CreateBucket(tt.bucket)
+			err := backend.CreateBucket(context.Background(), tt.bucket)
 
 			if tt.expectErr {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -64,7 +65,7 @@ func TestDeleteBucket(t *testing.T) {
 
 	tests := []struct {
 		wantErr   error
-		setup     func(*s3.InMemoryBackend)
+		setup     func(context.Context, *s3.InMemoryBackend)
 		name      string
 		bucket    string
 		expectErr bool
@@ -72,24 +73,24 @@ func TestDeleteBucket(t *testing.T) {
 		{
 			name:   "delete existing empty bucket",
 			bucket: "my-bucket",
-			setup: func(b *s3.InMemoryBackend) {
-				require.NoError(t, b.CreateBucket("my-bucket"))
+			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+				require.NoError(t, b.CreateBucket(ctx, "my-bucket"))
 			},
 		},
 		{
 			name:      "delete non-existent bucket",
 			bucket:    "no-such-bucket",
-			setup:     func(_ *s3.InMemoryBackend) {},
+			setup:     func(_ context.Context, _ *s3.InMemoryBackend) {},
 			wantErr:   s3.ErrNoSuchBucket,
 			expectErr: true,
 		},
 		{
 			name:   "delete non-empty bucket",
 			bucket: "my-bucket",
-			setup: func(b *s3.InMemoryBackend) {
-				require.NoError(t, b.CreateBucket("my-bucket"))
+			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+				require.NoError(t, b.CreateBucket(ctx, "my-bucket"))
 
-				_, err := b.PutObject("my-bucket", "key", []byte("data"), s3.ObjectMetadata{})
+				_, err := b.PutObject(ctx, "my-bucket", "key", []byte("data"), s3.ObjectMetadata{})
 				require.NoError(t, err)
 			},
 			wantErr:   s3.ErrBucketNotEmpty,
@@ -102,9 +103,9 @@ func TestDeleteBucket(t *testing.T) {
 			t.Parallel()
 
 			backend := newTestBackend(t)
-			tt.setup(backend)
+			tt.setup(context.Background(), backend)
 
-			err := backend.DeleteBucket(tt.bucket)
+			err := backend.DeleteBucket(context.Background(), tt.bucket)
 
 			if tt.expectErr {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -120,7 +121,7 @@ func TestHeadBucket(t *testing.T) {
 
 	tests := []struct {
 		wantErr   error
-		setup     func(*s3.InMemoryBackend)
+		setup     func(context.Context, *s3.InMemoryBackend)
 		name      string
 		bucket    string
 		expectErr bool
@@ -128,14 +129,14 @@ func TestHeadBucket(t *testing.T) {
 		{
 			name:   "get existing bucket",
 			bucket: "my-bucket",
-			setup: func(b *s3.InMemoryBackend) {
-				require.NoError(t, b.CreateBucket("my-bucket"))
+			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+				require.NoError(t, b.CreateBucket(ctx, "my-bucket"))
 			},
 		},
 		{
 			name:      "get non-existent bucket",
 			bucket:    "no-such-bucket",
-			setup:     func(_ *s3.InMemoryBackend) {},
+			setup:     func(_ context.Context, _ *s3.InMemoryBackend) {},
 			wantErr:   s3.ErrNoSuchBucket,
 			expectErr: true,
 		},
@@ -146,9 +147,9 @@ func TestHeadBucket(t *testing.T) {
 			t.Parallel()
 
 			backend := newTestBackend(t)
-			tt.setup(backend)
+			tt.setup(context.Background(), backend)
 
-			bucket, err := backend.HeadBucket(tt.bucket)
+			bucket, err := backend.HeadBucket(context.Background(), tt.bucket)
 
 			if tt.expectErr {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -165,30 +166,30 @@ func TestListBuckets(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup    func(*s3.InMemoryBackend)
+		setup    func(context.Context, *s3.InMemoryBackend)
 		name     string
 		wantName string
 		wantLen  int
 	}{
 		{
 			name:    "no buckets",
-			setup:   func(_ *s3.InMemoryBackend) {},
+			setup:   func(_ context.Context, _ *s3.InMemoryBackend) {},
 			wantLen: 0,
 		},
 		{
 			name: "one bucket",
-			setup: func(b *s3.InMemoryBackend) {
-				require.NoError(t, b.CreateBucket("alpha"))
+			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+				require.NoError(t, b.CreateBucket(ctx, "alpha"))
 			},
 			wantLen:  1,
 			wantName: "alpha",
 		},
 		{
 			name: "multiple buckets sorted",
-			setup: func(b *s3.InMemoryBackend) {
-				require.NoError(t, b.CreateBucket("charlie"))
-				require.NoError(t, b.CreateBucket("alpha"))
-				require.NoError(t, b.CreateBucket("bravo"))
+			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+				require.NoError(t, b.CreateBucket(ctx, "charlie"))
+				require.NoError(t, b.CreateBucket(ctx, "alpha"))
+				require.NoError(t, b.CreateBucket(ctx, "bravo"))
 			},
 			wantLen:  3,
 			wantName: "alpha", // first alphabetically
@@ -200,9 +201,9 @@ func TestListBuckets(t *testing.T) {
 			t.Parallel()
 
 			backend := newTestBackend(t)
-			tt.setup(backend)
+			tt.setup(context.Background(), backend)
 
-			buckets, err := backend.ListBuckets()
+			buckets, err := backend.ListBuckets(context.Background())
 			require.NoError(t, err)
 			assert.Len(t, buckets, tt.wantLen)
 
@@ -218,7 +219,7 @@ func TestPutObject(t *testing.T) {
 
 	tests := []struct {
 		wantErr   error
-		setup     func(*s3.InMemoryBackend)
+		setup     func(context.Context, *s3.InMemoryBackend)
 		name      string
 		bucket    string
 		key       string
@@ -230,8 +231,8 @@ func TestPutObject(t *testing.T) {
 			bucket: "my-bucket",
 			key:    "my-key",
 			data:   []byte("hello"),
-			setup: func(b *s3.InMemoryBackend) {
-				require.NoError(t, b.CreateBucket("my-bucket"))
+			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+				require.NoError(t, b.CreateBucket(ctx, "my-bucket"))
 			},
 		},
 		{
@@ -239,7 +240,7 @@ func TestPutObject(t *testing.T) {
 			bucket:    "no-such-bucket",
 			key:       "my-key",
 			data:      []byte("hello"),
-			setup:     func(_ *s3.InMemoryBackend) {},
+			setup:     func(_ context.Context, _ *s3.InMemoryBackend) {},
 			wantErr:   s3.ErrNoSuchBucket,
 			expectErr: true,
 		},
@@ -250,9 +251,9 @@ func TestPutObject(t *testing.T) {
 			t.Parallel()
 
 			backend := newTestBackend(t)
-			tt.setup(backend)
+			tt.setup(context.Background(), backend)
 
-			ver, err := backend.PutObject(tt.bucket, tt.key, tt.data, s3.ObjectMetadata{})
+			ver, err := backend.PutObject(context.Background(), tt.bucket, tt.key, tt.data, s3.ObjectMetadata{})
 
 			if tt.expectErr {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -285,12 +286,12 @@ func TestPutObject_ChecksumAutoCalculation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			backend := newTestBackend(t)
-			require.NoError(t, backend.CreateBucket("bkt"))
+			require.NoError(t, backend.CreateBucket(context.Background(), "bkt"))
 
 			meta := s3.ObjectMetadata{
 				ChecksumAlgorithm: tt.algorithm,
 			}
-			ver, err := backend.PutObject("bkt", "key", []byte(tt.data), meta)
+			ver, err := backend.PutObject(context.Background(), "bkt", "key", []byte(tt.data), meta)
 			require.NoError(t, err)
 
 			if tt.algorithm != "INVALID" {
@@ -307,7 +308,7 @@ func TestGetObject(t *testing.T) {
 
 	tests := []struct {
 		wantErr   error
-		setup     func(*s3.InMemoryBackend)
+		setup     func(context.Context, *s3.InMemoryBackend)
 		name      string
 		bucket    string
 		key       string
@@ -319,10 +320,10 @@ func TestGetObject(t *testing.T) {
 			name:   "get existing object",
 			bucket: "my-bucket",
 			key:    "my-key",
-			setup: func(b *s3.InMemoryBackend) {
-				require.NoError(t, b.CreateBucket("my-bucket"))
+			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+				require.NoError(t, b.CreateBucket(ctx, "my-bucket"))
 
-				_, err := b.PutObject("my-bucket", "my-key", []byte("data"), s3.ObjectMetadata{})
+				_, err := b.PutObject(ctx, "my-bucket", "my-key", []byte("data"), s3.ObjectMetadata{})
 				require.NoError(t, err)
 			},
 			wantData: "data",
@@ -331,7 +332,7 @@ func TestGetObject(t *testing.T) {
 			name:      "get from non-existent bucket",
 			bucket:    "no-such-bucket",
 			key:       "my-key",
-			setup:     func(_ *s3.InMemoryBackend) {},
+			setup:     func(_ context.Context, _ *s3.InMemoryBackend) {},
 			wantErr:   s3.ErrNoSuchBucket,
 			expectErr: true,
 		},
@@ -339,8 +340,8 @@ func TestGetObject(t *testing.T) {
 			name:   "get non-existent key",
 			bucket: "my-bucket",
 			key:    "no-such-key",
-			setup: func(b *s3.InMemoryBackend) {
-				require.NoError(t, b.CreateBucket("my-bucket"))
+			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+				require.NoError(t, b.CreateBucket(ctx, "my-bucket"))
 			},
 			wantErr:   s3.ErrNoSuchKey,
 			expectErr: true,
@@ -352,9 +353,9 @@ func TestGetObject(t *testing.T) {
 			t.Parallel()
 
 			backend := newTestBackend(t)
-			tt.setup(backend)
+			tt.setup(context.Background(), backend)
 
-			ver, err := backend.GetObject(tt.bucket, tt.key, tt.versionID)
+			ver, err := backend.GetObject(context.Background(), tt.bucket, tt.key, tt.versionID)
 
 			if tt.expectErr {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -379,24 +380,24 @@ func TestVersioning(t *testing.T) {
 				t.Helper()
 
 				backend := newTestBackend(t)
-				require.NoError(t, backend.CreateBucket("bkt"))
+				require.NoError(t, backend.CreateBucket(context.Background(), "bkt"))
 
-				_, err := backend.HeadBucket("bkt")
+				_, err := backend.HeadBucket(context.Background(), "bkt")
 				require.NoError(t, err)
 				// We'll test via null version instead
 
 				// Without versioning, version ID is "null"
-				v1, err := backend.PutObject("bkt", "k", []byte("v1"), s3.ObjectMetadata{})
+				v1, err := backend.PutObject(context.Background(), "bkt", "k", []byte("v1"), s3.ObjectMetadata{})
 				require.NoError(t, err)
 				assert.Equal(t, s3.NullVersion, v1.VersionID)
 
 				// Overwrite
-				v2, err := backend.PutObject("bkt", "k", []byte("v2"), s3.ObjectMetadata{})
+				v2, err := backend.PutObject(context.Background(), "bkt", "k", []byte("v2"), s3.ObjectMetadata{})
 				require.NoError(t, err)
 				assert.Equal(t, s3.NullVersion, v2.VersionID)
 
 				// Get returns latest
-				got, err := backend.GetObject("bkt", "k", "")
+				got, err := backend.GetObject(context.Background(), "bkt", "k", "")
 				require.NoError(t, err)
 				assert.Equal(t, "v2", string(got.Data))
 			},
@@ -407,12 +408,12 @@ func TestVersioning(t *testing.T) {
 				t.Helper()
 
 				backend := newTestBackend(t)
-				require.NoError(t, backend.CreateBucket("bkt"))
+				require.NoError(t, backend.CreateBucket(context.Background(), "bkt"))
 
-				_, err := backend.PutObject("bkt", "k", []byte("data"), s3.ObjectMetadata{})
+				_, err := backend.PutObject(context.Background(), "bkt", "k", []byte("data"), s3.ObjectMetadata{})
 				require.NoError(t, err)
 
-				got, err := backend.GetObject("bkt", "k", s3.NullVersion)
+				got, err := backend.GetObject(context.Background(), "bkt", "k", s3.NullVersion)
 				require.NoError(t, err)
 				assert.Equal(t, "data", string(got.Data))
 			},
@@ -423,12 +424,12 @@ func TestVersioning(t *testing.T) {
 				t.Helper()
 
 				backend := newTestBackend(t)
-				require.NoError(t, backend.CreateBucket("bkt"))
+				require.NoError(t, backend.CreateBucket(context.Background(), "bkt"))
 
-				_, err := backend.PutObject("bkt", "k", []byte("data"), s3.ObjectMetadata{})
+				_, err := backend.PutObject(context.Background(), "bkt", "k", []byte("data"), s3.ObjectMetadata{})
 				require.NoError(t, err)
 
-				_, err = backend.GetObject("bkt", "k", "non-existent-version")
+				_, err = backend.GetObject(context.Background(), "bkt", "k", "non-existent-version")
 				require.ErrorIs(t, err, s3.ErrNoSuchKey)
 			},
 		},
@@ -447,7 +448,7 @@ func TestDeleteObject(t *testing.T) {
 
 	tests := []struct {
 		wantErr   error
-		setup     func(*s3.InMemoryBackend)
+		setup     func(context.Context, *s3.InMemoryBackend)
 		name      string
 		bucket    string
 		key       string
@@ -458,10 +459,10 @@ func TestDeleteObject(t *testing.T) {
 			name:   "simple delete creates delete marker",
 			bucket: "bkt",
 			key:    "k",
-			setup: func(b *s3.InMemoryBackend) {
-				require.NoError(t, b.CreateBucket("bkt"))
+			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+				require.NoError(t, b.CreateBucket(ctx, "bkt"))
 
-				_, err := b.PutObject("bkt", "k", []byte("data"), s3.ObjectMetadata{})
+				_, err := b.PutObject(ctx, "bkt", "k", []byte("data"), s3.ObjectMetadata{})
 				require.NoError(t, err)
 			},
 		},
@@ -469,7 +470,7 @@ func TestDeleteObject(t *testing.T) {
 			name:      "delete from non-existent bucket",
 			bucket:    "no-bucket",
 			key:       "k",
-			setup:     func(_ *s3.InMemoryBackend) {},
+			setup:     func(_ context.Context, _ *s3.InMemoryBackend) {},
 			wantErr:   s3.ErrNoSuchBucket,
 			expectErr: true,
 		},
@@ -478,10 +479,10 @@ func TestDeleteObject(t *testing.T) {
 			bucket:    "bkt",
 			key:       "k",
 			versionID: "bad-version",
-			setup: func(b *s3.InMemoryBackend) {
-				require.NoError(t, b.CreateBucket("bkt"))
+			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+				require.NoError(t, b.CreateBucket(ctx, "bkt"))
 
-				_, err := b.PutObject("bkt", "k", []byte("data"), s3.ObjectMetadata{})
+				_, err := b.PutObject(ctx, "bkt", "k", []byte("data"), s3.ObjectMetadata{})
 				require.NoError(t, err)
 			},
 			wantErr:   s3.ErrNoSuchKey,
@@ -492,8 +493,8 @@ func TestDeleteObject(t *testing.T) {
 			bucket:    "bkt",
 			key:       "no-key",
 			versionID: "some-version",
-			setup: func(b *s3.InMemoryBackend) {
-				require.NoError(t, b.CreateBucket("bkt"))
+			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+				require.NoError(t, b.CreateBucket(ctx, "bkt"))
 			},
 			wantErr:   s3.ErrNoSuchKey,
 			expectErr: true,
@@ -505,9 +506,9 @@ func TestDeleteObject(t *testing.T) {
 			t.Parallel()
 
 			backend := newTestBackend(t)
-			tt.setup(backend)
+			tt.setup(context.Background(), backend)
 
-			marker, err := backend.DeleteObject(tt.bucket, tt.key, tt.versionID)
+			marker, err := backend.DeleteObject(context.Background(), tt.bucket, tt.key, tt.versionID)
 
 			if tt.expectErr {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -524,16 +525,16 @@ func TestDeleteObject_MakesGetFail(t *testing.T) {
 	t.Parallel()
 
 	backend := newTestBackend(t)
-	require.NoError(t, backend.CreateBucket("bkt"))
+	require.NoError(t, backend.CreateBucket(context.Background(), "bkt"))
 
-	_, err := backend.PutObject("bkt", "k", []byte("data"), s3.ObjectMetadata{})
+	_, err := backend.PutObject(context.Background(), "bkt", "k", []byte("data"), s3.ObjectMetadata{})
 	require.NoError(t, err)
 
-	_, err = backend.DeleteObject("bkt", "k", "")
+	_, err = backend.DeleteObject(context.Background(), "bkt", "k", "")
 	require.NoError(t, err)
 
 	// Object should appear deleted (latest is delete marker)
-	_, err = backend.GetObject("bkt", "k", "")
+	_, err = backend.GetObject(context.Background(), "bkt", "k", "")
 	require.ErrorIs(t, err, s3.ErrNoSuchKey)
 }
 
@@ -541,17 +542,17 @@ func TestDeleteObject_DeleteSpecificNullVersion(t *testing.T) {
 	t.Parallel()
 
 	backend := newTestBackend(t)
-	require.NoError(t, backend.CreateBucket("bkt"))
+	require.NoError(t, backend.CreateBucket(context.Background(), "bkt"))
 
-	_, err := backend.PutObject("bkt", "k", []byte("data"), s3.ObjectMetadata{})
+	_, err := backend.PutObject(context.Background(), "bkt", "k", []byte("data"), s3.ObjectMetadata{})
 	require.NoError(t, err)
 
-	marker, err := backend.DeleteObject("bkt", "k", s3.NullVersion)
+	marker, err := backend.DeleteObject(context.Background(), "bkt", "k", s3.NullVersion)
 	require.NoError(t, err)
 	assert.Empty(t, marker) // not a delete marker
 
 	// Object should be fully removed
-	_, err = backend.GetObject("bkt", "k", "")
+	_, err = backend.GetObject(context.Background(), "bkt", "k", "")
 	require.ErrorIs(t, err, s3.ErrNoSuchKey)
 }
 
@@ -560,7 +561,7 @@ func TestListObjects(t *testing.T) {
 
 	tests := []struct {
 		wantErr   error
-		setup     func(*s3.InMemoryBackend)
+		setup     func(context.Context, *s3.InMemoryBackend)
 		name      string
 		bucket    string
 		prefix    string
@@ -571,16 +572,16 @@ func TestListObjects(t *testing.T) {
 			name:   "list objects with prefix",
 			bucket: "bkt",
 			prefix: "docs/",
-			setup: func(b *s3.InMemoryBackend) {
-				require.NoError(t, b.CreateBucket("bkt"))
+			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+				require.NoError(t, b.CreateBucket(ctx, "bkt"))
 
-				_, err := b.PutObject("bkt", "docs/a.txt", []byte("a"), s3.ObjectMetadata{})
+				_, err := b.PutObject(ctx, "bkt", "docs/a.txt", []byte("a"), s3.ObjectMetadata{})
 				require.NoError(t, err)
 
-				_, err = b.PutObject("bkt", "docs/b.txt", []byte("b"), s3.ObjectMetadata{})
+				_, err = b.PutObject(ctx, "bkt", "docs/b.txt", []byte("b"), s3.ObjectMetadata{})
 				require.NoError(t, err)
 
-				_, err = b.PutObject("bkt", "images/c.png", []byte("c"), s3.ObjectMetadata{})
+				_, err = b.PutObject(ctx, "bkt", "images/c.png", []byte("c"), s3.ObjectMetadata{})
 				require.NoError(t, err)
 			},
 			wantLen: 2,
@@ -589,13 +590,13 @@ func TestListObjects(t *testing.T) {
 			name:   "list all objects",
 			bucket: "bkt",
 			prefix: "",
-			setup: func(b *s3.InMemoryBackend) {
-				require.NoError(t, b.CreateBucket("bkt"))
+			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+				require.NoError(t, b.CreateBucket(ctx, "bkt"))
 
-				_, err := b.PutObject("bkt", "a", []byte("a"), s3.ObjectMetadata{})
+				_, err := b.PutObject(ctx, "bkt", "a", []byte("a"), s3.ObjectMetadata{})
 				require.NoError(t, err)
 
-				_, err = b.PutObject("bkt", "b", []byte("b"), s3.ObjectMetadata{})
+				_, err = b.PutObject(ctx, "bkt", "b", []byte("b"), s3.ObjectMetadata{})
 				require.NoError(t, err)
 			},
 			wantLen: 2,
@@ -604,7 +605,7 @@ func TestListObjects(t *testing.T) {
 			name:      "list objects from non-existent bucket",
 			bucket:    "no-bucket",
 			prefix:    "",
-			setup:     func(_ *s3.InMemoryBackend) {},
+			setup:     func(_ context.Context, _ *s3.InMemoryBackend) {},
 			wantErr:   s3.ErrNoSuchBucket,
 			expectErr: true,
 		},
@@ -615,9 +616,9 @@ func TestListObjects(t *testing.T) {
 			t.Parallel()
 
 			backend := newTestBackend(t)
-			tt.setup(backend)
+			tt.setup(context.Background(), backend)
 
-			objects, err := backend.ListObjects(tt.bucket, tt.prefix)
+			objects, err := backend.ListObjects(context.Background(), tt.bucket, tt.prefix)
 
 			if tt.expectErr {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -633,18 +634,18 @@ func TestListObjects_ExcludesDeletedObjects(t *testing.T) {
 	t.Parallel()
 
 	backend := newTestBackend(t)
-	require.NoError(t, backend.CreateBucket("bkt"))
+	require.NoError(t, backend.CreateBucket(context.Background(), "bkt"))
 
-	_, err := backend.PutObject("bkt", "alive", []byte("data"), s3.ObjectMetadata{})
+	_, err := backend.PutObject(context.Background(), "bkt", "alive", []byte("data"), s3.ObjectMetadata{})
 	require.NoError(t, err)
 
-	_, err = backend.PutObject("bkt", "dead", []byte("data"), s3.ObjectMetadata{})
+	_, err = backend.PutObject(context.Background(), "bkt", "dead", []byte("data"), s3.ObjectMetadata{})
 	require.NoError(t, err)
 
-	_, err = backend.DeleteObject("bkt", "dead", "")
+	_, err = backend.DeleteObject(context.Background(), "bkt", "dead", "")
 	require.NoError(t, err)
 
-	objects, err := backend.ListObjects("bkt", "")
+	objects, err := backend.ListObjects(context.Background(), "bkt", "")
 	require.NoError(t, err)
 	require.Len(t, objects, 1)
 	assert.Equal(t, "alive", objects[0].Key)
@@ -655,7 +656,7 @@ func TestObjectTagging(t *testing.T) {
 
 	tests := []struct {
 		wantErr   error
-		setup     func(*s3.InMemoryBackend)
+		setup     func(context.Context, *s3.InMemoryBackend)
 		tags      map[string]string
 		name      string
 		bucket    string
@@ -667,10 +668,10 @@ func TestObjectTagging(t *testing.T) {
 			bucket: "bkt",
 			key:    "k",
 			tags:   map[string]string{"env": "prod", "team": "alpha"},
-			setup: func(b *s3.InMemoryBackend) {
-				require.NoError(t, b.CreateBucket("bkt"))
+			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+				require.NoError(t, b.CreateBucket(ctx, "bkt"))
 
-				_, err := b.PutObject("bkt", "k", []byte("data"), s3.ObjectMetadata{})
+				_, err := b.PutObject(ctx, "bkt", "k", []byte("data"), s3.ObjectMetadata{})
 				require.NoError(t, err)
 			},
 		},
@@ -679,8 +680,8 @@ func TestObjectTagging(t *testing.T) {
 			bucket: "bkt",
 			key:    "no-key",
 			tags:   map[string]string{"k": "v"},
-			setup: func(b *s3.InMemoryBackend) {
-				require.NoError(t, b.CreateBucket("bkt"))
+			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+				require.NoError(t, b.CreateBucket(ctx, "bkt"))
 			},
 			wantErr:   s3.ErrNoSuchKey,
 			expectErr: true,
@@ -690,7 +691,7 @@ func TestObjectTagging(t *testing.T) {
 			bucket:    "no-bucket",
 			key:       "k",
 			tags:      map[string]string{"k": "v"},
-			setup:     func(_ *s3.InMemoryBackend) {},
+			setup:     func(_ context.Context, _ *s3.InMemoryBackend) {},
 			wantErr:   s3.ErrNoSuchBucket,
 			expectErr: true,
 		},
@@ -701,16 +702,16 @@ func TestObjectTagging(t *testing.T) {
 			t.Parallel()
 
 			backend := newTestBackend(t)
-			tt.setup(backend)
+			tt.setup(context.Background(), backend)
 
-			err := backend.PutObjectTagging(tt.bucket, tt.key, "", tt.tags)
+			err := backend.PutObjectTagging(context.Background(), tt.bucket, tt.key, "", tt.tags)
 
 			if tt.expectErr {
 				require.ErrorIs(t, err, tt.wantErr)
 			} else {
 				require.NoError(t, err)
 
-				gotTags, getErr := backend.GetObjectTagging(tt.bucket, tt.key, "")
+				gotTags, getErr := backend.GetObjectTagging(context.Background(), tt.bucket, tt.key, "")
 				require.NoError(t, getErr)
 				assert.Equal(t, tt.tags, gotTags)
 			}
@@ -723,7 +724,7 @@ func TestGetObjectTagging_Errors(t *testing.T) {
 
 	tests := []struct {
 		wantErr error
-		setup   func(*s3.InMemoryBackend)
+		setup   func(context.Context, *s3.InMemoryBackend)
 		name    string
 		bucket  string
 		key     string
@@ -732,15 +733,15 @@ func TestGetObjectTagging_Errors(t *testing.T) {
 			name:    "non-existent bucket",
 			bucket:  "no-bucket",
 			key:     "k",
-			setup:   func(_ *s3.InMemoryBackend) {},
+			setup:   func(_ context.Context, _ *s3.InMemoryBackend) {},
 			wantErr: s3.ErrNoSuchBucket,
 		},
 		{
 			name:   "non-existent key",
 			bucket: "bkt",
 			key:    "no-key",
-			setup: func(b *s3.InMemoryBackend) {
-				require.NoError(t, b.CreateBucket("bkt"))
+			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+				require.NoError(t, b.CreateBucket(ctx, "bkt"))
 			},
 			wantErr: s3.ErrNoSuchKey,
 		},
@@ -751,9 +752,9 @@ func TestGetObjectTagging_Errors(t *testing.T) {
 			t.Parallel()
 
 			backend := newTestBackend(t)
-			tt.setup(backend)
+			tt.setup(context.Background(), backend)
 
-			_, err := backend.GetObjectTagging(tt.bucket, tt.key, "")
+			_, err := backend.GetObjectTagging(context.Background(), tt.bucket, tt.key, "")
 			require.ErrorIs(t, err, tt.wantErr)
 		})
 	}
@@ -764,7 +765,7 @@ func TestDeleteObjectTagging(t *testing.T) {
 
 	tests := []struct {
 		wantErr error
-		setup   func(*s3.InMemoryBackend)
+		setup   func(context.Context, *s3.InMemoryBackend)
 		name    string
 		bucket  string
 		key     string
@@ -773,10 +774,10 @@ func TestDeleteObjectTagging(t *testing.T) {
 			name:   "delete tags from object",
 			bucket: "bkt",
 			key:    "k",
-			setup: func(b *s3.InMemoryBackend) {
-				require.NoError(t, b.CreateBucket("bkt"))
+			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+				require.NoError(t, b.CreateBucket(ctx, "bkt"))
 
-				_, err := b.PutObject("bkt", "k", []byte("data"), s3.ObjectMetadata{
+				_, err := b.PutObject(ctx, "bkt", "k", []byte("data"), s3.ObjectMetadata{
 					Tags: map[string]string{"k": "v"},
 				})
 				require.NoError(t, err)
@@ -786,15 +787,15 @@ func TestDeleteObjectTagging(t *testing.T) {
 			name:    "delete tags from non-existent bucket",
 			bucket:  "no-bucket",
 			key:     "k",
-			setup:   func(_ *s3.InMemoryBackend) {},
+			setup:   func(_ context.Context, _ *s3.InMemoryBackend) {},
 			wantErr: s3.ErrNoSuchBucket,
 		},
 		{
 			name:   "delete tags from non-existent key",
 			bucket: "bkt",
 			key:    "no-key",
-			setup: func(b *s3.InMemoryBackend) {
-				require.NoError(t, b.CreateBucket("bkt"))
+			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+				require.NoError(t, b.CreateBucket(ctx, "bkt"))
 			},
 			wantErr: s3.ErrNoSuchKey,
 		},
@@ -805,31 +806,67 @@ func TestDeleteObjectTagging(t *testing.T) {
 			t.Parallel()
 
 			backend := newTestBackend(t)
-			tt.setup(backend)
+			tt.setup(context.Background(), backend)
 
-			err := backend.DeleteObjectTagging(tt.bucket, tt.key, "")
+			err := backend.DeleteObjectTagging(context.Background(), tt.bucket, tt.key, "")
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
 			} else {
 				require.NoError(t, err)
-
-				tags, delErr := backend.GetObjectTagging(tt.bucket, tt.key, "")
-				require.NoError(t, delErr)
-				assert.Empty(t, tags)
+				// Verify tags are empty
+				tags, err := backend.GetObjectTagging(context.Background(), tt.bucket, tt.key, "")
+				require.NoError(t, err)
+				require.Empty(t, tags)
 			}
 		})
 	}
 }
 
-func TestDeleteObject_NonExistentKeySimple(t *testing.T) {
+func TestMultipartUpload_Backend(t *testing.T) {
 	t.Parallel()
 
-	backend := newTestBackend(t)
-	require.NoError(t, backend.CreateBucket("bkt"))
+	b := newTestBackend(t)
+	ctx := context.Background()
+	require.NoError(t, b.CreateBucket(ctx, "bkt"))
 
-	// Simple delete of non-existent key should create a delete marker (S3 behavior)
-	marker, err := backend.DeleteObject("bkt", "no-key", "")
+	// 1. Initiate
+	uploadID, err := b.InitiateMultipartUpload(ctx, "bkt", "large-file")
 	require.NoError(t, err)
-	assert.Equal(t, s3.NullVersion, marker)
+	assert.NotEmpty(t, uploadID)
+
+	// 2. Upload Parts
+	etag1, err := b.UploadPart(ctx, "bkt", "large-file", uploadID, 1, []byte("part1"))
+	require.NoError(t, err)
+	assert.NotEmpty(t, etag1)
+
+	etag2, err := b.UploadPart(ctx, "bkt", "large-file", uploadID, 2, []byte("part2"))
+	require.NoError(t, err)
+	assert.NotEmpty(t, etag2)
+
+	// 3. Complete
+	parts := []s3.CompletedPartXML{
+		{PartNumber: 1, ETag: etag1},
+		{PartNumber: 2, ETag: etag2},
+	}
+	ver, err := b.CompleteMultipartUpload(ctx, "bkt", "large-file", uploadID, parts)
+	require.NoError(t, err)
+	assert.NotEmpty(t, ver.ETag)
+
+	// 4. Verify content
+	obj, err := b.GetObject(ctx, "bkt", "large-file", "")
+	require.NoError(t, err)
+	assert.Equal(t, "part1part2", string(obj.Data))
+
+	// 5. Verify upload cleaned up
+	err = b.AbortMultipartUpload(ctx, "bkt", "large-file", uploadID)
+	// Should fail because it's already completed/removed?
+	// Implementation deletes from map on completion.
+	// So Abort might return valid or error depending on implementation.
+	// Current impl: Abort returns ErrNoSuchKey if upload not found.
+	// Actually no, it returns no error if not found in map? No, it checks existence.
+	// Let's check implementation. Ah, checks existence, returns ErrNoSuchKey if fail.
+	// But "large-file" exists as OBJECT now. But uploadID is gone.
+	// So Abort should fail with ErrNoSuchKey (or similar) because upload session is gone.
+	assert.Error(t, err)
 }

@@ -102,3 +102,30 @@ type DeleteMarkerXML struct {
 	LastModified string `xml:"LastModified"`
 	IsLatest     bool   `xml:"IsLatest"`
 }
+
+// Multipart Upload Structures
+
+type InitiateMultipartUploadResult struct {
+	XMLName  xml.Name `xml:"InitiateMultipartUploadResult"`
+	Bucket   string   `xml:"Bucket"`
+	Key      string   `xml:"Key"`
+	UploadID string   `xml:"UploadId"`
+}
+
+type CompleteMultipartUpload struct {
+	XMLName xml.Name           `xml:"CompleteMultipartUpload"`
+	Parts   []CompletedPartXML `xml:"Part"`
+}
+
+type CompletedPartXML struct {
+	PartNumber int    `xml:"PartNumber"`
+	ETag       string `xml:"ETag"`
+}
+
+type CompleteMultipartUploadResult struct {
+	XMLName  xml.Name `xml:"CompleteMultipartUploadResult"`
+	Location string   `xml:"Location"`
+	Bucket   string   `xml:"Bucket"`
+	Key      string   `xml:"Key"`
+	ETag     string   `xml:"ETag"`
+}

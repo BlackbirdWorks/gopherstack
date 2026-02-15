@@ -146,23 +146,30 @@ func (h *Handler) handleError(w http.ResponseWriter, action string, reqErr error
 
 	var awsErr *Error
 	if errors.As(reqErr, &awsErr) {
-		h.handleAWSError(w, awsErr)
+		switch awsErr.Type {
+		case "com.amazonaws.dynamodb.v20120810#InternalServerError":
+			w.WriteHeader(http.StatusInternalServerError)
+		case "com.amazonaws.dynamodb.v20120810#ResourceNotFoundException":
+			w.WriteHeader(http.StatusNotFound)
+		case "com.amazonaws.dynamodb.v20120810#ConditionalCheckFailedException":
+			w.WriteHeader(http.StatusBadRequest)
+		case "com.amazonaws.dynamodb.v20120810#ValidationException":
+			w.WriteHeader(http.StatusBadRequest)
+		case "com.amazonaws.dynamodb.v20120810#AccessDeniedException":
+			w.WriteHeader(http.StatusForbidden)
+		case "com.amazonaws.dynamodb.v20120810#IncompleteSignatureException":
+			w.WriteHeader(http.StatusForbidden)
+		case "com.amazonaws.dynamodb.v20120810#MissingAuthenticationTokenException":
+			w.WriteHeader(http.StatusForbidden)
+		case "com.amazonaws.dynamodb.v20120810#ThrottlingException":
+			w.WriteHeader(http.StatusTooManyRequests)
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+		}
 
-		return
-	}
-
-	w.WriteHeader(http.StatusInternalServerError)
-	if _, err := fmt.Fprintf(
-		w,
-		`{"__type":"com.amazonaws.dynamodb.v20120810#InternalServerError","message":"%v"}`,
-		reqErr,
-	); err != nil {
-		h.Logger.Error("Failed to write internal server error response", "error", err)
-	}
-}
-
-func (h *Handler) handleAWSError(w http.ResponseWriter, awsErr *Error) {
-	if strings.Contains(awsErr.Type, "InternalServerError") {
+		jsonBytes, _ := json.Marshal(awsErr)
+		_, _ = w.Write(jsonBytes)
+	} else {
 		w.WriteHeader(http.StatusInternalServerError)
 	} else {
 		w.WriteHeader(http.StatusBadRequest)

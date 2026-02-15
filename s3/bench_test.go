@@ -1,6 +1,7 @@
 package s3_test
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -10,28 +11,28 @@ import (
 func BenchmarkPutObject(b *testing.B) {
 	backend := s3.NewInMemoryBackend(&s3.GzipCompressor{})
 	bucketName := "bench-bucket"
-	_ = backend.CreateBucket(bucketName)
+	_ = backend.CreateBucket(context.Background(), bucketName)
 	data := []byte("benchmarking data")
 
 	b.ResetTimer()
 	for i := range b.N {
-		_, _ = backend.PutObject(bucketName, fmt.Sprintf("key-%d", i), data, s3.ObjectMetadata{})
+		_, _ = backend.PutObject(context.Background(), bucketName, fmt.Sprintf("key-%d", i), data, s3.ObjectMetadata{})
 	}
 }
 
 func BenchmarkGetObject(b *testing.B) {
 	backend := s3.NewInMemoryBackend(&s3.GzipCompressor{})
 	bucketName := "bench-bucket"
-	_ = backend.CreateBucket(bucketName)
+	_ = backend.CreateBucket(context.Background(), bucketName)
 	data := []byte("benchmarking data")
 
 	for i := range 1000 {
-		_, _ = backend.PutObject(bucketName, fmt.Sprintf("key-%d", i), data, s3.ObjectMetadata{})
+		_, _ = backend.PutObject(context.Background(), bucketName, fmt.Sprintf("key-%d", i), data, s3.ObjectMetadata{})
 	}
 
 	b.ResetTimer()
 	for i := range b.N {
-		_, _ = backend.GetObject(bucketName, fmt.Sprintf("key-%d", i%1000), "")
+		_, _ = backend.GetObject(context.Background(), bucketName, fmt.Sprintf("key-%d", i%1000), "")
 	}
 }
 

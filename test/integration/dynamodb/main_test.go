@@ -5,6 +5,7 @@ package dynamodb_test
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"testing"
 	"time"
@@ -18,11 +19,15 @@ import (
 )
 
 var (
-	endpoint string
+	endpoint   string
+	httpClient *http.Client
 )
 
 func TestMain(m *testing.M) {
 	ctx := context.Background()
+	httpClient = &http.Client{
+		Timeout: 5 * time.Second,
+	}
 
 	// Define the container request
 	req := testcontainers.ContainerRequest{
@@ -71,6 +76,7 @@ func TestMain(m *testing.M) {
 		fmt.Printf("Error terminating container: %s\n", err)
 	}
 
+	httpClient.CloseIdleConnections()
 	os.Exit(code)
 }
 
@@ -81,6 +87,7 @@ func createDynamoDBClient(t *testing.T) *dynamodb.Client {
 	cfg, err := config.LoadDefaultConfig(context.TODO(),
 		config.WithRegion("us-east-1"),
 		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("test", "test", "")),
+		config.WithHTTPClient(httpClient),
 		config.WithEndpointResolverWithOptions(aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
 			return aws.Endpoint{
 				URL:           endpoint,
