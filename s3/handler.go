@@ -68,8 +68,19 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if path != "" && path != "/" {
 		bucketName = parts[0]
+		if !IsValidBucketName(bucketName) {
+			h.writeError(w, r, ErrInvalidBucketName, http.StatusBadRequest)
+
+			return
+		}
+
 		if len(parts) > 1 {
 			key = parts[1]
+			if key != "" && !IsValidObjectKey(key) {
+				h.writeError(w, r, ErrInvalidArgument, http.StatusBadRequest)
+
+				return
+			}
 		}
 	}
 
@@ -384,7 +395,13 @@ func (h *Handler) putObject(w http.ResponseWriter, r *http.Request, bucketName, 
 		ChecksumValue:     checksum,
 	}
 
-	ver, err := h.Backend.PutObject(r.Context(), bucketName, key, data, meta)
+	ver, err := h.Backend.PutObject(
+		r.Context(),
+		bucketName,
+		key,
+		data,
+		meta,
+	)
 	if errors.Is(err, ErrNoSuchBucket) {
 		h.writeError(w, r, err, http.StatusNotFound)
 
@@ -502,6 +519,17 @@ func (h *Handler) getObject(w http.ResponseWriter, r *http.Request, bucketName, 
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Accept-Ranges", "bytes")
 
+	// Support flexible checksums if requested
+	if r.Header.Get("X-Amz-Checksum-Mode") == "ENABLED" {
+		if ver.ChecksumAlgorithm == "" {
+			// If no checksum is stored, default to CRC32 for the SDK
+			algo := "CRC32"
+			val := CalculateChecksum(ver.Data, algo)
+			w.Header().Set("X-Amz-Checksum-Algorithm", algo)
+			w.Header().Set("X-Amz-Checksum-"+algo, val)
+		}
+	}
+
 	for k, v := range ver.UserMetadata {
 		w.Header().Set("X-Amz-Meta-"+k, v)
 	}
@@ -614,7 +642,7 @@ func parseTaggingHeader(header string) map[string]string {
 	}
 
 	tags := make(map[string]string)
-	for _, pair := range strings.Split(header, "&") {
+	for pair := range strings.SplitSeq(header, "&") {
 		parts := strings.SplitN(pair, "=", tagKeyValueParts)
 		if len(parts) == tagKeyValueParts {
 			tags[parts[0]] = parts[1]
@@ -628,8 +656,7 @@ func parseUserMetadata(header http.Header) map[string]string {
 	meta := make(map[string]string)
 	for k, v := range header {
 		lowerK := strings.ToLower(k)
-		if strings.HasPrefix(lowerK, "x-amz-meta-") {
-			key := strings.TrimPrefix(lowerK, "x-amz-meta-")
+		if key, ok := strings.CutPrefix(lowerK, "x-amz-meta-"); ok {
 			if len(v) > 0 {
 				meta[key] = v[0]
 			}
@@ -871,6 +898,7 @@ func (h *Handler) uploadPart(w http.ResponseWriter, r *http.Request, bucketName,
 	partNumber, err := strconv.Atoi(partNumberStr)
 	if err != nil {
 		h.writeError(w, r, ErrInvalidArgument, http.StatusBadRequest)
+
 		return
 	}
 
@@ -883,6 +911,7 @@ func (h *Handler) uploadPart(w http.ResponseWriter, r *http.Request, bucketName,
 	etag, err := h.Backend.UploadPart(r.Context(), bucketName, key, uploadID, partNumber, data)
 	if err != nil {
 		h.writeError(w, r, err, http.StatusInternalServerError) // Or NoSuchKey/Upload
+
 		return
 	}
 
@@ -897,12 +926,20 @@ func (h *Handler) completeMultipartUpload(w http.ResponseWriter, r *http.Request
 	var partsReq CompleteMultipartUpload
 	if err := xml.NewDecoder(r.Body).Decode(&partsReq); err != nil {
 		h.writeError(w, r, err, http.StatusBadRequest)
+
 		return
 	}
 
-	ver, err := h.Backend.CompleteMultipartUpload(r.Context(), bucketName, key, uploadID, partsReq.Parts)
+	ver, err := h.Backend.CompleteMultipartUpload(
+		r.Context(),
+		bucketName,
+		key,
+		uploadID,
+		partsReq.Parts,
+	)
 	if err != nil {
 		h.writeError(w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 
@@ -921,6 +958,7 @@ func (h *Handler) abortMultipartUpload(w http.ResponseWriter, r *http.Request, b
 
 	if err := h.Backend.AbortMultipartUpload(r.Context(), bucketName, key, uploadID); err != nil {
 		h.writeError(w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 
@@ -931,6 +969,7 @@ func (h *Handler) writeXML(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/xml")
 	if _, err := w.Write([]byte(xml.Header)); err != nil {
 		h.Logger.Error("failed to write XML header", "error", err)
+
 		return
 	}
 	if err := xml.NewEncoder(w).Encode(v); err != nil {
@@ -947,31 +986,52 @@ func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, err error, 
 	}
 
 	// Basic mapping of errors to S3 codes
-	if errors.Is(err, ErrNoSuchBucket) {
+	switch {
+	case errors.Is(err, ErrNoSuchBucket):
 		resp.Code = "NoSuchBucket"
 		resp.Message = "The specified bucket does not exist"
 		w.WriteHeader(http.StatusNotFound)
-	} else if errors.Is(err, ErrNoSuchKey) {
+	case errors.Is(err, ErrNoSuchKey):
 		resp.Code = "NoSuchKey"
 		resp.Message = "The specified key does not exist"
 		w.WriteHeader(http.StatusNotFound)
-	} else if errors.Is(err, ErrNoSuchUpload) {
+	case errors.Is(err, ErrNoSuchUpload):
 		resp.Code = "NoSuchUpload"
-		resp.Message = "The specified upload does not exist. The upload ID may be invalid, or the upload may have been aborted or completed."
+		resp.Message = "The specified upload does not exist. " +
+			"The upload ID may be invalid, or the upload may have been aborted or completed."
 		w.WriteHeader(http.StatusNotFound)
-	} else if errors.Is(err, ErrInvalidPart) {
+	case errors.Is(err, ErrInvalidPart):
 		resp.Code = "InvalidPart"
-		resp.Message = "One or more of the specified parts could not be found. The part may not have been uploaded, or the specified entity tag may not match the part's entity tag."
+		resp.Message = "One or more of the specified parts could not be found. " +
+			"The part may not have been uploaded, or the specified entity tag may not match the part's entity tag."
 		w.WriteHeader(http.StatusBadRequest)
-	} else if errors.Is(err, ErrBucketAlreadyExists) {
+	case errors.Is(err, ErrBucketAlreadyExists):
 		resp.Code = "BucketAlreadyExists"
-		resp.Message = "The requested bucket name is not available. The bucket namespace is shared by all users of the system. Please select a different name and try again."
+		resp.Message = "The requested bucket name is not available. " +
+			"The bucket namespace is shared by all users of the system. " +
+			"Please select a different name and try again."
 		w.WriteHeader(http.StatusConflict)
-	} else if errors.Is(err, ErrBucketNotEmpty) {
+	case errors.Is(err, ErrBucketNotEmpty):
 		resp.Code = "BucketNotEmpty"
 		resp.Message = "The bucket you tried to delete is not empty"
 		w.WriteHeader(http.StatusConflict)
-	} else {
+	case errors.Is(err, ErrInvalidBucketName):
+		resp.Code = "InvalidBucketName"
+		resp.Message = "The specified bucket is not valid"
+		w.WriteHeader(http.StatusBadRequest)
+	case errors.Is(err, ErrInvalidArgument):
+		resp.Code = "InvalidArgument"
+		resp.Message = "Invalid Argument"
+		w.WriteHeader(http.StatusBadRequest)
+	case errors.Is(err, ErrMethodNotAllowed):
+		resp.Code = "MethodNotAllowed"
+		resp.Message = "The specified method is not allowed against this resource"
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	case errors.Is(err, ErrNotImplemented):
+		resp.Code = "NotImplemented"
+		resp.Message = "A header you provided implies functionality that is not implemented"
+		w.WriteHeader(http.StatusNotImplemented)
+	default:
 		w.WriteHeader(code)
 	}
 

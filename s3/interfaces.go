@@ -15,7 +15,8 @@ type StorageBackend interface {
 	HeadBucket(ctx context.Context, name string) (*Bucket, error)
 	ListBuckets(ctx context.Context) ([]*Bucket, error)
 
-	PutObject(ctx context.Context, bucket string, key string, data []byte, meta ObjectMetadata) (*ObjectVersion, error)
+	PutObject(ctx context.Context, bucket string, key string, data []byte,
+		meta ObjectMetadata) (*ObjectVersion, error)
 	GetObject(ctx context.Context, bucket, key, versionID string) (*ObjectVersion, error)
 	HeadObject(ctx context.Context, bucket, key, versionID string) (*ObjectVersion, error)
 	DeleteObject(ctx context.Context, bucket, key, versionID string) (deleteMarkerVersionID string, err error)
@@ -34,6 +35,7 @@ type StorageBackend interface {
 	// Multipart
 	InitiateMultipartUpload(ctx context.Context, bucket, key string) (string, error)
 	UploadPart(ctx context.Context, bucket, key, uploadID string, partNumber int, data []byte) (string, error)
-	CompleteMultipartUpload(ctx context.Context, bucket, key, uploadID string, parts []CompletedPartXML) (*ObjectVersion, error)
+	CompleteMultipartUpload(ctx context.Context, bucket, key, uploadID string,
+		parts []CompletedPartXML) (*ObjectVersion, error)
 	AbortMultipartUpload(ctx context.Context, bucket, key, uploadID string) error
 }

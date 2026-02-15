@@ -1,6 +1,7 @@
 package s3
 
 import (
+	"sync"
 	"time"
 )
 
@@ -19,9 +20,12 @@ const (
 
 // Bucket represents an S3 bucket.
 type Bucket struct {
-	Name         string
-	CreationDate time.Time
-	Versioning   VersioningStatus
+	Name          string
+	CreationDate  time.Time
+	Versioning    VersioningStatus
+	mu            sync.RWMutex
+	Objects       map[string]*Object
+	ActiveUploads map[string]*MultipartUpload
 }
 
 // Object represents an S3 object with its version history.
@@ -48,6 +52,23 @@ type ObjectVersion struct {
 	Size              int64
 	IsLatest          bool
 	Deleted           bool
+}
+
+// MultipartUpload represents an ongoing multipart upload session.
+type MultipartUpload struct {
+	UploadID  string
+	Bucket    string
+	Key       string
+	Initiated time.Time
+	Parts     map[int]Part
+}
+
+// Part represents a single part of a multipart upload.
+type Part struct {
+	PartNumber int
+	ETag       string
+	Data       []byte
+	Size       int64
 }
 
 // ObjectMetadata holds metadata provided with PutObject calls.

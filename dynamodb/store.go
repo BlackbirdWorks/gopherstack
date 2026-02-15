@@ -43,39 +43,12 @@ func NewInMemoryDB() *InMemoryDB {
 	}
 }
 
-// BuildKeyString creates a key string from attribute values for indexing.
 func BuildKeyString(item map[string]any, attrName string) string {
 	if attrName == "" {
 		return ""
 	}
 
-	val := item[attrName]
-	if val == nil {
-		return ""
-	}
-
-	// Fast path: Extract the actual value from DynamoDB attribute format
-	if m, ok := val.(map[string]any); ok {
-		// Common DynamoDB types: {"S": "value"}, {"N": "123"}, {"B": "..."}
-		if s, okS := m["S"].(string); okS {
-			return s
-		}
-
-		if n, okN := m["N"].(string); okN {
-			return n
-		}
-
-		if b, okB := m["B"].(string); okB {
-			return b
-		}
-
-		// Fallback for other types
-		for _, v := range m {
-			return toString(v)
-		}
-	}
-
-	return toString(val)
+	return toString(item[attrName])
 }
 
 // initializeIndexes creates empty index maps for a table.

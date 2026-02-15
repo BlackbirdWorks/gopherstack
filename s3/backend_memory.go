@@ -19,26 +19,9 @@ import (
 
 // InMemoryBackend is an in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	compressor    Compressor
-	buckets       map[string]*Bucket
-	objects       map[string]map[string]*Object // bucket -> key -> Object
-	activeUploads map[string]*MultipartUpload   // uploadID -> MultipartUpload
-	mu            sync.RWMutex
-}
-
-type MultipartUpload struct {
-	UploadID  string
-	Bucket    string
-	Key       string
-	Initiated time.Time
-	Parts     map[int]Part
-}
-
-type Part struct {
-	PartNumber int
-	ETag       string
-	Data       []byte
-	Size       int64
+	compressor Compressor
+	buckets    map[string]*Bucket
+	mu         sync.RWMutex
 }
 
 const (
@@ -50,15 +33,13 @@ const (
 // NewInMemoryBackend creates a new InMemoryBackend using the given compressor.
 func NewInMemoryBackend(compressor Compressor) *InMemoryBackend {
 	return &InMemoryBackend{
-		buckets:       make(map[string]*Bucket),
-		objects:       make(map[string]map[string]*Object),
-		activeUploads: make(map[string]*MultipartUpload),
-		compressor:    compressor,
+		buckets:    make(map[string]*Bucket),
+		compressor: compressor,
 	}
 }
 
 // CreateBucket creates a new bucket with the given name.
-func (b *InMemoryBackend) CreateBucket(ctx context.Context, name string) error {
+func (b *InMemoryBackend) CreateBucket(_ context.Context, name string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -67,67 +48,76 @@ func (b *InMemoryBackend) CreateBucket(ctx context.Context, name string) error {
 	}
 
 	b.buckets[name] = &Bucket{
-		Name:         name,
-		CreationDate: time.Now(),
-		Versioning:   VersioningSuspended,
+		Name:          name,
+		CreationDate:  time.Now(),
+		Versioning:    VersioningSuspended,
+		Objects:       make(map[string]*Object),
+		ActiveUploads: make(map[string]*MultipartUpload),
 	}
-
-	b.objects[name] = make(map[string]*Object)
 
 	return nil
 }
 
 // DeleteBucket deletes a bucket by name. Fails if not empty.
-func (b *InMemoryBackend) DeleteBucket(ctx context.Context, name string) error {
+func (b *InMemoryBackend) DeleteBucket(_ context.Context, name string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, exists := b.buckets[name]; !exists {
+	bucket, exists := b.buckets[name]
+	if !exists {
 		return ErrNoSuchBucket
 	}
 
-	if len(b.objects[name]) > 0 {
+	bucket.mu.Lock()
+	defer bucket.mu.Unlock()
+
+	if len(bucket.Objects) > 0 {
 		return ErrBucketNotEmpty
 	}
 
 	delete(b.buckets, name)
-	delete(b.objects, name)
 
 	return nil
 }
 
 // PutBucketVersioning sets the versioning status for a bucket.
-func (b *InMemoryBackend) PutBucketVersioning(ctx context.Context, bucket string, status VersioningStatus) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+func (b *InMemoryBackend) PutBucketVersioning(_ context.Context, bucketName string, status VersioningStatus) error {
+	b.mu.RLock()
+	bucket, exists := b.buckets[bucketName]
+	b.mu.RUnlock()
 
-	bkt, exists := b.buckets[bucket]
 	if !exists {
 		return ErrNoSuchBucket
 	}
 
-	bkt.Versioning = status
+	bucket.mu.Lock()
+	defer bucket.mu.Unlock()
+
+	bucket.Versioning = status
 
 	return nil
 }
 
 // GetBucketVersioning retrieves the versioning status for a bucket.
-func (b *InMemoryBackend) GetBucketVersioning(ctx context.Context, bucket string) (VersioningConfiguration, error) {
+func (b *InMemoryBackend) GetBucketVersioning(_ context.Context, bucketName string) (VersioningConfiguration, error) {
 	b.mu.RLock()
-	defer b.mu.RUnlock()
+	bucket, exists := b.buckets[bucketName]
+	b.mu.RUnlock()
 
-	bkt, exists := b.buckets[bucket]
 	if !exists {
 		return VersioningConfiguration{}, ErrNoSuchBucket
 	}
 
+	bucket.mu.RLock()
+	defer bucket.mu.RUnlock()
+
 	return VersioningConfiguration{
-		Status: string(bkt.Versioning),
+		Status: string(bucket.Versioning),
 	}, nil
 }
 
 // HeadBucket returns a bucket by name.
-func (b *InMemoryBackend) HeadBucket(ctx context.Context, name string) (*Bucket, error) {
+func (b *InMemoryBackend) HeadBucket(_ context.Context, name string) (*Bucket, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -140,7 +130,7 @@ func (b *InMemoryBackend) HeadBucket(ctx context.Context, name string) (*Bucket,
 }
 
 // ListBuckets returns all buckets sorted by name.
-func (b *InMemoryBackend) ListBuckets(ctx context.Context) ([]*Bucket, error) {
+func (b *InMemoryBackend) ListBuckets(_ context.Context) ([]*Bucket, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -158,7 +148,7 @@ func (b *InMemoryBackend) ListBuckets(ctx context.Context) ([]*Bucket, error) {
 
 // PutObject stores an object, compressing the data.
 func (b *InMemoryBackend) PutObject(
-	ctx context.Context,
+	_ context.Context,
 	bucketName, key string,
 	data []byte,
 	meta ObjectMetadata,
@@ -178,13 +168,16 @@ func (b *InMemoryBackend) PutObject(
 		checksumValue = CalculateChecksum(data, meta.ChecksumAlgorithm)
 	}
 
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
+	b.mu.RLock()
 	bucket, exists := b.buckets[bucketName]
+	b.mu.RUnlock()
+
 	if !exists {
 		return nil, ErrNoSuchBucket
 	}
+
+	bucket.mu.Lock()
+	defer bucket.mu.Unlock()
 
 	versionID := NullVersion
 	if bucket.Versioning == VersioningEnabled {
@@ -205,7 +198,7 @@ func (b *InMemoryBackend) PutObject(
 		LastModified:      time.Now(),
 	}
 
-	obj := b.getOrCreateObject(bucketName, key)
+	obj := b.getOrCreateObject(bucket, key)
 	obj.ContentType = meta.ContentType
 	obj.Tags = meta.Tags
 
@@ -221,15 +214,15 @@ func (b *InMemoryBackend) PutObject(
 	return &newVersion, nil
 }
 
-func (b *InMemoryBackend) getOrCreateObject(bucketName, key string) *Object {
-	obj, exists := b.objects[bucketName][key]
+func (b *InMemoryBackend) getOrCreateObject(bucket *Bucket, key string) *Object {
+	obj, exists := bucket.Objects[key]
 	if !exists {
 		obj = &Object{
 			Key:  key,
 			Tags: make(map[string]string),
 		}
 
-		b.objects[bucketName][key] = obj
+		bucket.Objects[key] = obj
 	}
 
 	return obj
@@ -257,15 +250,19 @@ func (b *InMemoryBackend) replaceNullVersion(obj *Object, ver ObjectVersion) {
 }
 
 // GetObject retrieves an object version, decompressing the data.
-func (b *InMemoryBackend) GetObject(ctx context.Context, bucketName, key, versionID string) (*ObjectVersion, error) {
+func (b *InMemoryBackend) GetObject(_ context.Context, bucketName, key, versionID string) (*ObjectVersion, error) {
 	b.mu.RLock()
-	defer b.mu.RUnlock()
+	bucket, exists := b.buckets[bucketName]
+	b.mu.RUnlock()
 
-	if _, exists := b.buckets[bucketName]; !exists {
+	if !exists {
 		return nil, ErrNoSuchBucket
 	}
 
-	obj, exists := b.objects[bucketName][key]
+	bucket.mu.RLock()
+	defer bucket.mu.RUnlock()
+
+	obj, exists := bucket.Objects[key]
 	if !exists {
 		return nil, ErrNoSuchKey
 	}
@@ -279,22 +276,25 @@ func (b *InMemoryBackend) GetObject(ctx context.Context, bucketName, key, versio
 }
 
 // HeadObject retrieves an object version's metadata without decompressing the data.
-func (b *InMemoryBackend) HeadObject(ctx context.Context, bucketName, key, versionID string) (*ObjectVersion, error) {
+func (b *InMemoryBackend) HeadObject(_ context.Context, bucketName, key, versionID string) (*ObjectVersion, error) {
 	b.mu.RLock()
-	defer b.mu.RUnlock()
+	bucket, exists := b.buckets[bucketName]
+	b.mu.RUnlock()
 
-	if _, exists := b.buckets[bucketName]; !exists {
+	if !exists {
 		return nil, ErrNoSuchBucket
 	}
 
-	obj, exists := b.objects[bucketName][key]
+	bucket.mu.RLock()
+	defer bucket.mu.RUnlock()
+
+	obj, exists := bucket.Objects[key]
 	if !exists {
 		return nil, ErrNoSuchKey
 	}
 
 	var v *ObjectVersion
 	var err error
-	// Use simplified findVersion logic (merged earlier)
 	version, err := b.findVersion(obj, versionID)
 	if err != nil {
 		return nil, err
@@ -305,55 +305,6 @@ func (b *InMemoryBackend) HeadObject(ctx context.Context, bucketName, key, versi
 	ret.Data = nil // Metadata only
 
 	return &ret, nil
-}
-
-func (b *InMemoryBackend) findVersion(obj *Object, versionID string) (ObjectVersion, error) {
-	for _, v := range obj.Versions {
-		if versionID == "" {
-			if !v.IsLatest {
-				continue
-			}
-		} else {
-			if v.VersionID != versionID {
-				continue
-			}
-		}
-
-		if v.Deleted {
-			return ObjectVersion{}, ErrNoSuchKey
-		}
-
-		return v, nil
-	}
-
-	return ObjectVersion{}, ErrNoSuchKey
-}
-
-func copyBytes(b []byte) []byte {
-	if b == nil {
-		return nil
-	}
-
-	out := make([]byte, len(b))
-	copy(out, b)
-
-	return out
-}
-
-func (b *InMemoryBackend) getLatestVersion(obj *Object) (*ObjectVersion, error) {
-	for _, v := range obj.Versions {
-		if !v.IsLatest {
-			continue
-		}
-
-		if v.Deleted {
-			return nil, ErrNoSuchKey
-		}
-
-		return b.decompressVersion(v)
-	}
-
-	return &v, nil
 }
 
 func (b *InMemoryBackend) findVersion(obj *Object, versionID string) (ObjectVersion, error) {
@@ -391,24 +342,27 @@ func (b *InMemoryBackend) decompressVersion(v ObjectVersion) (*ObjectVersion, er
 }
 
 // DeleteObject either creates a delete marker or removes a specific version.
-func (b *InMemoryBackend) DeleteObject(ctx context.Context, bucketName, key, versionID string) (string, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
+func (b *InMemoryBackend) DeleteObject(_ context.Context, bucketName, key, versionID string) (string, error) {
+	b.mu.RLock()
 	bucket, exists := b.buckets[bucketName]
+	b.mu.RUnlock()
+
 	if !exists {
 		return "", ErrNoSuchBucket
 	}
 
+	bucket.mu.Lock()
+	defer bucket.mu.Unlock()
+
 	if versionID != "" {
-		return b.deleteSpecificVersion(bucketName, key, versionID)
+		return b.deleteSpecificVersion(bucket, key, versionID)
 	}
 
-	return b.createDeleteMarker(bucketName, key, bucket), nil
+	return b.createDeleteMarker(bucket, key), nil
 }
 
-func (b *InMemoryBackend) deleteSpecificVersion(bucketName, key, versionID string) (string, error) {
-	obj, exists := b.objects[bucketName][key]
+func (b *InMemoryBackend) deleteSpecificVersion(bucket *Bucket, key, versionID string) (string, error) {
+	obj, exists := bucket.Objects[key]
 	if !exists {
 		return "", ErrNoSuchKey
 	}
@@ -440,14 +394,14 @@ func (b *InMemoryBackend) deleteSpecificVersion(bucketName, key, versionID strin
 	obj.Versions = newVersions
 
 	if len(obj.Versions) == 0 {
-		delete(b.objects[bucketName], key)
+		delete(bucket.Objects, key)
 	}
 
 	return deletedMarkerID, nil
 }
 
-func (b *InMemoryBackend) createDeleteMarker(bucketName, key string, bucket *Bucket) string {
-	obj := b.getOrCreateObject(bucketName, key)
+func (b *InMemoryBackend) createDeleteMarker(bucket *Bucket, key string) string {
+	obj := b.getOrCreateObject(bucket, key)
 
 	dmVersionID := NullVersion
 	if bucket.Versioning == VersioningEnabled {
@@ -471,17 +425,21 @@ func (b *InMemoryBackend) createDeleteMarker(bucketName, key string, bucket *Buc
 }
 
 // ListObjects returns all non-deleted objects matching the prefix.
-func (b *InMemoryBackend) ListObjects(ctx context.Context, bucketName, prefix string) ([]*Object, error) {
+func (b *InMemoryBackend) ListObjects(_ context.Context, bucketName, prefix string) ([]*Object, error) {
 	b.mu.RLock()
-	defer b.mu.RUnlock()
+	bucket, exists := b.buckets[bucketName]
+	b.mu.RUnlock()
 
-	if _, exists := b.buckets[bucketName]; !exists {
+	if !exists {
 		return nil, ErrNoSuchBucket
 	}
 
+	bucket.mu.RLock()
+	defer bucket.mu.RUnlock()
+
 	var results []*Object
 
-	for _, obj := range b.objects[bucketName] {
+	for _, obj := range bucket.Objects {
 		if !strings.HasPrefix(obj.Key, prefix) {
 			continue
 		}
@@ -499,17 +457,21 @@ func (b *InMemoryBackend) ListObjects(ctx context.Context, bucketName, prefix st
 }
 
 // ListObjectVersions returns all versions for all objects matching the prefix.
-func (b *InMemoryBackend) ListObjectVersions(ctx context.Context, bucketName, prefix string) ([]ObjectVersion, error) {
+func (b *InMemoryBackend) ListObjectVersions(_ context.Context, bucketName, prefix string) ([]ObjectVersion, error) {
 	b.mu.RLock()
-	defer b.mu.RUnlock()
+	bucket, exists := b.buckets[bucketName]
+	b.mu.RUnlock()
 
-	if _, exists := b.buckets[bucketName]; !exists {
+	if !exists {
 		return nil, ErrNoSuchBucket
 	}
 
+	bucket.mu.RLock()
+	defer bucket.mu.RUnlock()
+
 	var results []ObjectVersion
 
-	for _, obj := range b.objects[bucketName] {
+	for _, obj := range bucket.Objects {
 		if !strings.HasPrefix(obj.Key, prefix) {
 			continue
 		}
@@ -540,15 +502,19 @@ func (b *InMemoryBackend) isObjectDeleted(obj *Object) bool {
 }
 
 // PutObjectTagging sets tags on an object.
-func (b *InMemoryBackend) PutObjectTagging(ctx context.Context, bucketName, key, _ string, tags map[string]string) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+func (b *InMemoryBackend) PutObjectTagging(_ context.Context, bucketName, key, _ string, tags map[string]string) error {
+	b.mu.RLock()
+	bucket, exists := b.buckets[bucketName]
+	b.mu.RUnlock()
 
-	if _, exists := b.buckets[bucketName]; !exists {
+	if !exists {
 		return ErrNoSuchBucket
 	}
 
-	obj, exists := b.objects[bucketName][key]
+	bucket.mu.Lock()
+	defer bucket.mu.Unlock()
+
+	obj, exists := bucket.Objects[key]
 	if !exists {
 		return ErrNoSuchKey
 	}
@@ -559,15 +525,19 @@ func (b *InMemoryBackend) PutObjectTagging(ctx context.Context, bucketName, key,
 }
 
 // GetObjectTagging returns the tags for an object.
-func (b *InMemoryBackend) GetObjectTagging(ctx context.Context, bucketName, key, _ string) (map[string]string, error) {
+func (b *InMemoryBackend) GetObjectTagging(_ context.Context, bucketName, key, _ string) (map[string]string, error) {
 	b.mu.RLock()
-	defer b.mu.RUnlock()
+	bucket, exists := b.buckets[bucketName]
+	b.mu.RUnlock()
 
-	if _, exists := b.buckets[bucketName]; !exists {
+	if !exists {
 		return nil, ErrNoSuchBucket
 	}
 
-	obj, exists := b.objects[bucketName][key]
+	bucket.mu.RLock()
+	defer bucket.mu.RUnlock()
+
+	obj, exists := bucket.Objects[key]
 	if !exists {
 		return nil, ErrNoSuchKey
 	}
@@ -576,15 +546,19 @@ func (b *InMemoryBackend) GetObjectTagging(ctx context.Context, bucketName, key,
 }
 
 // DeleteObjectTagging removes all tags from an object.
-func (b *InMemoryBackend) DeleteObjectTagging(ctx context.Context, bucketName, key, _ string) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+func (b *InMemoryBackend) DeleteObjectTagging(_ context.Context, bucketName, key, _ string) error {
+	b.mu.RLock()
+	bucket, exists := b.buckets[bucketName]
+	b.mu.RUnlock()
 
-	if _, exists := b.buckets[bucketName]; !exists {
+	if !exists {
 		return ErrNoSuchBucket
 	}
 
-	obj, exists := b.objects[bucketName][key]
+	bucket.mu.Lock()
+	defer bucket.mu.Unlock()
+
+	obj, exists := bucket.Objects[key]
 	if !exists {
 		return ErrNoSuchKey
 	}
@@ -595,16 +569,20 @@ func (b *InMemoryBackend) DeleteObjectTagging(ctx context.Context, bucketName, k
 }
 
 // InitiateMultipartUpload starts a new multipart upload.
-func (b *InMemoryBackend) InitiateMultipartUpload(ctx context.Context, bucketName, key string) (string, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+func (b *InMemoryBackend) InitiateMultipartUpload(_ context.Context, bucketName, key string) (string, error) {
+	b.mu.RLock()
+	bucket, exists := b.buckets[bucketName]
+	b.mu.RUnlock()
 
-	if _, exists := b.buckets[bucketName]; !exists {
+	if !exists {
 		return "", ErrNoSuchBucket
 	}
 
+	bucket.mu.Lock()
+	defer bucket.mu.Unlock()
+
 	uploadID := uuid.New().String()
-	b.activeUploads[uploadID] = &MultipartUpload{
+	bucket.ActiveUploads[uploadID] = &MultipartUpload{
 		UploadID:  uploadID,
 		Bucket:    bucketName,
 		Key:       key,
@@ -617,15 +595,23 @@ func (b *InMemoryBackend) InitiateMultipartUpload(ctx context.Context, bucketNam
 
 // UploadPart uploads a part in a multipart upload.
 func (b *InMemoryBackend) UploadPart(
-	ctx context.Context,
+	_ context.Context,
 	bucketName, key, uploadID string,
 	partNumber int,
 	data []byte,
 ) (string, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+	b.mu.RLock()
+	bucket, exists := b.buckets[bucketName]
+	b.mu.RUnlock()
 
-	upload, exists := b.activeUploads[uploadID]
+	if !exists {
+		return "", ErrNoSuchBucket
+	}
+
+	bucket.mu.Lock()
+	defer bucket.mu.Unlock()
+
+	upload, exists := bucket.ActiveUploads[uploadID]
 	if !exists || upload.Bucket != bucketName || upload.Key != key {
 		return "", ErrNoSuchUpload // Or specific NoSuchUpload error
 	}
@@ -658,96 +644,80 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 	bucketName, key, uploadID string,
 	parts []CompletedPartXML,
 ) (*ObjectVersion, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+	b.mu.RLock()
+	bucket, exists := b.buckets[bucketName]
+	b.mu.RUnlock()
 
-	upload, exists := b.activeUploads[uploadID]
+	if !exists {
+		return nil, ErrNoSuchBucket
+	}
+
+	bucket.mu.Lock()
+	upload, exists := bucket.ActiveUploads[uploadID]
 	if !exists || upload.Bucket != bucketName || upload.Key != key {
+		bucket.mu.Unlock()
+
 		return nil, ErrNoSuchUpload
 	}
 
 	// Assemble data
 	var fullData []byte
-	// Verify parts and order
 	// The parts list from client dictates the order/selection.
-	// DynamoDB style: we trust the client's list or validate? S3 spec says we concatenate in order of PartNumber.
-	// But usually the client provides the list of parts to assemble.
-	// We should sort the provided parts just in case or follow them?
-	// The client sends <Part><PartNumber>1</PartNumber><ETag>...</ETag></Part>...
-	// We must use the parts specified.
-
 	for _, p := range parts {
 		storedPart, ok := upload.Parts[p.PartNumber]
 		if !ok {
+			bucket.mu.Unlock()
+
 			return nil, fmt.Errorf("%w: part %d", ErrInvalidPart, p.PartNumber)
 		}
-		// ETag from client might be quoted or unquoted. Backend stores quoted.
-		// We should probably normalize comparison.
-		// For now, assume client sends what backend returned.
 		if storedPart.ETag != p.ETag {
+			bucket.mu.Unlock()
+
 			return nil, fmt.Errorf("%w: etag mismatch for part %d", ErrInvalidPart, p.PartNumber)
 		}
 
 		// Decompress part to append
 		partData, err := b.compressor.Decompress(storedPart.Data)
 		if err != nil {
+			bucket.mu.Unlock()
+
 			return nil, err
 		}
 		fullData = append(fullData, partData...)
 	}
 
-	// Now PutObject logic
-	// We need to release the lock to call PutObject?
-	// PutObject takes a lock. We are holding a lock. Deadlock.
-	// Refactor PutObject core logic or manually do it here.
-	// Manually doing it here is safer.
-
-	// But wait, PutObject also recompresses.
-	// This is inefficient (compress part -> decompress -> append -> compress full).
-	// But optimizing implementation details of memory backend isn't the priority. Correctness is.
-	// We can cheat: unlock, call PutObject, delete upload.
-	// But there's a race? Not really for this unique UploadID.
-	// But for the KEY, someone else could write.
-	// PutObject is atomic.
-	// So we can:
-	// 1. Assemble data (done)
-	// 2. Unlock
-	// 3. Call PutObjectWithContext (recursive call via public API)
-	// 4. Lock, Delete upload
-	// This is safe enough for this backend.
-
-	// However, we are inside a locked region.
-	// Let's release lock, do the put, then re-acquire to clean up.
-	b.mu.Unlock()
+	// Clean up active upload BEFORE calling PutObject to avoid holding the lock
+	// and to ensure it's removed even if PutObject fails.
+	delete(bucket.ActiveUploads, uploadID)
+	bucket.mu.Unlock()
 
 	meta := ObjectMetadata{
-		ContentType: "application/octet-stream", // Should be passed in Initiate... but we didn't store it.
-		// In reality, S3 takes Content-Type at Initiate.
-		// For now default.
+		ContentType: "application/octet-stream",
 	}
 
-	version, err := b.PutObject(ctx, bucketName, key, fullData, meta)
-	b.mu.Lock() // Re-acquire
-	if err != nil {
-		return nil, err
-	}
-
-	delete(b.activeUploads, uploadID)
-
-	return version, nil
+	return b.PutObject(ctx, bucketName, key, fullData, meta)
 }
 
 // AbortMultipartUpload cancels an upload and deletes parts.
-func (b *InMemoryBackend) AbortMultipartUpload(ctx context.Context, bucketName, key, uploadID string) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+func (b *InMemoryBackend) AbortMultipartUpload(_ context.Context, bucketName, key, uploadID string) error {
+	b.mu.RLock()
+	bucket, exists := b.buckets[bucketName]
+	b.mu.RUnlock()
 
-	upload, exists := b.activeUploads[uploadID]
+	if !exists {
+		return ErrNoSuchBucket
+	}
+
+	bucket.mu.Lock()
+	defer bucket.mu.Unlock()
+
+	upload, exists := bucket.ActiveUploads[uploadID]
 	if !exists || upload.Bucket != bucketName || upload.Key != key {
 		return ErrNoSuchUpload
 	}
 
-	delete(b.activeUploads, uploadID)
+	delete(bucket.ActiveUploads, uploadID)
+
 	return nil
 }
 

@@ -4,14 +4,7 @@ package dynamodb
 // This allows us to satisfy the testpackage linter while still unit testing
 // the package's internal logic.
 
-func EvaluateExpression(
-	expr string,
-	item map[string]any,
-	vals map[string]any,
-	names map[string]string,
-) (bool, error) {
-	return evaluateExpression(expr, item, vals, names)
-}
+// EvaluateExpression is now exported in expressions.go
 
 func CompareValues(lhs any, op string, rhs any) bool {
 	return compareValues(lhs, op, rhs)
@@ -21,9 +14,7 @@ func UnwrapAttributeValue(v any) any {
 	return unwrapAttributeValue(v)
 }
 
-func ExtractFunctionArgs(input string) []string {
-	return extractFunctionArgs(input)
-}
+// ExtractFunctionArgs is no longer supported
 
 func FindExclusiveStartIndex(items []map[string]any, startKey map[string]any, keySchema []KeySchemaElement) int {
 	return findExclusiveStartIndex(items, startKey, keySchema)

@@ -300,7 +300,7 @@ func TestParseStr(t *testing.T) {
 	assert.Equal(t, "test", dynamodb.ParseStr("test"))
 	assert.Equal(t, "123", dynamodb.ParseStr(123))
 	assert.Equal(t, "true", dynamodb.ParseStr(true))
-	assert.Equal(t, "<nil>", dynamodb.ParseStr(nil))
+	assert.Empty(t, dynamodb.ParseStr(nil))
 }
 
 func TestCalculateItemSize_Complex(t *testing.T) {
