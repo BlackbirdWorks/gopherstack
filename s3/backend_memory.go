@@ -44,7 +44,7 @@ func (b *InMemoryBackend) CreateBucket(_ context.Context, name string) error {
 	defer b.mu.Unlock()
 
 	if _, exists := b.buckets[name]; exists {
-		return ErrBucketAlreadyExists
+		return nil // localstack skips this error
 	}
 
 	b.buckets[name] = &Bucket{
