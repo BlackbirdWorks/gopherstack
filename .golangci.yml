@@ -235,6 +235,9 @@ linters:
       check:
         - switch
         - map
+      # Presence of a default case in switch statements satisfies exhaustiveness.
+      # Default: false
+      default-signifies-exhaustive: true
 
     exhaustruct:
       # List of regular expressions to match type names that should be excluded from processing.
@@ -342,6 +345,16 @@ linters:
       # Skips check for interface methods with only a single parameter.
       # Default: false
       skip-single-param: true
+
+    ireturn:
+      # List of interfaces that are allowed to be returned.
+      # Default: [anon, error, empty, stdlib]
+      allow:
+        - anon
+        - error
+        - empty
+        - stdlib
+        - "^Gopherstack/dynamodb/expr\\.Node$"
 
     mnd:
       # List of function patterns to exclude from analysis.

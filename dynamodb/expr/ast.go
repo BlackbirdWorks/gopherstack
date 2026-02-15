@@ -4,11 +4,11 @@ type Node interface {
 	exprNode()
 }
 
-// Logical Nodes
+// LogicalExpr represents a logical expression (AND, OR) combining two nodes.
 type LogicalExpr struct {
 	Left     Node
-	Operator TokenType // AND, OR
 	Right    Node
+	Operator TokenType
 }
 
 func (e *LogicalExpr) exprNode() {}
@@ -19,11 +19,11 @@ type NotExpr struct {
 
 func (e *NotExpr) exprNode() {}
 
-// Comparison Nodes
+// ComparisonExpr represents a comparison expression (=, <>, <, >, <=, >=).
 type ComparisonExpr struct {
 	Left     Node
-	Operator TokenType // =, <>, <, >, <=, >=
 	Right    Node
+	Operator TokenType
 }
 
 func (e *ComparisonExpr) exprNode() {}
@@ -43,7 +43,7 @@ type InExpr struct {
 
 func (e *InExpr) exprNode() {}
 
-// Function Nodes
+// FunctionExpr represents a function call expression (e.g., size, attribute_exists).
 type FunctionExpr struct {
 	Name string
 	Args []Node
@@ -51,7 +51,7 @@ type FunctionExpr struct {
 
 func (e *FunctionExpr) exprNode() {}
 
-// Path Nodes (e.g., a.b[0])
+// PathExpr represents a path expression (e.g., a.b[0]).
 type PathExpr struct {
 	Elements []PathElement
 }
@@ -71,14 +71,14 @@ const (
 	ElementIndex
 )
 
-// Literal/Placeholder Nodes
+// ValuePlaceholder represents a value placeholder (e.g., :val).
 type ValuePlaceholder struct {
 	Name string
 }
 
 func (e *ValuePlaceholder) exprNode() {}
 
-// Update Expressions
+// UpdateExpr represents an update expression with one or more actions (SET, REMOVE, ADD, DELETE).
 type UpdateExpr struct {
 	Actions []UpdateAction
 }
@@ -86,8 +86,8 @@ type UpdateExpr struct {
 func (e *UpdateExpr) exprNode() {}
 
 type UpdateAction struct {
-	Type  TokenType // SET, REMOVE, ADD, DELETE
 	Items []UpdateItem
+	Type  TokenType
 }
 
 type UpdateItem struct {
@@ -95,7 +95,7 @@ type UpdateItem struct {
 	Value Node // Used for SET, ADD, DELETE
 }
 
-// Projection Expressions
+// ProjectionExpr represents a projection expression listing the paths to include.
 type ProjectionExpr struct {
 	Paths []Node // PathExpr
 }

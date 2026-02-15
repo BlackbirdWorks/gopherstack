@@ -1,52 +1,25 @@
-package s3_test
+//go:build integration
+
+package integration_test
 
 import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
 	"io"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	gophers3 "Gopherstack/s3"
 )
 
 const (
 	largeObjectSize = 1 << 20 // 1 MiB
 )
-
-// createS3Client sets up a local httptest server and returns an S3 client.
-func createS3Client(t *testing.T) *s3.Client {
-	t.Helper()
-
-	backend := gophers3.NewInMemoryBackend(&gophers3.GzipCompressor{})
-	handler := gophers3.NewHandler(backend)
-
-	server := httptest.NewServer(handler)
-	t.Cleanup(server.Close)
-
-	cfg, err := config.LoadDefaultConfig(t.Context(),
-		config.WithRegion("us-east-1"),
-		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("test", "test", "")),
-	)
-	require.NoError(t, err)
-
-	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
-		o.UsePathStyle = true
-		o.BaseEndpoint = aws.String(server.URL)
-	})
-
-	return client
-}
 
 func TestS3BucketLifecycle(t *testing.T) {
 	t.Parallel()
@@ -804,6 +777,214 @@ func TestS3TaggingRoundTrip(t *testing.T) {
 		})
 	}
 }
+func TestS3ListObjectsV2(t *testing.T) {
+	t.Parallel()
+
+	t.Run("basic listing returns all keys", func(t *testing.T) {
+		t.Parallel()
+
+		client := createS3Client(t)
+		ctx := t.Context()
+
+		_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String("v2-basic")})
+		require.NoError(t, err)
+
+		for _, key := range []string{"a/1", "a/2", "b/1"} {
+			_, putErr := client.PutObject(ctx, &s3.PutObjectInput{
+				Bucket: aws.String("v2-basic"),
+				Key:    aws.String(key),
+				Body:   strings.NewReader("data"),
+			})
+			require.NoError(t, putErr)
+		}
+
+		out, err := client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{Bucket: aws.String("v2-basic")})
+		require.NoError(t, err)
+		assert.EqualValues(t, 3, *out.KeyCount)
+		assert.False(t, *out.IsTruncated)
+		assert.Len(t, out.Contents, 3)
+	})
+
+	t.Run("pagination with max-keys and continuation token", func(t *testing.T) {
+		t.Parallel()
+
+		client := createS3Client(t)
+		ctx := t.Context()
+
+		_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String("v2-paged")})
+		require.NoError(t, err)
+
+		keys := []string{"k1", "k2", "k3", "k4", "k5"}
+		for _, key := range keys {
+			_, putErr := client.PutObject(ctx, &s3.PutObjectInput{
+				Bucket: aws.String("v2-paged"),
+				Key:    aws.String(key),
+				Body:   strings.NewReader("data"),
+			})
+			require.NoError(t, putErr)
+		}
+
+		// First page of 2
+		page1, err := client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+			Bucket:  aws.String("v2-paged"),
+			MaxKeys: aws.Int32(2),
+		})
+		require.NoError(t, err)
+		assert.Len(t, page1.Contents, 2)
+		assert.True(t, *page1.IsTruncated)
+		require.NotNil(t, page1.NextContinuationToken)
+
+		// Second page of 2
+		page2, err := client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+			Bucket:            aws.String("v2-paged"),
+			MaxKeys:           aws.Int32(2),
+			ContinuationToken: page1.NextContinuationToken,
+		})
+		require.NoError(t, err)
+		assert.Len(t, page2.Contents, 2)
+		assert.True(t, *page2.IsTruncated)
+
+		// Third page: last 1 item
+		page3, err := client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+			Bucket:            aws.String("v2-paged"),
+			MaxKeys:           aws.Int32(2),
+			ContinuationToken: page2.NextContinuationToken,
+		})
+		require.NoError(t, err)
+		assert.Len(t, page3.Contents, 1)
+		assert.False(t, *page3.IsTruncated)
+
+		// All pages together cover all keys
+		allKeys := make([]string, 0, len(page1.Contents)+len(page2.Contents)+len(page3.Contents))
+		for _, c := range page1.Contents {
+			allKeys = append(allKeys, *c.Key)
+		}
+		for _, c := range page2.Contents {
+			allKeys = append(allKeys, *c.Key)
+		}
+		for _, c := range page3.Contents {
+			allKeys = append(allKeys, *c.Key)
+		}
+		assert.ElementsMatch(t, keys, allKeys)
+	})
+
+	t.Run("delimiter groups keys into common prefixes", func(t *testing.T) {
+		t.Parallel()
+
+		client := createS3Client(t)
+		ctx := t.Context()
+
+		_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String("v2-delim")})
+		require.NoError(t, err)
+
+		for _, key := range []string{"docs/a.md", "docs/b.md", "images/c.png", "readme.txt"} {
+			_, putErr := client.PutObject(ctx, &s3.PutObjectInput{
+				Bucket: aws.String("v2-delim"),
+				Key:    aws.String(key),
+				Body:   strings.NewReader("data"),
+			})
+			require.NoError(t, putErr)
+		}
+
+		out, err := client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+			Bucket:    aws.String("v2-delim"),
+			Delimiter: aws.String("/"),
+		})
+		require.NoError(t, err)
+		assert.Len(t, out.Contents, 1) // only readme.txt
+		assert.Equal(t, "readme.txt", *out.Contents[0].Key)
+		assert.Len(t, out.CommonPrefixes, 2)
+
+		prefixes := []string{*out.CommonPrefixes[0].Prefix, *out.CommonPrefixes[1].Prefix}
+		assert.ElementsMatch(t, []string{"docs/", "images/"}, prefixes)
+	})
+
+	t.Run("start-after skips keys up to and including the value", func(t *testing.T) {
+		t.Parallel()
+
+		client := createS3Client(t)
+		ctx := t.Context()
+
+		_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String("v2-startafter")})
+		require.NoError(t, err)
+
+		for _, key := range []string{"apple", "banana", "cherry", "date"} {
+			_, putErr := client.PutObject(ctx, &s3.PutObjectInput{
+				Bucket: aws.String("v2-startafter"),
+				Key:    aws.String(key),
+				Body:   strings.NewReader("data"),
+			})
+			require.NoError(t, putErr)
+		}
+
+		out, err := client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+			Bucket:     aws.String("v2-startafter"),
+			StartAfter: aws.String("banana"),
+		})
+		require.NoError(t, err)
+		require.Len(t, out.Contents, 2)
+		assert.Equal(t, "cherry", *out.Contents[0].Key)
+		assert.Equal(t, "date", *out.Contents[1].Key)
+	})
+
+	t.Run("empty bucket returns zero keys", func(t *testing.T) {
+		t.Parallel()
+
+		client := createS3Client(t)
+		ctx := t.Context()
+
+		_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String("v2-empty")})
+		require.NoError(t, err)
+
+		out, err := client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{Bucket: aws.String("v2-empty")})
+		require.NoError(t, err)
+		assert.Empty(t, out.Contents)
+		assert.EqualValues(t, 0, *out.KeyCount)
+		assert.False(t, *out.IsTruncated)
+	})
+
+	t.Run("non-existent bucket returns error", func(t *testing.T) {
+		t.Parallel()
+
+		client := createS3Client(t)
+		ctx := t.Context()
+
+		_, err := client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{Bucket: aws.String("no-such-bucket")})
+		require.Error(t, err)
+	})
+
+	t.Run("prefix filter with delimiter", func(t *testing.T) {
+		t.Parallel()
+
+		client := createS3Client(t)
+		ctx := t.Context()
+
+		_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String("v2-prefix-delim")})
+		require.NoError(t, err)
+
+		for _, key := range []string{"a/b/1", "a/b/2", "a/c/1", "b/1"} {
+			_, putErr := client.PutObject(ctx, &s3.PutObjectInput{
+				Bucket: aws.String("v2-prefix-delim"),
+				Key:    aws.String(key),
+				Body:   strings.NewReader("data"),
+			})
+			require.NoError(t, putErr)
+		}
+
+		out, err := client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+			Bucket:    aws.String("v2-prefix-delim"),
+			Prefix:    aws.String("a/"),
+			Delimiter: aws.String("/"),
+		})
+		require.NoError(t, err)
+		assert.Empty(t, out.Contents)
+		assert.Len(t, out.CommonPrefixes, 2)
+
+		prefixes := []string{*out.CommonPrefixes[0].Prefix, *out.CommonPrefixes[1].Prefix}
+		assert.ElementsMatch(t, []string{"a/b/", "a/c/"}, prefixes)
+	})
+}
+
 func TestS3ChecksumSHA256(t *testing.T) {
 	t.Parallel()
 

@@ -48,7 +48,9 @@ func (db *InMemoryDB) getScanKeySchema(table *Table, input *ScanInput) (KeySchem
 		}
 	}
 
-	return KeySchemaElement{}, KeySchemaElement{}, NewResourceNotFoundException(fmt.Sprintf("Index: %s not found", input.IndexName))
+	return KeySchemaElement{}, KeySchemaElement{}, NewResourceNotFoundException(
+		fmt.Sprintf("Index: %s not found", input.IndexName),
+	)
 }
 
 func (db *InMemoryDB) doScan(

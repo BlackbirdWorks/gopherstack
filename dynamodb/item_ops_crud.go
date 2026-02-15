@@ -2,6 +2,7 @@ package dynamodb
 
 import (
 	"encoding/json"
+	"maps"
 )
 
 func (db *InMemoryDB) PutItem(body []byte) (any, error) {
@@ -22,12 +23,14 @@ func (db *InMemoryDB) PutItem(body []byte) (any, error) {
 	table.mu.Lock()
 	defer table.mu.Unlock()
 
-	if err := db.validateItem(input.Item, table); err != nil {
+	err = db.validateItem(input.Item, table)
+	if err != nil {
 		return nil, err
 	}
 
 	oldItem, matchIndex := db.findMatchForPut(table, input.Item)
-	if err := db.checkPutCondition(&input, oldItem); err != nil {
+	err = db.checkPutCondition(&input, oldItem)
+	if err != nil {
 		return nil, err
 	}
 
@@ -170,7 +173,8 @@ func (db *InMemoryDB) DeleteItem(body []byte) (any, error) {
 
 	// Check condition
 	if input.ConditionExpression != "" {
-		match, err := evaluateExpression(
+		var match bool
+		match, err = evaluateExpression(
 			input.ConditionExpression,
 			oldItem,
 			input.ExpressionAttributeValues,
@@ -210,7 +214,8 @@ func (db *InMemoryDB) UpdateItem(body []byte) (any, error) {
 
 	existing, matchIndex := db.findMatchForPut(table, input.Key)
 
-	if err := db.checkUpdateCondition(&input, existing); err != nil {
+	err = db.checkUpdateCondition(&input, existing)
+	if err != nil {
 		return nil, err
 	}
 
@@ -251,14 +256,10 @@ func (db *InMemoryDB) doUpdate(
 ) (map[string]any, error) {
 	updated := make(map[string]any)
 	if existing != nil {
-		for k, v := range existing {
-			updated[k] = v
-		}
+		maps.Copy(updated, existing)
 	} else {
 		// Create new item from key
-		for k, v := range input.Key {
-			updated[k] = v
-		}
+		maps.Copy(updated, input.Key)
 	}
 
 	if input.UpdateExpression != "" {

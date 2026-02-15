@@ -144,33 +144,7 @@ func (h *Handler) handleError(w http.ResponseWriter, action string, reqErr error
 
 	h.Logger.Error("Error handling action", "action", action, "error", reqErr)
 
-	var awsErr *Error
-	if errors.As(reqErr, &awsErr) {
-		switch awsErr.Type {
-		case "com.amazonaws.dynamodb.v20120810#InternalServerError":
-			w.WriteHeader(http.StatusInternalServerError)
-		case "com.amazonaws.dynamodb.v20120810#ResourceNotFoundException":
-			w.WriteHeader(http.StatusNotFound)
-		case "com.amazonaws.dynamodb.v20120810#ConditionalCheckFailedException",
-			"com.amazonaws.dynamodb.v20120810#ValidationException",
-			"com.amazonaws.dynamodb.v20120810#ResourceInUseException",
-			"com.amazonaws.dynamodb.v20120810#LimitExceededException",
-			"com.amazonaws.dynamodb.v20120810#ItemCollectionSizeLimitExceededException",
-			"com.amazonaws.dynamodb.v20120810#TransactionCanceledException":
-			w.WriteHeader(http.StatusBadRequest)
-		default:
-			w.WriteHeader(http.StatusBadRequest)
-		}
-	} else if strings.Contains(reqErr.Error(), "json:") || strings.Contains(reqErr.Error(), "unmarshal") {
-		w.WriteHeader(http.StatusBadRequest)
-		awsErr = NewValidationException(fmt.Sprintf("The parameter cannot be converted to a JSON: %s", reqErr.Error()))
-	} else {
-		w.WriteHeader(http.StatusInternalServerError)
-		awsErr = &Error{
-			Type:    "com.amazonaws.dynamodb.v20120810#InternalServerError",
-			Message: reqErr.Error(),
-		}
-	}
+	awsErr := h.classifyError(w, reqErr)
 
 	jsonBytes, err := json.Marshal(awsErr)
 	if err != nil {
@@ -181,5 +155,34 @@ func (h *Handler) handleError(w http.ResponseWriter, action string, reqErr error
 
 	if _, wErr := w.Write(jsonBytes); wErr != nil {
 		h.Logger.Error("Failed to write error response", "error", wErr)
+	}
+}
+
+func (h *Handler) classifyError(w http.ResponseWriter, reqErr error) *Error {
+	var awsErr *Error
+	if errors.As(reqErr, &awsErr) {
+		switch awsErr.Type {
+		case "com.amazonaws.dynamodb.v20120810#InternalServerError":
+			w.WriteHeader(http.StatusInternalServerError)
+		case "com.amazonaws.dynamodb.v20120810#ResourceNotFoundException":
+			w.WriteHeader(http.StatusNotFound)
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+		}
+
+		return awsErr
+	}
+
+	if strings.Contains(reqErr.Error(), "json:") || strings.Contains(reqErr.Error(), "unmarshal") {
+		w.WriteHeader(http.StatusBadRequest)
+
+		return NewValidationException(fmt.Sprintf("The parameter cannot be converted to a JSON: %s", reqErr.Error()))
+	}
+
+	w.WriteHeader(http.StatusInternalServerError)
+
+	return &Error{
+		Type:    "com.amazonaws.dynamodb.v20120810#InternalServerError",
+		Message: reqErr.Error(),
 	}
 }

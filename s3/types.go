@@ -20,12 +20,12 @@ const (
 
 // Bucket represents an S3 bucket.
 type Bucket struct {
-	Name          string
 	CreationDate  time.Time
-	Versioning    VersioningStatus
-	mu            sync.RWMutex
 	Objects       map[string]*Object
 	ActiveUploads map[string]*MultipartUpload
+	Name          string
+	Versioning    VersioningStatus
+	mu            sync.RWMutex
 }
 
 // Object represents an S3 object with its version history.
@@ -56,18 +56,18 @@ type ObjectVersion struct {
 
 // MultipartUpload represents an ongoing multipart upload session.
 type MultipartUpload struct {
+	Initiated time.Time
+	Parts     map[int]Part
 	UploadID  string
 	Bucket    string
 	Key       string
-	Initiated time.Time
-	Parts     map[int]Part
 }
 
 // Part represents a single part of a multipart upload.
 type Part struct {
-	PartNumber int
 	ETag       string
 	Data       []byte
+	PartNumber int
 	Size       int64
 }
 
