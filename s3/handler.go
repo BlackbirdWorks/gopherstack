@@ -3,6 +3,7 @@ package s3
 import (
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -142,6 +143,8 @@ func (h *Handler) routeObjectPut(w http.ResponseWriter, r *http.Request, bucket,
 		h.putObjectTagging(w, r, bucket, key)
 	case r.URL.Query().Has("acl"):
 		w.WriteHeader(http.StatusOK) // ACLs ignored
+	case r.Header.Get("X-Amz-Copy-Source") != "":
+		h.copyObject(w, r, bucket, key)
 	default:
 		h.putObject(w, r, bucket, key)
 	}
@@ -252,6 +255,14 @@ func (h *Handler) headBucket(w http.ResponseWriter, bucketName string) {
 
 func (h *Handler) listObjects(w http.ResponseWriter, r *http.Request, bucketName string) {
 	prefix := r.URL.Query().Get("prefix")
+	marker := r.URL.Query().Get("marker")
+
+	maxKeys := defaultMaxKeys
+	if mk := r.URL.Query().Get("max-keys"); mk != "" {
+		if n, err := strconv.Atoi(mk); err == nil && n >= 0 {
+			maxKeys = n
+		}
+	}
 
 	objects, err := h.Backend.ListObjects(bucketName, prefix)
 	if errors.Is(err, ErrNoSuchBucket) {
@@ -266,12 +277,34 @@ func (h *Handler) listObjects(w http.ResponseWriter, r *http.Request, bucketName
 		return
 	}
 
+	// Apply marker: skip all keys <= marker (backend already sorts by key)
+	if marker != "" {
+		start := len(objects)
+		for i, obj := range objects {
+			if obj.Key > marker {
+				start = i
+
+				break
+			}
+		}
+		objects = objects[start:]
+	}
+
+	isTruncated := false
+	var nextMarker string
+	if maxKeys > 0 && len(objects) > maxKeys {
+		isTruncated = true
+		objects = objects[:maxKeys]
+		nextMarker = objects[maxKeys-1].Key
+	}
+
 	resp := ListBucketResult{
 		Name:        bucketName,
 		Prefix:      prefix,
-		KeyCount:    len(objects),
-		MaxKeys:     defaultMaxKeys,
-		IsTruncated: false,
+		Marker:      marker,
+		NextMarker:  nextMarker,
+		MaxKeys:     maxKeys,
+		IsTruncated: isTruncated,
 	}
 
 	for _, obj := range objects {
@@ -289,6 +322,8 @@ func (h *Handler) listObjects(w http.ResponseWriter, r *http.Request, bucketName
 			ChecksumAlgorithm: ver.ChecksumAlgorithm,
 		})
 	}
+
+	resp.KeyCount = len(resp.Contents)
 
 	h.writeXML(w, resp)
 }
@@ -350,6 +385,70 @@ func (h *Handler) putObject(w http.ResponseWriter, r *http.Request, bucketName, 
 	w.WriteHeader(http.StatusOK)
 }
 
+func (h *Handler) copyObject(w http.ResponseWriter, r *http.Request, destBucket, destKey string) {
+	src := strings.TrimPrefix(r.Header.Get("X-Amz-Copy-Source"), "/")
+
+	parts := strings.SplitN(src, "/", pathSplitParts)
+	if len(parts) != pathSplitParts {
+		h.writeError(w, r, ErrInvalidArgument, http.StatusBadRequest)
+
+		return
+	}
+
+	srcBucket, srcKey := parts[0], parts[1]
+	srcVersionID := r.Header.Get("X-Amz-Copy-Source-Version-Id")
+
+	srcVer, err := h.Backend.GetObject(srcBucket, srcKey, srcVersionID)
+	if errors.Is(err, ErrNoSuchBucket) || errors.Is(err, ErrNoSuchKey) {
+		h.writeError(w, r, err, http.StatusNotFound)
+
+		return
+	}
+
+	if err != nil {
+		h.writeError(w, r, err, http.StatusInternalServerError)
+
+		return
+	}
+
+	meta := ObjectMetadata{
+		ContentType:       srcVer.ContentType,
+		UserMetadata:      srcVer.UserMetadata,
+		ChecksumAlgorithm: srcVer.ChecksumAlgorithm,
+		ChecksumValue:     srcVer.ChecksumValue,
+	}
+
+	// REPLACE directive: use headers from the new request instead of copying source metadata.
+	if r.Header.Get("X-Amz-Metadata-Directive") == "REPLACE" {
+		meta.ContentType = r.Header.Get("Content-Type")
+		meta.UserMetadata = parseUserMetadata(r.Header)
+		meta.ChecksumAlgorithm = ""
+		meta.ChecksumValue = ""
+	}
+
+	destVer, err := h.Backend.PutObject(destBucket, destKey, srcVer.Data, meta)
+	if errors.Is(err, ErrNoSuchBucket) {
+		h.writeError(w, r, err, http.StatusNotFound)
+
+		return
+	}
+
+	if err != nil {
+		h.writeError(w, r, err, http.StatusInternalServerError)
+
+		return
+	}
+
+	if destVer.VersionID != NullVersion {
+		w.Header().Set("X-Amz-Version-Id", destVer.VersionID)
+	}
+
+	h.writeXML(w, CopyObjectResult{
+		ETag:         destVer.ETag,
+		LastModified: destVer.LastModified.Format(time.RFC3339),
+	})
+}
+
 func (h *Handler) getObject(w http.ResponseWriter, r *http.Request, bucketName, key string) {
 	versionID := r.URL.Query().Get("versionId")
 
@@ -366,16 +465,15 @@ func (h *Handler) getObject(w http.ResponseWriter, r *http.Request, bucketName, 
 		return
 	}
 
-	w.Header().Set("ETag", ver.ETag)
-	w.Header().Set("Content-Length", strconv.Itoa(len(ver.Data)))
-	w.Header().Set("Last-Modified", ver.LastModified.Format(http.TimeFormat))
-
 	contentType := ver.ContentType
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
 
+	w.Header().Set("ETag", ver.ETag)
+	w.Header().Set("Last-Modified", ver.LastModified.Format(http.TimeFormat))
 	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Accept-Ranges", "bytes")
 
 	for k, v := range ver.UserMetadata {
 		w.Header().Set("X-Amz-Meta-"+k, v)
@@ -383,15 +481,100 @@ func (h *Handler) getObject(w http.ResponseWriter, r *http.Request, bucketName, 
 
 	if ver.ChecksumAlgorithm != "" {
 		w.Header().Set("X-Amz-Checksum-Algorithm", ver.ChecksumAlgorithm)
-		headerName := "X-Amz-Checksum-" + strings.ToUpper(ver.ChecksumAlgorithm)
-		w.Header().Set(headerName, ver.ChecksumValue)
+		w.Header().Set("X-Amz-Checksum-"+strings.ToUpper(ver.ChecksumAlgorithm), ver.ChecksumValue)
 	}
 
 	if ver.VersionID != NullVersion {
 		w.Header().Set("X-Amz-Version-Id", ver.VersionID)
 	}
 
+	if rangeHeader := r.Header.Get("Range"); rangeHeader != "" {
+		h.serveRange(w, ver, rangeHeader)
+
+		return
+	}
+
+	w.Header().Set("Content-Length", strconv.Itoa(len(ver.Data)))
 	_, _ = w.Write(ver.Data)
+}
+
+func (h *Handler) serveRange(w http.ResponseWriter, ver *ObjectVersion, rangeHeader string) {
+	total := int64(len(ver.Data))
+
+	start, end, ok := parseRange(rangeHeader, total)
+	if !ok {
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", total))
+		w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
+
+		return
+	}
+
+	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, total))
+	w.Header().Set("Content-Length", strconv.FormatInt(end-start+1, 10))
+	w.WriteHeader(http.StatusPartialContent)
+	_, _ = w.Write(ver.Data[start : end+1])
+}
+
+const rangeSpecMaxParts = 2
+
+// parseRange parses a "bytes=X-Y" Range header and returns clamped [start, end] indices.
+func parseRange(header string, size int64) (int64, int64, bool) {
+	if !strings.HasPrefix(header, "bytes=") {
+		return 0, 0, false
+	}
+
+	spec := strings.TrimSpace(strings.SplitN(header[len("bytes="):], ",", rangeSpecMaxParts)[0])
+
+	startStr, endStr, found := strings.Cut(spec, "-")
+	if !found {
+		return 0, 0, false
+	}
+
+	var start, end int64
+
+	switch {
+	case startStr == "":
+		// bytes=-N (last N bytes)
+		n, err := strconv.ParseInt(endStr, 10, 64)
+		if err != nil || n <= 0 {
+			return 0, 0, false
+		}
+
+		start = max(size-n, 0)
+		end = size - 1
+	case endStr == "":
+		// bytes=N-
+		var err error
+
+		start, err = strconv.ParseInt(startStr, 10, 64)
+		if err != nil {
+			return 0, 0, false
+		}
+
+		end = size - 1
+	default:
+		var err error
+
+		start, err = strconv.ParseInt(startStr, 10, 64)
+		if err != nil {
+			return 0, 0, false
+		}
+
+		end, err = strconv.ParseInt(endStr, 10, 64)
+		if err != nil {
+			return 0, 0, false
+		}
+	}
+
+	if start > end || start >= size {
+		return 0, 0, false
+	}
+
+	if end >= size {
+		end = size - 1
+	}
+
+	return start, end, true
 }
 
 func (h *Handler) deleteObject(w http.ResponseWriter, r *http.Request, bucketName, key string) {
@@ -470,19 +653,10 @@ func (h *Handler) putBucketVersioning(w http.ResponseWriter, r *http.Request, bu
 		return
 	}
 
-	if backend, ok := h.Backend.(*InMemoryBackend); ok {
-		backend.mu.Lock()
+	if err := h.Backend.PutBucketVersioning(bucketName, VersioningStatus(conf.Status)); err != nil {
+		h.writeError(w, r, err, http.StatusNotFound)
 
-		b, exists := backend.buckets[bucketName]
-		if !exists {
-			backend.mu.Unlock()
-			h.writeError(w, r, ErrNoSuchBucket, http.StatusNotFound)
-
-			return
-		}
-
-		b.Versioning = VersioningStatus(conf.Status)
-		backend.mu.Unlock()
+		return
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -644,6 +818,8 @@ func mapErrorCode(err error) string {
 		return "BucketAlreadyExists"
 	case errors.Is(err, ErrBucketNotEmpty):
 		return "BucketNotEmpty"
+	case errors.Is(err, ErrInvalidArgument):
+		return "InvalidArgument"
 	default:
 		return "InternalError"
 	}

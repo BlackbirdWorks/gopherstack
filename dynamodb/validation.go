@@ -10,7 +10,31 @@ const (
 	MaxItemSize         = 400 * 1024 // 400 KB
 	MaxPartitionKeySize = 2048       // 2048 bytes
 	MaxSortKeySize      = 1024       // 1024 bytes
+
+	wcuBytes = 1024 // 1 WCU per KB
+	rcuBytes = 4096 // 1 RCU per 4 KB
 )
+
+// WriteCapacityUnits returns the WCUs consumed by a write: ceil(size / 1KB), minimum 1.
+func WriteCapacityUnits(item map[string]any) float64 {
+	size, err := CalculateItemSize(item)
+	if err != nil || size <= 0 {
+		return 1.0
+	}
+
+	return float64((size + wcuBytes - 1) / wcuBytes)
+}
+
+// ReadCapacityUnits returns the RCUs consumed by an eventually-consistent read:
+// 0.5 RCU per 4 KB (ceiling), minimum 0.5.
+func ReadCapacityUnits(item map[string]any) float64 {
+	size, err := CalculateItemSize(item)
+	if err != nil || size <= 0 {
+		return ConsumedReadUnit
+	}
+
+	return float64((size+rcuBytes-1)/rcuBytes) * ConsumedReadUnit
+}
 
 // CalculateItemSize approximates the DynamoDB item size.
 // Size = sum of (len(attribute_name) + len(attribute_value))

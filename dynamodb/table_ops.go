@@ -184,6 +184,59 @@ func (db *InMemoryDB) DescribeTable(body []byte) (any, error) {
 	}, nil
 }
 
+func (db *InMemoryDB) UpdateTimeToLive(body []byte) (any, error) {
+	var input UpdateTimeToLiveInput
+	if err := json.Unmarshal(body, &input); err != nil {
+		return nil, err
+	}
+
+	table, err := db.getTable(input.TableName)
+	if err != nil {
+		return nil, err
+	}
+
+	table.mu.Lock()
+	defer table.mu.Unlock()
+
+	if input.TimeToLiveSpecification.Enabled {
+		table.TTLAttribute = input.TimeToLiveSpecification.AttributeName
+	} else {
+		table.TTLAttribute = ""
+	}
+
+	return UpdateTimeToLiveOutput{
+		TimeToLiveSpecification: input.TimeToLiveSpecification,
+	}, nil
+}
+
+func (db *InMemoryDB) DescribeTimeToLive(body []byte) (any, error) {
+	var input DescribeTimeToLiveInput
+	if err := json.Unmarshal(body, &input); err != nil {
+		return nil, err
+	}
+
+	table, err := db.getTable(input.TableName)
+	if err != nil {
+		return nil, err
+	}
+
+	table.mu.RLock()
+	defer table.mu.RUnlock()
+
+	if table.TTLAttribute == "" {
+		return DescribeTimeToLiveOutput{
+			TimeToLiveDescription: TimeToLiveDescription{TimeToLiveStatus: "DISABLED"},
+		}, nil
+	}
+
+	return DescribeTimeToLiveOutput{
+		TimeToLiveDescription: TimeToLiveDescription{
+			AttributeName:    table.TTLAttribute,
+			TimeToLiveStatus: "ENABLED",
+		},
+	}, nil
+}
+
 func (db *InMemoryDB) ListTables(body []byte) (any, error) {
 	var input ListTablesInput
 	if len(body) > 0 {

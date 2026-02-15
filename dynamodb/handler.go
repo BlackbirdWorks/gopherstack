@@ -33,18 +33,22 @@ func NewHandler() *Handler {
 
 func (h *Handler) initDispatchMap() {
 	h.dispatchMap = map[string]func([]byte) (any, error){
-		"CreateTable":    h.DB.CreateTable,
-		"DeleteTable":    h.DB.DeleteTable,
-		"DescribeTable":  h.DB.DescribeTable,
-		"ListTables":     h.DB.ListTables,
-		"PutItem":        h.DB.PutItem,
-		"GetItem":        h.DB.GetItem,
-		"DeleteItem":     h.DB.DeleteItem,
-		"Scan":           h.DB.Scan,
-		"UpdateItem":     h.DB.UpdateItem,
-		"Query":          h.DB.Query,
-		"BatchGetItem":   h.DB.BatchGetItem,
-		"BatchWriteItem": h.DB.BatchWriteItem,
+		"CreateTable":        h.DB.CreateTable,
+		"DeleteTable":        h.DB.DeleteTable,
+		"DescribeTable":      h.DB.DescribeTable,
+		"ListTables":         h.DB.ListTables,
+		"PutItem":            h.DB.PutItem,
+		"GetItem":            h.DB.GetItem,
+		"DeleteItem":         h.DB.DeleteItem,
+		"Scan":               h.DB.Scan,
+		"UpdateItem":         h.DB.UpdateItem,
+		"Query":              h.DB.Query,
+		"BatchGetItem":       h.DB.BatchGetItem,
+		"BatchWriteItem":     h.DB.BatchWriteItem,
+		"UpdateTimeToLive":   h.DB.UpdateTimeToLive,
+		"DescribeTimeToLive": h.DB.DescribeTimeToLive,
+		"TransactWriteItems": h.DB.TransactWriteItems,
+		"TransactGetItems":   h.DB.TransactGetItems,
 	}
 }
 

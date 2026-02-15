@@ -18,6 +18,9 @@ type StorageBackend interface {
 	ListObjects(bucket, prefix string) ([]*Object, error)
 	ListObjectVersions(bucket, prefix string) ([]ObjectVersion, error)
 
+	// Versioning
+	PutBucketVersioning(bucket string, status VersioningStatus) error
+
 	// Tagging
 	PutObjectTagging(bucket, key, versionID string, tags map[string]string) error
 	GetObjectTagging(bucket, key, versionID string) (map[string]string, error)

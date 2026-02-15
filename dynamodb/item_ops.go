@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
-	"reflect"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -17,6 +17,36 @@ const (
 	estimatedMatchRateGSI     = 10
 	expectedPKParts           = 2
 )
+
+// isItemExpired returns true when the table has a TTL attribute configured and
+// the item's TTL value is in the past. Items without the attribute are never expired.
+func isItemExpired(item map[string]any, ttlAttr string) bool {
+	if ttlAttr == "" {
+		return false
+	}
+
+	raw, ok := item[ttlAttr]
+	if !ok {
+		return false
+	}
+
+	m, ok := raw.(map[string]any)
+	if !ok {
+		return false
+	}
+
+	nStr, ok := m["N"].(string)
+	if !ok {
+		return false
+	}
+
+	epoch, err := strconv.ParseInt(nStr, 10, 64)
+	if err != nil {
+		return false
+	}
+
+	return time.Unix(epoch, 0).Before(time.Now())
+}
 
 func (db *InMemoryDB) PutItem(body []byte) (any, error) {
 	var input PutItemInput
@@ -147,11 +177,11 @@ func (db *InMemoryDB) populatePutItemOutput(input *PutItemInput, table *Table, o
 	}
 
 	if input.ReturnConsumedCapacity == "TOTAL" || input.ReturnConsumedCapacity == "INDEXES" {
+		wcu := WriteCapacityUnits(input.Item)
 		output.ConsumedCapacity = &ConsumedCapacity{
 			TableName:          input.TableName,
-			CapacityUnits:      1.0,
-			ReadCapacityUnits:  ConsumedReadUnit,
-			WriteCapacityUnits: ConsumedWriteUnit,
+			CapacityUnits:      wcu,
+			WriteCapacityUnits: wcu,
 		}
 	}
 
@@ -189,7 +219,7 @@ func (db *InMemoryDB) GetItem(body []byte) (any, error) {
 	pkDef, skDef := getPKAndSK(table.KeySchema)
 	foundItem := db.lookupItem(table, input.Key, pkDef.AttributeName, skDef.AttributeName)
 
-	if foundItem == nil {
+	if foundItem == nil || isItemExpired(foundItem, table.TTLAttribute) {
 		return GetItemOutput{}, nil
 	}
 
@@ -220,7 +250,7 @@ func (db *InMemoryDB) DeleteItem(body []byte) (any, error) {
 	table.mu.Lock()
 	defer table.mu.Unlock()
 
-	oldItem, matchIndex := findExistingItem(table.Items, input.Key, table.KeySchema)
+	oldItem, matchIndex := db.findMatchForPut(table, input.Key)
 
 	if input.ConditionExpression != "" {
 		match, err := evaluateExpression(
@@ -239,11 +269,7 @@ func (db *InMemoryDB) DeleteItem(body []byte) (any, error) {
 	}
 
 	if matchIndex != -1 {
-		// Remove from items slice
-		table.Items = append(table.Items[:matchIndex], table.Items[matchIndex+1:]...)
-
-		// Rebuild indexes since indices have shifted
-		table.rebuildIndexes()
+		db.deleteItemAtIndex(table, matchIndex)
 	}
 
 	return DeleteItemOutput{}, nil
@@ -269,7 +295,7 @@ func (db *InMemoryDB) Scan(body []byte) (any, error) {
 		return nil, err
 	}
 
-	results := db.doScan(items, &input, pkDef, skDef)
+	results := db.doScan(items, &input, pkDef, skDef, table.TTLAttribute)
 
 	return ScanOutput{
 		Items:        results,
@@ -292,11 +318,20 @@ func (db *InMemoryDB) getScanKeySchema(table *Table, input *ScanInput) (KeySchem
 	return pk, sk, nil
 }
 
-func (db *InMemoryDB) doScan(items []map[string]any, input *ScanInput, pkDef, skDef KeySchemaElement) []map[string]any {
+func (db *InMemoryDB) doScan(
+	items []map[string]any,
+	input *ScanInput,
+	pkDef, skDef KeySchemaElement,
+	ttlAttr string,
+) []map[string]any {
 	estimatedResults := max(len(items)/estimatedMatchRateDivisor, minScanAllocationSize)
 	results := make([]map[string]any, 0, estimatedResults)
 
 	for _, item := range items {
+		if isItemExpired(item, ttlAttr) {
+			continue
+		}
+
 		if !db.shouldIncludeInScan(item, input, pkDef, skDef) {
 			continue
 		}
@@ -359,7 +394,7 @@ func (db *InMemoryDB) UpdateItem(body []byte) (any, error) {
 	table.mu.Lock()
 	defer table.mu.Unlock()
 
-	existingItem, matchIndex := findExistingItem(table.Items, input.Key, table.KeySchema)
+	existingItem, matchIndex := db.findMatchForPut(table, input.Key)
 
 	if errVal := db.checkUpdateCondition(&input, existingItem); errVal != nil {
 		return nil, errVal
@@ -457,11 +492,16 @@ func (db *InMemoryDB) populateUpdateOutput(
 	}
 
 	if input.ReturnConsumedCapacity == "TOTAL" || input.ReturnConsumedCapacity == "INDEXES" {
+		item := newItem
+		if item == nil {
+			item = oldItem
+		}
+
+		wcu := WriteCapacityUnits(item)
 		output.ConsumedCapacity = &ConsumedCapacity{
 			TableName:          input.TableName,
-			CapacityUnits:      1.0,
-			ReadCapacityUnits:  ConsumedReadUnit,
-			WriteCapacityUnits: ConsumedWriteUnit,
+			CapacityUnits:      wcu,
+			WriteCapacityUnits: wcu,
 		}
 	}
 
@@ -511,7 +551,7 @@ func (db *InMemoryDB) Query(body []byte) (any, error) {
 		db.sortCandidates(candidates, skDef, table, input.ScanIndexForward)
 	}
 
-	return db.processQueryResults(candidates, &input, keySchema), nil
+	return db.processQueryResults(candidates, &input, keySchema, table.TTLAttribute), nil
 }
 
 func (db *InMemoryDB) extractKeySchema(table *Table, indexName string) ([]KeySchemaElement, *Projection, error) {
@@ -844,6 +884,7 @@ func (db *InMemoryDB) processQueryResults(
 	candidates []map[string]any,
 	input *QueryInput,
 	keySchema []KeySchemaElement,
+	ttlAttr string,
 ) QueryOutput {
 	startIndex := findExclusiveStartIndex(candidates, input.ExclusiveStartKey, keySchema)
 
@@ -865,7 +906,7 @@ func (db *InMemoryDB) processQueryResults(
 		}
 
 		item := candidates[i]
-		if !db.shouldIncludeInQuery(item, input) {
+		if isItemExpired(item, ttlAttr) || !db.shouldIncludeInQuery(item, input) {
 			continue
 		}
 
@@ -900,24 +941,48 @@ func (db *InMemoryDB) shouldIncludeInQuery(item map[string]any, input *QueryInpu
 	return err == nil && match
 }
 
-func findExistingItem(items []map[string]any, key map[string]any, schema []KeySchemaElement) (map[string]any, int) {
-	for i, existingItem := range items { // Renamed 'item' to 'existingItem' to avoid shadowing
-		match := true
+// deleteItemAtIndex removes the item at matchIndex from the table and performs an
+// incremental index update — O(k) where k is the number of indexed keys — rather
+// than a full O(n) rebuildIndexes call.
+func (db *InMemoryDB) deleteItemAtIndex(table *Table, matchIndex int) {
+	item := table.Items[matchIndex]
+	pkDef, skDef := getPKAndSK(table.KeySchema)
+	pkVal := BuildKeyString(item, pkDef.AttributeName)
 
-		for _, k := range schema {
-			if !compareAttributeValues(existingItem[k.AttributeName], key[k.AttributeName]) {
-				match = false
+	if skDef.AttributeName != "" {
+		deleteFromPKSKIndex(table, pkVal, BuildKeyString(item, skDef.AttributeName), matchIndex)
+	} else {
+		deleteFromPKIndex(table, pkVal, matchIndex)
+	}
 
-				break
-			}
-		}
+	table.Items = append(table.Items[:matchIndex], table.Items[matchIndex+1:]...)
+}
 
-		if match {
-			return existingItem, i
+func deleteFromPKSKIndex(table *Table, pkVal, skVal string, matchIndex int) {
+	if skMap, ok := table.pkskIndex[pkVal]; ok {
+		delete(skMap, skVal)
+		if len(skMap) == 0 {
+			delete(table.pkskIndex, pkVal)
 		}
 	}
 
-	return nil, -1
+	for _, skMap := range table.pkskIndex {
+		for sk, idx := range skMap {
+			if idx > matchIndex {
+				skMap[sk] = idx - 1
+			}
+		}
+	}
+}
+
+func deleteFromPKIndex(table *Table, pkVal string, matchIndex int) {
+	delete(table.pkIndex, pkVal)
+
+	for pk, idx := range table.pkIndex {
+		if idx > matchIndex {
+			table.pkIndex[pk] = idx - 1
+		}
+	}
 }
 
 func (db *InMemoryDB) BatchGetItem(body []byte) (any, error) {
@@ -945,9 +1010,10 @@ func (db *InMemoryDB) BatchGetItem(body []byte) (any, error) {
 			return nil, NewResourceNotFoundException(fmt.Sprintf("Table not found: %s", tableName))
 		}
 
+		pkDef, skDef := getPKAndSK(table.KeySchema)
 		tableResults := []map[string]any{}
 		for _, keyMap := range keysAndAttrs.Keys {
-			item, _ := findExistingItem(table.Items, keyMap, table.KeySchema)
+			item := db.lookupItem(table, keyMap, pkDef.AttributeName, skDef.AttributeName)
 			if item != nil {
 				result := item
 				if keysAndAttrs.ProjectionExpression != "" {
@@ -997,10 +1063,16 @@ func (db *InMemoryDB) BatchWriteItem(body []byte) (any, error) {
 	}
 	db.mu.RUnlock()
 
-	// Process each table with its own lock
-	for tableName, requests := range input.RequestItems {
-		table := tables[tableName]
-		if err := db.processTableWriteRequests(table, requests); err != nil {
+	// Process tables in sorted order to prevent deadlock when concurrent
+	// BatchWriteItem calls lock overlapping table sets in different orders.
+	tableNames := make([]string, 0, len(tables))
+	for name := range tables {
+		tableNames = append(tableNames, name)
+	}
+	sort.Strings(tableNames)
+
+	for _, tableName := range tableNames {
+		if err := db.processTableWriteRequests(tables[tableName], input.RequestItems[tableName]); err != nil {
 			return nil, err
 		}
 	}
@@ -1027,7 +1099,7 @@ func (db *InMemoryDB) processTableWriteRequests(table *Table, requests []WriteRe
 }
 
 func (db *InMemoryDB) handleBatchPut(table *Table, req *PutRequest) {
-	_, matchIndex := findExistingItem(table.Items, req.Item, table.KeySchema)
+	_, matchIndex := db.findMatchForPut(table, req.Item)
 	if matchIndex != -1 {
 		table.Items[matchIndex] = req.Item
 	} else {
@@ -1036,9 +1108,9 @@ func (db *InMemoryDB) handleBatchPut(table *Table, req *PutRequest) {
 }
 
 func (db *InMemoryDB) handleBatchDelete(table *Table, req *DeleteRequest) {
-	_, matchIndex := findExistingItem(table.Items, req.Key, table.KeySchema)
+	_, matchIndex := db.findMatchForPut(table, req.Key)
 	if matchIndex != -1 {
-		table.Items = append(table.Items[:matchIndex], table.Items[matchIndex+1:]...)
+		db.deleteItemAtIndex(table, matchIndex)
 	}
 }
 
@@ -1053,8 +1125,35 @@ func extractKey(item map[string]any, schema []KeySchemaElement) map[string]any {
 	return key
 }
 
+// compareAttributeValues compares two DynamoDB attribute values without reflection.
+// Values are always map[string]any with a single type key (e.g. {"S": "foo"}).
 func compareAttributeValues(v1, v2 any) bool {
-	return reflect.DeepEqual(v1, v2)
+	m1, ok1 := v1.(map[string]any)
+	m2, ok2 := v2.(map[string]any)
+
+	if !ok1 || !ok2 {
+		// Fallback for bare Go primitives (shouldn't occur in normal operation).
+		return fmt.Sprintf("%v", v1) == fmt.Sprintf("%v", v2)
+	}
+
+	for typeKey, val1 := range m1 {
+		val2, exists := m2[typeKey]
+		if !exists {
+			return false
+		}
+
+		s1, isStr1 := val1.(string)
+		s2, isStr2 := val2.(string)
+
+		if isStr1 && isStr2 {
+			return s1 == s2
+		}
+
+		// Nested map (e.g. M, L types) — fall back to string representation.
+		return fmt.Sprintf("%v", val1) == fmt.Sprintf("%v", val2)
+	}
+
+	return len(m2) == 0
 }
 
 func applyGSIProjection(
