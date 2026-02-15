@@ -270,11 +270,12 @@ func (b *InMemoryBackend) GetObject(ctx context.Context, bucketName, key, versio
 		return nil, ErrNoSuchKey
 	}
 
-	if versionID == "" {
-		return b.getLatestVersion(obj)
+	v, err := b.findVersion(obj, versionID)
+	if err != nil {
+		return nil, err
 	}
 
-	return b.getSpecificVersion(obj, versionID)
+	return b.decompressVersion(v)
 }
 
 // HeadObject retrieves an object version's metadata without decompressing the data.
@@ -352,23 +353,29 @@ func (b *InMemoryBackend) getLatestVersion(obj *Object) (*ObjectVersion, error) 
 		return b.decompressVersion(v)
 	}
 
-	return nil, ErrNoSuchKey
+	return &v, nil
 }
 
-func (b *InMemoryBackend) getSpecificVersion(obj *Object, versionID string) (*ObjectVersion, error) {
+func (b *InMemoryBackend) findVersion(obj *Object, versionID string) (ObjectVersion, error) {
 	for _, v := range obj.Versions {
-		if v.VersionID != versionID {
-			continue
+		if versionID == "" {
+			if !v.IsLatest {
+				continue
+			}
+		} else {
+			if v.VersionID != versionID {
+				continue
+			}
 		}
 
 		if v.Deleted {
-			return nil, ErrNoSuchKey
+			return ObjectVersion{}, ErrNoSuchKey
 		}
 
-		return b.decompressVersion(v)
+		return v, nil
 	}
 
-	return nil, ErrNoSuchKey
+	return ObjectVersion{}, ErrNoSuchKey
 }
 
 func (b *InMemoryBackend) decompressVersion(v ObjectVersion) (*ObjectVersion, error) {

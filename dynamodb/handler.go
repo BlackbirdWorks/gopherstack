@@ -98,7 +98,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	w.Header().Set("Content-Type", "application/x-amz-json-1.0")
-	w.Header().Set("Connection", "close")
 
 	response, reqErr := h.dispatch(action, body)
 
@@ -108,9 +107,17 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	jsonResponse, _ := json.Marshal(response)
+	jsonResponse, err := json.Marshal(response)
+	if err != nil {
+		h.Logger.Error("Failed to marshal response", "error", err)
+		http.Error(w, "Failed to marshal response", http.StatusInternalServerError)
+
+		return
+	}
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(jsonResponse)
+	if _, wErr := w.Write(jsonResponse); wErr != nil {
+		h.Logger.Error("Failed to write response", "error", wErr)
+	}
 }
 
 func (h *Handler) dispatch(action string, body []byte) (any, error) {
@@ -125,9 +132,12 @@ func (h *Handler) handleError(w http.ResponseWriter, action string, reqErr error
 	if strings.HasPrefix(reqErr.Error(), "UnknownOperationException:") {
 		h.Logger.Warn("Unknown action", "action", action)
 		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write(
+
+		if _, err := w.Write(
 			[]byte(`{"__type":"com.amazon.coral.service#UnknownOperationException","message":"Action not supported"}`),
-		)
+		); err != nil {
+			h.Logger.Error("Failed to write unknown operation response", "error", err)
+		}
 
 		return
 	}
@@ -161,10 +171,18 @@ func (h *Handler) handleError(w http.ResponseWriter, action string, reqErr error
 		_, _ = w.Write(jsonBytes)
 	} else {
 		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = fmt.Fprintf(
-			w,
-			`{"__type":"com.amazonaws.dynamodb.v20120810#InternalServerError","message":"%v"}`,
-			reqErr,
-		)
+	} else {
+		w.WriteHeader(http.StatusBadRequest)
+	}
+
+	jsonBytes, err := json.Marshal(awsErr)
+	if err != nil {
+		h.Logger.Error("Failed to marshal AWS error", "error", err)
+
+		return
+	}
+
+	if _, wErr := w.Write(jsonBytes); wErr != nil {
+		h.Logger.Error("Failed to write error response", "error", wErr)
 	}
 }
