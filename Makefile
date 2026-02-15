@@ -42,6 +42,12 @@ lint-fix: install-deps
 test:
 	go test -v -race -shuffle on ./...
 
+test-with-coverage:
+	go test -v -race -shuffle on -coverpkg=./... -coverprofile=coverage.out -covermode=atomic ./...
+	go tool cover -func=coverage.out
+	go tool cover -html=coverage.out -o coverage.html
+
+
 integration-test:
 	@echo "Running DynamoDB integration tests (no cache)..."
 	go test -v -race -shuffle on -tags=integration ./test/integration/...

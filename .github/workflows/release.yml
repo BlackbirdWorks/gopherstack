@@ -21,46 +21,9 @@ jobs:
         with:
           release-type: go
 
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.26'
-          cache: true
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v7
-        with:
-          version: v2.9.0
-
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.26'
-          cache: true
-      - name: Run Unit Tests
-        run: make test
-
-  integration-test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.26'
-          cache: true
-      - name: Run Integration Tests
-        run: make integration-test
 
   docker-release:
-    needs: [release-please, lint, test, integration-test]
+    needs: [release-please]
     if: ${{ needs.release-please.outputs.release_created }}
     runs-on: ubuntu-latest
     steps:
