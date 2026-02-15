@@ -15,6 +15,7 @@ type Table struct {
 	pkIndex                map[string]int
 	pkskIndex              map[string]map[string]int
 	Name                   string
+	TTLAttribute           string // empty when TTL is disabled
 	KeySchema              []KeySchemaElement
 	AttributeDefinitions   []AttributeDefinition
 	GlobalSecondaryIndexes []GlobalSecondaryIndex

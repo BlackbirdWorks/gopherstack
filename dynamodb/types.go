@@ -255,3 +255,79 @@ type ScanOutput struct {
 	Count        int              `json:"Count"`
 	ScannedCount int              `json:"ScannedCount"`
 }
+
+// --- TTL ---
+
+type UpdateTimeToLiveInput struct {
+	TableName               string                  `json:"TableName"`
+	TimeToLiveSpecification TimeToLiveSpecification `json:"TimeToLiveSpecification"`
+}
+
+type UpdateTimeToLiveOutput struct {
+	TimeToLiveSpecification TimeToLiveSpecification `json:"TimeToLiveSpecification"`
+}
+
+type TimeToLiveSpecification struct {
+	AttributeName string `json:"AttributeName"`
+	Enabled       bool   `json:"Enabled"`
+}
+
+type DescribeTimeToLiveInput struct {
+	TableName string `json:"TableName"`
+}
+
+type DescribeTimeToLiveOutput struct {
+	TimeToLiveDescription TimeToLiveDescription `json:"TimeToLiveDescription"`
+}
+
+type TimeToLiveDescription struct {
+	AttributeName    string `json:"AttributeName,omitempty"`
+	TimeToLiveStatus string `json:"TimeToLiveStatus"` // "ENABLED" or "DISABLED"
+}
+
+// --- Transact ---
+
+type TransactWriteItemsInput struct {
+	ReturnConsumedCapacity      string              `json:"ReturnConsumedCapacity,omitempty"`
+	ReturnItemCollectionMetrics string              `json:"ReturnItemCollectionMetrics,omitempty"`
+	ClientRequestToken          string              `json:"ClientRequestToken,omitempty"`
+	TransactItems               []TransactWriteItem `json:"TransactItems"`
+}
+
+type TransactWriteItem struct {
+	Put            *PutItemInput        `json:"Put,omitempty"`
+	Delete         *DeleteItemInput     `json:"Delete,omitempty"`
+	Update         *UpdateItemInput     `json:"Update,omitempty"`
+	ConditionCheck *ConditionCheckInput `json:"ConditionCheck,omitempty"`
+}
+
+type ConditionCheckInput struct {
+	Key                       map[string]any    `json:"Key"`
+	ExpressionAttributeNames  map[string]string `json:"ExpressionAttributeNames,omitempty"`
+	ExpressionAttributeValues map[string]any    `json:"ExpressionAttributeValues,omitempty"`
+	TableName                 string            `json:"TableName"`
+	ConditionExpression       string            `json:"ConditionExpression"`
+}
+
+type TransactWriteItemsOutput struct {
+	ItemCollectionMetrics map[string][]ItemCollectionMetrics `json:"ItemCollectionMetrics,omitempty"`
+	ConsumedCapacity      []ConsumedCapacity                 `json:"ConsumedCapacity,omitempty"`
+}
+
+type TransactGetItemsInput struct {
+	ReturnConsumedCapacity string            `json:"ReturnConsumedCapacity,omitempty"`
+	TransactItems          []TransactGetItem `json:"TransactItems"`
+}
+
+type TransactGetItem struct {
+	Get *GetItemInput `json:"Get"`
+}
+
+type TransactGetItemsOutput struct {
+	ConsumedCapacity []ConsumedCapacity `json:"ConsumedCapacity,omitempty"`
+	Responses        []ItemResponse     `json:"Responses"`
+}
+
+type ItemResponse struct {
+	Item map[string]any `json:"Item,omitempty"`
+}

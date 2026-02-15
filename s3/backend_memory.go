@@ -78,6 +78,21 @@ func (b *InMemoryBackend) DeleteBucket(name string) error {
 	return nil
 }
 
+// PutBucketVersioning sets the versioning status for a bucket.
+func (b *InMemoryBackend) PutBucketVersioning(bucket string, status VersioningStatus) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	bkt, exists := b.buckets[bucket]
+	if !exists {
+		return ErrNoSuchBucket
+	}
+
+	bkt.Versioning = status
+
+	return nil
+}
+
 // HeadBucket returns a bucket by name.
 func (b *InMemoryBackend) HeadBucket(name string) (*Bucket, error) {
 	b.mu.RLock()
@@ -114,22 +129,10 @@ func (b *InMemoryBackend) PutObject(
 	data []byte,
 	meta ObjectMetadata,
 ) (*ObjectVersion, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	bucket, exists := b.buckets[bucketName]
-	if !exists {
-		return nil, ErrNoSuchBucket
-	}
-
+	// Perform expensive CPU work before acquiring the lock.
 	compressedData, err := b.compressor.Compress(data)
 	if err != nil {
 		return nil, err
-	}
-
-	versionID := NullVersion
-	if bucket.Versioning == VersioningEnabled {
-		versionID = uuid.New().String()
 	}
 
 	//nolint:gosec // MD5 is required for S3 ETag
@@ -139,6 +142,19 @@ func (b *InMemoryBackend) PutObject(
 	checksumValue := meta.ChecksumValue
 	if meta.ChecksumAlgorithm != "" && checksumValue == "" {
 		checksumValue = CalculateChecksum(data, meta.ChecksumAlgorithm)
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	bucket, exists := b.buckets[bucketName]
+	if !exists {
+		return nil, ErrNoSuchBucket
+	}
+
+	versionID := NullVersion
+	if bucket.Versioning == VersioningEnabled {
+		versionID = uuid.New().String()
 	}
 
 	newVersion := ObjectVersion{
@@ -187,16 +203,14 @@ func (b *InMemoryBackend) getOrCreateObject(bucketName, key string) *Object {
 
 func (b *InMemoryBackend) appendVersioned(obj *Object, ver ObjectVersion) {
 	for i := range obj.Versions {
-		if obj.Versions[i].IsLatest {
-			obj.Versions[i].IsLatest = false
-		}
+		obj.Versions[i].IsLatest = false
 	}
 
-	obj.Versions = append([]ObjectVersion{ver}, obj.Versions...)
+	obj.Versions = append(obj.Versions, ver)
 }
 
 func (b *InMemoryBackend) replaceNullVersion(obj *Object, ver ObjectVersion) {
-	newVersions := []ObjectVersion{ver}
+	newVersions := make([]ObjectVersion, 0, len(obj.Versions))
 
 	for _, v := range obj.Versions {
 		if v.VersionID != NullVersion {
@@ -204,6 +218,7 @@ func (b *InMemoryBackend) replaceNullVersion(obj *Object, ver ObjectVersion) {
 		}
 	}
 
+	newVersions = append(newVersions, ver)
 	obj.Versions = newVersions
 }
 
@@ -270,7 +285,10 @@ func (b *InMemoryBackend) findLatestVersion(obj *Object) (*ObjectVersion, error)
 			return nil, ErrNoSuchKey
 		}
 
-		return &v, nil
+		cp := v
+		cp.Data = copyBytes(v.Data)
+
+		return &cp, nil
 	}
 
 	return nil, ErrNoSuchKey
@@ -286,10 +304,24 @@ func (b *InMemoryBackend) findSpecificVersion(obj *Object, versionID string) (*O
 			return nil, ErrNoSuchKey
 		}
 
-		return &v, nil
+		cp := v
+		cp.Data = copyBytes(v.Data)
+
+		return &cp, nil
 	}
 
 	return nil, ErrNoSuchKey
+}
+
+func copyBytes(b []byte) []byte {
+	if b == nil {
+		return nil
+	}
+
+	out := make([]byte, len(b))
+	copy(out, b)
+
+	return out
 }
 
 func (b *InMemoryBackend) getLatestVersion(obj *Object) (*ObjectVersion, error) {

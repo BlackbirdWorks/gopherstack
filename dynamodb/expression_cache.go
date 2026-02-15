@@ -29,8 +29,8 @@ func NewExpressionCache(capacity int) *ExpressionCache {
 
 // Get retrieves a value from the cache.
 func (c *ExpressionCache) Get(key string) (any, bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	if elem, okElem := c.cache[key]; okElem {
 		c.lru.MoveToFront(elem)

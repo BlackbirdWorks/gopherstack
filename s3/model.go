@@ -22,10 +22,18 @@ type ListBucketResult struct {
 	XMLName     xml.Name    `xml:"ListBucketResult"`
 	Name        string      `xml:"Name"`
 	Prefix      string      `xml:"Prefix"`
+	Marker      string      `xml:"Marker,omitempty"`
+	NextMarker  string      `xml:"NextMarker,omitempty"`
 	Contents    []ObjectXML `xml:"Contents"`
 	KeyCount    int         `xml:"KeyCount"`
 	MaxKeys     int         `xml:"MaxKeys"`
 	IsTruncated bool        `xml:"IsTruncated"`
+}
+
+type CopyObjectResult struct {
+	XMLName      xml.Name `xml:"CopyObjectResult"`
+	ETag         string   `xml:"ETag"`
+	LastModified string   `xml:"LastModified"`
 }
 
 type ObjectXML struct {

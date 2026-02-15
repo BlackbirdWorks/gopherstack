@@ -10,4 +10,5 @@ var (
 	ErrBucketNotEmpty      = errors.New("BucketNotEmpty: The bucket you tried to delete is not empty")
 	ErrNotImplemented      = errors.New("NotImplemented")
 	ErrMethodNotAllowed    = errors.New("MethodNotAllowed")
+	ErrInvalidArgument     = errors.New("InvalidArgument")
 )

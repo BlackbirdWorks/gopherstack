@@ -69,6 +69,13 @@ func NewResourceInUseException(msg string) *Error {
 	}
 }
 
+func NewTransactionCanceledException(msg string) *Error {
+	return &Error{
+		Type:    "com.amazonaws.dynamodb.v20120810#TransactionCanceledException",
+		Message: msg,
+	}
+}
+
 func (e *Error) Error() string {
 	return fmt.Sprintf("%s: %s", e.Type, e.Message)
 }
