@@ -11,4 +11,6 @@ var (
 	ErrNotImplemented      = errors.New("NotImplemented")
 	ErrMethodNotAllowed    = errors.New("MethodNotAllowed")
 	ErrInvalidArgument     = errors.New("InvalidArgument")
+	ErrNoSuchUpload        = errors.New("NoSuchUpload")
+	ErrInvalidPart         = errors.New("InvalidPart")
 )

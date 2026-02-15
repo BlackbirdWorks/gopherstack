@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -23,12 +24,14 @@ const (
 // Handler implements [http.Handler] for S3-compatible API requests.
 type Handler struct {
 	Backend StorageBackend
+	Logger  *slog.Logger
 }
 
 // NewHandler creates a new S3 Handler with the given backend.
 func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{
 		Backend: backend,
+		Logger:  slog.New(slog.NewJSONHandler(io.Discard, nil)),
 	}
 }
 
@@ -48,6 +51,10 @@ func (h *Handler) GetSupportedOperations() []string {
 		"PutObjectTagging",
 		"GetObjectTagging",
 		"DeleteObjectTagging",
+		"InitiateMultipartUpload",
+		"UploadPart",
+		"CompleteMultipartUpload",
+		"AbortMultipartUpload",
 	}
 }
 
@@ -90,7 +97,7 @@ func (h *Handler) handleBucketOperation(w http.ResponseWriter, r *http.Request, 
 	case http.MethodGet:
 		h.routeBucketGet(w, r, bucket)
 	case http.MethodHead:
-		h.headBucket(w, bucket)
+		h.headBucket(w, r, bucket)
 	default:
 		h.writeError(w, r, ErrMethodNotAllowed, http.StatusMethodNotAllowed)
 	}
@@ -114,7 +121,10 @@ func (h *Handler) routeBucketGet(w http.ResponseWriter, r *http.Request, bucket 
 	case r.URL.Query().Has("versions"):
 		h.listObjectVersions(w, r, bucket)
 	case r.URL.Query().Has("location"):
-		_, _ = w.Write([]byte(xml.Header + locationConstraintXML))
+		w.Header().Set("Content-Type", "application/xml")
+		if _, err := w.Write([]byte(xml.Header + locationConstraintXML)); err != nil {
+			h.Logger.Error("failed to write XML response", "error", err)
+		}
 	case r.URL.Query().Has("tagging"):
 		h.writeError(w, r, ErrNotImplemented, http.StatusNotImplemented)
 	default:
@@ -130,6 +140,8 @@ func (h *Handler) handleObjectOperation(w http.ResponseWriter, r *http.Request, 
 		h.routeObjectGet(w, r, bucket, key)
 	case http.MethodDelete:
 		h.routeObjectDelete(w, r, bucket, key)
+	case http.MethodPost:
+		h.routeObjectPost(w, r, bucket, key)
 	case http.MethodHead:
 		h.headObject(w, r, bucket, key)
 	default:
@@ -143,6 +155,8 @@ func (h *Handler) routeObjectPut(w http.ResponseWriter, r *http.Request, bucket,
 		h.putObjectTagging(w, r, bucket, key)
 	case r.URL.Query().Has("acl"):
 		w.WriteHeader(http.StatusOK) // ACLs ignored
+	case r.URL.Query().Has("partNumber") && r.URL.Query().Has("uploadId"):
+		h.uploadPart(w, r, bucket, key)
 	case r.Header.Get("X-Amz-Copy-Source") != "":
 		h.copyObject(w, r, bucket, key)
 	default:
@@ -165,13 +179,26 @@ func (h *Handler) routeObjectDelete(w http.ResponseWriter, r *http.Request, buck
 	switch {
 	case r.URL.Query().Has("tagging"):
 		h.deleteObjectTagging(w, r, bucket, key)
+	case r.URL.Query().Has("uploadId"):
+		h.abortMultipartUpload(w, r, bucket, key)
 	default:
 		h.deleteObject(w, r, bucket, key)
 	}
 }
 
+func (h *Handler) routeObjectPost(w http.ResponseWriter, r *http.Request, bucket, key string) {
+	switch {
+	case r.URL.Query().Has("uploads"):
+		h.initiateMultipartUpload(w, r, bucket, key)
+	case r.URL.Query().Has("uploadId"):
+		h.completeMultipartUpload(w, r, bucket, key)
+	default:
+		h.writeError(w, r, ErrMethodNotAllowed, http.StatusMethodNotAllowed)
+	}
+}
+
 func (h *Handler) listBuckets(w http.ResponseWriter, r *http.Request) {
-	buckets, err := h.Backend.ListBuckets()
+	buckets, err := h.Backend.ListBuckets(r.Context())
 	if err != nil {
 		h.writeError(w, r, err, http.StatusInternalServerError)
 
@@ -196,7 +223,7 @@ func (h *Handler) listBuckets(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) createBucket(w http.ResponseWriter, r *http.Request, bucketName string) {
-	err := h.Backend.CreateBucket(bucketName)
+	err := h.Backend.CreateBucket(r.Context(), bucketName)
 	if errors.Is(err, ErrBucketAlreadyExists) {
 		h.writeError(w, r, err, http.StatusConflict)
 
@@ -214,7 +241,7 @@ func (h *Handler) createBucket(w http.ResponseWriter, r *http.Request, bucketNam
 }
 
 func (h *Handler) deleteBucket(w http.ResponseWriter, r *http.Request, bucketName string) {
-	err := h.Backend.DeleteBucket(bucketName)
+	err := h.Backend.DeleteBucket(r.Context(), bucketName)
 	if errors.Is(err, ErrNoSuchBucket) {
 		h.writeError(w, r, err, http.StatusNotFound)
 
@@ -236,8 +263,8 @@ func (h *Handler) deleteBucket(w http.ResponseWriter, r *http.Request, bucketNam
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *Handler) headBucket(w http.ResponseWriter, bucketName string) {
-	_, err := h.Backend.HeadBucket(bucketName)
+func (h *Handler) headBucket(w http.ResponseWriter, r *http.Request, bucketName string) {
+	_, err := h.Backend.HeadBucket(r.Context(), bucketName)
 	if errors.Is(err, ErrNoSuchBucket) {
 		w.WriteHeader(http.StatusNotFound)
 
@@ -264,7 +291,7 @@ func (h *Handler) listObjects(w http.ResponseWriter, r *http.Request, bucketName
 		}
 	}
 
-	objects, err := h.Backend.ListObjects(bucketName, prefix)
+	objects, err := h.Backend.ListObjects(r.Context(), bucketName, prefix)
 	if errors.Is(err, ErrNoSuchBucket) {
 		h.writeError(w, r, err, http.StatusNotFound)
 
@@ -308,7 +335,7 @@ func (h *Handler) listObjects(w http.ResponseWriter, r *http.Request, bucketName
 	}
 
 	for _, obj := range objects {
-		ver, getErr := h.Backend.GetObject(bucketName, obj.Key, "")
+		ver, getErr := h.Backend.GetObject(r.Context(), bucketName, obj.Key, "")
 		if getErr != nil {
 			continue
 		}
@@ -357,7 +384,7 @@ func (h *Handler) putObject(w http.ResponseWriter, r *http.Request, bucketName, 
 		ChecksumValue:     checksum,
 	}
 
-	ver, err := h.Backend.PutObject(bucketName, key, data, meta)
+	ver, err := h.Backend.PutObject(r.Context(), bucketName, key, data, meta)
 	if errors.Is(err, ErrNoSuchBucket) {
 		h.writeError(w, r, err, http.StatusNotFound)
 
@@ -398,7 +425,7 @@ func (h *Handler) copyObject(w http.ResponseWriter, r *http.Request, destBucket,
 	srcBucket, srcKey := parts[0], parts[1]
 	srcVersionID := r.Header.Get("X-Amz-Copy-Source-Version-Id")
 
-	srcVer, err := h.Backend.GetObject(srcBucket, srcKey, srcVersionID)
+	srcVer, err := h.Backend.GetObject(r.Context(), srcBucket, srcKey, srcVersionID)
 	if errors.Is(err, ErrNoSuchBucket) || errors.Is(err, ErrNoSuchKey) {
 		h.writeError(w, r, err, http.StatusNotFound)
 
@@ -426,7 +453,7 @@ func (h *Handler) copyObject(w http.ResponseWriter, r *http.Request, destBucket,
 		meta.ChecksumValue = ""
 	}
 
-	destVer, err := h.Backend.PutObject(destBucket, destKey, srcVer.Data, meta)
+	destVer, err := h.Backend.PutObject(r.Context(), destBucket, destKey, srcVer.Data, meta)
 	if errors.Is(err, ErrNoSuchBucket) {
 		h.writeError(w, r, err, http.StatusNotFound)
 
@@ -452,7 +479,7 @@ func (h *Handler) copyObject(w http.ResponseWriter, r *http.Request, destBucket,
 func (h *Handler) getObject(w http.ResponseWriter, r *http.Request, bucketName, key string) {
 	versionID := r.URL.Query().Get("versionId")
 
-	ver, err := h.Backend.GetObject(bucketName, key, versionID)
+	ver, err := h.Backend.GetObject(r.Context(), bucketName, key, versionID)
 	if errors.Is(err, ErrNoSuchBucket) || errors.Is(err, ErrNoSuchKey) {
 		h.writeError(w, r, err, http.StatusNotFound)
 
@@ -495,7 +522,9 @@ func (h *Handler) getObject(w http.ResponseWriter, r *http.Request, bucketName, 
 	}
 
 	w.Header().Set("Content-Length", strconv.Itoa(len(ver.Data)))
-	_, _ = w.Write(ver.Data)
+	if _, wErr := w.Write(ver.Data); wErr != nil {
+		h.Logger.Error("failed to write object data", "error", wErr)
+	}
 }
 
 func (h *Handler) serveRange(w http.ResponseWriter, ver *ObjectVersion, rangeHeader string) {
@@ -512,7 +541,9 @@ func (h *Handler) serveRange(w http.ResponseWriter, ver *ObjectVersion, rangeHea
 	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, total))
 	w.Header().Set("Content-Length", strconv.FormatInt(end-start+1, 10))
 	w.WriteHeader(http.StatusPartialContent)
-	_, _ = w.Write(ver.Data[start : end+1])
+	if _, err := w.Write(ver.Data[start : end+1]); err != nil {
+		h.Logger.Error("failed to write partial object data", "error", err)
+	}
 }
 
 const rangeSpecMaxParts = 2
@@ -577,10 +608,41 @@ func parseRange(header string, size int64) (int64, int64, bool) {
 	return start, end, true
 }
 
+func parseTaggingHeader(header string) map[string]string {
+	if header == "" {
+		return nil
+	}
+
+	tags := make(map[string]string)
+	for _, pair := range strings.Split(header, "&") {
+		parts := strings.SplitN(pair, "=", tagKeyValueParts)
+		if len(parts) == tagKeyValueParts {
+			tags[parts[0]] = parts[1]
+		}
+	}
+
+	return tags
+}
+
+func parseUserMetadata(header http.Header) map[string]string {
+	meta := make(map[string]string)
+	for k, v := range header {
+		lowerK := strings.ToLower(k)
+		if strings.HasPrefix(lowerK, "x-amz-meta-") {
+			key := strings.TrimPrefix(lowerK, "x-amz-meta-")
+			if len(v) > 0 {
+				meta[key] = v[0]
+			}
+		}
+	}
+
+	return meta
+}
+
 func (h *Handler) deleteObject(w http.ResponseWriter, r *http.Request, bucketName, key string) {
 	versionID := r.URL.Query().Get("versionId")
 
-	delMarker, err := h.Backend.DeleteObject(bucketName, key, versionID)
+	delMarker, err := h.Backend.DeleteObject(r.Context(), bucketName, key, versionID)
 	if errors.Is(err, ErrNoSuchBucket) {
 		h.writeError(w, r, err, http.StatusNotFound)
 
@@ -610,7 +672,7 @@ func (h *Handler) deleteObject(w http.ResponseWriter, r *http.Request, bucketNam
 func (h *Handler) headObject(w http.ResponseWriter, r *http.Request, bucketName, key string) {
 	versionID := r.URL.Query().Get("versionId")
 
-	ver, err := h.Backend.HeadObject(bucketName, key, versionID)
+	ver, err := h.Backend.HeadObject(r.Context(), bucketName, key, versionID)
 	if err != nil {
 		w.WriteHeader(http.StatusNotFound)
 
@@ -653,7 +715,7 @@ func (h *Handler) putBucketVersioning(w http.ResponseWriter, r *http.Request, bu
 		return
 	}
 
-	if err := h.Backend.PutBucketVersioning(bucketName, VersioningStatus(conf.Status)); err != nil {
+	if err := h.Backend.PutBucketVersioning(r.Context(), bucketName, VersioningStatus(conf.Status)); err != nil {
 		h.writeError(w, r, err, http.StatusNotFound)
 
 		return
@@ -663,24 +725,20 @@ func (h *Handler) putBucketVersioning(w http.ResponseWriter, r *http.Request, bu
 }
 
 func (h *Handler) getBucketVersioning(w http.ResponseWriter, r *http.Request, bucketName string) {
-	b, err := h.Backend.HeadBucket(bucketName)
+	conf, err := h.Backend.GetBucketVersioning(r.Context(), bucketName)
 	if err != nil {
 		h.writeError(w, r, err, http.StatusNotFound)
 
 		return
 	}
 
-	resp := VersioningConfiguration{
-		Status: string(b.Versioning),
-	}
-
-	h.writeXML(w, resp)
+	h.writeXML(w, conf)
 }
 
 func (h *Handler) listObjectVersions(w http.ResponseWriter, r *http.Request, bucketName string) {
 	prefix := r.URL.Query().Get("prefix")
 
-	versions, err := h.Backend.ListObjectVersions(bucketName, prefix)
+	versions, err := h.Backend.ListObjectVersions(r.Context(), bucketName, prefix)
 	if errors.Is(err, ErrNoSuchBucket) {
 		h.writeError(w, r, err, http.StatusNotFound)
 
@@ -748,7 +806,7 @@ func (h *Handler) putObjectTagging(w http.ResponseWriter, r *http.Request, bucke
 	}
 
 	versionID := r.URL.Query().Get("versionId")
-	if err := h.Backend.PutObjectTagging(bucketName, key, versionID, tags); err != nil {
+	if err := h.Backend.PutObjectTagging(r.Context(), bucketName, key, versionID, tags); err != nil {
 		h.writeError(w, r, err, http.StatusInternalServerError)
 
 		return
@@ -760,7 +818,7 @@ func (h *Handler) putObjectTagging(w http.ResponseWriter, r *http.Request, bucke
 func (h *Handler) getObjectTagging(w http.ResponseWriter, r *http.Request, bucketName, key string) {
 	versionID := r.URL.Query().Get("versionId")
 
-	tags, err := h.Backend.GetObjectTagging(bucketName, key, versionID)
+	tags, err := h.Backend.GetObjectTagging(r.Context(), bucketName, key, versionID)
 	if err != nil {
 		h.writeError(w, r, err, http.StatusNotFound)
 
@@ -780,7 +838,7 @@ func (h *Handler) getObjectTagging(w http.ResponseWriter, r *http.Request, bucke
 
 func (h *Handler) deleteObjectTagging(w http.ResponseWriter, r *http.Request, bucketName, key string) {
 	versionID := r.URL.Query().Get("versionId")
-	if err := h.Backend.DeleteObjectTagging(bucketName, key, versionID); err != nil {
+	if err := h.Backend.DeleteObjectTagging(r.Context(), bucketName, key, versionID); err != nil {
 		h.writeError(w, r, err, http.StatusInternalServerError)
 
 		return
@@ -789,68 +847,133 @@ func (h *Handler) deleteObjectTagging(w http.ResponseWriter, r *http.Request, bu
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// Multipart Upload Handlers
+
+func (h *Handler) initiateMultipartUpload(w http.ResponseWriter, r *http.Request, bucketName, key string) {
+	uploadID, err := h.Backend.InitiateMultipartUpload(r.Context(), bucketName, key)
+	if err != nil {
+		h.writeError(w, r, err, http.StatusInternalServerError)
+		return
+	}
+
+	resp := InitiateMultipartUploadResult{
+		Bucket:   bucketName,
+		Key:      key,
+		UploadID: uploadID,
+	}
+
+	h.writeXML(w, resp)
+}
+
+func (h *Handler) uploadPart(w http.ResponseWriter, r *http.Request, bucketName, key string) {
+	uploadID := r.URL.Query().Get("uploadId")
+	partNumberStr := r.URL.Query().Get("partNumber")
+	partNumber, err := strconv.Atoi(partNumberStr)
+	if err != nil {
+		h.writeError(w, r, ErrInvalidArgument, http.StatusBadRequest)
+		return
+	}
+
+	data, err := io.ReadAll(r.Body)
+	if err != nil {
+		h.writeError(w, r, err, http.StatusInternalServerError)
+		return
+	}
+
+	etag, err := h.Backend.UploadPart(r.Context(), bucketName, key, uploadID, partNumber, data)
+	if err != nil {
+		h.writeError(w, r, err, http.StatusInternalServerError) // Or NoSuchKey/Upload
+		return
+	}
+
+	w.Header().Set("ETag", etag)
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *Handler) completeMultipartUpload(w http.ResponseWriter, r *http.Request, bucketName, key string) {
+	uploadID := r.URL.Query().Get("uploadId")
+
+	// Parse XML body for parts list
+	var partsReq CompleteMultipartUpload
+	if err := xml.NewDecoder(r.Body).Decode(&partsReq); err != nil {
+		h.writeError(w, r, err, http.StatusBadRequest)
+		return
+	}
+
+	ver, err := h.Backend.CompleteMultipartUpload(r.Context(), bucketName, key, uploadID, partsReq.Parts)
+	if err != nil {
+		h.writeError(w, r, err, http.StatusInternalServerError)
+		return
+	}
+
+	resp := CompleteMultipartUploadResult{
+		Location: "/" + bucketName + "/" + key,
+		Bucket:   bucketName,
+		Key:      key,
+		ETag:     ver.ETag,
+	}
+
+	h.writeXML(w, resp)
+}
+
+func (h *Handler) abortMultipartUpload(w http.ResponseWriter, r *http.Request, bucketName, key string) {
+	uploadID := r.URL.Query().Get("uploadId")
+
+	if err := h.Backend.AbortMultipartUpload(r.Context(), bucketName, key, uploadID); err != nil {
+		h.writeError(w, r, err, http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *Handler) writeXML(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/xml")
-	_, _ = w.Write([]byte(xml.Header))
-	_ = xml.NewEncoder(w).Encode(v)
+	if _, err := w.Write([]byte(xml.Header)); err != nil {
+		h.Logger.Error("failed to write XML header", "error", err)
+		return
+	}
+	if err := xml.NewEncoder(w).Encode(v); err != nil {
+		h.Logger.Error("failed to encode XML response", "error", err)
+	}
 }
 
 func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, err error, code int) {
-	w.WriteHeader(code)
-
-	errResp := ErrorResponse{
-		Code:      mapErrorCode(err),
+	resp := ErrorResponse{
+		Code:      "InternalError",
 		Message:   err.Error(),
 		Resource:  r.URL.Path,
-		RequestID: "req-id",
+		RequestID: "req-" + time.Now().Format("20060102150405"),
 	}
 
-	h.writeXML(w, errResp)
-}
-
-func mapErrorCode(err error) string {
-	switch {
-	case errors.Is(err, ErrNoSuchBucket):
-		return "NoSuchBucket"
-	case errors.Is(err, ErrNoSuchKey):
-		return "NoSuchKey"
-	case errors.Is(err, ErrBucketAlreadyExists):
-		return "BucketAlreadyExists"
-	case errors.Is(err, ErrBucketNotEmpty):
-		return "BucketNotEmpty"
-	case errors.Is(err, ErrInvalidArgument):
-		return "InvalidArgument"
-	default:
-		return "InternalError"
-	}
-}
-
-func parseTaggingHeader(header string) map[string]string {
-	tags := make(map[string]string)
-
-	if header == "" {
-		return tags
-	}
-
-	for p := range strings.SplitSeq(header, "&") {
-		kv := strings.SplitN(p, "=", tagKeyValueParts)
-		if len(kv) == tagKeyValueParts {
-			tags[kv[0]] = kv[1]
-		}
+	// Basic mapping of errors to S3 codes
+	if errors.Is(err, ErrNoSuchBucket) {
+		resp.Code = "NoSuchBucket"
+		resp.Message = "The specified bucket does not exist"
+		w.WriteHeader(http.StatusNotFound)
+	} else if errors.Is(err, ErrNoSuchKey) {
+		resp.Code = "NoSuchKey"
+		resp.Message = "The specified key does not exist"
+		w.WriteHeader(http.StatusNotFound)
+	} else if errors.Is(err, ErrNoSuchUpload) {
+		resp.Code = "NoSuchUpload"
+		resp.Message = "The specified upload does not exist. The upload ID may be invalid, or the upload may have been aborted or completed."
+		w.WriteHeader(http.StatusNotFound)
+	} else if errors.Is(err, ErrInvalidPart) {
+		resp.Code = "InvalidPart"
+		resp.Message = "One or more of the specified parts could not be found. The part may not have been uploaded, or the specified entity tag may not match the part's entity tag."
+		w.WriteHeader(http.StatusBadRequest)
+	} else if errors.Is(err, ErrBucketAlreadyExists) {
+		resp.Code = "BucketAlreadyExists"
+		resp.Message = "The requested bucket name is not available. The bucket namespace is shared by all users of the system. Please select a different name and try again."
+		w.WriteHeader(http.StatusConflict)
+	} else if errors.Is(err, ErrBucketNotEmpty) {
+		resp.Code = "BucketNotEmpty"
+		resp.Message = "The bucket you tried to delete is not empty"
+		w.WriteHeader(http.StatusConflict)
+	} else {
+		w.WriteHeader(code)
 	}
 
-	return tags
-}
-
-func parseUserMetadata(header http.Header) map[string]string {
-	meta := make(map[string]string)
-
-	for k, v := range header {
-		if strings.HasPrefix(strings.ToLower(k), "x-amz-meta-") {
-			key := strings.ToLower(k[len("x-amz-meta-"):])
-			meta[key] = v[0]
-		}
-	}
-
-	return meta
+	h.writeXML(w, resp)
 }

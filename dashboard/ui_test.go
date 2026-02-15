@@ -219,6 +219,6 @@ func TestDashboardCreate_Bucket_Integration(t *testing.T) {
 	}
 
 	// Verify bucket exists in backend
-	_, err = s3Backend.HeadBucket("test-bucket-integ")
+	_, err = s3Backend.HeadBucket(context.Background(), "test-bucket-integ")
 	require.NoError(t, err)
 }

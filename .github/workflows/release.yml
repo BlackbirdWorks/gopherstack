@@ -10,21 +10,29 @@ permissions:
   pull-requests: write
 
 jobs:
-  release-please:
+  tag-release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-      tag_name: ${{ steps.release.outputs.tag_name }}
+      new_tag: ${{ steps.tag_version.outputs.new_tag }}
+      part: ${{ steps.tag_version.outputs.part }}
     steps:
-      - uses: googleapis/release-please-action@v4
-        id: release
+      - uses: actions/checkout@v4
         with:
-          release-type: go
+          fetch-depth: 0 // Required for tag action to see history
 
+      - name: Bump version and push tag
+        id: tag_version
+        uses: anothrNick/github-tag-action@1.67.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WITH_V: true
+          DEFAULT_BUMP: patch
 
   docker-release:
-    needs: [release-please]
-    if: ${{ needs.release-please.outputs.release_created }}
+    needs: [tag-release]
+    if: ${{ needs.tag-release.outputs.new_tag }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -42,7 +50,7 @@ jobs:
         with:
           images: ${{ secrets.DOCKERHUB_USERNAME }}/gopherstack
           tags: |
-            type=semver,pattern={{version}},value=${{ needs.release-please.outputs.tag_name }},enable=${{ needs.release-please.outputs.release_created == 'true' }}
+            type=semver,pattern={{version}},value=${{ needs.tag-release.outputs.new_tag }}
             type=raw,value=latest
             type=sha
 
