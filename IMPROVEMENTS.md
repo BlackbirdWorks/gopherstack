@@ -16,7 +16,7 @@
 
 - [x] **Full index rebuild on every delete** — `DeleteItem` removes from the slice and calls `rebuildIndexes()` which is O(n). Should do incremental index update instead (`dynamodb/item_ops.go:243-246`)
 
-- [ ] **S3 single global mutex** — One `sync.RWMutex` for the entire backend. Operations on different buckets contend needlessly. Should use per-bucket locking (`s3/backend_memory.go:24`)
+- [x] **S3 single global mutex** — One `sync.RWMutex` for the entire backend. Operations on different buckets contend needlessly. Should use per-bucket locking (`s3/backend_memory.go:24`)
 
 - [x] **Lock held during compression** — `PutObject` holds the global lock while calling `compressor.Compress()`, blocking all reads during I/O (`s3/backend_memory.go:117-125`)
 
@@ -30,7 +30,7 @@
 
 ## Realism Gaps
 
-- [ ] **No multipart uploads** — Can't handle large files. Missing `InitiateMultipartUpload`, `UploadPart`, `CompleteMultipartUpload`
+- [x] **No multipart uploads** — Can't handle large files. Missing `InitiateMultipartUpload`, `UploadPart`, `CompleteMultipartUpload`
 
 - [x] **No Range requests** — No partial object downloads (`Range` header / `206 Partial Content`)
 
@@ -42,9 +42,9 @@
 
 - [x] **`ReturnConsumedCapacity` returns hardcoded values** — Always returns 1.0 regardless of item size (`dynamodb/item_ops.go:150-155`)
 
-- [ ] ** Realistic S3 error codes** — Return actual S3 error codes instead of generic `InternalServerError`
+- [x] ** Realistic S3 error codes** — Return actual S3 error codes instead of generic `InternalServerError`
 
-- [ ] **Realistic DynamoDB error codes** — Return actual DynamoDB error codes instead of generic `InternalServerError`
+- [x] **Realistic DynamoDB error codes** — Return actual DynamoDB error codes instead of generic `InternalServerError`
 
 ---
 
@@ -54,9 +54,9 @@
 
 - [x] **4 nearly-identical version-finding functions** — `getLatestVersion`, `findLatestVersion`, `getSpecificVersion`, `findSpecificVersion` — DRY violation (`s3/backend_memory.go:263-325`)
 
-- [ ] **Type unwrapping duplicated 5+ times** — `unwrapAttributeValue`, `parseStr`, `toString`, `dbExtractValueFromToken` all do the same `map[string]any` extraction (`dynamodb/expressions.go`)
+- [x] **Type unwrapping duplicated 5+ times** — `unwrapAttributeValue`, `parseStr`, `toString`, `dbExtractValueFromToken` all do the same `map[string]any` extraction (`dynamodb/expressions.go`)
 
-- [ ] **`item_ops.go` is 1249 lines** — Should split by operation type (put, query, scan, batch)
+- [x] **`item_ops.go` is 1249 lines** — Should split by operation type (put, query, scan, batch)
 
 - [ ] **String-based expression parsing** — Brittle `strings.Split()` approach. No tokenizer or AST. Breaks on nested functions (`dynamodb/expressions.go:268-308`)
 
@@ -64,4 +64,4 @@
 
 - [ ] **`CalculateItemSize` marshals entire item to JSON** — Just to get `len(b)`. Should calculate incrementally (`dynamodb/validation.go:19-39`)
 
-- [ ] **Missing `context.Context` in S3 backend** — No way to timeout or cancel long operations
+- [x] **Missing `context.Context` in S3 backend** — No way to timeout or cancel long operations

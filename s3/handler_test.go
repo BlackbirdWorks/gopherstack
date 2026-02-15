@@ -774,6 +774,71 @@ func TestHandler_ChecksumSupport(t *testing.T) {
 	)
 }
 
+func TestHandler_InvalidInput(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		wantStatus int
+	}{
+		{
+			name:       "invalid bucket name (too short)",
+			method:     http.MethodPut,
+			path:       "/ab",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "invalid bucket name (uppercase)",
+			method:     http.MethodPut,
+			path:       "/InvalidBucket",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "invalid bucket name (underscore)",
+			method:     http.MethodPut,
+			path:       "/my_bucket",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "invalid bucket name (starts with hyphen)",
+			method:     http.MethodPut,
+			path:       "/-bucket",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "invalid bucket name (IP address)",
+			method:     http.MethodPut,
+			path:       "/192.168.1.1",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "invalid object key (too long)",
+			method:     http.MethodPut,
+			path:       "/valid-bucket/" + strings.Repeat("a", 1025),
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, backend := newTestHandler(t)
+			if strings.Contains(tt.path, "/valid-bucket/") {
+				require.NoError(t, backend.CreateBucket(context.Background(), "valid-bucket"))
+			}
+
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			assert.Equal(t, tt.wantStatus, rec.Code, "case: %s", tt.name)
+		})
+	}
+}
+
 func TestHandler_MultipartUpload(t *testing.T) {
 	t.Parallel()
 

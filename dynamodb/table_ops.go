@@ -11,6 +11,10 @@ func (db *InMemoryDB) CreateTable(body []byte) (any, error) {
 		return nil, err
 	}
 
+	if input.TableName == "" {
+		return nil, NewValidationException("Table name is required")
+	}
+
 	db.mu.Lock()
 	defer db.mu.Unlock()
 
@@ -78,6 +82,10 @@ func (db *InMemoryDB) DeleteTable(body []byte) (any, error) {
 	var input DeleteTableInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, err
+	}
+
+	if input.TableName == "" {
+		return nil, NewValidationException("Table name is required")
 	}
 
 	db.mu.Lock()
@@ -188,6 +196,10 @@ func (db *InMemoryDB) UpdateTimeToLive(body []byte) (any, error) {
 	var input UpdateTimeToLiveInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, err
+	}
+
+	if input.TableName == "" {
+		return nil, NewValidationException("Table name is required")
 	}
 
 	table, err := db.getTable(input.TableName)

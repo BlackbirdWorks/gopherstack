@@ -151,28 +151,25 @@ func (h *Handler) handleError(w http.ResponseWriter, action string, reqErr error
 			w.WriteHeader(http.StatusInternalServerError)
 		case "com.amazonaws.dynamodb.v20120810#ResourceNotFoundException":
 			w.WriteHeader(http.StatusNotFound)
-		case "com.amazonaws.dynamodb.v20120810#ConditionalCheckFailedException":
+		case "com.amazonaws.dynamodb.v20120810#ConditionalCheckFailedException",
+			"com.amazonaws.dynamodb.v20120810#ValidationException",
+			"com.amazonaws.dynamodb.v20120810#ResourceInUseException",
+			"com.amazonaws.dynamodb.v20120810#LimitExceededException",
+			"com.amazonaws.dynamodb.v20120810#ItemCollectionSizeLimitExceededException",
+			"com.amazonaws.dynamodb.v20120810#TransactionCanceledException":
 			w.WriteHeader(http.StatusBadRequest)
-		case "com.amazonaws.dynamodb.v20120810#ValidationException":
-			w.WriteHeader(http.StatusBadRequest)
-		case "com.amazonaws.dynamodb.v20120810#AccessDeniedException":
-			w.WriteHeader(http.StatusForbidden)
-		case "com.amazonaws.dynamodb.v20120810#IncompleteSignatureException":
-			w.WriteHeader(http.StatusForbidden)
-		case "com.amazonaws.dynamodb.v20120810#MissingAuthenticationTokenException":
-			w.WriteHeader(http.StatusForbidden)
-		case "com.amazonaws.dynamodb.v20120810#ThrottlingException":
-			w.WriteHeader(http.StatusTooManyRequests)
 		default:
 			w.WriteHeader(http.StatusBadRequest)
 		}
-
-		jsonBytes, _ := json.Marshal(awsErr)
-		_, _ = w.Write(jsonBytes)
+	} else if strings.Contains(reqErr.Error(), "json:") || strings.Contains(reqErr.Error(), "unmarshal") {
+		w.WriteHeader(http.StatusBadRequest)
+		awsErr = NewValidationException(fmt.Sprintf("The parameter cannot be converted to a JSON: %s", reqErr.Error()))
 	} else {
 		w.WriteHeader(http.StatusInternalServerError)
-	} else {
-		w.WriteHeader(http.StatusBadRequest)
+		awsErr = &Error{
+			Type:    "com.amazonaws.dynamodb.v20120810#InternalServerError",
+			Message: reqErr.Error(),
+		}
 	}
 
 	jsonBytes, err := json.Marshal(awsErr)

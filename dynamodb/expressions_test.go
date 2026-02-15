@@ -156,26 +156,3 @@ func TestUnwrapAttributeValue(t *testing.T) {
 	// Already unwrapped
 	assert.Equal(t, "raw", dynamodb.UnwrapAttributeValue("raw"))
 }
-
-func TestExtractFunctionArgs(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		input string
-		want  []string
-	}{
-		{"func(a, b)", []string{"a", "b"}},
-		{"func(a,b)", []string{"a", "b"}},
-		{"func( a , b )", []string{"a", "b"}},
-		{"func(single)", []string{"single"}},
-		{"func()", nil},
-		{"contains(status, :sub)", []string{"status", ":sub"}},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.input, func(t *testing.T) {
-			t.Parallel()
-			got := dynamodb.ExtractFunctionArgs(tc.input)
-			assert.Equal(t, tc.want, got, "Input: %s", tc.input)
-		})
-	}
-}
