@@ -1,0 +1,576 @@
+2026/02/15 15:49:08 github.com/testcontainers/testcontainers-go - Connected to docker: 
+  Server Version: 29.2.0
+  API Version: 1.51
+  Operating System: Docker Desktop
+  Total Memory: 7836 MB
+  Labels:
+    com.docker.desktop.address=unix:///Users/andrew.bishop/Library/Containers/com.docker.docker/Data/docker-cli.sock
+  Testcontainers for Go Version: v0.40.0
+  Resolved Docker Host: unix:///var/run/docker.sock
+  Resolved Docker Socket Path: /var/run/docker.sock
+  Test SessionID: 8bc18478737339d8a6ba89086e243706880c5994b4bf8734efc774a7ed60d938
+  Test ProcessID: e7e9065c-41bc-4016-8eee-a6baa084be11
+2026/02/15 15:49:08 🐳 Building image 9b461d26-4abc-4ce5-b09b-585999dd0b0b:88d53405-5e89-411d-bc19-11a17bec585a
+Step 1/16 : FROM golang:1.26-alpine AS builder
+1.26-alpine: Pulling from library/golang
+Digest: sha256:d4c4845f5d60c6a974c6000ce58ae079328d03ab7f721a0734277e69905473e5
+Status: Image is up to date for golang:1.26-alpine
+ ---> d4c4845f5d60
+Step 2/16 : WORKDIR /app
+ ---> Running in d0588bb84bd7
+ ---> Removed intermediate container d0588bb84bd7
+ ---> 68e2de071c12
+Step 3/16 : COPY go.mod ./
+ ---> 4900f365f0ad
+Step 4/16 : RUN go mod download
+ ---> Running in d95e9d113e99
+ ---> Removed intermediate container d95e9d113e99
+ ---> e62287032b3d
+Step 5/16 : COPY . .
+ ---> 826bdbeca1aa
+Step 6/16 : RUN go build     -tags 'netgo osusergo static_build'     -trimpath     -ldflags="-w -s -extldflags '-static -fno-PIC'"     -o gopherstack
+ ---> Running in d82d23b03267
+ ---> Removed intermediate container d82d23b03267
+ ---> 28712651c333
+Step 7/16 : FROM scratch
+ ---> 
+Step 8/16 : WORKDIR /root/
+ ---> Running in ae864fb019df
+ ---> Removed intermediate container ae864fb019df
+ ---> a97370092796
+Step 9/16 : COPY --from=builder /app/gopherstack .
+ ---> a80c09f1ab0a
+Step 10/16 : EXPOSE 8000
+ ---> Running in 159800a09ae4
+ ---> Removed intermediate container 159800a09ae4
+ ---> 84b10ec4e66c
+Step 11/16 : CMD ["./gopherstack"]
+ ---> Running in 5486631829e0
+ ---> Removed intermediate container 5486631829e0
+ ---> 60b6ebfcedd0
+Step 12/16 : LABEL org.testcontainers=true
+ ---> Running in bd463dc71993
+ ---> Removed intermediate container bd463dc71993
+ ---> 18222df9dddf
+Step 13/16 : LABEL org.testcontainers.lang=go
+ ---> Running in e3fe1746d1cc
+ ---> Removed intermediate container e3fe1746d1cc
+ ---> 9725f1bdf5d4
+Step 14/16 : LABEL org.testcontainers.reap=true
+ ---> Running in 1126bf436d4b
+ ---> Removed intermediate container 1126bf436d4b
+ ---> f713249b5052
+Step 15/16 : LABEL org.testcontainers.sessionId=8bc18478737339d8a6ba89086e243706880c5994b4bf8734efc774a7ed60d938
+ ---> Running in 75d7bccb5703
+ ---> Removed intermediate container 75d7bccb5703
+ ---> 1df02e778983
+Step 16/16 : LABEL org.testcontainers.version=0.40.0
+ ---> Running in 5f6b675440e9
+ ---> Removed intermediate container 5f6b675440e9
+ ---> 4d67ff431e8a
+Successfully built 4d67ff431e8a
+Successfully tagged 00aabfb9-a1ca-4d7e-bd40-591455e5cb7f:a61f89ee-9051-470d-8834-c9c10e9ff941
+2026/02/15 15:49:30 ✅ Built image 00aabfb9-a1ca-4d7e-bd40-591455e5cb7f:a61f89ee-9051-470d-8834-c9c10e9ff941
+2026/02/15 15:49:30 🐳 Creating container for image 00aabfb9-a1ca-4d7e-bd40-591455e5cb7f:a61f89ee-9051-470d-8834-c9c10e9ff941
+2026/02/15 15:49:30 🐳 Creating container for image testcontainers/ryuk:0.13.0
+2026/02/15 15:49:30 ✅ Container created: 63c2ea515854
+2026/02/15 15:49:30 🐳 Starting container: 63c2ea515854
+2026/02/15 15:49:30 ✅ Container started: 63c2ea515854
+2026/02/15 15:49:30 ⏳ Waiting for container id 63c2ea515854 image: testcontainers/ryuk:0.13.0. Waiting for: port 8080/tcp to be listening
+2026/02/15 15:49:30 Shell not found in container
+2026/02/15 15:49:30 🔔 Container is ready: 63c2ea515854
+2026/02/15 15:49:30 ✅ Container created: d42f0a3e3d6e
+2026/02/15 15:49:30 🐳 Starting container: d42f0a3e3d6e
+2026/02/15 15:49:30 ✅ Container started: d42f0a3e3d6e
+2026/02/15 15:49:30 ⏳ Waiting for container id d42f0a3e3d6e image: 00aabfb9-a1ca-4d7e-bd40-591455e5cb7f:a61f89ee-9051-470d-8834-c9c10e9ff941. Waiting for: HTTP GET request on port default path "/"
+2026/02/15 15:49:31 🔔 Container is ready: d42f0a3e3d6e
+Gopherstack running at http://localhost:55033
+=== RUN   TestBatchOperations
+=== PAUSE TestBatchOperations
+=== RUN   TestComplexDataModel
+=== PAUSE TestComplexDataModel
+=== RUN   TestConditionsAndFilters
+=== PAUSE TestConditionsAndFilters
+=== RUN   TestErrorSimulation
+=== PAUSE TestErrorSimulation
+=== RUN   TestGSI
+=== PAUSE TestGSI
+=== RUN   TestValidationAndLimits
+=== PAUSE TestValidationAndLimits
+=== RUN   TestLocalSecondaryIndex
+=== PAUSE TestLocalSecondaryIndex
+=== RUN   TestProjectionExpressions
+=== PAUSE TestProjectionExpressions
+=== RUN   TestPutItem
+=== PAUSE TestPutItem
+=== RUN   TestQueryEnhancements
+=== PAUSE TestQueryEnhancements
+=== RUN   TestQuery
+=== PAUSE TestQuery
+=== RUN   TestUpdateItem
+=== PAUSE TestUpdateItem
+=== RUN   TestS3BucketLifecycle
+=== PAUSE TestS3BucketLifecycle
+=== RUN   TestS3ObjectCRUD
+=== PAUSE TestS3ObjectCRUD
+=== RUN   TestS3PrefixListing
+=== PAUSE TestS3PrefixListing
+=== RUN   TestS3BucketIsolation
+=== PAUSE TestS3BucketIsolation
+=== RUN   TestS3VersioningLifecycle
+=== PAUSE TestS3VersioningLifecycle
+=== RUN   TestS3TaggingRoundTrip
+=== PAUSE TestS3TaggingRoundTrip
+=== RUN   TestS3ListObjectsV2
+=== PAUSE TestS3ListObjectsV2
+=== RUN   TestS3ChecksumSHA256
+=== PAUSE TestS3ChecksumSHA256
+=== CONT  TestBatchOperations
+=== CONT  TestQuery
+=== CONT  TestValidationAndLimits
+=== CONT  TestErrorSimulation
+=== CONT  TestS3BucketIsolation
+=== CONT  TestGSI
+=== CONT  TestS3ObjectCRUD
+=== CONT  TestS3PrefixListing
+=== RUN   TestS3ObjectCRUD/put_and_get_object_round-trip
+=== CONT  TestS3ChecksumSHA256
+=== CONT  TestUpdateItem
+=== PAUSE TestS3ObjectCRUD/put_and_get_object_round-trip
+=== CONT  TestS3BucketLifecycle
+=== RUN   TestS3PrefixListing/filter_by_docs/_prefix
+=== RUN   TestS3ObjectCRUD/delete_object_then_get_returns_404
+=== CONT  TestS3TaggingRoundTrip
+=== RUN   TestS3TaggingRoundTrip/put_and_get_single_tag
+=== PAUSE TestS3PrefixListing/filter_by_docs/_prefix
+=== RUN   TestS3PrefixListing/filter_by_images/_prefix
+=== PAUSE TestS3TaggingRoundTrip/put_and_get_single_tag
+=== PAUSE TestS3PrefixListing/filter_by_images/_prefix
+=== CONT  TestPutItem
+=== RUN   TestS3TaggingRoundTrip/put_and_get_multiple_tags
+=== PAUSE TestS3TaggingRoundTrip/put_and_get_multiple_tags
+=== RUN   TestS3TaggingRoundTrip/delete_tags_then_get_returns_empty
+=== PAUSE TestS3TaggingRoundTrip/delete_tags_then_get_returns_empty
+=== RUN   TestS3TaggingRoundTrip/overwrite_tags_replaces_set
+=== PAUSE TestS3TaggingRoundTrip/overwrite_tags_replaces_set
+=== RUN   TestS3PrefixListing/no_prefix_returns_all
+=== PAUSE TestS3PrefixListing/no_prefix_returns_all
+=== RUN   TestS3PrefixListing/prefix_matches_none
+=== PAUSE TestS3PrefixListing/prefix_matches_none
+=== CONT  TestS3ListObjectsV2
+=== RUN   TestS3ListObjectsV2/basic_listing_returns_all_keys
+=== PAUSE TestS3ListObjectsV2/basic_listing_returns_all_keys
+=== RUN   TestS3ListObjectsV2/pagination_with_max-keys_and_continuation_token
+=== PAUSE TestS3ListObjectsV2/pagination_with_max-keys_and_continuation_token
+=== RUN   TestS3ListObjectsV2/delimiter_groups_keys_into_common_prefixes
+=== PAUSE TestS3ListObjectsV2/delimiter_groups_keys_into_common_prefixes
+=== RUN   TestS3ListObjectsV2/start-after_skips_keys_up_to_and_including_the_value
+=== PAUSE TestS3ListObjectsV2/start-after_skips_keys_up_to_and_including_the_value
+=== RUN   TestS3ListObjectsV2/empty_bucket_returns_zero_keys
+=== PAUSE TestS3ListObjectsV2/empty_bucket_returns_zero_keys
+=== RUN   TestS3ListObjectsV2/non-existent_bucket_returns_error
+=== PAUSE TestS3ListObjectsV2/non-existent_bucket_returns_error
+=== RUN   TestS3ListObjectsV2/prefix_filter_with_delimiter
+=== RUN   TestBatchOperations/BatchWriteItem_PutAndDelete
+=== RUN   TestQuery/Query_PartitionKey_ExactMatch
+=== PAUSE TestBatchOperations/BatchWriteItem_PutAndDelete
+=== RUN   TestPutItem/ReturnConsumedCapacity
+=== CONT  TestQueryEnhancements
+=== PAUSE TestPutItem/ReturnConsumedCapacity
+=== RUN   TestPutItem/ReturnItemCollectionMetrics
+=== PAUSE TestPutItem/ReturnItemCollectionMetrics
+=== RUN   TestPutItem/ReturnValues_ALL_OLD
+=== PAUSE TestPutItem/ReturnValues_ALL_OLD
+=== PAUSE TestS3ListObjectsV2/prefix_filter_with_delimiter
+=== CONT  TestComplexDataModel
+=== CONT  TestProjectionExpressions
+=== PAUSE TestS3ObjectCRUD/delete_object_then_get_returns_404
+=== RUN   TestS3ObjectCRUD/overwrite_without_versioning_returns_latest
+=== PAUSE TestS3ObjectCRUD/overwrite_without_versioning_returns_latest
+=== RUN   TestS3ObjectCRUD/head_object_returns_full_metadata_and_content-type
+=== PAUSE TestS3ObjectCRUD/head_object_returns_full_metadata_and_content-type
+=== RUN   TestS3ObjectCRUD/large_object_integrity
+=== PAUSE TestS3ObjectCRUD/large_object_integrity
+=== RUN   TestBatchOperations/BatchGetItem_MultipleTables
+=== PAUSE TestBatchOperations/BatchGetItem_MultipleTables
+=== CONT  TestS3VersioningLifecycle
+=== RUN   TestS3VersioningLifecycle/enable_versioning_and_verify_status
+=== RUN   TestQueryEnhancements/SortKey_Ordering
+=== CONT  TestLocalSecondaryIndex
+=== CONT  TestConditionsAndFilters
+=== PAUSE TestS3VersioningLifecycle/enable_versioning_and_verify_status
+=== RUN   TestS3VersioningLifecycle/versioned_puts_create_unique_IDs_and_both_retrievable
+=== PAUSE TestS3VersioningLifecycle/versioned_puts_create_unique_IDs_and_both_retrievable
+=== RUN   TestS3VersioningLifecycle/delete_with_versioning_creates_delete_marker_and_old_versions_remain
+=== PAUSE TestS3VersioningLifecycle/delete_with_versioning_creates_delete_marker_and_old_versions_remain
+=== PAUSE TestQueryEnhancements/SortKey_Ordering
+=== RUN   TestQueryEnhancements/SortKey_Conditions
+=== PAUSE TestQueryEnhancements/SortKey_Conditions
+=== CONT  TestS3TaggingRoundTrip/put_and_get_single_tag
+=== RUN   TestConditionsAndFilters/PutItem_Condition_AttributeNotExists_Success
+=== PAUSE TestConditionsAndFilters/PutItem_Condition_AttributeNotExists_Success
+=== RUN   TestConditionsAndFilters/PutItem_Condition_AttributeNotExists_Fail
+=== PAUSE TestConditionsAndFilters/PutItem_Condition_AttributeNotExists_Fail
+=== RUN   TestConditionsAndFilters/UpdateItem_Condition_Equals_Success
+=== PAUSE TestConditionsAndFilters/UpdateItem_Condition_Equals_Success
+=== RUN   TestConditionsAndFilters/Scan_FilterExpression
+=== PAUSE TestConditionsAndFilters/Scan_FilterExpression
+=== PAUSE TestQuery/Query_PartitionKey_ExactMatch
+=== RUN   TestQuery/Query_NoMatch
+=== RUN   TestQueryEnhancements/Pagination
+=== CONT  TestS3PrefixListing/filter_by_docs/_prefix
+=== RUN   TestS3BucketLifecycle/create_and_list_buckets
+=== RUN   TestUpdateItem/UpdateItem_Set_NewItem
+=== PAUSE TestS3BucketLifecycle/create_and_list_buckets
+=== RUN   TestS3BucketLifecycle/head_bucket_returns_200_for_existing_bucket
+=== PAUSE TestUpdateItem/UpdateItem_Set_NewItem
+=== RUN   TestUpdateItem/UpdateItem_Set_ExistingItem
+=== PAUSE TestUpdateItem/UpdateItem_Set_ExistingItem
+=== CONT  TestS3PrefixListing/no_prefix_returns_all
+=== RUN   TestGSI/Query_GSI_All
+=== PAUSE TestQuery/Query_NoMatch
+=== PAUSE TestGSI/Query_GSI_All
+=== RUN   TestGSI/Query_GSI_KeysOnly
+=== PAUSE TestGSI/Query_GSI_KeysOnly
+=== RUN   TestGSI/Scan_GSI_Sparse
+=== PAUSE TestGSI/Scan_GSI_Sparse
+=== CONT  TestS3PrefixListing/filter_by_images/_prefix
+=== PAUSE TestQueryEnhancements/Pagination
+=== RUN   TestValidationAndLimits/ItemSizeLimit
+=== PAUSE TestValidationAndLimits/ItemSizeLimit
+=== RUN   TestProjectionExpressions/GetItem_Projection_Simple
+=== PAUSE TestProjectionExpressions/GetItem_Projection_Simple
+=== RUN   TestProjectionExpressions/Scan_Projection_WithAttributeNames
+=== PAUSE TestProjectionExpressions/Scan_Projection_WithAttributeNames
+=== RUN   TestProjectionExpressions/Query_Projection_Nested
+=== PAUSE TestProjectionExpressions/Query_Projection_Nested
+=== RUN   TestValidationAndLimits/MissingKey
+=== PAUSE TestValidationAndLimits/MissingKey
+=== RUN   TestValidationAndLimits/DataTypeValidation
+=== PAUSE TestValidationAndLimits/DataTypeValidation
+=== CONT  TestS3TaggingRoundTrip/put_and_get_multiple_tags
+=== PAUSE TestS3BucketLifecycle/head_bucket_returns_200_for_existing_bucket
+=== CONT  TestS3PrefixListing/prefix_matches_none
+=== CONT  TestS3TaggingRoundTrip/delete_tags_then_get_returns_empty
+=== CONT  TestS3TaggingRoundTrip/overwrite_tags_replaces_set
+=== RUN   TestS3BucketLifecycle/delete_empty_bucket_succeeds
+=== PAUSE TestS3BucketLifecycle/delete_empty_bucket_succeeds
+=== RUN   TestS3BucketLifecycle/delete_non-empty_bucket_fails
+=== PAUSE TestS3BucketLifecycle/delete_non-empty_bucket_fails
+=== RUN   TestS3BucketLifecycle/duplicate_bucket_creation_fails
+=== PAUSE TestS3BucketLifecycle/duplicate_bucket_creation_fails
+=== CONT  TestPutItem/ReturnConsumedCapacity
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+&dynamodb.CreateTableOutput{
+  TableDescription: &types.TableDescription{
+    ArchivalSummary: nil,
+    AttributeDefinitions: SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+nil,
+    BillingModeSummary: nil,
+    CreationDateTime: nil,
+    DeletionProtectionEnabled: nil,
+    GlobalSecondaryIndexes: nil,
+    GlobalTableSettingsReplicationMode: "",
+    GlobalTableVersion: nil,
+    GlobalTableWitnesses: nil,
+    ItemCount: &0,
+    KeySchema: nil,
+    LatestStreamArn: nil,
+    LatestStreamLabel: nil,
+    LocalSecondaryIndexes: nil,
+    MultiRegionConsistency: "",
+    OnDemandThroughput: nil,
+    ProvisionedThroughput: nil,
+    Replicas: nil,
+    RestoreSummary: nil,
+    SSEDescription: nil,
+    StreamSpecification: nil,
+    TableArn: nil,
+    TableClassSummary: nil,
+    TableId: nil,
+    TableName: &"ComplexModelTest-56d2b936-d519-4fc4-b5d4-78c08c20009f",
+    TableSizeBytes: nil,
+    TableStatus: "ACTIVE",
+    WarmThroughput: nil,
+  },
+  ResultMetadata: middleware.Metadata{},
+}
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+--- PASS: TestS3ChecksumSHA256 (0.01s)
+=== CONT  TestPutItem/ReturnValues_ALL_OLD
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+=== CONT  TestPutItem/ReturnItemCollectionMetrics
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+=== CONT  TestS3ListObjectsV2/basic_listing_returns_all_keys
+=== CONT  TestS3ObjectCRUD/put_and_get_object_round-trip
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+=== CONT  TestBatchOperations/BatchWriteItem_PutAndDelete
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+=== CONT  TestS3ObjectCRUD/large_object_integrity
+--- PASS: TestS3BucketIsolation (0.02s)
+=== CONT  TestS3ObjectCRUD/head_object_returns_full_metadata_and_content-type
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+=== CONT  TestS3ObjectCRUD/overwrite_without_versioning_returns_latest
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+--- PASS: TestS3PrefixListing (0.00s)
+    --- PASS: TestS3PrefixListing/filter_by_docs/_prefix (0.01s)
+    --- PASS: TestS3PrefixListing/prefix_matches_none (0.01s)
+    --- PASS: TestS3PrefixListing/filter_by_images/_prefix (0.02s)
+    --- PASS: TestS3PrefixListing/no_prefix_returns_all (0.02s)
+=== CONT  TestS3ObjectCRUD/delete_object_then_get_returns_404
+=== CONT  TestS3ListObjectsV2/empty_bucket_returns_zero_keys
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+--- PASS: TestS3TaggingRoundTrip (0.00s)
+    --- PASS: TestS3TaggingRoundTrip/put_and_get_single_tag (0.01s)
+    --- PASS: TestS3TaggingRoundTrip/overwrite_tags_replaces_set (0.02s)
+    --- PASS: TestS3TaggingRoundTrip/put_and_get_multiple_tags (0.02s)
+    --- PASS: TestS3TaggingRoundTrip/delete_tags_then_get_returns_empty (0.02s)
+=== CONT  TestS3ListObjectsV2/prefix_filter_with_delimiter
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+--- PASS: TestLocalSecondaryIndex (0.02s)
+=== CONT  TestS3ListObjectsV2/non-existent_bucket_returns_error
+=== CONT  TestS3ListObjectsV2/delimiter_groups_keys_into_common_prefixes
+=== CONT  TestS3ListObjectsV2/start-after_skips_keys_up_to_and_including_the_value
+=== CONT  TestS3ListObjectsV2/pagination_with_max-keys_and_continuation_token
+=== NAME  TestS3ObjectCRUD/head_object_returns_full_metadata_and_content-type
+    s3_test.go:353: 
+        	Error Trace:	/Users/andrew.bishop/IdeaProjects/Gopherstack/test/integration/s3_test.go:307
+        	            				/Users/andrew.bishop/IdeaProjects/Gopherstack/test/integration/s3_test.go:353
+        	Error:      	Not equal: 
+        	            	expected: 5
+        	            	actual  : 0
+        	Test:       	TestS3ObjectCRUD/head_object_returns_full_metadata_and_content-type
+=== CONT  TestBatchOperations/BatchGetItem_MultipleTables
+=== CONT  TestS3VersioningLifecycle/enable_versioning_and_verify_status
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+=== CONT  TestConditionsAndFilters/PutItem_Condition_AttributeNotExists_Success
+&s3.CreateBucketOutput{
+  BucketArn: nil,
+  Location: &"/ver-4c517ec6-08e5-4985-9693-a8d38d467d5e",
+  ResultMetadata: middleware.Metadata{},
+}
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+=== CONT  TestConditionsAndFilters/Scan_FilterExpression
+=== CONT  TestConditionsAndFilters/UpdateItem_Condition_Equals_Success
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+=== CONT  TestConditionsAndFilters/PutItem_Condition_AttributeNotExists_Fail
+--- FAIL: TestS3ObjectCRUD (0.00s)
+    --- PASS: TestS3ObjectCRUD/put_and_get_object_round-trip (0.00s)
+    --- FAIL: TestS3ObjectCRUD/head_object_returns_full_metadata_and_content-type (0.01s)
+    --- PASS: TestS3ObjectCRUD/delete_object_then_get_returns_404 (0.01s)
+    --- PASS: TestS3ObjectCRUD/overwrite_without_versioning_returns_latest (0.01s)
+    --- PASS: TestS3ObjectCRUD/large_object_integrity (0.02s)
+=== CONT  TestS3VersioningLifecycle/versioned_puts_create_unique_IDs_and_both_retrievable
+=== CONT  TestS3VersioningLifecycle/delete_with_versioning_creates_delete_marker_and_old_versions_remain
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+--- PASS: TestS3ListObjectsV2 (0.00s)
+    --- PASS: TestS3ListObjectsV2/empty_bucket_returns_zero_keys (0.00s)
+    --- PASS: TestS3ListObjectsV2/basic_listing_returns_all_keys (0.01s)
+    --- PASS: TestS3ListObjectsV2/non-existent_bucket_returns_error (0.00s)
+    --- PASS: TestS3ListObjectsV2/prefix_filter_with_delimiter (0.02s)
+    --- PASS: TestS3ListObjectsV2/start-after_skips_keys_up_to_and_including_the_value (0.02s)
+    --- PASS: TestS3ListObjectsV2/delimiter_groups_keys_into_common_prefixes (0.02s)
+    --- PASS: TestS3ListObjectsV2/pagination_with_max-keys_and_continuation_token (0.02s)
+=== CONT  TestUpdateItem/UpdateItem_Set_NewItem
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+=== CONT  TestUpdateItem/UpdateItem_Set_ExistingItem
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+--- PASS: TestS3VersioningLifecycle (0.00s)
+    --- PASS: TestS3VersioningLifecycle/enable_versioning_and_verify_status (0.01s)
+    --- PASS: TestS3VersioningLifecycle/delete_with_versioning_creates_delete_marker_and_old_versions_remain (0.01s)
+    --- PASS: TestS3VersioningLifecycle/versioned_puts_create_unique_IDs_and_both_retrievable (0.01s)
+=== CONT  TestQuery/Query_PartitionKey_ExactMatch
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+=== CONT  TestGSI/Query_GSI_All
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+=== CONT  TestQueryEnhancements/SortKey_Ordering
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+--- PASS: TestPutItem (0.00s)
+    --- PASS: TestPutItem/ReturnConsumedCapacity (0.05s)
+    --- PASS: TestPutItem/ReturnValues_ALL_OLD (0.05s)
+    --- PASS: TestPutItem/ReturnItemCollectionMetrics (0.05s)
+=== CONT  TestGSI/Scan_GSI_Sparse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+=== CONT  TestGSI/Query_GSI_KeysOnly
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+=== CONT  TestQueryEnhancements/Pagination
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+=== CONT  TestQueryEnhancements/SortKey_Conditions
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+=== CONT  TestProjectionExpressions/GetItem_Projection_Simple
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+=== CONT  TestValidationAndLimits/ItemSizeLimit
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+--- PASS: TestGSI (0.00s)
+    --- PASS: TestGSI/Query_GSI_All (0.01s)
+    --- PASS: TestGSI/Scan_GSI_Sparse (0.01s)
+    --- PASS: TestGSI/Query_GSI_KeysOnly (0.01s)
+=== CONT  TestProjectionExpressions/Query_Projection_Nested
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+=== CONT  TestProjectionExpressions/Scan_Projection_WithAttributeNames
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+=== NAME  TestValidationAndLimits/ItemSizeLimit
+    ddb_limits_test.go:68: Got expected error: operation error DynamoDB: PutItem, https response error StatusCode: 400, RequestID: , ItemCollectionSizeLimitExceededException: Item size 410040 exceeds limit 409600
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+=== CONT  TestValidationAndLimits/DataTypeValidation
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+--- PASS: TestProjectionExpressions (0.00s)
+    --- PASS: TestProjectionExpressions/GetItem_Projection_Simple (0.00s)
+    --- PASS: TestProjectionExpressions/Query_Projection_Nested (0.00s)
+    --- PASS: TestProjectionExpressions/Scan_Projection_WithAttributeNames (0.00s)
+=== CONT  TestValidationAndLimits/MissingKey
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+--- PASS: TestBatchOperations (0.00s)
+    --- PASS: TestBatchOperations/BatchWriteItem_PutAndDelete (0.05s)
+    --- PASS: TestBatchOperations/BatchGetItem_MultipleTables (0.06s)
+=== CONT  TestQuery/Query_NoMatch
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+=== CONT  TestS3BucketLifecycle/create_and_list_buckets
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+--- PASS: TestValidationAndLimits (0.00s)
+    --- PASS: TestValidationAndLimits/ItemSizeLimit (0.01s)
+    --- PASS: TestValidationAndLimits/DataTypeValidation (0.00s)
+    --- PASS: TestValidationAndLimits/MissingKey (0.00s)
+=== CONT  TestS3BucketLifecycle/delete_non-empty_bucket_fails
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+=== CONT  TestS3BucketLifecycle/duplicate_bucket_creation_fails
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+=== CONT  TestS3BucketLifecycle/delete_empty_bucket_succeeds
+=== CONT  TestS3BucketLifecycle/head_bucket_returns_200_for_existing_bucket
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+--- PASS: TestQueryEnhancements (0.00s)
+    --- PASS: TestQueryEnhancements/SortKey_Ordering (0.01s)
+    --- PASS: TestQueryEnhancements/SortKey_Conditions (0.02s)
+    --- PASS: TestQueryEnhancements/Pagination (0.02s)
+--- PASS: TestS3BucketLifecycle (0.00s)
+    --- PASS: TestS3BucketLifecycle/duplicate_bucket_creation_fails (0.00s)
+    --- PASS: TestS3BucketLifecycle/delete_non-empty_bucket_fails (0.00s)
+    --- PASS: TestS3BucketLifecycle/create_and_list_buckets (0.00s)
+    --- PASS: TestS3BucketLifecycle/head_bucket_returns_200_for_existing_bucket (0.00s)
+    --- PASS: TestS3BucketLifecycle/delete_empty_bucket_succeeds (0.00s)
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+--- PASS: TestConditionsAndFilters (0.00s)
+    --- PASS: TestConditionsAndFilters/PutItem_Condition_AttributeNotExists_Success (0.05s)
+    --- PASS: TestConditionsAndFilters/Scan_FilterExpression (0.05s)
+    --- PASS: TestConditionsAndFilters/UpdateItem_Condition_Equals_Success (0.05s)
+    --- PASS: TestConditionsAndFilters/PutItem_Condition_AttributeNotExists_Fail (0.05s)
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+=== RUN   TestErrorSimulation/ResourceNotFoundException
+=== PAUSE TestErrorSimulation/ResourceNotFoundException
+=== CONT  TestErrorSimulation/ResourceNotFoundException
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+--- PASS: TestUpdateItem (0.00s)
+    --- PASS: TestUpdateItem/UpdateItem_Set_NewItem (0.05s)
+    --- PASS: TestUpdateItem/UpdateItem_Set_ExistingItem (0.05s)
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+--- PASS: TestErrorSimulation (0.10s)
+    --- PASS: TestErrorSimulation/ResourceNotFoundException (0.00s)
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+--- PASS: TestComplexDataModel (0.11s)
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+SDK 2026/02/15 15:49:31 WARN failed to close HTTP response body, this may affect connection reuse
+--- PASS: TestQuery (0.00s)
+    --- PASS: TestQuery/Query_PartitionKey_ExactMatch (0.05s)
+    --- PASS: TestQuery/Query_NoMatch (0.05s)
+FAIL
+2026/02/15 15:49:31 🐳 Stopping container: d42f0a3e3d6e
+2026/02/15 15:49:31 ✅ Container stopped: d42f0a3e3d6e
+2026/02/15 15:49:31 🐳 Terminating container: d42f0a3e3d6e
+2026/02/15 15:49:31 🚫 Container terminated: d42f0a3e3d6e
+FAIL	Gopherstack/test/integration	23.274s
+FAIL

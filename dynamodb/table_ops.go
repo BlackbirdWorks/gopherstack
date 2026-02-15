@@ -1,45 +1,44 @@
 package dynamodb
 
 import (
-	"encoding/json"
 	"fmt"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
 
-func (db *InMemoryDB) CreateTable(body []byte) (any, error) {
-	var input CreateTableInput
-	if err := json.Unmarshal(body, &input); err != nil {
-		return nil, err
-	}
-
-	if input.TableName == "" {
+func (db *InMemoryDB) CreateTable(input *dynamodb.CreateTableInput) (*dynamodb.CreateTableOutput, error) {
+	tableName := aws.ToString(input.TableName)
+	if tableName == "" {
 		return nil, NewValidationException("Table name is required")
 	}
 
 	db.mu.Lock()
 	defer db.mu.Unlock()
 
-	if _, exists := db.Tables[input.TableName]; exists {
-		return nil, NewResourceInUseException(fmt.Sprintf("table already exists: %s", input.TableName))
+	if _, exists := db.Tables[tableName]; exists {
+		return nil, NewResourceInUseException(fmt.Sprintf("table already exists: %s", tableName))
 	}
 
 	newTable := &Table{
-		Name:                   input.TableName,
-		KeySchema:              input.KeySchema,
-		AttributeDefinitions:   input.AttributeDefinitions,
-		GlobalSecondaryIndexes: input.GlobalSecondaryIndexes,
-		LocalSecondaryIndexes:  input.LocalSecondaryIndexes,
+		Name:                   tableName,
+		KeySchema:              FromSDKKeySchema(input.KeySchema),
+		AttributeDefinitions:   FromSDKAttributeDefinitions(input.AttributeDefinitions),
+		GlobalSecondaryIndexes: FromSDKGlobalSecondaryIndexes(input.GlobalSecondaryIndexes),
+		LocalSecondaryIndexes:  FromSDKLocalSecondaryIndexes(input.LocalSecondaryIndexes),
 		Items:                  make([]map[string]any, 0),
 	}
 	newTable.initializeIndexes()
-	db.Tables[input.TableName] = newTable
+	db.Tables[tableName] = newTable
 
 	// Convert GSIs to Description
 	gsiDescs := make([]GlobalSecondaryIndexDescription, len(input.GlobalSecondaryIndexes))
 	for i, gsi := range input.GlobalSecondaryIndexes {
 		gsiDescs[i] = GlobalSecondaryIndexDescription{
-			IndexName:  gsi.IndexName,
-			KeySchema:  gsi.KeySchema,
-			Projection: gsi.Projection,
+			IndexName:  aws.ToString(gsi.IndexName),
+			KeySchema:  FromSDKKeySchema(gsi.KeySchema),
+			Projection: FromSDKProjection(gsi.Projection),
 			ProvisionedThroughput: ProvisionedThroughputDescription{
 				ReadCapacityUnits:  DefaultReadCapacity,
 				WriteCapacityUnits: DefaultWriteCapacity,
@@ -53,57 +52,60 @@ func (db *InMemoryDB) CreateTable(body []byte) (any, error) {
 	lsiDescs := make([]LocalSecondaryIndexDescription, len(input.LocalSecondaryIndexes))
 	for i, lsi := range input.LocalSecondaryIndexes {
 		lsiDescs[i] = LocalSecondaryIndexDescription{
-			IndexName:      lsi.IndexName,
-			KeySchema:      lsi.KeySchema,
-			Projection:     lsi.Projection,
+			IndexName:      aws.ToString(lsi.IndexName),
+			KeySchema:      FromSDKKeySchema(lsi.KeySchema),
+			Projection:     FromSDKProjection(lsi.Projection),
 			IndexSizeBytes: 0,
 			ItemCount:      0,
 		}
 	}
 
-	return CreateTableOutput{
-		TableDescription: TableDescription{
-			TableName:              newTable.Name,
-			TableStatus:            TableStatusActive,
-			KeySchema:              newTable.KeySchema,
-			AttributeDefinitions:   newTable.AttributeDefinitions,
-			GlobalSecondaryIndexes: gsiDescs,
-			LocalSecondaryIndexes:  lsiDescs,
-			ItemCount:              0,
-			ProvisionedThroughput: &ProvisionedThroughputDescription{
-				ReadCapacityUnits:  DefaultReadCapacity,
-				WriteCapacityUnits: DefaultWriteCapacity,
+	// Helper to construct SDK output
+	sdkGSIs := ToSDKGlobalSecondaryIndexDescriptions(gsiDescs)
+	sdkLSIs := ToSDKLocalSecondaryIndexDescriptions(lsiDescs)
+
+	sdkKeySchema := ToSDKKeySchema(newTable.KeySchema)
+	sdkAttrDefs := ToSDKAttributeDefinitions(newTable.AttributeDefinitions)
+
+	rcu := int64(DefaultReadCapacity)
+	wcu := int64(DefaultWriteCapacity)
+
+	return &dynamodb.CreateTableOutput{
+		TableDescription: &types.TableDescription{
+			TableName:              input.TableName,
+			TableStatus:            types.TableStatusActive,
+			KeySchema:              sdkKeySchema,
+			AttributeDefinitions:   sdkAttrDefs,
+			GlobalSecondaryIndexes: sdkGSIs,
+			LocalSecondaryIndexes:  sdkLSIs,
+			ItemCount:              aws.Int64(0),
+			ProvisionedThroughput: &types.ProvisionedThroughputDescription{
+				ReadCapacityUnits:  &rcu,
+				WriteCapacityUnits: &wcu,
 			},
 		},
 	}, nil
 }
 
-func (db *InMemoryDB) DeleteTable(body []byte) (any, error) {
-	var input DeleteTableInput
-	if err := json.Unmarshal(body, &input); err != nil {
-		return nil, err
-	}
-
-	if input.TableName == "" {
+func (db *InMemoryDB) DeleteTable(input *dynamodb.DeleteTableInput) (*dynamodb.DeleteTableOutput, error) {
+	tableName := aws.ToString(input.TableName)
+	if tableName == "" {
 		return nil, NewValidationException("Table name is required")
 	}
 
 	db.mu.Lock()
-	table, exists := db.Tables[input.TableName]
+	table, exists := db.Tables[tableName]
 	if !exists {
 		db.mu.Unlock()
-
-		return nil, NewResourceNotFoundException(fmt.Sprintf("table not found: %s", input.TableName))
+		return nil, NewResourceNotFoundException(fmt.Sprintf("table not found: %s", tableName))
 	}
-	delete(db.Tables, input.TableName)
+	delete(db.Tables, tableName)
 	db.mu.Unlock()
 
-	// Acquire table lock after releasing db lock to avoid holding both simultaneously.
-	// In-flight item operations that already have a table pointer may still be running;
-	// table.mu.RLock ensures we don't read table.Items concurrently with a write.
 	table.mu.RLock()
 	defer table.mu.RUnlock()
 
+	// Capture state for return
 	gsiDescs := make([]GlobalSecondaryIndexDescription, len(table.GlobalSecondaryIndexes))
 	for i, gsi := range table.GlobalSecondaryIndexes {
 		gsiDescs[i] = GlobalSecondaryIndexDescription{
@@ -119,30 +121,32 @@ func (db *InMemoryDB) DeleteTable(body []byte) (any, error) {
 		}
 	}
 
-	return DeleteTableOutput{
-		TableDescription: TableDescription{
-			TableName:              table.Name,
-			TableStatus:            "DELETING",
-			KeySchema:              table.KeySchema,
-			AttributeDefinitions:   table.AttributeDefinitions,
-			GlobalSecondaryIndexes: gsiDescs,
-			ItemCount:              len(table.Items),
+	sdkGSIs := ToSDKGlobalSecondaryIndexDescriptions(gsiDescs)
+	sdkKeySchema := ToSDKKeySchema(table.KeySchema)
+	sdkAttrDefs := ToSDKAttributeDefinitions(table.AttributeDefinitions)
+	itemCount := int64(len(table.Items))
+
+	return &dynamodb.DeleteTableOutput{
+		TableDescription: &types.TableDescription{
+			TableName:              input.TableName,
+			TableStatus:            types.TableStatusDeleting,
+			KeySchema:              sdkKeySchema,
+			AttributeDefinitions:   sdkAttrDefs,
+			GlobalSecondaryIndexes: sdkGSIs,
+			ItemCount:              &itemCount,
 		},
 	}, nil
 }
 
-func (db *InMemoryDB) DescribeTable(body []byte) (any, error) {
-	var input DescribeTableInput
-	if err := json.Unmarshal(body, &input); err != nil {
-		return nil, err
-	}
+func (db *InMemoryDB) DescribeTable(input *dynamodb.DescribeTableInput) (*dynamodb.DescribeTableOutput, error) {
+	tableName := aws.ToString(input.TableName)
 
 	db.mu.RLock()
-	table, exists := db.Tables[input.TableName]
+	table, exists := db.Tables[tableName]
 	db.mu.RUnlock()
 
 	if !exists {
-		return nil, NewResourceNotFoundException(fmt.Sprintf("table not found: %s", input.TableName))
+		return nil, NewResourceNotFoundException(fmt.Sprintf("table not found: %s", tableName))
 	}
 
 	table.mu.RLock()
@@ -159,11 +163,10 @@ func (db *InMemoryDB) DescribeTable(body []byte) (any, error) {
 				WriteCapacityUnits: int(*gsi.ProvisionedThroughput.WriteCapacityUnits),
 			},
 			IndexStatus: TableStatusActive,
-			ItemCount:   len(table.Items), // Simplified: full table count
+			ItemCount:   len(table.Items),
 		}
 	}
 
-	// Convert LSIs
 	lsiDescs := make([]LocalSecondaryIndexDescription, len(table.LocalSecondaryIndexes))
 	for i, lsi := range table.LocalSecondaryIndexes {
 		lsiDescs[i] = LocalSecondaryIndexDescription{
@@ -171,38 +174,43 @@ func (db *InMemoryDB) DescribeTable(body []byte) (any, error) {
 			KeySchema:      lsi.KeySchema,
 			Projection:     lsi.Projection,
 			IndexSizeBytes: 0,
-			ItemCount:      0, // Naive count relative to whole table? Valid enough for now.
+			ItemCount:      0,
 		}
 	}
 
-	return DescribeTableOutput{
-		Table: TableDescription{
-			TableName:              table.Name,
-			TableStatus:            TableStatusActive,
-			KeySchema:              table.KeySchema,
-			AttributeDefinitions:   table.AttributeDefinitions,
-			GlobalSecondaryIndexes: gsiDescs,
-			LocalSecondaryIndexes:  lsiDescs,
-			ItemCount:              len(table.Items),
-			ProvisionedThroughput: &ProvisionedThroughputDescription{
-				ReadCapacityUnits:  DefaultReadCapacity,
-				WriteCapacityUnits: DefaultWriteCapacity,
+	sdkGSIs := ToSDKGlobalSecondaryIndexDescriptions(gsiDescs)
+	sdkLSIs := ToSDKLocalSecondaryIndexDescriptions(lsiDescs)
+	sdkKeySchema := ToSDKKeySchema(table.KeySchema)
+	sdkAttrDefs := ToSDKAttributeDefinitions(table.AttributeDefinitions)
+	itemCount := int64(len(table.Items))
+
+	rcu := int64(DefaultReadCapacity)
+	wcu := int64(DefaultWriteCapacity)
+
+	return &dynamodb.DescribeTableOutput{
+		Table: &types.TableDescription{
+			TableName:              input.TableName,
+			TableStatus:            types.TableStatusActive,
+			KeySchema:              sdkKeySchema,
+			AttributeDefinitions:   sdkAttrDefs,
+			GlobalSecondaryIndexes: sdkGSIs,
+			LocalSecondaryIndexes:  sdkLSIs,
+			ItemCount:              &itemCount,
+			ProvisionedThroughput: &types.ProvisionedThroughputDescription{
+				ReadCapacityUnits:  &rcu,
+				WriteCapacityUnits: &wcu,
 			},
 		},
 	}, nil
 }
 
-func (db *InMemoryDB) UpdateTimeToLive(body []byte) (any, error) {
-	var input UpdateTimeToLiveInput
-	if err := json.Unmarshal(body, &input); err != nil {
-		return nil, err
-	}
-
-	if input.TableName == "" {
+func (db *InMemoryDB) UpdateTimeToLive(input *dynamodb.UpdateTimeToLiveInput) (*dynamodb.UpdateTimeToLiveOutput, error) {
+	tableName := aws.ToString(input.TableName)
+	if tableName == "" {
 		return nil, NewValidationException("Table name is required")
 	}
 
-	table, err := db.getTable(input.TableName)
+	table, err := db.getTable(tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -210,24 +218,20 @@ func (db *InMemoryDB) UpdateTimeToLive(body []byte) (any, error) {
 	table.mu.Lock()
 	defer table.mu.Unlock()
 
-	if input.TimeToLiveSpecification.Enabled {
-		table.TTLAttribute = input.TimeToLiveSpecification.AttributeName
+	if input.TimeToLiveSpecification.Enabled != nil && *input.TimeToLiveSpecification.Enabled {
+		table.TTLAttribute = aws.ToString(input.TimeToLiveSpecification.AttributeName)
 	} else {
 		table.TTLAttribute = ""
 	}
 
-	return UpdateTimeToLiveOutput{
+	return &dynamodb.UpdateTimeToLiveOutput{
 		TimeToLiveSpecification: input.TimeToLiveSpecification,
 	}, nil
 }
 
-func (db *InMemoryDB) DescribeTimeToLive(body []byte) (any, error) {
-	var input DescribeTimeToLiveInput
-	if err := json.Unmarshal(body, &input); err != nil {
-		return nil, err
-	}
-
-	table, err := db.getTable(input.TableName)
+func (db *InMemoryDB) DescribeTimeToLive(input *dynamodb.DescribeTimeToLiveInput) (*dynamodb.DescribeTimeToLiveOutput, error) {
+	tableName := aws.ToString(input.TableName)
+	table, err := db.getTable(tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -236,25 +240,20 @@ func (db *InMemoryDB) DescribeTimeToLive(body []byte) (any, error) {
 	defer table.mu.RUnlock()
 
 	if table.TTLAttribute == "" {
-		return DescribeTimeToLiveOutput{
-			TimeToLiveDescription: TimeToLiveDescription{TimeToLiveStatus: "DISABLED"},
+		return &dynamodb.DescribeTimeToLiveOutput{
+			TimeToLiveDescription: &types.TimeToLiveDescription{TimeToLiveStatus: types.TimeToLiveStatusDisabled},
 		}, nil
 	}
 
-	return DescribeTimeToLiveOutput{
-		TimeToLiveDescription: TimeToLiveDescription{
-			AttributeName:    table.TTLAttribute,
-			TimeToLiveStatus: "ENABLED",
+	return &dynamodb.DescribeTimeToLiveOutput{
+		TimeToLiveDescription: &types.TimeToLiveDescription{
+			AttributeName:    aws.String(table.TTLAttribute),
+			TimeToLiveStatus: types.TimeToLiveStatusEnabled,
 		},
 	}, nil
 }
 
-func (db *InMemoryDB) ListTables(body []byte) (any, error) {
-	var input ListTablesInput
-	if len(body) > 0 {
-		_ = json.Unmarshal(body, &input)
-	}
-
+func (db *InMemoryDB) ListTables(input *dynamodb.ListTablesInput) (*dynamodb.ListTablesOutput, error) {
 	db.mu.RLock()
 	defer db.mu.RUnlock()
 
@@ -263,7 +262,16 @@ func (db *InMemoryDB) ListTables(body []byte) (any, error) {
 		names = append(names, name)
 	}
 
-	return ListTablesOutput{
+	// TODO: Handle Limit and key pagination if strictly needed,
+	// but for now return all or just respect limit if easy.
+	// InMemoryDB usually implies small scale.
+
+	limit := int(aws.ToInt32(input.Limit))
+	if limit > 0 && limit < len(names) {
+		names = names[:limit]
+	}
+
+	return &dynamodb.ListTablesOutput{
 		TableNames: names,
 	}, nil
 }

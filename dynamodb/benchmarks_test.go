@@ -1,46 +1,47 @@
 package dynamodb_test
 
 import (
-	"encoding/json"
 	"strconv"
 	"testing"
 
 	"Gopherstack/dynamodb"
+
+	"github.com/stretchr/testify/require"
 )
 
 // BenchmarkGetItem_10k benchmarks point lookups with 10k items.
 func BenchmarkGetItem_10k(b *testing.B) {
-	db := setupDBWithItems(10000)
+	db := setupDBWithItems(b, 10000)
 	input := dynamodb.GetItemInput{
 		TableName: "BenchTable",
 		Key:       map[string]any{"id": map[string]any{"S": "5000"}}, // middle item.
 	}
-	body, _ := json.Marshal(input)
+	sdkInput, _ := dynamodb.ToSDKGetItemInput(&input)
 
 	b.ResetTimer()
 	for range b.N {
-		_, _ = db.GetItem(body)
+		_, _ = db.GetItem(sdkInput)
 	}
 }
 
 // BenchmarkGetItem_100k benchmarks point lookups with 100k items.
 func BenchmarkGetItem_100k(b *testing.B) {
-	db := setupDBWithItems(100000)
+	db := setupDBWithItems(b, 100000)
 	input := dynamodb.GetItemInput{
 		TableName: "BenchTable",
 		Key:       map[string]any{"id": map[string]any{"S": "50000"}},
 	}
-	body, _ := json.Marshal(input)
+	sdkInput, _ := dynamodb.ToSDKGetItemInput(&input)
 
 	b.ResetTimer()
 	for range b.N {
-		_, _ = db.GetItem(body)
+		_, _ = db.GetItem(sdkInput)
 	}
 }
 
 // BenchmarkQuery_WithIndex_10k benchmarks keyed queries with 10k items.
 func BenchmarkQuery_WithIndex_10k(b *testing.B) {
-	db := setupDBWithItems(10000)
+	db := setupDBWithItems(b, 10000)
 	input := dynamodb.QueryInput{
 		TableName:              "BenchTable",
 		KeyConditionExpression: "id = :id",
@@ -48,17 +49,17 @@ func BenchmarkQuery_WithIndex_10k(b *testing.B) {
 			":id": map[string]any{"S": "5000"},
 		},
 	}
-	body, _ := json.Marshal(input)
+	sdkInput, _ := dynamodb.ToSDKQueryInput(&input)
 
 	b.ResetTimer()
 	for range b.N {
-		_, _ = db.Query(body)
+		_, _ = db.Query(sdkInput)
 	}
 }
 
 // BenchmarkQuery_WithFilter_10k benchmarks queries with filter expression.
 func BenchmarkQuery_WithFilter_10k(b *testing.B) {
-	db := setupDBWithItems(10000)
+	db := setupDBWithItems(b, 10000)
 	input := dynamodb.QueryInput{
 		TableName:              "BenchTable",
 		KeyConditionExpression: "id = :id",
@@ -68,31 +69,31 @@ func BenchmarkQuery_WithFilter_10k(b *testing.B) {
 			":val": map[string]any{"N": "1000"},
 		},
 	}
-	body, _ := json.Marshal(input)
+	sdkInput, _ := dynamodb.ToSDKQueryInput(&input)
 
 	b.ResetTimer()
 	for range b.N {
-		_, _ = db.Query(body)
+		_, _ = db.Query(sdkInput)
 	}
 }
 
 // BenchmarkScan_100k benchmarks full table scan with 100k items.
 func BenchmarkScan_100k(b *testing.B) {
-	db := setupDBWithItems(100000)
+	db := setupDBWithItems(b, 100000)
 	input := dynamodb.ScanInput{
 		TableName: "BenchTable",
 	}
-	body, _ := json.Marshal(input)
+	sdkInput, _ := dynamodb.ToSDKScanInput(&input)
 
 	b.ResetTimer()
 	for range b.N {
-		_, _ = db.Scan(body)
+		_, _ = db.Scan(sdkInput)
 	}
 }
 
 // BenchmarkPutItem_WithIndex benchmarks item insertion with index maintenance.
 func BenchmarkPutItem_WithIndex(b *testing.B) {
-	db := setupEmptyTable()
+	db := setupEmptyTable(b)
 
 	b.ResetTimer()
 	for i := range b.N {
@@ -103,14 +104,14 @@ func BenchmarkPutItem_WithIndex(b *testing.B) {
 				"val": map[string]any{"N": strconv.Itoa(i * 10)},
 			},
 		}
-		body, _ := json.Marshal(input)
-		_, _ = db.PutItem(body)
+		sdkInput, _ := dynamodb.ToSDKPutItemInput(&input)
+		_, _ = db.PutItem(sdkInput)
 	}
 }
 
 // BenchmarkConcurrentReads benchmarks concurrent read operations.
 func BenchmarkConcurrentReads(b *testing.B) {
-	db := setupDBWithItems(10000)
+	db := setupDBWithItems(b, 10000)
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
@@ -120,8 +121,8 @@ func BenchmarkConcurrentReads(b *testing.B) {
 				TableName: "BenchTable",
 				Key:       map[string]any{"id": map[string]any{"S": strconv.Itoa(i % 10000)}},
 			}
-			body, _ := json.Marshal(input)
-			_, _ = db.GetItem(body)
+			sdkInput, _ := dynamodb.ToSDKGetItemInput(&input)
+			_, _ = db.GetItem(sdkInput)
 			i++
 		}
 	})
@@ -129,7 +130,7 @@ func BenchmarkConcurrentReads(b *testing.B) {
 
 // BenchmarkConcurrentWrites benchmarks concurrent write operations.
 func BenchmarkConcurrentWrites(b *testing.B) {
-	db := setupEmptyTable()
+	db := setupEmptyTable(b)
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
@@ -142,8 +143,8 @@ func BenchmarkConcurrentWrites(b *testing.B) {
 					"val": map[string]any{"N": strconv.Itoa(i)},
 				},
 			}
-			body, _ := json.Marshal(input)
-			_, _ = db.PutItem(body)
+			sdkInput, _ := dynamodb.ToSDKPutItemInput(&input)
+			_, _ = db.PutItem(sdkInput)
 			i++
 		}
 	})
@@ -151,7 +152,8 @@ func BenchmarkConcurrentWrites(b *testing.B) {
 
 // Helper functions
 
-func setupEmptyTable() *dynamodb.InMemoryDB {
+func setupEmptyTable(b *testing.B) *dynamodb.InMemoryDB {
+	b.Helper()
 	db := dynamodb.NewInMemoryDB()
 	createInput := dynamodb.CreateTableInput{
 		TableName: "BenchTable",
@@ -162,14 +164,17 @@ func setupEmptyTable() *dynamodb.InMemoryDB {
 			{AttributeName: "id", AttributeType: "S"},
 		},
 	}
-	body, _ := json.Marshal(createInput)
-	_, _ = db.CreateTable(body)
+	sdkInput := dynamodb.ToSDKCreateTableInput(&createInput)
+
+	_, err := db.CreateTable(sdkInput)
+	require.NoError(b, err)
 
 	return db
 }
 
-func setupDBWithItems(count int) *dynamodb.InMemoryDB {
-	db := setupEmptyTable()
+func setupDBWithItems(b *testing.B, count int) *dynamodb.InMemoryDB {
+	b.Helper()
+	db := setupEmptyTable(b)
 
 	// Batch insert items
 	for i := range count {
@@ -180,8 +185,10 @@ func setupDBWithItems(count int) *dynamodb.InMemoryDB {
 				"val": map[string]any{"N": strconv.Itoa(i * 10)},
 			},
 		}
-		body, _ := json.Marshal(input)
-		_, _ = db.PutItem(body)
+		sdkInput, err := dynamodb.ToSDKPutItemInput(&input)
+		require.NoError(b, err)
+		_, err = db.PutItem(sdkInput)
+		require.NoError(b, err)
 	}
 
 	return db

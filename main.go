@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -21,10 +22,25 @@ import (
 )
 
 const (
-	readTimeout  = 5 * time.Second
-	writeTimeout = 10 * time.Second
+	readTimeout  = 30 * time.Second
+	writeTimeout = 30 * time.Second
 	idleTimeout  = 120 * time.Second
+	maxBodySlurp = 1 << 20
 )
+
+// withHTTPSafety drains any remaining request body after the handler returns
+// so the server-side connection can be reused.
+func withHTTPSafety(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if r.Body != nil {
+				_, _ = io.CopyN(io.Discard, r.Body, maxBodySlurp)
+			}
+		}()
+
+		next.ServeHTTP(w, r)
+	})
+}
 
 // newMixedHandler returns an [http.Handler] that routes requests to either the
 // DynamoDB or S3 handler based on the X-Amz-Target header, and to the
@@ -95,7 +111,7 @@ func main() {
 	dashboardHandler := dashboard.NewHandler(ddbClient, s3Client, ddbHandler, s3Handler)
 
 	// Wire the in-memory mux used by the internal SDK clients.
-	mixed := newMixedHandler(ddbHandler, s3Handler, dashboardHandler)
+	mixed := withHTTPSafety(newMixedHandler(ddbHandler, s3Handler, dashboardHandler))
 	inMemMux.Handle("/", mixed)
 
 	// The public server uses the same mixed handler.

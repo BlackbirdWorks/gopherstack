@@ -1,138 +1,128 @@
 package dynamodb
 
 import (
-	"encoding/json"
 	"fmt"
 	"sort"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
 
 const txCancelPrefix = "Transaction cancelled, please refer cancellation reasons for specific reasons"
 
 // TransactWriteItems executes up to 100 write actions atomically.
-// All conditions are checked first; if any fail the whole transaction is cancelled.
-func (db *InMemoryDB) TransactWriteItems(body []byte) (any, error) {
-	var input TransactWriteItemsInput
-	if err := json.Unmarshal(body, &input); err != nil {
-		return nil, err
-	}
-
+func (db *InMemoryDB) TransactWriteItems(input *dynamodb.TransactWriteItemsInput) (*dynamodb.TransactWriteItemsOutput, error) {
 	if len(input.TransactItems) == 0 {
-		return TransactWriteItemsOutput{}, nil
+		return nil, NewValidationException("TransactItems must not be empty")
 	}
 
-	// Collect unique table names and lock in sorted order to prevent deadlocks.
 	tableNames := db.transactTableNames(input.TransactItems)
-
 	tables, lockErr := db.lockTablesWrite(tableNames)
 	if lockErr != nil {
 		return nil, lockErr
 	}
-
 	defer func() {
 		for _, t := range tables {
 			t.mu.Unlock()
 		}
 	}()
 
-	// Phase 1: validate all conditions without mutating.
+	// Phase 1: Check conditions
 	for i, ti := range input.TransactItems {
-		condErr := db.checkTransactWriteCondition(tables, ti, i)
-		if condErr != nil {
-			return nil, condErr
+		if err := db.checkTransactWriteCondition(tables, ti, i); err != nil {
+			return nil, err
 		}
 	}
 
-	// Phase 2: apply all writes.
+	// Phase 2: Apply writes
 	for _, ti := range input.TransactItems {
-		applyErr := db.applyTransactWrite(tables, ti)
-		if applyErr != nil {
-			return nil, applyErr
+		if err := db.applyTransactWrite(tables, ti); err != nil {
+			return nil, err
 		}
 	}
 
-	return TransactWriteItemsOutput{}, nil
+	return &dynamodb.TransactWriteItemsOutput{}, nil
 }
 
-// TransactGetItems reads up to 100 items atomically (snapshot consistency).
-func (db *InMemoryDB) TransactGetItems(body []byte) (any, error) {
-	var input TransactGetItemsInput
-	if err := json.Unmarshal(body, &input); err != nil {
-		return nil, err
+// TransactGetItems reads up to 100 items atomically.
+func (db *InMemoryDB) TransactGetItems(input *dynamodb.TransactGetItemsInput) (*dynamodb.TransactGetItemsOutput, error) {
+	if len(input.TransactItems) == 0 {
+		return nil, NewValidationException("TransactItems must not be empty")
 	}
 
-	// Collect unique table names and lock in sorted order.
 	tableNames := make([]string, 0)
 	seen := make(map[string]bool)
 
 	for _, ti := range input.TransactItems {
-		if ti.Get != nil && !seen[ti.Get.TableName] {
-			tableNames = append(tableNames, ti.Get.TableName)
-			seen[ti.Get.TableName] = true
+		if ti.Get != nil {
+			tableName := aws.ToString(ti.Get.TableName)
+			if !seen[tableName] {
+				tableNames = append(tableNames, tableName)
+				seen[tableName] = true
+			}
 		}
 	}
-
 	sort.Strings(tableNames)
 
 	tables, lockErr := db.lockTablesRead(tableNames)
 	if lockErr != nil {
 		return nil, lockErr
 	}
-
 	defer func() {
 		for _, t := range tables {
 			t.mu.RUnlock()
 		}
 	}()
 
-	responses := make([]ItemResponse, 0, len(input.TransactItems))
+	responses := make([]types.ItemResponse, 0, len(input.TransactItems))
 
 	for _, ti := range input.TransactItems {
 		if ti.Get == nil {
-			responses = append(responses, ItemResponse{})
-
+			responses = append(responses, types.ItemResponse{})
 			continue
 		}
 
-		table, ok := tables[ti.Get.TableName]
+		tableName := aws.ToString(ti.Get.TableName)
+		table, ok := tables[tableName]
 		if !ok {
-			return nil, NewResourceNotFoundException(
-				fmt.Sprintf("Requested resource not found: Table: %s not found", ti.Get.TableName),
-			)
+			return nil, NewResourceNotFoundException(fmt.Sprintf("Table not found: %s", tableName))
 		}
 
 		pkDef, skDef := getPKAndSK(table.KeySchema)
-		item := db.lookupItem(table, ti.Get.Key, pkDef.AttributeName, skDef.AttributeName)
+		wireKey := FromSDKItem(ti.Get.Key)
+		item := db.lookupItem(table, wireKey, pkDef.AttributeName, skDef.AttributeName)
 
 		if item == nil || isItemExpired(item, table.TTLAttribute) {
-			responses = append(responses, ItemResponse{})
-
+			responses = append(responses, types.ItemResponse{})
 			continue
 		}
 
 		result := item
-		if ti.Get.ProjectionExpression != "" {
-			result = projectItem(item, ti.Get.ProjectionExpression, ti.Get.ExpressionAttributeNames)
+		proj := aws.ToString(ti.Get.ProjectionExpression)
+		if proj != "" {
+			result = projectItem(item, proj, ti.Get.ExpressionAttributeNames)
 		}
 
-		responses = append(responses, ItemResponse{Item: result})
+		sdkResult, _ := ToSDKItem(result)
+		responses = append(responses, types.ItemResponse{Item: sdkResult})
 	}
 
-	return TransactGetItemsOutput{Responses: responses}, nil
+	return &dynamodb.TransactGetItemsOutput{Responses: responses}, nil
 }
 
-func (db *InMemoryDB) transactTableNames(items []TransactWriteItem) []string {
+func (db *InMemoryDB) transactTableNames(items []types.TransactWriteItem) []string {
 	seen := make(map[string]bool)
-
 	for _, ti := range items {
 		switch {
 		case ti.Put != nil:
-			seen[ti.Put.TableName] = true
+			seen[aws.ToString(ti.Put.TableName)] = true
 		case ti.Delete != nil:
-			seen[ti.Delete.TableName] = true
+			seen[aws.ToString(ti.Delete.TableName)] = true
 		case ti.Update != nil:
-			seen[ti.Update.TableName] = true
+			seen[aws.ToString(ti.Update.TableName)] = true
 		case ti.ConditionCheck != nil:
-			seen[ti.ConditionCheck.TableName] = true
+			seen[aws.ToString(ti.ConditionCheck.TableName)] = true
 		}
 	}
 
@@ -140,9 +130,7 @@ func (db *InMemoryDB) transactTableNames(items []TransactWriteItem) []string {
 	for name := range seen {
 		names = append(names, name)
 	}
-
 	sort.Strings(names)
-
 	return names
 }
 
@@ -154,12 +142,8 @@ func (db *InMemoryDB) lockTablesWrite(tableNames []string) (map[string]*Table, e
 		t, ok := db.Tables[name]
 		if !ok {
 			db.mu.RUnlock()
-
-			return nil, NewResourceNotFoundException(
-				fmt.Sprintf("Requested resource not found: Table: %s not found", name),
-			)
+			return nil, NewResourceNotFoundException(fmt.Sprintf("Table not found: %s", name))
 		}
-
 		tables[name] = t
 	}
 	db.mu.RUnlock()
@@ -179,12 +163,8 @@ func (db *InMemoryDB) lockTablesRead(tableNames []string) (map[string]*Table, er
 		t, ok := db.Tables[name]
 		if !ok {
 			db.mu.RUnlock()
-
-			return nil, NewResourceNotFoundException(
-				fmt.Sprintf("Requested resource not found: Table: %s not found", name),
-			)
+			return nil, NewResourceNotFoundException(fmt.Sprintf("Table not found: %s", name))
 		}
-
 		tables[name] = t
 	}
 	db.mu.RUnlock()
@@ -198,7 +178,7 @@ func (db *InMemoryDB) lockTablesRead(tableNames []string) (map[string]*Table, er
 
 func (db *InMemoryDB) checkTransactWriteCondition(
 	tables map[string]*Table,
-	ti TransactWriteItem,
+	ti types.TransactWriteItem,
 	idx int,
 ) error {
 	switch {
@@ -206,41 +186,54 @@ func (db *InMemoryDB) checkTransactWriteCondition(
 		return db.checkTransactPut(tables, ti.Put, idx)
 	case ti.Delete != nil:
 		return db.checkTransactCondExpr(
-			tables[ti.Delete.TableName], ti.Delete.Key,
-			ti.Delete.ConditionExpression,
-			ti.Delete.ExpressionAttributeValues,
+			tables[aws.ToString(ti.Delete.TableName)],
+			FromSDKItem(ti.Delete.Key),
+			aws.ToString(ti.Delete.ConditionExpression),
+			FromSDKItem(ti.Delete.ExpressionAttributeValues),
 			ti.Delete.ExpressionAttributeNames,
 			idx,
 		)
 	case ti.Update != nil:
 		return db.checkTransactCondExpr(
-			tables[ti.Update.TableName], ti.Update.Key,
-			ti.Update.ConditionExpression,
-			ti.Update.ExpressionAttributeValues,
+			tables[aws.ToString(ti.Update.TableName)],
+			FromSDKItem(ti.Update.Key),
+			aws.ToString(ti.Update.ConditionExpression),
+			FromSDKItem(ti.Update.ExpressionAttributeValues),
 			ti.Update.ExpressionAttributeNames,
 			idx,
 		)
 	case ti.ConditionCheck != nil:
 		return db.checkTransactCondExpr(
-			tables[ti.ConditionCheck.TableName], ti.ConditionCheck.Key,
-			ti.ConditionCheck.ConditionExpression,
-			ti.ConditionCheck.ExpressionAttributeValues,
+			tables[aws.ToString(ti.ConditionCheck.TableName)],
+			FromSDKItem(ti.ConditionCheck.Key),
+			aws.ToString(ti.ConditionCheck.ConditionExpression),
+			FromSDKItem(ti.ConditionCheck.ExpressionAttributeValues),
 			ti.ConditionCheck.ExpressionAttributeNames,
 			idx,
 		)
 	}
-
 	return nil
 }
 
-func (db *InMemoryDB) checkTransactPut(tables map[string]*Table, input *PutItemInput, idx int) error {
-	table := tables[input.TableName]
-	oldItem, _ := db.findMatchForPut(table, input.Item)
+func (db *InMemoryDB) checkTransactPut(tables map[string]*Table, input *types.Put, idx int) error {
+	table := tables[aws.ToString(input.TableName)]
+	wireItem := FromSDKItem(input.Item)
+	oldItem, _ := db.findMatchForPut(table, wireItem)
 
-	if err := db.checkPutCondition(input, oldItem); err != nil {
-		return NewTransactionCanceledException(
-			fmt.Sprintf("%s [%d]: %s", txCancelPrefix, idx, err),
-		)
+	// Since checkPutCondition expects *dynamodb.PutItemInput, we construct a dummy one
+	// or create a internal checks that takes ConditionExpr string etc.
+	// Reusing checkPutCondition is hard because type mismatch (types.Put vs dynamodb.PutItemInput).
+	// I'll reuse checkTransactCondExpr logic for Put condition.
+
+	cond := aws.ToString(input.ConditionExpression)
+	if cond == "" {
+		return nil
+	}
+
+	eav := FromSDKItem(input.ExpressionAttributeValues)
+
+	if err := db.checkTransactCondExprRaw(oldItem, cond, eav, input.ExpressionAttributeNames, idx); err != nil {
+		return err
 	}
 
 	return nil
@@ -259,48 +252,68 @@ func (db *InMemoryDB) checkTransactCondExpr(
 	}
 
 	oldItem, _ := db.findMatchForPut(table, key)
+	return db.checkTransactCondExprRaw(oldItem, condExpr, eavs, eans, idx)
+}
 
-	match, err := evaluateExpression(condExpr, oldItem, eavs, eans)
+func (db *InMemoryDB) checkTransactCondExprRaw(
+	item map[string]any,
+	condExpr string,
+	eavs map[string]any,
+	eans map[string]string,
+	idx int,
+) error {
+	match, err := evaluateExpression(condExpr, item, eavs, eans)
 	if err != nil {
-		return err
+		return NewTransactionCanceledException(fmt.Sprintf("%s [%d]: %s", txCancelPrefix, idx, err))
 	}
-
 	if !match {
-		return NewTransactionCanceledException(
-			fmt.Sprintf("%s [%d]: ConditionalCheckFailed", txCancelPrefix, idx),
-		)
+		return NewTransactionCanceledException(fmt.Sprintf("%s [%d]: ConditionalCheckFailed", txCancelPrefix, idx))
 	}
-
 	return nil
 }
 
-func (db *InMemoryDB) applyTransactWrite(tables map[string]*Table, ti TransactWriteItem) error {
+func (db *InMemoryDB) applyTransactWrite(tables map[string]*Table, ti types.TransactWriteItem) error {
 	switch {
 	case ti.Put != nil:
-		table := tables[ti.Put.TableName]
-		if err := db.validateItem(ti.Put.Item, table); err != nil {
+		table := tables[aws.ToString(ti.Put.TableName)]
+		wireItem := FromSDKItem(ti.Put.Item)
+		if err := db.validateItem(wireItem, table); err != nil {
 			return err
 		}
-
-		_, matchIndex := db.findMatchForPut(table, ti.Put.Item)
-		db.doPut(table, ti.Put, matchIndex)
+		_, matchIndex := db.findMatchForPut(table, wireItem)
+		db.doPut(table, wireItem, matchIndex)
 
 	case ti.Delete != nil:
-		table := tables[ti.Delete.TableName]
-		_, matchIndex := db.findMatchForPut(table, ti.Delete.Key)
-
+		table := tables[aws.ToString(ti.Delete.TableName)]
+		wireKey := FromSDKItem(ti.Delete.Key)
+		_, matchIndex := db.findMatchForPut(table, wireKey)
 		if matchIndex != -1 {
 			db.deleteItemAtIndex(table, matchIndex)
 		}
 
 	case ti.Update != nil:
-		table := tables[ti.Update.TableName]
-		oldItem, matchIndex := db.findMatchForPut(table, ti.Update.Key)
+		table := tables[aws.ToString(ti.Update.TableName)]
+		wireKey := FromSDKItem(ti.Update.Key)
+		oldItem, matchIndex := db.findMatchForPut(table, wireKey)
 
-		if _, err := db.doUpdate(table, ti.Update, oldItem, matchIndex); err != nil {
+		// doUpdate expects *dynamodb.UpdateItemInput.
+		// types.Update struct is similar but different package.
+		// Use internal logic or construct dummy input?
+		// Better to refactor doUpdate to take components, OR construct dummy input.
+		// Constructing dummy input is easier refactor.
+
+		dummyInput := &dynamodb.UpdateItemInput{
+			Key:                       ti.Update.Key,
+			TableName:                 ti.Update.TableName,
+			UpdateExpression:          ti.Update.UpdateExpression,
+			ExpressionAttributeNames:  ti.Update.ExpressionAttributeNames,
+			ExpressionAttributeValues: ti.Update.ExpressionAttributeValues,
+		}
+
+		_, err := db.doUpdate(table, dummyInput, oldItem, matchIndex)
+		if err != nil {
 			return err
 		}
 	}
-
 	return nil
 }

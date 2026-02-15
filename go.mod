@@ -1,6 +1,6 @@
 module Gopherstack
 
-go 1.26
+go 1.25
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.41.1
@@ -66,6 +66,7 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/power-devops/perfstat v0.0.0-20210106213030-5aafc221ea8c // indirect
+	github.com/sanity-io/litter v1.5.8 // indirect
 	github.com/shirou/gopsutil/v4 v4.25.6 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/tklauser/go-sysconf v0.3.12 // indirect

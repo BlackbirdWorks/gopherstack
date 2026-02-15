@@ -1,7 +1,6 @@
 package dynamodb_test
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -15,8 +14,6 @@ func BenchmarkQuery_ComplexModel(b *testing.B) {
 	db := setupComplexDB(1000)
 
 	// Prepare Query Input
-	// Query: pk="USER_PROFILE", begins_with(sk, "ORG#org-1#")
-	// Projection: sk, DeepData.Config.Theme, DeepData.Meta.Source, Tags
 	input := dynamodb.QueryInput{
 		TableName:              "ComplexBenchTable",
 		KeyConditionExpression: "pk = :type AND begins_with(sk, :orgPrefix)",
@@ -26,11 +23,12 @@ func BenchmarkQuery_ComplexModel(b *testing.B) {
 		},
 		ProjectionExpression: "sk, DeepData.Config.Theme, DeepData.Meta.Source, Tags",
 	}
-	body, _ := json.Marshal(input)
 
 	b.ResetTimer()
+	sdkInput, _ := dynamodb.ToSDKQueryInput(&input)
+
 	for range b.N {
-		_, _ = db.Query(body)
+		_, _ = db.Query(sdkInput)
 	}
 }
 
@@ -42,16 +40,15 @@ func setupComplexDB(count int) *dynamodb.InMemoryDB {
 	createInput := dynamodb.CreateTableInput{
 		TableName: "ComplexBenchTable",
 		KeySchema: []dynamodb.KeySchemaElement{
-			{AttributeName: "pk", KeyType: dynamodb.KeyTypeHash},
-			{AttributeName: "sk", KeyType: dynamodb.KeyTypeRange},
+			{AttributeName: "pk", KeyType: "HASH"},
+			{AttributeName: "sk", KeyType: "RANGE"},
 		},
 		AttributeDefinitions: []dynamodb.AttributeDefinition{
 			{AttributeName: "pk", AttributeType: "S"},
 			{AttributeName: "sk", AttributeType: "S"},
 		},
 	}
-	createBody, _ := json.Marshal(createInput)
-	_, _ = db.CreateTable(createBody)
+	_, _ = db.CreateTable(dynamodb.ToSDKCreateTableInput(&createInput))
 
 	// Populate Data
 	// 10 Orgs, each with count/10 users (Target Data)
@@ -67,19 +64,21 @@ func setupComplexDB(count int) *dynamodb.InMemoryDB {
 			TableName: "ComplexBenchTable",
 			Item:      item,
 		}
-		putBody, _ := json.Marshal(putInput)
-		_, _ = db.PutItem(putBody)
+		sdkPut, _ := dynamodb.ToSDKPutItemInput(&putInput)
+		_, _ = db.PutItem(sdkPut)
 	}
 
 	// Add noise data (different PKs) - 9x the count
 	for i := range count * 9 {
+		// Use simple map for noise to save memory in benchmark if needed,
+		// but structure kept same for consistency
 		item := createComplexItem(fmt.Sprintf("NOISE_%d", i%100), "sk", "org", "user")
 		putInput := dynamodb.PutItemInput{
 			TableName: "ComplexBenchTable",
 			Item:      item,
 		}
-		putBody, _ := json.Marshal(putInput)
-		_, _ = db.PutItem(putBody)
+		sdkPut, _ := dynamodb.ToSDKPutItemInput(&putInput)
+		_, _ = db.PutItem(sdkPut)
 	}
 
 	return db

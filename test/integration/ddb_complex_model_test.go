@@ -3,7 +3,6 @@
 package integration_test
 
 import (
-	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -49,11 +48,11 @@ type NotificationPrefs struct {
 func TestComplexDataModel(t *testing.T) {
 	t.Parallel()
 	client := createDynamoDBClient(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	tableName := "ComplexModelTest-" + uuid.NewString()
 
 	// 1. Create Table
-	_, err := client.CreateTable(ctx, &dynamodb.CreateTableInput{
+	out, err := client.CreateTable(ctx, &dynamodb.CreateTableInput{
 		TableName: aws.String(tableName),
 		AttributeDefinitions: []types.AttributeDefinition{
 			{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
@@ -69,9 +68,15 @@ func TestComplexDataModel(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
+	require.NotNil(t, out)
+	require.NotNil(t, out.TableDescription)
+	dumpSDKOutput(out)
+	assert.Equal(t, tableName, aws.ToString(out.TableDescription.TableName))
+	assert.Equal(t, types.TableStatusActive, out.TableDescription.TableStatus)
+	assert.Equal(t, int64(0), aws.ToInt64(out.TableDescription.ItemCount))
 
 	t.Cleanup(func() {
-		client.DeleteTable(context.Background(), &dynamodb.DeleteTableInput{
+		client.DeleteTable(t.Context(), &dynamodb.DeleteTableInput{
 			TableName: aws.String(tableName),
 		})
 	})
@@ -134,9 +139,9 @@ func TestComplexDataModel(t *testing.T) {
 		},
 	}
 
-	// 3. Insert Data
-	// PK: MODEL_TYPE
-	// SK: ORG#<OrgID>#USER#<UserID>
+	// // 3. Insert Data
+	// // PK: MODEL_TYPE
+	// // SK: ORG#<OrgID>#USER#<UserID>
 	for _, user := range users {
 		sk := fmt.Sprintf("ORG#%s#USER#%s", user.OrgID, user.ID)
 
@@ -172,8 +177,8 @@ func TestComplexDataModel(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// 4. Query with BeginsWith
-	// Get all users in org-123
+	// // 4. Query with BeginsWith
+	// // Get all users in org-123
 	queryOut, err := client.Query(ctx, &dynamodb.QueryInput{
 		TableName:              aws.String(tableName),
 		KeyConditionExpression: aws.String("pk = :type AND begins_with(sk, :orgPrefix)"),

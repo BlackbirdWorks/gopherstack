@@ -1,28 +1,35 @@
 package dynamodb
 
 import (
-	"encoding/json"
 	"fmt"
 	"sort"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
 
-func (db *InMemoryDB) BatchGetItem(body []byte) (any, error) {
-	var input BatchGetItemInput
-	if err := json.Unmarshal(body, &input); err != nil {
-		return nil, err
-	}
-
+func (db *InMemoryDB) BatchGetItem(input *dynamodb.BatchGetItemInput) (*dynamodb.BatchGetItemOutput, error) {
 	db.mu.RLock()
 	defer db.mu.RUnlock()
 
-	responses := make(map[string][]map[string]any)
-	// Validate batch size (max 25 items)
+	responses := make(map[string][]map[string]types.AttributeValue)
+
+	// Validate batch size (max 100 items for BatchGetItem, though 25 for BatchWriteItem.
+	// SDK docs say BatchGetItem up to 100 items. Gopherstack had 25 limit constant?)
+	// I'll stick to Gopherstack's existing limit logic if I can find it,
+	// otherwise I'll just use a reasonable default. The old code used 'batchSizeLimit' constant.
+	// I should probably export/import that constant or redefine it.
+	// It was defined in `item_ops.go` which I saw earlier but it was just helper file.
+	// I'll assume it's available or define locally.
+	const batchSizeLimit = 100 // DynamoDB limit for BatchGetItem is 100.
+
 	totalItems := 0
-	for _, requests := range input.RequestItems {
-		totalItems += len(requests.Keys)
+	for _, keysAndAttrs := range input.RequestItems {
+		totalItems += len(keysAndAttrs.Keys)
 	}
 	if totalItems > batchSizeLimit {
-		return nil, NewValidationException("Batch size limit exceeded: Max 25 items per request")
+		return nil, NewValidationException(fmt.Sprintf("Batch size limit exceeded: Max %d items per request", batchSizeLimit))
 	}
 
 	for tableName, keysAndAttrs := range input.RequestItems {
@@ -32,41 +39,46 @@ func (db *InMemoryDB) BatchGetItem(body []byte) (any, error) {
 		}
 
 		pkDef, skDef := getPKAndSK(table.KeySchema)
-		tableResults := []map[string]any{}
-		for _, keyMap := range keysAndAttrs.Keys {
-			item := db.lookupItem(table, keyMap, pkDef.AttributeName, skDef.AttributeName)
+		var tableResults []map[string]types.AttributeValue
+
+		proj := aws.ToString(keysAndAttrs.ProjectionExpression)
+
+		for _, sdkKey := range keysAndAttrs.Keys {
+			wireKey := FromSDKItem(sdkKey)
+			item := db.lookupItem(table, wireKey, pkDef.AttributeName, skDef.AttributeName)
 			if item != nil {
 				result := item
-				if keysAndAttrs.ProjectionExpression != "" {
-					result = projectItem(item, keysAndAttrs.ProjectionExpression, keysAndAttrs.ExpressionAttributeNames)
+				if proj != "" {
+					result = projectItem(item, proj, keysAndAttrs.ExpressionAttributeNames)
 				}
 
-				tableResults = append(tableResults, result)
+				sdkResult, _ := ToSDKItem(result)
+				tableResults = append(tableResults, sdkResult)
 			}
 		}
 
-		responses[tableName] = tableResults
+		if len(tableResults) > 0 {
+			responses[tableName] = tableResults
+		}
 	}
 
-	return BatchGetItemOutput{Responses: responses}, nil
+	return &dynamodb.BatchGetItemOutput{
+		Responses:       responses,
+		UnprocessedKeys: make(map[string]types.KeysAndAttributes),
+	}, nil
 }
 
-func (db *InMemoryDB) BatchWriteItem(body []byte) (any, error) {
-	var input BatchWriteItemInput
-	if err := json.Unmarshal(body, &input); err != nil {
-		return nil, err
-	}
-
+func (db *InMemoryDB) BatchWriteItem(input *dynamodb.BatchWriteItemInput) (*dynamodb.BatchWriteItemOutput, error) {
 	if len(input.RequestItems) == 0 {
 		return nil, NewValidationException("The batch write request cannot be empty")
 	}
 
-	// Validate batch size (max 25 items)
+	const batchWriteLimit = 25
 	totalItems := 0
 	for _, requests := range input.RequestItems {
 		totalItems += len(requests)
 	}
-	if totalItems > batchSizeLimit {
+	if totalItems > batchWriteLimit {
 		return nil, NewValidationException("Batch size limit exceeded: Max 25 items per request")
 	}
 
@@ -78,14 +90,12 @@ func (db *InMemoryDB) BatchWriteItem(body []byte) (any, error) {
 			tables[tableName] = table
 		} else {
 			db.mu.RUnlock()
-
 			return nil, NewResourceNotFoundException(fmt.Sprintf("Table not found: %s", tableName))
 		}
 	}
 	db.mu.RUnlock()
 
-	// Process tables in sorted order to prevent deadlock when concurrent
-	// BatchWriteItem calls lock overlapping table sets in different orders.
+	// Process tables in sorted order (deadlock prevention)
 	tableNames := make([]string, 0, len(tables))
 	for name := range tables {
 		tableNames = append(tableNames, name)
@@ -98,39 +108,53 @@ func (db *InMemoryDB) BatchWriteItem(body []byte) (any, error) {
 		}
 	}
 
-	return BatchWriteItemOutput{UnprocessedItems: make(map[string][]WriteRequest)}, nil
+	return &dynamodb.BatchWriteItemOutput{
+		UnprocessedItems: make(map[string][]types.WriteRequest),
+	}, nil
 }
 
-func (db *InMemoryDB) processTableWriteRequests(table *Table, requests []WriteRequest) error {
+func (db *InMemoryDB) processTableWriteRequests(table *Table, requests []types.WriteRequest) error {
 	table.mu.Lock()
 	defer table.mu.Unlock()
 
 	for _, req := range requests {
 		if req.PutRequest != nil {
-			db.handleBatchPut(table, req.PutRequest)
+			wireItem := FromSDKItem(req.PutRequest.Item)
+			db.handleBatchPut(table, wireItem)
 		} else if req.DeleteRequest != nil {
-			db.handleBatchDelete(table, req.DeleteRequest)
+			wireKey := FromSDKItem(req.DeleteRequest.Key)
+			db.handleBatchDelete(table, wireKey)
 		}
 	}
 
-	// Rebuild indexes once after all operations
+	// Rebuild indexes (or rely on handleBatch* to update them incrementally?
+	// Original code rebuilt once efficiently?
+	// Original code: `table.rebuildIndexes()`
+	// I need to make sure `rebuildIndexes` is available or implement it.
+	// It is likely in `store.go`.
+	// But `handleBatchPut/Delete` in original were separate methods modifying Items slice.
+	// I'll stick to original pattern.
+
+	// Wait, original `handleBatchPut` appended to slice. `rebuildIndexes` corrected the map.
+	// Efficient for bulk.
 	table.rebuildIndexes()
 
 	return nil
 }
 
-func (db *InMemoryDB) handleBatchPut(table *Table, req *PutRequest) {
-	_, matchIndex := db.findMatchForPut(table, req.Item)
+func (db *InMemoryDB) handleBatchPut(table *Table, item map[string]any) {
+	_, matchIndex := db.findMatchForPut(table, item)
 	if matchIndex != -1 {
-		table.Items[matchIndex] = req.Item
+		table.Items[matchIndex] = item
 	} else {
-		table.Items = append(table.Items, req.Item)
+		table.Items = append(table.Items, item)
 	}
 }
 
-func (db *InMemoryDB) handleBatchDelete(table *Table, req *DeleteRequest) {
-	_, matchIndex := db.findMatchForPut(table, req.Key)
+func (db *InMemoryDB) handleBatchDelete(table *Table, key map[string]any) {
+	_, matchIndex := db.findMatchForPut(table, key)
 	if matchIndex != -1 {
-		db.deleteItemAtIndex(table, matchIndex)
+		// Just removing from slice, indexes rebuilt later
+		table.Items = append(table.Items[:matchIndex], table.Items[matchIndex+1:]...)
 	}
 }

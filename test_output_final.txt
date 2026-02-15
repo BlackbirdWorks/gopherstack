@@ -1,0 +1,1219 @@
+=== RUN   TestCreateBucket
+=== PAUSE TestCreateBucket
+=== RUN   TestDeleteBucket
+=== PAUSE TestDeleteBucket
+=== RUN   TestHeadBucket
+=== PAUSE TestHeadBucket
+=== RUN   TestListBuckets
+=== PAUSE TestListBuckets
+=== RUN   TestPutObject
+=== PAUSE TestPutObject
+=== RUN   TestPutObject_ChecksumAutoCalculation
+=== PAUSE TestPutObject_ChecksumAutoCalculation
+=== RUN   TestGetObject
+=== PAUSE TestGetObject
+=== RUN   TestVersioning
+=== PAUSE TestVersioning
+=== RUN   TestDeleteObject
+=== PAUSE TestDeleteObject
+=== RUN   TestDeleteObject_MakesGetFail
+=== PAUSE TestDeleteObject_MakesGetFail
+=== RUN   TestDeleteObject_DeleteSpecificNullVersion
+=== PAUSE TestDeleteObject_DeleteSpecificNullVersion
+=== RUN   TestListObjects
+=== PAUSE TestListObjects
+=== RUN   TestListObjects_ExcludesDeletedObjects
+=== PAUSE TestListObjects_ExcludesDeletedObjects
+=== RUN   TestObjectTagging
+=== PAUSE TestObjectTagging
+=== RUN   TestGetObjectTagging_Errors
+=== PAUSE TestGetObjectTagging_Errors
+=== RUN   TestDeleteObjectTagging
+=== PAUSE TestDeleteObjectTagging
+=== RUN   TestMultipartUpload_Backend
+=== PAUSE TestMultipartUpload_Backend
+=== RUN   TestGzipCompressor
+=== PAUSE TestGzipCompressor
+=== RUN   TestGzipCompressor_DecompressInvalidData
+=== PAUSE TestGzipCompressor_DecompressInvalidData
+=== RUN   TestHandler_ListBuckets
+=== PAUSE TestHandler_ListBuckets
+=== RUN   TestHandler_CreateBucket
+=== PAUSE TestHandler_CreateBucket
+=== RUN   TestHandler_DeleteBucket
+=== PAUSE TestHandler_DeleteBucket
+=== RUN   TestHandler_HeadBucket
+=== PAUSE TestHandler_HeadBucket
+=== RUN   TestHandler_PutObject
+=== PAUSE TestHandler_PutObject
+=== RUN   TestHandler_GetObject
+=== PAUSE TestHandler_GetObject
+=== RUN   TestHandler_DeleteObject
+=== PAUSE TestHandler_DeleteObject
+=== RUN   TestHandler_HeadObject
+=== PAUSE TestHandler_HeadObject
+=== RUN   TestHandler_HeadObjectWithMetadata
+=== PAUSE TestHandler_HeadObjectWithMetadata
+=== RUN   TestHandler_ObjectTagging
+=== PAUSE TestHandler_ObjectTagging
+=== RUN   TestHandler_BucketVersioning
+=== PAUSE TestHandler_BucketVersioning
+=== RUN   TestHandler_MethodNotAllowed
+=== PAUSE TestHandler_MethodNotAllowed
+=== RUN   TestHandler_BucketLocationQuery
+=== PAUSE TestHandler_BucketLocationQuery
+=== RUN   TestHandler_BucketTaggingNotImplemented
+=== PAUSE TestHandler_BucketTaggingNotImplemented
+=== RUN   TestHandler_ObjectACLIgnored
+=== PAUSE TestHandler_ObjectACLIgnored
+=== RUN   TestHandler_ListObjects
+=== PAUSE TestHandler_ListObjects
+=== RUN   TestHandler_PutBucketVersioning_NonExistentBucket
+=== PAUSE TestHandler_PutBucketVersioning_NonExistentBucket
+=== RUN   TestHandler_PutBucketVersioning_InvalidXML
+=== PAUSE TestHandler_PutBucketVersioning_InvalidXML
+=== RUN   TestHandler_VersionedObjectLifecycle
+=== PAUSE TestHandler_VersionedObjectLifecycle
+=== RUN   TestHandler_PutObjectWithTaggingHeader
+=== PAUSE TestHandler_PutObjectWithTaggingHeader
+=== RUN   TestHandler_PutObjectTagging_InvalidXML
+=== PAUSE TestHandler_PutObjectTagging_InvalidXML
+=== RUN   TestHandler_GetObject_NonExistentBucket
+=== PAUSE TestHandler_GetObject_NonExistentBucket
+=== RUN   TestHandler_ListObjects_NonExistentBucket
+=== PAUSE TestHandler_ListObjects_NonExistentBucket
+=== RUN   TestHandler_DeleteObject_NonExistentBucket
+=== PAUSE TestHandler_DeleteObject_NonExistentBucket
+=== RUN   TestHandler_ChecksumSupport
+=== PAUSE TestHandler_ChecksumSupport
+=== RUN   TestHandler_InvalidInput
+=== PAUSE TestHandler_InvalidInput
+=== RUN   TestHandler_MultipartUpload
+=== PAUSE TestHandler_MultipartUpload
+=== RUN   TestHandler_MultipartUpload_Errors
+=== PAUSE TestHandler_MultipartUpload_Errors
+=== RUN   TestIsValidBucketName
+=== PAUSE TestIsValidBucketName
+=== RUN   TestIsValidObjectKey
+=== PAUSE TestIsValidObjectKey
+=== CONT  TestCreateBucket
+=== RUN   TestCreateBucket/create_new_bucket
+=== PAUSE TestCreateBucket/create_new_bucket
+=== RUN   TestCreateBucket/create_duplicate_bucket
+=== PAUSE TestCreateBucket/create_duplicate_bucket
+=== CONT  TestCreateBucket/create_new_bucket
+=== CONT  TestHandler_GetObject
+=== CONT  TestHandler_PutBucketVersioning_InvalidXML
+=== RUN   TestHandler_GetObject/get_existing_object
+=== PAUSE TestHandler_GetObject/get_existing_object
+=== RUN   TestHandler_GetObject/get_non-existent_key
+=== PAUSE TestHandler_GetObject/get_non-existent_key
+=== CONT  TestHandler_PutBucketVersioning_NonExistentBucket
+=== CONT  TestIsValidObjectKey
+=== RUN   TestIsValidObjectKey/valid_key
+=== PAUSE TestIsValidObjectKey/valid_key
+=== RUN   TestIsValidObjectKey/empty_key
+=== PAUSE TestIsValidObjectKey/empty_key
+=== RUN   TestIsValidObjectKey/too_long_key
+=== PAUSE TestIsValidObjectKey/too_long_key
+=== RUN   TestIsValidObjectKey/max_length_key
+=== PAUSE TestIsValidObjectKey/max_length_key
+=== CONT  TestHandler_ListObjects
+=== CONT  TestIsValidBucketName
+=== RUN   TestIsValidBucketName/my-bucket
+=== PAUSE TestIsValidBucketName/my-bucket
+=== RUN   TestIsValidBucketName/my.bucket
+=== PAUSE TestIsValidBucketName/my.bucket
+=== RUN   TestIsValidBucketName/123-bucket
+=== PAUSE TestIsValidBucketName/123-bucket
+=== RUN   TestIsValidBucketName/bucket-123
+=== CONT  TestHandler_MultipartUpload_Errors
+=== CONT  TestHandler_MultipartUpload
+=== CONT  TestHandler_InvalidInput
+=== RUN   TestHandler_InvalidInput/invalid_bucket_name_(too_short)
+=== CONT  TestHandler_ChecksumSupport
+=== PAUSE TestHandler_InvalidInput/invalid_bucket_name_(too_short)
+=== RUN   TestHandler_InvalidInput/invalid_bucket_name_(uppercase)
+=== CONT  TestHandler_DeleteObject_NonExistentBucket
+=== PAUSE TestHandler_InvalidInput/invalid_bucket_name_(uppercase)
+=== RUN   TestHandler_InvalidInput/invalid_bucket_name_(underscore)
+=== CONT  TestHandler_ListObjects_NonExistentBucket
+=== CONT  TestHandler_GetObject_NonExistentBucket
+=== CONT  TestHandler_ObjectACLIgnored
+=== CONT  TestHandler_PutObjectTagging_InvalidXML
+=== CONT  TestHandler_PutObjectWithTaggingHeader
+=== CONT  TestHandler_VersionedObjectLifecycle
+=== PAUSE TestIsValidBucketName/bucket-123
+--- PASS: TestHandler_PutBucketVersioning_InvalidXML (0.00s)
+--- PASS: TestHandler_PutBucketVersioning_NonExistentBucket (0.00s)
+--- PASS: TestHandler_DeleteObject_NonExistentBucket (0.00s)
+--- PASS: TestHandler_ListObjects_NonExistentBucket (0.00s)
+=== CONT  TestHandler_MethodNotAllowed
+=== RUN   TestHandler_MethodNotAllowed/PATCH_on_bucket
+=== CONT  TestHandler_BucketTaggingNotImplemented
+=== CONT  TestHandler_BucketVersioning
+=== CONT  TestHandler_ObjectTagging
+=== CONT  TestHandler_HeadObjectWithMetadata
+=== CONT  TestHandler_HeadObject
+=== RUN   TestHandler_HeadObject/existing_object
+=== PAUSE TestHandler_HeadObject/existing_object
+=== RUN   TestHandler_HeadObject/non-existent_object
+=== PAUSE TestHandler_HeadObject/non-existent_object
+=== CONT  TestHandler_DeleteObject
+=== PAUSE TestHandler_MethodNotAllowed/PATCH_on_bucket
+=== CONT  TestHandler_HeadBucket
+=== CONT  TestHandler_BucketLocationQuery
+=== RUN   TestHandler_MethodNotAllowed/PATCH_on_object
+=== RUN   TestIsValidBucketName/a.b.c
+=== PAUSE TestHandler_InvalidInput/invalid_bucket_name_(underscore)
+=== CONT  TestHandler_DeleteBucket
+=== RUN   TestHandler_InvalidInput/invalid_bucket_name_(starts_with_hyphen)
+=== CONT  TestHandler_CreateBucket
+=== CONT  TestListObjects_ExcludesDeletedObjects
+=== CONT  TestGzipCompressor_DecompressInvalidData
+=== PAUSE TestIsValidBucketName/a.b.c
+=== CONT  TestMultipartUpload_Backend
+=== RUN   TestHandler_DeleteBucket/delete_empty_bucket
+=== CONT  TestGzipCompressor
+=== RUN   TestIsValidBucketName/ab
+=== CONT  TestHandler_PutObject
+--- PASS: TestHandler_GetObject_NonExistentBucket (0.00s)
+--- PASS: TestHandler_BucketTaggingNotImplemented (0.00s)
+--- PASS: TestHandler_MultipartUpload_Errors (0.00s)
+--- PASS: TestHandler_ObjectACLIgnored (0.00s)
+=== RUN   TestGzipCompressor/empty_data
+--- PASS: TestHandler_ListObjects (0.00s)
+=== RUN   TestHandler_PutObject/put_object_success
+=== PAUSE TestGzipCompressor/empty_data
+=== CONT  TestDeleteObjectTagging
+=== PAUSE TestHandler_PutObject/put_object_success
+=== RUN   TestHandler_CreateBucket/create_new_bucket
+=== RUN   TestGzipCompressor/small_text
+=== PAUSE TestHandler_CreateBucket/create_new_bucket
+=== CONT  TestHandler_ListBuckets
+=== RUN   TestHandler_ListBuckets/no_buckets
+=== RUN   TestHandler_HeadBucket/existing_bucket
+=== PAUSE TestHandler_MethodNotAllowed/PATCH_on_object
+=== PAUSE TestHandler_DeleteBucket/delete_empty_bucket
+=== PAUSE TestGzipCompressor/small_text
+=== RUN   TestHandler_DeleteBucket/delete_non-existent_bucket
+=== RUN   TestGzipCompressor/large_repeated_data
+=== PAUSE TestHandler_DeleteBucket/delete_non-existent_bucket
+=== PAUSE TestGzipCompressor/large_repeated_data
+=== RUN   TestHandler_DeleteBucket/delete_non-empty_bucket
+=== RUN   TestGzipCompressor/binary_data
+=== PAUSE TestHandler_DeleteBucket/delete_non-empty_bucket
+=== CONT  TestGetObject
+=== PAUSE TestHandler_ListBuckets/no_buckets
+=== CONT  TestListObjects
+=== PAUSE TestHandler_HeadBucket/existing_bucket
+=== PAUSE TestGzipCompressor/binary_data
+=== RUN   TestHandler_HeadBucket/non-existent_bucket
+=== RUN   TestHandler_ListBuckets/one_bucket
+=== RUN   TestGetObject/get_existing_object
+=== PAUSE TestHandler_HeadBucket/non-existent_bucket
+=== RUN   TestListObjects/list_objects_with_prefix
+=== CONT  TestDeleteObject_DeleteSpecificNullVersion
+=== PAUSE TestGetObject/get_existing_object
+=== PAUSE TestListObjects/list_objects_with_prefix
+=== RUN   TestGetObject/get_from_non-existent_bucket
+=== PAUSE TestIsValidBucketName/ab
+=== PAUSE TestGetObject/get_from_non-existent_bucket
+--- PASS: TestHandler_BucketVersioning (0.00s)
+--- PASS: TestHandler_ChecksumSupport (0.00s)
+--- PASS: TestHandler_BucketLocationQuery (0.00s)
+--- PASS: TestHandler_PutObjectWithTaggingHeader (0.00s)
+--- PASS: TestHandler_DeleteObject (0.00s)
+--- PASS: TestHandler_ObjectTagging (0.00s)
+--- PASS: TestGzipCompressor_DecompressInvalidData (0.00s)
+--- PASS: TestDeleteObject_DeleteSpecificNullVersion (0.00s)
+=== CONT  TestVersioning
+=== RUN   TestHandler_PutObject/put_object_to_non-existent_bucket
+--- PASS: TestHandler_HeadObjectWithMetadata (0.00s)
+=== RUN   TestDeleteObjectTagging/delete_tags_from_object
+=== PAUSE TestHandler_PutObject/put_object_to_non-existent_bucket
+=== CONT  TestGetObjectTagging_Errors
+=== PAUSE TestHandler_InvalidInput/invalid_bucket_name_(starts_with_hyphen)
+=== RUN   TestHandler_InvalidInput/invalid_bucket_name_(IP_address)
+=== PAUSE TestHandler_InvalidInput/invalid_bucket_name_(IP_address)
+=== CONT  TestObjectTagging
+=== RUN   TestHandler_InvalidInput/invalid_object_key_(too_long)
+=== PAUSE TestHandler_InvalidInput/invalid_object_key_(too_long)
+=== RUN   TestObjectTagging/put_and_get_tags
+=== RUN   TestHandler_CreateBucket/create_duplicate_bucket
+=== PAUSE TestHandler_CreateBucket/create_duplicate_bucket
+=== PAUSE TestObjectTagging/put_and_get_tags
+=== CONT  TestPutObject_ChecksumAutoCalculation
+=== RUN   TestPutObject_ChecksumAutoCalculation/CRC32
+=== CONT  TestDeleteObject_MakesGetFail
+=== PAUSE TestHandler_ListBuckets/one_bucket
+=== RUN   TestListObjects/list_all_objects
+=== RUN   TestGetObject/get_non-existent_key
+=== PAUSE TestGetObject/get_non-existent_key
+=== CONT  TestDeleteObject
+=== CONT  TestHeadBucket
+=== CONT  TestCreateBucket/create_duplicate_bucket
+=== RUN   TestDeleteObject/simple_delete_creates_delete_marker
+=== RUN   TestVersioning/versioned_put_creates_unique_version_IDs
+=== PAUSE TestVersioning/versioned_put_creates_unique_version_IDs
+=== PAUSE TestDeleteObject/simple_delete_creates_delete_marker
+=== RUN   TestVersioning/get_specific_null_version
+=== PAUSE TestVersioning/get_specific_null_version
+=== RUN   TestVersioning/get_non-existent_version_returns_error
+=== PAUSE TestVersioning/get_non-existent_version_returns_error
+=== CONT  TestIsValidObjectKey/valid_key
+=== CONT  TestIsValidObjectKey/too_long_key
+=== CONT  TestIsValidObjectKey/max_length_key
+=== CONT  TestIsValidObjectKey/empty_key
+=== CONT  TestHandler_HeadObject/existing_object
+=== RUN   TestDeleteObject/delete_from_non-existent_bucket
+=== PAUSE TestDeleteObject/delete_from_non-existent_bucket
+=== CONT  TestListBuckets
+=== RUN   TestListBuckets/no_buckets
+=== RUN   TestGetObjectTagging_Errors/non-existent_bucket
+=== CONT  TestPutObject
+=== PAUSE TestGetObjectTagging_Errors/non-existent_bucket
+=== RUN   TestPutObject/put_object_in_existing_bucket
+=== RUN   TestGetObjectTagging_Errors/non-existent_key
+=== PAUSE TestPutObject/put_object_in_existing_bucket
+=== RUN   TestObjectTagging/put_tags_on_non-existent_key
+=== RUN   TestPutObject/put_object_in_non-existent_bucket
+=== PAUSE TestPutObject/put_object_in_non-existent_bucket
+=== PAUSE TestObjectTagging/put_tags_on_non-existent_key
+=== RUN   TestObjectTagging/put_tags_on_non-existent_bucket
+=== CONT  TestHandler_MethodNotAllowed/PATCH_on_bucket
+=== PAUSE TestObjectTagging/put_tags_on_non-existent_bucket
+=== PAUSE TestListObjects/list_all_objects
+=== CONT  TestDeleteBucket
+=== RUN   TestListObjects/list_objects_from_non-existent_bucket
+=== RUN   TestDeleteBucket/delete_existing_empty_bucket
+=== PAUSE TestListObjects/list_objects_from_non-existent_bucket
+=== PAUSE TestDeleteBucket/delete_existing_empty_bucket
+=== CONT  TestHandler_DeleteBucket/delete_empty_bucket
+=== RUN   TestDeleteBucket/delete_non-existent_bucket
+=== CONT  TestHandler_DeleteBucket/delete_non-empty_bucket
+=== RUN   TestIsValidBucketName/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+=== CONT  TestHandler_DeleteBucket/delete_non-existent_bucket
+=== PAUSE TestIsValidBucketName/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+=== CONT  TestHandler_GetObject/get_existing_object
+=== RUN   TestIsValidBucketName/MyBucket
+=== CONT  TestGzipCompressor/empty_data
+=== RUN   TestHeadBucket/get_existing_bucket
+=== CONT  TestHandler_GetObject/get_non-existent_key
+--- PASS: TestHandler_PutObjectTagging_InvalidXML (0.00s)
+--- PASS: TestHandler_VersionedObjectLifecycle (0.00s)
+--- PASS: TestHandler_MultipartUpload (0.00s)
+--- PASS: TestListObjects_ExcludesDeletedObjects (0.00s)
+=== PAUSE TestDeleteObjectTagging/delete_tags_from_object
+=== CONT  TestHandler_HeadBucket/existing_bucket
+=== RUN   TestDeleteObjectTagging/delete_tags_from_non-existent_bucket
+=== CONT  TestGzipCompressor/small_text
+=== PAUSE TestDeleteObjectTagging/delete_tags_from_non-existent_bucket
+=== CONT  TestHandler_HeadObject/non-existent_object
+=== CONT  TestGzipCompressor/large_repeated_data
+=== RUN   TestDeleteObject/delete_specific_version_not_found
+=== PAUSE TestDeleteObject/delete_specific_version_not_found
+=== RUN   TestDeleteObject/delete_specific_version_of_non-existent_key
+=== PAUSE TestListBuckets/no_buckets
+=== PAUSE TestGetObjectTagging_Errors/non-existent_key
+=== PAUSE TestPutObject_ChecksumAutoCalculation/CRC32
+=== CONT  TestHandler_MethodNotAllowed/PATCH_on_object
+=== CONT  TestHandler_InvalidInput/invalid_bucket_name_(too_short)
+=== CONT  TestHandler_InvalidInput/invalid_bucket_name_(IP_address)
+=== PAUSE TestDeleteBucket/delete_non-existent_bucket
+=== PAUSE TestHeadBucket/get_existing_bucket
+=== CONT  TestHandler_HeadBucket/non-existent_bucket
+=== RUN   TestHeadBucket/get_non-existent_bucket
+=== PAUSE TestHeadBucket/get_non-existent_bucket
+--- PASS: TestDeleteObject_MakesGetFail (0.00s)
+=== CONT  TestHandler_InvalidInput/invalid_bucket_name_(uppercase)
+=== PAUSE TestIsValidBucketName/MyBucket
+=== RUN   TestDeleteObjectTagging/delete_tags_from_non-existent_key
+=== RUN   TestIsValidBucketName/my_bucket
+=== CONT  TestGzipCompressor/binary_data
+=== PAUSE TestDeleteObjectTagging/delete_tags_from_non-existent_key
+=== CONT  TestHandler_ListBuckets/no_buckets
+=== PAUSE TestIsValidBucketName/my_bucket
+=== RUN   TestIsValidBucketName/-mybucket
+=== RUN   TestPutObject_ChecksumAutoCalculation/CRC32C
+=== PAUSE TestIsValidBucketName/-mybucket
+=== CONT  TestHandler_PutObject/put_object_success
+=== CONT  TestGetObject/get_non-existent_key
+=== CONT  TestGetObject/get_from_non-existent_bucket
+=== RUN   TestIsValidBucketName/mybucket-
+=== PAUSE TestDeleteObject/delete_specific_version_of_non-existent_key
+=== CONT  TestGetObject/get_existing_object
+=== CONT  TestHandler_InvalidInput/invalid_bucket_name_(starts_with_hyphen)
+=== CONT  TestHandler_PutObject/put_object_to_non-existent_bucket
+=== RUN   TestListBuckets/one_bucket
+=== CONT  TestVersioning/versioned_put_creates_unique_version_IDs
+=== PAUSE TestIsValidBucketName/mybucket-
+=== CONT  TestHandler_InvalidInput/invalid_object_key_(too_long)
+=== CONT  TestVersioning/get_non-existent_version_returns_error
+=== CONT  TestHandler_InvalidInput/invalid_bucket_name_(underscore)
+=== RUN   TestDeleteBucket/delete_non-empty_bucket
+--- PASS: TestCreateBucket (0.00s)
+    --- PASS: TestCreateBucket/create_new_bucket (0.00s)
+    --- PASS: TestCreateBucket/create_duplicate_bucket (0.00s)
+=== CONT  TestHandler_CreateBucket/create_new_bucket
+=== CONT  TestHandler_CreateBucket/create_duplicate_bucket
+=== CONT  TestVersioning/get_specific_null_version
+--- PASS: TestIsValidObjectKey (0.00s)
+    --- PASS: TestIsValidObjectKey/valid_key (0.00s)
+    --- PASS: TestIsValidObjectKey/too_long_key (0.00s)
+    --- PASS: TestIsValidObjectKey/max_length_key (0.00s)
+    --- PASS: TestIsValidObjectKey/empty_key (0.00s)
+=== CONT  TestHandler_ListBuckets/one_bucket
+=== PAUSE TestPutObject_ChecksumAutoCalculation/CRC32C
+=== RUN   TestIsValidBucketName/.mybucket
+=== PAUSE TestListBuckets/one_bucket
+=== PAUSE TestDeleteBucket/delete_non-empty_bucket
+--- PASS: TestMultipartUpload_Backend (0.00s)
+=== CONT  TestPutObject/put_object_in_existing_bucket
+=== CONT  TestListObjects/list_all_objects
+=== CONT  TestPutObject/put_object_in_non-existent_bucket
+=== RUN   TestPutObject_ChecksumAutoCalculation/SHA1
+=== RUN   TestListBuckets/multiple_buckets_sorted
+=== CONT  TestObjectTagging/put_tags_on_non-existent_bucket
+=== CONT  TestObjectTagging/put_and_get_tags
+=== PAUSE TestIsValidBucketName/.mybucket
+=== CONT  TestObjectTagging/put_tags_on_non-existent_key
+=== CONT  TestListObjects/list_objects_with_prefix
+--- PASS: TestGzipCompressor (0.00s)
+    --- PASS: TestGzipCompressor/empty_data (0.00s)
+    --- PASS: TestGzipCompressor/small_text (0.00s)
+    --- PASS: TestGzipCompressor/large_repeated_data (0.00s)
+    --- PASS: TestGzipCompressor/binary_data (0.00s)
+=== CONT  TestListObjects/list_objects_from_non-existent_bucket
+=== CONT  TestHeadBucket/get_existing_bucket
+=== CONT  TestHeadBucket/get_non-existent_bucket
+=== CONT  TestDeleteObjectTagging/delete_tags_from_object
+=== CONT  TestGetObjectTagging_Errors/non-existent_bucket
+=== CONT  TestDeleteObjectTagging/delete_tags_from_non-existent_key
+=== CONT  TestGetObjectTagging_Errors/non-existent_key
+=== PAUSE TestListBuckets/multiple_buckets_sorted
+=== CONT  TestDeleteObjectTagging/delete_tags_from_non-existent_bucket
+--- PASS: TestHandler_HeadObject (0.00s)
+    --- PASS: TestHandler_HeadObject/existing_object (0.00s)
+    --- PASS: TestHandler_HeadObject/non-existent_object (0.00s)
+=== CONT  TestDeleteObject/simple_delete_creates_delete_marker
+--- PASS: TestHandler_HeadBucket (0.00s)
+    --- PASS: TestHandler_HeadBucket/existing_bucket (0.00s)
+    --- PASS: TestHandler_HeadBucket/non-existent_bucket (0.00s)
+--- PASS: TestHandler_DeleteBucket (0.00s)
+    --- PASS: TestHandler_DeleteBucket/delete_empty_bucket (0.00s)
+    --- PASS: TestHandler_DeleteBucket/delete_non-existent_bucket (0.00s)
+    --- PASS: TestHandler_DeleteBucket/delete_non-empty_bucket (0.00s)
+=== RUN   TestIsValidBucketName/mybucket.
+=== CONT  TestDeleteObject/delete_specific_version_of_non-existent_key
+=== CONT  TestListBuckets/no_buckets
+=== CONT  TestListBuckets/multiple_buckets_sorted
+=== PAUSE TestPutObject_ChecksumAutoCalculation/SHA1
+=== CONT  TestDeleteBucket/delete_non-existent_bucket
+=== CONT  TestListBuckets/one_bucket
+=== RUN   TestPutObject_ChecksumAutoCalculation/SHA256
+--- PASS: TestHandler_GetObject (0.00s)
+    --- PASS: TestHandler_GetObject/get_non-existent_key (0.00s)
+    --- PASS: TestHandler_GetObject/get_existing_object (0.00s)
+=== CONT  TestDeleteObject/delete_specific_version_not_found
+--- PASS: TestHandler_MethodNotAllowed (0.00s)
+    --- PASS: TestHandler_MethodNotAllowed/PATCH_on_bucket (0.00s)
+    --- PASS: TestHandler_MethodNotAllowed/PATCH_on_object (0.00s)
+=== CONT  TestDeleteBucket/delete_existing_empty_bucket
+=== CONT  TestDeleteBucket/delete_non-empty_bucket
+=== PAUSE TestIsValidBucketName/mybucket.
+=== PAUSE TestPutObject_ChecksumAutoCalculation/SHA256
+=== CONT  TestDeleteObject/delete_from_non-existent_bucket
+=== RUN   TestPutObject_ChecksumAutoCalculation/Invalid
+=== PAUSE TestPutObject_ChecksumAutoCalculation/Invalid
+=== CONT  TestPutObject_ChecksumAutoCalculation/CRC32
+=== CONT  TestPutObject_ChecksumAutoCalculation/SHA256
+=== CONT  TestPutObject_ChecksumAutoCalculation/CRC32C
+=== CONT  TestPutObject_ChecksumAutoCalculation/SHA1
+--- PASS: TestHandler_InvalidInput (0.00s)
+    --- PASS: TestHandler_InvalidInput/invalid_bucket_name_(too_short) (0.00s)
+    --- PASS: TestHandler_InvalidInput/invalid_bucket_name_(IP_address) (0.00s)
+    --- PASS: TestHandler_InvalidInput/invalid_bucket_name_(uppercase) (0.00s)
+    --- PASS: TestHandler_InvalidInput/invalid_bucket_name_(starts_with_hyphen) (0.00s)
+    --- PASS: TestHandler_InvalidInput/invalid_object_key_(too_long) (0.00s)
+    --- PASS: TestHandler_InvalidInput/invalid_bucket_name_(underscore) (0.00s)
+=== CONT  TestPutObject_ChecksumAutoCalculation/Invalid
+=== RUN   TestIsValidBucketName/my..bucket
+--- PASS: TestGetObject (0.00s)
+    --- PASS: TestGetObject/get_non-existent_key (0.00s)
+    --- PASS: TestGetObject/get_from_non-existent_bucket (0.00s)
+    --- PASS: TestGetObject/get_existing_object (0.00s)
+--- PASS: TestPutObject (0.00s)
+    --- PASS: TestPutObject/put_object_in_non-existent_bucket (0.00s)
+    --- PASS: TestPutObject/put_object_in_existing_bucket (0.00s)
+--- PASS: TestGetObjectTagging_Errors (0.00s)
+    --- PASS: TestGetObjectTagging_Errors/non-existent_key (0.00s)
+    --- PASS: TestGetObjectTagging_Errors/non-existent_bucket (0.00s)
+=== PAUSE TestIsValidBucketName/my..bucket
+--- PASS: TestHandler_ListBuckets (0.00s)
+    --- PASS: TestHandler_ListBuckets/no_buckets (0.00s)
+    --- PASS: TestHandler_ListBuckets/one_bucket (0.00s)
+=== RUN   TestIsValidBucketName/192.168.1.1
+--- PASS: TestObjectTagging (0.00s)
+    --- PASS: TestObjectTagging/put_tags_on_non-existent_key (0.00s)
+    --- PASS: TestObjectTagging/put_tags_on_non-existent_bucket (0.00s)
+    --- PASS: TestObjectTagging/put_and_get_tags (0.00s)
+=== PAUSE TestIsValidBucketName/192.168.1.1
+--- PASS: TestVersioning (0.00s)
+    --- PASS: TestVersioning/get_non-existent_version_returns_error (0.00s)
+    --- PASS: TestVersioning/versioned_put_creates_unique_version_IDs (0.00s)
+    --- PASS: TestVersioning/get_specific_null_version (0.00s)
+--- PASS: TestListBuckets (0.00s)
+    --- PASS: TestListBuckets/no_buckets (0.00s)
+    --- PASS: TestListBuckets/one_bucket (0.00s)
+    --- PASS: TestListBuckets/multiple_buckets_sorted (0.00s)
+--- PASS: TestHandler_CreateBucket (0.00s)
+    --- PASS: TestHandler_CreateBucket/create_duplicate_bucket (0.00s)
+    --- PASS: TestHandler_CreateBucket/create_new_bucket (0.00s)
+=== RUN   TestIsValidBucketName/xn--bucket
+--- PASS: TestDeleteObject (0.00s)
+    --- PASS: TestDeleteObject/delete_specific_version_of_non-existent_key (0.00s)
+    --- PASS: TestDeleteObject/simple_delete_creates_delete_marker (0.00s)
+    --- PASS: TestDeleteObject/delete_from_non-existent_bucket (0.00s)
+    --- PASS: TestDeleteObject/delete_specific_version_not_found (0.00s)
+--- PASS: TestHeadBucket (0.00s)
+    --- PASS: TestHeadBucket/get_existing_bucket (0.00s)
+    --- PASS: TestHeadBucket/get_non-existent_bucket (0.00s)
+--- PASS: TestHandler_PutObject (0.00s)
+    --- PASS: TestHandler_PutObject/put_object_success (0.00s)
+    --- PASS: TestHandler_PutObject/put_object_to_non-existent_bucket (0.00s)
+--- PASS: TestDeleteObjectTagging (0.00s)
+    --- PASS: TestDeleteObjectTagging/delete_tags_from_non-existent_key (0.00s)
+    --- PASS: TestDeleteObjectTagging/delete_tags_from_non-existent_bucket (0.00s)
+    --- PASS: TestDeleteObjectTagging/delete_tags_from_object (0.00s)
+--- PASS: TestDeleteBucket (0.00s)
+    --- PASS: TestDeleteBucket/delete_non-existent_bucket (0.00s)
+    --- PASS: TestDeleteBucket/delete_non-empty_bucket (0.00s)
+    --- PASS: TestDeleteBucket/delete_existing_empty_bucket (0.00s)
+=== PAUSE TestIsValidBucketName/xn--bucket
+=== RUN   TestIsValidBucketName/sthree-bucket
+=== PAUSE TestIsValidBucketName/sthree-bucket
+--- PASS: TestListObjects (0.00s)
+    --- PASS: TestListObjects/list_objects_from_non-existent_bucket (0.00s)
+    --- PASS: TestListObjects/list_objects_with_prefix (0.00s)
+    --- PASS: TestListObjects/list_all_objects (0.00s)
+=== RUN   TestIsValidBucketName/sthree-configurator-bucket
+=== PAUSE TestIsValidBucketName/sthree-configurator-bucket
+=== RUN   TestIsValidBucketName/bucket-s3alias
+--- PASS: TestPutObject_ChecksumAutoCalculation (0.00s)
+    --- PASS: TestPutObject_ChecksumAutoCalculation/CRC32 (0.00s)
+    --- PASS: TestPutObject_ChecksumAutoCalculation/SHA256 (0.00s)
+    --- PASS: TestPutObject_ChecksumAutoCalculation/CRC32C (0.00s)
+    --- PASS: TestPutObject_ChecksumAutoCalculation/Invalid (0.00s)
+    --- PASS: TestPutObject_ChecksumAutoCalculation/SHA1 (0.00s)
+=== PAUSE TestIsValidBucketName/bucket-s3alias
+=== RUN   TestIsValidBucketName/bucket--ol-s3
+=== PAUSE TestIsValidBucketName/bucket--ol-s3
+=== CONT  TestIsValidBucketName/my-bucket
+=== CONT  TestIsValidBucketName/bucket--ol-s3
+=== CONT  TestIsValidBucketName/bucket-s3alias
+=== CONT  TestIsValidBucketName/my_bucket
+=== CONT  TestIsValidBucketName/-mybucket
+=== CONT  TestIsValidBucketName/MyBucket
+=== CONT  TestIsValidBucketName/123-bucket
+=== CONT  TestIsValidBucketName/bucket-123
+=== CONT  TestIsValidBucketName/mybucket.
+=== CONT  TestIsValidBucketName/mybucket-
+=== CONT  TestIsValidBucketName/my.bucket
+=== CONT  TestIsValidBucketName/xn--bucket
+=== CONT  TestIsValidBucketName/192.168.1.1
+=== CONT  TestIsValidBucketName/sthree-bucket
+=== CONT  TestIsValidBucketName/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+=== CONT  TestIsValidBucketName/sthree-configurator-bucket
+=== CONT  TestIsValidBucketName/.mybucket
+=== CONT  TestIsValidBucketName/a.b.c
+=== CONT  TestIsValidBucketName/ab
+=== CONT  TestIsValidBucketName/my..bucket
+--- PASS: TestIsValidBucketName (0.01s)
+    --- PASS: TestIsValidBucketName/my-bucket (0.00s)
+    --- PASS: TestIsValidBucketName/bucket--ol-s3 (0.00s)
+    --- PASS: TestIsValidBucketName/bucket-s3alias (0.00s)
+    --- PASS: TestIsValidBucketName/my_bucket (0.00s)
+    --- PASS: TestIsValidBucketName/-mybucket (0.00s)
+    --- PASS: TestIsValidBucketName/123-bucket (0.00s)
+    --- PASS: TestIsValidBucketName/MyBucket (0.00s)
+    --- PASS: TestIsValidBucketName/bucket-123 (0.00s)
+    --- PASS: TestIsValidBucketName/mybucket. (0.00s)
+    --- PASS: TestIsValidBucketName/mybucket- (0.00s)
+    --- PASS: TestIsValidBucketName/my.bucket (0.00s)
+    --- PASS: TestIsValidBucketName/xn--bucket (0.00s)
+    --- PASS: TestIsValidBucketName/192.168.1.1 (0.00s)
+    --- PASS: TestIsValidBucketName/sthree-bucket (0.00s)
+    --- PASS: TestIsValidBucketName/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa (0.00s)
+    --- PASS: TestIsValidBucketName/sthree-configurator-bucket (0.00s)
+    --- PASS: TestIsValidBucketName/.mybucket (0.00s)
+    --- PASS: TestIsValidBucketName/a.b.c (0.00s)
+    --- PASS: TestIsValidBucketName/ab (0.00s)
+    --- PASS: TestIsValidBucketName/my..bucket (0.00s)
+PASS
+ok  	Gopherstack/s3	(cached)
+=== RUN   TestBatchWriteItem
+=== PAUSE TestBatchWriteItem
+=== RUN   TestBatchGetItem
+=== PAUSE TestBatchGetItem
+=== RUN   TestBatchWriteItem_ValidationErrors
+=== PAUSE TestBatchWriteItem_ValidationErrors
+=== RUN   TestErrorHelpers
+=== PAUSE TestErrorHelpers
+=== RUN   TestExpressionCache
+=== PAUSE TestExpressionCache
+=== RUN   TestExpressionCache_Concurrency
+=== PAUSE TestExpressionCache_Concurrency
+=== RUN   TestQuery_KeyCondition_WithParenthesesAndBeginsWith
+=== PAUSE TestQuery_KeyCondition_WithParenthesesAndBeginsWith
+=== RUN   TestEvaluateExpression
+=== PAUSE TestEvaluateExpression
+=== RUN   TestCompareValues
+=== PAUSE TestCompareValues
+=== RUN   TestUnwrapAttributeValue
+=== PAUSE TestUnwrapAttributeValue
+=== RUN   TestHandler_ServeHTTP
+=== PAUSE TestHandler_ServeHTTP
+=== RUN   TestHandler_Dispatch_Coverage
+=== PAUSE TestHandler_Dispatch_Coverage
+=== RUN   TestPutItem
+=== PAUSE TestPutItem
+=== RUN   TestGetItem
+=== PAUSE TestGetItem
+=== RUN   TestDeleteItem
+=== PAUSE TestDeleteItem
+=== RUN   TestItemOps_Scan
+=== PAUSE TestItemOps_Scan
+=== RUN   TestQuery
+=== PAUSE TestQuery
+=== RUN   TestScan
+=== PAUSE TestScan
+=== RUN   TestScan_ValidationErrors
+=== PAUSE TestScan_ValidationErrors
+=== RUN   TestTableOperations
+=== PAUSE TestTableOperations
+=== RUN   TestUpdateItem_ComplexPaths
+=== PAUSE TestUpdateItem_ComplexPaths
+=== RUN   TestUpdateItem
+=== PAUSE TestUpdateItem
+=== RUN   TestExtractKeySchema
+=== PAUSE TestExtractKeySchema
+=== RUN   TestSortCandidates
+=== PAUSE TestSortCandidates
+=== RUN   TestFindExclusiveStartIndex
+=== PAUSE TestFindExclusiveStartIndex
+=== RUN   TestCompareAny
+=== PAUSE TestCompareAny
+=== RUN   TestToString
+=== PAUSE TestToString
+=== RUN   TestApplyGSIProjection
+=== PAUSE TestApplyGSIProjection
+=== RUN   TestRebuildIndexes
+=== PAUSE TestRebuildIndexes
+=== RUN   TestSortCandidates_InferredType
+=== PAUSE TestSortCandidates_InferredType
+=== RUN   TestParseStr
+=== PAUSE TestParseStr
+=== RUN   TestCalculateItemSize_Complex
+=== PAUSE TestCalculateItemSize_Complex
+=== RUN   TestValidateDataTypes
+=== PAUSE TestValidateDataTypes
+=== RUN   TestBuildKeyString
+=== PAUSE TestBuildKeyString
+=== RUN   TestCalculateItemSize
+=== PAUSE TestCalculateItemSize
+=== RUN   TestPutItem_ValidationErrors
+=== PAUSE TestPutItem_ValidationErrors
+=== RUN   TestPutItem_ItemTooLarge
+=== PAUSE TestPutItem_ItemTooLarge
+=== CONT  TestBatchWriteItem
+=== CONT  TestTableOperations
+=== RUN   TestTableOperations/CreateTable_Success
+=== PAUSE TestTableOperations/CreateTable_Success
+=== RUN   TestTableOperations/CreateTable_AlreadyExists
+=== PAUSE TestTableOperations/CreateTable_AlreadyExists
+=== RUN   TestTableOperations/DescribeTable_Success
+=== PAUSE TestTableOperations/DescribeTable_Success
+=== RUN   TestTableOperations/DescribeTable_NotFound
+=== PAUSE TestTableOperations/DescribeTable_NotFound
+=== RUN   TestTableOperations/ListTables_Success
+=== PAUSE TestTableOperations/ListTables_Success
+=== RUN   TestTableOperations/DeleteTable_Success
+=== PAUSE TestTableOperations/DeleteTable_Success
+=== CONT  TestRebuildIndexes
+=== CONT  TestUnwrapAttributeValue
+--- PASS: TestUnwrapAttributeValue (0.00s)
+=== CONT  TestCompareValues
+=== RUN   TestCompareValues/Number_<_True
+=== PAUSE TestCompareValues/Number_<_True
+=== RUN   TestCompareValues/Number_<_False
+=== PAUSE TestCompareValues/Number_<_False
+=== RUN   TestCompareValues/Number_>_True
+=== PAUSE TestCompareValues/Number_>_True
+=== RUN   TestCompareValues/Number_=_True
+=== PAUSE TestCompareValues/Number_=_True
+=== CONT  TestHandler_ServeHTTP
+=== RUN   TestTableOperations/DeleteTable_NotFound
+=== PAUSE TestTableOperations/DeleteTable_NotFound
+=== RUN   TestHandler_ServeHTTP/Valid_CreateTable
+=== CONT  TestApplyGSIProjection
+=== PAUSE TestHandler_ServeHTTP/Valid_CreateTable
+=== RUN   TestHandler_ServeHTTP/Invalid_Method
+=== PAUSE TestHandler_ServeHTTP/Invalid_Method
+=== RUN   TestHandler_ServeHTTP/Missing_Target
+--- PASS: TestApplyGSIProjection (0.00s)
+=== CONT  TestCompareAny
+--- PASS: TestRebuildIndexes (0.00s)
+=== CONT  TestToString
+=== RUN   TestToString/str
+=== PAUSE TestToString/str
+=== RUN   TestToString/123
+=== PAUSE TestToString/123
+=== RUN   TestToString/true
+=== PAUSE TestToString/true
+=== RUN   TestToString/false
+=== RUN   TestCompareAny/Number_<
+=== PAUSE TestHandler_ServeHTTP/Missing_Target
+=== RUN   TestHandler_ServeHTTP/Invalid_Target_Format
+=== CONT  TestSortCandidates
+=== PAUSE TestHandler_ServeHTTP/Invalid_Target_Format
+=== RUN   TestHandler_ServeHTTP/Unknown_Operation
+=== PAUSE TestHandler_ServeHTTP/Unknown_Operation
+=== RUN   TestHandler_ServeHTTP/ListTables
+=== PAUSE TestHandler_ServeHTTP/ListTables
+=== PAUSE TestCompareAny/Number_<
+=== RUN   TestHandler_ServeHTTP/PutItem
+=== RUN   TestCompareAny/Number_>
+=== PAUSE TestHandler_ServeHTTP/PutItem
+=== RUN   TestHandler_ServeHTTP/GetItem
+=== PAUSE TestCompareAny/Number_>
+=== CONT  TestQuery
+=== RUN   TestCompareAny/Number_=
+=== PAUSE TestCompareAny/Number_=
+=== RUN   TestCompareAny/String_<
+=== PAUSE TestCompareAny/String_<
+--- PASS: TestBatchWriteItem (0.00s)
+=== CONT  TestItemOps_Scan
+=== CONT  TestUpdateItem
+=== PAUSE TestHandler_ServeHTTP/GetItem
+=== CONT  TestUpdateItem_ComplexPaths
+=== CONT  TestDeleteItem
+=== CONT  TestExpressionCache_Concurrency
+=== RUN   TestUpdateItem/New_Item_Creation_(SET)
+=== PAUSE TestUpdateItem/New_Item_Creation_(SET)
+=== RUN   TestUpdateItem/Update_Existing_Item_(SET)
+=== PAUSE TestUpdateItem/Update_Existing_Item_(SET)
+=== RUN   TestUpdateItem/REMOVE_Attribute
+=== PAUSE TestUpdateItem/REMOVE_Attribute
+=== RUN   TestUpdateItem/ADD_Number
+=== PAUSE TestUpdateItem/ADD_Number
+=== RUN   TestUpdateItem/Condition_Check_Failed
+=== RUN   TestCompareValues/String_<_True
+=== PAUSE TestCompareValues/String_<_True
+=== RUN   TestCompareValues/String_>_True
+=== PAUSE TestCompareValues/String_>_True
+=== RUN   TestCompareValues/String_=_True
+=== RUN   TestDeleteItem/Success
+=== PAUSE TestCompareValues/String_=_True
+=== PAUSE TestDeleteItem/Success
+=== CONT  TestScan_ValidationErrors
+=== RUN   TestUpdateItem_ComplexPaths/SET_Nested_Map_Field
+=== PAUSE TestUpdateItem_ComplexPaths/SET_Nested_Map_Field
+=== RUN   TestUpdateItem_ComplexPaths/SET_List_Element_by_Index
+=== PAUSE TestUpdateItem_ComplexPaths/SET_List_Element_by_Index
+=== RUN   TestUpdateItem_ComplexPaths/SET_Nested_List_in_Map
+=== PAUSE TestUpdateItem_ComplexPaths/SET_Nested_List_in_Map
+=== RUN   TestUpdateItem_ComplexPaths/REMOVE_List_Element_(Shift)
+=== PAUSE TestUpdateItem_ComplexPaths/REMOVE_List_Element_(Shift)
+=== RUN   TestCompareValues/String_!=_True
+=== PAUSE TestCompareValues/String_!=_True
+=== CONT  TestGetItem
+=== RUN   TestScan_ValidationErrors/Table_Not_Found
+=== PAUSE TestScan_ValidationErrors/Table_Not_Found
+=== RUN   TestScan_ValidationErrors/Index_Not_Found
+--- PASS: TestExpressionCache_Concurrency (0.00s)
+=== CONT  TestEvaluateExpression
+=== PAUSE TestScan_ValidationErrors/Index_Not_Found
+=== RUN   TestEvaluateExpression/Simple_Equality
+=== CONT  TestScan
+=== CONT  TestHandler_Dispatch_Coverage
+--- PASS: TestSortCandidates (0.00s)
+=== CONT  TestExpressionCache
+--- PASS: TestExpressionCache (0.00s)
+=== CONT  TestQuery_KeyCondition_WithParenthesesAndBeginsWith
+=== RUN   TestHandler_Dispatch_Coverage/CreateTable
+=== PAUSE TestHandler_Dispatch_Coverage/CreateTable
+=== RUN   TestHandler_Dispatch_Coverage/DescribeTable
+=== PAUSE TestToString/false
+=== PAUSE TestUpdateItem/Condition_Check_Failed
+=== RUN   TestQuery_KeyCondition_WithParenthesesAndBeginsWith/Parentheses_with_begins_with
+=== RUN   TestQuery/Simple_PK_Query
+=== PAUSE TestQuery_KeyCondition_WithParenthesesAndBeginsWith/Parentheses_with_begins_with
+=== PAUSE TestQuery/Simple_PK_Query
+=== RUN   TestCompareAny/String_>
+=== RUN   TestQuery/PK_+_SK_Exact_Match
+=== PAUSE TestQuery/PK_+_SK_Exact_Match
+=== RUN   TestQuery_KeyCondition_WithParenthesesAndBeginsWith/Nested_parentheses
+=== PAUSE TestQuery_KeyCondition_WithParenthesesAndBeginsWith/Nested_parentheses
+=== CONT  TestBatchWriteItem_ValidationErrors
+=== RUN   TestQuery/SK_Condition:_Multiple_comparisons_(BEETWEEN)
+=== PAUSE TestCompareAny/String_>
+=== PAUSE TestQuery/SK_Condition:_Multiple_comparisons_(BEETWEEN)
+=== RUN   TestCompareAny/String_=
+=== RUN   TestQuery/ScanIndexForward_=_false_(Reverse)
+=== PAUSE TestCompareAny/String_=
+=== PAUSE TestQuery/ScanIndexForward_=_false_(Reverse)
+=== RUN   TestCompareAny/Nil_v1
+=== RUN   TestQuery/Limit_+_ExclusiveStartKey_(Pagination)
+=== PAUSE TestCompareAny/Nil_v1
+=== PAUSE TestQuery/Limit_+_ExclusiveStartKey_(Pagination)
+=== RUN   TestCompareAny/Nil_v2
+=== RUN   TestQuery/FilterExpression:_Only_even_numbers
+=== PAUSE TestCompareAny/Nil_v2
+=== RUN   TestCompareAny/Float_<
+=== PAUSE TestEvaluateExpression/Simple_Equality
+=== RUN   TestEvaluateExpression/Numeric_Comparison_(>)
+=== PAUSE TestQuery/FilterExpression:_Only_even_numbers
+=== RUN   TestQuery/ProjectionExpression
+=== CONT  TestExtractKeySchema
+=== PAUSE TestHandler_Dispatch_Coverage/DescribeTable
+=== RUN   TestHandler_Dispatch_Coverage/ListTables
+=== PAUSE TestHandler_Dispatch_Coverage/ListTables
+=== RUN   TestHandler_Dispatch_Coverage/PutItem
+=== PAUSE TestHandler_Dispatch_Coverage/PutItem
+=== RUN   TestHandler_Dispatch_Coverage/GetItem
+=== PAUSE TestHandler_Dispatch_Coverage/GetItem
+=== RUN   TestHandler_Dispatch_Coverage/Scan
+=== PAUSE TestHandler_Dispatch_Coverage/Scan
+=== RUN   TestHandler_Dispatch_Coverage/UpdateItem
+=== PAUSE TestHandler_Dispatch_Coverage/UpdateItem
+=== CONT  TestBuildKeyString
+=== RUN   TestHandler_Dispatch_Coverage/Query
+=== PAUSE TestHandler_Dispatch_Coverage/Query
+=== RUN   TestBuildKeyString/Single_PK_(String)
+=== RUN   TestHandler_Dispatch_Coverage/BatchGetItem
+=== PAUSE TestBuildKeyString/Single_PK_(String)
+=== PAUSE TestHandler_Dispatch_Coverage/BatchGetItem
+=== RUN   TestHandler_Dispatch_Coverage/BatchWriteItem
+=== PAUSE TestHandler_Dispatch_Coverage/BatchWriteItem
+=== RUN   TestHandler_Dispatch_Coverage/DeleteItem
+=== PAUSE TestQuery/ProjectionExpression
+=== PAUSE TestHandler_Dispatch_Coverage/DeleteItem
+=== RUN   TestQuery/PK_B_Query
+=== RUN   TestBuildKeyString/Single_PK_(Number)
+=== PAUSE TestQuery/PK_B_Query
+=== RUN   TestHandler_Dispatch_Coverage/DeleteTable
+=== RUN   TestQuery/Missing_Table
+=== PAUSE TestHandler_Dispatch_Coverage/DeleteTable
+=== PAUSE TestBuildKeyString/Single_PK_(Number)
+=== CONT  TestPutItem_ItemTooLarge
+=== PAUSE TestQuery/Missing_Table
+=== RUN   TestItemOps_Scan/Success
+=== PAUSE TestItemOps_Scan/Success
+=== CONT  TestPutItem_ValidationErrors
+=== RUN   TestBuildKeyString/Missing_Key
+=== RUN   TestPutItem_ValidationErrors/Missing_PK
+=== PAUSE TestBuildKeyString/Missing_Key
+=== PAUSE TestPutItem_ValidationErrors/Missing_PK
+=== CONT  TestErrorHelpers
+=== RUN   TestPutItem_ValidationErrors/Invalid_Data_Type_(Number)
+=== CONT  TestValidateDataTypes
+=== PAUSE TestPutItem_ValidationErrors/Invalid_Data_Type_(Number)
+=== CONT  TestCalculateItemSize
+=== CONT  TestParseStr
+=== CONT  TestSortCandidates_InferredType
+=== CONT  TestCalculateItemSize_Complex
+=== RUN   TestPutItem_ValidationErrors/Nested_Map_Validation
+=== PAUSE TestPutItem_ValidationErrors/Nested_Map_Validation
+=== PAUSE TestEvaluateExpression/Numeric_Comparison_(>)
+=== RUN   TestEvaluateExpression/Numeric_Comparison_(<)_-_False
+=== CONT  TestTableOperations/DeleteTable_NotFound
+=== PAUSE TestEvaluateExpression/Numeric_Comparison_(<)_-_False
+=== RUN   TestEvaluateExpression/Between_Condition
+=== CONT  TestTableOperations/ListTables_Success
+=== CONT  TestTableOperations/DescribeTable_NotFound
+=== PAUSE TestEvaluateExpression/Between_Condition
+=== RUN   TestEvaluateExpression/Attribute_Exists
+=== PAUSE TestEvaluateExpression/Attribute_Exists
+=== RUN   TestEvaluateExpression/Attribute_Not_Exists
+--- PASS: TestBatchWriteItem_ValidationErrors (0.00s)
+=== CONT  TestBatchGetItem
+=== CONT  TestTableOperations/DescribeTable_Success
+=== RUN   TestToString/#00
+=== RUN   TestScan/Full_Table_Scan
+=== RUN   TestUpdateItem/ReturnValues_ALL_OLD
+=== CONT  TestTableOperations/CreateTable_AlreadyExists
+=== CONT  TestPutItem
+=== RUN   TestGetItem/Success
+=== CONT  TestFindExclusiveStartIndex
+=== RUN   TestValidateDataTypes/Valid_String
+=== CONT  TestTableOperations/CreateTable_Success
+=== PAUSE TestToString/#00
+=== CONT  TestHandler_ServeHTTP/Valid_CreateTable
+=== RUN   TestToString/["a","b"]
+=== PAUSE TestToString/["a","b"]
+=== CONT  TestTableOperations/DeleteTable_Success
+=== CONT  TestHandler_ServeHTTP/ListTables
+=== CONT  TestHandler_ServeHTTP/GetItem
+--- PASS: TestExtractKeySchema (0.00s)
+--- PASS: TestErrorHelpers (0.00s)
+--- PASS: TestCalculateItemSize (0.00s)
+--- PASS: TestParseStr (0.00s)
+--- PASS: TestSortCandidates_InferredType (0.00s)
+--- PASS: TestCalculateItemSize_Complex (0.00s)
+=== RUN   TestPutItem/Success
+=== PAUSE TestPutItem/Success
+--- PASS: TestFindExclusiveStartIndex (0.00s)
+=== RUN   TestPutItem/Overwrite
+=== CONT  TestHandler_ServeHTTP/Invalid_Target_Format
+=== CONT  TestHandler_ServeHTTP/PutItem
+=== PAUSE TestCompareAny/Float_<
+=== PAUSE TestUpdateItem/ReturnValues_ALL_OLD
+=== CONT  TestCompareValues/Number_<_True
+=== CONT  TestScan_ValidationErrors/Index_Not_Found
+=== CONT  TestScan_ValidationErrors/Table_Not_Found
+=== PAUSE TestEvaluateExpression/Attribute_Not_Exists
+=== CONT  TestUpdateItem_ComplexPaths/SET_Nested_List_in_Map
+=== CONT  TestHandler_ServeHTTP/Unknown_Operation
+=== RUN   TestEvaluateExpression/Begins_With
+=== PAUSE TestEvaluateExpression/Begins_With
+--- PASS: TestBatchGetItem (0.00s)
+=== CONT  TestDeleteItem/Success
+--- PASS: TestTableOperations (0.00s)
+    --- PASS: TestTableOperations/DeleteTable_NotFound (0.00s)
+    --- PASS: TestTableOperations/ListTables_Success (0.00s)
+    --- PASS: TestTableOperations/DescribeTable_NotFound (0.00s)
+    --- PASS: TestTableOperations/DescribeTable_Success (0.00s)
+    --- PASS: TestTableOperations/CreateTable_AlreadyExists (0.00s)
+    --- PASS: TestTableOperations/CreateTable_Success (0.00s)
+    --- PASS: TestTableOperations/DeleteTable_Success (0.00s)
+--- PASS: TestScan_ValidationErrors (0.00s)
+    --- PASS: TestScan_ValidationErrors/Index_Not_Found (0.00s)
+    --- PASS: TestScan_ValidationErrors/Table_Not_Found (0.00s)
+=== CONT  TestUpdateItem_ComplexPaths/SET_Nested_Map_Field
+=== PAUSE TestValidateDataTypes/Valid_String
+=== CONT  TestHandler_ServeHTTP/Missing_Target
+--- PASS: TestDeleteItem (0.00s)
+    --- PASS: TestDeleteItem/Success (0.00s)
+=== CONT  TestCompareValues/String_=_True
+=== PAUSE TestPutItem/Overwrite
+=== CONT  TestCompareValues/String_>_True
+=== RUN   TestPutItem/ReturnValues_ALL_OLD
+=== CONT  TestCompareValues/String_<_True
+=== CONT  TestCompareValues/Number_=_True
+=== CONT  TestCompareValues/Number_<_False
+=== CONT  TestQuery_KeyCondition_WithParenthesesAndBeginsWith/Parentheses_with_begins_with
+=== CONT  TestQuery_KeyCondition_WithParenthesesAndBeginsWith/Nested_parentheses
+=== PAUSE TestPutItem/ReturnValues_ALL_OLD
+=== CONT  TestHandler_ServeHTTP/Invalid_Method
+=== CONT  TestCompareValues/String_!=_True
+=== CONT  TestHandler_Dispatch_Coverage/CreateTable
+=== CONT  TestUpdateItem_ComplexPaths/REMOVE_List_Element_(Shift)
+=== CONT  TestHandler_Dispatch_Coverage/Query
+=== PAUSE TestGetItem/Success
+=== CONT  TestHandler_Dispatch_Coverage/Scan
+=== CONT  TestHandler_Dispatch_Coverage/GetItem
+=== RUN   TestGetItem/NotFound
+--- PASS: TestQuery_KeyCondition_WithParenthesesAndBeginsWith (0.00s)
+    --- PASS: TestQuery_KeyCondition_WithParenthesesAndBeginsWith/Parentheses_with_begins_with (0.00s)
+    --- PASS: TestQuery_KeyCondition_WithParenthesesAndBeginsWith/Nested_parentheses (0.00s)
+=== CONT  TestHandler_Dispatch_Coverage/PutItem
+=== CONT  TestHandler_Dispatch_Coverage/DescribeTable
+=== CONT  TestQuery/Simple_PK_Query
+=== CONT  TestHandler_Dispatch_Coverage/UpdateItem
+=== PAUSE TestGetItem/NotFound
+=== CONT  TestUpdateItem_ComplexPaths/SET_List_Element_by_Index
+=== CONT  TestHandler_Dispatch_Coverage/DeleteItem
+=== CONT  TestHandler_Dispatch_Coverage/DeleteTable
+=== CONT  TestHandler_Dispatch_Coverage/BatchWriteItem
+=== PAUSE TestScan/Full_Table_Scan
+=== CONT  TestQuery/FilterExpression:_Only_even_numbers
+=== RUN   TestValidateDataTypes/Valid_Number
+=== CONT  TestQuery/Missing_Table
+=== PAUSE TestValidateDataTypes/Valid_Number
+=== RUN   TestValidateDataTypes/Invalid_Number
+=== PAUSE TestValidateDataTypes/Invalid_Number
+=== CONT  TestCompareValues/Number_>_True
+=== RUN   TestValidateDataTypes/Valid_Bool
+=== CONT  TestQuery/ProjectionExpression
+=== PAUSE TestValidateDataTypes/Valid_Bool
+=== RUN   TestValidateDataTypes/Valid_Null
+=== PAUSE TestValidateDataTypes/Valid_Null
+=== RUN   TestValidateDataTypes/Valid_List
+=== RUN   TestEvaluateExpression/Contains_(String)
+=== CONT  TestQuery/Limit_+_ExclusiveStartKey_(Pagination)
+=== PAUSE TestEvaluateExpression/Contains_(String)
+=== CONT  TestQuery/ScanIndexForward_=_false_(Reverse)
+=== RUN   TestEvaluateExpression/Nested_Attribute_Path
+=== PAUSE TestEvaluateExpression/Nested_Attribute_Path
+=== RUN   TestEvaluateExpression/OR_Condition
+=== CONT  TestHandler_Dispatch_Coverage/ListTables
+=== CONT  TestHandler_Dispatch_Coverage/BatchGetItem
+2026/02/15 08:16:51 WARN Unknown action action=UnknownOp
+=== CONT  TestQuery/PK_+_SK_Exact_Match
+=== CONT  TestBuildKeyString/Single_PK_(String)
+=== CONT  TestBuildKeyString/Missing_Key
+=== CONT  TestPutItem_ValidationErrors/Missing_PK
+=== RUN   TestScan/Scan_with_Limit_(Pagination)
+=== PAUSE TestScan/Scan_with_Limit_(Pagination)
+=== CONT  TestItemOps_Scan/Success
+=== CONT  TestPutItem_ValidationErrors/Invalid_Data_Type_(Number)
+=== CONT  TestPutItem_ValidationErrors/Nested_Map_Validation
+=== CONT  TestToString/str
+=== CONT  TestToString/#00
+=== CONT  TestToString/false
+=== CONT  TestToString/123
+=== CONT  TestCompareAny/Number_<
+=== CONT  TestUpdateItem/New_Item_Creation_(SET)
+=== CONT  TestCompareAny/Float_<
+=== CONT  TestCompareAny/Nil_v2
+=== RUN   TestPutItem/ReturnConsumedCapacity
+=== CONT  TestToString/true
+=== CONT  TestToString/["a","b"]
+=== PAUSE TestPutItem/ReturnConsumedCapacity
+=== CONT  TestCompareAny/String_<
+=== CONT  TestCompareAny/Number_=
+=== CONT  TestUpdateItem/Condition_Check_Failed
+=== CONT  TestCompareAny/String_>
+=== CONT  TestQuery/PK_B_Query
+=== CONT  TestUpdateItem/Update_Existing_Item_(SET)
+=== RUN   TestScan/Scan_with_FilterExpression_(Value_>_50)
+=== CONT  TestUpdateItem/ReturnValues_ALL_OLD
+=== CONT  TestQuery/SK_Condition:_Multiple_comparisons_(BEETWEEN)
+=== CONT  TestGetItem/Success
+=== PAUSE TestScan/Scan_with_FilterExpression_(Value_>_50)
+=== CONT  TestGetItem/NotFound
+=== CONT  TestBuildKeyString/Single_PK_(Number)
+--- PASS: TestUpdateItem_ComplexPaths (0.00s)
+    --- PASS: TestUpdateItem_ComplexPaths/SET_Nested_Map_Field (0.00s)
+    --- PASS: TestUpdateItem_ComplexPaths/SET_Nested_List_in_Map (0.00s)
+    --- PASS: TestUpdateItem_ComplexPaths/REMOVE_List_Element_(Shift) (0.00s)
+    --- PASS: TestUpdateItem_ComplexPaths/SET_List_Element_by_Index (0.00s)
+=== RUN   TestScan/Scan_GSI_(Sparse_Index_-_Only_even_items_have_gsiPK)
+=== PAUSE TestScan/Scan_GSI_(Sparse_Index_-_Only_even_items_have_gsiPK)
+--- PASS: TestCompareValues (0.00s)
+    --- PASS: TestCompareValues/Number_<_True (0.00s)
+    --- PASS: TestCompareValues/String_=_True (0.00s)
+    --- PASS: TestCompareValues/String_>_True (0.00s)
+    --- PASS: TestCompareValues/String_<_True (0.00s)
+    --- PASS: TestCompareValues/Number_=_True (0.00s)
+    --- PASS: TestCompareValues/Number_<_False (0.00s)
+    --- PASS: TestCompareValues/String_!=_True (0.00s)
+    --- PASS: TestCompareValues/Number_>_True (0.00s)
+=== RUN   TestScan/ProjectionExpression
+=== CONT  TestCompareAny/Nil_v1
+=== CONT  TestCompareAny/String_=
+=== PAUSE TestValidateDataTypes/Valid_List
+=== PAUSE TestEvaluateExpression/OR_Condition
+=== RUN   TestPutItem/ReturnItemCollectionMetrics
+=== CONT  TestUpdateItem/ADD_Number
+=== PAUSE TestPutItem/ReturnItemCollectionMetrics
+=== RUN   TestEvaluateExpression/AND_Condition
+=== CONT  TestCompareAny/Number_>
+=== CONT  TestPutItem/ReturnConsumedCapacity
+=== CONT  TestPutItem/ReturnValues_ALL_OLD
+=== RUN   TestValidateDataTypes/Valid_Map
+=== CONT  TestPutItem/Success
+=== PAUSE TestValidateDataTypes/Valid_Map
+=== CONT  TestUpdateItem/REMOVE_Attribute
+=== RUN   TestValidateDataTypes/Unknown_Type
+=== PAUSE TestValidateDataTypes/Unknown_Type
+--- PASS: TestHandler_ServeHTTP (0.00s)
+    --- PASS: TestHandler_ServeHTTP/ListTables (0.00s)
+    --- PASS: TestHandler_ServeHTTP/Invalid_Target_Format (0.00s)
+    --- PASS: TestHandler_ServeHTTP/GetItem (0.00s)
+    --- PASS: TestHandler_ServeHTTP/Valid_CreateTable (0.00s)
+    --- PASS: TestHandler_ServeHTTP/PutItem (0.00s)
+    --- PASS: TestHandler_ServeHTTP/Missing_Target (0.00s)
+    --- PASS: TestHandler_ServeHTTP/Invalid_Method (0.00s)
+    --- PASS: TestHandler_ServeHTTP/Unknown_Operation (0.00s)
+=== RUN   TestValidateDataTypes/Multiple_Types_in_Attribute
+=== CONT  TestPutItem/ReturnItemCollectionMetrics
+=== PAUSE TestValidateDataTypes/Multiple_Types_in_Attribute
+=== RUN   TestValidateDataTypes/Empty_Attribute_Value
+=== PAUSE TestValidateDataTypes/Empty_Attribute_Value
+=== CONT  TestValidateDataTypes/Valid_String
+--- PASS: TestHandler_Dispatch_Coverage (0.00s)
+    --- PASS: TestHandler_Dispatch_Coverage/CreateTable (0.00s)
+    --- PASS: TestHandler_Dispatch_Coverage/Query (0.00s)
+    --- PASS: TestHandler_Dispatch_Coverage/GetItem (0.00s)
+    --- PASS: TestHandler_Dispatch_Coverage/Scan (0.00s)
+    --- PASS: TestHandler_Dispatch_Coverage/DescribeTable (0.00s)
+    --- PASS: TestHandler_Dispatch_Coverage/DeleteItem (0.00s)
+    --- PASS: TestHandler_Dispatch_Coverage/DeleteTable (0.00s)
+    --- PASS: TestHandler_Dispatch_Coverage/ListTables (0.00s)
+    --- PASS: TestHandler_Dispatch_Coverage/BatchGetItem (0.00s)
+    --- PASS: TestHandler_Dispatch_Coverage/PutItem (0.00s)
+    --- PASS: TestHandler_Dispatch_Coverage/UpdateItem (0.00s)
+    --- PASS: TestHandler_Dispatch_Coverage/BatchWriteItem (0.00s)
+=== CONT  TestValidateDataTypes/Valid_Number
+=== CONT  TestValidateDataTypes/Multiple_Types_in_Attribute
+=== CONT  TestValidateDataTypes/Unknown_Type
+=== CONT  TestValidateDataTypes/Valid_Map
+=== CONT  TestValidateDataTypes/Valid_List
+--- PASS: TestPutItem_ValidationErrors (0.00s)
+    --- PASS: TestPutItem_ValidationErrors/Missing_PK (0.00s)
+    --- PASS: TestPutItem_ValidationErrors/Invalid_Data_Type_(Number) (0.00s)
+    --- PASS: TestPutItem_ValidationErrors/Nested_Map_Validation (0.00s)
+=== CONT  TestPutItem/Overwrite
+--- PASS: TestToString (0.00s)
+    --- PASS: TestToString/str (0.00s)
+    --- PASS: TestToString/#00 (0.00s)
+    --- PASS: TestToString/false (0.00s)
+    --- PASS: TestToString/123 (0.00s)
+    --- PASS: TestToString/["a","b"] (0.00s)
+    --- PASS: TestToString/true (0.00s)
+--- PASS: TestItemOps_Scan (0.00s)
+    --- PASS: TestItemOps_Scan/Success (0.00s)
+=== PAUSE TestEvaluateExpression/AND_Condition
+--- PASS: TestGetItem (0.00s)
+    --- PASS: TestGetItem/NotFound (0.00s)
+    --- PASS: TestGetItem/Success (0.00s)
+=== CONT  TestEvaluateExpression/Simple_Equality
+=== CONT  TestEvaluateExpression/Nested_Attribute_Path
+=== CONT  TestEvaluateExpression/Between_Condition
+=== CONT  TestEvaluateExpression/Attribute_Not_Exists
+=== CONT  TestEvaluateExpression/Numeric_Comparison_(>)
+=== CONT  TestEvaluateExpression/Attribute_Exists
+=== CONT  TestEvaluateExpression/Begins_With
+=== CONT  TestValidateDataTypes/Invalid_Number
+=== CONT  TestValidateDataTypes/Valid_Bool
+=== CONT  TestValidateDataTypes/Valid_Null
+=== CONT  TestValidateDataTypes/Empty_Attribute_Value
+=== PAUSE TestScan/ProjectionExpression
+=== RUN   TestScan/Invalid_Table
+=== CONT  TestEvaluateExpression/AND_Condition
+=== PAUSE TestScan/Invalid_Table
+=== CONT  TestScan/Full_Table_Scan
+=== CONT  TestEvaluateExpression/OR_Condition
+--- PASS: TestBuildKeyString (0.00s)
+    --- PASS: TestBuildKeyString/Single_PK_(String) (0.00s)
+    --- PASS: TestBuildKeyString/Missing_Key (0.00s)
+    --- PASS: TestBuildKeyString/Single_PK_(Number) (0.00s)
+=== CONT  TestScan/Scan_with_Limit_(Pagination)
+--- PASS: TestQuery (0.00s)
+    --- PASS: TestQuery/Simple_PK_Query (0.00s)
+    --- PASS: TestQuery/Missing_Table (0.00s)
+    --- PASS: TestQuery/FilterExpression:_Only_even_numbers (0.00s)
+    --- PASS: TestQuery/ProjectionExpression (0.00s)
+    --- PASS: TestQuery/ScanIndexForward_=_false_(Reverse) (0.00s)
+    --- PASS: TestQuery/Limit_+_ExclusiveStartKey_(Pagination) (0.00s)
+    --- PASS: TestQuery/PK_+_SK_Exact_Match (0.00s)
+    --- PASS: TestQuery/PK_B_Query (0.00s)
+    --- PASS: TestQuery/SK_Condition:_Multiple_comparisons_(BEETWEEN) (0.00s)
+=== CONT  TestEvaluateExpression/Numeric_Comparison_(<)_-_False
+--- PASS: TestPutItem (0.00s)
+    --- PASS: TestPutItem/ReturnConsumedCapacity (0.00s)
+    --- PASS: TestPutItem/ReturnValues_ALL_OLD (0.00s)
+    --- PASS: TestPutItem/Success (0.00s)
+    --- PASS: TestPutItem/ReturnItemCollectionMetrics (0.00s)
+    --- PASS: TestPutItem/Overwrite (0.00s)
+--- PASS: TestUpdateItem (0.00s)
+    --- PASS: TestUpdateItem/New_Item_Creation_(SET) (0.00s)
+    --- PASS: TestUpdateItem/Condition_Check_Failed (0.00s)
+    --- PASS: TestUpdateItem/Update_Existing_Item_(SET) (0.00s)
+    --- PASS: TestUpdateItem/ReturnValues_ALL_OLD (0.00s)
+    --- PASS: TestUpdateItem/ADD_Number (0.00s)
+    --- PASS: TestUpdateItem/REMOVE_Attribute (0.00s)
+=== CONT  TestEvaluateExpression/Contains_(String)
+=== CONT  TestScan/Scan_GSI_(Sparse_Index_-_Only_even_items_have_gsiPK)
+=== CONT  TestScan/Invalid_Table
+=== CONT  TestScan/ProjectionExpression
+=== CONT  TestScan/Scan_with_FilterExpression_(Value_>_50)
+--- PASS: TestCompareAny (0.00s)
+    --- PASS: TestCompareAny/Number_< (0.00s)
+    --- PASS: TestCompareAny/Float_< (0.00s)
+    --- PASS: TestCompareAny/Nil_v2 (0.00s)
+    --- PASS: TestCompareAny/String_< (0.00s)
+    --- PASS: TestCompareAny/Number_= (0.00s)
+    --- PASS: TestCompareAny/String_> (0.00s)
+    --- PASS: TestCompareAny/Nil_v1 (0.00s)
+    --- PASS: TestCompareAny/String_= (0.00s)
+    --- PASS: TestCompareAny/Number_> (0.00s)
+--- PASS: TestValidateDataTypes (0.00s)
+    --- PASS: TestValidateDataTypes/Valid_String (0.00s)
+    --- PASS: TestValidateDataTypes/Valid_Number (0.00s)
+    --- PASS: TestValidateDataTypes/Multiple_Types_in_Attribute (0.00s)
+    --- PASS: TestValidateDataTypes/Unknown_Type (0.00s)
+    --- PASS: TestValidateDataTypes/Valid_Map (0.00s)
+    --- PASS: TestValidateDataTypes/Valid_List (0.00s)
+    --- PASS: TestValidateDataTypes/Invalid_Number (0.00s)
+    --- PASS: TestValidateDataTypes/Valid_Bool (0.00s)
+    --- PASS: TestValidateDataTypes/Valid_Null (0.00s)
+    --- PASS: TestValidateDataTypes/Empty_Attribute_Value (0.00s)
+--- PASS: TestEvaluateExpression (0.00s)
+    --- PASS: TestEvaluateExpression/Simple_Equality (0.00s)
+    --- PASS: TestEvaluateExpression/Nested_Attribute_Path (0.00s)
+    --- PASS: TestEvaluateExpression/Between_Condition (0.00s)
+    --- PASS: TestEvaluateExpression/Attribute_Not_Exists (0.00s)
+    --- PASS: TestEvaluateExpression/Numeric_Comparison_(>) (0.00s)
+    --- PASS: TestEvaluateExpression/Attribute_Exists (0.00s)
+    --- PASS: TestEvaluateExpression/Begins_With (0.00s)
+    --- PASS: TestEvaluateExpression/AND_Condition (0.00s)
+    --- PASS: TestEvaluateExpression/OR_Condition (0.00s)
+    --- PASS: TestEvaluateExpression/Numeric_Comparison_(<)_-_False (0.00s)
+    --- PASS: TestEvaluateExpression/Contains_(String) (0.00s)
+--- PASS: TestScan (0.00s)
+    --- PASS: TestScan/Full_Table_Scan (0.00s)
+    --- PASS: TestScan/Scan_with_Limit_(Pagination) (0.00s)
+    --- PASS: TestScan/Scan_GSI_(Sparse_Index_-_Only_even_items_have_gsiPK) (0.00s)
+    --- PASS: TestScan/Invalid_Table (0.00s)
+    --- PASS: TestScan/ProjectionExpression (0.00s)
+    --- PASS: TestScan/Scan_with_FilterExpression_(Value_>_50) (0.00s)
+--- PASS: TestPutItem_ItemTooLarge (0.00s)
+PASS
+ok  	Gopherstack/dynamodb	(cached)
+=== RUN   TestConditionParsingAndEvaluation
+=== PAUSE TestConditionParsingAndEvaluation
+=== RUN   TestOperatorPrecedence
+=== PAUSE TestOperatorPrecedence
+=== RUN   TestUpdateParsing
+=== PAUSE TestUpdateParsing
+=== CONT  TestConditionParsingAndEvaluation
+=== RUN   TestConditionParsingAndEvaluation/Simple_Equality
+=== CONT  TestUpdateParsing
+=== CONT  TestOperatorPrecedence
+--- PASS: TestUpdateParsing (0.00s)
+=== PAUSE TestConditionParsingAndEvaluation/Simple_Equality
+=== RUN   TestOperatorPrecedence/a_=_:one_OR_b_=_:two_AND_c_=_:four
+=== RUN   TestConditionParsingAndEvaluation/Begins_With
+=== PAUSE TestOperatorPrecedence/a_=_:one_OR_b_=_:two_AND_c_=_:four
+=== PAUSE TestConditionParsingAndEvaluation/Begins_With
+=== RUN   TestConditionParsingAndEvaluation/Numeric_Comparison
+=== RUN   TestOperatorPrecedence/(a_=_:one_OR_b_=_:two)_AND_c_=_:four
+=== PAUSE TestConditionParsingAndEvaluation/Numeric_Comparison
+=== PAUSE TestOperatorPrecedence/(a_=_:one_OR_b_=_:two)_AND_c_=_:four
+=== RUN   TestConditionParsingAndEvaluation/Logical_AND
+=== CONT  TestOperatorPrecedence/a_=_:one_OR_b_=_:two_AND_c_=_:four
+=== CONT  TestOperatorPrecedence/(a_=_:one_OR_b_=_:two)_AND_c_=_:four
+--- PASS: TestOperatorPrecedence (0.00s)
+    --- PASS: TestOperatorPrecedence/a_=_:one_OR_b_=_:two_AND_c_=_:four (0.00s)
+    --- PASS: TestOperatorPrecedence/(a_=_:one_OR_b_=_:two)_AND_c_=_:four (0.00s)
+=== PAUSE TestConditionParsingAndEvaluation/Logical_AND
+=== RUN   TestConditionParsingAndEvaluation/Logical_AND_with_values
+=== PAUSE TestConditionParsingAndEvaluation/Logical_AND_with_values
+=== RUN   TestConditionParsingAndEvaluation/Nested_Path
+=== PAUSE TestConditionParsingAndEvaluation/Nested_Path
+=== RUN   TestConditionParsingAndEvaluation/Function_contains
+=== PAUSE TestConditionParsingAndEvaluation/Function_contains
+=== RUN   TestConditionParsingAndEvaluation/Size_Function
+=== PAUSE TestConditionParsingAndEvaluation/Size_Function
+=== CONT  TestConditionParsingAndEvaluation/Simple_Equality
+=== CONT  TestConditionParsingAndEvaluation/Size_Function
+=== CONT  TestConditionParsingAndEvaluation/Logical_AND_with_values
+=== CONT  TestConditionParsingAndEvaluation/Numeric_Comparison
+=== CONT  TestConditionParsingAndEvaluation/Nested_Path
+=== CONT  TestConditionParsingAndEvaluation/Function_contains
+=== CONT  TestConditionParsingAndEvaluation/Logical_AND
+=== CONT  TestConditionParsingAndEvaluation/Begins_With
+--- PASS: TestConditionParsingAndEvaluation (0.00s)
+    --- PASS: TestConditionParsingAndEvaluation/Simple_Equality (0.00s)
+    --- PASS: TestConditionParsingAndEvaluation/Logical_AND_with_values (0.00s)
+    --- PASS: TestConditionParsingAndEvaluation/Nested_Path (0.00s)
+    --- PASS: TestConditionParsingAndEvaluation/Numeric_Comparison (0.00s)
+    --- PASS: TestConditionParsingAndEvaluation/Size_Function (0.00s)
+    --- PASS: TestConditionParsingAndEvaluation/Logical_AND (0.00s)
+    --- PASS: TestConditionParsingAndEvaluation/Function_contains (0.00s)
+    --- PASS: TestConditionParsingAndEvaluation/Begins_With (0.00s)
+PASS
+ok  	Gopherstack/dynamodb/expr	0.204s

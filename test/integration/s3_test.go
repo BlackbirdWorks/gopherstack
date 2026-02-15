@@ -13,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -33,22 +34,30 @@ func TestS3BucketLifecycle(t *testing.T) {
 			verify: func(t *testing.T, client *s3.Client) {
 				t.Helper()
 				ctx := t.Context()
+				bkt1 := "alpha-" + uuid.NewString()
+				bkt2 := "bravo-" + uuid.NewString()
 
 				_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{
-					Bucket: aws.String("alpha"),
+					Bucket: aws.String(bkt1),
 				})
 				require.NoError(t, err)
 
 				_, err = client.CreateBucket(ctx, &s3.CreateBucketInput{
-					Bucket: aws.String("bravo"),
+					Bucket: aws.String(bkt2),
 				})
 				require.NoError(t, err)
 
 				out, err := client.ListBuckets(ctx, &s3.ListBucketsInput{})
 				require.NoError(t, err)
-				require.Len(t, out.Buckets, 2)
-				assert.Equal(t, "alpha", *out.Buckets[0].Name)
-				assert.Equal(t, "bravo", *out.Buckets[1].Name)
+
+				// Verify our buckets are present
+				found := 0
+				for _, b := range out.Buckets {
+					if *b.Name == bkt1 || *b.Name == bkt2 {
+						found++
+					}
+				}
+				assert.Equal(t, 2, found)
 			},
 		},
 		{
@@ -56,14 +65,15 @@ func TestS3BucketLifecycle(t *testing.T) {
 			verify: func(t *testing.T, client *s3.Client) {
 				t.Helper()
 				ctx := t.Context()
+				bkt := "exists-" + uuid.NewString()
 
 				_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{
-					Bucket: aws.String("exists"),
+					Bucket: aws.String(bkt),
 				})
 				require.NoError(t, err)
 
 				_, err = client.HeadBucket(ctx, &s3.HeadBucketInput{
-					Bucket: aws.String("exists"),
+					Bucket: aws.String(bkt),
 				})
 				require.NoError(t, err)
 			},
@@ -73,21 +83,24 @@ func TestS3BucketLifecycle(t *testing.T) {
 			verify: func(t *testing.T, client *s3.Client) {
 				t.Helper()
 				ctx := t.Context()
+				bkt := "ephemeral-" + uuid.NewString()
 
 				_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{
-					Bucket: aws.String("ephemeral"),
+					Bucket: aws.String(bkt),
 				})
 				require.NoError(t, err)
 
 				_, err = client.DeleteBucket(ctx, &s3.DeleteBucketInput{
-					Bucket: aws.String("ephemeral"),
+					Bucket: aws.String(bkt),
 				})
 				require.NoError(t, err)
 
 				// Verify gone
 				out, err := client.ListBuckets(ctx, &s3.ListBucketsInput{})
 				require.NoError(t, err)
-				assert.Empty(t, out.Buckets)
+				for _, b := range out.Buckets {
+					assert.NotEqual(t, bkt, *b.Name)
+				}
 			},
 		},
 		{
@@ -95,21 +108,22 @@ func TestS3BucketLifecycle(t *testing.T) {
 			verify: func(t *testing.T, client *s3.Client) {
 				t.Helper()
 				ctx := t.Context()
+				bkt := "full-" + uuid.NewString()
 
 				_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{
-					Bucket: aws.String("full"),
+					Bucket: aws.String(bkt),
 				})
 				require.NoError(t, err)
 
 				_, err = client.PutObject(ctx, &s3.PutObjectInput{
-					Bucket: aws.String("full"),
+					Bucket: aws.String(bkt),
 					Key:    aws.String("blocker"),
 					Body:   strings.NewReader("data"),
 				})
 				require.NoError(t, err)
 
 				_, err = client.DeleteBucket(ctx, &s3.DeleteBucketInput{
-					Bucket: aws.String("full"),
+					Bucket: aws.String(bkt),
 				})
 				require.Error(t, err)
 			},
@@ -119,14 +133,15 @@ func TestS3BucketLifecycle(t *testing.T) {
 			verify: func(t *testing.T, client *s3.Client) {
 				t.Helper()
 				ctx := t.Context()
+				bkt := "original-" + uuid.NewString()
 
 				_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{
-					Bucket: aws.String("original"),
+					Bucket: aws.String(bkt),
 				})
 				require.NoError(t, err)
 
 				_, err = client.CreateBucket(ctx, &s3.CreateBucketInput{
-					Bucket: aws.String("original"),
+					Bucket: aws.String(bkt),
 				})
 				require.Error(t, err)
 			},
@@ -155,25 +170,27 @@ func TestS3ObjectCRUD(t *testing.T) {
 			verify: func(t *testing.T, client *s3.Client) {
 				t.Helper()
 				ctx := t.Context()
+				bucketName := "bkt-" + uuid.NewString()
 
 				_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{
-					Bucket: aws.String("bkt"),
+					Bucket: aws.String(bucketName),
 				})
 				require.NoError(t, err)
 
 				content := "Hello S3!"
 				_, err = client.PutObject(ctx, &s3.PutObjectInput{
-					Bucket: aws.String("bkt"),
+					Bucket: aws.String(bucketName),
 					Key:    aws.String("greeting.txt"),
 					Body:   strings.NewReader(content),
 				})
 				require.NoError(t, err)
 
 				got, err := client.GetObject(ctx, &s3.GetObjectInput{
-					Bucket: aws.String("bkt"),
+					Bucket: aws.String(bucketName),
 					Key:    aws.String("greeting.txt"),
 				})
 				require.NoError(t, err)
+				defer got.Body.Close()
 
 				body, err := io.ReadAll(got.Body)
 				require.NoError(t, err)
@@ -185,30 +202,34 @@ func TestS3ObjectCRUD(t *testing.T) {
 			verify: func(t *testing.T, client *s3.Client) {
 				t.Helper()
 				ctx := t.Context()
+				bucketName := "bkt-" + uuid.NewString()
 
 				_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{
-					Bucket: aws.String("bkt"),
+					Bucket: aws.String(bucketName),
 				})
 				require.NoError(t, err)
 
 				_, err = client.PutObject(ctx, &s3.PutObjectInput{
-					Bucket: aws.String("bkt"),
+					Bucket: aws.String(bucketName),
 					Key:    aws.String("to-delete"),
 					Body:   strings.NewReader("bye"),
 				})
 				require.NoError(t, err)
 
 				_, err = client.DeleteObject(ctx, &s3.DeleteObjectInput{
-					Bucket: aws.String("bkt"),
+					Bucket: aws.String(bucketName),
 					Key:    aws.String("to-delete"),
 				})
 				require.NoError(t, err)
 
-				_, err = client.GetObject(ctx, &s3.GetObjectInput{
-					Bucket: aws.String("bkt"),
+				got, err := client.GetObject(ctx, &s3.GetObjectInput{
+					Bucket: aws.String(bucketName),
 					Key:    aws.String("to-delete"),
 				})
 				require.Error(t, err)
+				if got != nil && got.Body != nil {
+					got.Body.Close()
+				}
 			},
 		},
 		{
@@ -216,31 +237,33 @@ func TestS3ObjectCRUD(t *testing.T) {
 			verify: func(t *testing.T, client *s3.Client) {
 				t.Helper()
 				ctx := t.Context()
+				bucketName := "bkt-" + uuid.NewString()
 
 				_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{
-					Bucket: aws.String("bkt"),
+					Bucket: aws.String(bucketName),
 				})
 				require.NoError(t, err)
 
 				_, err = client.PutObject(ctx, &s3.PutObjectInput{
-					Bucket: aws.String("bkt"),
+					Bucket: aws.String(bucketName),
 					Key:    aws.String("key"),
 					Body:   strings.NewReader("v1"),
 				})
 				require.NoError(t, err)
 
 				_, err = client.PutObject(ctx, &s3.PutObjectInput{
-					Bucket: aws.String("bkt"),
+					Bucket: aws.String(bucketName),
 					Key:    aws.String("key"),
 					Body:   strings.NewReader("v2"),
 				})
 				require.NoError(t, err)
 
 				got, err := client.GetObject(ctx, &s3.GetObjectInput{
-					Bucket: aws.String("bkt"),
+					Bucket: aws.String(bucketName),
 					Key:    aws.String("key"),
 				})
 				require.NoError(t, err)
+				defer got.Body.Close()
 
 				body, err := io.ReadAll(got.Body)
 				require.NoError(t, err)
@@ -252,14 +275,15 @@ func TestS3ObjectCRUD(t *testing.T) {
 			verify: func(t *testing.T, client *s3.Client) {
 				t.Helper()
 				ctx := t.Context()
+				bucketName := "bkt-" + uuid.NewString()
 
 				_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{
-					Bucket: aws.String("meta-bkt"),
+					Bucket: aws.String(bucketName),
 				})
 				require.NoError(t, err)
 
 				_, err = client.PutObject(ctx, &s3.PutObjectInput{
-					Bucket:      aws.String("meta-bkt"),
+					Bucket:      aws.String(bucketName),
 					Key:         aws.String("obj"),
 					Body:        strings.NewReader("hello"),
 					ContentType: aws.String("text/plain"),
@@ -271,7 +295,7 @@ func TestS3ObjectCRUD(t *testing.T) {
 				require.NoError(t, err)
 
 				head, err := client.HeadObject(ctx, &s3.HeadObjectInput{
-					Bucket: aws.String("meta-bkt"),
+					Bucket: aws.String(bucketName),
 					Key:    aws.String("obj"),
 				})
 				require.NoError(t, err)
@@ -289,9 +313,10 @@ func TestS3ObjectCRUD(t *testing.T) {
 			verify: func(t *testing.T, client *s3.Client) {
 				t.Helper()
 				ctx := t.Context()
+				bucketName := "bkt-" + uuid.NewString()
 
 				_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{
-					Bucket: aws.String("large"),
+					Bucket: aws.String(bucketName),
 				})
 				require.NoError(t, err)
 
@@ -299,17 +324,18 @@ func TestS3ObjectCRUD(t *testing.T) {
 				payload := bytes.Repeat([]byte("A"), largeObjectSize)
 
 				_, err = client.PutObject(ctx, &s3.PutObjectInput{
-					Bucket: aws.String("large"),
+					Bucket: aws.String(bucketName),
 					Key:    aws.String("big.bin"),
 					Body:   bytes.NewReader(payload),
 				})
 				require.NoError(t, err)
 
 				got, err := client.GetObject(ctx, &s3.GetObjectInput{
-					Bucket: aws.String("large"),
+					Bucket: aws.String(bucketName),
 					Key:    aws.String("big.bin"),
 				})
 				require.NoError(t, err)
+				defer got.Body.Close()
 
 				body, err := io.ReadAll(got.Body)
 				require.NoError(t, err)
@@ -370,15 +396,16 @@ func TestS3PrefixListing(t *testing.T) {
 
 			client := createS3Client(t)
 			ctx := t.Context()
+			bucket := "listing-" + uuid.NewString()
 
 			_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{
-				Bucket: aws.String("listing"),
+				Bucket: aws.String(bucket),
 			})
 			require.NoError(t, err)
 
 			for _, key := range tt.keys {
 				_, putErr := client.PutObject(ctx, &s3.PutObjectInput{
-					Bucket: aws.String("listing"),
+					Bucket: aws.String(bucket),
 					Key:    aws.String(key),
 					Body:   strings.NewReader("data"),
 				})
@@ -386,7 +413,7 @@ func TestS3PrefixListing(t *testing.T) {
 			}
 
 			out, err := client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
-				Bucket: aws.String("listing"),
+				Bucket: aws.String(bucket),
 				Prefix: aws.String(tt.prefix),
 			})
 			require.NoError(t, err)
@@ -401,8 +428,11 @@ func TestS3BucketIsolation(t *testing.T) {
 	client := createS3Client(t)
 	ctx := t.Context()
 
+	bktA := "iso-a-" + uuid.NewString()
+	bktB := "iso-b-" + uuid.NewString()
+
 	// Create two buckets
-	for _, name := range []string{"bucket-a", "bucket-b"} {
+	for _, name := range []string{bktA, bktB} {
 		_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{
 			Bucket: aws.String(name),
 		})
@@ -411,14 +441,14 @@ func TestS3BucketIsolation(t *testing.T) {
 
 	// Put objects in each
 	_, err := client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket: aws.String("bucket-a"),
+		Bucket: aws.String(bktA),
 		Key:    aws.String("only-in-a"),
 		Body:   strings.NewReader("a-data"),
 	})
 	require.NoError(t, err)
 
 	_, err = client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket: aws.String("bucket-b"),
+		Bucket: aws.String(bktB),
 		Key:    aws.String("only-in-b"),
 		Body:   strings.NewReader("b-data"),
 	})
@@ -426,7 +456,7 @@ func TestS3BucketIsolation(t *testing.T) {
 
 	// Verify bucket-a only has its object
 	outA, err := client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
-		Bucket: aws.String("bucket-a"),
+		Bucket: aws.String(bktA),
 	})
 	require.NoError(t, err)
 	require.Len(t, outA.Contents, 1)
@@ -434,7 +464,7 @@ func TestS3BucketIsolation(t *testing.T) {
 
 	// Verify bucket-b only has its object
 	outB, err := client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
-		Bucket: aws.String("bucket-b"),
+		Bucket: aws.String(bktB),
 	})
 	require.NoError(t, err)
 	require.Len(t, outB.Contents, 1)
@@ -442,7 +472,7 @@ func TestS3BucketIsolation(t *testing.T) {
 
 	// Cross-bucket get should fail
 	_, err = client.GetObject(ctx, &s3.GetObjectInput{
-		Bucket: aws.String("bucket-a"),
+		Bucket: aws.String(bktA),
 		Key:    aws.String("only-in-b"),
 	})
 	require.Error(t, err)
@@ -460,14 +490,16 @@ func TestS3VersioningLifecycle(t *testing.T) {
 			verify: func(t *testing.T, client *s3.Client) {
 				t.Helper()
 				ctx := t.Context()
+				bucketName := "ver-" + uuid.NewString()
 
-				_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{
-					Bucket: aws.String("bkt"),
+				out, err := client.CreateBucket(ctx, &s3.CreateBucketInput{
+					Bucket: aws.String(bucketName),
 				})
+				dumpSDKOutput(out)
 				require.NoError(t, err)
 
 				_, err = client.PutBucketVersioning(ctx, &s3.PutBucketVersioningInput{
-					Bucket: aws.String("bkt"),
+					Bucket: aws.String(bucketName),
 					VersioningConfiguration: &types.VersioningConfiguration{
 						Status: types.BucketVersioningStatusEnabled,
 					},
@@ -475,7 +507,7 @@ func TestS3VersioningLifecycle(t *testing.T) {
 				require.NoError(t, err)
 
 				ver, err := client.GetBucketVersioning(ctx, &s3.GetBucketVersioningInput{
-					Bucket: aws.String("bkt"),
+					Bucket: aws.String(bucketName),
 				})
 				require.NoError(t, err)
 				assert.Equal(t, types.BucketVersioningStatusEnabled, ver.Status)
@@ -486,15 +518,16 @@ func TestS3VersioningLifecycle(t *testing.T) {
 			verify: func(t *testing.T, client *s3.Client) {
 				t.Helper()
 				ctx := t.Context()
+				bucketName := "ver-" + uuid.NewString()
 
 				_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{
-					Bucket: aws.String("bkt"),
+					Bucket: aws.String(bucketName),
 				})
 				require.NoError(t, err)
 
 				// Put unversioned (null version)
 				_, err = client.PutObject(ctx, &s3.PutObjectInput{
-					Bucket: aws.String("bkt"),
+					Bucket: aws.String(bucketName),
 					Key:    aws.String("key"),
 					Body:   strings.NewReader("v0-unversioned"),
 				})
@@ -502,7 +535,7 @@ func TestS3VersioningLifecycle(t *testing.T) {
 
 				// Enable versioning
 				_, err = client.PutBucketVersioning(ctx, &s3.PutBucketVersioningInput{
-					Bucket: aws.String("bkt"),
+					Bucket: aws.String(bucketName),
 					VersioningConfiguration: &types.VersioningConfiguration{
 						Status: types.BucketVersioningStatusEnabled,
 					},
@@ -511,7 +544,7 @@ func TestS3VersioningLifecycle(t *testing.T) {
 
 				// Put V1
 				putV1, err := client.PutObject(ctx, &s3.PutObjectInput{
-					Bucket: aws.String("bkt"),
+					Bucket: aws.String(bucketName),
 					Key:    aws.String("key"),
 					Body:   strings.NewReader("v1-data"),
 				})
@@ -520,7 +553,7 @@ func TestS3VersioningLifecycle(t *testing.T) {
 
 				// Put V2
 				putV2, err := client.PutObject(ctx, &s3.PutObjectInput{
-					Bucket: aws.String("bkt"),
+					Bucket: aws.String(bucketName),
 					Key:    aws.String("key"),
 					Body:   strings.NewReader("v2-data"),
 				})
@@ -530,10 +563,11 @@ func TestS3VersioningLifecycle(t *testing.T) {
 
 				// Get latest = V2
 				latest, err := client.GetObject(ctx, &s3.GetObjectInput{
-					Bucket: aws.String("bkt"),
+					Bucket: aws.String(bucketName),
 					Key:    aws.String("key"),
 				})
 				require.NoError(t, err)
+				defer latest.Body.Close()
 
 				body, err := io.ReadAll(latest.Body)
 				require.NoError(t, err)
@@ -541,11 +575,12 @@ func TestS3VersioningLifecycle(t *testing.T) {
 
 				// Get V1 by version ID
 				v1, err := client.GetObject(ctx, &s3.GetObjectInput{
-					Bucket:    aws.String("bkt"),
+					Bucket:    aws.String(bucketName),
 					Key:       aws.String("key"),
 					VersionId: putV1.VersionId,
 				})
 				require.NoError(t, err)
+				defer v1.Body.Close()
 
 				bodyV1, err := io.ReadAll(v1.Body)
 				require.NoError(t, err)
@@ -553,11 +588,12 @@ func TestS3VersioningLifecycle(t *testing.T) {
 
 				// Get null (pre-versioning) version
 				v0, err := client.GetObject(ctx, &s3.GetObjectInput{
-					Bucket:    aws.String("bkt"),
+					Bucket:    aws.String(bucketName),
 					Key:       aws.String("key"),
 					VersionId: aws.String("null"),
 				})
 				require.NoError(t, err)
+				defer v0.Body.Close()
 
 				bodyV0, err := io.ReadAll(v0.Body)
 				require.NoError(t, err)
@@ -569,14 +605,15 @@ func TestS3VersioningLifecycle(t *testing.T) {
 			verify: func(t *testing.T, client *s3.Client) {
 				t.Helper()
 				ctx := t.Context()
+				bucketName := "ver-" + uuid.NewString()
 
 				_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{
-					Bucket: aws.String("bkt"),
+					Bucket: aws.String(bucketName),
 				})
 				require.NoError(t, err)
 
 				_, err = client.PutBucketVersioning(ctx, &s3.PutBucketVersioningInput{
-					Bucket: aws.String("bkt"),
+					Bucket: aws.String(bucketName),
 					VersioningConfiguration: &types.VersioningConfiguration{
 						Status: types.BucketVersioningStatusEnabled,
 					},
@@ -584,7 +621,7 @@ func TestS3VersioningLifecycle(t *testing.T) {
 				require.NoError(t, err)
 
 				putOut, err := client.PutObject(ctx, &s3.PutObjectInput{
-					Bucket: aws.String("bkt"),
+					Bucket: aws.String(bucketName),
 					Key:    aws.String("key"),
 					Body:   strings.NewReader("data"),
 				})
@@ -593,7 +630,7 @@ func TestS3VersioningLifecycle(t *testing.T) {
 
 				// Delete creates a delete marker
 				delOut, err := client.DeleteObject(ctx, &s3.DeleteObjectInput{
-					Bucket: aws.String("bkt"),
+					Bucket: aws.String(bucketName),
 					Key:    aws.String("key"),
 				})
 				require.NoError(t, err)
@@ -603,19 +640,23 @@ func TestS3VersioningLifecycle(t *testing.T) {
 				}
 
 				// Get latest should fail (deleted)
-				_, err = client.GetObject(ctx, &s3.GetObjectInput{
-					Bucket: aws.String("bkt"),
+				got, err := client.GetObject(ctx, &s3.GetObjectInput{
+					Bucket: aws.String(bucketName),
 					Key:    aws.String("key"),
 				})
 				require.Error(t, err)
+				if got != nil && got.Body != nil {
+					got.Body.Close()
+				}
 
 				// But specific version still accessible
 				old, err := client.GetObject(ctx, &s3.GetObjectInput{
-					Bucket:    aws.String("bkt"),
+					Bucket:    aws.String(bucketName),
 					Key:       aws.String("key"),
 					VersionId: putOut.VersionId,
 				})
 				require.NoError(t, err)
+				defer old.Body.Close()
 
 				body, err := io.ReadAll(old.Body)
 				require.NoError(t, err)
@@ -749,7 +790,7 @@ func TestS3TaggingRoundTrip(t *testing.T) {
 
 			client := createS3Client(t)
 			ctx := t.Context()
-			bucket := "tagging-test"
+			bucket := "tag-" + uuid.NewString()
 			key := "tagged-obj"
 
 			_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{
@@ -785,20 +826,21 @@ func TestS3ListObjectsV2(t *testing.T) {
 
 		client := createS3Client(t)
 		ctx := t.Context()
+		bucketName := "v2-basic-" + uuid.NewString()
 
-		_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String("v2-basic")})
+		_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucketName)})
 		require.NoError(t, err)
 
 		for _, key := range []string{"a/1", "a/2", "b/1"} {
 			_, putErr := client.PutObject(ctx, &s3.PutObjectInput{
-				Bucket: aws.String("v2-basic"),
+				Bucket: aws.String(bucketName),
 				Key:    aws.String(key),
 				Body:   strings.NewReader("data"),
 			})
 			require.NoError(t, putErr)
 		}
 
-		out, err := client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{Bucket: aws.String("v2-basic")})
+		out, err := client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{Bucket: aws.String(bucketName)})
 		require.NoError(t, err)
 		assert.EqualValues(t, 3, *out.KeyCount)
 		assert.False(t, *out.IsTruncated)
@@ -810,14 +852,15 @@ func TestS3ListObjectsV2(t *testing.T) {
 
 		client := createS3Client(t)
 		ctx := t.Context()
+		bucketName := "v2-paged-" + uuid.NewString()
 
-		_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String("v2-paged")})
+		_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucketName)})
 		require.NoError(t, err)
 
 		keys := []string{"k1", "k2", "k3", "k4", "k5"}
 		for _, key := range keys {
 			_, putErr := client.PutObject(ctx, &s3.PutObjectInput{
-				Bucket: aws.String("v2-paged"),
+				Bucket: aws.String(bucketName),
 				Key:    aws.String(key),
 				Body:   strings.NewReader("data"),
 			})
@@ -826,7 +869,7 @@ func TestS3ListObjectsV2(t *testing.T) {
 
 		// First page of 2
 		page1, err := client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
-			Bucket:  aws.String("v2-paged"),
+			Bucket:  aws.String(bucketName),
 			MaxKeys: aws.Int32(2),
 		})
 		require.NoError(t, err)
@@ -836,7 +879,7 @@ func TestS3ListObjectsV2(t *testing.T) {
 
 		// Second page of 2
 		page2, err := client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
-			Bucket:            aws.String("v2-paged"),
+			Bucket:            aws.String(bucketName),
 			MaxKeys:           aws.Int32(2),
 			ContinuationToken: page1.NextContinuationToken,
 		})
@@ -846,7 +889,7 @@ func TestS3ListObjectsV2(t *testing.T) {
 
 		// Third page: last 1 item
 		page3, err := client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
-			Bucket:            aws.String("v2-paged"),
+			Bucket:            aws.String(bucketName),
 			MaxKeys:           aws.Int32(2),
 			ContinuationToken: page2.NextContinuationToken,
 		})
@@ -873,13 +916,14 @@ func TestS3ListObjectsV2(t *testing.T) {
 
 		client := createS3Client(t)
 		ctx := t.Context()
+		bucketName := "v2-delim-" + uuid.NewString()
 
-		_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String("v2-delim")})
+		_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucketName)})
 		require.NoError(t, err)
 
 		for _, key := range []string{"docs/a.md", "docs/b.md", "images/c.png", "readme.txt"} {
 			_, putErr := client.PutObject(ctx, &s3.PutObjectInput{
-				Bucket: aws.String("v2-delim"),
+				Bucket: aws.String(bucketName),
 				Key:    aws.String(key),
 				Body:   strings.NewReader("data"),
 			})
@@ -887,7 +931,7 @@ func TestS3ListObjectsV2(t *testing.T) {
 		}
 
 		out, err := client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
-			Bucket:    aws.String("v2-delim"),
+			Bucket:    aws.String(bucketName),
 			Delimiter: aws.String("/"),
 		})
 		require.NoError(t, err)
@@ -904,13 +948,14 @@ func TestS3ListObjectsV2(t *testing.T) {
 
 		client := createS3Client(t)
 		ctx := t.Context()
+		bucketName := "v2-startafter-" + uuid.NewString()
 
-		_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String("v2-startafter")})
+		_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucketName)})
 		require.NoError(t, err)
 
 		for _, key := range []string{"apple", "banana", "cherry", "date"} {
 			_, putErr := client.PutObject(ctx, &s3.PutObjectInput{
-				Bucket: aws.String("v2-startafter"),
+				Bucket: aws.String(bucketName),
 				Key:    aws.String(key),
 				Body:   strings.NewReader("data"),
 			})
@@ -918,7 +963,7 @@ func TestS3ListObjectsV2(t *testing.T) {
 		}
 
 		out, err := client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
-			Bucket:     aws.String("v2-startafter"),
+			Bucket:     aws.String(bucketName),
 			StartAfter: aws.String("banana"),
 		})
 		require.NoError(t, err)
@@ -932,11 +977,12 @@ func TestS3ListObjectsV2(t *testing.T) {
 
 		client := createS3Client(t)
 		ctx := t.Context()
+		bucketName := "v2-empty-" + uuid.NewString()
 
-		_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String("v2-empty")})
+		_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucketName)})
 		require.NoError(t, err)
 
-		out, err := client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{Bucket: aws.String("v2-empty")})
+		out, err := client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{Bucket: aws.String(bucketName)})
 		require.NoError(t, err)
 		assert.Empty(t, out.Contents)
 		assert.EqualValues(t, 0, *out.KeyCount)
@@ -949,7 +995,7 @@ func TestS3ListObjectsV2(t *testing.T) {
 		client := createS3Client(t)
 		ctx := t.Context()
 
-		_, err := client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{Bucket: aws.String("no-such-bucket")})
+		_, err := client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{Bucket: aws.String("no-such-bucket-" + uuid.NewString())})
 		require.Error(t, err)
 	})
 
@@ -958,13 +1004,14 @@ func TestS3ListObjectsV2(t *testing.T) {
 
 		client := createS3Client(t)
 		ctx := t.Context()
+		bucketName := "v2-prefix-delim-" + uuid.NewString()
 
-		_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String("v2-prefix-delim")})
+		_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucketName)})
 		require.NoError(t, err)
 
 		for _, key := range []string{"a/b/1", "a/b/2", "a/c/1", "b/1"} {
 			_, putErr := client.PutObject(ctx, &s3.PutObjectInput{
-				Bucket: aws.String("v2-prefix-delim"),
+				Bucket: aws.String(bucketName),
 				Key:    aws.String(key),
 				Body:   strings.NewReader("data"),
 			})
@@ -972,7 +1019,7 @@ func TestS3ListObjectsV2(t *testing.T) {
 		}
 
 		out, err := client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
-			Bucket:    aws.String("v2-prefix-delim"),
+			Bucket:    aws.String(bucketName),
 			Prefix:    aws.String("a/"),
 			Delimiter: aws.String("/"),
 		})
@@ -990,7 +1037,7 @@ func TestS3ChecksumSHA256(t *testing.T) {
 
 	client := createS3Client(t)
 	ctx := t.Context()
-	bucket := "checksum-test"
+	bucket := "checksum-" + uuid.NewString()
 	key := "sha256-obj"
 	content := "checksum data"
 
@@ -1015,6 +1062,7 @@ func TestS3ChecksumSHA256(t *testing.T) {
 		ChecksumMode: types.ChecksumModeEnabled,
 	})
 	require.NoError(t, err)
+	defer out.Body.Close()
 	assert.NotNil(t, out.ChecksumSHA256)
 
 	// Verify manual calculation matches

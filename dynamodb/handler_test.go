@@ -3,6 +3,7 @@ package dynamodb_test
 import (
 	"Gopherstack/dynamodb"
 	"bytes"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -29,15 +30,23 @@ func TestHandler_ServeHTTP(t *testing.T) {
 			name:   "Valid CreateTable",
 			method: http.MethodPost,
 			target: "DynamoDB_20120810.CreateTable",
-			body: `{"TableName": "HandlerTable", "KeySchema": [{"AttributeName": "pk", "KeyType": "HASH"}], ` +
-				`"AttributeDefinitions": [{"AttributeName": "pk", "AttributeType": "S"}], ` +
-				`"ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5}}`,
+			body: mustMarshal(t, dynamodb.CreateTableInput{
+				TableName: "HandlerTable",
+				KeySchema: []dynamodb.KeySchemaElement{
+					{AttributeName: "pk", KeyType: "HASH"},
+					{AttributeName: "sk", KeyType: "RANGE"},
+				},
+				AttributeDefinitions: []dynamodb.AttributeDefinition{
+					{AttributeName: "pk", AttributeType: "S"},
+					{AttributeName: "sk", AttributeType: "S"},
+				},
+			}),
 			wantStatusCode:   http.StatusOK,
 			wantBodyContains: "TableDescription",
 		},
 		{
 			name:           "Invalid Method",
-			method:         http.MethodGet,
+			method:         http.MethodPut,
 			wantStatusCode: http.StatusMethodNotAllowed,
 		},
 		{
@@ -63,41 +72,137 @@ func TestHandler_ServeHTTP(t *testing.T) {
 			wantBodyContains: "UnknownOperationException",
 		},
 		{
-			name:             "ListTables",
-			method:           http.MethodPost,
-			target:           "DynamoDB_20120810.ListTables",
-			body:             "{}",
-			wantStatusCode:   http.StatusOK,
-			wantBodyContains: "HandlerTable",
-			setup: func(t *testing.T, db *dynamodb.InMemoryDB) {
-				t.Helper()
-				setupTable(t, db, "HandlerTable")
-			},
-		},
-		{
-			name:           "PutItem",
+			name:           "ListTables",
 			method:         http.MethodPost,
-			target:         "DynamoDB_20120810.PutItem",
-			body:           `{"TableName": "HandlerTable", "Item": {"pk": {"S": "item1"}}}`,
+			target:         "DynamoDB_20120810.ListTables",
+			body:           "{}",
 			wantStatusCode: http.StatusOK,
 			setup: func(t *testing.T, db *dynamodb.InMemoryDB) {
 				t.Helper()
-				setupTable(t, db, "HandlerTable")
+				createTableHelper(t, db, "HandlerTable", "pk")
 			},
+			wantBodyContains: "HandlerTable",
 		},
 		{
-			name:             "GetItem",
-			method:           http.MethodPost,
-			target:           "DynamoDB_20120810.GetItem",
-			body:             `{"TableName": "HandlerTable", "Key": {"pk": {"S": "item1"}}}`,
-			wantStatusCode:   http.StatusOK,
-			wantBodyContains: `{"Item":{"pk":{"S":"item1"}}}`,
+			name:   "PutItem",
+			method: http.MethodPost,
+			target: "DynamoDB_20120810.PutItem",
 			setup: func(t *testing.T, db *dynamodb.InMemoryDB) {
 				t.Helper()
-				setupTable(t, db, "HandlerTable")
-				_, err := db.PutItem([]byte(`{"TableName": "HandlerTable", "Item": {"pk": {"S": "item1"}}}`))
+				createTableHelper(t, db, "HandlerTable", "pk")
+			},
+			body: mustMarshal(
+				t,
+				dynamodb.PutItemInput{
+					TableName: "HandlerTable",
+					Item:      map[string]any{"pk": map[string]any{"S": "item1"}},
+				},
+			),
+			wantStatusCode: http.StatusOK,
+		},
+		{
+			name:             "TransactGetItems (Implemented)",
+			method:           http.MethodPost,
+			target:           "DynamoDB_20120810.TransactGetItems",
+			body:             "{}",
+			wantStatusCode:   http.StatusBadRequest,
+			wantBodyContains: "ValidationException",
+		},
+		{
+			name:             "TransactWriteItems (Implemented)",
+			method:           http.MethodPost,
+			target:           "DynamoDB_20120810.TransactWriteItems",
+			body:             "{}",
+			wantStatusCode:   http.StatusBadRequest,
+			wantBodyContains: "ValidationException",
+		},
+		{
+			name:             "GetSupportedOperations",
+			method:           http.MethodGet,
+			target:           "Unsupported", // Target ignored for GET /
+			wantStatusCode:   http.StatusOK,
+			wantBodyContains: "CreateTable",
+		},
+		{
+			name:             "Invalid JSON",
+			method:           http.MethodPost,
+			target:           "DynamoDB_20120810.PutItem",
+			body:             "{ invalid json }",
+			wantStatusCode:   http.StatusBadRequest,
+			wantBodyContains: "JSON Error", // was "cannot be converted to a JSON"
+		},
+		{
+			name:   "Table Not Found (ResourceNotFoundException)",
+			method: http.MethodPost,
+			target: "DynamoDB_20120810.DescribeTable",
+			body: mustMarshal(t, dynamodb.DescribeTableInput{
+				TableName: "MissingTable",
+			}),
+			wantStatusCode:   http.StatusNotFound,
+			wantBodyContains: "ResourceNotFoundException",
+		},
+		{
+			name:   "GetItem",
+			method: http.MethodPost,
+			target: "DynamoDB_20120810.GetItem",
+			body: mustMarshal(t, dynamodb.GetItemInput{
+				TableName: "HandlerTable",
+				Key:       map[string]any{"pk": map[string]any{"S": "item1"}},
+			}),
+			setup: func(t *testing.T, db *dynamodb.InMemoryDB) {
+				t.Helper()
+				createTableHelper(t, db, "HandlerTable", "pk")
+				putInput := dynamodb.PutItemInput{
+					TableName: "HandlerTable",
+					Item:      map[string]any{"pk": map[string]any{"S": "item1"}},
+				}
+				sdkPut, _ := dynamodb.ToSDKPutItemInput(&putInput)
+				_, err := db.PutItem(sdkPut)
 				require.NoError(t, err)
 			},
+			wantStatusCode:   http.StatusOK,
+			wantBodyContains: `{"Item":{"pk":{"S":"item1"}}}`,
+		},
+		{
+			name:   "Query",
+			method: http.MethodPost,
+			target: "DynamoDB_20120810.Query",
+			body: mustMarshal(t, dynamodb.QueryInput{
+				TableName:              "HandlerTable",
+				KeyConditionExpression: "pk = :pk AND sk BETWEEN :sk1 AND :sk2",
+				ExpressionAttributeValues: map[string]any{
+					":pk":  map[string]any{"S": "pk1"},
+					":sk1": map[string]any{"S": "sk1"},
+					":sk2": map[string]any{"S": "sk3"},
+					"info": map[string]any{
+						"M": map[string]any{
+							"author": map[string]any{"S": "me"},
+							"year":   map[string]any{"N": "2020"},
+						},
+					},
+				},
+			}),
+			setup: func(t *testing.T, db *dynamodb.InMemoryDB) {
+				t.Helper()
+				createTableHelper(t, db, "HandlerTable", "pk", "sk")
+				items := []struct{ pk, sk string }{
+					{"pk1", "sk1"}, {"pk1", "sk2"}, {"pk1", "sk3"}, {"pk2", "sk1"},
+				}
+				for _, item := range items {
+					putInput := dynamodb.PutItemInput{
+						TableName: "HandlerTable",
+						Item: map[string]any{
+							"pk": map[string]any{"S": item.pk},
+							"sk": map[string]any{"S": item.sk},
+						},
+					}
+					sdkPut, _ := dynamodb.ToSDKPutItemInput(&putInput)
+					_, putErr := db.PutItem(sdkPut)
+					require.NoError(t, putErr)
+				}
+			},
+			wantStatusCode:   http.StatusOK,
+			wantBodyContains: `"Count":3`,
 		},
 	}
 
@@ -134,7 +239,7 @@ func TestHandler_Dispatch_Coverage(t *testing.T) {
 	// Test dispatching to all supported operations to ensure dispatch switch is covered
 	handler := dynamodb.NewHandler()
 	handler.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
-	setupTable(t, handler.DB, "DispatchTable")
+	createTableHelper(t, handler.DB, "DispatchTable", "pk")
 
 	ops := []string{
 		"CreateTable", "DescribeTable", "ListTables",
@@ -146,14 +251,27 @@ func TestHandler_Dispatch_Coverage(t *testing.T) {
 		t.Run(op, func(t *testing.T) {
 			t.Parallel()
 			var body string
-			if op == "CreateTable" {
-				// CreateTable needs valid body to not fail immediately in generic unmarshal if checked there
-				// But dispatch just calls the method. The method might fail, but dispatch is covered.
-				// We just want to check we don't return "UnknownOperationException"
-				body = `{"TableName": "NewTable_` + op + `", "KeySchema": [{"AttributeName": "pk", "KeyType": "HASH"}], ` +
-					`"AttributeDefinitions": [{"AttributeName": "pk", "AttributeType": "S"}], ` +
-					`"ProvisionedThroughput": {"ReadCapacityUnits": 1, "WriteCapacityUnits": 1}}`
-			} else {
+			switch op {
+			case "CreateTable":
+				body = mustMarshal(t, dynamodb.CreateTableInput{
+					TableName:            "NewTable_" + op,
+					KeySchema:            []dynamodb.KeySchemaElement{{AttributeName: "pk", KeyType: "HASH"}},
+					AttributeDefinitions: []dynamodb.AttributeDefinition{{AttributeName: "pk", AttributeType: "S"}},
+				})
+			case "PutItem":
+				body = mustMarshal(t, dynamodb.PutItemInput{
+					TableName: "DispatchTable",
+					Item:      map[string]any{"pk": map[string]any{"S": "item1"}},
+				})
+			case "Query":
+				body = mustMarshal(t, dynamodb.QueryInput{
+					TableName:              "DispatchTable",
+					KeyConditionExpression: "pk = :pk",
+					ExpressionAttributeValues: map[string]any{
+						":pk": map[string]any{"S": "item1"},
+					},
+				})
+			default:
 				body = `{"TableName": "DispatchTable"}`
 			}
 
@@ -176,13 +294,10 @@ func TestHandler_Dispatch_Coverage(t *testing.T) {
 	}
 }
 
-func setupTable(t *testing.T, db *dynamodb.InMemoryDB, name string) {
+func mustMarshal(t *testing.T, v any) string {
 	t.Helper()
-	_, err := db.CreateTable([]byte(`{
-		"TableName": "` + name + `",
-		"KeySchema": [{"AttributeName": "pk", "KeyType": "HASH"}],
-		"AttributeDefinitions": [{"AttributeName": "pk", "AttributeType": "S"}],
-		"ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5}
-	}`))
+	data, err := json.Marshal(v)
 	require.NoError(t, err)
+
+	return string(data)
 }

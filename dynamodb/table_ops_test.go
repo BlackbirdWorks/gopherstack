@@ -1,11 +1,13 @@
 package dynamodb_test
 
 import (
-	"encoding/json"
 	"slices"
 	"testing"
 
 	"Gopherstack/dynamodb"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	dynamodb_sdk "github.com/aws/aws-sdk-go-v2/service/dynamodb"
 )
 
 func TestTableOperations(t *testing.T) {
@@ -29,18 +31,17 @@ func TestTableOperations(t *testing.T) {
 						{AttributeName: "pk", AttributeType: "S"},
 					},
 				}
-				body, _ := json.Marshal(input)
-
-				return db.CreateTable(body)
+				sdkInput := dynamodb.ToSDKCreateTableInput(&input)
+				return db.CreateTable(sdkInput)
 			},
 			validate: func(t *testing.T, _ *dynamodb.InMemoryDB, resp any, err error) {
 				t.Helper()
 				if err != nil {
 					t.Fatalf("Unexpected error: %v", err)
 				}
-				output := resp.(dynamodb.CreateTableOutput)
-				if output.TableDescription.TableName != "TestTable" {
-					t.Errorf("Expected table name TestTable, got %s", output.TableDescription.TableName)
+				output := resp.(*dynamodb_sdk.CreateTableOutput)
+				if aws.ToString(output.TableDescription.TableName) != "TestTable" {
+					t.Errorf("Expected table name TestTable, got %s", aws.ToString(output.TableDescription.TableName))
 				}
 			},
 		},
@@ -59,9 +60,8 @@ func TestTableOperations(t *testing.T) {
 						{AttributeName: "pk", AttributeType: "S"},
 					},
 				}
-				body, _ := json.Marshal(input)
-
-				return db.CreateTable(body)
+				sdkInput := dynamodb.ToSDKCreateTableInput(&input)
+				return db.CreateTable(sdkInput)
 			},
 			validate: func(t *testing.T, _ *dynamodb.InMemoryDB, _ any, err error) {
 				t.Helper()
@@ -77,18 +77,17 @@ func TestTableOperations(t *testing.T) {
 			},
 			run: func(db *dynamodb.InMemoryDB) (any, error) {
 				input := dynamodb.DescribeTableInput{TableName: "TestTable"}
-				body, _ := json.Marshal(input)
-
-				return db.DescribeTable(body)
+				sdkInput := dynamodb.ToSDKDescribeTableInput(&input)
+				return db.DescribeTable(sdkInput)
 			},
 			validate: func(t *testing.T, _ *dynamodb.InMemoryDB, resp any, err error) {
 				t.Helper()
 				if err != nil {
 					t.Fatalf("Unexpected error: %v", err)
 				}
-				output := resp.(dynamodb.DescribeTableOutput)
-				if output.Table.TableName != "TestTable" {
-					t.Errorf("Expected table name TestTable, got %s", output.Table.TableName)
+				output := resp.(*dynamodb_sdk.DescribeTableOutput)
+				if aws.ToString(output.Table.TableName) != "TestTable" {
+					t.Errorf("Expected table name TestTable, got %s", aws.ToString(output.Table.TableName))
 				}
 				if output.Table.TableStatus != "ACTIVE" {
 					t.Errorf("Expected status ACTIVE, got %s", output.Table.TableStatus)
@@ -99,9 +98,8 @@ func TestTableOperations(t *testing.T) {
 			name: "DescribeTable_NotFound",
 			run: func(db *dynamodb.InMemoryDB) (any, error) {
 				input := dynamodb.DescribeTableInput{TableName: "NonExistent"}
-				body, _ := json.Marshal(input)
-
-				return db.DescribeTable(body)
+				sdkInput := dynamodb.ToSDKDescribeTableInput(&input)
+				return db.DescribeTable(sdkInput)
 			},
 			validate: func(t *testing.T, _ *dynamodb.InMemoryDB, _ any, err error) {
 				t.Helper()
@@ -116,14 +114,14 @@ func TestTableOperations(t *testing.T) {
 				createTable(db, "Table1")
 			},
 			run: func(db *dynamodb.InMemoryDB) (any, error) {
-				return db.ListTables([]byte("{}"))
+				return db.ListTables(&dynamodb_sdk.ListTablesInput{})
 			},
 			validate: func(t *testing.T, _ *dynamodb.InMemoryDB, resp any, err error) {
 				t.Helper()
 				if err != nil {
 					t.Fatalf("Unexpected error: %v", err)
 				}
-				output := resp.(dynamodb.ListTablesOutput)
+				output := resp.(*dynamodb_sdk.ListTablesOutput)
 				found := slices.Contains(output.TableNames, "Table1")
 				if !found {
 					t.Error("Expected Table1 in list")
@@ -137,9 +135,8 @@ func TestTableOperations(t *testing.T) {
 			},
 			run: func(db *dynamodb.InMemoryDB) (any, error) {
 				input := dynamodb.DeleteTableInput{TableName: "DeleteMe"}
-				body, _ := json.Marshal(input)
-
-				return db.DeleteTable(body)
+				sdkInput := dynamodb.ToSDKDeleteTableInput(&input)
+				return db.DeleteTable(sdkInput)
 			},
 			validate: func(t *testing.T, db *dynamodb.InMemoryDB, _ any, err error) {
 				t.Helper()
@@ -148,8 +145,8 @@ func TestTableOperations(t *testing.T) {
 				}
 				// Verify deletion by trying to describe it
 				descInput := dynamodb.DescribeTableInput{TableName: "DeleteMe"}
-				descBody, _ := json.Marshal(descInput)
-				_, err = db.DescribeTable(descBody)
+				sdkDesc := dynamodb.ToSDKDescribeTableInput(&descInput)
+				_, err = db.DescribeTable(sdkDesc)
 				if err == nil {
 					t.Error("Table should not exist after deletion")
 				}
@@ -159,9 +156,8 @@ func TestTableOperations(t *testing.T) {
 			name: "DeleteTable_NotFound",
 			run: func(db *dynamodb.InMemoryDB) (any, error) {
 				input := dynamodb.DeleteTableInput{TableName: "NonExistent"}
-				body, _ := json.Marshal(input)
-
-				return db.DeleteTable(body)
+				sdkInput := dynamodb.ToSDKDeleteTableInput(&input)
+				return db.DeleteTable(sdkInput)
 			},
 			validate: func(t *testing.T, _ *dynamodb.InMemoryDB, _ any, err error) {
 				t.Helper()
@@ -195,6 +191,5 @@ func createTable(db *dynamodb.InMemoryDB, name string) {
 		KeySchema:            []dynamodb.KeySchemaElement{{AttributeName: "id", KeyType: dynamodb.KeyTypeHash}},
 		AttributeDefinitions: []dynamodb.AttributeDefinition{{AttributeName: "id", AttributeType: "S"}},
 	}
-	body, _ := json.Marshal(input)
-	_, _ = db.CreateTable(body)
+	_, _ = db.CreateTable(dynamodb.ToSDKCreateTableInput(&input))
 }

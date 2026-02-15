@@ -1,0 +1,602 @@
+=== RUN   TestCreateBucket
+=== PAUSE TestCreateBucket
+=== RUN   TestDeleteBucket
+=== PAUSE TestDeleteBucket
+=== RUN   TestHeadBucket
+=== PAUSE TestHeadBucket
+=== RUN   TestListBuckets
+=== PAUSE TestListBuckets
+=== RUN   TestPutObject
+=== PAUSE TestPutObject
+=== RUN   TestPutObject_ChecksumAutoCalculation
+=== PAUSE TestPutObject_ChecksumAutoCalculation
+=== RUN   TestGetObject
+=== PAUSE TestGetObject
+=== RUN   TestVersioning
+=== PAUSE TestVersioning
+=== RUN   TestDeleteObject
+=== PAUSE TestDeleteObject
+=== RUN   TestDeleteObject_MakesGetFail
+=== PAUSE TestDeleteObject_MakesGetFail
+=== RUN   TestDeleteObject_DeleteSpecificNullVersion
+=== PAUSE TestDeleteObject_DeleteSpecificNullVersion
+=== RUN   TestListObjects
+=== PAUSE TestListObjects
+=== RUN   TestListObjects_ExcludesDeletedObjects
+=== PAUSE TestListObjects_ExcludesDeletedObjects
+=== RUN   TestObjectTagging
+=== PAUSE TestObjectTagging
+=== RUN   TestGetObjectTagging_Errors
+=== PAUSE TestGetObjectTagging_Errors
+=== RUN   TestDeleteObjectTagging
+=== PAUSE TestDeleteObjectTagging
+=== RUN   TestMultipartUpload_Backend
+=== PAUSE TestMultipartUpload_Backend
+=== RUN   TestGzipCompressor
+=== PAUSE TestGzipCompressor
+=== RUN   TestGzipCompressor_DecompressInvalidData
+=== PAUSE TestGzipCompressor_DecompressInvalidData
+=== RUN   TestHandler_Tagging
+=== PAUSE TestHandler_Tagging
+=== RUN   TestHandler_Versioning
+=== PAUSE TestHandler_Versioning
+=== RUN   TestHandler_MultipartUpload_ErrorsExtra
+=== PAUSE TestHandler_MultipartUpload_ErrorsExtra
+=== RUN   TestHandler_ListBuckets
+=== PAUSE TestHandler_ListBuckets
+=== RUN   TestHandler_CreateBucket
+=== PAUSE TestHandler_CreateBucket
+=== RUN   TestHandler_DeleteBucket
+=== PAUSE TestHandler_DeleteBucket
+=== RUN   TestHandler_HeadBucket
+=== PAUSE TestHandler_HeadBucket
+=== RUN   TestHandler_PutObject
+=== PAUSE TestHandler_PutObject
+=== RUN   TestHandler_GetObject
+=== PAUSE TestHandler_GetObject
+=== RUN   TestHandler_DeleteObject
+=== PAUSE TestHandler_DeleteObject
+=== RUN   TestHandler_HeadObject
+=== PAUSE TestHandler_HeadObject
+=== RUN   TestHandler_HeadObjectWithMetadata
+=== PAUSE TestHandler_HeadObjectWithMetadata
+=== RUN   TestHandler_ObjectTagging
+=== PAUSE TestHandler_ObjectTagging
+=== RUN   TestHandler_BucketVersioning
+=== PAUSE TestHandler_BucketVersioning
+=== RUN   TestHandler_MethodNotAllowed
+=== PAUSE TestHandler_MethodNotAllowed
+=== RUN   TestHandler_BucketLocationQuery
+=== PAUSE TestHandler_BucketLocationQuery
+=== RUN   TestHandler_BucketTaggingNotImplemented
+=== PAUSE TestHandler_BucketTaggingNotImplemented
+=== RUN   TestHandler_ObjectACLIgnored
+=== PAUSE TestHandler_ObjectACLIgnored
+=== RUN   TestHandler_ListObjects
+=== PAUSE TestHandler_ListObjects
+=== RUN   TestHandler_PutBucketVersioning_NonExistentBucket
+=== PAUSE TestHandler_PutBucketVersioning_NonExistentBucket
+=== RUN   TestHandler_PutBucketVersioning_InvalidXML
+=== PAUSE TestHandler_PutBucketVersioning_InvalidXML
+=== RUN   TestHandler_VersionedObjectLifecycle
+=== PAUSE TestHandler_VersionedObjectLifecycle
+=== RUN   TestHandler_PutObjectWithTaggingHeader
+=== PAUSE TestHandler_PutObjectWithTaggingHeader
+=== RUN   TestHandler_PutObjectTagging_InvalidXML
+=== PAUSE TestHandler_PutObjectTagging_InvalidXML
+=== RUN   TestHandler_GetObject_NonExistentBucket
+=== PAUSE TestHandler_GetObject_NonExistentBucket
+=== RUN   TestHandler_ListObjects_NonExistentBucket
+=== PAUSE TestHandler_ListObjects_NonExistentBucket
+=== RUN   TestHandler_DeleteObject_NonExistentBucket
+=== PAUSE TestHandler_DeleteObject_NonExistentBucket
+=== RUN   TestHandler_ChecksumSupport
+=== PAUSE TestHandler_ChecksumSupport
+=== RUN   TestHandler_InvalidInput
+=== PAUSE TestHandler_InvalidInput
+=== RUN   TestHandler_MultipartUpload
+=== PAUSE TestHandler_MultipartUpload
+=== RUN   TestHandler_MultipartUpload_Errors
+=== PAUSE TestHandler_MultipartUpload_Errors
+=== RUN   TestIsValidBucketName
+=== PAUSE TestIsValidBucketName
+=== RUN   TestIsValidObjectKey
+=== PAUSE TestIsValidObjectKey
+=== CONT  TestCreateBucket
+=== RUN   TestCreateBucket/create_new_bucket
+=== PAUSE TestCreateBucket/create_new_bucket
+=== RUN   TestCreateBucket/create_duplicate_bucket
+=== PAUSE TestCreateBucket/create_duplicate_bucket
+=== CONT  TestCreateBucket/create_new_bucket
+=== CONT  TestHandler_PutObject
+=== CONT  TestHandler_HeadBucket
+=== RUN   TestHandler_HeadBucket/existing_bucket
+=== PAUSE TestHandler_HeadBucket/existing_bucket
+=== RUN   TestHandler_HeadBucket/non-existent_bucket
+=== PAUSE TestHandler_HeadBucket/non-existent_bucket
+=== CONT  TestHandler_DeleteBucket
+=== RUN   TestHandler_DeleteBucket/delete_empty_bucket
+=== PAUSE TestHandler_DeleteBucket/delete_empty_bucket
+=== CONT  TestHandler_CreateBucket
+=== CONT  TestListObjects_ExcludesDeletedObjects
+=== RUN   TestHandler_CreateBucket/create_new_bucket
+=== CONT  TestHandler_MultipartUpload_ErrorsExtra
+=== CONT  TestHandler_Versioning
+=== CONT  TestHandler_Tagging
+=== CONT  TestGzipCompressor_DecompressInvalidData
+=== CONT  TestGzipCompressor
+=== RUN   TestGzipCompressor/empty_data
+{"time":"2026-02-15T12:06:59.785589-06:00","level":"ERROR","msg":"request failed","error":"EOF","code":400,"path":"/mp-bucket/key"}
+=== CONT  TestListObjects
+=== CONT  TestDeleteObjectTagging
+=== RUN   TestDeleteObjectTagging/delete_tags_from_object
+=== CONT  TestGetObjectTagging_Errors
+=== PAUSE TestDeleteObjectTagging/delete_tags_from_object
+=== NAME  TestHandler_Tagging
+    handler_extra_test.go:28: 
+=== RUN   TestGetObjectTagging_Errors/non-existent_bucket
+=== PAUSE TestGzipCompressor/empty_data
+=== RUN   TestGzipCompressor/small_text
+=== CONT  TestObjectTagging
+=== PAUSE TestGzipCompressor/small_text
+=== RUN   TestObjectTagging/put_and_get_tags
+=== RUN   TestDeleteObjectTagging/delete_tags_from_non-existent_bucket
+=== RUN   TestHandler_PutObject/put_object_success
+=== PAUSE TestDeleteObjectTagging/delete_tags_from_non-existent_bucket
+=== RUN   TestHandler_DeleteBucket/delete_non-existent_bucket
+=== PAUSE TestObjectTagging/put_and_get_tags
+=== PAUSE TestHandler_DeleteBucket/delete_non-existent_bucket
+=== RUN   TestObjectTagging/put_tags_on_non-existent_key
+=== RUN   TestHandler_DeleteBucket/delete_non-empty_bucket
+=== CONT  TestMultipartUpload_Backend
+=== RUN   TestListObjects/list_objects_with_prefix
+=== PAUSE TestHandler_DeleteBucket/delete_non-empty_bucket
+=== PAUSE TestListObjects/list_objects_with_prefix
+=== CONT  TestDeleteObject_MakesGetFail
+=== RUN   TestListObjects/list_all_objects
+=== PAUSE TestListObjects/list_all_objects
+=== CONT  TestDeleteObject
+=== NAME  TestHandler_Tagging
+        	Error Trace:	/Users/andrew.bishop/IdeaProjects/Gopherstack/s3/handler_extra_test.go:28
+        	Error:      	Not equal: 
+        	            	expected: 204
+        	            	actual  : 200
+        	Test:       	TestHandler_Tagging
+=== PAUSE TestGetObjectTagging_Errors/non-existent_bucket
+=== RUN   TestGzipCompressor/large_repeated_data
+=== RUN   TestDeleteObjectTagging/delete_tags_from_non-existent_key
+=== PAUSE TestGzipCompressor/large_repeated_data
+=== CONT  TestHandler_ListBuckets
+=== RUN   TestHandler_ListBuckets/no_buckets
+=== RUN   TestGzipCompressor/binary_data
+=== PAUSE TestHandler_PutObject/put_object_success
+--- PASS: TestHandler_Versioning (0.00s)
+--- PASS: TestGzipCompressor_DecompressInvalidData (0.00s)
+--- PASS: TestListObjects_ExcludesDeletedObjects (0.00s)
+=== PAUSE TestHandler_CreateBucket/create_new_bucket
+=== PAUSE TestObjectTagging/put_tags_on_non-existent_key
+--- PASS: TestHandler_MultipartUpload_ErrorsExtra (0.00s)
+=== CONT  TestDeleteObject_DeleteSpecificNullVersion
+--- FAIL: TestHandler_Tagging (0.00s)
+=== CONT  TestPutObject_ChecksumAutoCalculation
+=== RUN   TestHandler_CreateBucket/create_duplicate_bucket
+=== RUN   TestObjectTagging/put_tags_on_non-existent_bucket
+=== PAUSE TestHandler_CreateBucket/create_duplicate_bucket
+--- PASS: TestDeleteObject_MakesGetFail (0.00s)
+=== CONT  TestVersioning
+=== CONT  TestPutObject
+=== RUN   TestPutObject/put_object_in_existing_bucket
+=== PAUSE TestPutObject/put_object_in_existing_bucket
+=== RUN   TestListObjects/list_objects_from_non-existent_bucket
+=== RUN   TestPutObject/put_object_in_non-existent_bucket
+=== PAUSE TestPutObject/put_object_in_non-existent_bucket
+=== RUN   TestDeleteObject/simple_delete_creates_delete_marker
+=== RUN   TestGetObjectTagging_Errors/non-existent_key
+=== PAUSE TestDeleteObjectTagging/delete_tags_from_non-existent_key
+=== CONT  TestHeadBucket
+=== RUN   TestHeadBucket/get_existing_bucket
+=== PAUSE TestHeadBucket/get_existing_bucket
+=== PAUSE TestGetObjectTagging_Errors/non-existent_key
+=== RUN   TestHeadBucket/get_non-existent_bucket
+=== CONT  TestDeleteBucket
+=== PAUSE TestHeadBucket/get_non-existent_bucket
+=== CONT  TestGetObject
+=== RUN   TestGetObject/get_existing_object
+=== PAUSE TestHandler_ListBuckets/no_buckets
+=== PAUSE TestGetObject/get_existing_object
+=== CONT  TestCreateBucket/create_duplicate_bucket
+=== RUN   TestGetObject/get_from_non-existent_bucket
+=== PAUSE TestGzipCompressor/binary_data
+=== RUN   TestHandler_PutObject/put_object_to_non-existent_bucket
+=== CONT  TestHandler_ObjectACLIgnored
+=== CONT  TestHandler_ListObjects
+=== RUN   TestHandler_ListBuckets/one_bucket
+=== PAUSE TestHandler_PutObject/put_object_to_non-existent_bucket
+=== RUN   TestDeleteBucket/delete_existing_empty_bucket
+=== RUN   TestPutObject_ChecksumAutoCalculation/CRC32
+=== PAUSE TestObjectTagging/put_tags_on_non-existent_bucket
+=== RUN   TestVersioning/versioned_put_creates_unique_version_IDs
+=== PAUSE TestListObjects/list_objects_from_non-existent_bucket
+=== PAUSE TestDeleteBucket/delete_existing_empty_bucket
+=== CONT  TestListBuckets
+=== PAUSE TestVersioning/versioned_put_creates_unique_version_IDs
+=== RUN   TestListBuckets/no_buckets
+=== PAUSE TestGetObject/get_from_non-existent_bucket
+--- PASS: TestDeleteObject_DeleteSpecificNullVersion (0.00s)
+--- PASS: TestCreateBucket (0.00s)
+    --- PASS: TestCreateBucket/create_new_bucket (0.00s)
+    --- PASS: TestCreateBucket/create_duplicate_bucket (0.00s)
+=== CONT  TestHandler_MethodNotAllowed
+--- PASS: TestMultipartUpload_Backend (0.00s)
+=== CONT  TestHandler_PutBucketVersioning_NonExistentBucket
+=== PAUSE TestHandler_ListBuckets/one_bucket
+=== CONT  TestHandler_BucketTaggingNotImplemented
+=== RUN   TestHandler_MethodNotAllowed/PATCH_on_bucket
+=== PAUSE TestHandler_MethodNotAllowed/PATCH_on_bucket
+=== PAUSE TestPutObject_ChecksumAutoCalculation/CRC32
+{"time":"2026-02-15T12:06:59.78765-06:00","level":"ERROR","msg":"request failed","error":"NotImplemented","code":501,"path":"/bkt"}
+{"time":"2026-02-15T12:06:59.787681-06:00","level":"ERROR","msg":"request failed","error":"NotImplemented","code":501,"path":"/bkt"}
+{"time":"2026-02-15T12:06:59.787735-06:00","level":"ERROR","msg":"request failed","error":"NoSuchBucket","code":404,"path":"/no-bucket"}
+=== CONT  TestHandler_BucketLocationQuery
+=== CONT  TestIsValidBucketName
+=== RUN   TestIsValidBucketName/my-bucket
+=== PAUSE TestIsValidBucketName/my-bucket
+=== CONT  TestHandler_MultipartUpload_Errors
+=== RUN   TestIsValidBucketName/my.bucket
+=== CONT  TestHandler_InvalidInput
+=== PAUSE TestIsValidBucketName/my.bucket
+=== RUN   TestIsValidBucketName/123-bucket
+=== PAUSE TestIsValidBucketName/123-bucket
+=== RUN   TestHandler_InvalidInput/invalid_bucket_name_(too_short)
+=== CONT  TestHandler_ChecksumSupport
+=== RUN   TestIsValidBucketName/bucket-123
+{"time":"2026-02-15T12:06:59.787882-06:00","level":"ERROR","msg":"request failed","error":"NoSuchUpload","code":404,"path":"/bkt/mp"}
+=== PAUSE TestIsValidBucketName/bucket-123
+=== PAUSE TestHandler_InvalidInput/invalid_bucket_name_(too_short)
+=== RUN   TestIsValidBucketName/a.b.c
+=== RUN   TestHandler_InvalidInput/invalid_bucket_name_(uppercase)
+=== PAUSE TestIsValidBucketName/a.b.c
+=== PAUSE TestDeleteObject/simple_delete_creates_delete_marker
+{"time":"2026-02-15T12:06:59.787903-06:00","level":"ERROR","msg":"request failed","error":"NoSuchUpload","code":404,"path":"/bkt/mp"}
+=== RUN   TestVersioning/get_specific_null_version
+=== PAUSE TestVersioning/get_specific_null_version
+=== PAUSE TestListBuckets/no_buckets
+=== RUN   TestVersioning/get_non-existent_version_returns_error
+=== PAUSE TestVersioning/get_non-existent_version_returns_error
+=== RUN   TestListBuckets/one_bucket
+=== CONT  TestIsValidObjectKey
+=== PAUSE TestListBuckets/one_bucket
+{"time":"2026-02-15T12:06:59.788017-06:00","level":"ERROR","msg":"request failed","error":"InvalidPart: part 1","code":400,"path":"/bkt/mp"}
+=== RUN   TestHandler_MethodNotAllowed/PATCH_on_object
+=== CONT  TestHandler_DeleteObject_NonExistentBucket
+=== RUN   TestPutObject_ChecksumAutoCalculation/CRC32C
+=== PAUSE TestHandler_MethodNotAllowed/PATCH_on_object
+=== RUN   TestIsValidObjectKey/valid_key
+=== CONT  TestHandler_HeadObjectWithMetadata
+=== PAUSE TestIsValidObjectKey/valid_key
+{"time":"2026-02-15T12:06:59.788087-06:00","level":"ERROR","msg":"request failed","error":"NoSuchBucket","code":404,"path":"/nonexistent/key"}
+=== PAUSE TestPutObject_ChecksumAutoCalculation/CRC32C
+=== RUN   TestListBuckets/multiple_buckets_sorted
+=== RUN   TestPutObject_ChecksumAutoCalculation/SHA1
+=== PAUSE TestListBuckets/multiple_buckets_sorted
+{"time":"2026-02-15T12:06:59.7881-06:00","level":"ERROR","msg":"request failed","error":"NoSuchUpload","code":404,"path":"/bkt/mp"}
+=== CONT  TestHandler_MultipartUpload
+=== CONT  TestHandler_PutObjectWithTaggingHeader
+=== RUN   TestDeleteBucket/delete_non-existent_bucket
+=== PAUSE TestDeleteBucket/delete_non-existent_bucket
+=== CONT  TestHandler_GetObject_NonExistentBucket
+=== RUN   TestDeleteBucket/delete_non-empty_bucket
+{"time":"2026-02-15T12:06:59.788498-06:00","level":"ERROR","msg":"request failed","error":"NoSuchBucket","code":404,"path":"/nonexistent/key"}
+=== PAUSE TestHandler_InvalidInput/invalid_bucket_name_(uppercase)
+=== RUN   TestIsValidBucketName/ab
+=== RUN   TestDeleteObject/delete_from_non-existent_bucket
+=== RUN   TestGetObject/get_non-existent_key
+--- PASS: TestHandler_BucketTaggingNotImplemented (0.00s)
+=== RUN   TestIsValidObjectKey/empty_key
+=== CONT  TestHandler_DeleteObject
+=== PAUSE TestPutObject_ChecksumAutoCalculation/SHA1
+=== CONT  TestHandler_BucketVersioning
+=== RUN   TestPutObject_ChecksumAutoCalculation/SHA256
+=== CONT  TestHandler_ListObjects_NonExistentBucket
+=== CONT  TestHandler_ObjectTagging
+=== PAUSE TestDeleteBucket/delete_non-empty_bucket
+{"time":"2026-02-15T12:06:59.788907-06:00","level":"ERROR","msg":"request failed","error":"NoSuchBucket","code":404,"path":"/nonexistent"}
+=== CONT  TestHandler_PutObjectTagging_InvalidXML
+=== CONT  TestHandler_GetObject
+=== RUN   TestHandler_GetObject/get_existing_object
+=== PAUSE TestHandler_GetObject/get_existing_object
+=== RUN   TestHandler_GetObject/get_non-existent_key
+=== PAUSE TestHandler_GetObject/get_non-existent_key
+=== CONT  TestHandler_HeadBucket/existing_bucket
+=== CONT  TestHandler_HeadBucket/non-existent_bucket
+--- PASS: TestHandler_ObjectACLIgnored (0.00s)
+--- PASS: TestHandler_PutBucketVersioning_NonExistentBucket (0.00s)
+--- PASS: TestHandler_BucketLocationQuery (0.00s)
+--- PASS: TestHandler_ListObjects (0.00s)
+--- PASS: TestHandler_ChecksumSupport (0.00s)
+=== RUN   TestHandler_InvalidInput/invalid_bucket_name_(underscore)
+=== CONT  TestHandler_VersionedObjectLifecycle
+=== PAUSE TestIsValidBucketName/ab
+=== CONT  TestHandler_DeleteBucket/delete_non-empty_bucket
+=== PAUSE TestGetObject/get_non-existent_key
+=== PAUSE TestDeleteObject/delete_from_non-existent_bucket
+=== RUN   TestDeleteObject/delete_specific_version_not_found
+=== PAUSE TestDeleteObject/delete_specific_version_not_found
+=== RUN   TestDeleteObject/delete_specific_version_of_non-existent_key
+=== PAUSE TestDeleteObject/delete_specific_version_of_non-existent_key
+=== PAUSE TestIsValidObjectKey/empty_key
+=== RUN   TestIsValidObjectKey/too_long_key
+=== PAUSE TestIsValidObjectKey/too_long_key
+=== RUN   TestIsValidObjectKey/max_length_key
+=== CONT  TestHandler_CreateBucket/create_new_bucket
+{"time":"2026-02-15T12:06:59.789459-06:00","level":"ERROR","msg":"request failed","error":"BucketNotEmpty: The bucket you tried to delete is not empty","code":409,"path":"/full-bucket"}
+=== CONT  TestHandler_CreateBucket/create_duplicate_bucket
+=== CONT  TestPutObject/put_object_in_existing_bucket
+=== CONT  TestHandler_PutBucketVersioning_InvalidXML
+=== CONT  TestHandler_DeleteBucket/delete_empty_bucket
+=== PAUSE TestIsValidObjectKey/max_length_key
+{"time":"2026-02-15T12:06:59.789576-06:00","level":"ERROR","msg":"request failed","error":"BucketAlreadyExists","code":409,"path":"/existing"}
+--- PASS: TestHandler_DeleteObject_NonExistentBucket (0.00s)
+--- PASS: TestHandler_MultipartUpload_Errors (0.00s)
+--- PASS: TestHandler_GetObject_NonExistentBucket (0.00s)
+--- PASS: TestHandler_HeadObjectWithMetadata (0.00s)
+--- PASS: TestHandler_PutObjectWithTaggingHeader (0.00s)
+--- PASS: TestHandler_ListObjects_NonExistentBucket (0.00s)
+=== PAUSE TestHandler_InvalidInput/invalid_bucket_name_(underscore)
+{"time":"2026-02-15T12:06:59.789639-06:00","level":"ERROR","msg":"request failed","error":"EOF","code":400,"path":"/bkt/key"}
+=== CONT  TestDeleteObjectTagging/delete_tags_from_non-existent_key
+=== CONT  TestDeleteObjectTagging/delete_tags_from_non-existent_bucket
+=== CONT  TestHandler_DeleteBucket/delete_non-existent_bucket
+{"time":"2026-02-15T12:06:59.789823-06:00","level":"ERROR","msg":"request failed","error":"EOF","code":400,"path":"/bkt"}
+{"time":"2026-02-15T12:06:59.789839-06:00","level":"ERROR","msg":"request failed","error":"NoSuchBucket","code":404,"path":"/no-bucket"}
+=== CONT  TestGetObjectTagging_Errors/non-existent_bucket
+=== CONT  TestGzipCompressor/binary_data
+=== PAUSE TestPutObject_ChecksumAutoCalculation/SHA256
+=== CONT  TestPutObject/put_object_in_non-existent_bucket
+--- PASS: TestHandler_BucketVersioning (0.00s)
+=== CONT  TestDeleteObjectTagging/delete_tags_from_object
+--- PASS: TestHandler_DeleteObject (0.00s)
+--- PASS: TestHandler_MultipartUpload (0.00s)
+=== RUN   TestPutObject_ChecksumAutoCalculation/Invalid
+--- PASS: TestHandler_PutObjectTagging_InvalidXML (0.00s)
+=== RUN   TestIsValidBucketName/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+=== CONT  TestGetObjectTagging_Errors/non-existent_key
+=== CONT  TestHandler_HeadObject
+=== CONT  TestHeadBucket/get_existing_bucket
+=== CONT  TestHeadBucket/get_non-existent_bucket
+=== CONT  TestGzipCompressor/empty_data
+=== CONT  TestGzipCompressor/large_repeated_data
+=== CONT  TestGzipCompressor/small_text
+=== RUN   TestHandler_InvalidInput/invalid_bucket_name_(starts_with_hyphen)
+--- PASS: TestHandler_PutBucketVersioning_InvalidXML (0.00s)
+--- PASS: TestHandler_DeleteBucket (0.00s)
+    --- PASS: TestHandler_DeleteBucket/delete_non-empty_bucket (0.00s)
+    --- PASS: TestHandler_DeleteBucket/delete_empty_bucket (0.00s)
+    --- PASS: TestHandler_DeleteBucket/delete_non-existent_bucket (0.00s)
+--- PASS: TestHandler_ObjectTagging (0.00s)
+=== PAUSE TestPutObject_ChecksumAutoCalculation/Invalid
+--- PASS: TestHandler_CreateBucket (0.00s)
+    --- PASS: TestHandler_CreateBucket/create_new_bucket (0.00s)
+    --- PASS: TestHandler_CreateBucket/create_duplicate_bucket (0.00s)
+=== PAUSE TestIsValidBucketName/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+--- PASS: TestDeleteObjectTagging (0.00s)
+    --- PASS: TestDeleteObjectTagging/delete_tags_from_non-existent_key (0.00s)
+    --- PASS: TestDeleteObjectTagging/delete_tags_from_non-existent_bucket (0.00s)
+    --- PASS: TestDeleteObjectTagging/delete_tags_from_object (0.00s)
+--- PASS: TestGetObjectTagging_Errors (0.00s)
+    --- PASS: TestGetObjectTagging_Errors/non-existent_bucket (0.00s)
+    --- PASS: TestGetObjectTagging_Errors/non-existent_key (0.00s)
+=== CONT  TestObjectTagging/put_tags_on_non-existent_bucket
+=== CONT  TestObjectTagging/put_and_get_tags
+{"time":"2026-02-15T12:06:59.790342-06:00","level":"ERROR","msg":"request failed","error":"NoSuchKey","code":404,"path":"/bkt/key"}
+=== RUN   TestIsValidBucketName/MyBucket
+=== RUN   TestHandler_HeadObject/existing_object
+=== PAUSE TestIsValidBucketName/MyBucket
+=== RUN   TestIsValidBucketName/my_bucket
+=== CONT  TestHandler_PutObject/put_object_success
+--- PASS: TestHandler_VersionedObjectLifecycle (0.00s)
+--- PASS: TestHandler_HeadBucket (0.00s)
+    --- PASS: TestHandler_HeadBucket/existing_bucket (0.00s)
+    --- PASS: TestHandler_HeadBucket/non-existent_bucket (0.00s)
+=== CONT  TestHandler_PutObject/put_object_to_non-existent_bucket
+=== PAUSE TestHandler_HeadObject/existing_object
+=== CONT  TestObjectTagging/put_tags_on_non-existent_key
+=== CONT  TestListObjects/list_objects_with_prefix
+=== PAUSE TestIsValidBucketName/my_bucket
+=== CONT  TestListObjects/list_objects_from_non-existent_bucket
+=== CONT  TestListObjects/list_all_objects
+=== CONT  TestHandler_ListBuckets/no_buckets
+=== CONT  TestHandler_ListBuckets/one_bucket
+=== PAUSE TestHandler_InvalidInput/invalid_bucket_name_(starts_with_hyphen)
+=== CONT  TestVersioning/versioned_put_creates_unique_version_IDs
+=== CONT  TestVersioning/get_non-existent_version_returns_error
+=== CONT  TestVersioning/get_specific_null_version
+=== CONT  TestHandler_MethodNotAllowed/PATCH_on_object
+=== CONT  TestHandler_MethodNotAllowed/PATCH_on_bucket
+=== RUN   TestHandler_HeadObject/non-existent_object
+{"time":"2026-02-15T12:06:59.79118-06:00","level":"ERROR","msg":"request failed","error":"MethodNotAllowed","code":405,"path":"/bkt"}
+=== PAUSE TestHandler_HeadObject/non-existent_object
+=== CONT  TestListBuckets/no_buckets
+=== CONT  TestListBuckets/multiple_buckets_sorted
+=== CONT  TestDeleteBucket/delete_non-empty_bucket
+=== CONT  TestDeleteBucket/delete_existing_empty_bucket
+{"time":"2026-02-15T12:06:59.791201-06:00","level":"ERROR","msg":"request failed","error":"NoSuchBucket","code":404,"path":"/no-bkt/key"}
+=== CONT  TestDeleteBucket/delete_non-existent_bucket
+=== CONT  TestHandler_GetObject/get_existing_object
+=== RUN   TestIsValidBucketName/-mybucket
+=== CONT  TestGetObject/get_non-existent_key
+{"time":"2026-02-15T12:06:59.791206-06:00","level":"ERROR","msg":"request failed","error":"MethodNotAllowed","code":405,"path":"/bkt/key"}
+=== CONT  TestDeleteObject/simple_delete_creates_delete_marker
+=== RUN   TestHandler_InvalidInput/invalid_bucket_name_(IP_address)
+=== PAUSE TestHandler_InvalidInput/invalid_bucket_name_(IP_address)
+=== CONT  TestGetObject/get_from_non-existent_bucket
+=== RUN   TestHandler_InvalidInput/invalid_object_key_(too_long)
+=== CONT  TestHandler_GetObject/get_non-existent_key
+{"time":"2026-02-15T12:06:59.791548-06:00","level":"ERROR","msg":"request failed","error":"NoSuchKey","code":404,"path":"/bkt/no-key"}
+=== CONT  TestListBuckets/one_bucket
+=== CONT  TestIsValidObjectKey/valid_key
+=== CONT  TestIsValidObjectKey/max_length_key
+--- PASS: TestHeadBucket (0.00s)
+    --- PASS: TestHeadBucket/get_non-existent_bucket (0.00s)
+    --- PASS: TestHeadBucket/get_existing_bucket (0.00s)
+=== CONT  TestPutObject_ChecksumAutoCalculation/CRC32
+=== CONT  TestPutObject_ChecksumAutoCalculation/Invalid
+=== CONT  TestIsValidObjectKey/too_long_key
+=== PAUSE TestIsValidBucketName/-mybucket
+=== CONT  TestDeleteObject/delete_specific_version_not_found
+=== CONT  TestGetObject/get_existing_object
+=== CONT  TestDeleteObject/delete_from_non-existent_bucket
+=== CONT  TestPutObject_ChecksumAutoCalculation/SHA256
+=== PAUSE TestHandler_InvalidInput/invalid_object_key_(too_long)
+=== CONT  TestIsValidObjectKey/empty_key
+--- PASS: TestPutObject (0.00s)
+    --- PASS: TestPutObject/put_object_in_existing_bucket (0.00s)
+    --- PASS: TestPutObject/put_object_in_non-existent_bucket (0.00s)
+=== CONT  TestHandler_InvalidInput/invalid_bucket_name_(too_short)
+=== CONT  TestHandler_InvalidInput/invalid_object_key_(too_long)
+--- PASS: TestGzipCompressor (0.00s)
+    --- PASS: TestGzipCompressor/binary_data (0.00s)
+    --- PASS: TestGzipCompressor/large_repeated_data (0.00s)
+    --- PASS: TestGzipCompressor/small_text (0.00s)
+    --- PASS: TestGzipCompressor/empty_data (0.00s)
+=== CONT  TestDeleteObject/delete_specific_version_of_non-existent_key
+{"time":"2026-02-15T12:06:59.791986-06:00","level":"ERROR","msg":"request failed","error":"InvalidBucketName","code":400,"path":"/ab"}
+=== CONT  TestHandler_HeadObject/existing_object
+=== CONT  TestPutObject_ChecksumAutoCalculation/SHA1
+=== CONT  TestPutObject_ChecksumAutoCalculation/CRC32C
+=== CONT  TestHandler_InvalidInput/invalid_bucket_name_(starts_with_hyphen)
+=== RUN   TestIsValidBucketName/mybucket-
+--- PASS: TestObjectTagging (0.00s)
+    --- PASS: TestObjectTagging/put_tags_on_non-existent_bucket (0.00s)
+    --- PASS: TestObjectTagging/put_and_get_tags (0.00s)
+    --- PASS: TestObjectTagging/put_tags_on_non-existent_key (0.00s)
+{"time":"2026-02-15T12:06:59.792012-06:00","level":"ERROR","msg":"request failed","error":"InvalidArgument","code":400,"path":"/valid-bucket/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+=== CONT  TestHandler_HeadObject/non-existent_object
+=== CONT  TestHandler_InvalidInput/invalid_bucket_name_(underscore)
+=== CONT  TestHandler_InvalidInput/invalid_bucket_name_(uppercase)
+=== CONT  TestHandler_InvalidInput/invalid_bucket_name_(IP_address)
+{"time":"2026-02-15T12:06:59.792213-06:00","level":"ERROR","msg":"request failed","error":"InvalidBucketName","code":400,"path":"/-bucket"}
+--- PASS: TestHandler_PutObject (0.00s)
+    --- PASS: TestHandler_PutObject/put_object_success (0.00s)
+    --- PASS: TestHandler_PutObject/put_object_to_non-existent_bucket (0.00s)
+--- PASS: TestHandler_ListBuckets (0.00s)
+    --- PASS: TestHandler_ListBuckets/no_buckets (0.00s)
+    --- PASS: TestHandler_ListBuckets/one_bucket (0.00s)
+=== PAUSE TestIsValidBucketName/mybucket-
+{"time":"2026-02-15T12:06:59.792218-06:00","level":"ERROR","msg":"request failed","error":"InvalidBucketName","code":400,"path":"/192.168.1.1"}
+{"time":"2026-02-15T12:06:59.792344-06:00","level":"ERROR","msg":"request failed","error":"InvalidBucketName","code":400,"path":"/InvalidBucket"}
+{"time":"2026-02-15T12:06:59.792363-06:00","level":"ERROR","msg":"request failed","error":"InvalidBucketName","code":400,"path":"/my_bucket"}
+=== RUN   TestIsValidBucketName/.mybucket
+--- PASS: TestHandler_GetObject (0.00s)
+    --- PASS: TestHandler_GetObject/get_existing_object (0.00s)
+    --- PASS: TestHandler_GetObject/get_non-existent_key (0.00s)
+--- PASS: TestListBuckets (0.00s)
+    --- PASS: TestListBuckets/no_buckets (0.00s)
+    --- PASS: TestListBuckets/multiple_buckets_sorted (0.00s)
+    --- PASS: TestListBuckets/one_bucket (0.00s)
+--- PASS: TestDeleteObject (0.00s)
+    --- PASS: TestDeleteObject/simple_delete_creates_delete_marker (0.00s)
+    --- PASS: TestDeleteObject/delete_from_non-existent_bucket (0.00s)
+    --- PASS: TestDeleteObject/delete_specific_version_of_non-existent_key (0.00s)
+    --- PASS: TestDeleteObject/delete_specific_version_not_found (0.00s)
+=== PAUSE TestIsValidBucketName/.mybucket
+=== RUN   TestIsValidBucketName/mybucket.
+=== PAUSE TestIsValidBucketName/mybucket.
+=== RUN   TestIsValidBucketName/my..bucket
+=== PAUSE TestIsValidBucketName/my..bucket
+=== RUN   TestIsValidBucketName/192.168.1.1
+--- PASS: TestDeleteBucket (0.00s)
+    --- PASS: TestDeleteBucket/delete_non-existent_bucket (0.00s)
+    --- PASS: TestDeleteBucket/delete_existing_empty_bucket (0.00s)
+    --- PASS: TestDeleteBucket/delete_non-empty_bucket (0.00s)
+=== PAUSE TestIsValidBucketName/192.168.1.1
+=== RUN   TestIsValidBucketName/xn--bucket
+=== PAUSE TestIsValidBucketName/xn--bucket
+=== RUN   TestIsValidBucketName/sthree-bucket
+--- PASS: TestHandler_MethodNotAllowed (0.00s)
+    --- PASS: TestHandler_MethodNotAllowed/PATCH_on_bucket (0.00s)
+    --- PASS: TestHandler_MethodNotAllowed/PATCH_on_object (0.00s)
+--- PASS: TestGetObject (0.00s)
+    --- PASS: TestGetObject/get_non-existent_key (0.00s)
+    --- PASS: TestGetObject/get_from_non-existent_bucket (0.00s)
+    --- PASS: TestGetObject/get_existing_object (0.00s)
+=== PAUSE TestIsValidBucketName/sthree-bucket
+--- PASS: TestHandler_InvalidInput (0.00s)
+    --- PASS: TestHandler_InvalidInput/invalid_bucket_name_(too_short) (0.00s)
+    --- PASS: TestHandler_InvalidInput/invalid_object_key_(too_long) (0.00s)
+    --- PASS: TestHandler_InvalidInput/invalid_bucket_name_(starts_with_hyphen) (0.00s)
+    --- PASS: TestHandler_InvalidInput/invalid_bucket_name_(uppercase) (0.00s)
+    --- PASS: TestHandler_InvalidInput/invalid_bucket_name_(underscore) (0.00s)
+    --- PASS: TestHandler_InvalidInput/invalid_bucket_name_(IP_address) (0.00s)
+=== RUN   TestIsValidBucketName/sthree-configurator-bucket
+--- PASS: TestListObjects (0.00s)
+    --- PASS: TestListObjects/list_objects_from_non-existent_bucket (0.00s)
+    --- PASS: TestListObjects/list_all_objects (0.00s)
+    --- PASS: TestListObjects/list_objects_with_prefix (0.00s)
+=== PAUSE TestIsValidBucketName/sthree-configurator-bucket
+--- PASS: TestVersioning (0.00s)
+    --- PASS: TestVersioning/get_specific_null_version (0.00s)
+    --- PASS: TestVersioning/get_non-existent_version_returns_error (0.00s)
+    --- PASS: TestVersioning/versioned_put_creates_unique_version_IDs (0.00s)
+--- PASS: TestHandler_HeadObject (0.00s)
+    --- PASS: TestHandler_HeadObject/non-existent_object (0.00s)
+    --- PASS: TestHandler_HeadObject/existing_object (0.00s)
+--- PASS: TestIsValidObjectKey (0.00s)
+    --- PASS: TestIsValidObjectKey/valid_key (0.00s)
+    --- PASS: TestIsValidObjectKey/max_length_key (0.00s)
+    --- PASS: TestIsValidObjectKey/too_long_key (0.00s)
+    --- PASS: TestIsValidObjectKey/empty_key (0.00s)
+=== RUN   TestIsValidBucketName/bucket-s3alias
+--- PASS: TestPutObject_ChecksumAutoCalculation (0.00s)
+    --- PASS: TestPutObject_ChecksumAutoCalculation/Invalid (0.00s)
+    --- PASS: TestPutObject_ChecksumAutoCalculation/CRC32C (0.00s)
+    --- PASS: TestPutObject_ChecksumAutoCalculation/CRC32 (0.00s)
+    --- PASS: TestPutObject_ChecksumAutoCalculation/SHA256 (0.00s)
+    --- PASS: TestPutObject_ChecksumAutoCalculation/SHA1 (0.00s)
+=== PAUSE TestIsValidBucketName/bucket-s3alias
+=== RUN   TestIsValidBucketName/bucket--ol-s3
+=== PAUSE TestIsValidBucketName/bucket--ol-s3
+=== CONT  TestIsValidBucketName/my-bucket
+=== CONT  TestIsValidBucketName/mybucket-
+=== CONT  TestIsValidBucketName/bucket--ol-s3
+=== CONT  TestIsValidBucketName/bucket-s3alias
+=== CONT  TestIsValidBucketName/sthree-configurator-bucket
+=== CONT  TestIsValidBucketName/my..bucket
+=== CONT  TestIsValidBucketName/xn--bucket
+=== CONT  TestIsValidBucketName/.mybucket
+=== CONT  TestIsValidBucketName/ab
+=== CONT  TestIsValidBucketName/my_bucket
+=== CONT  TestIsValidBucketName/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+=== CONT  TestIsValidBucketName/-mybucket
+=== CONT  TestIsValidBucketName/bucket-123
+=== CONT  TestIsValidBucketName/123-bucket
+=== CONT  TestIsValidBucketName/192.168.1.1
+=== CONT  TestIsValidBucketName/my.bucket
+=== CONT  TestIsValidBucketName/mybucket.
+=== CONT  TestIsValidBucketName/MyBucket
+=== CONT  TestIsValidBucketName/a.b.c
+=== CONT  TestIsValidBucketName/sthree-bucket
+--- PASS: TestIsValidBucketName (0.00s)
+    --- PASS: TestIsValidBucketName/my-bucket (0.00s)
+    --- PASS: TestIsValidBucketName/my.bucket (0.00s)
+    --- PASS: TestIsValidBucketName/mybucket- (0.00s)
+    --- PASS: TestIsValidBucketName/bucket--ol-s3 (0.00s)
+    --- PASS: TestIsValidBucketName/bucket-s3alias (0.00s)
+    --- PASS: TestIsValidBucketName/sthree-configurator-bucket (0.00s)
+    --- PASS: TestIsValidBucketName/my..bucket (0.00s)
+    --- PASS: TestIsValidBucketName/mybucket. (0.00s)
+    --- PASS: TestIsValidBucketName/.mybucket (0.00s)
+    --- PASS: TestIsValidBucketName/xn--bucket (0.00s)
+    --- PASS: TestIsValidBucketName/ab (0.00s)
+    --- PASS: TestIsValidBucketName/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa (0.00s)
+    --- PASS: TestIsValidBucketName/MyBucket (0.00s)
+    --- PASS: TestIsValidBucketName/my_bucket (0.00s)
+    --- PASS: TestIsValidBucketName/-mybucket (0.00s)
+    --- PASS: TestIsValidBucketName/a.b.c (0.00s)
+    --- PASS: TestIsValidBucketName/bucket-123 (0.00s)
+    --- PASS: TestIsValidBucketName/192.168.1.1 (0.00s)
+    --- PASS: TestIsValidBucketName/123-bucket (0.00s)
+    --- PASS: TestIsValidBucketName/sthree-bucket (0.00s)
+FAIL
+FAIL	Gopherstack/s3	0.161s
+FAIL

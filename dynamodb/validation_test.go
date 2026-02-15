@@ -141,12 +141,13 @@ func TestPutItem_ValidationErrors(t *testing.T) {
 	t.Parallel()
 	db := dynamodb.NewInMemoryDB()
 	tableName := "ValidationTable"
-	db.CreateTable([]byte(`{
-		"TableName": "` + tableName + `",
-		"KeySchema": [{"AttributeName": "pk", "KeyType": "HASH"}],
-		"AttributeDefinitions": [{"AttributeName": "pk", "AttributeType": "S"}],
-		"ProvisionedThroughput": {"ReadCapacityUnits": 1, "WriteCapacityUnits": 1}
-	}`))
+	ctInput := dynamodb.CreateTableInput{
+		TableName:            tableName,
+		KeySchema:            []dynamodb.KeySchemaElement{{AttributeName: "pk", KeyType: dynamodb.KeyTypeHash}},
+		AttributeDefinitions: []dynamodb.AttributeDefinition{{AttributeName: "pk", AttributeType: "S"}},
+	}
+	_, err := db.CreateTable(dynamodb.ToSDKCreateTableInput(&ctInput))
+	require.NoError(t, err)
 
 	tests := []struct {
 		name      string
@@ -173,11 +174,15 @@ func TestPutItem_ValidationErrors(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			input := `{"TableName": "` + tableName + `", "Item": ` + tc.item + `}`
-			_, err := db.PutItem([]byte(input))
-			require.Error(t, err)
+			inputStr := `{"TableName": "` + tableName + `", "Item": ` + tc.item + `}`
+			putInput := mustUnmarshal[dynamodb.PutItemInput](t, inputStr)
+			sdkPut, _ := dynamodb.ToSDKPutItemInput(&putInput)
+
+			var pErr error
+			_, pErr = db.PutItem(sdkPut)
+			require.Error(t, pErr)
 			if tc.wantError != "" {
-				assert.Contains(t, err.Error(), tc.wantError)
+				assert.Contains(t, pErr.Error(), tc.wantError)
 			}
 		})
 	}
@@ -187,12 +192,13 @@ func TestPutItem_ItemTooLarge(t *testing.T) {
 	t.Parallel()
 	db := dynamodb.NewInMemoryDB()
 	tableName := "LargeItemTable"
-	db.CreateTable([]byte(`{
-		"TableName": "` + tableName + `",
-		"KeySchema": [{"AttributeName": "pk", "KeyType": "HASH"}],
-		"AttributeDefinitions": [{"AttributeName": "pk", "AttributeType": "S"}],
-		"ProvisionedThroughput": {"ReadCapacityUnits": 1, "WriteCapacityUnits": 1}
-	}`))
+	ctInput := dynamodb.CreateTableInput{
+		TableName:            tableName,
+		KeySchema:            []dynamodb.KeySchemaElement{{AttributeName: "pk", KeyType: dynamodb.KeyTypeHash}},
+		AttributeDefinitions: []dynamodb.AttributeDefinition{{AttributeName: "pk", AttributeType: "S"}},
+	}
+	_, err := db.CreateTable(dynamodb.ToSDKCreateTableInput(&ctInput))
+	require.NoError(t, err)
 
 	// Create item > 400KB
 	largeVal := strings.Repeat("a", 400*1024+100)
@@ -204,7 +210,9 @@ func TestPutItem_ItemTooLarge(t *testing.T) {
 		}
 	}`
 
-	_, err := db.PutItem([]byte(input))
+	putInput := mustUnmarshal[dynamodb.PutItemInput](t, input)
+	sdkPut, _ := dynamodb.ToSDKPutItemInput(&putInput)
+	_, err = db.PutItem(sdkPut)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "exceeds limit")
 }

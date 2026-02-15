@@ -17,6 +17,10 @@ func (c *InMemClient) Do(req *http.Request) (*http.Response, error) {
 	// This confuses http.ServeMux. We clear RawPath to force ServeMux to use Path.
 	req.URL.RawPath = ""
 
+	if req.Body == nil {
+		req.Body = http.NoBody
+	}
+
 	rec := httptest.NewRecorder()
 	c.Handler.ServeHTTP(rec, req)
 

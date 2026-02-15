@@ -52,6 +52,7 @@ integration-test:
 	@echo "Running DynamoDB integration tests (no cache)..."
 	go test -v -race -shuffle on -tags=integration ./test/integration/...
 	
+
 clean:
 	rm -rf bin/
 

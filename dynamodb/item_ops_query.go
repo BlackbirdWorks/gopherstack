@@ -1,19 +1,18 @@
 package dynamodb
 
 import (
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
 
-func (db *InMemoryDB) Query(body []byte) (any, error) {
-	var input QueryInput
-	if err := json.Unmarshal(body, &input); err != nil {
-		return nil, err
-	}
-
-	table, err := db.getTable(input.TableName)
+func (db *InMemoryDB) Query(input *dynamodb.QueryInput) (*dynamodb.QueryOutput, error) {
+	tableName := aws.ToString(input.TableName)
+	table, err := db.getTable(tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -21,22 +20,28 @@ func (db *InMemoryDB) Query(body []byte) (any, error) {
 	table.mu.RLock()
 	defer table.mu.RUnlock()
 
-	keySchema, projection, err := db.extractKeySchema(table, input.IndexName)
+	idxName := aws.ToString(input.IndexName)
+	keySchema, projection, err := db.extractKeySchema(table, idxName)
 	if err != nil {
 		return nil, err
 	}
 
-	candidates, err := db.filterCandidatesForKeyCondition(table, &input, projection, keySchema)
+	candidates, err := db.filterCandidatesForKeyCondition(table, input, projection, keySchema)
 	if err != nil {
 		return nil, err
 	}
 
 	_, skDef := getPKAndSK(keySchema)
-	if skDef.AttributeName != "" {
-		db.sortCandidates(candidates, skDef, table, input.ScanIndexForward)
+	sortForward := true
+	if input.ScanIndexForward != nil {
+		sortForward = *input.ScanIndexForward
 	}
 
-	return db.processQueryResults(candidates, &input, keySchema, table.TTLAttribute), nil
+	if skDef.AttributeName != "" {
+		db.sortCandidates(candidates, skDef, table, sortForward)
+	}
+
+	return db.processQueryResults(candidates, input, keySchema, table.TTLAttribute), nil
 }
 
 func (db *InMemoryDB) extractKeySchema(table *Table, indexName string) ([]KeySchemaElement, *Projection, error) {
@@ -61,11 +66,12 @@ func (db *InMemoryDB) extractKeySchema(table *Table, indexName string) ([]KeySch
 
 func (db *InMemoryDB) filterCandidatesForKeyCondition(
 	table *Table,
-	input *QueryInput,
+	input *dynamodb.QueryInput,
 	projection *Projection,
 	keySchema []KeySchemaElement,
 ) ([]map[string]any, error) {
-	exprParts := splitANDConditions(input.KeyConditionExpression)
+	cond := aws.ToString(input.KeyConditionExpression)
+	exprParts := splitANDConditions(cond)
 	if len(exprParts) == 0 {
 		return nil, NewValidationException("invalid KeyConditionExpression")
 	}
@@ -76,9 +82,12 @@ func (db *InMemoryDB) filterCandidatesForKeyCondition(
 	}
 
 	pkDef, skDef := getPKAndSK(keySchema)
+	idxName := aws.ToString(input.IndexName)
+
+	eav := FromSDKItem(input.ExpressionAttributeValues)
 
 	// Try to use index for primary table queries (not GSI/LSI)
-	if input.IndexName == "" {
+	if idxName == "" {
 		candidates, ok := db.tryFilterUsingAuthoritativeIndex(
 			table,
 			input,
@@ -88,26 +97,28 @@ func (db *InMemoryDB) filterCandidatesForKeyCondition(
 			pkDef,
 			skDef,
 			exprParts,
+			eav,
 		)
 		if ok {
 			return candidates, nil
 		}
 	}
 
-	return db.filterCandidatesScan(table, input, projection, keySchema, exprParts)
+	return db.filterCandidatesScan(table, input, projection, keySchema, exprParts, eav)
 }
 
 func (db *InMemoryDB) tryFilterUsingAuthoritativeIndex(
 	table *Table,
-	input *QueryInput,
+	input *dynamodb.QueryInput,
 	projection *Projection,
 	_ []KeySchemaElement,
 	pkExpr string,
 	_ KeySchemaElement,
 	skDef KeySchemaElement,
 	exprParts []string,
+	eav map[string]any,
 ) ([]map[string]any, bool) {
-	pkValue := extractPKValueFromExpression(pkExpr, input.ExpressionAttributeValues, input.ExpressionAttributeNames)
+	pkValue := extractPKValueFromExpression(pkExpr, eav, input.ExpressionAttributeNames)
 	if pkValue == "" {
 		return nil, false
 	}
@@ -119,13 +130,11 @@ func (db *InMemoryDB) tryFilterUsingAuthoritativeIndex(
 				indices = append(indices, idx)
 			}
 
-			candidates := db.filterUsingIndices(table, input, projection, indices, exprParts)
-
+			candidates := db.filterUsingIndices(table, input, projection, indices, exprParts, eav)
 			return candidates, true
 		}
 	} else if idx, ok := table.pkIndex[pkValue]; ok {
-		candidates := db.filterUsingIndices(table, input, projection, []int{idx}, exprParts)
-
+		candidates := db.filterUsingIndices(table, input, projection, []int{idx}, exprParts, eav)
 		return candidates, true
 	}
 
@@ -134,20 +143,20 @@ func (db *InMemoryDB) tryFilterUsingAuthoritativeIndex(
 
 func (db *InMemoryDB) filterUsingIndices(
 	table *Table,
-	input *QueryInput,
+	input *dynamodb.QueryInput,
 	_ *Projection,
 	indices []int,
 	exprParts []string,
+	eav map[string]any,
 ) []map[string]any {
 	candidates := make([]map[string]any, 0, len(indices))
 	for _, idx := range indices {
 		item := table.Items[idx]
 		match := true
 		for _, part := range exprParts {
-			m, err := evaluateExpression(part, item, input.ExpressionAttributeValues, input.ExpressionAttributeNames)
+			m, err := evaluateExpression(part, item, eav, input.ExpressionAttributeNames)
 			if err != nil || !m {
 				match = false
-
 				break
 			}
 		}
@@ -181,10 +190,9 @@ func dbResolvePKTarget(left, right string, attrNames map[string]string, attrValu
 	rName := resolveAttrName(right, attrNames)
 
 	if lName == "" && rName == "" {
-		return "" // Not related to PK
+		return ""
 	}
 
-	// Figure out which side is the value token
 	var valueToken string
 	if strings.HasPrefix(left, ":") {
 		valueToken = left
@@ -201,37 +209,35 @@ func dbResolvePKTarget(left, right string, attrNames map[string]string, attrValu
 
 func (db *InMemoryDB) filterCandidatesScan(
 	table *Table,
-	input *QueryInput,
+	input *dynamodb.QueryInput,
 	projection *Projection,
 	keySchema []KeySchemaElement,
 	exprParts []string,
+	eav map[string]any,
 ) ([]map[string]any, error) {
-	pkDef, skDef := getPKAndSK(keySchema)
+	// naive scan filtering
 	candidates := make([]map[string]any, 0, len(table.Items)/estimatedMatchRateDivisor)
+
+	idxName := aws.ToString(input.IndexName)
 
 	for _, item := range table.Items {
 		match := true
 		for _, part := range exprParts {
-			m, err := evaluateExpression(part, item, input.ExpressionAttributeValues, input.ExpressionAttributeNames)
+			m, err := evaluateExpression(part, item, eav, input.ExpressionAttributeNames)
 			if err != nil || !m {
 				match = false
-
 				break
 			}
 		}
 
 		if match {
-			if input.IndexName != "" {
+			if idxName != "" {
 				candidates = append(candidates, applyGSIProjection(item, *projection, table.KeySchema, keySchema))
 			} else {
 				candidates = append(candidates, item)
 			}
 		}
 	}
-
-	// Filter and sort for GSI if needed (already handled by SortCandidates if sk exists)
-	_ = pkDef
-	_ = skDef
 
 	return candidates, nil
 }
@@ -240,86 +246,98 @@ func (db *InMemoryDB) sortCandidates(
 	candidates []map[string]any,
 	skDef KeySchemaElement,
 	table *Table,
-	scanIndexForward *bool,
+	scanIndexForward bool,
 ) {
-	// Try to get type from AttributeDefinitions first
 	skType := getAttributeType(table.AttributeDefinitions, skDef.AttributeName, "")
-
-	// If not found, infer from first candidate's actual value
 	if skType == "" {
 		skType = inferSKType(candidates, skDef.AttributeName)
 	}
 	if skType == "" {
-		skType = "S" // final fallback
+		skType = "S"
 	}
 
 	sort.Slice(candidates, func(i, j int) bool {
 		v1 := unwrapAttributeValue(candidates[i][skDef.AttributeName])
 		v2 := unwrapAttributeValue(candidates[j][skDef.AttributeName])
 		res := compareAny(v1, v2, skType)
-		if scanIndexForward != nil && !*scanIndexForward {
+		if !scanIndexForward {
 			return res > 0
 		}
-
 		return res < 0
 	})
 }
 
 func (db *InMemoryDB) processQueryResults(
 	candidates []map[string]any,
-	input *QueryInput,
+	input *dynamodb.QueryInput,
 	keySchema []KeySchemaElement,
 	ttlAttr string,
-) QueryOutput {
-	startIndex := findExclusiveStartIndex(candidates, input.ExclusiveStartKey, keySchema)
+) *dynamodb.QueryOutput {
+	eav := FromSDKItem(input.ExpressionAttributeValues)
+	exclusiveStartKey := FromSDKItem(input.ExclusiveStartKey)
 
-	capacity := int(input.Limit)
+	startIndex := findExclusiveStartIndex(candidates, exclusiveStartKey, keySchema)
+
+	capacity := int(aws.ToInt32(input.Limit))
 	if capacity == 0 || capacity > 100 {
-		capacity = 100
+		capacity = 100 // default or max page size for safety
 	}
 	items := make([]map[string]any, 0, capacity)
 
 	var lastEvaluatedKey map[string]any
-	limit := int(input.Limit)
+	limit := int(aws.ToInt32(input.Limit))
 	count := 0
 
 	for i := startIndex; i < len(candidates); i++ {
 		if limit > 0 && count >= limit {
 			lastEvaluatedKey = extractKey(items[len(items)-1], keySchema)
-
 			break
 		}
 
 		item := candidates[i]
-		if isItemExpired(item, ttlAttr) || !db.shouldIncludeInQuery(item, input) {
+		if isItemExpired(item, ttlAttr) || !db.shouldIncludeInQuery(item, input, eav) {
 			continue
 		}
 
 		processedItem := item
-		if input.ProjectionExpression != "" {
-			processedItem = projectItem(item, input.ProjectionExpression, input.ExpressionAttributeNames)
+		proj := aws.ToString(input.ProjectionExpression)
+		if proj != "" {
+			processedItem = projectItem(item, proj, input.ExpressionAttributeNames)
 		}
 
 		items = append(items, processedItem)
 		count++
 	}
 
-	return QueryOutput{
-		Items:            items,
-		Count:            len(items),
-		ScannedCount:     len(candidates),
-		LastEvaluatedKey: lastEvaluatedKey,
+	// Prepare output
+	outItems := make([]map[string]types.AttributeValue, len(items))
+	for i, it := range items {
+		sdkIt, _ := ToSDKItem(it)
+		outItems[i] = sdkIt
 	}
+
+	out := &dynamodb.QueryOutput{
+		Items:        outItems,
+		Count:        int32(len(items)),
+		ScannedCount: int32(len(candidates)),
+	}
+
+	if lastEvaluatedKey != nil {
+		out.LastEvaluatedKey, _ = ToSDKItem(lastEvaluatedKey)
+	}
+
+	return out
 }
 
-func (db *InMemoryDB) shouldIncludeInQuery(item map[string]any, input *QueryInput) bool {
-	if input.FilterExpression == "" {
+func (db *InMemoryDB) shouldIncludeInQuery(item map[string]any, input *dynamodb.QueryInput, eav map[string]any) bool {
+	filter := aws.ToString(input.FilterExpression)
+	if filter == "" {
 		return true
 	}
 	match, err := evaluateExpression(
-		input.FilterExpression,
+		filter,
 		item,
-		input.ExpressionAttributeValues,
+		eav,
 		input.ExpressionAttributeNames,
 	)
 
@@ -330,22 +348,18 @@ func inferSKType(candidates []map[string]any, skName string) string {
 	if len(candidates) == 0 {
 		return ""
 	}
-
 	val, okVal := candidates[0][skName]
 	if !okVal {
 		return ""
 	}
-
 	m, okM := val.(map[string]any)
 	if !okM {
 		return ""
 	}
-
 	for _, t := range []string{"N", "S", "B"} {
 		if _, has := m[t]; has {
 			return t
 		}
 	}
-
-	return "S" // default
+	return "S"
 }

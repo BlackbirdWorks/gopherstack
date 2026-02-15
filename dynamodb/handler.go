@@ -4,77 +4,67 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
-	"sort"
 	"strings"
+
+	"Gopherstack/pkgs/httputils"
 )
 
 var ErrUnknownOperation = errors.New("UnknownOperationException")
 
 // Handler handles HTTP requests for DynamoDB operations.
 type Handler struct {
-	DB          *InMemoryDB
-	Logger      *slog.Logger
-	dispatchMap map[string]func([]byte) (any, error)
+	DB     *InMemoryDB
+	Logger *slog.Logger
 }
 
 // NewHandler creates a new DynamoDB handler.
 func NewHandler() *Handler {
-	h := &Handler{
+	return &Handler{
 		DB:     NewInMemoryDB(),
 		Logger: slog.Default(),
-	}
-	h.initDispatchMap()
-
-	return h
-}
-
-func (h *Handler) initDispatchMap() {
-	h.dispatchMap = map[string]func([]byte) (any, error){
-		"CreateTable":        h.DB.CreateTable,
-		"DeleteTable":        h.DB.DeleteTable,
-		"DescribeTable":      h.DB.DescribeTable,
-		"ListTables":         h.DB.ListTables,
-		"PutItem":            h.DB.PutItem,
-		"GetItem":            h.DB.GetItem,
-		"DeleteItem":         h.DB.DeleteItem,
-		"Scan":               h.DB.Scan,
-		"UpdateItem":         h.DB.UpdateItem,
-		"Query":              h.DB.Query,
-		"BatchGetItem":       h.DB.BatchGetItem,
-		"BatchWriteItem":     h.DB.BatchWriteItem,
-		"UpdateTimeToLive":   h.DB.UpdateTimeToLive,
-		"DescribeTimeToLive": h.DB.DescribeTimeToLive,
-		"TransactWriteItems": h.DB.TransactWriteItems,
-		"TransactGetItems":   h.DB.TransactGetItems,
 	}
 }
 
 // GetSupportedOperations returns a sorted list of supported DynamoDB operations.
 func (h *Handler) GetSupportedOperations() []string {
-	ops := make([]string, 0, len(h.dispatchMap))
-	for op := range h.dispatchMap {
-		ops = append(ops, op)
+	return []string{
+		"BatchGetItem",
+		"BatchWriteItem",
+		"CreateTable",
+		"DeleteItem",
+		"DeleteTable",
+		"DescribeTable",
+		"DescribeTimeToLive",
+		"GetItem",
+		"ListTables",
+		"PutItem",
+		"Query",
+		"Scan",
+		"TransactGetItems",
+		"TransactWriteItems",
+		"UpdateItem",
+		"UpdateTimeToLive",
 	}
-	sort.Strings(ops)
-
-	return ops
 }
 
 // ServeHTTP implements [http.Handler] interface.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet && r.URL.Path == "/" {
+		ops := h.GetSupportedOperations()
+		httputils.WriteJSON(h.Logger, w, http.StatusOK, ops)
+		return
+	}
+
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-
 		return
 	}
 
 	target := r.Header.Get("X-Amz-Target")
 	if target == "" {
 		http.Error(w, "Missing X-Amz-Target", http.StatusBadRequest)
-
 		return
 	}
 
@@ -82,106 +72,192 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(target, ".")
 	if len(parts) != targetParts {
 		http.Error(w, "Invalid X-Amz-Target", http.StatusBadRequest)
-
 		return
 	}
 	action := parts[1]
 
-	body, err := io.ReadAll(r.Body)
+	body, err := httputils.ReadBody(r)
 	if err != nil {
-		http.Error(w, "Failed to read body", http.StatusInternalServerError)
-
+		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
 		return
 	}
-	defer func() {
-		_ = r.Body.Close()
-	}()
 
 	w.Header().Set("Content-Type", "application/x-amz-json-1.0")
 
 	response, reqErr := h.dispatch(action, body)
-
 	if reqErr != nil {
-		h.handleError(w, action, reqErr)
-
+		h.handleError(w, r, action, reqErr)
 		return
 	}
 
-	jsonResponse, err := json.Marshal(response)
-	if err != nil {
-		h.Logger.Error("Failed to marshal response", "error", err)
-		http.Error(w, "Failed to marshal response", http.StatusInternalServerError)
-
-		return
-	}
-	w.WriteHeader(http.StatusOK)
-	if _, wErr := w.Write(jsonResponse); wErr != nil {
-		h.Logger.Error("Failed to write response", "error", wErr)
-	}
+	httputils.WriteJSON(h.Logger, w, http.StatusOK, response)
 }
 
 func (h *Handler) dispatch(action string, body []byte) (any, error) {
-	if handler, ok := h.dispatchMap[action]; ok {
-		return handler(body)
+	switch action {
+	case "CreateTable", "DeleteTable", "DescribeTable", "ListTables", "UpdateTimeToLive", "DescribeTimeToLive":
+		return h.dispatchTableOps(action, body)
+	case "PutItem", "GetItem", "DeleteItem", "UpdateItem", "Query", "Scan", "BatchGetItem", "BatchWriteItem":
+		return h.dispatchItemOps(action, body)
+	case "TransactWriteItems", "TransactGetItems":
+		return h.dispatchTransactOps(action, body)
+	default:
+		return nil, fmt.Errorf("%w:%s", ErrUnknownOperation, action)
 	}
-
-	return nil, fmt.Errorf("%w:%s", ErrUnknownOperation, action)
 }
 
-func (h *Handler) handleError(w http.ResponseWriter, action string, reqErr error) {
+// Helper for operations where Adapter allows error
+func handleOpErr[WireIn any, SDKIn any, SDKOut any, WireOut any](
+	body []byte,
+	toSDK func(*WireIn) (*SDKIn, error),
+	doOp func(*SDKIn) (*SDKOut, error),
+	fromSDK func(*SDKOut) *WireOut,
+) (any, error) {
+	var input WireIn
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &input); err != nil {
+			return nil, err
+		}
+	}
+	sdkInput, err := toSDK(&input)
+	if err != nil {
+		return nil, err
+	}
+	sdkOutput, err := doOp(sdkInput)
+	if err != nil {
+		return nil, err
+	}
+	return fromSDK(sdkOutput), nil
+}
+
+// Helper for operations where Adapter does not return error
+func handleOp[WireIn any, SDKIn any, SDKOut any, WireOut any](
+	body []byte,
+	toSDK func(*WireIn) *SDKIn,
+	doOp func(*SDKIn) (*SDKOut, error),
+	fromSDK func(*SDKOut) *WireOut,
+) (any, error) {
+	var input WireIn
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &input); err != nil {
+			return nil, err
+		}
+	}
+	sdkInput := toSDK(&input)
+	sdkOutput, err := doOp(sdkInput)
+	if err != nil {
+		return nil, err
+	}
+	return fromSDK(sdkOutput), nil
+}
+
+func (h *Handler) dispatchTableOps(action string, body []byte) (any, error) {
+	switch action {
+	case "CreateTable":
+		return handleOp(body, ToSDKCreateTableInput, h.DB.CreateTable, FromSDKCreateTableOutput)
+	case "DeleteTable":
+		return handleOp(body, ToSDKDeleteTableInput, h.DB.DeleteTable, FromSDKDeleteTableOutput)
+	case "DescribeTable":
+		return handleOp(body, ToSDKDescribeTableInput, h.DB.DescribeTable, FromSDKDescribeTableOutput)
+	case "ListTables":
+		return handleOp(body, ToSDKListTablesInput, h.DB.ListTables, FromSDKListTablesOutput)
+	case "UpdateTimeToLive":
+		return handleOp(body, ToSDKUpdateTimeToLiveInput, h.DB.UpdateTimeToLive, FromSDKUpdateTimeToLiveOutput)
+	case "DescribeTimeToLive":
+		return handleOp(body, ToSDKDescribeTimeToLiveInput, h.DB.DescribeTimeToLive, FromSDKDescribeTimeToLiveOutput)
+	default:
+		return nil, fmt.Errorf("%w:%s", ErrUnknownOperation, action)
+	}
+}
+
+func (h *Handler) dispatchItemOps(action string, body []byte) (any, error) {
+	switch action {
+	case "PutItem":
+		return handleOpErr(body, ToSDKPutItemInput, h.DB.PutItem, FromSDKPutItemOutput)
+	case "GetItem":
+		return handleOpErr(body, ToSDKGetItemInput, h.DB.GetItem, FromSDKGetItemOutput)
+	case "DeleteItem":
+		return handleOpErr(body, ToSDKDeleteItemInput, h.DB.DeleteItem, FromSDKDeleteItemOutput)
+	case "Scan":
+		return handleOpErr(body, ToSDKScanInput, h.DB.Scan, FromSDKScanOutput)
+	case "UpdateItem":
+		return handleOpErr(body, ToSDKUpdateItemInput, h.DB.UpdateItem, FromSDKUpdateItemOutput)
+	case "Query":
+		return handleOpErr(body, ToSDKQueryInput, h.DB.Query, FromSDKQueryOutput)
+	case "BatchGetItem":
+		return handleOpErr(body, ToSDKBatchGetItemInput, h.DB.BatchGetItem, FromSDKBatchGetItemOutput)
+	case "BatchWriteItem":
+		return handleOpErr(body, ToSDKBatchWriteItemInput, h.DB.BatchWriteItem, FromSDKBatchWriteItemOutput)
+	default:
+		return nil, fmt.Errorf("%w:%s", ErrUnknownOperation, action)
+	}
+}
+
+func (h *Handler) dispatchTransactOps(action string, body []byte) (any, error) {
+	switch action {
+	case "TransactWriteItems":
+		return handleOpErr(body, ToSDKTransactWriteItemsInput, h.DB.TransactWriteItems, FromSDKTransactWriteItemsOutput)
+	case "TransactGetItems":
+		return handleOpErr(body, ToSDKTransactGetItemsInput, h.DB.TransactGetItems, FromSDKTransactGetItemsOutput)
+	default:
+		return nil, fmt.Errorf("%w:%s", ErrUnknownOperation, action)
+	}
+}
+
+func (h *Handler) handleError(w http.ResponseWriter, _ *http.Request, action string, reqErr error) {
 	if strings.HasPrefix(reqErr.Error(), "UnknownOperationException:") {
 		h.Logger.Warn("Unknown action", "action", action)
+		w.Header().Set("Content-Type", "application/x-amz-json-1.0")
 		w.WriteHeader(http.StatusBadRequest)
-
-		if _, err := w.Write(
-			[]byte(`{"__type":"com.amazon.coral.service#UnknownOperationException","message":"Action not supported"}`),
-		); err != nil {
-			h.Logger.Error("Failed to write unknown operation response", "error", err)
-		}
-
+		w.Write([]byte(`{"__type":"com.amazon.coral.service#UnknownOperationException","message":"Action not supported"}`))
 		return
 	}
 
 	h.Logger.Error("Error handling action", "action", action, "error", reqErr)
 
-	awsErr := h.classifyError(w, reqErr)
+	statusCode, awsErr := h.classifyError(reqErr)
 
-	jsonBytes, err := json.Marshal(awsErr)
-	if err != nil {
-		h.Logger.Error("Failed to marshal AWS error", "error", err)
-
-		return
-	}
-
-	if _, wErr := w.Write(jsonBytes); wErr != nil {
-		h.Logger.Error("Failed to write error response", "error", wErr)
-	}
+	w.Header().Set("Content-Type", "application/x-amz-json-1.0")
+	httputils.WriteJSON(h.Logger, w, statusCode, awsErr)
 }
 
-func (h *Handler) classifyError(w http.ResponseWriter, reqErr error) *Error {
-	var awsErr *Error
-	if errors.As(reqErr, &awsErr) {
-		switch awsErr.Type {
+func (h *Handler) classifyError(reqErr error) (int, *Error) {
+	// Simple error classification wrapping
+	// If it's already a DynamoDB error type/struct, use it.
+	// But our internal implementation returns native go errors or custom structs.
+	// We need to map them to Wire Error struct.
+
+	// If reqErr is already *Error (Wire type), return it.
+	var wireErr *Error
+	if errors.As(reqErr, &wireErr) {
+		// Map type to status code
+		switch wireErr.Type {
 		case "com.amazonaws.dynamodb.v20120810#InternalServerError":
-			w.WriteHeader(http.StatusInternalServerError)
+			return http.StatusInternalServerError, wireErr
 		case "com.amazonaws.dynamodb.v20120810#ResourceNotFoundException":
-			w.WriteHeader(http.StatusNotFound)
+			return http.StatusNotFound, wireErr
+		case "com.amazonaws.dynamodb.v20120810#ConditionalCheckFailedException":
+			return http.StatusBadRequest, wireErr
+		case "com.amazonaws.dynamodb.v20120810#TransactionCanceledException":
+			return http.StatusBadRequest, wireErr
 		default:
-			w.WriteHeader(http.StatusBadRequest)
+			return http.StatusBadRequest, wireErr
 		}
-
-		return awsErr
 	}
 
-	if strings.Contains(reqErr.Error(), "json:") || strings.Contains(reqErr.Error(), "unmarshal") {
-		w.WriteHeader(http.StatusBadRequest)
-
-		return NewValidationException(fmt.Sprintf("The parameter cannot be converted to a JSON: %s", reqErr.Error()))
+	// Fallback
+	var syntaxErr *json.SyntaxError
+	var unmarshalTypeError *json.UnmarshalTypeError
+	if errors.As(reqErr, &syntaxErr) || errors.As(reqErr, &unmarshalTypeError) {
+		return http.StatusBadRequest, NewValidationException(fmt.Sprintf("JSON Error: %s", reqErr.Error()))
 	}
 
-	w.WriteHeader(http.StatusInternalServerError)
+	errStr := reqErr.Error()
+	if strings.Contains(errStr, "json:") || strings.Contains(errStr, "unmarshal") {
+		return http.StatusBadRequest, NewValidationException(fmt.Sprintf("JSON Error: %s", errStr))
+	}
 
-	return &Error{
+	return http.StatusInternalServerError, &Error{
 		Type:    "com.amazonaws.dynamodb.v20120810#InternalServerError",
 		Message: reqErr.Error(),
 	}

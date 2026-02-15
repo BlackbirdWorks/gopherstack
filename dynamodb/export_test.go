@@ -49,7 +49,7 @@ func (db *InMemoryDB) SortCandidates(
 	candidates []map[string]any,
 	skDef KeySchemaElement,
 	table *Table,
-	scanIndexForward *bool,
+	scanIndexForward bool,
 ) {
 	db.sortCandidates(candidates, skDef, table, scanIndexForward)
 }

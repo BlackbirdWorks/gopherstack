@@ -8,7 +8,10 @@
       "Bash(go test:*)",
       "Bash(go build:*)",
       "Bash(goimports:*)",
-      "Bash(go run:*)"
+      "Bash(go run:*)",
+      "Bash(go version:*)",
+      "Bash(ls:*)",
+      "Bash(go doc:*)"
     ]
   }
 }

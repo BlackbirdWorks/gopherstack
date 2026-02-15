@@ -261,14 +261,9 @@ func lookupIdentifier(ident string) TokenType {
 	if tok, ok := lookupKeyword(ident); ok {
 		return tok
 	}
-	if strings.HasPrefix(ident, "AND") || strings.HasPrefix(ident, "OR") || strings.HasPrefix(ident, "NOT") {
-		// Handle potential case issues or spaces? No, keywords should match exactly.
-		// Wait, DynamoDB keywords are case-insensitive? Most SQL is.
-		// Actually, DynamoDB docs show them in upper case but let's be safe.
-		upper := strings.ToUpper(ident)
-		if tok, ok := lookupKeyword(upper); ok {
-			return tok
-		}
+	upper := strings.ToUpper(ident)
+	if tok, ok := lookupKeyword(upper); ok {
+		return tok
 	}
 
 	return TokenIdentifier

@@ -1,11 +1,12 @@
 package dynamodb_test
 
 import (
-	"encoding/json"
 	"testing"
 
 	"Gopherstack/dynamodb"
 
+	dynamodb_sdk "github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -22,7 +23,7 @@ func TestPutItem(t *testing.T) {
 		{
 			name: "Success",
 			setup: func(db *dynamodb.InMemoryDB) {
-				createTable(db, "ItemsTable")
+				createTableHelper(t, db, "ItemsTable", "id") // Assuming wrapper in test_utils handles SDK conversion
 			},
 			input: dynamodb.PutItemInput{
 				TableName: "ItemsTable",
@@ -39,7 +40,7 @@ func TestPutItem(t *testing.T) {
 		{
 			name: "Overwrite",
 			setup: func(db *dynamodb.InMemoryDB) {
-				createTable(db, "ItemsTable")
+				createTableHelper(t, db, "ItemsTable", "id")
 				putItem(db, "1", "original")
 			},
 			input: dynamodb.PutItemInput{
@@ -57,7 +58,7 @@ func TestPutItem(t *testing.T) {
 		{
 			name: "ReturnValues_ALL_OLD",
 			setup: func(db *dynamodb.InMemoryDB) {
-				createTable(db, "ItemsTable")
+				createTableHelper(t, db, "ItemsTable", "id")
 				putItem(db, "1", "original")
 			},
 			input: dynamodb.PutItemInput{
@@ -71,16 +72,16 @@ func TestPutItem(t *testing.T) {
 			validate: func(t *testing.T, resp any, err error) {
 				t.Helper()
 				require.NoError(t, err)
-				output := resp.(dynamodb.PutItemOutput)
+				output := resp.(*dynamodb_sdk.PutItemOutput)
 				require.NotNil(t, output.Attributes, "Expected Attributes to be returned")
-				val := output.Attributes["val"].(map[string]any)["S"]
+				val := output.Attributes["val"].(*types.AttributeValueMemberS).Value
 				assert.Equal(t, "original", val)
 			},
 		},
 		{
 			name: "ReturnConsumedCapacity",
 			setup: func(db *dynamodb.InMemoryDB) {
-				createTable(db, "ItemsTable")
+				createTableHelper(t, db, "ItemsTable", "id")
 			},
 			input: dynamodb.PutItemInput{
 				TableName:              "ItemsTable",
@@ -90,15 +91,15 @@ func TestPutItem(t *testing.T) {
 			validate: func(t *testing.T, resp any, err error) {
 				t.Helper()
 				require.NoError(t, err)
-				output := resp.(dynamodb.PutItemOutput)
+				output := resp.(*dynamodb_sdk.PutItemOutput)
 				require.NotNil(t, output.ConsumedCapacity, "Expected ConsumedCapacity to be returned")
-				assert.InDelta(t, 1.0, output.ConsumedCapacity.CapacityUnits, 0.0001)
+				assert.InDelta(t, 1.0, *output.ConsumedCapacity.CapacityUnits, 0.0001)
 			},
 		},
 		{
 			name: "ReturnItemCollectionMetrics",
 			setup: func(db *dynamodb.InMemoryDB) {
-				createTable(db, "ItemsTable")
+				createTableHelper(t, db, "ItemsTable", "id")
 			},
 			input: dynamodb.PutItemInput{
 				TableName:                   "ItemsTable",
@@ -108,10 +109,9 @@ func TestPutItem(t *testing.T) {
 			validate: func(t *testing.T, resp any, err error) {
 				t.Helper()
 				require.NoError(t, err)
-				output := resp.(dynamodb.PutItemOutput)
+				output := resp.(*dynamodb_sdk.PutItemOutput)
 				require.NotNil(t, output.ItemCollectionMetrics, "Expected ItemCollectionMetrics to be returned")
-				pkVal, ok := output.ItemCollectionMetrics.ItemCollectionKey["id"].(map[string]any)["S"]
-				require.True(t, ok)
+				pkVal := output.ItemCollectionMetrics.ItemCollectionKey["id"].(*types.AttributeValueMemberS).Value
 				assert.Equal(t, "1", pkVal)
 			},
 		},
@@ -125,8 +125,8 @@ func TestPutItem(t *testing.T) {
 				tt.setup(db)
 			}
 
-			body, _ := json.Marshal(tt.input)
-			resp, err := db.PutItem(body)
+			sdkInput, _ := dynamodb.ToSDKPutItemInput(&tt.input)
+			resp, err := db.PutItem(sdkInput)
 
 			if tt.validate != nil {
 				tt.validate(t, resp, err)
@@ -147,7 +147,7 @@ func TestGetItem(t *testing.T) {
 		{
 			name: "Success",
 			setup: func(db *dynamodb.InMemoryDB) {
-				createTable(db, "ItemsTable")
+				createTableHelper(t, db, "ItemsTable", "id")
 				putItem(db, "1", "data")
 			},
 			input: dynamodb.GetItemInput{
@@ -157,18 +157,20 @@ func TestGetItem(t *testing.T) {
 			validate: func(t *testing.T, resp any, err error) {
 				t.Helper()
 				require.NoError(t, err)
-				output := resp.(dynamodb.GetItemOutput)
+				output := resp.(*dynamodb_sdk.GetItemOutput)
 				expected := map[string]any{
 					"id":  map[string]any{"S": "1"},
 					"val": map[string]any{"S": "data"},
 				}
-				assert.Equal(t, expected, output.Item)
+				// Convert output item to wire format for comparison
+				got := dynamodb.FromSDKItem(output.Item)
+				assert.Equal(t, expected, got)
 			},
 		},
 		{
 			name: "NotFound",
 			setup: func(db *dynamodb.InMemoryDB) {
-				createTable(db, "ItemsTable")
+				createTableHelper(t, db, "ItemsTable", "id")
 			},
 			input: dynamodb.GetItemInput{
 				TableName: "ItemsTable",
@@ -177,8 +179,8 @@ func TestGetItem(t *testing.T) {
 			validate: func(t *testing.T, resp any, err error) {
 				t.Helper()
 				require.NoError(t, err)
-				output := resp.(dynamodb.GetItemOutput)
-				assert.Nil(t, output.Item)
+				output := resp.(*dynamodb_sdk.GetItemOutput)
+				assert.Empty(t, output.Item)
 			},
 		},
 	}
@@ -191,8 +193,8 @@ func TestGetItem(t *testing.T) {
 				tt.setup(db)
 			}
 
-			body, _ := json.Marshal(tt.input)
-			resp, err := db.GetItem(body)
+			sdkInput, _ := dynamodb.ToSDKGetItemInput(&tt.input)
+			resp, err := db.GetItem(sdkInput)
 
 			if tt.validate != nil {
 				tt.validate(t, resp, err)
@@ -213,7 +215,7 @@ func TestDeleteItem(t *testing.T) {
 		{
 			name: "Success",
 			setup: func(db *dynamodb.InMemoryDB) {
-				createTable(db, "ItemsTable")
+				createTableHelper(t, db, "ItemsTable", "id")
 				putItem(db, "1", "data")
 			},
 			input: dynamodb.DeleteItemInput{
@@ -228,10 +230,9 @@ func TestDeleteItem(t *testing.T) {
 					TableName: "ItemsTable",
 					Key:       map[string]any{"id": map[string]any{"S": "1"}},
 				}
-				getBody, _ := json.Marshal(getInput)
-				getResp, _ := db.GetItem(getBody)
-				output := getResp.(dynamodb.GetItemOutput)
-				assert.Nil(t, output.Item)
+				sdkGet, _ := dynamodb.ToSDKGetItemInput(&getInput)
+				getResp, _ := db.GetItem(sdkGet)
+				assert.Empty(t, getResp.Item)
 			},
 		},
 	}
@@ -244,8 +245,8 @@ func TestDeleteItem(t *testing.T) {
 				tt.setup(db)
 			}
 
-			body, _ := json.Marshal(tt.input)
-			resp, err := db.DeleteItem(body)
+			sdkInput, _ := dynamodb.ToSDKDeleteItemInput(&tt.input)
+			resp, err := db.DeleteItem(sdkInput)
 
 			if tt.validate != nil {
 				tt.validate(t, db, resp, err)
@@ -266,7 +267,7 @@ func TestItemOps_Scan(t *testing.T) {
 		{
 			name: "Success",
 			setup: func(db *dynamodb.InMemoryDB) {
-				createTable(db, "ItemsTable")
+				createTableHelper(t, db, "ItemsTable", "id")
 				putItem(db, "1", "data1")
 				putItem(db, "2", "data2")
 			},
@@ -274,8 +275,8 @@ func TestItemOps_Scan(t *testing.T) {
 			validate: func(t *testing.T, resp any, err error) {
 				t.Helper()
 				require.NoError(t, err)
-				output := resp.(dynamodb.ScanOutput)
-				assert.Equal(t, 2, output.Count)
+				output := resp.(*dynamodb_sdk.ScanOutput)
+				assert.Equal(t, int32(2), output.Count)
 			},
 		},
 	}
@@ -288,8 +289,8 @@ func TestItemOps_Scan(t *testing.T) {
 				tt.setup(db)
 			}
 
-			body, _ := json.Marshal(tt.input)
-			resp, err := db.Scan(body)
+			sdkInput, _ := dynamodb.ToSDKScanInput(&tt.input)
+			resp, err := db.Scan(sdkInput)
 
 			if tt.validate != nil {
 				tt.validate(t, resp, err)
@@ -306,6 +307,6 @@ func putItem(db *dynamodb.InMemoryDB, id, val string) {
 			"val": map[string]any{"S": val},
 		},
 	}
-	body, _ := json.Marshal(input)
-	_, _ = db.PutItem(body)
+	sdkInput, _ := dynamodb.ToSDKPutItemInput(&input)
+	_, _ = db.PutItem(sdkInput)
 }
