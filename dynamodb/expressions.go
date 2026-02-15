@@ -124,10 +124,20 @@ func evaluateCondition(
 }
 
 func isFunction(cond string) bool {
-	return strings.HasPrefix(cond, "attribute_exists(") ||
-		strings.HasPrefix(cond, "attribute_not_exists(") ||
-		strings.HasPrefix(cond, "begins_with(") ||
-		strings.HasPrefix(cond, "contains(")
+	cond = strings.TrimSpace(cond)
+	idx := strings.Index(cond, "(")
+	if idx == -1 {
+		return false
+	}
+
+	name := strings.TrimSpace(cond[:idx])
+	// Valid DynamoDB functions supported so far
+	switch name {
+	case "attribute_exists", "attribute_not_exists", "begins_with", "contains":
+		return true
+	}
+
+	return false
 }
 
 func evaluateFunction(
@@ -136,8 +146,16 @@ func evaluateFunction(
 	attrValues map[string]any,
 	attrNames map[string]string,
 ) (bool, error) {
-	switch {
-	case strings.HasPrefix(cond, "attribute_exists("):
+	cond = strings.TrimSpace(cond)
+	idx := strings.Index(cond, "(")
+	if idx == -1 {
+		return false, NewValidationException(fmt.Sprintf("invalid function syntax: %s", cond))
+	}
+
+	name := strings.TrimSpace(cond[:idx])
+
+	switch name {
+	case "attribute_exists":
 		path := extractFunctionArg(cond)
 		pathElems, err := parseAndResolvePath(path, attrNames)
 		if err != nil {
@@ -147,7 +165,7 @@ func evaluateFunction(
 		_, exists := getValueAtPath(item, pathElems)
 
 		return exists, nil
-	case strings.HasPrefix(cond, "attribute_not_exists("):
+	case "attribute_not_exists":
 		path := extractFunctionArg(cond)
 		pathElems, err := parseAndResolvePath(path, attrNames)
 		if err != nil {
@@ -157,12 +175,12 @@ func evaluateFunction(
 		_, exists := getValueAtPath(item, pathElems)
 
 		return !exists, nil
-	case strings.HasPrefix(cond, "begins_with("):
+	case "begins_with":
 		return evaluateBeginsWith(cond, item, attrValues, attrNames)
-	case strings.HasPrefix(cond, "contains("):
+	case "contains":
 		return evaluateContains(cond, item, attrValues, attrNames)
 	default:
-		return false, NewValidationException(fmt.Sprintf("unknown function: %s", cond))
+		return false, NewValidationException(fmt.Sprintf("unknown function: %s", name))
 	}
 }
 

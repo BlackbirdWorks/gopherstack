@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -23,12 +24,14 @@ const (
 // Handler implements [http.Handler] for S3-compatible API requests.
 type Handler struct {
 	Backend StorageBackend
+	Logger  *slog.Logger
 }
 
 // NewHandler creates a new S3 Handler with the given backend.
 func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{
 		Backend: backend,
+		Logger:  slog.Default(),
 	}
 }
 
@@ -114,7 +117,9 @@ func (h *Handler) routeBucketGet(w http.ResponseWriter, r *http.Request, bucket 
 	case r.URL.Query().Has("versions"):
 		h.listObjectVersions(w, r, bucket)
 	case r.URL.Query().Has("location"):
-		_, _ = w.Write([]byte(xml.Header + locationConstraintXML))
+		if _, err := w.Write([]byte(xml.Header + locationConstraintXML)); err != nil {
+			h.Logger.Error("failed to write location constraint response", "error", err)
+		}
 	case r.URL.Query().Has("tagging"):
 		h.writeError(w, r, ErrNotImplemented, http.StatusNotImplemented)
 	default:
@@ -495,7 +500,90 @@ func (h *Handler) getObject(w http.ResponseWriter, r *http.Request, bucketName, 
 	}
 
 	w.Header().Set("Content-Length", strconv.Itoa(len(ver.Data)))
-	_, _ = w.Write(ver.Data)
+	if _, wErr := w.Write(ver.Data); wErr != nil {
+		h.Logger.Error("failed to write object data", "error", wErr)
+	}
+}
+
+func (h *Handler) serveRange(w http.ResponseWriter, ver *ObjectVersion, rangeHeader string) {
+	total := int64(len(ver.Data))
+
+	start, end, ok := parseRange(rangeHeader, total)
+	if !ok {
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", total))
+		w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
+
+		return
+	}
+
+	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, total))
+	w.Header().Set("Content-Length", strconv.FormatInt(end-start+1, 10))
+	w.WriteHeader(http.StatusPartialContent)
+	if _, err := w.Write(ver.Data[start : end+1]); err != nil {
+		h.Logger.Error("failed to write partial object data", "error", err)
+	}
+}
+
+const rangeSpecMaxParts = 2
+
+// parseRange parses a "bytes=X-Y" Range header and returns clamped [start, end] indices.
+func parseRange(header string, size int64) (int64, int64, bool) {
+	if !strings.HasPrefix(header, "bytes=") {
+		return 0, 0, false
+	}
+
+	spec := strings.TrimSpace(strings.SplitN(header[len("bytes="):], ",", rangeSpecMaxParts)[0])
+
+	startStr, endStr, found := strings.Cut(spec, "-")
+	if !found {
+		return 0, 0, false
+	}
+
+	var start, end int64
+
+	switch {
+	case startStr == "":
+		// bytes=-N (last N bytes)
+		n, err := strconv.ParseInt(endStr, 10, 64)
+		if err != nil || n <= 0 {
+			return 0, 0, false
+		}
+
+		start = max(size-n, 0)
+		end = size - 1
+	case endStr == "":
+		// bytes=N-
+		var err error
+
+		start, err = strconv.ParseInt(startStr, 10, 64)
+		if err != nil {
+			return 0, 0, false
+		}
+
+		end = size - 1
+	default:
+		var err error
+
+		start, err = strconv.ParseInt(startStr, 10, 64)
+		if err != nil {
+			return 0, 0, false
+		}
+
+		end, err = strconv.ParseInt(endStr, 10, 64)
+		if err != nil {
+			return 0, 0, false
+		}
+	}
+
+	if start > end || start >= size {
+		return 0, 0, false
+	}
+
+	if end >= size {
+		end = size - 1
+	}
+
+	return start, end, true
 }
 
 func (h *Handler) serveRange(w http.ResponseWriter, ver *ObjectVersion, rangeHeader string) {
@@ -791,8 +879,14 @@ func (h *Handler) deleteObjectTagging(w http.ResponseWriter, r *http.Request, bu
 
 func (h *Handler) writeXML(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/xml")
-	_, _ = w.Write([]byte(xml.Header))
-	_ = xml.NewEncoder(w).Encode(v)
+	if _, err := w.Write([]byte(xml.Header)); err != nil {
+		h.Logger.Error("failed to write XML header", "error", err)
+
+		return
+	}
+	if err := xml.NewEncoder(w).Encode(v); err != nil {
+		h.Logger.Error("failed to encode XML response", "error", err)
+	}
 }
 
 func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, err error, code int) {
