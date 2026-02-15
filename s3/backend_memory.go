@@ -263,7 +263,73 @@ func (b *InMemoryBackend) HeadObject(bucketName, key, versionID string) (*Object
 		return nil, err
 	}
 
-	v.Data = nil // Metadata only
+	ret := *v
+	ret.Data = nil // Metadata only
+
+	return &ret, nil
+}
+
+func (b *InMemoryBackend) findLatestVersion(obj *Object) (*ObjectVersion, error) {
+	for _, v := range obj.Versions {
+		if !v.IsLatest {
+			continue
+		}
+
+		if v.Deleted {
+			return nil, ErrNoSuchKey
+		}
+
+		cp := v
+		cp.Data = copyBytes(v.Data)
+
+		return &cp, nil
+	}
+
+	return nil, ErrNoSuchKey
+}
+
+func (b *InMemoryBackend) findSpecificVersion(obj *Object, versionID string) (*ObjectVersion, error) {
+	for _, v := range obj.Versions {
+		if v.VersionID != versionID {
+			continue
+		}
+
+		if v.Deleted {
+			return nil, ErrNoSuchKey
+		}
+
+		cp := v
+		cp.Data = copyBytes(v.Data)
+
+		return &cp, nil
+	}
+
+	return nil, ErrNoSuchKey
+}
+
+func copyBytes(b []byte) []byte {
+	if b == nil {
+		return nil
+	}
+
+	out := make([]byte, len(b))
+	copy(out, b)
+
+	return out
+}
+
+func (b *InMemoryBackend) getLatestVersion(obj *Object) (*ObjectVersion, error) {
+	for _, v := range obj.Versions {
+		if !v.IsLatest {
+			continue
+		}
+
+		if v.Deleted {
+			return nil, ErrNoSuchKey
+		}
+
+		return b.decompressVersion(v)
+	}
 
 	return &v, nil
 }
