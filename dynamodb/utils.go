@@ -97,19 +97,61 @@ func compareValues(lhs any, op string, rhs any) bool {
 	case "<>":
 		return lhsStr != rhsStr
 	case "<":
-		return compareOrdered(lNum, rNum, lIsNum, rIsNum, lhsStr, rhsStr, func(a, b float64) bool { return a < b }, func(a, b string) bool { return a < b })
+		return compareOrdered(
+			lNum,
+			rNum,
+			lIsNum,
+			rIsNum,
+			lhsStr,
+			rhsStr,
+			func(a, b float64) bool { return a < b },
+			func(a, b string) bool { return a < b },
+		)
 	case ">":
-		return compareOrdered(lNum, rNum, lIsNum, rIsNum, lhsStr, rhsStr, func(a, b float64) bool { return a > b }, func(a, b string) bool { return a > b })
+		return compareOrdered(
+			lNum,
+			rNum,
+			lIsNum,
+			rIsNum,
+			lhsStr,
+			rhsStr,
+			func(a, b float64) bool { return a > b },
+			func(a, b string) bool { return a > b },
+		)
 	case "<=":
-		return compareOrdered(lNum, rNum, lIsNum, rIsNum, lhsStr, rhsStr, func(a, b float64) bool { return a <= b }, func(a, b string) bool { return a <= b })
+		return compareOrdered(
+			lNum,
+			rNum,
+			lIsNum,
+			rIsNum,
+			lhsStr,
+			rhsStr,
+			func(a, b float64) bool { return a <= b },
+			func(a, b string) bool { return a <= b },
+		)
 	case ">=":
-		return compareOrdered(lNum, rNum, lIsNum, rIsNum, lhsStr, rhsStr, func(a, b float64) bool { return a >= b }, func(a, b string) bool { return a >= b })
+		return compareOrdered(
+			lNum,
+			rNum,
+			lIsNum,
+			rIsNum,
+			lhsStr,
+			rhsStr,
+			func(a, b float64) bool { return a >= b },
+			func(a, b string) bool { return a >= b },
+		)
 	}
 
 	return false
 }
 
-func compareOrdered(lNum, rNum float64, lIsNum, rIsNum bool, lStr, rStr string, numCmp func(float64, float64) bool, strCmp func(string, string) bool) bool {
+func compareOrdered(
+	lNum, rNum float64,
+	lIsNum, rIsNum bool,
+	lStr, rStr string,
+	numCmp func(float64, float64) bool,
+	strCmp func(string, string) bool,
+) bool {
 	if lIsNum && rIsNum {
 		return numCmp(lNum, rNum)
 	}

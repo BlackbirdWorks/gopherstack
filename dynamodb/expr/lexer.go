@@ -11,11 +11,11 @@ const (
 	TokenEOF TokenType = iota
 	TokenError
 
-	// TokenIdentifier represents identifiers and placeholders
+	// TokenIdentifier represents identifiers and placeholders.
 	TokenIdentifier // #name or pk or info.tags
 	TokenValue      // :val
 
-	// TokenEqual represents operators
+	// TokenEqual represents operators.
 	TokenEqual        // =
 	TokenNotEqual     // <>
 	TokenLess         // <
@@ -29,7 +29,7 @@ const (
 	TokenLBracket     // [
 	TokenRBracket     // ]
 
-	// TokenAND represents keywords
+	// TokenAND represents keywords.
 	TokenAND
 	TokenOR
 	TokenNOT
@@ -40,7 +40,7 @@ const (
 	TokenADD
 	TokenDELETE
 
-	// TokenSize represents function keywords
+	// TokenSize represents function keywords.
 	TokenSize
 	TokenAttributeExists
 	TokenAttributeNotExists
@@ -50,8 +50,8 @@ const (
 )
 
 type Token struct {
-	Type    TokenType
 	Literal string
+	Type    TokenType
 }
 
 func (t Token) String() string {
@@ -68,6 +68,7 @@ type Lexer struct {
 func NewLexer(input string) *Lexer {
 	l := &Lexer{input: input}
 	l.readChar()
+
 	return l
 }
 
@@ -90,22 +91,9 @@ func (l *Lexer) NextToken() Token {
 	case '=':
 		tok = Token{Type: TokenEqual, Literal: "="}
 	case '<':
-		if l.peekChar() == '>' {
-			l.readChar()
-			tok = Token{Type: TokenNotEqual, Literal: "<>"}
-		} else if l.peekChar() == '=' {
-			l.readChar()
-			tok = Token{Type: TokenLessEqual, Literal: "<="}
-		} else {
-			tok = Token{Type: TokenLess, Literal: "<"}
-		}
+		tok = l.handleLessThan()
 	case '>':
-		if l.peekChar() == '=' {
-			l.readChar()
-			tok = Token{Type: TokenGreaterEqual, Literal: ">="}
-		} else {
-			tok = Token{Type: TokenGreater, Literal: ">"}
-		}
+		tok = l.handleGreaterThan()
 	case '(':
 		tok = Token{Type: TokenLParen, Literal: "("}
 	case ')':
@@ -121,24 +109,50 @@ func (l *Lexer) NextToken() Token {
 	case 0:
 		tok = Token{Type: TokenEOF, Literal: ""}
 	default:
-		if isLetter(l.ch) || l.ch == '#' || l.ch == ':' {
-			literal := l.readIdentifier()
-			tok.Literal = literal
-			tok.Type = lookupIdentifier(literal)
-			return tok
-		} else if isDigit(l.ch) {
-			tok.Literal = l.readNumber()
-			tok.Type = TokenIdentifier // Numbers in DynamoDB expressions are usually part of paths or literals?
-			// Actually, literals are always placeholders like :val.
-			// But indices are numbers: list[0]
-			return tok
-		}
-
-		tok = Token{Type: TokenError, Literal: string(l.ch)}
+		return l.handleDefault()
 	}
 
 	l.readChar()
+
 	return tok
+}
+
+func (l *Lexer) handleLessThan() Token {
+	if l.peekChar() == '>' {
+		l.readChar()
+
+		return Token{Type: TokenNotEqual, Literal: "<>"}
+	}
+	if l.peekChar() == '=' {
+		l.readChar()
+
+		return Token{Type: TokenLessEqual, Literal: "<="}
+	}
+
+	return Token{Type: TokenLess, Literal: "<"}
+}
+
+func (l *Lexer) handleGreaterThan() Token {
+	if l.peekChar() == '=' {
+		l.readChar()
+
+		return Token{Type: TokenGreaterEqual, Literal: ">="}
+	}
+
+	return Token{Type: TokenGreater, Literal: ">"}
+}
+
+func (l *Lexer) handleDefault() Token {
+	if isLetter(l.ch) || l.ch == '#' || l.ch == ':' {
+		literal := l.readIdentifier()
+
+		return Token{Type: lookupIdentifier(literal), Literal: literal}
+	}
+	if isDigit(l.ch) {
+		return Token{Type: TokenIdentifier, Literal: l.readNumber()}
+	}
+
+	return Token{Type: TokenError, Literal: string(l.ch)}
 }
 
 func (l *Lexer) readIdentifier() string {
@@ -153,6 +167,7 @@ func (l *Lexer) readIdentifier() string {
 		}
 		l.readChar()
 	}
+
 	return l.input[position:l.position]
 }
 
@@ -161,6 +176,7 @@ func (l *Lexer) readNumber() string {
 	for isDigit(l.ch) {
 		l.readChar()
 	}
+
 	return l.input[position:l.position]
 }
 
@@ -186,29 +202,63 @@ func isDigit(ch byte) bool {
 	return '0' <= ch && ch <= '9'
 }
 
-var keywords = map[string]TokenType{
-	"AND":                  TokenAND,
-	"OR":                   TokenOR,
-	"NOT":                  TokenNOT,
-	"BETWEEN":              TokenBETWEEN,
-	"IN":                   TokenIN,
-	"SET":                  TokenSET,
-	"REMOVE":               TokenREMOVE,
-	"ADD":                  TokenADD,
-	"DELETE":               TokenDELETE,
-	"size":                 TokenSize,
-	"attribute_exists":     TokenAttributeExists,
-	"attribute_not_exists": TokenAttributeNotExists,
-	"begins_with":          TokenBeginsWith,
-	"contains":             TokenContains,
-	"attribute_type":       TokenAttributeType,
+func lookupKeyword(ident string) (TokenType, bool) {
+	if tok, ok := lookupLogicalKeyword(ident); ok {
+		return tok, true
+	}
+
+	return lookupFunctionKeyword(ident)
+}
+
+func lookupLogicalKeyword(ident string) (TokenType, bool) {
+	switch ident {
+	case "AND":
+		return TokenAND, true
+	case "OR":
+		return TokenOR, true
+	case "NOT":
+		return TokenNOT, true
+	case "BETWEEN":
+		return TokenBETWEEN, true
+	case "IN":
+		return TokenIN, true
+	case "SET":
+		return TokenSET, true
+	case "REMOVE":
+		return TokenREMOVE, true
+	case "ADD":
+		return TokenADD, true
+	case "DELETE":
+		return TokenDELETE, true
+	default:
+		return TokenIdentifier, false
+	}
+}
+
+func lookupFunctionKeyword(ident string) (TokenType, bool) {
+	switch ident {
+	case "size":
+		return TokenSize, true
+	case "attribute_exists":
+		return TokenAttributeExists, true
+	case "attribute_not_exists":
+		return TokenAttributeNotExists, true
+	case "begins_with":
+		return TokenBeginsWith, true
+	case "contains":
+		return TokenContains, true
+	case "attribute_type":
+		return TokenAttributeType, true
+	default:
+		return TokenIdentifier, false
+	}
 }
 
 func lookupIdentifier(ident string) TokenType {
 	if strings.HasPrefix(ident, ":") {
 		return TokenValue
 	}
-	if tok, ok := keywords[ident]; ok {
+	if tok, ok := lookupKeyword(ident); ok {
 		return tok
 	}
 	if strings.HasPrefix(ident, "AND") || strings.HasPrefix(ident, "OR") || strings.HasPrefix(ident, "NOT") {
@@ -216,7 +266,7 @@ func lookupIdentifier(ident string) TokenType {
 		// Wait, DynamoDB keywords are case-insensitive? Most SQL is.
 		// Actually, DynamoDB docs show them in upper case but let's be safe.
 		upper := strings.ToUpper(ident)
-		if tok, ok := keywords[upper]; ok {
+		if tok, ok := lookupKeyword(upper); ok {
 			return tok
 		}
 	}

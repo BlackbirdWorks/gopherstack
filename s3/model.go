@@ -30,6 +30,28 @@ type ListBucketResult struct {
 	IsTruncated bool        `xml:"IsTruncated"`
 }
 
+// ListBucketV2Result is the XML response for ListObjectsV2.
+type ListBucketV2Result struct {
+	XMLName               xml.Name          `xml:"ListBucketResult"`
+	StartAfter            string            `xml:"StartAfter,omitempty"`
+	Prefix                string            `xml:"Prefix"`
+	Delimiter             string            `xml:"Delimiter,omitempty"`
+	ContinuationToken     string            `xml:"ContinuationToken,omitempty"`
+	NextContinuationToken string            `xml:"NextContinuationToken,omitempty"`
+	Name                  string            `xml:"Name"`
+	EncodingType          string            `xml:"EncodingType,omitempty"`
+	Contents              []ObjectXML       `xml:"Contents"`
+	CommonPrefixes        []CommonPrefixXML `xml:"CommonPrefixes"`
+	KeyCount              int               `xml:"KeyCount"`
+	MaxKeys               int               `xml:"MaxKeys"`
+	IsTruncated           bool              `xml:"IsTruncated"`
+}
+
+// CommonPrefixXML represents a common prefix entry in a listing response.
+type CommonPrefixXML struct {
+	Prefix string `xml:"Prefix"`
+}
+
 type CopyObjectResult struct {
 	XMLName      xml.Name `xml:"CopyObjectResult"`
 	ETag         string   `xml:"ETag"`
@@ -118,8 +140,8 @@ type CompleteMultipartUpload struct {
 }
 
 type CompletedPartXML struct {
-	PartNumber int    `xml:"PartNumber"`
 	ETag       string `xml:"ETag"`
+	PartNumber int    `xml:"PartNumber"`
 }
 
 type CompleteMultipartUploadResult struct {

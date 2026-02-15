@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -25,6 +26,10 @@ const (
 type Handler struct {
 	Backend StorageBackend
 	Logger  *slog.Logger
+	// Endpoint is the base host (e.g. "localhost:9000") of this server.
+	// When set, virtual-hosted-style URLs (bucket.host/key) are supported
+	// in addition to path-style URLs (/bucket/key).
+	Endpoint string
 }
 
 // NewHandler creates a new S3 Handler with the given backend.
@@ -48,6 +53,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetObject",
 		"HeadObject",
 		"DeleteObject",
+		"ListObjects",
+		"ListObjectsV2",
 		"PutObjectTagging",
 		"GetObjectTagging",
 		"DeleteObjectTagging",
@@ -60,31 +67,18 @@ func (h *Handler) GetSupportedOperations() []string {
 
 // ServeHTTP dispatches incoming requests to the appropriate bucket or object handler.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	path := strings.TrimPrefix(r.URL.Path, "/")
-	parts := strings.SplitN(path, "/", pathSplitParts)
+	bucketName, key, ok := h.resolveBucketAndKey(w, r)
+	if !ok {
+		return
+	}
 
-	bucketName := ""
-	key := ""
-
-	if path != "" && path != "/" {
-		bucketName = parts[0]
-		if !IsValidBucketName(bucketName) {
-			h.writeError(w, r, ErrInvalidBucketName, http.StatusBadRequest)
+	if bucketName == "" {
+		if r.Method != http.MethodGet {
+			h.writeError(w, r, ErrMethodNotAllowed, http.StatusMethodNotAllowed)
 
 			return
 		}
 
-		if len(parts) > 1 {
-			key = parts[1]
-			if key != "" && !IsValidObjectKey(key) {
-				h.writeError(w, r, ErrInvalidArgument, http.StatusBadRequest)
-
-				return
-			}
-		}
-	}
-
-	if bucketName == "" {
 		h.listBuckets(w, r)
 
 		return
@@ -97,6 +91,88 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.handleObjectOperation(w, r, bucketName, key)
+}
+
+// resolveBucketAndKey extracts the bucket name and object key from the request.
+// It supports both path-style (/bucket/key) and virtual-hosted-style (bucket.host/key).
+// Returns (bucket, key, true) on success, or ("", "", false) when an error response
+// has already been written.
+func (h *Handler) resolveBucketAndKey(w http.ResponseWriter, r *http.Request) (string, string, bool) {
+	path := strings.TrimPrefix(r.URL.Path, "/")
+	parts := strings.SplitN(path, "/", pathSplitParts)
+
+	bucket, key := "", ""
+
+	if path != "" && path != "/" {
+		bucket = parts[0]
+		if !IsValidBucketName(bucket) {
+			h.writeError(w, r, ErrInvalidBucketName, http.StatusBadRequest)
+
+			return "", "", false
+		}
+
+		if len(parts) > 1 {
+			key = parts[1]
+			if key != "" && !IsValidObjectKey(key) {
+				h.writeError(w, r, ErrInvalidArgument, http.StatusBadRequest)
+
+				return "", "", false
+			}
+		}
+	}
+
+	// Fall back to virtual-hosted-style: bucket name as subdomain in Host header.
+	if bucket == "" {
+		if vhBucket := h.extractVirtualHostedBucketName(r); vhBucket != "" {
+			bucket = vhBucket
+			key = path
+			if key != "" && !IsValidObjectKey(key) {
+				h.writeError(w, r, ErrInvalidArgument, http.StatusBadRequest)
+
+				return "", "", false
+			}
+		}
+	}
+
+	return bucket, key, true
+}
+
+// extractVirtualHostedBucketName returns the bucket name from the Host header
+// when using virtual-hosted-style URLs (e.g. my-bucket.localhost:8080).
+// Returns "" when Endpoint is not configured or the Host does not match.
+func (h *Handler) extractVirtualHostedBucketName(r *http.Request) string {
+	if h.Endpoint == "" {
+		return ""
+	}
+
+	reqHost := r.Host
+	if reqHost == "" {
+		return ""
+	}
+
+	// Normalise both sides: strip ports before comparing.
+	baseHost := h.Endpoint
+	if stripped, _, err := net.SplitHostPort(baseHost); err == nil {
+		baseHost = stripped
+	}
+
+	reqHostNoPort := reqHost
+	if stripped, _, err := net.SplitHostPort(reqHost); err == nil {
+		reqHostNoPort = stripped
+	}
+
+	// Request Host must end with ".<baseHost>".
+	suffix := "." + baseHost
+	if !strings.HasSuffix(reqHostNoPort, suffix) {
+		return ""
+	}
+
+	candidate := reqHostNoPort[:len(reqHostNoPort)-len(suffix)]
+	if IsValidBucketName(candidate) {
+		return candidate
+	}
+
+	return ""
 }
 
 func (h *Handler) handleBucketOperation(w http.ResponseWriter, r *http.Request, bucket string) {
@@ -138,6 +214,8 @@ func (h *Handler) routeBucketGet(w http.ResponseWriter, r *http.Request, bucket 
 		}
 	case r.URL.Query().Has("tagging"):
 		h.writeError(w, r, ErrNotImplemented, http.StatusNotImplemented)
+	case r.URL.Query().Get("list-type") == "2":
+		h.listObjectsV2(w, r, bucket)
 	default:
 		h.listObjects(w, r, bucket)
 	}
@@ -364,6 +442,145 @@ func (h *Handler) listObjects(w http.ResponseWriter, r *http.Request, bucketName
 	resp.KeyCount = len(resp.Contents)
 
 	h.writeXML(w, resp)
+}
+
+func (h *Handler) listObjectsV2(w http.ResponseWriter, r *http.Request, bucketName string) {
+	q := r.URL.Query()
+	prefix := q.Get("prefix")
+	delimiter := q.Get("delimiter")
+	continuationToken := q.Get("continuation-token")
+	startAfter := q.Get("start-after")
+	encodingType := q.Get("encoding-type")
+
+	maxKeys := defaultMaxKeys
+	if mk := q.Get("max-keys"); mk != "" {
+		if n, err := strconv.Atoi(mk); err == nil && n >= 0 {
+			maxKeys = n
+		}
+	}
+
+	objects, err := h.Backend.ListObjects(r.Context(), bucketName, prefix)
+	if errors.Is(err, ErrNoSuchBucket) {
+		h.writeError(w, r, err, http.StatusNotFound)
+
+		return
+	}
+
+	if err != nil {
+		h.writeError(w, r, err, http.StatusInternalServerError)
+
+		return
+	}
+
+	// continuation-token takes priority over start-after as the page cursor.
+	startCursor := startAfter
+	if continuationToken != "" {
+		startCursor = continuationToken
+	}
+
+	objects = skipAfterCursor(objects, startCursor)
+
+	resp := ListBucketV2Result{
+		Name:              bucketName,
+		Prefix:            prefix,
+		Delimiter:         delimiter,
+		ContinuationToken: continuationToken,
+		StartAfter:        startAfter,
+		MaxKeys:           maxKeys,
+		EncodingType:      encodingType,
+	}
+
+	h.fillV2Contents(r, bucketName, prefix, delimiter, objects, &resp)
+	applyV2MaxKeys(maxKeys, &resp)
+
+	resp.KeyCount = len(resp.Contents) + len(resp.CommonPrefixes)
+
+	h.writeXML(w, resp)
+}
+
+// skipAfterCursor returns the sub-slice of objects whose keys are strictly greater than cursor.
+func skipAfterCursor(objects []*Object, cursor string) []*Object {
+	if cursor == "" {
+		return objects
+	}
+
+	for i, obj := range objects {
+		if obj.Key > cursor {
+			return objects[i:]
+		}
+	}
+
+	return nil
+}
+
+// fillV2Contents populates resp.Contents and resp.CommonPrefixes from objects.
+func (h *Handler) fillV2Contents(
+	r *http.Request,
+	bucketName, prefix, delimiter string,
+	objects []*Object,
+	resp *ListBucketV2Result,
+) {
+	seenPrefixes := make(map[string]struct{})
+
+	for _, obj := range objects {
+		if cp, isCommon := commonPrefixFor(obj.Key, prefix, delimiter); isCommon {
+			if _, seen := seenPrefixes[cp]; !seen {
+				seenPrefixes[cp] = struct{}{}
+				resp.CommonPrefixes = append(resp.CommonPrefixes, CommonPrefixXML{Prefix: cp})
+			}
+
+			continue
+		}
+
+		ver, getErr := h.Backend.GetObject(r.Context(), bucketName, obj.Key, "")
+		if getErr != nil {
+			continue
+		}
+
+		resp.Contents = append(resp.Contents, ObjectXML{
+			Key:               obj.Key,
+			LastModified:      obj.LastModified.Format(time.RFC3339),
+			Size:              obj.Size,
+			ETag:              ver.ETag,
+			StorageClass:      "STANDARD",
+			ChecksumAlgorithm: ver.ChecksumAlgorithm,
+		})
+	}
+}
+
+// commonPrefixFor returns (prefix, true) if key should be collapsed under a common prefix.
+func commonPrefixFor(key, prefix, delimiter string) (string, bool) {
+	if delimiter == "" {
+		return "", false
+	}
+
+	rest := strings.TrimPrefix(key, prefix)
+	idx := strings.Index(rest, delimiter)
+
+	if idx < 0 {
+		return "", false
+	}
+
+	return prefix + rest[:idx+len(delimiter)], true
+}
+
+// applyV2MaxKeys truncates resp to maxKeys and sets IsTruncated / NextContinuationToken.
+func applyV2MaxKeys(maxKeys int, resp *ListBucketV2Result) {
+	if maxKeys <= 0 || len(resp.Contents)+len(resp.CommonPrefixes) <= maxKeys {
+		return
+	}
+
+	resp.IsTruncated = true
+
+	if len(resp.Contents) >= maxKeys {
+		resp.Contents = resp.Contents[:maxKeys]
+		resp.CommonPrefixes = nil
+		resp.NextContinuationToken = resp.Contents[maxKeys-1].Key
+	} else {
+		remaining := maxKeys - len(resp.Contents)
+		resp.CommonPrefixes = resp.CommonPrefixes[:remaining]
+		resp.NextContinuationToken = resp.CommonPrefixes[remaining-1].Prefix
+	}
 }
 
 func (h *Handler) putObject(w http.ResponseWriter, r *http.Request, bucketName, key string) {
@@ -880,6 +1097,7 @@ func (h *Handler) initiateMultipartUpload(w http.ResponseWriter, r *http.Request
 	uploadID, err := h.Backend.InitiateMultipartUpload(r.Context(), bucketName, key)
 	if err != nil {
 		h.writeError(w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 
@@ -905,6 +1123,7 @@ func (h *Handler) uploadPart(w http.ResponseWriter, r *http.Request, bucketName,
 	data, err := io.ReadAll(r.Body)
 	if err != nil {
 		h.writeError(w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 

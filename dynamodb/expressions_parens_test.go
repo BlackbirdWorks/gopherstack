@@ -14,10 +14,10 @@ func TestQuery_KeyCondition_WithParenthesesAndBeginsWith(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name                   string
-		keyConditionExpression string
 		attrNames              map[string]string
 		attrValues             map[string]any
+		name                   string
+		keyConditionExpression string
 		expectedCount          int
 	}{
 		{
@@ -81,21 +81,21 @@ func TestQuery_KeyCondition_WithParenthesesAndBeginsWith(t *testing.T) {
 			}
 
 			for _, item := range items {
-				_, err := db.PutItem([]byte(`{
+				_, putErr := db.PutItem([]byte(`{
 					"TableName": "` + tableName + `",
 					"Item": {
 						"pk": {"S": "` + item.pk + `"},
 						"sk": {"S": "` + item.sk + `"}
 					}
 				}`))
-				require.NoError(t, err)
+				require.NoError(t, putErr)
 			}
 
 			queryInput := struct {
-				TableName                 string            `json:"TableName"`
-				KeyConditionExpression    string            `json:"KeyConditionExpression"`
 				ExpressionAttributeNames  map[string]string `json:"ExpressionAttributeNames"`
 				ExpressionAttributeValues map[string]any    `json:"ExpressionAttributeValues"`
+				TableName                 string            `json:"TableName"`
+				KeyConditionExpression    string            `json:"KeyConditionExpression"`
 			}{
 				TableName:                 tableName,
 				KeyConditionExpression:    tt.keyConditionExpression,

@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -25,26 +26,44 @@ const (
 	idleTimeout  = 120 * time.Second
 )
 
+// newMixedHandler returns an [http.Handler] that routes requests to either the
+// DynamoDB or S3 handler based on the X-Amz-Target header, and to the
+// dashboard handler for /dashboard paths.
+//
+// DynamoDB SDK always sets X-Amz-Target: DynamoDB_20120810.<Operation>.
+// S3 SDK never sets this header, so every other request goes to S3.
+func newMixedHandler(ddb, s3api, dash http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/dashboard") {
+			http.StripPrefix("/dashboard", dash).ServeHTTP(w, r)
+
+			return
+		}
+
+		if strings.HasPrefix(r.Header.Get("X-Amz-Target"), "DynamoDB_") {
+			ddb.ServeHTTP(w, r)
+
+			return
+		}
+
+		s3api.ServeHTTP(w, r)
+	})
+}
+
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
-	// Create Backends
+	// Create backends and handlers.
 	ddbHandler := ddbbackend.NewHandler()
-
 	s3Backend := s3backend.NewInMemoryBackend(&s3backend.GzipCompressor{})
 	s3Handler := s3backend.NewHandler(s3Backend)
 
-	// Create a multiplexer for the API
-	// This mux will be used by the InMemClient to route SDK requests directly to handlers
-	apiMux := http.NewServeMux()
-	apiMux.Handle("/", ddbHandler)
-	apiMux.Handle("/s3", http.StripPrefix("/s3", s3Handler))  // Handle /s3 without trailing slash
-	apiMux.Handle("/s3/", http.StripPrefix("/s3", s3Handler)) // Handle /s3/ tree
+	// Create an in-memory HTTP client for the dashboard's internal SDK clients.
+	// We use a temporary mixed handler without the dashboard (dashboard hasn't
+	// been created yet) and attach the dashboard later.
+	inMemMux := http.NewServeMux()
+	inMemClient := &dashboard.InMemClient{Handler: inMemMux}
 
-	// Create In-Memory Client
-	inMemClient := &dashboard.InMemClient{Handler: apiMux}
-
-	// Load AWS Config with In-Memory Client
 	cfg, err := config.LoadDefaultConfig(context.TODO(),
 		config.WithRegion("us-east-1"),
 		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("dummy", "dummy", "")),
@@ -55,16 +74,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Create SDK Clients
+	// Both SDK clients point to the same "http://local" endpoint.
+	// The mixed handler routes them correctly by X-Amz-Target header.
 	ddbClient := dynamodb.NewFromConfig(cfg, func(o *dynamodb.Options) {
 		o.BaseEndpoint = aws.String("http://local")
 	})
 	s3Client := s3.NewFromConfig(cfg, func(o *s3.Options) {
-		o.UsePathStyle = true // Important for our simple S3 handler
-		o.BaseEndpoint = aws.String("http://local/s3")
+		o.UsePathStyle = true
+		o.BaseEndpoint = aws.String("http://local")
 	})
 
-	// Load Demo Data
+	// Load demo data before creating the dashboard handler.
 	if os.Getenv("DEMO") == "true" {
 		logger.Info("Loading demo data...")
 		if err = demo.LoadData(context.Background(), logger, ddbClient, s3Client); err != nil {
@@ -72,31 +92,22 @@ func main() {
 		}
 	}
 
-	// Create Dashboard Handler
 	dashboardHandler := dashboard.NewHandler(ddbClient, s3Client, ddbHandler, s3Handler)
 
-	// Main Server Mux
-	// We mount the API mux and the Dashboard handler
-	rootMux := http.NewServeMux()
+	// Wire the in-memory mux used by the internal SDK clients.
+	mixed := newMixedHandler(ddbHandler, s3Handler, dashboardHandler)
+	inMemMux.Handle("/", mixed)
 
-	// Mount API handlers
-	// Note: We need to replicate the routing logic from apiMux or just use apiMux as base
-	// Since apiMux handles / and /s3/, we can just register those on rootMux too
-	// But we need to be careful about not shadowing /dashboard
-
-	rootMux.Handle("/", ddbHandler)
-	rootMux.Handle("/s3/", http.StripPrefix("/s3", s3Handler))
-
-	// Mount Dashboard
-	rootMux.Handle("/dashboard/", http.StripPrefix("/dashboard", dashboardHandler))
-
+	// The public server uses the same mixed handler.
 	port := ":8000"
-	logger.Info("Starting Gopherstack (DynamoDB & S3 local)", "port", port)
-	logger.Info("Dashboard available", "url", "http://localhost"+port+"/dashboard")
+	logger.Info("Starting Gopherstack (DynamoDB + S3)", "port", port)
+	logger.Info("  DynamoDB endpoint", "url", "http://localhost"+port)
+	logger.Info("  S3 endpoint      ", "url", "http://localhost"+port+" (path-style)")
+	logger.Info("  Dashboard        ", "url", "http://localhost"+port+"/dashboard")
 
 	srv := &http.Server{
 		Addr:         port,
-		Handler:      rootMux,
+		Handler:      mixed,
 		ReadTimeout:  readTimeout,
 		WriteTimeout: writeTimeout,
 		IdleTimeout:  idleTimeout,

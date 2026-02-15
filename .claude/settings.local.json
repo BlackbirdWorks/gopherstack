@@ -3,7 +3,12 @@
     "allow": [
       "Bash(make test:*)",
       "Bash(grep:*)",
-      "Bash(make lint:*)"
+      "Bash(make lint:*)",
+      "Bash(golangci-lint run:*)",
+      "Bash(go test:*)",
+      "Bash(go build:*)",
+      "Bash(goimports:*)",
+      "Bash(go run:*)"
     ]
   }
 }

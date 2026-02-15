@@ -1,8 +1,25 @@
 package expr
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
+)
+
+// Sentinel errors for parser.
+var (
+	ErrExpectedRParen        = errors.New("expected ) after function args")
+	ErrExpectedLParen        = errors.New("expected ( after function name")
+	ErrExpectedIdentifierDot = errors.New("expected identifier after dot")
+	ErrExpectedRBracket      = errors.New("expected ]")
+	ErrExpectedANDInBetween  = errors.New("expected AND in BETWEEN")
+	ErrExpectedLParenAfterIN = errors.New("expected ( after IN")
+	ErrExpectedRParenAfterIN = errors.New("expected ) after IN candidates")
+	ErrExpectedEqualInSET    = errors.New("expected = in SET")
+	ErrUnexpectedToken       = errors.New("unexpected token")
+	ErrUnexpectedOperand     = errors.New("unexpected operand token")
+	ErrExpectedIndex         = errors.New("expected index")
+	ErrExpectedRParen2       = errors.New("expected )")
 )
 
 type Parser struct {
@@ -15,6 +32,7 @@ func NewParser(l *Lexer) *Parser {
 	p := &Parser{l: l}
 	p.nextToken()
 	p.nextToken()
+
 	return p
 }
 
@@ -34,12 +52,14 @@ func (p *Parser) peekTokenIs(t TokenType) bool {
 func (p *Parser) expectPeek(t TokenType) bool {
 	if p.peekTokenIs(t) {
 		p.nextToken()
+
 		return true
 	}
+
 	return false
 }
 
-// ParseCondition parses a ConditionExpression
+// ParseCondition parses a ConditionExpression.
 func (p *Parser) ParseCondition() (Node, error) {
 	return p.parseExpression(0) // Start with lowest precedence
 }
@@ -52,31 +72,29 @@ const (
 	PrecComparison
 )
 
-var precedences = map[TokenType]int{
-	TokenOR:           PrecOR,
-	TokenAND:          PrecAND,
-	TokenEqual:        PrecComparison,
-	TokenNotEqual:     PrecComparison,
-	TokenLess:         PrecComparison,
-	TokenLessEqual:    PrecComparison,
-	TokenGreater:      PrecComparison,
-	TokenGreaterEqual: PrecComparison,
-	TokenBETWEEN:      PrecComparison,
-	TokenIN:           PrecComparison,
+func precedenceOf(t TokenType) int {
+	switch t {
+	case TokenOR:
+		return PrecOR
+	case TokenAND:
+		return PrecAND
+	case TokenEqual, TokenNotEqual, TokenLess, TokenLessEqual, TokenGreater, TokenGreaterEqual:
+		return PrecComparison
+	case TokenBETWEEN:
+		return PrecComparison
+	case TokenIN:
+		return PrecComparison
+	default:
+		return 0
+	}
 }
 
 func (p *Parser) curPrecedence() int {
-	if p, ok := precedences[p.curToken.Type]; ok {
-		return p
-	}
-	return 0
+	return precedenceOf(p.curToken.Type)
 }
 
 func (p *Parser) peekPrecedence() int {
-	if p, ok := precedences[p.peekToken.Type]; ok {
-		return p
-	}
-	return 0
+	return precedenceOf(p.peekToken.Type)
 }
 
 func (p *Parser) parseExpression(precedence int) (Node, error) {
@@ -88,10 +106,17 @@ func (p *Parser) parseExpression(precedence int) (Node, error) {
 		left, err = p.parseNotExpr()
 	case TokenLParen:
 		left, err = p.parseGroupedExpr()
-	case TokenIdentifier, TokenValue, TokenSize, TokenAttributeExists, TokenAttributeNotExists, TokenBeginsWith, TokenContains, TokenAttributeType:
+	case TokenIdentifier,
+		TokenValue,
+		TokenSize,
+		TokenAttributeExists,
+		TokenAttributeNotExists,
+		TokenBeginsWith,
+		TokenContains,
+		TokenAttributeType:
 		left, err = p.parseOperand()
 	default:
-		return nil, fmt.Errorf("unexpected token %v at start of expression", p.curToken)
+		return nil, fmt.Errorf("%w %v at start of expression", ErrUnexpectedToken, p.curToken)
 	}
 
 	if err != nil {
@@ -115,6 +140,7 @@ func (p *Parser) parseNotExpr() (Node, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return &NotExpr{Expression: expr}, nil
 }
 
@@ -125,8 +151,9 @@ func (p *Parser) parseGroupedExpr() (Node, error) {
 		return nil, err
 	}
 	if !p.expectPeek(TokenRParen) {
-		return nil, fmt.Errorf("expected ), got %v", p.peekToken)
+		return nil, fmt.Errorf("%w, got %v", ErrExpectedRParen2, p.peekToken)
 	}
+
 	return expr, nil
 }
 
@@ -139,7 +166,7 @@ func (p *Parser) parseOperand() (Node, error) {
 	case TokenIdentifier:
 		return p.parsePathExpr()
 	default:
-		return nil, fmt.Errorf("unexpected operand token %v", p.curToken)
+		return nil, fmt.Errorf("%w %v", ErrUnexpectedOperand, p.curToken)
 	}
 }
 
@@ -151,28 +178,46 @@ func (p *Parser) parsePathExpr() (Node, error) {
 
 	for p.peekTokenIs(TokenDot) || p.peekTokenIs(TokenLBracket) {
 		p.nextToken()
+
+		var parseErr error
 		if p.curTokenIs(TokenDot) {
-			if !p.expectPeek(TokenIdentifier) {
-				return nil, fmt.Errorf("expected identifier after .")
-			}
-			expr.Elements = append(expr.Elements, PathElement{Type: ElementKey, Name: p.curToken.Literal})
-		} else if p.curTokenIs(TokenLBracket) {
-			p.nextToken()
-			if !p.curTokenIs(TokenIdentifier) { // Lexer treats numbers as Identifier for now if not carefully handled
-				return nil, fmt.Errorf("expected index, got %v", p.curToken)
-			}
-			idx, err := strconv.Atoi(p.curToken.Literal)
-			if err != nil {
-				return nil, fmt.Errorf("invalid index: %v", err)
-			}
-			expr.Elements = append(expr.Elements, PathElement{Type: ElementIndex, Index: idx})
-			if !p.expectPeek(TokenRBracket) {
-				return nil, fmt.Errorf("expected ]")
-			}
+			parseErr = p.parseDotSegment(expr)
+		} else {
+			parseErr = p.parseBracketSegment(expr)
+		}
+
+		if parseErr != nil {
+			return nil, parseErr
 		}
 	}
 
 	return expr, nil
+}
+
+func (p *Parser) parseDotSegment(expr *PathExpr) error {
+	if !p.expectPeek(TokenIdentifier) {
+		return ErrExpectedIdentifierDot
+	}
+	expr.Elements = append(expr.Elements, PathElement{Type: ElementKey, Name: p.curToken.Literal})
+
+	return nil
+}
+
+func (p *Parser) parseBracketSegment(expr *PathExpr) error {
+	p.nextToken()
+	if !p.curTokenIs(TokenIdentifier) { // Lexer treats numbers as Identifier for now if not carefully handled
+		return fmt.Errorf("%w, got %v", ErrExpectedIndex, p.curToken)
+	}
+	idx, err := strconv.Atoi(p.curToken.Literal)
+	if err != nil {
+		return fmt.Errorf("invalid index: %w", err)
+	}
+	expr.Elements = append(expr.Elements, PathElement{Type: ElementIndex, Index: idx})
+	if !p.expectPeek(TokenRBracket) {
+		return ErrExpectedRBracket
+	}
+
+	return nil
 }
 
 func (p *Parser) parseFunctionExpr() (Node, error) {
@@ -181,31 +226,32 @@ func (p *Parser) parseFunctionExpr() (Node, error) {
 		// Functions must be followed by (
 		// In some cases, keywords like size might be used as identifiers if not followed by (, but DynamoDB prefers quoting.
 		// For now, let's assume if it's a function keyword, it must be a function.
-		return nil, fmt.Errorf("expected ( after function %s", name)
+		return nil, fmt.Errorf("expected ( after function %s: %w", name, ErrExpectedLParen)
 	}
 
 	p.nextToken() // consume (
 
 	var args []Node
 	if !p.curTokenIs(TokenRParen) {
-		arg, err := p.parseExpression(0)
+		firstArg, err := p.parseExpression(0)
 		if err != nil {
 			return nil, err
 		}
-		args = append(args, arg)
+		args = append(args, firstArg)
 
 		for p.peekTokenIs(TokenComma) {
 			p.nextToken() // consume ,
 			p.nextToken() // consume next start
-			arg, err := p.parseExpression(0)
+			var nextArg Node
+			nextArg, err = p.parseExpression(0)
 			if err != nil {
 				return nil, err
 			}
-			args = append(args, arg)
+			args = append(args, nextArg)
 		}
 
 		if !p.expectPeek(TokenRParen) {
-			return nil, fmt.Errorf("expected ) after function args, got %v", p.peekToken)
+			return nil, fmt.Errorf("%w, got %v", ErrExpectedRParen, p.peekToken)
 		}
 	}
 
@@ -218,51 +264,11 @@ func (p *Parser) parseInfixExpr(left Node) (Node, error) {
 
 	switch token.Type {
 	case TokenAND, TokenOR:
-		p.nextToken()
-		right, err := p.parseExpression(precedence)
-		if err != nil {
-			return nil, err
-		}
-		return &LogicalExpr{Left: left, Operator: token.Type, Right: right}, nil
+		return p.parseLogicalInfix(left, token, precedence)
 	case TokenBETWEEN:
-		p.nextToken()
-		lower, err := p.parseExpression(precedence)
-		if err != nil {
-			return nil, err
-		}
-		if !p.expectPeek(TokenAND) {
-			return nil, fmt.Errorf("expected AND in BETWEEN")
-		}
-		p.nextToken()
-		upper, err := p.parseExpression(precedence)
-		if err != nil {
-			return nil, err
-		}
-		return &BetweenExpr{Value: left, Lower: lower, Upper: upper}, nil
+		return p.parseBetweenInfix(left, precedence)
 	case TokenIN:
-		// IN (v1, v2)
-		if !p.expectPeek(TokenLParen) {
-			return nil, fmt.Errorf("expected ( after IN")
-		}
-		p.nextToken()
-		var candidates []Node
-		for !p.curTokenIs(TokenRParen) {
-			cand, err := p.parseExpression(0)
-			if err != nil {
-				return nil, err
-			}
-			candidates = append(candidates, cand)
-			if p.peekTokenIs(TokenComma) {
-				p.nextToken()
-				p.nextToken()
-			} else {
-				break
-			}
-		}
-		if !p.expectPeek(TokenRParen) {
-			return nil, fmt.Errorf("expected ) after IN candidates")
-		}
-		return &InExpr{Value: left, Candidates: candidates}, nil
+		return p.parseInInfix(left)
 	default:
 		// Comparison operators
 		p.nextToken()
@@ -270,11 +276,67 @@ func (p *Parser) parseInfixExpr(left Node) (Node, error) {
 		if err != nil {
 			return nil, err
 		}
+
 		return &ComparisonExpr{Left: left, Operator: token.Type, Right: right}, nil
 	}
 }
 
-// ParseUpdate parses an UpdateExpression
+func (p *Parser) parseLogicalInfix(left Node, token Token, precedence int) (Node, error) {
+	p.nextToken()
+	right, err := p.parseExpression(precedence)
+	if err != nil {
+		return nil, err
+	}
+
+	return &LogicalExpr{Left: left, Operator: token.Type, Right: right}, nil
+}
+
+func (p *Parser) parseBetweenInfix(left Node, precedence int) (Node, error) {
+	p.nextToken()
+	lower, err := p.parseExpression(precedence)
+	if err != nil {
+		return nil, err
+	}
+	if !p.expectPeek(TokenAND) {
+		return nil, ErrExpectedANDInBetween
+	}
+	p.nextToken()
+	upper, err := p.parseExpression(precedence)
+	if err != nil {
+		return nil, err
+	}
+
+	return &BetweenExpr{Value: left, Lower: lower, Upper: upper}, nil
+}
+
+func (p *Parser) parseInInfix(left Node) (Node, error) {
+	// IN (v1, v2)
+	if !p.expectPeek(TokenLParen) {
+		return nil, ErrExpectedLParenAfterIN
+	}
+	p.nextToken()
+	var candidates []Node
+	for !p.curTokenIs(TokenRParen) {
+		cand, err := p.parseExpression(0)
+		if err != nil {
+			return nil, err
+		}
+		candidates = append(candidates, cand)
+		if p.peekTokenIs(TokenComma) {
+			p.nextToken()
+			p.nextToken()
+		} else {
+			break
+		}
+	}
+	if !p.expectPeek(TokenRParen) {
+		return nil, ErrExpectedRParenAfterIN
+	}
+
+	return &InExpr{Value: left, Candidates: candidates}, nil
+}
+
+// ParseUpdate parses an UpdateExpression.
 func (p *Parser) ParseUpdate() (*UpdateExpr, error) {
 	expr := &UpdateExpr{}
 
@@ -298,7 +360,7 @@ func (p *Parser) ParseUpdate() (*UpdateExpr, error) {
 			}
 			expr.Actions = append(expr.Actions, action)
 		default:
-			return nil, fmt.Errorf("unexpected token %v in update expression", p.curToken)
+			return nil, fmt.Errorf("%w %v in update expression", ErrUnexpectedToken, p.curToken)
 		}
 
 		p.nextToken()
@@ -315,30 +377,33 @@ func (p *Parser) parseUpdateItem(actionType TokenType) (UpdateItem, error) {
 
 	item := UpdateItem{Path: path}
 
-	if actionType == TokenSET {
+	switch actionType {
+	case TokenSET:
 		if !p.expectPeek(TokenEqual) {
-			return UpdateItem{}, fmt.Errorf("expected = in SET")
+			return UpdateItem{}, ErrExpectedEqualInSET
 		}
 		p.nextToken()
-		val, err := p.parseExpression(0) // Right side can be path or value or size() or atomic addition
-		if err != nil {
-			return UpdateItem{}, err
+		val, setErr := p.parseExpression(0) // Right side can be path or value or size() or atomic addition
+		if setErr != nil {
+			return UpdateItem{}, setErr
 		}
 		item.Value = val
-	} else if actionType == TokenADD || actionType == TokenDELETE {
+	case TokenADD, TokenDELETE:
 		// ADD path value
 		p.nextToken()
-		val, err := p.parseOperand()
-		if err != nil {
-			return UpdateItem{}, err
+		val, addErr := p.parseOperand()
+		if addErr != nil {
+			return UpdateItem{}, addErr
 		}
 		item.Value = val
+	default:
+		// TokenREMOVE: no value needed
 	}
 
 	return item, nil
 }
 
-// ParseProjection parses a ProjectionExpression
+// ParseProjection parses a ProjectionExpression.
 func (p *Parser) ParseProjection() (*ProjectionExpr, error) {
 	expr := &ProjectionExpr{}
 	for {
@@ -354,5 +419,6 @@ func (p *Parser) ParseProjection() (*ProjectionExpr, error) {
 			break
 		}
 	}
+
 	return expr, nil
 }

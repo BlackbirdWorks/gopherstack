@@ -83,7 +83,7 @@ func projectItem(item map[string]any, projectionExpression string, attrNames map
 	return eval.ApplyProjection(proj)
 }
 
-// Compatibility layer for unexported calls within the package
+// Compatibility layer for unexported calls within the package.
 func evaluateExpression(
 	expression string,
 	item map[string]any,

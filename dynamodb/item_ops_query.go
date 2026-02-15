@@ -101,9 +101,9 @@ func (db *InMemoryDB) tryFilterUsingAuthoritativeIndex(
 	table *Table,
 	input *QueryInput,
 	projection *Projection,
-	keySchema []KeySchemaElement,
+	_ []KeySchemaElement,
 	pkExpr string,
-	pkDef KeySchemaElement,
+	_ KeySchemaElement,
 	skDef KeySchemaElement,
 	exprParts []string,
 ) ([]map[string]any, bool) {
@@ -135,7 +135,7 @@ func (db *InMemoryDB) tryFilterUsingAuthoritativeIndex(
 func (db *InMemoryDB) filterUsingIndices(
 	table *Table,
 	input *QueryInput,
-	projection *Projection,
+	_ *Projection,
 	indices []int,
 	exprParts []string,
 ) []map[string]any {

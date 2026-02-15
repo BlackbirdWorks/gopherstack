@@ -808,12 +808,12 @@ func TestDeleteObjectTagging(t *testing.T) {
 			backend := newTestBackend(t)
 			tt.setup(context.Background(), backend)
 
-			err := backend.DeleteObjectTagging(context.Background(), tt.bucket, tt.key, "")
+			deleteErr := backend.DeleteObjectTagging(context.Background(), tt.bucket, tt.key, "")
 
 			if tt.wantErr != nil {
-				require.ErrorIs(t, err, tt.wantErr)
+				require.ErrorIs(t, deleteErr, tt.wantErr)
 			} else {
-				require.NoError(t, err)
+				require.NoError(t, deleteErr)
 				// Verify tags are empty
 				tags, err := backend.GetObjectTagging(context.Background(), tt.bucket, tt.key, "")
 				require.NoError(t, err)

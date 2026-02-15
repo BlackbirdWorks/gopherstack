@@ -1,6 +1,6 @@
 //go:build integration
 
-package dynamodb_test
+package integration_test
 
 import (
 	"context"
