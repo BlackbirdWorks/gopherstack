@@ -33,21 +33,26 @@ func (db *InMemoryDB) Scan(input *dynamodb.ScanInput) (*dynamodb.ScanOutput, err
 
 	return &dynamodb.ScanOutput{
 		Items:        outItems,
-		Count:        int32(len(items)),
-		ScannedCount: int32(len(table.Items)),
+		Count:        int32(len(items)),       // #nosec G115
+		ScannedCount: int32(len(table.Items)), // #nosec G115
 	}, nil
 }
 
-func (db *InMemoryDB) getScanKeySchema(table *Table, input *dynamodb.ScanInput) (KeySchemaElement, KeySchemaElement, error) {
+func (db *InMemoryDB) getScanKeySchema(
+	table *Table,
+	input *dynamodb.ScanInput,
+) (KeySchemaElement, KeySchemaElement, error) {
 	indexName := aws.ToString(input.IndexName)
 	if indexName == "" {
 		pk, sk := getPKAndSK(table.KeySchema)
+
 		return pk, sk, nil
 	}
 
 	for _, gsi := range table.GlobalSecondaryIndexes {
 		if gsi.IndexName == indexName {
 			pk, sk := getPKAndSK(gsi.KeySchema)
+
 			return pk, sk, nil
 		}
 	}
@@ -55,6 +60,7 @@ func (db *InMemoryDB) getScanKeySchema(table *Table, input *dynamodb.ScanInput) 
 	for _, lsi := range table.LocalSecondaryIndexes {
 		if lsi.IndexName == indexName {
 			pk, sk := getPKAndSK(lsi.KeySchema)
+
 			return pk, sk, nil
 		}
 	}

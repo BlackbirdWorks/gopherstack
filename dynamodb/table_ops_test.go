@@ -32,6 +32,7 @@ func TestTableOperations(t *testing.T) {
 					},
 				}
 				sdkInput := dynamodb.ToSDKCreateTableInput(&input)
+
 				return db.CreateTable(sdkInput)
 			},
 			validate: func(t *testing.T, _ *dynamodb.InMemoryDB, resp any, err error) {
@@ -61,6 +62,7 @@ func TestTableOperations(t *testing.T) {
 					},
 				}
 				sdkInput := dynamodb.ToSDKCreateTableInput(&input)
+
 				return db.CreateTable(sdkInput)
 			},
 			validate: func(t *testing.T, _ *dynamodb.InMemoryDB, _ any, err error) {
@@ -78,6 +80,7 @@ func TestTableOperations(t *testing.T) {
 			run: func(db *dynamodb.InMemoryDB) (any, error) {
 				input := dynamodb.DescribeTableInput{TableName: "TestTable"}
 				sdkInput := dynamodb.ToSDKDescribeTableInput(&input)
+
 				return db.DescribeTable(sdkInput)
 			},
 			validate: func(t *testing.T, _ *dynamodb.InMemoryDB, resp any, err error) {
@@ -99,6 +102,7 @@ func TestTableOperations(t *testing.T) {
 			run: func(db *dynamodb.InMemoryDB) (any, error) {
 				input := dynamodb.DescribeTableInput{TableName: "NonExistent"}
 				sdkInput := dynamodb.ToSDKDescribeTableInput(&input)
+
 				return db.DescribeTable(sdkInput)
 			},
 			validate: func(t *testing.T, _ *dynamodb.InMemoryDB, _ any, err error) {
@@ -136,6 +140,7 @@ func TestTableOperations(t *testing.T) {
 			run: func(db *dynamodb.InMemoryDB) (any, error) {
 				input := dynamodb.DeleteTableInput{TableName: "DeleteMe"}
 				sdkInput := dynamodb.ToSDKDeleteTableInput(&input)
+
 				return db.DeleteTable(sdkInput)
 			},
 			validate: func(t *testing.T, db *dynamodb.InMemoryDB, _ any, err error) {
@@ -157,6 +162,7 @@ func TestTableOperations(t *testing.T) {
 			run: func(db *dynamodb.InMemoryDB) (any, error) {
 				input := dynamodb.DeleteTableInput{TableName: "NonExistent"}
 				sdkInput := dynamodb.ToSDKDeleteTableInput(&input)
+
 				return db.DeleteTable(sdkInput)
 			},
 			validate: func(t *testing.T, _ *dynamodb.InMemoryDB, _ any, err error) {

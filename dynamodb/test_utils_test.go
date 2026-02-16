@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-//nolint:ireturn // Generic helper for multiple types in tests
+//nolint:ireturn // Test helper returning generic type T
 func mustUnmarshal[T any](t *testing.T, jsonStr string) T {
 	t.Helper()
 	var val T
@@ -19,7 +19,6 @@ func mustUnmarshal[T any](t *testing.T, jsonStr string) T {
 	return val
 }
 
-//nolint:unparam // sk is optional, but pk is currently always "pk" in tests
 func createTableHelper(t *testing.T, db *dynamodb.InMemoryDB, name string, pk string, sk ...string) {
 	t.Helper()
 	keySchema := []dynamodb.KeySchemaElement{

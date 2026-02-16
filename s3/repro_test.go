@@ -17,6 +17,7 @@ import (
 )
 
 func TestPutObject_SDKv2_Repro(t *testing.T) {
+	t.Parallel()
 	// Setup server
 	backend := s3.NewInMemoryBackend(&s3.GzipCompressor{})
 	handler := s3.NewHandler(backend)
@@ -24,15 +25,21 @@ func TestPutObject_SDKv2_Repro(t *testing.T) {
 	defer server.Close()
 
 	// Setup SDK client
-	cfg, err := config.LoadDefaultConfig(context.TODO(),
+	cfg, err := config.LoadDefaultConfig(
+		context.TODO(),
 		config.WithRegion("us-east-1"),
 		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("AKIATEST", "secret", "")),
-		config.WithEndpointResolverWithOptions(aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
-			return aws.Endpoint{
-				URL:           server.URL,
-				SigningRegion: "us-east-1",
-			}, nil
-		})),
+		//nolint:staticcheck // Using deprecated endpoint resolver for test compatibility
+		config.WithEndpointResolverWithOptions(
+			//nolint:staticcheck // Deprecated but required for test setup
+			aws.EndpointResolverWithOptionsFunc(func(_, _ string, _ ...any) (aws.Endpoint, error) {
+				//nolint:staticcheck // Deprecated but required for test setup
+				return aws.Endpoint{
+					URL:           server.URL,
+					SigningRegion: "us-east-1",
+				}, nil
+			}),
+		),
 	)
 	require.NoError(t, err)
 

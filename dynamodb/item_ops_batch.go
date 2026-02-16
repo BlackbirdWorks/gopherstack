@@ -29,7 +29,9 @@ func (db *InMemoryDB) BatchGetItem(input *dynamodb.BatchGetItemInput) (*dynamodb
 		totalItems += len(keysAndAttrs.Keys)
 	}
 	if totalItems > batchSizeLimit {
-		return nil, NewValidationException(fmt.Sprintf("Batch size limit exceeded: Max %d items per request", batchSizeLimit))
+		return nil, NewValidationException(
+			fmt.Sprintf("Batch size limit exceeded: Max %d items per request", batchSizeLimit),
+		)
 	}
 
 	for tableName, keysAndAttrs := range input.RequestItems {
@@ -90,6 +92,7 @@ func (db *InMemoryDB) BatchWriteItem(input *dynamodb.BatchWriteItemInput) (*dyna
 			tables[tableName] = table
 		} else {
 			db.mu.RUnlock()
+
 			return nil, NewResourceNotFoundException(fmt.Sprintf("Table not found: %s", tableName))
 		}
 	}

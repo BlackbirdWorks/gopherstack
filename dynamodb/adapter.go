@@ -1,123 +1,194 @@
 package dynamodb
 
 import (
+	"errors"
 	"fmt"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
+
+var (
+	errNotMap               = errors.New("expected map[string]any for AttributeValue")
+	errInvalidTypeKeyCount  = errors.New("expected exactly one type key in AttributeValue map")
+	errInvalidTypeS         = errors.New("expected string for S type")
+	errInvalidTypeN         = errors.New("expected string for N type")
+	errInvalidTypeB         = errors.New("expected base64 string for B type")
+	errInvalidTypeBOOL      = errors.New("expected bool for BOOL type")
+	errInvalidTypeNULL      = errors.New("expected true for NULL type")
+	errInvalidTypeM         = errors.New("expected map for M type")
+	errInvalidTypeL         = errors.New("expected slice for L type")
+	errInvalidTypeSS        = errors.New("expected slice for SS type")
+	errInvalidStringInSS    = errors.New("expected string in SS")
+	errInvalidTypeNS        = errors.New("expected slice for NS type")
+	errInvalidStringInNS    = errors.New("expected string in NS")
+	errInvalidTypeBS        = errors.New("expected slice for BS type")
+	errInvalidStringInBS    = errors.New("expected string in BS")
+	errUnknownAttributeType = errors.New("unknown attribute value type")
+)
+
+func toStringSlice(val any, errType error, errItem error) ([]string, error) {
+	lVal, matched := val.([]any)
+	if !matched {
+		return nil, fmt.Errorf("%w, got %T", errType, val)
+	}
+	var ss []string
+	for _, item := range lVal {
+		s, sMatched := item.(string)
+		if !sMatched {
+			return nil, fmt.Errorf("%w, got %T", errItem, item)
+		}
+		ss = append(ss, s)
+	}
+
+	return ss, nil
+}
+
+func toByteSlice(val any, errType error, errItem error) ([][]byte, error) {
+	lVal, matched := val.([]any)
+	if !matched {
+		return nil, fmt.Errorf("%w, got %T", errType, val)
+	}
+	var bs [][]byte
+	for _, item := range lVal {
+		s, sMatched := item.(string)
+		if !sMatched {
+			return nil, fmt.Errorf("%w, got %T", errItem, item)
+		}
+		bs = append(bs, []byte(s))
+	}
+
+	return bs, nil
+}
+
+func convertStringType(val any) (types.AttributeValue, error) {
+	s, matched := val.(string)
+	if !matched {
+		return nil, fmt.Errorf("%w, got %T", errInvalidTypeS, val)
+	}
+
+	return &types.AttributeValueMemberS{Value: s}, nil
+}
+
+func convertNumberType(val any) (types.AttributeValue, error) {
+	s, matched := val.(string)
+	if !matched {
+		return nil, fmt.Errorf("%w, got %T", errInvalidTypeN, val)
+	}
+
+	return &types.AttributeValueMemberN{Value: s}, nil
+}
+
+func convertBinaryType(val any) (types.AttributeValue, error) {
+	s, matched := val.(string)
+	if !matched {
+		return nil, fmt.Errorf("%w, got %T", errInvalidTypeB, val)
+	}
+
+	return &types.AttributeValueMemberB{Value: []byte(s)}, nil
+}
+
+func convertBoolType(val any) (types.AttributeValue, error) {
+	bVal, matched := val.(bool)
+	if !matched {
+		return nil, fmt.Errorf("%w, got %T", errInvalidTypeBOOL, val)
+	}
+
+	return &types.AttributeValueMemberBOOL{Value: bVal}, nil
+}
+
+func convertNullType(val any) (types.AttributeValue, error) {
+	bVal, matched := val.(bool)
+	if !matched || !bVal {
+		return nil, fmt.Errorf("%w, got %v", errInvalidTypeNULL, val)
+	}
+
+	return &types.AttributeValueMemberNULL{Value: true}, nil
+}
+
+func convertMapType(val any) (types.AttributeValue, error) {
+	mVal, matched := val.(map[string]any)
+	if !matched {
+		return nil, fmt.Errorf("%w, got %T", errInvalidTypeM, val)
+	}
+
+	return ToSDKMapAttribute(mVal)
+}
+
+func convertListType(val any) (types.AttributeValue, error) {
+	lVal, matched := val.([]any)
+	if !matched {
+		return nil, fmt.Errorf("%w, got %T", errInvalidTypeL, val)
+	}
+
+	return ToSDKListAttribute(lVal)
+}
+
+func convertStringSetType(val any) (types.AttributeValue, error) {
+	ss, err := toStringSlice(val, errInvalidTypeSS, errInvalidStringInSS)
+	if err != nil {
+		return nil, err
+	}
+
+	return &types.AttributeValueMemberSS{Value: ss}, nil
+}
+
+func convertNumberSetType(val any) (types.AttributeValue, error) {
+	ns, err := toStringSlice(val, errInvalidTypeNS, errInvalidStringInNS)
+	if err != nil {
+		return nil, err
+	}
+
+	return &types.AttributeValueMemberNS{Value: ns}, nil
+}
+
+func convertBinarySetType(val any) (types.AttributeValue, error) {
+	bs, err := toByteSlice(val, errInvalidTypeBS, errInvalidStringInBS)
+	if err != nil {
+		return nil, err
+	}
+
+	return &types.AttributeValueMemberBS{Value: bs}, nil
+}
 
 // ToSDKAttributeValue converts a raw Go value (from JSON unmarshal) to an SDK AttributeValue.
 func ToSDKAttributeValue(v any) (types.AttributeValue, error) {
 	m, ok := v.(map[string]any)
 	if !ok {
-		return nil, fmt.Errorf("expected map[string]any for AttributeValue, got %T", v)
+		return nil, fmt.Errorf("%w, got %T", errNotMap, v)
 	}
 
 	if len(m) != 1 {
-		return nil, fmt.Errorf("expected exactly one type key in AttributeValue map, got %d", len(m))
+		return nil, fmt.Errorf("%w, got %d", errInvalidTypeKeyCount, len(m))
 	}
 
 	for k, val := range m {
 		switch k {
 		case "S":
-			s, matched := val.(string)
-			if !matched {
-				return nil, fmt.Errorf("expected string for S, got %T", val)
-			}
-
-			return &types.AttributeValueMemberS{Value: s}, nil
+			return convertStringType(val)
 		case "N":
-			s, matched := val.(string)
-			if !matched {
-				return nil, fmt.Errorf("expected string for N, got %T", val)
-			}
-
-			return &types.AttributeValueMemberN{Value: s}, nil
+			return convertNumberType(val)
 		case "B":
-			s, matched := val.(string)
-			if !matched {
-				return nil, fmt.Errorf("expected base64 string for B, got %T", val)
-			}
-
-			return &types.AttributeValueMemberB{Value: []byte(s)}, nil
+			return convertBinaryType(val)
 		case "BOOL":
-			bVal, matched := val.(bool)
-			if !matched {
-				return nil, fmt.Errorf("expected bool for BOOL, got %T", val)
-			}
-
-			return &types.AttributeValueMemberBOOL{Value: bVal}, nil
+			return convertBoolType(val)
 		case "NULL":
-			bVal, matched := val.(bool)
-			if !matched || !bVal {
-				return nil, fmt.Errorf("expected true for NULL, got %v", val)
-			}
-
-			return &types.AttributeValueMemberNULL{Value: true}, nil
+			return convertNullType(val)
 		case "M":
-			mVal, matched := val.(map[string]any)
-			if !matched {
-				return nil, fmt.Errorf("expected map for M, got %T", val)
-			}
-
-			return ToSDKMapAttribute(mVal)
+			return convertMapType(val)
 		case "L":
-			lVal, matched := val.([]any)
-			if !matched {
-				return nil, fmt.Errorf("expected slice for L, got %T", val)
-			}
-
-			return ToSDKListAttribute(lVal)
+			return convertListType(val)
 		case "SS":
-			lVal, matched := val.([]any)
-			if !matched {
-				return nil, fmt.Errorf("expected slice for SS, got %T", val)
-			}
-			var ss []string
-			for _, item := range lVal {
-				s, sMatched := item.(string)
-				if !sMatched {
-					return nil, fmt.Errorf("expected string in SS, got %T", item)
-				}
-				ss = append(ss, s)
-			}
-
-			return &types.AttributeValueMemberSS{Value: ss}, nil
+			return convertStringSetType(val)
 		case "NS":
-			lVal, matched := val.([]any)
-			if !matched {
-				return nil, fmt.Errorf("expected slice for NS, got %T", val)
-			}
-			var ns []string
-			for _, item := range lVal {
-				s, sMatched := item.(string)
-				if !sMatched {
-					return nil, fmt.Errorf("expected string in NS, got %T", item)
-				}
-				ns = append(ns, s)
-			}
-
-			return &types.AttributeValueMemberNS{Value: ns}, nil
+			return convertNumberSetType(val)
 		case "BS":
-			lVal, matched := val.([]any)
-			if !matched {
-				return nil, fmt.Errorf("expected slice for BS, got %T", val)
-			}
-			var bs [][]byte
-			for _, item := range lVal {
-				s, sMatched := item.(string)
-				if !sMatched {
-					return nil, fmt.Errorf("expected string in BS, got %T", item)
-				}
-				bs = append(bs, []byte(s))
-			}
-
-			return &types.AttributeValueMemberBS{Value: bs}, nil
+			return convertBinarySetType(val)
 		}
 	}
 
-	return nil, fmt.Errorf("unknown attribute value type")
+	return nil, errUnknownAttributeType
 }
 
 func ToSDKMapAttribute(m map[string]any) (*types.AttributeValueMemberM, error) {
@@ -165,12 +236,14 @@ func FromSDKAttributeValue(av types.AttributeValue) any {
 		for k, val := range v.Value {
 			m[k] = FromSDKAttributeValue(val)
 		}
+
 		return map[string]any{"M": m}
 	case *types.AttributeValueMemberL:
 		l := make([]any, len(v.Value))
 		for i, val := range v.Value {
 			l[i] = FromSDKAttributeValue(val)
 		}
+
 		return map[string]any{"L": l}
 	case *types.AttributeValueMemberSS:
 		return map[string]any{"SS": v.Value}
@@ -181,13 +254,14 @@ func FromSDKAttributeValue(av types.AttributeValue) any {
 		for i, val := range v.Value {
 			bs[i] = string(val)
 		}
+
 		return map[string]any{"BS": bs}
 	default:
 		return nil
 	}
 }
 
-// Helper to convert map[string]any (wire item) to map[string]types.AttributeValue
+// ToSDKItem converts a map[string]any (wire item) to map[string]types.AttributeValue.
 func ToSDKItem(item map[string]any) (map[string]types.AttributeValue, error) {
 	out := make(map[string]types.AttributeValue)
 	for k, v := range item {
@@ -229,7 +303,7 @@ func FromSDKKeySchema(schema []types.KeySchemaElement) []KeySchemaElement {
 	out := make([]KeySchemaElement, len(schema))
 	for i, k := range schema {
 		out[i] = KeySchemaElement{
-			AttributeName: safeToString(k.AttributeName),
+			AttributeName: aws.ToString(k.AttributeName),
 			KeyType:       string(k.KeyType),
 		}
 	}
@@ -259,6 +333,7 @@ func FromSDKAttributeDefinitions(defs []types.AttributeDefinition) []AttributeDe
 			AttributeType: string(d.AttributeType),
 		}
 	}
+
 	return out
 }
 
@@ -276,6 +351,7 @@ func ToSDKGlobalSecondaryIndexes(gsis []GlobalSecondaryIndex) []types.GlobalSeco
 			ProvisionedThroughput: ToSDKProvisionedThroughput(gsi.ProvisionedThroughput),
 		}
 	}
+
 	return out
 }
 
@@ -292,6 +368,7 @@ func ToSDKLocalSecondaryIndexes(lsis []LocalSecondaryIndex) []types.LocalSeconda
 			Projection: ToSDKProjection(lsi.Projection),
 		}
 	}
+
 	return out
 }
 
@@ -315,6 +392,7 @@ func FromSDKGlobalSecondaryIndexes(gsis []types.GlobalSecondaryIndex) []GlobalSe
 			},
 		}
 	}
+
 	return out
 }
 
@@ -327,6 +405,7 @@ func FromSDKLocalSecondaryIndexes(lsis []types.LocalSecondaryIndex) []LocalSecon
 			Projection: FromSDKProjection(lsi.Projection),
 		}
 	}
+
 	return out
 }
 
@@ -334,13 +413,16 @@ func FromSDKProjection(p *types.Projection) Projection {
 	if p == nil {
 		return Projection{}
 	}
+
 	return Projection{
 		ProjectionType:   string(p.ProjectionType),
 		NonKeyAttributes: p.NonKeyAttributes,
 	}
 }
 
-func ToSDKGlobalSecondaryIndexDescriptions(gsis []GlobalSecondaryIndexDescription) []types.GlobalSecondaryIndexDescription {
+func ToSDKGlobalSecondaryIndexDescriptions(
+	gsis []GlobalSecondaryIndexDescription,
+) []types.GlobalSecondaryIndexDescription {
 	out := make([]types.GlobalSecondaryIndexDescription, len(gsis))
 	for i, gsi := range gsis {
 		name := gsi.IndexName
@@ -361,10 +443,13 @@ func ToSDKGlobalSecondaryIndexDescriptions(gsis []GlobalSecondaryIndexDescriptio
 			ItemCount: &itemCount,
 		}
 	}
+
 	return out
 }
 
-func ToSDKLocalSecondaryIndexDescriptions(lsis []LocalSecondaryIndexDescription) []types.LocalSecondaryIndexDescription {
+func ToSDKLocalSecondaryIndexDescriptions(
+	lsis []LocalSecondaryIndexDescription,
+) []types.LocalSecondaryIndexDescription {
 	out := make([]types.LocalSecondaryIndexDescription, len(lsis))
 	for i, lsi := range lsis {
 		name := lsi.IndexName
@@ -379,11 +464,13 @@ func ToSDKLocalSecondaryIndexDescriptions(lsis []LocalSecondaryIndexDescription)
 			ItemCount:      &itemCount,
 		}
 	}
+
 	return out
 }
 
 func ToSDKProjection(p Projection) *types.Projection {
 	pt := types.ProjectionType(p.ProjectionType)
+
 	return &types.Projection{
 		ProjectionType:   pt,
 		NonKeyAttributes: p.NonKeyAttributes,
@@ -409,9 +496,9 @@ func ToSDKPutItemInput(input *PutItemInput) (*dynamodb.PutItemInput, error) {
 	}
 
 	if len(input.ExpressionAttributeValues) > 0 {
-		vals, err := ToSDKItem(input.ExpressionAttributeValues)
-		if err != nil {
-			return nil, err
+		vals, valsErr := ToSDKItem(input.ExpressionAttributeValues)
+		if valsErr != nil {
+			return nil, valsErr
 		}
 		out.ExpressionAttributeValues = vals
 	}
@@ -430,6 +517,7 @@ func FromSDKPutItemOutput(output *dynamodb.PutItemOutput) *PutItemOutput {
 	if output.ItemCollectionMetrics != nil {
 		out.ItemCollectionMetrics = FromSDKItemCollectionMetrics(output.ItemCollectionMetrics)
 	}
+
 	return out
 }
 
@@ -470,9 +558,9 @@ func ToSDKDeleteItemInput(input *DeleteItemInput) (*dynamodb.DeleteItemInput, er
 	}
 
 	if len(input.ExpressionAttributeValues) > 0 {
-		vals, err := ToSDKItem(input.ExpressionAttributeValues)
-		if err != nil {
-			return nil, err
+		vals, valsErr := ToSDKItem(input.ExpressionAttributeValues)
+		if valsErr != nil {
+			return nil, valsErr
 		}
 		out.ExpressionAttributeValues = vals
 	}
@@ -480,7 +568,7 @@ func ToSDKDeleteItemInput(input *DeleteItemInput) (*dynamodb.DeleteItemInput, er
 	return out, nil
 }
 
-func FromSDKDeleteItemOutput(output *dynamodb.DeleteItemOutput) *DeleteItemOutput {
+func FromSDKDeleteItemOutput(*dynamodb.DeleteItemOutput) *DeleteItemOutput {
 	return &DeleteItemOutput{}
 }
 
@@ -502,9 +590,9 @@ func ToSDKUpdateItemInput(input *UpdateItemInput) (*dynamodb.UpdateItemInput, er
 	}
 
 	if len(input.ExpressionAttributeValues) > 0 {
-		vals, err := ToSDKItem(input.ExpressionAttributeValues)
-		if err != nil {
-			return nil, err
+		vals, valsErr := ToSDKItem(input.ExpressionAttributeValues)
+		if valsErr != nil {
+			return nil, valsErr
 		}
 		out.ExpressionAttributeValues = vals
 	}
@@ -523,6 +611,7 @@ func FromSDKUpdateItemOutput(output *dynamodb.UpdateItemOutput) *UpdateItemOutpu
 	if output.ItemCollectionMetrics != nil {
 		out.ItemCollectionMetrics = FromSDKItemCollectionMetrics(output.ItemCollectionMetrics)
 	}
+
 	return out
 }
 
@@ -537,9 +626,9 @@ func ToSDKScanInput(input *ScanInput) (*dynamodb.ScanInput, error) {
 	}
 
 	if len(input.ExpressionAttributeValues) > 0 {
-		vals, err := ToSDKItem(input.ExpressionAttributeValues)
-		if err != nil {
-			return nil, err
+		vals, valsErr := ToSDKItem(input.ExpressionAttributeValues)
+		if valsErr != nil {
+			return nil, valsErr
 		}
 		out.ExpressionAttributeValues = vals
 	}
@@ -560,6 +649,7 @@ func FromSDKScanOutput(output *dynamodb.ScanOutput) *ScanOutput {
 	} else {
 		out.Items = []map[string]any{}
 	}
+
 	return out
 }
 
@@ -571,22 +661,25 @@ func ToSDKQueryInput(input *QueryInput) (*dynamodb.QueryInput, error) {
 		FilterExpression:         nilIfEmpty(input.FilterExpression),
 		ProjectionExpression:     nilIfEmpty(input.ProjectionExpression),
 		ExpressionAttributeNames: input.ExpressionAttributeNames,
-		Limit:                    &input.Limit,
 		ScanIndexForward:         input.ScanIndexForward,
 	}
 
+	if input.Limit > 0 {
+		out.Limit = &input.Limit
+	}
+
 	if len(input.ExpressionAttributeValues) > 0 {
-		vals, err := ToSDKItem(input.ExpressionAttributeValues)
-		if err != nil {
-			return nil, err
+		vals, valsErr := ToSDKItem(input.ExpressionAttributeValues)
+		if valsErr != nil {
+			return nil, valsErr
 		}
 		out.ExpressionAttributeValues = vals
 	}
 
 	if len(input.ExclusiveStartKey) > 0 {
-		key, err := ToSDKItem(input.ExclusiveStartKey)
-		if err != nil {
-			return nil, err
+		key, keyErr := ToSDKItem(input.ExclusiveStartKey)
+		if keyErr != nil {
+			return nil, keyErr
 		}
 		out.ExclusiveStartKey = key
 	}
@@ -613,6 +706,7 @@ func FromSDKQueryOutput(output *dynamodb.QueryOutput) *QueryOutput {
 	if output.ConsumedCapacity != nil {
 		out.ConsumedCapacity = FromSDKConsumedCapacity(output.ConsumedCapacity)
 	}
+
 	return out
 }
 
@@ -647,18 +741,18 @@ func ToSDKBatchGetItemInput(input *BatchGetItemInput) (*dynamodb.BatchGetItemInp
 func FromSDKBatchGetItemOutput(output *dynamodb.BatchGetItemOutput) *BatchGetItemOutput {
 	responses := make(map[string][]map[string]any)
 	for tableName, items := range output.Responses {
-		var convertedItems []map[string]any
-		for _, item := range items {
-			convertedItems = append(convertedItems, FromSDKItem(item))
+		convertedItems := make([]map[string]any, len(items))
+		for i, item := range items {
+			convertedItems[i] = FromSDKItem(item)
 		}
 		responses[tableName] = convertedItems
 	}
 
 	unprocessedKeys := make(map[string]KeysAndAttributes)
 	for tableName, keysAndAttrs := range output.UnprocessedKeys {
-		var convertedKeys []map[string]any
-		for _, k := range keysAndAttrs.Keys {
-			convertedKeys = append(convertedKeys, FromSDKItem(k))
+		convertedKeys := make([]map[string]any, len(keysAndAttrs.Keys))
+		for i, k := range keysAndAttrs.Keys {
+			convertedKeys[i] = FromSDKItem(k)
 		}
 		unprocessedKeys[tableName] = KeysAndAttributes{
 			Keys:                     convertedKeys,
@@ -679,7 +773,7 @@ func ToSDKBatchWriteItemInput(input *BatchWriteItemInput) (*dynamodb.BatchWriteI
 	requestItems := make(map[string][]types.WriteRequest)
 
 	for tableName, requests := range input.RequestItems {
-		var sdkRequests []types.WriteRequest
+		sdkRequests := make([]types.WriteRequest, 0, len(requests))
 		for _, req := range requests {
 			sdkReq := types.WriteRequest{}
 			if req.PutRequest != nil {
@@ -709,8 +803,8 @@ func ToSDKBatchWriteItemInput(input *BatchWriteItemInput) (*dynamodb.BatchWriteI
 func FromSDKBatchWriteItemOutput(output *dynamodb.BatchWriteItemOutput) *BatchWriteItemOutput {
 	unprocessedItems := make(map[string][]WriteRequest)
 	for tableName, requests := range output.UnprocessedItems {
-		var convertedRequests []WriteRequest
-		for _, req := range requests {
+		convertedRequests := make([]WriteRequest, len(requests))
+		for i, req := range requests {
 			cnvReq := WriteRequest{}
 			if req.PutRequest != nil {
 				cnvReq.PutRequest = &PutRequest{Item: FromSDKItem(req.PutRequest.Item)}
@@ -718,14 +812,14 @@ func FromSDKBatchWriteItemOutput(output *dynamodb.BatchWriteItemOutput) *BatchWr
 			if req.DeleteRequest != nil {
 				cnvReq.DeleteRequest = &DeleteRequest{Key: FromSDKItem(req.DeleteRequest.Key)}
 			}
-			convertedRequests = append(convertedRequests, cnvReq)
+			convertedRequests[i] = cnvReq
 		}
 		unprocessedItems[tableName] = convertedRequests
 	}
 
-	var consumedCapacity []ConsumedCapacity
-	for _, cc := range output.ConsumedCapacity {
-		consumedCapacity = append(consumedCapacity, *FromSDKConsumedCapacity(&cc))
+	consumedCapacity := make([]ConsumedCapacity, len(output.ConsumedCapacity))
+	for i, cc := range output.ConsumedCapacity {
+		consumedCapacity[i] = *FromSDKConsumedCapacity(&cc)
 	}
 
 	return &BatchWriteItemOutput{
@@ -736,71 +830,121 @@ func FromSDKBatchWriteItemOutput(output *dynamodb.BatchWriteItemOutput) *BatchWr
 
 // --- Transact Adapters ---
 
-func ToSDKTransactWriteItemsInput(input *TransactWriteItemsInput) (*dynamodb.TransactWriteItemsInput, error) {
-	var items []types.TransactWriteItem
-	for _, item := range input.TransactItems {
-		twi := types.TransactWriteItem{}
-		if item.Put != nil {
-			sdkPut, err := ToSDKPutItemInput(item.Put)
-			if err != nil {
-				return nil, err
-			}
-			// Map dynamodb.PutItemInput to types.Put
-			twi.Put = &types.Put{
-				Item:                                sdkPut.Item,
-				TableName:                           sdkPut.TableName,
-				ConditionExpression:                 sdkPut.ConditionExpression,
-				ExpressionAttributeNames:            sdkPut.ExpressionAttributeNames,
-				ExpressionAttributeValues:           sdkPut.ExpressionAttributeValues,
-				ReturnValuesOnConditionCheckFailure: types.ReturnValuesOnConditionCheckFailure(item.Put.ReturnValues), // Approximate mapping
-			}
-		}
-		if item.Delete != nil {
-			sdkDel, err := ToSDKDeleteItemInput(item.Delete)
-			if err != nil {
-				return nil, err
-			}
-			twi.Delete = &types.Delete{
-				Key:                       sdkDel.Key,
-				TableName:                 sdkDel.TableName,
-				ConditionExpression:       sdkDel.ConditionExpression,
-				ExpressionAttributeNames:  sdkDel.ExpressionAttributeNames,
-				ExpressionAttributeValues: sdkDel.ExpressionAttributeValues,
-			}
-		}
-		if item.Update != nil {
-			sdkUpd, err := ToSDKUpdateItemInput(item.Update)
-			if err != nil {
-				return nil, err
-			}
-			twi.Update = &types.Update{
-				Key:                       sdkUpd.Key,
-				TableName:                 sdkUpd.TableName,
-				UpdateExpression:          sdkUpd.UpdateExpression,
-				ConditionExpression:       sdkUpd.ConditionExpression,
-				ExpressionAttributeNames:  sdkUpd.ExpressionAttributeNames,
-				ExpressionAttributeValues: sdkUpd.ExpressionAttributeValues,
-			}
-		}
-		if item.ConditionCheck != nil {
-			key, err := ToSDKItem(item.ConditionCheck.Key)
-			if err != nil {
-				return nil, err
-			}
-			twi.ConditionCheck = &types.ConditionCheck{
-				Key:                      key,
-				TableName:                &item.ConditionCheck.TableName,
-				ConditionExpression:      &item.ConditionCheck.ConditionExpression,
-				ExpressionAttributeNames: item.ConditionCheck.ExpressionAttributeNames,
-			}
-			if len(item.ConditionCheck.ExpressionAttributeValues) > 0 {
-				vals, vErr := ToSDKItem(item.ConditionCheck.ExpressionAttributeValues)
-				if vErr != nil {
-					return nil, vErr
-				}
+func createPutTransactItem(item *TransactWriteItem) (*types.Put, error) {
+	sdkPut, err := ToSDKPutItemInput(item.Put)
+	if err != nil {
+		return nil, err
+	}
 
-				twi.ConditionCheck.ExpressionAttributeValues = vals
-			}
+	return &types.Put{
+		Item:                      sdkPut.Item,
+		TableName:                 sdkPut.TableName,
+		ConditionExpression:       sdkPut.ConditionExpression,
+		ExpressionAttributeNames:  sdkPut.ExpressionAttributeNames,
+		ExpressionAttributeValues: sdkPut.ExpressionAttributeValues,
+		ReturnValuesOnConditionCheckFailure: types.ReturnValuesOnConditionCheckFailure(
+			item.Put.ReturnValues,
+		),
+	}, nil
+}
+
+func createDeleteTransactItem(item *TransactWriteItem) (*types.Delete, error) {
+	sdkDel, err := ToSDKDeleteItemInput(item.Delete)
+	if err != nil {
+		return nil, err
+	}
+
+	return &types.Delete{
+		Key:                       sdkDel.Key,
+		TableName:                 sdkDel.TableName,
+		ConditionExpression:       sdkDel.ConditionExpression,
+		ExpressionAttributeNames:  sdkDel.ExpressionAttributeNames,
+		ExpressionAttributeValues: sdkDel.ExpressionAttributeValues,
+	}, nil
+}
+
+func createUpdateTransactItem(item *TransactWriteItem) (*types.Update, error) {
+	sdkUpd, err := ToSDKUpdateItemInput(item.Update)
+	if err != nil {
+		return nil, err
+	}
+
+	return &types.Update{
+		Key:                       sdkUpd.Key,
+		TableName:                 sdkUpd.TableName,
+		UpdateExpression:          sdkUpd.UpdateExpression,
+		ConditionExpression:       sdkUpd.ConditionExpression,
+		ExpressionAttributeNames:  sdkUpd.ExpressionAttributeNames,
+		ExpressionAttributeValues: sdkUpd.ExpressionAttributeValues,
+	}, nil
+}
+
+func createConditionCheckTransactItem(item *TransactWriteItem) (*types.ConditionCheck, error) {
+	key, err := ToSDKItem(item.ConditionCheck.Key)
+	if err != nil {
+		return nil, err
+	}
+	cc := &types.ConditionCheck{
+		Key:                      key,
+		TableName:                &item.ConditionCheck.TableName,
+		ConditionExpression:      &item.ConditionCheck.ConditionExpression,
+		ExpressionAttributeNames: item.ConditionCheck.ExpressionAttributeNames,
+	}
+	if len(item.ConditionCheck.ExpressionAttributeValues) > 0 {
+		vals, vErr := ToSDKItem(item.ConditionCheck.ExpressionAttributeValues)
+		if vErr != nil {
+			return nil, vErr
+		}
+		cc.ExpressionAttributeValues = vals
+	}
+
+	return cc, nil
+}
+
+func convertTransactWriteItem(item TransactWriteItem) (types.TransactWriteItem, error) {
+	twi := types.TransactWriteItem{}
+
+	if item.Put != nil {
+		put, err := createPutTransactItem(&item)
+		if err != nil {
+			return twi, err
+		}
+		twi.Put = put
+	}
+
+	if item.Delete != nil {
+		del, err := createDeleteTransactItem(&item)
+		if err != nil {
+			return twi, err
+		}
+		twi.Delete = del
+	}
+
+	if item.Update != nil {
+		upd, err := createUpdateTransactItem(&item)
+		if err != nil {
+			return twi, err
+		}
+		twi.Update = upd
+	}
+
+	if item.ConditionCheck != nil {
+		cc, err := createConditionCheckTransactItem(&item)
+		if err != nil {
+			return twi, err
+		}
+		twi.ConditionCheck = cc
+	}
+
+	return twi, nil
+}
+
+func ToSDKTransactWriteItemsInput(input *TransactWriteItemsInput) (*dynamodb.TransactWriteItemsInput, error) {
+	items := make([]types.TransactWriteItem, 0, len(input.TransactItems))
+	for _, item := range input.TransactItems {
+		twi, err := convertTransactWriteItem(item)
+		if err != nil {
+			return nil, err
 		}
 		items = append(items, twi)
 	}
@@ -813,30 +957,31 @@ func ToSDKTransactWriteItemsInput(input *TransactWriteItemsInput) (*dynamodb.Tra
 	}, nil
 }
 
-func FromSDKTransactWriteItemsOutput(output *dynamodb.TransactWriteItemsOutput) *TransactWriteItemsOutput {
+func FromSDKTransactWriteItemsOutput(*dynamodb.TransactWriteItemsOutput) *TransactWriteItemsOutput {
 	return &TransactWriteItemsOutput{
 		// Metrics
 	}
 }
 
 func ToSDKTransactGetItemsInput(input *TransactGetItemsInput) (*dynamodb.TransactGetItemsInput, error) {
-	var items []types.TransactGetItem
-	for _, item := range input.TransactItems {
+	items := make([]types.TransactGetItem, 0, len(input.TransactItems))
+	for i, item := range input.TransactItems {
 		if item.Get != nil {
 			sdkGet, err := ToSDKGetItemInput(item.Get)
 			if err != nil {
 				return nil, err
 			}
-			items = append(items, types.TransactGetItem{
+			items[i] = types.TransactGetItem{
 				Get: &types.Get{
 					Key:                      sdkGet.Key,
 					TableName:                sdkGet.TableName,
 					ExpressionAttributeNames: sdkGet.ExpressionAttributeNames,
 					ProjectionExpression:     sdkGet.ProjectionExpression,
 				},
-			})
+			}
 		}
 	}
+
 	return &dynamodb.TransactGetItemsInput{
 		TransactItems:          items,
 		ReturnConsumedCapacity: types.ReturnConsumedCapacity(input.ReturnConsumedCapacity),
@@ -844,12 +989,13 @@ func ToSDKTransactGetItemsInput(input *TransactGetItemsInput) (*dynamodb.Transac
 }
 
 func FromSDKTransactGetItemsOutput(output *dynamodb.TransactGetItemsOutput) *TransactGetItemsOutput {
-	var responses []ItemResponse
+	responses := make([]ItemResponse, 0, len(output.Responses))
 	for _, resp := range output.Responses {
 		responses = append(responses, ItemResponse{
 			Item: FromSDKItem(resp.Item),
 		})
 	}
+
 	return &TransactGetItemsOutput{
 		Responses: responses,
 	}
@@ -910,11 +1056,17 @@ func FromSDKDescribeTableOutput(output *dynamodb.DescribeTableOutput) *DescribeT
 }
 
 func ToSDKListTablesInput(input *ListTablesInput) *dynamodb.ListTablesInput {
+	const maxInt32Value = 2147483647
 	var l *int32
 
 	if input.Limit > 0 {
-		val := int32(input.Limit)
-		l = &val
+		if input.Limit > maxInt32Value {
+			val := int32(maxInt32Value)
+			l = &val
+		} else {
+			val := int32(input.Limit) // #nosec G115
+			l = &val
+		}
 	}
 
 	return &dynamodb.ListTablesInput{
@@ -984,22 +1136,90 @@ func FromSDKTableDescription(td *types.TableDescription) TableDescription {
 	}
 
 	return TableDescription{
-		TableName:   safeToString(td.TableName),
-		TableStatus: string(td.TableStatus),
-		ItemCount:   cnt,
-		// ... expand as needed for other fields
+		TableName:              safeToString(td.TableName),
+		TableStatus:            string(td.TableStatus),
+		ItemCount:              cnt,
+		KeySchema:              FromSDKKeySchema(td.KeySchema),
+		AttributeDefinitions:   FromSDKAttributeDefinitions(td.AttributeDefinitions),
+		GlobalSecondaryIndexes: FromSDKGlobalSecondaryIndexDescriptions(td.GlobalSecondaryIndexes),
+		LocalSecondaryIndexes:  FromSDKLocalSecondaryIndexDescriptions(td.LocalSecondaryIndexes),
+		ProvisionedThroughput:  FromSDKProvisionedThroughputDescription(td.ProvisionedThroughput),
 	}
+}
+
+func FromSDKGlobalSecondaryIndexDescriptions(
+	gsis []types.GlobalSecondaryIndexDescription,
+) []GlobalSecondaryIndexDescription {
+	if len(gsis) == 0 {
+		return nil
+	}
+	out := make([]GlobalSecondaryIndexDescription, len(gsis))
+	for i, gsi := range gsis {
+		out[i] = GlobalSecondaryIndexDescription{
+			IndexName:   safeToString(gsi.IndexName),
+			IndexStatus: string(gsi.IndexStatus),
+			KeySchema:   FromSDKKeySchema(gsi.KeySchema),
+			Projection:  FromSDKProjection(gsi.Projection),
+			ProvisionedThroughput: ProvisionedThroughputDescription{
+				ReadCapacityUnits:  int(safeToInt64(gsi.ProvisionedThroughput.ReadCapacityUnits)),
+				WriteCapacityUnits: int(safeToInt64(gsi.ProvisionedThroughput.WriteCapacityUnits)),
+			},
+			ItemCount: int(safeToInt64(gsi.ItemCount)),
+		}
+	}
+	return out
+}
+
+func FromSDKLocalSecondaryIndexDescriptions(
+	lsis []types.LocalSecondaryIndexDescription,
+) []LocalSecondaryIndexDescription {
+	if len(lsis) == 0 {
+		return nil
+	}
+	out := make([]LocalSecondaryIndexDescription, len(lsis))
+	for i, lsi := range lsis {
+		out[i] = LocalSecondaryIndexDescription{
+			IndexName:      safeToString(lsi.IndexName),
+			KeySchema:      FromSDKKeySchema(lsi.KeySchema),
+			Projection:     FromSDKProjection(lsi.Projection),
+			IndexSizeBytes: safeToInt64(lsi.IndexSizeBytes),
+			ItemCount:      int(safeToInt64(lsi.ItemCount)),
+		}
+	}
+	return out
+}
+
+func FromSDKProvisionedThroughputDescription(
+	ptd *types.ProvisionedThroughputDescription,
+) *ProvisionedThroughputDescription {
+	if ptd == nil {
+		return nil
+	}
+	return &ProvisionedThroughputDescription{
+		ReadCapacityUnits:  int(safeToInt64(ptd.ReadCapacityUnits)),
+		WriteCapacityUnits: int(safeToInt64(ptd.WriteCapacityUnits)),
+	}
+}
+
+func safeToInt64(i *int64) int64 {
+	if i == nil {
+		return 0
+	}
+	return *i
 }
 
 func awsInt64FromAny(v any) *int64 {
 	switch val := v.(type) {
 	case float64:
 		i := int64(val)
+
 		return &i
 	case int:
 		i := int64(val)
+
 		return &i
 	}
+
 	return nil
 }
 
@@ -1007,6 +1227,7 @@ func safeToBool(b *bool) bool {
 	if b == nil {
 		return false
 	}
+
 	return *b
 }
 
@@ -1014,6 +1235,7 @@ func FromSDKConsumedCapacity(cc *types.ConsumedCapacity) *ConsumedCapacity {
 	if cc == nil {
 		return nil
 	}
+
 	return &ConsumedCapacity{
 		TableName:          safeToString(cc.TableName),
 		CapacityUnits:      safeToFloat(cc.CapacityUnits),
@@ -1026,6 +1248,7 @@ func FromSDKItemCollectionMetrics(icm *types.ItemCollectionMetrics) *ItemCollect
 	if icm == nil {
 		return nil
 	}
+
 	return &ItemCollectionMetrics{
 		ItemCollectionKey:   FromSDKItem(icm.ItemCollectionKey),
 		SizeEstimateRangeGB: icm.SizeEstimateRangeGB,
@@ -1036,6 +1259,7 @@ func safeToString(s *string) string {
 	if s == nil {
 		return ""
 	}
+
 	return *s
 }
 
@@ -1043,6 +1267,7 @@ func safeToFloat(f *float64) float64 {
 	if f == nil {
 		return 0
 	}
+
 	return *f
 }
 
@@ -1050,5 +1275,6 @@ func nilIfEmpty(s string) *string {
 	if s == "" {
 		return nil
 	}
+
 	return &s
 }

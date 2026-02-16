@@ -13,4 +13,5 @@ var (
 	ErrInvalidArgument     = errors.New("InvalidArgument")
 	ErrNoSuchUpload        = errors.New("NoSuchUpload")
 	ErrInvalidPart         = errors.New("InvalidPart")
+	ErrNoCompressor        = errors.New("data is compressed but no compressor available")
 )

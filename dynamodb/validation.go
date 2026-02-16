@@ -139,11 +139,21 @@ func validateAttribute(k string, v any) error {
 	return nil
 }
 
+const (
+	typeS    = "S"
+	typeN    = "N"
+	typeBOOL = "BOOL"
+	typeNULL = "NULL"
+	typeB    = "B"
+	typeL    = "L"
+	typeM    = "M"
+)
+
 func validateTypeValue(k, t string, val any) error {
 	switch t {
-	case "S", "N", "BOOL", "NULL", "B":
+	case typeS, typeN, typeBOOL, typeNULL, typeB:
 		return validateScalarValue(k, t, val)
-	case "L", "M":
+	case typeL, typeM:
 		return validateComplexValue(k, t, val)
 	default:
 		return NewValidationException(fmt.Sprintf("Attribute %s has unknown type", k))

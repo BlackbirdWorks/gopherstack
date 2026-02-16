@@ -106,27 +106,34 @@ func (db *InMemoryDB) validateItem(item map[string]any, table *Table) error {
 	return validateKeySchema(item, table.KeySchema)
 }
 
-func (db *InMemoryDB) populatePutItemOutput(input *dynamodb.PutItemInput, table *Table, oldItem map[string]any) *dynamodb.PutItemOutput {
+func (db *InMemoryDB) populatePutItemOutput(
+	input *dynamodb.PutItemInput,
+	table *Table,
+	oldItem map[string]any,
+) *dynamodb.PutItemOutput {
 	out := &dynamodb.PutItemOutput{}
 
 	// Simplify ReturnValues: supporting ALL_OLD mostly
-	if input.ReturnValues == "ALL_OLD" && oldItem != nil {
+	if input.ReturnValues == ReturnValuesAllOld && oldItem != nil {
 		out.Attributes, _ = ToSDKItem(oldItem)
 	}
 
 	// Handle ConsumedCapacity
 	if input.ReturnConsumedCapacity != "" && input.ReturnConsumedCapacity != types.ReturnConsumedCapacityNone {
-		cu := 1.0
+		const capacityUnit = 1.0
+		const readCapacity = 0.5
+		cu := capacityUnit
 		out.ConsumedCapacity = &types.ConsumedCapacity{
 			TableName:          aws.String(table.Name),
 			CapacityUnits:      aws.Float64(cu),
 			WriteCapacityUnits: aws.Float64(cu),
-			ReadCapacityUnits:  aws.Float64(0.5), // Validating read? No, Put is write.
+			ReadCapacityUnits:  aws.Float64(readCapacity),
 		}
 	}
 
 	// Handle ItemCollectionMetrics (only for tables with LSI, but we can simulate if requested)
-	if input.ReturnItemCollectionMetrics != "" && input.ReturnItemCollectionMetrics != types.ReturnItemCollectionMetricsNone {
+	if input.ReturnItemCollectionMetrics != "" &&
+		input.ReturnItemCollectionMetrics != types.ReturnItemCollectionMetricsNone {
 		// Just return something if requested to satisfy test
 		// The test expects Key to be present
 		out.ItemCollectionMetrics = &types.ItemCollectionMetrics{
@@ -189,14 +196,14 @@ func (db *InMemoryDB) DeleteItem(input *dynamodb.DeleteItemInput) (*dynamodb.Del
 	condition := aws.ToString(input.ConditionExpression)
 	if condition != "" {
 		eav := FromSDKItem(input.ExpressionAttributeValues)
-		match, err := evaluateExpression(
+		match, matchErr := evaluateExpression(
 			condition,
 			oldItem,
 			eav,
 			input.ExpressionAttributeNames,
 		)
-		if err != nil {
-			return nil, err
+		if matchErr != nil {
+			return nil, matchErr
 		}
 		if !match {
 			return nil, NewConditionalCheckFailedException("The conditional request failed")
@@ -212,7 +219,7 @@ func (db *InMemoryDB) DeleteItem(input *dynamodb.DeleteItemInput) (*dynamodb.Del
 
 	// Handle ReturnValues (ALL_OLD)
 	out := &dynamodb.DeleteItemOutput{}
-	if input.ReturnValues == "ALL_OLD" && oldItem != nil {
+	if input.ReturnValues == ReturnValuesAllOld && oldItem != nil {
 		out.Attributes, _ = ToSDKItem(oldItem)
 	}
 
@@ -227,7 +234,8 @@ func (db *InMemoryDB) DeleteItem(input *dynamodb.DeleteItemInput) (*dynamodb.Del
 	}
 
 	// Handle ItemCollectionMetrics
-	if input.ReturnItemCollectionMetrics != "" && input.ReturnItemCollectionMetrics != types.ReturnItemCollectionMetricsNone {
+	if input.ReturnItemCollectionMetrics != "" &&
+		input.ReturnItemCollectionMetrics != types.ReturnItemCollectionMetricsNone {
 		out.ItemCollectionMetrics = &types.ItemCollectionMetrics{
 			ItemCollectionKey:   input.Key,
 			SizeEstimateRangeGB: []float64{0.0, 1.0},
@@ -352,7 +360,7 @@ func (db *InMemoryDB) populateUpdateOutput(
 ) *dynamodb.UpdateItemOutput {
 	out := &dynamodb.UpdateItemOutput{}
 
-	if input.ReturnValues == "ALL_OLD" && oldItem != nil {
+	if input.ReturnValues == ReturnValuesAllOld && oldItem != nil {
 		out.Attributes, _ = ToSDKItem(oldItem)
 	} else if input.ReturnValues == "ALL_NEW" {
 		out.Attributes, _ = ToSDKItem(newItem)
@@ -370,7 +378,8 @@ func (db *InMemoryDB) populateUpdateOutput(
 	}
 
 	// Handle ItemCollectionMetrics
-	if input.ReturnItemCollectionMetrics != "" && input.ReturnItemCollectionMetrics != types.ReturnItemCollectionMetricsNone {
+	if input.ReturnItemCollectionMetrics != "" &&
+		input.ReturnItemCollectionMetrics != types.ReturnItemCollectionMetricsNone {
 		out.ItemCollectionMetrics = &types.ItemCollectionMetrics{
 			ItemCollectionKey:   input.Key,
 			SizeEstimateRangeGB: []float64{0.0, 1.0},
@@ -404,8 +413,8 @@ func (db *InMemoryDB) deleteItemAtIndex(table *Table, matchIndex int) {
 	// I need to preserve that logic.
 
 	// The original `deleteFromPKSKIndex` and `deleteFromPKIndex` handled the index decrementing logic.
-	// I need to ensure those helper functions are still available or I need to include them in this file if they were local.
-	// They were at the end of the original file. I will include them.
+	// I need to ensure those helper functions are still available or I need to include them in this
+	// file if they were local. They were at the end of the original file. I will include them.
 }
 
 func deleteFromPKSKIndex(table *Table, pkVal, skVal string, matchIndex int) {

@@ -3,7 +3,7 @@ package s3
 import (
 	"Gopherstack/pkgs/httputils"
 	"bytes"
-	"crypto/sha1"
+	"crypto/sha1" //nolint:gosec // SHA1 required for S3 checksum compatibility
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/xml"
@@ -305,6 +305,7 @@ func (h *Handler) listBuckets(w http.ResponseWriter, r *http.Request) {
 	out, err := h.Backend.ListBuckets(r.Context(), &s3.ListBucketsInput{})
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 
@@ -333,6 +334,7 @@ func (h *Handler) createBucket(w http.ResponseWriter, r *http.Request, bucketNam
 	body, err := httputils.ReadBody(r)
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 
@@ -364,11 +366,13 @@ func (h *Handler) createBucket(w http.ResponseWriter, r *http.Request, bucketNam
 	_, err = h.Backend.CreateBucket(r.Context(), input)
 	if errors.Is(err, ErrBucketAlreadyExists) {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusConflict)
+
 		return
 	}
 
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 
@@ -381,16 +385,19 @@ func (h *Handler) deleteBucket(w http.ResponseWriter, r *http.Request, bucketNam
 	_, err := h.Backend.DeleteBucket(r.Context(), &s3.DeleteBucketInput{Bucket: aws.String(bucketName)})
 	if errors.Is(err, ErrNoSuchBucket) {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+
 		return
 	}
 
 	if errors.Is(err, ErrBucketNotEmpty) {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusConflict)
+
 		return
 	}
 
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 
@@ -405,7 +412,7 @@ func (h *Handler) listObjects(w http.ResponseWriter, r *http.Request, bucketName
 	maxKeys := int32(defaultMaxKeys)
 	if mk := r.URL.Query().Get("max-keys"); mk != "" {
 		if n, err := strconv.Atoi(mk); err == nil && n >= 0 {
-			maxKeys = int32(n)
+			maxKeys = int32(n) //nolint:gosec // Validated non-negative, safe conversion
 		}
 	}
 
@@ -416,11 +423,13 @@ func (h *Handler) listObjects(w http.ResponseWriter, r *http.Request, bucketName
 	})
 	if errors.Is(err, ErrNoSuchBucket) {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+
 		return
 	}
 
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 
@@ -432,6 +441,7 @@ func (h *Handler) listObjects(w http.ResponseWriter, r *http.Request, bucketName
 		for i, obj := range objects {
 			if *obj.Key > marker {
 				start = i
+
 				break
 			}
 		}
@@ -474,7 +484,7 @@ func (h *Handler) listObjectsV2(w http.ResponseWriter, r *http.Request, bucketNa
 	maxKeys := int32(defaultMaxKeys)
 	if mk := q.Get("max-keys"); mk != "" {
 		if n, err := strconv.Atoi(mk); err == nil && n >= 0 {
-			maxKeys = int32(n)
+			maxKeys = int32(n) //nolint:gosec // Validated non-negative, safe conversion
 		}
 	}
 
@@ -488,11 +498,13 @@ func (h *Handler) listObjectsV2(w http.ResponseWriter, r *http.Request, bucketNa
 
 	if errors.Is(err, ErrNoSuchBucket) {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+
 		return
 	}
 
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 
@@ -508,6 +520,7 @@ func (h *Handler) listObjectsV2(w http.ResponseWriter, r *http.Request, bucketNa
 		for i, obj := range objects {
 			if *obj.Key > startCursor {
 				filtered = objects[i:]
+
 				break
 			}
 		}
@@ -546,7 +559,13 @@ func (h *Handler) getBucketLocation(w http.ResponseWriter, _ *http.Request, _ st
 	fmt.Fprint(w, locationConstraintXML)
 }
 
-func (h *Handler) mapObjectsToXML(r *http.Request, bucketName string, objects []types.Object, prefix, delimiter string, seenPrefixes map[string]struct{}) ([]ObjectXML, []CommonPrefixXML) {
+func (h *Handler) mapObjectsToXML(
+	r *http.Request,
+	bucketName string,
+	objects []types.Object,
+	prefix, delimiter string,
+	seenPrefixes map[string]struct{},
+) ([]ObjectXML, []CommonPrefixXML) {
 	var contents []ObjectXML
 	var commonPrefixes []CommonPrefixXML
 
@@ -557,6 +576,7 @@ func (h *Handler) mapObjectsToXML(r *http.Request, bucketName string, objects []
 				seenPrefixes[cp] = struct{}{}
 				commonPrefixes = append(commonPrefixes, CommonPrefixXML{Prefix: cp})
 			}
+
 			continue
 		}
 
@@ -570,12 +590,17 @@ func (h *Handler) mapObjectsToXML(r *http.Request, bucketName string, objects []
 		_ = ver.Body.Close()
 
 		contents = append(contents, ObjectXML{
-			Key:               key,
-			LastModified:      obj.LastModified.Format(time.RFC3339),
-			Size:              *obj.Size,
-			ETag:              *ver.ETag,
-			StorageClass:      storageStandard,
-			ChecksumAlgorithm: getChecksumAlgo(ver.ChecksumCRC32, ver.ChecksumCRC32C, ver.ChecksumSHA1, ver.ChecksumSHA256),
+			Key:          key,
+			LastModified: obj.LastModified.Format(time.RFC3339),
+			Size:         *obj.Size,
+			ETag:         *ver.ETag,
+			StorageClass: storageStandard,
+			ChecksumAlgorithm: getChecksumAlgo(
+				ver.ChecksumCRC32,
+				ver.ChecksumCRC32C,
+				ver.ChecksumSHA1,
+				ver.ChecksumSHA256,
+			),
 		})
 	}
 
@@ -602,12 +627,14 @@ func (h *Handler) headBucket(w http.ResponseWriter, r *http.Request, bucketName 
 	if errors.Is(err, ErrNoSuchBucket) {
 		w.Header().Set("Content-Length", "0")
 		w.WriteHeader(http.StatusNotFound)
+
 		return
 	}
 
 	if err != nil {
 		w.Header().Set("Content-Length", "0")
 		w.WriteHeader(http.StatusInternalServerError)
+
 		return
 	}
 
@@ -636,7 +663,7 @@ type objectCommonDetails struct {
 	ContentType    *string
 	ContentLength  *int64
 	LastModified   *time.Time
-	VersionId      *string
+	VersionID      *string
 	ChecksumCRC32  *string
 	ChecksumCRC32C *string
 	ChecksumSHA1   *string
@@ -666,22 +693,24 @@ func (h *Handler) setCommonHeaders(w http.ResponseWriter, out objectCommonDetail
 		w.Header().Set("X-Amz-Meta-"+k, v)
 	}
 
-	if out.VersionId != nil && *out.VersionId != NullVersion {
-		w.Header().Set("X-Amz-Version-Id", *out.VersionId)
+	if out.VersionID != nil && *out.VersionID != NullVersion {
+		w.Header().Set("X-Amz-Version-Id", *out.VersionID)
 	}
 
 	h.setChecksumHeaders(w, out)
 }
 
-func parseCopySource(src string) (bucket, key, versionID string, ok bool) {
+func parseCopySource(src string) (string, string, string, bool) {
 	src = strings.TrimPrefix(src, "/")
-	parts := strings.SplitN(src, "/", 2)
+	parts := strings.SplitN(src, "/", pathSplitParts)
 
-	if len(parts) != 2 {
+	if len(parts) != pathSplitParts {
 		return "", "", "", false
 	}
 
-	bucket, key = parts[0], parts[1]
+	bucket := parts[0]
+	key := parts[1]
+	versionID := ""
 
 	if idx := strings.Index(key, "?versionId="); idx != -1 {
 		versionID = key[idx+11:]
@@ -711,7 +740,7 @@ func (h *Handler) setChecksumHeaders(w http.ResponseWriter, out objectCommonDeta
 	}
 }
 
-func extractChecksumPointers(h http.Header, algo string) (crc32, crc32c, sha1, sha256 *string) {
+func extractChecksumPointers(h http.Header, algo string) (*string, *string, *string, *string) {
 	if algo == "" {
 		return nil, nil, nil, nil
 	}
@@ -741,6 +770,7 @@ func (h *Handler) putObject(w http.ResponseWriter, r *http.Request, bucketName, 
 	data, err := httputils.ReadBody(r)
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 
@@ -773,11 +803,13 @@ func (h *Handler) putObject(w http.ResponseWriter, r *http.Request, bucketName, 
 	)
 	if errors.Is(err, ErrNoSuchBucket) {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+
 		return
 	}
 
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 
@@ -785,7 +817,7 @@ func (h *Handler) putObject(w http.ResponseWriter, r *http.Request, bucketName, 
 
 	details := objectCommonDetails{
 		ETag:           ver.ETag,
-		VersionId:      ver.VersionId,
+		VersionID:      ver.VersionId,
 		ChecksumCRC32:  ver.ChecksumCRC32,
 		ChecksumCRC32C: ver.ChecksumCRC32C,
 		ChecksumSHA1:   ver.ChecksumSHA1,
@@ -841,6 +873,7 @@ func (h *Handler) copyObject(w http.ResponseWriter, r *http.Request, destBucket,
 	data, err := io.ReadAll(srcVer.Body)
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 
@@ -872,11 +905,13 @@ func (h *Handler) copyObject(w http.ResponseWriter, r *http.Request, destBucket,
 	destVer, err := h.Backend.PutObject(r.Context(), putInput)
 	if errors.Is(err, ErrNoSuchBucket) {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+
 		return
 	}
 
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 
@@ -927,7 +962,7 @@ func (h *Handler) getObject(w http.ResponseWriter, r *http.Request, bucketName, 
 		ContentType:    ver.ContentType,
 		ContentLength:  ver.ContentLength,
 		LastModified:   ver.LastModified,
-		VersionId:      ver.VersionId,
+		VersionID:      ver.VersionId,
 		ChecksumCRC32:  ver.ChecksumCRC32,
 		ChecksumCRC32C: ver.ChecksumCRC32C,
 		ChecksumSHA1:   ver.ChecksumSHA1,
@@ -1083,16 +1118,19 @@ func (h *Handler) deleteObject(w http.ResponseWriter, r *http.Request, bucketNam
 	})
 	if errors.Is(err, ErrNoSuchBucket) {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+
 		return
 	}
 
 	if errors.Is(err, ErrNoSuchKey) {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+
 		return
 	}
 
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 
@@ -1137,7 +1175,7 @@ func (h *Handler) headObject(w http.ResponseWriter, r *http.Request, bucketName,
 		ContentType:    out.ContentType,
 		ContentLength:  out.ContentLength,
 		LastModified:   out.LastModified,
-		VersionId:      out.VersionId,
+		VersionID:      out.VersionId,
 		ChecksumCRC32:  out.ChecksumCRC32,
 		ChecksumCRC32C: out.ChecksumCRC32C,
 		ChecksumSHA1:   out.ChecksumSHA1,
@@ -1152,6 +1190,7 @@ func (h *Handler) putBucketVersioning(w http.ResponseWriter, r *http.Request, bu
 	var conf VersioningConfiguration
 	if err := xml.NewDecoder(r.Body).Decode(&conf); err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusBadRequest)
+
 		return
 	}
 
@@ -1163,6 +1202,7 @@ func (h *Handler) putBucketVersioning(w http.ResponseWriter, r *http.Request, bu
 	})
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+
 		return
 	}
 
@@ -1174,6 +1214,7 @@ func (h *Handler) getBucketVersioning(w http.ResponseWriter, r *http.Request, bu
 	out, err := h.Backend.GetBucketVersioning(r.Context(), &s3.GetBucketVersioningInput{Bucket: aws.String(bucketName)})
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+
 		return
 	}
 
@@ -1196,11 +1237,13 @@ func (h *Handler) listObjectVersions(w http.ResponseWriter, r *http.Request, buc
 	})
 	if errors.Is(err, ErrNoSuchBucket) {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+
 		return
 	}
 
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 
@@ -1255,6 +1298,7 @@ func (h *Handler) putObjectTagging(w http.ResponseWriter, r *http.Request, bucke
 	var tagging Tagging
 	if err := xml.NewDecoder(r.Body).Decode(&tagging); err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusBadRequest)
+
 		return
 	}
 
@@ -1279,6 +1323,7 @@ func (h *Handler) putObjectTagging(w http.ResponseWriter, r *http.Request, bucke
 		Tagging:   &types.Tagging{TagSet: tags},
 	}); err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 
@@ -1300,6 +1345,7 @@ func (h *Handler) getObjectTagging(w http.ResponseWriter, r *http.Request, bucke
 	})
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+
 		return
 	}
 
@@ -1329,6 +1375,7 @@ func (h *Handler) deleteObjectTagging(w http.ResponseWriter, r *http.Request, bu
 		VersionId: vid,
 	}); err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 
@@ -1344,6 +1391,7 @@ func (h *Handler) createMultipartUpload(w http.ResponseWriter, r *http.Request, 
 	})
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 
@@ -1362,6 +1410,7 @@ func (h *Handler) uploadPart(w http.ResponseWriter, r *http.Request, bucketName,
 	partNumber, err := strconv.Atoi(partNumberStr)
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, ErrInvalidArgument, http.StatusBadRequest)
+
 		return
 	}
 
@@ -1369,6 +1418,7 @@ func (h *Handler) uploadPart(w http.ResponseWriter, r *http.Request, bucketName,
 	data, err := httputils.ReadBody(r)
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 
@@ -1376,16 +1426,18 @@ func (h *Handler) uploadPart(w http.ResponseWriter, r *http.Request, bucketName,
 		Bucket:     aws.String(bucketName),
 		Key:        aws.String(key),
 		UploadId:   aws.String(uploadID),
-		PartNumber: aws.Int32(int32(partNumber)),
+		PartNumber: aws.Int32(int32(partNumber)), //nolint:gosec // Part number validated in request parsing
 		Body:       bytes.NewReader(data),
 	})
 	if errors.Is(err, ErrNoSuchBucket) || errors.Is(err, ErrNoSuchKey) || errors.Is(err, ErrNoSuchUpload) {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+
 		return
 	}
 
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 
@@ -1401,6 +1453,7 @@ func (h *Handler) completeMultipartUpload(w http.ResponseWriter, r *http.Request
 	var partsReq CompleteMultipartUpload
 	if err := xml.NewDecoder(r.Body).Decode(&partsReq); err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusBadRequest)
+
 		return
 	}
 
@@ -1409,7 +1462,7 @@ func (h *Handler) completeMultipartUpload(w http.ResponseWriter, r *http.Request
 	for _, p := range partsReq.Parts {
 		sdkParts = append(sdkParts, types.CompletedPart{
 			ETag:       aws.String(p.ETag),
-			PartNumber: aws.Int32(int32(p.PartNumber)),
+			PartNumber: aws.Int32(int32(p.PartNumber)), // #nosec G115
 		})
 	}
 
@@ -1424,16 +1477,19 @@ func (h *Handler) completeMultipartUpload(w http.ResponseWriter, r *http.Request
 	)
 	if errors.Is(err, ErrNoSuchBucket) || errors.Is(err, ErrNoSuchKey) || errors.Is(err, ErrNoSuchUpload) {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+
 		return
 	}
 
 	if errors.Is(err, ErrInvalidPart) {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusBadRequest)
+
 		return
 	}
 
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 
@@ -1456,9 +1512,11 @@ func (h *Handler) abortMultipartUpload(w http.ResponseWriter, r *http.Request, b
 		UploadId: aws.String(uploadID),
 	}); errors.Is(err, ErrNoSuchUpload) {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+
 		return
 	} else if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 

@@ -221,5 +221,6 @@ func getItem(t *testing.T, db *dynamodb.InMemoryDB, tableName, pk string) map[st
 	if res.Item == nil {
 		return nil
 	}
+
 	return dynamodb.FromSDKItem(res.Item)
 }

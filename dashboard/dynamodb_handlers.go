@@ -445,8 +445,6 @@ func (h *Handler) extractKeys(keySchema []types.KeySchemaElement) (string, strin
 }
 
 // toAttributeValue converts a string to a typed AttributeValue.
-//
-//nolint:ireturn // Legitimate pattern for AWS SDK AttributeValue interface
 func (h *Handler) toAttributeValue(val string, t types.ScalarAttributeType) types.AttributeValue {
 	switch t {
 	case types.ScalarAttributeTypeN:

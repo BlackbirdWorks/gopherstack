@@ -111,9 +111,9 @@ func (db *InMemoryDB) tryFilterUsingAuthoritativeIndex(
 	table *Table,
 	input *dynamodb.QueryInput,
 	projection *Projection,
-	_ []KeySchemaElement,
+	keySchema []KeySchemaElement,
 	pkExpr string,
-	_ KeySchemaElement,
+	pkDef KeySchemaElement,
 	skDef KeySchemaElement,
 	exprParts []string,
 	eav map[string]any,
@@ -131,10 +131,13 @@ func (db *InMemoryDB) tryFilterUsingAuthoritativeIndex(
 			}
 
 			candidates := db.filterUsingIndices(table, input, projection, indices, exprParts, eav)
+
 			return candidates, true
 		}
 	} else if idx, ok := table.pkIndex[pkValue]; ok {
-		candidates := db.filterUsingIndices(table, input, projection, []int{idx}, exprParts, eav)
+		indices := []int{idx}
+		candidates := db.filterUsingIndices(table, input, projection, indices, exprParts, eav)
+
 		return candidates, true
 	}
 
@@ -174,7 +177,7 @@ func extractPKValueFromExpression(
 	attrValues map[string]any,
 	attrNames map[string]string,
 ) string {
-	parts := strings.Split(expression, " = ")
+	parts := strings.Split(expression, "=")
 	if len(parts) != expectedPKParts {
 		return ""
 	}
@@ -226,6 +229,7 @@ func (db *InMemoryDB) filterCandidatesScan(
 			m, err := evaluateExpression(part, item, eav, input.ExpressionAttributeNames)
 			if err != nil || !m {
 				match = false
+
 				break
 			}
 		}
@@ -263,6 +267,7 @@ func (db *InMemoryDB) sortCandidates(
 		if !scanIndexForward {
 			return res > 0
 		}
+
 		return res < 0
 	})
 }
@@ -291,6 +296,7 @@ func (db *InMemoryDB) processQueryResults(
 	for i := startIndex; i < len(candidates); i++ {
 		if limit > 0 && count >= limit {
 			lastEvaluatedKey = extractKey(items[len(items)-1], keySchema)
+
 			break
 		}
 
@@ -318,8 +324,8 @@ func (db *InMemoryDB) processQueryResults(
 
 	out := &dynamodb.QueryOutput{
 		Items:        outItems,
-		Count:        int32(len(items)),
-		ScannedCount: int32(len(candidates)),
+		Count:        int32(len(items)),      // #nosec G115
+		ScannedCount: int32(len(candidates)), // #nosec G115
 	}
 
 	if lastEvaluatedKey != nil {
@@ -361,5 +367,6 @@ func inferSKType(candidates []map[string]any, skName string) string {
 			return t
 		}
 	}
+
 	return "S"
 }

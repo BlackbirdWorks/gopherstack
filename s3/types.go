@@ -61,7 +61,7 @@ type StoredPart struct {
 }
 
 // ObjectMetadata holds internal metadata for storage operations.
-// (Keeping this compatibility type if needed, though mostly replaced by SDK types usage)
+// (Keeping this compatibility type if needed, though mostly replaced by SDK types usage).
 type ObjectMetadata struct {
 	Tags              map[string]string
 	UserMetadata      map[string]string

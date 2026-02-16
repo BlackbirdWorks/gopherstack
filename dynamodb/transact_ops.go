@@ -12,7 +12,9 @@ import (
 const txCancelPrefix = "Transaction cancelled, please refer cancellation reasons for specific reasons"
 
 // TransactWriteItems executes up to 100 write actions atomically.
-func (db *InMemoryDB) TransactWriteItems(input *dynamodb.TransactWriteItemsInput) (*dynamodb.TransactWriteItemsOutput, error) {
+func (db *InMemoryDB) TransactWriteItems(
+	input *dynamodb.TransactWriteItemsInput,
+) (*dynamodb.TransactWriteItemsOutput, error) {
 	if len(input.TransactItems) == 0 {
 		return nil, NewValidationException("TransactItems must not be empty")
 	}
@@ -46,7 +48,9 @@ func (db *InMemoryDB) TransactWriteItems(input *dynamodb.TransactWriteItemsInput
 }
 
 // TransactGetItems reads up to 100 items atomically.
-func (db *InMemoryDB) TransactGetItems(input *dynamodb.TransactGetItemsInput) (*dynamodb.TransactGetItemsOutput, error) {
+func (db *InMemoryDB) TransactGetItems(
+	input *dynamodb.TransactGetItemsInput,
+) (*dynamodb.TransactGetItemsOutput, error) {
 	if len(input.TransactItems) == 0 {
 		return nil, NewValidationException("TransactItems must not be empty")
 	}
@@ -80,6 +84,7 @@ func (db *InMemoryDB) TransactGetItems(input *dynamodb.TransactGetItemsInput) (*
 	for _, ti := range input.TransactItems {
 		if ti.Get == nil {
 			responses = append(responses, types.ItemResponse{})
+
 			continue
 		}
 
@@ -95,6 +100,7 @@ func (db *InMemoryDB) TransactGetItems(input *dynamodb.TransactGetItemsInput) (*
 
 		if item == nil || isItemExpired(item, table.TTLAttribute) {
 			responses = append(responses, types.ItemResponse{})
+
 			continue
 		}
 
@@ -131,6 +137,7 @@ func (db *InMemoryDB) transactTableNames(items []types.TransactWriteItem) []stri
 		names = append(names, name)
 	}
 	sort.Strings(names)
+
 	return names
 }
 
@@ -142,6 +149,7 @@ func (db *InMemoryDB) lockTablesWrite(tableNames []string) (map[string]*Table, e
 		t, ok := db.Tables[name]
 		if !ok {
 			db.mu.RUnlock()
+
 			return nil, NewResourceNotFoundException(fmt.Sprintf("Table not found: %s", name))
 		}
 		tables[name] = t
@@ -163,6 +171,7 @@ func (db *InMemoryDB) lockTablesRead(tableNames []string) (map[string]*Table, er
 		t, ok := db.Tables[name]
 		if !ok {
 			db.mu.RUnlock()
+
 			return nil, NewResourceNotFoundException(fmt.Sprintf("Table not found: %s", name))
 		}
 		tables[name] = t
@@ -212,6 +221,7 @@ func (db *InMemoryDB) checkTransactWriteCondition(
 			idx,
 		)
 	}
+
 	return nil
 }
 
@@ -252,6 +262,7 @@ func (db *InMemoryDB) checkTransactCondExpr(
 	}
 
 	oldItem, _ := db.findMatchForPut(table, key)
+
 	return db.checkTransactCondExprRaw(oldItem, condExpr, eavs, eans, idx)
 }
 
@@ -269,6 +280,7 @@ func (db *InMemoryDB) checkTransactCondExprRaw(
 	if !match {
 		return NewTransactionCanceledException(fmt.Sprintf("%s [%d]: ConditionalCheckFailed", txCancelPrefix, idx))
 	}
+
 	return nil
 }
 
@@ -315,5 +327,6 @@ func (db *InMemoryDB) applyTransactWrite(tables map[string]*Table, ti types.Tran
 			return err
 		}
 	}
+
 	return nil
 }

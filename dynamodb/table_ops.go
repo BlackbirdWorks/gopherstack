@@ -97,6 +97,7 @@ func (db *InMemoryDB) DeleteTable(input *dynamodb.DeleteTableInput) (*dynamodb.D
 	table, exists := db.Tables[tableName]
 	if !exists {
 		db.mu.Unlock()
+
 		return nil, NewResourceNotFoundException(fmt.Sprintf("table not found: %s", tableName))
 	}
 	delete(db.Tables, tableName)
@@ -204,7 +205,9 @@ func (db *InMemoryDB) DescribeTable(input *dynamodb.DescribeTableInput) (*dynamo
 	}, nil
 }
 
-func (db *InMemoryDB) UpdateTimeToLive(input *dynamodb.UpdateTimeToLiveInput) (*dynamodb.UpdateTimeToLiveOutput, error) {
+func (db *InMemoryDB) UpdateTimeToLive(
+	input *dynamodb.UpdateTimeToLiveInput,
+) (*dynamodb.UpdateTimeToLiveOutput, error) {
 	tableName := aws.ToString(input.TableName)
 	if tableName == "" {
 		return nil, NewValidationException("Table name is required")
@@ -229,7 +232,9 @@ func (db *InMemoryDB) UpdateTimeToLive(input *dynamodb.UpdateTimeToLiveInput) (*
 	}, nil
 }
 
-func (db *InMemoryDB) DescribeTimeToLive(input *dynamodb.DescribeTimeToLiveInput) (*dynamodb.DescribeTimeToLiveOutput, error) {
+func (db *InMemoryDB) DescribeTimeToLive(
+	input *dynamodb.DescribeTimeToLiveInput,
+) (*dynamodb.DescribeTimeToLiveOutput, error) {
 	tableName := aws.ToString(input.TableName)
 	table, err := db.getTable(tableName)
 	if err != nil {

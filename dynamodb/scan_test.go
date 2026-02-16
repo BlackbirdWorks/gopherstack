@@ -162,6 +162,7 @@ func TestScan(t *testing.T) {
 			res, scanErr := db.Scan(sdkScanInput)
 			if tc.wantErr {
 				require.Error(t, scanErr)
+
 				return
 			}
 

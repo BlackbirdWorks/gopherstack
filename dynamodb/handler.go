@@ -54,17 +54,20 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet && r.URL.Path == "/" {
 		ops := h.GetSupportedOperations()
 		httputils.WriteJSON(h.Logger, w, http.StatusOK, ops)
+
 		return
 	}
 
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+
 		return
 	}
 
 	target := r.Header.Get("X-Amz-Target")
 	if target == "" {
 		http.Error(w, "Missing X-Amz-Target", http.StatusBadRequest)
+
 		return
 	}
 
@@ -72,6 +75,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(target, ".")
 	if len(parts) != targetParts {
 		http.Error(w, "Invalid X-Amz-Target", http.StatusBadRequest)
+
 		return
 	}
 	action := parts[1]
@@ -79,6 +83,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	body, err := httputils.ReadBody(r)
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 
@@ -87,6 +92,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	response, reqErr := h.dispatch(action, body)
 	if reqErr != nil {
 		h.handleError(w, r, action, reqErr)
+
 		return
 	}
 
@@ -106,7 +112,7 @@ func (h *Handler) dispatch(action string, body []byte) (any, error) {
 	}
 }
 
-// Helper for operations where Adapter allows error
+// Helper for operations where Adapter allows error.
 func handleOpErr[WireIn any, SDKIn any, SDKOut any, WireOut any](
 	body []byte,
 	toSDK func(*WireIn) (*SDKIn, error),
@@ -127,10 +133,11 @@ func handleOpErr[WireIn any, SDKIn any, SDKOut any, WireOut any](
 	if err != nil {
 		return nil, err
 	}
+
 	return fromSDK(sdkOutput), nil
 }
 
-// Helper for operations where Adapter does not return error
+// Helper for operations where Adapter does not return error.
 func handleOp[WireIn any, SDKIn any, SDKOut any, WireOut any](
 	body []byte,
 	toSDK func(*WireIn) *SDKIn,
@@ -148,6 +155,7 @@ func handleOp[WireIn any, SDKIn any, SDKOut any, WireOut any](
 	if err != nil {
 		return nil, err
 	}
+
 	return fromSDK(sdkOutput), nil
 }
 
@@ -209,7 +217,10 @@ func (h *Handler) handleError(w http.ResponseWriter, _ *http.Request, action str
 		h.Logger.Warn("Unknown action", "action", action)
 		w.Header().Set("Content-Type", "application/x-amz-json-1.0")
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"__type":"com.amazon.coral.service#UnknownOperationException","message":"Action not supported"}`))
+		_, _ = w.Write(
+			[]byte(`{"__type":"com.amazon.coral.service#UnknownOperationException","message":"Action not supported"}`),
+		)
+
 		return
 	}
 

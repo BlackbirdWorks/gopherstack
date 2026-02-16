@@ -56,6 +56,7 @@ func TestCalculateChecksum(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := s3.CalculateChecksum(data, tt.algorithm)
 			if tt.want != "" {
 				assert.Equal(t, tt.want, got)
@@ -199,7 +200,8 @@ func TestHandler_MultipartUpload_Lifecycle(t *testing.T) {
 	etag := rec.Header().Get("ETag")
 
 	// 3. Complete
-	completeXML := `<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>` + etag + `</ETag></Part></CompleteMultipartUpload>`
+	completeXML := `<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>` +
+		etag + `</ETag></Part></CompleteMultipartUpload>`
 	req = httptest.NewRequest(http.MethodPost, "/bkt/large?uploadId="+uploadID, strings.NewReader(completeXML))
 	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -276,6 +278,7 @@ func TestHandler_CopyObject_Errors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			req := httptest.NewRequest(http.MethodPut, tt.dest, nil)
 			req.Header.Set("X-Amz-Copy-Source", tt.source)
 			rec := httptest.NewRecorder()
@@ -405,7 +408,11 @@ func TestHandler_CompleteMultipartUpload_Errors(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	// 2. No upload ID
-	req = httptest.NewRequest(http.MethodPost, "/bkt/obj", strings.NewReader("<CompleteMultipartUpload></CompleteMultipartUpload>"))
+	req = httptest.NewRequest(
+		http.MethodPost,
+		"/bkt/obj",
+		strings.NewReader("<CompleteMultipartUpload></CompleteMultipartUpload>"),
+	)
 	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	// This might be handled as a regular POST or something if no query params?
@@ -828,7 +835,11 @@ func TestHandler_CompleteMultipartUpload_NonExistentBucket(t *testing.T) {
 
 	handler, _ := newTestHandler(t)
 	// Body doesn't matter much if bucket resolution fails first
-	req := httptest.NewRequest(http.MethodPost, "/no-bucket/key?uploadId=ui", strings.NewReader("<CompleteMultipartUpload></CompleteMultipartUpload>"))
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/no-bucket/key?uploadId=ui",
+		strings.NewReader("<CompleteMultipartUpload></CompleteMultipartUpload>"),
+	)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusNotFound, rec.Code)

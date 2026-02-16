@@ -154,10 +154,10 @@ func TestBatchGetItem(t *testing.T) {
 	found3 := false
 	for _, item := range items {
 		// item is map[string]types.AttributeValue
-		pkVal, ok := item["pk"]
-		require.True(t, ok)
+		pkVal, valOk := item["pk"]
+		require.True(t, valOk)
 		// Assuming it is string
-		if s, ok := pkVal.(*types.AttributeValueMemberS); ok {
+		if s, sOk := pkVal.(*types.AttributeValueMemberS); sOk {
 			pk := s.Value
 			if pk == "item1" {
 				found1 = true
