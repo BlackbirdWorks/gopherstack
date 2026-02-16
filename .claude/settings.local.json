@@ -15,7 +15,9 @@
       "Bash(go tool cover:*)",
       "Bash(/Users/andrew.bishop/IdeaProjects/Gopherstack/dynamodb/models/helpers.go:*)",
       "Bash(/Users/andrew.bishop/IdeaProjects/Gopherstack/dynamodb/models/convert_attrs.go:*)",
-      "Bash(/Users/andrew.bishop/IdeaProjects/Gopherstack/dynamodb/models/convert_ops.go:*)"
+      "Bash(/Users/andrew.bishop/IdeaProjects/Gopherstack/dynamodb/models/convert_ops.go:*)",
+      "Bash(go vet:*)",
+      "Bash(make integration-test:*)"
     ]
   }
 }

@@ -1,5 +1,3 @@
-//go: integration
-
 package integration_test
 
 import (
@@ -16,11 +14,11 @@ import (
 
 func TestIntegration_DDB_Coverage(t *testing.T) {
 	t.Parallel()
+	dumpContainerLogsOnFailure(t)
 	client := createDynamoDBClient(t)
 	ctx := t.Context()
 	tableName := "CoverageTest-" + uuid.NewString()
 
-	// 1. Create Table with TTL and secondary index for more coverage
 	_, createErr := client.CreateTable(ctx, &dynamodb.CreateTableInput{
 		TableName: aws.String(tableName),
 		AttributeDefinitions: []types.AttributeDefinition{
@@ -42,115 +40,131 @@ func TestIntegration_DDB_Coverage(t *testing.T) {
 		})
 	})
 
-	// 2. Test NULL, BOOL, and BINARY types
-	t.Run("AttributeTypes", func(t *testing.T) {
-		t.Parallel()
-		item := map[string]types.AttributeValue{
-			"pk":   &types.AttributeValueMemberS{Value: "types-item"},
-			"null": &types.AttributeValueMemberNULL{Value: true},
-			"bool": &types.AttributeValueMemberBOOL{Value: true},
-			"bin":  &types.AttributeValueMemberB{Value: []byte("binary data")},
-			"ss":   &types.AttributeValueMemberSS{Value: []string{"a", "b"}},
-			"ns":   &types.AttributeValueMemberNS{Value: []string{"1", "2"}},
-			"bs":   &types.AttributeValueMemberBS{Value: [][]byte{[]byte("b1"), []byte("b2")}},
-		}
+	tests := []struct {
+		run  func(t *testing.T)
+		name string
+	}{
+		{
+			name: "AttributeTypes_NullBoolBinaryAndSets",
+			run: func(t *testing.T) {
+				t.Helper()
+				item := map[string]types.AttributeValue{
+					"pk":   &types.AttributeValueMemberS{Value: "types-item"},
+					"null": &types.AttributeValueMemberNULL{Value: true},
+					"bool": &types.AttributeValueMemberBOOL{Value: true},
+					"bin":  &types.AttributeValueMemberB{Value: []byte("binary data")},
+					"ss":   &types.AttributeValueMemberSS{Value: []string{"a", "b"}},
+					"ns":   &types.AttributeValueMemberNS{Value: []string{"1", "2"}},
+					"bs":   &types.AttributeValueMemberBS{Value: [][]byte{[]byte("b1"), []byte("b2")}},
+				}
 
-		_, pErr := client.PutItem(ctx, &dynamodb.PutItemInput{
-			TableName: aws.String(tableName),
-			Item:      item,
-		})
-		require.NoError(t, pErr)
+				_, pErr := client.PutItem(t.Context(), &dynamodb.PutItemInput{
+					TableName: aws.String(tableName),
+					Item:      item,
+				})
+				require.NoError(t, pErr)
 
-		getOut, err := client.GetItem(ctx, &dynamodb.GetItemInput{
-			TableName: aws.String(tableName),
-			Key: map[string]types.AttributeValue{
-				"pk": &types.AttributeValueMemberS{Value: "types-item"},
+				getOut, err := client.GetItem(t.Context(), &dynamodb.GetItemInput{
+					TableName: aws.String(tableName),
+					Key: map[string]types.AttributeValue{
+						"pk": &types.AttributeValueMemberS{Value: "types-item"},
+					},
+				})
+				require.NoError(t, err)
+				require.NotNil(t, getOut.Item)
+
+				assert.IsType(t, &types.AttributeValueMemberNULL{}, getOut.Item["null"])
+				assert.IsType(t, &types.AttributeValueMemberBOOL{}, getOut.Item["bool"])
+				assert.IsType(t, &types.AttributeValueMemberB{}, getOut.Item["bin"])
+				assert.IsType(t, &types.AttributeValueMemberSS{}, getOut.Item["ss"])
+				assert.IsType(t, &types.AttributeValueMemberNS{}, getOut.Item["ns"])
+				assert.IsType(t, &types.AttributeValueMemberBS{}, getOut.Item["bs"])
 			},
-		})
-		require.NoError(t, err)
-		require.NotNil(t, getOut.Item)
+		},
+		{
+			name: "TTL_EnableAndDescribe",
+			run: func(t *testing.T) {
+				t.Helper()
+				_, uErr := client.UpdateTimeToLive(t.Context(), &dynamodb.UpdateTimeToLiveInput{
+					TableName: aws.String(tableName),
+					TimeToLiveSpecification: &types.TimeToLiveSpecification{
+						AttributeName: aws.String("ttl_attr"),
+						Enabled:       aws.Bool(true),
+					},
+				})
+				require.NoError(t, uErr)
 
-		assert.IsType(t, &types.AttributeValueMemberNULL{}, getOut.Item["null"])
-		assert.IsType(t, &types.AttributeValueMemberBOOL{}, getOut.Item["bool"])
-		assert.IsType(t, &types.AttributeValueMemberB{}, getOut.Item["bin"])
-		assert.IsType(t, &types.AttributeValueMemberSS{}, getOut.Item["ss"])
-		assert.IsType(t, &types.AttributeValueMemberNS{}, getOut.Item["ns"])
-		assert.IsType(t, &types.AttributeValueMemberBS{}, getOut.Item["bs"])
-	})
-
-	// 3. Test TTL Operations
-	t.Run("TTL", func(t *testing.T) {
-		t.Parallel()
-		_, uErr := client.UpdateTimeToLive(ctx, &dynamodb.UpdateTimeToLiveInput{
-			TableName: aws.String(tableName),
-			TimeToLiveSpecification: &types.TimeToLiveSpecification{
-				AttributeName: aws.String("ttl_attr"),
-				Enabled:       aws.Bool(true),
+				descOut, err := client.DescribeTimeToLive(t.Context(), &dynamodb.DescribeTimeToLiveInput{
+					TableName: aws.String(tableName),
+				})
+				require.NoError(t, err)
+				assert.Equal(t, types.TimeToLiveStatusEnabled, descOut.TimeToLiveDescription.TimeToLiveStatus)
+				assert.Equal(t, "ttl_attr", *descOut.TimeToLiveDescription.AttributeName)
 			},
-		})
-		require.NoError(t, uErr)
-
-		descOut, err := client.DescribeTimeToLive(ctx, &dynamodb.DescribeTimeToLiveInput{
-			TableName: aws.String(tableName),
-		})
-		require.NoError(t, err)
-		assert.Equal(t, types.TimeToLiveStatusEnabled, descOut.TimeToLiveDescription.TimeToLiveStatus)
-		assert.Equal(t, "ttl_attr", *descOut.TimeToLiveDescription.AttributeName)
-	})
-
-	// 4. Test Transactions
-	t.Run("Transactions", func(t *testing.T) {
-		t.Parallel()
-		_, tErr := client.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{
-			TransactItems: []types.TransactWriteItem{
-				{
-					Put: &types.Put{
-						TableName: aws.String(tableName),
-						Item: map[string]types.AttributeValue{
-							"pk": &types.AttributeValueMemberS{Value: "tx-item-1"},
-							"v":  &types.AttributeValueMemberS{Value: "val1"},
+		},
+		{
+			name: "TransactWriteAndGet",
+			run: func(t *testing.T) {
+				t.Helper()
+				_, tErr := client.TransactWriteItems(t.Context(), &dynamodb.TransactWriteItemsInput{
+					TransactItems: []types.TransactWriteItem{
+						{
+							Put: &types.Put{
+								TableName: aws.String(tableName),
+								Item: map[string]types.AttributeValue{
+									"pk": &types.AttributeValueMemberS{Value: "tx-item-1"},
+									"v":  &types.AttributeValueMemberS{Value: "val1"},
+								},
+							},
+						},
+						{
+							Update: &types.Update{
+								TableName: aws.String(tableName),
+								Key: map[string]types.AttributeValue{
+									"pk": &types.AttributeValueMemberS{Value: "tx-item-2"},
+								},
+								UpdateExpression: aws.String("SET v = :v"),
+								ExpressionAttributeValues: map[string]types.AttributeValue{
+									":v": &types.AttributeValueMemberS{Value: "val2"},
+								},
+							},
 						},
 					},
-				},
-				{
-					Update: &types.Update{
-						TableName: aws.String(tableName),
-						Key: map[string]types.AttributeValue{
-							"pk": &types.AttributeValueMemberS{Value: "tx-item-2"},
-						},
-						UpdateExpression: aws.String("SET v = :v"),
-						ExpressionAttributeValues: map[string]types.AttributeValue{
-							":v": &types.AttributeValueMemberS{Value: "val2"},
-						},
-					},
-				},
-			},
-		})
-		require.NoError(t, tErr)
+				})
+				require.NoError(t, tErr)
 
-		getOut, err := client.TransactGetItems(ctx, &dynamodb.TransactGetItemsInput{
-			TransactItems: []types.TransactGetItem{
-				{
-					Get: &types.Get{
-						TableName: aws.String(tableName),
-						Key: map[string]types.AttributeValue{
-							"pk": &types.AttributeValueMemberS{Value: "tx-item-1"},
+				getOut, err := client.TransactGetItems(t.Context(), &dynamodb.TransactGetItemsInput{
+					TransactItems: []types.TransactGetItem{
+						{
+							Get: &types.Get{
+								TableName: aws.String(tableName),
+								Key: map[string]types.AttributeValue{
+									"pk": &types.AttributeValueMemberS{Value: "tx-item-1"},
+								},
+							},
+						},
+						{
+							Get: &types.Get{
+								TableName: aws.String(tableName),
+								Key: map[string]types.AttributeValue{
+									"pk": &types.AttributeValueMemberS{Value: "tx-item-2"},
+								},
+							},
 						},
 					},
-				},
-				{
-					Get: &types.Get{
-						TableName: aws.String(tableName),
-						Key: map[string]types.AttributeValue{
-							"pk": &types.AttributeValueMemberS{Value: "tx-item-2"},
-						},
-					},
-				},
+				})
+				require.NoError(t, err)
+				require.Len(t, getOut.Responses, 2)
+				assert.Equal(t, "val1", getOut.Responses[0].Item["v"].(*types.AttributeValueMemberS).Value)
+				assert.Equal(t, "val2", getOut.Responses[1].Item["v"].(*types.AttributeValueMemberS).Value)
 			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			tt.run(t)
 		})
-		require.NoError(t, err)
-		require.Len(t, getOut.Responses, 2)
-		assert.Equal(t, "val1", getOut.Responses[0].Item["v"].(*types.AttributeValueMemberS).Value)
-		assert.Equal(t, "val2", getOut.Responses[1].Item["v"].(*types.AttributeValueMemberS).Value)
-	})
+	}
 }

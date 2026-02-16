@@ -15,9 +15,9 @@ import (
 
 func TestIntegration_DDB_GSI(t *testing.T) {
 	t.Parallel()
+	dumpContainerLogsOnFailure(t)
 	client := createDynamoDBClient(t)
 
-	// Helper to create table with GSI
 	createTableWithGSI := func(t *testing.T, tableName string, gsiName string, projectionType types.ProjectionType) {
 		t.Helper()
 		_, err := client.CreateTable(t.Context(), &dynamodb.CreateTableInput{
@@ -25,7 +25,6 @@ func TestIntegration_DDB_GSI(t *testing.T) {
 			AttributeDefinitions: []types.AttributeDefinition{
 				{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
 				{AttributeName: aws.String("gsiPK"), AttributeType: types.ScalarAttributeTypeS},
-				// {AttributeName: aws.String("gsiSK"), AttributeType: types.ScalarAttributeTypeS}, // Optional
 			},
 			KeySchema: []types.KeySchemaElement{
 				{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
@@ -65,124 +64,138 @@ func TestIntegration_DDB_GSI(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	t.Run("Query_GSI_All", func(t *testing.T) {
-		t.Parallel()
-		tableName := "GSI_All_" + uuid.NewString()
-		gsiName := "GSI_1"
-		createTableWithGSI(t, tableName, gsiName, types.ProjectionTypeAll)
+	tests := []struct {
+		run  func(t *testing.T)
+		name string
+	}{
+		{
+			name: "Query_GSI_All",
+			run: func(t *testing.T) {
+				t.Helper()
+				tableName := "GSI_All_" + uuid.NewString()
+				gsiName := "GSI_1"
+				createTableWithGSI(t, tableName, gsiName, types.ProjectionTypeAll)
 
-		// Put Items
-		// Item 1: Has GSI PK
-		_, err := client.PutItem(t.Context(), &dynamodb.PutItemInput{
-			TableName: aws.String(tableName),
-			Item: map[string]types.AttributeValue{
-				"pk":    &types.AttributeValueMemberS{Value: "item1"},
-				"gsiPK": &types.AttributeValueMemberS{Value: "gsiKey1"},
-				"data":  &types.AttributeValueMemberS{Value: "some data"},
+				_, err := client.PutItem(t.Context(), &dynamodb.PutItemInput{
+					TableName: aws.String(tableName),
+					Item: map[string]types.AttributeValue{
+						"pk":    &types.AttributeValueMemberS{Value: "item1"},
+						"gsiPK": &types.AttributeValueMemberS{Value: "gsiKey1"},
+						"data":  &types.AttributeValueMemberS{Value: "some data"},
+					},
+				})
+				require.NoError(t, err)
+
+				_, err = client.PutItem(t.Context(), &dynamodb.PutItemInput{
+					TableName: aws.String(tableName),
+					Item: map[string]types.AttributeValue{
+						"pk":    &types.AttributeValueMemberS{Value: "item2"},
+						"gsiPK": &types.AttributeValueMemberS{Value: "gsiKey2"},
+						"data":  &types.AttributeValueMemberS{Value: "other data"},
+					},
+				})
+				require.NoError(t, err)
+
+				_, err = client.PutItem(t.Context(), &dynamodb.PutItemInput{
+					TableName: aws.String(tableName),
+					Item: map[string]types.AttributeValue{
+						"pk":   &types.AttributeValueMemberS{Value: "item3"},
+						"data": &types.AttributeValueMemberS{Value: "no gsi"},
+					},
+				})
+				require.NoError(t, err)
+
+				out, err := client.Query(t.Context(), &dynamodb.QueryInput{
+					TableName:              aws.String(tableName),
+					IndexName:              aws.String(gsiName),
+					KeyConditionExpression: aws.String("gsiPK = :v"),
+					ExpressionAttributeValues: map[string]types.AttributeValue{
+						":v": &types.AttributeValueMemberS{Value: "gsiKey1"},
+					},
+				})
+				require.NoError(t, err)
+				assert.Len(t, out.Items, 1)
+				assert.Equal(t, "item1", out.Items[0]["pk"].(*types.AttributeValueMemberS).Value)
+				assert.Equal(t, "some data", out.Items[0]["data"].(*types.AttributeValueMemberS).Value)
 			},
-		})
-		require.NoError(t, err)
+		},
+		{
+			name: "Query_GSI_KeysOnly",
+			run: func(t *testing.T) {
+				t.Helper()
+				tableName := "GSI_Keys_" + uuid.NewString()
+				gsiName := "GSI_2"
+				createTableWithGSI(t, tableName, gsiName, types.ProjectionTypeKeysOnly)
 
-		// Item 2: Has different GSI PK
-		_, err = client.PutItem(t.Context(), &dynamodb.PutItemInput{
-			TableName: aws.String(tableName),
-			Item: map[string]types.AttributeValue{
-				"pk":    &types.AttributeValueMemberS{Value: "item2"},
-				"gsiPK": &types.AttributeValueMemberS{Value: "gsiKey2"},
-				"data":  &types.AttributeValueMemberS{Value: "other data"},
+				_, err := client.PutItem(t.Context(), &dynamodb.PutItemInput{
+					TableName: aws.String(tableName),
+					Item: map[string]types.AttributeValue{
+						"pk":    &types.AttributeValueMemberS{Value: "item1"},
+						"gsiPK": &types.AttributeValueMemberS{Value: "gsiKey1"},
+						"data":  &types.AttributeValueMemberS{Value: "hidden"},
+					},
+				})
+				require.NoError(t, err)
+
+				out, err := client.Query(t.Context(), &dynamodb.QueryInput{
+					TableName:              aws.String(tableName),
+					IndexName:              aws.String(gsiName),
+					KeyConditionExpression: aws.String("gsiPK = :v"),
+					ExpressionAttributeValues: map[string]types.AttributeValue{
+						":v": &types.AttributeValueMemberS{Value: "gsiKey1"},
+					},
+				})
+				require.NoError(t, err)
+				assert.Len(t, out.Items, 1)
+				assert.Equal(t, "item1", out.Items[0]["pk"].(*types.AttributeValueMemberS).Value)
+				_, ok := out.Items[0]["data"]
+				assert.False(t, ok, "data should not be projected")
 			},
-		})
-		require.NoError(t, err)
+		},
+		{
+			name: "Scan_GSI_Sparse",
+			run: func(t *testing.T) {
+				t.Helper()
+				tableName := "GSI_Scan_" + uuid.NewString()
+				gsiName := "GSI_3"
+				createTableWithGSI(t, tableName, gsiName, types.ProjectionTypeAll)
 
-		// Item 3: No GSI PK
-		_, err = client.PutItem(t.Context(), &dynamodb.PutItemInput{
-			TableName: aws.String(tableName),
-			Item: map[string]types.AttributeValue{
-				"pk":   &types.AttributeValueMemberS{Value: "item3"},
-				"data": &types.AttributeValueMemberS{Value: "no gsi"},
+				_, err := client.PutItem(t.Context(), &dynamodb.PutItemInput{
+					TableName: aws.String(tableName),
+					Item: map[string]types.AttributeValue{
+						"pk":    &types.AttributeValueMemberS{Value: "item1"},
+						"gsiPK": &types.AttributeValueMemberS{Value: "val"},
+					},
+				})
+				require.NoError(t, err)
+
+				_, err = client.PutItem(t.Context(), &dynamodb.PutItemInput{
+					TableName: aws.String(tableName),
+					Item: map[string]types.AttributeValue{
+						"pk": &types.AttributeValueMemberS{Value: "item2"},
+					},
+				})
+				require.NoError(t, err)
+
+				scanStart, err := client.Scan(t.Context(), &dynamodb.ScanInput{TableName: aws.String(tableName)})
+				require.NoError(t, err)
+				assert.Len(t, scanStart.Items, 2)
+
+				scanGSI, err := client.Scan(t.Context(), &dynamodb.ScanInput{
+					TableName: aws.String(tableName),
+					IndexName: aws.String(gsiName),
+				})
+				require.NoError(t, err)
+				assert.Len(t, scanGSI.Items, 1)
+				assert.Equal(t, "item1", scanGSI.Items[0]["pk"].(*types.AttributeValueMemberS).Value)
 			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			tt.run(t)
 		})
-		require.NoError(t, err)
-
-		// Query GSI
-		out, err := client.Query(t.Context(), &dynamodb.QueryInput{
-			TableName:              aws.String(tableName),
-			IndexName:              aws.String(gsiName),
-			KeyConditionExpression: aws.String("gsiPK = :v"),
-			ExpressionAttributeValues: map[string]types.AttributeValue{
-				":v": &types.AttributeValueMemberS{Value: "gsiKey1"},
-			},
-		})
-		require.NoError(t, err)
-		assert.Len(t, out.Items, 1)
-		assert.Equal(t, "item1", out.Items[0]["pk"].(*types.AttributeValueMemberS).Value)
-		assert.Equal(t, "some data", out.Items[0]["data"].(*types.AttributeValueMemberS).Value) // ALL projection
-	})
-
-	t.Run("Query_GSI_KeysOnly", func(t *testing.T) {
-		t.Parallel()
-		tableName := "GSI_Keys_" + uuid.NewString()
-		gsiName := "GSI_2"
-		createTableWithGSI(t, tableName, gsiName, types.ProjectionTypeKeysOnly)
-
-		_, err := client.PutItem(t.Context(), &dynamodb.PutItemInput{
-			TableName: aws.String(tableName),
-			Item: map[string]types.AttributeValue{
-				"pk":    &types.AttributeValueMemberS{Value: "item1"},
-				"gsiPK": &types.AttributeValueMemberS{Value: "gsiKey1"},
-				"data":  &types.AttributeValueMemberS{Value: "hidden"},
-			},
-		})
-		require.NoError(t, err)
-
-		out, err := client.Query(t.Context(), &dynamodb.QueryInput{
-			TableName:              aws.String(tableName),
-			IndexName:              aws.String(gsiName),
-			KeyConditionExpression: aws.String("gsiPK = :v"),
-			ExpressionAttributeValues: map[string]types.AttributeValue{
-				":v": &types.AttributeValueMemberS{Value: "gsiKey1"},
-			},
-		})
-		require.NoError(t, err)
-		assert.Len(t, out.Items, 1)
-		assert.Equal(t, "item1", out.Items[0]["pk"].(*types.AttributeValueMemberS).Value)
-		// data should be missing
-		_, ok := out.Items[0]["data"]
-		assert.False(t, ok, "data should not be projected")
-	})
-
-	t.Run("Scan_GSI_Sparse", func(t *testing.T) {
-		t.Parallel()
-		tableName := "GSI_Scan_" + uuid.NewString()
-		gsiName := "GSI_3"
-		createTableWithGSI(t, tableName, gsiName, types.ProjectionTypeAll)
-
-		// 1 GSI item, 1 Non-GSI item
-		client.PutItem(t.Context(), &dynamodb.PutItemInput{
-			TableName: aws.String(tableName),
-			Item: map[string]types.AttributeValue{
-				"pk":    &types.AttributeValueMemberS{Value: "item1"},
-				"gsiPK": &types.AttributeValueMemberS{Value: "val"},
-			},
-		})
-		client.PutItem(t.Context(), &dynamodb.PutItemInput{
-			TableName: aws.String(tableName),
-			Item: map[string]types.AttributeValue{
-				"pk": &types.AttributeValueMemberS{Value: "item2"},
-			},
-		})
-
-		// Scan Table -> 2 items
-		scanStart, _ := client.Scan(t.Context(), &dynamodb.ScanInput{TableName: aws.String(tableName)})
-		assert.Len(t, scanStart.Items, 2)
-
-		// Scan GSI -> 1 item
-		scanGSI, err := client.Scan(t.Context(), &dynamodb.ScanInput{
-			TableName: aws.String(tableName),
-			IndexName: aws.String(gsiName),
-		})
-		require.NoError(t, err)
-		assert.Len(t, scanGSI.Items, 1)
-		assert.Equal(t, "item1", scanGSI.Items[0]["pk"].(*types.AttributeValueMemberS).Value)
-	})
+	}
 }

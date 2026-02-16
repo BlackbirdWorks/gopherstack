@@ -16,10 +16,10 @@ import (
 
 func TestIntegration_DDB_QueryEnhancements(t *testing.T) {
 	t.Parallel()
+	dumpContainerLogsOnFailure(t)
 	client := createDynamoDBClient(t)
 
-	// Helper to create table with PK and SK
-	createTable := func(t *testing.T) string {
+	createTableWithItems := func(t *testing.T, pk string, count int) string {
 		t.Helper()
 		tableName := "QueryEnhance_" + uuid.NewString()
 		_, err := client.CreateTable(t.Context(), &dynamodb.CreateTableInput{
@@ -44,134 +44,140 @@ func TestIntegration_DDB_QueryEnhancements(t *testing.T) {
 		})
 		time.Sleep(10 * time.Millisecond)
 
+		for i := 1; i <= count; i++ {
+			_, pErr := client.PutItem(t.Context(), &dynamodb.PutItemInput{
+				TableName: aws.String(tableName),
+				Item: map[string]types.AttributeValue{
+					"pk": &types.AttributeValueMemberS{Value: pk},
+					"sk": &types.AttributeValueMemberN{Value: strconv.Itoa(i)},
+				},
+			})
+			require.NoError(t, pErr)
+		}
+
 		return tableName
 	}
 
-	t.Run("SortKey_Ordering", func(t *testing.T) {
-		t.Parallel()
-		tableName := createTable(t)
+	tests := []struct {
+		run  func(t *testing.T)
+		name string
+	}{
+		{
+			name: "SortKey_Forward",
+			run: func(t *testing.T) {
+				t.Helper()
+				tableName := createTableWithItems(t, "A", 5)
 
-		// Insert 5 items: pk=A, sk=1, 2, 3, 4, 5
-		for i := 1; i <= 5; i++ {
-			client.PutItem(t.Context(), &dynamodb.PutItemInput{
-				TableName: aws.String(tableName),
-				Item: map[string]types.AttributeValue{
-					"pk": &types.AttributeValueMemberS{Value: "A"},
-					"sk": &types.AttributeValueMemberN{Value: strconv.Itoa(i)},
-				},
-			})
-		}
-
-		// Forward (Default)
-		out, err := client.Query(t.Context(), &dynamodb.QueryInput{
-			TableName:              aws.String(tableName),
-			KeyConditionExpression: aws.String("pk = :pk"),
-			ExpressionAttributeValues: map[string]types.AttributeValue{
-				":pk": &types.AttributeValueMemberS{Value: "A"},
+				out, err := client.Query(t.Context(), &dynamodb.QueryInput{
+					TableName:              aws.String(tableName),
+					KeyConditionExpression: aws.String("pk = :pk"),
+					ExpressionAttributeValues: map[string]types.AttributeValue{
+						":pk": &types.AttributeValueMemberS{Value: "A"},
+					},
+				})
+				require.NoError(t, err)
+				assert.Len(t, out.Items, 5)
+				assert.Equal(t, "1", out.Items[0]["sk"].(*types.AttributeValueMemberN).Value)
+				assert.Equal(t, "5", out.Items[4]["sk"].(*types.AttributeValueMemberN).Value)
 			},
-		})
-		require.NoError(t, err)
-		assert.Len(t, out.Items, 5)
-		assert.Equal(t, "1", out.Items[0]["sk"].(*types.AttributeValueMemberN).Value)
-		assert.Equal(t, "5", out.Items[4]["sk"].(*types.AttributeValueMemberN).Value)
+		},
+		{
+			name: "SortKey_Reverse",
+			run: func(t *testing.T) {
+				t.Helper()
+				tableName := createTableWithItems(t, "A", 5)
 
-		// Reverse (ScanIndexForward = false)
-		outRev, err := client.Query(t.Context(), &dynamodb.QueryInput{
-			TableName:              aws.String(tableName),
-			KeyConditionExpression: aws.String("pk = :pk"),
-			ExpressionAttributeValues: map[string]types.AttributeValue{
-				":pk": &types.AttributeValueMemberS{Value: "A"},
+				out, err := client.Query(t.Context(), &dynamodb.QueryInput{
+					TableName:              aws.String(tableName),
+					KeyConditionExpression: aws.String("pk = :pk"),
+					ExpressionAttributeValues: map[string]types.AttributeValue{
+						":pk": &types.AttributeValueMemberS{Value: "A"},
+					},
+					ScanIndexForward: aws.Bool(false),
+				})
+				require.NoError(t, err)
+				assert.Len(t, out.Items, 5)
+				assert.Equal(t, "5", out.Items[0]["sk"].(*types.AttributeValueMemberN).Value)
+				assert.Equal(t, "1", out.Items[4]["sk"].(*types.AttributeValueMemberN).Value)
 			},
-			ScanIndexForward: aws.Bool(false),
-		})
-		require.NoError(t, err)
-		assert.Len(t, outRev.Items, 5)
-		assert.Equal(t, "5", outRev.Items[0]["sk"].(*types.AttributeValueMemberN).Value)
-		assert.Equal(t, "1", outRev.Items[4]["sk"].(*types.AttributeValueMemberN).Value)
-	})
+		},
+		{
+			name: "SortKey_GreaterThan",
+			run: func(t *testing.T) {
+				t.Helper()
+				tableName := createTableWithItems(t, "B", 5)
 
-	t.Run("SortKey_Conditions", func(t *testing.T) {
-		t.Parallel()
-		tableName := createTable(t)
-
-		for i := 1; i <= 5; i++ {
-			client.PutItem(t.Context(), &dynamodb.PutItemInput{
-				TableName: aws.String(tableName),
-				Item: map[string]types.AttributeValue{
-					"pk": &types.AttributeValueMemberS{Value: "B"},
-					"sk": &types.AttributeValueMemberN{Value: strconv.Itoa(i)},
-				},
-			})
-		}
-
-		// SK > 3
-		out, err := client.Query(t.Context(), &dynamodb.QueryInput{
-			TableName:              aws.String(tableName),
-			KeyConditionExpression: aws.String("pk = :pk AND sk > :v"),
-			ExpressionAttributeValues: map[string]types.AttributeValue{
-				":pk": &types.AttributeValueMemberS{Value: "B"},
-				":v":  &types.AttributeValueMemberN{Value: "3"},
+				out, err := client.Query(t.Context(), &dynamodb.QueryInput{
+					TableName:              aws.String(tableName),
+					KeyConditionExpression: aws.String("pk = :pk AND sk > :v"),
+					ExpressionAttributeValues: map[string]types.AttributeValue{
+						":pk": &types.AttributeValueMemberS{Value: "B"},
+						":v":  &types.AttributeValueMemberN{Value: "3"},
+					},
+				})
+				require.NoError(t, err)
+				assert.Len(t, out.Items, 2)
+				assert.Equal(t, "4", out.Items[0]["sk"].(*types.AttributeValueMemberN).Value)
 			},
-		})
-		require.NoError(t, err)
-		assert.Len(t, out.Items, 2) // 4, 5
-		assert.Equal(t, "4", out.Items[0]["sk"].(*types.AttributeValueMemberN).Value)
+		},
+		{
+			name: "SortKey_LessThanOrEqual",
+			run: func(t *testing.T) {
+				t.Helper()
+				tableName := createTableWithItems(t, "B", 5)
 
-		// SK <= 2
-		out2, err := client.Query(t.Context(), &dynamodb.QueryInput{
-			TableName:              aws.String(tableName),
-			KeyConditionExpression: aws.String("pk = :pk AND sk <= :v"),
-			ExpressionAttributeValues: map[string]types.AttributeValue{
-				":pk": &types.AttributeValueMemberS{Value: "B"},
-				":v":  &types.AttributeValueMemberN{Value: "2"},
+				out, err := client.Query(t.Context(), &dynamodb.QueryInput{
+					TableName:              aws.String(tableName),
+					KeyConditionExpression: aws.String("pk = :pk AND sk <= :v"),
+					ExpressionAttributeValues: map[string]types.AttributeValue{
+						":pk": &types.AttributeValueMemberS{Value: "B"},
+						":v":  &types.AttributeValueMemberN{Value: "2"},
+					},
+				})
+				require.NoError(t, err)
+				assert.Len(t, out.Items, 2)
 			},
-		})
-		require.NoError(t, err)
-		assert.Len(t, out2.Items, 2) // 1, 2
-	})
+		},
+		{
+			name: "Pagination",
+			run: func(t *testing.T) {
+				t.Helper()
+				tableName := createTableWithItems(t, "C", 10)
 
-	t.Run("Pagination", func(t *testing.T) {
-		t.Parallel()
-		tableName := createTable(t)
+				out1, err := client.Query(t.Context(), &dynamodb.QueryInput{
+					TableName:              aws.String(tableName),
+					KeyConditionExpression: aws.String("pk = :pk"),
+					ExpressionAttributeValues: map[string]types.AttributeValue{
+						":pk": &types.AttributeValueMemberS{Value: "C"},
+					},
+					Limit: aws.Int32(3),
+				})
+				require.NoError(t, err)
+				assert.Len(t, out1.Items, 3)
+				assert.NotNil(t, out1.LastEvaluatedKey)
+				assert.Equal(t, "3", out1.Items[2]["sk"].(*types.AttributeValueMemberN).Value)
 
-		// Insert 10 items
-		for i := 1; i <= 10; i++ {
-			client.PutItem(t.Context(), &dynamodb.PutItemInput{
-				TableName: aws.String(tableName),
-				Item: map[string]types.AttributeValue{
-					"pk": &types.AttributeValueMemberS{Value: "C"},
-					"sk": &types.AttributeValueMemberN{Value: strconv.Itoa(i)},
-				},
-			})
-		}
-
-		// First Page: Limit 3
-		out1, err := client.Query(t.Context(), &dynamodb.QueryInput{
-			TableName:              aws.String(tableName),
-			KeyConditionExpression: aws.String("pk = :pk"),
-			ExpressionAttributeValues: map[string]types.AttributeValue{
-				":pk": &types.AttributeValueMemberS{Value: "C"},
+				out2, err := client.Query(t.Context(), &dynamodb.QueryInput{
+					TableName:              aws.String(tableName),
+					KeyConditionExpression: aws.String("pk = :pk"),
+					ExpressionAttributeValues: map[string]types.AttributeValue{
+						":pk": &types.AttributeValueMemberS{Value: "C"},
+					},
+					Limit:             aws.Int32(3),
+					ExclusiveStartKey: out1.LastEvaluatedKey,
+				})
+				require.NoError(t, err)
+				assert.Len(t, out2.Items, 3)
+				assert.Equal(t, "4", out2.Items[0]["sk"].(*types.AttributeValueMemberN).Value)
+				assert.Equal(t, "6", out2.Items[2]["sk"].(*types.AttributeValueMemberN).Value)
 			},
-			Limit: aws.Int32(3),
-		})
-		require.NoError(t, err)
-		assert.Len(t, out1.Items, 3)
-		assert.NotNil(t, out1.LastEvaluatedKey)
-		assert.Equal(t, "3", out1.Items[2]["sk"].(*types.AttributeValueMemberN).Value)
+		},
+	}
 
-		// Second Page: Start from LastEvaluatedKey
-		out2, err := client.Query(t.Context(), &dynamodb.QueryInput{
-			TableName:              aws.String(tableName),
-			KeyConditionExpression: aws.String("pk = :pk"),
-			ExpressionAttributeValues: map[string]types.AttributeValue{
-				":pk": &types.AttributeValueMemberS{Value: "C"},
-			},
-			Limit:             aws.Int32(3),
-			ExclusiveStartKey: out1.LastEvaluatedKey,
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			tt.run(t)
 		})
-		require.NoError(t, err)
-		assert.Len(t, out2.Items, 3) // 4, 5, 6
-		assert.Equal(t, "4", out2.Items[0]["sk"].(*types.AttributeValueMemberN).Value)
-		assert.Equal(t, "6", out2.Items[2]["sk"].(*types.AttributeValueMemberN).Value)
-	})
+	}
 }

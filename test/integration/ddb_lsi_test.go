@@ -15,11 +15,11 @@ import (
 
 func TestIntegration_DDB_LocalSecondaryIndex(t *testing.T) {
 	t.Parallel()
+	dumpContainerLogsOnFailure(t)
 	client := createDynamoDBClient(t)
 
 	tableName := "LSI_Test_" + uuid.NewString()
 
-	// Create Table with LSI
 	_, err := client.CreateTable(t.Context(), &dynamodb.CreateTableInput{
 		TableName: aws.String(tableName),
 		AttributeDefinitions: []types.AttributeDefinition{
@@ -35,8 +35,8 @@ func TestIntegration_DDB_LocalSecondaryIndex(t *testing.T) {
 			{
 				IndexName: aws.String("LSI_1"),
 				KeySchema: []types.KeySchemaElement{
-					{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},      // Must match table PK
-					{AttributeName: aws.String("lsi_sk"), KeyType: types.KeyTypeRange}, // Different SK
+					{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
+					{AttributeName: aws.String("lsi_sk"), KeyType: types.KeyTypeRange},
 				},
 				Projection: &types.Projection{
 					ProjectionType: types.ProjectionTypeAll,
@@ -55,20 +55,8 @@ func TestIntegration_DDB_LocalSecondaryIndex(t *testing.T) {
 	})
 	time.Sleep(10 * time.Millisecond)
 
-	// Insert Items
-	// PK=A, SK=1, LSI_SK=50
-	// PK=A, SK=2, LSI_SK=40
-	// PK=A, SK=3, LSI_SK=30
-	vars := []struct {
-		sk    string
-		lsiSk string
-	}{
-		{"1", "50"},
-		{"2", "40"},
-		{"3", "30"},
-	}
-
-	for _, v := range vars {
+	// Seed: PK=A, SK=1/lsi_sk=50, SK=2/lsi_sk=40, SK=3/lsi_sk=30
+	for _, v := range []struct{ sk, lsiSk string }{{"1", "50"}, {"2", "40"}, {"3", "30"}} {
 		_, pErr := client.PutItem(t.Context(), &dynamodb.PutItemInput{
 			TableName: aws.String(tableName),
 			Item: map[string]types.AttributeValue{
@@ -81,34 +69,46 @@ func TestIntegration_DDB_LocalSecondaryIndex(t *testing.T) {
 		require.NoError(t, pErr)
 	}
 
-	// Query Table (By SK) -> Should be ordered 1, 2, 3
-	outTable, err := client.Query(t.Context(), &dynamodb.QueryInput{
-		TableName:              aws.String(tableName),
-		KeyConditionExpression: aws.String("pk = :pk"),
-		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":pk": &types.AttributeValueMemberS{Value: "A"},
+	tests := []struct {
+		indexName *string
+		wantFirst map[string]string
+		wantLast  map[string]string
+		name      string
+	}{
+		{
+			name:      "QueryTable_OrderedBySK",
+			indexName: nil,
+			wantFirst: map[string]string{"sk": "1"},
+			wantLast:  map[string]string{"sk": "3"},
 		},
-	})
-	require.NoError(t, err)
-	assert.Len(t, outTable.Items, 3)
-	assert.Equal(t, "1", outTable.Items[0]["sk"].(*types.AttributeValueMemberN).Value)
-	assert.Equal(t, "3", outTable.Items[2]["sk"].(*types.AttributeValueMemberN).Value)
-
-	// Query LSI (By LSI_SK) -> Should be ordered 30, 40, 50 (which corresponds to SK 3, 2, 1)
-	outLSI, err := client.Query(t.Context(), &dynamodb.QueryInput{
-		TableName:              aws.String(tableName),
-		IndexName:              aws.String("LSI_1"),
-		KeyConditionExpression: aws.String("pk = :pk"),
-		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":pk": &types.AttributeValueMemberS{Value: "A"},
+		{
+			name:      "QueryLSI_OrderedByLsiSK",
+			indexName: aws.String("LSI_1"),
+			wantFirst: map[string]string{"lsi_sk": "30", "sk": "3"},
+			wantLast:  map[string]string{"lsi_sk": "50", "sk": "1"},
 		},
-	})
-	require.NoError(t, err)
-	assert.Len(t, outLSI.Items, 3)
-	// Order should be by LSI_SK (30 < 40 < 50)
-	assert.Equal(t, "30", outLSI.Items[0]["lsi_sk"].(*types.AttributeValueMemberN).Value)
-	assert.Equal(t, "3", outLSI.Items[0]["sk"].(*types.AttributeValueMemberN).Value) // The item with lsi_sk=30 has sk=3
+	}
 
-	assert.Equal(t, "50", outLSI.Items[2]["lsi_sk"].(*types.AttributeValueMemberN).Value)
-	assert.Equal(t, "1", outLSI.Items[2]["sk"].(*types.AttributeValueMemberN).Value) // The item with lsi_sk=50 has sk=1
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			out, queryErr := client.Query(t.Context(), &dynamodb.QueryInput{
+				TableName:              aws.String(tableName),
+				IndexName:              tt.indexName,
+				KeyConditionExpression: aws.String("pk = :pk"),
+				ExpressionAttributeValues: map[string]types.AttributeValue{
+					":pk": &types.AttributeValueMemberS{Value: "A"},
+				},
+			})
+			require.NoError(t, queryErr)
+			assert.Len(t, out.Items, 3)
+
+			for attr, want := range tt.wantFirst {
+				assert.Equal(t, want, out.Items[0][attr].(*types.AttributeValueMemberN).Value)
+			}
+			for attr, want := range tt.wantLast {
+				assert.Equal(t, want, out.Items[2][attr].(*types.AttributeValueMemberN).Value)
+			}
+		})
+	}
 }

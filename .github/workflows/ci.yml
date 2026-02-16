@@ -30,6 +30,9 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
 
@@ -49,6 +52,7 @@ jobs:
           local-prefix: github.com/${{ github.repository }}
           git-token: ${{ secrets.GITHUB_TOKEN }}
           git-branch: ${{ github.head_ref || github.ref_name }}
+          debug: true
       
       - name: Upload Coverage Report
         uses: actions/upload-artifact@v4

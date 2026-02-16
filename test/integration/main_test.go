@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"testing"
 	"time"
@@ -25,6 +26,9 @@ import (
 //
 //nolint:gochecknoglobals // TestMain initializes the shared endpoint for clients.
 var endpoint string
+
+//nolint:gochecknoglobals // Shared container reference for log dumping on failures.
+var sharedContainer testcontainers.Container
 
 func TestMain(m *testing.M) {
 	flag.Parse()
@@ -61,6 +65,8 @@ func TestMain(m *testing.M) {
 		logger.Error("failed to start container", "error", err)
 		os.Exit(1)
 	}
+
+	sharedContainer = container
 
 	mappedPort, err := container.MappedPort(ctx, "8000")
 	if err != nil {
@@ -112,5 +118,44 @@ func createS3Client(t *testing.T) *s3.Client {
 	return s3.NewFromConfig(cfg, func(o *s3.Options) {
 		o.UsePathStyle = true
 		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// dumpContainerLogsOnFailure dumps the container logs to stdout if the test failed.
+// Call this with t.Cleanup to automatically dump logs on test failure.
+func dumpContainerLogsOnFailure(t *testing.T) {
+	t.Helper()
+
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+
+		if sharedContainer == nil {
+			t.Log("Cannot dump logs: container reference not available")
+
+			return
+		}
+
+		ctx := context.Background()
+		t.Logf("\n========== CONTAINER LOGS FOR FAILED TEST: %s ==========\n", t.Name())
+
+		logs, err := sharedContainer.Logs(ctx)
+		if err != nil {
+			t.Logf("Failed to retrieve container logs: %v", err)
+
+			return
+		}
+		defer logs.Close()
+
+		logBytes, err := io.ReadAll(logs)
+		if err != nil {
+			t.Logf("Failed to read container logs: %v", err)
+
+			return
+		}
+
+		t.Logf("%s", string(logBytes))
+		t.Log("\n========== END CONTAINER LOGS ==========\n")
 	})
 }
