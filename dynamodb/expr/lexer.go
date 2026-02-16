@@ -22,6 +22,8 @@ const (
 	TokenGreater      // >
 	TokenLessEqual    // <=
 	TokenGreaterEqual // >=
+	TokenPlus         // +
+	TokenMinus        // -
 	TokenLParen       // (
 	TokenRParen       // )
 	TokenComma        // ,
@@ -47,6 +49,8 @@ const (
 	TokenBeginsWith
 	TokenContains
 	TokenAttributeType
+	TokenIfNotExists
+	TokenListAppend
 )
 
 type Token struct {
@@ -94,6 +98,10 @@ func (l *Lexer) NextToken() Token {
 		tok = l.handleLessThan()
 	case '>':
 		tok = l.handleGreaterThan()
+	case '+':
+		tok = Token{Type: TokenPlus, Literal: "+"}
+	case '-':
+		tok = Token{Type: TokenMinus, Literal: "-"}
 	case '(':
 		tok = Token{Type: TokenLParen, Literal: "("}
 	case ')':
@@ -249,6 +257,10 @@ func lookupFunctionKeyword(ident string) (TokenType, bool) {
 		return TokenContains, true
 	case "attribute_type":
 		return TokenAttributeType, true
+	case "if_not_exists":
+		return TokenIfNotExists, true
+	case "list_append":
+		return TokenListAppend, true
 	default:
 		return TokenIdentifier, false
 	}

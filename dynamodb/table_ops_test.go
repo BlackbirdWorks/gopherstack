@@ -2,7 +2,9 @@ package dynamodb_test
 
 import (
 	"Gopherstack/dynamodb/models"
+	"errors"
 	"slices"
+	"strings"
 	"testing"
 
 	"Gopherstack/dynamodb"
@@ -170,6 +172,13 @@ func TestTableOperations(t *testing.T) {
 				t.Helper()
 				if err == nil {
 					t.Error("Expected error for non-existent table, got nil")
+				}
+				// Verify it's a ResourceNotFoundException (returns as HTTP 400, not 404)
+				var ddbErr *dynamodb.Error
+				if errors.As(err, &ddbErr) {
+					if !strings.Contains(ddbErr.Type, "ResourceNotFoundException") {
+						t.Errorf("Expected ResourceNotFoundException, got %s", ddbErr.Type)
+					}
 				}
 			},
 		},

@@ -347,14 +347,24 @@ func FromSDKBatchWriteItemOutput(output *dynamodb.BatchWriteItemOutput) *BatchWr
 		unprocessedItems[tableName] = convertedRequests
 	}
 
-	consumedCapacity := make([]ConsumedCapacity, len(output.ConsumedCapacity))
-	for i, cc := range output.ConsumedCapacity {
-		consumedCapacity[i] = *FromSDKConsumedCapacity(&cc)
+	metrics := make(map[string][]any)
+	for tableName, sdkMetrics := range output.ItemCollectionMetrics {
+		cnvMetrics := make([]any, len(sdkMetrics))
+		for i, m := range sdkMetrics {
+			cnvMetrics[i] = FromSDKItemCollectionMetrics(&m)
+		}
+		metrics[tableName] = cnvMetrics
+	}
+
+	cc := make([]ConsumedCapacity, len(output.ConsumedCapacity))
+	for i, c := range output.ConsumedCapacity {
+		cc[i] = *FromSDKConsumedCapacity(&c)
 	}
 
 	return &BatchWriteItemOutput{
-		UnprocessedItems: unprocessedItems,
-		ConsumedCapacity: consumedCapacity,
+		UnprocessedItems:      unprocessedItems,
+		ConsumedCapacity:      cc,
+		ItemCollectionMetrics: metrics,
 	}
 }
 
@@ -487,9 +497,24 @@ func ToSDKTransactWriteItemsInput(input *TransactWriteItemsInput) (*dynamodb.Tra
 	}, nil
 }
 
-func FromSDKTransactWriteItemsOutput(*dynamodb.TransactWriteItemsOutput) *TransactWriteItemsOutput {
+func FromSDKTransactWriteItemsOutput(output *dynamodb.TransactWriteItemsOutput) *TransactWriteItemsOutput {
+	metrics := make(map[string][]ItemCollectionMetrics)
+	for tableName, sdkMetrics := range output.ItemCollectionMetrics {
+		cnvMetrics := make([]ItemCollectionMetrics, len(sdkMetrics))
+		for i, m := range sdkMetrics {
+			cnvMetrics[i] = *FromSDKItemCollectionMetrics(&m)
+		}
+		metrics[tableName] = cnvMetrics
+	}
+
+	cc := make([]ConsumedCapacity, len(output.ConsumedCapacity))
+	for i, c := range output.ConsumedCapacity {
+		cc[i] = *FromSDKConsumedCapacity(&c)
+	}
+
 	return &TransactWriteItemsOutput{
-		// Metrics
+		ItemCollectionMetrics: metrics,
+		ConsumedCapacity:      cc,
 	}
 }
 

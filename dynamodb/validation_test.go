@@ -216,4 +216,108 @@ func TestPutItem_ItemTooLarge(t *testing.T) {
 	_, err = db.PutItem(sdkPut)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "exceeds limit")
+	assert.Contains(t, err.Error(), "ValidationException")
+}
+
+func TestCapacityUnits(t *testing.T) {
+	t.Parallel()
+	item := map[string]any{
+		"pk":  map[string]any{"S": "large"},
+		"val": map[string]any{"S": strings.Repeat("a", 2000)}, // ~2KB
+	}
+
+	wcu := dynamodb.WriteCapacityUnits(item)
+	assert.GreaterOrEqual(t, wcu, 1.0)
+
+	rcu := dynamodb.ReadCapacityUnits(item)
+	assert.GreaterOrEqual(t, rcu, 0.5)
+
+	// Zero item
+	assert.Equal(t, 1.0, dynamodb.WriteCapacityUnits(nil))
+	assert.Equal(t, 0.5, dynamodb.ReadCapacityUnits(nil))
+}
+
+func TestValidateDataTypes_Sets(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		item    map[string]any
+		wantErr bool
+	}{
+		{
+			name: "Valid SS",
+			item: map[string]any{"set": map[string]any{"SS": []any{"a", "b"}}},
+		},
+		{
+			name:    "Empty SS",
+			item:    map[string]any{"set": map[string]any{"SS": []any{}}},
+			wantErr: true,
+		},
+		{
+			name: "Valid NS",
+			item: map[string]any{"set": map[string]any{"NS": []any{"1", "2.5"}}},
+		},
+		{
+			name:    "Invalid NS element",
+			item:    map[string]any{"set": map[string]any{"NS": []any{"1", "abc"}}},
+			wantErr: true,
+		},
+		{
+			name: "Valid BS",
+			item: map[string]any{"set": map[string]any{"BS": []any{"YmFzZTY0", "YmFzZTY0"}}},
+		},
+		{
+			name:    "Invalid BS element type",
+			item:    map[string]any{"set": map[string]any{"BS": []any{123}}},
+			wantErr: true,
+		},
+		{
+			name:    "Invalid SS element type",
+			item:    map[string]any{"set": map[string]any{"SS": []any{123}}},
+			wantErr: true,
+		},
+		{
+			name:    "Invalid Scalar BOOL",
+			item:    map[string]any{"val": map[string]any{"BOOL": "string"}},
+			wantErr: true,
+		},
+		{
+			name:    "Invalid Scalar B",
+			item:    map[string]any{"val": map[string]any{"B": 123}},
+			wantErr: true,
+		},
+		{
+			name:    "Invalid List Type",
+			item:    map[string]any{"val": map[string]any{"L": "not a list"}},
+			wantErr: true,
+		},
+		{
+			name:    "Invalid Map Type",
+			item:    map[string]any{"val": map[string]any{"M": "not a map"}},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := dynamodb.ValidateDataTypes(tt.item)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestNormalizeSetList(t *testing.T) {
+	t.Parallel()
+	// Test []string and [][]byte normalization
+	item1 := map[string]any{"set": map[string]any{"SS": []string{"a", "b"}}}
+	require.NoError(t, dynamodb.ValidateDataTypes(item1))
+
+	item2 := map[string]any{"set": map[string]any{"BS": [][]byte{[]byte("a"), []byte("b")}}}
+	// Note: normalizeSetList converts [][]byte to []any of strings (base64)
+	require.NoError(t, dynamodb.ValidateDataTypes(item2))
 }

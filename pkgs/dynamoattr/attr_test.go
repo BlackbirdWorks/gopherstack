@@ -2,10 +2,12 @@ package dynamoattr_test
 
 import (
 	"errors"
-	"reflect"
 	"testing"
 
 	"Gopherstack/pkgs/dynamoattr"
+
+	"github.com/google/go-cmp/cmp"
+	"github.com/stretchr/testify/assert"
 )
 
 type badJSON struct {
@@ -26,25 +28,25 @@ func TestUnwrapAttributeValue(t *testing.T) {
 		want any
 		name string
 	}{
-		{map[string]any{"S": "v"}, "v", "string"},
-		{map[string]any{"N": "1"}, "1", "number"},
-		{map[string]any{"B": "b"}, "b", "binary"},
-		{map[string]any{"BOOL": true}, true, "bool"},
-		{map[string]any{"NULL": true}, nil, "null"},
-		{map[string]any{"M": map[string]any{"k": "v"}}, map[string]any{"k": "v"}, "map"},
-		{map[string]any{"L": []any{"x"}}, []any{"x"}, "list"},
-		{map[string]any{"SS": []string{"a"}}, []string{"a"}, "ss"},
-		{map[string]any{"NS": []string{"1"}}, []string{"1"}, "ns"},
-		{map[string]any{"BS": []string{"b"}}, []string{"b"}, "bs"},
-		{"x", "x", "plain"},
+		{name: "string", in: map[string]any{"S": "v"}, want: "v"},
+		{name: "number", in: map[string]any{"N": "1"}, want: "1"},
+		{name: "binary", in: map[string]any{"B": "b"}, want: "b"},
+		{name: "bool", in: map[string]any{"BOOL": true}, want: true},
+		{name: "null", in: map[string]any{"NULL": true}, want: nil},
+		{name: "map", in: map[string]any{"M": map[string]any{"k": "v"}}, want: map[string]any{"k": "v"}},
+		{name: "list", in: map[string]any{"L": []any{"x"}}, want: []any{"x"}},
+		{name: "ss", in: map[string]any{"SS": []string{"a"}}, want: []string{"a"}},
+		{name: "ns", in: map[string]any{"NS": []string{"1"}}, want: []string{"1"}},
+		{name: "bs", in: map[string]any{"BS": []string{"b"}}, want: []string{"b"}},
+		{name: "plain", in: "x", want: "x"},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := dynamoattr.UnwrapAttributeValue(tc.in)
-			if !reflect.DeepEqual(got, tc.want) {
-				t.Fatalf("expected %v, got %v", tc.want, got)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("UnwrapAttributeValue() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -59,23 +61,21 @@ func TestParseNumeric(t *testing.T) {
 		want   float64
 		okWant bool
 	}{
-		{float64(1.5), "float64", 1.5, true},
-		{int(2), "int", 2, true},
-		{int64(3), "int64", 3, true},
-		{"4.5", "string", 4.5, true},
-		{map[string]any{"N": "6"}, "wrapped", 6, true},
-		{"nope", "bad", 0, false},
+		{in: float64(1.5), name: "float64", want: 1.5, okWant: true},
+		{in: int(2), name: "int", want: 2, okWant: true},
+		{in: int64(3), name: "int64", want: 3, okWant: true},
+		{in: "4.5", name: "string", want: 4.5, okWant: true},
+		{in: map[string]any{"N": "6"}, name: "wrapped", want: 6, okWant: true},
+		{in: "nope", name: "bad", want: 0, okWant: false},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got, ok := dynamoattr.ParseNumeric(tc.in)
-			if ok != tc.okWant {
-				t.Fatalf("expected ok=%v, got %v", tc.okWant, ok)
-			}
-			if ok && got != tc.want {
-				t.Fatalf("expected %v, got %v", tc.want, got)
+			assert.Equal(t, tc.okWant, ok)
+			if ok {
+				assert.InDelta(t, tc.want, got, 1e-9)
 			}
 		})
 	}
@@ -84,75 +84,124 @@ func TestParseNumeric(t *testing.T) {
 func TestResolveValue(t *testing.T) {
 	t.Parallel()
 
-	attrs := map[string]any{":a": "value"}
-
-	if got := dynamoattr.ResolveValue(":a", attrs); got != "value" {
-		t.Fatalf("expected value, got %v", got)
+	cases := []struct {
+		attrValues map[string]any
+		want       any
+		name       string
+		token      string
+	}{
+		{
+			name:       "resolved",
+			token:      ":a",
+			attrValues: map[string]any{":a": "value"},
+			want:       "value",
+		},
+		{
+			name:       "missing",
+			token:      ":missing",
+			attrValues: map[string]any{":a": "value"},
+			want:       ":missing",
+		},
+		{
+			name:       "plain",
+			token:      "plain",
+			attrValues: map[string]any{":a": "value"},
+			want:       "plain",
+		},
 	}
 
-	if got := dynamoattr.ResolveValue(":missing", attrs); got != ":missing" {
-		t.Fatalf("expected :missing, got %v", got)
-	}
-
-	if got := dynamoattr.ResolveValue("plain", attrs); got != "plain" {
-		t.Fatalf("expected plain, got %v", got)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := dynamoattr.ResolveValue(tc.token, tc.attrValues)
+			assert.Equal(t, tc.want, got)
+		})
 	}
 }
 
 func TestCompareValues(t *testing.T) {
 	t.Parallel()
 
-	if !dynamoattr.CompareValues(map[string]any{"N": "2"}, "<", map[string]any{"N": "3"}) {
-		t.Fatalf("expected numeric comparison true")
+	cases := []struct {
+		lhs  any
+		rhs  any
+		name string
+		op   string
+		want bool
+	}{
+		{name: "numeric true", lhs: map[string]any{"N": "2"}, op: "<", rhs: map[string]any{"N": "3"}, want: true},
+		{name: "numeric false", lhs: map[string]any{"N": "3"}, op: "<", rhs: map[string]any{"N": "2"}, want: false},
+		{name: "numeric > true", lhs: map[string]any{"N": "3"}, op: ">", rhs: map[string]any{"N": "2"}, want: true},
+		{name: "numeric <= true", lhs: map[string]any{"N": "2"}, op: "<=", rhs: map[string]any{"N": "2"}, want: true},
+		{name: "numeric <= true 2", lhs: map[string]any{"N": "1"}, op: "<=", rhs: map[string]any{"N": "2"}, want: true},
+		{name: "numeric >= true", lhs: map[string]any{"N": "2"}, op: ">=", rhs: map[string]any{"N": "2"}, want: true},
+		{name: "string comparison false", lhs: "b", op: "<", rhs: "a", want: false},
+		{name: "string comparison true", lhs: "a", op: "<", rhs: "b", want: true},
+		{name: "string > true", lhs: "b", op: ">", rhs: "a", want: true},
+		{name: "string <= true", lhs: "a", op: "<=", rhs: "a", want: true},
+		{name: "string >= true", lhs: "a", op: ">=", rhs: "a", want: true},
+		{name: "equality true", lhs: "a", op: "=", rhs: "a", want: true},
+		{name: "inequality false", lhs: "a", op: "<>", rhs: "a", want: false},
+		{name: "unknown operator false", lhs: "a", op: "?", rhs: "b", want: false},
 	}
 
-	if dynamoattr.CompareValues("b", "<", "a") {
-		t.Fatalf("expected string comparison false")
-	}
-
-	if !dynamoattr.CompareValues("a", "=", "a") {
-		t.Fatalf("expected equality true")
-	}
-
-	if dynamoattr.CompareValues("a", "<>", "a") {
-		t.Fatalf("expected inequality false")
-	}
-
-	if dynamoattr.CompareValues("a", "?", "b") {
-		t.Fatalf("expected unknown operator false")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := dynamoattr.CompareValues(tc.lhs, tc.op, tc.rhs)
+			assert.Equal(t, tc.want, got)
+		})
 	}
 }
 
 func TestSplitANDConditions(t *testing.T) {
 	t.Parallel()
 
-	expr := "pk = :pk AND sk BETWEEN :a AND :b AND other = :c"
-	parts := dynamoattr.SplitANDConditions(expr)
-	if len(parts) != 3 {
-		t.Fatalf("expected 3 parts, got %d", len(parts))
+	cases := []struct {
+		name string
+		expr string
+		want []string
+	}{
+		{
+			name: "basic and between",
+			expr: "pk = :pk AND sk BETWEEN :a AND :b AND other = :c",
+			want: []string{"pk = :pk", "sk BETWEEN :a AND :b", "other = :c"},
+		},
 	}
 
-	if parts[1] != "sk BETWEEN :a AND :b" {
-		t.Fatalf("expected BETWEEN clause, got %q", parts[1])
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := dynamoattr.SplitANDConditions(tc.expr)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("SplitANDConditions() mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
 
 func TestToString(t *testing.T) {
 	t.Parallel()
 
-	if got := dynamoattr.ToString(true); got != "true" {
-		t.Fatalf("expected true, got %q", got)
+	cases := []struct {
+		name string
+		in   any
+		want string
+	}{
+		{"bool true", true, "true"},
+		{"float64", float64(1.25), "1.25"},
+		{"int", int(2), "2"},
+		{"int32", int32(3), "3"},
+		{"nil", nil, ""},
+		{"badJSON", badJSON{A: "bad"}, "{bad}"},
+		{"generic map", map[string]string{"foo": "bar"}, `{"foo":"bar"}`},
 	}
-	if got := dynamoattr.ToString(float64(1.25)); got != "1.25" {
-		t.Fatalf("expected 1.25, got %q", got)
-	}
-	if got := dynamoattr.ToString(int(2)); got != "2" {
-		t.Fatalf("expected 2, got %q", got)
-	}
-	if got := dynamoattr.ToString(nil); got != "" {
-		t.Fatalf("expected empty string, got %q", got)
-	}
-	if got := dynamoattr.ToString(badJSON{A: "bad"}); got != "{bad}" {
-		t.Fatalf("expected {bad}, got %q", got)
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := dynamoattr.ToString(tc.in)
+			assert.Equal(t, tc.want, got)
+		})
 	}
 }

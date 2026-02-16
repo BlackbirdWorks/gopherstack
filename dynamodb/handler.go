@@ -302,14 +302,36 @@ func (h *Handler) classifyError(reqErr error) (int, *Error) {
 	var wireErr *Error
 	if errors.As(reqErr, &wireErr) {
 		// Map type to status code
+		// Note: DynamoDB returns 400 for most errors (including ResourceNotFoundException)
+		// The error type in the JSON body distinguishes the specific error
 		switch wireErr.Type {
 		case "com.amazonaws.dynamodb.v20120810#InternalServerError":
 			return http.StatusInternalServerError, wireErr
 		case "com.amazonaws.dynamodb.v20120810#ResourceNotFoundException":
-			return http.StatusNotFound, wireErr
+			return http.StatusBadRequest, wireErr
 		case "com.amazonaws.dynamodb.v20120810#ConditionalCheckFailedException":
 			return http.StatusBadRequest, wireErr
 		case "com.amazonaws.dynamodb.v20120810#TransactionCanceledException":
+			return http.StatusBadRequest, wireErr
+		case "com.amazonaws.dynamodb.v20120810#ValidationException":
+			return http.StatusBadRequest, wireErr
+		case "com.amazonaws.dynamodb.v20120810#ItemCollectionSizeLimitExceededException":
+			return http.StatusBadRequest, wireErr
+		case "com.amazonaws.dynamodb.v20120810#LimitExceededException":
+			return http.StatusBadRequest, wireErr
+		case "com.amazonaws.dynamodb.v20120810#ResourceInUseException":
+			return http.StatusBadRequest, wireErr
+		case "com.amazonaws.dynamodb.v20120810#ProvisionedThroughputExceededException":
+			return http.StatusBadRequest, wireErr
+		case "com.amazonaws.dynamodb.v20120810#ThrottlingException":
+			return http.StatusBadRequest, wireErr
+		case "com.amazonaws.dynamodb.v20120810#RequestLimitExceeded":
+			return http.StatusBadRequest, wireErr
+		case "com.amazonaws.dynamodb.v20120810#TransactionConflictException":
+			return http.StatusBadRequest, wireErr
+		case "com.amazonaws.dynamodb.v20120810#ReplicatedWriteConflictException":
+			return http.StatusBadRequest, wireErr
+		case "com.amazonaws.dynamodb.v20120810#PolicyNotFoundException":
 			return http.StatusBadRequest, wireErr
 		default:
 			return http.StatusBadRequest, wireErr

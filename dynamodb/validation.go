@@ -70,7 +70,7 @@ func ValidateItemSize(item map[string]any) error {
 		return err // Internal validation error
 	}
 	if size > MaxItemSize {
-		return NewItemCollectionSizeLimitExceededException(
+		return NewValidationException(
 			fmt.Sprintf("Item size %d exceeds limit %d", size, MaxItemSize),
 		)
 	}

@@ -57,7 +57,37 @@ func TestConditionParsingAndEvaluation(t *testing.T) {
 		},
 		{
 			name:      "Logical AND with values",
-			exprStr:   "age >= :minAge AND active = active", // active is a path to a BOOL
+			exprStr:   "age >= :minAge AND active = active",
+			wantMatch: true,
+		},
+		{
+			name:      "Logical OR",
+			exprStr:   "age < :minAge OR active = :true",
+			wantMatch: true,
+		},
+		{
+			name:      "NOT Expression",
+			exprStr:   "NOT (pk = :prefix)",
+			wantMatch: true,
+		},
+		{
+			name:      "BETWEEN Expression",
+			exprStr:   "age BETWEEN :minAge AND :maxAge",
+			wantMatch: true,
+		},
+		{
+			name:      "IN Expression",
+			exprStr:   "pk IN (:prefix, :other)",
+			wantMatch: false,
+		},
+		{
+			name:      "In Expression Match",
+			exprStr:   "pk IN (:prefix2, :prefix)",
+			wantMatch: false, // pk is "user123", :prefix is "user"
+		},
+		{
+			name:      "In Expression Match 2",
+			exprStr:   "pk IN (:pkFull, :other)",
 			wantMatch: true,
 		},
 		{
@@ -80,6 +110,10 @@ func TestConditionParsingAndEvaluation(t *testing.T) {
 	// Add more values for specific tests
 	attrValues[":true"] = map[string]any{"BOOL": true}
 	attrValues[":one"] = map[string]any{"N": "1"}
+	attrValues[":maxAge"] = map[string]any{"N": "30"}
+	attrValues[":other"] = map[string]any{"S": "other"}
+	attrValues[":pkFull"] = map[string]any{"S": "user123"}
+	attrValues[":prefix2"] = map[string]any{"S": "us"}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -137,15 +171,63 @@ func TestOperatorPrecedence(t *testing.T) {
 
 func TestUpdateParsing(t *testing.T) {
 	t.Parallel()
-	exprStr := "SET #a = :v1, #b = :v2 REMOVE #c"
-	l := expr.NewLexer(exprStr)
-	p := expr.NewParser(l)
-	u, err := p.ParseUpdate()
-	require.NoError(t, err)
 
-	assert.Len(t, u.Actions, 2)
-	assert.Equal(t, expr.TokenSET, u.Actions[0].Type)
-	assert.Len(t, u.Actions[0].Items, 2)
-	assert.Equal(t, expr.TokenREMOVE, u.Actions[1].Type)
-	assert.Len(t, u.Actions[1].Items, 1)
+	tests := []struct {
+		exprStr     string
+		name        string
+		actionTests []func(t *testing.T, a expr.UpdateAction)
+		numActions  int
+	}{
+		{
+			name:       "SET and REMOVE",
+			exprStr:    "SET #a = :v1, #b = :v2 REMOVE #c",
+			numActions: 2,
+			actionTests: []func(t *testing.T, a expr.UpdateAction){
+				func(t *testing.T, a expr.UpdateAction) {
+					t.Helper()
+					assert.Equal(t, expr.TokenSET, a.Type)
+					assert.Len(t, a.Items, 2)
+				},
+				func(t *testing.T, a expr.UpdateAction) {
+					t.Helper()
+					assert.Equal(t, expr.TokenREMOVE, a.Type)
+					assert.Len(t, a.Items, 1)
+				},
+			},
+		},
+		{
+			name:       "ADD and DELETE",
+			exprStr:    "ADD #cnt :inc DELETE #tags :tag",
+			numActions: 2,
+			actionTests: []func(t *testing.T, a expr.UpdateAction){
+				func(t *testing.T, a expr.UpdateAction) {
+					t.Helper()
+					assert.Equal(t, expr.TokenADD, a.Type)
+					assert.Len(t, a.Items, 1)
+				},
+				func(t *testing.T, a expr.UpdateAction) {
+					t.Helper()
+					assert.Equal(t, expr.TokenDELETE, a.Type)
+					assert.Len(t, a.Items, 1)
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			l := expr.NewLexer(tt.exprStr)
+			p := expr.NewParser(l)
+			u, err := p.ParseUpdate()
+			require.NoError(t, err)
+
+			assert.Len(t, u.Actions, tt.numActions)
+			for i, testFn := range tt.actionTests {
+				if i < len(u.Actions) {
+					testFn(t, u.Actions[i])
+				}
+			}
+		})
+	}
 }

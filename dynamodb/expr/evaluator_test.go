@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -92,88 +93,117 @@ func TestEvaluator_Evaluate_Errors(t *testing.T) {
 func TestEvaluator_ApplyUpdate(t *testing.T) {
 	t.Parallel()
 
-	item := map[string]any{
-		"a": map[string]any{"S": "val1"},
-		"b": map[string]any{"N": "10"},
-		"c": map[string]any{"M": map[string]any{"d": map[string]any{"S": "val2"}}},
-	}
-
-	eval := &expr.Evaluator{
-		Item: item,
-		AttrValues: map[string]any{
-			":newVal": map[string]any{"S": "new"},
-			":inc":    map[string]any{"N": "5"},
-		},
-	}
-
-	// SET a = :newVal
-	update := &expr.UpdateExpr{
-		Actions: []expr.UpdateAction{
-			{
-				Type: expr.TokenSET,
-				Items: []expr.UpdateItem{
+	tests := []struct {
+		item       map[string]any
+		attrValues map[string]any
+		expected   map[string]any
+		update     *expr.UpdateExpr
+		name       string
+	}{
+		{
+			name: "SET top-level field",
+			item: map[string]any{"a": map[string]any{"S": "val1"}},
+			attrValues: map[string]any{
+				":newVal": map[string]any{"S": "new"},
+			},
+			update: &expr.UpdateExpr{
+				Actions: []expr.UpdateAction{
 					{
-						Path:  &expr.PathExpr{Elements: []expr.PathElement{{Name: "a", Type: expr.ElementKey}}},
-						Value: &expr.ValuePlaceholder{Name: ":newVal"},
+						Type: expr.TokenSET,
+						Items: []expr.UpdateItem{
+							{
+								Path:  &expr.PathExpr{Elements: []expr.PathElement{{Name: "a", Type: expr.ElementKey}}},
+								Value: &expr.ValuePlaceholder{Name: ":newVal"},
+							},
+						},
 					},
 				},
 			},
+			expected: map[string]any{"a": map[string]any{"S": "new"}},
 		},
-	}
-
-	err := eval.ApplyUpdate(update)
-	require.NoError(t, err)
-	assert.Equal(t, "new", eval.UnwrapAttributeValue(eval.Item["a"]))
-
-	// REMOVE c.d
-	remove := &expr.UpdateExpr{
-		Actions: []expr.UpdateAction{
-			{
-				Type: expr.TokenREMOVE,
-				Items: []expr.UpdateItem{
+		{
+			name: "REMOVE nested field",
+			item: map[string]any{
+				"c": map[string]any{"M": map[string]any{"d": map[string]any{"S": "val2"}}},
+			},
+			update: &expr.UpdateExpr{
+				Actions: []expr.UpdateAction{
 					{
-						Path: &expr.PathExpr{Elements: []expr.PathElement{
-							{Name: "c", Type: expr.ElementKey},
-							{Name: "d", Type: expr.ElementKey},
-						}},
+						Type: expr.TokenREMOVE,
+						Items: []expr.UpdateItem{
+							{
+								Path: &expr.PathExpr{Elements: []expr.PathElement{
+									{Name: "c", Type: expr.ElementKey},
+									{Name: "d", Type: expr.ElementKey},
+								}},
+							},
+						},
 					},
 				},
 			},
+			expected: map[string]any{"c": map[string]any{"M": map[string]any{}}},
 		},
 	}
 
-	err = eval.ApplyUpdate(remove)
-	require.NoError(t, err)
-	c := eval.UnwrapAttributeValue(eval.Item["c"]).(map[string]any)
-	_, exists := c["d"]
-	assert.False(t, exists)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			eval := &expr.Evaluator{
+				Item:       tt.item,
+				AttrValues: tt.attrValues,
+			}
+			err := eval.ApplyUpdate(tt.update)
+			require.NoError(t, err)
+
+			if diff := cmp.Diff(tt.expected, eval.Item); diff != "" {
+				t.Errorf("ApplyUpdate() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
 }
 
 func TestEvaluator_ApplyAdd(t *testing.T) {
 	t.Parallel()
 
-	item := map[string]any{
-		"num": map[string]any{"N": "10"},
+	tests := []struct {
+		item     map[string]any
+		val      map[string]any
+		expected map[string]any
+		name     string
+		path     []expr.PathElement
+	}{
+		{
+			name: "add to existing number",
+			item: map[string]any{"num": map[string]any{"N": "10"}},
+			path: []expr.PathElement{{Name: "num", Type: expr.ElementKey}},
+			val:  map[string]any{"N": "5"},
+			expected: map[string]any{
+				"num": map[string]any{"N": "15"},
+			},
+		},
+		{
+			name: "add to new number",
+			item: map[string]any{},
+			path: []expr.PathElement{{Name: "num", Type: expr.ElementKey}},
+			val:  map[string]any{"N": "1"},
+			expected: map[string]any{
+				"num": map[string]any{"N": "1"},
+			},
+		},
 	}
 
-	eval := &expr.Evaluator{
-		Item:       item,
-		AttrValues: map[string]any{":inc": map[string]any{"N": "5"}},
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			eval := &expr.Evaluator{Item: tt.item}
+			err := eval.ExportedApplyAdd(tt.path, tt.val)
+			require.NoError(t, err)
+
+			if diff := cmp.Diff(tt.expected, eval.Item); diff != "" {
+				t.Errorf("ApplyAdd() mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
-
-	err := eval.ExportedApplyAdd(
-		[]expr.PathElement{{Name: "num", Type: expr.ElementKey}},
-		map[string]any{"N": "5"},
-	)
-	require.NoError(t, err)
-	assert.Equal(t, "15", eval.UnwrapAttributeValue(eval.Item["num"]))
-
-	err = eval.ExportedApplyAdd(
-		[]expr.PathElement{{Name: "newNum", Type: expr.ElementKey}},
-		map[string]any{"N": "1"},
-	)
-	require.NoError(t, err)
-	assert.Equal(t, "1", eval.UnwrapAttributeValue(eval.Item["newNum"]))
 }
 
 func TestEvaluator_FunctionErrors(t *testing.T) {
@@ -260,49 +290,45 @@ func TestEvaluator_Mutate_Errors(t *testing.T) {
 
 	eval := &expr.Evaluator{}
 
-	t.Run("ExpectedMapForKey", func(t *testing.T) {
-		t.Parallel()
-		_, err := eval.Mutate(
-			[]any{},
-			[]expr.PathElement{{Name: "foo", Type: expr.ElementKey}},
-			"val",
-			false,
-		)
-		assert.ErrorIs(t, err, expr.ErrExpectedMapForKey)
-	})
+	tests := []struct {
+		item    any
+		wantErr error
+		name    string
+		path    []expr.PathElement
+	}{
+		{
+			name:    "ExpectedMapForKey",
+			item:    []any{},
+			path:    []expr.PathElement{{Name: "foo", Type: expr.ElementKey}},
+			wantErr: expr.ErrExpectedMapForKey,
+		},
+		{
+			name:    "ExpectedListAtIndex",
+			item:    map[string]any{"foo": "bar"},
+			path:    []expr.PathElement{{Name: "foo", Type: expr.ElementIndex, Index: 0}},
+			wantErr: expr.ErrExpectedListAtIndex,
+		},
+		{
+			name:    "ExpectedListForIndex",
+			item:    "not a list",
+			path:    []expr.PathElement{{Name: "foo", Type: expr.ElementIndex, Index: 0}},
+			wantErr: expr.ErrExpectedListForIndex,
+		},
+		{
+			name:    "IndexOutOfRange",
+			item:    []any{},
+			path:    []expr.PathElement{{Name: "foo", Type: expr.ElementIndex, Index: 0}},
+			wantErr: expr.ErrIndexOutOfRange,
+		},
+	}
 
-	t.Run("ExpectedListAtIndex", func(t *testing.T) {
-		t.Parallel()
-		_, err := eval.Mutate(
-			map[string]any{"foo": "bar"},
-			[]expr.PathElement{{Name: "foo", Type: expr.ElementIndex, Index: 0}},
-			"val",
-			false,
-		)
-		assert.ErrorIs(t, err, expr.ErrExpectedListAtIndex)
-	})
-
-	t.Run("ExpectedListForIndex", func(t *testing.T) {
-		t.Parallel()
-		_, err := eval.Mutate(
-			"not a list",
-			[]expr.PathElement{{Name: "foo", Type: expr.ElementIndex, Index: 0}},
-			"val",
-			false,
-		)
-		assert.ErrorIs(t, err, expr.ErrExpectedListForIndex)
-	})
-
-	t.Run("IndexOutOfRange", func(t *testing.T) {
-		t.Parallel()
-		_, err := eval.Mutate(
-			[]any{},
-			[]expr.PathElement{{Name: "foo", Type: expr.ElementIndex, Index: 0}},
-			"val",
-			false,
-		)
-		assert.ErrorIs(t, err, expr.ErrIndexOutOfRange)
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := eval.Mutate(tt.item, tt.path, "val", false)
+			assert.ErrorIs(t, err, tt.wantErr)
+		})
+	}
 }
 
 func TestEvaluator_Not(t *testing.T) {
@@ -783,54 +809,83 @@ func TestEvaluator_MutateList(t *testing.T) {
 	})
 }
 
-func TestEvaluator_MutateMapNested(t *testing.T) {
+func TestEvaluator_ApplyUpdate_Nested(t *testing.T) {
 	t.Parallel()
 
-	t.Run("create intermediate map on set", func(t *testing.T) {
-		t.Parallel()
-		ev := &expr.Evaluator{
-			Item:       map[string]any{},
-			AttrValues: map[string]any{":v": map[string]any{"S": "leaf"}},
-		}
-		update := &expr.UpdateExpr{
-			Actions: []expr.UpdateAction{
-				{
-					Type: expr.TokenSET,
-					Items: []expr.UpdateItem{
-						{
-							Path: &expr.PathExpr{Elements: []expr.PathElement{
-								{Name: "parent", Type: expr.ElementKey},
-								{Name: "child", Type: expr.ElementKey},
-							}},
-							Value: &expr.ValuePlaceholder{Name: ":v"},
+	tests := []struct {
+		item       map[string]any
+		attrValues map[string]any
+		expected   map[string]any
+		update     *expr.UpdateExpr
+		name       string
+	}{
+		{
+			name: "create intermediate map on SET",
+			item: map[string]any{},
+			attrValues: map[string]any{
+				":v": map[string]any{"S": "leaf"},
+			},
+			update: &expr.UpdateExpr{
+				Actions: []expr.UpdateAction{
+					{
+						Type: expr.TokenSET,
+						Items: []expr.UpdateItem{
+							{
+								Path: &expr.PathExpr{Elements: []expr.PathElement{
+									{Name: "parent", Type: expr.ElementKey},
+									{Name: "child", Type: expr.ElementKey},
+								}},
+								Value: &expr.ValuePlaceholder{Name: ":v"},
+							},
 						},
 					},
 				},
 			},
-		}
-		require.NoError(t, ev.ApplyUpdate(update))
-	})
+			expected: map[string]any{
+				"parent": map[string]any{
+					"M": map[string]any{
+						"child": map[string]any{"S": "leaf"},
+					},
+				},
+			},
+		},
+		{
+			name: "REMOVE non-existent nested path",
+			item: map[string]any{},
+			update: &expr.UpdateExpr{
+				Actions: []expr.UpdateAction{
+					{
+						Type: expr.TokenREMOVE,
+						Items: []expr.UpdateItem{
+							{
+								Path: &expr.PathExpr{Elements: []expr.PathElement{
+									{Name: "missing", Type: expr.ElementKey},
+									{Name: "child", Type: expr.ElementKey},
+								}},
+							},
+						},
+					},
+				},
+			},
+			expected: map[string]any{},
+		},
+	}
 
-	t.Run("remove non-existent nested path", func(t *testing.T) {
-		t.Parallel()
-		ev := &expr.Evaluator{Item: map[string]any{}}
-		update := &expr.UpdateExpr{
-			Actions: []expr.UpdateAction{
-				{
-					Type: expr.TokenREMOVE,
-					Items: []expr.UpdateItem{
-						{
-							Path: &expr.PathExpr{Elements: []expr.PathElement{
-								{Name: "missing", Type: expr.ElementKey},
-								{Name: "child", Type: expr.ElementKey},
-							}},
-						},
-					},
-				},
-			},
-		}
-		require.NoError(t, ev.ApplyUpdate(update))
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			eval := &expr.Evaluator{
+				Item:       tt.item,
+				AttrValues: tt.attrValues,
+			}
+			err := eval.ApplyUpdate(tt.update)
+			require.NoError(t, err)
+
+			if diff := cmp.Diff(tt.expected, eval.Item); diff != "" {
+				t.Errorf("ApplyUpdate() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
 }
 
 func TestEvaluator_ApplyUpdate_DeleteAction(t *testing.T) {
@@ -858,25 +913,42 @@ func TestEvaluator_ApplyUpdate_DeleteAction(t *testing.T) {
 	require.NoError(t, ev.ApplyUpdate(update))
 }
 
-func TestEvaluator_ApplyUpdate_NonPathError(t *testing.T) {
+func TestEvaluator_ApplyUpdate_Errors(t *testing.T) {
 	t.Parallel()
 
-	ev := &expr.Evaluator{Item: map[string]any{}}
-
-	update := &expr.UpdateExpr{
-		Actions: []expr.UpdateAction{
-			{
-				Type: expr.TokenSET,
-				Items: []expr.UpdateItem{
+	tests := []struct {
+		item    map[string]any
+		update  *expr.UpdateExpr
+		wantErr error
+		name    string
+	}{
+		{
+			name: "NonPathError",
+			item: map[string]any{},
+			update: &expr.UpdateExpr{
+				Actions: []expr.UpdateAction{
 					{
-						Path:  &expr.ValuePlaceholder{Name: ":v"},
-						Value: &expr.ValuePlaceholder{Name: ":v"},
+						Type: expr.TokenSET,
+						Items: []expr.UpdateItem{
+							{
+								Path:  &expr.ValuePlaceholder{Name: ":v"},
+								Value: &expr.ValuePlaceholder{Name: ":v"},
+							},
+						},
 					},
 				},
 			},
+			wantErr: expr.ErrUpdatePathMustBePathExpr,
 		},
 	}
-	assert.ErrorIs(t, ev.ApplyUpdate(update), expr.ErrUpdatePathMustBePathExpr)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ev := &expr.Evaluator{Item: tt.item}
+			assert.ErrorIs(t, ev.ApplyUpdate(tt.update), tt.wantErr)
+		})
+	}
 }
 
 func TestEvaluator_LogicalShortCircuit(t *testing.T) {

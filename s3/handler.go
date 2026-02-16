@@ -118,8 +118,21 @@ func (h *Handler) resolveBucketAndKey(w http.ResponseWriter, r *http.Request) (s
 	path := strings.TrimPrefix(r.URL.Path, "/")
 	parts := strings.SplitN(path, "/", pathSplitParts)
 
-	bucket, key := "", ""
+	// Try virtual-hosted-style first: bucket name as subdomain in Host header.
+	if vhBucket := h.extractVirtualHostedBucketName(r); vhBucket != "" {
+		bucket := vhBucket
+		key := path
+		if key != "" && !IsValidObjectKey(key) {
+			httputils.WriteError(h.Logger, w, r, ErrInvalidArgument, http.StatusBadRequest)
 
+			return "", "", false
+		}
+
+		return bucket, key, true
+	}
+
+	// Fall back to path-style (/bucket/key).
+	bucket, key := "", ""
 	if path != "" && path != "/" {
 		bucket = parts[0]
 		if !IsValidBucketName(bucket) {
@@ -130,19 +143,6 @@ func (h *Handler) resolveBucketAndKey(w http.ResponseWriter, r *http.Request) (s
 
 		if len(parts) > 1 {
 			key = parts[1]
-			if key != "" && !IsValidObjectKey(key) {
-				httputils.WriteError(h.Logger, w, r, ErrInvalidArgument, http.StatusBadRequest)
-
-				return "", "", false
-			}
-		}
-	}
-
-	// Fall back to virtual-hosted-style: bucket name as subdomain in Host header.
-	if bucket == "" {
-		if vhBucket := h.extractVirtualHostedBucketName(r); vhBucket != "" {
-			bucket = vhBucket
-			key = path
 			if key != "" && !IsValidObjectKey(key) {
 				httputils.WriteError(h.Logger, w, r, ErrInvalidArgument, http.StatusBadRequest)
 

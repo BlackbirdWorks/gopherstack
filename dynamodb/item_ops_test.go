@@ -6,6 +6,7 @@ import (
 
 	"Gopherstack/dynamodb"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	dynamodb_sdk "github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/assert"
@@ -310,4 +311,61 @@ func putItem(db *dynamodb.InMemoryDB, id, val string) {
 	}
 	sdkInput, _ := models.ToSDKPutItemInput(&input)
 	_, _ = db.PutItem(sdkInput)
+}
+func TestItem_Expiration(t *testing.T) {
+	t.Parallel()
+	db := dynamodb.NewInMemoryDB()
+	tableName := "TTLTable"
+	createTableHelper(t, db, tableName, "id")
+
+	// Enable TTL
+	_, err := db.UpdateTimeToLive(&dynamodb_sdk.UpdateTimeToLiveInput{
+		TableName: &tableName,
+		TimeToLiveSpecification: &types.TimeToLiveSpecification{
+			AttributeName: aws.String("ttl"),
+			Enabled:       aws.Bool(true),
+		},
+	})
+	require.NoError(t, err)
+
+	// Put expired item (ttl = 1)
+	_, err = db.PutItem(&dynamodb_sdk.PutItemInput{
+		TableName: &tableName,
+		Item: map[string]types.AttributeValue{
+			"id":  &types.AttributeValueMemberS{Value: "exp1"},
+			"ttl": &types.AttributeValueMemberN{Value: "1"},
+		},
+	})
+	require.NoError(t, err)
+
+	// Get should return nothing
+	out, err := db.GetItem(&dynamodb_sdk.GetItemInput{
+		TableName: &tableName,
+		Key:       map[string]types.AttributeValue{"id": &types.AttributeValueMemberS{Value: "exp1"}},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, out.Item)
+}
+
+func TestPutItem_ConditionExpression(t *testing.T) {
+	t.Parallel()
+	db := dynamodb.NewInMemoryDB()
+	tableName := "CondTable"
+	createTableHelper(t, db, tableName, "id")
+
+	// Put item1
+	_, err := db.PutItem(&dynamodb_sdk.PutItemInput{
+		TableName: &tableName,
+		Item:      map[string]types.AttributeValue{"id": &types.AttributeValueMemberS{Value: "1"}},
+	})
+	require.NoError(t, err)
+
+	// Fail if exists
+	_, err = db.PutItem(&dynamodb_sdk.PutItemInput{
+		TableName:           &tableName,
+		ConditionExpression: aws.String("attribute_not_exists(id)"),
+		Item:                map[string]types.AttributeValue{"id": &types.AttributeValueMemberS{Value: "1"}},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ConditionalCheckFailed")
 }

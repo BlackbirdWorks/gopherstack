@@ -70,6 +70,7 @@ const (
 	PrecAND
 	PrecNOT
 	PrecComparison
+	PrecArithmetic
 )
 
 func precedenceOf(t TokenType) int {
@@ -84,6 +85,8 @@ func precedenceOf(t TokenType) int {
 		return PrecComparison
 	case TokenIN:
 		return PrecComparison
+	case TokenPlus, TokenMinus:
+		return PrecArithmetic
 	default:
 		return 0
 	}
@@ -113,7 +116,9 @@ func (p *Parser) parseExpression(precedence int) (Node, error) {
 		TokenAttributeNotExists,
 		TokenBeginsWith,
 		TokenContains,
-		TokenAttributeType:
+		TokenAttributeType,
+		TokenIfNotExists,
+		TokenListAppend:
 		left, err = p.parseOperand()
 	default:
 		return nil, fmt.Errorf("%w %v at start of expression", ErrUnexpectedToken, p.curToken)
@@ -159,7 +164,7 @@ func (p *Parser) parseGroupedExpr() (Node, error) {
 
 func (p *Parser) parseOperand() (Node, error) {
 	switch p.curToken.Type {
-	case TokenSize, TokenAttributeExists, TokenAttributeNotExists, TokenBeginsWith, TokenContains, TokenAttributeType:
+	case TokenSize, TokenAttributeExists, TokenAttributeNotExists, TokenBeginsWith, TokenContains, TokenAttributeType, TokenIfNotExists, TokenListAppend:
 		return p.parseFunctionExpr()
 	case TokenValue:
 		return &ValuePlaceholder{Name: p.curToken.Literal}, nil

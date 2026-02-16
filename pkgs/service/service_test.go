@@ -6,6 +6,9 @@ import (
 	"testing"
 
 	"Gopherstack/pkgs/service"
+
+	"github.com/google/go-cmp/cmp"
+	"github.com/stretchr/testify/assert"
 )
 
 type testHandler struct{}
@@ -19,25 +22,40 @@ func (t testHandler) GetSupportedOperations() []string {
 func TestRegistrationTypes(t *testing.T) {
 	t.Parallel()
 
-	r := service.Registration{
-		Handler: testHandler{},
-		Match: func(req *http.Request) bool {
-			return req.Method == http.MethodGet
+	tests := []struct {
+		reg         service.Registration
+		name        string
+		req         *http.Request
+		wantRegName string
+		wantOps     []string
+		wantMatch   bool
+	}{
+		{
+			reg: service.Registration{
+				Match: func(req *http.Request) bool {
+					return req.Method == http.MethodGet
+				},
+				Handler: testHandler{},
+				Name:    "test",
+			},
+			req:         httptest.NewRequest(http.MethodGet, "/", nil),
+			wantOps:     []string{"op"},
+			name:        "basic registration",
+			wantRegName: "test",
+			wantMatch:   true,
 		},
-		Name: "test",
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	if !r.Match(req) {
-		t.Fatalf("expected matcher to return true")
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.wantRegName, tt.reg.Name)
+			assert.Equal(t, tt.wantMatch, tt.reg.Match(tt.req))
 
-	if r.Name != "test" {
-		t.Fatalf("expected name test, got %s", r.Name)
-	}
-
-	ops := r.Handler.GetSupportedOperations()
-	if len(ops) != 1 || ops[0] != "op" {
-		t.Fatalf("unexpected operations: %v", ops)
+			ops := tt.reg.Handler.GetSupportedOperations()
+			if diff := cmp.Diff(tt.wantOps, ops); diff != "" {
+				t.Errorf("GetSupportedOperations() mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
 }

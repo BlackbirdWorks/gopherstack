@@ -799,6 +799,76 @@ func TestHandler_ChecksumSupport(t *testing.T) {
 	)
 }
 
+func TestHandler_VirtualHostedStyle_Final(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	handler.Endpoint = "localhost:9000"
+	mustCreateBucket(t, backend, "my-vh-bucket")
+
+	// 1. Valid virtual hosted request
+	req := httptest.NewRequest(http.MethodGet, "/somekey", nil)
+	req.Host = "my-vh-bucket.localhost:9000"
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	// Bucket should be found, but key is missing
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Contains(t, rec.Body.String(), "NoSuchKey")
+
+	// 2. Invalid bucket in host fallback to path-style /
+	req = httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Host = "invalid_bucket.localhost:9000"
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	// Fallback to list buckets (200 OK)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// 3. Host doesn't match endpoint fallback to path-style /
+	req = httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Host = "my-vh-bucket.other:9000"
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	// Fallback to list buckets (200 OK)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestHandler_ChecksumAlgorithms_Coverage(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "bkt")
+
+	algos := []struct {
+		name   string
+		header string
+	}{
+		{name: "CRC32", header: "X-Amz-Checksum-Crc32"},
+		{name: "CRC32C", header: "X-Amz-Checksum-Crc32c"},
+		{name: "SHA1", header: "X-Amz-Checksum-Sha1"},
+	}
+
+	for _, algo := range algos {
+		t.Run(algo.name, func(t *testing.T) {
+			key := "check-" + algo.name
+			req := httptest.NewRequest(http.MethodPut, "/bkt/"+key, strings.NewReader("data"))
+			req.Header.Set("X-Amz-Checksum-Algorithm", algo.name)
+			req.Header.Set(algo.header, "fake-value")
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			assert.Equal(t, http.StatusOK, rec.Code)
+
+			// Get and verify
+			req = httptest.NewRequest(http.MethodGet, "/bkt/"+key, nil)
+			rec = httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			assert.Equal(t, http.StatusOK, rec.Code)
+			assert.Equal(t, "fake-value", rec.Header().Get(algo.header))
+			assert.Equal(t, algo.name, rec.Header().Get("X-Amz-Checksum-Algorithm"))
+		})
+	}
+}
+
 func TestHandler_InvalidInput(t *testing.T) {
 	t.Parallel()
 

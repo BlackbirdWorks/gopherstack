@@ -4,6 +4,9 @@ import (
 	"testing"
 
 	"Gopherstack/pkgs/ptrconv"
+
+	"github.com/google/go-cmp/cmp"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestPtrconvBasics(t *testing.T) {
@@ -11,45 +14,81 @@ func TestPtrconvBasics(t *testing.T) {
 
 	t.Run("Int64", func(t *testing.T) {
 		t.Parallel()
-		if got := ptrconv.Int64(nil); got != 0 {
-			t.Fatalf("expected 0, got %d", got)
+		v42 := int64(42)
+		tests := []struct {
+			in   *int64
+			name string
+			want int64
+		}{
+			{in: nil, name: "nil", want: 0},
+			{in: &v42, name: "value", want: 42},
 		}
-		v := int64(42)
-		if got := ptrconv.Int64(&v); got != 42 {
-			t.Fatalf("expected 42, got %d", got)
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+				assert.Equal(t, tt.want, ptrconv.Int64(tt.in))
+			})
 		}
 	})
 
 	t.Run("Bool", func(t *testing.T) {
 		t.Parallel()
-		if got := ptrconv.Bool(nil); got {
-			t.Fatalf("expected false, got true")
+		vTrue := true
+		vFalse := false
+		tests := []struct {
+			in   *bool
+			name string
+			want bool
+		}{
+			{in: nil, name: "nil", want: false},
+			{in: &vTrue, name: "true", want: true},
+			{in: &vFalse, name: "false", want: false},
 		}
-		v := true
-		if got := ptrconv.Bool(&v); !got {
-			t.Fatalf("expected true, got false")
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+				assert.Equal(t, tt.want, ptrconv.Bool(tt.in))
+			})
 		}
 	})
 
 	t.Run("String", func(t *testing.T) {
 		t.Parallel()
-		if got := ptrconv.String(nil); got != "" {
-			t.Fatalf("expected empty string, got %q", got)
+		vOK := "ok"
+		vEmpty := ""
+		tests := []struct {
+			in   *string
+			name string
+			want string
+		}{
+			{in: nil, name: "nil", want: ""},
+			{in: &vOK, name: "ok", want: "ok"},
+			{in: &vEmpty, name: "empty", want: ""},
 		}
-		v := "ok"
-		if got := ptrconv.String(&v); got != "ok" {
-			t.Fatalf("expected ok, got %q", got)
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+				assert.Equal(t, tt.want, ptrconv.String(tt.in))
+			})
 		}
 	})
 
 	t.Run("Float64", func(t *testing.T) {
 		t.Parallel()
-		if got := ptrconv.Float64(nil); got != 0 {
-			t.Fatalf("expected 0, got %v", got)
+		v125 := 1.25
+		tests := []struct {
+			in   *float64
+			name string
+			want float64
+		}{
+			{in: nil, name: "nil", want: 0},
+			{in: &v125, name: "value", want: 1.25},
 		}
-		v := 1.25
-		if got := ptrconv.Float64(&v); got != 1.25 {
-			t.Fatalf("expected 1.25, got %v", got)
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+				assert.InDelta(t, tt.want, ptrconv.Float64(tt.in), 1e-9)
+			})
 		}
 	})
 }
@@ -57,27 +96,59 @@ func TestPtrconvBasics(t *testing.T) {
 func TestInt64FromAny(t *testing.T) {
 	t.Parallel()
 
-	if got := ptrconv.Int64FromAny(float64(3.2)); got == nil || *got != 3 {
-		t.Fatalf("expected 3, got %v", got)
+	tests := []struct {
+		in   any
+		want *int64
+		name string
+	}{
+		{in: float64(3.2), want: int64Ptr(3), name: "float64"},
+		{in: int(7), want: int64Ptr(7), name: "int"},
+		{in: "nope", want: nil, name: "string"},
 	}
 
-	if got := ptrconv.Int64FromAny(int(7)); got == nil || *got != 7 {
-		t.Fatalf("expected 7, got %v", got)
-	}
-
-	if got := ptrconv.Int64FromAny("nope"); got != nil {
-		t.Fatalf("expected nil, got %v", *got)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := ptrconv.Int64FromAny(tt.in)
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("Int64FromAny() mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
 
 func TestNilIfEmpty(t *testing.T) {
 	t.Parallel()
 
-	if got := ptrconv.NilIfEmpty(""); got != nil {
-		t.Fatalf("expected nil, got %v", *got)
+	tests := []struct {
+		want *string
+		name string
+		in   string
+	}{
+		{want: nil, name: "empty", in: ""},
+		{want: stringPtr("x"), name: "populated", in: "x"},
 	}
 
-	if got := ptrconv.NilIfEmpty("x"); got == nil || *got != "x" {
-		t.Fatalf("expected x, got %v", got)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := ptrconv.NilIfEmpty(tt.in)
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("NilIfEmpty() mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
+}
+
+func int64Ptr(v int64) *int64 {
+	p := new(int64)
+	*p = v
+
+	return p
+}
+func stringPtr(v string) *string {
+	p := new(string)
+	*p = v
+
+	return p
 }

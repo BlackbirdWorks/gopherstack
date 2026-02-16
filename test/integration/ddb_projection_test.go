@@ -8,7 +8,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/google/uuid"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -52,11 +51,11 @@ func TestIntegration_DDB_ProjectionExpressions(t *testing.T) {
 				t.Helper()
 				require.NoError(t, err)
 				resp := result.(*dynamodb.GetItemOutput)
-				assert.NotNil(t, resp.Item)
-				assert.Equal(t, "item1", resp.Item["pk"].(*types.AttributeValueMemberS).Value)
-				assert.Equal(t, "some info", resp.Item["info"].(*types.AttributeValueMemberS).Value)
-				_, ok := resp.Item["extra"]
-				assert.False(t, ok, "extra attribute should not be present")
+				require.NotNil(t, resp.Item)
+				AssertItem(t, resp.Item, map[string]any{
+					"pk":   "item1",
+					"info": "some info",
+				})
 			},
 		},
 		{
@@ -86,12 +85,11 @@ func TestIntegration_DDB_ProjectionExpressions(t *testing.T) {
 				t.Helper()
 				require.NoError(t, err)
 				resp := result.(*dynamodb.ScanOutput)
-				assert.Len(t, resp.Items, 1)
-				item := resp.Items[0]
-				assert.Equal(t, "value1", item["data"].(*types.AttributeValueMemberS).Value)
-				assert.Equal(t, "meta1", item["meta"].(*types.AttributeValueMemberS).Value)
-				_, ok := item["pk"]
-				assert.False(t, ok, "pk should not be present")
+				require.Len(t, resp.Items, 1)
+				AssertItem(t, resp.Items[0], map[string]any{
+					"data": "value1",
+					"meta": "meta1",
+				})
 			},
 		},
 		{
@@ -127,21 +125,13 @@ func TestIntegration_DDB_ProjectionExpressions(t *testing.T) {
 				t.Helper()
 				require.NoError(t, err)
 				resp := result.(*dynamodb.QueryOutput)
-				assert.Len(t, resp.Items, 1)
-				item := resp.Items[0]
-
-				// Verify status
-				assert.Equal(t, "active", item["status"].(*types.AttributeValueMemberS).Value)
-
-				// Verify nested profile.name
-				profile, ok := item["profile"].(*types.AttributeValueMemberM)
-				assert.True(t, ok)
-				assert.NotNil(t, profile.Value["name"])
-				assert.Equal(t, "Andrew", profile.Value["name"].(*types.AttributeValueMemberS).Value)
-
-				// Verify profile.age is MISSING
-				_, hasAge := profile.Value["age"]
-				assert.False(t, hasAge, "profile.age should be missing")
+				require.Len(t, resp.Items, 1)
+				AssertItem(t, resp.Items[0], map[string]any{
+					"status": "active",
+					"profile": map[string]any{
+						"name": "Andrew",
+					},
+				})
 			},
 		},
 	}
