@@ -13,8 +13,8 @@ func TestLexer_NextToken(t *testing.T) {
 	input := `SET #a = :v1, #b = :v2 REMOVE #c age >= :minAge begins_with(pk, :prefix) contains(tags, :tag) size(tags) < 10 <> <= > ( ) [ ] . AND OR NOT BETWEEN IN ADD DELETE attribute_exists attribute_not_exists attribute_type`
 
 	tests := []struct {
-		expectedType    TokenType
 		expectedLiteral string
+		expectedType    TokenType
 	}{
 		{TokenSET, "SET"},
 		{TokenIdentifier, "#a"},

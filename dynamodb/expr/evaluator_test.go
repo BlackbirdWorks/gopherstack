@@ -12,21 +12,21 @@ func TestEvaluator_UnwrapAttributeValue(t *testing.T) {
 
 	eval := &Evaluator{}
 	tests := []struct {
-		name     string
 		input    any
 		expected any
+		name     string
 	}{
-		{"String", map[string]any{"S": "val"}, "val"},
-		{"Number", map[string]any{"N": "123"}, "123"},
-		{"Binary", map[string]any{"B": []byte("bin")}, []byte("bin")},
-		{"Bool", map[string]any{"BOOL": true}, true},
-		{"Null", map[string]any{"NULL": true}, nil},
-		{"Map", map[string]any{"M": map[string]any{"k": "v"}}, map[string]any{"k": "v"}},
-		{"List", map[string]any{"L": []any{"a"}}, []any{"a"}},
-		{"StringSet", map[string]any{"SS": []string{"a"}}, []string{"a"}},
-		{"NumberSet", map[string]any{"NS": []string{"1"}}, []string{"1"}},
-		{"BinarySet", map[string]any{"BS": [][]byte{[]byte("a")}}, [][]byte{[]byte("a")}},
-		{"RawValue", "raw", "raw"},
+		{map[string]any{"S": "val"}, "val", "String"},
+		{map[string]any{"N": "123"}, "123", "Number"},
+		{map[string]any{"B": []byte("bin")}, []byte("bin"), "Binary"},
+		{map[string]any{"BOOL": true}, true, "Bool"},
+		{map[string]any{"NULL": true}, nil, "Null"},
+		{map[string]any{"M": map[string]any{"k": "v"}}, map[string]any{"k": "v"}, "Map"},
+		{map[string]any{"L": []any{"a"}}, []any{"a"}, "List"},
+		{map[string]any{"SS": []string{"a"}}, []string{"a"}, "StringSet"},
+		{map[string]any{"NS": []string{"1"}}, []string{"1"}, "NumberSet"},
+		{map[string]any{"BS": [][]byte{[]byte("a")}}, [][]byte{[]byte("a")}, "BinarySet"},
+		{"raw", "raw", "RawValue"},
 	}
 
 	for _, tt := range tests {
@@ -42,17 +42,17 @@ func TestEvaluator_CalculateSize(t *testing.T) {
 
 	eval := &Evaluator{}
 	tests := []struct {
-		name     string
 		input    any
+		name     string
 		expected float64
 	}{
-		{"String", map[string]any{"S": "abc"}, 3},
-		{"Binary", map[string]any{"B": []byte{1, 2}}, 2},
-		{"List", map[string]any{"L": []any{1, 2, 3}}, 3},
-		{"Map", map[string]any{"M": map[string]any{"k": "v"}}, 1},
-		{"StringSet", map[string]any{"SS": []string{"a", "b"}}, 2},
-		{"BinarySet", map[string]any{"BS": [][]byte{[]byte("a")}}, 1},
-		{"Unsupported", map[string]any{"BOOL": true}, 0},
+		{map[string]any{"S": "abc"}, "String", 3},
+		{map[string]any{"B": []byte{1, 2}}, "Binary", 2},
+		{map[string]any{"L": []any{1, 2, 3}}, "List", 3},
+		{map[string]any{"M": map[string]any{"k": "v"}}, "Map", 1},
+		{map[string]any{"SS": []string{"a", "b"}}, "StringSet", 2},
+		{map[string]any{"BS": [][]byte{[]byte("a")}}, "BinarySet", 1},
+		{map[string]any{"BOOL": true}, "Unsupported", 0},
 	}
 
 	for _, tt := range tests {
@@ -173,9 +173,9 @@ func TestEvaluator_FunctionErrors(t *testing.T) {
 	eval := &Evaluator{}
 
 	tests := []struct {
-		name    string
-		fn      *FunctionExpr
 		wantErr error
+		fn      *FunctionExpr
+		name    string
 	}{
 		{"size wrong args", &FunctionExpr{Name: "size", Args: []Node{&ValuePlaceholder{Name: ":v"}, &ValuePlaceholder{Name: ":v"}}}, ErrSizeExpectsOneArg},
 		{"attribute_exists wrong args", &FunctionExpr{Name: "attribute_exists", Args: []Node{}}, ErrAttributeExistsExpectsOne},

@@ -19,31 +19,28 @@ type StoredBucket struct {
 
 // StoredObject represents an S3 object with its version history.
 type StoredObject struct {
-	Key      string
 	Versions map[string]*StoredObjectVersion
+	Key      string
 }
 
 // StoredObjectVersion represents a specific version of an S3 object.
 type StoredObjectVersion struct {
-	VersionID    string
-	Key          string
-	Data         []byte
-	IsCompressed bool
-	Size         int64
-	ETag         string
-	LastModified time.Time
-	ContentType  string
-	Metadata     map[string]string
-
-	// Checksums
-	ChecksumAlgorithm types.ChecksumAlgorithm // The algorithm used for calculation (if known/stored)
+	LastModified      time.Time
+	ChecksumSHA1      *string
+	Metadata          map[string]string
+	ChecksumSHA256    *string
 	ChecksumCRC32     *string
 	ChecksumCRC32C    *string
-	ChecksumSHA1      *string
-	ChecksumSHA256    *string
-
-	IsLatest bool
-	Deleted  bool
+	Key               string
+	ETag              string
+	ContentType       string
+	ChecksumAlgorithm types.ChecksumAlgorithm
+	VersionID         string
+	Data              []byte
+	Size              int64
+	IsCompressed      bool
+	IsLatest          bool
+	Deleted           bool
 }
 
 // StoredMultipartUpload represents an ongoing multipart upload session.

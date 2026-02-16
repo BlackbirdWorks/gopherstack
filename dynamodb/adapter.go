@@ -21,88 +21,98 @@ func ToSDKAttributeValue(v any) (types.AttributeValue, error) {
 	for k, val := range m {
 		switch k {
 		case "S":
-			s, ok := val.(string)
-			if !ok {
+			s, matched := val.(string)
+			if !matched {
 				return nil, fmt.Errorf("expected string for S, got %T", val)
 			}
+
 			return &types.AttributeValueMemberS{Value: s}, nil
 		case "N":
-			s, ok := val.(string)
-			if !ok {
+			s, matched := val.(string)
+			if !matched {
 				return nil, fmt.Errorf("expected string for N, got %T", val)
 			}
+
 			return &types.AttributeValueMemberN{Value: s}, nil
 		case "B":
-			s, ok := val.(string)
-			if !ok {
+			s, matched := val.(string)
+			if !matched {
 				return nil, fmt.Errorf("expected base64 string for B, got %T", val)
 			}
+
 			return &types.AttributeValueMemberB{Value: []byte(s)}, nil
 		case "BOOL":
-			b, ok := val.(bool)
-			if !ok {
+			bVal, matched := val.(bool)
+			if !matched {
 				return nil, fmt.Errorf("expected bool for BOOL, got %T", val)
 			}
-			return &types.AttributeValueMemberBOOL{Value: b}, nil
+
+			return &types.AttributeValueMemberBOOL{Value: bVal}, nil
 		case "NULL":
-			b, ok := val.(bool)
-			if !ok || !b {
+			bVal, matched := val.(bool)
+			if !matched || !bVal {
 				return nil, fmt.Errorf("expected true for NULL, got %v", val)
 			}
+
 			return &types.AttributeValueMemberNULL{Value: true}, nil
 		case "M":
-			mVal, ok := val.(map[string]any)
-			if !ok {
+			mVal, matched := val.(map[string]any)
+			if !matched {
 				return nil, fmt.Errorf("expected map for M, got %T", val)
 			}
+
 			return ToSDKMapAttribute(mVal)
 		case "L":
-			lVal, ok := val.([]any)
-			if !ok {
+			lVal, matched := val.([]any)
+			if !matched {
 				return nil, fmt.Errorf("expected slice for L, got %T", val)
 			}
+
 			return ToSDKListAttribute(lVal)
 		case "SS":
-			lVal, ok := val.([]any)
-			if !ok {
+			lVal, matched := val.([]any)
+			if !matched {
 				return nil, fmt.Errorf("expected slice for SS, got %T", val)
 			}
 			var ss []string
 			for _, item := range lVal {
-				s, ok := item.(string)
-				if !ok {
+				s, sMatched := item.(string)
+				if !sMatched {
 					return nil, fmt.Errorf("expected string in SS, got %T", item)
 				}
 				ss = append(ss, s)
 			}
+
 			return &types.AttributeValueMemberSS{Value: ss}, nil
 		case "NS":
-			lVal, ok := val.([]any)
-			if !ok {
+			lVal, matched := val.([]any)
+			if !matched {
 				return nil, fmt.Errorf("expected slice for NS, got %T", val)
 			}
 			var ns []string
 			for _, item := range lVal {
-				s, ok := item.(string)
-				if !ok {
+				s, sMatched := item.(string)
+				if !sMatched {
 					return nil, fmt.Errorf("expected string in NS, got %T", item)
 				}
 				ns = append(ns, s)
 			}
+
 			return &types.AttributeValueMemberNS{Value: ns}, nil
 		case "BS":
-			lVal, ok := val.([]any)
-			if !ok {
+			lVal, matched := val.([]any)
+			if !matched {
 				return nil, fmt.Errorf("expected slice for BS, got %T", val)
 			}
 			var bs [][]byte
 			for _, item := range lVal {
-				s, ok := item.(string)
-				if !ok {
+				s, sMatched := item.(string)
+				if !sMatched {
 					return nil, fmt.Errorf("expected string in BS, got %T", item)
 				}
 				bs = append(bs, []byte(s))
 			}
+
 			return &types.AttributeValueMemberBS{Value: bs}, nil
 		}
 	}
@@ -113,24 +123,26 @@ func ToSDKAttributeValue(v any) (types.AttributeValue, error) {
 func ToSDKMapAttribute(m map[string]any) (*types.AttributeValueMemberM, error) {
 	out := make(map[string]types.AttributeValue)
 	for k, v := range m {
-		av, err := ToSDKAttributeValue(v)
+		sdkVal, err := ToSDKAttributeValue(v)
 		if err != nil {
 			return nil, err
 		}
-		out[k] = av
+		out[k] = sdkVal
 	}
+
 	return &types.AttributeValueMemberM{Value: out}, nil
 }
 
-func ToSDKListAttribute(l []any) (*types.AttributeValueMemberL, error) {
-	out := make([]types.AttributeValue, len(l))
-	for i, v := range l {
-		av, err := ToSDKAttributeValue(v)
+func ToSDKListAttribute(l []any) (types.AttributeValue, error) {
+	var out []types.AttributeValue
+	for _, v := range l {
+		sdkVal, err := ToSDKAttributeValue(v)
 		if err != nil {
 			return nil, err
 		}
-		out[i] = av
+		out = append(out, sdkVal)
 	}
+
 	return &types.AttributeValueMemberL{Value: out}, nil
 }
 
@@ -185,19 +197,21 @@ func ToSDKItem(item map[string]any) (map[string]types.AttributeValue, error) {
 		}
 		out[k] = av
 	}
+
 	return out, nil
 }
 
-// Helper to convert map[string]types.AttributeValue back to map[string]any (wire item)
+// FromSDKItem converts map[string]types.AttributeValue back to map[string]any (wire item).
 func FromSDKItem(item map[string]types.AttributeValue) map[string]any {
 	out := make(map[string]any)
 	for k, v := range item {
 		out[k] = FromSDKAttributeValue(v)
 	}
+
 	return out
 }
 
-// ToSDKKeySchema converts internal KeySchema to SDK type
+// ToSDKKeySchema converts internal KeySchema to SDK type.
 func ToSDKKeySchema(schema []KeySchemaElement) []types.KeySchemaElement {
 	sdkSchema := make([]types.KeySchemaElement, len(schema))
 	for i, k := range schema {
@@ -207,6 +221,7 @@ func ToSDKKeySchema(schema []KeySchemaElement) []types.KeySchemaElement {
 			KeyType:       types.KeyType(k.KeyType),
 		}
 	}
+
 	return sdkSchema
 }
 
@@ -218,10 +233,11 @@ func FromSDKKeySchema(schema []types.KeySchemaElement) []KeySchemaElement {
 			KeyType:       string(k.KeyType),
 		}
 	}
+
 	return out
 }
 
-// ToSDKAttributeDefinitions converts internal AttributeDefinitions to SDK type
+// ToSDKAttributeDefinitions converts internal AttributeDefinitions to SDK type.
 func ToSDKAttributeDefinitions(defs []AttributeDefinition) []types.AttributeDefinition {
 	sdkDefs := make([]types.AttributeDefinition, len(defs))
 	for i, d := range defs {
@@ -231,6 +247,7 @@ func ToSDKAttributeDefinitions(defs []AttributeDefinition) []types.AttributeDefi
 			AttributeType: types.ScalarAttributeType(d.AttributeType),
 		}
 	}
+
 	return sdkDefs
 }
 
@@ -777,10 +794,11 @@ func ToSDKTransactWriteItemsInput(input *TransactWriteItemsInput) (*dynamodb.Tra
 				ExpressionAttributeNames: item.ConditionCheck.ExpressionAttributeNames,
 			}
 			if len(item.ConditionCheck.ExpressionAttributeValues) > 0 {
-				vals, err := ToSDKItem(item.ConditionCheck.ExpressionAttributeValues)
-				if err != nil {
-					return nil, err
+				vals, vErr := ToSDKItem(item.ConditionCheck.ExpressionAttributeValues)
+				if vErr != nil {
+					return nil, vErr
 				}
+
 				twi.ConditionCheck.ExpressionAttributeValues = vals
 			}
 		}
@@ -892,9 +910,15 @@ func FromSDKDescribeTableOutput(output *dynamodb.DescribeTableOutput) *DescribeT
 }
 
 func ToSDKListTablesInput(input *ListTablesInput) *dynamodb.ListTablesInput {
-	l := int32(input.Limit)
+	var l *int32
+
+	if input.Limit > 0 {
+		val := int32(input.Limit)
+		l = &val
+	}
+
 	return &dynamodb.ListTablesInput{
-		Limit: &l,
+		Limit: l,
 	}
 }
 

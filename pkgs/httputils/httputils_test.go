@@ -195,8 +195,8 @@ func (e *errResponseWriter) WriteHeader(statusCode int) {}
 func (e *errResponseWriter) Header() http.Header        { return make(http.Header) }
 
 type headerSuccessErrorWriter struct {
-	writeCount int
 	httptest.ResponseRecorder
+	writeCount int
 }
 
 func (e *headerSuccessErrorWriter) Write(b []byte) (int, error) {

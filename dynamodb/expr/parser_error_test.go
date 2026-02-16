@@ -10,10 +10,10 @@ func TestParser_Errors(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErr error
 		name    string
 		input   string
 		isUpd   bool
-		wantErr error
 	}{
 		{"grouped expr missing rparen", "(pk = :v", false, ErrExpectedRParen2},
 		{"dot segment missing identifier", "pk.", false, ErrExpectedIdentifierDot},

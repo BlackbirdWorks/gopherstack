@@ -13,10 +13,10 @@ func TestQuery_KeyCondition_WithParenthesesAndBeginsWith(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name                   string
-		keyConditionExpression string
 		attrNames              map[string]string
 		attrValues             map[string]any
+		name                   string
+		keyConditionExpression string
 		expectedCount          int
 	}{
 		{
