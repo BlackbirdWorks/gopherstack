@@ -147,6 +147,9 @@ const (
 	typeB    = "B"
 	typeL    = "L"
 	typeM    = "M"
+	typeSS   = "SS"
+	typeNS   = "NS"
+	typeBS   = "BS"
 )
 
 func validateTypeValue(k, t string, val any) error {
@@ -155,9 +158,59 @@ func validateTypeValue(k, t string, val any) error {
 		return validateScalarValue(k, t, val)
 	case typeL, typeM:
 		return validateComplexValue(k, t, val)
+	case typeSS, typeNS, typeBS:
+		return validateSetValue(k, t, val)
 	default:
-		return NewValidationException(fmt.Sprintf("Attribute %s has unknown type", k))
+		return NewValidationException(fmt.Sprintf("Attribute %s has unknown type: %s", k, t))
 	}
+}
+
+func validateSetValue(k, t string, val any) error {
+	var list []any
+	switch v := val.(type) {
+	case []any:
+		list = v
+	case []string:
+		list = make([]any, len(v))
+		for i, s := range v {
+			list[i] = s
+		}
+	case [][]byte:
+		list = make([]any, len(v))
+		for i, b := range v {
+			list[i] = string(b)
+		}
+	default:
+		return NewValidationException(fmt.Sprintf("Attribute %s of type %s must be a list, got %T", k, t, val))
+	}
+
+	if len(list) == 0 {
+		return NewValidationException(fmt.Sprintf("Attribute %s of type %s cannot be empty", k, t))
+	}
+
+	for _, item := range list {
+		switch t {
+		case typeSS:
+			if _, ok := item.(string); !ok {
+				return NewValidationException(fmt.Sprintf("Attribute %s elements must be strings", k))
+			}
+		case typeNS:
+			s, ok := item.(string)
+			if !ok {
+				return NewValidationException(fmt.Sprintf("Attribute %s elements must be strings (numbers represented as strings)", k))
+			}
+			if _, err := strconv.ParseFloat(s, 64); err != nil {
+				return NewValidationException(fmt.Sprintf("Attribute %s element %s must be a valid number", k, s))
+			}
+		case typeBS:
+			if _, ok := item.(string); !ok {
+				// We expect base64 strings in the wire format for B/BS
+				return NewValidationException(fmt.Sprintf("Attribute %s elements must be base64-encoded strings", k))
+			}
+		}
+	}
+
+	return nil
 }
 
 func validateScalarValue(k, t string, val any) error {

@@ -155,13 +155,22 @@ func (db *InMemoryDB) DescribeTable(input *dynamodb.DescribeTableInput) (*dynamo
 
 	gsiDescs := make([]GlobalSecondaryIndexDescription, len(table.GlobalSecondaryIndexes))
 	for i, gsi := range table.GlobalSecondaryIndexes {
+		rc := int64(DefaultReadCapacity)
+		wc := int64(DefaultWriteCapacity)
+		if gsi.ProvisionedThroughput.ReadCapacityUnits != nil {
+			rc = *gsi.ProvisionedThroughput.ReadCapacityUnits
+		}
+		if gsi.ProvisionedThroughput.WriteCapacityUnits != nil {
+			wc = *gsi.ProvisionedThroughput.WriteCapacityUnits
+		}
+
 		gsiDescs[i] = GlobalSecondaryIndexDescription{
 			IndexName:  gsi.IndexName,
 			KeySchema:  gsi.KeySchema,
 			Projection: gsi.Projection,
 			ProvisionedThroughput: ProvisionedThroughputDescription{
-				ReadCapacityUnits:  int(*gsi.ProvisionedThroughput.ReadCapacityUnits),
-				WriteCapacityUnits: int(*gsi.ProvisionedThroughput.WriteCapacityUnits),
+				ReadCapacityUnits:  int(rc),
+				WriteCapacityUnits: int(wc),
 			},
 			IndexStatus: TableStatusActive,
 			ItemCount:   len(table.Items),

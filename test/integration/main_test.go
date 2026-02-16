@@ -1,12 +1,9 @@
-//go:build integration
-
 package integration_test
 
 import (
 	"context"
 	"fmt"
 	"os"
-	"reflect"
 	"testing"
 	"time"
 
@@ -16,7 +13,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/docker/docker/api/types/build"
-	"github.com/sanity-io/litter"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
@@ -104,26 +100,4 @@ func createS3Client(t *testing.T) *s3.Client {
 		o.UsePathStyle = true
 		o.BaseEndpoint = aws.String(endpoint)
 	})
-}
-
-// dumpSDKOutput dumps an AWS SDK response struct via litter, safely zeroing out
-// ResultMetadata before traversal. This avoids a data race in Go's HTTP transport:
-// after RoundTrip returns, the transport's readLoop goroutine calls
-// context.removeChild (modifying the parent context's children map) concurrently
-// with litter's pointer-visitor walking into ResultMetadata.values → *http.Response
-// → Request.ctx → cancelCtx.children via reflect.Value.MapKeys.
-func dumpSDKOutput(v any) {
-	val := reflect.ValueOf(v)
-	if val.Kind() == reflect.Ptr {
-		val = val.Elem()
-	}
-
-	cp := reflect.New(val.Type()).Elem()
-	cp.Set(val)
-
-	if f := cp.FieldByName("ResultMetadata"); f.IsValid() {
-		f.SetZero()
-	}
-
-	litter.Dump(cp.Addr().Interface())
 }

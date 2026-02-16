@@ -48,7 +48,7 @@ func (h *Handler) s3Index(w http.ResponseWriter, _ *http.Request) {
 }
 
 // s3BucketList returns the list of buckets as HTML fragment.
-func (h *Handler) s3BucketList(w http.ResponseWriter, _ *http.Request) {
+func (h *Handler) s3BucketList(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
 	output, err := h.S3.ListBuckets(ctx, &s3.ListBucketsInput{})
 	if err != nil {
@@ -58,8 +58,12 @@ func (h *Handler) s3BucketList(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 
+	search := strings.ToLower(r.URL.Query().Get("search"))
 	var bucketInfos []BucketInfo
 	for _, bucket := range output.Buckets {
+		if search != "" && !strings.Contains(strings.ToLower(*bucket.Name), search) {
+			continue
+		}
 		// Get versioning status
 		versioning, _ := h.S3.GetBucketVersioning(ctx, &s3.GetBucketVersioningInput{
 			Bucket: bucket.Name,
@@ -454,7 +458,7 @@ func (h *Handler) deleteAllVersions(ctx context.Context, bucketName, key string)
 
 // s3Versioning handles bucket versioning configuration.
 func (h *Handler) s3Versioning(w http.ResponseWriter, r *http.Request, bucketName string) {
-	if r.Method != http.MethodPut {
+	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 
 		return

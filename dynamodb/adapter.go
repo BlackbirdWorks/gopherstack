@@ -1,6 +1,7 @@
 package dynamodb
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 
@@ -29,37 +30,59 @@ var (
 )
 
 func toStringSlice(val any, errType error, errItem error) ([]string, error) {
-	lVal, matched := val.([]any)
-	if !matched {
+	switch v := val.(type) {
+	case []string:
+		return v, nil
+	case []any:
+		var ss []string
+		for _, item := range v {
+			s, ok := item.(string)
+			if !ok {
+				return nil, fmt.Errorf("%w, got %T", errItem, item)
+			}
+			ss = append(ss, s)
+		}
+
+		return ss, nil
+	default:
 		return nil, fmt.Errorf("%w, got %T", errType, val)
 	}
-	var ss []string
-	for _, item := range lVal {
-		s, sMatched := item.(string)
-		if !sMatched {
-			return nil, fmt.Errorf("%w, got %T", errItem, item)
-		}
-		ss = append(ss, s)
-	}
+}
 
-	return ss, nil
+func decodeBinary(val any, errType error) ([]byte, error) {
+	switch v := val.(type) {
+	case []byte:
+		return v, nil
+	case string:
+		b, err := base64.StdEncoding.DecodeString(v)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid base64, %v", errType, err)
+		}
+
+		return b, nil
+	default:
+		return nil, fmt.Errorf("%w, got %T", errType, val)
+	}
 }
 
 func toByteSlice(val any, errType error, errItem error) ([][]byte, error) {
-	lVal, matched := val.([]any)
-	if !matched {
+	switch v := val.(type) {
+	case [][]byte:
+		return v, nil
+	case []any:
+		var bs [][]byte
+		for _, item := range v {
+			b, err := decodeBinary(item, errItem)
+			if err != nil {
+				return nil, err
+			}
+			bs = append(bs, b)
+		}
+
+		return bs, nil
+	default:
 		return nil, fmt.Errorf("%w, got %T", errType, val)
 	}
-	var bs [][]byte
-	for _, item := range lVal {
-		s, sMatched := item.(string)
-		if !sMatched {
-			return nil, fmt.Errorf("%w, got %T", errItem, item)
-		}
-		bs = append(bs, []byte(s))
-	}
-
-	return bs, nil
 }
 
 func convertStringType(val any) (types.AttributeValue, error) {
@@ -81,12 +104,12 @@ func convertNumberType(val any) (types.AttributeValue, error) {
 }
 
 func convertBinaryType(val any) (types.AttributeValue, error) {
-	s, matched := val.(string)
-	if !matched {
-		return nil, fmt.Errorf("%w, got %T", errInvalidTypeB, val)
+	b, err := decodeBinary(val, errInvalidTypeB)
+	if err != nil {
+		return nil, err
 	}
 
-	return &types.AttributeValueMemberB{Value: []byte(s)}, nil
+	return &types.AttributeValueMemberB{Value: b}, nil
 }
 
 func convertBoolType(val any) (types.AttributeValue, error) {
@@ -99,30 +122,12 @@ func convertBoolType(val any) (types.AttributeValue, error) {
 }
 
 func convertNullType(val any) (types.AttributeValue, error) {
-	bVal, matched := val.(bool)
-	if !matched || !bVal {
-		return nil, fmt.Errorf("%w, got %v", errInvalidTypeNULL, val)
-	}
-
-	return &types.AttributeValueMemberNULL{Value: true}, nil
-}
-
-func convertMapType(val any) (types.AttributeValue, error) {
-	mVal, matched := val.(map[string]any)
+	b, matched := val.(bool)
 	if !matched {
-		return nil, fmt.Errorf("%w, got %T", errInvalidTypeM, val)
+		return nil, fmt.Errorf("%w, got %T", errInvalidTypeNULL, val)
 	}
 
-	return ToSDKMapAttribute(mVal)
-}
-
-func convertListType(val any) (types.AttributeValue, error) {
-	lVal, matched := val.([]any)
-	if !matched {
-		return nil, fmt.Errorf("%w, got %T", errInvalidTypeL, val)
-	}
-
-	return ToSDKListAttribute(lVal)
+	return &types.AttributeValueMemberNULL{Value: b}, nil
 }
 
 func convertStringSetType(val any) (types.AttributeValue, error) {
@@ -150,6 +155,24 @@ func convertBinarySetType(val any) (types.AttributeValue, error) {
 	}
 
 	return &types.AttributeValueMemberBS{Value: bs}, nil
+}
+
+func convertMapType(val any) (types.AttributeValue, error) {
+	mVal, matched := val.(map[string]any)
+	if !matched {
+		return nil, fmt.Errorf("%w, got %T", errInvalidTypeM, val)
+	}
+
+	return ToSDKMapAttribute(mVal)
+}
+
+func convertListType(val any) (types.AttributeValue, error) {
+	lVal, matched := val.([]any)
+	if !matched {
+		return nil, fmt.Errorf("%w, got %T", errInvalidTypeL, val)
+	}
+
+	return ToSDKListAttribute(lVal)
 }
 
 // ToSDKAttributeValue converts a raw Go value (from JSON unmarshal) to an SDK AttributeValue.
@@ -226,7 +249,7 @@ func FromSDKAttributeValue(av types.AttributeValue) any {
 	case *types.AttributeValueMemberN:
 		return map[string]any{"N": v.Value}
 	case *types.AttributeValueMemberB:
-		return map[string]any{"B": string(v.Value)}
+		return map[string]any{"B": base64.StdEncoding.EncodeToString(v.Value)}
 	case *types.AttributeValueMemberBOOL:
 		return map[string]any{"BOOL": v.Value}
 	case *types.AttributeValueMemberNULL:
@@ -250,9 +273,9 @@ func FromSDKAttributeValue(av types.AttributeValue) any {
 	case *types.AttributeValueMemberNS:
 		return map[string]any{"NS": v.Value}
 	case *types.AttributeValueMemberBS:
-		bs := make([]string, len(v.Value))
+		bs := make([]any, len(v.Value))
 		for i, val := range v.Value {
-			bs[i] = string(val)
+			bs[i] = base64.StdEncoding.EncodeToString(val)
 		}
 
 		return map[string]any{"BS": bs}
@@ -382,14 +405,17 @@ func ToSDKProvisionedThroughput(pt ProvisionedThroughput) *types.ProvisionedThro
 func FromSDKGlobalSecondaryIndexes(gsis []types.GlobalSecondaryIndex) []GlobalSecondaryIndex {
 	out := make([]GlobalSecondaryIndex, len(gsis))
 	for i, gsi := range gsis {
+		pt := ProvisionedThroughput{}
+		if gsi.ProvisionedThroughput != nil {
+			pt.ReadCapacityUnits = gsi.ProvisionedThroughput.ReadCapacityUnits
+			pt.WriteCapacityUnits = gsi.ProvisionedThroughput.WriteCapacityUnits
+		}
+
 		out[i] = GlobalSecondaryIndex{
-			IndexName:  safeToString(gsi.IndexName),
-			KeySchema:  FromSDKKeySchema(gsi.KeySchema),
-			Projection: FromSDKProjection(gsi.Projection),
-			ProvisionedThroughput: ProvisionedThroughput{
-				ReadCapacityUnits:  gsi.ProvisionedThroughput.ReadCapacityUnits,
-				WriteCapacityUnits: gsi.ProvisionedThroughput.WriteCapacityUnits,
-			},
+			IndexName:             safeToString(gsi.IndexName),
+			KeySchema:             FromSDKKeySchema(gsi.KeySchema),
+			Projection:            FromSDKProjection(gsi.Projection),
+			ProvisionedThroughput: pt,
 		}
 	}
 
@@ -965,20 +991,20 @@ func FromSDKTransactWriteItemsOutput(*dynamodb.TransactWriteItemsOutput) *Transa
 
 func ToSDKTransactGetItemsInput(input *TransactGetItemsInput) (*dynamodb.TransactGetItemsInput, error) {
 	items := make([]types.TransactGetItem, 0, len(input.TransactItems))
-	for i, item := range input.TransactItems {
+	for _, item := range input.TransactItems {
 		if item.Get != nil {
 			sdkGet, err := ToSDKGetItemInput(item.Get)
 			if err != nil {
 				return nil, err
 			}
-			items[i] = types.TransactGetItem{
+			items = append(items, types.TransactGetItem{
 				Get: &types.Get{
 					Key:                      sdkGet.Key,
 					TableName:                sdkGet.TableName,
 					ExpressionAttributeNames: sdkGet.ExpressionAttributeNames,
 					ProjectionExpression:     sdkGet.ProjectionExpression,
 				},
-			}
+			})
 		}
 	}
 

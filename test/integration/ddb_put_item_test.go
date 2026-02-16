@@ -1,5 +1,3 @@
-//go:build integration
-
 package integration_test
 
 import (
@@ -15,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestPutItem(t *testing.T) {
+func TestDDB_PutItem(t *testing.T) {
 	t.Parallel()
 
 	client := createDynamoDBClient(t)

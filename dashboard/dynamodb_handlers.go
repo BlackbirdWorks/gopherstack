@@ -64,21 +64,36 @@ func (h *Handler) dynamoDBIndex(w http.ResponseWriter, _ *http.Request) {
 }
 
 // dynamoDBTableList returns the list of tables as HTML fragment.
-func (h *Handler) dynamoDBTableList(w http.ResponseWriter, _ *http.Request) {
+func (h *Handler) dynamoDBTableList(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
 	output, err := h.DynamoDB.ListTables(ctx, &dynamodb.ListTablesInput{})
 	if err != nil {
 		h.Logger.Error("Failed to list tables", "error", err)
-		http.Error(w, "Failed to list tables", http.StatusInternalServerError)
+		if strings.Contains(err.Error(), "ResourceNotFoundException") {
+			http.NotFound(w, r)
+		} else {
+			http.Error(w, "Failed to list tables", http.StatusInternalServerError)
+		}
 
 		return
 	}
 
+	search := strings.ToLower(r.URL.Query().Get("search"))
+	h.Logger.Info("DynamoDB search", "search", search, "all_tables", output.TableNames)
+	var filteredTables []string
+	for _, name := range output.TableNames {
+		if search == "" || strings.Contains(strings.ToLower(name), search) {
+			filteredTables = append(filteredTables, name)
+		}
+	}
+	output.TableNames = filteredTables
+
 	var tableInfos []TableInfo
 	for _, tableName := range output.TableNames {
 		var desc *dynamodb.DescribeTableOutput
-		desc, err = h.DynamoDB.DescribeTable(ctx, &dynamodb.DescribeTableInput{TableName: &tableName})
+		desc, err = h.DynamoDB.DescribeTable(ctx, &dynamodb.DescribeTableInput{TableName: aws.String(tableName)})
 		if err != nil {
+			h.Logger.Error("Failed to describe table for list", "table", tableName, "error", err)
 			continue
 		}
 		table := desc.Table
@@ -128,7 +143,9 @@ func (h *Handler) dynamoDBSearch(w http.ResponseWriter, r *http.Request) {
 // dynamoDBTableDetail renders the table detail page.
 func (h *Handler) dynamoDBTableDetail(w http.ResponseWriter, r *http.Request, tableName string) {
 	ctx := context.Background()
-	output, err := h.DynamoDB.DescribeTable(ctx, &dynamodb.DescribeTableInput{TableName: &tableName})
+	output, err := h.DynamoDB.DescribeTable(ctx, &dynamodb.DescribeTableInput{
+		TableName: &tableName,
+	})
 	if err != nil {
 		http.NotFound(w, r)
 
@@ -153,10 +170,12 @@ func (h *Handler) dynamoDBTableDetail(w http.ResponseWriter, r *http.Request, ta
 // extractTableInfo extracts display information from a DescribeTable output.
 func (h *Handler) extractTableInfo(table *types.TableDescription) TableInfo {
 	info := TableInfo{
-		TableName: *table.TableName,
-		ItemCount: *table.ItemCount,
+		TableName: aws.ToString(table.TableName),
 		GSICount:  len(table.GlobalSecondaryIndexes),
 		LSICount:  len(table.LocalSecondaryIndexes),
+	}
+	if table.ItemCount != nil {
+		info.ItemCount = *table.ItemCount
 	}
 
 	// Extract keys
@@ -200,8 +219,13 @@ func (h *Handler) extractIndexInfo(
 	attrDefs []types.AttributeDefinition,
 ) IndexInfo {
 	idxInfo := IndexInfo{
-		IndexName:      *name,
-		ProjectionType: string(projection.ProjectionType),
+		IndexName: *name,
+	}
+
+	if projection != nil {
+		idxInfo.ProjectionType = string(projection.ProjectionType)
+	} else {
+		idxInfo.ProjectionType = "INCLUDE"
 	}
 
 	for _, key := range keySchema {
@@ -243,7 +267,11 @@ func (h *Handler) dynamoDBQuery(w http.ResponseWriter, r *http.Request, tableNam
 	desc, err := h.DynamoDB.DescribeTable(ctx, &dynamodb.DescribeTableInput{TableName: &tableName})
 	if err != nil {
 		h.Logger.ErrorContext(ctx, "Failed to describe table", "error", err)
-		http.Error(w, "Failed to describe table", http.StatusInternalServerError)
+		if strings.Contains(err.Error(), "ResourceNotFoundException") {
+			http.NotFound(w, r)
+		} else {
+			http.Error(w, "Failed to describe table", http.StatusInternalServerError)
+		}
 
 		return
 	}
@@ -537,7 +565,17 @@ func (h *Handler) renderQueryResults(w http.ResponseWriter, result QueryResult) 
 	}
 
 	fmt.Fprintf(w, `</tbody></table></div>`)
-	fmt.Fprintf(w, `<div class="mt-4"><p>Count: %d | Scanned: %d</p></div>`, result.Count, result.ScannedCount)
+	fmt.Fprintf(w, `<div class="mt-4 flex justify-between items-center">`)
+	fmt.Fprintf(w, `<p>Count: %d | Scanned: %d</p>`, result.Count, result.ScannedCount)
+
+	if result.LastEvaluatedKey != nil {
+		kb, _ := json.Marshal(result.LastEvaluatedKey)
+		fmt.Fprintf(w, `<div class="flex items-center gap-2">`)
+		fmt.Fprintf(w, `<span class="text-sm opacity-70">ExclusiveStartKey:</span>`)
+		fmt.Fprintf(w, `<code class="text-xs bg-base-200 p-1 rounded">%s</code>`, string(kb))
+		fmt.Fprintf(w, `</div>`)
+	}
+	fmt.Fprintf(w, `</div>`)
 }
 
 // dynamoDBCreateTable handles table creation requests.
@@ -614,11 +652,10 @@ func (h *Handler) dynamoDBDeleteTable(w http.ResponseWriter, r *http.Request, ta
 
 	if err != nil {
 		h.Logger.Error("Failed to delete table", "table", tableName, "error", err)
-		// Return error alert
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		// If HTMX request, we can handle error display gracefully
-		// For now, simpler error
-		http.Error(w, fmt.Sprintf("Failed to delete table: %v", err), http.StatusInternalServerError)
+		toastMessage := fmt.Sprintf(`{"showToast": {"message": "Failed to delete table: %s", "type": "error"}}`,
+			strings.ReplaceAll(err.Error(), `"`, `'`))
+		w.Header().Set("Hx-Trigger", toastMessage)
+		w.WriteHeader(http.StatusUnprocessableEntity)
 
 		return
 	}

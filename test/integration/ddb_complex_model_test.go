@@ -1,5 +1,3 @@
-//go:build integration
-
 package integration_test
 
 import (
@@ -45,7 +43,7 @@ type NotificationPrefs struct {
 	Channel string
 }
 
-func TestComplexDataModel(t *testing.T) {
+func TestDDB_ComplexDataModel(t *testing.T) {
 	t.Parallel()
 	client := createDynamoDBClient(t)
 	ctx := t.Context()
@@ -70,15 +68,16 @@ func TestComplexDataModel(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, out)
 	require.NotNil(t, out.TableDescription)
-	dumpSDKOutput(out)
+
 	assert.Equal(t, tableName, aws.ToString(out.TableDescription.TableName))
 	assert.Equal(t, types.TableStatusActive, out.TableDescription.TableStatus)
 	assert.Equal(t, int64(0), aws.ToInt64(out.TableDescription.ItemCount))
 
 	t.Cleanup(func() {
-		client.DeleteTable(t.Context(), &dynamodb.DeleteTableInput{
+		_, _ = client.DeleteTable(t.Context(), &dynamodb.DeleteTableInput{
 			TableName: aws.String(tableName),
 		})
+		require.NoError(t, err)
 	})
 
 	// Wait for table creation (simulated delay for eventual consistency in real DynamoDB, instant in Gopherstack usually)

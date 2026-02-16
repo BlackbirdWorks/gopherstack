@@ -4,10 +4,12 @@ import (
 	"Gopherstack/dynamodb"
 	"bytes"
 	"encoding/json"
+	"hash/crc32"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -290,6 +292,62 @@ func TestHandler_Dispatch_Coverage(t *testing.T) {
 				assert.NotContains(t, w.Body.String(), "UnknownOperationException",
 					"Op %s returned UnknownOperation", op)
 			}
+		})
+	}
+}
+
+func TestHandler_CRC32Header(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		target string
+		body   string
+		setup  func(t *testing.T, db *dynamodb.InMemoryDB)
+	}{
+		{
+			name:   "success response has crc32 header",
+			target: "DynamoDB_20120810.ListTables",
+			body:   "{}",
+		},
+		{
+			name:   "error response has crc32 header",
+			target: "DynamoDB_20120810.DescribeTable",
+			body:   mustMarshal(t, dynamodb.DescribeTableInput{TableName: "Missing"}),
+		},
+		{
+			name:   "unknown operation response has crc32 header",
+			target: "DynamoDB_20120810.NotAnOp",
+			body:   "{}",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler := dynamodb.NewHandler()
+			if tc.setup != nil {
+				tc.setup(t, handler.DB)
+			}
+
+			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(tc.body))
+			req.Header.Set("X-Amz-Target", tc.target)
+			w := httptest.NewRecorder()
+
+			handler.ServeHTTP(w, req)
+
+			resp := w.Result()
+			defer resp.Body.Close()
+
+			crc32Header := resp.Header.Get("x-amz-crc32")
+			require.NotEmpty(t, crc32Header, "x-amz-crc32 header must be present")
+
+			gotChecksum, err := strconv.ParseUint(crc32Header, 10, 32)
+			require.NoError(t, err, "x-amz-crc32 header must be a valid uint32")
+
+			wantChecksum := uint64(crc32.ChecksumIEEE(w.Body.Bytes()))
+			assert.Equal(t, wantChecksum, gotChecksum, "x-amz-crc32 must match CRC32/IEEE of response body")
 		})
 	}
 }

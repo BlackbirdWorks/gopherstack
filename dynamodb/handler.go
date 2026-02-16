@@ -4,14 +4,40 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/crc32"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"Gopherstack/pkgs/httputils"
 )
 
 var ErrUnknownOperation = errors.New("UnknownOperationException")
+
+// writeDynamoDBJSON marshals payload to JSON, sets the x-amz-crc32 header with
+// the CRC32/IEEE checksum of the body (required by the DynamoDB protocol), and
+// writes the response.
+func writeDynamoDBJSON(logger *slog.Logger, w http.ResponseWriter, code int, payload any) {
+	response, err := json.Marshal(payload)
+	if err != nil {
+		if logger != nil {
+			logger.Error("failed to marshal JSON response", "error", err)
+		}
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+
+		return
+	}
+
+	checksum := crc32.ChecksumIEEE(response)
+	w.Header().Set("x-amz-crc32", strconv.FormatUint(uint64(checksum), 10))
+	w.Header().Set("Content-Length", strconv.Itoa(len(response)))
+	w.WriteHeader(code)
+
+	if _, wErr := w.Write(response); wErr != nil && logger != nil {
+		logger.Error("failed to write JSON response", "error", wErr)
+	}
+}
 
 // Handler handles HTTP requests for DynamoDB operations.
 type Handler struct {
@@ -53,7 +79,7 @@ func (h *Handler) GetSupportedOperations() []string {
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet && r.URL.Path == "/" {
 		ops := h.GetSupportedOperations()
-		httputils.WriteJSON(h.Logger, w, http.StatusOK, ops)
+		writeDynamoDBJSON(h.Logger, w, http.StatusOK, ops)
 
 		return
 	}
@@ -96,7 +122,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httputils.WriteJSON(h.Logger, w, http.StatusOK, response)
+	writeDynamoDBJSON(h.Logger, w, http.StatusOK, response)
 }
 
 func (h *Handler) dispatch(action string, body []byte) (any, error) {
@@ -216,10 +242,12 @@ func (h *Handler) handleError(w http.ResponseWriter, _ *http.Request, action str
 	if strings.HasPrefix(reqErr.Error(), "UnknownOperationException:") {
 		h.Logger.Warn("Unknown action", "action", action)
 		w.Header().Set("Content-Type", "application/x-amz-json-1.0")
+		body := []byte(`{"__type":"com.amazon.coral.service#UnknownOperationException","message":"Action not supported"}`)
+		checksum := crc32.ChecksumIEEE(body)
+		w.Header().Set("x-amz-crc32", strconv.FormatUint(uint64(checksum), 10))
+		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write(
-			[]byte(`{"__type":"com.amazon.coral.service#UnknownOperationException","message":"Action not supported"}`),
-		)
+		_, _ = w.Write(body)
 
 		return
 	}
@@ -229,7 +257,7 @@ func (h *Handler) handleError(w http.ResponseWriter, _ *http.Request, action str
 	statusCode, awsErr := h.classifyError(reqErr)
 
 	w.Header().Set("Content-Type", "application/x-amz-json-1.0")
-	httputils.WriteJSON(h.Logger, w, statusCode, awsErr)
+	writeDynamoDBJSON(h.Logger, w, statusCode, awsErr)
 }
 
 func (h *Handler) classifyError(reqErr error) (int, *Error) {
