@@ -14,6 +14,7 @@ import (
 
 func TestIntegration_DDB_ProjectionExpressions(t *testing.T) {
 	t.Parallel()
+	dumpContainerLogsOnFailure(t)
 	client := createDynamoDBClient(t)
 
 	type testCase struct {
@@ -148,13 +149,11 @@ func TestIntegration_DDB_ProjectionExpressions(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			// Create dedicated table for each test to allow parallel execution without conflict
 			tableName := createTable(t, client)
-			tc.setup(t, context.TODO(), tableName)
-			res, err := tc.operation(t, context.TODO(), tableName)
+			ctx := t.Context()
+			tc.setup(t, ctx, tableName)
+			res, err := tc.operation(t, ctx, tableName)
 			tc.verify(t, res, err)
-			// Cleanup happens automatically by defer deleteTable (if implemented in createTable helper)
-			// or relying on container cleanup.
 		})
 	}
 }
@@ -162,9 +161,8 @@ func TestIntegration_DDB_ProjectionExpressions(t *testing.T) {
 func createTable(t *testing.T, client *dynamodb.Client) string {
 	t.Helper()
 	tableName := "ProjectionTable-" + uuid.NewString()
-	ctx := context.TODO()
 
-	_, err := client.CreateTable(ctx, &dynamodb.CreateTableInput{
+	_, err := client.CreateTable(t.Context(), &dynamodb.CreateTableInput{
 		TableName: aws.String(tableName),
 		AttributeDefinitions: []types.AttributeDefinition{
 			{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
@@ -177,16 +175,11 @@ func createTable(t *testing.T, client *dynamodb.Client) string {
 			WriteCapacityUnits: aws.Int64(5),
 		},
 	})
-	if err != nil {
-		t.Fatalf("Failed to create table: %v", err)
-	}
+	require.NoError(t, err)
 
 	t.Cleanup(func() {
 		client.DeleteTable(context.Background(), &dynamodb.DeleteTableInput{TableName: aws.String(tableName)})
 	})
-
-	// Wait for table to be active (mock is instant, but good practice)
-	// time.Sleep(10 * time.Millisecond)
 
 	return tableName
 }

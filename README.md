@@ -2,7 +2,6 @@
 
 [![Release](https://github.com/agbishop/Gopherstack/actions/workflows/release.yml/badge.svg?branch=main)](https://github.com/agbishop/Gopherstack/actions/workflows/release.yml)
 [![Coverage](https://codecov.io/gh/agbishop/Gopherstack/branch/main/graph/badge.svg)](https://codecov.io/gh/agbishop/Gopherstack)
-[![Go Report Card](https://goreportcard.com/badge/github.com/agbishop/Gopherstack)](https://goreportcard.com/report/github.com/agbishop/Gopherstack)
 
 Gopherstack is a lightweight, in-memory AWS stack implementation for Go. It provides high-performance, mock-compatible versions of core AWS services like DynamoDB and S3, designed for rapid development, testing, and CI/CD pipelines.
 

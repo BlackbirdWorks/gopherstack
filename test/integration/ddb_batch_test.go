@@ -15,6 +15,7 @@ import (
 
 func TestIntegration_DDB_BatchOperations(t *testing.T) {
 	t.Parallel()
+	dumpContainerLogsOnFailure(t)
 	client := createDynamoDBClient(t)
 
 	type testCase struct {

@@ -69,6 +69,9 @@ func (b *InMemoryBackend) DeleteBucket(_ context.Context, input *s3.DeleteBucket
 		return nil, ErrNoSuchBucket
 	}
 
+	bucket.mu.Lock()
+	defer bucket.mu.Unlock()
+
 	if len(bucket.Objects) > 0 {
 		return nil, ErrBucketNotEmpty
 	}
@@ -93,8 +96,6 @@ func (b *InMemoryBackend) HeadBucket(_ context.Context, input *s3.HeadBucketInpu
 
 func (b *InMemoryBackend) ListBuckets(_ context.Context, _ *s3.ListBucketsInput) (*s3.ListBucketsOutput, error) {
 	b.mu.RLock()
-	defer b.mu.RUnlock()
-
 	buckets := make([]types.Bucket, 0, len(b.buckets))
 	for _, bucket := range b.buckets {
 		buckets = append(buckets, types.Bucket{
@@ -102,6 +103,7 @@ func (b *InMemoryBackend) ListBuckets(_ context.Context, _ *s3.ListBucketsInput)
 			CreationDate: aws.Time(bucket.CreationDate),
 		})
 	}
+	b.mu.RUnlock()
 
 	sort.Slice(buckets, func(i, j int) bool {
 		return *buckets[i].Name < *buckets[j].Name
@@ -117,108 +119,124 @@ func (b *InMemoryBackend) ListBuckets(_ context.Context, _ *s3.ListBucketsInput)
 }
 
 func (b *InMemoryBackend) PutObject(_ context.Context, input *s3.PutObjectInput) (*s3.PutObjectOutput, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
 	bucketName := *input.Bucket
 	key := *input.Key
 
-	bucket, exists := b.buckets[bucketName]
-	if !exists {
-		return nil, ErrNoSuchBucket
-	}
-
-	// Read data
-	data, err := io.ReadAll(input.Body)
+	// 1. Prepare data and metadata outside the lock
+	data, compressedData, isCompressed, etag, err := b.prepareObjectData(input)
 	if err != nil {
 		return nil, err
 	}
 
-	// Compress
+	checksums := struct {
+		crc32, crc32c, sha1, sha256 *string
+	}{
+		input.ChecksumCRC32, input.ChecksumCRC32C,
+		input.ChecksumSHA1, input.ChecksumSHA256,
+	}
+
+	// 2. Lock and update
+	b.mu.RLock()
+	bucket, exists := b.buckets[bucketName]
+	b.mu.RUnlock()
+
+	if !exists {
+		return nil, ErrNoSuchBucket
+	}
+
+	var newVersionID string
+	var finalQuotedETag string
+
+	err = func() error {
+		bucket.mu.Lock()
+		defer bucket.mu.Unlock()
+
+		newVersionID = "null"
+		if bucket.Versioning == types.BucketVersioningStatusEnabled {
+			newVersionID = strconv.FormatInt(time.Now().UnixNano(), 10)
+		}
+
+		obj, objExists := bucket.Objects[key]
+		if !objExists {
+			obj = &StoredObject{
+				Key:      key,
+				Versions: make(map[string]*StoredObjectVersion),
+			}
+			bucket.Objects[key] = obj
+		}
+
+		finalQuotedETag = "\"" + etag + "\""
+		newVersion := &StoredObjectVersion{
+			VersionID:         newVersionID,
+			Key:               key,
+			Data:              compressedData,
+			IsCompressed:      isCompressed,
+			Size:              int64(len(data)),
+			ETag:              finalQuotedETag,
+			LastModified:      time.Now(),
+			ContentType:       aws.ToString(input.ContentType),
+			Metadata:          input.Metadata,
+			ChecksumCRC32:     checksums.crc32,
+			ChecksumCRC32C:    checksums.crc32c,
+			ChecksumSHA1:      checksums.sha1,
+			ChecksumSHA256:    checksums.sha256,
+			ChecksumAlgorithm: input.ChecksumAlgorithm,
+			IsLatest:          true,
+		}
+
+		for _, v := range obj.Versions {
+			if v.IsLatest {
+				v.IsLatest = false
+			}
+		}
+
+		obj.Versions[newVersionID] = newVersion
+
+		return nil
+	}()
+	if err != nil {
+		return nil, err
+	}
+
+	b.storeObjectTags(input.Tagging, bucketName, key, newVersionID)
+
+	return &s3.PutObjectOutput{
+		ETag:           aws.String(finalQuotedETag),
+		VersionId:      aws.String(newVersionID),
+		ChecksumCRC32:  checksums.crc32,
+		ChecksumCRC32C: checksums.crc32c,
+		ChecksumSHA1:   checksums.sha1,
+		ChecksumSHA256: checksums.sha256,
+	}, nil
+}
+
+func (b *InMemoryBackend) prepareObjectData(
+	input *s3.PutObjectInput,
+) ([]byte, []byte, bool, string, error) {
+	data, err := io.ReadAll(input.Body)
+	if err != nil {
+		return nil, nil, false, "", err
+	}
+
 	var compressedData []byte
 	var isCompressed bool
 	if b.compressor != nil {
-		var compressErr error
-		compressedData, compressErr = b.compressor.Compress(data)
-		if compressErr != nil {
-			return nil, compressErr
+		if cData, cErr := b.compressor.Compress(data); cErr == nil {
+			compressedData = cData
+			isCompressed = true
+		} else {
+			return nil, nil, false, "", cErr
 		}
-		isCompressed = true
 	} else {
 		compressedData = data
 		isCompressed = false
 	}
 
-	// ETag (MD5)
 	//nolint:gosec // MD5 is required for S3 ETag
 	hash := md5.Sum(data)
 	etag := hex.EncodeToString(hash[:])
-	quotedETag := "\"" + etag + "\""
 
-	// Checksums
-	var checksumCRC32, checksumCRC32C, checksumSHA1, checksumSHA256 *string
-	// Use provided checksums or calculate if logic requires (SDK sends them if calculated)
-	// We'll trust input.Checksum* fields are set if client sent them.
-	checksumCRC32 = input.ChecksumCRC32
-	checksumCRC32C = input.ChecksumCRC32C
-	checksumSHA1 = input.ChecksumSHA1
-	checksumSHA256 = input.ChecksumSHA256
-
-	newVersionID := "null"
-	if bucket.Versioning == types.BucketVersioningStatusEnabled {
-		newVersionID = strconv.FormatInt(time.Now().UnixNano(), 10)
-	}
-
-	obj, exists := bucket.Objects[key]
-	if !exists {
-		obj = &StoredObject{
-			Key:      key,
-			Versions: make(map[string]*StoredObjectVersion),
-		}
-		bucket.Objects[key] = obj
-	}
-
-	newVersion := &StoredObjectVersion{
-		VersionID:         newVersionID,
-		Key:               key,
-		Data:              compressedData,
-		IsCompressed:      isCompressed,
-		Size:              int64(len(data)),
-		ETag:              quotedETag,
-		LastModified:      time.Now(),
-		ContentType:       aws.ToString(input.ContentType),
-		Metadata:          input.Metadata,
-		ChecksumCRC32:     checksumCRC32,
-		ChecksumCRC32C:    checksumCRC32C,
-		ChecksumSHA1:      checksumSHA1,
-		ChecksumSHA256:    checksumSHA256,
-		ChecksumAlgorithm: input.ChecksumAlgorithm, // Stored internally
-		IsLatest:          true,
-	}
-
-	// Unset IsLatest for previous version
-	for _, v := range obj.Versions {
-		if v.IsLatest {
-			v.IsLatest = false
-		}
-	}
-
-	obj.Versions[newVersionID] = newVersion
-
-	// Parse and store tags if provided
-	b.storeObjectTags(input.Tagging, *input.Bucket, *input.Key, newVersionID)
-
-	// Populate Output
-	output := &s3.PutObjectOutput{
-		ETag:           aws.String(quotedETag),
-		VersionId:      aws.String(newVersionID),
-		ChecksumCRC32:  checksumCRC32,
-		ChecksumCRC32C: checksumCRC32C,
-		ChecksumSHA1:   checksumSHA1,
-		ChecksumSHA256: checksumSHA256,
-	}
-
-	return output, nil
+	return data, compressedData, isCompressed, etag, nil
 }
 
 func (b *InMemoryBackend) storeObjectTags(tagging *string, bucket, key, versionID string) {
@@ -243,6 +261,9 @@ func (b *InMemoryBackend) storeObjectTags(tagging *string, bucket, key, versionI
 		return
 	}
 
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
 	if b.tags == nil {
 		b.tags = make(map[string][]types.Tag)
 	}
@@ -252,20 +273,23 @@ func (b *InMemoryBackend) storeObjectTags(tagging *string, bucket, key, versionI
 }
 
 func (b *InMemoryBackend) GetObject(_ context.Context, input *s3.GetObjectInput) (*s3.GetObjectOutput, error) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
 	bucketName := *input.Bucket
 	key := *input.Key
 	versionID := input.VersionId
 
+	b.mu.RLock()
 	bucket, exists := b.buckets[bucketName]
+	b.mu.RUnlock()
+
 	if !exists {
 		return nil, ErrNoSuchBucket
 	}
 
+	bucket.mu.RLock()
 	obj, exists := bucket.Objects[key]
 	if !exists {
+		bucket.mu.RUnlock()
+
 		return nil, ErrNoSuchKey
 	}
 
@@ -273,11 +297,12 @@ func (b *InMemoryBackend) GetObject(_ context.Context, input *s3.GetObjectInput)
 	if versionID != nil && *versionID != "" {
 		v, ok := obj.Versions[*versionID]
 		if !ok {
-			return nil, ErrNoSuchKey // Or NoSuchVersion
+			bucket.mu.RUnlock()
+
+			return nil, ErrNoSuchKey
 		}
 		ver = v
 	} else {
-		// Find latest
 		for _, v := range obj.Versions {
 			if v.IsLatest {
 				ver = v
@@ -288,11 +313,28 @@ func (b *InMemoryBackend) GetObject(_ context.Context, input *s3.GetObjectInput)
 	}
 
 	if ver == nil || ver.Deleted {
+		bucket.mu.RUnlock()
+
 		return nil, ErrNoSuchKey
 	}
 
-	data := ver.Data
-	if ver.IsCompressed {
+	// Copy data out for decompression outside the lock
+	dataToDecompress := ver.Data
+	isCompressed := ver.IsCompressed
+	size := ver.Size
+	contentType := ver.ContentType
+	etag := ver.ETag
+	lastModified := ver.LastModified
+	metadata := ver.Metadata
+	versionIDStr := ver.VersionID
+	checksumCRC32 := ver.ChecksumCRC32
+	checksumCRC32C := ver.ChecksumCRC32C
+	checksumSHA1 := ver.ChecksumSHA1
+	checksumSHA256 := ver.ChecksumSHA256
+	bucket.mu.RUnlock()
+
+	data := dataToDecompress
+	if isCompressed {
 		if b.compressor == nil {
 			return nil, ErrNoCompressor
 		}
@@ -305,33 +347,34 @@ func (b *InMemoryBackend) GetObject(_ context.Context, input *s3.GetObjectInput)
 
 	return &s3.GetObjectOutput{
 		Body:           io.NopCloser(bytes.NewReader(data)),
-		ContentLength:  aws.Int64(ver.Size),
-		ContentType:    aws.String(ver.ContentType),
-		ETag:           aws.String(ver.ETag),
-		LastModified:   aws.Time(ver.LastModified),
-		Metadata:       ver.Metadata,
-		VersionId:      aws.String(ver.VersionID),
-		ChecksumCRC32:  ver.ChecksumCRC32,
-		ChecksumCRC32C: ver.ChecksumCRC32C,
-		ChecksumSHA1:   ver.ChecksumSHA1,
-		ChecksumSHA256: ver.ChecksumSHA256,
-		// ChecksumAlgorithm field missing in strict SDK types if using older version,
-		// or maybe I just can't see it. I'll skip setting it and rely on specific fields.
+		ContentLength:  aws.Int64(size),
+		ContentType:    aws.String(contentType),
+		ETag:           aws.String(etag),
+		LastModified:   aws.Time(lastModified),
+		Metadata:       metadata,
+		VersionId:      aws.String(versionIDStr),
+		ChecksumCRC32:  checksumCRC32,
+		ChecksumCRC32C: checksumCRC32C,
+		ChecksumSHA1:   checksumSHA1,
+		ChecksumSHA256: checksumSHA256,
 	}, nil
 }
 
 func (b *InMemoryBackend) HeadObject(_ context.Context, input *s3.HeadObjectInput) (*s3.HeadObjectOutput, error) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
 	bucketName := *input.Bucket
 	key := *input.Key
 	versionID := input.VersionId
 
+	b.mu.RLock()
 	bucket, exists := b.buckets[bucketName]
+	b.mu.RUnlock()
+
 	if !exists {
 		return nil, ErrNoSuchBucket
 	}
+
+	bucket.mu.RLock()
+	defer bucket.mu.RUnlock()
 
 	obj, exists := bucket.Objects[key]
 	if !exists {
@@ -374,17 +417,20 @@ func (b *InMemoryBackend) HeadObject(_ context.Context, input *s3.HeadObjectInpu
 }
 
 func (b *InMemoryBackend) DeleteObject(_ context.Context, input *s3.DeleteObjectInput) (*s3.DeleteObjectOutput, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
 	bucketName := *input.Bucket
 	key := *input.Key
 	versionID := input.VersionId
 
+	b.mu.RLock()
 	bucket, exists := b.buckets[bucketName]
+	b.mu.RUnlock()
+
 	if !exists {
 		return nil, ErrNoSuchBucket
 	}
+
+	bucket.mu.Lock()
+	defer bucket.mu.Unlock()
 
 	obj, exists := bucket.Objects[key]
 	if !exists {
@@ -436,20 +482,21 @@ func (b *InMemoryBackend) DeleteObject(_ context.Context, input *s3.DeleteObject
 }
 
 func (b *InMemoryBackend) ListObjects(_ context.Context, input *s3.ListObjectsInput) (*s3.ListObjectsOutput, error) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
 	bucketName := *input.Bucket
+
+	b.mu.RLock()
 	bucket, exists := b.buckets[bucketName]
+	b.mu.RUnlock()
+
 	if !exists {
 		return nil, ErrNoSuchBucket
 	}
 
+	bucket.mu.RLock()
 	var contents []types.Object
 	prefix := aws.ToString(input.Prefix)
 
 	for _, obj := range bucket.Objects {
-		// Find latest non-deleted version
 		var latest *StoredObjectVersion
 		for _, v := range obj.Versions {
 			if v.IsLatest {
@@ -477,6 +524,7 @@ func (b *InMemoryBackend) ListObjects(_ context.Context, input *s3.ListObjectsIn
 			})
 		}
 	}
+	bucket.mu.RUnlock()
 
 	sort.Slice(contents, func(i, j int) bool {
 		return *contents[i].Key < *contents[j].Key
@@ -523,14 +571,18 @@ func (b *InMemoryBackend) ListObjectVersions(
 	_ context.Context,
 	input *s3.ListObjectVersionsInput,
 ) (*s3.ListObjectVersionsOutput, error) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
 	bucketName := *input.Bucket
+
+	b.mu.RLock()
 	bucket, exists := b.buckets[bucketName]
+	b.mu.RUnlock()
+
 	if !exists {
 		return nil, ErrNoSuchBucket
 	}
+
+	bucket.mu.RLock()
+	defer bucket.mu.RUnlock()
 
 	var versions []types.ObjectVersion
 	var deleteMarkers []types.DeleteMarkerEntry
@@ -583,14 +635,18 @@ func (b *InMemoryBackend) PutBucketVersioning(
 	_ context.Context,
 	input *s3.PutBucketVersioningInput,
 ) (*s3.PutBucketVersioningOutput, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
 	bucketName := *input.Bucket
+
+	b.mu.RLock()
 	bucket, exists := b.buckets[bucketName]
+	b.mu.RUnlock()
+
 	if !exists {
 		return nil, ErrNoSuchBucket
 	}
+
+	bucket.mu.Lock()
+	defer bucket.mu.Unlock()
 
 	status := input.VersioningConfiguration.Status
 	bucket.Versioning = status
@@ -602,14 +658,18 @@ func (b *InMemoryBackend) GetBucketVersioning(
 	_ context.Context,
 	input *s3.GetBucketVersioningInput,
 ) (*s3.GetBucketVersioningOutput, error) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
 	bucketName := *input.Bucket
+
+	b.mu.RLock()
 	bucket, exists := b.buckets[bucketName]
+	b.mu.RUnlock()
+
 	if !exists {
 		return nil, ErrNoSuchBucket
 	}
+
+	bucket.mu.RLock()
+	defer bucket.mu.RUnlock()
 
 	return &s3.GetBucketVersioningOutput{
 		Status: bucket.Versioning,
@@ -620,72 +680,62 @@ func (b *InMemoryBackend) PutObjectTagging(
 	_ context.Context,
 	input *s3.PutObjectTaggingInput,
 ) (*s3.PutObjectTaggingOutput, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
 	bucketName := *input.Bucket
 	key := *input.Key
 	versionID := input.VersionId
 
+	b.mu.RLock()
 	bucket, exists := b.buckets[bucketName]
+	b.mu.RUnlock()
+
 	if !exists {
 		return nil, ErrNoSuchBucket
 	}
 
-	obj, exists := bucket.Objects[key]
-	if !exists {
-		return nil, ErrNoSuchKey
-	}
+	resolvedVersionID, err := func() (string, error) {
+		bucket.mu.Lock()
+		defer bucket.mu.Unlock()
 
-	var ver *StoredObjectVersion
-	if versionID != nil && *versionID != "" {
-		v, ok := obj.Versions[*versionID]
-		if !ok {
-			return nil, ErrNoSuchKey
+		obj, objExists := bucket.Objects[key]
+		if !objExists {
+			return "", ErrNoSuchKey
 		}
-		ver = v
-	} else {
-		for _, v := range obj.Versions {
-			if v.IsLatest {
-				ver = v
 
-				break
+		var ver *StoredObjectVersion
+		if versionID != nil && *versionID != "" {
+			v, ok := obj.Versions[*versionID]
+			if !ok {
+				return "", ErrNoSuchKey
+			}
+			ver = v
+		} else {
+			for _, v := range obj.Versions {
+				if v.IsLatest {
+					ver = v
+
+					break
+				}
 			}
 		}
+
+		if ver == nil || ver.Deleted {
+			return "", ErrNoSuchKey
+		}
+
+		return ver.VersionID, nil
+	}()
+	if err != nil {
+		return nil, err
 	}
 
-	if ver == nil || ver.Deleted {
-		return nil, ErrNoSuchKey
-	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
-	// Store tags in version metadata or separate map?
-	// Simplified: Convert tags to map and store in internal structure if needed,
-	// but SDK Tagging is strict. `StoredObjectVersion` needs a Tags field correctly typing SDK tags.
-	// Current `StoredObjectVersion` has no Tags field.
-	// I should add it to StoredObjectVersion in `model.go` or just map string/string here.
-	// `GetObjectTagging` needs to return it.
-	// Since I cannot modify model.go in this write, I'll assume I can add it or repurpose Metadata? NOT GOOD.
-	// Wait, `model.go` internal types `StoredObjectVersion` doesn't have `Tags`.
-	// I need to update `model.go` to support tags, OR use a separate map in `InMemoryBackend`.
-	// `InMemoryBackend` struct has `buckets`.
-	// I'll add `Tags` to `StoredObjectVersion` in `model.go` in next step if I can't do it now.
-	// For now, I'll store it in a volatile map in `InMemoryBackend` keyed by version specific ID?
-	// or just hack it into Metadata with prefix? No.
-
-	// Actually, I'll use a separate `objectTags` map in `InMemoryBackend` for this Exercise.
-	// map[string][]types.Tag where key is "bucket/key/versionId"
-
-	// But `InMemoryBackend` struct definition is at top. I can't add field easily without
-	// redefining `NewInMemoryBackend` etc. I'll add `tags map[string][]types.Tag` to
-	// `InMemoryBackend` struct in this file.
-
-	// ... (see implementation below)
-
-	tagKey := fmt.Sprintf("%s/%s/%s", bucketName, key, ver.VersionID)
-	// Initialize map if nil (in struct)
+	tagKey := fmt.Sprintf("%s/%s/%s", bucketName, key, resolvedVersionID)
 	if b.tags == nil {
 		b.tags = make(map[string][]types.Tag)
 	}
+
 	b.tags[tagKey] = input.Tagging.TagSet
 
 	return &s3.PutObjectTaggingOutput{}, nil
@@ -695,35 +745,50 @@ func (b *InMemoryBackend) GetObjectTagging(
 	_ context.Context,
 	input *s3.GetObjectTaggingInput,
 ) (*s3.GetObjectTaggingOutput, error) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
 	bucketName := *input.Bucket
 	key := *input.Key
 	versionID := input.VersionId
 
-	// Verify existence...
+	b.mu.RLock()
 	bucket, exists := b.buckets[bucketName]
+	b.mu.RUnlock()
+
 	if !exists {
 		return nil, ErrNoSuchBucket
 	}
-	obj, exists := bucket.Objects[key]
-	if !exists {
-		return nil, ErrNoSuchKey
-	}
-	// resolve version...
-	var vid string
-	if versionID != nil && *versionID != "" {
-		vid = *versionID
-	} else {
+
+	vid, err := func() (string, error) {
+		bucket.mu.RLock()
+		defer bucket.mu.RUnlock()
+
+		obj, objExists := bucket.Objects[key]
+		if !objExists {
+			return "", ErrNoSuchKey
+		}
+
+		if versionID != nil && *versionID != "" {
+			v, ok := obj.Versions[*versionID]
+			if !ok {
+				return "", ErrNoSuchKey
+			}
+
+			return v.VersionID, nil
+		}
+
 		for _, v := range obj.Versions {
 			if v.IsLatest {
-				vid = v.VersionID
-
-				break
+				return v.VersionID, nil
 			}
 		}
+
+		return "", ErrNoSuchKey
+	}()
+	if err != nil {
+		return nil, err
 	}
+
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 
 	tagKey := fmt.Sprintf("%s/%s/%s", bucketName, key, vid)
 	tags := b.tags[tagKey]
@@ -737,35 +802,50 @@ func (b *InMemoryBackend) DeleteObjectTagging(
 	_ context.Context,
 	input *s3.DeleteObjectTaggingInput,
 ) (*s3.DeleteObjectTaggingOutput, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
 	bucketName := *input.Bucket
 	key := *input.Key
 	versionID := input.VersionId
 
+	b.mu.RLock()
 	bucket, exists := b.buckets[bucketName]
+	b.mu.RUnlock()
+
 	if !exists {
 		return nil, ErrNoSuchBucket
 	}
 
-	obj, exists := bucket.Objects[key]
-	if !exists {
+	vid, err := func() (string, error) {
+		bucket.mu.RLock()
+		defer bucket.mu.RUnlock()
+
+		obj, objExists := bucket.Objects[key]
+		if !objExists {
+			return "", nil // S3 Delete is idempotent
+		}
+
+		if versionID != nil && *versionID != "" {
+			return *versionID, nil
+		}
+
+		for _, v := range obj.Versions {
+			if v.IsLatest {
+				return v.VersionID, nil
+			}
+		}
+
+		return "", nil
+	}()
+	if err != nil {
+		return nil, err
+	}
+
+	if vid == "" {
 		return &s3.DeleteObjectTaggingOutput{}, nil
 	}
 
-	var vid string
-	if versionID != nil && *versionID != "" {
-		vid = *versionID
-	} else {
-		for _, v := range obj.Versions {
-			if v.IsLatest {
-				vid = v.VersionID
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
-				break
-			}
-		}
-	}
 	tagKey := bucketName + "/" + key + "/" + vid
 	if b.tags != nil {
 		delete(b.tags, tagKey)
@@ -780,18 +860,20 @@ func (b *InMemoryBackend) CreateMultipartUpload(
 	_ context.Context,
 	input *s3.CreateMultipartUploadInput,
 ) (*s3.CreateMultipartUploadOutput, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
 	bucketName := *input.Bucket
 	key := *input.Key
 
-	if _, exists := b.buckets[bucketName]; !exists {
+	b.mu.RLock()
+	_, exists := b.buckets[bucketName]
+	b.mu.RUnlock()
+
+	if !exists {
 		return nil, ErrNoSuchBucket
 	}
 
 	uploadID := strconv.FormatInt(time.Now().UnixNano(), 10)
 
+	b.mu.Lock()
 	if b.uploads == nil {
 		b.uploads = make(map[string]*StoredMultipartUpload)
 	}
@@ -802,6 +884,7 @@ func (b *InMemoryBackend) CreateMultipartUpload(
 		Key:      key,
 		Parts:    make(map[int32]*StoredPart),
 	}
+	b.mu.Unlock()
 
 	return &s3.CreateMultipartUploadOutput{
 		Bucket:   input.Bucket,
@@ -811,17 +894,10 @@ func (b *InMemoryBackend) CreateMultipartUpload(
 }
 
 func (b *InMemoryBackend) UploadPart(_ context.Context, input *s3.UploadPartInput) (*s3.UploadPartOutput, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
 	uploadID := *input.UploadId
 	partNumber := *input.PartNumber
 
-	upload, exists := b.uploads[uploadID]
-	if !exists {
-		return nil, ErrNoSuchUpload
-	}
-
+	// 1. Read data outside the lock
 	data, err := io.ReadAll(input.Body)
 	if err != nil {
 		return nil, err
@@ -830,6 +906,15 @@ func (b *InMemoryBackend) UploadPart(_ context.Context, input *s3.UploadPartInpu
 	//nolint:gosec // MD5 required
 	hash := md5.Sum(data)
 	etag := fmt.Sprintf("%q", hex.EncodeToString(hash[:]))
+
+	// 2. Update upload state
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	upload, exists := b.uploads[uploadID]
+	if !exists {
+		return nil, ErrNoSuchUpload
+	}
 
 	upload.Parts[partNumber] = &StoredPart{
 		PartNumber: partNumber,
@@ -847,23 +932,21 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 	_ context.Context,
 	input *s3.CompleteMultipartUploadInput,
 ) (*s3.CompleteMultipartUploadOutput, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
 	uploadID := *input.UploadId
 	bucketName := *input.Bucket
 	key := *input.Key
 
+	// 1. Get upload state
+	b.mu.RLock()
 	upload, exists := b.uploads[uploadID]
+	b.mu.RUnlock()
+
 	if !exists {
 		return nil, ErrNoSuchUpload
 	}
 
-	// Reassemble
+	// 2. Reassemble data outside the lock
 	var data []byte
-	// SDK input has MultipartUpload.Parts which is list of CompletedPart
-	// verifying ETags matches
-
 	for _, part := range input.MultipartUpload.Parts {
 		pNum := *part.PartNumber
 		storedPart, ok := upload.Parts[pNum]
@@ -871,32 +954,42 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 			return nil, ErrInvalidPart
 		}
 		if *part.ETag != storedPart.ETag {
-			// This check might fail if client sends unquoted ETag but we stored quoted?
-			// Need to normalize. The test sends what it got.
-			// Simplified:
-			if *part.ETag != storedPart.ETag {
-				return nil, ErrInvalidPart
-			}
+			return nil, ErrInvalidPart
 		}
 		data = append(data, storedPart.Data...)
 	}
 
-	// Create Object from data
-	// Call internal logic similar to PutObject but bypassing HTTP layer inputs
-
 	// Compress
-	compressedData, err := b.compressor.Compress(data)
-	if err != nil {
-		return nil, err
+	var compressedData []byte
+	var isCompressed bool
+	if b.compressor != nil {
+		var err error
+		compressedData, err = b.compressor.Compress(data)
+		if err != nil {
+			return nil, err
+		}
+		isCompressed = true
+	} else {
+		compressedData = data
+		isCompressed = false
 	}
 
-	// Calc final ETag (convention for MP upload: hash-partcount)
-	// Simplified: just MD5 of whole thing for now to pass simple tests
-	// Real S3 uses hash of hashes + "-N"
-	hash := md5.Sum(data) //nolint:gosec // MD5 required for S3 ETag compatibility
+	// ETag
+	hash := md5.Sum(data) //nolint:gosec // MD5 required
 	etag := fmt.Sprintf("%q", hex.EncodeToString(hash[:]))
 
-	bucket := b.buckets[bucketName]
+	// 3. Update bucket/object state
+	b.mu.RLock()
+	bucket, exists := b.buckets[bucketName]
+	b.mu.RUnlock()
+
+	if !exists {
+		return nil, ErrNoSuchBucket
+	}
+
+	bucket.mu.Lock()
+	defer bucket.mu.Unlock()
+
 	obj, exists := bucket.Objects[key]
 	if !exists {
 		obj = &StoredObject{Key: key, Versions: make(map[string]*StoredObjectVersion)}
@@ -908,30 +1001,32 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 		versionID = strconv.FormatInt(time.Now().UnixNano(), 10)
 	}
 
-	newVer := &StoredObjectVersion{
+	newVersion := &StoredObjectVersion{
 		VersionID:    versionID,
 		Key:          key,
 		Data:         compressedData,
-		IsCompressed: true,
+		IsCompressed: isCompressed,
 		Size:         int64(len(data)),
 		ETag:         etag,
 		LastModified: time.Now(),
 		IsLatest:     true,
-		// ContentType etc?
 	}
 
 	for _, v := range obj.Versions {
 		v.IsLatest = false
 	}
-	obj.Versions[versionID] = newVer
+	obj.Versions[versionID] = newVersion
 
+	// Cleanup upload
+	b.mu.Lock()
 	delete(b.uploads, uploadID)
+	b.mu.Unlock()
 
 	return &s3.CompleteMultipartUploadOutput{
-		Bucket:   input.Bucket,
-		Key:      input.Key,
-		ETag:     aws.String(etag),
-		Location: aws.String("/" + bucketName + "/" + key),
+		Bucket:    input.Bucket,
+		Key:       input.Key,
+		ETag:      aws.String(etag),
+		VersionId: aws.String(versionID),
 	}, nil
 }
 
@@ -939,16 +1034,16 @@ func (b *InMemoryBackend) AbortMultipartUpload(
 	_ context.Context,
 	input *s3.AbortMultipartUploadInput,
 ) (*s3.AbortMultipartUploadOutput, error) {
+	uploadID := *input.UploadId
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, exists := b.uploads[*input.UploadId]; !exists {
+	if _, exists := b.uploads[uploadID]; !exists {
 		return nil, ErrNoSuchUpload
 	}
 
-	delete(b.uploads, *input.UploadId)
+	delete(b.uploads, uploadID)
 
 	return &s3.AbortMultipartUploadOutput{}, nil
 }
-
-// Add struct fields locally

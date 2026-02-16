@@ -2,8 +2,6 @@ package integration_test
 
 import (
 	"context"
-	"errors"
-	"strings"
 	"testing"
 	"time"
 
@@ -11,11 +9,13 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestIntegration_DDB_ErrorSimulation(t *testing.T) {
 	t.Parallel()
+	dumpContainerLogsOnFailure(t)
 	client := createDynamoDBClient(t)
 
 	// Wait a bit to ensure container readiness
@@ -45,14 +45,8 @@ func TestIntegration_DDB_ErrorSimulation(t *testing.T) {
 			check: func(t *testing.T, err error) {
 				t.Helper()
 				require.Error(t, err)
-
 				var resourceNotFound *types.ResourceNotFoundException
-				if errors.As(err, &resourceNotFound) {
-					return
-				}
-				if !strings.Contains(err.Error(), "ResourceNotFoundException") {
-					t.Errorf("Expected ResourceNotFoundException, got %T: %v", err, err)
-				}
+				assert.ErrorAs(t, err, &resourceNotFound)
 			},
 		},
 	}
