@@ -42,7 +42,8 @@ jobs:
         with:
           profile: coverage.out
           local-prefix: github.com/${{ github.repository }}
-          threshold-total: 85
+          git-token: ${{ secrets.GITHUB_TOKEN }}
+          git-branch: ${{ github.head_ref || github.ref_name }}
       
       - name: Upload Coverage Report
         uses: actions/upload-artifact@v4
