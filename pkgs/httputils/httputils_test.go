@@ -1,6 +1,7 @@
-package httputils
+package httputils_test
 
 import (
+	"Gopherstack/pkgs/httputils"
 	"bytes"
 	"encoding/json"
 	"encoding/xml"
@@ -13,6 +14,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+)
+
+var (
+	errWrite = errors.New("write error")
+	errTest  = errors.New("test error")
 )
 
 func TestReadBody(t *testing.T) {
@@ -45,7 +51,7 @@ func TestReadBody(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			req := &http.Request{Body: tt.body}
-			got, err := ReadBody(req)
+			got, err := httputils.ReadBody(req)
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {
@@ -62,15 +68,14 @@ func TestDrainBody(t *testing.T) {
 	t.Run("nil body", func(t *testing.T) {
 		t.Parallel()
 		req := &http.Request{Body: nil}
-		DrainBody(req)
+		httputils.DrainBody(req)
 	})
 
 	t.Run("populated body", func(t *testing.T) {
 		t.Parallel()
 		body := io.NopCloser(bytes.NewReader([]byte("test data")))
 		req := &http.Request{Body: body}
-		DrainBody(req)
-		// Body should be closed and drained
+		httputils.DrainBody(req)
 	})
 }
 
@@ -82,9 +87,8 @@ func TestWriteError(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
-	err := errors.New("test error")
 
-	WriteError(logger, rec, req, err, http.StatusBadRequest)
+	httputils.WriteError(logger, rec, req, errTest, http.StatusBadRequest)
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Contains(t, rec.Body.String(), "test error")
@@ -99,7 +103,7 @@ func TestWriteJSON(t *testing.T) {
 		rec := httptest.NewRecorder()
 		payload := map[string]string{"foo": "bar"}
 
-		WriteJSON(nil, rec, http.StatusOK, payload)
+		httputils.WriteJSON(nil, rec, http.StatusOK, payload)
 
 		assert.Equal(t, http.StatusOK, rec.Code)
 		assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
@@ -115,10 +119,9 @@ func TestWriteJSON(t *testing.T) {
 		var buf bytes.Buffer
 		logger := slog.New(slog.NewTextHandler(&buf, nil))
 		rec := httptest.NewRecorder()
-		// channel cannot be marshaled to JSON
-		payload := make(chan int)
 
-		WriteJSON(logger, rec, http.StatusOK, payload)
+		// A channel cannot be marshaled to JSON.
+		httputils.WriteJSON(logger, rec, http.StatusOK, make(chan int))
 
 		assert.Equal(t, http.StatusInternalServerError, rec.Code)
 		assert.Contains(t, buf.String(), "failed to marshal JSON response")
@@ -130,7 +133,7 @@ func TestWriteJSON(t *testing.T) {
 		logger := slog.New(slog.NewTextHandler(&buf, nil))
 		mw := &errResponseWriter{}
 
-		WriteJSON(logger, mw, http.StatusOK, map[string]string{"foo": "bar"})
+		httputils.WriteJSON(logger, mw, http.StatusOK, map[string]string{"foo": "bar"})
 		assert.Contains(t, buf.String(), "failed to write JSON response")
 	})
 }
@@ -148,7 +151,7 @@ func TestWriteXML(t *testing.T) {
 		rec := httptest.NewRecorder()
 		payload := testXML{Foo: "bar"}
 
-		WriteXML(nil, rec, http.StatusOK, payload)
+		httputils.WriteXML(nil, rec, http.StatusOK, payload)
 
 		assert.Equal(t, http.StatusOK, rec.Code)
 		assert.Equal(t, "application/xml", rec.Header().Get("Content-Type"))
@@ -160,26 +163,25 @@ func TestWriteXML(t *testing.T) {
 		assert.Equal(t, payload.Foo, got.Foo)
 	})
 
-	t.Run("header write error", func(t *testing.T) {
+	t.Run("write error", func(t *testing.T) {
 		t.Parallel()
 		var buf bytes.Buffer
 		logger := slog.New(slog.NewTextHandler(&buf, nil))
 		mw := &errResponseWriter{}
 
-		WriteXML(logger, mw, http.StatusOK, testXML{Foo: "bar"})
-		assert.Contains(t, buf.String(), "failed to write XML header")
+		httputils.WriteXML(logger, mw, http.StatusOK, testXML{Foo: "bar"})
+		assert.Contains(t, buf.String(), "failed to write XML response")
 	})
 
 	t.Run("encode error", func(t *testing.T) {
 		t.Parallel()
 		var buf bytes.Buffer
 		logger := slog.New(slog.NewTextHandler(&buf, nil))
+		rec := httptest.NewRecorder()
 
-		// A ResponseWriter that succeeds for the header but fails for the payload
-		mw := &headerSuccessErrorWriter{}
-
-		WriteXML(logger, mw, http.StatusOK, testXML{Foo: "bar"})
-		assert.Contains(t, buf.String(), "failed to write XML response")
+		// A channel cannot be marshaled to XML.
+		httputils.WriteXML(logger, rec, http.StatusOK, make(chan int))
+		assert.Contains(t, buf.String(), "failed to marshal XML response")
 	})
 }
 
@@ -187,25 +189,10 @@ type errResponseWriter struct {
 	httptest.ResponseRecorder
 }
 
-func (e *errResponseWriter) Write(b []byte) (int, error) {
-	return 0, errors.New("write error")
+func (e *errResponseWriter) Write(_ []byte) (int, error) {
+	return 0, errWrite
 }
 
-func (e *errResponseWriter) WriteHeader(statusCode int) {}
-func (e *errResponseWriter) Header() http.Header        { return make(http.Header) }
+func (e *errResponseWriter) WriteHeader(_ int) {}
 
-type headerSuccessErrorWriter struct {
-	httptest.ResponseRecorder
-	writeCount int
-}
-
-func (e *headerSuccessErrorWriter) Write(b []byte) (int, error) {
-	e.writeCount++
-	if e.writeCount == 1 {
-		return len(b), nil // Header succeeds
-	}
-	return 0, errors.New("encode error")
-}
-
-func (e *headerSuccessErrorWriter) WriteHeader(statusCode int) {}
-func (e *headerSuccessErrorWriter) Header() http.Header        { return make(http.Header) }
+func (e *errResponseWriter) Header() http.Header { return make(http.Header) }

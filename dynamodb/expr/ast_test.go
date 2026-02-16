@@ -1,27 +1,26 @@
-package expr
+package expr_test
 
 import (
+	"Gopherstack/dynamodb/expr"
 	"testing"
 )
 
-func TestASTNodes_exprNode(t *testing.T) {
+func TestASTNodes_ImplementNode(t *testing.T) {
 	t.Parallel()
 
-	// Test each node type to satisfy the interface and coverage
-	nodes := []Node{
-		&LogicalExpr{},
-		&NotExpr{},
-		&ComparisonExpr{},
-		&BetweenExpr{},
-		&InExpr{},
-		&FunctionExpr{},
-		&PathExpr{},
-		&ValuePlaceholder{},
-		&UpdateExpr{},
-		&ProjectionExpr{},
+	// Verify all node types satisfy the Node interface.
+	nodes := []expr.Node{
+		&expr.LogicalExpr{},
+		&expr.NotExpr{},
+		&expr.ComparisonExpr{},
+		&expr.BetweenExpr{},
+		&expr.InExpr{},
+		&expr.FunctionExpr{},
+		&expr.PathExpr{},
+		&expr.ValuePlaceholder{},
+		&expr.UpdateExpr{},
+		&expr.ProjectionExpr{},
 	}
 
-	for _, n := range nodes {
-		n.exprNode()
-	}
+	_ = nodes
 }

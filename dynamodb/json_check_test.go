@@ -1,8 +1,7 @@
-package dynamodb
+package dynamodb_test
 
 import (
 	"encoding/json"
-	"fmt"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -12,7 +11,8 @@ import (
 )
 
 func TestSDKJSONMarshaling(t *testing.T) {
-	// Test basic input struct
+	t.Parallel()
+
 	input := &dynamodb.CreateTableInput{
 		TableName: aws.String("TestTable"),
 		KeySchema: []types.KeySchemaElement{
@@ -29,9 +29,8 @@ func TestSDKJSONMarshaling(t *testing.T) {
 
 	b, err := json.Marshal(input)
 	require.NoError(t, err)
-	fmt.Printf("CreateTableInput JSON: %s\n", string(b))
+	t.Logf("CreateTableInput JSON: %s", string(b))
 
-	// Test output struct with AttributeValue
 	output := &dynamodb.PutItemOutput{
 		Attributes: map[string]types.AttributeValue{
 			"PK":    &types.AttributeValueMemberS{Value: "123"},
@@ -40,5 +39,5 @@ func TestSDKJSONMarshaling(t *testing.T) {
 	}
 	b, err = json.Marshal(output)
 	require.NoError(t, err)
-	fmt.Printf("PutItemOutput JSON: %s\n", string(b))
+	t.Logf("PutItemOutput JSON: %s", string(b))
 }

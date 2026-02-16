@@ -11,7 +11,8 @@
       "Bash(go run:*)",
       "Bash(go version:*)",
       "Bash(ls:*)",
-      "Bash(go doc:*)"
+      "Bash(go doc:*)",
+      "Bash(go tool cover:*)"
     ]
   }
 }
