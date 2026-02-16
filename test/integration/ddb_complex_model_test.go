@@ -43,7 +43,7 @@ type NotificationPrefs struct {
 	Channel string
 }
 
-func TestDDB_ComplexDataModel(t *testing.T) {
+func TestIntegration_DDB_ComplexDataModel(t *testing.T) {
 	t.Parallel()
 	client := createDynamoDBClient(t)
 	ctx := t.Context()

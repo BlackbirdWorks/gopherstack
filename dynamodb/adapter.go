@@ -1193,6 +1193,7 @@ func FromSDKGlobalSecondaryIndexDescriptions(
 			ItemCount: int(safeToInt64(gsi.ItemCount)),
 		}
 	}
+
 	return out
 }
 

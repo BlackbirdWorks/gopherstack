@@ -17,6 +17,7 @@ import (
 )
 
 func TestInternal_ToAttributeValue(t *testing.T) {
+	t.Parallel()
 	h := &Handler{}
 
 	val := h.toAttributeValue("100", types.ScalarAttributeTypeN)
@@ -34,6 +35,7 @@ func TestInternal_ToAttributeValue(t *testing.T) {
 }
 
 func TestInternal_RenderTemplate_Error(t *testing.T) {
+	t.Parallel()
 	tmpl := template.Must(template.New("test").Parse("{{.BadField}}"))
 	h := &Handler{
 		layout: tmpl,
@@ -46,6 +48,7 @@ func TestInternal_RenderTemplate_Error(t *testing.T) {
 }
 
 func TestInternal_RenderFragment_Error(t *testing.T) {
+	t.Parallel()
 	tmpl := template.Must(template.New("test").Parse("{{.BadField}}"))
 	h := &Handler{
 		layout: tmpl,
@@ -58,6 +61,7 @@ func TestInternal_RenderFragment_Error(t *testing.T) {
 }
 
 func TestInternal_ExtractKeys(t *testing.T) {
+	t.Parallel()
 	h := &Handler{}
 	schema := []types.KeySchemaElement{
 		{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
@@ -69,6 +73,7 @@ func TestInternal_ExtractKeys(t *testing.T) {
 }
 
 func TestInternal_ResolveKeySchema_Table(t *testing.T) {
+	t.Parallel()
 	h := &Handler{}
 	desc := &dynamodb.DescribeTableOutput{
 		Table: &types.TableDescription{
@@ -90,6 +95,7 @@ func TestInternal_ResolveKeySchema_Table(t *testing.T) {
 }
 
 func TestInternal_ExtractIndexInfo_LSI(t *testing.T) {
+	t.Parallel()
 	h := &Handler{}
 	name := aws.String("my-lsi")
 	schema := []types.KeySchemaElement{
@@ -114,6 +120,7 @@ func TestInternal_ExtractIndexInfo_LSI(t *testing.T) {
 }
 
 func TestInternal_ExtractTableInfo_WithSK(t *testing.T) {
+	t.Parallel()
 	h := &Handler{}
 	desc := &types.TableDescription{
 		TableName: aws.String("full-table"),
@@ -144,6 +151,7 @@ func TestInternal_ExtractTableInfo_WithSK(t *testing.T) {
 }
 
 func TestInternal_ToAttributeValue_Extended(t *testing.T) {
+	t.Parallel()
 	h := &Handler{}
 
 	val := h.toAttributeValue("10.5", types.ScalarAttributeTypeN)
@@ -154,6 +162,7 @@ func TestInternal_ToAttributeValue_Extended(t *testing.T) {
 }
 
 func TestInternal_ResolveIndexKeys_Success(t *testing.T) {
+	t.Parallel()
 	h := &Handler{}
 	desc := &dynamodb.DescribeTableOutput{
 		Table: &types.TableDescription{
@@ -174,6 +183,7 @@ func TestInternal_ResolveIndexKeys_Success(t *testing.T) {
 }
 
 func TestInternal_RenderQueryResults_WithPagination(t *testing.T) {
+	t.Parallel()
 	h := &Handler{
 		Logger: slog.Default(),
 	}
@@ -193,8 +203,9 @@ func TestInternal_RenderQueryResults_WithPagination(t *testing.T) {
 }
 
 func TestInMemClient_RoundTrip(t *testing.T) {
+	t.Parallel()
 	mux := http.NewServeMux()
-	mux.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/test", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
 	})
@@ -206,12 +217,14 @@ func TestInMemClient_RoundTrip(t *testing.T) {
 }
 
 func TestInternal_ToAttributeValue_Binary(t *testing.T) {
+	t.Parallel()
 	h := &Handler{}
 	val := h.toAttributeValue("data", types.ScalarAttributeTypeB)
 	assert.Equal(t, &types.AttributeValueMemberB{Value: []byte("data")}, val)
 }
 
 func TestInternal_ExtractIndexInfo_EdgeCases(t *testing.T) {
+	t.Parallel()
 	h := &Handler{}
 	// Nil projection
 	info := h.extractIndexInfo(aws.String("idx"), nil, nil, nil)
@@ -220,6 +233,7 @@ func TestInternal_ExtractIndexInfo_EdgeCases(t *testing.T) {
 }
 
 func TestInternal_ResolveKeySchema_Error(t *testing.T) {
+	t.Parallel()
 	h := &Handler{}
 	desc := &dynamodb.DescribeTableOutput{
 		Table: &types.TableDescription{
@@ -234,6 +248,7 @@ func TestInternal_ResolveKeySchema_Error(t *testing.T) {
 }
 
 func TestInternal_ExtractKeys_Empty(t *testing.T) {
+	t.Parallel()
 	h := &Handler{}
 	pk, sk := h.extractKeys(nil)
 	assert.Empty(t, pk)
@@ -241,6 +256,7 @@ func TestInternal_ExtractKeys_Empty(t *testing.T) {
 }
 
 func TestInternal_ParseQueryRequest_Empty(t *testing.T) {
+	t.Parallel()
 	h := &Handler{Logger: slog.Default()}
 	req := httptest.NewRequest(http.MethodPost, "/test", strings.NewReader(""))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -251,6 +267,7 @@ func TestInternal_ParseQueryRequest_Empty(t *testing.T) {
 }
 
 func TestInternal_ExtractTableInfo_GSILSI(t *testing.T) {
+	t.Parallel()
 	h := &Handler{}
 	desc := &types.TableDescription{
 		TableName: aws.String("table"),
@@ -285,6 +302,7 @@ func TestInternal_ExtractTableInfo_GSILSI(t *testing.T) {
 }
 
 func TestInternal_RenderTemplate_Success(t *testing.T) {
+	t.Parallel()
 	h := &Handler{
 		layout: template.Must(template.New("layout.html").Parse(`{{define "layout.html"}}ok{{end}}`)),
 		Logger: slog.Default(),
@@ -296,6 +314,7 @@ func TestInternal_RenderTemplate_Success(t *testing.T) {
 }
 
 func TestInternal_RenderQueryResults_Full(t *testing.T) {
+	t.Parallel()
 	h := &Handler{Logger: slog.Default()}
 	result := QueryResult{
 		Items: []map[string]types.AttributeValue{
@@ -316,6 +335,7 @@ func TestInternal_RenderQueryResults_Full(t *testing.T) {
 }
 
 func TestInternal_ParseQueryRequest_Full(t *testing.T) {
+	t.Parallel()
 	h := &Handler{Logger: slog.Default()}
 	form := url.Values{}
 	form.Add("indexName", "idx")

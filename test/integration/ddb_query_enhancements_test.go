@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDDB_QueryEnhancements(t *testing.T) {
+func TestIntegration_DDB_QueryEnhancements(t *testing.T) {
 	t.Parallel()
 	client := createDynamoDBClient(t)
 
@@ -68,7 +68,7 @@ func TestDDB_QueryEnhancements(t *testing.T) {
 				":pk": &types.AttributeValueMemberS{Value: "A"},
 			},
 		})
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Len(t, out.Items, 5)
 		assert.Equal(t, "1", out.Items[0]["sk"].(*types.AttributeValueMemberN).Value)
 		assert.Equal(t, "5", out.Items[4]["sk"].(*types.AttributeValueMemberN).Value)
@@ -82,7 +82,7 @@ func TestDDB_QueryEnhancements(t *testing.T) {
 			},
 			ScanIndexForward: aws.Bool(false),
 		})
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Len(t, outRev.Items, 5)
 		assert.Equal(t, "5", outRev.Items[0]["sk"].(*types.AttributeValueMemberN).Value)
 		assert.Equal(t, "1", outRev.Items[4]["sk"].(*types.AttributeValueMemberN).Value)
@@ -111,7 +111,7 @@ func TestDDB_QueryEnhancements(t *testing.T) {
 				":v":  &types.AttributeValueMemberN{Value: "3"},
 			},
 		})
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Len(t, out.Items, 2) // 4, 5
 		assert.Equal(t, "4", out.Items[0]["sk"].(*types.AttributeValueMemberN).Value)
 
@@ -124,7 +124,7 @@ func TestDDB_QueryEnhancements(t *testing.T) {
 				":v":  &types.AttributeValueMemberN{Value: "2"},
 			},
 		})
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Len(t, out2.Items, 2) // 1, 2
 	})
 
@@ -152,7 +152,7 @@ func TestDDB_QueryEnhancements(t *testing.T) {
 			},
 			Limit: aws.Int32(3),
 		})
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Len(t, out1.Items, 3)
 		assert.NotNil(t, out1.LastEvaluatedKey)
 		assert.Equal(t, "3", out1.Items[2]["sk"].(*types.AttributeValueMemberN).Value)
@@ -167,7 +167,7 @@ func TestDDB_QueryEnhancements(t *testing.T) {
 			Limit:             aws.Int32(3),
 			ExclusiveStartKey: out1.LastEvaluatedKey,
 		})
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Len(t, out2.Items, 3) // 4, 5, 6
 		assert.Equal(t, "4", out2.Items[0]["sk"].(*types.AttributeValueMemberN).Value)
 		assert.Equal(t, "6", out2.Items[2]["sk"].(*types.AttributeValueMemberN).Value)

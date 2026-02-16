@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDDB_PutItem(t *testing.T) {
+func TestIntegration_DDB_PutItem(t *testing.T) {
 	t.Parallel()
 
 	client := createDynamoDBClient(t)
@@ -119,10 +119,10 @@ func TestDDB_PutItem(t *testing.T) {
 
 			t.Cleanup(func() {
 				// Use a fresh context for cleanup as t.Context() might be cancelled
-				_, err := client.DeleteTable(context.Background(), &dynamodb.DeleteTableInput{
+				_, dErr := client.DeleteTable(context.Background(), &dynamodb.DeleteTableInput{
 					TableName: aws.String(tableName),
 				})
-				assert.NoError(t, err)
+				assert.NoError(t, dErr)
 			})
 
 			// Wait for table to be ready (usually instant for in-memory, but good practice)

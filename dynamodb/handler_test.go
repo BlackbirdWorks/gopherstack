@@ -300,10 +300,10 @@ func TestHandler_CRC32Header(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup  func(t *testing.T, db *dynamodb.InMemoryDB)
 		name   string
 		target string
 		body   string
-		setup  func(t *testing.T, db *dynamodb.InMemoryDB)
 	}{
 		{
 			name:   "success response has crc32 header",

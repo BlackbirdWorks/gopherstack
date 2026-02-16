@@ -13,12 +13,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDDB_GSI(t *testing.T) {
+func TestIntegration_DDB_GSI(t *testing.T) {
 	t.Parallel()
 	client := createDynamoDBClient(t)
 
 	// Helper to create table with GSI
 	createTableWithGSI := func(t *testing.T, tableName string, gsiName string, projectionType types.ProjectionType) {
+		t.Helper()
 		_, err := client.CreateTable(t.Context(), &dynamodb.CreateTableInput{
 			TableName: aws.String(tableName),
 			AttributeDefinitions: []types.AttributeDefinition{
@@ -111,7 +112,7 @@ func TestDDB_GSI(t *testing.T) {
 				":v": &types.AttributeValueMemberS{Value: "gsiKey1"},
 			},
 		})
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Len(t, out.Items, 1)
 		assert.Equal(t, "item1", out.Items[0]["pk"].(*types.AttributeValueMemberS).Value)
 		assert.Equal(t, "some data", out.Items[0]["data"].(*types.AttributeValueMemberS).Value) // ALL projection
@@ -141,7 +142,7 @@ func TestDDB_GSI(t *testing.T) {
 				":v": &types.AttributeValueMemberS{Value: "gsiKey1"},
 			},
 		})
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Len(t, out.Items, 1)
 		assert.Equal(t, "item1", out.Items[0]["pk"].(*types.AttributeValueMemberS).Value)
 		// data should be missing
@@ -179,7 +180,7 @@ func TestDDB_GSI(t *testing.T) {
 			TableName: aws.String(tableName),
 			IndexName: aws.String(gsiName),
 		})
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Len(t, scanGSI.Items, 1)
 		assert.Equal(t, "item1", scanGSI.Items[0]["pk"].(*types.AttributeValueMemberS).Value)
 	})

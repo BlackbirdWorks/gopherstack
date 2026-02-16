@@ -20,7 +20,7 @@ const (
 	largeObjectSize = 1 << 20 // 1 MiB
 )
 
-func TestS3_BucketLifecycle(t *testing.T) {
+func TestIntegration_S3_BucketLifecycle(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -156,7 +156,7 @@ func TestS3_BucketLifecycle(t *testing.T) {
 	}
 }
 
-func TestS3_ObjectCRUD(t *testing.T) {
+func TestIntegration_S3_ObjectCRUD(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -353,7 +353,7 @@ func TestS3_ObjectCRUD(t *testing.T) {
 	}
 }
 
-func TestS3_PrefixListing(t *testing.T) {
+func TestIntegration_S3_PrefixListing(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -420,7 +420,7 @@ func TestS3_PrefixListing(t *testing.T) {
 	}
 }
 
-func TestS3_BucketIsolation(t *testing.T) {
+func TestIntegration_S3_BucketIsolation(t *testing.T) {
 	t.Parallel()
 
 	client := createS3Client(t)
@@ -476,7 +476,7 @@ func TestS3_BucketIsolation(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestS3_VersioningLifecycle(t *testing.T) {
+func TestIntegration_S3_VersioningLifecycle(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -672,7 +672,7 @@ func TestS3_VersioningLifecycle(t *testing.T) {
 	}
 }
 
-func TestS3_TaggingRoundTrip(t *testing.T) {
+func TestIntegration_S3_TaggingRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -815,7 +815,7 @@ func TestS3_TaggingRoundTrip(t *testing.T) {
 		})
 	}
 }
-func TestS3_ListObjectsV2(t *testing.T) {
+func TestIntegration_S3_ListObjectsV2(t *testing.T) {
 	t.Parallel()
 
 	t.Run("basic listing returns all keys", func(t *testing.T) {
@@ -1029,7 +1029,7 @@ func TestS3_ListObjectsV2(t *testing.T) {
 	})
 }
 
-func TestS3_ChecksumSHA256(t *testing.T) {
+func TestIntegration_S3_ChecksumSHA256(t *testing.T) {
 	t.Parallel()
 
 	client := createS3Client(t)

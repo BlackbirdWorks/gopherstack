@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDDB_BatchOperations(t *testing.T) {
+func TestIntegration_DDB_BatchOperations(t *testing.T) {
 	t.Parallel()
 	client := createDynamoDBClient(t)
 

@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDDB_Coverage(t *testing.T) {
+func TestIntegration_DDB_Coverage(t *testing.T) {
 	t.Parallel()
 	client := createDynamoDBClient(t)
 	ctx := t.Context()
@@ -54,11 +54,11 @@ func TestDDB_Coverage(t *testing.T) {
 			"bs":   &types.AttributeValueMemberBS{Value: [][]byte{[]byte("b1"), []byte("b2")}},
 		}
 
-		_, err := client.PutItem(ctx, &dynamodb.PutItemInput{
+		_, pErr := client.PutItem(ctx, &dynamodb.PutItemInput{
 			TableName: aws.String(tableName),
 			Item:      item,
 		})
-		require.NoError(t, err)
+		require.NoError(t, pErr)
 
 		getOut, err := client.GetItem(ctx, &dynamodb.GetItemInput{
 			TableName: aws.String(tableName),
@@ -79,14 +79,14 @@ func TestDDB_Coverage(t *testing.T) {
 
 	// 3. Test TTL Operations
 	t.Run("TTL", func(t *testing.T) {
-		_, err := client.UpdateTimeToLive(ctx, &dynamodb.UpdateTimeToLiveInput{
+		_, uErr := client.UpdateTimeToLive(ctx, &dynamodb.UpdateTimeToLiveInput{
 			TableName: aws.String(tableName),
 			TimeToLiveSpecification: &types.TimeToLiveSpecification{
 				AttributeName: aws.String("ttl_attr"),
 				Enabled:       aws.Bool(true),
 			},
 		})
-		require.NoError(t, err)
+		require.NoError(t, uErr)
 
 		descOut, err := client.DescribeTimeToLive(ctx, &dynamodb.DescribeTimeToLiveInput{
 			TableName: aws.String(tableName),
@@ -98,7 +98,7 @@ func TestDDB_Coverage(t *testing.T) {
 
 	// 4. Test Transactions
 	t.Run("Transactions", func(t *testing.T) {
-		_, err := client.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{
+		_, tErr := client.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{
 			TransactItems: []types.TransactWriteItem{
 				{
 					Put: &types.Put{
@@ -123,7 +123,7 @@ func TestDDB_Coverage(t *testing.T) {
 				},
 			},
 		})
-		require.NoError(t, err)
+		require.NoError(t, tErr)
 
 		getOut, err := client.TransactGetItems(ctx, &dynamodb.TransactGetItemsInput{
 			TransactItems: []types.TransactGetItem{

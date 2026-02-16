@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDDB_Query(t *testing.T) {
+func TestIntegration_DDB_Query(t *testing.T) {
 	t.Parallel()
 	client := createDynamoDBClient(t)
 
@@ -125,10 +125,10 @@ func TestDDB_Query(t *testing.T) {
 			require.NoError(t, err)
 
 			t.Cleanup(func() {
-				_, err := client.DeleteTable(context.Background(), &dynamodb.DeleteTableInput{
+				_, dErr := client.DeleteTable(context.Background(), &dynamodb.DeleteTableInput{
 					TableName: aws.String(tableName),
 				})
-				assert.NoError(t, err)
+				assert.NoError(t, dErr)
 			})
 
 			time.Sleep(50 * time.Millisecond)

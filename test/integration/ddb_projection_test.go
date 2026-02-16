@@ -9,23 +9,25 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestDDB_ProjectionExpressions(t *testing.T) {
+func TestIntegration_DDB_ProjectionExpressions(t *testing.T) {
 	t.Parallel()
 	client := createDynamoDBClient(t)
 
 	type testCase struct {
-		name      string
 		setup     func(t *testing.T, ctx context.Context, tableName string)
-		operation func(t *testing.T, ctx context.Context, tableName string) (interface{}, error)
-		verify    func(t *testing.T, result interface{}, err error)
+		operation func(t *testing.T, ctx context.Context, tableName string) (any, error)
+		verify    func(t *testing.T, result any, err error)
+		name      string
 	}
 
 	tests := []testCase{
 		{
 			name: "GetItem_Projection_Simple",
 			setup: func(t *testing.T, ctx context.Context, tableName string) {
+				t.Helper()
 				_, err := client.PutItem(ctx, &dynamodb.PutItemInput{
 					TableName: aws.String(tableName),
 					Item: map[string]types.AttributeValue{
@@ -34,9 +36,9 @@ func TestDDB_ProjectionExpressions(t *testing.T) {
 						"extra": &types.AttributeValueMemberS{Value: "extra data"},
 					},
 				})
-				assert.NoError(t, err)
+				require.NoError(t, err)
 			},
-			operation: func(t *testing.T, ctx context.Context, tableName string) (interface{}, error) {
+			operation: func(_ *testing.T, ctx context.Context, tableName string) (any, error) {
 				return client.GetItem(ctx, &dynamodb.GetItemInput{
 					TableName: aws.String(tableName),
 					Key: map[string]types.AttributeValue{
@@ -45,8 +47,9 @@ func TestDDB_ProjectionExpressions(t *testing.T) {
 					ProjectionExpression: aws.String("pk, info"),
 				})
 			},
-			verify: func(t *testing.T, result interface{}, err error) {
-				assert.NoError(t, err)
+			verify: func(t *testing.T, result any, err error) {
+				t.Helper()
+				require.NoError(t, err)
 				resp := result.(*dynamodb.GetItemOutput)
 				assert.NotNil(t, resp.Item)
 				assert.Equal(t, "item1", resp.Item["pk"].(*types.AttributeValueMemberS).Value)
@@ -58,6 +61,7 @@ func TestDDB_ProjectionExpressions(t *testing.T) {
 		{
 			name: "Scan_Projection_WithAttributeNames",
 			setup: func(t *testing.T, ctx context.Context, tableName string) {
+				t.Helper()
 				_, err := client.PutItem(ctx, &dynamodb.PutItemInput{
 					TableName: aws.String(tableName),
 					Item: map[string]types.AttributeValue{
@@ -66,9 +70,9 @@ func TestDDB_ProjectionExpressions(t *testing.T) {
 						"meta": &types.AttributeValueMemberS{Value: "meta1"},
 					},
 				})
-				assert.NoError(t, err)
+				require.NoError(t, err)
 			},
-			operation: func(t *testing.T, ctx context.Context, tableName string) (interface{}, error) {
+			operation: func(_ *testing.T, ctx context.Context, tableName string) (any, error) {
 				return client.Scan(ctx, &dynamodb.ScanInput{
 					TableName:            aws.String(tableName),
 					ProjectionExpression: aws.String("#d, meta"),
@@ -77,8 +81,9 @@ func TestDDB_ProjectionExpressions(t *testing.T) {
 					},
 				})
 			},
-			verify: func(t *testing.T, result interface{}, err error) {
-				assert.NoError(t, err)
+			verify: func(t *testing.T, result any, err error) {
+				t.Helper()
+				require.NoError(t, err)
 				resp := result.(*dynamodb.ScanOutput)
 				assert.Len(t, resp.Items, 1)
 				item := resp.Items[0]
@@ -91,6 +96,7 @@ func TestDDB_ProjectionExpressions(t *testing.T) {
 		{
 			name: "Query_Projection_Nested",
 			setup: func(t *testing.T, ctx context.Context, tableName string) {
+				t.Helper()
 				_, err := client.PutItem(ctx, &dynamodb.PutItemInput{
 					TableName: aws.String(tableName),
 					Item: map[string]types.AttributeValue{
@@ -104,9 +110,9 @@ func TestDDB_ProjectionExpressions(t *testing.T) {
 						"status": &types.AttributeValueMemberS{Value: "active"},
 					},
 				})
-				assert.NoError(t, err)
+				require.NoError(t, err)
 			},
-			operation: func(t *testing.T, ctx context.Context, tableName string) (interface{}, error) {
+			operation: func(_ *testing.T, ctx context.Context, tableName string) (any, error) {
 				return client.Query(ctx, &dynamodb.QueryInput{
 					TableName:              aws.String(tableName),
 					KeyConditionExpression: aws.String("pk = :pk"),
@@ -116,8 +122,8 @@ func TestDDB_ProjectionExpressions(t *testing.T) {
 					ProjectionExpression: aws.String("profile.name, status"),
 				})
 			},
-			verify: func(t *testing.T, result interface{}, err error) {
-				assert.NoError(t, err)
+			verify: func(t *testing.T, result any, err error) {
+				require.NoError(t, err)
 				resp := result.(*dynamodb.QueryOutput)
 				assert.Len(t, resp.Items, 1)
 				item := resp.Items[0]

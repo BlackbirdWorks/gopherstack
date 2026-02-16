@@ -1455,7 +1455,7 @@ func TestDashboard_S3_DetailedTests(t *testing.T) {
 
 	// 3. Create multiple versions
 	key := "multi-v.txt"
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		_, err := stack.s3Backend.PutObject(t.Context(), &s3.PutObjectInput{
 			Bucket: aws.String(bucketName),
 			Key:    aws.String(key),
@@ -1508,9 +1508,9 @@ func TestDashboard_S3_DetailedTests(t *testing.T) {
 		Bucket: aws.String(bucketName),
 		Prefix: aws.String("version.txt"),
 	})
-	vId := *out.Versions[0].VersionId
+	vID := *out.Versions[0].VersionId
 
-	req = httptest.NewRequest(http.MethodDelete, "/dashboard/s3/bucket/"+bucketName+"/file/version.txt?versionId="+vId, nil)
+	req = httptest.NewRequest(http.MethodDelete, "/dashboard/s3/bucket/"+bucketName+"/file/version.txt?versionId="+vID, nil)
 	w = httptest.NewRecorder()
 	stack.handler.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -1573,7 +1573,7 @@ func TestDashboard_DDB_Query_Pagination(t *testing.T) {
 	require.NoError(t, err)
 
 	// Put multiple items
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		_, err = stack.ddbHandler.DB.PutItem(&dynamodb.PutItemInput{
 			TableName: aws.String(tableName),
 			Item: map[string]ddbtypes.AttributeValue{

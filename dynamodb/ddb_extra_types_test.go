@@ -19,6 +19,7 @@ func TestDynamoDB_ExtraTypes(t *testing.T) {
 	createTableHelper(t, db, tableName, "pk")
 
 	t.Run("AllTypes", func(t *testing.T) {
+		t.Parallel()
 		item := map[string]any{
 			"pk":   map[string]any{"S": "item1"},
 			"null": map[string]any{"NULL": true},
@@ -65,6 +66,7 @@ func TestDynamoDB_TTL_Operations(t *testing.T) {
 	createTableHelper(t, db, tableName, "pk")
 
 	t.Run("UpdateAndDescribe", func(t *testing.T) {
+		t.Parallel()
 		updateInput := &dynamodb_sdk.UpdateTimeToLiveInput{
 			TableName: &tableName,
 			TimeToLiveSpecification: &types.TimeToLiveSpecification{
@@ -92,6 +94,7 @@ func TestDynamoDB_Transaction_Operations(t *testing.T) {
 	createTableHelper(t, db, tableName, "pk")
 
 	t.Run("WriteAndGet", func(t *testing.T) {
+		t.Parallel()
 		writeInput := &dynamodb_sdk.TransactWriteItemsInput{
 			TransactItems: []types.TransactWriteItem{
 				{

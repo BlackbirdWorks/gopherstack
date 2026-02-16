@@ -9,11 +9,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/google/uuid"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestDDB_ValidationAndLimits(t *testing.T) {
+func TestIntegration_DDB_ValidationAndLimits(t *testing.T) {
 	t.Parallel()
 	client := createDynamoDBClient(t)
 
@@ -56,7 +55,7 @@ func TestDDB_ValidationAndLimits(t *testing.T) {
 				"data": &types.AttributeValueMemberS{Value: largeVal},
 			},
 		})
-		assert.Error(t, err)
+		require.Error(t, err)
 		// Check error type/message if possible.
 		// SDK v2 might wrap it.
 		// We expect ItemCollectionSizeLimitExceededException (mapped from our internal error)
@@ -76,7 +75,7 @@ func TestDDB_ValidationAndLimits(t *testing.T) {
 				"other": &types.AttributeValueMemberS{Value: "val"},
 			},
 		})
-		assert.Error(t, err)
+		require.Error(t, err)
 		// Expect ValidationException: Missing key element
 	})
 
@@ -101,7 +100,7 @@ func TestDDB_ValidationAndLimits(t *testing.T) {
 				"num": &types.AttributeValueMemberN{Value: "123"},
 			},
 		})
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		// To truly test invalid type we might need raw JSON request or a modified client,
 		// but Go strict typing makes it hard to send bad types via SDK.

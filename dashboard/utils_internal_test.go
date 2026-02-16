@@ -7,6 +7,7 @@ import (
 )
 
 func TestFormatBytes(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		bytes    int64
@@ -23,6 +24,7 @@ func TestFormatBytes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			assert.Equal(t, tt.expected, formatBytes(tt.bytes))
 		})
 	}

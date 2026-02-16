@@ -38,7 +38,6 @@ type Handler struct {
 
 // NewHandler creates a new Dashboard handler.
 func NewHandler(db *dynamodb.Client, s3Client *s3.Client, ddbOps, s3Ops OperationsProvider) *Handler {
-
 	// Parse layout and components
 	tmpl := template.Must(template.ParseFS(templateFS,
 		"templates/layout.html",

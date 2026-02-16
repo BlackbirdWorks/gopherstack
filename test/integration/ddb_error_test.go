@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDDB_ErrorSimulation(t *testing.T) {
+func TestIntegration_DDB_ErrorSimulation(t *testing.T) {
 	t.Parallel()
 	client := createDynamoDBClient(t)
 

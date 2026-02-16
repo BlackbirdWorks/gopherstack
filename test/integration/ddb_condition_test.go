@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDDB_ConditionsAndFilters(t *testing.T) {
+func TestIntegration_DDB_ConditionsAndFilters(t *testing.T) {
 	t.Parallel()
 	client := createDynamoDBClient(t)
 
@@ -27,7 +27,9 @@ func TestDDB_ConditionsAndFilters(t *testing.T) {
 	tests := []testCase{
 		{
 			name: "PutItem_Condition_AttributeNotExists_Success",
-			setup: func(t *testing.T, ctx context.Context, tableName string) {
+			setup: func(t *testing.T, _ context.Context, _ string) {
+				t.Helper()
+				t.Helper()
 				// Empty table
 			},
 			operation: func(t *testing.T, ctx context.Context, tableName string) error {
@@ -41,13 +43,15 @@ func TestDDB_ConditionsAndFilters(t *testing.T) {
 				})
 				return err
 			},
-			verify: func(t *testing.T, ctx context.Context, tableName string, err error) {
-				assert.NoError(t, err)
+			verify: func(t *testing.T, _ context.Context, _ string, err error) {
+				t.Helper()
+				require.NoError(t, err)
 			},
 		},
 		{
 			name: "PutItem_Condition_AttributeNotExists_Fail",
 			setup: func(t *testing.T, ctx context.Context, tableName string) {
+				t.Helper()
 				_, err := client.PutItem(ctx, &dynamodb.PutItemInput{
 					TableName: aws.String(tableName),
 					Item: map[string]types.AttributeValue{
@@ -67,8 +71,9 @@ func TestDDB_ConditionsAndFilters(t *testing.T) {
 				})
 				return err
 			},
-			verify: func(t *testing.T, ctx context.Context, tableName string, err error) {
-				assert.Error(t, err)
+			verify: func(t *testing.T, _ context.Context, _ string, err error) {
+				t.Helper()
+				require.Error(t, err)
 				var ccf *types.ConditionalCheckFailedException
 				assert.ErrorAs(t, err, &ccf)
 			},
@@ -76,6 +81,7 @@ func TestDDB_ConditionsAndFilters(t *testing.T) {
 		{
 			name: "UpdateItem_Condition_Equals_Success",
 			setup: func(t *testing.T, ctx context.Context, tableName string) {
+				t.Helper()
 				_, err := client.PutItem(ctx, &dynamodb.PutItemInput{
 					TableName: aws.String(tableName),
 					Item: map[string]types.AttributeValue{
@@ -102,7 +108,8 @@ func TestDDB_ConditionsAndFilters(t *testing.T) {
 				return err
 			},
 			verify: func(t *testing.T, ctx context.Context, tableName string, err error) {
-				assert.NoError(t, err)
+				t.Helper()
+				require.NoError(t, err)
 				// Verify update
 				out, _ := client.GetItem(ctx, &dynamodb.GetItemInput{
 					TableName: aws.String(tableName),
@@ -114,6 +121,7 @@ func TestDDB_ConditionsAndFilters(t *testing.T) {
 		{
 			name: "Scan_FilterExpression",
 			setup: func(t *testing.T, ctx context.Context, tableName string) {
+				t.Helper()
 				// 3 items: 2 matching filter, 1 not
 				items := []string{"MATCH_1", "MATCH_2", "SKIP_1"}
 				for _, id := range items {
@@ -137,7 +145,8 @@ func TestDDB_ConditionsAndFilters(t *testing.T) {
 				// Let's ignore this constraint and do check in verify.
 				return nil
 			},
-			verify: func(t *testing.T, ctx context.Context, tableName string, err error) {
+			verify: func(t *testing.T, ctx context.Context, tableName string, _ error) {
+				t.Helper()
 				out, err := client.Scan(ctx, &dynamodb.ScanInput{
 					TableName:        aws.String(tableName),
 					FilterExpression: aws.String("begins_with(pk, :prefix)"),
@@ -145,7 +154,7 @@ func TestDDB_ConditionsAndFilters(t *testing.T) {
 						":prefix": &types.AttributeValueMemberS{Value: "MATCH"},
 					},
 				})
-				assert.NoError(t, err)
+				require.NoError(t, err)
 				assert.Len(t, out.Items, 2)
 			},
 		},

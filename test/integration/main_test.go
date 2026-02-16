@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"testing"
@@ -22,6 +23,13 @@ import (
 var endpoint string
 
 func TestMain(m *testing.M) {
+	flag.Parse()
+
+	if testing.Short() {
+		fmt.Println("skipping integration tests in short mode")
+		os.Exit(0)
+	}
+
 	ctx := context.Background()
 
 	req := testcontainers.ContainerRequest{
@@ -60,8 +68,8 @@ func TestMain(m *testing.M) {
 
 	code := m.Run()
 
-	if err := container.Terminate(ctx); err != nil {
-		fmt.Printf("failed to terminate container: %v\n", err)
+	if tErr := container.Terminate(ctx); tErr != nil {
+		fmt.Printf("failed to terminate container: %v\n", tErr)
 	}
 
 	os.Exit(code)

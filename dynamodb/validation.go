@@ -85,8 +85,8 @@ func validateKeySchema(item map[string]any, schema []KeySchemaElement) error {
 
 		// Check size
 		// We need to unwrap if it's a DynamoDB JSON format (e.g. {"S": "val"}) or raw?
-		// The `item` map typically comes from `PutItemInput` which uses `map[string]interface{}`
-		// but the values are ostensibly map[string]interface{} (the "S" wrapper).
+		// The `item` map typically comes from `PutItemInput` which uses `map[string]any`
+		// but the values are ostensibly map[string]any (the "S" wrapper).
 
 		// Helper to get raw value size
 		// We reuse calculateItemSize for the value part
