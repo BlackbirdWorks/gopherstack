@@ -21,7 +21,7 @@ func TestIntegration_DDB_Coverage(t *testing.T) {
 	tableName := "CoverageTest-" + uuid.NewString()
 
 	// 1. Create Table with TTL and secondary index for more coverage
-	_, err := client.CreateTable(ctx, &dynamodb.CreateTableInput{
+	_, createErr := client.CreateTable(ctx, &dynamodb.CreateTableInput{
 		TableName: aws.String(tableName),
 		AttributeDefinitions: []types.AttributeDefinition{
 			{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
@@ -34,7 +34,7 @@ func TestIntegration_DDB_Coverage(t *testing.T) {
 			WriteCapacityUnits: aws.Int64(5),
 		},
 	})
-	require.NoError(t, err)
+	require.NoError(t, createErr)
 
 	t.Cleanup(func() {
 		client.DeleteTable(context.Background(), &dynamodb.DeleteTableInput{
@@ -44,6 +44,7 @@ func TestIntegration_DDB_Coverage(t *testing.T) {
 
 	// 2. Test NULL, BOOL, and BINARY types
 	t.Run("AttributeTypes", func(t *testing.T) {
+		t.Parallel()
 		item := map[string]types.AttributeValue{
 			"pk":   &types.AttributeValueMemberS{Value: "types-item"},
 			"null": &types.AttributeValueMemberNULL{Value: true},
@@ -79,6 +80,7 @@ func TestIntegration_DDB_Coverage(t *testing.T) {
 
 	// 3. Test TTL Operations
 	t.Run("TTL", func(t *testing.T) {
+		t.Parallel()
 		_, uErr := client.UpdateTimeToLive(ctx, &dynamodb.UpdateTimeToLiveInput{
 			TableName: aws.String(tableName),
 			TimeToLiveSpecification: &types.TimeToLiveSpecification{
@@ -98,6 +100,7 @@ func TestIntegration_DDB_Coverage(t *testing.T) {
 
 	// 4. Test Transactions
 	t.Run("Transactions", func(t *testing.T) {
+		t.Parallel()
 		_, tErr := client.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{
 			TransactItems: []types.TransactWriteItem{
 				{

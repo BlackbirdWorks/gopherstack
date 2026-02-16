@@ -18,10 +18,10 @@ func TestIntegration_DDB_ConditionsAndFilters(t *testing.T) {
 	client := createDynamoDBClient(t)
 
 	type testCase struct {
-		name      string
 		setup     func(t *testing.T, ctx context.Context, tableName string)
 		operation func(t *testing.T, ctx context.Context, tableName string) error
 		verify    func(t *testing.T, ctx context.Context, tableName string, err error)
+		name      string
 	}
 
 	tests := []testCase{
@@ -29,10 +29,10 @@ func TestIntegration_DDB_ConditionsAndFilters(t *testing.T) {
 			name: "PutItem_Condition_AttributeNotExists_Success",
 			setup: func(t *testing.T, _ context.Context, _ string) {
 				t.Helper()
-				t.Helper()
 				// Empty table
 			},
 			operation: func(t *testing.T, ctx context.Context, tableName string) error {
+				t.Helper()
 				_, err := client.PutItem(ctx, &dynamodb.PutItemInput{
 					TableName: aws.String(tableName),
 					Item: map[string]types.AttributeValue{
@@ -41,6 +41,7 @@ func TestIntegration_DDB_ConditionsAndFilters(t *testing.T) {
 					},
 					ConditionExpression: aws.String("attribute_not_exists(pk)"),
 				})
+
 				return err
 			},
 			verify: func(t *testing.T, _ context.Context, _ string, err error) {
@@ -61,6 +62,7 @@ func TestIntegration_DDB_ConditionsAndFilters(t *testing.T) {
 				require.NoError(t, err)
 			},
 			operation: func(t *testing.T, ctx context.Context, tableName string) error {
+				t.Helper()
 				_, err := client.PutItem(ctx, &dynamodb.PutItemInput{
 					TableName: aws.String(tableName),
 					Item: map[string]types.AttributeValue{
@@ -69,6 +71,7 @@ func TestIntegration_DDB_ConditionsAndFilters(t *testing.T) {
 					},
 					ConditionExpression: aws.String("attribute_not_exists(pk)"),
 				})
+
 				return err
 			},
 			verify: func(t *testing.T, _ context.Context, _ string, err error) {
@@ -92,6 +95,7 @@ func TestIntegration_DDB_ConditionsAndFilters(t *testing.T) {
 				require.NoError(t, err)
 			},
 			operation: func(t *testing.T, ctx context.Context, tableName string) error {
+				t.Helper()
 				_, err := client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 					TableName: aws.String(tableName),
 					Key: map[string]types.AttributeValue{
@@ -105,6 +109,7 @@ func TestIntegration_DDB_ConditionsAndFilters(t *testing.T) {
 						":newStatus":  &types.AttributeValueMemberS{Value: "DONE"},
 					},
 				})
+
 				return err
 			},
 			verify: func(t *testing.T, ctx context.Context, tableName string, err error) {
@@ -128,14 +133,17 @@ func TestIntegration_DDB_ConditionsAndFilters(t *testing.T) {
 					_, err := client.PutItem(ctx, &dynamodb.PutItemInput{
 						TableName: aws.String(tableName),
 						Item: map[string]types.AttributeValue{
-							"pk":   &types.AttributeValueMemberS{Value: id},
-							"type": &types.AttributeValueMemberS{Value: "MATCH_TYPE"}, // Simplify: check prefix "MATCH" in pk
+							"pk": &types.AttributeValueMemberS{Value: id},
+							"type": &types.AttributeValueMemberS{
+								Value: "MATCH_TYPE",
+							}, // Simplify: check prefix "MATCH" in pk
 						},
 					})
 					require.NoError(t, err)
 				}
 			},
-			operation: func(t *testing.T, ctx context.Context, tableName string) error {
+			operation: func(t *testing.T, _ context.Context, _ string) error {
+				t.Helper()
 				// We wrap verification in operation here for simplicity of test structure
 				// Usually operation just returns error, verify checks result.
 				// But Scan returns items.
@@ -161,7 +169,6 @@ func TestIntegration_DDB_ConditionsAndFilters(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			tableName := "ConditionTable-" + uuid.NewString()

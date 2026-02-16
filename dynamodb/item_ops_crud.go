@@ -3,6 +3,8 @@ package dynamodb
 import (
 	"maps"
 
+	"Gopherstack/dynamodb/models"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
@@ -23,7 +25,7 @@ func (db *InMemoryDB) PutItem(input *dynamodb.PutItemInput) (*dynamodb.PutItemOu
 	defer table.mu.Unlock()
 
 	// Convert SDK Item to Wire Item
-	wireItem := FromSDKItem(input.Item)
+	wireItem := models.FromSDKItem(input.Item)
 
 	err = db.validateItem(wireItem, table)
 	if err != nil {
@@ -66,7 +68,7 @@ func (db *InMemoryDB) checkPutCondition(input *dynamodb.PutItemInput, oldItem ma
 	}
 
 	// Convert EAV to Wire format for evaluator
-	eav := FromSDKItem(input.ExpressionAttributeValues)
+	eav := models.FromSDKItem(input.ExpressionAttributeValues)
 
 	match, err := evaluateExpression(
 		condition,
@@ -114,8 +116,8 @@ func (db *InMemoryDB) populatePutItemOutput(
 	out := &dynamodb.PutItemOutput{}
 
 	// Simplify ReturnValues: supporting ALL_OLD mostly
-	if input.ReturnValues == ReturnValuesAllOld && oldItem != nil {
-		out.Attributes, _ = ToSDKItem(oldItem)
+	if input.ReturnValues == models.ReturnValuesAllOld && oldItem != nil {
+		out.Attributes, _ = models.ToSDKItem(oldItem)
 	}
 
 	// Handle ConsumedCapacity
@@ -155,7 +157,7 @@ func (db *InMemoryDB) GetItem(input *dynamodb.GetItemInput) (*dynamodb.GetItemOu
 	table.mu.RLock()
 	defer table.mu.RUnlock()
 
-	wireKey := FromSDKItem(input.Key)
+	wireKey := models.FromSDKItem(input.Key)
 
 	pkDef, skDef := getPKAndSK(table.KeySchema)
 	item := db.lookupItem(table, wireKey, pkDef.AttributeName, skDef.AttributeName)
@@ -170,7 +172,7 @@ func (db *InMemoryDB) GetItem(input *dynamodb.GetItemInput) (*dynamodb.GetItemOu
 		result = projectItem(item, proj, input.ExpressionAttributeNames)
 	}
 
-	sdkItem, err := ToSDKItem(result)
+	sdkItem, err := models.ToSDKItem(result)
 	if err != nil {
 		return nil, err
 	}
@@ -188,14 +190,14 @@ func (db *InMemoryDB) DeleteItem(input *dynamodb.DeleteItemInput) (*dynamodb.Del
 	table.mu.Lock()
 	defer table.mu.Unlock()
 
-	wireKey := FromSDKItem(input.Key)
+	wireKey := models.FromSDKItem(input.Key)
 	pkDef, skDef := getPKAndSK(table.KeySchema)
 	oldItem := db.lookupItem(table, wireKey, pkDef.AttributeName, skDef.AttributeName)
 
 	// Check condition
 	condition := aws.ToString(input.ConditionExpression)
 	if condition != "" {
-		eav := FromSDKItem(input.ExpressionAttributeValues)
+		eav := models.FromSDKItem(input.ExpressionAttributeValues)
 		match, matchErr := evaluateExpression(
 			condition,
 			oldItem,
@@ -219,8 +221,8 @@ func (db *InMemoryDB) DeleteItem(input *dynamodb.DeleteItemInput) (*dynamodb.Del
 
 	// Handle ReturnValues (ALL_OLD)
 	out := &dynamodb.DeleteItemOutput{}
-	if input.ReturnValues == ReturnValuesAllOld && oldItem != nil {
-		out.Attributes, _ = ToSDKItem(oldItem)
+	if input.ReturnValues == models.ReturnValuesAllOld && oldItem != nil {
+		out.Attributes, _ = models.ToSDKItem(oldItem)
 	}
 
 	// Handle ConsumedCapacity
@@ -255,7 +257,7 @@ func (db *InMemoryDB) UpdateItem(input *dynamodb.UpdateItemInput) (*dynamodb.Upd
 	table.mu.Lock()
 	defer table.mu.Unlock()
 
-	wireKey := FromSDKItem(input.Key)
+	wireKey := models.FromSDKItem(input.Key)
 	existing, matchIndex := db.findMatchForPut(table, wireKey)
 
 	err = db.checkUpdateCondition(input, existing)
@@ -277,7 +279,7 @@ func (db *InMemoryDB) checkUpdateCondition(input *dynamodb.UpdateItemInput, item
 		return nil
 	}
 
-	eav := FromSDKItem(input.ExpressionAttributeValues)
+	eav := models.FromSDKItem(input.ExpressionAttributeValues)
 	match, err := evaluateExpression(
 		condition,
 		item,
@@ -301,7 +303,7 @@ func (db *InMemoryDB) doUpdate(
 	matchIndex int,
 ) (map[string]any, error) {
 	updated := make(map[string]any)
-	wireKey := FromSDKItem(input.Key)
+	wireKey := models.FromSDKItem(input.Key)
 
 	if existing != nil {
 		maps.Copy(updated, existing)
@@ -312,7 +314,7 @@ func (db *InMemoryDB) doUpdate(
 
 	updateExpr := aws.ToString(input.UpdateExpression)
 	if updateExpr != "" {
-		eav := FromSDKItem(input.ExpressionAttributeValues)
+		eav := models.FromSDKItem(input.ExpressionAttributeValues)
 		if err := applyUpdate(
 			updated,
 			updateExpr,
@@ -360,10 +362,10 @@ func (db *InMemoryDB) populateUpdateOutput(
 ) *dynamodb.UpdateItemOutput {
 	out := &dynamodb.UpdateItemOutput{}
 
-	if input.ReturnValues == ReturnValuesAllOld && oldItem != nil {
-		out.Attributes, _ = ToSDKItem(oldItem)
+	if input.ReturnValues == models.ReturnValuesAllOld && oldItem != nil {
+		out.Attributes, _ = models.ToSDKItem(oldItem)
 	} else if input.ReturnValues == "ALL_NEW" {
-		out.Attributes, _ = ToSDKItem(newItem)
+		out.Attributes, _ = models.ToSDKItem(newItem)
 	}
 	// Handle UPDATED_OLD / UPDATED_NEW if strictly required, but usually basic types are enough for now.
 

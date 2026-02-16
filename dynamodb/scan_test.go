@@ -1,6 +1,7 @@
 package dynamodb_test
 
 import (
+	"Gopherstack/dynamodb/models"
 	"strconv"
 	"testing"
 
@@ -46,9 +47,9 @@ func TestScan(t *testing.T) {
 		}
 	}`
 
-	ctInput := mustUnmarshal[dynamodb.CreateTableInput](t, createTableJSON)
-	_, err := db.CreateTable(dynamodb.ToSDKCreateTableInput(&ctInput))
-	require.NoError(t, err)
+	ctInput := mustUnmarshal[models.CreateTableInput](t, createTableJSON)
+	_, createErr := db.CreateTable(models.ToSDKCreateTableInput(&ctInput))
+	require.NoError(t, createErr)
 
 	// Insert 10 items
 	for i := 1; i <= 10; i++ {
@@ -76,8 +77,8 @@ func TestScan(t *testing.T) {
 			}`
 		}
 
-		putInput := mustUnmarshal[dynamodb.PutItemInput](t, itemJSON)
-		sdkPutInput, _ := dynamodb.ToSDKPutItemInput(&putInput)
+		putInput := mustUnmarshal[models.PutItemInput](t, itemJSON)
+		sdkPutInput, _ := models.ToSDKPutItemInput(&putInput)
 		_, putErr := db.PutItem(sdkPutInput)
 		require.NoError(t, putErr)
 	}
@@ -156,8 +157,8 @@ func TestScan(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			scanInput := mustUnmarshal[dynamodb.ScanInput](t, tc.input)
-			sdkScanInput, _ := dynamodb.ToSDKScanInput(&scanInput)
+			scanInput := mustUnmarshal[models.ScanInput](t, tc.input)
+			sdkScanInput, _ := models.ToSDKScanInput(&scanInput)
 
 			res, scanErr := db.Scan(sdkScanInput)
 			if tc.wantErr {
@@ -174,7 +175,7 @@ func TestScan(t *testing.T) {
 
 			wireItems := make([]map[string]any, len(res.Items))
 			for i, item := range res.Items {
-				wireItems[i] = dynamodb.FromSDKItem(item)
+				wireItems[i] = models.FromSDKItem(item)
 			}
 
 			if tc.wantCount >= 0 {
@@ -193,14 +194,14 @@ func TestScan_ValidationErrors(t *testing.T) {
 	db := dynamodb.NewInMemoryDB()
 	tableName := "ScanValTable"
 
-	ctInput := dynamodb.CreateTableInput{
+	ctInput := models.CreateTableInput{
 		TableName: tableName,
-		KeySchema: []dynamodb.KeySchemaElement{{AttributeName: "pk", KeyType: "HASH"}},
-		AttributeDefinitions: []dynamodb.AttributeDefinition{
+		KeySchema: []models.KeySchemaElement{{AttributeName: "pk", KeyType: "HASH"}},
+		AttributeDefinitions: []models.AttributeDefinition{
 			{AttributeName: "pk", AttributeType: "S"},
 		},
 	}
-	_, _ = db.CreateTable(dynamodb.ToSDKCreateTableInput(&ctInput))
+	_, _ = db.CreateTable(models.ToSDKCreateTableInput(&ctInput))
 
 	tests := []struct {
 		name      string
@@ -227,13 +228,13 @@ func TestScan_ValidationErrors(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			scanInput := mustUnmarshal[dynamodb.ScanInput](t, tc.input)
-			sdkScanInput, _ := dynamodb.ToSDKScanInput(&scanInput)
+			scanInput := mustUnmarshal[models.ScanInput](t, tc.input)
+			sdkScanInput, _ := models.ToSDKScanInput(&scanInput)
 
-			_, err := db.Scan(sdkScanInput)
-			require.Error(t, err)
-			if tc.wantError != "" && err != nil {
-				assert.Contains(t, err.Error(), tc.wantError)
+			_, scanErr := db.Scan(sdkScanInput)
+			require.Error(t, scanErr)
+			if tc.wantError != "" && scanErr != nil {
+				assert.Contains(t, scanErr.Error(), tc.wantError)
 			}
 		})
 	}

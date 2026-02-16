@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 
+	"Gopherstack/dynamodb/models"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
@@ -46,7 +48,7 @@ func (db *InMemoryDB) BatchGetItem(input *dynamodb.BatchGetItemInput) (*dynamodb
 		proj := aws.ToString(keysAndAttrs.ProjectionExpression)
 
 		for _, sdkKey := range keysAndAttrs.Keys {
-			wireKey := FromSDKItem(sdkKey)
+			wireKey := models.FromSDKItem(sdkKey)
 			item := db.lookupItem(table, wireKey, pkDef.AttributeName, skDef.AttributeName)
 			if item != nil {
 				result := item
@@ -54,7 +56,7 @@ func (db *InMemoryDB) BatchGetItem(input *dynamodb.BatchGetItemInput) (*dynamodb
 					result = projectItem(item, proj, keysAndAttrs.ExpressionAttributeNames)
 				}
 
-				sdkResult, _ := ToSDKItem(result)
+				sdkResult, _ := models.ToSDKItem(result)
 				tableResults = append(tableResults, sdkResult)
 			}
 		}
@@ -122,10 +124,10 @@ func (db *InMemoryDB) processTableWriteRequests(table *Table, requests []types.W
 
 	for _, req := range requests {
 		if req.PutRequest != nil {
-			wireItem := FromSDKItem(req.PutRequest.Item)
+			wireItem := models.FromSDKItem(req.PutRequest.Item)
 			db.handleBatchPut(table, wireItem)
 		} else if req.DeleteRequest != nil {
-			wireKey := FromSDKItem(req.DeleteRequest.Key)
+			wireKey := models.FromSDKItem(req.DeleteRequest.Key)
 			db.handleBatchDelete(table, wireKey)
 		}
 	}

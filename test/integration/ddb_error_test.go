@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -10,7 +11,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/google/uuid"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -22,15 +22,16 @@ func TestIntegration_DDB_ErrorSimulation(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	type testCase struct {
-		name      string
 		operation func(t *testing.T, ctx context.Context, tableName string) error
 		check     func(t *testing.T, err error)
+		name      string
 	}
 
 	tests := []testCase{
 		{
 			name: "ResourceNotFoundException",
 			operation: func(t *testing.T, ctx context.Context, tableName string) error {
+				t.Helper()
 				// Don't create the table
 				_, err := client.PutItem(ctx, &dynamodb.PutItemInput{
 					TableName: aws.String(tableName),
@@ -38,25 +39,25 @@ func TestIntegration_DDB_ErrorSimulation(t *testing.T) {
 						"pk": &types.AttributeValueMemberS{Value: "item1"},
 					},
 				})
+
 				return err
 			},
 			check: func(t *testing.T, err error) {
+				t.Helper()
 				require.Error(t, err)
 
 				var resourceNotFound *types.ResourceNotFoundException
-				if assert.ErrorAs(t, err, &resourceNotFound) {
-					// Success
-				} else {
-					if !strings.Contains(err.Error(), "ResourceNotFoundException") {
-						t.Errorf("Expected ResourceNotFoundException, got %T: %v", err, err)
-					}
+				if errors.As(err, &resourceNotFound) {
+					return
+				}
+				if !strings.Contains(err.Error(), "ResourceNotFoundException") {
+					t.Errorf("Expected ResourceNotFoundException, got %T: %v", err, err)
 				}
 			},
 		},
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			// For positive tests we create tables, but here we specifically might NOT want to.

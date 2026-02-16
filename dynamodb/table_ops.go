@@ -3,6 +3,8 @@ package dynamodb
 import (
 	"fmt"
 
+	"Gopherstack/dynamodb/models"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
@@ -23,52 +25,52 @@ func (db *InMemoryDB) CreateTable(input *dynamodb.CreateTableInput) (*dynamodb.C
 
 	newTable := &Table{
 		Name:                   tableName,
-		KeySchema:              FromSDKKeySchema(input.KeySchema),
-		AttributeDefinitions:   FromSDKAttributeDefinitions(input.AttributeDefinitions),
-		GlobalSecondaryIndexes: FromSDKGlobalSecondaryIndexes(input.GlobalSecondaryIndexes),
-		LocalSecondaryIndexes:  FromSDKLocalSecondaryIndexes(input.LocalSecondaryIndexes),
+		KeySchema:              models.FromSDKKeySchema(input.KeySchema),
+		AttributeDefinitions:   models.FromSDKAttributeDefinitions(input.AttributeDefinitions),
+		GlobalSecondaryIndexes: models.FromSDKGlobalSecondaryIndexes(input.GlobalSecondaryIndexes),
+		LocalSecondaryIndexes:  models.FromSDKLocalSecondaryIndexes(input.LocalSecondaryIndexes),
 		Items:                  make([]map[string]any, 0),
 	}
 	newTable.initializeIndexes()
 	db.Tables[tableName] = newTable
 
 	// Convert GSIs to Description
-	gsiDescs := make([]GlobalSecondaryIndexDescription, len(input.GlobalSecondaryIndexes))
+	gsiDescs := make([]models.GlobalSecondaryIndexDescription, len(input.GlobalSecondaryIndexes))
 	for i, gsi := range input.GlobalSecondaryIndexes {
-		gsiDescs[i] = GlobalSecondaryIndexDescription{
+		gsiDescs[i] = models.GlobalSecondaryIndexDescription{
 			IndexName:  aws.ToString(gsi.IndexName),
-			KeySchema:  FromSDKKeySchema(gsi.KeySchema),
-			Projection: FromSDKProjection(gsi.Projection),
-			ProvisionedThroughput: ProvisionedThroughputDescription{
-				ReadCapacityUnits:  DefaultReadCapacity,
-				WriteCapacityUnits: DefaultWriteCapacity,
+			KeySchema:  models.FromSDKKeySchema(gsi.KeySchema),
+			Projection: models.FromSDKProjection(gsi.Projection),
+			ProvisionedThroughput: models.ProvisionedThroughputDescription{
+				ReadCapacityUnits:  models.DefaultReadCapacity,
+				WriteCapacityUnits: models.DefaultWriteCapacity,
 			},
-			IndexStatus: TableStatusActive,
+			IndexStatus: models.TableStatusActive,
 			ItemCount:   0,
 		}
 	}
 
 	// Convert LSIs to Description
-	lsiDescs := make([]LocalSecondaryIndexDescription, len(input.LocalSecondaryIndexes))
+	lsiDescs := make([]models.LocalSecondaryIndexDescription, len(input.LocalSecondaryIndexes))
 	for i, lsi := range input.LocalSecondaryIndexes {
-		lsiDescs[i] = LocalSecondaryIndexDescription{
+		lsiDescs[i] = models.LocalSecondaryIndexDescription{
 			IndexName:      aws.ToString(lsi.IndexName),
-			KeySchema:      FromSDKKeySchema(lsi.KeySchema),
-			Projection:     FromSDKProjection(lsi.Projection),
+			KeySchema:      models.FromSDKKeySchema(lsi.KeySchema),
+			Projection:     models.FromSDKProjection(lsi.Projection),
 			IndexSizeBytes: 0,
 			ItemCount:      0,
 		}
 	}
 
 	// Helper to construct SDK output
-	sdkGSIs := ToSDKGlobalSecondaryIndexDescriptions(gsiDescs)
-	sdkLSIs := ToSDKLocalSecondaryIndexDescriptions(lsiDescs)
+	sdkGSIs := models.ToSDKGlobalSecondaryIndexDescriptions(gsiDescs)
+	sdkLSIs := models.ToSDKLocalSecondaryIndexDescriptions(lsiDescs)
 
-	sdkKeySchema := ToSDKKeySchema(newTable.KeySchema)
-	sdkAttrDefs := ToSDKAttributeDefinitions(newTable.AttributeDefinitions)
+	sdkKeySchema := models.ToSDKKeySchema(newTable.KeySchema)
+	sdkAttrDefs := models.ToSDKAttributeDefinitions(newTable.AttributeDefinitions)
 
-	rcu := int64(DefaultReadCapacity)
-	wcu := int64(DefaultWriteCapacity)
+	rcu := int64(models.DefaultReadCapacity)
+	wcu := int64(models.DefaultWriteCapacity)
 
 	return &dynamodb.CreateTableOutput{
 		TableDescription: &types.TableDescription{
@@ -107,13 +109,13 @@ func (db *InMemoryDB) DeleteTable(input *dynamodb.DeleteTableInput) (*dynamodb.D
 	defer table.mu.RUnlock()
 
 	// Capture state for return
-	gsiDescs := make([]GlobalSecondaryIndexDescription, len(table.GlobalSecondaryIndexes))
+	gsiDescs := make([]models.GlobalSecondaryIndexDescription, len(table.GlobalSecondaryIndexes))
 	for i, gsi := range table.GlobalSecondaryIndexes {
-		gsiDescs[i] = GlobalSecondaryIndexDescription{
+		gsiDescs[i] = models.GlobalSecondaryIndexDescription{
 			IndexName:  gsi.IndexName,
 			KeySchema:  gsi.KeySchema,
 			Projection: gsi.Projection,
-			ProvisionedThroughput: ProvisionedThroughputDescription{
+			ProvisionedThroughput: models.ProvisionedThroughputDescription{
 				ReadCapacityUnits:  int(*gsi.ProvisionedThroughput.ReadCapacityUnits),
 				WriteCapacityUnits: int(*gsi.ProvisionedThroughput.WriteCapacityUnits),
 			},
@@ -122,9 +124,9 @@ func (db *InMemoryDB) DeleteTable(input *dynamodb.DeleteTableInput) (*dynamodb.D
 		}
 	}
 
-	sdkGSIs := ToSDKGlobalSecondaryIndexDescriptions(gsiDescs)
-	sdkKeySchema := ToSDKKeySchema(table.KeySchema)
-	sdkAttrDefs := ToSDKAttributeDefinitions(table.AttributeDefinitions)
+	sdkGSIs := models.ToSDKGlobalSecondaryIndexDescriptions(gsiDescs)
+	sdkKeySchema := models.ToSDKKeySchema(table.KeySchema)
+	sdkAttrDefs := models.ToSDKAttributeDefinitions(table.AttributeDefinitions)
 	itemCount := int64(len(table.Items))
 
 	return &dynamodb.DeleteTableOutput{
@@ -153,10 +155,10 @@ func (db *InMemoryDB) DescribeTable(input *dynamodb.DescribeTableInput) (*dynamo
 	table.mu.RLock()
 	defer table.mu.RUnlock()
 
-	gsiDescs := make([]GlobalSecondaryIndexDescription, len(table.GlobalSecondaryIndexes))
+	gsiDescs := make([]models.GlobalSecondaryIndexDescription, len(table.GlobalSecondaryIndexes))
 	for i, gsi := range table.GlobalSecondaryIndexes {
-		rc := int64(DefaultReadCapacity)
-		wc := int64(DefaultWriteCapacity)
+		rc := int64(models.DefaultReadCapacity)
+		wc := int64(models.DefaultWriteCapacity)
 		if gsi.ProvisionedThroughput.ReadCapacityUnits != nil {
 			rc = *gsi.ProvisionedThroughput.ReadCapacityUnits
 		}
@@ -164,22 +166,22 @@ func (db *InMemoryDB) DescribeTable(input *dynamodb.DescribeTableInput) (*dynamo
 			wc = *gsi.ProvisionedThroughput.WriteCapacityUnits
 		}
 
-		gsiDescs[i] = GlobalSecondaryIndexDescription{
+		gsiDescs[i] = models.GlobalSecondaryIndexDescription{
 			IndexName:  gsi.IndexName,
 			KeySchema:  gsi.KeySchema,
 			Projection: gsi.Projection,
-			ProvisionedThroughput: ProvisionedThroughputDescription{
+			ProvisionedThroughput: models.ProvisionedThroughputDescription{
 				ReadCapacityUnits:  int(rc),
 				WriteCapacityUnits: int(wc),
 			},
-			IndexStatus: TableStatusActive,
+			IndexStatus: models.TableStatusActive,
 			ItemCount:   len(table.Items),
 		}
 	}
 
-	lsiDescs := make([]LocalSecondaryIndexDescription, len(table.LocalSecondaryIndexes))
+	lsiDescs := make([]models.LocalSecondaryIndexDescription, len(table.LocalSecondaryIndexes))
 	for i, lsi := range table.LocalSecondaryIndexes {
-		lsiDescs[i] = LocalSecondaryIndexDescription{
+		lsiDescs[i] = models.LocalSecondaryIndexDescription{
 			IndexName:      lsi.IndexName,
 			KeySchema:      lsi.KeySchema,
 			Projection:     lsi.Projection,
@@ -188,14 +190,14 @@ func (db *InMemoryDB) DescribeTable(input *dynamodb.DescribeTableInput) (*dynamo
 		}
 	}
 
-	sdkGSIs := ToSDKGlobalSecondaryIndexDescriptions(gsiDescs)
-	sdkLSIs := ToSDKLocalSecondaryIndexDescriptions(lsiDescs)
-	sdkKeySchema := ToSDKKeySchema(table.KeySchema)
-	sdkAttrDefs := ToSDKAttributeDefinitions(table.AttributeDefinitions)
+	sdkGSIs := models.ToSDKGlobalSecondaryIndexDescriptions(gsiDescs)
+	sdkLSIs := models.ToSDKLocalSecondaryIndexDescriptions(lsiDescs)
+	sdkKeySchema := models.ToSDKKeySchema(table.KeySchema)
+	sdkAttrDefs := models.ToSDKAttributeDefinitions(table.AttributeDefinitions)
 	itemCount := int64(len(table.Items))
 
-	rcu := int64(DefaultReadCapacity)
-	wcu := int64(DefaultWriteCapacity)
+	rcu := int64(models.DefaultReadCapacity)
+	wcu := int64(models.DefaultWriteCapacity)
 
 	return &dynamodb.DescribeTableOutput{
 		Table: &types.TableDescription{

@@ -18,10 +18,10 @@ func TestIntegration_DDB_UpdateItem(t *testing.T) {
 	client := createDynamoDBClient(t)
 
 	type testCase struct {
-		name   string
 		setup  func(t *testing.T, ctx context.Context, tableName string)
 		input  func(tableName string) *dynamodb.UpdateItemInput
 		verify func(t *testing.T, out *dynamodb.UpdateItemOutput)
+		name   string
 	}
 
 	tests := []testCase{
@@ -41,6 +41,7 @@ func TestIntegration_DDB_UpdateItem(t *testing.T) {
 				}
 			},
 			verify: func(t *testing.T, out *dynamodb.UpdateItemOutput) {
+				t.Helper()
 				require.NotNil(t, out.Attributes)
 				val, ok := out.Attributes["val"].(*types.AttributeValueMemberS)
 				require.True(t, ok)
@@ -50,6 +51,7 @@ func TestIntegration_DDB_UpdateItem(t *testing.T) {
 		{
 			name: "UpdateItem_Set_ExistingItem",
 			setup: func(t *testing.T, ctx context.Context, tableName string) {
+				t.Helper()
 				_, err := client.PutItem(ctx, &dynamodb.PutItemInput{
 					TableName: aws.String(tableName),
 					Item: map[string]types.AttributeValue{
@@ -73,6 +75,7 @@ func TestIntegration_DDB_UpdateItem(t *testing.T) {
 				}
 			},
 			verify: func(t *testing.T, out *dynamodb.UpdateItemOutput) {
+				t.Helper()
 				require.NotNil(t, out.Attributes)
 				val, ok := out.Attributes["val"].(*types.AttributeValueMemberS)
 				require.True(t, ok)
@@ -82,7 +85,6 @@ func TestIntegration_DDB_UpdateItem(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			tableName := "UpdateItemTestTable-" + uuid.NewString()

@@ -2,6 +2,7 @@ package dynamodb_test
 
 import (
 	"Gopherstack/dynamodb"
+	"Gopherstack/dynamodb/models"
 	"bytes"
 	"encoding/json"
 	"hash/crc32"
@@ -32,13 +33,13 @@ func TestHandler_ServeHTTP(t *testing.T) {
 			name:   "Valid CreateTable",
 			method: http.MethodPost,
 			target: "DynamoDB_20120810.CreateTable",
-			body: mustMarshal(t, dynamodb.CreateTableInput{
+			body: mustMarshal(t, models.CreateTableInput{
 				TableName: "HandlerTable",
-				KeySchema: []dynamodb.KeySchemaElement{
+				KeySchema: []models.KeySchemaElement{
 					{AttributeName: "pk", KeyType: "HASH"},
 					{AttributeName: "sk", KeyType: "RANGE"},
 				},
-				AttributeDefinitions: []dynamodb.AttributeDefinition{
+				AttributeDefinitions: []models.AttributeDefinition{
 					{AttributeName: "pk", AttributeType: "S"},
 					{AttributeName: "sk", AttributeType: "S"},
 				},
@@ -95,7 +96,7 @@ func TestHandler_ServeHTTP(t *testing.T) {
 			},
 			body: mustMarshal(
 				t,
-				dynamodb.PutItemInput{
+				models.PutItemInput{
 					TableName: "HandlerTable",
 					Item:      map[string]any{"pk": map[string]any{"S": "item1"}},
 				},
@@ -137,7 +138,7 @@ func TestHandler_ServeHTTP(t *testing.T) {
 			name:   "Table Not Found (ResourceNotFoundException)",
 			method: http.MethodPost,
 			target: "DynamoDB_20120810.DescribeTable",
-			body: mustMarshal(t, dynamodb.DescribeTableInput{
+			body: mustMarshal(t, models.DescribeTableInput{
 				TableName: "MissingTable",
 			}),
 			wantStatusCode:   http.StatusNotFound,
@@ -147,18 +148,18 @@ func TestHandler_ServeHTTP(t *testing.T) {
 			name:   "GetItem",
 			method: http.MethodPost,
 			target: "DynamoDB_20120810.GetItem",
-			body: mustMarshal(t, dynamodb.GetItemInput{
+			body: mustMarshal(t, models.GetItemInput{
 				TableName: "HandlerTable",
 				Key:       map[string]any{"pk": map[string]any{"S": "item1"}},
 			}),
 			setup: func(t *testing.T, db *dynamodb.InMemoryDB) {
 				t.Helper()
 				createTableHelper(t, db, "HandlerTable", "pk")
-				putInput := dynamodb.PutItemInput{
+				putInput := models.PutItemInput{
 					TableName: "HandlerTable",
 					Item:      map[string]any{"pk": map[string]any{"S": "item1"}},
 				}
-				sdkPut, _ := dynamodb.ToSDKPutItemInput(&putInput)
+				sdkPut, _ := models.ToSDKPutItemInput(&putInput)
 				_, err := db.PutItem(sdkPut)
 				require.NoError(t, err)
 			},
@@ -169,7 +170,7 @@ func TestHandler_ServeHTTP(t *testing.T) {
 			name:   "Query",
 			method: http.MethodPost,
 			target: "DynamoDB_20120810.Query",
-			body: mustMarshal(t, dynamodb.QueryInput{
+			body: mustMarshal(t, models.QueryInput{
 				TableName:              "HandlerTable",
 				KeyConditionExpression: "pk = :pk AND sk BETWEEN :sk1 AND :sk2",
 				ExpressionAttributeValues: map[string]any{
@@ -191,14 +192,14 @@ func TestHandler_ServeHTTP(t *testing.T) {
 					{"pk1", "sk1"}, {"pk1", "sk2"}, {"pk1", "sk3"}, {"pk2", "sk1"},
 				}
 				for _, item := range items {
-					putInput := dynamodb.PutItemInput{
+					putInput := models.PutItemInput{
 						TableName: "HandlerTable",
 						Item: map[string]any{
 							"pk": map[string]any{"S": item.pk},
 							"sk": map[string]any{"S": item.sk},
 						},
 					}
-					sdkPut, _ := dynamodb.ToSDKPutItemInput(&putInput)
+					sdkPut, _ := models.ToSDKPutItemInput(&putInput)
 					_, putErr := db.PutItem(sdkPut)
 					require.NoError(t, putErr)
 				}
@@ -255,18 +256,18 @@ func TestHandler_Dispatch_Coverage(t *testing.T) {
 			var body string
 			switch op {
 			case "CreateTable":
-				body = mustMarshal(t, dynamodb.CreateTableInput{
+				body = mustMarshal(t, models.CreateTableInput{
 					TableName:            "NewTable_" + op,
-					KeySchema:            []dynamodb.KeySchemaElement{{AttributeName: "pk", KeyType: "HASH"}},
-					AttributeDefinitions: []dynamodb.AttributeDefinition{{AttributeName: "pk", AttributeType: "S"}},
+					KeySchema:            []models.KeySchemaElement{{AttributeName: "pk", KeyType: "HASH"}},
+					AttributeDefinitions: []models.AttributeDefinition{{AttributeName: "pk", AttributeType: "S"}},
 				})
 			case "PutItem":
-				body = mustMarshal(t, dynamodb.PutItemInput{
+				body = mustMarshal(t, models.PutItemInput{
 					TableName: "DispatchTable",
 					Item:      map[string]any{"pk": map[string]any{"S": "item1"}},
 				})
 			case "Query":
-				body = mustMarshal(t, dynamodb.QueryInput{
+				body = mustMarshal(t, models.QueryInput{
 					TableName:              "DispatchTable",
 					KeyConditionExpression: "pk = :pk",
 					ExpressionAttributeValues: map[string]any{
@@ -313,7 +314,7 @@ func TestHandler_CRC32Header(t *testing.T) {
 		{
 			name:   "error response has crc32 header",
 			target: "DynamoDB_20120810.DescribeTable",
-			body:   mustMarshal(t, dynamodb.DescribeTableInput{TableName: "Missing"}),
+			body:   mustMarshal(t, models.DescribeTableInput{TableName: "Missing"}),
 		},
 		{
 			name:   "unknown operation response has crc32 header",
@@ -340,7 +341,7 @@ func TestHandler_CRC32Header(t *testing.T) {
 			resp := w.Result()
 			defer resp.Body.Close()
 
-			crc32Header := resp.Header.Get("x-amz-crc32")
+			crc32Header := resp.Header.Get("x-amz-crc32") //nolint:canonicalheader // AWS DynamoDB requires lowercase
 			require.NotEmpty(t, crc32Header, "x-amz-crc32 header must be present")
 
 			gotChecksum, err := strconv.ParseUint(crc32Header, 10, 32)

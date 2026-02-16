@@ -18,6 +18,7 @@ func TestIntegration_DDB_ValidationAndLimits(t *testing.T) {
 
 	// Helper to create table
 	createTable := func(t *testing.T) string {
+		t.Helper()
 		tableName := "Limits_" + uuid.NewString()
 		_, err := client.CreateTable(t.Context(), &dynamodb.CreateTableInput{
 			TableName: aws.String(tableName),
@@ -37,6 +38,7 @@ func TestIntegration_DDB_ValidationAndLimits(t *testing.T) {
 		t.Cleanup(func() {
 			client.DeleteTable(context.Background(), &dynamodb.DeleteTableInput{TableName: aws.String(tableName)})
 		})
+
 		return tableName
 	}
 

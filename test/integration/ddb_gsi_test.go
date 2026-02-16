@@ -42,6 +42,7 @@ func TestIntegration_DDB_GSI(t *testing.T) {
 							if projectionType == types.ProjectionTypeInclude {
 								return []string{"extra"}
 							}
+
 							return nil
 						}(),
 					},

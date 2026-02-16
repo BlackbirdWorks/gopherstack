@@ -396,10 +396,10 @@ func TestIntegration_S3_PrefixListing(t *testing.T) {
 			ctx := t.Context()
 			bucket := "listing-" + uuid.NewString()
 
-			_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{
+			_, createErr := client.CreateBucket(ctx, &s3.CreateBucketInput{
 				Bucket: aws.String(bucket),
 			})
-			require.NoError(t, err)
+			require.NoError(t, createErr)
 
 			for _, key := range tt.keys {
 				_, putErr := client.PutObject(ctx, &s3.PutObjectInput{
@@ -992,7 +992,10 @@ func TestIntegration_S3_ListObjectsV2(t *testing.T) {
 		client := createS3Client(t)
 		ctx := t.Context()
 
-		_, err := client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{Bucket: aws.String("no-such-bucket-" + uuid.NewString())})
+		_, err := client.ListObjectsV2(
+			ctx,
+			&s3.ListObjectsV2Input{Bucket: aws.String("no-such-bucket-" + uuid.NewString())},
+		)
 		require.Error(t, err)
 	})
 

@@ -741,16 +741,16 @@ func TestObjectTagging(t *testing.T) {
 			}
 			sort.Slice(tags, func(i, j int) bool { return *tags[i].Key < *tags[j].Key })
 
-			_, err := backend.PutObjectTagging(context.Background(), &sdk_s3.PutObjectTaggingInput{
+			_, putErr := backend.PutObjectTagging(context.Background(), &sdk_s3.PutObjectTaggingInput{
 				Bucket:  aws.String(tt.bucket),
 				Key:     aws.String(tt.key),
 				Tagging: &types.Tagging{TagSet: tags},
 			})
 
 			if tt.expectErr {
-				require.ErrorIs(t, err, tt.wantErr)
+				require.ErrorIs(t, putErr, tt.wantErr)
 			} else {
-				require.NoError(t, err)
+				require.NoError(t, putErr)
 
 				out, getErr := backend.GetObjectTagging(context.Background(), &sdk_s3.GetObjectTaggingInput{
 					Bucket: aws.String(tt.bucket),
@@ -810,11 +810,11 @@ func TestDeleteObjectTagging(t *testing.T) {
 			} else {
 				require.NoError(t, deleteErr)
 				// Verify tags are empty
-				out, err := backend.GetObjectTagging(context.Background(), &sdk_s3.GetObjectTaggingInput{
+				out, getErr := backend.GetObjectTagging(context.Background(), &sdk_s3.GetObjectTaggingInput{
 					Bucket: aws.String(tt.bucket),
 					Key:    aws.String(tt.key),
 				})
-				require.NoError(t, err)
+				require.NoError(t, getErr)
 				require.Empty(t, out.TagSet)
 			}
 		})

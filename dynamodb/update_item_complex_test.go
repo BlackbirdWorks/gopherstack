@@ -2,6 +2,7 @@ package dynamodb_test
 
 import (
 	"Gopherstack/dynamodb"
+	"Gopherstack/dynamodb/models"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -23,7 +24,7 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 		{
 			name: "SET Nested Map Field",
 			setup: func(db *dynamodb.InMemoryDB) {
-				putInput := dynamodb.PutItemInput{
+				putInput := models.PutItemInput{
 					TableName: tableName,
 					Item: map[string]any{
 						"pk": map[string]any{"S": "nested-map"},
@@ -35,7 +36,7 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 						},
 					},
 				}
-				sdkPut, _ := dynamodb.ToSDKPutItemInput(&putInput)
+				sdkPut, _ := models.ToSDKPutItemInput(&putInput)
 				_, _ = db.PutItem(sdkPut)
 			},
 			input: `{
@@ -54,7 +55,7 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 		{
 			name: "SET List Element by Index",
 			setup: func(db *dynamodb.InMemoryDB) {
-				putInput := dynamodb.PutItemInput{
+				putInput := models.PutItemInput{
 					TableName: tableName,
 					Item: map[string]any{
 						"pk": map[string]any{"S": "list-update"},
@@ -63,7 +64,7 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 						},
 					},
 				}
-				sdkPut, _ := dynamodb.ToSDKPutItemInput(&putInput)
+				sdkPut, _ := models.ToSDKPutItemInput(&putInput)
 				_, _ = db.PutItem(sdkPut)
 			},
 			input: `{
@@ -82,7 +83,7 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 		{
 			name: "SET Nested List in Map",
 			setup: func(db *dynamodb.InMemoryDB) {
-				putInput := dynamodb.PutItemInput{
+				putInput := models.PutItemInput{
 					TableName: tableName,
 					Item: map[string]any{
 						"pk": map[string]any{"S": "nested-list"},
@@ -91,7 +92,7 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 						}},
 					},
 				}
-				sdkPut, _ := dynamodb.ToSDKPutItemInput(&putInput)
+				sdkPut, _ := models.ToSDKPutItemInput(&putInput)
 				_, _ = db.PutItem(sdkPut)
 			},
 			input: `{
@@ -111,7 +112,7 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 		{
 			name: "REMOVE List Element (Shift)",
 			setup: func(db *dynamodb.InMemoryDB) {
-				putInput := dynamodb.PutItemInput{
+				putInput := models.PutItemInput{
 					TableName: tableName,
 					Item: map[string]any{
 						"pk": map[string]any{"S": "remove-list"},
@@ -120,7 +121,7 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 						},
 					},
 				}
-				sdkPut, _ := dynamodb.ToSDKPutItemInput(&putInput)
+				sdkPut, _ := models.ToSDKPutItemInput(&putInput)
 				_, _ = db.PutItem(sdkPut)
 			},
 			input: `{
@@ -150,8 +151,8 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 				tc.setup(db)
 			}
 
-			updateInput := mustUnmarshal[dynamodb.UpdateItemInput](t, tc.input)
-			sdkUpdate, _ := dynamodb.ToSDKUpdateItemInput(&updateInput)
+			updateInput := mustUnmarshal[models.UpdateItemInput](t, tc.input)
+			sdkUpdate, _ := models.ToSDKUpdateItemInput(&updateInput)
 			_, err := db.UpdateItem(sdkUpdate)
 			if tc.wantErr {
 				require.Error(t, err)

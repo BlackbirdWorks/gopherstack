@@ -19,10 +19,10 @@ func TestIntegration_DDB_PutItem(t *testing.T) {
 	client := createDynamoDBClient(t)
 
 	type testCase struct {
-		name   string
 		setup  func(t *testing.T, tableName string)
 		input  func(tableName string) *dynamodb.PutItemInput
 		verify func(t *testing.T, out *dynamodb.PutItemOutput)
+		name   string
 	}
 
 	tests := []testCase{
@@ -39,8 +39,9 @@ func TestIntegration_DDB_PutItem(t *testing.T) {
 				}
 			},
 			verify: func(t *testing.T, out *dynamodb.PutItemOutput) {
+				t.Helper()
 				require.NotNil(t, out.ConsumedCapacity)
-				assert.Equal(t, float64(1.0), *out.ConsumedCapacity.CapacityUnits)
+				assert.InEpsilon(t, 1.0, *out.ConsumedCapacity.CapacityUnits, 0.0001)
 			},
 		},
 		{
@@ -56,6 +57,7 @@ func TestIntegration_DDB_PutItem(t *testing.T) {
 				}
 			},
 			verify: func(t *testing.T, out *dynamodb.PutItemOutput) {
+				t.Helper()
 				require.NotNil(t, out.ItemCollectionMetrics)
 				assert.NotNil(t, out.ItemCollectionMetrics.ItemCollectionKey)
 			},
@@ -63,6 +65,7 @@ func TestIntegration_DDB_PutItem(t *testing.T) {
 		{
 			name: "ReturnValues_ALL_OLD",
 			setup: func(t *testing.T, tableName string) {
+				t.Helper()
 				_, err := client.PutItem(t.Context(), &dynamodb.PutItemInput{
 					TableName: aws.String(tableName),
 					Item: map[string]types.AttributeValue{
@@ -83,6 +86,7 @@ func TestIntegration_DDB_PutItem(t *testing.T) {
 				}
 			},
 			verify: func(t *testing.T, out *dynamodb.PutItemOutput) {
+				t.Helper()
 				require.NotNil(t, out.Attributes)
 				val, ok := out.Attributes["val"].(*types.AttributeValueMemberS)
 				require.True(t, ok)
@@ -92,7 +96,6 @@ func TestIntegration_DDB_PutItem(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt // capture range variable
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 

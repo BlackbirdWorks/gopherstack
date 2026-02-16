@@ -1,6 +1,7 @@
 package dynamodb_test
 
 import (
+	"Gopherstack/dynamodb/models"
 	"encoding/json"
 	"strconv"
 	"testing"
@@ -18,7 +19,7 @@ func TestQuery(t *testing.T) {
 	// Setup table
 	tableName := "QueryTestTable"
 
-	ctInput := mustUnmarshal[dynamodb.CreateTableInput](t, `{
+	ctInput := mustUnmarshal[models.CreateTableInput](t, `{
 		"TableName": "`+tableName+`",
 		"KeySchema": [
 			{"AttributeName": "pk", "KeyType": "HASH"},
@@ -33,15 +34,15 @@ func TestQuery(t *testing.T) {
 			"WriteCapacityUnits": 5
 		}
 	}`)
-	_, err := db.CreateTable(dynamodb.ToSDKCreateTableInput(&ctInput))
-	require.NoError(t, err)
+	_, createErr := db.CreateTable(models.ToSDKCreateTableInput(&ctInput))
+	require.NoError(t, createErr)
 
 	// Insert items
 	// pk=A, sk=1..5
 	// pk=B, sk=1..5
 	for _, pk := range []string{"A", "B"} {
 		for i := 1; i <= 5; i++ {
-			putInput := mustUnmarshal[dynamodb.PutItemInput](t, `{
+			putInput := mustUnmarshal[models.PutItemInput](t, `{
 				"TableName": "`+tableName+`",
 				"Item": {
 					"pk": {"S": "`+pk+`"},
@@ -49,7 +50,7 @@ func TestQuery(t *testing.T) {
 					"data": {"S": "data-`+pk+`-`+strconv.Itoa(i)+`"}
 				}
 			}`)
-			sdkPut, _ := dynamodb.ToSDKPutItemInput(&putInput)
+			sdkPut, _ := models.ToSDKPutItemInput(&putInput)
 			_, putErr := db.PutItem(sdkPut)
 			require.NoError(t, putErr)
 		}
@@ -180,8 +181,8 @@ func TestQuery(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			queryInput := mustUnmarshal[dynamodb.QueryInput](t, tc.input)
-			sdkQuery, _ := dynamodb.ToSDKQueryInput(&queryInput)
+			queryInput := mustUnmarshal[models.QueryInput](t, tc.input)
+			sdkQuery, _ := models.ToSDKQueryInput(&queryInput)
 
 			res, queryErr := db.Query(sdkQuery)
 			if tc.wantErr {
@@ -199,7 +200,7 @@ func TestQuery(t *testing.T) {
 			// Unwrap output to wire format for comparison
 			var gotItems []map[string]any
 			for _, item := range res.Items {
-				gotItems = append(gotItems, dynamodb.FromSDKItem(item))
+				gotItems = append(gotItems, models.FromSDKItem(item))
 			}
 
 			// Verify items

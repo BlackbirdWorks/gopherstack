@@ -3,6 +3,8 @@ package dynamodb
 import (
 	"fmt"
 
+	"Gopherstack/dynamodb/models"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
@@ -27,7 +29,7 @@ func (db *InMemoryDB) Scan(input *dynamodb.ScanInput) (*dynamodb.ScanOutput, err
 
 	outItems := make([]map[string]types.AttributeValue, len(items))
 	for i, it := range items {
-		sdkIt, _ := ToSDKItem(it)
+		sdkIt, _ := models.ToSDKItem(it)
 		outItems[i] = sdkIt
 	}
 
@@ -41,7 +43,7 @@ func (db *InMemoryDB) Scan(input *dynamodb.ScanInput) (*dynamodb.ScanOutput, err
 func (db *InMemoryDB) getScanKeySchema(
 	table *Table,
 	input *dynamodb.ScanInput,
-) (KeySchemaElement, KeySchemaElement, error) {
+) (models.KeySchemaElement, models.KeySchemaElement, error) {
 	indexName := aws.ToString(input.IndexName)
 	if indexName == "" {
 		pk, sk := getPKAndSK(table.KeySchema)
@@ -65,7 +67,7 @@ func (db *InMemoryDB) getScanKeySchema(
 		}
 	}
 
-	return KeySchemaElement{}, KeySchemaElement{}, NewResourceNotFoundException(
+	return models.KeySchemaElement{}, models.KeySchemaElement{}, NewResourceNotFoundException(
 		fmt.Sprintf("Index: %s not found", indexName),
 	)
 }
@@ -73,12 +75,12 @@ func (db *InMemoryDB) getScanKeySchema(
 func (db *InMemoryDB) doScan(
 	items []map[string]any,
 	input *dynamodb.ScanInput,
-	pkDef, skDef KeySchemaElement,
+	pkDef, skDef models.KeySchemaElement,
 	ttlAttr string,
 ) []map[string]any {
 	result := make([]map[string]any, 0, minScanAllocationSize)
 
-	eav := FromSDKItem(input.ExpressionAttributeValues)
+	eav := models.FromSDKItem(input.ExpressionAttributeValues)
 	limit := int(aws.ToInt32(input.Limit))
 
 	proj := aws.ToString(input.ProjectionExpression)
@@ -107,7 +109,7 @@ func (db *InMemoryDB) doScan(
 func (db *InMemoryDB) shouldIncludeInScan(
 	item map[string]any,
 	input *dynamodb.ScanInput,
-	pkDef, skDef KeySchemaElement,
+	pkDef, skDef models.KeySchemaElement,
 	eav map[string]any,
 ) bool {
 	indexName := aws.ToString(input.IndexName)

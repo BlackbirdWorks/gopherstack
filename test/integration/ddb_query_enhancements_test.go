@@ -2,7 +2,7 @@ package integration_test
 
 import (
 	"context"
-	"fmt"
+	"strconv"
 	"testing"
 	"time"
 
@@ -20,6 +20,7 @@ func TestIntegration_DDB_QueryEnhancements(t *testing.T) {
 
 	// Helper to create table with PK and SK
 	createTable := func(t *testing.T) string {
+		t.Helper()
 		tableName := "QueryEnhance_" + uuid.NewString()
 		_, err := client.CreateTable(t.Context(), &dynamodb.CreateTableInput{
 			TableName: aws.String(tableName),
@@ -42,6 +43,7 @@ func TestIntegration_DDB_QueryEnhancements(t *testing.T) {
 			client.DeleteTable(context.Background(), &dynamodb.DeleteTableInput{TableName: aws.String(tableName)})
 		})
 		time.Sleep(10 * time.Millisecond)
+
 		return tableName
 	}
 
@@ -55,7 +57,7 @@ func TestIntegration_DDB_QueryEnhancements(t *testing.T) {
 				TableName: aws.String(tableName),
 				Item: map[string]types.AttributeValue{
 					"pk": &types.AttributeValueMemberS{Value: "A"},
-					"sk": &types.AttributeValueMemberN{Value: fmt.Sprintf("%d", i)},
+					"sk": &types.AttributeValueMemberN{Value: strconv.Itoa(i)},
 				},
 			})
 		}
@@ -97,7 +99,7 @@ func TestIntegration_DDB_QueryEnhancements(t *testing.T) {
 				TableName: aws.String(tableName),
 				Item: map[string]types.AttributeValue{
 					"pk": &types.AttributeValueMemberS{Value: "B"},
-					"sk": &types.AttributeValueMemberN{Value: fmt.Sprintf("%d", i)},
+					"sk": &types.AttributeValueMemberN{Value: strconv.Itoa(i)},
 				},
 			})
 		}
@@ -138,7 +140,7 @@ func TestIntegration_DDB_QueryEnhancements(t *testing.T) {
 				TableName: aws.String(tableName),
 				Item: map[string]types.AttributeValue{
 					"pk": &types.AttributeValueMemberS{Value: "C"},
-					"sk": &types.AttributeValueMemberN{Value: fmt.Sprintf("%d", i)},
+					"sk": &types.AttributeValueMemberN{Value: strconv.Itoa(i)},
 				},
 			})
 		}

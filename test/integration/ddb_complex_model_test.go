@@ -1,7 +1,9 @@
 package integration_test
 
 import (
+	"context"
 	"fmt"
+	"strconv"
 	"testing"
 	"time"
 
@@ -13,22 +15,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ComplexModel represents a deep data model with mixed types
+// ComplexModel represents a deep data model with mixed types.
 type ComplexModel struct {
+	CreatedAt time.Time
 	ID        string
 	Type      string
 	OrgID     string
-	Metadata  ModelMetadata
 	Settings  UserSettings
-	CreatedAt time.Time
 	Tags      []string
+	Metadata  ModelMetadata
 }
 
 type ModelMetadata struct {
-	Version   int
-	Source    string
 	Flags     map[string]bool
+	Source    string
 	ExtraData []byte
+	Version   int
 }
 
 type UserSettings struct {
@@ -37,10 +39,10 @@ type UserSettings struct {
 }
 
 type NotificationPrefs struct {
+	Channel string
 	Email   bool
 	SMS     bool
 	Push    bool
-	Channel string
 }
 
 func TestIntegration_DDB_ComplexDataModel(t *testing.T) {
@@ -74,10 +76,10 @@ func TestIntegration_DDB_ComplexDataModel(t *testing.T) {
 	assert.Equal(t, int64(0), aws.ToInt64(out.TableDescription.ItemCount))
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteTable(t.Context(), &dynamodb.DeleteTableInput{
+		_, deleteErr := client.DeleteTable(context.Background(), &dynamodb.DeleteTableInput{
 			TableName: aws.String(tableName),
 		})
-		require.NoError(t, err)
+		require.NoError(t, deleteErr)
 	})
 
 	// Wait for table creation (simulated delay for eventual consistency in real DynamoDB, instant in Gopherstack usually)
@@ -152,7 +154,7 @@ func TestIntegration_DDB_ComplexDataModel(t *testing.T) {
 				"Org": &types.AttributeValueMemberS{Value: user.OrgID},
 				"Meta": &types.AttributeValueMemberM{Value: map[string]types.AttributeValue{
 					"Source": &types.AttributeValueMemberS{Value: user.Metadata.Source},
-					"Ver":    &types.AttributeValueMemberN{Value: fmt.Sprintf("%d", user.Metadata.Version)},
+					"Ver":    &types.AttributeValueMemberN{Value: strconv.Itoa(user.Metadata.Version)},
 				}},
 				"Config": &types.AttributeValueMemberM{Value: map[string]types.AttributeValue{
 					"Theme": &types.AttributeValueMemberS{Value: user.Settings.Theme},
@@ -169,11 +171,11 @@ func TestIntegration_DDB_ComplexDataModel(t *testing.T) {
 			item["Tags"] = &types.AttributeValueMemberL{Value: listMembers}
 		}
 
-		_, err := client.PutItem(ctx, &dynamodb.PutItemInput{
+		_, putErr := client.PutItem(ctx, &dynamodb.PutItemInput{
 			TableName: aws.String(tableName),
 			Item:      item,
 		})
-		require.NoError(t, err)
+		require.NoError(t, putErr)
 	}
 
 	// // 4. Query with BeginsWith
@@ -199,7 +201,11 @@ func TestIntegration_DDB_ComplexDataModel(t *testing.T) {
 		assert.Contains(t, item, "sk")
 		assert.Contains(t, item, "DeepData")
 		assert.Contains(t, item, "Tags")
-		assert.NotContains(t, item, "pk") // Not projected explicitly (though Keys usually are, but Projection logic handles it)
+		assert.NotContains(
+			t,
+			item,
+			"pk",
+		) // Not projected explicitly (though Keys usually are, but Projection logic handles it)
 
 		// Verify Deep Data Projection
 		deepData := item["DeepData"].(*types.AttributeValueMemberM).Value

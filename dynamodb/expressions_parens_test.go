@@ -1,6 +1,7 @@
 package dynamodb_test
 
 import (
+	"Gopherstack/dynamodb/models"
 	"testing"
 
 	"Gopherstack/dynamodb"
@@ -54,18 +55,18 @@ func TestQuery_KeyCondition_WithParenthesesAndBeginsWith(t *testing.T) {
 			tableName := "TestTable_Parens"
 
 			// Create table
-			ct := dynamodb.CreateTableInput{
+			ct := models.CreateTableInput{
 				TableName: tableName,
-				KeySchema: []dynamodb.KeySchemaElement{
+				KeySchema: []models.KeySchemaElement{
 					{AttributeName: "pk", KeyType: "HASH"},
 					{AttributeName: "sk", KeyType: "RANGE"},
 				},
-				AttributeDefinitions: []dynamodb.AttributeDefinition{
+				AttributeDefinitions: []models.AttributeDefinition{
 					{AttributeName: "pk", AttributeType: "S"},
 					{AttributeName: "sk", AttributeType: "S"},
 				},
 			}
-			_, err := db.CreateTable(dynamodb.ToSDKCreateTableInput(&ct))
+			_, err := db.CreateTable(models.ToSDKCreateTableInput(&ct))
 			require.NoError(t, err)
 
 			// Put items
@@ -80,26 +81,26 @@ func TestQuery_KeyCondition_WithParenthesesAndBeginsWith(t *testing.T) {
 			}
 
 			for _, item := range items {
-				put := dynamodb.PutItemInput{
+				put := models.PutItemInput{
 					TableName: tableName,
 					Item: map[string]any{
 						"pk": map[string]any{"S": item.pk},
 						"sk": map[string]any{"S": item.sk},
 					},
 				}
-				sdkPut, _ := dynamodb.ToSDKPutItemInput(&put)
+				sdkPut, _ := models.ToSDKPutItemInput(&put)
 				_, putErr := db.PutItem(sdkPut)
 				require.NoError(t, putErr)
 			}
 
-			queryInput := dynamodb.QueryInput{
+			queryInput := models.QueryInput{
 				TableName:                 tableName,
 				KeyConditionExpression:    tt.keyConditionExpression,
 				ExpressionAttributeNames:  tt.attrNames,
 				ExpressionAttributeValues: tt.attrValues,
 			}
 
-			sdkQuery, _ := dynamodb.ToSDKQueryInput(&queryInput)
+			sdkQuery, _ := models.ToSDKQueryInput(&queryInput)
 			result, err := db.Query(sdkQuery)
 			require.NoError(t, err)
 			require.NotNil(t, result)

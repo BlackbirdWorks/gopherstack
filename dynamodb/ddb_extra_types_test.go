@@ -1,6 +1,7 @@
 package dynamodb_test
 
 import (
+	"Gopherstack/dynamodb/models"
 	"testing"
 
 	"Gopherstack/dynamodb"
@@ -30,7 +31,7 @@ func TestDynamoDB_ExtraTypes(t *testing.T) {
 			"bs":   map[string]any{"BS": []any{"YjE="}}, // base64 for "b1"
 		}
 
-		sdkInputItem, err := dynamodb.ToSDKItem(item)
+		sdkInputItem, err := models.ToSDKItem(item)
 		require.NoError(t, err)
 
 		putInput := &dynamodb_sdk.PutItemInput{

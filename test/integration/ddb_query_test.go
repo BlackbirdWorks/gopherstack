@@ -18,16 +18,17 @@ func TestIntegration_DDB_Query(t *testing.T) {
 	client := createDynamoDBClient(t)
 
 	type testCase struct {
-		name   string
 		setup  func(t *testing.T, ctx context.Context, tableName string)
 		input  func(tableName string) *dynamodb.QueryInput
 		verify func(t *testing.T, out *dynamodb.QueryOutput)
+		name   string
 	}
 
 	tests := []testCase{
 		{
 			name: "Query_PartitionKey_ExactMatch",
 			setup: func(t *testing.T, ctx context.Context, tableName string) {
+				t.Helper()
 				// Seed data
 				items := []map[string]types.AttributeValue{
 					{
@@ -65,6 +66,7 @@ func TestIntegration_DDB_Query(t *testing.T) {
 				}
 			},
 			verify: func(t *testing.T, out *dynamodb.QueryOutput) {
+				t.Helper()
 				// Should find 2 items for user1
 				assert.Equal(t, int32(2), out.Count)
 				assert.Len(t, out.Items, 2)
@@ -73,6 +75,7 @@ func TestIntegration_DDB_Query(t *testing.T) {
 		{
 			name: "Query_NoMatch",
 			setup: func(t *testing.T, ctx context.Context, tableName string) {
+				t.Helper()
 				// Empty table or data that doesn't match
 				_, err := client.PutItem(ctx, &dynamodb.PutItemInput{
 					TableName: aws.String(tableName),
@@ -93,6 +96,7 @@ func TestIntegration_DDB_Query(t *testing.T) {
 				}
 			},
 			verify: func(t *testing.T, out *dynamodb.QueryOutput) {
+				t.Helper()
 				assert.Equal(t, int32(0), out.Count)
 				assert.Empty(t, out.Items)
 			},
@@ -100,7 +104,6 @@ func TestIntegration_DDB_Query(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			tableName := "QueryTestTable-" + uuid.NewString()

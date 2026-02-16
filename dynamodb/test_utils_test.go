@@ -1,6 +1,7 @@
 package dynamodb_test
 
 import (
+	"Gopherstack/dynamodb/models"
 	"encoding/json"
 	"testing"
 
@@ -21,28 +22,28 @@ func mustUnmarshal[T any](t *testing.T, jsonStr string) T {
 
 func createTableHelper(t *testing.T, db *dynamodb.InMemoryDB, name string, pk string, sk ...string) {
 	t.Helper()
-	keySchema := []dynamodb.KeySchemaElement{
-		{AttributeName: pk, KeyType: dynamodb.KeyTypeHash},
+	keySchema := []models.KeySchemaElement{
+		{AttributeName: pk, KeyType: models.KeyTypeHash},
 	}
-	attributeDefinitions := []dynamodb.AttributeDefinition{
+	attributeDefinitions := []models.AttributeDefinition{
 		{AttributeName: pk, AttributeType: "S"},
 	}
 
 	if len(sk) > 0 {
-		keySchema = append(keySchema, dynamodb.KeySchemaElement{
-			AttributeName: sk[0], KeyType: dynamodb.KeyTypeRange,
+		keySchema = append(keySchema, models.KeySchemaElement{
+			AttributeName: sk[0], KeyType: models.KeyTypeRange,
 		})
-		attributeDefinitions = append(attributeDefinitions, dynamodb.AttributeDefinition{
+		attributeDefinitions = append(attributeDefinitions, models.AttributeDefinition{
 			AttributeName: sk[0], AttributeType: "S"},
 		)
 	}
 
-	createInput := dynamodb.CreateTableInput{
+	createInput := models.CreateTableInput{
 		TableName:            name,
 		KeySchema:            keySchema,
 		AttributeDefinitions: attributeDefinitions,
 	}
-	sdkInput := dynamodb.ToSDKCreateTableInput(&createInput)
+	sdkInput := models.ToSDKCreateTableInput(&createInput)
 	_, err := db.CreateTable(sdkInput)
 	require.NoError(t, err)
 }

@@ -2,6 +2,9 @@ package dynamodb
 
 import (
 	"sync"
+
+	"Gopherstack/dynamodb/models"
+	"Gopherstack/pkgs/dynamoattr"
 )
 
 // InMemoryDB stores tables and items.
@@ -15,23 +18,13 @@ type Table struct {
 	pkIndex                map[string]int
 	pkskIndex              map[string]map[string]int
 	Name                   string
-	TTLAttribute           string // empty when TTL is disabled
-	KeySchema              []KeySchemaElement
-	AttributeDefinitions   []AttributeDefinition
-	GlobalSecondaryIndexes []GlobalSecondaryIndex
-	LocalSecondaryIndexes  []LocalSecondaryIndex
+	TTLAttribute           string
+	KeySchema              []models.KeySchemaElement
+	AttributeDefinitions   []models.AttributeDefinition
+	GlobalSecondaryIndexes []models.GlobalSecondaryIndex
+	LocalSecondaryIndexes  []models.LocalSecondaryIndex
 	Items                  []map[string]any
-	mu                     sync.RWMutex // per-table lock for better concurrency
-}
-
-type KeySchemaElement struct {
-	AttributeName string `json:"AttributeName"`
-	KeyType       string `json:"KeyType"` // KeyTypeHash or "RANGE"
-}
-
-type AttributeDefinition struct {
-	AttributeName string `json:"AttributeName"`
-	AttributeType string `json:"AttributeType"`
+	mu                     sync.RWMutex
 }
 
 func NewInMemoryDB() *InMemoryDB {
@@ -48,7 +41,7 @@ func BuildKeyString(item map[string]any, attrName string) string {
 		return ""
 	}
 
-	return toString(item[attrName])
+	return dynamoattr.ToString(item[attrName])
 }
 
 // initializeIndexes creates empty index maps for a table.

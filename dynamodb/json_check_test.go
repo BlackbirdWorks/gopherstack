@@ -1,10 +1,10 @@
 package dynamodb_test
 
 import (
+	"Gopherstack/dynamodb/models"
 	"encoding/json"
 	"testing"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/require"
@@ -13,17 +13,17 @@ import (
 func TestSDKJSONMarshaling(t *testing.T) {
 	t.Parallel()
 
-	input := &dynamodb.CreateTableInput{
-		TableName: aws.String("TestTable"),
-		KeySchema: []types.KeySchemaElement{
-			{AttributeName: aws.String("PK"), KeyType: types.KeyTypeHash},
+	input := &models.CreateTableInput{
+		TableName: "TestTable",
+		KeySchema: []models.KeySchemaElement{
+			{AttributeName: "PK", KeyType: models.KeyTypeHash},
 		},
-		AttributeDefinitions: []types.AttributeDefinition{
-			{AttributeName: aws.String("PK"), AttributeType: types.ScalarAttributeTypeS},
+		AttributeDefinitions: []models.AttributeDefinition{
+			{AttributeName: "PK", AttributeType: "S"},
 		},
-		ProvisionedThroughput: &types.ProvisionedThroughput{
-			ReadCapacityUnits:  aws.Int64(5),
-			WriteCapacityUnits: aws.Int64(5),
+		ProvisionedThroughput: &models.ProvisionedThroughput{
+			ReadCapacityUnits:  new(int64(5)),
+			WriteCapacityUnits: new(int64(5)),
 		},
 	}
 

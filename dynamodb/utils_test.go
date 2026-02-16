@@ -2,6 +2,7 @@ package dynamodb_test
 
 import (
 	"Gopherstack/dynamodb"
+	"Gopherstack/dynamodb/models"
 	"fmt"
 	"strings"
 	"testing"
@@ -14,28 +15,28 @@ func TestExtractKeySchema(t *testing.T) {
 	t.Parallel()
 	db := dynamodb.NewInMemoryDB()
 	tableName := "SchemaTable"
-	ctInput := dynamodb.CreateTableInput{
+	ctInput := models.CreateTableInput{
 		TableName: tableName,
-		KeySchema: []dynamodb.KeySchemaElement{
-			{AttributeName: "pk", KeyType: dynamodb.KeyTypeHash},
-			{AttributeName: "sk", KeyType: dynamodb.KeyTypeRange},
+		KeySchema: []models.KeySchemaElement{
+			{AttributeName: "pk", KeyType: models.KeyTypeHash},
+			{AttributeName: "sk", KeyType: models.KeyTypeRange},
 		},
-		AttributeDefinitions: []dynamodb.AttributeDefinition{
+		AttributeDefinitions: []models.AttributeDefinition{
 			{AttributeName: "pk", AttributeType: "S"},
 			{AttributeName: "sk", AttributeType: "N"},
 		},
-		GlobalSecondaryIndexes: []dynamodb.GlobalSecondaryIndex{
+		GlobalSecondaryIndexes: []models.GlobalSecondaryIndex{
 			{
 				IndexName: "GSI1",
-				KeySchema: []dynamodb.KeySchemaElement{
-					{AttributeName: "gsiPK", KeyType: dynamodb.KeyTypeHash},
-					{AttributeName: "gsiSK", KeyType: dynamodb.KeyTypeRange},
+				KeySchema: []models.KeySchemaElement{
+					{AttributeName: "gsiPK", KeyType: models.KeyTypeHash},
+					{AttributeName: "gsiSK", KeyType: models.KeyTypeRange},
 				},
-				Projection: dynamodb.Projection{ProjectionType: "ALL"},
+				Projection: models.Projection{ProjectionType: "ALL"},
 			},
 		},
 	}
-	_, err := db.CreateTable(dynamodb.ToSDKCreateTableInput(&ctInput))
+	_, err := db.CreateTable(models.ToSDKCreateTableInput(&ctInput))
 	require.NoError(t, err)
 
 	table := db.Tables[tableName]
@@ -55,8 +56,8 @@ func TestExtractKeySchema(t *testing.T) {
 		tableName,
 		oversizedData,
 	)
-	putInput := mustUnmarshal[dynamodb.PutItemInput](t, input)
-	sdkPut, _ := dynamodb.ToSDKPutItemInput(&putInput)
+	putInput := mustUnmarshal[models.PutItemInput](t, input)
+	sdkPut, _ := models.ToSDKPutItemInput(&putInput)
 	_, err = db.PutItem(sdkPut)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "exceeds limit")
@@ -84,7 +85,7 @@ func TestSortCandidates(t *testing.T) {
 	t.Parallel()
 	db := dynamodb.NewInMemoryDB()
 	table := &dynamodb.Table{
-		AttributeDefinitions: []dynamodb.AttributeDefinition{
+		AttributeDefinitions: []models.AttributeDefinition{
 			{AttributeName: "sk_n", AttributeType: "N"},
 			{AttributeName: "sk_s", AttributeType: "S"},
 		},
@@ -96,7 +97,7 @@ func TestSortCandidates(t *testing.T) {
 		{"sk_n": map[string]any{"N": "2"}},
 		{"sk_n": map[string]any{"N": "30"}},
 	}
-	skDef := dynamodb.KeySchemaElement{AttributeName: "sk_n", KeyType: "RANGE"}
+	skDef := models.KeySchemaElement{AttributeName: "sk_n", KeyType: "RANGE"}
 	forward := true
 
 	db.SortCandidates(candidates, skDef, table, forward)
@@ -111,7 +112,7 @@ func TestSortCandidates(t *testing.T) {
 		{"sk_s": map[string]any{"S": "a"}},
 		{"sk_s": map[string]any{"S": "b"}},
 	}
-	skDefS := dynamodb.KeySchemaElement{AttributeName: "sk_s", KeyType: "RANGE"}
+	skDefS := models.KeySchemaElement{AttributeName: "sk_s", KeyType: "RANGE"}
 
 	db.SortCandidates(candidatesRequest, skDefS, table, forward)
 
@@ -134,7 +135,7 @@ func TestFindExclusiveStartIndex(t *testing.T) {
 		{"pk": map[string]any{"S": "3"}},
 	}
 
-	keySchema := []dynamodb.KeySchemaElement{{AttributeName: "pk", KeyType: "HASH"}}
+	keySchema := []models.KeySchemaElement{{AttributeName: "pk", KeyType: "HASH"}}
 
 	// Found "2" (index 1). Function returns index + 1 = 2.
 	startKey := map[string]any{"pk": map[string]any{"S": "2"}}
@@ -212,12 +213,12 @@ func TestApplyGSIProjection(t *testing.T) {
 	}
 
 	// KEYS_ONLY
-	projKeys := dynamodb.Projection{ProjectionType: "KEYS_ONLY"}
-	keySchema := []dynamodb.KeySchemaElement{
+	projKeys := models.Projection{ProjectionType: "KEYS_ONLY"}
+	keySchema := []models.KeySchemaElement{
 		{AttributeName: "gsiPK", KeyType: "HASH"},
 		{AttributeName: "gsiSK", KeyType: "RANGE"},
 	}
-	tableKeySchema := []dynamodb.KeySchemaElement{
+	tableKeySchema := []models.KeySchemaElement{
 		{AttributeName: "pk", KeyType: "HASH"},
 		{AttributeName: "sk", KeyType: "RANGE"},
 	}
@@ -231,7 +232,7 @@ func TestApplyGSIProjection(t *testing.T) {
 	assert.NotContains(t, filtered, "other")
 
 	// INCLUDE
-	projInc := dynamodb.Projection{
+	projInc := models.Projection{
 		ProjectionType:   "INCLUDE",
 		NonKeyAttributes: []string{"other"},
 	}
@@ -240,7 +241,7 @@ func TestApplyGSIProjection(t *testing.T) {
 	assert.Contains(t, filteredInc, "other")
 
 	// ALL
-	projAll := dynamodb.Projection{ProjectionType: "ALL"}
+	projAll := models.Projection{ProjectionType: "ALL"}
 	filteredAll := dynamodb.ApplyGSIProjection(item, projAll, tableKeySchema, keySchema)
 	assert.Equal(t, item, filteredAll)
 }
@@ -252,18 +253,18 @@ func TestRebuildIndexes(t *testing.T) {
 
 	// Create table manually to avoid triggering implicit rebuilds (though CreateTable calls it)
 	// We want to test the function itself.
-	ctInput := dynamodb.CreateTableInput{
+	ctInput := models.CreateTableInput{
 		TableName: tableName,
-		KeySchema: []dynamodb.KeySchemaElement{
-			{AttributeName: "pk", KeyType: dynamodb.KeyTypeHash},
-			{AttributeName: "sk", KeyType: dynamodb.KeyTypeRange},
+		KeySchema: []models.KeySchemaElement{
+			{AttributeName: "pk", KeyType: models.KeyTypeHash},
+			{AttributeName: "sk", KeyType: models.KeyTypeRange},
 		},
-		AttributeDefinitions: []dynamodb.AttributeDefinition{
+		AttributeDefinitions: []models.AttributeDefinition{
 			{AttributeName: "pk", AttributeType: "S"},
 			{AttributeName: "sk", AttributeType: "N"},
 		},
 	}
-	_, err := db.CreateTable(dynamodb.ToSDKCreateTableInput(&ctInput))
+	_, err := db.CreateTable(models.ToSDKCreateTableInput(&ctInput))
 	require.NoError(t, err)
 
 	table := db.Tables[tableName]
@@ -292,7 +293,7 @@ func TestSortCandidates_InferredType(t *testing.T) {
 	db := dynamodb.NewInMemoryDB()
 	// Table WITHOUT AttributeDefinitions for SK
 	table := &dynamodb.Table{
-		AttributeDefinitions: []dynamodb.AttributeDefinition{},
+		AttributeDefinitions: []models.AttributeDefinition{},
 	}
 
 	candidates := []map[string]any{
@@ -300,7 +301,7 @@ func TestSortCandidates_InferredType(t *testing.T) {
 		{"sk": map[string]any{"N": "2"}},
 		{"sk": map[string]any{"N": "30"}},
 	}
-	skDef := dynamodb.KeySchemaElement{AttributeName: "sk", KeyType: "RANGE"}
+	skDef := models.KeySchemaElement{AttributeName: "sk", KeyType: "RANGE"}
 	forward := true
 
 	db.SortCandidates(candidates, skDef, table, forward)

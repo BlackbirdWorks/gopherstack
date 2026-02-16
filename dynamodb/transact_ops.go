@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 
+	"Gopherstack/dynamodb/models"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
@@ -95,7 +97,7 @@ func (db *InMemoryDB) TransactGetItems(
 		}
 
 		pkDef, skDef := getPKAndSK(table.KeySchema)
-		wireKey := FromSDKItem(ti.Get.Key)
+		wireKey := models.FromSDKItem(ti.Get.Key)
 		item := db.lookupItem(table, wireKey, pkDef.AttributeName, skDef.AttributeName)
 
 		if item == nil || isItemExpired(item, table.TTLAttribute) {
@@ -110,7 +112,7 @@ func (db *InMemoryDB) TransactGetItems(
 			result = projectItem(item, proj, ti.Get.ExpressionAttributeNames)
 		}
 
-		sdkResult, _ := ToSDKItem(result)
+		sdkResult, _ := models.ToSDKItem(result)
 		responses = append(responses, types.ItemResponse{Item: sdkResult})
 	}
 
@@ -196,27 +198,27 @@ func (db *InMemoryDB) checkTransactWriteCondition(
 	case ti.Delete != nil:
 		return db.checkTransactCondExpr(
 			tables[aws.ToString(ti.Delete.TableName)],
-			FromSDKItem(ti.Delete.Key),
+			models.FromSDKItem(ti.Delete.Key),
 			aws.ToString(ti.Delete.ConditionExpression),
-			FromSDKItem(ti.Delete.ExpressionAttributeValues),
+			models.FromSDKItem(ti.Delete.ExpressionAttributeValues),
 			ti.Delete.ExpressionAttributeNames,
 			idx,
 		)
 	case ti.Update != nil:
 		return db.checkTransactCondExpr(
 			tables[aws.ToString(ti.Update.TableName)],
-			FromSDKItem(ti.Update.Key),
+			models.FromSDKItem(ti.Update.Key),
 			aws.ToString(ti.Update.ConditionExpression),
-			FromSDKItem(ti.Update.ExpressionAttributeValues),
+			models.FromSDKItem(ti.Update.ExpressionAttributeValues),
 			ti.Update.ExpressionAttributeNames,
 			idx,
 		)
 	case ti.ConditionCheck != nil:
 		return db.checkTransactCondExpr(
 			tables[aws.ToString(ti.ConditionCheck.TableName)],
-			FromSDKItem(ti.ConditionCheck.Key),
+			models.FromSDKItem(ti.ConditionCheck.Key),
 			aws.ToString(ti.ConditionCheck.ConditionExpression),
-			FromSDKItem(ti.ConditionCheck.ExpressionAttributeValues),
+			models.FromSDKItem(ti.ConditionCheck.ExpressionAttributeValues),
 			ti.ConditionCheck.ExpressionAttributeNames,
 			idx,
 		)
@@ -227,7 +229,7 @@ func (db *InMemoryDB) checkTransactWriteCondition(
 
 func (db *InMemoryDB) checkTransactPut(tables map[string]*Table, input *types.Put, idx int) error {
 	table := tables[aws.ToString(input.TableName)]
-	wireItem := FromSDKItem(input.Item)
+	wireItem := models.FromSDKItem(input.Item)
 	oldItem, _ := db.findMatchForPut(table, wireItem)
 
 	// Since checkPutCondition expects *dynamodb.PutItemInput, we construct a dummy one
@@ -240,7 +242,7 @@ func (db *InMemoryDB) checkTransactPut(tables map[string]*Table, input *types.Pu
 		return nil
 	}
 
-	eav := FromSDKItem(input.ExpressionAttributeValues)
+	eav := models.FromSDKItem(input.ExpressionAttributeValues)
 
 	if err := db.checkTransactCondExprRaw(oldItem, cond, eav, input.ExpressionAttributeNames, idx); err != nil {
 		return err
@@ -288,7 +290,7 @@ func (db *InMemoryDB) applyTransactWrite(tables map[string]*Table, ti types.Tran
 	switch {
 	case ti.Put != nil:
 		table := tables[aws.ToString(ti.Put.TableName)]
-		wireItem := FromSDKItem(ti.Put.Item)
+		wireItem := models.FromSDKItem(ti.Put.Item)
 		if err := db.validateItem(wireItem, table); err != nil {
 			return err
 		}
@@ -297,7 +299,7 @@ func (db *InMemoryDB) applyTransactWrite(tables map[string]*Table, ti types.Tran
 
 	case ti.Delete != nil:
 		table := tables[aws.ToString(ti.Delete.TableName)]
-		wireKey := FromSDKItem(ti.Delete.Key)
+		wireKey := models.FromSDKItem(ti.Delete.Key)
 		_, matchIndex := db.findMatchForPut(table, wireKey)
 		if matchIndex != -1 {
 			db.deleteItemAtIndex(table, matchIndex)
@@ -305,7 +307,7 @@ func (db *InMemoryDB) applyTransactWrite(tables map[string]*Table, ti types.Tran
 
 	case ti.Update != nil:
 		table := tables[aws.ToString(ti.Update.TableName)]
-		wireKey := FromSDKItem(ti.Update.Key)
+		wireKey := models.FromSDKItem(ti.Update.Key)
 		oldItem, matchIndex := db.findMatchForPut(table, wireKey)
 
 		// doUpdate expects *dynamodb.UpdateItemInput.

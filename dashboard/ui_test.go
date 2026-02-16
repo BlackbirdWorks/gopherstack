@@ -1122,7 +1122,11 @@ func TestDashboard_S3_VersioningAndDeletion(t *testing.T) {
 	ctx := t.Context()
 
 	// 1. Enable versioning
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/s3/bucket/"+bucketName+"/versioning", strings.NewReader("enabled=true"))
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/dashboard/s3/bucket/"+bucketName+"/versioning",
+		strings.NewReader("enabled=true"),
+	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
 	stack.handler.ServeHTTP(w, req)
@@ -1166,7 +1170,11 @@ func TestDashboard_S3_VersioningAndDeletion(t *testing.T) {
 		Key:    aws.String("file.txt"),
 		Body:   strings.NewReader("v2"),
 	})
-	req = httptest.NewRequest(http.MethodDelete, "/dashboard/s3/bucket/multi-version-bucket/file/file.txt?deleteAll=true", nil)
+	req = httptest.NewRequest(
+		http.MethodDelete,
+		"/dashboard/s3/bucket/multi-version-bucket/file/file.txt?deleteAll=true",
+		nil,
+	)
 	w = httptest.NewRecorder()
 	stack.handler.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -1334,7 +1342,11 @@ func TestDashboard_DDB_Indexes(t *testing.T) {
 	form := url.Values{}
 	form.Add("indexName", "GSI1")
 	form.Add("partitionKeyValue", "status_active")
-	req = httptest.NewRequest(http.MethodPost, "/dashboard/dynamodb/table/"+tableName+"/query", strings.NewReader(form.Encode()))
+	req = httptest.NewRequest(
+		http.MethodPost,
+		"/dashboard/dynamodb/table/"+tableName+"/query",
+		strings.NewReader(form.Encode()),
+	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w = httptest.NewRecorder()
 	stack.handler.ServeHTTP(w, req)
@@ -1344,7 +1356,11 @@ func TestDashboard_DDB_Indexes(t *testing.T) {
 	// 2. Scan on Local Index (Wait, LSIs can be scanned too)
 	form = url.Values{}
 	form.Add("indexName", "LSI1")
-	req = httptest.NewRequest(http.MethodPost, "/dashboard/dynamodb/table/"+tableName+"/scan", strings.NewReader(form.Encode()))
+	req = httptest.NewRequest(
+		http.MethodPost,
+		"/dashboard/dynamodb/table/"+tableName+"/scan",
+		strings.NewReader(form.Encode()),
+	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w = httptest.NewRecorder()
 	stack.handler.ServeHTTP(w, req)
@@ -1392,7 +1408,11 @@ func TestDashboard_DDB_Indexes(t *testing.T) {
 	form.Add("partitionKeyValue", "active")
 	form.Add("sortKeyOperator", ">")
 	form.Add("sortKeyValue", "50")
-	req = httptest.NewRequest(http.MethodPost, "/dashboard/dynamodb/table/GSISKTable/query", strings.NewReader(form.Encode()))
+	req = httptest.NewRequest(
+		http.MethodPost,
+		"/dashboard/dynamodb/table/GSISKTable/query",
+		strings.NewReader(form.Encode()),
+	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w = httptest.NewRecorder()
 	stack.handler.ServeHTTP(w, req)
@@ -1416,7 +1436,11 @@ func TestDashboard_DDB_Indexes(t *testing.T) {
 	form.Add("partitionKeyValue", "user2")
 	form.Add("sortKeyOperator", "=")
 	form.Add("sortKeyValue", "lsi_val")
-	req = httptest.NewRequest(http.MethodPost, "/dashboard/dynamodb/table/IndexTable/query", strings.NewReader(form.Encode()))
+	req = httptest.NewRequest(
+		http.MethodPost,
+		"/dashboard/dynamodb/table/IndexTable/query",
+		strings.NewReader(form.Encode()),
+	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w = httptest.NewRecorder()
 	stack.handler.ServeHTTP(w, req)
@@ -1426,7 +1450,11 @@ func TestDashboard_DDB_Indexes(t *testing.T) {
 	// 5. Scan with Index
 	form = url.Values{}
 	form.Add("indexName", "GSI1")
-	req = httptest.NewRequest(http.MethodPost, "/dashboard/dynamodb/table/IndexTable/scan", strings.NewReader(form.Encode()))
+	req = httptest.NewRequest(
+		http.MethodPost,
+		"/dashboard/dynamodb/table/IndexTable/scan",
+		strings.NewReader(form.Encode()),
+	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w = httptest.NewRecorder()
 	stack.handler.ServeHTTP(w, req)
@@ -1447,7 +1475,11 @@ func TestDashboard_S3_DetailedTests(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
 	// 2. Enable versioning
-	req = httptest.NewRequest(http.MethodPost, "/dashboard/s3/bucket/"+bucketName+"/versioning", strings.NewReader("enabled=true"))
+	req = httptest.NewRequest(
+		http.MethodPost,
+		"/dashboard/s3/bucket/"+bucketName+"/versioning",
+		strings.NewReader("enabled=true"),
+	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w = httptest.NewRecorder()
 	stack.handler.ServeHTTP(w, req)
@@ -1491,7 +1523,11 @@ func TestDashboard_S3_DetailedTests(t *testing.T) {
 	// Now delete all versions (should hit the delete marker loop)
 	form = url.Values{}
 	form.Add("deleteAll", "true")
-	req = httptest.NewRequest(http.MethodDelete, "/dashboard/s3/bucket/"+bucketName+"/file/marker.txt?"+form.Encode(), nil)
+	req = httptest.NewRequest(
+		http.MethodDelete,
+		"/dashboard/s3/bucket/"+bucketName+"/file/marker.txt?"+form.Encode(),
+		nil,
+	)
 	w = httptest.NewRecorder()
 	stack.handler.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -1510,7 +1546,11 @@ func TestDashboard_S3_DetailedTests(t *testing.T) {
 	})
 	vID := *out.Versions[0].VersionId
 
-	req = httptest.NewRequest(http.MethodDelete, "/dashboard/s3/bucket/"+bucketName+"/file/version.txt?versionId="+vID, nil)
+	req = httptest.NewRequest(
+		http.MethodDelete,
+		"/dashboard/s3/bucket/"+bucketName+"/file/version.txt?versionId="+vID,
+		nil,
+	)
 	w = httptest.NewRecorder()
 	stack.handler.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -1536,7 +1576,11 @@ func TestDashboard_DDB_Scan_Detailed(t *testing.T) {
 	// Scan with limit
 	form := url.Values{}
 	form.Add("limit", "1")
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/dynamodb/table/"+tableName+"/scan", strings.NewReader(form.Encode()))
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/dashboard/dynamodb/table/"+tableName+"/scan",
+		strings.NewReader(form.Encode()),
+	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
 	stack.handler.ServeHTTP(w, req)
@@ -1546,7 +1590,11 @@ func TestDashboard_DDB_Scan_Detailed(t *testing.T) {
 	form = url.Values{}
 	form.Add("filterExpression", "pk = :pk")
 	// Note: Our in-memory scan might not support complex filters yet, but let's test the handler path
-	req = httptest.NewRequest(http.MethodPost, "/dashboard/dynamodb/table/"+tableName+"/scan", strings.NewReader(form.Encode()))
+	req = httptest.NewRequest(
+		http.MethodPost,
+		"/dashboard/dynamodb/table/"+tableName+"/scan",
+		strings.NewReader(form.Encode()),
+	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w = httptest.NewRecorder()
 	stack.handler.ServeHTTP(w, req)
@@ -1588,7 +1636,11 @@ func TestDashboard_DDB_Query_Pagination(t *testing.T) {
 	form := url.Values{}
 	form.Add("partitionKeyValue", "user1")
 	form.Add("limit", "2")
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/dynamodb/table/"+tableName+"/query", strings.NewReader(form.Encode()))
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/dashboard/dynamodb/table/"+tableName+"/query",
+		strings.NewReader(form.Encode()),
+	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
 	stack.handler.ServeHTTP(w, req)
@@ -1683,16 +1735,27 @@ func TestDashboard_EdgeCases(t *testing.T) {
 	// 4. s3Versioning invalid boolean
 	form = url.Values{}
 	form.Add("enabled", "not-a-bool")
-	req = httptest.NewRequest(http.MethodPost, "/dashboard/s3/bucket/"+bucketName+"/versioning", strings.NewReader(form.Encode()))
+	req = httptest.NewRequest(
+		http.MethodPost,
+		"/dashboard/s3/bucket/"+bucketName+"/versioning",
+		strings.NewReader(form.Encode()),
+	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w = httptest.NewRecorder()
 	stack.handler.ServeHTTP(w, req)
-	assert.True(t, w.Code == http.StatusBadRequest || w.Code == http.StatusOK || w.Code == http.StatusInternalServerError)
+	assert.True(
+		t,
+		w.Code == http.StatusBadRequest || w.Code == http.StatusOK || w.Code == http.StatusInternalServerError,
+	)
 
 	// 4b. s3Versioning disabled
 	form = url.Values{}
 	form.Add("enabled", "false")
-	req = httptest.NewRequest(http.MethodPost, "/dashboard/s3/bucket/"+bucketName+"/versioning", strings.NewReader(form.Encode()))
+	req = httptest.NewRequest(
+		http.MethodPost,
+		"/dashboard/s3/bucket/"+bucketName+"/versioning",
+		strings.NewReader(form.Encode()),
+	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w = httptest.NewRecorder()
 	stack.handler.ServeHTTP(w, req)
@@ -1701,7 +1764,11 @@ func TestDashboard_EdgeCases(t *testing.T) {
 	// 5. Query non-existent table
 	form = url.Values{}
 	form.Add("partitionKeyValue", "val")
-	req = httptest.NewRequest(http.MethodPost, "/dashboard/dynamodb/table/ghost-table/query", strings.NewReader(form.Encode()))
+	req = httptest.NewRequest(
+		http.MethodPost,
+		"/dashboard/dynamodb/table/ghost-table/query",
+		strings.NewReader(form.Encode()),
+	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w = httptest.NewRecorder()
 	stack.handler.ServeHTTP(w, req)
@@ -1759,7 +1826,11 @@ func TestDashboard_EdgeCases(t *testing.T) {
 	form.Add("partitionKeyName", "pk")
 	form.Add("partitionKeyValue", "v")
 	form.Add("filterExpression", "INVALID (")
-	req = httptest.NewRequest(http.MethodPost, "/dashboard/dynamodb/table/search-table/query", strings.NewReader(form.Encode()))
+	req = httptest.NewRequest(
+		http.MethodPost,
+		"/dashboard/dynamodb/table/search-table/query",
+		strings.NewReader(form.Encode()),
+	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w = httptest.NewRecorder()
 	stack.handler.ServeHTTP(w, req)
@@ -1772,22 +1843,37 @@ func TestDashboard_EdgeCases(t *testing.T) {
 	// Delete non-existent file creates a delete marker if versioning is on,
 	// but here we just want to hit the loop in deleteAllVersions if we can.
 	// We'll just ensure it doesn't crash.
-	req = httptest.NewRequest(http.MethodDelete, "/dashboard/s3/bucket/markers-bucket/file/none.txt?deleteAll=true", nil)
+	req = httptest.NewRequest(
+		http.MethodDelete,
+		"/dashboard/s3/bucket/markers-bucket/file/none.txt?deleteAll=true",
+		nil,
+	)
 	w = httptest.NewRecorder()
 	stack.handler.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	// 19. dynamoDBQuery with invalid index
-	req = httptest.NewRequest(http.MethodPost, "/dashboard/dynamodb/table/search-table/query", strings.NewReader("partitionKeyName=pk&partitionKeyValue=v&indexName=INVALID"))
+	req = httptest.NewRequest(
+		http.MethodPost,
+		"/dashboard/dynamodb/table/search-table/query",
+		strings.NewReader("partitionKeyName=pk&partitionKeyValue=v&indexName=INVALID"),
+	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w = httptest.NewRecorder()
 	stack.handler.ServeHTTP(w, req)
 	// Some implementations might return 422 for invalid parameters or 404 for missing index
-	assert.True(t, w.Code == http.StatusInternalServerError || w.Code == http.StatusBadRequest || w.Code == http.StatusOK || w.Code == http.StatusNotFound || w.Code == http.StatusUnprocessableEntity)
+	assert.True(
+		t,
+		w.Code == http.StatusInternalServerError ||
+			w.Code == http.StatusBadRequest ||
+			w.Code == http.StatusOK ||
+			w.Code == http.StatusNotFound ||
+			w.Code == http.StatusUnprocessableEntity,
+	)
 
 	// 17. S3 bucket list with HX-Request
 	req = httptest.NewRequest(http.MethodGet, "/dashboard/s3", nil)
-	req.Header.Set("HX-Request", "true")
+	req.Header.Set("Hx-Request", "true")
 	w = httptest.NewRecorder()
 	stack.handler.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)

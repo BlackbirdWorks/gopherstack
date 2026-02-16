@@ -123,6 +123,7 @@ func TestIntegration_DDB_ProjectionExpressions(t *testing.T) {
 				})
 			},
 			verify: func(t *testing.T, result any, err error) {
+				t.Helper()
 				require.NoError(t, err)
 				resp := result.(*dynamodb.QueryOutput)
 				assert.Len(t, resp.Items, 1)
@@ -145,7 +146,6 @@ func TestIntegration_DDB_ProjectionExpressions(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			// Create dedicated table for each test to allow parallel execution without conflict
@@ -153,7 +153,8 @@ func TestIntegration_DDB_ProjectionExpressions(t *testing.T) {
 			tc.setup(t, context.TODO(), tableName)
 			res, err := tc.operation(t, context.TODO(), tableName)
 			tc.verify(t, res, err)
-			// Cleanup happens automatically by defer deleteTable (if implemented in createTable helper) or relying on container cleanup
+			// Cleanup happens automatically by defer deleteTable (if implemented in createTable helper)
+			// or relying on container cleanup.
 		})
 	}
 }
