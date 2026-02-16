@@ -5,6 +5,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"Gopherstack/dynamodb/models"
+	"Gopherstack/pkgs/dynamoattr"
 )
 
 const (
@@ -27,7 +30,7 @@ func isItemExpired(item map[string]any, ttlAttr string) bool {
 	}
 
 	// Unwrap DynamoDB value
-	val := unwrapAttributeValue(raw)
+	val := dynamoattr.UnwrapAttributeValue(raw)
 
 	var ttl int64
 	switch v := val.(type) {
@@ -60,13 +63,13 @@ func (db *InMemoryDB) getTable(name string) (*Table, error) {
 	return table, nil
 }
 
-func getPKAndSK(keySchema []KeySchemaElement) (KeySchemaElement, KeySchemaElement) {
-	var pkDef, skDef KeySchemaElement
+func getPKAndSK(keySchema []models.KeySchemaElement) (models.KeySchemaElement, models.KeySchemaElement) {
+	var pkDef, skDef models.KeySchemaElement
 	for _, k := range keySchema {
 		switch k.KeyType {
-		case KeyTypeHash:
+		case models.KeyTypeHash:
 			pkDef = k
-		case KeyTypeRange:
+		case models.KeyTypeRange:
 			skDef = k
 		}
 	}
@@ -87,9 +90,9 @@ func resolveAttrName(name string, attrNames map[string]string) string {
 }
 
 func dbExtractValueFromToken(token string, attrValues map[string]any) string {
-	val := resolveValue(token, attrValues)
+	val := dynamoattr.ResolveValue(token, attrValues)
 
-	return toString(val)
+	return dynamoattr.ToString(val)
 }
 
 func (db *InMemoryDB) lookupItem(
@@ -116,7 +119,7 @@ func (db *InMemoryDB) lookupItem(
 	return nil
 }
 
-func extractKey(item map[string]any, schema []KeySchemaElement) map[string]any {
+func extractKey(item map[string]any, schema []models.KeySchemaElement) map[string]any {
 	key := make(map[string]any)
 	for _, k := range schema {
 		if val, ok := item[k.AttributeName]; ok {
@@ -160,9 +163,9 @@ func compareAttributeValues(v1, v2 any) bool {
 
 func applyGSIProjection(
 	item map[string]any,
-	projection Projection,
-	tableSchema []KeySchemaElement,
-	gsiSchema []KeySchemaElement,
+	projection models.Projection,
+	tableSchema []models.KeySchemaElement,
+	gsiSchema []models.KeySchemaElement,
 ) map[string]any {
 	if projection.ProjectionType == "ALL" {
 		return item
@@ -198,8 +201,8 @@ func compareAny(v1, v2 any, typ string) int {
 	}
 
 	if typ == "N" {
-		f1, _ := parseNumeric(v1)
-		f2, _ := parseNumeric(v2)
+		f1, _ := dynamoattr.ParseNumeric(v1)
+		f2, _ := dynamoattr.ParseNumeric(v2)
 		if f1 < f2 {
 			return -1
 		}
@@ -227,7 +230,7 @@ func compareAny(v1, v2 any, typ string) int {
 // Helpers moved to utils.go
 
 // getAttributeType returns the attribute type for a given attribute name, or defaultType if not found.
-func getAttributeType(attrDefs []AttributeDefinition, attrName string, defaultType string) string {
+func getAttributeType(attrDefs []models.AttributeDefinition, attrName string, defaultType string) string {
 	for _, ad := range attrDefs {
 		if ad.AttributeName == attrName {
 			return ad.AttributeType
@@ -242,7 +245,7 @@ func getAttributeType(attrDefs []AttributeDefinition, attrName string, defaultTy
 func findExclusiveStartIndex(
 	candidates []map[string]any,
 	exclusiveStartKey map[string]any,
-	keySchema []KeySchemaElement,
+	keySchema []models.KeySchemaElement,
 ) int {
 	if exclusiveStartKey == nil {
 		return 0

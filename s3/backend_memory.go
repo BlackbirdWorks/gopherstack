@@ -3,12 +3,13 @@ package s3
 import (
 	"bytes"
 	"context"
-	"crypto/md5"
+	"crypto/md5" //nolint:gosec // MD5 required for S3 ETag compatibility
 	"encoding/hex"
 	"fmt"
 	"io"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -18,14 +19,16 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
+const maxInt32 = 2147483647
+
 var _ StorageBackend = (*InMemoryBackend)(nil)
 
 type InMemoryBackend struct {
-	mu         sync.RWMutex
-	buckets    map[string]*StoredBucket
 	compressor Compressor
+	buckets    map[string]*StoredBucket
 	tags       map[string][]types.Tag
 	uploads    map[string]*StoredMultipartUpload
+	mu         sync.RWMutex
 }
 
 func NewInMemoryBackend(compressor Compressor) *InMemoryBackend {
@@ -92,7 +95,7 @@ func (b *InMemoryBackend) ListBuckets(_ context.Context, _ *s3.ListBucketsInput)
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	var buckets []types.Bucket
+	buckets := make([]types.Bucket, 0, len(b.buckets))
 	for _, bucket := range b.buckets {
 		buckets = append(buckets, types.Bucket{
 			Name:         aws.String(bucket.Name),
@@ -107,8 +110,8 @@ func (b *InMemoryBackend) ListBuckets(_ context.Context, _ *s3.ListBucketsInput)
 	return &s3.ListBucketsOutput{
 		Buckets: buckets,
 		Owner: &types.Owner{
-			ID:          aws.String("gopherstack"),
-			DisplayName: aws.String("gopherstack"),
+			DisplayName: aws.String("Gopherstack"),
+			ID:          aws.String("placeholder-id"),
 		},
 	}, nil
 }
@@ -132,16 +135,25 @@ func (b *InMemoryBackend) PutObject(_ context.Context, input *s3.PutObjectInput)
 	}
 
 	// Compress
-	compressedData, err := b.compressor.Compress(data)
-	if err != nil {
-		return nil, err
+	var compressedData []byte
+	var isCompressed bool
+	if b.compressor != nil {
+		var compressErr error
+		compressedData, compressErr = b.compressor.Compress(data)
+		if compressErr != nil {
+			return nil, compressErr
+		}
+		isCompressed = true
+	} else {
+		compressedData = data
+		isCompressed = false
 	}
 
 	// ETag (MD5)
 	//nolint:gosec // MD5 is required for S3 ETag
 	hash := md5.Sum(data)
 	etag := hex.EncodeToString(hash[:])
-	quotedETag := fmt.Sprintf("%q", etag)
+	quotedETag := "\"" + etag + "\""
 
 	// Checksums
 	var checksumCRC32, checksumCRC32C, checksumSHA1, checksumSHA256 *string
@@ -154,7 +166,7 @@ func (b *InMemoryBackend) PutObject(_ context.Context, input *s3.PutObjectInput)
 
 	newVersionID := "null"
 	if bucket.Versioning == types.BucketVersioningStatusEnabled {
-		newVersionID = fmt.Sprintf("%d", time.Now().UnixNano())
+		newVersionID = strconv.FormatInt(time.Now().UnixNano(), 10)
 	}
 
 	obj, exists := bucket.Objects[key]
@@ -170,7 +182,7 @@ func (b *InMemoryBackend) PutObject(_ context.Context, input *s3.PutObjectInput)
 		VersionID:         newVersionID,
 		Key:               key,
 		Data:              compressedData,
-		IsCompressed:      true,
+		IsCompressed:      isCompressed,
 		Size:              int64(len(data)),
 		ETag:              quotedETag,
 		LastModified:      time.Now(),
@@ -194,24 +206,7 @@ func (b *InMemoryBackend) PutObject(_ context.Context, input *s3.PutObjectInput)
 	obj.Versions[newVersionID] = newVersion
 
 	// Parse and store tags if provided
-	if input.Tagging != nil {
-		parsedTags, err := url.ParseQuery(*input.Tagging)
-		if err == nil {
-			var tagList []types.Tag
-			for k, vs := range parsedTags {
-				if len(vs) > 0 {
-					tagList = append(tagList, types.Tag{Key: aws.String(k), Value: aws.String(vs[0])})
-				}
-			}
-			if len(tagList) > 0 {
-				if b.tags == nil {
-					b.tags = make(map[string][]types.Tag)
-				}
-				tagKey := fmt.Sprintf("%s/%s/%s", *input.Bucket, *input.Key, newVersionID)
-				b.tags[tagKey] = tagList
-			}
-		}
-	}
+	b.storeObjectTags(input.Tagging, *input.Bucket, *input.Key, newVersionID)
 
 	// Populate Output
 	output := &s3.PutObjectOutput{
@@ -224,6 +219,36 @@ func (b *InMemoryBackend) PutObject(_ context.Context, input *s3.PutObjectInput)
 	}
 
 	return output, nil
+}
+
+func (b *InMemoryBackend) storeObjectTags(tagging *string, bucket, key, versionID string) {
+	if tagging == nil {
+		return
+	}
+
+	pTags, pErr := url.ParseQuery(*tagging)
+	if pErr != nil {
+		return
+	}
+
+	var tagList []types.Tag
+	for k, v := range pTags {
+		tagList = append(tagList, types.Tag{
+			Key:   aws.String(k),
+			Value: aws.String(v[0]),
+		})
+	}
+
+	if len(tagList) == 0 {
+		return
+	}
+
+	if b.tags == nil {
+		b.tags = make(map[string][]types.Tag)
+	}
+
+	tagKey := fmt.Sprintf("%s/%s/%s", bucket, key, versionID)
+	b.tags[tagKey] = tagList
 }
 
 func (b *InMemoryBackend) GetObject(_ context.Context, input *s3.GetObjectInput) (*s3.GetObjectOutput, error) {
@@ -256,6 +281,7 @@ func (b *InMemoryBackend) GetObject(_ context.Context, input *s3.GetObjectInput)
 		for _, v := range obj.Versions {
 			if v.IsLatest {
 				ver = v
+
 				break
 			}
 		}
@@ -267,10 +293,13 @@ func (b *InMemoryBackend) GetObject(_ context.Context, input *s3.GetObjectInput)
 
 	data := ver.Data
 	if ver.IsCompressed {
-		var err error
-		data, err = b.compressor.Decompress(data)
-		if err != nil {
-			return nil, err
+		if b.compressor == nil {
+			return nil, ErrNoCompressor
+		}
+		var decompressErr error
+		data, decompressErr = b.compressor.Decompress(data)
+		if decompressErr != nil {
+			return nil, decompressErr
 		}
 	}
 
@@ -320,6 +349,7 @@ func (b *InMemoryBackend) HeadObject(_ context.Context, input *s3.HeadObjectInpu
 		for _, v := range obj.Versions {
 			if v.IsLatest {
 				ver = v
+
 				break
 			}
 		}
@@ -368,14 +398,18 @@ func (b *InMemoryBackend) DeleteObject(_ context.Context, input *s3.DeleteObject
 			if len(obj.Versions) == 0 {
 				delete(bucket.Objects, key)
 			}
+
 			return &s3.DeleteObjectOutput{VersionId: versionID}, nil
 		}
+
 		return &s3.DeleteObjectOutput{}, nil
 	}
 
 	// Delete latest (Versioning enabled -> add delete marker, Suspended -> delete null version)
 	if bucket.Versioning == types.BucketVersioningStatusEnabled {
-		newVersionID := fmt.Sprintf("%d", time.Now().UnixNano())
+		newVersionID := strconv.FormatInt(time.Now().UnixNano(), 10)
+
+		// Create delete marker
 		// Mark others as not latest
 		for _, v := range obj.Versions {
 			v.IsLatest = false
@@ -387,6 +421,7 @@ func (b *InMemoryBackend) DeleteObject(_ context.Context, input *s3.DeleteObject
 			IsLatest:     true,
 			LastModified: time.Now(),
 		}
+
 		return &s3.DeleteObjectOutput{
 			DeleteMarker: aws.Bool(true),
 			VersionId:    aws.String(newVersionID),
@@ -396,6 +431,7 @@ func (b *InMemoryBackend) DeleteObject(_ context.Context, input *s3.DeleteObject
 	// Suspended or null: Delete object (or null version)
 	// Simple remove for now
 	delete(bucket.Objects, key)
+
 	return &s3.DeleteObjectOutput{}, nil
 }
 
@@ -418,6 +454,7 @@ func (b *InMemoryBackend) ListObjects(_ context.Context, input *s3.ListObjectsIn
 		for _, v := range obj.Versions {
 			if v.IsLatest {
 				latest = v
+
 				break
 			}
 		}
@@ -453,7 +490,10 @@ func (b *InMemoryBackend) ListObjects(_ context.Context, input *s3.ListObjectsIn
 	}, nil
 }
 
-func (b *InMemoryBackend) ListObjectsV2(_ context.Context, input *s3.ListObjectsV2Input) (*s3.ListObjectsV2Output, error) {
+func (b *InMemoryBackend) ListObjectsV2(
+	_ context.Context,
+	input *s3.ListObjectsV2Input,
+) (*s3.ListObjectsV2Output, error) {
 	// Re-use ListObjects logic for now as simplified implementation
 	listOut, err := b.ListObjects(context.TODO(), &s3.ListObjectsInput{
 		Bucket:  input.Bucket,
@@ -464,17 +504,25 @@ func (b *InMemoryBackend) ListObjectsV2(_ context.Context, input *s3.ListObjects
 		return nil, err
 	}
 
+	count := int32(len(listOut.Contents)) // #nosec G115
+	if len(listOut.Contents) > maxInt32 {
+		count = maxInt32
+	}
+
 	return &s3.ListObjectsV2Output{
 		Name:        input.Bucket,
 		Prefix:      input.Prefix,
 		MaxKeys:     input.MaxKeys,
 		Contents:    listOut.Contents,
-		KeyCount:    aws.Int32(int32(len(listOut.Contents))),
+		KeyCount:    aws.Int32(count),
 		IsTruncated: listOut.IsTruncated,
 	}, nil
 }
 
-func (b *InMemoryBackend) ListObjectVersions(_ context.Context, input *s3.ListObjectVersionsInput) (*s3.ListObjectVersionsOutput, error) {
+func (b *InMemoryBackend) ListObjectVersions(
+	_ context.Context,
+	input *s3.ListObjectVersionsInput,
+) (*s3.ListObjectVersionsOutput, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -531,7 +579,10 @@ func (b *InMemoryBackend) ListObjectVersions(_ context.Context, input *s3.ListOb
 	}, nil
 }
 
-func (b *InMemoryBackend) PutBucketVersioning(_ context.Context, input *s3.PutBucketVersioningInput) (*s3.PutBucketVersioningOutput, error) {
+func (b *InMemoryBackend) PutBucketVersioning(
+	_ context.Context,
+	input *s3.PutBucketVersioningInput,
+) (*s3.PutBucketVersioningOutput, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -541,12 +592,16 @@ func (b *InMemoryBackend) PutBucketVersioning(_ context.Context, input *s3.PutBu
 		return nil, ErrNoSuchBucket
 	}
 
-	bucket.Versioning = input.VersioningConfiguration.Status
+	status := input.VersioningConfiguration.Status
+	bucket.Versioning = status
 
 	return &s3.PutBucketVersioningOutput{}, nil
 }
 
-func (b *InMemoryBackend) GetBucketVersioning(_ context.Context, input *s3.GetBucketVersioningInput) (*s3.GetBucketVersioningOutput, error) {
+func (b *InMemoryBackend) GetBucketVersioning(
+	_ context.Context,
+	input *s3.GetBucketVersioningInput,
+) (*s3.GetBucketVersioningOutput, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -561,7 +616,10 @@ func (b *InMemoryBackend) GetBucketVersioning(_ context.Context, input *s3.GetBu
 	}, nil
 }
 
-func (b *InMemoryBackend) PutObjectTagging(_ context.Context, input *s3.PutObjectTaggingInput) (*s3.PutObjectTaggingOutput, error) {
+func (b *InMemoryBackend) PutObjectTagging(
+	_ context.Context,
+	input *s3.PutObjectTaggingInput,
+) (*s3.PutObjectTaggingOutput, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -590,6 +648,7 @@ func (b *InMemoryBackend) PutObjectTagging(_ context.Context, input *s3.PutObjec
 		for _, v := range obj.Versions {
 			if v.IsLatest {
 				ver = v
+
 				break
 			}
 		}
@@ -616,8 +675,9 @@ func (b *InMemoryBackend) PutObjectTagging(_ context.Context, input *s3.PutObjec
 	// Actually, I'll use a separate `objectTags` map in `InMemoryBackend` for this Exercise.
 	// map[string][]types.Tag where key is "bucket/key/versionId"
 
-	// But `InMemoryBackend` struct definition is at top. I can't add field easily without redefining `NewInMemoryBackend` etc.
-	// I'll add `tags map[string][]types.Tag` to `InMemoryBackend` struct in this file.
+	// But `InMemoryBackend` struct definition is at top. I can't add field easily without
+	// redefining `NewInMemoryBackend` etc. I'll add `tags map[string][]types.Tag` to
+	// `InMemoryBackend` struct in this file.
 
 	// ... (see implementation below)
 
@@ -631,7 +691,10 @@ func (b *InMemoryBackend) PutObjectTagging(_ context.Context, input *s3.PutObjec
 	return &s3.PutObjectTaggingOutput{}, nil
 }
 
-func (b *InMemoryBackend) GetObjectTagging(_ context.Context, input *s3.GetObjectTaggingInput) (*s3.GetObjectTaggingOutput, error) {
+func (b *InMemoryBackend) GetObjectTagging(
+	_ context.Context,
+	input *s3.GetObjectTaggingInput,
+) (*s3.GetObjectTaggingOutput, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -656,6 +719,7 @@ func (b *InMemoryBackend) GetObjectTagging(_ context.Context, input *s3.GetObjec
 		for _, v := range obj.Versions {
 			if v.IsLatest {
 				vid = v.VersionID
+
 				break
 			}
 		}
@@ -669,7 +733,10 @@ func (b *InMemoryBackend) GetObjectTagging(_ context.Context, input *s3.GetObjec
 	}, nil
 }
 
-func (b *InMemoryBackend) DeleteObjectTagging(_ context.Context, input *s3.DeleteObjectTaggingInput) (*s3.DeleteObjectTaggingOutput, error) {
+func (b *InMemoryBackend) DeleteObjectTagging(
+	_ context.Context,
+	input *s3.DeleteObjectTaggingInput,
+) (*s3.DeleteObjectTaggingOutput, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -684,7 +751,7 @@ func (b *InMemoryBackend) DeleteObjectTagging(_ context.Context, input *s3.Delet
 
 	obj, exists := bucket.Objects[key]
 	if !exists {
-		return nil, ErrNoSuchKey
+		return &s3.DeleteObjectTaggingOutput{}, nil
 	}
 
 	var vid string
@@ -694,11 +761,12 @@ func (b *InMemoryBackend) DeleteObjectTagging(_ context.Context, input *s3.Delet
 		for _, v := range obj.Versions {
 			if v.IsLatest {
 				vid = v.VersionID
+
 				break
 			}
 		}
 	}
-	tagKey := fmt.Sprintf("%s/%s/%s", bucketName, key, vid)
+	tagKey := bucketName + "/" + key + "/" + vid
 	if b.tags != nil {
 		delete(b.tags, tagKey)
 	}
@@ -708,7 +776,10 @@ func (b *InMemoryBackend) DeleteObjectTagging(_ context.Context, input *s3.Delet
 
 // Multipart
 
-func (b *InMemoryBackend) CreateMultipartUpload(_ context.Context, input *s3.CreateMultipartUploadInput) (*s3.CreateMultipartUploadOutput, error) {
+func (b *InMemoryBackend) CreateMultipartUpload(
+	_ context.Context,
+	input *s3.CreateMultipartUploadInput,
+) (*s3.CreateMultipartUploadOutput, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -719,7 +790,7 @@ func (b *InMemoryBackend) CreateMultipartUpload(_ context.Context, input *s3.Cre
 		return nil, ErrNoSuchBucket
 	}
 
-	uploadID := fmt.Sprintf("%d", time.Now().UnixNano())
+	uploadID := strconv.FormatInt(time.Now().UnixNano(), 10)
 
 	if b.uploads == nil {
 		b.uploads = make(map[string]*StoredMultipartUpload)
@@ -772,7 +843,10 @@ func (b *InMemoryBackend) UploadPart(_ context.Context, input *s3.UploadPartInpu
 	}, nil
 }
 
-func (b *InMemoryBackend) CompleteMultipartUpload(_ context.Context, input *s3.CompleteMultipartUploadInput) (*s3.CompleteMultipartUploadOutput, error) {
+func (b *InMemoryBackend) CompleteMultipartUpload(
+	_ context.Context,
+	input *s3.CompleteMultipartUploadInput,
+) (*s3.CompleteMultipartUploadOutput, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -819,7 +893,7 @@ func (b *InMemoryBackend) CompleteMultipartUpload(_ context.Context, input *s3.C
 	// Calc final ETag (convention for MP upload: hash-partcount)
 	// Simplified: just MD5 of whole thing for now to pass simple tests
 	// Real S3 uses hash of hashes + "-N"
-	hash := md5.Sum(data) // logic matches PutObject for now
+	hash := md5.Sum(data) //nolint:gosec // MD5 required for S3 ETag compatibility
 	etag := fmt.Sprintf("%q", hex.EncodeToString(hash[:]))
 
 	bucket := b.buckets[bucketName]
@@ -831,7 +905,7 @@ func (b *InMemoryBackend) CompleteMultipartUpload(_ context.Context, input *s3.C
 
 	versionID := "null"
 	if bucket.Versioning == types.BucketVersioningStatusEnabled {
-		versionID = fmt.Sprintf("%d", time.Now().UnixNano())
+		versionID = strconv.FormatInt(time.Now().UnixNano(), 10)
 	}
 
 	newVer := &StoredObjectVersion{
@@ -861,7 +935,10 @@ func (b *InMemoryBackend) CompleteMultipartUpload(_ context.Context, input *s3.C
 	}, nil
 }
 
-func (b *InMemoryBackend) AbortMultipartUpload(_ context.Context, input *s3.AbortMultipartUploadInput) (*s3.AbortMultipartUploadOutput, error) {
+func (b *InMemoryBackend) AbortMultipartUpload(
+	_ context.Context,
+	input *s3.AbortMultipartUploadInput,
+) (*s3.AbortMultipartUploadOutput, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -870,6 +947,7 @@ func (b *InMemoryBackend) AbortMultipartUpload(_ context.Context, input *s3.Abor
 	}
 
 	delete(b.uploads, *input.UploadId)
+
 	return &s3.AbortMultipartUploadOutput{}, nil
 }
 

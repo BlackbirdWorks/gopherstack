@@ -4,14 +4,43 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/crc32"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 
+	"Gopherstack/dynamodb/models"
 	"Gopherstack/pkgs/httputils"
 )
 
 var ErrUnknownOperation = errors.New("UnknownOperationException")
+
+// writeDynamoDBJSON marshals payload to JSON, sets the x-amz-crc32 header with
+// the CRC32/IEEE checksum of the body (required by the DynamoDB protocol), and
+// writes the response.
+func writeDynamoDBJSON(logger *slog.Logger, w http.ResponseWriter, code int, payload any) {
+	response, err := json.Marshal(payload)
+	if err != nil {
+		if logger != nil {
+			logger.Error("failed to marshal JSON response", "error", err)
+		}
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+
+		return
+	}
+
+	checksum := crc32.ChecksumIEEE(response)
+	w.Header().
+		Set("X-Amz-Crc32", strconv.FormatUint(uint64(checksum), 10))
+
+	w.Header().Set("Content-Length", strconv.Itoa(len(response)))
+	w.WriteHeader(code)
+
+	if _, wErr := w.Write(response); wErr != nil && logger != nil {
+		logger.Error("failed to write JSON response", "error", wErr)
+	}
+}
 
 // Handler handles HTTP requests for DynamoDB operations.
 type Handler struct {
@@ -53,18 +82,21 @@ func (h *Handler) GetSupportedOperations() []string {
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet && r.URL.Path == "/" {
 		ops := h.GetSupportedOperations()
-		httputils.WriteJSON(h.Logger, w, http.StatusOK, ops)
+		writeDynamoDBJSON(h.Logger, w, http.StatusOK, ops)
+
 		return
 	}
 
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+
 		return
 	}
 
 	target := r.Header.Get("X-Amz-Target")
 	if target == "" {
 		http.Error(w, "Missing X-Amz-Target", http.StatusBadRequest)
+
 		return
 	}
 
@@ -72,6 +104,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(target, ".")
 	if len(parts) != targetParts {
 		http.Error(w, "Invalid X-Amz-Target", http.StatusBadRequest)
+
 		return
 	}
 	action := parts[1]
@@ -79,6 +112,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	body, err := httputils.ReadBody(r)
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 
@@ -87,10 +121,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	response, reqErr := h.dispatch(action, body)
 	if reqErr != nil {
 		h.handleError(w, r, action, reqErr)
+
 		return
 	}
 
-	httputils.WriteJSON(h.Logger, w, http.StatusOK, response)
+	writeDynamoDBJSON(h.Logger, w, http.StatusOK, response)
 }
 
 func (h *Handler) dispatch(action string, body []byte) (any, error) {
@@ -106,7 +141,7 @@ func (h *Handler) dispatch(action string, body []byte) (any, error) {
 	}
 }
 
-// Helper for operations where Adapter allows error
+// Helper for operations where Adapter allows error.
 func handleOpErr[WireIn any, SDKIn any, SDKOut any, WireOut any](
 	body []byte,
 	toSDK func(*WireIn) (*SDKIn, error),
@@ -127,10 +162,11 @@ func handleOpErr[WireIn any, SDKIn any, SDKOut any, WireOut any](
 	if err != nil {
 		return nil, err
 	}
+
 	return fromSDK(sdkOutput), nil
 }
 
-// Helper for operations where Adapter does not return error
+// Helper for operations where Adapter does not return error.
 func handleOp[WireIn any, SDKIn any, SDKOut any, WireOut any](
 	body []byte,
 	toSDK func(*WireIn) *SDKIn,
@@ -148,23 +184,34 @@ func handleOp[WireIn any, SDKIn any, SDKOut any, WireOut any](
 	if err != nil {
 		return nil, err
 	}
+
 	return fromSDK(sdkOutput), nil
 }
 
 func (h *Handler) dispatchTableOps(action string, body []byte) (any, error) {
 	switch action {
 	case "CreateTable":
-		return handleOp(body, ToSDKCreateTableInput, h.DB.CreateTable, FromSDKCreateTableOutput)
+		return handleOp(body, models.ToSDKCreateTableInput, h.DB.CreateTable, models.FromSDKCreateTableOutput)
 	case "DeleteTable":
-		return handleOp(body, ToSDKDeleteTableInput, h.DB.DeleteTable, FromSDKDeleteTableOutput)
+		return handleOp(body, models.ToSDKDeleteTableInput, h.DB.DeleteTable, models.FromSDKDeleteTableOutput)
 	case "DescribeTable":
-		return handleOp(body, ToSDKDescribeTableInput, h.DB.DescribeTable, FromSDKDescribeTableOutput)
+		return handleOp(body, models.ToSDKDescribeTableInput, h.DB.DescribeTable, models.FromSDKDescribeTableOutput)
 	case "ListTables":
-		return handleOp(body, ToSDKListTablesInput, h.DB.ListTables, FromSDKListTablesOutput)
+		return handleOp(body, models.ToSDKListTablesInput, h.DB.ListTables, models.FromSDKListTablesOutput)
 	case "UpdateTimeToLive":
-		return handleOp(body, ToSDKUpdateTimeToLiveInput, h.DB.UpdateTimeToLive, FromSDKUpdateTimeToLiveOutput)
+		return handleOp(
+			body,
+			models.ToSDKUpdateTimeToLiveInput,
+			h.DB.UpdateTimeToLive,
+			models.FromSDKUpdateTimeToLiveOutput,
+		)
 	case "DescribeTimeToLive":
-		return handleOp(body, ToSDKDescribeTimeToLiveInput, h.DB.DescribeTimeToLive, FromSDKDescribeTimeToLiveOutput)
+		return handleOp(
+			body,
+			models.ToSDKDescribeTimeToLiveInput,
+			h.DB.DescribeTimeToLive,
+			models.FromSDKDescribeTimeToLiveOutput,
+		)
 	default:
 		return nil, fmt.Errorf("%w:%s", ErrUnknownOperation, action)
 	}
@@ -173,21 +220,26 @@ func (h *Handler) dispatchTableOps(action string, body []byte) (any, error) {
 func (h *Handler) dispatchItemOps(action string, body []byte) (any, error) {
 	switch action {
 	case "PutItem":
-		return handleOpErr(body, ToSDKPutItemInput, h.DB.PutItem, FromSDKPutItemOutput)
+		return handleOpErr(body, models.ToSDKPutItemInput, h.DB.PutItem, models.FromSDKPutItemOutput)
 	case "GetItem":
-		return handleOpErr(body, ToSDKGetItemInput, h.DB.GetItem, FromSDKGetItemOutput)
+		return handleOpErr(body, models.ToSDKGetItemInput, h.DB.GetItem, models.FromSDKGetItemOutput)
 	case "DeleteItem":
-		return handleOpErr(body, ToSDKDeleteItemInput, h.DB.DeleteItem, FromSDKDeleteItemOutput)
+		return handleOpErr(body, models.ToSDKDeleteItemInput, h.DB.DeleteItem, models.FromSDKDeleteItemOutput)
 	case "Scan":
-		return handleOpErr(body, ToSDKScanInput, h.DB.Scan, FromSDKScanOutput)
+		return handleOpErr(body, models.ToSDKScanInput, h.DB.Scan, models.FromSDKScanOutput)
 	case "UpdateItem":
-		return handleOpErr(body, ToSDKUpdateItemInput, h.DB.UpdateItem, FromSDKUpdateItemOutput)
+		return handleOpErr(body, models.ToSDKUpdateItemInput, h.DB.UpdateItem, models.FromSDKUpdateItemOutput)
 	case "Query":
-		return handleOpErr(body, ToSDKQueryInput, h.DB.Query, FromSDKQueryOutput)
+		return handleOpErr(body, models.ToSDKQueryInput, h.DB.Query, models.FromSDKQueryOutput)
 	case "BatchGetItem":
-		return handleOpErr(body, ToSDKBatchGetItemInput, h.DB.BatchGetItem, FromSDKBatchGetItemOutput)
+		return handleOpErr(body, models.ToSDKBatchGetItemInput, h.DB.BatchGetItem, models.FromSDKBatchGetItemOutput)
 	case "BatchWriteItem":
-		return handleOpErr(body, ToSDKBatchWriteItemInput, h.DB.BatchWriteItem, FromSDKBatchWriteItemOutput)
+		return handleOpErr(
+			body,
+			models.ToSDKBatchWriteItemInput,
+			h.DB.BatchWriteItem,
+			models.FromSDKBatchWriteItemOutput,
+		)
 	default:
 		return nil, fmt.Errorf("%w:%s", ErrUnknownOperation, action)
 	}
@@ -196,9 +248,19 @@ func (h *Handler) dispatchItemOps(action string, body []byte) (any, error) {
 func (h *Handler) dispatchTransactOps(action string, body []byte) (any, error) {
 	switch action {
 	case "TransactWriteItems":
-		return handleOpErr(body, ToSDKTransactWriteItemsInput, h.DB.TransactWriteItems, FromSDKTransactWriteItemsOutput)
+		return handleOpErr(
+			body,
+			models.ToSDKTransactWriteItemsInput,
+			h.DB.TransactWriteItems,
+			models.FromSDKTransactWriteItemsOutput,
+		)
 	case "TransactGetItems":
-		return handleOpErr(body, ToSDKTransactGetItemsInput, h.DB.TransactGetItems, FromSDKTransactGetItemsOutput)
+		return handleOpErr(
+			body,
+			models.ToSDKTransactGetItemsInput,
+			h.DB.TransactGetItems,
+			models.FromSDKTransactGetItemsOutput,
+		)
 	default:
 		return nil, fmt.Errorf("%w:%s", ErrUnknownOperation, action)
 	}
@@ -208,8 +270,17 @@ func (h *Handler) handleError(w http.ResponseWriter, _ *http.Request, action str
 	if strings.HasPrefix(reqErr.Error(), "UnknownOperationException:") {
 		h.Logger.Warn("Unknown action", "action", action)
 		w.Header().Set("Content-Type", "application/x-amz-json-1.0")
+		body := []byte(
+			`{"__type":"com.amazon.coral.service#UnknownOperationException","message":"Action not supported"}`,
+		)
+		checksum := crc32.ChecksumIEEE(body)
+		w.Header().
+			Set("X-Amz-Crc32", strconv.FormatUint(uint64(checksum), 10))
+
+		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"__type":"com.amazon.coral.service#UnknownOperationException","message":"Action not supported"}`))
+		_, _ = w.Write(body)
+
 		return
 	}
 
@@ -218,7 +289,7 @@ func (h *Handler) handleError(w http.ResponseWriter, _ *http.Request, action str
 	statusCode, awsErr := h.classifyError(reqErr)
 
 	w.Header().Set("Content-Type", "application/x-amz-json-1.0")
-	httputils.WriteJSON(h.Logger, w, statusCode, awsErr)
+	writeDynamoDBJSON(h.Logger, w, statusCode, awsErr)
 }
 
 func (h *Handler) classifyError(reqErr error) (int, *Error) {

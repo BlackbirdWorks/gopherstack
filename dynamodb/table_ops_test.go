@@ -1,6 +1,7 @@
 package dynamodb_test
 
 import (
+	"Gopherstack/dynamodb/models"
 	"slices"
 	"testing"
 
@@ -22,16 +23,17 @@ func TestTableOperations(t *testing.T) {
 		{
 			name: "CreateTable_Success",
 			run: func(db *dynamodb.InMemoryDB) (any, error) {
-				input := dynamodb.CreateTableInput{
+				input := models.CreateTableInput{
 					TableName: "TestTable",
-					KeySchema: []dynamodb.KeySchemaElement{
-						{AttributeName: "pk", KeyType: dynamodb.KeyTypeHash},
+					KeySchema: []models.KeySchemaElement{
+						{AttributeName: "pk", KeyType: models.KeyTypeHash},
 					},
-					AttributeDefinitions: []dynamodb.AttributeDefinition{
+					AttributeDefinitions: []models.AttributeDefinition{
 						{AttributeName: "pk", AttributeType: "S"},
 					},
 				}
-				sdkInput := dynamodb.ToSDKCreateTableInput(&input)
+				sdkInput := models.ToSDKCreateTableInput(&input)
+
 				return db.CreateTable(sdkInput)
 			},
 			validate: func(t *testing.T, _ *dynamodb.InMemoryDB, resp any, err error) {
@@ -51,16 +53,17 @@ func TestTableOperations(t *testing.T) {
 				createTable(db, "ExistingTable")
 			},
 			run: func(db *dynamodb.InMemoryDB) (any, error) {
-				input := dynamodb.CreateTableInput{
+				input := models.CreateTableInput{
 					TableName: "ExistingTable",
-					KeySchema: []dynamodb.KeySchemaElement{
-						{AttributeName: "pk", KeyType: dynamodb.KeyTypeHash},
+					KeySchema: []models.KeySchemaElement{
+						{AttributeName: "pk", KeyType: models.KeyTypeHash},
 					},
-					AttributeDefinitions: []dynamodb.AttributeDefinition{
+					AttributeDefinitions: []models.AttributeDefinition{
 						{AttributeName: "pk", AttributeType: "S"},
 					},
 				}
-				sdkInput := dynamodb.ToSDKCreateTableInput(&input)
+				sdkInput := models.ToSDKCreateTableInput(&input)
+
 				return db.CreateTable(sdkInput)
 			},
 			validate: func(t *testing.T, _ *dynamodb.InMemoryDB, _ any, err error) {
@@ -76,8 +79,9 @@ func TestTableOperations(t *testing.T) {
 				createTable(db, "TestTable")
 			},
 			run: func(db *dynamodb.InMemoryDB) (any, error) {
-				input := dynamodb.DescribeTableInput{TableName: "TestTable"}
-				sdkInput := dynamodb.ToSDKDescribeTableInput(&input)
+				input := models.DescribeTableInput{TableName: "TestTable"}
+				sdkInput := models.ToSDKDescribeTableInput(&input)
+
 				return db.DescribeTable(sdkInput)
 			},
 			validate: func(t *testing.T, _ *dynamodb.InMemoryDB, resp any, err error) {
@@ -97,8 +101,9 @@ func TestTableOperations(t *testing.T) {
 		{
 			name: "DescribeTable_NotFound",
 			run: func(db *dynamodb.InMemoryDB) (any, error) {
-				input := dynamodb.DescribeTableInput{TableName: "NonExistent"}
-				sdkInput := dynamodb.ToSDKDescribeTableInput(&input)
+				input := models.DescribeTableInput{TableName: "NonExistent"}
+				sdkInput := models.ToSDKDescribeTableInput(&input)
+
 				return db.DescribeTable(sdkInput)
 			},
 			validate: func(t *testing.T, _ *dynamodb.InMemoryDB, _ any, err error) {
@@ -134,8 +139,9 @@ func TestTableOperations(t *testing.T) {
 				createTable(db, "DeleteMe")
 			},
 			run: func(db *dynamodb.InMemoryDB) (any, error) {
-				input := dynamodb.DeleteTableInput{TableName: "DeleteMe"}
-				sdkInput := dynamodb.ToSDKDeleteTableInput(&input)
+				input := models.DeleteTableInput{TableName: "DeleteMe"}
+				sdkInput := models.ToSDKDeleteTableInput(&input)
+
 				return db.DeleteTable(sdkInput)
 			},
 			validate: func(t *testing.T, db *dynamodb.InMemoryDB, _ any, err error) {
@@ -144,8 +150,8 @@ func TestTableOperations(t *testing.T) {
 					t.Fatalf("Unexpected error: %v", err)
 				}
 				// Verify deletion by trying to describe it
-				descInput := dynamodb.DescribeTableInput{TableName: "DeleteMe"}
-				sdkDesc := dynamodb.ToSDKDescribeTableInput(&descInput)
+				descInput := models.DescribeTableInput{TableName: "DeleteMe"}
+				sdkDesc := models.ToSDKDescribeTableInput(&descInput)
 				_, err = db.DescribeTable(sdkDesc)
 				if err == nil {
 					t.Error("Table should not exist after deletion")
@@ -155,8 +161,9 @@ func TestTableOperations(t *testing.T) {
 		{
 			name: "DeleteTable_NotFound",
 			run: func(db *dynamodb.InMemoryDB) (any, error) {
-				input := dynamodb.DeleteTableInput{TableName: "NonExistent"}
-				sdkInput := dynamodb.ToSDKDeleteTableInput(&input)
+				input := models.DeleteTableInput{TableName: "NonExistent"}
+				sdkInput := models.ToSDKDeleteTableInput(&input)
+
 				return db.DeleteTable(sdkInput)
 			},
 			validate: func(t *testing.T, _ *dynamodb.InMemoryDB, _ any, err error) {
@@ -186,10 +193,10 @@ func TestTableOperations(t *testing.T) {
 }
 
 func createTable(db *dynamodb.InMemoryDB, name string) {
-	input := dynamodb.CreateTableInput{
+	input := models.CreateTableInput{
 		TableName:            name,
-		KeySchema:            []dynamodb.KeySchemaElement{{AttributeName: "id", KeyType: dynamodb.KeyTypeHash}},
-		AttributeDefinitions: []dynamodb.AttributeDefinition{{AttributeName: "id", AttributeType: "S"}},
+		KeySchema:            []models.KeySchemaElement{{AttributeName: "id", KeyType: models.KeyTypeHash}},
+		AttributeDefinitions: []models.AttributeDefinition{{AttributeName: "id", AttributeType: "S"}},
 	}
-	_, _ = db.CreateTable(dynamodb.ToSDKCreateTableInput(&input))
+	_, _ = db.CreateTable(models.ToSDKCreateTableInput(&input))
 }

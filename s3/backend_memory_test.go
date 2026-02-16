@@ -40,7 +40,7 @@ func TestCreateBucket(t *testing.T) {
 		{
 			name:   "create duplicate bucket",
 			bucket: "my-bucket",
-			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+			setup: func(_ context.Context, b *s3.InMemoryBackend) {
 				mustCreateBucket(t, b, "my-bucket")
 			},
 			wantErr:   s3.ErrBucketAlreadyExists,
@@ -55,7 +55,10 @@ func TestCreateBucket(t *testing.T) {
 			backend := newTestBackend(t)
 			tt.setup(context.Background(), backend)
 
-			_, err := backend.CreateBucket(context.Background(), &sdk_s3.CreateBucketInput{Bucket: aws.String(tt.bucket)})
+			_, err := backend.CreateBucket(
+				context.Background(),
+				&sdk_s3.CreateBucketInput{Bucket: aws.String(tt.bucket)},
+			)
 
 			if tt.expectErr {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -79,7 +82,7 @@ func TestDeleteBucket(t *testing.T) {
 		{
 			name:   "delete existing empty bucket",
 			bucket: "my-bucket",
-			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+			setup: func(_ context.Context, b *s3.InMemoryBackend) {
 				mustCreateBucket(t, b, "my-bucket")
 			},
 		},
@@ -93,7 +96,7 @@ func TestDeleteBucket(t *testing.T) {
 		{
 			name:   "delete non-empty bucket",
 			bucket: "my-bucket",
-			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+			setup: func(_ context.Context, b *s3.InMemoryBackend) {
 				mustCreateBucket(t, b, "my-bucket")
 				mustPutObject(t, b, "my-bucket", "key", []byte("data"))
 			},
@@ -109,7 +112,10 @@ func TestDeleteBucket(t *testing.T) {
 			backend := newTestBackend(t)
 			tt.setup(context.Background(), backend)
 
-			_, err := backend.DeleteBucket(context.Background(), &sdk_s3.DeleteBucketInput{Bucket: aws.String(tt.bucket)})
+			_, err := backend.DeleteBucket(
+				context.Background(),
+				&sdk_s3.DeleteBucketInput{Bucket: aws.String(tt.bucket)},
+			)
 
 			if tt.expectErr {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -133,7 +139,7 @@ func TestHeadBucket(t *testing.T) {
 		{
 			name:   "get existing bucket",
 			bucket: "my-bucket",
-			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+			setup: func(_ context.Context, b *s3.InMemoryBackend) {
 				mustCreateBucket(t, b, "my-bucket")
 			},
 		},
@@ -179,7 +185,7 @@ func TestListBuckets(t *testing.T) {
 		},
 		{
 			name: "one bucket",
-			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+			setup: func(_ context.Context, b *s3.InMemoryBackend) {
 				mustCreateBucket(t, b, "alpha")
 			},
 			wantLen:  1,
@@ -187,7 +193,7 @@ func TestListBuckets(t *testing.T) {
 		},
 		{
 			name: "multiple buckets sorted",
-			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+			setup: func(_ context.Context, b *s3.InMemoryBackend) {
 				mustCreateBucket(t, b, "charlie")
 				mustCreateBucket(t, b, "alpha")
 				mustCreateBucket(t, b, "bravo")
@@ -232,7 +238,7 @@ func TestPutObject(t *testing.T) {
 			bucket: "my-bucket",
 			key:    "my-key",
 			data:   []byte("hello"),
-			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+			setup: func(_ context.Context, b *s3.InMemoryBackend) {
 				mustCreateBucket(t, b, "my-bucket")
 			},
 		},
@@ -361,7 +367,7 @@ func TestGetObject(t *testing.T) {
 			name:   "get existing object",
 			bucket: "my-bucket",
 			key:    "my-key",
-			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+			setup: func(_ context.Context, b *s3.InMemoryBackend) {
 				mustCreateBucket(t, b, "my-bucket")
 
 				mustPutObject(t, b, "my-bucket", "my-key", []byte("data"))
@@ -380,7 +386,7 @@ func TestGetObject(t *testing.T) {
 			name:   "get non-existent key",
 			bucket: "my-bucket",
 			key:    "no-such-key",
-			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+			setup: func(_ context.Context, b *s3.InMemoryBackend) {
 				mustCreateBucket(t, b, "my-bucket")
 			},
 			wantErr:   s3.ErrNoSuchKey,
@@ -536,11 +542,13 @@ func TestDeleteObject(t *testing.T) {
 			bucket:     "bkt",
 			key:        "k",
 			wantMarker: true,
-			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+			setup: func(testCtx context.Context, b *s3.InMemoryBackend) {
 				mustCreateBucket(t, b, "bkt")
-				b.PutBucketVersioning(ctx, &sdk_s3.PutBucketVersioningInput{
-					Bucket:                  aws.String("bkt"),
-					VersioningConfiguration: &types.VersioningConfiguration{Status: types.BucketVersioningStatusEnabled},
+				b.PutBucketVersioning(testCtx, &sdk_s3.PutBucketVersioningInput{
+					Bucket: aws.String("bkt"),
+					VersioningConfiguration: &types.VersioningConfiguration{
+						Status: types.BucketVersioningStatusEnabled,
+					},
 				})
 				mustPutObject(t, b, "bkt", "k", []byte("data"))
 			},
@@ -558,7 +566,7 @@ func TestDeleteObject(t *testing.T) {
 			bucket:    "bkt",
 			key:       "k",
 			versionID: "bad-version",
-			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+			setup: func(_ context.Context, b *s3.InMemoryBackend) {
 				mustCreateBucket(t, b, "bkt")
 				mustPutObject(t, b, "bkt", "k", []byte("data"))
 			},
@@ -631,7 +639,7 @@ func TestListObjects(t *testing.T) {
 			name:   "list objects with prefix",
 			bucket: "bkt",
 			prefix: "docs/",
-			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+			setup: func(_ context.Context, b *s3.InMemoryBackend) {
 				mustCreateBucket(t, b, "bkt")
 
 				mustPutObject(t, b, "bkt", "docs/a.txt", []byte("a"))
@@ -644,7 +652,7 @@ func TestListObjects(t *testing.T) {
 			name:   "list all objects",
 			bucket: "bkt",
 			prefix: "",
-			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+			setup: func(_ context.Context, b *s3.InMemoryBackend) {
 				mustCreateBucket(t, b, "bkt")
 
 				mustPutObject(t, b, "bkt", "a", []byte("a"))
@@ -701,7 +709,7 @@ func TestObjectTagging(t *testing.T) {
 			bucket: "bkt",
 			key:    "k",
 			tags:   map[string]string{"env": "prod", "team": "alpha"},
-			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+			setup: func(_ context.Context, b *s3.InMemoryBackend) {
 				mustCreateBucket(t, b, "bkt")
 				mustPutObject(t, b, "bkt", "k", []byte("data"))
 			},
@@ -711,7 +719,7 @@ func TestObjectTagging(t *testing.T) {
 			bucket: "bkt",
 			key:    "no-key",
 			tags:   map[string]string{"k": "v"},
-			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+			setup: func(_ context.Context, b *s3.InMemoryBackend) {
 				mustCreateBucket(t, b, "bkt")
 			},
 			wantErr:   s3.ErrNoSuchKey,
@@ -733,16 +741,16 @@ func TestObjectTagging(t *testing.T) {
 			}
 			sort.Slice(tags, func(i, j int) bool { return *tags[i].Key < *tags[j].Key })
 
-			_, err := backend.PutObjectTagging(context.Background(), &sdk_s3.PutObjectTaggingInput{
+			_, putErr := backend.PutObjectTagging(context.Background(), &sdk_s3.PutObjectTaggingInput{
 				Bucket:  aws.String(tt.bucket),
 				Key:     aws.String(tt.key),
 				Tagging: &types.Tagging{TagSet: tags},
 			})
 
 			if tt.expectErr {
-				require.ErrorIs(t, err, tt.wantErr)
+				require.ErrorIs(t, putErr, tt.wantErr)
 			} else {
-				require.NoError(t, err)
+				require.NoError(t, putErr)
 
 				out, getErr := backend.GetObjectTagging(context.Background(), &sdk_s3.GetObjectTaggingInput{
 					Bucket: aws.String(tt.bucket),
@@ -773,10 +781,10 @@ func TestDeleteObjectTagging(t *testing.T) {
 			name:   "delete tags from object",
 			bucket: "bkt",
 			key:    "k",
-			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+			setup: func(testCtx context.Context, b *s3.InMemoryBackend) {
 				mustCreateBucket(t, b, "bkt")
 				mustPutObject(t, b, "bkt", "k", []byte("data"))
-				b.PutObjectTagging(ctx, &sdk_s3.PutObjectTaggingInput{
+				b.PutObjectTagging(testCtx, &sdk_s3.PutObjectTaggingInput{
 					Bucket:  aws.String("bkt"),
 					Key:     aws.String("k"),
 					Tagging: &types.Tagging{TagSet: []types.Tag{{Key: aws.String("k"), Value: aws.String("v")}}},
@@ -802,11 +810,11 @@ func TestDeleteObjectTagging(t *testing.T) {
 			} else {
 				require.NoError(t, deleteErr)
 				// Verify tags are empty
-				out, err := backend.GetObjectTagging(context.Background(), &sdk_s3.GetObjectTaggingInput{
+				out, getErr := backend.GetObjectTagging(context.Background(), &sdk_s3.GetObjectTaggingInput{
 					Bucket: aws.String(tt.bucket),
 					Key:    aws.String(tt.key),
 				})
-				require.NoError(t, err)
+				require.NoError(t, getErr)
 				require.Empty(t, out.TagSet)
 			}
 		})

@@ -1,5 +1,3 @@
-//go:build integration
-
 package integration_test
 
 import (
@@ -15,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestLocalSecondaryIndex(t *testing.T) {
+func TestIntegration_DDB_LocalSecondaryIndex(t *testing.T) {
 	t.Parallel()
 	client := createDynamoDBClient(t)
 
@@ -71,7 +69,7 @@ func TestLocalSecondaryIndex(t *testing.T) {
 	}
 
 	for _, v := range vars {
-		_, err := client.PutItem(t.Context(), &dynamodb.PutItemInput{
+		_, pErr := client.PutItem(t.Context(), &dynamodb.PutItemInput{
 			TableName: aws.String(tableName),
 			Item: map[string]types.AttributeValue{
 				"pk":     &types.AttributeValueMemberS{Value: "A"},
@@ -80,7 +78,7 @@ func TestLocalSecondaryIndex(t *testing.T) {
 				"data":   &types.AttributeValueMemberS{Value: "some data"},
 			},
 		})
-		require.NoError(t, err)
+		require.NoError(t, pErr)
 	}
 
 	// Query Table (By SK) -> Should be ordered 1, 2, 3
@@ -91,7 +89,7 @@ func TestLocalSecondaryIndex(t *testing.T) {
 			":pk": &types.AttributeValueMemberS{Value: "A"},
 		},
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Len(t, outTable.Items, 3)
 	assert.Equal(t, "1", outTable.Items[0]["sk"].(*types.AttributeValueMemberN).Value)
 	assert.Equal(t, "3", outTable.Items[2]["sk"].(*types.AttributeValueMemberN).Value)
@@ -105,7 +103,7 @@ func TestLocalSecondaryIndex(t *testing.T) {
 			":pk": &types.AttributeValueMemberS{Value: "A"},
 		},
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Len(t, outLSI.Items, 3)
 	// Order should be by LSI_SK (30 < 40 < 50)
 	assert.Equal(t, "30", outLSI.Items[0]["lsi_sk"].(*types.AttributeValueMemberN).Value)

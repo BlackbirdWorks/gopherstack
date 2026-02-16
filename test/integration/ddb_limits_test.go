@@ -1,5 +1,3 @@
-//go:build integration
-
 package integration_test
 
 import (
@@ -11,16 +9,16 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/google/uuid"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestValidationAndLimits(t *testing.T) {
+func TestIntegration_DDB_ValidationAndLimits(t *testing.T) {
 	t.Parallel()
 	client := createDynamoDBClient(t)
 
 	// Helper to create table
 	createTable := func(t *testing.T) string {
+		t.Helper()
 		tableName := "Limits_" + uuid.NewString()
 		_, err := client.CreateTable(t.Context(), &dynamodb.CreateTableInput{
 			TableName: aws.String(tableName),
@@ -40,6 +38,7 @@ func TestValidationAndLimits(t *testing.T) {
 		t.Cleanup(func() {
 			client.DeleteTable(context.Background(), &dynamodb.DeleteTableInput{TableName: aws.String(tableName)})
 		})
+
 		return tableName
 	}
 
@@ -58,7 +57,7 @@ func TestValidationAndLimits(t *testing.T) {
 				"data": &types.AttributeValueMemberS{Value: largeVal},
 			},
 		})
-		assert.Error(t, err)
+		require.Error(t, err)
 		// Check error type/message if possible.
 		// SDK v2 might wrap it.
 		// We expect ItemCollectionSizeLimitExceededException (mapped from our internal error)
@@ -78,7 +77,7 @@ func TestValidationAndLimits(t *testing.T) {
 				"other": &types.AttributeValueMemberS{Value: "val"},
 			},
 		})
-		assert.Error(t, err)
+		require.Error(t, err)
 		// Expect ValidationException: Missing key element
 	})
 
@@ -103,7 +102,7 @@ func TestValidationAndLimits(t *testing.T) {
 				"num": &types.AttributeValueMemberN{Value: "123"},
 			},
 		})
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		// To truly test invalid type we might need raw JSON request or a modified client,
 		// but Go strict typing makes it hard to send bad types via SDK.

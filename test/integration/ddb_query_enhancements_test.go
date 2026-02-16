@@ -1,10 +1,8 @@
-//go:build integration
-
 package integration_test
 
 import (
 	"context"
-	"fmt"
+	"strconv"
 	"testing"
 	"time"
 
@@ -16,12 +14,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestQueryEnhancements(t *testing.T) {
+func TestIntegration_DDB_QueryEnhancements(t *testing.T) {
 	t.Parallel()
 	client := createDynamoDBClient(t)
 
 	// Helper to create table with PK and SK
 	createTable := func(t *testing.T) string {
+		t.Helper()
 		tableName := "QueryEnhance_" + uuid.NewString()
 		_, err := client.CreateTable(t.Context(), &dynamodb.CreateTableInput{
 			TableName: aws.String(tableName),
@@ -44,6 +43,7 @@ func TestQueryEnhancements(t *testing.T) {
 			client.DeleteTable(context.Background(), &dynamodb.DeleteTableInput{TableName: aws.String(tableName)})
 		})
 		time.Sleep(10 * time.Millisecond)
+
 		return tableName
 	}
 
@@ -57,7 +57,7 @@ func TestQueryEnhancements(t *testing.T) {
 				TableName: aws.String(tableName),
 				Item: map[string]types.AttributeValue{
 					"pk": &types.AttributeValueMemberS{Value: "A"},
-					"sk": &types.AttributeValueMemberN{Value: fmt.Sprintf("%d", i)},
+					"sk": &types.AttributeValueMemberN{Value: strconv.Itoa(i)},
 				},
 			})
 		}
@@ -70,7 +70,7 @@ func TestQueryEnhancements(t *testing.T) {
 				":pk": &types.AttributeValueMemberS{Value: "A"},
 			},
 		})
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Len(t, out.Items, 5)
 		assert.Equal(t, "1", out.Items[0]["sk"].(*types.AttributeValueMemberN).Value)
 		assert.Equal(t, "5", out.Items[4]["sk"].(*types.AttributeValueMemberN).Value)
@@ -84,7 +84,7 @@ func TestQueryEnhancements(t *testing.T) {
 			},
 			ScanIndexForward: aws.Bool(false),
 		})
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Len(t, outRev.Items, 5)
 		assert.Equal(t, "5", outRev.Items[0]["sk"].(*types.AttributeValueMemberN).Value)
 		assert.Equal(t, "1", outRev.Items[4]["sk"].(*types.AttributeValueMemberN).Value)
@@ -99,7 +99,7 @@ func TestQueryEnhancements(t *testing.T) {
 				TableName: aws.String(tableName),
 				Item: map[string]types.AttributeValue{
 					"pk": &types.AttributeValueMemberS{Value: "B"},
-					"sk": &types.AttributeValueMemberN{Value: fmt.Sprintf("%d", i)},
+					"sk": &types.AttributeValueMemberN{Value: strconv.Itoa(i)},
 				},
 			})
 		}
@@ -113,7 +113,7 @@ func TestQueryEnhancements(t *testing.T) {
 				":v":  &types.AttributeValueMemberN{Value: "3"},
 			},
 		})
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Len(t, out.Items, 2) // 4, 5
 		assert.Equal(t, "4", out.Items[0]["sk"].(*types.AttributeValueMemberN).Value)
 
@@ -126,7 +126,7 @@ func TestQueryEnhancements(t *testing.T) {
 				":v":  &types.AttributeValueMemberN{Value: "2"},
 			},
 		})
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Len(t, out2.Items, 2) // 1, 2
 	})
 
@@ -140,7 +140,7 @@ func TestQueryEnhancements(t *testing.T) {
 				TableName: aws.String(tableName),
 				Item: map[string]types.AttributeValue{
 					"pk": &types.AttributeValueMemberS{Value: "C"},
-					"sk": &types.AttributeValueMemberN{Value: fmt.Sprintf("%d", i)},
+					"sk": &types.AttributeValueMemberN{Value: strconv.Itoa(i)},
 				},
 			})
 		}
@@ -154,7 +154,7 @@ func TestQueryEnhancements(t *testing.T) {
 			},
 			Limit: aws.Int32(3),
 		})
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Len(t, out1.Items, 3)
 		assert.NotNil(t, out1.LastEvaluatedKey)
 		assert.Equal(t, "3", out1.Items[2]["sk"].(*types.AttributeValueMemberN).Value)
@@ -169,7 +169,7 @@ func TestQueryEnhancements(t *testing.T) {
 			Limit:             aws.Int32(3),
 			ExclusiveStartKey: out1.LastEvaluatedKey,
 		})
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Len(t, out2.Items, 3) // 4, 5, 6
 		assert.Equal(t, "4", out2.Items[0]["sk"].(*types.AttributeValueMemberN).Value)
 		assert.Equal(t, "6", out2.Items[2]["sk"].(*types.AttributeValueMemberN).Value)

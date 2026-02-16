@@ -25,6 +25,8 @@ var (
 	ErrExpectedListAtIndex         = errors.New("expected list at index")
 	ErrExpectedListForIndex        = errors.New("expected list for index")
 	ErrIndexOutOfRange             = errors.New("index out of range")
+	ErrExpectedMapForM             = errors.New("expected map for M")
+	ErrExpectedListForL            = errors.New("expected list for L")
 )
 
 // twoArgs is the expected argument count for two-argument functions.
@@ -654,8 +656,12 @@ func (e *Evaluator) mutateMap(
 	}
 
 	if mVal, exists := wrappedMap["M"]; exists {
-		m = mVal.(map[string]any) //nolint:errcheck // errcheck is handled by type assertion
-		isWrapped = true
+		if mValMap, ok := mVal.(map[string]any); ok {
+			m = mValMap
+			isWrapped = true
+		} else {
+			return nil, fmt.Errorf("%w: got %T", ErrExpectedMapForM, mVal)
+		}
 	} else {
 		m = wrappedMap
 	}
@@ -746,8 +752,12 @@ func (e *Evaluator) resolveList(current any, index int) ([]any, bool, error) {
 		if !exists {
 			return nil, false, fmt.Errorf("%w: %d", ErrExpectedListAtIndex, index)
 		}
-		list = lVal.([]any) //nolint:errcheck // errcheck is handled by type assertion
-		isWrapped = true
+		if lValList, ok := lVal.([]any); ok {
+			list = lValList
+			isWrapped = true
+		} else {
+			return nil, false, fmt.Errorf("%w: got %T", ErrExpectedListForL, lVal)
+		}
 	case []any:
 		list = v
 	default:

@@ -30,5 +30,8 @@ COPY --from=builder /app/gopherstack .
 # Expose port 8000 to the outside world
 EXPOSE 8000
 
+# OCI label pointing to the source repository
+LABEL org.opencontainers.image.source="https://github.com/agbishop/Gopherstack"
+
 # Command to run the executable
 CMD ["./gopherstack"]

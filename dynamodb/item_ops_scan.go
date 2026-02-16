@@ -3,6 +3,8 @@ package dynamodb
 import (
 	"fmt"
 
+	"Gopherstack/dynamodb/models"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
@@ -27,27 +29,32 @@ func (db *InMemoryDB) Scan(input *dynamodb.ScanInput) (*dynamodb.ScanOutput, err
 
 	outItems := make([]map[string]types.AttributeValue, len(items))
 	for i, it := range items {
-		sdkIt, _ := ToSDKItem(it)
+		sdkIt, _ := models.ToSDKItem(it)
 		outItems[i] = sdkIt
 	}
 
 	return &dynamodb.ScanOutput{
 		Items:        outItems,
-		Count:        int32(len(items)),
-		ScannedCount: int32(len(table.Items)),
+		Count:        int32(len(items)),       // #nosec G115
+		ScannedCount: int32(len(table.Items)), // #nosec G115
 	}, nil
 }
 
-func (db *InMemoryDB) getScanKeySchema(table *Table, input *dynamodb.ScanInput) (KeySchemaElement, KeySchemaElement, error) {
+func (db *InMemoryDB) getScanKeySchema(
+	table *Table,
+	input *dynamodb.ScanInput,
+) (models.KeySchemaElement, models.KeySchemaElement, error) {
 	indexName := aws.ToString(input.IndexName)
 	if indexName == "" {
 		pk, sk := getPKAndSK(table.KeySchema)
+
 		return pk, sk, nil
 	}
 
 	for _, gsi := range table.GlobalSecondaryIndexes {
 		if gsi.IndexName == indexName {
 			pk, sk := getPKAndSK(gsi.KeySchema)
+
 			return pk, sk, nil
 		}
 	}
@@ -55,11 +62,12 @@ func (db *InMemoryDB) getScanKeySchema(table *Table, input *dynamodb.ScanInput) 
 	for _, lsi := range table.LocalSecondaryIndexes {
 		if lsi.IndexName == indexName {
 			pk, sk := getPKAndSK(lsi.KeySchema)
+
 			return pk, sk, nil
 		}
 	}
 
-	return KeySchemaElement{}, KeySchemaElement{}, NewResourceNotFoundException(
+	return models.KeySchemaElement{}, models.KeySchemaElement{}, NewResourceNotFoundException(
 		fmt.Sprintf("Index: %s not found", indexName),
 	)
 }
@@ -67,12 +75,12 @@ func (db *InMemoryDB) getScanKeySchema(table *Table, input *dynamodb.ScanInput) 
 func (db *InMemoryDB) doScan(
 	items []map[string]any,
 	input *dynamodb.ScanInput,
-	pkDef, skDef KeySchemaElement,
+	pkDef, skDef models.KeySchemaElement,
 	ttlAttr string,
 ) []map[string]any {
 	result := make([]map[string]any, 0, minScanAllocationSize)
 
-	eav := FromSDKItem(input.ExpressionAttributeValues)
+	eav := models.FromSDKItem(input.ExpressionAttributeValues)
 	limit := int(aws.ToInt32(input.Limit))
 
 	proj := aws.ToString(input.ProjectionExpression)
@@ -101,7 +109,7 @@ func (db *InMemoryDB) doScan(
 func (db *InMemoryDB) shouldIncludeInScan(
 	item map[string]any,
 	input *dynamodb.ScanInput,
-	pkDef, skDef KeySchemaElement,
+	pkDef, skDef models.KeySchemaElement,
 	eav map[string]any,
 ) bool {
 	indexName := aws.ToString(input.IndexName)

@@ -354,7 +354,8 @@ linters:
         - error
         - empty
         - stdlib
-        - "^Gopherstack/dynamodb/expr\\.Node$"
+        - "github.com/aws/aws-sdk-go-v2/service/dynamodb/types.AttributeValue"
+        - "Gopherstack/dynamodb/expr.Node"
 
     mnd:
       # List of function patterns to exclude from analysis.

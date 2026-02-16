@@ -1,6 +1,7 @@
-package expr
+package expr_test
 
 import (
+	"Gopherstack/dynamodb/expr"
 	"fmt"
 	"testing"
 
@@ -10,65 +11,68 @@ import (
 func TestLexer_NextToken(t *testing.T) {
 	t.Parallel()
 
-	input := `SET #a = :v1, #b = :v2 REMOVE #c age >= :minAge begins_with(pk, :prefix) contains(tags, :tag) size(tags) < 10 <> <= > ( ) [ ] . AND OR NOT BETWEEN IN ADD DELETE attribute_exists attribute_not_exists attribute_type`
+	input := "SET #a = :v1, #b = :v2 REMOVE #c age >= :minAge " +
+		"begins_with(pk, :prefix) contains(tags, :tag) size(tags) < 10 <> <= > " +
+		"( ) [ ] . AND OR NOT BETWEEN IN ADD DELETE " +
+		"attribute_exists attribute_not_exists attribute_type"
 
 	tests := []struct {
-		expectedType    TokenType
 		expectedLiteral string
+		expectedType    expr.TokenType
 	}{
-		{TokenSET, "SET"},
-		{TokenIdentifier, "#a"},
-		{TokenEqual, "="},
-		{TokenValue, ":v1"},
-		{TokenComma, ","},
-		{TokenIdentifier, "#b"},
-		{TokenEqual, "="},
-		{TokenValue, ":v2"},
-		{TokenREMOVE, "REMOVE"},
-		{TokenIdentifier, "#c"},
-		{TokenIdentifier, "age"},
-		{TokenGreaterEqual, ">="},
-		{TokenValue, ":minAge"},
-		{TokenBeginsWith, "begins_with"},
-		{TokenLParen, "("},
-		{TokenIdentifier, "pk"},
-		{TokenComma, ","},
-		{TokenValue, ":prefix"},
-		{TokenRParen, ")"},
-		{TokenContains, "contains"},
-		{TokenLParen, "("},
-		{TokenIdentifier, "tags"},
-		{TokenComma, ","},
-		{TokenValue, ":tag"},
-		{TokenRParen, ")"},
-		{TokenSize, "size"},
-		{TokenLParen, "("},
-		{TokenIdentifier, "tags"},
-		{TokenRParen, ")"},
-		{TokenLess, "<"},
-		{TokenIdentifier, "10"},
-		{TokenNotEqual, "<>"},
-		{TokenLessEqual, "<="},
-		{TokenGreater, ">"},
-		{TokenLParen, "("},
-		{TokenRParen, ")"},
-		{TokenLBracket, "["},
-		{TokenRBracket, "]"},
-		{TokenDot, "."},
-		{TokenAND, "AND"},
-		{TokenOR, "OR"},
-		{TokenNOT, "NOT"},
-		{TokenBETWEEN, "BETWEEN"},
-		{TokenIN, "IN"},
-		{TokenADD, "ADD"},
-		{TokenDELETE, "DELETE"},
-		{TokenAttributeExists, "attribute_exists"},
-		{TokenAttributeNotExists, "attribute_not_exists"},
-		{TokenAttributeType, "attribute_type"},
-		{TokenEOF, ""},
+		{expectedType: expr.TokenSET, expectedLiteral: "SET"},
+		{expectedType: expr.TokenIdentifier, expectedLiteral: "#a"},
+		{expectedType: expr.TokenEqual, expectedLiteral: "="},
+		{expectedType: expr.TokenValue, expectedLiteral: ":v1"},
+		{expectedType: expr.TokenComma, expectedLiteral: ","},
+		{expectedType: expr.TokenIdentifier, expectedLiteral: "#b"},
+		{expectedType: expr.TokenEqual, expectedLiteral: "="},
+		{expectedType: expr.TokenValue, expectedLiteral: ":v2"},
+		{expectedType: expr.TokenREMOVE, expectedLiteral: "REMOVE"},
+		{expectedType: expr.TokenIdentifier, expectedLiteral: "#c"},
+		{expectedType: expr.TokenIdentifier, expectedLiteral: "age"},
+		{expectedType: expr.TokenGreaterEqual, expectedLiteral: ">="},
+		{expectedType: expr.TokenValue, expectedLiteral: ":minAge"},
+		{expectedType: expr.TokenBeginsWith, expectedLiteral: "begins_with"},
+		{expectedType: expr.TokenLParen, expectedLiteral: "("},
+		{expectedType: expr.TokenIdentifier, expectedLiteral: "pk"},
+		{expectedType: expr.TokenComma, expectedLiteral: ","},
+		{expectedType: expr.TokenValue, expectedLiteral: ":prefix"},
+		{expectedType: expr.TokenRParen, expectedLiteral: ")"},
+		{expectedType: expr.TokenContains, expectedLiteral: "contains"},
+		{expectedType: expr.TokenLParen, expectedLiteral: "("},
+		{expectedType: expr.TokenIdentifier, expectedLiteral: "tags"},
+		{expectedType: expr.TokenComma, expectedLiteral: ","},
+		{expectedType: expr.TokenValue, expectedLiteral: ":tag"},
+		{expectedType: expr.TokenRParen, expectedLiteral: ")"},
+		{expectedType: expr.TokenSize, expectedLiteral: "size"},
+		{expectedType: expr.TokenLParen, expectedLiteral: "("},
+		{expectedType: expr.TokenIdentifier, expectedLiteral: "tags"},
+		{expectedType: expr.TokenRParen, expectedLiteral: ")"},
+		{expectedType: expr.TokenLess, expectedLiteral: "<"},
+		{expectedType: expr.TokenIdentifier, expectedLiteral: "10"},
+		{expectedType: expr.TokenNotEqual, expectedLiteral: "<>"},
+		{expectedType: expr.TokenLessEqual, expectedLiteral: "<="},
+		{expectedType: expr.TokenGreater, expectedLiteral: ">"},
+		{expectedType: expr.TokenLParen, expectedLiteral: "("},
+		{expectedType: expr.TokenRParen, expectedLiteral: ")"},
+		{expectedType: expr.TokenLBracket, expectedLiteral: "["},
+		{expectedType: expr.TokenRBracket, expectedLiteral: "]"},
+		{expectedType: expr.TokenDot, expectedLiteral: "."},
+		{expectedType: expr.TokenAND, expectedLiteral: "AND"},
+		{expectedType: expr.TokenOR, expectedLiteral: "OR"},
+		{expectedType: expr.TokenNOT, expectedLiteral: "NOT"},
+		{expectedType: expr.TokenBETWEEN, expectedLiteral: "BETWEEN"},
+		{expectedType: expr.TokenIN, expectedLiteral: "IN"},
+		{expectedType: expr.TokenADD, expectedLiteral: "ADD"},
+		{expectedType: expr.TokenDELETE, expectedLiteral: "DELETE"},
+		{expectedType: expr.TokenAttributeExists, expectedLiteral: "attribute_exists"},
+		{expectedType: expr.TokenAttributeNotExists, expectedLiteral: "attribute_not_exists"},
+		{expectedType: expr.TokenAttributeType, expectedLiteral: "attribute_type"},
+		{expectedType: expr.TokenEOF, expectedLiteral: ""},
 	}
 
-	l := NewLexer(input)
+	l := expr.NewLexer(input)
 
 	for i, tt := range tests {
 		tok := l.NextToken()
@@ -82,22 +86,22 @@ func TestLexer_CaseInsensitivity(t *testing.T) {
 
 	tests := []struct {
 		input        string
-		expectedType TokenType
+		expectedType expr.TokenType
 	}{
-		{"AND", TokenAND},
-		{"and", TokenAND},
-		{"OR", TokenOR},
-		{"or", TokenOR},
-		{"NOT", TokenNOT},
-		{"not", TokenNOT},
-		{"SET", TokenSET},
-		{"set", TokenSET},
+		{input: "AND", expectedType: expr.TokenAND},
+		{input: "and", expectedType: expr.TokenAND},
+		{input: "OR", expectedType: expr.TokenOR},
+		{input: "or", expectedType: expr.TokenOR},
+		{input: "NOT", expectedType: expr.TokenNOT},
+		{input: "not", expectedType: expr.TokenNOT},
+		{input: "SET", expectedType: expr.TokenSET},
+		{input: "set", expectedType: expr.TokenSET},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
 			t.Parallel()
-			l := NewLexer(tt.input)
+			l := expr.NewLexer(tt.input)
 			tok := l.NextToken()
 			assert.Equal(t, tt.expectedType, tok.Type)
 		})
@@ -108,15 +112,16 @@ func TestLexer_Errors(t *testing.T) {
 	t.Parallel()
 
 	input := "@"
-	l := NewLexer(input)
+	l := expr.NewLexer(input)
 	tok := l.NextToken()
-	assert.Equal(t, TokenError, tok.Type)
+	assert.Equal(t, expr.TokenError, tok.Type)
 	assert.Equal(t, "@", tok.Literal)
 }
 
 func TestToken_String(t *testing.T) {
 	t.Parallel()
-	tok := Token{Type: TokenEqual, Literal: "="}
-	expected := fmt.Sprintf("{%d \"=\"}", TokenEqual)
+
+	tok := expr.Token{Type: expr.TokenEqual, Literal: "="}
+	expected := fmt.Sprintf("{%d \"=\"}", expr.TokenEqual)
 	assert.Equal(t, expected, tok.String())
 }

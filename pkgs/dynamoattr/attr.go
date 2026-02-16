@@ -1,4 +1,4 @@
-package dynamodb
+package dynamoattr
 
 import (
 	"encoding/json"
@@ -7,13 +7,13 @@ import (
 	"strings"
 )
 
-func unwrapAttributeValue(v any) any {
+// UnwrapAttributeValue converts a DynamoDB wire attribute map into a bare value when possible.
+func UnwrapAttributeValue(v any) any {
 	m, ok := v.(map[string]any)
 	if !ok {
 		return v
 	}
 
-	// DynamoDB AttributeValue types
 	if val, exists := m["S"]; exists {
 		return val
 	}
@@ -35,8 +35,6 @@ func unwrapAttributeValue(v any) any {
 	if val, exists := m["L"]; exists {
 		return val
 	}
-
-	// Also handle sets if encountered (SS, NS, BS)
 	if val, exists := m["SS"]; exists {
 		return val
 	}
@@ -50,12 +48,9 @@ func unwrapAttributeValue(v any) any {
 	return v
 }
 
-func parseStr(v any) string {
-	return toString(v)
-}
-
-func parseNumeric(v any) (float64, bool) {
-	unwrapped := unwrapAttributeValue(v)
+// ParseNumeric tries to read a value as a float64 number.
+func ParseNumeric(v any) (float64, bool) {
+	unwrapped := UnwrapAttributeValue(v)
 	switch val := unwrapped.(type) {
 	case float64:
 		return val, true
@@ -72,7 +67,8 @@ func parseNumeric(v any) (float64, bool) {
 	return 0, false
 }
 
-func resolveValue(token string, attrValues map[string]any) any {
+// ResolveValue maps expression tokens to attribute values when prefixed with ':'.
+func ResolveValue(token string, attrValues map[string]any) any {
 	if strings.HasPrefix(token, ":") {
 		if val, ok := attrValues[token]; ok {
 			return val
@@ -82,14 +78,15 @@ func resolveValue(token string, attrValues map[string]any) any {
 	return token
 }
 
-func compareValues(lhs any, op string, rhs any) bool {
-	lhs = unwrapAttributeValue(lhs)
-	rhs = unwrapAttributeValue(rhs)
+// CompareValues compares DynamoDB attribute values against an operator.
+func CompareValues(lhs any, op string, rhs any) bool {
+	lhs = UnwrapAttributeValue(lhs)
+	rhs = UnwrapAttributeValue(rhs)
 
-	lhsStr := toString(lhs)
-	rhsStr := toString(rhs)
-	lNum, lIsNum := parseNumeric(lhs)
-	rNum, rIsNum := parseNumeric(rhs)
+	lhsStr := ToString(lhs)
+	rhsStr := ToString(rhs)
+	lNum, lIsNum := ParseNumeric(lhs)
+	rNum, rIsNum := ParseNumeric(rhs)
 
 	switch op {
 	case "=":
@@ -145,23 +142,8 @@ func compareValues(lhs any, op string, rhs any) bool {
 	return false
 }
 
-func compareOrdered(
-	lNum, rNum float64,
-	lIsNum, rIsNum bool,
-	lStr, rStr string,
-	numCmp func(float64, float64) bool,
-	strCmp func(string, string) bool,
-) bool {
-	if lIsNum && rIsNum {
-		return numCmp(lNum, rNum)
-	}
-
-	return strCmp(lStr, rStr)
-}
-
-// splitANDConditions splits an expression by " AND " while preserving BETWEEN ... AND ... clauses.
-// Note: This is legacy but needed by Query PK/SK splitting logic.
-func splitANDConditions(expression string) []string {
+// SplitANDConditions splits an expression by " AND " while preserving BETWEEN ... AND ... clauses.
+func SplitANDConditions(expression string) []string {
 	rawParts := strings.Split(expression, " AND ")
 	conditions := make([]string, 0, len(rawParts))
 
@@ -178,8 +160,9 @@ func splitANDConditions(expression string) []string {
 	return conditions
 }
 
-func toString(v any) string {
-	unwrapped := unwrapAttributeValue(v)
+// ToString renders DynamoDB attribute values into comparable strings.
+func ToString(v any) string {
+	unwrapped := UnwrapAttributeValue(v)
 	switch s := unwrapped.(type) {
 	case string:
 		return s
@@ -199,4 +182,18 @@ func toString(v any) string {
 
 		return string(b)
 	}
+}
+
+func compareOrdered(
+	lNum, rNum float64,
+	lIsNum, rIsNum bool,
+	lStr, rStr string,
+	numCmp func(float64, float64) bool,
+	strCmp func(string, string) bool,
+) bool {
+	if lIsNum && rIsNum {
+		return numCmp(lNum, rNum)
+	}
+
+	return strCmp(lStr, rStr)
 }

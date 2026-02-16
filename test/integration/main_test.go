@@ -1,14 +1,14 @@
-//go:build integration
-
 package integration_test
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
-	"reflect"
 	"testing"
 	"time"
+
+	"log/slog"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -16,16 +16,25 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/docker/docker/api/types/build"
-	"github.com/sanity-io/litter"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 // endpoint is the base URL for the running Gopherstack container.
 // Both DynamoDB and S3 clients connect to this single endpoint.
+//
+//nolint:gochecknoglobals // TestMain initializes the shared endpoint for clients.
 var endpoint string
 
 func TestMain(m *testing.M) {
+	flag.Parse()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	if testing.Short() {
+		logger.Info("skipping integration tests in short mode")
+		os.Exit(0)
+	}
+
 	ctx := context.Background()
 
 	req := testcontainers.ContainerRequest{
@@ -40,7 +49,7 @@ func TestMain(m *testing.M) {
 		},
 		ExposedPorts: []string{"8000/tcp"},
 		WaitingFor: wait.ForHTTP("/").
-			WithStatusCodeMatcher(func(status int) bool { return true }).
+			WithStatusCodeMatcher(func(_ int) bool { return true }).
 			WithStartupTimeout(60 * time.Second),
 	}
 
@@ -49,23 +58,23 @@ func TestMain(m *testing.M) {
 		Started:          true,
 	})
 	if err != nil {
-		fmt.Printf("failed to start container: %v\n", err)
+		logger.Error("failed to start container", "error", err)
 		os.Exit(1)
 	}
 
 	mappedPort, err := container.MappedPort(ctx, "8000")
 	if err != nil {
-		fmt.Printf("failed to get mapped port: %v\n", err)
+		logger.Error("failed to get mapped port", "error", err)
 		os.Exit(1)
 	}
 
 	endpoint = fmt.Sprintf("http://localhost:%s", mappedPort.Port())
-	fmt.Printf("Gopherstack running at %s\n", endpoint)
+	logger.Info("Gopherstack running", "endpoint", endpoint)
 
 	code := m.Run()
 
-	if err := container.Terminate(ctx); err != nil {
-		fmt.Printf("failed to terminate container: %v\n", err)
+	if tErr := container.Terminate(ctx); tErr != nil {
+		logger.Error("failed to terminate container", "error", tErr)
 	}
 
 	os.Exit(code)
@@ -104,26 +113,4 @@ func createS3Client(t *testing.T) *s3.Client {
 		o.UsePathStyle = true
 		o.BaseEndpoint = aws.String(endpoint)
 	})
-}
-
-// dumpSDKOutput dumps an AWS SDK response struct via litter, safely zeroing out
-// ResultMetadata before traversal. This avoids a data race in Go's HTTP transport:
-// after RoundTrip returns, the transport's readLoop goroutine calls
-// context.removeChild (modifying the parent context's children map) concurrently
-// with litter's pointer-visitor walking into ResultMetadata.values → *http.Response
-// → Request.ctx → cancelCtx.children via reflect.Value.MapKeys.
-func dumpSDKOutput(v any) {
-	val := reflect.ValueOf(v)
-	if val.Kind() == reflect.Ptr {
-		val = val.Elem()
-	}
-
-	cp := reflect.New(val.Type()).Elem()
-	cp.Set(val)
-
-	if f := cp.FieldByName("ResultMetadata"); f.IsValid() {
-		f.SetZero()
-	}
-
-	litter.Dump(cp.Addr().Interface())
 }

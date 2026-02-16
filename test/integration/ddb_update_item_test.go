@@ -1,5 +1,3 @@
-//go:build integration
-
 package integration_test
 
 import (
@@ -15,15 +13,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestUpdateItem(t *testing.T) {
+func TestIntegration_DDB_UpdateItem(t *testing.T) {
 	t.Parallel()
 	client := createDynamoDBClient(t)
 
 	type testCase struct {
-		name   string
 		setup  func(t *testing.T, ctx context.Context, tableName string)
 		input  func(tableName string) *dynamodb.UpdateItemInput
 		verify func(t *testing.T, out *dynamodb.UpdateItemOutput)
+		name   string
 	}
 
 	tests := []testCase{
@@ -43,6 +41,7 @@ func TestUpdateItem(t *testing.T) {
 				}
 			},
 			verify: func(t *testing.T, out *dynamodb.UpdateItemOutput) {
+				t.Helper()
 				require.NotNil(t, out.Attributes)
 				val, ok := out.Attributes["val"].(*types.AttributeValueMemberS)
 				require.True(t, ok)
@@ -52,6 +51,7 @@ func TestUpdateItem(t *testing.T) {
 		{
 			name: "UpdateItem_Set_ExistingItem",
 			setup: func(t *testing.T, ctx context.Context, tableName string) {
+				t.Helper()
 				_, err := client.PutItem(ctx, &dynamodb.PutItemInput{
 					TableName: aws.String(tableName),
 					Item: map[string]types.AttributeValue{
@@ -75,6 +75,7 @@ func TestUpdateItem(t *testing.T) {
 				}
 			},
 			verify: func(t *testing.T, out *dynamodb.UpdateItemOutput) {
+				t.Helper()
 				require.NotNil(t, out.Attributes)
 				val, ok := out.Attributes["val"].(*types.AttributeValueMemberS)
 				require.True(t, ok)
@@ -84,7 +85,6 @@ func TestUpdateItem(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			tableName := "UpdateItemTestTable-" + uuid.NewString()
@@ -106,10 +106,10 @@ func TestUpdateItem(t *testing.T) {
 			require.NoError(t, err)
 
 			t.Cleanup(func() {
-				_, err := client.DeleteTable(context.Background(), &dynamodb.DeleteTableInput{
+				_, dErr := client.DeleteTable(context.Background(), &dynamodb.DeleteTableInput{
 					TableName: aws.String(tableName),
 				})
-				assert.NoError(t, err)
+				assert.NoError(t, dErr)
 			})
 
 			time.Sleep(50 * time.Millisecond)

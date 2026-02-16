@@ -1,0 +1,17 @@
+# Go test coverage configuration
+
+# Path to the coverage profile file
+profile: coverage.out
+
+# Thresholds for coverage
+threshold:
+  # Minimum total project coverage
+  total: 80
+
+# Incremental coverage check for changed files
+diff:
+  # Minimum coverage for files changed in a PR
+  threshold-changed-files: 80
+
+# Enable GitHub Actions output formatting
+github-action-output: true

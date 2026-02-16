@@ -1,6 +1,6 @@
 module Gopherstack
 
-go 1.25
+go 1.26
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.41.1

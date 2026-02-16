@@ -1,5 +1,3 @@
-//go:build integration
-
 package integration_test
 
 import (
@@ -15,21 +13,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestBatchOperations(t *testing.T) {
+func TestIntegration_DDB_BatchOperations(t *testing.T) {
 	t.Parallel()
 	client := createDynamoDBClient(t)
 
 	type testCase struct {
-		name   string
 		setup  func(t *testing.T, ctx context.Context, table1, table2 string)
-		input  func(table1, table2 string) (interface{}, string) // Returns input struct and type "Write" or "Get"
-		verify func(t *testing.T, out interface{})
+		input  func(table1, table2 string) (any, string)
+		verify func(t *testing.T, out any)
+		name   string
 	}
 
 	tests := []testCase{
 		{
 			name: "BatchWriteItem_PutAndDelete",
-			setup: func(t *testing.T, ctx context.Context, table1, table2 string) {
+			setup: func(t *testing.T, ctx context.Context, _ string, table2 string) {
+				t.Helper()
 				// Seed table2 with an item to delete
 				_, err := client.PutItem(ctx, &dynamodb.PutItemInput{
 					TableName: aws.String(table2),
@@ -40,7 +39,7 @@ func TestBatchOperations(t *testing.T) {
 				})
 				require.NoError(t, err)
 			},
-			input: func(table1, table2 string) (interface{}, string) {
+			input: func(table1, table2 string) (any, string) {
 				return &dynamodb.BatchWriteItemInput{
 					RequestItems: map[string][]types.WriteRequest{
 						table1: {
@@ -65,7 +64,8 @@ func TestBatchOperations(t *testing.T) {
 					},
 				}, "Write"
 			},
-			verify: func(t *testing.T, out interface{}) {
+			verify: func(t *testing.T, out any) {
+				t.Helper()
 				output := out.(*dynamodb.BatchWriteItemOutput)
 				assert.Empty(t, output.UnprocessedItems)
 			},
@@ -73,6 +73,7 @@ func TestBatchOperations(t *testing.T) {
 		{
 			name: "BatchGetItem_MultipleTables",
 			setup: func(t *testing.T, ctx context.Context, table1, table2 string) {
+				t.Helper()
 				// Seed both tables
 				_, err := client.PutItem(ctx, &dynamodb.PutItemInput{
 					TableName: aws.String(table1),
@@ -92,7 +93,7 @@ func TestBatchOperations(t *testing.T) {
 				})
 				require.NoError(t, err)
 			},
-			input: func(table1, table2 string) (interface{}, string) {
+			input: func(table1, table2 string) (any, string) {
 				return &dynamodb.BatchGetItemInput{
 					RequestItems: map[string]types.KeysAndAttributes{
 						table1: {
@@ -108,7 +109,8 @@ func TestBatchOperations(t *testing.T) {
 					},
 				}, "Get"
 			},
-			verify: func(t *testing.T, out interface{}) {
+			verify: func(t *testing.T, out any) {
+				t.Helper()
 				output := out.(*dynamodb.BatchGetItemOutput)
 				assert.Empty(t, output.UnprocessedKeys)
 				assert.Len(t, output.Responses, 2)
@@ -117,7 +119,6 @@ func TestBatchOperations(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			table1 := "BatchTable1-" + uuid.NewString()
@@ -126,7 +127,7 @@ func TestBatchOperations(t *testing.T) {
 
 			// Create two tables
 			for _, tbl := range []string{table1, table2} {
-				_, err := client.CreateTable(ctx, &dynamodb.CreateTableInput{
+				_, createErr := client.CreateTable(ctx, &dynamodb.CreateTableInput{
 					TableName: aws.String(tbl),
 					AttributeDefinitions: []types.AttributeDefinition{
 						{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
@@ -139,13 +140,13 @@ func TestBatchOperations(t *testing.T) {
 						WriteCapacityUnits: aws.Int64(5),
 					},
 				})
-				require.NoError(t, err)
+				require.NoError(t, createErr)
 
 				t.Cleanup(func() {
-					_, err := client.DeleteTable(context.Background(), &dynamodb.DeleteTableInput{
+					_, deleteErr := client.DeleteTable(context.Background(), &dynamodb.DeleteTableInput{
 						TableName: aws.String(tbl),
 					})
-					assert.NoError(t, err)
+					assert.NoError(t, deleteErr)
 				})
 			}
 
@@ -181,7 +182,6 @@ func TestBatchOperations(t *testing.T) {
 				if tt.name == "BatchWriteItem_PutAndDelete" {
 					assert.Nil(t, outGet2.Item)
 				}
-
 			} else {
 				out, err := client.BatchGetItem(ctx, inputStruct.(*dynamodb.BatchGetItemInput))
 				require.NoError(t, err)

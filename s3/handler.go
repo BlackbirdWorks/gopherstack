@@ -3,7 +3,7 @@ package s3
 import (
 	"Gopherstack/pkgs/httputils"
 	"bytes"
-	"crypto/sha1"
+	"crypto/sha1" //nolint:gosec // SHA1 required for S3 checksum compatibility
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/xml"
@@ -29,8 +29,14 @@ const (
 	tagKeyValueParts = 2
 	defaultMaxKeys   = 1000
 
-	locationConstraintXML = `<LocationConstraint xmlns=` +
-		`"http://s3.amazonaws.com/doc/2006-03-01/">us-east-1</LocationConstraint>`
+	locationConstraintXML = `<?xml version="1.0" encoding="UTF-8"?>` + "\n" +
+		`<LocationConstraint xmlns="http://s3.amazonaws.com/doc/2006-03-01/">us-east-1</LocationConstraint>`
+
+	checksumCRC32   = "CRC32"
+	checksumCRC32C  = "CRC32C"
+	checksumSHA1    = "SHA1"
+	checksumSHA256  = "SHA256"
+	storageStandard = "STANDARD"
 )
 
 // Handler implements [http.Handler] for S3-compatible API requests.
@@ -219,13 +225,7 @@ func (h *Handler) routeBucketGet(w http.ResponseWriter, r *http.Request, bucket 
 	case r.URL.Query().Has("versions"):
 		h.listObjectVersions(w, r, bucket)
 	case r.URL.Query().Has("location"):
-		body := []byte(xml.Header + locationConstraintXML)
-		w.Header().Set("Content-Type", "application/xml")
-		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
-		w.WriteHeader(http.StatusOK)
-		if _, err := w.Write(body); err != nil {
-			h.Logger.Error("failed to write XML response", "error", err)
-		}
+		h.getBucketLocation(w, r, bucket)
 	case r.URL.Query().Has("tagging"):
 		httputils.WriteError(h.Logger, w, r, ErrNotImplemented, http.StatusNotImplemented)
 	case r.URL.Query().Get("list-type") == "2":
@@ -305,6 +305,7 @@ func (h *Handler) listBuckets(w http.ResponseWriter, r *http.Request) {
 	out, err := h.Backend.ListBuckets(r.Context(), &s3.ListBucketsInput{})
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 
@@ -333,6 +334,7 @@ func (h *Handler) createBucket(w http.ResponseWriter, r *http.Request, bucketNam
 	body, err := httputils.ReadBody(r)
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 
@@ -364,11 +366,13 @@ func (h *Handler) createBucket(w http.ResponseWriter, r *http.Request, bucketNam
 	_, err = h.Backend.CreateBucket(r.Context(), input)
 	if errors.Is(err, ErrBucketAlreadyExists) {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusConflict)
+
 		return
 	}
 
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 
@@ -381,16 +385,19 @@ func (h *Handler) deleteBucket(w http.ResponseWriter, r *http.Request, bucketNam
 	_, err := h.Backend.DeleteBucket(r.Context(), &s3.DeleteBucketInput{Bucket: aws.String(bucketName)})
 	if errors.Is(err, ErrNoSuchBucket) {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+
 		return
 	}
 
 	if errors.Is(err, ErrBucketNotEmpty) {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusConflict)
+
 		return
 	}
 
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 
@@ -399,12 +406,13 @@ func (h *Handler) deleteBucket(w http.ResponseWriter, r *http.Request, bucketNam
 
 func (h *Handler) listObjects(w http.ResponseWriter, r *http.Request, bucketName string) {
 	prefix := r.URL.Query().Get("prefix")
+	delimiter := r.URL.Query().Get("delimiter")
 	marker := r.URL.Query().Get("marker")
 
 	maxKeys := int32(defaultMaxKeys)
 	if mk := r.URL.Query().Get("max-keys"); mk != "" {
 		if n, err := strconv.Atoi(mk); err == nil && n >= 0 {
-			maxKeys = int32(n)
+			maxKeys = int32(n) //nolint:gosec // Validated non-negative, safe conversion
 		}
 	}
 
@@ -415,11 +423,13 @@ func (h *Handler) listObjects(w http.ResponseWriter, r *http.Request, bucketName
 	})
 	if errors.Is(err, ErrNoSuchBucket) {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+
 		return
 	}
 
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 
@@ -431,6 +441,7 @@ func (h *Handler) listObjects(w http.ResponseWriter, r *http.Request, bucketName
 		for i, obj := range objects {
 			if *obj.Key > marker {
 				start = i
+
 				break
 			}
 		}
@@ -439,7 +450,7 @@ func (h *Handler) listObjects(w http.ResponseWriter, r *http.Request, bucketName
 
 	isTruncated := false
 	var nextMarker string
-	if maxKeys > 0 && int32(len(objects)) > maxKeys {
+	if maxKeys > 0 && len(objects) > int(maxKeys) {
 		isTruncated = true
 		objects = objects[:maxKeys]
 		nextMarker = *objects[maxKeys-1].Key
@@ -448,45 +459,17 @@ func (h *Handler) listObjects(w http.ResponseWriter, r *http.Request, bucketName
 	resp := ListBucketResult{
 		Name:        bucketName,
 		Prefix:      prefix,
+		Delimiter:   delimiter,
 		Marker:      marker,
 		NextMarker:  nextMarker,
 		MaxKeys:     int(maxKeys),
 		IsTruncated: isTruncated,
 	}
 
-	for _, obj := range objects {
-		ver, getErr := h.Backend.GetObject(r.Context(), &s3.GetObjectInput{
-			Bucket: aws.String(bucketName),
-			Key:    obj.Key,
-		})
-		if getErr != nil {
-			continue
-		}
-		ver.Body.Close()
-
-		// Deduce Checksum
-		var checksumAlgo string
-		if ver.ChecksumCRC32 != nil {
-			checksumAlgo = "CRC32"
-		} else if ver.ChecksumCRC32C != nil {
-			checksumAlgo = "CRC32C"
-		} else if ver.ChecksumSHA1 != nil {
-			checksumAlgo = "SHA1"
-		} else if ver.ChecksumSHA256 != nil {
-			checksumAlgo = "SHA256"
-		}
-
-		resp.Contents = append(resp.Contents, ObjectXML{
-			Key:               *obj.Key,
-			LastModified:      obj.LastModified.Format(time.RFC3339),
-			Size:              *obj.Size,
-			ETag:              *ver.ETag,
-			StorageClass:      "STANDARD",
-			ChecksumAlgorithm: checksumAlgo,
-		})
-	}
-
+	seenPrefixes := make(map[string]struct{})
+	resp.Contents, resp.CommonPrefixes = h.mapObjectsToXML(r, bucketName, objects, prefix, delimiter, seenPrefixes)
 	resp.KeyCount = len(resp.Contents)
+
 	httputils.WriteXML(h.Logger, w, http.StatusOK, resp)
 }
 
@@ -501,7 +484,7 @@ func (h *Handler) listObjectsV2(w http.ResponseWriter, r *http.Request, bucketNa
 	maxKeys := int32(defaultMaxKeys)
 	if mk := q.Get("max-keys"); mk != "" {
 		if n, err := strconv.Atoi(mk); err == nil && n >= 0 {
-			maxKeys = int32(n)
+			maxKeys = int32(n) //nolint:gosec // Validated non-negative, safe conversion
 		}
 	}
 
@@ -515,11 +498,13 @@ func (h *Handler) listObjectsV2(w http.ResponseWriter, r *http.Request, bucketNa
 
 	if errors.Is(err, ErrNoSuchBucket) {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+
 		return
 	}
 
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 
@@ -535,6 +520,7 @@ func (h *Handler) listObjectsV2(w http.ResponseWriter, r *http.Request, bucketNa
 		for i, obj := range objects {
 			if *obj.Key > startCursor {
 				filtered = objects[i:]
+
 				break
 			}
 		}
@@ -543,7 +529,7 @@ func (h *Handler) listObjectsV2(w http.ResponseWriter, r *http.Request, bucketNa
 
 	isTruncated := false
 	var nextToken string
-	if maxKeys > 0 && int32(len(objects)) > maxKeys {
+	if maxKeys > 0 && len(objects) > int(maxKeys) {
 		isTruncated = true
 		objects = objects[:maxKeys]
 		nextToken = *objects[maxKeys-1].Key
@@ -562,14 +548,35 @@ func (h *Handler) listObjectsV2(w http.ResponseWriter, r *http.Request, bucketNa
 	}
 
 	seenPrefixes := make(map[string]struct{})
+	resp.Contents, resp.CommonPrefixes = h.mapObjectsToXML(r, bucketName, objects, prefix, delimiter, seenPrefixes)
+	resp.KeyCount = len(resp.Contents) + len(resp.CommonPrefixes)
+
+	httputils.WriteXML(h.Logger, w, http.StatusOK, resp)
+}
+
+func (h *Handler) getBucketLocation(w http.ResponseWriter, _ *http.Request, _ string) {
+	// For now, always return us-east-1 or the configured region if we had it.
+	fmt.Fprint(w, locationConstraintXML)
+}
+
+func (h *Handler) mapObjectsToXML(
+	r *http.Request,
+	bucketName string,
+	objects []types.Object,
+	prefix, delimiter string,
+	seenPrefixes map[string]struct{},
+) ([]ObjectXML, []CommonPrefixXML) {
+	var contents []ObjectXML
+	var commonPrefixes []CommonPrefixXML
 
 	for _, obj := range objects {
 		key := *obj.Key
 		if cp, isCommon := commonPrefixFor(key, prefix, delimiter); isCommon {
 			if _, seen := seenPrefixes[cp]; !seen {
 				seenPrefixes[cp] = struct{}{}
-				resp.CommonPrefixes = append(resp.CommonPrefixes, CommonPrefixXML{Prefix: cp})
+				commonPrefixes = append(commonPrefixes, CommonPrefixXML{Prefix: cp})
 			}
+
 			continue
 		}
 
@@ -580,33 +587,39 @@ func (h *Handler) listObjectsV2(w http.ResponseWriter, r *http.Request, bucketNa
 		if getErr != nil {
 			continue
 		}
-		ver.Body.Close()
+		_ = ver.Body.Close()
 
-		// Deduce Checksum
-		var checksumAlgo string
-		if ver.ChecksumCRC32 != nil {
-			checksumAlgo = "CRC32"
-		} else if ver.ChecksumCRC32C != nil {
-			checksumAlgo = "CRC32C"
-		} else if ver.ChecksumSHA1 != nil {
-			checksumAlgo = "SHA1"
-		} else if ver.ChecksumSHA256 != nil {
-			checksumAlgo = "SHA256"
-		}
-
-		resp.Contents = append(resp.Contents, ObjectXML{
-			Key:               key,
-			LastModified:      obj.LastModified.Format(time.RFC3339),
-			Size:              *obj.Size,
-			ETag:              *ver.ETag,
-			StorageClass:      "STANDARD",
-			ChecksumAlgorithm: checksumAlgo,
+		contents = append(contents, ObjectXML{
+			Key:          key,
+			LastModified: obj.LastModified.Format(time.RFC3339),
+			Size:         *obj.Size,
+			ETag:         *ver.ETag,
+			StorageClass: storageStandard,
+			ChecksumAlgorithm: getChecksumAlgo(
+				ver.ChecksumCRC32,
+				ver.ChecksumCRC32C,
+				ver.ChecksumSHA1,
+				ver.ChecksumSHA256,
+			),
 		})
 	}
 
-	resp.KeyCount = len(resp.Contents) + len(resp.CommonPrefixes)
+	return contents, commonPrefixes
+}
 
-	httputils.WriteXML(h.Logger, w, http.StatusOK, resp)
+func getChecksumAlgo(crc32, crc32c, sha1, sha256 *string) string {
+	switch {
+	case crc32 != nil:
+		return checksumCRC32
+	case crc32c != nil:
+		return checksumCRC32C
+	case sha1 != nil:
+		return checksumSHA1
+	case sha256 != nil:
+		return checksumSHA256
+	default:
+		return ""
+	}
 }
 
 func (h *Handler) headBucket(w http.ResponseWriter, r *http.Request, bucketName string) {
@@ -614,12 +627,14 @@ func (h *Handler) headBucket(w http.ResponseWriter, r *http.Request, bucketName 
 	if errors.Is(err, ErrNoSuchBucket) {
 		w.Header().Set("Content-Length", "0")
 		w.WriteHeader(http.StatusNotFound)
+
 		return
 	}
 
 	if err != nil {
 		w.Header().Set("Content-Length", "0")
 		w.WriteHeader(http.StatusInternalServerError)
+
 		return
 	}
 
@@ -642,37 +657,131 @@ func commonPrefixFor(key, prefix, delimiter string) (string, bool) {
 	return prefix + rest[:idx+len(delimiter)], true
 }
 
+type objectCommonDetails struct {
+	Metadata       map[string]string
+	ETag           *string
+	ContentType    *string
+	ContentLength  *int64
+	LastModified   *time.Time
+	VersionID      *string
+	ChecksumCRC32  *string
+	ChecksumCRC32C *string
+	ChecksumSHA1   *string
+	ChecksumSHA256 *string
+}
+
+func (h *Handler) setCommonHeaders(w http.ResponseWriter, out objectCommonDetails) {
+	if out.ETag != nil {
+		w.Header().Set("ETag", *out.ETag)
+	}
+
+	if out.ContentLength != nil {
+		w.Header().Set("Content-Length", strconv.FormatInt(*out.ContentLength, 10))
+	}
+
+	if out.LastModified != nil {
+		w.Header().Set("Last-Modified", out.LastModified.Format(http.TimeFormat))
+	}
+
+	if out.ContentType != nil {
+		w.Header().Set("Content-Type", *out.ContentType)
+	} else {
+		w.Header().Set("Content-Type", "application/octet-stream")
+	}
+
+	for k, v := range out.Metadata {
+		w.Header().Set("X-Amz-Meta-"+k, v)
+	}
+
+	if out.VersionID != nil && *out.VersionID != NullVersion {
+		w.Header().Set("X-Amz-Version-Id", *out.VersionID)
+	}
+
+	h.setChecksumHeaders(w, out)
+}
+
+func parseCopySource(src string) (string, string, string, bool) {
+	src = strings.TrimPrefix(src, "/")
+	parts := strings.SplitN(src, "/", pathSplitParts)
+
+	if len(parts) != pathSplitParts {
+		return "", "", "", false
+	}
+
+	bucket := parts[0]
+	key := parts[1]
+	versionID := ""
+
+	if idx := strings.Index(key, "?versionId="); idx != -1 {
+		versionID = key[idx+11:]
+		key = key[:idx]
+	}
+
+	return bucket, key, versionID, true
+}
+
+func (h *Handler) setChecksumHeaders(w http.ResponseWriter, out objectCommonDetails) {
+	var algo, val string
+
+	switch {
+	case out.ChecksumCRC32 != nil:
+		algo, val = checksumCRC32, *out.ChecksumCRC32
+	case out.ChecksumCRC32C != nil:
+		algo, val = checksumCRC32C, *out.ChecksumCRC32C
+	case out.ChecksumSHA1 != nil:
+		algo, val = checksumSHA1, *out.ChecksumSHA1
+	case out.ChecksumSHA256 != nil:
+		algo, val = checksumSHA256, *out.ChecksumSHA256
+	}
+
+	if algo != "" {
+		w.Header().Set("X-Amz-Checksum-"+algo, val)
+		w.Header().Set("X-Amz-Checksum-Algorithm", algo)
+	}
+}
+
+func extractChecksumPointers(h http.Header, algo string) (*string, *string, *string, *string) {
+	if algo == "" {
+		return nil, nil, nil, nil
+	}
+
+	headerName := "X-Amz-Checksum-" + strings.ToLower(algo)
+	checksum := h.Get(headerName)
+
+	if checksum == "" {
+		return nil, nil, nil, nil
+	}
+
+	switch algo {
+	case checksumCRC32:
+		return aws.String(checksum), nil, nil, nil
+	case checksumCRC32C:
+		return nil, aws.String(checksum), nil, nil
+	case checksumSHA1:
+		return nil, nil, aws.String(checksum), nil
+	case checksumSHA256:
+		return nil, nil, nil, aws.String(checksum)
+	default:
+		return nil, nil, nil, nil
+	}
+}
+
 func (h *Handler) putObject(w http.ResponseWriter, r *http.Request, bucketName, key string) {
 	data, err := httputils.ReadBody(r)
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 
 	userMeta := parseUserMetadata(r.Header)
-
 	algo := strings.ToUpper(r.Header.Get("X-Amz-Checksum-Algorithm"))
+
 	if algo == "" {
 		algo = strings.ToUpper(r.Header.Get("X-Amz-Sdk-Checksum-Algorithm"))
 	}
 
-	var checksumCRC32, checksumCRC32C, checksumSHA1, checksumSHA256 *string
-	if algo != "" {
-		headerName := "X-Amz-Checksum-" + strings.ToLower(algo)
-		checksum := r.Header.Get(headerName)
-		if checksum != "" {
-			switch algo {
-			case "CRC32":
-				checksumCRC32 = aws.String(checksum)
-			case "CRC32C":
-				checksumCRC32C = aws.String(checksum)
-			case "SHA1":
-				checksumSHA1 = aws.String(checksum)
-			case "SHA256":
-				checksumSHA256 = aws.String(checksum)
-			}
-		}
-	}
+	checksumCRC32, checksumCRC32C, checksumSHA1, checksumSHA256 := extractChecksumPointers(r.Header, algo)
 
 	contentType := r.Header.Get("Content-Type")
 
@@ -694,30 +803,28 @@ func (h *Handler) putObject(w http.ResponseWriter, r *http.Request, bucketName, 
 	)
 	if errors.Is(err, ErrNoSuchBucket) {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+
 		return
 	}
 
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 
 	w.Header().Set("ETag", *ver.ETag)
 
-	// Deduce checksum
-	if ver.ChecksumCRC32 != nil {
-		w.Header().Set("X-Amz-Checksum-Algorithm", "CRC32")
-		w.Header().Set("X-Amz-Checksum-CRC32", *ver.ChecksumCRC32)
-	} else if ver.ChecksumCRC32C != nil {
-		w.Header().Set("X-Amz-Checksum-Algorithm", "CRC32C")
-		w.Header().Set("X-Amz-Checksum-CRC32C", *ver.ChecksumCRC32C)
-	} else if ver.ChecksumSHA1 != nil {
-		w.Header().Set("X-Amz-Checksum-Algorithm", "SHA1")
-		w.Header().Set("X-Amz-Checksum-SHA1", *ver.ChecksumSHA1)
-	} else if ver.ChecksumSHA256 != nil {
-		w.Header().Set("X-Amz-Checksum-Algorithm", "SHA256")
-		w.Header().Set("X-Amz-Checksum-SHA256", *ver.ChecksumSHA256)
+	details := objectCommonDetails{
+		ETag:           ver.ETag,
+		VersionID:      ver.VersionId,
+		ChecksumCRC32:  ver.ChecksumCRC32,
+		ChecksumCRC32C: ver.ChecksumCRC32C,
+		ChecksumSHA1:   ver.ChecksumSHA1,
+		ChecksumSHA256: ver.ChecksumSHA256,
 	}
+
+	h.setChecksumHeaders(w, details)
 
 	if ver.VersionId != nil && *ver.VersionId != NullVersion {
 		w.Header().Set("X-Amz-Version-Id", *ver.VersionId)
@@ -728,41 +835,45 @@ func (h *Handler) putObject(w http.ResponseWriter, r *http.Request, bucketName, 
 }
 
 func (h *Handler) copyObject(w http.ResponseWriter, r *http.Request, destBucket, destKey string) {
-	src := strings.TrimPrefix(r.Header.Get("X-Amz-Copy-Source"), "/")
-
-	parts := strings.SplitN(src, "/", pathSplitParts)
-	if len(parts) != pathSplitParts {
+	srcBucket, srcKey, srcVersionID, ok := parseCopySource(r.Header.Get("X-Amz-Copy-Source"))
+	if !ok {
 		httputils.WriteError(h.Logger, w, r, ErrInvalidArgument, http.StatusBadRequest)
+
 		return
 	}
 
-	srcBucket, srcKey := parts[0], parts[1]
-	srcVersionID := r.Header.Get("X-Amz-Copy-Source-Version-Id")
+	// VersionId can also be in the header override
+	if hID := r.Header.Get("X-Amz-Copy-Source-Version-Id"); hID != "" {
+		srcVersionID = hID
+	}
 
-	var versionId *string
+	var vid *string
 	if srcVersionID != "" {
-		versionId = aws.String(srcVersionID)
+		vid = aws.String(srcVersionID)
 	}
 
 	srcVer, err := h.Backend.GetObject(r.Context(), &s3.GetObjectInput{
 		Bucket:    aws.String(srcBucket),
 		Key:       aws.String(srcKey),
-		VersionId: versionId,
+		VersionId: vid,
 	})
 	if errors.Is(err, ErrNoSuchBucket) || errors.Is(err, ErrNoSuchKey) {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+
 		return
 	}
 	defer srcVer.Body.Close()
 
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 
 	data, err := io.ReadAll(srcVer.Body)
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 
@@ -794,11 +905,13 @@ func (h *Handler) copyObject(w http.ResponseWriter, r *http.Request, destBucket,
 	destVer, err := h.Backend.PutObject(r.Context(), putInput)
 	if errors.Is(err, ErrNoSuchBucket) {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+
 		return
 	}
 
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 
@@ -820,6 +933,7 @@ func (h *Handler) copyObject(w http.ResponseWriter, r *http.Request, destBucket,
 func (h *Handler) getObject(w http.ResponseWriter, r *http.Request, bucketName, key string) {
 	versionID := r.URL.Query().Get("versionId")
 	var vid *string
+
 	if versionID != "" {
 		vid = aws.String(versionID)
 	}
@@ -831,98 +945,48 @@ func (h *Handler) getObject(w http.ResponseWriter, r *http.Request, bucketName, 
 	})
 	if errors.Is(err, ErrNoSuchBucket) || errors.Is(err, ErrNoSuchKey) {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+
 		return
 	}
 
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 	defer ver.Body.Close()
 
-	if ver.ContentType != nil {
-		w.Header().Set("Content-Type", *ver.ContentType)
-	} else {
-		w.Header().Set("Content-Type", "application/octet-stream")
+	details := objectCommonDetails{
+		Metadata:       ver.Metadata,
+		ETag:           ver.ETag,
+		ContentType:    ver.ContentType,
+		ContentLength:  ver.ContentLength,
+		LastModified:   ver.LastModified,
+		VersionID:      ver.VersionId,
+		ChecksumCRC32:  ver.ChecksumCRC32,
+		ChecksumCRC32C: ver.ChecksumCRC32C,
+		ChecksumSHA1:   ver.ChecksumSHA1,
+		ChecksumSHA256: ver.ChecksumSHA256,
 	}
 
-	if ver.ETag != nil {
-		w.Header().Set("ETag", *ver.ETag)
-	}
-	if ver.LastModified != nil {
-		w.Header().Set("Last-Modified", ver.LastModified.Format(http.TimeFormat))
-	}
+	h.setCommonHeaders(w, details)
 	w.Header().Set("Accept-Ranges", "bytes")
-
-	// Checksum deduction
-	var checksumAlgo string
-	var checksumVal string
-
-	if ver.ChecksumCRC32 != nil {
-		checksumAlgo = "CRC32"
-		checksumVal = *ver.ChecksumCRC32
-	} else if ver.ChecksumCRC32C != nil {
-		checksumAlgo = "CRC32C"
-		checksumVal = *ver.ChecksumCRC32C
-	} else if ver.ChecksumSHA1 != nil {
-		checksumAlgo = "SHA1"
-		checksumVal = *ver.ChecksumSHA1
-	} else if ver.ChecksumSHA256 != nil {
-		checksumAlgo = "SHA256"
-		checksumVal = *ver.ChecksumSHA256
-	}
 
 	// Support flexible checksums if requested
 	if r.Header.Get("X-Amz-Checksum-Mode") == "ENABLED" {
-		if checksumAlgo == "" {
-			data, _ := io.ReadAll(ver.Body)
-			// Reset body for sending
-			ver.Body = io.NopCloser(bytes.NewReader(data))
-
-			algo := "CRC32"
-			val := CalculateChecksum(data, algo)
-			w.Header().Set("X-Amz-Checksum-Algorithm", algo)
-			w.Header().Set("X-Amz-Checksum-"+algo, val)
-		} else {
-			// Serve stored checksum
-			w.Header().Set("X-Amz-Checksum-Algorithm", checksumAlgo)
-			w.Header().Set("X-Amz-Checksum-"+checksumAlgo, checksumVal)
-		}
-	} else if checksumAlgo != "" {
-		// Even without mode enabled, if checksum exists, should we send it?
-		// S3 usually only sends it if mode is enabled OR if it was a checksum request (not Get)?
-		// Actually GetObject doesn't return checksums in headers unless ChecksumMode is ENABLED.
-		// BUT the old logic set them always?
-		// "if ver.ChecksumAlgorithm != nil ..."
-		// Old logic:
-		/*
-			if ver.ChecksumAlgorithm != "" {
-				w.Header().Set("X-Amz-Checksum-Algorithm", string(ver.ChecksumAlgorithm))
-				// ... val ...
-			}
-		*/
-		// So respecting that...
-		w.Header().Set("X-Amz-Checksum-Algorithm", checksumAlgo)
-		w.Header().Set("X-Amz-Checksum-"+checksumAlgo, checksumVal)
-	}
-
-	for k, v := range ver.Metadata {
-		w.Header().Set("X-Amz-Meta-"+k, v)
-	}
-
-	if ver.VersionId != nil && *ver.VersionId != NullVersion {
-		w.Header().Set("X-Amz-Version-Id", *ver.VersionId)
+		h.handleChecksumMode(w, ver, details)
 	}
 
 	if rangeHeader := r.Header.Get("Range"); rangeHeader != "" {
 		data, _ := io.ReadAll(ver.Body)
-		h.serveRange(w, data, rangeHeader)
-		return
+		if h.serveRange(w, data, rangeHeader) {
+			return
+		}
+
+		// Fallback to full response if range header ignored/invalidly formatted
+		ver.Body = io.NopCloser(bytes.NewReader(data))
 	}
 
-	if ver.ContentLength != nil {
-		w.Header().Set("Content-Length", strconv.FormatInt(*ver.ContentLength, 10))
-	}
 	w.WriteHeader(http.StatusOK)
 
 	if _, copyErr := io.Copy(w, ver.Body); copyErr != nil {
@@ -930,21 +994,60 @@ func (h *Handler) getObject(w http.ResponseWriter, r *http.Request, bucketName, 
 	}
 }
 
-func (h *Handler) serveRange(w http.ResponseWriter, data []byte, rangeHeader string) {
+func (h *Handler) handleChecksumMode(w http.ResponseWriter, ver *s3.GetObjectOutput, details objectCommonDetails) {
+	algo, val := h.getStoredChecksum(details)
+	if algo == "" {
+		data, _ := io.ReadAll(ver.Body)
+		// Reset body for sending
+		ver.Body = io.NopCloser(bytes.NewReader(data))
+
+		algo = checksumCRC32
+		val = CalculateChecksum(data, algo)
+	}
+
+	w.Header().Set("X-Amz-Checksum-Algorithm", algo)
+	w.Header().Set("X-Amz-Checksum-"+algo, val)
+}
+
+func (h *Handler) getStoredChecksum(out objectCommonDetails) (string, string) {
+	switch {
+	case out.ChecksumCRC32 != nil:
+		return checksumCRC32, *out.ChecksumCRC32
+	case out.ChecksumCRC32C != nil:
+		return checksumCRC32C, *out.ChecksumCRC32C
+	case out.ChecksumSHA1 != nil:
+		return checksumSHA1, *out.ChecksumSHA1
+	case out.ChecksumSHA256 != nil:
+		return checksumSHA256, *out.ChecksumSHA256
+	default:
+		return "", ""
+	}
+}
+
+func (h *Handler) serveRange(w http.ResponseWriter, data []byte, rangeHeader string) bool {
 	total := int64(len(data))
 	start, end, ok := parseRange(rangeHeader, total)
+
 	if !ok {
-		w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", total))
+		// S3 ignores invalid range formats/units and returns 200 OK with full body
+		if !strings.HasPrefix(rangeHeader, "bytes=") {
+			return false
+		}
+
 		w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
-		return
+
+		return true
 	}
 
 	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, total))
 	w.Header().Set("Content-Length", strconv.FormatInt(end-start+1, 10))
 	w.WriteHeader(http.StatusPartialContent)
+
 	if _, err := w.Write(data[start : end+1]); err != nil {
-		h.Logger.Error("failed to write partial object data", "error", err)
+		h.Logger.Error("failed to write range data", "error", err)
 	}
+
+	return true
 }
 
 const rangeSpecMaxParts = 2
@@ -1015,21 +1118,26 @@ func (h *Handler) deleteObject(w http.ResponseWriter, r *http.Request, bucketNam
 	})
 	if errors.Is(err, ErrNoSuchBucket) {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+
 		return
 	}
 
 	if errors.Is(err, ErrNoSuchKey) {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+
 		return
 	}
 
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 
-	if out.DeleteMarker != nil && *out.DeleteMarker && out.VersionId != nil && *out.VersionId != "" && *out.VersionId != NullVersion {
+	if out.VersionId != nil && *out.VersionId != "" && *out.VersionId != NullVersion {
 		w.Header().Set("X-Amz-Version-Id", *out.VersionId)
+	}
+	if out.DeleteMarker != nil && *out.DeleteMarker {
 		w.Header().Set("X-Amz-Delete-Marker", "true")
 	}
 
@@ -1039,6 +1147,7 @@ func (h *Handler) deleteObject(w http.ResponseWriter, r *http.Request, bucketNam
 func (h *Handler) headObject(w http.ResponseWriter, r *http.Request, bucketName, key string) {
 	versionID := r.URL.Query().Get("versionId")
 	var vid *string
+
 	if versionID != "" {
 		vid = aws.String(versionID)
 	}
@@ -1050,62 +1159,30 @@ func (h *Handler) headObject(w http.ResponseWriter, r *http.Request, bucketName,
 	})
 	if errors.Is(err, ErrNoSuchBucket) || errors.Is(err, ErrNoSuchKey) {
 		w.WriteHeader(http.StatusNotFound)
+
 		return
 	}
 
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
+
 		return
 	}
 
-	if out.ETag != nil {
-		w.Header().Set("ETag", *out.ETag)
-	}
-	if out.ContentLength != nil {
-		w.Header().Set("Content-Length", strconv.FormatInt(*out.ContentLength, 10))
-	}
-	if out.LastModified != nil {
-		w.Header().Set("Last-Modified", out.LastModified.Format(http.TimeFormat))
-	}
-
-	if out.ContentType != nil {
-		w.Header().Set("Content-Type", *out.ContentType)
-	} else {
-		w.Header().Set("Content-Type", "application/octet-stream")
+	details := objectCommonDetails{
+		Metadata:       out.Metadata,
+		ETag:           out.ETag,
+		ContentType:    out.ContentType,
+		ContentLength:  out.ContentLength,
+		LastModified:   out.LastModified,
+		VersionID:      out.VersionId,
+		ChecksumCRC32:  out.ChecksumCRC32,
+		ChecksumCRC32C: out.ChecksumCRC32C,
+		ChecksumSHA1:   out.ChecksumSHA1,
+		ChecksumSHA256: out.ChecksumSHA256,
 	}
 
-	for k, v := range out.Metadata {
-		w.Header().Set("X-Amz-Meta-"+k, v)
-	}
-
-	// Checksum deduction
-	var checksumAlgo string
-	var checksumVal string
-	if out.ChecksumCRC32 != nil {
-		checksumAlgo = "CRC32"
-		checksumVal = *out.ChecksumCRC32
-	} else if out.ChecksumCRC32C != nil {
-		checksumAlgo = "CRC32C"
-		checksumVal = *out.ChecksumCRC32C
-	} else if out.ChecksumSHA1 != nil {
-		checksumAlgo = "SHA1"
-		checksumVal = *out.ChecksumSHA1
-	} else if out.ChecksumSHA256 != nil {
-		checksumAlgo = "SHA256"
-		checksumVal = *out.ChecksumSHA256
-	}
-
-	if checksumAlgo != "" {
-		headerName := "X-Amz-Checksum-" + checksumAlgo
-		w.Header().Set(headerName, checksumVal)
-		w.Header().Set("X-Amz-Checksum-Algorithm", checksumAlgo)
-	}
-
-	if out.VersionId != nil && *out.VersionId != NullVersion {
-		w.Header().Set("X-Amz-Version-Id", *out.VersionId)
-	}
-
-	w.Header().Set("Content-Length", "0")
+	h.setCommonHeaders(w, details)
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -1113,6 +1190,7 @@ func (h *Handler) putBucketVersioning(w http.ResponseWriter, r *http.Request, bu
 	var conf VersioningConfiguration
 	if err := xml.NewDecoder(r.Body).Decode(&conf); err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusBadRequest)
+
 		return
 	}
 
@@ -1124,6 +1202,7 @@ func (h *Handler) putBucketVersioning(w http.ResponseWriter, r *http.Request, bu
 	})
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+
 		return
 	}
 
@@ -1135,6 +1214,7 @@ func (h *Handler) getBucketVersioning(w http.ResponseWriter, r *http.Request, bu
 	out, err := h.Backend.GetBucketVersioning(r.Context(), &s3.GetBucketVersioningInput{Bucket: aws.String(bucketName)})
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+
 		return
 	}
 
@@ -1157,21 +1237,20 @@ func (h *Handler) listObjectVersions(w http.ResponseWriter, r *http.Request, buc
 	})
 	if errors.Is(err, ErrNoSuchBucket) {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+
 		return
 	}
 
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 
 	resp := ListVersionsResult{
-		Name:          bucketName,
-		Prefix:        prefix,
-		MaxKeys:       defaultMaxKeys,
-		IsTruncated:   false,
-		Versions:      []ObjectVersionXML{},
-		DeleteMarkers: []DeleteMarkerXML{},
+		Name:    bucketName,
+		Prefix:  prefix,
+		MaxKeys: defaultMaxKeys,
 	}
 
 	// Map SDK types to XML
@@ -1219,6 +1298,7 @@ func (h *Handler) putObjectTagging(w http.ResponseWriter, r *http.Request, bucke
 	var tagging Tagging
 	if err := xml.NewDecoder(r.Body).Decode(&tagging); err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusBadRequest)
+
 		return
 	}
 
@@ -1243,6 +1323,7 @@ func (h *Handler) putObjectTagging(w http.ResponseWriter, r *http.Request, bucke
 		Tagging:   &types.Tagging{TagSet: tags},
 	}); err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 
@@ -1264,6 +1345,7 @@ func (h *Handler) getObjectTagging(w http.ResponseWriter, r *http.Request, bucke
 	})
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+
 		return
 	}
 
@@ -1293,6 +1375,7 @@ func (h *Handler) deleteObjectTagging(w http.ResponseWriter, r *http.Request, bu
 		VersionId: vid,
 	}); err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 
@@ -1308,6 +1391,7 @@ func (h *Handler) createMultipartUpload(w http.ResponseWriter, r *http.Request, 
 	})
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 
@@ -1326,6 +1410,7 @@ func (h *Handler) uploadPart(w http.ResponseWriter, r *http.Request, bucketName,
 	partNumber, err := strconv.Atoi(partNumberStr)
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, ErrInvalidArgument, http.StatusBadRequest)
+
 		return
 	}
 
@@ -1333,6 +1418,7 @@ func (h *Handler) uploadPart(w http.ResponseWriter, r *http.Request, bucketName,
 	data, err := httputils.ReadBody(r)
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 
@@ -1340,16 +1426,18 @@ func (h *Handler) uploadPart(w http.ResponseWriter, r *http.Request, bucketName,
 		Bucket:     aws.String(bucketName),
 		Key:        aws.String(key),
 		UploadId:   aws.String(uploadID),
-		PartNumber: aws.Int32(int32(partNumber)),
+		PartNumber: aws.Int32(int32(partNumber)), //nolint:gosec // Part number validated in request parsing
 		Body:       bytes.NewReader(data),
 	})
 	if errors.Is(err, ErrNoSuchBucket) || errors.Is(err, ErrNoSuchKey) || errors.Is(err, ErrNoSuchUpload) {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+
 		return
 	}
 
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 
@@ -1365,6 +1453,7 @@ func (h *Handler) completeMultipartUpload(w http.ResponseWriter, r *http.Request
 	var partsReq CompleteMultipartUpload
 	if err := xml.NewDecoder(r.Body).Decode(&partsReq); err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusBadRequest)
+
 		return
 	}
 
@@ -1373,7 +1462,7 @@ func (h *Handler) completeMultipartUpload(w http.ResponseWriter, r *http.Request
 	for _, p := range partsReq.Parts {
 		sdkParts = append(sdkParts, types.CompletedPart{
 			ETag:       aws.String(p.ETag),
-			PartNumber: aws.Int32(int32(p.PartNumber)),
+			PartNumber: aws.Int32(int32(p.PartNumber)), // #nosec G115
 		})
 	}
 
@@ -1388,16 +1477,19 @@ func (h *Handler) completeMultipartUpload(w http.ResponseWriter, r *http.Request
 	)
 	if errors.Is(err, ErrNoSuchBucket) || errors.Is(err, ErrNoSuchKey) || errors.Is(err, ErrNoSuchUpload) {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+
 		return
 	}
 
 	if errors.Is(err, ErrInvalidPart) {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusBadRequest)
+
 		return
 	}
 
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 
@@ -1420,9 +1512,11 @@ func (h *Handler) abortMultipartUpload(w http.ResponseWriter, r *http.Request, b
 		UploadId: aws.String(uploadID),
 	}); errors.Is(err, ErrNoSuchUpload) {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+
 		return
 	} else if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
 		return
 	}
 

@@ -11,7 +11,11 @@
       "Bash(go run:*)",
       "Bash(go version:*)",
       "Bash(ls:*)",
-      "Bash(go doc:*)"
+      "Bash(go doc:*)",
+      "Bash(go tool cover:*)",
+      "Bash(/Users/andrew.bishop/IdeaProjects/Gopherstack/dynamodb/models/helpers.go:*)",
+      "Bash(/Users/andrew.bishop/IdeaProjects/Gopherstack/dynamodb/models/convert_attrs.go:*)",
+      "Bash(/Users/andrew.bishop/IdeaProjects/Gopherstack/dynamodb/models/convert_ops.go:*)"
     ]
   }
 }

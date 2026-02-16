@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+
+	"Gopherstack/dynamodb/models"
 )
 
 const (
@@ -30,10 +32,10 @@ func WriteCapacityUnits(item map[string]any) float64 {
 func ReadCapacityUnits(item map[string]any) float64 {
 	size, err := CalculateItemSize(item)
 	if err != nil || size <= 0 {
-		return ConsumedReadUnit
+		return models.ConsumedReadUnit
 	}
 
-	return float64((size+rcuBytes-1)/rcuBytes) * ConsumedReadUnit
+	return float64((size+rcuBytes-1)/rcuBytes) * models.ConsumedReadUnit
 }
 
 // CalculateItemSize approximates the DynamoDB item size.
@@ -76,7 +78,7 @@ func ValidateItemSize(item map[string]any) error {
 	return nil
 }
 
-func validateKeySchema(item map[string]any, schema []KeySchemaElement) error {
+func validateKeySchema(item map[string]any, schema []models.KeySchemaElement) error {
 	for _, k := range schema {
 		val, ok := item[k.AttributeName]
 		if !ok {
@@ -85,8 +87,8 @@ func validateKeySchema(item map[string]any, schema []KeySchemaElement) error {
 
 		// Check size
 		// We need to unwrap if it's a DynamoDB JSON format (e.g. {"S": "val"}) or raw?
-		// The `item` map typically comes from `PutItemInput` which uses `map[string]interface{}`
-		// but the values are ostensibly map[string]interface{} (the "S" wrapper).
+		// The `item` map typically comes from `PutItemInput` which uses `map[string]any`
+		// but the values are ostensibly map[string]any (the "S" wrapper).
 
 		// Helper to get raw value size
 		// We reuse calculateItemSize for the value part
@@ -139,15 +141,100 @@ func validateAttribute(k string, v any) error {
 	return nil
 }
 
+const (
+	typeS    = "S"
+	typeN    = "N"
+	typeBOOL = "BOOL"
+	typeNULL = "NULL"
+	typeB    = "B"
+	typeL    = "L"
+	typeM    = "M"
+	typeSS   = "SS"
+	typeNS   = "NS"
+	typeBS   = "BS"
+)
+
 func validateTypeValue(k, t string, val any) error {
 	switch t {
-	case "S", "N", "BOOL", "NULL", "B":
+	case typeS, typeN, typeBOOL, typeNULL, typeB:
 		return validateScalarValue(k, t, val)
-	case "L", "M":
+	case typeL, typeM:
 		return validateComplexValue(k, t, val)
+	case typeSS, typeNS, typeBS:
+		return validateSetValue(k, t, val)
 	default:
-		return NewValidationException(fmt.Sprintf("Attribute %s has unknown type", k))
+		return NewValidationException(fmt.Sprintf("Attribute %s has unknown type: %s", k, t))
 	}
+}
+
+func validateSetValue(k, t string, val any) error {
+	list, err := normalizeSetList(k, t, val)
+	if err != nil {
+		return err
+	}
+
+	if len(list) == 0 {
+		return NewValidationException(fmt.Sprintf("Attribute %s of type %s cannot be empty", k, t))
+	}
+
+	for _, item := range list {
+		if itemErr := validateSetItem(k, t, item); itemErr != nil {
+			return itemErr
+		}
+	}
+
+	return nil
+}
+
+func normalizeSetList(k, t string, val any) ([]any, error) {
+	switch v := val.(type) {
+	case []any:
+		return v, nil
+	case []string:
+		list := make([]any, len(v))
+		for i, s := range v {
+			list[i] = s
+		}
+
+		return list, nil
+	case [][]byte:
+		list := make([]any, len(v))
+		for i, b := range v {
+			list[i] = string(b)
+		}
+
+		return list, nil
+	default:
+		return nil, NewValidationException(
+			fmt.Sprintf("Attribute %s of type %s must be a list, got %T", k, t, val),
+		)
+	}
+}
+
+func validateSetItem(k, t string, item any) error {
+	switch t {
+	case typeSS:
+		if _, ok := item.(string); !ok {
+			return NewValidationException(fmt.Sprintf("Attribute %s elements must be strings", k))
+		}
+	case typeNS:
+		s, ok := item.(string)
+		if !ok {
+			return NewValidationException(
+				fmt.Sprintf("Attribute %s elements must be strings (numbers represented as strings)", k),
+			)
+		}
+		if _, err := strconv.ParseFloat(s, 64); err != nil {
+			return NewValidationException(fmt.Sprintf("Attribute %s element %s must be a valid number", k, s))
+		}
+	case typeBS:
+		if _, ok := item.(string); !ok {
+			// We expect base64 strings in the wire format for B/BS
+			return NewValidationException(fmt.Sprintf("Attribute %s elements must be base64-encoded strings", k))
+		}
+	}
+
+	return nil
 }
 
 func validateScalarValue(k, t string, val any) error {

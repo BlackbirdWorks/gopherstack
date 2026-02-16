@@ -35,8 +35,17 @@ type StorageBackend interface {
 	DeleteObjectTagging(ctx context.Context, input *s3.DeleteObjectTaggingInput) (*s3.DeleteObjectTaggingOutput, error)
 
 	// Multipart
-	CreateMultipartUpload(ctx context.Context, input *s3.CreateMultipartUploadInput) (*s3.CreateMultipartUploadOutput, error)
+	CreateMultipartUpload(
+		ctx context.Context,
+		input *s3.CreateMultipartUploadInput,
+	) (*s3.CreateMultipartUploadOutput, error)
 	UploadPart(ctx context.Context, input *s3.UploadPartInput) (*s3.UploadPartOutput, error)
-	CompleteMultipartUpload(ctx context.Context, input *s3.CompleteMultipartUploadInput) (*s3.CompleteMultipartUploadOutput, error)
-	AbortMultipartUpload(ctx context.Context, input *s3.AbortMultipartUploadInput) (*s3.AbortMultipartUploadOutput, error)
+	CompleteMultipartUpload(
+		ctx context.Context,
+		input *s3.CompleteMultipartUploadInput,
+	) (*s3.CompleteMultipartUploadOutput, error)
+	AbortMultipartUpload(
+		ctx context.Context,
+		input *s3.AbortMultipartUploadInput,
+	) (*s3.AbortMultipartUploadOutput, error)
 }

@@ -64,7 +64,7 @@ func TestHandler_ListBuckets(t *testing.T) {
 		},
 		{
 			name: "one bucket",
-			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+			setup: func(_ context.Context, b *s3.InMemoryBackend) {
 				mustCreateBucket(t, b, "test")
 			},
 			wantLen: 1,
@@ -106,7 +106,7 @@ func TestHandler_CreateBucket(t *testing.T) {
 		{
 			name:   "create duplicate bucket",
 			bucket: "existing",
-			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+			setup: func(_ context.Context, b *s3.InMemoryBackend) {
 				mustCreateBucket(t, b, "existing")
 			},
 			wantStatus: http.StatusConflict,
@@ -141,7 +141,7 @@ func TestHandler_DeleteBucket(t *testing.T) {
 		{
 			name:   "delete empty bucket",
 			bucket: "my-bucket",
-			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+			setup: func(_ context.Context, b *s3.InMemoryBackend) {
 				mustCreateBucket(t, b, "my-bucket")
 			},
 			wantStatus: http.StatusNoContent,
@@ -155,7 +155,7 @@ func TestHandler_DeleteBucket(t *testing.T) {
 		{
 			name:   "delete non-empty bucket",
 			bucket: "full-bucket",
-			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+			setup: func(_ context.Context, b *s3.InMemoryBackend) {
 				mustCreateBucket(t, b, "full-bucket")
 				mustPutObject(t, b, "full-bucket", "k", []byte("d"))
 			},
@@ -191,7 +191,7 @@ func TestHandler_HeadBucket(t *testing.T) {
 		{
 			name:   "existing bucket",
 			bucket: "my-bucket",
-			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+			setup: func(_ context.Context, b *s3.InMemoryBackend) {
 				mustCreateBucket(t, b, "my-bucket")
 			},
 			wantStatus: http.StatusOK,
@@ -236,7 +236,7 @@ func TestHandler_PutObject(t *testing.T) {
 			bucket: "bkt",
 			key:    "key",
 			body:   "hello world",
-			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+			setup: func(_ context.Context, b *s3.InMemoryBackend) {
 				mustCreateBucket(t, b, "bkt")
 			},
 			wantStatus: http.StatusOK,
@@ -282,7 +282,7 @@ func TestHandler_GetObject(t *testing.T) {
 			name:   "get existing object",
 			bucket: "bkt",
 			key:    "key",
-			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+			setup: func(_ context.Context, b *s3.InMemoryBackend) {
 				mustCreateBucket(t, b, "bkt")
 				mustPutObject(t, b, "bkt", "key", []byte("content"))
 			},
@@ -293,7 +293,7 @@ func TestHandler_GetObject(t *testing.T) {
 			name:   "get non-existent key",
 			bucket: "bkt",
 			key:    "no-key",
-			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+			setup: func(_ context.Context, b *s3.InMemoryBackend) {
 				mustCreateBucket(t, b, "bkt")
 			},
 			wantStatus: http.StatusNotFound,
@@ -350,11 +350,11 @@ func TestHandler_HeadObject(t *testing.T) {
 			name:   "existing object",
 			bucket: "bkt",
 			key:    "key",
-			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
-				_, err := b.CreateBucket(ctx, &sdk_s3.CreateBucketInput{Bucket: aws.String("bkt")})
+			setup: func(testCtx context.Context, b *s3.InMemoryBackend) {
+				_, err := b.CreateBucket(testCtx, &sdk_s3.CreateBucketInput{Bucket: aws.String("bkt")})
 				require.NoError(t, err)
 
-				_, err = b.PutObject(ctx, &sdk_s3.PutObjectInput{
+				_, err = b.PutObject(testCtx, &sdk_s3.PutObjectInput{
 					Bucket:   aws.String("bkt"),
 					Key:      aws.String("key"),
 					Body:     bytes.NewReader([]byte("data")),
@@ -368,7 +368,7 @@ func TestHandler_HeadObject(t *testing.T) {
 			name:   "non-existent object",
 			bucket: "bkt",
 			key:    "no-key",
-			setup: func(ctx context.Context, b *s3.InMemoryBackend) {
+			setup: func(_ context.Context, b *s3.InMemoryBackend) {
 				mustCreateBucket(t, b, "bkt")
 			},
 			wantStatus: http.StatusNotFound,
@@ -698,7 +698,10 @@ func TestHandler_PutObjectWithTaggingHeader(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Verify tags were stored
-	out, err := backend.GetObjectTagging(context.Background(), &sdk_s3.GetObjectTaggingInput{Bucket: aws.String("bkt"), Key: aws.String("key")})
+	out, err := backend.GetObjectTagging(
+		context.Background(),
+		&sdk_s3.GetObjectTaggingInput{Bucket: aws.String("bkt"), Key: aws.String("key")},
+	)
 	require.NoError(t, err)
 	// Output tags are []types.Tag
 	assert.Len(t, out.TagSet, 2)
@@ -709,6 +712,7 @@ func TestHandler_PutObjectWithTaggingHeader(t *testing.T) {
 				return *tag.Value
 			}
 		}
+
 		return ""
 	}
 	assert.Equal(t, "prod", getTag("env"))

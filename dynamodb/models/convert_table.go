@@ -1,0 +1,235 @@
+package models
+
+import (
+	"Gopherstack/pkgs/ptrconv"
+
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+)
+
+// --- Table Adapters ---
+
+func ToSDKCreateTableInput(input *CreateTableInput) *dynamodb.CreateTableInput {
+	// ProvisionedThroughput input.ProvisionedThroughput is 'any' in types.go, handled loosely
+	// We'll approximate for now or assume map structure.
+
+	var pt *types.ProvisionedThroughput
+	if m, ok := input.ProvisionedThroughput.(map[string]any); ok {
+		pt = &types.ProvisionedThroughput{
+			ReadCapacityUnits:  ptrconv.Int64FromAny(m["ReadCapacityUnits"]),
+			WriteCapacityUnits: ptrconv.Int64FromAny(m["WriteCapacityUnits"]),
+		}
+	}
+
+	return &dynamodb.CreateTableInput{
+		TableName:              &input.TableName,
+		KeySchema:              ToSDKKeySchema(input.KeySchema),
+		AttributeDefinitions:   ToSDKAttributeDefinitions(input.AttributeDefinitions),
+		GlobalSecondaryIndexes: ToSDKGlobalSecondaryIndexes(input.GlobalSecondaryIndexes),
+		LocalSecondaryIndexes:  ToSDKLocalSecondaryIndexes(input.LocalSecondaryIndexes),
+		ProvisionedThroughput:  pt,
+	}
+}
+
+func FromSDKCreateTableOutput(output *dynamodb.CreateTableOutput) *CreateTableOutput {
+	return &CreateTableOutput{
+		TableDescription: FromSDKTableDescription(output.TableDescription),
+	}
+}
+
+func ToSDKDeleteTableInput(input *DeleteTableInput) *dynamodb.DeleteTableInput {
+	return &dynamodb.DeleteTableInput{
+		TableName: &input.TableName,
+	}
+}
+
+func FromSDKDeleteTableOutput(output *dynamodb.DeleteTableOutput) *DeleteTableOutput {
+	return &DeleteTableOutput{
+		TableDescription: FromSDKTableDescription(output.TableDescription),
+	}
+}
+
+func ToSDKDescribeTableInput(input *DescribeTableInput) *dynamodb.DescribeTableInput {
+	return &dynamodb.DescribeTableInput{
+		TableName: &input.TableName,
+	}
+}
+
+func FromSDKDescribeTableOutput(output *dynamodb.DescribeTableOutput) *DescribeTableOutput {
+	return &DescribeTableOutput{
+		Table: FromSDKTableDescription(output.Table),
+	}
+}
+
+func ToSDKListTablesInput(input *ListTablesInput) *dynamodb.ListTablesInput {
+	const maxInt32Value = 2147483647
+	var l *int32
+
+	if input.Limit > 0 {
+		if input.Limit > maxInt32Value {
+			val := int32(maxInt32Value)
+			l = &val
+		} else {
+			val := int32(input.Limit) // #nosec G115
+			l = &val
+		}
+	}
+
+	return &dynamodb.ListTablesInput{
+		Limit: l,
+	}
+}
+
+func FromSDKListTablesOutput(output *dynamodb.ListTablesOutput) *ListTablesOutput {
+	return &ListTablesOutput{
+		TableNames: output.TableNames,
+	}
+}
+
+func ToSDKUpdateTimeToLiveInput(input *UpdateTimeToLiveInput) *dynamodb.UpdateTimeToLiveInput {
+	return &dynamodb.UpdateTimeToLiveInput{
+		TableName: &input.TableName,
+		TimeToLiveSpecification: &types.TimeToLiveSpecification{
+			AttributeName: &input.TimeToLiveSpecification.AttributeName,
+			Enabled:       &input.TimeToLiveSpecification.Enabled,
+		},
+	}
+}
+
+func FromSDKUpdateTimeToLiveOutput(output *dynamodb.UpdateTimeToLiveOutput) *UpdateTimeToLiveOutput {
+	return &UpdateTimeToLiveOutput{
+		TimeToLiveSpecification: TimeToLiveSpecification{
+			AttributeName: ptrconv.String(output.TimeToLiveSpecification.AttributeName),
+			Enabled:       ptrconv.Bool(output.TimeToLiveSpecification.Enabled),
+		},
+	}
+}
+
+func ToSDKDescribeTimeToLiveInput(input *DescribeTimeToLiveInput) *dynamodb.DescribeTimeToLiveInput {
+	return &dynamodb.DescribeTimeToLiveInput{
+		TableName: &input.TableName,
+	}
+}
+
+func FromSDKDescribeTimeToLiveOutput(output *dynamodb.DescribeTimeToLiveOutput) *DescribeTimeToLiveOutput {
+	status := ""
+	if output.TimeToLiveDescription != nil {
+		status = string(output.TimeToLiveDescription.TimeToLiveStatus)
+	}
+	attr := ""
+	if output.TimeToLiveDescription != nil {
+		attr = ptrconv.String(output.TimeToLiveDescription.AttributeName)
+	}
+
+	return &DescribeTimeToLiveOutput{
+		TimeToLiveDescription: TimeToLiveDescription{
+			AttributeName:    attr,
+			TimeToLiveStatus: status,
+		},
+	}
+}
+
+// Helpers 2
+
+func FromSDKTableDescription(td *types.TableDescription) TableDescription {
+	if td == nil {
+		return TableDescription{}
+	}
+
+	cnt := 0
+	if td.ItemCount != nil {
+		cnt = int(*td.ItemCount)
+	}
+
+	return TableDescription{
+		TableName:              ptrconv.String(td.TableName),
+		TableStatus:            string(td.TableStatus),
+		ItemCount:              cnt,
+		KeySchema:              FromSDKKeySchema(td.KeySchema),
+		AttributeDefinitions:   FromSDKAttributeDefinitions(td.AttributeDefinitions),
+		GlobalSecondaryIndexes: FromSDKGlobalSecondaryIndexDescriptions(td.GlobalSecondaryIndexes),
+		LocalSecondaryIndexes:  FromSDKLocalSecondaryIndexDescriptions(td.LocalSecondaryIndexes),
+		ProvisionedThroughput:  FromSDKProvisionedThroughputDescription(td.ProvisionedThroughput),
+	}
+}
+
+func FromSDKGlobalSecondaryIndexDescriptions(
+	gsis []types.GlobalSecondaryIndexDescription,
+) []GlobalSecondaryIndexDescription {
+	if len(gsis) == 0 {
+		return nil
+	}
+	out := make([]GlobalSecondaryIndexDescription, len(gsis))
+	for i, gsi := range gsis {
+		out[i] = GlobalSecondaryIndexDescription{
+			IndexName:   ptrconv.String(gsi.IndexName),
+			IndexStatus: string(gsi.IndexStatus),
+			KeySchema:   FromSDKKeySchema(gsi.KeySchema),
+			Projection:  FromSDKProjection(gsi.Projection),
+			ProvisionedThroughput: ProvisionedThroughputDescription{
+				ReadCapacityUnits:  int(ptrconv.Int64(gsi.ProvisionedThroughput.ReadCapacityUnits)),
+				WriteCapacityUnits: int(ptrconv.Int64(gsi.ProvisionedThroughput.WriteCapacityUnits)),
+			},
+			ItemCount: int(ptrconv.Int64(gsi.ItemCount)),
+		}
+	}
+
+	return out
+}
+
+func FromSDKLocalSecondaryIndexDescriptions(
+	lsis []types.LocalSecondaryIndexDescription,
+) []LocalSecondaryIndexDescription {
+	if len(lsis) == 0 {
+		return nil
+	}
+	out := make([]LocalSecondaryIndexDescription, len(lsis))
+	for i, lsi := range lsis {
+		out[i] = LocalSecondaryIndexDescription{
+			IndexName:      ptrconv.String(lsi.IndexName),
+			KeySchema:      FromSDKKeySchema(lsi.KeySchema),
+			Projection:     FromSDKProjection(lsi.Projection),
+			IndexSizeBytes: ptrconv.Int64(lsi.IndexSizeBytes),
+			ItemCount:      int(ptrconv.Int64(lsi.ItemCount)),
+		}
+	}
+
+	return out
+}
+
+func FromSDKProvisionedThroughputDescription(
+	ptd *types.ProvisionedThroughputDescription,
+) *ProvisionedThroughputDescription {
+	if ptd == nil {
+		return nil
+	}
+
+	return &ProvisionedThroughputDescription{
+		ReadCapacityUnits:  int(ptrconv.Int64(ptd.ReadCapacityUnits)),
+		WriteCapacityUnits: int(ptrconv.Int64(ptd.WriteCapacityUnits)),
+	}
+}
+
+func FromSDKConsumedCapacity(cc *types.ConsumedCapacity) *ConsumedCapacity {
+	if cc == nil {
+		return nil
+	}
+
+	return &ConsumedCapacity{
+		TableName:          ptrconv.String(cc.TableName),
+		CapacityUnits:      ptrconv.Float64(cc.CapacityUnits),
+		ReadCapacityUnits:  ptrconv.Float64(cc.ReadCapacityUnits),
+		WriteCapacityUnits: ptrconv.Float64(cc.WriteCapacityUnits),
+	}
+}
+
+func FromSDKItemCollectionMetrics(icm *types.ItemCollectionMetrics) *ItemCollectionMetrics {
+	if icm == nil {
+		return nil
+	}
+
+	return &ItemCollectionMetrics{
+		ItemCollectionKey:   FromSDKItem(icm.ItemCollectionKey),
+		SizeEstimateRangeGB: icm.SizeEstimateRangeGB,
+	}
+}

@@ -19,15 +19,17 @@ type BucketXML struct {
 }
 
 type ListBucketResult struct {
-	XMLName     xml.Name    `xml:"ListBucketResult"`
-	Name        string      `xml:"Name"`
-	Prefix      string      `xml:"Prefix"`
-	Marker      string      `xml:"Marker,omitempty"`
-	NextMarker  string      `xml:"NextMarker,omitempty"`
-	Contents    []ObjectXML `xml:"Contents"`
-	KeyCount    int         `xml:"KeyCount"`
-	MaxKeys     int         `xml:"MaxKeys"`
-	IsTruncated bool        `xml:"IsTruncated"`
+	XMLName        xml.Name          `xml:"ListBucketResult"`
+	Name           string            `xml:"Name"`
+	Prefix         string            `xml:"Prefix"`
+	Delimiter      string            `xml:"Delimiter,omitempty"`
+	Marker         string            `xml:"Marker,omitempty"`
+	NextMarker     string            `xml:"NextMarker,omitempty"`
+	Contents       []ObjectXML       `xml:"Contents"`
+	CommonPrefixes []CommonPrefixXML `xml:"CommonPrefixes,omitempty"`
+	KeyCount       int               `xml:"KeyCount"`
+	MaxKeys        int               `xml:"MaxKeys"`
+	IsTruncated    bool              `xml:"IsTruncated"`
 }
 
 // ListBucketV2Result is the XML response for ListObjectsV2.

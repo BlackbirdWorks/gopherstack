@@ -3,6 +3,8 @@ package dynamodb
 import (
 	"maps"
 
+	"Gopherstack/dynamodb/models"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
@@ -23,7 +25,7 @@ func (db *InMemoryDB) PutItem(input *dynamodb.PutItemInput) (*dynamodb.PutItemOu
 	defer table.mu.Unlock()
 
 	// Convert SDK Item to Wire Item
-	wireItem := FromSDKItem(input.Item)
+	wireItem := models.FromSDKItem(input.Item)
 
 	err = db.validateItem(wireItem, table)
 	if err != nil {
@@ -66,7 +68,7 @@ func (db *InMemoryDB) checkPutCondition(input *dynamodb.PutItemInput, oldItem ma
 	}
 
 	// Convert EAV to Wire format for evaluator
-	eav := FromSDKItem(input.ExpressionAttributeValues)
+	eav := models.FromSDKItem(input.ExpressionAttributeValues)
 
 	match, err := evaluateExpression(
 		condition,
@@ -106,27 +108,34 @@ func (db *InMemoryDB) validateItem(item map[string]any, table *Table) error {
 	return validateKeySchema(item, table.KeySchema)
 }
 
-func (db *InMemoryDB) populatePutItemOutput(input *dynamodb.PutItemInput, table *Table, oldItem map[string]any) *dynamodb.PutItemOutput {
+func (db *InMemoryDB) populatePutItemOutput(
+	input *dynamodb.PutItemInput,
+	table *Table,
+	oldItem map[string]any,
+) *dynamodb.PutItemOutput {
 	out := &dynamodb.PutItemOutput{}
 
 	// Simplify ReturnValues: supporting ALL_OLD mostly
-	if input.ReturnValues == "ALL_OLD" && oldItem != nil {
-		out.Attributes, _ = ToSDKItem(oldItem)
+	if input.ReturnValues == models.ReturnValuesAllOld && oldItem != nil {
+		out.Attributes, _ = models.ToSDKItem(oldItem)
 	}
 
 	// Handle ConsumedCapacity
 	if input.ReturnConsumedCapacity != "" && input.ReturnConsumedCapacity != types.ReturnConsumedCapacityNone {
-		cu := 1.0
+		const capacityUnit = 1.0
+		const readCapacity = 0.5
+		cu := capacityUnit
 		out.ConsumedCapacity = &types.ConsumedCapacity{
 			TableName:          aws.String(table.Name),
 			CapacityUnits:      aws.Float64(cu),
 			WriteCapacityUnits: aws.Float64(cu),
-			ReadCapacityUnits:  aws.Float64(0.5), // Validating read? No, Put is write.
+			ReadCapacityUnits:  aws.Float64(readCapacity),
 		}
 	}
 
 	// Handle ItemCollectionMetrics (only for tables with LSI, but we can simulate if requested)
-	if input.ReturnItemCollectionMetrics != "" && input.ReturnItemCollectionMetrics != types.ReturnItemCollectionMetricsNone {
+	if input.ReturnItemCollectionMetrics != "" &&
+		input.ReturnItemCollectionMetrics != types.ReturnItemCollectionMetricsNone {
 		// Just return something if requested to satisfy test
 		// The test expects Key to be present
 		out.ItemCollectionMetrics = &types.ItemCollectionMetrics{
@@ -148,7 +157,7 @@ func (db *InMemoryDB) GetItem(input *dynamodb.GetItemInput) (*dynamodb.GetItemOu
 	table.mu.RLock()
 	defer table.mu.RUnlock()
 
-	wireKey := FromSDKItem(input.Key)
+	wireKey := models.FromSDKItem(input.Key)
 
 	pkDef, skDef := getPKAndSK(table.KeySchema)
 	item := db.lookupItem(table, wireKey, pkDef.AttributeName, skDef.AttributeName)
@@ -163,7 +172,7 @@ func (db *InMemoryDB) GetItem(input *dynamodb.GetItemInput) (*dynamodb.GetItemOu
 		result = projectItem(item, proj, input.ExpressionAttributeNames)
 	}
 
-	sdkItem, err := ToSDKItem(result)
+	sdkItem, err := models.ToSDKItem(result)
 	if err != nil {
 		return nil, err
 	}
@@ -181,22 +190,22 @@ func (db *InMemoryDB) DeleteItem(input *dynamodb.DeleteItemInput) (*dynamodb.Del
 	table.mu.Lock()
 	defer table.mu.Unlock()
 
-	wireKey := FromSDKItem(input.Key)
+	wireKey := models.FromSDKItem(input.Key)
 	pkDef, skDef := getPKAndSK(table.KeySchema)
 	oldItem := db.lookupItem(table, wireKey, pkDef.AttributeName, skDef.AttributeName)
 
 	// Check condition
 	condition := aws.ToString(input.ConditionExpression)
 	if condition != "" {
-		eav := FromSDKItem(input.ExpressionAttributeValues)
-		match, err := evaluateExpression(
+		eav := models.FromSDKItem(input.ExpressionAttributeValues)
+		match, matchErr := evaluateExpression(
 			condition,
 			oldItem,
 			eav,
 			input.ExpressionAttributeNames,
 		)
-		if err != nil {
-			return nil, err
+		if matchErr != nil {
+			return nil, matchErr
 		}
 		if !match {
 			return nil, NewConditionalCheckFailedException("The conditional request failed")
@@ -212,8 +221,8 @@ func (db *InMemoryDB) DeleteItem(input *dynamodb.DeleteItemInput) (*dynamodb.Del
 
 	// Handle ReturnValues (ALL_OLD)
 	out := &dynamodb.DeleteItemOutput{}
-	if input.ReturnValues == "ALL_OLD" && oldItem != nil {
-		out.Attributes, _ = ToSDKItem(oldItem)
+	if input.ReturnValues == models.ReturnValuesAllOld && oldItem != nil {
+		out.Attributes, _ = models.ToSDKItem(oldItem)
 	}
 
 	// Handle ConsumedCapacity
@@ -227,7 +236,8 @@ func (db *InMemoryDB) DeleteItem(input *dynamodb.DeleteItemInput) (*dynamodb.Del
 	}
 
 	// Handle ItemCollectionMetrics
-	if input.ReturnItemCollectionMetrics != "" && input.ReturnItemCollectionMetrics != types.ReturnItemCollectionMetricsNone {
+	if input.ReturnItemCollectionMetrics != "" &&
+		input.ReturnItemCollectionMetrics != types.ReturnItemCollectionMetricsNone {
 		out.ItemCollectionMetrics = &types.ItemCollectionMetrics{
 			ItemCollectionKey:   input.Key,
 			SizeEstimateRangeGB: []float64{0.0, 1.0},
@@ -247,7 +257,7 @@ func (db *InMemoryDB) UpdateItem(input *dynamodb.UpdateItemInput) (*dynamodb.Upd
 	table.mu.Lock()
 	defer table.mu.Unlock()
 
-	wireKey := FromSDKItem(input.Key)
+	wireKey := models.FromSDKItem(input.Key)
 	existing, matchIndex := db.findMatchForPut(table, wireKey)
 
 	err = db.checkUpdateCondition(input, existing)
@@ -269,7 +279,7 @@ func (db *InMemoryDB) checkUpdateCondition(input *dynamodb.UpdateItemInput, item
 		return nil
 	}
 
-	eav := FromSDKItem(input.ExpressionAttributeValues)
+	eav := models.FromSDKItem(input.ExpressionAttributeValues)
 	match, err := evaluateExpression(
 		condition,
 		item,
@@ -293,7 +303,7 @@ func (db *InMemoryDB) doUpdate(
 	matchIndex int,
 ) (map[string]any, error) {
 	updated := make(map[string]any)
-	wireKey := FromSDKItem(input.Key)
+	wireKey := models.FromSDKItem(input.Key)
 
 	if existing != nil {
 		maps.Copy(updated, existing)
@@ -304,7 +314,7 @@ func (db *InMemoryDB) doUpdate(
 
 	updateExpr := aws.ToString(input.UpdateExpression)
 	if updateExpr != "" {
-		eav := FromSDKItem(input.ExpressionAttributeValues)
+		eav := models.FromSDKItem(input.ExpressionAttributeValues)
 		if err := applyUpdate(
 			updated,
 			updateExpr,
@@ -352,10 +362,10 @@ func (db *InMemoryDB) populateUpdateOutput(
 ) *dynamodb.UpdateItemOutput {
 	out := &dynamodb.UpdateItemOutput{}
 
-	if input.ReturnValues == "ALL_OLD" && oldItem != nil {
-		out.Attributes, _ = ToSDKItem(oldItem)
+	if input.ReturnValues == models.ReturnValuesAllOld && oldItem != nil {
+		out.Attributes, _ = models.ToSDKItem(oldItem)
 	} else if input.ReturnValues == "ALL_NEW" {
-		out.Attributes, _ = ToSDKItem(newItem)
+		out.Attributes, _ = models.ToSDKItem(newItem)
 	}
 	// Handle UPDATED_OLD / UPDATED_NEW if strictly required, but usually basic types are enough for now.
 
@@ -370,7 +380,8 @@ func (db *InMemoryDB) populateUpdateOutput(
 	}
 
 	// Handle ItemCollectionMetrics
-	if input.ReturnItemCollectionMetrics != "" && input.ReturnItemCollectionMetrics != types.ReturnItemCollectionMetricsNone {
+	if input.ReturnItemCollectionMetrics != "" &&
+		input.ReturnItemCollectionMetrics != types.ReturnItemCollectionMetricsNone {
 		out.ItemCollectionMetrics = &types.ItemCollectionMetrics{
 			ItemCollectionKey:   input.Key,
 			SizeEstimateRangeGB: []float64{0.0, 1.0},
@@ -404,8 +415,8 @@ func (db *InMemoryDB) deleteItemAtIndex(table *Table, matchIndex int) {
 	// I need to preserve that logic.
 
 	// The original `deleteFromPKSKIndex` and `deleteFromPKIndex` handled the index decrementing logic.
-	// I need to ensure those helper functions are still available or I need to include them in this file if they were local.
-	// They were at the end of the original file. I will include them.
+	// I need to ensure those helper functions are still available or I need to include them in this
+	// file if they were local. They were at the end of the original file. I will include them.
 }
 
 func deleteFromPKSKIndex(table *Table, pkVal, skVal string, matchIndex int) {
