@@ -344,7 +344,7 @@ func (h *Handler) listBuckets(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) createBucket(w http.ResponseWriter, r *http.Request, bucketName string) {
 	h.Logger.Debug("S3 createBucket input", "bucket", bucketName)
-	
+
 	var region string
 	// Read the body to check for LocationConstraint
 	body, err := httputils.ReadBody(r)
@@ -400,7 +400,7 @@ func (h *Handler) createBucket(w http.ResponseWriter, r *http.Request, bucketNam
 
 func (h *Handler) deleteBucket(w http.ResponseWriter, r *http.Request, bucketName string) {
 	h.Logger.Debug("S3 deleteBucket input", "bucket", bucketName)
-	
+
 	_, err := h.Backend.DeleteBucket(r.Context(), &s3.DeleteBucketInput{Bucket: aws.String(bucketName)})
 	if errors.Is(err, ErrNoSuchBucket) {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
@@ -429,7 +429,7 @@ func (h *Handler) listObjects(w http.ResponseWriter, r *http.Request, bucketName
 	prefix := r.URL.Query().Get("prefix")
 	delimiter := r.URL.Query().Get("delimiter")
 	marker := r.URL.Query().Get("marker")
-	
+
 	h.Logger.Debug("S3 listObjects input", "bucket", bucketName, "prefix", prefix, "delimiter", delimiter, "marker", marker)
 
 	maxKeys := int32(defaultMaxKeys)
@@ -505,7 +505,7 @@ func (h *Handler) listObjectsV2(w http.ResponseWriter, r *http.Request, bucketNa
 	continuationToken := q.Get("continuation-token")
 	startAfter := q.Get("start-after")
 	encodingType := q.Get("encoding-type")
-	
+
 	h.Logger.Debug("S3 listObjectsV2 input", "bucket", bucketName, "prefix", prefix, "delimiter", delimiter, "continuationToken", continuationToken, "startAfter", startAfter)
 
 	maxKeys := int32(defaultMaxKeys)
@@ -794,7 +794,7 @@ func extractChecksumPointers(h http.Header, algo string) (*string, *string, *str
 
 func (h *Handler) putObject(w http.ResponseWriter, r *http.Request, bucketName, key string) {
 	h.Logger.Debug("S3 putObject input", "bucket", bucketName, "key", key, "contentType", r.Header.Get("Content-Type"))
-	
+
 	data, err := httputils.ReadBody(r)
 	if err != nil {
 		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
@@ -962,7 +962,7 @@ func (h *Handler) copyObject(w http.ResponseWriter, r *http.Request, destBucket,
 func (h *Handler) getObject(w http.ResponseWriter, r *http.Request, bucketName, key string) {
 	versionID := r.URL.Query().Get("versionId")
 	h.Logger.Debug("S3 getObject input", "bucket", bucketName, "key", key, "versionId", versionID)
-	
+
 	var vid *string
 
 	if versionID != "" {
@@ -1139,7 +1139,7 @@ func parseRange(header string, size int64) (int64, int64, bool) {
 func (h *Handler) deleteObject(w http.ResponseWriter, r *http.Request, bucketName, key string) {
 	versionID := r.URL.Query().Get("versionId")
 	h.Logger.Debug("S3 deleteObject input", "bucket", bucketName, "key", key, "versionId", versionID)
-	
+
 	var vid *string
 	if versionID != "" {
 		vid = aws.String(versionID)

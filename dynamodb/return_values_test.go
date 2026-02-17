@@ -25,8 +25,8 @@ func TestUpdateItem_UPDATED_NEW_OnNewItem(t *testing.T) {
 
 	// Update a NEW item (doesn't exist yet) with UPDATED_NEW
 	updateInput := models.UpdateItemInput{
-		TableName: "TestTable",
-		Key:       map[string]any{"pk": map[string]any{"S": "newitem"}},
+		TableName:        "TestTable",
+		Key:              map[string]any{"pk": map[string]any{"S": "newitem"}},
 		UpdateExpression: "SET attr1 = :v1, attr2 = :v2",
 		ExpressionAttributeValues: map[string]any{
 			":v1": map[string]any{"S": "value1"},
@@ -42,14 +42,14 @@ func TestUpdateItem_UPDATED_NEW_OnNewItem(t *testing.T) {
 	// When updating a NEW item with UPDATED_NEW, should return all attributes
 	// that were updated (including the key)
 	assert.NotNil(t, res.Attributes, "Attributes should not be nil for UPDATED_NEW on new item")
-	
+
 	if res.Attributes != nil {
 		wireAttrs := models.FromSDKItem(res.Attributes)
 		t.Logf("Returned attributes: %+v", wireAttrs)
-		
+
 		// Should contain pk (key attribute)
 		assert.Contains(t, wireAttrs, "pk", "Should contain primary key")
-		
+
 		// Should contain attr1 and attr2 (updated attributes)
 		assert.Contains(t, wireAttrs, "attr1", "Should contain updated attribute attr1")
 		assert.Contains(t, wireAttrs, "attr2", "Should contain updated attribute attr2")
@@ -86,8 +86,8 @@ func TestUpdateItem_UPDATED_NEW_OnExistingItem(t *testing.T) {
 
 	// Update ONLY attr1 with UPDATED_NEW
 	updateInput := models.UpdateItemInput{
-		TableName: "TestTable",
-		Key:       map[string]any{"pk": map[string]any{"S": "existingitem"}},
+		TableName:        "TestTable",
+		Key:              map[string]any{"pk": map[string]any{"S": "existingitem"}},
 		UpdateExpression: "SET attr1 = :v1",
 		ExpressionAttributeValues: map[string]any{
 			":v1": map[string]any{"S": "updated1"},
@@ -102,15 +102,15 @@ func TestUpdateItem_UPDATED_NEW_OnExistingItem(t *testing.T) {
 	// When updating an existing item with UPDATED_NEW, should return ONLY
 	// the attributes that were actually updated
 	assert.NotNil(t, res.Attributes, "Attributes should not be nil for UPDATED_NEW")
-	
+
 	if res.Attributes != nil {
 		wireAttrs := models.FromSDKItem(res.Attributes)
 		t.Logf("Returned attributes: %+v", wireAttrs)
-		
+
 		// Should contain ONLY attr1 (the updated attribute)
 		assert.Contains(t, wireAttrs, "attr1", "Should contain updated attribute attr1")
 		assert.Equal(t, "updated1", wireAttrs["attr1"].(map[string]any)["S"], "attr1 should have new value")
-		
+
 		// Should NOT contain pk, attr2, or attr3 (not updated)
 		assert.NotContains(t, wireAttrs, "pk", "Should NOT contain pk (not updated)")
 		assert.NotContains(t, wireAttrs, "attr2", "Should NOT contain attr2 (not updated)")

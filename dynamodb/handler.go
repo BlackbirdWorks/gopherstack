@@ -157,12 +157,12 @@ func handleOpErr[WireIn any, SDKIn any, SDKOut any, WireOut any](
 			return nil, err
 		}
 	}
-	
+
 	if logger != nil {
 		inputJSON, _ := json.Marshal(input)
 		logger.Debug("handler input", "action", action, "input", string(inputJSON))
 	}
-	
+
 	sdkInput, err := toSDK(&input)
 	if err != nil {
 		return nil, err
@@ -173,7 +173,7 @@ func handleOpErr[WireIn any, SDKIn any, SDKOut any, WireOut any](
 	}
 
 	wireOutput := fromSDK(sdkOutput)
-	
+
 	if logger != nil {
 		outputJSON, _ := json.Marshal(wireOutput)
 		logger.Debug("handler output", "action", action, "output", string(outputJSON))
@@ -197,12 +197,12 @@ func handleOp[WireIn any, SDKIn any, SDKOut any, WireOut any](
 			return nil, err
 		}
 	}
-	
+
 	if logger != nil {
 		inputJSON, _ := json.Marshal(input)
 		logger.Debug("handler input", "action", action, "input", string(inputJSON))
 	}
-	
+
 	sdkInput := toSDK(&input)
 	sdkOutput, err := doOp(sdkInput)
 	if err != nil {
@@ -210,7 +210,7 @@ func handleOp[WireIn any, SDKIn any, SDKOut any, WireOut any](
 	}
 
 	wireOutput := fromSDK(sdkOutput)
-	
+
 	if logger != nil {
 		outputJSON, _ := json.Marshal(wireOutput)
 		logger.Debug("handler output", "action", action, "output", string(outputJSON))

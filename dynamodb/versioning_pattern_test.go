@@ -31,7 +31,7 @@ func TestUpdateItem_VersioningPattern(t *testing.T) {
 		Key:       map[string]any{"pk": map[string]any{"S": "item1"}},
 		// Simulates: SET version = if_not_exists(version, :zero) + :inc, data = :data
 		// For simplicity in unit test, we'll just set version and data
-		UpdateExpression: "SET version = :v, #data = :data",
+		UpdateExpression:         "SET version = :v, #data = :data",
 		ExpressionAttributeNames: map[string]string{"#data": "data"},
 		ExpressionAttributeValues: map[string]any{
 			":v":    map[string]any{"N": "1"},
@@ -63,7 +63,7 @@ func TestUpdateItem_VersioningPattern(t *testing.T) {
 		TableName: "TestTable",
 		Key:       map[string]any{"pk": map[string]any{"S": "item1"}},
 		// Simulates: SET version = version + :inc, data = :data
-		UpdateExpression: "SET version = :v, #data = :data",
+		UpdateExpression:         "SET version = :v, #data = :data",
 		ExpressionAttributeNames: map[string]string{"#data": "data"},
 		ExpressionAttributeValues: map[string]any{
 			":v":    map[string]any{"N": "2"},
@@ -91,8 +91,8 @@ func TestUpdateItem_VersioningPattern(t *testing.T) {
 	// Test 3: Upsert from existing - add new attribute
 	t.Log("=== Test 3: Upsert - add new attribute to existing item ===")
 	updateInput3 := models.UpdateItemInput{
-		TableName: "TestTable",
-		Key:       map[string]any{"pk": map[string]any{"S": "item1"}},
+		TableName:        "TestTable",
+		Key:              map[string]any{"pk": map[string]any{"S": "item1"}},
 		UpdateExpression: "SET version = :v, details = :details",
 		ExpressionAttributeValues: map[string]any{
 			":v": map[string]any{"N": "3"},
@@ -141,8 +141,8 @@ func TestUpdateItem_BlankToUpsert(t *testing.T) {
 	// Test 1: Create first item with UPDATED_NEW
 	t.Log("=== Test 1: First upsert on blank table ===")
 	updateInput1 := models.UpdateItemInput{
-		TableName: "TestTable",
-		Key:       map[string]any{"pk": map[string]any{"S": "newdoc"}},
+		TableName:        "TestTable",
+		Key:              map[string]any{"pk": map[string]any{"S": "newdoc"}},
 		UpdateExpression: "SET version = :v, content = :content, created = :ts",
 		ExpressionAttributeValues: map[string]any{
 			":v":       map[string]any{"N": "1"},
@@ -169,8 +169,8 @@ func TestUpdateItem_BlankToUpsert(t *testing.T) {
 	// Test 2: Update existing item - change content and version
 	t.Log("=== Test 2: Upsert on existing data ===")
 	updateInput2 := models.UpdateItemInput{
-		TableName: "TestTable",
-		Key:       map[string]any{"pk": map[string]any{"S": "newdoc"}},
+		TableName:        "TestTable",
+		Key:              map[string]any{"pk": map[string]any{"S": "newdoc"}},
 		UpdateExpression: "SET version = :v, content = :content, modified = :ts",
 		ExpressionAttributeValues: map[string]any{
 			":v":       map[string]any{"N": "2"},

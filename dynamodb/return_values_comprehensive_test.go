@@ -17,8 +17,8 @@ func TestUpdateItem_AllReturnValues(t *testing.T) {
 		name         string
 		returnValue  string
 		expectAttrs  bool
-		expectedKeys []string  // keys that should be present
-		excludedKeys []string  // keys that should NOT be present
+		expectedKeys []string // keys that should be present
+		excludedKeys []string // keys that should NOT be present
 	}{
 		{
 			name:         "NONE returns nothing",
@@ -45,15 +45,15 @@ func TestUpdateItem_AllReturnValues(t *testing.T) {
 			name:         "UPDATED_OLD returns only updated attributes (old values)",
 			returnValue:  "UPDATED_OLD",
 			expectAttrs:  true,
-			expectedKeys: []string{"attr1"},  // only attr1 was updated
-			excludedKeys: []string{"pk", "attr2"},  // pk and attr2 not updated
+			expectedKeys: []string{"attr1"},       // only attr1 was updated
+			excludedKeys: []string{"pk", "attr2"}, // pk and attr2 not updated
 		},
 		{
 			name:         "UPDATED_NEW returns only updated attributes (new values)",
 			returnValue:  "UPDATED_NEW",
 			expectAttrs:  true,
-			expectedKeys: []string{"attr1"},  // only attr1 was updated
-			excludedKeys: []string{"pk", "attr2"},  // pk and attr2 not updated
+			expectedKeys: []string{"attr1"},       // only attr1 was updated
+			excludedKeys: []string{"pk", "attr2"}, // pk and attr2 not updated
 		},
 	}
 
@@ -87,8 +87,8 @@ func TestUpdateItem_AllReturnValues(t *testing.T) {
 
 			// Update only attr1
 			updateInput := models.UpdateItemInput{
-				TableName: "TestTable",
-				Key:       map[string]any{"pk": map[string]any{"S": "testitem"}},
+				TableName:        "TestTable",
+				Key:              map[string]any{"pk": map[string]any{"S": "testitem"}},
 				UpdateExpression: "SET attr1 = :v1",
 				ExpressionAttributeValues: map[string]any{
 					":v1": map[string]any{"S": "updated1"},
@@ -103,11 +103,11 @@ func TestUpdateItem_AllReturnValues(t *testing.T) {
 			if tt.expectAttrs {
 				require.NotNil(t, res.Attributes, "Expected attributes to be returned")
 				wireAttrs := models.FromSDKItem(res.Attributes)
-				
+
 				for _, key := range tt.expectedKeys {
 					assert.Contains(t, wireAttrs, key, "Expected key %s to be present", key)
 				}
-				
+
 				for _, key := range tt.excludedKeys {
 					assert.NotContains(t, wireAttrs, key, "Expected key %s to NOT be present", key)
 				}
@@ -194,8 +194,8 @@ func TestUpdateItem_NewItemReturnValues(t *testing.T) {
 
 			// Update a NEW item (doesn't exist yet)
 			updateInput := models.UpdateItemInput{
-				TableName: "TestTable",
-				Key:       map[string]any{"pk": map[string]any{"S": "newitem"}},
+				TableName:        "TestTable",
+				Key:              map[string]any{"pk": map[string]any{"S": "newitem"}},
 				UpdateExpression: "SET attr1 = :v1, attr2 = :v2",
 				ExpressionAttributeValues: map[string]any{
 					":v1": map[string]any{"S": "value1"},
@@ -211,7 +211,7 @@ func TestUpdateItem_NewItemReturnValues(t *testing.T) {
 			if tt.expectAttrs {
 				require.NotNil(t, res.Attributes, "Expected attributes to be returned for %s", tt.returnValue)
 				wireAttrs := models.FromSDKItem(res.Attributes)
-				
+
 				for _, key := range tt.expectedKeys {
 					assert.Contains(t, wireAttrs, key, "Expected key %s to be present", key)
 				}
