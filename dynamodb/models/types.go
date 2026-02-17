@@ -3,11 +3,13 @@ package models
 // --- Constants ---
 
 const (
-	KeyTypeHash        = "HASH"
-	KeyTypeRange       = "RANGE"
-	ReturnValuesAllOld = "ALL_OLD"
-	ReturnValuesAllNew = "ALL_NEW"
-	TableStatusActive  = "ACTIVE"
+	KeyTypeHash            = "HASH"
+	KeyTypeRange           = "RANGE"
+	ReturnValuesAllOld     = "ALL_OLD"
+	ReturnValuesAllNew     = "ALL_NEW"
+	ReturnValuesUpdatedOld = "UPDATED_OLD"
+	ReturnValuesUpdatedNew = "UPDATED_NEW"
+	TableStatusActive      = "ACTIVE"
 
 	DefaultReadCapacity  = 5
 	DefaultWriteCapacity = 5

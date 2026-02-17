@@ -1,6 +1,7 @@
 package dynamodb
 
 import (
+	"encoding/json"
 	"maps"
 
 	"Gopherstack/dynamodb/models"
@@ -361,12 +362,28 @@ func (db *InMemoryDB) populateUpdateOutput(
 ) *dynamodb.UpdateItemOutput {
 	out := &dynamodb.UpdateItemOutput{}
 
-	if input.ReturnValues == models.ReturnValuesAllOld && oldItem != nil {
-		out.Attributes, _ = models.ToSDKItem(oldItem)
-	} else if input.ReturnValues == "ALL_NEW" {
+	switch input.ReturnValues {
+	case types.ReturnValueAllOld:
+		if oldItem != nil {
+			out.Attributes, _ = models.ToSDKItem(oldItem)
+		}
+	case types.ReturnValueAllNew:
 		out.Attributes, _ = models.ToSDKItem(newItem)
+	case types.ReturnValueUpdatedOld:
+		if oldItem != nil {
+			updated := getUpdatedAttributes(oldItem, newItem)
+			if len(updated) > 0 {
+				out.Attributes, _ = models.ToSDKItem(updated)
+			}
+		}
+	case types.ReturnValueUpdatedNew:
+		updated := getUpdatedAttributes(newItem, oldItem)
+		if len(updated) > 0 {
+			out.Attributes, _ = models.ToSDKItem(updated)
+		}
+	case types.ReturnValueNone:
+		// Do nothing
 	}
-	// Handle UPDATED_OLD / UPDATED_NEW if strictly required, but usually basic types are enough for now.
 
 	// Handle ConsumedCapacity
 	if input.ReturnConsumedCapacity != "" && input.ReturnConsumedCapacity != types.ReturnConsumedCapacityNone {
@@ -441,4 +458,27 @@ func (db *InMemoryDB) deleteFromSimpleIndex(table *Table, pkVal string, matchInd
 			table.pkIndex[pk] = idx - 1
 		}
 	}
+}
+
+// getUpdatedAttributes returns attributes from 'source' that are different from 'target'.
+// This is used for UPDATED_OLD and UPDATED_NEW ReturnValues.
+func getUpdatedAttributes(source, target map[string]any) map[string]any {
+	updated := make(map[string]any)
+	for k, v := range source {
+		targetVal, exists := target[k]
+		if !exists || !deepEqual(v, targetVal) {
+			updated[k] = v
+		}
+	}
+
+	return updated
+}
+
+func deepEqual(v1, v2 any) bool {
+	// Simple comparison for now.
+	// In Gopherstack, attributes are map[string]any (Wire format).
+	b1, _ := json.Marshal(v1)
+	b2, _ := json.Marshal(v2)
+
+	return string(b1) == string(b2)
 }

@@ -115,6 +115,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.Logger.Debug("DynamoDB request", "action", action, "body", string(body))
+
 	w.Header().Set("Content-Type", "application/x-amz-json-1.0")
 
 	response, reqErr := h.dispatch(action, body)
