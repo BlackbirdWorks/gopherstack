@@ -1,10 +1,9 @@
 name: CI/CD
 
 on:
-  push:
-    branches: [ main ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -24,14 +23,15 @@ jobs:
           cache: true
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v7
+        uses: golangci/golangci-lint-action@v6
         with:
-          version: v2.9.0
+          version: v1.62.2
 
   test:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      checks: write
       pull-requests: write
     steps:
       - uses: actions/checkout@v4
