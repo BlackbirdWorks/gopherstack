@@ -3,6 +3,7 @@ package dynamodb_test
 import (
 	"Gopherstack/dynamodb"
 	"Gopherstack/dynamodb/models"
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -38,7 +39,7 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 					},
 				}
 				sdkPut, _ := models.ToSDKPutItemInput(&putInput)
-				_, err := db.PutItem(sdkPut)
+				_, err := db.PutItem(context.Background(), sdkPut)
 				require.NoError(t, err)
 			},
 			input: `{
@@ -68,7 +69,7 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 					},
 				}
 				sdkPut, _ := models.ToSDKPutItemInput(&putInput)
-				_, err := db.PutItem(sdkPut)
+				_, err := db.PutItem(context.Background(), sdkPut)
 				require.NoError(t, err)
 			},
 			input: `{
@@ -98,7 +99,7 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 					},
 				}
 				sdkPut, _ := models.ToSDKPutItemInput(&putInput)
-				_, err := db.PutItem(sdkPut)
+				_, err := db.PutItem(context.Background(), sdkPut)
 				require.NoError(t, err)
 			},
 			input: `{
@@ -129,7 +130,7 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 					},
 				}
 				sdkPut, _ := models.ToSDKPutItemInput(&putInput)
-				_, err := db.PutItem(sdkPut)
+				_, err := db.PutItem(context.Background(), sdkPut)
 				require.NoError(t, err)
 			},
 			input: `{
@@ -161,7 +162,7 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 
 			updateInput := mustUnmarshal[models.UpdateItemInput](t, tc.input)
 			sdkUpdate, _ := models.ToSDKUpdateItemInput(&updateInput)
-			_, err := db.UpdateItem(sdkUpdate)
+			_, err := db.UpdateItem(context.Background(), sdkUpdate)
 			if tc.wantErr {
 				require.Error(t, err)
 

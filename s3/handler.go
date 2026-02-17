@@ -8,6 +8,7 @@ import (
 	"crypto/sha1" //nolint:gosec // SHA1 required for S3 checksum compatibility
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -1145,6 +1146,7 @@ func (h *Handler) serveRange(ctx context.Context, w http.ResponseWriter, data []
 	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, total))
 	w.WriteHeader(http.StatusPartialContent)
 
+	//nolint:gosec // Writing binary range data
 	if _, err := w.Write(data[start : end+1]); err != nil {
 		log.ErrorContext(ctx, "failed to write range data", "error", err)
 	}
@@ -1755,15 +1757,11 @@ func CalculateChecksum(data []byte, algorithm string) string {
 	case "CRC32":
 		c := crc32.ChecksumIEEE(data)
 		sum = make([]byte, crc32Len)
-		for i := range crc32Len {
-			sum[crc32Len-1-i] = byte(c >> (bitsInByte * i))
-		}
+		binary.BigEndian.PutUint32(sum, c)
 	case "CRC32C":
 		c := crc32.Checksum(data, crc32.MakeTable(crc32.Castagnoli))
 		sum = make([]byte, crc32Len)
-		for i := range crc32Len {
-			sum[crc32Len-1-i] = byte(c >> (bitsInByte * i))
-		}
+		binary.BigEndian.PutUint32(sum, c)
 	case "SHA1":
 		//nolint:gosec // SHA1 supported as per S3 spec
 		h := sha1.Sum(data)

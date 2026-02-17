@@ -1,6 +1,7 @@
 package dynamodb
 
 import (
+	"context"
 	"fmt"
 
 	"Gopherstack/dynamodb/models"
@@ -10,7 +11,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
 
-func (db *InMemoryDB) CreateTable(input *dynamodb.CreateTableInput) (*dynamodb.CreateTableOutput, error) {
+func (db *InMemoryDB) CreateTable(
+	_ context.Context,
+	input *dynamodb.CreateTableInput,
+) (*dynamodb.CreateTableOutput, error) {
 	tableName := aws.ToString(input.TableName)
 	if tableName == "" {
 		return nil, NewValidationException("Table name is required")
@@ -89,7 +93,10 @@ func (db *InMemoryDB) CreateTable(input *dynamodb.CreateTableInput) (*dynamodb.C
 	}, nil
 }
 
-func (db *InMemoryDB) DeleteTable(input *dynamodb.DeleteTableInput) (*dynamodb.DeleteTableOutput, error) {
+func (db *InMemoryDB) DeleteTable(
+	_ context.Context,
+	input *dynamodb.DeleteTableInput,
+) (*dynamodb.DeleteTableOutput, error) {
 	tableName := aws.ToString(input.TableName)
 	if tableName == "" {
 		return nil, NewValidationException("Table name is required")
@@ -141,7 +148,10 @@ func (db *InMemoryDB) DeleteTable(input *dynamodb.DeleteTableInput) (*dynamodb.D
 	}, nil
 }
 
-func (db *InMemoryDB) DescribeTable(input *dynamodb.DescribeTableInput) (*dynamodb.DescribeTableOutput, error) {
+func (db *InMemoryDB) DescribeTable(
+	_ context.Context,
+	input *dynamodb.DescribeTableInput,
+) (*dynamodb.DescribeTableOutput, error) {
 	tableName := aws.ToString(input.TableName)
 
 	db.mu.RLock()
@@ -217,6 +227,7 @@ func (db *InMemoryDB) DescribeTable(input *dynamodb.DescribeTableInput) (*dynamo
 }
 
 func (db *InMemoryDB) UpdateTimeToLive(
+	_ context.Context,
 	input *dynamodb.UpdateTimeToLiveInput,
 ) (*dynamodb.UpdateTimeToLiveOutput, error) {
 	tableName := aws.ToString(input.TableName)
@@ -244,6 +255,7 @@ func (db *InMemoryDB) UpdateTimeToLive(
 }
 
 func (db *InMemoryDB) DescribeTimeToLive(
+	_ context.Context,
 	input *dynamodb.DescribeTimeToLiveInput,
 ) (*dynamodb.DescribeTimeToLiveOutput, error) {
 	tableName := aws.ToString(input.TableName)
@@ -257,7 +269,9 @@ func (db *InMemoryDB) DescribeTimeToLive(
 
 	if table.TTLAttribute == "" {
 		return &dynamodb.DescribeTimeToLiveOutput{
-			TimeToLiveDescription: &types.TimeToLiveDescription{TimeToLiveStatus: types.TimeToLiveStatusDisabled},
+			TimeToLiveDescription: &types.TimeToLiveDescription{
+				TimeToLiveStatus: types.TimeToLiveStatusDisabled,
+			},
 		}, nil
 	}
 
@@ -269,7 +283,10 @@ func (db *InMemoryDB) DescribeTimeToLive(
 	}, nil
 }
 
-func (db *InMemoryDB) ListTables(input *dynamodb.ListTablesInput) (*dynamodb.ListTablesOutput, error) {
+func (db *InMemoryDB) ListTables(
+	_ context.Context,
+	input *dynamodb.ListTablesInput,
+) (*dynamodb.ListTablesOutput, error) {
 	db.mu.RLock()
 	defer db.mu.RUnlock()
 

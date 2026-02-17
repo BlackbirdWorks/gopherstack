@@ -5,17 +5,14 @@ import (
 	"fmt"
 
 	"Gopherstack/dynamodb/models"
+	"Gopherstack/pkgs/logger"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
 
-func (db *InMemoryDB) Scan(input *dynamodb.ScanInput) (*dynamodb.ScanOutput, error) {
-	// Use background context for in-memory scans
-	// In the future, this could be extended to check request context from the handler
-	ctx := context.Background()
-
+func (db *InMemoryDB) Scan(ctx context.Context, input *dynamodb.ScanInput) (*dynamodb.ScanOutput, error) {
 	return db.ScanWithContext(ctx, input)
 }
 
@@ -41,7 +38,7 @@ func (db *InMemoryDB) ScanWithContext(ctx context.Context, input *dynamodb.ScanI
 		return nil, err
 	}
 
-	items := db.doScan(table.Items, input, pkDef, skDef, table.TTLAttribute)
+	items := db.doScan(ctx, table.Items, input, pkDef, skDef, table.TTLAttribute)
 
 	outItems := make([]map[string]types.AttributeValue, len(items))
 	for i, it := range items {
@@ -89,6 +86,7 @@ func (db *InMemoryDB) getScanKeySchema(
 }
 
 func (db *InMemoryDB) doScan(
+	ctx context.Context,
 	items []map[string]any,
 	input *dynamodb.ScanInput,
 	pkDef, skDef models.KeySchemaElement,
@@ -106,7 +104,7 @@ func (db *InMemoryDB) doScan(
 			continue
 		}
 
-		if db.shouldIncludeInScan(item, input, pkDef, skDef, eav) {
+		if db.shouldIncludeInScan(ctx, item, input, pkDef, skDef, eav) {
 			processedItem := item
 			if proj != "" {
 				processedItem = projectItem(item, proj, input.ExpressionAttributeNames)
@@ -123,6 +121,7 @@ func (db *InMemoryDB) doScan(
 }
 
 func (db *InMemoryDB) shouldIncludeInScan(
+	ctx context.Context,
 	item map[string]any,
 	input *dynamodb.ScanInput,
 	pkDef, skDef models.KeySchemaElement,
@@ -152,6 +151,12 @@ func (db *InMemoryDB) shouldIncludeInScan(
 
 	filter := aws.ToString(input.FilterExpression)
 	if filter != "" {
+		log := logger.Load(ctx)
+		log.DebugContext(ctx, "Evaluating Scan FilterExpression",
+			"expression", filter,
+			"attributeNames", input.ExpressionAttributeNames,
+			"attributeValues", input.ExpressionAttributeValues)
+
 		match, err := evaluateExpression(
 			filter,
 			item,

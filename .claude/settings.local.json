@@ -21,7 +21,8 @@
       "Bash(fieldalignment -fix:*)",
       "Bash(golines:*)",
       "Bash(go install:*)",
-      "Bash(~/go/bin/golines:*)"
+      "Bash(~/go/bin/golines:*)",
+      "WebFetch(domain:aws.amazon.com)"
     ]
   }
 }

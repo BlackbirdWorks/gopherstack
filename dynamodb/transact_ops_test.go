@@ -23,7 +23,7 @@ func newTransactDB(t *testing.T, tableName string) *dynamodb.InMemoryDB {
 
 func seedItem(t *testing.T, db *dynamodb.InMemoryDB, tableName, val string) {
 	t.Helper()
-	_, err := db.PutItem(&sdk.PutItemInput{
+	_, err := db.PutItem(t.Context(), &sdk.PutItemInput{
 		TableName: aws.String(tableName),
 		Item: map[string]types.AttributeValue{
 			"pk":  &types.AttributeValueMemberS{Value: "item1"},
@@ -181,7 +181,7 @@ func TestTransactWriteItems(t *testing.T) {
 				tt.setup(t, db)
 			}
 
-			_, err := db.TransactWriteItems(&sdk.TransactWriteItemsInput{
+			_, err := db.TransactWriteItems(t.Context(), &sdk.TransactWriteItemsInput{
 				TransactItems: tt.items,
 			})
 			if tt.wantErr {
@@ -305,7 +305,7 @@ func TestTransactGetItems(t *testing.T) {
 				tt.setup(t, db)
 			}
 
-			out, err := db.TransactGetItems(&sdk.TransactGetItemsInput{
+			out, err := db.TransactGetItems(t.Context(), &sdk.TransactGetItemsInput{
 				TransactItems: tt.items,
 			})
 			if tt.wantErr {

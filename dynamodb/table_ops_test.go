@@ -2,6 +2,7 @@ package dynamodb_test
 
 import (
 	"Gopherstack/dynamodb/models"
+	"context"
 	"errors"
 	"testing"
 
@@ -36,7 +37,7 @@ func TestTableOperations(t *testing.T) {
 				}
 				sdkInput := models.ToSDKCreateTableInput(&input)
 
-				return db.CreateTable(sdkInput)
+				return db.CreateTable(context.Background(), sdkInput)
 			},
 			validate: func(t *testing.T, _ *dynamodb.InMemoryDB, resp any, err error) {
 				t.Helper()
@@ -63,7 +64,7 @@ func TestTableOperations(t *testing.T) {
 				}
 				sdkInput := models.ToSDKCreateTableInput(&input)
 
-				return db.CreateTable(sdkInput)
+				return db.CreateTable(context.Background(), sdkInput)
 			},
 			validate: func(t *testing.T, _ *dynamodb.InMemoryDB, _ any, err error) {
 				t.Helper()
@@ -80,7 +81,7 @@ func TestTableOperations(t *testing.T) {
 				input := models.DescribeTableInput{TableName: "TestTable"}
 				sdkInput := models.ToSDKDescribeTableInput(&input)
 
-				return db.DescribeTable(sdkInput)
+				return db.DescribeTable(context.Background(), sdkInput)
 			},
 			validate: func(t *testing.T, _ *dynamodb.InMemoryDB, resp any, err error) {
 				t.Helper()
@@ -96,7 +97,7 @@ func TestTableOperations(t *testing.T) {
 				input := models.DescribeTableInput{TableName: "NonExistent"}
 				sdkInput := models.ToSDKDescribeTableInput(&input)
 
-				return db.DescribeTable(sdkInput)
+				return db.DescribeTable(context.Background(), sdkInput)
 			},
 			validate: func(t *testing.T, _ *dynamodb.InMemoryDB, _ any, err error) {
 				t.Helper()
@@ -110,7 +111,7 @@ func TestTableOperations(t *testing.T) {
 				createTable(t, db, "Table1")
 			},
 			run: func(db *dynamodb.InMemoryDB) (any, error) {
-				return db.ListTables(&dynamodb_sdk.ListTablesInput{})
+				return db.ListTables(context.Background(), &dynamodb_sdk.ListTablesInput{})
 			},
 			validate: func(t *testing.T, _ *dynamodb.InMemoryDB, resp any, err error) {
 				t.Helper()
@@ -129,7 +130,7 @@ func TestTableOperations(t *testing.T) {
 				input := models.DeleteTableInput{TableName: "DeleteMe"}
 				sdkInput := models.ToSDKDeleteTableInput(&input)
 
-				return db.DeleteTable(sdkInput)
+				return db.DeleteTable(context.Background(), sdkInput)
 			},
 			validate: func(t *testing.T, db *dynamodb.InMemoryDB, _ any, err error) {
 				t.Helper()
@@ -137,7 +138,7 @@ func TestTableOperations(t *testing.T) {
 				// Verify deletion by trying to describe it
 				descInput := models.DescribeTableInput{TableName: "DeleteMe"}
 				sdkDesc := models.ToSDKDescribeTableInput(&descInput)
-				_, err = db.DescribeTable(sdkDesc)
+				_, err = db.DescribeTable(context.Background(), sdkDesc)
 				require.Error(t, err)
 			},
 		},
@@ -147,7 +148,7 @@ func TestTableOperations(t *testing.T) {
 				input := models.DeleteTableInput{TableName: "NonExistent"}
 				sdkInput := models.ToSDKDeleteTableInput(&input)
 
-				return db.DeleteTable(sdkInput)
+				return db.DeleteTable(context.Background(), sdkInput)
 			},
 			validate: func(t *testing.T, _ *dynamodb.InMemoryDB, _ any, err error) {
 				t.Helper()
@@ -185,6 +186,6 @@ func createTable(t *testing.T, db *dynamodb.InMemoryDB, name string) {
 		KeySchema:            []models.KeySchemaElement{{AttributeName: "id", KeyType: models.KeyTypeHash}},
 		AttributeDefinitions: []models.AttributeDefinition{{AttributeName: "id", AttributeType: "S"}},
 	}
-	_, err := db.CreateTable(models.ToSDKCreateTableInput(&input))
+	_, err := db.CreateTable(context.Background(), models.ToSDKCreateTableInput(&input))
 	require.NoError(t, err)
 }

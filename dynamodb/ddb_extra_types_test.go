@@ -55,13 +55,13 @@ func TestDynamoDB_ExtraTypes(t *testing.T) {
 			sdkInputItem, err := models.ToSDKItem(tt.item)
 			require.NoError(t, err)
 
-			_, err = db.PutItem(&sdk.PutItemInput{
+			_, err = db.PutItem(t.Context(), &sdk.PutItemInput{
 				TableName: aws.String(tableName),
 				Item:      sdkInputItem,
 			})
 			require.NoError(t, err)
 
-			res, err := db.GetItem(&sdk.GetItemInput{
+			res, err := db.GetItem(t.Context(), &sdk.GetItemInput{
 				TableName: aws.String(tableName),
 				Key:       map[string]types.AttributeValue{"pk": &types.AttributeValueMemberS{Value: "item1"}},
 			})
@@ -108,10 +108,10 @@ func TestDynamoDB_TTL_Operations(t *testing.T) {
 			db := dynamodb.NewInMemoryDB()
 			createTableHelper(t, db, "TTLTable", "pk")
 
-			_, err := db.UpdateTimeToLive(tt.input)
+			_, err := db.UpdateTimeToLive(t.Context(), tt.input)
 			require.NoError(t, err)
 
-			res, err := db.DescribeTimeToLive(&sdk.DescribeTimeToLiveInput{
+			res, err := db.DescribeTimeToLive(t.Context(), &sdk.DescribeTimeToLiveInput{
 				TableName: aws.String("TTLTable"),
 			})
 			require.NoError(t, err)
@@ -197,10 +197,10 @@ func TestDynamoDB_Transaction_Operations(t *testing.T) {
 			db := dynamodb.NewInMemoryDB()
 			createTableHelper(t, db, "TxTable", "pk")
 
-			_, err := db.TransactWriteItems(tt.write)
+			_, err := db.TransactWriteItems(t.Context(), tt.write)
 			require.NoError(t, err)
 
-			res, err := db.TransactGetItems(tt.get)
+			res, err := db.TransactGetItems(t.Context(), tt.get)
 			require.NoError(t, err)
 			require.Len(t, res.Responses, len(tt.wantItems))
 

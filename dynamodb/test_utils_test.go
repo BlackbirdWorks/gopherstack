@@ -2,6 +2,7 @@ package dynamodb_test
 
 import (
 	"Gopherstack/dynamodb/models"
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -44,6 +45,6 @@ func createTableHelper(t *testing.T, db *dynamodb.InMemoryDB, name string, pk st
 		AttributeDefinitions: attributeDefinitions,
 	}
 	sdkInput := models.ToSDKCreateTableInput(&createInput)
-	_, err := db.CreateTable(sdkInput)
+	_, err := db.CreateTable(context.Background(), sdkInput)
 	require.NoError(t, err)
 }

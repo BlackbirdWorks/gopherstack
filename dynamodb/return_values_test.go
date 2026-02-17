@@ -3,6 +3,7 @@ package dynamodb_test
 import (
 	"Gopherstack/dynamodb"
 	"Gopherstack/dynamodb/models"
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -20,7 +21,7 @@ func TestUpdateItem_UPDATED_NEW_OnNewItem(t *testing.T) {
 		KeySchema:            []models.KeySchemaElement{{AttributeName: "pk", KeyType: "HASH"}},
 		AttributeDefinitions: []models.AttributeDefinition{{AttributeName: "pk", AttributeType: "S"}},
 	}
-	_, err := db.CreateTable(models.ToSDKCreateTableInput(&ctInput))
+	_, err := db.CreateTable(context.Background(), models.ToSDKCreateTableInput(&ctInput))
 	require.NoError(t, err)
 
 	// Update a NEW item (doesn't exist yet) with UPDATED_NEW
@@ -36,7 +37,7 @@ func TestUpdateItem_UPDATED_NEW_OnNewItem(t *testing.T) {
 	}
 	sdkUpdate, _ := models.ToSDKUpdateItemInput(&updateInput)
 
-	res, err := db.UpdateItem(sdkUpdate)
+	res, err := db.UpdateItem(context.Background(), sdkUpdate)
 	require.NoError(t, err)
 
 	// When updating a NEW item with UPDATED_NEW, should return all attributes
@@ -67,7 +68,7 @@ func TestUpdateItem_UPDATED_NEW_OnExistingItem(t *testing.T) {
 		KeySchema:            []models.KeySchemaElement{{AttributeName: "pk", KeyType: "HASH"}},
 		AttributeDefinitions: []models.AttributeDefinition{{AttributeName: "pk", AttributeType: "S"}},
 	}
-	_, err := db.CreateTable(models.ToSDKCreateTableInput(&ctInput))
+	_, err := db.CreateTable(context.Background(), models.ToSDKCreateTableInput(&ctInput))
 	require.NoError(t, err)
 
 	// Create an initial item
@@ -81,7 +82,7 @@ func TestUpdateItem_UPDATED_NEW_OnExistingItem(t *testing.T) {
 		},
 	}
 	sdkPut, _ := models.ToSDKPutItemInput(&putInput)
-	_, err = db.PutItem(sdkPut)
+	_, err = db.PutItem(context.Background(), sdkPut)
 	require.NoError(t, err)
 
 	// Update ONLY attr1 with UPDATED_NEW
@@ -96,7 +97,7 @@ func TestUpdateItem_UPDATED_NEW_OnExistingItem(t *testing.T) {
 	}
 	sdkUpdate, _ := models.ToSDKUpdateItemInput(&updateInput)
 
-	res, err := db.UpdateItem(sdkUpdate)
+	res, err := db.UpdateItem(context.Background(), sdkUpdate)
 	require.NoError(t, err)
 
 	// When updating an existing item with UPDATED_NEW, should return ONLY

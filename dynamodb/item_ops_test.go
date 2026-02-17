@@ -2,6 +2,7 @@ package dynamodb_test
 
 import (
 	"Gopherstack/dynamodb/models"
+	"context"
 	"testing"
 
 	"Gopherstack/dynamodb"
@@ -128,7 +129,7 @@ func TestPutItem(t *testing.T) {
 			}
 
 			sdkInput, _ := models.ToSDKPutItemInput(&tt.input)
-			resp, err := db.PutItem(sdkInput)
+			resp, err := db.PutItem(t.Context(), sdkInput)
 
 			if tt.validate != nil {
 				tt.validate(t, resp, err)
@@ -196,7 +197,7 @@ func TestGetItem(t *testing.T) {
 			}
 
 			sdkInput, _ := models.ToSDKGetItemInput(&tt.input)
-			resp, err := db.GetItem(sdkInput)
+			resp, err := db.GetItem(t.Context(), sdkInput)
 
 			if tt.validate != nil {
 				tt.validate(t, resp, err)
@@ -233,7 +234,7 @@ func TestDeleteItem(t *testing.T) {
 					Key:       map[string]any{"id": map[string]any{"S": "1"}},
 				}
 				sdkGet, _ := models.ToSDKGetItemInput(&getInput)
-				getResp, _ := db.GetItem(sdkGet)
+				getResp, _ := db.GetItem(t.Context(), sdkGet)
 				assert.Empty(t, getResp.Item)
 			},
 		},
@@ -248,7 +249,7 @@ func TestDeleteItem(t *testing.T) {
 			}
 
 			sdkInput, _ := models.ToSDKDeleteItemInput(&tt.input)
-			resp, err := db.DeleteItem(sdkInput)
+			resp, err := db.DeleteItem(t.Context(), sdkInput)
 
 			if tt.validate != nil {
 				tt.validate(t, db, resp, err)
@@ -292,7 +293,7 @@ func TestItemOps_Scan(t *testing.T) {
 			}
 
 			sdkInput, _ := models.ToSDKScanInput(&tt.input)
-			resp, err := db.Scan(sdkInput)
+			resp, err := db.Scan(t.Context(), sdkInput)
 
 			if tt.validate != nil {
 				tt.validate(t, resp, err)
@@ -310,7 +311,7 @@ func putItem(db *dynamodb.InMemoryDB, id, val string) {
 		},
 	}
 	sdkInput, _ := models.ToSDKPutItemInput(&input)
-	_, _ = db.PutItem(sdkInput)
+	_, _ = db.PutItem(context.Background(), sdkInput)
 }
 func TestItem_Expiration(t *testing.T) {
 	t.Parallel()
@@ -337,7 +338,7 @@ func TestItem_Expiration(t *testing.T) {
 			createTableHelper(t, db, tt.tableName, "id")
 
 			// Enable TTL
-			_, err := db.UpdateTimeToLive(&dynamodb_sdk.UpdateTimeToLiveInput{
+			_, err := db.UpdateTimeToLive(t.Context(), &dynamodb_sdk.UpdateTimeToLiveInput{
 				TableName: &tt.tableName,
 				TimeToLiveSpecification: &types.TimeToLiveSpecification{
 					AttributeName: aws.String(tt.ttlAttr),
@@ -347,7 +348,7 @@ func TestItem_Expiration(t *testing.T) {
 			require.NoError(t, err)
 
 			// Put expired item
-			_, err = db.PutItem(&dynamodb_sdk.PutItemInput{
+			_, err = db.PutItem(t.Context(), &dynamodb_sdk.PutItemInput{
 				TableName: &tt.tableName,
 				Item: map[string]types.AttributeValue{
 					"id":       &types.AttributeValueMemberS{Value: "exp1"},
@@ -357,7 +358,7 @@ func TestItem_Expiration(t *testing.T) {
 			require.NoError(t, err)
 
 			// Get should return nothing
-			out, err := db.GetItem(&dynamodb_sdk.GetItemInput{
+			out, err := db.GetItem(t.Context(), &dynamodb_sdk.GetItemInput{
 				TableName: &tt.tableName,
 				Key:       map[string]types.AttributeValue{"id": &types.AttributeValueMemberS{Value: "exp1"}},
 			})
@@ -392,14 +393,14 @@ func TestPutItem_ConditionExpression(t *testing.T) {
 			createTableHelper(t, db, tableName, "id")
 
 			// Put initial item
-			_, err := db.PutItem(&dynamodb_sdk.PutItemInput{
+			_, err := db.PutItem(t.Context(), &dynamodb_sdk.PutItemInput{
 				TableName: &tableName,
 				Item:      map[string]types.AttributeValue{"id": &types.AttributeValueMemberS{Value: "1"}},
 			})
 			require.NoError(t, err)
 
 			// Try to put again with condition
-			_, err = db.PutItem(&dynamodb_sdk.PutItemInput{
+			_, err = db.PutItem(t.Context(), &dynamodb_sdk.PutItemInput{
 				TableName:           &tableName,
 				ConditionExpression: aws.String(tt.condition),
 				Item:                map[string]types.AttributeValue{"id": &types.AttributeValueMemberS{Value: "1"}},

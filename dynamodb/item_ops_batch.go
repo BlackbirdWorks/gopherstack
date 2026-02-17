@@ -1,18 +1,23 @@
 package dynamodb
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"sync"
 
 	"Gopherstack/dynamodb/models"
+	"Gopherstack/pkgs/logger"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
 
-func (db *InMemoryDB) BatchGetItem(input *dynamodb.BatchGetItemInput) (*dynamodb.BatchGetItemOutput, error) {
+func (db *InMemoryDB) BatchGetItem(
+	ctx context.Context,
+	input *dynamodb.BatchGetItemInput,
+) (*dynamodb.BatchGetItemOutput, error) {
 	db.mu.RLock()
 	defer db.mu.RUnlock()
 
@@ -28,7 +33,7 @@ func (db *InMemoryDB) BatchGetItem(input *dynamodb.BatchGetItemInput) (*dynamodb
 		wg.Add(1)
 		go func(tblName string, attrs types.KeysAndAttributes) {
 			defer wg.Done()
-			results := db.processBatchGetTable(tblName, attrs)
+			results := db.processBatchGetTable(ctx, tblName, attrs)
 
 			if len(results) > 0 {
 				mu.Lock()
@@ -69,6 +74,7 @@ func (db *InMemoryDB) validateBatchGetInput(input *dynamodb.BatchGetItemInput) e
 }
 
 func (db *InMemoryDB) processBatchGetTable(
+	ctx context.Context,
 	tableName string,
 	keysAndAttrs types.KeysAndAttributes,
 ) []map[string]types.AttributeValue {
@@ -77,6 +83,13 @@ func (db *InMemoryDB) processBatchGetTable(
 	var results []map[string]types.AttributeValue
 
 	proj := aws.ToString(keysAndAttrs.ProjectionExpression)
+	if proj != "" {
+		log := logger.Load(ctx)
+		log.DebugContext(ctx, "Evaluating BatchGetItem ProjectionExpression",
+			"tableName", tableName,
+			"expression", proj,
+			"attributeNames", keysAndAttrs.ExpressionAttributeNames)
+	}
 
 	for _, sdkKey := range keysAndAttrs.Keys {
 		wireKey := models.FromSDKItem(sdkKey)
@@ -97,7 +110,10 @@ func (db *InMemoryDB) processBatchGetTable(
 	return results
 }
 
-func (db *InMemoryDB) BatchWriteItem(input *dynamodb.BatchWriteItemInput) (*dynamodb.BatchWriteItemOutput, error) {
+func (db *InMemoryDB) BatchWriteItem(
+	_ context.Context,
+	input *dynamodb.BatchWriteItemInput,
+) (*dynamodb.BatchWriteItemOutput, error) {
 	if len(input.RequestItems) == 0 {
 		return nil, NewValidationException("The batch write request cannot be empty")
 	}
@@ -173,7 +189,10 @@ func (db *InMemoryDB) processTableWriteRequests(table *Table, requests []types.W
 	return nil
 }
 
-func (db *InMemoryDB) processBatchPutRequests(table *Table, requests []types.WriteRequest) map[int]bool {
+func (db *InMemoryDB) processBatchPutRequests(
+	table *Table,
+	requests []types.WriteRequest,
+) map[int]bool {
 	modifiedIndices := make(map[int]bool)
 
 	for _, req := range requests {
@@ -213,7 +232,11 @@ func (db *InMemoryDB) processBatchDeleteRequests(table *Table, requests []types.
 	return len(itemsToDeleteIdx) > 0
 }
 
-func (db *InMemoryDB) updateBatchIndexes(table *Table, modifiedIndices map[int]bool, hasDeletes bool) {
+func (db *InMemoryDB) updateBatchIndexes(
+	table *Table,
+	modifiedIndices map[int]bool,
+	hasDeletes bool,
+) {
 	if hasDeletes {
 		table.rebuildIndexes()
 

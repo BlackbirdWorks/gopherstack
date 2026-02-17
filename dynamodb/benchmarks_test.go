@@ -1,6 +1,7 @@
 package dynamodb_test
 
 import (
+	"context"
 	"strconv"
 	"testing"
 
@@ -23,7 +24,7 @@ func BenchmarkGetItem(b *testing.B) {
 
 			b.ResetTimer()
 			for range b.N {
-				_, _ = db.GetItem(sdkInput)
+				_, _ = db.GetItem(context.Background(), sdkInput)
 			}
 		})
 	}
@@ -43,7 +44,7 @@ func BenchmarkQuery(b *testing.B) {
 
 		b.ResetTimer()
 		for range b.N {
-			_, _ = db.Query(sdkInput)
+			_, _ = db.Query(context.Background(), sdkInput)
 		}
 	})
 
@@ -62,7 +63,7 @@ func BenchmarkQuery(b *testing.B) {
 
 		b.ResetTimer()
 		for range b.N {
-			_, _ = db.Query(sdkInput)
+			_, _ = db.Query(context.Background(), sdkInput)
 		}
 	})
 }
@@ -77,7 +78,7 @@ func BenchmarkScan(b *testing.B) {
 
 		b.ResetTimer()
 		for range b.N {
-			_, _ = db.Scan(sdkInput)
+			_, _ = db.Scan(context.Background(), sdkInput)
 		}
 	})
 }
@@ -95,7 +96,7 @@ func BenchmarkPutItem_WithIndex(b *testing.B) {
 			},
 		}
 		sdkInput, _ := models.ToSDKPutItemInput(&input)
-		_, _ = db.PutItem(sdkInput)
+		_, _ = db.PutItem(context.Background(), sdkInput)
 	}
 }
 
@@ -112,7 +113,7 @@ func BenchmarkConcurrent(b *testing.B) {
 					Key:       map[string]any{"id": map[string]any{"S": strconv.Itoa(i % 10000)}},
 				}
 				sdkInput, _ := models.ToSDKGetItemInput(&input)
-				_, _ = db.GetItem(sdkInput)
+				_, _ = db.GetItem(context.Background(), sdkInput)
 				i++
 			}
 		})
@@ -133,7 +134,7 @@ func BenchmarkConcurrent(b *testing.B) {
 					},
 				}
 				sdkInput, _ := models.ToSDKPutItemInput(&input)
-				_, _ = db.PutItem(sdkInput)
+				_, _ = db.PutItem(context.Background(), sdkInput)
 				i++
 			}
 		})
@@ -156,7 +157,7 @@ func setupEmptyTable(b *testing.B) *dynamodb.InMemoryDB {
 	}
 	sdkInput := models.ToSDKCreateTableInput(&createInput)
 
-	_, err := db.CreateTable(sdkInput)
+	_, err := db.CreateTable(context.Background(), sdkInput)
 	require.NoError(b, err)
 
 	return db
@@ -177,7 +178,7 @@ func setupDBWithItems(b *testing.B, count int) *dynamodb.InMemoryDB {
 		}
 		sdkInput, err := models.ToSDKPutItemInput(&input)
 		require.NoError(b, err)
-		_, err = db.PutItem(sdkInput)
+		_, err = db.PutItem(context.Background(), sdkInput)
 		require.NoError(b, err)
 	}
 

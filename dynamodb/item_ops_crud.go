@@ -1,17 +1,22 @@
 package dynamodb
 
 import (
+	"context"
 	"encoding/json"
 	"maps"
 
 	"Gopherstack/dynamodb/models"
+	"Gopherstack/pkgs/logger"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
 
-func (db *InMemoryDB) PutItem(input *dynamodb.PutItemInput) (*dynamodb.PutItemOutput, error) {
+func (db *InMemoryDB) PutItem(
+	ctx context.Context,
+	input *dynamodb.PutItemInput,
+) (*dynamodb.PutItemOutput, error) {
 	tableName := aws.ToString(input.TableName)
 	if tableName == "" {
 		return nil, NewValidationException("Table name is required")
@@ -34,7 +39,7 @@ func (db *InMemoryDB) PutItem(input *dynamodb.PutItemInput) (*dynamodb.PutItemOu
 	}
 
 	oldItem, matchIndex := db.findMatchForPut(table, wireItem)
-	err = db.checkPutCondition(input, oldItem)
+	err = db.checkPutCondition(ctx, input, oldItem)
 	if err != nil {
 		return nil, err
 	}
@@ -62,11 +67,21 @@ func (db *InMemoryDB) findMatchForPut(table *Table, item map[string]any) (map[st
 	return nil, -1
 }
 
-func (db *InMemoryDB) checkPutCondition(input *dynamodb.PutItemInput, oldItem map[string]any) error {
+func (db *InMemoryDB) checkPutCondition(
+	ctx context.Context,
+	input *dynamodb.PutItemInput,
+	oldItem map[string]any,
+) error {
 	condition := aws.ToString(input.ConditionExpression)
 	if condition == "" {
 		return nil
 	}
+
+	log := logger.Load(ctx)
+	log.DebugContext(ctx, "Evaluating PutItem condition",
+		"expression", condition,
+		"attributeNames", input.ExpressionAttributeNames,
+		"attributeValues", input.ExpressionAttributeValues)
 
 	// Convert EAV to Wire format for evaluator
 	eav := models.FromSDKItem(input.ExpressionAttributeValues)
@@ -122,7 +137,8 @@ func (db *InMemoryDB) populatePutItemOutput(
 	}
 
 	// Handle ConsumedCapacity
-	if input.ReturnConsumedCapacity != "" && input.ReturnConsumedCapacity != types.ReturnConsumedCapacityNone {
+	if input.ReturnConsumedCapacity != "" &&
+		input.ReturnConsumedCapacity != types.ReturnConsumedCapacityNone {
 		const capacityUnit = 1.0
 		const readCapacity = 0.5
 		cu := capacityUnit
@@ -148,7 +164,10 @@ func (db *InMemoryDB) populatePutItemOutput(
 	return out
 }
 
-func (db *InMemoryDB) GetItem(input *dynamodb.GetItemInput) (*dynamodb.GetItemOutput, error) {
+func (db *InMemoryDB) GetItem(
+	_ context.Context,
+	input *dynamodb.GetItemInput,
+) (*dynamodb.GetItemOutput, error) {
 	tableName := aws.ToString(input.TableName)
 	table, err := db.getTable(tableName)
 	if err != nil {
@@ -181,7 +200,10 @@ func (db *InMemoryDB) GetItem(input *dynamodb.GetItemInput) (*dynamodb.GetItemOu
 	return &dynamodb.GetItemOutput{Item: sdkItem}, nil
 }
 
-func (db *InMemoryDB) DeleteItem(input *dynamodb.DeleteItemInput) (*dynamodb.DeleteItemOutput, error) {
+func (db *InMemoryDB) DeleteItem(
+	ctx context.Context,
+	input *dynamodb.DeleteItemInput,
+) (*dynamodb.DeleteItemOutput, error) {
 	tableName := aws.ToString(input.TableName)
 	table, err := db.getTable(tableName)
 	if err != nil {
@@ -195,11 +217,22 @@ func (db *InMemoryDB) DeleteItem(input *dynamodb.DeleteItemInput) (*dynamodb.Del
 	pkDef, skDef := getPKAndSK(table.KeySchema)
 
 	// Get item and index in one lookup (avoids duplicate index lookup)
-	oldItem, matchIndex := db.lookupItemWithIndex(table, wireKey, pkDef.AttributeName, skDef.AttributeName)
+	oldItem, matchIndex := db.lookupItemWithIndex(
+		table,
+		wireKey,
+		pkDef.AttributeName,
+		skDef.AttributeName,
+	)
 
 	// Check condition
 	condition := aws.ToString(input.ConditionExpression)
 	if condition != "" {
+		log := logger.Load(ctx)
+		log.DebugContext(ctx, "Evaluating DeleteItem condition",
+			"expression", condition,
+			"attributeNames", input.ExpressionAttributeNames,
+			"attributeValues", input.ExpressionAttributeValues)
+
 		eav := models.FromSDKItem(input.ExpressionAttributeValues)
 		match, matchErr := evaluateExpression(
 			condition,
@@ -226,7 +259,8 @@ func (db *InMemoryDB) DeleteItem(input *dynamodb.DeleteItemInput) (*dynamodb.Del
 	}
 
 	// Handle ConsumedCapacity
-	if input.ReturnConsumedCapacity != "" && input.ReturnConsumedCapacity != types.ReturnConsumedCapacityNone {
+	if input.ReturnConsumedCapacity != "" &&
+		input.ReturnConsumedCapacity != types.ReturnConsumedCapacityNone {
 		cu := 1.0
 		out.ConsumedCapacity = &types.ConsumedCapacity{
 			TableName:          aws.String(table.Name),
@@ -247,7 +281,10 @@ func (db *InMemoryDB) DeleteItem(input *dynamodb.DeleteItemInput) (*dynamodb.Del
 	return out, nil
 }
 
-func (db *InMemoryDB) UpdateItem(input *dynamodb.UpdateItemInput) (*dynamodb.UpdateItemOutput, error) {
+func (db *InMemoryDB) UpdateItem(
+	ctx context.Context,
+	input *dynamodb.UpdateItemInput,
+) (*dynamodb.UpdateItemOutput, error) {
 	tableName := aws.ToString(input.TableName)
 	table, err := db.getTable(tableName)
 	if err != nil {
@@ -260,24 +297,34 @@ func (db *InMemoryDB) UpdateItem(input *dynamodb.UpdateItemInput) (*dynamodb.Upd
 	wireKey := models.FromSDKItem(input.Key)
 	existing, matchIndex := db.findMatchForPut(table, wireKey)
 
-	err = db.checkUpdateCondition(input, existing)
+	err = db.checkUpdateCondition(ctx, input, existing)
 	if err != nil {
 		return nil, err
 	}
 
-	updated, err := db.doUpdate(table, input, existing, matchIndex)
+	updated, err := db.doUpdate(ctx, table, input, existing, matchIndex)
 	if err != nil {
 		return nil, err
 	}
 
-	return db.populateUpdateOutput(input, table, existing, updated), nil
+	return db.populateUpdateOutput(input, table, existing, updated)
 }
 
-func (db *InMemoryDB) checkUpdateCondition(input *dynamodb.UpdateItemInput, item map[string]any) error {
+func (db *InMemoryDB) checkUpdateCondition(
+	ctx context.Context,
+	input *dynamodb.UpdateItemInput,
+	item map[string]any,
+) error {
 	condition := aws.ToString(input.ConditionExpression)
 	if condition == "" {
 		return nil
 	}
+
+	log := logger.Load(ctx)
+	log.DebugContext(ctx, "Evaluating UpdateItem condition",
+		"expression", condition,
+		"attributeNames", input.ExpressionAttributeNames,
+		"attributeValues", input.ExpressionAttributeValues)
 
 	eav := models.FromSDKItem(input.ExpressionAttributeValues)
 	match, err := evaluateExpression(
@@ -297,6 +344,7 @@ func (db *InMemoryDB) checkUpdateCondition(input *dynamodb.UpdateItemInput, item
 }
 
 func (db *InMemoryDB) doUpdate(
+	ctx context.Context,
 	table *Table,
 	input *dynamodb.UpdateItemInput,
 	existing map[string]any,
@@ -306,7 +354,7 @@ func (db *InMemoryDB) doUpdate(
 	wireKey := models.FromSDKItem(input.Key)
 
 	if existing != nil {
-		maps.Copy(updated, existing)
+		maps.Copy(updated, deepCopyItem(existing))
 	} else {
 		// Create new item from key
 		maps.Copy(updated, wireKey)
@@ -314,6 +362,12 @@ func (db *InMemoryDB) doUpdate(
 
 	updateExpr := aws.ToString(input.UpdateExpression)
 	if updateExpr != "" {
+		log := logger.Load(ctx)
+		log.DebugContext(ctx, "Applying UpdateItem expression",
+			"expression", updateExpr,
+			"attributeNames", input.ExpressionAttributeNames,
+			"attributeValues", input.ExpressionAttributeValues)
+
 		eav := models.FromSDKItem(input.ExpressionAttributeValues)
 		if err := applyUpdate(
 			updated,
@@ -355,38 +409,53 @@ func (db *InMemoryDB) updateIndexes(table *Table, item map[string]any, index int
 	}
 }
 
-func (db *InMemoryDB) populateUpdateOutput(
-	input *dynamodb.UpdateItemInput,
-	table *Table,
+func resolveReturnValues(
+	rv types.ReturnValue,
 	oldItem, newItem map[string]any,
-) *dynamodb.UpdateItemOutput {
-	out := &dynamodb.UpdateItemOutput{}
-
-	switch input.ReturnValues {
+) (map[string]types.AttributeValue, error) {
+	switch rv {
 	case types.ReturnValueAllOld:
 		if oldItem != nil {
-			out.Attributes, _ = models.ToSDKItem(oldItem)
+			return models.ToSDKItem(oldItem)
 		}
 	case types.ReturnValueAllNew:
-		out.Attributes, _ = models.ToSDKItem(newItem)
+		return models.ToSDKItem(newItem)
 	case types.ReturnValueUpdatedOld:
 		if oldItem != nil {
 			updated := getUpdatedAttributes(oldItem, newItem)
 			if len(updated) > 0 {
-				out.Attributes, _ = models.ToSDKItem(updated)
+				return models.ToSDKItem(updated)
 			}
 		}
 	case types.ReturnValueUpdatedNew:
 		updated := getUpdatedAttributes(newItem, oldItem)
 		if len(updated) > 0 {
-			out.Attributes, _ = models.ToSDKItem(updated)
+			return models.ToSDKItem(updated)
 		}
 	case types.ReturnValueNone:
 		// Do nothing
 	}
 
+	return nil, nil //nolint:nilnil // nil attributes is valid when ReturnValues is NONE or item doesn't exist
+}
+
+func (db *InMemoryDB) populateUpdateOutput(
+	input *dynamodb.UpdateItemInput,
+	table *Table,
+	oldItem, newItem map[string]any,
+) (*dynamodb.UpdateItemOutput, error) {
+	out := &dynamodb.UpdateItemOutput{}
+
+	attrs, err := resolveReturnValues(input.ReturnValues, oldItem, newItem)
+	if err != nil {
+		return nil, err
+	}
+
+	out.Attributes = attrs
+
 	// Handle ConsumedCapacity
-	if input.ReturnConsumedCapacity != "" && input.ReturnConsumedCapacity != types.ReturnConsumedCapacityNone {
+	if input.ReturnConsumedCapacity != "" &&
+		input.ReturnConsumedCapacity != types.ReturnConsumedCapacityNone {
 		cu := 1.0
 		out.ConsumedCapacity = &types.ConsumedCapacity{
 			TableName:          aws.String(table.Name),
@@ -404,7 +473,7 @@ func (db *InMemoryDB) populateUpdateOutput(
 		}
 	}
 
-	return out
+	return out, nil
 }
 
 func (db *InMemoryDB) deleteItemAtIndex(table *Table, matchIndex int) {
@@ -481,4 +550,22 @@ func deepEqual(v1, v2 any) bool {
 	b2, _ := json.Marshal(v2)
 
 	return string(b1) == string(b2)
+}
+
+// deepCopyItem returns a deep copy of a wire-format item so that mutations
+// to nested map/list structures in the copy do not affect the original.
+func deepCopyItem(item map[string]any) map[string]any {
+	b, err := json.Marshal(item)
+	if err == nil {
+		var out map[string]any
+		if unmarshalErr := json.Unmarshal(b, &out); unmarshalErr == nil {
+			return out
+		}
+	}
+
+	// Fallback to shallow copy if marshal/unmarshal fails.
+	out := make(map[string]any, len(item))
+	maps.Copy(out, item)
+
+	return out
 }

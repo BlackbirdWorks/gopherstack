@@ -1,10 +1,12 @@
 package dynamodb
 
 import (
+	"context"
 	"fmt"
 	"sort"
 
 	"Gopherstack/dynamodb/models"
+	"Gopherstack/pkgs/logger"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -15,6 +17,7 @@ const txCancelPrefix = "Transaction cancelled, please refer cancellation reasons
 
 // TransactWriteItems executes up to 100 write actions atomically.
 func (db *InMemoryDB) TransactWriteItems(
+	ctx context.Context,
 	input *dynamodb.TransactWriteItemsInput,
 ) (*dynamodb.TransactWriteItemsOutput, error) {
 	if len(input.TransactItems) == 0 {
@@ -34,14 +37,14 @@ func (db *InMemoryDB) TransactWriteItems(
 
 	// Phase 1: Check conditions
 	for i, ti := range input.TransactItems {
-		if err := db.checkTransactWriteCondition(tables, ti, i); err != nil {
+		if err := db.checkTransactWriteCondition(ctx, tables, ti, i); err != nil {
 			return nil, err
 		}
 	}
 
 	// Phase 2: Apply writes
 	for _, ti := range input.TransactItems {
-		if err := db.applyTransactWrite(tables, ti); err != nil {
+		if err := db.applyTransactWrite(ctx, tables, ti); err != nil {
 			return nil, err
 		}
 	}
@@ -51,6 +54,7 @@ func (db *InMemoryDB) TransactWriteItems(
 
 // TransactGetItems reads up to 100 items atomically.
 func (db *InMemoryDB) TransactGetItems(
+	_ context.Context,
 	input *dynamodb.TransactGetItemsInput,
 ) (*dynamodb.TransactGetItemsOutput, error) {
 	if len(input.TransactItems) == 0 {
@@ -188,15 +192,17 @@ func (db *InMemoryDB) lockTablesRead(tableNames []string) (map[string]*Table, er
 }
 
 func (db *InMemoryDB) checkTransactWriteCondition(
+	ctx context.Context,
 	tables map[string]*Table,
 	ti types.TransactWriteItem,
 	idx int,
 ) error {
 	switch {
 	case ti.Put != nil:
-		return db.checkTransactPut(tables, ti.Put, idx)
+		return db.checkTransactPut(ctx, tables, ti.Put, idx)
 	case ti.Delete != nil:
 		return db.checkTransactCondExpr(
+			ctx,
 			tables[aws.ToString(ti.Delete.TableName)],
 			models.FromSDKItem(ti.Delete.Key),
 			aws.ToString(ti.Delete.ConditionExpression),
@@ -206,6 +212,7 @@ func (db *InMemoryDB) checkTransactWriteCondition(
 		)
 	case ti.Update != nil:
 		return db.checkTransactCondExpr(
+			ctx,
 			tables[aws.ToString(ti.Update.TableName)],
 			models.FromSDKItem(ti.Update.Key),
 			aws.ToString(ti.Update.ConditionExpression),
@@ -215,6 +222,7 @@ func (db *InMemoryDB) checkTransactWriteCondition(
 		)
 	case ti.ConditionCheck != nil:
 		return db.checkTransactCondExpr(
+			ctx,
 			tables[aws.ToString(ti.ConditionCheck.TableName)],
 			models.FromSDKItem(ti.ConditionCheck.Key),
 			aws.ToString(ti.ConditionCheck.ConditionExpression),
@@ -227,7 +235,12 @@ func (db *InMemoryDB) checkTransactWriteCondition(
 	return nil
 }
 
-func (db *InMemoryDB) checkTransactPut(tables map[string]*Table, input *types.Put, idx int) error {
+func (db *InMemoryDB) checkTransactPut(
+	ctx context.Context,
+	tables map[string]*Table,
+	input *types.Put,
+	idx int,
+) error {
 	table := tables[aws.ToString(input.TableName)]
 	wireItem := models.FromSDKItem(input.Item)
 	oldItem, _ := db.findMatchForPut(table, wireItem)
@@ -244,7 +257,7 @@ func (db *InMemoryDB) checkTransactPut(tables map[string]*Table, input *types.Pu
 
 	eav := models.FromSDKItem(input.ExpressionAttributeValues)
 
-	if err := db.checkTransactCondExprRaw(oldItem, cond, eav, input.ExpressionAttributeNames, idx); err != nil {
+	if err := db.checkTransactCondExprRaw(ctx, oldItem, cond, eav, input.ExpressionAttributeNames, idx); err != nil {
 		return err
 	}
 
@@ -252,6 +265,7 @@ func (db *InMemoryDB) checkTransactPut(tables map[string]*Table, input *types.Pu
 }
 
 func (db *InMemoryDB) checkTransactCondExpr(
+	ctx context.Context,
 	table *Table,
 	key map[string]any,
 	condExpr string,
@@ -265,28 +279,42 @@ func (db *InMemoryDB) checkTransactCondExpr(
 
 	oldItem, _ := db.findMatchForPut(table, key)
 
-	return db.checkTransactCondExprRaw(oldItem, condExpr, eavs, eans, idx)
+	return db.checkTransactCondExprRaw(ctx, oldItem, condExpr, eavs, eans, idx)
 }
 
 func (db *InMemoryDB) checkTransactCondExprRaw(
+	ctx context.Context,
 	item map[string]any,
 	condExpr string,
 	eavs map[string]any,
 	eans map[string]string,
 	idx int,
 ) error {
+	log := logger.Load(ctx)
+	log.DebugContext(ctx, "Evaluating Transaction condition",
+		"index", idx,
+		"expression", condExpr,
+		"attributeNames", eans,
+		"attributeValues", eavs)
+
 	match, err := evaluateExpression(condExpr, item, eavs, eans)
 	if err != nil {
 		return NewTransactionCanceledException(fmt.Sprintf("%s [%d]: %s", txCancelPrefix, idx, err))
 	}
 	if !match {
-		return NewTransactionCanceledException(fmt.Sprintf("%s [%d]: ConditionalCheckFailed", txCancelPrefix, idx))
+		return NewTransactionCanceledException(
+			fmt.Sprintf("%s [%d]: ConditionalCheckFailed", txCancelPrefix, idx),
+		)
 	}
 
 	return nil
 }
 
-func (db *InMemoryDB) applyTransactWrite(tables map[string]*Table, ti types.TransactWriteItem) error {
+func (db *InMemoryDB) applyTransactWrite(
+	ctx context.Context,
+	tables map[string]*Table,
+	ti types.TransactWriteItem,
+) error {
 	switch {
 	case ti.Put != nil:
 		table := tables[aws.ToString(ti.Put.TableName)]
@@ -324,7 +352,7 @@ func (db *InMemoryDB) applyTransactWrite(tables map[string]*Table, ti types.Tran
 			ExpressionAttributeValues: ti.Update.ExpressionAttributeValues,
 		}
 
-		_, err := db.doUpdate(table, dummyInput, oldItem, matchIndex)
+		_, err := db.doUpdate(ctx, table, dummyInput, oldItem, matchIndex)
 		if err != nil {
 			return err
 		}
