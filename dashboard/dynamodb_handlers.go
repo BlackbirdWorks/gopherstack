@@ -140,7 +140,8 @@ func (h *Handler) fetchTableInfos(ctx context.Context, tableNames []string) []Ta
 
 			desc, err := h.DynamoDB.DescribeTable(ctx, &dynamodb.DescribeTableInput{TableName: aws.String(tblName)})
 			if err != nil {
-				h.Logger.ErrorContext(ctx, "Failed to describe table for list", "table", tblName, "error", err)
+				log := logger.Load(ctx)
+				log.ErrorContext(ctx, "Failed to describe table for list", "table", tblName, "error", err)
 
 				return
 			}
@@ -327,7 +328,8 @@ func (h *Handler) dynamoDBQuery(w http.ResponseWriter, r *http.Request, tableNam
 	ctx := r.Context()
 	desc, err := h.DynamoDB.DescribeTable(ctx, &dynamodb.DescribeTableInput{TableName: &tableName})
 	if err != nil {
-		h.Logger.ErrorContext(ctx, "Failed to describe table", "error", err)
+		log := logger.Load(ctx)
+		log.ErrorContext(ctx, "Failed to describe table", "error", err)
 		if strings.Contains(err.Error(), "ResourceNotFoundException") {
 			http.NotFound(w, r)
 		} else {
@@ -466,7 +468,8 @@ func (h *Handler) executeAndRenderQuery(
 
 	output, err := h.DynamoDB.Query(ctx, input)
 	if err != nil {
-		h.Logger.ErrorContext(ctx, "Failed to query table", "error", err)
+		log := logger.Load(ctx)
+		log.ErrorContext(ctx, "Failed to query table", "error", err)
 		toastMessage := fmt.Sprintf(`{"showToast": {"message": "Failed to query table: %s", "type": "error"}}`,
 			strings.ReplaceAll(err.Error(), `"`, `'`))
 		w.Header().Set("Hx-Trigger", toastMessage)

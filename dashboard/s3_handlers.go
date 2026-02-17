@@ -416,12 +416,13 @@ func (h *Handler) s3Upload(w http.ResponseWriter, r *http.Request, bucketName st
 
 // deleteAllVersions deletes all versions of an object including delete markers.
 func (h *Handler) deleteAllVersions(ctx context.Context, bucketName, key string) error {
+	log := logger.Load(ctx)
 	output, err := h.S3.ListObjectVersions(ctx, &s3.ListObjectVersionsInput{
 		Bucket: &bucketName,
 		Prefix: &key,
 	})
 	if err != nil {
-		h.Logger.ErrorContext(ctx, "Failed to list versions for deletion", "error", err)
+		log.ErrorContext(ctx, "Failed to list versions for deletion", "error", err)
 
 		return err
 	}
@@ -434,7 +435,7 @@ func (h *Handler) deleteAllVersions(ctx context.Context, bucketName, key string)
 				VersionId: v.VersionId,
 			})
 			if err != nil {
-				h.Logger.ErrorContext(ctx, "Failed to delete version",
+				log.ErrorContext(ctx, "Failed to delete version",
 					"key", key, "versionId", *v.VersionId, "error", err)
 			}
 		}
@@ -448,7 +449,7 @@ func (h *Handler) deleteAllVersions(ctx context.Context, bucketName, key string)
 				VersionId: dm.VersionId,
 			})
 			if err != nil {
-				h.Logger.ErrorContext(ctx, "Failed to delete delete marker",
+				log.ErrorContext(ctx, "Failed to delete delete marker",
 					"key", key, "versionId", *dm.VersionId, "error", err)
 			}
 		}
