@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/labstack/echo/v5"
+
 	"Gopherstack/dynamodb/models"
 	"Gopherstack/pkgs/httputils"
 	"Gopherstack/pkgs/logger"
@@ -134,6 +136,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeDynamoDBJSON(log, w, http.StatusOK, response)
+}
+
+// Handle is an Echo handler that wraps ServeHTTP.
+func (h *Handler) Handle(c *echo.Context) error {
+	h.ServeHTTP(c.Response(), c.Request())
+	return nil
 }
 
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) (any, error) {

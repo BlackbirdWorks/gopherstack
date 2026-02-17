@@ -41,11 +41,6 @@ func startServer() error {
 	s3Backend := s3backend.NewInMemoryBackend(&s3backend.GzipCompressor{})
 	s3Handler := s3backend.NewHandler(s3Backend, log)
 
-	// Wrap handlers with logger middleware to inject logger into request context
-	loggerMiddleware := logger.Middleware(log)
-	ddbHandlerWithLogger := loggerMiddleware(ddbHandler)
-	s3HandlerWithLogger := loggerMiddleware(s3Handler)
-
 	// Create a temporary mux for in-memory SDK clients
 	inMemMux := http.NewServeMux()
 	inMemClient := &dashboard.InMemClient{Handler: inMemMux}
@@ -79,32 +74,32 @@ func startServer() error {
 	}
 
 	dashboardHandler := dashboard.NewHandler(ddbClient, s3Client, ddbHandler, s3Handler, log)
-	dashboardHandlerWithLogger := loggerMiddleware(dashboardHandler)
 
 	// Create Echo app with routing
 	e := echo.New()
+
+	// Add logger middleware to inject logger into request context
+	e.Use(logger.EchoMiddleware(log))
 
 	// Route DynamoDB requests via pre-middleware (matched by X-Amz-Target header, not path)
 	e.Pre(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
 			target := c.Request().Header.Get("X-Amz-Target")
 			if len(target) >= 9 && target[:9] == "DynamoDB_" {
-				ddbHandlerWithLogger.ServeHTTP(c.Response(), c.Request())
-
-				return nil
+				return ddbHandler.Handle(c)
 			}
 
 			return next(c)
 		}
 	})
 
-	// Dashboard routes (strip /dashboard prefix for the handler)
+	// Dashboard routes
 	dashGroup := e.Group("/dashboard")
-	dashGroup.Any("/*", echo.WrapHandler(http.StripPrefix("/dashboard", dashboardHandlerWithLogger)))
-	dashGroup.Any("", echo.WrapHandler(http.StripPrefix("/dashboard", dashboardHandlerWithLogger)))
+	dashGroup.Any("/*", dashboardHandler.Handle)
+	dashGroup.Any("", dashboardHandler.Handle)
 
 	// S3 catch-all (everything else)
-	e.Any("/*", echo.WrapHandler(s3HandlerWithLogger))
+	e.Any("/*", s3Handler.Handle)
 
 	// Wire the in-memory mux used by SDK clients through the same Echo routing
 	inMemMux.Handle("/", e)

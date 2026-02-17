@@ -23,6 +23,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/labstack/echo/v5"
 )
 
 const (
@@ -115,6 +116,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.handleObjectOperation(ctx, w, r, bucketName, key)
+}
+
+// Handle is an Echo handler that wraps ServeHTTP.
+func (h *Handler) Handle(c *echo.Context) error {
+	h.ServeHTTP(c.Response(), c.Request())
+	return nil
 }
 
 // resolveBucketAndKey extracts the bucket name and object key from the request.
