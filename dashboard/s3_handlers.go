@@ -566,7 +566,18 @@ func (h *Handler) s3CreateBucket(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) s3DeleteFile(w http.ResponseWriter, r *http.Request, bucketName, key string) {
 	ctx := r.Context()
 	log := logger.Load(ctx)
-	log.InfoContext(ctx, "s3DeleteFile request", "bucket", bucketName, "key", key, "method", r.Method, "url", r.URL.String())
+	log.InfoContext(
+		ctx,
+		"s3DeleteFile request",
+		"bucket",
+		bucketName,
+		"key",
+		key,
+		"method",
+		r.Method,
+		"url",
+		r.URL.String(),
+	)
 
 	if r.Method != http.MethodDelete {
 		log.WarnContext(ctx, "Method not allowed", "method", r.Method)

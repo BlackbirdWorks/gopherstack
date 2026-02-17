@@ -16,11 +16,12 @@ func Save(ctx context.Context, logger *slog.Logger) context.Context {
 }
 
 // Load retrieves a logger from the context.
-// If no logger is found, it returns slog.Default().
+// If no logger is found, it returns [slog.Default].
 func Load(ctx context.Context) *slog.Logger {
 	if logger, ok := ctx.Value(loggerKey).(*slog.Logger); ok && logger != nil {
 		return logger
 	}
+
 	return slog.Default()
 }
 

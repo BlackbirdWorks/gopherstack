@@ -121,7 +121,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // It supports both path-style (/bucket/key) and virtual-hosted-style (bucket.host/key).
 // Returns (bucket, key, true) on success, or ("", "", false) when an error response
 // has already been written.
-func (h *Handler) resolveBucketAndKey(ctx context.Context, w http.ResponseWriter, r *http.Request) (string, string, bool) {
+func (h *Handler) resolveBucketAndKey(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+) (string, string, bool) {
 	log := logger.Load(ctx)
 	path := strings.TrimPrefix(r.URL.Path, "/")
 	parts := strings.SplitN(path, "/", pathSplitParts)
@@ -259,7 +263,12 @@ func (h *Handler) routeBucketGet(ctx context.Context, w http.ResponseWriter, r *
 	}
 }
 
-func (h *Handler) handleObjectOperation(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket, key string) {
+func (h *Handler) handleObjectOperation(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket, key string,
+) {
 	log := logger.Load(ctx)
 	switch r.Method {
 	case http.MethodPut:
@@ -612,7 +621,7 @@ func (h *Handler) listObjectsV2(ctx context.Context, w http.ResponseWriter, r *h
 	httputils.WriteXML(log, w, http.StatusOK, resp)
 }
 
-func (h *Handler) getBucketLocation(ctx context.Context, w http.ResponseWriter, _ *http.Request, _ string) {
+func (h *Handler) getBucketLocation(_ context.Context, w http.ResponseWriter, _ *http.Request, _ string) {
 	// For now, always return us-east-1 or the configured region if we had it.
 	fmt.Fprint(w, locationConstraintXML)
 }
@@ -680,7 +689,7 @@ func getChecksumAlgo(crc32, crc32c, sha1, sha256 *string) string {
 	}
 }
 
-func (h *Handler) headBucket(ctx context.Context, w http.ResponseWriter, r *http.Request, bucketName string) {
+func (h *Handler) headBucket(ctx context.Context, w http.ResponseWriter, _ *http.Request, bucketName string) {
 	_, err := h.Backend.HeadBucket(ctx, &s3.HeadBucketInput{Bucket: aws.String(bucketName)})
 	if errors.Is(err, ErrNoSuchBucket) {
 		w.WriteHeader(http.StatusNotFound)
@@ -823,7 +832,16 @@ func extractChecksumPointers(h http.Header, algo string) (*string, *string, *str
 
 func (h *Handler) putObject(ctx context.Context, w http.ResponseWriter, r *http.Request, bucketName, key string) {
 	log := logger.Load(ctx)
-	log.DebugContext(ctx, "S3 putObject input", "bucket", bucketName, "key", key, "contentType", r.Header.Get("Content-Type"))
+	log.DebugContext(
+		ctx,
+		"S3 putObject input",
+		"bucket",
+		bucketName,
+		"key",
+		key,
+		"contentType",
+		r.Header.Get("Content-Type"),
+	)
 
 	data, err := httputils.ReadBody(r)
 	if err != nil {
@@ -1438,7 +1456,12 @@ func (h *Handler) listObjectVersions(ctx context.Context, w http.ResponseWriter,
 	httputils.WriteXML(log, w, http.StatusOK, resp)
 }
 
-func (h *Handler) putObjectTagging(ctx context.Context, w http.ResponseWriter, r *http.Request, bucketName, key string) {
+func (h *Handler) putObjectTagging(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucketName, key string,
+) {
 	log := logger.Load(ctx)
 	var tagging Tagging
 	if err := xml.NewDecoder(r.Body).Decode(&tagging); err != nil {
@@ -1475,7 +1498,12 @@ func (h *Handler) putObjectTagging(ctx context.Context, w http.ResponseWriter, r
 	w.WriteHeader(http.StatusOK)
 }
 
-func (h *Handler) getObjectTagging(ctx context.Context, w http.ResponseWriter, r *http.Request, bucketName, key string) {
+func (h *Handler) getObjectTagging(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucketName, key string,
+) {
 	log := logger.Load(ctx)
 	versionID := r.URL.Query().Get("versionId")
 	var vid *string
@@ -1507,7 +1535,12 @@ func (h *Handler) getObjectTagging(ctx context.Context, w http.ResponseWriter, r
 	httputils.WriteXML(log, w, http.StatusOK, resp)
 }
 
-func (h *Handler) deleteObjectTagging(ctx context.Context, w http.ResponseWriter, r *http.Request, bucketName, key string) {
+func (h *Handler) deleteObjectTagging(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucketName, key string,
+) {
 	log := logger.Load(ctx)
 	versionID := r.URL.Query().Get("versionId")
 	var vid *string
@@ -1530,7 +1563,12 @@ func (h *Handler) deleteObjectTagging(ctx context.Context, w http.ResponseWriter
 
 // Multipart Upload Handlers
 
-func (h *Handler) createMultipartUpload(ctx context.Context, w http.ResponseWriter, r *http.Request, bucketName, key string) {
+func (h *Handler) createMultipartUpload(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucketName, key string,
+) {
 	log := logger.Load(ctx)
 	out, err := h.Backend.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
 		Bucket: aws.String(bucketName),
@@ -1593,7 +1631,12 @@ func (h *Handler) uploadPart(ctx context.Context, w http.ResponseWriter, r *http
 	w.WriteHeader(http.StatusOK)
 }
 
-func (h *Handler) completeMultipartUpload(ctx context.Context, w http.ResponseWriter, r *http.Request, bucketName, key string) {
+func (h *Handler) completeMultipartUpload(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucketName, key string,
+) {
 	log := logger.Load(ctx)
 	uploadID := r.URL.Query().Get("uploadId")
 
@@ -1651,7 +1694,12 @@ func (h *Handler) completeMultipartUpload(ctx context.Context, w http.ResponseWr
 	httputils.WriteXML(log, w, http.StatusOK, resp)
 }
 
-func (h *Handler) abortMultipartUpload(ctx context.Context, w http.ResponseWriter, r *http.Request, bucketName, key string) {
+func (h *Handler) abortMultipartUpload(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucketName, key string,
+) {
 	log := logger.Load(ctx)
 	uploadID := r.URL.Query().Get("uploadId")
 

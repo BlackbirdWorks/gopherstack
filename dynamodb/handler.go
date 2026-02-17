@@ -341,7 +341,13 @@ func (h *Handler) dispatchTransactOps(ctx context.Context, action string, body [
 	}
 }
 
-func (h *Handler) handleError(ctx context.Context, w http.ResponseWriter, _ *http.Request, action string, reqErr error) {
+func (h *Handler) handleError(
+	ctx context.Context,
+	w http.ResponseWriter,
+	_ *http.Request,
+	action string,
+	reqErr error,
+) {
 	log := logger.Load(ctx)
 
 	if strings.HasPrefix(reqErr.Error(), "UnknownOperationException:") {

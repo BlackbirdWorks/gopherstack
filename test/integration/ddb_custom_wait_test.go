@@ -13,7 +13,7 @@ import (
 )
 
 // TestIntegration_DDB_CustomWaitForDeletion tests a custom implementation
-// of waiting for table deletion, similar to what a user might implement
+// of waiting for table deletion, similar to what a user might implement.
 func TestIntegration_DDB_CustomWaitForDeletion(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
@@ -45,34 +45,35 @@ func TestIntegration_DDB_CustomWaitForDeletion(t *testing.T) {
 	start := time.Now()
 	maxWait := 30 * time.Second
 	pollInterval := 1 * time.Second
-	
+
 	for {
 		_, err := client.DescribeTable(ctx, &dynamodb.DescribeTableInput{
 			TableName: aws.String(tableName),
 		})
-		
+
 		if err != nil {
 			// Check if it's ResourceNotFoundException
 			var rnfe *types.ResourceNotFoundException
 			if errors.As(err, &rnfe) {
 				t.Logf("Table deleted successfully, detected via ResourceNotFoundException")
+
 				break
 			}
 			// Other error - fail the test
 			require.NoError(t, err, "Unexpected error while waiting for table deletion")
 		}
-		
+
 		// Table still exists
 		if time.Since(start) > maxWait {
 			t.Fatalf("Timeout waiting for table deletion after %v", time.Since(start))
 		}
-		
+
 		time.Sleep(pollInterval)
 	}
-	
+
 	elapsed := time.Since(start)
 	t.Logf("Custom wait completed in %v", elapsed)
-	
+
 	// Should complete quickly since deletion is immediate in Gopherstack
 	require.Less(t, elapsed, 5*time.Second, "Custom wait should complete quickly")
 }
