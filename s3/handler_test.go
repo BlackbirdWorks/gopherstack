@@ -143,6 +143,19 @@ func TestHandler_CreateBucket(t *testing.T) {
 	}
 }
 
+func TestHandler_CreateBucket_ReturnsLocation(t *testing.T) {
+	t.Parallel()
+
+	handler, _ := newTestHandler(t)
+
+	req := httptest.NewRequest(http.MethodPut, "/test-bucket", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "/test-bucket", rec.Header().Get("Location"), "Location header should be set")
+}
+
 func TestHandler_DeleteBucket(t *testing.T) {
 	t.Parallel()
 

@@ -409,7 +409,7 @@ func (h *Handler) createBucket(ctx context.Context, w http.ResponseWriter, r *ht
 		}
 	}
 
-	_, err = h.Backend.CreateBucket(ctx, input)
+	output, err := h.Backend.CreateBucket(ctx, input)
 	if errors.Is(err, ErrBucketAlreadyExists) {
 		httputils.WriteError(log, w, r, err, http.StatusConflict)
 
@@ -424,7 +424,10 @@ func (h *Handler) createBucket(ctx context.Context, w http.ResponseWriter, r *ht
 
 	log.DebugContext(ctx, "S3 createBucket output", "bucket", bucketName, "region", region)
 
-	w.Header().Set("Location", "/"+bucketName)
+	// Set Location header from output
+	if output.Location != nil {
+		w.Header().Set("Location", *output.Location)
+	}
 	w.WriteHeader(http.StatusOK)
 }
 
