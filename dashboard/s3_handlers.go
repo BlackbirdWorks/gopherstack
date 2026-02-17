@@ -510,13 +510,14 @@ func formatBytes(bytes int64) string {
 
 // s3CreateBucket handles bucket creation requests.
 func (h *Handler) s3CreateBucket(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	log := logger.Load(ctx)
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 
 		return
 	}
+
+	ctx := r.Context()
+	log := logger.Load(ctx)
 
 	if err := r.ParseForm(); err != nil {
 		log.ErrorContext(ctx, "Failed to parse form", "error", err)
@@ -618,13 +619,14 @@ func (h *Handler) s3DeleteFile(w http.ResponseWriter, r *http.Request, bucketNam
 
 // s3DeleteBucket handles bucket deletion.
 func (h *Handler) s3DeleteBucket(w http.ResponseWriter, r *http.Request, bucketName string) {
-	ctx := r.Context()
-	log := logger.Load(ctx)
 	if r.Method != http.MethodDelete {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 
 		return
 	}
+
+	ctx := r.Context()
+	log := logger.Load(ctx)
 
 	_, err := h.S3.DeleteBucket(ctx, &s3.DeleteBucketInput{
 		Bucket: &bucketName,
