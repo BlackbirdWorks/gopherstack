@@ -654,13 +654,14 @@ func (h *Handler) renderQueryResults(w http.ResponseWriter, result QueryResult) 
 
 // dynamoDBCreateTable handles table creation requests.
 func (h *Handler) dynamoDBCreateTable(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	log := logger.Load(ctx)
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 
 		return
 	}
+
+	ctx := r.Context()
+	log := logger.Load(ctx)
 
 	if err := r.ParseForm(); err != nil {
 		log.ErrorContext(ctx, "Failed to parse form", "error", err)
@@ -715,13 +716,14 @@ func (h *Handler) dynamoDBCreateTable(w http.ResponseWriter, r *http.Request) {
 
 // dynamoDBDeleteTable handles table deletion requests.
 func (h *Handler) dynamoDBDeleteTable(w http.ResponseWriter, r *http.Request, tableName string) {
-	ctx := r.Context()
-	log := logger.Load(ctx)
 	if r.Method != http.MethodDelete {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 
 		return
 	}
+
+	ctx := r.Context()
+	log := logger.Load(ctx)
 
 	_, err := h.DynamoDB.DeleteTable(ctx, &dynamodb.DeleteTableInput{
 		TableName: &tableName,

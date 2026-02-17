@@ -330,13 +330,14 @@ func (h *Handler) s3Download(w http.ResponseWriter, r *http.Request, bucketName,
 
 // s3Upload handles file upload.
 func (h *Handler) s3Upload(w http.ResponseWriter, r *http.Request, bucketName string) {
-	ctx := r.Context()
-	log := logger.Load(ctx)
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 
 		return
 	}
+
+	ctx := r.Context()
+	log := logger.Load(ctx)
 
 	// Parse multipart form
 	if err := r.ParseMultipartForm(maxMultipartMemory); err != nil {
@@ -458,13 +459,14 @@ func (h *Handler) deleteAllVersions(ctx context.Context, bucketName, key string)
 
 // s3Versioning handles bucket versioning configuration.
 func (h *Handler) s3Versioning(w http.ResponseWriter, r *http.Request, bucketName string) {
-	ctx := r.Context()
-	log := logger.Load(ctx)
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 
 		return
 	}
+
+	ctx := r.Context()
+	log := logger.Load(ctx)
 
 	// Parse form to get enabled status
 	enabled := r.FormValue("enabled") == "true"
