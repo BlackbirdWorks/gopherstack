@@ -334,6 +334,8 @@ func TestItem_Expiration(t *testing.T) {
 			t.Parallel()
 			db := dynamodb.NewInMemoryDB()
 
+			createTableHelper(t, db, tt.tableName, "id")
+
 			// Enable TTL
 			_, err := db.UpdateTimeToLive(&dynamodb_sdk.UpdateTimeToLiveInput{
 				TableName: &tt.tableName,
@@ -343,8 +345,6 @@ func TestItem_Expiration(t *testing.T) {
 				},
 			})
 			require.NoError(t, err)
-
-			createTableHelper(t, db, tt.tableName, "id")
 
 			// Put expired item
 			_, err = db.PutItem(&dynamodb_sdk.PutItemInput{
