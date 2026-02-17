@@ -140,19 +140,44 @@ func TestCompareValues(t *testing.T) {
 
 func TestUnwrapAttributeValue(t *testing.T) {
 	t.Parallel()
-	// Test unwrapping various attribute types
-	sVal := map[string]any{"S": "test"}
-	assert.Equal(t, "test", dynamodb.UnwrapAttributeValue(sVal))
 
-	nVal := map[string]any{"N": "123"}
-	assert.Equal(t, "123", dynamodb.UnwrapAttributeValue(nVal))
+	tests := []struct {
+		input any
+		want  any
+		name  string
+	}{
+		{
+			name:  "String",
+			input: map[string]any{"S": "test"},
+			want:  "test",
+		},
+		{
+			name:  "Number",
+			input: map[string]any{"N": "123"},
+			want:  "123",
+		},
+		{
+			name:  "Boolean",
+			input: map[string]any{"BOOL": true},
+			want:  true,
+		},
+		{
+			name:  "Null",
+			input: map[string]any{"NULL": true},
+			want:  nil,
+		},
+		{
+			name:  "RawString",
+			input: "raw",
+			want:  "raw",
+		},
+	}
 
-	boolVal := map[string]any{"BOOL": true}
-	assert.Equal(t, true, dynamodb.UnwrapAttributeValue(boolVal))
-
-	nullVal := map[string]any{"NULL": true}
-	assert.Nil(t, dynamodb.UnwrapAttributeValue(nullVal))
-
-	// Already unwrapped
-	assert.Equal(t, "raw", dynamodb.UnwrapAttributeValue("raw"))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := dynamodb.UnwrapAttributeValue(tt.input)
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }

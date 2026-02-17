@@ -361,51 +361,6 @@ func mustMarshal(t *testing.T, v any) string {
 	return string(data)
 }
 
-func TestHandler_HandleError_Coverage(t *testing.T) {
-	t.Parallel()
-	handler := dynamodb.NewHandler()
-	handler.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
-
-	tests := []struct {
-		err            error
-		name           string
-		wantType       string
-		wantStatusCode int
-	}{
-		{
-			name:           "ConditionalCheckFailed",
-			err:            dynamodb.NewConditionalCheckFailedException("fail"),
-			wantStatusCode: http.StatusBadRequest,
-			wantType:       "ConditionalCheckFailedException",
-		},
-		{
-			name:           "TransactionCanceled",
-			err:            dynamodb.NewTransactionCanceledException("fail"),
-			wantStatusCode: http.StatusBadRequest,
-			wantType:       "TransactionCanceledException",
-		},
-		{
-			name:           "ResourceNotFound",
-			err:            dynamodb.NewResourceNotFoundException("missing"),
-			wantStatusCode: http.StatusBadRequest,
-			wantType:       "ResourceNotFoundException",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			// We test via ServeHTTP by triggering errors if possible,
-			// or we can test h.classifyError if we move it to a public test.
-			// Since we want coverage of Handler.handleError and classifyError,
-			// let's use a non-existent table in a real request to hit ResourceNotFound.
-
-			// Actually, let's just use the table-driven tests in TestHandler_ServeHTTP
-			// to hit these branches. Most are already hit there.
-		})
-	}
-}
-
 func TestHandler_TransactOps_Coverage(t *testing.T) {
 	t.Parallel()
 	handler := dynamodb.NewHandler()

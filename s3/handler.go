@@ -70,6 +70,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetObject",
 		"HeadObject",
 		"DeleteObject",
+		"DeleteObjects",
 		"ListObjects",
 		"ListObjectsV2",
 		"PutObjectTagging",
@@ -200,6 +201,8 @@ func (h *Handler) handleBucketOperation(w http.ResponseWriter, r *http.Request, 
 		h.deleteBucket(w, r, bucket)
 	case http.MethodGet:
 		h.routeBucketGet(w, r, bucket)
+	case http.MethodPost:
+		h.routeBucketPost(w, r, bucket)
 	case http.MethodHead:
 		h.headBucket(w, r, bucket)
 	default:
@@ -216,6 +219,16 @@ func (h *Handler) routeBucketPut(w http.ResponseWriter, r *http.Request, bucket 
 	default:
 		h.createBucket(w, r, bucket)
 	}
+}
+
+func (h *Handler) routeBucketPost(w http.ResponseWriter, r *http.Request, bucket string) {
+	if r.URL.Query().Has("delete") {
+		h.deleteObjects(w, r, bucket)
+
+		return
+	}
+
+	httputils.WriteError(h.Logger, w, r, ErrMethodNotAllowed, http.StatusMethodNotAllowed)
 }
 
 func (h *Handler) routeBucketGet(w http.ResponseWriter, r *http.Request, bucket string) {
@@ -1135,6 +1148,64 @@ func (h *Handler) deleteObject(w http.ResponseWriter, r *http.Request, bucketNam
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) deleteObjects(w http.ResponseWriter, r *http.Request, bucketName string) {
+	var req DeleteRequest
+	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputils.WriteError(h.Logger, w, r, err, http.StatusBadRequest)
+
+		return
+	}
+
+	input := &s3.DeleteObjectsInput{
+		Bucket: aws.String(bucketName),
+		Delete: &types.Delete{
+			Objects: make([]types.ObjectIdentifier, 0, len(req.Objects)),
+			Quiet:   aws.Bool(req.Quiet),
+		},
+	}
+
+	for _, obj := range req.Objects {
+		input.Delete.Objects = append(input.Delete.Objects, types.ObjectIdentifier{
+			Key:       aws.String(obj.Key),
+			VersionId: obj.VersionID,
+		})
+	}
+
+	out, err := h.Backend.DeleteObjects(r.Context(), input)
+	if err != nil {
+		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+
+		return
+	}
+
+	resp := DeleteResult{
+		Deleted: make([]DeletedXML, 0, len(out.Deleted)),
+		Errors:  make([]DeleteErrorXML, 0, len(out.Errors)),
+	}
+
+	for _, d := range out.Deleted {
+		if !req.Quiet {
+			resp.Deleted = append(resp.Deleted, DeletedXML{
+				Key:                   aws.ToString(d.Key),
+				VersionID:             d.VersionId,
+				DeleteMarker:          aws.ToBool(d.DeleteMarker),
+				DeleteMarkerVersionID: d.DeleteMarkerVersionId,
+			})
+		}
+	}
+
+	for _, e := range out.Errors {
+		resp.Errors = append(resp.Errors, DeleteErrorXML{
+			Key:       aws.ToString(e.Key),
+			Code:      aws.ToString(e.Code),
+			Message:   aws.ToString(e.Message),
+			VersionID: e.VersionId,
+		})
+	}
+
+	httputils.WriteXML(h.Logger, w, http.StatusOK, resp)
 }
 
 func (h *Handler) headObject(w http.ResponseWriter, r *http.Request, bucketName, key string) {

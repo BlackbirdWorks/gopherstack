@@ -15,7 +15,7 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 	tableName := "UpdateComplexTable"
 
 	tests := []struct {
-		setup      func(*dynamodb.InMemoryDB)
+		setup      func(*testing.T, *dynamodb.InMemoryDB)
 		verifyFunc func(t *testing.T, db *dynamodb.InMemoryDB)
 		name       string
 		input      string
@@ -23,7 +23,8 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 	}{
 		{
 			name: "SET Nested Map Field",
-			setup: func(db *dynamodb.InMemoryDB) {
+			setup: func(t *testing.T, db *dynamodb.InMemoryDB) {
+				t.Helper()
 				putInput := models.PutItemInput{
 					TableName: tableName,
 					Item: map[string]any{
@@ -37,7 +38,8 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 					},
 				}
 				sdkPut, _ := models.ToSDKPutItemInput(&putInput)
-				_, _ = db.PutItem(sdkPut)
+				_, err := db.PutItem(sdkPut)
+				require.NoError(t, err)
 			},
 			input: `{
 				"TableName": "` + tableName + `",
@@ -54,7 +56,8 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 		},
 		{
 			name: "SET List Element by Index",
-			setup: func(db *dynamodb.InMemoryDB) {
+			setup: func(t *testing.T, db *dynamodb.InMemoryDB) {
+				t.Helper()
 				putInput := models.PutItemInput{
 					TableName: tableName,
 					Item: map[string]any{
@@ -65,7 +68,8 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 					},
 				}
 				sdkPut, _ := models.ToSDKPutItemInput(&putInput)
-				_, _ = db.PutItem(sdkPut)
+				_, err := db.PutItem(sdkPut)
+				require.NoError(t, err)
 			},
 			input: `{
 				"TableName": "` + tableName + `",
@@ -82,7 +86,8 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 		},
 		{
 			name: "SET Nested List in Map",
-			setup: func(db *dynamodb.InMemoryDB) {
+			setup: func(t *testing.T, db *dynamodb.InMemoryDB) {
+				t.Helper()
 				putInput := models.PutItemInput{
 					TableName: tableName,
 					Item: map[string]any{
@@ -93,7 +98,8 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 					},
 				}
 				sdkPut, _ := models.ToSDKPutItemInput(&putInput)
-				_, _ = db.PutItem(sdkPut)
+				_, err := db.PutItem(sdkPut)
+				require.NoError(t, err)
 			},
 			input: `{
 				"TableName": "` + tableName + `",
@@ -111,7 +117,8 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 		},
 		{
 			name: "REMOVE List Element (Shift)",
-			setup: func(db *dynamodb.InMemoryDB) {
+			setup: func(t *testing.T, db *dynamodb.InMemoryDB) {
+				t.Helper()
 				putInput := models.PutItemInput{
 					TableName: tableName,
 					Item: map[string]any{
@@ -122,7 +129,8 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 					},
 				}
 				sdkPut, _ := models.ToSDKPutItemInput(&putInput)
-				_, _ = db.PutItem(sdkPut)
+				_, err := db.PutItem(sdkPut)
+				require.NoError(t, err)
 			},
 			input: `{
 				"TableName": "` + tableName + `",
@@ -148,7 +156,7 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 			createTableHelper(t, db, tableName, "pk")
 
 			if tc.setup != nil {
-				tc.setup(db)
+				tc.setup(t, db)
 			}
 
 			updateInput := mustUnmarshal[models.UpdateItemInput](t, tc.input)
@@ -156,9 +164,10 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 			_, err := db.UpdateItem(sdkUpdate)
 			if tc.wantErr {
 				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
+
+				return
 			}
+			require.NoError(t, err)
 
 			if tc.verifyFunc != nil {
 				tc.verifyFunc(t, db)

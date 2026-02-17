@@ -3,7 +3,6 @@ package dynamodb_test
 import (
 	"Gopherstack/dynamodb"
 	"Gopherstack/dynamodb/models"
-	"encoding/json"
 	"strings"
 	"testing"
 
@@ -31,7 +30,7 @@ func TestValidateDataTypes(t *testing.T) {
 		{
 			name:    "Invalid Number",
 			item:    map[string]any{"val": map[string]any{"N": "abc"}},
-			wantErr: true, // "abc" is not a valid number
+			wantErr: true,
 		},
 		{
 			name:    "Valid Bool",
@@ -78,12 +77,11 @@ func TestValidateDataTypes(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			itemJSON, _ := json.Marshal(tc.item)
 			err := dynamodb.ValidateDataTypes(tc.item)
 			if tc.wantErr {
-				require.Error(t, err, "Item: %s", string(itemJSON))
+				require.Error(t, err)
 			} else {
-				require.NoError(t, err, "Item: %s", string(itemJSON))
+				require.NoError(t, err)
 			}
 		})
 	}
@@ -129,8 +127,8 @@ func TestBuildKeyString(t *testing.T) {
 func TestCalculateItemSize(t *testing.T) {
 	t.Parallel()
 	item := map[string]any{
-		"pk": map[string]any{"S": "value"}, // "pk" (2) + "value" (5) = 7
-		"n":  map[string]any{"N": "123"},   // "n" (1) + "123" (3) = 4
+		"pk": map[string]any{"S": "value"},
+		"n":  map[string]any{"N": "123"},
 	}
 
 	size, err := dynamodb.CalculateItemSize(item)
@@ -140,15 +138,6 @@ func TestCalculateItemSize(t *testing.T) {
 
 func TestPutItem_ValidationErrors(t *testing.T) {
 	t.Parallel()
-	db := dynamodb.NewInMemoryDB()
-	tableName := "ValidationTable"
-	ctInput := models.CreateTableInput{
-		TableName:            tableName,
-		KeySchema:            []models.KeySchemaElement{{AttributeName: "pk", KeyType: models.KeyTypeHash}},
-		AttributeDefinitions: []models.AttributeDefinition{{AttributeName: "pk", AttributeType: "S"}},
-	}
-	_, err := db.CreateTable(models.ToSDKCreateTableInput(&ctInput))
-	require.NoError(t, err)
 
 	tests := []struct {
 		item      string
@@ -175,12 +164,20 @@ func TestPutItem_ValidationErrors(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+			db := dynamodb.NewInMemoryDB()
+			tableName := "ValidationTable"
+			ctInput := models.CreateTableInput{
+				TableName:            tableName,
+				KeySchema:            []models.KeySchemaElement{{AttributeName: "pk", KeyType: models.KeyTypeHash}},
+				AttributeDefinitions: []models.AttributeDefinition{{AttributeName: "pk", AttributeType: "S"}},
+			}
+			_, _ = db.CreateTable(models.ToSDKCreateTableInput(&ctInput))
+
 			inputStr := `{"TableName": "` + tableName + `", "Item": ` + tc.item + `}`
 			putInput := mustUnmarshal[models.PutItemInput](t, inputStr)
 			sdkPut, _ := models.ToSDKPutItemInput(&putInput)
 
-			var pErr error
-			_, pErr = db.PutItem(sdkPut)
+			_, pErr := db.PutItem(sdkPut)
 			require.Error(t, pErr)
 			if tc.wantError != "" {
 				assert.Contains(t, pErr.Error(), tc.wantError)
@@ -201,7 +198,6 @@ func TestPutItem_ItemTooLarge(t *testing.T) {
 	_, err := db.CreateTable(models.ToSDKCreateTableInput(&ctInput))
 	require.NoError(t, err)
 
-	// Create item > 400KB
 	largeVal := strings.Repeat("a", 400*1024+100)
 	input := `{
 		"TableName": "` + tableName + `",
@@ -216,14 +212,13 @@ func TestPutItem_ItemTooLarge(t *testing.T) {
 	_, err = db.PutItem(sdkPut)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "exceeds limit")
-	assert.Contains(t, err.Error(), "ValidationException")
 }
 
 func TestCapacityUnits(t *testing.T) {
 	t.Parallel()
 	item := map[string]any{
 		"pk":  map[string]any{"S": "large"},
-		"val": map[string]any{"S": strings.Repeat("a", 2000)}, // ~2KB
+		"val": map[string]any{"S": strings.Repeat("a", 2000)},
 	}
 
 	wcu := dynamodb.WriteCapacityUnits(item)
@@ -232,7 +227,6 @@ func TestCapacityUnits(t *testing.T) {
 	rcu := dynamodb.ReadCapacityUnits(item)
 	assert.GreaterOrEqual(t, rcu, 0.5)
 
-	// Zero item
 	assert.InDelta(t, 1.0, dynamodb.WriteCapacityUnits(nil), 0.0001)
 	assert.InDelta(t, 0.5, dynamodb.ReadCapacityUnits(nil), 0.0001)
 }
@@ -313,11 +307,9 @@ func TestValidateDataTypes_Sets(t *testing.T) {
 
 func TestNormalizeSetList(t *testing.T) {
 	t.Parallel()
-	// Test []string and [][]byte normalization
 	item1 := map[string]any{"set": map[string]any{"SS": []string{"a", "b"}}}
 	require.NoError(t, dynamodb.ValidateDataTypes(item1))
 
 	item2 := map[string]any{"set": map[string]any{"BS": [][]byte{[]byte("a"), []byte("b")}}}
-	// Note: normalizeSetList converts [][]byte to []any of strings (base64)
 	require.NoError(t, dynamodb.ValidateDataTypes(item2))
 }

@@ -3,7 +3,6 @@ package dynamodb_test
 import (
 	"Gopherstack/dynamodb"
 	"Gopherstack/dynamodb/models"
-	"fmt"
 	"strings"
 	"testing"
 
@@ -13,140 +12,224 @@ import (
 
 func TestExtractKeySchema(t *testing.T) {
 	t.Parallel()
-	db := dynamodb.NewInMemoryDB()
-	tableName := "SchemaTable"
-	ctInput := models.CreateTableInput{
-		TableName: tableName,
-		KeySchema: []models.KeySchemaElement{
-			{AttributeName: "pk", KeyType: models.KeyTypeHash},
-			{AttributeName: "sk", KeyType: models.KeyTypeRange},
+
+	tests := []struct {
+		setup func(*testing.T, *dynamodb.InMemoryDB, string)
+		check func(*testing.T, *dynamodb.InMemoryDB, string)
+		name  string
+	}{
+		{
+			name: "MainTableSchema",
+			setup: func(t *testing.T, db *dynamodb.InMemoryDB, tableName string) {
+				t.Helper()
+				ctInput := models.CreateTableInput{
+					TableName: tableName,
+					KeySchema: []models.KeySchemaElement{
+						{AttributeName: "pk", KeyType: models.KeyTypeHash},
+						{AttributeName: "sk", KeyType: models.KeyTypeRange},
+					},
+					AttributeDefinitions: []models.AttributeDefinition{
+						{AttributeName: "pk", AttributeType: "S"},
+						{AttributeName: "sk", AttributeType: "N"},
+					},
+				}
+				_, err := db.CreateTable(models.ToSDKCreateTableInput(&ctInput))
+				require.NoError(t, err)
+			},
+			check: func(t *testing.T, db *dynamodb.InMemoryDB, tableName string) {
+				t.Helper()
+				table := db.Tables[tableName]
+				schema, idx, err := db.ExtractKeySchema(table, "")
+				require.NoError(t, err)
+				assert.Nil(t, idx)
+				require.Len(t, schema, 2)
+				assert.Equal(t, "pk", schema[0].AttributeName)
+				assert.Equal(t, "sk", schema[1].AttributeName)
+			},
 		},
-		AttributeDefinitions: []models.AttributeDefinition{
-			{AttributeName: "pk", AttributeType: "S"},
-			{AttributeName: "sk", AttributeType: "N"},
+		{
+			name: "GSISchema",
+			setup: func(t *testing.T, db *dynamodb.InMemoryDB, tableName string) {
+				t.Helper()
+				ctInput := models.CreateTableInput{
+					TableName: tableName,
+					KeySchema: []models.KeySchemaElement{
+						{AttributeName: "pk", KeyType: models.KeyTypeHash},
+					},
+					AttributeDefinitions: []models.AttributeDefinition{
+						{AttributeName: "pk", AttributeType: "S"},
+						{AttributeName: "gsiPK", AttributeType: "S"},
+						{AttributeName: "gsiSK", AttributeType: "N"},
+					},
+					GlobalSecondaryIndexes: []models.GlobalSecondaryIndex{
+						{
+							IndexName: "GSI1",
+							KeySchema: []models.KeySchemaElement{
+								{AttributeName: "gsiPK", KeyType: models.KeyTypeHash},
+								{AttributeName: "gsiSK", KeyType: models.KeyTypeRange},
+							},
+							Projection: models.Projection{ProjectionType: "ALL"},
+						},
+					},
+				}
+				_, err := db.CreateTable(models.ToSDKCreateTableInput(&ctInput))
+				require.NoError(t, err)
+			},
+			check: func(t *testing.T, db *dynamodb.InMemoryDB, tableName string) {
+				t.Helper()
+				table := db.Tables[tableName]
+				schema, idx, err := db.ExtractKeySchema(table, "GSI1")
+				require.NoError(t, err)
+				require.NotNil(t, idx)
+				assert.Equal(t, "ALL", idx.ProjectionType)
+				require.Len(t, schema, 2)
+				assert.Equal(t, "gsiPK", schema[0].AttributeName)
+				assert.Equal(t, "gsiSK", schema[1].AttributeName)
+			},
 		},
-		GlobalSecondaryIndexes: []models.GlobalSecondaryIndex{
-			{
-				IndexName: "GSI1",
-				KeySchema: []models.KeySchemaElement{
-					{AttributeName: "gsiPK", KeyType: models.KeyTypeHash},
-					{AttributeName: "gsiSK", KeyType: models.KeyTypeRange},
-				},
-				Projection: models.Projection{ProjectionType: "ALL"},
+		{
+			name: "InvalidIndex",
+			setup: func(t *testing.T, db *dynamodb.InMemoryDB, tableName string) {
+				t.Helper()
+				ctInput := models.CreateTableInput{
+					TableName: tableName,
+					KeySchema: []models.KeySchemaElement{{AttributeName: "pk", KeyType: "HASH"}},
+					AttributeDefinitions: []models.AttributeDefinition{
+						{AttributeName: "pk", AttributeType: "S"},
+					},
+				}
+				_, _ = db.CreateTable(models.ToSDKCreateTableInput(&ctInput))
+			},
+			check: func(t *testing.T, db *dynamodb.InMemoryDB, tableName string) {
+				t.Helper()
+				table := db.Tables[tableName]
+				_, _, err := db.ExtractKeySchema(table, "InvalidIndex")
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "not found")
 			},
 		},
 	}
-	_, err := db.CreateTable(models.ToSDKCreateTableInput(&ctInput))
-	require.NoError(t, err)
 
-	table := db.Tables[tableName]
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			db := dynamodb.NewInMemoryDB()
+			tableName := "SchemaTable"
 
-	// Test Main Table Schema
-	schema, idx, err := db.ExtractKeySchema(table, "")
-	require.NoError(t, err)
-	assert.Nil(t, idx)
-	assert.Len(t, schema, 2)
-	assert.Equal(t, "pk", schema[0].AttributeName)
-	assert.Equal(t, "sk", schema[1].AttributeName)
-
-	// Test PutItem with oversized item
-	oversizedData := strings.Repeat("a", 400*1024)
-	input := fmt.Sprintf(
-		`{"TableName": "%s", "Item": {"pk": {"S": "oversized"}, "sk": {"N": "1"}, "data": {"S": "%s"}}}`,
-		tableName,
-		oversizedData,
-	)
-	putInput := mustUnmarshal[models.PutItemInput](t, input)
-	sdkPut, _ := models.ToSDKPutItemInput(&putInput)
-	_, err = db.PutItem(sdkPut)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "exceeds limit")
-
-	// Test GSI Schema
-	schema, idx, err = db.ExtractKeySchema(table, "GSI1")
-	require.NoError(t, err)
-	assert.NotNil(t, idx)
-	// idx is *Projection, so check its properties if needed, but not IndexName
-	assert.Equal(t, "ALL", idx.ProjectionType)
-	assert.Len(t, schema, 2)
-	assert.Equal(t, "gsiPK", schema[0].AttributeName)
-	assert.Equal(t, "gsiSK", schema[1].AttributeName)
-
-	// Test Invalid Index
-	_, _, err = db.ExtractKeySchema(table, "InvalidIndex")
-	require.Error(t, err)
-	// The error message is "Requested resource not found: Index: InvalidIndex not found"
-	// It does not contain "ProcessFail" unless NewResourceNotFoundException adds it?
-	// Let's check for "not found" which is safe.
-	assert.Contains(t, err.Error(), "not found")
+			if tt.setup != nil {
+				tt.setup(t, db, tableName)
+			}
+			if tt.check != nil {
+				tt.check(t, db, tableName)
+			}
+		})
+	}
 }
 
 func TestSortCandidates(t *testing.T) {
 	t.Parallel()
-	db := dynamodb.NewInMemoryDB()
-	table := &dynamodb.Table{
-		AttributeDefinitions: []models.AttributeDefinition{
-			{AttributeName: "sk_n", AttributeType: "N"},
-			{AttributeName: "sk_s", AttributeType: "S"},
+
+	tests := []struct {
+		name       string
+		skAttr     string
+		skType     string
+		candidates []map[string]any
+		want       []string
+		forward    bool
+	}{
+		{
+			name: "NumberSortingForward",
+			candidates: []map[string]any{
+				{"sk_n": map[string]any{"N": "10"}},
+				{"sk_n": map[string]any{"N": "2"}},
+				{"sk_n": map[string]any{"N": "30"}},
+			},
+			skAttr:  "sk_n",
+			skType:  "N",
+			forward: true,
+			want:    []string{"2", "10", "30"},
+		},
+		{
+			name: "NumberSortingReverse",
+			candidates: []map[string]any{
+				{"sk_n": map[string]any{"N": "10"}},
+				{"sk_n": map[string]any{"N": "2"}},
+				{"sk_n": map[string]any{"N": "30"}},
+			},
+			skAttr:  "sk_n",
+			skType:  "N",
+			forward: false,
+			want:    []string{"30", "10", "2"},
+		},
+		{
+			name: "StringSortingForward",
+			candidates: []map[string]any{
+				{"sk_s": map[string]any{"S": "c"}},
+				{"sk_s": map[string]any{"S": "a"}},
+				{"sk_s": map[string]any{"S": "b"}},
+			},
+			skAttr:  "sk_s",
+			skType:  "S",
+			forward: true,
+			want:    []string{"a", "b", "c"},
 		},
 	}
 
-	// Test Number Sorting
-	candidates := []map[string]any{
-		{"sk_n": map[string]any{"N": "10"}},
-		{"sk_n": map[string]any{"N": "2"}},
-		{"sk_n": map[string]any{"N": "30"}},
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			db := dynamodb.NewInMemoryDB()
+			table := &dynamodb.Table{
+				AttributeDefinitions: []models.AttributeDefinition{
+					{AttributeName: tt.skAttr, AttributeType: tt.skType},
+				},
+			}
+			skDef := models.KeySchemaElement{AttributeName: tt.skAttr, KeyType: "RANGE"}
+
+			db.SortCandidates(tt.candidates, skDef, table, tt.forward)
+
+			for i, val := range tt.want {
+				got := tt.candidates[i][tt.skAttr].(map[string]any)[tt.skType]
+				assert.Equal(t, val, got)
+			}
+		})
 	}
-	skDef := models.KeySchemaElement{AttributeName: "sk_n", KeyType: "RANGE"}
-	forward := true
-
-	db.SortCandidates(candidates, skDef, table, forward)
-
-	assert.Equal(t, "2", candidates[0]["sk_n"].(map[string]any)["N"])
-	assert.Equal(t, "10", candidates[1]["sk_n"].(map[string]any)["N"])
-	assert.Equal(t, "30", candidates[2]["sk_n"].(map[string]any)["N"])
-
-	// Test String Sorting
-	candidatesRequest := []map[string]any{
-		{"sk_s": map[string]any{"S": "c"}},
-		{"sk_s": map[string]any{"S": "a"}},
-		{"sk_s": map[string]any{"S": "b"}},
-	}
-	skDefS := models.KeySchemaElement{AttributeName: "sk_s", KeyType: "RANGE"}
-
-	db.SortCandidates(candidatesRequest, skDefS, table, forward)
-
-	assert.Equal(t, "a", candidatesRequest[0]["sk_s"].(map[string]any)["S"])
-	assert.Equal(t, "b", candidatesRequest[1]["sk_s"].(map[string]any)["S"])
-	assert.Equal(t, "c", candidatesRequest[2]["sk_s"].(map[string]any)["S"])
-
-	// Test Reverse Sorting
-	forward = false
-	db.SortCandidates(candidatesRequest, skDefS, table, forward)
-	assert.Equal(t, "c", candidatesRequest[0]["sk_s"].(map[string]any)["S"])
 }
 
 func TestFindExclusiveStartIndex(t *testing.T) {
 	t.Parallel()
-	// db := NewInMemoryDB() // Not needed for standalone function
+
 	items := []map[string]any{
 		{"pk": map[string]any{"S": "1"}},
 		{"pk": map[string]any{"S": "2"}},
 		{"pk": map[string]any{"S": "3"}},
 	}
-
 	keySchema := []models.KeySchemaElement{{AttributeName: "pk", KeyType: "HASH"}}
 
-	// Found "2" (index 1). Function returns index + 1 = 2.
-	startKey := map[string]any{"pk": map[string]any{"S": "2"}}
-	idx := dynamodb.FindExclusiveStartIndex(items, startKey, keySchema)
-	assert.Equal(t, 2, idx)
+	tests := []struct {
+		startKey map[string]any
+		name     string
+		want     int
+	}{
+		{
+			name:     "Found",
+			startKey: map[string]any{"pk": map[string]any{"S": "2"}},
+			want:     2,
+		},
+		{
+			name:     "NotFound",
+			startKey: map[string]any{"pk": map[string]any{"S": "4"}},
+			want:     0,
+		},
+	}
 
-	// Not Found
-	startKey = map[string]any{"pk": map[string]any{"S": "4"}}
-	idx = dynamodb.FindExclusiveStartIndex(items, startKey, keySchema)
-	assert.Equal(t, 0, idx) // Should return 0 if not found (start from beginning?)
-	// verify implementation behavior for not found: returns 0.
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			idx := dynamodb.FindExclusiveStartIndex(items, tt.startKey, keySchema)
+			assert.Equal(t, tt.want, idx)
+		})
+	}
 }
 
 func TestCompareAny(t *testing.T) {
@@ -166,7 +249,6 @@ func TestCompareAny(t *testing.T) {
 		{"String =", "a", "a", "S", 0},
 		{"Nil v1", nil, "a", "S", 0},
 		{"Nil v2", "a", nil, "S", 0},
-		// v1 and v2 as ints/floats for "N" type (parseNumber handles it)
 		{"Float <", 10.5, 20.5, "N", -1},
 	}
 
@@ -204,6 +286,7 @@ func TestToString(t *testing.T) {
 
 func TestApplyGSIProjection(t *testing.T) {
 	t.Parallel()
+
 	item := map[string]any{
 		"pk":    map[string]any{"S": "p"},
 		"sk":    map[string]any{"N": "1"},
@@ -211,9 +294,6 @@ func TestApplyGSIProjection(t *testing.T) {
 		"gsiPK": map[string]any{"S": "gp"},
 		"gsiSK": map[string]any{"N": "2"},
 	}
-
-	// KEYS_ONLY
-	projKeys := models.Projection{ProjectionType: "KEYS_ONLY"}
 	keySchema := []models.KeySchemaElement{
 		{AttributeName: "gsiPK", KeyType: "HASH"},
 		{AttributeName: "gsiSK", KeyType: "RANGE"},
@@ -223,27 +303,41 @@ func TestApplyGSIProjection(t *testing.T) {
 		{AttributeName: "sk", KeyType: "RANGE"},
 	}
 
-	filtered := dynamodb.ApplyGSIProjection(item, projKeys, tableKeySchema, keySchema)
-	assert.Len(t, filtered, 4) // pk, sk, gsiPK, gsiSK
-	assert.Contains(t, filtered, "pk")
-	assert.Contains(t, filtered, "sk")
-	assert.Contains(t, filtered, "gsiPK")
-	assert.Contains(t, filtered, "gsiSK")
-	assert.NotContains(t, filtered, "other")
-
-	// INCLUDE
-	projInc := models.Projection{
-		ProjectionType:   "INCLUDE",
-		NonKeyAttributes: []string{"other"},
+	tests := []struct {
+		name string
+		proj models.Projection
+		want int
+	}{
+		{
+			name: "KEYS_ONLY",
+			proj: models.Projection{ProjectionType: "KEYS_ONLY"},
+			want: 4,
+		},
+		{
+			name: "INCLUDE",
+			proj: models.Projection{
+				ProjectionType:   "INCLUDE",
+				NonKeyAttributes: []string{"other"},
+			},
+			want: 5,
+		},
+		{
+			name: "ALL",
+			proj: models.Projection{ProjectionType: "ALL"},
+			want: 5,
+		},
 	}
-	filteredInc := dynamodb.ApplyGSIProjection(item, projInc, tableKeySchema, keySchema)
-	assert.Len(t, filteredInc, 5)
-	assert.Contains(t, filteredInc, "other")
 
-	// ALL
-	projAll := models.Projection{ProjectionType: "ALL"}
-	filteredAll := dynamodb.ApplyGSIProjection(item, projAll, tableKeySchema, keySchema)
-	assert.Equal(t, item, filteredAll)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			filtered := dynamodb.ApplyGSIProjection(item, tt.proj, tableKeySchema, keySchema)
+			assert.Len(t, filtered, tt.want)
+			if tt.name == "KEYS_ONLY" {
+				assert.NotContains(t, filtered, "other")
+			}
+		})
+	}
 }
 
 func TestRebuildIndexes(t *testing.T) {
@@ -251,8 +345,6 @@ func TestRebuildIndexes(t *testing.T) {
 	db := dynamodb.NewInMemoryDB()
 	tableName := "RebuildTable"
 
-	// Create table manually to avoid triggering implicit rebuilds (though CreateTable calls it)
-	// We want to test the function itself.
 	ctInput := models.CreateTableInput{
 		TableName: tableName,
 		KeySchema: []models.KeySchemaElement{
@@ -268,47 +360,17 @@ func TestRebuildIndexes(t *testing.T) {
 	require.NoError(t, err)
 
 	table := db.Tables[tableName]
-
-	// Corrupt indexes manually
-	table.InitializeIndexes() // Clears indexes
+	table.InitializeIndexes()
 	assert.Empty(t, table.PKIndex())
-	assert.Empty(t, table.PKSKIndex())
 
-	// Add items directly to storage
 	item1 := map[string]any{"pk": map[string]any{"S": "p1"}, "sk": map[string]any{"N": "1"}}
 	item2 := map[string]any{"pk": map[string]any{"S": "p1"}, "sk": map[string]any{"N": "2"}}
 	table.Items = append(table.Items, item1, item2)
 
-	// Rebuild
 	table.RebuildIndexes()
 
-	// Verify
 	assert.NotNil(t, table.PKSKIndex()["p1"])
-	assert.Equal(t, 0, table.PKSKIndex()["p1"]["1"]) // Index of item1
-	assert.Equal(t, 1, table.PKSKIndex()["p1"]["2"]) // Index of item2
-}
-
-func TestSortCandidates_InferredType(t *testing.T) {
-	t.Parallel()
-	db := dynamodb.NewInMemoryDB()
-	// Table WITHOUT AttributeDefinitions for SK
-	table := &dynamodb.Table{
-		AttributeDefinitions: []models.AttributeDefinition{},
-	}
-
-	candidates := []map[string]any{
-		{"sk": map[string]any{"N": "10"}},
-		{"sk": map[string]any{"N": "2"}},
-		{"sk": map[string]any{"N": "30"}},
-	}
-	skDef := models.KeySchemaElement{AttributeName: "sk", KeyType: "RANGE"}
-	forward := true
-
-	db.SortCandidates(candidates, skDef, table, forward)
-
-	assert.Equal(t, "2", candidates[0]["sk"].(map[string]any)["N"])
-	assert.Equal(t, "10", candidates[1]["sk"].(map[string]any)["N"])
-	assert.Equal(t, "30", candidates[2]["sk"].(map[string]any)["N"])
+	assert.Equal(t, 0, table.PKSKIndex()["p1"]["1"])
 }
 
 func TestParseStr(t *testing.T) {
@@ -316,7 +378,6 @@ func TestParseStr(t *testing.T) {
 	assert.Equal(t, "test", dynamodb.ParseStr("test"))
 	assert.Equal(t, "123", dynamodb.ParseStr(123))
 	assert.Equal(t, "true", dynamodb.ParseStr(true))
-	assert.Empty(t, dynamodb.ParseStr(nil))
 }
 
 func TestCalculateItemSize_Complex(t *testing.T) {

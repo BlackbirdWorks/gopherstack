@@ -2,7 +2,6 @@ package dynamodb_test
 
 import (
 	"Gopherstack/dynamodb/models"
-	"encoding/json"
 	"strconv"
 	"testing"
 
@@ -14,47 +13,6 @@ import (
 
 func TestQuery(t *testing.T) {
 	t.Parallel()
-	db := dynamodb.NewInMemoryDB()
-
-	// Setup table
-	tableName := "QueryTestTable"
-
-	ctInput := mustUnmarshal[models.CreateTableInput](t, `{
-		"TableName": "`+tableName+`",
-		"KeySchema": [
-			{"AttributeName": "pk", "KeyType": "HASH"},
-			{"AttributeName": "sk", "KeyType": "RANGE"}
-		],
-		"AttributeDefinitions": [
-			{"AttributeName": "pk", "AttributeType": "S"},
-			{"AttributeName": "sk", "AttributeType": "N"}
-		],
-		"ProvisionedThroughput": {
-			"ReadCapacityUnits": 5,
-			"WriteCapacityUnits": 5
-		}
-	}`)
-	_, createErr := db.CreateTable(models.ToSDKCreateTableInput(&ctInput))
-	require.NoError(t, createErr)
-
-	// Insert items
-	// pk=A, sk=1..5
-	// pk=B, sk=1..5
-	for _, pk := range []string{"A", "B"} {
-		for i := 1; i <= 5; i++ {
-			putInput := mustUnmarshal[models.PutItemInput](t, `{
-				"TableName": "`+tableName+`",
-				"Item": {
-					"pk": {"S": "`+pk+`"},
-					"sk": {"N": "`+strconv.Itoa(i)+`"},
-					"data": {"S": "data-`+pk+`-`+strconv.Itoa(i)+`"}
-				}
-			}`)
-			sdkPut, _ := models.ToSDKPutItemInput(&putInput)
-			_, putErr := db.PutItem(sdkPut)
-			require.NoError(t, putErr)
-		}
-	}
 
 	tests := []struct {
 		name       string
@@ -66,7 +24,7 @@ func TestQuery(t *testing.T) {
 		{
 			name: "Simple PK Query",
 			input: `{
-				"TableName": "` + tableName + `",
+				"TableName": "QueryTestTable",
 				"KeyConditionExpression": "pk = :pk",
 				"ExpressionAttributeValues": {
 					":pk": {"S": "A"}
@@ -77,7 +35,7 @@ func TestQuery(t *testing.T) {
 		{
 			name: "PK + SK Exact Match",
 			input: `{
-				"TableName": "` + tableName + `",
+				"TableName": "QueryTestTable",
 				"KeyConditionExpression": "pk = :pk AND sk = :sk",
 				"ExpressionAttributeValues": {
 					":pk": {"S": "A"},
@@ -87,9 +45,9 @@ func TestQuery(t *testing.T) {
 			wantItems: makeItems("A", 3, 3),
 		},
 		{
-			name: "SK Condition: Multiple comparisons (BEETWEEN)",
+			name: "SK Condition: Multiple comparisons (BETWEEN)",
 			input: `{
-				"TableName": "` + tableName + `",
+				"TableName": "QueryTestTable",
 				"KeyConditionExpression": "pk = :pk AND sk BETWEEN :min AND :max",
 				"ExpressionAttributeValues": {
 					":pk": {"S": "A"},
@@ -102,7 +60,7 @@ func TestQuery(t *testing.T) {
 		{
 			name: "ScanIndexForward = false (Reverse)",
 			input: `{
-				"TableName": "` + tableName + `",
+				"TableName": "QueryTestTable",
 				"KeyConditionExpression": "pk = :pk",
 				"ExpressionAttributeValues": {
 					":pk": {"S": "A"}
@@ -114,7 +72,7 @@ func TestQuery(t *testing.T) {
 		{
 			name: "Limit + ExclusiveStartKey (Pagination)",
 			input: `{
-				"TableName": "` + tableName + `",
+				"TableName": "QueryTestTable",
 				"KeyConditionExpression": "pk = :pk",
 				"ExpressionAttributeValues": {
 					":pk": {"S": "A"}
@@ -126,7 +84,7 @@ func TestQuery(t *testing.T) {
 		{
 			name: "FilterExpression: Only even numbers",
 			input: `{
-				"TableName": "` + tableName + `",
+				"TableName": "QueryTestTable",
 				"KeyConditionExpression": "pk = :pk",
 				"FilterExpression": "sk = :v2 OR sk = :v4",
 				"ExpressionAttributeValues": {
@@ -143,7 +101,7 @@ func TestQuery(t *testing.T) {
 		{
 			name: "ProjectionExpression",
 			input: `{
-				"TableName": "` + tableName + `",
+				"TableName": "QueryTestTable",
 				"KeyConditionExpression": "pk = :pk AND sk = :sk",
 				"ExpressionAttributeValues": {
 					":pk": {"S": "A"},
@@ -158,7 +116,7 @@ func TestQuery(t *testing.T) {
 		{
 			name: "PK B Query",
 			input: `{
-				"TableName": "` + tableName + `",
+				"TableName": "QueryTestTable",
 				"KeyConditionExpression": "pk = :pk",
 				"ExpressionAttributeValues": {
 					":pk": {"S": "B"}
@@ -181,13 +139,45 @@ func TestQuery(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+			db := dynamodb.NewInMemoryDB()
+
+			// Setup table
+			tableName := "QueryTestTable"
+			ctInput := mustUnmarshal[models.CreateTableInput](t, `{
+				"TableName": "`+tableName+`",
+				"KeySchema": [
+					{"AttributeName": "pk", "KeyType": "HASH"},
+					{"AttributeName": "sk", "KeyType": "RANGE"}
+				],
+				"AttributeDefinitions": [
+					{"AttributeName": "pk", "AttributeType": "S"},
+					{"AttributeName": "sk", "AttributeType": "N"}
+				]
+			}`)
+			_, _ = db.CreateTable(models.ToSDKCreateTableInput(&ctInput))
+
+			// Insert items
+			for _, pk := range []string{"A", "B"} {
+				for i := 1; i <= 5; i++ {
+					putInput := models.PutItemInput{
+						TableName: tableName,
+						Item: map[string]any{
+							"pk":   map[string]any{"S": pk},
+							"sk":   map[string]any{"N": strconv.Itoa(i)},
+							"data": map[string]any{"S": "data-" + pk + "-" + strconv.Itoa(i)},
+						},
+					}
+					sdkPut, _ := models.ToSDKPutItemInput(&putInput)
+					_, _ = db.PutItem(sdkPut)
+				}
+			}
+
 			queryInput := mustUnmarshal[models.QueryInput](t, tc.input)
 			sdkQuery, _ := models.ToSDKQueryInput(&queryInput)
 
 			res, queryErr := db.Query(sdkQuery)
 			if tc.wantErr {
 				require.Error(t, queryErr)
-
 				if tc.errMessage != "" {
 					assert.Contains(t, queryErr.Error(), tc.errMessage)
 				}
@@ -197,17 +187,12 @@ func TestQuery(t *testing.T) {
 
 			require.NoError(t, queryErr)
 
-			// Unwrap output to wire format for comparison
 			var gotItems []map[string]any
 			for _, item := range res.Items {
 				gotItems = append(gotItems, models.FromSDKItem(item))
 			}
 
-			// Verify items
-			// We convert both to JSON for easier deep comparison ensuring types match
-			wantJSON, _ := json.Marshal(tc.wantItems)
-			gotJSON, _ := json.Marshal(gotItems)
-			assert.JSONEq(t, string(wantJSON), string(gotJSON))
+			assert.Equal(t, tc.wantItems, gotItems)
 		})
 	}
 }
@@ -243,8 +228,3 @@ func reverseItems(items []map[string]any) []map[string]any {
 
 	return reversed
 }
-
-// fromSDKItem is redundant if FromSDKItem is exported, using exported one.
-
-// FromSDKItem converts map[string]types.AttributeValue to map[string]any (wire format)
-// It is available in dynamodb package

@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/md5" //nolint:gosec // MD5 required for S3 ETag compatibility
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -479,6 +480,56 @@ func (b *InMemoryBackend) DeleteObject(_ context.Context, input *s3.DeleteObject
 	delete(bucket.Objects, key)
 
 	return &s3.DeleteObjectOutput{}, nil
+}
+
+func (b *InMemoryBackend) DeleteObjects(
+	ctx context.Context,
+	input *s3.DeleteObjectsInput,
+) (*s3.DeleteObjectsOutput, error) {
+	out := &s3.DeleteObjectsOutput{
+		Deleted: make([]types.DeletedObject, 0, len(input.Delete.Objects)),
+		Errors:  make([]types.Error, 0),
+	}
+
+	for _, obj := range input.Delete.Objects {
+		delInput := &s3.DeleteObjectInput{
+			Bucket:    input.Bucket,
+			Key:       obj.Key,
+			VersionId: obj.VersionId,
+		}
+		// We reuse DeleteObject's logic by calling it directly.
+		// S3 DeleteObjects can return errors for some objects while succeeding for others.
+		delOut, err := b.DeleteObject(ctx, delInput)
+		if err != nil {
+			// S3 error format for DeleteObjects
+			s3Err := types.Error{
+				Key:     obj.Key,
+				Code:    aws.String("InternalError"),
+				Message: aws.String(err.Error()),
+			}
+			if errors.Is(err, ErrNoSuchBucket) {
+				s3Err.Code = aws.String("NoSuchBucket")
+			}
+			out.Errors = append(out.Errors, s3Err)
+
+			continue
+		}
+
+		deleted := types.DeletedObject{
+			Key:       obj.Key,
+			VersionId: obj.VersionId,
+		}
+		if delOut.DeleteMarker != nil {
+			deleted.DeleteMarker = delOut.DeleteMarker
+		}
+		if delOut.VersionId != nil {
+			deleted.DeleteMarkerVersionId = delOut.VersionId
+		}
+
+		out.Deleted = append(out.Deleted, deleted)
+	}
+
+	return out, nil
 }
 
 func (b *InMemoryBackend) ListObjects(_ context.Context, input *s3.ListObjectsInput) (*s3.ListObjectsOutput, error) {
