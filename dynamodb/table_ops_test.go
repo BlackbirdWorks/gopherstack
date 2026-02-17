@@ -3,21 +3,21 @@ package dynamodb_test
 import (
 	"Gopherstack/dynamodb/models"
 	"errors"
-	"slices"
-	"strings"
 	"testing"
 
 	"Gopherstack/dynamodb"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	dynamodb_sdk "github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestTableOperations(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup    func(*dynamodb.InMemoryDB)
+		setup    func(*testing.T, *dynamodb.InMemoryDB)
 		validate func(*testing.T, *dynamodb.InMemoryDB, any, error)
 		run      func(*dynamodb.InMemoryDB) (any, error)
 		name     string
@@ -40,19 +40,16 @@ func TestTableOperations(t *testing.T) {
 			},
 			validate: func(t *testing.T, _ *dynamodb.InMemoryDB, resp any, err error) {
 				t.Helper()
-				if err != nil {
-					t.Fatalf("Unexpected error: %v", err)
-				}
+				require.NoError(t, err)
 				output := resp.(*dynamodb_sdk.CreateTableOutput)
-				if aws.ToString(output.TableDescription.TableName) != "TestTable" {
-					t.Errorf("Expected table name TestTable, got %s", aws.ToString(output.TableDescription.TableName))
-				}
+				assert.Equal(t, "TestTable", aws.ToString(output.TableDescription.TableName))
 			},
 		},
 		{
 			name: "CreateTable_AlreadyExists",
-			setup: func(db *dynamodb.InMemoryDB) {
-				createTable(db, "ExistingTable")
+			setup: func(t *testing.T, db *dynamodb.InMemoryDB) {
+				t.Helper()
+				createTable(t, db, "ExistingTable")
 			},
 			run: func(db *dynamodb.InMemoryDB) (any, error) {
 				input := models.CreateTableInput{
@@ -70,15 +67,14 @@ func TestTableOperations(t *testing.T) {
 			},
 			validate: func(t *testing.T, _ *dynamodb.InMemoryDB, _ any, err error) {
 				t.Helper()
-				if err == nil {
-					t.Error("Expected error for existing table, got nil")
-				}
+				require.Error(t, err)
 			},
 		},
 		{
 			name: "DescribeTable_Success",
-			setup: func(db *dynamodb.InMemoryDB) {
-				createTable(db, "TestTable")
+			setup: func(t *testing.T, db *dynamodb.InMemoryDB) {
+				t.Helper()
+				createTable(t, db, "TestTable")
 			},
 			run: func(db *dynamodb.InMemoryDB) (any, error) {
 				input := models.DescribeTableInput{TableName: "TestTable"}
@@ -88,16 +84,10 @@ func TestTableOperations(t *testing.T) {
 			},
 			validate: func(t *testing.T, _ *dynamodb.InMemoryDB, resp any, err error) {
 				t.Helper()
-				if err != nil {
-					t.Fatalf("Unexpected error: %v", err)
-				}
+				require.NoError(t, err)
 				output := resp.(*dynamodb_sdk.DescribeTableOutput)
-				if aws.ToString(output.Table.TableName) != "TestTable" {
-					t.Errorf("Expected table name TestTable, got %s", aws.ToString(output.Table.TableName))
-				}
-				if output.Table.TableStatus != "ACTIVE" {
-					t.Errorf("Expected status ACTIVE, got %s", output.Table.TableStatus)
-				}
+				assert.Equal(t, "TestTable", aws.ToString(output.Table.TableName))
+				assert.Equal(t, "ACTIVE", string(output.Table.TableStatus))
 			},
 		},
 		{
@@ -110,35 +100,30 @@ func TestTableOperations(t *testing.T) {
 			},
 			validate: func(t *testing.T, _ *dynamodb.InMemoryDB, _ any, err error) {
 				t.Helper()
-				if err == nil {
-					t.Error("Expected error for non-existent table, got nil")
-				}
+				require.Error(t, err)
 			},
 		},
 		{
 			name: "ListTables_Success",
-			setup: func(db *dynamodb.InMemoryDB) {
-				createTable(db, "Table1")
+			setup: func(t *testing.T, db *dynamodb.InMemoryDB) {
+				t.Helper()
+				createTable(t, db, "Table1")
 			},
 			run: func(db *dynamodb.InMemoryDB) (any, error) {
 				return db.ListTables(&dynamodb_sdk.ListTablesInput{})
 			},
 			validate: func(t *testing.T, _ *dynamodb.InMemoryDB, resp any, err error) {
 				t.Helper()
-				if err != nil {
-					t.Fatalf("Unexpected error: %v", err)
-				}
+				require.NoError(t, err)
 				output := resp.(*dynamodb_sdk.ListTablesOutput)
-				found := slices.Contains(output.TableNames, "Table1")
-				if !found {
-					t.Error("Expected Table1 in list")
-				}
+				assert.Contains(t, output.TableNames, "Table1")
 			},
 		},
 		{
 			name: "DeleteTable_Success",
-			setup: func(db *dynamodb.InMemoryDB) {
-				createTable(db, "DeleteMe")
+			setup: func(t *testing.T, db *dynamodb.InMemoryDB) {
+				t.Helper()
+				createTable(t, db, "DeleteMe")
 			},
 			run: func(db *dynamodb.InMemoryDB) (any, error) {
 				input := models.DeleteTableInput{TableName: "DeleteMe"}
@@ -148,16 +133,12 @@ func TestTableOperations(t *testing.T) {
 			},
 			validate: func(t *testing.T, db *dynamodb.InMemoryDB, _ any, err error) {
 				t.Helper()
-				if err != nil {
-					t.Fatalf("Unexpected error: %v", err)
-				}
+				require.NoError(t, err)
 				// Verify deletion by trying to describe it
 				descInput := models.DescribeTableInput{TableName: "DeleteMe"}
 				sdkDesc := models.ToSDKDescribeTableInput(&descInput)
 				_, err = db.DescribeTable(sdkDesc)
-				if err == nil {
-					t.Error("Table should not exist after deletion")
-				}
+				require.Error(t, err)
 			},
 		},
 		{
@@ -170,15 +151,11 @@ func TestTableOperations(t *testing.T) {
 			},
 			validate: func(t *testing.T, _ *dynamodb.InMemoryDB, _ any, err error) {
 				t.Helper()
-				if err == nil {
-					t.Error("Expected error for non-existent table, got nil")
-				}
+				require.Error(t, err)
 				// Verify it's a ResourceNotFoundException (returns as HTTP 400, not 404)
 				var ddbErr *dynamodb.Error
 				if errors.As(err, &ddbErr) {
-					if !strings.Contains(ddbErr.Type, "ResourceNotFoundException") {
-						t.Errorf("Expected ResourceNotFoundException, got %s", ddbErr.Type)
-					}
+					assert.Contains(t, ddbErr.Type, "ResourceNotFoundException")
 				}
 			},
 		},
@@ -189,7 +166,7 @@ func TestTableOperations(t *testing.T) {
 			t.Parallel()
 			db := dynamodb.NewInMemoryDB()
 			if tt.setup != nil {
-				tt.setup(db)
+				tt.setup(t, db)
 			}
 
 			resp, err := tt.run(db)
@@ -201,11 +178,13 @@ func TestTableOperations(t *testing.T) {
 	}
 }
 
-func createTable(db *dynamodb.InMemoryDB, name string) {
+func createTable(t *testing.T, db *dynamodb.InMemoryDB, name string) {
+	t.Helper()
 	input := models.CreateTableInput{
 		TableName:            name,
 		KeySchema:            []models.KeySchemaElement{{AttributeName: "id", KeyType: models.KeyTypeHash}},
 		AttributeDefinitions: []models.AttributeDefinition{{AttributeName: "id", AttributeType: "S"}},
 	}
-	_, _ = db.CreateTable(models.ToSDKCreateTableInput(&input))
+	_, err := db.CreateTable(models.ToSDKCreateTableInput(&input))
+	require.NoError(t, err)
 }

@@ -186,9 +186,11 @@ func TestTransactWriteItems(t *testing.T) {
 			})
 			if tt.wantErr {
 				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
+
+				return
 			}
+
+			require.NoError(t, err)
 		})
 	}
 }
@@ -311,6 +313,7 @@ func TestTransactGetItems(t *testing.T) {
 
 				return
 			}
+
 			require.NoError(t, err)
 			require.Len(t, out.Responses, len(tt.expected))
 

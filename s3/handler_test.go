@@ -1238,3 +1238,146 @@ func TestHandler_MultipartUpload_Errors(t *testing.T) {
 		})
 	}
 }
+func TestHandler_DeleteObjects(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*testing.T, *s3.InMemoryBackend)
+		name       string
+		bucket     string
+		xmlBody    string
+		wantStatus int
+	}{
+		{
+			name:   "delete multiple objects",
+			bucket: "bkt",
+			xmlBody: `<Delete>
+				<Object><Key>k1</Key></Object>
+				<Object><Key>k2</Key></Object>
+			</Delete>`,
+			setup: func(t *testing.T, b *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, b, "bkt")
+				mustPutObject(t, b, "bkt", "k1", []byte("d1"))
+				mustPutObject(t, b, "bkt", "k2", []byte("d2"))
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:   "delete objects with versions",
+			bucket: "bkt",
+			xmlBody: `<Delete>
+				<Object><Key>k1</Key><VersionId>null</VersionId></Object>
+			</Delete>`,
+			setup: func(t *testing.T, b *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, b, "bkt")
+				mustPutObject(t, b, "bkt", "k1", []byte("d1"))
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:   "quiet mode",
+			bucket: "bkt",
+			xmlBody: `<Delete>
+				<Quiet>true</Quiet>
+				<Object><Key>k1</Key></Object>
+			</Delete>`,
+			setup: func(t *testing.T, b *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, b, "bkt")
+				mustPutObject(t, b, "bkt", "k1", []byte("d1"))
+			},
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, backend := newTestHandler(t)
+			tt.setup(t, backend)
+
+			req := httptest.NewRequest(http.MethodPost, "/"+tt.bucket+"?delete", strings.NewReader(tt.xmlBody))
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			if tt.wantStatus == http.StatusOK {
+				assert.Contains(t, rec.Header().Get("Content-Type"), "application/xml")
+			}
+		})
+	}
+}
+
+func TestHandler_DeleteObjects_Versioning(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	bucket := "versioned-bucket"
+	mustCreateBucket(t, backend, bucket)
+	enableVersioning(t, handler, bucket)
+
+	// Create 3 versions of k1
+	v1, err := backend.PutObject(t.Context(), &sdk_s3.PutObjectInput{
+		Bucket: aws.String(bucket), Key: aws.String("k1"), Body: strings.NewReader("v1"),
+	})
+	require.NoError(t, err)
+	v1ID := *v1.VersionId
+
+	v2, err := backend.PutObject(t.Context(), &sdk_s3.PutObjectInput{
+		Bucket: aws.String(bucket), Key: aws.String("k1"), Body: strings.NewReader("v2"),
+	})
+	require.NoError(t, err)
+	v2ID := *v2.VersionId
+
+	v3, err := backend.PutObject(t.Context(), &sdk_s3.PutObjectInput{
+		Bucket: aws.String(bucket), Key: aws.String("k1"), Body: strings.NewReader("v3"),
+	})
+	require.NoError(t, err)
+	v3ID := *v3.VersionId
+
+	// Delete v1 and v3, leave v2
+	xmlBody := fmt.Sprintf(`<Delete>
+		<Object><Key>k1</Key><VersionId>%s</VersionId></Object>
+		<Object><Key>k1</Key><VersionId>%s</VersionId></Object>
+	</Delete>`, v1ID, v3ID)
+
+	req := httptest.NewRequest(http.MethodPost, "/"+bucket+"?delete", strings.NewReader(xmlBody))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// Verify v1 and v3 are gone, v2 remains
+	_, err = backend.GetObject(t.Context(), &sdk_s3.GetObjectInput{
+		Bucket: aws.String(bucket), Key: aws.String("k1"), VersionId: aws.String(v1ID),
+	})
+	require.Error(t, err)
+
+	_, err = backend.GetObject(t.Context(), &sdk_s3.GetObjectInput{
+		Bucket: aws.String(bucket), Key: aws.String("k1"), VersionId: aws.String(v3ID),
+	})
+	require.Error(t, err)
+
+	out, err := backend.GetObject(t.Context(), &sdk_s3.GetObjectInput{
+		Bucket: aws.String(bucket), Key: aws.String("k1"), VersionId: aws.String(v2ID),
+	})
+	require.NoError(t, err)
+	data, _ := io.ReadAll(out.Body)
+	assert.Equal(t, "v2", string(data))
+
+	// Now delete without version ID - should create a delete marker
+	xmlBody = `<Delete><Object><Key>k1</Key></Object></Delete>`
+	req = httptest.NewRequest(http.MethodPost, "/"+bucket+"?delete", strings.NewReader(xmlBody))
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// Head object should now return 404 (due to delete marker)
+	req = httptest.NewRequest(http.MethodHead, "/"+bucket+"/k1", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}

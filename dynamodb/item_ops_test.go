@@ -314,58 +314,104 @@ func putItem(db *dynamodb.InMemoryDB, id, val string) {
 }
 func TestItem_Expiration(t *testing.T) {
 	t.Parallel()
-	db := dynamodb.NewInMemoryDB()
-	tableName := "TTLTable"
-	createTableHelper(t, db, tableName, "id")
 
-	// Enable TTL
-	_, err := db.UpdateTimeToLive(&dynamodb_sdk.UpdateTimeToLiveInput{
-		TableName: &tableName,
-		TimeToLiveSpecification: &types.TimeToLiveSpecification{
-			AttributeName: aws.String("ttl"),
-			Enabled:       aws.Bool(true),
+	tests := []struct {
+		name      string
+		tableName string
+		ttlAttr   string
+		ttlValue  string
+	}{
+		{
+			name:      "ExpiredItem",
+			tableName: "TTLTable",
+			ttlAttr:   "ttl",
+			ttlValue:  "1",
 		},
-	})
-	require.NoError(t, err)
+	}
 
-	// Put expired item (ttl = 1)
-	_, err = db.PutItem(&dynamodb_sdk.PutItemInput{
-		TableName: &tableName,
-		Item: map[string]types.AttributeValue{
-			"id":  &types.AttributeValueMemberS{Value: "exp1"},
-			"ttl": &types.AttributeValueMemberN{Value: "1"},
-		},
-	})
-	require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			db := dynamodb.NewInMemoryDB()
 
-	// Get should return nothing
-	out, err := db.GetItem(&dynamodb_sdk.GetItemInput{
-		TableName: &tableName,
-		Key:       map[string]types.AttributeValue{"id": &types.AttributeValueMemberS{Value: "exp1"}},
-	})
-	require.NoError(t, err)
-	assert.Empty(t, out.Item)
+			// Enable TTL
+			_, err := db.UpdateTimeToLive(&dynamodb_sdk.UpdateTimeToLiveInput{
+				TableName: &tt.tableName,
+				TimeToLiveSpecification: &types.TimeToLiveSpecification{
+					AttributeName: aws.String(tt.ttlAttr),
+					Enabled:       aws.Bool(true),
+				},
+			})
+			require.NoError(t, err)
+
+			createTableHelper(t, db, tt.tableName, "id")
+
+			// Put expired item
+			_, err = db.PutItem(&dynamodb_sdk.PutItemInput{
+				TableName: &tt.tableName,
+				Item: map[string]types.AttributeValue{
+					"id":       &types.AttributeValueMemberS{Value: "exp1"},
+					tt.ttlAttr: &types.AttributeValueMemberN{Value: tt.ttlValue},
+				},
+			})
+			require.NoError(t, err)
+
+			// Get should return nothing
+			out, err := db.GetItem(&dynamodb_sdk.GetItemInput{
+				TableName: &tt.tableName,
+				Key:       map[string]types.AttributeValue{"id": &types.AttributeValueMemberS{Value: "exp1"}},
+			})
+			require.NoError(t, err)
+			assert.Empty(t, out.Item)
+		})
+	}
 }
 
 func TestPutItem_ConditionExpression(t *testing.T) {
 	t.Parallel()
-	db := dynamodb.NewInMemoryDB()
-	tableName := "CondTable"
-	createTableHelper(t, db, tableName, "id")
 
-	// Put item1
-	_, err := db.PutItem(&dynamodb_sdk.PutItemInput{
-		TableName: &tableName,
-		Item:      map[string]types.AttributeValue{"id": &types.AttributeValueMemberS{Value: "1"}},
-	})
-	require.NoError(t, err)
+	tests := []struct {
+		condition  string
+		name       string
+		errContain string
+		wantErr    bool
+	}{
+		{
+			name:       "FailIfExists",
+			condition:  "attribute_not_exists(id)",
+			wantErr:    true,
+			errContain: "ConditionalCheckFailed",
+		},
+	}
 
-	// Fail if exists
-	_, err = db.PutItem(&dynamodb_sdk.PutItemInput{
-		TableName:           &tableName,
-		ConditionExpression: aws.String("attribute_not_exists(id)"),
-		Item:                map[string]types.AttributeValue{"id": &types.AttributeValueMemberS{Value: "1"}},
-	})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "ConditionalCheckFailed")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			db := dynamodb.NewInMemoryDB()
+			tableName := "CondTable"
+			createTableHelper(t, db, tableName, "id")
+
+			// Put initial item
+			_, err := db.PutItem(&dynamodb_sdk.PutItemInput{
+				TableName: &tableName,
+				Item:      map[string]types.AttributeValue{"id": &types.AttributeValueMemberS{Value: "1"}},
+			})
+			require.NoError(t, err)
+
+			// Try to put again with condition
+			_, err = db.PutItem(&dynamodb_sdk.PutItemInput{
+				TableName:           &tableName,
+				ConditionExpression: aws.String(tt.condition),
+				Item:                map[string]types.AttributeValue{"id": &types.AttributeValueMemberS{Value: "1"}},
+			})
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContain)
+
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
 }

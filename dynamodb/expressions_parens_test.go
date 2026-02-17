@@ -1,10 +1,10 @@
 package dynamodb_test
 
 import (
-	"Gopherstack/dynamodb/models"
 	"testing"
 
 	"Gopherstack/dynamodb"
+	"Gopherstack/dynamodb/models"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -66,7 +66,8 @@ func TestQuery_KeyCondition_WithParenthesesAndBeginsWith(t *testing.T) {
 					{AttributeName: "sk", AttributeType: "S"},
 				},
 			}
-			_, err := db.CreateTable(models.ToSDKCreateTableInput(&ct))
+			sdkCreate := models.ToSDKCreateTableInput(&ct)
+			_, err := db.CreateTable(sdkCreate)
 			require.NoError(t, err)
 
 			// Put items
@@ -83,10 +84,7 @@ func TestQuery_KeyCondition_WithParenthesesAndBeginsWith(t *testing.T) {
 			for _, item := range items {
 				put := models.PutItemInput{
 					TableName: tableName,
-					Item: map[string]any{
-						"pk": map[string]any{"S": item.pk},
-						"sk": map[string]any{"S": item.sk},
-					},
+					Item:      map[string]any{"pk": map[string]any{"S": item.pk}, "sk": map[string]any{"S": item.sk}},
 				}
 				sdkPut, _ := models.ToSDKPutItemInput(&put)
 				_, putErr := db.PutItem(sdkPut)

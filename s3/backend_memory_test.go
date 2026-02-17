@@ -849,3 +849,90 @@ func TestMultipartUpload_Backend(t *testing.T) {
 		})
 	}
 }
+
+func TestDeleteObjects_Backend(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup       func(*testing.T, *s3.InMemoryBackend)
+		name        string
+		bucket      string
+		objects     []types.ObjectIdentifier
+		wantErrors  int
+		wantDeleted int
+	}{
+		{
+			name:   "delete multiple objects",
+			bucket: "bkt",
+			objects: []types.ObjectIdentifier{
+				{Key: aws.String("k1")},
+				{Key: aws.String("k2")},
+			},
+			wantDeleted: 2,
+			setup: func(t *testing.T, b *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, b, "bkt")
+				mustPutObject(t, b, "bkt", "k1", []byte("d1"))
+				mustPutObject(t, b, "bkt", "k2", []byte("d2"))
+			},
+		},
+		{
+			name:   "delete some non-existent objects returns success",
+			bucket: "bkt",
+			objects: []types.ObjectIdentifier{
+				{Key: aws.String("k1")},
+				{Key: aws.String("no-such-key")},
+			},
+			wantDeleted: 2, // S3 returns 200 for non-existent objects in bulk delete
+			setup: func(t *testing.T, b *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, b, "bkt")
+				mustPutObject(t, b, "bkt", "k1", []byte("d1"))
+			},
+		},
+		{
+			name:   "delete versioned objects",
+			bucket: "bkt",
+			objects: []types.ObjectIdentifier{
+				{Key: aws.String("k1"), VersionId: aws.String("v1")},
+			},
+			wantDeleted: 1,
+			setup: func(t *testing.T, b *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, b, "bkt")
+				// We can't easily force version IDs in backend_memory without internal access or enabling versioning
+				// But DeleteObject handles versionId if it exists.
+				// In this test, we'll just check it doesn't crash and returns success.
+			},
+		},
+		{
+			name:   "non-existent bucket returns error for all objects",
+			bucket: "no-bucket",
+			objects: []types.ObjectIdentifier{
+				{Key: aws.String("k1")},
+			},
+			wantErrors: 1,
+			setup:      func(_ *testing.T, _ *s3.InMemoryBackend) {},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := newTestBackend(t)
+			tt.setup(t, backend)
+
+			out, err := backend.DeleteObjects(t.Context(), &sdk_s3.DeleteObjectsInput{
+				Bucket: aws.String(tt.bucket),
+				Delete: &types.Delete{
+					Objects: tt.objects,
+				},
+			})
+
+			require.NoError(t, err)
+			assert.Len(t, out.Deleted, tt.wantDeleted)
+			assert.Len(t, out.Errors, tt.wantErrors)
+		})
+	}
+}

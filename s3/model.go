@@ -153,3 +153,36 @@ type CompleteMultipartUploadResult struct {
 	Key      string   `xml:"Key"`
 	ETag     string   `xml:"ETag"`
 }
+
+// Bulk Delete Structures
+
+type DeleteRequest struct {
+	XMLName xml.Name       `xml:"Delete"`
+	Objects []DeleteObject `xml:"Object"`
+	Quiet   bool           `xml:"Quiet"`
+}
+
+type DeleteObject struct {
+	VersionID *string `xml:"VersionId,omitempty"`
+	Key       string  `xml:"Key"`
+}
+
+type DeleteResult struct {
+	XMLName xml.Name         `xml:"DeleteResult"`
+	Deleted []DeletedXML     `xml:"Deleted"`
+	Errors  []DeleteErrorXML `xml:"Error"`
+}
+
+type DeletedXML struct {
+	VersionID             *string `xml:"VersionId,omitempty"`
+	DeleteMarkerVersionID *string `xml:"DeleteMarkerVersionId,omitempty"`
+	Key                   string  `xml:"Key"`
+	DeleteMarker          bool    `xml:"DeleteMarker,omitempty"`
+}
+
+type DeleteErrorXML struct {
+	VersionID *string `xml:"VersionId,omitempty"`
+	Key       string  `xml:"Key"`
+	Code      string  `xml:"Code"`
+	Message   string  `xml:"Message"`
+}

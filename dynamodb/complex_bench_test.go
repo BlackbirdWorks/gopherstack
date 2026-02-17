@@ -1,40 +1,47 @@
 package dynamodb_test
 
 import (
-	"Gopherstack/dynamodb/models"
 	"fmt"
 	"strings"
 	"testing"
 
 	"Gopherstack/dynamodb"
+	"Gopherstack/dynamodb/models"
+
+	"github.com/stretchr/testify/require"
 )
 
 // BenchmarkQuery_ComplexModel benchmarks querying a complex data model with begins_with and projection.
 func BenchmarkQuery_ComplexModel(b *testing.B) {
-	// Setup DB with 1000 complex items
-	db := setupComplexDB(1000)
+	counts := []int{100, 1000}
+	for _, count := range counts {
+		b.Run(fmt.Sprintf("Count_%d", count), func(b *testing.B) {
+			db := setupComplexDB(b, count)
 
-	// Prepare Query Input
-	input := models.QueryInput{
-		TableName:              "ComplexBenchTable",
-		KeyConditionExpression: "pk = :type AND begins_with(sk, :orgPrefix)",
-		ExpressionAttributeValues: map[string]any{
-			":type":      map[string]any{"S": "USER_PROFILE"},
-			":orgPrefix": map[string]any{"S": "ORG#org-1#"},
-		},
-		ProjectionExpression: "sk, DeepData.Config.Theme, DeepData.Meta.Source, Tags",
-	}
+			input := models.QueryInput{
+				TableName:              "ComplexBenchTable",
+				KeyConditionExpression: "pk = :type AND begins_with(sk, :orgPrefix)",
+				ExpressionAttributeValues: map[string]any{
+					":type":      map[string]any{"S": "USER_PROFILE"},
+					":orgPrefix": map[string]any{"S": "ORG#org-1#"},
+				},
+				ProjectionExpression: "sk, DeepData.Config.Theme, DeepData.Meta.Source, Tags",
+			}
+			sdkInput, err := models.ToSDKQueryInput(&input)
+			require.NoError(b, err)
 
-	b.ResetTimer()
-	sdkInput, _ := models.ToSDKQueryInput(&input)
-
-	for range b.N {
-		_, _ = db.Query(sdkInput)
+			b.ResetTimer()
+			for range b.N {
+				_, err = db.Query(sdkInput)
+				require.NoError(b, err)
+			}
+		})
 	}
 }
 
 // setupComplexDB creates a DB with complex nested items.
-func setupComplexDB(count int) *dynamodb.InMemoryDB {
+func setupComplexDB(b *testing.B, count int) *dynamodb.InMemoryDB {
+	b.Helper()
 	db := dynamodb.NewInMemoryDB()
 
 	// Create Table
@@ -49,37 +56,38 @@ func setupComplexDB(count int) *dynamodb.InMemoryDB {
 			{AttributeName: "sk", AttributeType: "S"},
 		},
 	}
-	_, _ = db.CreateTable(models.ToSDKCreateTableInput(&createInput))
+	sdkCreate := models.ToSDKCreateTableInput(&createInput)
+	_, err := db.CreateTable(sdkCreate)
+	require.NoError(b, err)
 
 	// Populate Data
-	// 10 Orgs, each with count/10 users (Target Data)
 	for i := range count {
-		orgID := fmt.Sprintf("org-%d", i%10) // 10 Orgs
+		orgID := fmt.Sprintf("org-%d", i%10)
 		userID := fmt.Sprintf("user-%d", i)
 		sk := fmt.Sprintf("ORG#%s#USER#%s", orgID, userID)
 
-		// Large nested item
 		item := createComplexItem("USER_PROFILE", sk, orgID, userID)
-
 		putInput := models.PutItemInput{
 			TableName: "ComplexBenchTable",
 			Item:      item,
 		}
-		sdkPut, _ := models.ToSDKPutItemInput(&putInput)
-		_, _ = db.PutItem(sdkPut)
+		sdkPut, err2 := models.ToSDKPutItemInput(&putInput)
+		require.NoError(b, err2)
+		_, err = db.PutItem(sdkPut)
+		require.NoError(b, err)
 	}
 
-	// Add noise data (different PKs) - 9x the count
-	for i := range count * 9 {
-		// Use simple map for noise to save memory in benchmark if needed,
-		// but structure kept same for consistency
+	// Add noise data
+	for i := range count * 2 { // Reduced multiplier to keep benchmark realistic and fast
 		item := createComplexItem(fmt.Sprintf("NOISE_%d", i%100), "sk", "org", "user")
 		putInput := models.PutItemInput{
 			TableName: "ComplexBenchTable",
 			Item:      item,
 		}
-		sdkPut, _ := models.ToSDKPutItemInput(&putInput)
-		_, _ = db.PutItem(sdkPut)
+		sdkPut, err2 := models.ToSDKPutItemInput(&putInput)
+		require.NoError(b, err2)
+		_, err = db.PutItem(sdkPut)
+		require.NoError(b, err)
 	}
 
 	return db
@@ -95,7 +103,7 @@ func createComplexItem(pk, sk, orgID, userID string) map[string]any {
 			"Meta": map[string]any{"M": map[string]any{
 				"Source": map[string]any{"S": "benchmark"},
 				"Ver":    map[string]any{"N": "1"},
-				"Extra":  map[string]any{"S": strings.Repeat("x", 100)}, // Payload
+				"Extra":  map[string]any{"S": strings.Repeat("x", 100)},
 			}},
 			"Config": map[string]any{"M": map[string]any{
 				"Theme": map[string]any{"S": "dark"},

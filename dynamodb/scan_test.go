@@ -13,75 +13,6 @@ import (
 
 func TestScan(t *testing.T) {
 	t.Parallel()
-	db := dynamodb.NewInMemoryDB()
-
-	// Setup table
-	tableName := "ScanTestTable"
-	createTableJSON := `{
-		"TableName": "` + tableName + `",
-		"KeySchema": [
-			{"AttributeName": "pk", "KeyType": "HASH"}
-		],
-		"AttributeDefinitions": [
-			{"AttributeName": "pk", "AttributeType": "S"},
-			{"AttributeName": "gsiPK", "AttributeType": "S"}
-		],
-		"GlobalSecondaryIndexes": [
-			{
-				"IndexName": "GSI1",
-				"KeySchema": [
-					{"AttributeName": "gsiPK", "KeyType": "HASH"}
-				],
-				"Projection": {
-					"ProjectionType": "ALL"
-				},
-				"ProvisionedThroughput": {
-					"ReadCapacityUnits": 5,
-					"WriteCapacityUnits": 5
-				}
-			}
-		],
-		"ProvisionedThroughput": {
-			"ReadCapacityUnits": 5,
-			"WriteCapacityUnits": 5
-		}
-	}`
-
-	ctInput := mustUnmarshal[models.CreateTableInput](t, createTableJSON)
-	_, createErr := db.CreateTable(models.ToSDKCreateTableInput(&ctInput))
-	require.NoError(t, createErr)
-
-	// Insert 10 items
-	for i := 1; i <= 10; i++ {
-		status := "inactive"
-		if i%2 == 0 {
-			status = "active"
-		}
-		itemJSON := `{
-			"TableName": "` + tableName + `",
-			"Item": {
-				"pk": {"S": "item-` + strconv.Itoa(i) + `"},
-				"status": {"S": "` + status + `"},
-				"val": {"N": "` + strconv.Itoa(i*10) + `"}
-			}
-		}`
-		if i%2 == 0 {
-			itemJSON = `{
-				"TableName": "` + tableName + `",
-				"Item": {
-					"pk": {"S": "item-` + strconv.Itoa(i) + `"},
-					"gsiPK": {"S": "gsi-val"},
-					"status": {"S": "` + status + `"},
-					"val": {"N": "` + strconv.Itoa(i*10) + `"}
-				}
-			}`
-		}
-
-		putInput := mustUnmarshal[models.PutItemInput](t, itemJSON)
-		sdkPutInput, _ := models.ToSDKPutItemInput(&putInput)
-		_, putErr := db.PutItem(sdkPutInput)
-		require.NoError(t, putErr)
-	}
 
 	tests := []struct {
 		verifyFunc func(t *testing.T, items []map[string]any)
@@ -93,14 +24,14 @@ func TestScan(t *testing.T) {
 		{
 			name: "Full Table Scan",
 			input: `{
-				"TableName": "` + tableName + `"
+				"TableName": "ScanTestTable"
 			}`,
 			wantCount: 10,
 		},
 		{
 			name: "Scan with Limit (Pagination)",
 			input: `{
-				"TableName": "` + tableName + `",
+				"TableName": "ScanTestTable",
 				"Limit": 3
 			}`,
 			wantCount: 3,
@@ -108,7 +39,7 @@ func TestScan(t *testing.T) {
 		{
 			name: "Scan with FilterExpression (Value > 50)",
 			input: `{
-				"TableName": "` + tableName + `",
+				"TableName": "ScanTestTable",
 				"FilterExpression": "val > :v",
 				"ExpressionAttributeValues": {
 					":v": {"N": "50"}
@@ -119,7 +50,7 @@ func TestScan(t *testing.T) {
 		{
 			name: "Scan GSI (Sparse Index - Only even items have gsiPK)",
 			input: `{
-				"TableName": "` + tableName + `",
+				"TableName": "ScanTestTable",
 				"IndexName": "GSI1"
 			}`,
 			wantCount: 5, // All even items have gsiPK
@@ -127,7 +58,7 @@ func TestScan(t *testing.T) {
 		{
 			name: "ProjectionExpression",
 			input: `{
-				"TableName": "` + tableName + `",
+				"TableName": "ScanTestTable",
 				"ProjectionExpression": "pk, val",
 				"Limit": 1
 			}`,
@@ -156,6 +87,58 @@ func TestScan(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+			db := dynamodb.NewInMemoryDB()
+
+			// Setup table
+			tableName := "ScanTestTable"
+			createTableJSON := `{
+				"TableName": "` + tableName + `",
+				"KeySchema": [
+					{"AttributeName": "pk", "KeyType": "HASH"}
+				],
+				"AttributeDefinitions": [
+					{"AttributeName": "pk", "AttributeType": "S"},
+					{"AttributeName": "gsiPK", "AttributeType": "S"}
+				],
+				"GlobalSecondaryIndexes": [
+					{
+						"IndexName": "GSI1",
+						"KeySchema": [
+							{"AttributeName": "gsiPK", "KeyType": "HASH"}
+						],
+						"Projection": {
+							"ProjectionType": "ALL"
+						}
+					}
+				]
+			}`
+
+			ctInput := mustUnmarshal[models.CreateTableInput](t, createTableJSON)
+			_, _ = db.CreateTable(models.ToSDKCreateTableInput(&ctInput))
+
+			// Insert 10 items
+			for i := 1; i <= 10; i++ {
+				status := "inactive"
+				if i%2 == 0 {
+					status = "active"
+				}
+
+				item := map[string]any{
+					"pk":     map[string]any{"S": "item-" + strconv.Itoa(i)},
+					"status": map[string]any{"S": status},
+					"val":    map[string]any{"N": strconv.Itoa(i * 10)},
+				}
+				if i%2 == 0 {
+					item["gsiPK"] = map[string]any{"S": "gsi-val"}
+				}
+
+				putInput := models.PutItemInput{
+					TableName: tableName,
+					Item:      item,
+				}
+				sdkPutInput, _ := models.ToSDKPutItemInput(&putInput)
+				_, _ = db.PutItem(sdkPutInput)
+			}
 
 			scanInput := mustUnmarshal[models.ScanInput](t, tc.input)
 			sdkScanInput, _ := models.ToSDKScanInput(&scanInput)
@@ -168,10 +151,6 @@ func TestScan(t *testing.T) {
 			}
 
 			require.NoError(t, scanErr)
-			// Unwrap items to map[string]any for verification
-			// ScanOutput.Items is []map[string]types.AttributeValue
-			// To verify, we can convert back to wire format or check logic.
-			// The existing verification functions expect []map[string]any (wire).
 
 			wireItems := make([]map[string]any, len(res.Items))
 			for i, item := range res.Items {
@@ -191,17 +170,6 @@ func TestScan(t *testing.T) {
 
 func TestScan_ValidationErrors(t *testing.T) {
 	t.Parallel()
-	db := dynamodb.NewInMemoryDB()
-	tableName := "ScanValTable"
-
-	ctInput := models.CreateTableInput{
-		TableName: tableName,
-		KeySchema: []models.KeySchemaElement{{AttributeName: "pk", KeyType: "HASH"}},
-		AttributeDefinitions: []models.AttributeDefinition{
-			{AttributeName: "pk", AttributeType: "S"},
-		},
-	}
-	_, _ = db.CreateTable(models.ToSDKCreateTableInput(&ctInput))
 
 	tests := []struct {
 		name      string
@@ -218,7 +186,7 @@ func TestScan_ValidationErrors(t *testing.T) {
 		{
 			name: "Index Not Found",
 			input: `{
-				"TableName": "` + tableName + `",
+				"TableName": "ScanValTable",
 				"IndexName": "MissingIndex"
 			}`,
 			wantError: "Index: MissingIndex not found",
@@ -228,12 +196,24 @@ func TestScan_ValidationErrors(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+			db := dynamodb.NewInMemoryDB()
+			tableName := "ScanValTable"
+
+			ctInput := models.CreateTableInput{
+				TableName: tableName,
+				KeySchema: []models.KeySchemaElement{{AttributeName: "pk", KeyType: "HASH"}},
+				AttributeDefinitions: []models.AttributeDefinition{
+					{AttributeName: "pk", AttributeType: "S"},
+				},
+			}
+			_, _ = db.CreateTable(models.ToSDKCreateTableInput(&ctInput))
+
 			scanInput := mustUnmarshal[models.ScanInput](t, tc.input)
 			sdkScanInput, _ := models.ToSDKScanInput(&scanInput)
 
 			_, scanErr := db.Scan(sdkScanInput)
 			require.Error(t, scanErr)
-			if tc.wantError != "" && scanErr != nil {
+			if tc.wantError != "" {
 				assert.Contains(t, scanErr.Error(), tc.wantError)
 			}
 		})
