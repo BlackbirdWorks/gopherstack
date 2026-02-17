@@ -90,6 +90,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.Logger.Debug("S3 request", "method", r.Method, "bucket", bucketName, "key", key)
+
 	if bucketName == "" {
 		if r.Method != http.MethodGet {
 			httputils.WriteError(h.Logger, w, r, ErrMethodNotAllowed, http.StatusMethodNotAllowed)

@@ -44,9 +44,7 @@ func TestIntegration_DDB_UpdateItem(t *testing.T) {
 			verify: func(t *testing.T, out *dynamodb.UpdateItemOutput) {
 				t.Helper()
 				require.NotNil(t, out.Attributes)
-				val, ok := out.Attributes["val"].(*types.AttributeValueMemberS)
-				require.True(t, ok)
-				assert.Equal(t, "new_value", val.Value)
+				AssertItem(t, out.Attributes, map[string]any{"pk": "item1", "val": "new_value"})
 			},
 		},
 		{
@@ -78,9 +76,41 @@ func TestIntegration_DDB_UpdateItem(t *testing.T) {
 			verify: func(t *testing.T, out *dynamodb.UpdateItemOutput) {
 				t.Helper()
 				require.NotNil(t, out.Attributes)
-				val, ok := out.Attributes["val"].(*types.AttributeValueMemberS)
-				require.True(t, ok)
-				assert.Equal(t, "original", val.Value)
+				AssertItem(t, out.Attributes, map[string]any{"pk": "item2", "val": "original"})
+			},
+		},
+		{
+			name: "UpdateItem_ReturnValue_UpdatedNew",
+			setup: func(t *testing.T, ctx context.Context, tableName string) {
+				t.Helper()
+				_, err := client.PutItem(ctx, &dynamodb.PutItemInput{
+					TableName: aws.String(tableName),
+					Item: map[string]types.AttributeValue{
+						"pk":    &types.AttributeValueMemberS{Value: "item3"},
+						"other": &types.AttributeValueMemberS{Value: "stay"},
+						"val":   &types.AttributeValueMemberS{Value: "original"},
+					},
+				})
+				require.NoError(t, err)
+			},
+			input: func(tableName string) *dynamodb.UpdateItemInput {
+				return &dynamodb.UpdateItemInput{
+					TableName: aws.String(tableName),
+					Key: map[string]types.AttributeValue{
+						"pk": &types.AttributeValueMemberS{Value: "item3"},
+					},
+					UpdateExpression: aws.String("SET val = :v"),
+					ExpressionAttributeValues: map[string]types.AttributeValue{
+						":v": &types.AttributeValueMemberS{Value: "updated"},
+					},
+					ReturnValues: types.ReturnValueUpdatedNew,
+				}
+			},
+			verify: func(t *testing.T, out *dynamodb.UpdateItemOutput) {
+				t.Helper()
+				require.NotNil(t, out.Attributes)
+				// Should only contain the updated field
+				AssertItem(t, out.Attributes, map[string]any{"val": "updated"})
 			},
 		},
 	}

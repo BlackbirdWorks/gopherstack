@@ -55,13 +55,18 @@ func TestIntegration_DDB_VersionControl(t *testing.T) {
 			"pk": &types.AttributeValueMemberS{Value: "doc1"},
 		},
 		UpdateExpression: aws.String(
-			"SET version = if_not_exists(version, :zero) + :inc, #data = :data",
+			"SET version = if_not_exists(version, :zero) + :inc, #data = :data, details = :details",
 		),
 		ExpressionAttributeNames: map[string]string{"#data": "data"},
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":zero": &types.AttributeValueMemberN{Value: "0"},
 			":inc":  &types.AttributeValueMemberN{Value: "1"},
 			":data": &types.AttributeValueMemberS{Value: "first version"},
+			":details": &types.AttributeValueMemberM{
+				Value: map[string]types.AttributeValue{
+					"name": &types.AttributeValueMemberS{Value: "foo"},
+				},
+			},
 		},
 		ReturnValues: types.ReturnValueAllNew,
 	})
@@ -72,6 +77,9 @@ func TestIntegration_DDB_VersionControl(t *testing.T) {
 	d1, ok := out1.Attributes["data"].(*types.AttributeValueMemberS)
 	require.True(t, ok)
 	assert.Equal(t, "first version", d1.Value)
+	details1, ok := out1.Attributes["details"].(*types.AttributeValueMemberM)
+	require.True(t, ok)
+	assert.Equal(t, "foo", details1.Value["name"].(*types.AttributeValueMemberS).Value)
 
 	// Step 2: Second update — should increment version to 2
 	out2, err := client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
@@ -94,6 +102,9 @@ func TestIntegration_DDB_VersionControl(t *testing.T) {
 	d2, ok := out2.Attributes["data"].(*types.AttributeValueMemberS)
 	require.True(t, ok)
 	assert.Equal(t, "second version", d2.Value)
+	details2, ok := out2.Attributes["details"].(*types.AttributeValueMemberM)
+	require.True(t, ok)
+	assert.Equal(t, "foo", details2.Value["name"].(*types.AttributeValueMemberS).Value)
 
 	// Step 3: Update with condition — version must be 2
 	out3, err := client.UpdateItem(ctx, &dynamodb.UpdateItemInput{
