@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -29,6 +30,16 @@ var (
 	ErrIndexOutOfRange             = errors.New("index out of range")
 	ErrExpectedMapForM             = errors.New("expected map for M")
 	ErrExpectedListForL            = errors.New("expected list for L")
+	ErrUnsupportedArithmeticOp     = errors.New("unsupported arithmetic operator")
+	ErrIfNotExistsExpectsTwo       = errors.New("if_not_exists() expects 2 arguments")
+	ErrDeleteValueMustBeSet        = errors.New("DELETE value must be a set")
+	ErrSSValueMustBeSlice          = errors.New("SS value must be []string")
+	ErrCurrentValueMustBeMap       = errors.New("current value must be a map")
+	ErrCurrentSSValueMustBeSlice   = errors.New("current SS value must be []string")
+	ErrNSValueMustBeSlice          = errors.New("NS value must be []string")
+	ErrCurrentNSValueMustBeSlice   = errors.New("current NS value must be []string")
+	ErrBSValueMustBeSlice          = errors.New("BS value must be [][]byte")
+	ErrCurrentBSValueMustBeSlice   = errors.New("current BS value must be [][]byte")
 )
 
 // twoArgs is the expected argument count for two-argument functions.
@@ -51,7 +62,9 @@ func (e *Evaluator) Evaluate(node Node) (any, error) {
 		if n.Operator == TokenPlus || n.Operator == TokenMinus {
 			return e.evaluateArithmetic(n)
 		}
+
 		return e.evaluateComparison(n)
+
 	case *BetweenExpr:
 		return e.evaluateBetween(n)
 	case *InExpr:
@@ -142,7 +155,7 @@ func (e *Evaluator) evaluateArithmetic(n *ComparisonExpr) (any, error) {
 	case TokenMinus:
 		result = leftNum - rightNum
 	default:
-		return nil, fmt.Errorf("unsupported arithmetic operator: %v", n.Operator)
+		return nil, fmt.Errorf("%w: %v", ErrUnsupportedArithmeticOp, n.Operator)
 	}
 
 	// Return in DynamoDB attribute value format
@@ -282,7 +295,7 @@ func (e *Evaluator) evalContainsFunc(n *FunctionExpr) (any, error) {
 // if_not_exists(path, value) returns the value at path if it exists, otherwise returns value.
 func (e *Evaluator) evalIfNotExistsFunc(n *FunctionExpr) (any, error) {
 	if len(n.Args) != twoArgs {
-		return nil, fmt.Errorf("if_not_exists expects exactly 2 arguments, got %d", len(n.Args))
+		return nil, fmt.Errorf("%w: got %d", ErrIfNotExistsExpectsTwo, len(n.Args))
 	}
 
 	// Try to evaluate the path argument
@@ -299,14 +312,17 @@ func (e *Evaluator) evalIfNotExistsFunc(n *FunctionExpr) (any, error) {
 
 // evalAttributeTypeFunc implements the attribute_type() function.
 // attribute_type(path, type) returns true if the attribute at path is of the specified type.
-// Valid types: S, SS, N, NS, B, BS, BOOL, NULL, L, M
+// Valid types: S, SS, N, NS, B, BS, BOOL, NULL, L, M.
 func (e *Evaluator) evalAttributeTypeFunc(n *FunctionExpr) (any, error) {
 	if len(n.Args) != twoArgs {
 		return nil, ErrAttributeTypeExpectsTwo
 	}
 
 	pathVal, err := e.Evaluate(n.Args[0])
-	if err != nil || pathVal == nil {
+	if err != nil {
+		return nil, err
+	}
+	if pathVal == nil {
 		return false, nil
 	}
 
@@ -348,20 +364,21 @@ func (e *Evaluator) evalListAppendFunc(n *FunctionExpr) (any, error) {
 	var list1, list2 []any
 
 	if list1Map, ok := list1Val.(map[string]any); ok {
-		if l, ok := list1Map["L"].([]any); ok {
+		if l, ok2 := list1Map["L"].([]any); ok2 {
 			list1 = l
 		}
 	}
 
 	if list2Map, ok := list2Val.(map[string]any); ok {
-		if l, ok := list2Map["L"].([]any); ok {
+		if l, ok2 := list2Map["L"].([]any); ok2 {
 			list2 = l
 		}
 	}
 
 	// Append and return in DynamoDB format
-	combined := append(list1, list2...)
-	return map[string]any{"L": combined}, nil
+	list1 = append(list1, list2...)
+
+	return map[string]any{"L": list1}, nil
 }
 
 func (e *Evaluator) calculateSize(v any) float64 {
@@ -443,6 +460,7 @@ func (e *Evaluator) toNumber(v any) float64 {
 		if err != nil {
 			return 0
 		}
+
 		return f
 	default:
 		return 0
@@ -765,105 +783,97 @@ func (e *Evaluator) applyDelete(path []PathElement, val any) error {
 	// DELETE removes elements from a set (SS, NS, BS)
 	cur, exists := e.getValueAtPath(e.Item, path)
 	if !exists {
-		// If the attribute doesn't exist, DELETE has no effect
 		return nil
 	}
 
-	// Get the set to remove from the current value
 	valMap, ok := val.(map[string]any)
 	if !ok {
-		return fmt.Errorf("DELETE value must be a set")
+		return ErrDeleteValueMustBeSet
 	}
 
-	// Handle string sets (SS)
-	if ssToRemove, ok := valMap["SS"]; ok {
-		toRemove, ok := ssToRemove.([]string)
-		if !ok {
-			return fmt.Errorf("SS value must be []string")
-		}
-
-		curMap, ok := cur.(map[string]any)
-		if !ok {
-			return fmt.Errorf("current value must be a map")
-		}
-
-		if ssCurrent, ok := curMap["SS"]; ok {
-			currentSet, ok := ssCurrent.([]string)
-			if !ok {
-				return fmt.Errorf("current SS value must be []string")
-			}
-
-			// Remove items from the set
-			newSet := make([]string, 0)
-			for _, item := range currentSet {
-				shouldRemove := false
-				for _, toRem := range toRemove {
-					if item == toRem {
-						shouldRemove = true
-						break
-					}
-				}
-				if !shouldRemove {
-					newSet = append(newSet, item)
-				}
-			}
-
-			// Update the item
-			updated, err := e.setValueAtPath(e.Item, path, map[string]any{"SS": newSet})
-			if err != nil {
-				return err
-			}
-			if m, ok := updated.(map[string]any); ok {
-				e.Item = m
-			}
+	if ssToRemove, okSS := valMap["SS"]; okSS {
+		if err := e.deleteSS(path, cur, ssToRemove); err != nil {
+			return err
 		}
 	}
 
-	// Handle number sets (NS)
-	if nsToRemove, ok := valMap["NS"]; ok {
-		toRemove, ok := nsToRemove.([]string)
-		if !ok {
-			return fmt.Errorf("NS value must be []string")
-		}
-
-		curMap, ok := cur.(map[string]any)
-		if !ok {
-			return fmt.Errorf("current value must be a map")
-		}
-
-		if nsCurrent, ok := curMap["NS"]; ok {
-			currentSet, ok := nsCurrent.([]string)
-			if !ok {
-				return fmt.Errorf("current NS value must be []string")
-			}
-
-			// Remove items from the set
-			newSet := make([]string, 0)
-			for _, item := range currentSet {
-				shouldRemove := false
-				for _, toRem := range toRemove {
-					if item == toRem {
-						shouldRemove = true
-						break
-					}
-				}
-				if !shouldRemove {
-					newSet = append(newSet, item)
-				}
-			}
-
-			// Update the item
-			updated, err := e.setValueAtPath(e.Item, path, map[string]any{"NS": newSet})
-			if err != nil {
-				return err
-			}
-			if m, ok := updated.(map[string]any); ok {
-				e.Item = m
-			}
+	if nsToRemove, okNS := valMap["NS"]; okNS {
+		if err := e.deleteNS(path, cur, nsToRemove); err != nil {
+			return err
 		}
 	}
 
-	// TODO: Handle binary sets (BS) similarly if needed
+	return nil
+}
+
+func (e *Evaluator) deleteSS(path []PathElement, cur any, ssToRemove any) error {
+	toRemove, okCast := ssToRemove.([]string)
+	if !okCast {
+		return ErrSSValueMustBeSlice
+	}
+
+	curMap, okCur := cur.(map[string]any)
+	if !okCur {
+		return ErrCurrentValueMustBeMap
+	}
+
+	if ssCurrent, okSSCur := curMap["SS"]; okSSCur {
+		currentSet, okSet := ssCurrent.([]string)
+		if !okSet {
+			return ErrCurrentSSValueMustBeSlice
+		}
+
+		newSet := make([]string, 0, len(currentSet))
+		for _, item := range currentSet {
+			if !slices.Contains(toRemove, item) {
+				newSet = append(newSet, item)
+			}
+		}
+
+		return e.updateItemSet(path, "SS", newSet)
+	}
+
+	return nil
+}
+
+func (e *Evaluator) deleteNS(path []PathElement, cur any, nsToRemove any) error {
+	toRemove, okCast := nsToRemove.([]string)
+	if !okCast {
+		return ErrNSValueMustBeSlice
+	}
+
+	curMap, okCur := cur.(map[string]any)
+	if !okCur {
+		return ErrCurrentValueMustBeMap
+	}
+
+	if nsCurrent, okNSCur := curMap["NS"]; okNSCur {
+		currentSet, okSet := nsCurrent.([]string)
+		if !okSet {
+			return ErrCurrentNSValueMustBeSlice
+		}
+
+		newSet := make([]string, 0, len(currentSet))
+		for _, item := range currentSet {
+			if !slices.Contains(toRemove, item) {
+				newSet = append(newSet, item)
+			}
+		}
+
+		return e.updateItemSet(path, "NS", newSet)
+	}
+
+	return nil
+}
+
+func (e *Evaluator) updateItemSet(path []PathElement, key string, val any) error {
+	updated, err := e.setValueAtPath(e.Item, path, map[string]any{key: val})
+	if err != nil {
+		return err
+	}
+	if m, okM := updated.(map[string]any); okM {
+		e.Item = m
+	}
 
 	return nil
 }

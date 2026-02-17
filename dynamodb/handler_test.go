@@ -367,10 +367,10 @@ func TestHandler_HandleError_Coverage(t *testing.T) {
 	handler.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 
 	tests := []struct {
-		name           string
 		err            error
-		wantStatusCode int
+		name           string
 		wantType       string
+		wantStatusCode int
 	}{
 		{
 			name:           "ConditionalCheckFailed",
@@ -412,9 +412,9 @@ func TestHandler_TransactOps_Coverage(t *testing.T) {
 	createTableHelper(t, handler.DB, "TransactTable", "pk")
 
 	tests := []struct {
+		body           any
 		name           string
 		action         string
-		body           any
 		wantStatusCode int
 	}{
 		{

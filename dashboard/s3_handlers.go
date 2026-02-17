@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -319,9 +318,6 @@ func (h *Handler) s3Download(w http.ResponseWriter, r *http.Request, bucketName,
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", key))
 	if output.ContentType != nil {
 		w.Header().Set("Content-Type", *output.ContentType)
-	}
-	if output.ContentLength != nil {
-		w.Header().Set("Content-Length", strconv.FormatInt(*output.ContentLength, 10))
 	}
 
 	// Copy object data to response

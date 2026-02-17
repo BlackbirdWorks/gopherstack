@@ -151,8 +151,8 @@ func TestPutItem_ValidationErrors(t *testing.T) {
 	require.NoError(t, err)
 
 	tests := []struct {
-		name      string
 		item      string
+		name      string
 		wantError string
 	}{
 		{
@@ -233,15 +233,15 @@ func TestCapacityUnits(t *testing.T) {
 	assert.GreaterOrEqual(t, rcu, 0.5)
 
 	// Zero item
-	assert.Equal(t, 1.0, dynamodb.WriteCapacityUnits(nil))
-	assert.Equal(t, 0.5, dynamodb.ReadCapacityUnits(nil))
+	assert.InDelta(t, 1.0, dynamodb.WriteCapacityUnits(nil), 0.0001)
+	assert.InDelta(t, 0.5, dynamodb.ReadCapacityUnits(nil), 0.0001)
 }
 
 func TestValidateDataTypes_Sets(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name    string
 		item    map[string]any
+		name    string
 		wantErr bool
 	}{
 		{

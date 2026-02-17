@@ -12,10 +12,10 @@ func TestHandler_ClassifyError_Mapping(t *testing.T) {
 	h := NewHandler()
 
 	tests := []struct {
-		name           string
 		err            error
-		wantStatusCode int
+		name           string
 		wantType       string
+		wantStatusCode int
 	}{
 		{
 			name:           "InternalServerError",

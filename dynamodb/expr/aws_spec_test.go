@@ -284,6 +284,7 @@ func TestAWSExpressions_Functions(t *testing.T) {
 			node, err := p.ParseCondition()
 			if tc.wantErr {
 				require.Error(t, err)
+
 				return
 			}
 			require.NoError(t, err, "Parse error for: %s", tc.exprStr)
@@ -295,6 +296,7 @@ func TestAWSExpressions_Functions(t *testing.T) {
 			result, err := eval.Evaluate(node)
 			if tc.wantErr {
 				require.Error(t, err)
+
 				return
 			}
 			require.NoError(t, err, "Eval error for: %s", tc.exprStr)
@@ -309,12 +311,12 @@ func TestAWSExpressions_UpdateExpressions(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		updateExpr string
 		attrNames  map[string]string
 		attrValues map[string]any
 		item       map[string]any
 		verify     func(t *testing.T, item map[string]any)
+		name       string
+		updateExpr string
 		wantErr    bool
 	}{
 		// SET action - set attribute to a value
@@ -587,6 +589,7 @@ func TestAWSExpressions_UpdateExpressions(t *testing.T) {
 			updateNode, err := p.ParseUpdate()
 			if tc.wantErr {
 				require.Error(t, err)
+
 				return
 			}
 			require.NoError(t, err, "Parse error for: %s", tc.updateExpr)
@@ -600,6 +603,7 @@ func TestAWSExpressions_UpdateExpressions(t *testing.T) {
 			err = eval.ApplyUpdate(updateNode)
 			if tc.wantErr {
 				require.Error(t, err)
+
 				return
 			}
 			require.NoError(t, err, "Apply error for: %s", tc.updateExpr)
@@ -630,10 +634,10 @@ func TestAWSExpressions_ExpressionAttributeNames(t *testing.T) {
 	}
 
 	tests := []struct {
-		name       string
-		expression string
 		attrNames  map[string]string
 		attrValues map[string]any
+		name       string
+		expression string
 		wantMatch  bool
 		isUpdate   bool
 	}{

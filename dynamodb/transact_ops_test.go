@@ -13,15 +13,34 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func newTransactDB(t *testing.T, tableName string) *dynamodb.InMemoryDB {
+	t.Helper()
+	db := dynamodb.NewInMemoryDB()
+	createTableHelper(t, db, tableName, "pk")
+
+	return db
+}
+
+func seedItem(t *testing.T, db *dynamodb.InMemoryDB, tableName, val string) {
+	t.Helper()
+	_, err := db.PutItem(&sdk.PutItemInput{
+		TableName: aws.String(tableName),
+		Item: map[string]types.AttributeValue{
+			"pk":  &types.AttributeValueMemberS{Value: "item1"},
+			"val": &types.AttributeValueMemberS{Value: val},
+		},
+	})
+	require.NoError(t, err)
+}
+
 func TestTransactWriteItems(t *testing.T) {
 	t.Parallel()
-	db := dynamodb.NewInMemoryDB()
 
-	tableName := "TestTable"
-	createTableHelper(t, db, tableName, "pk")
+	const tbl = "TestTable"
 
 	tests := []struct {
 		name    string
+		setup   func(*testing.T, *dynamodb.InMemoryDB)
 		items   []types.TransactWriteItem
 		wantErr bool
 	}{
@@ -35,36 +54,38 @@ func TestTransactWriteItems(t *testing.T) {
 			items: []types.TransactWriteItem{
 				{
 					Put: &types.Put{
-						TableName: aws.String(tableName),
+						TableName: aws.String(tbl),
 						Item: map[string]types.AttributeValue{
 							"pk": &types.AttributeValueMemberS{Value: "item1"},
 						},
 					},
 				},
 			},
-			wantErr: false,
 		},
 		{
 			name: "ConditionalPut_Success",
 			items: []types.TransactWriteItem{
 				{
 					Put: &types.Put{
-						TableName:           aws.String(tableName),
+						TableName:           aws.String(tbl),
 						ConditionExpression: aws.String("attribute_not_exists(pk)"),
 						Item: map[string]types.AttributeValue{
-							"pk": &types.AttributeValueMemberS{Value: "item2"},
+							"pk": &types.AttributeValueMemberS{Value: "item-new"},
 						},
 					},
 				},
 			},
-			wantErr: false,
 		},
 		{
 			name: "ConditionalPut_Failure",
+			setup: func(t *testing.T, db *dynamodb.InMemoryDB) {
+				t.Helper()
+				seedItem(t, db, tbl, "existing")
+			},
 			items: []types.TransactWriteItem{
 				{
 					Put: &types.Put{
-						TableName:           aws.String(tableName),
+						TableName:           aws.String(tbl),
 						ConditionExpression: aws.String("attribute_not_exists(pk)"),
 						Item: map[string]types.AttributeValue{
 							"pk": &types.AttributeValueMemberS{Value: "item1"},
@@ -76,18 +97,26 @@ func TestTransactWriteItems(t *testing.T) {
 		},
 		{
 			name: "ConditionCheck_Success",
+			setup: func(t *testing.T, db *dynamodb.InMemoryDB) {
+				t.Helper()
+				seedItem(t, db, tbl, "existing")
+			},
 			items: []types.TransactWriteItem{
 				{
 					ConditionCheck: &types.ConditionCheck{
-						TableName:           aws.String(tableName),
-						Key:                 map[string]types.AttributeValue{"pk": &types.AttributeValueMemberS{Value: "item1"}},
+						TableName: aws.String(tbl),
+						Key: map[string]types.AttributeValue{
+							"pk": &types.AttributeValueMemberS{Value: "item1"},
+						},
 						ConditionExpression: aws.String("attribute_exists(pk)"),
 					},
 				},
 				{
 					Update: &types.Update{
-						TableName:        aws.String(tableName),
-						Key:              map[string]types.AttributeValue{"pk": &types.AttributeValueMemberS{Value: "item1"}},
+						TableName: aws.String(tbl),
+						Key: map[string]types.AttributeValue{
+							"pk": &types.AttributeValueMemberS{Value: "item1"},
+						},
 						UpdateExpression: aws.String("SET val = :v"),
 						ExpressionAttributeValues: map[string]types.AttributeValue{
 							":v": &types.AttributeValueMemberS{Value: "updated"},
@@ -95,15 +124,16 @@ func TestTransactWriteItems(t *testing.T) {
 					},
 				},
 			},
-			wantErr: false,
 		},
 		{
 			name: "ConditionCheck_Failure",
 			items: []types.TransactWriteItem{
 				{
 					ConditionCheck: &types.ConditionCheck{
-						TableName:           aws.String(tableName),
-						Key:                 map[string]types.AttributeValue{"pk": &types.AttributeValueMemberS{Value: "nonexistent"}},
+						TableName: aws.String(tbl),
+						Key: map[string]types.AttributeValue{
+							"pk": &types.AttributeValueMemberS{Value: "nonexistent"},
+						},
 						ConditionExpression: aws.String("attribute_exists(pk)"),
 					},
 				},
@@ -112,15 +142,20 @@ func TestTransactWriteItems(t *testing.T) {
 		},
 		{
 			name: "Delete_Success",
+			setup: func(t *testing.T, db *dynamodb.InMemoryDB) {
+				t.Helper()
+				seedItem(t, db, tbl, "existing")
+			},
 			items: []types.TransactWriteItem{
 				{
 					Delete: &types.Delete{
-						TableName: aws.String(tableName),
-						Key:       map[string]types.AttributeValue{"pk": &types.AttributeValueMemberS{Value: "item1"}},
+						TableName: aws.String(tbl),
+						Key: map[string]types.AttributeValue{
+							"pk": &types.AttributeValueMemberS{Value: "item1"},
+						},
 					},
 				},
 			},
-			wantErr: false,
 		},
 		{
 			name: "TableNotFound",
@@ -128,7 +163,9 @@ func TestTransactWriteItems(t *testing.T) {
 				{
 					Put: &types.Put{
 						TableName: aws.String("NonExistent"),
-						Item:      map[string]types.AttributeValue{"pk": &types.AttributeValueMemberS{Value: "v"}},
+						Item: map[string]types.AttributeValue{
+							"pk": &types.AttributeValueMemberS{Value: "v"},
+						},
 					},
 				},
 			},
@@ -138,6 +175,12 @@ func TestTransactWriteItems(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			db := newTransactDB(t, tbl)
+			if tt.setup != nil {
+				tt.setup(t, db)
+			}
+
 			_, err := db.TransactWriteItems(&sdk.TransactWriteItemsInput{
 				TransactItems: tt.items,
 			})
@@ -152,22 +195,12 @@ func TestTransactWriteItems(t *testing.T) {
 
 func TestTransactGetItems(t *testing.T) {
 	t.Parallel()
-	db := dynamodb.NewInMemoryDB()
-	tableName := "GetTable"
-	createTableHelper(t, db, tableName, "pk")
 
-	// Seed item
-	_, err := db.PutItem(&sdk.PutItemInput{
-		TableName: aws.String(tableName),
-		Item: map[string]types.AttributeValue{
-			"pk":  &types.AttributeValueMemberS{Value: "item1"},
-			"val": &types.AttributeValueMemberS{Value: "foo"},
-		},
-	})
-	require.NoError(t, err)
+	const tbl = "GetTable"
 
 	tests := []struct {
 		name     string
+		setup    func(*testing.T, *dynamodb.InMemoryDB)
 		items    []types.TransactGetItem
 		expected []types.ItemResponse
 		wantErr  bool
@@ -179,11 +212,17 @@ func TestTransactGetItems(t *testing.T) {
 		},
 		{
 			name: "BasicGet",
+			setup: func(t *testing.T, db *dynamodb.InMemoryDB) {
+				t.Helper()
+				seedItem(t, db, tbl, "foo")
+			},
 			items: []types.TransactGetItem{
 				{
 					Get: &types.Get{
-						TableName: aws.String(tableName),
-						Key:       map[string]types.AttributeValue{"pk": &types.AttributeValueMemberS{Value: "item1"}},
+						TableName: aws.String(tbl),
+						Key: map[string]types.AttributeValue{
+							"pk": &types.AttributeValueMemberS{Value: "item1"},
+						},
 					},
 				},
 			},
@@ -201,8 +240,10 @@ func TestTransactGetItems(t *testing.T) {
 			items: []types.TransactGetItem{
 				{
 					Get: &types.Get{
-						TableName: aws.String(tableName),
-						Key:       map[string]types.AttributeValue{"pk": &types.AttributeValueMemberS{Value: "missing"}},
+						TableName: aws.String(tbl),
+						Key: map[string]types.AttributeValue{
+							"pk": &types.AttributeValueMemberS{Value: "missing"},
+						},
 					},
 				},
 			},
@@ -214,7 +255,9 @@ func TestTransactGetItems(t *testing.T) {
 				{
 					Get: &types.Get{
 						TableName: aws.String("NonExistent"),
-						Key:       map[string]types.AttributeValue{"pk": &types.AttributeValueMemberS{Value: "pk"}},
+						Key: map[string]types.AttributeValue{
+							"pk": &types.AttributeValueMemberS{Value: "pk"},
+						},
 					},
 				},
 			},
@@ -222,11 +265,17 @@ func TestTransactGetItems(t *testing.T) {
 		},
 		{
 			name: "ProjectionExpression",
+			setup: func(t *testing.T, db *dynamodb.InMemoryDB) {
+				t.Helper()
+				seedItem(t, db, tbl, "foo")
+			},
 			items: []types.TransactGetItem{
 				{
 					Get: &types.Get{
-						TableName:            aws.String(tableName),
-						Key:                  map[string]types.AttributeValue{"pk": &types.AttributeValueMemberS{Value: "item1"}},
+						TableName: aws.String(tbl),
+						Key: map[string]types.AttributeValue{
+							"pk": &types.AttributeValueMemberS{Value: "item1"},
+						},
 						ProjectionExpression: aws.String("pk"),
 					},
 				},
@@ -248,6 +297,12 @@ func TestTransactGetItems(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			db := newTransactDB(t, tbl)
+			if tt.setup != nil {
+				tt.setup(t, db)
+			}
+
 			out, err := db.TransactGetItems(&sdk.TransactGetItemsInput{
 				TransactItems: tt.items,
 			})

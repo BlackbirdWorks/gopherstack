@@ -111,7 +111,6 @@ func (h *Handler) renderTemplate(w http.ResponseWriter, pageFile string, data an
 }
 
 // renderFragment renders a shared component/fragment.
-// renderFragment renders a shared component/fragment.
 func (h *Handler) renderFragment(w http.ResponseWriter, name string, data any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 

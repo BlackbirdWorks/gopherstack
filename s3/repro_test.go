@@ -1,13 +1,11 @@
 package s3_test
 
 import (
-	"context"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"Gopherstack/s3"
-
-	"net/http/httptest"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -18,46 +16,53 @@ import (
 
 func TestPutObject_SDKv2_Repro(t *testing.T) {
 	t.Parallel()
-	// Setup server
-	backend := s3.NewInMemoryBackend(&s3.GzipCompressor{})
-	handler := s3.NewHandler(backend)
-	server := httptest.NewServer(handler)
-	defer server.Close()
 
-	// Setup SDK client
-	cfg, err := config.LoadDefaultConfig(
-		context.TODO(),
-		config.WithRegion("us-east-1"),
-		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("AKIATEST", "secret", "")),
-		//nolint:staticcheck // Using deprecated endpoint resolver for test compatibility
-		config.WithEndpointResolverWithOptions(
-			//nolint:staticcheck // Deprecated but required for test setup
-			aws.EndpointResolverWithOptionsFunc(func(_, _ string, _ ...any) (aws.Endpoint, error) {
-				//nolint:staticcheck // Deprecated but required for test setup
-				return aws.Endpoint{
-					URL:           server.URL,
-					SigningRegion: "us-east-1",
-				}, nil
-			}),
-		),
-	)
-	require.NoError(t, err)
+	tests := []struct {
+		name   string
+		bucket string
+		key    string
+		body   string
+	}{
+		{
+			name:   "put object via SDK v2",
+			bucket: "test-bucket",
+			key:    "test-key",
+			body:   "content",
+		},
+	}
 
-	client := aws_s3.NewFromConfig(cfg, func(o *aws_s3.Options) {
-		o.UsePathStyle = true
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	// Create bucket
-	_, err = client.CreateBucket(context.TODO(), &aws_s3.CreateBucketInput{
-		Bucket: aws.String("test-bucket"),
-	})
-	require.NoError(t, err)
+			backend := s3.NewInMemoryBackend(&s3.GzipCompressor{})
+			handler := s3.NewHandler(backend)
+			server := httptest.NewServer(handler)
+			t.Cleanup(server.Close)
 
-	// Put Object
-	_, err = client.PutObject(context.TODO(), &aws_s3.PutObjectInput{
-		Bucket: aws.String("test-bucket"),
-		Key:    aws.String("test-key"),
-		Body:   strings.NewReader("content"),
-	})
-	require.NoError(t, err)
+			cfg, err := config.LoadDefaultConfig(
+				t.Context(),
+				config.WithRegion("us-east-1"),
+				config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("AKIATEST", "secret", "")),
+			)
+			require.NoError(t, err)
+
+			client := aws_s3.NewFromConfig(cfg, func(o *aws_s3.Options) {
+				o.UsePathStyle = true
+				o.BaseEndpoint = aws.String(server.URL)
+			})
+
+			_, err = client.CreateBucket(t.Context(), &aws_s3.CreateBucketInput{
+				Bucket: aws.String(tt.bucket),
+			})
+			require.NoError(t, err)
+
+			_, err = client.PutObject(t.Context(), &aws_s3.PutObjectInput{
+				Bucket: aws.String(tt.bucket),
+				Key:    aws.String(tt.key),
+				Body:   strings.NewReader(tt.body),
+			})
+			require.NoError(t, err)
+		})
+	}
 }

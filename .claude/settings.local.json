@@ -17,7 +17,11 @@
       "Bash(/Users/andrew.bishop/IdeaProjects/Gopherstack/dynamodb/models/convert_attrs.go:*)",
       "Bash(/Users/andrew.bishop/IdeaProjects/Gopherstack/dynamodb/models/convert_ops.go:*)",
       "Bash(go vet:*)",
-      "Bash(make integration-test:*)"
+      "Bash(make integration-test:*)",
+      "Bash(fieldalignment -fix:*)",
+      "Bash(golines:*)",
+      "Bash(go install:*)",
+      "Bash(~/go/bin/golines:*)"
     ]
   }
 }

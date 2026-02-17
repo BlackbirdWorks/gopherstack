@@ -164,7 +164,14 @@ func (p *Parser) parseGroupedExpr() (Node, error) {
 
 func (p *Parser) parseOperand() (Node, error) {
 	switch p.curToken.Type {
-	case TokenSize, TokenAttributeExists, TokenAttributeNotExists, TokenBeginsWith, TokenContains, TokenAttributeType, TokenIfNotExists, TokenListAppend:
+	case TokenSize,
+		TokenAttributeExists,
+		TokenAttributeNotExists,
+		TokenBeginsWith,
+		TokenContains,
+		TokenAttributeType,
+		TokenIfNotExists,
+		TokenListAppend:
 		return p.parseFunctionExpr()
 	case TokenValue:
 		return &ValuePlaceholder{Name: p.curToken.Literal}, nil
@@ -210,7 +217,9 @@ func (p *Parser) parseDotSegment(expr *PathExpr) error {
 
 func (p *Parser) parseBracketSegment(expr *PathExpr) error {
 	p.nextToken()
-	if !p.curTokenIs(TokenIdentifier) { // Lexer treats numbers as Identifier for now if not carefully handled
+	if !p.curTokenIs(
+		TokenIdentifier,
+	) { // Lexer treats numbers as Identifier for now if not carefully handled
 		return fmt.Errorf("%w, got %v", ErrExpectedIndex, p.curToken)
 	}
 	idx, err := strconv.Atoi(p.curToken.Literal)
@@ -388,7 +397,9 @@ func (p *Parser) parseUpdateItem(actionType TokenType) (UpdateItem, error) {
 			return UpdateItem{}, ErrExpectedEqualInSET
 		}
 		p.nextToken()
-		val, setErr := p.parseExpression(0) // Right side can be path or value or size() or atomic addition
+		val, setErr := p.parseExpression(
+			0,
+		) // Right side can be path or value or size() or atomic addition
 		if setErr != nil {
 			return UpdateItem{}, setErr
 		}

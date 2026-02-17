@@ -54,8 +54,20 @@ func TestGzipCompressor(t *testing.T) {
 func TestGzipCompressor_DecompressInvalidData(t *testing.T) {
 	t.Parallel()
 
-	compressor := &s3.GzipCompressor{}
+	tests := []struct {
+		name string
+		data []byte
+	}{
+		{name: "not gzip data", data: []byte("not gzip data")},
+	}
 
-	_, err := compressor.Decompress([]byte("not gzip data"))
-	require.Error(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			compressor := &s3.GzipCompressor{}
+			_, err := compressor.Decompress(tt.data)
+			require.Error(t, err)
+		})
+	}
 }
