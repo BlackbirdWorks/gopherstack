@@ -14,7 +14,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -50,10 +49,10 @@ type Handler struct {
 }
 
 // NewHandler creates a new S3 Handler with the given backend.
-func NewHandler(backend StorageBackend) *Handler {
+func NewHandler(backend StorageBackend, logger *slog.Logger) *Handler {
 	return &Handler{
 		Backend: backend,
-		Logger:  slog.New(slog.NewJSONHandler(os.Stderr, nil)),
+		Logger:  logger,
 	}
 }
 

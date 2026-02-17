@@ -1,6 +1,7 @@
 package s3_test
 
 import (
+	"log/slog"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -36,7 +37,7 @@ func TestPutObject_SDKv2_Repro(t *testing.T) {
 			t.Parallel()
 
 			backend := s3.NewInMemoryBackend(&s3.GzipCompressor{})
-			handler := s3.NewHandler(backend)
+			handler := s3.NewHandler(backend, slog.Default())
 			server := httptest.NewServer(handler)
 			t.Cleanup(server.Close)
 
