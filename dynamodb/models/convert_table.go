@@ -112,6 +112,9 @@ func ToSDKDescribeTimeToLiveInput(input *DescribeTimeToLiveInput) *dynamodb.Desc
 }
 
 func FromSDKDescribeTimeToLiveOutput(output *dynamodb.DescribeTimeToLiveOutput) *DescribeTimeToLiveOutput {
+	if output == nil {
+		return &DescribeTimeToLiveOutput{}
+	}
 	status := ""
 	if output.TimeToLiveDescription != nil {
 		status = string(output.TimeToLiveDescription.TimeToLiveStatus)

@@ -12,22 +12,22 @@ import (
 )
 
 var (
-	errNotMap               = errors.New("expected map[string]any for AttributeValue")
-	errInvalidTypeKeyCount  = errors.New("expected exactly one type key in AttributeValue map")
-	errInvalidTypeS         = errors.New("expected string for S type")
-	errInvalidTypeN         = errors.New("expected string for N type")
-	errInvalidTypeB         = errors.New("expected base64 string for B type")
-	errInvalidTypeBOOL      = errors.New("expected bool for BOOL type")
-	errInvalidTypeNULL      = errors.New("expected true for NULL type")
-	errInvalidTypeM         = errors.New("expected map for M type")
-	errInvalidTypeL         = errors.New("expected slice for L type")
-	errInvalidTypeSS        = errors.New("expected slice for SS type")
-	errInvalidStringInSS    = errors.New("expected string in SS")
-	errInvalidTypeNS        = errors.New("expected slice for NS type")
-	errInvalidStringInNS    = errors.New("expected string in NS")
-	errInvalidTypeBS        = errors.New("expected slice for BS type")
-	errInvalidStringInBS    = errors.New("expected string in BS")
-	errUnknownAttributeType = errors.New("unknown attribute value type")
+	ErrNotMap               = errors.New("expected map[string]any for AttributeValue")
+	ErrInvalidTypeKeyCount  = errors.New("expected exactly one type key in AttributeValue map")
+	ErrInvalidTypeS         = errors.New("expected string for S type")
+	ErrInvalidTypeN         = errors.New("expected string for N type")
+	ErrInvalidTypeB         = errors.New("expected base64 string for B type")
+	ErrInvalidTypeBOOL      = errors.New("expected bool for BOOL type")
+	ErrInvalidTypeNULL      = errors.New("expected true for NULL type")
+	ErrInvalidTypeM         = errors.New("expected map for M type")
+	ErrInvalidTypeL         = errors.New("expected slice for L type")
+	ErrInvalidTypeSS        = errors.New("expected slice for SS type")
+	ErrInvalidStringInSS    = errors.New("expected string in SS")
+	ErrInvalidTypeNS        = errors.New("expected slice for NS type")
+	ErrInvalidStringInNS    = errors.New("expected string in NS")
+	ErrInvalidTypeBS        = errors.New("expected slice for BS type")
+	ErrInvalidStringInBS    = errors.New("expected string in BS")
+	ErrUnknownAttributeType = errors.New("unknown attribute value type")
 )
 
 func toStringSlice(val any, errType error, errItem error) ([]string, error) {
@@ -89,7 +89,7 @@ func toByteSlice(val any, errType error, errItem error) ([][]byte, error) {
 func convertStringType(val any) (types.AttributeValue, error) {
 	s, matched := val.(string)
 	if !matched {
-		return nil, fmt.Errorf("%w, got %T", errInvalidTypeS, val)
+		return nil, fmt.Errorf("%w, got %T", ErrInvalidTypeS, val)
 	}
 
 	return &types.AttributeValueMemberS{Value: s}, nil
@@ -98,14 +98,14 @@ func convertStringType(val any) (types.AttributeValue, error) {
 func convertNumberType(val any) (types.AttributeValue, error) {
 	s, matched := val.(string)
 	if !matched {
-		return nil, fmt.Errorf("%w, got %T", errInvalidTypeN, val)
+		return nil, fmt.Errorf("%w, got %T", ErrInvalidTypeN, val)
 	}
 
 	return &types.AttributeValueMemberN{Value: s}, nil
 }
 
 func convertBinaryType(val any) (types.AttributeValue, error) {
-	b, err := decodeBinary(val, errInvalidTypeB)
+	b, err := decodeBinary(val, ErrInvalidTypeB)
 	if err != nil {
 		return nil, err
 	}
@@ -116,7 +116,7 @@ func convertBinaryType(val any) (types.AttributeValue, error) {
 func convertBoolType(val any) (types.AttributeValue, error) {
 	bVal, matched := val.(bool)
 	if !matched {
-		return nil, fmt.Errorf("%w, got %T", errInvalidTypeBOOL, val)
+		return nil, fmt.Errorf("%w, got %T", ErrInvalidTypeBOOL, val)
 	}
 
 	return &types.AttributeValueMemberBOOL{Value: bVal}, nil
@@ -125,14 +125,14 @@ func convertBoolType(val any) (types.AttributeValue, error) {
 func convertNullType(val any) (types.AttributeValue, error) {
 	b, matched := val.(bool)
 	if !matched {
-		return nil, fmt.Errorf("%w, got %T", errInvalidTypeNULL, val)
+		return nil, fmt.Errorf("%w, got %T", ErrInvalidTypeNULL, val)
 	}
 
 	return &types.AttributeValueMemberNULL{Value: b}, nil
 }
 
 func convertStringSetType(val any) (types.AttributeValue, error) {
-	ss, err := toStringSlice(val, errInvalidTypeSS, errInvalidStringInSS)
+	ss, err := toStringSlice(val, ErrInvalidTypeSS, ErrInvalidStringInSS)
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +141,7 @@ func convertStringSetType(val any) (types.AttributeValue, error) {
 }
 
 func convertNumberSetType(val any) (types.AttributeValue, error) {
-	ns, err := toStringSlice(val, errInvalidTypeNS, errInvalidStringInNS)
+	ns, err := toStringSlice(val, ErrInvalidTypeNS, ErrInvalidStringInNS)
 	if err != nil {
 		return nil, err
 	}
@@ -150,7 +150,7 @@ func convertNumberSetType(val any) (types.AttributeValue, error) {
 }
 
 func convertBinarySetType(val any) (types.AttributeValue, error) {
-	bs, err := toByteSlice(val, errInvalidTypeBS, errInvalidStringInBS)
+	bs, err := toByteSlice(val, ErrInvalidTypeBS, ErrInvalidStringInBS)
 	if err != nil {
 		return nil, err
 	}
@@ -161,7 +161,7 @@ func convertBinarySetType(val any) (types.AttributeValue, error) {
 func convertMapType(val any) (types.AttributeValue, error) {
 	mVal, matched := val.(map[string]any)
 	if !matched {
-		return nil, fmt.Errorf("%w, got %T", errInvalidTypeM, val)
+		return nil, fmt.Errorf("%w, got %T", ErrInvalidTypeM, val)
 	}
 
 	return ToSDKMapAttribute(mVal)
@@ -170,7 +170,7 @@ func convertMapType(val any) (types.AttributeValue, error) {
 func convertListType(val any) (types.AttributeValue, error) {
 	lVal, matched := val.([]any)
 	if !matched {
-		return nil, fmt.Errorf("%w, got %T", errInvalidTypeL, val)
+		return nil, fmt.Errorf("%w, got %T", ErrInvalidTypeL, val)
 	}
 
 	return ToSDKListAttribute(lVal)
@@ -180,11 +180,11 @@ func convertListType(val any) (types.AttributeValue, error) {
 func ToSDKAttributeValue(v any) (types.AttributeValue, error) {
 	m, ok := v.(map[string]any)
 	if !ok {
-		return nil, fmt.Errorf("%w, got %T", errNotMap, v)
+		return nil, fmt.Errorf("%w, got %T", ErrNotMap, v)
 	}
 
 	if len(m) != 1 {
-		return nil, fmt.Errorf("%w, got %d", errInvalidTypeKeyCount, len(m))
+		return nil, fmt.Errorf("%w, got %d", ErrInvalidTypeKeyCount, len(m))
 	}
 
 	for k, val := range m {
@@ -212,7 +212,7 @@ func ToSDKAttributeValue(v any) (types.AttributeValue, error) {
 		}
 	}
 
-	return nil, errUnknownAttributeType
+	return nil, ErrUnknownAttributeType
 }
 
 func ToSDKMapAttribute(m map[string]any) (*types.AttributeValueMemberM, error) {

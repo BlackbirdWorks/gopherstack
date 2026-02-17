@@ -34,7 +34,6 @@ func writeDynamoDBJSON(logger *slog.Logger, w http.ResponseWriter, code int, pay
 	w.Header().
 		Set("X-Amz-Crc32", strconv.FormatUint(uint64(checksum), 10))
 
-	w.Header().Set("Content-Length", strconv.Itoa(len(response)))
 	w.WriteHeader(code)
 
 	if _, wErr := w.Write(response); wErr != nil && logger != nil {
@@ -277,7 +276,6 @@ func (h *Handler) handleError(w http.ResponseWriter, _ *http.Request, action str
 		w.Header().
 			Set("X-Amz-Crc32", strconv.FormatUint(uint64(checksum), 10))
 
-		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write(body)
 
@@ -298,22 +296,14 @@ func (h *Handler) classifyError(reqErr error) (int, *Error) {
 	// But our internal implementation returns native go errors or custom structs.
 	// We need to map them to Wire Error struct.
 
-	// If reqErr is already *Error (Wire type), return it.
 	var wireErr *Error
 	if errors.As(reqErr, &wireErr) {
-		// Map type to status code
-		switch wireErr.Type {
-		case "com.amazonaws.dynamodb.v20120810#InternalServerError":
+		// Map type to status code. Most DynamoDB errors return 400.
+		if wireErr.Type == "com.amazonaws.dynamodb.v20120810#InternalServerError" {
 			return http.StatusInternalServerError, wireErr
-		case "com.amazonaws.dynamodb.v20120810#ResourceNotFoundException":
-			return http.StatusNotFound, wireErr
-		case "com.amazonaws.dynamodb.v20120810#ConditionalCheckFailedException":
-			return http.StatusBadRequest, wireErr
-		case "com.amazonaws.dynamodb.v20120810#TransactionCanceledException":
-			return http.StatusBadRequest, wireErr
-		default:
-			return http.StatusBadRequest, wireErr
 		}
+
+		return http.StatusBadRequest, wireErr
 	}
 
 	// Fallback

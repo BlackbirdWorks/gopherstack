@@ -70,6 +70,7 @@ const (
 	PrecAND
 	PrecNOT
 	PrecComparison
+	PrecArithmetic
 )
 
 func precedenceOf(t TokenType) int {
@@ -84,6 +85,8 @@ func precedenceOf(t TokenType) int {
 		return PrecComparison
 	case TokenIN:
 		return PrecComparison
+	case TokenPlus, TokenMinus:
+		return PrecArithmetic
 	default:
 		return 0
 	}
@@ -113,7 +116,9 @@ func (p *Parser) parseExpression(precedence int) (Node, error) {
 		TokenAttributeNotExists,
 		TokenBeginsWith,
 		TokenContains,
-		TokenAttributeType:
+		TokenAttributeType,
+		TokenIfNotExists,
+		TokenListAppend:
 		left, err = p.parseOperand()
 	default:
 		return nil, fmt.Errorf("%w %v at start of expression", ErrUnexpectedToken, p.curToken)
@@ -159,7 +164,14 @@ func (p *Parser) parseGroupedExpr() (Node, error) {
 
 func (p *Parser) parseOperand() (Node, error) {
 	switch p.curToken.Type {
-	case TokenSize, TokenAttributeExists, TokenAttributeNotExists, TokenBeginsWith, TokenContains, TokenAttributeType:
+	case TokenSize,
+		TokenAttributeExists,
+		TokenAttributeNotExists,
+		TokenBeginsWith,
+		TokenContains,
+		TokenAttributeType,
+		TokenIfNotExists,
+		TokenListAppend:
 		return p.parseFunctionExpr()
 	case TokenValue:
 		return &ValuePlaceholder{Name: p.curToken.Literal}, nil
@@ -205,7 +217,9 @@ func (p *Parser) parseDotSegment(expr *PathExpr) error {
 
 func (p *Parser) parseBracketSegment(expr *PathExpr) error {
 	p.nextToken()
-	if !p.curTokenIs(TokenIdentifier) { // Lexer treats numbers as Identifier for now if not carefully handled
+	if !p.curTokenIs(
+		TokenIdentifier,
+	) { // Lexer treats numbers as Identifier for now if not carefully handled
 		return fmt.Errorf("%w, got %v", ErrExpectedIndex, p.curToken)
 	}
 	idx, err := strconv.Atoi(p.curToken.Literal)
@@ -383,7 +397,9 @@ func (p *Parser) parseUpdateItem(actionType TokenType) (UpdateItem, error) {
 			return UpdateItem{}, ErrExpectedEqualInSET
 		}
 		p.nextToken()
-		val, setErr := p.parseExpression(0) // Right side can be path or value or size() or atomic addition
+		val, setErr := p.parseExpression(
+			0,
+		) // Right side can be path or value or size() or atomic addition
 		if setErr != nil {
 			return UpdateItem{}, setErr
 		}

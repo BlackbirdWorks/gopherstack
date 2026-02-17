@@ -16,7 +16,7 @@ type Matcher func(r *http.Request) bool
 // Registration binds a service handler to its routing logic.
 // A nil Match func designates the fallback/default handler.
 type Registration struct {
-	Handler Handler
 	Match   Matcher
+	Handler Handler
 	Name    string
 }

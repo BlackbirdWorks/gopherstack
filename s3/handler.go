@@ -118,8 +118,21 @@ func (h *Handler) resolveBucketAndKey(w http.ResponseWriter, r *http.Request) (s
 	path := strings.TrimPrefix(r.URL.Path, "/")
 	parts := strings.SplitN(path, "/", pathSplitParts)
 
-	bucket, key := "", ""
+	// Try virtual-hosted-style first: bucket name as subdomain in Host header.
+	if vhBucket := h.extractVirtualHostedBucketName(r); vhBucket != "" {
+		bucket := vhBucket
+		key := path
+		if key != "" && !IsValidObjectKey(key) {
+			httputils.WriteError(h.Logger, w, r, ErrInvalidArgument, http.StatusBadRequest)
 
+			return "", "", false
+		}
+
+		return bucket, key, true
+	}
+
+	// Fall back to path-style (/bucket/key).
+	bucket, key := "", ""
 	if path != "" && path != "/" {
 		bucket = parts[0]
 		if !IsValidBucketName(bucket) {
@@ -130,19 +143,6 @@ func (h *Handler) resolveBucketAndKey(w http.ResponseWriter, r *http.Request) (s
 
 		if len(parts) > 1 {
 			key = parts[1]
-			if key != "" && !IsValidObjectKey(key) {
-				httputils.WriteError(h.Logger, w, r, ErrInvalidArgument, http.StatusBadRequest)
-
-				return "", "", false
-			}
-		}
-	}
-
-	// Fall back to virtual-hosted-style: bucket name as subdomain in Host header.
-	if bucket == "" {
-		if vhBucket := h.extractVirtualHostedBucketName(r); vhBucket != "" {
-			bucket = vhBucket
-			key = path
 			if key != "" && !IsValidObjectKey(key) {
 				httputils.WriteError(h.Logger, w, r, ErrInvalidArgument, http.StatusBadRequest)
 
@@ -257,7 +257,6 @@ func (h *Handler) routeObjectPut(w http.ResponseWriter, r *http.Request, bucket,
 	case r.URL.Query().Has("tagging"):
 		h.putObjectTagging(w, r, bucket, key)
 	case r.URL.Query().Has("acl"):
-		w.Header().Set("Content-Length", "0")
 		w.WriteHeader(http.StatusOK) // ACLs ignored
 	case r.URL.Query().Has("partNumber") && r.URL.Query().Has("uploadId"):
 		h.uploadPart(w, r, bucket, key)
@@ -377,7 +376,6 @@ func (h *Handler) createBucket(w http.ResponseWriter, r *http.Request, bucketNam
 	}
 
 	w.Header().Set("Location", "/"+bucketName)
-	w.Header().Set("Content-Length", "0")
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -625,20 +623,17 @@ func getChecksumAlgo(crc32, crc32c, sha1, sha256 *string) string {
 func (h *Handler) headBucket(w http.ResponseWriter, r *http.Request, bucketName string) {
 	_, err := h.Backend.HeadBucket(r.Context(), &s3.HeadBucketInput{Bucket: aws.String(bucketName)})
 	if errors.Is(err, ErrNoSuchBucket) {
-		w.Header().Set("Content-Length", "0")
 		w.WriteHeader(http.StatusNotFound)
 
 		return
 	}
 
 	if err != nil {
-		w.Header().Set("Content-Length", "0")
 		w.WriteHeader(http.StatusInternalServerError)
 
 		return
 	}
 
-	w.Header().Set("Content-Length", "0")
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -675,10 +670,6 @@ func (h *Handler) setCommonHeaders(w http.ResponseWriter, out objectCommonDetail
 		w.Header().Set("ETag", *out.ETag)
 	}
 
-	if out.ContentLength != nil {
-		w.Header().Set("Content-Length", strconv.FormatInt(*out.ContentLength, 10))
-	}
-
 	if out.LastModified != nil {
 		w.Header().Set("Last-Modified", out.LastModified.Format(http.TimeFormat))
 	}
@@ -687,6 +678,10 @@ func (h *Handler) setCommonHeaders(w http.ResponseWriter, out objectCommonDetail
 		w.Header().Set("Content-Type", *out.ContentType)
 	} else {
 		w.Header().Set("Content-Type", "application/octet-stream")
+	}
+
+	if out.ContentLength != nil {
+		w.Header().Set("Content-Length", strconv.FormatInt(*out.ContentLength, 10))
 	}
 
 	for k, v := range out.Metadata {
@@ -830,7 +825,6 @@ func (h *Handler) putObject(w http.ResponseWriter, r *http.Request, bucketName, 
 		w.Header().Set("X-Amz-Version-Id", *ver.VersionId)
 	}
 
-	w.Header().Set("Content-Length", "0")
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -1040,7 +1034,6 @@ func (h *Handler) serveRange(w http.ResponseWriter, data []byte, rangeHeader str
 	}
 
 	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, total))
-	w.Header().Set("Content-Length", strconv.FormatInt(end-start+1, 10))
 	w.WriteHeader(http.StatusPartialContent)
 
 	if _, err := w.Write(data[start : end+1]); err != nil {
@@ -1206,7 +1199,6 @@ func (h *Handler) putBucketVersioning(w http.ResponseWriter, r *http.Request, bu
 		return
 	}
 
-	w.Header().Set("Content-Length", "0")
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -1327,7 +1319,6 @@ func (h *Handler) putObjectTagging(w http.ResponseWriter, r *http.Request, bucke
 		return
 	}
 
-	w.Header().Set("Content-Length", "0")
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -1442,7 +1433,6 @@ func (h *Handler) uploadPart(w http.ResponseWriter, r *http.Request, bucketName,
 	}
 
 	w.Header().Set("ETag", *out.ETag)
-	w.Header().Set("Content-Length", "0")
 	w.WriteHeader(http.StatusOK)
 }
 

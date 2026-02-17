@@ -123,23 +123,31 @@ func TestIntegration_DDB_ComplexDataModel(t *testing.T) {
 				assert.Equal(t, int32(2), out.Count)
 				assert.Len(t, out.Items, 2)
 
+				// Use AssertItem for more robust checks
 				for _, item := range out.Items {
-					assert.Contains(t, item, "sk")
-					assert.Contains(t, item, "DeepData")
-					assert.Contains(t, item, "Tags")
-					assert.NotContains(t, item, "pk")
+					sk := ""
+					if v, ok := item["sk"].(*types.AttributeValueMemberS); ok {
+						sk = v.Value
+					}
 
-					deepData := item["DeepData"].(*types.AttributeValueMemberM).Value
-					assert.Contains(t, deepData, "Config")
-					assert.Contains(t, deepData, "Meta")
-					assert.NotContains(t, deepData, "ID")
+					expected := map[string]any{
+						"sk": sk,
+						"DeepData": map[string]any{
+							"Config": map[string]any{"Theme": "dark"},
+							"Meta":   map[string]any{"Source": "web"},
+						},
+						"Tags": []any{"admin", "editor"},
+					}
 
-					config := deepData["Config"].(*types.AttributeValueMemberM).Value
-					assert.Contains(t, config, "Theme")
+					if sk == "ORG#org-123#USER#user-2" {
+						expected["DeepData"] = map[string]any{
+							"Config": map[string]any{"Theme": "light"},
+							"Meta":   map[string]any{"Source": "mobile"},
+						}
+						expected["Tags"] = []any{"viewer"}
+					}
 
-					meta := deepData["Meta"].(*types.AttributeValueMemberM).Value
-					assert.Contains(t, meta, "Source")
-					assert.NotContains(t, meta, "Ver")
+					AssertItem(t, item, expected)
 				}
 			},
 		},

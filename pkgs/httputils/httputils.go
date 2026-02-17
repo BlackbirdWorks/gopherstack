@@ -7,7 +7,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"strconv"
 )
 
 // ReadBody reads the request body and returns it as a byte slice.
@@ -55,7 +54,6 @@ func WriteJSON(logger *slog.Logger, w http.ResponseWriter, code int, payload any
 	if w.Header().Get("Content-Type") == "" {
 		w.Header().Set("Content-Type", "application/json")
 	}
-	w.Header().Set("Content-Length", strconv.Itoa(len(response)))
 	w.WriteHeader(code)
 	if _, wErr := w.Write(response); wErr != nil && logger != nil {
 		logger.Error("failed to write JSON response", "error", wErr)
@@ -63,8 +61,7 @@ func WriteJSON(logger *slog.Logger, w http.ResponseWriter, code int, payload any
 }
 
 // WriteXML writes an XML response with the given status code.
-// The full body is buffered before writing so that Content-Length can be set,
-// allowing the HTTP client to know when the body is fully received.
+// The full body is buffered before writing it to the response.
 func WriteXML(logger *slog.Logger, w http.ResponseWriter, code int, payload any) {
 	var buf bytes.Buffer
 	buf.WriteString(xml.Header)
@@ -80,7 +77,6 @@ func WriteXML(logger *slog.Logger, w http.ResponseWriter, code int, payload any)
 	}
 
 	w.Header().Set("Content-Type", "application/xml")
-	w.Header().Set("Content-Length", strconv.Itoa(buf.Len()))
 	w.WriteHeader(code)
 	if _, err := buf.WriteTo(w); err != nil && logger != nil {
 		logger.Error("failed to write XML response", "error", err)

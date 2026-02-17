@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -19,6 +20,8 @@ var (
 	ErrAttributeNExistsExpectsOne  = errors.New("attribute_not_exists() expects 1 argument")
 	ErrBeginsWithExpectsTwo        = errors.New("begins_with() expects 2 arguments")
 	ErrContainsExpectsTwo          = errors.New("contains() expects 2 arguments")
+	ErrAttributeTypeExpectsTwo     = errors.New("attribute_type() expects 2 arguments")
+	ErrListAppendExpectsTwo        = errors.New("list_append() expects 2 arguments")
 	ErrUnknownFunction             = errors.New("unknown function")
 	ErrUpdatePathMustBePathExpr    = errors.New("update item path must be a PathExpr")
 	ErrExpectedMapForKey           = errors.New("expected map for key")
@@ -27,6 +30,16 @@ var (
 	ErrIndexOutOfRange             = errors.New("index out of range")
 	ErrExpectedMapForM             = errors.New("expected map for M")
 	ErrExpectedListForL            = errors.New("expected list for L")
+	ErrUnsupportedArithmeticOp     = errors.New("unsupported arithmetic operator")
+	ErrIfNotExistsExpectsTwo       = errors.New("if_not_exists() expects 2 arguments")
+	ErrDeleteValueMustBeSet        = errors.New("DELETE value must be a set")
+	ErrSSValueMustBeSlice          = errors.New("SS value must be []string")
+	ErrCurrentValueMustBeMap       = errors.New("current value must be a map")
+	ErrCurrentSSValueMustBeSlice   = errors.New("current SS value must be []string")
+	ErrNSValueMustBeSlice          = errors.New("NS value must be []string")
+	ErrCurrentNSValueMustBeSlice   = errors.New("current NS value must be []string")
+	ErrBSValueMustBeSlice          = errors.New("BS value must be [][]byte")
+	ErrCurrentBSValueMustBeSlice   = errors.New("current BS value must be [][]byte")
 )
 
 // twoArgs is the expected argument count for two-argument functions.
@@ -45,7 +58,13 @@ func (e *Evaluator) Evaluate(node Node) (any, error) {
 	case *NotExpr:
 		return e.evaluateNot(n)
 	case *ComparisonExpr:
+		// Check if this is an arithmetic operation instead of a comparison
+		if n.Operator == TokenPlus || n.Operator == TokenMinus {
+			return e.evaluateArithmetic(n)
+		}
+
 		return e.evaluateComparison(n)
+
 	case *BetweenExpr:
 		return e.evaluateBetween(n)
 	case *InExpr:
@@ -113,6 +132,36 @@ func (e *Evaluator) evaluateComparison(n *ComparisonExpr) (bool, error) {
 	return e.compareValues(left, n.Operator, right), nil
 }
 
+// evaluateArithmetic evaluates arithmetic operations (+ and -) for UPDATE expressions.
+// Returns the result in DynamoDB attribute value format (e.g., map[string]any{"N": "5"}).
+func (e *Evaluator) evaluateArithmetic(n *ComparisonExpr) (any, error) {
+	left, err := e.Evaluate(n.Left)
+	if err != nil {
+		return nil, err
+	}
+	right, err := e.Evaluate(n.Right)
+	if err != nil {
+		return nil, err
+	}
+
+	// Extract numeric values from DynamoDB attribute format
+	leftNum := e.toNumber(left)
+	rightNum := e.toNumber(right)
+
+	var result float64
+	switch n.Operator {
+	case TokenPlus:
+		result = leftNum + rightNum
+	case TokenMinus:
+		result = leftNum - rightNum
+	default:
+		return nil, fmt.Errorf("%w: %v", ErrUnsupportedArithmeticOp, n.Operator)
+	}
+
+	// Return in DynamoDB attribute value format
+	return map[string]any{"N": fmt.Sprintf("%g", result)}, nil
+}
+
 func (e *Evaluator) evaluateBetween(n *BetweenExpr) (bool, error) {
 	val, err := e.Evaluate(n.Value)
 	if err != nil {
@@ -161,6 +210,12 @@ func (e *Evaluator) evaluateFunction(n *FunctionExpr) (any, error) {
 		return e.evalBeginsWithFunc(n)
 	case "contains":
 		return e.evalContainsFunc(n)
+	case "attribute_type":
+		return e.evalAttributeTypeFunc(n)
+	case "if_not_exists":
+		return e.evalIfNotExistsFunc(n)
+	case "list_append":
+		return e.evalListAppendFunc(n)
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrUnknownFunction, n.Name)
 	}
@@ -236,6 +291,96 @@ func (e *Evaluator) evalContainsFunc(n *FunctionExpr) (any, error) {
 	return strings.Contains(e.toString(pathVal), e.toString(targetVal)), nil
 }
 
+// evalIfNotExistsFunc implements the if_not_exists() function for UPDATE expressions.
+// if_not_exists(path, value) returns the value at path if it exists, otherwise returns value.
+func (e *Evaluator) evalIfNotExistsFunc(n *FunctionExpr) (any, error) {
+	if len(n.Args) != twoArgs {
+		return nil, fmt.Errorf("%w: got %d", ErrIfNotExistsExpectsTwo, len(n.Args))
+	}
+
+	// Try to evaluate the path argument
+	pathVal, err := e.Evaluate(n.Args[0])
+
+	// If path doesn't exist or evaluation fails, return the default value
+	if err != nil || pathVal == nil {
+		return e.Evaluate(n.Args[1])
+	}
+
+	// Path exists, return its value
+	return pathVal, nil
+}
+
+// evalAttributeTypeFunc implements the attribute_type() function.
+// attribute_type(path, type) returns true if the attribute at path is of the specified type.
+// Valid types: S, SS, N, NS, B, BS, BOOL, NULL, L, M.
+func (e *Evaluator) evalAttributeTypeFunc(n *FunctionExpr) (any, error) {
+	if len(n.Args) != twoArgs {
+		return nil, ErrAttributeTypeExpectsTwo
+	}
+
+	pathVal, err := e.Evaluate(n.Args[0])
+	if err != nil {
+		return nil, err
+	}
+	if pathVal == nil {
+		return false, nil
+	}
+
+	expectedType, err := e.Evaluate(n.Args[1])
+	if err != nil {
+		return nil, err
+	}
+
+	expectedTypeStr := e.toString(expectedType)
+
+	// Get the DynamoDB type from the attribute value
+	if attrMap, ok := pathVal.(map[string]any); ok {
+		for attrType := range attrMap {
+			return attrType == expectedTypeStr, nil
+		}
+	}
+
+	return false, nil
+}
+
+// evalListAppendFunc implements the list_append() function for UPDATE expressions.
+// list_append(list1, list2) appends list2 to list1 and returns the combined list.
+func (e *Evaluator) evalListAppendFunc(n *FunctionExpr) (any, error) {
+	if len(n.Args) != twoArgs {
+		return nil, ErrListAppendExpectsTwo
+	}
+
+	list1Val, err := e.Evaluate(n.Args[0])
+	if err != nil {
+		return nil, err
+	}
+
+	list2Val, err := e.Evaluate(n.Args[1])
+	if err != nil {
+		return nil, err
+	}
+
+	// Extract the L (list) values from DynamoDB format
+	var list1, list2 []any
+
+	if list1Map, ok := list1Val.(map[string]any); ok {
+		if l, ok2 := list1Map["L"].([]any); ok2 {
+			list1 = l
+		}
+	}
+
+	if list2Map, ok := list2Val.(map[string]any); ok {
+		if l, ok2 := list2Map["L"].([]any); ok2 {
+			list2 = l
+		}
+	}
+
+	// Append and return in DynamoDB format
+	list1 = append(list1, list2...)
+
+	return map[string]any{"L": list1}, nil
+}
+
 func (e *Evaluator) calculateSize(v any) float64 {
 	unwrapped := e.unwrapAttributeValue(v)
 	switch val := unwrapped.(type) {
@@ -295,6 +440,31 @@ func (e *Evaluator) unwrapAttributeValue(v any) any {
 	}
 
 	return v
+}
+
+// toNumber converts a DynamoDB attribute value to a float64.
+func (e *Evaluator) toNumber(v any) float64 {
+	unwrapped := e.unwrapAttributeValue(v)
+	switch n := unwrapped.(type) {
+	case float64:
+		return n
+	case int:
+		return float64(n)
+	case int64:
+		return float64(n)
+	case int32:
+		return float64(n)
+	case string:
+		// DynamoDB numbers are stored as strings
+		f, err := strconv.ParseFloat(n, 64)
+		if err != nil {
+			return 0
+		}
+
+		return f
+	default:
+		return 0
+	}
 }
 
 func (e *Evaluator) toString(v any) string {
@@ -503,8 +673,7 @@ func (e *Evaluator) applyUpdateItem(actionType TokenType, path *PathExpr, item U
 	case TokenADD:
 		return e.applyAddAction(path, item)
 	case TokenDELETE:
-		// Similar to REMOVE but for sets? DynamoDB DELETE is specifically for sets.
-		// For now, let's focus on SET and REMOVE as they are most common.
+		return e.applyDeleteAction(path, item)
 	}
 
 	return nil
@@ -545,6 +714,16 @@ func (e *Evaluator) applyAddAction(path *PathExpr, item UpdateItem) error {
 	}
 
 	return e.applyAdd(path.Elements, val)
+}
+
+func (e *Evaluator) applyDeleteAction(path *PathExpr, item UpdateItem) error {
+	// DELETE removes values from a set
+	val, err := e.Evaluate(item.Value)
+	if err != nil {
+		return err
+	}
+
+	return e.applyDelete(path.Elements, val)
 }
 
 func (e *Evaluator) ApplyProjection(p *ProjectionExpr) map[string]any {
@@ -597,6 +776,105 @@ func (e *Evaluator) applyAdd(path []PathElement, val any) error {
 	}
 
 	// Also support list/set append would go here
+	return nil
+}
+
+func (e *Evaluator) applyDelete(path []PathElement, val any) error {
+	// DELETE removes elements from a set (SS, NS, BS)
+	cur, exists := e.getValueAtPath(e.Item, path)
+	if !exists {
+		return nil
+	}
+
+	valMap, ok := val.(map[string]any)
+	if !ok {
+		return ErrDeleteValueMustBeSet
+	}
+
+	if ssToRemove, okSS := valMap["SS"]; okSS {
+		if err := e.deleteSS(path, cur, ssToRemove); err != nil {
+			return err
+		}
+	}
+
+	if nsToRemove, okNS := valMap["NS"]; okNS {
+		if err := e.deleteNS(path, cur, nsToRemove); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (e *Evaluator) deleteSS(path []PathElement, cur any, ssToRemove any) error {
+	toRemove, okCast := ssToRemove.([]string)
+	if !okCast {
+		return ErrSSValueMustBeSlice
+	}
+
+	curMap, okCur := cur.(map[string]any)
+	if !okCur {
+		return ErrCurrentValueMustBeMap
+	}
+
+	if ssCurrent, okSSCur := curMap["SS"]; okSSCur {
+		currentSet, okSet := ssCurrent.([]string)
+		if !okSet {
+			return ErrCurrentSSValueMustBeSlice
+		}
+
+		newSet := make([]string, 0, len(currentSet))
+		for _, item := range currentSet {
+			if !slices.Contains(toRemove, item) {
+				newSet = append(newSet, item)
+			}
+		}
+
+		return e.updateItemSet(path, "SS", newSet)
+	}
+
+	return nil
+}
+
+func (e *Evaluator) deleteNS(path []PathElement, cur any, nsToRemove any) error {
+	toRemove, okCast := nsToRemove.([]string)
+	if !okCast {
+		return ErrNSValueMustBeSlice
+	}
+
+	curMap, okCur := cur.(map[string]any)
+	if !okCur {
+		return ErrCurrentValueMustBeMap
+	}
+
+	if nsCurrent, okNSCur := curMap["NS"]; okNSCur {
+		currentSet, okSet := nsCurrent.([]string)
+		if !okSet {
+			return ErrCurrentNSValueMustBeSlice
+		}
+
+		newSet := make([]string, 0, len(currentSet))
+		for _, item := range currentSet {
+			if !slices.Contains(toRemove, item) {
+				newSet = append(newSet, item)
+			}
+		}
+
+		return e.updateItemSet(path, "NS", newSet)
+	}
+
+	return nil
+}
+
+func (e *Evaluator) updateItemSet(path []PathElement, key string, val any) error {
+	updated, err := e.setValueAtPath(e.Item, path, map[string]any{key: val})
+	if err != nil {
+		return err
+	}
+	if m, okM := updated.(map[string]any); okM {
+		e.Item = m
+	}
+
 	return nil
 }
 

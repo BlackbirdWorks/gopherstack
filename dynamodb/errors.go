@@ -69,6 +69,48 @@ func NewResourceInUseException(msg string) *Error {
 	}
 }
 
+func NewProvisionedThroughputExceededException(msg string) *Error {
+	return &Error{
+		Type:    "com.amazonaws.dynamodb.v20120810#ProvisionedThroughputExceededException",
+		Message: msg,
+	}
+}
+
+func NewThrottlingException(msg string) *Error {
+	return &Error{
+		Type:    "com.amazonaws.dynamodb.v20120810#ThrottlingException",
+		Message: msg,
+	}
+}
+
+func NewRequestLimitExceeded(msg string) *Error {
+	return &Error{
+		Type:    "com.amazonaws.dynamodb.v20120810#RequestLimitExceeded",
+		Message: msg,
+	}
+}
+
+func NewTransactionConflictException(msg string) *Error {
+	return &Error{
+		Type:    "com.amazonaws.dynamodb.v20120810#TransactionConflictException",
+		Message: msg,
+	}
+}
+
+func NewReplicatedWriteConflictException(msg string) *Error {
+	return &Error{
+		Type:    "com.amazonaws.dynamodb.v20120810#ReplicatedWriteConflictException",
+		Message: msg,
+	}
+}
+
+func NewPolicyNotFoundException(msg string) *Error {
+	return &Error{
+		Type:    "com.amazonaws.dynamodb.v20120810#PolicyNotFoundException",
+		Message: msg,
+	}
+}
+
 func NewTransactionCanceledException(msg string) *Error {
 	return &Error{
 		Type:    "com.amazonaws.dynamodb.v20120810#TransactionCanceledException",

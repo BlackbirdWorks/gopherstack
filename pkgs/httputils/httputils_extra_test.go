@@ -10,6 +10,9 @@ import (
 	"testing"
 
 	"Gopherstack/pkgs/httputils"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -28,54 +31,110 @@ func (errReadCloser) Close() error { return nil }
 func TestReadBody_Error(t *testing.T) {
 	t.Parallel()
 
-	req := &http.Request{Body: errReadCloser{}}
-	_, err := httputils.ReadBody(req)
-	if err == nil {
-		t.Fatalf("expected error")
+	tests := []struct {
+		body io.ReadCloser
+		name string
+	}{
+		{
+			body: errReadCloser{},
+			name: "read error",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			req := &http.Request{Body: tt.body}
+			_, err := httputils.ReadBody(req)
+			require.Error(t, err)
+		})
 	}
 }
 
 func TestWriteError_NilLogger(t *testing.T) {
 	t.Parallel()
 
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	tests := []struct {
+		err        error
+		name       string
+		statusCode int
+	}{
+		{
+			err:        errBoom,
+			name:       "nil logger",
+			statusCode: http.StatusBadRequest,
+		},
+	}
 
-	httputils.WriteError(nil, rec, req, errBoom, http.StatusBadRequest)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/test", nil)
+
+			httputils.WriteError(nil, rec, req, tt.err, tt.statusCode)
+			assert.Equal(t, tt.statusCode, rec.Code)
+		})
 	}
 }
 
 func TestWriteJSON_ContentTypePreserved(t *testing.T) {
 	t.Parallel()
 
-	rec := httptest.NewRecorder()
-	rec.Header().Set("Content-Type", "application/custom")
+	tests := []struct {
+		name        string
+		contentType string
+		want        string
+	}{
+		{
+			name:        "preserve custom content type",
+			contentType: "application/custom",
+			want:        "application/custom",
+		},
+	}
 
-	httputils.WriteJSON(
-		slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)),
-		rec,
-		http.StatusOK,
-		map[string]string{"a": "b"},
-	)
-	if got := rec.Header().Get("Content-Type"); got != "application/custom" {
-		t.Fatalf("expected Content-Type preserved, got %q", got)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			rec := httptest.NewRecorder()
+			rec.Header().Set("Content-Type", tt.contentType)
+
+			httputils.WriteJSON(
+				slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)),
+				rec,
+				http.StatusOK,
+				map[string]string{"a": "b"},
+			)
+			assert.Equal(t, tt.want, rec.Header().Get("Content-Type"))
+		})
 	}
 }
 
 func TestDrainBody_Closes(t *testing.T) {
 	t.Parallel()
 
-	closed := false
-	body := io.NopCloser(bytes.NewReader([]byte("data")))
-	wrapped := &closeWatcher{ReadCloser: body, closed: &closed}
+	tests := []struct {
+		name string
+		data string
+	}{
+		{
+			name: "closes body",
+			data: "data",
+		},
+	}
 
-	req := &http.Request{Body: wrapped}
-	httputils.DrainBody(req)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			closed := false
+			body := io.NopCloser(bytes.NewReader([]byte(tt.data)))
+			wrapped := &closeWatcher{ReadCloser: body, closed: &closed}
 
-	if !closed {
-		t.Fatalf("expected body to be closed")
+			req := &http.Request{Body: wrapped}
+			httputils.DrainBody(req)
+
+			assert.True(t, closed, "expected body to be closed")
+		})
 	}
 }
 

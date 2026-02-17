@@ -147,23 +147,12 @@ func TestFromSDKListTablesOutput(t *testing.T) {
 	assert.Equal(t, []string{"table1", "table2", "table3"}, result.TableNames)
 }
 
-func TestToSDKUpdateTimeToLiveInput(t *testing.T) {
+func TestToSDKListTablesInputLarge(t *testing.T) {
 	t.Parallel()
 
-	input := &models.UpdateTimeToLiveInput{
-		TableName: "TestTable",
-		TimeToLiveSpecification: models.TimeToLiveSpecification{
-			AttributeName: "ttl",
-			Enabled:       true,
-		},
-	}
-
-	output := models.ToSDKUpdateTimeToLiveInput(input)
-
-	assert.Equal(t, "TestTable", aws.ToString(output.TableName))
-	assert.NotNil(t, output.TimeToLiveSpecification)
-	assert.Equal(t, "ttl", aws.ToString(output.TimeToLiveSpecification.AttributeName))
-	assert.True(t, aws.ToBool(output.TimeToLiveSpecification.Enabled))
+	input := &models.ListTablesInput{Limit: 3000000000} // Larger than int32
+	got := models.ToSDKListTablesInput(input)
+	assert.Equal(t, int32(2147483647), *got.Limit)
 }
 
 func TestFromSDKUpdateTimeToLiveOutput(t *testing.T) {

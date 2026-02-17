@@ -89,9 +89,10 @@ func TestIntegration_DDB_PutItem(t *testing.T) {
 			verify: func(t *testing.T, out *dynamodb.PutItemOutput) {
 				t.Helper()
 				require.NotNil(t, out.Attributes)
-				val, ok := out.Attributes["val"].(*types.AttributeValueMemberS)
-				require.True(t, ok)
-				assert.Equal(t, "original", val.Value)
+				AssertItem(t, out.Attributes, map[string]any{
+					"pk":  "item3",
+					"val": "original",
+				})
 			},
 		},
 	}

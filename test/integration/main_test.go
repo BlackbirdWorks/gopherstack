@@ -1,6 +1,8 @@
 package integration_test
 
 import (
+	"Gopherstack/dynamodb/models"
+	"Gopherstack/pkgs/dynamoattr"
 	"context"
 	"flag"
 	"fmt"
@@ -15,8 +17,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/docker/docker/api/types/build"
+	"github.com/google/go-cmp/cmp"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
@@ -158,4 +162,47 @@ func dumpContainerLogsOnFailure(t *testing.T) {
 		t.Logf("%s", string(logBytes))
 		t.Log("\n========== END CONTAINER LOGS ==========\n")
 	})
+}
+
+// AssertItem performs a deep comparison between a DynamoDB item and an expected map.
+// It automatically unwraps the SDK's internal representation for easier testing.
+func AssertItem(t *testing.T, item map[string]types.AttributeValue, expected map[string]any) {
+	t.Helper()
+
+	actual := unwrapItem(models.FromSDKItem(item))
+	if diff := cmp.Diff(expected, actual); diff != "" {
+		t.Errorf("Item mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func unwrapItem(item map[string]any) map[string]any {
+	res := make(map[string]any)
+	for k, v := range item {
+		res[k] = unwrapValue(v)
+	}
+
+	return res
+}
+
+func unwrapValue(v any) any {
+	unwrapped := dynamoattr.UnwrapAttributeValue(v)
+
+	switch val := unwrapped.(type) {
+	case map[string]any:
+		res := make(map[string]any)
+		for mk, mv := range val {
+			res[mk] = unwrapValue(mv)
+		}
+
+		return res
+	case []any:
+		res := make([]any, len(val))
+		for i, iv := range val {
+			res[i] = unwrapValue(iv)
+		}
+
+		return res
+	default:
+		return val
+	}
 }
