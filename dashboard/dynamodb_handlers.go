@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 
+	"Gopherstack/pkgs/logger"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
@@ -66,7 +68,8 @@ func (h *Handler) dynamoDBIndex(w http.ResponseWriter, _ *http.Request) {
 
 // dynamoDBTableList returns the list of tables as HTML fragment.
 func (h *Handler) dynamoDBTableList(w http.ResponseWriter, r *http.Request) {
-	ctx := context.Background()
+	ctx := r.Context()
+	log := logger.Load(ctx)
 	output, err := h.DynamoDB.ListTables(ctx, &dynamodb.ListTablesInput{})
 	if err != nil {
 		h.handleListTablesError(w, r, err)
@@ -75,7 +78,7 @@ func (h *Handler) dynamoDBTableList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	search := strings.ToLower(r.URL.Query().Get("search"))
-	h.Logger.Info("DynamoDB search", "search", search, "all_tables", output.TableNames)
+	log.InfoContext(ctx, "DynamoDB search", "search", search, "all_tables", output.TableNames)
 	tableNames := filterTableNames(search, output.TableNames)
 	tableInfos := h.fetchTableInfos(ctx, tableNames)
 
@@ -86,7 +89,9 @@ func (h *Handler) dynamoDBTableList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleListTablesError(w http.ResponseWriter, r *http.Request, err error) {
-	h.Logger.Error("Failed to list tables", "error", err)
+	ctx := r.Context()
+	log := logger.Load(ctx)
+	log.ErrorContext(ctx, "Failed to list tables", "error", err)
 	if strings.Contains(err.Error(), "ResourceNotFoundException") {
 		http.NotFound(w, r)
 
@@ -135,7 +140,8 @@ func (h *Handler) fetchTableInfos(ctx context.Context, tableNames []string) []Ta
 
 			desc, err := h.DynamoDB.DescribeTable(ctx, &dynamodb.DescribeTableInput{TableName: aws.String(tblName)})
 			if err != nil {
-				h.Logger.ErrorContext(ctx, "Failed to describe table for list", "table", tblName, "error", err)
+				log := logger.Load(ctx)
+				log.ErrorContext(ctx, "Failed to describe table for list", "table", tblName, "error", err)
 
 				return
 			}
@@ -198,7 +204,7 @@ func (h *Handler) dynamoDBSearch(w http.ResponseWriter, r *http.Request) {
 
 // dynamoDBTableDetail renders the table detail page.
 func (h *Handler) dynamoDBTableDetail(w http.ResponseWriter, r *http.Request, tableName string) {
-	ctx := context.Background()
+	ctx := r.Context()
 	output, err := h.DynamoDB.DescribeTable(ctx, &dynamodb.DescribeTableInput{
 		TableName: &tableName,
 	})
@@ -322,7 +328,8 @@ func (h *Handler) dynamoDBQuery(w http.ResponseWriter, r *http.Request, tableNam
 	ctx := r.Context()
 	desc, err := h.DynamoDB.DescribeTable(ctx, &dynamodb.DescribeTableInput{TableName: &tableName})
 	if err != nil {
-		h.Logger.ErrorContext(ctx, "Failed to describe table", "error", err)
+		log := logger.Load(ctx)
+		log.ErrorContext(ctx, "Failed to describe table", "error", err)
 		if strings.Contains(err.Error(), "ResourceNotFoundException") {
 			http.NotFound(w, r)
 		} else {
@@ -461,7 +468,8 @@ func (h *Handler) executeAndRenderQuery(
 
 	output, err := h.DynamoDB.Query(ctx, input)
 	if err != nil {
-		h.Logger.ErrorContext(ctx, "Failed to query table", "error", err)
+		log := logger.Load(ctx)
+		log.ErrorContext(ctx, "Failed to query table", "error", err)
 		toastMessage := fmt.Sprintf(`{"showToast": {"message": "Failed to query table: %s", "type": "error"}}`,
 			strings.ReplaceAll(err.Error(), `"`, `'`))
 		w.Header().Set("Hx-Trigger", toastMessage)
@@ -562,7 +570,8 @@ func (h *Handler) dynamoDBScan(w http.ResponseWriter, r *http.Request, tableName
 		return
 	}
 
-	ctx := context.Background()
+	ctx := r.Context()
+	log := logger.Load(ctx)
 	input := &dynamodb.ScanInput{
 		TableName: &tableName,
 	}
@@ -587,7 +596,7 @@ func (h *Handler) dynamoDBScan(w http.ResponseWriter, r *http.Request, tableName
 
 	output, err := h.DynamoDB.Scan(ctx, input)
 	if err != nil {
-		h.Logger.Error("Failed to scan table", "error", err)
+		log.ErrorContext(ctx, "Failed to scan table", "error", err)
 		toastMessage := fmt.Sprintf(`{"showToast": {"message": "Failed to scan table: %s", "type": "error"}}`,
 			strings.ReplaceAll(err.Error(), `"`, `'`))
 		w.Header().Set("Hx-Trigger", toastMessage)
@@ -654,8 +663,11 @@ func (h *Handler) dynamoDBCreateTable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ctx := r.Context()
+	log := logger.Load(ctx)
+
 	if err := r.ParseForm(); err != nil {
-		h.Logger.Error("Failed to parse form", "error", err)
+		log.ErrorContext(ctx, "Failed to parse form", "error", err)
 		http.Error(w, "Bad request", http.StatusBadRequest)
 
 		return
@@ -690,9 +702,9 @@ func (h *Handler) dynamoDBCreateTable(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
-	_, err := h.DynamoDB.CreateTable(context.Background(), input)
+	_, err := h.DynamoDB.CreateTable(ctx, input)
 	if err != nil {
-		h.Logger.Error("Failed to create table", "error", err)
+		log.ErrorContext(ctx, "Failed to create table", "error", err)
 		toastMessage := fmt.Sprintf(`{"showToast": {"message": "Failed to create table: %s", "type": "error"}}`,
 			strings.ReplaceAll(err.Error(), `"`, `'`))
 		w.Header().Set("Hx-Trigger", toastMessage)
@@ -713,13 +725,15 @@ func (h *Handler) dynamoDBDeleteTable(w http.ResponseWriter, r *http.Request, ta
 		return
 	}
 
-	ctx := context.Background()
+	ctx := r.Context()
+	log := logger.Load(ctx)
+
 	_, err := h.DynamoDB.DeleteTable(ctx, &dynamodb.DeleteTableInput{
 		TableName: &tableName,
 	})
 
 	if err != nil {
-		h.Logger.Error("Failed to delete table", "table", tableName, "error", err)
+		log.ErrorContext(ctx, "Failed to delete table", "table", tableName, "error", err)
 		toastMessage := fmt.Sprintf(`{"showToast": {"message": "Failed to delete table: %s", "type": "error"}}`,
 			strings.ReplaceAll(err.Error(), `"`, `'`))
 		w.Header().Set("Hx-Trigger", toastMessage)

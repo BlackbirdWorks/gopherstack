@@ -2,7 +2,9 @@ package s3
 
 import (
 	"Gopherstack/pkgs/httputils"
+	"Gopherstack/pkgs/logger"
 	"bytes"
+	"context"
 	"crypto/sha1" //nolint:gosec // SHA1 required for S3 checksum compatibility
 	"crypto/sha256"
 	"encoding/base64"
@@ -21,6 +23,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/labstack/echo/v5"
 )
 
 const (
@@ -84,39 +87,54 @@ func (h *Handler) GetSupportedOperations() []string {
 
 // ServeHTTP dispatches incoming requests to the appropriate bucket or object handler.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	bucketName, key, ok := h.resolveBucketAndKey(w, r)
+	ctx := r.Context()
+	log := logger.Load(ctx)
+
+	bucketName, key, ok := h.resolveBucketAndKey(ctx, w, r)
 	if !ok {
 		return
 	}
 
-	h.Logger.Debug("S3 request", "method", r.Method, "bucket", bucketName, "key", key)
+	log.DebugContext(ctx, "S3 request", "method", r.Method, "bucket", bucketName, "key", key)
 
 	if bucketName == "" {
 		if r.Method != http.MethodGet {
-			httputils.WriteError(h.Logger, w, r, ErrMethodNotAllowed, http.StatusMethodNotAllowed)
+			httputils.WriteError(log, w, r, ErrMethodNotAllowed, http.StatusMethodNotAllowed)
 
 			return
 		}
 
-		h.listBuckets(w, r)
+		h.listBuckets(ctx, w, r)
 
 		return
 	}
 
 	if key == "" {
-		h.handleBucketOperation(w, r, bucketName)
+		h.handleBucketOperation(ctx, w, r, bucketName)
 
 		return
 	}
 
-	h.handleObjectOperation(w, r, bucketName, key)
+	h.handleObjectOperation(ctx, w, r, bucketName, key)
+}
+
+// Handle is an Echo handler that wraps ServeHTTP.
+func (h *Handler) Handle(c *echo.Context) error {
+	h.ServeHTTP(c.Response(), c.Request())
+
+	return nil
 }
 
 // resolveBucketAndKey extracts the bucket name and object key from the request.
 // It supports both path-style (/bucket/key) and virtual-hosted-style (bucket.host/key).
 // Returns (bucket, key, true) on success, or ("", "", false) when an error response
 // has already been written.
-func (h *Handler) resolveBucketAndKey(w http.ResponseWriter, r *http.Request) (string, string, bool) {
+func (h *Handler) resolveBucketAndKey(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+) (string, string, bool) {
+	log := logger.Load(ctx)
 	path := strings.TrimPrefix(r.URL.Path, "/")
 	parts := strings.SplitN(path, "/", pathSplitParts)
 
@@ -125,7 +143,7 @@ func (h *Handler) resolveBucketAndKey(w http.ResponseWriter, r *http.Request) (s
 		bucket := vhBucket
 		key := path
 		if key != "" && !IsValidObjectKey(key) {
-			httputils.WriteError(h.Logger, w, r, ErrInvalidArgument, http.StatusBadRequest)
+			httputils.WriteError(log, w, r, ErrInvalidArgument, http.StatusBadRequest)
 
 			return "", "", false
 		}
@@ -138,7 +156,7 @@ func (h *Handler) resolveBucketAndKey(w http.ResponseWriter, r *http.Request) (s
 	if path != "" && path != "/" {
 		bucket = parts[0]
 		if !IsValidBucketName(bucket) {
-			httputils.WriteError(h.Logger, w, r, ErrInvalidBucketName, http.StatusBadRequest)
+			httputils.WriteError(log, w, r, ErrInvalidBucketName, http.StatusBadRequest)
 
 			return "", "", false
 		}
@@ -146,7 +164,7 @@ func (h *Handler) resolveBucketAndKey(w http.ResponseWriter, r *http.Request) (s
 		if len(parts) > 1 {
 			key = parts[1]
 			if key != "" && !IsValidObjectKey(key) {
-				httputils.WriteError(h.Logger, w, r, ErrInvalidArgument, http.StatusBadRequest)
+				httputils.WriteError(log, w, r, ErrInvalidArgument, http.StatusBadRequest)
 
 				return "", "", false
 			}
@@ -194,130 +212,142 @@ func (h *Handler) extractVirtualHostedBucketName(r *http.Request) string {
 	return ""
 }
 
-func (h *Handler) handleBucketOperation(w http.ResponseWriter, r *http.Request, bucket string) {
+func (h *Handler) handleBucketOperation(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+	log := logger.Load(ctx)
 	switch r.Method {
 	case http.MethodPut:
-		h.routeBucketPut(w, r, bucket)
+		h.routeBucketPut(ctx, w, r, bucket)
 	case http.MethodDelete:
-		h.deleteBucket(w, r, bucket)
+		h.deleteBucket(ctx, w, r, bucket)
 	case http.MethodGet:
-		h.routeBucketGet(w, r, bucket)
+		h.routeBucketGet(ctx, w, r, bucket)
 	case http.MethodPost:
-		h.routeBucketPost(w, r, bucket)
+		h.routeBucketPost(ctx, w, r, bucket)
 	case http.MethodHead:
-		h.headBucket(w, r, bucket)
+		h.headBucket(ctx, w, r, bucket)
 	default:
-		httputils.WriteError(h.Logger, w, r, ErrMethodNotAllowed, http.StatusMethodNotAllowed)
+		httputils.WriteError(log, w, r, ErrMethodNotAllowed, http.StatusMethodNotAllowed)
 	}
 }
 
-func (h *Handler) routeBucketPut(w http.ResponseWriter, r *http.Request, bucket string) {
+func (h *Handler) routeBucketPut(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+	log := logger.Load(ctx)
 	switch {
 	case r.URL.Query().Has("versioning"):
-		h.putBucketVersioning(w, r, bucket)
+		h.putBucketVersioning(ctx, w, r, bucket)
 	case r.URL.Query().Has("tagging"):
-		httputils.WriteError(h.Logger, w, r, ErrNotImplemented, http.StatusNotImplemented)
+		httputils.WriteError(log, w, r, ErrNotImplemented, http.StatusNotImplemented)
 	default:
-		h.createBucket(w, r, bucket)
+		h.createBucket(ctx, w, r, bucket)
 	}
 }
 
-func (h *Handler) routeBucketPost(w http.ResponseWriter, r *http.Request, bucket string) {
+func (h *Handler) routeBucketPost(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+	log := logger.Load(ctx)
 	if r.URL.Query().Has("delete") {
-		h.deleteObjects(w, r, bucket)
+		h.deleteObjects(ctx, w, r, bucket)
 
 		return
 	}
 
-	httputils.WriteError(h.Logger, w, r, ErrMethodNotAllowed, http.StatusMethodNotAllowed)
+	httputils.WriteError(log, w, r, ErrMethodNotAllowed, http.StatusMethodNotAllowed)
 }
 
-func (h *Handler) routeBucketGet(w http.ResponseWriter, r *http.Request, bucket string) {
+func (h *Handler) routeBucketGet(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+	log := logger.Load(ctx)
 	switch {
 	case r.URL.Query().Has("versioning"):
-		h.getBucketVersioning(w, r, bucket)
+		h.getBucketVersioning(ctx, w, r, bucket)
 	case r.URL.Query().Has("versions"):
-		h.listObjectVersions(w, r, bucket)
+		h.listObjectVersions(ctx, w, r, bucket)
 	case r.URL.Query().Has("location"):
-		h.getBucketLocation(w, r, bucket)
+		h.getBucketLocation(ctx, w, r, bucket)
 	case r.URL.Query().Has("tagging"):
-		httputils.WriteError(h.Logger, w, r, ErrNotImplemented, http.StatusNotImplemented)
+		httputils.WriteError(log, w, r, ErrNotImplemented, http.StatusNotImplemented)
 	case r.URL.Query().Get("list-type") == "2":
-		h.listObjectsV2(w, r, bucket)
+		h.listObjectsV2(ctx, w, r, bucket)
 	default:
-		h.listObjects(w, r, bucket)
+		h.listObjects(ctx, w, r, bucket)
 	}
 }
 
-func (h *Handler) handleObjectOperation(w http.ResponseWriter, r *http.Request, bucket, key string) {
+func (h *Handler) handleObjectOperation(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket, key string,
+) {
+	log := logger.Load(ctx)
 	switch r.Method {
 	case http.MethodPut:
-		h.routeObjectPut(w, r, bucket, key)
+		h.routeObjectPut(ctx, w, r, bucket, key)
 	case http.MethodGet:
-		h.routeObjectGet(w, r, bucket, key)
+		h.routeObjectGet(ctx, w, r, bucket, key)
 	case http.MethodDelete:
-		h.routeObjectDelete(w, r, bucket, key)
+		h.routeObjectDelete(ctx, w, r, bucket, key)
 	case http.MethodPost:
-		h.routeObjectPost(w, r, bucket, key)
+		h.routeObjectPost(ctx, w, r, bucket, key)
 	case http.MethodHead:
-		h.headObject(w, r, bucket, key)
+		h.headObject(ctx, w, r, bucket, key)
 	default:
-		httputils.WriteError(h.Logger, w, r, ErrMethodNotAllowed, http.StatusMethodNotAllowed)
+		httputils.WriteError(log, w, r, ErrMethodNotAllowed, http.StatusMethodNotAllowed)
 	}
 }
 
-func (h *Handler) routeObjectPut(w http.ResponseWriter, r *http.Request, bucket, key string) {
+func (h *Handler) routeObjectPut(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket, key string) {
 	switch {
 	case r.URL.Query().Has("tagging"):
-		h.putObjectTagging(w, r, bucket, key)
+		h.putObjectTagging(ctx, w, r, bucket, key)
 	case r.URL.Query().Has("acl"):
 		w.WriteHeader(http.StatusOK) // ACLs ignored
 	case r.URL.Query().Has("partNumber") && r.URL.Query().Has("uploadId"):
-		h.uploadPart(w, r, bucket, key)
+		h.uploadPart(ctx, w, r, bucket, key)
 	case r.Header.Get("X-Amz-Copy-Source") != "":
-		h.copyObject(w, r, bucket, key)
+		h.copyObject(ctx, w, r, bucket, key)
 	default:
-		h.putObject(w, r, bucket, key)
+		h.putObject(ctx, w, r, bucket, key)
 	}
 }
 
-func (h *Handler) routeObjectGet(w http.ResponseWriter, r *http.Request, bucket, key string) {
+func (h *Handler) routeObjectGet(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket, key string) {
 	switch {
 	case r.URL.Query().Has("tagging"):
-		h.getObjectTagging(w, r, bucket, key)
+		h.getObjectTagging(ctx, w, r, bucket, key)
 	case r.URL.Query().Has("acl"):
 		w.WriteHeader(http.StatusNotImplemented) // ACLs ignored
 	default:
-		h.getObject(w, r, bucket, key)
+		h.getObject(ctx, w, r, bucket, key)
 	}
 }
 
-func (h *Handler) routeObjectDelete(w http.ResponseWriter, r *http.Request, bucket, key string) {
+func (h *Handler) routeObjectDelete(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket, key string) {
 	switch {
 	case r.URL.Query().Has("tagging"):
-		h.deleteObjectTagging(w, r, bucket, key)
+		h.deleteObjectTagging(ctx, w, r, bucket, key)
 	case r.URL.Query().Has("uploadId"):
-		h.abortMultipartUpload(w, r, bucket, key)
+		h.abortMultipartUpload(ctx, w, r, bucket, key)
 	default:
-		h.deleteObject(w, r, bucket, key)
+		h.deleteObject(ctx, w, r, bucket, key)
 	}
 }
 
-func (h *Handler) routeObjectPost(w http.ResponseWriter, r *http.Request, bucket, key string) {
+func (h *Handler) routeObjectPost(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket, key string) {
+	log := logger.Load(ctx)
 	switch {
 	case r.URL.Query().Has("uploads"):
-		h.createMultipartUpload(w, r, bucket, key)
+		h.createMultipartUpload(ctx, w, r, bucket, key)
 	case r.URL.Query().Has("uploadId"):
-		h.completeMultipartUpload(w, r, bucket, key)
+		h.completeMultipartUpload(ctx, w, r, bucket, key)
 	default:
-		httputils.WriteError(h.Logger, w, r, ErrMethodNotAllowed, http.StatusMethodNotAllowed)
+		httputils.WriteError(log, w, r, ErrMethodNotAllowed, http.StatusMethodNotAllowed)
 	}
 }
 
-func (h *Handler) listBuckets(w http.ResponseWriter, r *http.Request) {
-	out, err := h.Backend.ListBuckets(r.Context(), &s3.ListBucketsInput{})
+func (h *Handler) listBuckets(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+	log := logger.Load(ctx)
+	out, err := h.Backend.ListBuckets(ctx, &s3.ListBucketsInput{})
 	if err != nil {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}
@@ -338,17 +368,18 @@ func (h *Handler) listBuckets(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	httputils.WriteXML(h.Logger, w, http.StatusOK, resp)
+	httputils.WriteXML(log, w, http.StatusOK, resp)
 }
 
-func (h *Handler) createBucket(w http.ResponseWriter, r *http.Request, bucketName string) {
-	h.Logger.Debug("S3 createBucket input", "bucket", bucketName)
+func (h *Handler) createBucket(ctx context.Context, w http.ResponseWriter, r *http.Request, bucketName string) {
+	log := logger.Load(ctx)
+	log.DebugContext(ctx, "S3 createBucket input", "bucket", bucketName)
 
 	var region string
 	// Read the body to check for LocationConstraint
 	body, err := httputils.ReadBody(r)
 	if err != nil {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}
@@ -360,7 +391,7 @@ func (h *Handler) createBucket(w http.ResponseWriter, r *http.Request, bucketNam
 		if xmlErr := xml.Unmarshal(body, &config); xmlErr == nil {
 			region = config.LocationConstraint
 		} else {
-			h.Logger.Warn("failed to parse CreateBucketConfiguration", "error", xmlErr)
+			log.WarnContext(ctx, "failed to parse CreateBucketConfiguration", "error", xmlErr)
 		}
 	}
 
@@ -378,58 +409,63 @@ func (h *Handler) createBucket(w http.ResponseWriter, r *http.Request, bucketNam
 		}
 	}
 
-	_, err = h.Backend.CreateBucket(r.Context(), input)
+	output, err := h.Backend.CreateBucket(ctx, input)
 	if errors.Is(err, ErrBucketAlreadyExists) {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusConflict)
+		httputils.WriteError(log, w, r, err, http.StatusConflict)
 
 		return
 	}
 
 	if err != nil {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}
 
-	h.Logger.Debug("S3 createBucket output", "bucket", bucketName, "region", region)
+	log.DebugContext(ctx, "S3 createBucket output", "bucket", bucketName, "region", region)
 
-	w.Header().Set("Location", "/"+bucketName)
+	// Set Location header from output
+	if output.Location != nil {
+		w.Header().Set("Location", *output.Location)
+	}
 	w.WriteHeader(http.StatusOK)
 }
 
-func (h *Handler) deleteBucket(w http.ResponseWriter, r *http.Request, bucketName string) {
-	h.Logger.Debug("S3 deleteBucket input", "bucket", bucketName)
+func (h *Handler) deleteBucket(ctx context.Context, w http.ResponseWriter, r *http.Request, bucketName string) {
+	log := logger.Load(ctx)
+	log.DebugContext(ctx, "S3 deleteBucket input", "bucket", bucketName)
 
-	_, err := h.Backend.DeleteBucket(r.Context(), &s3.DeleteBucketInput{Bucket: aws.String(bucketName)})
+	_, err := h.Backend.DeleteBucket(ctx, &s3.DeleteBucketInput{Bucket: aws.String(bucketName)})
 	if errors.Is(err, ErrNoSuchBucket) {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+		httputils.WriteError(log, w, r, err, http.StatusNotFound)
 
 		return
 	}
 
 	if errors.Is(err, ErrBucketNotEmpty) {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusConflict)
+		httputils.WriteError(log, w, r, err, http.StatusConflict)
 
 		return
 	}
 
 	if err != nil {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}
 
-	h.Logger.Debug("S3 deleteBucket output", "bucket", bucketName)
+	log.DebugContext(ctx, "S3 deleteBucket output", "bucket", bucketName)
 
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *Handler) listObjects(w http.ResponseWriter, r *http.Request, bucketName string) {
+func (h *Handler) listObjects(ctx context.Context, w http.ResponseWriter, r *http.Request, bucketName string) {
+	log := logger.Load(ctx)
 	prefix := r.URL.Query().Get("prefix")
 	delimiter := r.URL.Query().Get("delimiter")
 	marker := r.URL.Query().Get("marker")
 
-	h.Logger.Debug(
+	log.DebugContext(ctx,
 		"S3 listObjects input",
 		"bucket", bucketName, "prefix", prefix, "delimiter", delimiter, "marker", marker,
 	)
@@ -441,19 +477,19 @@ func (h *Handler) listObjects(w http.ResponseWriter, r *http.Request, bucketName
 		}
 	}
 
-	out, err := h.Backend.ListObjects(r.Context(), &s3.ListObjectsInput{
+	out, err := h.Backend.ListObjects(ctx, &s3.ListObjectsInput{
 		Bucket:  aws.String(bucketName),
 		Prefix:  aws.String(prefix),
 		MaxKeys: aws.Int32(maxKeys),
 	})
 	if errors.Is(err, ErrNoSuchBucket) {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+		httputils.WriteError(log, w, r, err, http.StatusNotFound)
 
 		return
 	}
 
 	if err != nil {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}
@@ -481,7 +517,7 @@ func (h *Handler) listObjects(w http.ResponseWriter, r *http.Request, bucketName
 		nextMarker = *objects[maxKeys-1].Key
 	}
 
-	h.Logger.Debug(
+	log.DebugContext(ctx,
 		"S3 listObjects output",
 		"bucket", bucketName, "objectCount", len(objects), "isTruncated", isTruncated,
 	)
@@ -500,10 +536,11 @@ func (h *Handler) listObjects(w http.ResponseWriter, r *http.Request, bucketName
 	resp.Contents, resp.CommonPrefixes = h.mapObjectsToXML(r, bucketName, objects, prefix, delimiter, seenPrefixes)
 	resp.KeyCount = len(resp.Contents)
 
-	httputils.WriteXML(h.Logger, w, http.StatusOK, resp)
+	httputils.WriteXML(log, w, http.StatusOK, resp)
 }
 
-func (h *Handler) listObjectsV2(w http.ResponseWriter, r *http.Request, bucketName string) {
+func (h *Handler) listObjectsV2(ctx context.Context, w http.ResponseWriter, r *http.Request, bucketName string) {
+	log := logger.Load(ctx)
 	q := r.URL.Query()
 	prefix := q.Get("prefix")
 	delimiter := q.Get("delimiter")
@@ -511,7 +548,7 @@ func (h *Handler) listObjectsV2(w http.ResponseWriter, r *http.Request, bucketNa
 	startAfter := q.Get("start-after")
 	encodingType := q.Get("encoding-type")
 
-	h.Logger.Debug(
+	log.DebugContext(ctx,
 		"S3 listObjectsV2 input",
 		"bucket", bucketName, "prefix", prefix, "delimiter", delimiter,
 		"continuationToken", continuationToken, "startAfter", startAfter,
@@ -524,7 +561,7 @@ func (h *Handler) listObjectsV2(w http.ResponseWriter, r *http.Request, bucketNa
 		}
 	}
 
-	outV2, err := h.Backend.ListObjectsV2(r.Context(), &s3.ListObjectsV2Input{
+	outV2, err := h.Backend.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
 		Bucket:            aws.String(bucketName),
 		Prefix:            aws.String(prefix),
 		ContinuationToken: aws.String(continuationToken),
@@ -533,13 +570,13 @@ func (h *Handler) listObjectsV2(w http.ResponseWriter, r *http.Request, bucketNa
 	})
 
 	if errors.Is(err, ErrNoSuchBucket) {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+		httputils.WriteError(log, w, r, err, http.StatusNotFound)
 
 		return
 	}
 
 	if err != nil {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}
@@ -571,7 +608,7 @@ func (h *Handler) listObjectsV2(w http.ResponseWriter, r *http.Request, bucketNa
 		nextToken = *objects[maxKeys-1].Key
 	}
 
-	h.Logger.Debug(
+	log.DebugContext(ctx,
 		"S3 listObjectsV2 output",
 		"bucket", bucketName, "objectCount", len(objects), "isTruncated", isTruncated,
 	)
@@ -592,10 +629,10 @@ func (h *Handler) listObjectsV2(w http.ResponseWriter, r *http.Request, bucketNa
 	resp.Contents, resp.CommonPrefixes = h.mapObjectsToXML(r, bucketName, objects, prefix, delimiter, seenPrefixes)
 	resp.KeyCount = len(resp.Contents) + len(resp.CommonPrefixes)
 
-	httputils.WriteXML(h.Logger, w, http.StatusOK, resp)
+	httputils.WriteXML(log, w, http.StatusOK, resp)
 }
 
-func (h *Handler) getBucketLocation(w http.ResponseWriter, _ *http.Request, _ string) {
+func (h *Handler) getBucketLocation(_ context.Context, w http.ResponseWriter, _ *http.Request, _ string) {
 	// For now, always return us-east-1 or the configured region if we had it.
 	fmt.Fprint(w, locationConstraintXML)
 }
@@ -663,8 +700,8 @@ func getChecksumAlgo(crc32, crc32c, sha1, sha256 *string) string {
 	}
 }
 
-func (h *Handler) headBucket(w http.ResponseWriter, r *http.Request, bucketName string) {
-	_, err := h.Backend.HeadBucket(r.Context(), &s3.HeadBucketInput{Bucket: aws.String(bucketName)})
+func (h *Handler) headBucket(ctx context.Context, w http.ResponseWriter, _ *http.Request, bucketName string) {
+	_, err := h.Backend.HeadBucket(ctx, &s3.HeadBucketInput{Bucket: aws.String(bucketName)})
 	if errors.Is(err, ErrNoSuchBucket) {
 		w.WriteHeader(http.StatusNotFound)
 
@@ -804,12 +841,22 @@ func extractChecksumPointers(h http.Header, algo string) (*string, *string, *str
 	}
 }
 
-func (h *Handler) putObject(w http.ResponseWriter, r *http.Request, bucketName, key string) {
-	h.Logger.Debug("S3 putObject input", "bucket", bucketName, "key", key, "contentType", r.Header.Get("Content-Type"))
+func (h *Handler) putObject(ctx context.Context, w http.ResponseWriter, r *http.Request, bucketName, key string) {
+	log := logger.Load(ctx)
+	log.DebugContext(
+		ctx,
+		"S3 putObject input",
+		"bucket",
+		bucketName,
+		"key",
+		key,
+		"contentType",
+		r.Header.Get("Content-Type"),
+	)
 
 	data, err := httputils.ReadBody(r)
 	if err != nil {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}
@@ -826,7 +873,7 @@ func (h *Handler) putObject(w http.ResponseWriter, r *http.Request, bucketName, 
 	contentType := r.Header.Get("Content-Type")
 
 	ver, err := h.Backend.PutObject(
-		r.Context(),
+		ctx,
 		&s3.PutObjectInput{
 			Bucket:            aws.String(bucketName),
 			Key:               aws.String(key),
@@ -842,13 +889,13 @@ func (h *Handler) putObject(w http.ResponseWriter, r *http.Request, bucketName, 
 		},
 	)
 	if errors.Is(err, ErrNoSuchBucket) {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+		httputils.WriteError(log, w, r, err, http.StatusNotFound)
 
 		return
 	}
 
 	if err != nil {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}
@@ -870,7 +917,7 @@ func (h *Handler) putObject(w http.ResponseWriter, r *http.Request, bucketName, 
 		w.Header().Set("X-Amz-Version-Id", *ver.VersionId)
 	}
 
-	h.Logger.Debug(
+	log.DebugContext(ctx,
 		"S3 putObject output",
 		"bucket", bucketName, "key", key, "etag", aws.ToString(ver.ETag),
 		"versionId", aws.ToString(ver.VersionId),
@@ -879,10 +926,11 @@ func (h *Handler) putObject(w http.ResponseWriter, r *http.Request, bucketName, 
 	w.WriteHeader(http.StatusOK)
 }
 
-func (h *Handler) copyObject(w http.ResponseWriter, r *http.Request, destBucket, destKey string) {
+func (h *Handler) copyObject(ctx context.Context, w http.ResponseWriter, r *http.Request, destBucket, destKey string) {
+	log := logger.Load(ctx)
 	srcBucket, srcKey, srcVersionID, ok := parseCopySource(r.Header.Get("X-Amz-Copy-Source"))
 	if !ok {
-		httputils.WriteError(h.Logger, w, r, ErrInvalidArgument, http.StatusBadRequest)
+		httputils.WriteError(log, w, r, ErrInvalidArgument, http.StatusBadRequest)
 
 		return
 	}
@@ -897,27 +945,27 @@ func (h *Handler) copyObject(w http.ResponseWriter, r *http.Request, destBucket,
 		vid = aws.String(srcVersionID)
 	}
 
-	srcVer, err := h.Backend.GetObject(r.Context(), &s3.GetObjectInput{
+	srcVer, err := h.Backend.GetObject(ctx, &s3.GetObjectInput{
 		Bucket:    aws.String(srcBucket),
 		Key:       aws.String(srcKey),
 		VersionId: vid,
 	})
 	if errors.Is(err, ErrNoSuchBucket) || errors.Is(err, ErrNoSuchKey) {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+		httputils.WriteError(log, w, r, err, http.StatusNotFound)
 
 		return
 	}
 	defer srcVer.Body.Close()
 
 	if err != nil {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}
 
 	data, err := io.ReadAll(srcVer.Body)
 	if err != nil {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}
@@ -947,15 +995,15 @@ func (h *Handler) copyObject(w http.ResponseWriter, r *http.Request, destBucket,
 		// No checksum copying
 	}
 
-	destVer, err := h.Backend.PutObject(r.Context(), putInput)
+	destVer, err := h.Backend.PutObject(ctx, putInput)
 	if errors.Is(err, ErrNoSuchBucket) {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+		httputils.WriteError(log, w, r, err, http.StatusNotFound)
 
 		return
 	}
 
 	if err != nil {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}
@@ -969,15 +1017,16 @@ func (h *Handler) copyObject(w http.ResponseWriter, r *http.Request, destBucket,
 		etag = *destVer.ETag
 	}
 
-	httputils.WriteXML(h.Logger, w, http.StatusOK, CopyObjectResult{
+	httputils.WriteXML(log, w, http.StatusOK, CopyObjectResult{
 		ETag:         etag,
 		LastModified: time.Now().Format(time.RFC3339),
 	})
 }
 
-func (h *Handler) getObject(w http.ResponseWriter, r *http.Request, bucketName, key string) {
+func (h *Handler) getObject(ctx context.Context, w http.ResponseWriter, r *http.Request, bucketName, key string) {
+	log := logger.Load(ctx)
 	versionID := r.URL.Query().Get("versionId")
-	h.Logger.Debug("S3 getObject input", "bucket", bucketName, "key", key, "versionId", versionID)
+	log.DebugContext(ctx, "S3 getObject input", "bucket", bucketName, "key", key, "versionId", versionID)
 
 	var vid *string
 
@@ -985,19 +1034,19 @@ func (h *Handler) getObject(w http.ResponseWriter, r *http.Request, bucketName, 
 		vid = aws.String(versionID)
 	}
 
-	ver, err := h.Backend.GetObject(r.Context(), &s3.GetObjectInput{
+	ver, err := h.Backend.GetObject(ctx, &s3.GetObjectInput{
 		Bucket:    aws.String(bucketName),
 		Key:       aws.String(key),
 		VersionId: vid,
 	})
 	if errors.Is(err, ErrNoSuchBucket) || errors.Is(err, ErrNoSuchKey) {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+		httputils.WriteError(log, w, r, err, http.StatusNotFound)
 
 		return
 	}
 
 	if err != nil {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}
@@ -1026,7 +1075,7 @@ func (h *Handler) getObject(w http.ResponseWriter, r *http.Request, bucketName, 
 
 	if rangeHeader := r.Header.Get("Range"); rangeHeader != "" {
 		data, _ := io.ReadAll(ver.Body)
-		if h.serveRange(w, data, rangeHeader) {
+		if h.serveRange(ctx, w, data, rangeHeader) {
 			return
 		}
 
@@ -1034,7 +1083,7 @@ func (h *Handler) getObject(w http.ResponseWriter, r *http.Request, bucketName, 
 		ver.Body = io.NopCloser(bytes.NewReader(data))
 	}
 
-	h.Logger.Debug(
+	log.DebugContext(ctx,
 		"S3 getObject output",
 		"bucket", bucketName, "key", key, "etag", aws.ToString(ver.ETag),
 		"contentLength", aws.ToInt64(ver.ContentLength),
@@ -1043,7 +1092,7 @@ func (h *Handler) getObject(w http.ResponseWriter, r *http.Request, bucketName, 
 	w.WriteHeader(http.StatusOK)
 
 	if _, copyErr := io.Copy(w, ver.Body); copyErr != nil {
-		h.Logger.Error("failed to write object data", "error", copyErr)
+		log.ErrorContext(ctx, "failed to write object data", "error", copyErr)
 	}
 }
 
@@ -1077,7 +1126,8 @@ func (h *Handler) getStoredChecksum(out objectCommonDetails) (string, string) {
 	}
 }
 
-func (h *Handler) serveRange(w http.ResponseWriter, data []byte, rangeHeader string) bool {
+func (h *Handler) serveRange(ctx context.Context, w http.ResponseWriter, data []byte, rangeHeader string) bool {
+	log := logger.Load(ctx)
 	total := int64(len(data))
 	start, end, ok := parseRange(rangeHeader, total)
 
@@ -1095,10 +1145,8 @@ func (h *Handler) serveRange(w http.ResponseWriter, data []byte, rangeHeader str
 	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, total))
 	w.WriteHeader(http.StatusPartialContent)
 
-	// False positive: this is object data, not user input
-	//nolint:gosec // this is object data, not user input
 	if _, err := w.Write(data[start : end+1]); err != nil {
-		h.Logger.Error("failed to write range data", "error", err)
+		log.ErrorContext(ctx, "failed to write range data", "error", err)
 	}
 
 	return true
@@ -1158,34 +1206,35 @@ func parseRange(header string, size int64) (int64, int64, bool) {
 	return start, end, true
 }
 
-func (h *Handler) deleteObject(w http.ResponseWriter, r *http.Request, bucketName, key string) {
+func (h *Handler) deleteObject(ctx context.Context, w http.ResponseWriter, r *http.Request, bucketName, key string) {
+	log := logger.Load(ctx)
 	versionID := r.URL.Query().Get("versionId")
-	h.Logger.Debug("S3 deleteObject input", "bucket", bucketName, "key", key, "versionId", versionID)
+	log.DebugContext(ctx, "S3 deleteObject input", "bucket", bucketName, "key", key, "versionId", versionID)
 
 	var vid *string
 	if versionID != "" {
 		vid = aws.String(versionID)
 	}
 
-	out, err := h.Backend.DeleteObject(r.Context(), &s3.DeleteObjectInput{
+	out, err := h.Backend.DeleteObject(ctx, &s3.DeleteObjectInput{
 		Bucket:    aws.String(bucketName),
 		Key:       aws.String(key),
 		VersionId: vid,
 	})
 	if errors.Is(err, ErrNoSuchBucket) {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+		httputils.WriteError(log, w, r, err, http.StatusNotFound)
 
 		return
 	}
 
 	if errors.Is(err, ErrNoSuchKey) {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+		httputils.WriteError(log, w, r, err, http.StatusNotFound)
 
 		return
 	}
 
 	if err != nil {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}
@@ -1197,7 +1246,7 @@ func (h *Handler) deleteObject(w http.ResponseWriter, r *http.Request, bucketNam
 		w.Header().Set("X-Amz-Delete-Marker", "true")
 	}
 
-	h.Logger.Debug(
+	log.DebugContext(ctx,
 		"S3 deleteObject output",
 		"bucket", bucketName, "key", key, "deleteMarker", aws.ToBool(out.DeleteMarker),
 	)
@@ -1205,10 +1254,11 @@ func (h *Handler) deleteObject(w http.ResponseWriter, r *http.Request, bucketNam
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *Handler) deleteObjects(w http.ResponseWriter, r *http.Request, bucketName string) {
+func (h *Handler) deleteObjects(ctx context.Context, w http.ResponseWriter, r *http.Request, bucketName string) {
+	log := logger.Load(ctx)
 	var req DeleteRequest
 	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusBadRequest)
+		httputils.WriteError(log, w, r, err, http.StatusBadRequest)
 
 		return
 	}
@@ -1228,9 +1278,9 @@ func (h *Handler) deleteObjects(w http.ResponseWriter, r *http.Request, bucketNa
 		})
 	}
 
-	out, err := h.Backend.DeleteObjects(r.Context(), input)
+	out, err := h.Backend.DeleteObjects(ctx, input)
 	if err != nil {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}
@@ -1260,10 +1310,10 @@ func (h *Handler) deleteObjects(w http.ResponseWriter, r *http.Request, bucketNa
 		})
 	}
 
-	httputils.WriteXML(h.Logger, w, http.StatusOK, resp)
+	httputils.WriteXML(log, w, http.StatusOK, resp)
 }
 
-func (h *Handler) headObject(w http.ResponseWriter, r *http.Request, bucketName, key string) {
+func (h *Handler) headObject(ctx context.Context, w http.ResponseWriter, r *http.Request, bucketName, key string) {
 	versionID := r.URL.Query().Get("versionId")
 	var vid *string
 
@@ -1271,7 +1321,7 @@ func (h *Handler) headObject(w http.ResponseWriter, r *http.Request, bucketName,
 		vid = aws.String(versionID)
 	}
 
-	out, err := h.Backend.HeadObject(r.Context(), &s3.HeadObjectInput{
+	out, err := h.Backend.HeadObject(ctx, &s3.HeadObjectInput{
 		Bucket:    aws.String(bucketName),
 		Key:       aws.String(key),
 		VersionId: vid,
@@ -1305,22 +1355,23 @@ func (h *Handler) headObject(w http.ResponseWriter, r *http.Request, bucketName,
 	w.WriteHeader(http.StatusOK)
 }
 
-func (h *Handler) putBucketVersioning(w http.ResponseWriter, r *http.Request, bucketName string) {
+func (h *Handler) putBucketVersioning(ctx context.Context, w http.ResponseWriter, r *http.Request, bucketName string) {
+	log := logger.Load(ctx)
 	var conf VersioningConfiguration
 	if err := xml.NewDecoder(r.Body).Decode(&conf); err != nil {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusBadRequest)
+		httputils.WriteError(log, w, r, err, http.StatusBadRequest)
 
 		return
 	}
 
-	_, err := h.Backend.PutBucketVersioning(r.Context(), &s3.PutBucketVersioningInput{
+	_, err := h.Backend.PutBucketVersioning(ctx, &s3.PutBucketVersioningInput{
 		Bucket: aws.String(bucketName),
 		VersioningConfiguration: &types.VersioningConfiguration{
 			Status: types.BucketVersioningStatus(conf.Status),
 		},
 	})
 	if err != nil {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+		httputils.WriteError(log, w, r, err, http.StatusNotFound)
 
 		return
 	}
@@ -1328,10 +1379,11 @@ func (h *Handler) putBucketVersioning(w http.ResponseWriter, r *http.Request, bu
 	w.WriteHeader(http.StatusOK)
 }
 
-func (h *Handler) getBucketVersioning(w http.ResponseWriter, r *http.Request, bucketName string) {
-	out, err := h.Backend.GetBucketVersioning(r.Context(), &s3.GetBucketVersioningInput{Bucket: aws.String(bucketName)})
+func (h *Handler) getBucketVersioning(ctx context.Context, w http.ResponseWriter, r *http.Request, bucketName string) {
+	log := logger.Load(ctx)
+	out, err := h.Backend.GetBucketVersioning(ctx, &s3.GetBucketVersioningInput{Bucket: aws.String(bucketName)})
 	if err != nil {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+		httputils.WriteError(log, w, r, err, http.StatusNotFound)
 
 		return
 	}
@@ -1341,26 +1393,27 @@ func (h *Handler) getBucketVersioning(w http.ResponseWriter, r *http.Request, bu
 		status = string(out.Status)
 	}
 
-	httputils.WriteXML(h.Logger, w, http.StatusOK, VersioningConfiguration{
+	httputils.WriteXML(log, w, http.StatusOK, VersioningConfiguration{
 		Status: status,
 	})
 }
 
-func (h *Handler) listObjectVersions(w http.ResponseWriter, r *http.Request, bucketName string) {
+func (h *Handler) listObjectVersions(ctx context.Context, w http.ResponseWriter, r *http.Request, bucketName string) {
+	log := logger.Load(ctx)
 	prefix := r.URL.Query().Get("prefix")
 
-	out, err := h.Backend.ListObjectVersions(r.Context(), &s3.ListObjectVersionsInput{
+	out, err := h.Backend.ListObjectVersions(ctx, &s3.ListObjectVersionsInput{
 		Bucket: aws.String(bucketName),
 		Prefix: aws.String(prefix),
 	})
 	if errors.Is(err, ErrNoSuchBucket) {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+		httputils.WriteError(log, w, r, err, http.StatusNotFound)
 
 		return
 	}
 
 	if err != nil {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}
@@ -1409,13 +1462,19 @@ func (h *Handler) listObjectVersions(w http.ResponseWriter, r *http.Request, buc
 		})
 	}
 
-	httputils.WriteXML(h.Logger, w, http.StatusOK, resp)
+	httputils.WriteXML(log, w, http.StatusOK, resp)
 }
 
-func (h *Handler) putObjectTagging(w http.ResponseWriter, r *http.Request, bucketName, key string) {
+func (h *Handler) putObjectTagging(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucketName, key string,
+) {
+	log := logger.Load(ctx)
 	var tagging Tagging
 	if err := xml.NewDecoder(r.Body).Decode(&tagging); err != nil {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusBadRequest)
+		httputils.WriteError(log, w, r, err, http.StatusBadRequest)
 
 		return
 	}
@@ -1434,13 +1493,13 @@ func (h *Handler) putObjectTagging(w http.ResponseWriter, r *http.Request, bucke
 		vid = aws.String(versionID)
 	}
 
-	if _, err := h.Backend.PutObjectTagging(r.Context(), &s3.PutObjectTaggingInput{
+	if _, err := h.Backend.PutObjectTagging(ctx, &s3.PutObjectTaggingInput{
 		Bucket:    aws.String(bucketName),
 		Key:       aws.String(key),
 		VersionId: vid,
 		Tagging:   &types.Tagging{TagSet: tags},
 	}); err != nil {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}
@@ -1448,20 +1507,26 @@ func (h *Handler) putObjectTagging(w http.ResponseWriter, r *http.Request, bucke
 	w.WriteHeader(http.StatusOK)
 }
 
-func (h *Handler) getObjectTagging(w http.ResponseWriter, r *http.Request, bucketName, key string) {
+func (h *Handler) getObjectTagging(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucketName, key string,
+) {
+	log := logger.Load(ctx)
 	versionID := r.URL.Query().Get("versionId")
 	var vid *string
 	if versionID != "" {
 		vid = aws.String(versionID)
 	}
 
-	out, err := h.Backend.GetObjectTagging(r.Context(), &s3.GetObjectTaggingInput{
+	out, err := h.Backend.GetObjectTagging(ctx, &s3.GetObjectTaggingInput{
 		Bucket:    aws.String(bucketName),
 		Key:       aws.String(key),
 		VersionId: vid,
 	})
 	if err != nil {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+		httputils.WriteError(log, w, r, err, http.StatusNotFound)
 
 		return
 	}
@@ -1476,22 +1541,28 @@ func (h *Handler) getObjectTagging(w http.ResponseWriter, r *http.Request, bucke
 		}
 	}
 
-	httputils.WriteXML(h.Logger, w, http.StatusOK, resp)
+	httputils.WriteXML(log, w, http.StatusOK, resp)
 }
 
-func (h *Handler) deleteObjectTagging(w http.ResponseWriter, r *http.Request, bucketName, key string) {
+func (h *Handler) deleteObjectTagging(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucketName, key string,
+) {
+	log := logger.Load(ctx)
 	versionID := r.URL.Query().Get("versionId")
 	var vid *string
 	if versionID != "" {
 		vid = aws.String(versionID)
 	}
 
-	if _, err := h.Backend.DeleteObjectTagging(r.Context(), &s3.DeleteObjectTaggingInput{
+	if _, err := h.Backend.DeleteObjectTagging(ctx, &s3.DeleteObjectTaggingInput{
 		Bucket:    aws.String(bucketName),
 		Key:       aws.String(key),
 		VersionId: vid,
 	}); err != nil {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}
@@ -1501,13 +1572,19 @@ func (h *Handler) deleteObjectTagging(w http.ResponseWriter, r *http.Request, bu
 
 // Multipart Upload Handlers
 
-func (h *Handler) createMultipartUpload(w http.ResponseWriter, r *http.Request, bucketName, key string) {
-	out, err := h.Backend.CreateMultipartUpload(r.Context(), &s3.CreateMultipartUploadInput{
+func (h *Handler) createMultipartUpload(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucketName, key string,
+) {
+	log := logger.Load(ctx)
+	out, err := h.Backend.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
 		Bucket: aws.String(bucketName),
 		Key:    aws.String(key),
 	})
 	if err != nil {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}
@@ -1518,15 +1595,16 @@ func (h *Handler) createMultipartUpload(w http.ResponseWriter, r *http.Request, 
 		UploadID: *out.UploadId,
 	}
 
-	httputils.WriteXML(h.Logger, w, http.StatusOK, resp)
+	httputils.WriteXML(log, w, http.StatusOK, resp)
 }
 
-func (h *Handler) uploadPart(w http.ResponseWriter, r *http.Request, bucketName, key string) {
+func (h *Handler) uploadPart(ctx context.Context, w http.ResponseWriter, r *http.Request, bucketName, key string) {
+	log := logger.Load(ctx)
 	uploadID := r.URL.Query().Get("uploadId")
 	partNumberStr := r.URL.Query().Get("partNumber")
 	partNumber, err := strconv.Atoi(partNumberStr)
 	if err != nil {
-		httputils.WriteError(h.Logger, w, r, ErrInvalidArgument, http.StatusBadRequest)
+		httputils.WriteError(log, w, r, ErrInvalidArgument, http.StatusBadRequest)
 
 		return
 	}
@@ -1534,12 +1612,12 @@ func (h *Handler) uploadPart(w http.ResponseWriter, r *http.Request, bucketName,
 	// Read body to bytes to create reader
 	data, err := httputils.ReadBody(r)
 	if err != nil {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}
 
-	out, err := h.Backend.UploadPart(r.Context(), &s3.UploadPartInput{
+	out, err := h.Backend.UploadPart(ctx, &s3.UploadPartInput{
 		Bucket:     aws.String(bucketName),
 		Key:        aws.String(key),
 		UploadId:   aws.String(uploadID),
@@ -1547,13 +1625,13 @@ func (h *Handler) uploadPart(w http.ResponseWriter, r *http.Request, bucketName,
 		Body:       bytes.NewReader(data),
 	})
 	if errors.Is(err, ErrNoSuchBucket) || errors.Is(err, ErrNoSuchKey) || errors.Is(err, ErrNoSuchUpload) {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+		httputils.WriteError(log, w, r, err, http.StatusNotFound)
 
 		return
 	}
 
 	if err != nil {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}
@@ -1562,13 +1640,19 @@ func (h *Handler) uploadPart(w http.ResponseWriter, r *http.Request, bucketName,
 	w.WriteHeader(http.StatusOK)
 }
 
-func (h *Handler) completeMultipartUpload(w http.ResponseWriter, r *http.Request, bucketName, key string) {
+func (h *Handler) completeMultipartUpload(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucketName, key string,
+) {
+	log := logger.Load(ctx)
 	uploadID := r.URL.Query().Get("uploadId")
 
 	// Parse XML body for parts list
 	var partsReq CompleteMultipartUpload
 	if err := xml.NewDecoder(r.Body).Decode(&partsReq); err != nil {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusBadRequest)
+		httputils.WriteError(log, w, r, err, http.StatusBadRequest)
 
 		return
 	}
@@ -1583,7 +1667,7 @@ func (h *Handler) completeMultipartUpload(w http.ResponseWriter, r *http.Request
 	}
 
 	out, err := h.Backend.CompleteMultipartUpload(
-		r.Context(),
+		ctx,
 		&s3.CompleteMultipartUploadInput{
 			Bucket:          aws.String(bucketName),
 			Key:             aws.String(key),
@@ -1592,19 +1676,19 @@ func (h *Handler) completeMultipartUpload(w http.ResponseWriter, r *http.Request
 		},
 	)
 	if errors.Is(err, ErrNoSuchBucket) || errors.Is(err, ErrNoSuchKey) || errors.Is(err, ErrNoSuchUpload) {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+		httputils.WriteError(log, w, r, err, http.StatusNotFound)
 
 		return
 	}
 
 	if errors.Is(err, ErrInvalidPart) {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusBadRequest)
+		httputils.WriteError(log, w, r, err, http.StatusBadRequest)
 
 		return
 	}
 
 	if err != nil {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}
@@ -1616,22 +1700,28 @@ func (h *Handler) completeMultipartUpload(w http.ResponseWriter, r *http.Request
 		ETag:     *out.ETag,
 	}
 
-	httputils.WriteXML(h.Logger, w, http.StatusOK, resp)
+	httputils.WriteXML(log, w, http.StatusOK, resp)
 }
 
-func (h *Handler) abortMultipartUpload(w http.ResponseWriter, r *http.Request, bucketName, key string) {
+func (h *Handler) abortMultipartUpload(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucketName, key string,
+) {
+	log := logger.Load(ctx)
 	uploadID := r.URL.Query().Get("uploadId")
 
-	if _, err := h.Backend.AbortMultipartUpload(r.Context(), &s3.AbortMultipartUploadInput{
+	if _, err := h.Backend.AbortMultipartUpload(ctx, &s3.AbortMultipartUploadInput{
 		Bucket:   aws.String(bucketName),
 		Key:      aws.String(key),
 		UploadId: aws.String(uploadID),
 	}); errors.Is(err, ErrNoSuchUpload) {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusNotFound)
+		httputils.WriteError(log, w, r, err, http.StatusNotFound)
 
 		return
 	} else if err != nil {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}
@@ -1666,13 +1756,13 @@ func CalculateChecksum(data []byte, algorithm string) string {
 		c := crc32.ChecksumIEEE(data)
 		sum = make([]byte, crc32Len)
 		for i := range crc32Len {
-			sum[crc32Len-1-i] = byte(c >> (bitsInByte * i)) //nolint:gosec // G115: Intentional conversion for checksum
+			sum[crc32Len-1-i] = byte(c >> (bitsInByte * i))
 		}
 	case "CRC32C":
 		c := crc32.Checksum(data, crc32.MakeTable(crc32.Castagnoli))
 		sum = make([]byte, crc32Len)
 		for i := range crc32Len {
-			sum[crc32Len-1-i] = byte(c >> (bitsInByte * i)) //nolint:gosec // G115: Intentional conversion for checksum
+			sum[crc32Len-1-i] = byte(c >> (bitsInByte * i))
 		}
 	case "SHA1":
 		//nolint:gosec // SHA1 supported as per S3 spec

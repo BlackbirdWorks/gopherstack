@@ -16,6 +16,7 @@ import (
 	"Gopherstack/dashboard"
 	"Gopherstack/demo"
 	ddbbackend "Gopherstack/dynamodb"
+	"Gopherstack/pkgs/logger"
 	s3backend "Gopherstack/s3"
 )
 
@@ -33,14 +34,12 @@ func startServer() error {
 		level = slog.LevelInfo
 	}
 
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: level,
-	}))
+	log := logger.NewLogger(level)
 
 	// Create backends and handlers.
-	ddbHandler := ddbbackend.NewHandler(logger)
+	ddbHandler := ddbbackend.NewHandler(log)
 	s3Backend := s3backend.NewInMemoryBackend(&s3backend.GzipCompressor{})
-	s3Handler := s3backend.NewHandler(s3Backend, logger)
+	s3Handler := s3backend.NewHandler(s3Backend, log)
 
 	// Create a temporary mux for in-memory SDK clients
 	inMemMux := http.NewServeMux()
@@ -52,7 +51,7 @@ func startServer() error {
 		config.WithHTTPClient(inMemClient),
 	)
 	if err != nil {
-		logger.Error("Failed to load AWS config", "error", err)
+		log.Error("Failed to load AWS config", "error", err)
 
 		return err
 	}
@@ -68,50 +67,51 @@ func startServer() error {
 
 	// Load demo data before creating the dashboard handler
 	if os.Getenv("DEMO") == "true" {
-		logger.Info("Loading demo data...")
-		if err = demo.LoadData(context.Background(), logger, ddbClient, s3Client); err != nil {
-			logger.Error("Failed to load demo data", "error", err)
+		log.Info("Loading demo data...")
+		if err = demo.LoadData(context.Background(), log, ddbClient, s3Client); err != nil {
+			log.Error("Failed to load demo data", "error", err)
 		}
 	}
 
-	dashboardHandler := dashboard.NewHandler(ddbClient, s3Client, ddbHandler, s3Handler, logger)
+	dashboardHandler := dashboard.NewHandler(ddbClient, s3Client, ddbHandler, s3Handler, log)
 
 	// Create Echo app with routing
 	e := echo.New()
+
+	// Add logger middleware to inject logger into request context
+	e.Use(logger.EchoMiddleware(log))
 
 	// Route DynamoDB requests via pre-middleware (matched by X-Amz-Target header, not path)
 	e.Pre(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
 			target := c.Request().Header.Get("X-Amz-Target")
 			if len(target) >= 9 && target[:9] == "DynamoDB_" {
-				ddbHandler.ServeHTTP(c.Response(), c.Request())
-
-				return nil
+				return ddbHandler.Handle(c)
 			}
 
 			return next(c)
 		}
 	})
 
-	// Dashboard routes (strip /dashboard prefix for the handler)
+	// Dashboard routes
 	dashGroup := e.Group("/dashboard")
-	dashGroup.Any("/*", echo.WrapHandler(http.StripPrefix("/dashboard", dashboardHandler)))
-	dashGroup.Any("", echo.WrapHandler(http.StripPrefix("/dashboard", dashboardHandler)))
+	dashGroup.Any("/*", dashboardHandler.Handle)
+	dashGroup.Any("", dashboardHandler.Handle)
 
 	// S3 catch-all (everything else)
-	e.Any("/*", echo.WrapHandler(s3Handler))
+	e.Any("/*", s3Handler.Handle)
 
 	// Wire the in-memory mux used by SDK clients through the same Echo routing
 	inMemMux.Handle("/", e)
 
 	port := ":8000"
-	logger.Info("Starting Gopherstack (DynamoDB + S3)", "port", port)
-	logger.Info("  DynamoDB endpoint", "url", "http://localhost"+port)
-	logger.Info("  S3 endpoint      ", "url", "http://localhost"+port+" (path-style)")
-	logger.Info("  Dashboard        ", "url", "http://localhost"+port+"/dashboard")
+	log.Info("Starting Gopherstack (DynamoDB + S3)", "port", port)
+	log.Info("  DynamoDB endpoint", "url", "http://localhost"+port)
+	log.Info("  S3 endpoint      ", "url", "http://localhost"+port+" (path-style)")
+	log.Info("  Dashboard        ", "url", "http://localhost"+port+"/dashboard")
 
 	if err = e.Start(port); err != nil {
-		logger.Error("Failed to start server", "error", err)
+		log.Error("Failed to start server", "error", err)
 
 		return err
 	}

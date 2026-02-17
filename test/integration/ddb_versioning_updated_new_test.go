@@ -12,7 +12,7 @@ import (
 )
 
 // TestIntegration_DDB_VersioningFlowWithUPDATED_NEW tests the versioning pattern
-// with UPDATED_NEW return value, starting from a blank state and then upserting
+// with UPDATED_NEW return value, starting from a blank state and then upserting.
 func TestIntegration_DDB_VersioningFlowWithUPDATED_NEW(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)

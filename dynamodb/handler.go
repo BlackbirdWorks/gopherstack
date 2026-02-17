@@ -1,6 +1,7 @@
 package dynamodb
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,8 +11,11 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/labstack/echo/v5"
+
 	"Gopherstack/dynamodb/models"
 	"Gopherstack/pkgs/httputils"
+	"Gopherstack/pkgs/logger"
 )
 
 var ErrUnknownOperation = errors.New("UnknownOperationException")
@@ -36,8 +40,6 @@ func writeDynamoDBJSON(logger *slog.Logger, w http.ResponseWriter, code int, pay
 
 	w.WriteHeader(code)
 
-	// False positive: this is marshaled JSON, not user input
-	//nolint:gosec // this is marshaled JSON, not user input
 	if _, wErr := w.Write(response); wErr != nil && logger != nil {
 		logger.Error("failed to write JSON response", "error", wErr)
 	}
@@ -81,9 +83,12 @@ func (h *Handler) GetSupportedOperations() []string {
 
 // ServeHTTP implements [http.Handler] interface.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	log := logger.Load(ctx)
+
 	if r.Method == http.MethodGet && r.URL.Path == "/" {
 		ops := h.GetSupportedOperations()
-		writeDynamoDBJSON(h.Logger, w, http.StatusOK, ops)
+		writeDynamoDBJSON(log, w, http.StatusOK, ops)
 
 		return
 	}
@@ -112,33 +117,40 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	body, err := httputils.ReadBody(r)
 	if err != nil {
-		httputils.WriteError(h.Logger, w, r, err, http.StatusInternalServerError)
+		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}
 
-	h.Logger.Debug("DynamoDB request", "action", action, "body", string(body))
+	log.DebugContext(ctx, "DynamoDB request", "action", action, "body", string(body))
 
 	w.Header().Set("Content-Type", "application/x-amz-json-1.0")
 
-	response, reqErr := h.dispatch(action, body)
+	response, reqErr := h.dispatch(ctx, action, body)
 	if reqErr != nil {
-		h.handleError(w, r, action, reqErr)
+		h.handleError(ctx, w, r, action, reqErr)
 
 		return
 	}
 
-	writeDynamoDBJSON(h.Logger, w, http.StatusOK, response)
+	writeDynamoDBJSON(log, w, http.StatusOK, response)
 }
 
-func (h *Handler) dispatch(action string, body []byte) (any, error) {
+// Handle is an Echo handler that wraps ServeHTTP.
+func (h *Handler) Handle(c *echo.Context) error {
+	h.ServeHTTP(c.Response(), c.Request())
+
+	return nil
+}
+
+func (h *Handler) dispatch(ctx context.Context, action string, body []byte) (any, error) {
 	switch action {
 	case "CreateTable", "DeleteTable", "DescribeTable", "ListTables", "UpdateTimeToLive", "DescribeTimeToLive":
-		return h.dispatchTableOps(action, body)
+		return h.dispatchTableOps(ctx, action, body)
 	case "PutItem", "GetItem", "DeleteItem", "UpdateItem", "Query", "Scan", "BatchGetItem", "BatchWriteItem":
-		return h.dispatchItemOps(action, body)
+		return h.dispatchItemOps(ctx, action, body)
 	case "TransactWriteItems", "TransactGetItems":
-		return h.dispatchTransactOps(action, body)
+		return h.dispatchTransactOps(ctx, action, body)
 	default:
 		return nil, fmt.Errorf("%w:%s", ErrUnknownOperation, action)
 	}
@@ -146,13 +158,15 @@ func (h *Handler) dispatch(action string, body []byte) (any, error) {
 
 // Helper for operations where Adapter allows error.
 func handleOpErr[WireIn any, SDKIn any, SDKOut any, WireOut any](
-	logger *slog.Logger,
+	ctx context.Context,
 	action string,
 	body []byte,
 	toSDK func(*WireIn) (*SDKIn, error),
 	doOp func(*SDKIn) (*SDKOut, error),
 	fromSDK func(*SDKOut) *WireOut,
 ) (any, error) {
+	log := logger.Load(ctx)
+
 	var input WireIn
 	if len(body) > 0 {
 		if err := json.Unmarshal(body, &input); err != nil {
@@ -160,10 +174,8 @@ func handleOpErr[WireIn any, SDKIn any, SDKOut any, WireOut any](
 		}
 	}
 
-	if logger != nil {
-		inputJSON, _ := json.Marshal(input)
-		logger.Debug("handler input", "action", action, "input", string(inputJSON))
-	}
+	inputJSON, _ := json.Marshal(input)
+	log.DebugContext(ctx, "handler input", "action", action, "input", string(inputJSON))
 
 	sdkInput, err := toSDK(&input)
 	if err != nil {
@@ -176,23 +188,23 @@ func handleOpErr[WireIn any, SDKIn any, SDKOut any, WireOut any](
 
 	wireOutput := fromSDK(sdkOutput)
 
-	if logger != nil {
-		outputJSON, _ := json.Marshal(wireOutput)
-		logger.Debug("handler output", "action", action, "output", string(outputJSON))
-	}
+	outputJSON, _ := json.Marshal(wireOutput)
+	log.DebugContext(ctx, "handler output", "action", action, "output", string(outputJSON))
 
 	return wireOutput, nil
 }
 
 // Helper for operations where Adapter does not return error.
 func handleOp[WireIn any, SDKIn any, SDKOut any, WireOut any](
-	logger *slog.Logger,
+	ctx context.Context,
 	action string,
 	body []byte,
 	toSDK func(*WireIn) *SDKIn,
 	doOp func(*SDKIn) (*SDKOut, error),
 	fromSDK func(*SDKOut) *WireOut,
 ) (any, error) {
+	log := logger.Load(ctx)
+
 	var input WireIn
 	if len(body) > 0 {
 		if err := json.Unmarshal(body, &input); err != nil {
@@ -200,10 +212,8 @@ func handleOp[WireIn any, SDKIn any, SDKOut any, WireOut any](
 		}
 	}
 
-	if logger != nil {
-		inputJSON, _ := json.Marshal(input)
-		logger.Debug("handler input", "action", action, "input", string(inputJSON))
-	}
+	inputJSON, _ := json.Marshal(input)
+	log.DebugContext(ctx, "handler input", "action", action, "input", string(inputJSON))
 
 	sdkInput := toSDK(&input)
 	sdkOutput, err := doOp(sdkInput)
@@ -213,39 +223,37 @@ func handleOp[WireIn any, SDKIn any, SDKOut any, WireOut any](
 
 	wireOutput := fromSDK(sdkOutput)
 
-	if logger != nil {
-		outputJSON, _ := json.Marshal(wireOutput)
-		logger.Debug("handler output", "action", action, "output", string(outputJSON))
-	}
+	outputJSON, _ := json.Marshal(wireOutput)
+	log.DebugContext(ctx, "handler output", "action", action, "output", string(outputJSON))
 
 	return wireOutput, nil
 }
 
-func (h *Handler) dispatchTableOps(action string, body []byte) (any, error) {
+func (h *Handler) dispatchTableOps(ctx context.Context, action string, body []byte) (any, error) {
 	switch action {
 	case "CreateTable":
 		return handleOp(
-			h.Logger, action, body,
+			ctx, action, body,
 			models.ToSDKCreateTableInput, h.DB.CreateTable, models.FromSDKCreateTableOutput,
 		)
 	case "DeleteTable":
 		return handleOp(
-			h.Logger, action, body,
+			ctx, action, body,
 			models.ToSDKDeleteTableInput, h.DB.DeleteTable, models.FromSDKDeleteTableOutput,
 		)
 	case "DescribeTable":
 		return handleOp(
-			h.Logger, action, body,
+			ctx, action, body,
 			models.ToSDKDescribeTableInput, h.DB.DescribeTable, models.FromSDKDescribeTableOutput,
 		)
 	case "ListTables":
 		return handleOp(
-			h.Logger, action, body,
+			ctx, action, body,
 			models.ToSDKListTablesInput, h.DB.ListTables, models.FromSDKListTablesOutput,
 		)
 	case "UpdateTimeToLive":
 		return handleOp(
-			h.Logger,
+			ctx,
 			action,
 			body,
 			models.ToSDKUpdateTimeToLiveInput,
@@ -254,7 +262,7 @@ func (h *Handler) dispatchTableOps(action string, body []byte) (any, error) {
 		)
 	case "DescribeTimeToLive":
 		return handleOp(
-			h.Logger,
+			ctx,
 			action,
 			body,
 			models.ToSDKDescribeTimeToLiveInput,
@@ -266,46 +274,46 @@ func (h *Handler) dispatchTableOps(action string, body []byte) (any, error) {
 	}
 }
 
-func (h *Handler) dispatchItemOps(action string, body []byte) (any, error) {
+func (h *Handler) dispatchItemOps(ctx context.Context, action string, body []byte) (any, error) {
 	switch action {
 	case "PutItem":
 		return handleOpErr(
-			h.Logger, action, body,
+			ctx, action, body,
 			models.ToSDKPutItemInput, h.DB.PutItem, models.FromSDKPutItemOutput,
 		)
 	case "GetItem":
 		return handleOpErr(
-			h.Logger, action, body,
+			ctx, action, body,
 			models.ToSDKGetItemInput, h.DB.GetItem, models.FromSDKGetItemOutput,
 		)
 	case "DeleteItem":
 		return handleOpErr(
-			h.Logger, action, body,
+			ctx, action, body,
 			models.ToSDKDeleteItemInput, h.DB.DeleteItem, models.FromSDKDeleteItemOutput,
 		)
 	case "Scan":
 		return handleOpErr(
-			h.Logger, action, body,
+			ctx, action, body,
 			models.ToSDKScanInput, h.DB.Scan, models.FromSDKScanOutput,
 		)
 	case "UpdateItem":
 		return handleOpErr(
-			h.Logger, action, body,
+			ctx, action, body,
 			models.ToSDKUpdateItemInput, h.DB.UpdateItem, models.FromSDKUpdateItemOutput,
 		)
 	case "Query":
 		return handleOpErr(
-			h.Logger, action, body,
+			ctx, action, body,
 			models.ToSDKQueryInput, h.DB.Query, models.FromSDKQueryOutput,
 		)
 	case "BatchGetItem":
 		return handleOpErr(
-			h.Logger, action, body,
+			ctx, action, body,
 			models.ToSDKBatchGetItemInput, h.DB.BatchGetItem, models.FromSDKBatchGetItemOutput,
 		)
 	case "BatchWriteItem":
 		return handleOpErr(
-			h.Logger,
+			ctx,
 			action,
 			body,
 			models.ToSDKBatchWriteItemInput,
@@ -317,11 +325,10 @@ func (h *Handler) dispatchItemOps(action string, body []byte) (any, error) {
 	}
 }
 
-func (h *Handler) dispatchTransactOps(action string, body []byte) (any, error) {
+func (h *Handler) dispatchTransactOps(ctx context.Context, action string, body []byte) (any, error) {
 	switch action {
 	case "TransactWriteItems":
-		return handleOpErr(
-			h.Logger,
+		return handleOpErr(ctx,
 			action,
 			body,
 			models.ToSDKTransactWriteItemsInput,
@@ -329,8 +336,7 @@ func (h *Handler) dispatchTransactOps(action string, body []byte) (any, error) {
 			models.FromSDKTransactWriteItemsOutput,
 		)
 	case "TransactGetItems":
-		return handleOpErr(
-			h.Logger,
+		return handleOpErr(ctx,
 			action,
 			body,
 			models.ToSDKTransactGetItemsInput,
@@ -342,9 +348,17 @@ func (h *Handler) dispatchTransactOps(action string, body []byte) (any, error) {
 	}
 }
 
-func (h *Handler) handleError(w http.ResponseWriter, _ *http.Request, action string, reqErr error) {
+func (h *Handler) handleError(
+	ctx context.Context,
+	w http.ResponseWriter,
+	_ *http.Request,
+	action string,
+	reqErr error,
+) {
+	log := logger.Load(ctx)
+
 	if strings.HasPrefix(reqErr.Error(), "UnknownOperationException:") {
-		h.Logger.Warn("Unknown action", "action", action)
+		log.WarnContext(ctx, "Unknown action", "action", action)
 		w.Header().Set("Content-Type", "application/x-amz-json-1.0")
 		body := []byte(
 			`{"__type":"com.amazon.coral.service#UnknownOperationException","message":"Action not supported"}`,
@@ -359,12 +373,12 @@ func (h *Handler) handleError(w http.ResponseWriter, _ *http.Request, action str
 		return
 	}
 
-	h.Logger.Error("Error handling action", "action", action, "error", reqErr)
+	log.ErrorContext(ctx, "Error handling action", "action", action, "error", reqErr)
 
 	statusCode, awsErr := h.classifyError(reqErr)
 
 	w.Header().Set("Content-Type", "application/x-amz-json-1.0")
-	writeDynamoDBJSON(h.Logger, w, statusCode, awsErr)
+	writeDynamoDBJSON(log, w, statusCode, awsErr)
 }
 
 func (h *Handler) classifyError(reqErr error) (int, *Error) {

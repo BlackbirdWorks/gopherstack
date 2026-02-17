@@ -56,7 +56,9 @@ func (b *InMemoryBackend) CreateBucket(_ context.Context, input *s3.CreateBucket
 		Versioning:   types.BucketVersioningStatusSuspended,
 	}
 
-	return &s3.CreateBucketOutput{}, nil
+	return &s3.CreateBucketOutput{
+		Location: aws.String("/" + bucketName),
+	}, nil
 }
 
 func (b *InMemoryBackend) DeleteBucket(_ context.Context, input *s3.DeleteBucketInput) (*s3.DeleteBucketOutput, error) {
