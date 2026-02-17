@@ -3,6 +3,7 @@ package dynamodb_test
 import (
 	"Gopherstack/dynamodb"
 	"Gopherstack/dynamodb/models"
+	"context"
 	"strings"
 	"testing"
 
@@ -33,7 +34,7 @@ func TestExtractKeySchema(t *testing.T) {
 						{AttributeName: "sk", AttributeType: "N"},
 					},
 				}
-				_, err := db.CreateTable(models.ToSDKCreateTableInput(&ctInput))
+				_, err := db.CreateTable(t.Context(), models.ToSDKCreateTableInput(&ctInput))
 				require.NoError(t, err)
 			},
 			check: func(t *testing.T, db *dynamodb.InMemoryDB, tableName string) {
@@ -72,7 +73,7 @@ func TestExtractKeySchema(t *testing.T) {
 						},
 					},
 				}
-				_, err := db.CreateTable(models.ToSDKCreateTableInput(&ctInput))
+				_, err := db.CreateTable(t.Context(), models.ToSDKCreateTableInput(&ctInput))
 				require.NoError(t, err)
 			},
 			check: func(t *testing.T, db *dynamodb.InMemoryDB, tableName string) {
@@ -98,7 +99,7 @@ func TestExtractKeySchema(t *testing.T) {
 						{AttributeName: "pk", AttributeType: "S"},
 					},
 				}
-				_, _ = db.CreateTable(models.ToSDKCreateTableInput(&ctInput))
+				_, _ = db.CreateTable(t.Context(), models.ToSDKCreateTableInput(&ctInput))
 			},
 			check: func(t *testing.T, db *dynamodb.InMemoryDB, tableName string) {
 				t.Helper()
@@ -356,7 +357,7 @@ func TestRebuildIndexes(t *testing.T) {
 			{AttributeName: "sk", AttributeType: "N"},
 		},
 	}
-	_, err := db.CreateTable(models.ToSDKCreateTableInput(&ctInput))
+	_, err := db.CreateTable(context.Background(), models.ToSDKCreateTableInput(&ctInput))
 	require.NoError(t, err)
 
 	table := db.Tables[tableName]

@@ -3,6 +3,7 @@ package dynamodb_test
 import (
 	"Gopherstack/dynamodb"
 	"Gopherstack/dynamodb/models"
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -21,7 +22,7 @@ func TestUpdateItem_VersioningPattern(t *testing.T) {
 		KeySchema:            []models.KeySchemaElement{{AttributeName: "pk", KeyType: "HASH"}},
 		AttributeDefinitions: []models.AttributeDefinition{{AttributeName: "pk", AttributeType: "S"}},
 	}
-	_, err := db.CreateTable(models.ToSDKCreateTableInput(&ctInput))
+	_, err := db.CreateTable(context.Background(), models.ToSDKCreateTableInput(&ctInput))
 	require.NoError(t, err)
 
 	// Test 1: First update on NEW item with if_not_exists pattern and UPDATED_NEW
@@ -41,7 +42,7 @@ func TestUpdateItem_VersioningPattern(t *testing.T) {
 	}
 	sdkUpdate1, _ := models.ToSDKUpdateItemInput(&updateInput1)
 
-	res1, err := db.UpdateItem(sdkUpdate1)
+	res1, err := db.UpdateItem(context.Background(), sdkUpdate1)
 	require.NoError(t, err)
 	require.NotNil(t, res1.Attributes, "UPDATED_NEW should return attributes for new item")
 
@@ -73,7 +74,7 @@ func TestUpdateItem_VersioningPattern(t *testing.T) {
 	}
 	sdkUpdate2, _ := models.ToSDKUpdateItemInput(&updateInput2)
 
-	res2, err := db.UpdateItem(sdkUpdate2)
+	res2, err := db.UpdateItem(context.Background(), sdkUpdate2)
 	require.NoError(t, err)
 	require.NotNil(t, res2.Attributes)
 
@@ -104,7 +105,7 @@ func TestUpdateItem_VersioningPattern(t *testing.T) {
 	}
 	sdkUpdate3, _ := models.ToSDKUpdateItemInput(&updateInput3)
 
-	res3, err := db.UpdateItem(sdkUpdate3)
+	res3, err := db.UpdateItem(context.Background(), sdkUpdate3)
 	require.NoError(t, err)
 	require.NotNil(t, res3.Attributes)
 
@@ -132,7 +133,7 @@ func TestUpdateItem_BlankToUpsert(t *testing.T) {
 		KeySchema:            []models.KeySchemaElement{{AttributeName: "pk", KeyType: "HASH"}},
 		AttributeDefinitions: []models.AttributeDefinition{{AttributeName: "pk", AttributeType: "S"}},
 	}
-	_, err := db.CreateTable(models.ToSDKCreateTableInput(&ctInput))
+	_, err := db.CreateTable(context.Background(), models.ToSDKCreateTableInput(&ctInput))
 	require.NoError(t, err)
 
 	// Start from completely blank state - no items in table
@@ -153,7 +154,7 @@ func TestUpdateItem_BlankToUpsert(t *testing.T) {
 	}
 	sdkUpdate1, _ := models.ToSDKUpdateItemInput(&updateInput1)
 
-	res1, err := db.UpdateItem(sdkUpdate1)
+	res1, err := db.UpdateItem(context.Background(), sdkUpdate1)
 	require.NoError(t, err)
 	require.NotNil(t, res1.Attributes, "UPDATED_NEW on new item should return attributes")
 
@@ -181,7 +182,7 @@ func TestUpdateItem_BlankToUpsert(t *testing.T) {
 	}
 	sdkUpdate2, _ := models.ToSDKUpdateItemInput(&updateInput2)
 
-	res2, err := db.UpdateItem(sdkUpdate2)
+	res2, err := db.UpdateItem(context.Background(), sdkUpdate2)
 	require.NoError(t, err)
 	require.NotNil(t, res2.Attributes)
 

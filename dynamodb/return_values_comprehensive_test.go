@@ -3,6 +3,7 @@ package dynamodb_test
 import (
 	"Gopherstack/dynamodb"
 	"Gopherstack/dynamodb/models"
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -13,12 +14,12 @@ import (
 func TestUpdateItem_AllReturnValues(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // fieldalignment is an optimization, not a bug
+	tests := []struct {
 		name         string
 		returnValue  string
+		expectedKeys []string
+		excludedKeys []string
 		expectAttrs  bool
-		expectedKeys []string // keys that should be present
-		excludedKeys []string // keys that should NOT be present
 	}{
 		{
 			name:         "NONE returns nothing",
@@ -69,7 +70,7 @@ func TestUpdateItem_AllReturnValues(t *testing.T) {
 				KeySchema:            []models.KeySchemaElement{{AttributeName: "pk", KeyType: "HASH"}},
 				AttributeDefinitions: []models.AttributeDefinition{{AttributeName: "pk", AttributeType: "S"}},
 			}
-			_, err := db.CreateTable(models.ToSDKCreateTableInput(&ctInput))
+			_, err := db.CreateTable(context.Background(), models.ToSDKCreateTableInput(&ctInput))
 			require.NoError(t, err)
 
 			// Create initial item
@@ -82,7 +83,7 @@ func TestUpdateItem_AllReturnValues(t *testing.T) {
 				},
 			}
 			sdkPut, _ := models.ToSDKPutItemInput(&putInput)
-			_, err = db.PutItem(sdkPut)
+			_, err = db.PutItem(context.Background(), sdkPut)
 			require.NoError(t, err)
 
 			// Update only attr1
@@ -97,7 +98,7 @@ func TestUpdateItem_AllReturnValues(t *testing.T) {
 			}
 			sdkUpdate, _ := models.ToSDKUpdateItemInput(&updateInput)
 
-			res, err := db.UpdateItem(sdkUpdate)
+			res, err := db.UpdateItem(context.Background(), sdkUpdate)
 			require.NoError(t, err)
 
 			if tt.expectAttrs {
@@ -140,11 +141,11 @@ func TestUpdateItem_AllReturnValues(t *testing.T) {
 func TestUpdateItem_NewItemReturnValues(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // fieldalignment is an optimization, not a bug
+	tests := []struct {
 		name         string
 		returnValue  string
-		expectAttrs  bool
 		expectedKeys []string
+		expectAttrs  bool
 	}{
 		{
 			name:         "NONE returns nothing",
@@ -190,7 +191,7 @@ func TestUpdateItem_NewItemReturnValues(t *testing.T) {
 				KeySchema:            []models.KeySchemaElement{{AttributeName: "pk", KeyType: "HASH"}},
 				AttributeDefinitions: []models.AttributeDefinition{{AttributeName: "pk", AttributeType: "S"}},
 			}
-			_, err := db.CreateTable(models.ToSDKCreateTableInput(&ctInput))
+			_, err := db.CreateTable(context.Background(), models.ToSDKCreateTableInput(&ctInput))
 			require.NoError(t, err)
 
 			// Update a NEW item (doesn't exist yet)
@@ -206,7 +207,7 @@ func TestUpdateItem_NewItemReturnValues(t *testing.T) {
 			}
 			sdkUpdate, _ := models.ToSDKUpdateItemInput(&updateInput)
 
-			res, err := db.UpdateItem(sdkUpdate)
+			res, err := db.UpdateItem(context.Background(), sdkUpdate)
 			require.NoError(t, err)
 
 			if tt.expectAttrs {

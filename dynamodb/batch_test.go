@@ -3,6 +3,7 @@ package dynamodb_test
 import (
 	"Gopherstack/dynamodb"
 	"Gopherstack/dynamodb/models"
+	"context"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -64,7 +65,7 @@ func TestBatchWriteItem(t *testing.T) {
 			setup: func(t *testing.T, db *dynamodb.InMemoryDB) {
 				t.Helper()
 				createTableHelper(t, db, "Table1", "pk")
-				_, _ = db.PutItem(&sdk.PutItemInput{
+				_, _ = db.PutItem(t.Context(), &sdk.PutItemInput{
 					TableName: aws.String("Table1"),
 					Item: map[string]types.AttributeValue{
 						"pk": &types.AttributeValueMemberS{Value: "item1"},
@@ -90,7 +91,7 @@ func TestBatchWriteItem(t *testing.T) {
 				createTableHelper(t, db, "Table1", "pk")
 				// Seed 3 items
 				for i := 1; i <= 3; i++ {
-					_, _ = db.PutItem(&sdk.PutItemInput{
+					_, _ = db.PutItem(t.Context(), &sdk.PutItemInput{
 						TableName: aws.String("Table1"),
 						Item: map[string]types.AttributeValue{
 							"pk": &types.AttributeValueMemberS{Value: "item" + string(rune('0'+i))},
@@ -125,7 +126,7 @@ func TestBatchWriteItem(t *testing.T) {
 			}
 
 			sdkInput, _ := models.ToSDKBatchWriteItemInput(&tt.input)
-			_, err := db.BatchWriteItem(sdkInput)
+			_, err := db.BatchWriteItem(context.Background(), sdkInput)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -159,14 +160,14 @@ func TestBatchGetItem(t *testing.T) {
 			setup: func(t *testing.T, db *dynamodb.InMemoryDB) {
 				t.Helper()
 				createTableHelper(t, db, "Table1", "pk")
-				_, _ = db.PutItem(&sdk.PutItemInput{
+				_, _ = db.PutItem(t.Context(), &sdk.PutItemInput{
 					TableName: aws.String("Table1"),
 					Item: map[string]types.AttributeValue{
 						"pk":  &types.AttributeValueMemberS{Value: "item1"},
 						"val": &types.AttributeValueMemberS{Value: "v1"},
 					},
 				})
-				_, _ = db.PutItem(&sdk.PutItemInput{
+				_, _ = db.PutItem(t.Context(), &sdk.PutItemInput{
 					TableName: aws.String("Table1"),
 					Item: map[string]types.AttributeValue{
 						"pk":  &types.AttributeValueMemberS{Value: "item2"},
@@ -202,7 +203,7 @@ func TestBatchGetItem(t *testing.T) {
 			}
 
 			sdkInput, _ := models.ToSDKBatchGetItemInput(&tt.input)
-			res, err := db.BatchGetItem(sdkInput)
+			res, err := db.BatchGetItem(t.Context(), sdkInput)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -288,7 +289,7 @@ func TestBatchWriteItem_ValidationErrors(t *testing.T) {
 			}
 
 			sdkInput, _ := models.ToSDKBatchWriteItemInput(&tt.input)
-			_, err := db.BatchWriteItem(sdkInput)
+			_, err := db.BatchWriteItem(context.Background(), sdkInput)
 
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.errContain)
@@ -304,7 +305,7 @@ func verifyItem(t *testing.T, db *dynamodb.InMemoryDB, tableName, pk string, sho
 	}
 	sdkInput, _ := models.ToSDKGetItemInput(&input)
 
-	res, err := db.GetItem(sdkInput)
+	res, err := db.GetItem(t.Context(), sdkInput)
 	require.NoError(t, err)
 
 	if shouldExist {

@@ -3,6 +3,7 @@ package dynamodb_test
 import (
 	"Gopherstack/dynamodb"
 	"Gopherstack/dynamodb/models"
+	"context"
 	"strings"
 	"testing"
 
@@ -171,13 +172,13 @@ func TestPutItem_ValidationErrors(t *testing.T) {
 				KeySchema:            []models.KeySchemaElement{{AttributeName: "pk", KeyType: models.KeyTypeHash}},
 				AttributeDefinitions: []models.AttributeDefinition{{AttributeName: "pk", AttributeType: "S"}},
 			}
-			_, _ = db.CreateTable(models.ToSDKCreateTableInput(&ctInput))
+			_, _ = db.CreateTable(context.Background(), models.ToSDKCreateTableInput(&ctInput))
 
 			inputStr := `{"TableName": "` + tableName + `", "Item": ` + tc.item + `}`
 			putInput := mustUnmarshal[models.PutItemInput](t, inputStr)
 			sdkPut, _ := models.ToSDKPutItemInput(&putInput)
 
-			_, pErr := db.PutItem(sdkPut)
+			_, pErr := db.PutItem(context.Background(), sdkPut)
 			require.Error(t, pErr)
 			if tc.wantError != "" {
 				assert.Contains(t, pErr.Error(), tc.wantError)
@@ -195,7 +196,7 @@ func TestPutItem_ItemTooLarge(t *testing.T) {
 		KeySchema:            []models.KeySchemaElement{{AttributeName: "pk", KeyType: models.KeyTypeHash}},
 		AttributeDefinitions: []models.AttributeDefinition{{AttributeName: "pk", AttributeType: "S"}},
 	}
-	_, err := db.CreateTable(models.ToSDKCreateTableInput(&ctInput))
+	_, err := db.CreateTable(context.Background(), models.ToSDKCreateTableInput(&ctInput))
 	require.NoError(t, err)
 
 	largeVal := strings.Repeat("a", 400*1024+100)
@@ -209,7 +210,7 @@ func TestPutItem_ItemTooLarge(t *testing.T) {
 
 	putInput := mustUnmarshal[models.PutItemInput](t, input)
 	sdkPut, _ := models.ToSDKPutItemInput(&putInput)
-	_, err = db.PutItem(sdkPut)
+	_, err = db.PutItem(context.Background(), sdkPut)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "exceeds limit")
 }

@@ -159,7 +159,7 @@ func (e *Evaluator) evaluateArithmetic(n *ComparisonExpr) (any, error) {
 	}
 
 	// Return in DynamoDB attribute value format
-	return map[string]any{"N": fmt.Sprintf("%g", result)}, nil
+	return map[string]any{"N": formatDynamoNumber(result)}, nil
 }
 
 func (e *Evaluator) evaluateBetween(n *BetweenExpr) (bool, error) {
@@ -582,6 +582,16 @@ func (e *Evaluator) compareOrdered(
 	return strCmp(lStr, rStr)
 }
 
+// formatDynamoNumber formats a float64 as a plain decimal string without
+// scientific notation, matching DynamoDB's number representation.
+func formatDynamoNumber(f float64) string {
+	if f == float64(int64(f)) {
+		return strconv.FormatInt(int64(f), 10)
+	}
+
+	return strconv.FormatFloat(f, 'f', -1, 64)
+}
+
 func (e *Evaluator) getValueAtPath(item map[string]any, path []PathElement) (any, bool) {
 	if len(path) == 0 {
 		return nil, false
@@ -764,7 +774,7 @@ func (e *Evaluator) applyAdd(path []PathElement, val any) error {
 	valNum, ok2 := e.parseNumeric(val)
 	if ok1 && ok2 {
 		sum := curNum + valNum
-		updated, err := e.setValueAtPath(e.Item, path, map[string]any{"N": fmt.Sprintf("%v", sum)})
+		updated, err := e.setValueAtPath(e.Item, path, map[string]any{"N": formatDynamoNumber(sum)})
 		if err != nil {
 			return err
 		}

@@ -1,6 +1,7 @@
 package dynamodb_test
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -32,7 +33,7 @@ func BenchmarkQuery_ComplexModel(b *testing.B) {
 
 			b.ResetTimer()
 			for range b.N {
-				_, err = db.Query(sdkInput)
+				_, err = db.Query(context.Background(), sdkInput)
 				require.NoError(b, err)
 			}
 		})
@@ -57,7 +58,7 @@ func setupComplexDB(b *testing.B, count int) *dynamodb.InMemoryDB {
 		},
 	}
 	sdkCreate := models.ToSDKCreateTableInput(&createInput)
-	_, err := db.CreateTable(sdkCreate)
+	_, err := db.CreateTable(context.Background(), sdkCreate)
 	require.NoError(b, err)
 
 	// Populate Data
@@ -73,7 +74,7 @@ func setupComplexDB(b *testing.B, count int) *dynamodb.InMemoryDB {
 		}
 		sdkPut, err2 := models.ToSDKPutItemInput(&putInput)
 		require.NoError(b, err2)
-		_, err = db.PutItem(sdkPut)
+		_, err = db.PutItem(context.Background(), sdkPut)
 		require.NoError(b, err)
 	}
 
@@ -86,7 +87,7 @@ func setupComplexDB(b *testing.B, count int) *dynamodb.InMemoryDB {
 		}
 		sdkPut, err2 := models.ToSDKPutItemInput(&putInput)
 		require.NoError(b, err2)
-		_, err = db.PutItem(sdkPut)
+		_, err = db.PutItem(context.Background(), sdkPut)
 		require.NoError(b, err)
 	}
 

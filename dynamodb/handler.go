@@ -35,11 +35,12 @@ func writeDynamoDBJSON(logger *slog.Logger, w http.ResponseWriter, code int, pay
 	}
 
 	checksum := crc32.ChecksumIEEE(response)
-	w.Header().
-		Set("X-Amz-Crc32", strconv.FormatUint(uint64(checksum), 10))
+	w.Header().Set("X-Amz-Crc32", strconv.FormatUint(uint64(checksum), 10))
+	w.Header().Set("Content-Type", "application/x-amz-json-1.0")
 
 	w.WriteHeader(code)
 
+	//nolint:gosec // Writing JSON response
 	if _, wErr := w.Write(response); wErr != nil && logger != nil {
 		logger.Error("failed to write JSON response", "error", wErr)
 	}
@@ -162,7 +163,7 @@ func handleOpErr[WireIn any, SDKIn any, SDKOut any, WireOut any](
 	action string,
 	body []byte,
 	toSDK func(*WireIn) (*SDKIn, error),
-	doOp func(*SDKIn) (*SDKOut, error),
+	doOp func(context.Context, *SDKIn) (*SDKOut, error),
 	fromSDK func(*SDKOut) *WireOut,
 ) (any, error) {
 	log := logger.Load(ctx)
@@ -181,7 +182,7 @@ func handleOpErr[WireIn any, SDKIn any, SDKOut any, WireOut any](
 	if err != nil {
 		return nil, err
 	}
-	sdkOutput, err := doOp(sdkInput)
+	sdkOutput, err := doOp(ctx, sdkInput)
 	if err != nil {
 		return nil, err
 	}
@@ -200,7 +201,7 @@ func handleOp[WireIn any, SDKIn any, SDKOut any, WireOut any](
 	action string,
 	body []byte,
 	toSDK func(*WireIn) *SDKIn,
-	doOp func(*SDKIn) (*SDKOut, error),
+	doOp func(context.Context, *SDKIn) (*SDKOut, error),
 	fromSDK func(*SDKOut) *WireOut,
 ) (any, error) {
 	log := logger.Load(ctx)
@@ -216,7 +217,7 @@ func handleOp[WireIn any, SDKIn any, SDKOut any, WireOut any](
 	log.DebugContext(ctx, "handler input", "action", action, "input", string(inputJSON))
 
 	sdkInput := toSDK(&input)
-	sdkOutput, err := doOp(sdkInput)
+	sdkOutput, err := doOp(ctx, sdkInput)
 	if err != nil {
 		return nil, err
 	}

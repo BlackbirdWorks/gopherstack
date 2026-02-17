@@ -8,21 +8,24 @@ import (
 
 	"Gopherstack/dynamodb/models"
 	"Gopherstack/pkgs/dynamoattr"
+	"Gopherstack/pkgs/logger"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
 
-func (db *InMemoryDB) Query(input *dynamodb.QueryInput) (*dynamodb.QueryOutput, error) {
-	// Use background context for in-memory queries
-	// In the future, this could be extended to check request context from the handler
-	ctx := context.Background()
-
+func (db *InMemoryDB) Query(
+	ctx context.Context,
+	input *dynamodb.QueryInput,
+) (*dynamodb.QueryOutput, error) {
 	return db.QueryWithContext(ctx, input)
 }
 
-func (db *InMemoryDB) QueryWithContext(ctx context.Context, input *dynamodb.QueryInput) (*dynamodb.QueryOutput, error) {
+func (db *InMemoryDB) QueryWithContext(
+	ctx context.Context,
+	input *dynamodb.QueryInput,
+) (*dynamodb.QueryOutput, error) {
 	// Check if context is already cancelled
 	select {
 	case <-ctx.Done():
@@ -45,7 +48,7 @@ func (db *InMemoryDB) QueryWithContext(ctx context.Context, input *dynamodb.Quer
 		return nil, err
 	}
 
-	candidates, err := db.filterCandidatesForKeyCondition(table, input, projection, keySchema)
+	candidates, err := db.filterCandidatesForKeyCondition(ctx, table, input, projection, keySchema)
 	if err != nil {
 		return nil, err
 	}
@@ -60,7 +63,7 @@ func (db *InMemoryDB) QueryWithContext(ctx context.Context, input *dynamodb.Quer
 		db.sortCandidates(candidates, skDef, table, sortForward)
 	}
 
-	return db.processQueryResults(candidates, input, keySchema, table.TTLAttribute), nil
+	return db.processQueryResults(ctx, candidates, input, keySchema, table.TTLAttribute), nil
 }
 
 func (db *InMemoryDB) extractKeySchema(
@@ -87,12 +90,20 @@ func (db *InMemoryDB) extractKeySchema(
 }
 
 func (db *InMemoryDB) filterCandidatesForKeyCondition(
+	ctx context.Context,
 	table *Table,
 	input *dynamodb.QueryInput,
 	projection *models.Projection,
 	keySchema []models.KeySchemaElement,
 ) ([]map[string]any, error) {
 	cond := aws.ToString(input.KeyConditionExpression)
+	if cond != "" {
+		log := logger.Load(ctx)
+		log.DebugContext(ctx, "Evaluating Query KeyConditionExpression",
+			"expression", cond,
+			"attributeNames", input.ExpressionAttributeNames,
+			"attributeValues", input.ExpressionAttributeValues)
+	}
 	exprParts := dynamoattr.SplitANDConditions(cond)
 	if len(exprParts) == 0 {
 		return nil, NewValidationException("invalid KeyConditionExpression")
@@ -208,7 +219,11 @@ func extractPKValueFromExpression(
 	return dbResolvePKTarget(parts[0], parts[1], attrNames, attrValues)
 }
 
-func dbResolvePKTarget(left, right string, attrNames map[string]string, attrValues map[string]any) string {
+func dbResolvePKTarget(
+	left, right string,
+	attrNames map[string]string,
+	attrValues map[string]any,
+) string {
 	left = strings.TrimSpace(left)
 	right = strings.TrimSpace(right)
 
@@ -259,7 +274,10 @@ func (db *InMemoryDB) filterCandidatesScan(
 
 		if match {
 			if idxName != "" {
-				candidates = append(candidates, applyGSIProjection(item, *projection, table.KeySchema, keySchema))
+				candidates = append(
+					candidates,
+					applyGSIProjection(item, *projection, table.KeySchema, keySchema),
+				)
 			} else {
 				candidates = append(candidates, item)
 			}
@@ -296,6 +314,7 @@ func (db *InMemoryDB) sortCandidates(
 }
 
 func (db *InMemoryDB) processQueryResults(
+	ctx context.Context,
 	candidates []map[string]any,
 	input *dynamodb.QueryInput,
 	keySchema []models.KeySchemaElement,
@@ -324,7 +343,7 @@ func (db *InMemoryDB) processQueryResults(
 		}
 
 		item := candidates[i]
-		if isItemExpired(item, ttlAttr) || !db.shouldIncludeInQuery(item, input, eav) {
+		if isItemExpired(item, ttlAttr) || !db.shouldIncludeInQuery(ctx, item, input, eav) {
 			continue
 		}
 
@@ -358,11 +377,23 @@ func (db *InMemoryDB) processQueryResults(
 	return out
 }
 
-func (db *InMemoryDB) shouldIncludeInQuery(item map[string]any, input *dynamodb.QueryInput, eav map[string]any) bool {
+func (db *InMemoryDB) shouldIncludeInQuery(
+	ctx context.Context,
+	item map[string]any,
+	input *dynamodb.QueryInput,
+	eav map[string]any,
+) bool {
 	filter := aws.ToString(input.FilterExpression)
 	if filter == "" {
 		return true
 	}
+
+	log := logger.Load(ctx)
+	log.DebugContext(ctx, "Evaluating Query FilterExpression",
+		"expression", filter,
+		"attributeNames", input.ExpressionAttributeNames,
+		"attributeValues", input.ExpressionAttributeValues)
+
 	match, err := evaluateExpression(
 		filter,
 		item,

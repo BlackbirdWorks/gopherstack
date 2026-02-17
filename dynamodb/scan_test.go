@@ -114,7 +114,7 @@ func TestScan(t *testing.T) {
 			}`
 
 			ctInput := mustUnmarshal[models.CreateTableInput](t, createTableJSON)
-			_, _ = db.CreateTable(models.ToSDKCreateTableInput(&ctInput))
+			_, _ = db.CreateTable(t.Context(), models.ToSDKCreateTableInput(&ctInput))
 
 			// Insert 10 items
 			for i := 1; i <= 10; i++ {
@@ -137,13 +137,13 @@ func TestScan(t *testing.T) {
 					Item:      item,
 				}
 				sdkPutInput, _ := models.ToSDKPutItemInput(&putInput)
-				_, _ = db.PutItem(sdkPutInput)
+				_, _ = db.PutItem(t.Context(), sdkPutInput)
 			}
 
 			scanInput := mustUnmarshal[models.ScanInput](t, tc.input)
 			sdkScanInput, _ := models.ToSDKScanInput(&scanInput)
 
-			res, scanErr := db.Scan(sdkScanInput)
+			res, scanErr := db.Scan(t.Context(), sdkScanInput)
 			if tc.wantErr {
 				require.Error(t, scanErr)
 
@@ -206,12 +206,12 @@ func TestScan_ValidationErrors(t *testing.T) {
 					{AttributeName: "pk", AttributeType: "S"},
 				},
 			}
-			_, _ = db.CreateTable(models.ToSDKCreateTableInput(&ctInput))
+			_, _ = db.CreateTable(t.Context(), models.ToSDKCreateTableInput(&ctInput))
 
 			scanInput := mustUnmarshal[models.ScanInput](t, tc.input)
 			sdkScanInput, _ := models.ToSDKScanInput(&scanInput)
 
-			_, scanErr := db.Scan(sdkScanInput)
+			_, scanErr := db.Scan(t.Context(), sdkScanInput)
 			require.Error(t, scanErr)
 			if tc.wantError != "" {
 				assert.Contains(t, scanErr.Error(), tc.wantError)

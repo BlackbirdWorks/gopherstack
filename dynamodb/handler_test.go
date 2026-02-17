@@ -160,7 +160,7 @@ func TestHandler_ServeHTTP(t *testing.T) {
 					Item:      map[string]any{"pk": map[string]any{"S": "item1"}},
 				}
 				sdkPut, _ := models.ToSDKPutItemInput(&putInput)
-				_, err := db.PutItem(sdkPut)
+				_, err := db.PutItem(t.Context(), sdkPut)
 				require.NoError(t, err)
 			},
 			wantStatusCode:   http.StatusOK,
@@ -200,7 +200,7 @@ func TestHandler_ServeHTTP(t *testing.T) {
 						},
 					}
 					sdkPut, _ := models.ToSDKPutItemInput(&putInput)
-					_, putErr := db.PutItem(sdkPut)
+					_, putErr := db.PutItem(t.Context(), sdkPut)
 					require.NoError(t, putErr)
 				}
 			},

@@ -154,7 +154,7 @@ func TestQuery(t *testing.T) {
 					{"AttributeName": "sk", "AttributeType": "N"}
 				]
 			}`)
-			_, _ = db.CreateTable(models.ToSDKCreateTableInput(&ctInput))
+			_, _ = db.CreateTable(t.Context(), models.ToSDKCreateTableInput(&ctInput))
 
 			// Insert items
 			for _, pk := range []string{"A", "B"} {
@@ -168,14 +168,14 @@ func TestQuery(t *testing.T) {
 						},
 					}
 					sdkPut, _ := models.ToSDKPutItemInput(&putInput)
-					_, _ = db.PutItem(sdkPut)
+					_, _ = db.PutItem(t.Context(), sdkPut)
 				}
 			}
 
 			queryInput := mustUnmarshal[models.QueryInput](t, tc.input)
 			sdkQuery, _ := models.ToSDKQueryInput(&queryInput)
 
-			res, queryErr := db.Query(sdkQuery)
+			res, queryErr := db.Query(t.Context(), sdkQuery)
 			if tc.wantErr {
 				require.Error(t, queryErr)
 				if tc.errMessage != "" {
