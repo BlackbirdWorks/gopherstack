@@ -9,11 +9,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestUpdateItem_AllReturnValues verifies all ReturnValues options work correctly
+// TestUpdateItem_AllReturnValues verifies all ReturnValues options work correctly.
 func TestUpdateItem_AllReturnValues(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
+	tests := []struct { //nolint:govet // fieldalignment is an optimization, not a bug
 		name         string
 		returnValue  string
 		expectAttrs  bool
@@ -113,17 +113,18 @@ func TestUpdateItem_AllReturnValues(t *testing.T) {
 				}
 
 				// Verify values are correct
-				if tt.returnValue == "UPDATED_OLD" {
+				switch tt.returnValue {
+				case "UPDATED_OLD":
 					// Should have old value of attr1
 					assert.Equal(t, "original1", wireAttrs["attr1"].(map[string]any)["S"])
-				} else if tt.returnValue == "UPDATED_NEW" {
+				case "UPDATED_NEW":
 					// Should have new value of attr1
 					assert.Equal(t, "updated1", wireAttrs["attr1"].(map[string]any)["S"])
-				} else if tt.returnValue == "ALL_OLD" {
+				case "ALL_OLD":
 					// Should have old values
 					assert.Equal(t, "original1", wireAttrs["attr1"].(map[string]any)["S"])
 					assert.Equal(t, "unchanged", wireAttrs["attr2"].(map[string]any)["S"])
-				} else if tt.returnValue == "ALL_NEW" {
+				case "ALL_NEW":
 					// Should have new values
 					assert.Equal(t, "updated1", wireAttrs["attr1"].(map[string]any)["S"])
 					assert.Equal(t, "unchanged", wireAttrs["attr2"].(map[string]any)["S"])
@@ -135,11 +136,11 @@ func TestUpdateItem_AllReturnValues(t *testing.T) {
 	}
 }
 
-// TestUpdateItem_NewItemReturnValues tests ReturnValues for creating a new item
+// TestUpdateItem_NewItemReturnValues tests ReturnValues for creating a new item.
 func TestUpdateItem_NewItemReturnValues(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
+	tests := []struct { //nolint:govet // fieldalignment is an optimization, not a bug
 		name         string
 		returnValue  string
 		expectAttrs  bool

@@ -36,6 +36,8 @@ func writeDynamoDBJSON(logger *slog.Logger, w http.ResponseWriter, code int, pay
 
 	w.WriteHeader(code)
 
+	// False positive: this is marshaled JSON, not user input
+	//nolint:gosec // this is marshaled JSON, not user input
 	if _, wErr := w.Write(response); wErr != nil && logger != nil {
 		logger.Error("failed to write JSON response", "error", wErr)
 	}
@@ -222,13 +224,25 @@ func handleOp[WireIn any, SDKIn any, SDKOut any, WireOut any](
 func (h *Handler) dispatchTableOps(action string, body []byte) (any, error) {
 	switch action {
 	case "CreateTable":
-		return handleOp(h.Logger, action, body, models.ToSDKCreateTableInput, h.DB.CreateTable, models.FromSDKCreateTableOutput)
+		return handleOp(
+			h.Logger, action, body,
+			models.ToSDKCreateTableInput, h.DB.CreateTable, models.FromSDKCreateTableOutput,
+		)
 	case "DeleteTable":
-		return handleOp(h.Logger, action, body, models.ToSDKDeleteTableInput, h.DB.DeleteTable, models.FromSDKDeleteTableOutput)
+		return handleOp(
+			h.Logger, action, body,
+			models.ToSDKDeleteTableInput, h.DB.DeleteTable, models.FromSDKDeleteTableOutput,
+		)
 	case "DescribeTable":
-		return handleOp(h.Logger, action, body, models.ToSDKDescribeTableInput, h.DB.DescribeTable, models.FromSDKDescribeTableOutput)
+		return handleOp(
+			h.Logger, action, body,
+			models.ToSDKDescribeTableInput, h.DB.DescribeTable, models.FromSDKDescribeTableOutput,
+		)
 	case "ListTables":
-		return handleOp(h.Logger, action, body, models.ToSDKListTablesInput, h.DB.ListTables, models.FromSDKListTablesOutput)
+		return handleOp(
+			h.Logger, action, body,
+			models.ToSDKListTablesInput, h.DB.ListTables, models.FromSDKListTablesOutput,
+		)
 	case "UpdateTimeToLive":
 		return handleOp(
 			h.Logger,
@@ -255,19 +269,40 @@ func (h *Handler) dispatchTableOps(action string, body []byte) (any, error) {
 func (h *Handler) dispatchItemOps(action string, body []byte) (any, error) {
 	switch action {
 	case "PutItem":
-		return handleOpErr(h.Logger, action, body, models.ToSDKPutItemInput, h.DB.PutItem, models.FromSDKPutItemOutput)
+		return handleOpErr(
+			h.Logger, action, body,
+			models.ToSDKPutItemInput, h.DB.PutItem, models.FromSDKPutItemOutput,
+		)
 	case "GetItem":
-		return handleOpErr(h.Logger, action, body, models.ToSDKGetItemInput, h.DB.GetItem, models.FromSDKGetItemOutput)
+		return handleOpErr(
+			h.Logger, action, body,
+			models.ToSDKGetItemInput, h.DB.GetItem, models.FromSDKGetItemOutput,
+		)
 	case "DeleteItem":
-		return handleOpErr(h.Logger, action, body, models.ToSDKDeleteItemInput, h.DB.DeleteItem, models.FromSDKDeleteItemOutput)
+		return handleOpErr(
+			h.Logger, action, body,
+			models.ToSDKDeleteItemInput, h.DB.DeleteItem, models.FromSDKDeleteItemOutput,
+		)
 	case "Scan":
-		return handleOpErr(h.Logger, action, body, models.ToSDKScanInput, h.DB.Scan, models.FromSDKScanOutput)
+		return handleOpErr(
+			h.Logger, action, body,
+			models.ToSDKScanInput, h.DB.Scan, models.FromSDKScanOutput,
+		)
 	case "UpdateItem":
-		return handleOpErr(h.Logger, action, body, models.ToSDKUpdateItemInput, h.DB.UpdateItem, models.FromSDKUpdateItemOutput)
+		return handleOpErr(
+			h.Logger, action, body,
+			models.ToSDKUpdateItemInput, h.DB.UpdateItem, models.FromSDKUpdateItemOutput,
+		)
 	case "Query":
-		return handleOpErr(h.Logger, action, body, models.ToSDKQueryInput, h.DB.Query, models.FromSDKQueryOutput)
+		return handleOpErr(
+			h.Logger, action, body,
+			models.ToSDKQueryInput, h.DB.Query, models.FromSDKQueryOutput,
+		)
 	case "BatchGetItem":
-		return handleOpErr(h.Logger, action, body, models.ToSDKBatchGetItemInput, h.DB.BatchGetItem, models.FromSDKBatchGetItemOutput)
+		return handleOpErr(
+			h.Logger, action, body,
+			models.ToSDKBatchGetItemInput, h.DB.BatchGetItem, models.FromSDKBatchGetItemOutput,
+		)
 	case "BatchWriteItem":
 		return handleOpErr(
 			h.Logger,

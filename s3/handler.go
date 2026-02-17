@@ -430,7 +430,10 @@ func (h *Handler) listObjects(w http.ResponseWriter, r *http.Request, bucketName
 	delimiter := r.URL.Query().Get("delimiter")
 	marker := r.URL.Query().Get("marker")
 
-	h.Logger.Debug("S3 listObjects input", "bucket", bucketName, "prefix", prefix, "delimiter", delimiter, "marker", marker)
+	h.Logger.Debug(
+		"S3 listObjects input",
+		"bucket", bucketName, "prefix", prefix, "delimiter", delimiter, "marker", marker,
+	)
 
 	maxKeys := int32(defaultMaxKeys)
 	if mk := r.URL.Query().Get("max-keys"); mk != "" {
@@ -479,7 +482,10 @@ func (h *Handler) listObjects(w http.ResponseWriter, r *http.Request, bucketName
 		nextMarker = *objects[maxKeys-1].Key
 	}
 
-	h.Logger.Debug("S3 listObjects output", "bucket", bucketName, "objectCount", len(objects), "isTruncated", isTruncated)
+	h.Logger.Debug(
+		"S3 listObjects output",
+		"bucket", bucketName, "objectCount", len(objects), "isTruncated", isTruncated,
+	)
 
 	resp := ListBucketResult{
 		Name:        bucketName,
@@ -506,7 +512,11 @@ func (h *Handler) listObjectsV2(w http.ResponseWriter, r *http.Request, bucketNa
 	startAfter := q.Get("start-after")
 	encodingType := q.Get("encoding-type")
 
-	h.Logger.Debug("S3 listObjectsV2 input", "bucket", bucketName, "prefix", prefix, "delimiter", delimiter, "continuationToken", continuationToken, "startAfter", startAfter)
+	h.Logger.Debug(
+		"S3 listObjectsV2 input",
+		"bucket", bucketName, "prefix", prefix, "delimiter", delimiter,
+		"continuationToken", continuationToken, "startAfter", startAfter,
+	)
 
 	maxKeys := int32(defaultMaxKeys)
 	if mk := q.Get("max-keys"); mk != "" {
@@ -562,7 +572,10 @@ func (h *Handler) listObjectsV2(w http.ResponseWriter, r *http.Request, bucketNa
 		nextToken = *objects[maxKeys-1].Key
 	}
 
-	h.Logger.Debug("S3 listObjectsV2 output", "bucket", bucketName, "objectCount", len(objects), "isTruncated", isTruncated)
+	h.Logger.Debug(
+		"S3 listObjectsV2 output",
+		"bucket", bucketName, "objectCount", len(objects), "isTruncated", isTruncated,
+	)
 
 	resp := ListBucketV2Result{
 		Name:                  bucketName,
@@ -858,7 +871,11 @@ func (h *Handler) putObject(w http.ResponseWriter, r *http.Request, bucketName, 
 		w.Header().Set("X-Amz-Version-Id", *ver.VersionId)
 	}
 
-	h.Logger.Debug("S3 putObject output", "bucket", bucketName, "key", key, "etag", aws.ToString(ver.ETag), "versionId", aws.ToString(ver.VersionId))
+	h.Logger.Debug(
+		"S3 putObject output",
+		"bucket", bucketName, "key", key, "etag", aws.ToString(ver.ETag),
+		"versionId", aws.ToString(ver.VersionId),
+	)
 
 	w.WriteHeader(http.StatusOK)
 }
@@ -1018,7 +1035,11 @@ func (h *Handler) getObject(w http.ResponseWriter, r *http.Request, bucketName, 
 		ver.Body = io.NopCloser(bytes.NewReader(data))
 	}
 
-	h.Logger.Debug("S3 getObject output", "bucket", bucketName, "key", key, "etag", aws.ToString(ver.ETag), "contentLength", aws.ToInt64(ver.ContentLength))
+	h.Logger.Debug(
+		"S3 getObject output",
+		"bucket", bucketName, "key", key, "etag", aws.ToString(ver.ETag),
+		"contentLength", aws.ToInt64(ver.ContentLength),
+	)
 
 	w.WriteHeader(http.StatusOK)
 
@@ -1075,6 +1096,8 @@ func (h *Handler) serveRange(w http.ResponseWriter, data []byte, rangeHeader str
 	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, total))
 	w.WriteHeader(http.StatusPartialContent)
 
+	// False positive: this is object data, not user input
+	//nolint:gosec // this is object data, not user input
 	if _, err := w.Write(data[start : end+1]); err != nil {
 		h.Logger.Error("failed to write range data", "error", err)
 	}
@@ -1175,7 +1198,10 @@ func (h *Handler) deleteObject(w http.ResponseWriter, r *http.Request, bucketNam
 		w.Header().Set("X-Amz-Delete-Marker", "true")
 	}
 
-	h.Logger.Debug("S3 deleteObject output", "bucket", bucketName, "key", key, "deleteMarker", aws.ToBool(out.DeleteMarker))
+	h.Logger.Debug(
+		"S3 deleteObject output",
+		"bucket", bucketName, "key", key, "deleteMarker", aws.ToBool(out.DeleteMarker),
+	)
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -1641,13 +1667,13 @@ func CalculateChecksum(data []byte, algorithm string) string {
 		c := crc32.ChecksumIEEE(data)
 		sum = make([]byte, crc32Len)
 		for i := range crc32Len {
-			sum[crc32Len-1-i] = byte(c >> (bitsInByte * i))
+			sum[crc32Len-1-i] = byte(c >> (bitsInByte * i)) //nolint:gosec // G115: Intentional conversion for checksum
 		}
 	case "CRC32C":
 		c := crc32.Checksum(data, crc32.MakeTable(crc32.Castagnoli))
 		sum = make([]byte, crc32Len)
 		for i := range crc32Len {
-			sum[crc32Len-1-i] = byte(c >> (bitsInByte * i))
+			sum[crc32Len-1-i] = byte(c >> (bitsInByte * i)) //nolint:gosec // G115: Intentional conversion for checksum
 		}
 	case "SHA1":
 		//nolint:gosec // SHA1 supported as per S3 spec

@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestUpdateItem_VersioningPattern tests the common versioning pattern with UPDATED_NEW
+// TestUpdateItem_VersioningPattern tests the common versioning pattern with UPDATED_NEW.
 func TestUpdateItem_VersioningPattern(t *testing.T) {
 	t.Parallel()
 
@@ -120,7 +120,7 @@ func TestUpdateItem_VersioningPattern(t *testing.T) {
 	assert.Equal(t, "3", wireAttrs3["version"].(map[string]any)["N"])
 }
 
-// TestUpdateItem_BlankToUpsert tests starting from blank state then upserting
+// TestUpdateItem_BlankToUpsert tests starting from blank state then upserting.
 func TestUpdateItem_BlankToUpsert(t *testing.T) {
 	t.Parallel()
 
