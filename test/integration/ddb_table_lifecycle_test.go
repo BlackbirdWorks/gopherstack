@@ -47,7 +47,7 @@ func TestIntegration_DDB_DeleteAndRecreate(t *testing.T) {
 		TableName: aws.String(tableName),
 	}, 10*time.Second)
 	elapsed := time.Since(start)
-	
+
 	t.Logf("Waiter completed in %v", elapsed)
 	require.NoError(t, err)
 	require.Less(t, elapsed, 3*time.Second, "Waiter should complete quickly")

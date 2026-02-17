@@ -52,7 +52,7 @@ func TestIntegration_DDB_TableDeletionWaiter(t *testing.T) {
 
 	t.Logf("Waiter completed in %v", elapsed)
 	require.NoError(t, err, "Waiter should complete successfully when table is deleted")
-	
+
 	// The waiter should complete quickly (< 2 seconds) since the table is already deleted
 	// If it takes close to the full 30 seconds, the waiter isn't recognizing the deletion
 	require.Less(t, elapsed, 2*time.Second, "Waiter should complete quickly, but took %v", elapsed)
