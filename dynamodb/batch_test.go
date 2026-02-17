@@ -83,6 +83,37 @@ func TestBatchWriteItem(t *testing.T) {
 				verifyItem(t, db, "Table1", "item1", false)
 			},
 		},
+		{
+			name: "MultipleDeletes",
+			setup: func(t *testing.T, db *dynamodb.InMemoryDB) {
+				t.Helper()
+				createTableHelper(t, db, "Table1", "pk")
+				// Seed 3 items
+				for i := 1; i <= 3; i++ {
+					_, _ = db.PutItem(&sdk.PutItemInput{
+						TableName: aws.String("Table1"),
+						Item: map[string]types.AttributeValue{
+							"pk": &types.AttributeValueMemberS{Value: "item" + string(rune('0'+i))},
+						},
+					})
+				}
+			},
+			input: models.BatchWriteItemInput{
+				RequestItems: map[string][]models.WriteRequest{
+					"Table1": {
+						{DeleteRequest: &models.DeleteRequest{Key: map[string]any{"pk": map[string]any{"S": "item1"}}}},
+						{DeleteRequest: &models.DeleteRequest{Key: map[string]any{"pk": map[string]any{"S": "item2"}}}},
+						{DeleteRequest: &models.DeleteRequest{Key: map[string]any{"pk": map[string]any{"S": "item3"}}}},
+					},
+				},
+			},
+			verify: func(t *testing.T, db *dynamodb.InMemoryDB) {
+				t.Helper()
+				verifyItem(t, db, "Table1", "item1", false)
+				verifyItem(t, db, "Table1", "item2", false)
+				verifyItem(t, db, "Table1", "item3", false)
+			},
+		},
 	}
 
 	for _, tt := range tests {
