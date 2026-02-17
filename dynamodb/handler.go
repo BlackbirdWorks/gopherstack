@@ -40,8 +40,6 @@ func writeDynamoDBJSON(logger *slog.Logger, w http.ResponseWriter, code int, pay
 
 	w.WriteHeader(code)
 
-	// False positive: this is marshaled JSON, not user input
-	//nolint:gosec // this is marshaled JSON, not user input
 	if _, wErr := w.Write(response); wErr != nil && logger != nil {
 		logger.Error("failed to write JSON response", "error", wErr)
 	}
@@ -141,6 +139,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // Handle is an Echo handler that wraps ServeHTTP.
 func (h *Handler) Handle(c *echo.Context) error {
 	h.ServeHTTP(c.Response(), c.Request())
+
 	return nil
 }
 

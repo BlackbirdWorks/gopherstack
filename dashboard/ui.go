@@ -90,13 +90,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Handle(c *echo.Context) error {
 	// Get the path without the /dashboard prefix
 	path := c.Request().URL.Path
-	if strings.HasPrefix(path, "/dashboard") {
-		path = strings.TrimPrefix(path, "/dashboard")
-	}
+	path, _ = strings.CutPrefix(path, "/dashboard")
 
 	// Serve static files
 	if strings.HasPrefix(path, "/static/") {
 		http.FileServer(http.FS(staticFS)).ServeHTTP(c.Response(), c.Request())
+
 		return nil
 	}
 
@@ -106,12 +105,15 @@ func (h *Handler) Handle(c *echo.Context) error {
 		return c.Redirect(http.StatusFound, "/dashboard/dynamodb")
 	case strings.HasPrefix(path, "/dynamodb"):
 		h.handleDynamoDB(c.Response(), c.Request(), strings.TrimPrefix(path, "/dynamodb"))
+
 		return nil
 	case strings.HasPrefix(path, "/s3"):
 		h.handleS3(c.Response(), c.Request(), strings.TrimPrefix(path, "/s3"))
+
 		return nil
 	case strings.HasPrefix(path, "/docs"):
 		h.docIndex(c.Response(), c.Request())
+
 		return nil
 	default:
 		return echo.ErrNotFound

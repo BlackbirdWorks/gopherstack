@@ -121,6 +121,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // Handle is an Echo handler that wraps ServeHTTP.
 func (h *Handler) Handle(c *echo.Context) error {
 	h.ServeHTTP(c.Response(), c.Request())
+
 	return nil
 }
 
@@ -1141,8 +1142,6 @@ func (h *Handler) serveRange(ctx context.Context, w http.ResponseWriter, data []
 	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, total))
 	w.WriteHeader(http.StatusPartialContent)
 
-	// False positive: this is object data, not user input
-	//nolint:gosec // this is object data, not user input
 	if _, err := w.Write(data[start : end+1]); err != nil {
 		log.ErrorContext(ctx, "failed to write range data", "error", err)
 	}
@@ -1754,13 +1753,13 @@ func CalculateChecksum(data []byte, algorithm string) string {
 		c := crc32.ChecksumIEEE(data)
 		sum = make([]byte, crc32Len)
 		for i := range crc32Len {
-			sum[crc32Len-1-i] = byte(c >> (bitsInByte * i)) //nolint:gosec // G115: Intentional conversion for checksum
+			sum[crc32Len-1-i] = byte(c >> (bitsInByte * i))
 		}
 	case "CRC32C":
 		c := crc32.Checksum(data, crc32.MakeTable(crc32.Castagnoli))
 		sum = make([]byte, crc32Len)
 		for i := range crc32Len {
-			sum[crc32Len-1-i] = byte(c >> (bitsInByte * i)) //nolint:gosec // G115: Intentional conversion for checksum
+			sum[crc32Len-1-i] = byte(c >> (bitsInByte * i))
 		}
 	case "SHA1":
 		//nolint:gosec // SHA1 supported as per S3 spec

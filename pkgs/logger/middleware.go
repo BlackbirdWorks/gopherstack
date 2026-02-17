@@ -23,6 +23,7 @@ func EchoMiddleware(logger *slog.Logger) echo.MiddlewareFunc {
 		return func(c *echo.Context) error {
 			ctx := Save(c.Request().Context(), logger)
 			c.SetRequest(c.Request().WithContext(ctx))
+
 			return next(c)
 		}
 	}

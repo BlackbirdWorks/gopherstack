@@ -31,6 +31,7 @@ func TestEchoMiddleware(t *testing.T) {
 		ctx := c.Request().Context()
 		log := logger.Load(ctx)
 		log.DebugContext(ctx, "test message", "key", "value")
+
 		return c.String(http.StatusOK, "OK")
 	})
 
