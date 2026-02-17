@@ -26,7 +26,16 @@ func main() {
 }
 
 func startServer() error {
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	var level slog.Level
+	if os.Getenv("DEBUG") == "true" {
+		level = slog.LevelDebug
+	} else {
+		level = slog.LevelInfo
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: level,
+	}))
 
 	// Create backends and handlers.
 	ddbHandler := ddbbackend.NewHandler()
