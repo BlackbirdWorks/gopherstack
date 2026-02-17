@@ -18,6 +18,7 @@ import (
 	"Gopherstack/dashboard"
 	"Gopherstack/demo"
 	ddbbackend "Gopherstack/dynamodb"
+	"Gopherstack/pkgs/logger"
 	s3backend "Gopherstack/s3"
 )
 
@@ -88,12 +89,17 @@ func TestServerStartupAndShutdown(t *testing.T) {
 
 // startServerOnPort starts the server on the specified port and listens for shutdown signal.
 func startServerOnPort(port string, stopChan chan struct{}) error {
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	log := logger.NewTestLogger()
 
 	// Create backends and handlers
-	ddbHandler := ddbbackend.NewHandler(logger)
+	ddbHandler := ddbbackend.NewHandler(log)
 	s3Backend := s3backend.NewInMemoryBackend(&s3backend.GzipCompressor{})
-	s3Handler := s3backend.NewHandler(s3Backend, logger)
+	s3Handler := s3backend.NewHandler(s3Backend, log)
+
+	// Wrap handlers with logger middleware to inject logger into request context
+	loggerMiddleware := logger.Middleware(log)
+	ddbHandlerWithLogger := loggerMiddleware(ddbHandler)
+	s3HandlerWithLogger := loggerMiddleware(s3Handler)
 
 	// Create a temporary mux for in-memory SDK clients
 	inMemMux := http.NewServeMux()
@@ -105,7 +111,7 @@ func startServerOnPort(port string, stopChan chan struct{}) error {
 		config.WithHTTPClient(inMemClient),
 	)
 	if err != nil {
-		logger.Error("Failed to load AWS config", "error", err)
+		log.Error("Failed to load AWS config", "error", err)
 
 		return err
 	}
@@ -121,13 +127,14 @@ func startServerOnPort(port string, stopChan chan struct{}) error {
 
 	// Load demo data before creating the dashboard handler
 	if os.Getenv("DEMO") == "true" {
-		logger.Info("Loading demo data...")
-		if err = demo.LoadData(context.Background(), logger, ddbClient, s3Client); err != nil {
-			logger.Error("Failed to load demo data", "error", err)
+		log.Info("Loading demo data...")
+		if err = demo.LoadData(context.Background(), log, ddbClient, s3Client); err != nil {
+			log.Error("Failed to load demo data", "error", err)
 		}
 	}
 
-	dashboardHandler := dashboard.NewHandler(ddbClient, s3Client, ddbHandler, s3Handler, logger)
+	dashboardHandler := dashboard.NewHandler(ddbClient, s3Client, ddbHandler, s3Handler, log)
+	dashboardHandlerWithLogger := loggerMiddleware(dashboardHandler)
 
 	// Create Echo app with routing
 	e := echo.New()
@@ -137,7 +144,7 @@ func startServerOnPort(port string, stopChan chan struct{}) error {
 		return func(c *echo.Context) error {
 			target := c.Request().Header.Get("X-Amz-Target")
 			if len(target) >= 9 && target[:9] == "DynamoDB_" {
-				ddbHandler.ServeHTTP(c.Response(), c.Request())
+				ddbHandlerWithLogger.ServeHTTP(c.Response(), c.Request())
 
 				return nil
 			}
@@ -148,16 +155,16 @@ func startServerOnPort(port string, stopChan chan struct{}) error {
 
 	// Dashboard routes (strip /dashboard prefix for the handler)
 	dashGroup := e.Group("/dashboard")
-	dashGroup.Any("/*", echo.WrapHandler(http.StripPrefix("/dashboard", dashboardHandler)))
-	dashGroup.Any("", echo.WrapHandler(http.StripPrefix("/dashboard", dashboardHandler)))
+	dashGroup.Any("/*", echo.WrapHandler(http.StripPrefix("/dashboard", dashboardHandlerWithLogger)))
+	dashGroup.Any("", echo.WrapHandler(http.StripPrefix("/dashboard", dashboardHandlerWithLogger)))
 
 	// S3 catch-all (everything else)
-	e.Any("/*", echo.WrapHandler(s3Handler))
+	e.Any("/*", echo.WrapHandler(s3HandlerWithLogger))
 
 	// Wire the in-memory mux used by SDK clients through the same Echo routing
 	inMemMux.Handle("/", e)
 
-	logger.Info("Starting Gopherstack (DynamoDB + S3)", "port", port)
+	log.Info("Starting Gopherstack (DynamoDB + S3)", "port", port)
 
 	// Start server in a goroutine and listen for stop signal
 	errChan := make(chan error, 1)
