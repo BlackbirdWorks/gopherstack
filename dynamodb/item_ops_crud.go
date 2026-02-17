@@ -192,7 +192,9 @@ func (db *InMemoryDB) DeleteItem(input *dynamodb.DeleteItemInput) (*dynamodb.Del
 
 	wireKey := models.FromSDKItem(input.Key)
 	pkDef, skDef := getPKAndSK(table.KeySchema)
-	oldItem := db.lookupItem(table, wireKey, pkDef.AttributeName, skDef.AttributeName)
+
+	// Get item and index in one lookup (avoids duplicate index lookup)
+	oldItem, matchIndex := db.lookupItemWithIndex(table, wireKey, pkDef.AttributeName, skDef.AttributeName)
 
 	// Check condition
 	condition := aws.ToString(input.ConditionExpression)
@@ -212,11 +214,8 @@ func (db *InMemoryDB) DeleteItem(input *dynamodb.DeleteItemInput) (*dynamodb.Del
 		}
 	}
 
-	if oldItem != nil {
-		_, matchIndex := db.findMatchForPut(table, oldItem)
-		if matchIndex != -1 {
-			db.deleteItemAtIndex(table, matchIndex)
-		}
+	if oldItem != nil && matchIndex != -1 {
+		db.deleteItemAtIndex(table, matchIndex)
 	}
 
 	// Handle ReturnValues (ALL_OLD)
@@ -397,29 +396,24 @@ func (db *InMemoryDB) deleteItemAtIndex(table *Table, matchIndex int) {
 	pkVal := BuildKeyString(item, pkDef.AttributeName)
 
 	if skDef.AttributeName != "" {
-		deleteFromPKSKIndex(table, pkVal, BuildKeyString(item, skDef.AttributeName), matchIndex)
+		db.deleteFromCompositeIndex(table, pkVal, item, skDef.AttributeName, matchIndex)
 	} else {
-		deleteFromPKIndex(table, pkVal, matchIndex)
+		db.deleteFromSimpleIndex(table, pkVal, matchIndex)
 	}
 
 	// Remove from Items slice
 	table.Items = append(table.Items[:matchIndex], table.Items[matchIndex+1:]...)
-
-	// Rebuild indexes because indices shifted.
-	// NOTE: This shift operation O(N) is inefficient for large tables but fine for in-memory testing.
-	// HOWEVER, indices pointing to items AFTER matchIndex are now invalid (-1).
-	// Ideally we should use a map or handle indices better.
-	// The current implementation in `item_ops_crud.go` also did this shift AND updated indexes:
-	// `table.Items = append(...)` then updated indexes.
-	// But wait, the original code had helper `deleteFromPKSKIndex` which updated indices > matchIndex.
-	// I need to preserve that logic.
-
-	// The original `deleteFromPKSKIndex` and `deleteFromPKIndex` handled the index decrementing logic.
-	// I need to ensure those helper functions are still available or I need to include them in this
-	// file if they were local. They were at the end of the original file. I will include them.
 }
 
-func deleteFromPKSKIndex(table *Table, pkVal, skVal string, matchIndex int) {
+func (db *InMemoryDB) deleteFromCompositeIndex(
+	table *Table,
+	pkVal string,
+	item map[string]any,
+	skAttrName string,
+	matchIndex int,
+) {
+	// Delete from composite key index
+	skVal := BuildKeyString(item, skAttrName)
 	if skMap, ok := table.pkskIndex[pkVal]; ok {
 		delete(skMap, skVal)
 		if len(skMap) == 0 {
@@ -427,6 +421,7 @@ func deleteFromPKSKIndex(table *Table, pkVal, skVal string, matchIndex int) {
 		}
 	}
 
+	// Decrement all indices after matchIndex in composite key index
 	for _, skMap := range table.pkskIndex {
 		for sk, idx := range skMap {
 			if idx > matchIndex {
@@ -436,9 +431,11 @@ func deleteFromPKSKIndex(table *Table, pkVal, skVal string, matchIndex int) {
 	}
 }
 
-func deleteFromPKIndex(table *Table, pkVal string, matchIndex int) {
+func (db *InMemoryDB) deleteFromSimpleIndex(table *Table, pkVal string, matchIndex int) {
+	// Delete from simple key index
 	delete(table.pkIndex, pkVal)
 
+	// Decrement all indices after matchIndex in simple key index
 	for pk, idx := range table.pkIndex {
 		if idx > matchIndex {
 			table.pkIndex[pk] = idx - 1

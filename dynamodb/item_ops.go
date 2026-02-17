@@ -119,6 +119,30 @@ func (db *InMemoryDB) lookupItem(
 	return nil
 }
 
+func (db *InMemoryDB) lookupItemWithIndex(
+	table *Table,
+	key map[string]any,
+	pkName, skName string,
+) (map[string]any, int) {
+	pkVal := BuildKeyString(key, pkName)
+	if skName != "" {
+		skVal := BuildKeyString(key, skName)
+		if skMap, hasPK := table.pkskIndex[pkVal]; hasPK {
+			if itemIdx, hasSK := skMap[skVal]; hasSK {
+				return table.Items[itemIdx], itemIdx
+			}
+		}
+
+		return nil, -1
+	}
+
+	if itemIdx, found := table.pkIndex[pkVal]; found {
+		return table.Items[itemIdx], itemIdx
+	}
+
+	return nil, -1
+}
+
 func extractKey(item map[string]any, schema []models.KeySchemaElement) map[string]any {
 	key := make(map[string]any)
 	for _, k := range schema {

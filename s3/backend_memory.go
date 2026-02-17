@@ -145,59 +145,56 @@ func (b *InMemoryBackend) PutObject(_ context.Context, input *s3.PutObjectInput)
 		return nil, ErrNoSuchBucket
 	}
 
+	// First, get or create the object under bucket lock (brief)
+	var obj *StoredObject
 	var newVersionID string
-	var finalQuotedETag string
 
-	err = func() error {
-		bucket.mu.Lock()
-		defer bucket.mu.Unlock()
-
-		newVersionID = "null"
-		if bucket.Versioning == types.BucketVersioningStatusEnabled {
-			newVersionID = strconv.FormatInt(time.Now().UnixNano(), 10)
-		}
-
-		obj, objExists := bucket.Objects[key]
-		if !objExists {
-			obj = &StoredObject{
-				Key:      key,
-				Versions: make(map[string]*StoredObjectVersion),
-			}
-			bucket.Objects[key] = obj
-		}
-
-		finalQuotedETag = "\"" + etag + "\""
-		newVersion := &StoredObjectVersion{
-			VersionID:         newVersionID,
-			Key:               key,
-			Data:              compressedData,
-			IsCompressed:      isCompressed,
-			Size:              int64(len(data)),
-			ETag:              finalQuotedETag,
-			LastModified:      time.Now(),
-			ContentType:       aws.ToString(input.ContentType),
-			Metadata:          input.Metadata,
-			ChecksumCRC32:     checksums.crc32,
-			ChecksumCRC32C:    checksums.crc32c,
-			ChecksumSHA1:      checksums.sha1,
-			ChecksumSHA256:    checksums.sha256,
-			ChecksumAlgorithm: input.ChecksumAlgorithm,
-			IsLatest:          true,
-		}
-
-		for _, v := range obj.Versions {
-			if v.IsLatest {
-				v.IsLatest = false
-			}
-		}
-
-		obj.Versions[newVersionID] = newVersion
-
-		return nil
-	}()
-	if err != nil {
-		return nil, err
+	bucket.mu.Lock()
+	newVersionID = "null"
+	if bucket.Versioning == types.BucketVersioningStatusEnabled {
+		newVersionID = strconv.FormatInt(time.Now().UnixNano(), 10)
 	}
+
+	obj, objExists := bucket.Objects[key]
+	if !objExists {
+		obj = &StoredObject{
+			Key:      key,
+			Versions: make(map[string]*StoredObjectVersion),
+		}
+		bucket.Objects[key] = obj
+	}
+	bucket.mu.Unlock()
+
+	// Now update the object versions under object lock (reduces contention on bucket)
+	obj.mu.Lock()
+	defer obj.mu.Unlock()
+
+	finalQuotedETag := "\"" + etag + "\""
+	newVersion := &StoredObjectVersion{
+		VersionID:         newVersionID,
+		Key:               key,
+		Data:              compressedData,
+		IsCompressed:      isCompressed,
+		Size:              int64(len(data)),
+		ETag:              finalQuotedETag,
+		LastModified:      time.Now(),
+		ContentType:       aws.ToString(input.ContentType),
+		Metadata:          input.Metadata,
+		ChecksumCRC32:     checksums.crc32,
+		ChecksumCRC32C:    checksums.crc32c,
+		ChecksumSHA1:      checksums.sha1,
+		ChecksumSHA256:    checksums.sha256,
+		ChecksumAlgorithm: input.ChecksumAlgorithm,
+		IsLatest:          true,
+	}
+
+	for _, v := range obj.Versions {
+		if v.IsLatest {
+			v.IsLatest = false
+		}
+	}
+
+	obj.Versions[newVersionID] = newVersion
 
 	b.storeObjectTags(input.Tagging, bucketName, key, newVersionID)
 
@@ -293,13 +290,16 @@ func (b *InMemoryBackend) GetObject(_ context.Context, input *s3.GetObjectInput)
 
 		return nil, ErrNoSuchKey
 	}
+	bucket.mu.RUnlock()
+
+	// Use per-object lock for version operations instead of holding bucket lock
+	obj.mu.RLock()
+	defer obj.mu.RUnlock()
 
 	var ver *StoredObjectVersion
 	if versionID != nil && *versionID != "" {
 		v, ok := obj.Versions[*versionID]
 		if !ok {
-			bucket.mu.RUnlock()
-
 			return nil, ErrNoSuchKey
 		}
 		ver = v
@@ -314,8 +314,6 @@ func (b *InMemoryBackend) GetObject(_ context.Context, input *s3.GetObjectInput)
 	}
 
 	if ver == nil || ver.Deleted {
-		bucket.mu.RUnlock()
-
 		return nil, ErrNoSuchKey
 	}
 
@@ -332,7 +330,6 @@ func (b *InMemoryBackend) GetObject(_ context.Context, input *s3.GetObjectInput)
 	checksumCRC32C := ver.ChecksumCRC32C
 	checksumSHA1 := ver.ChecksumSHA1
 	checksumSHA256 := ver.ChecksumSHA256
-	bucket.mu.RUnlock()
 
 	data := dataToDecompress
 	if isCompressed {

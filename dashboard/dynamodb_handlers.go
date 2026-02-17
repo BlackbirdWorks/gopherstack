@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -111,19 +112,52 @@ func filterTableNames(search string, names []string) []string {
 }
 
 func (h *Handler) fetchTableInfos(ctx context.Context, tableNames []string) []TableInfo {
-	tableInfos := make([]TableInfo, 0, len(tableNames))
-	for _, tableName := range tableNames {
-		desc, err := h.DynamoDB.DescribeTable(ctx, &dynamodb.DescribeTableInput{TableName: aws.String(tableName)})
-		if err != nil {
-			h.Logger.ErrorContext(ctx, "Failed to describe table for list", "table", tableName, "error", err)
-
-			continue
-		}
-
-		tableInfos = append(tableInfos, buildTableListInfo(desc.Table))
+	if len(tableNames) == 0 {
+		return []TableInfo{}
 	}
 
-	return tableInfos
+	// Use a bounded worker pool (max 8 concurrent fetches)
+	const maxConcurrent = 8
+	semaphore := make(chan struct{}, maxConcurrent)
+
+	tableInfos := make([]TableInfo, len(tableNames))
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+
+	for i, tableName := range tableNames {
+		wg.Add(1)
+		go func(idx int, tblName string) {
+			defer wg.Done()
+
+			// Acquire semaphore slot
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+
+			desc, err := h.DynamoDB.DescribeTable(ctx, &dynamodb.DescribeTableInput{TableName: aws.String(tblName)})
+			if err != nil {
+				h.Logger.ErrorContext(ctx, "Failed to describe table for list", "table", tblName, "error", err)
+
+				return
+			}
+
+			mu.Lock()
+			tableInfos[idx] = buildTableListInfo(desc.Table)
+			mu.Unlock()
+		}(i, tableName)
+	}
+
+	wg.Wait()
+	close(semaphore)
+
+	// Filter out empty entries (failed fetches)
+	result := make([]TableInfo, 0, len(tableInfos))
+	for _, info := range tableInfos {
+		if info.TableName != "" {
+			result = append(result, info)
+		}
+	}
+
+	return result
 }
 
 func buildTableListInfo(table *types.TableDescription) TableInfo {

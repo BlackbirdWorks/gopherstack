@@ -1,6 +1,7 @@
 package dynamodb
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -14,6 +15,21 @@ import (
 )
 
 func (db *InMemoryDB) Query(input *dynamodb.QueryInput) (*dynamodb.QueryOutput, error) {
+	// Use background context for in-memory queries
+	// In the future, this could be extended to check request context from the handler
+	ctx := context.Background()
+
+	return db.QueryWithContext(ctx, input)
+}
+
+func (db *InMemoryDB) QueryWithContext(ctx context.Context, input *dynamodb.QueryInput) (*dynamodb.QueryOutput, error) {
+	// Check if context is already cancelled
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf("query cancelled: %w", ctx.Err())
+	default:
+	}
+
 	tableName := aws.ToString(input.TableName)
 	table, err := db.getTable(tableName)
 	if err != nil {

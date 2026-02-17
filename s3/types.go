@@ -23,6 +23,7 @@ type StoredBucket struct {
 type StoredObject struct {
 	Versions map[string]*StoredObjectVersion
 	Key      string
+	mu       sync.RWMutex
 }
 
 // StoredObjectVersion represents a specific version of an S3 object.

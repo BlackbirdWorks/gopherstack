@@ -1,6 +1,7 @@
 package dynamodb
 
 import (
+	"context"
 	"fmt"
 
 	"Gopherstack/dynamodb/models"
@@ -11,6 +12,21 @@ import (
 )
 
 func (db *InMemoryDB) Scan(input *dynamodb.ScanInput) (*dynamodb.ScanOutput, error) {
+	// Use background context for in-memory scans
+	// In the future, this could be extended to check request context from the handler
+	ctx := context.Background()
+
+	return db.ScanWithContext(ctx, input)
+}
+
+func (db *InMemoryDB) ScanWithContext(ctx context.Context, input *dynamodb.ScanInput) (*dynamodb.ScanOutput, error) {
+	// Check if context is already cancelled
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf("scan cancelled: %w", ctx.Err())
+	default:
+	}
+
 	tableName := aws.ToString(input.TableName)
 	table, err := db.getTable(tableName)
 	if err != nil {
