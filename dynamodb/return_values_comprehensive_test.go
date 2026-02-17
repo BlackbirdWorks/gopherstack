@@ -14,12 +14,12 @@ import (
 func TestUpdateItem_AllReturnValues(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // fieldalignment is an optimization, not a bug
+	tests := []struct {
 		name         string
 		returnValue  string
+		expectedKeys []string
+		excludedKeys []string
 		expectAttrs  bool
-		expectedKeys []string // keys that should be present
-		excludedKeys []string // keys that should NOT be present
 	}{
 		{
 			name:         "NONE returns nothing",
@@ -141,11 +141,11 @@ func TestUpdateItem_AllReturnValues(t *testing.T) {
 func TestUpdateItem_NewItemReturnValues(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // fieldalignment is an optimization, not a bug
+	tests := []struct {
 		name         string
 		returnValue  string
-		expectAttrs  bool
 		expectedKeys []string
+		expectAttrs  bool
 	}{
 		{
 			name:         "NONE returns nothing",
