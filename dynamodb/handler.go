@@ -50,10 +50,10 @@ type Handler struct {
 }
 
 // NewHandler creates a new DynamoDB handler.
-func NewHandler() *Handler {
+func NewHandler(logger *slog.Logger) *Handler {
 	return &Handler{
 		DB:     NewInMemoryDB(),
-		Logger: slog.Default(),
+		Logger: logger,
 	}
 }
 

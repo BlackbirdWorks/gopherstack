@@ -91,9 +91,9 @@ func startServerOnPort(port string, stopChan chan struct{}) error {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
 	// Create backends and handlers
-	ddbHandler := ddbbackend.NewHandler()
+	ddbHandler := ddbbackend.NewHandler(logger)
 	s3Backend := s3backend.NewInMemoryBackend(&s3backend.GzipCompressor{})
-	s3Handler := s3backend.NewHandler(s3Backend)
+	s3Handler := s3backend.NewHandler(s3Backend, logger)
 
 	// Create a temporary mux for in-memory SDK clients
 	inMemMux := http.NewServeMux()
@@ -127,7 +127,7 @@ func startServerOnPort(port string, stopChan chan struct{}) error {
 		}
 	}
 
-	dashboardHandler := dashboard.NewHandler(ddbClient, s3Client, ddbHandler, s3Handler)
+	dashboardHandler := dashboard.NewHandler(ddbClient, s3Client, ddbHandler, s3Handler, logger)
 
 	// Create Echo app with routing
 	e := echo.New()

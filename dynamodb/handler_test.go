@@ -213,7 +213,7 @@ func TestHandler_ServeHTTP(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			handler := dynamodb.NewHandler()
+			handler := dynamodb.NewHandler(slog.Default())
 			if tc.setup != nil {
 				tc.setup(t, handler.DB)
 			}
@@ -240,7 +240,7 @@ func TestHandler_ServeHTTP(t *testing.T) {
 func TestHandler_Dispatch_Coverage(t *testing.T) {
 	t.Parallel()
 	// Test dispatching to all supported operations to ensure dispatch switch is covered
-	handler := dynamodb.NewHandler()
+	handler := dynamodb.NewHandler(slog.Default())
 	handler.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	createTableHelper(t, handler.DB, "DispatchTable", "pk")
 
@@ -327,7 +327,7 @@ func TestHandler_CRC32Header(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			handler := dynamodb.NewHandler()
+			handler := dynamodb.NewHandler(slog.Default())
 			if tc.setup != nil {
 				tc.setup(t, handler.DB)
 			}
@@ -363,7 +363,7 @@ func mustMarshal(t *testing.T, v any) string {
 
 func TestHandler_TransactOps_Coverage(t *testing.T) {
 	t.Parallel()
-	handler := dynamodb.NewHandler()
+	handler := dynamodb.NewHandler(slog.Default())
 	createTableHelper(t, handler.DB, "TransactTable", "pk")
 
 	tests := []struct {

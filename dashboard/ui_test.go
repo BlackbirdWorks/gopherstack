@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -39,8 +40,8 @@ func newIntegrationStack(t *testing.T) *integrationStack {
 	t.Helper()
 
 	s3Bk := s3backend.NewInMemoryBackend(nil)
-	s3Hndlr := s3backend.NewHandler(s3Bk)
-	ddbHndlr := ddbbackend.NewHandler()
+	s3Hndlr := s3backend.NewHandler(s3Bk, slog.Default())
+	ddbHndlr := ddbbackend.NewHandler(slog.Default())
 
 	apiMux := http.NewServeMux()
 	apiMux.Handle("/s3", http.StripPrefix("/s3", s3Hndlr))
@@ -66,7 +67,7 @@ func newIntegrationStack(t *testing.T) *integrationStack {
 		o.BaseEndpoint = aws.String("http://local/s3")
 	})
 
-	h := dashboard.NewHandler(ddbClient, s3Client, ddbHndlr, s3Hndlr)
+	h := dashboard.NewHandler(ddbClient, s3Client, ddbHndlr, s3Hndlr, slog.Default())
 
 	return &integrationStack{
 		handler:    h,

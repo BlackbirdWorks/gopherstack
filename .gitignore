@@ -7,5 +7,6 @@
 main 
 **/main
 /gopherstack
+/bin/
 .DS_Store
 coverage.html

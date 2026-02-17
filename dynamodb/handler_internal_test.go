@@ -1,6 +1,7 @@
 package dynamodb
 
 import (
+	"log/slog"
 	"net/http"
 	"testing"
 
@@ -9,7 +10,7 @@ import (
 
 func TestHandler_ClassifyError_Mapping(t *testing.T) {
 	t.Parallel()
-	h := NewHandler()
+	h := NewHandler(slog.Default())
 
 	tests := []struct {
 		err            error

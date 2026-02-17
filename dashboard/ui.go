@@ -37,7 +37,7 @@ type Handler struct {
 }
 
 // NewHandler creates a new Dashboard handler.
-func NewHandler(db *dynamodb.Client, s3Client *s3.Client, ddbOps, s3Ops OperationsProvider) *Handler {
+func NewHandler(db *dynamodb.Client, s3Client *s3.Client, ddbOps, s3Ops OperationsProvider, logger *slog.Logger) *Handler {
 	// Parse layout and components
 	tmpl := template.Must(template.ParseFS(templateFS,
 		"templates/layout.html",
@@ -49,7 +49,7 @@ func NewHandler(db *dynamodb.Client, s3Client *s3.Client, ddbOps, s3Ops Operatio
 		S3:       s3Client,
 		DDBOps:   ddbOps,
 		S3Ops:    s3Ops,
-		Logger:   slog.Default(),
+		Logger:   logger,
 		layout:   tmpl,
 	}
 }

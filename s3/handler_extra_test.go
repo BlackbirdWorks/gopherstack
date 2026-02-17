@@ -3,6 +3,7 @@ package s3_test
 import (
 	"encoding/xml"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -89,7 +90,7 @@ func TestHandler_VirtualHostedStyle(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			backend := s3.NewInMemoryBackend(&s3.GzipCompressor{})
-			handler := s3.NewHandler(backend)
+			handler := s3.NewHandler(backend, slog.Default())
 			handler.Endpoint = tt.endpoint
 			mustCreateBucket(t, backend, tt.bucket)
 

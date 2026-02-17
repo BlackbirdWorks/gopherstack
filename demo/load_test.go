@@ -23,9 +23,9 @@ import (
 func TestLoadData(t *testing.T) {
 	t.Parallel()
 	// Setup Backends
-	ddbHandler := ddbbackend.NewHandler()
+	ddbHandler := ddbbackend.NewHandler(slog.Default())
 	s3Backend := s3backend.NewInMemoryBackend(&s3backend.GzipCompressor{})
-	s3Handler := s3backend.NewHandler(s3Backend)
+	s3Handler := s3backend.NewHandler(s3Backend, slog.Default())
 
 	// Setup Mux
 	apiMux := http.NewServeMux()
