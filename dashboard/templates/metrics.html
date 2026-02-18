@@ -1,149 +1,243 @@
 {{define "content"}}
-<div class="space-y-6">
+<div class="container mx-auto px-4 py-8 space-y-8 animate-in fade-in duration-500">
     <!-- Header -->
-    <div class="flex justify-between items-center">
-        <h1 class="text-3xl font-bold">Performance Metrics</h1>
-        <button class="btn btn-sm btn-primary" 
-            hx-get="/api/metrics" 
-            hx-target="#metrics-content" 
-            hx-swap="innerHTML">
-            ↻ Refresh
-        </button>
+    <div
+        class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-base-300 pb-6">
+        <div>
+            <h1 class="text-4xl font-extrabold tracking-tight text-primary">Performance Metrics</h1>
+            <p class="text-base-content/60 mt-2">Real-time health and performance statistics for Gopherstack.</p>
+        </div>
+        <div class="flex items-center gap-3">
+            <div id="live-indicator"
+                class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-success/10 text-success text-xs font-bold border border-success/20">
+                <span class="relative flex h-2 w-2">
+                    <span
+                        class="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span>
+                    <span class="relative inline-flex rounded-full h-2 w-2 bg-success"></span>
+                </span>
+                LIVE
+            </div>
+            <button class="btn btn-sm btn-ghost border-base-300 hover:border-primary px-4 bg-base-100 shadow-sm"
+                hx-get="/api/metrics" hx-target="#metrics-content" hx-swap="none"
+                hx-on::after-request="window.dispatchEvent(new CustomEvent('metrics-updated', {detail: JSON.parse(event.detail.xhr.responseText)}))">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
+                    stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Sync Now
+            </button>
+        </div>
     </div>
 
-    <!-- Metrics content -->
-    <div id="metrics-content" class="space-y-6"
-        hx-get="/api/metrics" 
-        hx-trigger="load, every 5s"
-        hx-swap="innerHTML"
-        hx-indicator=".htmx-indicator">
-        
-        <!-- Loading indicator -->
-        <div class="htmx-indicator">
-            <span class="loading loading-spinner loading-lg"></span>
+    <!-- Metrics content placeholder -->
+    <div id="metrics-content" hx-get="/api/metrics" hx-trigger="load, every 5s" hx-swap="none"
+        hx-on::after-request="window.dispatchEvent(new CustomEvent('metrics-updated', {detail: JSON.parse(event.detail.xhr.responseText)}))">
+
+        <div id="metrics-loading" class="flex flex-col items-center justify-center py-24 opacity-60">
+            <span class="loading loading-spinner loading-lg text-primary"></span>
+            <p class="mt-4 font-medium">Gathering insights...</p>
         </div>
 
-        <!-- Placeholder for metrics -->
-        <div class="alert alert-info">
-            Loading metrics...
+        <div id="dashboard-view" class="hidden space-y-8 animate-in zoom-in-95 duration-300">
+            <!-- Runtime Section -->
+            <section>
+                <h2 class="text-xl font-bold mb-4 flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-secondary" fill="none"
+                        viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    Go Runtime
+                </h2>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div class="stat bg-base-100 rounded-2xl shadow-sm border border-base-200">
+                        <div class="stat-title text-xs font-bold uppercase tracking-wider text-base-content/50">
+                            Goroutines</div>
+                        <div id="runtime-goroutines" class="stat-value text-primary py-1">0</div>
+                        <div class="stat-desc text-base-content/40">Active routines</div>
+                    </div>
+                    <div class="stat bg-base-100 rounded-2xl shadow-sm border border-base-200">
+                        <div class="stat-title text-xs font-bold uppercase tracking-wider text-base-content/50">Heap
+                            Memory</div>
+                        <div id="runtime-heap" class="stat-value text-secondary py-1">0MB</div>
+                        <div id="runtime-heap-pct" class="stat-desc text-base-content/40">0% of total</div>
+                    </div>
+                    <div class="stat bg-base-100 rounded-2xl shadow-sm border border-base-200">
+                        <div class="stat-title text-xs font-bold uppercase tracking-wider text-base-content/50">GC
+                            Cycles</div>
+                        <div id="runtime-gc" class="stat-value text-accent py-1">0</div>
+                        <div id="runtime-gc-pause" class="stat-desc text-base-content/40">Last pause: 0ms</div>
+                    </div>
+                    <div class="stat bg-base-100 rounded-2xl shadow-sm border border-base-200">
+                        <div class="stat-title text-xs font-bold uppercase tracking-wider text-base-content/50">Total
+                            Allocated</div>
+                        <div id="runtime-total" class="stat-value text-neutral py-1">0MB</div>
+                        <div class="stat-desc text-base-content/40">Lifetime total</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Operation Section -->
+            <section>
+                <div class="flex justify-between items-end mb-4">
+                    <h2 class="text-xl font-bold flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-primary" fill="none"
+                            viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                        </svg>
+                        Operation Latencies
+                    </h2>
+                    <span id="op-count-badge" class="badge badge-outline badge-primary font-mono text-xs">...</span>
+                </div>
+
+                <div class="bg-base-100 rounded-2xl shadow-sm border border-base-200 overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="table table-md w-full">
+                            <thead class="bg-base-200/50">
+                                <tr>
+                                    <th class="font-bold text-xs uppercase tracking-wider">Operation</th>
+                                    <th class="font-bold text-xs uppercase tracking-wider text-center">Requests</th>
+                                    <th class="font-bold text-xs uppercase tracking-wider text-right text-primary">P50
+                                    </th>
+                                    <th class="font-bold text-xs uppercase tracking-wider text-right text-secondary">P95
+                                    </th>
+                                    <th class="font-bold text-xs uppercase tracking-wider text-right text-accent">P99
+                                    </th>
+                                    <th class="font-bold text-xs uppercase tracking-wider text-right">Avg</th>
+                                    <th class="font-bold text-xs uppercase tracking-wider text-right">Max</th>
+                                </tr>
+                            </thead>
+                            <tbody id="operations-body">
+                                <!-- Populated by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <div id="no-metrics-msg" class="hidden py-32 text-center">
+            <div class="bg-base-200/50 inline-flex items-center justify-center p-6 rounded-full mb-6">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-base-content/20" fill="none"
+                    viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+            </div>
+            <h3
+                class="text-xl font-bold bg-gradient-to-r from-base-content to-base-content/40 bg-clip-text text-transparent">
+                No Data Available</h3>
+            <p class="text-base-content/60 mt-2">Perform some requests to generate performance data.</p>
         </div>
     </div>
 </div>
 
-<!-- Script to display metrics JSON as formatted tables and charts -->
 <script>
-function formatMetrics(data) {
-    if (!data) {
-        return '<div class="alert alert-warning">No metrics available.</div>';
-    }
+    window.addEventListener('metrics-updated', function (evt) {
+        const data = evt.detail;
+        const loading = document.getElementById('metrics-loading');
+        const view = document.getElementById('dashboard-view');
+        const noData = document.getElementById('no-metrics-msg');
 
-    let html = '';
+        if (loading) loading.classList.add('hidden');
 
-    // Runtime Metrics Section
-    if (data.runtime) {
-        html += '<div class="card bg-base-200 shadow-xl"><div class="card-body">';
-        html += '<h2 class="card-title text-2xl mb-4">Go Runtime Metrics</h2>';
-        
-        // Runtime stats grid
-        html += '<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">';
-        
-        // Goroutines stat
-        html += '<div class="stat bg-base-100 rounded-lg">';
-        html += '<div class="stat-title">Goroutines</div>';
-        html += `<div class="stat-value text-primary">${data.runtime.goroutines}</div>`;
-        html += '<div class="stat-desc">Active concurrent routines</div>';
-        html += '</div>';
-        
-        // Heap Memory stat
-        html += '<div class="stat bg-base-100 rounded-lg">';
-        html += '<div class="stat-title">Heap Memory</div>';
-        html += `<div class="stat-value text-secondary">${data.runtime.heap_alloc_mb.toFixed(2)} MB</div>`;
-        html += `<div class="stat-desc">of ${data.runtime.heap_sys_mb.toFixed(2)} MB allocated</div>`;
-        html += '</div>';
-        
-        // GC stat
-        html += '<div class="stat bg-base-100 rounded-lg">';
-        html += '<div class="stat-title">Garbage Collection</div>';
-        html += `<div class="stat-value text-accent">${data.runtime.num_gc}</div>`;
-        html += `<div class="stat-desc">Last pause: ${data.runtime.last_gc_pause_ms.toFixed(2)} ms</div>`;
-        html += '</div>';
-        
-        html += '</div>'; // end grid
-        
-        // Total allocation stat
-        html += '<div class="alert alert-info">';
-        html += `<span><strong>Total Allocated:</strong> ${data.runtime.total_alloc_mb.toFixed(2)} MB (lifetime)</span>`;
-        html += '</div>';
-        
-        html += '</div></div>'; // end card
-    }
-
-    // Operation Metrics Section
-    if (!data.operations || data.operations.length === 0) {
-        html += '<div class="alert alert-warning">No operation metrics recorded yet. Perform some operations to see data.</div>';
-    } else {
-        html += '<div class="card bg-base-200 shadow-xl"><div class="card-body">';
-        html += '<h2 class="card-title text-2xl mb-4">Operation Latencies</h2>';
-        html += '<div class="overflow-x-auto"><table class="table table-zebra table-sm w-full"><thead><tr>';
-        html += '<th>Operation</th><th>Resource</th><th>Count</th><th>P50 (ms)</th><th>P95 (ms)</th><th>P99 (ms)</th><th>Avg (ms)</th><th>Max (ms)</th>';
-        html += '</tr></thead><tbody>';
-
-        for (const op of data.operations) {
-            html += '<tr>';
-            html += `<td><code>${escapeHtml(op.operation)}</code></td>`;
-            html += `<td>${escapeHtml(op.resource || '-')}</td>`;
-            html += `<td>${op.count}</td>`;
-            html += `<td>${op.p50_ms.toFixed(2)}</td>`;
-            html += `<td>${op.p95_ms.toFixed(2)}</td>`;
-            html += `<td>${op.p99_ms.toFixed(2)}</td>`;
-            html += `<td>${op.avg_ms.toFixed(2)}</td>`;
-            html += `<td>${op.max_ms.toFixed(2)}</td>`;
-            html += '</tr>';
+        if (!data || (!data.runtime && (!data.operations || data.operations.length === 0))) {
+            if (view) view.classList.add('hidden');
+            if (noData) noData.classList.remove('hidden');
+            return;
         }
 
-        html += '</tbody></table></div>';
-        html += '</div></div>'; // end card
-    }
+        if (noData) noData.classList.add('hidden');
+        if (view) view.classList.remove('hidden');
 
-    return html;
-}
+        // Update Runtime
+        if (data.runtime) {
+            document.getElementById('runtime-goroutines').textContent = data.runtime.goroutines;
+            document.getElementById('runtime-heap').textContent = data.runtime.heap_alloc_mb.toFixed(2) + ' MB';
+            document.getElementById('runtime-total').textContent = data.runtime.total_alloc_mb.toFixed(2) + ' MB';
+            document.getElementById('runtime-gc').textContent = data.runtime.num_gc;
+            document.getElementById('runtime-gc-pause').textContent = `Last pause: ${data.runtime.last_gc_pause_ms.toFixed(2)} ms`;
 
-function escapeHtml(unsafe) {
-    return unsafe
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
-}
-
-// Hook into HTMX responses for metrics JSON
-document.body.addEventListener('htmx:afterSwap', function(evt) {
-    if (evt.detail.target.id === 'metrics-content') {
-        try {
-            // Try to parse as JSON (from /api/metrics endpoint)
-            const data = JSON.parse(evt.detail.xhr.responseText);
-            evt.detail.target.innerHTML = formatMetrics(data);
-        } catch (e) {
-            // If not JSON, just display as-is
+            const pct = (data.runtime.heap_alloc_mb / data.runtime.heap_sys_mb * 100).toFixed(1);
+            document.getElementById('runtime-heap-pct').textContent = `${pct}% of ${data.runtime.heap_sys_mb.toFixed(2)} MB total`;
         }
+
+        // Update Operations
+        const body = document.getElementById('operations-body');
+        const badge = document.getElementById('op-count-badge');
+
+        if (data.operations && data.operations.length > 0) {
+            badge.textContent = `${data.operations.length} operations tracked`;
+            let rows = '';
+
+            // Sort operations by count descending
+            const sortedOps = [...data.operations].sort((a, b) => b.count - a.count);
+
+            for (const op of sortedOps) {
+                rows += `
+                <tr class="hover:bg-base-200/30 transition-colors">
+                    <td class="font-medium align-top">
+                        <div class="flex items-center gap-2">
+                            <span class="badge badge-sm badge-ghost font-mono uppercase text-[10px]">${op.operation.split('::')[0] || 'SDK'}</span>
+                            <code>${escapeHtml(op.operation)}</code>
+                        </div>
+                        <div class="text-[10px] text-base-content/40 mt-1 font-mono">${escapeHtml(op.resource || '-')}</div>
+                    </td>
+                    <td class="text-center">
+                        <div class="font-bold">${op.count}</div>
+                        <div class="text-[10px] text-base-content/30 lowercase italic">requests</div>
+                    </td>
+                    <td class="text-right font-mono text-primary font-semibold">${op.p50_ms.toFixed(2)}<span class="text-[10px] opacity-40 ml-0.5">ms</span></td>
+                    <td class="text-right font-mono text-secondary font-semibold">${op.p95_ms.toFixed(2)}<span class="text-[10px] opacity-40 ml-0.5">ms</span></td>
+                    <td class="text-right font-mono text-accent font-semibold">${op.p99_ms.toFixed(2)}<span class="text-[10px] opacity-40 ml-0.5">ms</span></td>
+                    <td class="text-right font-mono text-base-content/70">${op.avg_ms.toFixed(2)}<span class="text-[10px] opacity-40 ml-0.5">ms</span></td>
+                    <td class="text-right font-mono text-base-content/70 font-bold">${op.max_ms.toFixed(2)}<span class="text-[10px] opacity-40 ml-0.5">ms</span></td>
+                </tr>
+            `;
+            }
+            body.innerHTML = rows;
+        } else {
+            badge.textContent = '0 operations tracked';
+            body.innerHTML = '<tr><td colspan="7" class="text-center py-8 text-base-content/40 italic">No operations recorded yet</td></tr>';
+        }
+    });
+
+    function escapeHtml(unsafe) {
+        if (!unsafe) return '';
+        return unsafe
+            .toString()
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
     }
-});
 </script>
 
 <style>
-table code {
-    background-color: rgba(0, 0, 0, 0.1);
-    padding: 2px 6px;
-    border-radius: 3px;
-}
+    .stat {
+        padding: 1.25rem 1.5rem;
+    }
 
-.stat {
-    padding: 1.5rem;
-}
+    .stat-value {
+        font-size: 1.875rem;
+        line-height: 2.25rem;
+        font-weight: 800;
+        letter-spacing: -0.025em;
+    }
 
-.stat-value {
-    font-size: 2rem;
-}
+    .table :where(thead tr) {
+        border-bottom-width: 1px;
+    }
+
+    .table :where(tbody tr:not(:last-child)) {
+        border-bottom-color: hsl(var(--bc) / 0.05);
+    }
+
+    #live-indicator {
+        letter-spacing: 0.1em;
+    }
 </style>
 {{end}}

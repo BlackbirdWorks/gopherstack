@@ -31,5 +31,5 @@ func (h *Handler) metricsIndex(w http.ResponseWriter, _ *http.Request) {
 		Title:     "Performance Metrics",
 		ActiveTab: "metrics",
 	}
-	h.renderTemplate(w, "templates/metrics.html", data)
+	h.renderTemplate(w, "metrics.html", data)
 }
