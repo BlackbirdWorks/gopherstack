@@ -8,6 +8,8 @@ before:
     # Clean up before building
     - go mod tidy
     - go mod download
+    # Login to DockerHub before pushing
+    - echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
 
 builds:
   - id: gopherstack
