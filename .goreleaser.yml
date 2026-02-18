@@ -9,7 +9,7 @@ before:
     - go mod tidy
     - go mod download
     # Login to DockerHub before pushing
-    - echo "{{ .Env.DOCKERHUB_TOKEN }}" | docker login -u "{{ .Env.DOCKERHUB_USERNAME }}" --password-stdin
+    - echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
 
 builds:
   - id: gopherstack
