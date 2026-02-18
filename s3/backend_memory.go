@@ -98,6 +98,7 @@ func (b *InMemoryBackend) HeadBucket(_ context.Context, input *s3.HeadBucketInpu
 }
 
 func (b *InMemoryBackend) ListBuckets(_ context.Context, _ *s3.ListBucketsInput) (*s3.ListBucketsOutput, error) {
+	// Snapshot bucket data under lock, release immediately
 	b.mu.RLock()
 	buckets := make([]types.Bucket, 0, len(b.buckets))
 	for _, bucket := range b.buckets {
@@ -108,6 +109,7 @@ func (b *InMemoryBackend) ListBuckets(_ context.Context, _ *s3.ListBucketsInput)
 	}
 	b.mu.RUnlock()
 
+	// Sort outside the lock
 	sort.Slice(buckets, func(i, j int) bool {
 		return *buckets[i].Name < *buckets[j].Name
 	})
@@ -197,6 +199,7 @@ func (b *InMemoryBackend) PutObject(_ context.Context, input *s3.PutObjectInput)
 	}
 
 	obj.Versions[newVersionID] = newVersion
+	obj.LatestVersionID = newVersionID // Update the cached latest version ID
 
 	b.storeObjectTags(input.Tagging, bucketName, key, newVersionID)
 
@@ -374,21 +377,29 @@ func (b *InMemoryBackend) HeadObject(_ context.Context, input *s3.HeadObjectInpu
 	}
 
 	bucket.mu.RLock()
-	defer bucket.mu.RUnlock()
-
 	obj, exists := bucket.Objects[key]
+	bucket.mu.RUnlock()
+
 	if !exists {
 		return nil, ErrNoSuchKey
 	}
 
+	obj.mu.RLock()
+	defer obj.mu.RUnlock()
+
 	var ver *StoredObjectVersion
 	if versionID != nil && *versionID != "" {
+		// Use provided version ID
 		v, ok := obj.Versions[*versionID]
 		if !ok {
 			return nil, ErrNoSuchKey
 		}
 		ver = v
+	} else if latestID := obj.LatestVersionID; latestID != "" {
+		// Use cached latest version ID to avoid scanning all versions
+		ver = obj.Versions[latestID]
 	} else {
+		// Fallback: scan for latest (shouldn't happen in normal operation)
 		for _, v := range obj.Versions {
 			if v.IsLatest {
 				ver = v
@@ -460,13 +471,15 @@ func (b *InMemoryBackend) DeleteObject(_ context.Context, input *s3.DeleteObject
 		for _, v := range obj.Versions {
 			v.IsLatest = false
 		}
-		obj.Versions[newVersionID] = &StoredObjectVersion{
+		deleteMarker := &StoredObjectVersion{
 			VersionID:    newVersionID,
 			Key:          key,
 			Deleted:      true,
 			IsLatest:     true,
 			LastModified: time.Now(),
 		}
+		obj.Versions[newVersionID] = deleteMarker
+		obj.LatestVersionID = newVersionID // Update cache
 
 		return &s3.DeleteObjectOutput{
 			DeleteMarker: aws.Bool(true),
@@ -542,39 +555,53 @@ func (b *InMemoryBackend) ListObjects(_ context.Context, input *s3.ListObjectsIn
 		return nil, ErrNoSuchBucket
 	}
 
+	// Snapshot object pointers under lock
 	bucket.mu.RLock()
-	var contents []types.Object
 	prefix := aws.ToString(input.Prefix)
-
+	objectSnapshots := make([]*StoredObject, 0, len(bucket.Objects))
 	for _, obj := range bucket.Objects {
-		var latest *StoredObjectVersion
-		for _, v := range obj.Versions {
-			if v.IsLatest {
-				latest = v
+		if strings.HasPrefix(obj.Key, prefix) {
+			objectSnapshots = append(objectSnapshots, obj)
+		}
+	}
+	bucket.mu.RUnlock()
 
-				break
+	// Process objects outside the bucket lock
+	var contents []types.Object
+	for _, obj := range objectSnapshots {
+		obj.mu.RLock()
+		latestID := obj.LatestVersionID
+		var latest *StoredObjectVersion
+		if latestID != "" {
+			latest = obj.Versions[latestID]
+		} else {
+			// Fallback: scan for latest if not cached
+			for _, v := range obj.Versions {
+				if v.IsLatest {
+					latest = v
+
+					break
+				}
 			}
 		}
+		obj.mu.RUnlock()
 
 		if latest == nil || latest.Deleted {
 			continue
 		}
 
-		if strings.HasPrefix(latest.Key, prefix) {
-			contents = append(contents, types.Object{
-				Key:          aws.String(latest.Key),
-				LastModified: aws.Time(latest.LastModified),
-				ETag:         aws.String(latest.ETag),
-				Size:         aws.Int64(latest.Size),
-				StorageClass: types.ObjectStorageClassStandard,
-				Owner: &types.Owner{
-					ID:          aws.String("gopherstack"),
-					DisplayName: aws.String("gopherstack"),
-				},
-			})
-		}
+		contents = append(contents, types.Object{
+			Key:          aws.String(latest.Key),
+			LastModified: aws.Time(latest.LastModified),
+			ETag:         aws.String(latest.ETag),
+			Size:         aws.Int64(latest.Size),
+			StorageClass: types.ObjectStorageClassStandard,
+			Owner: &types.Owner{
+				ID:          aws.String("gopherstack"),
+				DisplayName: aws.String("gopherstack"),
+			},
+		})
 	}
-	bucket.mu.RUnlock()
 
 	sort.Slice(contents, func(i, j int) bool {
 		return *contents[i].Key < *contents[j].Key
@@ -1066,6 +1093,7 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 		v.IsLatest = false
 	}
 	obj.Versions[versionID] = newVersion
+	obj.LatestVersionID = versionID // Update cache
 
 	// Cleanup upload
 	b.mu.Lock()

@@ -79,6 +79,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleDynamoDB(w, r, strings.TrimPrefix(path, "/dynamodb"))
 	case strings.HasPrefix(path, "/s3"):
 		h.handleS3(w, r, strings.TrimPrefix(path, "/s3"))
+	case strings.HasPrefix(path, "/metrics"):
+		h.metricsIndex(w, r)
 	case strings.HasPrefix(path, "/docs"):
 		h.docIndex(w, r)
 	default:
@@ -109,6 +111,10 @@ func (h *Handler) Handle(c *echo.Context) error {
 		return nil
 	case strings.HasPrefix(path, "/s3"):
 		h.handleS3(c.Response(), c.Request(), strings.TrimPrefix(path, "/s3"))
+
+		return nil
+	case strings.HasPrefix(path, "/metrics"):
+		h.metricsIndex(c.Response(), c.Request())
 
 		return nil
 	case strings.HasPrefix(path, "/docs"):

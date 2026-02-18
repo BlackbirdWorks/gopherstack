@@ -224,13 +224,13 @@ func compareAny(v1, v2 any, typ string) int {
 		return 0
 	}
 
+	// Handle numeric types directly (fast path, no allocations)
 	if typ == "N" {
 		f1, _ := dynamoattr.ParseNumeric(v1)
 		f2, _ := dynamoattr.ParseNumeric(v2)
 		if f1 < f2 {
 			return -1
 		}
-
 		if f1 > f2 {
 			return 1
 		}
@@ -238,6 +238,27 @@ func compareAny(v1, v2 any, typ string) int {
 		return 0
 	}
 
+	// Handle string types directly without fmt.Sprintf allocation (fast path)
+	if typ == "S" {
+		s1Str, ok1 := v1.(string)
+		s2Str, ok2 := v2.(string)
+		if !ok1 || !ok2 {
+			// Fallback to general comparison if not string
+			goto Fallback
+		}
+		if s1Str < s2Str {
+			return -1
+		}
+		if s1Str > s2Str {
+			return 1
+		}
+
+		return 0
+	}
+
+Fallback:
+
+	// Fallback: convert to string only for unknown or complex types (rare path)
 	s1 := fmt.Sprintf("%v", v1)
 	s2 := fmt.Sprintf("%v", v2)
 	if s1 < s2 {

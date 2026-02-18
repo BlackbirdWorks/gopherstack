@@ -10,12 +10,14 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
 	"Gopherstack/dynamodb/models"
 	"Gopherstack/pkgs/httputils"
 	"Gopherstack/pkgs/logger"
+	"Gopherstack/pkgs/telemetry"
 )
 
 var ErrUnknownOperation = errors.New("UnknownOperationException")
@@ -204,12 +206,30 @@ func handleOp[WireIn any, SDKIn any, SDKOut any, WireOut any](
 	doOp func(context.Context, *SDKIn) (*SDKOut, error),
 	fromSDK func(*SDKOut) *WireOut,
 ) (any, error) {
+	start := time.Now()
+	status := "success"
+	resource := ""
+	defer func() {
+		telemetry.RecordOperation(action, resource, time.Since(start).Seconds(), status)
+	}()
+
 	log := logger.Load(ctx)
 
 	var input WireIn
 	if len(body) > 0 {
 		if err := json.Unmarshal(body, &input); err != nil {
+			status = "error"
+
 			return nil, err
+		}
+	}
+
+	// Try to extract table name from input for better metrics granularity
+	if inputMap, ok := any(input).(map[string]any); ok {
+		if tbl, exists := inputMap["TableName"]; exists {
+			if tblStr, isStr := tbl.(string); isStr {
+				resource = tblStr
+			}
 		}
 	}
 
@@ -219,6 +239,8 @@ func handleOp[WireIn any, SDKIn any, SDKOut any, WireOut any](
 	sdkInput := toSDK(&input)
 	sdkOutput, err := doOp(ctx, sdkInput)
 	if err != nil {
+		status = "error"
+
 		return nil, err
 	}
 
