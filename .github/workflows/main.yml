@@ -1,0 +1,76 @@
+name: Main Branch CI
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  test-coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+
+      - name: Run tests with coverage
+        run: make test-with-coverage
+
+      - name: Generate coverage badge
+        uses: vladopajic/go-test-coverage@v2
+        with:
+          profile: coverage.out
+          local-prefix: github.com/${{ github.repository }}
+          badge-file-name: coverage.svg
+
+      - name: Upload coverage badge
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: update coverage badge [skip ci]"
+          file_pattern: '.badges/coverage.svg'
+          skip_fetch: true
+          skip_checkout: true
+
+  go-report-card:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+
+      - name: Run goreportcard-cli
+        run: |
+          go install github.com/gojp/goreportcard/cmd/goreportcard-cli@latest
+          goreportcard-cli -v || echo "goreportcard check complete"
+
+      - name: Trigger Go Report Card refresh
+        continue-on-error: true
+        run: |
+          curl -X POST "https://goreportcard.com/checks" \
+            -d "repo=github.com/${{ github.repository }}"
+
+      - name: Create Go Report Card Badge
+        run: |
+          mkdir -p .badges
+          # Fetch the badge from goreportcard.com
+          curl -o .badges/goreportcard.svg "https://goreportcard.com/badge/github.com/${{ github.repository }}"
+
+      - name: Commit Go Report Card badge
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: update go report card badge [skip ci]"
+          file_pattern: '.badges/goreportcard.svg'
+          skip_fetch: true
+          skip_checkout: true

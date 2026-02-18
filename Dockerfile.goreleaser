@@ -1,0 +1,16 @@
+# Dockerfile used by GoReleaser for multi-arch builds
+FROM scratch
+
+WORKDIR /root/
+
+# Copy the binary from GoReleaser context
+COPY gopherstack .
+
+# Expose port 8000
+EXPOSE 8000
+
+# OCI label pointing to the source repository
+LABEL org.opencontainers.image.source="https://github.com/agbishop/Gopherstack"
+
+# Command to run the executable
+CMD ["./gopherstack"]
