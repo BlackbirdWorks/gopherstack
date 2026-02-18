@@ -1,0 +1,165 @@
+# GoReleaser configuration for Gopherstack
+# Documentation: https://goreleaser.com
+
+version: 2
+
+before:
+  hooks:
+    # Clean up before building
+    - go mod tidy
+    - go mod download
+
+builds:
+  - id: gopherstack
+    main: ./main.go
+    binary: gopherstack
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    # Build tags for static linking
+    tags:
+      - netgo
+      - osusergo
+      - static_build
+    # ldflags for version information and optimization
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+      - -extldflags "-static"
+    # Ignore certain combinations
+    ignore:
+      - goos: windows
+        goarch: arm64
+
+archives:
+  - id: gopherstack-archive
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - README.md
+      - LICENSE
+      - CHANGELOG.md
+
+checksum:
+  name_template: 'checksums.txt'
+
+snapshot:
+  name_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - 'merge conflict'
+      - Merge pull request
+      - Merge remote-tracking branch
+      - Merge branch
+  groups:
+    - title: 'New Features'
+      regexp: "^.*feat[(\\w)]*:+.*$"
+      order: 0
+    - title: 'Bug Fixes'
+      regexp: "^.*fix[(\\w)]*:+.*$"
+      order: 1
+    - title: 'Performance Improvements'
+      regexp: "^.*perf[(\\w)]*:+.*$"
+      order: 2
+    - title: 'Refactors'
+      regexp: "^.*refactor[(\\w)]*:+.*$"
+      order: 3
+    - title: 'Other Changes'
+      order: 999
+
+dockers:
+  - image_templates:
+  - "ghcr.io/agbishop/gopherstack:{{ .Version }}-amd64"
+  - "ghcr.io/agbishop/gopherstack:latest-amd64"
+    use: buildx
+    dockerfile: Dockerfile.goreleaser
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.source={{.GitURL}}"
+  
+  - image_templates:
+      - "ghcr.io/agbishop/gopherstack:{{ .Version }}-arm64"
+      - "ghcr.io/agbishop/gopherstack:latest-arm64"
+    use: buildx
+    goarch: arm64
+    dockerfile: Dockerfile.goreleaser
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.source={{.GitURL}}"
+
+docker_manifests:
+  - name_template: "ghcr.io/agbishop/gopherstack:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/agbishop/gopherstack:{{ .Version }}-amd64"
+      - "ghcr.io/agbishop/gopherstack:{{ .Version }}-arm64"
+  
+  - name_template: "ghcr.io/agbishop/gopherstack:latest"
+    image_templates:
+      - "ghcr.io/agbishop/gopherstack:latest-amd64"
+      - "ghcr.io/agbishop/gopherstack:latest-arm64"
+
+release:
+  github:
+    owner: agbishop
+    name: Gopherstack
+  draft: false
+  prerelease: auto
+  mode: replace
+  header: |
+    ## Gopherstack {{ .Tag }} Release
+    
+    **Full Changelog**: https://github.com/agbishop/Gopherstack/compare/{{ .PreviousTag }}...{{ .Tag }}
+  footer: |
+    ## Docker Images
+    
+    ```bash
+    docker pull ghcr.io/agbishop/gopherstack:{{ .Version }}
+    # or
+    docker pull ghcr.io/agbishop/gopherstack:latest
+    ```
+    
+    ## Installation
+    
+    ### Binary
+    Download the appropriate binary for your platform from the assets below.
+    
+    ### From Source
+    ```bash
+    go install github.com/agbishop/Gopherstack@{{ .Tag }}
+    ```
+
+# Announce the release
+announce:
+  skip: '{{gt .Patch 0}}'

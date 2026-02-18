@@ -11,7 +11,7 @@ threshold:
 # Incremental coverage check for changed files
 diff:
   # Minimum coverage for files changed in a PR
-  threshold-changed-files: 80
+  threshold-changed-files: 85
 
 # Enable GitHub Actions output formatting
 github-action-output: true
