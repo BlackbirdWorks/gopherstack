@@ -64,8 +64,22 @@ func TestIntegration_DDB_ComplexDataModel(t *testing.T) {
 	}
 
 	seeds := []seedUser{
-		{id: "user-1", orgID: "org-123", source: "web", theme: "dark", version: 1, tags: []string{"admin", "editor"}},
-		{id: "user-2", orgID: "org-123", source: "mobile", theme: "light", version: 1, tags: []string{"viewer"}},
+		{
+			id:      "user-1",
+			orgID:   "org-123",
+			source:  "web",
+			theme:   "dark",
+			version: 1,
+			tags:    []string{"admin", "editor"},
+		},
+		{
+			id:      "user-2",
+			orgID:   "org-123",
+			source:  "mobile",
+			theme:   "light",
+			version: 1,
+			tags:    []string{"viewer"},
+		},
 		{id: "user-3", orgID: "org-999", source: "api", theme: "auto", version: 2},
 	}
 
@@ -116,7 +130,9 @@ func TestIntegration_DDB_ComplexDataModel(t *testing.T) {
 					":type":      &types.AttributeValueMemberS{Value: modelType},
 					":orgPrefix": &types.AttributeValueMemberS{Value: "ORG#org-123"},
 				},
-				ProjectionExpression: aws.String("sk, DeepData.Config.Theme, DeepData.Meta.Source, Tags"),
+				ProjectionExpression: aws.String(
+					"sk, DeepData.Config.Theme, DeepData.Meta.Source, Tags",
+				),
 			},
 			verify: func(t *testing.T, out *dynamodb.QueryOutput) {
 				t.Helper()

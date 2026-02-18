@@ -85,7 +85,10 @@ func TestQuery_KeyCondition_WithParenthesesAndBeginsWith(t *testing.T) {
 			for _, item := range items {
 				put := models.PutItemInput{
 					TableName: tableName,
-					Item:      map[string]any{"pk": map[string]any{"S": item.pk}, "sk": map[string]any{"S": item.sk}},
+					Item: map[string]any{
+						"pk": map[string]any{"S": item.pk},
+						"sk": map[string]any{"S": item.sk},
+					},
 				}
 				sdkPut, _ := models.ToSDKPutItemInput(&put)
 				_, putErr := db.PutItem(context.Background(), sdkPut)

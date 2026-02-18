@@ -17,9 +17,11 @@ func TestUpdateItem_UPDATED_NEW_OnNewItem(t *testing.T) {
 
 	// Setup table
 	ctInput := models.CreateTableInput{
-		TableName:            "TestTable",
-		KeySchema:            []models.KeySchemaElement{{AttributeName: "pk", KeyType: "HASH"}},
-		AttributeDefinitions: []models.AttributeDefinition{{AttributeName: "pk", AttributeType: "S"}},
+		TableName: "TestTable",
+		KeySchema: []models.KeySchemaElement{{AttributeName: "pk", KeyType: "HASH"}},
+		AttributeDefinitions: []models.AttributeDefinition{
+			{AttributeName: "pk", AttributeType: "S"},
+		},
 	}
 	_, err := db.CreateTable(context.Background(), models.ToSDKCreateTableInput(&ctInput))
 	require.NoError(t, err)
@@ -64,9 +66,11 @@ func TestUpdateItem_UPDATED_NEW_OnExistingItem(t *testing.T) {
 
 	// Setup table
 	ctInput := models.CreateTableInput{
-		TableName:            "TestTable",
-		KeySchema:            []models.KeySchemaElement{{AttributeName: "pk", KeyType: "HASH"}},
-		AttributeDefinitions: []models.AttributeDefinition{{AttributeName: "pk", AttributeType: "S"}},
+		TableName: "TestTable",
+		KeySchema: []models.KeySchemaElement{{AttributeName: "pk", KeyType: "HASH"}},
+		AttributeDefinitions: []models.AttributeDefinition{
+			{AttributeName: "pk", AttributeType: "S"},
+		},
 	}
 	_, err := db.CreateTable(context.Background(), models.ToSDKCreateTableInput(&ctInput))
 	require.NoError(t, err)
@@ -110,7 +114,12 @@ func TestUpdateItem_UPDATED_NEW_OnExistingItem(t *testing.T) {
 
 		// Should contain ONLY attr1 (the updated attribute)
 		assert.Contains(t, wireAttrs, "attr1", "Should contain updated attribute attr1")
-		assert.Equal(t, "updated1", wireAttrs["attr1"].(map[string]any)["S"], "attr1 should have new value")
+		assert.Equal(
+			t,
+			"updated1",
+			wireAttrs["attr1"].(map[string]any)["S"],
+			"attr1 should have new value",
+		)
 
 		// Should NOT contain pk, attr2, or attr3 (not updated)
 		assert.NotContains(t, wireAttrs, "pk", "Should NOT contain pk (not updated)")

@@ -182,9 +182,13 @@ func TestTableOperations(t *testing.T) {
 func createTable(t *testing.T, db *dynamodb.InMemoryDB, name string) {
 	t.Helper()
 	input := models.CreateTableInput{
-		TableName:            name,
-		KeySchema:            []models.KeySchemaElement{{AttributeName: "id", KeyType: models.KeyTypeHash}},
-		AttributeDefinitions: []models.AttributeDefinition{{AttributeName: "id", AttributeType: "S"}},
+		TableName: name,
+		KeySchema: []models.KeySchemaElement{
+			{AttributeName: "id", KeyType: models.KeyTypeHash},
+		},
+		AttributeDefinitions: []models.AttributeDefinition{
+			{AttributeName: "id", AttributeType: "S"},
+		},
 	}
 	_, err := db.CreateTable(context.Background(), models.ToSDKCreateTableInput(&input))
 	require.NoError(t, err)

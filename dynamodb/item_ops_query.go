@@ -82,7 +82,13 @@ func (db *InMemoryDB) QueryWithContext(
 		return nil, err
 	}
 
-	candidates, err := db.filterCandidatesForKeyCondition(ctx, snapshotTable, input, projection, keySchema)
+	candidates, err := db.filterCandidatesForKeyCondition(
+		ctx,
+		snapshotTable,
+		input,
+		projection,
+		keySchema,
+	)
 	if err != nil {
 		return nil, err
 	}

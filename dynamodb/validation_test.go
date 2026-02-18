@@ -168,9 +168,13 @@ func TestPutItem_ValidationErrors(t *testing.T) {
 			db := dynamodb.NewInMemoryDB()
 			tableName := "ValidationTable"
 			ctInput := models.CreateTableInput{
-				TableName:            tableName,
-				KeySchema:            []models.KeySchemaElement{{AttributeName: "pk", KeyType: models.KeyTypeHash}},
-				AttributeDefinitions: []models.AttributeDefinition{{AttributeName: "pk", AttributeType: "S"}},
+				TableName: tableName,
+				KeySchema: []models.KeySchemaElement{
+					{AttributeName: "pk", KeyType: models.KeyTypeHash},
+				},
+				AttributeDefinitions: []models.AttributeDefinition{
+					{AttributeName: "pk", AttributeType: "S"},
+				},
 			}
 			_, _ = db.CreateTable(context.Background(), models.ToSDKCreateTableInput(&ctInput))
 
@@ -192,9 +196,13 @@ func TestPutItem_ItemTooLarge(t *testing.T) {
 	db := dynamodb.NewInMemoryDB()
 	tableName := "LargeItemTable"
 	ctInput := models.CreateTableInput{
-		TableName:            tableName,
-		KeySchema:            []models.KeySchemaElement{{AttributeName: "pk", KeyType: models.KeyTypeHash}},
-		AttributeDefinitions: []models.AttributeDefinition{{AttributeName: "pk", AttributeType: "S"}},
+		TableName: tableName,
+		KeySchema: []models.KeySchemaElement{
+			{AttributeName: "pk", KeyType: models.KeyTypeHash},
+		},
+		AttributeDefinitions: []models.AttributeDefinition{
+			{AttributeName: "pk", AttributeType: "S"},
+		},
 	}
 	_, err := db.CreateTable(context.Background(), models.ToSDKCreateTableInput(&ctInput))
 	require.NoError(t, err)

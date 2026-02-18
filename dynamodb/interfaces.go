@@ -12,10 +12,19 @@ type StorageBackend interface {
 	// Table Operations
 	CreateTable(context.Context, *dynamodb.CreateTableInput) (*dynamodb.CreateTableOutput, error)
 	DeleteTable(context.Context, *dynamodb.DeleteTableInput) (*dynamodb.DeleteTableOutput, error)
-	DescribeTable(context.Context, *dynamodb.DescribeTableInput) (*dynamodb.DescribeTableOutput, error)
+	DescribeTable(
+		context.Context,
+		*dynamodb.DescribeTableInput,
+	) (*dynamodb.DescribeTableOutput, error)
 	ListTables(context.Context, *dynamodb.ListTablesInput) (*dynamodb.ListTablesOutput, error)
-	UpdateTimeToLive(context.Context, *dynamodb.UpdateTimeToLiveInput) (*dynamodb.UpdateTimeToLiveOutput, error)
-	DescribeTimeToLive(context.Context, *dynamodb.DescribeTimeToLiveInput) (*dynamodb.DescribeTimeToLiveOutput, error)
+	UpdateTimeToLive(
+		context.Context,
+		*dynamodb.UpdateTimeToLiveInput,
+	) (*dynamodb.UpdateTimeToLiveOutput, error)
+	DescribeTimeToLive(
+		context.Context,
+		*dynamodb.DescribeTimeToLiveInput,
+	) (*dynamodb.DescribeTimeToLiveOutput, error)
 
 	// Item Operations
 	PutItem(context.Context, *dynamodb.PutItemInput) (*dynamodb.PutItemOutput, error)
@@ -25,9 +34,18 @@ type StorageBackend interface {
 	Scan(context.Context, *dynamodb.ScanInput) (*dynamodb.ScanOutput, error)
 	Query(context.Context, *dynamodb.QueryInput) (*dynamodb.QueryOutput, error)
 	BatchGetItem(context.Context, *dynamodb.BatchGetItemInput) (*dynamodb.BatchGetItemOutput, error)
-	BatchWriteItem(context.Context, *dynamodb.BatchWriteItemInput) (*dynamodb.BatchWriteItemOutput, error)
+	BatchWriteItem(
+		context.Context,
+		*dynamodb.BatchWriteItemInput,
+	) (*dynamodb.BatchWriteItemOutput, error)
 
 	// Transaction Operations
-	TransactWriteItems(context.Context, *dynamodb.TransactWriteItemsInput) (*dynamodb.TransactWriteItemsOutput, error)
-	TransactGetItems(context.Context, *dynamodb.TransactGetItemsInput) (*dynamodb.TransactGetItemsOutput, error)
+	TransactWriteItems(
+		context.Context,
+		*dynamodb.TransactWriteItemsInput,
+	) (*dynamodb.TransactWriteItemsOutput, error)
+	TransactGetItems(
+		context.Context,
+		*dynamodb.TransactGetItemsInput,
+	) (*dynamodb.TransactGetItemsOutput, error)
 }

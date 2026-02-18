@@ -44,7 +44,9 @@ func TestPutObject_SDKv2_Repro(t *testing.T) {
 			cfg, err := config.LoadDefaultConfig(
 				t.Context(),
 				config.WithRegion("us-east-1"),
-				config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("AKIATEST", "secret", "")),
+				config.WithCredentialsProvider(
+					credentials.NewStaticCredentialsProvider("AKIATEST", "secret", ""),
+				),
 			)
 			require.NoError(t, err)
 

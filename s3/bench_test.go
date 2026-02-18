@@ -15,7 +15,10 @@ import (
 func BenchmarkPutObject(b *testing.B) {
 	backend := s3.NewInMemoryBackend(&s3.GzipCompressor{})
 	bucketName := "bench-bucket"
-	_, _ = backend.CreateBucket(context.Background(), &sdk_s3.CreateBucketInput{Bucket: aws.String(bucketName)})
+	_, _ = backend.CreateBucket(
+		context.Background(),
+		&sdk_s3.CreateBucketInput{Bucket: aws.String(bucketName)},
+	)
 	data := []byte("benchmarking data")
 
 	b.ResetTimer()
@@ -32,7 +35,10 @@ func BenchmarkPutObject(b *testing.B) {
 func BenchmarkGetObject(b *testing.B) {
 	backend := s3.NewInMemoryBackend(&s3.GzipCompressor{})
 	bucketName := "bench-bucket"
-	_, _ = backend.CreateBucket(context.Background(), &sdk_s3.CreateBucketInput{Bucket: aws.String(bucketName)})
+	_, _ = backend.CreateBucket(
+		context.Background(),
+		&sdk_s3.CreateBucketInput{Bucket: aws.String(bucketName)},
+	)
 	data := []byte("benchmarking data")
 
 	for i := range 1000 {

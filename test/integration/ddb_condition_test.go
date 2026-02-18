@@ -119,7 +119,9 @@ func TestIntegration_DDB_ConditionsAndFilters(t *testing.T) {
 				// Verify update
 				out, _ := client.GetItem(ctx, &dynamodb.GetItemInput{
 					TableName: aws.String(tableName),
-					Key:       map[string]types.AttributeValue{"pk": &types.AttributeValueMemberS{Value: "item1"}},
+					Key: map[string]types.AttributeValue{
+						"pk": &types.AttributeValueMemberS{Value: "item1"},
+					},
 				})
 				assert.Equal(t, "DONE", out.Item["status"].(*types.AttributeValueMemberS).Value)
 			},
@@ -191,7 +193,10 @@ func TestIntegration_DDB_ConditionsAndFilters(t *testing.T) {
 			})
 			require.NoError(t, err)
 			t.Cleanup(func() {
-				client.DeleteTable(context.Background(), &dynamodb.DeleteTableInput{TableName: aws.String(tableName)})
+				client.DeleteTable(
+					context.Background(),
+					&dynamodb.DeleteTableInput{TableName: aws.String(tableName)},
+				)
 			})
 			time.Sleep(50 * time.Millisecond)
 

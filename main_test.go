@@ -75,7 +75,11 @@ func TestServerStartupAndShutdown(t *testing.T) {
 				t.Fatalf("unexpected status code: %d", resp.StatusCode)
 			}
 
-			t.Logf("Server responding successfully with status %d on port %s", resp.StatusCode, tt.port)
+			t.Logf(
+				"Server responding successfully with status %d on port %s",
+				resp.StatusCode,
+				tt.port,
+			)
 
 			// Signal the server to stop
 			close(stopChan)
@@ -99,9 +103,12 @@ func startServerOnPort(port string, stopChan chan struct{}) error {
 	inMemMux := http.NewServeMux()
 	inMemClient := &dashboard.InMemClient{Handler: inMemMux}
 
-	cfg, err := config.LoadDefaultConfig(context.TODO(),
+	cfg, err := config.LoadDefaultConfig(
+		context.TODO(),
 		config.WithRegion("us-east-1"),
-		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("dummy", "dummy", "")),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("dummy", "dummy", ""),
+		),
 		config.WithHTTPClient(inMemClient),
 	)
 	if err != nil {

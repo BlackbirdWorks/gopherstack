@@ -75,7 +75,11 @@ func TestBatchWriteItem(t *testing.T) {
 			input: models.BatchWriteItemInput{
 				RequestItems: map[string][]models.WriteRequest{
 					"Table1": {
-						{DeleteRequest: &models.DeleteRequest{Key: map[string]any{"pk": map[string]any{"S": "item1"}}}},
+						{
+							DeleteRequest: &models.DeleteRequest{
+								Key: map[string]any{"pk": map[string]any{"S": "item1"}},
+							},
+						},
 					},
 				},
 			},
@@ -102,9 +106,21 @@ func TestBatchWriteItem(t *testing.T) {
 			input: models.BatchWriteItemInput{
 				RequestItems: map[string][]models.WriteRequest{
 					"Table1": {
-						{DeleteRequest: &models.DeleteRequest{Key: map[string]any{"pk": map[string]any{"S": "item1"}}}},
-						{DeleteRequest: &models.DeleteRequest{Key: map[string]any{"pk": map[string]any{"S": "item2"}}}},
-						{DeleteRequest: &models.DeleteRequest{Key: map[string]any{"pk": map[string]any{"S": "item3"}}}},
+						{
+							DeleteRequest: &models.DeleteRequest{
+								Key: map[string]any{"pk": map[string]any{"S": "item1"}},
+							},
+						},
+						{
+							DeleteRequest: &models.DeleteRequest{
+								Key: map[string]any{"pk": map[string]any{"S": "item2"}},
+							},
+						},
+						{
+							DeleteRequest: &models.DeleteRequest{
+								Key: map[string]any{"pk": map[string]any{"S": "item3"}},
+							},
+						},
 					},
 				},
 			},
@@ -245,7 +261,11 @@ func TestBatchWriteItem_ValidationErrors(t *testing.T) {
 			input: models.BatchWriteItemInput{
 				RequestItems: map[string][]models.WriteRequest{
 					"MissingTable": {
-						{PutRequest: &models.PutRequest{Item: map[string]any{"pk": map[string]any{"S": "item1"}}}},
+						{
+							PutRequest: &models.PutRequest{
+								Item: map[string]any{"pk": map[string]any{"S": "item1"}},
+							},
+						},
 					},
 				},
 			},
@@ -268,7 +288,9 @@ func TestBatchWriteItem_ValidationErrors(t *testing.T) {
 				reqs := make([]models.WriteRequest, 26)
 				for i := range 26 {
 					reqs[i] = models.WriteRequest{
-						PutRequest: &models.PutRequest{Item: map[string]any{"pk": map[string]any{"S": "i"}}},
+						PutRequest: &models.PutRequest{
+							Item: map[string]any{"pk": map[string]any{"S": "i"}},
+						},
 					}
 				}
 

@@ -21,7 +21,11 @@ func UnwrapAttributeValue(v any) any {
 
 // ExtractFunctionArgs is no longer supported
 
-func FindExclusiveStartIndex(items []map[string]any, startKey map[string]any, keySchema []models.KeySchemaElement) int {
+func FindExclusiveStartIndex(
+	items []map[string]any,
+	startKey map[string]any,
+	keySchema []models.KeySchemaElement,
+) int {
 	return findExclusiveStartIndex(items, startKey, keySchema)
 }
 

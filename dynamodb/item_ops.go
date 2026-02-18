@@ -63,7 +63,9 @@ func (db *InMemoryDB) getTable(name string) (*Table, error) {
 	return table, nil
 }
 
-func getPKAndSK(keySchema []models.KeySchemaElement) (models.KeySchemaElement, models.KeySchemaElement) {
+func getPKAndSK(
+	keySchema []models.KeySchemaElement,
+) (models.KeySchemaElement, models.KeySchemaElement) {
 	var pkDef, skDef models.KeySchemaElement
 	for _, k := range keySchema {
 		switch k.KeyType {
@@ -275,7 +277,11 @@ Fallback:
 // Helpers moved to utils.go
 
 // getAttributeType returns the attribute type for a given attribute name, or defaultType if not found.
-func getAttributeType(attrDefs []models.AttributeDefinition, attrName string, defaultType string) string {
+func getAttributeType(
+	attrDefs []models.AttributeDefinition,
+	attrName string,
+	defaultType string,
+) string {
 	for _, ad := range attrDefs {
 		if ad.AttributeName == attrName {
 			return ad.AttributeType
@@ -299,7 +305,10 @@ func findExclusiveStartIndex(
 	pkDef, skDef := getPKAndSK(keySchema)
 
 	for i, item := range candidates {
-		matches := compareAttributeValues(item[pkDef.AttributeName], exclusiveStartKey[pkDef.AttributeName])
+		matches := compareAttributeValues(
+			item[pkDef.AttributeName],
+			exclusiveStartKey[pkDef.AttributeName],
+		)
 		if matches && skDef.AttributeName != "" {
 			matches = compareAttributeValues(
 				item[skDef.AttributeName],

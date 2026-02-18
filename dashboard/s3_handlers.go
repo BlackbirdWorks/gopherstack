@@ -2,9 +2,13 @@ package dashboard
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -19,6 +23,12 @@ const (
 	maxKeys            = 1000
 	maxMultipartMemory = 32 << 20 // 32 MB
 )
+
+// S3FileVersion represents a version of an S3 object.
+type S3FileVersion struct {
+	VersionID    string
+	LastModified string
+}
 
 // BucketInfo represents bucket information for display.
 type BucketInfo struct {
@@ -40,6 +50,24 @@ type FileTreeItem struct {
 	IsFolder     bool
 }
 
+// s3FileDetailData holds data for the s3/file_detail.html template.
+type s3FileDetailData struct {
+	PageData
+
+	BucketName        string
+	Key               string
+	Size              string
+	LastModified      string
+	ContentType       string
+	ETag              string
+	Tags              map[string]string
+	Versions          []S3FileVersion
+	IsImage           bool
+	IsPDF             bool
+	IsText            bool
+	VersioningEnabled bool
+}
+
 // s3Index renders the S3 index page.
 func (h *Handler) s3Index(w http.ResponseWriter, _ *http.Request) {
 	data := PageData{
@@ -54,7 +82,6 @@ func (h *Handler) s3BucketList(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	log := logger.Load(ctx)
 
-	// Fetch all buckets first
 	output, err := h.S3.ListBuckets(ctx, &s3.ListBucketsInput{})
 	if err != nil {
 		log.ErrorContext(ctx, "Failed to list buckets", "error", err)
@@ -64,8 +91,9 @@ func (h *Handler) s3BucketList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	search := strings.ToLower(r.URL.Query().Get("search"))
+	offsetStr := r.URL.Query().Get("offset")
+	offset, _ := strconv.Atoi(offsetStr)
 
-	// Filter and limit
 	var filteredBuckets []types.Bucket
 	for _, b := range output.Buckets {
 		if search == "" || strings.Contains(strings.ToLower(*b.Name), search) {
@@ -73,32 +101,36 @@ func (h *Handler) s3BucketList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	const displayLimit = 100
-	totalFiltered := len(filteredBuckets)
-	if totalFiltered > displayLimit {
-		filteredBuckets = filteredBuckets[:displayLimit]
-	}
+	h.handleS3BucketListing(ctx, w, filteredBuckets, offset)
+}
 
-	bucketInfos := make([]BucketInfo, len(filteredBuckets))
+func (h *Handler) handleS3BucketListing(
+	ctx context.Context,
+	w http.ResponseWriter,
+	buckets []types.Bucket,
+	offset int,
+) {
+	const displayLimit = 100
+	totalFiltered := len(buckets)
+	endIdx := min(offset+displayLimit, totalFiltered)
+
+	pageBuckets := buckets[offset:endIdx]
+	bucketInfos := make([]BucketInfo, len(pageBuckets))
 	const maxConcurrent = 8
 	semaphore := make(chan struct{}, maxConcurrent)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
-	for i, bucket := range filteredBuckets {
+	for i, bucket := range pageBuckets {
 		wg.Add(1)
 		go func(idx int, b types.Bucket) {
 			defer wg.Done()
-
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
 
-			// Get versioning status
 			versioning, _ := h.S3.GetBucketVersioning(ctx, &s3.GetBucketVersioningInput{
 				Bucket: b.Name,
 			})
-
-			// Count objects (simplified)
 			objects, _ := h.S3.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
 				Bucket:  b.Name,
 				MaxKeys: aws.Int32(maxKeys),
@@ -106,10 +138,13 @@ func (h *Handler) s3BucketList(w http.ResponseWriter, r *http.Request) {
 
 			mu.Lock()
 			bucketInfos[idx] = BucketInfo{
-				Name:              *b.Name,
-				CreationDate:      b.CreationDate.Format("2006-01-02 15:04:05"),
-				VersioningEnabled: versioning != nil && versioning.Status == types.BucketVersioningStatusEnabled,
-				ObjectCount:       int(*objects.KeyCount),
+				Name: *b.Name,
+				CreationDate: b.CreationDate.Format(
+					"2006-01-02 15:04:05",
+				),
+				VersioningEnabled: versioning != nil &&
+					versioning.Status == types.BucketVersioningStatusEnabled,
+				ObjectCount: int(*objects.KeyCount),
 			}
 			mu.Unlock()
 		}(i, bucket)
@@ -117,18 +152,22 @@ func (h *Handler) s3BucketList(w http.ResponseWriter, r *http.Request) {
 
 	wg.Wait()
 
-	// Render bucket cards
-	for _, bucketInfo := range bucketInfos {
-		if bucketInfo.Name != "" {
-			h.renderFragment(w, "bucket-card", bucketInfo)
+	for _, info := range bucketInfos {
+		if info.Name != "" {
+			h.renderFragment(w, "bucket-card", info)
 		}
 	}
 
-	if totalFiltered > len(filteredBuckets) {
-		const msg = `<div class="alert alert-info col-span-full"><span>Showing first %d of %d buckets. ` +
-			`Use search to find specific buckets.</span></div>`
-		//nolint:gosec // G705: Numbers are safe
-		_, _ = fmt.Fprintf(w, msg, int64(len(filteredBuckets)), int64(totalFiltered))
+	if endIdx < totalFiltered {
+		// #nosec G705
+		fmt.Fprintf(w, `
+            <button class="btn btn-outline col-span-full mt-4" 
+                hx-get="/dashboard/s3/buckets?offset=%d" 
+                hx-target="this" 
+                hx-swap="outerHTML"
+                hx-indicator=".htmx-indicator">
+                Load More
+            </button>`, endIdx)
 	}
 }
 
@@ -174,13 +213,17 @@ func (h *Handler) s3FileTree(w http.ResponseWriter, r *http.Request, bucketName 
 	ctx := r.Context()
 	log := logger.Load(ctx)
 	prefix := r.URL.Query().Get("prefix")
+	token := r.URL.Query().Get("token")
 
 	input := &s3.ListObjectsV2Input{
 		Bucket:  &bucketName,
-		MaxKeys: aws.Int32(maxKeys),
+		MaxKeys: aws.Int32(maxS3ObjectSearch),
 	}
 	if prefix != "" {
 		input.Prefix = &prefix
+	}
+	if token != "" {
+		input.ContinuationToken = &token
 	}
 
 	output, err := h.S3.ListObjectsV2(ctx, input)
@@ -235,6 +278,22 @@ func (h *Handler) s3FileTree(w http.ResponseWriter, r *http.Request, bucketName 
 	for _, item := range items {
 		h.renderFragment(w, "file-tree-item", item)
 	}
+
+	if output.NextContinuationToken != nil {
+		// #nosec G705
+		fmt.Fprintf(w, `
+            <div id="load-more-objects" class="col-span-full py-4 flex justify-center">
+                <button class="btn btn-outline" 
+                    hx-get="/dashboard/s3/bucket/%s/files?token=%s&prefix=%s" 
+                    hx-target="this" 
+                    hx-swap="outerHTML"
+                    hx-indicator=".htmx-indicator">
+                    Load More
+                </button>
+            </div>`, url.PathEscape(bucketName),
+			url.QueryEscape(*output.NextContinuationToken),
+			url.QueryEscape(prefix))
+	}
 }
 
 // s3FileDetail renders the file detail page.
@@ -252,26 +311,33 @@ func (h *Handler) s3FileDetail(w http.ResponseWriter, r *http.Request, bucketNam
 		return
 	}
 
-	// Get versioning status
+	h.handleS3FileDetail(ctx, w, bucketName, key, obj)
+}
+
+func (h *Handler) handleS3FileDetail(
+	ctx context.Context,
+	w http.ResponseWriter,
+	bucketName, key string,
+	obj *s3.HeadObjectOutput,
+) {
+	versioningEnabled := h.isS3BucketVersioningEnabled(ctx, bucketName)
+	tags := h.fetchS3ObjectTags(ctx, bucketName, key)
+	versionList := h.fetchS3ObjectVersions(ctx, bucketName, key, versioningEnabled)
+
+	data := h.prepareS3FileDetailData(bucketName, key, obj, versioningEnabled, tags, versionList)
+
+	h.renderTemplate(w, "s3/file_detail.html", data)
+}
+
+func (h *Handler) isS3BucketVersioningEnabled(ctx context.Context, bucketName string) bool {
 	versioning, _ := h.S3.GetBucketVersioning(ctx, &s3.GetBucketVersioningInput{
 		Bucket: &bucketName,
 	})
-	versioningEnabled := versioning != nil && versioning.Status == types.BucketVersioningStatusEnabled
 
-	var size string
-	if obj.ContentLength != nil {
-		size = formatBytes(*obj.ContentLength)
-	}
+	return versioning != nil && versioning.Status == types.BucketVersioningStatusEnabled
+}
 
-	var contentType, etag string
-	if obj.ContentType != nil {
-		contentType = *obj.ContentType
-	}
-	if obj.ETag != nil {
-		etag = *obj.ETag
-	}
-
-	// Get Tags
+func (h *Handler) fetchS3ObjectTags(ctx context.Context, bucketName, key string) map[string]string {
 	tags := make(map[string]string)
 	tagging, err := h.S3.GetObjectTagging(ctx, &s3.GetObjectTaggingInput{
 		Bucket: &bucketName,
@@ -283,64 +349,73 @@ func (h *Handler) s3FileDetail(w http.ResponseWriter, r *http.Request, bucketNam
 		}
 	}
 
-	// List versions
-	var versionList []struct {
-		VersionID    string
-		LastModified string
+	return tags
+}
+
+func (h *Handler) fetchS3ObjectVersions(
+	ctx context.Context,
+	bucketName, key string,
+	enabled bool,
+) []S3FileVersion {
+	var versionList []S3FileVersion
+	if !enabled {
+		return versionList
 	}
-	var verOutput *s3.ListObjectVersionsOutput
-	if versioningEnabled {
-		verOutput, err = h.S3.ListObjectVersions(ctx, &s3.ListObjectVersionsInput{
-			Bucket: &bucketName,
-			Prefix: &key,
-		})
-		if err == nil {
-			for _, v := range verOutput.Versions {
-				if *v.Key == key {
-					versionList = append(versionList, struct {
-						VersionID    string
-						LastModified string
-					}{
-						VersionID:    *v.VersionId,
-						LastModified: v.LastModified.Format("2006-01-02 15:04:05"),
-					})
-				}
+	verOutput, err := h.S3.ListObjectVersions(ctx, &s3.ListObjectVersionsInput{
+		Bucket: &bucketName,
+		Prefix: &key,
+	})
+	if err == nil {
+		for _, v := range verOutput.Versions {
+			if *v.Key == key {
+				versionList = append(versionList, S3FileVersion{
+					VersionID:    *v.VersionId,
+					LastModified: v.LastModified.Format("2006-01-02 15:04:05"),
+				})
 			}
 		}
 	}
 
-	data := struct {
-		PageData
+	return versionList
+}
 
-		Tags         map[string]string
-		BucketName   string
-		Key          string
-		Size         string
-		LastModified string
-		ContentType  string
-		ETag         string
-		Versions     []struct {
-			VersionID    string
-			LastModified string
-		}
-		VersioningEnabled bool
-	}{
+func (h *Handler) prepareS3FileDetailData(
+	bucketName, key string,
+	obj *s3.HeadObjectOutput,
+	versioningEnabled bool,
+	tags map[string]string,
+	versionList []S3FileVersion,
+) s3FileDetailData {
+	contentType := ""
+	if obj.ContentType != nil {
+		contentType = *obj.ContentType
+	}
+	etag := ""
+	if obj.ETag != nil {
+		etag = *obj.ETag
+	}
+
+	return s3FileDetailData{
 		PageData: PageData{
 			Title:     key,
 			ActiveTab: "s3",
 		},
+		Versions:          versionList,
+		Tags:              tags,
 		BucketName:        bucketName,
 		Key:               key,
-		Size:              size,
+		Size:              formatBytes(*obj.ContentLength),
 		LastModified:      obj.LastModified.Format("2006-01-02 15:04:05"),
 		ContentType:       contentType,
 		ETag:              etag,
 		VersioningEnabled: versioningEnabled,
-		Versions:          versionList,
-		Tags:              tags,
+		IsImage:           strings.HasPrefix(contentType, "image/"),
+		IsPDF:             contentType == "application/pdf",
+		IsText: strings.HasPrefix(contentType, "text/") ||
+			contentType == "application/json" ||
+			contentType == "application/javascript" ||
+			contentType == "application/xml",
 	}
-
-	h.renderTemplate(w, "s3/file_detail.html", data)
 }
 
 // s3Download downloads a file.
@@ -422,15 +497,11 @@ func (h *Handler) s3Upload(w http.ResponseWriter, r *http.Request, bucketName st
 	// Process Tags
 	tagsInput := r.FormValue("tags")
 	if tagsInput != "" {
-		// Convert "Key=Value,Key2=Value2" to "Key=Value&Key2=Value2" (URL encoded)
-		// The SDK expects URL encoded query string for Tagging field in PutObject?
-		// Wait, PutObjectInput.Tagging is a string.
-		// "The tag-set for the object. The tag-set must be encoded as URL Query parameters."
 		var tagParts []string
-		pairs := strings.SplitSeq(tagsInput, ",")
-		for p := range pairs {
+		//nolint:modernize // Avoid SplitSeq for Go 1.22 compatibility
+		pairs := strings.Split(tagsInput, ",")
+		for _, p := range pairs {
 			kv := strings.TrimSpace(p)
-			// Simple URL encoding of key and value if needed, but for now assuming simple text
 			tagParts = append(tagParts, kv)
 		}
 		input.Tagging = aws.String(strings.Join(tagParts, "&"))
@@ -438,9 +509,20 @@ func (h *Handler) s3Upload(w http.ResponseWriter, r *http.Request, bucketName st
 
 	_, err = h.S3.PutObject(ctx, input)
 	if err != nil {
-		log.ErrorContext(ctx, "Failed to upload object", "bucket", bucketName, "key", key, "error", err)
-		toastMessage := fmt.Sprintf(`{"showToast": {"message": "Failed to upload file: %s", "type": "error"}}`,
-			strings.ReplaceAll(err.Error(), `"`, `'`))
+		log.ErrorContext(
+			ctx,
+			"Failed to upload object",
+			"bucket",
+			bucketName,
+			"key",
+			key,
+			"error",
+			err,
+		)
+		toastMessage := fmt.Sprintf(
+			`{"showToast": {"message": "Failed to upload file: %s", "type": "error"}}`,
+			strings.ReplaceAll(err.Error(), `"`, `'`),
+		)
 		w.Header().Set("Hx-Trigger", toastMessage)
 		w.WriteHeader(http.StatusUnprocessableEntity)
 
@@ -449,8 +531,6 @@ func (h *Handler) s3Upload(w http.ResponseWriter, r *http.Request, bucketName st
 
 	// Return success and refresh file tree
 	w.Header().Set("Hx-Trigger", "fileUploaded")
-	// Instead of alert, return the updated file tree!
-	// This refreshes the list in place (target is #file-tree)
 	h.s3FileTree(w, r, bucketName)
 }
 
@@ -568,7 +648,7 @@ func (h *Handler) s3CreateBucket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bucketName := r.FormValue("bucketName")
-	versioningEnabled := r.FormValue("versioning") == "on" // Checkbox sends "on" if checked
+	versioningEnabled := r.FormValue("versioning") == "on"
 
 	// Create bucket
 	_, err := h.S3.CreateBucket(ctx, &s3.CreateBucketInput{
@@ -576,8 +656,10 @@ func (h *Handler) s3CreateBucket(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		log.ErrorContext(ctx, "Failed to create bucket", "bucket", bucketName, "error", err)
-		toastMessage := fmt.Sprintf(`{"showToast": {"message": "Failed to create bucket: %s", "type": "error"}}`,
-			strings.ReplaceAll(err.Error(), `"`, `'`))
+		toastMessage := fmt.Sprintf(
+			`{"showToast": {"message": "Failed to create bucket: %s", "type": "error"}}`,
+			strings.ReplaceAll(err.Error(), `"`, `'`),
+		)
 		w.Header().Set("Hx-Trigger", toastMessage)
 		w.WriteHeader(http.StatusUnprocessableEntity)
 
@@ -594,7 +676,6 @@ func (h *Handler) s3CreateBucket(w http.ResponseWriter, r *http.Request) {
 		})
 		if err != nil {
 			log.ErrorContext(ctx, "Failed to enable versioning", "bucket", bucketName, "error", err)
-			// Non-critical error, just log it. Or could show warning.
 		}
 	}
 
@@ -606,21 +687,8 @@ func (h *Handler) s3CreateBucket(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) s3DeleteFile(w http.ResponseWriter, r *http.Request, bucketName, key string) {
 	ctx := r.Context()
 	log := logger.Load(ctx)
-	log.InfoContext(
-		ctx,
-		"s3DeleteFile request",
-		"bucket",
-		bucketName,
-		"key",
-		key,
-		"method",
-		r.Method,
-		"url",
-		r.URL.String(),
-	)
 
 	if r.Method != http.MethodDelete {
-		log.WarnContext(ctx, "Method not allowed", "method", r.Method)
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 
 		return
@@ -629,8 +697,6 @@ func (h *Handler) s3DeleteFile(w http.ResponseWriter, r *http.Request, bucketNam
 	deleteAll := r.URL.Query().Get("deleteAll") == "true"
 	versionID := r.URL.Query().Get("versionId")
 
-	log.InfoContext(ctx, "Deletion parameters", "deleteAll", deleteAll, "versionID", versionID)
-
 	if deleteAll {
 		if err := h.deleteAllVersions(ctx, bucketName, key); err != nil {
 			http.Error(w, "Failed to delete all versions", http.StatusInternalServerError)
@@ -638,7 +704,6 @@ func (h *Handler) s3DeleteFile(w http.ResponseWriter, r *http.Request, bucketNam
 			return
 		}
 	} else {
-		// Standard delete (creates delete marker or deletes specific version)
 		input := &s3.DeleteObjectInput{
 			Bucket: &bucketName,
 			Key:    &key,
@@ -656,17 +721,14 @@ func (h *Handler) s3DeleteFile(w http.ResponseWriter, r *http.Request, bucketNam
 		}
 	}
 
-	// Read HX-Trigger to determine source context (list vs detail)
-	// If HX-Target is body, likely from detail page, redirect to bucket
 	if r.Header.Get("Hx-Target") == "body" {
 		w.Header().Set("Hx-Redirect", fmt.Sprintf("/dashboard/s3/bucket/%s", bucketName))
 
 		return
 	}
 
-	// Otherwise from list, just remove the element
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(" ")) // Write something to ensure HTMX triggers swap
+	_, _ = w.Write([]byte(" "))
 }
 
 // s3DeleteBucket handles bucket deletion.
@@ -685,16 +747,16 @@ func (h *Handler) s3DeleteBucket(w http.ResponseWriter, r *http.Request, bucketN
 	})
 	if err != nil {
 		log.ErrorContext(ctx, "Failed to delete bucket", "bucket", bucketName, "error", err)
-		// Set a trigger for the client-side toast
-		toastMessage := fmt.Sprintf(`{"showToast": {"message": "Failed to delete bucket: %s", "type": "error"}}`,
-			strings.ReplaceAll(err.Error(), `"`, `'`))
+		toastMessage := fmt.Sprintf(
+			`{"showToast": {"message": "Failed to delete bucket: %s", "type": "error"}}`,
+			strings.ReplaceAll(err.Error(), `"`, `'`),
+		)
 		w.Header().Set("Hx-Trigger", toastMessage)
 		w.WriteHeader(http.StatusUnprocessableEntity)
 
 		return
 	}
 
-	// Success: return nothing to remove the card (target is .card with outerHTML)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(" "))
 }
@@ -720,47 +782,289 @@ func (h *Handler) s3Purge(w http.ResponseWriter, r *http.Request) {
 
 	for _, bucket := range output.Buckets {
 		bucketName := *bucket.Name
+		h.purgeBucket(ctx, bucketName)
+	}
 
-		// Must delete all objects and versions before deleting bucket
-		versions, err := h.S3.ListObjectVersions(ctx, &s3.ListObjectVersionsInput{
-			Bucket: &bucketName,
+	w.Header().Set("Hx-Trigger", "bucketsPurged")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(
+		[]byte(
+			`<div class="alert alert-success col-span-full"><span>All buckets purged successfully.</span></div>`,
+		),
+	)
+}
+
+func (h *Handler) purgeBucket(ctx context.Context, bucketName string) {
+	log := logger.Load(ctx)
+	versions, err := h.S3.ListObjectVersions(ctx, &s3.ListObjectVersionsInput{
+		Bucket: &bucketName,
+	})
+	if err == nil {
+		h.deleteObjectsInBucket(ctx, bucketName, versions)
+	}
+
+	_, err = h.S3.DeleteBucket(ctx, &s3.DeleteBucketInput{
+		Bucket: &bucketName,
+	})
+	if err != nil {
+		log.ErrorContext(
+			ctx,
+			"Failed to delete bucket during purge",
+			"bucket",
+			bucketName,
+			"error",
+			err,
+		)
+	}
+}
+
+func (h *Handler) deleteObjectsInBucket(
+	ctx context.Context,
+	bucketName string,
+	versions *s3.ListObjectVersionsOutput,
+) {
+	log := logger.Load(ctx)
+	objectsToDelete := make(
+		[]types.ObjectIdentifier,
+		0,
+		len(versions.Versions)+len(versions.DeleteMarkers),
+	)
+	for _, v := range versions.Versions {
+		objectsToDelete = append(objectsToDelete, types.ObjectIdentifier{
+			Key:       v.Key,
+			VersionId: v.VersionId,
 		})
-		if err == nil {
-			var objectsToDelete []types.ObjectIdentifier
-			for _, v := range versions.Versions {
-				objectsToDelete = append(objectsToDelete, types.ObjectIdentifier{
-					Key:       v.Key,
-					VersionId: v.VersionId,
-				})
-			}
-			for _, dm := range versions.DeleteMarkers {
-				objectsToDelete = append(objectsToDelete, types.ObjectIdentifier{
-					Key:       dm.Key,
-					VersionId: dm.VersionId,
-				})
-			}
+	}
+	for _, dm := range versions.DeleteMarkers {
+		objectsToDelete = append(objectsToDelete, types.ObjectIdentifier{
+			Key:       dm.Key,
+			VersionId: dm.VersionId,
+		})
+	}
 
-			if len(objectsToDelete) > 0 {
-				_, err = h.S3.DeleteObjects(ctx, &s3.DeleteObjectsInput{
-					Bucket: &bucketName,
-					Delete: &types.Delete{Objects: objectsToDelete},
-				})
-				if err != nil {
-					log.ErrorContext(ctx, "Failed to delete objects during purge", "bucket", bucketName, "error", err)
-				}
-			}
-		}
-
-		_, err = h.S3.DeleteBucket(ctx, &s3.DeleteBucketInput{
+	if len(objectsToDelete) > 0 {
+		_, err := h.S3.DeleteObjects(ctx, &s3.DeleteObjectsInput{
 			Bucket: &bucketName,
+			Delete: &types.Delete{Objects: objectsToDelete},
 		})
 		if err != nil {
-			log.ErrorContext(ctx, "Failed to delete bucket during purge", "bucket", bucketName, "error", err)
+			log.ErrorContext(
+				ctx,
+				"Failed to delete objects during purge",
+				"bucket",
+				bucketName,
+				"error",
+				err,
+			)
+		}
+	}
+}
+
+// s3ExportJSON exports object metadata as JSON.
+func (h *Handler) s3ExportJSON(w http.ResponseWriter, r *http.Request, bucketName, key string) {
+	ctx := r.Context()
+
+	obj, err := h.S3.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: &bucketName,
+		Key:    &key,
+	})
+	if err != nil {
+		http.NotFound(w, r)
+
+		return
+	}
+
+	tagging, _ := h.S3.GetObjectTagging(ctx, &s3.GetObjectTaggingInput{
+		Bucket: &bucketName,
+		Key:    &key,
+	})
+
+	tags := make(map[string]string)
+	if tagging != nil {
+		for _, t := range tagging.TagSet {
+			tags[*t.Key] = *t.Value
 		}
 	}
 
-	// Trigger a refresh
-	w.Header().Set("Hx-Trigger", "bucketsPurged")
+	export := struct {
+		Tags        map[string]string `json:"tags"`
+		Metadata    map[string]string `json:"metadata"`
+		Bucket      string            `json:"bucket"`
+		Key         string            `json:"key"`
+		ContentType string            `json:"content_type"`
+		ETag        string            `json:"etag"`
+		Size        int64             `json:"size"`
+	}{
+		Bucket:      bucketName,
+		Key:         key,
+		ContentType: *obj.ContentType,
+		Size:        *obj.ContentLength,
+		ETag:        *obj.ETag,
+		Tags:        tags,
+		Metadata:    obj.Metadata,
+	}
+
+	w.Header().
+		Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", key+"-metadata.json"))
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(export)
+}
+
+// s3Preview returns a text preview of an object.
+func (h *Handler) s3Preview(w http.ResponseWriter, r *http.Request, bucketName, key string) {
+	ctx := r.Context()
+	log := logger.Load(ctx)
+
+	const maxPreviewSize = 100 * 1024
+
+	output, err := h.S3.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: &bucketName,
+		Key:    &key,
+	})
+	if err != nil {
+		http.Error(w, "Failed to get preview", http.StatusInternalServerError)
+
+		return
+	}
+	defer output.Body.Close()
+
+	lr := io.LimitReader(output.Body, maxPreviewSize)
+	content, err := io.ReadAll(lr)
+	if err != nil {
+		log.ErrorContext(ctx, "Failed to read preview content", "error", err)
+	}
+
+	fmt.Fprintf(
+		w,
+		`<pre class="text-xs bg-base-300 p-2 rounded overflow-auto max-h-[600px] w-full">%s</pre>`,
+		html.EscapeString(string(content)),
+	)
+}
+
+// s3UpdateMetadata updates object Content-Type.
+func (h *Handler) s3UpdateMetadata(w http.ResponseWriter, r *http.Request, bucketName, key string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+
+		return
+	}
+
+	ctx := r.Context()
+	contentType := r.FormValue("contentType")
+
+	_, err := h.S3.CopyObject(ctx, &s3.CopyObjectInput{
+		Bucket:            &bucketName,
+		Key:               &key,
+		CopySource:        aws.String(url.PathEscape(bucketName + "/" + key)),
+		ContentType:       &contentType,
+		MetadataDirective: types.MetadataDirectiveReplace,
+	})
+	if err != nil {
+		http.Error(w, "Failed to update metadata: "+err.Error(), http.StatusInternalServerError)
+
+		return
+	}
+
+	w.Header().Set("Hx-Refresh", "true")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(`<div class="alert alert-success col-span-full"><span>All buckets purged successfully.</span></div>`))
+}
+
+// s3UpdateTag adds/updates an object tag.
+func (h *Handler) s3UpdateTag(w http.ResponseWriter, r *http.Request, bucketName, key string) {
+	ctx := r.Context()
+	tagKey := r.FormValue("tagKey")
+	tagValue := r.FormValue("tagValue")
+
+	current, err := h.S3.GetObjectTagging(ctx, &s3.GetObjectTaggingInput{
+		Bucket: &bucketName,
+		Key:    &key,
+	})
+
+	var tags []types.Tag
+	if err == nil {
+		tags = current.TagSet
+	}
+
+	found := false
+	for i := range tags {
+		if *tags[i].Key == tagKey {
+			tags[i].Value = &tagValue
+			found = true
+
+			break
+		}
+	}
+	if !found {
+		tags = append(tags, types.Tag{Key: &tagKey, Value: &tagValue})
+	}
+
+	_, err = h.S3.PutObjectTagging(ctx, &s3.PutObjectTaggingInput{
+		Bucket:  &bucketName,
+		Key:     &key,
+		Tagging: &types.Tagging{TagSet: tags},
+	})
+	if err != nil {
+		http.Error(w, "Failed to update tags", http.StatusInternalServerError)
+
+		return
+	}
+
+	h.renderTagsList(w, bucketName, key, tags)
+}
+
+// s3DeleteTag removes a tag.
+func (h *Handler) s3DeleteTag(w http.ResponseWriter, r *http.Request, bucketName, key string) {
+	ctx := r.Context()
+	tagKey := r.URL.Query().Get("key")
+
+	current, err := h.S3.GetObjectTagging(ctx, &s3.GetObjectTaggingInput{
+		Bucket: &bucketName,
+		Key:    &key,
+	})
+	if err != nil {
+		http.Error(w, "Failed to get tags", http.StatusInternalServerError)
+
+		return
+	}
+
+	var newTags []types.Tag
+	for _, t := range current.TagSet {
+		if *t.Key != tagKey {
+			newTags = append(newTags, t)
+		}
+	}
+
+	_, err = h.S3.PutObjectTagging(ctx, &s3.PutObjectTaggingInput{
+		Bucket:  &bucketName,
+		Key:     &key,
+		Tagging: &types.Tagging{TagSet: newTags},
+	})
+	if err != nil {
+		http.Error(w, "Failed to delete tag", http.StatusInternalServerError)
+
+		return
+	}
+
+	h.renderTagsList(w, bucketName, key, newTags)
+}
+
+func (h *Handler) renderTagsList(w http.ResponseWriter, bucketName, key string, tags []types.Tag) {
+	for _, t := range tags {
+		h.renderTagItem(w, bucketName, key, *t.Key, *t.Value)
+	}
+}
+
+func (h *Handler) renderTagItem(w http.ResponseWriter, bucketName, key, tagKey, tagValue string) {
+	// #nosec G705
+	fmt.Fprintf(w, `
+            <div class="flex justify-between items-center bg-base-200 px-3 py-1 rounded">
+                <span class="text-xs font-mono"><b>%s</b>: %s</span>
+                <button hx-delete="/dashboard/s3/bucket/%s/file/%s/tag?key=%s"
+                    hx-target="#tags-list" class="btn btn-ghost btn-xs text-error">×</button>
+            </div>`,
+		html.EscapeString(tagKey),
+		html.EscapeString(tagValue),
+		url.PathEscape(bucketName),
+		url.PathEscape(key),
+		url.QueryEscape(tagKey))
 }

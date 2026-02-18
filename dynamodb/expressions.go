@@ -73,7 +73,11 @@ func applyUpdate(
 }
 
 // projectItem creates a new item containing only the attributes specified in the ProjectionExpression.
-func projectItem(item map[string]any, projectionExpression string, attrNames map[string]string) map[string]any {
+func projectItem(
+	item map[string]any,
+	projectionExpression string,
+	attrNames map[string]string,
+) map[string]any {
 	if projectionExpression == "" {
 		return item
 	}

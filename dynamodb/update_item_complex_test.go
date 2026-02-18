@@ -64,7 +64,11 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 					Item: map[string]any{
 						"pk": map[string]any{"S": "list-update"},
 						"tags": map[string]any{
-							"L": []any{map[string]any{"S": "a"}, map[string]any{"S": "b"}, map[string]any{"S": "c"}},
+							"L": []any{
+								map[string]any{"S": "a"},
+								map[string]any{"S": "b"},
+								map[string]any{"S": "c"},
+							},
 						},
 					},
 				}
@@ -94,7 +98,9 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 					Item: map[string]any{
 						"pk": map[string]any{"S": "nested-list"},
 						"data": map[string]any{"M": map[string]any{
-							"scores": map[string]any{"L": []any{map[string]any{"N": "10"}, map[string]any{"N": "20"}}},
+							"scores": map[string]any{
+								"L": []any{map[string]any{"N": "10"}, map[string]any{"N": "20"}},
+							},
 						}},
 					},
 				}
@@ -125,7 +131,11 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 					Item: map[string]any{
 						"pk": map[string]any{"S": "remove-list"},
 						"tags": map[string]any{
-							"L": []any{map[string]any{"S": "a"}, map[string]any{"S": "b"}, map[string]any{"S": "c"}},
+							"L": []any{
+								map[string]any{"S": "a"},
+								map[string]any{"S": "b"},
+								map[string]any{"S": "c"},
+							},
 						},
 					},
 				}

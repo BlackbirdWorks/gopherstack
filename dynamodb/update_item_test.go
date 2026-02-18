@@ -185,9 +185,13 @@ func TestUpdateItem(t *testing.T) {
 
 			// Setup table
 			ctInput := models.CreateTableInput{
-				TableName:            "UpdateTestTable",
-				KeySchema:            []models.KeySchemaElement{{AttributeName: "pk", KeyType: "HASH"}},
-				AttributeDefinitions: []models.AttributeDefinition{{AttributeName: "pk", AttributeType: "S"}},
+				TableName: "UpdateTestTable",
+				KeySchema: []models.KeySchemaElement{
+					{AttributeName: "pk", KeyType: "HASH"},
+				},
+				AttributeDefinitions: []models.AttributeDefinition{
+					{AttributeName: "pk", AttributeType: "S"},
+				},
 			}
 			_, err := db.CreateTable(context.Background(), models.ToSDKCreateTableInput(&ctInput))
 			require.NoError(t, err)

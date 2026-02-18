@@ -220,8 +220,14 @@ func TestInternal_ResolveKeySchema(t *testing.T) {
 						{AttributeName: aws.String("sk"), KeyType: types.KeyTypeRange},
 					},
 					AttributeDefinitions: []types.AttributeDefinition{
-						{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
-						{AttributeName: aws.String("sk"), AttributeType: types.ScalarAttributeTypeN},
+						{
+							AttributeName: aws.String("pk"),
+							AttributeType: types.ScalarAttributeTypeS,
+						},
+						{
+							AttributeName: aws.String("sk"),
+							AttributeType: types.ScalarAttributeTypeN,
+						},
 					},
 				},
 			},
@@ -515,7 +521,7 @@ func TestInternal_RenderQueryResults(t *testing.T) {
 			_ = ctx
 			h := &Handler{Logger: slog.Default()}
 			w := httptest.NewRecorder()
-			h.renderQueryResults(w, tt.result, "", "")
+			h.renderQueryResults(w, tt.result, "test-table", "", "")
 			require.Equal(t, tt.expectCode, w.Code)
 			if tt.expectContent != "" {
 				require.Contains(t, w.Body.String(), tt.expectContent)
@@ -566,7 +572,11 @@ func TestInternal_ParseQueryRequest(t *testing.T) {
 			ctx := context.Background()
 			_ = ctx
 			h := &Handler{Logger: slog.Default()}
-			req := httptest.NewRequest(http.MethodPost, "/test", strings.NewReader(tt.formData.Encode()))
+			req := httptest.NewRequest(
+				http.MethodPost,
+				"/test",
+				strings.NewReader(tt.formData.Encode()),
+			)
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 			w := httptest.NewRecorder()
 			params, ok := h.parseQueryRequest(w, req)

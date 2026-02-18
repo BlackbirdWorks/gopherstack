@@ -96,7 +96,8 @@ func (h *Handler) Handle(c *echo.Context) error {
 
 	// Serve static files
 	if strings.HasPrefix(path, "/static/") {
-		http.StripPrefix("/dashboard", http.FileServer(http.FS(staticFS))).ServeHTTP(c.Response(), c.Request())
+		http.StripPrefix("/dashboard", http.FileServer(http.FS(staticFS))).
+			ServeHTTP(c.Response(), c.Request())
 
 		return nil
 	}
@@ -194,24 +195,61 @@ func (h *Handler) handleDynamoDB(w http.ResponseWriter, r *http.Request, path st
 		tableName := parts[0]
 
 		if len(parts) == 1 {
-			if r.Method == http.MethodDelete {
-				h.dynamoDBDeleteTable(w, r, tableName)
-			} else {
-				h.dynamoDBTableDetail(w, r, tableName)
-			}
-		} else {
-			action := parts[1]
-			switch action {
-			case "query":
-				h.dynamoDBQuery(w, r, tableName)
-			case "scan":
-				h.dynamoDBScan(w, r, tableName)
-			default:
-				http.NotFound(w, r)
-			}
+			h.handleDynamoDBTableRoot(w, r, tableName)
+
+			return
 		}
+
+		h.handleDynamoDBTableAction(w, r, tableName, parts[1])
 	default:
 		http.NotFound(w, r)
+	}
+}
+
+func (h *Handler) handleDynamoDBTableRoot(
+	w http.ResponseWriter,
+	r *http.Request,
+	tableName string,
+) {
+	if r.Method == http.MethodDelete {
+		h.dynamoDBDeleteTable(w, r, tableName)
+
+		return
+	}
+	h.dynamoDBTableDetail(w, r, tableName)
+}
+
+func (h *Handler) handleDynamoDBTableAction(
+	w http.ResponseWriter,
+	r *http.Request,
+	tableName, action string,
+) {
+	switch action {
+	case "query":
+		h.dynamoDBQuery(w, r, tableName)
+	case "scan":
+		h.dynamoDBScan(w, r, tableName)
+	case "item":
+		h.handleDynamoDBItem(w, r, tableName)
+	case "export":
+		h.dynamoDBExportTable(w, r, tableName)
+	case "import":
+		h.dynamoDBImportTable(w, r, tableName)
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+func (h *Handler) handleDynamoDBItem(w http.ResponseWriter, r *http.Request, tableName string) {
+	switch r.Method {
+	case http.MethodDelete:
+		h.dynamoDBDeleteItem(w, r, tableName)
+	case http.MethodPost:
+		h.dynamoDBCreateItem(w, r, tableName)
+	case http.MethodGet:
+		h.dynamoDBItemDetail(w, r, tableName)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
@@ -274,9 +312,25 @@ func (h *Handler) handleS3File(w http.ResponseWriter, r *http.Request, bucketNam
 	}
 
 	key := action
-	if r.Method == http.MethodDelete {
-		h.s3DeleteFile(w, r, bucketName, key)
-	} else {
-		h.s3FileDetail(w, r, bucketName, key)
+	// Check for specific sub-actions on files
+	switch {
+	case strings.HasSuffix(key, "/preview"):
+		h.s3Preview(w, r, bucketName, strings.TrimSuffix(key, "/preview"))
+	case strings.HasSuffix(key, "/metadata"):
+		h.s3UpdateMetadata(w, r, bucketName, strings.TrimSuffix(key, "/metadata"))
+	case strings.HasSuffix(key, "/export"):
+		h.s3ExportJSON(w, r, bucketName, strings.TrimSuffix(key, "/export"))
+	case strings.HasSuffix(key, "/tag"):
+		if r.Method == http.MethodDelete {
+			h.s3DeleteTag(w, r, bucketName, strings.TrimSuffix(key, "/tag"))
+		} else {
+			h.s3UpdateTag(w, r, bucketName, strings.TrimSuffix(key, "/tag"))
+		}
+	default:
+		if r.Method == http.MethodDelete {
+			h.s3DeleteFile(w, r, bucketName, key)
+		} else {
+			h.s3FileDetail(w, r, bucketName, key)
+		}
 	}
 }

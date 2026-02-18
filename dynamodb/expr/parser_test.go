@@ -140,8 +140,14 @@ func TestOperatorPrecedence(t *testing.T) {
 		exprStr string
 		want    bool
 	}{
-		{"a = :one OR b = :two AND c = :four", true},    // (a=1) OR (b=2 AND c=4) -> true OR false -> true
-		{"(a = :one OR b = :two) AND c = :four", false}, // (1=1 OR 2=2) AND 3=4 -> true AND false -> false
+		{
+			"a = :one OR b = :two AND c = :four",
+			true,
+		}, // (a=1) OR (b=2 AND c=4) -> true OR false -> true
+		{
+			"(a = :one OR b = :two) AND c = :four",
+			false,
+		}, // (1=1 OR 2=2) AND 3=4 -> true AND false -> false
 	}
 	for _, tc := range tests {
 		t.Run(tc.exprStr, func(t *testing.T) {

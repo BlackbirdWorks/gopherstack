@@ -70,7 +70,8 @@ func TestRecordOperation_LatencyAggregation(t *testing.T) {
 	// Find the TestUpdateItem metric
 	var updateMetric *telemetry.Summary
 	for i := range result.Operations {
-		if result.Operations[i].Operation == "TestUpdateItem" && result.Operations[i].Resource == "TestTable2" {
+		if result.Operations[i].Operation == "TestUpdateItem" &&
+			result.Operations[i].Resource == "TestTable2" {
 			updateMetric = &result.Operations[i]
 
 			break
@@ -127,7 +128,8 @@ func TestMetricsPrecision(t *testing.T) {
 	// Find the TestScan metric
 	var scanMetric *telemetry.Summary
 	for i := range result.Operations {
-		if result.Operations[i].Operation == "TestScan" && result.Operations[i].Resource == "TestTable3" {
+		if result.Operations[i].Operation == "TestScan" &&
+			result.Operations[i].Resource == "TestTable3" {
 			scanMetric = &result.Operations[i]
 
 			break

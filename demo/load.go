@@ -19,7 +19,12 @@ const (
 )
 
 // LoadData loads sample data into DynamoDB and S3.
-func LoadData(ctx context.Context, logger *slog.Logger, ddb *dynamodb.Client, s3Client *s3.Client) error {
+func LoadData(
+	ctx context.Context,
+	logger *slog.Logger,
+	ddb *dynamodb.Client,
+	s3Client *s3.Client,
+) error {
 	logger.InfoContext(ctx, "Loading demo data...")
 
 	if err := loadDynamoDB(ctx, logger, ddb); err != nil {
@@ -109,7 +114,14 @@ func loadS3(ctx context.Context, logger *slog.Logger, s3Client *s3.Client) error
 			!strings.Contains(err.Error(), "BucketAlreadyExists") {
 			// In-memory backend might return generic error or specific.
 			// We'll log and continue if it fails, maybe it already exists.
-			logger.WarnContext(ctx, "Failed to create bucket (might exist)", "bucket", bucketName, "error", err)
+			logger.WarnContext(
+				ctx,
+				"Failed to create bucket (might exist)",
+				"bucket",
+				bucketName,
+				"error",
+				err,
+			)
 		}
 		logger.InfoContext(ctx, "Created bucket", "bucket", bucketName)
 	}

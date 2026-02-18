@@ -103,7 +103,12 @@ func validateKeySchema(item map[string]any, schema []models.KeySchemaElement) er
 
 		if size > limit {
 			return NewValidationException(
-				fmt.Sprintf("Key element %s size %d exceeds limit %d", k.AttributeName, size, limit),
+				fmt.Sprintf(
+					"Key element %s size %d exceeds limit %d",
+					k.AttributeName,
+					size,
+					limit,
+				),
 			)
 		}
 	}
@@ -129,7 +134,9 @@ func validateAttribute(k string, v any) error {
 	}
 
 	if len(valMap) != 1 {
-		return NewValidationException(fmt.Sprintf("Attribute %s must contain exactly one type specifier", k))
+		return NewValidationException(
+			fmt.Sprintf("Attribute %s must contain exactly one type specifier", k),
+		)
 	}
 
 	for t, val := range valMap {
@@ -221,16 +228,23 @@ func validateSetItem(k, t string, item any) error {
 		s, ok := item.(string)
 		if !ok {
 			return NewValidationException(
-				fmt.Sprintf("Attribute %s elements must be strings (numbers represented as strings)", k),
+				fmt.Sprintf(
+					"Attribute %s elements must be strings (numbers represented as strings)",
+					k,
+				),
 			)
 		}
 		if _, err := strconv.ParseFloat(s, 64); err != nil {
-			return NewValidationException(fmt.Sprintf("Attribute %s element %s must be a valid number", k, s))
+			return NewValidationException(
+				fmt.Sprintf("Attribute %s element %s must be a valid number", k, s),
+			)
 		}
 	case typeBS:
 		if _, ok := item.(string); !ok {
 			// We expect base64 strings in the wire format for B/BS
-			return NewValidationException(fmt.Sprintf("Attribute %s elements must be base64-encoded strings", k))
+			return NewValidationException(
+				fmt.Sprintf("Attribute %s elements must be base64-encoded strings", k),
+			)
 		}
 	}
 
@@ -249,15 +263,21 @@ func validateScalarValue(k, t string, val any) error {
 			return NewValidationException(fmt.Sprintf("Attribute %s of type N must be a string", k))
 		}
 		if _, err := strconv.ParseFloat(valStr, 64); err != nil {
-			return NewValidationException(fmt.Sprintf("Attribute %s of type N must be a valid number", k))
+			return NewValidationException(
+				fmt.Sprintf("Attribute %s of type N must be a valid number", k),
+			)
 		}
 	case "BOOL":
 		if _, ok := val.(bool); !ok {
-			return NewValidationException(fmt.Sprintf("Attribute %s of type BOOL must be a boolean", k))
+			return NewValidationException(
+				fmt.Sprintf("Attribute %s of type BOOL must be a boolean", k),
+			)
 		}
 	case "B":
 		if _, ok := val.(string); !ok {
-			return NewValidationException(fmt.Sprintf("Attribute %s of type B must be a base64 string", k))
+			return NewValidationException(
+				fmt.Sprintf("Attribute %s of type B must be a base64 string", k),
+			)
 		}
 	}
 
