@@ -163,11 +163,22 @@ func (db *InMemoryDB) DescribeTable(
 		return nil, NewResourceNotFoundException(fmt.Sprintf("table not found: %s", tableName))
 	}
 
+	// Snapshot table metadata under lock, release immediately, then build descriptions outside lock
 	table.mu.RLock()
-	defer table.mu.RUnlock()
+	keySchema := make([]models.KeySchemaElement, len(table.KeySchema))
+	copy(keySchema, table.KeySchema)
+	attrDefs := make([]models.AttributeDefinition, len(table.AttributeDefinitions))
+	copy(attrDefs, table.AttributeDefinitions)
+	gsiList := make([]models.GlobalSecondaryIndex, len(table.GlobalSecondaryIndexes))
+	copy(gsiList, table.GlobalSecondaryIndexes)
+	lsiList := make([]models.LocalSecondaryIndex, len(table.LocalSecondaryIndexes))
+	copy(lsiList, table.LocalSecondaryIndexes)
+	itemCount := int64(len(table.Items))
+	table.mu.RUnlock()
 
-	gsiDescs := make([]models.GlobalSecondaryIndexDescription, len(table.GlobalSecondaryIndexes))
-	for i, gsi := range table.GlobalSecondaryIndexes {
+	// Build index descriptions outside lock
+	gsiDescs := make([]models.GlobalSecondaryIndexDescription, len(gsiList))
+	for i, gsi := range gsiList {
 		rc := int64(models.DefaultReadCapacity)
 		wc := int64(models.DefaultWriteCapacity)
 		if gsi.ProvisionedThroughput.ReadCapacityUnits != nil {
@@ -186,12 +197,12 @@ func (db *InMemoryDB) DescribeTable(
 				WriteCapacityUnits: int(wc),
 			},
 			IndexStatus: models.TableStatusActive,
-			ItemCount:   len(table.Items),
+			ItemCount:   int(itemCount),
 		}
 	}
 
-	lsiDescs := make([]models.LocalSecondaryIndexDescription, len(table.LocalSecondaryIndexes))
-	for i, lsi := range table.LocalSecondaryIndexes {
+	lsiDescs := make([]models.LocalSecondaryIndexDescription, len(lsiList))
+	for i, lsi := range lsiList {
 		lsiDescs[i] = models.LocalSecondaryIndexDescription{
 			IndexName:      lsi.IndexName,
 			KeySchema:      lsi.KeySchema,
@@ -203,9 +214,8 @@ func (db *InMemoryDB) DescribeTable(
 
 	sdkGSIs := models.ToSDKGlobalSecondaryIndexDescriptions(gsiDescs)
 	sdkLSIs := models.ToSDKLocalSecondaryIndexDescriptions(lsiDescs)
-	sdkKeySchema := models.ToSDKKeySchema(table.KeySchema)
-	sdkAttrDefs := models.ToSDKAttributeDefinitions(table.AttributeDefinitions)
-	itemCount := int64(len(table.Items))
+	sdkKeySchema := models.ToSDKKeySchema(keySchema)
+	sdkAttrDefs := models.ToSDKAttributeDefinitions(attrDefs)
 
 	rcu := int64(models.DefaultReadCapacity)
 	wcu := int64(models.DefaultWriteCapacity)
@@ -288,13 +298,15 @@ func (db *InMemoryDB) ListTables(
 	_ context.Context,
 	input *dynamodb.ListTablesInput,
 ) (*dynamodb.ListTablesOutput, error) {
+	// Snapshot table names under lock, then release immediately
 	db.mu.RLock()
-	defer db.mu.RUnlock()
-
 	names := make([]string, 0, len(db.Tables))
 	for name := range db.Tables {
 		names = append(names, name)
 	}
+	db.mu.RUnlock()
+
+	// Sort outside the lock to reduce contention
 	sort.Strings(names)
 
 	startName := aws.ToString(input.ExclusiveStartTableName)

@@ -39,16 +39,53 @@ func (db *InMemoryDB) QueryWithContext(
 		return nil, err
 	}
 
+	// Snapshot table metadata and items under lock
 	table.mu.RLock()
-	defer table.mu.RUnlock()
+	itemsCopy := make([]map[string]any, len(table.Items))
+	copy(itemsCopy, table.Items)
+	keySchemaOrig := make([]models.KeySchemaElement, len(table.KeySchema))
+	copy(keySchemaOrig, table.KeySchema)
+	gsiList := make([]models.GlobalSecondaryIndex, len(table.GlobalSecondaryIndexes))
+	copy(gsiList, table.GlobalSecondaryIndexes)
+	lsiList := make([]models.LocalSecondaryIndex, len(table.LocalSecondaryIndexes))
+	copy(lsiList, table.LocalSecondaryIndexes)
+	attrDefs := make([]models.AttributeDefinition, len(table.AttributeDefinitions))
+	copy(attrDefs, table.AttributeDefinitions)
+	ttlAttr := table.TTLAttribute
+	// Copy pk/sk indices for efficient lookups
+	pkIndexCopy := make(map[string]int, len(table.pkIndex))
+	for k, v := range table.pkIndex {
+		pkIndexCopy[k] = v
+	}
+	pkskIndexCopy := make(map[string]map[string]int, len(table.pkskIndex))
+	for k, m := range table.pkskIndex {
+		m2 := make(map[string]int, len(m))
+		for k2, v := range m {
+			m2[k2] = v
+		}
+		pkskIndexCopy[k] = m2
+	}
+	table.mu.RUnlock()
+
+	// Reconstruct snapshot table for querying
+	snapshotTable := &Table{
+		Items:                  itemsCopy,
+		KeySchema:              keySchemaOrig,
+		GlobalSecondaryIndexes: gsiList,
+		LocalSecondaryIndexes:  lsiList,
+		AttributeDefinitions:   attrDefs,
+		TTLAttribute:           ttlAttr,
+		pkIndex:                pkIndexCopy,
+		pkskIndex:              pkskIndexCopy,
+	}
 
 	idxName := aws.ToString(input.IndexName)
-	keySchema, projection, err := db.extractKeySchema(table, idxName)
+	keySchema, projection, err := db.extractKeySchema(snapshotTable, idxName)
 	if err != nil {
 		return nil, err
 	}
 
-	candidates, err := db.filterCandidatesForKeyCondition(ctx, table, input, projection, keySchema)
+	candidates, err := db.filterCandidatesForKeyCondition(ctx, snapshotTable, input, projection, keySchema)
 	if err != nil {
 		return nil, err
 	}
@@ -60,10 +97,10 @@ func (db *InMemoryDB) QueryWithContext(
 	}
 
 	if skDef.AttributeName != "" {
-		db.sortCandidates(candidates, skDef, table, sortForward)
+		db.sortCandidates(candidates, skDef, snapshotTable, sortForward)
 	}
 
-	return db.processQueryResults(ctx, candidates, input, keySchema, table.TTLAttribute), nil
+	return db.processQueryResults(ctx, candidates, input, keySchema, ttlAttr), nil
 }
 
 func (db *InMemoryDB) extractKeySchema(

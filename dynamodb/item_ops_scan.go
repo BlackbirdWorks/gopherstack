@@ -32,15 +32,37 @@ func (db *InMemoryDB) ScanWithContext(ctx context.Context, input *dynamodb.ScanI
 		return nil, err
 	}
 
+	// Snapshot items and metadata under lock, release immediately
 	table.mu.RLock()
-	defer table.mu.RUnlock()
+	itemsCopy := make([]map[string]any, len(table.Items))
+	copy(itemsCopy, table.Items)
+	ttlAttr := table.TTLAttribute
+	keySchema := make([]models.KeySchemaElement, len(table.KeySchema))
+	copy(keySchema, table.KeySchema)
+	gsiList := make([]models.GlobalSecondaryIndex, len(table.GlobalSecondaryIndexes))
+	copy(gsiList, table.GlobalSecondaryIndexes)
+	lsiList := make([]models.LocalSecondaryIndex, len(table.LocalSecondaryIndexes))
+	copy(lsiList, table.LocalSecondaryIndexes)
+	attrDefs := make([]models.AttributeDefinition, len(table.AttributeDefinitions))
+	copy(attrDefs, table.AttributeDefinitions)
+	scannedCount := int32(len(table.Items)) // #nosec G115
+	table.mu.RUnlock()
 
-	pkDef, skDef, err := db.getScanKeySchema(table, input)
+	// Get key schema definitions (reconstruct the table temporarily for getScanKeySchema)
+	snapshotTable := &Table{
+		KeySchema:              keySchema,
+		GlobalSecondaryIndexes: gsiList,
+		LocalSecondaryIndexes:  lsiList,
+		AttributeDefinitions:   attrDefs,
+	}
+
+	pkDef, skDef, err := db.getScanKeySchema(snapshotTable, input)
 	if err != nil {
 		return nil, err
 	}
 
-	items := db.doScan(ctx, table, input, pkDef, skDef)
+	// Process scan outside the lock
+	items := db.doScan(ctx, itemsCopy, ttlAttr, snapshotTable, input, pkDef, skDef)
 
 	outItems := make([]map[string]types.AttributeValue, len(items))
 	for i, it := range items {
@@ -50,8 +72,8 @@ func (db *InMemoryDB) ScanWithContext(ctx context.Context, input *dynamodb.ScanI
 
 	return &dynamodb.ScanOutput{
 		Items:        outItems,
-		Count:        int32(len(items)),       // #nosec G115
-		ScannedCount: int32(len(table.Items)), // #nosec G115
+		Count:        int32(len(items)), // #nosec G115
+		ScannedCount: scannedCount,
 	}, nil
 }
 
@@ -89,12 +111,12 @@ func (db *InMemoryDB) getScanKeySchema(
 
 func (db *InMemoryDB) doScan(
 	ctx context.Context,
+	items []map[string]any,
+	ttlAttr string,
 	table *Table,
 	input *dynamodb.ScanInput,
 	pkDef, skDef models.KeySchemaElement,
 ) []map[string]any {
-	items := table.Items
-	ttlAttr := table.TTLAttribute
 	result := make([]map[string]any, 0, minScanAllocationSize)
 
 	eav := models.FromSDKItem(input.ExpressionAttributeValues)
