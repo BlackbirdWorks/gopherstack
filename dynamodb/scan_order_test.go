@@ -83,7 +83,7 @@ func TestScan_Ordering(t *testing.T) {
 					Item:      item,
 				}
 				sdkPutInput, _ := models.ToSDKPutItemInput(&putInput)
-				_, err := db.PutItem(t.Context(), sdkPutInput)
+				_, err = db.PutItem(t.Context(), sdkPutInput)
 				require.NoError(t, err)
 			}
 
