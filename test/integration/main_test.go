@@ -94,9 +94,12 @@ func TestMain(m *testing.M) {
 func createDynamoDBClient(t *testing.T) *dynamodb.Client {
 	t.Helper()
 
-	cfg, err := config.LoadDefaultConfig(t.Context(),
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
 		config.WithRegion("us-east-1"),
-		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("test", "test", "")),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
 	)
 	if err != nil {
 		t.Fatalf("unable to load SDK config: %v", err)
@@ -111,9 +114,12 @@ func createDynamoDBClient(t *testing.T) *dynamodb.Client {
 func createS3Client(t *testing.T) *s3.Client {
 	t.Helper()
 
-	cfg, err := config.LoadDefaultConfig(t.Context(),
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
 		config.WithRegion("us-east-1"),
-		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("test", "test", "")),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
 	)
 	if err != nil {
 		t.Fatalf("unable to load SDK config: %v", err)

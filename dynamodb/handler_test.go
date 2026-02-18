@@ -257,9 +257,13 @@ func TestHandler_Dispatch_Coverage(t *testing.T) {
 			switch op {
 			case "CreateTable":
 				body = mustMarshal(t, models.CreateTableInput{
-					TableName:            "NewTable_" + op,
-					KeySchema:            []models.KeySchemaElement{{AttributeName: "pk", KeyType: "HASH"}},
-					AttributeDefinitions: []models.AttributeDefinition{{AttributeName: "pk", AttributeType: "S"}},
+					TableName: "NewTable_" + op,
+					KeySchema: []models.KeySchemaElement{
+						{AttributeName: "pk", KeyType: "HASH"},
+					},
+					AttributeDefinitions: []models.AttributeDefinition{
+						{AttributeName: "pk", AttributeType: "S"},
+					},
 				})
 			case "PutItem":
 				body = mustMarshal(t, models.PutItemInput{
@@ -341,14 +345,22 @@ func TestHandler_CRC32Header(t *testing.T) {
 			resp := w.Result()
 			defer resp.Body.Close()
 
-			crc32Header := resp.Header.Get("x-amz-crc32") //nolint:canonicalheader // AWS DynamoDB requires lowercase
-			require.NotEmpty(t, crc32Header, "x-amz-crc32 header must be present")
+			crc32H := resp.Header.Get("X-Amz-Crc32")
+			if crc32H == "" {
+				crc32H = resp.Header.Get("X-Amz-Crc32")
+			}
+			require.NotEmpty(t, crc32H, "X-Amz-Crc32 header must be present")
 
-			gotChecksum, err := strconv.ParseUint(crc32Header, 10, 32)
+			gotChecksum, err := strconv.ParseUint(crc32H, 10, 32)
 			require.NoError(t, err, "x-amz-crc32 header must be a valid uint32")
 
 			wantChecksum := uint64(crc32.ChecksumIEEE(w.Body.Bytes()))
-			assert.Equal(t, wantChecksum, gotChecksum, "x-amz-crc32 must match CRC32/IEEE of response body")
+			assert.Equal(
+				t,
+				wantChecksum,
+				gotChecksum,
+				"x-amz-crc32 must match CRC32/IEEE of response body",
+			)
 		})
 	}
 }
@@ -373,9 +385,11 @@ func TestHandler_TransactOps_Coverage(t *testing.T) {
 		wantStatusCode int
 	}{
 		{
-			name:           "TransactWriteItems_Empty",
-			action:         "TransactWriteItems",
-			body:           models.TransactWriteItemsInput{TransactItems: []models.TransactWriteItem{}},
+			name:   "TransactWriteItems_Empty",
+			action: "TransactWriteItems",
+			body: models.TransactWriteItemsInput{
+				TransactItems: []models.TransactWriteItem{},
+			},
 			wantStatusCode: http.StatusBadRequest,
 		},
 		{

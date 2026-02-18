@@ -63,7 +63,9 @@ func TestDynamoDB_ExtraTypes(t *testing.T) {
 
 			res, err := db.GetItem(t.Context(), &sdk.GetItemInput{
 				TableName: aws.String(tableName),
-				Key:       map[string]types.AttributeValue{"pk": &types.AttributeValueMemberS{Value: "item1"}},
+				Key: map[string]types.AttributeValue{
+					"pk": &types.AttributeValueMemberS{Value: "item1"},
+				},
 			})
 			require.NoError(t, err)
 			require.NotNil(t, res.Item)

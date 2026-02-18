@@ -16,13 +16,15 @@ func ToSDKPutItemInput(input *PutItemInput) (*dynamodb.PutItemInput, error) {
 	}
 
 	out := &dynamodb.PutItemInput{
-		TableName:                   &input.TableName,
-		Item:                        item,
-		ConditionExpression:         ptrconv.NilIfEmpty(input.ConditionExpression),
-		ExpressionAttributeNames:    input.ExpressionAttributeNames,
-		ReturnValues:                types.ReturnValue(input.ReturnValues),
-		ReturnConsumedCapacity:      types.ReturnConsumedCapacity(input.ReturnConsumedCapacity),
-		ReturnItemCollectionMetrics: types.ReturnItemCollectionMetrics(input.ReturnItemCollectionMetrics),
+		TableName:                &input.TableName,
+		Item:                     item,
+		ConditionExpression:      ptrconv.NilIfEmpty(input.ConditionExpression),
+		ExpressionAttributeNames: input.ExpressionAttributeNames,
+		ReturnValues:             types.ReturnValue(input.ReturnValues),
+		ReturnConsumedCapacity:   types.ReturnConsumedCapacity(input.ReturnConsumedCapacity),
+		ReturnItemCollectionMetrics: types.ReturnItemCollectionMetrics(
+			input.ReturnItemCollectionMetrics,
+		),
 	}
 
 	if len(input.ExpressionAttributeValues) > 0 {
@@ -109,14 +111,16 @@ func ToSDKUpdateItemInput(input *UpdateItemInput) (*dynamodb.UpdateItemInput, er
 	}
 
 	out := &dynamodb.UpdateItemInput{
-		TableName:                   &input.TableName,
-		Key:                         key,
-		UpdateExpression:            ptrconv.NilIfEmpty(input.UpdateExpression),
-		ConditionExpression:         ptrconv.NilIfEmpty(input.ConditionExpression),
-		ExpressionAttributeNames:    input.ExpressionAttributeNames,
-		ReturnValues:                types.ReturnValue(input.ReturnValues),
-		ReturnConsumedCapacity:      types.ReturnConsumedCapacity(input.ReturnConsumedCapacity),
-		ReturnItemCollectionMetrics: types.ReturnItemCollectionMetrics(input.ReturnItemCollectionMetrics),
+		TableName:                &input.TableName,
+		Key:                      key,
+		UpdateExpression:         ptrconv.NilIfEmpty(input.UpdateExpression),
+		ConditionExpression:      ptrconv.NilIfEmpty(input.ConditionExpression),
+		ExpressionAttributeNames: input.ExpressionAttributeNames,
+		ReturnValues:             types.ReturnValue(input.ReturnValues),
+		ReturnConsumedCapacity:   types.ReturnConsumedCapacity(input.ReturnConsumedCapacity),
+		ReturnItemCollectionMetrics: types.ReturnItemCollectionMetrics(
+			input.ReturnItemCollectionMetrics,
+		),
 	}
 
 	if len(input.ExpressionAttributeValues) > 0 {
@@ -479,7 +483,9 @@ func convertTransactWriteItem(item TransactWriteItem) (types.TransactWriteItem, 
 	return twi, nil
 }
 
-func ToSDKTransactWriteItemsInput(input *TransactWriteItemsInput) (*dynamodb.TransactWriteItemsInput, error) {
+func ToSDKTransactWriteItemsInput(
+	input *TransactWriteItemsInput,
+) (*dynamodb.TransactWriteItemsInput, error) {
 	items := make([]types.TransactWriteItem, 0, len(input.TransactItems))
 	for _, item := range input.TransactItems {
 		twi, err := convertTransactWriteItem(item)
@@ -497,7 +503,9 @@ func ToSDKTransactWriteItemsInput(input *TransactWriteItemsInput) (*dynamodb.Tra
 	}, nil
 }
 
-func FromSDKTransactWriteItemsOutput(output *dynamodb.TransactWriteItemsOutput) *TransactWriteItemsOutput {
+func FromSDKTransactWriteItemsOutput(
+	output *dynamodb.TransactWriteItemsOutput,
+) *TransactWriteItemsOutput {
 	metrics := make(map[string][]ItemCollectionMetrics)
 	for tableName, sdkMetrics := range output.ItemCollectionMetrics {
 		cnvMetrics := make([]ItemCollectionMetrics, len(sdkMetrics))
@@ -518,7 +526,9 @@ func FromSDKTransactWriteItemsOutput(output *dynamodb.TransactWriteItemsOutput) 
 	}
 }
 
-func ToSDKTransactGetItemsInput(input *TransactGetItemsInput) (*dynamodb.TransactGetItemsInput, error) {
+func ToSDKTransactGetItemsInput(
+	input *TransactGetItemsInput,
+) (*dynamodb.TransactGetItemsInput, error) {
 	items := make([]types.TransactGetItem, 0, len(input.TransactItems))
 	for _, item := range input.TransactItems {
 		if item.Get != nil {
@@ -543,7 +553,9 @@ func ToSDKTransactGetItemsInput(input *TransactGetItemsInput) (*dynamodb.Transac
 	}, nil
 }
 
-func FromSDKTransactGetItemsOutput(output *dynamodb.TransactGetItemsOutput) *TransactGetItemsOutput {
+func FromSDKTransactGetItemsOutput(
+	output *dynamodb.TransactGetItemsOutput,
+) *TransactGetItemsOutput {
 	responses := make([]ItemResponse, 0, len(output.Responses))
 	for _, resp := range output.Responses {
 		responses = append(responses, ItemResponse{

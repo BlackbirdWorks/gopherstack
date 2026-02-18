@@ -1313,7 +1313,11 @@ func TestHandler_DeleteObjects(t *testing.T) {
 			handler, backend := newTestHandler(t)
 			tt.setup(t, backend)
 
-			req := httptest.NewRequest(http.MethodPost, "/"+tt.bucket+"?delete", strings.NewReader(tt.xmlBody))
+			req := httptest.NewRequest(
+				http.MethodPost,
+				"/"+tt.bucket+"?delete",
+				strings.NewReader(tt.xmlBody),
+			)
 			rec := httptest.NewRecorder()
 			handler.ServeHTTP(rec, req)
 

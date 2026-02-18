@@ -24,7 +24,11 @@ func TestEvaluator_UnwrapAttributeValue(t *testing.T) {
 		{name: "Binary", input: map[string]any{"B": []byte("bin")}, expected: []byte("bin")},
 		{name: "Bool", input: map[string]any{"BOOL": true}, expected: true},
 		{name: "Null", input: map[string]any{"NULL": true}, expected: nil},
-		{name: "Map", input: map[string]any{"M": map[string]any{"k": "v"}}, expected: map[string]any{"k": "v"}},
+		{
+			name:     "Map",
+			input:    map[string]any{"M": map[string]any{"k": "v"}},
+			expected: map[string]any{"k": "v"},
+		},
 		{name: "List", input: map[string]any{"L": []any{"a"}}, expected: []any{"a"}},
 		{name: "StringSet", input: map[string]any{"SS": []string{"a"}}, expected: []string{"a"}},
 		{name: "NumberSet", input: map[string]any{"NS": []string{"1"}}, expected: []string{"1"}},
@@ -112,7 +116,11 @@ func TestEvaluator_ApplyUpdate(t *testing.T) {
 						Type: expr.TokenSET,
 						Items: []expr.UpdateItem{
 							{
-								Path:  &expr.PathExpr{Elements: []expr.PathElement{{Name: "a", Type: expr.ElementKey}}},
+								Path: &expr.PathExpr{
+									Elements: []expr.PathElement{
+										{Name: "a", Type: expr.ElementKey},
+									},
+								},
 								Value: &expr.ValuePlaceholder{Name: ":newVal"},
 							},
 						},
@@ -697,7 +705,9 @@ func TestEvaluator_ApplyProjection(t *testing.T) {
 			name: "project non-existent field",
 			paths: []expr.Node{
 				&expr.PathExpr{Elements: []expr.PathElement{{Name: "a", Type: expr.ElementKey}}},
-				&expr.PathExpr{Elements: []expr.PathElement{{Name: "missing", Type: expr.ElementKey}}},
+				&expr.PathExpr{
+					Elements: []expr.PathElement{{Name: "missing", Type: expr.ElementKey}},
+				},
 			},
 			wantKeys: []string{"a"},
 		},
@@ -739,7 +749,9 @@ func TestEvaluator_ApplyUpdate_AddAction(t *testing.T) {
 				Type: expr.TokenADD,
 				Items: []expr.UpdateItem{
 					{
-						Path:  &expr.PathExpr{Elements: []expr.PathElement{{Name: "count", Type: expr.ElementKey}}},
+						Path: &expr.PathExpr{
+							Elements: []expr.PathElement{{Name: "count", Type: expr.ElementKey}},
+						},
 						Value: &expr.ValuePlaceholder{Name: ":inc"},
 					},
 				},
@@ -903,7 +915,9 @@ func TestEvaluator_ApplyUpdate_DeleteAction(t *testing.T) {
 				Type: expr.TokenDELETE,
 				Items: []expr.UpdateItem{
 					{
-						Path:  &expr.PathExpr{Elements: []expr.PathElement{{Name: "a", Type: expr.ElementKey}}},
+						Path: &expr.PathExpr{
+							Elements: []expr.PathElement{{Name: "a", Type: expr.ElementKey}},
+						},
 						Value: &expr.ValuePlaceholder{Name: ":v"},
 					},
 				},

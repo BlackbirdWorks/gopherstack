@@ -55,7 +55,9 @@ func TestIntegration_DDB_Coverage(t *testing.T) {
 					"bin":  &types.AttributeValueMemberB{Value: []byte("binary data")},
 					"ss":   &types.AttributeValueMemberSS{Value: []string{"a", "b"}},
 					"ns":   &types.AttributeValueMemberNS{Value: []string{"1", "2"}},
-					"bs":   &types.AttributeValueMemberBS{Value: [][]byte{[]byte("b1"), []byte("b2")}},
+					"bs": &types.AttributeValueMemberBS{
+						Value: [][]byte{[]byte("b1"), []byte("b2")},
+					},
 				}
 
 				_, pErr := client.PutItem(t.Context(), &dynamodb.PutItemInput{
@@ -94,11 +96,18 @@ func TestIntegration_DDB_Coverage(t *testing.T) {
 				})
 				require.NoError(t, uErr)
 
-				descOut, err := client.DescribeTimeToLive(t.Context(), &dynamodb.DescribeTimeToLiveInput{
-					TableName: aws.String(tableName),
-				})
+				descOut, err := client.DescribeTimeToLive(
+					t.Context(),
+					&dynamodb.DescribeTimeToLiveInput{
+						TableName: aws.String(tableName),
+					},
+				)
 				require.NoError(t, err)
-				assert.Equal(t, types.TimeToLiveStatusEnabled, descOut.TimeToLiveDescription.TimeToLiveStatus)
+				assert.Equal(
+					t,
+					types.TimeToLiveStatusEnabled,
+					descOut.TimeToLiveDescription.TimeToLiveStatus,
+				)
 				assert.Equal(t, "ttl_attr", *descOut.TimeToLiveDescription.AttributeName)
 			},
 		},
@@ -155,8 +164,16 @@ func TestIntegration_DDB_Coverage(t *testing.T) {
 				})
 				require.NoError(t, err)
 				require.Len(t, getOut.Responses, 2)
-				assert.Equal(t, "val1", getOut.Responses[0].Item["v"].(*types.AttributeValueMemberS).Value)
-				assert.Equal(t, "val2", getOut.Responses[1].Item["v"].(*types.AttributeValueMemberS).Value)
+				assert.Equal(
+					t,
+					"val1",
+					getOut.Responses[0].Item["v"].(*types.AttributeValueMemberS).Value,
+				)
+				assert.Equal(
+					t,
+					"val2",
+					getOut.Responses[1].Item["v"].(*types.AttributeValueMemberS).Value,
+				)
 			},
 		},
 	}

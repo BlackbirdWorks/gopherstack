@@ -164,7 +164,10 @@ func TestHeadBucket(t *testing.T) {
 			backend := newTestBackend(t)
 			tt.setup(t, backend)
 
-			out, err := backend.HeadBucket(t.Context(), &sdk_s3.HeadBucketInput{Bucket: aws.String(tt.bucket)})
+			out, err := backend.HeadBucket(
+				t.Context(),
+				&sdk_s3.HeadBucketInput{Bucket: aws.String(tt.bucket)},
+			)
 
 			if tt.expectErr {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -440,13 +443,17 @@ func TestVersioning(t *testing.T) {
 				require.NoError(t, err)
 
 				v1, err := backend.PutObject(t.Context(), &sdk_s3.PutObjectInput{
-					Bucket: aws.String("bkt"), Key: aws.String("k"), Body: bytes.NewReader([]byte("v1")),
+					Bucket: aws.String(
+						"bkt",
+					), Key: aws.String("k"), Body: bytes.NewReader([]byte("v1")),
 				})
 				require.NoError(t, err)
 				assert.NotEqual(t, s3.NullVersion, *v1.VersionId)
 
 				v2, err := backend.PutObject(t.Context(), &sdk_s3.PutObjectInput{
-					Bucket: aws.String("bkt"), Key: aws.String("k"), Body: bytes.NewReader([]byte("v2")),
+					Bucket: aws.String(
+						"bkt",
+					), Key: aws.String("k"), Body: bytes.NewReader([]byte("v2")),
 				})
 				require.NoError(t, err)
 				assert.NotEqual(t, *v1.VersionId, *v2.VersionId)
@@ -462,7 +469,9 @@ func TestVersioning(t *testing.T) {
 				mustPutObject(t, backend, "bkt", "k", []byte("data"))
 
 				got, err := backend.GetObject(t.Context(), &sdk_s3.GetObjectInput{
-					Bucket: aws.String("bkt"), Key: aws.String("k"), VersionId: aws.String(s3.NullVersion),
+					Bucket: aws.String(
+						"bkt",
+					), Key: aws.String("k"), VersionId: aws.String(s3.NullVersion),
 				})
 				require.NoError(t, err)
 				data, _ := io.ReadAll(got.Body)
@@ -472,7 +481,9 @@ func TestVersioning(t *testing.T) {
 				mustPutObject(t, backend, "bkt", "k", []byte("data"))
 
 				_, err := backend.GetObject(t.Context(), &sdk_s3.GetObjectInput{
-					Bucket: aws.String("bkt"), Key: aws.String("k"), VersionId: aws.String("non-existent-version"),
+					Bucket: aws.String(
+						"bkt",
+					), Key: aws.String("k"), VersionId: aws.String("non-existent-version"),
 				})
 				require.ErrorIs(t, err, tt.wantErr)
 			}
@@ -687,7 +698,10 @@ func TestObjectTagging(t *testing.T) {
 
 			inputTags := make([]types.Tag, len(tt.tags))
 			copy(inputTags, tt.tags)
-			sort.Slice(inputTags, func(i, j int) bool { return *inputTags[i].Key < *inputTags[j].Key })
+			sort.Slice(
+				inputTags,
+				func(i, j int) bool { return *inputTags[i].Key < *inputTags[j].Key },
+			)
 
 			_, putErr := backend.PutObjectTagging(t.Context(), &sdk_s3.PutObjectTaggingInput{
 				Bucket:  aws.String(tt.bucket),
@@ -714,7 +728,10 @@ func TestObjectTagging(t *testing.T) {
 
 			wantSorted := make([]types.Tag, len(tt.wantTags))
 			copy(wantSorted, tt.wantTags)
-			sort.Slice(wantSorted, func(i, j int) bool { return *wantSorted[i].Key < *wantSorted[j].Key })
+			sort.Slice(
+				wantSorted,
+				func(i, j int) bool { return *wantSorted[i].Key < *wantSorted[j].Key },
+			)
 
 			if diff := cmp.Diff(wantSorted, gotTags, cmpopts.IgnoreUnexported(types.Tag{})); diff != "" {
 				t.Errorf("tag set mismatch (-want +got):\n%s", diff)
@@ -741,9 +758,11 @@ func TestDeleteObjectTagging(t *testing.T) {
 				mustCreateBucket(t, b, "bkt")
 				mustPutObject(t, b, "bkt", "k", []byte("data"))
 				_, err := b.PutObjectTagging(t.Context(), &sdk_s3.PutObjectTaggingInput{
-					Bucket:  aws.String("bkt"),
-					Key:     aws.String("k"),
-					Tagging: &types.Tagging{TagSet: []types.Tag{{Key: aws.String("k"), Value: aws.String("v")}}},
+					Bucket: aws.String("bkt"),
+					Key:    aws.String("k"),
+					Tagging: &types.Tagging{
+						TagSet: []types.Tag{{Key: aws.String("k"), Value: aws.String("v")}},
+					},
 				})
 				require.NoError(t, err)
 			},

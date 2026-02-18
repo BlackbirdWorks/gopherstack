@@ -59,7 +59,10 @@ func TestIntegration_DDB_GSI(t *testing.T) {
 		require.NoError(t, err)
 
 		t.Cleanup(func() {
-			client.DeleteTable(context.Background(), &dynamodb.DeleteTableInput{TableName: aws.String(tableName)})
+			client.DeleteTable(
+				context.Background(),
+				&dynamodb.DeleteTableInput{TableName: aws.String(tableName)},
+			)
 		})
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -116,7 +119,11 @@ func TestIntegration_DDB_GSI(t *testing.T) {
 				require.NoError(t, err)
 				assert.Len(t, out.Items, 1)
 				assert.Equal(t, "item1", out.Items[0]["pk"].(*types.AttributeValueMemberS).Value)
-				assert.Equal(t, "some data", out.Items[0]["data"].(*types.AttributeValueMemberS).Value)
+				assert.Equal(
+					t,
+					"some data",
+					out.Items[0]["data"].(*types.AttributeValueMemberS).Value,
+				)
 			},
 		},
 		{
@@ -177,7 +184,10 @@ func TestIntegration_DDB_GSI(t *testing.T) {
 				})
 				require.NoError(t, err)
 
-				scanStart, err := client.Scan(t.Context(), &dynamodb.ScanInput{TableName: aws.String(tableName)})
+				scanStart, err := client.Scan(
+					t.Context(),
+					&dynamodb.ScanInput{TableName: aws.String(tableName)},
+				)
 				require.NoError(t, err)
 				assert.Len(t, scanStart.Items, 2)
 
@@ -187,7 +197,11 @@ func TestIntegration_DDB_GSI(t *testing.T) {
 				})
 				require.NoError(t, err)
 				assert.Len(t, scanGSI.Items, 1)
-				assert.Equal(t, "item1", scanGSI.Items[0]["pk"].(*types.AttributeValueMemberS).Value)
+				assert.Equal(
+					t,
+					"item1",
+					scanGSI.Items[0]["pk"].(*types.AttributeValueMemberS).Value,
+				)
 			},
 		},
 	}

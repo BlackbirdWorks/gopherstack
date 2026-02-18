@@ -140,7 +140,11 @@ func TestIntegration_DDB_UpdateItem_UpdatedNew_SameValue(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Logf("Returned attributes (only same): %+v", updateOut3.Attributes)
-	require.NotNil(t, updateOut3.Attributes, "Attributes should not be nil for UPDATED_NEW even if same value")
+	require.NotNil(
+		t,
+		updateOut3.Attributes,
+		"Attributes should not be nil for UPDATED_NEW even if same value",
+	)
 	_, hasSame := updateOut3.Attributes["same"]
 	require.True(t, hasSame, "Attribute 'same' should be returned even if value is the same")
 

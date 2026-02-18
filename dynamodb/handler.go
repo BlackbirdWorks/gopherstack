@@ -148,9 +148,21 @@ func (h *Handler) Handle(c *echo.Context) error {
 
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) (any, error) {
 	switch action {
-	case "CreateTable", "DeleteTable", "DescribeTable", "ListTables", "UpdateTimeToLive", "DescribeTimeToLive":
+	case "CreateTable",
+		"DeleteTable",
+		"DescribeTable",
+		"ListTables",
+		"UpdateTimeToLive",
+		"DescribeTimeToLive":
 		return h.dispatchTableOps(ctx, action, body)
-	case "PutItem", "GetItem", "DeleteItem", "UpdateItem", "Query", "Scan", "BatchGetItem", "BatchWriteItem":
+	case "PutItem",
+		"GetItem",
+		"DeleteItem",
+		"UpdateItem",
+		"Query",
+		"Scan",
+		"BatchGetItem",
+		"BatchWriteItem":
 		return h.dispatchItemOps(ctx, action, body)
 	case "TransactWriteItems", "TransactGetItems":
 		return h.dispatchTransactOps(ctx, action, body)
@@ -348,7 +360,11 @@ func (h *Handler) dispatchItemOps(ctx context.Context, action string, body []byt
 	}
 }
 
-func (h *Handler) dispatchTransactOps(ctx context.Context, action string, body []byte) (any, error) {
+func (h *Handler) dispatchTransactOps(
+	ctx context.Context,
+	action string,
+	body []byte,
+) (any, error) {
 	switch action {
 	case "TransactWriteItems":
 		return handleOpErr(ctx,
@@ -424,7 +440,9 @@ func (h *Handler) classifyError(reqErr error) (int, *Error) {
 	var syntaxErr *json.SyntaxError
 	var unmarshalTypeError *json.UnmarshalTypeError
 	if errors.As(reqErr, &syntaxErr) || errors.As(reqErr, &unmarshalTypeError) {
-		return http.StatusBadRequest, NewValidationException(fmt.Sprintf("JSON Error: %s", reqErr.Error()))
+		return http.StatusBadRequest, NewValidationException(
+			fmt.Sprintf("JSON Error: %s", reqErr.Error()),
+		)
 	}
 
 	errStr := reqErr.Error()

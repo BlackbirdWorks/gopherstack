@@ -131,7 +131,10 @@ func TestIntegration_DDB_BatchOperations(t *testing.T) {
 				_, createErr := client.CreateTable(ctx, &dynamodb.CreateTableInput{
 					TableName: aws.String(tbl),
 					AttributeDefinitions: []types.AttributeDefinition{
-						{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
+						{
+							AttributeName: aws.String("pk"),
+							AttributeType: types.ScalarAttributeTypeS,
+						},
 					},
 					KeySchema: []types.KeySchemaElement{
 						{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
@@ -144,9 +147,12 @@ func TestIntegration_DDB_BatchOperations(t *testing.T) {
 				require.NoError(t, createErr)
 
 				t.Cleanup(func() {
-					_, deleteErr := client.DeleteTable(context.Background(), &dynamodb.DeleteTableInput{
-						TableName: aws.String(tbl),
-					})
+					_, deleteErr := client.DeleteTable(
+						context.Background(),
+						&dynamodb.DeleteTableInput{
+							TableName: aws.String(tbl),
+						},
+					)
 					assert.NoError(t, deleteErr)
 				})
 			}
@@ -167,7 +173,9 @@ func TestIntegration_DDB_BatchOperations(t *testing.T) {
 				// Check table1 has item1
 				outGet, err := client.GetItem(ctx, &dynamodb.GetItemInput{
 					TableName: aws.String(table1),
-					Key:       map[string]types.AttributeValue{"pk": &types.AttributeValueMemberS{Value: "item1"}},
+					Key: map[string]types.AttributeValue{
+						"pk": &types.AttributeValueMemberS{Value: "item1"},
+					},
 				})
 				require.NoError(t, err)
 				if tt.name == "BatchWriteItem_PutAndDelete" {
@@ -177,7 +185,9 @@ func TestIntegration_DDB_BatchOperations(t *testing.T) {
 				// Check table2 has deleted to_delete
 				outGet2, err := client.GetItem(ctx, &dynamodb.GetItemInput{
 					TableName: aws.String(table2),
-					Key:       map[string]types.AttributeValue{"pk": &types.AttributeValueMemberS{Value: "to_delete"}},
+					Key: map[string]types.AttributeValue{
+						"pk": &types.AttributeValueMemberS{Value: "to_delete"},
+					},
 				})
 				require.NoError(t, err)
 				if tt.name == "BatchWriteItem_PutAndDelete" {

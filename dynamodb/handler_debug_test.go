@@ -60,10 +60,25 @@ func TestDebugLogging(t *testing.T) {
 	t.Logf("Log output:\n%s", logOutput)
 
 	// Check for expected debug log messages
-	assert.Contains(t, logOutput, "DynamoDB request", "Expected to see 'DynamoDB request' in debug logs")
-	assert.Contains(t, logOutput, "CreateTable", "Expected to see 'CreateTable' action in debug logs")
+	assert.Contains(
+		t,
+		logOutput,
+		"DynamoDB request",
+		"Expected to see 'DynamoDB request' in debug logs",
+	)
+	assert.Contains(
+		t,
+		logOutput,
+		"CreateTable",
+		"Expected to see 'CreateTable' action in debug logs",
+	)
 	assert.Contains(t, logOutput, "handler input", "Expected to see 'handler input' in debug logs")
-	assert.Contains(t, logOutput, "handler output", "Expected to see 'handler output' in debug logs")
+	assert.Contains(
+		t,
+		logOutput,
+		"handler output",
+		"Expected to see 'handler output' in debug logs",
+	)
 	assert.Contains(t, logOutput, "DebugLogTestTable", "Expected to see table name in debug logs")
 
 	// Verify debug level is logged
@@ -137,10 +152,20 @@ func TestDebugLoggingWithItem(t *testing.T) {
 	t.Logf("PutItem log output:\n%s", logOutput)
 
 	// Check for expected debug log messages
-	assert.Contains(t, logOutput, "DynamoDB request", "Expected to see 'DynamoDB request' in debug logs")
+	assert.Contains(
+		t,
+		logOutput,
+		"DynamoDB request",
+		"Expected to see 'DynamoDB request' in debug logs",
+	)
 	assert.Contains(t, logOutput, "PutItem", "Expected to see 'PutItem' action in debug logs")
 	assert.Contains(t, logOutput, "handler input", "Expected to see 'handler input' in debug logs")
-	assert.Contains(t, logOutput, "handler output", "Expected to see 'handler output' in debug logs")
+	assert.Contains(
+		t,
+		logOutput,
+		"handler output",
+		"Expected to see 'handler output' in debug logs",
+	)
 	assert.Contains(t, logOutput, "test-key", "Expected to see item key in debug logs")
 	assert.Contains(t, logOutput, "test-data", "Expected to see item data in debug logs")
 

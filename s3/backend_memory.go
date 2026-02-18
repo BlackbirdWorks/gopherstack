@@ -39,7 +39,10 @@ func NewInMemoryBackend(compressor Compressor) *InMemoryBackend {
 	}
 }
 
-func (b *InMemoryBackend) CreateBucket(_ context.Context, input *s3.CreateBucketInput) (*s3.CreateBucketOutput, error) {
+func (b *InMemoryBackend) CreateBucket(
+	_ context.Context,
+	input *s3.CreateBucketInput,
+) (*s3.CreateBucketOutput, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -61,7 +64,10 @@ func (b *InMemoryBackend) CreateBucket(_ context.Context, input *s3.CreateBucket
 	}, nil
 }
 
-func (b *InMemoryBackend) DeleteBucket(_ context.Context, input *s3.DeleteBucketInput) (*s3.DeleteBucketOutput, error) {
+func (b *InMemoryBackend) DeleteBucket(
+	_ context.Context,
+	input *s3.DeleteBucketInput,
+) (*s3.DeleteBucketOutput, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -84,7 +90,10 @@ func (b *InMemoryBackend) DeleteBucket(_ context.Context, input *s3.DeleteBucket
 	return &s3.DeleteBucketOutput{}, nil
 }
 
-func (b *InMemoryBackend) HeadBucket(_ context.Context, input *s3.HeadBucketInput) (*s3.HeadBucketOutput, error) {
+func (b *InMemoryBackend) HeadBucket(
+	_ context.Context,
+	input *s3.HeadBucketInput,
+) (*s3.HeadBucketOutput, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -97,7 +106,10 @@ func (b *InMemoryBackend) HeadBucket(_ context.Context, input *s3.HeadBucketInpu
 	return &s3.HeadBucketOutput{}, nil
 }
 
-func (b *InMemoryBackend) ListBuckets(_ context.Context, _ *s3.ListBucketsInput) (*s3.ListBucketsOutput, error) {
+func (b *InMemoryBackend) ListBuckets(
+	_ context.Context,
+	_ *s3.ListBucketsInput,
+) (*s3.ListBucketsOutput, error) {
 	// Snapshot bucket data under lock, release immediately
 	b.mu.RLock()
 	buckets := make([]types.Bucket, 0, len(b.buckets))
@@ -123,7 +135,10 @@ func (b *InMemoryBackend) ListBuckets(_ context.Context, _ *s3.ListBucketsInput)
 	}, nil
 }
 
-func (b *InMemoryBackend) PutObject(_ context.Context, input *s3.PutObjectInput) (*s3.PutObjectOutput, error) {
+func (b *InMemoryBackend) PutObject(
+	_ context.Context,
+	input *s3.PutObjectInput,
+) (*s3.PutObjectOutput, error) {
 	bucketName := *input.Bucket
 	key := *input.Key
 
@@ -275,7 +290,10 @@ func (b *InMemoryBackend) storeObjectTags(tagging *string, bucket, key, versionI
 	b.tags[tagKey] = tagList
 }
 
-func (b *InMemoryBackend) GetObject(_ context.Context, input *s3.GetObjectInput) (*s3.GetObjectOutput, error) {
+func (b *InMemoryBackend) GetObject(
+	_ context.Context,
+	input *s3.GetObjectInput,
+) (*s3.GetObjectOutput, error) {
 	bucketName := *input.Bucket
 	key := *input.Key
 	versionID := input.VersionId
@@ -363,7 +381,10 @@ func (b *InMemoryBackend) GetObject(_ context.Context, input *s3.GetObjectInput)
 	}, nil
 }
 
-func (b *InMemoryBackend) HeadObject(_ context.Context, input *s3.HeadObjectInput) (*s3.HeadObjectOutput, error) {
+func (b *InMemoryBackend) HeadObject(
+	_ context.Context,
+	input *s3.HeadObjectInput,
+) (*s3.HeadObjectOutput, error) {
 	bucketName := *input.Bucket
 	key := *input.Key
 	versionID := input.VersionId
@@ -427,7 +448,10 @@ func (b *InMemoryBackend) HeadObject(_ context.Context, input *s3.HeadObjectInpu
 	}, nil
 }
 
-func (b *InMemoryBackend) DeleteObject(_ context.Context, input *s3.DeleteObjectInput) (*s3.DeleteObjectOutput, error) {
+func (b *InMemoryBackend) DeleteObject(
+	_ context.Context,
+	input *s3.DeleteObjectInput,
+) (*s3.DeleteObjectOutput, error) {
 	bucketName := *input.Bucket
 	key := *input.Key
 	versionID := input.VersionId
@@ -544,7 +568,10 @@ func (b *InMemoryBackend) DeleteObjects(
 	return out, nil
 }
 
-func (b *InMemoryBackend) ListObjects(_ context.Context, input *s3.ListObjectsInput) (*s3.ListObjectsOutput, error) {
+func (b *InMemoryBackend) ListObjects(
+	_ context.Context,
+	input *s3.ListObjectsInput,
+) (*s3.ListObjectsOutput, error) {
 	bucketName := *input.Bucket
 
 	b.mu.RLock()
@@ -970,7 +997,10 @@ func (b *InMemoryBackend) CreateMultipartUpload(
 	}, nil
 }
 
-func (b *InMemoryBackend) UploadPart(_ context.Context, input *s3.UploadPartInput) (*s3.UploadPartOutput, error) {
+func (b *InMemoryBackend) UploadPart(
+	_ context.Context,
+	input *s3.UploadPartInput,
+) (*s3.UploadPartOutput, error) {
 	uploadID := *input.UploadId
 	partNumber := *input.PartNumber
 

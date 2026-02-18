@@ -40,7 +40,10 @@ func TestIntegration_DDB_QueryEnhancements(t *testing.T) {
 		require.NoError(t, err)
 
 		t.Cleanup(func() {
-			client.DeleteTable(context.Background(), &dynamodb.DeleteTableInput{TableName: aws.String(tableName)})
+			client.DeleteTable(
+				context.Background(),
+				&dynamodb.DeleteTableInput{TableName: aws.String(tableName)},
+			)
 		})
 		time.Sleep(10 * time.Millisecond)
 

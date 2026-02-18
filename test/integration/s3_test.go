@@ -838,7 +838,10 @@ func TestIntegration_S3_ListObjectsV2(t *testing.T) {
 				ctx := t.Context()
 				bucketName := "v2-basic-" + uuid.NewString()
 
-				_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucketName)})
+				_, err := client.CreateBucket(
+					ctx,
+					&s3.CreateBucketInput{Bucket: aws.String(bucketName)},
+				)
 				require.NoError(t, err)
 
 				for _, key := range []string{"a/1", "a/2", "b/1"} {
@@ -850,7 +853,10 @@ func TestIntegration_S3_ListObjectsV2(t *testing.T) {
 					require.NoError(t, putErr)
 				}
 
-				out, err := client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{Bucket: aws.String(bucketName)})
+				out, err := client.ListObjectsV2(
+					ctx,
+					&s3.ListObjectsV2Input{Bucket: aws.String(bucketName)},
+				)
 				require.NoError(t, err)
 				assert.EqualValues(t, 3, *out.KeyCount)
 				assert.False(t, *out.IsTruncated)
@@ -865,7 +871,10 @@ func TestIntegration_S3_ListObjectsV2(t *testing.T) {
 				ctx := t.Context()
 				bucketName := "v2-paged-" + uuid.NewString()
 
-				_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucketName)})
+				_, err := client.CreateBucket(
+					ctx,
+					&s3.CreateBucketInput{Bucket: aws.String(bucketName)},
+				)
 				require.NoError(t, err)
 
 				keys := []string{"k1", "k2", "k3", "k4", "k5"}
@@ -905,7 +914,11 @@ func TestIntegration_S3_ListObjectsV2(t *testing.T) {
 				assert.Len(t, page3.Contents, 1)
 				assert.False(t, *page3.IsTruncated)
 
-				allKeys := make([]string, 0, len(page1.Contents)+len(page2.Contents)+len(page3.Contents))
+				allKeys := make(
+					[]string,
+					0,
+					len(page1.Contents)+len(page2.Contents)+len(page3.Contents),
+				)
 				for _, c := range page1.Contents {
 					allKeys = append(allKeys, *c.Key)
 				}
@@ -926,7 +939,10 @@ func TestIntegration_S3_ListObjectsV2(t *testing.T) {
 				ctx := t.Context()
 				bucketName := "v2-delim-" + uuid.NewString()
 
-				_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucketName)})
+				_, err := client.CreateBucket(
+					ctx,
+					&s3.CreateBucketInput{Bucket: aws.String(bucketName)},
+				)
 				require.NoError(t, err)
 
 				for _, key := range []string{"docs/a.md", "docs/b.md", "images/c.png", "readme.txt"} {
@@ -959,7 +975,10 @@ func TestIntegration_S3_ListObjectsV2(t *testing.T) {
 				ctx := t.Context()
 				bucketName := "v2-startafter-" + uuid.NewString()
 
-				_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucketName)})
+				_, err := client.CreateBucket(
+					ctx,
+					&s3.CreateBucketInput{Bucket: aws.String(bucketName)},
+				)
 				require.NoError(t, err)
 
 				for _, key := range []string{"apple", "banana", "cherry", "date"} {
@@ -989,10 +1008,16 @@ func TestIntegration_S3_ListObjectsV2(t *testing.T) {
 				ctx := t.Context()
 				bucketName := "v2-empty-" + uuid.NewString()
 
-				_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucketName)})
+				_, err := client.CreateBucket(
+					ctx,
+					&s3.CreateBucketInput{Bucket: aws.String(bucketName)},
+				)
 				require.NoError(t, err)
 
-				out, err := client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{Bucket: aws.String(bucketName)})
+				out, err := client.ListObjectsV2(
+					ctx,
+					&s3.ListObjectsV2Input{Bucket: aws.String(bucketName)},
+				)
 				require.NoError(t, err)
 				assert.Empty(t, out.Contents)
 				assert.EqualValues(t, 0, *out.KeyCount)
@@ -1008,7 +1033,9 @@ func TestIntegration_S3_ListObjectsV2(t *testing.T) {
 
 				_, err := client.ListObjectsV2(
 					ctx,
-					&s3.ListObjectsV2Input{Bucket: aws.String("no-such-bucket-" + uuid.NewString())},
+					&s3.ListObjectsV2Input{
+						Bucket: aws.String("no-such-bucket-" + uuid.NewString()),
+					},
 				)
 				require.Error(t, err)
 			},
@@ -1021,7 +1048,10 @@ func TestIntegration_S3_ListObjectsV2(t *testing.T) {
 				ctx := t.Context()
 				bucketName := "v2-prefix-delim-" + uuid.NewString()
 
-				_, err := client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucketName)})
+				_, err := client.CreateBucket(
+					ctx,
+					&s3.CreateBucketInput{Bucket: aws.String(bucketName)},
+				)
 				require.NoError(t, err)
 
 				for _, key := range []string{"a/b/1", "a/b/2", "a/c/1", "b/1"} {

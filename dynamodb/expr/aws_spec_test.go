@@ -837,12 +837,24 @@ func TestAWSExpressions_ProjectionExpressions(t *testing.T) {
 
 			// Verify expected attributes are present
 			for _, attr := range tc.expectedAttrs {
-				assert.Contains(t, result, attr, "Expected attribute %s to be in projection result", attr)
+				assert.Contains(
+					t,
+					result,
+					attr,
+					"Expected attribute %s to be in projection result",
+					attr,
+				)
 			}
 
 			// Verify unexpected attributes are not present
 			for _, attr := range tc.notExpectedAttrs {
-				assert.NotContains(t, result, attr, "Expected attribute %s NOT to be in projection result", attr)
+				assert.NotContains(
+					t,
+					result,
+					attr,
+					"Expected attribute %s NOT to be in projection result",
+					attr,
+				)
 			}
 		})
 	}

@@ -16,9 +16,12 @@ import (
 func createS3BenchmarkClient(b *testing.B) *s3.Client {
 	b.Helper()
 
-	cfg, err := config.LoadDefaultConfig(context.Background(),
+	cfg, err := config.LoadDefaultConfig(
+		context.Background(),
 		config.WithRegion("us-east-1"),
-		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("test", "test", "")),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
 	)
 	if err != nil {
 		b.Fatalf("unable to load SDK config: %v", err)

@@ -370,6 +370,10 @@ func TestToSDKMetadataDescriptions(t *testing.T) {
 		assert.Equal(t, "ttl", got.TimeToLiveDescription.AttributeName)
 		assert.Equal(t, "ENABLED", got.TimeToLiveDescription.TimeToLiveStatus)
 
-		assert.Equal(t, models.DescribeTimeToLiveOutput{}, *models.FromSDKDescribeTimeToLiveOutput(nil))
+		assert.Equal(
+			t,
+			models.DescribeTimeToLiveOutput{},
+			*models.FromSDKDescribeTimeToLiveOutput(nil),
+		)
 	})
 }

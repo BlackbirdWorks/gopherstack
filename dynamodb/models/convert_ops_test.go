@@ -58,7 +58,9 @@ func TestFromSDKPutItemOutput(t *testing.T) {
 		},
 		ConsumedCapacity: &types.ConsumedCapacity{TableName: aws.String("t1")},
 		ItemCollectionMetrics: &types.ItemCollectionMetrics{
-			ItemCollectionKey:   map[string]types.AttributeValue{"pk": &types.AttributeValueMemberS{Value: "v"}},
+			ItemCollectionKey: map[string]types.AttributeValue{
+				"pk": &types.AttributeValueMemberS{Value: "v"},
+			},
 			SizeEstimateRangeGB: []float64{1.0},
 		},
 	}
@@ -141,7 +143,9 @@ func TestFromSDKBatchGetItemOutput(t *testing.T) {
 		},
 		UnprocessedKeys: map[string]types.KeysAndAttributes{
 			"table2": {
-				Keys: []map[string]types.AttributeValue{{"pk": &types.AttributeValueMemberS{Value: "v2"}}},
+				Keys: []map[string]types.AttributeValue{
+					{"pk": &types.AttributeValueMemberS{Value: "v2"}},
+				},
 			},
 		},
 	}
@@ -166,8 +170,12 @@ func TestQueryScan(t *testing.T) {
 		assert.Equal(t, int32(10), *got.Limit)
 
 		sdkOut := &dynamodb.QueryOutput{
-			Items:            []map[string]types.AttributeValue{{"pk": &types.AttributeValueMemberS{Value: "v1"}}},
-			LastEvaluatedKey: map[string]types.AttributeValue{"pk": &types.AttributeValueMemberS{Value: "v1"}},
+			Items: []map[string]types.AttributeValue{
+				{"pk": &types.AttributeValueMemberS{Value: "v1"}},
+			},
+			LastEvaluatedKey: map[string]types.AttributeValue{
+				"pk": &types.AttributeValueMemberS{Value: "v1"},
+			},
 			ConsumedCapacity: &types.ConsumedCapacity{TableName: aws.String("t1")},
 		}
 		gotOut := models.FromSDKQueryOutput(sdkOut)
@@ -183,7 +191,9 @@ func TestQueryScan(t *testing.T) {
 		assert.Equal(t, "table", *got.TableName)
 
 		sdkOut := &dynamodb.ScanOutput{
-			Items: []map[string]types.AttributeValue{{"pk": &types.AttributeValueMemberS{Value: "v1"}}},
+			Items: []map[string]types.AttributeValue{
+				{"pk": &types.AttributeValueMemberS{Value: "v1"}},
+			},
 		}
 		gotOut := models.FromSDKScanOutput(sdkOut)
 		assert.Len(t, gotOut.Items, 1)
@@ -197,7 +207,12 @@ func TestTransactOperations(t *testing.T) {
 		t.Parallel()
 		input := &models.TransactWriteItemsInput{
 			TransactItems: []models.TransactWriteItem{
-				{Put: &models.PutItemInput{TableName: "t1", Item: map[string]any{"pk": map[string]any{"S": "v1"}}}},
+				{
+					Put: &models.PutItemInput{
+						TableName: "t1",
+						Item:      map[string]any{"pk": map[string]any{"S": "v1"}},
+					},
+				},
 				{
 					Delete: &models.DeleteItemInput{
 						TableName: "t1",
@@ -233,7 +248,12 @@ func TestTransactOperations(t *testing.T) {
 		t.Parallel()
 		input := &models.TransactGetItemsInput{
 			TransactItems: []models.TransactGetItem{
-				{Get: &models.GetItemInput{TableName: "t1", Key: map[string]any{"pk": map[string]any{"S": "v1"}}}},
+				{
+					Get: &models.GetItemInput{
+						TableName: "t1",
+						Key:       map[string]any{"pk": map[string]any{"S": "v1"}},
+					},
+				},
 			},
 		}
 

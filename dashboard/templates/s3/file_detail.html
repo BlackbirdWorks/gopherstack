@@ -21,6 +21,9 @@
             <a href="/dashboard/s3/bucket/{{.BucketName}}/download/{{.Key}}" class="btn btn-primary" download>
                 Download
             </a>
+            <a href="/dashboard/s3/bucket/{{.BucketName}}/file/{{.Key}}/export" class="btn btn-outline" target="_blank">
+                Export Metadata
+            </a>
             <div class="dropdown dropdown-end">
                 <button class="btn btn-error btn-outline dropdown-toggle">Delete</button>
                 <ul class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-64 border border-base-300">
@@ -96,16 +99,16 @@
                         <tbody>
                             {{range .Versions}}
                             <tr>
-                                <td class="font-mono text-xs">{{.VersionId}}</td>
+                                <td class="font-mono text-xs">{{.VersionID}}</td>
                                 <td>{{.LastModified}}</td>
                                 <td>
                                     <div class="flex gap-1">
-                                        <a href="/dashboard/s3/bucket/{{$.BucketName}}/download/{{$.Key}}?versionId={{.VersionId}}"
+                                        <a href="/dashboard/s3/bucket/{{$.BucketName}}/download/{{$.Key}}?versionId={{.VersionID}}"
                                             class="btn btn-xs btn-ghost">
                                             Download
                                         </a>
                                         <button
-                                            hx-delete="/dashboard/s3/bucket/{{$.BucketName}}/file/{{$.Key}}?versionId={{.VersionId}}"
+                                            hx-delete="/dashboard/s3/bucket/{{$.BucketName}}/file/{{$.Key}}?versionId={{.VersionID}}"
                                             hx-confirm="Are you sure you want to permanently delete this specific version?"
                                             hx-target="closest tr" hx-swap="outerHTML"
                                             class="btn btn-xs btn-ghost text-error">
@@ -124,6 +127,76 @@
             </div>
         </div>
         {{end}}
+    </div>
+
+    <!-- Preview & Editor Extensions -->
+    <div class="grid grid-cols-1 gap-6">
+        <!-- Preview -->
+        {{if or .IsImage .IsPDF .IsText}}
+        <div class="card bg-base-100 shadow overflow-hidden">
+            <div class="card-body">
+                <h2 class="card-title text-sm uppercase tracking-wider text-base-content/60">Preview</h2>
+                <div class="bg-base-200 rounded-lg flex justify-center items-center min-h-[200px] overflow-auto">
+                    {{if .IsImage}}
+                    <img src="/dashboard/s3/bucket/{{.BucketName}}/download/{{.Key}}" alt="{{.Key}}"
+                        class="max-w-full h-auto shadow-sm">
+                    {{else if .IsPDF}}
+                    <embed src="/dashboard/s3/bucket/{{.BucketName}}/download/{{.Key}}" type="application/pdf"
+                        width="100%" height="800px">
+                    {{else if .IsText}}
+                    <div hx-get="/dashboard/s3/bucket/{{.BucketName}}/file/{{.Key}}/preview" hx-trigger="load"
+                        class="w-full">
+                        <span class="loading loading-spinner loading-md"></span>
+                    </div>
+                    {{end}}
+                </div>
+            </div>
+        </div>
+        {{end}}
+
+        <!-- Metadata & Tagging Editor -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div class="card bg-base-100 shadow">
+                <div class="card-body">
+                    <h2 class="card-title text-sm uppercase tracking-wider text-base-content/60">Edit Metadata</h2>
+                    <form hx-post="/dashboard/s3/bucket/{{.BucketName}}/file/{{.Key}}/metadata" hx-target="body"
+                        class="space-y-4">
+                        <div class="form-control">
+                            <label class="label">
+                                <span class="label-text">Content-Type</span>
+                            </label>
+                            <input type="text" name="contentType" value="{{.ContentType}}" class="input input-bordered">
+                        </div>
+                        <button type="submit" class="btn btn-primary btn-sm">Update Content-Type</button>
+                    </form>
+                </div>
+            </div>
+
+            <div class="card bg-base-100 shadow">
+                <div class="card-body">
+                    <h2 class="card-title text-sm uppercase tracking-wider text-base-content/60">Manage Tags</h2>
+                    <form hx-post="/dashboard/s3/bucket/{{.BucketName}}/file/{{.Key}}/tag" hx-target="#tags-list"
+                        class="space-y-4">
+                        <div class="join w-full">
+                            <input type="text" name="key" placeholder="Key" class="input input-bordered join-item w-1/2"
+                                required>
+                            <input type="text" name="value" placeholder="Value"
+                                class="input input-bordered join-item w-1/2" required>
+                            <button type="submit" class="btn btn-primary join-item">Add</button>
+                        </div>
+                    </form>
+                    <div id="tags-list" class="mt-4 space-y-2">
+                        {{range $key, $value := .Tags}}
+                        <div class="flex justify-between items-center bg-base-200 p-2 rounded">
+                            <span class="text-sm font-medium">{{$key}}: {{$value}}</span>
+                            <button hx-delete="/dashboard/s3/bucket/{{$.BucketName}}/file/{{$.Key}}/tag?key={{$key}}"
+                                hx-target="#tags-list" class="btn btn-ghost btn-xs text-error">Remove</button>
+                        </div>
+                        {{end}}
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 {{end}}

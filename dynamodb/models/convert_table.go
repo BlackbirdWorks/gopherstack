@@ -96,7 +96,9 @@ func ToSDKUpdateTimeToLiveInput(input *UpdateTimeToLiveInput) *dynamodb.UpdateTi
 	}
 }
 
-func FromSDKUpdateTimeToLiveOutput(output *dynamodb.UpdateTimeToLiveOutput) *UpdateTimeToLiveOutput {
+func FromSDKUpdateTimeToLiveOutput(
+	output *dynamodb.UpdateTimeToLiveOutput,
+) *UpdateTimeToLiveOutput {
 	return &UpdateTimeToLiveOutput{
 		TimeToLiveSpecification: TimeToLiveSpecification{
 			AttributeName: ptrconv.String(output.TimeToLiveSpecification.AttributeName),
@@ -105,13 +107,17 @@ func FromSDKUpdateTimeToLiveOutput(output *dynamodb.UpdateTimeToLiveOutput) *Upd
 	}
 }
 
-func ToSDKDescribeTimeToLiveInput(input *DescribeTimeToLiveInput) *dynamodb.DescribeTimeToLiveInput {
+func ToSDKDescribeTimeToLiveInput(
+	input *DescribeTimeToLiveInput,
+) *dynamodb.DescribeTimeToLiveInput {
 	return &dynamodb.DescribeTimeToLiveInput{
 		TableName: &input.TableName,
 	}
 }
 
-func FromSDKDescribeTimeToLiveOutput(output *dynamodb.DescribeTimeToLiveOutput) *DescribeTimeToLiveOutput {
+func FromSDKDescribeTimeToLiveOutput(
+	output *dynamodb.DescribeTimeToLiveOutput,
+) *DescribeTimeToLiveOutput {
 	if output == nil {
 		return &DescribeTimeToLiveOutput{}
 	}
@@ -170,8 +176,10 @@ func FromSDKGlobalSecondaryIndexDescriptions(
 			KeySchema:   FromSDKKeySchema(gsi.KeySchema),
 			Projection:  FromSDKProjection(gsi.Projection),
 			ProvisionedThroughput: ProvisionedThroughputDescription{
-				ReadCapacityUnits:  int(ptrconv.Int64(gsi.ProvisionedThroughput.ReadCapacityUnits)),
-				WriteCapacityUnits: int(ptrconv.Int64(gsi.ProvisionedThroughput.WriteCapacityUnits)),
+				ReadCapacityUnits: int(ptrconv.Int64(gsi.ProvisionedThroughput.ReadCapacityUnits)),
+				WriteCapacityUnits: int(
+					ptrconv.Int64(gsi.ProvisionedThroughput.WriteCapacityUnits),
+				),
 			},
 			ItemCount: int(ptrconv.Int64(gsi.ItemCount)),
 		}

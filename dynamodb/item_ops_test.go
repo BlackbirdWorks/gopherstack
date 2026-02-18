@@ -26,7 +26,12 @@ func TestPutItem(t *testing.T) {
 		{
 			name: "Success",
 			setup: func(db *dynamodb.InMemoryDB) {
-				createTableHelper(t, db, "ItemsTable", "id") // Assuming wrapper in test_utils handles SDK conversion
+				createTableHelper(
+					t,
+					db,
+					"ItemsTable",
+					"id",
+				) // Assuming wrapper in test_utils handles SDK conversion
 			},
 			input: models.PutItemInput{
 				TableName: "ItemsTable",
@@ -95,7 +100,11 @@ func TestPutItem(t *testing.T) {
 				t.Helper()
 				require.NoError(t, err)
 				output := resp.(*dynamodb_sdk.PutItemOutput)
-				require.NotNil(t, output.ConsumedCapacity, "Expected ConsumedCapacity to be returned")
+				require.NotNil(
+					t,
+					output.ConsumedCapacity,
+					"Expected ConsumedCapacity to be returned",
+				)
 				assert.InDelta(t, 1.0, *output.ConsumedCapacity.CapacityUnits, 0.0001)
 			},
 		},
@@ -113,7 +122,11 @@ func TestPutItem(t *testing.T) {
 				t.Helper()
 				require.NoError(t, err)
 				output := resp.(*dynamodb_sdk.PutItemOutput)
-				require.NotNil(t, output.ItemCollectionMetrics, "Expected ItemCollectionMetrics to be returned")
+				require.NotNil(
+					t,
+					output.ItemCollectionMetrics,
+					"Expected ItemCollectionMetrics to be returned",
+				)
 				pkVal := output.ItemCollectionMetrics.ItemCollectionKey["id"].(*types.AttributeValueMemberS).Value
 				assert.Equal(t, "1", pkVal)
 			},
@@ -360,7 +373,9 @@ func TestItem_Expiration(t *testing.T) {
 			// Get should return nothing
 			out, err := db.GetItem(t.Context(), &dynamodb_sdk.GetItemInput{
 				TableName: &tt.tableName,
-				Key:       map[string]types.AttributeValue{"id": &types.AttributeValueMemberS{Value: "exp1"}},
+				Key: map[string]types.AttributeValue{
+					"id": &types.AttributeValueMemberS{Value: "exp1"},
+				},
 			})
 			require.NoError(t, err)
 			assert.Empty(t, out.Item)
@@ -395,7 +410,9 @@ func TestPutItem_ConditionExpression(t *testing.T) {
 			// Put initial item
 			_, err := db.PutItem(t.Context(), &dynamodb_sdk.PutItemInput{
 				TableName: &tableName,
-				Item:      map[string]types.AttributeValue{"id": &types.AttributeValueMemberS{Value: "1"}},
+				Item: map[string]types.AttributeValue{
+					"id": &types.AttributeValueMemberS{Value: "1"},
+				},
 			})
 			require.NoError(t, err)
 
@@ -403,7 +420,9 @@ func TestPutItem_ConditionExpression(t *testing.T) {
 			_, err = db.PutItem(t.Context(), &dynamodb_sdk.PutItemInput{
 				TableName:           &tableName,
 				ConditionExpression: aws.String(tt.condition),
-				Item:                map[string]types.AttributeValue{"id": &types.AttributeValueMemberS{Value: "1"}},
+				Item: map[string]types.AttributeValue{
+					"id": &types.AttributeValueMemberS{Value: "1"},
+				},
 			})
 
 			if tt.wantErr {

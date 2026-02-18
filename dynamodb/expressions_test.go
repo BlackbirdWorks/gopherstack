@@ -48,9 +48,12 @@ func TestEvaluateExpression(t *testing.T) {
 			wantMatch: false,
 		},
 		{
-			name:      "Between Condition",
-			expr:      "val BETWEEN :min AND :max",
-			vals:      map[string]any{":min": map[string]any{"N": "50"}, ":max": map[string]any{"N": "150"}},
+			name: "Between Condition",
+			expr: "val BETWEEN :min AND :max",
+			vals: map[string]any{
+				":min": map[string]any{"N": "50"},
+				":max": map[string]any{"N": "150"},
+			},
 			wantMatch: true,
 		},
 		{
@@ -82,15 +85,21 @@ func TestEvaluateExpression(t *testing.T) {
 			wantMatch: true,
 		},
 		{
-			name:      "OR Condition",
-			expr:      "val < :min OR val > :max",
-			vals:      map[string]any{":min": map[string]any{"N": "10"}, ":max": map[string]any{"N": "90"}},
+			name: "OR Condition",
+			expr: "val < :min OR val > :max",
+			vals: map[string]any{
+				":min": map[string]any{"N": "10"},
+				":max": map[string]any{"N": "90"},
+			},
 			wantMatch: true,
 		},
 		{
-			name:      "AND Condition",
-			expr:      "status = :s AND val = :v",
-			vals:      map[string]any{":s": map[string]any{"S": "active"}, ":v": map[string]any{"N": "100"}},
+			name: "AND Condition",
+			expr: "status = :s AND val = :v",
+			vals: map[string]any{
+				":s": map[string]any{"S": "active"},
+				":v": map[string]any{"N": "100"},
+			},
 			wantMatch: true,
 		},
 	}
@@ -119,14 +128,62 @@ func TestCompareValues(t *testing.T) {
 		op   string
 		want bool
 	}{
-		{name: "Number < True", lhs: map[string]any{"N": "10"}, op: "<", rhs: map[string]any{"N": "20"}, want: true},
-		{name: "Number < False", lhs: map[string]any{"N": "20"}, op: "<", rhs: map[string]any{"N": "10"}, want: false},
-		{name: "Number > True", lhs: map[string]any{"N": "20"}, op: ">", rhs: map[string]any{"N": "10"}, want: true},
-		{name: "Number = True", lhs: map[string]any{"N": "10"}, op: "=", rhs: map[string]any{"N": "10"}, want: true},
-		{name: "String < True", lhs: map[string]any{"S": "a"}, op: "<", rhs: map[string]any{"S": "b"}, want: true},
-		{name: "String > True", lhs: map[string]any{"S": "b"}, op: ">", rhs: map[string]any{"S": "a"}, want: true},
-		{name: "String = True", lhs: map[string]any{"S": "a"}, op: "=", rhs: map[string]any{"S": "a"}, want: true},
-		{name: "String != True", lhs: map[string]any{"S": "a"}, op: "<>", rhs: map[string]any{"S": "b"}, want: true},
+		{
+			name: "Number < True",
+			lhs:  map[string]any{"N": "10"},
+			op:   "<",
+			rhs:  map[string]any{"N": "20"},
+			want: true,
+		},
+		{
+			name: "Number < False",
+			lhs:  map[string]any{"N": "20"},
+			op:   "<",
+			rhs:  map[string]any{"N": "10"},
+			want: false,
+		},
+		{
+			name: "Number > True",
+			lhs:  map[string]any{"N": "20"},
+			op:   ">",
+			rhs:  map[string]any{"N": "10"},
+			want: true,
+		},
+		{
+			name: "Number = True",
+			lhs:  map[string]any{"N": "10"},
+			op:   "=",
+			rhs:  map[string]any{"N": "10"},
+			want: true,
+		},
+		{
+			name: "String < True",
+			lhs:  map[string]any{"S": "a"},
+			op:   "<",
+			rhs:  map[string]any{"S": "b"},
+			want: true,
+		},
+		{
+			name: "String > True",
+			lhs:  map[string]any{"S": "b"},
+			op:   ">",
+			rhs:  map[string]any{"S": "a"},
+			want: true,
+		},
+		{
+			name: "String = True",
+			lhs:  map[string]any{"S": "a"},
+			op:   "=",
+			rhs:  map[string]any{"S": "a"},
+			want: true,
+		},
+		{
+			name: "String != True",
+			lhs:  map[string]any{"S": "a"},
+			op:   "<>",
+			rhs:  map[string]any{"S": "b"},
+			want: true,
+		},
 	}
 
 	for _, tc := range tests {

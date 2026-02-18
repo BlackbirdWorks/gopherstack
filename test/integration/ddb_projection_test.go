@@ -168,7 +168,10 @@ func createTable(t *testing.T, client *dynamodb.Client) string {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		client.DeleteTable(context.Background(), &dynamodb.DeleteTableInput{TableName: aws.String(tableName)})
+		client.DeleteTable(
+			context.Background(),
+			&dynamodb.DeleteTableInput{TableName: aws.String(tableName)},
+		)
 	})
 
 	return tableName

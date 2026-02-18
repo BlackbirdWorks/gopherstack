@@ -52,9 +52,12 @@ func startServer() error {
 	inMemMux := http.NewServeMux()
 	inMemClient := &dashboard.InMemClient{Handler: inMemMux}
 
-	cfg, err := config.LoadDefaultConfig(context.TODO(),
+	cfg, err := config.LoadDefaultConfig(
+		context.TODO(),
 		config.WithRegion("us-east-1"),
-		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("dummy", "dummy", "")),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("dummy", "dummy", ""),
+		),
 		config.WithHTTPClient(inMemClient),
 	)
 	if err != nil {
@@ -71,14 +74,6 @@ func startServer() error {
 		o.UsePathStyle = true
 		o.BaseEndpoint = aws.String("http://local")
 	})
-
-	// Load demo data before creating the dashboard handler
-	if os.Getenv("DEMO") == trueStr {
-		log.Info("Loading demo data...")
-		if err = demo.LoadData(context.Background(), log, ddbClient, s3Client); err != nil {
-			log.Error("Failed to load demo data", "error", err)
-		}
-	}
 
 	dashboardHandler := dashboard.NewHandler(ddbClient, s3Client, ddbHandler, s3Handler, log)
 
@@ -115,7 +110,23 @@ func startServer() error {
 	// Wire the in-memory mux used by SDK clients through the same Echo routing
 	inMemMux.Handle("/", e)
 
-	port := ":8000"
+	// Load demo data once the server is ready (internally)
+	if os.Getenv("DEMO") == trueStr {
+		// Use a separate goroutine or just call it here.
+		// Since ListenAndServe hasn't started yet but handlers are wired, it's safe.
+		log.Info("Loading demo data...")
+		if err = demo.LoadData(context.Background(), log, ddbClient, s3Client); err != nil {
+			log.Error("Failed to load demo data", "error", err)
+		}
+	}
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8000"
+	}
+	if port[0] != ':' {
+		port = ":" + port
+	}
 	log.Info("Starting Gopherstack (DynamoDB + S3)", "port", port)
 	log.Info("  DynamoDB endpoint", "url", "http://localhost"+port)
 	log.Info("  S3 endpoint      ", "url", "http://localhost"+port+" (path-style)")

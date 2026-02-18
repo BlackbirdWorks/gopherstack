@@ -37,9 +37,12 @@ func TestLoadData(t *testing.T) {
 	inMemClient := &dashboard.InMemClient{Handler: apiMux}
 
 	// Setup AWS Config
-	cfg, err := config.LoadDefaultConfig(context.TODO(),
+	cfg, err := config.LoadDefaultConfig(
+		context.TODO(),
 		config.WithRegion("us-east-1"),
-		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("dummy", "dummy", "")),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("dummy", "dummy", ""),
+		),
 		config.WithHTTPClient(inMemClient),
 	)
 	require.NoError(t, err)
@@ -64,7 +67,10 @@ func TestLoadData(t *testing.T) {
 
 	// Verify S3
 	bucketName := "demo-bucket"
-	objects, err := s3Client.ListObjectsV2(context.Background(), &s3.ListObjectsV2Input{Bucket: &bucketName})
+	objects, err := s3Client.ListObjectsV2(
+		context.Background(),
+		&s3.ListObjectsV2Input{Bucket: &bucketName},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, int32(2), *objects.KeyCount)
 }

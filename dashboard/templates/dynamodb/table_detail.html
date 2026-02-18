@@ -11,11 +11,84 @@
     <!-- Header -->
     <div class="flex justify-between items-center">
         <h1 class="text-3xl font-bold">{{.TableName}}</h1>
-        <button class="btn btn-error" hx-delete="/dashboard/dynamodb/table/{{.TableName}}"
-            hx-confirm="Are you sure you want to delete this table?">
-            Delete Table
-        </button>
+        <div class="flex gap-2">
+            <button class="btn btn-primary btn-sm" onclick="new_item_modal.showModal()">
+                New Item
+            </button>
+            <button class="btn btn-outline btn-sm" onclick="import_modal.showModal()">
+                Import JSON
+            </button>
+            <a href="/dashboard/dynamodb/table/{{.TableName}}/export" class="btn btn-outline btn-sm" target="_blank">
+                Export JSON
+            </a>
+            <button class="btn btn-error btn-sm" hx-delete="/dashboard/dynamodb/table/{{.TableName}}"
+                hx-confirm="Are you sure you want to delete this table?">
+                Delete Table
+            </button>
+        </div>
     </div>
+
+    <!-- New Item Modal -->
+    <dialog id="new_item_modal" class="modal">
+        <div class="modal-box max-w-2xl">
+            <h3 class="font-bold text-lg mb-4">Create New Item</h3>
+            <form hx-post="/dashboard/dynamodb/table/{{.TableName}}/item"
+                hx-on::after-request="if(event.detail.successful) new_item_modal.close()" hx-target="#scan-results"
+                class="space-y-4">
+                <div class="form-control">
+                    <label class="label">
+                        <span class="label-text">Item JSON</span>
+                        <span class="label-text-alt text-error">Required</span>
+                    </label>
+                    <textarea name="itemJson" class="textarea textarea-bordered font-mono h-64" placeholder='{
+  "id": "123",
+  "name": "Example"
+}' required></textarea>
+                </div>
+                <div class="modal-action">
+                    <button type="button" class="btn" onclick="new_item_modal.close()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Create Item</button>
+                </div>
+            </form>
+        </div>
+    </dialog>
+
+    <!-- Edit Item Modal -->
+    <dialog id="edit_item_modal" class="modal">
+        <div class="modal-box max-w-2xl">
+            <h3 class="font-bold text-lg mb-4">Edit Item</h3>
+            <div id="edit_item_modal_content">
+                <div class="flex justify-center p-8">
+                    <span class="loading loading-spinner loading-lg"></span>
+                </div>
+            </div>
+        </div>
+    </dialog>
+
+    <!-- Import Modal -->
+    <dialog id="import_modal" class="modal">
+        <div class="modal-box max-w-2xl">
+            <h3 class="font-bold text-lg mb-4">Import Items (JSON Array)</h3>
+            <form hx-post="/dashboard/dynamodb/table/{{.TableName}}/import"
+                hx-on::after-request="if(event.detail.successful) import_modal.close()" hx-target="#scan-results"
+                class="space-y-4">
+                <div class="form-control">
+                    <label class="label">
+                        <span class="label-text">JSON Array</span>
+                        <span class="label-text-alt text-error">Required</span>
+                    </label>
+                    <textarea name="importData" class="textarea textarea-bordered font-mono h-64" placeholder='[
+  {"id": "1", "name": "Item 1"},
+  {"id": "2", "name": "Item 2"}
+]' required></textarea>
+                </div>
+                <div class="modal-action">
+                    <button type="button" class="btn" onclick="import_modal.close()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Import Items</button>
+                </div>
+            </form>
+        </div>
+    </dialog>
 
     <!-- Tabs -->
     <div role="tablist" class="tabs tabs-bordered">

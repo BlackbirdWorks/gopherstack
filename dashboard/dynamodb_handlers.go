@@ -3,9 +3,11 @@ package dashboard
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 
@@ -18,7 +20,17 @@ import (
 )
 
 const (
-	defaultCapacity = 5
+	defaultTableLimit = 100
+	maxSearchTables   = 1000
+)
+
+const (
+	defaultCapacity   = 5
+	maxS3ObjectSearch = 100
+)
+
+var (
+	errAttrDefNotFound = errors.New("attribute definition not found")
 )
 
 // PageData represents common page data.
@@ -72,21 +84,42 @@ func (h *Handler) dynamoDBIndex(w http.ResponseWriter, _ *http.Request) {
 func (h *Handler) dynamoDBTableList(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	log := logger.Load(ctx)
-	output, err := h.DynamoDB.ListTables(ctx, &dynamodb.ListTablesInput{})
-	if err != nil {
-		h.handleListTablesError(w, r, err)
-
-		return
-	}
 
 	search := strings.ToLower(r.URL.Query().Get("search"))
-	log.InfoContext(ctx, "DynamoDB search", "search", search, "all_tables", output.TableNames)
-	tableNames := filterTableNames(search, output.TableNames)
+	lastTable := r.URL.Query().Get("lastTable")
+	log.DebugContext(ctx, "DynamoDB table list", "search", search, "lastTable", lastTable)
 
-	const displayLimit = 100
-	totalFiltered := len(tableNames)
-	if totalFiltered > displayLimit {
-		tableNames = tableNames[:displayLimit]
+	var tableNames []string
+	var nextTable *string
+
+	if search != "" {
+		// If searching, we need to scan more to find matches
+		// For simplicity, we'll fetch up to 1000 tables and filter
+		output, err := h.DynamoDB.ListTables(ctx, &dynamodb.ListTablesInput{
+			Limit: aws.Int32(maxSearchTables),
+		})
+		if err != nil {
+			h.handleListTablesError(w, r, err)
+
+			return
+		}
+		tableNames = filterTableNames(search, output.TableNames)
+	} else {
+		// Regular paginated listing
+		input := &dynamodb.ListTablesInput{
+			Limit: aws.Int32(defaultTableLimit),
+		}
+		if lastTable != "" {
+			input.ExclusiveStartTableName = aws.String(lastTable)
+		}
+		output, err := h.DynamoDB.ListTables(ctx, input)
+		if err != nil {
+			h.handleListTablesError(w, r, err)
+
+			return
+		}
+		tableNames = output.TableNames
+		nextTable = output.LastEvaluatedTableName
 	}
 
 	tableInfos := h.fetchTableInfos(ctx, tableNames)
@@ -96,11 +129,16 @@ func (h *Handler) dynamoDBTableList(w http.ResponseWriter, r *http.Request) {
 		h.renderFragment(w, "table-card", tableInfo)
 	}
 
-	if totalFiltered > len(tableNames) {
-		const msg = `<div class="alert alert-info col-span-full"><span>Showing first %d of %d tables. ` +
-			`Use search to find specific tables.</span></div>`
-		//nolint:gosec // G705: Numbers are safe
-		_, _ = fmt.Fprintf(w, msg, int64(len(tableNames)), int64(totalFiltered))
+	if nextTable != nil {
+		// #nosec G705
+		fmt.Fprintf(w, `
+            <button class="btn btn-outline col-span-full mt-4" 
+                hx-get="/dashboard/dynamodb/tables?lastTable=%s" 
+                hx-target="this" 
+                hx-swap="outerHTML"
+                hx-indicator=".htmx-indicator">
+                Load More
+            </button>`, url.QueryEscape(*nextTable))
 	}
 }
 
@@ -154,10 +192,20 @@ func (h *Handler) fetchTableInfos(ctx context.Context, tableNames []string) []Ta
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
 
-			desc, err := h.DynamoDB.DescribeTable(ctx, &dynamodb.DescribeTableInput{TableName: aws.String(tblName)})
+			desc, err := h.DynamoDB.DescribeTable(
+				ctx,
+				&dynamodb.DescribeTableInput{TableName: aws.String(tblName)},
+			)
 			if err != nil {
 				log := logger.Load(ctx)
-				log.ErrorContext(ctx, "Failed to describe table for list", "table", tblName, "error", err)
+				log.ErrorContext(
+					ctx,
+					"Failed to describe table for list",
+					"table",
+					tblName,
+					"error",
+					err,
+				)
 
 				return
 			}
@@ -277,13 +325,23 @@ func (h *Handler) extractTableInfo(table *types.TableDescription) TableInfo {
 
 	// Add GSI information
 	for _, gsi := range table.GlobalSecondaryIndexes {
-		gsiInfo := h.extractIndexInfo(gsi.IndexName, gsi.KeySchema, gsi.Projection, table.AttributeDefinitions)
+		gsiInfo := h.extractIndexInfo(
+			gsi.IndexName,
+			gsi.KeySchema,
+			gsi.Projection,
+			table.AttributeDefinitions,
+		)
 		info.GlobalSecondaryIndexes = append(info.GlobalSecondaryIndexes, gsiInfo)
 	}
 
 	// Add LSI information
 	for _, lsi := range table.LocalSecondaryIndexes {
-		lsiInfo := h.extractIndexInfo(lsi.IndexName, lsi.KeySchema, lsi.Projection, table.AttributeDefinitions)
+		lsiInfo := h.extractIndexInfo(
+			lsi.IndexName,
+			lsi.KeySchema,
+			lsi.Projection,
+			table.AttributeDefinitions,
+		)
 		info.LocalSecondaryIndexes = append(info.LocalSecondaryIndexes, lsiInfo)
 	}
 
@@ -370,6 +428,8 @@ func (h *Handler) dynamoDBQuery(w http.ResponseWriter, r *http.Request, tableNam
 		params.ExclusiveStartKey,
 		attrNames,
 		attrValues,
+		pkName,
+		skName,
 	)
 }
 
@@ -462,6 +522,7 @@ func (h *Handler) executeAndRenderQuery(
 	tableName, indexName, keyCondExp, filterExp, limitStr, exclusiveStartKey string,
 	attrNames map[string]string,
 	attrValues map[string]types.AttributeValue,
+	pkName, skName string,
 ) {
 	input := &dynamodb.QueryInput{
 		TableName:                 &tableName,
@@ -496,8 +557,10 @@ func (h *Handler) executeAndRenderQuery(
 	if err != nil {
 		log := logger.Load(ctx)
 		log.ErrorContext(ctx, "Failed to query table", "error", err)
-		toastMessage := fmt.Sprintf(`{"showToast": {"message": "Failed to query table: %s", "type": "error"}}`,
-			strings.ReplaceAll(err.Error(), `"`, `'`))
+		toastMessage := fmt.Sprintf(
+			`{"showToast": {"message": "Failed to query table: %s", "type": "error"}}`,
+			strings.ReplaceAll(err.Error(), `"`, `'`),
+		)
 		w.Header().Set("Hx-Trigger", toastMessage)
 		w.WriteHeader(http.StatusUnprocessableEntity)
 
@@ -511,7 +574,7 @@ func (h *Handler) executeAndRenderQuery(
 		LastEvaluatedKey: output.LastEvaluatedKey,
 	}
 
-	h.renderQueryResults(w, result)
+	h.renderQueryResults(w, result, tableName, pkName, skName)
 }
 
 func (h *Handler) resolveKeySchema(
@@ -546,7 +609,10 @@ func (h *Handler) resolveKeySchema(
 	return pkName, skName, pkType, skType
 }
 
-func (h *Handler) resolveIndexKeys(desc *dynamodb.DescribeTableOutput, indexName string) (string, string) {
+func (h *Handler) resolveIndexKeys(
+	desc *dynamodb.DescribeTableOutput,
+	indexName string,
+) (string, string) {
 	for _, gsi := range desc.Table.GlobalSecondaryIndexes {
 		if *gsi.IndexName == indexName {
 			return h.extractKeys(gsi.KeySchema)
@@ -599,6 +665,24 @@ func (h *Handler) dynamoDBScan(w http.ResponseWriter, r *http.Request, tableName
 
 	ctx := r.Context()
 	log := logger.Load(ctx)
+
+	// Get key schema for pinning columns
+	desc, err := h.DynamoDB.DescribeTable(ctx, &dynamodb.DescribeTableInput{TableName: &tableName})
+	if err != nil {
+		log.ErrorContext(ctx, "Failed to describe table for scan", "error", err)
+	}
+
+	var pkName, skName string
+	if desc != nil && desc.Table != nil {
+		for _, key := range desc.Table.KeySchema {
+			if key.KeyType == types.KeyTypeHash {
+				pkName = *key.AttributeName
+			} else {
+				skName = *key.AttributeName
+			}
+		}
+	}
+
 	input := &dynamodb.ScanInput{
 		TableName: &tableName,
 	}
@@ -616,7 +700,7 @@ func (h *Handler) dynamoDBScan(w http.ResponseWriter, r *http.Request, tableName
 	limit := r.FormValue("limit")
 	if limit != "" {
 		var l int32
-		if _, err := fmt.Sscanf(limit, "%d", &l); err == nil && l > 0 {
+		if _, errScan := fmt.Sscanf(limit, "%d", &l); errScan == nil && l > 0 {
 			input.Limit = aws.Int32(l)
 		}
 	}
@@ -624,7 +708,7 @@ func (h *Handler) dynamoDBScan(w http.ResponseWriter, r *http.Request, tableName
 	esk := r.FormValue("exclusiveStartKey")
 	if esk != "" {
 		var eskMap map[string]types.AttributeValue
-		if err := json.Unmarshal([]byte(esk), &eskMap); err == nil {
+		if errUnmarshal := json.Unmarshal([]byte(esk), &eskMap); errUnmarshal == nil {
 			input.ExclusiveStartKey = eskMap
 		}
 	}
@@ -632,8 +716,10 @@ func (h *Handler) dynamoDBScan(w http.ResponseWriter, r *http.Request, tableName
 	output, err := h.DynamoDB.Scan(ctx, input)
 	if err != nil {
 		log.ErrorContext(ctx, "Failed to scan table", "error", err)
-		toastMessage := fmt.Sprintf(`{"showToast": {"message": "Failed to scan table: %s", "type": "error"}}`,
-			strings.ReplaceAll(err.Error(), `"`, `'`))
+		toastMessage := fmt.Sprintf(
+			`{"showToast": {"message": "Failed to scan table: %s", "type": "error"}}`,
+			strings.ReplaceAll(err.Error(), `"`, `'`),
+		)
 		w.Header().Set("Hx-Trigger", toastMessage)
 		w.WriteHeader(http.StatusUnprocessableEntity)
 
@@ -647,11 +733,15 @@ func (h *Handler) dynamoDBScan(w http.ResponseWriter, r *http.Request, tableName
 	}
 
 	// Render results
-	h.renderQueryResults(w, result)
+	h.renderQueryResults(w, result, tableName, pkName, skName)
 }
 
 // renderQueryResults renders query/scan results as HTML.
-func (h *Handler) renderQueryResults(w http.ResponseWriter, result QueryResult) {
+func (h *Handler) renderQueryResults(
+	w http.ResponseWriter,
+	result QueryResult,
+	tableName, pkName, skName string,
+) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
 	if len(result.Items) == 0 {
@@ -660,12 +750,15 @@ func (h *Handler) renderQueryResults(w http.ResponseWriter, result QueryResult) 
 		return
 	}
 
-	columns, items := h.prepareResultsData(result.Items)
-	h.renderResultsTable(w, columns, items)
+	columns, items := h.prepareResultsData(result.Items, pkName, skName)
+	h.renderResultsTable(w, tableName, columns, items, pkName, skName)
 	h.renderResultsSummary(w, result)
 }
 
-func (h *Handler) prepareResultsData(items []map[string]types.AttributeValue) ([]string, []map[string]any) {
+func (h *Handler) prepareResultsData(
+	items []map[string]types.AttributeValue,
+	pkName, skName string,
+) ([]string, []map[string]any) {
 	columns := make([]string, 0)
 	columnMap := make(map[string]bool)
 	unmarshaledItems := make([]map[string]any, len(items))
@@ -687,19 +780,49 @@ func (h *Handler) prepareResultsData(items []map[string]types.AttributeValue) ([
 		}
 	}
 
-	return columns, unmarshaledItems
+	// Reorder columns: PK first, then SK, then the rest
+	reordered := make([]string, 0, len(columns))
+	if pkName != "" && columnMap[pkName] {
+		reordered = append(reordered, pkName)
+	}
+	if skName != "" && columnMap[skName] && skName != pkName {
+		reordered = append(reordered, skName)
+	}
+
+	for _, col := range columns {
+		if col != pkName && col != skName {
+			reordered = append(reordered, col)
+		}
+	}
+
+	return reordered, unmarshaledItems
 }
 
-func (h *Handler) renderResultsTable(w http.ResponseWriter, columns []string, items []map[string]any) {
-	const tableWrapper = `<div class="w-full max-w-full overflow-x-auto border border-base-300 ` +
+func (h *Handler) renderResultsTable(
+	w http.ResponseWriter,
+	tableName string,
+	columns []string,
+	items []map[string]any,
+	pkName, skName string,
+) {
+	const tableWrapper = `<div class="wide-table-container border border-base-300 ` +
 		`rounded-lg shadow-inner bg-base-100 mb-4">`
 	fmt.Fprint(w, tableWrapper)
 	fmt.Fprintf(w, `<table class="table table-zebra table-sm w-full table-auto">`)
 	fmt.Fprintf(w, `<thead><tr>`)
 	for _, col := range columns {
+		label := html.EscapeString(col)
+		switch col {
+		case pkName:
+			label += " <span class='badge badge-primary badge-xs ml-1'>PK</span>"
+		case skName:
+			label += " <span class='badge badge-secondary badge-xs ml-1'>SK</span>"
+		}
 		// #nosec G705 -- Data is escaped with html.EscapeString, false positive
-		fmt.Fprintf(w, `<th>%s</th>`, html.EscapeString(col))
+		// #nosec G705
+		fmt.Fprintf(w, `<th>%s</th>`, label)
 	}
+	fmt.Fprintf(w, `<th>Actions</th>`)
 	fmt.Fprintf(w, `</tr></thead><tbody>`)
 
 	for _, item := range items {
@@ -715,14 +838,54 @@ func (h *Handler) renderResultsTable(w http.ResponseWriter, columns []string, it
 					html.EscapeString(jsonStr), html.EscapeString(jsonStr))
 			}
 		}
+
+		// Row actions
+		h.renderItemActions(w, tableName, pkName, skName, item)
+
 		fmt.Fprintf(w, `</tr>`)
 	}
 
 	fmt.Fprintf(w, `</tbody></table></div>`)
 }
 
+func (h *Handler) renderItemActions(
+	w http.ResponseWriter,
+	tableName, pkName, skName string,
+	item map[string]any,
+) {
+	pkValBytes, _ := json.Marshal(item[pkName])
+	pkValStr := string(pkValBytes)
+	skValStr := ""
+	if skName != "" {
+		skValBytes, _ := json.Marshal(item[skName])
+		skValStr = string(skValBytes)
+	}
+
+	fmt.Fprintf(w, `<td>
+            <div class="flex gap-1">
+                <button class="btn btn-ghost btn-xs text-info" 
+                    hx-get="/dashboard/dynamodb/table/%s/item?pk=%s&sk=%s"
+                    hx-target="#edit_item_modal_content"
+                    onclick="edit_item_modal.showModal()">
+                    Edit
+                </button>
+                <button class="btn btn-ghost btn-xs text-error" 
+                    hx-delete="/dashboard/dynamodb/table/%s/item?pk=%s&sk=%s"
+                    hx-confirm="Are you sure you want to delete this item?"
+                    hx-target="closest tr" hx-swap="outerHTML">
+                    Delete
+                </button>
+            </div>
+        </td>`,
+		url.PathEscape(tableName), url.QueryEscape(pkValStr), url.QueryEscape(skValStr),
+		url.PathEscape(tableName), url.QueryEscape(pkValStr), url.QueryEscape(skValStr))
+}
+
 func (h *Handler) renderResultsSummary(w http.ResponseWriter, result QueryResult) {
-	fmt.Fprintf(w, `<div class="mt-4 flex justify-between items-center bg-base-200 p-4 rounded-lg">`)
+	fmt.Fprintf(
+		w,
+		`<div class="mt-4 flex justify-between items-center bg-base-200 p-4 rounded-lg">`,
+	)
 	fmt.Fprintf(
 		w,
 		`<div><p class="text-sm font-medium">Count: <span class="badge badge-ghost">%d</span> `+
@@ -784,8 +947,14 @@ func (h *Handler) dynamoDBCreateTable(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if sortKey != "" {
-		attrs = append(attrs, types.AttributeDefinition{AttributeName: &sortKey, AttributeType: sortKeyType})
-		keySchema = append(keySchema, types.KeySchemaElement{AttributeName: &sortKey, KeyType: types.KeyTypeRange})
+		attrs = append(
+			attrs,
+			types.AttributeDefinition{AttributeName: &sortKey, AttributeType: sortKeyType},
+		)
+		keySchema = append(
+			keySchema,
+			types.KeySchemaElement{AttributeName: &sortKey, KeyType: types.KeyTypeRange},
+		)
 	}
 
 	input := &dynamodb.CreateTableInput{
@@ -801,8 +970,10 @@ func (h *Handler) dynamoDBCreateTable(w http.ResponseWriter, r *http.Request) {
 	_, err := h.DynamoDB.CreateTable(ctx, input)
 	if err != nil {
 		log.ErrorContext(ctx, "Failed to create table", "error", err)
-		toastMessage := fmt.Sprintf(`{"showToast": {"message": "Failed to create table: %s", "type": "error"}}`,
-			strings.ReplaceAll(err.Error(), `"`, `'`))
+		toastMessage := fmt.Sprintf(
+			`{"showToast": {"message": "Failed to create table: %s", "type": "error"}}`,
+			strings.ReplaceAll(err.Error(), `"`, `'`),
+		)
 		w.Header().Set("Hx-Trigger", toastMessage)
 		w.WriteHeader(http.StatusUnprocessableEntity)
 
@@ -830,8 +1001,10 @@ func (h *Handler) dynamoDBDeleteTable(w http.ResponseWriter, r *http.Request, ta
 
 	if err != nil {
 		log.ErrorContext(ctx, "Failed to delete table", "table", tableName, "error", err)
-		toastMessage := fmt.Sprintf(`{"showToast": {"message": "Failed to delete table: %s", "type": "error"}}`,
-			strings.ReplaceAll(err.Error(), `"`, `'`))
+		toastMessage := fmt.Sprintf(
+			`{"showToast": {"message": "Failed to delete table: %s", "type": "error"}}`,
+			strings.ReplaceAll(err.Error(), `"`, `'`),
+		)
 		w.Header().Set("Hx-Trigger", toastMessage)
 		w.WriteHeader(http.StatusUnprocessableEntity)
 
@@ -852,4 +1025,337 @@ func (h *Handler) dynamoDBDeleteTable(w http.ResponseWriter, r *http.Request, ta
 		w.Header().Set("Hx-Location", "/dashboard/dynamodb")
 		w.WriteHeader(http.StatusOK)
 	}
+}
+
+// dynamoDBPurge deletes all tables.
+func (h *Handler) dynamoDBPurge(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+
+		return
+	}
+
+	ctx := r.Context()
+	log := logger.Load(ctx)
+
+	output, err := h.DynamoDB.ListTables(ctx, &dynamodb.ListTablesInput{})
+	if err != nil {
+		log.ErrorContext(ctx, "Failed to list tables for purge", "error", err)
+		http.Error(w, "Failed to list tables", http.StatusInternalServerError)
+
+		return
+	}
+
+	for _, tableName := range output.TableNames {
+		_, err = h.DynamoDB.DeleteTable(ctx, &dynamodb.DeleteTableInput{
+			TableName: aws.String(tableName),
+		})
+		if err != nil {
+			log.ErrorContext(
+				ctx,
+				"Failed to delete table during purge",
+				"table",
+				tableName,
+				"error",
+				err,
+			)
+		}
+	}
+
+	// Trigger a refresh of the table list
+	w.Header().Set("Hx-Trigger", "tablesPurged")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(
+		[]byte(
+			`<div class="alert alert-success col-span-full"><span>All tables purged successfully.</span></div>`,
+		),
+	)
+}
+
+// dynamoDBDeleteItem handles item deletion.
+func (h *Handler) dynamoDBDeleteItem(w http.ResponseWriter, r *http.Request, tableName string) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+
+		return
+	}
+
+	ctx := r.Context()
+	log := logger.Load(ctx)
+
+	// Get table description to find PK/SK names and types
+	desc, err := h.DynamoDB.DescribeTable(ctx, &dynamodb.DescribeTableInput{
+		TableName: aws.String(tableName),
+	})
+	if err != nil {
+		http.Error(w, "Table not found", http.StatusNotFound)
+
+		return
+	}
+
+	pkName, skName := h.extractKeys(desc.Table.KeySchema)
+
+	// Get PK/SK values from request (JSON serialized in query params)
+	pkValRaw := r.URL.Query().Get("pk")
+	skValRaw := r.URL.Query().Get("sk")
+
+	key := make(map[string]types.AttributeValue)
+
+	// Helper to parse JSON value into AttributeValue based on attribute definition
+	parseVal := func(name, valRaw string) (types.AttributeValue, error) {
+		var ad *types.AttributeDefinition
+		for i := range desc.Table.AttributeDefinitions {
+			if *desc.Table.AttributeDefinitions[i].AttributeName == name {
+				ad = &desc.Table.AttributeDefinitions[i]
+
+				break
+			}
+		}
+		if ad == nil {
+			return nil, fmt.Errorf("%w for %s", errAttrDefNotFound, name)
+		}
+
+		// Unmarshal the JSON value (could be string, number, etc.)
+		var v any
+		if errUnmarshal := json.Unmarshal([]byte(valRaw), &v); errUnmarshal != nil {
+			return nil, fmt.Errorf("failed to unmarshal key value: %w", errUnmarshal)
+		}
+
+		// Marshal into AttributeValue
+		return attributevalue.Marshal(v)
+	}
+
+	pkAV, errPK := parseVal(pkName, pkValRaw)
+	if errPK != nil {
+		log.ErrorContext(ctx, "Failed to parse PK", "error", errPK)
+		http.Error(w, errPK.Error(), http.StatusBadRequest)
+
+		return
+	}
+	key[pkName] = pkAV
+
+	if skName != "" && skValRaw != "" {
+		skAV, errSK := parseVal(skName, skValRaw)
+		if errSK != nil {
+			log.ErrorContext(ctx, "Failed to parse SK", "error", errSK)
+			http.Error(w, errSK.Error(), http.StatusBadRequest)
+
+			return
+		}
+		key[skName] = skAV
+	}
+
+	_, err = h.DynamoDB.DeleteItem(ctx, &dynamodb.DeleteItemInput{
+		TableName: aws.String(tableName),
+		Key:       key,
+	})
+	if err != nil {
+		log.ErrorContext(ctx, "Failed to delete item", "table", tableName, "error", err)
+		http.Error(w, "Failed to delete item", http.StatusInternalServerError)
+
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+// dynamoDBCreateItem handles item creation.
+func (h *Handler) dynamoDBCreateItem(w http.ResponseWriter, r *http.Request, tableName string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+
+		return
+	}
+
+	ctx := r.Context()
+	log := logger.Load(ctx)
+
+	itemJSON := r.FormValue("itemJson")
+	var m map[string]any
+	if err := json.Unmarshal([]byte(itemJSON), &m); err != nil {
+		http.Error(w, "Invalid JSON: "+err.Error(), http.StatusBadRequest)
+
+		return
+	}
+
+	item, err := attributevalue.MarshalMap(m)
+	if err != nil {
+		http.Error(w, "Failed to marshal item: "+err.Error(), http.StatusInternalServerError)
+
+		return
+	}
+
+	_, err = h.DynamoDB.PutItem(ctx, &dynamodb.PutItemInput{
+		TableName: aws.String(tableName),
+		Item:      item,
+	})
+	if err != nil {
+		log.ErrorContext(ctx, "Failed to create item", "table", tableName, "error", err)
+		http.Error(w, "Failed to create item: "+err.Error(), http.StatusInternalServerError)
+
+		return
+	}
+
+	// Re-scan to show the new item
+	h.dynamoDBScan(w, r, tableName)
+}
+
+// dynamoDBExportTable handles exporting table data to JSON.
+func (h *Handler) dynamoDBExportTable(w http.ResponseWriter, r *http.Request, tableName string) {
+	ctx := r.Context()
+	log := logger.Load(ctx)
+
+	// Scan all items
+	input := &dynamodb.ScanInput{
+		TableName: aws.String(tableName),
+	}
+	output, err := h.DynamoDB.Scan(ctx, input)
+	if err != nil {
+		log.ErrorContext(ctx, "Failed to scan for export", "table", tableName, "error", err)
+		http.Error(w, "Failed to export data", http.StatusInternalServerError)
+
+		return
+	}
+
+	var items []map[string]any
+	if errUnmarshal := attributevalue.UnmarshalListOfMaps(output.Items, &items); errUnmarshal != nil {
+		http.Error(w, "Failed to unmarshal data for export", http.StatusInternalServerError)
+
+		return
+	}
+
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s.json", tableName))
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(items)
+}
+
+// dynamoDBImportTable handles importing JSON data into a table.
+func (h *Handler) dynamoDBImportTable(w http.ResponseWriter, r *http.Request, tableName string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+
+		return
+	}
+
+	ctx := r.Context()
+	log := logger.Load(ctx)
+
+	importData := r.FormValue("importData")
+	var items []map[string]any
+	if err := json.Unmarshal([]byte(importData), &items); err != nil {
+		http.Error(w, "Invalid JSON: "+err.Error(), http.StatusBadRequest)
+
+		return
+	}
+
+	for _, m := range items {
+		item, err := attributevalue.MarshalMap(m)
+		if err != nil {
+			log.ErrorContext(ctx, "Failed to marshal item during import", "error", err)
+
+			continue
+		}
+		_, _ = h.DynamoDB.PutItem(ctx, &dynamodb.PutItemInput{
+			TableName: aws.String(tableName),
+			Item:      item,
+		})
+	}
+
+	// Trigger a scan to refresh results
+	h.dynamoDBScan(w, r, tableName)
+}
+
+// dynamoDBItemDetail handles getting an item for display/editing.
+func (h *Handler) dynamoDBItemDetail(w http.ResponseWriter, r *http.Request, tableName string) {
+	ctx := r.Context()
+	log := logger.Load(ctx)
+
+	// Get table description to find PK/SK names and types
+	desc, err := h.DynamoDB.DescribeTable(ctx, &dynamodb.DescribeTableInput{
+		TableName: aws.String(tableName),
+	})
+	if err != nil {
+		http.Error(w, "Table not found", http.StatusNotFound)
+
+		return
+	}
+
+	pkName, skName := h.extractKeys(desc.Table.KeySchema)
+
+	// Get PK/SK values from request (JSON serialized in query params)
+	pkValRaw := r.URL.Query().Get("pk")
+	skValRaw := r.URL.Query().Get("sk")
+
+	key := make(map[string]types.AttributeValue)
+
+	parseVal := func(_, valRaw string) (types.AttributeValue, error) {
+		var v any
+		if errUnmarshal := json.Unmarshal([]byte(valRaw), &v); errUnmarshal != nil {
+			return nil, fmt.Errorf("failed to unmarshal key value: %w", errUnmarshal)
+		}
+
+		return attributevalue.Marshal(v)
+	}
+
+	pkAV, errPK := parseVal(pkName, pkValRaw)
+	if errPK != nil {
+		http.Error(w, "Failed to parse PK", http.StatusBadRequest)
+
+		return
+	}
+	key[pkName] = pkAV
+
+	if skName != "" && skValRaw != "" {
+		skAV, errSK := parseVal(skName, skValRaw)
+		if errSK != nil {
+			http.Error(w, "Failed to parse SK", http.StatusBadRequest)
+
+			return
+		}
+		key[skName] = skAV
+	}
+
+	output, errGet := h.DynamoDB.GetItem(ctx, &dynamodb.GetItemInput{
+		TableName: aws.String(tableName),
+		Key:       key,
+	})
+	if errGet != nil {
+		log.ErrorContext(ctx, "Failed to get item", "table", tableName, "error", errGet)
+		http.Error(w, "Failed to get item", http.StatusInternalServerError)
+
+		return
+	}
+
+	if output.Item == nil {
+		http.NotFound(w, r)
+
+		return
+	}
+
+	var m map[string]any
+	if errUnmarshal := attributevalue.UnmarshalMap(output.Item, &m); errUnmarshal != nil {
+		log.ErrorContext(ctx, "Failed to unmarshal item", "error", errUnmarshal)
+		http.Error(w, "Failed to unmarshal item", http.StatusInternalServerError)
+
+		return
+	}
+
+	itemJSON, _ := json.MarshalIndent(m, "", "  ")
+
+	fmt.Fprintf(w, `
+        <form hx-post="/dashboard/dynamodb/table/%s/item" 
+            hx-on::after-request="if(event.detail.successful) edit_item_modal.close()" 
+            hx-target="#scan-results"
+            class="space-y-4">
+            <div class="form-control">
+                <label class="label">
+                    <span class="label-text">Item JSON</span>
+                </label>
+                <textarea name="itemJson" class="textarea textarea-bordered font-mono h-64" required>%s</textarea>
+            </div>
+            <div class="modal-action">
+                <button type="button" class="btn" onclick="edit_item_modal.close()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save Changes</button>
+            </div>
+        </form>`, tableName, html.EscapeString(string(itemJSON)))
 }

@@ -179,7 +179,8 @@ func (e *Evaluator) evaluateBetween(n *BetweenExpr) (bool, error) {
 		return false, err
 	}
 
-	return e.compareValues(val, TokenGreaterEqual, lower) && e.compareValues(val, TokenLessEqual, upper), nil
+	return e.compareValues(val, TokenGreaterEqual, lower) &&
+		e.compareValues(val, TokenLessEqual, upper), nil
 }
 
 func (e *Evaluator) evaluateIn(n *InExpr) (bool, error) {

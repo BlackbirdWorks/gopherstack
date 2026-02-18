@@ -14,11 +14,17 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
 
-func (db *InMemoryDB) Scan(ctx context.Context, input *dynamodb.ScanInput) (*dynamodb.ScanOutput, error) {
+func (db *InMemoryDB) Scan(
+	ctx context.Context,
+	input *dynamodb.ScanInput,
+) (*dynamodb.ScanOutput, error) {
 	return db.ScanWithContext(ctx, input)
 }
 
-func (db *InMemoryDB) ScanWithContext(ctx context.Context, input *dynamodb.ScanInput) (*dynamodb.ScanOutput, error) {
+func (db *InMemoryDB) ScanWithContext(
+	ctx context.Context,
+	input *dynamodb.ScanInput,
+) (*dynamodb.ScanOutput, error) {
 	// Check if context is already cancelled
 	select {
 	case <-ctx.Done():

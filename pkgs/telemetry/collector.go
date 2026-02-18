@@ -152,7 +152,9 @@ func parseHistogram(mf *io_prometheus_client.MetricFamily) []Summary {
 }
 
 // estimatePercentiles estimates p50, p95, p99, average, and max from histogram buckets.
-func estimatePercentiles(h *io_prometheus_client.Histogram) (float64, float64, float64, float64, float64) {
+func estimatePercentiles(
+	h *io_prometheus_client.Histogram,
+) (float64, float64, float64, float64, float64) {
 	if h == nil || h.SampleCount == nil || h.GetSampleCount() == 0 {
 		return 0, 0, 0, 0, 0
 	}
