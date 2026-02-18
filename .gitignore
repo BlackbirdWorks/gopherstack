@@ -10,3 +10,5 @@ main
 /bin/
 .DS_Store
 coverage.html
+*.txt
+*.pdf

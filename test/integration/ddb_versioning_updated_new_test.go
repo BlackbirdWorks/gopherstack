@@ -69,16 +69,11 @@ func TestIntegration_DDB_VersioningFlowWithUPDATED_NEW(t *testing.T) {
 
 	t.Logf("Returned attributes: %+v", out1.Attributes)
 
-	// For a NEW item, UPDATED_NEW should return all attributes that were set
-	// including the key and all updated attributes
-	assert.Contains(t, out1.Attributes, "pk", "Should contain primary key")
+	// For a NEW item, UPDATED_NEW should return only attributes that were set
+	// in the UpdateExpression (not the key).
+	assert.NotContains(t, out1.Attributes, "pk", "Should NOT contain primary key")
 	assert.Contains(t, out1.Attributes, "version", "Should contain version")
 	assert.Contains(t, out1.Attributes, "data", "Should contain data")
-
-	// Verify values
-	pk1, ok := out1.Attributes["pk"].(*types.AttributeValueMemberS)
-	require.True(t, ok, "pk should be a string")
-	assert.Equal(t, "doc1", pk1.Value)
 
 	v1, ok := out1.Attributes["version"].(*types.AttributeValueMemberN)
 	require.True(t, ok, "version should be a number")
@@ -176,8 +171,8 @@ func TestIntegration_DDB_VersioningFlowWithUPDATED_NEW(t *testing.T) {
 
 	t.Logf("Returned attributes: %+v", out4.Attributes)
 
-	// For a NEW item with ADD, all attributes should be returned
-	assert.Contains(t, out4.Attributes, "pk", "Should contain primary key")
+	// For a NEW item with ADD, only updated attributes should be returned
+	assert.NotContains(t, out4.Attributes, "pk", "Should NOT contain primary key")
 	assert.Contains(t, out4.Attributes, "version", "Should contain version")
 	assert.Contains(t, out4.Attributes, "data", "Should contain data")
 

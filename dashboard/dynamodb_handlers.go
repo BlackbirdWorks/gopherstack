@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"net/http"
 	"strings"
 	"sync"
@@ -645,15 +646,19 @@ func (h *Handler) renderQueryResults(w http.ResponseWriter, result QueryResult) 
 		return
 	}
 
-	// Identify all unique columns
+	columns, items := h.prepareResultsData(result.Items)
+	h.renderResultsTable(w, columns, items)
+	h.renderResultsSummary(w, result)
+}
+
+func (h *Handler) prepareResultsData(items []map[string]types.AttributeValue) ([]string, []map[string]any) {
 	columns := make([]string, 0)
 	columnMap := make(map[string]bool)
-	unmarshaledItems := make([]map[string]any, len(result.Items))
+	unmarshaledItems := make([]map[string]any, len(items))
 
-	for i, item := range result.Items {
+	for i, item := range items {
 		var m map[string]any
 		if err := attributevalue.UnmarshalMap(item, &m); err != nil {
-			// Fallback to raw if unmarshal fails
 			m = make(map[string]any)
 			for k, v := range item {
 				m[k] = v
@@ -668,21 +673,18 @@ func (h *Handler) renderQueryResults(w http.ResponseWriter, result QueryResult) 
 		}
 	}
 
-	// Sort columns: PK first, then SK, then others
-	// Actually we don't know PK/SK here unless we pass them.
-	// Let's just do alphabetical for now.
-	// TODO: Consider passing table metadata for better sorting.
+	return columns, unmarshaledItems
+}
 
-	// Start table
+func (h *Handler) renderResultsTable(w http.ResponseWriter, columns []string, items []map[string]any) {
 	fmt.Fprintf(w, `<div class="overflow-x-auto"><table class="table table-zebra table-sm">`)
 	fmt.Fprintf(w, `<thead><tr>`)
 	for _, col := range columns {
-		fmt.Fprintf(w, `<th>%s</th>`, col)
+		fmt.Fprintf(w, `<th>%s</th>`, html.EscapeString(col))
 	}
 	fmt.Fprintf(w, `</tr></thead><tbody>`)
 
-	// Render each item
-	for _, item := range unmarshaledItems {
+	for _, item := range items {
 		fmt.Fprintf(w, `<tr>`)
 		for _, col := range columns {
 			val := item[col]
@@ -690,21 +692,40 @@ func (h *Handler) renderQueryResults(w http.ResponseWriter, result QueryResult) 
 				fmt.Fprintf(w, `<td class="opacity-30">-</td>`)
 			} else {
 				jsonVal, _ := json.Marshal(val)
-				fmt.Fprintf(w, `<td class="font-mono text-xs">%s</td>`, string(jsonVal))
+				fmt.Fprintf(w, `<td class="font-mono text-xs">%s</td>`, html.EscapeString(string(jsonVal)))
 			}
 		}
 		fmt.Fprintf(w, `</tr>`)
 	}
 
 	fmt.Fprintf(w, `</tbody></table></div>`)
+}
+
+func (h *Handler) renderResultsSummary(w http.ResponseWriter, result QueryResult) {
 	fmt.Fprintf(w, `<div class="mt-4 flex justify-between items-center bg-base-200 p-4 rounded-lg">`)
-	fmt.Fprintf(w, `<div><p class="text-sm font-medium">Count: <span class="badge badge-ghost">%d</span> | Scanned: <span class="badge badge-ghost">%d</span></p></div>`, result.Count, result.ScannedCount)
+	fmt.Fprintf(
+		w,
+		`<div><p class="text-sm font-medium">Count: <span class="badge badge-ghost">%d</span> `+
+			`| Scanned: <span class="badge badge-ghost">%d</span></p></div>`,
+		result.Count,
+		result.ScannedCount,
+	)
 
 	if result.LastEvaluatedKey != nil {
 		kb, _ := json.Marshal(result.LastEvaluatedKey)
 		fmt.Fprintf(w, `<div class="flex items-center gap-4">`)
-		fmt.Fprintf(w, `<span class="text-xs opacity-50 font-mono truncate max-w-xs" title="%s">LastEvaluatedKey: %s</span>`, string(kb), string(kb))
-		fmt.Fprintf(w, `<button class="btn btn-primary btn-sm" hx-include="closest form" hx-vals='{"exclusiveStartKey": %s}' hx-post="" hx-target="closest #query-results, closest #scan-results">Next Page &rarr;</button>`, string(kb))
+		fmt.Fprintf(
+			w,
+			`<span class="text-xs opacity-50 font-mono truncate max-w-xs" title="%s">LastEvaluatedKey: %s</span>`,
+			string(kb),
+			string(kb),
+		)
+		fmt.Fprintf(
+			w,
+			`<button class="btn btn-primary btn-sm" hx-include="closest form" hx-vals='{"exclusiveStartKey": %s}' `+
+				`hx-post="" hx-target="closest #query-results, closest #scan-results">Next Page &rarr;</button>`,
+			string(kb),
+		)
 		fmt.Fprintf(w, `</div>`)
 	}
 	fmt.Fprintf(w, `</div>`)

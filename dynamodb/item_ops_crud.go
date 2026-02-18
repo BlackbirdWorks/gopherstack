@@ -433,11 +433,6 @@ func resolveReturnValues(
 			}
 		}
 	case types.ReturnValueUpdatedNew:
-		if oldItem == nil {
-			// New item: return all attributes (key + updated)
-			return models.ToSDKItem(newItem)
-		}
-
 		filtered := pickPaths(newItem, updatedPaths)
 		if len(filtered) > 0 {
 			return models.ToSDKItem(filtered)
