@@ -10,7 +10,7 @@ permissions:
   pull-requests: write
 
 jobs:
-  test-coverage:
+  badges:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,26 +29,7 @@ jobs:
         with:
           profile: coverage.out
           local-prefix: github.com/${{ github.repository }}
-          badge-file-name: coverage.svg
-
-      - name: Upload coverage badge
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: "chore: update coverage badge [skip ci]"
-          file_pattern: '.badges/coverage.svg'
-          skip_fetch: true
-          skip_checkout: true
-
-  go-report-card:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.26'
-          cache: true
+          badge-file-name: .badges/coverage.svg
 
       - name: Run goreportcard-cli
         run: |
@@ -67,10 +48,40 @@ jobs:
           # Fetch the badge from goreportcard.com
           curl -o .badges/goreportcard.svg "https://goreportcard.com/badge/github.com/${{ github.repository }}"
 
-      - name: Commit Go Report Card badge
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: "chore: update go report card badge [skip ci]"
-          file_pattern: '.badges/goreportcard.svg'
-          skip_fetch: true
-          skip_checkout: true
+      - name: Push badges to badges branch
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/badges
+          cp -f .badges/*.svg /tmp/badges/
+
+          git fetch origin badges || true
+
+          if git show-ref --verify --quiet refs/remotes/origin/badges; then
+            git checkout badges
+            NEW_BRANCH=false
+          else
+            git checkout --orphan badges
+            git rm -rf .
+            git clean -fdx
+            NEW_BRANCH=true
+          fi
+
+          mkdir -p .badges
+          cp -f /tmp/badges/*.svg .badges/
+          git add .badges/*.svg
+
+          if git diff --cached --quiet; then
+            if [ "${NEW_BRANCH}" = "true" ]; then
+              # Ensure the branch exists even if badges didn't change.
+              touch .badges/.gitkeep
+              git add .badges/.gitkeep
+            else
+              echo "No badge changes."
+              exit 0
+            fi
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore: update badges [skip ci]"
+          git push origin badges
