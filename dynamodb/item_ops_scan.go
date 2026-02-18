@@ -3,8 +3,10 @@ package dynamodb
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"Gopherstack/dynamodb/models"
+	"Gopherstack/pkgs/dynamoattr"
 	"Gopherstack/pkgs/logger"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -38,7 +40,7 @@ func (db *InMemoryDB) ScanWithContext(ctx context.Context, input *dynamodb.ScanI
 		return nil, err
 	}
 
-	items := db.doScan(ctx, table.Items, input, pkDef, skDef, table.TTLAttribute)
+	items := db.doScan(ctx, table, input, pkDef, skDef)
 
 	outItems := make([]map[string]types.AttributeValue, len(items))
 	for i, it := range items {
@@ -87,11 +89,12 @@ func (db *InMemoryDB) getScanKeySchema(
 
 func (db *InMemoryDB) doScan(
 	ctx context.Context,
-	items []map[string]any,
+	table *Table,
 	input *dynamodb.ScanInput,
 	pkDef, skDef models.KeySchemaElement,
-	ttlAttr string,
 ) []map[string]any {
+	items := table.Items
+	ttlAttr := table.TTLAttribute
 	result := make([]map[string]any, 0, minScanAllocationSize)
 
 	eav := models.FromSDKItem(input.ExpressionAttributeValues)
@@ -105,19 +108,56 @@ func (db *InMemoryDB) doScan(
 		}
 
 		if db.shouldIncludeInScan(ctx, item, input, pkDef, skDef, eav) {
-			processedItem := item
-			if proj != "" {
-				processedItem = projectItem(item, proj, input.ExpressionAttributeNames)
-			}
-			result = append(result, processedItem)
+			result = append(result, item)
 		}
+	}
 
-		if limit > 0 && len(result) >= limit {
-			break
+	// Sort result by PK then SK
+	sortScanResults(result, pkDef, skDef, table)
+
+	// Apply projection and limit
+	if limit > 0 && len(result) > limit {
+		result = result[:limit]
+	}
+
+	if proj != "" {
+		for i, item := range result {
+			result[i] = projectItem(item, proj, input.ExpressionAttributeNames)
 		}
 	}
 
 	return result
+}
+
+func sortScanResults(
+	items []map[string]any,
+	pkDef, skDef models.KeySchemaElement,
+	table *Table,
+) {
+	pkType := getAttributeType(table.AttributeDefinitions, pkDef.AttributeName, "S")
+	var skType string
+	if skDef.AttributeName != "" {
+		skType = getAttributeType(table.AttributeDefinitions, skDef.AttributeName, "S")
+	}
+
+	sort.Slice(items, func(i, j int) bool {
+		v1pk := dynamoattr.UnwrapAttributeValue(items[i][pkDef.AttributeName])
+		v2pk := dynamoattr.UnwrapAttributeValue(items[j][pkDef.AttributeName])
+		pkRes := compareAny(v1pk, v2pk, pkType)
+		if pkRes != 0 {
+			return pkRes < 0
+		}
+
+		if skDef.AttributeName != "" {
+			v1sk := dynamoattr.UnwrapAttributeValue(items[i][skDef.AttributeName])
+			v2sk := dynamoattr.UnwrapAttributeValue(items[j][skDef.AttributeName])
+			skRes := compareAny(v1sk, v2sk, skType)
+
+			return skRes < 0
+		}
+
+		return false
+	})
 }
 
 func (db *InMemoryDB) shouldIncludeInScan(
