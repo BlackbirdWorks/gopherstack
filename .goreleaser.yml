@@ -95,6 +95,8 @@ dockers:
   - image_templates:
       - "ghcr.io/agbishop/gopherstack:{{ .Version }}-amd64"
       - "ghcr.io/agbishop/gopherstack:latest-amd64"
+      - "blackbird7181/gopherstack:{{ .Version }}-amd64"
+      - "blackbird7181/gopherstack:latest-amd64"
     use: buildx
     dockerfile: Dockerfile.goreleaser
     build_flag_templates:
@@ -108,6 +110,8 @@ dockers:
   - image_templates:
       - "ghcr.io/agbishop/gopherstack:{{ .Version }}-arm64"
       - "ghcr.io/agbishop/gopherstack:latest-arm64"
+      - "blackbird7181/gopherstack:{{ .Version }}-arm64"
+      - "blackbird7181/gopherstack:latest-arm64"
     use: buildx
     goarch: arm64
     dockerfile: Dockerfile.goreleaser
@@ -129,6 +133,16 @@ docker_manifests:
     image_templates:
       - "ghcr.io/agbishop/gopherstack:latest-amd64"
       - "ghcr.io/agbishop/gopherstack:latest-arm64"
+
+  - name_template: "blackbird7181/gopherstack:{{ .Version }}"
+    image_templates:
+      - "blackbird7181/gopherstack:{{ .Version }}-amd64"
+      - "blackbird7181/gopherstack:{{ .Version }}-arm64"
+
+  - name_template: "blackbird7181/gopherstack:latest"
+    image_templates:
+      - "blackbird7181/gopherstack:latest-amd64"
+      - "blackbird7181/gopherstack:latest-arm64"
 
 release:
   github:

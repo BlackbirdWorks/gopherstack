@@ -697,6 +697,7 @@ func (h *Handler) renderResultsTable(w http.ResponseWriter, columns []string, it
 	fmt.Fprintf(w, `<table class="table table-zebra table-sm w-full table-auto">`)
 	fmt.Fprintf(w, `<thead><tr>`)
 	for _, col := range columns {
+		// #nosec G705 -- Data is escaped with html.EscapeString, false positive
 		fmt.Fprintf(w, `<th>%s</th>`, html.EscapeString(col))
 	}
 	fmt.Fprintf(w, `</tr></thead><tbody>`)

@@ -24,6 +24,7 @@ import (
 
 const (
 	serverTimeout = 120 * time.Second
+	trueStr       = "true"
 )
 
 func main() {
@@ -34,7 +35,7 @@ func main() {
 
 func startServer() error {
 	var level slog.Level
-	if os.Getenv("DEBUG") == "true" {
+	if os.Getenv("DEBUG") == trueStr {
 		level = slog.LevelDebug
 	} else {
 		level = slog.LevelInfo
@@ -72,7 +73,7 @@ func startServer() error {
 	})
 
 	// Load demo data before creating the dashboard handler
-	if os.Getenv("DEMO") == "true" {
+	if os.Getenv("DEMO") == trueStr {
 		log.Info("Loading demo data...")
 		if err = demo.LoadData(context.Background(), log, ddbClient, s3Client); err != nil {
 			log.Error("Failed to load demo data", "error", err)
