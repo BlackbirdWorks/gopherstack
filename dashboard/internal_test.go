@@ -515,7 +515,7 @@ func TestInternal_RenderQueryResults(t *testing.T) {
 			_ = ctx
 			h := &Handler{Logger: slog.Default()}
 			w := httptest.NewRecorder()
-			h.renderQueryResults(w, tt.result)
+			h.renderQueryResults(w, tt.result, "", "")
 			require.Equal(t, tt.expectCode, w.Code)
 			if tt.expectContent != "" {
 				require.Contains(t, w.Body.String(), tt.expectContent)

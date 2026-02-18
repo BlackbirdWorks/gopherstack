@@ -698,3 +698,69 @@ func (h *Handler) s3DeleteBucket(w http.ResponseWriter, r *http.Request, bucketN
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(" "))
 }
+
+// s3Purge deletes all buckets and their contents.
+func (h *Handler) s3Purge(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+
+		return
+	}
+
+	ctx := r.Context()
+	log := logger.Load(ctx)
+
+	output, err := h.S3.ListBuckets(ctx, &s3.ListBucketsInput{})
+	if err != nil {
+		log.ErrorContext(ctx, "Failed to list buckets for purge", "error", err)
+		http.Error(w, "Failed to list buckets", http.StatusInternalServerError)
+
+		return
+	}
+
+	for _, bucket := range output.Buckets {
+		bucketName := *bucket.Name
+
+		// Must delete all objects and versions before deleting bucket
+		versions, err := h.S3.ListObjectVersions(ctx, &s3.ListObjectVersionsInput{
+			Bucket: &bucketName,
+		})
+		if err == nil {
+			var objectsToDelete []types.ObjectIdentifier
+			for _, v := range versions.Versions {
+				objectsToDelete = append(objectsToDelete, types.ObjectIdentifier{
+					Key:       v.Key,
+					VersionId: v.VersionId,
+				})
+			}
+			for _, dm := range versions.DeleteMarkers {
+				objectsToDelete = append(objectsToDelete, types.ObjectIdentifier{
+					Key:       dm.Key,
+					VersionId: dm.VersionId,
+				})
+			}
+
+			if len(objectsToDelete) > 0 {
+				_, err = h.S3.DeleteObjects(ctx, &s3.DeleteObjectsInput{
+					Bucket: &bucketName,
+					Delete: &types.Delete{Objects: objectsToDelete},
+				})
+				if err != nil {
+					log.ErrorContext(ctx, "Failed to delete objects during purge", "bucket", bucketName, "error", err)
+				}
+			}
+		}
+
+		_, err = h.S3.DeleteBucket(ctx, &s3.DeleteBucketInput{
+			Bucket: &bucketName,
+		})
+		if err != nil {
+			log.ErrorContext(ctx, "Failed to delete bucket during purge", "bucket", bucketName, "error", err)
+		}
+	}
+
+	// Trigger a refresh
+	w.Header().Set("Hx-Trigger", "bucketsPurged")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`<div class="alert alert-success col-span-full"><span>All buckets purged successfully.</span></div>`))
+}

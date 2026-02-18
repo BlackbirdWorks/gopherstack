@@ -96,16 +96,16 @@
                         <tbody>
                             {{range .Versions}}
                             <tr>
-                                <td class="font-mono text-xs">{{.VersionId}}</td>
+                                <td class="font-mono text-xs">{{.VersionID}}</td>
                                 <td>{{.LastModified}}</td>
                                 <td>
                                     <div class="flex gap-1">
-                                        <a href="/dashboard/s3/bucket/{{$.BucketName}}/download/{{$.Key}}?versionId={{.VersionId}}"
+                                        <a href="/dashboard/s3/bucket/{{$.BucketName}}/download/{{$.Key}}?versionId={{.VersionID}}"
                                             class="btn btn-xs btn-ghost">
                                             Download
                                         </a>
                                         <button
-                                            hx-delete="/dashboard/s3/bucket/{{$.BucketName}}/file/{{$.Key}}?versionId={{.VersionId}}"
+                                            hx-delete="/dashboard/s3/bucket/{{$.BucketName}}/file/{{$.Key}}?versionId={{.VersionID}}"
                                             hx-confirm="Are you sure you want to permanently delete this specific version?"
                                             hx-target="closest tr" hx-swap="outerHTML"
                                             class="btn btn-xs btn-ghost text-error">

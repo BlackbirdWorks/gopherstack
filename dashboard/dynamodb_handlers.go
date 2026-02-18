@@ -370,6 +370,8 @@ func (h *Handler) dynamoDBQuery(w http.ResponseWriter, r *http.Request, tableNam
 		params.ExclusiveStartKey,
 		attrNames,
 		attrValues,
+		pkName,
+		skName,
 	)
 }
 
@@ -462,6 +464,7 @@ func (h *Handler) executeAndRenderQuery(
 	tableName, indexName, keyCondExp, filterExp, limitStr, exclusiveStartKey string,
 	attrNames map[string]string,
 	attrValues map[string]types.AttributeValue,
+	pkName, skName string,
 ) {
 	input := &dynamodb.QueryInput{
 		TableName:                 &tableName,
@@ -511,7 +514,7 @@ func (h *Handler) executeAndRenderQuery(
 		LastEvaluatedKey: output.LastEvaluatedKey,
 	}
 
-	h.renderQueryResults(w, result)
+	h.renderQueryResults(w, result, pkName, skName)
 }
 
 func (h *Handler) resolveKeySchema(
@@ -599,6 +602,24 @@ func (h *Handler) dynamoDBScan(w http.ResponseWriter, r *http.Request, tableName
 
 	ctx := r.Context()
 	log := logger.Load(ctx)
+
+	// Get key schema for pinning columns
+	desc, err := h.DynamoDB.DescribeTable(ctx, &dynamodb.DescribeTableInput{TableName: &tableName})
+	if err != nil {
+		log.ErrorContext(ctx, "Failed to describe table for scan", "error", err)
+	}
+
+	var pkName, skName string
+	if desc != nil && desc.Table != nil {
+		for _, key := range desc.Table.KeySchema {
+			if key.KeyType == types.KeyTypeHash {
+				pkName = *key.AttributeName
+			} else {
+				skName = *key.AttributeName
+			}
+		}
+	}
+
 	input := &dynamodb.ScanInput{
 		TableName: &tableName,
 	}
@@ -647,11 +668,11 @@ func (h *Handler) dynamoDBScan(w http.ResponseWriter, r *http.Request, tableName
 	}
 
 	// Render results
-	h.renderQueryResults(w, result)
+	h.renderQueryResults(w, result, pkName, skName)
 }
 
 // renderQueryResults renders query/scan results as HTML.
-func (h *Handler) renderQueryResults(w http.ResponseWriter, result QueryResult) {
+func (h *Handler) renderQueryResults(w http.ResponseWriter, result QueryResult, pkName, skName string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
 	if len(result.Items) == 0 {
@@ -660,12 +681,12 @@ func (h *Handler) renderQueryResults(w http.ResponseWriter, result QueryResult) 
 		return
 	}
 
-	columns, items := h.prepareResultsData(result.Items)
-	h.renderResultsTable(w, columns, items)
+	columns, items := h.prepareResultsData(result.Items, pkName, skName)
+	h.renderResultsTable(w, columns, items, pkName, skName)
 	h.renderResultsSummary(w, result)
 }
 
-func (h *Handler) prepareResultsData(items []map[string]types.AttributeValue) ([]string, []map[string]any) {
+func (h *Handler) prepareResultsData(items []map[string]types.AttributeValue, pkName, skName string) ([]string, []map[string]any) {
 	columns := make([]string, 0)
 	columnMap := make(map[string]bool)
 	unmarshaledItems := make([]map[string]any, len(items))
@@ -687,18 +708,39 @@ func (h *Handler) prepareResultsData(items []map[string]types.AttributeValue) ([
 		}
 	}
 
-	return columns, unmarshaledItems
+	// Reorder columns: PK first, then SK, then the rest
+	reordered := make([]string, 0, len(columns))
+	if pkName != "" && columnMap[pkName] {
+		reordered = append(reordered, pkName)
+	}
+	if skName != "" && columnMap[skName] && skName != pkName {
+		reordered = append(reordered, skName)
+	}
+
+	for _, col := range columns {
+		if col != pkName && col != skName {
+			reordered = append(reordered, col)
+		}
+	}
+
+	return reordered, unmarshaledItems
 }
 
-func (h *Handler) renderResultsTable(w http.ResponseWriter, columns []string, items []map[string]any) {
-	const tableWrapper = `<div class="w-full max-w-full overflow-x-auto border border-base-300 ` +
+func (h *Handler) renderResultsTable(w http.ResponseWriter, columns []string, items []map[string]any, pkName, skName string) {
+	const tableWrapper = `<div class="wide-table-container border border-base-300 ` +
 		`rounded-lg shadow-inner bg-base-100 mb-4">`
 	fmt.Fprint(w, tableWrapper)
 	fmt.Fprintf(w, `<table class="table table-zebra table-sm w-full table-auto">`)
 	fmt.Fprintf(w, `<thead><tr>`)
 	for _, col := range columns {
+		label := html.EscapeString(col)
+		if col == pkName {
+			label += " <span class='badge badge-primary badge-xs ml-1'>PK</span>"
+		} else if col == skName {
+			label += " <span class='badge badge-secondary badge-xs ml-1'>SK</span>"
+		}
 		// #nosec G705 -- Data is escaped with html.EscapeString, false positive
-		fmt.Fprintf(w, `<th>%s</th>`, html.EscapeString(col))
+		fmt.Fprintf(w, `<th>%s</th>`, label)
 	}
 	fmt.Fprintf(w, `</tr></thead><tbody>`)
 
@@ -852,4 +894,38 @@ func (h *Handler) dynamoDBDeleteTable(w http.ResponseWriter, r *http.Request, ta
 		w.Header().Set("Hx-Location", "/dashboard/dynamodb")
 		w.WriteHeader(http.StatusOK)
 	}
+}
+
+// dynamoDBPurge deletes all tables.
+func (h *Handler) dynamoDBPurge(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+
+		return
+	}
+
+	ctx := r.Context()
+	log := logger.Load(ctx)
+
+	output, err := h.DynamoDB.ListTables(ctx, &dynamodb.ListTablesInput{})
+	if err != nil {
+		log.ErrorContext(ctx, "Failed to list tables for purge", "error", err)
+		http.Error(w, "Failed to list tables", http.StatusInternalServerError)
+
+		return
+	}
+
+	for _, tableName := range output.TableNames {
+		_, err = h.DynamoDB.DeleteTable(ctx, &dynamodb.DeleteTableInput{
+			TableName: aws.String(tableName),
+		})
+		if err != nil {
+			log.ErrorContext(ctx, "Failed to delete table during purge", "table", tableName, "error", err)
+		}
+	}
+
+	// Trigger a refresh of the table list
+	w.Header().Set("Hx-Trigger", "tablesPurged")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`<div class="alert alert-success col-span-full"><span>All tables purged successfully.</span></div>`))
 }

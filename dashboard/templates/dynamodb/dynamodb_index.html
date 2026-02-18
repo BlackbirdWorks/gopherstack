@@ -3,9 +3,15 @@
     <!-- Header -->
     <div class="flex justify-between items-center">
         <h1 class="text-3xl font-bold">DynamoDB Tables</h1>
-        <button class="btn btn-primary" onclick="document.getElementById('create_table_modal').showModal()">
-            + Create Table
-        </button>
+        <div class="flex gap-2">
+            <button class="btn btn-error" hx-delete="/dashboard/dynamodb/purge"
+                hx-confirm="Are you sure you want to delete ALL tables? This cannot be undone." hx-target="#table-list">
+                Purge All
+            </button>
+            <button class="btn btn-primary" onclick="document.getElementById('create_table_modal').showModal()">
+                + Create Table
+            </button>
+        </div>
     </div>
 
     <!-- Search/Filter -->

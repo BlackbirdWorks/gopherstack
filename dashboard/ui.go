@@ -66,7 +66,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Serve static files
 	if strings.HasPrefix(path, "/static/") {
-		http.FileServer(http.FS(staticFS)).ServeHTTP(w, r)
+		http.StripPrefix("/dashboard", http.FileServer(http.FS(staticFS))).ServeHTTP(w, r)
 
 		return
 	}
@@ -96,7 +96,7 @@ func (h *Handler) Handle(c *echo.Context) error {
 
 	// Serve static files
 	if strings.HasPrefix(path, "/static/") {
-		http.FileServer(http.FS(staticFS)).ServeHTTP(c.Response(), c.Request())
+		http.StripPrefix("/dashboard", http.FileServer(http.FS(staticFS))).ServeHTTP(c.Response(), c.Request())
 
 		return nil
 	}
@@ -186,6 +186,8 @@ func (h *Handler) handleDynamoDB(w http.ResponseWriter, r *http.Request, path st
 		h.dynamoDBCreateTable(w, r)
 	case path == "/search":
 		h.dynamoDBSearch(w, r)
+	case path == "/purge":
+		h.dynamoDBPurge(w, r)
 	case strings.HasPrefix(path, "/table/"):
 		tablePath := strings.TrimPrefix(path, "/table/")
 		parts := strings.SplitN(tablePath, "/", pathPartsCount)
@@ -222,6 +224,8 @@ func (h *Handler) handleS3(w http.ResponseWriter, r *http.Request, path string) 
 		h.s3BucketList(w, r)
 	case path == "/create":
 		h.s3CreateBucket(w, r)
+	case path == "/purge":
+		h.s3Purge(w, r)
 	case strings.HasPrefix(path, "/bucket/"):
 		h.handleS3Bucket(w, r, strings.TrimPrefix(path, "/bucket/"))
 	default:

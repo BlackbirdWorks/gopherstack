@@ -3,9 +3,16 @@
     <!-- Header -->
     <div class="flex justify-between items-center">
         <h1 class="text-3xl font-bold">S3 Buckets</h1>
-        <button class="btn btn-primary" onclick="document.getElementById('create_bucket_modal').showModal()">
-            + Create Bucket
-        </button>
+        <div class="flex gap-2">
+            <button class="btn btn-error" hx-delete="/dashboard/s3/purge"
+                hx-confirm="Are you sure you want to delete ALL buckets? This cannot be undone."
+                hx-target="#bucket-list">
+                Purge All
+            </button>
+            <button class="btn btn-primary" onclick="document.getElementById('create_bucket_modal').showModal()">
+                + Create Bucket
+            </button>
+        </div>
     </div>
 
     <!-- Bucket list -->

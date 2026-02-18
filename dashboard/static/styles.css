@@ -144,3 +144,12 @@
 ::-webkit-scrollbar-thumb:hover {
     background: #555;
 }
+
+/* Wide table layout for massive objects */
+.wide-table-container {
+    max-width: 100%;
+    margin-top: 1.5rem;
+    margin-bottom: 1.5rem;
+    overflow-x: auto;
+    border-radius: 0.5rem;
+}
