@@ -3,6 +3,7 @@ package dynamodb
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"Gopherstack/dynamodb/models"
 
@@ -294,17 +295,47 @@ func (db *InMemoryDB) ListTables(
 	for name := range db.Tables {
 		names = append(names, name)
 	}
+	sort.Strings(names)
 
-	// TODO: Handle Limit and key pagination if strictly needed,
-	// but for now return all or just respect limit if easy.
-	// InMemoryDB usually implies small scale.
+	startName := aws.ToString(input.ExclusiveStartTableName)
+	startIndex := 0
+	if startName != "" {
+		found := false
+		for i, name := range names {
+			if name > startName {
+				startIndex = i
+				found = true
+
+				break
+			}
+		}
+		if !found {
+			return &dynamodb.ListTablesOutput{
+				TableNames: []string{},
+			}, nil
+		}
+	}
+
+	names = names[startIndex:]
 
 	limit := int(aws.ToInt32(input.Limit))
-	if limit > 0 && limit < len(names) {
+	if limit <= 0 {
+		limit = 100
+	}
+
+	var lastEvaluatedName string
+	if len(names) > limit {
+		lastEvaluatedName = names[limit-1]
 		names = names[:limit]
 	}
 
-	return &dynamodb.ListTablesOutput{
+	out := &dynamodb.ListTablesOutput{
 		TableNames: names,
-	}, nil
+	}
+
+	if lastEvaluatedName != "" {
+		out.LastEvaluatedTableName = aws.String(lastEvaluatedName)
+	}
+
+	return out, nil
 }

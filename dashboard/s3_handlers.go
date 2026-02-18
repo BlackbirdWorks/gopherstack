@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 
 	"Gopherstack/pkgs/logger"
 
@@ -52,6 +53,8 @@ func (h *Handler) s3Index(w http.ResponseWriter, _ *http.Request) {
 func (h *Handler) s3BucketList(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	log := logger.Load(ctx)
+
+	// Fetch all buckets first
 	output, err := h.S3.ListBuckets(ctx, &s3.ListBucketsInput{})
 	if err != nil {
 		log.ErrorContext(ctx, "Failed to list buckets", "error", err)
@@ -61,34 +64,71 @@ func (h *Handler) s3BucketList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	search := strings.ToLower(r.URL.Query().Get("search"))
-	var bucketInfos []BucketInfo
-	for _, bucket := range output.Buckets {
-		if search != "" && !strings.Contains(strings.ToLower(*bucket.Name), search) {
-			continue
-		}
-		// Get versioning status
-		versioning, _ := h.S3.GetBucketVersioning(ctx, &s3.GetBucketVersioningInput{
-			Bucket: bucket.Name,
-		})
 
-		// Count objects (simplified)
-		objects, _ := h.S3.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
-			Bucket:  bucket.Name,
-			MaxKeys: aws.Int32(maxKeys),
-		})
-
-		info := BucketInfo{
-			Name:              *bucket.Name,
-			CreationDate:      bucket.CreationDate.Format("2006-01-02 15:04:05"),
-			VersioningEnabled: versioning != nil && versioning.Status == types.BucketVersioningStatusEnabled,
-			ObjectCount:       int(*objects.KeyCount),
+	// Filter and limit
+	var filteredBuckets []types.Bucket
+	for _, b := range output.Buckets {
+		if search == "" || strings.Contains(strings.ToLower(*b.Name), search) {
+			filteredBuckets = append(filteredBuckets, b)
 		}
-		bucketInfos = append(bucketInfos, info)
 	}
+
+	const displayLimit = 100
+	totalFiltered := len(filteredBuckets)
+	if totalFiltered > displayLimit {
+		filteredBuckets = filteredBuckets[:displayLimit]
+	}
+
+	bucketInfos := make([]BucketInfo, len(filteredBuckets))
+	const maxConcurrent = 8
+	semaphore := make(chan struct{}, maxConcurrent)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+
+	for i, bucket := range filteredBuckets {
+		wg.Add(1)
+		go func(idx int, b types.Bucket) {
+			defer wg.Done()
+
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+
+			// Get versioning status
+			versioning, _ := h.S3.GetBucketVersioning(ctx, &s3.GetBucketVersioningInput{
+				Bucket: b.Name,
+			})
+
+			// Count objects (simplified)
+			objects, _ := h.S3.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+				Bucket:  b.Name,
+				MaxKeys: aws.Int32(maxKeys),
+			})
+
+			mu.Lock()
+			bucketInfos[idx] = BucketInfo{
+				Name:              *b.Name,
+				CreationDate:      b.CreationDate.Format("2006-01-02 15:04:05"),
+				VersioningEnabled: versioning != nil && versioning.Status == types.BucketVersioningStatusEnabled,
+				ObjectCount:       int(*objects.KeyCount),
+			}
+			mu.Unlock()
+		}(i, bucket)
+	}
+
+	wg.Wait()
 
 	// Render bucket cards
 	for _, bucketInfo := range bucketInfos {
-		h.renderFragment(w, "bucket-card", bucketInfo)
+		if bucketInfo.Name != "" {
+			h.renderFragment(w, "bucket-card", bucketInfo)
+		}
+	}
+
+	if totalFiltered > len(filteredBuckets) {
+		const msg = `<div class="alert alert-info col-span-full"><span>Showing first %d of %d buckets. ` +
+			`Use search to find specific buckets.</span></div>`
+		//nolint:gosec // G705: Numbers are safe
+		_, _ = fmt.Fprintf(w, msg, int64(len(filteredBuckets)), int64(totalFiltered))
 	}
 }
 

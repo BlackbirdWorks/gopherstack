@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -18,6 +20,10 @@ import (
 	ddbbackend "Gopherstack/dynamodb"
 	"Gopherstack/pkgs/logger"
 	s3backend "Gopherstack/s3"
+)
+
+const (
+	serverTimeout = 120 * time.Second
 )
 
 func main() {
@@ -111,7 +117,15 @@ func startServer() error {
 	log.Info("  S3 endpoint      ", "url", "http://localhost"+port+" (path-style)")
 	log.Info("  Dashboard        ", "url", "http://localhost"+port+"/dashboard")
 
-	if err = e.Start(port); err != nil {
+	server := &http.Server{
+		Addr:         port,
+		Handler:      e,
+		ReadTimeout:  serverTimeout,
+		WriteTimeout: serverTimeout,
+		IdleTimeout:  serverTimeout,
+	}
+
+	if err = server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Error("Failed to start server", "error", err)
 
 		return err

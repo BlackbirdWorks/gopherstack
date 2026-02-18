@@ -82,11 +82,25 @@ func (h *Handler) dynamoDBTableList(w http.ResponseWriter, r *http.Request) {
 	search := strings.ToLower(r.URL.Query().Get("search"))
 	log.InfoContext(ctx, "DynamoDB search", "search", search, "all_tables", output.TableNames)
 	tableNames := filterTableNames(search, output.TableNames)
+
+	const displayLimit = 100
+	totalFiltered := len(tableNames)
+	if totalFiltered > displayLimit {
+		tableNames = tableNames[:displayLimit]
+	}
+
 	tableInfos := h.fetchTableInfos(ctx, tableNames)
 
 	// Render table cards
 	for _, tableInfo := range tableInfos {
 		h.renderFragment(w, "table-card", tableInfo)
+	}
+
+	if totalFiltered > len(tableNames) {
+		const msg = `<div class="alert alert-info col-span-full"><span>Showing first %d of %d tables. ` +
+			`Use search to find specific tables.</span></div>`
+		//nolint:gosec // G705: Numbers are safe
+		_, _ = fmt.Fprintf(w, msg, int64(len(tableNames)), int64(totalFiltered))
 	}
 }
 
@@ -677,10 +691,13 @@ func (h *Handler) prepareResultsData(items []map[string]types.AttributeValue) ([
 }
 
 func (h *Handler) renderResultsTable(w http.ResponseWriter, columns []string, items []map[string]any) {
-	fmt.Fprintf(w, `<div class="overflow-x-auto"><table class="table table-zebra table-sm">`)
+	const tableWrapper = `<div class="w-full max-w-full overflow-x-auto border border-base-300 ` +
+		`rounded-lg shadow-inner bg-base-100 mb-4">`
+	fmt.Fprint(w, tableWrapper)
+	fmt.Fprintf(w, `<table class="table table-zebra table-sm w-full table-auto">`)
 	fmt.Fprintf(w, `<thead><tr>`)
 	for _, col := range columns {
-		//nolint:gosec // G705: Data is properly escaped with html.EscapeString
+		//nolint:gosec // G705: Data is escaped with html.EscapeString
 		fmt.Fprintf(w, `<th>%s</th>`, html.EscapeString(col))
 	}
 	fmt.Fprintf(w, `</tr></thead><tbody>`)
@@ -693,7 +710,9 @@ func (h *Handler) renderResultsTable(w http.ResponseWriter, columns []string, it
 				fmt.Fprintf(w, `<td class="opacity-30">-</td>`)
 			} else {
 				jsonVal, _ := json.Marshal(val)
-				fmt.Fprintf(w, `<td class="font-mono text-xs">%s</td>`, html.EscapeString(string(jsonVal)))
+				jsonStr := string(jsonVal)
+				fmt.Fprintf(w, `<td class="font-mono text-xs max-w-xs truncate" title="%s">%s</td>`,
+					html.EscapeString(jsonStr), html.EscapeString(jsonStr))
 			}
 		}
 		fmt.Fprintf(w, `</tr>`)
