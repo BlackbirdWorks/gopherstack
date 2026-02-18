@@ -48,8 +48,8 @@ func TestUpdateItem_UPDATED_NEW_OnNewItem(t *testing.T) {
 		wireAttrs := models.FromSDKItem(res.Attributes)
 		t.Logf("Returned attributes: %+v", wireAttrs)
 
-		// Should contain pk (key attribute)
-		assert.Contains(t, wireAttrs, "pk", "Should contain primary key")
+		// Should NOT contain pk (key attribute isn't "updated" in DDB sense)
+		assert.NotContains(t, wireAttrs, "pk", "Should NOT contain primary key")
 
 		// Should contain attr1 and attr2 (updated attributes)
 		assert.Contains(t, wireAttrs, "attr1", "Should contain updated attribute attr1")

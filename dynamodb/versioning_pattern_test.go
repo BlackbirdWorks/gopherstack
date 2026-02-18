@@ -49,12 +49,11 @@ func TestUpdateItem_VersioningPattern(t *testing.T) {
 	wireAttrs1 := models.FromSDKItem(res1.Attributes)
 	t.Logf("Returned attributes: %+v", wireAttrs1)
 
-	// For NEW item, should return all attributes that were set
-	assert.Contains(t, wireAttrs1, "pk", "Should contain primary key")
+	// For NEW item, should return all attributes that were set in UpdateExpression
+	assert.NotContains(t, wireAttrs1, "pk", "Should NOT contain primary key")
 	assert.Contains(t, wireAttrs1, "version", "Should contain version")
 	assert.Contains(t, wireAttrs1, "data", "Should contain data")
 
-	assert.Equal(t, "item1", wireAttrs1["pk"].(map[string]any)["S"])
 	assert.Equal(t, "1", wireAttrs1["version"].(map[string]any)["N"])
 	assert.Equal(t, "first version", wireAttrs1["data"].(map[string]any)["S"])
 
@@ -161,8 +160,8 @@ func TestUpdateItem_BlankToUpsert(t *testing.T) {
 	wireAttrs1 := models.FromSDKItem(res1.Attributes)
 	t.Logf("First upsert returned: %+v", wireAttrs1)
 
-	// Should include key and all set attributes
-	assert.Contains(t, wireAttrs1, "pk")
+	// Should include only set attributes, not the key
+	assert.NotContains(t, wireAttrs1, "pk")
 	assert.Contains(t, wireAttrs1, "version")
 	assert.Contains(t, wireAttrs1, "content")
 	assert.Contains(t, wireAttrs1, "created")

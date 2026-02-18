@@ -172,10 +172,10 @@ func TestUpdateItem_NewItemReturnValues(t *testing.T) {
 			expectedKeys: nil,
 		},
 		{
-			name:         "UPDATED_NEW returns all attributes (all are new)",
+			name:         "UPDATED_NEW returns all updated attributes (all are new)",
 			returnValue:  "UPDATED_NEW",
 			expectAttrs:  true,
-			expectedKeys: []string{"pk", "attr1", "attr2"},
+			expectedKeys: []string{"attr1", "attr2"},
 		},
 	}
 

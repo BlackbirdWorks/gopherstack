@@ -50,9 +50,8 @@ func TestIntegration_DDB_UpdateItem_UPDATED_NEW_NewItem(t *testing.T) {
 
 	t.Logf("Returned attributes: %+v", out.Attributes)
 
-	// Should contain all updated attributes (pk, attr1, attr2)
+	// Should contain only updated attributes (attr1, attr2)
 	AssertItem(t, out.Attributes, map[string]any{
-		"pk":    "newitem",
 		"attr1": "value1",
 		"attr2": "value2",
 	})

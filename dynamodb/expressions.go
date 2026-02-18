@@ -41,16 +41,22 @@ func EvaluateExpression(
 }
 
 // applyUpdate is an internal entry point for updating an item using an UpdateExpression.
-func applyUpdate(item map[string]any, expression string, attrNames map[string]string, attrValues map[string]any) error {
+// It returns the set of top-level attribute names that were touched by the expression.
+func applyUpdate(
+	item map[string]any,
+	expression string,
+	attrNames map[string]string,
+	attrValues map[string]any,
+) (map[string]struct{}, error) {
 	if expression == "" {
-		return nil
+		return nil, nil //nolint:nilnil // no paths touched when expression is empty
 	}
 
 	l := expr.NewLexer(expression)
 	p := expr.NewParser(l)
 	u, err := p.ParseUpdate()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	eval := &expr.Evaluator{
@@ -59,7 +65,11 @@ func applyUpdate(item map[string]any, expression string, attrNames map[string]st
 		AttrValues: attrValues,
 	}
 
-	return eval.ApplyUpdate(u)
+	if applyErr := eval.ApplyUpdate(u); applyErr != nil {
+		return nil, applyErr
+	}
+
+	return eval.UpdatedPaths, nil
 }
 
 // projectItem creates a new item containing only the attributes specified in the ProjectionExpression.
