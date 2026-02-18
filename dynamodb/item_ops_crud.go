@@ -205,6 +205,7 @@ func (db *InMemoryDB) DeleteItem(
 	input *dynamodb.DeleteItemInput,
 ) (*dynamodb.DeleteItemOutput, error) {
 	tableName := aws.ToString(input.TableName)
+
 	table, err := db.getTable(tableName)
 	if err != nil {
 		return nil, err

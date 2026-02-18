@@ -1,0 +1,149 @@
+{{define "content"}}
+<div class="space-y-6">
+    <!-- Header -->
+    <div class="flex justify-between items-center">
+        <h1 class="text-3xl font-bold">Performance Metrics</h1>
+        <button class="btn btn-sm btn-primary" 
+            hx-get="/api/metrics" 
+            hx-target="#metrics-content" 
+            hx-swap="innerHTML">
+            ↻ Refresh
+        </button>
+    </div>
+
+    <!-- Metrics content -->
+    <div id="metrics-content" class="space-y-6"
+        hx-get="/api/metrics" 
+        hx-trigger="load, every 5s"
+        hx-swap="innerHTML"
+        hx-indicator=".htmx-indicator">
+        
+        <!-- Loading indicator -->
+        <div class="htmx-indicator">
+            <span class="loading loading-spinner loading-lg"></span>
+        </div>
+
+        <!-- Placeholder for metrics -->
+        <div class="alert alert-info">
+            Loading metrics...
+        </div>
+    </div>
+</div>
+
+<!-- Script to display metrics JSON as formatted tables and charts -->
+<script>
+function formatMetrics(data) {
+    if (!data) {
+        return '<div class="alert alert-warning">No metrics available.</div>';
+    }
+
+    let html = '';
+
+    // Runtime Metrics Section
+    if (data.runtime) {
+        html += '<div class="card bg-base-200 shadow-xl"><div class="card-body">';
+        html += '<h2 class="card-title text-2xl mb-4">Go Runtime Metrics</h2>';
+        
+        // Runtime stats grid
+        html += '<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">';
+        
+        // Goroutines stat
+        html += '<div class="stat bg-base-100 rounded-lg">';
+        html += '<div class="stat-title">Goroutines</div>';
+        html += `<div class="stat-value text-primary">${data.runtime.goroutines}</div>`;
+        html += '<div class="stat-desc">Active concurrent routines</div>';
+        html += '</div>';
+        
+        // Heap Memory stat
+        html += '<div class="stat bg-base-100 rounded-lg">';
+        html += '<div class="stat-title">Heap Memory</div>';
+        html += `<div class="stat-value text-secondary">${data.runtime.heap_alloc_mb.toFixed(2)} MB</div>`;
+        html += `<div class="stat-desc">of ${data.runtime.heap_sys_mb.toFixed(2)} MB allocated</div>`;
+        html += '</div>';
+        
+        // GC stat
+        html += '<div class="stat bg-base-100 rounded-lg">';
+        html += '<div class="stat-title">Garbage Collection</div>';
+        html += `<div class="stat-value text-accent">${data.runtime.num_gc}</div>`;
+        html += `<div class="stat-desc">Last pause: ${data.runtime.last_gc_pause_ms.toFixed(2)} ms</div>`;
+        html += '</div>';
+        
+        html += '</div>'; // end grid
+        
+        // Total allocation stat
+        html += '<div class="alert alert-info">';
+        html += `<span><strong>Total Allocated:</strong> ${data.runtime.total_alloc_mb.toFixed(2)} MB (lifetime)</span>`;
+        html += '</div>';
+        
+        html += '</div></div>'; // end card
+    }
+
+    // Operation Metrics Section
+    if (!data.operations || data.operations.length === 0) {
+        html += '<div class="alert alert-warning">No operation metrics recorded yet. Perform some operations to see data.</div>';
+    } else {
+        html += '<div class="card bg-base-200 shadow-xl"><div class="card-body">';
+        html += '<h2 class="card-title text-2xl mb-4">Operation Latencies</h2>';
+        html += '<div class="overflow-x-auto"><table class="table table-zebra table-sm w-full"><thead><tr>';
+        html += '<th>Operation</th><th>Resource</th><th>Count</th><th>P50 (ms)</th><th>P95 (ms)</th><th>P99 (ms)</th><th>Avg (ms)</th><th>Max (ms)</th>';
+        html += '</tr></thead><tbody>';
+
+        for (const op of data.operations) {
+            html += '<tr>';
+            html += `<td><code>${escapeHtml(op.operation)}</code></td>`;
+            html += `<td>${escapeHtml(op.resource || '-')}</td>`;
+            html += `<td>${op.count}</td>`;
+            html += `<td>${op.p50_ms.toFixed(2)}</td>`;
+            html += `<td>${op.p95_ms.toFixed(2)}</td>`;
+            html += `<td>${op.p99_ms.toFixed(2)}</td>`;
+            html += `<td>${op.avg_ms.toFixed(2)}</td>`;
+            html += `<td>${op.max_ms.toFixed(2)}</td>`;
+            html += '</tr>';
+        }
+
+        html += '</tbody></table></div>';
+        html += '</div></div>'; // end card
+    }
+
+    return html;
+}
+
+function escapeHtml(unsafe) {
+    return unsafe
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+// Hook into HTMX responses for metrics JSON
+document.body.addEventListener('htmx:afterSwap', function(evt) {
+    if (evt.detail.target.id === 'metrics-content') {
+        try {
+            // Try to parse as JSON (from /api/metrics endpoint)
+            const data = JSON.parse(evt.detail.xhr.responseText);
+            evt.detail.target.innerHTML = formatMetrics(data);
+        } catch (e) {
+            // If not JSON, just display as-is
+        }
+    }
+});
+</script>
+
+<style>
+table code {
+    background-color: rgba(0, 0, 0, 0.1);
+    padding: 2px 6px;
+    border-radius: 3px;
+}
+
+.stat {
+    padding: 1.5rem;
+}
+
+.stat-value {
+    font-size: 2rem;
+}
+</style>
+{{end}}

@@ -3,6 +3,7 @@ package dynamodb
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 
@@ -54,15 +55,11 @@ func (db *InMemoryDB) QueryWithContext(
 	ttlAttr := table.TTLAttribute
 	// Copy pk/sk indices for efficient lookups
 	pkIndexCopy := make(map[string]int, len(table.pkIndex))
-	for k, v := range table.pkIndex {
-		pkIndexCopy[k] = v
-	}
+	maps.Copy(pkIndexCopy, table.pkIndex)
 	pkskIndexCopy := make(map[string]map[string]int, len(table.pkskIndex))
 	for k, m := range table.pkskIndex {
 		m2 := make(map[string]int, len(m))
-		for k2, v := range m {
-			m2[k2] = v
-		}
+		maps.Copy(m2, m)
 		pkskIndexCopy[k] = m2
 	}
 	table.mu.RUnlock()

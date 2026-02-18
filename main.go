@@ -105,6 +105,9 @@ func startServer() error {
 	dashGroup.Any("/*", dashboardHandler.Handle)
 	dashGroup.Any("", dashboardHandler.Handle)
 
+	// Metrics endpoints
+	dashboard.RegisterMetricsHandlers(e)
+
 	// S3 catch-all (everything else)
 	e.Any("/*", s3Handler.Handle)
 

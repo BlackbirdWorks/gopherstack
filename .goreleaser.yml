@@ -93,8 +93,8 @@ changelog:
 
 dockers:
   - image_templates:
-  - "ghcr.io/agbishop/gopherstack:{{ .Version }}-amd64"
-  - "ghcr.io/agbishop/gopherstack:latest-amd64"
+      - "ghcr.io/agbishop/gopherstack:{{ .Version }}-amd64"
+      - "ghcr.io/agbishop/gopherstack:latest-amd64"
     use: buildx
     dockerfile: Dockerfile.goreleaser
     build_flag_templates:

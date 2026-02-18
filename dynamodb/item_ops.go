@@ -234,6 +234,7 @@ func compareAny(v1, v2 any, typ string) int {
 		if f1 > f2 {
 			return 1
 		}
+
 		return 0
 	}
 
@@ -241,16 +242,21 @@ func compareAny(v1, v2 any, typ string) int {
 	if typ == "S" {
 		s1Str, ok1 := v1.(string)
 		s2Str, ok2 := v2.(string)
-		if ok1 && ok2 {
-			if s1Str < s2Str {
-				return -1
-			}
-			if s1Str > s2Str {
-				return 1
-			}
-			return 0
+		if !ok1 || !ok2 {
+			// Fallback to general comparison if not string
+			goto Fallback
 		}
+		if s1Str < s2Str {
+			return -1
+		}
+		if s1Str > s2Str {
+			return 1
+		}
+
+		return 0
 	}
+
+Fallback:
 
 	// Fallback: convert to string only for unknown or complex types (rare path)
 	s1 := fmt.Sprintf("%v", v1)

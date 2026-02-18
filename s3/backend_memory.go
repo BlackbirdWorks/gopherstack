@@ -395,18 +395,16 @@ func (b *InMemoryBackend) HeadObject(_ context.Context, input *s3.HeadObjectInpu
 			return nil, ErrNoSuchKey
 		}
 		ver = v
-	} else {
+	} else if latestID := obj.LatestVersionID; latestID != "" {
 		// Use cached latest version ID to avoid scanning all versions
-		latestID := obj.LatestVersionID
-		if latestID != "" {
-			ver = obj.Versions[latestID]
-		} else {
-			// Fallback: scan for latest (shouldn't happen in normal operation)
-			for _, v := range obj.Versions {
-				if v.IsLatest {
-					ver = v
-					break
-				}
+		ver = obj.Versions[latestID]
+	} else {
+		// Fallback: scan for latest (shouldn't happen in normal operation)
+		for _, v := range obj.Versions {
+			if v.IsLatest {
+				ver = v
+
+				break
 			}
 		}
 	}
@@ -581,6 +579,7 @@ func (b *InMemoryBackend) ListObjects(_ context.Context, input *s3.ListObjectsIn
 			for _, v := range obj.Versions {
 				if v.IsLatest {
 					latest = v
+
 					break
 				}
 			}

@@ -1,0 +1,233 @@
+package telemetry
+
+import (
+	"math"
+	"runtime"
+
+	"github.com/prometheus/client_golang/prometheus"
+	io_prometheus_client "github.com/prometheus/client_model/go"
+)
+
+const (
+	msPerSecond = 1000.0
+	p50Divisor  = 2
+	p95Factor   = 95
+	p99Factor   = 99
+	pctBase     = 100
+)
+
+// Summary holds aggregated metrics for a single operation.
+type Summary struct {
+	Operation  string  `json:"operation"`
+	Resource   string  `json:"resource"` // table name or bucket name
+	Count      int64   `json:"count"`
+	ErrorCount int64   `json:"error_count"`
+	P50Ms      float64 `json:"p50_ms"`
+	P95Ms      float64 `json:"p95_ms"`
+	P99Ms      float64 `json:"p99_ms"`
+	AvgMs      float64 `json:"avg_ms"`
+	MaxMs      float64 `json:"max_ms"`
+}
+
+// RuntimeMetrics holds Go runtime statistics.
+type RuntimeMetrics struct {
+	Goroutines   int     `json:"goroutines"`
+	HeapAllocMB  float64 `json:"heap_alloc_mb"`
+	HeapSysMB    float64 `json:"heap_sys_mb"`
+	NumGC        uint32  `json:"num_gc"`
+	LastGCPause  float64 `json:"last_gc_pause_ms"`
+	TotalAllocMB float64 `json:"total_alloc_mb"`
+}
+
+// Dashboard holds all metrics for dashboard display.
+type Dashboard struct {
+	Operations []Summary      `json:"operations"`
+	Runtime    RuntimeMetrics `json:"runtime"`
+}
+
+// CollectMetrics gathers current metrics from Prometheus registry.
+func CollectMetrics() *Dashboard {
+	gatherer := prometheus.DefaultGatherer
+
+	metrics, err := gatherer.Gather()
+	if err != nil {
+		return &Dashboard{
+			Operations: []Summary{},
+			Runtime:    collectRuntimeMetrics(),
+		}
+	}
+
+	result := &Dashboard{
+		Operations: []Summary{},
+		Runtime:    collectRuntimeMetrics(),
+	}
+
+	// Parse metrics and extract summary statistics
+	for _, mf := range metrics {
+		if mf.Name != nil && mf.GetName() == "operation_duration_seconds" {
+			result.Operations = append(result.Operations, parseHistogram(mf)...)
+		}
+	}
+
+	return result
+}
+
+// collectRuntimeMetrics gathers Go runtime statistics.
+func collectRuntimeMetrics() RuntimeMetrics {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+
+	const bytesToMB = 1024.0 * 1024.0
+	const nsToMs = 1e6
+	const pauseHistorySize = 256
+	const pauseOffset = 255
+
+	var lastGCPause float64
+	if m.NumGC > 0 {
+		lastGCPause = float64(m.PauseNs[(m.NumGC+pauseOffset)%pauseHistorySize]) / nsToMs
+	}
+
+	return RuntimeMetrics{
+		Goroutines:   runtime.NumGoroutine(),
+		HeapAllocMB:  float64(m.HeapAlloc) / bytesToMB,
+		HeapSysMB:    float64(m.HeapSys) / bytesToMB,
+		NumGC:        m.NumGC,
+		LastGCPause:  lastGCPause,
+		TotalAllocMB: float64(m.TotalAlloc) / bytesToMB,
+	}
+}
+
+// parseHistogram extracts summary statistics from a Prometheus histogram metric.
+func parseHistogram(mf *io_prometheus_client.MetricFamily) []Summary {
+	var summaries []Summary
+
+	for _, metric := range mf.GetMetric() {
+		if metric.GetHistogram() == nil {
+			continue
+		}
+
+		var operation, resource string
+		for _, label := range metric.GetLabel() {
+			if label.Name != nil {
+				switch label.GetName() {
+				case "operation":
+					operation = label.GetValue()
+				case "resource":
+					resource = label.GetValue()
+				}
+			}
+		}
+
+		// Get total count from histogram
+		rawCount := metric.GetHistogram().SampleCount
+		if rawCount == nil {
+			rawCount = new(uint64)
+		}
+
+		// G115: integer overflow conversion uint64 -> int64
+		var countVal int64
+		if *rawCount > math.MaxInt64 {
+			countVal = math.MaxInt64
+		} else {
+			// #nosec G115 -- Guarded by check above
+			countVal = int64(*rawCount)
+		}
+
+		// Estimate percentiles from histogram buckets
+		p50, p95, p99, avg, maxVal := estimatePercentiles(metric.GetHistogram())
+
+		summaries = append(summaries, Summary{
+			Operation: operation,
+			Resource:  resource,
+			Count:     countVal,
+			P50Ms:     p50 * msPerSecond,
+			P95Ms:     p95 * msPerSecond,
+			P99Ms:     p99 * msPerSecond,
+			AvgMs:     avg * msPerSecond,
+			MaxMs:     maxVal * msPerSecond,
+		})
+	}
+
+	return summaries
+}
+
+// estimatePercentiles estimates p50, p95, p99, average, and max from histogram buckets.
+func estimatePercentiles(h *io_prometheus_client.Histogram) (float64, float64, float64, float64, float64) {
+	if h == nil || h.SampleCount == nil || h.GetSampleCount() == 0 {
+		return 0, 0, 0, 0, 0
+	}
+
+	totalCount := h.GetSampleCount()
+	if h.SampleSum == nil {
+		return 0, 0, 0, 0, 0
+	}
+	sum := h.GetSampleSum()
+
+	// Average
+	avg := sum / float64(totalCount)
+
+	// Find percentiles by walking buckets
+	p50, p95, p99, maxVal := calculatePercentilesFromBuckets(h, totalCount)
+
+	return p50, p95, p99, avg, maxVal
+}
+
+func calculatePercentilesFromBuckets(
+	h *io_prometheus_client.Histogram,
+	totalCount uint64,
+) (float64, float64, float64, float64) {
+	var p50, p95, p99, maxVal float64
+	p50Found, p95Found, p99Found := false, false, false
+
+	for _, bucket := range h.GetBucket() {
+		if bucket.CumulativeCount == nil {
+			continue
+		}
+
+		currCount := bucket.GetCumulativeCount()
+		bound := bucket.UpperBound
+		if bound == nil {
+			if maxVal == 0 {
+				maxVal = 5.0 // Default max if not found
+			}
+
+			continue
+		}
+
+		if !p50Found && currCount >= (totalCount/p50Divisor) {
+			p50 = *bound
+			p50Found = true
+		}
+		if !p95Found && currCount >= (totalCount*p95Factor/pctBase) {
+			p95 = *bound
+			p95Found = true
+		}
+		if !p99Found && currCount >= (totalCount*p99Factor/pctBase) {
+			p99 = *bound
+			p99Found = true
+		}
+		maxVal = *bound
+	}
+
+	p50, p95, p99 = fillMissingPercentiles(p50Found, p95Found, p99Found, p50, p95, p99, maxVal)
+
+	return p50, p95, p99, maxVal
+}
+
+func fillMissingPercentiles(
+	p50Found, p95Found, p99Found bool,
+	p50, p95, p99, maxVal float64,
+) (float64, float64, float64) {
+	newP50, newP95, newP99 := p50, p95, p99
+	if !p50Found {
+		newP50 = maxVal
+	}
+	if !p95Found {
+		newP95 = maxVal
+	}
+	if !p99Found {
+		newP99 = maxVal
+	}
+
+	return newP50, newP95, newP99
+}
