@@ -11,6 +11,7 @@ import (
 	"Gopherstack/pkgs/logger"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
@@ -351,6 +352,7 @@ func (h *Handler) dynamoDBQuery(w http.ResponseWriter, r *http.Request, tableNam
 		keyCondExp,
 		params.FilterExp,
 		params.LimitStr,
+		params.ExclusiveStartKey,
 		attrNames,
 		attrValues,
 	)
@@ -409,6 +411,7 @@ type QueryParams struct {
 	SortKeyValue2     string
 	FilterExp         string
 	LimitStr          string
+	ExclusiveStartKey string
 }
 
 func (h *Handler) parseQueryRequest(w http.ResponseWriter, r *http.Request) (QueryParams, bool) {
@@ -426,6 +429,7 @@ func (h *Handler) parseQueryRequest(w http.ResponseWriter, r *http.Request) (Que
 		SortKeyValue2:     r.FormValue("sortKeyValue2"),
 		FilterExp:         r.FormValue("filterExpression"),
 		LimitStr:          r.FormValue("limit"),
+		ExclusiveStartKey: r.FormValue("exclusiveStartKey"),
 	}
 
 	if params.PartitionKeyValue == "" {
@@ -440,7 +444,7 @@ func (h *Handler) parseQueryRequest(w http.ResponseWriter, r *http.Request) (Que
 func (h *Handler) executeAndRenderQuery(
 	ctx context.Context,
 	w http.ResponseWriter,
-	tableName, indexName, keyCondExp, filterExp, limitStr string,
+	tableName, indexName, keyCondExp, filterExp, limitStr, exclusiveStartKey string,
 	attrNames map[string]string,
 	attrValues map[string]types.AttributeValue,
 ) {
@@ -466,6 +470,13 @@ func (h *Handler) executeAndRenderQuery(
 		}
 	}
 
+	if exclusiveStartKey != "" {
+		var esk map[string]types.AttributeValue
+		if err := json.Unmarshal([]byte(exclusiveStartKey), &esk); err == nil {
+			input.ExclusiveStartKey = esk
+		}
+	}
+
 	output, err := h.DynamoDB.Query(ctx, input)
 	if err != nil {
 		log := logger.Load(ctx)
@@ -479,9 +490,10 @@ func (h *Handler) executeAndRenderQuery(
 	}
 
 	result := QueryResult{
-		Items:        output.Items,
-		Count:        output.Count,
-		ScannedCount: output.ScannedCount,
+		Items:            output.Items,
+		Count:            output.Count,
+		ScannedCount:     output.ScannedCount,
+		LastEvaluatedKey: output.LastEvaluatedKey,
 	}
 
 	h.renderQueryResults(w, result)
@@ -594,6 +606,14 @@ func (h *Handler) dynamoDBScan(w http.ResponseWriter, r *http.Request, tableName
 		}
 	}
 
+	esk := r.FormValue("exclusiveStartKey")
+	if esk != "" {
+		var eskMap map[string]types.AttributeValue
+		if err := json.Unmarshal([]byte(esk), &eskMap); err == nil {
+			input.ExclusiveStartKey = eskMap
+		}
+	}
+
 	output, err := h.DynamoDB.Scan(ctx, input)
 	if err != nil {
 		log.ErrorContext(ctx, "Failed to scan table", "error", err)
@@ -625,31 +645,66 @@ func (h *Handler) renderQueryResults(w http.ResponseWriter, result QueryResult) 
 		return
 	}
 
-	// Start table
-	fmt.Fprintf(w, `<div class="overflow-x-auto"><table class="table table-zebra">`)
-	fmt.Fprintf(w, `<thead><tr><th>Item</th></tr></thead><tbody>`)
+	// Identify all unique columns
+	columns := make([]string, 0)
+	columnMap := make(map[string]bool)
+	unmarshaledItems := make([]map[string]any, len(result.Items))
 
-	// Render each item as JSON
-	for _, item := range result.Items {
-		// Convert DynamoDB JSON to standard JSON for display
-		// This is tricky with the SDK types. We might want a helper.
-		// For now, let's just marshal the AttributeValue map directly.
-		// A better approach would be to use attributevalue.UnmarshalMap
-		// but that requires additional packages.
-		// Let's stick to simple marshalling for now, acknowledging it will show types metadata.
-		jsonBytes, _ := json.MarshalIndent(item, "", "  ")
-		fmt.Fprintf(w, `<tr><td><pre class="json-viewer">%s</pre></td></tr>`, string(jsonBytes))
+	for i, item := range result.Items {
+		var m map[string]any
+		if err := attributevalue.UnmarshalMap(item, &m); err != nil {
+			// Fallback to raw if unmarshal fails
+			m = make(map[string]any)
+			for k, v := range item {
+				m[k] = v
+			}
+		}
+		unmarshaledItems[i] = m
+		for k := range m {
+			if !columnMap[k] {
+				columnMap[k] = true
+				columns = append(columns, k)
+			}
+		}
+	}
+
+	// Sort columns: PK first, then SK, then others
+	// Actually we don't know PK/SK here unless we pass them.
+	// Let's just do alphabetical for now.
+	// TODO: Consider passing table metadata for better sorting.
+
+	// Start table
+	fmt.Fprintf(w, `<div class="overflow-x-auto"><table class="table table-zebra table-sm">`)
+	fmt.Fprintf(w, `<thead><tr>`)
+	for _, col := range columns {
+		fmt.Fprintf(w, `<th>%s</th>`, col)
+	}
+	fmt.Fprintf(w, `</tr></thead><tbody>`)
+
+	// Render each item
+	for _, item := range unmarshaledItems {
+		fmt.Fprintf(w, `<tr>`)
+		for _, col := range columns {
+			val := item[col]
+			if val == nil {
+				fmt.Fprintf(w, `<td class="opacity-30">-</td>`)
+			} else {
+				jsonVal, _ := json.Marshal(val)
+				fmt.Fprintf(w, `<td class="font-mono text-xs">%s</td>`, string(jsonVal))
+			}
+		}
+		fmt.Fprintf(w, `</tr>`)
 	}
 
 	fmt.Fprintf(w, `</tbody></table></div>`)
-	fmt.Fprintf(w, `<div class="mt-4 flex justify-between items-center">`)
-	fmt.Fprintf(w, `<p>Count: %d | Scanned: %d</p>`, result.Count, result.ScannedCount)
+	fmt.Fprintf(w, `<div class="mt-4 flex justify-between items-center bg-base-200 p-4 rounded-lg">`)
+	fmt.Fprintf(w, `<div><p class="text-sm font-medium">Count: <span class="badge badge-ghost">%d</span> | Scanned: <span class="badge badge-ghost">%d</span></p></div>`, result.Count, result.ScannedCount)
 
 	if result.LastEvaluatedKey != nil {
 		kb, _ := json.Marshal(result.LastEvaluatedKey)
-		fmt.Fprintf(w, `<div class="flex items-center gap-2">`)
-		fmt.Fprintf(w, `<span class="text-sm opacity-70">ExclusiveStartKey:</span>`)
-		fmt.Fprintf(w, `<code class="text-xs bg-base-200 p-1 rounded">%s</code>`, string(kb))
+		fmt.Fprintf(w, `<div class="flex items-center gap-4">`)
+		fmt.Fprintf(w, `<span class="text-xs opacity-50 font-mono truncate max-w-xs" title="%s">LastEvaluatedKey: %s</span>`, string(kb), string(kb))
+		fmt.Fprintf(w, `<button class="btn btn-primary btn-sm" hx-include="closest form" hx-vals='{"exclusiveStartKey": %s}' hx-post="" hx-target="closest #query-results, closest #scan-results">Next Page &rarr;</button>`, string(kb))
 		fmt.Fprintf(w, `</div>`)
 	}
 	fmt.Fprintf(w, `</div>`)

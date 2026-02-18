@@ -302,12 +302,12 @@ func (db *InMemoryDB) UpdateItem(
 		return nil, err
 	}
 
-	updated, err := db.doUpdate(ctx, table, input, existing, matchIndex)
+	updated, updatedPaths, err := db.doUpdate(ctx, table, input, existing, matchIndex)
 	if err != nil {
 		return nil, err
 	}
 
-	return db.populateUpdateOutput(input, table, existing, updated)
+	return db.populateUpdateOutput(input, table, existing, updated, updatedPaths)
 }
 
 func (db *InMemoryDB) checkUpdateCondition(
@@ -349,7 +349,7 @@ func (db *InMemoryDB) doUpdate(
 	input *dynamodb.UpdateItemInput,
 	existing map[string]any,
 	matchIndex int,
-) (map[string]any, error) {
+) (map[string]any, map[string]struct{}, error) {
 	updated := make(map[string]any)
 	wireKey := models.FromSDKItem(input.Key)
 
@@ -360,6 +360,8 @@ func (db *InMemoryDB) doUpdate(
 		maps.Copy(updated, wireKey)
 	}
 
+	var updatedPaths map[string]struct{}
+
 	updateExpr := aws.ToString(input.UpdateExpression)
 	if updateExpr != "" {
 		log := logger.Load(ctx)
@@ -369,18 +371,20 @@ func (db *InMemoryDB) doUpdate(
 			"attributeValues", input.ExpressionAttributeValues)
 
 		eav := models.FromSDKItem(input.ExpressionAttributeValues)
-		if err := applyUpdate(
+		var err error
+		updatedPaths, err = applyUpdate(
 			updated,
 			updateExpr,
 			input.ExpressionAttributeNames,
 			eav,
-		); err != nil {
-			return nil, err
+		)
+		if err != nil {
+			return nil, nil, err
 		}
 	}
 
 	if err := db.validateItem(updated, table); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if matchIndex != -1 {
@@ -392,7 +396,7 @@ func (db *InMemoryDB) doUpdate(
 		db.updateIndexes(table, updated, newIdx)
 	}
 
-	return updated, nil
+	return updated, updatedPaths, nil
 }
 
 func (db *InMemoryDB) updateIndexes(table *Table, item map[string]any, index int) {
@@ -412,6 +416,7 @@ func (db *InMemoryDB) updateIndexes(table *Table, item map[string]any, index int
 func resolveReturnValues(
 	rv types.ReturnValue,
 	oldItem, newItem map[string]any,
+	updatedPaths map[string]struct{},
 ) (map[string]types.AttributeValue, error) {
 	switch rv {
 	case types.ReturnValueAllOld:
@@ -422,15 +427,20 @@ func resolveReturnValues(
 		return models.ToSDKItem(newItem)
 	case types.ReturnValueUpdatedOld:
 		if oldItem != nil {
-			updated := getUpdatedAttributes(oldItem, newItem)
-			if len(updated) > 0 {
-				return models.ToSDKItem(updated)
+			filtered := pickPaths(oldItem, updatedPaths)
+			if len(filtered) > 0 {
+				return models.ToSDKItem(filtered)
 			}
 		}
 	case types.ReturnValueUpdatedNew:
-		updated := getUpdatedAttributes(newItem, oldItem)
-		if len(updated) > 0 {
-			return models.ToSDKItem(updated)
+		if oldItem == nil {
+			// New item: return all attributes (key + updated)
+			return models.ToSDKItem(newItem)
+		}
+
+		filtered := pickPaths(newItem, updatedPaths)
+		if len(filtered) > 0 {
+			return models.ToSDKItem(filtered)
 		}
 	case types.ReturnValueNone:
 		// Do nothing
@@ -439,14 +449,32 @@ func resolveReturnValues(
 	return nil, nil //nolint:nilnil // nil attributes is valid when ReturnValues is NONE or item doesn't exist
 }
 
+// pickPaths returns a new item containing only the attributes whose keys are in paths.
+// For a new item (no existing item before update), all attributes are returned.
+func pickPaths(item map[string]any, paths map[string]struct{}) map[string]any {
+	if len(paths) == 0 {
+		return item
+	}
+
+	result := make(map[string]any, len(paths))
+	for k, v := range item {
+		if _, ok := paths[k]; ok {
+			result[k] = v
+		}
+	}
+
+	return result
+}
+
 func (db *InMemoryDB) populateUpdateOutput(
 	input *dynamodb.UpdateItemInput,
 	table *Table,
 	oldItem, newItem map[string]any,
+	updatedPaths map[string]struct{},
 ) (*dynamodb.UpdateItemOutput, error) {
 	out := &dynamodb.UpdateItemOutput{}
 
-	attrs, err := resolveReturnValues(input.ReturnValues, oldItem, newItem)
+	attrs, err := resolveReturnValues(input.ReturnValues, oldItem, newItem, updatedPaths)
 	if err != nil {
 		return nil, err
 	}
@@ -527,29 +555,6 @@ func (db *InMemoryDB) deleteFromSimpleIndex(table *Table, pkVal string, matchInd
 			table.pkIndex[pk] = idx - 1
 		}
 	}
-}
-
-// getUpdatedAttributes returns attributes from 'source' that are different from 'target'.
-// This is used for UPDATED_OLD and UPDATED_NEW ReturnValues.
-func getUpdatedAttributes(source, target map[string]any) map[string]any {
-	updated := make(map[string]any)
-	for k, v := range source {
-		targetVal, exists := target[k]
-		if !exists || !deepEqual(v, targetVal) {
-			updated[k] = v
-		}
-	}
-
-	return updated
-}
-
-func deepEqual(v1, v2 any) bool {
-	// Simple comparison for now.
-	// In Gopherstack, attributes are map[string]any (Wire format).
-	b1, _ := json.Marshal(v1)
-	b2, _ := json.Marshal(v2)
-
-	return string(b1) == string(b2)
 }
 
 // deepCopyItem returns a deep copy of a wire-format item so that mutations

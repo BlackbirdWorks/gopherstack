@@ -352,7 +352,7 @@ func (db *InMemoryDB) applyTransactWrite(
 			ExpressionAttributeValues: ti.Update.ExpressionAttributeValues,
 		}
 
-		_, err := db.doUpdate(ctx, table, dummyInput, oldItem, matchIndex)
+		_, _, err := db.doUpdate(ctx, table, dummyInput, oldItem, matchIndex)
 		if err != nil {
 			return err
 		}

@@ -49,6 +49,9 @@ type Evaluator struct {
 	Item       map[string]any
 	AttrNames  map[string]string
 	AttrValues map[string]any
+
+	// UpdatedPaths tracks the top-level attribute names touched by ApplyUpdate.
+	UpdatedPaths map[string]struct{}
 }
 
 func (e *Evaluator) Evaluate(node Node) (any, error) {
@@ -650,6 +653,8 @@ func (e *Evaluator) navigateList(current any, index int) (any, bool) {
 // Update and Projection methods
 
 func (e *Evaluator) ApplyUpdate(u *UpdateExpr) error {
+	e.UpdatedPaths = make(map[string]struct{})
+
 	for _, action := range u.Actions {
 		if err := e.applyUpdateAction(action); err != nil {
 			return err
@@ -666,12 +671,28 @@ func (e *Evaluator) applyUpdateAction(action UpdateAction) error {
 			return ErrUpdatePathMustBePathExpr
 		}
 
+		e.trackUpdatedPath(path)
+
 		if err := e.applyUpdateItem(action.Type, path, item); err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+// trackUpdatedPath records the top-level attribute name touched by an update action.
+func (e *Evaluator) trackUpdatedPath(path *PathExpr) {
+	if len(path.Elements) == 0 {
+		return
+	}
+
+	name := path.Elements[0].Name
+	if resolved, ok := e.AttrNames[name]; ok {
+		name = resolved
+	}
+
+	e.UpdatedPaths[name] = struct{}{}
 }
 
 func (e *Evaluator) applyUpdateItem(actionType TokenType, path *PathExpr, item UpdateItem) error {

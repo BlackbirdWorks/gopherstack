@@ -78,8 +78,9 @@ func startServer() error {
 	// Create Echo app with routing
 	e := echo.New()
 
-	// Add logger middleware to inject logger into request context
-	e.Use(logger.EchoMiddleware(log))
+	// Add logger middleware as Pre middleware so it is available to other Pre middlewares
+	// and routes that intercept the request early (like DynamoDB).
+	e.Pre(logger.EchoMiddleware(log))
 
 	// Route DynamoDB requests via pre-middleware (matched by X-Amz-Target header, not path)
 	e.Pre(func(next echo.HandlerFunc) echo.HandlerFunc {
