@@ -4,6 +4,8 @@ import (
 	"sync"
 	"time"
 
+	"Gopherstack/pkgs/lockmetrics"
+
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
@@ -16,7 +18,7 @@ type StoredBucket struct {
 	Objects      map[string]*StoredObject
 	Name         string
 	Versioning   types.BucketVersioningStatus
-	mu           sync.RWMutex
+	mu           *lockmetrics.RWMutex
 }
 
 // StoredObject represents an S3 object with its version history.

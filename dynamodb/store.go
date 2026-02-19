@@ -1,17 +1,16 @@
 package dynamodb
 
 import (
-	"sync"
-
 	"Gopherstack/dynamodb/models"
 	"Gopherstack/pkgs/dynamoattr"
+	"Gopherstack/pkgs/lockmetrics"
 )
 
 // InMemoryDB stores tables and items.
 type InMemoryDB struct {
 	Tables    map[string]*Table
 	exprCache *ExpressionCache
-	mu        sync.RWMutex
+	mu        *lockmetrics.RWMutex
 }
 
 type Table struct {
@@ -24,7 +23,7 @@ type Table struct {
 	GlobalSecondaryIndexes []models.GlobalSecondaryIndex
 	LocalSecondaryIndexes  []models.LocalSecondaryIndex
 	Items                  []map[string]any
-	mu                     sync.RWMutex
+	mu                     *lockmetrics.RWMutex
 }
 
 func NewInMemoryDB() *InMemoryDB {
@@ -33,6 +32,7 @@ func NewInMemoryDB() *InMemoryDB {
 	return &InMemoryDB{
 		Tables:    make(map[string]*Table),
 		exprCache: NewExpressionCache(exprCacheSize),
+		mu:        lockmetrics.New("ddb"),
 	}
 }
 
@@ -79,7 +79,7 @@ func (t *Table) rebuildIndexes() {
 
 // ListAllTables returns a slice of all tables (for UI).
 func (db *InMemoryDB) ListAllTables() []*Table {
-	db.mu.RLock()
+	db.mu.RLock("ListAllTables")
 	defer db.mu.RUnlock()
 
 	tables := make([]*Table, 0, len(db.Tables))
@@ -92,7 +92,7 @@ func (db *InMemoryDB) ListAllTables() []*Table {
 
 // GetTable returns a table by name (for UI).
 func (db *InMemoryDB) GetTable(name string) (*Table, bool) {
-	db.mu.RLock()
+	db.mu.RLock("GetTable")
 	defer db.mu.RUnlock()
 
 	table, exists := db.Tables[name]
