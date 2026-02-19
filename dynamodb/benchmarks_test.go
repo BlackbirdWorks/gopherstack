@@ -30,6 +30,32 @@ func BenchmarkGetItem(b *testing.B) {
 	}
 }
 
+// BenchmarkDeleteItem measures sequential DeleteItem throughput on a table
+// pre-populated with items. With the swap-and-pop implementation this should
+// be O(1) per delete; the old shift+index-decrement approach was O(N).
+func BenchmarkDeleteItem(b *testing.B) {
+	for _, size := range []int{1000, 10000} {
+		b.Run(strconv.Itoa(size), func(b *testing.B) {
+			// Each b.N iteration deletes all items from a freshly populated table
+			// so the benchmark consistently measures the same N-deletion workload.
+			for range b.N {
+				b.StopTimer()
+				db := setupDBWithItems(b, size)
+				b.StartTimer()
+
+				for i := range size {
+					input := models.DeleteItemInput{
+						TableName: "BenchTable",
+						Key:       map[string]any{"id": map[string]any{"S": strconv.Itoa(i)}},
+					}
+					sdkInput, _ := models.ToSDKDeleteItemInput(&input)
+					_, _ = db.DeleteItem(context.Background(), sdkInput)
+				}
+			}
+		})
+	}
+}
+
 func BenchmarkQuery(b *testing.B) {
 	b.Run("WithIndex_10k", func(b *testing.B) {
 		db := setupDBWithItems(b, 10000)

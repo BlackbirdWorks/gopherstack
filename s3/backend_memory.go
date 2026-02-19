@@ -453,8 +453,6 @@ func (b *InMemoryBackend) DeleteObject(
 	input *s3.DeleteObjectInput,
 ) (*s3.DeleteObjectOutput, error) {
 	bucketName := *input.Bucket
-	key := *input.Key
-	versionID := input.VersionId
 
 	b.mu.RLock()
 	bucket, exists := b.buckets[bucketName]
@@ -467,6 +465,17 @@ func (b *InMemoryBackend) DeleteObject(
 	bucket.mu.Lock()
 	defer bucket.mu.Unlock()
 
+	return b.deleteObjectLocked(bucket, *input.Key, input.VersionId)
+}
+
+// deleteObjectLocked performs a single-object deletion assuming bucket.mu is
+// already held by the caller. It is used by both DeleteObject and DeleteObjects
+// (which holds the lock for the entire batch to avoid per-object lock churn).
+func (b *InMemoryBackend) deleteObjectLocked(
+	bucket *StoredBucket,
+	key string,
+	versionID *string,
+) (*s3.DeleteObjectOutput, error) {
 	obj, exists := bucket.Objects[key]
 	if !exists {
 		// S3 spec: Delete on non-existent object is 204
@@ -519,7 +528,7 @@ func (b *InMemoryBackend) DeleteObject(
 }
 
 func (b *InMemoryBackend) DeleteObjects(
-	ctx context.Context,
+	_ context.Context,
 	input *s3.DeleteObjectsInput,
 ) (*s3.DeleteObjectsOutput, error) {
 	out := &s3.DeleteObjectsOutput{
@@ -527,15 +536,29 @@ func (b *InMemoryBackend) DeleteObjects(
 		Errors:  make([]types.Error, 0),
 	}
 
-	for _, obj := range input.Delete.Objects {
-		delInput := &s3.DeleteObjectInput{
-			Bucket:    input.Bucket,
-			Key:       obj.Key,
-			VersionId: obj.VersionId,
+	bucketName := *input.Bucket
+
+	b.mu.RLock()
+	bucket, exists := b.buckets[bucketName]
+	b.mu.RUnlock()
+
+	if !exists {
+		for _, obj := range input.Delete.Objects {
+			out.Errors = append(out.Errors, types.Error{
+				Key:     obj.Key,
+				Code:    aws.String("NoSuchBucket"),
+				Message: aws.String(ErrNoSuchBucket.Error()),
+			})
 		}
-		// We reuse DeleteObject's logic by calling it directly.
-		// S3 DeleteObjects can return errors for some objects while succeeding for others.
-		delOut, err := b.DeleteObject(ctx, delInput)
+
+		return out, nil
+	}
+
+	// Hold the bucket lock for the entire batch to avoid per-object lock churn
+	// when deleting thousands of objects.
+	bucket.mu.Lock()
+	for _, obj := range input.Delete.Objects {
+		delOut, err := b.deleteObjectLocked(bucket, aws.ToString(obj.Key), obj.VersionId)
 		if err != nil {
 			// S3 error format for DeleteObjects
 			s3Err := types.Error{
@@ -564,6 +587,7 @@ func (b *InMemoryBackend) DeleteObjects(
 
 		out.Deleted = append(out.Deleted, deleted)
 	}
+	bucket.mu.Unlock()
 
 	return out, nil
 }
