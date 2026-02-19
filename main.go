@@ -81,8 +81,8 @@ func run(cfg config.Config) error {
 	e := echo.New()
 	e.Pre(logger.EchoMiddleware(log))
 
-	if err := setupRegistry(e, log, ddbHandler, s3Handler, dashboardHandler); err != nil {
-		return err
+	if setupErr := setupRegistry(e, log, ddbHandler, s3Handler, dashboardHandler); setupErr != nil {
+		return setupErr
 	}
 
 	// Metrics endpoints (kept separate since they're API-specific)

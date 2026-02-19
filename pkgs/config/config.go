@@ -14,10 +14,10 @@ const (
 
 // Config holds the application configuration.
 type Config struct {
-	Timeout time.Duration
 	Port    string
 	Region  string
 	Level   string
+	Timeout time.Duration
 	Demo    bool
 }
 

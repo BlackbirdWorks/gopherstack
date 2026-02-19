@@ -101,7 +101,9 @@ func WriteDynamoDBResponse(logger *slog.Logger, w http.ResponseWriter, code int,
 		if logger != nil {
 			logger.Error("failed to marshal DynamoDB response", "error", err)
 		}
-		http.Error(w, `{"__type":"com.amazonaws.dynamodb.v20120810#InternalServerError","message":"internal server error"}`, http.StatusInternalServerError)
+		http.Error(w,
+			`{"__type":"com.amazonaws.dynamodb.v20120810#InternalServerError","message":"internal server error"}`,
+			http.StatusInternalServerError)
 
 		return
 	}
