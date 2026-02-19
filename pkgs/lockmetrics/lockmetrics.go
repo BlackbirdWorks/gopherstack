@@ -29,6 +29,11 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
+// lockBuckets spans from 1µs to 10s to capture both the common sub-millisecond
+// fast path and the deadlock-scale multi-second hold durations that the metrics
+// are specifically designed to surface.
+var lockBuckets = []float64{.000001, .00001, .0001, .001, .01, .1, 1, 10}
+
 // Prometheus metrics shared across all RWMutex instances.
 //
 //nolint:gochecknoglobals // Prometheus vectors must be global
@@ -38,7 +43,7 @@ var (
 			Namespace: "gopherstack",
 			Name:      "lock_wait_seconds",
 			Help:      "Time spent waiting to acquire a lock, by lock name, operation, and type (read|write).",
-			Buckets:   prometheus.ExponentialBuckets(0.00001, 4, 12),
+			Buckets:   lockBuckets,
 		},
 		[]string{"lock", "operation", "type"},
 	)
@@ -48,7 +53,7 @@ var (
 			Namespace: "gopherstack",
 			Name:      "lock_hold_seconds",
 			Help:      "Duration a write lock was held, by lock name and operation.",
-			Buckets:   prometheus.ExponentialBuckets(0.00001, 4, 12),
+			Buckets:   lockBuckets,
 		},
 		[]string{"lock", "operation"},
 	)

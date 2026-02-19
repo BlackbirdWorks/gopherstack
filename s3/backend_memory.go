@@ -92,9 +92,10 @@ func (b *InMemoryBackend) DeleteBucket(
 	}
 
 	delete(b.buckets, bucketName)
-	b.mu.Unlock() // release global lock early; bucket is already removed from the map
-
+	// Release in reverse acquisition order: inner (bucket) then outer (global).
+	// b.mu is released early so other buckets are unblocked immediately.
 	bucket.mu.Unlock()
+	b.mu.Unlock()
 
 	return &s3.DeleteBucketOutput{}, nil
 }
