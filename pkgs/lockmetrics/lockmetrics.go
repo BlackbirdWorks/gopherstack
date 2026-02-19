@@ -11,13 +11,20 @@
 //	defer mu.RUnlock()
 //
 // Metrics emitted:
-//   - gopherstack_lock_wait_seconds    – time waiting to acquire a lock
-//   - gopherstack_lock_hold_seconds    – duration the lock was held
-//   - gopherstack_lock_active_writers  – current number of write-lock holders (0 or 1)
-//   - gopherstack_lock_active_readers  – current number of read-lock holders
-//   - gopherstack_lock_write_held_seconds – gauge emitted by a custom Collector
-//     showing the live hold duration for any currently-held write lock; useful
-//     for detecting deadlocks in the metrics dashboard.
+//   - gopherstack_lock_wait_seconds      – histogram of time waiting to acquire
+//   - gopherstack_lock_hold_seconds      – histogram of write-lock hold duration
+//   - gopherstack_lock_active_writers    – gauge: current write-lock holders (0 or 1)
+//   - gopherstack_lock_active_readers    – gauge: current read-lock holders
+//   - gopherstack_lock_write_held_seconds – live gauge: seconds the write lock has been
+//     held right now (emitted only while held)
+//   - gopherstack_lock_write_waiters     – live gauge: goroutines currently blocked
+//     waiting to acquire the write lock
+//   - gopherstack_lock_read_waiters      – live gauge: goroutines currently blocked
+//     waiting to acquire the read lock
+//
+// Deadlock detection: if gopherstack_lock_write_waiters (or read_waiters) is > 0
+// and gopherstack_lock_write_held_seconds keeps climbing, a goroutine is stuck
+// waiting for a lock that is never released.
 package lockmetrics
 
 import (
@@ -84,6 +91,25 @@ var (
 		[]string{"lock", "operation"},
 		nil,
 	)
+
+	// writeWaitersDesc is the Prometheus descriptor for the live write-waiter gauge.
+	writeWaitersDesc = prometheus.NewDesc(
+		"gopherstack_lock_write_waiters",
+		"Number of goroutines currently blocked waiting to acquire the write lock. "+
+			"A non-zero value combined with a large gopherstack_lock_write_held_seconds "+
+			"indicates a deadlock: something holds the lock and cannot release it.",
+		[]string{"lock"},
+		nil,
+	)
+
+	// readWaitersDesc is the Prometheus descriptor for the live read-waiter gauge.
+	readWaitersDesc = prometheus.NewDesc(
+		"gopherstack_lock_read_waiters",
+		"Number of goroutines currently blocked waiting to acquire the read lock. "+
+			"Persistent non-zero values alongside a held write lock indicate lock starvation.",
+		[]string{"lock"},
+		nil,
+	)
 )
 
 // allMutexes holds weak references to every live RWMutex so the custom
@@ -95,12 +121,15 @@ func init() {
 	prometheus.MustRegister(&liveStateCollector{})
 }
 
-// liveStateCollector implements prometheus.Collector and emits a gauge for
-// every write lock that is currently held.
+// liveStateCollector implements prometheus.Collector and emits live gauges for
+// the current write-lock hold duration and the number of goroutines waiting
+// for each registered lock. These metrics are the primary deadlock indicators.
 type liveStateCollector struct{}
 
 func (liveStateCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- writeHeldDesc
+	ch <- writeWaitersDesc
+	ch <- readWaitersDesc
 }
 
 func (liveStateCollector) Collect(ch chan<- prometheus.Metric) {
@@ -110,14 +139,21 @@ func (liveStateCollector) Collect(ch chan<- prometheus.Metric) {
 			return true
 		}
 
+		// Write-lock hold duration (only emitted while lock is held).
 		ts := m.writeStart.Load()
-		if ts == 0 {
-			return true // not held
+		if ts != 0 {
+			op, _ := m.writeOp.Load().(string)
+			held := time.Since(time.Unix(0, ts)).Seconds()
+			ch <- prometheus.MustNewConstMetric(writeHeldDesc, prometheus.GaugeValue, held, m.name, op)
 		}
 
-		op, _ := m.writeOp.Load().(string)
-		held := time.Since(time.Unix(0, ts)).Seconds()
-		ch <- prometheus.MustNewConstMetric(writeHeldDesc, prometheus.GaugeValue, held, m.name, op)
+		// Write waiters: goroutines currently blocked in Lock().
+		writeW := float64(m.writeWaiters.Load())
+		ch <- prometheus.MustNewConstMetric(writeWaitersDesc, prometheus.GaugeValue, writeW, m.name)
+
+		// Read waiters: goroutines currently blocked in RLock().
+		readW := float64(m.readWaiters.Load())
+		ch <- prometheus.MustNewConstMetric(readWaitersDesc, prometheus.GaugeValue, readW, m.name)
 
 		return true
 	})
@@ -135,6 +171,13 @@ type RWMutex struct {
 	// writeStart == 0 means the write lock is not currently held.
 	writeOp    atomic.Value // string
 	writeStart atomic.Int64 // unix nanoseconds; 0 when not held
+
+	// writeWaiters and readWaiters count goroutines currently blocked
+	// waiting to acquire the respective lock.  These are the primary
+	// deadlock-detection metrics: a non-zero waiter count that stays
+	// non-zero indefinitely means a goroutine is stuck waiting.
+	writeWaiters atomic.Int32
+	readWaiters  atomic.Int32
 }
 
 // New creates a new RWMutex. The name appears as the "lock" label in all
@@ -148,12 +191,28 @@ func New(name string) *RWMutex {
 	return m
 }
 
+// WriteWaiters returns the current number of goroutines blocked waiting for
+// the write lock. Exposed for testing; the Prometheus Collector is the primary
+// consumer in production.
+func (m *RWMutex) WriteWaiters() int32 {
+	return m.writeWaiters.Load()
+}
+
+// ReadWaiters returns the current number of goroutines blocked waiting for
+// the read lock. Exposed for testing; the Prometheus Collector is the primary
+// consumer in production.
+func (m *RWMutex) ReadWaiters() int32 {
+	return m.readWaiters.Load()
+}
+
 // Lock acquires the exclusive write lock. op is the name of the calling
 // operation (e.g. "DeleteBucket") and is recorded in metrics so lock
 // contention can be attributed to specific callers.
 func (m *RWMutex) Lock(op string) {
 	start := time.Now()
+	m.writeWaiters.Add(1) // goroutine is now waiting
 	m.mu.Lock()
+	m.writeWaiters.Add(-1) // acquired — no longer waiting
 
 	waited := time.Since(start).Seconds()
 	waitSeconds.WithLabelValues(m.name, op, "write").Observe(waited)
@@ -184,7 +243,9 @@ func (m *RWMutex) Unlock() {
 // is recorded in the wait-time histogram.
 func (m *RWMutex) RLock(op string) {
 	start := time.Now()
+	m.readWaiters.Add(1) // goroutine is now waiting
 	m.mu.RLock()
+	m.readWaiters.Add(-1) // acquired — no longer waiting
 
 	waitSeconds.WithLabelValues(m.name, op, "read").Observe(time.Since(start).Seconds())
 	activeReaders.WithLabelValues(m.name).Inc()
@@ -195,3 +256,4 @@ func (m *RWMutex) RUnlock() {
 	activeReaders.WithLabelValues(m.name).Dec()
 	m.mu.RUnlock()
 }
+

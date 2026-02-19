@@ -1,6 +1,7 @@
 package lockmetrics_test
 
 import (
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -169,4 +170,68 @@ func TestDeferRLockPattern(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("write lock should be acquirable after read lock is released")
 	}
+}
+
+// TestWriteWaiters verifies that gopherstack_lock_write_waiters is non-zero while
+// a goroutine is blocked waiting for the write lock — the primary deadlock indicator.
+func TestWriteWaiters(t *testing.T) {
+	t.Parallel()
+
+	m := lockmetrics.New("test.write-waiters")
+
+	// Hold the write lock.
+	m.Lock("holder")
+
+	// Start a goroutine that will block on the write lock.
+	done := make(chan struct{})
+	go func() {
+		m.Lock("waiter")
+		defer m.Unlock()
+		close(done)
+	}()
+
+	// Poll until the waiter count becomes non-zero (goroutine reached m.Lock).
+	const pollTimeout = time.Second
+	deadline := time.Now().Add(pollTimeout)
+	for time.Now().Before(deadline) && m.WriteWaiters() == 0 {
+		runtime.Gosched()
+	}
+
+	assert.EqualValues(t, 1, m.WriteWaiters(), "expected 1 write waiter while lock is held")
+
+	// Release the lock; the waiter should unblock and the count should return to 0.
+	m.Unlock()
+	<-done
+	assert.EqualValues(t, 0, m.WriteWaiters(), "expected 0 write waiters after lock released")
+}
+
+// TestReadWaiters verifies that gopherstack_lock_read_waiters is non-zero while
+// a goroutine is blocked waiting for the read lock behind a held write lock.
+func TestReadWaiters(t *testing.T) {
+	t.Parallel()
+
+	m := lockmetrics.New("test.read-waiters")
+
+	// Hold the write lock so readers must block.
+	m.Lock("holder")
+
+	done := make(chan struct{})
+	go func() {
+		m.RLock("reader")
+		defer m.RUnlock()
+		close(done)
+	}()
+
+	// Poll until the waiter count becomes non-zero (goroutine reached m.RLock).
+	const pollTimeout = time.Second
+	deadline := time.Now().Add(pollTimeout)
+	for time.Now().Before(deadline) && m.ReadWaiters() == 0 {
+		runtime.Gosched()
+	}
+
+	assert.EqualValues(t, 1, m.ReadWaiters(), "expected 1 read waiter while write lock is held")
+
+	m.Unlock()
+	<-done
+	assert.EqualValues(t, 0, m.ReadWaiters(), "expected 0 read waiters after write lock released")
 }
