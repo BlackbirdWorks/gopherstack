@@ -28,117 +28,64 @@
 package lockmetrics
 
 import (
+	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-// lockBuckets spans from 1µs to 10s to capture both the common sub-millisecond
-// fast path and the deadlock-scale multi-second hold durations that the metrics
-// are specifically designed to surface.
-//
-//nolint:gochecknoglobals // shared histogram buckets used by all Prometheus metrics in this package
-var lockBuckets = []float64{.000001, .00001, .0001, .001, .01, .1, 1, 10}
-
-// Prometheus metrics shared across all RWMutex instances.
-//
-//nolint:gochecknoglobals // Prometheus vectors must be global
-var (
-	waitSeconds = promauto.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Namespace: "gopherstack",
-			Name:      "lock_wait_seconds",
-			Help:      "Time spent waiting to acquire a lock, by lock name, operation, and type (read|write).",
-			Buckets:   lockBuckets,
-		},
-		[]string{"lock", "operation", "type"},
-	)
-
-	holdSeconds = promauto.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Namespace: "gopherstack",
-			Name:      "lock_hold_seconds",
-			Help:      "Duration a write lock was held, by lock name and operation.",
-			Buckets:   lockBuckets,
-		},
-		[]string{"lock", "operation"},
-	)
-
-	activeWriters = promauto.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Namespace: "gopherstack",
-			Name:      "lock_active_writers",
-			Help:      "Current number of goroutines holding the write lock (0 or 1 per lock).",
-		},
-		[]string{"lock", "operation"},
-	)
-
-	activeReaders = promauto.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Namespace: "gopherstack",
-			Name:      "lock_active_readers",
-			Help:      "Current number of goroutines holding the read lock.",
-		},
-		[]string{"lock"},
-	)
-
-	// writeHeldDesc is the Prometheus descriptor for the live write-lock-hold gauge.
-	writeHeldDesc = prometheus.NewDesc(
-		"gopherstack_lock_write_held_seconds",
-		"Live duration in seconds that the write lock is currently held (emitted only while held). "+
-			"A consistently high value indicates a potential deadlock.",
-		[]string{"lock", "operation"},
-		nil,
-	)
-
-	// writeWaitersDesc is the Prometheus descriptor for the live write-waiter gauge.
-	writeWaitersDesc = prometheus.NewDesc(
-		"gopherstack_lock_write_waiters",
-		"Number of goroutines currently blocked waiting to acquire the write lock. "+
-			"A non-zero value combined with a large gopherstack_lock_write_held_seconds "+
-			"indicates a deadlock: something holds the lock and cannot release it.",
-		[]string{"lock"},
-		nil,
-	)
-
-	// readWaitersDesc is the Prometheus descriptor for the live read-waiter gauge.
-	readWaitersDesc = prometheus.NewDesc(
-		"gopherstack_lock_read_waiters",
-		"Number of goroutines currently blocked waiting to acquire the read lock. "+
-			"Persistent non-zero values alongside a held write lock indicate lock starvation.",
-		[]string{"lock"},
-		nil,
-	)
-)
-
-// allMutexes holds weak references to every live RWMutex so the custom
-// Collector can enumerate them at scrape time without the mutexes needing
-// to self-register/deregister.
-//
-//nolint:gochecknoglobals // global registry of all instrumented mutexes for the Prometheus Collector
-var allMutexes sync.Map // map[*RWMutex]struct{}
-
-//nolint:gochecknoinits // registers the Prometheus Collector for live lock-state metrics
-func init() {
-	prometheus.MustRegister(&liveStateCollector{})
+// liveCollector implements [prometheus.Collector] and emits live gauges for
+// the current write-lock hold duration and waiter counts for every registered
+// [RWMutex]. It is shared across all instances via registerOrReuse.
+type liveCollector struct {
+	// *prometheus.Desc pointer fields come first to minimise the GC scan range.
+	writeHeldDesc    *prometheus.Desc
+	writeWaitersDesc *prometheus.Desc
+	readWaitersDesc  *prometheus.Desc
+	// allMutexes follows; sync.Map contains internal pointers so the GC scan
+	// still extends into it, but placing it after the Desc pointers is optimal.
+	allMutexes sync.Map // map[*RWMutex]struct{}
 }
 
-// liveStateCollector implements prometheus.Collector and emits live gauges for
-// the current write-lock hold duration and the number of goroutines waiting
-// for each registered lock. These metrics are the primary deadlock indicators.
-type liveStateCollector struct{}
-
-func (liveStateCollector) Describe(ch chan<- *prometheus.Desc) {
-	ch <- writeHeldDesc
-	ch <- writeWaitersDesc
-	ch <- readWaitersDesc
+func newLiveCollector() *liveCollector {
+	return &liveCollector{
+		writeHeldDesc: prometheus.NewDesc(
+			"gopherstack_lock_write_held_seconds",
+			"Live duration in seconds that the write lock is currently held (emitted only while held). "+
+				"A consistently high value indicates a potential deadlock.",
+			[]string{"lock", "operation"},
+			nil,
+		),
+		writeWaitersDesc: prometheus.NewDesc(
+			"gopherstack_lock_write_waiters",
+			"Number of goroutines currently blocked waiting to acquire the write lock. "+
+				"A non-zero value combined with a large gopherstack_lock_write_held_seconds "+
+				"indicates a deadlock: something holds the lock and cannot release it.",
+			[]string{"lock"},
+			nil,
+		),
+		readWaitersDesc: prometheus.NewDesc(
+			"gopherstack_lock_read_waiters",
+			"Number of goroutines currently blocked waiting to acquire the read lock. "+
+				"Persistent non-zero values alongside a held write lock indicate lock starvation.",
+			[]string{"lock"},
+			nil,
+		),
+	}
 }
 
-func (liveStateCollector) Collect(ch chan<- prometheus.Metric) {
-	allMutexes.Range(func(k, _ any) bool {
+// Describe implements [prometheus.Collector].
+func (c *liveCollector) Describe(ch chan<- *prometheus.Desc) {
+	ch <- c.writeHeldDesc
+	ch <- c.writeWaitersDesc
+	ch <- c.readWaitersDesc
+}
+
+// Collect implements [prometheus.Collector].
+func (c *liveCollector) Collect(ch chan<- prometheus.Metric) {
+	c.allMutexes.Range(func(k, _ any) bool {
 		m, ok := k.(*RWMutex)
 		if !ok {
 			return true
@@ -149,19 +96,46 @@ func (liveStateCollector) Collect(ch chan<- prometheus.Metric) {
 		if ts != 0 {
 			op, _ := m.writeOp.Load().(string)
 			held := time.Since(time.Unix(0, ts)).Seconds()
-			ch <- prometheus.MustNewConstMetric(writeHeldDesc, prometheus.GaugeValue, held, m.name, op)
+			ch <- prometheus.MustNewConstMetric(c.writeHeldDesc, prometheus.GaugeValue, held, m.name, op)
 		}
 
 		// Write waiters: goroutines currently blocked in Lock().
-		writeW := float64(m.writeWaiters.Load())
-		ch <- prometheus.MustNewConstMetric(writeWaitersDesc, prometheus.GaugeValue, writeW, m.name)
+		ch <- prometheus.MustNewConstMetric(c.writeWaitersDesc, prometheus.GaugeValue,
+			float64(m.writeWaiters.Load()), m.name)
 
 		// Read waiters: goroutines currently blocked in RLock().
-		readW := float64(m.readWaiters.Load())
-		ch <- prometheus.MustNewConstMetric(readWaitersDesc, prometheus.GaugeValue, readW, m.name)
+		ch <- prometheus.MustNewConstMetric(c.readWaitersDesc, prometheus.GaugeValue,
+			float64(m.readWaiters.Load()), m.name)
 
 		return true
 	})
+}
+
+// registerOrReuse registers c with [prometheus.DefaultRegisterer].
+// If c is already registered with the same descriptor IDs it returns the
+// already-registered Collector of type T, allowing all [RWMutex] instances
+// to share a single set of metric objects without package-level variables.
+//
+// the ireturn linter does not look through generic type constraints and incorrectly treats T as
+// returning the prometheus.Collector interface.
+//
+//nolint:ireturn // T is resolved to a concrete pointer type (*HistogramVec, *GaugeVec, etc.) at each call site;
+func registerOrReuse[T prometheus.Collector](c T) T {
+	if err := prometheus.DefaultRegisterer.Register(c); err != nil {
+		var are prometheus.AlreadyRegisteredError
+		if errors.As(err, &are) {
+			existing, ok := are.ExistingCollector.(T)
+			if !ok {
+				panic("lockmetrics: registered collector has unexpected type")
+			}
+
+			return existing
+		}
+
+		panic(err)
+	}
+
+	return c
 }
 
 // RWMutex is a drop-in replacement for [sync.RWMutex] that records Prometheus
@@ -169,31 +143,78 @@ func (liveStateCollector) Collect(ch chan<- prometheus.Metric) {
 //
 // The zero value is not usable; always create via New.
 type RWMutex struct {
-	// writeOp and writeStart track the current write-lock holder.
-	// writeStart == 0 means the write lock is not currently held.
-	// Placed first to minimise GC scan range (both contain pointers).
-	writeOp atomic.Value // string
+	// *prometheus pointer fields first; they are 8 bytes each (pure pointer).
+	waitSeconds   *prometheus.HistogramVec
+	holdSeconds   *prometheus.HistogramVec
+	activeWriters *prometheus.GaugeVec
+	activeReaders *prometheus.GaugeVec
+	// writeOp and name follow; each contains a pointer so the GC scan extends
+	// through them, but their trailing non-pointer word (len/cap) falls outside
+	// the scan range, minimising pointer bytes to 56.
+	writeOp atomic.Value // string — current write-lock operation name
 	name    string
 
+	// Non-pointer fields: GC scan stops above this line.
 	mu sync.RWMutex
 
-	writeStart atomic.Int64 // unix nanoseconds; 0 when not held
+	writeStart atomic.Int64 // unix nanoseconds; 0 when write lock is not held
 
 	// writeWaiters and readWaiters count goroutines currently blocked
-	// waiting to acquire the respective lock.  These are the primary
-	// deadlock-detection metrics: a non-zero waiter count that stays
-	// non-zero indefinitely means a goroutine is stuck waiting.
+	// waiting to acquire the respective lock. A non-zero count that stays
+	// non-zero indefinitely indicates a deadlock or severe starvation.
 	writeWaiters atomic.Int32
 	readWaiters  atomic.Int32
 }
 
-// New creates a new RWMutex. The name appears as the "lock" label in all
+// New creates a new [RWMutex]. The name appears as the "lock" label in all
 // emitted metrics and should be a stable, human-readable identifier
-// (e.g. "s3.global", "ddb.table.users").
+// (e.g. "s3", "ddb.table.users").
 func New(name string) *RWMutex {
+	buckets := []float64{.000001, .00001, .0001, .001, .01, .1, 1, 10}
+
 	m := &RWMutex{name: name}
 	m.writeOp.Store("")
-	allMutexes.Store(m, struct{}{})
+
+	m.waitSeconds = registerOrReuse(prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Namespace: "gopherstack",
+			Name:      "lock_wait_seconds",
+			Help:      "Time spent waiting to acquire a lock, by lock name, operation, and type (read|write).",
+			Buckets:   buckets,
+		},
+		[]string{"lock", "operation", "type"},
+	))
+	m.holdSeconds = registerOrReuse(prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Namespace: "gopherstack",
+			Name:      "lock_hold_seconds",
+			Help:      "Duration a write lock was held, by lock name and operation.",
+			Buckets:   buckets,
+		},
+		[]string{"lock", "operation"},
+	))
+	m.activeWriters = registerOrReuse(prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: "gopherstack",
+			Name:      "lock_active_writers",
+			Help:      "Current number of goroutines holding the write lock (0 or 1 per lock).",
+		},
+		[]string{"lock", "operation"},
+	))
+	m.activeReaders = registerOrReuse(prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: "gopherstack",
+			Name:      "lock_active_readers",
+			Help:      "Current number of goroutines holding the read lock.",
+		},
+		[]string{"lock"},
+	))
+
+	// Register the shared live-state Collector. All instances share one Collector
+	// (retrieved via registerOrReuse on subsequent calls) so the Prometheus registry
+	// sees a single Collector per metric family.
+	coll := registerOrReuse(newLiveCollector())
+	coll.allMutexes.Store(m, struct{}{})
 
 	return m
 }
@@ -222,8 +243,8 @@ func (m *RWMutex) Lock(op string) {
 	m.writeWaiters.Add(-1) // acquired — no longer waiting
 
 	waited := time.Since(start).Seconds()
-	waitSeconds.WithLabelValues(m.name, op, "write").Observe(waited)
-	activeWriters.WithLabelValues(m.name, op).Inc()
+	m.waitSeconds.WithLabelValues(m.name, op, "write").Observe(waited)
+	m.activeWriters.WithLabelValues(m.name, op).Inc()
 	m.writeOp.Store(op)
 	m.writeStart.Store(time.Now().UnixNano())
 }
@@ -239,8 +260,8 @@ func (m *RWMutex) Unlock() {
 		held = time.Since(time.Unix(0, ts)).Seconds()
 	}
 
-	holdSeconds.WithLabelValues(m.name, op).Observe(held)
-	activeWriters.WithLabelValues(m.name, op).Dec()
+	m.holdSeconds.WithLabelValues(m.name, op).Observe(held)
+	m.activeWriters.WithLabelValues(m.name, op).Dec()
 	m.writeStart.Store(0)
 	m.writeOp.Store("")
 	m.mu.Unlock()
@@ -254,12 +275,12 @@ func (m *RWMutex) RLock(op string) {
 	m.mu.RLock()
 	m.readWaiters.Add(-1) // acquired — no longer waiting
 
-	waitSeconds.WithLabelValues(m.name, op, "read").Observe(time.Since(start).Seconds())
-	activeReaders.WithLabelValues(m.name).Inc()
+	m.waitSeconds.WithLabelValues(m.name, op, "read").Observe(time.Since(start).Seconds())
+	m.activeReaders.WithLabelValues(m.name).Inc()
 }
 
 // RUnlock releases the shared read lock.
 func (m *RWMutex) RUnlock() {
-	activeReaders.WithLabelValues(m.name).Dec()
+	m.activeReaders.WithLabelValues(m.name).Dec()
 	m.mu.RUnlock()
 }
