@@ -119,13 +119,21 @@ func (db *InMemoryDB) DeleteTable(
 	// Capture state for return
 	gsiDescs := make([]models.GlobalSecondaryIndexDescription, len(table.GlobalSecondaryIndexes))
 	for i, gsi := range table.GlobalSecondaryIndexes {
+		rc := int64(models.DefaultReadCapacity)
+		wc := int64(models.DefaultWriteCapacity)
+		if gsi.ProvisionedThroughput.ReadCapacityUnits != nil {
+			rc = *gsi.ProvisionedThroughput.ReadCapacityUnits
+		}
+		if gsi.ProvisionedThroughput.WriteCapacityUnits != nil {
+			wc = *gsi.ProvisionedThroughput.WriteCapacityUnits
+		}
 		gsiDescs[i] = models.GlobalSecondaryIndexDescription{
 			IndexName:  gsi.IndexName,
 			KeySchema:  gsi.KeySchema,
 			Projection: gsi.Projection,
 			ProvisionedThroughput: models.ProvisionedThroughputDescription{
-				ReadCapacityUnits:  int(*gsi.ProvisionedThroughput.ReadCapacityUnits),
-				WriteCapacityUnits: int(*gsi.ProvisionedThroughput.WriteCapacityUnits),
+				ReadCapacityUnits:  int(rc),
+				WriteCapacityUnits: int(wc),
 			},
 			IndexStatus: "DELETING",
 			ItemCount:   len(table.Items),

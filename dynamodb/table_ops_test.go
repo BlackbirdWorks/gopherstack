@@ -10,6 +10,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	dynamodb_sdk "github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -137,6 +138,51 @@ func TestTableOperations(t *testing.T) {
 				require.NoError(t, err)
 				// Verify deletion by trying to describe it
 				descInput := models.DescribeTableInput{TableName: "DeleteMe"}
+				sdkDesc := models.ToSDKDescribeTableInput(&descInput)
+				_, err = db.DescribeTable(context.Background(), sdkDesc)
+				require.Error(t, err)
+			},
+		},
+		{
+			name: "DeleteTable_WithGSI_NilProvisionedThroughput",
+			setup: func(t *testing.T, db *dynamodb.InMemoryDB) {
+				t.Helper()
+				// Create a table with a GSI but no ProvisionedThroughput (on-demand billing)
+				_, err := db.CreateTable(context.Background(), &dynamodb_sdk.CreateTableInput{
+					TableName: aws.String("GSITable"),
+					AttributeDefinitions: []types.AttributeDefinition{
+						{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
+						{AttributeName: aws.String("gsiPK"), AttributeType: types.ScalarAttributeTypeS},
+					},
+					KeySchema: []types.KeySchemaElement{
+						{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
+					},
+					GlobalSecondaryIndexes: []types.GlobalSecondaryIndex{
+						{
+							IndexName: aws.String("GSI1"),
+							KeySchema: []types.KeySchemaElement{
+								{AttributeName: aws.String("gsiPK"), KeyType: types.KeyTypeHash},
+							},
+							Projection: &types.Projection{
+								ProjectionType: types.ProjectionTypeAll,
+							},
+						},
+					},
+					BillingMode: types.BillingModePayPerRequest,
+				})
+				require.NoError(t, err)
+			},
+			run: func(db *dynamodb.InMemoryDB) (any, error) {
+				input := models.DeleteTableInput{TableName: "GSITable"}
+				sdkInput := models.ToSDKDeleteTableInput(&input)
+
+				return db.DeleteTable(context.Background(), sdkInput)
+			},
+			validate: func(t *testing.T, db *dynamodb.InMemoryDB, _ any, err error) {
+				t.Helper()
+				require.NoError(t, err)
+				// Verify deletion
+				descInput := models.DescribeTableInput{TableName: "GSITable"}
 				sdkDesc := models.ToSDKDescribeTableInput(&descInput)
 				_, err = db.DescribeTable(context.Background(), sdkDesc)
 				require.Error(t, err)
