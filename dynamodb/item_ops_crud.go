@@ -500,47 +500,57 @@ func (db *InMemoryDB) populateUpdateOutput(
 	return out, nil
 }
 
-// deleteItemAtIndex removes the item at matchIndex from the table using a
-// swap-and-pop strategy: the deleted slot is filled with the last item, and
-// only that item's index entry is updated. This is O(1) vs the O(N) index
-// decrement that a shift-based removal would require.
 func (db *InMemoryDB) deleteItemAtIndex(table *Table, matchIndex int) {
-	pkDef, skDef := getPKAndSK(table.KeySchema)
 	item := table.Items[matchIndex]
+	pkDef, skDef := getPKAndSK(table.KeySchema)
 	pkVal := BuildKeyString(item, pkDef.AttributeName)
 
-	// Remove the deleted item's index entry.
 	if skDef.AttributeName != "" {
-		skVal := BuildKeyString(item, skDef.AttributeName)
-		if skMap, ok := table.pkskIndex[pkVal]; ok {
-			delete(skMap, skVal)
-			if len(skMap) == 0 {
-				delete(table.pkskIndex, pkVal)
+		db.deleteFromCompositeIndex(table, pkVal, item, skDef.AttributeName, matchIndex)
+	} else {
+		db.deleteFromSimpleIndex(table, pkVal, matchIndex)
+	}
+
+	// Remove from Items slice
+	table.Items = append(table.Items[:matchIndex], table.Items[matchIndex+1:]...)
+}
+
+func (db *InMemoryDB) deleteFromCompositeIndex(
+	table *Table,
+	pkVal string,
+	item map[string]any,
+	skAttrName string,
+	matchIndex int,
+) {
+	// Delete from composite key index
+	skVal := BuildKeyString(item, skAttrName)
+	if skMap, ok := table.pkskIndex[pkVal]; ok {
+		delete(skMap, skVal)
+		if len(skMap) == 0 {
+			delete(table.pkskIndex, pkVal)
+		}
+	}
+
+	// Decrement all indices after matchIndex in composite key index
+	for _, skMap := range table.pkskIndex {
+		for sk, idx := range skMap {
+			if idx > matchIndex {
+				skMap[sk] = idx - 1
 			}
 		}
-	} else {
-		delete(table.pkIndex, pkVal)
 	}
+}
 
-	lastIdx := len(table.Items) - 1
-	if matchIndex != lastIdx {
-		// Swap the deleted slot with the last element.
-		lastItem := table.Items[lastIdx]
-		table.Items[matchIndex] = lastItem
+func (db *InMemoryDB) deleteFromSimpleIndex(table *Table, pkVal string, matchIndex int) {
+	// Delete from simple key index
+	delete(table.pkIndex, pkVal)
 
-		// Update the moved item's index entry to its new position.
-		lastPKVal := BuildKeyString(lastItem, pkDef.AttributeName)
-		if skDef.AttributeName != "" {
-			lastSKVal := BuildKeyString(lastItem, skDef.AttributeName)
-			table.pkskIndex[lastPKVal][lastSKVal] = matchIndex
-		} else {
-			table.pkIndex[lastPKVal] = matchIndex
+	// Decrement all indices after matchIndex in simple key index
+	for pk, idx := range table.pkIndex {
+		if idx > matchIndex {
+			table.pkIndex[pk] = idx - 1
 		}
 	}
-
-	// Clear the last slot (allow GC) and shrink the slice.
-	table.Items[lastIdx] = nil
-	table.Items = table.Items[:lastIdx]
 }
 
 // deepCopyItem returns a deep copy of a wire-format item so that mutations
