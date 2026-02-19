@@ -60,6 +60,22 @@ func TestReadBody(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("multiple reads", func(t *testing.T) {
+		t.Parallel()
+		data := []byte("multiple reads data")
+		req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(data))
+
+		// First read
+		got1, err := httputils.ReadBody(req)
+		require.NoError(t, err)
+		assert.Equal(t, data, got1)
+
+		// Second read
+		got2, err := httputils.ReadBody(req)
+		require.NoError(t, err)
+		assert.Equal(t, data, got2)
+	})
 }
 
 func TestDrainBody(t *testing.T) {

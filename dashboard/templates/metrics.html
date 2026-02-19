@@ -80,16 +80,27 @@
 
             <!-- Operation Section -->
             <section>
-                <div class="flex justify-between items-end mb-4">
-                    <h2 class="text-xl font-bold flex items-center gap-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-primary" fill="none"
-                            viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                        </svg>
-                        Operation Latencies
-                    </h2>
-                    <span id="op-count-badge" class="badge badge-outline badge-primary font-mono text-xs">...</span>
+                <div class="flex flex-col md:flex-row justify-between items-start md:items-end mb-6 gap-4">
+                    <div class="flex items-center gap-2">
+                        <h2 class="text-xl font-bold flex items-center gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-primary" fill="none"
+                                viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                            </svg>
+                            Operation Latencies
+                        </h2>
+                        <span id="op-count-badge" class="badge badge-outline badge-primary font-mono text-xs">...</span>
+                    </div>
+
+                    <!-- Service Filter -->
+                    <div class="tabs tabs-boxed bg-base-200">
+                        <button onclick="updateFilter('all')" class="tab tab-sm filter-tab active"
+                            data-service="all">All Services</button>
+                        <button onclick="updateFilter('DynamoDB')" class="tab tab-sm filter-tab"
+                            data-service="DynamoDB">DynamoDB</button>
+                        <button onclick="updateFilter('S3')" class="tab tab-sm filter-tab" data-service="S3">S3</button>
+                    </div>
                 </div>
 
                 <div class="bg-base-100 rounded-2xl shadow-sm border border-base-200 overflow-hidden">
@@ -135,8 +146,94 @@
 </div>
 
 <script>
+    let currentMetrics = null;
+    let currentFilter = 'all';
+
+    function updateFilter(service) {
+        currentFilter = service;
+
+        // Update tabs UI
+        document.querySelectorAll('.filter-tab').forEach(tab => {
+            if (tab.dataset.service === service) {
+                tab.classList.add('tab-active');
+            } else {
+                tab.classList.remove('tab-active');
+            }
+        });
+
+        renderOperations();
+    }
+
+    function renderOperations() {
+        const data = currentMetrics;
+        const body = document.getElementById('operations-body');
+        const badge = document.getElementById('op-count-badge');
+
+        if (!data || !data.operations || data.operations.length === 0) {
+            badge.textContent = '0 operations tracked';
+            body.innerHTML = '<tr><td colspan="7" class="text-center py-8 text-base-content/40 italic">No operations recorded yet</td></tr>';
+            return;
+        }
+
+        // Filter operations
+        let filteredOps = data.operations;
+        if (currentFilter !== 'all') {
+            filteredOps = data.operations.filter(op => op.operation.startsWith(currentFilter + '::'));
+        }
+
+        badge.textContent = `${filteredOps.length} operations tracked`;
+        let rows = '';
+
+        // Sort by service (DynamoDB first, then S3) then by count descending
+        const sortedOps = [...filteredOps].sort((a, b) => {
+            const getServiceRank = (opName) => {
+                if (opName.startsWith('DynamoDB::')) return 1;
+                if (opName.startsWith('S3::')) return 2;
+                return 3;
+            };
+
+            const rA = getServiceRank(a.operation);
+            const rB = getServiceRank(b.operation);
+
+            if (rA !== rB) return rA - rB;
+            return b.count - a.count;
+        });
+
+        for (const op of sortedOps) {
+            const parts = op.operation.split('::');
+            const service = parts.length > 1 ? parts[0] : 'SDK';
+            const action = parts.length > 1 ? parts[1] : parts[0];
+
+            const serviceClass = service === 'DynamoDB' ? 'badge-info' : (service === 'S3' ? 'badge-success' : 'badge-ghost');
+
+            rows += `
+                <tr class="hover:bg-base-200/30 transition-colors">
+                    <td class="font-medium align-top">
+                        <div class="flex items-center gap-2">
+                            <span class="badge badge-sm ${serviceClass} badge-outline font-mono uppercase text-[10px]">${service}</span>
+                            <code class="text-primary font-bold text-xs">${escapeHtml(action)}</code>
+                        </div>
+                        <div class="text-[10px] text-base-content/40 mt-1 font-mono">${escapeHtml(op.resource || '-')}</div>
+                    </td>
+                    <td class="text-center">
+                        <div class="font-bold">${op.count}</div>
+                        <div class="text-[10px] text-base-content/30 lowercase italic">requests</div>
+                    </td>
+                    <td class="text-right font-mono text-primary font-semibold">${op.p50_ms.toFixed(2)}<span class="text-[10px] opacity-40 ml-0.5">ms</span></td>
+                    <td class="text-right font-mono text-secondary font-semibold">${op.p95_ms.toFixed(2)}<span class="text-[10px] opacity-40 ml-0.5">ms</span></td>
+                    <td class="text-right font-mono text-accent font-semibold">${op.p99_ms.toFixed(2)}<span class="text-[10px] opacity-40 ml-0.5">ms</span></td>
+                    <td class="text-right font-mono text-base-content/70">${op.avg_ms.toFixed(2)}<span class="text-[10px] opacity-40 ml-0.5">ms</span></td>
+                    <td class="text-right font-mono text-base-content/70 font-bold">${op.max_ms.toFixed(2)}<span class="text-[10px] opacity-40 ml-0.5">ms</span></td>
+                </tr>
+            `;
+        }
+        body.innerHTML = rows || '<tr><td colspan="7" class="text-center py-8 text-base-content/40 italic">No matching operations found</td></tr>';
+    }
+
     window.addEventListener('metrics-updated', function (evt) {
         const data = evt.detail;
+        currentMetrics = data;
+
         const loading = document.getElementById('metrics-loading');
         const view = document.getElementById('dashboard-view');
         const noData = document.getElementById('no-metrics-msg');
@@ -164,44 +261,7 @@
             document.getElementById('runtime-heap-pct').textContent = `${pct}% of ${data.runtime.heap_sys_mb.toFixed(2)} MB total`;
         }
 
-        // Update Operations
-        const body = document.getElementById('operations-body');
-        const badge = document.getElementById('op-count-badge');
-
-        if (data.operations && data.operations.length > 0) {
-            badge.textContent = `${data.operations.length} operations tracked`;
-            let rows = '';
-
-            // Sort operations by count descending
-            const sortedOps = [...data.operations].sort((a, b) => b.count - a.count);
-
-            for (const op of sortedOps) {
-                rows += `
-                <tr class="hover:bg-base-200/30 transition-colors">
-                    <td class="font-medium align-top">
-                        <div class="flex items-center gap-2">
-                            <span class="badge badge-sm badge-ghost font-mono uppercase text-[10px]">${op.operation.split('::')[0] || 'SDK'}</span>
-                            <code>${escapeHtml(op.operation)}</code>
-                        </div>
-                        <div class="text-[10px] text-base-content/40 mt-1 font-mono">${escapeHtml(op.resource || '-')}</div>
-                    </td>
-                    <td class="text-center">
-                        <div class="font-bold">${op.count}</div>
-                        <div class="text-[10px] text-base-content/30 lowercase italic">requests</div>
-                    </td>
-                    <td class="text-right font-mono text-primary font-semibold">${op.p50_ms.toFixed(2)}<span class="text-[10px] opacity-40 ml-0.5">ms</span></td>
-                    <td class="text-right font-mono text-secondary font-semibold">${op.p95_ms.toFixed(2)}<span class="text-[10px] opacity-40 ml-0.5">ms</span></td>
-                    <td class="text-right font-mono text-accent font-semibold">${op.p99_ms.toFixed(2)}<span class="text-[10px] opacity-40 ml-0.5">ms</span></td>
-                    <td class="text-right font-mono text-base-content/70">${op.avg_ms.toFixed(2)}<span class="text-[10px] opacity-40 ml-0.5">ms</span></td>
-                    <td class="text-right font-mono text-base-content/70 font-bold">${op.max_ms.toFixed(2)}<span class="text-[10px] opacity-40 ml-0.5">ms</span></td>
-                </tr>
-            `;
-            }
-            body.innerHTML = rows;
-        } else {
-            badge.textContent = '0 operations tracked';
-            body.innerHTML = '<tr><td colspan="7" class="text-center py-8 text-base-content/40 italic">No operations recorded yet</td></tr>';
-        }
+        renderOperations();
     });
 
     function escapeHtml(unsafe) {

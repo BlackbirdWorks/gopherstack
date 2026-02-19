@@ -9,13 +9,24 @@ import (
 	"strings"
 	"testing"
 
-	"Gopherstack/s3"
-
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"Gopherstack/pkgs/logger"
+	"Gopherstack/s3"
 )
+
+// serveS3Handler is a test helper that invokes an S3 Echo handler with a raw HTTP request.
+func serveS3Handler(handler *s3.S3Handler, w http.ResponseWriter, r *http.Request) {
+	ctx := logger.Save(r.Context(), slog.Default())
+	r = r.WithContext(ctx)
+	e := echo.New()
+	c := e.NewContext(r, w)
+	_ = handler.Handler()(c)
+}
 
 func TestCalculateChecksum(t *testing.T) {
 	t.Parallel()
@@ -97,7 +108,14 @@ func TestHandler_VirtualHostedStyle(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
 			req.Host = tt.host
 			rec := httptest.NewRecorder()
-			handler.ServeHTTP(rec, req)
+
+			// Use Echo handler
+			ctx := logger.Save(req.Context(), slog.Default())
+			req = req.WithContext(ctx)
+			e := echo.New()
+			c := e.NewContext(req, rec)
+			_ = handler.Handler()(c)
+
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
@@ -128,12 +146,12 @@ func TestHandler_CopyObject(t *testing.T) {
 				req := httptest.NewRequest(http.MethodPut, "/dest-bkt/dest-key", nil)
 				req.Header.Set("X-Amz-Copy-Source", "/src-bkt/src-key")
 				rec := httptest.NewRecorder()
-				handler.ServeHTTP(rec, req)
+				serveS3Handler(handler, rec, req)
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				req = httptest.NewRequest(http.MethodGet, "/dest-bkt/dest-key", nil)
 				rec = httptest.NewRecorder()
-				handler.ServeHTTP(rec, req)
+				serveS3Handler(handler, rec, req)
 				require.Equal(t, http.StatusOK, rec.Code)
 				body, err := io.ReadAll(rec.Body)
 				require.NoError(t, err)
@@ -146,12 +164,12 @@ func TestHandler_CopyObject(t *testing.T) {
 				req.Header.Set("X-Amz-Meta-New", "Value")
 				req.Header.Set("Content-Type", "application/json")
 				rec := httptest.NewRecorder()
-				handler.ServeHTTP(rec, req)
+				serveS3Handler(handler, rec, req)
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				req = httptest.NewRequest(http.MethodHead, "/dest-bkt/dest-key", nil)
 				rec = httptest.NewRecorder()
-				handler.ServeHTTP(rec, req)
+				serveS3Handler(handler, rec, req)
 				require.Equal(t, http.StatusOK, rec.Code)
 				assert.Equal(t, "Value", rec.Header().Get("X-Amz-Meta-New"))
 				assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
@@ -159,14 +177,14 @@ func TestHandler_CopyObject(t *testing.T) {
 			case "missing source header routes to put object":
 				req := httptest.NewRequest(http.MethodPut, "/dest-bkt/dest-key", nil)
 				rec := httptest.NewRecorder()
-				handler.ServeHTTP(rec, req)
+				serveS3Handler(handler, rec, req)
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 			case "invalid source format returns 400":
 				req := httptest.NewRequest(http.MethodPut, "/dest-bkt/dest-key", nil)
 				req.Header.Set("X-Amz-Copy-Source", "invalid-format")
 				rec := httptest.NewRecorder()
-				handler.ServeHTTP(rec, req)
+				serveS3Handler(handler, rec, req)
 				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			}
 		})
@@ -218,7 +236,7 @@ func TestHandler_CopyObject_Errors(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPut, tt.dest, nil)
 			req.Header.Set("X-Amz-Copy-Source", tt.source)
 			rec := httptest.NewRecorder()
-			handler.ServeHTTP(rec, req)
+			serveS3Handler(handler, rec, req)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
@@ -245,7 +263,7 @@ func TestHandler_CopyObject_Versioned(t *testing.T) {
 
 			req := httptest.NewRequest(http.MethodPut, "/src/key", strings.NewReader("v2"))
 			rec := httptest.NewRecorder()
-			handler.ServeHTTP(rec, req)
+			serveS3Handler(handler, rec, req)
 			v2ID := rec.Header().Get("X-Amz-Version-Id")
 
 			switch tt.name {
@@ -254,19 +272,19 @@ func TestHandler_CopyObject_Versioned(t *testing.T) {
 				req.Header.Set("X-Amz-Copy-Source", "/src/key")
 				req.Header.Set("X-Amz-Copy-Source-Version-Id", v2ID)
 				rec = httptest.NewRecorder()
-				handler.ServeHTTP(rec, req)
+				serveS3Handler(handler, rec, req)
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				req = httptest.NewRequest(http.MethodGet, "/dest/key-v2", nil)
 				rec = httptest.NewRecorder()
-				handler.ServeHTTP(rec, req)
+				serveS3Handler(handler, rec, req)
 				assert.Equal(t, "v2", rec.Body.String())
 
 			case "copy specific version using versionId query param in source":
 				req = httptest.NewRequest(http.MethodPut, "/dest/dest-key", nil)
 				req.Header.Set("X-Amz-Copy-Source", "/src/key?versionId="+v2ID)
 				rec = httptest.NewRecorder()
-				handler.ServeHTTP(rec, req)
+				serveS3Handler(handler, rec, req)
 				assert.Equal(t, http.StatusOK, rec.Code)
 			}
 		})
@@ -295,7 +313,7 @@ func TestHandler_GetObject_ChecksumMode(t *testing.T) {
 				req := httptest.NewRequest(http.MethodGet, "/bkt/key", nil)
 				req.Header.Set("X-Amz-Checksum-Mode", "ENABLED")
 				rec := httptest.NewRecorder()
-				handler.ServeHTTP(rec, req)
+				serveS3Handler(handler, rec, req)
 				require.Equal(t, http.StatusOK, rec.Code)
 				assert.NotEmpty(t, rec.Header().Get("X-Amz-Checksum-Algorithm"))
 				assert.NotEmpty(t, rec.Header().Get("X-Amz-Checksum-Crc32"))
@@ -311,7 +329,7 @@ func TestHandler_GetObject_ChecksumMode(t *testing.T) {
 				req := httptest.NewRequest(http.MethodGet, "/bkt/key2", nil)
 				req.Header.Set("X-Amz-Checksum-Mode", "ENABLED")
 				rec := httptest.NewRecorder()
-				handler.ServeHTTP(rec, req)
+				serveS3Handler(handler, rec, req)
 				require.Equal(t, http.StatusOK, rec.Code)
 				assert.Equal(t, "SHA256", rec.Header().Get("X-Amz-Checksum-Algorithm"))
 				assert.Equal(t, "fake-sha256", rec.Header().Get("X-Amz-Checksum-Sha256"))
@@ -346,7 +364,7 @@ func TestHandler_ListObjectsV2(t *testing.T) {
 				}
 				req := httptest.NewRequest(http.MethodGet, "/bkt?list-type=2&max-keys=2", nil)
 				rec := httptest.NewRecorder()
-				handler.ServeHTTP(rec, req)
+				serveS3Handler(handler, rec, req)
 				require.Equal(t, http.StatusOK, rec.Code)
 				assert.Contains(t, rec.Body.String(), "<IsTruncated>true</IsTruncated>")
 				assert.Contains(t, rec.Body.String(), "<NextContinuationToken>")
@@ -358,7 +376,7 @@ func TestHandler_ListObjectsV2(t *testing.T) {
 				mustPutObject(t, backend, "bkt", "root.txt", []byte("d"))
 				req := httptest.NewRequest(http.MethodGet, "/bkt?list-type=2&delimiter=/", nil)
 				rec := httptest.NewRecorder()
-				handler.ServeHTTP(rec, req)
+				serveS3Handler(handler, rec, req)
 				require.Equal(t, http.StatusOK, rec.Code)
 				body := rec.Body.String()
 				assert.Contains(t, body, "<Prefix>photos/</Prefix>")
@@ -373,7 +391,7 @@ func TestHandler_ListObjectsV2(t *testing.T) {
 					http.MethodGet, "/bkt?list-type=2&prefix=dir/&delimiter=/", nil,
 				)
 				rec := httptest.NewRecorder()
-				handler.ServeHTTP(rec, req)
+				serveS3Handler(handler, rec, req)
 				require.Equal(t, http.StatusOK, rec.Code)
 				body := rec.Body.String()
 				assert.Contains(t, body, "<Key>dir/a</Key>")
@@ -386,7 +404,7 @@ func TestHandler_ListObjectsV2(t *testing.T) {
 				mustPutObject(t, backend, "bkt", "c", []byte("d"))
 				req := httptest.NewRequest(http.MethodGet, "/bkt?list-type=2&start-after=a", nil)
 				rec := httptest.NewRecorder()
-				handler.ServeHTTP(rec, req)
+				serveS3Handler(handler, rec, req)
 				require.Equal(t, http.StatusOK, rec.Code)
 				body := rec.Body.String()
 				assert.NotContains(t, body, "<Key>a</Key>")
@@ -396,7 +414,7 @@ func TestHandler_ListObjectsV2(t *testing.T) {
 			case "invalid max-keys defaults to 1000":
 				req := httptest.NewRequest(http.MethodGet, "/bkt?list-type=2&max-keys=-1", nil)
 				rec := httptest.NewRecorder()
-				handler.ServeHTTP(rec, req)
+				serveS3Handler(handler, rec, req)
 				assert.Equal(t, http.StatusOK, rec.Code)
 			}
 		})
@@ -454,7 +472,7 @@ func TestHandler_GetObject_Range(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, "/bkt/key", nil)
 			req.Header.Set("Range", tt.rangeHdr)
 			rec := httptest.NewRecorder()
-			handler.ServeHTTP(rec, req)
+			serveS3Handler(handler, rec, req)
 			require.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantBody != "" {
@@ -486,7 +504,7 @@ func TestHandler_MultipartUpload_Lifecycle(t *testing.T) {
 
 			req := httptest.NewRequest(http.MethodPost, "/bkt/obj?uploads", nil)
 			rec := httptest.NewRecorder()
-			handler.ServeHTTP(rec, req)
+			serveS3Handler(handler, rec, req)
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			body := rec.Body.String()
@@ -502,7 +520,7 @@ func TestHandler_MultipartUpload_Lifecycle(t *testing.T) {
 					strings.NewReader("part1"),
 				)
 				rec = httptest.NewRecorder()
-				handler.ServeHTTP(rec, req)
+				serveS3Handler(handler, rec, req)
 				require.Equal(t, http.StatusOK, rec.Code)
 				etag := rec.Header().Get("ETag")
 
@@ -512,19 +530,19 @@ func TestHandler_MultipartUpload_Lifecycle(t *testing.T) {
 					http.MethodPost, "/bkt/obj?uploadId="+uploadID, strings.NewReader(completeXML),
 				)
 				rec = httptest.NewRecorder()
-				handler.ServeHTTP(rec, req)
+				serveS3Handler(handler, rec, req)
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				req = httptest.NewRequest(http.MethodGet, "/bkt/obj", nil)
 				rec = httptest.NewRecorder()
-				handler.ServeHTTP(rec, req)
+				serveS3Handler(handler, rec, req)
 				require.Equal(t, http.StatusOK, rec.Code)
 				assert.Equal(t, "part1", rec.Body.String())
 
 			case "create and abort upload":
 				req = httptest.NewRequest(http.MethodDelete, "/bkt/obj?uploadId="+uploadID, nil)
 				rec = httptest.NewRecorder()
-				handler.ServeHTTP(rec, req)
+				serveS3Handler(handler, rec, req)
 				assert.Equal(t, http.StatusNoContent, rec.Code)
 			}
 		})
@@ -553,13 +571,13 @@ func TestHandler_CompleteMultipartUpload_Errors(t *testing.T) {
 					http.MethodPost, "/bkt/obj?uploadId=any", strings.NewReader("not xml"),
 				)
 				rec := httptest.NewRecorder()
-				handler.ServeHTTP(rec, req)
+				serveS3Handler(handler, rec, req)
 				assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 			case "invalid XML after valid initiate returns 400":
 				req := httptest.NewRequest(http.MethodPost, "/bkt/obj?uploads", nil)
 				rec := httptest.NewRecorder()
-				handler.ServeHTTP(rec, req)
+				serveS3Handler(handler, rec, req)
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var res s3.InitiateMultipartUploadResult
@@ -570,7 +588,7 @@ func TestHandler_CompleteMultipartUpload_Errors(t *testing.T) {
 					http.MethodPost, "/bkt/obj?uploadId="+uploadID, strings.NewReader("not xml"),
 				)
 				rec = httptest.NewRecorder()
-				handler.ServeHTTP(rec, req)
+				serveS3Handler(handler, rec, req)
 				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			}
 		})
@@ -610,7 +628,7 @@ func TestHandler_AbortMultipartUpload(t *testing.T) {
 
 			req := httptest.NewRequest(http.MethodDelete, tt.path, nil)
 			rec := httptest.NewRecorder()
-			handler.ServeHTTP(rec, req)
+			serveS3Handler(handler, rec, req)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
@@ -640,7 +658,7 @@ func TestHandler_ListObjectVersions(t *testing.T) {
 
 				req := httptest.NewRequest(http.MethodGet, "/bkt?versions", nil)
 				rec := httptest.NewRecorder()
-				handler.ServeHTTP(rec, req)
+				serveS3Handler(handler, rec, req)
 				require.Equal(t, http.StatusOK, rec.Code)
 				body := rec.Body.String()
 				assert.Contains(t, body, "<ListVersionsResult>")
@@ -653,12 +671,12 @@ func TestHandler_ListObjectVersions(t *testing.T) {
 
 				req := httptest.NewRequest(http.MethodDelete, "/bkt/key", nil)
 				rec := httptest.NewRecorder()
-				handler.ServeHTTP(rec, req)
+				serveS3Handler(handler, rec, req)
 				require.Equal(t, http.StatusNoContent, rec.Code)
 
 				req = httptest.NewRequest(http.MethodGet, "/bkt?versions", nil)
 				rec = httptest.NewRecorder()
-				handler.ServeHTTP(rec, req)
+				serveS3Handler(handler, rec, req)
 				require.Equal(t, http.StatusOK, rec.Code)
 				body := rec.Body.String()
 				assert.Contains(t, body, "<DeleteMarker>")
@@ -687,7 +705,7 @@ func TestHandler_ObjectLifecycle_Versioned(t *testing.T) {
 
 			req := httptest.NewRequest(http.MethodGet, "/bkt?versions", nil)
 			rec := httptest.NewRecorder()
-			handler.ServeHTTP(rec, req)
+			serveS3Handler(handler, rec, req)
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var res s3.ListVersionsResult
@@ -699,13 +717,13 @@ func TestHandler_ObjectLifecycle_Versioned(t *testing.T) {
 
 			req = httptest.NewRequest(http.MethodHead, "/bkt/key?versionId="+vid, nil)
 			rec = httptest.NewRecorder()
-			handler.ServeHTTP(rec, req)
+			serveS3Handler(handler, rec, req)
 			require.Equal(t, http.StatusOK, rec.Code)
 			assert.Equal(t, vid, rec.Header().Get("X-Amz-Version-Id"))
 
 			req = httptest.NewRequest(http.MethodDelete, "/bkt/key?versionId="+vid, nil)
 			rec = httptest.NewRecorder()
-			handler.ServeHTTP(rec, req)
+			serveS3Handler(handler, rec, req)
 			assert.Equal(t, http.StatusNoContent, rec.Code)
 			assert.Equal(t, vid, rec.Header().Get("X-Amz-Version-Id"))
 		})
@@ -737,7 +755,7 @@ func TestHandler_GetBucketLocation(t *testing.T) {
 
 			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
 			rec := httptest.NewRecorder()
-			handler.ServeHTTP(rec, req)
+			serveS3Handler(handler, rec, req)
 			require.Equal(t, http.StatusOK, rec.Code)
 			assert.Contains(t, rec.Body.String(), tt.want)
 		})
@@ -779,7 +797,7 @@ func TestHandler_DeleteBucket_Errors(t *testing.T) {
 
 			req := httptest.NewRequest(http.MethodDelete, "/"+tt.bucket, nil)
 			rec := httptest.NewRecorder()
-			handler.ServeHTTP(rec, req)
+			serveS3Handler(handler, rec, req)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
@@ -825,7 +843,7 @@ func TestHandler_CreateBucket_Errors(t *testing.T) {
 
 			req := httptest.NewRequest(http.MethodPut, "/"+tt.bucket, &body)
 			rec := httptest.NewRecorder()
-			handler.ServeHTTP(rec, req)
+			serveS3Handler(handler, rec, req)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
@@ -874,7 +892,7 @@ func TestHandler_UploadPart_Errors(t *testing.T) {
 
 			req := httptest.NewRequest(http.MethodPut, tt.path, strings.NewReader(tt.body))
 			rec := httptest.NewRecorder()
-			handler.ServeHTTP(rec, req)
+			serveS3Handler(handler, rec, req)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
@@ -899,7 +917,7 @@ func TestHandler_BucketTagging_NotImplemented(t *testing.T) {
 
 			req := httptest.NewRequest(tt.method, "/bkt?tagging", nil)
 			rec := httptest.NewRecorder()
-			handler.ServeHTTP(rec, req)
+			serveS3Handler(handler, rec, req)
 			assert.Equal(t, http.StatusNotImplemented, rec.Code)
 		})
 	}
@@ -927,7 +945,7 @@ func TestHandler_ResolveBucketAndKey_InvalidKey(t *testing.T) {
 
 			req := httptest.NewRequest(http.MethodGet, "/bkt/"+tt.key, nil)
 			rec := httptest.NewRecorder()
-			handler.ServeHTTP(rec, req)
+			serveS3Handler(handler, rec, req)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
@@ -956,7 +974,7 @@ func TestHandler_DeleteObject_NonExistent(t *testing.T) {
 
 			req := httptest.NewRequest(http.MethodDelete, "/bkt/"+tt.key, nil)
 			rec := httptest.NewRecorder()
-			handler.ServeHTTP(rec, req)
+			serveS3Handler(handler, rec, req)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
@@ -985,7 +1003,7 @@ func TestHandler_DeleteObjectTagging_Errors(t *testing.T) {
 
 			req := httptest.NewRequest(http.MethodDelete, tt.path, nil)
 			rec := httptest.NewRecorder()
-			handler.ServeHTTP(rec, req)
+			serveS3Handler(handler, rec, req)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
@@ -1038,7 +1056,7 @@ func TestHandler_NonExistentBucket(t *testing.T) {
 
 			req := httptest.NewRequest(tt.method, tt.path, &body)
 			rec := httptest.NewRecorder()
-			handler.ServeHTTP(rec, req)
+			serveS3Handler(handler, rec, req)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}

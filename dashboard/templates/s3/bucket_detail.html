@@ -4,7 +4,7 @@
     <div class="text-sm breadcrumbs">
         <ul>
             <li><a href="/dashboard/s3">Buckets</a></li>
-            <li>{{.BucketName}}</li>
+            <li>{{.Name}}</li>
             {{range .PathParts}}
             <li>{{.}}</li>
             {{end}}
@@ -13,7 +13,7 @@
 
     <!-- Header -->
     <div class="flex justify-between items-center">
-        <h1 class="text-3xl font-bold">{{.BucketName}}</h1>
+        <h1 class="text-3xl font-bold">{{.Name}}</h1>
         <button class="btn btn-primary" onclick="document.getElementById('upload_modal').showModal()">
             ⬆️ Upload File
         </button>
@@ -22,8 +22,7 @@
     <!-- File tree -->
     <div class="card bg-base-100 shadow-xl">
         <div class="card-body">
-            <div id="file-tree"
-                hx-get="/dashboard/s3/bucket/{{.BucketName}}/tree{{if .Prefix}}?prefix={{.Prefix}}{{end}}"
+            <div id="file-tree" hx-get="/dashboard/s3/bucket/{{.Name}}/tree{{if .Prefix}}?prefix={{.Prefix}}{{end}}"
                 hx-trigger="load" hx-indicator=".htmx-indicator">
                 <!-- File tree will be loaded here -->
             </div>
@@ -40,7 +39,7 @@
 <dialog id="upload_modal" class="modal">
     <div class="modal-box">
         <h3 class="font-bold text-lg">Upload File</h3>
-        <form hx-post="/dashboard/s3/bucket/{{.BucketName}}/upload{{if .Prefix}}?prefix={{.Prefix}}{{end}}"
+        <form hx-post="/dashboard/s3/bucket/{{.Name}}/upload{{if .Prefix}}?prefix={{.Prefix}}{{end}}"
             hx-encoding="multipart/form-data" hx-target="#file-tree"
             hx-on::after-request="if(event.detail.successful) document.getElementById('upload_modal').close()"
             class="space-y-4 mt-4">

@@ -3,7 +3,6 @@ package demo_test
 import (
 	"context"
 	"log/slog"
-	"net/http"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -11,12 +10,15 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"Gopherstack/dashboard"
 	"Gopherstack/demo"
 	ddbbackend "Gopherstack/dynamodb"
+	"Gopherstack/pkgs/logger"
+	"Gopherstack/pkgs/service"
 	s3backend "Gopherstack/s3"
 )
 
@@ -27,14 +29,21 @@ func TestLoadData(t *testing.T) {
 	s3Backend := s3backend.NewInMemoryBackend(&s3backend.GzipCompressor{})
 	s3Handler := s3backend.NewHandler(s3Backend, slog.Default())
 
-	// Setup Mux
-	apiMux := http.NewServeMux()
-	apiMux.Handle("/", ddbHandler)
-	apiMux.Handle("/s3", http.StripPrefix("/s3", s3Handler))
-	apiMux.Handle("/s3/", http.StripPrefix("/s3", s3Handler))
+	// Setup Echo server with service registry
+	e := echo.New()
+	e.Pre(logger.EchoMiddleware(slog.Default()))
 
-	// Setup Client
-	inMemClient := &dashboard.InMemClient{Handler: apiMux}
+	registry := service.NewRegistry(slog.Default())
+	_ = registry.Register(ddbHandler, ddbHandler)
+	_ = registry.Register(s3Handler, s3Handler)
+
+	router := service.NewServiceRouter(registry)
+	e.Pre(func(_ echo.HandlerFunc) echo.HandlerFunc {
+		return router.RouteHandler()
+	})
+
+	// Setup Client using Echo's HTTP server
+	inMemClient := &dashboard.InMemClient{Handler: e}
 
 	// Setup AWS Config
 	cfg, err := config.LoadDefaultConfig(
@@ -52,7 +61,7 @@ func TestLoadData(t *testing.T) {
 	})
 	s3Client := s3.NewFromConfig(cfg, func(o *s3.Options) {
 		o.UsePathStyle = true
-		o.BaseEndpoint = aws.String("http://local/s3")
+		o.BaseEndpoint = aws.String("http://local")
 	})
 
 	// Run LoadData

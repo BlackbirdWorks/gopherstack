@@ -6,13 +6,14 @@ import (
 	"strings"
 	"testing"
 
-	"Gopherstack/s3"
-
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	aws_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
+
+	"Gopherstack/s3"
 )
 
 func TestPutObject_SDKv2_Repro(t *testing.T) {
@@ -38,7 +39,11 @@ func TestPutObject_SDKv2_Repro(t *testing.T) {
 
 			backend := s3.NewInMemoryBackend(&s3.GzipCompressor{})
 			handler := s3.NewHandler(backend, slog.Default())
-			server := httptest.NewServer(handler)
+
+			// Setup Echo server instead of direct http.Handler
+			e := echo.New()
+			e.Any("/*", handler.Handler())
+			server := httptest.NewServer(e)
 			t.Cleanup(server.Close)
 
 			cfg, err := config.LoadDefaultConfig(

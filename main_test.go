@@ -147,7 +147,7 @@ func startServerOnPort(port string, stopChan chan struct{}) error {
 		return func(c *echo.Context) error {
 			target := c.Request().Header.Get("X-Amz-Target")
 			if len(target) >= 9 && target[:9] == "DynamoDB_" {
-				return ddbHandler.Handle(c)
+				return ddbHandler.Handler()(c)
 			}
 
 			return next(c)
@@ -156,11 +156,11 @@ func startServerOnPort(port string, stopChan chan struct{}) error {
 
 	// Dashboard routes
 	dashGroup := e.Group("/dashboard")
-	dashGroup.Any("/*", dashboardHandler.Handle)
-	dashGroup.Any("", dashboardHandler.Handle)
+	dashGroup.Any("/*", dashboardHandler.Handler())
+	dashGroup.Any("", dashboardHandler.Handler())
 
 	// S3 catch-all (everything else)
-	e.Any("/*", s3Handler.Handle)
+	e.Any("/*", s3Handler.Handler())
 
 	// Wire the in-memory mux used by SDK clients through the same Echo routing
 	inMemMux.Handle("/", e)

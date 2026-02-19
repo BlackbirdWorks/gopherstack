@@ -52,6 +52,9 @@ integration-test:
 	@echo "Running DynamoDB integration tests (no cache)..."
 	go test -v -race -shuffle on -tags=integration ./test/integration/...
 	
+e2e-test:
+	@echo "Running E2E behavior tests (Playwright)..."
+	go test -v -race -shuffle on -tags=e2e ./test/e2e/...
 
 clean:
 	rm -rf bin/

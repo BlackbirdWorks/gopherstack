@@ -4,6 +4,7 @@ import (
 	"Gopherstack/dynamodb/models"
 	"Gopherstack/pkgs/dynamoattr"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -34,12 +35,20 @@ var endpoint string
 //nolint:gochecknoglobals // Shared container reference for log dumping on failures.
 var sharedContainer testcontainers.Container
 
+// ErrDockerPanic is returned when the Docker availability check panics.
+var ErrDockerPanic = errors.New("docker check panicked")
+
 func TestMain(m *testing.M) {
 	flag.Parse()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
 	if testing.Short() {
 		logger.Info("skipping integration tests in short mode")
+		os.Exit(0)
+	}
+
+	if err := checkDocker(); err != nil {
+		logger.Warn("skipping integration tests: docker not available", "error", err)
 		os.Exit(0)
 	}
 
@@ -67,6 +76,7 @@ func TestMain(m *testing.M) {
 	})
 	if err != nil {
 		logger.Error("failed to start container", "error", err)
+
 		os.Exit(1)
 	}
 
@@ -90,7 +100,22 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+// checkDocker safely checks if the Docker daemon is available by attempting
+// to create a provider and recovering from any potential panics.
+func checkDocker() (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("%w: %v", ErrDockerPanic, r)
+		}
+	}()
+
+	_, err = testcontainers.NewDockerProvider()
+
+	return err
+}
+
 // createDynamoDBClient returns a DynamoDB client pointed at the shared test container.
+
 func createDynamoDBClient(t *testing.T) *dynamodb.Client {
 	t.Helper()
 

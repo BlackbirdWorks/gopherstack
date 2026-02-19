@@ -10,60 +10,35 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/labstack/echo/v5"
 
 	"Gopherstack/dynamodb/models"
 	"Gopherstack/pkgs/httputils"
 	"Gopherstack/pkgs/logger"
-	"Gopherstack/pkgs/telemetry"
+	"Gopherstack/pkgs/service"
 )
 
 var ErrUnknownOperation = errors.New("UnknownOperationException")
 
-// writeDynamoDBJSON marshals payload to JSON, sets the x-amz-crc32 header with
-// the CRC32/IEEE checksum of the body (required by the DynamoDB protocol), and
-// writes the response.
-func writeDynamoDBJSON(logger *slog.Logger, w http.ResponseWriter, code int, payload any) {
-	response, err := json.Marshal(payload)
-	if err != nil {
-		if logger != nil {
-			logger.Error("failed to marshal JSON response", "error", err)
-		}
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-
-		return
-	}
-
-	checksum := crc32.ChecksumIEEE(response)
-	w.Header().Set("X-Amz-Crc32", strconv.FormatUint(uint64(checksum), 10))
-	w.Header().Set("Content-Type", "application/x-amz-json-1.0")
-
-	w.WriteHeader(code)
-
-	//nolint:gosec // Writing JSON response
-	if _, wErr := w.Write(response); wErr != nil && logger != nil {
-		logger.Error("failed to write JSON response", "error", wErr)
-	}
-}
-
-// Handler handles HTTP requests for DynamoDB operations.
-type Handler struct {
+// DynamoDBHandler handles HTTP requests for DynamoDB operations.
+//
+//nolint:revive // Stuttering preferred here for clarity per Plan.md
+type DynamoDBHandler struct {
 	DB     *InMemoryDB
 	Logger *slog.Logger
 }
 
 // NewHandler creates a new DynamoDB handler.
-func NewHandler(logger *slog.Logger) *Handler {
-	return &Handler{
+func NewHandler(logger *slog.Logger) *DynamoDBHandler {
+	return &DynamoDBHandler{
 		DB:     NewInMemoryDB(),
 		Logger: logger,
 	}
 }
 
 // GetSupportedOperations returns a sorted list of supported DynamoDB operations.
-func (h *Handler) GetSupportedOperations() []string {
+func (h *DynamoDBHandler) GetSupportedOperations() []string {
 	return []string{
 		"BatchGetItem",
 		"BatchWriteItem",
@@ -84,69 +59,111 @@ func (h *Handler) GetSupportedOperations() []string {
 	}
 }
 
-// ServeHTTP implements [http.Handler] interface.
-func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	log := logger.Load(ctx)
+// Handler is the Echo HTTP handler for DynamoDB operations.
+func (h *DynamoDBHandler) Handler() echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		ctx := c.Request().Context()
+		log := logger.Load(ctx)
 
-	if r.Method == http.MethodGet && r.URL.Path == "/" {
-		ops := h.GetSupportedOperations()
-		writeDynamoDBJSON(log, w, http.StatusOK, ops)
+		if c.Request().Method == http.MethodGet && c.Request().URL.Path == "/" {
+			ops := h.GetSupportedOperations()
 
-		return
+			return c.JSON(http.StatusOK, ops)
+		}
+
+		if c.Request().Method != http.MethodPost {
+			return c.String(http.StatusMethodNotAllowed, "Method not allowed")
+		}
+
+		target := c.Request().Header.Get("X-Amz-Target")
+		if target == "" {
+			return c.String(http.StatusBadRequest, "Missing X-Amz-Target")
+		}
+
+		const targetParts = 2
+		parts := strings.Split(target, ".")
+		if len(parts) != targetParts {
+			return c.String(http.StatusBadRequest, "Invalid X-Amz-Target")
+		}
+		action := parts[1]
+
+		body, err := httputils.ReadBody(c.Request())
+		if err != nil {
+			log.ErrorContext(ctx, "failed to read request body", "error", err)
+
+			return c.String(http.StatusInternalServerError, "internal server error")
+		}
+
+		log.DebugContext(ctx, "DynamoDB request", "action", action, "body", string(body))
+
+		response, reqErr := h.dispatch(ctx, action, body)
+		if reqErr != nil {
+			return h.handleError(ctx, c, action, reqErr)
+		}
+
+		payload, err := json.Marshal(response)
+		if err != nil {
+			log.ErrorContext(ctx, "failed to marshal JSON response", "error", err)
+
+			return c.String(http.StatusInternalServerError, "internal server error")
+		}
+
+		checksum := crc32.ChecksumIEEE(payload)
+		c.Response().Header().Set("X-Amz-Crc32", strconv.FormatUint(uint64(checksum), 10))
+		c.Response().Header().Set("Content-Type", "application/x-amz-json-1.0")
+
+		return c.JSONBlob(http.StatusOK, payload)
 	}
+}
 
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+// Name returns the service identifier.
+func (h *DynamoDBHandler) Name() string {
+	return "DynamoDB"
+}
 
-		return
+// RouteMatcher returns a matcher for DynamoDB requests (by X-Amz-Target header).
+func (h *DynamoDBHandler) RouteMatcher() service.Matcher {
+	return func(c *echo.Context) bool {
+		target := c.Request().Header.Get("X-Amz-Target")
+
+		return strings.HasPrefix(target, "DynamoDB_")
 	}
+}
 
-	target := r.Header.Get("X-Amz-Target")
-	if target == "" {
-		http.Error(w, "Missing X-Amz-Target", http.StatusBadRequest)
-
-		return
-	}
-
-	const targetParts = 2
+// ExtractOperation extracts the DynamoDB operation from the X-Amz-Target header.
+func (h *DynamoDBHandler) ExtractOperation(c *echo.Context) string {
+	target := c.Request().Header.Get("X-Amz-Target")
 	parts := strings.Split(target, ".")
-	if len(parts) != targetParts {
-		http.Error(w, "Invalid X-Amz-Target", http.StatusBadRequest)
-
-		return
+	const actionParts = 2
+	if len(parts) == actionParts {
+		return parts[1]
 	}
-	action := parts[1]
 
-	body, err := httputils.ReadBody(r)
+	return "unknown"
+}
+
+// ExtractResource extracts the table name from the DynamoDB request body.
+func (h *DynamoDBHandler) ExtractResource(c *echo.Context) string {
+	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
-		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
-
-		return
+		return ""
 	}
 
-	log.DebugContext(ctx, "DynamoDB request", "action", action, "body", string(body))
-
-	w.Header().Set("Content-Type", "application/x-amz-json-1.0")
-
-	response, reqErr := h.dispatch(ctx, action, body)
-	if reqErr != nil {
-		h.handleError(ctx, w, r, action, reqErr)
-
-		return
+	var data map[string]any
+	if uerr := json.Unmarshal(body, &data); uerr != nil {
+		return ""
 	}
 
-	writeDynamoDBJSON(log, w, http.StatusOK, response)
+	if tbl, exists := data["TableName"]; exists {
+		if tblStr, ok := tbl.(string); ok {
+			return tblStr
+		}
+	}
+
+	return ""
 }
 
-// Handle is an Echo handler that wraps ServeHTTP.
-func (h *Handler) Handle(c *echo.Context) error {
-	h.ServeHTTP(c.Response(), c.Request())
-
-	return nil
-}
-
-func (h *Handler) dispatch(ctx context.Context, action string, body []byte) (any, error) {
+func (h *DynamoDBHandler) dispatch(ctx context.Context, action string, body []byte) (any, error) {
 	switch action {
 	case "CreateTable",
 		"DeleteTable",
@@ -218,30 +235,12 @@ func handleOp[WireIn any, SDKIn any, SDKOut any, WireOut any](
 	doOp func(context.Context, *SDKIn) (*SDKOut, error),
 	fromSDK func(*SDKOut) *WireOut,
 ) (any, error) {
-	start := time.Now()
-	status := "success"
-	resource := ""
-	defer func() {
-		telemetry.RecordOperation(action, resource, time.Since(start).Seconds(), status)
-	}()
-
 	log := logger.Load(ctx)
 
 	var input WireIn
 	if len(body) > 0 {
 		if err := json.Unmarshal(body, &input); err != nil {
-			status = "error"
-
 			return nil, err
-		}
-	}
-
-	// Try to extract table name from input for better metrics granularity
-	if inputMap, ok := any(input).(map[string]any); ok {
-		if tbl, exists := inputMap["TableName"]; exists {
-			if tblStr, isStr := tbl.(string); isStr {
-				resource = tblStr
-			}
 		}
 	}
 
@@ -251,8 +250,6 @@ func handleOp[WireIn any, SDKIn any, SDKOut any, WireOut any](
 	sdkInput := toSDK(&input)
 	sdkOutput, err := doOp(ctx, sdkInput)
 	if err != nil {
-		status = "error"
-
 		return nil, err
 	}
 
@@ -264,7 +261,7 @@ func handleOp[WireIn any, SDKIn any, SDKOut any, WireOut any](
 	return wireOutput, nil
 }
 
-func (h *Handler) dispatchTableOps(ctx context.Context, action string, body []byte) (any, error) {
+func (h *DynamoDBHandler) dispatchTableOps(ctx context.Context, action string, body []byte) (any, error) {
 	switch action {
 	case "CreateTable":
 		return handleOp(
@@ -309,7 +306,7 @@ func (h *Handler) dispatchTableOps(ctx context.Context, action string, body []by
 	}
 }
 
-func (h *Handler) dispatchItemOps(ctx context.Context, action string, body []byte) (any, error) {
+func (h *DynamoDBHandler) dispatchItemOps(ctx context.Context, action string, body []byte) (any, error) {
 	switch action {
 	case "PutItem":
 		return handleOpErr(
@@ -360,7 +357,7 @@ func (h *Handler) dispatchItemOps(ctx context.Context, action string, body []byt
 	}
 }
 
-func (h *Handler) dispatchTransactOps(
+func (h *DynamoDBHandler) dispatchTransactOps(
 	ctx context.Context,
 	action string,
 	body []byte,
@@ -387,40 +384,40 @@ func (h *Handler) dispatchTransactOps(
 	}
 }
 
-func (h *Handler) handleError(
+func (h *DynamoDBHandler) handleError(
 	ctx context.Context,
-	w http.ResponseWriter,
-	_ *http.Request,
+	c *echo.Context,
 	action string,
 	reqErr error,
-) {
+) error {
 	log := logger.Load(ctx)
 
 	if strings.HasPrefix(reqErr.Error(), "UnknownOperationException:") {
 		log.WarnContext(ctx, "Unknown action", "action", action)
-		w.Header().Set("Content-Type", "application/x-amz-json-1.0")
 		body := []byte(
 			`{"__type":"com.amazon.coral.service#UnknownOperationException","message":"Action not supported"}`,
 		)
 		checksum := crc32.ChecksumIEEE(body)
-		w.Header().
-			Set("X-Amz-Crc32", strconv.FormatUint(uint64(checksum), 10))
+		c.Response().Header().Set("X-Amz-Crc32", strconv.FormatUint(uint64(checksum), 10))
+		c.Response().Header().Set("Content-Type", "application/x-amz-json-1.0")
 
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write(body)
-
-		return
+		return c.JSONBlob(http.StatusBadRequest, body)
 	}
 
 	log.ErrorContext(ctx, "Error handling action", "action", action, "error", reqErr)
 
 	statusCode, awsErr := h.classifyError(reqErr)
 
-	w.Header().Set("Content-Type", "application/x-amz-json-1.0")
-	writeDynamoDBJSON(log, w, statusCode, awsErr)
+	c.Response().Header().Set("Content-Type", "application/x-amz-json-1.0")
+
+	payload, _ := json.Marshal(awsErr)
+	checksum := crc32.ChecksumIEEE(payload)
+	c.Response().Header().Set("X-Amz-Crc32", strconv.FormatUint(uint64(checksum), 10))
+
+	return c.JSONBlob(statusCode, payload)
 }
 
-func (h *Handler) classifyError(reqErr error) (int, *Error) {
+func (h *DynamoDBHandler) classifyError(reqErr error) (int, *Error) {
 	// Simple error classification wrapping
 	// If it's already a DynamoDB error type/struct, use it.
 	// But our internal implementation returns native go errors or custom structs.

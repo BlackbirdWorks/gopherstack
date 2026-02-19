@@ -26,7 +26,7 @@ func getMetricsJSON(c *echo.Context) error {
 }
 
 // metricsIndex renders the metrics dashboard page.
-func (h *Handler) metricsIndex(w http.ResponseWriter, _ *http.Request) {
+func (h *DashboardHandler) metricsIndex(w http.ResponseWriter, _ *http.Request) {
 	data := PageData{
 		Title:     "Performance Metrics",
 		ActiveTab: "metrics",

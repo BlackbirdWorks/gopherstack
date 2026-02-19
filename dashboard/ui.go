@@ -10,6 +10,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/labstack/echo/v5"
+
+	"Gopherstack/pkgs/service"
 )
 
 const (
@@ -27,14 +29,23 @@ var staticFS embed.FS
 //go:embed templates/*
 var templateFS embed.FS
 
-// Handler handles HTTP requests for the Dashboard.
-type Handler struct {
-	DynamoDB *dynamodb.Client
-	S3       *s3.Client
-	DDBOps   OperationsProvider
-	S3Ops    OperationsProvider
-	Logger   *slog.Logger
-	layout   *template.Template
+// PageData represents common page data.
+type PageData struct {
+	Title     string
+	ActiveTab string
+}
+
+// DashboardHandler handles HTTP requests for the Dashboard web interface.
+//
+//nolint:revive // Stuttering preferred here for clarity per Plan.md
+type DashboardHandler struct {
+	DynamoDB  *dynamodb.Client
+	S3        *s3.Client
+	DDBOps    OperationsProvider
+	S3Ops     OperationsProvider
+	Logger    *slog.Logger
+	layout    *template.Template
+	subRouter *echo.Echo
 }
 
 // NewHandler creates a new Dashboard handler.
@@ -43,14 +54,14 @@ func NewHandler(
 	s3Client *s3.Client,
 	ddbOps, s3Ops OperationsProvider,
 	logger *slog.Logger,
-) *Handler {
+) *DashboardHandler {
 	// Parse layout and components
 	tmpl := template.Must(template.ParseFS(templateFS,
 		"templates/layout.html",
 		"templates/components/*.html",
 	))
 
-	return &Handler{
+	h := &DashboardHandler{
 		DynamoDB: db,
 		S3:       s3Client,
 		DDBOps:   ddbOps,
@@ -58,77 +69,112 @@ func NewHandler(
 		Logger:   logger,
 		layout:   tmpl,
 	}
+
+	h.setupSubRouter()
+
+	return h
 }
 
-// ServeHTTP implements [http.Handler] interface.
-func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	path := strings.TrimPrefix(r.URL.Path, "/dashboard")
+func (h *DashboardHandler) setupSubRouter() {
+	h.subRouter = echo.New()
 
-	// Serve static files
-	if strings.HasPrefix(path, "/static/") {
-		http.StripPrefix("/dashboard", http.FileServer(http.FS(staticFS))).ServeHTTP(w, r)
-
-		return
-	}
-
-	// Route to appropriate handler
-	switch {
-	case path == "" || path == "/":
-		http.Redirect(w, r, "/dashboard/dynamodb", http.StatusFound)
-	case strings.HasPrefix(path, "/dynamodb"):
-		h.handleDynamoDB(w, r, strings.TrimPrefix(path, "/dynamodb"))
-	case strings.HasPrefix(path, "/s3"):
-		h.handleS3(w, r, strings.TrimPrefix(path, "/s3"))
-	case strings.HasPrefix(path, "/metrics"):
-		h.metricsIndex(w, r)
-	case strings.HasPrefix(path, "/docs"):
-		h.docIndex(w, r)
-	default:
-		http.NotFound(w, r)
-	}
-}
-
-// Handle is an Echo handler that processes dashboard requests.
-func (h *Handler) Handle(c *echo.Context) error {
-	// Get the path without the /dashboard prefix
-	path := c.Request().URL.Path
-	path, _ = strings.CutPrefix(path, "/dashboard")
-
-	// Serve static files
-	if strings.HasPrefix(path, "/static/") {
+	// Static files
+	h.subRouter.GET("/dashboard/static/*", func(c *echo.Context) error {
 		http.StripPrefix("/dashboard", http.FileServer(http.FS(staticFS))).
 			ServeHTTP(c.Response(), c.Request())
 
 		return nil
-	}
+	})
 
-	// Route to appropriate handler
-	switch {
-	case path == "" || path == "/":
+	// Redirect root to DynamoDB
+	h.subRouter.GET("/dashboard", func(c *echo.Context) error {
 		return c.Redirect(http.StatusFound, "/dashboard/dynamodb")
-	case strings.HasPrefix(path, "/dynamodb"):
-		h.handleDynamoDB(c.Response(), c.Request(), strings.TrimPrefix(path, "/dynamodb"))
+	})
+	h.subRouter.GET("/dashboard/", func(c *echo.Context) error {
+		return c.Redirect(http.StatusFound, "/dashboard/dynamodb")
+	})
+
+	// DynamoDB routes
+	h.subRouter.Any("/dashboard/dynamodb*", func(c *echo.Context) error {
+		path := strings.TrimPrefix(c.Request().URL.Path, "/dashboard/dynamodb")
+		h.handleDynamoDB(c.Response(), c.Request(), path)
 
 		return nil
-	case strings.HasPrefix(path, "/s3"):
-		h.handleS3(c.Response(), c.Request(), strings.TrimPrefix(path, "/s3"))
+	})
+
+	// S3 routes
+	h.subRouter.Any("/dashboard/s3*", func(c *echo.Context) error {
+		path := strings.TrimPrefix(c.Request().URL.Path, "/dashboard/s3")
+		h.handleS3(c.Response(), c.Request(), path)
 
 		return nil
-	case strings.HasPrefix(path, "/metrics"):
+	})
+
+	// Metrics & Docs
+	h.subRouter.GET("/dashboard/metrics", func(c *echo.Context) error {
 		h.metricsIndex(c.Response(), c.Request())
 
 		return nil
-	case strings.HasPrefix(path, "/docs"):
+	})
+	h.subRouter.GET("/dashboard/docs", func(c *echo.Context) error {
 		h.docIndex(c.Response(), c.Request())
 
 		return nil
-	default:
-		return echo.ErrNotFound
+	})
+}
+
+// Handler returns the Echo handler function for dashboard requests.
+func (h *DashboardHandler) Handler() echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		h.subRouter.ServeHTTP(c.Response(), c.Request())
+
+		return nil
 	}
 }
 
+// Name returns the service identifier.
+func (h *DashboardHandler) Name() string {
+	return "Dashboard"
+}
+
+// RouteMatcher returns a matcher for dashboard requests (by path prefix).
+func (h *DashboardHandler) RouteMatcher() service.Matcher {
+	return func(c *echo.Context) bool {
+		return strings.HasPrefix(c.Request().URL.Path, "/dashboard")
+	}
+}
+
+// ExtractOperation returns the dashboard operation based on path.
+func (h *DashboardHandler) ExtractOperation(c *echo.Context) string {
+	path := c.Request().URL.Path
+	path, _ = strings.CutPrefix(path, "/dashboard")
+
+	switch {
+	case strings.HasPrefix(path, "/dynamodb"):
+		return "DynamoDB"
+	case strings.HasPrefix(path, "/s3"):
+		return "S3"
+	case strings.HasPrefix(path, "/metrics"):
+		return "Metrics"
+	case strings.HasPrefix(path, "/docs"):
+		return "Docs"
+	default:
+		return "Dashboard"
+	}
+}
+
+// ExtractResource returns empty string for dashboard (not resource-specific).
+func (h *DashboardHandler) ExtractResource(_ *echo.Context) string {
+	return ""
+}
+
+// GetSupportedOperations returns an empty list (dashboard is not a primary service).
+func (h *DashboardHandler) GetSupportedOperations() []string {
+	return []string{}
+}
+
 // renderTemplate renders a page template by cloning the layout and parsing the specific page.
-func (h *Handler) renderTemplate(w http.ResponseWriter, pageFile string, data any) {
+func (h *DashboardHandler) renderTemplate(w http.ResponseWriter, pageFile string, data any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
 	// Clone the layout (which includes components)
@@ -158,7 +204,7 @@ func (h *Handler) renderTemplate(w http.ResponseWriter, pageFile string, data an
 }
 
 // renderFragment renders a shared component/fragment.
-func (h *Handler) renderFragment(w http.ResponseWriter, name string, data any) {
+func (h *DashboardHandler) renderFragment(w http.ResponseWriter, name string, data any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
 	// Must clone even for fragments to avoid marking h.layout as executed
@@ -177,7 +223,7 @@ func (h *Handler) renderFragment(w http.ResponseWriter, name string, data any) {
 }
 
 // handleDynamoDB routes DynamoDB UI requests.
-func (h *Handler) handleDynamoDB(w http.ResponseWriter, r *http.Request, path string) {
+func (h *DashboardHandler) handleDynamoDB(w http.ResponseWriter, r *http.Request, path string) {
 	switch {
 	case path == "" || path == "/":
 		h.dynamoDBIndex(w, r)
@@ -206,7 +252,7 @@ func (h *Handler) handleDynamoDB(w http.ResponseWriter, r *http.Request, path st
 	}
 }
 
-func (h *Handler) handleDynamoDBTableRoot(
+func (h *DashboardHandler) handleDynamoDBTableRoot(
 	w http.ResponseWriter,
 	r *http.Request,
 	tableName string,
@@ -219,7 +265,7 @@ func (h *Handler) handleDynamoDBTableRoot(
 	h.dynamoDBTableDetail(w, r, tableName)
 }
 
-func (h *Handler) handleDynamoDBTableAction(
+func (h *DashboardHandler) handleDynamoDBTableAction(
 	w http.ResponseWriter,
 	r *http.Request,
 	tableName, action string,
@@ -240,7 +286,7 @@ func (h *Handler) handleDynamoDBTableAction(
 	}
 }
 
-func (h *Handler) handleDynamoDBItem(w http.ResponseWriter, r *http.Request, tableName string) {
+func (h *DashboardHandler) handleDynamoDBItem(w http.ResponseWriter, r *http.Request, tableName string) {
 	switch r.Method {
 	case http.MethodDelete:
 		h.dynamoDBDeleteItem(w, r, tableName)
@@ -254,7 +300,7 @@ func (h *Handler) handleDynamoDBItem(w http.ResponseWriter, r *http.Request, tab
 }
 
 // handleS3 routes S3 UI requests.
-func (h *Handler) handleS3(w http.ResponseWriter, r *http.Request, path string) {
+func (h *DashboardHandler) handleS3(w http.ResponseWriter, r *http.Request, path string) {
 	switch {
 	case path == "" || path == "/":
 		h.s3Index(w, r)
@@ -272,7 +318,7 @@ func (h *Handler) handleS3(w http.ResponseWriter, r *http.Request, path string) 
 }
 
 // handleS3Bucket routes specific bucket operations.
-func (h *Handler) handleS3Bucket(w http.ResponseWriter, r *http.Request, bucketPath string) {
+func (h *DashboardHandler) handleS3Bucket(w http.ResponseWriter, r *http.Request, bucketPath string) {
 	parts := strings.SplitN(bucketPath, "/", pathPartsCount)
 	bucketName := parts[0]
 
@@ -304,7 +350,7 @@ func (h *Handler) handleS3Bucket(w http.ResponseWriter, r *http.Request, bucketP
 }
 
 // handleS3File handles file-specific operations.
-func (h *Handler) handleS3File(w http.ResponseWriter, r *http.Request, bucketName, action string) {
+func (h *DashboardHandler) handleS3File(w http.ResponseWriter, r *http.Request, bucketName, action string) {
 	if key, cut := strings.CutPrefix(action, "download/"); cut {
 		h.s3Download(w, r, bucketName, key)
 

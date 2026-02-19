@@ -3,7 +3,7 @@ package dashboard
 import "net/http"
 
 // docIndex renders the documentation page.
-func (h *Handler) docIndex(w http.ResponseWriter, _ *http.Request) {
+func (h *DashboardHandler) docIndex(w http.ResponseWriter, _ *http.Request) {
 	data := struct {
 		PageData
 

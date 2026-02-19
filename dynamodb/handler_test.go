@@ -1,8 +1,6 @@
 package dynamodb_test
 
 import (
-	"Gopherstack/dynamodb"
-	"Gopherstack/dynamodb/models"
 	"bytes"
 	"encoding/json"
 	"hash/crc32"
@@ -13,9 +11,25 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"Gopherstack/dynamodb"
+	"Gopherstack/dynamodb/models"
+	"Gopherstack/pkgs/logger"
 )
+
+// serveEchoHandler is a test helper that invokes an Echo handler with a raw HTTP request.
+func serveEchoHandler(handler echo.HandlerFunc, w http.ResponseWriter, r *http.Request) error {
+	e := echo.New()
+	c := e.NewContext(r, w)
+	// Inject logger into context for handlers that expect it
+	ctx := logger.Save(r.Context(), slog.Default())
+	*c.Request() = *r.WithContext(ctx)
+
+	return handler(c)
+}
 
 func TestHandler_ServeHTTP(t *testing.T) {
 	t.Parallel()
@@ -224,7 +238,8 @@ func TestHandler_ServeHTTP(t *testing.T) {
 			}
 			w := httptest.NewRecorder()
 
-			handler.ServeHTTP(w, req)
+			echoHandler := handler.Handler()
+			_ = serveEchoHandler(echoHandler, w, req)
 
 			resp := w.Result()
 			defer resp.Body.Close()
@@ -286,7 +301,8 @@ func TestHandler_Dispatch_Coverage(t *testing.T) {
 			req.Header.Set("X-Amz-Target", "DynamoDB_20120810."+op)
 			w := httptest.NewRecorder()
 
-			handler.ServeHTTP(w, req)
+			echoHandler := handler.Handler()
+			_ = serveEchoHandler(echoHandler, w, req)
 
 			// We don't necessarily care if the op succeeded (some need more complex body),
 			// just that it didn't return 400 UnknownOperation
@@ -340,7 +356,8 @@ func TestHandler_CRC32Header(t *testing.T) {
 			req.Header.Set("X-Amz-Target", tc.target)
 			w := httptest.NewRecorder()
 
-			handler.ServeHTTP(w, req)
+			echoHandler := handler.Handler()
+			_ = serveEchoHandler(echoHandler, w, req)
 
 			resp := w.Result()
 			defer resp.Body.Close()
@@ -407,7 +424,8 @@ func TestHandler_TransactOps_Coverage(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(bodyBytes))
 			req.Header.Set("X-Amz-Target", "DynamoDB_20120810."+tt.action)
 			w := httptest.NewRecorder()
-			handler.ServeHTTP(w, req)
+			echoHandler := handler.Handler()
+			_ = serveEchoHandler(echoHandler, w, req)
 			assert.Equal(t, tt.wantStatusCode, w.Code)
 		})
 	}

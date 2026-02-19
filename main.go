@@ -3,13 +3,13 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
+	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -18,24 +18,24 @@ import (
 	"Gopherstack/dashboard"
 	"Gopherstack/demo"
 	ddbbackend "Gopherstack/dynamodb"
+	"Gopherstack/pkgs/config"
 	"Gopherstack/pkgs/logger"
+	"Gopherstack/pkgs/service"
 	s3backend "Gopherstack/s3"
 )
 
-const (
-	serverTimeout = 120 * time.Second
-	trueStr       = "true"
-)
-
 func main() {
-	if err := startServer(); err != nil {
+	cfg := config.Load()
+	if err := run(cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+
 		os.Exit(1)
 	}
 }
 
-func startServer() error {
+func run(cfg config.Config) error {
 	var level slog.Level
-	if os.Getenv("DEBUG") == trueStr {
+	if cfg.Level == "true" {
 		level = slog.LevelDebug
 	} else {
 		level = slog.LevelInfo
@@ -52,13 +52,13 @@ func startServer() error {
 	inMemMux := http.NewServeMux()
 	inMemClient := &dashboard.InMemClient{Handler: inMemMux}
 
-	cfg, err := config.LoadDefaultConfig(
-		context.TODO(),
-		config.WithRegion("us-east-1"),
-		config.WithCredentialsProvider(
+	awsCfg, err := awscfg.LoadDefaultConfig(
+		context.Background(),
+		awscfg.WithRegion(cfg.Region),
+		awscfg.WithCredentialsProvider(
 			credentials.NewStaticCredentialsProvider("dummy", "dummy", ""),
 		),
-		config.WithHTTPClient(inMemClient),
+		awscfg.WithHTTPClient(inMemClient),
 	)
 	if err != nil {
 		log.Error("Failed to load AWS config", "error", err)
@@ -67,10 +67,10 @@ func startServer() error {
 	}
 
 	// Both SDK clients point to the same "http://local" endpoint
-	ddbClient := dynamodb.NewFromConfig(cfg, func(o *dynamodb.Options) {
+	ddbClient := dynamodb.NewFromConfig(awsCfg, func(o *dynamodb.Options) {
 		o.BaseEndpoint = aws.String("http://local")
 	})
-	s3Client := s3.NewFromConfig(cfg, func(o *s3.Options) {
+	s3Client := s3.NewFromConfig(awsCfg, func(o *s3.Options) {
 		o.UsePathStyle = true
 		o.BaseEndpoint = aws.String("http://local")
 	})
@@ -79,51 +79,27 @@ func startServer() error {
 
 	// Create Echo app with routing
 	e := echo.New()
-
-	// Add logger middleware as Pre middleware so it is available to other Pre middlewares
-	// and routes that intercept the request early (like DynamoDB).
 	e.Pre(logger.EchoMiddleware(log))
 
-	// Route DynamoDB requests via pre-middleware (matched by X-Amz-Target header, not path)
-	e.Pre(func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c *echo.Context) error {
-			target := c.Request().Header.Get("X-Amz-Target")
-			if len(target) >= 9 && target[:9] == "DynamoDB_" {
-				return ddbHandler.Handle(c)
-			}
+	if err := setupRegistry(e, log, ddbHandler, s3Handler, dashboardHandler); err != nil {
+		return err
+	}
 
-			return next(c)
-		}
-	})
-
-	// Dashboard routes
-	dashGroup := e.Group("/dashboard")
-	dashGroup.Any("/*", dashboardHandler.Handle)
-	dashGroup.Any("", dashboardHandler.Handle)
-
-	// Metrics endpoints
+	// Metrics endpoints (kept separate since they're API-specific)
 	dashboard.RegisterMetricsHandlers(e)
-
-	// S3 catch-all (everything else)
-	e.Any("/*", s3Handler.Handle)
 
 	// Wire the in-memory mux used by SDK clients through the same Echo routing
 	inMemMux.Handle("/", e)
 
 	// Load demo data once the server is ready (internally)
-	if os.Getenv("DEMO") == trueStr {
-		// Use a separate goroutine or just call it here.
-		// Since ListenAndServe hasn't started yet but handlers are wired, it's safe.
+	if cfg.Demo {
 		log.Info("Loading demo data...")
 		if err = demo.LoadData(context.Background(), log, ddbClient, s3Client); err != nil {
 			log.Error("Failed to load demo data", "error", err)
 		}
 	}
 
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8000"
-	}
+	port := cfg.Port
 	if port[0] != ':' {
 		port = ":" + port
 	}
@@ -135,9 +111,9 @@ func startServer() error {
 	server := &http.Server{
 		Addr:         port,
 		Handler:      e,
-		ReadTimeout:  serverTimeout,
-		WriteTimeout: serverTimeout,
-		IdleTimeout:  serverTimeout,
+		ReadTimeout:  cfg.Timeout,
+		WriteTimeout: cfg.Timeout,
+		IdleTimeout:  cfg.Timeout,
 	}
 
 	if err = server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -145,6 +121,41 @@ func startServer() error {
 
 		return err
 	}
+
+	return nil
+}
+
+func setupRegistry(
+	e *echo.Echo,
+	log *slog.Logger,
+	ddb *ddbbackend.DynamoDBHandler,
+	s3h *s3backend.S3Handler,
+	dash *dashboard.DashboardHandler,
+) error {
+	registry := service.NewRegistry(log)
+
+	if err := registry.Register(ddb, ddb); err != nil {
+		log.Error("Failed to register DynamoDB service", "error", err)
+
+		return err
+	}
+
+	if err := registry.Register(dash, dash); err != nil {
+		log.Error("Failed to register Dashboard service", "error", err)
+
+		return err
+	}
+
+	if err := registry.Register(s3h, s3h); err != nil {
+		log.Error("Failed to register S3 service", "error", err)
+
+		return err
+	}
+
+	router := service.NewServiceRouter(registry)
+	e.Pre(func(_ echo.HandlerFunc) echo.HandlerFunc {
+		return router.RouteHandler()
+	})
 
 	return nil
 }

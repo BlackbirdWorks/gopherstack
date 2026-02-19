@@ -1,0 +1,181 @@
+package s3
+
+import (
+	"bytes"
+	"context"
+	"encoding/xml"
+	"errors"
+	"net/http"
+	"strconv"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+
+	"Gopherstack/pkgs/httputils"
+	"Gopherstack/pkgs/logger"
+)
+
+func (h *S3Handler) createMultipartUpload(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucketName, key string,
+) {
+	h.setOperation(ctx, "CreateMultipartUpload")
+	log := logger.Load(ctx)
+	out, err := h.Backend.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
+		Bucket: aws.String(bucketName),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
+
+		return
+	}
+
+	resp := InitiateMultipartUploadResult{
+		Bucket:   bucketName,
+		Key:      key,
+		UploadID: *out.UploadId,
+	}
+
+	httputils.WriteXML(log, w, http.StatusOK, resp)
+}
+
+func (h *S3Handler) uploadPart(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucketName, key string,
+) {
+	h.setOperation(ctx, "UploadPart")
+	log := logger.Load(ctx)
+	uploadID := r.URL.Query().Get("uploadId")
+	partNumberStr := r.URL.Query().Get("partNumber")
+	partNumber, err := strconv.Atoi(partNumberStr)
+	if err != nil {
+		httputils.WriteError(log, w, r, ErrInvalidArgument, http.StatusBadRequest)
+
+		return
+	}
+
+	data, err := httputils.ReadBody(r)
+	if err != nil {
+		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
+
+		return
+	}
+
+	out, err := h.Backend.UploadPart(ctx, &s3.UploadPartInput{
+		Bucket:     aws.String(bucketName),
+		Key:        aws.String(key),
+		UploadId:   aws.String(uploadID),
+		PartNumber: aws.Int32(int32(partNumber)), // #nosec G109 G115
+		Body:       bytes.NewReader(data),
+	})
+	if errors.Is(err, ErrNoSuchBucket) || errors.Is(err, ErrNoSuchKey) ||
+		errors.Is(err, ErrNoSuchUpload) {
+		httputils.WriteError(log, w, r, err, http.StatusNotFound)
+
+		return
+	}
+
+	if err != nil {
+		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
+
+		return
+	}
+
+	w.Header().Set("ETag", *out.ETag)
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *S3Handler) completeMultipartUpload(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucketName, key string,
+) {
+	h.setOperation(ctx, "CompleteMultipartUpload")
+	log := logger.Load(ctx)
+	uploadID := r.URL.Query().Get("uploadId")
+
+	var partsReq CompleteMultipartUpload
+	if err := xml.NewDecoder(r.Body).Decode(&partsReq); err != nil {
+		httputils.WriteError(log, w, r, err, http.StatusBadRequest)
+
+		return
+	}
+
+	var sdkParts []types.CompletedPart
+	for _, p := range partsReq.Parts {
+		sdkParts = append(sdkParts, types.CompletedPart{
+			ETag:       aws.String(p.ETag),
+			PartNumber: aws.Int32(int32(p.PartNumber)), // #nosec G115
+		})
+	}
+
+	out, err := h.Backend.CompleteMultipartUpload(
+		ctx,
+		&s3.CompleteMultipartUploadInput{
+			Bucket:          aws.String(bucketName),
+			Key:             aws.String(key),
+			UploadId:        aws.String(uploadID),
+			MultipartUpload: &types.CompletedMultipartUpload{Parts: sdkParts},
+		},
+	)
+	if errors.Is(err, ErrNoSuchBucket) || errors.Is(err, ErrNoSuchKey) ||
+		errors.Is(err, ErrNoSuchUpload) {
+		httputils.WriteError(log, w, r, err, http.StatusNotFound)
+
+		return
+	}
+
+	if errors.Is(err, ErrInvalidPart) {
+		httputils.WriteError(log, w, r, err, http.StatusBadRequest)
+
+		return
+	}
+
+	if err != nil {
+		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
+
+		return
+	}
+
+	resp := CompleteMultipartUploadResult{
+		Location: "/" + bucketName + "/" + key,
+		Bucket:   bucketName,
+		Key:      key,
+		ETag:     *out.ETag,
+	}
+
+	httputils.WriteXML(log, w, http.StatusOK, resp)
+}
+
+func (h *S3Handler) abortMultipartUpload(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucketName, key string,
+) {
+	log := logger.Load(ctx)
+	uploadID := r.URL.Query().Get("uploadId")
+
+	if _, err := h.Backend.AbortMultipartUpload(ctx, &s3.AbortMultipartUploadInput{
+		Bucket:   aws.String(bucketName),
+		Key:      aws.String(key),
+		UploadId: aws.String(uploadID),
+	}); errors.Is(err, ErrNoSuchUpload) {
+		httputils.WriteError(log, w, r, err, http.StatusNotFound)
+
+		return
+	} else if err != nil {
+		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
+
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}

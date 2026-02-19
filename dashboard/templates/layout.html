@@ -27,10 +27,11 @@
         </div>
         <div class="flex-none">
             <ul class="menu menu-horizontal px-1">
-                <li><a href="/dashboard/dynamodb" class="{{if eq .ActiveTab "dynamodb"}}active{{end}}">DynamoDB</a></li>
-                <li><a href="/dashboard/s3" class="{{if eq .ActiveTab "s3"}}active{{end}}">S3</a></li>
-                <li><a href="/dashboard/metrics" class="{{if eq .ActiveTab "metrics"}}active{{end}}">Metrics</a></li>
-                <li><a href="/dashboard/docs" class="{{if eq .ActiveTab "docs"}}active{{end}}">Docs</a></li>
+                <li><a href="/dashboard/dynamodb" class="{{if eq .ActiveTab " dynamodb"}}active{{end}}">DynamoDB</a>
+                </li>
+                <li><a href="/dashboard/s3" class="{{if eq .ActiveTab " s3"}}active{{end}}">S3</a></li>
+                <li><a href="/dashboard/metrics" class="{{if eq .ActiveTab " metrics"}}active{{end}}">Metrics</a></li>
+                <li><a href="/dashboard/docs" class="{{if eq .ActiveTab " docs"}}active{{end}}">Docs</a></li>
             </ul>
         </div>
     </div>
@@ -52,6 +53,21 @@
             <p>Gopherstack - In-Memory AWS Stack for Go</p>
         </div>
     </footer>
+
+    <!-- Global Confirmation Modal -->
+    <dialog id="global_confirm_modal" class="modal">
+        <div class="modal-box">
+            <h3 id="global_confirm_title" class="text-lg font-bold">Confirmation</h3>
+            <p id="global_confirm_message" class="py-4 text-base-content/70">Are you sure you want to proceed?</p>
+            <div class="modal-action">
+                <button id="global_confirm_cancel" class="btn btn-ghost">Cancel</button>
+                <button id="global_confirm_proceed" class="btn btn-primary">Confirm</button>
+            </div>
+        </div>
+        <form method="dialog" class="modal-backdrop">
+            <button>close</button>
+        </form>
+    </dialog>
 
     <!-- Custom JavaScript -->
     <script src="/dashboard/static/app.js"></script>

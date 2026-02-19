@@ -2,6 +2,7 @@ package dashboard_test
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -18,22 +19,26 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"Gopherstack/dashboard"
 
 	ddbbackend "Gopherstack/dynamodb"
+	"Gopherstack/pkgs/logger"
+	"Gopherstack/pkgs/service"
 	s3backend "Gopherstack/s3"
 )
 
 // integrationStack holds the fully wired in-memory test stack.
 type integrationStack struct {
-	handler    *dashboard.Handler
+	handler    *dashboard.DashboardHandler
 	s3Backend  *s3backend.InMemoryBackend
-	ddbHandler *ddbbackend.Handler
+	ddbHandler *ddbbackend.DynamoDBHandler
 	s3Client   *s3.Client
 	dyClient   *dynamodb.Client
+	e          *echo.Echo
 }
 
 func newIntegrationStack(t *testing.T) *integrationStack {
@@ -43,12 +48,20 @@ func newIntegrationStack(t *testing.T) *integrationStack {
 	s3Hndlr := s3backend.NewHandler(s3Bk, slog.Default())
 	ddbHndlr := ddbbackend.NewHandler(slog.Default())
 
-	apiMux := http.NewServeMux()
-	apiMux.Handle("/s3", http.StripPrefix("/s3", s3Hndlr))
-	apiMux.Handle("/s3/", http.StripPrefix("/s3", s3Hndlr))
-	apiMux.Handle("/", ddbHndlr)
+	// Setup Echo with service registry
+	e := echo.New()
+	e.Pre(logger.EchoMiddleware(slog.Default()))
 
-	inMemClient := &dashboard.InMemClient{Handler: apiMux}
+	registry := service.NewRegistry(slog.Default())
+	_ = registry.Register(ddbHndlr, ddbHndlr)
+	_ = registry.Register(s3Hndlr, s3Hndlr)
+
+	router := service.NewServiceRouter(registry)
+	e.Pre(func(_ echo.HandlerFunc) echo.HandlerFunc {
+		return router.RouteHandler()
+	})
+
+	inMemClient := &dashboard.InMemClient{Handler: e}
 
 	cfg, err := config.LoadDefaultConfig(t.Context(),
 		config.WithRegion("us-east-1"),
@@ -64,7 +77,7 @@ func newIntegrationStack(t *testing.T) *integrationStack {
 	})
 	s3Client := s3.NewFromConfig(cfg, func(o *s3.Options) {
 		o.UsePathStyle = true
-		o.BaseEndpoint = aws.String("http://local/s3")
+		o.BaseEndpoint = aws.String("http://local")
 	})
 
 	h := dashboard.NewHandler(ddbClient, s3Client, ddbHndlr, s3Hndlr, slog.Default())
@@ -72,9 +85,34 @@ func newIntegrationStack(t *testing.T) *integrationStack {
 	return &integrationStack{
 		handler:    h,
 		s3Backend:  s3Bk,
+		e:          e,
 		ddbHandler: ddbHndlr,
 		s3Client:   s3Client,
 		dyClient:   ddbClient,
+	}
+}
+
+// serveHandler is a test helper that invokes a Dashboard Echo handler with a raw HTTP request.
+func serveHandler(handler *dashboard.DashboardHandler, w http.ResponseWriter, r *http.Request) {
+	ctx := logger.Save(r.Context(), slog.Default())
+	r = r.WithContext(ctx)
+	e := echo.New()
+	c := e.NewContext(r, w)
+	if err := handler.Handler()(c); err != nil {
+		// Handle echo errors properly - some like ErrNotFound are unexported types
+		// but they all implement a StatusCode() int method in Echo v5.
+		code := http.StatusInternalServerError
+		msg := err.Error()
+
+		var he *echo.HTTPError
+		if errors.As(err, &he) {
+			code = he.Code
+			msg = he.Message
+		} else if sc, ok := err.(interface{ StatusCode() int }); ok {
+			code = sc.StatusCode()
+		}
+
+		_ = c.JSON(code, map[string]string{"error": msg})
 	}
 }
 
@@ -174,7 +212,7 @@ func TestDashboard_Routing(t *testing.T) {
 
 			req := httptest.NewRequest(tt.method, tt.path, nil)
 			w := httptest.NewRecorder()
-			stack.handler.ServeHTTP(w, req)
+			serveHandler(stack.handler, w, req)
 
 			assert.Equal(t, tt.wantStatus, w.Code)
 			if tt.wantContains != "" {
@@ -221,7 +259,7 @@ func TestDashboard_DDB_TableList(t *testing.T) {
 
 			req := httptest.NewRequest(http.MethodGet, "/dashboard/dynamodb/tables", nil)
 			w := httptest.NewRecorder()
-			stack.handler.ServeHTTP(w, req)
+			serveHandler(stack.handler, w, req)
 
 			assert.Equal(t, tt.wantStatus, w.Code)
 			if tt.wantContains != "" {
@@ -295,7 +333,7 @@ func TestDashboard_DDB_CreateTable_Integration(t *testing.T) {
 			}
 
 			w := httptest.NewRecorder()
-			stack.handler.ServeHTTP(w, req)
+			serveHandler(stack.handler, w, req)
 
 			assert.Equal(t, tt.wantStatus, w.Code)
 			if tt.wantContains != "" {
@@ -343,7 +381,7 @@ func TestDashboard_DDB_TableDetail(t *testing.T) {
 				http.MethodGet, "/dashboard/dynamodb/table/"+tt.tableName, nil,
 			)
 			w := httptest.NewRecorder()
-			stack.handler.ServeHTTP(w, req)
+			serveHandler(stack.handler, w, req)
 
 			assert.Equal(t, tt.wantStatus, w.Code)
 			if tt.wantContains != "" {
@@ -396,7 +434,7 @@ func TestDashboard_DDB_DeleteTable(t *testing.T) {
 			}
 
 			w := httptest.NewRecorder()
-			stack.handler.ServeHTTP(w, req)
+			serveHandler(stack.handler, w, req)
 
 			assert.Equal(t, tt.wantStatus, w.Code)
 			if tt.wantHxLocation != "" {
@@ -478,7 +516,7 @@ func TestDashboard_DDB_Query(t *testing.T) {
 			}
 
 			w := httptest.NewRecorder()
-			stack.handler.ServeHTTP(w, req)
+			serveHandler(stack.handler, w, req)
 
 			assert.Equal(t, tt.wantStatus, w.Code)
 			if tt.wantContains != "" {
@@ -544,7 +582,7 @@ func TestDashboard_DDB_Scan(t *testing.T) {
 				tt.method, "/dashboard/dynamodb/table/scan-table/scan", nil,
 			)
 			w := httptest.NewRecorder()
-			stack.handler.ServeHTTP(w, req)
+			serveHandler(stack.handler, w, req)
 
 			assert.Equal(t, tt.wantStatus, w.Code)
 			if tt.wantContains != "" {
@@ -588,7 +626,7 @@ func TestDashboard_DDB_Search(t *testing.T) {
 
 			req := httptest.NewRequest(http.MethodGet, "/dashboard/dynamodb/search", nil)
 			w := httptest.NewRecorder()
-			stack.handler.ServeHTTP(w, req)
+			serveHandler(stack.handler, w, req)
 
 			assert.Equal(t, tt.wantStatus, w.Code)
 			if tt.wantContains != "" {
@@ -632,7 +670,7 @@ func TestDashboard_S3_BucketList(t *testing.T) {
 
 			req := httptest.NewRequest(http.MethodGet, "/dashboard/s3/buckets", nil)
 			w := httptest.NewRecorder()
-			stack.handler.ServeHTTP(w, req)
+			serveHandler(stack.handler, w, req)
 
 			assert.Equal(t, tt.wantStatus, w.Code)
 			if tt.wantContains != "" {
@@ -700,7 +738,7 @@ func TestDashboard_S3_CreateBucket_Integration(t *testing.T) {
 			}
 
 			w := httptest.NewRecorder()
-			stack.handler.ServeHTTP(w, req)
+			serveHandler(stack.handler, w, req)
 
 			assert.Equal(t, tt.wantStatus, w.Code)
 			if tt.wantHxTrigger != "" {
@@ -745,7 +783,7 @@ func TestDashboard_S3_BucketDetail(t *testing.T) {
 				http.MethodGet, "/dashboard/s3/bucket/"+tt.bucketName, nil,
 			)
 			w := httptest.NewRecorder()
-			stack.handler.ServeHTTP(w, req)
+			serveHandler(stack.handler, w, req)
 
 			assert.Equal(t, tt.wantStatus, w.Code)
 			if tt.wantContains != "" {
@@ -792,7 +830,7 @@ func TestDashboard_S3_FileTree(t *testing.T) {
 				http.MethodGet, "/dashboard/s3/bucket/tree-bucket/tree", nil,
 			)
 			w := httptest.NewRecorder()
-			stack.handler.ServeHTTP(w, req)
+			serveHandler(stack.handler, w, req)
 
 			assert.Equal(t, tt.wantStatus, w.Code)
 			if tt.wantContains != "" {
@@ -836,7 +874,7 @@ func TestDashboard_S3_FileDetail(t *testing.T) {
 
 			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
 			w := httptest.NewRecorder()
-			stack.handler.ServeHTTP(w, req)
+			serveHandler(stack.handler, w, req)
 
 			assert.Equal(t, tt.wantStatus, w.Code)
 			if tt.wantContains != "" {
@@ -880,7 +918,7 @@ func TestDashboard_S3_Download(t *testing.T) {
 
 			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
 			w := httptest.NewRecorder()
-			stack.handler.ServeHTTP(w, req)
+			serveHandler(stack.handler, w, req)
 
 			assert.Equal(t, tt.wantStatus, w.Code)
 			if tt.wantHeader != "" {
@@ -908,6 +946,7 @@ func TestDashboard_S3_Upload(t *testing.T) {
 		name          string
 		method        string
 		wantHxTrigger string
+		wantContains  string
 		wantStatus    int
 	}
 
@@ -923,8 +962,8 @@ func TestDashboard_S3_Upload(t *testing.T) {
 			buildBody: func() (io.Reader, string) {
 				return buildMultipart("upload.txt", "hello world")
 			},
-			wantStatus:    http.StatusOK,
-			wantHxTrigger: "fileUploaded",
+			wantStatus:   http.StatusOK,
+			wantContains: "upload.txt",
 		},
 	}
 
@@ -947,9 +986,12 @@ func TestDashboard_S3_Upload(t *testing.T) {
 			req.Header.Set("Content-Type", contentType)
 
 			w := httptest.NewRecorder()
-			stack.handler.ServeHTTP(w, req)
+			serveHandler(stack.handler, w, req)
 
 			assert.Equal(t, tt.wantStatus, w.Code)
+			if tt.wantContains != "" {
+				assert.Contains(t, w.Body.String(), tt.wantContains)
+			}
 			if tt.wantHxTrigger != "" {
 				assert.Contains(t, w.Header().Get("Hx-Trigger"), tt.wantHxTrigger)
 			}
@@ -998,7 +1040,7 @@ func TestDashboard_S3_DeleteFile(t *testing.T) {
 			}
 
 			w := httptest.NewRecorder()
-			stack.handler.ServeHTTP(w, req)
+			serveHandler(stack.handler, w, req)
 
 			assert.Equal(t, tt.wantStatus, w.Code)
 			if tt.wantHeader != "" {
@@ -1044,7 +1086,7 @@ func TestDashboard_S3_DeleteBucket(t *testing.T) {
 				http.MethodDelete, "/dashboard/s3/bucket/del-bucket", nil,
 			)
 			w := httptest.NewRecorder()
-			stack.handler.ServeHTTP(w, req)
+			serveHandler(stack.handler, w, req)
 
 			assert.Equal(t, tt.wantStatus, w.Code)
 			if tt.wantHxTrigger != "" {
@@ -1108,7 +1150,7 @@ func TestDashboard_S3_Versioning(t *testing.T) {
 			}
 
 			w := httptest.NewRecorder()
-			stack.handler.ServeHTTP(w, req)
+			serveHandler(stack.handler, w, req)
 
 			assert.Equal(t, tt.wantStatus, w.Code)
 		})
@@ -1130,7 +1172,7 @@ func TestDashboard_S3_VersioningAndDeletion(t *testing.T) {
 	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	// 2. Put multiple versions of a file
@@ -1159,7 +1201,7 @@ func TestDashboard_S3_VersioningAndDeletion(t *testing.T) {
 		nil,
 	)
 	w = httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	// 15. s3DeleteFile with deleteAll=true (multi-version)
@@ -1181,7 +1223,7 @@ func TestDashboard_S3_VersioningAndDeletion(t *testing.T) {
 		nil,
 	)
 	w = httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	// 5. Verify object is gone
@@ -1212,7 +1254,7 @@ func TestDashboard_S3_UploadAndDownload(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/dashboard/s3/bucket/"+bucketName+"/upload", body)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	w := httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	// 2. Download file
@@ -1222,7 +1264,7 @@ func TestDashboard_S3_UploadAndDownload(t *testing.T) {
 		nil,
 	)
 	w = httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Equal(t, "upload content", w.Body.String())
 	assert.Equal(
@@ -1239,7 +1281,7 @@ func TestDashboard_S3_UploadAndDownload(t *testing.T) {
 	)
 	req.Header.Set("Hx-Target", "body")
 	w = httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Header().Get("Hx-Redirect"), "/dashboard/s3/bucket/"+bucketName)
 }
@@ -1251,20 +1293,20 @@ func TestUI_ErrorHandlingAndFormatting(t *testing.T) {
 	// 1. Trigger non-existent bucket error
 	req := httptest.NewRequest(http.MethodGet, "/dashboard/s3/bucket/non-existent", nil)
 	w := httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	assert.Equal(t, http.StatusNotFound, w.Code)
 
 	// 2. Trigger bucket deletion error (if it had items, but here let's just use invalid name)
 	req = httptest.NewRequest(http.MethodDelete, "/dashboard/s3/bucket/!invalid!", nil)
 	w = httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
 	assert.Contains(t, w.Header().Get("Hx-Trigger"), "showToast")
 
 	// 3. Test DynamoDB Delete Table error
 	req = httptest.NewRequest(http.MethodDelete, "/dashboard/dynamodb/table/non-existent", nil)
 	w = httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
 	assert.Contains(t, w.Header().Get("Hx-Trigger"), "showToast")
 }
@@ -1292,7 +1334,7 @@ func TestDashboard_S3_FileTree_DeepPrefix(t *testing.T) {
 	// 1. Root level
 	req := httptest.NewRequest(http.MethodGet, "/dashboard/s3/bucket/"+bucketName+"/tree", nil)
 	w := httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Body.String(), "a/")
 }
@@ -1339,7 +1381,7 @@ func TestDashboard_DDB_Indexes(t *testing.T) {
 	// Verify table detail shows indexes
 	req := httptest.NewRequest(http.MethodGet, "/dashboard/dynamodb/table/"+tableName, nil)
 	w := httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Body.String(), "GSI1")
 	assert.Contains(t, w.Body.String(), "LSI1")
@@ -1366,7 +1408,7 @@ func TestDashboard_DDB_Indexes(t *testing.T) {
 	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w = httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Body.String(), "user1")
 
@@ -1380,7 +1422,7 @@ func TestDashboard_DDB_Indexes(t *testing.T) {
 	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w = httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Body.String(), "user1")
 
@@ -1432,7 +1474,7 @@ func TestDashboard_DDB_Indexes(t *testing.T) {
 	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w = httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Body.String(), "u1")
 
@@ -1460,7 +1502,7 @@ func TestDashboard_DDB_Indexes(t *testing.T) {
 	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w = httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Body.String(), "user2")
 
@@ -1474,7 +1516,7 @@ func TestDashboard_DDB_Indexes(t *testing.T) {
 	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w = httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Body.String(), "user1")
 }
@@ -1488,7 +1530,7 @@ func TestDashboard_S3_DetailedTests(t *testing.T) {
 	// 1. Upload fail (no file)
 	req := httptest.NewRequest(http.MethodPost, "/dashboard/s3/bucket/"+bucketName+"/upload", nil)
 	w := httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
 	// 2. Enable versioning
@@ -1499,7 +1541,7 @@ func TestDashboard_S3_DetailedTests(t *testing.T) {
 	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w = httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	// 3. Create multiple versions
@@ -1522,7 +1564,7 @@ func TestDashboard_S3_DetailedTests(t *testing.T) {
 		nil,
 	)
 	w = httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	// 5. Test Delete Marker coverage in deleteAllVersions
@@ -1550,7 +1592,7 @@ func TestDashboard_S3_DetailedTests(t *testing.T) {
 		nil,
 	)
 	w = httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	// 6. Test specific version deletion
@@ -1573,7 +1615,7 @@ func TestDashboard_S3_DetailedTests(t *testing.T) {
 		nil,
 	)
 	w = httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
@@ -1604,7 +1646,7 @@ func TestDashboard_DDB_Scan_Detailed(t *testing.T) {
 	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	// Scan with filter
@@ -1618,7 +1660,7 @@ func TestDashboard_DDB_Scan_Detailed(t *testing.T) {
 	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w = httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
@@ -1664,7 +1706,7 @@ func TestDashboard_DDB_Query_Pagination(t *testing.T) {
 	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 	// Even if ExclusiveStartKey rendering is tricky to hit, we hit the handler logic
 }
@@ -1685,7 +1727,7 @@ func TestDashboard_S3_Additional_Errors(t *testing.T) {
 	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
 
 	// 2. s3DeleteFile non-existent bucket
@@ -1695,7 +1737,7 @@ func TestDashboard_S3_Additional_Errors(t *testing.T) {
 		nil,
 	)
 	w = httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
 
@@ -1712,7 +1754,7 @@ func TestDashboard_S3_Upload_Error(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/dashboard/s3/bucket/"+bucketName+"/upload", body)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	w := httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
 	// 2. Upload to non-existent bucket
@@ -1724,7 +1766,7 @@ func TestDashboard_S3_Upload_Error(t *testing.T) {
 	req = httptest.NewRequest(http.MethodPost, "/dashboard/s3/bucket/non-existent/upload", body)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	w = httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
 }
 
@@ -1735,7 +1777,7 @@ func TestDashboard_EdgeCases(t *testing.T) {
 	// 1. Root redirect
 	req := httptest.NewRequest(http.MethodGet, "/dashboard", nil)
 	w := httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	// Some environments might use 302 for Redirect if not specified but we used 301.
 	// We'll allow both just in case of middleware interference.
 	assert.True(t, w.Code == http.StatusMovedPermanently || w.Code == http.StatusFound)
@@ -1749,7 +1791,7 @@ func TestDashboard_EdgeCases(t *testing.T) {
 	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w = httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	if w.Code != http.StatusNotFound {
 		assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
 	}
@@ -1766,7 +1808,7 @@ func TestDashboard_EdgeCases(t *testing.T) {
 	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w = httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	assert.True(t, w.Code == http.StatusUnprocessableEntity || w.Code == http.StatusConflict)
 
 	// 4. s3Versioning invalid boolean
@@ -1779,7 +1821,7 @@ func TestDashboard_EdgeCases(t *testing.T) {
 	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w = httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	assert.True(
 		t,
 		w.Code == http.StatusBadRequest || w.Code == http.StatusOK ||
@@ -1796,7 +1838,7 @@ func TestDashboard_EdgeCases(t *testing.T) {
 	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w = httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	// 5. Query non-existent table
@@ -1809,13 +1851,13 @@ func TestDashboard_EdgeCases(t *testing.T) {
 	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w = httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	assert.Equal(t, http.StatusNotFound, w.Code)
 
 	// 7. S3 handler root with trailing slash
 	req = httptest.NewRequest(http.MethodGet, "/dashboard/s3/", nil)
 	w = httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	// 9. s3CreateBucket with versioning
@@ -1829,7 +1871,7 @@ func TestDashboard_EdgeCases(t *testing.T) {
 	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w = httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	// 9. s3CreateBucket with versioning
 	form = url.Values{}
 	form.Add("bucketName", "versioned-bucket")
@@ -1841,21 +1883,21 @@ func TestDashboard_EdgeCases(t *testing.T) {
 	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w = httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	// 10. S3 bucket list with search
 	newS3Bucket(t, stack, "search-bucket")
 	req = httptest.NewRequest(http.MethodGet, "/dashboard/s3/buckets?search=search", nil)
 	w = httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Body.String(), "search-bucket")
 
 	// 11. S3 bucket list with search no matches
 	req = httptest.NewRequest(http.MethodGet, "/dashboard/s3/buckets?search=nonexistent", nil)
 	w = httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.NotContains(t, w.Body.String(), "search-bucket")
 
@@ -1863,7 +1905,7 @@ func TestDashboard_EdgeCases(t *testing.T) {
 	newDDBTable(t, stack, "search-table")
 	req = httptest.NewRequest(http.MethodGet, "/dashboard/dynamodb/tables?search=search", nil)
 	w = httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Body.String(), "search-table")
 
@@ -1879,7 +1921,7 @@ func TestDashboard_EdgeCases(t *testing.T) {
 	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w = httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	// Some implementations might handle invalid filters by returning 0 items (200 OK)
 	// while others might return 500. We'll accept both for robustness.
 	assert.True(t, w.Code == http.StatusOK || w.Code == http.StatusInternalServerError)
@@ -1895,7 +1937,7 @@ func TestDashboard_EdgeCases(t *testing.T) {
 		nil,
 	)
 	w = httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	// 19. dynamoDBQuery with invalid index
@@ -1906,7 +1948,7 @@ func TestDashboard_EdgeCases(t *testing.T) {
 	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w = httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	// Some implementations might return 422 for invalid parameters or 404 for missing index
 	assert.True(
 		t,
@@ -1921,7 +1963,7 @@ func TestDashboard_EdgeCases(t *testing.T) {
 	req = httptest.NewRequest(http.MethodGet, "/dashboard/s3", nil)
 	req.Header.Set("Hx-Request", "true")
 	w = httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	// 14. s3Upload no file
@@ -1931,7 +1973,7 @@ func TestDashboard_EdgeCases(t *testing.T) {
 	req = httptest.NewRequest(http.MethodPost, "/dashboard/s3/bucket/existing-bucket/upload", body)
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	w = httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
@@ -1950,7 +1992,7 @@ func TestDashboard_S3_Upload_Extended(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/dashboard/s3/bucket/"+bucketName+"/upload", body)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	w := httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	// 2. Upload with subfolder (prefix)
@@ -1963,6 +2005,62 @@ func TestDashboard_S3_Upload_Extended(t *testing.T) {
 	req = httptest.NewRequest(http.MethodPost, "/dashboard/s3/bucket/"+bucketName+"/upload", body)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	w = httptest.NewRecorder()
-	stack.handler.ServeHTTP(w, req)
+	serveHandler(stack.handler, w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestDashboard_CustomModal_Plumbing(t *testing.T) {
+	t.Parallel()
+
+	stack := newIntegrationStack(t)
+	newDDBTable(t, stack, "test-table")
+	newS3Bucket(t, stack, "test-bucket")
+
+	t.Run("layout includes global modal", func(t *testing.T) {
+		t.Parallel()
+		req := httptest.NewRequest(http.MethodGet, "/dashboard/dynamodb", nil)
+		w := httptest.NewRecorder()
+		serveHandler(stack.handler, w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		body := w.Body.String()
+		assert.Contains(t, body, `id="global_confirm_modal"`)
+		assert.Contains(t, body, `id="global_confirm_proceed"`)
+		assert.Contains(t, body, `id="global_confirm_cancel"`)
+	})
+
+	t.Run("static app.js includes htmx confirm listener", func(t *testing.T) {
+		t.Parallel()
+		req := httptest.NewRequest(http.MethodGet, "/dashboard/static/app.js", nil)
+		w := httptest.NewRecorder()
+		serveHandler(stack.handler, w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		body := w.Body.String()
+		assert.Contains(t, body, "htmx:confirm")
+		assert.Contains(t, body, "global_confirm_modal")
+		assert.Contains(t, body, "event.detail.issueRequest(true)")
+	})
+
+	t.Run("dynamodb delete button has hx-confirm", func(t *testing.T) {
+		t.Parallel()
+		req := httptest.NewRequest(http.MethodGet, "/dashboard/dynamodb/table/test-table", nil)
+		w := httptest.NewRecorder()
+		serveHandler(stack.handler, w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		body := w.Body.String()
+		assert.Contains(t, body, "hx-confirm=\"Are you sure you want to delete this table?\"")
+	})
+
+	t.Run("s3 delete button has hx-confirm", func(t *testing.T) {
+		t.Parallel()
+		req := httptest.NewRequest(http.MethodGet, "/dashboard/s3/buckets", nil)
+		w := httptest.NewRecorder()
+		serveHandler(stack.handler, w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		body := w.Body.String()
+		assert.Contains(t, body, "hx-confirm=\"Are you sure you want to delete bucket 'test-bucket'?\"")
+	})
 }

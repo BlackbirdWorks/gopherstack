@@ -69,7 +69,7 @@ func TestInternal_ToAttributeValue(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()
 			_ = ctx
-			h := &Handler{}
+			h := &DashboardHandler{}
 
 			val := h.toAttributeValue(tt.inputValue, tt.inputType)
 			require.True(t, reflect.DeepEqual(tt.expectedValue, val),
@@ -114,7 +114,7 @@ func TestInternal_RenderTemplate(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()
 			_ = ctx
-			h := &Handler{
+			h := &DashboardHandler{
 				layout: tt.setupLayout(),
 				Logger: slog.Default(),
 			}
@@ -148,7 +148,7 @@ func TestInternal_RenderFragment(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()
 			_ = ctx
-			h := &Handler{
+			h := &DashboardHandler{
 				layout: tt.setupLayout(),
 				Logger: slog.Default(),
 			}
@@ -191,7 +191,7 @@ func TestInternal_ExtractKeys(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()
 			_ = ctx
-			h := &Handler{}
+			h := &DashboardHandler{}
 			pk, sk := h.extractKeys(tt.schema)
 			require.Equal(t, tt.expectPK, pk)
 			require.Equal(t, tt.expectSK, sk)
@@ -257,7 +257,7 @@ func TestInternal_ResolveKeySchema(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()
 			_ = ctx
-			h := &Handler{}
+			h := &DashboardHandler{}
 			pk, sk, pkt, skt := h.resolveKeySchema(tt.desc, tt.indexName)
 			require.Equal(t, tt.expectPK, pk)
 			require.Equal(t, tt.expectSK, sk)
@@ -321,7 +321,7 @@ func TestInternal_ExtractIndexInfo(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()
 			_ = ctx
-			h := &Handler{}
+			h := &DashboardHandler{}
 			info := h.extractIndexInfo(tt.indexName, tt.schema, tt.proj, tt.attrs)
 			require.Equal(t, tt.expectIndexName, info.IndexName)
 			require.Equal(t, tt.expectPK, info.PartitionKey)
@@ -415,7 +415,7 @@ func TestInternal_ExtractTableInfo(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()
 			_ = ctx
-			h := &Handler{}
+			h := &DashboardHandler{}
 			info := h.extractTableInfo(tt.desc)
 			require.Equal(t, tt.expectName, info.TableName)
 			require.Equal(t, tt.expectPK, info.PartitionKey)
@@ -464,7 +464,7 @@ func TestInternal_ResolveIndexKeys(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()
 			_ = ctx
-			h := &Handler{}
+			h := &DashboardHandler{}
 			pk, sk := h.resolveIndexKeys(tt.desc, tt.indexName)
 			require.Equal(t, tt.expectPK, pk)
 			require.Equal(t, tt.expectSK, sk)
@@ -519,7 +519,7 @@ func TestInternal_RenderQueryResults(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()
 			_ = ctx
-			h := &Handler{Logger: slog.Default()}
+			h := &DashboardHandler{Logger: slog.Default()}
 			w := httptest.NewRecorder()
 			h.renderQueryResults(w, tt.result, "test-table", "", "")
 			require.Equal(t, tt.expectCode, w.Code)
@@ -571,7 +571,7 @@ func TestInternal_ParseQueryRequest(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()
 			_ = ctx
-			h := &Handler{Logger: slog.Default()}
+			h := &DashboardHandler{Logger: slog.Default()}
 			req := httptest.NewRequest(
 				http.MethodPost,
 				"/test",

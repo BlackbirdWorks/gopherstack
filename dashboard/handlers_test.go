@@ -36,7 +36,7 @@ func TestDashboard_Pagination(t *testing.T) {
 
 		req := httptest.NewRequest(http.MethodGet, "/dashboard/dynamodb/tables", nil)
 		w := httptest.NewRecorder()
-		stack.handler.ServeHTTP(w, req)
+		serveHandler(stack.handler, w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Contains(t, w.Body.String(), "table-001")
@@ -55,7 +55,7 @@ func TestDashboard_Pagination(t *testing.T) {
 
 		req := httptest.NewRequest(http.MethodGet, "/dashboard/s3/buckets", nil)
 		w := httptest.NewRecorder()
-		stack.handler.ServeHTTP(w, req)
+		serveHandler(stack.handler, w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Contains(t, w.Body.String(), "bucket-001")
@@ -81,7 +81,7 @@ func TestDashboard_DynamoDB_ItemEditor(t *testing.T) {
 		)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		w := httptest.NewRecorder()
-		stack.handler.ServeHTTP(w, req)
+		serveHandler(stack.handler, w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
 
@@ -123,7 +123,7 @@ func TestDashboard_DynamoDB_ItemEditor(t *testing.T) {
 			nil,
 		)
 		w := httptest.NewRecorder()
-		stack.handler.ServeHTTP(w, req)
+		serveHandler(stack.handler, w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Contains(t, w.Body.String(), "Alice")
@@ -148,7 +148,7 @@ func TestDashboard_S3_Previews(t *testing.T) {
 			nil,
 		)
 		w := httptest.NewRecorder()
-		stack.handler.ServeHTTP(w, req)
+		serveHandler(stack.handler, w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Contains(t, w.Body.String(), content)
@@ -167,7 +167,7 @@ func TestDashboard_S3_Previews(t *testing.T) {
 			nil,
 		)
 		w := httptest.NewRecorder()
-		stack.handler.ServeHTTP(w, req)
+		serveHandler(stack.handler, w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Contains(t, w.Body.String(), "test.txt")
@@ -198,7 +198,7 @@ func TestDashboard_DDB_ExportImport(t *testing.T) {
 			nil,
 		)
 		w := httptest.NewRecorder()
-		stack.handler.ServeHTTP(w, req)
+		serveHandler(stack.handler, w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Contains(t, w.Body.String(), "item-1")
@@ -219,7 +219,7 @@ func TestDashboard_DDB_ExportImport(t *testing.T) {
 		)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		w := httptest.NewRecorder()
-		stack.handler.ServeHTTP(w, req)
+		serveHandler(stack.handler, w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
 

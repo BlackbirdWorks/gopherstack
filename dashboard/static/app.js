@@ -40,10 +40,74 @@ function formatJSON(obj) {
     return JSON.stringify(obj, null, 2);
 }
 
-// Confirm delete action
+// Confirm delete action (kept for semantic naming if needed, but HTMX now intercepts via event)
 function confirmDelete(message) {
-    return confirm(message || 'Are you sure you want to delete this item?');
+    return new Promise((resolve) => {
+        const modal = document.getElementById('global_confirm_modal');
+        const confirmBtn = document.getElementById('global_confirm_proceed');
+        const cancelBtn = document.getElementById('global_confirm_cancel');
+        const messageEl = document.getElementById('global_confirm_message');
+
+        messageEl.textContent = message || 'Are you sure you want to delete this?';
+
+        const onConfirm = () => {
+            modal.close();
+            cleanup();
+            resolve(true);
+        };
+        const onCancel = () => {
+            modal.close();
+            cleanup();
+            resolve(false);
+        };
+        const cleanup = () => {
+            confirmBtn.removeEventListener('click', onConfirm);
+            cancelBtn.removeEventListener('click', onCancel);
+        };
+
+        confirmBtn.addEventListener('click', onConfirm);
+        cancelBtn.addEventListener('click', onCancel);
+        modal.showModal();
+    });
 }
+
+// HTMX event listeners
+document.addEventListener('htmx:confirm', (event) => {
+    // Skip if it's not a confirm event we want to intercept
+    if (!event.detail.question) return;
+
+    // Prevent default browser confirm
+    event.preventDefault();
+
+    const modal = document.getElementById('global_confirm_modal');
+    const confirmBtn = document.getElementById('global_confirm_proceed');
+    const cancelBtn = document.getElementById('global_confirm_cancel');
+    const messageEl = document.getElementById('global_confirm_message');
+
+    // Set message from hx-confirm
+    messageEl.textContent = event.detail.question;
+
+    const handleConfirm = () => {
+        modal.close();
+        cleanup();
+        event.detail.issueRequest(true); // Tell HTMX to proceed
+    };
+
+    const handleCancel = () => {
+        modal.close();
+        cleanup();
+    };
+
+    const cleanup = () => {
+        confirmBtn.removeEventListener('click', handleConfirm);
+        cancelBtn.removeEventListener('click', handleCancel);
+    };
+
+    confirmBtn.addEventListener('click', handleConfirm);
+    cancelBtn.addEventListener('click', handleCancel);
+
+    modal.showModal();
+});
 
 // Toggle folder in file tree
 function toggleFolder(element) {

@@ -16,12 +16,13 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
-func (h *Handler) listObjectsV2(
+func (h *S3Handler) listObjectsV2(
 	ctx context.Context,
 	w http.ResponseWriter,
 	r *http.Request,
 	bucketName string,
 ) {
+	h.setOperation(ctx, "ListObjectsV2")
 	log := logger.Load(ctx)
 	q := r.URL.Query()
 	input := h.prepareListObjectsV2Input(bucketName, q)
@@ -36,7 +37,7 @@ func (h *Handler) listObjectsV2(
 	h.renderListObjectsV2Response(ctx, w, r, bucketName, q, outV2.Contents)
 }
 
-func (h *Handler) prepareListObjectsV2Input(
+func (h *S3Handler) prepareListObjectsV2Input(
 	bucketName string,
 	q url.Values,
 ) *s3.ListObjectsV2Input {
@@ -56,7 +57,7 @@ func (h *Handler) prepareListObjectsV2Input(
 	}
 }
 
-func (h *Handler) handleListObjectsV2Error(
+func (h *S3Handler) handleListObjectsV2Error(
 	log *slog.Logger,
 	w http.ResponseWriter,
 	r *http.Request,
@@ -70,7 +71,7 @@ func (h *Handler) handleListObjectsV2Error(
 	httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
 }
 
-func (h *Handler) renderListObjectsV2Response(
+func (h *S3Handler) renderListObjectsV2Response(
 	ctx context.Context,
 	w http.ResponseWriter,
 	r *http.Request,

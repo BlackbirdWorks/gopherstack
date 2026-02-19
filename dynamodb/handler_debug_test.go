@@ -1,9 +1,6 @@
 package dynamodb_test
 
 import (
-	"Gopherstack/dynamodb"
-	"Gopherstack/dynamodb/models"
-	"Gopherstack/pkgs/logger"
 	"bytes"
 	"encoding/json"
 	"log/slog"
@@ -11,8 +8,13 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"Gopherstack/dynamodb"
+	"Gopherstack/dynamodb/models"
+	"Gopherstack/pkgs/logger"
 )
 
 // TestDebugLogging verifies that debug logging works correctly with context-based logging.
@@ -28,10 +30,6 @@ func TestDebugLogging(t *testing.T) {
 	// Create handler with test logger
 	handler := dynamodb.NewHandler(testLogger)
 
-	// Wrap handler with logger middleware
-	loggerMiddleware := logger.Middleware(testLogger)
-	handlerWithLogger := loggerMiddleware(handler)
-
 	// Create a test table
 	createTableInput := models.CreateTableInput{
 		TableName: "DebugLogTestTable",
@@ -43,6 +41,7 @@ func TestDebugLogging(t *testing.T) {
 		},
 	}
 
+	// Create an Echo context with logger in context
 	body, err := json.Marshal(createTableInput)
 	require.NoError(t, err)
 
@@ -50,7 +49,16 @@ func TestDebugLogging(t *testing.T) {
 	req.Header.Set("X-Amz-Target", "DynamoDB_20120810.CreateTable")
 	rec := httptest.NewRecorder()
 
-	handlerWithLogger.ServeHTTP(rec, req)
+	// Add logger to context
+	ctx := logger.Save(req.Context(), testLogger)
+	req = req.WithContext(ctx)
+
+	// Create Echo context and call handler
+	e := echo.New()
+	c := e.NewContext(req, rec)
+	echoHandler := handler.Handler()
+	err = echoHandler(c)
+	require.NoError(t, err)
 
 	// Verify the request succeeded
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -98,10 +106,6 @@ func TestDebugLoggingWithItem(t *testing.T) {
 	// Create handler with test logger
 	handler := dynamodb.NewHandler(testLogger)
 
-	// Wrap handler with logger middleware
-	loggerMiddleware := logger.Middleware(testLogger)
-	handlerWithLogger := loggerMiddleware(handler)
-
 	// First create a table
 	createTableInput := models.CreateTableInput{
 		TableName: "ItemLogTestTable",
@@ -120,7 +124,14 @@ func TestDebugLoggingWithItem(t *testing.T) {
 	req.Header.Set("X-Amz-Target", "DynamoDB_20120810.CreateTable")
 	rec := httptest.NewRecorder()
 
-	handlerWithLogger.ServeHTTP(rec, req)
+	// Add logger to context and call handler via Echo
+	ctx := logger.Save(req.Context(), testLogger)
+	req = req.WithContext(ctx)
+	e := echo.New()
+	c := e.NewContext(req, rec)
+	echoHandler := handler.Handler()
+	err = echoHandler(c)
+	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Clear the log buffer
@@ -142,7 +153,12 @@ func TestDebugLoggingWithItem(t *testing.T) {
 	req.Header.Set("X-Amz-Target", "DynamoDB_20120810.PutItem")
 	rec = httptest.NewRecorder()
 
-	handlerWithLogger.ServeHTTP(rec, req)
+	// Add logger to context and call handler via Echo
+	ctx = logger.Save(req.Context(), testLogger)
+	req = req.WithContext(ctx)
+	c = e.NewContext(req, rec)
+	err = echoHandler(c)
+	require.NoError(t, err)
 
 	// Verify the request succeeded
 	assert.Equal(t, http.StatusOK, rec.Code)
