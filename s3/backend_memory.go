@@ -12,8 +12,9 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
+
+	"Gopherstack/pkgs/lockmetrics"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -29,13 +30,14 @@ type InMemoryBackend struct {
 	buckets    map[string]*StoredBucket
 	tags       map[string][]types.Tag
 	uploads    map[string]*StoredMultipartUpload
-	mu         sync.RWMutex
+	mu         *lockmetrics.RWMutex
 }
 
 func NewInMemoryBackend(compressor Compressor) *InMemoryBackend {
 	return &InMemoryBackend{
 		buckets:    make(map[string]*StoredBucket),
 		compressor: compressor,
+		mu:         lockmetrics.New("s3"),
 	}
 }
 
@@ -43,7 +45,7 @@ func (b *InMemoryBackend) CreateBucket(
 	_ context.Context,
 	input *s3.CreateBucketInput,
 ) (*s3.CreateBucketOutput, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateBucket")
 	defer b.mu.Unlock()
 
 	bucketName := *input.Bucket
@@ -57,6 +59,7 @@ func (b *InMemoryBackend) CreateBucket(
 		CreationDate: time.Now(),
 		Objects:      make(map[string]*StoredObject),
 		Versioning:   types.BucketVersioningStatusSuspended,
+		mu:           lockmetrics.New("s3.bucket." + bucketName),
 	}
 
 	return &s3.CreateBucketOutput{
@@ -68,24 +71,30 @@ func (b *InMemoryBackend) DeleteBucket(
 	_ context.Context,
 	input *s3.DeleteBucketInput,
 ) (*s3.DeleteBucketOutput, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
 	bucketName := *input.Bucket
+
+	b.mu.Lock("DeleteBucket")
 
 	bucket, exists := b.buckets[bucketName]
 	if !exists {
+		b.mu.Unlock()
+
 		return nil, ErrNoSuchBucket
 	}
 
-	bucket.mu.Lock()
-	defer bucket.mu.Unlock()
+	bucket.mu.Lock("DeleteBucket")
 
 	if len(bucket.Objects) > 0 {
+		bucket.mu.Unlock()
+		b.mu.Unlock()
+
 		return nil, ErrBucketNotEmpty
 	}
 
 	delete(b.buckets, bucketName)
+	b.mu.Unlock() // release global lock early; bucket is already removed from the map
+
+	bucket.mu.Unlock()
 
 	return &s3.DeleteBucketOutput{}, nil
 }
@@ -94,7 +103,7 @@ func (b *InMemoryBackend) HeadBucket(
 	_ context.Context,
 	input *s3.HeadBucketInput,
 ) (*s3.HeadBucketOutput, error) {
-	b.mu.RLock()
+	b.mu.RLock("HeadBucket")
 	defer b.mu.RUnlock()
 
 	bucketName := *input.Bucket
@@ -111,7 +120,7 @@ func (b *InMemoryBackend) ListBuckets(
 	_ *s3.ListBucketsInput,
 ) (*s3.ListBucketsOutput, error) {
 	// Snapshot bucket data under lock, release immediately
-	b.mu.RLock()
+	b.mu.RLock("ListBuckets")
 	buckets := make([]types.Bucket, 0, len(b.buckets))
 	for _, bucket := range b.buckets {
 		buckets = append(buckets, types.Bucket{
@@ -156,7 +165,7 @@ func (b *InMemoryBackend) PutObject(
 	}
 
 	// 2. Lock and update
-	b.mu.RLock()
+	b.mu.RLock("PutObject")
 	bucket, exists := b.buckets[bucketName]
 	b.mu.RUnlock()
 
@@ -168,7 +177,7 @@ func (b *InMemoryBackend) PutObject(
 	var obj *StoredObject
 	var newVersionID string
 
-	bucket.mu.Lock()
+	bucket.mu.Lock("PutObject")
 	newVersionID = "null"
 	if bucket.Versioning == types.BucketVersioningStatusEnabled {
 		newVersionID = strconv.FormatInt(time.Now().UnixNano(), 10)
@@ -279,7 +288,7 @@ func (b *InMemoryBackend) storeObjectTags(tagging *string, bucket, key, versionI
 		return
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("PutObject.tags")
 	defer b.mu.Unlock()
 
 	if b.tags == nil {
@@ -298,7 +307,7 @@ func (b *InMemoryBackend) GetObject(
 	key := *input.Key
 	versionID := input.VersionId
 
-	b.mu.RLock()
+	b.mu.RLock("GetObject")
 	bucket, exists := b.buckets[bucketName]
 	b.mu.RUnlock()
 
@@ -306,7 +315,7 @@ func (b *InMemoryBackend) GetObject(
 		return nil, ErrNoSuchBucket
 	}
 
-	bucket.mu.RLock()
+	bucket.mu.RLock("GetObject")
 	obj, exists := bucket.Objects[key]
 	if !exists {
 		bucket.mu.RUnlock()
@@ -389,7 +398,7 @@ func (b *InMemoryBackend) HeadObject(
 	key := *input.Key
 	versionID := input.VersionId
 
-	b.mu.RLock()
+	b.mu.RLock("HeadObject")
 	bucket, exists := b.buckets[bucketName]
 	b.mu.RUnlock()
 
@@ -397,7 +406,7 @@ func (b *InMemoryBackend) HeadObject(
 		return nil, ErrNoSuchBucket
 	}
 
-	bucket.mu.RLock()
+	bucket.mu.RLock("HeadObject")
 	obj, exists := bucket.Objects[key]
 	bucket.mu.RUnlock()
 
@@ -454,7 +463,7 @@ func (b *InMemoryBackend) DeleteObject(
 ) (*s3.DeleteObjectOutput, error) {
 	bucketName := *input.Bucket
 
-	b.mu.RLock()
+	b.mu.RLock("DeleteObject")
 	bucket, exists := b.buckets[bucketName]
 	b.mu.RUnlock()
 
@@ -462,7 +471,7 @@ func (b *InMemoryBackend) DeleteObject(
 		return nil, ErrNoSuchBucket
 	}
 
-	bucket.mu.Lock()
+	bucket.mu.Lock("DeleteObject")
 	defer bucket.mu.Unlock()
 
 	return b.deleteObjectLocked(bucket, *input.Key, input.VersionId)
@@ -538,7 +547,7 @@ func (b *InMemoryBackend) DeleteObjects(
 
 	bucketName := *input.Bucket
 
-	b.mu.RLock()
+	b.mu.RLock("DeleteObjects")
 	bucket, exists := b.buckets[bucketName]
 	b.mu.RUnlock()
 
@@ -556,7 +565,7 @@ func (b *InMemoryBackend) DeleteObjects(
 
 	// Hold the bucket lock for the entire batch to avoid per-object lock churn
 	// when deleting thousands of objects.
-	bucket.mu.Lock()
+	bucket.mu.Lock("DeleteObjects")
 	for _, obj := range input.Delete.Objects {
 		delOut, err := b.deleteObjectLocked(bucket, aws.ToString(obj.Key), obj.VersionId)
 		if err != nil {
@@ -598,7 +607,7 @@ func (b *InMemoryBackend) ListObjects(
 ) (*s3.ListObjectsOutput, error) {
 	bucketName := *input.Bucket
 
-	b.mu.RLock()
+	b.mu.RLock("ListObjects")
 	bucket, exists := b.buckets[bucketName]
 	b.mu.RUnlock()
 
@@ -607,7 +616,7 @@ func (b *InMemoryBackend) ListObjects(
 	}
 
 	// Snapshot object pointers under lock
-	bucket.mu.RLock()
+	bucket.mu.RLock("ListObjects")
 	prefix := aws.ToString(input.Prefix)
 	objectSnapshots := make([]*StoredObject, 0, len(bucket.Objects))
 	for _, obj := range bucket.Objects {
@@ -701,7 +710,7 @@ func (b *InMemoryBackend) ListObjectVersions(
 ) (*s3.ListObjectVersionsOutput, error) {
 	bucketName := *input.Bucket
 
-	b.mu.RLock()
+	b.mu.RLock("ListObjectVersions")
 	bucket, exists := b.buckets[bucketName]
 	b.mu.RUnlock()
 
@@ -709,7 +718,7 @@ func (b *InMemoryBackend) ListObjectVersions(
 		return nil, ErrNoSuchBucket
 	}
 
-	bucket.mu.RLock()
+	bucket.mu.RLock("ListObjectVersions")
 	defer bucket.mu.RUnlock()
 
 	var versions []types.ObjectVersion
@@ -765,7 +774,7 @@ func (b *InMemoryBackend) PutBucketVersioning(
 ) (*s3.PutBucketVersioningOutput, error) {
 	bucketName := *input.Bucket
 
-	b.mu.RLock()
+	b.mu.RLock("PutBucketVersioning")
 	bucket, exists := b.buckets[bucketName]
 	b.mu.RUnlock()
 
@@ -773,7 +782,7 @@ func (b *InMemoryBackend) PutBucketVersioning(
 		return nil, ErrNoSuchBucket
 	}
 
-	bucket.mu.Lock()
+	bucket.mu.Lock("PutBucketVersioning")
 	defer bucket.mu.Unlock()
 
 	status := input.VersioningConfiguration.Status
@@ -788,7 +797,7 @@ func (b *InMemoryBackend) GetBucketVersioning(
 ) (*s3.GetBucketVersioningOutput, error) {
 	bucketName := *input.Bucket
 
-	b.mu.RLock()
+	b.mu.RLock("GetBucketVersioning")
 	bucket, exists := b.buckets[bucketName]
 	b.mu.RUnlock()
 
@@ -796,7 +805,7 @@ func (b *InMemoryBackend) GetBucketVersioning(
 		return nil, ErrNoSuchBucket
 	}
 
-	bucket.mu.RLock()
+	bucket.mu.RLock("GetBucketVersioning")
 	defer bucket.mu.RUnlock()
 
 	return &s3.GetBucketVersioningOutput{
@@ -812,7 +821,7 @@ func (b *InMemoryBackend) PutObjectTagging(
 	key := *input.Key
 	versionID := input.VersionId
 
-	b.mu.RLock()
+	b.mu.RLock("PutObjectTagging")
 	bucket, exists := b.buckets[bucketName]
 	b.mu.RUnlock()
 
@@ -821,7 +830,7 @@ func (b *InMemoryBackend) PutObjectTagging(
 	}
 
 	resolvedVersionID, err := func() (string, error) {
-		bucket.mu.Lock()
+		bucket.mu.Lock("PutObjectTagging")
 		defer bucket.mu.Unlock()
 
 		obj, objExists := bucket.Objects[key]
@@ -856,7 +865,7 @@ func (b *InMemoryBackend) PutObjectTagging(
 		return nil, err
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("PutObjectTagging")
 	defer b.mu.Unlock()
 
 	tagKey := fmt.Sprintf("%s/%s/%s", bucketName, key, resolvedVersionID)
@@ -877,7 +886,7 @@ func (b *InMemoryBackend) GetObjectTagging(
 	key := *input.Key
 	versionID := input.VersionId
 
-	b.mu.RLock()
+	b.mu.RLock("GetObjectTagging")
 	bucket, exists := b.buckets[bucketName]
 	b.mu.RUnlock()
 
@@ -886,7 +895,7 @@ func (b *InMemoryBackend) GetObjectTagging(
 	}
 
 	vid, err := func() (string, error) {
-		bucket.mu.RLock()
+		bucket.mu.RLock("GetObjectTagging")
 		defer bucket.mu.RUnlock()
 
 		obj, objExists := bucket.Objects[key]
@@ -915,7 +924,7 @@ func (b *InMemoryBackend) GetObjectTagging(
 		return nil, err
 	}
 
-	b.mu.RLock()
+	b.mu.RLock("GetObjectTagging")
 	defer b.mu.RUnlock()
 
 	tagKey := fmt.Sprintf("%s/%s/%s", bucketName, key, vid)
@@ -934,7 +943,7 @@ func (b *InMemoryBackend) DeleteObjectTagging(
 	key := *input.Key
 	versionID := input.VersionId
 
-	b.mu.RLock()
+	b.mu.RLock("DeleteObjectTagging")
 	bucket, exists := b.buckets[bucketName]
 	b.mu.RUnlock()
 
@@ -943,7 +952,7 @@ func (b *InMemoryBackend) DeleteObjectTagging(
 	}
 
 	vid, err := func() (string, error) {
-		bucket.mu.RLock()
+		bucket.mu.RLock("DeleteObjectTagging")
 		defer bucket.mu.RUnlock()
 
 		obj, objExists := bucket.Objects[key]
@@ -971,7 +980,7 @@ func (b *InMemoryBackend) DeleteObjectTagging(
 		return &s3.DeleteObjectTaggingOutput{}, nil
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("DeleteObjectTagging")
 	defer b.mu.Unlock()
 
 	tagKey := bucketName + "/" + key + "/" + vid
@@ -991,7 +1000,7 @@ func (b *InMemoryBackend) CreateMultipartUpload(
 	bucketName := *input.Bucket
 	key := *input.Key
 
-	b.mu.RLock()
+	b.mu.RLock("CreateMultipartUpload")
 	_, exists := b.buckets[bucketName]
 	b.mu.RUnlock()
 
@@ -1001,7 +1010,7 @@ func (b *InMemoryBackend) CreateMultipartUpload(
 
 	uploadID := strconv.FormatInt(time.Now().UnixNano(), 10)
 
-	b.mu.Lock()
+	b.mu.Lock("CreateMultipartUpload")
 	if b.uploads == nil {
 		b.uploads = make(map[string]*StoredMultipartUpload)
 	}
@@ -1039,7 +1048,7 @@ func (b *InMemoryBackend) UploadPart(
 	etag := fmt.Sprintf("%q", hex.EncodeToString(hash[:]))
 
 	// 2. Update upload state
-	b.mu.Lock()
+	b.mu.Lock("UploadPart")
 	defer b.mu.Unlock()
 
 	upload, exists := b.uploads[uploadID]
@@ -1068,7 +1077,7 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 	key := *input.Key
 
 	// 1. Get upload state
-	b.mu.RLock()
+	b.mu.RLock("CompleteMultipartUpload")
 	upload, exists := b.uploads[uploadID]
 	b.mu.RUnlock()
 
@@ -1110,7 +1119,7 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 	etag := fmt.Sprintf("%q", hex.EncodeToString(hash[:]))
 
 	// 3. Update bucket/object state
-	b.mu.RLock()
+	b.mu.RLock("CompleteMultipartUpload")
 	bucket, exists := b.buckets[bucketName]
 	b.mu.RUnlock()
 
@@ -1118,7 +1127,7 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 		return nil, ErrNoSuchBucket
 	}
 
-	bucket.mu.Lock()
+	bucket.mu.Lock("CompleteMultipartUpload")
 	defer bucket.mu.Unlock()
 
 	obj, exists := bucket.Objects[key]
@@ -1150,7 +1159,7 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 	obj.LatestVersionID = versionID // Update cache
 
 	// Cleanup upload
-	b.mu.Lock()
+	b.mu.Lock("CompleteMultipartUpload")
 	delete(b.uploads, uploadID)
 	b.mu.Unlock()
 
@@ -1168,7 +1177,7 @@ func (b *InMemoryBackend) AbortMultipartUpload(
 ) (*s3.AbortMultipartUploadOutput, error) {
 	uploadID := *input.UploadId
 
-	b.mu.Lock()
+	b.mu.Lock("AbortMultipartUpload")
 	defer b.mu.Unlock()
 
 	if _, exists := b.uploads[uploadID]; !exists {
