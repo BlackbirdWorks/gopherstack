@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/md5" //nolint:gosec // MD5 required for S3 ETag compatibility
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -475,7 +474,7 @@ func (b *InMemoryBackend) DeleteObject(
 	bucket.mu.Lock("DeleteObject")
 	defer bucket.mu.Unlock()
 
-	return b.deleteObjectLocked(bucket, *input.Key, input.VersionId)
+	return b.deleteObjectLocked(bucket, *input.Key, input.VersionId), nil
 }
 
 // deleteObjectLocked performs a single-object deletion assuming bucket.mu is
@@ -485,11 +484,11 @@ func (b *InMemoryBackend) deleteObjectLocked(
 	bucket *StoredBucket,
 	key string,
 	versionID *string,
-) (*s3.DeleteObjectOutput, error) {
+) *s3.DeleteObjectOutput {
 	obj, exists := bucket.Objects[key]
 	if !exists {
 		// S3 spec: Delete on non-existent object is 204
-		return &s3.DeleteObjectOutput{}, nil
+		return &s3.DeleteObjectOutput{}
 	}
 
 	if versionID != nil && *versionID != "" {
@@ -499,10 +498,10 @@ func (b *InMemoryBackend) deleteObjectLocked(
 				delete(bucket.Objects, key)
 			}
 
-			return &s3.DeleteObjectOutput{VersionId: versionID}, nil
+			return &s3.DeleteObjectOutput{VersionId: versionID}
 		}
 
-		return &s3.DeleteObjectOutput{}, nil
+		return &s3.DeleteObjectOutput{}
 	}
 
 	// Delete latest (Versioning enabled -> add delete marker, Suspended -> delete null version)
@@ -527,14 +526,14 @@ func (b *InMemoryBackend) deleteObjectLocked(
 		return &s3.DeleteObjectOutput{
 			DeleteMarker: aws.Bool(true),
 			VersionId:    aws.String(newVersionID),
-		}, nil
+		}
 	}
 
 	// Suspended or null: Delete object (or null version)
 	// Simple remove for now
 	delete(bucket.Objects, key)
 
-	return &s3.DeleteObjectOutput{}, nil
+	return &s3.DeleteObjectOutput{}
 }
 
 func (b *InMemoryBackend) DeleteObjects(
@@ -568,21 +567,7 @@ func (b *InMemoryBackend) DeleteObjects(
 	// when deleting thousands of objects.
 	bucket.mu.Lock("DeleteObjects")
 	for _, obj := range input.Delete.Objects {
-		delOut, err := b.deleteObjectLocked(bucket, aws.ToString(obj.Key), obj.VersionId)
-		if err != nil {
-			// S3 error format for DeleteObjects
-			s3Err := types.Error{
-				Key:     obj.Key,
-				Code:    aws.String("InternalError"),
-				Message: aws.String(err.Error()),
-			}
-			if errors.Is(err, ErrNoSuchBucket) {
-				s3Err.Code = aws.String("NoSuchBucket")
-			}
-			out.Errors = append(out.Errors, s3Err)
-
-			continue
-		}
+		delOut := b.deleteObjectLocked(bucket, aws.ToString(obj.Key), obj.VersionId)
 
 		deleted := types.DeletedObject{
 			Key:       obj.Key,

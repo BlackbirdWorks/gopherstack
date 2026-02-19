@@ -43,13 +43,11 @@ func TestMutualExclusion(t *testing.T) {
 
 	const goroutines = 50
 	for range goroutines {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			m.Lock("increment")
 			counter++
 			m.Unlock()
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -68,14 +66,12 @@ func TestReadersCanCoexist(t *testing.T) {
 
 	const readers = 10
 	for range readers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			m.RLock("concurrent-read")
 			started <- struct{}{}
 			time.Sleep(10 * time.Millisecond)
 			m.RUnlock()
-		}()
+		})
 	}
 
 	// Collect all started signals to confirm all readers ran concurrently.

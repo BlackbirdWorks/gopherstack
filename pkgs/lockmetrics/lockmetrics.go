@@ -1,4 +1,4 @@
-// Package lockmetrics provides an instrumented sync.RWMutex that emits
+// Package lockmetrics provides an instrumented [sync.RWMutex] that emits
 // Prometheus metrics on every lock acquisition and release.
 //
 // Usage:
@@ -39,6 +39,8 @@ import (
 // lockBuckets spans from 1µs to 10s to capture both the common sub-millisecond
 // fast path and the deadlock-scale multi-second hold durations that the metrics
 // are specifically designed to surface.
+//
+//nolint:gochecknoglobals // shared histogram buckets used by all Prometheus metrics in this package
 var lockBuckets = []float64{.000001, .00001, .0001, .001, .01, .1, 1, 10}
 
 // Prometheus metrics shared across all RWMutex instances.
@@ -115,8 +117,11 @@ var (
 // allMutexes holds weak references to every live RWMutex so the custom
 // Collector can enumerate them at scrape time without the mutexes needing
 // to self-register/deregister.
+//
+//nolint:gochecknoglobals // global registry of all instrumented mutexes for the Prometheus Collector
 var allMutexes sync.Map // map[*RWMutex]struct{}
 
+//nolint:gochecknoinits // registers the Prometheus Collector for live lock-state metrics
 func init() {
 	prometheus.MustRegister(&liveStateCollector{})
 }
@@ -159,17 +164,19 @@ func (liveStateCollector) Collect(ch chan<- prometheus.Metric) {
 	})
 }
 
-// RWMutex is a drop-in replacement for sync.RWMutex that records Prometheus
+// RWMutex is a drop-in replacement for [sync.RWMutex] that records Prometheus
 // metrics on every Lock/RLock call.
 //
 // The zero value is not usable; always create via New.
 type RWMutex struct {
-	mu   sync.RWMutex
-	name string
-
 	// writeOp and writeStart track the current write-lock holder.
 	// writeStart == 0 means the write lock is not currently held.
-	writeOp    atomic.Value // string
+	// Placed first to minimise GC scan range (both contain pointers).
+	writeOp atomic.Value // string
+	name    string
+
+	mu sync.RWMutex
+
 	writeStart atomic.Int64 // unix nanoseconds; 0 when not held
 
 	// writeWaiters and readWaiters count goroutines currently blocked
@@ -256,4 +263,3 @@ func (m *RWMutex) RUnlock() {
 	activeReaders.WithLabelValues(m.name).Dec()
 	m.mu.RUnlock()
 }
-

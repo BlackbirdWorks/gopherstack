@@ -14,8 +14,11 @@ type InMemoryDB struct {
 }
 
 type Table struct {
-	pkIndex                map[string]int
-	pkskIndex              map[string]map[string]int
+	pkIndex   map[string]int
+	pkskIndex map[string]map[string]int
+	// mu is placed before the slice fields so that Items' non-pointer
+	// len+cap words fall outside the GC scan range (176 → 160 pointer bytes).
+	mu                     *lockmetrics.RWMutex
 	Name                   string
 	TTLAttribute           string
 	KeySchema              []models.KeySchemaElement
@@ -23,7 +26,6 @@ type Table struct {
 	GlobalSecondaryIndexes []models.GlobalSecondaryIndex
 	LocalSecondaryIndexes  []models.LocalSecondaryIndex
 	Items                  []map[string]any
-	mu                     *lockmetrics.RWMutex
 }
 
 func NewInMemoryDB() *InMemoryDB {
