@@ -41,7 +41,7 @@ func (db *InMemoryDB) QueryWithContext(
 	}
 
 	// Snapshot table metadata and items under lock
-	table.mu.RLock()
+	table.mu.RLock("Query")
 	itemsCopy := make([]map[string]any, len(table.Items))
 	copy(itemsCopy, table.Items)
 	keySchemaOrig := make([]models.KeySchemaElement, len(table.KeySchema))

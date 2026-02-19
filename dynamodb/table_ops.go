@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	"Gopherstack/dynamodb/models"
+	"Gopherstack/pkgs/lockmetrics"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -21,7 +22,7 @@ func (db *InMemoryDB) CreateTable(
 		return nil, NewValidationException("Table name is required")
 	}
 
-	db.mu.Lock()
+	db.mu.Lock("CreateTable")
 	defer db.mu.Unlock()
 
 	if _, exists := db.Tables[tableName]; exists {
@@ -35,6 +36,7 @@ func (db *InMemoryDB) CreateTable(
 		GlobalSecondaryIndexes: models.FromSDKGlobalSecondaryIndexes(input.GlobalSecondaryIndexes),
 		LocalSecondaryIndexes:  models.FromSDKLocalSecondaryIndexes(input.LocalSecondaryIndexes),
 		Items:                  make([]map[string]any, 0),
+		mu:                     lockmetrics.New("ddb.table." + tableName),
 	}
 	newTable.initializeIndexes()
 	db.Tables[tableName] = newTable
@@ -103,7 +105,7 @@ func (db *InMemoryDB) DeleteTable(
 		return nil, NewValidationException("Table name is required")
 	}
 
-	db.mu.Lock()
+	db.mu.Lock("DeleteTable")
 	table, exists := db.Tables[tableName]
 	if !exists {
 		db.mu.Unlock()
@@ -113,7 +115,7 @@ func (db *InMemoryDB) DeleteTable(
 	delete(db.Tables, tableName)
 	db.mu.Unlock()
 
-	table.mu.RLock()
+	table.mu.RLock("DeleteTable")
 	defer table.mu.RUnlock()
 
 	// Capture state for return
@@ -163,7 +165,7 @@ func (db *InMemoryDB) DescribeTable(
 ) (*dynamodb.DescribeTableOutput, error) {
 	tableName := aws.ToString(input.TableName)
 
-	db.mu.RLock()
+	db.mu.RLock("DescribeTable")
 	table, exists := db.Tables[tableName]
 	db.mu.RUnlock()
 
@@ -172,7 +174,7 @@ func (db *InMemoryDB) DescribeTable(
 	}
 
 	// Snapshot table metadata under lock, release immediately, then build descriptions outside lock
-	table.mu.RLock()
+	table.mu.RLock("DescribeTable")
 	keySchema := make([]models.KeySchemaElement, len(table.KeySchema))
 	copy(keySchema, table.KeySchema)
 	attrDefs := make([]models.AttributeDefinition, len(table.AttributeDefinitions))
@@ -259,7 +261,7 @@ func (db *InMemoryDB) UpdateTimeToLive(
 		return nil, err
 	}
 
-	table.mu.Lock()
+	table.mu.Lock("UpdateTimeToLive")
 	defer table.mu.Unlock()
 
 	if input.TimeToLiveSpecification.Enabled != nil && *input.TimeToLiveSpecification.Enabled {
@@ -283,7 +285,7 @@ func (db *InMemoryDB) DescribeTimeToLive(
 		return nil, err
 	}
 
-	table.mu.RLock()
+	table.mu.RLock("DescribeTimeToLive")
 	defer table.mu.RUnlock()
 
 	if table.TTLAttribute == "" {
@@ -307,7 +309,7 @@ func (db *InMemoryDB) ListTables(
 	input *dynamodb.ListTablesInput,
 ) (*dynamodb.ListTablesOutput, error) {
 	// Snapshot table names under lock, then release immediately
-	db.mu.RLock()
+	db.mu.RLock("ListTables")
 	names := make([]string, 0, len(db.Tables))
 	for name := range db.Tables {
 		names = append(names, name)
