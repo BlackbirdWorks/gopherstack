@@ -4,6 +4,8 @@ import (
 	"sync"
 	"time"
 
+	"Gopherstack/pkgs/lockmetrics"
+
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
@@ -12,11 +14,13 @@ const NullVersion = "null"
 
 // StoredBucket represents an S3 bucket in memory.
 type StoredBucket struct {
-	CreationDate time.Time
 	Objects      map[string]*StoredObject
+	mu           *lockmetrics.RWMutex
 	Name         string
-	Versioning   types.BucketVersioningStatus
-	mu           sync.RWMutex
+	CreationDate time.Time
+	// Versioning is placed last so its trailing non-pointer len word falls
+	// outside the GC scan range, reducing pointer bytes from 72 to 64.
+	Versioning types.BucketVersioningStatus
 }
 
 // StoredObject represents an S3 object with its version history.

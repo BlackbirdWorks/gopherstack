@@ -52,7 +52,7 @@ func isItemExpired(item map[string]any, ttlAttr string) bool {
 }
 
 func (db *InMemoryDB) getTable(name string) (*Table, error) {
-	db.mu.RLock()
+	db.mu.RLock("getTable")
 	table, exists := db.Tables[name]
 	db.mu.RUnlock()
 

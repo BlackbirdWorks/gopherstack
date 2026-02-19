@@ -150,7 +150,7 @@ func (db *InMemoryDB) transactTableNames(items []types.TransactWriteItem) []stri
 func (db *InMemoryDB) lockTablesWrite(tableNames []string) (map[string]*Table, error) {
 	tables := make(map[string]*Table, len(tableNames))
 
-	db.mu.RLock()
+	db.mu.RLock("TransactWriteItems")
 	for _, name := range tableNames {
 		t, ok := db.Tables[name]
 		if !ok {
@@ -163,7 +163,7 @@ func (db *InMemoryDB) lockTablesWrite(tableNames []string) (map[string]*Table, e
 	db.mu.RUnlock()
 
 	for _, name := range tableNames {
-		tables[name].mu.Lock()
+		tables[name].mu.Lock("TransactWriteItems")
 	}
 
 	return tables, nil
@@ -172,7 +172,7 @@ func (db *InMemoryDB) lockTablesWrite(tableNames []string) (map[string]*Table, e
 func (db *InMemoryDB) lockTablesRead(tableNames []string) (map[string]*Table, error) {
 	tables := make(map[string]*Table, len(tableNames))
 
-	db.mu.RLock()
+	db.mu.RLock("TransactGetItems")
 	for _, name := range tableNames {
 		t, ok := db.Tables[name]
 		if !ok {
@@ -185,7 +185,7 @@ func (db *InMemoryDB) lockTablesRead(tableNames []string) (map[string]*Table, er
 	db.mu.RUnlock()
 
 	for _, name := range tableNames {
-		tables[name].mu.RLock()
+		tables[name].mu.RLock("TransactGetItems")
 	}
 
 	return tables, nil

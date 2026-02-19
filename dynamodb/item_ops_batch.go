@@ -18,7 +18,7 @@ func (db *InMemoryDB) BatchGetItem(
 	ctx context.Context,
 	input *dynamodb.BatchGetItemInput,
 ) (*dynamodb.BatchGetItemOutput, error) {
-	db.mu.RLock()
+	db.mu.RLock("BatchGetItem")
 	defer db.mu.RUnlock()
 
 	if err := db.validateBatchGetInput(input); err != nil {
@@ -128,7 +128,7 @@ func (db *InMemoryDB) BatchWriteItem(
 	}
 
 	// Get table references with read lock
-	db.mu.RLock()
+	db.mu.RLock("BatchWriteItem")
 	tables := make(map[string]*Table, len(input.RequestItems))
 	for tableName := range input.RequestItems {
 		if table, exists := db.Tables[tableName]; exists {
@@ -179,7 +179,7 @@ func (db *InMemoryDB) BatchWriteItem(
 }
 
 func (db *InMemoryDB) processTableWriteRequests(table *Table, requests []types.WriteRequest) error {
-	table.mu.Lock()
+	table.mu.Lock("BatchWriteItem")
 	defer table.mu.Unlock()
 
 	modifiedIndices := db.processBatchPutRequests(table, requests)

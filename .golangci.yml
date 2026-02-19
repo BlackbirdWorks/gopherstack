@@ -356,6 +356,7 @@ linters:
         - stdlib
         - "github.com/aws/aws-sdk-go-v2/service/dynamodb/types.AttributeValue"
         - "Gopherstack/dynamodb/expr.Node"
+        - "github.com/prometheus/client_golang/prometheus.Collector"
 
     mnd:
       # List of function patterns to exclude from analysis.

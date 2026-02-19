@@ -1,22 +1,24 @@
 package dynamodb
 
 import (
-	"sync"
-
 	"Gopherstack/dynamodb/models"
 	"Gopherstack/pkgs/dynamoattr"
+	"Gopherstack/pkgs/lockmetrics"
 )
 
 // InMemoryDB stores tables and items.
 type InMemoryDB struct {
 	Tables    map[string]*Table
 	exprCache *ExpressionCache
-	mu        sync.RWMutex
+	mu        *lockmetrics.RWMutex
 }
 
 type Table struct {
-	pkIndex                map[string]int
-	pkskIndex              map[string]map[string]int
+	pkIndex   map[string]int
+	pkskIndex map[string]map[string]int
+	// mu is placed before the slice fields so that Items' non-pointer
+	// len+cap words fall outside the GC scan range (176 → 160 pointer bytes).
+	mu                     *lockmetrics.RWMutex
 	Name                   string
 	TTLAttribute           string
 	KeySchema              []models.KeySchemaElement
@@ -24,7 +26,6 @@ type Table struct {
 	GlobalSecondaryIndexes []models.GlobalSecondaryIndex
 	LocalSecondaryIndexes  []models.LocalSecondaryIndex
 	Items                  []map[string]any
-	mu                     sync.RWMutex
 }
 
 func NewInMemoryDB() *InMemoryDB {
@@ -33,6 +34,7 @@ func NewInMemoryDB() *InMemoryDB {
 	return &InMemoryDB{
 		Tables:    make(map[string]*Table),
 		exprCache: NewExpressionCache(exprCacheSize),
+		mu:        lockmetrics.New("ddb"),
 	}
 }
 
@@ -79,7 +81,7 @@ func (t *Table) rebuildIndexes() {
 
 // ListAllTables returns a slice of all tables (for UI).
 func (db *InMemoryDB) ListAllTables() []*Table {
-	db.mu.RLock()
+	db.mu.RLock("ListAllTables")
 	defer db.mu.RUnlock()
 
 	tables := make([]*Table, 0, len(db.Tables))
@@ -92,7 +94,7 @@ func (db *InMemoryDB) ListAllTables() []*Table {
 
 // GetTable returns a table by name (for UI).
 func (db *InMemoryDB) GetTable(name string) (*Table, bool) {
-	db.mu.RLock()
+	db.mu.RLock("GetTable")
 	defer db.mu.RUnlock()
 
 	table, exists := db.Tables[name]

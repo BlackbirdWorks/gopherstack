@@ -39,7 +39,7 @@ func (db *InMemoryDB) ScanWithContext(
 	}
 
 	// Snapshot items and metadata under lock, release immediately
-	table.mu.RLock()
+	table.mu.RLock("Scan")
 	itemsCopy := make([]map[string]any, len(table.Items))
 	copy(itemsCopy, table.Items)
 	ttlAttr := table.TTLAttribute

@@ -27,7 +27,7 @@ func (db *InMemoryDB) PutItem(
 		return nil, err
 	}
 
-	table.mu.Lock()
+	table.mu.Lock("PutItem")
 	defer table.mu.Unlock()
 
 	// Convert SDK Item to Wire Item
@@ -174,7 +174,7 @@ func (db *InMemoryDB) GetItem(
 		return nil, err
 	}
 
-	table.mu.RLock()
+	table.mu.RLock("GetItem")
 	defer table.mu.RUnlock()
 
 	wireKey := models.FromSDKItem(input.Key)
@@ -211,7 +211,7 @@ func (db *InMemoryDB) DeleteItem(
 		return nil, err
 	}
 
-	table.mu.Lock()
+	table.mu.Lock("DeleteItem")
 	defer table.mu.Unlock()
 
 	wireKey := models.FromSDKItem(input.Key)
@@ -292,7 +292,7 @@ func (db *InMemoryDB) UpdateItem(
 		return nil, err
 	}
 
-	table.mu.Lock()
+	table.mu.Lock("UpdateItem")
 	defer table.mu.Unlock()
 
 	wireKey := models.FromSDKItem(input.Key)
