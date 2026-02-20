@@ -286,11 +286,13 @@ func TestRWMutex_Close(t *testing.T) {
 	t.Parallel()
 
 	t.Run("CloseNew", func(t *testing.T) {
+		t.Parallel()
 		m := lockmetrics.New("test.close-new")
 		m.Close()
 	})
 
 	t.Run("CloseAfterUse", func(t *testing.T) {
+		t.Parallel()
 		m := lockmetrics.New("test.close-after-use")
 		m.Lock("op")
 		m.Unlock()

@@ -271,12 +271,14 @@ func TestScan_SnapshotIsolation(t *testing.T) {
 	// (This confirms it's a deep copy and not just a reference to the internal map)
 	gotItem := models.FromSDKItem(res.Items[0])
 	nested := gotItem["nested"].(map[string]any)["M"].(map[string]any)
-	assert.Equal(t, "initial", nested["key"].(map[string]any)["S"], "Scan results should be isolated from subsequent mutations")
+	assert.Equal(t, "initial", nested["key"].(map[string]any)["S"],
+		"Scan results should be isolated from subsequent mutations")
 }
 
 func mustToAttributeValueMap(t *testing.T, m map[string]any) map[string]types.AttributeValue {
 	t.Helper()
 	sdk, err := models.ToSDKItem(m)
 	require.NoError(t, err)
+
 	return sdk
 }

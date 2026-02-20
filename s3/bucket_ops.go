@@ -454,7 +454,11 @@ func (h *S3Handler) putBucketVersioning(
 		},
 	})
 	if err != nil {
-		httputil.WriteError(log, w, r, err, http.StatusNotFound)
+		if errors.Is(err, ErrNoSuchBucket) {
+			httputil.WriteError(log, w, r, err, http.StatusNotFound)
+		} else {
+			httputil.WriteError(log, w, r, err, http.StatusInternalServerError)
+		}
 
 		return
 	}
@@ -475,7 +479,11 @@ func (h *S3Handler) getBucketVersioning(
 		&s3.GetBucketVersioningInput{Bucket: aws.String(bucketName)},
 	)
 	if err != nil {
-		httputil.WriteError(log, w, r, err, http.StatusNotFound)
+		if errors.Is(err, ErrNoSuchBucket) {
+			httputil.WriteError(log, w, r, err, http.StatusNotFound)
+		} else {
+			httputil.WriteError(log, w, r, err, http.StatusInternalServerError)
+		}
 
 		return
 	}

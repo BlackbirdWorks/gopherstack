@@ -100,8 +100,8 @@ func TestDeleteItem_SwapWithLast(t *testing.T) {
 					Key:       map[string]any{"id": map[string]any{"S": key}},
 				}
 				sdkGet, _ := models.ToSDKGetItemInput(&getInput)
-				resp, err := db.GetItem(t.Context(), sdkGet)
-				require.NoError(t, err)
+				resp, getErr := db.GetItem(t.Context(), sdkGet)
+				require.NoError(t, getErr)
 				assert.NotEmpty(t, resp.Item, "Should be able to find item %s after deletion", key)
 			}
 
@@ -111,8 +111,8 @@ func TestDeleteItem_SwapWithLast(t *testing.T) {
 				Key:       map[string]any{"id": map[string]any{"S": tt.deleteKey}},
 			}
 			sdkGet, _ := models.ToSDKGetItemInput(&getInput)
-			resp, err := db.GetItem(t.Context(), sdkGet)
-			require.NoError(t, err)
+			resp, getErr2 := db.GetItem(t.Context(), sdkGet)
+			require.NoError(t, getErr2)
 			assert.Empty(t, resp.Item, "Item %s should be deleted", tt.deleteKey)
 		})
 	}

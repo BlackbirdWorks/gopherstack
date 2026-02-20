@@ -56,6 +56,8 @@ func run(cfg config.Config) error {
 	ddbHandler := ddbbackend.NewHandler(ddbBackend, log)
 	s3Backend := s3backend.NewInMemoryBackend(&s3backend.GzipCompressor{})
 	s3Handler := s3backend.NewHandler(s3Backend, log)
+	// Set endpoint to support virtual-hosted-style requests
+	s3Handler.Endpoint = "localhost:" + cfg.Port
 
 	// Create a temporary mux for in-memory SDK clients
 	inMemMux := http.NewServeMux()
