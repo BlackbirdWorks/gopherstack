@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
@@ -57,7 +58,8 @@ func run(cfg config.Config) error {
 	s3Backend := s3backend.NewInMemoryBackend(&s3backend.GzipCompressor{})
 	s3Handler := s3backend.NewHandler(s3Backend, log)
 	// Set endpoint to support virtual-hosted-style requests
-	s3Handler.Endpoint = "localhost:" + cfg.Port
+	s3Port := strings.TrimPrefix(cfg.Port, ":")
+	s3Handler.Endpoint = "localhost:" + s3Port
 
 	// Create a temporary mux for in-memory SDK clients
 	inMemMux := http.NewServeMux()

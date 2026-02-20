@@ -161,6 +161,12 @@ func (h *DashboardHandler) Name() string {
 func (h *DashboardHandler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
+		method := c.Request().Method
+
+		// Dashboard UI only uses GET and POST.
+		if method != http.MethodGet && method != http.MethodPost {
+			return false
+		}
 
 		return path == "/dashboard" || strings.HasPrefix(path, "/dashboard/")
 	}
