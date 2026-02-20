@@ -115,6 +115,72 @@ func serveHandler(handler *dashboard.DashboardHandler, w http.ResponseWriter, r 
 	}
 }
 
+// newFullStack creates a fully-wired integration stack with the dashboard handler
+// registered in the service registry, enabling e2e testing through the RouteMatcher.
+// Returns the stack and the Echo instance to dispatch test requests through.
+func newFullStack(t *testing.T) (*integrationStack, *echo.Echo) {
+	t.Helper()
+
+	s3Bk := s3backend.NewInMemoryBackend(nil)
+	s3Hndlr := s3backend.NewHandler(s3Bk, slog.Default())
+	ddbBk := ddbbackend.NewInMemoryDB()
+	ddbHndlr := ddbbackend.NewHandler(ddbBk, slog.Default())
+
+	// inMemMux routes SDK client requests through the full Echo stack
+	inMemMux := http.NewServeMux()
+	inMemClient := &dashboard.InMemClient{Handler: inMemMux}
+
+	cfg, err := config.LoadDefaultConfig(t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("dummy", "dummy", ""),
+		),
+		config.WithHTTPClient(inMemClient),
+	)
+	require.NoError(t, err)
+
+	ddbClient := dynamodb.NewFromConfig(cfg, func(o *dynamodb.Options) {
+		o.BaseEndpoint = aws.String("http://local")
+	})
+	s3Client := s3.NewFromConfig(cfg, func(o *s3.Options) {
+		o.UsePathStyle = true
+		o.BaseEndpoint = aws.String("http://local")
+	})
+
+	h := dashboard.NewHandler(ddbClient, s3Client, ddbHndlr, s3Hndlr, slog.Default())
+
+	// Register all three services (including dashboard) to test RouteMatcher
+	e := echo.New()
+	e.Pre(logger.EchoMiddleware(slog.Default()))
+
+	registry := service.NewRegistry(slog.Default())
+	_ = registry.Register(ddbHndlr)
+	_ = registry.Register(h)
+	_ = registry.Register(s3Hndlr)
+
+	router := service.NewServiceRouter(registry)
+	e.Use(router.RouteHandler())
+
+	// Wire SDK client requests through the same Echo instance
+	inMemMux.Handle("/", e)
+
+	return &integrationStack{
+		handler:    h,
+		s3Backend:  s3Bk,
+		e:          e,
+		ddbHandler: ddbHndlr,
+		s3Client:   s3Client,
+		dyClient:   ddbClient,
+	}, e
+}
+
+// serveFullStack sends a request through the full Echo stack (including RouteMatcher).
+func serveFullStack(e *echo.Echo, w http.ResponseWriter, r *http.Request) {
+	ctx := logger.Save(r.Context(), slog.Default())
+	r = r.WithContext(ctx)
+	e.ServeHTTP(w, r)
+}
+
 func newDDBTable(t *testing.T, stack *integrationStack, tableName string) {
 	t.Helper()
 
@@ -2061,5 +2127,129 @@ func TestDashboard_CustomModal_Plumbing(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 		body := w.Body.String()
 		assert.Contains(t, body, "hx-confirm=\"Are you sure you want to delete bucket 'test-bucket'?\"")
+	})
+}
+
+func TestDashboard_S3_PurgeAll(t *testing.T) {
+	t.Parallel()
+
+	t.Run("purge all deletes all buckets and returns success", func(t *testing.T) {
+		t.Parallel()
+		stack := newIntegrationStack(t)
+		newS3Bucket(t, stack, "purge-bucket-one")
+		newS3Bucket(t, stack, "purge-bucket-two")
+
+		req := httptest.NewRequest(http.MethodDelete, "/dashboard/s3/purge", nil)
+		w := httptest.NewRecorder()
+		serveHandler(stack.handler, w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), "purged successfully")
+		assert.Equal(t, "bucketsPurged", w.Header().Get("Hx-Trigger"))
+	})
+
+	t.Run("purge all on empty store returns success", func(t *testing.T) {
+		t.Parallel()
+		stack := newIntegrationStack(t)
+
+		req := httptest.NewRequest(http.MethodDelete, "/dashboard/s3/purge", nil)
+		w := httptest.NewRecorder()
+		serveHandler(stack.handler, w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+
+	t.Run("purge all deletes bucket with objects inside", func(t *testing.T) {
+		t.Parallel()
+		stack := newIntegrationStack(t)
+		newS3Bucket(t, stack, "nonempty-bucket")
+		uploadS3Object(t, stack, "nonempty-bucket", "key1", "data1")
+		uploadS3Object(t, stack, "nonempty-bucket", "key2", "data2")
+
+		req := httptest.NewRequest(http.MethodDelete, "/dashboard/s3/purge", nil)
+		w := httptest.NewRecorder()
+		serveHandler(stack.handler, w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+
+		// Verify buckets are actually gone by listing
+		req = httptest.NewRequest(http.MethodGet, "/dashboard/s3/buckets", nil)
+		w = httptest.NewRecorder()
+		serveHandler(stack.handler, w, req)
+		assert.NotContains(t, w.Body.String(), "nonempty-bucket")
+	})
+
+	t.Run("DELETE request is routed through RouteMatcher", func(t *testing.T) {
+		t.Parallel()
+		stack, e := newFullStack(t)
+		newS3Bucket(t, stack, "route-test-bucket")
+
+		req := httptest.NewRequest(http.MethodDelete, "/dashboard/s3/purge", nil)
+		w := httptest.NewRecorder()
+		serveFullStack(e, w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), "purged successfully")
+	})
+}
+
+func TestDashboard_DDB_PurgeAll(t *testing.T) {
+	t.Parallel()
+
+	t.Run("purge all deletes all tables and returns success", func(t *testing.T) {
+		t.Parallel()
+		stack := newIntegrationStack(t)
+		newDDBTable(t, stack, "purge-table-one")
+		newDDBTable(t, stack, "purge-table-two")
+
+		req := httptest.NewRequest(http.MethodDelete, "/dashboard/dynamodb/purge", nil)
+		w := httptest.NewRecorder()
+		serveHandler(stack.handler, w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), "purged successfully")
+		assert.Equal(t, "tablesPurged", w.Header().Get("Hx-Trigger"))
+	})
+
+	t.Run("purge all on empty store returns success", func(t *testing.T) {
+		t.Parallel()
+		stack := newIntegrationStack(t)
+
+		req := httptest.NewRequest(http.MethodDelete, "/dashboard/dynamodb/purge", nil)
+		w := httptest.NewRecorder()
+		serveHandler(stack.handler, w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+	})
+
+	t.Run("purge all deletes tables and triggers list refresh", func(t *testing.T) {
+		t.Parallel()
+		stack := newIntegrationStack(t)
+		newDDBTable(t, stack, "to-be-purged")
+
+		req := httptest.NewRequest(http.MethodDelete, "/dashboard/dynamodb/purge", nil)
+		w := httptest.NewRecorder()
+		serveHandler(stack.handler, w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+
+		// Verify tables are gone
+		req = httptest.NewRequest(http.MethodGet, "/dashboard/dynamodb/tables", nil)
+		w = httptest.NewRecorder()
+		serveHandler(stack.handler, w, req)
+		assert.NotContains(t, w.Body.String(), "to-be-purged")
+	})
+
+	t.Run("DELETE request is routed through RouteMatcher", func(t *testing.T) {
+		t.Parallel()
+		stack, e := newFullStack(t)
+		newDDBTable(t, stack, "route-test-table")
+
+		req := httptest.NewRequest(http.MethodDelete, "/dashboard/dynamodb/purge", nil)
+		w := httptest.NewRecorder()
+		serveFullStack(e, w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), "purged successfully")
 	})
 }

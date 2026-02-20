@@ -58,7 +58,7 @@ func CollectMetrics() *Dashboard {
 	gatherer := prometheus.DefaultGatherer
 
 	metrics, err := gatherer.Gather()
-	if err != nil {
+	if err != nil && len(metrics) == 0 {
 		return &Dashboard{
 			Runtime:    collectRuntimeMetrics(),
 			Operations: []Summary{},

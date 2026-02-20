@@ -163,8 +163,8 @@ func (h *DashboardHandler) RouteMatcher() service.Matcher {
 		path := c.Request().URL.Path
 		method := c.Request().Method
 
-		// Dashboard UI only uses GET and POST.
-		if method != http.MethodGet && method != http.MethodPost {
+		// Dashboard UI uses GET, POST, and DELETE (for purge operations).
+		if method != http.MethodGet && method != http.MethodPost && method != http.MethodDelete {
 			return false
 		}
 
