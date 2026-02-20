@@ -1,10 +1,12 @@
 # Dockerfile used by GoReleaser for multi-arch builds
 FROM scratch
 
+ARG TARGETPLATFORM
+
 WORKDIR /root/
 
 # Copy the binary from GoReleaser context
-COPY gopherstack .
+COPY $TARGETPLATFORM/gopherstack .
 
 # Expose port 8000
 EXPOSE 8000
