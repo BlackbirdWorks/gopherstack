@@ -64,10 +64,10 @@ jobs:
             const fs = require('fs');
             const { execSync } = require('child_process');
             
-            let totalCoverage = 'Unknown';
+            let totalCoverage = '0.0%';
             let newCodeCoverage = 'N/A';
-            let newCodeTotalLines = 0;
-            let newCodeCoveredLines = 0;
+            let newCodeStats = { covered: 0, total: 0 };
+            let fileBreakdown = [];
 
             try {
               // 1. Total Coverage
@@ -75,8 +75,13 @@ jobs:
               totalCoverage = totalOutput;
 
               // 2. New Code Coverage (Diff-based)
-              // Get changed lines from git diff
-              const diff = execSync('git diff origin/main...HEAD -U0').toString();
+              const baseRef = context.payload.pull_request.base.ref;
+              console.log(`Comparing against base ref: ${baseRef}`);
+              
+              // Ensure base ref is fetched
+              execSync(`git fetch origin ${baseRef} --depth=1`);
+              
+              const diff = execSync(`git diff origin/${baseRef}...HEAD -U0`).toString();
               const changedLines = {}; // file -> Set of line numbers
               
               const diffLines = diff.split('\n');
@@ -97,56 +102,85 @@ jobs:
                 }
               }
 
-              // Parse coverage.out
+              // 3. Parse coverage.out and calculate stats
               const coverageData = fs.readFileSync('coverage.out', 'utf8').split('\n');
+              const fileStats = {}; // file -> {covered: 0, total: 0}
+
               for (const line of coverageData) {
                 if (!line || line.startsWith('mode:')) continue;
                 
-                // github.com/user/repo/pkg/file.go:19.46,24.2 1 1
                 const [loc, numStmt, hits] = line.split(' ');
                 const [fullPath, range] = loc.split(':');
                 const [start, end] = range.split(',');
                 const startLine = parseInt(start.split('.')[0]);
                 const endLine = parseInt(end.split('.')[0]);
+                const stmts = parseInt(numStmt);
+                const hitCount = parseInt(hits);
                 
-                // Find relative path to match diff
+                // Find relative path
                 const relativePath = fullPath.replace(/^github\.com\/[^\/]+\/[^\/]+\//, '');
                 
                 if (changedLines[relativePath]) {
+                  if (!fileStats[relativePath]) fileStats[relativePath] = { covered: 0, total: 0 };
+                  
                   const fileLines = changedLines[relativePath];
+                  let blockImpacted = false;
                   for (let l = startLine; l <= endLine; l++) {
                     if (fileLines.has(l)) {
-                      newCodeTotalLines++;
-                      if (parseInt(hits) > 0) {
-                        newCodeCoveredLines++;
-                      }
-                      // Remove to avoid double counting if blocks overlap? 
-                      // Actually blocks in coverage.out usually don't overlap lines in a way that matters for this simple heuristic.
+                      blockImpacted = true;
+                      break;
+                    }
+                  }
+
+                  if (blockImpacted) {
+                    newCodeStats.total += stmts;
+                    fileStats[relativePath].total += stmts;
+                    if (hitCount > 0) {
+                      newCodeStats.covered += stmts;
+                      fileStats[relativePath].covered += stmts;
                     }
                   }
                 }
               }
 
-              if (newCodeTotalLines > 0) {
-                newCodeCoverage = ((newCodeCoveredLines / newCodeTotalLines) * 100).toFixed(1) + '%';
+              if (newCodeStats.total > 0) {
+                newCodeCoverage = ((newCodeStats.covered / newCodeStats.total) * 100).toFixed(1) + '%';
               }
+
+              fileBreakdown = Object.entries(fileStats)
+                .map(([file, stats]) => ({
+                  file,
+                  coverage: stats.total > 0 ? ((stats.covered / stats.total) * 100).toFixed(1) + '%' : '0.0%',
+                  lines: `${stats.covered}/${stats.total}`
+                }))
+                .sort((a, b) => a.file.localeCompare(b.file));
+
             } catch (e) {
               console.log('Failed to calculate coverage metrics:', e);
             }
 
             const header = '## 📊 Code Coverage Report';
-            const totalStatus = parseFloat(totalCoverage) >= 85 ? '✅' : '⚠️';
+            const totalStatus = parseFloat(totalCoverage) >= 85 ? '✅' : '❌';
             const newStatus = parseFloat(newCodeCoverage) >= 85 || newCodeCoverage === 'N/A' ? '✅' : '⚠️';
             
+            let fileTable = '';
+            if (fileBreakdown.length > 0) {
+              fileTable = '\n### 📄 Impacted Files Breakdown\n\n' +
+                '| File | New Code Coverage | Lines |\n' +
+                '| :--- | :--- | :--- |\n' +
+                fileBreakdown.map(f => `| \`${f.file}\` | ${f.coverage} | ${f.lines} |`).join('\n');
+            }
+
             const body = `${header}
             
             | Metric | Value | Status |
             | :--- | :--- | :--- |
             | **Total Coverage** | ${totalCoverage} | ${totalStatus} |
-            | **New Code Coverage** | ${newCodeCoverage} | ${newStatus} |
-            
-            > [!NOTE]
-            > This project maintains a minimum coverage threshold of **85%**.
+            | **New Code Coverage** | ${newCodeCoverage} (${newCodeStats.covered}/${newCodeStats.total} stmts) | ${newStatus} |
+            ${fileTable}
+
+            > [!TIP]
+            > This project maintains a minimum coverage threshold of **85%**. Maintain or improve coverage on new code to ensure long-term stability.
             
             ---
             *Last updated: ${new Date().toUTCString()}*`;
