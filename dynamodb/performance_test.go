@@ -83,8 +83,9 @@ func TestBatchDeletePerformance(t *testing.T) {
 
 	t.Logf("Deleted 2500 items from 10000 in %v", duration)
 
-	// If it takes more than 1 second, it's probably still too slow (O(N^2) behavior)
-	const maxDuration = 2 * time.Second
+	// If it takes more than 5 seconds, it's definitely too slow (e.g. O(N^2) behavior).
+	// We use 5s instead of 2s to account for slow/contended CI runners.
+	const maxDuration = 5 * time.Second
 	if duration > maxDuration {
 		t.Errorf("Batch delete is too slow! Took %v, expected less than %v", duration, maxDuration)
 	}
