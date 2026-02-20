@@ -1,7 +1,7 @@
 package models
 
 import (
-	"Gopherstack/pkgs/ptrconv"
+	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"

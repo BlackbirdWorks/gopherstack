@@ -1,4 +1,4 @@
-.PHONY: build install-deps lint lint-fix test integration-test clean demo
+.PHONY: build install-deps lint lint-fix test integration-test clean demo all
 
 BINARY_NAME=gopherstack
 
@@ -43,14 +43,13 @@ test:
 	go test -v -race -shuffle on -short ./...
 
 test-with-coverage:
-	go test -v -race -shuffle on -tags=integration -coverpkg=./... -coverprofile=coverage.out -covermode=atomic ./...
+	go test -v -race -shuffle on  -coverpkg=./... -coverprofile=coverage.out -covermode=atomic ./...
 	go tool cover -func=coverage.out
 	go tool cover -html=coverage.out -o coverage.html
 
-
 integration-test:
 	@echo "Running DynamoDB integration tests (no cache)..."
-	go test -v -race -shuffle on -tags=integration ./test/integration/...
+	go test -v -race -shuffle on ./test/integration/...
 	
 e2e-test:
 	@echo "Running E2E behavior tests (Playwright)..."
@@ -70,3 +69,10 @@ demo:
 	docker compose down
 	docker compose build
 	docker compose up -d
+
+all: 
+	make lint
+	make test
+	make integration-test
+	make e2e-test
+	

@@ -49,6 +49,11 @@ func WrapEchoHandler(
 		// Call the handler
 		err := handler(c)
 
+		// Re-extract operation in case the handler refined it (common for S3)
+		if operation == "Unknown" || operation == "unknown" {
+			operation = observer.ExtractOperation(c)
+		}
+
 		duration := time.Since(start)
 		durationSeconds := duration.Seconds()
 

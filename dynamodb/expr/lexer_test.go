@@ -1,9 +1,10 @@
 package expr_test
 
 import (
-	"Gopherstack/dynamodb/expr"
 	"fmt"
 	"testing"
+
+	"github.com/blackbirdworks/gopherstack/dynamodb/expr"
 
 	"github.com/stretchr/testify/assert"
 )

@@ -1,9 +1,10 @@
 package s3_test
 
 import (
-	"Gopherstack/s3"
 	"strings"
 	"testing"
+
+	"github.com/blackbirdworks/gopherstack/s3"
 
 	"github.com/stretchr/testify/assert"
 )

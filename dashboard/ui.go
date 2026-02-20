@@ -11,7 +11,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/labstack/echo/v5"
 
-	"Gopherstack/pkgs/service"
+	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
+	pkgslogger "github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	s3backend "github.com/blackbirdworks/gopherstack/s3"
 )
 
 const (
@@ -36,23 +39,36 @@ type PageData struct {
 }
 
 // DashboardHandler handles HTTP requests for the Dashboard web interface.
+// It automatically discovers and integrates services that implement DashboardProvider.
+// During transition, it also supports the old pattern of direct SDK client injection.
 //
 //nolint:revive // Stuttering preferred here for clarity per Plan.md
 type DashboardHandler struct {
-	DynamoDB  *dynamodb.Client
-	S3        *s3.Client
-	DDBOps    OperationsProvider
-	S3Ops     OperationsProvider
+	// Legacy direct SDK injection pattern
+	DynamoDB *dynamodb.Client
+	S3       *s3.Client
+	DDBOps   *ddbbackend.DynamoDBHandler
+	S3Ops    *s3backend.S3Handler
+
+	// Dashboard providers for service discovery
+	ddbProvider *ddbbackend.DashboardProvider
+	s3Provider  *s3backend.DashboardProvider
+
 	Logger    *slog.Logger
 	layout    *template.Template
-	subRouter *echo.Echo
+	SubRouter *echo.Echo
 }
 
 // NewHandler creates a new Dashboard handler.
+// It supports both registry-based discovery and legacy direct SDK client injection.
+// The registry parameter may be nil for backward compatibility.
+// If registry is provided, it discovers and initializes all DashboardProviders.
+// If SDK clients are provided, they are used for the legacy handlers.
 func NewHandler(
-	db *dynamodb.Client,
+	ddbClient *dynamodb.Client,
 	s3Client *s3.Client,
-	ddbOps, s3Ops OperationsProvider,
+	ddbOps *ddbbackend.DynamoDBHandler,
+	s3Ops *s3backend.S3Handler,
 	logger *slog.Logger,
 ) *DashboardHandler {
 	// Parse layout and components
@@ -61,14 +77,27 @@ func NewHandler(
 		"templates/components/*.html",
 	))
 
+	// Create service-specific dashboard providers
+	ddbProvider := ddbbackend.NewDashboardProvider()
+	s3Provider := s3backend.NewDashboardProvider()
+
 	h := &DashboardHandler{
-		DynamoDB: db,
-		S3:       s3Client,
-		DDBOps:   ddbOps,
-		S3Ops:    s3Ops,
-		Logger:   logger,
-		layout:   tmpl,
+		DynamoDB:    ddbClient,
+		S3:          s3Client,
+		DDBOps:      ddbOps,
+		S3Ops:       s3Ops,
+		Logger:      logger,
+		layout:      tmpl,
+		ddbProvider: ddbProvider,
+		s3Provider:  s3Provider,
+		SubRouter:   echo.New(),
 	}
+
+	h.SubRouter.Pre(pkgslogger.EchoMiddleware(logger))
+
+	// Set up handler functions for providers
+	h.ddbProvider.Handlers.HandleDynamoDB = h.handleDynamoDB
+	h.s3Provider.Handlers.HandleS3 = h.handleS3
 
 	h.setupSubRouter()
 
@@ -76,57 +105,48 @@ func NewHandler(
 }
 
 func (h *DashboardHandler) setupSubRouter() {
-	h.subRouter = echo.New()
-
 	// Static files
-	h.subRouter.GET("/dashboard/static/*", func(c *echo.Context) error {
+	h.SubRouter.GET("/dashboard/static/*", func(c *echo.Context) error {
 		http.StripPrefix("/dashboard", http.FileServer(http.FS(staticFS))).
 			ServeHTTP(c.Response(), c.Request())
 
 		return nil
 	})
 
-	// Redirect root to DynamoDB
-	h.subRouter.GET("/dashboard", func(c *echo.Context) error {
+	// Redirect root to dynamodb tab
+	h.SubRouter.GET("/dashboard", func(c *echo.Context) error {
 		return c.Redirect(http.StatusFound, "/dashboard/dynamodb")
 	})
-	h.subRouter.GET("/dashboard/", func(c *echo.Context) error {
+	h.SubRouter.GET("/dashboard/", func(c *echo.Context) error {
 		return c.Redirect(http.StatusFound, "/dashboard/dynamodb")
 	})
 
-	// DynamoDB routes
-	h.subRouter.Any("/dashboard/dynamodb*", func(c *echo.Context) error {
-		path := strings.TrimPrefix(c.Request().URL.Path, "/dashboard/dynamodb")
-		h.handleDynamoDB(c.Response(), c.Request(), path)
+	// Register service provider routes dynamically
+	// DynamoDB routes (via provider)
+	if h.ddbProvider != nil {
+		ddbGroup := h.SubRouter.Group("/dashboard/dynamodb")
+		h.ddbProvider.RegisterDashboardRoutes(ddbGroup, nil, "")
+	}
 
-		return nil
-	})
+	// S3 routes (via provider)
+	if h.s3Provider != nil {
+		s3Group := h.SubRouter.Group("/dashboard/s3")
+		h.s3Provider.RegisterDashboardRoutes(s3Group, nil, "")
+	}
 
-	// S3 routes
-	h.subRouter.Any("/dashboard/s3*", func(c *echo.Context) error {
-		path := strings.TrimPrefix(c.Request().URL.Path, "/dashboard/s3")
-		h.handleS3(c.Response(), c.Request(), path)
-
-		return nil
-	})
-
-	// Metrics & Docs
-	h.subRouter.GET("/dashboard/metrics", func(c *echo.Context) error {
-		h.metricsIndex(c.Response(), c.Request())
-
-		return nil
-	})
-	h.subRouter.GET("/dashboard/docs", func(c *echo.Context) error {
-		h.docIndex(c.Response(), c.Request())
-
-		return nil
-	})
+	// Metrics & Docs (always available)
+	if h != nil && h.SubRouter != nil {
+		dashboardGroup := h.SubRouter.Group("/dashboard")
+		if dashboardGroup != nil {
+			RegisterMetricsHandlers(dashboardGroup, h)
+		}
+	}
 }
 
 // Handler returns the Echo handler function for dashboard requests.
 func (h *DashboardHandler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		h.subRouter.ServeHTTP(c.Response(), c.Request())
+		h.SubRouter.ServeHTTP(c.Response(), c.Request())
 
 		return nil
 	}
@@ -142,6 +162,14 @@ func (h *DashboardHandler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		return strings.HasPrefix(c.Request().URL.Path, "/dashboard")
 	}
+}
+
+// MatchPriority returns the priority for the Dashboard matcher.
+// Path-based matchers have medium priority (50).
+func (h *DashboardHandler) MatchPriority() int {
+	const priority = 50
+
+	return priority
 }
 
 // ExtractOperation returns the dashboard operation based on path.

@@ -1,8 +1,8 @@
 package dynamodb
 
 import (
-	"Gopherstack/dynamodb/models"
-	"Gopherstack/pkgs/dynamoattr"
+	"github.com/blackbirdworks/gopherstack/dynamodb/models"
+	"github.com/blackbirdworks/gopherstack/pkgs/dynamoattr"
 )
 
 // Export internal functions for testing in the dynamodb_test package.

@@ -12,8 +12,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 
-	"Gopherstack/pkgs/httputils"
-	"Gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 func (h *S3Handler) createMultipartUpload(
@@ -29,7 +29,7 @@ func (h *S3Handler) createMultipartUpload(
 		Key:    aws.String(key),
 	})
 	if err != nil {
-		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
+		httputil.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}
@@ -40,7 +40,7 @@ func (h *S3Handler) createMultipartUpload(
 		UploadID: *out.UploadId,
 	}
 
-	httputils.WriteXML(log, w, http.StatusOK, resp)
+	httputil.WriteXML(log, w, http.StatusOK, resp)
 }
 
 func (h *S3Handler) uploadPart(
@@ -55,14 +55,14 @@ func (h *S3Handler) uploadPart(
 	partNumberStr := r.URL.Query().Get("partNumber")
 	partNumber, err := strconv.Atoi(partNumberStr)
 	if err != nil {
-		httputils.WriteError(log, w, r, ErrInvalidArgument, http.StatusBadRequest)
+		httputil.WriteError(log, w, r, ErrInvalidArgument, http.StatusBadRequest)
 
 		return
 	}
 
-	data, err := httputils.ReadBody(r)
+	data, err := httputil.ReadBody(r)
 	if err != nil {
-		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
+		httputil.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}
@@ -76,13 +76,13 @@ func (h *S3Handler) uploadPart(
 	})
 	if errors.Is(err, ErrNoSuchBucket) || errors.Is(err, ErrNoSuchKey) ||
 		errors.Is(err, ErrNoSuchUpload) {
-		httputils.WriteError(log, w, r, err, http.StatusNotFound)
+		httputil.WriteError(log, w, r, err, http.StatusNotFound)
 
 		return
 	}
 
 	if err != nil {
-		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
+		httputil.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}
@@ -103,7 +103,7 @@ func (h *S3Handler) completeMultipartUpload(
 
 	var partsReq CompleteMultipartUpload
 	if err := xml.NewDecoder(r.Body).Decode(&partsReq); err != nil {
-		httputils.WriteError(log, w, r, err, http.StatusBadRequest)
+		httputil.WriteError(log, w, r, err, http.StatusBadRequest)
 
 		return
 	}
@@ -127,19 +127,19 @@ func (h *S3Handler) completeMultipartUpload(
 	)
 	if errors.Is(err, ErrNoSuchBucket) || errors.Is(err, ErrNoSuchKey) ||
 		errors.Is(err, ErrNoSuchUpload) {
-		httputils.WriteError(log, w, r, err, http.StatusNotFound)
+		httputil.WriteError(log, w, r, err, http.StatusNotFound)
 
 		return
 	}
 
 	if errors.Is(err, ErrInvalidPart) {
-		httputils.WriteError(log, w, r, err, http.StatusBadRequest)
+		httputil.WriteError(log, w, r, err, http.StatusBadRequest)
 
 		return
 	}
 
 	if err != nil {
-		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
+		httputil.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}
@@ -151,7 +151,7 @@ func (h *S3Handler) completeMultipartUpload(
 		ETag:     *out.ETag,
 	}
 
-	httputils.WriteXML(log, w, http.StatusOK, resp)
+	httputil.WriteXML(log, w, http.StatusOK, resp)
 }
 
 func (h *S3Handler) abortMultipartUpload(
@@ -168,11 +168,11 @@ func (h *S3Handler) abortMultipartUpload(
 		Key:      aws.String(key),
 		UploadId: aws.String(uploadID),
 	}); errors.Is(err, ErrNoSuchUpload) {
-		httputils.WriteError(log, w, r, err, http.StatusNotFound)
+		httputil.WriteError(log, w, r, err, http.StatusNotFound)
 
 		return
 	} else if err != nil {
-		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
+		httputil.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}

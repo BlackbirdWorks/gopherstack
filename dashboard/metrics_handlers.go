@@ -3,19 +3,36 @@ package dashboard
 import (
 	"net/http"
 
-	"Gopherstack/pkgs/telemetry"
+	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 
 	"github.com/labstack/echo/v5"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-// RegisterMetricsHandlers registers metrics endpoints.
-func RegisterMetricsHandlers(e *echo.Echo) {
+// RegisterMetricsHandlers registers metrics endpoints under the dashboard group.
+func RegisterMetricsHandlers(g *echo.Group, h *DashboardHandler) {
+	if g == nil {
+		return
+	}
 	// Prometheus native format (for scraping or direct consumption)
-	e.GET("/metrics", echo.WrapHandler(promhttp.Handler()))
+	g.GET("/metrics/raw", echo.WrapHandler(promhttp.Handler()))
 
 	// JSON format for dashboard consumption
-	e.GET("/api/metrics", getMetricsJSON)
+	g.GET("/api/metrics", getMetricsJSON)
+
+	// UI Routes
+	if h != nil {
+		g.GET("/metrics", func(c *echo.Context) error {
+			h.metricsIndex(c.Response(), c.Request())
+
+			return nil
+		})
+		g.GET("/docs", func(c *echo.Context) error {
+			h.docIndex(c.Response(), c.Request())
+
+			return nil
+		})
+	}
 }
 
 // getMetricsJSON returns metrics in JSON format for dashboard charts.

@@ -13,10 +13,10 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"Gopherstack/dynamodb/models"
-	"Gopherstack/pkgs/httputils"
-	"Gopherstack/pkgs/logger"
-	"Gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/dynamodb/models"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
 var ErrUnknownOperation = errors.New("UnknownOperationException")
@@ -25,15 +25,15 @@ var ErrUnknownOperation = errors.New("UnknownOperationException")
 //
 //nolint:revive // Stuttering preferred here for clarity per Plan.md
 type DynamoDBHandler struct {
-	DB     *InMemoryDB
-	Logger *slog.Logger
+	Backend StorageBackend
+	Logger  *slog.Logger
 }
 
-// NewHandler creates a new DynamoDB handler.
-func NewHandler(logger *slog.Logger) *DynamoDBHandler {
+// NewHandler creates a new DynamoDB handler with the given storage backend.
+func NewHandler(backend StorageBackend, logger *slog.Logger) *DynamoDBHandler {
 	return &DynamoDBHandler{
-		DB:     NewInMemoryDB(),
-		Logger: logger,
+		Backend: backend,
+		Logger:  logger,
 	}
 }
 
@@ -87,7 +87,7 @@ func (h *DynamoDBHandler) Handler() echo.HandlerFunc {
 		}
 		action := parts[1]
 
-		body, err := httputils.ReadBody(c.Request())
+		body, err := httputil.ReadBody(c.Request())
 		if err != nil {
 			log.ErrorContext(ctx, "failed to read request body", "error", err)
 
@@ -130,6 +130,14 @@ func (h *DynamoDBHandler) RouteMatcher() service.Matcher {
 	}
 }
 
+// MatchPriority returns the priority for the DynamoDB matcher.
+// Header-based matchers have high priority (100).
+func (h *DynamoDBHandler) MatchPriority() int {
+	const priority = 100
+
+	return priority
+}
+
 // ExtractOperation extracts the DynamoDB operation from the X-Amz-Target header.
 func (h *DynamoDBHandler) ExtractOperation(c *echo.Context) string {
 	target := c.Request().Header.Get("X-Amz-Target")
@@ -144,7 +152,7 @@ func (h *DynamoDBHandler) ExtractOperation(c *echo.Context) string {
 
 // ExtractResource extracts the table name from the DynamoDB request body.
 func (h *DynamoDBHandler) ExtractResource(c *echo.Context) string {
-	body, err := httputils.ReadBody(c.Request())
+	body, err := httputil.ReadBody(c.Request())
 	if err != nil {
 		return ""
 	}
@@ -266,22 +274,22 @@ func (h *DynamoDBHandler) dispatchTableOps(ctx context.Context, action string, b
 	case "CreateTable":
 		return handleOp(
 			ctx, action, body,
-			models.ToSDKCreateTableInput, h.DB.CreateTable, models.FromSDKCreateTableOutput,
+			models.ToSDKCreateTableInput, h.Backend.CreateTable, models.FromSDKCreateTableOutput,
 		)
 	case "DeleteTable":
 		return handleOp(
 			ctx, action, body,
-			models.ToSDKDeleteTableInput, h.DB.DeleteTable, models.FromSDKDeleteTableOutput,
+			models.ToSDKDeleteTableInput, h.Backend.DeleteTable, models.FromSDKDeleteTableOutput,
 		)
 	case "DescribeTable":
 		return handleOp(
 			ctx, action, body,
-			models.ToSDKDescribeTableInput, h.DB.DescribeTable, models.FromSDKDescribeTableOutput,
+			models.ToSDKDescribeTableInput, h.Backend.DescribeTable, models.FromSDKDescribeTableOutput,
 		)
 	case "ListTables":
 		return handleOp(
 			ctx, action, body,
-			models.ToSDKListTablesInput, h.DB.ListTables, models.FromSDKListTablesOutput,
+			models.ToSDKListTablesInput, h.Backend.ListTables, models.FromSDKListTablesOutput,
 		)
 	case "UpdateTimeToLive":
 		return handleOp(
@@ -289,7 +297,7 @@ func (h *DynamoDBHandler) dispatchTableOps(ctx context.Context, action string, b
 			action,
 			body,
 			models.ToSDKUpdateTimeToLiveInput,
-			h.DB.UpdateTimeToLive,
+			h.Backend.UpdateTimeToLive,
 			models.FromSDKUpdateTimeToLiveOutput,
 		)
 	case "DescribeTimeToLive":
@@ -298,7 +306,7 @@ func (h *DynamoDBHandler) dispatchTableOps(ctx context.Context, action string, b
 			action,
 			body,
 			models.ToSDKDescribeTimeToLiveInput,
-			h.DB.DescribeTimeToLive,
+			h.Backend.DescribeTimeToLive,
 			models.FromSDKDescribeTimeToLiveOutput,
 		)
 	default:
@@ -311,37 +319,37 @@ func (h *DynamoDBHandler) dispatchItemOps(ctx context.Context, action string, bo
 	case "PutItem":
 		return handleOpErr(
 			ctx, action, body,
-			models.ToSDKPutItemInput, h.DB.PutItem, models.FromSDKPutItemOutput,
+			models.ToSDKPutItemInput, h.Backend.PutItem, models.FromSDKPutItemOutput,
 		)
 	case "GetItem":
 		return handleOpErr(
 			ctx, action, body,
-			models.ToSDKGetItemInput, h.DB.GetItem, models.FromSDKGetItemOutput,
+			models.ToSDKGetItemInput, h.Backend.GetItem, models.FromSDKGetItemOutput,
 		)
 	case "DeleteItem":
 		return handleOpErr(
 			ctx, action, body,
-			models.ToSDKDeleteItemInput, h.DB.DeleteItem, models.FromSDKDeleteItemOutput,
+			models.ToSDKDeleteItemInput, h.Backend.DeleteItem, models.FromSDKDeleteItemOutput,
 		)
 	case "Scan":
 		return handleOpErr(
 			ctx, action, body,
-			models.ToSDKScanInput, h.DB.Scan, models.FromSDKScanOutput,
+			models.ToSDKScanInput, h.Backend.Scan, models.FromSDKScanOutput,
 		)
 	case "UpdateItem":
 		return handleOpErr(
 			ctx, action, body,
-			models.ToSDKUpdateItemInput, h.DB.UpdateItem, models.FromSDKUpdateItemOutput,
+			models.ToSDKUpdateItemInput, h.Backend.UpdateItem, models.FromSDKUpdateItemOutput,
 		)
 	case "Query":
 		return handleOpErr(
 			ctx, action, body,
-			models.ToSDKQueryInput, h.DB.Query, models.FromSDKQueryOutput,
+			models.ToSDKQueryInput, h.Backend.Query, models.FromSDKQueryOutput,
 		)
 	case "BatchGetItem":
 		return handleOpErr(
 			ctx, action, body,
-			models.ToSDKBatchGetItemInput, h.DB.BatchGetItem, models.FromSDKBatchGetItemOutput,
+			models.ToSDKBatchGetItemInput, h.Backend.BatchGetItem, models.FromSDKBatchGetItemOutput,
 		)
 	case "BatchWriteItem":
 		return handleOpErr(
@@ -349,7 +357,7 @@ func (h *DynamoDBHandler) dispatchItemOps(ctx context.Context, action string, bo
 			action,
 			body,
 			models.ToSDKBatchWriteItemInput,
-			h.DB.BatchWriteItem,
+			h.Backend.BatchWriteItem,
 			models.FromSDKBatchWriteItemOutput,
 		)
 	default:
@@ -368,7 +376,7 @@ func (h *DynamoDBHandler) dispatchTransactOps(
 			action,
 			body,
 			models.ToSDKTransactWriteItemsInput,
-			h.DB.TransactWriteItems,
+			h.Backend.TransactWriteItems,
 			models.FromSDKTransactWriteItemsOutput,
 		)
 	case "TransactGetItems":
@@ -376,7 +384,7 @@ func (h *DynamoDBHandler) dispatchTransactOps(
 			action,
 			body,
 			models.ToSDKTransactGetItemsInput,
-			h.DB.TransactGetItems,
+			h.Backend.TransactGetItems,
 			models.FromSDKTransactGetItemsOutput,
 		)
 	default:

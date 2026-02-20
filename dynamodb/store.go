@@ -1,9 +1,9 @@
 package dynamodb
 
 import (
-	"Gopherstack/dynamodb/models"
-	"Gopherstack/pkgs/dynamoattr"
-	"Gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/dynamodb/models"
+	"github.com/blackbirdworks/gopherstack/pkgs/dynamoattr"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
 // InMemoryDB stores tables and items.

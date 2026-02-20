@@ -9,7 +9,7 @@ import (
 	"net/url"
 	"strings"
 
-	"Gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"

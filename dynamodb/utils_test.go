@@ -1,11 +1,12 @@
 package dynamodb_test
 
 import (
-	"Gopherstack/dynamodb"
-	"Gopherstack/dynamodb/models"
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/blackbirdworks/gopherstack/dynamodb"
+	"github.com/blackbirdworks/gopherstack/dynamodb/models"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

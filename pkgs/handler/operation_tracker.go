@@ -11,8 +11,8 @@ type operationData struct {
 	resource  string
 }
 
-//nolint:gochecknoglobals // Required for context key
-var operationCtxKey = OperationKey{}
+//nolint:gochecknoglobals // Context keys must be package-level for consistent use.
+var operationCtxKey OperationKey
 
 // withOperation creates a new context with operation metadata.
 func withOperation(ctx context.Context, operation, resource string) context.Context {
@@ -31,12 +31,17 @@ func GetOperation(ctx context.Context) string {
 	return "Unknown"
 }
 
-// SetOperation updates the operation name in context.
-// Note: This modifies the context value in place and does not create a new context.
-func SetOperation(ctx context.Context, operation string) {
+// SetOperation returns a new context with the operation name updated.
+// This follows the idiomatic context pattern - immutable values.
+func SetOperation(ctx context.Context, operation string) context.Context {
 	if data, ok := ctx.Value(operationCtxKey).(*operationData); ok && data != nil {
-		data.operation = operation
+		return context.WithValue(ctx, operationCtxKey, &operationData{
+			operation: operation,
+			resource:  data.resource,
+		})
 	}
+
+	return ctx
 }
 
 // GetResource retrieves the resource identifier from context, or "" if not set.

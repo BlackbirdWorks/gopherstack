@@ -1,7 +1,7 @@
 package dynamodb
 
 import (
-	"Gopherstack/dynamodb/expr"
+	"github.com/blackbirdworks/gopherstack/dynamodb/expr"
 )
 
 // EvaluateExpression evaluates a DynamoDB condition expression against an item.

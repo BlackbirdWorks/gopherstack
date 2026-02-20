@@ -10,5 +10,11 @@ main
 /bin/
 .DS_Store
 coverage.html
+**/*.txt
 *.txt
+**/*.log
+*.log
+*.md
+**/*.md
 *.pdf
+test/e2e/failures/

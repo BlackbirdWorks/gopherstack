@@ -14,18 +14,19 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"Gopherstack/dashboard"
-	"Gopherstack/demo"
-	ddbbackend "Gopherstack/dynamodb"
-	"Gopherstack/pkgs/logger"
-	"Gopherstack/pkgs/service"
-	s3backend "Gopherstack/s3"
+	"github.com/blackbirdworks/gopherstack/dashboard"
+	"github.com/blackbirdworks/gopherstack/demo"
+	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	s3backend "github.com/blackbirdworks/gopherstack/s3"
 )
 
 func TestLoadData(t *testing.T) {
 	t.Parallel()
 	// Setup Backends
-	ddbHandler := ddbbackend.NewHandler(slog.Default())
+	ddbBackend := ddbbackend.NewInMemoryDB()
+	ddbHandler := ddbbackend.NewHandler(ddbBackend, slog.Default())
 	s3Backend := s3backend.NewInMemoryBackend(&s3backend.GzipCompressor{})
 	s3Handler := s3backend.NewHandler(s3Backend, slog.Default())
 
@@ -34,13 +35,11 @@ func TestLoadData(t *testing.T) {
 	e.Pre(logger.EchoMiddleware(slog.Default()))
 
 	registry := service.NewRegistry(slog.Default())
-	_ = registry.Register(ddbHandler, ddbHandler)
-	_ = registry.Register(s3Handler, s3Handler)
+	_ = registry.Register(ddbHandler)
+	_ = registry.Register(s3Handler)
 
 	router := service.NewServiceRouter(registry)
-	e.Pre(func(_ echo.HandlerFunc) echo.HandlerFunc {
-		return router.RouteHandler()
-	})
+	e.Use(router.RouteHandler())
 
 	// Setup Client using Echo's HTTP server
 	inMemClient := &dashboard.InMemClient{Handler: e}

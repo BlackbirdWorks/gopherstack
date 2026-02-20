@@ -7,9 +7,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
+//nolint:gochecknoglobals // Prometheus collectors are global for registration.
 var (
 	// Generic operation latencies (seconds) - works for any backend.
-	//nolint:gochecknoglobals // Prometheus vectors are global by design
+	// Prometheus requires these to be global for automatic registration with the global registry.
 	operationLatency = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "operation_duration_seconds",
@@ -20,7 +21,7 @@ var (
 	)
 
 	// Operation counters.
-	//nolint:gochecknoglobals // Prometheus vectors are global by design
+	// Prometheus requires these to be global for automatic registration with the global registry.
 	operationCounter = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "operations_total",
@@ -30,7 +31,7 @@ var (
 	)
 
 	// Lock hold times.
-	//nolint:gochecknoglobals // Prometheus vectors are global by design
+	// Prometheus requires these to be global for automatic registration with the global registry.
 	lockDuration = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "lock_hold_duration_seconds",
@@ -40,7 +41,7 @@ var (
 		[]string{"lock_type"},
 	)
 
-	//nolint:gochecknoglobals // Protected by sync.RWMutex
+	// mu protects access to metrics data structures.
 	mu sync.RWMutex
 )
 

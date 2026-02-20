@@ -1,4 +1,4 @@
-module Gopherstack
+module github.com/blackbirdworks/gopherstack
 
 go 1.26
 

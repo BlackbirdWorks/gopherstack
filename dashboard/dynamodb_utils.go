@@ -22,6 +22,7 @@ var (
 
 // TableInfo represents table information for display.
 type TableInfo struct {
+	Pagination             *PaginationInfo
 	TableName              string
 	PartitionKey           string
 	PartitionKeyType       string
@@ -32,6 +33,22 @@ type TableInfo struct {
 	ItemCount              int64
 	GSICount               int
 	LSICount               int
+}
+
+// PaginationInfo represented info for shared pagination component.
+type PaginationInfo struct {
+	SearchQuery  string
+	BaseEndpoint string
+	TargetID     string
+	TotalItems   int
+	Offset       int
+	Limit        int
+	CurrentPage  int
+	TotalPages   int
+	PrevOffset   int
+	NextOffset   int
+	HasPrev      bool
+	HasNext      bool
 }
 
 // IndexInfo represents index information.

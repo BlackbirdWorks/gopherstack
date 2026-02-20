@@ -8,8 +8,8 @@ import (
 	"net/url"
 	"strconv"
 
-	"Gopherstack/pkgs/httputils"
-	"Gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -64,11 +64,11 @@ func (h *S3Handler) handleListObjectsV2Error(
 	err error,
 ) {
 	if errors.Is(err, ErrNoSuchBucket) {
-		httputils.WriteError(log, w, r, err, http.StatusNotFound)
+		httputil.WriteError(log, w, r, err, http.StatusNotFound)
 
 		return
 	}
-	httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
+	httputil.WriteError(log, w, r, err, http.StatusInternalServerError)
 }
 
 func (h *S3Handler) renderListObjectsV2Response(
@@ -133,5 +133,5 @@ func (h *S3Handler) renderListObjectsV2Response(
 	)
 	resp.KeyCount = len(resp.Contents) + len(resp.CommonPrefixes)
 
-	httputils.WriteXML(log, w, http.StatusOK, resp)
+	httputil.WriteXML(log, w, http.StatusOK, resp)
 }

@@ -1,3 +1,4 @@
+//nolint:ireturn // Parser returns Node to keep callers decoupled from AST types.
 package expr
 
 import (

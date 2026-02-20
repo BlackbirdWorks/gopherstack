@@ -10,7 +10,7 @@ import (
 
 func TestHandler_ClassifyError_Mapping(t *testing.T) {
 	t.Parallel()
-	h := NewHandler(slog.Default())
+	h := NewHandler(NewInMemoryDB(), slog.Default())
 
 	tests := []struct {
 		err            error

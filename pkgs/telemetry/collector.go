@@ -29,6 +29,14 @@ type Summary struct {
 	MaxMs      float64 `json:"max_ms"`
 }
 
+// DeadlockInfo holds information about a potential deadlock.
+type DeadlockInfo struct {
+	Lock      string  `json:"lock"`
+	Operation string  `json:"operation"`
+	HeldSec   float64 `json:"held_sec"`
+	Waiters   int     `json:"waiters"`
+}
+
 // RuntimeMetrics holds Go runtime statistics.
 type RuntimeMetrics struct {
 	Goroutines   int     `json:"goroutines"`
@@ -41,8 +49,9 @@ type RuntimeMetrics struct {
 
 // Dashboard holds all metrics for dashboard display.
 type Dashboard struct {
-	Operations []Summary      `json:"operations"`
-	Runtime    RuntimeMetrics `json:"runtime"`
+	Runtime    *RuntimeMetrics `json:"runtime"`
+	Operations []Summary       `json:"operations"`
+	Deadlocks  []DeadlockInfo  `json:"deadlocks"`
 }
 
 // CollectMetrics gathers current metrics from Prometheus registry.
@@ -52,28 +61,88 @@ func CollectMetrics() *Dashboard {
 	metrics, err := gatherer.Gather()
 	if err != nil {
 		return &Dashboard{
-			Operations: []Summary{},
 			Runtime:    collectRuntimeMetrics(),
+			Operations: []Summary{},
 		}
 	}
 
 	result := &Dashboard{
-		Operations: []Summary{},
 		Runtime:    collectRuntimeMetrics(),
+		Operations: []Summary{},
+		Deadlocks:  []DeadlockInfo{},
 	}
 
-	// Parse metrics and extract summary statistics
-	for _, mf := range metrics {
-		if mf.Name != nil && mf.GetName() == "operation_duration_seconds" {
-			result.Operations = append(result.Operations, parseHistogram(mf)...)
-		}
-	}
+	processCollectedMetrics(metrics, result)
 
 	return result
 }
 
+// processCollectedMetrics parses and processes metrics from Prometheus.
+func processCollectedMetrics(metrics []*io_prometheus_client.MetricFamily, result *Dashboard) {
+	deadlockCandidates := make(map[string]*DeadlockInfo)
+
+	for _, mf := range metrics {
+		name := mf.GetName()
+		switch name {
+		case "operation_duration_seconds":
+			result.Operations = append(result.Operations, parseHistogram(mf)...)
+		case "gopherstack_lock_write_held_seconds":
+			processLockHeldMetrics(mf, deadlockCandidates)
+		case "gopherstack_lock_write_waiters":
+			processLockWaitersMetrics(mf, deadlockCandidates, result)
+		}
+	}
+}
+
+// processLockHeldMetrics processes lock held time metrics.
+func processLockHeldMetrics(mf *io_prometheus_client.MetricFamily, candidates map[string]*DeadlockInfo) {
+	const heldThreshold = 1.0 // Held for more than 1 second is suspicious
+	for _, m := range mf.GetMetric() {
+		info := extractLockInfo(m)
+		if info.HeldSec > heldThreshold {
+			candidates[info.Lock] = info
+		}
+	}
+}
+
+// processLockWaitersMetrics processes lock waiter metrics.
+func processLockWaitersMetrics(
+	mf *io_prometheus_client.MetricFamily,
+	candidates map[string]*DeadlockInfo,
+	result *Dashboard,
+) {
+	for _, m := range mf.GetMetric() {
+		lockName := getLabelValue(m, "lock")
+		waiters := int(m.GetGauge().GetValue())
+		if waiters > 0 {
+			if info, ok := candidates[lockName]; ok {
+				info.Waiters = waiters
+				result.Deadlocks = append(result.Deadlocks, *info)
+			}
+		}
+	}
+}
+
+func getLabelValue(m *io_prometheus_client.Metric, name string) string {
+	for _, l := range m.GetLabel() {
+		if l.GetName() == name {
+			return l.GetValue()
+		}
+	}
+
+	return ""
+}
+
+func extractLockInfo(m *io_prometheus_client.Metric) *DeadlockInfo {
+	return &DeadlockInfo{
+		Lock:      getLabelValue(m, "lock"),
+		Operation: getLabelValue(m, "operation"),
+		HeldSec:   m.GetGauge().GetValue(),
+	}
+}
+
 // collectRuntimeMetrics gathers Go runtime statistics.
-func collectRuntimeMetrics() RuntimeMetrics {
+func collectRuntimeMetrics() *RuntimeMetrics {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 
@@ -87,7 +156,7 @@ func collectRuntimeMetrics() RuntimeMetrics {
 		lastGCPause = float64(m.PauseNs[(m.NumGC+pauseOffset)%pauseHistorySize]) / nsToMs
 	}
 
-	return RuntimeMetrics{
+	return &RuntimeMetrics{
 		Goroutines:   runtime.NumGoroutine(),
 		HeapAllocMB:  float64(m.HeapAlloc) / bytesToMB,
 		HeapSysMB:    float64(m.HeapSys) / bytesToMB,

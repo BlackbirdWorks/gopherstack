@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"Gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"

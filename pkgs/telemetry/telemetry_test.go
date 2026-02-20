@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"Gopherstack/pkgs/telemetry"
+	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

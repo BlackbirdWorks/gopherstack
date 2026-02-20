@@ -20,13 +20,14 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.26'
+          go-version-file: go.mod
+          check-latest: true
           cache: true
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
 
-  test:
+  unit_tests:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -38,7 +39,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.26'
+          go-version-file: go.mod
+          check-latest: true
           cache: true
 
       - name: Run Unit Tests with Coverage
@@ -84,3 +86,24 @@ jobs:
               repo: context.repo.repo,
               body: body
             });
+
+  e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    needs: [unit_tests]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: true
+
+      - name: Install Playwright Browsers
+        run: |
+          go run github.com/playwright-community/playwright-go/cmd/playwright@latest install --with-deps chromium
+
+      - name: Run E2E Tests
+        run: make e2e-test

@@ -1,8 +1,6 @@
 package integration_test
 
 import (
-	"Gopherstack/dynamodb/models"
-	"Gopherstack/pkgs/dynamoattr"
 	"context"
 	"errors"
 	"flag"
@@ -11,6 +9,9 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/dynamodb/models"
+	"github.com/blackbirdworks/gopherstack/pkgs/dynamoattr"
 
 	"log/slog"
 
@@ -28,11 +29,15 @@ import (
 
 // endpoint is the base URL for the running Gopherstack container.
 // Both DynamoDB and S3 clients connect to this single endpoint.
+// This is initialized by TestMain before running integration tests.
 //
-//nolint:gochecknoglobals // TestMain initializes the shared endpoint for clients.
+//nolint:gochecknoglobals // Set in TestMain for integration tests.
 var endpoint string
 
-//nolint:gochecknoglobals // Shared container reference for log dumping on failures.
+// sharedContainer holds a reference to the container for cleanup and log dumping on test failures.
+// This is initialized by TestMain before running integration tests.
+//
+//nolint:gochecknoglobals // Set in TestMain for integration tests.
 var sharedContainer testcontainers.Container
 
 // ErrDockerPanic is returned when the Docker availability check panics.

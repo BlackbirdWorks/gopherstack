@@ -12,9 +12,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"Gopherstack/dynamodb"
-	"Gopherstack/dynamodb/models"
-	"Gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/dynamodb"
+	"github.com/blackbirdworks/gopherstack/dynamodb/models"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // TestDebugLogging verifies that debug logging works correctly with context-based logging.
@@ -28,7 +28,7 @@ func TestDebugLogging(t *testing.T) {
 	}))
 
 	// Create handler with test logger
-	handler := dynamodb.NewHandler(testLogger)
+	handler := dynamodb.NewHandler(dynamodb.NewInMemoryDB(), testLogger)
 
 	// Create a test table
 	createTableInput := models.CreateTableInput{
@@ -104,7 +104,7 @@ func TestDebugLoggingWithItem(t *testing.T) {
 	}))
 
 	// Create handler with test logger
-	handler := dynamodb.NewHandler(testLogger)
+	handler := dynamodb.NewHandler(dynamodb.NewInMemoryDB(), testLogger)
 
 	// First create a table
 	createTableInput := models.CreateTableInput{

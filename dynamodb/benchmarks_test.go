@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"testing"
 
-	"Gopherstack/dynamodb"
-	"Gopherstack/dynamodb/models"
+	"github.com/blackbirdworks/gopherstack/dynamodb"
+	"github.com/blackbirdworks/gopherstack/dynamodb/models"
 
 	"github.com/stretchr/testify/require"
 )

@@ -4,7 +4,7 @@ import (
 	"sync"
 	"testing"
 
-	"Gopherstack/dynamodb"
+	"github.com/blackbirdworks/gopherstack/dynamodb"
 
 	"github.com/stretchr/testify/assert"
 )

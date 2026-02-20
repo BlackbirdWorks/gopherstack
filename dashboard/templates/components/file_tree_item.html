@@ -3,9 +3,9 @@
 <div class="collapse collapse-arrow bg-base-200 mb-2">
     <input type="checkbox" hx-get="/dashboard/s3/bucket/{{.BucketName}}/tree?prefix={{.FullPath}}"
         hx-trigger="change once" hx-target="next .collapse-content" />
-    <div class="collapse-title font-medium flex items-center gap-2">
+    <label class="collapse-title font-medium flex items-center gap-2 cursor-pointer">
         <span>📁</span> {{.Name}}
-    </div>
+    </label>
     <div class="collapse-content">
         <span class="loading loading-spinner loading-sm"></span> Loading...
     </div>

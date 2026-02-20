@@ -1,9 +1,6 @@
 package service
 
 import (
-	"context"
-	"io"
-
 	"github.com/labstack/echo/v5"
 )
 
@@ -33,8 +30,8 @@ type Service interface {
 }
 
 // Matcher determines whether an incoming request should be routed
-// to a particular service handler. Matchers are evaluated in
-// registration order, and the first match wins.
+// to a particular service handler. Matchers are evaluated by priority
+// (higher priority = evaluated first).
 type Matcher func(c *echo.Context) bool
 
 // ResourceObserver extracts metrics labels from requests for a specific
@@ -49,16 +46,40 @@ type ResourceObserver interface {
 	ExtractResource(c *echo.Context) string
 }
 
-// BlobStore defines a generic interface for object storage,
-// allowing other services to store data without depending on the S3 package directly.
-type BlobStore interface {
-	PutObject(ctx context.Context, bucket, key string, body io.Reader) error
-	GetObject(ctx context.Context, bucket, key string) (io.ReadCloser, error)
-	DeleteObject(ctx context.Context, bucket, key string) error
+// Registerable combines Service and ResourceObserver into a single interface
+// for services that want to be registered with the service registry.
+// This unified interface simplifies the registration contract.
+type Registerable interface {
+	Service
+	ResourceObserver
+
+	// MatchPriority returns the priority for this service's matcher.
+	// Higher values are evaluated first. Examples:
+	// - Header-based matchers (DynamoDB): 100
+	// - Path-based matchers (Dashboard): 50
+	// - Catch-all matchers (S3): 0
+	MatchPriority() int
 }
 
-// KeyValueStore defines a generic interface for key-value storage.
-type KeyValueStore interface {
-	PutItem(ctx context.Context, table string, item map[string]any) error
-	GetItem(ctx context.Context, table string, key map[string]any) (map[string]any, error)
+// DashboardProvider is an optional interface that services can implement
+// to provide a dashboard UI. The dashboard automatically discovers and
+// integrates services that implement this interface.
+type DashboardProvider interface {
+	// DashboardName returns the user-facing name for this service's dashboard tab.
+	// Example: "DynamoDB", "S3"
+	DashboardName() string
+
+	// DashboardRoutePrefix returns the URL path prefix for this service's dashboard routes.
+	// Example: "dynamodb", "s3"
+	DashboardRoutePrefix() string
+
+	// RegisterDashboardRoutes registers all dashboard routes for this service
+	// under the given Echo group. The group is mounted at /dashboard/{prefix}.
+	// The httpClient and endpoint are provided for services that need to make
+	// SDK calls back to the service (e.g., to list tables or buckets).
+	RegisterDashboardRoutes(
+		group *echo.Group,
+		httpClient any, // *http.Client
+		endpoint string,
+	)
 }

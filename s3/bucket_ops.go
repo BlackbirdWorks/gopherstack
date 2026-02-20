@@ -14,8 +14,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 
-	"Gopherstack/pkgs/httputils"
-	"Gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 func (h *S3Handler) handleBucketOperation(
@@ -37,7 +37,7 @@ func (h *S3Handler) handleBucketOperation(
 	case http.MethodHead:
 		h.headBucket(ctx, w, r, bucket)
 	default:
-		httputils.WriteError(log, w, r, ErrMethodNotAllowed, http.StatusMethodNotAllowed)
+		httputil.WriteError(log, w, r, ErrMethodNotAllowed, http.StatusMethodNotAllowed)
 	}
 }
 
@@ -52,7 +52,7 @@ func (h *S3Handler) routeBucketPut(
 	case r.URL.Query().Has("versioning"):
 		h.putBucketVersioning(ctx, w, r, bucket)
 	case r.URL.Query().Has("tagging"):
-		httputils.WriteError(log, w, r, ErrNotImplemented, http.StatusNotImplemented)
+		httputil.WriteError(log, w, r, ErrNotImplemented, http.StatusNotImplemented)
 	default:
 		h.createBucket(ctx, w, r, bucket)
 	}
@@ -71,7 +71,7 @@ func (h *S3Handler) routeBucketPost(
 		return
 	}
 
-	httputils.WriteError(log, w, r, ErrMethodNotAllowed, http.StatusMethodNotAllowed)
+	httputil.WriteError(log, w, r, ErrMethodNotAllowed, http.StatusMethodNotAllowed)
 }
 
 func (h *S3Handler) routeBucketGet(
@@ -89,7 +89,7 @@ func (h *S3Handler) routeBucketGet(
 	case r.URL.Query().Has("location"):
 		h.getBucketLocation(ctx, w, r, bucket)
 	case r.URL.Query().Has("tagging"):
-		httputils.WriteError(log, w, r, ErrNotImplemented, http.StatusNotImplemented)
+		httputil.WriteError(log, w, r, ErrNotImplemented, http.StatusNotImplemented)
 	case r.URL.Query().Get("list-type") == "2":
 		h.listObjectsV2(ctx, w, r, bucket)
 	default:
@@ -102,7 +102,7 @@ func (h *S3Handler) listBuckets(ctx context.Context, w http.ResponseWriter, r *h
 	log := logger.Load(ctx)
 	out, err := h.Backend.ListBuckets(ctx, &s3.ListBucketsInput{})
 	if err != nil {
-		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
+		httputil.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}
@@ -123,7 +123,7 @@ func (h *S3Handler) listBuckets(ctx context.Context, w http.ResponseWriter, r *h
 		}
 	}
 
-	httputils.WriteXML(log, w, http.StatusOK, resp)
+	httputil.WriteXML(log, w, http.StatusOK, resp)
 }
 
 func (h *S3Handler) createBucket(
@@ -138,9 +138,9 @@ func (h *S3Handler) createBucket(
 
 	var region string
 	// Read the body to check for LocationConstraint
-	body, err := httputils.ReadBody(r)
+	body, err := httputil.ReadBody(r)
 	if err != nil {
-		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
+		httputil.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}
@@ -172,13 +172,13 @@ func (h *S3Handler) createBucket(
 
 	output, err := h.Backend.CreateBucket(ctx, input)
 	if errors.Is(err, ErrBucketAlreadyExists) {
-		httputils.WriteError(log, w, r, err, http.StatusConflict)
+		httputil.WriteError(log, w, r, err, http.StatusConflict)
 
 		return
 	}
 
 	if err != nil {
-		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
+		httputil.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}
@@ -204,19 +204,19 @@ func (h *S3Handler) deleteBucket(
 
 	_, err := h.Backend.DeleteBucket(ctx, &s3.DeleteBucketInput{Bucket: aws.String(bucketName)})
 	if errors.Is(err, ErrNoSuchBucket) {
-		httputils.WriteError(log, w, r, err, http.StatusNotFound)
+		httputil.WriteError(log, w, r, err, http.StatusNotFound)
 
 		return
 	}
 
 	if errors.Is(err, ErrBucketNotEmpty) {
-		httputils.WriteError(log, w, r, err, http.StatusConflict)
+		httputil.WriteError(log, w, r, err, http.StatusConflict)
 
 		return
 	}
 
 	if err != nil {
-		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
+		httputil.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}
@@ -256,13 +256,13 @@ func (h *S3Handler) listObjects(
 		MaxKeys: aws.Int32(maxKeys),
 	})
 	if errors.Is(err, ErrNoSuchBucket) {
-		httputils.WriteError(log, w, r, err, http.StatusNotFound)
+		httputil.WriteError(log, w, r, err, http.StatusNotFound)
 
 		return
 	}
 
 	if err != nil {
-		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
+		httputil.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}
@@ -316,7 +316,7 @@ func (h *S3Handler) listObjects(
 	)
 	resp.KeyCount = len(resp.Contents)
 
-	httputils.WriteXML(log, w, http.StatusOK, resp)
+	httputil.WriteXML(log, w, http.StatusOK, resp)
 }
 
 func (h *S3Handler) getBucketLocation(
@@ -442,7 +442,7 @@ func (h *S3Handler) putBucketVersioning(
 	log := logger.Load(ctx)
 	var conf VersioningConfiguration
 	if err := xml.NewDecoder(r.Body).Decode(&conf); err != nil {
-		httputils.WriteError(log, w, r, err, http.StatusBadRequest)
+		httputil.WriteError(log, w, r, err, http.StatusBadRequest)
 
 		return
 	}
@@ -454,7 +454,7 @@ func (h *S3Handler) putBucketVersioning(
 		},
 	})
 	if err != nil {
-		httputils.WriteError(log, w, r, err, http.StatusNotFound)
+		httputil.WriteError(log, w, r, err, http.StatusNotFound)
 
 		return
 	}
@@ -475,7 +475,7 @@ func (h *S3Handler) getBucketVersioning(
 		&s3.GetBucketVersioningInput{Bucket: aws.String(bucketName)},
 	)
 	if err != nil {
-		httputils.WriteError(log, w, r, err, http.StatusNotFound)
+		httputil.WriteError(log, w, r, err, http.StatusNotFound)
 
 		return
 	}
@@ -485,7 +485,7 @@ func (h *S3Handler) getBucketVersioning(
 		status = string(out.Status)
 	}
 
-	httputils.WriteXML(log, w, http.StatusOK, VersioningConfiguration{
+	httputil.WriteXML(log, w, http.StatusOK, VersioningConfiguration{
 		Status: status,
 	})
 }
@@ -505,13 +505,13 @@ func (h *S3Handler) listObjectVersions(
 		Prefix: aws.String(prefix),
 	})
 	if errors.Is(err, ErrNoSuchBucket) {
-		httputils.WriteError(log, w, r, err, http.StatusNotFound)
+		httputil.WriteError(log, w, r, err, http.StatusNotFound)
 
 		return
 	}
 
 	if err != nil {
-		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
+		httputil.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}
@@ -560,5 +560,5 @@ func (h *S3Handler) listObjectVersions(
 		})
 	}
 
-	httputils.WriteXML(log, w, http.StatusOK, resp)
+	httputil.WriteXML(log, w, http.StatusOK, resp)
 }

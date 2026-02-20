@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"testing"
 
-	"Gopherstack/s3"
+	"github.com/blackbirdworks/gopherstack/s3"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"

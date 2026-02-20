@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"Gopherstack/pkgs/dynamoattr"
+	"github.com/blackbirdworks/gopherstack/pkgs/dynamoattr"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"

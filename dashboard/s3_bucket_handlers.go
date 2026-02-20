@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"Gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -35,8 +35,20 @@ func (h *DashboardHandler) s3BucketList(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	buckets := output.Buckets
 	search := strings.ToLower(r.URL.Query().Get("search"))
+	offset := 0
+	if offStr := r.URL.Query().Get("offset"); offStr != "" {
+		offset, _ = strconv.Atoi(offStr)
+	}
+
+	limit := 12 // Using 12 for grid layout consistency
+	if limStr := r.URL.Query().Get("limit"); limStr != "" {
+		if l, e := strconv.Atoi(limStr); e == nil && l > 0 {
+			limit = l
+		}
+	}
+
+	buckets := output.Buckets
 	if search != "" {
 		filtered := make([]types.Bucket, 0)
 		for _, b := range buckets {
@@ -47,42 +59,64 @@ func (h *DashboardHandler) s3BucketList(w http.ResponseWriter, r *http.Request) 
 		buckets = filtered
 	}
 
-	offset := 0
-	if offStr := r.URL.Query().Get("offset"); offStr != "" {
-		offset, _ = strconv.Atoi(offStr)
+	totalFiltered := len(buckets)
+	end := min(offset+limit, totalFiltered)
+
+	var subset []types.Bucket
+	if offset < totalFiltered {
+		subset = buckets[offset:end]
 	}
 
-	h.handleS3BucketListing(ctx, w, buckets, offset)
+	h.handleS3BucketListing(ctx, w, subset, offset, limit, totalFiltered, search)
 }
 
 func (h *DashboardHandler) handleS3BucketListing(
-	_ context.Context,
+	ctx context.Context,
 	w http.ResponseWriter,
-	buckets []types.Bucket,
-	offset int,
+	subset []types.Bucket,
+	offset, limit, total int,
+	search string,
 ) {
-	const limit = 20
-	end := min(offset+limit, len(buckets))
-
-	subset := buckets[offset:end]
 	for _, b := range subset {
+		name := aws.ToString(b.Name)
+		versioning := h.isS3BucketVersioningEnabled(ctx, name)
+
+		// Get object count
+		count := 0
+		listReq, _ := h.S3.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+			Bucket:  &name,
+			MaxKeys: aws.Int32(1),
+		})
+		if listReq != nil && listReq.KeyCount != nil {
+			count = int(aws.ToInt32(listReq.KeyCount))
+		}
+
 		info := BucketInfo{
-			Name:         aws.ToString(b.Name),
-			CreationDate: b.CreationDate.Format("2006-01-02 15:04:05"),
+			Name:              name,
+			CreationDate:      b.CreationDate.Format("2006-01-02 15:04:05"),
+			VersioningEnabled: versioning,
+			ObjectCount:       count,
 		}
 		h.renderFragment(w, "bucket-card", info)
 	}
 
-	if end < len(buckets) {
-		// #nosec G705
-		fmt.Fprintf(w, `
-            <button class="btn btn-outline col-span-full mt-4" 
-                hx-get="/dashboard/s3/buckets?offset=%d" 
-                hx-target="this" 
-                hx-swap="outerHTML"
-                hx-indicator=".htmx-indicator">
-                Load More
-            </button>`, end)
+	// Render pagination if needed
+	if total > limit || offset > 0 {
+		pagination := PaginationInfo{
+			TotalItems:   total,
+			Offset:       offset,
+			Limit:        limit,
+			CurrentPage:  (offset / limit) + 1,
+			TotalPages:   (total + limit - 1) / limit,
+			HasPrev:      offset > 0,
+			HasNext:      offset+limit < total,
+			PrevOffset:   max(0, offset-limit),
+			NextOffset:   offset + limit,
+			SearchQuery:  search,
+			BaseEndpoint: "/dashboard/s3/buckets",
+			TargetID:     "#bucket-list",
+		}
+		h.renderFragment(w, "pagination", pagination)
 	}
 }
 
@@ -235,8 +269,8 @@ func (h *DashboardHandler) s3DeleteBucket(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(" "))
+	// On success, return the updated bucket list
+	h.s3BucketList(w, r)
 }
 
 // s3Purge deletes all buckets and their contents.
