@@ -28,11 +28,11 @@ import (
 
 // endpoint is the base URL for the running Gopherstack container.
 // Both DynamoDB and S3 clients connect to this single endpoint.
-//
-//nolint:gochecknoglobals // TestMain initializes the shared endpoint for clients.
+// This is initialized by TestMain before running integration tests.
 var endpoint string
 
-//nolint:gochecknoglobals // Shared container reference for log dumping on failures.
+// sharedContainer holds a reference to the container for cleanup and log dumping on test failures.
+// This is initialized by TestMain before running integration tests.
 var sharedContainer testcontainers.Container
 
 // ErrDockerPanic is returned when the Docker availability check panics.

@@ -1,9 +1,11 @@
-package events //nolint:testpackage // events tests require same package
+package events_test
 
 import (
 	"context"
 	"errors"
 	"testing"
+
+	"Gopherstack/pkgs/events"
 )
 
 var errListenerTest = errors.New("listener error")
@@ -13,18 +15,18 @@ func TestInMemoryEmitter_EventTypes(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		event    Event
+		event    events.Event
 		expected string
 	}{
-		{"TableCreatedEvent", &TableCreatedEvent{Table: "users"}, "dynamodb.table.created"},
-		{"TableDeletedEvent", &TableDeletedEvent{Table: "users"}, "dynamodb.table.deleted"},
-		{"ItemCreatedEvent", &ItemCreatedEvent{Table: "users"}, "dynamodb.item.created"},
-		{"ItemUpdatedEvent", &ItemUpdatedEvent{Table: "users"}, "dynamodb.item.updated"},
-		{"ItemDeletedEvent", &ItemDeletedEvent{Table: "users"}, "dynamodb.item.deleted"},
-		{"BucketCreatedEvent", &BucketCreatedEvent{BucketName: "my-bucket"}, "s3.bucket.created"},
-		{"BucketDeletedEvent", &BucketDeletedEvent{BucketName: "my-bucket"}, "s3.bucket.deleted"},
-		{"ObjectCreatedEvent", &ObjectCreatedEvent{BucketName: "my-bucket", Key: "file.txt"}, "s3.object.created"},
-		{"ObjectDeletedEvent", &ObjectDeletedEvent{BucketName: "my-bucket", Key: "file.txt"}, "s3.object.deleted"},
+		{"TableCreatedEvent", &events.TableCreatedEvent{Table: "users"}, "dynamodb.table.created"},
+		{"TableDeletedEvent", &events.TableDeletedEvent{Table: "users"}, "dynamodb.table.deleted"},
+		{"ItemCreatedEvent", &events.ItemCreatedEvent{Table: "users"}, "dynamodb.item.created"},
+		{"ItemUpdatedEvent", &events.ItemUpdatedEvent{Table: "users"}, "dynamodb.item.updated"},
+		{"ItemDeletedEvent", &events.ItemDeletedEvent{Table: "users"}, "dynamodb.item.deleted"},
+		{"BucketCreatedEvent", &events.BucketCreatedEvent{BucketName: "my-bucket"}, "s3.bucket.created"},
+		{"BucketDeletedEvent", &events.BucketDeletedEvent{BucketName: "my-bucket"}, "s3.bucket.deleted"},
+		{"ObjectCreatedEvent", &events.ObjectCreatedEvent{BucketName: "my-bucket", Key: "file.txt"}, "s3.object.created"},
+		{"ObjectDeletedEvent", &events.ObjectDeletedEvent{BucketName: "my-bucket", Key: "file.txt"}, "s3.object.deleted"},
 	}
 
 	for _, tt := range tests {
@@ -40,12 +42,12 @@ func TestInMemoryEmitter_EventTypes(t *testing.T) {
 func TestInMemoryEmitter_Emit(t *testing.T) {
 	t.Parallel()
 
-	emitter := NewInMemoryEmitter[*ItemCreatedEvent]()
-	event := &ItemCreatedEvent{Table: "users", Key: map[string]any{"id": "123"}}
+	emitter := events.NewInMemoryEmitter[*events.ItemCreatedEvent]()
+	event := &events.ItemCreatedEvent{Table: "users", Key: map[string]any{"id": "123"}}
 	ctx := context.Background()
 
-	var received []*ItemCreatedEvent
-	emitter.Subscribe(func(_ context.Context, e *ItemCreatedEvent) error {
+	var received []*events.ItemCreatedEvent
+	emitter.Subscribe(func(_ context.Context, e *events.ItemCreatedEvent) error {
 		received = append(received, e)
 
 		return nil
@@ -66,17 +68,17 @@ func TestInMemoryEmitter_Emit(t *testing.T) {
 func TestInMemoryEmitter_MultipleListeners(t *testing.T) {
 	t.Parallel()
 
-	emitter := NewInMemoryEmitter[*TableCreatedEvent]()
-	event := &TableCreatedEvent{Table: "orders"}
+	emitter := events.NewInMemoryEmitter[*events.TableCreatedEvent]()
+	event := &events.TableCreatedEvent{Table: "orders"}
 	ctx := context.Background()
 
 	var count int
-	emitter.Subscribe(func(_ context.Context, _ *TableCreatedEvent) error {
+	emitter.Subscribe(func(_ context.Context, _ *events.TableCreatedEvent) error {
 		count++
 
 		return nil
 	})
-	emitter.Subscribe(func(_ context.Context, _ *TableCreatedEvent) error {
+	emitter.Subscribe(func(_ context.Context, _ *events.TableCreatedEvent) error {
 		count++
 
 		return nil
@@ -94,13 +96,13 @@ func TestInMemoryEmitter_MultipleListeners(t *testing.T) {
 func TestInMemoryEmitter_ListenerCount(t *testing.T) {
 	t.Parallel()
 
-	emitter := NewInMemoryEmitter[*TableCreatedEvent]()
+	emitter := events.NewInMemoryEmitter[*events.TableCreatedEvent]()
 
 	if got := emitter.ListenerCount(); got != 0 {
 		t.Errorf("ListenerCount() = %d, want 0", got)
 	}
 
-	emitter.Subscribe(func(_ context.Context, _ *TableCreatedEvent) error {
+	emitter.Subscribe(func(_ context.Context, _ *events.TableCreatedEvent) error {
 		return nil
 	})
 
@@ -108,7 +110,7 @@ func TestInMemoryEmitter_ListenerCount(t *testing.T) {
 		t.Errorf("ListenerCount() = %d, want 1", got)
 	}
 
-	emitter.Subscribe(func(_ context.Context, _ *TableCreatedEvent) error {
+	emitter.Subscribe(func(_ context.Context, _ *events.TableCreatedEvent) error {
 		return nil
 	})
 
@@ -120,13 +122,13 @@ func TestInMemoryEmitter_ListenerCount(t *testing.T) {
 func TestInMemoryEmitter_Unsubscribe(t *testing.T) {
 	t.Parallel()
 
-	emitter := NewInMemoryEmitter[*TableCreatedEvent]()
-	event := &TableCreatedEvent{Table: "products"}
+	emitter := events.NewInMemoryEmitter[*events.TableCreatedEvent]()
+	event := &events.TableCreatedEvent{Table: "products"}
 	ctx := context.Background()
 
 	var count int
 
-	unsubscribe := emitter.Subscribe(func(_ context.Context, _ *TableCreatedEvent) error {
+	unsubscribe := emitter.Subscribe(func(_ context.Context, _ *events.TableCreatedEvent) error {
 		count++
 
 		return nil
@@ -149,11 +151,11 @@ func TestInMemoryEmitter_Unsubscribe(t *testing.T) {
 func TestInMemoryEmitter_ErrorHandling(t *testing.T) {
 	t.Parallel()
 
-	emitter := NewInMemoryEmitter[*TableCreatedEvent]()
-	event := &TableCreatedEvent{Table: "failed"}
+	emitter := events.NewInMemoryEmitter[*events.TableCreatedEvent]()
+	event := &events.TableCreatedEvent{Table: "failed"}
 	ctx := context.Background()
 
-	emitter.Subscribe(func(_ context.Context, _ *TableCreatedEvent) error {
+	emitter.Subscribe(func(_ context.Context, _ *events.TableCreatedEvent) error {
 		return errListenerTest
 	})
 
@@ -165,12 +167,12 @@ func TestInMemoryEmitter_ErrorHandling(t *testing.T) {
 func TestInMemoryEmitter_Clear(t *testing.T) {
 	t.Parallel()
 
-	emitter := NewInMemoryEmitter[*TableCreatedEvent]()
+	emitter := events.NewInMemoryEmitter[*events.TableCreatedEvent]()
 
-	emitter.Subscribe(func(_ context.Context, _ *TableCreatedEvent) error {
+	emitter.Subscribe(func(_ context.Context, _ *events.TableCreatedEvent) error {
 		return nil
 	})
-	emitter.Subscribe(func(_ context.Context, _ *TableCreatedEvent) error {
+	emitter.Subscribe(func(_ context.Context, _ *events.TableCreatedEvent) error {
 		return nil
 	})
 

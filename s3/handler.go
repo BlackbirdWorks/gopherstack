@@ -55,8 +55,7 @@ type s3Metrics struct {
 
 type s3ContextKey struct{}
 
-//nolint:gochecknoglobals // Required for context key
-var s3Key = s3ContextKey{}
+var s3Key s3ContextKey
 
 func (h *S3Handler) setOperation(ctx context.Context, op string) {
 	if m, ok := ctx.Value(s3Key).(*s3Metrics); ok {
