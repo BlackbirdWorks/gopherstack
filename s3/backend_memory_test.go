@@ -104,8 +104,8 @@ func TestDeleteBucket(t *testing.T) {
 				mustCreateBucket(t, b, "my-bucket")
 				mustPutObject(t, b, "my-bucket", "key", []byte("data"))
 			},
-			wantErr:   s3.ErrBucketNotEmpty,
-			expectErr: true,
+			// Async deletion: non-empty buckets are now accepted and queued for
+			// background deletion by the Janitor.
 		},
 	}
 

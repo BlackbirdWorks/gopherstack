@@ -40,6 +40,17 @@ func NewInMemoryBackend(compressor Compressor) *InMemoryBackend {
 	}
 }
 
+// getBucket returns the bucket for a given name, returning ErrNoSuchBucket when the
+// bucket does not exist or is pending async deletion. The caller must hold at least b.mu.RLock.
+func (b *InMemoryBackend) getBucket(name string) (*StoredBucket, error) {
+	bucket, exists := b.buckets[name]
+	if !exists || bucket.DeletePending {
+		return nil, ErrNoSuchBucket
+	}
+
+	return bucket, nil
+}
+
 func (b *InMemoryBackend) CreateBucket(
 	_ context.Context,
 	input *s3.CreateBucketInput,
@@ -73,28 +84,20 @@ func (b *InMemoryBackend) DeleteBucket(
 	bucketName := *input.Bucket
 
 	b.mu.Lock("DeleteBucket")
+	defer b.mu.Unlock()
 
 	bucket, exists := b.buckets[bucketName]
 	if !exists {
-		b.mu.Unlock()
-
 		return nil, ErrNoSuchBucket
 	}
 
-	bucket.mu.Lock("DeleteBucket")
-
-	if len(bucket.Objects) > 0 {
-		bucket.mu.Unlock()
-		b.mu.Unlock()
-
-		return nil, ErrBucketNotEmpty
+	// If already pending deletion, return success (idempotent).
+	if bucket.DeletePending {
+		return &s3.DeleteBucketOutput{}, nil
 	}
 
-	delete(b.buckets, bucketName)
-	// Release in reverse acquisition order: inner (bucket) then outer (global).
-	// b.mu is released early so other buckets are unblocked immediately.
-	bucket.mu.Unlock()
-	b.mu.Unlock()
+	// Mark bucket as pending — the Janitor will drain its objects and remove it.
+	bucket.DeletePending = true
 
 	return &s3.DeleteBucketOutput{}, nil
 }
@@ -108,7 +111,8 @@ func (b *InMemoryBackend) HeadBucket(
 
 	bucketName := *input.Bucket
 
-	if _, exists := b.buckets[bucketName]; !exists {
+	bucket, exists := b.buckets[bucketName]
+	if !exists || bucket.DeletePending {
 		return nil, ErrNoSuchBucket
 	}
 
@@ -123,6 +127,9 @@ func (b *InMemoryBackend) ListBuckets(
 	b.mu.RLock("ListBuckets")
 	buckets := make([]types.Bucket, 0, len(b.buckets))
 	for _, bucket := range b.buckets {
+		if bucket.DeletePending {
+			continue
+		}
 		buckets = append(buckets, types.Bucket{
 			Name:         aws.String(bucket.Name),
 			CreationDate: aws.Time(bucket.CreationDate),
@@ -166,11 +173,11 @@ func (b *InMemoryBackend) PutObject(
 
 	// 2. Lock and update
 	b.mu.RLock("PutObject")
-	bucket, exists := b.buckets[bucketName]
+	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
 
-	if !exists {
-		return nil, ErrNoSuchBucket
+	if err != nil {
+		return nil, err
 	}
 
 	// First, get or create the object under bucket lock (brief)
@@ -308,11 +315,11 @@ func (b *InMemoryBackend) GetObject(
 	versionID := input.VersionId
 
 	b.mu.RLock("GetObject")
-	bucket, exists := b.buckets[bucketName]
+	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
 
-	if !exists {
-		return nil, ErrNoSuchBucket
+	if err != nil {
+		return nil, err
 	}
 
 	bucket.mu.RLock("GetObject")
@@ -399,11 +406,11 @@ func (b *InMemoryBackend) HeadObject(
 	versionID := input.VersionId
 
 	b.mu.RLock("HeadObject")
-	bucket, exists := b.buckets[bucketName]
+	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
 
-	if !exists {
-		return nil, ErrNoSuchBucket
+	if err != nil {
+		return nil, err
 	}
 
 	bucket.mu.RLock("HeadObject")
@@ -464,11 +471,11 @@ func (b *InMemoryBackend) DeleteObject(
 	bucketName := *input.Bucket
 
 	b.mu.RLock("DeleteObject")
-	bucket, exists := b.buckets[bucketName]
+	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
 
-	if !exists {
-		return nil, ErrNoSuchBucket
+	if err != nil {
+		return nil, err
 	}
 
 	bucket.mu.Lock("DeleteObject")
@@ -548,10 +555,10 @@ func (b *InMemoryBackend) DeleteObjects(
 	bucketName := *input.Bucket
 
 	b.mu.RLock("DeleteObjects")
-	bucket, exists := b.buckets[bucketName]
+	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
 
-	if !exists {
+	if err != nil {
 		for _, obj := range input.Delete.Objects {
 			out.Errors = append(out.Errors, types.Error{
 				Key:     obj.Key,
@@ -594,11 +601,11 @@ func (b *InMemoryBackend) ListObjects(
 	bucketName := *input.Bucket
 
 	b.mu.RLock("ListObjects")
-	bucket, exists := b.buckets[bucketName]
+	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
 
-	if !exists {
-		return nil, ErrNoSuchBucket
+	if err != nil {
+		return nil, err
 	}
 
 	// Snapshot object pointers under lock
@@ -697,11 +704,11 @@ func (b *InMemoryBackend) ListObjectVersions(
 	bucketName := *input.Bucket
 
 	b.mu.RLock("ListObjectVersions")
-	bucket, exists := b.buckets[bucketName]
+	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
 
-	if !exists {
-		return nil, ErrNoSuchBucket
+	if err != nil {
+		return nil, err
 	}
 
 	bucket.mu.RLock("ListObjectVersions")
@@ -761,11 +768,11 @@ func (b *InMemoryBackend) PutBucketVersioning(
 	bucketName := *input.Bucket
 
 	b.mu.RLock("PutBucketVersioning")
-	bucket, exists := b.buckets[bucketName]
+	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
 
-	if !exists {
-		return nil, ErrNoSuchBucket
+	if err != nil {
+		return nil, err
 	}
 
 	bucket.mu.Lock("PutBucketVersioning")
@@ -784,11 +791,11 @@ func (b *InMemoryBackend) GetBucketVersioning(
 	bucketName := *input.Bucket
 
 	b.mu.RLock("GetBucketVersioning")
-	bucket, exists := b.buckets[bucketName]
+	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
 
-	if !exists {
-		return nil, ErrNoSuchBucket
+	if err != nil {
+		return nil, err
 	}
 
 	bucket.mu.RLock("GetBucketVersioning")
@@ -808,11 +815,11 @@ func (b *InMemoryBackend) PutObjectTagging(
 	versionID := input.VersionId
 
 	b.mu.RLock("PutObjectTagging")
-	bucket, exists := b.buckets[bucketName]
+	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
 
-	if !exists {
-		return nil, ErrNoSuchBucket
+	if err != nil {
+		return nil, err
 	}
 
 	resolvedVersionID, err := func() (string, error) {
@@ -873,11 +880,11 @@ func (b *InMemoryBackend) GetObjectTagging(
 	versionID := input.VersionId
 
 	b.mu.RLock("GetObjectTagging")
-	bucket, exists := b.buckets[bucketName]
+	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
 
-	if !exists {
-		return nil, ErrNoSuchBucket
+	if err != nil {
+		return nil, err
 	}
 
 	vid, err := func() (string, error) {
@@ -930,11 +937,11 @@ func (b *InMemoryBackend) DeleteObjectTagging(
 	versionID := input.VersionId
 
 	b.mu.RLock("DeleteObjectTagging")
-	bucket, exists := b.buckets[bucketName]
+	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
 
-	if !exists {
-		return nil, ErrNoSuchBucket
+	if err != nil {
+		return nil, err
 	}
 
 	vid, err := func() (string, error) {
@@ -987,11 +994,11 @@ func (b *InMemoryBackend) CreateMultipartUpload(
 	key := *input.Key
 
 	b.mu.RLock("CreateMultipartUpload")
-	_, exists := b.buckets[bucketName]
+	_, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
 
-	if !exists {
-		return nil, ErrNoSuchBucket
+	if err != nil {
+		return nil, err
 	}
 
 	uploadID := strconv.FormatInt(time.Now().UnixNano(), 10)
@@ -1106,11 +1113,11 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 
 	// 3. Update bucket/object state
 	b.mu.RLock("CompleteMultipartUpload")
-	bucket, exists := b.buckets[bucketName]
+	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
 
-	if !exists {
-		return nil, ErrNoSuchBucket
+	if err != nil {
+		return nil, err
 	}
 
 	bucket.mu.Lock("CompleteMultipartUpload")

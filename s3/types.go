@@ -18,6 +18,9 @@ type StoredBucket struct {
 	mu           *lockmetrics.RWMutex
 	Name         string
 	CreationDate time.Time
+	// DeletePending is true when the bucket is queued for async deletion by the Janitor.
+	// Operations on a DeletePending bucket behave as if the bucket does not exist.
+	DeletePending bool
 	// Versioning is placed last so its trailing non-pointer len word falls
 	// outside the GC scan range, reducing pointer bytes from 72 to 64.
 	Versioning types.BucketVersioningStatus

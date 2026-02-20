@@ -8,9 +8,10 @@ import (
 
 // InMemoryDB stores tables and items.
 type InMemoryDB struct {
-	Tables    map[string]*Table
-	exprCache *ExpressionCache
-	mu        *lockmetrics.RWMutex
+	Tables        map[string]*Table
+	deletingTables map[string]*Table
+	exprCache     *ExpressionCache
+	mu            *lockmetrics.RWMutex
 }
 
 type Table struct {
@@ -32,9 +33,10 @@ func NewInMemoryDB() *InMemoryDB {
 	const exprCacheSize = 1000
 
 	return &InMemoryDB{
-		Tables:    make(map[string]*Table),
-		exprCache: NewExpressionCache(exprCacheSize),
-		mu:        lockmetrics.New("ddb"),
+		Tables:         make(map[string]*Table),
+		deletingTables: make(map[string]*Table),
+		exprCache:      NewExpressionCache(exprCacheSize),
+		mu:             lockmetrics.New("ddb"),
 	}
 }
 

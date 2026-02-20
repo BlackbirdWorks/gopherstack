@@ -772,10 +772,11 @@ func TestHandler_DeleteBucket_Errors(t *testing.T) {
 		wantStatus int
 	}{
 		{
-			name:       "delete non-empty bucket returns 409",
+			// Async deletion: non-empty buckets are now queued for background deletion.
+			name:       "delete non-empty bucket succeeds and queues async deletion",
 			bucket:     "full-bkt",
 			populate:   true,
-			wantStatus: http.StatusConflict,
+			wantStatus: http.StatusNoContent,
 		},
 		{
 			name:       "delete non-existent bucket returns 404",

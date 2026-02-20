@@ -36,6 +36,12 @@ type DeadlockInfo struct {
 	Waiters   int     `json:"waiters"`
 }
 
+// DeleteQueueInfo holds the current depth of an async-delete queue.
+type DeleteQueueInfo struct {
+	Service string `json:"service"`
+	Depth   int    `json:"depth"`
+}
+
 // RuntimeMetrics holds Go runtime statistics.
 type RuntimeMetrics struct {
 	Goroutines   int     `json:"goroutines"`
@@ -48,9 +54,10 @@ type RuntimeMetrics struct {
 
 // Dashboard holds all metrics for dashboard display.
 type Dashboard struct {
-	Runtime    *RuntimeMetrics `json:"runtime"`
-	Operations []Summary       `json:"operations"`
-	Deadlocks  []DeadlockInfo  `json:"deadlocks"`
+	Runtime      *RuntimeMetrics   `json:"runtime"`
+	Operations   []Summary         `json:"operations"`
+	Deadlocks    []DeadlockInfo    `json:"deadlocks"`
+	DeleteQueues []DeleteQueueInfo `json:"delete_queues"`
 }
 
 // CollectMetrics gathers current metrics from Prometheus registry.
@@ -66,9 +73,10 @@ func CollectMetrics() *Dashboard {
 	}
 
 	result := &Dashboard{
-		Runtime:    collectRuntimeMetrics(),
-		Operations: []Summary{},
-		Deadlocks:  []DeadlockInfo{},
+		Runtime:      collectRuntimeMetrics(),
+		Operations:   []Summary{},
+		Deadlocks:    []DeadlockInfo{},
+		DeleteQueues: []DeleteQueueInfo{},
 	}
 
 	processCollectedMetrics(metrics, result)
@@ -93,6 +101,22 @@ func processCollectedMetrics(metrics []*io_prometheus_client.MetricFamily, resul
 			processLockHeldMetrics(mf, deadlockCandidates)
 		case "gopherstack_lock_write_waiters":
 			processLockWaitersMetrics(mf, deadlockCandidates, result)
+		case "gopherstack_delete_queue_depth":
+			processDeleteQueueMetrics(mf, result)
+		}
+	}
+}
+
+// processDeleteQueueMetrics extracts delete queue depth metrics.
+func processDeleteQueueMetrics(mf *io_prometheus_client.MetricFamily, result *Dashboard) {
+	for _, m := range mf.GetMetric() {
+		service := getLabelValue(m, "service")
+		depth := int(m.GetGauge().GetValue())
+		if depth > 0 {
+			result.DeleteQueues = append(result.DeleteQueues, DeleteQueueInfo{
+				Service: service,
+				Depth:   depth,
+			})
 		}
 	}
 }

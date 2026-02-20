@@ -61,6 +61,14 @@ func run(cfg config.Config) error {
 	s3Port := strings.TrimPrefix(cfg.Port, ":")
 	s3Handler.Endpoint = "localhost:" + s3Port
 
+	// Start background janitors for async deletion.
+	// The context is cancelled when run() returns (on server shutdown or error).
+	janitorCtx, janitorCancel := context.WithCancel(context.Background())
+	defer janitorCancel()
+
+	go s3backend.NewJanitor(s3Backend, log).Run(janitorCtx)
+	go ddbbackend.NewJanitor(ddbBackend, log).Run(janitorCtx)
+
 	// Create a temporary mux for in-memory SDK clients
 	inMemMux := http.NewServeMux()
 	inMemClient := &dashboard.InMemClient{Handler: inMemMux}

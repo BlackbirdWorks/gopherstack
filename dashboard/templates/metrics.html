@@ -151,6 +151,21 @@
                     </div>
                 </div>
             </section>
+
+            <!-- Delete Queue Section -->
+            <section id="delete-queue-section">
+                <h2 class="text-xl font-bold mb-4 flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-warning" fill="none"
+                        viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    Async Delete Queues
+                </h2>
+                <div id="delete-queue-body" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <!-- Populated by JS -->
+                </div>
+            </section>
         </div>
 
         <div id="no-metrics-msg" class="hidden py-32 text-center">
@@ -186,6 +201,30 @@
         });
 
         renderOperations();
+    }
+
+    function renderDeleteQueues(data) {
+        const body = document.getElementById('delete-queue-body');
+        if (!body) return;
+
+        if (!data || !data.delete_queues || data.delete_queues.length === 0) {
+            body.innerHTML = '<div class="stat bg-base-100 rounded-2xl shadow-sm border border-base-200"><div class="stat-title text-xs font-bold uppercase tracking-wider text-base-content/50">All Queues</div><div class="stat-value text-success py-1">0</div><div class="stat-desc text-base-content/40">No pending deletions</div></div>';
+            return;
+        }
+
+        let cards = '';
+        for (const q of data.delete_queues) {
+            const serviceLabel = q.service.charAt(0).toUpperCase() + q.service.slice(1);
+            const colorClass = q.depth > 0 ? 'text-warning' : 'text-success';
+            cards += `
+                <div class="stat bg-base-100 rounded-2xl shadow-sm border border-base-200">
+                    <div class="stat-title text-xs font-bold uppercase tracking-wider text-base-content/50">${escapeHtml(serviceLabel)}</div>
+                    <div class="stat-value ${colorClass} py-1">${q.depth}</div>
+                    <div class="stat-desc text-base-content/40">pending deletion</div>
+                </div>
+            `;
+        }
+        body.innerHTML = cards;
     }
 
     function renderOperations() {
@@ -310,6 +349,7 @@
             deadlockSection.classList.add('hidden');
         }
 
+        renderDeleteQueues(data);
         renderOperations();
     });
 
