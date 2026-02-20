@@ -15,6 +15,21 @@
         </div>
     </div>
 
+    <!-- Search/Filter & Pagination Container -->
+    <div class="flex flex-col md:flex-row justify-between items-end gap-4">
+        <div class="form-control w-full max-w-xs">
+            <label class="label">
+                <span class="label-text">Search Buckets</span>
+            </label>
+            <input type="text" name="search" placeholder="Search buckets..." class="input input-bordered w-full"
+                hx-get="/dashboard/s3/buckets" hx-vals='{"offset": 0}' hx-trigger="input changed delay:300ms, search"
+                hx-target="#bucket-list" hx-push-url="true">
+        </div>
+        <div id="pagination-top" class="flex-1 flex justify-end">
+            <!-- Pagination summary OOB from backend -->
+        </div>
+    </div>
+
     <!-- Bucket list -->
     <div id="bucket-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" hx-get="/dashboard/s3/buckets"
         hx-trigger="load" hx-indicator=".htmx-indicator">

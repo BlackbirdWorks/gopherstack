@@ -28,7 +28,7 @@ func TestDebugLogging(t *testing.T) {
 	}))
 
 	// Create handler with test logger
-	handler := dynamodb.NewHandler(testLogger)
+	handler := dynamodb.NewHandler(dynamodb.NewInMemoryDB(), testLogger)
 
 	// Create a test table
 	createTableInput := models.CreateTableInput{
@@ -104,7 +104,7 @@ func TestDebugLoggingWithItem(t *testing.T) {
 	}))
 
 	// Create handler with test logger
-	handler := dynamodb.NewHandler(testLogger)
+	handler := dynamodb.NewHandler(dynamodb.NewInMemoryDB(), testLogger)
 
 	// First create a table
 	createTableInput := models.CreateTableInput{

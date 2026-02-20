@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -30,40 +30,45 @@ func (h *DashboardHandler) dynamoDBTableList(w http.ResponseWriter, r *http.Requ
 	log := logger.Load(ctx)
 
 	search := strings.ToLower(r.URL.Query().Get("search"))
-	lastTable := r.URL.Query().Get("lastTable")
-	log.DebugContext(ctx, "DynamoDB table list", "search", search, "lastTable", lastTable)
+	if search == "" {
+		// Try 'q' as used in the template
+		search = strings.ToLower(r.URL.Query().Get("q"))
+	}
+
+	offset := 0
+	if offStr := r.URL.Query().Get("offset"); offStr != "" {
+		offset, _ = strconv.Atoi(offStr)
+	}
+
+	limit := defaultTableLimit
+	if limStr := r.URL.Query().Get("limit"); limStr != "" {
+		if l, e := strconv.Atoi(limStr); e == nil && l > 0 {
+			limit = l
+		}
+	} else {
+		// Use a smaller default for UI cards if not specified
+		limit = 12
+	}
+
+	log.DebugContext(ctx, "DynamoDB table list", "search", search, "offset", offset, "limit", limit)
+
+	// In Gopherstack (local dev), we probably have few enough tables to fetch all and filter/paginate in memory
+	// This ensures "search searches all tables" as requested.
+	allNames, err := h.fetchAllTableNames(ctx)
+	if err != nil {
+		h.handleListTablesError(w, r, err)
+
+		return
+	}
+
+	filteredNames := filterTableNames(search, allNames)
+	totalFiltered := len(filteredNames)
+
+	end := min(offset+limit, totalFiltered)
 
 	var tableNames []string
-	var nextTable *string
-
-	if search != "" {
-		// If searching, we need to scan more to find matches
-		// For simplicity, we'll fetch up to 1000 tables and filter
-		output, err := h.DynamoDB.ListTables(ctx, &dynamodb.ListTablesInput{
-			Limit: aws.Int32(maxSearchTables),
-		})
-		if err != nil {
-			h.handleListTablesError(w, r, err)
-
-			return
-		}
-		tableNames = filterTableNames(search, output.TableNames)
-	} else {
-		// Regular paginated listing
-		input := &dynamodb.ListTablesInput{
-			Limit: aws.Int32(defaultTableLimit),
-		}
-		if lastTable != "" {
-			input.ExclusiveStartTableName = aws.String(lastTable)
-		}
-		output, err := h.DynamoDB.ListTables(ctx, input)
-		if err != nil {
-			h.handleListTablesError(w, r, err)
-
-			return
-		}
-		tableNames = output.TableNames
-		nextTable = output.LastEvaluatedTableName
+	if offset < totalFiltered {
+		tableNames = filteredNames[offset:end]
 	}
 
 	tableInfos := h.fetchTableInfos(ctx, tableNames)
@@ -73,17 +78,50 @@ func (h *DashboardHandler) dynamoDBTableList(w http.ResponseWriter, r *http.Requ
 		h.renderFragment(w, "table-card", tableInfo)
 	}
 
-	if nextTable != nil {
-		// #nosec G705
-		fmt.Fprintf(w, `
-            <button class="btn btn-outline col-span-full mt-4" 
-                hx-get="/dashboard/dynamodb/tables?lastTable=%s" 
-                hx-target="this" 
-                hx-swap="outerHTML"
-                hx-indicator=".htmx-indicator">
-                Load More
-            </button>`, url.QueryEscape(*nextTable))
+	// Render pagination if needed
+	if totalFiltered > limit || offset > 0 {
+		pagination := PaginationInfo{
+			TotalItems:   totalFiltered,
+			Offset:       offset,
+			Limit:        limit,
+			CurrentPage:  (offset / limit) + 1,
+			TotalPages:   (totalFiltered + limit - 1) / limit,
+			HasPrev:      offset > 0,
+			HasNext:      end < totalFiltered,
+			PrevOffset:   max(0, offset-limit),
+			NextOffset:   end,
+			SearchQuery:  search,
+			BaseEndpoint: "/dashboard/dynamodb/tables",
+			TargetID:     "#table-list",
+		}
+		h.renderFragment(w, "pagination", pagination)
 	}
+}
+
+func (h *DashboardHandler) fetchAllTableNames(ctx context.Context) ([]string, error) {
+	var allNames []string
+	var lastEvaluatedTable *string
+
+	for {
+		input := &dynamodb.ListTablesInput{}
+		if lastEvaluatedTable != nil {
+			input.ExclusiveStartTableName = lastEvaluatedTable
+		}
+
+		output, err := h.DynamoDB.ListTables(ctx, input)
+		if err != nil {
+			return nil, err
+		}
+
+		allNames = append(allNames, output.TableNames...)
+		lastEvaluatedTable = output.LastEvaluatedTableName
+
+		if lastEvaluatedTable == nil {
+			break
+		}
+	}
+
+	return allNames, nil
 }
 
 func (h *DashboardHandler) handleListTablesError(w http.ResponseWriter, r *http.Request, err error) {

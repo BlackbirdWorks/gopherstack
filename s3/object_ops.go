@@ -16,7 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 
-	"Gopherstack/pkgs/httputils"
+	"Gopherstack/pkgs/httputil"
 	"Gopherstack/pkgs/logger"
 )
 
@@ -52,7 +52,7 @@ func (h *S3Handler) handleObjectOperation(
 	case http.MethodHead:
 		h.headObject(ctx, w, r, bucket, key)
 	default:
-		httputils.WriteError(log, w, r, ErrMethodNotAllowed, http.StatusMethodNotAllowed)
+		httputil.WriteError(log, w, r, ErrMethodNotAllowed, http.StatusMethodNotAllowed)
 	}
 }
 
@@ -123,7 +123,7 @@ func (h *S3Handler) routeObjectPost(
 	case r.URL.Query().Has("uploadId"):
 		h.completeMultipartUpload(ctx, w, r, bucket, key)
 	default:
-		httputils.WriteError(log, w, r, ErrMethodNotAllowed, http.StatusMethodNotAllowed)
+		httputil.WriteError(log, w, r, ErrMethodNotAllowed, http.StatusMethodNotAllowed)
 	}
 }
 
@@ -197,9 +197,9 @@ func (h *S3Handler) putObject(
 		r.Header.Get("Content-Type"),
 	)
 
-	data, err := httputils.ReadBody(r)
+	data, err := httputil.ReadBody(r)
 	if err != nil {
-		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
+		httputil.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}
@@ -235,13 +235,13 @@ func (h *S3Handler) putObject(
 		},
 	)
 	if errors.Is(err, ErrNoSuchBucket) {
-		httputils.WriteError(log, w, r, err, http.StatusNotFound)
+		httputil.WriteError(log, w, r, err, http.StatusNotFound)
 
 		return
 	}
 
 	if err != nil {
-		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
+		httputil.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}
@@ -282,7 +282,7 @@ func (h *S3Handler) copyObject(
 	log := logger.Load(ctx)
 	srcBucket, srcKey, srcVersionID, ok := parseCopySource(r.Header.Get("X-Amz-Copy-Source"))
 	if !ok {
-		httputils.WriteError(log, w, r, ErrInvalidArgument, http.StatusBadRequest)
+		httputil.WriteError(log, w, r, ErrInvalidArgument, http.StatusBadRequest)
 
 		return
 	}
@@ -302,21 +302,21 @@ func (h *S3Handler) copyObject(
 		VersionId: vid,
 	})
 	if errors.Is(err, ErrNoSuchBucket) || errors.Is(err, ErrNoSuchKey) {
-		httputils.WriteError(log, w, r, err, http.StatusNotFound)
+		httputil.WriteError(log, w, r, err, http.StatusNotFound)
 
 		return
 	}
 	defer srcVer.Body.Close()
 
 	if err != nil {
-		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
+		httputil.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}
 
 	data, err := io.ReadAll(srcVer.Body)
 	if err != nil {
-		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
+		httputil.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}
@@ -341,13 +341,13 @@ func (h *S3Handler) copyObject(
 
 	destVer, err := h.Backend.PutObject(ctx, putInput)
 	if errors.Is(err, ErrNoSuchBucket) {
-		httputils.WriteError(log, w, r, err, http.StatusNotFound)
+		httputil.WriteError(log, w, r, err, http.StatusNotFound)
 
 		return
 	}
 
 	if err != nil {
-		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
+		httputil.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}
@@ -361,7 +361,7 @@ func (h *S3Handler) copyObject(
 		etag = *destVer.ETag
 	}
 
-	httputils.WriteXML(log, w, http.StatusOK, CopyObjectResult{
+	httputil.WriteXML(log, w, http.StatusOK, CopyObjectResult{
 		ETag:         etag,
 		LastModified: time.Now().Format(time.RFC3339),
 	})
@@ -398,13 +398,13 @@ func (h *S3Handler) getObject(
 		VersionId: vid,
 	})
 	if errors.Is(err, ErrNoSuchBucket) || errors.Is(err, ErrNoSuchKey) {
-		httputils.WriteError(log, w, r, err, http.StatusNotFound)
+		httputil.WriteError(log, w, r, err, http.StatusNotFound)
 
 		return
 	}
 
 	if err != nil {
-		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
+		httputil.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}
@@ -482,13 +482,13 @@ func (h *S3Handler) deleteObject(
 		VersionId: vid,
 	})
 	if errors.Is(err, ErrNoSuchBucket) || errors.Is(err, ErrNoSuchKey) {
-		httputils.WriteError(log, w, r, err, http.StatusNotFound)
+		httputil.WriteError(log, w, r, err, http.StatusNotFound)
 
 		return
 	}
 
 	if err != nil {
-		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
+		httputil.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}
@@ -518,7 +518,7 @@ func (h *S3Handler) deleteObjects(
 	log := logger.Load(ctx)
 	var req DeleteRequest
 	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputils.WriteError(log, w, r, err, http.StatusBadRequest)
+		httputil.WriteError(log, w, r, err, http.StatusBadRequest)
 
 		return
 	}
@@ -540,7 +540,7 @@ func (h *S3Handler) deleteObjects(
 
 	out, err := h.Backend.DeleteObjects(ctx, input)
 	if err != nil {
-		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
+		httputil.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}
@@ -570,7 +570,7 @@ func (h *S3Handler) deleteObjects(
 		})
 	}
 
-	httputils.WriteXML(log, w, http.StatusOK, resp)
+	httputil.WriteXML(log, w, http.StatusOK, resp)
 }
 
 func (h *S3Handler) putObjectTagging(
@@ -583,7 +583,7 @@ func (h *S3Handler) putObjectTagging(
 	log := logger.Load(ctx)
 	var tagging Tagging
 	if err := xml.NewDecoder(r.Body).Decode(&tagging); err != nil {
-		httputils.WriteError(log, w, r, err, http.StatusBadRequest)
+		httputil.WriteError(log, w, r, err, http.StatusBadRequest)
 
 		return
 	}
@@ -608,7 +608,7 @@ func (h *S3Handler) putObjectTagging(
 		VersionId: vid,
 		Tagging:   &types.Tagging{TagSet: tags},
 	}); err != nil {
-		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
+		httputil.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}
@@ -636,7 +636,7 @@ func (h *S3Handler) getObjectTagging(
 		VersionId: vid,
 	})
 	if err != nil {
-		httputils.WriteError(log, w, r, err, http.StatusNotFound)
+		httputil.WriteError(log, w, r, err, http.StatusNotFound)
 
 		return
 	}
@@ -651,7 +651,7 @@ func (h *S3Handler) getObjectTagging(
 		}
 	}
 
-	httputils.WriteXML(log, w, http.StatusOK, resp)
+	httputil.WriteXML(log, w, http.StatusOK, resp)
 }
 
 func (h *S3Handler) deleteObjectTagging(
@@ -673,7 +673,7 @@ func (h *S3Handler) deleteObjectTagging(
 		Key:       aws.String(key),
 		VersionId: vid,
 	}); err != nil {
-		httputils.WriteError(log, w, r, err, http.StatusInternalServerError)
+		httputil.WriteError(log, w, r, err, http.StatusInternalServerError)
 
 		return
 	}

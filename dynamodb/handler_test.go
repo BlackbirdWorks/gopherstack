@@ -27,6 +27,7 @@ func serveEchoHandler(handler echo.HandlerFunc, w http.ResponseWriter, r *http.R
 	// Inject logger into context for handlers that expect it
 	ctx := logger.Save(r.Context(), slog.Default())
 	*c.Request() = *r.WithContext(ctx)
+
 	return handler(c)
 }
 
@@ -226,9 +227,10 @@ func TestHandler_ServeHTTP(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			handler := dynamodb.NewHandler(slog.Default())
+			backend := dynamodb.NewInMemoryDB()
+			handler := dynamodb.NewHandler(backend, slog.Default())
 			if tc.setup != nil {
-				tc.setup(t, handler.DB)
+				tc.setup(t, backend)
 			}
 
 			req := httptest.NewRequest(tc.method, "/", bytes.NewBufferString(tc.body))
@@ -254,9 +256,10 @@ func TestHandler_ServeHTTP(t *testing.T) {
 func TestHandler_Dispatch_Coverage(t *testing.T) {
 	t.Parallel()
 	// Test dispatching to all supported operations to ensure dispatch switch is covered
-	handler := dynamodb.NewHandler(slog.Default())
+	backend := dynamodb.NewInMemoryDB()
+	handler := dynamodb.NewHandler(backend, slog.Default())
 	handler.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
-	createTableHelper(t, handler.DB, "DispatchTable", "pk")
+	createTableHelper(t, backend, "DispatchTable", "pk")
 
 	ops := []string{
 		"CreateTable", "DescribeTable", "ListTables",
@@ -346,9 +349,10 @@ func TestHandler_CRC32Header(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			handler := dynamodb.NewHandler(slog.Default())
+			backend := dynamodb.NewInMemoryDB()
+			handler := dynamodb.NewHandler(backend, slog.Default())
 			if tc.setup != nil {
-				tc.setup(t, handler.DB)
+				tc.setup(t, backend)
 			}
 
 			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(tc.body))
@@ -391,8 +395,9 @@ func mustMarshal(t *testing.T, v any) string {
 
 func TestHandler_TransactOps_Coverage(t *testing.T) {
 	t.Parallel()
-	handler := dynamodb.NewHandler(slog.Default())
-	createTableHelper(t, handler.DB, "TransactTable", "pk")
+	backend := dynamodb.NewInMemoryDB()
+	handler := dynamodb.NewHandler(backend, slog.Default())
+	createTableHelper(t, backend, "TransactTable", "pk")
 
 	tests := []struct {
 		body           any

@@ -34,17 +34,26 @@ func main() {
 }
 
 func run(cfg config.Config) error {
+	// Parse log level from config
 	var level slog.Level
-	if cfg.Level == "true" {
+	switch cfg.Level {
+	case "debug":
 		level = slog.LevelDebug
-	} else {
+	case "warn":
+		level = slog.LevelWarn
+	case "error":
+		level = slog.LevelError
+	case "info":
+		fallthrough
+	default:
 		level = slog.LevelInfo
 	}
 
 	log := logger.NewLogger(level)
 
 	// Create backends and handlers.
-	ddbHandler := ddbbackend.NewHandler(log)
+	ddbBackend := ddbbackend.NewInMemoryDB()
+	ddbHandler := ddbbackend.NewHandler(ddbBackend, log)
 	s3Backend := s3backend.NewInMemoryBackend(&s3backend.GzipCompressor{})
 	s3Handler := s3backend.NewHandler(s3Backend, log)
 
@@ -81,12 +90,16 @@ func run(cfg config.Config) error {
 	e := echo.New()
 	e.Pre(logger.EchoMiddleware(log))
 
-	if setupErr := setupRegistry(e, log, ddbHandler, s3Handler, dashboardHandler); setupErr != nil {
-		return setupErr
+	// Register all services in priority order
+	services := []service.Registerable{
+		ddbHandler,       // Priority 100 (header-based)
+		dashboardHandler, // Priority 50 (path-based)
+		s3Handler,        // Priority 0 (catch-all)
 	}
 
-	// Metrics endpoints (kept separate since they're API-specific)
-	dashboard.RegisterMetricsHandlers(e)
+	if setupErr := setupRegistry(e, log, services); setupErr != nil {
+		return setupErr
+	}
 
 	// Wire the in-memory mux used by SDK clients through the same Echo routing
 	inMemMux.Handle("/", e)
@@ -128,28 +141,17 @@ func run(cfg config.Config) error {
 func setupRegistry(
 	e *echo.Echo,
 	log *slog.Logger,
-	ddb *ddbbackend.DynamoDBHandler,
-	s3h *s3backend.S3Handler,
-	dash *dashboard.DashboardHandler,
+	services []service.Registerable,
 ) error {
 	registry := service.NewRegistry(log)
 
-	if err := registry.Register(ddb, ddb); err != nil {
-		log.Error("Failed to register DynamoDB service", "error", err)
+	// Register all services
+	for _, svc := range services {
+		if err := registry.Register(svc); err != nil {
+			log.Error("Failed to register service", "service", svc.Name(), "error", err)
 
-		return err
-	}
-
-	if err := registry.Register(dash, dash); err != nil {
-		log.Error("Failed to register Dashboard service", "error", err)
-
-		return err
-	}
-
-	if err := registry.Register(s3h, s3h); err != nil {
-		log.Error("Failed to register S3 service", "error", err)
-
-		return err
+			return err
+		}
 	}
 
 	router := service.NewServiceRouter(registry)

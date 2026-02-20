@@ -46,15 +46,16 @@ func newIntegrationStack(t *testing.T) *integrationStack {
 
 	s3Bk := s3backend.NewInMemoryBackend(nil)
 	s3Hndlr := s3backend.NewHandler(s3Bk, slog.Default())
-	ddbHndlr := ddbbackend.NewHandler(slog.Default())
+	ddbBk := ddbbackend.NewInMemoryDB()
+	ddbHndlr := ddbbackend.NewHandler(ddbBk, slog.Default())
 
 	// Setup Echo with service registry
 	e := echo.New()
 	e.Pre(logger.EchoMiddleware(slog.Default()))
 
 	registry := service.NewRegistry(slog.Default())
-	_ = registry.Register(ddbHndlr, ddbHndlr)
-	_ = registry.Register(s3Hndlr, s3Hndlr)
+	_ = registry.Register(ddbHndlr)
+	_ = registry.Register(s3Hndlr)
 
 	router := service.NewServiceRouter(registry)
 	e.Use(router.RouteHandler())
@@ -117,7 +118,7 @@ func serveHandler(handler *dashboard.DashboardHandler, w http.ResponseWriter, r 
 func newDDBTable(t *testing.T, stack *integrationStack, tableName string) {
 	t.Helper()
 
-	_, err := stack.ddbHandler.DB.CreateTable(t.Context(), &dynamodb.CreateTableInput{
+	_, err := stack.ddbHandler.Backend.CreateTable(t.Context(), &dynamodb.CreateTableInput{
 		TableName: aws.String(tableName),
 		KeySchema: []ddbtypes.KeySchemaElement{
 			{AttributeName: aws.String("id"), KeyType: ddbtypes.KeyTypeHash},
@@ -493,7 +494,7 @@ func TestDashboard_DDB_Query(t *testing.T) {
 			stack := newIntegrationStack(t)
 			newDDBTable(t, stack, "query-table")
 
-			_, err := stack.ddbHandler.DB.PutItem(t.Context(), &dynamodb.PutItemInput{
+			_, err := stack.ddbHandler.Backend.PutItem(t.Context(), &dynamodb.PutItemInput{
 				TableName: aws.String("query-table"),
 				Item: map[string]ddbtypes.AttributeValue{
 					"id": &ddbtypes.AttributeValueMemberS{Value: "item-1"},
@@ -567,7 +568,7 @@ func TestDashboard_DDB_Scan(t *testing.T) {
 			newDDBTable(t, stack, "scan-table")
 
 			if tt.preInsert {
-				_, err := stack.ddbHandler.DB.PutItem(t.Context(), &dynamodb.PutItemInput{
+				_, err := stack.ddbHandler.Backend.PutItem(t.Context(), &dynamodb.PutItemInput{
 					TableName: aws.String("scan-table"),
 					Item: map[string]ddbtypes.AttributeValue{
 						"id": &ddbtypes.AttributeValueMemberS{Value: "scan-item"},
@@ -1343,7 +1344,7 @@ func TestDashboard_DDB_Indexes(t *testing.T) {
 	tableName := "IndexTable"
 
 	// Create table with GSI and LSI
-	_, err := stack.ddbHandler.DB.CreateTable(t.Context(), &dynamodb.CreateTableInput{
+	_, err := stack.ddbHandler.Backend.CreateTable(t.Context(), &dynamodb.CreateTableInput{
 		TableName: aws.String(tableName),
 		KeySchema: []ddbtypes.KeySchemaElement{
 			{AttributeName: aws.String("pk"), KeyType: ddbtypes.KeyTypeHash},
@@ -1385,7 +1386,7 @@ func TestDashboard_DDB_Indexes(t *testing.T) {
 	assert.Contains(t, w.Body.String(), "LSI1")
 
 	// Put an item
-	_, err = stack.ddbHandler.DB.PutItem(t.Context(), &dynamodb.PutItemInput{
+	_, err = stack.ddbHandler.Backend.PutItem(t.Context(), &dynamodb.PutItemInput{
 		TableName: aws.String(tableName),
 		Item: map[string]ddbtypes.AttributeValue{
 			"pk":     &ddbtypes.AttributeValueMemberS{Value: "user1"},
@@ -1425,7 +1426,7 @@ func TestDashboard_DDB_Indexes(t *testing.T) {
 	assert.Contains(t, w.Body.String(), "user1")
 
 	// 3. GSI with Sort Key
-	_, err = stack.ddbHandler.DB.CreateTable(t.Context(), &dynamodb.CreateTableInput{
+	_, err = stack.ddbHandler.Backend.CreateTable(t.Context(), &dynamodb.CreateTableInput{
 		TableName: aws.String("GSISKTable"),
 		KeySchema: []ddbtypes.KeySchemaElement{
 			{AttributeName: aws.String("pk"), KeyType: ddbtypes.KeyTypeHash},
@@ -1449,7 +1450,7 @@ func TestDashboard_DDB_Indexes(t *testing.T) {
 	require.NoError(t, err)
 
 	// Put item with N type for SK
-	_, err = stack.ddbHandler.DB.PutItem(t.Context(), &dynamodb.PutItemInput{
+	_, err = stack.ddbHandler.Backend.PutItem(t.Context(), &dynamodb.PutItemInput{
 		TableName: aws.String("GSISKTable"),
 		Item: map[string]ddbtypes.AttributeValue{
 			"pk":     &ddbtypes.AttributeValueMemberS{Value: "u1"},
@@ -1478,7 +1479,7 @@ func TestDashboard_DDB_Indexes(t *testing.T) {
 
 	// 4. LSI with Binary Sort Key (wait, LSI must have same PK)
 	// Let's use IndexTable which has LSI1 on pk (HASH) and gsi_pk (RANGE)
-	_, err = stack.ddbHandler.DB.PutItem(t.Context(), &dynamodb.PutItemInput{
+	_, err = stack.ddbHandler.Backend.PutItem(t.Context(), &dynamodb.PutItemInput{
 		TableName: aws.String("IndexTable"),
 		Item: map[string]ddbtypes.AttributeValue{
 			"pk":     &ddbtypes.AttributeValueMemberS{Value: "user2"},
@@ -1623,7 +1624,7 @@ func TestDashboard_DDB_Scan_Detailed(t *testing.T) {
 	tableName := "ScanDetailedTable"
 
 	// Create table
-	_, err := stack.ddbHandler.DB.CreateTable(t.Context(), &dynamodb.CreateTableInput{
+	_, err := stack.ddbHandler.Backend.CreateTable(t.Context(), &dynamodb.CreateTableInput{
 		TableName: aws.String(tableName),
 		KeySchema: []ddbtypes.KeySchemaElement{
 			{AttributeName: aws.String("pk"), KeyType: ddbtypes.KeyTypeHash},
@@ -1668,7 +1669,7 @@ func TestDashboard_DDB_Query_Pagination(t *testing.T) {
 	tableName := "PaginationTable"
 
 	// Create table
-	_, err := stack.ddbHandler.DB.CreateTable(t.Context(), &dynamodb.CreateTableInput{
+	_, err := stack.ddbHandler.Backend.CreateTable(t.Context(), &dynamodb.CreateTableInput{
 		TableName: aws.String(tableName),
 		KeySchema: []ddbtypes.KeySchemaElement{
 			{AttributeName: aws.String("pk"), KeyType: ddbtypes.KeyTypeHash},
@@ -1683,7 +1684,7 @@ func TestDashboard_DDB_Query_Pagination(t *testing.T) {
 
 	// Put multiple items
 	for i := range 5 {
-		_, err = stack.ddbHandler.DB.PutItem(t.Context(), &dynamodb.PutItemInput{
+		_, err = stack.ddbHandler.Backend.PutItem(t.Context(), &dynamodb.PutItemInput{
 			TableName: aws.String(tableName),
 			Item: map[string]ddbtypes.AttributeValue{
 				"pk": &ddbtypes.AttributeValueMemberS{Value: "user1"},

@@ -18,7 +18,7 @@
                 LIVE
             </div>
             <button class="btn btn-sm btn-ghost border-base-300 hover:border-primary px-4 bg-base-100 shadow-sm"
-                hx-get="/api/metrics" hx-target="#metrics-content" hx-swap="none"
+                hx-get="/dashboard/api/metrics" hx-target="#metrics-content" hx-swap="none"
                 hx-on::after-request="window.dispatchEvent(new CustomEvent('metrics-updated', {detail: JSON.parse(event.detail.xhr.responseText)}))">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
                     stroke="currentColor">
@@ -31,7 +31,7 @@
     </div>
 
     <!-- Metrics content placeholder -->
-    <div id="metrics-content" hx-get="/api/metrics" hx-trigger="load, every 5s" hx-swap="none"
+    <div id="metrics-content" hx-get="/dashboard/api/metrics" hx-trigger="load, every 5s" hx-swap="none"
         hx-on::after-request="window.dispatchEvent(new CustomEvent('metrics-updated', {detail: JSON.parse(event.detail.xhr.responseText)}))">
 
         <div id="metrics-loading" class="flex flex-col items-center justify-center py-24 opacity-60">

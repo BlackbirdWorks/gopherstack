@@ -34,8 +34,7 @@
         </div>
         <div class="card-actions justify-end mt-4">
             <button class="btn btn-sm btn-error" hx-delete="/dashboard/dynamodb/table/{{.TableName}}"
-                hx-confirm="Are you sure you want to delete table '{{.TableName}}'?" hx-target="#table-list"
-                hx-swap="innerHTML">
+                hx-confirm="Are you sure you want to delete table '{{.TableName}}'?" hx-target="#table-list">
                 Delete
             </button>
         </div>

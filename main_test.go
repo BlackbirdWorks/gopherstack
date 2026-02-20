@@ -18,6 +18,7 @@ import (
 	"Gopherstack/demo"
 	ddbbackend "Gopherstack/dynamodb"
 	"Gopherstack/pkgs/logger"
+	"Gopherstack/pkgs/service"
 	s3backend "Gopherstack/s3"
 )
 
@@ -95,7 +96,8 @@ func startServerOnPort(port string, stopChan chan struct{}) error {
 	log := logger.NewTestLogger()
 
 	// Create backends and handlers
-	ddbHandler := ddbbackend.NewHandler(log)
+	ddbBackend := ddbbackend.NewInMemoryDB()
+	ddbHandler := ddbbackend.NewHandler(ddbBackend, log)
 	s3Backend := s3backend.NewInMemoryBackend(&s3backend.GzipCompressor{})
 	s3Handler := s3backend.NewHandler(s3Backend, log)
 
@@ -142,25 +144,25 @@ func startServerOnPort(port string, stopChan chan struct{}) error {
 	// Add logger middleware to inject logger into request context
 	e.Use(logger.EchoMiddleware(log))
 
-	// Route DynamoDB requests via pre-middleware (matched by X-Amz-Target header, not path)
-	e.Pre(func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c *echo.Context) error {
-			target := c.Request().Header.Get("X-Amz-Target")
-			if len(target) >= 9 && target[:9] == "DynamoDB_" {
-				return ddbHandler.Handler()(c)
-			}
+	// Register services using the Registry pattern (like main.go)
+	registry := service.NewRegistry(log)
 
-			return next(c)
+	services := []service.Registerable{
+		ddbHandler,
+		dashboardHandler,
+		s3Handler,
+	}
+
+	for _, svc := range services {
+		if regErr := registry.Register(svc); regErr != nil {
+			log.Error("Failed to register service", "service", svc.Name(), "error", regErr)
+
+			return regErr
 		}
-	})
+	}
 
-	// Dashboard routes
-	dashGroup := e.Group("/dashboard")
-	dashGroup.Any("/*", dashboardHandler.Handler())
-	dashGroup.Any("", dashboardHandler.Handler())
-
-	// S3 catch-all (everything else)
-	e.Any("/*", s3Handler.Handler())
+	router := service.NewServiceRouter(registry)
+	e.Use(router.RouteHandler())
 
 	// Wire the in-memory mux used by SDK clients through the same Echo routing
 	inMemMux.Handle("/", e)

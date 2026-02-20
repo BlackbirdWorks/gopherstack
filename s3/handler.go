@@ -9,8 +9,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"Gopherstack/pkgs/handler"
-	"Gopherstack/pkgs/httputils"
+	"Gopherstack/pkgs/httputil"
 	"Gopherstack/pkgs/logger"
 	"Gopherstack/pkgs/service"
 )
@@ -100,7 +99,7 @@ func (h *S3Handler) Handler() echo.HandlerFunc {
 		requestWithCtx := c.Request().WithContext(ctx)
 		*c.Request() = *requestWithCtx
 
-		sw := handler.NewResponseWriter(c.Response())
+		sw := httputil.NewResponseWriter(c.Response())
 
 		log := logger.Load(ctx)
 
@@ -114,7 +113,7 @@ func (h *S3Handler) Handler() echo.HandlerFunc {
 
 		if bucketName == "" {
 			if requestWithCtx.Method != http.MethodGet {
-				httputils.WriteError(log, sw, requestWithCtx, ErrMethodNotAllowed, http.StatusMethodNotAllowed)
+				httputil.WriteError(log, sw, requestWithCtx, ErrMethodNotAllowed, http.StatusMethodNotAllowed)
 
 				return nil
 			}
@@ -141,26 +140,26 @@ func (h *S3Handler) Name() string {
 	return "S3"
 }
 
-// RouteMatcher returns a matcher that claims any request NOT matching dashboard or metrics.
+// RouteMatcher returns a matcher that accepts all S3 requests (catch-all).
+// With priority-based routing, S3 is matched last due to low priority.
+// Excludes API endpoints and dashboard routes which take precedence.
 func (h *S3Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
-
-		// Exclude reserved paths for dashboard and metrics
-		if strings.HasPrefix(path, "/dashboard") ||
-			strings.HasPrefix(path, "/metrics") ||
-			strings.HasPrefix(path, "/api/metrics") {
+		// Exclude API and dashboard endpoints - let them be handled by other routes
+		if strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/metrics") ||
+			strings.HasPrefix(path, "/dashboard") {
 			return false
 		}
-
-		// Check for virtual-hosted-style: bucket name as subdomain in Host header.
-		if h.extractVirtualHostedBucketName(c.Request()) != "" {
-			return true
-		}
-
-		// Default to path-style S3 routing
+		// Accept all other requests - priority ensures we're evaluated last
 		return true
 	}
+}
+
+// MatchPriority returns the priority for the S3 matcher.
+// Catch-all matchers have the lowest priority (0), ensuring other services match first.
+func (h *S3Handler) MatchPriority() int {
+	return 0
 }
 
 // ExtractOperation returns the current S3 operation from context.
@@ -199,7 +198,7 @@ func (h *S3Handler) resolveBucketAndKey(
 		bucket := vhBucket
 		key := path
 		if key != "" && !IsValidObjectKey(key) {
-			httputils.WriteError(log, w, r, ErrInvalidArgument, http.StatusBadRequest)
+			httputil.WriteError(log, w, r, ErrInvalidArgument, http.StatusBadRequest)
 
 			return "", "", false
 		}
@@ -212,7 +211,7 @@ func (h *S3Handler) resolveBucketAndKey(
 	if path != "" && path != "/" {
 		bucket = parts[0]
 		if !IsValidBucketName(bucket) {
-			httputils.WriteError(log, w, r, ErrInvalidBucketName, http.StatusBadRequest)
+			httputil.WriteError(log, w, r, ErrInvalidBucketName, http.StatusBadRequest)
 
 			return "", "", false
 		}
@@ -220,7 +219,7 @@ func (h *S3Handler) resolveBucketAndKey(
 		if len(parts) > 1 {
 			key = parts[1]
 			if key != "" && !IsValidObjectKey(key) {
-				httputils.WriteError(log, w, r, ErrInvalidArgument, http.StatusBadRequest)
+				httputil.WriteError(log, w, r, ErrInvalidArgument, http.StatusBadRequest)
 
 				return "", "", false
 			}

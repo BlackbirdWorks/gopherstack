@@ -14,10 +14,19 @@
         </div>
     </div>
 
-    <!-- Search/Filter -->
-    <div class="form-control">
-        <input type="text" placeholder="Search tables..." class="input input-bordered w-full max-w-xs"
-            hx-get="/dashboard/dynamodb/search" hx-trigger="keyup changed delay:300ms" hx-target="#table-list" name="q">
+    <!-- Search/Filter & Pagination Container -->
+    <div class="flex flex-col md:flex-row justify-between items-end gap-4">
+        <div class="form-control w-full max-w-xs">
+            <label class="label">
+                <span class="label-text">Search Tables</span>
+            </label>
+            <input type="text" name="search" placeholder="Search tables..." class="input input-bordered w-full"
+                hx-get="/dashboard/dynamodb/tables" hx-vals='{"offset": 0}'
+                hx-trigger="input changed delay:300ms, search" hx-target="#table-list" hx-push-url="true">
+        </div>
+        <div id="pagination-top" class="flex-1 flex justify-end">
+            <!-- Pagination summary can be mirrored here via OOB if needed -->
+        </div>
     </div>
 
     <!-- Loading indicator -->

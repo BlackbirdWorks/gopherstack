@@ -48,12 +48,10 @@ type RuntimeMetrics struct {
 }
 
 // Dashboard holds all metrics for dashboard display.
-//
-//nolint:govet // Minor optimization not worth obfuscating data structure
 type Dashboard struct {
+	Runtime    *RuntimeMetrics `json:"runtime"`
 	Operations []Summary       `json:"operations"`
 	Deadlocks  []DeadlockInfo  `json:"deadlocks"`
-	Runtime    *RuntimeMetrics `json:"runtime"`
 }
 
 // CollectMetrics gathers current metrics from Prometheus registry.

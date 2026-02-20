@@ -25,7 +25,8 @@ import (
 func TestLoadData(t *testing.T) {
 	t.Parallel()
 	// Setup Backends
-	ddbHandler := ddbbackend.NewHandler(slog.Default())
+	ddbBackend := ddbbackend.NewInMemoryDB()
+	ddbHandler := ddbbackend.NewHandler(ddbBackend, slog.Default())
 	s3Backend := s3backend.NewInMemoryBackend(&s3backend.GzipCompressor{})
 	s3Handler := s3backend.NewHandler(s3Backend, slog.Default())
 
@@ -34,8 +35,8 @@ func TestLoadData(t *testing.T) {
 	e.Pre(logger.EchoMiddleware(slog.Default()))
 
 	registry := service.NewRegistry(slog.Default())
-	_ = registry.Register(ddbHandler, ddbHandler)
-	_ = registry.Register(s3Handler, s3Handler)
+	_ = registry.Register(ddbHandler)
+	_ = registry.Register(s3Handler)
 
 	router := service.NewServiceRouter(registry)
 	e.Use(router.RouteHandler())

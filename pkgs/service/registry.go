@@ -13,12 +13,12 @@ import (
 // ErrServiceAlreadyRegistered is returned when a service with the same name is already registered.
 var ErrServiceAlreadyRegistered = errors.New("service already registered")
 
-// Entry represents a registered service with its observer and pre-wrapped handler.
+// Entry represents a registered service with its pre-wrapped handler and priority.
 type Entry struct {
-	Service        Service
-	Observer       ResourceObserver
+	Registerable   Registerable
 	Matcher        Matcher
 	WrappedHandler echo.HandlerFunc
+	Priority       int
 }
 
 // Registry manages the ordered registration of services and applies
@@ -46,25 +46,26 @@ func (r *Registry) Use(mw Middleware) {
 	r.middlewares = append(r.middlewares, mw)
 }
 
-// Register adds a service to the registry with its observer and optional per-service middleware.
-// Services are registered in order; matchers are evaluated in that order.
+// Register adds a service to the registry with optional per-service middleware.
 // Returns error if service name already registered.
-func (r *Registry) Register(service Service, observer ResourceObserver, mws ...Middleware) error {
-	name := service.Name()
+// Services are internally sorted by priority after registration.
+func (r *Registry) Register(svc Registerable, mws ...Middleware) error {
+	name := svc.Name()
 
 	// Check for duplicates
 	if _, exists := r.lookup[name]; exists {
 		return fmt.Errorf("%w: %q", ErrServiceAlreadyRegistered, name)
 	}
 
-	matcher := service.RouteMatcher()
-	handler := service.Handler()
+	matcher := svc.RouteMatcher()
+	handler := svc.Handler()
+	priority := svc.MatchPriority()
 
 	// Pre-wrap handler with telemetry first (special case as it needs observer)
 	h := telemetry.WrapEchoHandler(
 		name,
 		handler,
-		observer,
+		svc,
 		r.logger,
 	)
 
@@ -79,10 +80,10 @@ func (r *Registry) Register(service Service, observer ResourceObserver, mws ...M
 	}
 
 	entry := &Entry{
-		Service:        service,
-		Observer:       observer,
+		Registerable:   svc,
 		Matcher:        matcher,
 		WrappedHandler: h,
+		Priority:       priority,
 	}
 
 	r.services = append(r.services, entry)
