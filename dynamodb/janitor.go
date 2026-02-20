@@ -19,11 +19,18 @@ type Janitor struct {
 }
 
 // NewJanitor creates a new DynamoDB Janitor for the given backend.
-func NewJanitor(backend *InMemoryDB, log *slog.Logger) *Janitor {
+// The janitor interval is taken from the provided settings;
+// if zero, it falls back to defaultDDBJanitorInterval.
+func NewJanitor(backend *InMemoryDB, log *slog.Logger, settings Settings) *Janitor {
+	interval := settings.JanitorInterval
+	if interval == 0 {
+		interval = defaultDDBJanitorInterval
+	}
+
 	return &Janitor{
 		Backend:  backend,
 		Log:      log,
-		Interval: defaultDDBJanitorInterval,
+		Interval: interval,
 	}
 }
 

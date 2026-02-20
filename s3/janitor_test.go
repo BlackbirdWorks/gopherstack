@@ -17,10 +17,7 @@ import (
 
 // newFastJanitor creates a Janitor with a short interval for deterministic tests.
 func newFastJanitor(b *s3.InMemoryBackend) *s3.Janitor {
-	j := s3.NewJanitor(b, logger.NewTestLogger())
-	j.Interval = 5 * time.Millisecond
-
-	return j
+	return s3.NewJanitor(b, logger.NewTestLogger(), s3.Settings{JanitorInterval: 5 * time.Millisecond})
 }
 
 func TestS3Janitor_EmptyBucketRemovedImmediately(t *testing.T) {

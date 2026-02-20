@@ -16,10 +16,7 @@ import (
 
 // newFastDDBJanitor creates a Janitor with a short interval for deterministic tests.
 func newFastDDBJanitor(db *dynamodb.InMemoryDB) *dynamodb.Janitor {
-	j := dynamodb.NewJanitor(db, logger.NewTestLogger())
-	j.Interval = 5 * time.Millisecond
-
-	return j
+	return dynamodb.NewJanitor(db, logger.NewTestLogger(), dynamodb.Settings{JanitorInterval: 5 * time.Millisecond})
 }
 
 func TestDDBJanitor_DeleteTableMovesToDeletingQueue(t *testing.T) {

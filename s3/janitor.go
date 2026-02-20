@@ -26,11 +26,18 @@ type Janitor struct {
 }
 
 // NewJanitor creates a new S3 Janitor for the given backend.
-func NewJanitor(backend *InMemoryBackend, log *slog.Logger) *Janitor {
+// The janitor interval is taken from the provided settings;
+// if zero, it falls back to defaultJanitorInterval.
+func NewJanitor(backend *InMemoryBackend, log *slog.Logger, settings Settings) *Janitor {
+	interval := settings.JanitorInterval
+	if interval == 0 {
+		interval = defaultJanitorInterval
+	}
+
 	return &Janitor{
 		Backend:  backend,
 		Log:      log,
-		Interval: defaultJanitorInterval,
+		Interval: interval,
 	}
 }
 
