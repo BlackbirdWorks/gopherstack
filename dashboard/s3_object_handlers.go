@@ -570,7 +570,7 @@ func (h *DashboardHandler) renderTagItem(w http.ResponseWriter, bucketName, key,
             </div>`,
 		html.EscapeString(tagKey),
 		html.EscapeString(tagValue),
-		url.PathEscape(bucketName),
-		url.PathEscape(key),
-		url.QueryEscape(tagKey))
+		html.EscapeString(url.PathEscape(bucketName)),
+		html.EscapeString(url.PathEscape(key)),
+		html.EscapeString(url.QueryEscape(tagKey)))
 }

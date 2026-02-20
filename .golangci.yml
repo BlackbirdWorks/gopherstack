@@ -476,6 +476,7 @@ linters:
         linters: [ revive, staticcheck ]
       - path: '_test\.go'
         linters:
+          - ireturn
           - bodyclose
           - cyclop
           - dupl

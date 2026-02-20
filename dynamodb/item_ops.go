@@ -52,15 +52,20 @@ func isItemExpired(item map[string]any, ttlAttr string) bool {
 }
 
 func (db *InMemoryDB) getTable(name string) (*Table, error) {
-	db.mu.RLock("getTable")
-	table, exists := db.Tables[name]
-	db.mu.RUnlock()
-
+	table, exists := db.getTableRLock(name)
 	if !exists {
 		return nil, NewResourceNotFoundException("Requested resource not found")
 	}
 
 	return table, nil
+}
+
+func (db *InMemoryDB) getTableRLock(name string) (*Table, bool) {
+	db.mu.RLock("getTable")
+	defer db.mu.RUnlock()
+	table, exists := db.Tables[name]
+
+	return table, exists
 }
 
 func getPKAndSK(

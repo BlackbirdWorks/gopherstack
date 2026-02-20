@@ -160,7 +160,15 @@ func (h *DashboardHandler) Name() string {
 // RouteMatcher returns a matcher for dashboard requests (by path prefix).
 func (h *DashboardHandler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		return strings.HasPrefix(c.Request().URL.Path, "/dashboard")
+		path := c.Request().URL.Path
+		method := c.Request().Method
+
+		// Dashboard UI only uses GET and POST.
+		if method != http.MethodGet && method != http.MethodPost {
+			return false
+		}
+
+		return path == "/dashboard" || strings.HasPrefix(path, "/dashboard/")
 	}
 }
 

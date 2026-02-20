@@ -19,7 +19,6 @@ const (
 // Summary holds aggregated metrics for a single operation.
 type Summary struct {
 	Operation  string  `json:"operation"`
-	Resource   string  `json:"resource"` // table name or bucket name
 	Count      int64   `json:"count"`
 	ErrorCount int64   `json:"error_count"`
 	P50Ms      float64 `json:"p50_ms"`
@@ -86,6 +85,10 @@ func processCollectedMetrics(metrics []*io_prometheus_client.MetricFamily, resul
 		switch name {
 		case "operation_duration_seconds":
 			result.Operations = append(result.Operations, parseHistogram(mf)...)
+		case "operation_avg_duration_seconds":
+			// We consolidate this into the Summary during parseHistogram or similar
+			// but Prometheus handles them separately. For now, let's update Summaries with it.
+			updateAverages(mf, result.Operations)
 		case "gopherstack_lock_write_held_seconds":
 			processLockHeldMetrics(mf, deadlockCandidates)
 		case "gopherstack_lock_write_waiters":
@@ -175,15 +178,10 @@ func parseHistogram(mf *io_prometheus_client.MetricFamily) []Summary {
 			continue
 		}
 
-		var operation, resource string
+		var operation string
 		for _, label := range metric.GetLabel() {
-			if label.Name != nil {
-				switch label.GetName() {
-				case "operation":
-					operation = label.GetValue()
-				case "resource":
-					resource = label.GetValue()
-				}
+			if label.Name != nil && label.GetName() == "operation" {
+				operation = label.GetValue()
 			}
 		}
 
@@ -207,7 +205,6 @@ func parseHistogram(mf *io_prometheus_client.MetricFamily) []Summary {
 
 		summaries = append(summaries, Summary{
 			Operation: operation,
-			Resource:  resource,
 			Count:     countVal,
 			P50Ms:     p50 * msPerSecond,
 			P95Ms:     p95 * msPerSecond,
@@ -301,4 +298,19 @@ func fillMissingPercentiles(
 	}
 
 	return newP50, newP95, newP99
+}
+
+// updateAverages updates the AvgMs in Summaries using the explicit average gauge.
+func updateAverages(mf *io_prometheus_client.MetricFamily, summaries []Summary) {
+	avgMap := make(map[string]float64)
+	for _, m := range mf.GetMetric() {
+		op := getLabelValue(m, "operation")
+		avgMap[op] = m.GetGauge().GetValue()
+	}
+
+	for i := range summaries {
+		if val, ok := avgMap[summaries[i].Operation]; ok {
+			summaries[i].AvgMs = val * msPerSecond
+		}
+	}
 }

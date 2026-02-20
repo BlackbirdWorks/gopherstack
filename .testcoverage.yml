@@ -1,17 +1,18 @@
-# Go test coverage configuration
+# go-test-coverage configuration
 
-# Path to the coverage profile file
-profile: coverage.out
+# This file is used by vladopajic/go-test-coverage to enforce coverage thresholds.
+# It is also used by our custom reporting script in ci.yml.
 
-# Thresholds for coverage
+# Total coverage threshold (percentage)
 threshold:
-  # Minimum total project coverage
-  total: 80
+  total: 85
 
-# Incremental coverage check for changed files
-diff:
-  # Minimum coverage for files changed in a PR
-  threshold-changed-files: 85
+# Package-specific thresholds or overrides can be added here
+# override:
+#   - package: github.com/blackbirdworks/gopherstack/pkgs/lockmetrics
+#     threshold: 70
 
-# Enable GitHub Actions output formatting
-github-action-output: true
+# List of packages to ignore
+# exclude:
+#   - packages:
+#     - github.com/blackbirdworks/gopherstack/test/integration

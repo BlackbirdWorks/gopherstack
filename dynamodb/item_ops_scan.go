@@ -41,7 +41,9 @@ func (db *InMemoryDB) ScanWithContext(
 	// Snapshot items and metadata under lock, release immediately
 	table.mu.RLock("Scan")
 	itemsCopy := make([]map[string]any, len(table.Items))
-	copy(itemsCopy, table.Items)
+	for i, it := range table.Items {
+		itemsCopy[i] = deepCopyItem(it)
+	}
 	ttlAttr := table.TTLAttribute
 	keySchema := make([]models.KeySchemaElement, len(table.KeySchema))
 	copy(keySchema, table.KeySchema)

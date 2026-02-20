@@ -219,6 +219,14 @@ func New(name string) *RWMutex {
 	return m
 }
 
+// Close removes the [RWMutex] from the global metrics registry.
+// It must be called when the mutex is no longer needed (e.g. on table/bucket deletion)
+// to prevent memory leaks and performance degradation.
+func (m *RWMutex) Close() {
+	coll := registerOrReuse(newLiveCollector())
+	coll.allMutexes.Delete(m)
+}
+
 // WriteWaiters returns the current number of goroutines blocked waiting for
 // the write lock. Exposed for testing; the Prometheus Collector is the primary
 // consumer in production.
@@ -231,6 +239,16 @@ func (m *RWMutex) WriteWaiters() int32 {
 // consumer in production.
 func (m *RWMutex) ReadWaiters() int32 {
 	return m.readWaiters.Load()
+}
+
+// GetLockStatus returns whether the write lock is currently held, and the number
+// of write and read waiters. This can be used to detect potential deadlocks.
+func (m *RWMutex) GetLockStatus() (bool, int32, int32) {
+	isLocked := m.writeStart.Load() != 0
+	writeWaiters := m.writeWaiters.Load()
+	readWaiters := m.readWaiters.Load()
+
+	return isLocked, writeWaiters, readWaiters
 }
 
 // Lock acquires the exclusive write lock. op is the name of the calling

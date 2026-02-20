@@ -147,8 +147,10 @@ func (h *S3Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
 		// Exclude API and dashboard endpoints - let them be handled by other routes
-		if strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/metrics") ||
-			strings.HasPrefix(path, "/dashboard") {
+		// Matches /api/, /metrics/, /dashboard/ but NOT /api, /metrics, /dashboard
+		// which could be valid bucket names.
+		if strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/metrics/") ||
+			strings.HasPrefix(path, "/dashboard/") {
 			return false
 		}
 		// Accept all other requests - priority ensures we're evaluated last
@@ -259,7 +261,27 @@ func (h *S3Handler) extractVirtualHostedBucketName(r *http.Request) string {
 		return ""
 	}
 
+	// candidate is everything before ".<baseHost>" (e.g. "bucket.s3.us-east-1")
 	candidate := reqHostNoPort[:len(reqHostNoPort)-len(suffix)]
+
+	// Some SDKs use <bucket>.s3.<region> or <bucket>.s3
+	// We want to extract just <bucket>.
+	parts := strings.Split(candidate, ".")
+	if len(parts) > 1 {
+		// Check for s3. or s3-<region>. parts
+		for i, p := range parts {
+			if p == "s3" || strings.HasPrefix(p, "s3-") {
+				// The bucket is everything before the first 's3' part.
+				bucket := strings.Join(parts[:i], ".")
+				if IsValidBucketName(bucket) {
+					return bucket
+				}
+
+				break
+			}
+		}
+	}
+
 	if IsValidBucketName(candidate) {
 		return candidate
 	}

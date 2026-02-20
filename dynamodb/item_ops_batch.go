@@ -33,7 +33,15 @@ func (db *InMemoryDB) BatchGetItem(
 		wg.Add(1)
 		go func(tblName string, attrs types.KeysAndAttributes) {
 			defer wg.Done()
-			results := db.processBatchGetTable(ctx, tblName, attrs)
+
+			table, exists := db.getTableRLock(tblName)
+			if !exists {
+				return
+			}
+
+			table.mu.RLock("BatchGetItem")
+			results := db.processBatchGetTableNoLock(ctx, table, attrs)
+			table.mu.RUnlock()
 
 			if len(results) > 0 {
 				mu.Lock()
@@ -73,12 +81,11 @@ func (db *InMemoryDB) validateBatchGetInput(input *dynamodb.BatchGetItemInput) e
 	return nil
 }
 
-func (db *InMemoryDB) processBatchGetTable(
+func (db *InMemoryDB) processBatchGetTableNoLock(
 	ctx context.Context,
-	tableName string,
+	table *Table,
 	keysAndAttrs types.KeysAndAttributes,
 ) []map[string]types.AttributeValue {
-	table := db.Tables[tableName]
 	pkDef, skDef := getPKAndSK(table.KeySchema)
 	var results []map[string]types.AttributeValue
 
@@ -86,7 +93,7 @@ func (db *InMemoryDB) processBatchGetTable(
 	if proj != "" {
 		log := logger.Load(ctx)
 		log.DebugContext(ctx, "Evaluating BatchGetItem ProjectionExpression",
-			"tableName", tableName,
+			"tableName", table.Name,
 			"expression", proj,
 			"attributeNames", keysAndAttrs.ExpressionAttributeNames)
 	}
@@ -183,8 +190,14 @@ func (db *InMemoryDB) processTableWriteRequests(table *Table, requests []types.W
 	defer table.mu.Unlock()
 
 	modifiedIndices := db.processBatchPutRequests(table, requests)
-	hasDeletes := db.processBatchDeleteRequests(table, requests)
-	db.updateBatchIndexes(table, modifiedIndices, hasDeletes)
+	deletedIndices := db.processBatchDeleteRequests(table, requests)
+
+	if len(deletedIndices) > 0 {
+		db.applyBatchDeletes(table, deletedIndices)
+		table.rebuildIndexes()
+	} else if len(modifiedIndices) > 0 {
+		db.updateBatchIndexes(table, modifiedIndices)
+	}
 
 	return nil
 }
@@ -208,41 +221,41 @@ func (db *InMemoryDB) processBatchPutRequests(
 	return modifiedIndices
 }
 
-func (db *InMemoryDB) processBatchDeleteRequests(table *Table, requests []types.WriteRequest) bool {
-	var itemsToDeleteIdx []int
+func (db *InMemoryDB) processBatchDeleteRequests(table *Table, requests []types.WriteRequest) map[int]bool {
+	deletedIndices := make(map[int]bool)
 
 	for _, req := range requests {
 		if req.DeleteRequest != nil {
 			wireKey := models.FromSDKItem(req.DeleteRequest.Key)
 			_, matchIndex := db.findMatchForPut(table, wireKey)
 			if matchIndex != -1 {
-				itemsToDeleteIdx = append(itemsToDeleteIdx, matchIndex)
+				deletedIndices[matchIndex] = true
 			}
 		}
 	}
 
-	// Delete in reverse order to prevent index shifting issues
-	sort.Sort(sort.Reverse(sort.IntSlice(itemsToDeleteIdx)))
-	for _, idx := range itemsToDeleteIdx {
-		if idx >= 0 && idx < len(table.Items) {
-			table.Items = append(table.Items[:idx], table.Items[idx+1:]...)
-		}
+	return deletedIndices
+}
+
+func (db *InMemoryDB) applyBatchDeletes(table *Table, deletedIndices map[int]bool) {
+	if len(deletedIndices) == 0 {
+		return
 	}
 
-	return len(itemsToDeleteIdx) > 0
+	// Optimize: single-pass compaction instead of O(M*N)
+	newItems := make([]map[string]any, 0, len(table.Items)-len(deletedIndices))
+	for i, item := range table.Items {
+		if !deletedIndices[i] {
+			newItems = append(newItems, item)
+		}
+	}
+	table.Items = newItems
 }
 
 func (db *InMemoryDB) updateBatchIndexes(
 	table *Table,
 	modifiedIndices map[int]bool,
-	hasDeletes bool,
 ) {
-	if hasDeletes {
-		table.rebuildIndexes()
-
-		return
-	}
-
 	if len(modifiedIndices) == 0 {
 		return
 	}

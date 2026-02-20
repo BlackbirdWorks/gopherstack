@@ -54,7 +54,7 @@ func (h *S3Handler) uploadPart(
 	uploadID := r.URL.Query().Get("uploadId")
 	partNumberStr := r.URL.Query().Get("partNumber")
 	partNumber, err := strconv.Atoi(partNumberStr)
-	if err != nil {
+	if err != nil || partNumber < 1 || partNumber > 10000 {
 		httputil.WriteError(log, w, r, ErrInvalidArgument, http.StatusBadRequest)
 
 		return
@@ -110,6 +110,11 @@ func (h *S3Handler) completeMultipartUpload(
 
 	var sdkParts []types.CompletedPart
 	for _, p := range partsReq.Parts {
+		if p.PartNumber < 1 || p.PartNumber > 10000 {
+			httputil.WriteError(log, w, r, ErrInvalidPart, http.StatusBadRequest)
+
+			return
+		}
 		sdkParts = append(sdkParts, types.CompletedPart{
 			ETag:       aws.String(p.ETag),
 			PartNumber: aws.Int32(int32(p.PartNumber)), // #nosec G115

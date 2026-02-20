@@ -506,51 +506,30 @@ func (db *InMemoryDB) deleteItemAtIndex(table *Table, matchIndex int) {
 	pkVal := BuildKeyString(item, pkDef.AttributeName)
 
 	if skDef.AttributeName != "" {
-		db.deleteFromCompositeIndex(table, pkVal, item, skDef.AttributeName, matchIndex)
-	} else {
-		db.deleteFromSimpleIndex(table, pkVal, matchIndex)
-	}
-
-	// Remove from Items slice
-	table.Items = append(table.Items[:matchIndex], table.Items[matchIndex+1:]...)
-}
-
-func (db *InMemoryDB) deleteFromCompositeIndex(
-	table *Table,
-	pkVal string,
-	item map[string]any,
-	skAttrName string,
-	matchIndex int,
-) {
-	// Delete from composite key index
-	skVal := BuildKeyString(item, skAttrName)
-	if skMap, ok := table.pkskIndex[pkVal]; ok {
-		delete(skMap, skVal)
-		if len(skMap) == 0 {
-			delete(table.pkskIndex, pkVal)
-		}
-	}
-
-	// Decrement all indices after matchIndex in composite key index
-	for _, skMap := range table.pkskIndex {
-		for sk, idx := range skMap {
-			if idx > matchIndex {
-				skMap[sk] = idx - 1
+		skVal := BuildKeyString(item, skDef.AttributeName)
+		if skMap, ok := table.pkskIndex[pkVal]; ok {
+			delete(skMap, skVal)
+			if len(skMap) == 0 {
+				delete(table.pkskIndex, pkVal)
 			}
 		}
+	} else {
+		delete(table.pkIndex, pkVal)
 	}
-}
 
-func (db *InMemoryDB) deleteFromSimpleIndex(table *Table, pkVal string, matchIndex int) {
-	// Delete from simple key index
-	delete(table.pkIndex, pkVal)
+	// Swap with last strategy for O(1) deletion
+	lastIdx := len(table.Items) - 1
+	if matchIndex != lastIdx {
+		// Move last item to deleted spot
+		lastItem := table.Items[lastIdx]
+		table.Items[matchIndex] = lastItem
 
-	// Decrement all indices after matchIndex in simple key index
-	for pk, idx := range table.pkIndex {
-		if idx > matchIndex {
-			table.pkIndex[pk] = idx - 1
-		}
+		// Update index for the moved item
+		db.updateIndexes(table, lastItem, matchIndex)
 	}
+
+	// Shrink slice
+	table.Items = table.Items[:lastIdx]
 }
 
 // deepCopyItem returns a deep copy of a wire-format item so that mutations

@@ -128,14 +128,6 @@ func startServerOnPort(port string, stopChan chan struct{}) error {
 		o.BaseEndpoint = aws.String("http://local")
 	})
 
-	// Load demo data before creating the dashboard handler
-	if os.Getenv("DEMO") == "true" {
-		log.Info("Loading demo data...")
-		if err = demo.LoadData(context.Background(), log, ddbClient, s3Client); err != nil {
-			log.Error("Failed to load demo data", "error", err)
-		}
-	}
-
 	dashboardHandler := dashboard.NewHandler(ddbClient, s3Client, ddbHandler, s3Handler, log)
 
 	// Create Echo app with routing
@@ -166,6 +158,14 @@ func startServerOnPort(port string, stopChan chan struct{}) error {
 
 	// Wire the in-memory mux used by SDK clients through the same Echo routing
 	inMemMux.Handle("/", e)
+
+	// Load demo data AFTER creating the dashboard handler and wiring the mux
+	if os.Getenv("DEMO") == "true" {
+		log.Info("Loading demo data...")
+		if err = demo.LoadData(context.Background(), log, ddbClient, s3Client); err != nil {
+			log.Error("Failed to load demo data", "error", err)
+		}
+	}
 
 	log.Info("Starting Gopherstack (DynamoDB + S3)", "port", port)
 

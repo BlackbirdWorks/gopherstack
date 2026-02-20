@@ -245,8 +245,8 @@ func (h *S3Handler) listObjects(
 
 	maxKeys := int32(defaultMaxKeys)
 	if mk := r.URL.Query().Get("max-keys"); mk != "" {
-		if n, err := strconv.Atoi(mk); err == nil && n >= 0 {
-			maxKeys = int32(n) //nolint:gosec // Validated non-negative, safe conversion
+		if n, err := strconv.Atoi(mk); err == nil && n >= 0 && n <= 1000 {
+			maxKeys = int32(n) //nolint:gosec // Validated range
 		}
 	}
 
@@ -454,7 +454,11 @@ func (h *S3Handler) putBucketVersioning(
 		},
 	})
 	if err != nil {
-		httputil.WriteError(log, w, r, err, http.StatusNotFound)
+		if errors.Is(err, ErrNoSuchBucket) {
+			httputil.WriteError(log, w, r, err, http.StatusNotFound)
+		} else {
+			httputil.WriteError(log, w, r, err, http.StatusInternalServerError)
+		}
 
 		return
 	}
@@ -475,7 +479,11 @@ func (h *S3Handler) getBucketVersioning(
 		&s3.GetBucketVersioningInput{Bucket: aws.String(bucketName)},
 	)
 	if err != nil {
-		httputil.WriteError(log, w, r, err, http.StatusNotFound)
+		if errors.Is(err, ErrNoSuchBucket) {
+			httputil.WriteError(log, w, r, err, http.StatusNotFound)
+		} else {
+			httputil.WriteError(log, w, r, err, http.StatusInternalServerError)
+		}
 
 		return
 	}

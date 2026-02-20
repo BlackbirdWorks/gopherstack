@@ -4,6 +4,8 @@ import (
 	"strconv"
 	"testing"
 
+	dynamodb_sdk "github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/blackbirdworks/gopherstack/dynamodb/models"
 
 	"github.com/blackbirdworks/gopherstack/dynamodb"
@@ -219,4 +221,64 @@ func TestScan_ValidationErrors(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestScan_SnapshotIsolation(t *testing.T) {
+	t.Parallel()
+
+	db := dynamodb.NewInMemoryDB()
+	tableName := "IsolationTable"
+	createTableHelper(t, db, tableName, "pk")
+
+	// 1. Put item with nested map
+	item := map[string]any{
+		"pk": map[string]any{"S": "1"},
+		"nested": map[string]any{
+			"M": map[string]any{
+				"key": map[string]any{"S": "initial"},
+			},
+		},
+	}
+	putInput := &dynamodb_sdk.PutItemInput{
+		TableName: &tableName,
+		Item:      mustToAttributeValueMap(t, item),
+	}
+	_, err := db.PutItem(t.Context(), putInput)
+	require.NoError(t, err)
+
+	// 2. Scan the table
+	scanInput := &dynamodb_sdk.ScanInput{TableName: &tableName}
+	res, err := db.Scan(t.Context(), scanInput)
+	require.NoError(t, err)
+	require.Len(t, res.Items, 1)
+
+	// 3. Modify the nested map in the DB via UpdateItem or another PutItem
+	newItem := map[string]any{
+		"pk": map[string]any{"S": "1"},
+		"nested": map[string]any{
+			"M": map[string]any{
+				"key": map[string]any{"S": "modified"},
+			},
+		},
+	}
+	_, err = db.PutItem(t.Context(), &dynamodb_sdk.PutItemInput{
+		TableName: &tableName,
+		Item:      mustToAttributeValueMap(t, newItem),
+	})
+	require.NoError(t, err)
+
+	// 4. Verify that the ALREADY RETURNED scan item still has the "initial" value
+	// (This confirms it's a deep copy and not just a reference to the internal map)
+	gotItem := models.FromSDKItem(res.Items[0])
+	nested := gotItem["nested"].(map[string]any)["M"].(map[string]any)
+	assert.Equal(t, "initial", nested["key"].(map[string]any)["S"],
+		"Scan results should be isolated from subsequent mutations")
+}
+
+func mustToAttributeValueMap(t *testing.T, m map[string]any) map[string]types.AttributeValue {
+	t.Helper()
+	sdk, err := models.ToSDKItem(m)
+	require.NoError(t, err)
+
+	return sdk
 }
