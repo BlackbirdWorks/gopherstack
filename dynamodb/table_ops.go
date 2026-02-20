@@ -116,7 +116,8 @@ func (db *InMemoryDB) DeleteTable(
 	db.mu.Unlock()
 
 	table.mu.RLock("DeleteTable")
-	defer table.mu.RUnlock()
+	table.mu.RUnlock()
+	table.mu.Close()
 
 	// Capture state for return
 	gsiDescs := make([]models.GlobalSecondaryIndexDescription, len(table.GlobalSecondaryIndexes))

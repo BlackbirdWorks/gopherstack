@@ -219,6 +219,14 @@ func New(name string) *RWMutex {
 	return m
 }
 
+// Close removes the [RWMutex] from the global metrics registry.
+// It must be called when the mutex is no longer needed (e.g. on table/bucket deletion)
+// to prevent memory leaks and performance degradation.
+func (m *RWMutex) Close() {
+	coll := registerOrReuse(newLiveCollector())
+	coll.allMutexes.Delete(m)
+}
+
 // WriteWaiters returns the current number of goroutines blocked waiting for
 // the write lock. Exposed for testing; the Prometheus Collector is the primary
 // consumer in production.

@@ -34,7 +34,7 @@ func (db *InMemoryDB) BatchGetItem(
 		go func(tblName string, attrs types.KeysAndAttributes) {
 			defer wg.Done()
 
-			table, exists := db.getTableNoLock(tblName)
+			table, exists := db.getTableRLock(tblName)
 			if !exists {
 				return
 			}

@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-//nolint:ireturn // Generic test helper returning type param is fine.
 func mustUnmarshal[T any](t *testing.T, jsonStr string) T {
 	t.Helper()
 	var val T

@@ -52,7 +52,7 @@ func isItemExpired(item map[string]any, ttlAttr string) bool {
 }
 
 func (db *InMemoryDB) getTable(name string) (*Table, error) {
-	table, exists := db.getTableNoLock(name)
+	table, exists := db.getTableRLock(name)
 	if !exists {
 		return nil, NewResourceNotFoundException("Requested resource not found")
 	}
@@ -60,7 +60,7 @@ func (db *InMemoryDB) getTable(name string) (*Table, error) {
 	return table, nil
 }
 
-func (db *InMemoryDB) getTableNoLock(name string) (*Table, bool) {
+func (db *InMemoryDB) getTableRLock(name string) (*Table, bool) {
 	db.mu.RLock("getTable")
 	defer db.mu.RUnlock()
 	table, exists := db.Tables[name]
