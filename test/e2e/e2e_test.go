@@ -398,18 +398,20 @@ func TestE2E_DynamoDB_ItemCRUD(t *testing.T) {
 	err = itemRow.Locator("button:has-text('Edit')").Click()
 	require.NoError(t, err)
 
-	require.NoError(t, page.Fill("textarea[name='itemJson']", `{"id": "test-1", "name": "Super Gopher"}`))
+	err = page.Locator("#edit_item_modal textarea[name='itemJson']").WaitFor(
+		playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible},
+	)
+	require.NoError(t, err)
+
+	require.NoError(t, page.Fill("#edit_item_modal textarea[name='itemJson']", `{"id": "test-1", "name": "Super Gopher"}`))
 	err = page.Click("button[type='submit']:has-text('Save Changes')")
 	require.NoError(t, err)
 
-	// Wait for modal to close to ensure swap is complete
-	// We use after-request hook in the form to close the modal
-	editModal := page.Locator("#edit_item_modal")
-	require.NoError(t, editModal.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateHidden, Timeout: aws.Float64(10000)}))
-
 	// 5. Verify update (should be auto-updated by hx-target="#scan-results")
-	content, _ := itemRow.TextContent()
-	assert.Contains(t, content, "Super Gopher")
+	require.Eventually(t, func() bool {
+		content, _ := itemRow.TextContent()
+		return strings.Contains(content, "Super Gopher")
+	}, 10*time.Second, 250*time.Millisecond)
 
 	// 6. Delete item
 	err = itemRow.Locator("button:has-text('Delete')").Click()
@@ -480,17 +482,20 @@ func TestE2E_S3_FolderNavigation(t *testing.T) {
 	require.NoError(t, page.Locator("#file-tree:has-text('logs')").WaitFor())
 	require.NoError(t, page.Locator("#file-tree:has-text('readme.md')").WaitFor())
 
-	// 3. Navigate into 'logs/' (click the folder title - it might contain emoji)
-	err = page.Click(".collapse-title:has-text('logs')")
+	// 3. Navigate into 'logs/'
+	logsNode := page.Locator(".collapse:has-text('logs')")
+	err = logsNode.Locator("input[type='checkbox']").Check()
 	require.NoError(t, err)
 
 	// 4. Verify '2024/' appears
-	require.NoError(t, page.Locator(".collapse-title:has-text('2024')").WaitFor())
-	err = page.Click(".collapse-title:has-text('2024')")
+	yearNode := logsNode.Locator(".collapse:has-text('2024')")
+	require.NoError(t, yearNode.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateAttached}))
+	err = yearNode.Locator("input[type='checkbox']").Check()
 	require.NoError(t, err)
 
-	require.NoError(t, page.Locator(".collapse-title:has-text('01')").WaitFor())
-	err = page.Click(".collapse-title:has-text('01')")
+	monthNode := yearNode.Locator(".collapse:has-text('01')")
+	require.NoError(t, monthNode.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateAttached}))
+	err = monthNode.Locator("input[type='checkbox']").Check()
 	require.NoError(t, err)
 
 	// 6. Verify 'app.log' appears
@@ -934,13 +939,14 @@ func TestE2E_S3_Pagination_And_Search(t *testing.T) {
 	err = nextBtn.Click()
 	require.NoError(t, err)
 
-	// 4. Verify second page
-	err = page.Locator("#bucket-list .card").First().WaitFor()
-	require.NoError(t, err)
+	pageTwo := page.Locator("#bucket-list").Locator("text=Showing page 2 of 2")
+	require.NoError(t, pageTwo.WaitFor())
 
-	cards, err = page.Locator("#bucket-list .card").All()
-	require.NoError(t, err)
-	assert.Equal(t, 3, len(cards), "Second page should have 3 buckets")
+	// 4. Verify second page
+	require.Eventually(t, func() bool {
+		cards, _ := page.Locator("#bucket-list .card").All()
+		return len(cards) == 3
+	}, 5*time.Second, 250*time.Millisecond, "Second page should have 3 buckets")
 
 	// 5. Test Search
 	searchInput := page.Locator("input[name='search']")
