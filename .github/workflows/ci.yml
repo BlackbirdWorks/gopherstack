@@ -35,6 +35,8 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -46,46 +48,132 @@ jobs:
       - name: Run Unit Tests with Coverage
         run: make test-with-coverage
 
-      - name: Enforce 85% Coverage Minimum
+      - name: Check Coverage Thresholds
+        id: coverage
         uses: vladopajic/go-test-coverage@v2
         with:
           profile: coverage.out
-          local-prefix: github.com/${{ github.repository }}
-          git-token: ${{ secrets.GITHUB_TOKEN }}
-          git-branch: ${{ github.head_ref || github.ref_name }}
-          debug: true
+          config: .testcoverage.yml
 
-      - name: Comment PR with Coverage Warning
-        if: always()
+      - name: Generate Smart Coverage Report
+        if: always() && github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const fs = require('fs');
-            let coverageOutput = '';
+            const { execSync } = require('child_process');
+            
+            let totalCoverage = 'Unknown';
+            let newCodeCoverage = 'N/A';
+            let newCodeTotalLines = 0;
+            let newCodeCoveredLines = 0;
+
             try {
-              coverageOutput = fs.readFileSync('coverage.out', 'utf8');
+              // 1. Total Coverage
+              const totalOutput = execSync('go tool cover -func=coverage.out | grep total | awk \'{print $3}\'').toString().trim();
+              totalCoverage = totalOutput;
+
+              // 2. New Code Coverage (Diff-based)
+              // Get changed lines from git diff
+              const diff = execSync('git diff origin/main...HEAD -U0').toString();
+              const changedLines = {}; // file -> Set of line numbers
+              
+              const diffLines = diff.split('\n');
+              let currentFile = null;
+              for (const line of diffLines) {
+                if (line.startsWith('+++ b/')) {
+                  currentFile = line.substring(6);
+                  changedLines[currentFile] = new Set();
+                } else if (line.startsWith('@@ ') && currentFile) {
+                  const match = line.match(/@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
+                  if (match) {
+                    const start = parseInt(match[1]);
+                    const count = parseInt(match[2] || '1');
+                    for (let i = 0; i < count; i++) {
+                      changedLines[currentFile].add(start + i);
+                    }
+                  }
+                }
+              }
+
+              // Parse coverage.out
+              const coverageData = fs.readFileSync('coverage.out', 'utf8').split('\n');
+              for (const line of coverageData) {
+                if (!line || line.startsWith('mode:')) continue;
+                
+                // github.com/user/repo/pkg/file.go:19.46,24.2 1 1
+                const [loc, numStmt, hits] = line.split(' ');
+                const [fullPath, range] = loc.split(':');
+                const [start, end] = range.split(',');
+                const startLine = parseInt(start.split('.')[0]);
+                const endLine = parseInt(end.split('.')[0]);
+                
+                // Find relative path to match diff
+                const relativePath = fullPath.replace(/^github\.com\/[^\/]+\/[^\/]+\//, '');
+                
+                if (changedLines[relativePath]) {
+                  const fileLines = changedLines[relativePath];
+                  for (let l = startLine; l <= endLine; l++) {
+                    if (fileLines.has(l)) {
+                      newCodeTotalLines++;
+                      if (parseInt(hits) > 0) {
+                        newCodeCoveredLines++;
+                      }
+                      // Remove to avoid double counting if blocks overlap? 
+                      // Actually blocks in coverage.out usually don't overlap lines in a way that matters for this simple heuristic.
+                    }
+                  }
+                }
+              }
+
+              if (newCodeTotalLines > 0) {
+                newCodeCoverage = ((newCodeCoveredLines / newCodeTotalLines) * 100).toFixed(1) + '%';
+              }
             } catch (e) {
-              console.log('Coverage file not found');
+              console.log('Failed to calculate coverage metrics:', e);
             }
+
+            const header = '## 📊 Code Coverage Report';
+            const totalStatus = parseFloat(totalCoverage) >= 85 ? '✅' : '⚠️';
+            const newStatus = parseFloat(newCodeCoverage) >= 85 || newCodeCoverage === 'N/A' ? '✅' : '⚠️';
             
-            const body = `## 📊 Code Coverage Check
+            const body = `${header}
             
-            ⚠️ **Important:** This project maintains a minimum coverage threshold of **85%**.
+            | Metric | Value | Status |
+            | :--- | :--- | :--- |
+            | **Total Coverage** | ${totalCoverage} | ${totalStatus} |
+            | **New Code Coverage** | ${newCodeCoverage} | ${newStatus} |
             
-            Coverage should never decrease. Please ensure your changes maintain or improve test coverage.
+            > [!NOTE]
+            > This project maintains a minimum coverage threshold of **85%**.
             
-            - If coverage is below 85%, this PR cannot be merged
-            - Add tests for any new functionality
-            - Ensure edge cases are covered
-            `;
-            
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
+            ---
+            *Last updated: ${new Date().toUTCString()}*`;
+
+            const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: body
+              issue_number: context.issue.number,
             });
+            
+            const botComment = comments.find(c => c.body.startsWith(header));
+            
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body
+              });
+            }
 
   e2e:
     name: E2E Tests
