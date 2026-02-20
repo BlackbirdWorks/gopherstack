@@ -231,3 +231,53 @@ func TestReadWaiters(t *testing.T) {
 	<-done
 	assert.EqualValues(t, 0, m.ReadWaiters(), "expected 0 read waiters after write lock released")
 }
+
+func TestGetLockStatus(t *testing.T) {
+	t.Parallel()
+
+	m := lockmetrics.New("test.lock-status")
+
+	// Initially unlocked
+	locked, ww, rw := m.GetLockStatus()
+	assert.False(t, locked)
+	assert.EqualValues(t, 0, ww)
+	assert.EqualValues(t, 0, rw)
+
+	// Lock it
+	m.Lock("holder")
+	locked, ww, rw = m.GetLockStatus()
+	assert.True(t, locked)
+	assert.EqualValues(t, 0, ww)
+	assert.EqualValues(t, 0, rw)
+
+	// Add a waiter
+	done := make(chan struct{})
+	go func() {
+		m.Lock("waiter")
+		m.Unlock()
+		close(done)
+	}()
+
+	// Poll until waiter is registered
+	for range 10 {
+		_, ww, _ = m.GetLockStatus()
+		if ww > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	locked, ww, rw = m.GetLockStatus()
+	assert.True(t, locked)
+	assert.EqualValues(t, 1, ww)
+	assert.EqualValues(t, 0, rw)
+
+	// Unlock
+	m.Unlock()
+	<-done
+
+	locked, ww, rw = m.GetLockStatus()
+	assert.False(t, locked)
+	assert.EqualValues(t, 0, ww)
+	assert.EqualValues(t, 0, rw)
+}

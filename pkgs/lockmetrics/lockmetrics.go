@@ -233,6 +233,16 @@ func (m *RWMutex) ReadWaiters() int32 {
 	return m.readWaiters.Load()
 }
 
+// GetLockStatus returns whether the write lock is currently held, and the number
+// of write and read waiters. This can be used to detect potential deadlocks.
+func (m *RWMutex) GetLockStatus() (bool, int32, int32) {
+	isLocked := m.writeStart.Load() != 0
+	writeWaiters := m.writeWaiters.Load()
+	readWaiters := m.readWaiters.Load()
+
+	return isLocked, writeWaiters, readWaiters
+}
+
 // Lock acquires the exclusive write lock. op is the name of the calling
 // operation (e.g. "DeleteBucket") and is recorded in metrics so lock
 // contention can be attributed to specific callers.

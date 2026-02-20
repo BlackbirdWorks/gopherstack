@@ -42,9 +42,10 @@
         <div id="dashboard-view" class="hidden space-y-8 animate-in zoom-in-95 duration-300">
             <!-- Deadlock Section -->
             <section id="deadlock-section" class="hidden">
-                <div class="alert alert-error shadow-lg rounded-2xl border-none">
-                    <div class="flex items-start gap-4">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6 mt-1" fill="none"
+                <div class="collapse collapse-arrow bg-error/10 border border-error/20 rounded-2xl shadow-lg">
+                    <input type="checkbox" checked />
+                    <div class="collapse-title flex items-center gap-4 text-error p-6">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none"
                             viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
@@ -53,9 +54,11 @@
                             <h3 class="font-bold text-lg">Potential Deadlocks Detected!</h3>
                             <p class="text-sm opacity-90">One or more locks have been held for an unusually long time
                                 while other goroutines are waiting.</p>
-                            <div id="deadlock-list" class="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                                <!-- Deadlock cards populated by JS -->
-                            </div>
+                        </div>
+                    </div>
+                    <div class="collapse-content px-6 pb-6">
+                        <div id="deadlock-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                            <!-- Deadlock cards populated by JS -->
                         </div>
                     </div>
                 </div>
@@ -234,7 +237,6 @@
                             <span class="badge badge-sm ${serviceClass} badge-outline font-mono uppercase text-[10px]">${service}</span>
                             <code class="text-primary font-bold text-xs">${escapeHtml(action)}</code>
                         </div>
-                        <div class="text-[10px] text-base-content/40 mt-1 font-mono">${escapeHtml(op.resource || '-')}</div>
                     </td>
                     <td class="text-center">
                         <div class="font-bold">${op.count}</div>

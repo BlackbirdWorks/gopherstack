@@ -5,6 +5,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	io_prometheus_client "github.com/prometheus/client_model/go"
 )
 
 //nolint:gochecknoglobals // Prometheus collectors are global for registration.
@@ -17,7 +18,16 @@ var (
 			Help:    "Operation latency in seconds",
 			Buckets: []float64{.0001, .0005, .001, .005, .01, .05, .1, .5, 1, 5},
 		},
-		[]string{"operation", "resource"},
+		[]string{"operation"},
+	)
+
+	// Operation running average latencies (seconds).
+	operationAvgLatency = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "operation_avg_duration_seconds",
+			Help: "Running average operation latency in seconds",
+		},
+		[]string{"operation"},
 	)
 
 	// Operation counters.
@@ -27,7 +37,7 @@ var (
 			Name: "operations_total",
 			Help: "Total operations",
 		},
-		[]string{"operation", "resource", "status"},
+		[]string{"operation", "status"},
 	)
 
 	// Lock hold times.
@@ -45,14 +55,29 @@ var (
 	mu sync.RWMutex
 )
 
-// RecordOperation records an operation latency and status
+// RecordOperation records an operation latency and status.
 // operation: name of the operation (e.g., "GetItem", "PutObject")
-// resource: name of the resource (e.g., table name, bucket name)
+// resource: name of the resource (ignored for Prometheus metrics to reduce cardinality)
 // durationSeconds: how long the operation took
 // status: "success" or "error"
-func RecordOperation(operation, resource string, durationSeconds float64, status string) {
-	operationLatency.WithLabelValues(operation, resource).Observe(durationSeconds)
-	operationCounter.WithLabelValues(operation, resource, status).Inc()
+func RecordOperation(operation, _ string, durationSeconds float64, status string) {
+	operationLatency.WithLabelValues(operation).Observe(durationSeconds)
+	operationCounter.WithLabelValues(operation, status).Inc()
+
+	// Update running average (approximate EMA with alpha=0.1)
+	const alpha = 0.1
+	m, err := operationAvgLatency.GetMetricWithLabelValues(operation)
+	if err == nil {
+		// Get current value from the metric if possible
+		var dto io_prometheus_client.Metric
+		_ = m.Write(&dto)
+		curr := dto.GetGauge().GetValue()
+		if curr == 0 {
+			m.Set(durationSeconds)
+		} else {
+			m.Set(curr*(1-alpha) + durationSeconds*alpha)
+		}
+	}
 }
 
 // RecordLockDuration records lock hold time.
