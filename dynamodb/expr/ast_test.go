@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"Gopherstack/dynamodb/expr"
+	"github.com/blackbirdworks/gopherstack/dynamodb/expr"
 )
 
 func TestASTNodes_ImplementNode(t *testing.T) {

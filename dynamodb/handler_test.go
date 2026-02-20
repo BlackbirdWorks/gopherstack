@@ -15,9 +15,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"Gopherstack/dynamodb"
-	"Gopherstack/dynamodb/models"
-	"Gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/dynamodb"
+	"github.com/blackbirdworks/gopherstack/dynamodb/models"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // serveEchoHandler is a test helper that invokes an Echo handler with a raw HTTP request.

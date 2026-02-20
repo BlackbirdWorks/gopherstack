@@ -12,9 +12,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"Gopherstack/dynamodb"
-	"Gopherstack/dynamodb/models"
-	"Gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/dynamodb"
+	"github.com/blackbirdworks/gopherstack/dynamodb/models"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // TestDebugLogging verifies that debug logging works correctly with context-based logging.

@@ -1,7 +1,7 @@
 package dynamodb_test
 
 import (
-	"Gopherstack/dynamodb/models"
+	"github.com/blackbirdworks/gopherstack/dynamodb/models"
 	"encoding/json"
 	"testing"
 

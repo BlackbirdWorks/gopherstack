@@ -1,7 +1,7 @@
 package expr_test
 
 import (
-	"Gopherstack/dynamodb/expr"
+	"github.com/blackbirdworks/gopherstack/dynamodb/expr"
 	"fmt"
 	"testing"
 

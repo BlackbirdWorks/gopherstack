@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"testing"
 
-	"Gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 
 	"github.com/stretchr/testify/assert"
 )

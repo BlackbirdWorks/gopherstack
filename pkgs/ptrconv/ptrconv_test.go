@@ -3,7 +3,7 @@ package ptrconv_test
 import (
 	"testing"
 
-	"Gopherstack/pkgs/ptrconv"
+	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"

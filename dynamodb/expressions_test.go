@@ -1,7 +1,7 @@
 package dynamodb_test
 
 import (
-	"Gopherstack/dynamodb"
+	"github.com/blackbirdworks/gopherstack/dynamodb"
 	"testing"
 
 	"github.com/stretchr/testify/assert"

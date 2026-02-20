@@ -23,12 +23,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"Gopherstack/dashboard"
+	"github.com/blackbirdworks/gopherstack/dashboard"
 
-	ddbbackend "Gopherstack/dynamodb"
-	"Gopherstack/pkgs/logger"
-	"Gopherstack/pkgs/service"
-	s3backend "Gopherstack/s3"
+	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	s3backend "github.com/blackbirdworks/gopherstack/s3"
 )
 
 // integrationStack holds the fully wired in-memory test stack.

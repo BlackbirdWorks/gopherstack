@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"Gopherstack/pkgs/events"
+	"github.com/blackbirdworks/gopherstack/pkgs/events"
 )
 
 var errListenerTest = errors.New("listener error")

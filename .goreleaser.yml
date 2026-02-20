@@ -95,10 +95,8 @@ changelog:
 
 dockers:
   - image_templates:
-      - "ghcr.io/agbishop/gopherstack:{{ .Version }}-amd64"
-      - "ghcr.io/agbishop/gopherstack:latest-amd64"
-      - "blackbird7181/gopherstack:{{ .Version }}-amd64"
-      - "blackbird7181/gopherstack:latest-amd64"
+      - "ghcr.io/blackbirdworks/gopherstack:{{ .Version }}-amd64"
+      - "ghcr.io/blackbirdworks/gopherstack:latest-amd64"
     use: buildx
     dockerfile: Dockerfile.goreleaser
     build_flag_templates:
@@ -110,10 +108,8 @@ dockers:
       - "--label=org.opencontainers.image.source={{.GitURL}}"
   
   - image_templates:
-      - "ghcr.io/agbishop/gopherstack:{{ .Version }}-arm64"
-      - "ghcr.io/agbishop/gopherstack:latest-arm64"
-      - "blackbird7181/gopherstack:{{ .Version }}-arm64"
-      - "blackbird7181/gopherstack:latest-arm64"
+      - "ghcr.io/blackbirdworks/gopherstack:{{ .Version }}-arm64"
+      - "ghcr.io/blackbirdworks/gopherstack:latest-arm64"
     use: buildx
     goarch: arm64
     dockerfile: Dockerfile.goreleaser
@@ -126,44 +122,34 @@ dockers:
       - "--label=org.opencontainers.image.source={{.GitURL}}"
 
 docker_manifests:
-  - name_template: "ghcr.io/agbishop/gopherstack:{{ .Version }}"
+  - name_template: "ghcr.io/blackbirdworks/gopherstack:{{ .Version }}"
     image_templates:
-      - "ghcr.io/agbishop/gopherstack:{{ .Version }}-amd64"
-      - "ghcr.io/agbishop/gopherstack:{{ .Version }}-arm64"
+      - "ghcr.io/blackbirdworks/gopherstack:{{ .Version }}-amd64"
+      - "ghcr.io/blackbirdworks/gopherstack:{{ .Version }}-arm64"
   
-  - name_template: "ghcr.io/agbishop/gopherstack:latest"
+  - name_template: "ghcr.io/blackbirdworks/gopherstack:latest"
     image_templates:
-      - "ghcr.io/agbishop/gopherstack:latest-amd64"
-      - "ghcr.io/agbishop/gopherstack:latest-arm64"
-
-  - name_template: "blackbird7181/gopherstack:{{ .Version }}"
-    image_templates:
-      - "blackbird7181/gopherstack:{{ .Version }}-amd64"
-      - "blackbird7181/gopherstack:{{ .Version }}-arm64"
-
-  - name_template: "blackbird7181/gopherstack:latest"
-    image_templates:
-      - "blackbird7181/gopherstack:latest-amd64"
-      - "blackbird7181/gopherstack:latest-arm64"
+      - "ghcr.io/blackbirdworks/gopherstack:latest-amd64"
+      - "ghcr.io/blackbirdworks/gopherstack:latest-arm64"
 
 release:
   github:
-    owner: agbishop
-    name: Gopherstack
+    owner: blackbirdworks
+    name: gopherstack
   draft: false
   prerelease: auto
   mode: replace
   header: |
     ## Gopherstack {{ .Tag }} Release
     
-    **Full Changelog**: https://github.com/agbishop/Gopherstack/compare/{{ .PreviousTag }}...{{ .Tag }}
+    **Full Changelog**: https://github.com/blackbirdworks/Gopherstack/compare/{{ .PreviousTag }}...{{ .Tag }}
   footer: |
     ## Docker Images
     
     ```bash
-    docker pull ghcr.io/agbishop/gopherstack:{{ .Version }}
+    docker pull ghcr.io/blackbirdworks/gopherstack:{{ .Version }}
     # or
-    docker pull ghcr.io/agbishop/gopherstack:latest
+    docker pull ghcr.io/blackbirdworks/gopherstack:latest
     ```
     
     ## Installation
@@ -173,7 +159,7 @@ release:
     
     ### From Source
     ```bash
-    go install github.com/agbishop/Gopherstack@{{ .Tag }}
+    go install github.com/blackbirdworks/gopherstack@{{ .Tag }}
     ```
 
 # Announce the release

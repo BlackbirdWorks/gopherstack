@@ -1,8 +1,8 @@
 package integration_test
 
 import (
-	"Gopherstack/dynamodb/models"
-	"Gopherstack/pkgs/dynamoattr"
+	"github.com/blackbirdworks/gopherstack/dynamodb/models"
+	"github.com/blackbirdworks/gopherstack/pkgs/dynamoattr"
 	"context"
 	"errors"
 	"flag"

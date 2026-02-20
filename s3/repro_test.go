@@ -13,7 +13,7 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 
-	"Gopherstack/s3"
+	"github.com/blackbirdworks/gopherstack/s3"
 )
 
 func TestPutObject_SDKv2_Repro(t *testing.T) {

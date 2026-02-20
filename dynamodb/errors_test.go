@@ -3,7 +3,7 @@ package dynamodb_test
 import (
 	"testing"
 
-	"Gopherstack/dynamodb"
+	"github.com/blackbirdworks/gopherstack/dynamodb"
 
 	"github.com/google/go-cmp/cmp"
 )

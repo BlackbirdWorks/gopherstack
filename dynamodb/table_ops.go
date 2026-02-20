@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"sort"
 
-	"Gopherstack/dynamodb/models"
-	"Gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/dynamodb/models"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"

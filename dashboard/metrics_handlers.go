@@ -3,7 +3,7 @@ package dashboard
 import (
 	"net/http"
 
-	"Gopherstack/pkgs/telemetry"
+	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 
 	"github.com/labstack/echo/v5"
 	"github.com/prometheus/client_golang/prometheus/promhttp"

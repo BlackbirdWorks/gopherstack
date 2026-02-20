@@ -6,7 +6,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"Gopherstack/pkgs/telemetry"
+	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 	"errors"
 )
 

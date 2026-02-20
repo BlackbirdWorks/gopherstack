@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"Gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

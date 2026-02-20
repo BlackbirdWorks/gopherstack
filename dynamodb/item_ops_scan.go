@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"sort"
 
-	"Gopherstack/dynamodb/models"
-	"Gopherstack/pkgs/dynamoattr"
-	"Gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/dynamodb/models"
+	"github.com/blackbirdworks/gopherstack/pkgs/dynamoattr"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"

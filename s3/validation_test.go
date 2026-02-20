@@ -1,7 +1,7 @@
 package s3_test
 
 import (
-	"Gopherstack/s3"
+	"github.com/blackbirdworks/gopherstack/s3"
 	"strings"
 	"testing"
 

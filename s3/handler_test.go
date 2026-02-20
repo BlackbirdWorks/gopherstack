@@ -20,7 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"Gopherstack/s3"
+	"github.com/blackbirdworks/gopherstack/s3"
 )
 
 func newTestHandler(t *testing.T) (*s3.S3Handler, *s3.InMemoryBackend) {

@@ -3,7 +3,7 @@ package s3_test
 import (
 	"testing"
 
-	"Gopherstack/s3"
+	"github.com/blackbirdworks/gopherstack/s3"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

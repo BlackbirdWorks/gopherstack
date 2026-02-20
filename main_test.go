@@ -14,12 +14,12 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/labstack/echo/v5"
 
-	"Gopherstack/dashboard"
-	"Gopherstack/demo"
-	ddbbackend "Gopherstack/dynamodb"
-	"Gopherstack/pkgs/logger"
-	"Gopherstack/pkgs/service"
-	s3backend "Gopherstack/s3"
+	"github.com/blackbirdworks/gopherstack/dashboard"
+	"github.com/blackbirdworks/gopherstack/demo"
+	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	s3backend "github.com/blackbirdworks/gopherstack/s3"
 )
 
 func TestServerStartupAndShutdown(t *testing.T) {

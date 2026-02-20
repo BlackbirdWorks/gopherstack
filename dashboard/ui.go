@@ -11,10 +11,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/labstack/echo/v5"
 
-	ddbbackend "Gopherstack/dynamodb"
-	pkgslogger "Gopherstack/pkgs/logger"
-	"Gopherstack/pkgs/service"
-	s3backend "Gopherstack/s3"
+	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
+	pkgslogger "github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	s3backend "github.com/blackbirdworks/gopherstack/s3"
 )
 
 const (

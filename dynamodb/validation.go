@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"Gopherstack/dynamodb/models"
+	"github.com/blackbirdworks/gopherstack/dynamodb/models"
 )
 
 const (

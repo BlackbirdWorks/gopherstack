@@ -25,10 +25,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"Gopherstack/dashboard"
-	ddbbackend "Gopherstack/dynamodb"
-	"Gopherstack/pkgs/service"
-	s3backend "Gopherstack/s3"
+	"github.com/blackbirdworks/gopherstack/dashboard"
+	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	s3backend "github.com/blackbirdworks/gopherstack/s3"
 )
 
 var pw *playwright.Playwright

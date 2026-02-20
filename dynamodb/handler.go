@@ -13,10 +13,10 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"Gopherstack/dynamodb/models"
-	"Gopherstack/pkgs/httputil"
-	"Gopherstack/pkgs/logger"
-	"Gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/dynamodb/models"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
 var ErrUnknownOperation = errors.New("UnknownOperationException")

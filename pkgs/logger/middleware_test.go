@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"Gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"

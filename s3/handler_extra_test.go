@@ -15,8 +15,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"Gopherstack/pkgs/logger"
-	"Gopherstack/s3"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/s3"
 )
 
 // serveS3Handler is a test helper that invokes an S3 Echo handler with a raw HTTP request.
