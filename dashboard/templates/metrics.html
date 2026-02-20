@@ -40,6 +40,27 @@
         </div>
 
         <div id="dashboard-view" class="hidden space-y-8 animate-in zoom-in-95 duration-300">
+            <!-- Deadlock Section -->
+            <section id="deadlock-section" class="hidden">
+                <div class="alert alert-error shadow-lg rounded-2xl border-none">
+                    <div class="flex items-start gap-4">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6 mt-1" fill="none"
+                            viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                        <div>
+                            <h3 class="font-bold text-lg">Potential Deadlocks Detected!</h3>
+                            <p class="text-sm opacity-90">One or more locks have been held for an unusually long time
+                                while other goroutines are waiting.</p>
+                            <div id="deadlock-list" class="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                                <!-- Deadlock cards populated by JS -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <!-- Runtime Section -->
             <section>
                 <h2 class="text-xl font-bold mb-4 flex items-center gap-2">
@@ -72,7 +93,7 @@
                     <div class="stat bg-base-100 rounded-2xl shadow-sm border border-base-200">
                         <div class="stat-title text-xs font-bold uppercase tracking-wider text-base-content/50">Total
                             Allocated</div>
-                        <div id="runtime-total" class="stat-value text-neutral py-1">0MB</div>
+                        <div id="runtime-total" class="stat-value text-base-content py-1">0MB</div>
                         <div class="stat-desc text-base-content/40">Lifetime total</div>
                     </div>
                 </div>
@@ -259,6 +280,32 @@
 
             const pct = (data.runtime.heap_alloc_mb / data.runtime.heap_sys_mb * 100).toFixed(1);
             document.getElementById('runtime-heap-pct').textContent = `${pct}% of ${data.runtime.heap_sys_mb.toFixed(2)} MB total`;
+        }
+
+        // Update Deadlocks
+        const deadlockSection = document.getElementById('deadlock-section');
+        const deadlockList = document.getElementById('deadlock-list');
+        if (data.deadlocks && data.deadlocks.length > 0) {
+            deadlockSection.classList.remove('hidden');
+            let cards = '';
+            for (const d of data.deadlocks) {
+                cards += `
+                    <div class="bg-base-100/20 rounded-xl p-3 border border-white/10">
+                        <div class="flex justify-between items-start mb-2">
+                            <span class="font-mono text-xs font-bold">${escapeHtml(d.lock)}</span>
+                            <span class="badge badge-warning badge-xs">HELD</span>
+                        </div>
+                        <div class="text-sm font-bold truncate mb-1">Op: ${escapeHtml(d.operation)}</div>
+                        <div class="flex justify-between text-xs opacity-80">
+                            <span>Held: ${d.held_sec.toFixed(1)}s</span>
+                            <span class="text-error font-bold">${d.waiters} waiting</span>
+                        </div>
+                    </div>
+                `;
+            }
+            deadlockList.innerHTML = cards;
+        } else {
+            deadlockSection.classList.add('hidden');
         }
 
         renderOperations();

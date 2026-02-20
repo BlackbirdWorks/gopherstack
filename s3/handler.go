@@ -141,10 +141,25 @@ func (h *S3Handler) Name() string {
 	return "S3"
 }
 
-// RouteMatcher returns a matcher that always returns true (S3 is the catch-all).
+// RouteMatcher returns a matcher that claims any request NOT matching dashboard or metrics.
 func (h *S3Handler) RouteMatcher() service.Matcher {
-	return func(_ *echo.Context) bool {
-		return true // S3 is the fallback handler
+	return func(c *echo.Context) bool {
+		path := c.Request().URL.Path
+
+		// Exclude reserved paths for dashboard and metrics
+		if strings.HasPrefix(path, "/dashboard") ||
+			strings.HasPrefix(path, "/metrics") ||
+			strings.HasPrefix(path, "/api/metrics") {
+			return false
+		}
+
+		// Check for virtual-hosted-style: bucket name as subdomain in Host header.
+		if h.extractVirtualHostedBucketName(c.Request()) != "" {
+			return true
+		}
+
+		// Default to path-style S3 routing
+		return true
 	}
 }
 

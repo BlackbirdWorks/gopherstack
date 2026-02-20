@@ -66,6 +66,7 @@ func (h *S3Handler) routeObjectPut(
 	case r.URL.Query().Has("tagging"):
 		h.putObjectTagging(ctx, w, r, bucket, key)
 	case r.URL.Query().Has("acl"):
+		h.setOperation(ctx, "PutObjectAcl")
 		w.WriteHeader(http.StatusOK) // ACLs ignored
 	case r.URL.Query().Has("partNumber") && r.URL.Query().Has("uploadId"):
 		h.uploadPart(ctx, w, r, bucket, key)
@@ -86,6 +87,7 @@ func (h *S3Handler) routeObjectGet(
 	case r.URL.Query().Has("tagging"):
 		h.getObjectTagging(ctx, w, r, bucket, key)
 	case r.URL.Query().Has("acl"):
+		h.setOperation(ctx, "GetObjectAcl")
 		w.WriteHeader(http.StatusNotImplemented) // ACLs ignored
 	default:
 		h.getObject(ctx, w, r, bucket, key)

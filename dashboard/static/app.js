@@ -150,7 +150,76 @@ document.body.addEventListener('showToast', (event) => {
     }
 });
 
+// Dark mode theme management
+const ThemeManager = {
+    STORAGE_KEY: 'gopherstack-theme',
+    LIGHT_THEME: 'light',
+    DARK_THEME: 'dark',
+
+    // Get the current theme preference
+    getCurrentTheme() {
+        const stored = localStorage.getItem(this.STORAGE_KEY);
+        if (stored) return stored;
+
+        // Check system preference
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            return this.DARK_THEME;
+        }
+        return this.LIGHT_THEME;
+    },
+
+    // Set theme and update DOM/localStorage
+    setTheme(theme) {
+        const html = document.documentElement;
+        html.setAttribute('data-theme', theme);
+        localStorage.setItem(this.STORAGE_KEY, theme);
+        this.updateIcon(theme);
+    },
+
+    // Update the toggle button icon
+    updateIcon(theme) {
+        const sunIcon = document.getElementById('sun-icon');
+        const moonIcon = document.getElementById('moon-icon');
+        if (theme === this.DARK_THEME) {
+            sunIcon?.classList.remove('hidden');
+            moonIcon?.classList.add('hidden');
+        } else {
+            sunIcon?.classList.add('hidden');
+            moonIcon?.classList.remove('hidden');
+        }
+    },
+
+    // Toggle between light and dark themes
+    toggleTheme() {
+        const current = document.documentElement.getAttribute('data-theme');
+        const newTheme = current === this.DARK_THEME ? this.LIGHT_THEME : this.DARK_THEME;
+        this.setTheme(newTheme);
+    },
+
+    // Initialize theme on page load
+    init() {
+        const theme = this.getCurrentTheme();
+        this.setTheme(theme);
+
+        // Listen for toggle button clicks
+        const themeToggle = document.getElementById('theme-toggle');
+        if (themeToggle) {
+            themeToggle.addEventListener('click', () => this.toggleTheme());
+        }
+
+        // Listen for system theme changes
+        if (window.matchMedia) {
+            window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+                if (!localStorage.getItem(this.STORAGE_KEY)) {
+                    this.setTheme(e.matches ? this.DARK_THEME : this.LIGHT_THEME);
+                }
+            });
+        }
+    }
+};
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', () => {
+    ThemeManager.init();
     console.log('Gopherstack UI loaded');
 });

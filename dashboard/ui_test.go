@@ -57,9 +57,7 @@ func newIntegrationStack(t *testing.T) *integrationStack {
 	_ = registry.Register(s3Hndlr, s3Hndlr)
 
 	router := service.NewServiceRouter(registry)
-	e.Pre(func(_ echo.HandlerFunc) echo.HandlerFunc {
-		return router.RouteHandler()
-	})
+	e.Use(router.RouteHandler())
 
 	inMemClient := &dashboard.InMemClient{Handler: e}
 

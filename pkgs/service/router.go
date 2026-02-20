@@ -1,8 +1,6 @@
 package service
 
 import (
-	"net/http"
-
 	"github.com/labstack/echo/v5"
 )
 
@@ -21,22 +19,22 @@ func NewServiceRouter(registry *Registry) *Router {
 	}
 }
 
-// RouteHandler returns an Echo handler that evaluates all registered
+// RouteHandler returns an Echo middleware that evaluates all registered
 // service matchers in order and routes to the first matching service.
-// If no service matches, returns a 404 error.
-func (r *Router) RouteHandler() echo.HandlerFunc {
-	return func(c *echo.Context) error {
-		// Evaluate matchers in registration order
-		for _, entry := range r.services {
-			if entry.Matcher(c) {
-				// Found matching service, call pre-wrapped handler
-				return entry.WrappedHandler(c)
+// If no service matches, it falls back to the next handler (standard Echo routing).
+func (r *Router) RouteHandler() echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			// Evaluate matchers in registration order
+			for _, entry := range r.services {
+				if entry.Matcher(c) {
+					// Found matching service, call pre-wrapped handler
+					return entry.WrappedHandler(c)
+				}
 			}
-		}
 
-		// No service matched
-		return c.JSON(http.StatusNotFound, map[string]string{
-			"error": "not found",
-		})
+			// No service matched, fall back to standard Echo routing
+			return next(c)
+		}
 	}
 }

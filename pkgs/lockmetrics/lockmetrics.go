@@ -118,8 +118,6 @@ func (c *liveCollector) Collect(ch chan<- prometheus.Metric) {
 //
 // the ireturn linter does not look through generic type constraints and incorrectly treats T as
 // returning the prometheus.Collector interface.
-//
-//nolint:ireturn // T is resolved to a concrete pointer type (*HistogramVec, *GaugeVec, etc.) at each call site;
 func registerOrReuse[T prometheus.Collector](c T) T {
 	if err := prometheus.DefaultRegisterer.Register(c); err != nil {
 		var are prometheus.AlreadyRegisteredError

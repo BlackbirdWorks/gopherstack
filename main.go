@@ -153,9 +153,7 @@ func setupRegistry(
 	}
 
 	router := service.NewServiceRouter(registry)
-	e.Pre(func(_ echo.HandlerFunc) echo.HandlerFunc {
-		return router.RouteHandler()
-	})
+	e.Use(router.RouteHandler())
 
 	return nil
 }

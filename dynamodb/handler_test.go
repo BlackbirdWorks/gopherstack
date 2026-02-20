@@ -27,7 +27,6 @@ func serveEchoHandler(handler echo.HandlerFunc, w http.ResponseWriter, r *http.R
 	// Inject logger into context for handlers that expect it
 	ctx := logger.Save(r.Context(), slog.Default())
 	*c.Request() = *r.WithContext(ctx)
-
 	return handler(c)
 }
 

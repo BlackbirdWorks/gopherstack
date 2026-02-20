@@ -461,7 +461,7 @@ func (h *DashboardHandler) s3UpdateMetadata(w http.ResponseWriter, r *http.Reque
 	_, err := h.S3.CopyObject(ctx, &s3.CopyObjectInput{
 		Bucket:            &bucketName,
 		Key:               &key,
-		CopySource:        aws.String(url.PathEscape(bucketName + "/" + key)),
+		CopySource:        aws.String(bucketName + "/" + url.PathEscape(key)),
 		ContentType:       &contentType,
 		MetadataDirective: types.MetadataDirectiveReplace,
 	})
@@ -478,8 +478,8 @@ func (h *DashboardHandler) s3UpdateMetadata(w http.ResponseWriter, r *http.Reque
 // s3UpdateTag adds/updates an object tag.
 func (h *DashboardHandler) s3UpdateTag(w http.ResponseWriter, r *http.Request, bucketName, key string) {
 	ctx := r.Context()
-	tagKey := r.FormValue("tagKey")
-	tagValue := r.FormValue("tagValue")
+	tagKey := r.FormValue("key")
+	tagValue := r.FormValue("value")
 
 	current, err := h.S3.GetObjectTagging(ctx, &s3.GetObjectTaggingInput{
 		Bucket: &bucketName,

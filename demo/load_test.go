@@ -38,9 +38,7 @@ func TestLoadData(t *testing.T) {
 	_ = registry.Register(s3Handler, s3Handler)
 
 	router := service.NewServiceRouter(registry)
-	e.Pre(func(_ echo.HandlerFunc) echo.HandlerFunc {
-		return router.RouteHandler()
-	})
+	e.Use(router.RouteHandler())
 
 	// Setup Client using Echo's HTTP server
 	inMemClient := &dashboard.InMemClient{Handler: e}
