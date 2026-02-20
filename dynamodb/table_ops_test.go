@@ -207,6 +207,23 @@ func TestTableOperations(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "DeleteTable_Cleanup",
+			setup: func(t *testing.T, db *dynamodb.InMemoryDB) {
+				t.Helper()
+				createTable(t, db, "CleanupTable")
+			},
+			run: func(db *dynamodb.InMemoryDB) (any, error) {
+				input := models.DeleteTableInput{TableName: "CleanupTable"}
+				sdkInput := models.ToSDKDeleteTableInput(&input)
+
+				return db.DeleteTable(context.Background(), sdkInput)
+			},
+			validate: func(t *testing.T, _ *dynamodb.InMemoryDB, _ any, err error) {
+				t.Helper()
+				require.NoError(t, err)
+			},
+		},
 	}
 
 	for _, tt := range tests {

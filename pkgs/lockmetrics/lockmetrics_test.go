@@ -281,3 +281,21 @@ func TestGetLockStatus(t *testing.T) {
 	assert.EqualValues(t, 0, ww)
 	assert.EqualValues(t, 0, rw)
 }
+
+func TestRWMutex_Close(t *testing.T) {
+	t.Parallel()
+
+	t.Run("CloseNew", func(t *testing.T) {
+		m := lockmetrics.New("test.close-new")
+		m.Close()
+	})
+
+	t.Run("CloseAfterUse", func(t *testing.T) {
+		m := lockmetrics.New("test.close-after-use")
+		m.Lock("op")
+		m.Unlock()
+		m.RLock("op")
+		m.RUnlock()
+		m.Close()
+	})
+}
