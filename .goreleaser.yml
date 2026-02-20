@@ -53,7 +53,7 @@ archives:
       {{- if .Arm }}v{{ .Arm }}{{ end }}
     format_overrides:
       - goos: windows
-        format: zip
+        formats: zip
     files:
       - README.md
       - LICENSE
@@ -63,7 +63,7 @@ checksum:
   name_template: 'checksums.txt'
 
 snapshot:
-  name_template: "{{ incpatch .Version }}-next"
+  version_template: "{{ incpatch .Version }}-next"
 
 changelog:
   sort: asc
@@ -93,44 +93,25 @@ changelog:
     - title: 'Other Changes'
       order: 999
 
-dockers:
-  - image_templates:
-      - "ghcr.io/blackbirdworks/gopherstack:{{ .Version }}-amd64"
-      - "ghcr.io/blackbirdworks/gopherstack:latest-amd64"
-    use: buildx
+dockers_v2:
+  - id: gopherstack
     dockerfile: Dockerfile.goreleaser
-    build_flag_templates:
-      - "--platform=linux/amd64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.source={{.GitURL}}"
-  
-  - image_templates:
-      - "ghcr.io/blackbirdworks/gopherstack:{{ .Version }}-arm64"
-      - "ghcr.io/blackbirdworks/gopherstack:latest-arm64"
-    use: buildx
-    goarch: arm64
-    dockerfile: Dockerfile.goreleaser
-    build_flag_templates:
-      - "--platform=linux/arm64"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.source={{.GitURL}}"
-
-docker_manifests:
-  - name_template: "ghcr.io/blackbirdworks/gopherstack:{{ .Version }}"
-    image_templates:
-      - "ghcr.io/blackbirdworks/gopherstack:{{ .Version }}-amd64"
-      - "ghcr.io/blackbirdworks/gopherstack:{{ .Version }}-arm64"
-  
-  - name_template: "ghcr.io/blackbirdworks/gopherstack:latest"
-    image_templates:
-      - "ghcr.io/blackbirdworks/gopherstack:latest-amd64"
-      - "ghcr.io/blackbirdworks/gopherstack:latest-arm64"
+    ids:
+      - gopherstack
+    images:
+      - "ghcr.io/blackbirdworks/gopherstack"
+    tags:
+      - "{{ .Version }}"
+      - "{{ if not .IsSnapshot }}latest{{ end }}"
+    labels:
+      org.opencontainers.image.created: "{{.Date}}"
+      org.opencontainers.image.title: "{{.ProjectName}}"
+      org.opencontainers.image.revision: "{{.FullCommit}}"
+      org.opencontainers.image.version: "{{.Version}}"
+      org.opencontainers.image.source: "{{.GitURL}}"
+    platforms:
+      - linux/amd64
+      - linux/arm64
 
 release:
   github:
