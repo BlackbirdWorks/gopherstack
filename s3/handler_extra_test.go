@@ -849,6 +849,25 @@ func TestHandler_CreateBucket_Errors(t *testing.T) {
 	}
 }
 
+func TestHandler_CreateBucket_BucketAlreadyExists_XMLResponse(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "existing")
+
+	req := httptest.NewRequest(http.MethodPut, "/existing", nil)
+	rec := httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+
+	require.Equal(t, http.StatusConflict, rec.Code)
+	assert.Contains(t, rec.Header().Get("Content-Type"), "application/xml")
+
+	var errResp s3.ErrorResponse
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, "BucketAlreadyExists", errResp.Code)
+	assert.NotEmpty(t, errResp.Message)
+}
+
 func TestHandler_UploadPart_Errors(t *testing.T) {
 	t.Parallel()
 
