@@ -6,8 +6,9 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 	"errors"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 )
 
 // ErrServiceAlreadyRegistered is returned when a service with the same name is already registered.

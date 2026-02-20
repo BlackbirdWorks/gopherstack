@@ -1,10 +1,11 @@
 package dynamodb_test
 
 import (
-	"github.com/blackbirdworks/gopherstack/dynamodb/models"
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/blackbirdworks/gopherstack/dynamodb/models"
 
 	"github.com/blackbirdworks/gopherstack/dynamodb"
 

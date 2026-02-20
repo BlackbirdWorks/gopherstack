@@ -7,6 +7,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
+//nolint:gochecknoglobals // Prometheus collectors are global for registration.
 var (
 	// Generic operation latencies (seconds) - works for any backend.
 	// Prometheus requires these to be global for automatic registration with the global registry.

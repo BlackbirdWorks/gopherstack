@@ -1,9 +1,10 @@
 package dynamodb_test
 
 import (
-	"github.com/blackbirdworks/gopherstack/dynamodb/models"
 	"encoding/json"
 	"testing"
+
+	"github.com/blackbirdworks/gopherstack/dynamodb/models"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"

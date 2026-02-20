@@ -25,8 +25,16 @@ func TestInMemoryEmitter_EventTypes(t *testing.T) {
 		{"ItemDeletedEvent", &events.ItemDeletedEvent{Table: "users"}, "dynamodb.item.deleted"},
 		{"BucketCreatedEvent", &events.BucketCreatedEvent{BucketName: "my-bucket"}, "s3.bucket.created"},
 		{"BucketDeletedEvent", &events.BucketDeletedEvent{BucketName: "my-bucket"}, "s3.bucket.deleted"},
-		{"ObjectCreatedEvent", &events.ObjectCreatedEvent{BucketName: "my-bucket", Key: "file.txt"}, "s3.object.created"},
-		{"ObjectDeletedEvent", &events.ObjectDeletedEvent{BucketName: "my-bucket", Key: "file.txt"}, "s3.object.deleted"},
+		{
+			"ObjectCreatedEvent",
+			&events.ObjectCreatedEvent{BucketName: "my-bucket", Key: "file.txt"},
+			"s3.object.created",
+		},
+		{
+			"ObjectDeletedEvent",
+			&events.ObjectDeletedEvent{BucketName: "my-bucket", Key: "file.txt"},
+			"s3.object.deleted",
+		},
 	}
 
 	for _, tt := range tests {

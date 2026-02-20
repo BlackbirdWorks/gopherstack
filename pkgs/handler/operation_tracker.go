@@ -11,6 +11,7 @@ type operationData struct {
 	resource  string
 }
 
+//nolint:gochecknoglobals // Context keys must be package-level for consistent use.
 var operationCtxKey OperationKey
 
 // withOperation creates a new context with operation metadata.

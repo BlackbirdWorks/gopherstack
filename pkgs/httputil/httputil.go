@@ -187,7 +187,7 @@ type operationData struct {
 	resource  string
 }
 
-var operationCtxKey OperationKey
+var operationCtxKey = OperationKey{} //nolint:gochecknoglobals // Required for context key.
 
 // GetOperation retrieves the operation name from context, or "Unknown" if not set.
 func GetOperation(ctx context.Context) string {

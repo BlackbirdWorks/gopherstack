@@ -118,6 +118,8 @@ func (c *liveCollector) Collect(ch chan<- prometheus.Metric) {
 //
 // the ireturn linter does not look through generic type constraints and incorrectly treats T as
 // returning the prometheus.Collector interface.
+//
+//nolint:ireturn // Returns generic type T; linter misreads type constraint as interface return.
 func registerOrReuse[T prometheus.Collector](c T) T {
 	if err := prometheus.DefaultRegisterer.Register(c); err != nil {
 		var are prometheus.AlreadyRegisteredError

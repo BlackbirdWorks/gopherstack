@@ -55,6 +55,7 @@ type s3Metrics struct {
 
 type s3ContextKey struct{}
 
+//nolint:gochecknoglobals // Context key must be package-level for consistent use.
 var s3Key s3ContextKey
 
 func (h *S3Handler) setOperation(ctx context.Context, op string) {
