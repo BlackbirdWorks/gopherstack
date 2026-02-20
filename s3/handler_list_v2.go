@@ -43,8 +43,8 @@ func (h *S3Handler) prepareListObjectsV2Input(
 ) *s3.ListObjectsV2Input {
 	maxKeys := int32(defaultMaxKeys)
 	if mk := q.Get("max-keys"); mk != "" {
-		if n, err := strconv.Atoi(mk); err == nil && n >= 0 {
-			maxKeys = int32(n) //nolint:gosec // Validated non-negative
+		if n, err := strconv.Atoi(mk); err == nil && n >= 0 && n <= 1000 {
+			maxKeys = int32(n) //nolint:gosec // Validated range
 		}
 	}
 

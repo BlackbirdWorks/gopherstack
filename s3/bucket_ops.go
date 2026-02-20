@@ -245,8 +245,8 @@ func (h *S3Handler) listObjects(
 
 	maxKeys := int32(defaultMaxKeys)
 	if mk := r.URL.Query().Get("max-keys"); mk != "" {
-		if n, err := strconv.Atoi(mk); err == nil && n >= 0 {
-			maxKeys = int32(n) //nolint:gosec // Validated non-negative, safe conversion
+		if n, err := strconv.Atoi(mk); err == nil && n >= 0 && n <= 1000 {
+			maxKeys = int32(n) //nolint:gosec // Validated range
 		}
 	}
 
