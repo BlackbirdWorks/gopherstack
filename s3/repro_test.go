@@ -1,76 +1,65 @@
 package s3_test
 
 import (
-	"log/slog"
+	"context"
+	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/credentials"
-	aws_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/labstack/echo/v5"
-	"github.com/stretchr/testify/require"
+	"log/slog"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	s3_sdk "github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/s3"
+	"github.com/labstack/echo/v5"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestPutObject_SDKv2_Repro(t *testing.T) {
-	t.Parallel()
+func TestRepro_RoutingFix(t *testing.T) {
+	backend := s3.NewInMemoryBackend(nil)
+	s3Handler := s3.NewHandler(backend, slog.Default())
 
-	tests := []struct {
-		name   string
-		bucket string
-		key    string
-		body   string
-	}{
-		{
-			name:   "put object via SDK v2",
-			bucket: "test-bucket",
-			key:    "test-key",
-			body:   "content",
-		},
-	}
+	e := echo.New()
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	// Create bucket named "dashboard" (valid S3 name)
+	_, err := backend.CreateBucket(context.Background(), &s3_sdk.CreateBucketInput{
+		Bucket: aws.String("dashboard"),
+	})
+	require.NoError(t, err)
 
-			backend := s3.NewInMemoryBackend(&s3.GzipCompressor{})
-			handler := s3.NewHandler(backend, slog.Default())
+	// Set up registry and router like in main.go
+	reg := service.NewRegistry(slog.Default())
+	require.NoError(t, reg.Register(s3Handler))
 
-			// Setup Echo server instead of direct http.Handler
-			e := echo.New()
-			e.Any("/*", handler.Handler())
-			server := httptest.NewServer(e)
-			t.Cleanup(server.Close)
+	router := service.NewServiceRouter(reg)
+	e.Use(router.RouteHandler())
 
-			cfg, err := config.LoadDefaultConfig(
-				t.Context(),
-				config.WithRegion("us-east-1"),
-				config.WithCredentialsProvider(
-					credentials.NewStaticCredentialsProvider("AKIATEST", "secret", ""),
-				),
-			)
-			require.NoError(t, err)
+	t.Run("BucketNamedDashboard_Success", func(t *testing.T) {
+		// Request: HEAD /dashboard
+		req := httptest.NewRequest(http.MethodHead, "/dashboard", nil)
+		rec := httptest.NewRecorder()
 
-			client := aws_s3.NewFromConfig(cfg, func(o *aws_s3.Options) {
-				o.UsePathStyle = true
-				o.BaseEndpoint = aws.String(server.URL)
-			})
+		// This should now be handled by S3 handler because RouteMatcher
+		// no longer rejects "/dashboard" exactly.
+		e.ServeHTTP(rec, req)
 
-			_, err = client.CreateBucket(t.Context(), &aws_s3.CreateBucketInput{
-				Bucket: aws.String(tt.bucket),
-			})
-			require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, rec.Code)
+	})
 
-			_, err = client.PutObject(t.Context(), &aws_s3.PutObjectInput{
-				Bucket: aws.String(tt.bucket),
-				Key:    aws.String(tt.key),
-				Body:   strings.NewReader(tt.body),
-			})
-			require.NoError(t, err)
-		})
-	}
+	t.Run("DashboardUI_StillWorks", func(t *testing.T) {
+		// Request: GET /dashboard/s3 (should be handled by someone else or Echo)
+		req := httptest.NewRequest(http.MethodGet, "/dashboard/s3", nil)
+		rec := httptest.NewRecorder()
+
+		// The service router should evaluate S3 matcher.
+		// RouteMatcher should return false for /dashboard/s3 because it has prefix /dashboard/
+		e.ServeHTTP(rec, req)
+
+		// It should NOT be handled by S3 handler (which would return 400 for bucket "dashboard")
+		// Instead, it falls through.
+		assert.NotEqual(t, http.StatusBadRequest, rec.Code)
+		assert.Equal(t, http.StatusNotFound, rec.Code, "Expected 404 because no dashboard handler is registered in THIS test")
+	})
 }

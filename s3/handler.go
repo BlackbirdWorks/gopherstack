@@ -147,8 +147,10 @@ func (h *S3Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
 		// Exclude API and dashboard endpoints - let them be handled by other routes
-		if strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/metrics") ||
-			strings.HasPrefix(path, "/dashboard") {
+		// Matches /api/, /metrics/, /dashboard/ but NOT /api, /metrics, /dashboard
+		// which could be valid bucket names.
+		if strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/metrics/") ||
+			strings.HasPrefix(path, "/dashboard/") {
 			return false
 		}
 		// Accept all other requests - priority ensures we're evaluated last
