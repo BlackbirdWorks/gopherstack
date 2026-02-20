@@ -20,7 +20,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version-file: go.mod
+          check-latest: true
           cache: true
 
       - name: golangci-lint
@@ -38,7 +39,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version-file: go.mod
+          check-latest: true
           cache: true
 
       - name: Run Unit Tests with Coverage
@@ -95,7 +97,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version-file: go.mod
+          check-latest: true
           cache: true
 
       - name: Install Playwright Browsers
