@@ -180,6 +180,7 @@ func (h *DashboardHandler) s3Versioning(w http.ResponseWriter, r *http.Request, 
 	})
 
 	if err != nil {
+		h.Logger.Error("Failed to update versioning", "bucket", bucketName, "error", err)
 		http.Error(w, "Failed to update versioning", http.StatusInternalServerError)
 
 		return

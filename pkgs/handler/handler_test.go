@@ -35,7 +35,7 @@ func TestGetOperation_DefaultsToUnknown(t *testing.T) {
 func TestGetResource_DefaultsToEmpty(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, "", handler.GetResource(context.Background()))
+	assert.Empty(t, handler.GetResource(context.Background()))
 }
 
 func TestSetOperation_UpdatesOperation(t *testing.T) {

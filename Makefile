@@ -42,18 +42,11 @@ lint-fix: install-deps
 test:
 	go tool gotestsum --format pkgname -- -race -shuffle on -short ./...
 
-test-with-coverage:
-	go tool gotestsum --format pkgname -- -race -shuffle on -coverpkg=./... -coverprofile=coverage.out -covermode=atomic ./...
+total-coverage:
+	@echo "Running all tests with combined coverage..."
+	go tool gotestsum --format pkgname -- -race -shuffle on -tags=e2e -coverpkg=./... -coverprofile=coverage.out -covermode=atomic ./... ./test/integration/... ./test/e2e/...
 	go tool cover -func=coverage.out
 	go tool cover -html=coverage.out -o coverage.html
-
-integration-test:
-	@echo "Running DynamoDB integration tests (no cache)..."
-	go tool gotestsum --format pkgname -- -race -shuffle on ./test/integration/...
-	
-e2e-test:
-	@echo "Running E2E behavior tests (Playwright)..."
-	go tool gotestsum --format pkgname -- -race -shuffle on -tags=e2e ./test/e2e/...
 
 clean:
 	rm -rf bin/
@@ -72,7 +65,5 @@ demo:
 
 all: 
 	make lint
-	make test
-	make integration-test
-	make e2e-test
+	make total-coverage
 	
