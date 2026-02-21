@@ -259,7 +259,16 @@ func (h *DashboardHandler) dynamoDBTableDetail(w http.ResponseWriter, r *http.Re
 
 		return
 	}
-	info := h.extractTableInfo(ctx, output.Table)
+	// Fetch TTL info if available
+	ttlDesc, _ := h.DynamoDB.DescribeTimeToLive(ctx, &dynamodb.DescribeTimeToLiveInput{
+		TableName: &tableName,
+	})
+
+	info := h.extractTableInfo(output.Table)
+	if ttlDesc != nil && ttlDesc.TimeToLiveDescription != nil {
+		info.TTLStatus = string(ttlDesc.TimeToLiveDescription.TimeToLiveStatus)
+		info.TTLAttribute = aws.ToString(ttlDesc.TimeToLiveDescription.AttributeName)
+	}
 
 	data := struct {
 		PageData
@@ -276,7 +285,7 @@ func (h *DashboardHandler) dynamoDBTableDetail(w http.ResponseWriter, r *http.Re
 }
 
 // extractTableInfo extracts display information from a DescribeTable output.
-func (h *DashboardHandler) extractTableInfo(ctx context.Context, table *types.TableDescription) TableInfo {
+func (h *DashboardHandler) extractTableInfo(table *types.TableDescription) TableInfo {
 	info := TableInfo{
 		TableName: aws.ToString(table.TableName),
 		GSICount:  len(table.GlobalSecondaryIndexes),
@@ -325,15 +334,6 @@ func (h *DashboardHandler) extractTableInfo(ctx context.Context, table *types.Ta
 			table.AttributeDefinitions,
 		)
 		info.LocalSecondaryIndexes = append(info.LocalSecondaryIndexes, lsiInfo)
-	}
-
-	// Fetch TTL info
-	ttlDesc, err := h.DynamoDB.DescribeTimeToLive(ctx, &dynamodb.DescribeTimeToLiveInput{
-		TableName: table.TableName,
-	})
-	if err == nil && ttlDesc.TimeToLiveDescription != nil {
-		info.TTLStatus = string(ttlDesc.TimeToLiveDescription.TimeToLiveStatus)
-		info.TTLAttribute = aws.ToString(ttlDesc.TimeToLiveDescription.AttributeName)
 	}
 
 	return info
@@ -589,6 +589,27 @@ func (h *DashboardHandler) dynamoDBUpdateTTL(w http.ResponseWriter, r *http.Requ
 	)
 	w.Header().Set("Hx-Trigger", toastMessage)
 
-	// Re-render table detail tabs (specifically overview)
-	h.dynamoDBTableDetail(w, r, tableName)
+	// Fetch updated data for the fragment
+	desc, err := h.DynamoDB.DescribeTable(ctx, &dynamodb.DescribeTableInput{TableName: &tableName})
+	if err != nil {
+		h.Logger.ErrorContext(ctx, "Failed to fetch table for partial reload", "table", tableName, "error", err)
+
+		return
+	}
+
+	ttlDesc, err := h.DynamoDB.DescribeTimeToLive(ctx, &dynamodb.DescribeTimeToLiveInput{TableName: &tableName})
+	if err != nil {
+		h.Logger.ErrorContext(ctx, "Failed to fetch TTL for partial reload", "table", tableName, "error", err)
+
+		return
+	}
+
+	data := h.extractTableInfo(desc.Table)
+	if ttlDesc.TimeToLiveDescription != nil {
+		data.TTLStatus = string(ttlDesc.TimeToLiveDescription.TimeToLiveStatus)
+		data.TTLAttribute = aws.ToString(ttlDesc.TimeToLiveDescription.AttributeName)
+	}
+
+	// Re-render table overview fragment
+	h.renderPageFragment(w, "dynamodb/table_detail.html", "table-overview", data)
 }

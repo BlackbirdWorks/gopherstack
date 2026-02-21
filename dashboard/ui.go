@@ -258,7 +258,9 @@ func (h *DashboardHandler) renderTemplate(w http.ResponseWriter, pageFile string
 
 // renderFragment renders a shared component/fragment.
 func (h *DashboardHandler) renderFragment(w http.ResponseWriter, name string, data any) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if w.Header().Get("Content-Type") == "" {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	}
 
 	// Must clone even for fragments to avoid marking h.layout as executed
 	tmpl, err := h.layout.Clone()
@@ -275,9 +277,44 @@ func (h *DashboardHandler) renderFragment(w http.ResponseWriter, name string, da
 	}
 }
 
+// renderPageFragment renders a fragment from a specific page template.
+func (h *DashboardHandler) renderPageFragment(w http.ResponseWriter, pageFile string, fragmentName string, data any) {
+	if w.Header().Get("Content-Type") == "" {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	}
+
+	tmpl, err := h.layout.Clone()
+	if err != nil {
+		h.Logger.Error("Failed to clone layout for page fragment", "fragment", fragmentName, "error", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+
+		return
+	}
+
+	_, err = tmpl.ParseFS(templateFS, "templates/"+pageFile)
+	if err != nil {
+		h.Logger.Error(
+			"Failed to parse page template for fragment",
+			"page",
+			pageFile,
+			"fragment",
+			fragmentName,
+			"error",
+			err,
+		)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+
+		return
+	}
+
+	if err = tmpl.ExecuteTemplate(w, fragmentName, data); err != nil {
+		h.Logger.Error("Failed to render page fragment", "page", pageFile, "fragment", fragmentName, "error", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	}
+}
+
 // handleDynamoDB routes DynamoDB UI requests.
 func (h *DashboardHandler) handleDynamoDB(w http.ResponseWriter, r *http.Request, path string) {
-	h.Logger.Debug("handleDynamoDB", "path", path)
 	switch {
 	case path == "" || path == "/":
 		h.dynamoDBIndex(w, r)
