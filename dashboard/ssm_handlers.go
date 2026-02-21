@@ -123,7 +123,7 @@ func (h *DashboardHandler) ssmPutParameter(c *echo.Context) error {
 		return c.String(http.StatusInternalServerError, "Failed to save parameter: "+err.Error())
 	}
 
-	w.Header().Set("HX-Redirect", "/dashboard/ssm")
+	w.Header().Set("Hx-Redirect", "/dashboard/ssm")
 
 	return c.NoContent(http.StatusOK)
 }
@@ -150,7 +150,7 @@ func (h *DashboardHandler) ssmDeleteParameter(c *echo.Context) error {
 	}
 
 	// Tell HTMX to reload the page to reflect the deletion
-	w.Header().Set("HX-Redirect", "/dashboard/ssm")
+	w.Header().Set("Hx-Redirect", "/dashboard/ssm")
 
 	return c.NoContent(http.StatusOK)
 }
