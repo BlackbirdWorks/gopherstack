@@ -81,7 +81,7 @@ type InFlightMessage struct {
 type Queue struct {
 	messages         []*Message
 	inFlightMessages []*InFlightMessage
-	dedupMsgIDs      map[string]string
+	deduplicationMsgIDs map[string]string
 	DeduplicationIDs map[string]time.Time
 	Attributes       map[string]string
 	Name             string

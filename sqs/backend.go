@@ -110,7 +110,7 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 		IsFIFO:           isFIFO,
 		Attributes:       attrs,
 		DeduplicationIDs: make(map[string]time.Time),
-		dedupMsgIDs:      make(map[string]string),
+		deduplicationMsgIDs:      make(map[string]string),
 	}
 
 	b.queues[input.QueueName] = q
@@ -309,7 +309,7 @@ func checkDedup(q *Queue, dedupID, md5Body, contentBasedDedup string) (*SendMess
 		return nil, false
 	}
 
-	origMsgID := q.dedupMsgIDs[effectiveID]
+	origMsgID := q.deduplicationMsgIDs[effectiveID]
 
 	return &SendMessageOutput{MessageID: origMsgID, MD5OfBody: md5Body}, true
 }
@@ -326,7 +326,7 @@ func storeDedup(q *Queue, dedupID, md5Body, contentBasedDedup, msgID string, now
 	}
 
 	q.DeduplicationIDs[effectiveID] = now.Add(deduplicationWindowSecs * time.Second)
-	q.dedupMsgIDs[effectiveID] = msgID
+	q.deduplicationMsgIDs[effectiveID] = msgID
 }
 
 // ReceiveMessage retrieves messages from the queue, with optional long-poll wait.
