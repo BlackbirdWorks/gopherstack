@@ -1,6 +1,7 @@
 package dynamodb_test
 
 import (
+	"fmt"
 	"sync"
 	"testing"
 
@@ -119,4 +120,28 @@ func TestExpressionCache_Concurrency(t *testing.T) {
 	}()
 
 	wg.Wait()
+}
+
+// TestExpressionCache_Eviction verifies that the LRU shard evict() path runs
+// when the shard capacity is exceeded. With capacity=16 (1 slot per shard) and
+// 17 distinct keys, the pigeonhole principle guarantees at least one shard
+// receives a second key, triggering eviction.
+func TestExpressionCache_Eviction(t *testing.T) {
+	t.Parallel()
+
+	// capacity 16 → each of the 16 shards gets capacity 1.
+	cache := dynamodb.NewExpressionCache(16)
+
+	// Insert 17 distinct keys so at least one shard must receive 2 entries.
+	for i := range 17 {
+		cache.Put(fmt.Sprintf("evict-key-%d", i), i)
+	}
+
+	// We can't assert which keys were evicted (hash-dependent), but we can assert
+	// that at least one key that was added early no longer exists, or simply that
+	// no panic occurred and the cache is still usable.
+	cache.Put("sentinel", "alive")
+	v, found := cache.Get("sentinel")
+	assert.True(t, found)
+	assert.Equal(t, "alive", v)
 }

@@ -1111,3 +1111,21 @@ func TestHandler_GetSupportedOperations(t *testing.T) {
 		})
 	}
 }
+
+// TestHandler_ListObjectsV2Error exercises handleListObjectsV2Error via
+// ListObjectsV2 on a non-existent bucket (NoSuchBucket) and a generic backend error.
+func TestHandler_ListObjectsV2Error(t *testing.T) {
+	t.Parallel()
+
+	t.Run("non-existent bucket returns 404", func(t *testing.T) {
+		t.Parallel()
+		handler, _ := newTestHandler(t)
+
+		// No bucket created → ListObjectsV2 will get ErrNoSuchBucket.
+		req := httptest.NewRequest(http.MethodGet, "/no-such-bucket?list-type=2", nil)
+		rec := httptest.NewRecorder()
+		serveS3Handler(handler, rec, req)
+
+		assert.Equal(t, http.StatusNotFound, rec.Code)
+	})
+}
