@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -31,6 +32,7 @@ const (
 	contentTypeForm  = "application/x-www-form-urlencoded"
 	unknownOperation = "Unknown"
 	invalidAction    = "InvalidAction"
+	kvPairLen        = 2
 )
 
 // Handler is the Echo HTTP handler for STS operations.
@@ -231,39 +233,15 @@ func parseFormValues(body []byte) map[string]string {
 			continue
 		}
 
-		kv := strings.SplitN(pair, "=", 2) //nolint:mnd // key=value split
-		if len(kv) != 2 {                  //nolint:mnd // only key=value pairs are valid
+		kv := strings.SplitN(pair, "=", kvPairLen)
+		if len(kv) != kvPairLen {
 			continue
 		}
 
-		key := decodeFormValue(kv[0])
-		val := decodeFormValue(kv[1])
+		key, _ := url.QueryUnescape(kv[0])
+		val, _ := url.QueryUnescape(kv[1])
 		result[key] = val
 	}
 
 	return result
-}
-
-// decodeFormValue performs basic URL percent-decoding for form field extraction.
-func decodeFormValue(s string) string {
-	// Replace + with space first, then do percent-decoding.
-	s = strings.ReplaceAll(s, "+", " ")
-	result := make([]byte, 0, len(s))
-
-	for i := 0; i < len(s); i++ {
-		if s[i] == '%' && i+2 < len(s) {
-			var b byte
-			_, err := fmt.Sscanf(s[i+1:i+3], "%02X", &b)
-			if err == nil {
-				result = append(result, b)
-				i += 2
-
-				continue
-			}
-		}
-
-		result = append(result, s[i])
-	}
-
-	return string(result)
 }

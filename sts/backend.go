@@ -29,6 +29,7 @@ const (
 	accessKeyIDRandLen  = 16
 	secretKeyByteLen    = 20
 	sessionTokenByteLen = 64
+	arnComponentCount   = 6
 )
 
 // StorageBackend defines the STS service backend interface.
@@ -162,8 +163,8 @@ func deriveRoleID(roleArn string) string {
 // buildAssumedRoleArn constructs the assumed-role ARN from the source role ARN.
 func buildAssumedRoleArn(roleArn, sessionName string) string {
 	// arn:aws:iam::ACCOUNT:role/ROLE_NAME  →  arn:aws:sts::ACCOUNT:assumed-role/ROLE_NAME/SESSION
-	parts := strings.SplitN(roleArn, ":", 6) //nolint:mnd // 6 ARN components
-	if len(parts) < 6 {                      //nolint:mnd // 6 ARN components
+	parts := strings.SplitN(roleArn, ":", arnComponentCount)
+	if len(parts) < arnComponentCount {
 		return roleArn + "/" + sessionName
 	}
 

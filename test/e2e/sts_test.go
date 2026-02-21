@@ -32,7 +32,7 @@ func TestSTSDashboard(t *testing.T) {
 
 	defer func() {
 		if t.Failed() {
-			saveScreenshot(t, page, "TestE2E_STSDashboard")
+			saveScreenshot(t, page, "TestSTSDashboard")
 		}
 	}()
 
