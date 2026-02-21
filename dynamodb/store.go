@@ -1,6 +1,9 @@
 package dynamodb
 
 import (
+	"fmt"
+	"time"
+
 	"github.com/blackbirdworks/gopherstack/dynamodb/models"
 	"github.com/blackbirdworks/gopherstack/pkgs/dynamoattr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -14,6 +17,35 @@ type InMemoryDB struct {
 	mu             *lockmetrics.RWMutex
 }
 
+// StreamRecord captures a single item-level change event for DynamoDB Streams.
+type StreamRecord struct {
+	OldImage                    map[string]any
+	NewImage                    map[string]any
+	EventID                     string
+	EventName                   string
+	SequenceNumber              string
+	ApproximateCreationDateTime int64
+}
+
+const (
+	// streamEventInsert is emitted when a new item is created.
+	streamEventInsert = "INSERT"
+	// streamEventModify is emitted when an existing item is updated.
+	streamEventModify = "MODIFY"
+	// streamEventRemove is emitted when an item is deleted.
+	streamEventRemove = "REMOVE"
+	// maxStreamRecords is the maximum number of records in the ring buffer.
+	maxStreamRecords = 1000
+	// streamViewTypeNewAndOldImages captures both old and new images.
+	streamViewTypeNewAndOldImages = "NEW_AND_OLD_IMAGES"
+	// streamViewTypeNewImage captures only the new image.
+	streamViewTypeNewImage = "NEW_IMAGE"
+	// streamViewTypeOldImage captures only the old image.
+	streamViewTypeOldImage = "OLD_IMAGE"
+	// streamViewTypeKeysOnly captures only keys.
+	streamViewTypeKeysOnly = "KEYS_ONLY"
+)
+
 type Table struct {
 	pkIndex   map[string]int
 	pkskIndex map[string]map[string]int
@@ -22,11 +54,16 @@ type Table struct {
 	mu                     *lockmetrics.RWMutex
 	Name                   string
 	TTLAttribute           string
+	StreamViewType         string
+	StreamARN              string
 	KeySchema              []models.KeySchemaElement
 	AttributeDefinitions   []models.AttributeDefinition
 	GlobalSecondaryIndexes []models.GlobalSecondaryIndex
 	LocalSecondaryIndexes  []models.LocalSecondaryIndex
 	Items                  []map[string]any
+	StreamRecords          []StreamRecord
+	streamSeq              int64
+	StreamsEnabled         bool
 }
 
 func NewInMemoryDB() *InMemoryDB {
@@ -37,6 +74,45 @@ func NewInMemoryDB() *InMemoryDB {
 		deletingTables: make(map[string]*Table),
 		exprCache:      NewExpressionCache(exprCacheSize),
 		mu:             lockmetrics.New("ddb"),
+	}
+}
+
+// appendStreamRecord adds a new record to the table's stream ring buffer.
+// Must be called with table.mu held (write lock).
+func (t *Table) appendStreamRecord(eventName string, oldItem, newImage map[string]any) {
+	if !t.StreamsEnabled {
+		return
+	}
+
+	t.streamSeq++
+	seq := fmt.Sprintf("%020d", t.streamSeq)
+
+	record := StreamRecord{
+		EventID:                     fmt.Sprintf("%s-%s", t.Name, seq),
+		EventName:                   eventName,
+		SequenceNumber:              seq,
+		ApproximateCreationDateTime: time.Now().Unix(),
+	}
+
+	switch t.StreamViewType {
+	case streamViewTypeNewAndOldImages:
+		record.OldImage = oldItem
+		record.NewImage = newImage
+	case streamViewTypeNewImage:
+		record.NewImage = newImage
+	case streamViewTypeOldImage:
+		record.OldImage = oldItem
+	case streamViewTypeKeysOnly:
+		// keys only — captured below from key schema
+	default:
+		record.OldImage = oldItem
+		record.NewImage = newImage
+	}
+
+	// Cap at maxStreamRecords (ring buffer — evict oldest)
+	t.StreamRecords = append(t.StreamRecords, record)
+	if len(t.StreamRecords) > maxStreamRecords {
+		t.StreamRecords = t.StreamRecords[len(t.StreamRecords)-maxStreamRecords:]
 	}
 }
 

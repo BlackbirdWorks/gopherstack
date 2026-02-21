@@ -39,6 +39,14 @@ func (db *InMemoryDB) CreateTable(
 		mu:                     lockmetrics.New("ddb.table." + tableName),
 	}
 	newTable.initializeIndexes()
+
+	// Handle StreamSpecification if provided
+	if input.StreamSpecification != nil && aws.ToBool(input.StreamSpecification.StreamEnabled) {
+		newTable.StreamsEnabled = true
+		newTable.StreamViewType = string(input.StreamSpecification.StreamViewType)
+		newTable.StreamARN = buildStreamARN(tableName)
+	}
+
 	db.Tables[tableName] = newTable
 
 	// Convert GSIs to Description

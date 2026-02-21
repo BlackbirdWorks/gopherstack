@@ -106,6 +106,16 @@
         <div role="tabpanel" class="tab-content p-6">
             {{template "table-scan" .}}
         </div>
+
+        <input type="radio" name="table_tabs" role="tab" class="tab" aria-label="Stream Events" />
+        <div role="tabpanel" class="tab-content p-6">
+            <div id="stream-events-container" hx-get="/dashboard/dynamodb/table/{{.TableName}}/stream-events"
+                hx-trigger="load, every 3s" hx-swap="innerHTML">
+                <div class="flex justify-center p-8">
+                    <span class="loading loading-spinner loading-lg"></span>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 {{end}}
@@ -168,6 +178,17 @@
                 {{end}}
             </div>
         </div>
+        <div class="stat">
+            <div class="stat-title">Streams</div>
+            <div class="stat-value text-sm">
+                {{if .StreamsEnabled}}
+                <span class="badge badge-info">ENABLED</span>
+                <span class="text-xs text-base-content/60 ml-1">{{.StreamViewType}}</span>
+                {{else}}
+                <span class="badge badge-ghost">DISABLED</span>
+                {{end}}
+            </div>
+        </div>
     </div>
 
     <!-- TTL Configuration -->
@@ -192,6 +213,44 @@
                 </div>
                 <button type="submit" class="btn btn-primary btn-sm">Update TTL</button>
             </form>
+        </div>
+    </div>
+
+    <!-- Streams Configuration -->
+    <div class="card bg-base-100 shadow-xl">
+        <div class="card-body">
+            <h2 class="card-title text-sm">DynamoDB Streams Configuration</h2>
+            <form hx-post="/dashboard/dynamodb/table/{{.TableName}}/streams" hx-target="#overview"
+                class="flex items-end gap-4 flex-wrap">
+                <div class="form-control">
+                    <label class="label">
+                        <span class="label-text">View Type</span>
+                    </label>
+                    <select name="viewType" class="select select-bordered select-sm">
+                        <option value="NEW_AND_OLD_IMAGES" {{if eq .StreamViewType "NEW_AND_OLD_IMAGES"
+                            }}selected{{end}}>NEW_AND_OLD_IMAGES</option>
+                        <option value="NEW_IMAGE" {{if eq .StreamViewType "NEW_IMAGE" }}selected{{end}}>NEW_IMAGE
+                        </option>
+                        <option value="OLD_IMAGE" {{if eq .StreamViewType "OLD_IMAGE" }}selected{{end}}>OLD_IMAGE
+                        </option>
+                        <option value="KEYS_ONLY" {{if eq .StreamViewType "KEYS_ONLY" }}selected{{end}}>KEYS_ONLY
+                        </option>
+                    </select>
+                </div>
+                <div class="form-control">
+                    <label class="label cursor-pointer justify-start gap-2">
+                        <span class="label-text">Enabled</span>
+                        <input type="checkbox" name="enabled" class="checkbox checkbox-info checkbox-sm" {{if
+                            .StreamsEnabled}}checked{{end}}>
+                    </label>
+                </div>
+                <button type="submit" class="btn btn-info btn-sm">Update Streams</button>
+            </form>
+            {{if .StreamARN}}
+            <div class="mt-2 text-xs text-base-content/60 font-mono truncate" title="{{.StreamARN}}">
+                ARN: {{.StreamARN}}
+            </div>
+            {{end}}
         </div>
     </div>
 
@@ -252,6 +311,53 @@
                 </table>
             </div>
         </div>
+    </div>
+    {{end}}
+</div>
+{{end}}
+
+{{define "stream-events"}}
+<div class="space-y-4">
+    {{if not .StreamsEnabled}}
+    <div class="alert alert-info">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-current shrink-0 w-6 h-6">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+        </svg>
+        <span>DynamoDB Streams is not enabled for this table. Enable it in the Overview tab.</span>
+    </div>
+    {{else if not .StreamEvents}}
+    <div class="alert">
+        <span>No stream events captured yet. Make changes to table items to generate events.</span>
+    </div>
+    {{else}}
+    <div class="overflow-x-auto">
+        <table class="table table-sm">
+            <thead>
+                <tr>
+                    <th>Event</th>
+                    <th>Event ID</th>
+                    <th>Timestamp (UTC)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .StreamEvents}}
+                <tr>
+                    <td>
+                        {{if eq .EventName "INSERT"}}
+                        <span class="badge badge-success badge-sm">INSERT</span>
+                        {{else if eq .EventName "MODIFY"}}
+                        <span class="badge badge-warning badge-sm">MODIFY</span>
+                        {{else}}
+                        <span class="badge badge-error badge-sm">REMOVE</span>
+                        {{end}}
+                    </td>
+                    <td class="font-mono text-xs">{{.EventID}}</td>
+                    <td class="text-xs">{{.Timestamp}}</td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
     </div>
     {{end}}
 </div>

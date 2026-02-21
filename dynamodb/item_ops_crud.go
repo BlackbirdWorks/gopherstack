@@ -46,6 +46,13 @@ func (db *InMemoryDB) PutItem(
 
 	db.doPut(table, wireItem, matchIndex)
 
+	// Capture stream event
+	if matchIndex != -1 {
+		table.appendStreamRecord(streamEventModify, oldItem, deepCopyItem(wireItem))
+	} else {
+		table.appendStreamRecord(streamEventInsert, nil, deepCopyItem(wireItem))
+	}
+
 	return db.populatePutItemOutput(input, table, oldItem), nil
 }
 
@@ -251,6 +258,8 @@ func (db *InMemoryDB) DeleteItem(
 
 	if oldItem != nil && matchIndex != -1 {
 		db.deleteItemAtIndex(table, matchIndex)
+		// Capture stream REMOVE event
+		table.appendStreamRecord(streamEventRemove, deepCopyItem(oldItem), nil)
 	}
 
 	// Handle ReturnValues (ALL_OLD)
@@ -306,6 +315,13 @@ func (db *InMemoryDB) UpdateItem(
 	updated, updatedPaths, err := db.doUpdate(ctx, table, input, existing, matchIndex)
 	if err != nil {
 		return nil, err
+	}
+
+	// Capture stream event for UpdateItem
+	if matchIndex != -1 {
+		table.appendStreamRecord(streamEventModify, deepCopyItem(existing), deepCopyItem(updated))
+	} else {
+		table.appendStreamRecord(streamEventInsert, nil, deepCopyItem(updated))
 	}
 
 	return db.populateUpdateOutput(input, table, existing, updated, updatedPaths)

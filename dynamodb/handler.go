@@ -26,16 +26,23 @@ var ErrUnknownOperation = errors.New("UnknownOperationException")
 //nolint:revive // Stuttering preferred here for clarity per Plan.md
 type DynamoDBHandler struct {
 	Backend StorageBackend
+	Streams StreamsBackend
 	Logger  *slog.Logger
 	janitor *Janitor
 }
 
 // NewHandler creates a new DynamoDB handler with the given storage backend.
 func NewHandler(backend StorageBackend, logger *slog.Logger) *DynamoDBHandler {
-	return &DynamoDBHandler{
+	h := &DynamoDBHandler{
 		Backend: backend,
 		Logger:  logger,
 	}
+
+	if sb, ok := backend.(StreamsBackend); ok {
+		h.Streams = sb
+	}
+
+	return h
 }
 
 // WithJanitor attaches a background janitor to the handler.
@@ -64,9 +71,13 @@ func (h *DynamoDBHandler) GetSupportedOperations() []string {
 		"CreateTable",
 		"DeleteItem",
 		"DeleteTable",
+		"DescribeStream",
 		"DescribeTable",
 		"DescribeTimeToLive",
 		"GetItem",
+		"GetRecords",
+		"GetShardIterator",
+		"ListStreams",
 		"ListTables",
 		"PutItem",
 		"Query",
@@ -145,7 +156,8 @@ func (h *DynamoDBHandler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		target := c.Request().Header.Get("X-Amz-Target")
 
-		return strings.HasPrefix(target, "DynamoDB_")
+		return strings.HasPrefix(target, "DynamoDB_") ||
+			strings.HasPrefix(target, "DynamoDBStreams_")
 	}
 }
 
@@ -210,6 +222,8 @@ func (h *DynamoDBHandler) dispatch(ctx context.Context, action string, body []by
 		return h.dispatchItemOps(ctx, action, body)
 	case "TransactWriteItems", "TransactGetItems":
 		return h.dispatchTransactOps(ctx, action, body)
+	case "DescribeStream", "GetShardIterator", "GetRecords", "ListStreams":
+		return h.dispatchStreamsOps(ctx, action, body)
 	default:
 		return nil, fmt.Errorf("%w:%s", ErrUnknownOperation, action)
 	}
@@ -409,6 +423,43 @@ func (h *DynamoDBHandler) dispatchTransactOps(
 	default:
 		return nil, fmt.Errorf("%w:%s", ErrUnknownOperation, action)
 	}
+}
+
+func (h *DynamoDBHandler) dispatchStreamsOps(ctx context.Context, action string, body []byte) (any, error) {
+	if h.Streams == nil {
+		return nil, fmt.Errorf("%w:%s", ErrUnknownOperation, action)
+	}
+
+	log := logger.Load(ctx)
+	log.DebugContext(ctx, "DynamoDB Streams request", "action", action)
+
+	switch action {
+	case "DescribeStream":
+		return handleStreamsOp(ctx, body, h.Streams.DescribeStream)
+	case "GetShardIterator":
+		return handleStreamsOp(ctx, body, h.Streams.GetShardIterator)
+	case "GetRecords":
+		return handleStreamsOp(ctx, body, h.Streams.GetRecords)
+	case "ListStreams":
+		return handleStreamsOp(ctx, body, h.Streams.ListStreams)
+	default:
+		return nil, fmt.Errorf("%w:%s", ErrUnknownOperation, action)
+	}
+}
+
+func handleStreamsOp[In any, Out any](
+	ctx context.Context,
+	body []byte,
+	op func(context.Context, *In) (*Out, error),
+) (any, error) {
+	var input In
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &input); err != nil {
+			return nil, err
+		}
+	}
+
+	return op(ctx, &input)
 }
 
 func (h *DynamoDBHandler) handleError(

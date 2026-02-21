@@ -20,6 +20,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodbstreams"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/docker/docker/api/types/build"
 	"github.com/google/go-cmp/cmp"
@@ -136,6 +137,26 @@ func createDynamoDBClient(t *testing.T) *dynamodb.Client {
 	}
 
 	return dynamodb.NewFromConfig(cfg, func(o *dynamodb.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createDynamoDBStreamsClient returns a DynamoDB Streams client pointed at the shared test container.
+func createDynamoDBStreamsClient(t *testing.T) *dynamodbstreams.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		t.Fatalf("unable to load SDK config: %v", err)
+	}
+
+	return dynamodbstreams.NewFromConfig(cfg, func(o *dynamodbstreams.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

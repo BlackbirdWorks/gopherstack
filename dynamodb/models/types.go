@@ -35,6 +35,7 @@ type AttributeDefinition struct {
 
 type CreateTableInput struct {
 	ProvisionedThroughput  any                    `json:"ProvisionedThroughput"`
+	StreamSpecification    any                    `json:"StreamSpecification,omitempty"`
 	TableName              string                 `json:"TableName"`
 	KeySchema              []KeySchemaElement     `json:"KeySchema"`
 	AttributeDefinitions   []AttributeDefinition  `json:"AttributeDefinitions"`
