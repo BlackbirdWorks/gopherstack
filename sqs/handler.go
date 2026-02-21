@@ -63,7 +63,8 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	}
 }
 
-// MatchPriority returns the routing priority for the SQS handler.
+// sqsMatchPriority is lower than header-based matchers (e.g. SSM at 100) but higher
+// than path-based matchers (e.g. Dashboard at 50), so content-type matching runs second.
 const sqsMatchPriority = 75
 
 // MatchPriority returns the routing priority for the SQS handler.
@@ -526,15 +527,6 @@ func errorDetails(err error) (string, string, int) {
 	default:
 		return "InternalError", "An internal error occurred.", http.StatusInternalServerError
 	}
-}
-
-// queueURL returns the full queue URL for the given host and queue name.
-func (h *Handler) queueURL(host, queueName string) string {
-	if h.Endpoint != "" {
-		return fmt.Sprintf("http://%s/%s/%s", h.Endpoint, accountID, queueName)
-	}
-
-	return fmt.Sprintf("http://%s/%s/%s", host, accountID, queueName)
 }
 
 // queueNameFromURL extracts the queue name from a full queue URL.
