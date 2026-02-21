@@ -20,6 +20,7 @@ import (
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/labstack/echo/v5"
 	"github.com/playwright-community/playwright-go"
 	"github.com/stretchr/testify/assert"
@@ -29,6 +30,7 @@ import (
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
+	ssmbackend "github.com/blackbirdworks/gopherstack/ssm"
 )
 
 var pw *playwright.Playwright
@@ -102,10 +104,17 @@ func newIntegrationStack(t *testing.T) *integrationStack {
 		o.UsePathStyle = true
 		o.BaseEndpoint = aws.String("http://local")
 	})
+	ssmClient := ssmsdk.NewFromConfig(cfg, func(o *ssmsdk.Options) {
+		o.BaseEndpoint = aws.String("http://local")
+	})
 
-	dashHndlr := dashboard.NewHandler(ddbClient, s3Client, ddbHndlr, s3Hndlr, slog.Default())
+	ssmBk := ssmbackend.NewInMemoryBackend()
+	ssmHndlr := ssmbackend.NewHandler(ssmBk, slog.Default())
+
+	dashHndlr := dashboard.NewHandler(ddbClient, s3Client, ssmClient, ddbHndlr, s3Hndlr, ssmHndlr, slog.Default())
 	_ = registry.Register(dashHndlr)
 	_ = registry.Register(s3Hndlr)
+	_ = registry.Register(ssmHndlr)
 
 	router := service.NewServiceRouter(registry)
 	e.Use(router.RouteHandler())

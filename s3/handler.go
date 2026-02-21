@@ -39,6 +39,8 @@ type S3Handler struct {
 	// When set, virtual-hosted-style URLs (bucket.host/key) are supported
 	// in addition to path-style URLs (/bucket/key).
 	Endpoint string
+
+	janitor *Janitor
 }
 
 // NewHandler creates a new S3 Handler with the given backend.
@@ -47,6 +49,22 @@ func NewHandler(backend StorageBackend, logger *slog.Logger) *S3Handler {
 		Backend: backend,
 		Logger:  logger,
 	}
+}
+
+// WithJanitor attaches a background janitor to the handler.
+func (h *S3Handler) WithJanitor(settings Settings) *S3Handler {
+	if memBackend, ok := h.Backend.(*InMemoryBackend); ok {
+		h.janitor = NewJanitor(memBackend, h.Logger, settings)
+	}
+	return h
+}
+
+// StartWorker starts the background janitor if it is configured.
+func (h *S3Handler) StartWorker(ctx context.Context) error {
+	if h.janitor != nil {
+		h.janitor.Run(ctx)
+	}
+	return nil
 }
 
 type s3Metrics struct {

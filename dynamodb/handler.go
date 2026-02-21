@@ -27,6 +27,7 @@ var ErrUnknownOperation = errors.New("UnknownOperationException")
 type DynamoDBHandler struct {
 	Backend StorageBackend
 	Logger  *slog.Logger
+	janitor *Janitor
 }
 
 // NewHandler creates a new DynamoDB handler with the given storage backend.
@@ -35,6 +36,22 @@ func NewHandler(backend StorageBackend, logger *slog.Logger) *DynamoDBHandler {
 		Backend: backend,
 		Logger:  logger,
 	}
+}
+
+// WithJanitor attaches a background janitor to the handler.
+func (h *DynamoDBHandler) WithJanitor(settings Settings) *DynamoDBHandler {
+	if memBackend, ok := h.Backend.(*InMemoryDB); ok {
+		h.janitor = NewJanitor(memBackend, h.Logger, settings)
+	}
+	return h
+}
+
+// StartWorker starts the background janitor if it is configured.
+func (h *DynamoDBHandler) StartWorker(ctx context.Context) error {
+	if h.janitor != nil {
+		h.janitor.Run(ctx)
+	}
+	return nil
 }
 
 // GetSupportedOperations returns a sorted list of supported DynamoDB operations.

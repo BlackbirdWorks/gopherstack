@@ -1,6 +1,9 @@
 package service
 
 import (
+	"context"
+	"log/slog"
+
 	"github.com/labstack/echo/v5"
 )
 
@@ -82,4 +85,27 @@ type DashboardProvider interface {
 		httpClient any, // *http.Client
 		endpoint string,
 	)
+}
+
+// BackgroundWorker is an optional interface that services can implement
+// to start background tasks (e.g. async deletion janitors).
+type BackgroundWorker interface {
+	StartWorker(ctx context.Context) error
+}
+
+// AppContext contains shared resources needed by services during initialization.
+type AppContext struct {
+	Logger     *slog.Logger
+	Config     any // The raw configuration object
+	JanitorCtx context.Context
+}
+
+// Provider encapsulates the logic to initialize a service.
+type Provider interface {
+	// Name returns the name of the service provider.
+	Name() string
+
+	// Init initializes the service using the provided application context.
+	// It returns the Registerable service, or an error if initialization fails.
+	Init(ctx *AppContext) (Registerable, error)
 }

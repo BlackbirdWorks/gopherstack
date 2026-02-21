@@ -135,7 +135,7 @@ func WriteS3ErrorResponse(logger *slog.Logger, w http.ResponseWriter, r *http.Re
 
 // EchoError is a helper for Echo handlers to write errors with proper logging.
 func EchoError(logger *slog.Logger, c *echo.Context, code int, message string, err error) error {
-	if err != nil {
+	if err != nil && logger != nil {
 		logger.DebugContext(c.Request().Context(), message, "error", err)
 	}
 

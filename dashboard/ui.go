@@ -9,12 +9,14 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/labstack/echo/v5"
 
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
 	pkgslogger "github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
+	ssmbackend "github.com/blackbirdworks/gopherstack/ssm"
 )
 
 const (
@@ -47,8 +49,10 @@ type DashboardHandler struct {
 	// Legacy direct SDK injection pattern
 	DynamoDB *dynamodb.Client
 	S3       *s3.Client
+	SSM      *ssmsdk.Client
 	DDBOps   *ddbbackend.DynamoDBHandler
 	S3Ops    *s3backend.S3Handler
+	SSMOps   *ssmbackend.Handler
 
 	// Dashboard providers for service discovery
 	ddbProvider *ddbbackend.DashboardProvider
@@ -67,14 +71,17 @@ type DashboardHandler struct {
 func NewHandler(
 	ddbClient *dynamodb.Client,
 	s3Client *s3.Client,
+	ssmClient *ssmsdk.Client,
 	ddbOps *ddbbackend.DynamoDBHandler,
 	s3Ops *s3backend.S3Handler,
+	ssmOps *ssmbackend.Handler,
 	logger *slog.Logger,
 ) *DashboardHandler {
 	// Parse layout and components
 	tmpl := template.Must(template.ParseFS(templateFS,
 		"templates/layout.html",
 		"templates/components/*.html",
+		"templates/ssm/*.html",
 	))
 
 	// Create service-specific dashboard providers
@@ -84,8 +91,10 @@ func NewHandler(
 	h := &DashboardHandler{
 		DynamoDB:    ddbClient,
 		S3:          s3Client,
+		SSM:         ssmClient,
 		DDBOps:      ddbOps,
 		S3Ops:       s3Ops,
+		SSMOps:      ssmOps,
 		Logger:      logger,
 		layout:      tmpl,
 		ddbProvider: ddbProvider,
@@ -134,13 +143,16 @@ func (h *DashboardHandler) setupSubRouter() {
 		h.s3Provider.RegisterDashboardRoutes(s3Group, nil, "")
 	}
 
+	// SSM routes (direct dashboard integration)
+	// Fallback mechanism while transitioning providers
+	h.SubRouter.GET("/dashboard/ssm", h.ssmIndex)
+	h.SubRouter.GET("/dashboard/ssm/modal/put", h.ssmPutModal)
+	h.SubRouter.POST("/dashboard/ssm/put", h.ssmPutParameter)
+	h.SubRouter.DELETE("/dashboard/ssm/delete", h.ssmDeleteParameter)
+
 	// Metrics & Docs (always available)
-	if h != nil && h.SubRouter != nil {
-		dashboardGroup := h.SubRouter.Group("/dashboard")
-		if dashboardGroup != nil {
-			RegisterMetricsHandlers(dashboardGroup, h)
-		}
-	}
+	dashboardGroup := h.SubRouter.Group("/dashboard")
+	RegisterMetricsHandlers(dashboardGroup, h)
 }
 
 // Handler returns the Echo handler function for dashboard requests.
@@ -191,6 +203,8 @@ func (h *DashboardHandler) ExtractOperation(c *echo.Context) string {
 		return "DynamoDB"
 	case strings.HasPrefix(path, "/s3"):
 		return "S3"
+	case strings.HasPrefix(path, "/ssm"):
+		return "SSM"
 	case strings.HasPrefix(path, "/metrics"):
 		return "Metrics"
 	case strings.HasPrefix(path, "/docs"):
