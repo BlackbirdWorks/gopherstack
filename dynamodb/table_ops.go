@@ -13,8 +13,18 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
 
+// getRegionFromContext extracts the region from the request context.
+// Returns the default region if region is not found in context.
+func getRegionFromContext(ctx context.Context, db *InMemoryDB) string {
+	if region, ok := ctx.Value(regionContextKey{}).(string); ok && region != "" {
+		return region
+	}
+
+	return db.defaultRegion
+}
+
 func (db *InMemoryDB) CreateTable(
-	_ context.Context,
+	ctx context.Context,
 	input *dynamodb.CreateTableInput,
 ) (*dynamodb.CreateTableOutput, error) {
 	tableName := aws.ToString(input.TableName)
@@ -22,10 +32,17 @@ func (db *InMemoryDB) CreateTable(
 		return nil, NewValidationException("Table name is required")
 	}
 
+	region := getRegionFromContext(ctx, db)
+
 	db.mu.Lock("CreateTable")
 	defer db.mu.Unlock()
 
-	if _, exists := db.Tables[tableName]; exists {
+	// Initialize region map if it doesn't exist
+	if _, exists := db.Tables[region]; !exists {
+		db.Tables[region] = make(map[string]*Table)
+	}
+
+	if _, exists := db.Tables[region][tableName]; exists {
 		return nil, NewResourceInUseException(fmt.Sprintf("table already exists: %s", tableName))
 	}
 
@@ -47,7 +64,7 @@ func (db *InMemoryDB) CreateTable(
 		newTable.StreamARN = buildStreamARN(tableName)
 	}
 
-	db.Tables[tableName] = newTable
+	db.Tables[region][tableName] = newTable
 
 	// Convert GSIs to Description
 	gsiDescs := make([]models.GlobalSecondaryIndexDescription, len(input.GlobalSecondaryIndexes))
@@ -105,7 +122,7 @@ func (db *InMemoryDB) CreateTable(
 }
 
 func (db *InMemoryDB) DeleteTable(
-	_ context.Context,
+	ctx context.Context,
 	input *dynamodb.DeleteTableInput,
 ) (*dynamodb.DeleteTableOutput, error) {
 	tableName := aws.ToString(input.TableName)
@@ -113,18 +130,27 @@ func (db *InMemoryDB) DeleteTable(
 		return nil, NewValidationException("Table name is required")
 	}
 
-	db.mu.Lock("DeleteTable")
-	table, exists := db.Tables[tableName]
-	if !exists {
-		db.mu.Unlock()
+	region := getRegionFromContext(ctx, db)
 
+	db.mu.Lock("DeleteTable")
+	defer db.mu.Unlock()
+
+	regionTables, regionExists := db.Tables[region]
+	if !regionExists {
+		return nil, NewResourceNotFoundException(fmt.Sprintf("table not found: %s", tableName))
+	}
+
+	table, tableExists := regionTables[tableName]
+	if !tableExists {
 		return nil, NewResourceNotFoundException(fmt.Sprintf("table not found: %s", tableName))
 	}
 
 	// Move to the deleting map — the Janitor will do the final removal.
-	delete(db.Tables, tableName)
-	db.deletingTables[tableName] = table
-	db.mu.Unlock()
+	delete(db.Tables[region], tableName)
+	if _, deletingExists := db.deletingTables[region]; !deletingExists {
+		db.deletingTables[region] = make(map[string]*Table)
+	}
+	db.deletingTables[region][tableName] = table
 
 	// Capture state for return
 	gsiDescs := make([]models.GlobalSecondaryIndexDescription, len(table.GlobalSecondaryIndexes))
@@ -168,13 +194,21 @@ func (db *InMemoryDB) DeleteTable(
 }
 
 func (db *InMemoryDB) DescribeTable(
-	_ context.Context,
+	ctx context.Context,
 	input *dynamodb.DescribeTableInput,
 ) (*dynamodb.DescribeTableOutput, error) {
 	tableName := aws.ToString(input.TableName)
 
+	region := getRegionFromContext(ctx, db)
+
 	db.mu.RLock("DescribeTable")
-	table, exists := db.Tables[tableName]
+	regionTables, exists := db.Tables[region]
+	if !exists {
+		db.mu.RUnlock()
+
+		return nil, NewResourceNotFoundException(fmt.Sprintf("table not found: %s", tableName))
+	}
+	table, exists := regionTables[tableName]
 	db.mu.RUnlock()
 
 	if !exists {
@@ -256,7 +290,7 @@ func (db *InMemoryDB) DescribeTable(
 }
 
 func (db *InMemoryDB) UpdateTimeToLive(
-	_ context.Context,
+	ctx context.Context,
 	input *dynamodb.UpdateTimeToLiveInput,
 ) (*dynamodb.UpdateTimeToLiveOutput, error) {
 	tableName := aws.ToString(input.TableName)
@@ -264,7 +298,7 @@ func (db *InMemoryDB) UpdateTimeToLive(
 		return nil, NewValidationException("Table name is required")
 	}
 
-	table, err := db.getTable(tableName)
+	table, err := db.getTable(ctx, tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -284,11 +318,11 @@ func (db *InMemoryDB) UpdateTimeToLive(
 }
 
 func (db *InMemoryDB) DescribeTimeToLive(
-	_ context.Context,
+	ctx context.Context,
 	input *dynamodb.DescribeTimeToLiveInput,
 ) (*dynamodb.DescribeTimeToLiveOutput, error) {
 	tableName := aws.ToString(input.TableName)
-	table, err := db.getTable(tableName)
+	table, err := db.getTable(ctx, tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -313,14 +347,18 @@ func (db *InMemoryDB) DescribeTimeToLive(
 }
 
 func (db *InMemoryDB) ListTables(
-	_ context.Context,
+	ctx context.Context,
 	input *dynamodb.ListTablesInput,
 ) (*dynamodb.ListTablesOutput, error) {
+	region := getRegionFromContext(ctx, db)
+
 	// Snapshot table names under lock, then release immediately
 	db.mu.RLock("ListTables")
-	names := make([]string, 0, len(db.Tables))
-	for name := range db.Tables {
-		names = append(names, name)
+	names := make([]string, 0)
+	if regionTables, exists := db.Tables[region]; exists {
+		for name := range regionTables {
+			names = append(names, name)
+		}
 	}
 	db.mu.RUnlock()
 

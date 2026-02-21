@@ -22,21 +22,53 @@ import (
 
 var ErrUnknownOperation = errors.New("UnknownOperationException")
 
+// regionContextKey is used to store the AWS region in request context.
+type regionContextKey struct{}
+
+// AWS SigV4 credential format has at least 3 parts: AKID/date/region.
+const minSigV4CredentialParts = 3
+
+// extractRegionFromAuth extracts the AWS region from the Authorization header.
+// AWS Signature Version 4 has format: Credential=AKID/date/region/service/aws4_request
+// Falls back to X-Amz-Region header if present, or uses the default region.
+func extractRegionFromAuth(r *http.Request, defaultRegion string) string {
+	authHeader := r.Header.Get("Authorization")
+	if authHeader != "" && strings.Contains(authHeader, "Credential=") {
+		// Extract from "Credential=AKID/20230525/us-east-1/dynamodb/aws4_request"
+		parts := strings.Split(authHeader, "Credential=")
+		if len(parts) > 1 {
+			credParts := strings.Split(parts[1], "/")
+			if len(credParts) >= minSigV4CredentialParts {
+				return credParts[2]
+			}
+		}
+	}
+
+	// Check for X-Amz-Region header as fallback
+	if region := r.Header.Get("X-Amz-Region"); region != "" {
+		return region
+	}
+
+	return defaultRegion
+}
+
 // DynamoDBHandler handles HTTP requests for DynamoDB operations.
 //
 //nolint:revive // Stuttering preferred here for clarity per Plan.md
 type DynamoDBHandler struct {
-	Backend StorageBackend
-	Streams StreamsBackend
-	Logger  *slog.Logger
-	janitor *Janitor
+	Backend       StorageBackend
+	Streams       StreamsBackend
+	Logger        *slog.Logger
+	janitor       *Janitor
+	DefaultRegion string
 }
 
 // NewHandler creates a new DynamoDB handler with the given storage backend.
 func NewHandler(backend StorageBackend, logger *slog.Logger) *DynamoDBHandler {
 	h := &DynamoDBHandler{
-		Backend: backend,
-		Logger:  logger,
+		Backend:       backend,
+		Logger:        logger,
+		DefaultRegion: "us-east-1",
 	}
 
 	if sb, ok := backend.(StreamsBackend); ok {
@@ -48,7 +80,12 @@ func NewHandler(backend StorageBackend, logger *slog.Logger) *DynamoDBHandler {
 
 // WithJanitor attaches a background janitor to the handler.
 func (h *DynamoDBHandler) WithJanitor(settings Settings) *DynamoDBHandler {
+	h.DefaultRegion = settings.DefaultRegion
+	if h.DefaultRegion == "" {
+		h.DefaultRegion = "us-east-1"
+	}
 	if memBackend, ok := h.Backend.(*InMemoryDB); ok {
+		memBackend.SetDefaultRegion(h.DefaultRegion)
 		h.janitor = NewJanitor(memBackend, h.Logger, settings)
 	}
 
@@ -126,6 +163,10 @@ func (h *DynamoDBHandler) Handler() echo.HandlerFunc {
 		}
 
 		log.DebugContext(ctx, "DynamoDB request", "action", action, "body", string(body))
+
+		// Extract region from request and add to context
+		region := extractRegionFromAuth(c.Request(), h.DefaultRegion)
+		ctx = context.WithValue(ctx, regionContextKey{}, region)
 
 		response, reqErr := h.dispatch(ctx, action, body)
 		if reqErr != nil {

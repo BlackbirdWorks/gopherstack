@@ -22,7 +22,7 @@ func (db *InMemoryDB) PutItem(
 		return nil, NewValidationException("Table name is required")
 	}
 
-	table, err := db.getTable(tableName)
+	table, err := db.getTable(ctx, tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -172,11 +172,11 @@ func (db *InMemoryDB) populatePutItemOutput(
 }
 
 func (db *InMemoryDB) GetItem(
-	_ context.Context,
+	ctx context.Context,
 	input *dynamodb.GetItemInput,
 ) (*dynamodb.GetItemOutput, error) {
 	tableName := aws.ToString(input.TableName)
-	table, err := db.getTable(tableName)
+	table, err := db.getTable(ctx, tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -213,7 +213,7 @@ func (db *InMemoryDB) DeleteItem(
 ) (*dynamodb.DeleteItemOutput, error) {
 	tableName := aws.ToString(input.TableName)
 
-	table, err := db.getTable(tableName)
+	table, err := db.getTable(ctx, tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -296,7 +296,7 @@ func (db *InMemoryDB) UpdateItem(
 	input *dynamodb.UpdateItemInput,
 ) (*dynamodb.UpdateItemOutput, error) {
 	tableName := aws.ToString(input.TableName)
-	table, err := db.getTable(tableName)
+	table, err := db.getTable(ctx, tableName)
 	if err != nil {
 		return nil, err
 	}

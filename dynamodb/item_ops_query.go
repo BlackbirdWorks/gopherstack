@@ -35,7 +35,7 @@ func (db *InMemoryDB) QueryWithContext(
 	}
 
 	tableName := aws.ToString(input.TableName)
-	table, err := db.getTable(tableName)
+	table, err := db.getTable(ctx, tableName)
 	if err != nil {
 		return nil, err
 	}

@@ -54,8 +54,8 @@ type StreamsBackend interface {
 }
 
 // EnableStream enables DynamoDB Streams on a table with the given view type.
-func (db *InMemoryDB) EnableStream(_ context.Context, tableName, viewType string) error {
-	table, err := db.getTable(tableName)
+func (db *InMemoryDB) EnableStream(ctx context.Context, tableName, viewType string) error {
+	table, err := db.getTable(ctx, tableName)
 	if err != nil {
 		return err
 	}
@@ -75,8 +75,8 @@ func (db *InMemoryDB) EnableStream(_ context.Context, tableName, viewType string
 }
 
 // DisableStream disables DynamoDB Streams on a table.
-func (db *InMemoryDB) DisableStream(_ context.Context, tableName string) error {
-	table, err := db.getTable(tableName)
+func (db *InMemoryDB) DisableStream(ctx context.Context, tableName string) error {
+	table, err := db.getTable(ctx, tableName)
 	if err != nil {
 		return err
 	}
@@ -102,10 +102,15 @@ func (db *InMemoryDB) DescribeStream(
 	db.mu.RLock("DescribeStream")
 	var found *Table
 
-	for _, t := range db.Tables {
-		if t.StreamARN == streamARN {
-			found = t
+	for _, regionTables := range db.Tables {
+		for _, t := range regionTables {
+			if t.StreamARN == streamARN {
+				found = t
 
+				break
+			}
+		}
+		if found != nil {
 			break
 		}
 	}
@@ -165,10 +170,15 @@ func (db *InMemoryDB) GetShardIterator(
 	db.mu.RLock("GetShardIterator")
 	var found *Table
 
-	for _, t := range db.Tables {
-		if t.StreamARN == streamARN {
-			found = t
+	for _, regionTables := range db.Tables {
+		for _, t := range regionTables {
+			if t.StreamARN == streamARN {
+				found = t
 
+				break
+			}
+		}
+		if found != nil {
 			break
 		}
 	}
@@ -211,7 +221,7 @@ func (db *InMemoryDB) GetShardIterator(
 
 // GetRecords reads stream records starting from the given shard iterator.
 func (db *InMemoryDB) GetRecords(
-	_ context.Context,
+	ctx context.Context,
 	input *dynamodbstreams.GetRecordsInput,
 ) (*dynamodbstreams.GetRecordsOutput, error) {
 	iterator := aws.ToString(input.ShardIterator)
@@ -229,7 +239,7 @@ func (db *InMemoryDB) GetRecords(
 		return nil, NewValidationException("invalid shard iterator sequence")
 	}
 
-	table, err := db.getTable(tableName)
+	table, err := db.getTable(ctx, tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -287,20 +297,22 @@ func (db *InMemoryDB) ListStreams(
 
 	var streams []streamstypes.Stream
 
-	for _, t := range db.Tables {
-		if !t.StreamsEnabled {
-			continue
-		}
+	for _, regionTables := range db.Tables {
+		for _, t := range regionTables {
+			if !t.StreamsEnabled {
+				continue
+			}
 
-		if filterTable != "" && t.Name != filterTable {
-			continue
-		}
+			if filterTable != "" && t.Name != filterTable {
+				continue
+			}
 
-		streams = append(streams, streamstypes.Stream{
-			TableName:   aws.String(t.Name),
-			StreamArn:   aws.String(t.StreamARN),
-			StreamLabel: aws.String("latest"),
-		})
+			streams = append(streams, streamstypes.Stream{
+				TableName:   aws.String(t.Name),
+				StreamArn:   aws.String(t.StreamARN),
+				StreamLabel: aws.String("latest"),
+			})
+		}
 	}
 
 	return &dynamodbstreams.ListStreamsOutput{

@@ -14,13 +14,40 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
+// regionContextKey is used to store the AWS region in request context.
+type regionContextKey struct{}
+
+// AWS SigV4 credential format has at least 3 parts: AKID/date/region.
+const minSigV4CredentialParts = 3
+
+// extractRegionFromRequest extracts the AWS region from an S3 request.
+// Tries to extract from Authorization header's credential scope, Host header, or falls back to default.
+func extractRegionFromRequest(r *http.Request, defaultRegion string) string {
+	// Try to extract from Authorization header (AWS SigV4)
+	authHeader := r.Header.Get("Authorization")
+	if authHeader != "" && strings.Contains(authHeader, "Credential=") {
+		// Extract from "Credential=AKID/date/region/s3/aws4_request"
+		parts := strings.Split(authHeader, "Credential=")
+		if len(parts) > 1 {
+			credParts := strings.Split(parts[1], "/")
+			if len(credParts) >= minSigV4CredentialParts {
+				return credParts[2]
+			}
+		}
+	}
+
+	// Check for X-Amz-Region header
+	if region := r.Header.Get("X-Amz-Region"); region != "" {
+		return region
+	}
+
+	return defaultRegion
+}
+
 const (
 	pathSplitParts   = 2
 	tagKeyValueParts = 2
 	defaultMaxKeys   = 1000
-
-	locationConstraintXML = `<?xml version="1.0" encoding="UTF-8"?>` + "\n" +
-		`<LocationConstraint xmlns="http://s3.amazonaws.com/doc/2006-03-01/">us-east-1</LocationConstraint>`
 
 	checksumCRC32   = "CRC32"
 	checksumCRC32C  = "CRC32C"
@@ -33,9 +60,10 @@ const (
 //
 //nolint:revive // Stuttering preferred here for clarity per Plan.md
 type S3Handler struct {
-	Logger  *slog.Logger
-	janitor *Janitor
-	Backend StorageBackend
+	Logger        *slog.Logger
+	DefaultRegion string
+	janitor       *Janitor
+	Backend       StorageBackend
 	// Endpoint is the base host (e.g. "localhost:9000") of this server.
 	// When set, virtual-hosted-style URLs (bucket.host/key) are supported
 	// in addition to path-style URLs (/bucket/key).
@@ -45,14 +73,20 @@ type S3Handler struct {
 // NewHandler creates a new S3 Handler with the given backend.
 func NewHandler(backend StorageBackend, logger *slog.Logger) *S3Handler {
 	return &S3Handler{
-		Backend: backend,
-		Logger:  logger,
+		Backend:       backend,
+		Logger:        logger,
+		DefaultRegion: "us-east-1",
 	}
 }
 
 // WithJanitor attaches a background janitor to the handler.
 func (h *S3Handler) WithJanitor(settings Settings) *S3Handler {
+	h.DefaultRegion = settings.DefaultRegion
+	if h.DefaultRegion == "" {
+		h.DefaultRegion = "us-east-1"
+	}
 	if memBackend, ok := h.Backend.(*InMemoryBackend); ok {
+		memBackend.SetDefaultRegion(h.DefaultRegion)
 		h.janitor = NewJanitor(memBackend, h.Logger, settings)
 	}
 
@@ -115,6 +149,11 @@ func (h *S3Handler) Handler() echo.HandlerFunc {
 		ctx := c.Request().Context()
 		metrics := &s3Metrics{operation: "Unknown"}
 		ctx = context.WithValue(ctx, s3Key, metrics)
+
+		// Extract region from request and add to context
+		region := extractRegionFromRequest(c.Request(), h.DefaultRegion)
+		ctx = context.WithValue(ctx, regionContextKey{}, region)
+
 		requestWithCtx := c.Request().WithContext(ctx)
 		*c.Request() = *requestWithCtx
 

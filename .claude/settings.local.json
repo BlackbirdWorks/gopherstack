@@ -22,7 +22,11 @@
       "Bash(golines:*)",
       "Bash(go install:*)",
       "Bash(~/go/bin/golines:*)",
-      "WebFetch(domain:aws.amazon.com)"
+      "WebFetch(domain:aws.amazon.com)",
+      "WebFetch(domain:docs.localstack.cloud)",
+      "WebFetch(domain:www.localstack.cloud)",
+      "WebFetch(domain:blog.localstack.cloud)",
+      "WebFetch(domain:github.com)"
     ]
   }
 }

@@ -9,12 +9,13 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
-// InMemoryDB stores tables and items.
+// InMemoryDB stores tables and items organized by region.
 type InMemoryDB struct {
-	Tables         map[string]*Table
-	deletingTables map[string]*Table
+	Tables         map[string]map[string]*Table
+	deletingTables map[string]map[string]*Table
 	exprCache      *ExpressionCache
 	mu             *lockmetrics.RWMutex
+	defaultRegion  string
 }
 
 // StreamRecord captures a single item-level change event for DynamoDB Streams.
@@ -70,9 +71,10 @@ func NewInMemoryDB() *InMemoryDB {
 	const exprCacheSize = 1000
 
 	return &InMemoryDB{
-		Tables:         make(map[string]*Table),
-		deletingTables: make(map[string]*Table),
+		Tables:         make(map[string]map[string]*Table),
+		deletingTables: make(map[string]map[string]*Table),
 		exprCache:      NewExpressionCache(exprCacheSize),
+		defaultRegion:  "us-east-1",
 		mu:             lockmetrics.New("ddb"),
 	}
 }
@@ -157,25 +159,49 @@ func (t *Table) rebuildIndexes() {
 	}
 }
 
-// ListAllTables returns a slice of all tables (for UI).
+// ListAllTables returns a slice of all tables across all regions (for UI).
 func (db *InMemoryDB) ListAllTables() []*Table {
 	db.mu.RLock("ListAllTables")
 	defer db.mu.RUnlock()
 
-	tables := make([]*Table, 0, len(db.Tables))
-	for _, table := range db.Tables {
-		tables = append(tables, table)
+	var tables []*Table
+	for _, regionTables := range db.Tables {
+		for _, table := range regionTables {
+			tables = append(tables, table)
+		}
 	}
 
 	return tables
 }
 
-// GetTable returns a table by name (for UI).
+// GetTable returns a table by name from the default region (for UI/backward compatibility).
 func (db *InMemoryDB) GetTable(name string) (*Table, bool) {
-	db.mu.RLock("GetTable")
+	return db.GetTableInRegion(name, db.defaultRegion)
+}
+
+// GetTableInRegion returns a table by name from a specific region.
+func (db *InMemoryDB) GetTableInRegion(name string, region string) (*Table, bool) {
+	db.mu.RLock("GetTableInRegion")
 	defer db.mu.RUnlock()
 
-	table, exists := db.Tables[name]
+	if region == "" {
+		region = db.defaultRegion
+	}
+
+	regionTables, exists := db.Tables[region]
+	if !exists {
+		return nil, false
+	}
+
+	table, exists := regionTables[name]
 
 	return table, exists
+}
+
+// SetDefaultRegion sets the default region for this backend.
+func (db *InMemoryDB) SetDefaultRegion(region string) {
+	if region == "" {
+		region = "us-east-1"
+	}
+	db.defaultRegion = region
 }

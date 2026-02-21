@@ -156,15 +156,22 @@ func (h *S3Handler) createBucket(
 		}
 	}
 
-	// Default to us-east-1 if region is empty
+	// If region not in body, try to get from context (extracted from Authorization header)
 	if region == "" {
-		region = "us-east-1"
+		if contextRegion, ok := ctx.Value(regionContextKey{}).(string); ok && contextRegion != "" {
+			region = contextRegion
+		}
+	}
+
+	// Default to us-east-1 if still empty
+	if region == "" {
+		region = defaultRegionName
 	}
 
 	input := &s3.CreateBucketInput{
 		Bucket: aws.String(bucketName),
 	}
-	if region != "us-east-1" {
+	if region != defaultRegionName {
 		input.CreateBucketConfiguration = &types.CreateBucketConfiguration{
 			LocationConstraint: types.BucketLocationConstraint(region),
 		}
@@ -334,8 +341,17 @@ func (h *S3Handler) getBucketLocation(
 ) {
 	h.setOperation(ctx, "GetBucketLocation")
 
-	// For now, always return us-east-1 or the configured region if we had it.
-	fmt.Fprint(w, locationConstraintXML)
+	// Get the region from context
+	region := h.DefaultRegion
+	if contextRegion, ok := ctx.Value(regionContextKey{}).(string); ok && contextRegion != "" {
+		region = contextRegion
+	}
+
+	// Return the location constraint XML with the actual region
+	locationXML := `<?xml version="1.0" encoding="UTF-8"?>` + "\n" +
+		`<LocationConstraint xmlns="http://s3.amazonaws.com/doc/2006-03-01/">` + region + `</LocationConstraint>`
+	//nolint:gosec // Region is controlled and validated internally
+	fmt.Fprint(w, locationXML)
 }
 
 func (h *S3Handler) mapObjectsToXML(
