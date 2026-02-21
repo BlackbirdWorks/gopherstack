@@ -256,10 +256,6 @@ func TestHandler_ServeHTTP(t *testing.T) {
 func TestHandler_Dispatch_Coverage(t *testing.T) {
 	t.Parallel()
 	// Test dispatching to all supported operations to ensure dispatch switch is covered
-	backend := dynamodb.NewInMemoryDB()
-	handler := dynamodb.NewHandler(backend, slog.Default())
-	handler.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
-	createTableHelper(t, backend, "DispatchTable", "pk")
 
 	ops := []string{
 		"CreateTable", "DescribeTable", "ListTables",
@@ -270,6 +266,11 @@ func TestHandler_Dispatch_Coverage(t *testing.T) {
 	for _, op := range ops {
 		t.Run(op, func(t *testing.T) {
 			t.Parallel()
+			// Create a fresh backend for each subtest to avoid race conditions
+			backend := dynamodb.NewInMemoryDB()
+			handler := dynamodb.NewHandler(backend, slog.Default())
+			handler.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+			createTableHelper(t, backend, "DispatchTable", "pk")
 			var body string
 			switch op {
 			case "CreateTable":

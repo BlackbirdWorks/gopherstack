@@ -42,6 +42,7 @@ func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"GetParameter",
 		"GetParameters",
+		"GetParameterHistory",
 		"PutParameter",
 		"DeleteParameter",
 		"DeleteParameters",
@@ -169,6 +170,13 @@ func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byt
 			return nil, unmarshErr
 		}
 		response, err = h.Backend.GetParameters(&input)
+
+	case "GetParameterHistory":
+		var input GetParameterHistoryInput
+		if unmarshErr := json.Unmarshal(body, &input); unmarshErr != nil {
+			return nil, unmarshErr
+		}
+		response, err = h.Backend.GetParameterHistory(&input)
 
 	case "DeleteParameter":
 		var input DeleteParameterInput

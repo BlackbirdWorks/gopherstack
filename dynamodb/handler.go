@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/aws/aws-sdk-go-v2/service/dynamodbstreams"
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/dynamodb/models"
@@ -439,7 +440,7 @@ func (h *DynamoDBHandler) dispatchStreamsOps(ctx context.Context, action string,
 	case "GetShardIterator":
 		return handleStreamsOp(ctx, body, h.Streams.GetShardIterator)
 	case "GetRecords":
-		return handleStreamsOp(ctx, body, h.Streams.GetRecords)
+		return handleStreamsGetRecords(ctx, body, h.Streams.GetRecords)
 	case "ListStreams":
 		return handleStreamsOp(ctx, body, h.Streams.ListStreams)
 	default:
@@ -460,6 +461,31 @@ func handleStreamsOp[In any, Out any](
 	}
 
 	return op(ctx, &input)
+}
+
+func handleStreamsGetRecords(
+	ctx context.Context,
+	body []byte,
+	op func(context.Context, *dynamodbstreams.GetRecordsInput) (*dynamodbstreams.GetRecordsOutput, error),
+) (any, error) {
+	var input dynamodbstreams.GetRecordsInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &input); err != nil {
+			return nil, err
+		}
+	}
+
+	out, err := op(ctx, &input)
+	if err != nil {
+		return nil, err
+	}
+
+	wireOut, err := toWireGetRecordsOutput(out)
+	if err != nil {
+		return nil, err
+	}
+
+	return wireOut, nil
 }
 
 func (h *DynamoDBHandler) handleError(
