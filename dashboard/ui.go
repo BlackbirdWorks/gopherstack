@@ -13,6 +13,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
+	iambackend "github.com/blackbirdworks/gopherstack/iam"
 	pkgslogger "github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
@@ -53,6 +54,7 @@ type DashboardHandler struct {
 	DDBOps   *ddbbackend.DynamoDBHandler
 	S3Ops    *s3backend.S3Handler
 	SSMOps   *ssmbackend.Handler
+	IAMOps   *iambackend.Handler
 
 	// Dashboard providers for service discovery
 	ddbProvider *ddbbackend.DashboardProvider
@@ -75,6 +77,7 @@ func NewHandler(
 	ddbOps *ddbbackend.DynamoDBHandler,
 	s3Ops *s3backend.S3Handler,
 	ssmOps *ssmbackend.Handler,
+	iamOps *iambackend.Handler,
 	logger *slog.Logger,
 ) *DashboardHandler {
 	// Parse layout and components
@@ -82,6 +85,7 @@ func NewHandler(
 		"templates/layout.html",
 		"templates/components/*.html",
 		"templates/ssm/*.html",
+		"templates/iam/*.html",
 	))
 
 	// Create service-specific dashboard providers
@@ -95,6 +99,7 @@ func NewHandler(
 		DDBOps:      ddbOps,
 		S3Ops:       s3Ops,
 		SSMOps:      ssmOps,
+		IAMOps:      iamOps,
 		Logger:      logger,
 		layout:      tmpl,
 		ddbProvider: ddbProvider,
@@ -149,6 +154,17 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.SubRouter.GET("/dashboard/ssm/modal/put", h.ssmPutModal)
 	h.SubRouter.POST("/dashboard/ssm/put", h.ssmPutParameter)
 	h.SubRouter.DELETE("/dashboard/ssm/delete", h.ssmDeleteParameter)
+
+	// IAM routes (direct dashboard integration)
+	h.SubRouter.GET("/dashboard/iam", h.iamIndex)
+	h.SubRouter.POST("/dashboard/iam/user", h.iamCreateUser)
+	h.SubRouter.DELETE("/dashboard/iam/user", h.iamDeleteUser)
+	h.SubRouter.POST("/dashboard/iam/role", h.iamCreateRole)
+	h.SubRouter.DELETE("/dashboard/iam/role", h.iamDeleteRole)
+	h.SubRouter.POST("/dashboard/iam/policy", h.iamCreatePolicy)
+	h.SubRouter.DELETE("/dashboard/iam/policy", h.iamDeletePolicy)
+	h.SubRouter.POST("/dashboard/iam/group", h.iamCreateGroup)
+	h.SubRouter.DELETE("/dashboard/iam/group", h.iamDeleteGroup)
 
 	// Metrics & Docs (always available)
 	dashboardGroup := h.SubRouter.Group("/dashboard")
@@ -207,6 +223,8 @@ func (h *DashboardHandler) ExtractOperation(c *echo.Context) string {
 		return "S3"
 	case strings.HasPrefix(path, "/ssm"):
 		return "SSM"
+	case strings.HasPrefix(path, "/iam"):
+		return "IAM"
 	case strings.HasPrefix(path, "/metrics"):
 		return "Metrics"
 	case strings.HasPrefix(path, "/docs"):

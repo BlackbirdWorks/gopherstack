@@ -22,6 +22,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/dashboard"
 	"github.com/blackbirdworks/gopherstack/demo"
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
+	iambackend "github.com/blackbirdworks/gopherstack/iam"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
@@ -43,6 +44,7 @@ type CLI struct {
 	ddbHandler service.Registerable
 	s3Handler  service.Registerable
 	ssmHandler service.Registerable
+	iamHandler service.Registerable
 
 	// LogLevel is the log level: debug, info, warn, error.
 	LogLevel string `name:"log-level" env:"LOG_LEVEL" default:"info" help:"Log level (debug|info|warn|error)."`
@@ -57,6 +59,8 @@ type CLI struct {
 	S3 s3backend.Settings `embed:"" prefix:"s3-"`
 	// SSM holds SSM service-level settings.
 	SSM struct{} `embed:"" prefix:"ssm-"`
+	// IAM holds IAM service-level settings.
+	IAM struct{} `embed:"" prefix:"iam-"`
 
 	// Demo enables loading of demo data on startup.
 	Demo bool `name:"demo" env:"DEMO" default:"false" help:"Load demo data on startup."`
@@ -102,6 +106,11 @@ func (c *CLI) GetS3Handler() service.Registerable { return c.s3Handler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetSSMHandler() service.Registerable { return c.ssmHandler }
+
+// GetIAMHandler returns the IAM handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetIAMHandler() service.Registerable { return c.iamHandler }
 
 // Run parses CLI / environment-variable configuration and starts Gopherstack.
 // It is called from main() and exits on error.
@@ -201,24 +210,40 @@ func initializeClients(cli *CLI, awsCfg aws.Config) {
 
 // initializeServices initializes all service providers.
 func initializeServices(appCtx *service.AppContext) ([]service.Registerable, error) {
-	var services []service.Registerable
-	providers := []service.Provider{
+	cli, _ := appCtx.Config.(*CLI)
+
+	var svcs []service.Registerable
+
+	for _, p := range []service.Provider{
 		&ddbbackend.Provider{},
 		&s3backend.Provider{},
 		&ssmbackend.Provider{},
-		&dashboard.Provider{},
-	}
-
-	for _, provider := range providers {
-		svc, err := provider.Init(appCtx)
+		&iambackend.Provider{},
+	} {
+		svc, err := p.Init(appCtx)
 		if err != nil {
-			return nil, fmt.Errorf("failed to init %s: %w", provider.Name(), err)
+			return nil, fmt.Errorf("failed to init %s: %w", p.Name(), err)
 		}
-		services = append(services, svc)
+
+		svcs = append(svcs, svc)
 	}
 
-	// Reorder for routing priority: DynamoDB (100), SSM (100), Dashboard (50), S3 (0)
-	return []service.Registerable{services[0], services[2], services[3], services[1]}, nil
+	// Store handler references in CLI so the dashboard can access them.
+	if cli != nil {
+		cli.ddbHandler = svcs[0]
+		cli.s3Handler = svcs[1]
+		cli.ssmHandler = svcs[2]
+		cli.iamHandler = svcs[3]
+	}
+
+	// Initialize the dashboard last, after all handlers are stored.
+	dashSvc, err := (&dashboard.Provider{}).Init(appCtx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to init Dashboard: %w", err)
+	}
+
+	// Routing priority: DynamoDB (100), SSM (100), IAM (80), Dashboard (50), S3 (0)
+	return []service.Registerable{svcs[0], svcs[2], svcs[3], dashSvc, svcs[1]}, nil
 }
 
 // startBackgroundWorkers starts all background workers from services.
