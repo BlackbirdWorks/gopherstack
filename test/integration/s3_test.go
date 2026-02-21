@@ -101,7 +101,7 @@ func TestIntegration_S3_BucketLifecycle(t *testing.T) {
 			},
 		},
 		{
-			name: "delete non-empty bucket fails",
+			name: "delete non-empty bucket succeeds (async)",
 			verify: func(t *testing.T, client *s3.Client) {
 				t.Helper()
 				ctx := t.Context()
@@ -119,10 +119,12 @@ func TestIntegration_S3_BucketLifecycle(t *testing.T) {
 				})
 				require.NoError(t, err)
 
+				// Async delete: non-empty buckets can now be deleted immediately;
+				// objects are drained in the background by the Janitor.
 				_, err = client.DeleteBucket(ctx, &s3.DeleteBucketInput{
 					Bucket: aws.String(bkt),
 				})
-				require.Error(t, err)
+				require.NoError(t, err)
 			},
 		},
 		{
