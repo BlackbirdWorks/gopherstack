@@ -132,7 +132,7 @@ func (h *S3Handler) Handler() echo.HandlerFunc {
 
 		if bucketName == "" {
 			if requestWithCtx.Method != http.MethodGet {
-				httputil.WriteError(log, sw, requestWithCtx, ErrMethodNotAllowed, http.StatusMethodNotAllowed)
+				writeError(log, sw, requestWithCtx, ErrMethodNotAllowed)
 
 				return nil
 			}
@@ -219,7 +219,7 @@ func (h *S3Handler) resolveBucketAndKey(
 		bucket := vhBucket
 		key := path
 		if key != "" && !IsValidObjectKey(key) {
-			httputil.WriteError(log, w, r, ErrInvalidArgument, http.StatusBadRequest)
+			writeError(log, w, r, ErrInvalidArgument)
 
 			return "", "", false
 		}
@@ -232,7 +232,7 @@ func (h *S3Handler) resolveBucketAndKey(
 	if path != "" && path != "/" {
 		bucket = parts[0]
 		if !IsValidBucketName(bucket) {
-			httputil.WriteError(log, w, r, ErrInvalidBucketName, http.StatusBadRequest)
+			writeError(log, w, r, ErrInvalidBucketName)
 
 			return "", "", false
 		}
@@ -240,7 +240,7 @@ func (h *S3Handler) resolveBucketAndKey(
 		if len(parts) > 1 {
 			key = parts[1]
 			if key != "" && !IsValidObjectKey(key) {
-				httputil.WriteError(log, w, r, ErrInvalidArgument, http.StatusBadRequest)
+				writeError(log, w, r, ErrInvalidArgument)
 
 				return "", "", false
 			}

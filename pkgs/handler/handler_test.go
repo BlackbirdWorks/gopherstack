@@ -17,81 +17,114 @@ import (
 
 // --- OperationContext ---
 
-func TestNewOperationContext_GetOperation_GetResource(t *testing.T) {
+func TestOperationContext(t *testing.T) {
 	t.Parallel()
 
-	ctx := handler.NewOperationContext(context.Background(), "PutItem", "my-table")
+	tests := []struct {
+		setup       func(context.Context) context.Context
+		name        string
+		expectedOp  string
+		expectedRes string
+	}{
+		{
+			name: "NewOperationContext sets operation and resource",
+			setup: func(ctx context.Context) context.Context {
+				return handler.NewOperationContext(ctx, "PutItem", "my-table")
+			},
+			expectedOp:  "PutItem",
+			expectedRes: "my-table",
+		},
+		{
+			name: "GetOperation defaults to Unknown",
+			setup: func(ctx context.Context) context.Context {
+				return ctx
+			},
+			expectedOp:  "Unknown",
+			expectedRes: "",
+		},
+		{
+			name: "GetResource defaults to empty",
+			setup: func(ctx context.Context) context.Context {
+				return ctx
+			},
+			expectedOp:  "Unknown",
+			expectedRes: "",
+		},
+		{
+			name: "SetOperation updates operation and preserves resource",
+			setup: func(ctx context.Context) context.Context {
+				ctx = handler.NewOperationContext(ctx, "GetItem", "tbl")
 
-	assert.Equal(t, "PutItem", handler.GetOperation(ctx))
-	assert.Equal(t, "my-table", handler.GetResource(ctx))
-}
+				return handler.SetOperation(ctx, "DeleteItem")
+			},
+			expectedOp:  "DeleteItem",
+			expectedRes: "tbl",
+		},
+		{
+			name: "SetOperation noop on empty context",
+			setup: func(ctx context.Context) context.Context {
+				return handler.SetOperation(ctx, "ShouldNotPanic")
+			},
+			expectedOp:  "Unknown",
+			expectedRes: "",
+		},
+	}
 
-func TestGetOperation_DefaultsToUnknown(t *testing.T) {
-	t.Parallel()
-
-	assert.Equal(t, "Unknown", handler.GetOperation(context.Background()))
-}
-
-func TestGetResource_DefaultsToEmpty(t *testing.T) {
-	t.Parallel()
-
-	assert.Empty(t, handler.GetResource(context.Background()))
-}
-
-func TestSetOperation_UpdatesOperation(t *testing.T) {
-	t.Parallel()
-
-	ctx := handler.NewOperationContext(context.Background(), "GetItem", "tbl")
-	ctx2 := handler.SetOperation(ctx, "DeleteItem")
-
-	assert.Equal(t, "DeleteItem", handler.GetOperation(ctx2))
-	// resource is preserved
-	assert.Equal(t, "tbl", handler.GetResource(ctx2))
-}
-
-func TestSetOperation_NoopOnEmptyContext(t *testing.T) {
-	t.Parallel()
-
-	// SetOperation on a context with no operation data returns the context unchanged.
-	ctx := handler.SetOperation(context.Background(), "ShouldNotPanic")
-
-	assert.Equal(t, "Unknown", handler.GetOperation(ctx))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := tt.setup(context.Background())
+			assert.Equal(t, tt.expectedOp, handler.GetOperation(ctx))
+			assert.Equal(t, tt.expectedRes, handler.GetResource(ctx))
+		})
+	}
 }
 
 // --- ResponseWriter ---
 
-func TestResponseWriter_DefaultStatusOK(t *testing.T) {
+func TestResponseWriter(t *testing.T) {
 	t.Parallel()
 
-	rec := httptest.NewRecorder()
-	rw := handler.NewResponseWriter(rec)
+	tests := []struct {
+		action         func(*handler.ResponseWriter)
+		name           string
+		expectedBody   string
+		expectedStatus int
+	}{
+		{
+			name:           "Default status is OK",
+			action:         func(_ *handler.ResponseWriter) {},
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name: "WriteHeader captures code",
+			action: func(rw *handler.ResponseWriter) {
+				rw.WriteHeader(http.StatusCreated)
+			},
+			expectedStatus: http.StatusCreated,
+		},
+		{
+			name: "Write sets OK if not set",
+			action: func(rw *handler.ResponseWriter) {
+				_, _ = rw.Write([]byte("hello"))
+			},
+			expectedStatus: http.StatusOK,
+			expectedBody:   "hello",
+		},
+	}
 
-	assert.Equal(t, http.StatusOK, rw.StatusCode())
-}
-
-func TestResponseWriter_WriteHeaderCapturesCode(t *testing.T) {
-	t.Parallel()
-
-	rec := httptest.NewRecorder()
-	rw := handler.NewResponseWriter(rec)
-	rw.WriteHeader(http.StatusCreated)
-
-	assert.Equal(t, http.StatusCreated, rw.StatusCode())
-	assert.Equal(t, http.StatusCreated, rec.Code)
-}
-
-func TestResponseWriter_WriteSetsOKIfNotSet(t *testing.T) {
-	t.Parallel()
-
-	rec := httptest.NewRecorder()
-	rw := handler.NewResponseWriter(rec)
-	// Override the default 200 by zeroing it out through the embedded interface:
-	// We can't zero out statusCode directly (unexported), so instead just exercise Write.
-	n, err := rw.Write([]byte("hello"))
-
-	require.NoError(t, err)
-	assert.Equal(t, 5, n)
-	assert.Equal(t, http.StatusOK, rw.StatusCode())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			rec := httptest.NewRecorder()
+			rw := handler.NewResponseWriter(rec)
+			tt.action(rw)
+			assert.Equal(t, tt.expectedStatus, rw.StatusCode())
+			if tt.expectedBody != "" {
+				assert.Equal(t, tt.expectedBody, rec.Body.String())
+			}
+		})
+	}
 }
 
 // --- WriteJSON ---
@@ -130,58 +163,94 @@ func TestWriteJSONWithChecksum_SetsChecksumHeader(t *testing.T) {
 
 // --- WriteError ---
 
-func TestWriteError_WritesPlainText(t *testing.T) {
+func TestWriteError(t *testing.T) {
 	t.Parallel()
 
-	rec := httptest.NewRecorder()
-	log := slog.Default()
+	tests := []struct {
+		name           string
+		message        string
+		err            error
+		expectedBody   string
+		status         int
+		expectedStatus int
+	}{
+		{
+			name:           "Writes plain text without error",
+			status:         http.StatusBadRequest,
+			message:        "bad input",
+			err:            nil,
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   "bad input",
+		},
+		{
+			name:           "With error logs and writes",
+			status:         http.StatusInternalServerError,
+			message:        "server error",
+			err:            assert.AnError,
+			expectedStatus: http.StatusInternalServerError,
+			expectedBody:   "server error",
+		},
+	}
 
-	handler.WriteError(log, rec, http.StatusBadRequest, "bad input", nil)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			rec := httptest.NewRecorder()
+			log := slog.Default()
 
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "bad input")
-}
+			handler.WriteError(log, rec, tt.status, tt.message, tt.err)
 
-func TestWriteError_WithErr_LogsAndWrites(t *testing.T) {
-	t.Parallel()
-
-	rec := httptest.NewRecorder()
-	log := slog.Default()
-
-	handler.WriteError(log, rec, http.StatusInternalServerError, "server error", assert.AnError)
-
-	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+			assert.Equal(t, tt.expectedStatus, rec.Code)
+			assert.Contains(t, rec.Body.String(), tt.expectedBody)
+		})
+	}
 }
 
 // --- EchoError ---
 
-func TestEchoError_ReturnsEchoStringResponse(t *testing.T) {
+func TestEchoError(t *testing.T) {
 	t.Parallel()
 
-	e := echo.New()
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	rec := httptest.NewRecorder()
-	c := e.NewContext(req, rec)
-	log := slog.Default()
+	tests := []struct {
+		name           string
+		message        string
+		err            error
+		expectedBody   string
+		status         int
+		expectedStatus int
+	}{
+		{
+			name:           "Returns echo string response",
+			status:         http.StatusNotFound,
+			message:        "not found",
+			err:            nil,
+			expectedStatus: http.StatusNotFound,
+			expectedBody:   "not found",
+		},
+		{
+			name:           "With error logs and responds",
+			status:         http.StatusBadGateway,
+			message:        "upstream error",
+			err:            assert.AnError,
+			expectedStatus: http.StatusBadGateway,
+			expectedBody:   "upstream error",
+		},
+	}
 
-	err := handler.EchoError(log, c, http.StatusNotFound, "not found", nil)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+			log := slog.Default()
 
-	require.NoError(t, err)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-	assert.Contains(t, rec.Body.String(), "not found")
-}
+			err := handler.EchoError(log, c, tt.status, tt.message, tt.err)
 
-func TestEchoError_WithErr_LogsAndResponds(t *testing.T) {
-	t.Parallel()
-
-	e := echo.New()
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	rec := httptest.NewRecorder()
-	c := e.NewContext(req, rec)
-	log := slog.Default()
-
-	err := handler.EchoError(log, c, http.StatusBadGateway, "upstream error", assert.AnError)
-
-	require.NoError(t, err)
-	assert.Equal(t, http.StatusBadGateway, rec.Code)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedStatus, rec.Code)
+			assert.Contains(t, rec.Body.String(), tt.expectedBody)
+		})
+	}
 }

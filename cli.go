@@ -113,7 +113,7 @@ func Run() {
 		kong.Description("In-memory AWS DynamoDB + S3 compatible server."),
 	)
 
-	if err := run(cli); err != nil {
+	if err := run(context.Background(), cli); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -121,14 +121,14 @@ func Run() {
 
 // run starts the server with the given CLI configuration.
 // It is separated from Run so it can be exercised in tests without [os.Exit].
-func run(cli CLI) error {
+func run(ctx context.Context, cli CLI) error {
 	log := buildLogger(cli.LogLevel)
 
 	inMemMux := http.NewServeMux()
 	inMemClient := &dashboard.InMemClient{Handler: inMemMux}
 
 	awsCfgVal, err := awscfg.LoadDefaultConfig(
-		context.Background(),
+		ctx,
 		awscfg.WithRegion(cli.Region),
 		awscfg.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("dummy", "dummy", "")),
 		awscfg.WithHTTPClient(inMemClient),
@@ -141,7 +141,7 @@ func run(cli CLI) error {
 
 	initializeClients(&cli, awsCfgVal)
 
-	janitorCtx, janitorCancel := context.WithCancel(context.Background())
+	janitorCtx, janitorCancel := context.WithCancel(ctx)
 	defer janitorCancel()
 
 	appCtx := &service.AppContext{
@@ -167,12 +167,12 @@ func run(cli CLI) error {
 
 	if cli.Demo {
 		log.Info("Loading demo data...")
-		if err = demo.LoadData(context.Background(), log, cli.ddbClient, cli.s3Client); err != nil {
+		if err = demo.LoadData(ctx, log, cli.ddbClient, cli.s3Client); err != nil {
 			log.Error("Failed to load demo data", "error", err)
 		}
 	}
 
-	return startServer(log, cli.Port, e)
+	return startServer(ctx, log, cli.Port, e)
 }
 
 // initializeClients configures the AWS SDK clients for DynamoDB, S3, and SSM.
@@ -232,7 +232,7 @@ func startBackgroundWorkers(ctx context.Context, log *slog.Logger, services []se
 }
 
 // startServer starts the HTTP server and blocks until it shuts down.
-func startServer(log *slog.Logger, port string, e *echo.Echo) error {
+func startServer(ctx context.Context, log *slog.Logger, port string, e *echo.Echo) error {
 	if port[0] != ':' {
 		port = ":" + port
 	}
@@ -250,13 +250,27 @@ func startServer(log *slog.Logger, port string, e *echo.Echo) error {
 		IdleTimeout:  defaultTimeout,
 	}
 
-	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Error("Failed to start server", "error", err)
+	errChan := make(chan error, 1)
+	go func() {
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errChan <- err
+		}
+	}()
 
+	select {
+	case <-ctx.Done():
+		log.Info("Shutting down server...")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			log.Error("Server shutdown failed", "error", err)
+			return err
+		}
+		return nil
+	case err := <-errChan:
+		log.Error("Failed to start server", "error", err)
 		return err
 	}
-
-	return nil
 }
 
 // buildLogger converts the CLI log-level string to a [slog.Logger].

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -91,4 +92,30 @@ func TestCLI_BuildLogger(t *testing.T) {
 	// Spot-check that buildLogger("debug") doesn't panic and returns a non-nil logger.
 	debugLog := buildLogger("debug")
 	assert.NotNil(t, debugLog)
+}
+
+func TestServerStartupAndShutdown(t *testing.T) {
+	cli := parseCLI(t, map[string]string{
+		"PORT": "8123", // use an alternate port to avoid conflicts
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- run(ctx, cli)
+	}()
+
+	// Wait briefly to let the server start (in a real test you might poll the endpoint)
+	time.Sleep(200 * time.Millisecond)
+
+	// Cancel the context to initiate a graceful shutdown
+	cancel()
+
+	select {
+	case err := <-errCh:
+		require.NoError(t, err, "server should shutdown cleanly without error")
+	case <-time.After(5 * time.Second):
+		t.Fatal("server did not shut down within timeout")
+	}
 }
