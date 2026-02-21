@@ -1,7 +1,7 @@
 {{define "content"}}
 <div class="prose max-w-none">
     <h1 class="mb-4">Supported API Operations</h1>
-    <p class="mb-8">This page lists the DynamoDB and S3 operations currently supported by the Gopherstack local
+    <p class="mb-8">This page lists the DynamoDB, S3, SSM, and SQS operations currently supported by the Gopherstack local
         emulator.</p>
 
     <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -37,21 +37,39 @@
                     {{end}}
                 </ul>
             </div>
-            <!-- SSM Operations -->
-            <div class="card bg-base-100 shadow-xl">
-                <div class="card-body">
-                    <h2 class="card-title text-accent flex items-center gap-2">
-                        <span>🔐</span> SSM Parameter Store
-                    </h2>
-                    <div class="divider my-0"></div>
-                    <ul class="menu bg-base-100 rounded-box">
-                        {{range .SSMOps}}
-                        <li><a class="cursor-default hover:bg-base-200">{{.}}</a></li>
-                        {{else}}
-                        <li class="disabled"><span>No operations found</span></li>
-                        {{end}}
-                    </ul>
-                </div>
+        </div>
+
+        <!-- SSM Operations -->
+        <div class="card bg-base-100 shadow-xl">
+            <div class="card-body">
+                <h2 class="card-title text-accent flex items-center gap-2">
+                    <span>🔐</span> SSM Parameter Store
+                </h2>
+                <div class="divider my-0"></div>
+                <ul class="menu bg-base-100 rounded-box">
+                    {{range .SSMOps}}
+                    <li><a class="cursor-default hover:bg-base-200">{{.}}</a></li>
+                    {{else}}
+                    <li class="disabled"><span>No operations found</span></li>
+                    {{end}}
+                </ul>
+            </div>
+        </div>
+
+        <!-- SQS Operations -->
+        <div class="card bg-base-100 shadow-xl">
+            <div class="card-body">
+                <h2 class="card-title text-warning flex items-center gap-2">
+                    <span>📨</span> SQS
+                </h2>
+                <div class="divider my-0"></div>
+                <ul class="menu bg-base-100 rounded-box">
+                    {{range .SQSOps}}
+                    <li><a class="cursor-default hover:bg-base-200">{{.}}</a></li>
+                    {{else}}
+                    <li class="disabled"><span>No operations found</span></li>
+                    {{end}}
+                </ul>
             </div>
         </div>
     </div>

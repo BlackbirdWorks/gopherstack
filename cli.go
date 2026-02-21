@@ -16,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	sqssdk "github.com/aws/aws-sdk-go-v2/service/sqs"
 	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/labstack/echo/v5"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
+	sqsbackend "github.com/blackbirdworks/gopherstack/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/ssm"
 )
 
@@ -40,9 +42,11 @@ type CLI struct {
 	ddbClient  *dynamodb.Client
 	s3Client   *s3.Client
 	ssmClient  *ssmsdk.Client
+	sqsClient  *sqssdk.Client
 	ddbHandler service.Registerable
 	s3Handler  service.Registerable
 	ssmHandler service.Registerable
+	sqsHandler service.Registerable
 
 	// LogLevel is the log level: debug, info, warn, error.
 	LogLevel string `name:"log-level" env:"LOG_LEVEL" default:"info" help:"Log level (debug|info|warn|error)."`
@@ -57,6 +61,8 @@ type CLI struct {
 	S3 s3backend.Settings `embed:"" prefix:"s3-"`
 	// SSM holds SSM service-level settings.
 	SSM struct{} `embed:"" prefix:"ssm-"`
+	// SQS holds SQS service-level settings.
+	SQS sqsbackend.Settings `embed:"" prefix:"sqs-"`
 
 	// Demo enables loading of demo data on startup.
 	Demo bool `name:"demo" env:"DEMO" default:"false" help:"Load demo data on startup."`
@@ -88,6 +94,9 @@ func (c *CLI) GetS3Client() *s3.Client { return c.s3Client }
 // GetSSMClient returns the SDK client for SSM (dashboard.AWSSDKProvider).
 func (c *CLI) GetSSMClient() *ssmsdk.Client { return c.ssmClient }
 
+// GetSQSClient returns the SDK client for SQS (dashboard.AWSSDKProvider).
+func (c *CLI) GetSQSClient() *sqssdk.Client { return c.sqsClient }
+
 // GetDynamoDBHandler returns the DynamoDB handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -102,6 +111,11 @@ func (c *CLI) GetS3Handler() service.Registerable { return c.s3Handler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetSSMHandler() service.Registerable { return c.ssmHandler }
+
+// GetSQSHandler returns the SQS handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetSQSHandler() service.Registerable { return c.sqsHandler }
 
 // Run parses CLI / environment-variable configuration and starts Gopherstack.
 // It is called from main() and exits on error.
@@ -197,6 +211,12 @@ func initializeClients(cli *CLI, awsCfg aws.Config) {
 			o.BaseEndpoint = aws.String("http://local")
 		},
 	)
+	cli.sqsClient = sqssdk.NewFromConfig(
+		awsCfg,
+		func(o *sqssdk.Options) {
+			o.BaseEndpoint = aws.String("http://local")
+		},
+	)
 }
 
 // initializeServices initializes all service providers.
@@ -206,6 +226,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		&ddbbackend.Provider{},
 		&s3backend.Provider{},
 		&ssmbackend.Provider{},
+		&sqsbackend.Provider{},
 		&dashboard.Provider{},
 	}
 
@@ -217,8 +238,8 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		services = append(services, svc)
 	}
 
-	// Reorder for routing priority: DynamoDB (100), SSM (100), Dashboard (50), S3 (0)
-	return []service.Registerable{services[0], services[2], services[3], services[1]}, nil
+	// Reorder for routing priority: DynamoDB (100), SSM (100), SQS (75), Dashboard (50), S3 (0)
+	return []service.Registerable{services[0], services[2], services[3], services[4], services[1]}, nil
 }
 
 // startBackgroundWorkers starts all background workers from services.
