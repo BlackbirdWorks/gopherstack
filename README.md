@@ -1,5 +1,9 @@
 # Gopherstack
 
+<p align="center">
+  <img src="assets/logo.png" width="400" alt="Gopherstack Logo">
+</p>
+
 [![Release](https://github.com/agbishop/Gopherstack/actions/workflows/release.yml/badge.svg)](https://github.com/agbishop/Gopherstack/actions/workflows/release.yml)
 [![Build](https://github.com/agbishop/Gopherstack/actions/workflows/release.yml/badge.svg?label=build)](https://github.com/agbishop/Gopherstack/actions/workflows/release.yml)
 [![Coverage](https://raw.githubusercontent.com/agbishop/Gopherstack/badges/.badges/coverage.svg?v=1)](https://github.com/agbishop/Gopherstack/actions/workflows/main.yml)
@@ -51,14 +55,19 @@ Features:
 
 ### Prerequisites
 - Go 1.26+
+- Docker (optional)
+- AWS CLI (optional, for testing)
 
 ### Development
 ```bash
-# Run unit tests
+# Run all checks (lint + all tests with coverage)
+make all
+
+# Run only unit tests (short mode)
 make test
 
-# Run integration tests
-make integration-test
+# Run all tests (unit, integration, and E2E) with combined coverage
+make total-coverage
 
 # Check linting
 make lint
@@ -68,10 +77,59 @@ make lint
 You can use Gopherstack directly in your Go tests by initializing the in-memory backends:
 
 ```go
-import "Gopherstack/dynamodb"
+import "github.com/blackbirdworks/gopherstack/dynamodb"
 
 db := dynamodb.NewInMemoryDB()
 // Use db for your application logic...
+```
+
+## Docker
+
+Gopherstack is available as a lightweight Docker image.
+
+### Docker Compose
+You can run Gopherstack as a service in your `docker-compose.yml`:
+
+```yaml
+services:
+  gopherstack:
+    image: ghcr.io/blackbirdworks/gopherstack:latest
+    ports:
+      - "8000:8000"
+    environment:
+      - LOG_LEVEL=info
+```
+
+Run with: `docker compose up -d`
+
+## AWS CLI Examples
+
+Gopherstack is fully compatible with the AWS CLI. Simply provide the `--endpoint-url`.
+
+### DynamoDB
+```bash
+# Create a table
+aws dynamodb create-table \
+    --endpoint-url http://localhost:8000 \
+    --table-name Users \
+    --attribute-definitions AttributeName=ID,AttributeType=S \
+    --key-schema AttributeName=ID,KeyType=HASH \
+    --provisioned-throughput ReadCapacityUnits=5,WriteCapacityUnits=5
+
+# List tables
+aws dynamodb list-tables --endpoint-url http://localhost:8000
+```
+
+### S3
+```bash
+# Create a bucket
+aws s3 mb s3://my-bucket --endpoint-url http://localhost:8000
+
+# Upload a file
+aws s3 cp myfile.txt s3://my-bucket/ --endpoint-url http://localhost:8000
+
+# List objects
+aws s3 ls s3://my-bucket/ --endpoint-url http://localhost:8000
 ```
 
 ## License
