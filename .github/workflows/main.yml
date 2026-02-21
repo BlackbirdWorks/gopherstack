@@ -21,8 +21,8 @@ jobs:
           go-version: '1.26'
           cache: true
 
-      - name: Run tests with coverage
-        run: make test-with-coverage
+      - name: Run all tests with combined coverage
+        run: make total-coverage
 
       - name: Generate coverage badge
         uses: vladopajic/go-test-coverage@v2
