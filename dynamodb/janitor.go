@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/dynamoattr"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 )
 
@@ -45,6 +46,7 @@ func (j *Janitor) Run(ctx context.Context) {
 			return
 		case <-ticker.C:
 			j.runOnce(ctx)
+			j.sweepTTL(ctx)
 		}
 	}
 }
@@ -69,5 +71,58 @@ func (j *Janitor) runOnce(ctx context.Context) {
 
 	for _, name := range names {
 		j.Log.InfoContext(ctx, "DynamoDB janitor: table deleted", "table", name)
+	}
+}
+
+// sweepTTL iterates over all tables, finds those with TTL enabled,
+// and evicts expired items based on the configured TTL attribute.
+func (j *Janitor) sweepTTL(ctx context.Context) {
+	db := j.Backend
+	tables := db.ListAllTables()
+	now := float64(time.Now().Unix())
+	totalEvicted := 0
+
+	for _, table := range tables {
+		table.mu.RLock("TTLSweepCheck")
+		ttlAttr := table.TTLAttribute
+		table.mu.RUnlock()
+
+		if ttlAttr == "" {
+			continue
+		}
+
+		table.mu.Lock("TTLSweep")
+		evictedCount := 0
+		newItems := make([]map[string]any, 0, len(table.Items))
+
+		for _, item := range table.Items {
+			expired := false
+			if ttlVal, ok := dynamoattr.ParseNumeric(item[ttlAttr]); ok {
+				// DynamoDB TTL: Item is expired if its TTL value < current time (Unix epoch seconds)
+				if ttlVal < now {
+					expired = true
+				}
+			}
+
+			if expired {
+				evictedCount++
+			} else {
+				newItems = append(newItems, item)
+			}
+		}
+
+		if evictedCount > 0 {
+			table.Items = newItems
+			table.rebuildIndexes()
+			totalEvicted += evictedCount
+			j.Log.InfoContext(ctx, "DynamoDB janitor: TTL items evicted",
+				"table", table.Name,
+				"count", evictedCount)
+		}
+		table.mu.Unlock()
+	}
+
+	if totalEvicted > 0 {
+		telemetry.RecordTTLEvictions("dynamodb", totalEvicted)
 	}
 }

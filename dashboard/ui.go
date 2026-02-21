@@ -277,6 +277,7 @@ func (h *DashboardHandler) renderFragment(w http.ResponseWriter, name string, da
 
 // handleDynamoDB routes DynamoDB UI requests.
 func (h *DashboardHandler) handleDynamoDB(w http.ResponseWriter, r *http.Request, path string) {
+	h.Logger.Debug("handleDynamoDB", "path", path)
 	switch {
 	case path == "" || path == "/":
 		h.dynamoDBIndex(w, r)
@@ -334,6 +335,8 @@ func (h *DashboardHandler) handleDynamoDBTableAction(
 		h.dynamoDBExportTable(w, r, tableName)
 	case "import":
 		h.dynamoDBImportTable(w, r, tableName)
+	case "ttl":
+		h.dynamoDBUpdateTTL(w, r, tableName)
 	default:
 		http.NotFound(w, r)
 	}

@@ -51,12 +51,21 @@ var (
 		[]string{"lock_type"},
 	)
 
-	// Delete queue depths per service (s3, dynamodb).
+	// deleteQueueDepth is a gauge for pending background deletions.
 	// Prometheus requires these to be global for automatic registration with the global registry.
 	deleteQueueDepth = promauto.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "gopherstack_delete_queue_depth",
 			Help: "Number of resources currently queued for async background deletion",
+		},
+		[]string{"service"},
+	)
+
+	// ttlEvictions is a counter for items deleted via TTL sweep.
+	ttlEvictions = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "gopherstack_ttl_evictions_total",
+			Help: "Total items evicted via TTL background sweep",
 		},
 		[]string{"service"},
 	)
@@ -99,6 +108,11 @@ func RecordLockDuration(lockType string, durationSeconds float64) {
 // service should be "s3" or "dynamodb".
 func RecordDeleteQueueDepth(service string, depth int) {
 	deleteQueueDepth.WithLabelValues(service).Set(float64(depth))
+}
+
+// RecordTTLEvictions records that count items were evicted via background TTL sweep.
+func RecordTTLEvictions(service string, count int) {
+	ttlEvictions.WithLabelValues(service).Add(float64(count))
 }
 
 // GetMetrics returns a snapshot of metrics for dashboard consumption.

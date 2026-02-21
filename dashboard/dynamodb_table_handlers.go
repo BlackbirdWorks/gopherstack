@@ -259,7 +259,7 @@ func (h *DashboardHandler) dynamoDBTableDetail(w http.ResponseWriter, r *http.Re
 
 		return
 	}
-	info := h.extractTableInfo(output.Table)
+	info := h.extractTableInfo(ctx, output.Table)
 
 	data := struct {
 		PageData
@@ -276,7 +276,7 @@ func (h *DashboardHandler) dynamoDBTableDetail(w http.ResponseWriter, r *http.Re
 }
 
 // extractTableInfo extracts display information from a DescribeTable output.
-func (h *DashboardHandler) extractTableInfo(table *types.TableDescription) TableInfo {
+func (h *DashboardHandler) extractTableInfo(ctx context.Context, table *types.TableDescription) TableInfo {
 	info := TableInfo{
 		TableName: aws.ToString(table.TableName),
 		GSICount:  len(table.GlobalSecondaryIndexes),
@@ -325,6 +325,15 @@ func (h *DashboardHandler) extractTableInfo(table *types.TableDescription) Table
 			table.AttributeDefinitions,
 		)
 		info.LocalSecondaryIndexes = append(info.LocalSecondaryIndexes, lsiInfo)
+	}
+
+	// Fetch TTL info
+	ttlDesc, err := h.DynamoDB.DescribeTimeToLive(ctx, &dynamodb.DescribeTimeToLiveInput{
+		TableName: table.TableName,
+	})
+	if err == nil && ttlDesc.TimeToLiveDescription != nil {
+		info.TTLStatus = string(ttlDesc.TimeToLiveDescription.TimeToLiveStatus)
+		info.TTLAttribute = aws.ToString(ttlDesc.TimeToLiveDescription.AttributeName)
 	}
 
 	return info
@@ -523,4 +532,63 @@ func (h *DashboardHandler) dynamoDBPurge(w http.ResponseWriter, r *http.Request)
 			`<div class="alert alert-success col-span-full"><span>All tables purged successfully.</span></div>`,
 		),
 	)
+}
+
+// dynamoDBUpdateTTL handles updating TTL configuration for a table.
+func (h *DashboardHandler) dynamoDBUpdateTTL(w http.ResponseWriter, r *http.Request, tableName string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+
+		return
+	}
+
+	ctx := r.Context()
+	log := logger.Load(ctx)
+
+	if err := r.ParseForm(); err != nil {
+		log.ErrorContext(ctx, "Failed to parse form", "error", err)
+		http.Error(w, "Bad request", http.StatusBadRequest)
+
+		return
+	}
+
+	attributeName := r.FormValue("attributeName")
+	enabled := r.FormValue("enabled") == "on"
+
+	input := &dynamodb.UpdateTimeToLiveInput{
+		TableName: &tableName,
+		TimeToLiveSpecification: &types.TimeToLiveSpecification{
+			AttributeName: &attributeName,
+			Enabled:       aws.Bool(enabled),
+		},
+	}
+
+	_, err := h.DynamoDB.UpdateTimeToLive(ctx, input)
+	if err != nil {
+		log.ErrorContext(ctx, "Failed to update TTL", "table", tableName, "error", err)
+		toastMessage := fmt.Sprintf(
+			`{"showToast": {"message": "Failed to update TTL: %s", "type": "error"}}`,
+			strings.ReplaceAll(err.Error(), `"`, `'`),
+		)
+		w.Header().Set("Hx-Trigger", toastMessage)
+		w.WriteHeader(http.StatusUnprocessableEntity)
+
+		return
+	}
+
+	// Success toast
+	toastMessage := fmt.Sprintf(
+		`{"showToast": {"message": "TTL %s successfully", "type": "success"}}`,
+		func() string {
+			if enabled {
+				return "enabled"
+			}
+
+			return "disabled"
+		}(),
+	)
+	w.Header().Set("Hx-Trigger", toastMessage)
+
+	// Re-render table detail tabs (specifically overview)
+	h.dynamoDBTableDetail(w, r, tableName)
 }

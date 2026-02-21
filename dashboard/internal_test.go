@@ -416,7 +416,7 @@ func TestInternal_ExtractTableInfo(t *testing.T) {
 			ctx := context.Background()
 			_ = ctx
 			h := &DashboardHandler{}
-			info := h.extractTableInfo(tt.desc)
+			info := h.extractTableInfo(context.Background(), tt.desc)
 			require.Equal(t, tt.expectName, info.TableName)
 			require.Equal(t, tt.expectPK, info.PartitionKey)
 			if tt.expectSK != "" {

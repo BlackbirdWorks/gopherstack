@@ -158,6 +158,40 @@
             <div class="stat-title">Local Secondary Indexes</div>
             <div class="stat-value">{{.LSICount}}</div>
         </div>
+        <div class="stat">
+            <div class="stat-title">TTL Status</div>
+            <div class="stat-value text-sm">
+                {{if eq .TTLStatus "ENABLED"}}
+                <span class="badge badge-success">ENABLED ({{.TTLAttribute}})</span>
+                {{else}}
+                <span class="badge badge-ghost">DISABLED</span>
+                {{end}}
+            </div>
+        </div>
+    </div>
+
+    <!-- TTL Configuration -->
+    <div class="card bg-base-100 shadow-xl">
+        <div class="card-body">
+            <h2 class="card-title text-sm">Time To Live (TTL) Configuration</h2>
+            <form hx-post="/dashboard/dynamodb/table/{{.TableName}}/ttl" hx-target="main" class="flex items-end gap-4">
+                <div class="form-control">
+                    <label class="label">
+                        <span class="label-text">TTL Attribute Name</span>
+                    </label>
+                    <input type="text" name="attributeName" class="input input-bordered input-sm"
+                        value="{{.TTLAttribute}}" placeholder="e.g. expires" required>
+                </div>
+                <div class="form-control">
+                    <label class="label cursor-pointer justify-start gap-2">
+                        <span class="label-text">Enabled</span>
+                        <input type="checkbox" name="enabled" class="checkbox checkbox-primary checkbox-sm" {{if eq
+                            .TTLStatus "ENABLED" }}checked{{end}}>
+                    </label>
+                </div>
+                <button type="submit" class="btn btn-primary btn-sm">Update TTL</button>
+            </form>
+        </div>
     </div>
 
     <!-- GSI List -->

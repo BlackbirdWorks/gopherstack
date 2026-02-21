@@ -20,7 +20,7 @@ func (p *Provider) Name() string {
 
 // Init initializes the DynamoDB service backend, janitor, and handler.
 //
-//nolint:ireturn // Init must return the Registerable interface to satisfy the service.Provider interface.
+//nolint:ireturn // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	var settings Settings
 

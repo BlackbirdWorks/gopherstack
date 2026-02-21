@@ -31,6 +31,8 @@ func (p *Provider) Name() string {
 }
 
 // Init initializes the Dashboard service.
+//
+//nolint:ireturn // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	var ddbClient *ddbsdk.Client
 	var s3Client *s3sdk.Client

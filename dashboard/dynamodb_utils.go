@@ -23,16 +23,18 @@ var (
 // TableInfo represents table information for display.
 type TableInfo struct {
 	Pagination             *PaginationInfo
+	TTLStatus              string
 	TableName              string
 	PartitionKey           string
 	PartitionKeyType       string
 	SortKey                string
 	SortKeyType            string
+	TTLAttribute           string
 	GlobalSecondaryIndexes []IndexInfo
 	LocalSecondaryIndexes  []IndexInfo
-	ItemCount              int64
 	GSICount               int
 	LSICount               int
+	ItemCount              int64
 }
 
 // PaginationInfo represented info for shared pagination component.
