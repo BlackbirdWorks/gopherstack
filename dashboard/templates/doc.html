@@ -37,7 +37,22 @@
                     {{end}}
                 </ul>
             </div>
+            <!-- SSM Operations -->
+            <div class="card bg-base-100 shadow-xl">
+                <div class="card-body">
+                    <h2 class="card-title text-accent flex items-center gap-2">
+                        <span>🔐</span> SSM Parameter Store
+                    </h2>
+                    <div class="divider my-0"></div>
+                    <ul class="menu bg-base-100 rounded-box">
+                        {{range .SSMOps}}
+                        <li><a class="cursor-default hover:bg-base-200">{{.}}</a></li>
+                        {{else}}
+                        <li class="disabled"><span>No operations found</span></li>
+                        {{end}}
+                    </ul>
+                </div>
+            </div>
         </div>
     </div>
-</div>
-{{end}}
+    {{end}}

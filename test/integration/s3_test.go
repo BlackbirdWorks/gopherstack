@@ -227,9 +227,30 @@ func TestIntegration_S3_ObjectCRUD(t *testing.T) {
 					Key:    aws.String("to-delete"),
 				})
 				require.Error(t, err)
+
+				var noSuchKey *types.NoSuchKey
+				require.ErrorAs(t, err, &noSuchKey)
+
 				if got != nil && got.Body != nil {
 					got.Body.Close()
 				}
+			},
+		},
+		{
+			name: "head bucket on non-existent bucket returns NoSuchBucket",
+			verify: func(t *testing.T, client *s3.Client) {
+				t.Helper()
+				ctx := t.Context()
+
+				_, err := client.HeadBucket(ctx, &s3.HeadBucketInput{
+					Bucket: aws.String("does-not-exist"),
+				})
+				require.Error(t, err)
+
+				var noSuchBucket *types.NotFound
+				require.ErrorAs(t, err, &noSuchBucket)
+				// Note: AWS SDK uses types.NotFound for HeadBucket specifically,
+				// whereas GetObject on a bad bucket uses NoSuchBucket.
 			},
 		},
 		{

@@ -9,6 +9,7 @@ func (h *DashboardHandler) docIndex(w http.ResponseWriter, _ *http.Request) {
 
 		DynamoDBOps []string
 		S3Ops       []string
+		SSMOps      []string
 	}{
 		PageData: PageData{
 			Title:     "API Documentation",
@@ -16,6 +17,7 @@ func (h *DashboardHandler) docIndex(w http.ResponseWriter, _ *http.Request) {
 		},
 		DynamoDBOps: h.DDBOps.GetSupportedOperations(),
 		S3Ops:       h.S3Ops.GetSupportedOperations(),
+		SSMOps:      h.SSMOps.GetSupportedOperations(),
 	}
 
 	h.renderTemplate(w, "doc.html", data)

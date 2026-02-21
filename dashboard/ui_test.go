@@ -19,6 +19,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -29,6 +30,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
+	ssmbackend "github.com/blackbirdworks/gopherstack/ssm"
 )
 
 // integrationStack holds the fully wired in-memory test stack.
@@ -48,6 +50,8 @@ func newIntegrationStack(t *testing.T) *integrationStack {
 	s3Hndlr := s3backend.NewHandler(s3Bk, slog.Default())
 	ddbBk := ddbbackend.NewInMemoryDB()
 	ddbHndlr := ddbbackend.NewHandler(ddbBk, slog.Default())
+	ssmBk := ssmbackend.NewInMemoryBackend()
+	ssmHndlr := ssmbackend.NewHandler(ssmBk, slog.Default())
 
 	// Setup Echo with service registry
 	e := echo.New()
@@ -56,6 +60,7 @@ func newIntegrationStack(t *testing.T) *integrationStack {
 	registry := service.NewRegistry(slog.Default())
 	_ = registry.Register(ddbHndlr)
 	_ = registry.Register(s3Hndlr)
+	_ = registry.Register(ssmHndlr)
 
 	router := service.NewServiceRouter(registry)
 	e.Use(router.RouteHandler())
@@ -79,7 +84,11 @@ func newIntegrationStack(t *testing.T) *integrationStack {
 		o.BaseEndpoint = aws.String("http://local")
 	})
 
-	h := dashboard.NewHandler(ddbClient, s3Client, ddbHndlr, s3Hndlr, slog.Default())
+	ssmClient := ssmsdk.NewFromConfig(cfg, func(o *ssmsdk.Options) {
+		o.BaseEndpoint = aws.String("http://local")
+	})
+
+	h := dashboard.NewHandler(ddbClient, s3Client, ssmClient, ddbHndlr, s3Hndlr, ssmHndlr, slog.Default())
 
 	return &integrationStack{
 		handler:    h,
@@ -147,16 +156,25 @@ func newFullStack(t *testing.T) (*integrationStack, *echo.Echo) {
 		o.BaseEndpoint = aws.String("http://local")
 	})
 
-	h := dashboard.NewHandler(ddbClient, s3Client, ddbHndlr, s3Hndlr, slog.Default())
+	ssmBk := ssmbackend.NewInMemoryBackend()
+	ssmHndlr := ssmbackend.NewHandler(ssmBk, slog.Default())
+	registry := service.NewRegistry(slog.Default())
+	_ = registry.Register(ssmHndlr)
+	ssmClient := ssmsdk.NewFromConfig(cfg, func(o *ssmsdk.Options) {
+		o.BaseEndpoint = aws.String("http://local")
+	})
+
+	h := dashboard.NewHandler(ddbClient, s3Client, ssmClient, ddbHndlr, s3Hndlr, ssmHndlr, slog.Default())
 
 	// Register all three services (including dashboard) to test RouteMatcher
 	e := echo.New()
 	e.Pre(logger.EchoMiddleware(slog.Default()))
 
-	registry := service.NewRegistry(slog.Default())
+	registry = service.NewRegistry(slog.Default())
 	_ = registry.Register(ddbHndlr)
 	_ = registry.Register(h)
 	_ = registry.Register(s3Hndlr)
+	_ = registry.Register(ssmHndlr)
 
 	router := service.NewServiceRouter(registry)
 	e.Use(router.RouteHandler())

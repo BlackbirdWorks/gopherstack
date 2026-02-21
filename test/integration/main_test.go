@@ -53,8 +53,8 @@ func TestMain(m *testing.M) {
 	}
 
 	if err := checkDocker(); err != nil {
-		logger.Warn("skipping integration tests: docker not available", "error", err)
-		os.Exit(0)
+		logger.Error("integration tests require docker", "error", err)
+		os.Exit(1)
 	}
 
 	ctx := context.Background()

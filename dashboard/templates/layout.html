@@ -13,6 +13,7 @@
             const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
             const theme = stored || (prefersDark ? 'dark' : 'light');
             document.documentElement.setAttribute('data-theme', theme);
+            document.documentElement.classList.toggle('dark', theme === 'dark');
         })();
     </script>
 
@@ -40,14 +41,15 @@
                 <li><a href="/dashboard/dynamodb" class="{{if eq .ActiveTab " dynamodb"}}active{{end}}">DynamoDB</a>
                 </li>
                 <li><a href="/dashboard/s3" class="{{if eq .ActiveTab " s3"}}active{{end}}">S3</a></li>
+                <li><a href="/dashboard/ssm" class="{{if eq .ActiveTab " ssm"}}active{{end}}">SSM</a></li>
                 <li><a href="/dashboard/metrics" class="{{if eq .ActiveTab " metrics"}}active{{end}}">Metrics</a></li>
                 <li><a href="/dashboard/docs" class="{{if eq .ActiveTab " docs"}}active{{end}}">Docs</a></li>
             </ul>
         </div>
         <div class="flex-none gap-2">
             <button id="theme-toggle" class="btn btn-ghost btn-circle" title="Toggle dark mode">
-                <svg id="theme-icon" class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none"
-                    viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                <svg id="theme-icon" class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                    stroke="currentColor" stroke-width="1.8">
                     <!-- Sun icon -->
                     <path id="sun-icon" class="hidden" stroke-linecap="round" stroke-linejoin="round"
                         d="M12 3v2m0 14v2m9-9h-2M5 12H3m15.364-6.364-1.414 1.414M7.05 16.95l-1.414 1.414m0-11.314 1.414 1.414m11.314 11.314-1.414-1.414M12 8a4 4 0 100 8 4 4 0 000-8z" />
@@ -93,6 +95,12 @@
     </dialog>
 
     <!-- Custom JavaScript -->
+    <script>
+        // Ensure Tailwind respects the theme change
+        window.addEventListener('theme-changed', (e) => {
+            document.documentElement.classList.toggle('dark', e.detail.theme === 'dark');
+        });
+    </script>
     <script src="/dashboard/static/app.js"></script>
 </body>
 

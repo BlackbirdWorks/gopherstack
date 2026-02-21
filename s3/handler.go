@@ -33,8 +33,9 @@ const (
 //
 //nolint:revive // Stuttering preferred here for clarity per Plan.md
 type S3Handler struct {
-	Backend StorageBackend
 	Logger  *slog.Logger
+	janitor *Janitor
+	Backend StorageBackend
 	// Endpoint is the base host (e.g. "localhost:9000") of this server.
 	// When set, virtual-hosted-style URLs (bucket.host/key) are supported
 	// in addition to path-style URLs (/bucket/key).
@@ -47,6 +48,24 @@ func NewHandler(backend StorageBackend, logger *slog.Logger) *S3Handler {
 		Backend: backend,
 		Logger:  logger,
 	}
+}
+
+// WithJanitor attaches a background janitor to the handler.
+func (h *S3Handler) WithJanitor(settings Settings) *S3Handler {
+	if memBackend, ok := h.Backend.(*InMemoryBackend); ok {
+		h.janitor = NewJanitor(memBackend, h.Logger, settings)
+	}
+
+	return h
+}
+
+// StartWorker starts the background janitor if it is configured.
+func (h *S3Handler) StartWorker(ctx context.Context) error {
+	if h.janitor != nil {
+		go h.janitor.Run(ctx)
+	}
+
+	return nil
 }
 
 type s3Metrics struct {
@@ -113,7 +132,7 @@ func (h *S3Handler) Handler() echo.HandlerFunc {
 
 		if bucketName == "" {
 			if requestWithCtx.Method != http.MethodGet {
-				httputil.WriteError(log, sw, requestWithCtx, ErrMethodNotAllowed, http.StatusMethodNotAllowed)
+				WriteError(log, sw, requestWithCtx, ErrMethodNotAllowed)
 
 				return nil
 			}
@@ -150,7 +169,7 @@ func (h *S3Handler) RouteMatcher() service.Matcher {
 		// Matches /api/, /metrics/, /dashboard/ but NOT /api, /metrics, /dashboard
 		// which could be valid bucket names.
 		if strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/metrics/") ||
-			strings.HasPrefix(path, "/dashboard/") {
+			strings.HasPrefix(path, "/dashboard/") || path == "/favicon.ico" || path == "/robots.txt" {
 			return false
 		}
 		// Accept all other requests - priority ensures we're evaluated last
@@ -200,7 +219,7 @@ func (h *S3Handler) resolveBucketAndKey(
 		bucket := vhBucket
 		key := path
 		if key != "" && !IsValidObjectKey(key) {
-			httputil.WriteError(log, w, r, ErrInvalidArgument, http.StatusBadRequest)
+			WriteError(log, w, r, ErrInvalidArgument)
 
 			return "", "", false
 		}
@@ -213,7 +232,7 @@ func (h *S3Handler) resolveBucketAndKey(
 	if path != "" && path != "/" {
 		bucket = parts[0]
 		if !IsValidBucketName(bucket) {
-			httputil.WriteError(log, w, r, ErrInvalidBucketName, http.StatusBadRequest)
+			WriteError(log, w, r, ErrInvalidBucketName)
 
 			return "", "", false
 		}
@@ -221,7 +240,7 @@ func (h *S3Handler) resolveBucketAndKey(
 		if len(parts) > 1 {
 			key = parts[1]
 			if key != "" && !IsValidObjectKey(key) {
-				httputil.WriteError(log, w, r, ErrInvalidArgument, http.StatusBadRequest)
+				WriteError(log, w, r, ErrInvalidArgument)
 
 				return "", "", false
 			}

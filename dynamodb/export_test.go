@@ -1,6 +1,8 @@
 package dynamodb
 
 import (
+	"context"
+
 	"github.com/blackbirdworks/gopherstack/dynamodb/models"
 	"github.com/blackbirdworks/gopherstack/pkgs/dynamoattr"
 )
@@ -80,4 +82,8 @@ func (t *Table) InitializeIndexes() {
 
 func (t *Table) RebuildIndexes() {
 	t.rebuildIndexes()
+}
+
+func (j *Janitor) SweepTTL(ctx context.Context) {
+	j.sweepTTL(ctx)
 }

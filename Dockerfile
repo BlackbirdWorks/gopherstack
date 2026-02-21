@@ -31,7 +31,7 @@ COPY --from=builder /app/gopherstack .
 EXPOSE 8000
 
 # OCI label pointing to the source repository
-LABEL org.opencontainers.image.source="https://github.com/agbishop/Gopherstack"
+LABEL org.opencontainers.image.source="https://github.com/blackbirdworks/gopherstack"
 
 # Command to run the executable
 CMD ["./gopherstack"]
