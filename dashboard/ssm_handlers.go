@@ -25,6 +25,7 @@ func (h *DashboardHandler) ssmIndex(c *echo.Context) error {
 
 	data := struct {
 		PageData
+
 		Parameters []any
 	}{
 		PageData: PageData{
@@ -39,6 +40,7 @@ func (h *DashboardHandler) ssmIndex(c *echo.Context) error {
 	}
 
 	h.renderTemplate(w, "ssm/index.html", data)
+
 	return nil
 }
 
@@ -50,11 +52,11 @@ func (h *DashboardHandler) ssmPutModal(c *echo.Context) error {
 	name := r.URL.Query().Get("name")
 
 	data := struct {
-		IsEdit      bool
 		Name        string
 		Type        string
 		Value       string
 		Description string
+		IsEdit      bool
 	}{
 		IsEdit: false,
 		Type:   "String",
@@ -76,11 +78,13 @@ func (h *DashboardHandler) ssmPutModal(c *echo.Context) error {
 			// as it's typically fetched via DescribeParameters
 		} else {
 			h.Logger.Error("Failed to fetch parameter for edit", "name", name, "error", err)
+
 			return c.String(http.StatusNotFound, "Parameter not found")
 		}
 	}
 
 	h.renderFragment(w, "ssm/put_modal.html", data)
+
 	return nil
 }
 
@@ -91,6 +95,7 @@ func (h *DashboardHandler) ssmPutParameter(c *echo.Context) error {
 
 	if err := r.ParseForm(); err != nil {
 		h.Logger.Error("Failed to parse form", "error", err)
+
 		return c.String(http.StatusBadRequest, "Invalid request")
 	}
 
@@ -119,6 +124,7 @@ func (h *DashboardHandler) ssmPutParameter(c *echo.Context) error {
 	}
 
 	w.Header().Set("HX-Redirect", "/dashboard/ssm")
+
 	return c.NoContent(http.StatusOK)
 }
 
@@ -145,5 +151,6 @@ func (h *DashboardHandler) ssmDeleteParameter(c *echo.Context) error {
 
 	// Tell HTMX to reload the page to reflect the deletion
 	w.Header().Set("HX-Redirect", "/dashboard/ssm")
+
 	return c.NoContent(http.StatusOK)
 }

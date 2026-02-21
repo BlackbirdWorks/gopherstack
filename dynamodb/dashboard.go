@@ -29,8 +29,10 @@ func NewDashboardProvider() *DashboardProvider {
 }
 
 // DashboardName returns the user-facing name for the DynamoDB dashboard tab.
+const dynamoDBName = "DynamoDB"
+
 func (p *DashboardProvider) DashboardName() string {
-	return "DynamoDB"
+	return dynamoDBName
 }
 
 // DashboardRoutePrefix returns the URL path prefix for DynamoDB dashboard routes.

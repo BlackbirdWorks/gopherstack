@@ -165,8 +165,10 @@ func (h *DashboardHandler) Handler() echo.HandlerFunc {
 }
 
 // Name returns the service identifier.
+const dashboardName = "Dashboard"
+
 func (h *DashboardHandler) Name() string {
-	return "Dashboard"
+	return dashboardName
 }
 
 // RouteMatcher returns a matcher for dashboard requests (by path prefix).

@@ -64,6 +64,6 @@ demo:
 	docker compose up -d
 
 all: 
-	make lint
+	make lint-fix
 	make total-coverage
 	

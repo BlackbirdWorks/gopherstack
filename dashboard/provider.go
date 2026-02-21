@@ -32,6 +32,8 @@ func (p *Provider) Name() string {
 
 // Init initializes the dashboard handler, which requires pre-configured SDK clients
 // to manage the dummy AWS environments.
+//
+//nolint:ireturn // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	var ddbClient *ddbsdk.Client
 	var s3Client *s3sdk.Client

@@ -13,6 +13,8 @@ func (p *Provider) Name() string {
 }
 
 // Init initializes the SSM service backend and handler.
+//
+//nolint:ireturn // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	backend := NewInMemoryBackend()
 	handler := NewHandler(backend, ctx.Logger)

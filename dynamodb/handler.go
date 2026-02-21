@@ -43,6 +43,7 @@ func (h *DynamoDBHandler) WithJanitor(settings Settings) *DynamoDBHandler {
 	if memBackend, ok := h.Backend.(*InMemoryDB); ok {
 		h.janitor = NewJanitor(memBackend, h.Logger, settings)
 	}
+
 	return h
 }
 
@@ -51,6 +52,7 @@ func (h *DynamoDBHandler) StartWorker(ctx context.Context) error {
 	if h.janitor != nil {
 		h.janitor.Run(ctx)
 	}
+
 	return nil
 }
 

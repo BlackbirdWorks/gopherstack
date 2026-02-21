@@ -33,14 +33,13 @@ const (
 //
 //nolint:revive // Stuttering preferred here for clarity per Plan.md
 type S3Handler struct {
-	Backend StorageBackend
 	Logger  *slog.Logger
+	janitor *Janitor
+	Backend StorageBackend
 	// Endpoint is the base host (e.g. "localhost:9000") of this server.
 	// When set, virtual-hosted-style URLs (bucket.host/key) are supported
 	// in addition to path-style URLs (/bucket/key).
 	Endpoint string
-
-	janitor *Janitor
 }
 
 // NewHandler creates a new S3 Handler with the given backend.
@@ -56,6 +55,7 @@ func (h *S3Handler) WithJanitor(settings Settings) *S3Handler {
 	if memBackend, ok := h.Backend.(*InMemoryBackend); ok {
 		h.janitor = NewJanitor(memBackend, h.Logger, settings)
 	}
+
 	return h
 }
 
@@ -64,6 +64,7 @@ func (h *S3Handler) StartWorker(ctx context.Context) error {
 	if h.janitor != nil {
 		h.janitor.Run(ctx)
 	}
+
 	return nil
 }
 

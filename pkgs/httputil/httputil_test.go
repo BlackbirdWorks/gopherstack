@@ -93,13 +93,14 @@ func TestWriteDynamoDBResponse(t *testing.T) {
 	assert.JSONEq(t, `{"result":"ok"}`, w.Body.String())
 }
 
+var errSomethingWentWrong = errors.New("something went wrong")
+
 func TestWriteError(t *testing.T) {
 	t.Parallel()
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	err := errors.New("something went wrong")
 
-	httputil.WriteError(nil, w, req, err, http.StatusBadRequest)
+	httputil.WriteError(nil, w, req, errSomethingWentWrong, http.StatusBadRequest)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Contains(t, w.Body.String(), "something went wrong")
@@ -138,6 +139,8 @@ func TestContextOperations(t *testing.T) {
 	assert.Equal(t, "AnotherTable", httputil.GetResource(ctx))
 }
 
+var errOops = errors.New("oops")
+
 func TestEchoError(t *testing.T) {
 	t.Parallel()
 	e := echo.New()
@@ -145,8 +148,7 @@ func TestEchoError(t *testing.T) {
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
-	err := errors.New("oops")
-	res := httputil.EchoError(nil, c, http.StatusForbidden, "denied", err)
+	res := httputil.EchoError(nil, c, http.StatusForbidden, "denied", errOops)
 
 	require.NoError(t, res)
 	assert.Equal(t, http.StatusForbidden, rec.Code)

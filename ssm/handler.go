@@ -58,15 +58,18 @@ func (h *Handler) RouteMatcher() service.Matcher {
 }
 
 // MatchPriority returns the routing priority for the SSM handler.
+const ssmMatchPriority = 100
+
 func (h *Handler) MatchPriority() int {
-	return 100 // Same header-based priority as DynamoDB
+	return ssmMatchPriority // Same header-based priority as DynamoDB
 }
 
 // ExtractOperation attempts to extract the specific SSM operation from the request.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
 	target := c.Request().Header.Get("X-Amz-Target")
 	parts := strings.Split(target, ".")
-	if len(parts) == 2 {
+	const targetParts = 2
+	if len(parts) == targetParts {
 		return parts[1]
 	}
 
@@ -114,7 +117,8 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		}
 
 		parts := strings.Split(target, ".")
-		if len(parts) != 2 {
+		const targetParts = 2
+		if len(parts) != targetParts {
 			return c.String(http.StatusBadRequest, "Invalid X-Amz-Target")
 		}
 		action := parts[1]
@@ -223,5 +227,6 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 	}
 
 	payload, _ := json.Marshal(errResp)
+
 	return c.JSONBlob(statusCode, payload)
 }

@@ -5,11 +5,11 @@ import "time"
 // Parameter represents a single SSM Parameter.
 type Parameter struct {
 	Name             string  `json:"Name"`
-	Type             string  `json:"Type"` // String, StringList, SecureString
+	Type             string  `json:"Type"`
 	Value            string  `json:"Value"`
-	Version          int64   `json:"Version"`
-	LastModifiedDate float64 `json:"LastModifiedDate"` // AWS SSM often expects unix timestamp float
 	Description      string  `json:"Description,omitempty"`
+	Version          int64   `json:"Version"`
+	LastModifiedDate float64 `json:"LastModifiedDate"`
 }
 
 // PutParameterInput represents the request payload for PutParameter.
@@ -75,6 +75,8 @@ type ErrorResponse struct {
 }
 
 // UnixTimeFloat returns a unix timestamp float required by some AWS SDKs.
+const nanoToSeconds = 1e9
+
 func UnixTimeFloat(t time.Time) float64 {
-	return float64(t.UnixNano()) / 1e9
+	return float64(t.UnixNano()) / nanoToSeconds
 }

@@ -26,8 +26,8 @@ type StorageBackend interface {
 
 // InMemoryBackend implements StorageBackend using a concurrency-safe map.
 type InMemoryBackend struct {
-	mu         sync.RWMutex
 	parameters map[string]Parameter
+	mu         sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new empty InMemoryBackend.

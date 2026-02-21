@@ -9,3 +9,6 @@ trigger: always_on
  - Avoid anonymous structs
  - break common functionality to packages under /pkgs
  - write idiomatic go
+ - All service operations must have a metric recorded 
+ - All service operations must have extensive unit tests
+ - All service operations must have integration tests using the go aws sdk v2

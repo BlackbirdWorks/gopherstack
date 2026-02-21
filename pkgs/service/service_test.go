@@ -59,6 +59,7 @@ func TestRegistryMiddleware(t *testing.T) {
 	mw := func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
 			called = true
+
 			return next(c)
 		}
 	}

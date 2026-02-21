@@ -172,8 +172,12 @@ const ThemeManager = {
     setTheme(theme) {
         const html = document.documentElement;
         html.setAttribute('data-theme', theme);
+        html.classList.toggle('dark', theme === this.DARK_THEME);
         localStorage.setItem(this.STORAGE_KEY, theme);
         this.updateIcon(theme);
+
+        // Dispatch event for other listeners (like layout.html)
+        window.dispatchEvent(new CustomEvent('theme-changed', { detail: { theme } }));
     },
 
     // Update the toggle button icon

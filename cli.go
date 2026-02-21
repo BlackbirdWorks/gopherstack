@@ -36,14 +36,19 @@ const (
 
 // CLI holds all command-line / environment-variable configuration for Gopherstack.
 type CLI struct {
+	ddbClient  *dynamodb.Client
+	s3Client   *s3.Client
+	ssmClient  *ssmsdk.Client
+	ddbHandler service.Registerable
+	s3Handler  service.Registerable
+	ssmHandler service.Registerable
+
 	// LogLevel is the log level: debug, info, warn, error.
 	LogLevel string `name:"log-level" env:"LOG_LEVEL" default:"info" help:"Log level (debug|info|warn|error)."`
 	// Port is the HTTP server port.
 	Port string `name:"port" env:"PORT" default:"8000" help:"HTTP server port."`
 	// Region is the AWS region used for SDK clients.
 	Region string `name:"region" env:"REGION" default:"us-east-1" help:"AWS region."`
-	// Demo enables loading of demo data on startup.
-	Demo bool `name:"demo" env:"DEMO" default:"false" help:"Load demo data on startup."`
 
 	// DynamoDB holds DynamoDB service-level settings.
 	DynamoDB ddbbackend.Settings `embed:"" prefix:"dynamodb-"`
@@ -52,13 +57,8 @@ type CLI struct {
 	// SSM holds SSM service-level settings.
 	SSM struct{} `embed:"" prefix:"ssm-"`
 
-	ddbClient *dynamodb.Client
-	s3Client  *s3.Client
-	ssmClient *ssmsdk.Client
-
-	ddbHandler service.Registerable
-	s3Handler  service.Registerable
-	ssmHandler service.Registerable
+	// Demo enables loading of demo data on startup.
+	Demo bool `name:"demo" env:"DEMO" default:"false" help:"Load demo data on startup."`
 }
 
 // GetDynamoDBSettings returns DynamoDB settings (dynamodb.ConfigProvider).
@@ -74,6 +74,7 @@ func (c *CLI) GetS3Settings() s3backend.Settings {
 // GetS3Endpoint returns the configured S3 endpoint (s3.ConfigProvider).
 func (c *CLI) GetS3Endpoint() string {
 	s3Port := strings.TrimPrefix(c.Port, ":")
+
 	return "localhost:" + s3Port
 }
 
@@ -87,12 +88,18 @@ func (c *CLI) GetS3Client() *s3.Client { return c.s3Client }
 func (c *CLI) GetSSMClient() *ssmsdk.Client { return c.ssmClient }
 
 // GetDynamoDBHandler returns the DynamoDB handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetDynamoDBHandler() service.Registerable { return c.ddbHandler }
 
 // GetS3Handler returns the S3 handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetS3Handler() service.Registerable { return c.s3Handler }
 
 // GetSSMHandler returns the SSM handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetSSMHandler() service.Registerable { return c.ssmHandler }
 
 // Run parses CLI / environment-variable configuration and starts Gopherstack.
@@ -117,7 +124,6 @@ func Run() {
 func run(cli CLI) error {
 	log := buildLogger(cli.LogLevel)
 
-	// In-memory SDK routing for dashboard
 	inMemMux := http.NewServeMux()
 	inMemClient := &dashboard.InMemClient{Handler: inMemMux}
 
@@ -129,80 +135,36 @@ func run(cli CLI) error {
 	)
 	if err != nil {
 		log.Error("Failed to load AWS config", "error", err)
+
 		return err
 	}
 
-	cli.ddbClient = dynamodb.NewFromConfig(awsCfgVal, func(o *dynamodb.Options) { o.BaseEndpoint = aws.String("http://local") })
-	cli.s3Client = s3.NewFromConfig(awsCfgVal, func(o *s3.Options) { o.UsePathStyle = true; o.BaseEndpoint = aws.String("http://local") })
-	cli.ssmClient = ssmsdk.NewFromConfig(awsCfgVal, func(o *ssmsdk.Options) { o.BaseEndpoint = aws.String("http://local") })
+	initializeClients(&cli, awsCfgVal)
 
-	// The context is cancelled when run() returns (server shutdown or error).
 	janitorCtx, janitorCancel := context.WithCancel(context.Background())
 	defer janitorCancel()
 
-	// 1. AppContext holds the config object that implements the extraction interfaces
 	appCtx := &service.AppContext{
 		Logger:     log,
 		Config:     &cli,
 		JanitorCtx: janitorCtx,
 	}
 
-	// 2. Initialize Core Storage Backend Providers first to make them available for the dashboard
-	ddbProvider := &ddbbackend.Provider{}
-	s3Provider := &s3backend.Provider{}
-	ssmProvider := &ssmbackend.Provider{}
-
-	ddbSvc, err := ddbProvider.Init(appCtx)
+	services, err := initializeServices(appCtx)
 	if err != nil {
-		return fmt.Errorf("failed to init %s: %w", ddbProvider.Name(), err)
-	}
-	cli.ddbHandler = ddbSvc
-
-	s3Svc, err := s3Provider.Init(appCtx)
-	if err != nil {
-		return fmt.Errorf("failed to init %s: %w", s3Provider.Name(), err)
-	}
-	cli.s3Handler = s3Svc
-
-	ssmSvc, err := ssmProvider.Init(appCtx)
-	if err != nil {
-		return fmt.Errorf("failed to init %s: %w", ssmProvider.Name(), err)
-	}
-	cli.ssmHandler = ssmSvc
-
-	// 3. Initialize Dashboard Provider (which will use the Config extractors to get handlers)
-	dashboardProvider := &dashboard.Provider{}
-	dashboardSvc, err := dashboardProvider.Init(appCtx)
-	if err != nil {
-		return fmt.Errorf("failed to init %s: %w", dashboardProvider.Name(), err)
+		return err
 	}
 
-	// Create Echo app with routing.
 	e := echo.New()
 	e.Pre(logger.EchoMiddleware(log))
-
-	services := []service.Registerable{
-		ddbSvc,       // Priority 100 (header-based)
-		ssmSvc,       // Priority 100 (header-based)
-		dashboardSvc, // Priority 50 (path-based)
-		s3Svc,        // Priority 0 (catch-all)
-	}
 
 	if setupErr := setupRegistry(e, log, services); setupErr != nil {
 		return setupErr
 	}
 
-	// Start background workers dynamically
-	for _, svc := range services {
-		if worker, ok := svc.(service.BackgroundWorker); ok {
-			go worker.StartWorker(janitorCtx)
-		}
-	}
-
-	// Wire the in-memory mux through the same Echo routing.
+	startBackgroundWorkers(janitorCtx, log, services)
 	inMemMux.Handle("/", e)
 
-	// Load demo data once routing is wired.
 	if cli.Demo {
 		log.Info("Loading demo data...")
 		if err = demo.LoadData(context.Background(), log, cli.ddbClient, cli.s3Client); err != nil {
@@ -210,10 +172,71 @@ func run(cli CLI) error {
 		}
 	}
 
-	port := cli.Port
+	return startServer(log, cli.Port, e)
+}
+
+// initializeClients configures the AWS SDK clients for DynamoDB, S3, and SSM.
+func initializeClients(cli *CLI, awsCfg aws.Config) {
+	cli.ddbClient = dynamodb.NewFromConfig(
+		awsCfg,
+		func(o *dynamodb.Options) {
+			o.BaseEndpoint = aws.String("http://local")
+		},
+	)
+	cli.s3Client = s3.NewFromConfig(
+		awsCfg,
+		func(o *s3.Options) {
+			o.UsePathStyle = true
+			o.BaseEndpoint = aws.String("http://local")
+		},
+	)
+	cli.ssmClient = ssmsdk.NewFromConfig(
+		awsCfg,
+		func(o *ssmsdk.Options) {
+			o.BaseEndpoint = aws.String("http://local")
+		},
+	)
+}
+
+// initializeServices initializes all service providers.
+func initializeServices(appCtx *service.AppContext) ([]service.Registerable, error) {
+	var services []service.Registerable
+	providers := []service.Provider{
+		&ddbbackend.Provider{},
+		&s3backend.Provider{},
+		&ssmbackend.Provider{},
+		&dashboard.Provider{},
+	}
+
+	for _, provider := range providers {
+		svc, err := provider.Init(appCtx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to init %s: %w", provider.Name(), err)
+		}
+		services = append(services, svc)
+	}
+
+	// Reorder for routing priority: DynamoDB (100), SSM (100), Dashboard (50), S3 (0)
+	return []service.Registerable{services[0], services[2], services[3], services[1]}, nil
+}
+
+// startBackgroundWorkers starts all background workers from services.
+func startBackgroundWorkers(ctx context.Context, log *slog.Logger, services []service.Registerable) {
+	for _, svc := range services {
+		if worker, ok := svc.(service.BackgroundWorker); ok {
+			if workerErr := worker.StartWorker(ctx); workerErr != nil {
+				log.ErrorContext(ctx, "failed to start background worker", "error", workerErr)
+			}
+		}
+	}
+}
+
+// startServer starts the HTTP server and blocks until it shuts down.
+func startServer(log *slog.Logger, port string, e *echo.Echo) error {
 	if port[0] != ':' {
 		port = ":" + port
 	}
+
 	log.Info("Starting Gopherstack (DynamoDB + S3)", "port", port)
 	log.Info("  DynamoDB endpoint", "url", "http://localhost"+port)
 	log.Info("  S3 endpoint      ", "url", "http://localhost"+port+" (path-style)")
@@ -227,7 +250,7 @@ func run(cli CLI) error {
 		IdleTimeout:  defaultTimeout,
 	}
 
-	if err = server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Error("Failed to start server", "error", err)
 
 		return err

@@ -13,6 +13,7 @@
             const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
             const theme = stored || (prefersDark ? 'dark' : 'light');
             document.documentElement.setAttribute('data-theme', theme);
+            document.documentElement.classList.toggle('dark', theme === 'dark');
         })();
     </script>
 
@@ -94,6 +95,12 @@
     </dialog>
 
     <!-- Custom JavaScript -->
+    <script>
+        // Ensure Tailwind respects the theme change
+        window.addEventListener('theme-changed', (e) => {
+            document.documentElement.classList.toggle('dark', e.detail.theme === 'dark');
+        });
+    </script>
     <script src="/dashboard/static/app.js"></script>
 </body>
 

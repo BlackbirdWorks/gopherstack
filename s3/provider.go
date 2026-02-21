@@ -20,6 +20,8 @@ func (p *Provider) Name() string {
 }
 
 // Init initializes the S3 service backend, compressor, janitor, and handler.
+//
+//nolint:ireturn // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	var settings Settings
 	var endpoint string
