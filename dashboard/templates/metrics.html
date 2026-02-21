@@ -124,6 +124,8 @@
                         <button onclick="updateFilter('DynamoDB')" class="tab tab-sm filter-tab"
                             data-service="DynamoDB">DynamoDB</button>
                         <button onclick="updateFilter('S3')" class="tab tab-sm filter-tab" data-service="S3">S3</button>
+                        <button onclick="updateFilter('SSM')" class="tab tab-sm filter-tab"
+                            data-service="SSM">SSM</button>
                     </div>
                 </div>
 
@@ -155,8 +157,8 @@
             <!-- Delete Queue Section -->
             <section id="delete-queue-section">
                 <h2 class="text-xl font-bold mb-4 flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-warning" fill="none"
-                        viewBox="0 0 24 24" stroke="currentColor">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-warning" fill="none" viewBox="0 0 24 24"
+                        stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                     </svg>
@@ -252,7 +254,8 @@
             const getServiceRank = (opName) => {
                 if (opName.startsWith('DynamoDB::')) return 1;
                 if (opName.startsWith('S3::')) return 2;
-                return 3;
+                if (opName.startsWith('SSM::')) return 3;
+                return 4;
             };
 
             const rA = getServiceRank(a.operation);
@@ -267,7 +270,10 @@
             const service = parts.length > 1 ? parts[0] : 'SDK';
             const action = parts.length > 1 ? parts[1] : parts[0];
 
-            const serviceClass = service === 'DynamoDB' ? 'badge-info' : (service === 'S3' ? 'badge-success' : 'badge-ghost');
+            let serviceClass = 'badge-ghost';
+            if (service === 'DynamoDB') serviceClass = 'badge-info';
+            else if (service === 'S3') serviceClass = 'badge-success';
+            else if (service === 'SSM') serviceClass = 'badge-secondary';
 
             rows += `
                 <tr class="hover:bg-base-200/30 transition-colors">
@@ -325,7 +331,7 @@
 
         // Update Deadlocks
         const deadlockSection = document.getElementById('deadlock-section');
-        const deadlockList = document.getElementById('deadlock-list');
+        const deadlockList = document.getElementByIlock-list');
         if (data.deadlocks && data.deadlocks.length > 0) {
             deadlockSection.classList.remove('hidden');
             let cards = '';
