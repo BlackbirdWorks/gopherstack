@@ -231,6 +231,7 @@ func (b *InMemoryBackend) ListSubscriptionsByTopic(topicArn, nextToken string) (
 }
 
 // Publish publishes a message to a topic and returns the message ID.
+// The subject and attrs parameters are accepted for interface compatibility but not used in delivery.
 func (b *InMemoryBackend) Publish(
 	topicArn, message string, _ string, _ map[string]MessageAttribute,
 ) (string, error) {
@@ -304,6 +305,7 @@ func (b *InMemoryBackend) sortedSubscriptions() []Subscription {
 }
 
 // deliverHTTP sends a best-effort HTTP POST with the message body to the endpoint.
+// Errors are intentionally ignored: delivery is fire-and-forget for HTTP/HTTPS subscriptions.
 func deliverHTTP(endpoint, body string) {
 	req, err := http.NewRequestWithContext(
 		context.Background(),

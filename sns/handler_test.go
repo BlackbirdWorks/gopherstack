@@ -835,12 +835,8 @@ func TestSNSHandler(t *testing.T) {
 func TestCreateTopicXMLResponse(t *testing.T) {
 	t.Parallel()
 
-	h, _ := func() (*sns.Handler, *sns.InMemoryBackend) {
-		b := sns.NewInMemoryBackend()
-		log := logger.NewLogger(slog.LevelDebug)
-
-		return sns.NewHandler(b, log), b
-	}()
+	b := sns.NewInMemoryBackend()
+	h := sns.NewHandler(b, logger.NewLogger(slog.LevelDebug))
 
 	rec := snsPost(t, h, url.Values{
 		"Action":  {"CreateTopic"},
