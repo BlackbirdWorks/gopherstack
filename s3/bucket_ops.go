@@ -172,10 +172,12 @@ func (h *S3Handler) createBucket(
 
 	output, err := h.Backend.CreateBucket(ctx, input)
 	if errors.Is(err, ErrBucketAlreadyExists) {
-		log.Error("request failed", "error", err, "code", http.StatusConflict, "path", r.URL.Path)
+		log.ErrorContext(ctx, "request failed", "error", err, "code", http.StatusConflict, "path", r.URL.Path)
 		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
-			Code:    "BucketAlreadyExists",
-			Message: "The requested bucket name is not available. The bucket namespace is shared by all users of the system. Select a different name and try again.",
+			Code: "BucketAlreadyExists",
+			Message: "The requested bucket name is not available. " +
+				"The bucket namespace is shared by all users of the system. " +
+				"Select a different name and try again.",
 			Resource: r.URL.Path,
 		}, http.StatusConflict)
 

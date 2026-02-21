@@ -57,6 +57,7 @@ func TestDDBJanitor_JanitorFinallyRemovesTable(t *testing.T) {
 	// After the janitor runs, the deleting map should drain.
 	require.Eventually(t, func() bool {
 		listed, listErr := db.ListTables(t.Context(), &dynamodb_sdk.ListTablesInput{})
+
 		return listErr == nil && len(listed.TableNames) == 0
 	}, 500*time.Millisecond, 10*time.Millisecond)
 }

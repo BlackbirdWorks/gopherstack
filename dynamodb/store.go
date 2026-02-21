@@ -8,10 +8,10 @@ import (
 
 // InMemoryDB stores tables and items.
 type InMemoryDB struct {
-	Tables        map[string]*Table
+	Tables         map[string]*Table
 	deletingTables map[string]*Table
-	exprCache     *ExpressionCache
-	mu            *lockmetrics.RWMutex
+	exprCache      *ExpressionCache
+	mu             *lockmetrics.RWMutex
 }
 
 type Table struct {

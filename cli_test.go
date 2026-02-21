@@ -33,6 +33,7 @@ func parseCLI(t *testing.T, envPairs map[string]string) CLI {
 }
 
 func TestCLI_Defaults(t *testing.T) {
+	t.Parallel()
 	cli := parseCLI(t, nil)
 
 	assert.Equal(t, "info", cli.LogLevel)
@@ -43,12 +44,13 @@ func TestCLI_Defaults(t *testing.T) {
 	assert.Equal(t, 500*time.Millisecond, cli.S3.JanitorInterval)
 }
 
+//nolint:paralleltest // uses t.Setenv which disallows t.Parallel
 func TestCLI_EnvVarsOverrideDefaults(t *testing.T) {
 	cli := parseCLI(t, map[string]string{
-		"LOG_LEVEL": "debug",
-		"PORT":      "9090",
-		"REGION":    "eu-west-1",
-		"DEMO":      "true",
+		"LOG_LEVEL":                 "debug",
+		"PORT":                      "9090",
+		"REGION":                    "eu-west-1",
+		"DEMO":                      "true",
 		"DYNAMODB_JANITOR_INTERVAL": "2s",
 		"S3_JANITOR_INTERVAL":       "1s",
 	})
@@ -62,6 +64,7 @@ func TestCLI_EnvVarsOverrideDefaults(t *testing.T) {
 }
 
 func TestCLI_BuildLogger(t *testing.T) {
+	t.Parallel()
 	cases := []struct{ input, wantLevel string }{
 		{"debug", "DEBUG"},
 		{"info", "INFO"},

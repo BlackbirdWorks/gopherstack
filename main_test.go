@@ -7,25 +7,28 @@ import (
 )
 
 func TestServerStartupAndShutdown(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
-		demo bool
 		port string
+		demo bool
 	}{
 		{
 			name: "server startup without DEMO",
-			demo: false,
 			port: ":8001",
+			demo: false,
 		},
 		{
 			name: "server startup with DEMO",
-			demo: true,
 			port: ":8002",
+			demo: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			stopChan := make(chan struct{})
 
 			go func() {
@@ -78,4 +81,3 @@ func startServerOnPort(port string, demo bool, stopChan chan struct{}) error {
 		return err
 	}
 }
-

@@ -7,5 +7,5 @@ import "time"
 // in the root CLI command.
 type Settings struct {
 	// JanitorInterval is the tick interval for the async-delete janitor.
-	JanitorInterval time.Duration `name:"janitor-interval" env:"DYNAMODB_JANITOR_INTERVAL" default:"500ms" help:"DynamoDB janitor tick interval (e.g. 500ms, 1s)."`
+	JanitorInterval time.Duration `env:"DYNAMODB_JANITOR_INTERVAL" default:"500ms" help:"Async-delete janitor interval."`
 }

@@ -67,7 +67,7 @@ func Run() {
 }
 
 // run starts the server with the given CLI configuration.
-// It is separated from Run so it can be exercised in tests without os.Exit.
+// It is separated from Run so it can be exercised in tests without [os.Exit].
 func run(cli CLI) error {
 	log := buildLogger(cli.LogLevel)
 

@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/blackbirdworks/gopherstack/s3"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/s3"
 )
 
 // newFastJanitor creates a Janitor with a short interval for deterministic tests.
@@ -43,6 +43,7 @@ func TestS3Janitor_EmptyBucketRemovedImmediately(t *testing.T) {
 
 	require.Eventually(t, func() bool {
 		listed, listErr := b.ListBuckets(t.Context(), &sdk_s3.ListBucketsInput{})
+
 		return listErr == nil && len(listed.Buckets) == 0
 	}, 500*time.Millisecond, 10*time.Millisecond)
 }
@@ -53,7 +54,7 @@ func TestS3Janitor_BucketWithObjectsRemovedAfterDrain(t *testing.T) {
 	b := s3.NewInMemoryBackend(nil)
 	mustCreateBucket(t, b, "full-bucket")
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		mustPutObject(t, b, "full-bucket", fmt.Sprintf("key-%d", i), []byte("data"))
 	}
 
@@ -77,6 +78,7 @@ func TestS3Janitor_BucketWithObjectsRemovedAfterDrain(t *testing.T) {
 
 	require.Eventually(t, func() bool {
 		listed, listErr := b.ListBuckets(t.Context(), &sdk_s3.ListBucketsInput{})
+
 		return listErr == nil && len(listed.Buckets) == 0
 	}, 500*time.Millisecond, 10*time.Millisecond)
 }
