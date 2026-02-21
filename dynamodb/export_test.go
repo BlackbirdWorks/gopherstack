@@ -87,3 +87,6 @@ func (t *Table) RebuildIndexes() {
 func (j *Janitor) SweepTTL(ctx context.Context) {
 	j.sweepTTL(ctx)
 }
+
+// StreamShardID exposes the canonical shard ID for stream tests.
+const StreamShardID = streamShardID

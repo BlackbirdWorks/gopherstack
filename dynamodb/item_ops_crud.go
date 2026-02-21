@@ -22,7 +22,7 @@ func (db *InMemoryDB) PutItem(
 		return nil, NewValidationException("Table name is required")
 	}
 
-	table, err := db.getTable(tableName)
+	table, err := db.getTable(ctx, tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -45,6 +45,13 @@ func (db *InMemoryDB) PutItem(
 	}
 
 	db.doPut(table, wireItem, matchIndex)
+
+	// Capture stream event
+	if matchIndex != -1 {
+		table.appendStreamRecord(streamEventModify, oldItem, deepCopyItem(wireItem))
+	} else {
+		table.appendStreamRecord(streamEventInsert, nil, deepCopyItem(wireItem))
+	}
 
 	return db.populatePutItemOutput(input, table, oldItem), nil
 }
@@ -165,11 +172,11 @@ func (db *InMemoryDB) populatePutItemOutput(
 }
 
 func (db *InMemoryDB) GetItem(
-	_ context.Context,
+	ctx context.Context,
 	input *dynamodb.GetItemInput,
 ) (*dynamodb.GetItemOutput, error) {
 	tableName := aws.ToString(input.TableName)
-	table, err := db.getTable(tableName)
+	table, err := db.getTable(ctx, tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -206,7 +213,7 @@ func (db *InMemoryDB) DeleteItem(
 ) (*dynamodb.DeleteItemOutput, error) {
 	tableName := aws.ToString(input.TableName)
 
-	table, err := db.getTable(tableName)
+	table, err := db.getTable(ctx, tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -251,6 +258,8 @@ func (db *InMemoryDB) DeleteItem(
 
 	if oldItem != nil && matchIndex != -1 {
 		db.deleteItemAtIndex(table, matchIndex)
+		// Capture stream REMOVE event
+		table.appendStreamRecord(streamEventRemove, deepCopyItem(oldItem), nil)
 	}
 
 	// Handle ReturnValues (ALL_OLD)
@@ -287,7 +296,7 @@ func (db *InMemoryDB) UpdateItem(
 	input *dynamodb.UpdateItemInput,
 ) (*dynamodb.UpdateItemOutput, error) {
 	tableName := aws.ToString(input.TableName)
-	table, err := db.getTable(tableName)
+	table, err := db.getTable(ctx, tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -306,6 +315,13 @@ func (db *InMemoryDB) UpdateItem(
 	updated, updatedPaths, err := db.doUpdate(ctx, table, input, existing, matchIndex)
 	if err != nil {
 		return nil, err
+	}
+
+	// Capture stream event for UpdateItem
+	if matchIndex != -1 {
+		table.appendStreamRecord(streamEventModify, deepCopyItem(existing), deepCopyItem(updated))
+	} else {
+		table.appendStreamRecord(streamEventInsert, nil, deepCopyItem(updated))
 	}
 
 	return db.populateUpdateOutput(input, table, existing, updated, updatedPaths)

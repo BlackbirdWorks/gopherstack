@@ -27,6 +27,9 @@ Follow idiomatic Go practices and community standards when writing Go code. Thes
 - Prefer standard library solutions over custom implementations when functionality exists
 - Write comments in English by default; translate only upon user request
 - Avoid using emoji in code and comments
+- Avoid `break` statements; any loop break should be factored into a separate function with a fast return
+- Logging MUST always be performed via `log/slog`
+- Avoid `nolint` directives; removing rules is forbidden unless no other fix is available
 
 ## Naming Conventions
 
@@ -106,6 +109,7 @@ Follow idiomatic Go practices and community standards when writing Go code. Thes
 - Place error returns as the last return value
 - Name error variables `err`
 - Keep error messages lowercase and don't end with punctuation
+- Prefer sentinel errors for common error conditions
 
 ## Architecture and Project Structure
 
@@ -116,6 +120,7 @@ Follow idiomatic Go practices and community standards when writing Go code. Thes
 - Put reusable packages in `pkg/` or `internal/`
 - Use `internal/` for packages that shouldn't be imported by external projects
 - Group related functionality into packages
+- Break common functionality into packages under `/pkgs`
 - Avoid circular dependencies
 
 ### Dependency Management
@@ -126,6 +131,12 @@ Follow idiomatic Go practices and community standards when writing Go code. Thes
 - Use `go mod tidy` to clean up unused dependencies
 - Vendor dependencies only when necessary
 
+### Service Operations
+
+- All service operations MUST have a metric recorded
+- All service operations MUST have extensive unit tests
+- All service operations MUST have integration tests using the Go AWS SDK v2
+
 ## Type Safety and Language Features
 
 ### Type Definitions
@@ -134,6 +145,7 @@ Follow idiomatic Go practices and community standards when writing Go code. Thes
 - Use struct tags for JSON, XML, database mappings
 - Prefer explicit type conversions
 - Use type assertions carefully and check the second return value
+- Avoid the use of anonymous structs
 - Prefer generics over unconstrained types; when an unconstrained type is truly needed, use the predeclared alias `any` instead of `interface{}` (Go 1.18+)
 
 ### Pointers vs Values
@@ -261,21 +273,27 @@ trigger: always_on
 ---
 
 ## Testing
-- Tests should always be table tests. No matter what
-- Tests should always be parallel unless a environment variable is involved
-- Test should always cover at least 85% of the logic. 
+- Tests MUST be table tests. No matter what
+- Tests should always be parallel unless an environment variable is involved
+- Tests should always cover at least 85% of the logic
 - `make test` to run all the unit tests
-- `make integration-test` to run all the int tests
-- use t.Context() in tests
-- never use t.Fatal or t.Error, only use require and asserts from testify---
+- `make integration-test` to run all the integration tests
+- Use `t.Context()` in tests
+- NEVER use `t.Fatal` or `t.Error`; only use `require` and `assert` from `testify`
+---
 trigger: always_on
 ---
 
- - All code must pass `make lint`
- - Errors should be sentinel errors
- - logging must be via slog
- - Avoid break statements. Any break can be a another function with a fast return 
- - Avoid anonymous structs
- - break common functionality to packages under /pkgs
- - write idiomatic go
- - you are to never ever change the golangci-lint config
+## Service UI Guidelines
+
+When developing a UI for a service, ensure:
+- The UI uses service functions via the AWS SDK
+- The service is accessible via a tab at the top
+- The service's operations are documented in the Docs section
+- There is an E2E test using the UI fully for that service (covering all interactions)
+- The service has metrics displayed on the Metrics tab
+- All services look good in both light and dark modes
+- All services define demo data for visual inspections
+
+- Always ensure code follows the rules in this file
+- You are to NEVER change the `golangci-lint` configuration

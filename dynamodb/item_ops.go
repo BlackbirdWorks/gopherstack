@@ -1,6 +1,7 @@
 package dynamodb
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
@@ -51,8 +52,8 @@ func isItemExpired(item map[string]any, ttlAttr string) bool {
 	return time.Now().Unix() > ttl
 }
 
-func (db *InMemoryDB) getTable(name string) (*Table, error) {
-	table, exists := db.getTableRLock(name)
+func (db *InMemoryDB) getTable(ctx context.Context, name string) (*Table, error) {
+	table, exists := db.getTableRLock(ctx, name)
 	if !exists {
 		return nil, NewResourceNotFoundException("Requested resource not found")
 	}
@@ -60,12 +61,19 @@ func (db *InMemoryDB) getTable(name string) (*Table, error) {
 	return table, nil
 }
 
-func (db *InMemoryDB) getTableRLock(name string) (*Table, bool) {
+func (db *InMemoryDB) getTableRLock(ctx context.Context, name string) (*Table, bool) {
 	db.mu.RLock("getTable")
 	defer db.mu.RUnlock()
-	table, exists := db.Tables[name]
 
-	return table, exists
+	region := getRegionFromContext(ctx, db)
+	regionTables, regionExists := db.Tables[region]
+	if regionExists {
+		if table, tableExists := regionTables[name]; tableExists {
+			return table, true
+		}
+	}
+
+	return nil, false
 }
 
 func getPKAndSK(

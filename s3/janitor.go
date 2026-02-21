@@ -60,13 +60,15 @@ func (j *Janitor) Run(ctx context.Context) {
 func (j *Janitor) runOnce(ctx context.Context) {
 	b := j.Backend
 
-	// Snapshot pending bucket names under a short read-lock.
+	// Snapshot pending bucket names under a short read-lock across all regions.
 	b.mu.RLock("S3Janitor")
 	pending := make([]string, 0)
 
-	for name, bucket := range b.buckets {
-		if bucket.DeletePending {
-			pending = append(pending, name)
+	for _, regionBuckets := range b.buckets {
+		for name, bucket := range regionBuckets {
+			if bucket.DeletePending {
+				pending = append(pending, name)
+			}
 		}
 	}
 	b.mu.RUnlock()
@@ -83,12 +85,21 @@ func (j *Janitor) runOnce(ctx context.Context) {
 func (j *Janitor) processBucket(ctx context.Context, name string) {
 	b := j.Backend
 
-	// Re-fetch the bucket (it may have been cleared by a concurrent run).
+	// Search for the bucket across all regions
 	b.mu.RLock("S3Janitor.processBucket")
-	bucket, exists := b.buckets[name]
+	var bucket *StoredBucket
+	var foundRegion string
+	for region, regionBuckets := range b.buckets {
+		if bkt, exists := regionBuckets[name]; exists {
+			bucket = bkt
+			foundRegion = region
+
+			break
+		}
+	}
 	b.mu.RUnlock()
 
-	if !exists {
+	if bucket == nil {
 		return
 	}
 
@@ -113,9 +124,11 @@ func (j *Janitor) processBucket(ctx context.Context, name string) {
 		return
 	}
 
-	// Bucket is empty — remove it from the global map.
+	// Bucket is empty — remove it from the region map.
 	b.mu.Lock("S3Janitor.removeBucket")
-	delete(b.buckets, name)
+	if regionBuckets, exists := b.buckets[foundRegion]; exists {
+		delete(regionBuckets, name)
+	}
 	b.mu.Unlock()
 
 	j.Log.InfoContext(ctx, "S3 janitor: bucket deleted", "bucket", name)

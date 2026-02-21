@@ -21,6 +21,24 @@ func ToSDKCreateTableInput(input *CreateTableInput) *dynamodb.CreateTableInput {
 		}
 	}
 
+	var ss *types.StreamSpecification
+	if m, ok := input.StreamSpecification.(map[string]any); ok {
+		var streamEnabled *bool
+		if enabled, enabledOk := m["StreamEnabled"].(bool); enabledOk {
+			streamEnabled = &enabled
+		}
+
+		var streamViewType types.StreamViewType
+		if viewType, viewTypeOk := m["StreamViewType"].(string); viewTypeOk {
+			streamViewType = types.StreamViewType(viewType)
+		}
+
+		ss = &types.StreamSpecification{
+			StreamEnabled:  streamEnabled,
+			StreamViewType: streamViewType,
+		}
+	}
+
 	return &dynamodb.CreateTableInput{
 		TableName:              &input.TableName,
 		KeySchema:              ToSDKKeySchema(input.KeySchema),
@@ -28,6 +46,7 @@ func ToSDKCreateTableInput(input *CreateTableInput) *dynamodb.CreateTableInput {
 		GlobalSecondaryIndexes: ToSDKGlobalSecondaryIndexes(input.GlobalSecondaryIndexes),
 		LocalSecondaryIndexes:  ToSDKLocalSecondaryIndexes(input.LocalSecondaryIndexes),
 		ProvisionedThroughput:  pt,
+		StreamSpecification:    ss,
 	}
 }
 

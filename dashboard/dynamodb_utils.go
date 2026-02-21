@@ -30,11 +30,15 @@ type TableInfo struct {
 	SortKey                string
 	SortKeyType            string
 	TTLAttribute           string
+	StreamViewType         string
+	StreamARN              string
 	GlobalSecondaryIndexes []IndexInfo
 	LocalSecondaryIndexes  []IndexInfo
+	StreamEvents           []StreamEventRow
 	GSICount               int
 	LSICount               int
 	ItemCount              int64
+	StreamsEnabled         bool
 }
 
 // PaginationInfo represented info for shared pagination component.
@@ -51,6 +55,13 @@ type PaginationInfo struct {
 	NextOffset   int
 	HasPrev      bool
 	HasNext      bool
+}
+
+// StreamEventRow represents a single stream event for dashboard display.
+type StreamEventRow struct {
+	EventID   string
+	EventName string // INSERT, MODIFY, REMOVE
+	Timestamp int64  // Unix seconds
 }
 
 // IndexInfo represents index information.

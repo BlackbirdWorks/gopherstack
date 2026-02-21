@@ -25,7 +25,7 @@ func (db *InMemoryDB) TransactWriteItems(
 	}
 
 	tableNames := db.transactTableNames(input.TransactItems)
-	tables, lockErr := db.lockTablesWrite(tableNames)
+	tables, lockErr := db.lockTablesWrite(ctx, tableNames)
 	if lockErr != nil {
 		return nil, lockErr
 	}
@@ -54,7 +54,7 @@ func (db *InMemoryDB) TransactWriteItems(
 
 // TransactGetItems reads up to 100 items atomically.
 func (db *InMemoryDB) TransactGetItems(
-	_ context.Context,
+	ctx context.Context,
 	input *dynamodb.TransactGetItemsInput,
 ) (*dynamodb.TransactGetItemsOutput, error) {
 	if len(input.TransactItems) == 0 {
@@ -75,7 +75,7 @@ func (db *InMemoryDB) TransactGetItems(
 	}
 	sort.Strings(tableNames)
 
-	tables, lockErr := db.lockTablesRead(tableNames)
+	tables, lockErr := db.lockTablesRead(ctx, tableNames)
 	if lockErr != nil {
 		return nil, lockErr
 	}
@@ -147,12 +147,20 @@ func (db *InMemoryDB) transactTableNames(items []types.TransactWriteItem) []stri
 	return names
 }
 
-func (db *InMemoryDB) lockTablesWrite(tableNames []string) (map[string]*Table, error) {
+func (db *InMemoryDB) lockTablesWrite(ctx context.Context, tableNames []string) (map[string]*Table, error) {
+	region := getRegionFromContext(ctx, db)
 	tables := make(map[string]*Table, len(tableNames))
 
 	db.mu.RLock("TransactWriteItems")
+	regionTables, exists := db.Tables[region]
+	if !exists {
+		db.mu.RUnlock()
+
+		return nil, NewResourceNotFoundException(fmt.Sprintf("Table not found in region %s", region))
+	}
+
 	for _, name := range tableNames {
-		t, ok := db.Tables[name]
+		t, ok := regionTables[name]
 		if !ok {
 			db.mu.RUnlock()
 
@@ -169,12 +177,20 @@ func (db *InMemoryDB) lockTablesWrite(tableNames []string) (map[string]*Table, e
 	return tables, nil
 }
 
-func (db *InMemoryDB) lockTablesRead(tableNames []string) (map[string]*Table, error) {
+func (db *InMemoryDB) lockTablesRead(ctx context.Context, tableNames []string) (map[string]*Table, error) {
+	region := getRegionFromContext(ctx, db)
 	tables := make(map[string]*Table, len(tableNames))
 
 	db.mu.RLock("TransactGetItems")
+	regionTables, exists := db.Tables[region]
+	if !exists {
+		db.mu.RUnlock()
+
+		return nil, NewResourceNotFoundException(fmt.Sprintf("Table not found in region %s", region))
+	}
+
 	for _, name := range tableNames {
-		t, ok := db.Tables[name]
+		t, ok := regionTables[name]
 		if !ok {
 			db.mu.RUnlock()
 

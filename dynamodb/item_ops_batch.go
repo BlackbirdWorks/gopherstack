@@ -21,7 +21,7 @@ func (db *InMemoryDB) BatchGetItem(
 	db.mu.RLock("BatchGetItem")
 	defer db.mu.RUnlock()
 
-	if err := db.validateBatchGetInput(input); err != nil {
+	if err := db.validateBatchGetInput(ctx, input); err != nil {
 		return nil, err
 	}
 
@@ -34,7 +34,7 @@ func (db *InMemoryDB) BatchGetItem(
 		go func(tblName string, attrs types.KeysAndAttributes) {
 			defer wg.Done()
 
-			table, exists := db.getTableRLock(tblName)
+			table, exists := db.getTableRLock(ctx, tblName)
 			if !exists {
 				return
 			}
@@ -59,7 +59,7 @@ func (db *InMemoryDB) BatchGetItem(
 	}, nil
 }
 
-func (db *InMemoryDB) validateBatchGetInput(input *dynamodb.BatchGetItemInput) error {
+func (db *InMemoryDB) validateBatchGetInput(ctx context.Context, input *dynamodb.BatchGetItemInput) error {
 	const batchSizeLimit = 100
 
 	totalItems := 0
@@ -72,8 +72,22 @@ func (db *InMemoryDB) validateBatchGetInput(input *dynamodb.BatchGetItemInput) e
 		)
 	}
 
+	region := getRegionFromContext(ctx, db)
+	regionTables, exists := db.Tables[region]
+	if !exists {
+		// No tables in this region
+		if len(input.RequestItems) > 0 {
+			// Check if any table is requested
+			for tableName := range input.RequestItems {
+				return NewResourceNotFoundException(fmt.Sprintf("Table not found: %s", tableName))
+			}
+		}
+
+		return nil
+	}
+
 	for tableName := range input.RequestItems {
-		if _, exists := db.Tables[tableName]; !exists {
+		if _, tableExists := regionTables[tableName]; !tableExists {
 			return NewResourceNotFoundException(fmt.Sprintf("Table not found: %s", tableName))
 		}
 	}
@@ -118,7 +132,7 @@ func (db *InMemoryDB) processBatchGetTableNoLock(
 }
 
 func (db *InMemoryDB) BatchWriteItem(
-	_ context.Context,
+	ctx context.Context,
 	input *dynamodb.BatchWriteItemInput,
 ) (*dynamodb.BatchWriteItemOutput, error) {
 	if len(input.RequestItems) == 0 {
@@ -134,19 +148,16 @@ func (db *InMemoryDB) BatchWriteItem(
 		return nil, NewValidationException("Batch size limit exceeded: Max 25 items per request")
 	}
 
+	region := getRegionFromContext(ctx, db)
+
 	// Get table references with read lock
 	db.mu.RLock("BatchWriteItem")
-	tables := make(map[string]*Table, len(input.RequestItems))
-	for tableName := range input.RequestItems {
-		if table, exists := db.Tables[tableName]; exists {
-			tables[tableName] = table
-		} else {
-			db.mu.RUnlock()
-
-			return nil, NewResourceNotFoundException(fmt.Sprintf("Table not found: %s", tableName))
-		}
-	}
+	tables, err := db.getRequestTables(region, input.RequestItems)
 	db.mu.RUnlock()
+
+	if err != nil {
+		return nil, err
+	}
 
 	// Process tables in sorted order (deadlock prevention)
 	tableNames := make([]string, 0, len(tables))
@@ -164,10 +175,10 @@ func (db *InMemoryDB) BatchWriteItem(
 		wg.Add(1)
 		go func(tblName string) {
 			defer wg.Done()
-			if err := db.processTableWriteRequests(tables[tblName], input.RequestItems[tblName]); err != nil {
+			if e := db.processTableWriteRequests(tables[tblName], input.RequestItems[tblName]); e != nil {
 				mu.Lock()
 				if firstErr == nil {
-					firstErr = err
+					firstErr = e
 				}
 				mu.Unlock()
 			}
@@ -183,6 +194,32 @@ func (db *InMemoryDB) BatchWriteItem(
 	return &dynamodb.BatchWriteItemOutput{
 		UnprocessedItems: make(map[string][]types.WriteRequest),
 	}, nil
+}
+
+// getRequestTables retrieves all requested tables from the specified region.
+// The caller must hold db.mu locked for reading.
+func (db *InMemoryDB) getRequestTables(
+	region string,
+	requestItems map[string][]types.WriteRequest,
+) (map[string]*Table, error) {
+	tables := make(map[string]*Table, len(requestItems))
+	regionTables, regionExists := db.Tables[region]
+
+	for tableName := range requestItems {
+		var table *Table
+		if regionExists {
+			if t, tableExists := regionTables[tableName]; tableExists {
+				table = t
+			}
+		}
+
+		if table == nil {
+			return nil, NewResourceNotFoundException(fmt.Sprintf("Table not found: %s", tableName))
+		}
+		tables[tableName] = table
+	}
+
+	return tables, nil
 }
 
 func (db *InMemoryDB) processTableWriteRequests(table *Table, requests []types.WriteRequest) error {
