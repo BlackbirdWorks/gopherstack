@@ -88,6 +88,15 @@ func newIntegrationStack(t *testing.T) *integrationStack {
 	// Dashboard needs clients that talk back to this same Echo instance
 	inMemClient := &dashboard.InMemClient{Handler: e}
 
+	// Increase default timeout for Playwright operations to 60s (as requested by user)
+	// This helps with CI stability on slower runners.
+	// Since browser is global, we set it on any new context or page if needed,
+	// but Playwright doesn't have a global "SetDefaultTimeout" on the browser object directly.
+	// However, many operations in this suite use locator.WaitFor which defaults to 30s.
+	// We'll add a helper or just instruct that future locators should use a higher limit,
+	// OR we can set it on the page if we had a reference here.
+	// Actually, Playwright GO doesn't have a global timeout per se, but we can set it per page.
+
 	cfg, err := config.LoadDefaultConfig(t.Context(),
 		config.WithRegion("us-east-1"),
 		config.WithCredentialsProvider(

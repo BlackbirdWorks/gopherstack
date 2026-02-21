@@ -50,10 +50,10 @@ func TestE2E_DynamoDB_TTL(t *testing.T) {
 	require.NoError(t, err)
 
 	// 3. Verify initial TTL status (DISABLED)
-	require.NoError(t, page.Locator("text=TTL Status").WaitFor())
+	require.NoError(t, page.Locator("text=TTL Status").WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)}))
 	require.NoError(t, page.Locator("span.badge", playwright.PageLocatorOptions{
 		HasText: "DISABLED",
-	}).WaitFor())
+	}).WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)}))
 
 	// 4. Configure TTL via UI
 	require.NoError(t, page.Fill("input[name='attributeName']", "ttl_attr"))
@@ -61,10 +61,10 @@ func TestE2E_DynamoDB_TTL(t *testing.T) {
 	require.NoError(t, page.Click("button:has-text('Update TTL')"))
 
 	// 5. Verify success toast and UI update
-	require.NoError(t, page.Locator("text=TTL enabled successfully").WaitFor())
+	require.NoError(t, page.Locator("text=TTL enabled successfully").WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)}))
 	require.NoError(t, page.Locator("span.badge-success", playwright.PageLocatorOptions{
 		HasText: "ENABLED (ttl_attr)",
-	}).WaitFor())
+	}).WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)}))
 
 	// 6. Verify TTL status via SDK
 	desc, err := stack.dyClient.DescribeTimeToLive(ctx, &dynamodb.DescribeTimeToLiveInput{
@@ -79,10 +79,10 @@ func TestE2E_DynamoDB_TTL(t *testing.T) {
 	require.NoError(t, page.Click("button:has-text('Update TTL')"))
 
 	// 8. Verify success toast and UI update
-	require.NoError(t, page.Locator("text=TTL disabled successfully").WaitFor())
+	require.NoError(t, page.Locator("text=TTL disabled successfully").WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)}))
 	require.NoError(t, page.Locator("span.badge", playwright.PageLocatorOptions{
 		HasText: "DISABLED",
-	}).WaitFor())
+	}).WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)}))
 
 	// 9. Verify TTL status via SDK again
 	desc, err = stack.dyClient.DescribeTimeToLive(ctx, &dynamodb.DescribeTimeToLiveInput{

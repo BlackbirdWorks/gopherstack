@@ -43,7 +43,7 @@ func TestSSMDashboard(t *testing.T) {
 	require.NoError(t, err)
 
 	// Wait for layout and SSM table
-	err = page.Locator("h1:has-text('SSM Parameter Store')").WaitFor()
+	err = page.Locator("h1:has-text('SSM Parameter Store')").WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)})
 	require.NoError(t, err)
 
 	// Step 1: Create a Parameter via HTMX Modal
@@ -73,7 +73,8 @@ func TestSSMDashboard(t *testing.T) {
 	// Verify the new parameter appears
 	paramRow := page.Locator("td:has-text('test-database-password')").First()
 	err = paramRow.WaitFor(playwright.LocatorWaitForOptions{
-		State: playwright.WaitForSelectorStateVisible,
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
 
@@ -90,7 +91,8 @@ func TestSSMDashboard(t *testing.T) {
 
 	// Wait for parameter list back
 	err = paramRow.WaitFor(playwright.LocatorWaitForOptions{
-		State: playwright.WaitForSelectorStateVisible,
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
 
@@ -106,7 +108,8 @@ func TestSSMDashboard(t *testing.T) {
 
 	// Verify the empty state text is rendered
 	err = page.Locator("td:has-text('No parameters found')").WaitFor(playwright.LocatorWaitForOptions{
-		State: playwright.WaitForSelectorStateVisible,
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
 }
