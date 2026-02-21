@@ -24,8 +24,8 @@ var (
 	ErrNoCompressor     = errors.New("data is compressed but no compressor available")
 )
 
-// writeError translates a typed Go error to an S3 ErrorResponse XML payload.
-func writeError(log *slog.Logger, w http.ResponseWriter, r *http.Request, err error) {
+// WriteError translates a typed Go error to an S3 ErrorResponse XML payload.
+func WriteError(log *slog.Logger, w http.ResponseWriter, r *http.Request, err error) {
 	var code string
 	var message string
 	status := http.StatusInternalServerError

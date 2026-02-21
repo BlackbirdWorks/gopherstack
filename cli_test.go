@@ -94,6 +94,7 @@ func TestCLI_BuildLogger(t *testing.T) {
 	assert.NotNil(t, debugLog)
 }
 
+//nolint:paralleltest // uses t.Setenv via parseCLI, which is incompatible with t.Parallel.
 func TestServerStartupAndShutdown(t *testing.T) {
 	cli := parseCLI(t, map[string]string{
 		"PORT": "8123", // use an alternate port to avoid conflicts

@@ -50,7 +50,7 @@ func (h *DynamoDBHandler) WithJanitor(settings Settings) *DynamoDBHandler {
 // StartWorker starts the background janitor if it is configured.
 func (h *DynamoDBHandler) StartWorker(ctx context.Context) error {
 	if h.janitor != nil {
-		h.janitor.Run(ctx)
+		go h.janitor.Run(ctx)
 	}
 
 	return nil

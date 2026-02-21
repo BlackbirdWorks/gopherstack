@@ -37,7 +37,7 @@ func (h *S3Handler) handleBucketOperation(
 	case http.MethodHead:
 		h.headBucket(ctx, w, r, bucket)
 	default:
-		writeError(log, w, r, ErrMethodNotAllowed)
+		WriteError(log, w, r, ErrMethodNotAllowed)
 	}
 }
 
@@ -52,7 +52,7 @@ func (h *S3Handler) routeBucketPut(
 	case r.URL.Query().Has("versioning"):
 		h.putBucketVersioning(ctx, w, r, bucket)
 	case r.URL.Query().Has("tagging"):
-		writeError(log, w, r, ErrNotImplemented)
+		WriteError(log, w, r, ErrNotImplemented)
 	default:
 		h.createBucket(ctx, w, r, bucket)
 	}
@@ -71,7 +71,7 @@ func (h *S3Handler) routeBucketPost(
 		return
 	}
 
-	writeError(log, w, r, ErrMethodNotAllowed)
+	WriteError(log, w, r, ErrMethodNotAllowed)
 }
 
 func (h *S3Handler) routeBucketGet(
@@ -89,7 +89,7 @@ func (h *S3Handler) routeBucketGet(
 	case r.URL.Query().Has("location"):
 		h.getBucketLocation(ctx, w, r, bucket)
 	case r.URL.Query().Has("tagging"):
-		writeError(log, w, r, ErrNotImplemented)
+		WriteError(log, w, r, ErrNotImplemented)
 	case r.URL.Query().Get("list-type") == "2":
 		h.listObjectsV2(ctx, w, r, bucket)
 	default:
@@ -102,7 +102,7 @@ func (h *S3Handler) listBuckets(ctx context.Context, w http.ResponseWriter, r *h
 	log := logger.Load(ctx)
 	out, err := h.Backend.ListBuckets(ctx, &s3.ListBucketsInput{})
 	if err != nil {
-		writeError(log, w, r, err)
+		WriteError(log, w, r, err)
 
 		return
 	}
@@ -140,7 +140,7 @@ func (h *S3Handler) createBucket(
 	// Read the body to check for LocationConstraint
 	body, err := httputil.ReadBody(r)
 	if err != nil {
-		writeError(log, w, r, err)
+		WriteError(log, w, r, err)
 
 		return
 	}
@@ -185,7 +185,7 @@ func (h *S3Handler) createBucket(
 	}
 
 	if err != nil {
-		writeError(log, w, r, err)
+		WriteError(log, w, r, err)
 
 		return
 	}
@@ -211,19 +211,19 @@ func (h *S3Handler) deleteBucket(
 
 	_, err := h.Backend.DeleteBucket(ctx, &s3.DeleteBucketInput{Bucket: aws.String(bucketName)})
 	if errors.Is(err, ErrNoSuchBucket) {
-		writeError(log, w, r, err)
+		WriteError(log, w, r, err)
 
 		return
 	}
 
 	if errors.Is(err, ErrBucketNotEmpty) {
-		writeError(log, w, r, err)
+		WriteError(log, w, r, err)
 
 		return
 	}
 
 	if err != nil {
-		writeError(log, w, r, err)
+		WriteError(log, w, r, err)
 
 		return
 	}
@@ -263,13 +263,13 @@ func (h *S3Handler) listObjects(
 		MaxKeys: aws.Int32(maxKeys),
 	})
 	if errors.Is(err, ErrNoSuchBucket) {
-		writeError(log, w, r, err)
+		WriteError(log, w, r, err)
 
 		return
 	}
 
 	if err != nil {
-		writeError(log, w, r, err)
+		WriteError(log, w, r, err)
 
 		return
 	}
@@ -449,7 +449,7 @@ func (h *S3Handler) putBucketVersioning(
 	log := logger.Load(ctx)
 	var conf VersioningConfiguration
 	if err := xml.NewDecoder(r.Body).Decode(&conf); err != nil {
-		writeError(log, w, r, ErrInvalidArgument)
+		WriteError(log, w, r, ErrInvalidArgument)
 
 		return
 	}
@@ -461,11 +461,7 @@ func (h *S3Handler) putBucketVersioning(
 		},
 	})
 	if err != nil {
-		if errors.Is(err, ErrNoSuchBucket) {
-			writeError(log, w, r, err)
-		} else {
-			writeError(log, w, r, err)
-		}
+		WriteError(log, w, r, err)
 
 		return
 	}
@@ -486,11 +482,7 @@ func (h *S3Handler) getBucketVersioning(
 		&s3.GetBucketVersioningInput{Bucket: aws.String(bucketName)},
 	)
 	if err != nil {
-		if errors.Is(err, ErrNoSuchBucket) {
-			writeError(log, w, r, err)
-		} else {
-			writeError(log, w, r, err)
-		}
+		WriteError(log, w, r, err)
 
 		return
 	}
@@ -520,13 +512,13 @@ func (h *S3Handler) listObjectVersions(
 		Prefix: aws.String(prefix),
 	})
 	if errors.Is(err, ErrNoSuchBucket) {
-		writeError(log, w, r, err)
+		WriteError(log, w, r, err)
 
 		return
 	}
 
 	if err != nil {
-		writeError(log, w, r, err)
+		WriteError(log, w, r, err)
 
 		return
 	}

@@ -29,9 +29,10 @@ import (
 )
 
 const (
-	defaultPort    = "8000"
-	defaultRegion  = "us-east-1"
-	defaultTimeout = 120 * time.Second
+	defaultPort     = "8000"
+	defaultRegion   = "us-east-1"
+	defaultTimeout  = 30 * time.Second
+	shutdownTimeout = 5 * time.Second
 )
 
 // CLI holds all command-line / environment-variable configuration for Gopherstack.
@@ -134,7 +135,7 @@ func run(ctx context.Context, cli CLI) error {
 		awscfg.WithHTTPClient(inMemClient),
 	)
 	if err != nil {
-		log.Error("Failed to load AWS config", "error", err)
+		log.ErrorContext(ctx, "Failed to load AWS config", "error", err)
 
 		return err
 	}
@@ -166,9 +167,9 @@ func run(ctx context.Context, cli CLI) error {
 	inMemMux.Handle("/", e)
 
 	if cli.Demo {
-		log.Info("Loading demo data...")
+		log.InfoContext(ctx, "Loading demo data...")
 		if err = demo.LoadData(ctx, log, cli.ddbClient, cli.s3Client); err != nil {
-			log.Error("Failed to load demo data", "error", err)
+			log.ErrorContext(ctx, "Failed to load demo data", "error", err)
 		}
 	}
 
@@ -237,10 +238,10 @@ func startServer(ctx context.Context, log *slog.Logger, port string, e *echo.Ech
 		port = ":" + port
 	}
 
-	log.Info("Starting Gopherstack (DynamoDB + S3)", "port", port)
-	log.Info("  DynamoDB endpoint", "url", "http://localhost"+port)
-	log.Info("  S3 endpoint      ", "url", "http://localhost"+port+" (path-style)")
-	log.Info("  Dashboard        ", "url", "http://localhost"+port+"/dashboard")
+	log.InfoContext(ctx, "Starting Gopherstack (DynamoDB + S3)", "port", port)
+	log.InfoContext(ctx, "  DynamoDB endpoint", "url", "http://localhost"+port)
+	log.InfoContext(ctx, "  S3 endpoint      ", "url", "http://localhost"+port+" (path-style)")
+	log.InfoContext(ctx, "  Dashboard        ", "url", "http://localhost"+port+"/dashboard")
 
 	server := &http.Server{
 		Addr:         port,
@@ -259,16 +260,20 @@ func startServer(ctx context.Context, log *slog.Logger, port string, e *echo.Ech
 
 	select {
 	case <-ctx.Done():
-		log.Info("Shutting down server...")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		log.InfoContext(ctx, "Shutting down server...")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
+
 		if err := server.Shutdown(shutdownCtx); err != nil {
-			log.Error("Server shutdown failed", "error", err)
+			log.ErrorContext(ctx, "Server shutdown failed", "error", err)
+
 			return err
 		}
+
 		return nil
 	case err := <-errChan:
-		log.Error("Failed to start server", "error", err)
+		log.ErrorContext(ctx, "Failed to start server", "error", err)
+
 		return err
 	}
 }

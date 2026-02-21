@@ -64,11 +64,11 @@ func (h *S3Handler) handleListObjectsV2Error(
 	err error,
 ) {
 	if errors.Is(err, ErrNoSuchBucket) {
-		writeError(log, w, r, err)
+		WriteError(log, w, r, err)
 
 		return
 	}
-	writeError(log, w, r, err)
+	WriteError(log, w, r, err)
 }
 
 func (h *S3Handler) renderListObjectsV2Response(

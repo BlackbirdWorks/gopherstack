@@ -62,7 +62,7 @@ func (h *S3Handler) WithJanitor(settings Settings) *S3Handler {
 // StartWorker starts the background janitor if it is configured.
 func (h *S3Handler) StartWorker(ctx context.Context) error {
 	if h.janitor != nil {
-		h.janitor.Run(ctx)
+		go h.janitor.Run(ctx)
 	}
 
 	return nil
@@ -132,7 +132,7 @@ func (h *S3Handler) Handler() echo.HandlerFunc {
 
 		if bucketName == "" {
 			if requestWithCtx.Method != http.MethodGet {
-				writeError(log, sw, requestWithCtx, ErrMethodNotAllowed)
+				WriteError(log, sw, requestWithCtx, ErrMethodNotAllowed)
 
 				return nil
 			}
@@ -219,7 +219,7 @@ func (h *S3Handler) resolveBucketAndKey(
 		bucket := vhBucket
 		key := path
 		if key != "" && !IsValidObjectKey(key) {
-			writeError(log, w, r, ErrInvalidArgument)
+			WriteError(log, w, r, ErrInvalidArgument)
 
 			return "", "", false
 		}
@@ -232,7 +232,7 @@ func (h *S3Handler) resolveBucketAndKey(
 	if path != "" && path != "/" {
 		bucket = parts[0]
 		if !IsValidBucketName(bucket) {
-			writeError(log, w, r, ErrInvalidBucketName)
+			WriteError(log, w, r, ErrInvalidBucketName)
 
 			return "", "", false
 		}
@@ -240,7 +240,7 @@ func (h *S3Handler) resolveBucketAndKey(
 		if len(parts) > 1 {
 			key = parts[1]
 			if key != "" && !IsValidObjectKey(key) {
-				writeError(log, w, r, ErrInvalidArgument)
+				WriteError(log, w, r, ErrInvalidArgument)
 
 				return "", "", false
 			}

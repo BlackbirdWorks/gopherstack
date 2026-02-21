@@ -249,7 +249,8 @@ func TestIntegration_S3_ObjectCRUD(t *testing.T) {
 
 				var noSuchBucket *types.NotFound
 				require.ErrorAs(t, err, &noSuchBucket)
-				// Note: AWS SDK uses types.NotFound for HeadBucket specifically, whereas GetObject on a bad bucket uses NoSuchBucket.
+				// Note: AWS SDK uses types.NotFound for HeadBucket specifically,
+				// whereas GetObject on a bad bucket uses NoSuchBucket.
 			},
 		},
 		{
