@@ -51,42 +51,42 @@ const (
 
 // MessageAttributeValue holds a message attribute value.
 type MessageAttributeValue struct {
-	BinaryValue []byte
 	DataType    string
 	StringValue string
+	BinaryValue []byte
 }
 
 // Message represents an SQS message.
 type Message struct {
-	MessageAttributes      map[string]MessageAttributeValue
-	Attributes             map[string]string
-	Body                   string
-	MessageGroupID         string
-	MessageDeduplicationID string
-	MessageID              string
-	ReceiptHandle          string
-	MD5OfBody              string
-	SentTimestamp          int64
+	MessageAttributes       map[string]MessageAttributeValue
+	Attributes              map[string]string
+	Body                    string
+	MessageGroupID          string
+	MessageDeduplicationID  string
+	MessageID               string
+	ReceiptHandle           string
+	MD5OfBody               string
+	SentTimestamp           int64
 	ApproximateReceiveCount int
 }
 
 // InFlightMessage wraps a message that has been received but not deleted.
 type InFlightMessage struct {
 	VisibleAt     time.Time
-	ReceiptHandle string
 	Msg           *Message
+	ReceiptHandle string
 }
 
 // Queue represents an SQS queue.
 type Queue struct {
-	messages         []*Message
-	inFlightMessages []*InFlightMessage
 	deduplicationMsgIDs map[string]string
-	DeduplicationIDs map[string]time.Time
-	Attributes       map[string]string
-	Name             string
-	URL              string
-	IsFIFO           bool
+	DeduplicationIDs    map[string]time.Time
+	Attributes          map[string]string
+	Name                string
+	URL                 string
+	messages            []*Message
+	inFlightMessages    []*InFlightMessage
+	IsFIFO              bool
 }
 
 // CreateQueueInput is the input for CreateQueue.
@@ -128,8 +128,8 @@ type GetQueueURLOutput struct {
 
 // GetQueueAttributesInput is the input for GetQueueAttributes.
 type GetQueueAttributesInput struct {
-	AttributeNames []string
 	QueueURL       string
+	AttributeNames []string
 }
 
 // GetQueueAttributesOutput is the output for GetQueueAttributes.
@@ -161,8 +161,8 @@ type SendMessageOutput struct {
 
 // ReceiveMessageInput is the input for ReceiveMessage.
 type ReceiveMessageInput struct {
-	AttributeNames      []string
 	QueueURL            string
+	AttributeNames      []string
 	MaxNumberOfMessages int
 	VisibilityTimeout   int
 	WaitTimeSeconds     int
@@ -198,8 +198,8 @@ type SendMessageBatchEntry struct {
 
 // SendMessageBatchInput is the input for SendMessageBatch.
 type SendMessageBatchInput struct {
-	Entries  []SendMessageBatchEntry
 	QueueURL string
+	Entries  []SendMessageBatchEntry
 }
 
 // SendMessageBatchResultEntry is a successful entry in a SendMessageBatch result.
@@ -231,8 +231,8 @@ type DeleteMessageBatchEntry struct {
 
 // DeleteMessageBatchInput is the input for DeleteMessageBatch.
 type DeleteMessageBatchInput struct {
-	Entries  []DeleteMessageBatchEntry
 	QueueURL string
+	Entries  []DeleteMessageBatchEntry
 }
 
 // DeleteMessageBatchResultEntry is a successful entry in a DeleteMessageBatch result.
@@ -308,10 +308,10 @@ type GetQueueURLResult struct {
 
 // GetQueueURLResponse is the XML response for GetQueueUrl.
 type GetQueueURLResponse struct {
-	XMLName          xml.Name            `xml:"GetQueueUrlResponse"`
-	GetQueueURLResult GetQueueURLResult  `xml:"GetQueueUrlResult"`
-	ResponseMetadata XMLResponseMetadata `xml:"ResponseMetadata"`
-	Xmlns            string              `xml:"xmlns,attr"`
+	XMLName           xml.Name            `xml:"GetQueueUrlResponse"`
+	GetQueueURLResult GetQueueURLResult   `xml:"GetQueueUrlResult"`
+	ResponseMetadata  XMLResponseMetadata `xml:"ResponseMetadata"`
+	Xmlns             string              `xml:"xmlns,attr"`
 }
 
 // ListQueuesResult holds the result of a ListQueues operation.
@@ -322,9 +322,9 @@ type ListQueuesResult struct {
 // ListQueuesResponse is the XML response for ListQueues.
 type ListQueuesResponse struct {
 	XMLName          xml.Name            `xml:"ListQueuesResponse"`
-	ListQueuesResult ListQueuesResult    `xml:"ListQueuesResult"`
 	ResponseMetadata XMLResponseMetadata `xml:"ResponseMetadata"`
 	Xmlns            string              `xml:"xmlns,attr"`
+	ListQueuesResult ListQueuesResult    `xml:"ListQueuesResult"`
 }
 
 // GetQueueAttributesResult holds the result of a GetQueueAttributes operation.
@@ -335,9 +335,9 @@ type GetQueueAttributesResult struct {
 // GetQueueAttributesResponse is the XML response for GetQueueAttributes.
 type GetQueueAttributesResponse struct {
 	XMLName                  xml.Name                 `xml:"GetQueueAttributesResponse"`
-	GetQueueAttributesResult GetQueueAttributesResult `xml:"GetQueueAttributesResult"`
 	ResponseMetadata         XMLResponseMetadata      `xml:"ResponseMetadata"`
 	Xmlns                    string                   `xml:"xmlns,attr"`
+	GetQueueAttributesResult GetQueueAttributesResult `xml:"GetQueueAttributesResult"`
 }
 
 // SetQueueAttributesResponse is the XML response for SetQueueAttributes.
@@ -363,11 +363,11 @@ type SendMessageResponse struct {
 
 // XMLMessage represents a message in a ReceiveMessage XML response.
 type XMLMessage struct {
-	Attributes    []XMLAttribute `xml:"Attribute"`
 	MessageID     string         `xml:"MessageId"`
 	ReceiptHandle string         `xml:"ReceiptHandle"`
 	MD5OfBody     string         `xml:"MD5OfBody"`
 	Body          string         `xml:"Body"`
+	Attributes    []XMLAttribute `xml:"Attribute"`
 }
 
 // ReceiveMessageResult holds the result of a ReceiveMessage operation.
@@ -378,9 +378,9 @@ type ReceiveMessageResult struct {
 // ReceiveMessageResponse is the XML response for ReceiveMessage.
 type ReceiveMessageResponse struct {
 	XMLName              xml.Name             `xml:"ReceiveMessageResponse"`
-	ReceiveMessageResult ReceiveMessageResult `xml:"ReceiveMessageResult"`
 	ResponseMetadata     XMLResponseMetadata  `xml:"ResponseMetadata"`
 	Xmlns                string               `xml:"xmlns,attr"`
+	ReceiveMessageResult ReceiveMessageResult `xml:"ReceiveMessageResult"`
 }
 
 // DeleteMessageResponse is the XML response for DeleteMessage.
@@ -421,9 +421,9 @@ type XMLSendMessageBatchResult struct {
 // SendMessageBatchResponse is the XML response for SendMessageBatch.
 type SendMessageBatchResponse struct {
 	XMLName                xml.Name                  `xml:"SendMessageBatchResponse"`
-	SendMessageBatchResult XMLSendMessageBatchResult `xml:"SendMessageBatchResult"`
 	ResponseMetadata       XMLResponseMetadata       `xml:"ResponseMetadata"`
 	Xmlns                  string                    `xml:"xmlns,attr"`
+	SendMessageBatchResult XMLSendMessageBatchResult `xml:"SendMessageBatchResult"`
 }
 
 // XMLDeleteMessageBatchResultEntry is a successful batch delete entry.
@@ -448,9 +448,9 @@ type XMLDeleteMessageBatchResult struct {
 // DeleteMessageBatchResponse is the XML response for DeleteMessageBatch.
 type DeleteMessageBatchResponse struct {
 	XMLName                  xml.Name                    `xml:"DeleteMessageBatchResponse"`
-	DeleteMessageBatchResult XMLDeleteMessageBatchResult `xml:"DeleteMessageBatchResult"`
 	ResponseMetadata         XMLResponseMetadata         `xml:"ResponseMetadata"`
 	Xmlns                    string                      `xml:"xmlns,attr"`
+	DeleteMessageBatchResult XMLDeleteMessageBatchResult `xml:"DeleteMessageBatchResult"`
 }
 
 // PurgeQueueResponse is the XML response for PurgeQueue.

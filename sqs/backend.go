@@ -4,6 +4,8 @@ import (
 	"crypto/md5" //nolint:gosec // MD5 used for SQS wire protocol compatibility, not security
 	"encoding/hex"
 	"fmt"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -98,19 +100,17 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 	isFIFO := strings.HasSuffix(input.QueueName, fifoSuffix)
 	attrs := buildDefaultAttributes(input.QueueName, isFIFO)
 
-	for k, v := range input.Attributes {
-		attrs[k] = v
-	}
+	maps.Copy(attrs, input.Attributes)
 
 	queueURL := "http://" + input.Endpoint + "/" + accountID + "/" + input.QueueName
 
 	q := &Queue{
-		Name:             input.QueueName,
-		URL:              queueURL,
-		IsFIFO:           isFIFO,
-		Attributes:       attrs,
-		DeduplicationIDs: make(map[string]time.Time),
-		deduplicationMsgIDs:      make(map[string]string),
+		Name:                input.QueueName,
+		URL:                 queueURL,
+		IsFIFO:              isFIFO,
+		Attributes:          attrs,
+		DeduplicationIDs:    make(map[string]time.Time),
+		deduplicationMsgIDs: make(map[string]string),
 	}
 
 	b.queues[input.QueueName] = q
@@ -205,24 +205,12 @@ func computeDynamicAttributes(q *Queue) map[string]string {
 
 // containsAll reports whether names contains the "All" sentinel.
 func containsAll(names []string) bool {
-	for _, n := range names {
-		if n == attrAll {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(names, attrAll)
 }
 
 // containsStr reports whether slice contains s.
 func containsStr(slice []string, s string) bool {
-	for _, v := range slice {
-		if v == s {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(slice, s)
 }
 
 // SetQueueAttributes updates attributes on an existing queue.
@@ -237,9 +225,7 @@ func (b *InMemoryBackend) SetQueueAttributes(input *SetQueueAttributesInput) err
 		return ErrQueueNotFound
 	}
 
-	for k, v := range input.Attributes {
-		q.Attributes[k] = v
-	}
+	maps.Copy(q.Attributes, input.Attributes)
 
 	q.Attributes[attrLastModifiedTimestamp] = strconv.FormatInt(time.Now().Unix(), 10)
 
@@ -261,7 +247,12 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 	md5Body := computeMD5(input.MessageBody)
 
 	if q.IsFIFO {
-		if out, dup := checkDedup(q, input.MessageDeduplicationID, md5Body, q.Attributes[attrContentBasedDeduplication]); dup {
+		if out, dup := checkDedup(
+			q,
+			input.MessageDeduplicationID,
+			md5Body,
+			q.Attributes[attrContentBasedDeduplication],
+		); dup {
 			return out, nil
 		}
 	}

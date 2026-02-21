@@ -2,7 +2,7 @@ package sqs_test
 
 import (
 	"fmt"
-	"strings"
+	"strconv"
 	"testing"
 	"time"
 
@@ -327,7 +327,7 @@ func TestDeleteMessageBatch(t *testing.T) {
 	entries := make([]sqs.DeleteMessageBatchEntry, 0, len(recvOut.Messages))
 	for i, msg := range recvOut.Messages {
 		entries = append(entries, sqs.DeleteMessageBatchEntry{
-			ID:            fmt.Sprintf("%d", i+1),
+			ID:            strconv.Itoa(i + 1),
 			ReceiptHandle: msg.ReceiptHandle,
 		})
 	}
@@ -418,7 +418,7 @@ func TestSendMessageBatchTooManyEntries(t *testing.T) {
 	entries := make([]sqs.SendMessageBatchEntry, 11)
 	for i := range entries {
 		entries[i] = sqs.SendMessageBatchEntry{
-			ID:          fmt.Sprintf("%d", i+1),
+			ID:          strconv.Itoa(i + 1),
 			MessageBody: "body",
 		}
 	}
@@ -454,7 +454,7 @@ func TestLongPolling(t *testing.T) {
 	start := time.Now()
 
 	out, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
-		QueueURL:        qURL,
+		QueueURL:            qURL,
 		MaxNumberOfMessages: 1,
 		VisibilityTimeout:   30,
 		WaitTimeSeconds:     1,
@@ -508,5 +508,5 @@ func TestQueueNameAttribute(t *testing.T) {
 	require.NoError(t, err)
 
 	arn := out.Attributes["QueueArn"]
-	assert.True(t, strings.Contains(arn, "test-queue"), "ARN should contain queue name")
+	assert.Contains(t, arn, "test-queue", "ARN should contain queue name")
 }

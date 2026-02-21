@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/sqs"
 )
 
@@ -342,4 +343,388 @@ func TestHandlerExtractOperation(t *testing.T) {
 
 	assert.Equal(t, "SendMessage", h.ExtractOperation(c))
 	assert.Equal(t, "q", h.ExtractResource(c))
+}
+
+func TestHandlerName(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	assert.Equal(t, "SQS", h.Name())
+	assert.NotEmpty(t, h.GetSupportedOperations())
+	assert.Equal(t, 75, h.MatchPriority())
+}
+
+func TestHandlerDeleteQueue(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createRec := doRequest(t, h, formCreateQueue("del-queue"))
+
+	var createResp sqs.CreateQueueResponse
+	require.NoError(t, xml.Unmarshal(createRec.Body.Bytes(), &createResp))
+
+	rec := doRequest(t, h, url.Values{
+		"Action":   {"DeleteQueue"},
+		"QueueUrl": {createResp.CreateQueueResult.QueueURL},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp sqs.DeleteQueueResponse
+	err := xml.Unmarshal(rec.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.NotEmpty(t, resp.ResponseMetadata.RequestID)
+}
+
+func TestHandlerDeleteQueueNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, url.Values{
+		"Action":   {"DeleteQueue"},
+		"QueueUrl": {"http://localhost/000000000000/noqueue"},
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandlerGetQueueAttributes(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createRec := doRequest(t, h, formCreateQueue("attr-queue"))
+
+	var createResp sqs.CreateQueueResponse
+	require.NoError(t, xml.Unmarshal(createRec.Body.Bytes(), &createResp))
+
+	rec := doRequest(t, h, url.Values{
+		"Action":          {"GetQueueAttributes"},
+		"QueueUrl":        {createResp.CreateQueueResult.QueueURL},
+		"AttributeName.1": {"All"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp sqs.GetQueueAttributesResponse
+	err := xml.Unmarshal(rec.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.NotEmpty(t, resp.GetQueueAttributesResult.Attributes)
+}
+
+func TestHandlerGetQueueAttributesNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, url.Values{
+		"Action":   {"GetQueueAttributes"},
+		"QueueUrl": {"http://localhost/000000000000/noqueue"},
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandlerSetQueueAttributes(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createRec := doRequest(t, h, formCreateQueue("set-attr-queue"))
+
+	var createResp sqs.CreateQueueResponse
+	require.NoError(t, xml.Unmarshal(createRec.Body.Bytes(), &createResp))
+
+	rec := doRequest(t, h, url.Values{
+		"Action":            {"SetQueueAttributes"},
+		"QueueUrl":          {createResp.CreateQueueResult.QueueURL},
+		"Attribute.1.Name":  {"VisibilityTimeout"},
+		"Attribute.1.Value": {"60"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp sqs.SetQueueAttributesResponse
+	err := xml.Unmarshal(rec.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.NotEmpty(t, resp.ResponseMetadata.RequestID)
+}
+
+func TestHandlerSetQueueAttributesNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, url.Values{
+		"Action":            {"SetQueueAttributes"},
+		"QueueUrl":          {"http://localhost/000000000000/noqueue"},
+		"Attribute.1.Name":  {"VisibilityTimeout"},
+		"Attribute.1.Value": {"60"},
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandlerChangeMessageVisibility(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createRec := doRequest(t, h, formCreateQueue("vis-queue"))
+
+	var createResp sqs.CreateQueueResponse
+	require.NoError(t, xml.Unmarshal(createRec.Body.Bytes(), &createResp))
+
+	qURL := createResp.CreateQueueResult.QueueURL
+
+	doRequest(t, h, url.Values{
+		"Action":      {"SendMessage"},
+		"QueueUrl":    {qURL},
+		"MessageBody": {"hello"},
+	})
+
+	recvRec := doRequest(t, h, url.Values{
+		"Action":   {"ReceiveMessage"},
+		"QueueUrl": {qURL},
+	})
+
+	var recvResp sqs.ReceiveMessageResponse
+	require.NoError(t, xml.Unmarshal(recvRec.Body.Bytes(), &recvResp))
+	require.Len(t, recvResp.ReceiveMessageResult.Messages, 1)
+
+	receipt := recvResp.ReceiveMessageResult.Messages[0].ReceiptHandle
+
+	rec := doRequest(t, h, url.Values{
+		"Action":            {"ChangeMessageVisibility"},
+		"QueueUrl":          {qURL},
+		"ReceiptHandle":     {receipt},
+		"VisibilityTimeout": {"10"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp sqs.ChangeMessageVisibilityResponse
+	err := xml.Unmarshal(rec.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.NotEmpty(t, resp.ResponseMetadata.RequestID)
+}
+
+func TestHandlerChangeMessageVisibilityNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createRec := doRequest(t, h, formCreateQueue("vis-queue"))
+
+	var createResp sqs.CreateQueueResponse
+	require.NoError(t, xml.Unmarshal(createRec.Body.Bytes(), &createResp))
+
+	rec := doRequest(t, h, url.Values{
+		"Action":            {"ChangeMessageVisibility"},
+		"QueueUrl":          {createResp.CreateQueueResult.QueueURL},
+		"ReceiptHandle":     {"invalid-receipt"},
+		"VisibilityTimeout": {"10"},
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandlerSendMessageBatch(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createRec := doRequest(t, h, formCreateQueue("batch-queue"))
+
+	var createResp sqs.CreateQueueResponse
+	require.NoError(t, xml.Unmarshal(createRec.Body.Bytes(), &createResp))
+
+	qURL := createResp.CreateQueueResult.QueueURL
+
+	rec := doRequest(t, h, url.Values{
+		"Action":                            {"SendMessageBatch"},
+		"QueueUrl":                          {qURL},
+		"SendMessageBatchRequestEntry.1.Id": {"msg1"},
+		"SendMessageBatchRequestEntry.1.MessageBody": {"hello1"},
+		"SendMessageBatchRequestEntry.2.Id":          {"msg2"},
+		"SendMessageBatchRequestEntry.2.MessageBody": {"hello2"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp sqs.SendMessageBatchResponse
+	err := xml.Unmarshal(rec.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.Len(t, resp.SendMessageBatchResult.Successful, 2)
+}
+
+func TestHandlerSendMessageBatchNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, url.Values{
+		"Action":                            {"SendMessageBatch"},
+		"QueueUrl":                          {"http://localhost/000000000000/noqueue"},
+		"SendMessageBatchRequestEntry.1.Id": {"msg1"},
+		"SendMessageBatchRequestEntry.1.MessageBody": {"hello"},
+	})
+	// Batch returns 200 with failures for individual entries on non-existent queue
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp sqs.SendMessageBatchResponse
+	err := xml.Unmarshal(rec.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.Len(t, resp.SendMessageBatchResult.Failed, 1)
+}
+
+func TestHandlerDeleteMessageBatch(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createRec := doRequest(t, h, formCreateQueue("del-batch-queue"))
+
+	var createResp sqs.CreateQueueResponse
+	require.NoError(t, xml.Unmarshal(createRec.Body.Bytes(), &createResp))
+
+	qURL := createResp.CreateQueueResult.QueueURL
+
+	doRequest(t, h, url.Values{
+		"Action":      {"SendMessage"},
+		"QueueUrl":    {qURL},
+		"MessageBody": {"hello"},
+	})
+
+	recvRec := doRequest(t, h, url.Values{
+		"Action":   {"ReceiveMessage"},
+		"QueueUrl": {qURL},
+	})
+
+	var recvResp sqs.ReceiveMessageResponse
+	require.NoError(t, xml.Unmarshal(recvRec.Body.Bytes(), &recvResp))
+	require.Len(t, recvResp.ReceiveMessageResult.Messages, 1)
+
+	receipt := recvResp.ReceiveMessageResult.Messages[0].ReceiptHandle
+
+	rec := doRequest(t, h, url.Values{
+		"Action":                              {"DeleteMessageBatch"},
+		"QueueUrl":                            {qURL},
+		"DeleteMessageBatchRequestEntry.1.Id": {"entry1"},
+		"DeleteMessageBatchRequestEntry.1.ReceiptHandle": {receipt},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp sqs.DeleteMessageBatchResponse
+	err := xml.Unmarshal(rec.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.Len(t, resp.DeleteMessageBatchResult.Successful, 1)
+}
+
+func TestHandlerDeleteMessageBatchNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, url.Values{
+		"Action":                              {"DeleteMessageBatch"},
+		"QueueUrl":                            {"http://localhost/000000000000/noqueue"},
+		"DeleteMessageBatchRequestEntry.1.Id": {"entry1"},
+		"DeleteMessageBatchRequestEntry.1.ReceiptHandle": {"some-receipt"},
+	})
+	// Batch returns 200 with failures for individual entries on non-existent queue
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp sqs.DeleteMessageBatchResponse
+	err := xml.Unmarshal(rec.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.Len(t, resp.DeleteMessageBatchResult.Failed, 1)
+}
+
+func TestHandlerDeleteMessageBatchFailedEntry(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createRec := doRequest(t, h, formCreateQueue("del-fail-queue"))
+
+	var createResp sqs.CreateQueueResponse
+	require.NoError(t, xml.Unmarshal(createRec.Body.Bytes(), &createResp))
+
+	qURL := createResp.CreateQueueResult.QueueURL
+
+	rec := doRequest(t, h, url.Values{
+		"Action":                              {"DeleteMessageBatch"},
+		"QueueUrl":                            {qURL},
+		"DeleteMessageBatchRequestEntry.1.Id": {"entry1"},
+		"DeleteMessageBatchRequestEntry.1.ReceiptHandle": {"invalid-receipt"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp sqs.DeleteMessageBatchResponse
+	err := xml.Unmarshal(rec.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.Len(t, resp.DeleteMessageBatchResult.Failed, 1)
+}
+
+func TestHandlerReceiveMessageWithVisibilityTimeout(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createRec := doRequest(t, h, formCreateQueue("vt-queue"))
+
+	var createResp sqs.CreateQueueResponse
+	require.NoError(t, xml.Unmarshal(createRec.Body.Bytes(), &createResp))
+
+	qURL := createResp.CreateQueueResult.QueueURL
+
+	doRequest(t, h, url.Values{
+		"Action":      {"SendMessage"},
+		"QueueUrl":    {qURL},
+		"MessageBody": {"hello"},
+	})
+
+	rec := doRequest(t, h, url.Values{
+		"Action":            {"ReceiveMessage"},
+		"QueueUrl":          {qURL},
+		"VisibilityTimeout": {"30"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp sqs.ReceiveMessageResponse
+	err := xml.Unmarshal(rec.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.Len(t, resp.ReceiveMessageResult.Messages, 1)
+}
+
+func TestHandlerPurgeQueueNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, url.Values{
+		"Action":   {"PurgeQueue"},
+		"QueueUrl": {"http://localhost/000000000000/noqueue"},
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandlerDeleteMessageNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createRec := doRequest(t, h, formCreateQueue("del-msg-queue"))
+
+	var createResp sqs.CreateQueueResponse
+	require.NoError(t, xml.Unmarshal(createRec.Body.Bytes(), &createResp))
+
+	rec := doRequest(t, h, url.Values{
+		"Action":        {"DeleteMessage"},
+		"QueueUrl":      {createResp.CreateQueueResult.QueueURL},
+		"ReceiptHandle": {"invalid-receipt"},
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandlerGetQueueURLNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, url.Values{
+		"Action":    {"GetQueueUrl"},
+		"QueueName": {"nonexistent-queue"},
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestProviderNameAndInit(t *testing.T) {
+	t.Parallel()
+
+	p := &sqs.Provider{}
+	assert.Equal(t, "SQS", p.Name())
+
+	log := logger.NewLogger(slog.LevelDebug)
+	appCtx := &service.AppContext{Logger: log}
+	svc, err := p.Init(appCtx)
+	require.NoError(t, err)
+	assert.NotNil(t, svc)
 }

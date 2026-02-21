@@ -67,6 +67,9 @@ func (h *Handler) RouteMatcher() service.Matcher {
 // than path-based matchers (e.g. Dashboard at 50), so content-type matching runs second.
 const sqsMatchPriority = 75
 
+// unknownOperation is the default operation name returned when the action cannot be determined.
+const unknownOperation = "Unknown"
+
 // MatchPriority returns the routing priority for the SQS handler.
 func (h *Handler) MatchPriority() int {
 	return sqsMatchPriority
@@ -76,19 +79,19 @@ func (h *Handler) MatchPriority() int {
 func (h *Handler) ExtractOperation(c *echo.Context) string {
 	body, err := httputil.ReadBody(c.Request())
 	if err != nil {
-		return "Unknown"
+		return unknownOperation
 	}
 
 	form, err := url.ParseQuery(string(body))
 	if err != nil {
-		return "Unknown"
+		return unknownOperation
 	}
 
 	if action := form.Get("Action"); action != "" {
 		return action
 	}
 
-	return "Unknown"
+	return unknownOperation
 }
 
 // ExtractResource extracts the queue name from the request form body.
@@ -141,7 +144,13 @@ func (h *Handler) Handler() echo.HandlerFunc {
 }
 
 // dispatch routes the action to the appropriate handler method.
-func (h *Handler) dispatch(ctx context.Context, w http.ResponseWriter, r *http.Request, form url.Values, action, requestID string) {
+func (h *Handler) dispatch(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	form url.Values,
+	action, requestID string,
+) {
 	switch action {
 	case "CreateQueue":
 		h.handleCreateQueue(ctx, w, r, form, requestID)
@@ -174,7 +183,13 @@ func (h *Handler) dispatch(ctx context.Context, w http.ResponseWriter, r *http.R
 	}
 }
 
-func (h *Handler) handleCreateQueue(ctx context.Context, w http.ResponseWriter, r *http.Request, form url.Values, requestID string) {
+func (h *Handler) handleCreateQueue(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	form url.Values,
+	requestID string,
+) {
 	endpoint := h.Endpoint
 	if endpoint == "" {
 		endpoint = r.Host
@@ -201,7 +216,13 @@ func (h *Handler) handleCreateQueue(ctx context.Context, w http.ResponseWriter, 
 	})
 }
 
-func (h *Handler) handleDeleteQueue(_ context.Context, w http.ResponseWriter, _ *http.Request, form url.Values, requestID string) {
+func (h *Handler) handleDeleteQueue(
+	_ context.Context,
+	w http.ResponseWriter,
+	_ *http.Request,
+	form url.Values,
+	requestID string,
+) {
 	if err := h.Backend.DeleteQueue(&DeleteQueueInput{QueueURL: form.Get("QueueUrl")}); err != nil {
 		h.writeError(w, err, requestID)
 
@@ -214,7 +235,13 @@ func (h *Handler) handleDeleteQueue(_ context.Context, w http.ResponseWriter, _ 
 	})
 }
 
-func (h *Handler) handleListQueues(_ context.Context, w http.ResponseWriter, _ *http.Request, form url.Values, requestID string) {
+func (h *Handler) handleListQueues(
+	_ context.Context,
+	w http.ResponseWriter,
+	_ *http.Request,
+	form url.Values,
+	requestID string,
+) {
 	out, err := h.Backend.ListQueues(&ListQueuesInput{
 		QueueNamePrefix: form.Get("QueueNamePrefix"),
 	})
@@ -231,7 +258,13 @@ func (h *Handler) handleListQueues(_ context.Context, w http.ResponseWriter, _ *
 	})
 }
 
-func (h *Handler) handleGetQueueURL(_ context.Context, w http.ResponseWriter, _ *http.Request, form url.Values, requestID string) {
+func (h *Handler) handleGetQueueURL(
+	_ context.Context,
+	w http.ResponseWriter,
+	_ *http.Request,
+	form url.Values,
+	requestID string,
+) {
 	out, err := h.Backend.GetQueueURL(&GetQueueURLInput{QueueName: form.Get("QueueName")})
 	if err != nil {
 		h.writeError(w, err, requestID)
@@ -246,7 +279,13 @@ func (h *Handler) handleGetQueueURL(_ context.Context, w http.ResponseWriter, _ 
 	})
 }
 
-func (h *Handler) handleGetQueueAttributes(_ context.Context, w http.ResponseWriter, _ *http.Request, form url.Values, requestID string) {
+func (h *Handler) handleGetQueueAttributes(
+	_ context.Context,
+	w http.ResponseWriter,
+	_ *http.Request,
+	form url.Values,
+	requestID string,
+) {
 	out, err := h.Backend.GetQueueAttributes(&GetQueueAttributesInput{
 		QueueURL:       form.Get("QueueUrl"),
 		AttributeNames: parseIndexedStrings(form, "AttributeName"),
@@ -263,13 +302,19 @@ func (h *Handler) handleGetQueueAttributes(_ context.Context, w http.ResponseWri
 	}
 
 	httputil.WriteXML(h.Logger, w, http.StatusOK, GetQueueAttributesResponse{
-		Xmlns: sqsNamespace,
+		Xmlns:                    sqsNamespace,
 		GetQueueAttributesResult: GetQueueAttributesResult{Attributes: xmlAttrs},
 		ResponseMetadata:         XMLResponseMetadata{RequestID: requestID},
 	})
 }
 
-func (h *Handler) handleSetQueueAttributes(_ context.Context, w http.ResponseWriter, _ *http.Request, form url.Values, requestID string) {
+func (h *Handler) handleSetQueueAttributes(
+	_ context.Context,
+	w http.ResponseWriter,
+	_ *http.Request,
+	form url.Values,
+	requestID string,
+) {
 	if err := h.Backend.SetQueueAttributes(&SetQueueAttributesInput{
 		QueueURL:   form.Get("QueueUrl"),
 		Attributes: parseKeyValuePairs(form, "Attribute"),
@@ -285,7 +330,13 @@ func (h *Handler) handleSetQueueAttributes(_ context.Context, w http.ResponseWri
 	})
 }
 
-func (h *Handler) handleSendMessage(_ context.Context, w http.ResponseWriter, _ *http.Request, form url.Values, requestID string) {
+func (h *Handler) handleSendMessage(
+	_ context.Context,
+	w http.ResponseWriter,
+	_ *http.Request,
+	form url.Values,
+	requestID string,
+) {
 	delay, _ := strconv.Atoi(form.Get("DelaySeconds"))
 
 	out, err := h.Backend.SendMessage(&SendMessageInput{
@@ -309,7 +360,13 @@ func (h *Handler) handleSendMessage(_ context.Context, w http.ResponseWriter, _ 
 	})
 }
 
-func (h *Handler) handleReceiveMessage(_ context.Context, w http.ResponseWriter, _ *http.Request, form url.Values, requestID string) {
+func (h *Handler) handleReceiveMessage(
+	_ context.Context,
+	w http.ResponseWriter,
+	_ *http.Request,
+	form url.Values,
+	requestID string,
+) {
 	maxMsgs, _ := strconv.Atoi(form.Get("MaxNumberOfMessages"))
 	waitSecs, _ := strconv.Atoi(form.Get("WaitTimeSeconds"))
 
@@ -347,7 +404,7 @@ func (h *Handler) handleReceiveMessage(_ context.Context, w http.ResponseWriter,
 
 // toXMLMessage converts an internal Message to its XML representation.
 func toXMLMessage(msg *Message) XMLMessage {
-	var attrs []XMLAttribute
+	attrs := make([]XMLAttribute, 0, len(msg.Attributes))
 
 	for k, v := range msg.Attributes {
 		attrs = append(attrs, XMLAttribute{Name: k, Value: v})
@@ -362,7 +419,13 @@ func toXMLMessage(msg *Message) XMLMessage {
 	}
 }
 
-func (h *Handler) handleDeleteMessage(_ context.Context, w http.ResponseWriter, _ *http.Request, form url.Values, requestID string) {
+func (h *Handler) handleDeleteMessage(
+	_ context.Context,
+	w http.ResponseWriter,
+	_ *http.Request,
+	form url.Values,
+	requestID string,
+) {
 	if err := h.Backend.DeleteMessage(&DeleteMessageInput{
 		QueueURL:      form.Get("QueueUrl"),
 		ReceiptHandle: form.Get("ReceiptHandle"),
@@ -378,7 +441,13 @@ func (h *Handler) handleDeleteMessage(_ context.Context, w http.ResponseWriter, 
 	})
 }
 
-func (h *Handler) handleChangeMessageVisibility(_ context.Context, w http.ResponseWriter, _ *http.Request, form url.Values, requestID string) {
+func (h *Handler) handleChangeMessageVisibility(
+	_ context.Context,
+	w http.ResponseWriter,
+	_ *http.Request,
+	form url.Values,
+	requestID string,
+) {
 	vt, _ := strconv.Atoi(form.Get("VisibilityTimeout"))
 
 	if err := h.Backend.ChangeMessageVisibility(&ChangeMessageVisibilityInput{
@@ -397,7 +466,13 @@ func (h *Handler) handleChangeMessageVisibility(_ context.Context, w http.Respon
 	})
 }
 
-func (h *Handler) handleSendMessageBatch(_ context.Context, w http.ResponseWriter, _ *http.Request, form url.Values, requestID string) {
+func (h *Handler) handleSendMessageBatch(
+	_ context.Context,
+	w http.ResponseWriter,
+	_ *http.Request,
+	form url.Values,
+	requestID string,
+) {
 	out, err := h.Backend.SendMessageBatch(&SendMessageBatchInput{
 		QueueURL: form.Get("QueueUrl"),
 		Entries:  parseSendBatchEntries(form),
@@ -429,18 +504,19 @@ func buildXMLSendBatchResult(out *SendMessageBatchOutput) XMLSendMessageBatchRes
 	}
 
 	for _, f := range out.Failed {
-		result.Failed = append(result.Failed, XMLSendMessageBatchFailedEntry{
-			ID:          f.ID,
-			Code:        f.Code,
-			Message:     f.Message,
-			SenderFault: f.SenderFault,
-		})
+		result.Failed = append(result.Failed, XMLSendMessageBatchFailedEntry(f))
 	}
 
 	return result
 }
 
-func (h *Handler) handleDeleteMessageBatch(_ context.Context, w http.ResponseWriter, _ *http.Request, form url.Values, requestID string) {
+func (h *Handler) handleDeleteMessageBatch(
+	_ context.Context,
+	w http.ResponseWriter,
+	_ *http.Request,
+	form url.Values,
+	requestID string,
+) {
 	out, err := h.Backend.DeleteMessageBatch(&DeleteMessageBatchInput{
 		QueueURL: form.Get("QueueUrl"),
 		Entries:  parseDeleteBatchEntries(form),
@@ -464,22 +540,23 @@ func buildXMLDeleteBatchResult(out *DeleteMessageBatchOutput) XMLDeleteMessageBa
 	result := XMLDeleteMessageBatchResult{}
 
 	for _, s := range out.Successful {
-		result.Successful = append(result.Successful, XMLDeleteMessageBatchResultEntry{ID: s.ID})
+		result.Successful = append(result.Successful, XMLDeleteMessageBatchResultEntry(s))
 	}
 
 	for _, f := range out.Failed {
-		result.Failed = append(result.Failed, XMLDeleteMessageBatchFailedEntry{
-			ID:          f.ID,
-			Code:        f.Code,
-			Message:     f.Message,
-			SenderFault: f.SenderFault,
-		})
+		result.Failed = append(result.Failed, XMLDeleteMessageBatchFailedEntry(f))
 	}
 
 	return result
 }
 
-func (h *Handler) handlePurgeQueue(_ context.Context, w http.ResponseWriter, _ *http.Request, form url.Values, requestID string) {
+func (h *Handler) handlePurgeQueue(
+	_ context.Context,
+	w http.ResponseWriter,
+	_ *http.Request,
+	form url.Values,
+	requestID string,
+) {
 	if err := h.Backend.PurgeQueue(&PurgeQueueInput{QueueURL: form.Get("QueueUrl")}); err != nil {
 		h.writeError(w, err, requestID)
 
@@ -517,7 +594,8 @@ func errorDetails(err error) (string, string, int) {
 	case errors.Is(err, ErrReceiptHandleInvalid):
 		return "ReceiptHandleIsInvalid", "The receipt handle is not valid.", http.StatusBadRequest
 	case errors.Is(err, ErrTooManyEntriesInBatch):
-		return "AWS.SimpleQueueService.TooManyEntriesInBatchRequest", "Too many entries in batch request.", http.StatusBadRequest
+		return "AWS.SimpleQueueService.TooManyEntriesInBatchRequest",
+			"Too many entries in batch request.", http.StatusBadRequest
 	case errors.Is(err, ErrInvalidBatchEntry):
 		return "AWS.SimpleQueueService.EmptyBatchRequest", "The batch request is empty.", http.StatusBadRequest
 	case errors.Is(err, ErrInvalidAttribute):

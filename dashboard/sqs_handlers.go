@@ -7,13 +7,29 @@ import (
 
 	sqsbackend "github.com/blackbirdworks/gopherstack/sqs"
 )
+
 // sqsQueueView is a view model for the SQS dashboard queue list.
 type sqsQueueView struct {
 	Name             string
 	URL              string
-	IsFIFO           bool
 	MessageCount     string
 	InFlightMessages string
+	IsFIFO           bool
+}
+
+// sqsIndexData is the template data for the SQS index page.
+type sqsIndexData struct {
+	PageData
+
+	Queues []sqsQueueView
+}
+
+// sqsQueueDetailData is the template data for the SQS queue detail page.
+type sqsQueueDetailData struct {
+	PageData
+
+	Attributes map[string]string
+	QueueURL   string
 }
 
 // sqsIndex renders the list of all SQS queues.
@@ -48,12 +64,6 @@ func (h *DashboardHandler) sqsIndex(c *echo.Context) error {
 	})
 
 	return nil
-}
-
-// sqsIndexData is the template data for the SQS index page.
-type sqsIndexData struct {
-	PageData
-	Queues []sqsQueueView
 }
 
 // sqsCreateQueueModal renders the create-queue modal form.
@@ -163,11 +173,7 @@ func (h *DashboardHandler) sqsQueueDetail(c *echo.Context) error {
 		return c.String(http.StatusNotFound, "Queue not found")
 	}
 
-	h.renderTemplate(w, "sqs/queue_detail.html", struct {
-		PageData
-		QueueURL   string
-		Attributes map[string]string
-	}{
+	h.renderTemplate(w, "sqs/queue_detail.html", sqsQueueDetailData{
 		PageData: PageData{
 			Title:     "Queue Detail",
 			ActiveTab: "sqs",
