@@ -112,12 +112,11 @@ func (db *InMemoryDB) DeleteTable(
 
 		return nil, NewResourceNotFoundException(fmt.Sprintf("table not found: %s", tableName))
 	}
-	delete(db.Tables, tableName)
-	db.mu.Unlock()
 
-	table.mu.RLock("DeleteTable")
-	table.mu.RUnlock()
-	table.mu.Close()
+	// Move to the deleting map — the Janitor will do the final removal.
+	delete(db.Tables, tableName)
+	db.deletingTables[tableName] = table
+	db.mu.Unlock()
 
 	// Capture state for return
 	gsiDescs := make([]models.GlobalSecondaryIndexDescription, len(table.GlobalSecondaryIndexes))

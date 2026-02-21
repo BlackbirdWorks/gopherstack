@@ -772,10 +772,11 @@ func TestHandler_DeleteBucket_Errors(t *testing.T) {
 		wantStatus int
 	}{
 		{
-			name:       "delete non-empty bucket returns 409",
+			// Async deletion: non-empty buckets are now queued for background deletion.
+			name:       "delete non-empty bucket succeeds and queues async deletion",
 			bucket:     "full-bkt",
 			populate:   true,
-			wantStatus: http.StatusConflict,
+			wantStatus: http.StatusNoContent,
 		},
 		{
 			name:       "delete non-existent bucket returns 404",
@@ -847,6 +848,25 @@ func TestHandler_CreateBucket_Errors(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
+}
+
+func TestHandler_CreateBucket_BucketAlreadyExists_XMLResponse(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "existing")
+
+	req := httptest.NewRequest(http.MethodPut, "/existing", nil)
+	rec := httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+
+	require.Equal(t, http.StatusConflict, rec.Code)
+	assert.Contains(t, rec.Header().Get("Content-Type"), "application/xml")
+
+	var errResp s3.ErrorResponse
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, "BucketAlreadyExists", errResp.Code)
+	assert.NotEmpty(t, errResp.Message)
 }
 
 func TestHandler_UploadPart_Errors(t *testing.T) {
@@ -1090,4 +1110,22 @@ func TestHandler_GetSupportedOperations(t *testing.T) {
 			assert.Contains(t, ops, tt.wantContains)
 		})
 	}
+}
+
+// TestHandler_ListObjectsV2Error exercises handleListObjectsV2Error via
+// ListObjectsV2 on a non-existent bucket (NoSuchBucket) and a generic backend error.
+func TestHandler_ListObjectsV2Error(t *testing.T) {
+	t.Parallel()
+
+	t.Run("non-existent bucket returns 404", func(t *testing.T) {
+		t.Parallel()
+		handler, _ := newTestHandler(t)
+
+		// No bucket created → ListObjectsV2 will get ErrNoSuchBucket.
+		req := httptest.NewRequest(http.MethodGet, "/no-such-bucket?list-type=2", nil)
+		rec := httptest.NewRecorder()
+		serveS3Handler(handler, rec, req)
+
+		assert.Equal(t, http.StatusNotFound, rec.Code)
+	})
 }

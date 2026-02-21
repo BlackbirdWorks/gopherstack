@@ -51,6 +51,16 @@ var (
 		[]string{"lock_type"},
 	)
 
+	// Delete queue depths per service (s3, dynamodb).
+	// Prometheus requires these to be global for automatic registration with the global registry.
+	deleteQueueDepth = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "gopherstack_delete_queue_depth",
+			Help: "Number of resources currently queued for async background deletion",
+		},
+		[]string{"service"},
+	)
+
 	// mu protects access to metrics data structures.
 	mu sync.RWMutex
 )
@@ -83,6 +93,12 @@ func RecordOperation(operation, _ string, durationSeconds float64, status string
 // RecordLockDuration records lock hold time.
 func RecordLockDuration(lockType string, durationSeconds float64) {
 	lockDuration.WithLabelValues(lockType).Observe(durationSeconds)
+}
+
+// RecordDeleteQueueDepth updates the live delete-queue depth gauge for a service.
+// service should be "s3" or "dynamodb".
+func RecordDeleteQueueDepth(service string, depth int) {
+	deleteQueueDepth.WithLabelValues(service).Set(float64(depth))
 }
 
 // GetMetrics returns a snapshot of metrics for dashboard consumption.

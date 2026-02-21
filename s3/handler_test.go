@@ -188,7 +188,8 @@ func TestHandler_DeleteBucket(t *testing.T) {
 				mustCreateBucket(t, b, "full-bucket")
 				mustPutObject(t, b, "full-bucket", "k", []byte("d"))
 			},
-			wantStatus: http.StatusConflict,
+			// Async deletion: non-empty buckets are now queued for background deletion.
+			wantStatus: http.StatusNoContent,
 		},
 	}
 
