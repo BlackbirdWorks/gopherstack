@@ -1,0 +1,63 @@
+{{define "content"}}
+<div class="px-4 sm:px-6 lg:px-8">
+    <div class="sm:flex sm:items-center">
+        <div class="sm:flex-auto">
+            <h1 class="text-base font-semibold leading-6 text-gray-900 dark:text-gray-100">STS Security Token Service</h1>
+            <p class="mt-2 text-sm text-gray-700 dark:text-gray-300">Mock caller identity for the in-memory STS
+                service. AssumeRole returns temporary credentials valid for local development.</p>
+        </div>
+    </div>
+
+    <!-- Caller Identity Card -->
+    <div class="mt-8">
+        <h2 class="text-sm font-semibold leading-6 text-gray-900 dark:text-gray-100 mb-4">Caller Identity</h2>
+        <div class="overflow-hidden shadow ring-1 ring-black ring-opacity-5 sm:rounded-lg">
+            <table class="min-w-full divide-y divide-gray-300 dark:divide-gray-700">
+                <thead class="bg-gray-50 dark:bg-gray-800">
+                    <tr>
+                        <th scope="col"
+                            class="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-900 dark:text-gray-200 sm:pl-6">
+                            Field</th>
+                        <th scope="col"
+                            class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-gray-200">
+                            Value</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-900">
+                    <tr>
+                        <td
+                            class="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-gray-900 dark:text-gray-100 sm:pl-6">
+                            Account</td>
+                        <td
+                            class="whitespace-nowrap px-3 py-4 text-sm text-gray-500 dark:text-gray-400 font-mono" id="sts-account">
+                            {{.Account}}</td>
+                    </tr>
+                    <tr>
+                        <td
+                            class="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-gray-900 dark:text-gray-100 sm:pl-6">
+                            UserId</td>
+                        <td class="whitespace-nowrap px-3 py-4 text-sm text-gray-500 dark:text-gray-400 font-mono">
+                            {{.UserID}}</td>
+                    </tr>
+                    <tr>
+                        <td
+                            class="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-gray-900 dark:text-gray-100 sm:pl-6">
+                            Arn</td>
+                        <td class="whitespace-nowrap px-3 py-4 text-sm text-gray-500 dark:text-gray-400 font-mono">
+                            {{.Arn}}</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- AssumeRole Info -->
+    <div class="mt-8">
+        <h2 class="text-sm font-semibold leading-6 text-gray-900 dark:text-gray-100 mb-2">Supported Operations</h2>
+        <ul class="mt-2 list-disc list-inside text-sm text-gray-600 dark:text-gray-400">
+            <li><span class="font-mono">AssumeRole</span> — returns temporary credentials for any role ARN</li>
+            <li><span class="font-mono">GetCallerIdentity</span> — returns the mock caller identity shown above</li>
+        </ul>
+    </div>
+</div>
+{{end}}

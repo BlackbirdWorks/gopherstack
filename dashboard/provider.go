@@ -4,6 +4,7 @@ import (
 	ddbsdk "github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	s3sdk "github.com/aws/aws-sdk-go-v2/service/s3"
 	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
+	stssdk "github.com/aws/aws-sdk-go-v2/service/sts"
 
 	"github.com/blackbirdworks/gopherstack/dynamodb"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -17,9 +18,11 @@ type AWSSDKProvider interface {
 	GetDynamoDBClient() *ddbsdk.Client
 	GetS3Client() *s3sdk.Client
 	GetSSMClient() *ssmsdk.Client
+	GetSTSClient() *stssdk.Client
 	GetDynamoDBHandler() service.Registerable
 	GetS3Handler() service.Registerable
 	GetSSMHandler() service.Registerable
+	GetSTSHandler() service.Registerable
 }
 
 // Provider implements service.Provider for the Dashboard service.

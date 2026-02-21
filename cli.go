@@ -17,6 +17,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
+	stssdk "github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
@@ -26,6 +27,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
 	ssmbackend "github.com/blackbirdworks/gopherstack/ssm"
+	stsbackend "github.com/blackbirdworks/gopherstack/sts"
 )
 
 const (
@@ -40,9 +42,11 @@ type CLI struct {
 	ddbClient  *dynamodb.Client
 	s3Client   *s3.Client
 	ssmClient  *ssmsdk.Client
+	stsClient  *stssdk.Client
 	ddbHandler service.Registerable
 	s3Handler  service.Registerable
 	ssmHandler service.Registerable
+	stsHandler service.Registerable
 
 	// LogLevel is the log level: debug, info, warn, error.
 	LogLevel string `name:"log-level" env:"LOG_LEVEL" default:"info" help:"Log level (debug|info|warn|error)."`
@@ -57,6 +61,8 @@ type CLI struct {
 	S3 s3backend.Settings `embed:"" prefix:"s3-"`
 	// SSM holds SSM service-level settings.
 	SSM struct{} `embed:"" prefix:"ssm-"`
+	// STS holds STS service-level settings.
+	STS struct{} `embed:"" prefix:"sts-"`
 
 	// Demo enables loading of demo data on startup.
 	Demo bool `name:"demo" env:"DEMO" default:"false" help:"Load demo data on startup."`
@@ -88,6 +94,9 @@ func (c *CLI) GetS3Client() *s3.Client { return c.s3Client }
 // GetSSMClient returns the SDK client for SSM (dashboard.AWSSDKProvider).
 func (c *CLI) GetSSMClient() *ssmsdk.Client { return c.ssmClient }
 
+// GetSTSClient returns the SDK client for STS (dashboard.AWSSDKProvider).
+func (c *CLI) GetSTSClient() *stssdk.Client { return c.stsClient }
+
 // GetDynamoDBHandler returns the DynamoDB handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -102,6 +111,11 @@ func (c *CLI) GetS3Handler() service.Registerable { return c.s3Handler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetSSMHandler() service.Registerable { return c.ssmHandler }
+
+// GetSTSHandler returns the STS handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetSTSHandler() service.Registerable { return c.stsHandler }
 
 // Run parses CLI / environment-variable configuration and starts Gopherstack.
 // It is called from main() and exits on error.
@@ -176,7 +190,7 @@ func run(ctx context.Context, cli CLI) error {
 	return startServer(ctx, log, cli.Port, e)
 }
 
-// initializeClients configures the AWS SDK clients for DynamoDB, S3, and SSM.
+// initializeClients configures the AWS SDK clients for DynamoDB, S3, SSM, and STS.
 func initializeClients(cli *CLI, awsCfg aws.Config) {
 	cli.ddbClient = dynamodb.NewFromConfig(
 		awsCfg,
@@ -197,6 +211,12 @@ func initializeClients(cli *CLI, awsCfg aws.Config) {
 			o.BaseEndpoint = aws.String("http://local")
 		},
 	)
+	cli.stsClient = stssdk.NewFromConfig(
+		awsCfg,
+		func(o *stssdk.Options) {
+			o.BaseEndpoint = aws.String("http://local")
+		},
+	)
 }
 
 // initializeServices initializes all service providers.
@@ -206,6 +226,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		&ddbbackend.Provider{},
 		&s3backend.Provider{},
 		&ssmbackend.Provider{},
+		&stsbackend.Provider{},
 		&dashboard.Provider{},
 	}
 
@@ -217,8 +238,9 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		services = append(services, svc)
 	}
 
-	// Reorder for routing priority: DynamoDB (100), SSM (100), Dashboard (50), S3 (0)
-	return []service.Registerable{services[0], services[2], services[3], services[1]}, nil
+	// Reorder for routing priority: DynamoDB (100), SSM (100), STS (90), Dashboard (50), S3 (0)
+	// indices: ddb=0, s3=1, ssm=2, sts=3, dashboard=4
+	return []service.Registerable{services[0], services[2], services[3], services[4], services[1]}, nil
 }
 
 // startBackgroundWorkers starts all background workers from services.

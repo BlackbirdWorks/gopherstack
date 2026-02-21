@@ -82,6 +82,7 @@ func NewHandler(
 		"templates/layout.html",
 		"templates/components/*.html",
 		"templates/ssm/*.html",
+		"templates/sts/*.html",
 	))
 
 	// Create service-specific dashboard providers
@@ -150,6 +151,9 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.SubRouter.POST("/dashboard/ssm/put", h.ssmPutParameter)
 	h.SubRouter.DELETE("/dashboard/ssm/delete", h.ssmDeleteParameter)
 
+	// STS routes
+	h.SubRouter.GET("/dashboard/sts", h.stsIndex)
+
 	// Metrics & Docs (always available)
 	dashboardGroup := h.SubRouter.Group("/dashboard")
 	RegisterMetricsHandlers(dashboardGroup, h)
@@ -207,6 +211,8 @@ func (h *DashboardHandler) ExtractOperation(c *echo.Context) string {
 		return "S3"
 	case strings.HasPrefix(path, "/ssm"):
 		return "SSM"
+	case strings.HasPrefix(path, "/sts"):
+		return "STS"
 	case strings.HasPrefix(path, "/metrics"):
 		return "Metrics"
 	case strings.HasPrefix(path, "/docs"):
