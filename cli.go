@@ -241,9 +241,9 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	}
 	services = append(services, dashSvc)
 
-	// Reorder for routing priority: DynamoDB (100), SSM (100), SNS (80), Dashboard (50), S3 (0)
-	// services: [0]=DDB, [1]=S3, [2]=SSM, [3]=SNS, [4]=Dashboard
-	return []service.Registerable{services[0], services[2], services[3], services[4], services[1]}, nil
+	// The router sorts services by MatchPriority() at startup, so registration order
+	// does not affect routing correctness.
+	return services, nil
 }
 
 // startBackgroundWorkers starts all background workers from services.

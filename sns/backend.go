@@ -233,7 +233,7 @@ func (b *InMemoryBackend) ListSubscriptionsByTopic(topicArn, nextToken string) (
 // Publish publishes a message to a topic and returns the message ID.
 // The subject and attrs parameters are accepted for interface compatibility but not used in delivery.
 func (b *InMemoryBackend) Publish(
-	topicArn, message string, _ string, _ map[string]MessageAttribute,
+	topicArn, message, _ string, _ map[string]MessageAttribute,
 ) (string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
