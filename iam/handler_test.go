@@ -2,6 +2,7 @@ package iam_test
 
 import (
 	"encoding/xml"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -14,7 +15,21 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/iam"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
+
+// errSimulated is a sentinel error used to exercise InternalFailure handling.
+var errSimulated = errors.New("simulated internal error")
+
+// errBackend wraps InMemoryBackend and overrides CreateUser to return a raw (non-sentinel) error.
+// This is used to exercise the InternalFailure code path in handleError.
+type errBackend struct {
+	*iam.InMemoryBackend
+}
+
+func (e *errBackend) CreateUser(_, _ string) (*iam.User, error) {
+	return nil, errSimulated
+}
 
 // ---- Backend unit tests ----
 
@@ -1070,4 +1085,163 @@ func TestIAMHandler_Routing(t *testing.T) {
 		assert.Contains(t, ops, "CreateRole")
 		assert.Contains(t, ops, "CreatePolicy")
 	})
+}
+
+// TestIAMProvider covers Provider.Name() and Provider.Init().
+func TestIAMProvider(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Name", func(t *testing.T) {
+		t.Parallel()
+		p := &iam.Provider{}
+		assert.Equal(t, "IAM", p.Name())
+	})
+
+	t.Run("Init", func(t *testing.T) {
+		t.Parallel()
+		p := &iam.Provider{}
+		appCtx := &service.AppContext{Logger: logger.NewTestLogger()}
+		svc, err := p.Init(appCtx)
+		require.NoError(t, err)
+		require.NotNil(t, svc)
+		h, ok := svc.(*iam.Handler)
+		require.True(t, ok)
+		assert.NotNil(t, h.Backend)
+	})
+}
+
+// TestIAMHandler_ExtractEdgeCases covers remaining branches in ExtractOperation,
+// ExtractResource, RouteMatcher, and Handler().
+func TestIAMHandler_ExtractEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	t.Run("ExtractOperation_NoAction", func(t *testing.T) {
+		t.Parallel()
+		e := echo.New()
+		h, _ := newTestHandler(t)
+
+		// Body has no Action param → returns "Unknown"
+		req := httptest.NewRequest(http.MethodPost, "/",
+			strings.NewReader("Version=2010-05-08"))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		assert.Equal(t, "Unknown", h.ExtractOperation(c))
+	})
+
+	t.Run("ExtractResource_NoMatchingKey", func(t *testing.T) {
+		t.Parallel()
+		e := echo.New()
+		h, _ := newTestHandler(t)
+
+		// ListUsers has no UserName/RoleName/etc → returns ""
+		req := iamRequest("ListUsers", nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		assert.Empty(t, h.ExtractResource(c))
+	})
+
+	t.Run("RouteMatcher_FormEncodedMissingVersion", func(t *testing.T) {
+		t.Parallel()
+		e := echo.New()
+		h, _ := newTestHandler(t)
+		matcher := h.RouteMatcher()
+
+		// Form-encoded POST but body doesn't contain the IAM version string
+		req := httptest.NewRequest(http.MethodPost, "/",
+			strings.NewReader("Action=ListUsers"))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		assert.False(t, matcher(c))
+	})
+
+	t.Run("Handler_GETNonRoot_Returns405", func(t *testing.T) {
+		t.Parallel()
+		e := echo.New()
+		h, _ := newTestHandler(t)
+
+		// GET at a non-root path falls through to the method-not-allowed branch
+		req := httptest.NewRequest(http.MethodGet, "/some/path", nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := h.Handler()(c)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
+	})
+}
+
+// TestIAMHandler_SortCoverage adds tests with 2+ items to exercise
+// the comparison closures inside [sort.Slice] calls.
+func TestIAMHandler_SortCoverage(t *testing.T) {
+	t.Parallel()
+
+	t.Run("ListPolicies_TwoItems", func(t *testing.T) {
+		t.Parallel()
+		b := iam.NewInMemoryBackend()
+		_, _ = b.CreatePolicy("ZPolicy", "/", "")
+		_, _ = b.CreatePolicy("APolicy", "/", "")
+		policies, err := b.ListPolicies()
+		require.NoError(t, err)
+		require.Len(t, policies, 2)
+		assert.Equal(t, "APolicy", policies[0].PolicyName)
+	})
+
+	t.Run("ListAccessKeys_TwoKeys", func(t *testing.T) {
+		t.Parallel()
+		b := iam.NewInMemoryBackend()
+		_, _ = b.CreateUser("alice", "/")
+		_, _ = b.CreateAccessKey("alice")
+		_, _ = b.CreateAccessKey("alice")
+		keys, err := b.ListAccessKeys("alice")
+		require.NoError(t, err)
+		require.Len(t, keys, 2)
+	})
+
+	t.Run("ListAllAccessKeys_TwoKeys", func(t *testing.T) {
+		t.Parallel()
+		b := iam.NewInMemoryBackend()
+		_, _ = b.CreateUser("alice", "/")
+		_, _ = b.CreateAccessKey("alice")
+		_, _ = b.CreateAccessKey("alice")
+		keys := b.ListAllAccessKeys()
+		require.Len(t, keys, 2)
+	})
+
+	t.Run("ListInstanceProfiles_TwoItems", func(t *testing.T) {
+		t.Parallel()
+		b := iam.NewInMemoryBackend()
+		_, _ = b.CreateInstanceProfile("ZProfile", "/")
+		_, _ = b.CreateInstanceProfile("AProfile", "/")
+		profiles, err := b.ListInstanceProfiles()
+		require.NoError(t, err)
+		require.Len(t, profiles, 2)
+		assert.Equal(t, "AProfile", profiles[0].InstanceProfileName)
+	})
+}
+
+// TestIAMHandler_InternalFailure tests the InternalFailure error code path
+// by injecting a backend that returns a raw (non-sentinel) error.
+func TestIAMHandler_InternalFailure(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	eb := &errBackend{iam.NewInMemoryBackend()}
+	h := iam.NewHandler(eb, logger.NewTestLogger())
+
+	req := iamRequest("CreateUser", map[string]string{"UserName": "alice"})
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := h.Handler()(c)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+
+	var errResp iam.ErrorResponse
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, "InternalFailure", errResp.Error.Code)
 }
