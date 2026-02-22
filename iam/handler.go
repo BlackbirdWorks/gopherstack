@@ -64,6 +64,10 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return false
 		}
 
+		if strings.HasPrefix(r.URL.Path, "/dashboard/") {
+			return false
+		}
+
 		ct := r.Header.Get("Content-Type")
 		if !strings.Contains(ct, "application/x-www-form-urlencoded") {
 			return false

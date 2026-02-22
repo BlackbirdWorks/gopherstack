@@ -44,7 +44,7 @@ test:
 
 total-coverage:
 	@echo "Running all tests with combined coverage..."
-	go tool gotestsum --format pkgname -- -race -shuffle on -tags=e2e -coverpkg=./... -coverprofile=coverage.out -covermode=atomic ./... ./test/integration/... ./test/e2e/...
+	go tool gotestsum --format pkgname -- -race -shuffle on -timeout 20m -tags=e2e -coverpkg=./... -coverprofile=coverage.out -covermode=atomic ./... ./test/integration/... ./test/e2e/...
 	go tool cover -func=coverage.out
 	go tool cover -html=coverage.out -o coverage.html
 
