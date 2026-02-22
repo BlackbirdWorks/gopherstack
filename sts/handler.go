@@ -207,10 +207,15 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, reqErr error
 		log.WarnContext(ctx, "STS request error", "error", reqErr)
 	}
 
+	errType := "Sender"
+	if httpStatus == http.StatusInternalServerError {
+		errType = "Receiver"
+	}
+
 	errResp := &ErrorResponse{
 		Xmlns: STSNamespace,
 		Error: ErrorDetail{
-			Type:    "Sender",
+			Type:    errType,
 			Code:    code,
 			Message: reqErr.Error(),
 		},
@@ -230,9 +235,7 @@ func writeXMLResponse(c *echo.Context, code int, payload any) error {
 		return err
 	}
 
-	c.Response().Header().Set("Content-Type", "text/xml; charset=utf-8")
-
-	return c.JSONBlob(code, buf.Bytes())
+	return c.Blob(code, "text/xml; charset=utf-8", buf.Bytes())
 }
 
 // parseFormValues parses URL-encoded form bytes into a simple key→value map.

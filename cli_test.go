@@ -121,12 +121,12 @@ func TestServerStartupAndShutdown(t *testing.T) {
 	}
 }
 
-// TestCLI_GetSTSClient verifies that GetSTSClient returns the stsClient field.
-// Before initializeClients is called it is nil; after the server start it is set.
+// TestCLI_GetSTSClient verifies that GetSTSClient returns nil before clients are initialized.
+// Specifically, before initializeClients is called (i.e., before the server starts), it should be nil.
 func TestCLI_GetSTSClient(t *testing.T) {
 	t.Parallel()
 
 	cli := parseCLI(t, nil)
-	// Before the server starts the client is nil (not yet initialized).
+	// For a freshly parsed CLI (before the server starts), the client is nil (not yet initialized).
 	assert.Nil(t, cli.GetSTSClient())
 }

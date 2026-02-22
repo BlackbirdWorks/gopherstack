@@ -277,6 +277,7 @@ func TestHandler_AssumeRole_MissingRoleArn(t *testing.T) {
 	var errResp sts.ErrorResponse
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
 	assert.Equal(t, "MissingParameter", errResp.Error.Code)
+	assert.Equal(t, "Sender", errResp.Error.Type)
 }
 
 func TestHandler_AssumeRole_MissingSessionName(t *testing.T) {
@@ -293,6 +294,7 @@ func TestHandler_AssumeRole_MissingSessionName(t *testing.T) {
 	var errResp sts.ErrorResponse
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
 	assert.Equal(t, "MissingParameter", errResp.Error.Code)
+	assert.Equal(t, "Sender", errResp.Error.Type)
 }
 
 func TestHandler_UnknownAction(t *testing.T) {
@@ -609,8 +611,13 @@ func TestHandler_InternalError(t *testing.T) {
 		"Version": {"2011-06-15"},
 	})
 
-	// Should return 500 InternalFailure
+	// Should return 500 InternalFailure with "Receiver" error type.
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+
+	var errResp sts.ErrorResponse
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, "Receiver", errResp.Error.Type)
+	assert.Equal(t, "InternalFailure", errResp.Error.Code)
 }
 
 // TestHandler_ParseFormValues_SkipMalformedPair tests that malformed pairs
