@@ -57,7 +57,6 @@ func newStack(t *testing.T) *teststack.Stack {
 	return teststack.New(t)
 }
 
-
 func saveScreenshot(t *testing.T, page playwright.Page, name string) {
 	t.Helper()
 	_ = os.MkdirAll("failures", 0o755)
@@ -508,7 +507,7 @@ func TestE2E_GlobalSearch(t *testing.T) {
 	// 1. Go to DynamoDB Index and search
 	_, err = page.Goto(server.URL + "/dashboard/dynamodb")
 	require.NoError(t, err)
-	
+
 	// Wait for page to stabilize and check if search input exists
 	count, _ := page.Locator("input[placeholder*='Search tables']").Count()
 	if count > 0 {
