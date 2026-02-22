@@ -68,7 +68,6 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	if ssmHandler != nil {
 		ssmOps, _ = ssmHandler.(*ssm.Handler)
 	}
-
 	var snsOps *sns.Handler
 	if snsHandler != nil {
 		snsOps, _ = snsHandler.(*sns.Handler)

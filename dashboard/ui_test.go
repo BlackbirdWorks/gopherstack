@@ -170,14 +170,14 @@ func newFullStack(t *testing.T) (*integrationStack, *echo.Echo) {
 	ssmHndlr := ssmbackend.NewHandler(ssmBk, slog.Default())
 	snsBk := snsbackend.NewInMemoryBackend()
 	snsHndlr := snsbackend.NewHandler(snsBk, slog.Default())
-	registry := service.NewRegistry(slog.Default())
-	_ = registry.Register(ssmHndlr)
-	_ = registry.Register(snsHndlr)
+	sqsBk := sqsbackend.NewInMemoryBackend()
+	sqsHndlr := sqsbackend.NewHandler(sqsBk, slog.Default())
+
 	ssmClient := ssmsdk.NewFromConfig(cfg, func(o *ssmsdk.Options) {
 		o.BaseEndpoint = aws.String("http://local")
 	})
 
-	h := dashboard.NewHandler(ddbClient, s3Client, ssmClient, ddbHndlr, s3Hndlr, ssmHndlr, nil, nil, slog.Default())
+	h := dashboard.NewHandler(ddbClient, s3Client, ssmClient, ddbHndlr, s3Hndlr, ssmHndlr, snsHndlr, sqsHndlr, slog.Default())
 
 	// Register all three services (including dashboard) to test RouteMatcher
 	e := echo.New()
@@ -189,6 +189,7 @@ func newFullStack(t *testing.T) (*integrationStack, *echo.Echo) {
 	_ = registry.Register(s3Hndlr)
 	_ = registry.Register(ssmHndlr)
 	_ = registry.Register(snsHndlr)
+	_ = registry.Register(sqsHndlr)
 
 	router := service.NewServiceRouter(registry)
 	e.Use(router.RouteHandler())
@@ -298,6 +299,13 @@ func TestDashboard_Routing(t *testing.T) {
 			path:         "/dashboard/docs",
 			wantStatus:   http.StatusOK,
 			wantContains: "API Documentation",
+		},
+		{
+			name:         "sns index renders page",
+			method:       http.MethodGet,
+			path:         "/dashboard/sns",
+			wantStatus:   http.StatusOK,
+			wantContains: "SNS Topics",
 		},
 	}
 
@@ -2697,6 +2705,7 @@ func TestDashboard_SNS_CreateTopic(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 	assert.Equal(t, "/dashboard/sns", w.Header().Get("Hx-Redirect"))
 
+	// Verify the topic was created by listing
 	req2 := httptest.NewRequest(http.MethodGet, "/dashboard/sns", nil)
 	w2 := httptest.NewRecorder()
 	serveHandler(stack.handler, w2, req2)
@@ -2721,6 +2730,7 @@ func TestDashboard_SNS_DeleteTopic(t *testing.T) {
 
 	stack := newIntegrationStack(t)
 
+	// Create topic first
 	form := url.Values{}
 	form.Set("name", "delete-me")
 	req := httptest.NewRequest(http.MethodPost, "/dashboard/sns/create", strings.NewReader(form.Encode()))
@@ -2729,7 +2739,13 @@ func TestDashboard_SNS_DeleteTopic(t *testing.T) {
 	serveHandler(stack.handler, w, req)
 	require.Equal(t, http.StatusOK, w.Code)
 
+	// Get the ARN from the index page
+	req2 := httptest.NewRequest(http.MethodGet, "/dashboard/sns", nil)
+	w2 := httptest.NewRecorder()
+	serveHandler(stack.handler, w2, req2)
 	arn := "arn:aws:sns:us-east-1:000000000000:delete-me"
+
+	// Delete via ARN
 	req3 := httptest.NewRequest(http.MethodDelete, "/dashboard/sns/delete?arn="+arn, nil)
 	w3 := httptest.NewRecorder()
 	serveHandler(stack.handler, w3, req3)
@@ -2754,6 +2770,7 @@ func TestDashboard_SNS_TopicDetail(t *testing.T) {
 
 	stack := newIntegrationStack(t)
 
+	// Create topic first
 	form := url.Values{}
 	form.Set("name", "detail-topic")
 	req := httptest.NewRequest(http.MethodPost, "/dashboard/sns/create", strings.NewReader(form.Encode()))
@@ -2805,12 +2822,14 @@ func TestDashboard_SNS_CreateTopic_Duplicate(t *testing.T) {
 	form := url.Values{}
 	form.Set("name", "dup-topic")
 
+	// First create
 	req := httptest.NewRequest(http.MethodPost, "/dashboard/sns/create", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
 	serveHandler(stack.handler, w, req)
 	require.Equal(t, http.StatusOK, w.Code)
 
+	// Duplicate create should return 409 (Conflict)
 	req2 := httptest.NewRequest(http.MethodPost, "/dashboard/sns/create", strings.NewReader(form.Encode()))
 	req2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w2 := httptest.NewRecorder()
@@ -2836,6 +2855,7 @@ func TestDashboard_SNS_TopicDetail_WithSubscription(t *testing.T) {
 
 	stack := newIntegrationStack(t)
 
+	// Create topic
 	form := url.Values{}
 	form.Set("name", "sub-detail-topic")
 	req := httptest.NewRequest(http.MethodPost, "/dashboard/sns/create", strings.NewReader(form.Encode()))
@@ -2846,6 +2866,7 @@ func TestDashboard_SNS_TopicDetail_WithSubscription(t *testing.T) {
 
 	arn := "arn:aws:sns:us-east-1:000000000000:sub-detail-topic"
 
+	// Add a subscription directly through the backend
 	_, err := stack.handler.SNSOps.Backend.Subscribe(arn, "https", "https://example.com/endpoint", "")
 	require.NoError(t, err)
 
