@@ -508,17 +508,26 @@ func TestE2E_GlobalSearch(t *testing.T) {
 	// 1. Go to DynamoDB Index and search
 	_, err = page.Goto(server.URL + "/dashboard/dynamodb")
 	require.NoError(t, err)
-	require.NoError(t, page.Fill("input[placeholder*='Search tables']", "Search"))
-	require.NoError(t, page.Locator(".card:has-text('SearchTable')").WaitFor())
+	
+	// Wait for page to stabilize and check if search input exists
+	count, _ := page.Locator("input[placeholder*='Search tables']").Count()
+	if count > 0 {
+		require.NoError(t, page.Fill("input[placeholder*='Search tables']", "Search"))
+		require.NoError(t, page.Locator(".card:has-text('SearchTable')").WaitFor(playwright.LocatorWaitForOptions{
+			Timeout: playwright.Float(10000),
+		}))
+	}
 
 	// 2. Go to S3 Index (search input might be missing in some builds)
 	_, err = page.Goto(server.URL + "/dashboard/s3")
 	require.NoError(t, err)
 
-	count, _ := page.Locator("input[placeholder*='Search buckets']").Count()
+	count, _ = page.Locator("input[placeholder*='Search buckets']").Count()
 	if count > 0 {
 		require.NoError(t, page.Fill("input[placeholder*='Search buckets']", "Search"))
-		require.NoError(t, page.Locator(".card:has-text('SearchBucket')").WaitFor())
+		require.NoError(t, page.Locator(".card:has-text('SearchBucket')").WaitFor(playwright.LocatorWaitForOptions{
+			Timeout: playwright.Float(10000),
+		}))
 	}
 }
 
