@@ -2523,7 +2523,8 @@ func TestDashboard_SQS_DeleteQueue(t *testing.T) {
 		t.Parallel()
 		stack := newIntegrationStack(t)
 
-		req := httptest.NewRequest(http.MethodDelete, "/dashboard/sqs/delete?url="+url.QueryEscape("http://local/000000000000/x"), nil)
+		reqURL := "/dashboard/sqs/delete?url=" + url.QueryEscape("http://local/000000000000/x")
+		req := httptest.NewRequest(http.MethodDelete, reqURL, nil)
 		w := httptest.NewRecorder()
 		serveHandler(stack.handler, w, req)
 
@@ -2582,7 +2583,8 @@ func TestDashboard_SQS_PurgeQueue(t *testing.T) {
 		t.Parallel()
 		stack := newIntegrationStack(t)
 
-		req := httptest.NewRequest(http.MethodPost, "/dashboard/sqs/purge?url="+url.QueryEscape("http://local/000000000000/x"), nil)
+		reqURL := "/dashboard/sqs/purge?url=" + url.QueryEscape("http://local/000000000000/x")
+		req := httptest.NewRequest(http.MethodPost, reqURL, nil)
 		w := httptest.NewRecorder()
 		serveHandler(stack.handler, w, req)
 
@@ -2641,7 +2643,8 @@ func TestDashboard_SQS_QueueDetail(t *testing.T) {
 		t.Parallel()
 		stack := newIntegrationStack(t)
 
-		req := httptest.NewRequest(http.MethodGet, "/dashboard/sqs/queue?url="+url.QueryEscape("http://local/000000000000/x"), nil)
+		reqURL := "/dashboard/sqs/queue?url=" + url.QueryEscape("http://local/000000000000/x")
+		req := httptest.NewRequest(http.MethodGet, reqURL, nil)
 		w := httptest.NewRecorder()
 		serveHandler(stack.handler, w, req)
 

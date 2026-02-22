@@ -2,6 +2,7 @@ package sqs_test
 
 import (
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -824,7 +825,7 @@ func TestHandlerExtractResourceNoQueueURL(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	c := e.NewContext(req, httptest.NewRecorder())
 
-	assert.Equal(t, "", h.ExtractResource(c))
+	assert.Empty(t, h.ExtractResource(c))
 }
 
 func TestHandlerInvalidBodyParsing(t *testing.T) {
@@ -841,4 +842,175 @@ func TestHandlerInvalidBodyParsing(t *testing.T) {
 	err := h.Handler()(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// errorBackend is a StorageBackend that always returns an error for all operations.
+type errorBackend struct {
+	err error
+}
+
+func (e *errorBackend) CreateQueue(_ *sqs.CreateQueueInput) (*sqs.CreateQueueOutput, error) {
+	return nil, e.err
+}
+
+func (e *errorBackend) DeleteQueue(_ *sqs.DeleteQueueInput) error { return e.err }
+
+func (e *errorBackend) ListQueues(_ *sqs.ListQueuesInput) (*sqs.ListQueuesOutput, error) {
+	return nil, e.err
+}
+
+func (e *errorBackend) GetQueueURL(_ *sqs.GetQueueURLInput) (*sqs.GetQueueURLOutput, error) {
+	return nil, e.err
+}
+
+func (e *errorBackend) GetQueueAttributes(
+	_ *sqs.GetQueueAttributesInput,
+) (*sqs.GetQueueAttributesOutput, error) {
+	return nil, e.err
+}
+
+func (e *errorBackend) SetQueueAttributes(_ *sqs.SetQueueAttributesInput) error { return e.err }
+
+func (e *errorBackend) SendMessage(_ *sqs.SendMessageInput) (*sqs.SendMessageOutput, error) {
+	return nil, e.err
+}
+
+func (e *errorBackend) ReceiveMessage(
+	_ *sqs.ReceiveMessageInput,
+) (*sqs.ReceiveMessageOutput, error) {
+	return nil, e.err
+}
+
+func (e *errorBackend) DeleteMessage(_ *sqs.DeleteMessageInput) error { return e.err }
+
+func (e *errorBackend) ChangeMessageVisibility(
+	_ *sqs.ChangeMessageVisibilityInput,
+) error {
+	return e.err
+}
+
+func (e *errorBackend) SendMessageBatch(
+	_ *sqs.SendMessageBatchInput,
+) (*sqs.SendMessageBatchOutput, error) {
+	return nil, e.err
+}
+
+func (e *errorBackend) DeleteMessageBatch(
+	_ *sqs.DeleteMessageBatchInput,
+) (*sqs.DeleteMessageBatchOutput, error) {
+	return nil, e.err
+}
+
+func (e *errorBackend) PurgeQueue(_ *sqs.PurgeQueueInput) error { return e.err }
+
+func (e *errorBackend) ListAll() []*sqs.Queue { return nil }
+
+func newErrorHandler(t *testing.T, err error) *sqs.Handler {
+	t.Helper()
+
+	log := logger.NewLogger(slog.LevelDebug)
+
+	return sqs.NewHandler(&errorBackend{err: err}, log)
+}
+
+func TestHandlerListQueuesError(t *testing.T) {
+	t.Parallel()
+
+	h := newErrorHandler(t, sqs.ErrQueueNotFound)
+	rec := doRequest(t, h, url.Values{
+		"Action": {"ListQueues"},
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var errResp sqs.XMLErrorResponse
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, "AWS.SimpleQueueService.NonExistentQueue", errResp.Error.Code)
+}
+
+func TestHandlerErrorDetailsInvalidAttribute(t *testing.T) {
+	t.Parallel()
+
+	h := newErrorHandler(t, sqs.ErrInvalidAttribute)
+	rec := doRequest(t, h, url.Values{
+		"Action":   {"SetQueueAttributes"},
+		"QueueUrl": {"http://localhost/000000000000/q"},
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var errResp sqs.XMLErrorResponse
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, "InvalidAttributeValue", errResp.Error.Code)
+}
+
+func TestHandlerErrorDetailsTooManyEntriesInBatch(t *testing.T) {
+	t.Parallel()
+
+	h := newErrorHandler(t, sqs.ErrTooManyEntriesInBatch)
+	rec := doRequest(t, h, url.Values{
+		"Action":                                    {"SendMessageBatch"},
+		"QueueUrl":                                  {"http://localhost/000000000000/q"},
+		"SendMessageBatchRequestEntry.1.Id":         {"1"},
+		"SendMessageBatchRequestEntry.1.MessageBody": {"body"},
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var errResp sqs.XMLErrorResponse
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, "AWS.SimpleQueueService.TooManyEntriesInBatchRequest", errResp.Error.Code)
+}
+
+func TestHandlerErrorDetailsInternalError(t *testing.T) {
+	t.Parallel()
+
+	// Use a non-sentinel error to trigger the default internal error case.
+	h := newErrorHandler(t, errors.New("unexpected internal error"))
+	rec := doRequest(t, h, url.Values{
+		"Action":   {"PurgeQueue"},
+		"QueueUrl": {"http://localhost/000000000000/q"},
+	})
+	require.Equal(t, http.StatusInternalServerError, rec.Code)
+
+	var errResp sqs.XMLErrorResponse
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, "InternalError", errResp.Error.Code)
+}
+
+func TestHandlerExtractOperationInvalidBody(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	e := echo.New()
+
+	// Invalid URL-encoded body causes ParseQuery to fail → unknownOperation.
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("%zz"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	c := e.NewContext(req, httptest.NewRecorder())
+
+	assert.Equal(t, "Unknown", h.ExtractOperation(c))
+}
+
+func TestHandlerExtractResourceInvalidBody(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	e := echo.New()
+
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("%zz"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	c := e.NewContext(req, httptest.NewRecorder())
+
+	assert.Empty(t, h.ExtractResource(c))
+}
+
+func TestHandlerQueueNameFromURLEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	h := newErrorHandler(t, sqs.ErrQueueNotFound)
+
+	// QueueUrl with an empty URL - queueNameFromURL splits on "/" and returns last part.
+	rec := doRequest(t, h, url.Values{
+		"Action":   {"DeleteQueue"},
+		"QueueUrl": {""},
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
