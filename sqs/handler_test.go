@@ -20,6 +20,9 @@ import (
 	"github.com/blackbirdworks/gopherstack/sqs"
 )
 
+// errInternalTest is a sentinel used to exercise the default InternalError branch in errorDetails.
+var errInternalTest = errors.New("unexpected internal error")
+
 func newTestHandler(t *testing.T) *sqs.Handler {
 	t.Helper()
 
@@ -947,9 +950,9 @@ func TestHandlerErrorDetailsTooManyEntriesInBatch(t *testing.T) {
 
 	h := newErrorHandler(t, sqs.ErrTooManyEntriesInBatch)
 	rec := doRequest(t, h, url.Values{
-		"Action":                                    {"SendMessageBatch"},
-		"QueueUrl":                                  {"http://localhost/000000000000/q"},
-		"SendMessageBatchRequestEntry.1.Id":         {"1"},
+		"Action":                            {"SendMessageBatch"},
+		"QueueUrl":                          {"http://localhost/000000000000/q"},
+		"SendMessageBatchRequestEntry.1.Id": {"1"},
 		"SendMessageBatchRequestEntry.1.MessageBody": {"body"},
 	})
 	require.Equal(t, http.StatusBadRequest, rec.Code)
@@ -963,7 +966,7 @@ func TestHandlerErrorDetailsInternalError(t *testing.T) {
 	t.Parallel()
 
 	// Use a non-sentinel error to trigger the default internal error case.
-	h := newErrorHandler(t, errors.New("unexpected internal error"))
+	h := newErrorHandler(t, errInternalTest)
 	rec := doRequest(t, h, url.Values{
 		"Action":   {"PurgeQueue"},
 		"QueueUrl": {"http://localhost/000000000000/q"},
