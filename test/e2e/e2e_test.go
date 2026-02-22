@@ -152,6 +152,10 @@ func newIntegrationStack(t *testing.T) *integrationStack {
 	_ = registry.Register(snsHndlr)
 	_ = registry.Register(sqsHndlr)
 
+	// Mount the service router to handle all registered services
+	router := service.NewServiceRouter(registry)
+	e.Use(router.RouteHandler())
+
 	return &integrationStack{
 		handler:    e,
 		s3Backend:  s3Bk,
