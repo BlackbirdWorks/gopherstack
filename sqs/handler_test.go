@@ -2,6 +2,7 @@ package sqs_test
 
 import (
 	"encoding/xml"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -740,4 +741,104 @@ func TestProviderNameAndInit(t *testing.T) {
 	svc, err := p.Init(appCtx)
 	require.NoError(t, err)
 	assert.NotNil(t, svc)
+}
+
+func TestHandlerSendMessageBatchEmptyEntries(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createRec := doRequest(t, h, formCreateQueue("empty-batch-queue"))
+
+	var createResp sqs.CreateQueueResponse
+	require.NoError(t, xml.Unmarshal(createRec.Body.Bytes(), &createResp))
+
+	// No batch entries — should return error via writeError.
+	rec := doRequest(t, h, url.Values{
+		"Action":   {"SendMessageBatch"},
+		"QueueUrl": {createResp.CreateQueueResult.QueueURL},
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var errResp sqs.XMLErrorResponse
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, "AWS.SimpleQueueService.EmptyBatchRequest", errResp.Error.Code)
+}
+
+func TestHandlerDeleteMessageBatchEmptyEntries(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createRec := doRequest(t, h, formCreateQueue("empty-del-batch-queue"))
+
+	var createResp sqs.CreateQueueResponse
+	require.NoError(t, xml.Unmarshal(createRec.Body.Bytes(), &createResp))
+
+	rec := doRequest(t, h, url.Values{
+		"Action":   {"DeleteMessageBatch"},
+		"QueueUrl": {createResp.CreateQueueResult.QueueURL},
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var errResp sqs.XMLErrorResponse
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, "AWS.SimpleQueueService.EmptyBatchRequest", errResp.Error.Code)
+}
+
+func TestHandlerSendMessageBatchTooManyEntries(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createRec := doRequest(t, h, formCreateQueue("toomany-batch-queue"))
+
+	var createResp sqs.CreateQueueResponse
+	require.NoError(t, xml.Unmarshal(createRec.Body.Bytes(), &createResp))
+
+	// parseSendBatchEntries caps at maxBatchSize (10), so we can only test up to 10 entries
+	// which succeed. The TooManyEntriesInBatch error is only reachable via the backend
+	// directly (tested in backend_test.go). Here we verify 10 entries succeed fine.
+	form := url.Values{
+		"Action":   {"SendMessageBatch"},
+		"QueueUrl": {createResp.CreateQueueResult.QueueURL},
+	}
+	for i := 1; i <= 10; i++ {
+		form.Set(fmt.Sprintf("SendMessageBatchRequestEntry.%d.Id", i), fmt.Sprintf("msg%d", i))
+		form.Set(fmt.Sprintf("SendMessageBatchRequestEntry.%d.MessageBody", i), "body")
+	}
+
+	rec := doRequest(t, h, form)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp sqs.SendMessageBatchResponse
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Len(t, resp.SendMessageBatchResult.Successful, 10)
+}
+
+func TestHandlerExtractResourceNoQueueURL(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	e := echo.New()
+
+	body := url.Values{"Action": {"SendMessage"}}.Encode() // no QueueUrl
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	c := e.NewContext(req, httptest.NewRecorder())
+
+	assert.Equal(t, "", h.ExtractResource(c))
+}
+
+func TestHandlerInvalidBodyParsing(t *testing.T) {
+	t.Parallel()
+
+	// An invalid URL-encoded body (with percent-encoding errors) causes ParseQuery to fail.
+	h := newTestHandler(t)
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("%zz"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := h.Handler()(c)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
