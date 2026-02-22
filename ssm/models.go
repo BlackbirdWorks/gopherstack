@@ -102,59 +102,41 @@ type ParameterFilter struct {
 }
 
 // GetParametersByPathInput is the request payload for GetParametersByPath.
-type GetParametersByPathInput struct { //nolint:govet // field order matches AWS API
-	// Path is the parameter path prefix to search under.
-	Path string `json:"Path"`
-	// WithDecryption controls whether SecureString values are decrypted.
-	WithDecryption bool `json:"WithDecryption,omitempty"`
-	// Recursive enables traversal beyond the first level.
-	Recursive bool `json:"Recursive,omitempty"`
-	// MaxResults limits the number of results (1–10, default 10).
-	MaxResults *int64 `json:"MaxResults,omitempty"`
-	// NextToken is the pagination cursor from a previous call.
-	NextToken string `json:"NextToken,omitempty"`
-	// ParameterFilters contains additional filter criteria.
+type GetParametersByPathInput struct {
+	MaxResults       *int64            `json:"MaxResults,omitempty"`
+	Path             string            `json:"Path"`
+	NextToken        string            `json:"NextToken,omitempty"`
 	ParameterFilters []ParameterFilter `json:"ParameterFilters,omitempty"`
+	WithDecryption   bool              `json:"WithDecryption,omitempty"`
+	Recursive        bool              `json:"Recursive,omitempty"`
 }
 
 // GetParametersByPathOutput is the response payload for GetParametersByPath.
-type GetParametersByPathOutput struct { //nolint:govet // field order matches AWS API
-	// Parameters contains the matching parameter list.
+type GetParametersByPathOutput struct {
+	NextToken  string      `json:"NextToken,omitempty"`
 	Parameters []Parameter `json:"Parameters"`
-	// NextToken is the pagination cursor for the next page, empty if last page.
-	NextToken string `json:"NextToken,omitempty"`
 }
 
 // ParameterMetadata contains parameter metadata without the parameter value.
-type ParameterMetadata struct { //nolint:govet // field order matches AWS API
-	// Name is the parameter name.
-	Name string `json:"Name"`
-	// Type is the parameter type (String, StringList, SecureString).
-	Type string `json:"Type"`
-	// Version is the current version number.
-	Version int64 `json:"Version"`
-	// LastModifiedDate is the Unix timestamp of the last modification.
+type ParameterMetadata struct {
+	Name             string  `json:"Name"`
+	Type             string  `json:"Type"`
+	Description      string  `json:"Description,omitempty"`
+	Version          int64   `json:"Version"`
 	LastModifiedDate float64 `json:"LastModifiedDate"`
-	// Description is an optional human-readable description.
-	Description string `json:"Description,omitempty"`
 }
 
 // DescribeParametersInput is the request payload for DescribeParameters.
-type DescribeParametersInput struct { //nolint:govet // field order matches AWS API
-	// ParameterFilters contains optional filter criteria.
+type DescribeParametersInput struct {
+	MaxResults       *int64            `json:"MaxResults,omitempty"`
+	NextToken        string            `json:"NextToken,omitempty"`
 	ParameterFilters []ParameterFilter `json:"ParameterFilters,omitempty"`
-	// MaxResults limits the number of results (1–50, default 50).
-	MaxResults *int64 `json:"MaxResults,omitempty"`
-	// NextToken is the pagination cursor from a previous call.
-	NextToken string `json:"NextToken,omitempty"`
 }
 
 // DescribeParametersOutput is the response payload for DescribeParameters.
-type DescribeParametersOutput struct { //nolint:govet // field order matches AWS API
-	// Parameters contains the parameter metadata list.
+type DescribeParametersOutput struct {
+	NextToken  string              `json:"NextToken,omitempty"`
 	Parameters []ParameterMetadata `json:"Parameters"`
-	// NextToken is the pagination cursor for the next page, empty if last page.
-	NextToken string `json:"NextToken,omitempty"`
 }
 
 // ErrorResponse represents an SSM wire error.

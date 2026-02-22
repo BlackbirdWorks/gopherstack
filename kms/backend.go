@@ -329,14 +329,14 @@ func (b *InMemoryBackend) GenerateDataKey(input *GenerateDataKeyInput) (*Generat
 	}
 
 	if key.KeyState != KeyStateEnabled {
+		return nil, ErrKeyDisabled
+	}
+
 	// Validate requested data key size to prevent excessive memory allocation.
 	if input.NumberOfBytes != nil {
 		if *input.NumberOfBytes <= 0 || *input.NumberOfBytes > maxDataKeyBytes {
 			return nil, ErrInvalidDataKeySize
 		}
-	}
-
-		return nil, ErrKeyDisabled
 	}
 
 	keyBytes := dataKeySize(input.KeySpec, input.NumberOfBytes)

@@ -109,15 +109,11 @@ type GetSecretValueOutput struct {
 }
 
 // PutSecretValueInput is the request payload for PutSecretValue.
-type PutSecretValueInput struct { //nolint:govet // field order matches AWS API
-	// SecretId is the name or ARN of the secret.
-	SecretID string `json:"SecretId"`
-	// SecretString is the new string value (mutually exclusive with SecretBinary).
-	SecretString string `json:"SecretString,omitempty"`
-	// SecretBinary is the new binary value (mutually exclusive with SecretString).
-	SecretBinary []byte `json:"SecretBinary,omitempty"`
-	// ClientRequestToken is an optional idempotency token.
+type PutSecretValueInput struct {
+	SecretID           string `json:"SecretId"`
+	SecretString       string `json:"SecretString,omitempty"`
 	ClientRequestToken string `json:"ClientRequestToken,omitempty"`
+	SecretBinary       []byte `json:"SecretBinary,omitempty"`
 }
 
 // PutSecretValueOutput is the response payload for PutSecretValue.
@@ -151,17 +147,12 @@ type DeleteSecretOutput struct {
 }
 
 // SecretListEntry is a brief secret descriptor used in ListSecrets.
-type SecretListEntry struct { //nolint:govet // field order matches AWS API
-	// ARN is the full ARN of the secret.
-	ARN string `json:"ARN"`
-	// Name is the name of the secret.
-	Name string `json:"Name"`
-	// Description is the optional description.
-	Description string `json:"Description,omitempty"`
-	// DeletedDate is set when the secret has been deleted.
-	DeletedDate *float64 `json:"DeletedDate,omitempty"`
-	// Tags is the map of tags.
-	Tags map[string]string `json:"Tags,omitempty"`
+type SecretListEntry struct {
+	DeletedDate *float64          `json:"DeletedDate,omitempty"`
+	Tags        map[string]string `json:"Tags,omitempty"`
+	ARN         string            `json:"ARN"`
+	Name        string            `json:"Name"`
+	Description string            `json:"Description,omitempty"`
 }
 
 // ListSecretsInput is the request payload for ListSecrets.
@@ -175,11 +166,9 @@ type ListSecretsInput struct {
 }
 
 // ListSecretsOutput is the response payload for ListSecrets.
-type ListSecretsOutput struct { //nolint:govet // field order matches AWS API
-	// SecretList is the list of secret descriptors.
+type ListSecretsOutput struct {
+	NextToken  string            `json:"NextToken,omitempty"`
 	SecretList []SecretListEntry `json:"SecretList"`
-	// NextToken is the pagination cursor for the next page.
-	NextToken string `json:"NextToken,omitempty"`
 }
 
 // DescribeSecretInput is the request payload for DescribeSecret.
@@ -189,19 +178,13 @@ type DescribeSecretInput struct {
 }
 
 // DescribeSecretOutput is the response payload for DescribeSecret.
-type DescribeSecretOutput struct { //nolint:govet // field order matches AWS API
-	// ARN is the full ARN of the secret.
-	ARN string `json:"ARN"`
-	// Name is the name of the secret.
-	Name string `json:"Name"`
-	// Description is the optional description.
-	Description string `json:"Description,omitempty"`
-	// Tags is the map of tags.
-	Tags map[string]string `json:"Tags,omitempty"`
-	// DeletedDate is set when the secret has been deleted.
-	DeletedDate *float64 `json:"DeletedDate,omitempty"`
-	// VersionIdsToStages maps version IDs to their staging labels.
+type DescribeSecretOutput struct {
+	Tags               map[string]string   `json:"Tags,omitempty"`
+	DeletedDate        *float64            `json:"DeletedDate,omitempty"`
 	VersionIDsToStages map[string][]string `json:"VersionIdsToStages,omitempty"`
+	ARN                string              `json:"ARN"`
+	Name               string              `json:"Name"`
+	Description        string              `json:"Description,omitempty"`
 }
 
 // UpdateSecretInput is the request payload for UpdateSecret.

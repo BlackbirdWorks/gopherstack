@@ -111,13 +111,10 @@ type ListKeysInput struct {
 }
 
 // ListKeysOutput is the response payload for ListKeys.
-type ListKeysOutput struct { //nolint:govet // field order matches AWS API
-	// Keys is the list of key entries.
-	Keys []KeyListEntry `json:"Keys"`
-	// NextMarker is the pagination cursor for the next page.
-	NextMarker string `json:"NextMarker,omitempty"`
-	// Truncated indicates whether more results exist.
-	Truncated bool `json:"Truncated"`
+type ListKeysOutput struct {
+	NextMarker string         `json:"NextMarker,omitempty"`
+	Keys       []KeyListEntry `json:"Keys"`
+	Truncated  bool           `json:"Truncated"`
 }
 
 // EncryptInput is the request payload for Encrypt.
@@ -129,67 +126,49 @@ type EncryptInput struct {
 }
 
 // EncryptOutput is the response payload for Encrypt.
-type EncryptOutput struct { //nolint:govet // field order matches AWS API
-	// CiphertextBlob is the encrypted data (base64-encoded in JSON wire format).
+type EncryptOutput struct {
+	KeyID          string `json:"KeyId"`
 	CiphertextBlob []byte `json:"CiphertextBlob"`
-	// KeyId is the key used for encryption.
-	KeyID string `json:"KeyId"`
 }
 
 // DecryptInput is the request payload for Decrypt.
-type DecryptInput struct { //nolint:govet // field order matches AWS API
-	// CiphertextBlob is the data to decrypt (base64-encoded in JSON wire format).
+type DecryptInput struct {
+	KeyID          string `json:"KeyId,omitempty"`
 	CiphertextBlob []byte `json:"CiphertextBlob"`
-	// KeyId optionally identifies the KMS key (extracted from ciphertext if omitted).
-	KeyID string `json:"KeyId,omitempty"`
 }
 
 // DecryptOutput is the response payload for Decrypt.
-type DecryptOutput struct { //nolint:govet // field order matches AWS API
-	// Plaintext is the decrypted data (base64-encoded in JSON wire format).
+type DecryptOutput struct {
+	KeyID     string `json:"KeyId"`
 	Plaintext []byte `json:"Plaintext"`
-	// KeyId is the key that was used for decryption.
-	KeyID string `json:"KeyId"`
 }
 
 // GenerateDataKeyInput is the request payload for GenerateDataKey.
-type GenerateDataKeyInput struct { //nolint:govet // field order matches AWS API
-	// KeyId identifies the KMS key to use.
-	KeyID string `json:"KeyId"`
-	// KeySpec specifies the data key type: AES_128 or AES_256 (default).
-	KeySpec string `json:"KeySpec,omitempty"`
-	// NumberOfBytes specifies an exact number of bytes for the data key.
+type GenerateDataKeyInput struct {
 	NumberOfBytes *int32 `json:"NumberOfBytes,omitempty"`
+	KeyID         string `json:"KeyId"`
+	KeySpec       string `json:"KeySpec,omitempty"`
 }
 
 // GenerateDataKeyOutput is the response payload for GenerateDataKey.
-type GenerateDataKeyOutput struct { //nolint:govet // field order matches AWS API
-	// CiphertextBlob is the encrypted data key.
+type GenerateDataKeyOutput struct {
+	KeyID          string `json:"KeyId"`
 	CiphertextBlob []byte `json:"CiphertextBlob"`
-	// Plaintext is the plaintext data key.
-	Plaintext []byte `json:"Plaintext"`
-	// KeyId is the KMS key used to encrypt the data key.
-	KeyID string `json:"KeyId"`
+	Plaintext      []byte `json:"Plaintext"`
 }
 
 // ReEncryptInput is the request payload for ReEncrypt.
-type ReEncryptInput struct { //nolint:govet // field order matches AWS API
-	// CiphertextBlob is the ciphertext to re-encrypt.
-	CiphertextBlob []byte `json:"CiphertextBlob"`
-	// DestinationKeyId is the key to re-encrypt under.
+type ReEncryptInput struct {
 	DestinationKeyID string `json:"DestinationKeyId"`
-	// SourceKeyId optionally identifies the source key (extracted from ciphertext if omitted).
-	SourceKeyID string `json:"SourceKeyId,omitempty"`
+	SourceKeyID      string `json:"SourceKeyId,omitempty"`
+	CiphertextBlob   []byte `json:"CiphertextBlob"`
 }
 
 // ReEncryptOutput is the response payload for ReEncrypt.
-type ReEncryptOutput struct { //nolint:govet // field order matches AWS API
-	// CiphertextBlob is the re-encrypted ciphertext.
+type ReEncryptOutput struct {
+	KeyID          string `json:"KeyId"`
+	SourceKeyID    string `json:"SourceKeyId"`
 	CiphertextBlob []byte `json:"CiphertextBlob"`
-	// KeyId is the destination KMS key ID.
-	KeyID string `json:"KeyId"`
-	// SourceKeyId is the source KMS key ID.
-	SourceKeyID string `json:"SourceKeyId"`
 }
 
 // CreateAliasInput is the request payload for CreateAlias.
@@ -217,13 +196,10 @@ type ListAliasesInput struct {
 }
 
 // ListAliasesOutput is the response payload for ListAliases.
-type ListAliasesOutput struct { //nolint:govet // field order matches AWS API
-	// Aliases is the list of aliases.
-	Aliases []Alias `json:"Aliases"`
-	// NextMarker is the pagination cursor for the next page.
-	NextMarker string `json:"NextMarker,omitempty"`
-	// Truncated indicates whether more results exist.
-	Truncated bool `json:"Truncated"`
+type ListAliasesOutput struct {
+	NextMarker string  `json:"NextMarker,omitempty"`
+	Aliases    []Alias `json:"Aliases"`
+	Truncated  bool    `json:"Truncated"`
 }
 
 // EnableKeyRotationInput is the request payload for EnableKeyRotation.
@@ -245,11 +221,9 @@ type GetKeyRotationStatusInput struct {
 }
 
 // GetKeyRotationStatusOutput is the response payload for GetKeyRotationStatus.
-type GetKeyRotationStatusOutput struct { //nolint:govet // field order matches AWS API
-	// KeyRotationEnabled indicates whether automatic rotation is enabled.
-	KeyRotationEnabled bool `json:"KeyRotationEnabled"`
-	// KeyId is the key ID queried.
-	KeyID string `json:"KeyId"`
+type GetKeyRotationStatusOutput struct {
+	KeyID              string `json:"KeyId"`
+	KeyRotationEnabled bool   `json:"KeyRotationEnabled"`
 }
 
 // ErrorResponse is the KMS JSON error response format.
