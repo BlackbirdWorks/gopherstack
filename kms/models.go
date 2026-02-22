@@ -21,6 +21,9 @@ const KeyStateDisabled = "Disabled"
 // KeyUsageEncryptDecrypt is the string constant for the default key usage.
 const KeyUsageEncryptDecrypt = "ENCRYPT_DECRYPT"
 
+// Note: Go fields use KeyID (Go convention) while JSON tags use KeyId (AWS API wire format).
+// This intentional difference matches both Go naming best practices and AWS API compatibility.
+
 // Key represents a KMS customer-managed key.
 type Key struct {
 	// KeyId is the UUID identifier for the key.

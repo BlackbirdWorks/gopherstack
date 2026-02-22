@@ -31,6 +31,12 @@ const (
 	defaultMaxResults = 100
 	// randomSuffixBytes is the number of bytes to use for the ARN random suffix.
 	randomSuffixBytes = 3
+	// arnMinParts is the minimum number of colon-separated parts in a Secrets Manager ARN.
+	arnMinParts = 7
+	// arnNameIndex is the index of the name-with-suffix part in a Secrets Manager ARN.
+	arnNameIndex = 6
+	// arnSuffixLen is the length of the random ARN suffix: dash + 6 hex characters.
+	arnSuffixLen = 7
 )
 
 // StorageBackend defines the interface for the Secrets Manager in-memory backend.
@@ -64,11 +70,11 @@ func resolveSecretID(secretID string) string {
 	if strings.HasPrefix(secretID, "arn:aws:secretsmanager:") {
 		// Extract name from ARN: arn:aws:secretsmanager:region:account:secret:name-suffix
 		parts := strings.Split(secretID, ":")
-		if len(parts) >= 7 { //nolint:mnd // ARN has 7 parts
-			nameWithSuffix := parts[6]
-			// Remove the 7-char suffix (-XXXXXX)
-			if len(nameWithSuffix) > 7 { //nolint:mnd // suffix is 7 chars (dash + 6 hex)
-				return nameWithSuffix[:len(nameWithSuffix)-7]
+		if len(parts) >= arnMinParts {
+			nameWithSuffix := parts[arnNameIndex]
+			// Remove the trailing -XXXXXX suffix
+			if len(nameWithSuffix) > arnSuffixLen {
+				return nameWithSuffix[:len(nameWithSuffix)-arnSuffixLen]
 			}
 
 			return nameWithSuffix
