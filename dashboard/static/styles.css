@@ -278,7 +278,7 @@ html.dark input[type=radio].tab:checked { color: #60a5fa; border-bottom-color: #
 input[type=radio].tab:checked + .tab-content,
 input[type=radio].tab:checked + div[role=tabpanel] { display: block; }
 
-/* ── Collapse / Accordion (DaisyUI v3 CSS-Grid approach) ────── */
+/* ── Collapse / Accordion ───────────────────────────────────── */
 .collapse {
   position: relative; display: grid; overflow: hidden;
   width: 100%; border-radius: 0.5rem; margin-bottom: 0.5rem;
@@ -288,20 +288,25 @@ input[type=radio].tab:checked + div[role=tabpanel] { display: block; }
 }
 html.dark .collapse { background-color: #212837; }
 
-/* Place checkbox and title in the same grid cell */
+/* Checkbox and title share the same grid cell */
 .collapse-title,
 .collapse > input[type=checkbox] {
   grid-column-start: 1; grid-row-start: 1;
-  min-height: 3.75rem;
+  width: 100%; min-height: 3.75rem;
 }
-/* Invisible checkbox floats above the title via z-index */
+/* Checkbox: visually transparent via appearance:none (NOT opacity:0, which
+   Playwright treats as invisible and blocks check()). pointer-events: auto
+   ensures it receives clicks. z-index: 1 places it above the title layer. */
 .collapse > input[type=checkbox] {
-  appearance: none; opacity: 0; cursor: pointer; width: 100%; z-index: 1;
+  appearance: none; background: transparent; border: 0; outline: 0;
+  cursor: pointer; z-index: 1;
 }
+/* Title: pointer-events:none ensures all pointer events fall through to the
+   checkbox, guaranteeing Playwright's elementFromPoint returns the checkbox. */
 .collapse-title {
   padding: 0.75rem 2.5rem 0.75rem 1rem; font-weight: 500;
   position: relative; display: flex; align-items: center;
-  color: #111827;
+  color: #111827; pointer-events: none;
 }
 html.dark .collapse-title { color: #f9fafb; }
 .collapse-arrow .collapse-title::after {
@@ -309,7 +314,7 @@ html.dark .collapse-title { color: #f9fafb; }
   font-size: 0.6rem; transition: transform .3s; color: #6b7280;
 }
 
-/* Use :has() to expand grid and rotate arrow when checked */
+/* Expand grid and rotate arrow when checked */
 .collapse:has(> input[type=checkbox]:checked) { grid-template-rows: auto 1fr; }
 .collapse:has(> input[type=checkbox]:checked) .collapse-arrow .collapse-title::after {
   transform: translateY(-50%) rotate(90deg);
