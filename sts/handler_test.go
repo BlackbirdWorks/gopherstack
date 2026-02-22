@@ -630,3 +630,68 @@ func TestHandler_ParseFormValues_SkipMalformedPair(t *testing.T) {
 	// ExtractOperation should still find the Action.
 	assert.Equal(t, "GetCallerIdentity", h.ExtractOperation(c))
 }
+
+// ---- Read-error / ParseForm-error paths ------------------------------------
+
+// errReader is an [io.ReadCloser] that always returns an error.
+type errReader struct{}
+
+func (r errReader) Read(_ []byte) (int, error) {
+	return 0, fmt.Errorf("read error: %w", errBackendFailure)
+}
+func (r errReader) Close() error { return nil }
+
+// TestExtractOperation_ReadBodyError covers the httputil.ReadBody error path
+// in ExtractOperation (returns "Unknown" when the request body cannot be read).
+func TestExtractOperation_ReadBodyError(t *testing.T) {
+	t.Parallel()
+
+	h, e := newTestHandler(t)
+	req := httptest.NewRequest(http.MethodPost, "/", errReader{})
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	assert.Equal(t, "Unknown", h.ExtractOperation(c))
+}
+
+// TestExtractResource_ReadBodyError covers the httputil.ReadBody error path
+// in ExtractResource (returns "" when the request body cannot be read).
+func TestExtractResource_ReadBodyError(t *testing.T) {
+	t.Parallel()
+
+	h, e := newTestHandler(t)
+	req := httptest.NewRequest(http.MethodPost, "/", errReader{})
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	assert.Empty(t, h.ExtractResource(c))
+}
+
+// TestDispatch_ParseFormError covers the r.ParseForm() error path in dispatch.
+// An errReader body causes ParseForm to fail when it tries to read form fields.
+func TestDispatch_ParseFormError(t *testing.T) {
+	t.Parallel()
+
+	log := logger.NewTestLogger()
+	h := sts.NewHandler(sts.NewInMemoryBackend(), log)
+	e := echo.New()
+	e.Use(func(_ echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			ctx := logger.Save(c.Request().Context(), log)
+
+			return h.Handler()(echo.NewContext(c.Request().WithContext(ctx), c.Response()))
+		}
+	})
+	e.Any("/*", func(_ *echo.Context) error { return nil })
+
+	req := httptest.NewRequest(http.MethodPost, "/", errReader{})
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+
+	e.ServeHTTP(rec, req)
+
+	// ParseForm failure is an InternalFailure → 500
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+}
