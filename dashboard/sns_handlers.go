@@ -1,9 +1,12 @@
 package dashboard
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/sns"
 )
 
 // snsIndex renders the list of all SNS topics.
@@ -52,6 +55,10 @@ func (h *DashboardHandler) snsCreateTopic(c *echo.Context) error {
 	_, err := h.SNSOps.Backend.CreateTopic(name, nil)
 	if err != nil {
 		h.Logger.Error("Failed to create SNS topic", "name", name, "error", err)
+
+		if errors.Is(err, sns.ErrTopicAlreadyExists) {
+			return c.String(http.StatusConflict, "Topic already exists: "+name)
+		}
 
 		return c.String(http.StatusInternalServerError, "Failed to create topic: "+err.Error())
 	}

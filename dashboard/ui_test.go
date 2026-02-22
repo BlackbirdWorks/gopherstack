@@ -2424,3 +2424,67 @@ func TestDashboard_SNS_TopicDetail_NotFound(t *testing.T) {
 
 	require.Equal(t, http.StatusNotFound, w.Code)
 }
+
+func TestDashboard_SNS_CreateTopic_Duplicate(t *testing.T) {
+	t.Parallel()
+
+	stack := newIntegrationStack(t)
+
+	form := url.Values{}
+	form.Set("name", "dup-topic")
+
+	// First create
+	req := httptest.NewRequest(http.MethodPost, "/dashboard/sns/create", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	serveHandler(stack.handler, w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	// Duplicate create should return 409 (Conflict)
+	req2 := httptest.NewRequest(http.MethodPost, "/dashboard/sns/create", strings.NewReader(form.Encode()))
+	req2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w2 := httptest.NewRecorder()
+	serveHandler(stack.handler, w2, req2)
+	require.Equal(t, http.StatusConflict, w2.Code)
+}
+
+func TestDashboard_SNS_DeleteTopic_NotFound(t *testing.T) {
+	t.Parallel()
+
+	stack := newIntegrationStack(t)
+
+	const missingArn = "arn:aws:sns:us-east-1:000000000000:nonexistent"
+	req := httptest.NewRequest(http.MethodDelete, "/dashboard/sns/delete?arn="+missingArn, nil)
+	w := httptest.NewRecorder()
+	serveHandler(stack.handler, w, req)
+
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestDashboard_SNS_TopicDetail_WithSubscription(t *testing.T) {
+	t.Parallel()
+
+	stack := newIntegrationStack(t)
+
+	// Create topic
+	form := url.Values{}
+	form.Set("name", "sub-detail-topic")
+	req := httptest.NewRequest(http.MethodPost, "/dashboard/sns/create", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	serveHandler(stack.handler, w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	arn := "arn:aws:sns:us-east-1:000000000000:sub-detail-topic"
+
+	// Add a subscription directly through the backend
+	_, err := stack.handler.SNSOps.Backend.Subscribe(arn, "https", "https://example.com/endpoint", "")
+	require.NoError(t, err)
+
+	req2 := httptest.NewRequest(http.MethodGet, "/dashboard/sns/topic?arn="+arn, nil)
+	w2 := httptest.NewRecorder()
+	serveHandler(stack.handler, w2, req2)
+
+	require.Equal(t, http.StatusOK, w2.Code)
+	assert.Contains(t, w2.Body.String(), "https")
+}

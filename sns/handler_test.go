@@ -2,6 +2,7 @@ package sns_test
 
 import (
 	"encoding/xml"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
@@ -868,4 +870,232 @@ func TestProviderInit(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, reg)
 	assert.Equal(t, "SNS", reg.Name())
+}
+
+// TestSNSPagination verifies pagination via tokens for ListTopics.
+func TestSNSPagination(t *testing.T) {
+	t.Parallel()
+
+	b := sns.NewInMemoryBackend()
+
+	// Create 30 topics (>25 page size) to trigger pagination
+	for i := range 30 {
+		_, err := b.CreateTopic(fmt.Sprintf("topic-%02d", i), nil)
+		require.NoError(t, err)
+	}
+
+	// First page
+	page1, token1, err := b.ListTopics("")
+	require.NoError(t, err)
+	assert.Len(t, page1, 25)
+	assert.NotEmpty(t, token1)
+
+	// Second page using token from first
+	page2, token2, err := b.ListTopics(token1)
+	require.NoError(t, err)
+	assert.Len(t, page2, 5)
+	assert.Empty(t, token2)
+
+	// Verify no overlap
+	arns1 := make(map[string]bool)
+	for _, tp := range page1 {
+		arns1[tp.TopicArn] = true
+	}
+	for _, tp := range page2 {
+		assert.False(t, arns1[tp.TopicArn], "page2 should not contain items from page1")
+	}
+}
+
+// TestSNSSubscriptionPagination verifies pagination for ListSubscriptions.
+func TestSNSSubscriptionPagination(t *testing.T) {
+	t.Parallel()
+
+	b := sns.NewInMemoryBackend()
+	topic, err := b.CreateTopic("big-topic", nil)
+	require.NoError(t, err)
+
+	// Create 28 subscriptions
+	for i := range 28 {
+		_, subErr := b.Subscribe(topic.TopicArn, "sqs", fmt.Sprintf("arn:aws:sqs:us-east-1:000000000000:q%d", i), "")
+		require.NoError(t, subErr)
+	}
+
+	// First page
+	subs1, token, err := b.ListSubscriptions("")
+	require.NoError(t, err)
+	assert.Len(t, subs1, 25)
+	assert.NotEmpty(t, token)
+
+	// Second page
+	subs2, tok2, err := b.ListSubscriptions(token)
+	require.NoError(t, err)
+	assert.Len(t, subs2, 3)
+	assert.Empty(t, tok2)
+
+	// ListSubscriptions with invalid token
+	_, _, err = b.ListSubscriptions("not-base64!!!")
+	require.ErrorIs(t, err, sns.ErrInvalidParameter)
+
+	// ListSubscriptionsByTopic with invalid token
+	_, _, err = b.ListSubscriptionsByTopic(topic.TopicArn, "not-base64!!!")
+	require.ErrorIs(t, err, sns.ErrInvalidParameter)
+}
+
+// TestSNSHTTPDelivery verifies Publish attempts HTTP delivery to http/https subscriptions.
+func TestSNSHTTPDelivery(t *testing.T) {
+	t.Parallel()
+
+	received := make(chan string, 1)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		received <- string(body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	b := sns.NewInMemoryBackend()
+	tp, err := b.CreateTopic("http-topic", nil)
+	require.NoError(t, err)
+	_, err = b.Subscribe(tp.TopicArn, "http", ts.URL, "")
+	require.NoError(t, err)
+
+	_, err = b.Publish(tp.TopicArn, "test-message", "", nil)
+	require.NoError(t, err)
+
+	// Verify message was delivered
+	select {
+	case msg := <-received:
+		assert.Equal(t, "test-message", msg)
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("HTTP delivery did not arrive in time")
+	}
+}
+
+// TestSNSHTTPDeliveryBadEndpoint verifies that bad HTTP endpoints don't panic.
+func TestSNSHTTPDeliveryBadEndpoint(t *testing.T) {
+	t.Parallel()
+
+	b := sns.NewInMemoryBackend()
+	tp, err := b.CreateTopic("http-err-topic", nil)
+	require.NoError(t, err)
+	_, err = b.Subscribe(tp.TopicArn, "http", "http://localhost:1", "")
+	require.NoError(t, err)
+
+	// Should not panic or return error; delivery is best-effort
+	_, err = b.Publish(tp.TopicArn, "test", "", nil)
+	require.NoError(t, err)
+}
+
+// TestSNSHandlerAdditional covers edge cases not covered by TestSNSHandler.
+func TestSNSHandlerAdditional(t *testing.T) {
+	t.Parallel()
+
+	newHandler := func() (*sns.Handler, *sns.InMemoryBackend) {
+		b := sns.NewInMemoryBackend()
+		log := logger.NewLogger(slog.LevelDebug)
+
+		return sns.NewHandler(b, log), b
+	}
+
+	t.Run("Handler_ParseFormError", func(t *testing.T) {
+		t.Parallel()
+		h, _ := newHandler()
+		e := echo.New()
+		// Use a broken content-type to cause ParseForm issues, but easiest is to use
+		// a plain GET to the handler (no body, action = "", which leads to dispatch unknown)
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+		err := h.Handler()(c)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+
+	t.Run("ListTopics_InvalidToken", func(t *testing.T) {
+		t.Parallel()
+		h, _ := newHandler()
+		rec := snsPost(t, h, url.Values{
+			"Action":    {"ListTopics"},
+			"Version":   {"2010-03-31"},
+			"NextToken": {"!!!not-base64"},
+		})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+
+	t.Run("ListSubscriptions_InvalidToken", func(t *testing.T) {
+		t.Parallel()
+		h, _ := newHandler()
+		rec := snsPost(t, h, url.Values{
+			"Action":    {"ListSubscriptions"},
+			"Version":   {"2010-03-31"},
+			"NextToken": {"!!!not-base64"},
+		})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+
+	t.Run("ListSubscriptionsByTopic_InvalidToken", func(t *testing.T) {
+		t.Parallel()
+		h, b := newHandler()
+		arn := mustCreateTopic(t, b, "tkn-topic")
+		rec := snsPost(t, h, url.Values{
+			"Action":    {"ListSubscriptionsByTopic"},
+			"Version":   {"2010-03-31"},
+			"TopicArn":  {arn},
+			"NextToken": {"!!!not-base64"},
+		})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+
+	t.Run("ExtractOperation_EmptyBody", func(t *testing.T) {
+		t.Parallel()
+		h, _ := newHandler()
+		e := echo.New()
+		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(""))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+		assert.Equal(t, "Unknown", h.ExtractOperation(c))
+	})
+
+	t.Run("ExtractResource_Empty", func(t *testing.T) {
+		t.Parallel()
+		h, _ := newHandler()
+		e := echo.New()
+		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("Action=ListTopics"))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+		assert.Empty(t, h.ExtractResource(c))
+	})
+
+	t.Run("CreateTopic_WithAttributes", func(t *testing.T) {
+		t.Parallel()
+		h, _ := newHandler()
+		rec := snsPost(t, h, url.Values{
+			"Action":                   {"CreateTopic"},
+			"Version":                  {"2010-03-31"},
+			"Name":                     {"attrs-topic"},
+			"Attributes.entry.1.key":   {"DisplayName"},
+			"Attributes.entry.1.value": {"My Display Name"},
+		})
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Contains(t, rec.Body.String(), "attrs-topic")
+	})
+
+	t.Run("PublishBatch_PartialFailure_TopicNotFound", func(t *testing.T) {
+		t.Parallel()
+		h, b := newHandler()
+		arn := mustCreateTopic(t, b, "pfail-topic")
+		// Delete the topic so the publish fails for all entries
+		require.NoError(t, b.DeleteTopic(arn))
+		rec := snsPost(t, h, url.Values{
+			"Action":                                 {"PublishBatch"},
+			"Version":                                {"2010-03-31"},
+			"TopicArn":                               {arn},
+			"PublishBatchRequestEntries.member.1.Id": {"fail1"},
+			"PublishBatchRequestEntries.member.1.Message": {"msg"},
+		})
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Contains(t, rec.Body.String(), "NotFound")
+	})
 }
