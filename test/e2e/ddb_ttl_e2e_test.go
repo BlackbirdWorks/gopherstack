@@ -14,9 +14,9 @@ import (
 )
 
 func TestE2E_DynamoDB_TTL(t *testing.T) {
-	stack := newIntegrationStack(t)
+	stack := newStack(t)
 
-	server := httptest.NewServer(stack.handler)
+	server := httptest.NewServer(stack.Echo)
 	defer server.Close()
 
 	page, err := browser.NewPage()
@@ -33,7 +33,7 @@ func TestE2E_DynamoDB_TTL(t *testing.T) {
 	ctx := t.Context()
 
 	// 1. Create table via SDK
-	_, err = stack.dyClient.CreateTable(ctx, &dynamodb.CreateTableInput{
+	_, err = stack.DDBClient.CreateTable(ctx, &dynamodb.CreateTableInput{
 		TableName: aws.String(tableName),
 		KeySchema: []types.KeySchemaElement{
 			{AttributeName: aws.String("id"), KeyType: types.KeyTypeHash},
@@ -67,7 +67,7 @@ func TestE2E_DynamoDB_TTL(t *testing.T) {
 	}).WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)}))
 
 	// 6. Verify TTL status via SDK
-	desc, err := stack.dyClient.DescribeTimeToLive(ctx, &dynamodb.DescribeTimeToLiveInput{
+	desc, err := stack.DDBClient.DescribeTimeToLive(ctx, &dynamodb.DescribeTimeToLiveInput{
 		TableName: aws.String(tableName),
 	})
 	require.NoError(t, err)
@@ -85,7 +85,7 @@ func TestE2E_DynamoDB_TTL(t *testing.T) {
 	}).First().WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)}))
 
 	// 9. Verify TTL status via SDK again
-	desc, err = stack.dyClient.DescribeTimeToLive(ctx, &dynamodb.DescribeTimeToLiveInput{
+	desc, err = stack.DDBClient.DescribeTimeToLive(ctx, &dynamodb.DescribeTimeToLiveInput{
 		TableName: aws.String(tableName),
 	})
 	require.NoError(t, err)

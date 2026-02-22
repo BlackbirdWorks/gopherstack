@@ -15,13 +15,13 @@ import (
 
 // TestSNSDashboard tests the SNS Dashboard UI behavior.
 func TestSNSDashboard(t *testing.T) {
-	stack := newIntegrationStack(t)
+	stack := newStack(t)
 
-	server := httptest.NewServer(stack.handler)
+	server := httptest.NewServer(stack.Echo)
 	defer server.Close()
 
 	if u, err := url.Parse(server.URL); err == nil {
-		stack.s3Handler.Endpoint = u.Host
+		stack.S3Handler.Endpoint = u.Host
 	}
 
 	context, err := browser.NewContext()

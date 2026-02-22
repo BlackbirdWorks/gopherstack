@@ -15,9 +15,9 @@ import (
 )
 
 func TestE2E_DynamoDB_Streams(t *testing.T) {
-	stack := newIntegrationStack(t)
+	stack := newStack(t)
 
-	server := httptest.NewServer(stack.handler)
+	server := httptest.NewServer(stack.Echo)
 	defer server.Close()
 
 	page, err := browser.NewPage()
@@ -34,7 +34,7 @@ func TestE2E_DynamoDB_Streams(t *testing.T) {
 	ctx := t.Context()
 
 	// 1. Create table via SDK (Streams DISABLED)
-	_, err = stack.dyClient.CreateTable(ctx, &dynamodb.CreateTableInput{
+	_, err = stack.DDBClient.CreateTable(ctx, &dynamodb.CreateTableInput{
 		TableName: aws.String(tableName),
 		KeySchema: []ddbtypes.KeySchemaElement{
 			{AttributeName: aws.String("id"), KeyType: ddbtypes.KeyTypeHash},
@@ -73,7 +73,7 @@ func TestE2E_DynamoDB_Streams(t *testing.T) {
 	}).WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)}))
 
 	// 6. Generate an event via SDK
-	_, err = stack.dyClient.PutItem(ctx, &dynamodb.PutItemInput{
+	_, err = stack.DDBClient.PutItem(ctx, &dynamodb.PutItemInput{
 		TableName: aws.String(tableName),
 		Item: map[string]ddbtypes.AttributeValue{
 			"id": &ddbtypes.AttributeValueMemberS{Value: "test-item"},
@@ -102,7 +102,7 @@ func TestE2E_DynamoDB_Streams(t *testing.T) {
 	}).WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)}))
 
 	// 11. Verify SDK status
-	desc, err := stack.dyClient.DescribeTable(ctx, &dynamodb.DescribeTableInput{
+	desc, err := stack.DDBClient.DescribeTable(ctx, &dynamodb.DescribeTableInput{
 		TableName: aws.String(tableName),
 	})
 	require.NoError(t, err)

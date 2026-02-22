@@ -7,6 +7,7 @@ import (
 	stssdk "github.com/aws/aws-sdk-go-v2/service/sts"
 
 	"github.com/blackbirdworks/gopherstack/dynamodb"
+	iambackend "github.com/blackbirdworks/gopherstack/iam"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/s3"
 	"github.com/blackbirdworks/gopherstack/sns"
@@ -25,6 +26,7 @@ type AWSSDKProvider interface {
 	GetDynamoDBHandler() service.Registerable
 	GetS3Handler() service.Registerable
 	GetSSMHandler() service.Registerable
+	GetIAMHandler() service.Registerable
 	GetSTSHandler() service.Registerable
 	GetSNSHandler() service.Registerable
 	GetSQSHandler() service.Registerable
@@ -48,6 +50,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	var ddbHandler service.Registerable
 	var s3Handler service.Registerable
 	var ssmHandler service.Registerable
+	var iamHandler service.Registerable
 	var stsHandler service.Registerable
 	var snsHandler service.Registerable
 	var sqsHandler service.Registerable
@@ -60,6 +63,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		ddbHandler = ap.GetDynamoDBHandler()
 		s3Handler = ap.GetS3Handler()
 		ssmHandler = ap.GetSSMHandler()
+		iamHandler = ap.GetIAMHandler()
 		stsHandler = ap.GetSTSHandler()
 		snsHandler = ap.GetSNSHandler()
 		sqsHandler = ap.GetSQSHandler()
@@ -73,6 +77,10 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	var ssmOps *ssm.Handler
 	if ssmHandler != nil {
 		ssmOps, _ = ssmHandler.(*ssm.Handler)
+	}
+	var iamOps *iambackend.Handler
+	if iamHandler != nil {
+		iamOps, _ = iamHandler.(*iambackend.Handler)
 	}
 	var stsOps *stsbackend.Handler
 	if stsHandler != nil {
@@ -88,7 +96,19 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		sqsOps, _ = sqsHandler.(*sqsbackend.Handler)
 	}
 
-	handler := NewHandler(ddbClient, s3Client, ssmClient, ddb, s3h, ssmOps, stsOps, snsOps, sqsOps, ctx.Logger)
+	handler := NewHandler(Config{
+		DDBClient: ddbClient,
+		S3Client:  s3Client,
+		SSMClient: ssmClient,
+		DDBOps:    ddb,
+		S3Ops:     s3h,
+		SSMOps:    ssmOps,
+		IAMOps:    iamOps,
+		STSOps:    stsOps,
+		SNSOps:    snsOps,
+		SQSOps:    sqsOps,
+		Logger:    ctx.Logger,
+	})
 
 	return handler, nil
 }
