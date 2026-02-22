@@ -26,6 +26,12 @@ import (
 	stsbackend "github.com/blackbirdworks/gopherstack/sts"
 )
 
+const (
+	// DynamoDB provisioned throughput for test tables.
+	testReadCapacityUnits  = 5
+	testWriteCapacityUnits = 5
+)
+
 // Stack holds a fully wired in-memory test stack with all services,
 // the Echo router (correctly mounted), AWS SDK clients, and the dashboard handler.
 type Stack struct {
@@ -150,8 +156,8 @@ func (s *Stack) CreateDDBTable(t *testing.T, tableName string) {
 			{AttributeName: aws.String("id"), AttributeType: ddbtypes.ScalarAttributeTypeS},
 		},
 		ProvisionedThroughput: &ddbtypes.ProvisionedThroughput{
-			ReadCapacityUnits:  aws.Int64(5),
-			WriteCapacityUnits: aws.Int64(5),
+			ReadCapacityUnits:  aws.Int64(testReadCapacityUnits),
+			WriteCapacityUnits: aws.Int64(testWriteCapacityUnits),
 		},
 	})
 	require.NoError(t, err)
