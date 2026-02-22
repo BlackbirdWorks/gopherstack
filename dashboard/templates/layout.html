@@ -16,20 +16,20 @@
         })();
     </script>
 
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Tailwind CSS (Play CDN bundled) -->
+    <script src="/dashboard/static/vendor/tailwind.min.js"></script>
     <script>
         tailwind.config = { darkMode: 'class' }
     </script>
 
     <!-- Flowbite CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/flowbite@2.5.2/dist/flowbite.min.css" rel="stylesheet" />
+    <link href="/dashboard/static/vendor/flowbite.min.css" rel="stylesheet" />
 
     <!-- Custom styles -->
     <link rel="stylesheet" href="/dashboard/static/styles.css">
 
     <!-- HTMX -->
-    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script src="/dashboard/static/vendor/htmx.min.js"></script>
 </head>
 
 <body class="bg-gray-50 dark:bg-gray-900 antialiased">
@@ -81,13 +81,13 @@
                     Services</li>
                 <li>
                     <a href="/dashboard/dynamodb"
-                        class="flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "dynamodb"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}">
+                        class='flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "dynamodb"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}'>
                         <span>📊</span> DynamoDB
                     </a>
                 </li>
                 <li>
                     <a href="/dashboard/s3"
-                        class="flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "s3"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}">
+                        class='flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "s3"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}'>
                         <span>🪣</span> S3
                     </a>
                 </li>
@@ -96,19 +96,19 @@
                     Standard Services</li>
                 <li>
                     <a href="/dashboard/ssm"
-                        class="flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "ssm"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}">
+                        class='flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "ssm"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}'>
                         <span>⚙️</span> SSM
                     </a>
                 </li>
                 <li>
                     <a href="/dashboard/iam"
-                        class="flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "iam"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}">
+                        class='flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "iam"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}'>
                         <span>🔐</span> IAM
                     </a>
                 </li>
                 <li>
                     <a href="/dashboard/sts"
-                        class="flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "sts"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}">
+                        class='flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "sts"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}'>
                         <span>🔑</span> STS
                     </a>
                 </li>
@@ -117,13 +117,13 @@
                     Message Services</li>
                 <li>
                     <a href="/dashboard/sns"
-                        class="flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "sns"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}">
+                        class='flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "sns"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}'>
                         <span>📢</span> SNS
                     </a>
                 </li>
                 <li>
                     <a href="/dashboard/sqs"
-                        class="flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "sqs"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}">
+                        class='flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "sqs"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}'>
                         <span>📭</span> SQS
                     </a>
                 </li>
@@ -132,7 +132,7 @@
                     Security Services</li>
                 <li>
                     <a href="/dashboard/kms"
-                        class="flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "kms"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}">
+                        class='flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "kms"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}'>
                         <span>🔑</span> KMS
                     </a>
                 </li>
@@ -148,13 +148,13 @@
                     Monitoring</li>
                 <li>
                     <a href="/dashboard/metrics"
-                        class="flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "metrics"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}">
+                        class='flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "metrics"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}'>
                         <span>📈</span> Metrics
                     </a>
                 </li>
                 <li>
                     <a href="/dashboard/docs"
-                        class="flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "docs"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}">
+                        class='flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "docs"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}'>
                         <span>📚</span> Docs
                     </a>
                 </li>
@@ -210,7 +210,7 @@
     </div>
 
     <!-- Flowbite JS (for sidebar toggle, etc.) -->
-    <script src="https://cdn.jsdelivr.net/npm/flowbite@2.5.2/dist/flowbite.min.js"></script>
+    <script src="/dashboard/static/vendor/flowbite.min.js"></script>
 
     <!-- Custom JS -->
     <script src="/dashboard/static/app.js"></script>

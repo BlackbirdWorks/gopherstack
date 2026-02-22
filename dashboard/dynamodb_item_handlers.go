@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"net/http"
@@ -366,7 +367,12 @@ func (h *DashboardHandler) renderQueryResults(
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
 	if len(result.Items) == 0 {
-		fmt.Fprintf(w, `<div class="alert alert-info"><span>No items found</span></div>`)
+		fmt.Fprintf(
+			w,
+			`<div class="flex items-center p-4 text-sm text-blue-800 border border-blue-300 rounded-lg `+
+				`bg-blue-50 dark:bg-gray-800 dark:text-blue-400 dark:border-blue-800" role="alert">`+
+				`<span>No items found</span></div>`,
+		)
 
 		return
 	}
@@ -426,37 +432,39 @@ func (h *DashboardHandler) renderResultsTable(
 	items []map[string]any,
 	pkName, skName string,
 ) {
-	const tableWrapper = `<div class="wide-table-container border border-base-300 ` +
-		`rounded-lg shadow-inner bg-base-100 mb-4">`
+	const tableWrapper = `<div class="relative overflow-x-auto border border-gray-200 ` +
+		`rounded-lg shadow dark:border-gray-700 mb-4">`
 	fmt.Fprint(w, tableWrapper)
-	fmt.Fprintf(w, `<table class="table table-zebra table-sm w-full table-auto">`)
-	fmt.Fprintf(w, `<thead><tr>`)
+	fmt.Fprintf(w, `<table class="w-full text-sm text-left text-gray-500 dark:text-gray-400">`)
+	fmt.Fprintf(w, `<thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400"><tr>`)
 	for _, col := range columns {
 		label := html.EscapeString(col)
 		switch col {
 		case pkName:
-			label += " <span class='badge badge-primary badge-xs ml-1'>PK</span>"
+			label += " <span class='bg-blue-100 text-blue-800 text-[10px] font-medium px-1.5 py-0.5 " +
+				"rounded dark:bg-blue-900 dark:text-blue-300 ml-1'>PK</span>"
 		case skName:
-			label += " <span class='badge badge-secondary badge-xs ml-1'>SK</span>"
+			label += " <span class='bg-purple-100 text-purple-800 text-[10px] font-medium px-1.5 py-0.5 " +
+				"rounded dark:bg-purple-900 dark:text-purple-300 ml-1'>SK</span>"
 		}
 		// #nosec G705 -- Data is escaped with html.EscapeString, false positive
 		// #nosec G705
-		fmt.Fprintf(w, `<th>%s</th>`, label)
+		fmt.Fprintf(w, `<th scope="col" class="px-4 py-3">%s</th>`, label)
 	}
-	fmt.Fprintf(w, `<th>Actions</th>`)
+	fmt.Fprintf(w, `<th scope="col" class="px-4 py-3">Actions</th>`)
 	fmt.Fprintf(w, `</tr></thead><tbody>`)
 
 	for _, item := range items {
-		fmt.Fprintf(w, `<tr>`)
+		fmt.Fprintf(w, `<tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">`)
 		for _, col := range columns {
 			val := item[col]
 			if val == nil {
-				fmt.Fprintf(w, `<td class="opacity-30">-</td>`)
+				fmt.Fprintf(w, `<td class="px-4 py-2 opacity-30">-</td>`)
 			} else {
 				jsonVal, _ := json.Marshal(val)
 				jsonStr := string(jsonVal)
 				// #nosec G705
-				fmt.Fprintf(w, `<td class="font-mono text-xs max-w-xs truncate" title="%s">%s</td>`,
+				fmt.Fprintf(w, `<td class="px-4 py-2 font-mono text-xs max-w-xs truncate" title="%s">%s</td>`,
 					html.EscapeString(jsonStr), html.EscapeString(jsonStr))
 			}
 		}
@@ -483,15 +491,17 @@ func (h *DashboardHandler) renderItemActions(
 		skValStr = string(skValBytes)
 	}
 
-	fmt.Fprintf(w, `<td>
+	fmt.Fprintf(w, `<td class="px-4 py-2">
             <div class="flex gap-1">
-                <button class="btn btn-ghost btn-xs text-info" 
+                <button class="text-blue-600 dark:text-blue-500 hover:underline text-xs font-medium"
                     hx-get="/dashboard/dynamodb/table/%s/item?pk=%s&sk=%s"
                     hx-target="#edit_item_modal_content"
-                    onclick="edit_item_modal.showModal()">
+                    data-modal-target="edit_item_modal" data-modal-toggle="edit_item_modal"
+                    onclick="const m=document.getElementById('edit_item_modal');if(m){`+
+		`m.classList.remove('hidden');m.classList.add('flex')}">
                     Edit
                 </button>
-                <button class="btn btn-ghost btn-xs text-error" 
+                <button class="text-red-600 dark:text-red-500 hover:underline text-xs font-medium"
                     hx-delete="/dashboard/dynamodb/table/%s/item?pk=%s&sk=%s"
                     hx-confirm="Are you sure you want to delete this item?"
                     hx-target="closest tr" hx-swap="outerHTML">
@@ -506,12 +516,13 @@ func (h *DashboardHandler) renderItemActions(
 func (h *DashboardHandler) renderResultsSummary(w http.ResponseWriter, result QueryResult) {
 	fmt.Fprintf(
 		w,
-		`<div class="mt-4 flex justify-between items-center bg-base-200 p-4 rounded-lg">`,
+		`<div class="mt-4 flex justify-between items-center bg-gray-50 dark:bg-gray-800 p-4 `+
+			`rounded-lg border border-gray-200 dark:border-gray-700">`,
 	)
 	fmt.Fprintf(
 		w,
-		`<div><p class="text-sm font-medium">Count: <span class="badge badge-ghost">%d</span> `+
-			`| Scanned: <span class="badge badge-ghost">%d</span></p></div>`,
+		`<div><p class="text-sm font-medium text-gray-700 dark:text-gray-300">Count: %d `+
+			`| Scanned: %d</p></div>`,
 		result.Count,
 		result.ScannedCount,
 	)
@@ -527,7 +538,9 @@ func (h *DashboardHandler) renderResultsSummary(w http.ResponseWriter, result Qu
 		)
 		fmt.Fprintf(
 			w,
-			`<button class="btn btn-primary btn-sm" hx-include="closest form" hx-vals='{"exclusiveStartKey": %s}' `+
+			`<button class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 `+
+				`font-medium rounded-lg text-xs px-3 py-1.5 dark:bg-blue-600 dark:hover:bg-blue-700 `+
+				`dark:focus:ring-blue-800" hx-include="closest form" hx-vals='{"exclusiveStartKey": %s}' `+
 				`hx-post="" hx-target="closest #query-results, closest #scan-results">Next Page &rarr;</button>`,
 			string(kb),
 		)
@@ -547,69 +560,23 @@ func (h *DashboardHandler) dynamoDBDeleteItem(w http.ResponseWriter, r *http.Req
 	ctx := r.Context()
 	log := logger.Load(ctx)
 
-	// Get table description to find PK/SK names and types
-	desc, err := h.DynamoDB.DescribeTable(ctx, &dynamodb.DescribeTableInput{
-		TableName: aws.String(tableName),
-	})
-	if err != nil {
-		http.Error(w, "Table not found", http.StatusNotFound)
+	key, errKey := h.parseItemKey(ctx, tableName, r.URL.Query().Get("pk"), r.URL.Query().Get("sk"))
+	if errKey != nil {
+		log.ErrorContext(ctx, "Failed to parse key", "error", errKey)
 
-		return
-	}
-
-	pkName, skName := h.extractKeys(desc.Table.KeySchema)
-
-	// Get PK/SK values from request (JSON serialized in query params)
-	pkValRaw := r.URL.Query().Get("pk")
-	skValRaw := r.URL.Query().Get("sk")
-
-	key := make(map[string]types.AttributeValue)
-
-	// Helper to parse JSON value into AttributeValue based on attribute definition
-	parseVal := func(name, valRaw string) (types.AttributeValue, error) {
-		var ad *types.AttributeDefinition
-		for i := range desc.Table.AttributeDefinitions {
-			if *desc.Table.AttributeDefinitions[i].AttributeName == name {
-				ad = &desc.Table.AttributeDefinitions[i]
-
-				break
-			}
-		}
-		if ad == nil {
-			return nil, fmt.Errorf("%w for %s", errAttrDefNotFound, name)
-		}
-
-		// Unmarshal the JSON value (could be string, number, etc.)
-		var v any
-		if errUnmarshal := json.Unmarshal([]byte(valRaw), &v); errUnmarshal != nil {
-			return nil, fmt.Errorf("failed to unmarshal key value: %w", errUnmarshal)
-		}
-
-		// Marshal into AttributeValue
-		return attributevalue.Marshal(v)
-	}
-
-	pkAV, errPK := parseVal(pkName, pkValRaw)
-	if errPK != nil {
-		log.ErrorContext(ctx, "Failed to parse PK", "error", errPK)
-		http.Error(w, errPK.Error(), http.StatusBadRequest)
-
-		return
-	}
-	key[pkName] = pkAV
-
-	if skName != "" && skValRaw != "" {
-		skAV, errSK := parseVal(skName, skValRaw)
-		if errSK != nil {
-			log.ErrorContext(ctx, "Failed to parse SK", "error", errSK)
-			http.Error(w, errSK.Error(), http.StatusBadRequest)
+		var rnf *types.ResourceNotFoundException
+		if errors.As(errKey, &rnf) {
+			http.Error(w, "Table not found", http.StatusNotFound)
 
 			return
 		}
-		key[skName] = skAV
+
+		http.Error(w, errKey.Error(), http.StatusBadRequest)
+
+		return
 	}
 
-	_, err = h.DynamoDB.DeleteItem(ctx, &dynamodb.DeleteItemInput{
+	_, err := h.DynamoDB.DeleteItem(ctx, &dynamodb.DeleteItemInput{
 		TableName: aws.String(tableName),
 		Key:       key,
 	})
@@ -734,49 +701,18 @@ func (h *DashboardHandler) dynamoDBItemDetail(w http.ResponseWriter, r *http.Req
 	ctx := r.Context()
 	log := logger.Load(ctx)
 
-	// Get table description to find PK/SK names and types
-	desc, err := h.DynamoDB.DescribeTable(ctx, &dynamodb.DescribeTableInput{
-		TableName: aws.String(tableName),
-	})
-	if err != nil {
-		http.Error(w, "Table not found", http.StatusNotFound)
-
-		return
-	}
-
-	pkName, skName := h.extractKeys(desc.Table.KeySchema)
-
-	// Get PK/SK values from request (JSON serialized in query params)
-	pkValRaw := r.URL.Query().Get("pk")
-	skValRaw := r.URL.Query().Get("sk")
-
-	key := make(map[string]types.AttributeValue)
-
-	parseVal := func(_, valRaw string) (types.AttributeValue, error) {
-		var v any
-		if errUnmarshal := json.Unmarshal([]byte(valRaw), &v); errUnmarshal != nil {
-			return nil, fmt.Errorf("failed to unmarshal key value: %w", errUnmarshal)
-		}
-
-		return attributevalue.Marshal(v)
-	}
-
-	pkAV, errPK := parseVal(pkName, pkValRaw)
-	if errPK != nil {
-		http.Error(w, "Failed to parse PK", http.StatusBadRequest)
-
-		return
-	}
-	key[pkName] = pkAV
-
-	if skName != "" && skValRaw != "" {
-		skAV, errSK := parseVal(skName, skValRaw)
-		if errSK != nil {
-			http.Error(w, "Failed to parse SK", http.StatusBadRequest)
+	key, errKey := h.parseItemKey(ctx, tableName, r.URL.Query().Get("pk"), r.URL.Query().Get("sk"))
+	if errKey != nil {
+		var rnf *types.ResourceNotFoundException
+		if errors.As(errKey, &rnf) {
+			http.Error(w, "Table not found", http.StatusNotFound)
 
 			return
 		}
-		key[skName] = skAV
+
+		http.Error(w, "Failed to parse key", http.StatusBadRequest)
+
+		return
 	}
 
 	output, errGet := h.DynamoDB.GetItem(ctx, &dynamodb.GetItemInput{
@@ -806,20 +742,92 @@ func (h *DashboardHandler) dynamoDBItemDetail(w http.ResponseWriter, r *http.Req
 
 	itemJSON, _ := json.MarshalIndent(m, "", "  ")
 
+	h.renderEditItemForm(w, tableName, string(itemJSON))
+}
+
+// parseItemKey parses PK/SK from request query params into a DynamoDB key map.
+func (h *DashboardHandler) parseItemKey(
+	ctx context.Context,
+	tableName, pkValRaw, skValRaw string,
+) (map[string]types.AttributeValue, error) {
+	desc, err := h.DynamoDB.DescribeTable(ctx, &dynamodb.DescribeTableInput{
+		TableName: aws.String(tableName),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to describe table: %w", err)
+	}
+
+	pkName, skName := h.extractKeys(desc.Table.KeySchema)
+	key := make(map[string]types.AttributeValue)
+
+	parseVal := func(name, valRaw string) (types.AttributeValue, error) {
+		var ad *types.AttributeDefinition
+		for i := range desc.Table.AttributeDefinitions {
+			if *desc.Table.AttributeDefinitions[i].AttributeName == name {
+				ad = &desc.Table.AttributeDefinitions[i]
+
+				break
+			}
+		}
+		if ad == nil {
+			return nil, fmt.Errorf("%w for %s", errAttrDefNotFound, name)
+		}
+
+		var v any
+		if errUnmarshal := json.Unmarshal([]byte(valRaw), &v); errUnmarshal != nil {
+			return nil, fmt.Errorf("failed to unmarshal key value: %w", errUnmarshal)
+		}
+
+		return attributevalue.Marshal(v)
+	}
+
+	pkAV, errPK := parseVal(pkName, pkValRaw)
+	if errPK != nil {
+		return nil, errPK
+	}
+	key[pkName] = pkAV
+
+	if skName != "" && skValRaw != "" {
+		skAV, errSK := parseVal(skName, skValRaw)
+		if errSK != nil {
+			return nil, errSK
+		}
+		key[skName] = skAV
+	}
+
+	return key, nil
+}
+
+// renderEditItemForm renders the HTML form for editing a DynamoDB item.
+func (h *DashboardHandler) renderEditItemForm(w http.ResponseWriter, tableName, itemJSON string) {
 	fmt.Fprintf(w, `
-        <form hx-post="/dashboard/dynamodb/table/%s/item" 
-            hx-on::after-request="if(event.detail.successful) edit_item_modal.close()" 
+        <form hx-post="/dashboard/dynamodb/table/%s/item"
+            hx-on::after-request="if(event.detail.successful) { `+
+		`const m = document.getElementById('edit_item_modal'); m.classList.add('hidden'); m.classList.remove('flex'); }"
             hx-target="#scan-results"
             class="space-y-4">
-            <div class="form-control">
-                <label class="label">
-                    <span class="label-text">Item JSON</span>
-                </label>
-                <textarea name="itemJson" class="textarea textarea-bordered font-mono h-64" required>%s</textarea>
+            <div>
+                <label for="editItemJson" `+
+		`class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Item JSON</label>
+                <textarea name="itemJson" id="editItemJson" rows="12"
+                    class="block p-2.5 w-full text-sm text-gray-900 bg-gray-50 rounded-lg border border-gray-300 `+
+		`focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-600 dark:border-gray-500 `+
+		`dark:placeholder-gray-400 dark:text-white font-mono"
+                    required>%s</textarea>
             </div>
-            <div class="modal-action">
-                <button type="button" class="btn" onclick="edit_item_modal.close()">Cancel</button>
-                <button type="submit" class="btn btn-primary">Save Changes</button>
+            <div class="flex justify-end gap-2 pt-4">
+                <button type="button"
+                    class="text-gray-500 bg-white hover:bg-gray-100 focus:ring-4 focus:outline-none `+
+		`focus:ring-gray-200 rounded-lg border border-gray-200 text-sm font-medium px-5 py-2.5 `+
+		`hover:text-gray-900 focus:z-10 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-500 `+
+		`dark:hover:text-white dark:hover:bg-gray-600 dark:focus:ring-gray-600"
+                    data-modal-hide="edit_item_modal"
+                    onclick="const m=document.getElementById('edit_item_modal');`+
+		`m.classList.add('hidden');m.classList.remove('flex')">Cancel</button>
+                <button type="submit"
+                    class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:outline-none `+
+		`focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-blue-600 `+
+		`dark:hover:bg-blue-700 dark:focus:ring-blue-800">Save Changes</button>
             </div>
-        </form>`, tableName, html.EscapeString(string(itemJSON)))
+        </form>`, tableName, html.EscapeString(itemJSON))
 }

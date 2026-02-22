@@ -103,7 +103,7 @@ func TestE2E_CustomModal_ConfirmDelete(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = page.WaitForFunction("() => !document.getElementById('global_confirm_modal').hasAttribute('open')", nil, playwright.PageWaitForFunctionOptions{
-		Timeout: playwright.Float(5000),
+		Timeout: playwright.Float(1000),
 	})
 	require.NoError(t, err, "Modal should close after clicking cancel")
 
@@ -136,11 +136,11 @@ func TestE2E_S3_ConfirmDeleteBucket(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/s3")
 	require.NoError(t, err)
 
-	bucketCard := page.Locator(".card:has-text('trash-bucket')")
+	bucketCard := page.Locator("#bucket-list div.p-6:has-text('trash-bucket')")
 	err = bucketCard.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible})
 	require.NoError(t, err)
 
-	err = bucketCard.Locator("button.btn-error").Click()
+	err = bucketCard.Locator("button:has-text('Delete')").Click()
 	require.NoError(t, err)
 
 	modal := page.Locator("#global_confirm_modal")
@@ -188,7 +188,7 @@ func TestE2E_DynamoDB_CreateTableCompleteFlow(t *testing.T) {
 	require.NoError(t, page.Click("button[type='submit']:has-text('Create')"))
 
 	// 4. Verify table appears in list
-	tableCard := page.Locator(".card:has-text('TestTable')")
+	tableCard := page.Locator("#table-list div.p-6:has-text('TestTable')")
 	err = tableCard.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible})
 	require.NoError(t, err)
 
@@ -288,10 +288,10 @@ func TestE2E_DynamoDB_ItemCRUD(t *testing.T) {
 
 	// 3. Scan and verify item appears
 	// Make sure we are on the Scan tab
-	err = page.Click("input[aria-label='Scan']")
+	err = page.Click("#scan-tab")
 	require.NoError(t, err)
 
-	err = page.Click("button.btn-primary:has-text('Execute Scan')")
+	err = page.Click("button:has-text('Execute Scan')")
 	require.NoError(t, err)
 
 	// Wait for results to be swap-in
@@ -318,7 +318,7 @@ func TestE2E_DynamoDB_ItemCRUD(t *testing.T) {
 	require.Eventually(t, func() bool {
 		content, _ := itemRow.TextContent()
 		return strings.Contains(content, "Super Gopher")
-	}, 10*time.Second, 250*time.Millisecond)
+	}, 2*time.Second, 100*time.Millisecond)
 
 	// 6. Delete item
 	err = itemRow.Locator("button:has-text('Delete')").Click()
@@ -328,7 +328,7 @@ func TestE2E_DynamoDB_ItemCRUD(t *testing.T) {
 	// THE BUTTON CLICK TRIGGERS THE BROWSER CONFIRM DIALOG OR THE HTMX ONE
 	// Let's assume it's the global confirmation modal based on the screenshot
 	modal := page.Locator("#global_confirm_modal")
-	err = modal.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible, Timeout: aws.Float64(2000)})
+	err = modal.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible, Timeout: aws.Float64(500)})
 	if err == nil {
 		err = page.Click("#global_confirm_proceed")
 		require.NoError(t, err)
@@ -386,41 +386,47 @@ func TestE2E_S3_FolderNavigation(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, page.WaitForLoadState(playwright.PageWaitForLoadStateOptions{
 		State:   playwright.LoadStateNetworkidle,
-		Timeout: playwright.Float(10000),
+		Timeout: playwright.Float(2000),
 	}))
 
 	// 2. Verify tree structure (initially should see 'logs/' and 'readme.md')
 	require.NoError(t, page.Locator("#file-tree:has-text('logs')").WaitFor())
 	require.NoError(t, page.Locator("#file-tree:has-text('readme.md')").WaitFor())
 
+	// Helper: click an accordion folder button, ensure target is visible, wait for HTMX.
+	// Flowbite JS only initializes accordion on page load; HTMX-loaded sub-folders
+	// need manual hidden-class removal.
+	clickFolder := func(label string) {
+		t.Helper()
+		btn := page.Locator("button[data-accordion-target]:has-text('" + label + "')")
+		require.NoError(t, btn.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible}))
+		require.NoError(t, btn.Click())
+		// Remove 'hidden' from the accordion target div in case Flowbite didn't init it.
+		// Use getElementById instead of querySelector because the IDs contain URL-encoded chars (%).
+		_, err2 := page.Evaluate(`(label) => {
+			const btn = [...document.querySelectorAll('button[data-accordion-target]')]
+				.find(b => b.textContent.includes(label));
+			if (btn) {
+				const targetId = btn.getAttribute('data-accordion-target').replace(/^#/, '');
+				const target = document.getElementById(targetId);
+				if (target) target.classList.remove('hidden');
+			}
+		}`, label)
+		require.NoError(t, err2)
+		require.NoError(t, page.WaitForLoadState(playwright.PageWaitForLoadStateOptions{
+			State:   playwright.LoadStateNetworkidle,
+			Timeout: playwright.Float(2000),
+		}))
+	}
+
 	// 3. Navigate into 'logs/' and wait for HTMX to load its contents.
-	logsNode := page.Locator(".collapse:has-text('logs')")
-	err = logsNode.Locator("input[type='checkbox']").Check()
-	require.NoError(t, err)
-	require.NoError(t, page.WaitForLoadState(playwright.PageWaitForLoadStateOptions{
-		State:   playwright.LoadStateNetworkidle,
-		Timeout: playwright.Float(10000),
-	}))
+	clickFolder("logs")
 
-	// 4. Verify '2024/' is visible and navigate into it.
-	yearNode := logsNode.Locator(".collapse:has-text('2024')")
-	require.NoError(t, yearNode.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible}))
-	err = yearNode.Locator("input[type='checkbox']").Check()
-	require.NoError(t, err)
-	require.NoError(t, page.WaitForLoadState(playwright.PageWaitForLoadStateOptions{
-		State:   playwright.LoadStateNetworkidle,
-		Timeout: playwright.Float(10000),
-	}))
+	// 4. Navigate into '2024/'
+	clickFolder("2024")
 
-	// 5. Verify '01/' is visible and navigate into it.
-	monthNode := yearNode.Locator(".collapse:has-text('01')")
-	require.NoError(t, monthNode.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible}))
-	err = monthNode.Locator("input[type='checkbox']").Check()
-	require.NoError(t, err)
-	require.NoError(t, page.WaitForLoadState(playwright.PageWaitForLoadStateOptions{
-		State:   playwright.LoadStateNetworkidle,
-		Timeout: playwright.Float(10000),
-	}))
+	// 5. Navigate into '01/'
+	clickFolder("01")
 
 	// 6. Verify 'app.log' appears
 	require.NoError(t, page.Locator("#file-tree:has-text('app.log')").WaitFor())
@@ -467,7 +473,7 @@ func TestE2E_S3_MetadataTagging(t *testing.T) {
 	tagItem := page.Locator("#tags-list").GetByText("Project: Gopherstack")
 	err = tagItem.WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: aws.Float64(5000),
+		Timeout: aws.Float64(1000),
 	})
 	require.NoError(t, err)
 
@@ -477,7 +483,7 @@ func TestE2E_S3_MetadataTagging(t *testing.T) {
 
 	// 5. Verify update (page refreshes)
 	// 5. Verify update (page refreshes) - check for content instead of timing out on URL
-	require.NoError(t, page.Locator(".badge:has-text('Project: Gopherstack')").WaitFor())
+	require.NoError(t, page.Locator("#tags-list").GetByText("Project: Gopherstack").First().WaitFor())
 	content, _ := page.Locator("body").TextContent()
 	assert.Contains(t, content, "text/markdown")
 }
@@ -509,11 +515,11 @@ func TestE2E_GlobalSearch(t *testing.T) {
 	require.NoError(t, err)
 
 	// Wait for page to stabilize and check if search input exists
-	count, _ := page.Locator("input[placeholder*='Search tables']").Count()
+	count, _ := page.Locator("#table-search").Count()
 	if count > 0 {
-		require.NoError(t, page.Fill("input[placeholder*='Search tables']", "Search"))
-		require.NoError(t, page.Locator(".card:has-text('SearchTable')").WaitFor(playwright.LocatorWaitForOptions{
-			Timeout: playwright.Float(10000),
+		require.NoError(t, page.Fill("#table-search", "Search"))
+		require.NoError(t, page.Locator("#table-list div.p-6:has-text('SearchTable')").WaitFor(playwright.LocatorWaitForOptions{
+			Timeout: playwright.Float(2000),
 		}))
 	}
 
@@ -521,11 +527,11 @@ func TestE2E_GlobalSearch(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/s3")
 	require.NoError(t, err)
 
-	count, _ = page.Locator("input[placeholder*='Search buckets']").Count()
+	count, _ = page.Locator("#bucket-search").Count()
 	if count > 0 {
-		require.NoError(t, page.Fill("input[placeholder*='Search buckets']", "Search"))
-		require.NoError(t, page.Locator(".card:has-text('SearchBucket')").WaitFor(playwright.LocatorWaitForOptions{
-			Timeout: playwright.Float(10000),
+		require.NoError(t, page.Fill("#bucket-search", "Search"))
+		require.NoError(t, page.Locator("#bucket-list div.p-6:has-text('SearchBucket')").WaitFor(playwright.LocatorWaitForOptions{
+			Timeout: playwright.Float(2000),
 		}))
 	}
 }
@@ -572,7 +578,7 @@ func TestE2E_MetricsDashboard(t *testing.T) {
 	dashboardView := page.Locator("#dashboard-view")
 	err = dashboardView.WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: aws.Float64(5000),
+		Timeout: aws.Float64(1000),
 	})
 	require.NoError(t, err, "Dashboard view should become visible after metrics load")
 
@@ -595,7 +601,7 @@ func TestE2E_MetricsDashboard(t *testing.T) {
 	require.NoError(t, err)
 
 	// Wait for table list to load (search input should be present)
-	err = page.Locator("input[placeholder='Search tables...']").WaitFor()
+	err = page.Locator("#table-search").WaitFor()
 	require.NoError(t, err, "DynamoDB UI should load")
 
 	// Click create table button
@@ -605,7 +611,7 @@ func TestE2E_MetricsDashboard(t *testing.T) {
 	// Fill in table creation form
 	_, err = page.WaitForSelector("#create_table_modal", playwright.PageWaitForSelectorOptions{
 		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: aws.Float64(5000),
+		Timeout: aws.Float64(1000),
 	})
 	require.NoError(t, err, "Create table modal should appear")
 
@@ -644,7 +650,7 @@ func TestE2E_MetricsDashboard(t *testing.T) {
 	opRow := page.Locator("#operations-body tr:has-text('DynamoDB'):has-text('CreateTable')")
 	err = opRow.WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: aws.Float64(5000),
+		Timeout: aws.Float64(1000),
 	})
 	if err != nil {
 		// If the specific operation wasn't found, at least verify that operation data exists
@@ -694,43 +700,24 @@ func TestE2E_S3_BucketVersioning(t *testing.T) {
 	require.NoError(t, err)
 
 	// 2. Wait for bucket list to load
-	err = page.Locator(".card").First().WaitFor()
+	err = page.Locator("#bucket-list div.p-6").First().WaitFor()
 	require.NoError(t, err, "S3 UI should load")
 
 	// 3. Find the bucket card for our test bucket
-	bucketCard := page.Locator(".card:has-text('" + bucketName + "')")
+	bucketCard := page.Locator("#bucket-list div.p-6:has-text('" + bucketName + "')")
 	err = bucketCard.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible})
 	require.NoError(t, err, "Test bucket should be visible")
 
-	// 4. Find and click the versioning configuration button or link in the card
-	// Look for a settings/config button or versioning toggle
-	versioningButton := page.Locator(".card:has-text('" + bucketName + "') button, .card:has-text('" + bucketName + "') [role='checkbox'], .card:has-text('" + bucketName + "') .toggle")
-	buttonElements, err := versioningButton.All()
-	require.NoError(t, err)
-
-	// If no direct toggle found, try clicking on the bucket to view details
-	if len(buttonElements) == 0 {
-		// Click on bucket name to enter detail view
-		err = page.Click(".card:has-text('" + bucketName + "')")
-		require.NoError(t, err)
-
-		// Wait for detail page to load
-		err = page.Locator("h1").First().WaitFor()
-		require.NoError(t, err)
-	}
-
-	// 5. Look for versioning enable button/toggle in the UI
-	// Based on bucket_card.html, it's a button with hx-put
-	versioningButton = bucketCard.Locator("button:has-text('Enable Versioning')")
+	// 4. Click the Enable Versioning button
+	versioningButton := bucketCard.Locator("button:has-text('Enable Versioning')")
 	err = versioningButton.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible})
 	require.NoError(t, err, "Enable Versioning button should be visible")
 
-	// 6. Click the versioning button
 	err = versioningButton.Click()
 	require.NoError(t, err, "Should be able to click enable versioning button")
 
-	// 7. Verify versioning is now enabled by checking badge in the UI
-	enabledBadge := bucketCard.Locator(".badge-success:has-text('Enabled')")
+	// 5. Verify versioning is now enabled by checking badge in the UI
+	enabledBadge := page.Locator("#bucket-list div.p-6:has-text('" + bucketName + "') span:has-text('Enabled')")
 	err = enabledBadge.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible})
 	require.NoError(t, err, "Enabled badge should be visible after clicking enable")
 
@@ -776,10 +763,10 @@ func TestE2E_DynamoDB_Pagination_And_Search(t *testing.T) {
 	require.NoError(t, err)
 
 	// 2. Verify first page has 12 tables
-	err = page.Locator("#table-list .card").First().WaitFor()
+	err = page.Locator("#table-list > div.p-6").First().WaitFor()
 	require.NoError(t, err)
 
-	cards, err := page.Locator("#table-list .card").All()
+	cards, err := page.Locator("#table-list > div.p-6").All()
 	require.NoError(t, err)
 	assert.Equal(t, 12, len(cards), "First page should have 12 tables")
 
@@ -788,18 +775,15 @@ func TestE2E_DynamoDB_Pagination_And_Search(t *testing.T) {
 	err = pagination.WaitFor()
 	require.NoError(t, err, "Pagination summary should be visible")
 
-	nextBtn := page.Locator("button:has-text('Next »')")
+	nextBtn := page.Locator("button:has-text('Next')")
 	err = nextBtn.Click()
 	require.NoError(t, err)
 
 	// 4. Verify second page has 3 tables
-	// Wait for the first card on the new page
-	err = page.Locator("#table-list .card").First().WaitFor()
-	require.NoError(t, err)
-
-	cards, err = page.Locator("#table-list .card").All()
-	require.NoError(t, err)
-	assert.Equal(t, 3, len(cards), "Second page should have 3 tables")
+	require.Eventually(t, func() bool {
+		cards, _ := page.Locator("#table-list > div.p-6").All()
+		return len(cards) == 3
+	}, 3*time.Second, 100*time.Millisecond, "Second page should have 3 tables")
 
 	pagination = page.Locator("#table-list").Locator("text=Showing page 2 of 2")
 	err = pagination.WaitFor()
@@ -817,13 +801,13 @@ func TestE2E_DynamoDB_Pagination_And_Search(t *testing.T) {
 	require.NoError(t, err)
 
 	// Wait for exactly 1 card to be left and it must be table-15
-	targetCard := page.Locator("#table-list .card:has-text('pagination-test-table-15')")
+	targetCard := page.Locator("#table-list > div.p-6:has-text('pagination-test-table-15')")
 	err = targetCard.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible})
 	require.NoError(t, err)
 
 	// Check final count
 	require.Eventually(t, func() bool {
-		cards, _ := page.Locator("#table-list .card").All()
+		cards, _ := page.Locator("#table-list > div.p-6").All()
 		return len(cards) == 1
 	}, 5*time.Second, 500*time.Millisecond, "Search should isolate table-15")
 }
@@ -860,15 +844,15 @@ func TestE2E_S3_Pagination_And_Search(t *testing.T) {
 	require.NoError(t, err)
 
 	// 2. Verify first page has 12 buckets
-	err = page.Locator("#bucket-list .card").First().WaitFor()
+	err = page.Locator("#bucket-list > div.p-6").First().WaitFor()
 	require.NoError(t, err)
 
-	cards, err := page.Locator("#bucket-list .card").All()
+	cards, err := page.Locator("#bucket-list > div.p-6").All()
 	require.NoError(t, err)
 	assert.Equal(t, 12, len(cards), "First page should have 12 buckets")
 
 	// 3. Verify pagination
-	nextBtn := page.Locator("#bucket-list").Locator("button:has-text('Next »')")
+	nextBtn := page.Locator("#bucket-list").Locator("button:has-text('Next')")
 	err = nextBtn.Click()
 	require.NoError(t, err)
 
@@ -877,7 +861,7 @@ func TestE2E_S3_Pagination_And_Search(t *testing.T) {
 
 	// 4. Verify second page
 	require.Eventually(t, func() bool {
-		cards, _ := page.Locator("#bucket-list .card").All()
+		cards, _ := page.Locator("#bucket-list > div.p-6").All()
 		return len(cards) == 3
 	}, 5*time.Second, 250*time.Millisecond, "Second page should have 3 buckets")
 
@@ -892,13 +876,13 @@ func TestE2E_S3_Pagination_And_Search(t *testing.T) {
 	require.NoError(t, err)
 
 	// Wait for filtered result
-	targetCard := page.Locator("#bucket-list .card:has-text('pagination-test-bucket-15')")
+	targetCard := page.Locator("#bucket-list > div.p-6:has-text('pagination-test-bucket-15')")
 	err = targetCard.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible})
 	require.NoError(t, err)
 
 	// Check final count
 	require.Eventually(t, func() bool {
-		cards, _ := page.Locator("#bucket-list .card").All()
+		cards, _ := page.Locator("#bucket-list > div.p-6").All()
 		return len(cards) == 1
 	}, 5*time.Second, 500*time.Millisecond, "S3 search should isolate bucket-15")
 }

@@ -75,7 +75,7 @@ func TestSQSDashboard(t *testing.T) {
 	require.NoError(t, err)
 
 	// Click the custom Confirm button in the confirmation dialog
-	err = page.Click("button:has-text('Confirm')")
+	err = page.Click("#global_confirm_proceed")
 	require.NoError(t, err)
 
 	time.Sleep(500 * time.Millisecond)
@@ -91,7 +91,7 @@ func TestSQSDashboard(t *testing.T) {
 	err = page.Click("button:has-text('Delete')")
 	require.NoError(t, err)
 
-	err = page.Click("button:has-text('Confirm')")
+	err = page.Click("#global_confirm_proceed")
 	require.NoError(t, err)
 
 	time.Sleep(500 * time.Millisecond)

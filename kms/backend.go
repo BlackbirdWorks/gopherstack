@@ -339,7 +339,7 @@ func (b *InMemoryBackend) GenerateDataKey(input *GenerateDataKeyInput) (*Generat
 		}
 	}
 
-	keyBytes := dataKeySize(input.KeySpec, input.NumberOfBytes)
+	keyBytes := min(dataKeySize(input.KeySpec, input.NumberOfBytes), maxDataKeyBytes)
 
 	plaintextKey := make([]byte, keyBytes)
 	if _, randErr := io.ReadFull(rand.Reader, plaintextKey); randErr != nil {

@@ -417,7 +417,7 @@ func pickMessages(q *Queue, maxMessages, vt int, now time.Time) []*Message {
 	picked := q.messages[:count]
 	q.messages = q.messages[count:]
 
-	result := make([]*Message, 0, count)
+	result := make([]*Message, 0, len(picked))
 
 	for _, msg := range picked {
 		receipt := uuid.New().String()
