@@ -278,36 +278,50 @@ html.dark input[type=radio].tab:checked { color: #60a5fa; border-bottom-color: #
 input[type=radio].tab:checked + .tab-content,
 input[type=radio].tab:checked + div[role=tabpanel] { display: block; }
 
-/* ── Collapse / Accordion ───────────────────────────────────── */
+/* ── Collapse / Accordion (DaisyUI v3 CSS-Grid approach) ────── */
 .collapse {
-  position: relative; display: flex; flex-direction: column;
-  overflow: hidden;
-  background-color: #f1f5f9; border-radius: 0.5rem; margin-bottom: 0.5rem; width: 100%;
+  position: relative; display: grid; overflow: hidden;
+  width: 100%; border-radius: 0.5rem; margin-bottom: 0.5rem;
+  background-color: #f1f5f9;
+  grid-template-rows: auto 0fr;
+  transition: grid-template-rows 0.2s;
 }
 html.dark .collapse { background-color: #212837; }
+
+/* Place checkbox and title in the same grid cell */
+.collapse-title,
 .collapse > input[type=checkbox] {
-  position: absolute; width: 100%; height: 4rem;
-  cursor: pointer; opacity: 0; z-index: 1; margin: 0;
+  grid-column-start: 1; grid-row-start: 1;
+  min-height: 3.75rem;
+}
+/* Invisible checkbox floats above the title via z-index */
+.collapse > input[type=checkbox] {
+  appearance: none; opacity: 0; cursor: pointer; width: 100%; z-index: 1;
 }
 .collapse-title {
-  padding: 0.75rem 1rem; font-weight: 500; cursor: pointer; min-height: 4rem;
+  padding: 0.75rem 2.5rem 0.75rem 1rem; font-weight: 500;
   position: relative; display: flex; align-items: center;
-  color: #111827; padding-right: 2.5rem;
+  color: #111827;
 }
 html.dark .collapse-title { color: #f9fafb; }
 .collapse-arrow .collapse-title::after {
   content: '▶'; position: absolute; right: 1rem; top: 50%; transform: translateY(-50%);
   font-size: 0.6rem; transition: transform .3s; color: #6b7280;
 }
-.collapse input[type=checkbox]:checked ~ .collapse-title::after { transform: translateY(-50%) rotate(90deg); }
+
+/* Use :has() to expand grid and rotate arrow when checked */
+.collapse:has(> input[type=checkbox]:checked) { grid-template-rows: auto 1fr; }
+.collapse:has(> input[type=checkbox]:checked) .collapse-arrow .collapse-title::after {
+  transform: translateY(-50%) rotate(90deg);
+}
 .collapse-content {
-  max-height: 0; overflow: hidden; padding: 0 1rem;
-  transition: max-height .3s ease, padding .3s ease;
-  background-color: #f1f5f9;
+  grid-column-start: 1; grid-row-start: 2;
+  min-height: 0; overflow: hidden; padding: 0 1rem;
+  visibility: hidden; background-color: #f1f5f9;
 }
 html.dark .collapse-content { background-color: #212837; }
-.collapse input[type=checkbox]:checked ~ .collapse-content {
-  max-height: 9999px; padding: 0.5rem 1rem 1rem;
+.collapse:has(> input[type=checkbox]:checked) .collapse-content {
+  visibility: visible; padding: 0.5rem 1rem 1rem;
 }
 
 /* ── Dropdown ───────────────────────────────────────────────── */
