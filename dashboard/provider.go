@@ -74,6 +74,10 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 
 	ddb, _ := ddbHandler.(*dynamodb.DynamoDBHandler)
 	s3h, _ := s3Handler.(*s3.S3Handler)
+	var ssmOps *ssm.Handler
+	if ssmHandler != nil {
+		ssmOps, _ = ssmHandler.(*ssm.Handler)
+	}
 	var iamOps *iambackend.Handler
 	if iamHandler != nil {
 		iamOps, _ = iamHandler.(*iambackend.Handler)

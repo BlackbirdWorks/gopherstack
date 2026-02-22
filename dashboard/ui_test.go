@@ -27,6 +27,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/dashboard"
 
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
+	iambackend "github.com/blackbirdworks/gopherstack/iam"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
@@ -55,6 +56,10 @@ func newIntegrationStack(t *testing.T) *integrationStack {
 	ddbHndlr := ddbbackend.NewHandler(ddbBk, slog.Default())
 	ssmBk := ssmbackend.NewInMemoryBackend()
 	ssmHndlr := ssmbackend.NewHandler(ssmBk, slog.Default())
+	iamBk := iambackend.NewInMemoryBackend()
+	iamHndlr := iambackend.NewHandler(iamBk, slog.Default())
+	stsBk := stsbackend.NewInMemoryBackend()
+	stsHndlr := stsbackend.NewHandler(stsBk, slog.Default())
 	snsBk := snsbackend.NewInMemoryBackend()
 	snsHndlr := snsbackend.NewHandler(snsBk, slog.Default())
 	sqsBk := sqsbackend.NewInMemoryBackend()
@@ -99,7 +104,19 @@ func newIntegrationStack(t *testing.T) *integrationStack {
 		o.BaseEndpoint = aws.String("http://local")
 	})
 
-	h := dashboard.NewHandler(ddbClient, s3Client, ssmClient, ddbHndlr, s3Hndlr, ssmHndlr, iamHndlr, stsHndlr, snsHndlr, sqsHndlr, slog.Default())
+	h := dashboard.NewHandler(
+		ddbClient,
+		s3Client,
+		ssmClient,
+		ddbHndlr,
+		s3Hndlr,
+		ssmHndlr,
+		iamHndlr,
+		stsHndlr,
+		snsHndlr,
+		sqsHndlr,
+		slog.Default(),
+	)
 
 	return &integrationStack{
 		handler:    h,
@@ -182,7 +199,19 @@ func newFullStack(t *testing.T) (*integrationStack, *echo.Echo) {
 		o.BaseEndpoint = aws.String("http://local")
 	})
 
-	h := dashboard.NewHandler(ddbClient, s3Client, ssmClient, ddbHndlr, s3Hndlr, ssmHndlr, iamHndlr, stsHndlr, snsHndlr, sqsHndlr, slog.Default())
+	h := dashboard.NewHandler(
+		ddbClient,
+		s3Client,
+		ssmClient,
+		ddbHndlr,
+		s3Hndlr,
+		ssmHndlr,
+		iamHndlr,
+		stsHndlr,
+		snsHndlr,
+		sqsHndlr,
+		slog.Default(),
+	)
 
 	// Register all three services (including dashboard) to test RouteMatcher
 	e := echo.New()
@@ -193,6 +222,7 @@ func newFullStack(t *testing.T) (*integrationStack, *echo.Echo) {
 	_ = registry.Register(h)
 	_ = registry.Register(s3Hndlr)
 	_ = registry.Register(ssmHndlr)
+	_ = registry.Register(iamHndlr)
 	_ = registry.Register(stsHndlr)
 	_ = registry.Register(snsHndlr)
 	_ = registry.Register(sqsHndlr)
@@ -2310,6 +2340,12 @@ func newSQSIntegrationStack(t *testing.T) *integrationStack {
 	ddbHndlr := ddbbackend.NewHandler(ddbBk, slog.Default())
 	ssmBk := ssmbackend.NewInMemoryBackend()
 	ssmHndlr := ssmbackend.NewHandler(ssmBk, slog.Default())
+	iamBk := iambackend.NewInMemoryBackend()
+	iamHndlr := iambackend.NewHandler(iamBk, slog.Default())
+	stsBk := stsbackend.NewInMemoryBackend()
+	stsHndlr := stsbackend.NewHandler(stsBk, slog.Default())
+	snsBk := snsbackend.NewInMemoryBackend()
+	snsHndlr := snsbackend.NewHandler(snsBk, slog.Default())
 	sqsBk := sqsbackend.NewInMemoryBackend()
 	sqsHndlr := sqsbackend.NewHandler(sqsBk, slog.Default())
 
@@ -2354,8 +2390,9 @@ func newSQSIntegrationStack(t *testing.T) *integrationStack {
 		ddbHndlr,
 		s3Hndlr,
 		ssmHndlr,
-		nil,
-		nil,
+		iamHndlr,
+		stsHndlr,
+		snsHndlr,
 		sqsHndlr,
 		slog.Default(),
 	)
@@ -2408,7 +2445,7 @@ func TestDashboard_SQS_Index(t *testing.T) {
 
 	t.Run("index renders with nil SQSOps", func(t *testing.T) {
 		t.Parallel()
-		h := dashboard.NewHandler(nil, nil, nil, nil, nil, nil, nil, nil, nil, slog.Default())
+		h := dashboard.NewHandler(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, slog.Default())
 
 		req := httptest.NewRequest(http.MethodGet, "/dashboard/sqs", nil)
 		w := httptest.NewRecorder()
@@ -2497,7 +2534,7 @@ func TestDashboard_SQS_CreateQueue(t *testing.T) {
 
 	t.Run("create queue with nil SQSOps is a no-op", func(t *testing.T) {
 		t.Parallel()
-		h := dashboard.NewHandler(nil, nil, nil, nil, nil, nil, nil, nil, nil, slog.Default())
+		h := dashboard.NewHandler(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, slog.Default())
 
 		req := httptest.NewRequest(http.MethodPost, "/dashboard/sqs/create",
 			strings.NewReader("queue_name=my-queue"))
@@ -2559,7 +2596,7 @@ func TestDashboard_SQS_DeleteQueue(t *testing.T) {
 
 	t.Run("delete queue with nil SQSOps is a no-op", func(t *testing.T) {
 		t.Parallel()
-		h := dashboard.NewHandler(nil, nil, nil, nil, nil, nil, nil, nil, nil, slog.Default())
+		h := dashboard.NewHandler(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, slog.Default())
 
 		reqURL := "/dashboard/sqs/delete?url=" + url.QueryEscape("http://local/000000000000/x")
 		req := httptest.NewRequest(http.MethodDelete, reqURL, nil)
@@ -2619,7 +2656,7 @@ func TestDashboard_SQS_PurgeQueue(t *testing.T) {
 
 	t.Run("purge queue with nil SQSOps is a no-op", func(t *testing.T) {
 		t.Parallel()
-		h := dashboard.NewHandler(nil, nil, nil, nil, nil, nil, nil, nil, nil, slog.Default())
+		h := dashboard.NewHandler(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, slog.Default())
 
 		reqURL := "/dashboard/sqs/purge?url=" + url.QueryEscape("http://local/000000000000/x")
 		req := httptest.NewRequest(http.MethodPost, reqURL, nil)
@@ -2679,7 +2716,7 @@ func TestDashboard_SQS_QueueDetail(t *testing.T) {
 
 	t.Run("queue detail returns 500 when SQSOps is nil", func(t *testing.T) {
 		t.Parallel()
-		h := dashboard.NewHandler(nil, nil, nil, nil, nil, nil, nil, nil, nil, slog.Default())
+		h := dashboard.NewHandler(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, slog.Default())
 
 		reqURL := "/dashboard/sqs/queue?url=" + url.QueryEscape("http://local/000000000000/x")
 		req := httptest.NewRequest(http.MethodGet, reqURL, nil)

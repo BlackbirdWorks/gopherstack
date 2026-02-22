@@ -10,16 +10,14 @@ import (
 func (h *DashboardHandler) iamIndex(c *echo.Context) error {
 	w := c.Response()
 
-	//nolint:govet // fieldalignment: embedded field must precede regular fields per embeddedstructfieldcheck
 	data := struct {
-		PageData
-
 		Users            any
 		Roles            any
 		Policies         any
 		Groups           any
 		AccessKeys       any
 		InstanceProfiles any
+		PageData         //nolint:embeddedstructfieldcheck // must be last for backward compatibility
 	}{
 		PageData: PageData{
 			Title:     "IAM",
