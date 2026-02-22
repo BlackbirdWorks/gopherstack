@@ -317,7 +317,8 @@ func deliverHTTP(endpoint, body string) {
 		return
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	// HTTP client used for SNS HTTP endpoint delivery, not internet requests
+	resp, err := http.DefaultClient.Do(req) //nolint:gosec // HTTP endpoint delivery
 	if err != nil {
 		return
 	}
