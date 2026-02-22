@@ -14,7 +14,6 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/playwright-community/playwright-go"
@@ -58,33 +57,6 @@ func newStack(t *testing.T) *teststack.Stack {
 	return teststack.New(t)
 }
 
-func newDDBTable(t *testing.T, stack *teststack.Stack, tableName string) {
-	t.Helper()
-
-	_, err := stack.DDBHandler.Backend.CreateTable(t.Context(), &dynamodb.CreateTableInput{
-		TableName: aws.String(tableName),
-		KeySchema: []ddbtypes.KeySchemaElement{
-			{AttributeName: aws.String("id"), KeyType: ddbtypes.KeyTypeHash},
-		},
-		AttributeDefinitions: []ddbtypes.AttributeDefinition{
-			{AttributeName: aws.String("id"), AttributeType: ddbtypes.ScalarAttributeTypeS},
-		},
-		ProvisionedThroughput: &ddbtypes.ProvisionedThroughput{
-			ReadCapacityUnits:  aws.Int64(5),
-			WriteCapacityUnits: aws.Int64(5),
-		},
-	})
-	require.NoError(t, err)
-}
-
-func newS3Bucket(t *testing.T, stack *teststack.Stack, bucketName string) {
-	t.Helper()
-
-	_, err := stack.S3Backend.CreateBucket(
-		t.Context(), &s3.CreateBucketInput{Bucket: aws.String(bucketName)},
-	)
-	require.NoError(t, err)
-}
 
 func saveScreenshot(t *testing.T, page playwright.Page, name string) {
 	t.Helper()
@@ -98,7 +70,7 @@ func saveScreenshot(t *testing.T, page playwright.Page, name string) {
 
 func TestE2E_CustomModal_ConfirmDelete(t *testing.T) {
 	stack := newStack(t)
-	newDDBTable(t, stack, "Movies")
+	stack.CreateDDBTable(t, "Movies")
 
 	server := httptest.NewServer(stack.Echo)
 	defer server.Close()
@@ -149,7 +121,7 @@ func TestE2E_CustomModal_ConfirmDelete(t *testing.T) {
 
 func TestE2E_S3_ConfirmDeleteBucket(t *testing.T) {
 	stack := newStack(t)
-	newS3Bucket(t, stack, "trash-bucket")
+	stack.CreateS3Bucket(t, "trash-bucket")
 
 	server := httptest.NewServer(stack.Echo)
 	defer server.Close()
@@ -230,7 +202,7 @@ func TestE2E_DynamoDB_CreateTableCompleteFlow(t *testing.T) {
 
 func TestE2E_S3_UploadFileFlow(t *testing.T) {
 	stack := newStack(t)
-	newS3Bucket(t, stack, "upload-bucket")
+	stack.CreateS3Bucket(t, "upload-bucket")
 
 	server := httptest.NewServer(stack.Echo)
 	defer server.Close()
@@ -285,7 +257,7 @@ func TestE2E_S3_UploadFileFlow(t *testing.T) {
 
 func TestE2E_DynamoDB_ItemCRUD(t *testing.T) {
 	stack := newStack(t)
-	newDDBTable(t, stack, "Items")
+	stack.CreateDDBTable(t, "Items")
 
 	server := httptest.NewServer(stack.Echo)
 	defer server.Close()
@@ -373,7 +345,7 @@ func TestE2E_DynamoDB_ItemCRUD(t *testing.T) {
 
 func TestE2E_S3_FolderNavigation(t *testing.T) {
 	stack := newStack(t)
-	newS3Bucket(t, stack, "nav-bucket")
+	stack.CreateS3Bucket(t, "nav-bucket")
 
 	// Pre-create some objects with prefixes
 	_, err := stack.S3Backend.PutObject(t.Context(), &s3.PutObjectInput{
@@ -457,7 +429,7 @@ func TestE2E_S3_FolderNavigation(t *testing.T) {
 
 func TestE2E_S3_MetadataTagging(t *testing.T) {
 	stack := newStack(t)
-	newS3Bucket(t, stack, "meta-bucket")
+	stack.CreateS3Bucket(t, "meta-bucket")
 	_, err := stack.S3Backend.PutObject(t.Context(), &s3.PutObjectInput{
 		Bucket: aws.String("meta-bucket"),
 		Key:    aws.String("meta.txt"),
@@ -513,8 +485,8 @@ func TestE2E_S3_MetadataTagging(t *testing.T) {
 
 func TestE2E_GlobalSearch(t *testing.T) {
 	stack := newStack(t)
-	newDDBTable(t, stack, "SearchTable")
-	newS3Bucket(t, stack, "SearchBucket")
+	stack.CreateDDBTable(t, "SearchTable")
+	stack.CreateS3Bucket(t, "SearchBucket")
 
 	server := httptest.NewServer(stack.Echo)
 	defer server.Close()
@@ -686,7 +658,7 @@ func TestE2E_MetricsDashboard(t *testing.T) {
 func TestE2E_S3_BucketVersioning(t *testing.T) {
 	stack := newStack(t)
 	bucketName := "versioning-test-bucket"
-	newS3Bucket(t, stack, bucketName)
+	stack.CreateS3Bucket(t, bucketName)
 
 	server := httptest.NewServer(stack.Echo)
 	defer server.Close()
@@ -771,7 +743,7 @@ func TestE2E_DynamoDB_Pagination_And_Search(t *testing.T) {
 	const tableCount = 15
 	for i := 1; i <= tableCount; i++ {
 		name := fmt.Sprintf("pagination-test-table-%02d", i)
-		newDDBTable(t, stack, name)
+		stack.CreateDDBTable(t, name)
 	}
 
 	server := httptest.NewServer(stack.Echo)
@@ -855,7 +827,7 @@ func TestE2E_S3_Pagination_And_Search(t *testing.T) {
 	const bucketCount = 15
 	for i := 1; i <= bucketCount; i++ {
 		name := fmt.Sprintf("pagination-test-bucket-%02d", i)
-		newS3Bucket(t, stack, name)
+		stack.CreateS3Bucket(t, name)
 	}
 
 	server := httptest.NewServer(stack.Echo)

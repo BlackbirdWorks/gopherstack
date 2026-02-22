@@ -67,7 +67,7 @@ func TestDashboard_DDB_DeleteItem(t *testing.T) {
 		t.Parallel()
 		stack := newStack(t)
 		tableName := "del-item-table"
-		newDDBTable(t, stack, tableName)
+		stack.CreateDDBTable(t, tableName)
 
 		// Seed an item.
 		_, err := stack.DDBClient.PutItem(t.Context(), &dynamodb.PutItemInput{
@@ -142,7 +142,7 @@ func TestDashboard_S3_TagOperations(t *testing.T) {
 		t.Parallel()
 		stack := newStack(t)
 		bucketName := "tag-bucket"
-		newS3Bucket(t, stack, bucketName)
+		stack.CreateS3Bucket(t, bucketName)
 		uploadS3Object(t, stack, bucketName, "tagged.txt", "data")
 
 		form := url.Values{"key": {"env"}, "value": {"prod"}}
@@ -165,7 +165,7 @@ func TestDashboard_S3_TagOperations(t *testing.T) {
 		t.Parallel()
 		stack := newStack(t)
 		bucketName := "tag-update-bucket"
-		newS3Bucket(t, stack, bucketName)
+		stack.CreateS3Bucket(t, bucketName)
 		uploadS3Object(t, stack, bucketName, "obj.txt", "data")
 
 		// Add initial tag.
@@ -197,7 +197,7 @@ func TestDashboard_S3_TagOperations(t *testing.T) {
 		t.Parallel()
 		stack := newStack(t)
 		bucketName := "tag-del-bucket"
-		newS3Bucket(t, stack, bucketName)
+		stack.CreateS3Bucket(t, bucketName)
 		uploadS3Object(t, stack, bucketName, "del.txt", "data")
 
 		// Add two tags first (so after deletion one remains).
@@ -238,7 +238,7 @@ func TestDashboard_S3_UpdateMetadata(t *testing.T) {
 
 	stack := newStack(t)
 	bucketName := "meta-update-bucket"
-	newS3Bucket(t, stack, bucketName)
+	stack.CreateS3Bucket(t, bucketName)
 	uploadS3Object(t, stack, bucketName, "doc.txt", "hello")
 
 	form := url.Values{"contentType": {"text/plain"}}

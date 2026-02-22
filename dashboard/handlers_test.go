@@ -25,7 +25,7 @@ func TestDashboard_Pagination(t *testing.T) {
 		stack := newStack(t)
 		// Create 5 tables
 		for i := 1; i <= 5; i++ {
-			newDDBTable(t, stack, fmt.Sprintf("table-%03d", i))
+			stack.CreateDDBTable(t, fmt.Sprintf("table-%03d", i))
 		}
 
 		// List with limit 2 (simulated via query param if implemented, or just check standard)
@@ -50,7 +50,7 @@ func TestDashboard_Pagination(t *testing.T) {
 		stack := newStack(t)
 		// Create 5 buckets
 		for i := 1; i <= 5; i++ {
-			newS3Bucket(t, stack, fmt.Sprintf("bucket-%03d", i))
+			stack.CreateS3Bucket(t, fmt.Sprintf("bucket-%03d", i))
 		}
 
 		req := httptest.NewRequest(http.MethodGet, "/dashboard/s3/buckets", nil)
@@ -70,7 +70,7 @@ func TestDashboard_DynamoDB_ItemEditor(t *testing.T) {
 		t.Parallel()
 		stack := newStack(t)
 		tableName := "editor-table"
-		newDDBTable(t, stack, tableName)
+		stack.CreateDDBTable(t, tableName)
 
 		itemJSON := `{"id": "user-1", "name": "Alice"}`
 		form := url.Values{"itemJson": {itemJSON}}
@@ -101,7 +101,7 @@ func TestDashboard_DynamoDB_ItemEditor(t *testing.T) {
 		t.Parallel()
 		stack := newStack(t)
 		tableName := "editor-table"
-		newDDBTable(t, stack, tableName)
+		stack.CreateDDBTable(t, tableName)
 
 		// Create item first
 		_, _ = stack.DDBClient.PutItem(t.Context(), &dynamodb.PutItemInput{
@@ -137,7 +137,7 @@ func TestDashboard_S3_Previews(t *testing.T) {
 		t.Parallel()
 		stack := newStack(t)
 		bucketName := "preview-bucket"
-		newS3Bucket(t, stack, bucketName)
+		stack.CreateS3Bucket(t, bucketName)
 
 		content := "Hello World"
 		uploadS3Object(t, stack, bucketName, "test.txt", content)
@@ -158,7 +158,7 @@ func TestDashboard_S3_Previews(t *testing.T) {
 		t.Parallel()
 		stack := newStack(t)
 		bucketName := "preview-bucket"
-		newS3Bucket(t, stack, bucketName)
+		stack.CreateS3Bucket(t, bucketName)
 		uploadS3Object(t, stack, bucketName, "test.txt", "content")
 
 		req := httptest.NewRequest(
@@ -182,7 +182,7 @@ func TestDashboard_DDB_ExportImport(t *testing.T) {
 		t.Parallel()
 		stack := newStack(t)
 		tableName := "xport-table"
-		newDDBTable(t, stack, tableName)
+		stack.CreateDDBTable(t, tableName)
 
 		// Seed data
 		_, _ = stack.DDBClient.PutItem(t.Context(), &dynamodb.PutItemInput{
@@ -208,7 +208,7 @@ func TestDashboard_DDB_ExportImport(t *testing.T) {
 		t.Parallel()
 		stack := newStack(t)
 		tableName := "xport-table"
-		newDDBTable(t, stack, tableName)
+		stack.CreateDDBTable(t, tableName)
 
 		importJSON := `[{"id": "item-2"}]`
 		form := url.Values{"importData": {importJSON}}

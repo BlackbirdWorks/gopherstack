@@ -63,34 +63,6 @@ func serveFullStack(e *echo.Echo, w http.ResponseWriter, r *http.Request) {
 	e.ServeHTTP(w, r)
 }
 
-func newDDBTable(t *testing.T, stack *teststack.Stack, tableName string) {
-	t.Helper()
-
-	_, err := stack.DDBHandler.Backend.CreateTable(t.Context(), &dynamodb.CreateTableInput{
-		TableName: aws.String(tableName),
-		KeySchema: []ddbtypes.KeySchemaElement{
-			{AttributeName: aws.String("id"), KeyType: ddbtypes.KeyTypeHash},
-		},
-		AttributeDefinitions: []ddbtypes.AttributeDefinition{
-			{AttributeName: aws.String("id"), AttributeType: ddbtypes.ScalarAttributeTypeS},
-		},
-		ProvisionedThroughput: &ddbtypes.ProvisionedThroughput{
-			ReadCapacityUnits:  aws.Int64(5),
-			WriteCapacityUnits: aws.Int64(5),
-		},
-	})
-	require.NoError(t, err)
-}
-
-func newS3Bucket(t *testing.T, stack *teststack.Stack, bucketName string) {
-	t.Helper()
-
-	_, err := stack.S3Backend.CreateBucket(
-		t.Context(), &s3.CreateBucketInput{Bucket: aws.String(bucketName)},
-	)
-	require.NoError(t, err)
-}
-
 func uploadS3Object(t *testing.T, stack *teststack.Stack, bucket, key, content string) {
 	t.Helper()
 
@@ -208,7 +180,7 @@ func TestDashboard_DDB_TableList(t *testing.T) {
 
 			stack := newStack(t)
 			if tt.preCreate {
-				newDDBTable(t, stack, "list-table")
+				stack.CreateDDBTable(t, "list-table")
 			}
 
 			req := httptest.NewRequest(http.MethodGet, "/dashboard/dynamodb/tables", nil)
@@ -273,7 +245,7 @@ func TestDashboard_DDB_CreateTable_Integration(t *testing.T) {
 
 			stack := newStack(t)
 			if tt.preCreate {
-				newDDBTable(t, stack, "existing-table")
+				stack.CreateDDBTable(t, "existing-table")
 			}
 
 			var body io.Reader
@@ -329,7 +301,7 @@ func TestDashboard_DDB_TableDetail(t *testing.T) {
 			t.Parallel()
 
 			stack := newStack(t)
-			newDDBTable(t, stack, "detail-table")
+			stack.CreateDDBTable(t, "detail-table")
 
 			req := httptest.NewRequest(
 				http.MethodGet, "/dashboard/dynamodb/table/"+tt.tableName, nil,
@@ -377,7 +349,7 @@ func TestDashboard_DDB_DeleteTable(t *testing.T) {
 
 			stack := newStack(t)
 			if tt.preCreate {
-				newDDBTable(t, stack, "del-table")
+				stack.CreateDDBTable(t, "del-table")
 			}
 
 			req := httptest.NewRequest(
@@ -447,7 +419,7 @@ func TestDashboard_DDB_Query(t *testing.T) {
 			t.Parallel()
 
 			stack := newStack(t)
-			newDDBTable(t, stack, "query-table")
+			stack.CreateDDBTable(t, "query-table")
 
 			_, err := stack.DDBHandler.Backend.PutItem(t.Context(), &dynamodb.PutItemInput{
 				TableName: aws.String("query-table"),
@@ -520,7 +492,7 @@ func TestDashboard_DDB_Scan(t *testing.T) {
 			t.Parallel()
 
 			stack := newStack(t)
-			newDDBTable(t, stack, "scan-table")
+			stack.CreateDDBTable(t, "scan-table")
 
 			if tt.preInsert {
 				_, err := stack.DDBHandler.Backend.PutItem(t.Context(), &dynamodb.PutItemInput{
@@ -575,7 +547,7 @@ func TestDashboard_DDB_Search(t *testing.T) {
 
 			stack := newStack(t)
 			if tt.preCreate {
-				newDDBTable(t, stack, "search-table")
+				stack.CreateDDBTable(t, "search-table")
 			}
 
 			req := httptest.NewRequest(http.MethodGet, "/dashboard/dynamodb/search", nil)
@@ -619,7 +591,7 @@ func TestDashboard_S3_BucketList(t *testing.T) {
 
 			stack := newStack(t)
 			if tt.preCreate {
-				newS3Bucket(t, stack, "list-bucket")
+				stack.CreateS3Bucket(t, "list-bucket")
 			}
 
 			req := httptest.NewRequest(http.MethodGet, "/dashboard/s3/buckets", nil)
@@ -678,7 +650,7 @@ func TestDashboard_S3_CreateBucket_Integration(t *testing.T) {
 
 			stack := newStack(t)
 			if tt.preCreate {
-				newS3Bucket(t, stack, "dup-bucket")
+				stack.CreateS3Bucket(t, "dup-bucket")
 			}
 
 			var body io.Reader
@@ -731,7 +703,7 @@ func TestDashboard_S3_BucketDetail(t *testing.T) {
 			t.Parallel()
 
 			stack := newStack(t)
-			newS3Bucket(t, stack, "detail-bucket")
+			stack.CreateS3Bucket(t, "detail-bucket")
 
 			req := httptest.NewRequest(
 				http.MethodGet, "/dashboard/s3/bucket/"+tt.bucketName, nil,
@@ -775,7 +747,7 @@ func TestDashboard_S3_FileTree(t *testing.T) {
 			t.Parallel()
 
 			stack := newStack(t)
-			newS3Bucket(t, stack, "tree-bucket")
+			stack.CreateS3Bucket(t, "tree-bucket")
 			if tt.preUpload {
 				uploadS3Object(t, stack, "tree-bucket", "hello.txt", "hello")
 			}
@@ -823,7 +795,7 @@ func TestDashboard_S3_FileDetail(t *testing.T) {
 			t.Parallel()
 
 			stack := newStack(t)
-			newS3Bucket(t, stack, "fd-bucket")
+			stack.CreateS3Bucket(t, "fd-bucket")
 			uploadS3Object(t, stack, "fd-bucket", "myfile.txt", "file content")
 
 			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
@@ -867,7 +839,7 @@ func TestDashboard_S3_Download(t *testing.T) {
 			t.Parallel()
 
 			stack := newStack(t)
-			newS3Bucket(t, stack, "dl-bucket")
+			stack.CreateS3Bucket(t, "dl-bucket")
 			uploadS3Object(t, stack, "dl-bucket", "get.txt", "file content")
 
 			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
@@ -926,7 +898,7 @@ func TestDashboard_S3_Upload(t *testing.T) {
 			t.Parallel()
 
 			stack := newStack(t)
-			newS3Bucket(t, stack, "up-bucket")
+			stack.CreateS3Bucket(t, "up-bucket")
 
 			var body io.Reader
 			contentType := "application/x-www-form-urlencoded"
@@ -983,7 +955,7 @@ func TestDashboard_S3_DeleteFile(t *testing.T) {
 			t.Parallel()
 
 			stack := newStack(t)
-			newS3Bucket(t, stack, "delf-bucket")
+			stack.CreateS3Bucket(t, "delf-bucket")
 			uploadS3Object(t, stack, "delf-bucket", "file.txt", "content")
 
 			req := httptest.NewRequest(
@@ -1033,7 +1005,7 @@ func TestDashboard_S3_DeleteBucket(t *testing.T) {
 
 			stack := newStack(t)
 			if tt.preCreate {
-				newS3Bucket(t, stack, "del-bucket")
+				stack.CreateS3Bucket(t, "del-bucket")
 			}
 
 			req := httptest.NewRequest(
@@ -1089,7 +1061,7 @@ func TestDashboard_S3_Versioning(t *testing.T) {
 			t.Parallel()
 
 			stack := newStack(t)
-			newS3Bucket(t, stack, "ver-bucket")
+			stack.CreateS3Bucket(t, "ver-bucket")
 
 			var body io.Reader
 			if tt.formValues != nil {
@@ -1114,7 +1086,7 @@ func TestDashboard_S3_VersioningAndDeletion(t *testing.T) {
 	t.Parallel()
 	stack := newStack(t)
 	bucketName := "versioned-bucket"
-	newS3Bucket(t, stack, bucketName)
+	stack.CreateS3Bucket(t, bucketName)
 
 	ctx := t.Context()
 
@@ -1159,7 +1131,7 @@ func TestDashboard_S3_VersioningAndDeletion(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	// 15. s3DeleteFile with deleteAll=true (multi-version)
-	newS3Bucket(t, stack, "multi-version-bucket")
+	stack.CreateS3Bucket(t, "multi-version-bucket")
 	// Upload 2 versions
 	stack.S3Client.PutObject(t.Context(), &s3.PutObjectInput{
 		Bucket: aws.String("multi-version-bucket"),
@@ -1194,7 +1166,7 @@ func TestDashboard_S3_UploadAndDownload(t *testing.T) {
 	t.Parallel()
 	stack := newStack(t)
 	bucketName := "upload-bucket"
-	newS3Bucket(t, stack, bucketName)
+	stack.CreateS3Bucket(t, bucketName)
 
 	// 1. Upload file
 	body := &bytes.Buffer{}
@@ -1268,7 +1240,7 @@ func TestDashboard_S3_FileTree_DeepPrefix(t *testing.T) {
 	t.Parallel()
 	stack := newStack(t)
 	bucketName := "tree-bucket"
-	newS3Bucket(t, stack, bucketName)
+	stack.CreateS3Bucket(t, bucketName)
 
 	ctx := t.Context()
 	// Create deep structure
@@ -1479,7 +1451,7 @@ func TestDashboard_S3_DetailedTests(t *testing.T) {
 	t.Parallel()
 	stack := newStack(t)
 	bucketName := "detailed-bucket"
-	newS3Bucket(t, stack, bucketName)
+	stack.CreateS3Bucket(t, bucketName)
 
 	// 1. Upload fail (no file)
 	req := httptest.NewRequest(http.MethodPost, "/dashboard/s3/bucket/"+bucketName+"/upload", nil)
@@ -1669,7 +1641,7 @@ func TestDashboard_S3_Additional_Errors(t *testing.T) {
 	t.Parallel()
 	stack := newStack(t)
 	bucketName := "add-err-bucket"
-	newS3Bucket(t, stack, bucketName)
+	stack.CreateS3Bucket(t, bucketName)
 
 	// 1. s3CreateBucket empty name
 	form := url.Values{}
@@ -1699,7 +1671,7 @@ func TestDashboard_S3_Upload_Error(t *testing.T) {
 	t.Parallel()
 	stack := newStack(t)
 	bucketName := "err-bucket"
-	newS3Bucket(t, stack, bucketName)
+	stack.CreateS3Bucket(t, bucketName)
 
 	// 1. Upload with missing file field
 	body := &bytes.Buffer{}
@@ -1752,7 +1724,7 @@ func TestDashboard_EdgeCases(t *testing.T) {
 
 	// 3. s3CreateBucket existing bucket
 	bucketName := "existing-bucket"
-	newS3Bucket(t, stack, bucketName)
+	stack.CreateS3Bucket(t, bucketName)
 	form = url.Values{}
 	form.Add("bucketName", bucketName)
 	req = httptest.NewRequest(
@@ -1841,7 +1813,7 @@ func TestDashboard_EdgeCases(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	// 10. S3 bucket list with search
-	newS3Bucket(t, stack, "search-bucket")
+	stack.CreateS3Bucket(t, "search-bucket")
 	req = httptest.NewRequest(http.MethodGet, "/dashboard/s3/buckets?search=search", nil)
 	w = httptest.NewRecorder()
 	serveHandler(stack.Dashboard, w, req)
@@ -1856,7 +1828,7 @@ func TestDashboard_EdgeCases(t *testing.T) {
 	assert.NotContains(t, w.Body.String(), "search-bucket")
 
 	// 12. DynamoDB table list with search
-	newDDBTable(t, stack, "search-table")
+	stack.CreateDDBTable(t, "search-table")
 	req = httptest.NewRequest(http.MethodGet, "/dashboard/dynamodb/tables?search=search", nil)
 	w = httptest.NewRecorder()
 	serveHandler(stack.Dashboard, w, req)
@@ -1881,7 +1853,7 @@ func TestDashboard_EdgeCases(t *testing.T) {
 	assert.True(t, w.Code == http.StatusOK || w.Code == http.StatusInternalServerError)
 
 	// 18. s3DeleteFile with markers (trigger markers loop)
-	newS3Bucket(t, stack, "markers-bucket")
+	stack.CreateS3Bucket(t, "markers-bucket")
 	// Delete non-existent file creates a delete marker if versioning is on,
 	// but here we just want to hit the loop in deleteAllVersions if we can.
 	// We'll just ensure it doesn't crash.
@@ -1935,7 +1907,7 @@ func TestDashboard_S3_Upload_Extended(t *testing.T) {
 	t.Parallel()
 	stack := newStack(t)
 	bucketName := "ext-upload-bucket"
-	newS3Bucket(t, stack, bucketName)
+	stack.CreateS3Bucket(t, bucketName)
 
 	// 1. Upload with specific key
 	body := &bytes.Buffer{}
@@ -1967,8 +1939,8 @@ func TestDashboard_CustomModal_Plumbing(t *testing.T) {
 	t.Parallel()
 
 	stack := newStack(t)
-	newDDBTable(t, stack, "test-table")
-	newS3Bucket(t, stack, "test-bucket")
+	stack.CreateDDBTable(t, "test-table")
+	stack.CreateS3Bucket(t, "test-bucket")
 
 	t.Run("layout includes global modal", func(t *testing.T) {
 		t.Parallel()
@@ -2025,8 +1997,8 @@ func TestDashboard_S3_PurgeAll(t *testing.T) {
 	t.Run("purge all deletes all buckets and returns success", func(t *testing.T) {
 		t.Parallel()
 		stack := newStack(t)
-		newS3Bucket(t, stack, "purge-bucket-one")
-		newS3Bucket(t, stack, "purge-bucket-two")
+		stack.CreateS3Bucket(t, "purge-bucket-one")
+		stack.CreateS3Bucket(t, "purge-bucket-two")
 
 		req := httptest.NewRequest(http.MethodDelete, "/dashboard/s3/purge", nil)
 		w := httptest.NewRecorder()
@@ -2051,7 +2023,7 @@ func TestDashboard_S3_PurgeAll(t *testing.T) {
 	t.Run("purge all deletes bucket with objects inside", func(t *testing.T) {
 		t.Parallel()
 		stack := newStack(t)
-		newS3Bucket(t, stack, "nonempty-bucket")
+		stack.CreateS3Bucket(t, "nonempty-bucket")
 		uploadS3Object(t, stack, "nonempty-bucket", "key1", "data1")
 		uploadS3Object(t, stack, "nonempty-bucket", "key2", "data2")
 
@@ -2071,7 +2043,7 @@ func TestDashboard_S3_PurgeAll(t *testing.T) {
 	t.Run("DELETE request is routed through RouteMatcher", func(t *testing.T) {
 		t.Parallel()
 		stack := newStack(t)
-		newS3Bucket(t, stack, "route-test-bucket")
+		stack.CreateS3Bucket(t, "route-test-bucket")
 
 		req := httptest.NewRequest(http.MethodDelete, "/dashboard/s3/purge", nil)
 		w := httptest.NewRecorder()
@@ -2088,8 +2060,8 @@ func TestDashboard_DDB_PurgeAll(t *testing.T) {
 	t.Run("purge all deletes all tables and returns success", func(t *testing.T) {
 		t.Parallel()
 		stack := newStack(t)
-		newDDBTable(t, stack, "purge-table-one")
-		newDDBTable(t, stack, "purge-table-two")
+		stack.CreateDDBTable(t, "purge-table-one")
+		stack.CreateDDBTable(t, "purge-table-two")
 
 		req := httptest.NewRequest(http.MethodDelete, "/dashboard/dynamodb/purge", nil)
 		w := httptest.NewRecorder()
@@ -2114,7 +2086,7 @@ func TestDashboard_DDB_PurgeAll(t *testing.T) {
 	t.Run("purge all deletes tables and triggers list refresh", func(t *testing.T) {
 		t.Parallel()
 		stack := newStack(t)
-		newDDBTable(t, stack, "to-be-purged")
+		stack.CreateDDBTable(t, "to-be-purged")
 
 		req := httptest.NewRequest(http.MethodDelete, "/dashboard/dynamodb/purge", nil)
 		w := httptest.NewRecorder()
@@ -2132,7 +2104,7 @@ func TestDashboard_DDB_PurgeAll(t *testing.T) {
 	t.Run("DELETE request is routed through RouteMatcher", func(t *testing.T) {
 		t.Parallel()
 		stack := newStack(t)
-		newDDBTable(t, stack, "route-test-table")
+		stack.CreateDDBTable(t, "route-test-table")
 
 		req := httptest.NewRequest(http.MethodDelete, "/dashboard/dynamodb/purge", nil)
 		w := httptest.NewRecorder()

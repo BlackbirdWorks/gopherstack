@@ -1,6 +1,7 @@
 package dashboard_test
 
 import (
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/dashboard"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
 	"github.com/blackbirdworks/gopherstack/internal/teststack"
 )
@@ -61,11 +63,11 @@ func TestIAMDashboard_Index(t *testing.T) {
 
 	t.Run("NilIAMOps", func(t *testing.T) {
 		t.Parallel()
-		stack := newStack(t) // IAMOps is nil
+		h := dashboard.NewHandler(dashboard.Config{Logger: slog.Default()})
 
 		req := httptest.NewRequest(http.MethodGet, "/dashboard/iam", nil)
 		w := httptest.NewRecorder()
-		serveHandler(stack.Dashboard, w, req)
+		serveHandler(h, w, req)
 
 		require.Equal(t, http.StatusOK, w.Code)
 		assert.Contains(t, w.Body.String(), "IAM")
@@ -111,14 +113,14 @@ func TestIAMDashboard_CreateUser(t *testing.T) {
 
 	t.Run("NilIAMOps_Noop", func(t *testing.T) {
 		t.Parallel()
-		stack := newStack(t)
+		h := dashboard.NewHandler(dashboard.Config{Logger: slog.Default()})
 
 		form := url.Values{"userName": {"alice"}}.Encode()
 		req := httptest.NewRequest(http.MethodPost, "/dashboard/iam/user",
 			strings.NewReader(form))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		w := httptest.NewRecorder()
-		serveHandler(stack.Dashboard, w, req)
+		serveHandler(h, w, req)
 
 		// No IAM ops → still redirects OK
 		assert.Equal(t, http.StatusOK, w.Code)

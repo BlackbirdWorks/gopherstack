@@ -8,6 +8,7 @@ import (
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/labstack/echo/v5"
@@ -134,4 +135,34 @@ func New(t *testing.T) *Stack {
 		DDBClient:  ddbClient,
 		Dashboard:  dashHndlr,
 	}
+}
+
+// CreateDDBTable creates a DynamoDB table with a simple string hash key "id".
+func (s *Stack) CreateDDBTable(t *testing.T, tableName string) {
+	t.Helper()
+
+	_, err := s.DDBHandler.Backend.CreateTable(t.Context(), &dynamodb.CreateTableInput{
+		TableName: aws.String(tableName),
+		KeySchema: []ddbtypes.KeySchemaElement{
+			{AttributeName: aws.String("id"), KeyType: ddbtypes.KeyTypeHash},
+		},
+		AttributeDefinitions: []ddbtypes.AttributeDefinition{
+			{AttributeName: aws.String("id"), AttributeType: ddbtypes.ScalarAttributeTypeS},
+		},
+		ProvisionedThroughput: &ddbtypes.ProvisionedThroughput{
+			ReadCapacityUnits:  aws.Int64(5),
+			WriteCapacityUnits: aws.Int64(5),
+		},
+	})
+	require.NoError(t, err)
+}
+
+// CreateS3Bucket creates an S3 bucket with the given name.
+func (s *Stack) CreateS3Bucket(t *testing.T, bucketName string) {
+	t.Helper()
+
+	_, err := s.S3Backend.CreateBucket(
+		t.Context(), &s3.CreateBucketInput{Bucket: aws.String(bucketName)},
+	)
+	require.NoError(t, err)
 }
