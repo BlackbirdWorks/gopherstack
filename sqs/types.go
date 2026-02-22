@@ -91,6 +91,13 @@ type Queue struct {
 	IsFIFO              bool
 }
 
+// QueueInfo holds the immutable-after-creation fields of a queue, returned by ListAll.
+type QueueInfo struct {
+	Name   string
+	URL    string
+	IsFIFO bool
+}
+
 // CreateQueueInput is the input for CreateQueue.
 type CreateQueueInput struct {
 	Attributes map[string]string

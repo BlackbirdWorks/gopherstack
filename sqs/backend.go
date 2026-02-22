@@ -29,7 +29,7 @@ type StorageBackend interface {
 	SendMessageBatch(input *SendMessageBatchInput) (*SendMessageBatchOutput, error)
 	DeleteMessageBatch(input *DeleteMessageBatchInput) (*DeleteMessageBatchOutput, error)
 	PurgeQueue(input *PurgeQueueInput) error
-	ListAll() []*Queue
+	ListAll() []QueueInfo
 }
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
@@ -165,8 +165,8 @@ func (b *InMemoryBackend) GetQueueURL(input *GetQueueURLInput) (*GetQueueURLOutp
 
 // GetQueueAttributes returns queue attributes, computing dynamic ones on the fly.
 func (b *InMemoryBackend) GetQueueAttributes(input *GetQueueAttributesInput) (*GetQueueAttributesOutput, error) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
 	name := queueNameFromInput(input.QueueURL)
 
@@ -320,6 +320,16 @@ func storeDedup(q *Queue, dedupID, md5Body, contentBasedDedup, msgID string, now
 	q.deduplicationMsgIDs[effectiveID] = msgID
 }
 
+// pruneDedup removes expired deduplication entries from a FIFO queue.
+func pruneDedup(q *Queue, now time.Time) {
+	for k, expiry := range q.DeduplicationIDs {
+		if !now.Before(expiry) {
+			delete(q.DeduplicationIDs, k)
+			delete(q.deduplicationMsgIDs, k)
+		}
+	}
+}
+
 // ReceiveMessage retrieves messages from the queue, with optional long-poll wait.
 func (b *InMemoryBackend) ReceiveMessage(input *ReceiveMessageInput) (*ReceiveMessageOutput, error) {
 	name := queueNameFromInput(input.QueueURL)
@@ -351,6 +361,10 @@ func (b *InMemoryBackend) receiveOnce(name string, input *ReceiveMessageInput) (
 
 	now := time.Now()
 	reQueueExpired(q, now)
+
+	if q.IsFIFO {
+		pruneDedup(q, now)
+	}
 
 	maxMessages := input.MaxNumberOfMessages
 	if maxMessages <= 0 {
@@ -556,16 +570,18 @@ func (b *InMemoryBackend) PurgeQueue(input *PurgeQueueInput) error {
 	return nil
 }
 
-// ListAll returns all queues in the backend.
-func (b *InMemoryBackend) ListAll() []*Queue {
+// ListAll returns a snapshot of all queues as QueueInfo values.
+// The returned slice contains value copies of the immutable queue metadata, safe for
+// concurrent use after the lock is released.
+func (b *InMemoryBackend) ListAll() []QueueInfo {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	queues := make([]*Queue, 0, len(b.queues))
+	result := make([]QueueInfo, 0, len(b.queues))
 
 	for _, q := range b.queues {
-		queues = append(queues, q)
+		result = append(result, QueueInfo{Name: q.Name, URL: q.URL, IsFIFO: q.IsFIFO})
 	}
 
-	return queues
+	return result
 }

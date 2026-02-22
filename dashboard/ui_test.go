@@ -2333,7 +2333,9 @@ func newSQSIntegrationStack(t *testing.T) *integrationStack {
 		o.BaseEndpoint = aws.String("http://local")
 	})
 
-	h := dashboard.NewHandler(ddbClient, s3Client, ssmClient, ddbHndlr, s3Hndlr, ssmHndlr, nil, sqsHndlr, slog.Default())
+	h := dashboard.NewHandler(
+		ddbClient, s3Client, ssmClient, ddbHndlr, s3Hndlr, ssmHndlr, nil, sqsHndlr, slog.Default(),
+	)
 
 	return &integrationStack{
 		handler:    h,

@@ -906,7 +906,7 @@ func (e *errorBackend) DeleteMessageBatch(
 
 func (e *errorBackend) PurgeQueue(_ *sqs.PurgeQueueInput) error { return e.err }
 
-func (e *errorBackend) ListAll() []*sqs.Queue { return nil }
+func (e *errorBackend) ListAll() []sqs.QueueInfo { return nil }
 
 func newErrorHandler(t *testing.T, err error) *sqs.Handler {
 	t.Helper()
