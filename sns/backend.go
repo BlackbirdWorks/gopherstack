@@ -317,7 +317,6 @@ func deliverHTTP(endpoint, body string) {
 		return
 	}
 
-	//nolint:gosec // G704: SNS subscription endpoint is user-controlled by design; delivery is best-effort only.
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return

@@ -350,7 +350,6 @@ func (h *S3Handler) getBucketLocation(
 	// Return the location constraint XML with the actual region
 	locationXML := `<?xml version="1.0" encoding="UTF-8"?>` + "\n" +
 		`<LocationConstraint xmlns="http://s3.amazonaws.com/doc/2006-03-01/">` + region + `</LocationConstraint>`
-	//nolint:gosec // Region is controlled and validated internally
 	fmt.Fprint(w, locationXML)
 }
 
