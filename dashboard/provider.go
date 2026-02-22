@@ -96,7 +96,19 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		sqsOps, _ = sqsHandler.(*sqsbackend.Handler)
 	}
 
-	handler := NewHandler(ddbClient, s3Client, ssmClient, ddb, s3h, ssmOps, iamOps, stsOps, snsOps, sqsOps, ctx.Logger)
+	handler := NewHandler(Config{
+		DDBClient: ddbClient,
+		S3Client:  s3Client,
+		SSMClient: ssmClient,
+		DDBOps:    ddb,
+		S3Ops:     s3h,
+		SSMOps:    ssmOps,
+		IAMOps:    iamOps,
+		STSOps:    stsOps,
+		SNSOps:    snsOps,
+		SQSOps:    sqsOps,
+		Logger:    ctx.Logger,
+	})
 
 	return handler, nil
 }

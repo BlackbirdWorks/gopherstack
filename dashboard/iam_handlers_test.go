@@ -1,7 +1,6 @@
 package dashboard_test
 
 import (
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -12,18 +11,16 @@ import (
 	"github.com/stretchr/testify/require"
 
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
+	"github.com/blackbirdworks/gopherstack/internal/teststack"
 )
 
 // newIAMStack creates an integration stack with a real IAM backend wired in.
-func newIAMStack(t *testing.T) (*integrationStack, *iambackend.InMemoryBackend) {
+func newIAMStack(t *testing.T) (*teststack.Stack, *iambackend.InMemoryBackend) {
 	t.Helper()
 
-	stack := newIntegrationStack(t)
-	iamBk := iambackend.NewInMemoryBackend()
-	iamHndlr := iambackend.NewHandler(iamBk, slog.Default())
-	stack.handler.IAMOps = iamHndlr
+	stack := newStack(t)
 
-	return stack, iamBk
+	return stack, stack.IAMBackend
 }
 
 func TestIAMDashboard_Index(t *testing.T) {
@@ -35,7 +32,7 @@ func TestIAMDashboard_Index(t *testing.T) {
 
 		req := httptest.NewRequest(http.MethodGet, "/dashboard/iam", nil)
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(stack.Dashboard, w, req)
 
 		require.Equal(t, http.StatusOK, w.Code)
 		assert.Contains(t, w.Body.String(), "IAM")
@@ -52,7 +49,7 @@ func TestIAMDashboard_Index(t *testing.T) {
 
 		req := httptest.NewRequest(http.MethodGet, "/dashboard/iam", nil)
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(stack.Dashboard, w, req)
 
 		require.Equal(t, http.StatusOK, w.Code)
 		body := w.Body.String()
@@ -64,11 +61,11 @@ func TestIAMDashboard_Index(t *testing.T) {
 
 	t.Run("NilIAMOps", func(t *testing.T) {
 		t.Parallel()
-		stack := newIntegrationStack(t) // IAMOps is nil
+		stack := newStack(t) // IAMOps is nil
 
 		req := httptest.NewRequest(http.MethodGet, "/dashboard/iam", nil)
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(stack.Dashboard, w, req)
 
 		require.Equal(t, http.StatusOK, w.Code)
 		assert.Contains(t, w.Body.String(), "IAM")
@@ -87,7 +84,7 @@ func TestIAMDashboard_CreateUser(t *testing.T) {
 			strings.NewReader(form))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(stack.Dashboard, w, req)
 
 		require.Equal(t, http.StatusOK, w.Code)
 		assert.Equal(t, "/dashboard/iam", w.Header().Get("Hx-Redirect"))
@@ -107,21 +104,21 @@ func TestIAMDashboard_CreateUser(t *testing.T) {
 			strings.NewReader(form))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(stack.Dashboard, w, req)
 
 		assert.Equal(t, http.StatusInternalServerError, w.Code)
 	})
 
 	t.Run("NilIAMOps_Noop", func(t *testing.T) {
 		t.Parallel()
-		stack := newIntegrationStack(t)
+		stack := newStack(t)
 
 		form := url.Values{"userName": {"alice"}}.Encode()
 		req := httptest.NewRequest(http.MethodPost, "/dashboard/iam/user",
 			strings.NewReader(form))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(stack.Dashboard, w, req)
 
 		// No IAM ops → still redirects OK
 		assert.Equal(t, http.StatusOK, w.Code)
@@ -138,7 +135,7 @@ func TestIAMDashboard_DeleteUser(t *testing.T) {
 
 		req := httptest.NewRequest(http.MethodDelete, "/dashboard/iam/user?name=alice", nil)
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(stack.Dashboard, w, req)
 
 		require.Equal(t, http.StatusOK, w.Code)
 		assert.Equal(t, "/dashboard/iam", w.Header().Get("Hx-Redirect"))
@@ -151,7 +148,7 @@ func TestIAMDashboard_DeleteUser(t *testing.T) {
 
 		req := httptest.NewRequest(http.MethodDelete, "/dashboard/iam/user", nil)
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(stack.Dashboard, w, req)
 
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
@@ -162,7 +159,7 @@ func TestIAMDashboard_DeleteUser(t *testing.T) {
 
 		req := httptest.NewRequest(http.MethodDelete, "/dashboard/iam/user?name=nobody", nil)
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(stack.Dashboard, w, req)
 
 		assert.Equal(t, http.StatusInternalServerError, w.Code)
 	})
@@ -184,7 +181,7 @@ func TestIAMDashboard_CreateRole(t *testing.T) {
 			strings.NewReader(form))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(stack.Dashboard, w, req)
 
 		require.Equal(t, http.StatusOK, w.Code)
 		assert.Equal(t, "/dashboard/iam", w.Header().Get("Hx-Redirect"))
@@ -201,7 +198,7 @@ func TestIAMDashboard_CreateRole(t *testing.T) {
 			strings.NewReader(form))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(stack.Dashboard, w, req)
 
 		assert.Equal(t, http.StatusInternalServerError, w.Code)
 	})
@@ -217,7 +214,7 @@ func TestIAMDashboard_DeleteRole(t *testing.T) {
 
 		req := httptest.NewRequest(http.MethodDelete, "/dashboard/iam/role?name=MyRole", nil)
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(stack.Dashboard, w, req)
 
 		require.Equal(t, http.StatusOK, w.Code)
 		assert.Empty(t, iamBk.ListAllRoles())
@@ -229,7 +226,7 @@ func TestIAMDashboard_DeleteRole(t *testing.T) {
 
 		req := httptest.NewRequest(http.MethodDelete, "/dashboard/iam/role", nil)
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(stack.Dashboard, w, req)
 
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
@@ -240,7 +237,7 @@ func TestIAMDashboard_DeleteRole(t *testing.T) {
 
 		req := httptest.NewRequest(http.MethodDelete, "/dashboard/iam/role?name=ghost", nil)
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(stack.Dashboard, w, req)
 
 		assert.Equal(t, http.StatusInternalServerError, w.Code)
 	})
@@ -262,7 +259,7 @@ func TestIAMDashboard_CreatePolicy(t *testing.T) {
 			strings.NewReader(form))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(stack.Dashboard, w, req)
 
 		require.Equal(t, http.StatusOK, w.Code)
 		assert.Equal(t, "/dashboard/iam", w.Header().Get("Hx-Redirect"))
@@ -279,7 +276,7 @@ func TestIAMDashboard_CreatePolicy(t *testing.T) {
 			strings.NewReader(form))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(stack.Dashboard, w, req)
 
 		assert.Equal(t, http.StatusInternalServerError, w.Code)
 	})
@@ -296,7 +293,7 @@ func TestIAMDashboard_DeletePolicy(t *testing.T) {
 		req := httptest.NewRequest(http.MethodDelete,
 			"/dashboard/iam/policy?arn="+url.QueryEscape(pol.Arn), nil)
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(stack.Dashboard, w, req)
 
 		require.Equal(t, http.StatusOK, w.Code)
 		assert.Empty(t, iamBk.ListAllPolicies())
@@ -308,7 +305,7 @@ func TestIAMDashboard_DeletePolicy(t *testing.T) {
 
 		req := httptest.NewRequest(http.MethodDelete, "/dashboard/iam/policy", nil)
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(stack.Dashboard, w, req)
 
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
@@ -320,7 +317,7 @@ func TestIAMDashboard_DeletePolicy(t *testing.T) {
 		req := httptest.NewRequest(http.MethodDelete,
 			"/dashboard/iam/policy?arn=arn:aws:iam::000000000000:policy/ghost", nil)
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(stack.Dashboard, w, req)
 
 		assert.Equal(t, http.StatusInternalServerError, w.Code)
 	})
@@ -338,7 +335,7 @@ func TestIAMDashboard_CreateGroup(t *testing.T) {
 			strings.NewReader(form))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(stack.Dashboard, w, req)
 
 		require.Equal(t, http.StatusOK, w.Code)
 		assert.Equal(t, "/dashboard/iam", w.Header().Get("Hx-Redirect"))
@@ -355,7 +352,7 @@ func TestIAMDashboard_CreateGroup(t *testing.T) {
 			strings.NewReader(form))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(stack.Dashboard, w, req)
 
 		assert.Equal(t, http.StatusInternalServerError, w.Code)
 	})
@@ -371,7 +368,7 @@ func TestIAMDashboard_DeleteGroup(t *testing.T) {
 
 		req := httptest.NewRequest(http.MethodDelete, "/dashboard/iam/group?name=Admins", nil)
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(stack.Dashboard, w, req)
 
 		require.Equal(t, http.StatusOK, w.Code)
 		assert.Empty(t, iamBk.ListAllGroups())
@@ -383,7 +380,7 @@ func TestIAMDashboard_DeleteGroup(t *testing.T) {
 
 		req := httptest.NewRequest(http.MethodDelete, "/dashboard/iam/group", nil)
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(stack.Dashboard, w, req)
 
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
@@ -394,7 +391,7 @@ func TestIAMDashboard_DeleteGroup(t *testing.T) {
 
 		req := httptest.NewRequest(http.MethodDelete, "/dashboard/iam/group?name=ghost", nil)
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(stack.Dashboard, w, req)
 
 		assert.Equal(t, http.StatusInternalServerError, w.Code)
 	})

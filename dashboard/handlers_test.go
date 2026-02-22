@@ -22,7 +22,7 @@ func TestDashboard_Pagination(t *testing.T) {
 	// Test DynamoDB Table Pagination
 	t.Run("DynamoDB Table Pagination", func(t *testing.T) {
 		t.Parallel()
-		stack := newIntegrationStack(t)
+		stack := newStack(t)
 		// Create 5 tables
 		for i := 1; i <= 5; i++ {
 			newDDBTable(t, stack, fmt.Sprintf("table-%03d", i))
@@ -36,7 +36,7 @@ func TestDashboard_Pagination(t *testing.T) {
 
 		req := httptest.NewRequest(http.MethodGet, "/dashboard/dynamodb/tables", nil)
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(stack.Dashboard, w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Contains(t, w.Body.String(), "table-001")
@@ -47,7 +47,7 @@ func TestDashboard_Pagination(t *testing.T) {
 	// Test S3 Bucket Pagination
 	t.Run("S3 Bucket Pagination", func(t *testing.T) {
 		t.Parallel()
-		stack := newIntegrationStack(t)
+		stack := newStack(t)
 		// Create 5 buckets
 		for i := 1; i <= 5; i++ {
 			newS3Bucket(t, stack, fmt.Sprintf("bucket-%03d", i))
@@ -55,7 +55,7 @@ func TestDashboard_Pagination(t *testing.T) {
 
 		req := httptest.NewRequest(http.MethodGet, "/dashboard/s3/buckets", nil)
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(stack.Dashboard, w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Contains(t, w.Body.String(), "bucket-001")
@@ -68,7 +68,7 @@ func TestDashboard_DynamoDB_ItemEditor(t *testing.T) {
 	// Test Create Item
 	t.Run("Create Item", func(t *testing.T) {
 		t.Parallel()
-		stack := newIntegrationStack(t)
+		stack := newStack(t)
 		tableName := "editor-table"
 		newDDBTable(t, stack, tableName)
 
@@ -81,12 +81,12 @@ func TestDashboard_DynamoDB_ItemEditor(t *testing.T) {
 		)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(stack.Dashboard, w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		// Verify in DB
-		out, err := stack.dyClient.GetItem(t.Context(), &dynamodb.GetItemInput{
+		out, err := stack.DDBClient.GetItem(t.Context(), &dynamodb.GetItemInput{
 			TableName: aws.String(tableName),
 			Key: map[string]ddbtypes.AttributeValue{
 				"id": &ddbtypes.AttributeValueMemberS{Value: "user-1"},
@@ -99,12 +99,12 @@ func TestDashboard_DynamoDB_ItemEditor(t *testing.T) {
 	// Test Edit Item (GET form)
 	t.Run("Edit Item Form", func(t *testing.T) {
 		t.Parallel()
-		stack := newIntegrationStack(t)
+		stack := newStack(t)
 		tableName := "editor-table"
 		newDDBTable(t, stack, tableName)
 
 		// Create item first
-		_, _ = stack.dyClient.PutItem(t.Context(), &dynamodb.PutItemInput{
+		_, _ = stack.DDBClient.PutItem(t.Context(), &dynamodb.PutItemInput{
 			TableName: &tableName,
 			Item: map[string]ddbtypes.AttributeValue{
 				"id":   &ddbtypes.AttributeValueMemberS{Value: "user-1"},
@@ -123,7 +123,7 @@ func TestDashboard_DynamoDB_ItemEditor(t *testing.T) {
 			nil,
 		)
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(stack.Dashboard, w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Contains(t, w.Body.String(), "Alice")
@@ -135,7 +135,7 @@ func TestDashboard_S3_Previews(t *testing.T) {
 
 	t.Run("Text Preview", func(t *testing.T) {
 		t.Parallel()
-		stack := newIntegrationStack(t)
+		stack := newStack(t)
 		bucketName := "preview-bucket"
 		newS3Bucket(t, stack, bucketName)
 
@@ -148,7 +148,7 @@ func TestDashboard_S3_Previews(t *testing.T) {
 			nil,
 		)
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(stack.Dashboard, w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Contains(t, w.Body.String(), content)
@@ -156,7 +156,7 @@ func TestDashboard_S3_Previews(t *testing.T) {
 
 	t.Run("Metadata Export", func(t *testing.T) {
 		t.Parallel()
-		stack := newIntegrationStack(t)
+		stack := newStack(t)
 		bucketName := "preview-bucket"
 		newS3Bucket(t, stack, bucketName)
 		uploadS3Object(t, stack, bucketName, "test.txt", "content")
@@ -167,7 +167,7 @@ func TestDashboard_S3_Previews(t *testing.T) {
 			nil,
 		)
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(stack.Dashboard, w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Contains(t, w.Body.String(), "test.txt")
@@ -180,12 +180,12 @@ func TestDashboard_DDB_ExportImport(t *testing.T) {
 
 	t.Run("Export JSON", func(t *testing.T) {
 		t.Parallel()
-		stack := newIntegrationStack(t)
+		stack := newStack(t)
 		tableName := "xport-table"
 		newDDBTable(t, stack, tableName)
 
 		// Seed data
-		_, _ = stack.dyClient.PutItem(t.Context(), &dynamodb.PutItemInput{
+		_, _ = stack.DDBClient.PutItem(t.Context(), &dynamodb.PutItemInput{
 			TableName: aws.String(tableName),
 			Item: map[string]ddbtypes.AttributeValue{
 				"id": &ddbtypes.AttributeValueMemberS{Value: "item-1"},
@@ -198,7 +198,7 @@ func TestDashboard_DDB_ExportImport(t *testing.T) {
 			nil,
 		)
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(stack.Dashboard, w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Contains(t, w.Body.String(), "item-1")
@@ -206,7 +206,7 @@ func TestDashboard_DDB_ExportImport(t *testing.T) {
 
 	t.Run("Import JSON", func(t *testing.T) {
 		t.Parallel()
-		stack := newIntegrationStack(t)
+		stack := newStack(t)
 		tableName := "xport-table"
 		newDDBTable(t, stack, tableName)
 
@@ -219,12 +219,12 @@ func TestDashboard_DDB_ExportImport(t *testing.T) {
 		)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(stack.Dashboard, w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		// Verify in DB
-		out, _ := stack.dyClient.GetItem(t.Context(), &dynamodb.GetItemInput{
+		out, _ := stack.DDBClient.GetItem(t.Context(), &dynamodb.GetItemInput{
 			TableName: aws.String(tableName),
 			Key: map[string]ddbtypes.AttributeValue{
 				"id": &ddbtypes.AttributeValueMemberS{Value: "item-2"},

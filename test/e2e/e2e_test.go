@@ -5,7 +5,6 @@ package e2e_test
 import (
 	"fmt"
 	"log"
-	"log/slog"
 	"net/http/httptest"
 	"net/url"
 	"os"
@@ -14,27 +13,15 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
-	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
-	"github.com/labstack/echo/v5"
 	"github.com/playwright-community/playwright-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/blackbirdworks/gopherstack/dashboard"
-	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
-	iambackend "github.com/blackbirdworks/gopherstack/iam"
-	"github.com/blackbirdworks/gopherstack/pkgs/service"
-	s3backend "github.com/blackbirdworks/gopherstack/s3"
-	snsbackend "github.com/blackbirdworks/gopherstack/sns"
-	sqsbackend "github.com/blackbirdworks/gopherstack/sqs"
-	ssmbackend "github.com/blackbirdworks/gopherstack/ssm"
-	stsbackend "github.com/blackbirdworks/gopherstack/sts"
+	"github.com/blackbirdworks/gopherstack/internal/teststack"
 )
 
 var pw *playwright.Playwright
@@ -65,116 +52,16 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-type integrationStack struct {
-	handler    *echo.Echo
-	s3Backend  *s3backend.InMemoryBackend
-	s3Handler  *s3backend.S3Handler
-	ddbHandler *ddbbackend.DynamoDBHandler
-	iamBackend *iambackend.InMemoryBackend
-	iamHandler *iambackend.Handler
-	stsHandler *stsbackend.Handler
-	snsHandler *snsbackend.Handler
-	sqsHandler *sqsbackend.Handler
-	s3Client   *s3.Client
-	dyClient   *dynamodb.Client
-}
-
-func newIntegrationStack(t *testing.T) *integrationStack {
+func newStack(t *testing.T) *teststack.Stack {
 	t.Helper()
 
-	s3Bk := s3backend.NewInMemoryBackend(nil)
-	s3Hndlr := s3backend.NewHandler(s3Bk, slog.Default())
-	ddbBk := ddbbackend.NewInMemoryDB()
-	ddbHndlr := ddbbackend.NewHandler(ddbBk, slog.Default())
-
-	// Create main Echo instance for full stack
-	e := echo.New()
-
-	// Setup Registry/Router like in main.go
-	registry := service.NewRegistry(slog.Default())
-	_ = registry.Register(ddbHndlr)
-
-	// Dashboard needs clients that talk back to this same Echo instance
-	inMemClient := &dashboard.InMemClient{Handler: e}
-
-	// Increase default timeout for Playwright operations to 60s (as requested by user)
-	// This helps with CI stability on slower runners.
-	// Since browser is global, we set it on any new context or page if needed,
-	// but Playwright doesn't have a global "SetDefaultTimeout" on the browser object directly.
-	// However, many operations in this suite use locator.WaitFor which defaults to 30s.
-	// We'll add a helper or just instruct that future locators should use a higher limit,
-	// OR we can set it on the page if we had a reference here.
-	// Actually, Playwright GO doesn't have a global timeout per se, but we can set it per page.
-
-	cfg, err := config.LoadDefaultConfig(t.Context(),
-		config.WithRegion("us-east-1"),
-		config.WithCredentialsProvider(
-			credentials.NewStaticCredentialsProvider("dummy", "dummy", ""),
-		),
-		config.WithHTTPClient(inMemClient),
-	)
-	require.NoError(t, err)
-
-	ddbClient := dynamodb.NewFromConfig(cfg, func(o *dynamodb.Options) {
-		o.BaseEndpoint = aws.String("http://local")
-	})
-	s3Client := s3.NewFromConfig(cfg, func(o *s3.Options) {
-		o.UsePathStyle = true
-		o.BaseEndpoint = aws.String("http://local")
-	})
-	ssmClient := ssmsdk.NewFromConfig(cfg, func(o *ssmsdk.Options) {
-		o.BaseEndpoint = aws.String("http://local")
-	})
-
-	ssmBk := ssmbackend.NewInMemoryBackend()
-	ssmHndlr := ssmbackend.NewHandler(ssmBk, slog.Default())
-
-	iamBk := iambackend.NewInMemoryBackend()
-	iamHndlr := iambackend.NewHandler(iamBk, slog.Default())
-
-	stsBk := stsbackend.NewInMemoryBackend()
-	stsHndlr := stsbackend.NewHandler(stsBk, slog.Default())
-
-	snsBk := snsbackend.NewInMemoryBackend()
-	snsHndlr := snsbackend.NewHandler(snsBk, slog.Default())
-
-	sqsBk := sqsbackend.NewInMemoryBackend()
-	sqsHndlr := sqsbackend.NewHandler(sqsBk, slog.Default())
-
-	dashHndlr := dashboard.NewHandler(
-		ddbClient, s3Client, ssmClient, ddbHndlr, s3Hndlr, ssmHndlr, iamHndlr, stsHndlr, snsHndlr, sqsHndlr, slog.Default(),
-	)
-	_ = registry.Register(dashHndlr)
-	_ = registry.Register(s3Hndlr)
-	_ = registry.Register(ssmHndlr)
-	_ = registry.Register(iamHndlr)
-	_ = registry.Register(stsHndlr)
-	_ = registry.Register(snsHndlr)
-	_ = registry.Register(sqsHndlr)
-
-	// Mount the service router to handle all registered services
-	router := service.NewServiceRouter(registry)
-	e.Use(router.RouteHandler())
-
-	return &integrationStack{
-		handler:    e,
-		s3Backend:  s3Bk,
-		s3Handler:  s3Hndlr,
-		ddbHandler: ddbHndlr,
-		iamBackend: iamBk,
-		iamHandler: iamHndlr,
-		stsHandler: stsHndlr,
-		snsHandler: snsHndlr,
-		sqsHandler: sqsHndlr,
-		s3Client:   s3Client,
-		dyClient:   ddbClient,
-	}
+	return teststack.New(t)
 }
 
-func newDDBTable(t *testing.T, stack *integrationStack, tableName string) {
+func newDDBTable(t *testing.T, stack *teststack.Stack, tableName string) {
 	t.Helper()
 
-	_, err := stack.ddbHandler.Backend.CreateTable(t.Context(), &dynamodb.CreateTableInput{
+	_, err := stack.DDBHandler.Backend.CreateTable(t.Context(), &dynamodb.CreateTableInput{
 		TableName: aws.String(tableName),
 		KeySchema: []ddbtypes.KeySchemaElement{
 			{AttributeName: aws.String("id"), KeyType: ddbtypes.KeyTypeHash},
@@ -190,10 +77,10 @@ func newDDBTable(t *testing.T, stack *integrationStack, tableName string) {
 	require.NoError(t, err)
 }
 
-func newS3Bucket(t *testing.T, stack *integrationStack, bucketName string) {
+func newS3Bucket(t *testing.T, stack *teststack.Stack, bucketName string) {
 	t.Helper()
 
-	_, err := stack.s3Backend.CreateBucket(
+	_, err := stack.S3Backend.CreateBucket(
 		t.Context(), &s3.CreateBucketInput{Bucket: aws.String(bucketName)},
 	)
 	require.NoError(t, err)
@@ -210,10 +97,10 @@ func saveScreenshot(t *testing.T, page playwright.Page, name string) {
 }
 
 func TestE2E_CustomModal_ConfirmDelete(t *testing.T) {
-	stack := newIntegrationStack(t)
+	stack := newStack(t)
 	newDDBTable(t, stack, "Movies")
 
-	server := httptest.NewServer(stack.handler)
+	server := httptest.NewServer(stack.Echo)
 	defer server.Close()
 
 	context, err := browser.NewContext()
@@ -261,10 +148,10 @@ func TestE2E_CustomModal_ConfirmDelete(t *testing.T) {
 }
 
 func TestE2E_S3_ConfirmDeleteBucket(t *testing.T) {
-	stack := newIntegrationStack(t)
+	stack := newStack(t)
 	newS3Bucket(t, stack, "trash-bucket")
 
-	server := httptest.NewServer(stack.handler)
+	server := httptest.NewServer(stack.Echo)
 	defer server.Close()
 
 	context, err := browser.NewContext()
@@ -301,9 +188,9 @@ func TestE2E_S3_ConfirmDeleteBucket(t *testing.T) {
 }
 
 func TestE2E_DynamoDB_CreateTableCompleteFlow(t *testing.T) {
-	stack := newIntegrationStack(t)
+	stack := newStack(t)
 
-	server := httptest.NewServer(stack.handler)
+	server := httptest.NewServer(stack.Echo)
 	defer server.Close()
 
 	context, err := browser.NewContext()
@@ -335,17 +222,17 @@ func TestE2E_DynamoDB_CreateTableCompleteFlow(t *testing.T) {
 	require.NoError(t, err)
 
 	// 5. Verify table is actually created in backend
-	_, err = stack.ddbHandler.Backend.DescribeTable(t.Context(), &dynamodb.DescribeTableInput{
+	_, err = stack.DDBHandler.Backend.DescribeTable(t.Context(), &dynamodb.DescribeTableInput{
 		TableName: aws.String("TestTable"),
 	})
 	assert.NoError(t, err)
 }
 
 func TestE2E_S3_UploadFileFlow(t *testing.T) {
-	stack := newIntegrationStack(t)
+	stack := newStack(t)
 	newS3Bucket(t, stack, "upload-bucket")
 
-	server := httptest.NewServer(stack.handler)
+	server := httptest.NewServer(stack.Echo)
 	defer server.Close()
 
 	context, err := browser.NewContext()
@@ -389,7 +276,7 @@ func TestE2E_S3_UploadFileFlow(t *testing.T) {
 	require.NoError(t, err)
 
 	// 7. Verify object exists in backend
-	_, err = stack.s3Backend.GetObject(t.Context(), &s3.GetObjectInput{
+	_, err = stack.S3Backend.GetObject(t.Context(), &s3.GetObjectInput{
 		Bucket: aws.String("upload-bucket"),
 		Key:    aws.String("test-upload.txt"),
 	})
@@ -397,10 +284,10 @@ func TestE2E_S3_UploadFileFlow(t *testing.T) {
 }
 
 func TestE2E_DynamoDB_ItemCRUD(t *testing.T) {
-	stack := newIntegrationStack(t)
+	stack := newStack(t)
 	newDDBTable(t, stack, "Items")
 
-	server := httptest.NewServer(stack.handler)
+	server := httptest.NewServer(stack.Echo)
 	defer server.Close()
 
 	context, err := browser.NewContext()
@@ -485,28 +372,28 @@ func TestE2E_DynamoDB_ItemCRUD(t *testing.T) {
 }
 
 func TestE2E_S3_FolderNavigation(t *testing.T) {
-	stack := newIntegrationStack(t)
+	stack := newStack(t)
 	newS3Bucket(t, stack, "nav-bucket")
 
 	// Pre-create some objects with prefixes
-	_, err := stack.s3Backend.PutObject(t.Context(), &s3.PutObjectInput{
+	_, err := stack.S3Backend.PutObject(t.Context(), &s3.PutObjectInput{
 		Bucket: aws.String("nav-bucket"),
 		Key:    aws.String("logs/2024/01/app.log"),
 		Body:   strings.NewReader(""),
 	})
 	require.NoError(t, err)
-	_, err = stack.s3Backend.PutObject(t.Context(), &s3.PutObjectInput{
+	_, err = stack.S3Backend.PutObject(t.Context(), &s3.PutObjectInput{
 		Bucket: aws.String("nav-bucket"),
 		Key:    aws.String("readme.md"),
 		Body:   strings.NewReader(""),
 	})
 	require.NoError(t, err)
 
-	server := httptest.NewServer(stack.handler)
+	server := httptest.NewServer(stack.Echo)
 	defer server.Close()
 
 	if u, err := url.Parse(server.URL); err == nil {
-		stack.s3Handler.Endpoint = u.Host
+		stack.S3Handler.Endpoint = u.Host
 	}
 
 	context, err := browser.NewContext()
@@ -569,16 +456,16 @@ func TestE2E_S3_FolderNavigation(t *testing.T) {
 }
 
 func TestE2E_S3_MetadataTagging(t *testing.T) {
-	stack := newIntegrationStack(t)
+	stack := newStack(t)
 	newS3Bucket(t, stack, "meta-bucket")
-	_, err := stack.s3Backend.PutObject(t.Context(), &s3.PutObjectInput{
+	_, err := stack.S3Backend.PutObject(t.Context(), &s3.PutObjectInput{
 		Bucket: aws.String("meta-bucket"),
 		Key:    aws.String("meta.txt"),
 		Body:   strings.NewReader(""),
 	})
 	require.NoError(t, err)
 
-	server := httptest.NewServer(stack.handler)
+	server := httptest.NewServer(stack.Echo)
 	defer server.Close()
 
 	context, err := browser.NewContext()
@@ -625,11 +512,11 @@ func TestE2E_S3_MetadataTagging(t *testing.T) {
 }
 
 func TestE2E_GlobalSearch(t *testing.T) {
-	stack := newIntegrationStack(t)
+	stack := newStack(t)
 	newDDBTable(t, stack, "SearchTable")
 	newS3Bucket(t, stack, "SearchBucket")
 
-	server := httptest.NewServer(stack.handler)
+	server := httptest.NewServer(stack.Echo)
 	defer server.Close()
 
 	context, err := browser.NewContext()
@@ -664,13 +551,13 @@ func TestE2E_GlobalSearch(t *testing.T) {
 }
 
 func TestE2E_MetricsDashboard(t *testing.T) {
-	stack := newIntegrationStack(t)
+	stack := newStack(t)
 
-	server := httptest.NewServer(stack.handler)
+	server := httptest.NewServer(stack.Echo)
 	defer server.Close()
 
 	if u, err := url.Parse(server.URL); err == nil {
-		stack.s3Handler.Endpoint = u.Host
+		stack.S3Handler.Endpoint = u.Host
 	}
 
 	context, err := browser.NewContext()
@@ -797,15 +684,15 @@ func TestE2E_MetricsDashboard(t *testing.T) {
 	assert.Contains(t, liveText, "LIVE", "Live indicator should contain 'LIVE' text")
 }
 func TestE2E_S3_BucketVersioning(t *testing.T) {
-	stack := newIntegrationStack(t)
+	stack := newStack(t)
 	bucketName := "versioning-test-bucket"
 	newS3Bucket(t, stack, bucketName)
 
-	server := httptest.NewServer(stack.handler)
+	server := httptest.NewServer(stack.Echo)
 	defer server.Close()
 
 	if u, err := url.Parse(server.URL); err == nil {
-		stack.s3Handler.Endpoint = u.Host
+		stack.S3Handler.Endpoint = u.Host
 	}
 
 	context, err := browser.NewContext()
@@ -868,7 +755,7 @@ func TestE2E_S3_BucketVersioning(t *testing.T) {
 	require.NoError(t, err, "Enabled badge should be visible after clicking enable")
 
 	// 8. Verify backend state
-	versioningStatus, err := stack.s3Backend.GetBucketVersioning(t.Context(), &s3.GetBucketVersioningInput{
+	versioningStatus, err := stack.S3Backend.GetBucketVersioning(t.Context(), &s3.GetBucketVersioningInput{
 		Bucket: aws.String(bucketName),
 	})
 	require.NoError(t, err)
@@ -878,7 +765,7 @@ func TestE2E_S3_BucketVersioning(t *testing.T) {
 }
 
 func TestE2E_DynamoDB_Pagination_And_Search(t *testing.T) {
-	stack := newIntegrationStack(t)
+	stack := newStack(t)
 
 	// Create many tables to trigger pagination (limit is 12)
 	const tableCount = 15
@@ -887,7 +774,7 @@ func TestE2E_DynamoDB_Pagination_And_Search(t *testing.T) {
 		newDDBTable(t, stack, name)
 	}
 
-	server := httptest.NewServer(stack.handler)
+	server := httptest.NewServer(stack.Echo)
 	defer server.Close()
 
 	context, err := browser.NewContext()
@@ -962,7 +849,7 @@ func TestE2E_DynamoDB_Pagination_And_Search(t *testing.T) {
 }
 
 func TestE2E_S3_Pagination_And_Search(t *testing.T) {
-	stack := newIntegrationStack(t)
+	stack := newStack(t)
 
 	// Create many buckets to trigger pagination (limit: 12)
 	const bucketCount = 15
@@ -971,7 +858,7 @@ func TestE2E_S3_Pagination_And_Search(t *testing.T) {
 		newS3Bucket(t, stack, name)
 	}
 
-	server := httptest.NewServer(stack.handler)
+	server := httptest.NewServer(stack.Echo)
 	defer server.Close()
 
 	context, err := browser.NewContext()

@@ -71,24 +71,23 @@ type DashboardHandler struct {
 	SubRouter *echo.Echo
 }
 
+// Config holds all dependencies for the Dashboard handler.
+type Config struct {
+	DDBClient *dynamodb.Client
+	S3Client  *s3.Client
+	SSMClient *ssmsdk.Client
+	DDBOps    *ddbbackend.DynamoDBHandler
+	S3Ops     *s3backend.S3Handler
+	SSMOps    *ssmbackend.Handler
+	IAMOps    *iambackend.Handler
+	STSOps    *stsbackend.Handler
+	SNSOps    *snsbackend.Handler
+	SQSOps    *sqsbackend.Handler
+	Logger    *slog.Logger
+}
+
 // NewHandler creates a new Dashboard handler.
-// It supports both registry-based discovery and legacy direct SDK client injection.
-// The registry parameter may be nil for backward compatibility.
-// If registry is provided, it discovers and initializes all DashboardProviders.
-// If SDK clients are provided, they are used for the legacy handlers.
-func NewHandler(
-	ddbClient *dynamodb.Client,
-	s3Client *s3.Client,
-	ssmClient *ssmsdk.Client,
-	ddbOps *ddbbackend.DynamoDBHandler,
-	s3Ops *s3backend.S3Handler,
-	ssmOps *ssmbackend.Handler,
-	iamOps *iambackend.Handler,
-	stsOps *stsbackend.Handler,
-	snsOps *snsbackend.Handler,
-	sqsOps *sqsbackend.Handler,
-	logger *slog.Logger,
-) *DashboardHandler {
+func NewHandler(cfg Config) *DashboardHandler {
 	// Parse layout and components
 	tmpl := template.Must(template.ParseFS(templateFS,
 		"templates/layout.html",
@@ -105,24 +104,24 @@ func NewHandler(
 	s3Provider := s3backend.NewDashboardProvider()
 
 	h := &DashboardHandler{
-		DynamoDB:    ddbClient,
-		S3:          s3Client,
-		SSM:         ssmClient,
-		DDBOps:      ddbOps,
-		S3Ops:       s3Ops,
-		SSMOps:      ssmOps,
-		IAMOps:      iamOps,
-		STSOps:      stsOps,
-		SNSOps:      snsOps,
-		SQSOps:      sqsOps,
-		Logger:      logger,
+		DynamoDB:    cfg.DDBClient,
+		S3:          cfg.S3Client,
+		SSM:         cfg.SSMClient,
+		DDBOps:      cfg.DDBOps,
+		S3Ops:       cfg.S3Ops,
+		SSMOps:      cfg.SSMOps,
+		IAMOps:      cfg.IAMOps,
+		STSOps:      cfg.STSOps,
+		SNSOps:      cfg.SNSOps,
+		SQSOps:      cfg.SQSOps,
+		Logger:      cfg.Logger,
 		layout:      tmpl,
 		ddbProvider: ddbProvider,
 		s3Provider:  s3Provider,
 		SubRouter:   echo.New(),
 	}
 
-	h.SubRouter.Pre(pkgslogger.EchoMiddleware(logger))
+	h.SubRouter.Pre(pkgslogger.EchoMiddleware(cfg.Logger))
 
 	// Set up handler functions for providers
 	h.ddbProvider.Handlers.HandleDynamoDB = h.handleDynamoDB
