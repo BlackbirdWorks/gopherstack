@@ -31,6 +31,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
 	ssmbackend "github.com/blackbirdworks/gopherstack/ssm"
+	stsbackend "github.com/blackbirdworks/gopherstack/sts"
 )
 
 var pw *playwright.Playwright
@@ -120,10 +121,14 @@ func newIntegrationStack(t *testing.T) *integrationStack {
 	ssmBk := ssmbackend.NewInMemoryBackend()
 	ssmHndlr := ssmbackend.NewHandler(ssmBk, slog.Default())
 
-	dashHndlr := dashboard.NewHandler(ddbClient, s3Client, ssmClient, ddbHndlr, s3Hndlr, ssmHndlr, slog.Default())
+	stsBk := stsbackend.NewInMemoryBackend()
+	stsHndlr := stsbackend.NewHandler(stsBk, slog.Default())
+
+	dashHndlr := dashboard.NewHandler(ddbClient, s3Client, ssmClient, ddbHndlr, s3Hndlr, ssmHndlr, stsHndlr, slog.Default())
 	_ = registry.Register(dashHndlr)
 	_ = registry.Register(s3Hndlr)
 	_ = registry.Register(ssmHndlr)
+	_ = registry.Register(stsHndlr)
 
 	router := service.NewServiceRouter(registry)
 	e.Use(router.RouteHandler())

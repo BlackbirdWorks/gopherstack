@@ -3,6 +3,7 @@ package sts_test
 import (
 	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/sts"
 )
 
@@ -505,4 +507,103 @@ func buildSTSClient(t *testing.T, endpoint string) *stssdk.Client {
 	return stssdk.NewFromConfig(cfg, func(o *stssdk.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
+}
+
+// ---- Provider tests ---------------------------------------------------------
+
+func TestProvider_Name(t *testing.T) {
+	t.Parallel()
+
+	p := &sts.Provider{}
+	assert.Equal(t, "STS", p.Name())
+}
+
+func TestProvider_Init(t *testing.T) {
+	t.Parallel()
+
+	p := &sts.Provider{}
+	appCtx := &service.AppContext{
+		Logger: logger.NewTestLogger(),
+	}
+
+	reg, err := p.Init(appCtx)
+	require.NoError(t, err)
+	assert.NotNil(t, reg)
+	assert.Equal(t, "STS", reg.Name())
+}
+
+// ---- Additional backend tests -----------------------------------------------
+
+func TestAssumeRole_MalformedArn(t *testing.T) {
+	t.Parallel()
+
+	// An ARN with fewer than 6 colon-separated components triggers the fallback
+	// path in buildAssumedRoleArn.
+	backend := sts.NewInMemoryBackend()
+	resp, err := backend.AssumeRole(&sts.AssumeRoleInput{
+		RoleArn:         "short/role",
+		RoleSessionName: "session",
+	})
+	require.NoError(t, err)
+
+	assert.Contains(t, resp.AssumeRoleResult.AssumedRoleUser.Arn, "session")
+}
+
+// ---- Handler error-path tests -----------------------------------------------
+
+// errBackendFailure is returned by errorBackend to trigger the InternalFailure path.
+var errBackendFailure = errors.New("unexpected backend failure")
+
+// errorBackend is a test double that always returns an unexpected error.
+type errorBackend struct{}
+
+func (b *errorBackend) AssumeRole(_ *sts.AssumeRoleInput) (*sts.AssumeRoleResponse, error) {
+	return nil, fmt.Errorf("AssumeRole: %w", errBackendFailure)
+}
+
+func (b *errorBackend) GetCallerIdentity() (*sts.GetCallerIdentityResponse, error) {
+	return nil, fmt.Errorf("GetCallerIdentity: %w", errBackendFailure)
+}
+
+// TestHandler_InternalError tests the default (InternalFailure) path in handleError.
+func TestHandler_InternalError(t *testing.T) {
+	t.Parallel()
+
+	log := logger.NewTestLogger()
+	h := sts.NewHandler(&errorBackend{}, log)
+	e := echo.New()
+	e.Use(func(_ echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			ctx := logger.Save(c.Request().Context(), log)
+
+			return h.Handler()(echo.NewContext(c.Request().WithContext(ctx), c.Response()))
+		}
+	})
+	e.Any("/*", func(_ *echo.Context) error { return nil })
+
+	rec := postForm(t, e, h, url.Values{
+		"Action":  {"GetCallerIdentity"},
+		"Version": {"2011-06-15"},
+	})
+
+	// Should return 500 InternalFailure
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+}
+
+// TestHandler_ParseFormValues_SkipMalformedPair tests that malformed pairs
+// (no '=') are skipped without panicking.
+func TestHandler_ParseFormValues_SkipMalformedPair(t *testing.T) {
+	t.Parallel()
+
+	h, e := newTestHandler(t)
+
+	// Body contains "noequals" pair (no '=') - should be skipped gracefully.
+	body := "Action=GetCallerIdentity&noequals&Version=2011-06-15"
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	// ExtractOperation should still find the Action.
+	assert.Equal(t, "GetCallerIdentity", h.ExtractOperation(c))
 }

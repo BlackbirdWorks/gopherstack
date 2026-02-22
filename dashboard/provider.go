@@ -10,6 +10,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/s3"
 	"github.com/blackbirdworks/gopherstack/ssm"
+	stsbackend "github.com/blackbirdworks/gopherstack/sts"
 )
 
 // AWSSDKProvider is a private interface to extract AWS SDK clients
@@ -43,6 +44,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	var ddbHandler service.Registerable
 	var s3Handler service.Registerable
 	var ssmHandler service.Registerable
+	var stsHandler service.Registerable
 
 	// Try to extract SDK clients and handlers if the config implements the extractor interface
 	if ap, ok := ctx.Config.(AWSSDKProvider); ok {
@@ -52,6 +54,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		ddbHandler = ap.GetDynamoDBHandler()
 		s3Handler = ap.GetS3Handler()
 		ssmHandler = ap.GetSSMHandler()
+		stsHandler = ap.GetSTSHandler()
 	}
 
 	// For dashboard, having the clients mapped is pretty much a requirement.
@@ -63,8 +66,12 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	if ssmHandler != nil {
 		ssmOps, _ = ssmHandler.(*ssm.Handler)
 	}
+	var stsOps *stsbackend.Handler
+	if stsHandler != nil {
+		stsOps, _ = stsHandler.(*stsbackend.Handler)
+	}
 
-	handler := NewHandler(ddbClient, s3Client, ssmClient, ddb, s3h, ssmOps, ctx.Logger)
+	handler := NewHandler(ddbClient, s3Client, ssmClient, ddb, s3h, ssmOps, stsOps, ctx.Logger)
 
 	return handler, nil
 }

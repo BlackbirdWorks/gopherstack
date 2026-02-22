@@ -17,6 +17,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
 	ssmbackend "github.com/blackbirdworks/gopherstack/ssm"
+	stsbackend "github.com/blackbirdworks/gopherstack/sts"
 )
 
 const (
@@ -53,6 +54,7 @@ type DashboardHandler struct {
 	DDBOps   *ddbbackend.DynamoDBHandler
 	S3Ops    *s3backend.S3Handler
 	SSMOps   *ssmbackend.Handler
+	STSOps   *stsbackend.Handler
 
 	// Dashboard providers for service discovery
 	ddbProvider *ddbbackend.DashboardProvider
@@ -75,6 +77,7 @@ func NewHandler(
 	ddbOps *ddbbackend.DynamoDBHandler,
 	s3Ops *s3backend.S3Handler,
 	ssmOps *ssmbackend.Handler,
+	stsOps *stsbackend.Handler,
 	logger *slog.Logger,
 ) *DashboardHandler {
 	// Parse layout and components
@@ -96,6 +99,7 @@ func NewHandler(
 		DDBOps:      ddbOps,
 		S3Ops:       s3Ops,
 		SSMOps:      ssmOps,
+		STSOps:      stsOps,
 		Logger:      logger,
 		layout:      tmpl,
 		ddbProvider: ddbProvider,

@@ -31,6 +31,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
 	ssmbackend "github.com/blackbirdworks/gopherstack/ssm"
+	stsbackend "github.com/blackbirdworks/gopherstack/sts"
 )
 
 // integrationStack holds the fully wired in-memory test stack.
@@ -88,7 +89,11 @@ func newIntegrationStack(t *testing.T) *integrationStack {
 		o.BaseEndpoint = aws.String("http://local")
 	})
 
-	h := dashboard.NewHandler(ddbClient, s3Client, ssmClient, ddbHndlr, s3Hndlr, ssmHndlr, slog.Default())
+	stsBk := stsbackend.NewInMemoryBackend()
+	stsHndlr := stsbackend.NewHandler(stsBk, slog.Default())
+	_ = registry.Register(stsHndlr)
+
+	h := dashboard.NewHandler(ddbClient, s3Client, ssmClient, ddbHndlr, s3Hndlr, ssmHndlr, stsHndlr, slog.Default())
 
 	return &integrationStack{
 		handler:    h,
@@ -164,7 +169,10 @@ func newFullStack(t *testing.T) (*integrationStack, *echo.Echo) {
 		o.BaseEndpoint = aws.String("http://local")
 	})
 
-	h := dashboard.NewHandler(ddbClient, s3Client, ssmClient, ddbHndlr, s3Hndlr, ssmHndlr, slog.Default())
+	stsBk := stsbackend.NewInMemoryBackend()
+	stsHndlr := stsbackend.NewHandler(stsBk, slog.Default())
+
+	h := dashboard.NewHandler(ddbClient, s3Client, ssmClient, ddbHndlr, s3Hndlr, ssmHndlr, stsHndlr, slog.Default())
 
 	// Register all three services (including dashboard) to test RouteMatcher
 	e := echo.New()
@@ -175,6 +183,7 @@ func newFullStack(t *testing.T) (*integrationStack, *echo.Echo) {
 	_ = registry.Register(h)
 	_ = registry.Register(s3Hndlr)
 	_ = registry.Register(ssmHndlr)
+	_ = registry.Register(stsHndlr)
 
 	router := service.NewServiceRouter(registry)
 	e.Use(router.RouteHandler())

@@ -117,7 +117,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return c.String(http.StatusMethodNotAllowed, "Method not allowed")
 		}
 
-		response, err := h.dispatch(c.Request())
+		response, err := h.dispatch(ctx, c.Request())
 		if err != nil {
 			return h.handleError(ctx, c, err)
 		}
@@ -129,7 +129,9 @@ func (h *Handler) Handler() echo.HandlerFunc {
 }
 
 // dispatch parses the STS request and calls the appropriate backend method.
-func (h *Handler) dispatch(r *http.Request) (any, error) {
+func (h *Handler) dispatch(ctx context.Context, r *http.Request) (any, error) {
+	log := logger.Load(ctx)
+
 	if err := r.ParseForm(); err != nil {
 		return nil, fmt.Errorf("parse form: %w", err)
 	}
@@ -138,6 +140,8 @@ func (h *Handler) dispatch(r *http.Request) (any, error) {
 	if action == "" {
 		return nil, ErrMissingAction
 	}
+
+	log.DebugContext(ctx, "STS request", "action", action)
 
 	switch action {
 	case "AssumeRole":
