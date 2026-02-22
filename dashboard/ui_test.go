@@ -33,6 +33,7 @@ import (
 	snsbackend "github.com/blackbirdworks/gopherstack/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/ssm"
+	stsbackend "github.com/blackbirdworks/gopherstack/sts"
 )
 
 // integrationStack holds the fully wired in-memory test stack.
@@ -96,8 +97,21 @@ func newIntegrationStack(t *testing.T) *integrationStack {
 		o.BaseEndpoint = aws.String("http://local")
 	})
 
+	stsBk := stsbackend.NewInMemoryBackend()
+	stsHndlr := stsbackend.NewHandler(stsBk, slog.Default())
+	_ = registry.Register(stsHndlr)
+
 	h := dashboard.NewHandler(
-		ddbClient, s3Client, ssmClient, ddbHndlr, s3Hndlr, ssmHndlr, snsHndlr, sqsHndlr, slog.Default(),
+		ddbClient,
+		s3Client,
+		ssmClient,
+		ddbHndlr,
+		s3Hndlr,
+		ssmHndlr,
+		stsHndlr,
+		snsHndlr,
+		sqsHndlr,
+		slog.Default(),
 	)
 
 	return &integrationStack{
@@ -177,6 +191,9 @@ func newFullStack(t *testing.T) (*integrationStack, *echo.Echo) {
 		o.BaseEndpoint = aws.String("http://local")
 	})
 
+	stsBk := stsbackend.NewInMemoryBackend()
+	stsHndlr := stsbackend.NewHandler(stsBk, slog.Default())
+
 	h := dashboard.NewHandler(
 		ddbClient,
 		s3Client,
@@ -184,6 +201,7 @@ func newFullStack(t *testing.T) (*integrationStack, *echo.Echo) {
 		ddbHndlr,
 		s3Hndlr,
 		ssmHndlr,
+		stsHndlr,
 		snsHndlr,
 		sqsHndlr,
 		slog.Default(),
@@ -198,6 +216,7 @@ func newFullStack(t *testing.T) (*integrationStack, *echo.Echo) {
 	_ = registry.Register(h)
 	_ = registry.Register(s3Hndlr)
 	_ = registry.Register(ssmHndlr)
+	_ = registry.Register(stsHndlr)
 	_ = registry.Register(snsHndlr)
 	_ = registry.Register(sqsHndlr)
 
@@ -2359,6 +2378,7 @@ func newSQSIntegrationStack(t *testing.T) *integrationStack {
 		s3Hndlr,
 		ssmHndlr,
 		nil,
+		nil,
 		sqsHndlr,
 		slog.Default(),
 	)
@@ -2411,7 +2431,7 @@ func TestDashboard_SQS_Index(t *testing.T) {
 
 	t.Run("index renders with nil SQSOps", func(t *testing.T) {
 		t.Parallel()
-		h := dashboard.NewHandler(nil, nil, nil, nil, nil, nil, nil, nil, slog.Default())
+		h := dashboard.NewHandler(nil, nil, nil, nil, nil, nil, nil, nil, nil, slog.Default())
 
 		req := httptest.NewRequest(http.MethodGet, "/dashboard/sqs", nil)
 		w := httptest.NewRecorder()
@@ -2500,7 +2520,7 @@ func TestDashboard_SQS_CreateQueue(t *testing.T) {
 
 	t.Run("create queue with nil SQSOps is a no-op", func(t *testing.T) {
 		t.Parallel()
-		h := dashboard.NewHandler(nil, nil, nil, nil, nil, nil, nil, nil, slog.Default())
+		h := dashboard.NewHandler(nil, nil, nil, nil, nil, nil, nil, nil, nil, slog.Default())
 
 		req := httptest.NewRequest(http.MethodPost, "/dashboard/sqs/create",
 			strings.NewReader("queue_name=my-queue"))
@@ -2562,7 +2582,7 @@ func TestDashboard_SQS_DeleteQueue(t *testing.T) {
 
 	t.Run("delete queue with nil SQSOps is a no-op", func(t *testing.T) {
 		t.Parallel()
-		h := dashboard.NewHandler(nil, nil, nil, nil, nil, nil, nil, nil, slog.Default())
+		h := dashboard.NewHandler(nil, nil, nil, nil, nil, nil, nil, nil, nil, slog.Default())
 
 		reqURL := "/dashboard/sqs/delete?url=" + url.QueryEscape("http://local/000000000000/x")
 		req := httptest.NewRequest(http.MethodDelete, reqURL, nil)
@@ -2622,7 +2642,7 @@ func TestDashboard_SQS_PurgeQueue(t *testing.T) {
 
 	t.Run("purge queue with nil SQSOps is a no-op", func(t *testing.T) {
 		t.Parallel()
-		h := dashboard.NewHandler(nil, nil, nil, nil, nil, nil, nil, nil, slog.Default())
+		h := dashboard.NewHandler(nil, nil, nil, nil, nil, nil, nil, nil, nil, slog.Default())
 
 		reqURL := "/dashboard/sqs/purge?url=" + url.QueryEscape("http://local/000000000000/x")
 		req := httptest.NewRequest(http.MethodPost, reqURL, nil)
@@ -2682,7 +2702,7 @@ func TestDashboard_SQS_QueueDetail(t *testing.T) {
 
 	t.Run("queue detail returns 500 when SQSOps is nil", func(t *testing.T) {
 		t.Parallel()
-		h := dashboard.NewHandler(nil, nil, nil, nil, nil, nil, nil, nil, slog.Default())
+		h := dashboard.NewHandler(nil, nil, nil, nil, nil, nil, nil, nil, nil, slog.Default())
 
 		reqURL := "/dashboard/sqs/queue?url=" + url.QueryEscape("http://local/000000000000/x")
 		req := httptest.NewRequest(http.MethodGet, reqURL, nil)

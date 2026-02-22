@@ -4,6 +4,7 @@ import (
 	ddbsdk "github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	s3sdk "github.com/aws/aws-sdk-go-v2/service/s3"
 	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
+	stssdk "github.com/aws/aws-sdk-go-v2/service/sts"
 
 	"github.com/blackbirdworks/gopherstack/dynamodb"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -11,6 +12,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/sqs"
 	"github.com/blackbirdworks/gopherstack/ssm"
+	stsbackend "github.com/blackbirdworks/gopherstack/sts"
 )
 
 // AWSSDKProvider is a private interface to extract AWS SDK clients
@@ -19,9 +21,11 @@ type AWSSDKProvider interface {
 	GetDynamoDBClient() *ddbsdk.Client
 	GetS3Client() *s3sdk.Client
 	GetSSMClient() *ssmsdk.Client
+	GetSTSClient() *stssdk.Client
 	GetDynamoDBHandler() service.Registerable
 	GetS3Handler() service.Registerable
 	GetSSMHandler() service.Registerable
+	GetSTSHandler() service.Registerable
 	GetSNSHandler() service.Registerable
 	GetSQSHandler() service.Registerable
 }
@@ -44,6 +48,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	var ddbHandler service.Registerable
 	var s3Handler service.Registerable
 	var ssmHandler service.Registerable
+	var stsHandler service.Registerable
 	var snsHandler service.Registerable
 	var sqsHandler service.Registerable
 
@@ -55,6 +60,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		ddbHandler = ap.GetDynamoDBHandler()
 		s3Handler = ap.GetS3Handler()
 		ssmHandler = ap.GetSSMHandler()
+		stsHandler = ap.GetSTSHandler()
 		snsHandler = ap.GetSNSHandler()
 		sqsHandler = ap.GetSQSHandler()
 	}
@@ -68,6 +74,10 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	if ssmHandler != nil {
 		ssmOps, _ = ssmHandler.(*ssm.Handler)
 	}
+	var stsOps *stsbackend.Handler
+	if stsHandler != nil {
+		stsOps, _ = stsHandler.(*stsbackend.Handler)
+	}
 	var snsOps *sns.Handler
 	if snsHandler != nil {
 		snsOps, _ = snsHandler.(*sns.Handler)
@@ -78,7 +88,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		sqsOps, _ = sqsHandler.(*sqsbackend.Handler)
 	}
 
-	handler := NewHandler(ddbClient, s3Client, ssmClient, ddb, s3h, ssmOps, snsOps, sqsOps, ctx.Logger)
+	handler := NewHandler(ddbClient, s3Client, ssmClient, ddb, s3h, ssmOps, stsOps, snsOps, sqsOps, ctx.Logger)
 
 	return handler, nil
 }
