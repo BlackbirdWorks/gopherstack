@@ -120,3 +120,13 @@ func TestServerStartupAndShutdown(t *testing.T) {
 		t.Fatal("server did not shut down within timeout")
 	}
 }
+
+// TestCLI_GetSTSClient verifies that GetSTSClient returns the stsClient field.
+// Before initializeClients is called it is nil; after the server start it is set.
+func TestCLI_GetSTSClient(t *testing.T) {
+	t.Parallel()
+
+	cli := parseCLI(t, nil)
+	// Before the server starts the client is nil (not yet initialized).
+	assert.Nil(t, cli.GetSTSClient())
+}
