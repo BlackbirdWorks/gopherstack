@@ -49,12 +49,17 @@ func (h *DashboardHandler) sqsIndex(c *echo.Context) error {
 	views := make([]sqsQueueView, 0, len(queues))
 
 	for _, q := range queues {
+		attrs, err := h.SQSOps.Backend.GetQueueAttributes((*c).Request().Context(), q.URL)
+		if err != nil {
+			attrs = map[string]string{}
+		}
+
 		views = append(views, sqsQueueView{
 			Name:             q.Name,
 			URL:              q.URL,
 			IsFIFO:           q.IsFIFO,
-			MessageCount:     q.Attributes[sqsbackend.AttrApproxMessages],
-			InFlightMessages: q.Attributes[sqsbackend.AttrApproxMessagesNotVisible],
+			MessageCount:     attrs[sqsbackend.AttrApproxMessages],
+			InFlightMessages: attrs[sqsbackend.AttrApproxMessagesNotVisible],
 		})
 	}
 
