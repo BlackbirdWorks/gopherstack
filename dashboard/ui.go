@@ -14,9 +14,11 @@ import (
 
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
+	kmsbackend "github.com/blackbirdworks/gopherstack/kms"
 	pkgslogger "github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
+	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/secretsmanager"
 	snsbackend "github.com/blackbirdworks/gopherstack/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/ssm"
@@ -61,6 +63,10 @@ type DashboardHandler struct {
 	STSOps   *stsbackend.Handler
 	SNSOps   *snsbackend.Handler
 	SQSOps   *sqsbackend.Handler
+	// KMSOps provides access to the KMS backend for dashboard display.
+	KMSOps *kmsbackend.Handler
+	// SecretsManagerOps provides access to the Secrets Manager backend for dashboard display.
+	SecretsManagerOps *secretsmanagerbackend.Handler
 
 	// Dashboard providers for service discovery
 	ddbProvider *ddbbackend.DashboardProvider
@@ -83,7 +89,11 @@ type Config struct {
 	STSOps    *stsbackend.Handler
 	SNSOps    *snsbackend.Handler
 	SQSOps    *sqsbackend.Handler
-	Logger    *slog.Logger
+	// KMSOps provides access to the KMS backend.
+	KMSOps *kmsbackend.Handler
+	// SecretsManagerOps provides access to the Secrets Manager backend.
+	SecretsManagerOps *secretsmanagerbackend.Handler
+	Logger            *slog.Logger
 }
 
 // NewHandler creates a new Dashboard handler.
@@ -97,6 +107,8 @@ func NewHandler(cfg Config) *DashboardHandler {
 		"templates/sts/*.html",
 		"templates/sns/*.html",
 		"templates/sqs/*.html",
+		"templates/kms/*.html",
+		"templates/secretsmanager/*.html",
 	))
 
 	// Create service-specific dashboard providers
@@ -104,21 +116,23 @@ func NewHandler(cfg Config) *DashboardHandler {
 	s3Provider := s3backend.NewDashboardProvider()
 
 	h := &DashboardHandler{
-		DynamoDB:    cfg.DDBClient,
-		S3:          cfg.S3Client,
-		SSM:         cfg.SSMClient,
-		DDBOps:      cfg.DDBOps,
-		S3Ops:       cfg.S3Ops,
-		SSMOps:      cfg.SSMOps,
-		IAMOps:      cfg.IAMOps,
-		STSOps:      cfg.STSOps,
-		SNSOps:      cfg.SNSOps,
-		SQSOps:      cfg.SQSOps,
-		Logger:      cfg.Logger,
-		layout:      tmpl,
-		ddbProvider: ddbProvider,
-		s3Provider:  s3Provider,
-		SubRouter:   echo.New(),
+		DynamoDB:          cfg.DDBClient,
+		S3:                cfg.S3Client,
+		SSM:               cfg.SSMClient,
+		DDBOps:            cfg.DDBOps,
+		S3Ops:             cfg.S3Ops,
+		SSMOps:            cfg.SSMOps,
+		IAMOps:            cfg.IAMOps,
+		STSOps:            cfg.STSOps,
+		SNSOps:            cfg.SNSOps,
+		SQSOps:            cfg.SQSOps,
+		KMSOps:            cfg.KMSOps,
+		SecretsManagerOps: cfg.SecretsManagerOps,
+		Logger:            cfg.Logger,
+		layout:            tmpl,
+		ddbProvider:       ddbProvider,
+		s3Provider:        s3Provider,
+		SubRouter:         echo.New(),
 	}
 
 	h.SubRouter.Pre(pkgslogger.EchoMiddleware(cfg.Logger))
@@ -197,6 +211,12 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.SubRouter.POST("/dashboard/sqs/purge", h.sqsPurgeQueue)
 	h.SubRouter.GET("/dashboard/sqs/queue", h.sqsQueueDetail)
 
+	// KMS routes
+	h.SubRouter.GET("/dashboard/kms", h.kmsIndex)
+
+	// Secrets Manager routes
+	h.SubRouter.GET("/dashboard/secretsmanager", h.secretsManagerIndex)
+
 	// Metrics & Docs (always available)
 	dashboardGroup := h.SubRouter.Group("/dashboard")
 	RegisterMetricsHandlers(dashboardGroup, h)
@@ -262,6 +282,10 @@ func (h *DashboardHandler) ExtractOperation(c *echo.Context) string {
 		return "SNS"
 	case strings.HasPrefix(path, "/sqs"):
 		return "SQS"
+	case strings.HasPrefix(path, "/kms"):
+		return "KMS"
+	case strings.HasPrefix(path, "/secretsmanager"):
+		return "SecretsManager"
 	case strings.HasPrefix(path, "/metrics"):
 		return "Metrics"
 	case strings.HasPrefix(path, "/docs"):

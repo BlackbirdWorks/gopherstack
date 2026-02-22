@@ -549,3 +549,246 @@ func TestSecureString(t *testing.T) {
 		}
 	})
 }
+
+// TestGetParametersByPath verifies GetParametersByPath filtering and pagination.
+func TestGetParametersByPath(t *testing.T) {
+	t.Parallel()
+
+	t.Run("DirectChildrenOnly", func(t *testing.T) {
+		t.Parallel()
+
+		backend := ssm.NewInMemoryBackend()
+		for _, name := range []string{"/app/db/host", "/app/db/port", "/app/cache/host", "/app/config"} {
+			_, _ = backend.PutParameter(&ssm.PutParameterInput{Name: name, Type: "String", Value: "v"})
+		}
+
+		out, err := backend.GetParametersByPath(&ssm.GetParametersByPathInput{
+			Path:      "/app",
+			Recursive: false,
+		})
+		require.NoError(t, err)
+		// Only direct children: /app/config
+		assert.Len(t, out.Parameters, 1)
+		assert.Equal(t, "/app/config", out.Parameters[0].Name)
+	})
+
+	t.Run("Recursive", func(t *testing.T) {
+		t.Parallel()
+
+		backend := ssm.NewInMemoryBackend()
+		for _, name := range []string{"/app/db/host", "/app/db/port", "/app/cache/host", "/app/config"} {
+			_, _ = backend.PutParameter(&ssm.PutParameterInput{Name: name, Type: "String", Value: "v"})
+		}
+
+		out, err := backend.GetParametersByPath(&ssm.GetParametersByPathInput{
+			Path:      "/app",
+			Recursive: true,
+		})
+		require.NoError(t, err)
+		assert.Len(t, out.Parameters, 4)
+	})
+
+	t.Run("Pagination", func(t *testing.T) {
+		t.Parallel()
+
+		backend := ssm.NewInMemoryBackend()
+		for i := range 5 {
+			name := "/params/key" + string(rune('0'+i))
+			_, _ = backend.PutParameter(&ssm.PutParameterInput{Name: name, Type: "String", Value: "v"})
+		}
+
+		maxRes := int64(2)
+		out, err := backend.GetParametersByPath(&ssm.GetParametersByPathInput{
+			Path:       "/params",
+			Recursive:  true,
+			MaxResults: &maxRes,
+		})
+		require.NoError(t, err)
+		assert.Len(t, out.Parameters, 2)
+		assert.NotEmpty(t, out.NextToken)
+
+		out2, err := backend.GetParametersByPath(&ssm.GetParametersByPathInput{
+			Path:       "/params",
+			Recursive:  true,
+			MaxResults: &maxRes,
+			NextToken:  out.NextToken,
+		})
+		require.NoError(t, err)
+		assert.Len(t, out2.Parameters, 2)
+	})
+
+	t.Run("EmptyPath", func(t *testing.T) {
+		t.Parallel()
+
+		backend := ssm.NewInMemoryBackend()
+		out, err := backend.GetParametersByPath(&ssm.GetParametersByPathInput{
+			Path:      "/nonexistent",
+			Recursive: true,
+		})
+		require.NoError(t, err)
+		assert.Empty(t, out.Parameters)
+	})
+
+	t.Run("WithDecryption", func(t *testing.T) {
+		t.Parallel()
+
+		backend := ssm.NewInMemoryBackend()
+		_, _ = backend.PutParameter(&ssm.PutParameterInput{
+			Name: "/secrets/key", Type: "SecureString", Value: "plaintext",
+		})
+
+		out, err := backend.GetParametersByPath(&ssm.GetParametersByPathInput{
+			Path:           "/secrets",
+			Recursive:      true,
+			WithDecryption: true,
+		})
+		require.NoError(t, err)
+		require.Len(t, out.Parameters, 1)
+		assert.Equal(t, "plaintext", out.Parameters[0].Value)
+	})
+}
+
+// TestDescribeParameters verifies DescribeParameters filtering and pagination.
+func TestDescribeParameters(t *testing.T) {
+	t.Parallel()
+
+	t.Run("AllParameters", func(t *testing.T) {
+		t.Parallel()
+
+		backend := ssm.NewInMemoryBackend()
+		for _, p := range []struct{ name, typ string }{
+			{"/a", "String"}, {"/b", "SecureString"}, {"/c", "StringList"},
+		} {
+			_, _ = backend.PutParameter(&ssm.PutParameterInput{Name: p.name, Type: p.typ, Value: "v"})
+		}
+
+		out, err := backend.DescribeParameters(&ssm.DescribeParametersInput{})
+		require.NoError(t, err)
+		assert.Len(t, out.Parameters, 3)
+		// Values should not be included
+		for _, m := range out.Parameters {
+			assert.Empty(t, m.Description) // Description is empty for these test params
+		}
+	})
+
+	t.Run("FilterByType", func(t *testing.T) {
+		t.Parallel()
+
+		backend := ssm.NewInMemoryBackend()
+		for _, p := range []struct{ name, typ string }{
+			{"/a", "String"}, {"/b", "SecureString"}, {"/c", "String"},
+		} {
+			_, _ = backend.PutParameter(&ssm.PutParameterInput{Name: p.name, Type: p.typ, Value: "v"})
+		}
+
+		out, err := backend.DescribeParameters(&ssm.DescribeParametersInput{
+			ParameterFilters: []ssm.ParameterFilter{
+				{Key: "Type", Option: "Equals", Values: []string{"String"}},
+			},
+		})
+		require.NoError(t, err)
+		assert.Len(t, out.Parameters, 2)
+	})
+
+	t.Run("FilterByNameBeginsWith", func(t *testing.T) {
+		t.Parallel()
+
+		backend := ssm.NewInMemoryBackend()
+		for _, name := range []string{"/app/db", "/app/cache", "/other/key"} {
+			_, _ = backend.PutParameter(&ssm.PutParameterInput{Name: name, Type: "String", Value: "v"})
+		}
+
+		out, err := backend.DescribeParameters(&ssm.DescribeParametersInput{
+			ParameterFilters: []ssm.ParameterFilter{
+				{Key: "Name", Option: "BeginsWith", Values: []string{"/app"}},
+			},
+		})
+		require.NoError(t, err)
+		assert.Len(t, out.Parameters, 2)
+	})
+
+	t.Run("Pagination", func(t *testing.T) {
+		t.Parallel()
+
+		backend := ssm.NewInMemoryBackend()
+		for i := range 5 {
+			_, _ = backend.PutParameter(&ssm.PutParameterInput{
+				Name: "/p" + string(rune('0'+i)), Type: "String", Value: "v",
+			})
+		}
+
+		maxRes := int64(2)
+		out, err := backend.DescribeParameters(&ssm.DescribeParametersInput{MaxResults: &maxRes})
+		require.NoError(t, err)
+		assert.Len(t, out.Parameters, 2)
+		assert.NotEmpty(t, out.NextToken)
+
+		// Get remaining pages
+		out2, err := backend.DescribeParameters(&ssm.DescribeParametersInput{
+			MaxResults: &maxRes, NextToken: out.NextToken,
+		})
+		require.NoError(t, err)
+		assert.Len(t, out2.Parameters, 2)
+	})
+
+	t.Run("BeyondEnd", func(t *testing.T) {
+		t.Parallel()
+
+		backend := ssm.NewInMemoryBackend()
+		out, err := backend.DescribeParameters(&ssm.DescribeParametersInput{
+			NextToken: "9999",
+		})
+		require.NoError(t, err)
+		assert.Empty(t, out.Parameters)
+	})
+}
+
+// TestSSMHandlerNewOps verifies the new SSM operations via HTTP handler.
+func TestSSMHandlerNewOps(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	log := logger.NewLogger(slog.LevelDebug)
+	backend := ssm.NewInMemoryBackend()
+	handler := ssm.NewHandler(backend, log)
+
+	// Seed parameters
+	for _, name := range []string{"/app/db", "/app/cache", "/other/key"} {
+		_, _ = backend.PutParameter(&ssm.PutParameterInput{Name: name, Type: "String", Value: "v"})
+	}
+
+	t.Run("GetParametersByPath", func(t *testing.T) {
+		t.Parallel()
+
+		req := httptest.NewRequest(
+			http.MethodPost, "/",
+			strings.NewReader(`{"Path":"/app","Recursive":true}`),
+		)
+		req.Header.Set("X-Amz-Target", "AmazonSSM.GetParametersByPath")
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		require.NoError(t, handler.Handler()(c))
+		assert.Equal(t, http.StatusOK, rec.Code)
+
+		var out ssm.GetParametersByPathOutput
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		assert.Len(t, out.Parameters, 2)
+	})
+
+	t.Run("DescribeParameters", func(t *testing.T) {
+		t.Parallel()
+
+		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`))
+		req.Header.Set("X-Amz-Target", "AmazonSSM.DescribeParameters")
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		require.NoError(t, handler.Handler()(c))
+		assert.Equal(t, http.StatusOK, rec.Code)
+
+		var out ssm.DescribeParametersOutput
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		assert.Len(t, out.Parameters, 3)
+	})
+}

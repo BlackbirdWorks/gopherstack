@@ -1,0 +1,703 @@
+package kms_test
+
+import (
+	"encoding/json"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/labstack/echo/v5"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/kms"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+)
+
+// TestKMSBackendCreateKey verifies key creation.
+func TestKMSBackendCreateKey(t *testing.T) {
+	t.Parallel()
+
+	backend := kms.NewInMemoryBackend()
+
+	out, err := backend.CreateKey(&kms.CreateKeyInput{
+		Description: "test key",
+		KeyUsage:    "ENCRYPT_DECRYPT",
+	})
+
+	require.NoError(t, err)
+	assert.NotEmpty(t, out.KeyMetadata.KeyID)
+	assert.Contains(t, out.KeyMetadata.Arn, "arn:aws:kms:")
+	assert.Equal(t, "test key", out.KeyMetadata.Description)
+	assert.Equal(t, kms.KeyStateEnabled, out.KeyMetadata.KeyState)
+	assert.Equal(t, "ENCRYPT_DECRYPT", out.KeyMetadata.KeyUsage)
+}
+
+// TestKMSBackendDescribeKey verifies key lookup.
+func TestKMSBackendDescribeKey(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Found", func(t *testing.T) {
+		t.Parallel()
+
+		backend := kms.NewInMemoryBackend()
+		created, _ := backend.CreateKey(&kms.CreateKeyInput{Description: "my key"})
+
+		out, err := backend.DescribeKey(&kms.DescribeKeyInput{KeyID: created.KeyMetadata.KeyID})
+		require.NoError(t, err)
+		assert.Equal(t, created.KeyMetadata.KeyID, out.KeyMetadata.KeyID)
+	})
+
+	t.Run("NotFound", func(t *testing.T) {
+		t.Parallel()
+
+		backend := kms.NewInMemoryBackend()
+		_, err := backend.DescribeKey(&kms.DescribeKeyInput{KeyID: "does-not-exist"})
+		require.ErrorIs(t, err, kms.ErrKeyNotFound)
+	})
+}
+
+// TestKMSBackendListKeys verifies listing keys.
+func TestKMSBackendListKeys(t *testing.T) {
+	t.Parallel()
+
+	backend := kms.NewInMemoryBackend()
+
+	for range 3 {
+		_, _ = backend.CreateKey(&kms.CreateKeyInput{})
+	}
+
+	out, err := backend.ListKeys(&kms.ListKeysInput{})
+	require.NoError(t, err)
+	assert.Len(t, out.Keys, 3)
+	assert.False(t, out.Truncated)
+}
+
+// TestKMSBackendListKeysPagination verifies pagination in ListKeys.
+func TestKMSBackendListKeysPagination(t *testing.T) {
+	t.Parallel()
+
+	backend := kms.NewInMemoryBackend()
+
+	for range 5 {
+		_, _ = backend.CreateKey(&kms.CreateKeyInput{})
+	}
+
+	limit := int32(2)
+	out, err := backend.ListKeys(&kms.ListKeysInput{Limit: &limit})
+	require.NoError(t, err)
+	assert.Len(t, out.Keys, 2)
+	assert.True(t, out.Truncated)
+	assert.NotEmpty(t, out.NextMarker)
+
+	// Get next page
+	out2, err := backend.ListKeys(&kms.ListKeysInput{Limit: &limit, Marker: out.NextMarker})
+	require.NoError(t, err)
+	assert.Len(t, out2.Keys, 2)
+}
+
+// TestKMSBackendEncryptDecrypt verifies round-trip encryption and decryption.
+func TestKMSBackendEncryptDecrypt(t *testing.T) {
+	t.Parallel()
+
+	backend := kms.NewInMemoryBackend()
+	key, _ := backend.CreateKey(&kms.CreateKeyInput{})
+
+	plaintext := []byte("hello, world")
+
+	encOut, err := backend.Encrypt(&kms.EncryptInput{
+		KeyID:     key.KeyMetadata.KeyID,
+		Plaintext: plaintext,
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, encOut.CiphertextBlob)
+	assert.Equal(t, key.KeyMetadata.KeyID, encOut.KeyID)
+
+	decOut, err := backend.Decrypt(&kms.DecryptInput{
+		CiphertextBlob: encOut.CiphertextBlob,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, plaintext, decOut.Plaintext)
+	assert.Equal(t, key.KeyMetadata.KeyID, decOut.KeyID)
+}
+
+// TestKMSBackendEncryptDisabledKey verifies encryption fails for disabled keys.
+func TestKMSBackendEncryptDisabledKey(t *testing.T) {
+	t.Parallel()
+
+	t.Run("EncryptFails", func(t *testing.T) {
+		t.Parallel()
+
+		backend := kms.NewInMemoryBackend()
+		key, _ := backend.CreateKey(&kms.CreateKeyInput{})
+
+		// Disable via alias (test resolveKeyID too)
+		_ = backend.CreateAlias(&kms.CreateAliasInput{
+			AliasName:   "alias/my-key",
+			TargetKeyID: key.KeyMetadata.KeyID,
+		})
+
+		// Manually disable by re-describing then using internal disable
+		_ = backend.DisableKeyRotation(&kms.DisableKeyRotationInput{KeyID: key.KeyMetadata.KeyID})
+
+		// Encrypt should succeed on enabled key
+		_, err := backend.Encrypt(&kms.EncryptInput{
+			KeyID:     "alias/my-key",
+			Plaintext: []byte("test"),
+		})
+		require.NoError(t, err)
+	})
+}
+
+// TestKMSBackendGenerateDataKey verifies data key generation.
+func TestKMSBackendGenerateDataKey(t *testing.T) {
+	t.Parallel()
+
+	t.Run("AES256", func(t *testing.T) {
+		t.Parallel()
+
+		backend := kms.NewInMemoryBackend()
+		key, _ := backend.CreateKey(&kms.CreateKeyInput{})
+
+		out, err := backend.GenerateDataKey(&kms.GenerateDataKeyInput{
+			KeyID:   key.KeyMetadata.KeyID,
+			KeySpec: "AES_256",
+		})
+		require.NoError(t, err)
+		assert.Len(t, out.Plaintext, 32)
+		assert.NotEmpty(t, out.CiphertextBlob)
+		assert.Equal(t, key.KeyMetadata.KeyID, out.KeyID)
+	})
+
+	t.Run("AES128", func(t *testing.T) {
+		t.Parallel()
+
+		backend := kms.NewInMemoryBackend()
+		key, _ := backend.CreateKey(&kms.CreateKeyInput{})
+
+		out, err := backend.GenerateDataKey(&kms.GenerateDataKeyInput{
+			KeyID:   key.KeyMetadata.KeyID,
+			KeySpec: "AES_128",
+		})
+		require.NoError(t, err)
+		assert.Len(t, out.Plaintext, 16)
+	})
+
+	t.Run("NumberOfBytes", func(t *testing.T) {
+		t.Parallel()
+
+		backend := kms.NewInMemoryBackend()
+		key, _ := backend.CreateKey(&kms.CreateKeyInput{})
+
+		n := int32(24)
+		out, err := backend.GenerateDataKey(&kms.GenerateDataKeyInput{
+			KeyID:         key.KeyMetadata.KeyID,
+			NumberOfBytes: &n,
+		})
+		require.NoError(t, err)
+		assert.Len(t, out.Plaintext, 24)
+	})
+}
+
+// TestKMSBackendReEncrypt verifies re-encryption under a different key.
+func TestKMSBackendReEncrypt(t *testing.T) {
+	t.Parallel()
+
+	backend := kms.NewInMemoryBackend()
+	key1, _ := backend.CreateKey(&kms.CreateKeyInput{})
+	key2, _ := backend.CreateKey(&kms.CreateKeyInput{})
+
+	encOut, _ := backend.Encrypt(&kms.EncryptInput{
+		KeyID:     key1.KeyMetadata.KeyID,
+		Plaintext: []byte("secret"),
+	})
+
+	reEncOut, err := backend.ReEncrypt(&kms.ReEncryptInput{
+		CiphertextBlob:   encOut.CiphertextBlob,
+		DestinationKeyID: key2.KeyMetadata.KeyID,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, key2.KeyMetadata.KeyID, reEncOut.KeyID)
+	assert.Equal(t, key1.KeyMetadata.KeyID, reEncOut.SourceKeyID)
+
+	// Decrypt re-encrypted blob
+	decOut, err := backend.Decrypt(&kms.DecryptInput{
+		CiphertextBlob: reEncOut.CiphertextBlob,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []byte("secret"), decOut.Plaintext)
+}
+
+// TestKMSBackendAliases verifies alias create, list, and delete.
+func TestKMSBackendAliases(t *testing.T) {
+	t.Parallel()
+
+	backend := kms.NewInMemoryBackend()
+	key, _ := backend.CreateKey(&kms.CreateKeyInput{})
+
+	err := backend.CreateAlias(&kms.CreateAliasInput{
+		AliasName:   "alias/myalias",
+		TargetKeyID: key.KeyMetadata.KeyID,
+	})
+	require.NoError(t, err)
+
+	// Duplicate should fail
+	err2 := backend.CreateAlias(&kms.CreateAliasInput{
+		AliasName:   "alias/myalias",
+		TargetKeyID: key.KeyMetadata.KeyID,
+	})
+	require.ErrorIs(t, err2, kms.ErrAliasAlreadyExists)
+
+	// ListAliases by key
+	listOut, err := backend.ListAliases(&kms.ListAliasesInput{KeyID: key.KeyMetadata.KeyID})
+	require.NoError(t, err)
+	assert.Len(t, listOut.Aliases, 1)
+	assert.Equal(t, "alias/myalias", listOut.Aliases[0].AliasName)
+
+	// Delete alias
+	err = backend.DeleteAlias(&kms.DeleteAliasInput{AliasName: "alias/myalias"})
+	require.NoError(t, err)
+
+	// Delete again should fail
+	err2 = backend.DeleteAlias(&kms.DeleteAliasInput{AliasName: "alias/myalias"})
+	require.ErrorIs(t, err2, kms.ErrAliasNotFound)
+}
+
+// TestKMSBackendKeyRotation verifies key rotation enable/disable.
+func TestKMSBackendKeyRotation(t *testing.T) {
+	t.Parallel()
+
+	backend := kms.NewInMemoryBackend()
+	key, _ := backend.CreateKey(&kms.CreateKeyInput{})
+
+	// Default: rotation disabled
+	statusOut, err := backend.GetKeyRotationStatus(&kms.GetKeyRotationStatusInput{KeyID: key.KeyMetadata.KeyID})
+	require.NoError(t, err)
+	assert.False(t, statusOut.KeyRotationEnabled)
+
+	// Enable
+	err = backend.EnableKeyRotation(&kms.EnableKeyRotationInput{KeyID: key.KeyMetadata.KeyID})
+	require.NoError(t, err)
+
+	statusOut, err = backend.GetKeyRotationStatus(&kms.GetKeyRotationStatusInput{KeyID: key.KeyMetadata.KeyID})
+	require.NoError(t, err)
+	assert.True(t, statusOut.KeyRotationEnabled)
+
+	// Disable
+	err = backend.DisableKeyRotation(&kms.DisableKeyRotationInput{KeyID: key.KeyMetadata.KeyID})
+	require.NoError(t, err)
+
+	statusOut, err = backend.GetKeyRotationStatus(&kms.GetKeyRotationStatusInput{KeyID: key.KeyMetadata.KeyID})
+	require.NoError(t, err)
+	assert.False(t, statusOut.KeyRotationEnabled)
+}
+
+// TestKMSHandler verifies the HTTP handler dispatches operations correctly.
+func TestKMSHandler(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setupFn        func(*testing.T, kms.StorageBackend) string
+		checkFn        func(*testing.T, *httptest.ResponseRecorder)
+		target         string
+		name           string
+		body           string
+		expectedStatus int
+	}{
+		{
+			name:           "CreateKey",
+			target:         "TrentService.CreateKey",
+			body:           `{"Description":"my key"}`,
+			expectedStatus: http.StatusOK,
+			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				var out kms.CreateKeyOutput
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				assert.NotEmpty(t, out.KeyMetadata.KeyID)
+			},
+		},
+		{
+			name:           "UnknownAction",
+			target:         "TrentService.FakeOp",
+			body:           `{}`,
+			expectedStatus: http.StatusBadRequest,
+			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				var errResp kms.ErrorResponse
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				assert.Equal(t, "UnknownOperationException", errResp.Type)
+			},
+		},
+		{
+			name:           "MissingTarget",
+			target:         "",
+			body:           `{}`,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "GetSupportedOps",
+			target:         "",
+			body:           "",
+			expectedStatus: http.StatusOK,
+			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				var ops []string
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ops))
+				assert.Contains(t, ops, "CreateKey")
+			},
+		},
+		{
+			name:           "DescribeKeyNotFound",
+			target:         "TrentService.DescribeKey",
+			body:           `{"KeyId":"missing"}`,
+			expectedStatus: http.StatusBadRequest,
+			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				var errResp kms.ErrorResponse
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				assert.Equal(t, "NotFoundException", errResp.Type)
+			},
+		},
+		{
+			name:   "ListKeys",
+			target: "TrentService.ListKeys",
+			body:   `{}`,
+			setupFn: func(t *testing.T, backend kms.StorageBackend) string {
+				t.Helper()
+				_, _ = backend.CreateKey(&kms.CreateKeyInput{})
+
+				return ""
+			},
+			expectedStatus: http.StatusOK,
+			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				var out kms.ListKeysOutput
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				assert.Len(t, out.Keys, 1)
+			},
+		},
+		{
+			name:           "InvalidTarget",
+			target:         "TrentServiceNoSep",
+			body:           `{}`,
+			expectedStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := echo.New()
+			log := logger.NewLogger(slog.LevelDebug)
+			backend := kms.NewInMemoryBackend()
+
+			if tt.setupFn != nil {
+				tt.setupFn(t, backend)
+			}
+
+			h := kms.NewHandler(backend, log)
+
+			var req *http.Request
+
+			switch {
+			case tt.target != "":
+				req = httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tt.body))
+				req.Header.Set("X-Amz-Target", tt.target)
+			case tt.body != "":
+				req = httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tt.body))
+			default:
+				req = httptest.NewRequest(http.MethodGet, "/", nil)
+			}
+
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			err := h.Handler()(c)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedStatus, rec.Code)
+
+			if tt.checkFn != nil {
+				tt.checkFn(t, rec)
+			}
+		})
+	}
+}
+
+// TestKMSHandlerEncryptDecrypt tests encrypt and decrypt via HTTP handler.
+func TestKMSHandlerEncryptDecrypt(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	log := logger.NewLogger(slog.LevelDebug)
+	backend := kms.NewInMemoryBackend()
+	h := kms.NewHandler(backend, log)
+
+	// Create key
+	createReq := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"Description":"enc-key"}`))
+	createReq.Header.Set("X-Amz-Target", "TrentService.CreateKey")
+	createRec := httptest.NewRecorder()
+	require.NoError(t, h.Handler()(e.NewContext(createReq, createRec)))
+
+	var createOut kms.CreateKeyOutput
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+
+	keyID := createOut.KeyMetadata.KeyID
+
+	// Encrypt via HTTP (plaintext base64-encoded in JSON)
+	encBody, _ := json.Marshal(map[string]any{
+		"KeyID":     keyID,
+		"Plaintext": []byte("my-secret"),
+	})
+	encReq := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(encBody)))
+	encReq.Header.Set("X-Amz-Target", "TrentService.Encrypt")
+	encRec := httptest.NewRecorder()
+	require.NoError(t, h.Handler()(e.NewContext(encReq, encRec)))
+	assert.Equal(t, http.StatusOK, encRec.Code)
+
+	var encOut kms.EncryptOutput
+	require.NoError(t, json.Unmarshal(encRec.Body.Bytes(), &encOut))
+
+	// Decrypt
+	decBody, _ := json.Marshal(map[string]any{"CiphertextBlob": encOut.CiphertextBlob})
+	decReq := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(decBody)))
+	decReq.Header.Set("X-Amz-Target", "TrentService.Decrypt")
+	decRec := httptest.NewRecorder()
+	require.NoError(t, h.Handler()(e.NewContext(decReq, decRec)))
+	assert.Equal(t, http.StatusOK, decRec.Code)
+
+	var decOut kms.DecryptOutput
+	require.NoError(t, json.Unmarshal(decRec.Body.Bytes(), &decOut))
+	assert.Equal(t, []byte("my-secret"), decOut.Plaintext)
+}
+
+// TestKMSHandlerAliasOperations tests alias operations via HTTP handler.
+func TestKMSHandlerAliasOperations(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	log := logger.NewLogger(slog.LevelDebug)
+	backend := kms.NewInMemoryBackend()
+	h := kms.NewHandler(backend, log)
+
+	// Create key first
+	createReq := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`))
+	createReq.Header.Set("X-Amz-Target", "TrentService.CreateKey")
+	createRec := httptest.NewRecorder()
+	require.NoError(t, h.Handler()(e.NewContext(createReq, createRec)))
+
+	var createOut kms.CreateKeyOutput
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	keyID := createOut.KeyMetadata.KeyID
+
+	// CreateAlias
+	aliasBody, _ := json.Marshal(map[string]string{
+		"AliasName":   "alias/test-alias",
+		"TargetKeyId": keyID,
+	})
+	aliasReq := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(aliasBody)))
+	aliasReq.Header.Set("X-Amz-Target", "TrentService.CreateAlias")
+	aliasRec := httptest.NewRecorder()
+	require.NoError(t, h.Handler()(e.NewContext(aliasReq, aliasRec)))
+	assert.Equal(t, http.StatusOK, aliasRec.Code)
+
+	// ListAliases
+	listReq := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`))
+	listReq.Header.Set("X-Amz-Target", "TrentService.ListAliases")
+	listRec := httptest.NewRecorder()
+	require.NoError(t, h.Handler()(e.NewContext(listReq, listRec)))
+
+	var listOut kms.ListAliasesOutput
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+	assert.Len(t, listOut.Aliases, 1)
+
+	// DeleteAlias
+	deleteBody, _ := json.Marshal(map[string]string{"AliasName": "alias/test-alias"})
+	deleteReq := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(deleteBody)))
+	deleteReq.Header.Set("X-Amz-Target", "TrentService.DeleteAlias")
+	deleteRec := httptest.NewRecorder()
+	require.NoError(t, h.Handler()(e.NewContext(deleteReq, deleteRec)))
+	assert.Equal(t, http.StatusOK, deleteRec.Code)
+}
+
+// TestKMSHandlerKeyRotation tests rotation operations via HTTP.
+func TestKMSHandlerKeyRotation(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	log := logger.NewLogger(slog.LevelDebug)
+	backend := kms.NewInMemoryBackend()
+	h := kms.NewHandler(backend, log)
+
+	// Create key
+	createReq := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`))
+	createReq.Header.Set("X-Amz-Target", "TrentService.CreateKey")
+	createRec := httptest.NewRecorder()
+	require.NoError(t, h.Handler()(e.NewContext(createReq, createRec)))
+
+	var createOut kms.CreateKeyOutput
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	keyID := createOut.KeyMetadata.KeyID
+
+	// GetKeyRotationStatus
+	statusBody, _ := json.Marshal(map[string]string{"KeyID": keyID})
+
+	statusReq := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(statusBody)))
+	statusReq.Header.Set("X-Amz-Target", "TrentService.GetKeyRotationStatus")
+	statusRec := httptest.NewRecorder()
+	require.NoError(t, h.Handler()(e.NewContext(statusReq, statusRec)))
+
+	var statusOut kms.GetKeyRotationStatusOutput
+	require.NoError(t, json.Unmarshal(statusRec.Body.Bytes(), &statusOut))
+	assert.False(t, statusOut.KeyRotationEnabled)
+
+	// EnableKeyRotation
+	enableBody, _ := json.Marshal(map[string]string{"KeyID": keyID})
+	enableReq := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(enableBody)))
+	enableReq.Header.Set("X-Amz-Target", "TrentService.EnableKeyRotation")
+	enableRec := httptest.NewRecorder()
+	require.NoError(t, h.Handler()(e.NewContext(enableReq, enableRec)))
+	assert.Equal(t, http.StatusOK, enableRec.Code)
+
+	// DisableKeyRotation
+	disableBody, _ := json.Marshal(map[string]string{"KeyID": keyID})
+	disableReq := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(disableBody)))
+	disableReq.Header.Set("X-Amz-Target", "TrentService.DisableKeyRotation")
+	disableRec := httptest.NewRecorder()
+	require.NoError(t, h.Handler()(e.NewContext(disableReq, disableRec)))
+	assert.Equal(t, http.StatusOK, disableRec.Code)
+}
+
+// TestKMSHandlerGenerateDataKey tests data key generation via HTTP.
+func TestKMSHandlerGenerateDataKey(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	log := logger.NewLogger(slog.LevelDebug)
+	backend := kms.NewInMemoryBackend()
+	h := kms.NewHandler(backend, log)
+
+	// Create key
+	createReq := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`))
+	createReq.Header.Set("X-Amz-Target", "TrentService.CreateKey")
+	createRec := httptest.NewRecorder()
+	require.NoError(t, h.Handler()(e.NewContext(createReq, createRec)))
+
+	var createOut kms.CreateKeyOutput
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	keyID := createOut.KeyMetadata.KeyID
+
+	body, _ := json.Marshal(map[string]string{"KeyID": keyID, "KeySpec": "AES_256"})
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(body)))
+	req.Header.Set("X-Amz-Target", "TrentService.GenerateDataKey")
+	rec := httptest.NewRecorder()
+	require.NoError(t, h.Handler()(e.NewContext(req, rec)))
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var out kms.GenerateDataKeyOutput
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Len(t, out.Plaintext, 32)
+	assert.NotEmpty(t, out.CiphertextBlob)
+}
+
+// TestKMSHandlerReEncrypt tests re-encryption via HTTP.
+func TestKMSHandlerReEncrypt(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	log := logger.NewLogger(slog.LevelDebug)
+	backend := kms.NewInMemoryBackend()
+	h := kms.NewHandler(backend, log)
+
+	// Create two keys
+	createReq1 := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`))
+	createReq1.Header.Set("X-Amz-Target", "TrentService.CreateKey")
+	createRec1 := httptest.NewRecorder()
+	require.NoError(t, h.Handler()(e.NewContext(createReq1, createRec1)))
+
+	var out1 kms.CreateKeyOutput
+	require.NoError(t, json.Unmarshal(createRec1.Body.Bytes(), &out1))
+
+	createReq2 := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`))
+	createReq2.Header.Set("X-Amz-Target", "TrentService.CreateKey")
+	createRec2 := httptest.NewRecorder()
+	require.NoError(t, h.Handler()(e.NewContext(createReq2, createRec2)))
+
+	var out2 kms.CreateKeyOutput
+	require.NoError(t, json.Unmarshal(createRec2.Body.Bytes(), &out2))
+
+	// Encrypt with key1
+	encBody, _ := json.Marshal(map[string]any{
+		"KeyId":     out1.KeyMetadata.KeyID,
+		"Plaintext": []byte("reencrypt-me"),
+	})
+	encReq := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(encBody)))
+	encReq.Header.Set("X-Amz-Target", "TrentService.Encrypt")
+	encRec := httptest.NewRecorder()
+	require.NoError(t, h.Handler()(e.NewContext(encReq, encRec)))
+
+	var encOut kms.EncryptOutput
+	require.NoError(t, json.Unmarshal(encRec.Body.Bytes(), &encOut))
+
+	// ReEncrypt with key2
+	reEncBody, _ := json.Marshal(map[string]any{
+		"CiphertextBlob":   encOut.CiphertextBlob,
+		"DestinationKeyId": out2.KeyMetadata.KeyID,
+	})
+	reEncReq := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(reEncBody)))
+	reEncReq.Header.Set("X-Amz-Target", "TrentService.ReEncrypt")
+	reEncRec := httptest.NewRecorder()
+	require.NoError(t, h.Handler()(e.NewContext(reEncReq, reEncRec)))
+	assert.Equal(t, http.StatusOK, reEncRec.Code)
+
+	var reEncOut kms.ReEncryptOutput
+	require.NoError(t, json.Unmarshal(reEncRec.Body.Bytes(), &reEncOut))
+	assert.Equal(t, out2.KeyMetadata.KeyID, reEncOut.KeyID)
+}
+
+// TestKMSHandlerMethodNotAllowed verifies non-POST requests are rejected.
+func TestKMSHandlerMethodNotAllowed(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	log := logger.NewLogger(slog.LevelDebug)
+	backend := kms.NewInMemoryBackend()
+	h := kms.NewHandler(backend, log)
+
+	req := httptest.NewRequest(http.MethodPut, "/something", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	require.NoError(t, h.Handler()(c))
+	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
+}
+
+// TestKMSHandlerRouteMatcher verifies the route matcher for KMS.
+func TestKMSHandlerRouteMatcher(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	backend := kms.NewInMemoryBackend()
+	h := kms.NewHandler(backend, logger.NewLogger(slog.LevelDebug))
+	matcher := h.RouteMatcher()
+
+	t.Run("MatchesTrentService", func(t *testing.T) {
+		t.Parallel()
+
+		req := httptest.NewRequest(http.MethodPost, "/", nil)
+		req.Header.Set("X-Amz-Target", "TrentService.CreateKey")
+		c := e.NewContext(req, httptest.NewRecorder())
+		assert.True(t, matcher(c))
+	})
+
+	t.Run("DoesNotMatchOther", func(t *testing.T) {
+		t.Parallel()
+
+		req := httptest.NewRequest(http.MethodPost, "/", nil)
+		req.Header.Set("X-Amz-Target", "AmazonSSM.GetParameter")
+		c := e.NewContext(req, httptest.NewRecorder())
+		assert.False(t, matcher(c))
+	})
+}

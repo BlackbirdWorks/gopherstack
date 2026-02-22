@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -92,6 +93,8 @@ type StorageBackend interface {
 	DeleteParameter(input *DeleteParameterInput) (*DeleteParameterOutput, error)
 	DeleteParameters(input *DeleteParametersInput) (*DeleteParametersOutput, error)
 	GetParameterHistory(input *GetParameterHistoryInput) (*GetParameterHistoryOutput, error)
+	GetParametersByPath(input *GetParametersByPathInput) (*GetParametersByPathOutput, error)
+	DescribeParameters(input *DescribeParametersInput) (*DescribeParametersOutput, error)
 	ListAll() []Parameter
 }
 
@@ -296,4 +299,209 @@ func (b *InMemoryBackend) ListAll() []Parameter {
 	})
 
 	return params
+}
+
+const (
+	defaultPathMaxResults     = 10
+	defaultDescribeMaxResults = 50
+)
+
+// GetParametersByPath returns parameters whose names begin with the given path.
+//
+//nolint:gocognit // Intentional complexity for path matching logic.
+func (b *InMemoryBackend) GetParametersByPath(input *GetParametersByPathInput) (*GetParametersByPathOutput, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	// Normalize path to end with /
+	path := input.Path
+	if !strings.HasSuffix(path, "/") {
+		path += "/"
+	}
+
+	// Collect matching parameters
+	var matched []Parameter
+
+	for name, param := range b.parameters {
+		if !strings.HasPrefix(name, path) {
+			continue
+		}
+
+		// Non-recursive: only direct children (no additional / after the prefix)
+		if !input.Recursive {
+			suffix := name[len(path):]
+			if strings.Contains(suffix, "/") {
+				continue
+			}
+		}
+
+		matched = append(matched, param)
+	}
+
+	sort.Slice(matched, func(i, j int) bool {
+		return matched[i].Name < matched[j].Name
+	})
+
+	startIdx := parseNextToken(input.NextToken)
+
+	maxResults := int64(defaultPathMaxResults)
+	if input.MaxResults != nil && *input.MaxResults > 0 {
+		maxResults = *input.MaxResults
+	}
+
+	if startIdx >= len(matched) {
+		return &GetParametersByPathOutput{Parameters: []Parameter{}}, nil
+	}
+
+	end := startIdx + int(maxResults)
+
+	var nextToken string
+
+	if end < len(matched) {
+		nextToken = strconv.Itoa(end)
+	} else {
+		end = len(matched)
+	}
+
+	result := make([]Parameter, 0, end-startIdx)
+
+	for _, p := range matched[startIdx:end] {
+		if input.WithDecryption && p.Type == SecureStringType {
+			if decrypted, err := decryptValue(p.Value); err == nil {
+				p.Value = decrypted
+			}
+		}
+
+		result = append(result, p)
+	}
+
+	return &GetParametersByPathOutput{
+		Parameters: result,
+		NextToken:  nextToken,
+	}, nil
+}
+
+// DescribeParameters returns metadata for all parameters (no values).
+func (b *InMemoryBackend) DescribeParameters(input *DescribeParametersInput) (*DescribeParametersOutput, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	all := make([]ParameterMetadata, 0, len(b.parameters))
+
+	for _, p := range b.parameters {
+		all = append(all, ParameterMetadata{
+			Name:             p.Name,
+			Type:             p.Type,
+			Version:          p.Version,
+			LastModifiedDate: p.LastModifiedDate,
+			Description:      p.Description,
+		})
+	}
+
+	// Apply filters
+	if len(input.ParameterFilters) > 0 {
+		var filtered []ParameterMetadata
+
+		for _, meta := range all {
+			if paramMatchesFilters(meta, input.ParameterFilters) {
+				filtered = append(filtered, meta)
+			}
+		}
+
+		all = filtered
+	}
+
+	sort.Slice(all, func(i, j int) bool {
+		return all[i].Name < all[j].Name
+	})
+
+	startIdx := parseNextToken(input.NextToken)
+
+	maxResults := int64(defaultDescribeMaxResults)
+	if input.MaxResults != nil && *input.MaxResults > 0 {
+		maxResults = *input.MaxResults
+	}
+
+	if startIdx >= len(all) {
+		return &DescribeParametersOutput{Parameters: []ParameterMetadata{}}, nil
+	}
+
+	end := startIdx + int(maxResults)
+
+	var nextToken string
+
+	if end < len(all) {
+		nextToken = strconv.Itoa(end)
+	} else {
+		end = len(all)
+	}
+
+	return &DescribeParametersOutput{
+		Parameters: all[startIdx:end],
+		NextToken:  nextToken,
+	}, nil
+}
+
+// parseNextToken converts a NextToken string to an integer start index.
+func parseNextToken(token string) int {
+	if token == "" {
+		return 0
+	}
+
+	idx, err := strconv.Atoi(token)
+	if err != nil || idx < 0 {
+		return 0
+	}
+
+	return idx
+}
+
+// paramMatchesFilters returns true when the metadata satisfies ALL filters.
+func paramMatchesFilters(meta ParameterMetadata, filters []ParameterFilter) bool {
+	for _, f := range filters {
+		if !paramMatchesFilter(meta, f) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// paramMatchesFilter returns true when the metadata satisfies a single filter.
+// Within one filter, multiple Values are OR-combined.
+func paramMatchesFilter(meta ParameterMetadata, f ParameterFilter) bool {
+	var fieldValue string
+
+	switch f.Key {
+	case "Name":
+		fieldValue = meta.Name
+	case "Type":
+		fieldValue = meta.Type
+	default:
+		return true // unknown keys are ignored
+	}
+
+	option := f.Option
+	if option == "" {
+		option = "Equals"
+	}
+
+	for _, v := range f.Values {
+		switch option {
+		case "Equals":
+			if fieldValue == v {
+				return true
+			}
+		case "BeginsWith":
+			if strings.HasPrefix(fieldValue, v) {
+				return true
+			}
+		case "Contains":
+			if strings.Contains(fieldValue, v) {
+				return true
+			}
+		}
+	}
+
+	return false
 }
