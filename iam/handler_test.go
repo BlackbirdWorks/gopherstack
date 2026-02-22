@@ -1245,3 +1245,157 @@ func TestIAMHandler_InternalFailure(t *testing.T) {
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
 	assert.Equal(t, "InternalFailure", errResp.Error.Code)
 }
+
+// TestIAMHandler_DispatchErrors covers the error branches in every dispatch case.
+// These tests trigger "NoSuchEntity" / "EntityAlreadyExists" responses from the backend.
+func TestIAMHandler_DispatchErrors(t *testing.T) {
+	t.Parallel()
+
+	// helper to assert a 400 NoSuchEntity or EntityAlreadyExists error XML response
+	assertErrorCode := func(t *testing.T, rec *httptest.ResponseRecorder, wantCode string) {
+		t.Helper()
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+		var errResp iam.ErrorResponse
+		require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
+		assert.Equal(t, wantCode, errResp.Error.Code)
+	}
+
+	for _, tc := range []struct {
+		name     string
+		action   string
+		params   map[string]string
+		setup    func(*iam.InMemoryBackend)
+		wantCode string
+	}{
+		{
+			name:     "DeleteUser_NotFound",
+			action:   "DeleteUser",
+			params:   map[string]string{"UserName": "nobody"},
+			wantCode: "NoSuchEntity",
+		},
+		{
+			name:   "CreateRole_AlreadyExists",
+			action: "CreateRole",
+			params: map[string]string{"RoleName": "MyRole"},
+			setup: func(b *iam.InMemoryBackend) {
+				_, _ = b.CreateRole("MyRole", "/", "")
+			},
+			wantCode: "EntityAlreadyExists",
+		},
+		{
+			name:     "GetRole_NotFound",
+			action:   "GetRole",
+			params:   map[string]string{"RoleName": "ghost"},
+			wantCode: "NoSuchEntity",
+		},
+		{
+			name:     "DeleteRole_NotFound",
+			action:   "DeleteRole",
+			params:   map[string]string{"RoleName": "ghost"},
+			setup:    func(_ *iam.InMemoryBackend) {},
+			wantCode: "NoSuchEntity",
+		},
+		{
+			name:   "CreatePolicy_AlreadyExists",
+			action: "CreatePolicy",
+			params: map[string]string{"PolicyName": "MyPolicy"},
+			setup: func(b *iam.InMemoryBackend) {
+				_, _ = b.CreatePolicy("MyPolicy", "/", "")
+			},
+			wantCode: "EntityAlreadyExists",
+		},
+		{
+			name:     "DeletePolicy_NotFound",
+			action:   "DeletePolicy",
+			params:   map[string]string{"PolicyArn": "arn:aws:iam::000000000000:policy/ghost"},
+			wantCode: "NoSuchEntity",
+		},
+		{
+			name:     "AttachUserPolicy_UserNotFound",
+			action:   "AttachUserPolicy",
+			params:   map[string]string{"UserName": "nobody", "PolicyArn": "arn:aws:iam::000000000000:policy/P"},
+			wantCode: "NoSuchEntity",
+		},
+		{
+			name:     "AttachRolePolicy_RoleNotFound",
+			action:   "AttachRolePolicy",
+			params:   map[string]string{"RoleName": "ghost", "PolicyArn": "arn:aws:iam::000000000000:policy/P"},
+			wantCode: "NoSuchEntity",
+		},
+		{
+			name:   "CreateGroup_AlreadyExists",
+			action: "CreateGroup",
+			params: map[string]string{"GroupName": "Admins"},
+			setup: func(b *iam.InMemoryBackend) {
+				_, _ = b.CreateGroup("Admins", "/")
+			},
+			wantCode: "EntityAlreadyExists",
+		},
+		{
+			name:     "DeleteGroup_NotFound",
+			action:   "DeleteGroup",
+			params:   map[string]string{"GroupName": "ghost"},
+			wantCode: "NoSuchEntity",
+		},
+		{
+			name:     "AddUserToGroup_GroupNotFound",
+			action:   "AddUserToGroup",
+			params:   map[string]string{"GroupName": "ghost", "UserName": "alice"},
+			wantCode: "NoSuchEntity",
+		},
+		{
+			name:     "CreateAccessKey_UserNotFound",
+			action:   "CreateAccessKey",
+			params:   map[string]string{"UserName": "nobody"},
+			wantCode: "NoSuchEntity",
+		},
+		{
+			name:   "DeleteAccessKey_NotFound",
+			action: "DeleteAccessKey",
+			params: map[string]string{"UserName": "alice", "AccessKeyId": "AKIANONEXISTENT"},
+			setup: func(b *iam.InMemoryBackend) {
+				_, _ = b.CreateUser("alice", "/")
+			},
+			wantCode: "NoSuchEntity",
+		},
+		{
+			name:     "ListAccessKeys_UserNotFound",
+			action:   "ListAccessKeys",
+			params:   map[string]string{"UserName": "nobody"},
+			wantCode: "NoSuchEntity",
+		},
+		{
+			name:   "CreateInstanceProfile_AlreadyExists",
+			action: "CreateInstanceProfile",
+			params: map[string]string{"InstanceProfileName": "MyProfile"},
+			setup: func(b *iam.InMemoryBackend) {
+				_, _ = b.CreateInstanceProfile("MyProfile", "/")
+			},
+			wantCode: "EntityAlreadyExists",
+		},
+		{
+			name:     "DeleteInstanceProfile_NotFound",
+			action:   "DeleteInstanceProfile",
+			params:   map[string]string{"InstanceProfileName": "ghost"},
+			wantCode: "NoSuchEntity",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			e := echo.New()
+			h, b := newTestHandler(t)
+			if tc.setup != nil {
+				tc.setup(b)
+			}
+
+			req := iamRequest(tc.action, tc.params)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			err := h.Handler()(c)
+			require.NoError(t, err)
+			assertErrorCode(t, rec, tc.wantCode)
+		})
+	}
+}
