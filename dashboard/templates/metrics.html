@@ -1,23 +1,25 @@
 {{define "content"}}
-<div class="container mx-auto px-4 py-8 space-y-8 animate-in fade-in duration-500">
+<div class="container mx-auto px-4 py-8 space-y-8">
     <!-- Header -->
     <div
-        class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-base-300 pb-6">
+        class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-gray-200 dark:border-gray-700 pb-6">
         <div>
-            <h1 class="text-4xl font-extrabold tracking-tight text-primary">Performance Metrics</h1>
-            <p class="text-base-content/60 mt-2">Real-time health and performance statistics for Gopherstack.</p>
+            <h1 class="text-4xl font-extrabold tracking-tight text-blue-600 dark:text-blue-400">Performance Metrics</h1>
+            <p class="text-gray-500 dark:text-gray-400 mt-2">Real-time health and performance statistics for
+                Gopherstack.</p>
         </div>
         <div class="flex items-center gap-3">
             <div id="live-indicator"
-                class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-success/10 text-success text-xs font-bold border border-success/20">
+                class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 text-xs font-bold border border-green-200 dark:border-green-800">
                 <span class="relative flex h-2 w-2">
                     <span
-                        class="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span>
-                    <span class="relative inline-flex rounded-full h-2 w-2 bg-success"></span>
+                        class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                    <span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
                 </span>
                 LIVE
             </div>
-            <button class="btn btn-sm btn-ghost border-base-300 hover:border-primary px-4 bg-base-100 shadow-sm"
+            <button
+                class="text-gray-900 bg-white border border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-100 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-gray-800 dark:text-white dark:border-gray-600 dark:hover:bg-gray-700 dark:hover:border-gray-600 dark:focus:ring-gray-700 inline-flex items-center gap-2"
                 hx-get="/dashboard/api/metrics" hx-target="#metrics-content" hx-swap="none"
                 hx-on::after-request="window.dispatchEvent(new CustomEvent('metrics-updated', {detail: JSON.parse(event.detail.xhr.responseText)}))">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
@@ -35,16 +37,24 @@
         hx-on::after-request="window.dispatchEvent(new CustomEvent('metrics-updated', {detail: JSON.parse(event.detail.xhr.responseText)}))">
 
         <div id="metrics-loading" class="flex flex-col items-center justify-center py-24 opacity-60">
-            <span class="loading loading-spinner loading-lg text-primary"></span>
-            <p class="mt-4 font-medium">Gathering insights...</p>
+            <svg aria-hidden="true" class="w-12 h-12 text-gray-200 animate-spin dark:text-gray-600 fill-blue-600"
+                viewBox="0 0 100 101" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path
+                    d="M100 50.5908C100 78.2051 77.6142 100.591 50 100.591C22.3858 100.591 0 78.2051 0 50.5908C0 22.9766 22.3858 0.59082 50 0.59082C77.6142 0.59082 100 22.9766 100 50.5908ZM9.08144 50.5908C9.08144 73.1895 27.4013 91.5094 50 91.5094C72.5987 91.5094 90.9186 73.1895 90.9186 50.5908C90.9186 27.9921 72.5987 9.67226 50 9.67226C27.4013 9.67226 9.08144 27.9921 9.08144 50.5908Z"
+                    fill="currentColor" />
+                <path
+                    d="M93.9676 39.0409C96.393 38.4038 97.8624 35.9116 97.0079 33.5539C95.2932 28.8227 92.871 24.3692 89.8167 20.348C85.8452 15.1192 80.8826 10.7238 75.2124 7.41289C69.5422 4.10194 63.2754 1.94025 56.7698 1.05124C51.7666 0.367541 46.6976 0.446843 41.7345 1.27873C39.2613 1.69328 37.813 4.19778 38.4501 6.62326C39.0873 9.04874 41.5694 10.4717 44.0505 10.1071C47.8511 9.54855 51.7191 9.52689 55.5402 10.0491C60.8642 10.7766 65.9928 12.5457 70.6331 15.2552C75.2735 17.9648 79.3347 21.5619 82.5849 25.841C84.9175 28.9121 86.7997 32.2913 88.1811 35.8758C89.083 38.2158 91.5421 39.6781 93.9676 39.0409Z"
+                    fill="currentFill" />
+            </svg>
+            <p class="mt-4 font-medium text-gray-700 dark:text-gray-300">Gathering insights...</p>
         </div>
 
-        <div id="dashboard-view" class="hidden space-y-8 animate-in zoom-in-95 duration-300">
+        <div id="dashboard-view" class="hidden space-y-8">
             <!-- Deadlock Section -->
             <section id="deadlock-section" class="hidden">
-                <div class="collapse collapse-arrow bg-error/10 border border-error/20 rounded-2xl shadow-lg">
-                    <input type="checkbox" checked />
-                    <div class="collapse-title flex items-center gap-4 text-error p-6">
+                <div
+                    class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-2xl shadow-lg overflow-hidden">
+                    <div class="flex items-center gap-4 text-red-700 dark:text-red-400 p-6">
                         <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none"
                             viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -56,7 +66,7 @@
                                 while other goroutines are waiting.</p>
                         </div>
                     </div>
-                    <div class="collapse-content px-6 pb-6">
+                    <div class="px-6 pb-6">
                         <div id="deadlock-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                             <!-- Deadlock cards populated by JS -->
                         </div>
@@ -66,8 +76,8 @@
 
             <!-- Runtime Section -->
             <section>
-                <h2 class="text-xl font-bold mb-4 flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-secondary" fill="none"
+                <h2 class="text-xl font-bold mb-4 flex items-center gap-2 text-gray-900 dark:text-white">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-purple-500" fill="none"
                         viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -75,29 +85,34 @@
                     Go Runtime
                 </h2>
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <div class="stat bg-base-100 rounded-2xl shadow-sm border border-base-200">
-                        <div class="stat-title text-xs font-bold uppercase tracking-wider text-base-content/50">
-                            Goroutines</div>
-                        <div id="runtime-goroutines" class="stat-value text-primary py-1">0</div>
-                        <div class="stat-desc text-base-content/40">Active routines</div>
+                    <div
+                        class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
+                        <div class="text-sm font-medium text-gray-500 dark:text-gray-400">Goroutines</div>
+                        <div id="runtime-goroutines" class="text-3xl font-bold py-1 text-blue-600 dark:text-blue-400">0
+                        </div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400">Active routines</div>
                     </div>
-                    <div class="stat bg-base-100 rounded-2xl shadow-sm border border-base-200">
-                        <div class="stat-title text-xs font-bold uppercase tracking-wider text-base-content/50">Heap
-                            Memory</div>
-                        <div id="runtime-heap" class="stat-value text-secondary py-1">0MB</div>
-                        <div id="runtime-heap-pct" class="stat-desc text-base-content/40">0% of total</div>
+                    <div
+                        class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
+                        <div class="text-sm font-medium text-gray-500 dark:text-gray-400">Heap Memory</div>
+                        <div id="runtime-heap" class="text-3xl font-bold py-1 text-purple-600 dark:text-purple-400">0MB
+                        </div>
+                        <div id="runtime-heap-pct" class="text-xs text-gray-500 dark:text-gray-400">0% of total</div>
                     </div>
-                    <div class="stat bg-base-100 rounded-2xl shadow-sm border border-base-200">
-                        <div class="stat-title text-xs font-bold uppercase tracking-wider text-base-content/50">GC
-                            Cycles</div>
-                        <div id="runtime-gc" class="stat-value text-accent py-1">0</div>
-                        <div id="runtime-gc-pause" class="stat-desc text-base-content/40">Last pause: 0ms</div>
+                    <div
+                        class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
+                        <div class="text-sm font-medium text-gray-500 dark:text-gray-400">GC Cycles</div>
+                        <div id="runtime-gc" class="text-3xl font-bold py-1 text-yellow-600 dark:text-yellow-400">0
+                        </div>
+                        <div id="runtime-gc-pause" class="text-xs text-gray-500 dark:text-gray-400">Last pause: 0ms
+                        </div>
                     </div>
-                    <div class="stat bg-base-100 rounded-2xl shadow-sm border border-base-200">
-                        <div class="stat-title text-xs font-bold uppercase tracking-wider text-base-content/50">Total
-                            Allocated</div>
-                        <div id="runtime-total" class="stat-value text-base-content py-1">0MB</div>
-                        <div class="stat-desc text-base-content/40">Lifetime total</div>
+                    <div
+                        class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
+                        <div class="text-sm font-medium text-gray-500 dark:text-gray-400">Total Allocated</div>
+                        <div id="runtime-total" class="text-3xl font-bold py-1 text-gray-700 dark:text-gray-300">0MB
+                        </div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400">Lifetime total</div>
                     </div>
                 </div>
             </section>
@@ -106,125 +121,280 @@
             <section>
                 <div class="flex flex-col md:flex-row justify-between items-start md:items-end mb-6 gap-4">
                     <div class="flex items-center gap-2">
-                        <h2 class="text-xl font-bold flex items-center gap-2">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-primary" fill="none"
+                        <h2 class="text-xl font-bold flex items-center gap-2 text-gray-900 dark:text-white">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-blue-500" fill="none"
                                 viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                     d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                             </svg>
                             Operation Latencies
                         </h2>
-                        <span id="op-count-badge" class="badge badge-outline badge-primary font-mono text-xs">...</span>
+                        <span id="op-count-badge"
+                            class="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-blue-900 dark:text-blue-300 font-mono">...</span>
                     </div>
 
                     <!-- Service Filter -->
-                    <div class="tabs tabs-boxed bg-base-200">
-                        <button onclick="updateFilter('all')" class="tab tab-sm filter-tab active"
-                            data-service="all">All Services</button>
-                        <button onclick="updateFilter('DynamoDB')" class="tab tab-sm filter-tab"
-                            data-service="DynamoDB">DynamoDB</button>
-                        <button onclick="updateFilter('S3')" class="tab tab-sm filter-tab" data-service="S3">S3</button>
-                        <button onclick="updateFilter('SSM')" class="tab tab-sm filter-tab"
-                            data-service="SSM">SSM</button>
+                    <!-- Service Filter -->
+                    <div class="relative">
+                        <button id="dropdownSearchButton" data-dropdown-toggle="dropdownSearch"
+                            class="inline-flex items-center px-4 py-2 text-sm font-medium text-center text-gray-900 bg-white border border-gray-300 rounded-lg hover:bg-gray-100 focus:ring-4 focus:outline-none focus:ring-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-600 dark:hover:bg-gray-700 dark:hover:border-gray-600 dark:focus:ring-gray-700"
+                            type="button">
+                            Filter Services
+                            <span id="selected-services-count"
+                                class="ml-2 bg-blue-100 text-blue-800 text-xs font-semibold px-2 py-0.5 rounded dark:bg-blue-200 dark:text-blue-800 hidden">0</span>
+                            <svg class="w-2.5 h-2.5 ml-2.5" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"
+                                fill="none" viewBox="0 0 10 6">
+                                <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
+                                    stroke-width="2" d="m1 1 4 4 4-4" />
+                            </svg>
+                        </button>
+
+                        <!-- Dropdown menu -->
+                        <div id="dropdownSearch" class="z-10 hidden bg-white rounded-lg shadow w-60 dark:bg-gray-700">
+                            <div class="p-3">
+                                <label class="relative inline-flex items-center cursor-pointer mb-2">
+                                    <input type="checkbox" id="select-all-services" checked class="sr-only peer"
+                                        onchange="toggleAllServices(this.checked)">
+                                    <div
+                                        class="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-600 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600">
+                                    </div>
+                                    <span class="ml-3 text-sm font-medium text-gray-900 dark:text-gray-300">All
+                                        Services</span>
+                                </label>
+                            </div>
+                            <ul class="h-48 px-3 pb-3 overflow-y-auto text-sm text-gray-700 dark:text-gray-200"
+                                aria-labelledby="dropdownSearchButton">
+                                <li>
+                                    <div class="flex items-center p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-600">
+                                        <input id="filter-DynamoDB" type="checkbox" value="DynamoDB" checked
+                                            onchange="toggleService('DynamoDB')"
+                                            class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-700 dark:focus:ring-offset-gray-700 focus:ring-2 dark:bg-gray-600 dark:border-gray-500">
+                                        <label for="filter-DynamoDB"
+                                            class="w-full ml-2 text-sm font-medium text-gray-900 rounded dark:text-gray-300">DynamoDB</label>
+                                    </div>
+                                </li>
+                                <li>
+                                    <div class="flex items-center p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-600">
+                                        <input id="filter-S3" type="checkbox" value="S3" checked
+                                            onchange="toggleService('S3')"
+                                            class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-700 dark:focus:ring-offset-gray-700 focus:ring-2 dark:bg-gray-600 dark:border-gray-500">
+                                        <label for="filter-S3"
+                                            class="w-full ml-2 text-sm font-medium text-gray-900 rounded dark:text-gray-300">S3</label>
+                                    </div>
+                                </li>
+                                <li>
+                                    <div class="flex items-center p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-600">
+                                        <input id="filter-SSM" type="checkbox" value="SSM" checked
+                                            onchange="toggleService('SSM')"
+                                            class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-700 dark:focus:ring-offset-gray-700 focus:ring-2 dark:bg-gray-600 dark:border-gray-500">
+                                        <label for="filter-SSM"
+                                            class="w-full ml-2 text-sm font-medium text-gray-900 rounded dark:text-gray-300">SSM</label>
+                                    </div>
+                                </li>
+                                <li>
+                                    <div class="flex items-center p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-600">
+                                        <input id="filter-IAM" type="checkbox" value="IAM" checked
+                                            onchange="toggleService('IAM')"
+                                            class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-700 dark:focus:ring-offset-gray-700 focus:ring-2 dark:bg-gray-600 dark:border-gray-500">
+                                        <label for="filter-IAM"
+                                            class="w-full ml-2 text-sm font-medium text-gray-900 rounded dark:text-gray-300">IAM</label>
+                                    </div>
+                                </li>
+                                <li>
+                                    <div class="flex items-center p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-600">
+                                        <input id="filter-STS" type="checkbox" value="STS" checked
+                                            onchange="toggleService('STS')"
+                                            class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-700 dark:focus:ring-offset-gray-700 focus:ring-2 dark:bg-gray-600 dark:border-gray-500">
+                                        <label for="filter-STS"
+                                            class="w-full ml-2 text-sm font-medium text-gray-900 rounded dark:text-gray-300">STS</label>
+                                    </div>
+                                </li>
+                                <li>
+                                    <div class="flex items-center p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-600">
+                                        <input id="filter-SNS" type="checkbox" value="SNS" checked
+                                            onchange="toggleService('SNS')"
+                                            class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-700 dark:focus:ring-offset-gray-700 focus:ring-2 dark:bg-gray-600 dark:border-gray-500">
+                                        <label for="filter-SNS"
+                                            class="w-full ml-2 text-sm font-medium text-gray-900 rounded dark:text-gray-300">SNS</label>
+                                    </div>
+                                </li>
+                                <li>
+                                    <div class="flex items-center p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-600">
+                                        <input id="filter-SQS" type="checkbox" value="SQS" checked
+                                            onchange="toggleService('SQS')"
+                                            class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-700 dark:focus:ring-offset-gray-700 focus:ring-2 dark:bg-gray-600 dark:border-gray-500">
+                                        <label for="filter-SQS"
+                                            class="w-full ml-2 text-sm font-medium text-gray-900 rounded dark:text-gray-300">SQS</label>
+                                    </div>
+                                </li>
+                                <li>
+                                    <div class="flex items-center p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-600">
+                                        <input id="filter-KMS" type="checkbox" value="KMS" checked
+                                            onchange="toggleService('KMS')"
+                                            class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-700 dark:focus:ring-offset-gray-700 focus:ring-2 dark:bg-gray-600 dark:border-gray-500">
+                                        <label for="filter-KMS"
+                                            class="w-full ml-2 text-sm font-medium text-gray-900 rounded dark:text-gray-300">KMS</label>
+                                    </div>
+                                </li>
+                                <li>
+                                    <div class="flex items-center p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-600">
+                                        <input id="filter-SecretsManager" type="checkbox" value="SecretsManager" checked
+                                            onchange="toggleService('SecretsManager')"
+                                            class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-700 dark:focus:ring-offset-gray-700 focus:ring-2 dark:bg-gray-600 dark:border-gray-500">
+                                        <label for="filter-SecretsManager"
+                                            class="w-full ml-2 text-sm font-medium text-gray-900 rounded dark:text-gray-300">Secrets
+                                            Manager</label>
+                                    </div>
+                                </li>
+                            </ul>
+                        </div>
                     </div>
                 </div>
 
-                <div class="bg-base-100 rounded-2xl shadow-sm border border-base-200 overflow-hidden">
-                    <div class="overflow-x-auto">
-                        <table class="table table-md w-full">
-                            <thead class="bg-base-200/50">
-                                <tr>
-                                    <th class="font-bold text-xs uppercase tracking-wider">Operation</th>
-                                    <th class="font-bold text-xs uppercase tracking-wider text-center">Requests</th>
-                                    <th class="font-bold text-xs uppercase tracking-wider text-right text-primary">P50
-                                    </th>
-                                    <th class="font-bold text-xs uppercase tracking-wider text-right text-secondary">P95
-                                    </th>
-                                    <th class="font-bold text-xs uppercase tracking-wider text-right text-accent">P99
-                                    </th>
-                                    <th class="font-bold text-xs uppercase tracking-wider text-right">Avg</th>
-                                    <th class="font-bold text-xs uppercase tracking-wider text-right">Max</th>
-                                </tr>
-                            </thead>
-                            <tbody id="operations-body">
-                                <!-- Populated by JS -->
-                            </tbody>
-                        </table>
-                    </div>
+                <div class="relative overflow-x-auto shadow-md sm:rounded-lg">
+                    <table class="w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
+                        <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                            <tr>
+                                <th scope="col" class="px-6 py-3">Operation</th>
+                                <th scope="col" class="px-6 py-3 text-center">Requests</th>
+                                <th scope="col" class="px-6 py-3 text-right">P50</th>
+                                <th scope="col" class="px-6 py-3 text-right">P95</th>
+                                <th scope="col" class="px-6 py-3 text-right">P99</th>
+                                <th scope="col" class="px-6 py-3 text-right">Avg</th>
+                                <th scope="col" class="px-6 py-3 text-right">Max</th>
+                            </tr>
+                        </thead>
+                        <tbody id="operations-body">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
                 </div>
             </section>
 
-            <!-- Delete Queue Section -->
-            <section id="delete-queue-section">
-                <h2 class="text-xl font-bold mb-4 flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-warning" fill="none" viewBox="0 0 24 24"
-                        stroke="currentColor">
+            <!-- Service Worker Section -->
+            <section id="worker-section">
+                <h2 class="text-xl font-bold mb-4 flex items-center gap-2 text-gray-900 dark:text-white">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-orange-500" fill="none"
+                        viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
                     </svg>
-                    Async Delete Queues
+                    Service Workers
                 </h2>
-                <div id="delete-queue-body" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div id="worker-body" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                     <!-- Populated by JS -->
                 </div>
             </section>
         </div>
 
         <div id="no-metrics-msg" class="hidden py-32 text-center">
-            <div class="bg-base-200/50 inline-flex items-center justify-center p-6 rounded-full mb-6">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-base-content/20" fill="none"
-                    viewBox="0 0 24 24" stroke="currentColor">
+            <div class="bg-gray-100 dark:bg-gray-800 inline-flex items-center justify-center p-6 rounded-full mb-6">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24"
+                    stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
             </div>
-            <h3
-                class="text-xl font-bold bg-gradient-to-r from-base-content to-base-content/40 bg-clip-text text-transparent">
-                No Data Available</h3>
-            <p class="text-base-content/60 mt-2">Perform some requests to generate performance data.</p>
+            <h3 class="text-xl font-bold text-gray-900 dark:text-white">No Data Available</h3>
+            <p class="text-gray-500 dark:text-gray-400 mt-2">Perform some requests to generate performance data.</p>
         </div>
     </div>
 </div>
 
 <script>
     let currentMetrics = null;
-    let currentFilter = 'all';
+    let currentFilters = ['DynamoDB', 'S3', 'SSM', 'IAM', 'STS', 'SNS', 'SQS', 'KMS', 'SecretsManager'];
 
-    function updateFilter(service) {
-        currentFilter = service;
+    function toggleService(service) {
+        const index = currentFilters.indexOf(service);
+        if (index > -1) {
+            currentFilters.splice(index, 1);
+        } else {
+            currentFilters.push(service);
+        }
 
-        // Update tabs UI
-        document.querySelectorAll('.filter-tab').forEach(tab => {
-            if (tab.dataset.service === service) {
-                tab.classList.add('tab-active');
-            } else {
-                tab.classList.remove('tab-active');
-            }
-        });
+        // Update "Select All" checkbox state
+        const allCheckboxes = document.querySelectorAll('#dropdownSearch input[type="checkbox"]:not(#select-all-services)');
+        const selectAllCheckbox = document.getElementById('select-all-services');
+        const allChecked = Array.from(allCheckboxes).every(cb => cb.checked);
+        selectAllCheckbox.checked = allChecked;
 
+        updateSelectedServicesCount();
         renderOperations();
     }
 
-    function renderDeleteQueues(data) {
-        const body = document.getElementById('delete-queue-body');
-        if (!body) return;
+    function toggleAllServices(checked) {
+        const checkboxes = document.querySelectorAll('#dropdownSearch input[type="checkbox"]:not(#select-all-services)');
+        currentFilters = [];
+        checkboxes.forEach(cb => {
+            cb.checked = checked;
+            if (checked) {
+                currentFilters.push(cb.value);
+            }
+        });
+        updateSelectedServicesCount();
+        renderOperations();
+    }
 
-        if (!data || !data.delete_queues || data.delete_queues.length === 0) {
-            body.innerHTML = '<div class="stat bg-base-100 rounded-2xl shadow-sm border border-base-200"><div class="stat-title text-xs font-bold uppercase tracking-wider text-base-content/50">All Queues</div><div class="stat-value text-success py-1">0</div><div class="stat-desc text-base-content/40">No pending deletions</div></div>';
+    function updateSelectedServicesCount() {
+        const countSpan = document.getElementById('selected-services-count');
+        const checkboxes = document.querySelectorAll('#dropdownSearch input[type="checkbox"]:not(#select-all-services)');
+        const selectedCount = Array.from(checkboxes).filter(cb => cb.checked).length;
+
+        if (selectedCount > 0 && selectedCount < checkboxes.length) {
+            countSpan.textContent = selectedCount;
+            countSpan.classList.remove('hidden');
+        } else {
+            countSpan.classList.add('hidden');
+        }
+    }
+
+    function renderWorkers(data) {
+        const body = document.getElementById('worker-body');
+        if (!body) return;
+        if (!data || !data.workers || data.workers.length === 0) {
+            body.innerHTML = '<div class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700 col-span-full text-center text-gray-500">No active background workers detected.</div>';
             return;
         }
-
         let cards = '';
-        for (const q of data.delete_queues) {
-            const serviceLabel = q.service.charAt(0).toUpperCase() + q.service.slice(1);
-            const colorClass = q.depth > 0 ? 'text-warning' : 'text-success';
-            cards += `
-                <div class="stat bg-base-100 rounded-2xl shadow-sm border border-base-200">
-                    <div class="stat-title text-xs font-bold uppercase tracking-wider text-base-content/50">${escapeHtml(serviceLabel)}</div>
-                    <div class="stat-value ${colorClass} py-1">${q.depth}</div>
-                    <div class="stat-desc text-base-content/40">pending deletion</div>
+        for (const w of data.workers) {
+            const svc = w.service.toUpperCase();
+            const worker = w.worker;
+            const colorClass = w.queue_depth > 10 ? 'text-orange-600 dark:text-orange-400' :
+                w.queue_depth > 0 ? 'text-yellow-600 dark:text-yellow-400' :
+                    'text-green-600 dark:text-green-400';
+
+            const svcColor = svc === 'DYNAMODB' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300' :
+                svc === 'S3' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300' :
+                    'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300';
+
+            cards += `<div class="p-5 bg-white border border-gray-200 rounded-xl shadow dark:bg-gray-800 dark:border-gray-700">
+                <div class="flex justify-between items-start mb-4">
+                    <div class="flex flex-col gap-1">
+                        <span class="text-[10px] font-bold px-1.5 py-0.5 rounded ${svcColor} uppercase w-fit">${svc}</span>
+                        <h4 class="text-sm font-bold text-gray-900 dark:text-white truncate">${escapeHtml(worker)}</h4>
+                    </div>
+                    <div class="flex flex-col items-end">
+                        <span class="text-2xl font-black ${colorClass}">${w.queue_depth}</span>
+                        <span class="text-[9px] uppercase tracking-tighter text-gray-400">pending</span>
+                    </div>
                 </div>
-            `;
+                <div class="space-y-3 pt-3 border-t border-gray-100 dark:border-gray-700">
+                   <div class="flex justify-between text-xs">
+                       <span class="text-gray-500 dark:text-gray-400">Tasks Processed</span>
+                       <span class="font-mono font-bold text-gray-700 dark:text-gray-300">${w.tasks_total.toLocaleString()}</span>
+                   </div>
+                   <div class="flex justify-between text-xs">
+                       <span class="text-gray-500 dark:text-gray-400">Items Handled</span>
+                       <span class="font-mono font-bold text-blue-600 dark:text-blue-400">${w.items_processed_total.toLocaleString()}</span>
+                   </div>
+                   ${w.errors_total > 0 ? `
+                   <div class="flex justify-between text-xs">
+                       <span class="text-red-500 font-medium">Worker Errors</span>
+                       <span class="font-mono font-bold text-red-600 dark:text-red-400">${w.errors_total.toLocaleString()}</span>
+                   </div>` : ''}
+                </div>
+            </div>`;
         }
         body.innerHTML = cards;
     }
@@ -233,166 +403,92 @@
         const data = currentMetrics;
         const body = document.getElementById('operations-body');
         const badge = document.getElementById('op-count-badge');
-
         if (!data || !data.operations || data.operations.length === 0) {
             badge.textContent = '0 operations tracked';
-            body.innerHTML = '<tr><td colspan="7" class="text-center py-8 text-base-content/40 italic">No operations recorded yet</td></tr>';
+            body.innerHTML = '<tr><td colspan="7" class="text-center py-8 text-gray-400 italic">No operations recorded yet</td></tr>';
             return;
         }
-
-        // Filter operations
         let filteredOps = data.operations;
-        if (currentFilter !== 'all') {
-            filteredOps = data.operations.filter(op => op.operation.startsWith(currentFilter + '::'));
+        if (currentFilters.length === 0) {
+            filteredOps = [];
+        } else {
+            filteredOps = data.operations.filter(op => {
+                const svc = op.operation.split('::')[0];
+                return currentFilters.includes(svc);
+            });
         }
-
         badge.textContent = `${filteredOps.length} operations tracked`;
-        let rows = '';
-
-        // Sort by service (DynamoDB first, then S3) then by count descending
         const sortedOps = [...filteredOps].sort((a, b) => {
-            const getServiceRank = (opName) => {
-                if (opName.startsWith('DynamoDB::')) return 1;
-                if (opName.startsWith('S3::')) return 2;
-                if (opName.startsWith('SSM::')) return 3;
-                return 4;
-            };
-
-            const rA = getServiceRank(a.operation);
-            const rB = getServiceRank(b.operation);
-
-            if (rA !== rB) return rA - rB;
-            return b.count - a.count;
+            const rank = n => n.startsWith('DynamoDB::') ? 1 : n.startsWith('S3::') ? 2 : n.startsWith('SSM::') ? 3 : 4;
+            const diff = rank(a.operation) - rank(b.operation);
+            return diff !== 0 ? diff : b.count - a.count;
         });
-
+        let rows = '';
         for (const op of sortedOps) {
             const parts = op.operation.split('::');
             const service = parts.length > 1 ? parts[0] : 'SDK';
             const action = parts.length > 1 ? parts[1] : parts[0];
-
-            let serviceClass = 'badge-ghost';
-            if (service === 'DynamoDB') serviceClass = 'badge-info';
-            else if (service === 'S3') serviceClass = 'badge-success';
-            else if (service === 'SSM') serviceClass = 'badge-secondary';
-
-            rows += `
-                <tr class="hover:bg-base-200/30 transition-colors">
-                    <td class="font-medium align-top">
-                        <div class="flex items-center gap-2">
-                            <span class="badge badge-sm ${serviceClass} badge-outline font-mono uppercase text-[10px]">${service}</span>
-                            <code class="text-primary font-bold text-xs">${escapeHtml(action)}</code>
-                        </div>
-                    </td>
-                    <td class="text-center">
-                        <div class="font-bold">${op.count}</div>
-                        <div class="text-[10px] text-base-content/30 lowercase italic">requests</div>
-                    </td>
-                    <td class="text-right font-mono text-primary font-semibold">${op.p50_ms.toFixed(2)}<span class="text-[10px] opacity-40 ml-0.5">ms</span></td>
-                    <td class="text-right font-mono text-secondary font-semibold">${op.p95_ms.toFixed(2)}<span class="text-[10px] opacity-40 ml-0.5">ms</span></td>
-                    <td class="text-right font-mono text-accent font-semibold">${op.p99_ms.toFixed(2)}<span class="text-[10px] opacity-40 ml-0.5">ms</span></td>
-                    <td class="text-right font-mono text-base-content/70">${op.avg_ms.toFixed(2)}<span class="text-[10px] opacity-40 ml-0.5">ms</span></td>
-                    <td class="text-right font-mono text-base-content/70 font-bold">${op.max_ms.toFixed(2)}<span class="text-[10px] opacity-40 ml-0.5">ms</span></td>
-                </tr>
-            `;
+            const svcColor = service === 'DynamoDB' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300' :
+                service === 'S3' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300' :
+                    service === 'SSM' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300' :
+                        'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300';
+            rows += `<tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
+                <td class="px-6 py-4 font-medium"><div class="flex items-center gap-2"><span class="text-[10px] font-bold px-1.5 py-0.5 rounded ${svcColor} uppercase">${service}</span><code class="text-blue-600 dark:text-blue-400 font-bold text-xs">${escapeHtml(action)}</code></div></td>
+                <td class="px-6 py-4 text-center"><div><span class="font-bold text-gray-900 dark:text-white">${op.count}</span></div><div class="text-[10px] text-gray-400 uppercase tracking-tighter">requests</div></td>
+                <td class="px-6 py-4 text-right font-mono text-blue-600 dark:text-blue-500 font-semibold">${op.p50_ms.toFixed(2)}<span class="text-xs opacity-40 ml-0.5">ms</span></td>
+                <td class="px-6 py-4 text-right font-mono text-purple-600 dark:text-purple-500 font-semibold">${op.p95_ms.toFixed(2)}<span class="text-xs opacity-40 ml-0.5">ms</span></td>
+                <td class="px-6 py-4 text-right font-mono text-yellow-600 dark:text-yellow-500 font-semibold">${op.p99_ms.toFixed(2)}<span class="text-xs opacity-40 ml-0.5">ms</span></td>
+                <td class="px-6 py-4 text-right font-mono text-gray-600 dark:text-gray-400">${op.avg_ms.toFixed(2)}<span class="text-xs opacity-40 ml-0.5">ms</span></td>
+                <td class="px-6 py-4 text-right font-mono text-gray-900 dark:text-white font-bold">${op.max_ms.toFixed(2)}<span class="text-xs opacity-40 ml-0.5">ms</span></td>
+            </tr>`;
         }
-        body.innerHTML = rows || '<tr><td colspan="7" class="text-center py-8 text-base-content/40 italic">No matching operations found</td></tr>';
+        body.innerHTML = rows || '<tr><td colspan="7" class="text-center py-8 text-gray-400 italic">No matching operations found</td></tr>';
     }
 
     window.addEventListener('metrics-updated', function (evt) {
         const data = evt.detail;
         currentMetrics = data;
-
         const loading = document.getElementById('metrics-loading');
         const view = document.getElementById('dashboard-view');
         const noData = document.getElementById('no-metrics-msg');
-
         if (loading) loading.classList.add('hidden');
-
         if (!data || (!data.runtime && (!data.operations || data.operations.length === 0))) {
             if (view) view.classList.add('hidden');
             if (noData) noData.classList.remove('hidden');
             return;
         }
-
         if (noData) noData.classList.add('hidden');
         if (view) view.classList.remove('hidden');
-
-        // Update Runtime
         if (data.runtime) {
             document.getElementById('runtime-goroutines').textContent = data.runtime.goroutines;
             document.getElementById('runtime-heap').textContent = data.runtime.heap_alloc_mb.toFixed(2) + ' MB';
             document.getElementById('runtime-total').textContent = data.runtime.total_alloc_mb.toFixed(2) + ' MB';
             document.getElementById('runtime-gc').textContent = data.runtime.num_gc;
             document.getElementById('runtime-gc-pause').textContent = `Last pause: ${data.runtime.last_gc_pause_ms.toFixed(2)} ms`;
-
             const pct = (data.runtime.heap_alloc_mb / data.runtime.heap_sys_mb * 100).toFixed(1);
             document.getElementById('runtime-heap-pct').textContent = `${pct}% of ${data.runtime.heap_sys_mb.toFixed(2)} MB total`;
         }
-
-        // Update Deadlocks
         const deadlockSection = document.getElementById('deadlock-section');
         const deadlockList = document.getElementById('deadlock-list');
         if (data.deadlocks && data.deadlocks.length > 0) {
             deadlockSection.classList.remove('hidden');
             let cards = '';
             for (const d of data.deadlocks) {
-                cards += `
-                    <div class="bg-base-100/20 rounded-xl p-3 border border-white/10">
-                        <div class="flex justify-between items-start mb-2">
-                            <span class="font-mono text-xs font-bold">${escapeHtml(d.lock)}</span>
-                            <span class="badge badge-warning badge-xs">HELD</span>
-                        </div>
-                        <div class="text-sm font-bold truncate mb-1">Op: ${escapeHtml(d.operation)}</div>
-                        <div class="flex justify-between text-xs opacity-80">
-                            <span>Held: ${d.held_sec.toFixed(1)}s</span>
-                            <span class="text-error font-bold">${d.waiters} waiting</span>
-                        </div>
-                    </div>
-                `;
+                cards += `<div class="bg-red-100 dark:bg-red-900/40 rounded-xl p-4 border border-red-200 dark:border-red-800 shadow-sm"><div class="flex justify-between items-start mb-2"><span class="font-mono text-xs font-bold text-red-800 dark:text-red-300">${escapeHtml(d.lock)}</span><span class="bg-red-200 text-red-900 text-[10px] font-bold px-1.5 py-0.5 rounded dark:bg-red-800 dark:text-red-100">HELD</span></div><div class="text-sm font-bold truncate mb-1 text-red-950 dark:text-red-200">Op: ${escapeHtml(d.operation)}</div><div class="flex justify-between text-xs font-medium text-red-700 dark:text-red-400"><span>Held: ${d.held_sec.toFixed(1)}s</span><span class="font-bold uppercase tracking-wider">${d.waiters} waiting</span></div></div>`;
             }
             deadlockList.innerHTML = cards;
         } else {
             deadlockSection.classList.add('hidden');
         }
-
-        renderDeleteQueues(data);
+        renderWorkers(data);
         renderOperations();
     });
 
     function escapeHtml(unsafe) {
         if (!unsafe) return '';
-        return unsafe
-            .toString()
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;")
-            .replace(/'/g, "&#039;");
+        return unsafe.toString()
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
     }
 </script>
-
-<style>
-    .stat {
-        padding: 1.25rem 1.5rem;
-    }
-
-    .stat-value {
-        font-size: 1.875rem;
-        line-height: 2.25rem;
-        font-weight: 800;
-        letter-spacing: -0.025em;
-    }
-
-    .table :where(thead tr) {
-        border-bottom-width: 1px;
-    }
-
-    .table :where(tbody tr:not(:last-child)) {
-        border-bottom-color: hsl(var(--bc) / 0.05);
-    }
-
-    #live-indicator {
-        letter-spacing: 0.1em;
-    }
-</style>
 {{end}}

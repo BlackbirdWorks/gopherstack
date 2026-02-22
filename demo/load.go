@@ -9,31 +9,66 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/aws/aws-sdk-go-v2/service/iam"
+	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
+	"github.com/aws/aws-sdk-go-v2/service/sns"
+	"github.com/aws/aws-sdk-go-v2/service/sqs"
+	"github.com/aws/aws-sdk-go-v2/service/ssm"
+	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
 )
 
 const (
 	defaultCapacity = 5
-	helloFilesCount = 2
 )
 
-// LoadData loads sample data into DynamoDB and S3.
+// Clients holds all AWS SDK clients for demo data loading.
+type Clients struct {
+	DynamoDB       *dynamodb.Client
+	S3             *s3.Client
+	SQS            *sqs.Client
+	SNS            *sns.Client
+	IAM            *iam.Client
+	STS            *sts.Client
+	SSM            *ssm.Client
+	KMS            *kms.Client
+	SecretsManager *secretsmanager.Client
+}
+
+// LoadData loads sample data into all supported services.
 func LoadData(
 	ctx context.Context,
 	logger *slog.Logger,
-	ddb *dynamodb.Client,
-	s3Client *s3.Client,
+	clients *Clients,
 ) error {
 	logger.InfoContext(ctx, "Loading demo data...")
 
-	if err := loadDynamoDB(ctx, logger, ddb); err != nil {
+	if err := loadDynamoDB(ctx, logger, clients.DynamoDB); err != nil {
 		return fmt.Errorf("failed to load dynamodb data: %w", err)
 	}
 
-	if err := loadS3(ctx, logger, s3Client); err != nil {
+	if err := loadS3(ctx, logger, clients.S3); err != nil {
 		return fmt.Errorf("failed to load s3 data: %w", err)
 	}
+
+	loadSQS(ctx, logger, clients.SQS)
+
+	if err := loadSNS(ctx, logger, clients.SNS, clients.SQS); err != nil {
+		return fmt.Errorf("failed to load sns data: %w", err)
+	}
+
+	loadIAM(ctx, logger, clients.IAM)
+
+	if err := loadSSM(ctx, logger, clients.SSM); err != nil {
+		return fmt.Errorf("failed to load ssm data: %w", err)
+	}
+
+	loadKMS(ctx, logger, clients.KMS)
+
+	loadSecretsManager(ctx, logger, clients.SecretsManager)
 
 	logger.InfoContext(ctx, "Demo data loaded successfully")
 
@@ -127,6 +162,7 @@ func loadS3(ctx context.Context, logger *slog.Logger, s3Client *s3.Client) error
 				err,
 			)
 		}
+	} else {
 		logger.InfoContext(ctx, "Created bucket", "bucket", bucketName)
 	}
 
@@ -142,19 +178,25 @@ func loadS3(ctx context.Context, logger *slog.Logger, s3Client *s3.Client) error
 		logger.InfoContext(ctx, "Enabled versioning", "bucket", bucketName)
 	}
 
-	// Upload Files (Multiple versions for hello.txt)
-	// Version 1
-	_, err = s3Client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket:      &bucketName,
-		Key:         aws.String("hello.txt"),
-		Body:        strings.NewReader("Hello Gopherstack! (v1)"),
-		ContentType: aws.String("text/plain"),
-	})
-	if err != nil {
-		return fmt.Errorf("failed to upload hello.txt v1: %w", err)
+	// Upload Files
+	files := map[string]string{
+		"hello.txt": "Hello Gopherstack! (v1)",
+		"notes.md":  "# Notes\n\nThis is a demo file.",
 	}
 
-	// Version 2
+	for key, content := range files {
+		_, err = s3Client.PutObject(ctx, &s3.PutObjectInput{
+			Bucket:      &bucketName,
+			Key:         aws.String(key),
+			Body:        strings.NewReader(content),
+			ContentType: aws.String("text/plain"),
+		})
+		if err != nil {
+			return fmt.Errorf("failed to upload %s: %w", key, err)
+		}
+	}
+
+	// Upload second version for hello.txt
 	_, err = s3Client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:      &bucketName,
 		Key:         aws.String("hello.txt"),
@@ -165,23 +207,116 @@ func loadS3(ctx context.Context, logger *slog.Logger, s3Client *s3.Client) error
 		return fmt.Errorf("failed to upload hello.txt v2: %w", err)
 	}
 
-	// Other files
-	files := map[string]string{
-		"notes.md": "# Notes\n\nThis is a demo file with versioning enabled.",
-	}
-
-	for key, content := range files {
-		_, err = s3Client.PutObject(ctx, &s3.PutObjectInput{
-			Bucket:      &bucketName,
-			Key:         &key,
-			Body:        strings.NewReader(content),
-			ContentType: aws.String("text/plain"),
-		})
-		if err != nil {
-			return fmt.Errorf("failed to upload file %s: %w", key, err)
-		}
-	}
-	logger.InfoContext(ctx, "Loaded S3 files", "count", len(files)+helloFilesCount)
+	logger.InfoContext(ctx, "Loaded S3 files", "count", len(files)+1)
 
 	return nil
+}
+
+func loadSQS(ctx context.Context, logger *slog.Logger, sqsClient *sqs.Client) {
+	queueName := "demo-queue"
+	_, err := sqsClient.CreateQueue(ctx, &sqs.CreateQueueInput{
+		QueueName: &queueName,
+	})
+	if err != nil {
+		logger.WarnContext(ctx, "Failed to create queue", "error", err)
+	} else {
+		logger.InfoContext(ctx, "Created SQS queue", "name", queueName)
+	}
+}
+
+func loadSNS(ctx context.Context, logger *slog.Logger, snsClient *sns.Client, _ *sqs.Client) error {
+	topicName := "demo-topic"
+	topic, err := snsClient.CreateTopic(ctx, &sns.CreateTopicInput{
+		Name: &topicName,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create topic: %w", err)
+	}
+	logger.InfoContext(ctx, "Created SNS topic", "name", topicName)
+
+	// Create subscription to the SQS queue
+	queueName := "demo-queue"
+	_, err = snsClient.Subscribe(ctx, &sns.SubscribeInput{
+		TopicArn: topic.TopicArn,
+		Protocol: aws.String("sqs"),
+		Endpoint: aws.String("arn:aws:sqs:us-east-1:123456789012:" + queueName),
+	})
+	if err != nil {
+		logger.WarnContext(ctx, "Failed to subscribe queue to topic", "error", err)
+	} else {
+		logger.InfoContext(ctx, "Subscribed SQS queue to SNS topic")
+	}
+
+	return nil
+}
+
+func loadIAM(ctx context.Context, logger *slog.Logger, iamClient *iam.Client) {
+	userName := "demo-user"
+	_, err := iamClient.CreateUser(ctx, &iam.CreateUserInput{
+		UserName: &userName,
+	})
+	if err != nil {
+		logger.WarnContext(ctx, "Failed to create IAM user", "error", err)
+	} else {
+		logger.InfoContext(ctx, "Created IAM user", "name", userName)
+	}
+
+	roleName := "demo-role"
+	assumePolicyDoc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
+		`"Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}`
+	_, err = iamClient.CreateRole(ctx, &iam.CreateRoleInput{
+		RoleName:                 &roleName,
+		AssumeRolePolicyDocument: aws.String(assumePolicyDoc),
+	})
+	if err != nil {
+		logger.WarnContext(ctx, "Failed to create IAM role", "error", err)
+	} else {
+		logger.InfoContext(ctx, "Created IAM role", "name", roleName)
+	}
+}
+
+func loadSSM(ctx context.Context, logger *slog.Logger, ssmClient *ssm.Client) error {
+	params := map[string]string{
+		"/demo/config/api_key": "secret-api-key-123",
+		"/demo/config/env":     "development",
+	}
+
+	for name, value := range params {
+		_, err := ssmClient.PutParameter(ctx, &ssm.PutParameterInput{
+			Name:      aws.String(name),
+			Value:     aws.String(value),
+			Type:      ssmtypes.ParameterTypeSecureString,
+			Overwrite: aws.Bool(true),
+		})
+		if err != nil {
+			return fmt.Errorf("failed to put ssm parameter %s: %w", name, err)
+		}
+	}
+	logger.InfoContext(ctx, "Loaded SSM parameters", "count", len(params))
+
+	return nil
+}
+
+func loadKMS(ctx context.Context, logger *slog.Logger, kmsClient *kms.Client) {
+	_, err := kmsClient.CreateKey(ctx, &kms.CreateKeyInput{
+		Description: aws.String("Demo key for encryption"),
+	})
+	if err != nil {
+		logger.WarnContext(ctx, "Failed to create KMS key", "error", err)
+	} else {
+		logger.InfoContext(ctx, "Created KMS key")
+	}
+}
+
+func loadSecretsManager(ctx context.Context, logger *slog.Logger, smClient *secretsmanager.Client) {
+	secretName := "demo/database/password"
+	_, err := smClient.CreateSecret(ctx, &secretsmanager.CreateSecretInput{
+		Name:         &secretName,
+		SecretString: aws.String(`{"username":"admin","password":"password123"}`),
+	})
+	if err != nil {
+		logger.WarnContext(ctx, "Failed to create secret", "error", err)
+	} else {
+		logger.InfoContext(ctx, "Created secret", "name", secretName)
+	}
 }

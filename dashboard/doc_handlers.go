@@ -7,19 +7,29 @@ func (h *DashboardHandler) docIndex(w http.ResponseWriter, _ *http.Request) {
 	data := struct {
 		PageData
 
-		DynamoDBOps []string
-		S3Ops       []string
-		SSMOps      []string
-		SQSOps      []string
+		DynamoDBOps       []string
+		S3Ops             []string
+		SSMOps            []string
+		SQSOps            []string
+		SNSOps            []string
+		IAMOps            []string
+		STSOps            []string
+		KMSOps            []string
+		SecretsManagerOps []string
 	}{
 		PageData: PageData{
 			Title:     "API Documentation",
 			ActiveTab: "docs",
 		},
-		DynamoDBOps: h.DDBOps.GetSupportedOperations(),
-		S3Ops:       h.S3Ops.GetSupportedOperations(),
-		SSMOps:      h.SSMOps.GetSupportedOperations(),
-		SQSOps:      h.sqsOps(),
+		DynamoDBOps:       h.DDBOps.GetSupportedOperations(),
+		S3Ops:             h.S3Ops.GetSupportedOperations(),
+		SSMOps:            h.SSMOps.GetSupportedOperations(),
+		SQSOps:            h.sqsOps(),
+		SNSOps:            h.snsOps(),
+		IAMOps:            h.iamOps(),
+		STSOps:            h.stsOps(),
+		KMSOps:            h.kmsOps(),
+		SecretsManagerOps: h.smOps(),
 	}
 
 	h.renderTemplate(w, "doc.html", data)
@@ -32,4 +42,49 @@ func (h *DashboardHandler) sqsOps() []string {
 	}
 
 	return h.SQSOps.GetSupportedOperations()
+}
+
+// snsOps returns the list of supported SNS operations, or nil if SNSOps is not configured.
+func (h *DashboardHandler) snsOps() []string {
+	if h.SNSOps == nil {
+		return nil
+	}
+
+	return h.SNSOps.GetSupportedOperations()
+}
+
+// iamOps returns the list of supported IAM operations, or nil if IAMOps is not configured.
+func (h *DashboardHandler) iamOps() []string {
+	if h.IAMOps == nil {
+		return nil
+	}
+
+	return h.IAMOps.GetSupportedOperations()
+}
+
+// stsOps returns the list of supported STS operations, or nil if STSOps is not configured.
+func (h *DashboardHandler) stsOps() []string {
+	if h.STSOps == nil {
+		return nil
+	}
+
+	return h.STSOps.GetSupportedOperations()
+}
+
+// kmsOps returns the list of supported KMS operations, or nil if KMSOps is not configured.
+func (h *DashboardHandler) kmsOps() []string {
+	if h.KMSOps == nil {
+		return nil
+	}
+
+	return h.KMSOps.GetSupportedOperations()
+}
+
+// smOps returns the list of supported Secrets Manager operations, or nil if SecretsManagerOps is not configured.
+func (h *DashboardHandler) smOps() []string {
+	if h.SecretsManagerOps == nil {
+		return nil
+	}
+
+	return h.SecretsManagerOps.GetSupportedOperations()
 }

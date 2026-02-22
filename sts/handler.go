@@ -30,6 +30,7 @@ var (
 const (
 	stsMatchPriority = 90
 	contentTypeForm  = "application/x-www-form-urlencoded"
+	stsVersion       = "Version=2011-06-15"
 	unknownOperation = "Unknown"
 	invalidAction    = "InvalidAction"
 	kvPairLen        = 2
@@ -59,7 +60,7 @@ func (h *Handler) GetSupportedOperations() []string {
 	return []string{"AssumeRole", "GetCallerIdentity"}
 }
 
-// RouteMatcher returns a matcher that identifies STS requests by Content-Type.
+// RouteMatcher returns a matcher that identifies STS requests by Content-Type and Version.
 // Dashboard paths are excluded so that browser form submissions (Playwright tests)
 // are not intercepted by the STS handler.
 func (h *Handler) RouteMatcher() service.Matcher {
@@ -70,8 +71,16 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		}
 
 		ct := c.Request().Header.Get("Content-Type")
+		if !strings.Contains(ct, contentTypeForm) {
+			return false
+		}
 
-		return strings.Contains(ct, contentTypeForm)
+		body, err := httputil.ReadBody(c.Request())
+		if err != nil {
+			return false
+		}
+
+		return strings.Contains(string(body), stsVersion)
 	}
 }
 

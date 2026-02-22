@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en">
 
 <head>
     <meta charset="UTF-8">
@@ -8,138 +8,211 @@
 
     <script>
         (function () {
-            const storageKey = 'gopherstack-theme';
-            const stored = localStorage.getItem(storageKey);
+            const stored = localStorage.getItem('gopherstack-theme');
             const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-            const theme = stored || (prefersDark ? 'dark' : 'light');
-            document.documentElement.setAttribute('data-theme', theme);
-            document.documentElement.classList.toggle('dark', theme === 'dark');
+            if (stored === 'dark' || (!stored && prefersDark)) {
+                document.documentElement.classList.add('dark');
+            }
         })();
     </script>
 
-    <!-- Tailwind CSS + DaisyUI -->
-    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.6.0/dist/full.min.css" rel="stylesheet" type="text/css" />
-    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Tailwind CSS (Play CDN bundled) -->
+    <script src="/dashboard/static/vendor/tailwind.min.js"></script>
+    <script>
+        tailwind.config = { darkMode: 'class' }
+    </script>
 
-    <!-- HTMX -->
-    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <!-- Flowbite CSS -->
+    <link href="/dashboard/static/vendor/flowbite.min.css" rel="stylesheet" />
 
     <!-- Custom styles -->
     <link rel="stylesheet" href="/dashboard/static/styles.css">
+
+    <!-- HTMX -->
+    <script src="/dashboard/static/vendor/htmx.min.js"></script>
 </head>
 
-<body class="bg-base-200">
-    <div class="drawer lg:drawer-open">
-        <input id="sidebar-drawer" type="checkbox" class="drawer-toggle" />
-        
-        <!-- Main content -->
-        <div class="drawer-content flex flex-col">
-            <!-- Top navbar with logo and menu button -->
-            <div class="navbar bg-base-100 shadow-lg sticky top-0 z-40">
-                <div class="flex-1">
-                    <label for="sidebar-drawer" class="btn btn-ghost btn-circle lg:hidden">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="inline-block w-5 h-5 stroke-current">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
-                        </svg>
-                    </label>
-                    <a href="/dashboard" class="btn btn-ghost text-xl">
-                        🐹 Gopherstack
-                    </a>
-                </div>
-                <div class="flex-none gap-2">
-                    <button id="theme-toggle" class="btn btn-ghost btn-circle" title="Toggle dark mode">
-                        <svg id="theme-icon" class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
-                            stroke="currentColor" stroke-width="1.8">
-                            <!-- Sun icon -->
-                            <path id="sun-icon" class="hidden" stroke-linecap="round" stroke-linejoin="round"
-                                d="M12 3v2m0 14v2m9-9h-2M5 12H3m15.364-6.364-1.414 1.414M7.05 16.95l-1.414 1.414m0-11.314 1.414 1.414m11.314 11.314-1.414-1.414M12 8a4 4 0 100 8 4 4 0 000-8z" />
-                            <!-- Moon icon -->
-                            <path id="moon-icon" stroke-linecap="round" stroke-linejoin="round"
-                                d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
-                        </svg>
-                    </button>
-                </div>
+<body class="bg-gray-50 dark:bg-gray-900 antialiased">
+
+    <!-- Top Navbar -->
+    <nav class="fixed top-0 z-50 w-full bg-white border-b border-gray-200 dark:bg-gray-800 dark:border-gray-700">
+        <div class="px-3 py-3 lg:px-5 lg:pl-3 flex items-center justify-between">
+            <div class="flex items-center">
+                <!-- Mobile sidebar toggle -->
+                <button data-drawer-target="sidebar" data-drawer-toggle="sidebar" aria-controls="sidebar" type="button"
+                    class="inline-flex items-center p-2 text-sm text-gray-500 rounded-lg lg:hidden
+                           hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-200
+                           dark:text-gray-400 dark:hover:bg-gray-700 dark:focus:ring-gray-600">
+                    <span class="sr-only">Open sidebar</span>
+                    <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
+                        <path clip-rule="evenodd" fill-rule="evenodd"
+                            d="M2 4.75A.75.75 0 012.75 4h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 4.75zm0 10.5a.75.75 0 01.75-.75h7.5a.75.75 0 010 1.5h-7.5a.75.75 0 01-.75-.75zM2 10a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 10z" />
+                    </svg>
+                </button>
+                <!-- Logo -->
+                <a href="/dashboard"
+                    class="flex ml-2 md:mr-24 items-center gap-2 text-gray-900 dark:text-white font-semibold text-lg">
+                    🐹 <span>Gopherstack</span>
+                </a>
             </div>
-
-            <!-- Alerts Container (for OOB swaps) -->
-            <div id="global-alerts"
-                class="fixed top-4 left-1/2 -translate-x-1/2 z-[1000] w-full max-w-2xl px-4 space-y-2 pointer-events-none">
-                <!-- Alerts will be injected here -->
-            </div>
-
-            <!-- Main content area -->
-            <main class="flex-1 px-4 py-8">
-                {{template "content" .}}
-            </main>
-
-            <!-- Footer -->
-            <footer class="footer footer-center p-4 bg-base-100 text-base-content mt-8">
-                <div>
-                    <p>Gopherstack - In-Memory AWS Stack for Go</p>
-                </div>
-            </footer>
+            <!-- Dark mode toggle -->
+            <button id="theme-toggle" type="button"
+                class="p-2 text-gray-500 rounded-lg hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-200 dark:text-gray-400 dark:hover:bg-gray-700 dark:focus:ring-gray-600"
+                title="Toggle dark mode">
+                <svg id="theme-icon-dark" class="w-5 h-5 hidden" fill="currentColor" viewBox="0 0 20 20">
+                    <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" />
+                </svg>
+                <svg id="theme-icon-light" class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd"
+                        d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z"
+                        clip-rule="evenodd" />
+                </svg>
+            </button>
         </div>
+    </nav>
 
-        <!-- Sidebar navigation -->
-        <div class="drawer-side">
-            <label for="sidebar-drawer" aria-label="close sidebar" class="drawer-overlay"></label>
-            <ul class="menu p-4 w-80 min-h-full bg-base-100 text-base-content">
-                <li class="menu-title">
-                    <span>Core Services</span>
+    <!-- Sidebar -->
+    <aside id="sidebar"
+        class="fixed top-0 left-0 z-40 w-64 h-screen pt-16 transition-transform -translate-x-full bg-white border-r border-gray-200 lg:translate-x-0 dark:bg-gray-800 dark:border-gray-700"
+        aria-label="Sidebar">
+        <div class="h-full px-3 pb-4 overflow-y-auto bg-white dark:bg-gray-800">
+            <ul class="space-y-1 font-medium mt-4">
+                <li class="px-3 py-1 text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500">Core
+                    Services</li>
+                <li>
+                    <a href="/dashboard/dynamodb"
+                        class='flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "dynamodb"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}'>
+                        <span>📊</span> DynamoDB
+                    </a>
                 </li>
-                <li><a href="/dashboard/dynamodb" class='{{if eq .ActiveTab "dynamodb"}}active{{end}}'>📊 DynamoDB</a></li>
-                <li><a href="/dashboard/s3" class='{{if eq .ActiveTab "s3"}}active{{end}}'>🪣 S3</a></li>
-                
-                <li class="menu-title mt-4">
-                    <span>Standard Services</span>
+                <li>
+                    <a href="/dashboard/s3"
+                        class='flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "s3"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}'>
+                        <span>🪣</span> S3
+                    </a>
                 </li>
-                <li><a href="/dashboard/ssm" class='{{if eq .ActiveTab "ssm"}}active{{end}}'>⚙️ SSM</a></li>
-                <li><a href="/dashboard/iam" class='{{if eq .ActiveTab "iam"}}active{{end}}'>🔐 IAM</a></li>
-                <li><a href="/dashboard/sts" class='{{if eq .ActiveTab "sts"}}active{{end}}'>🔑 STS</a></li>
-                
-                <li class="menu-title mt-4">
-                    <span>Message Services</span>
+
+                <li class="px-3 py-1 mt-4 text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500">
+                    Standard Services</li>
+                <li>
+                    <a href="/dashboard/ssm"
+                        class='flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "ssm"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}'>
+                        <span>⚙️</span> SSM
+                    </a>
                 </li>
-                <li><a href="/dashboard/sns" class='{{if eq .ActiveTab "sns"}}active{{end}}'>📢 SNS</a></li>
-                <li><a href="/dashboard/sqs" class='{{if eq .ActiveTab "sqs"}}active{{end}}'>📭 SQS</a></li>
-                
-                <li class="menu-title mt-4">
-                    <span>Security Services</span>
+                <li>
+                    <a href="/dashboard/iam"
+                        class='flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "iam"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}'>
+                        <span>🔐</span> IAM
+                    </a>
                 </li>
-                <li><a href="/dashboard/kms" class='{{if eq .ActiveTab "kms"}}active{{end}}'>🔑 KMS</a></li>
-                <li><a href="/dashboard/secretsmanager" class='{{if eq .ActiveTab "secretsmanager"}}active{{end}}'>🗝️ Secrets Manager</a></li>
-                
-                <li class="menu-title mt-4">
-                    <span>Monitoring</span>
+                <li>
+                    <a href="/dashboard/sts"
+                        class='flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "sts"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}'>
+                        <span>🔑</span> STS
+                    </a>
                 </li>
-                <li><a href="/dashboard/metrics" class='{{if eq .ActiveTab "metrics"}}active{{end}}'>📈 Metrics</a></li>
-                <li><a href="/dashboard/docs" class='{{if eq .ActiveTab "docs"}}active{{end}}'>📚 Docs</a></li>
+
+                <li class="px-3 py-1 mt-4 text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500">
+                    Message Services</li>
+                <li>
+                    <a href="/dashboard/sns"
+                        class='flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "sns"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}'>
+                        <span>📢</span> SNS
+                    </a>
+                </li>
+                <li>
+                    <a href="/dashboard/sqs"
+                        class='flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "sqs"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}'>
+                        <span>📭</span> SQS
+                    </a>
+                </li>
+
+                <li class="px-3 py-1 mt-4 text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500">
+                    Security Services</li>
+                <li>
+                    <a href="/dashboard/kms"
+                        class='flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "kms"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}'>
+                        <span>🔑</span> KMS
+                    </a>
+                </li>
+                <li>
+                    <a href="/dashboard/secretsmanager"
+                        class="flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "secretsmanager"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400
+                        font-semibold{{end}}">
+                        <span>🗝️</span> Secrets Manager
+                    </a>
+                </li>
+
+                <li class="px-3 py-1 mt-4 text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500">
+                    Monitoring</li>
+                <li>
+                    <a href="/dashboard/metrics"
+                        class='flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "metrics"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}'>
+                        <span>📈</span> Metrics
+                    </a>
+                </li>
+                <li>
+                    <a href="/dashboard/docs"
+                        class='flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "docs"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}'>
+                        <span>📚</span> Docs
+                    </a>
+                </li>
             </ul>
         </div>
+    </aside>
+
+    <!-- Main content wrapper -->
+    <div class="p-4 lg:ml-64 pt-20 min-h-screen flex flex-col">
+        <!-- Toast / alert container -->
+        <div id="global-alerts"
+            class="fixed top-16 left-1/2 -translate-x-1/2 z-[1000] w-full max-w-2xl px-4 space-y-2 pointer-events-none">
+        </div>
+
+        <!-- Page content -->
+        <main class="flex-1 py-6">
+            {{template "content" .}}
+        </main>
+
+        <!-- Footer -->
+        <footer
+            class="py-4 mt-8 text-center text-sm text-gray-500 dark:text-gray-400 border-t border-gray-200 dark:border-gray-700">
+            Gopherstack — In-Memory AWS Stack for Go
+        </footer>
     </div>
 
     <!-- Global Confirmation Modal -->
-    <dialog id="global_confirm_modal" class="modal">
-        <div class="modal-box">
-            <h3 id="global_confirm_title" class="text-lg font-bold">Confirmation</h3>
-            <p id="global_confirm_message" class="py-4 text-base-content/70">Are you sure you want to proceed?</p>
-            <div class="modal-action">
-                <button id="global_confirm_cancel" class="btn btn-ghost">Cancel</button>
-                <button id="global_confirm_proceed" class="btn btn-primary">Confirm</button>
+    <div id="global_confirm_modal" tabindex="-1" aria-hidden="true"
+        class="hidden overflow-y-auto overflow-x-hidden fixed top-0 right-0 left-0 z-50 justify-center items-center w-full md:inset-0 h-modal md:h-full">
+        <div class="relative p-4 w-full max-w-md h-full md:h-auto">
+            <div class="relative bg-white rounded-lg shadow dark:bg-gray-700">
+                <div class="p-6 text-center">
+                    <svg aria-hidden="true" class="mx-auto mb-4 w-14 h-14 text-gray-400 dark:text-gray-200" fill="none"
+                        stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                    <h3 id="global_confirm_title" class="text-lg font-normal text-gray-500 dark:text-gray-400">
+                        Confirmation</h3>
+                    <p id="global_confirm_message" class="mb-5 text-sm font-normal text-gray-500 dark:text-gray-400">Are
+                        you sure you want to proceed?</p>
+                    <button id="global_confirm_proceed" type="button"
+                        class="text-white bg-red-600 hover:bg-red-800 focus:ring-4 focus:outline-none focus:ring-red-300 dark:focus:ring-red-800 font-medium rounded-lg text-sm inline-flex items-center px-5 py-2.5 text-center mr-2">
+                        Yes, I'm sure
+                    </button>
+                    <button id="global_confirm_cancel" type="button"
+                        class="text-gray-500 bg-white hover:bg-gray-100 focus:ring-4 focus:outline-none focus:ring-gray-200 rounded-lg border border-gray-200 text-sm font-medium px-5 py-2.5 hover:text-gray-900 focus:z-10 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-500 dark:hover:text-white dark:hover:bg-gray-600 dark:focus:ring-gray-600">
+                        No, cancel
+                    </button>
+                </div>
             </div>
         </div>
-        <form method="dialog" class="modal-backdrop">
-            <button>close</button>
-        </form>
-    </dialog>
+    </div>
 
-    <!-- Custom JavaScript -->
-    <script>
-        // Ensure Tailwind respects the theme change
-        window.addEventListener('theme-changed', (e) => {
-            document.documentElement.classList.toggle('dark', e.detail.theme === 'dark');
-        });
-    </script>
+    <!-- Flowbite JS (for sidebar toggle, etc.) -->
+    <script src="/dashboard/static/vendor/flowbite.min.js"></script>
+
+    <!-- Custom JS -->
     <script src="/dashboard/static/app.js"></script>
 </body>
 

@@ -74,7 +74,7 @@ func TestIAMDashboard(t *testing.T) {
 	require.NoError(t, err)
 
 	// Click the confirm button in the global confirm modal.
-	err = page.Click("button:has-text('Confirm')")
+	err = page.Click("#global_confirm_proceed")
 	require.NoError(t, err)
 
 	time.Sleep(500 * time.Millisecond)

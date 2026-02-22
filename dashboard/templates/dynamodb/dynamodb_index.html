@@ -2,13 +2,17 @@
 <div class="space-y-6">
     <!-- Header -->
     <div class="flex justify-between items-center">
-        <h1 class="text-3xl font-bold">DynamoDB Tables</h1>
+        <h1 class="text-3xl font-bold text-gray-900 dark:text-white">DynamoDB Tables</h1>
         <div class="flex gap-2">
-            <button class="btn btn-error" hx-delete="/dashboard/dynamodb/purge"
+            <button
+                class="text-white bg-red-700 hover:bg-red-800 focus:ring-4 focus:ring-red-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-red-600 dark:hover:bg-red-700 focus:outline-none dark:focus:ring-red-800"
+                hx-delete="/dashboard/dynamodb/purge"
                 hx-confirm="Are you sure you want to delete ALL tables? This cannot be undone." hx-target="#table-list">
                 Purge All
             </button>
-            <button class="btn btn-primary" onclick="document.getElementById('create_table_modal').showModal()">
+            <button
+                class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-blue-600 dark:hover:bg-blue-700 focus:outline-none dark:focus:ring-blue-800"
+                data-modal-target="create_table_modal" data-modal-toggle="create_table_modal">
                 + Create Table
             </button>
         </div>
@@ -16,81 +20,116 @@
 
     <!-- Search/Filter & Pagination Container -->
     <div class="flex flex-col md:flex-row justify-between items-end gap-4">
-        <div class="form-control w-full max-w-xs">
-            <label class="label">
-                <span class="label-text">Search Tables</span>
-            </label>
-            <input type="text" name="search" placeholder="Search tables..." class="input input-bordered w-full"
+        <div class="w-full max-w-xs">
+            <label for="table-search" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Search
+                Tables</label>
+            <input type="text" id="table-search" name="search" placeholder="Search tables..."
+                class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500"
                 hx-get="/dashboard/dynamodb/tables" hx-vals='{"offset": 0}'
                 hx-trigger="input changed delay:300ms, search" hx-target="#table-list" hx-push-url="true">
         </div>
-        <div id="pagination-top" class="flex-1 flex justify-end">
-            <!-- Pagination summary can be mirrored here via OOB if needed -->
-        </div>
+        <div id="pagination-top" class="flex-1 flex justify-end"></div>
     </div>
 
     <!-- Loading indicator -->
-    <div class="htmx-indicator">
-        <span class="loading loading-spinner loading-lg"></span>
+    <div class="htmx-indicator flex items-center justify-center p-8" style="display:none">
+        <div role="status">
+            <svg aria-hidden="true" class="w-8 h-8 text-gray-200 animate-spin dark:text-gray-600 fill-blue-600"
+                viewBox="0 0 100 101" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path
+                    d="M100 50.5908C100 78.2051 77.6142 100.591 50 100.591C22.3858 100.591 0 78.2051 0 50.5908C0 22.9766 22.3858 0.59082 50 0.59082C77.6142 0.59082 100 22.9766 100 50.5908ZM9.08144 50.5908C9.08144 73.1895 27.4013 91.5094 50 91.5094C72.5987 91.5094 90.9186 73.1895 90.9186 50.5908C90.9186 27.9921 72.5987 9.67226 50 9.67226C27.4013 9.67226 9.08144 27.9921 9.08144 50.5908Z"
+                    fill="currentColor" />
+                <path
+                    d="M93.9676 39.0409C96.393 38.4038 97.8624 35.9116 97.0079 33.5539C95.2932 28.8227 92.871 24.3692 89.8167 20.348C85.8452 15.1192 80.8826 10.7238 75.2124 7.41289C69.5422 4.10194 63.2754 1.94025 56.7698 1.05124C51.7666 0.367541 46.6976 0.446843 41.7345 1.27873C39.2613 1.69328 37.813 4.19778 38.4501 6.62326C39.0873 9.04874 41.5694 10.4717 44.0505 10.1071C47.8511 9.54855 51.7191 9.52689 55.5402 10.0491C60.8642 10.7766 65.9928 12.5457 70.6331 15.2552C75.2735 17.9648 79.3347 21.5619 82.5849 25.841C84.9175 28.9121 86.7997 32.2913 88.1811 35.8758C89.083 38.2158 91.5421 39.6781 93.9676 39.0409Z"
+                    fill="currentFill" />
+            </svg>
+            <span class="sr-only">Loading...</span>
+        </div>
     </div>
 
     <!-- Table list -->
     <div id="table-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
         hx-get="/dashboard/dynamodb/tables" hx-trigger="load" hx-indicator=".htmx-indicator">
-        <!-- Tables will be loaded here -->
     </div>
 </div>
 
 <!-- Create Table Modal -->
-<dialog id="create_table_modal" class="modal">
-    <div class="modal-box">
-        <h3 class="font-bold text-lg">Create Table</h3>
-        <form method="dialog" class="space-y-4 mt-4" hx-post="/dashboard/dynamodb/create" hx-target="#table-list"
-            hx-on::after-request="if(event.detail.successful) document.getElementById('create_table_modal').close()">
-            <div class="form-control">
-                <label class="label">
-                    <span class="label-text">Table Name</span>
-                </label>
-                <input type="text" name="tableName" placeholder="users" class="input input-bordered" required>
+<div id="create_table_modal" tabindex="-1" aria-hidden="true"
+    class="hidden overflow-y-auto overflow-x-hidden fixed top-0 right-0 left-0 z-50 justify-center items-center w-full md:inset-0 h-[calc(100%-1rem)] max-h-full">
+    <div class="relative p-4 w-full max-w-md max-h-full">
+        <!-- Modal content -->
+        <div class="relative bg-white rounded-lg shadow dark:bg-gray-700">
+            <!-- Modal header -->
+            <div class="flex items-center justify-between p-4 md:p-5 border-b rounded-t dark:border-gray-600">
+                <h3 class="text-xl font-semibold text-gray-900 dark:text-white">
+                    Create Table
+                </h3>
+                <button type="button"
+                    class="text-gray-400 bg-transparent hover:bg-gray-200 hover:text-gray-900 rounded-lg text-sm w-8 h-8 ms-auto inline-flex justify-center items-center dark:hover:bg-gray-600 dark:hover:text-white"
+                    data-modal-hide="create_table_modal">
+                    <svg class="w-3 h-3" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none"
+                        viewBox="0 0 14 14">
+                        <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="m1 1 6 6m0 0 6 6M7 7l6-6M7 7l-6 6" />
+                    </svg>
+                    <span class="sr-only">Close modal</span>
+                </button>
             </div>
-            <div class="form-control">
-                <label class="label">
-                    <span class="label-text">Partition Key</span>
-                </label>
-                <input type="text" name="partitionKey" placeholder="id" class="input input-bordered" required>
+            <!-- Modal body -->
+            <div class="p-4 md:p-5">
+                <form class="space-y-4" hx-post="/dashboard/dynamodb/create" hx-target="#table-list"
+                    hx-on::after-request="if(event.detail.successful) { const m = document.getElementById('create_table_modal'); if(window.Modal) { new Modal(m).hide(); } else { m.classList.add('hidden'); } }">
+                    <div>
+                        <label for="tableName"
+                            class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Table Name</label>
+                        <input type="text" name="tableName" id="tableName" placeholder="users"
+                            class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-600 dark:border-gray-500 dark:placeholder-gray-400 dark:text-white"
+                            required>
+                    </div>
+                    <div>
+                        <label for="partitionKey"
+                            class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Partition Key</label>
+                        <input type="text" name="partitionKey" id="partitionKey" placeholder="id"
+                            class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-600 dark:border-gray-500 dark:placeholder-gray-400 dark:text-white"
+                            required>
+                    </div>
+                    <div>
+                        <label for="partitionKeyType"
+                            class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Partition Key
+                            Type</label>
+                        <select name="partitionKeyType" id="partitionKeyType"
+                            class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-600 dark:border-gray-500 dark:placeholder-gray-400 dark:text-white">
+                            <option value="S">String</option>
+                            <option value="N">Number</option>
+                            <option value="B">Binary</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="sortKey" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Sort
+                            Key (Optional)</label>
+                        <input type="text" name="sortKey" id="sortKey" placeholder="timestamp"
+                            class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-600 dark:border-gray-500 dark:placeholder-gray-400 dark:text-white">
+                    </div>
+                    <div>
+                        <label for="sortKeyType"
+                            class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Sort Key Type</label>
+                        <select name="sortKeyType" id="sortKeyType"
+                            class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-600 dark:border-gray-500 dark:placeholder-gray-400 dark:text-white">
+                            <option value="S">String</option>
+                            <option value="N">Number</option>
+                            <option value="B">Binary</option>
+                        </select>
+                    </div>
+                    <div class="flex justify-end gap-2 pt-4">
+                        <button type="button"
+                            class="text-gray-500 bg-white hover:bg-gray-100 focus:ring-4 focus:outline-none focus:ring-gray-200 rounded-lg border border-gray-200 text-sm font-medium px-5 py-2.5 hover:text-gray-900 focus:z-10 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-500 dark:hover:text-white dark:hover:bg-gray-600 dark:focus:ring-gray-600"
+                            data-modal-hide="create_table_modal">Cancel</button>
+                        <button type="submit"
+                            class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800">Create</button>
+                    </div>
+                </form>
             </div>
-            <div class="form-control">
-                <label class="label">
-                    <span class="label-text">Partition Key Type</span>
-                </label>
-                <select name="partitionKeyType" class="select select-bordered">
-                    <option value="S">String</option>
-                    <option value="N">Number</option>
-                    <option value="B">Binary</option>
-                </select>
-            </div>
-            <div class="form-control">
-                <label class="label">
-                    <span class="label-text">Sort Key (Optional)</span>
-                </label>
-                <input type="text" name="sortKey" placeholder="timestamp" class="input input-bordered">
-            </div>
-            <div class="form-control">
-                <label class="label">
-                    <span class="label-text">Sort Key Type</span>
-                </label>
-                <select name="sortKeyType" class="select select-bordered">
-                    <option value="S">String</option>
-                    <option value="N">Number</option>
-                    <option value="B">Binary</option>
-                </select>
-            </div>
-            <div class="modal-action">
-                <button type="button" class="btn"
-                    onclick="document.getElementById('create_table_modal').close()">Cancel</button>
-                <button type="submit" class="btn btn-primary">Create</button>
-            </div>
-        </form>
+        </div>
     </div>
-</dialog>
+</div>
 {{end}}

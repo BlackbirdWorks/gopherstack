@@ -98,10 +98,24 @@ type Config struct {
 
 // NewHandler creates a new Dashboard handler.
 func NewHandler(cfg Config) *DashboardHandler {
+	funcMap := template.FuncMap{
+		"safeID": func(s string) string {
+			s = strings.ReplaceAll(s, "/", "-")
+			s = strings.ReplaceAll(s, " ", "-")
+			s = strings.ReplaceAll(s, ".", "-")
+			s = strings.ReplaceAll(s, ":", "-")
+			s = strings.ReplaceAll(s, "%", "-")
+
+			return s
+		},
+	}
+
 	// Parse layout and components
-	tmpl := template.Must(template.ParseFS(templateFS,
+	tmpl := template.Must(template.New("layout").Funcs(funcMap).ParseFS(templateFS,
 		"templates/layout.html",
 		"templates/components/*.html",
+		"templates/s3/*.html",
+		"templates/dynamodb/*.html",
 		"templates/ssm/*.html",
 		"templates/iam/*.html",
 		"templates/sts/*.html",
@@ -109,6 +123,8 @@ func NewHandler(cfg Config) *DashboardHandler {
 		"templates/sqs/*.html",
 		"templates/kms/*.html",
 		"templates/secretsmanager/*.html",
+		"templates/metrics.html",
+		"templates/doc.html",
 	))
 
 	// Create service-specific dashboard providers

@@ -1,46 +1,79 @@
 {{define "pagination"}}
-<div class="flex flex-col md:flex-row justify-between items-center bg-base-200 p-4 rounded-lg col-span-full gap-4 mt-4">
-    <div class="text-sm font-medium">
-        Showing page <span class="badge badge-ghost">{{.CurrentPage}}</span> of <span
-            class="badge badge-ghost">{{.TotalPages}}</span>
-        (<span class="badge badge-ghost">{{.TotalItems}}</span> total items)
+<div
+    class="flex flex-col md:flex-row justify-between items-center bg-gray-50 dark:bg-gray-800 p-4 rounded-lg col-span-full gap-4 mt-4 border border-gray-200 dark:border-gray-700">
+    <div class="text-sm font-medium text-gray-700 dark:text-gray-300">
+        Showing page <span
+            class="bg-blue-100 text-blue-800 text-xs font-semibold px-2 py-0.5 rounded dark:bg-blue-200 dark:text-blue-800">{{.CurrentPage}}</span>
+        of <span
+            class="bg-gray-100 text-gray-800 text-xs font-semibold px-2 py-0.5 rounded dark:bg-gray-700 dark:text-gray-300">{{.TotalPages}}</span>
+        (<span
+            class="bg-gray-100 text-gray-800 text-xs font-semibold px-2 py-0.5 rounded dark:bg-gray-700 dark:text-gray-300">{{.TotalItems}}</span>
+        total items)
     </div>
 
-    <div class="join">
-        <button class="join-item btn btn-sm {{if not .HasPrev}}btn-disabled{{end}}"
-            hx-get="{{.BaseEndpoint}}?offset={{.PrevOffset}}&search={{.SearchQuery}}" hx-target="{{.TargetID}}"
-            hx-indicator=".htmx-indicator" {{if not .HasPrev}}disabled{{end}}>
-            « Prev
-        </button>
-
-        <button class="join-item btn btn-sm btn-active">
-            Page {{.CurrentPage}}
-        </button>
-
-        <button class="join-item btn btn-sm {{if not .HasNext}}btn-disabled{{end}}"
-            hx-get="{{.BaseEndpoint}}?offset={{.NextOffset}}&search={{.SearchQuery}}" hx-target="{{.TargetID}}"
-            hx-indicator=".htmx-indicator" {{if not .HasNext}}disabled{{end}}>
-            Next »
-        </button>
-    </div>
+    <nav aria-label="Page navigation">
+        <ul class="inline-flex -space-x-px text-sm">
+            <li>
+                <button
+                    class="flex items-center justify-center px-3 h-8 ms-0 leading-tight text-gray-500 bg-white border border-e-0 border-gray-300 rounded-s-lg hover:bg-gray-100 hover:text-gray-700 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-white {{if not .HasPrev}}opacity-50 cursor-not-allowed{{end}}"
+                    hx-get="{{.BaseEndpoint}}?offset={{.PrevOffset}}&search={{.SearchQuery}}" hx-target="{{.TargetID}}"
+                    hx-indicator=".htmx-indicator" {{if not .HasPrev}}disabled{{end}}>
+                    Previous
+                </button>
+            </li>
+            <li>
+                <span
+                    class="flex items-center justify-center px-3 h-8 text-blue-600 border border-gray-300 bg-blue-50 hover:bg-blue-100 hover:text-blue-700 dark:border-gray-700 dark:bg-gray-700 dark:text-white">
+                    {{.CurrentPage}}
+                </span>
+            </li>
+            <li>
+                <button
+                    class="flex items-center justify-center px-3 h-8 leading-tight text-gray-500 bg-white border border-gray-300 rounded-e-lg hover:bg-gray-100 hover:text-gray-700 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-white {{if not .HasNext}}opacity-50 cursor-not-allowed{{end}}"
+                    hx-get="{{.BaseEndpoint}}?offset={{.NextOffset}}&search={{.SearchQuery}}" hx-target="{{.TargetID}}"
+                    hx-indicator=".htmx-indicator" {{if not .HasNext}}disabled{{end}}>
+                    Next
+                </button>
+            </li>
+        </ul>
+    </nav>
 </div>
 
 <!-- OOB update for top pagination -->
 <div id="pagination-top" hx-swap-oob="true">
-    <div class="join">
-        <button class="join-item btn btn-xs {{if not .HasPrev}}btn-disabled{{end}}"
-            hx-get="{{.BaseEndpoint}}?offset={{.PrevOffset}}&search={{.SearchQuery}}" hx-target="{{.TargetID}}"
-            hx-indicator=".htmx-indicator" {{if not .HasPrev}}disabled{{end}}>
-            «
-        </button>
-        <button class="join-item btn btn-xs btn-active">
-            Page {{.CurrentPage}}/{{.TotalPages}}
-        </button>
-        <button class="join-item btn btn-xs {{if not .HasNext}}btn-disabled{{end}}"
-            hx-get="{{.BaseEndpoint}}?offset={{.NextOffset}}&search={{.SearchQuery}}" hx-target="{{.TargetID}}"
-            hx-indicator=".htmx-indicator" {{if not .HasNext}}disabled{{end}}>
-            »
-        </button>
-    </div>
+    <nav aria-label="Page navigation small">
+        <ul class="inline-flex -space-x-px text-xs">
+            <li>
+                <button
+                    class="flex items-center justify-center px-2 h-6 ms-0 leading-tight text-gray-500 bg-white border border-e-0 border-gray-300 rounded-s-lg hover:bg-gray-100 hover:text-gray-700 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-white {{if not .HasPrev}}opacity-50 cursor-not-allowed{{end}}"
+                    hx-get="{{.BaseEndpoint}}?offset={{.PrevOffset}}&search={{.SearchQuery}}" hx-target="{{.TargetID}}"
+                    hx-indicator=".htmx-indicator" {{if not .HasPrev}}disabled{{end}}>
+                    <svg class="w-2 h-2" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none"
+                        viewBox="0 0 6 10">
+                        <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M5 1 1 5l4 4" />
+                    </svg>
+                </button>
+            </li>
+            <li>
+                <span
+                    class="flex items-center justify-center px-2 h-6 text-blue-600 border border-gray-300 bg-blue-50 dark:border-gray-700 dark:bg-gray-700 dark:text-white font-medium">
+                    {{.CurrentPage}}/{{.TotalPages}}
+                </span>
+            </li>
+            <li>
+                <button
+                    class="flex items-center justify-center px-2 h-6 leading-tight text-gray-500 bg-white border border-gray-300 rounded-e-lg hover:bg-gray-100 hover:text-gray-700 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-white {{if not .HasNext}}opacity-50 cursor-not-allowed{{end}}"
+                    hx-get="{{.BaseEndpoint}}?offset={{.NextOffset}}&search={{.SearchQuery}}" hx-target="{{.TargetID}}"
+                    hx-indicator=".htmx-indicator" {{if not .HasNext}}disabled{{end}}>
+                    <svg class="w-2 h-2" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none"
+                        viewBox="0 0 6 10">
+                        <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="m1 9 4-4-4-4" />
+                    </svg>
+                </button>
+            </li>
+        </ul>
+    </nav>
 </div>
 {{end}}

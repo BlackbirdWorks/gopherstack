@@ -1,207 +1,118 @@
-/* Custom styles for Gopherstack UI */
+/* Gopherstack UI — Optimized for Flowbite */
 
-/* Ensure theme-aware colors throughout */
 :root {
-    color-scheme: light dark;
+  color-scheme: light dark;
 }
 
-html[data-theme="dark"] {
-    color-scheme: dark;
+html.dark {
+  color-scheme: dark;
 }
 
-/* JSON viewer styling - theme aware */
-.json-viewer {
-    background-color: hsl(var(--b2));
-    color: hsl(var(--bc));
-    border-radius: 0.5rem;
-    padding: 1rem;
-    overflow-x: auto;
-    font-family: 'Courier New', monospace;
-    font-size: 0.875rem;
-    border: 1px solid hsl(var(--b3));
-}
+/* ── Custom Utilities ────────────────────────────────────────── */
 
-.json-key {
-    color: hsl(var(--p) / 0.8);
-    font-weight: 600;
-}
-
-.json-string {
-    color: hsl(var(--s) / 0.8);
-}
-
-.json-number {
-    color: hsl(var(--a) / 0.8);
-}
-
-.json-boolean {
-    color: hsl(var(--w) / 0.8);
-}
-
-.json-null {
-    color: hsl(var(--bc) / 0.5);
-    font-style: italic;
-}
-
-/* File tree styling - theme aware */
-.file-tree {
-    list-style: none;
-    padding-left: 0;
-}
-
-.file-tree li {
-    padding: 0.5rem;
-    cursor: pointer;
-    border-radius: 0.25rem;
-    transition: background-color 0.2s;
-    color: hsl(var(--bc));
-}
-
-.file-tree li:hover {
-    background-color: hsl(var(--b3));
-}
-
-.file-tree .folder {
-    font-weight: 600;
-}
-
-.file-tree .file {
-    padding-left: 1.5rem;
-}
-
-/* Loading indicator */
+/* HTMX indicator */
 .htmx-indicator {
-    display: none;
+  display: none;
 }
 
 .htmx-request .htmx-indicator {
-    display: inline-block;
+  display: inline-block;
 }
 
 .htmx-request.htmx-indicator {
-    display: inline-block;
+  display: inline-block;
 }
 
-/* Breadcrumb styling - theme aware */
-.breadcrumb {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 1rem 0;
+/* JSON viewer */
+.json-viewer {
+  background-color: #f9fafb;
+  color: #1f2937;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  overflow-x: auto;
+  font-family: 'Courier New', monospace;
+  font-size: 0.875rem;
+  border: 1px solid #e5e7eb;
 }
 
-.breadcrumb-item {
-    color: hsl(var(--bc) / 0.7);
+html.dark .json-viewer {
+  background-color: #1e2433;
+  color: #e2e8f0;
+  border-color: #2a3142;
 }
 
-.breadcrumb-item.active {
-    color: hsl(var(--bc));
-    font-weight: 600;
+.json-key {
+  color: #4f46e5;
+  font-weight: 600;
 }
 
-/* Table responsive wrapper */
-.table-responsive {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
+.json-string {
+  color: #059669;
 }
 
-/* Tables - theme aware with proper DaisyUI support */
-table {
-    background-color: hsl(var(--b1));
-    color: hsl(var(--bc));
+.json-number {
+  color: #d97706;
 }
 
-table thead {
-    background-color: hsl(var(--b2));
-    color: hsl(var(--bc));
+.json-boolean {
+  color: #dc2626;
 }
 
-table tbody tr {
-    border-color: hsl(var(--b3));
+.json-null {
+  color: #6b7280;
+  font-style: italic;
 }
 
-table tbody tr:hover {
-    background-color: hsl(var(--b2));
-}
-
-.table {
-    background-color: hsl(var(--b1));
-}
-
-.table thead th {
-    background-color: hsl(var(--b2));
-    color: hsl(var(--bc));
-    border-bottom-color: hsl(var(--b3));
-}
-
-.table tbody tr {
-    border-bottom-color: hsl(var(--b3));
-}
-
-.table tbody tr:hover {
-    background-color: hsl(var(--b2));
-}
-
-/* Code block styling - theme aware */
+/* Code block */
 .code-block {
-    background-color: hsl(var(--b2));
-    color: hsl(var(--bc));
-    padding: 1rem;
-    border-radius: 0.5rem;
-    overflow-x: auto;
-    font-family: 'Courier New', monospace;
-    font-size: 0.875rem;
-    border: 1px solid hsl(var(--b3));
+  background-color: #f9fafb;
+  color: #111827;
+  padding: 1rem;
+  border-radius: 0.5rem;
+  overflow-x: auto;
+  font-family: 'Courier New', monospace;
+  font-size: 0.875rem;
+  border: 1px solid #e5e7eb;
 }
 
-/* Alert styling enhancements - theme aware */
-.alert-warning {
-    border-left: 4px solid hsl(var(--wa));
+html.dark .code-block {
+  background-color: #1e2433;
+  color: #e2e8f0;
+  border-color: #2a3142;
 }
 
-.alert-info {
-    border-left: 4px solid hsl(var(--in));
-}
-
-.alert-success {
-    border-left: 4px solid hsl(var(--su));
-}
-
-.alert-error {
-    border-left: 4px solid hsl(var(--er));
-}
-
-/* Smooth transitions */
+/* ── Smooth transitions ─────────────────────────────────────── */
 * {
-    transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+  transition: background-color .15s ease, color .15s ease, border-color .15s ease;
 }
 
-/* Custom scrollbar - theme aware */
+/* ── Scrollbar ──────────────────────────────────────────────── */
 ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-    background: hsl(var(--b2));
+  background: #f1f5f9;
+}
+
+html.dark ::-webkit-scrollbar-track {
+  background: #1e2433;
 }
 
 ::-webkit-scrollbar-thumb {
-    background: hsl(var(--b3));
-    border-radius: 4px;
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+html.dark ::-webkit-scrollbar-thumb {
+  background: #374151;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background: hsl(var(--bc) / 0.4);
+  background: #94a3b8;
 }
 
-/* Wide table layout for massive objects */
-.wide-table-container {
-    max-width: 100%;
-    margin-top: 1.5rem;
-    margin-bottom: 1.5rem;
-    overflow-x: auto;
-    border-radius: 0.5rem;
-    background-color: hsl(var(--b1));
-    border: 1px solid hsl(var(--b3));
+html.dark ::-webkit-scrollbar-thumb:hover {
+  background: #4b5563;
 }

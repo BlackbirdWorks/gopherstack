@@ -1,27 +1,55 @@
 {{define "content"}}
 <div class="space-y-6">
     <!-- Breadcrumb -->
-    <div class="text-sm breadcrumbs">
-        <ul>
-            <li><a href="/dashboard/dynamodb">Tables</a></li>
-            <li>{{.TableName}}</li>
-        </ul>
-    </div>
+    <nav class="flex mb-4" aria-label="Breadcrumb">
+        <ol class="inline-flex items-center space-x-1 md:space-x-3">
+            <li class="inline-flex items-center">
+                <a href="/dashboard/dynamodb"
+                    class="inline-flex items-center text-sm font-medium text-gray-700 hover:text-blue-600 dark:text-gray-400 dark:hover:text-white">
+                    <svg class="w-3 h-3 me-2.5" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"
+                        fill="currentColor" viewBox="0 0 20 20">
+                        <path
+                            d="m19.707 9.293-2-2-7-7a1 1 0 0 0-1.414 0l-7 7-2 2a1 1 0 0 0 1.414 1.414L2 10.414V18a2 2 0 0 0 2 2h3a1 1 0 0 0 1-1v-4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v4a1 1 0 0 0 1 1h3a2 2 0 0 0 2-2v-7.586l.293.293a1 1 0 0 0 1.414-1.414Z" />
+                    </svg>
+                    Tables
+                </a>
+            </li>
+            <li aria-current="page">
+                <div class="flex items-center">
+                    <svg class="w-3 h-3 text-gray-400 mx-1" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"
+                        fill="none" viewBox="0 0 6 10">
+                        <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="m1 9 4-4-4-4" />
+                    </svg>
+                    <span
+                        class="ms-1 text-sm font-medium text-gray-500 md:ms-2 dark:text-gray-400">{{.TableName}}</span>
+                </div>
+            </li>
+        </ol>
+    </nav>
 
     <!-- Header -->
-    <div class="flex justify-between items-center">
-        <h1 class="text-3xl font-bold">{{.TableName}}</h1>
-        <div class="flex gap-2">
-            <button class="btn btn-primary btn-sm" onclick="new_item_modal.showModal()">
+    <div class="flex justify-between items-center flex-wrap gap-4">
+        <h1 class="text-3xl font-bold text-gray-900 dark:text-white">{{.TableName}}</h1>
+        <div class="flex gap-2 flex-wrap">
+            <button
+                class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-4 py-2 dark:bg-blue-600 dark:hover:bg-blue-700 focus:outline-none dark:focus:ring-blue-800"
+                data-modal-target="new_item_modal" data-modal-toggle="new_item_modal">
                 New Item
             </button>
-            <button class="btn btn-outline btn-sm" onclick="import_modal.showModal()">
+            <button
+                class="py-2 px-4 text-sm font-medium text-gray-900 focus:outline-none bg-white rounded-lg border border-gray-200 hover:bg-gray-100 hover:text-blue-700 focus:z-10 focus:ring-4 focus:ring-gray-200 dark:focus:ring-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-600 dark:hover:text-white dark:hover:bg-gray-700"
+                data-modal-target="import_modal" data-modal-toggle="import_modal">
                 Import JSON
             </button>
-            <a href="/dashboard/dynamodb/table/{{.TableName}}/export" class="btn btn-outline btn-sm" target="_blank">
+            <a href="/dashboard/dynamodb/table/{{.TableName}}/export"
+                class="py-2 px-4 text-sm font-medium text-gray-900 focus:outline-none bg-white rounded-lg border border-gray-200 hover:bg-gray-100 hover:text-blue-700 focus:z-10 focus:ring-4 focus:ring-gray-200 dark:focus:ring-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-600 dark:hover:text-white dark:hover:bg-gray-700"
+                target="_blank">
                 Export JSON
             </a>
-            <button class="btn btn-error btn-sm" hx-delete="/dashboard/dynamodb/table/{{.TableName}}"
+            <button
+                class="focus:outline-none text-white bg-red-700 hover:bg-red-800 focus:ring-4 focus:ring-red-300 font-medium rounded-lg text-sm px-4 py-2 dark:bg-red-600 dark:hover:bg-red-700 dark:focus:ring-red-900"
+                hx-delete="/dashboard/dynamodb/table/{{.TableName}}"
                 hx-confirm="Are you sure you want to delete this table?">
                 Delete Table
             </button>
@@ -29,90 +57,198 @@
     </div>
 
     <!-- New Item Modal -->
-    <dialog id="new_item_modal" class="modal">
-        <div class="modal-box max-w-2xl">
-            <h3 class="font-bold text-lg mb-4">Create New Item</h3>
-            <form hx-post="/dashboard/dynamodb/table/{{.TableName}}/item"
-                hx-on::after-request="if(event.detail.successful) new_item_modal.close()" hx-target="#scan-results"
-                class="space-y-4">
-                <div class="form-control">
-                    <label class="label">
-                        <span class="label-text">Item JSON</span>
-                        <span class="label-text-alt text-error">Required</span>
-                    </label>
-                    <textarea name="itemJson" class="textarea textarea-bordered font-mono h-64" placeholder='{
+    <div id="new_item_modal" tabindex="-1" aria-hidden="true"
+        class="hidden overflow-y-auto overflow-x-hidden fixed top-0 right-0 left-0 z-50 justify-center items-center w-full md:inset-0 h-[calc(100%-1rem)] max-h-full">
+        <div class="relative p-4 w-full max-w-2xl max-h-full">
+            <div class="relative bg-white rounded-lg shadow dark:bg-gray-700">
+                <div class="flex items-center justify-between p-4 md:p-5 border-b rounded-t dark:border-gray-600">
+                    <h3 class="text-xl font-semibold text-gray-900 dark:text-white">Create New Item</h3>
+                    <button type="button"
+                        class="text-gray-400 bg-transparent hover:bg-gray-200 hover:text-gray-900 rounded-lg text-sm w-8 h-8 ms-auto inline-flex justify-center items-center dark:hover:bg-gray-600 dark:hover:text-white"
+                        data-modal-hide="new_item_modal">
+                        <svg class="w-3 h-3" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none"
+                            viewBox="0 0 14 14">
+                            <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="m1 1 6 6m0 0 6 6M7 7l6-6M7 7l-6 6" />
+                        </svg>
+                        <span class="sr-only">Close modal</span>
+                    </button>
+                </div>
+                <div class="p-4 md:p-5">
+                    <form hx-post="/dashboard/dynamodb/table/{{.TableName}}/item"
+                        hx-on::after-request="if(event.detail.successful) { const m = document.getElementById('new_item_modal'); if(window.Modal) { new Modal(m).hide(); } else { m.classList.add('hidden'); } }"
+                        hx-target="#scan-results" class="space-y-4">
+                        <div>
+                            <label for="itemJson"
+                                class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Item JSON <span
+                                    class="text-red-600">*</span></label>
+                            <textarea id="itemJson" name="itemJson" rows="12"
+                                class="block p-2.5 w-full text-sm text-gray-900 bg-gray-50 rounded-lg border border-gray-300 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-600 dark:border-gray-500 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500 font-mono"
+                                placeholder='{
   "id": "123",
   "name": "Example"
 }' required></textarea>
-                </div>
-                <div class="modal-action">
-                    <button type="button" class="btn" onclick="new_item_modal.close()">Cancel</button>
-                    <button type="submit" class="btn btn-primary">Create Item</button>
-                </div>
-            </form>
-        </div>
-    </dialog>
-
-    <!-- Edit Item Modal -->
-    <dialog id="edit_item_modal" class="modal">
-        <div class="modal-box max-w-2xl">
-            <h3 class="font-bold text-lg mb-4">Edit Item</h3>
-            <div id="edit_item_modal_content">
-                <div class="flex justify-center p-8">
-                    <span class="loading loading-spinner loading-lg"></span>
+                        </div>
+                        <div class="flex justify-end gap-2 pt-4">
+                            <button type="button"
+                                class="text-gray-500 bg-white hover:bg-gray-100 focus:ring-4 focus:outline-none focus:ring-gray-200 rounded-lg border border-gray-200 text-sm font-medium px-5 py-2.5 hover:text-gray-900 focus:z-10 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-500 dark:hover:text-white dark:hover:bg-gray-600 dark:focus:ring-gray-600"
+                                data-modal-hide="new_item_modal">Cancel</button>
+                            <button type="submit"
+                                class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800">Create
+                                Item</button>
+                        </div>
+                    </form>
                 </div>
             </div>
         </div>
-    </dialog>
+    </div>
+
+    <!-- Edit Item Modal -->
+    <div id="edit_item_modal" tabindex="-1" aria-hidden="true"
+        class="hidden overflow-y-auto overflow-x-hidden fixed top-0 right-0 left-0 z-50 justify-center items-center w-full md:inset-0 h-[calc(100%-1rem)] max-h-full">
+        <div class="relative p-4 w-full max-w-2xl max-h-full">
+            <div class="relative bg-white rounded-lg shadow dark:bg-gray-700">
+                <div class="flex items-center justify-between p-4 md:p-5 border-b rounded-t dark:border-gray-600">
+                    <h3 class="text-xl font-semibold text-gray-900 dark:text-white">Edit Item</h3>
+                    <button type="button"
+                        class="text-gray-400 bg-transparent hover:bg-gray-200 hover:text-gray-900 rounded-lg text-sm w-8 h-8 ms-auto inline-flex justify-center items-center dark:hover:bg-gray-600 dark:hover:text-white"
+                        data-modal-hide="edit_item_modal"
+                        onclick="const m=document.getElementById('edit_item_modal');m.classList.add('hidden');m.classList.remove('flex')">
+                        <svg class="w-3 h-3" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none"
+                            viewBox="0 0 14 14">
+                            <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="m1 1 6 6m0 0 6 6M7 7l6-6M7 7l-6 6" />
+                        </svg>
+                        <span class="sr-only">Close modal</span>
+                    </button>
+                </div>
+                <div id="edit_item_modal_content" class="p-4 md:p-5">
+                    <div class="flex justify-center p-8">
+                        <div role="status">
+                            <svg aria-hidden="true"
+                                class="w-8 h-8 text-gray-200 animate-spin dark:text-gray-600 fill-blue-600"
+                                viewBox="0 0 100 101" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path
+                                    d="M100 50.5908C100 78.2051 77.6142 100.591 50 100.591C22.3858 100.591 0 78.2051 0 50.5908C0 22.9766 22.3858 0.59082 50 0.59082C77.6142 0.59082 100 22.9766 100 50.5908ZM9.08144 50.5908C9.08144 73.1895 27.4013 91.5094 50 91.5094C72.5987 91.5094 90.9186 73.1895 90.9186 50.5908C90.9186 27.9921 72.5987 9.67226 50 9.67226C27.4013 9.67226 9.08144 27.9921 9.08144 50.5908Z"
+                                    fill="currentColor" />
+                                <path
+                                    d="M93.9676 39.0409C96.393 38.4038 97.8624 35.9116 97.0079 33.5539C95.2932 28.8227 92.871 24.3692 89.8167 20.348C85.8452 15.1192 80.8826 10.7238 75.2124 7.41289C69.5422 4.10194 63.2754 1.94025 56.7698 1.05124C51.7666 0.367541 46.6976 0.446843 41.7345 1.27873C39.2613 1.69328 37.813 4.19778 38.4501 6.62326C39.0873 9.04874 41.5694 10.4717 44.0505 10.1071C47.8511 9.54855 51.7191 9.52689 55.5402 10.0491C60.8642 10.7766 65.9928 12.5457 70.6331 15.2552C75.2735 17.9648 79.3347 21.5619 82.5849 25.841C84.9175 28.9121 86.7997 32.2913 88.1811 35.8758C89.083 38.2158 91.5421 39.6781 93.9676 39.0409Z"
+                                    fill="currentFill" />
+                            </svg>
+                            <span class="sr-only">Loading...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <!-- Import Modal -->
-    <dialog id="import_modal" class="modal">
-        <div class="modal-box max-w-2xl">
-            <h3 class="font-bold text-lg mb-4">Import Items (JSON Array)</h3>
-            <form hx-post="/dashboard/dynamodb/table/{{.TableName}}/import"
-                hx-on::after-request="if(event.detail.successful) import_modal.close()" hx-target="#scan-results"
-                class="space-y-4">
-                <div class="form-control">
-                    <label class="label">
-                        <span class="label-text">JSON Array</span>
-                        <span class="label-text-alt text-error">Required</span>
-                    </label>
-                    <textarea name="importData" class="textarea textarea-bordered font-mono h-64" placeholder='[
+    <div id="import_modal" tabindex="-1" aria-hidden="true"
+        class="hidden overflow-y-auto overflow-x-hidden fixed top-0 right-0 left-0 z-50 justify-center items-center w-full md:inset-0 h-[calc(100%-1rem)] max-h-full">
+        <div class="relative p-4 w-full max-w-2xl max-h-full">
+            <div class="relative bg-white rounded-lg shadow dark:bg-gray-700">
+                <div class="flex items-center justify-between p-4 md:p-5 border-b rounded-t dark:border-gray-600">
+                    <h3 class="text-xl font-semibold text-gray-900 dark:text-white">Import Items (JSON Array)</h3>
+                    <button type="button"
+                        class="text-gray-400 bg-transparent hover:bg-gray-200 hover:text-gray-900 rounded-lg text-sm w-8 h-8 ms-auto inline-flex justify-center items-center dark:hover:bg-gray-600 dark:hover:text-white"
+                        data-modal-hide="import_modal">
+                        <svg class="w-3 h-3" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none"
+                            viewBox="0 0 14 14">
+                            <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="m1 1 6 6m0 0 6 6M7 7l6-6M7 7l-6 6" />
+                        </svg>
+                        <span class="sr-only">Close modal</span>
+                    </button>
+                </div>
+                <div class="p-4 md:p-5">
+                    <form hx-post="/dashboard/dynamodb/table/{{.TableName}}/import"
+                        hx-on::after-request="if(event.detail.successful) { const m = document.getElementById('import_modal'); if(window.Modal) { new Modal(m).hide(); } else { m.classList.add('hidden'); } }"
+                        hx-target="#scan-results" class="space-y-4">
+                        <div>
+                            <label for="importData"
+                                class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">JSON Array <span
+                                    class="text-red-600">*</span></label>
+                            <textarea id="importData" name="importData" rows="12"
+                                class="block p-2.5 w-full text-sm text-gray-900 bg-gray-50 rounded-lg border border-gray-300 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-600 dark:border-gray-500 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500 font-mono"
+                                placeholder='[
   {"id": "1", "name": "Item 1"},
   {"id": "2", "name": "Item 2"}
 ]' required></textarea>
+                        </div>
+                        <div class="flex justify-end gap-2 pt-4">
+                            <button type="button"
+                                class="text-gray-500 bg-white hover:bg-gray-100 focus:ring-4 focus:outline-none focus:ring-gray-200 rounded-lg border border-gray-200 text-sm font-medium px-5 py-2.5 hover:text-gray-900 focus:z-10 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-500 dark:hover:text-white dark:hover:bg-gray-600 dark:focus:ring-gray-600"
+                                data-modal-hide="import_modal">Cancel</button>
+                            <button type="submit"
+                                class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800">Import
+                                Items</button>
+                        </div>
+                    </form>
                 </div>
-                <div class="modal-action">
-                    <button type="button" class="btn" onclick="import_modal.close()">Cancel</button>
-                    <button type="submit" class="btn btn-primary">Import Items</button>
-                </div>
-            </form>
+            </div>
         </div>
-    </dialog>
+    </div>
 
     <!-- Tabs -->
-    <div role="tablist" class="tabs tabs-bordered">
-        <input type="radio" name="table_tabs" role="tab" class="tab" aria-label="Overview" checked />
-        <div role="tabpanel" id="overview" class="tab-content p-6">
+    <div class="mb-4 border-b border-gray-200 dark:border-gray-700">
+        <ul class="flex flex-wrap -mb-px text-sm font-medium text-center" id="table-detail-tabs"
+            data-tabs-toggle="#table-detail-content" role="tablist">
+            <li class="me-2" role="presentation">
+                <button class="inline-block p-4 border-b-2 rounded-t-lg" id="overview-tab" data-tabs-target="#overview"
+                    type="button" role="tab" aria-controls="overview" aria-selected="false">Overview</button>
+            </li>
+            <li class="me-2" role="presentation">
+                <button
+                    class="inline-block p-4 border-b-2 rounded-t-lg border-transparent hover:text-gray-600 hover:border-gray-300 dark:hover:text-gray-300"
+                    id="query-tab" data-tabs-target="#query" type="button" role="tab" aria-controls="query"
+                    aria-selected="false">Query</button>
+            </li>
+            <li class="me-2" role="presentation">
+                <button
+                    class="inline-block p-4 border-b-2 rounded-t-lg border-transparent hover:text-gray-600 hover:border-gray-300 dark:hover:text-gray-300"
+                    id="scan-tab" data-tabs-target="#scan" type="button" role="tab" aria-controls="scan"
+                    aria-selected="false">Scan</button>
+            </li>
+            <li class="me-2" role="presentation">
+                <button
+                    class="inline-block p-4 border-b-2 rounded-t-lg border-transparent hover:text-gray-600 hover:border-gray-300 dark:hover:text-gray-300"
+                    id="streams-tab" data-tabs-target="#streams" type="button" role="tab" aria-controls="streams"
+                    aria-selected="false">Stream Events</button>
+            </li>
+        </ul>
+    </div>
+    <div id="table-detail-content">
+        <div class="hidden p-4 rounded-lg bg-gray-50 dark:bg-gray-800" id="overview" role="tabpanel"
+            aria-labelledby="overview-tab">
             {{template "table-overview" .}}
         </div>
-
-        <input type="radio" name="table_tabs" role="tab" class="tab" aria-label="Query" />
-        <div role="tabpanel" class="tab-content p-6">
+        <div class="hidden p-4 rounded-lg bg-gray-50 dark:bg-gray-800" id="query" role="tabpanel"
+            aria-labelledby="query-tab">
             {{template "table-query" .}}
         </div>
-
-        <input type="radio" name="table_tabs" role="tab" class="tab" aria-label="Scan" />
-        <div role="tabpanel" class="tab-content p-6">
+        <div class="hidden p-4 rounded-lg bg-gray-50 dark:bg-gray-800" id="scan" role="tabpanel"
+            aria-labelledby="scan-tab">
             {{template "table-scan" .}}
         </div>
-
-        <input type="radio" name="table_tabs" role="tab" class="tab" aria-label="Stream Events" />
-        <div role="tabpanel" class="tab-content p-6">
+        <div class="hidden p-4 rounded-lg bg-gray-50 dark:bg-gray-800" id="streams" role="tabpanel"
+            aria-labelledby="streams-tab">
             <div id="stream-events-container" hx-get="/dashboard/dynamodb/table/{{.TableName}}/stream-events"
                 hx-trigger="load, every 3s" hx-swap="innerHTML">
-                <div class="flex justify-center p-8">
-                    <span class="loading loading-spinner loading-lg"></span>
+                <div class="flex items-center justify-center p-8">
+                    <div role="status">
+                        <svg aria-hidden="true"
+                            class="w-8 h-8 text-gray-200 animate-spin dark:text-gray-600 fill-blue-600"
+                            viewBox="0 0 100 101" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path
+                                d="M100 50.5908C100 78.2051 77.6142 100.591 50 100.591C22.3858 100.591 0 78.2051 0 50.5908C0 22.9766 22.3858 0.59082 50 0.59082C77.6142 0.59082 100 22.9766 100 50.5908ZM9.08144 50.5908C9.08144 73.1895 27.4013 91.5094 50 91.5094C72.5987 91.5094 90.9186 73.1895 90.9186 50.5908C90.9186 27.9921 72.5987 9.67226 50 9.67226C27.4013 9.67226 9.08144 27.9921 9.08144 50.5908Z"
+                                fill="currentColor" />
+                            <path
+                                d="M93.9676 39.0409C96.393 38.4038 97.8624 35.9116 97.0079 33.5539C95.2932 28.8227 92.871 24.3692 89.8167 20.348C85.8452 15.1192 80.8826 10.7238 75.2124 7.41289C69.5422 4.10194 63.2754 1.94025 56.7698 1.05124C51.7666 0.367541 46.6976 0.446843 41.7345 1.27873C39.2613 1.69328 37.813 4.19778 38.4501 6.62326C39.0873 9.04874 41.5694 10.4717 44.0505 10.1071C47.8511 9.54855 51.7191 9.52689 55.5402 10.0491C60.8642 10.7766 65.9928 12.5457 70.6331 15.2552C75.2735 17.9648 79.3347 21.5619 82.5849 25.841C84.9175 28.9121 86.7997 32.2913 88.1811 35.8758C89.083 38.2158 91.5421 39.6781 93.9676 39.0409Z"
+                                fill="currentFill" />
+                        </svg>
+                        <span class="sr-only">Loading...</span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -123,193 +259,205 @@
 {{define "table-overview"}}
 <div class="space-y-6">
     <!-- Key Schema -->
-    <div class="card bg-base-100 shadow-xl">
-        <div class="card-body">
-            <h2 class="card-title">Key Schema</h2>
-            <div class="overflow-x-auto">
-                <table class="table">
-                    <thead>
-                        <tr>
-                            <th>Attribute Name</th>
-                            <th>Key Type</th>
-                            <th>Attribute Type</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td class="font-mono">{{.PartitionKey}}</td>
-                            <td><span class="badge badge-primary">HASH</span></td>
-                            <td><span class="badge">{{.PartitionKeyType}}</span></td>
-                        </tr>
-                        {{if .SortKey}}
-                        <tr>
-                            <td class="font-mono">{{.SortKey}}</td>
-                            <td><span class="badge badge-secondary">RANGE</span></td>
-                            <td><span class="badge">{{.SortKeyType}}</span></td>
-                        </tr>
-                        {{end}}
-                    </tbody>
-                </table>
-            </div>
+    <div class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
+        <h2 class="mb-4 text-xl font-bold tracking-tight text-gray-900 dark:text-white">Key Schema</h2>
+        <div class="relative overflow-x-auto">
+            <table class="w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
+                <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                    <tr>
+                        <th scope="col" class="px-6 py-3">Attribute Name</th>
+                        <th scope="col" class="px-6 py-3">Key Type</th>
+                        <th scope="col" class="px-6 py-3">Attribute Type</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
+                        <td class="px-6 py-4 font-mono">{{.PartitionKey}}</td>
+                        <td class="px-6 py-4"><span
+                                class="bg-blue-100 text-blue-800 text-xs font-medium me-2 px-2.5 py-0.5 rounded dark:bg-blue-900 dark:text-blue-300">HASH</span>
+                        </td>
+                        <td class="px-6 py-4"><span
+                                class="bg-gray-100 text-gray-800 text-xs font-medium me-2 px-2.5 py-0.5 rounded dark:bg-gray-700 dark:text-gray-300">{{.PartitionKeyType}}</span>
+                        </td>
+                    </tr>
+                    {{if .SortKey}}
+                    <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
+                        <td class="px-6 py-4 font-mono">{{.SortKey}}</td>
+                        <td class="px-6 py-4"><span
+                                class="bg-purple-100 text-purple-800 text-xs font-medium me-2 px-2.5 py-0.5 rounded dark:bg-purple-900 dark:text-purple-300">RANGE</span>
+                        </td>
+                        <td class="px-6 py-4"><span
+                                class="bg-gray-100 text-gray-800 text-xs font-medium me-2 px-2.5 py-0.5 rounded dark:bg-gray-700 dark:text-gray-300">{{.SortKeyType}}</span>
+                        </td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
         </div>
     </div>
 
-    <!-- Table Info -->
-    <div class="stats shadow w-full">
-        <div class="stat">
-            <div class="stat-title">Item Count</div>
-            <div class="stat-value">{{.ItemCount}}</div>
+    <!-- Table Info Grid -->
+    <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
+        <div class="p-4 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
+            <div class="text-sm font-medium text-gray-500 dark:text-gray-400">Item Count</div>
+            <div class="text-2xl font-bold text-blue-600 dark:text-blue-400">{{.ItemCount}}</div>
         </div>
-        <div class="stat">
-            <div class="stat-title">Global Secondary Indexes</div>
-            <div class="stat-value">{{.GSICount}}</div>
+        <div class="p-4 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
+            <div class="text-sm font-medium text-gray-500 dark:text-gray-400">GSIs</div>
+            <div class="text-2xl font-bold text-purple-600 dark:text-purple-400">{{.GSICount}}</div>
         </div>
-        <div class="stat">
-            <div class="stat-title">Local Secondary Indexes</div>
-            <div class="stat-value">{{.LSICount}}</div>
+        <div class="p-4 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
+            <div class="text-sm font-medium text-gray-500 dark:text-gray-400">LSIs</div>
+            <div class="text-2xl font-bold text-yellow-600 dark:text-yellow-400">{{.LSICount}}</div>
         </div>
-        <div class="stat">
-            <div class="stat-title">TTL Status</div>
-            <div class="stat-value text-sm">
+        <div class="p-4 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
+            <div class="text-sm font-medium text-gray-500 dark:text-gray-400">TTL Status</div>
+            <div class="mt-1">
                 {{if eq .TTLStatus "ENABLED"}}
-                <span class="badge badge-success">ENABLED ({{.TTLAttribute}})</span>
+                <span
+                    class="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-green-900 dark:text-green-300">ENABLED
+                    ({{.TTLAttribute}})</span>
                 {{else}}
-                <span class="badge badge-ghost">DISABLED</span>
+                <span
+                    class="bg-gray-100 text-gray-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-gray-700 dark:text-gray-300">DISABLED</span>
                 {{end}}
             </div>
         </div>
-        <div class="stat">
-            <div class="stat-title">Streams</div>
-            <div class="stat-value text-sm">
+        <div class="p-4 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
+            <div class="text-sm font-medium text-gray-500 dark:text-gray-400">Streams</div>
+            <div class="mt-1">
                 {{if .StreamsEnabled}}
-                <span class="badge badge-info">ENABLED</span>
-                <span class="text-xs text-base-content/60 ml-1">{{.StreamViewType}}</span>
+                <span
+                    class="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-blue-900 dark:text-blue-300">ENABLED</span>
+                <span
+                    class="text-[10px] text-gray-500 dark:text-gray-400 block mt-1 truncate">{{.StreamViewType}}</span>
                 {{else}}
-                <span class="badge badge-ghost">DISABLED</span>
+                <span
+                    class="bg-gray-100 text-gray-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-gray-700 dark:text-gray-300">DISABLED</span>
                 {{end}}
             </div>
         </div>
     </div>
 
     <!-- TTL Configuration -->
-    <div class="card bg-base-100 shadow-xl">
-        <div class="card-body">
-            <h2 class="card-title text-sm">Time To Live (TTL) Configuration</h2>
-            <form hx-post="/dashboard/dynamodb/table/{{.TableName}}/ttl" hx-target="#overview"
-                class="flex items-end gap-4">
-                <div class="form-control">
-                    <label class="label">
-                        <span class="label-text">TTL Attribute Name</span>
-                    </label>
-                    <input type="text" name="attributeName" class="input input-bordered input-sm"
-                        value="{{.TTLAttribute}}" placeholder="e.g. expires" required>
-                </div>
-                <div class="form-control">
-                    <label class="label cursor-pointer justify-start gap-2">
-                        <span class="label-text">Enabled</span>
-                        <input type="checkbox" name="enabled" class="checkbox checkbox-primary checkbox-sm" {{if eq
-                            .TTLStatus "ENABLED" }}checked{{end}}>
-                    </label>
-                </div>
-                <button type="submit" class="btn btn-primary btn-sm">Update TTL</button>
-            </form>
-        </div>
+    <div class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
+        <h2 class="mb-4 text-sm font-bold tracking-tight text-gray-900 dark:text-white uppercase">Time To Live (TTL)
+            Configuration</h2>
+        <form hx-post="/dashboard/dynamodb/table/{{.TableName}}/ttl" hx-target="#overview"
+            class="flex items-end gap-4 flex-wrap">
+            <div class="flex-1 min-w-[200px]">
+                <label for="attributeName" class="block mb-2 text-xs font-medium text-gray-900 dark:text-white">TTL
+                    Attribute Name</label>
+                <input type="text" name="attributeName" id="attributeName"
+                    class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500"
+                    value="{{.TTLAttribute}}" placeholder="e.g. expires" required>
+            </div>
+            <div class="flex items-center h-10">
+                <input id="ttl-enabled" type="checkbox" name="enabled" {{if eq .TTLStatus "ENABLED" }}checked{{end}}
+                    class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600">
+                <label for="ttl-enabled"
+                    class="ms-2 text-sm font-medium text-gray-900 dark:text-gray-300">Enabled</label>
+            </div>
+            <button type="submit"
+                class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-4 py-2 dark:bg-blue-600 dark:hover:bg-blue-700 focus:outline-none dark:focus:ring-blue-800">Update
+                TTL</button>
+        </form>
     </div>
 
     <!-- Streams Configuration -->
-    <div class="card bg-base-100 shadow-xl">
-        <div class="card-body">
-            <h2 class="card-title text-sm">DynamoDB Streams Configuration</h2>
-            <form hx-post="/dashboard/dynamodb/table/{{.TableName}}/streams" hx-target="#overview"
-                class="flex items-end gap-4 flex-wrap">
-                <div class="form-control">
-                    <label class="label">
-                        <span class="label-text">View Type</span>
-                    </label>
-                    <select name="viewType" class="select select-bordered select-sm">
-                        <option value="NEW_AND_OLD_IMAGES" {{if eq .StreamViewType "NEW_AND_OLD_IMAGES"
-                            }}selected{{end}}>NEW_AND_OLD_IMAGES</option>
-                        <option value="NEW_IMAGE" {{if eq .StreamViewType "NEW_IMAGE" }}selected{{end}}>NEW_IMAGE
-                        </option>
-                        <option value="OLD_IMAGE" {{if eq .StreamViewType "OLD_IMAGE" }}selected{{end}}>OLD_IMAGE
-                        </option>
-                        <option value="KEYS_ONLY" {{if eq .StreamViewType "KEYS_ONLY" }}selected{{end}}>KEYS_ONLY
-                        </option>
-                    </select>
-                </div>
-                <div class="form-control">
-                    <label class="label cursor-pointer justify-start gap-2">
-                        <span class="label-text">Enabled</span>
-                        <input type="checkbox" name="enabled" class="checkbox checkbox-info checkbox-sm" {{if
-                            .StreamsEnabled}}checked{{end}}>
-                    </label>
-                </div>
-                <button type="submit" class="btn btn-info btn-sm">Update Streams</button>
-            </form>
-            {{if .StreamARN}}
-            <div class="mt-2 text-xs text-base-content/60 font-mono truncate" title="{{.StreamARN}}">
+    <div class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
+        <h2 class="mb-4 text-sm font-bold tracking-tight text-gray-900 dark:text-white uppercase">DynamoDB Streams
+            Configuration</h2>
+        <form hx-post="/dashboard/dynamodb/table/{{.TableName}}/streams" hx-target="#overview"
+            class="flex items-end gap-4 flex-wrap">
+            <div class="flex-1 min-w-[200px]">
+                <label for="viewType" class="block mb-2 text-xs font-medium text-gray-900 dark:text-white">View
+                    Type</label>
+                <select name="viewType" id="viewType"
+                    class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500">
+                    <option value="NEW_AND_OLD_IMAGES" {{if eq .StreamViewType "NEW_AND_OLD_IMAGES" }}selected{{end}}>
+                        NEW_AND_OLD_IMAGES</option>
+                    <option value="NEW_IMAGE" {{if eq .StreamViewType "NEW_IMAGE" }}selected{{end}}>NEW_IMAGE</option>
+                    <option value="OLD_IMAGE" {{if eq .StreamViewType "OLD_IMAGE" }}selected{{end}}>OLD_IMAGE</option>
+                    <option value="KEYS_ONLY" {{if eq .StreamViewType "KEYS_ONLY" }}selected{{end}}>KEYS_ONLY</option>
+                </select>
+            </div>
+            <div class="flex items-center h-10">
+                <input id="streams-enabled" type="checkbox" name="enabled" {{if .StreamsEnabled}}checked{{end}}
+                    class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600">
+                <label for="streams-enabled"
+                    class="ms-2 text-sm font-medium text-gray-900 dark:text-gray-300">Enabled</label>
+            </div>
+            <button type="submit"
+                class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-4 py-2 dark:bg-blue-600 dark:hover:bg-blue-700 focus:outline-none dark:focus:ring-blue-800">Update
+                Streams</button>
+        </form>
+        {{if .StreamARN}}
+        <div class="mt-4 p-2 bg-gray-50 dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600">
+            <div class="text-[10px] text-gray-500 dark:text-gray-400 font-mono break-all" title="{{.StreamARN}}">
                 ARN: {{.StreamARN}}
             </div>
-            {{end}}
         </div>
+        {{end}}
     </div>
 
     <!-- GSI List -->
     {{if .GlobalSecondaryIndexes}}
-    <div class="card bg-base-100 shadow-xl">
-        <div class="card-body">
-            <h2 class="card-title">Global Secondary Indexes</h2>
-            <div class="overflow-x-auto">
-                <table class="table">
-                    <thead>
-                        <tr>
-                            <th>Index Name</th>
-                            <th>Partition Key</th>
-                            <th>Sort Key</th>
-                            <th>Projection</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {{range .GlobalSecondaryIndexes}}
-                        <tr>
-                            <td class="font-mono">{{.IndexName}}</td>
-                            <td class="font-mono">{{.PartitionKey}} ({{.PartitionKeyType}})</td>
-                            <td class="font-mono">{{if .SortKey}}{{.SortKey}} ({{.SortKeyType}}){{else}}-{{end}}</td>
-                            <td><span class="badge">{{.ProjectionType}}</span></td>
-                        </tr>
-                        {{end}}
-                    </tbody>
-                </table>
-            </div>
+    <div class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
+        <h2 class="mb-4 text-xl font-bold tracking-tight text-gray-900 dark:text-white">Global Secondary Indexes</h2>
+        <div class="relative overflow-x-auto">
+            <table class="w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
+                <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                    <tr>
+                        <th scope="col" class="px-6 py-3">Index Name</th>
+                        <th scope="col" class="px-6 py-3">Partition Key</th>
+                        <th scope="col" class="px-6 py-3">Sort Key</th>
+                        <th scope="col" class="px-6 py-3">Projection</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .GlobalSecondaryIndexes}}
+                    <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
+                        <td class="px-6 py-4 font-mono">{{.IndexName}}</td>
+                        <td class="px-6 py-4 font-mono">{{.PartitionKey}} ({{.PartitionKeyType}})</td>
+                        <td class="px-6 py-4 font-mono">{{if .SortKey}}{{.SortKey}} ({{.SortKeyType}}){{else}}-{{end}}
+                        </td>
+                        <td class="px-6 py-4"><span
+                                class="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-blue-900 dark:text-blue-300">{{.ProjectionType}}</span>
+                        </td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
         </div>
     </div>
     {{end}}
 
     <!-- LSI List -->
     {{if .LocalSecondaryIndexes}}
-    <div class="card bg-base-100 shadow-xl">
-        <div class="card-body">
-            <h2 class="card-title">Local Secondary Indexes</h2>
-            <div class="overflow-x-auto">
-                <table class="table">
-                    <thead>
-                        <tr>
-                            <th>Index Name</th>
-                            <th>Sort Key</th>
-                            <th>Projection</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {{range .LocalSecondaryIndexes}}
-                        <tr>
-                            <td class="font-mono">{{.IndexName}}</td>
-                            <td class="font-mono">{{.SortKey}} ({{.SortKeyType}})</td>
-                            <td><span class="badge">{{.ProjectionType}}</span></td>
-                        </tr>
-                        {{end}}
-                    </tbody>
-                </table>
-            </div>
+    <div class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
+        <h2 class="mb-4 text-xl font-bold tracking-tight text-gray-900 dark:text-white">Local Secondary Indexes</h2>
+        <div class="relative overflow-x-auto">
+            <table class="w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
+                <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                    <tr>
+                        <th scope="col" class="px-6 py-3">Index Name</th>
+                        <th scope="col" class="px-6 py-3">Sort Key</th>
+                        <th scope="col" class="px-6 py-3">Projection</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .LocalSecondaryIndexes}}
+                    <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
+                        <td class="px-6 py-4 font-mono">{{.IndexName}}</td>
+                        <td class="px-6 py-4 font-mono">{{.SortKey}} ({{.SortKeyType}})</td>
+                        <td class="px-6 py-4"><span
+                                class="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-blue-900 dark:text-blue-300">{{.ProjectionType}}</span>
+                        </td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
         </div>
     </div>
     {{end}}
@@ -319,41 +467,50 @@
 {{define "stream-events"}}
 <div class="space-y-4">
     {{if not .StreamsEnabled}}
-    <div class="alert alert-info">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-current shrink-0 w-6 h-6">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+    <div class="flex items-center p-4 mb-4 text-sm text-blue-800 border border-blue-300 rounded-lg bg-blue-50 dark:bg-gray-800 dark:text-blue-400 dark:border-blue-800"
+        role="alert">
+        <svg class="flex-shrink-0 inline w-4 h-4 me-3" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"
+            fill="currentColor" viewBox="0 0 20 20">
+            <path
+                d="M10 .5a9.5 9.5 0 1 0 9.5 9.5A9.51 9.51 0 0 0 10 .5ZM9.5 4a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3ZM12 15H8a1 1 0 0 1 0-2h1v-3H8a1 1 0 0 1 0-2h2a1 1 0 0 1 1 1v4h1a1 1 0 0 1 0 2Z" />
         </svg>
-        <span>DynamoDB Streams is not enabled for this table. Enable it in the Overview tab.</span>
+        <span class="sr-only">Info</span>
+        <div>
+            DynamoDB Streams is not enabled for this table. Enable it in the Overview tab.
+        </div>
     </div>
     {{else if not .StreamEvents}}
-    <div class="alert">
-        <span>No stream events captured yet. Make changes to table items to generate events.</span>
+    <div class="p-4 text-sm text-gray-800 rounded-lg bg-gray-50 dark:bg-gray-800 dark:text-gray-300 border border-gray-200 dark:border-gray-700"
+        role="alert">
+        No stream events captured yet. Make changes to table items to generate events.
     </div>
     {{else}}
-    <div class="overflow-x-auto">
-        <table class="table table-sm">
-            <thead>
+    <div class="relative overflow-x-auto">
+        <table class="w-full text-xs text-left rtl:text-right text-gray-500 dark:text-gray-400">
+            <thead class="text-[10px] text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
                 <tr>
-                    <th>Event</th>
-                    <th>Event ID</th>
-                    <th>Timestamp (UTC)</th>
+                    <th scope="col" class="px-4 py-2">Event</th>
+                    <th scope="col" class="px-4 py-2">Event ID</th>
+                    <th scope="col" class="px-4 py-2">Timestamp (UTC)</th>
                 </tr>
             </thead>
             <tbody>
                 {{range .StreamEvents}}
-                <tr>
-                    <td>
+                <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
+                    <td class="px-4 py-2">
                         {{if eq .EventName "INSERT"}}
-                        <span class="badge badge-success badge-sm">INSERT</span>
+                        <span
+                            class="bg-green-100 text-green-800 text-[10px] font-medium px-2 py-0.5 rounded dark:bg-green-900 dark:text-green-300">INSERT</span>
                         {{else if eq .EventName "MODIFY"}}
-                        <span class="badge badge-warning badge-sm">MODIFY</span>
+                        <span
+                            class="bg-yellow-100 text-yellow-800 text-[10px] font-medium px-2 py-0.5 rounded dark:bg-yellow-900 dark:text-yellow-300">MODIFY</span>
                         {{else}}
-                        <span class="badge badge-error badge-sm">REMOVE</span>
+                        <span
+                            class="bg-red-100 text-red-800 text-[10px] font-medium px-2 py-0.5 rounded dark:bg-red-900 dark:text-red-300">REMOVE</span>
                         {{end}}
                     </td>
-                    <td class="font-mono text-xs">{{.EventID}}</td>
-                    <td class="text-xs">{{.Timestamp}}</td>
+                    <td class="px-4 py-2 font-mono">{{.EventID}}</td>
+                    <td class="px-4 py-2">{{.Timestamp}}</td>
                 </tr>
                 {{end}}
             </tbody>
@@ -365,23 +522,27 @@
 
 {{define "table-query"}}
 <div class="space-y-6">
-    <div class="alert alert-info">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-current shrink-0 w-6 h-6">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+    <div class="flex items-center p-4 mb-4 text-sm text-blue-800 border border-blue-300 rounded-lg bg-blue-50 dark:bg-gray-800 dark:text-blue-400 dark:border-blue-800"
+        role="alert">
+        <svg class="flex-shrink-0 inline w-4 h-4 me-3" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"
+            fill="currentColor" viewBox="0 0 20 20">
+            <path
+                d="M10 .5a9.5 9.5 0 1 0 9.5 9.5A9.51 9.51 0 0 0 10 .5ZM9.5 4a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3ZM12 15H8a1 1 0 0 1 0-2h1v-3H8a1 1 0 0 1 0-2h2a1 1 0 0 1 1 1v4h1a1 1 0 0 1 0 2Z" />
         </svg>
-        <span>Query requires a partition key value. Sort key conditions are optional.</span>
+        <span class="sr-only">Info</span>
+        <div>
+            Query requires a partition key value. Sort key conditions are optional.
+        </div>
     </div>
 
     <form hx-post="/dashboard/dynamodb/table/{{.TableName}}/query" hx-target="#query-results"
         hx-indicator=".query-indicator" class="space-y-4">
 
-        <!-- Index Selection -->
-        <div class="form-control">
-            <label class="label">
-                <span class="label-text">Index (Optional)</span>
-            </label>
-            <select name="indexName" class="select select-bordered">
+        <div>
+            <label for="indexName" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Index
+                (Optional)</label>
+            <select name="indexName" id="indexName"
+                class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500">
                 <option value="">Table (Default)</option>
                 {{range .GlobalSecondaryIndexes}}
                 <option value="{{.IndexName}}">{{.IndexName}} (GSI)</option>
@@ -392,22 +553,22 @@
             </select>
         </div>
 
-        <!-- Partition Key -->
-        <div class="form-control">
-            <label class="label">
-                <span class="label-text">Partition Key Value ({{.PartitionKey}})</span>
-            </label>
-            <input type="text" name="partitionKeyValue" class="input input-bordered" required>
+        <div>
+            <label for="partitionKeyValue"
+                class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Partition Key Value
+                ({{.PartitionKey}})</label>
+            <input type="text" name="partitionKeyValue" id="partitionKeyValue"
+                class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500"
+                required>
         </div>
 
-        <!-- Sort Key Condition -->
         {{if .SortKey}}
-        <div class="form-control">
-            <label class="label">
-                <span class="label-text">Sort Key Condition ({{.SortKey}})</span>
-            </label>
-            <div class="join w-full">
-                <select name="sortKeyOperator" class="select select-bordered join-item">
+        <div>
+            <label for="sortKeyOperator" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Sort Key
+                Condition ({{.SortKey}})</label>
+            <div class="flex gap-2">
+                <select name="sortKeyOperator" id="sortKeyOperator"
+                    class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-32 p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500">
                     <option value="">None</option>
                     <option value="=">=</option>
                     <option value="<">&lt;</option>
@@ -417,88 +578,110 @@
                     <option value="BETWEEN">BETWEEN</option>
                     <option value="begins_with">begins_with</option>
                 </select>
-                <input type="text" name="sortKeyValue" class="input input-bordered join-item flex-1"
+                <input type="text" name="sortKeyValue"
+                    class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block flex-1 p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500"
                     placeholder="Value">
-                <input type="text" name="sortKeyValue2" class="input input-bordered join-item flex-1"
+                <input type="text" name="sortKeyValue2"
+                    class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block flex-1 p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500"
                     placeholder="Value 2 (for BETWEEN)">
             </div>
         </div>
         {{end}}
 
-        <!-- Filter Expression -->
-        <div class="form-control">
-            <label class="label">
-                <span class="label-text">Filter Expression (Optional)</span>
-            </label>
-            <textarea name="filterExpression" class="textarea textarea-bordered"
+        <div>
+            <label for="filterExpression" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Filter
+                Expression (Optional)</label>
+            <textarea name="filterExpression" id="filterExpression" rows="2"
+                class="block p-2.5 w-full text-sm text-gray-900 bg-gray-50 rounded-lg border border-gray-300 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500"
                 placeholder="attribute_exists(email)"></textarea>
         </div>
 
-        <!-- Limit -->
-        <div class="form-control">
-            <label class="label">
-                <span class="label-text">Limit</span>
-            </label>
-            <input type="number" name="limit" class="input input-bordered" value="100" min="1">
+        <div>
+            <label for="query-limit" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Limit</label>
+            <input type="number" name="limit" id="query-limit"
+                class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500"
+                value="100" min="1">
         </div>
 
-        <!-- Submit -->
-        <button type="submit" class="btn btn-primary">
-            <span class="query-indicator loading loading-spinner loading-sm htmx-indicator"></span>
+        <button type="submit"
+            class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800 flex items-center gap-2">
+            <svg aria-hidden="true"
+                class="query-indicator hidden w-4 h-4 text-gray-200 animate-spin dark:text-gray-600 fill-white"
+                viewBox="0 0 100 101" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path
+                    d="M100 50.5908C100 78.2051 77.6142 100.591 50 100.591C22.3858 100.591 0 78.2051 0 50.5908C0 22.9766 22.3858 0.59082 50 0.59082C77.6142 0.59082 100 22.9766 100 50.5908ZM9.08144 50.5908C9.08144 73.1895 27.4013 91.5094 50 91.5094C72.5987 91.5094 90.9186 73.1895 90.9186 50.5908C90.9186 27.9921 72.5987 9.67226 50 9.67226C27.4013 9.67226 9.08144 27.9921 9.08144 50.5908Z"
+                    fill="currentColor" />
+                <path
+                    d="M93.9676 39.0409C96.393 38.4038 97.8624 35.9116 97.0079 33.5539C95.2932 28.8227 92.871 24.3692 89.8167 20.348C85.8452 15.1192 80.8826 10.7238 75.2124 7.41289C69.5422 4.10194 63.2754 1.94025 56.7698 1.05124C51.7666 0.367541 46.6976 0.446843 41.7345 1.27873C39.2613 1.69328 37.813 4.19778 38.4501 6.62326C39.0873 9.04874 41.5694 10.4717 44.0505 10.1071C47.8511 9.54855 51.7191 9.52689 55.5402 10.0491C60.8642 10.7766 65.9928 12.5457 70.6331 15.2552C75.2735 17.9648 79.3347 21.5619 82.5849 25.841C84.9175 28.9121 86.7997 32.2913 88.1811 35.8758C89.083 38.2158 91.5421 39.6781 93.9676 39.0409Z"
+                    fill="currentFill" />
+            </svg>
             Execute Query
         </button>
     </form>
 
-    <!-- Results -->
     <div id="query-results"></div>
 </div>
 {{end}}
 
 {{define "table-scan"}}
 <div class="space-y-6">
-    <div class="alert alert-warning">
-        <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+    <div class="flex items-center p-4 mb-4 text-sm text-yellow-800 border border-yellow-300 rounded-lg bg-yellow-50 dark:bg-gray-800 dark:text-yellow-300 dark:border-yellow-800"
+        role="alert">
+        <svg class="flex-shrink-0 inline w-4 h-4 me-3" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"
+            fill="currentColor" viewBox="0 0 20 20">
+            <path
+                d="M10 .5a9.5 9.5 0 1 0 9.5 9.5A9.51 9.51 0 0 0 10 .5ZM9.5 4a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3ZM12 15H8a1 1 0 0 1 0-2h1v-3H8a1 1 0 0 1 0-2h2a1 1 0 0 1 1 1v4h1a1 1 0 0 1 0 2Z" />
         </svg>
-        <span>Scan operations read every item in the table and can be expensive for large tables.</span>
+        <span class="sr-only">Warning</span>
+        <div>
+            Scan operations read every item in the table and can be expensive for large tables.
+        </div>
     </div>
 
     <form hx-post="/dashboard/dynamodb/table/{{.TableName}}/scan" hx-target="#scan-results"
         hx-indicator=".scan-indicator" class="space-y-4">
 
-        <!-- Filter Expression -->
-        <div class="form-control">
-            <label class="label">
-                <span class="label-text">Filter Expression (Optional)</span>
-            </label>
-            <textarea name="filterExpression" class="textarea textarea-bordered" placeholder="age > :minAge"></textarea>
+        <div>
+            <label for="scanFilterExpression"
+                class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Filter Expression
+                (Optional)</label>
+            <textarea name="filterExpression" id="scanFilterExpression" rows="2"
+                class="block p-2.5 w-full text-sm text-gray-900 bg-gray-50 rounded-lg border border-gray-300 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500"
+                placeholder="age > :minAge"></textarea>
         </div>
 
-        <!-- Projection Expression -->
-        <div class="form-control">
-            <label class="label">
-                <span class="label-text">Projection Expression (Optional)</span>
-            </label>
-            <input type="text" name="projectionExpression" class="input input-bordered" placeholder="id, name, email">
+        <div>
+            <label for="projectionExpression"
+                class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Projection Expression
+                (Optional)</label>
+            <input type="text" name="projectionExpression" id="projectionExpression"
+                class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500"
+                placeholder="id, name, email">
         </div>
 
-        <!-- Limit -->
-        <div class="form-control">
-            <label class="label">
-                <span class="label-text">Limit</span>
-            </label>
-            <input type="number" name="limit" class="input input-bordered" value="100" min="1">
+        <div>
+            <label for="scan-limit" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Limit</label>
+            <input type="number" name="limit" id="scan-limit"
+                class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500"
+                value="100" min="1">
         </div>
 
-        <!-- Submit -->
-        <button type="submit" class="btn btn-primary">
-            <span class="scan-indicator loading loading-spinner loading-sm htmx-indicator"></span>
+        <button type="submit"
+            class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800 flex items-center gap-2">
+            <svg aria-hidden="true"
+                class="scan-indicator hidden w-4 h-4 text-gray-200 animate-spin dark:text-gray-600 fill-white"
+                viewBox="0 0 100 101" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path
+                    d="M100 50.5908C100 78.2051 77.6142 100.591 50 100.591C22.3858 100.591 0 78.2051 0 50.5908C0 22.9766 22.3858 0.59082 50 0.59082C77.6142 0.59082 100 22.9766 100 50.5908ZM9.08144 50.5908C9.08144 73.1895 27.4013 91.5094 50 91.5094C72.5987 91.5094 90.9186 73.1895 90.9186 50.5908C90.9186 27.9921 72.5987 9.67226 50 9.67226C27.4013 9.67226 9.08144 27.9921 9.08144 50.5908Z"
+                    fill="currentColor" />
+                <path
+                    d="M93.9676 39.0409C96.393 38.4038 97.8624 35.9116 97.0079 33.5539C95.2932 28.8227 92.871 24.3692 89.8167 20.348C85.8452 15.1192 80.8826 10.7238 75.2124 7.41289C69.5422 4.10194 63.2754 1.94025 56.7698 1.05124C51.7666 0.367541 46.6976 0.446843 41.7345 1.27873C39.2613 1.69328 37.813 4.19778 38.4501 6.62326C39.0873 9.04874 41.5694 10.4717 44.0505 10.1071C47.8511 9.54855 51.7191 9.52689 55.5402 10.0491C60.8642 10.7766 65.9928 12.5457 70.6331 15.2552C75.2735 17.9648 79.3347 21.5619 82.5849 25.841C84.9175 28.9121 86.7997 32.2913 88.1811 35.8758C89.083 38.2158 91.5421 39.6781 93.9676 39.0409Z"
+                    fill="currentFill" />
+            </svg>
             Execute Scan
         </button>
     </form>
 
-    <!-- Results -->
     <div id="scan-results"></div>
 </div>
 {{end}}

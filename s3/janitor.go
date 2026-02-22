@@ -73,7 +73,8 @@ func (j *Janitor) runOnce(ctx context.Context) {
 	}
 	b.mu.RUnlock()
 
-	telemetry.RecordDeleteQueueDepth("s3", len(pending))
+	telemetry.RecordWorkerQueueDepth("s3", "BucketCleaner", len(pending))
+	telemetry.RecordWorkerTask("s3", "BucketCleaner", "success")
 
 	for _, name := range pending {
 		j.processBucket(ctx, name)
@@ -115,6 +116,8 @@ func (j *Janitor) processBucket(ctx context.Context, name string) {
 			break
 		}
 	}
+
+	telemetry.RecordWorkerItems("s3", "BucketCleaner", count)
 
 	remaining := len(bucket.Objects)
 	bucket.mu.Unlock()

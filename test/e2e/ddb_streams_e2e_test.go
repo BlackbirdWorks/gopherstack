@@ -20,7 +20,11 @@ func TestE2E_DynamoDB_Streams(t *testing.T) {
 	server := httptest.NewServer(stack.Echo)
 	defer server.Close()
 
-	page, err := browser.NewPage()
+	context, err := browser.NewContext()
+	require.NoError(t, err)
+	defer context.Close()
+
+	page, err := context.NewPage()
 	require.NoError(t, err)
 	defer page.Close()
 
@@ -51,26 +55,20 @@ func TestE2E_DynamoDB_Streams(t *testing.T) {
 	require.NoError(t, err)
 
 	// 3. Verify initial Streams status (DISABLED)
-	require.NoError(t, page.Locator("text=Streams").First().WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)}))
-	require.NoError(t, page.Locator(".stat", playwright.PageLocatorOptions{
-		HasText: "Streams",
-	}).First().Locator("span.badge", playwright.LocatorLocatorOptions{
-		HasText: "DISABLED",
-	}).WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)}))
+	streamsCard := page.Locator("div.grid > div:has-text('Streams')")
+	require.NoError(t, streamsCard.WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)}))
+	require.NoError(t, streamsCard.Locator("span:has-text('DISABLED')").WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)}))
 
 	// 4. Enable Streams via UI
 	_, err = page.SelectOption("select[name='viewType']", playwright.SelectOptionValues{Values: &[]string{"NEW_AND_OLD_IMAGES"}})
 	require.NoError(t, err)
-	require.NoError(t, page.Check("input[name='enabled'][class*='checkbox-info']"))
+	require.NoError(t, page.Check("#streams-enabled"))
 	require.NoError(t, page.Click("button:has-text('Update Streams')"))
 
 	// 5. Verify success toast and UI update
 	require.NoError(t, page.Locator("text=Streams enabled successfully").WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)}))
-	require.NoError(t, page.Locator(".stat", playwright.PageLocatorOptions{
-		HasText: "Streams",
-	}).First().Locator("span.badge-info", playwright.LocatorLocatorOptions{
-		HasText: "ENABLED",
-	}).WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)}))
+	streamsCard = page.Locator("div.grid > div:has-text('Streams')")
+	require.NoError(t, streamsCard.Locator("span:has-text('ENABLED')").WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)}))
 
 	// 6. Generate an event via SDK
 	_, err = stack.DDBClient.PutItem(ctx, &dynamodb.PutItemInput{
@@ -82,24 +80,20 @@ func TestE2E_DynamoDB_Streams(t *testing.T) {
 	require.NoError(t, err)
 
 	// 7. Click on "Stream Events" tab
-	require.NoError(t, page.Click("input[aria-label='Stream Events']"))
+	require.NoError(t, page.Click("#streams-tab"))
 
 	// 8. Verify the INSERT event appears in the table
 	require.NoError(t, page.Locator("table >> text=INSERT").WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)}))
-	require.NoError(t, page.Locator("table >> text="+tableName).WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)}))
 
 	// 9. Disable Streams via UI
-	require.NoError(t, page.Click("input[aria-label='Overview']"))
-	require.NoError(t, page.Uncheck("input[name='enabled'][class*='checkbox-info']"))
+	require.NoError(t, page.Click("#overview-tab"))
+	require.NoError(t, page.Uncheck("#streams-enabled"))
 	require.NoError(t, page.Click("button:has-text('Update Streams')"))
 
 	// 10. Verify success toast and UI update
 	require.NoError(t, page.Locator("text=Streams disabled successfully").WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)}))
-	require.NoError(t, page.Locator(".stat", playwright.PageLocatorOptions{
-		HasText: "Streams",
-	}).First().Locator("span.badge", playwright.LocatorLocatorOptions{
-		HasText: "DISABLED",
-	}).WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)}))
+	streamsCard = page.Locator("div.grid > div:has-text('Streams')")
+	require.NoError(t, streamsCard.Locator("span:has-text('DISABLED')").WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)}))
 
 	// 11. Verify SDK status
 	desc, err := stack.DDBClient.DescribeTable(ctx, &dynamodb.DescribeTableInput{

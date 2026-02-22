@@ -36,10 +36,14 @@ type DeadlockInfo struct {
 	Waiters   int     `json:"waiters"`
 }
 
-// DeleteQueueInfo holds the current depth of an async-delete queue.
-type DeleteQueueInfo struct {
-	Service string `json:"service"`
-	Depth   int    `json:"depth"`
+// WorkerStats holds aggregated metrics for a background worker.
+type WorkerStats struct {
+	Service        string `json:"service"`
+	Worker         string `json:"worker"`
+	QueueDepth     int    `json:"queue_depth"`
+	TasksTotal     int64  `json:"tasks_total"`
+	ErrorsTotal    int64  `json:"errors_total"`
+	ItemsProcessed int64  `json:"items_processed_total"`
 }
 
 // RuntimeMetrics holds Go runtime statistics.
@@ -54,10 +58,10 @@ type RuntimeMetrics struct {
 
 // Dashboard holds all metrics for dashboard display.
 type Dashboard struct {
-	Runtime      *RuntimeMetrics   `json:"runtime"`
-	Operations   []Summary         `json:"operations"`
-	Deadlocks    []DeadlockInfo    `json:"deadlocks"`
-	DeleteQueues []DeleteQueueInfo `json:"delete_queues"`
+	Runtime    *RuntimeMetrics `json:"runtime"`
+	Operations []Summary       `json:"operations"`
+	Deadlocks  []DeadlockInfo  `json:"deadlocks"`
+	Workers    []WorkerStats   `json:"workers"`
 }
 
 // CollectMetrics gathers current metrics from Prometheus registry.
@@ -73,10 +77,10 @@ func CollectMetrics() *Dashboard {
 	}
 
 	result := &Dashboard{
-		Runtime:      collectRuntimeMetrics(),
-		Operations:   []Summary{},
-		Deadlocks:    []DeadlockInfo{},
-		DeleteQueues: []DeleteQueueInfo{},
+		Runtime:    collectRuntimeMetrics(),
+		Operations: []Summary{},
+		Deadlocks:  []DeadlockInfo{},
+		Workers:    []WorkerStats{},
 	}
 
 	processCollectedMetrics(metrics, result)
@@ -102,23 +106,86 @@ func processCollectedMetrics(metrics []*io_prometheus_client.MetricFamily, resul
 		case "gopherstack_lock_write_waiters":
 			processLockWaitersMetrics(mf, deadlockCandidates, result)
 		case "gopherstack_delete_queue_depth":
-			processDeleteQueueMetrics(mf, result)
+			processWorkerMetrics(mf, result)
+		case "gopherstack_worker_tasks_total":
+			processWorkerTasks(mf, result)
+		case "gopherstack_worker_items_total":
+			processWorkerItems(mf, result)
+		case "gopherstack_worker_queue_depth":
+			processWorkerMetrics(mf, result)
 		}
 	}
 }
 
-// processDeleteQueueMetrics extracts delete queue depth metrics.
-func processDeleteQueueMetrics(mf *io_prometheus_client.MetricFamily, result *Dashboard) {
+// processWorkerMetrics extracts worker queue depth metrics.
+func processWorkerMetrics(mf *io_prometheus_client.MetricFamily, result *Dashboard) {
 	for _, m := range mf.GetMetric() {
-		service := getLabelValue(m, "service")
+		svc := getLabelValue(m, "service")
+		name := getLabelValue(m, "worker")
+		if name == "" {
+			name = "Janitor" // fallback for legacy gauge
+		}
 		depth := int(m.GetGauge().GetValue())
-		if depth > 0 {
-			result.DeleteQueues = append(result.DeleteQueues, DeleteQueueInfo{
-				Service: service,
-				Depth:   depth,
+
+		found := false
+		for i := range result.Workers {
+			if result.Workers[i].Service == svc && result.Workers[i].Worker == name {
+				result.Workers[i].QueueDepth = depth
+				found = true
+
+				break
+			}
+		}
+		if !found {
+			result.Workers = append(result.Workers, WorkerStats{
+				Service:    svc,
+				Worker:     name,
+				QueueDepth: depth,
 			})
 		}
 	}
+}
+
+// processWorkerTasks extracts worker task completion metrics.
+func processWorkerTasks(mf *io_prometheus_client.MetricFamily, result *Dashboard) {
+	for _, m := range mf.GetMetric() {
+		svc := getLabelValue(m, "service")
+		name := getLabelValue(m, "worker")
+		status := getLabelValue(m, "status")
+		val := int64(m.GetCounter().GetValue())
+
+		idx := findOrCreateWorker(result, svc, name)
+		if status == "error" {
+			result.Workers[idx].ErrorsTotal += val
+		}
+		result.Workers[idx].TasksTotal += val
+	}
+}
+
+// processWorkerItems extracts worker item processing metrics.
+func processWorkerItems(mf *io_prometheus_client.MetricFamily, result *Dashboard) {
+	for _, m := range mf.GetMetric() {
+		svc := getLabelValue(m, "service")
+		name := getLabelValue(m, "worker")
+		val := int64(m.GetCounter().GetValue())
+
+		idx := findOrCreateWorker(result, svc, name)
+		result.Workers[idx].ItemsProcessed += val
+	}
+}
+
+func findOrCreateWorker(result *Dashboard, service, worker string) int {
+	for i := range result.Workers {
+		if result.Workers[i].Service == service && result.Workers[i].Worker == worker {
+			return i
+		}
+	}
+	result.Workers = append(result.Workers, WorkerStats{
+		Service: service,
+		Worker:  worker,
+	})
+
+	return len(result.Workers) - 1
 }
 
 // processLockHeldMetrics processes lock held time metrics.

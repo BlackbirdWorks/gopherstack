@@ -1,76 +1,162 @@
 {{define "content"}}
 <div class="prose max-w-none">
-    <h1 class="mb-4">Supported API Operations</h1>
-    <p class="mb-8">This page lists the DynamoDB, S3, SSM, and SQS operations currently supported by the Gopherstack local
-        emulator.</p>
+    <h1 class="mb-4 text-gray-900 dark:text-white">Supported API Operations</h1>
+    <p class="mb-8 text-gray-700 dark:text-gray-300">This page lists all AWS operations currently
+        supported by the Gopherstack local emulator.</p>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
         <!-- DynamoDB Operations -->
-        <div class="card bg-base-100 shadow-xl">
-            <div class="card-body">
-                <h2 class="card-title text-primary flex items-center gap-2">
-                    <span>⚡</span> DynamoDB
-                </h2>
-                <div class="divider my-0"></div>
-                <ul class="menu bg-base-100 rounded-box">
-                    {{range .DynamoDBOps}}
-                    <li><a class="cursor-default hover:bg-base-200">{{.}}</a></li>
-                    {{else}}
-                    <li class="disabled"><span>No operations found</span></li>
-                    {{end}}
-                </ul>
-            </div>
+        <div class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
+            <h2 class="text-xl font-bold text-blue-600 dark:text-blue-400 flex items-center gap-2 mb-4">
+                <span>⚡</span> DynamoDB
+            </h2>
+            <hr class="my-4 border-gray-200 dark:border-gray-700">
+            <ul class="space-y-1">
+                {{range .DynamoDBOps}}
+                <li
+                    class="px-3 py-1 text-sm text-gray-700 dark:text-gray-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>
+                {{else}}
+                <li class="text-sm text-gray-500 dark:text-gray-400 pl-3">No operations found</li>
+                {{end}}
+            </ul>
         </div>
 
         <!-- S3 Operations -->
-        <div class="card bg-base-100 shadow-xl">
-            <div class="card-body">
-                <h2 class="card-title text-secondary flex items-center gap-2">
-                    <span>🪣</span> S3
-                </h2>
-                <div class="divider my-0"></div>
-                <ul class="menu bg-base-100 rounded-box">
-                    {{range .S3Ops}}
-                    <li><a class="cursor-default hover:bg-base-200">{{.}}</a></li>
-                    {{else}}
-                    <li class="disabled"><span>No operations found</span></li>
-                    {{end}}
-                </ul>
-            </div>
+        <div class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
+            <h2 class="text-xl font-bold text-purple-600 dark:text-purple-400 flex items-center gap-2 mb-4">
+                <span>🪣</span> S3
+            </h2>
+            <hr class="my-4 border-gray-200 dark:border-gray-700">
+            <ul class="space-y-1">
+                {{range .S3Ops}}
+                <li
+                    class="px-3 py-1 text-sm text-gray-700 dark:text-gray-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>
+                {{else}}
+                <li class="text-sm text-gray-500 dark:text-gray-400 pl-3">No operations found</li>
+                {{end}}
+            </ul>
         </div>
 
         <!-- SSM Operations -->
-        <div class="card bg-base-100 shadow-xl">
-            <div class="card-body">
-                <h2 class="card-title text-accent flex items-center gap-2">
-                    <span>🔐</span> SSM Parameter Store
-                </h2>
-                <div class="divider my-0"></div>
-                <ul class="menu bg-base-100 rounded-box">
-                    {{range .SSMOps}}
-                    <li><a class="cursor-default hover:bg-base-200">{{.}}</a></li>
-                    {{else}}
-                    <li class="disabled"><span>No operations found</span></li>
-                    {{end}}
-                </ul>
-            </div>
+        <div class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
+            <h2 class="text-xl font-bold text-yellow-600 dark:text-yellow-400 flex items-center gap-2 mb-4">
+                <span>🔐</span> SSM Parameter Store
+            </h2>
+            <hr class="my-4 border-gray-200 dark:border-gray-700">
+            <ul class="space-y-1">
+                {{range .SSMOps}}
+                <li
+                    class="px-3 py-1 text-sm text-gray-700 dark:text-gray-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>
+                {{else}}
+                <li class="text-sm text-gray-500 dark:text-gray-400 pl-3">No operations found</li>
+                {{end}}
+            </ul>
         </div>
 
         <!-- SQS Operations -->
-        <div class="card bg-base-100 shadow-xl">
-            <div class="card-body">
-                <h2 class="card-title text-warning flex items-center gap-2">
-                    <span>📨</span> SQS
-                </h2>
-                <div class="divider my-0"></div>
-                <ul class="menu bg-base-100 rounded-box">
-                    {{range .SQSOps}}
-                    <li><a class="cursor-default hover:bg-base-200">{{.}}</a></li>
-                    {{else}}
-                    <li class="disabled"><span>No operations found</span></li>
-                    {{end}}
-                </ul>
-            </div>
+        <div class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
+            <h2 class="text-xl font-bold text-orange-600 dark:text-orange-400 flex items-center gap-2 mb-4">
+                <span>📨</span> SQS
+            </h2>
+            <hr class="my-4 border-gray-200 dark:border-gray-700">
+            <ul class="space-y-1">
+                {{range .SQSOps}}
+                <li
+                    class="px-3 py-1 text-sm text-gray-700 dark:text-gray-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>
+                {{else}}
+                <li class="text-sm text-gray-500 dark:text-gray-400 pl-3">No operations found</li>
+                {{end}}
+            </ul>
+        </div>
+
+        <!-- SNS Operations -->
+        <div class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
+            <h2 class="text-xl font-bold text-pink-600 dark:text-pink-400 flex items-center gap-2 mb-4">
+                <span>📣</span> SNS
+            </h2>
+            <hr class="my-4 border-gray-200 dark:border-gray-700">
+            <ul class="space-y-1">
+                {{range .SNSOps}}
+                <li
+                    class="px-3 py-1 text-sm text-gray-700 dark:text-gray-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>
+                {{else}}
+                <li class="text-sm text-gray-500 dark:text-gray-400 pl-3">No operations found</li>
+                {{end}}
+            </ul>
+        </div>
+
+        <!-- IAM Operations -->
+        <div class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
+            <h2 class="text-xl font-bold text-red-600 dark:text-red-400 flex items-center gap-2 mb-4">
+                <span>🛡️</span> IAM
+            </h2>
+            <hr class="my-4 border-gray-200 dark:border-gray-700">
+            <ul class="space-y-1">
+                {{range .IAMOps}}
+                <li
+                    class="px-3 py-1 text-sm text-gray-700 dark:text-gray-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>
+                {{else}}
+                <li class="text-sm text-gray-500 dark:text-gray-400 pl-3">No operations found</li>
+                {{end}}
+            </ul>
+        </div>
+
+        <!-- STS Operations -->
+        <div class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
+            <h2 class="text-xl font-bold text-teal-600 dark:text-teal-400 flex items-center gap-2 mb-4">
+                <span>🎫</span> STS
+            </h2>
+            <hr class="my-4 border-gray-200 dark:border-gray-700">
+            <ul class="space-y-1">
+                {{range .STSOps}}
+                <li
+                    class="px-3 py-1 text-sm text-gray-700 dark:text-gray-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>
+                {{else}}
+                <li class="text-sm text-gray-500 dark:text-gray-400 pl-3">No operations found</li>
+                {{end}}
+            </ul>
+        </div>
+
+        <!-- KMS Operations -->
+        <div class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
+            <h2 class="text-xl font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-2 mb-4">
+                <span>🔑</span> KMS
+            </h2>
+            <hr class="my-4 border-gray-200 dark:border-gray-700">
+            <ul class="space-y-1">
+                {{range .KMSOps}}
+                <li
+                    class="px-3 py-1 text-sm text-gray-700 dark:text-gray-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>
+                {{else}}
+                <li class="text-sm text-gray-500 dark:text-gray-400 pl-3">No operations found</li>
+                {{end}}
+            </ul>
+        </div>
+
+        <!-- Secrets Manager Operations -->
+        <div class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
+            <h2 class="text-xl font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-2 mb-4">
+                <span>🤫</span> Secrets Manager
+            </h2>
+            <hr class="my-4 border-gray-200 dark:border-gray-700">
+            <ul class="space-y-1">
+                {{range .SecretsManagerOps}}
+                <li
+                    class="px-3 py-1 text-sm text-gray-700 dark:text-gray-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>
+                {{else}}
+                <li class="text-sm text-gray-500 dark:text-gray-400 pl-3">No operations found</li>
+                {{end}}
+            </ul>
         </div>
     </div>
-    {{end}}
+</div>
+{{end}}
