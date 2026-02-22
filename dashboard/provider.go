@@ -8,6 +8,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/dynamodb"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/s3"
+	"github.com/blackbirdworks/gopherstack/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/sqs"
 	"github.com/blackbirdworks/gopherstack/ssm"
 )
@@ -21,6 +22,7 @@ type AWSSDKProvider interface {
 	GetDynamoDBHandler() service.Registerable
 	GetS3Handler() service.Registerable
 	GetSSMHandler() service.Registerable
+	GetSNSHandler() service.Registerable
 	GetSQSHandler() service.Registerable
 }
 
@@ -42,6 +44,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	var ddbHandler service.Registerable
 	var s3Handler service.Registerable
 	var ssmHandler service.Registerable
+	var snsHandler service.Registerable
 	var sqsHandler service.Registerable
 
 	// Try to extract SDK clients and handlers if the config implements the extractor interface
@@ -52,6 +55,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		ddbHandler = ap.GetDynamoDBHandler()
 		s3Handler = ap.GetS3Handler()
 		ssmHandler = ap.GetSSMHandler()
+		snsHandler = ap.GetSNSHandler()
 		sqsHandler = ap.GetSQSHandler()
 	}
 
@@ -65,12 +69,17 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		ssmOps, _ = ssmHandler.(*ssm.Handler)
 	}
 
+	var snsOps *sns.Handler
+	if snsHandler != nil {
+		snsOps, _ = snsHandler.(*sns.Handler)
+	}
+
 	var sqsOps *sqsbackend.Handler
 	if sqsHandler != nil {
 		sqsOps, _ = sqsHandler.(*sqsbackend.Handler)
 	}
 
-	handler := NewHandler(ddbClient, s3Client, ssmClient, ddb, s3h, ssmOps, sqsOps, ctx.Logger)
+	handler := NewHandler(ddbClient, s3Client, ssmClient, ddb, s3h, ssmOps, snsOps, sqsOps, ctx.Logger)
 
 	return handler, nil
 }

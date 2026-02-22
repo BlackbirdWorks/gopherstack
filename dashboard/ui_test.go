@@ -30,6 +30,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
+	snsbackend "github.com/blackbirdworks/gopherstack/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/ssm"
 )
@@ -53,6 +54,10 @@ func newIntegrationStack(t *testing.T) *integrationStack {
 	ddbHndlr := ddbbackend.NewHandler(ddbBk, slog.Default())
 	ssmBk := ssmbackend.NewInMemoryBackend()
 	ssmHndlr := ssmbackend.NewHandler(ssmBk, slog.Default())
+	snsBk := snsbackend.NewInMemoryBackend()
+	snsHndlr := snsbackend.NewHandler(snsBk, slog.Default())
+	sqsBk := sqsbackend.NewInMemoryBackend()
+	sqsHndlr := sqsbackend.NewHandler(sqsBk, slog.Default())
 
 	// Setup Echo with service registry
 	e := echo.New()
@@ -62,6 +67,8 @@ func newIntegrationStack(t *testing.T) *integrationStack {
 	_ = registry.Register(ddbHndlr)
 	_ = registry.Register(s3Hndlr)
 	_ = registry.Register(ssmHndlr)
+	_ = registry.Register(snsHndlr)
+	_ = registry.Register(sqsHndlr)
 
 	router := service.NewServiceRouter(registry)
 	e.Use(router.RouteHandler())
@@ -89,7 +96,9 @@ func newIntegrationStack(t *testing.T) *integrationStack {
 		o.BaseEndpoint = aws.String("http://local")
 	})
 
-	h := dashboard.NewHandler(ddbClient, s3Client, ssmClient, ddbHndlr, s3Hndlr, ssmHndlr, nil, slog.Default())
+	h := dashboard.NewHandler(
+		ddbClient, s3Client, ssmClient, ddbHndlr, s3Hndlr, ssmHndlr, snsHndlr, sqsHndlr, slog.Default(),
+	)
 
 	return &integrationStack{
 		handler:    h,
@@ -159,13 +168,16 @@ func newFullStack(t *testing.T) (*integrationStack, *echo.Echo) {
 
 	ssmBk := ssmbackend.NewInMemoryBackend()
 	ssmHndlr := ssmbackend.NewHandler(ssmBk, slog.Default())
+	snsBk := snsbackend.NewInMemoryBackend()
+	snsHndlr := snsbackend.NewHandler(snsBk, slog.Default())
 	registry := service.NewRegistry(slog.Default())
 	_ = registry.Register(ssmHndlr)
+	_ = registry.Register(snsHndlr)
 	ssmClient := ssmsdk.NewFromConfig(cfg, func(o *ssmsdk.Options) {
 		o.BaseEndpoint = aws.String("http://local")
 	})
 
-	h := dashboard.NewHandler(ddbClient, s3Client, ssmClient, ddbHndlr, s3Hndlr, ssmHndlr, nil, slog.Default())
+	h := dashboard.NewHandler(ddbClient, s3Client, ssmClient, ddbHndlr, s3Hndlr, ssmHndlr, nil, nil, slog.Default())
 
 	// Register all three services (including dashboard) to test RouteMatcher
 	e := echo.New()
@@ -176,6 +188,7 @@ func newFullStack(t *testing.T) (*integrationStack, *echo.Echo) {
 	_ = registry.Register(h)
 	_ = registry.Register(s3Hndlr)
 	_ = registry.Register(ssmHndlr)
+	_ = registry.Register(snsHndlr)
 
 	router := service.NewServiceRouter(registry)
 	e.Use(router.RouteHandler())
@@ -2320,7 +2333,7 @@ func newSQSIntegrationStack(t *testing.T) *integrationStack {
 		o.BaseEndpoint = aws.String("http://local")
 	})
 
-	h := dashboard.NewHandler(ddbClient, s3Client, ssmClient, ddbHndlr, s3Hndlr, ssmHndlr, sqsHndlr, slog.Default())
+	h := dashboard.NewHandler(ddbClient, s3Client, ssmClient, ddbHndlr, s3Hndlr, ssmHndlr, nil, sqsHndlr, slog.Default())
 
 	return &integrationStack{
 		handler:    h,
@@ -2370,11 +2383,11 @@ func TestDashboard_SQS_Index(t *testing.T) {
 
 	t.Run("index renders with nil SQSOps", func(t *testing.T) {
 		t.Parallel()
-		stack := newIntegrationStack(t) // nil SQSOps
+		h := dashboard.NewHandler(nil, nil, nil, nil, nil, nil, nil, nil, slog.Default())
 
 		req := httptest.NewRequest(http.MethodGet, "/dashboard/sqs", nil)
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(h, w, req)
 
 		require.Equal(t, http.StatusOK, w.Code)
 		assert.Contains(t, w.Body.String(), "SQS Queues")
@@ -2459,13 +2472,13 @@ func TestDashboard_SQS_CreateQueue(t *testing.T) {
 
 	t.Run("create queue with nil SQSOps is a no-op", func(t *testing.T) {
 		t.Parallel()
-		stack := newIntegrationStack(t)
+		h := dashboard.NewHandler(nil, nil, nil, nil, nil, nil, nil, nil, slog.Default())
 
 		req := httptest.NewRequest(http.MethodPost, "/dashboard/sqs/create",
 			strings.NewReader("queue_name=my-queue"))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(h, w, req)
 
 		require.Equal(t, http.StatusOK, w.Code)
 	})
@@ -2521,12 +2534,12 @@ func TestDashboard_SQS_DeleteQueue(t *testing.T) {
 
 	t.Run("delete queue with nil SQSOps is a no-op", func(t *testing.T) {
 		t.Parallel()
-		stack := newIntegrationStack(t)
+		h := dashboard.NewHandler(nil, nil, nil, nil, nil, nil, nil, nil, slog.Default())
 
 		reqURL := "/dashboard/sqs/delete?url=" + url.QueryEscape("http://local/000000000000/x")
 		req := httptest.NewRequest(http.MethodDelete, reqURL, nil)
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(h, w, req)
 
 		require.Equal(t, http.StatusOK, w.Code)
 	})
@@ -2581,12 +2594,12 @@ func TestDashboard_SQS_PurgeQueue(t *testing.T) {
 
 	t.Run("purge queue with nil SQSOps is a no-op", func(t *testing.T) {
 		t.Parallel()
-		stack := newIntegrationStack(t)
+		h := dashboard.NewHandler(nil, nil, nil, nil, nil, nil, nil, nil, slog.Default())
 
 		reqURL := "/dashboard/sqs/purge?url=" + url.QueryEscape("http://local/000000000000/x")
 		req := httptest.NewRequest(http.MethodPost, reqURL, nil)
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(h, w, req)
 
 		require.Equal(t, http.StatusOK, w.Code)
 	})
@@ -2641,13 +2654,203 @@ func TestDashboard_SQS_QueueDetail(t *testing.T) {
 
 	t.Run("queue detail returns 500 when SQSOps is nil", func(t *testing.T) {
 		t.Parallel()
-		stack := newIntegrationStack(t)
+		h := dashboard.NewHandler(nil, nil, nil, nil, nil, nil, nil, nil, slog.Default())
 
 		reqURL := "/dashboard/sqs/queue?url=" + url.QueryEscape("http://local/000000000000/x")
 		req := httptest.NewRequest(http.MethodGet, reqURL, nil)
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(h, w, req)
 
 		require.Equal(t, http.StatusInternalServerError, w.Code)
 	})
+}
+
+func TestDashboard_SNS_Index(t *testing.T) {
+	t.Parallel()
+
+	stack := newIntegrationStack(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/sns", nil)
+	w := httptest.NewRecorder()
+	serveHandler(stack.handler, w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "SNS Topics")
+	assert.Contains(t, w.Body.String(), "No topics found")
+}
+
+func TestDashboard_SNS_CreateTopic(t *testing.T) {
+	t.Parallel()
+
+	stack := newIntegrationStack(t)
+
+	form := url.Values{}
+	form.Set("name", "test-topic")
+
+	req := httptest.NewRequest(http.MethodPost, "/dashboard/sns/create", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	serveHandler(stack.handler, w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "/dashboard/sns", w.Header().Get("Hx-Redirect"))
+
+	req2 := httptest.NewRequest(http.MethodGet, "/dashboard/sns", nil)
+	w2 := httptest.NewRecorder()
+	serveHandler(stack.handler, w2, req2)
+	assert.Contains(t, w2.Body.String(), "test-topic")
+}
+
+func TestDashboard_SNS_CreateTopic_MissingName(t *testing.T) {
+	t.Parallel()
+
+	stack := newIntegrationStack(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/dashboard/sns/create", strings.NewReader(""))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	serveHandler(stack.handler, w, req)
+
+	require.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestDashboard_SNS_DeleteTopic(t *testing.T) {
+	t.Parallel()
+
+	stack := newIntegrationStack(t)
+
+	form := url.Values{}
+	form.Set("name", "delete-me")
+	req := httptest.NewRequest(http.MethodPost, "/dashboard/sns/create", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	serveHandler(stack.handler, w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	arn := "arn:aws:sns:us-east-1:000000000000:delete-me"
+	req3 := httptest.NewRequest(http.MethodDelete, "/dashboard/sns/delete?arn="+arn, nil)
+	w3 := httptest.NewRecorder()
+	serveHandler(stack.handler, w3, req3)
+	require.Equal(t, http.StatusOK, w3.Code)
+	assert.Equal(t, "/dashboard/sns", w3.Header().Get("Hx-Redirect"))
+}
+
+func TestDashboard_SNS_DeleteTopic_MissingArn(t *testing.T) {
+	t.Parallel()
+
+	stack := newIntegrationStack(t)
+
+	req := httptest.NewRequest(http.MethodDelete, "/dashboard/sns/delete", nil)
+	w := httptest.NewRecorder()
+	serveHandler(stack.handler, w, req)
+
+	require.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestDashboard_SNS_TopicDetail(t *testing.T) {
+	t.Parallel()
+
+	stack := newIntegrationStack(t)
+
+	form := url.Values{}
+	form.Set("name", "detail-topic")
+	req := httptest.NewRequest(http.MethodPost, "/dashboard/sns/create", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	serveHandler(stack.handler, w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	arn := "arn:aws:sns:us-east-1:000000000000:detail-topic"
+	req2 := httptest.NewRequest(http.MethodGet, "/dashboard/sns/topic?arn="+arn, nil)
+	w2 := httptest.NewRecorder()
+	serveHandler(stack.handler, w2, req2)
+
+	require.Equal(t, http.StatusOK, w2.Code)
+	assert.Contains(t, w2.Body.String(), "Topic Detail")
+	assert.Contains(t, w2.Body.String(), "detail-topic")
+}
+
+func TestDashboard_SNS_TopicDetail_MissingArn(t *testing.T) {
+	t.Parallel()
+
+	stack := newIntegrationStack(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/sns/topic", nil)
+	w := httptest.NewRecorder()
+	serveHandler(stack.handler, w, req)
+
+	require.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestDashboard_SNS_TopicDetail_NotFound(t *testing.T) {
+	t.Parallel()
+
+	stack := newIntegrationStack(t)
+
+	const notFoundArn = "arn:aws:sns:us-east-1:000000000000:nonexistent"
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/sns/topic?arn="+notFoundArn, nil)
+	w := httptest.NewRecorder()
+	serveHandler(stack.handler, w, req)
+
+	require.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestDashboard_SNS_CreateTopic_Duplicate(t *testing.T) {
+	t.Parallel()
+
+	stack := newIntegrationStack(t)
+
+	form := url.Values{}
+	form.Set("name", "dup-topic")
+
+	req := httptest.NewRequest(http.MethodPost, "/dashboard/sns/create", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	serveHandler(stack.handler, w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	req2 := httptest.NewRequest(http.MethodPost, "/dashboard/sns/create", strings.NewReader(form.Encode()))
+	req2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w2 := httptest.NewRecorder()
+	serveHandler(stack.handler, w2, req2)
+	require.Equal(t, http.StatusConflict, w2.Code)
+}
+
+func TestDashboard_SNS_DeleteTopic_NotFound(t *testing.T) {
+	t.Parallel()
+
+	stack := newIntegrationStack(t)
+
+	const missingArn = "arn:aws:sns:us-east-1:000000000000:nonexistent"
+	req := httptest.NewRequest(http.MethodDelete, "/dashboard/sns/delete?arn="+missingArn, nil)
+	w := httptest.NewRecorder()
+	serveHandler(stack.handler, w, req)
+
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestDashboard_SNS_TopicDetail_WithSubscription(t *testing.T) {
+	t.Parallel()
+
+	stack := newIntegrationStack(t)
+
+	form := url.Values{}
+	form.Set("name", "sub-detail-topic")
+	req := httptest.NewRequest(http.MethodPost, "/dashboard/sns/create", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	serveHandler(stack.handler, w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	arn := "arn:aws:sns:us-east-1:000000000000:sub-detail-topic"
+
+	_, err := stack.handler.SNSOps.Backend.Subscribe(arn, "https", "https://example.com/endpoint", "")
+	require.NoError(t, err)
+
+	req2 := httptest.NewRequest(http.MethodGet, "/dashboard/sns/topic?arn="+arn, nil)
+	w2 := httptest.NewRecorder()
+	serveHandler(stack.handler, w2, req2)
+
+	require.Equal(t, http.StatusOK, w2.Code)
+	assert.Contains(t, w2.Body.String(), "https")
 }
