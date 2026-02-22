@@ -183,7 +183,7 @@ func newFullStack(t *testing.T) (*integrationStack, *echo.Echo) {
 	e := echo.New()
 	e.Pre(logger.EchoMiddleware(slog.Default()))
 
-	registry = service.NewRegistry(slog.Default())
+	registry := service.NewRegistry(slog.Default())
 	_ = registry.Register(ddbHndlr)
 	_ = registry.Register(h)
 	_ = registry.Register(s3Hndlr)
