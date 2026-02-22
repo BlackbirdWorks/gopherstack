@@ -264,7 +264,7 @@ html.dark .tabs-lifted .tab-content { border-color: #374151; }
   color: #6b7280; cursor: pointer; border-bottom: 2px solid transparent;
   margin-bottom: -2px; transition: color .15s, border-color .15s;
   /* hide the radio input but keep the label visible */
-  appearance: none; background: transparent; border-radius: 0; border-left: none; border-right: none; border-top: none;
+  appearance: none; background: transparent; border-radius: 0; border: none; border-bottom: 2px solid transparent;
 }
 .tab:hover { color: #374151; }
 html.dark .tab { color: #9ca3af; }
