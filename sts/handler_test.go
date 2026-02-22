@@ -384,6 +384,29 @@ func TestHandler_RouteMatcher_NoMatch(t *testing.T) {
 	assert.False(t, h.RouteMatcher()(c))
 }
 
+// TestHandler_RouteMatcher_ExcludesDashboard ensures that browser form POSTs to
+// dashboard paths are not intercepted by the STS handler (they have the same
+// Content-Type but should be served by the Dashboard handler instead).
+func TestHandler_RouteMatcher_ExcludesDashboard(t *testing.T) {
+	t.Parallel()
+
+	h, e := newTestHandler(t)
+	paths := []string{"/dashboard", "/dashboard/", "/dashboard/dynamodb/tables", "/dashboard/sts"}
+
+	for _, path := range paths {
+		t.Run(path, func(t *testing.T) {
+			t.Parallel()
+
+			req := httptest.NewRequest(http.MethodPost, path, nil)
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			assert.False(t, h.RouteMatcher()(c), "STS should not match dashboard path %s", path)
+		})
+	}
+}
+
 func TestHandler_ExtractOperation(t *testing.T) {
 	t.Parallel()
 

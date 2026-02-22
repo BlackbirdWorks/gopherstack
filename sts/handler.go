@@ -60,8 +60,15 @@ func (h *Handler) GetSupportedOperations() []string {
 }
 
 // RouteMatcher returns a matcher that identifies STS requests by Content-Type.
+// Dashboard paths are excluded so that browser form submissions (Playwright tests)
+// are not intercepted by the STS handler.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
+		path := c.Request().URL.Path
+		if strings.HasPrefix(path, "/dashboard/") || path == "/dashboard" {
+			return false
+		}
+
 		ct := c.Request().Header.Get("Content-Type")
 
 		return strings.Contains(ct, contentTypeForm)
