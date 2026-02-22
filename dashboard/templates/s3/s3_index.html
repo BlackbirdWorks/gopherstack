@@ -2,7 +2,7 @@
 <div class="space-y-6">
     <!-- Header -->
     <div class="flex justify-between items-center">
-        <h1 class="text-3xl font-bold">S3 Buckets</h1>
+        <h1 class="text-3xl font-bold text-gray-900 dark:text-white">S3 Buckets</h1>
         <div class="flex gap-2">
             <button class="btn btn-error" hx-delete="/dashboard/s3/purge"
                 hx-confirm="Are you sure you want to delete ALL buckets? This cannot be undone."
@@ -18,22 +18,17 @@
     <!-- Search/Filter & Pagination Container -->
     <div class="flex flex-col md:flex-row justify-between items-end gap-4">
         <div class="form-control w-full max-w-xs">
-            <label class="label">
-                <span class="label-text">Search Buckets</span>
-            </label>
+            <label class="label"><span class="label-text">Search Buckets</span></label>
             <input type="text" name="search" placeholder="Search buckets..." class="input input-bordered w-full"
                 hx-get="/dashboard/s3/buckets" hx-vals='{"offset": 0}' hx-trigger="input changed delay:300ms, search"
                 hx-target="#bucket-list" hx-push-url="true">
         </div>
-        <div id="pagination-top" class="flex-1 flex justify-end">
-            <!-- Pagination summary OOB from backend -->
-        </div>
+        <div id="pagination-top" class="flex-1 flex justify-end"></div>
     </div>
 
     <!-- Bucket list -->
     <div id="bucket-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" hx-get="/dashboard/s3/buckets"
         hx-trigger="load" hx-indicator=".htmx-indicator">
-        <!-- Buckets will be loaded here -->
     </div>
 
     <!-- Loading indicator -->
@@ -45,17 +40,13 @@
 <!-- Create Bucket Modal -->
 <dialog id="create_bucket_modal" class="modal">
     <div class="modal-box">
-        <h3 class="font-bold text-lg">Create Bucket</h3>
+        <h3 class="font-bold text-lg text-gray-900 dark:text-white">Create Bucket</h3>
         <form method="dialog" class="space-y-4 mt-4" hx-post="/dashboard/s3/create" hx-target="#bucket-list"
             hx-on::after-request="if(event.detail.successful) document.getElementById('create_bucket_modal').close()">
             <div class="form-control">
-                <label class="label">
-                    <span class="label-text">Bucket Name</span>
-                </label>
+                <label class="label"><span class="label-text">Bucket Name</span></label>
                 <input type="text" name="bucketName" placeholder="my-bucket" class="input input-bordered" required>
-                <label class="label">
-                    <span class="label-text-alt">Must be unique and follow S3 naming rules</span>
-                </label>
+                <label class="label"><span class="label-text-alt">Must be unique and follow S3 naming rules</span></label>
             </div>
             <div class="form-control">
                 <label class="label cursor-pointer">
@@ -64,7 +55,7 @@
                 </label>
             </div>
             <div class="modal-action">
-                <button type="button" class="btn"
+                <button type="button" class="btn btn-ghost"
                     onclick="document.getElementById('create_bucket_modal').close()">Cancel</button>
                 <button type="submit" class="btn btn-primary">Create</button>
             </div>

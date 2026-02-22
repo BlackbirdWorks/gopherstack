@@ -1,33 +1,33 @@
 {{define "table-card"}}
-<div class="card bg-base-100 shadow-xl hover:shadow-2xl transition-shadow">
+<div class="card hover:shadow-2xl transition-shadow">
     <div class="card-body">
         <h2 class="card-title">
-            <a href="/dashboard/dynamodb/table/{{.TableName}}" class="link link-hover">{{.TableName}}</a>
+            <a href="/dashboard/dynamodb/table/{{.TableName}}" class="text-blue-600 hover:underline dark:text-blue-400">{{.TableName}}</a>
         </h2>
         <div class="space-y-2 text-sm">
             <div class="flex justify-between">
-                <span class="text-gray-600">Partition Key:</span>
-                <span class="font-mono">{{.PartitionKey}} ({{.PartitionKeyType}})</span>
+                <span class="text-gray-500 dark:text-gray-400">Partition Key:</span>
+                <span class="font-mono text-gray-800 dark:text-gray-200">{{.PartitionKey}} ({{.PartitionKeyType}})</span>
             </div>
             {{if .SortKey}}
             <div class="flex justify-between">
-                <span class="text-gray-600">Sort Key:</span>
-                <span class="font-mono">{{.SortKey}} ({{.SortKeyType}})</span>
+                <span class="text-gray-500 dark:text-gray-400">Sort Key:</span>
+                <span class="font-mono text-gray-800 dark:text-gray-200">{{.SortKey}} ({{.SortKeyType}})</span>
             </div>
             {{end}}
             <div class="flex justify-between">
-                <span class="text-gray-600">Item Count:</span>
+                <span class="text-gray-500 dark:text-gray-400">Item Count:</span>
                 <span class="badge badge-primary">{{.ItemCount}}</span>
             </div>
             {{if .GSICount}}
             <div class="flex justify-between">
-                <span class="text-gray-600">GSI:</span>
+                <span class="text-gray-500 dark:text-gray-400">GSI:</span>
                 <span class="badge badge-secondary">{{.GSICount}}</span>
             </div>
             {{end}}
             {{if .LSICount}}
             <div class="flex justify-between">
-                <span class="text-gray-600">LSI:</span>
+                <span class="text-gray-500 dark:text-gray-400">LSI:</span>
                 <span class="badge badge-accent">{{.LSICount}}</span>
             </div>
             {{end}}

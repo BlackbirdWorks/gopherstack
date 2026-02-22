@@ -1,27 +1,24 @@
 {{define "content"}}
-<div class="container mx-auto px-4 py-8 space-y-8 animate-in fade-in duration-500">
+<div class="container mx-auto px-4 py-8 space-y-8">
     <!-- Header -->
-    <div
-        class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-base-300 pb-6">
+    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-gray-200 dark:border-gray-700 pb-6">
         <div>
-            <h1 class="text-4xl font-extrabold tracking-tight text-primary">Performance Metrics</h1>
-            <p class="text-base-content/60 mt-2">Real-time health and performance statistics for Gopherstack.</p>
+            <h1 class="text-4xl font-extrabold tracking-tight text-blue-600 dark:text-blue-400">Performance Metrics</h1>
+            <p class="text-gray-500 dark:text-gray-400 mt-2">Real-time health and performance statistics for Gopherstack.</p>
         </div>
         <div class="flex items-center gap-3">
             <div id="live-indicator"
-                class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-success/10 text-success text-xs font-bold border border-success/20">
+                class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 text-xs font-bold border border-green-200 dark:border-green-800">
                 <span class="relative flex h-2 w-2">
-                    <span
-                        class="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span>
-                    <span class="relative inline-flex rounded-full h-2 w-2 bg-success"></span>
+                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                    <span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
                 </span>
                 LIVE
             </div>
-            <button class="btn btn-sm btn-ghost border-base-300 hover:border-primary px-4 bg-base-100 shadow-sm"
+            <button class="btn btn-sm btn-ghost border border-gray-200 dark:border-gray-600 px-4 bg-white dark:bg-gray-800 shadow-sm"
                 hx-get="/dashboard/api/metrics" hx-target="#metrics-content" hx-swap="none"
                 hx-on::after-request="window.dispatchEvent(new CustomEvent('metrics-updated', {detail: JSON.parse(event.detail.xhr.responseText)}))">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
-                    stroke="currentColor">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                 </svg>
@@ -35,28 +32,25 @@
         hx-on::after-request="window.dispatchEvent(new CustomEvent('metrics-updated', {detail: JSON.parse(event.detail.xhr.responseText)}))">
 
         <div id="metrics-loading" class="flex flex-col items-center justify-center py-24 opacity-60">
-            <span class="loading loading-spinner loading-lg text-primary"></span>
-            <p class="mt-4 font-medium">Gathering insights...</p>
+            <span class="loading loading-spinner loading-lg"></span>
+            <p class="mt-4 font-medium text-gray-700 dark:text-gray-300">Gathering insights...</p>
         </div>
 
-        <div id="dashboard-view" class="hidden space-y-8 animate-in zoom-in-95 duration-300">
+        <div id="dashboard-view" class="hidden space-y-8">
             <!-- Deadlock Section -->
             <section id="deadlock-section" class="hidden">
-                <div class="collapse collapse-arrow bg-error/10 border border-error/20 rounded-2xl shadow-lg">
-                    <input type="checkbox" checked />
-                    <div class="collapse-title flex items-center gap-4 text-error p-6">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none"
-                            viewBox="0 0 24 24">
+                <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-2xl shadow-lg overflow-hidden">
+                    <div class="flex items-center gap-4 text-red-700 dark:text-red-400 p-6">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                         </svg>
                         <div>
                             <h3 class="font-bold text-lg">Potential Deadlocks Detected!</h3>
-                            <p class="text-sm opacity-90">One or more locks have been held for an unusually long time
-                                while other goroutines are waiting.</p>
+                            <p class="text-sm opacity-90">One or more locks have been held for an unusually long time while other goroutines are waiting.</p>
                         </div>
                     </div>
-                    <div class="collapse-content px-6 pb-6">
+                    <div class="px-6 pb-6">
                         <div id="deadlock-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                             <!-- Deadlock cards populated by JS -->
                         </div>
@@ -66,38 +60,32 @@
 
             <!-- Runtime Section -->
             <section>
-                <h2 class="text-xl font-bold mb-4 flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-secondary" fill="none"
-                        viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M13 10V3L4 14h7v7l9-11h-7z" />
+                <h2 class="text-xl font-bold mb-4 flex items-center gap-2 text-gray-900 dark:text-white">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
                     </svg>
                     Go Runtime
                 </h2>
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <div class="stat bg-base-100 rounded-2xl shadow-sm border border-base-200">
-                        <div class="stat-title text-xs font-bold uppercase tracking-wider text-base-content/50">
-                            Goroutines</div>
-                        <div id="runtime-goroutines" class="stat-value text-primary py-1">0</div>
-                        <div class="stat-desc text-base-content/40">Active routines</div>
+                    <div class="stat bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700">
+                        <div class="stat-title">Goroutines</div>
+                        <div id="runtime-goroutines" class="stat-value text-blue-600 dark:text-blue-400 py-1">0</div>
+                        <div class="stat-desc">Active routines</div>
                     </div>
-                    <div class="stat bg-base-100 rounded-2xl shadow-sm border border-base-200">
-                        <div class="stat-title text-xs font-bold uppercase tracking-wider text-base-content/50">Heap
-                            Memory</div>
-                        <div id="runtime-heap" class="stat-value text-secondary py-1">0MB</div>
-                        <div id="runtime-heap-pct" class="stat-desc text-base-content/40">0% of total</div>
+                    <div class="stat bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700">
+                        <div class="stat-title">Heap Memory</div>
+                        <div id="runtime-heap" class="stat-value text-purple-600 dark:text-purple-400 py-1">0MB</div>
+                        <div id="runtime-heap-pct" class="stat-desc">0% of total</div>
                     </div>
-                    <div class="stat bg-base-100 rounded-2xl shadow-sm border border-base-200">
-                        <div class="stat-title text-xs font-bold uppercase tracking-wider text-base-content/50">GC
-                            Cycles</div>
-                        <div id="runtime-gc" class="stat-value text-accent py-1">0</div>
-                        <div id="runtime-gc-pause" class="stat-desc text-base-content/40">Last pause: 0ms</div>
+                    <div class="stat bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700">
+                        <div class="stat-title">GC Cycles</div>
+                        <div id="runtime-gc" class="stat-value text-yellow-600 dark:text-yellow-400 py-1">0</div>
+                        <div id="runtime-gc-pause" class="stat-desc">Last pause: 0ms</div>
                     </div>
-                    <div class="stat bg-base-100 rounded-2xl shadow-sm border border-base-200">
-                        <div class="stat-title text-xs font-bold uppercase tracking-wider text-base-content/50">Total
-                            Allocated</div>
-                        <div id="runtime-total" class="stat-value text-base-content py-1">0MB</div>
-                        <div class="stat-desc text-base-content/40">Lifetime total</div>
+                    <div class="stat bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700">
+                        <div class="stat-title">Total Allocated</div>
+                        <div id="runtime-total" class="stat-value text-gray-700 dark:text-gray-300 py-1">0MB</div>
+                        <div class="stat-desc">Lifetime total</div>
                     </div>
                 </div>
             </section>
@@ -106,9 +94,8 @@
             <section>
                 <div class="flex flex-col md:flex-row justify-between items-start md:items-end mb-6 gap-4">
                     <div class="flex items-center gap-2">
-                        <h2 class="text-xl font-bold flex items-center gap-2">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-primary" fill="none"
-                                viewBox="0 0 24 24" stroke="currentColor">
+                        <h2 class="text-xl font-bold flex items-center gap-2 text-gray-900 dark:text-white">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                     d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                             </svg>
@@ -118,30 +105,24 @@
                     </div>
 
                     <!-- Service Filter -->
-                    <div class="tabs tabs-boxed bg-base-200">
-                        <button onclick="updateFilter('all')" class="tab tab-sm filter-tab active"
-                            data-service="all">All Services</button>
-                        <button onclick="updateFilter('DynamoDB')" class="tab tab-sm filter-tab"
-                            data-service="DynamoDB">DynamoDB</button>
-                        <button onclick="updateFilter('S3')" class="tab tab-sm filter-tab" data-service="S3">S3</button>
-                        <button onclick="updateFilter('SSM')" class="tab tab-sm filter-tab"
-                            data-service="SSM">SSM</button>
+                    <div class="flex flex-wrap gap-1 bg-gray-100 dark:bg-gray-700 p-1 rounded-lg">
+                        <button onclick="updateFilter('all')" class="px-3 py-1.5 text-sm rounded-md font-medium filter-tab bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm" data-service="all">All Services</button>
+                        <button onclick="updateFilter('DynamoDB')" class="px-3 py-1.5 text-sm rounded-md font-medium filter-tab text-gray-600 dark:text-gray-300 hover:bg-white dark:hover:bg-gray-600" data-service="DynamoDB">DynamoDB</button>
+                        <button onclick="updateFilter('S3')" class="px-3 py-1.5 text-sm rounded-md font-medium filter-tab text-gray-600 dark:text-gray-300 hover:bg-white dark:hover:bg-gray-600" data-service="S3">S3</button>
+                        <button onclick="updateFilter('SSM')" class="px-3 py-1.5 text-sm rounded-md font-medium filter-tab text-gray-600 dark:text-gray-300 hover:bg-white dark:hover:bg-gray-600" data-service="SSM">SSM</button>
                     </div>
                 </div>
 
-                <div class="bg-base-100 rounded-2xl shadow-sm border border-base-200 overflow-hidden">
+                <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
                     <div class="overflow-x-auto">
-                        <table class="table table-md w-full">
-                            <thead class="bg-base-200/50">
+                        <table class="w-full">
+                            <thead class="bg-gray-50 dark:bg-gray-900/50">
                                 <tr>
                                     <th class="font-bold text-xs uppercase tracking-wider">Operation</th>
                                     <th class="font-bold text-xs uppercase tracking-wider text-center">Requests</th>
-                                    <th class="font-bold text-xs uppercase tracking-wider text-right text-primary">P50
-                                    </th>
-                                    <th class="font-bold text-xs uppercase tracking-wider text-right text-secondary">P95
-                                    </th>
-                                    <th class="font-bold text-xs uppercase tracking-wider text-right text-accent">P99
-                                    </th>
+                                    <th class="font-bold text-xs uppercase tracking-wider text-right text-blue-600 dark:text-blue-400">P50</th>
+                                    <th class="font-bold text-xs uppercase tracking-wider text-right text-purple-600 dark:text-purple-400">P95</th>
+                                    <th class="font-bold text-xs uppercase tracking-wider text-right text-yellow-600 dark:text-yellow-400">P99</th>
                                     <th class="font-bold text-xs uppercase tracking-wider text-right">Avg</th>
                                     <th class="font-bold text-xs uppercase tracking-wider text-right">Max</th>
                                 </tr>
@@ -156,9 +137,8 @@
 
             <!-- Delete Queue Section -->
             <section id="delete-queue-section">
-                <h2 class="text-xl font-bold mb-4 flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-warning" fill="none" viewBox="0 0 24 24"
-                        stroke="currentColor">
+                <h2 class="text-xl font-bold mb-4 flex items-center gap-2 text-gray-900 dark:text-white">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-yellow-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                     </svg>
@@ -171,17 +151,14 @@
         </div>
 
         <div id="no-metrics-msg" class="hidden py-32 text-center">
-            <div class="bg-base-200/50 inline-flex items-center justify-center p-6 rounded-full mb-6">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-base-content/20" fill="none"
-                    viewBox="0 0 24 24" stroke="currentColor">
+            <div class="bg-gray-100 dark:bg-gray-800 inline-flex items-center justify-center p-6 rounded-full mb-6">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
             </div>
-            <h3
-                class="text-xl font-bold bg-gradient-to-r from-base-content to-base-content/40 bg-clip-text text-transparent">
-                No Data Available</h3>
-            <p class="text-base-content/60 mt-2">Perform some requests to generate performance data.</p>
+            <h3 class="text-xl font-bold text-gray-900 dark:text-white">No Data Available</h3>
+            <p class="text-gray-500 dark:text-gray-400 mt-2">Perform some requests to generate performance data.</p>
         </div>
     </div>
 </div>
@@ -192,39 +169,31 @@
 
     function updateFilter(service) {
         currentFilter = service;
-
-        // Update tabs UI
         document.querySelectorAll('.filter-tab').forEach(tab => {
-            if (tab.dataset.service === service) {
-                tab.classList.add('tab-active');
-            } else {
-                tab.classList.remove('tab-active');
-            }
+            const isActive = tab.dataset.service === service;
+            tab.classList.toggle('bg-white', isActive);
+            tab.classList.toggle('dark:bg-gray-600', isActive);
+            tab.classList.toggle('text-gray-900', isActive);
+            tab.classList.toggle('dark:text-white', isActive);
+            tab.classList.toggle('shadow-sm', isActive);
+            tab.classList.toggle('text-gray-600', !isActive);
+            tab.classList.toggle('dark:text-gray-300', !isActive);
         });
-
         renderOperations();
     }
 
     function renderDeleteQueues(data) {
         const body = document.getElementById('delete-queue-body');
         if (!body) return;
-
         if (!data || !data.delete_queues || data.delete_queues.length === 0) {
-            body.innerHTML = '<div class="stat bg-base-100 rounded-2xl shadow-sm border border-base-200"><div class="stat-title text-xs font-bold uppercase tracking-wider text-base-content/50">All Queues</div><div class="stat-value text-success py-1">0</div><div class="stat-desc text-base-content/40">No pending deletions</div></div>';
+            body.innerHTML = '<div class="stat bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700"><div class="stat-title">All Queues</div><div class="stat-value text-green-600 dark:text-green-400 py-1">0</div><div class="stat-desc">No pending deletions</div></div>';
             return;
         }
-
         let cards = '';
         for (const q of data.delete_queues) {
-            const serviceLabel = q.service.charAt(0).toUpperCase() + q.service.slice(1);
-            const colorClass = q.depth > 0 ? 'text-warning' : 'text-success';
-            cards += `
-                <div class="stat bg-base-100 rounded-2xl shadow-sm border border-base-200">
-                    <div class="stat-title text-xs font-bold uppercase tracking-wider text-base-content/50">${escapeHtml(serviceLabel)}</div>
-                    <div class="stat-value ${colorClass} py-1">${q.depth}</div>
-                    <div class="stat-desc text-base-content/40">pending deletion</div>
-                </div>
-            `;
+            const label = q.service.charAt(0).toUpperCase() + q.service.slice(1);
+            const colorClass = q.depth > 0 ? 'text-yellow-600 dark:text-yellow-400' : 'text-green-600 dark:text-green-400';
+            cards += `<div class="stat bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700"><div class="stat-title">${escapeHtml(label)}</div><div class="stat-value ${colorClass} py-1">${q.depth}</div><div class="stat-desc">pending deletion</div></div>`;
         }
         body.innerHTML = cards;
     }
@@ -233,166 +202,84 @@
         const data = currentMetrics;
         const body = document.getElementById('operations-body');
         const badge = document.getElementById('op-count-badge');
-
         if (!data || !data.operations || data.operations.length === 0) {
             badge.textContent = '0 operations tracked';
-            body.innerHTML = '<tr><td colspan="7" class="text-center py-8 text-base-content/40 italic">No operations recorded yet</td></tr>';
+            body.innerHTML = '<tr><td colspan="7" class="text-center py-8 text-gray-400 italic">No operations recorded yet</td></tr>';
             return;
         }
-
-        // Filter operations
         let filteredOps = data.operations;
         if (currentFilter !== 'all') {
             filteredOps = data.operations.filter(op => op.operation.startsWith(currentFilter + '::'));
         }
-
         badge.textContent = `${filteredOps.length} operations tracked`;
-        let rows = '';
-
-        // Sort by service (DynamoDB first, then S3) then by count descending
         const sortedOps = [...filteredOps].sort((a, b) => {
-            const getServiceRank = (opName) => {
-                if (opName.startsWith('DynamoDB::')) return 1;
-                if (opName.startsWith('S3::')) return 2;
-                if (opName.startsWith('SSM::')) return 3;
-                return 4;
-            };
-
-            const rA = getServiceRank(a.operation);
-            const rB = getServiceRank(b.operation);
-
-            if (rA !== rB) return rA - rB;
-            return b.count - a.count;
+            const rank = n => n.startsWith('DynamoDB::') ? 1 : n.startsWith('S3::') ? 2 : n.startsWith('SSM::') ? 3 : 4;
+            const diff = rank(a.operation) - rank(b.operation);
+            return diff !== 0 ? diff : b.count - a.count;
         });
-
+        let rows = '';
         for (const op of sortedOps) {
             const parts = op.operation.split('::');
             const service = parts.length > 1 ? parts[0] : 'SDK';
             const action = parts.length > 1 ? parts[1] : parts[0];
-
-            let serviceClass = 'badge-ghost';
-            if (service === 'DynamoDB') serviceClass = 'badge-info';
-            else if (service === 'S3') serviceClass = 'badge-success';
-            else if (service === 'SSM') serviceClass = 'badge-secondary';
-
-            rows += `
-                <tr class="hover:bg-base-200/30 transition-colors">
-                    <td class="font-medium align-top">
-                        <div class="flex items-center gap-2">
-                            <span class="badge badge-sm ${serviceClass} badge-outline font-mono uppercase text-[10px]">${service}</span>
-                            <code class="text-primary font-bold text-xs">${escapeHtml(action)}</code>
-                        </div>
-                    </td>
-                    <td class="text-center">
-                        <div class="font-bold">${op.count}</div>
-                        <div class="text-[10px] text-base-content/30 lowercase italic">requests</div>
-                    </td>
-                    <td class="text-right font-mono text-primary font-semibold">${op.p50_ms.toFixed(2)}<span class="text-[10px] opacity-40 ml-0.5">ms</span></td>
-                    <td class="text-right font-mono text-secondary font-semibold">${op.p95_ms.toFixed(2)}<span class="text-[10px] opacity-40 ml-0.5">ms</span></td>
-                    <td class="text-right font-mono text-accent font-semibold">${op.p99_ms.toFixed(2)}<span class="text-[10px] opacity-40 ml-0.5">ms</span></td>
-                    <td class="text-right font-mono text-base-content/70">${op.avg_ms.toFixed(2)}<span class="text-[10px] opacity-40 ml-0.5">ms</span></td>
-                    <td class="text-right font-mono text-base-content/70 font-bold">${op.max_ms.toFixed(2)}<span class="text-[10px] opacity-40 ml-0.5">ms</span></td>
-                </tr>
-            `;
+            const svcColor = service === 'DynamoDB' ? 'badge-info' : service === 'S3' ? 'badge-success' : service === 'SSM' ? 'badge-secondary' : 'badge-ghost';
+            rows += `<tr class="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
+                <td class="font-medium"><div class="flex items-center gap-2"><span class="badge badge-sm ${svcColor} badge-outline font-mono uppercase">${service}</span><code class="text-blue-600 dark:text-blue-400 font-bold text-xs">${escapeHtml(action)}</code></div></td>
+                <td class="text-center"><div class="font-bold">${op.count}</div><div class="text-xs text-gray-400 lowercase italic">requests</div></td>
+                <td class="text-right font-mono text-blue-600 dark:text-blue-400 font-semibold">${op.p50_ms.toFixed(2)}<span class="text-xs opacity-40 ml-0.5">ms</span></td>
+                <td class="text-right font-mono text-purple-600 dark:text-purple-400 font-semibold">${op.p95_ms.toFixed(2)}<span class="text-xs opacity-40 ml-0.5">ms</span></td>
+                <td class="text-right font-mono text-yellow-600 dark:text-yellow-400 font-semibold">${op.p99_ms.toFixed(2)}<span class="text-xs opacity-40 ml-0.5">ms</span></td>
+                <td class="text-right font-mono text-gray-600 dark:text-gray-400">${op.avg_ms.toFixed(2)}<span class="text-xs opacity-40 ml-0.5">ms</span></td>
+                <td class="text-right font-mono text-gray-700 dark:text-gray-300 font-bold">${op.max_ms.toFixed(2)}<span class="text-xs opacity-40 ml-0.5">ms</span></td>
+            </tr>`;
         }
-        body.innerHTML = rows || '<tr><td colspan="7" class="text-center py-8 text-base-content/40 italic">No matching operations found</td></tr>';
+        body.innerHTML = rows || '<tr><td colspan="7" class="text-center py-8 text-gray-400 italic">No matching operations found</td></tr>';
     }
 
-    window.addEventListener('metrics-updated', function (evt) {
+    window.addEventListener('metrics-updated', function(evt) {
         const data = evt.detail;
         currentMetrics = data;
-
         const loading = document.getElementById('metrics-loading');
         const view = document.getElementById('dashboard-view');
         const noData = document.getElementById('no-metrics-msg');
-
         if (loading) loading.classList.add('hidden');
-
         if (!data || (!data.runtime && (!data.operations || data.operations.length === 0))) {
             if (view) view.classList.add('hidden');
             if (noData) noData.classList.remove('hidden');
             return;
         }
-
         if (noData) noData.classList.add('hidden');
         if (view) view.classList.remove('hidden');
-
-        // Update Runtime
         if (data.runtime) {
             document.getElementById('runtime-goroutines').textContent = data.runtime.goroutines;
             document.getElementById('runtime-heap').textContent = data.runtime.heap_alloc_mb.toFixed(2) + ' MB';
             document.getElementById('runtime-total').textContent = data.runtime.total_alloc_mb.toFixed(2) + ' MB';
             document.getElementById('runtime-gc').textContent = data.runtime.num_gc;
             document.getElementById('runtime-gc-pause').textContent = `Last pause: ${data.runtime.last_gc_pause_ms.toFixed(2)} ms`;
-
             const pct = (data.runtime.heap_alloc_mb / data.runtime.heap_sys_mb * 100).toFixed(1);
             document.getElementById('runtime-heap-pct').textContent = `${pct}% of ${data.runtime.heap_sys_mb.toFixed(2)} MB total`;
         }
-
-        // Update Deadlocks
         const deadlockSection = document.getElementById('deadlock-section');
         const deadlockList = document.getElementById('deadlock-list');
         if (data.deadlocks && data.deadlocks.length > 0) {
             deadlockSection.classList.remove('hidden');
             let cards = '';
             for (const d of data.deadlocks) {
-                cards += `
-                    <div class="bg-base-100/20 rounded-xl p-3 border border-white/10">
-                        <div class="flex justify-between items-start mb-2">
-                            <span class="font-mono text-xs font-bold">${escapeHtml(d.lock)}</span>
-                            <span class="badge badge-warning badge-xs">HELD</span>
-                        </div>
-                        <div class="text-sm font-bold truncate mb-1">Op: ${escapeHtml(d.operation)}</div>
-                        <div class="flex justify-between text-xs opacity-80">
-                            <span>Held: ${d.held_sec.toFixed(1)}s</span>
-                            <span class="text-error font-bold">${d.waiters} waiting</span>
-                        </div>
-                    </div>
-                `;
+                cards += `<div class="bg-white/20 rounded-xl p-3 border border-white/10"><div class="flex justify-between items-start mb-2"><span class="font-mono text-xs font-bold">${escapeHtml(d.lock)}</span><span class="badge badge-warning badge-xs">HELD</span></div><div class="text-sm font-bold truncate mb-1">Op: ${escapeHtml(d.operation)}</div><div class="flex justify-between text-xs opacity-80"><span>Held: ${d.held_sec.toFixed(1)}s</span><span class="text-red-600 dark:text-red-400 font-bold">${d.waiters} waiting</span></div></div>`;
             }
             deadlockList.innerHTML = cards;
         } else {
             deadlockSection.classList.add('hidden');
         }
-
         renderDeleteQueues(data);
         renderOperations();
     });
 
     function escapeHtml(unsafe) {
         if (!unsafe) return '';
-        return unsafe
-            .toString()
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;")
-            .replace(/'/g, "&#039;");
+        return unsafe.toString()
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
     }
 </script>
-
-<style>
-    .stat {
-        padding: 1.25rem 1.5rem;
-    }
-
-    .stat-value {
-        font-size: 1.875rem;
-        line-height: 2.25rem;
-        font-weight: 800;
-        letter-spacing: -0.025em;
-    }
-
-    .table :where(thead tr) {
-        border-bottom-width: 1px;
-    }
-
-    .table :where(tbody tr:not(:last-child)) {
-        border-bottom-color: hsl(var(--bc) / 0.05);
-    }
-
-    #live-indicator {
-        letter-spacing: 0.1em;
-    }
-</style>
 {{end}}

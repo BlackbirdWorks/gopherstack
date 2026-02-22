@@ -8,30 +8,29 @@
     </div>
 
     <!-- Tabs -->
-    <div role="tablist" class="tabs tabs-lifted mb-6">
+    <div role="tablist" class="tabs tabs-bordered mb-6">
         <input type="radio" name="iam_tabs" role="tab" class="tab" aria-label="Users" checked />
-        <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-4">
-            <!-- Users -->
+        <div role="tabpanel" class="tab-content bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-b-lg p-4">
             <div class="flex justify-between items-center mb-4">
                 <h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Users</h2>
                 <button onclick="document.getElementById('create_user_modal').showModal()"
                     class="btn btn-sm btn-primary">Create User</button>
             </div>
             <div class="overflow-hidden shadow ring-1 ring-black ring-opacity-5 sm:rounded-lg">
-                <table class="min-w-full divide-y divide-gray-300 dark:divide-gray-700">
-                    <thead class="bg-gray-50 dark:bg-gray-800">
+                <table class="min-w-full">
+                    <thead>
                         <tr>
-                            <th scope="col" class="py-3 pl-4 pr-3 text-left text-xs font-semibold text-gray-900 dark:text-gray-200">UserName</th>
-                            <th scope="col" class="px-3 py-3 text-left text-xs font-semibold text-gray-900 dark:text-gray-200">UserId</th>
-                            <th scope="col" class="px-3 py-3 text-left text-xs font-semibold text-gray-900 dark:text-gray-200">ARN</th>
-                            <th scope="col" class="px-3 py-3 text-left text-xs font-semibold text-gray-900 dark:text-gray-200">Path</th>
+                            <th scope="col" class="py-3 pl-4 pr-3 sm:pl-6">UserName</th>
+                            <th scope="col" class="px-3 py-3">UserId</th>
+                            <th scope="col" class="px-3 py-3">ARN</th>
+                            <th scope="col" class="px-3 py-3">Path</th>
                             <th scope="col" class="relative py-3 pl-3 pr-4"><span class="sr-only">Actions</span></th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-900">
+                    <tbody>
                         {{range .Users}}
                         <tr>
-                            <td class="whitespace-nowrap py-3 pl-4 pr-3 text-sm font-medium text-gray-900 dark:text-gray-100">{{.UserName}}</td>
+                            <td class="whitespace-nowrap py-3 pl-4 pr-3 text-sm font-medium text-gray-900 dark:text-gray-100 sm:pl-6">{{.UserName}}</td>
                             <td class="whitespace-nowrap px-3 py-3 text-xs font-mono text-gray-500 dark:text-gray-400">{{.UserID}}</td>
                             <td class="px-3 py-3 text-xs font-mono text-gray-500 dark:text-gray-400 max-w-xs truncate" title="{{.Arn}}">{{.Arn}}</td>
                             <td class="whitespace-nowrap px-3 py-3 text-sm text-gray-500 dark:text-gray-400">{{.Path}}</td>
@@ -50,27 +49,26 @@
         </div>
 
         <input type="radio" name="iam_tabs" role="tab" class="tab" aria-label="Roles" />
-        <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-4">
-            <!-- Roles -->
+        <div role="tabpanel" class="tab-content bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-b-lg p-4">
             <div class="flex justify-between items-center mb-4">
                 <h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Roles</h2>
                 <button onclick="document.getElementById('create_role_modal').showModal()"
                     class="btn btn-sm btn-primary">Create Role</button>
             </div>
             <div class="overflow-hidden shadow ring-1 ring-black ring-opacity-5 sm:rounded-lg">
-                <table class="min-w-full divide-y divide-gray-300 dark:divide-gray-700">
-                    <thead class="bg-gray-50 dark:bg-gray-800">
+                <table class="min-w-full">
+                    <thead>
                         <tr>
-                            <th scope="col" class="py-3 pl-4 pr-3 text-left text-xs font-semibold text-gray-900 dark:text-gray-200">RoleName</th>
-                            <th scope="col" class="px-3 py-3 text-left text-xs font-semibold text-gray-900 dark:text-gray-200">RoleId</th>
-                            <th scope="col" class="px-3 py-3 text-left text-xs font-semibold text-gray-900 dark:text-gray-200">ARN</th>
+                            <th scope="col" class="py-3 pl-4 pr-3 sm:pl-6">RoleName</th>
+                            <th scope="col" class="px-3 py-3">RoleId</th>
+                            <th scope="col" class="px-3 py-3">ARN</th>
                             <th scope="col" class="relative py-3 pl-3 pr-4"><span class="sr-only">Actions</span></th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-900">
+                    <tbody>
                         {{range .Roles}}
                         <tr>
-                            <td class="whitespace-nowrap py-3 pl-4 pr-3 text-sm font-medium text-gray-900 dark:text-gray-100">{{.RoleName}}</td>
+                            <td class="whitespace-nowrap py-3 pl-4 pr-3 text-sm font-medium text-gray-900 dark:text-gray-100 sm:pl-6">{{.RoleName}}</td>
                             <td class="whitespace-nowrap px-3 py-3 text-xs font-mono text-gray-500 dark:text-gray-400">{{.RoleID}}</td>
                             <td class="px-3 py-3 text-xs font-mono text-gray-500 dark:text-gray-400 max-w-xs truncate" title="{{.Arn}}">{{.Arn}}</td>
                             <td class="relative whitespace-nowrap py-3 pl-3 pr-4 text-right text-sm">
@@ -88,26 +86,25 @@
         </div>
 
         <input type="radio" name="iam_tabs" role="tab" class="tab" aria-label="Policies" />
-        <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-4">
-            <!-- Policies -->
+        <div role="tabpanel" class="tab-content bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-b-lg p-4">
             <div class="flex justify-between items-center mb-4">
                 <h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Policies</h2>
                 <button onclick="document.getElementById('create_policy_modal').showModal()"
                     class="btn btn-sm btn-primary">Create Policy</button>
             </div>
             <div class="overflow-hidden shadow ring-1 ring-black ring-opacity-5 sm:rounded-lg">
-                <table class="min-w-full divide-y divide-gray-300 dark:divide-gray-700">
-                    <thead class="bg-gray-50 dark:bg-gray-800">
+                <table class="min-w-full">
+                    <thead>
                         <tr>
-                            <th scope="col" class="py-3 pl-4 pr-3 text-left text-xs font-semibold text-gray-900 dark:text-gray-200">PolicyName</th>
-                            <th scope="col" class="px-3 py-3 text-left text-xs font-semibold text-gray-900 dark:text-gray-200">ARN</th>
+                            <th scope="col" class="py-3 pl-4 pr-3 sm:pl-6">PolicyName</th>
+                            <th scope="col" class="px-3 py-3">ARN</th>
                             <th scope="col" class="relative py-3 pl-3 pr-4"><span class="sr-only">Actions</span></th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-900">
+                    <tbody>
                         {{range .Policies}}
                         <tr>
-                            <td class="whitespace-nowrap py-3 pl-4 pr-3 text-sm font-medium text-gray-900 dark:text-gray-100">{{.PolicyName}}</td>
+                            <td class="whitespace-nowrap py-3 pl-4 pr-3 text-sm font-medium text-gray-900 dark:text-gray-100 sm:pl-6">{{.PolicyName}}</td>
                             <td class="px-3 py-3 text-xs font-mono text-gray-500 dark:text-gray-400 max-w-xs truncate" title="{{.Arn}}">{{.Arn}}</td>
                             <td class="relative whitespace-nowrap py-3 pl-3 pr-4 text-right text-sm">
                                 <button hx-delete="/dashboard/iam/policy?arn={{.Arn}}"
@@ -124,27 +121,26 @@
         </div>
 
         <input type="radio" name="iam_tabs" role="tab" class="tab" aria-label="Groups" />
-        <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-4">
-            <!-- Groups -->
+        <div role="tabpanel" class="tab-content bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-b-lg p-4">
             <div class="flex justify-between items-center mb-4">
                 <h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Groups</h2>
                 <button onclick="document.getElementById('create_group_modal').showModal()"
                     class="btn btn-sm btn-primary">Create Group</button>
             </div>
             <div class="overflow-hidden shadow ring-1 ring-black ring-opacity-5 sm:rounded-lg">
-                <table class="min-w-full divide-y divide-gray-300 dark:divide-gray-700">
-                    <thead class="bg-gray-50 dark:bg-gray-800">
+                <table class="min-w-full">
+                    <thead>
                         <tr>
-                            <th scope="col" class="py-3 pl-4 pr-3 text-left text-xs font-semibold text-gray-900 dark:text-gray-200">GroupName</th>
-                            <th scope="col" class="px-3 py-3 text-left text-xs font-semibold text-gray-900 dark:text-gray-200">GroupId</th>
-                            <th scope="col" class="px-3 py-3 text-left text-xs font-semibold text-gray-900 dark:text-gray-200">ARN</th>
+                            <th scope="col" class="py-3 pl-4 pr-3 sm:pl-6">GroupName</th>
+                            <th scope="col" class="px-3 py-3">GroupId</th>
+                            <th scope="col" class="px-3 py-3">ARN</th>
                             <th scope="col" class="relative py-3 pl-3 pr-4"><span class="sr-only">Actions</span></th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-900">
+                    <tbody>
                         {{range .Groups}}
                         <tr>
-                            <td class="whitespace-nowrap py-3 pl-4 pr-3 text-sm font-medium text-gray-900 dark:text-gray-100">{{.GroupName}}</td>
+                            <td class="whitespace-nowrap py-3 pl-4 pr-3 text-sm font-medium text-gray-900 dark:text-gray-100 sm:pl-6">{{.GroupName}}</td>
                             <td class="whitespace-nowrap px-3 py-3 text-xs font-mono text-gray-500 dark:text-gray-400">{{.GroupID}}</td>
                             <td class="px-3 py-3 text-xs font-mono text-gray-500 dark:text-gray-400 max-w-xs truncate" title="{{.Arn}}">{{.Arn}}</td>
                             <td class="relative whitespace-nowrap py-3 pl-3 pr-4 text-right text-sm">
@@ -166,7 +162,7 @@
 <!-- Create User Modal -->
 <dialog id="create_user_modal" class="modal">
     <div class="modal-box">
-        <h3 class="font-bold text-lg mb-4">Create IAM User</h3>
+        <h3 class="font-bold text-lg mb-4 text-gray-900 dark:text-white">Create IAM User</h3>
         <form hx-post="/dashboard/iam/user" hx-target="body">
             <div class="form-control mb-3">
                 <label class="label" for="iam_userName"><span class="label-text">UserName</span></label>
@@ -188,7 +184,7 @@
 <!-- Create Role Modal -->
 <dialog id="create_role_modal" class="modal">
     <div class="modal-box">
-        <h3 class="font-bold text-lg mb-4">Create IAM Role</h3>
+        <h3 class="font-bold text-lg mb-4 text-gray-900 dark:text-white">Create IAM Role</h3>
         <form hx-post="/dashboard/iam/role" hx-target="body">
             <div class="form-control mb-3">
                 <label class="label" for="iam_roleName"><span class="label-text">RoleName</span></label>
@@ -214,7 +210,7 @@
 <!-- Create Policy Modal -->
 <dialog id="create_policy_modal" class="modal">
     <div class="modal-box">
-        <h3 class="font-bold text-lg mb-4">Create IAM Policy</h3>
+        <h3 class="font-bold text-lg mb-4 text-gray-900 dark:text-white">Create IAM Policy</h3>
         <form hx-post="/dashboard/iam/policy" hx-target="body">
             <div class="form-control mb-3">
                 <label class="label" for="iam_policyName"><span class="label-text">PolicyName</span></label>
@@ -240,7 +236,7 @@
 <!-- Create Group Modal -->
 <dialog id="create_group_modal" class="modal">
     <div class="modal-box">
-        <h3 class="font-bold text-lg mb-4">Create IAM Group</h3>
+        <h3 class="font-bold text-lg mb-4 text-gray-900 dark:text-white">Create IAM Group</h3>
         <form hx-post="/dashboard/iam/group" hx-target="body">
             <div class="form-control mb-3">
                 <label class="label" for="iam_groupName"><span class="label-text">GroupName</span></label>

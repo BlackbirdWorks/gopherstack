@@ -8,7 +8,7 @@
         </div>
         <div class="mt-4 sm:ml-16 sm:mt-0 sm:flex-none">
             <button type="button" hx-get="/dashboard/ssm/modal/put" hx-target="#modal-container"
-                class="block rounded-md bg-indigo-600 px-3 py-2 text-center text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600">
+                class="btn btn-primary text-sm">
                 Create parameter
             </button>
         </div>
@@ -17,35 +17,25 @@
         <div class="-mx-4 -my-2 overflow-x-auto sm:-mx-6 lg:-mx-8">
             <div class="inline-block min-w-full py-2 align-middle sm:px-6 lg:px-8">
                 <div class="overflow-hidden shadow ring-1 ring-black ring-opacity-5 sm:rounded-lg">
-                    <table class="min-w-full divide-y divide-gray-300 dark:divide-gray-700">
-                        <thead class="bg-gray-50 dark:bg-gray-800">
+                    <table class="min-w-full">
+                        <thead>
                             <tr>
-                                <th scope="col"
-                                    class="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-900 dark:text-gray-200 sm:pl-6">
-                                    Name</th>
-                                <th scope="col"
-                                    class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-gray-200">
-                                    Type</th>
-                                <th scope="col"
-                                    class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-gray-200">
-                                    Value</th>
-                                <th scope="col"
-                                    class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-gray-200">
-                                    Version</th>
+                                <th scope="col" class="py-3.5 pl-4 pr-3 sm:pl-6">Name</th>
+                                <th scope="col" class="px-3 py-3.5">Type</th>
+                                <th scope="col" class="px-3 py-3.5">Value</th>
+                                <th scope="col" class="px-3 py-3.5">Version</th>
                                 <th scope="col" class="relative py-3.5 pl-3 pr-4 sm:pr-6">
                                     <span class="sr-only">Actions</span>
                                 </th>
                             </tr>
                         </thead>
-                        <tbody class="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-900">
+                        <tbody>
                             {{range .Parameters}}
                             <tr>
-                                <td
-                                    class="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-gray-900 dark:text-gray-100 sm:pl-6">
+                                <td class="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-gray-900 dark:text-gray-100 sm:pl-6">
                                     {{.Name}}</td>
                                 <td class="whitespace-nowrap px-3 py-4 text-sm text-gray-500 dark:text-gray-400">
-                                    <span
-                                        class="inline-flex items-center rounded-md bg-indigo-50 dark:bg-indigo-400/10 px-2 py-1 text-xs font-medium text-indigo-700 dark:text-indigo-400 ring-1 ring-inset ring-indigo-700/10 dark:ring-indigo-400/30">{{.Type}}</span>
+                                    <span class="badge badge-info">{{.Type}}</span>
                                 </td>
                                 <td class="whitespace-nowrap px-3 py-4 text-sm text-gray-500 dark:text-gray-400 max-w-xs truncate"
                                     title="{{.Value}}">
@@ -57,11 +47,10 @@
                                 </td>
                                 <td class="whitespace-nowrap px-3 py-4 text-sm text-gray-500 dark:text-gray-400">
                                     {{.Version}}</td>
-                                <td
-                                    class="relative whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-6">
+                                <td class="relative whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-6">
                                     <button hx-get="/dashboard/ssm/modal/put?name={{.Name}}"
                                         hx-target="#modal-container"
-                                        class="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-300 mr-4">Edit<span
+                                        class="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300 mr-4">Edit<span
                                             class="sr-only">, {{.Name}}</span></button>
                                     <button hx-delete="/dashboard/ssm/delete?name={{.Name}}"
                                         hx-confirm="Are you sure you want to delete this parameter?" hx-target="body"
@@ -83,6 +72,5 @@
         </div>
     </div>
 </div>
-<!-- Container for HTMX loaded modals -->
 <div id="modal-container"></div>
 {{end}}

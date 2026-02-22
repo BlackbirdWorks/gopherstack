@@ -10,14 +10,14 @@
     </div>
 
     <!-- File Header -->
-    <div class="flex justify-between items-center bg-base-100 p-6 rounded-lg shadow">
+    <div class="flex justify-between items-center bg-white dark:bg-gray-800 p-6 rounded-lg shadow border border-gray-200 dark:border-gray-700">
         <div>
-            <h1 class="text-2xl font-bold flex items-center gap-2">
+            <h1 class="text-2xl font-bold flex items-center gap-2 text-gray-900 dark:text-white">
                 <span>📄</span> {{.Key}}
             </h1>
-            <p class="text-base-content/60 mt-1">Bucket: {{.BucketName}}</p>
+            <p class="text-gray-500 dark:text-gray-400 mt-1">Bucket: {{.BucketName}}</p>
         </div>
-        <div class="flex gap-2">
+        <div class="flex gap-2 flex-wrap">
             <a href="/dashboard/s3/bucket/{{.BucketName}}/download/{{.Key}}" class="btn btn-primary" download>
                 Download
             </a>
@@ -25,17 +25,16 @@
                 Export Metadata
             </a>
             <div class="dropdown dropdown-end">
-                <button class="btn btn-error btn-outline dropdown-toggle">Delete</button>
-                <ul class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-64 border border-base-300">
+                <button class="btn btn-error btn-outline">Delete ▾</button>
+                <ul class="dropdown-content z-[1] p-2 shadow bg-white dark:bg-gray-800 rounded-lg w-64 border border-gray-200 dark:border-gray-700">
                     <li><button hx-delete="/dashboard/s3/bucket/{{.BucketName}}/file/{{.Key}}"
                             hx-confirm="Are you sure you want to delete the latest version? (Creates a delete marker)"
                             hx-target="body" hx-push-url="/dashboard/s3/bucket/{{.BucketName}}"
-                            class="text-left w-full">Delete (Latest)</button></li>
+                            class="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">Delete (Latest)</button></li>
                     <li><button hx-delete="/dashboard/s3/bucket/{{.BucketName}}/file/{{.Key}}?deleteAll=true"
                             hx-confirm="WARNING: This will permanently delete ALL versions of this file! Are you sure?"
                             hx-target="body" hx-push-url="/dashboard/s3/bucket/{{.BucketName}}"
-                            class="text-error text-left w-full">Delete
-                            All Versions</button></li>
+                            class="block w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">Delete All Versions</button></li>
                 </ul>
             </div>
         </div>
@@ -43,11 +42,11 @@
 
     <!-- File Details -->
     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div class="card bg-base-100 shadow">
+        <div class="card">
             <div class="card-body">
-                <h2 class="card-title text-sm uppercase tracking-wider text-base-content/60">Metadata</h2>
+                <h2 class="card-title text-sm uppercase tracking-wider text-gray-500 dark:text-gray-400">Metadata</h2>
                 <div class="overflow-x-auto">
-                    <table class="table">
+                    <table>
                         <tbody>
                             <tr>
                                 <td class="font-medium">Size</td>
@@ -60,7 +59,7 @@
                             <tr>
                                 <td class="font-medium">Content Type</td>
                                 <td>
-                                    <div class="badge badge-outline">{{.ContentType}}</div>
+                                    <span class="badge badge-outline">{{.ContentType}}</span>
                                 </td>
                             </tr>
                             <tr>
@@ -71,8 +70,8 @@
                     </table>
                 </div>
                 {{if .Tags}}
-                <div class="divider"></div>
-                <h3 class="font-bold text-sm mb-2">Tags</h3>
+                <hr class="my-4 border-gray-200 dark:border-gray-700">
+                <h3 class="font-bold text-sm mb-2 text-gray-900 dark:text-white">Tags</h3>
                 <div class="flex flex-wrap gap-2">
                     {{range $key, $value := .Tags}}
                     <div class="badge badge-neutral">{{$key}}: {{$value}}</div>
@@ -83,12 +82,12 @@
         </div>
 
         {{if .VersioningEnabled}}
-        <div class="card bg-base-100 shadow">
+        <div class="card">
             <div class="card-body">
-                <h2 class="card-title text-sm uppercase tracking-wider text-base-content/60">Versions</h2>
+                <h2 class="card-title text-sm uppercase tracking-wider text-gray-500 dark:text-gray-400">Versions</h2>
                 {{if .Versions}}
                 <div class="overflow-x-auto">
-                    <table class="table table-sm">
+                    <table class="table-sm">
                         <thead>
                             <tr>
                                 <th>Version ID</th>
@@ -111,7 +110,7 @@
                                             hx-delete="/dashboard/s3/bucket/{{$.BucketName}}/file/{{$.Key}}?versionId={{.VersionID}}"
                                             hx-confirm="Are you sure you want to permanently delete this specific version?"
                                             hx-target="closest tr" hx-swap="outerHTML"
-                                            class="btn btn-xs btn-ghost text-error">
+                                            class="btn btn-xs btn-ghost text-red-600 dark:text-red-400">
                                             Delete
                                         </button>
                                     </div>
@@ -122,7 +121,7 @@
                     </table>
                 </div>
                 {{else}}
-                <p class="text-base-content/60 italic">No previous versions found.</p>
+                <p class="text-gray-500 dark:text-gray-400 italic">No previous versions found.</p>
                 {{end}}
             </div>
         </div>
@@ -131,12 +130,11 @@
 
     <!-- Preview & Editor Extensions -->
     <div class="grid grid-cols-1 gap-6">
-        <!-- Preview -->
         {{if or .IsImage .IsPDF .IsText}}
-        <div class="card bg-base-100 shadow overflow-hidden">
+        <div class="card overflow-hidden">
             <div class="card-body">
-                <h2 class="card-title text-sm uppercase tracking-wider text-base-content/60">Preview</h2>
-                <div class="bg-base-200 rounded-lg flex justify-center items-center min-h-[200px] overflow-auto">
+                <h2 class="card-title text-sm uppercase tracking-wider text-gray-500 dark:text-gray-400">Preview</h2>
+                <div class="bg-gray-50 dark:bg-gray-900 rounded-lg flex justify-center items-center min-h-[200px] overflow-auto">
                     {{if .IsImage}}
                     <img src="/dashboard/s3/bucket/{{.BucketName}}/download/{{.Key}}" alt="{{.Key}}"
                         class="max-w-full h-auto shadow-sm">
@@ -156,15 +154,13 @@
 
         <!-- Metadata & Tagging Editor -->
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div class="card bg-base-100 shadow">
+            <div class="card">
                 <div class="card-body">
-                    <h2 class="card-title text-sm uppercase tracking-wider text-base-content/60">Edit Metadata</h2>
+                    <h2 class="card-title text-sm uppercase tracking-wider text-gray-500 dark:text-gray-400">Edit Metadata</h2>
                     <form hx-post="/dashboard/s3/bucket/{{.BucketName}}/file/{{.Key}}/metadata" hx-target="body"
                         class="space-y-4">
                         <div class="form-control">
-                            <label class="label">
-                                <span class="label-text">Content-Type</span>
-                            </label>
+                            <label class="label"><span class="label-text">Content-Type</span></label>
                             <input type="text" name="contentType" value="{{.ContentType}}" class="input input-bordered">
                         </div>
                         <button type="submit" class="btn btn-primary btn-sm">Update Content-Type</button>
@@ -172,25 +168,23 @@
                 </div>
             </div>
 
-            <div class="card bg-base-100 shadow">
+            <div class="card">
                 <div class="card-body">
-                    <h2 class="card-title text-sm uppercase tracking-wider text-base-content/60">Manage Tags</h2>
+                    <h2 class="card-title text-sm uppercase tracking-wider text-gray-500 dark:text-gray-400">Manage Tags</h2>
                     <form hx-post="/dashboard/s3/bucket/{{.BucketName}}/file/{{.Key}}/tag" hx-target="#tags-list"
                         class="space-y-4">
                         <div class="join w-full">
-                            <input type="text" name="key" placeholder="Key" class="input input-bordered join-item w-1/2"
-                                required>
-                            <input type="text" name="value" placeholder="Value"
-                                class="input input-bordered join-item w-1/2" required>
+                            <input type="text" name="key" placeholder="Key" class="input input-bordered join-item w-1/2" required>
+                            <input type="text" name="value" placeholder="Value" class="input input-bordered join-item w-1/2" required>
                             <button type="submit" class="btn btn-primary join-item">Add</button>
                         </div>
                     </form>
                     <div id="tags-list" class="mt-4 space-y-2">
                         {{range $key, $value := .Tags}}
-                        <div class="flex justify-between items-center bg-base-200 p-2 rounded">
-                            <span class="text-sm font-medium">{{$key}}: {{$value}}</span>
+                        <div class="flex justify-between items-center bg-gray-50 dark:bg-gray-700 p-2 rounded border border-gray-100 dark:border-gray-600">
+                            <span class="text-sm font-medium text-gray-800 dark:text-gray-200">{{$key}}: {{$value}}</span>
                             <button hx-delete="/dashboard/s3/bucket/{{$.BucketName}}/file/{{$.Key}}/tag?key={{$key}}"
-                                hx-target="#tags-list" class="btn btn-ghost btn-xs text-error">Remove</button>
+                                hx-target="#tags-list" class="btn btn-ghost btn-xs text-red-600 dark:text-red-400">Remove</button>
                         </div>
                         {{end}}
                     </div>

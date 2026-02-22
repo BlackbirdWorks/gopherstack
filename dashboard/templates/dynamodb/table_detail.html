@@ -10,12 +10,12 @@
 
     <!-- Header -->
     <div class="flex justify-between items-center">
-        <h1 class="text-3xl font-bold">{{.TableName}}</h1>
-        <div class="flex gap-2">
-            <button class="btn btn-primary btn-sm" onclick="new_item_modal.showModal()">
+        <h1 class="text-3xl font-bold text-gray-900 dark:text-white">{{.TableName}}</h1>
+        <div class="flex gap-2 flex-wrap">
+            <button class="btn btn-primary btn-sm" onclick="document.getElementById('new_item_modal').showModal()">
                 New Item
             </button>
-            <button class="btn btn-outline btn-sm" onclick="import_modal.showModal()">
+            <button class="btn btn-outline btn-sm" onclick="document.getElementById('import_modal').showModal()">
                 Import JSON
             </button>
             <a href="/dashboard/dynamodb/table/{{.TableName}}/export" class="btn btn-outline btn-sm" target="_blank">
@@ -31,14 +31,14 @@
     <!-- New Item Modal -->
     <dialog id="new_item_modal" class="modal">
         <div class="modal-box max-w-2xl">
-            <h3 class="font-bold text-lg mb-4">Create New Item</h3>
+            <h3 class="font-bold text-lg mb-4 text-gray-900 dark:text-white">Create New Item</h3>
             <form hx-post="/dashboard/dynamodb/table/{{.TableName}}/item"
-                hx-on::after-request="if(event.detail.successful) new_item_modal.close()" hx-target="#scan-results"
+                hx-on::after-request="if(event.detail.successful) document.getElementById('new_item_modal').close()" hx-target="#scan-results"
                 class="space-y-4">
                 <div class="form-control">
                     <label class="label">
                         <span class="label-text">Item JSON</span>
-                        <span class="label-text-alt text-error">Required</span>
+                        <span class="label-text-alt text-red-600">Required</span>
                     </label>
                     <textarea name="itemJson" class="textarea textarea-bordered font-mono h-64" placeholder='{
   "id": "123",
@@ -46,7 +46,7 @@
 }' required></textarea>
                 </div>
                 <div class="modal-action">
-                    <button type="button" class="btn" onclick="new_item_modal.close()">Cancel</button>
+                    <button type="button" class="btn btn-ghost" onclick="document.getElementById('new_item_modal').close()">Cancel</button>
                     <button type="submit" class="btn btn-primary">Create Item</button>
                 </div>
             </form>
@@ -56,7 +56,7 @@
     <!-- Edit Item Modal -->
     <dialog id="edit_item_modal" class="modal">
         <div class="modal-box max-w-2xl">
-            <h3 class="font-bold text-lg mb-4">Edit Item</h3>
+            <h3 class="font-bold text-lg mb-4 text-gray-900 dark:text-white">Edit Item</h3>
             <div id="edit_item_modal_content">
                 <div class="flex justify-center p-8">
                     <span class="loading loading-spinner loading-lg"></span>
@@ -68,14 +68,14 @@
     <!-- Import Modal -->
     <dialog id="import_modal" class="modal">
         <div class="modal-box max-w-2xl">
-            <h3 class="font-bold text-lg mb-4">Import Items (JSON Array)</h3>
+            <h3 class="font-bold text-lg mb-4 text-gray-900 dark:text-white">Import Items (JSON Array)</h3>
             <form hx-post="/dashboard/dynamodb/table/{{.TableName}}/import"
-                hx-on::after-request="if(event.detail.successful) import_modal.close()" hx-target="#scan-results"
+                hx-on::after-request="if(event.detail.successful) document.getElementById('import_modal').close()" hx-target="#scan-results"
                 class="space-y-4">
                 <div class="form-control">
                     <label class="label">
                         <span class="label-text">JSON Array</span>
-                        <span class="label-text-alt text-error">Required</span>
+                        <span class="label-text-alt text-red-600">Required</span>
                     </label>
                     <textarea name="importData" class="textarea textarea-bordered font-mono h-64" placeholder='[
   {"id": "1", "name": "Item 1"},
@@ -83,7 +83,7 @@
 ]' required></textarea>
                 </div>
                 <div class="modal-action">
-                    <button type="button" class="btn" onclick="import_modal.close()">Cancel</button>
+                    <button type="button" class="btn btn-ghost" onclick="document.getElementById('import_modal').close()">Cancel</button>
                     <button type="submit" class="btn btn-primary">Import Items</button>
                 </div>
             </form>
@@ -123,11 +123,11 @@
 {{define "table-overview"}}
 <div class="space-y-6">
     <!-- Key Schema -->
-    <div class="card bg-base-100 shadow-xl">
+    <div class="card">
         <div class="card-body">
             <h2 class="card-title">Key Schema</h2>
             <div class="overflow-x-auto">
-                <table class="table">
+                <table>
                     <thead>
                         <tr>
                             <th>Attribute Name</th>
@@ -158,15 +158,15 @@
     <div class="stats shadow w-full">
         <div class="stat">
             <div class="stat-title">Item Count</div>
-            <div class="stat-value">{{.ItemCount}}</div>
+            <div class="stat-value text-blue-600 dark:text-blue-400">{{.ItemCount}}</div>
         </div>
         <div class="stat">
             <div class="stat-title">Global Secondary Indexes</div>
-            <div class="stat-value">{{.GSICount}}</div>
+            <div class="stat-value text-purple-600 dark:text-purple-400">{{.GSICount}}</div>
         </div>
         <div class="stat">
             <div class="stat-title">Local Secondary Indexes</div>
-            <div class="stat-value">{{.LSICount}}</div>
+            <div class="stat-value text-yellow-600 dark:text-yellow-400">{{.LSICount}}</div>
         </div>
         <div class="stat">
             <div class="stat-title">TTL Status</div>
@@ -183,7 +183,7 @@
             <div class="stat-value text-sm">
                 {{if .StreamsEnabled}}
                 <span class="badge badge-info">ENABLED</span>
-                <span class="text-xs text-base-content/60 ml-1">{{.StreamViewType}}</span>
+                <span class="text-xs text-gray-500 dark:text-gray-400 ml-1">{{.StreamViewType}}</span>
                 {{else}}
                 <span class="badge badge-ghost">DISABLED</span>
                 {{end}}
@@ -192,23 +192,20 @@
     </div>
 
     <!-- TTL Configuration -->
-    <div class="card bg-base-100 shadow-xl">
+    <div class="card">
         <div class="card-body">
             <h2 class="card-title text-sm">Time To Live (TTL) Configuration</h2>
             <form hx-post="/dashboard/dynamodb/table/{{.TableName}}/ttl" hx-target="#overview"
-                class="flex items-end gap-4">
+                class="flex items-end gap-4 flex-wrap">
                 <div class="form-control">
-                    <label class="label">
-                        <span class="label-text">TTL Attribute Name</span>
-                    </label>
+                    <label class="label"><span class="label-text">TTL Attribute Name</span></label>
                     <input type="text" name="attributeName" class="input input-bordered input-sm"
                         value="{{.TTLAttribute}}" placeholder="e.g. expires" required>
                 </div>
                 <div class="form-control">
                     <label class="label cursor-pointer justify-start gap-2">
                         <span class="label-text">Enabled</span>
-                        <input type="checkbox" name="enabled" class="checkbox checkbox-primary checkbox-sm" {{if eq
-                            .TTLStatus "ENABLED" }}checked{{end}}>
+                        <input type="checkbox" name="enabled" class="checkbox checkbox-primary checkbox-sm" {{if eq .TTLStatus "ENABLED"}}checked{{end}}>
                     </label>
                 </div>
                 <button type="submit" class="btn btn-primary btn-sm">Update TTL</button>
@@ -217,37 +214,30 @@
     </div>
 
     <!-- Streams Configuration -->
-    <div class="card bg-base-100 shadow-xl">
+    <div class="card">
         <div class="card-body">
             <h2 class="card-title text-sm">DynamoDB Streams Configuration</h2>
             <form hx-post="/dashboard/dynamodb/table/{{.TableName}}/streams" hx-target="#overview"
                 class="flex items-end gap-4 flex-wrap">
                 <div class="form-control">
-                    <label class="label">
-                        <span class="label-text">View Type</span>
-                    </label>
+                    <label class="label"><span class="label-text">View Type</span></label>
                     <select name="viewType" class="select select-bordered select-sm">
-                        <option value="NEW_AND_OLD_IMAGES" {{if eq .StreamViewType "NEW_AND_OLD_IMAGES"
-                            }}selected{{end}}>NEW_AND_OLD_IMAGES</option>
-                        <option value="NEW_IMAGE" {{if eq .StreamViewType "NEW_IMAGE" }}selected{{end}}>NEW_IMAGE
-                        </option>
-                        <option value="OLD_IMAGE" {{if eq .StreamViewType "OLD_IMAGE" }}selected{{end}}>OLD_IMAGE
-                        </option>
-                        <option value="KEYS_ONLY" {{if eq .StreamViewType "KEYS_ONLY" }}selected{{end}}>KEYS_ONLY
-                        </option>
+                        <option value="NEW_AND_OLD_IMAGES" {{if eq .StreamViewType "NEW_AND_OLD_IMAGES"}}selected{{end}}>NEW_AND_OLD_IMAGES</option>
+                        <option value="NEW_IMAGE" {{if eq .StreamViewType "NEW_IMAGE"}}selected{{end}}>NEW_IMAGE</option>
+                        <option value="OLD_IMAGE" {{if eq .StreamViewType "OLD_IMAGE"}}selected{{end}}>OLD_IMAGE</option>
+                        <option value="KEYS_ONLY" {{if eq .StreamViewType "KEYS_ONLY"}}selected{{end}}>KEYS_ONLY</option>
                     </select>
                 </div>
                 <div class="form-control">
                     <label class="label cursor-pointer justify-start gap-2">
                         <span class="label-text">Enabled</span>
-                        <input type="checkbox" name="enabled" class="checkbox checkbox-info checkbox-sm" {{if
-                            .StreamsEnabled}}checked{{end}}>
+                        <input type="checkbox" name="enabled" class="checkbox checkbox-info checkbox-sm" {{if .StreamsEnabled}}checked{{end}}>
                     </label>
                 </div>
                 <button type="submit" class="btn btn-info btn-sm">Update Streams</button>
             </form>
             {{if .StreamARN}}
-            <div class="mt-2 text-xs text-base-content/60 font-mono truncate" title="{{.StreamARN}}">
+            <div class="mt-2 text-xs text-gray-500 dark:text-gray-400 font-mono truncate" title="{{.StreamARN}}">
                 ARN: {{.StreamARN}}
             </div>
             {{end}}
@@ -256,11 +246,11 @@
 
     <!-- GSI List -->
     {{if .GlobalSecondaryIndexes}}
-    <div class="card bg-base-100 shadow-xl">
+    <div class="card">
         <div class="card-body">
             <h2 class="card-title">Global Secondary Indexes</h2>
             <div class="overflow-x-auto">
-                <table class="table">
+                <table>
                     <thead>
                         <tr>
                             <th>Index Name</th>
@@ -287,11 +277,11 @@
 
     <!-- LSI List -->
     {{if .LocalSecondaryIndexes}}
-    <div class="card bg-base-100 shadow-xl">
+    <div class="card">
         <div class="card-body">
             <h2 class="card-title">Local Secondary Indexes</h2>
             <div class="overflow-x-auto">
-                <table class="table">
+                <table>
                     <thead>
                         <tr>
                             <th>Index Name</th>
@@ -332,7 +322,7 @@
     </div>
     {{else}}
     <div class="overflow-x-auto">
-        <table class="table table-sm">
+        <table class="table-sm">
             <thead>
                 <tr>
                     <th>Event</th>
@@ -376,11 +366,8 @@
     <form hx-post="/dashboard/dynamodb/table/{{.TableName}}/query" hx-target="#query-results"
         hx-indicator=".query-indicator" class="space-y-4">
 
-        <!-- Index Selection -->
         <div class="form-control">
-            <label class="label">
-                <span class="label-text">Index (Optional)</span>
-            </label>
+            <label class="label"><span class="label-text">Index (Optional)</span></label>
             <select name="indexName" class="select select-bordered">
                 <option value="">Table (Default)</option>
                 {{range .GlobalSecondaryIndexes}}
@@ -392,20 +379,14 @@
             </select>
         </div>
 
-        <!-- Partition Key -->
         <div class="form-control">
-            <label class="label">
-                <span class="label-text">Partition Key Value ({{.PartitionKey}})</span>
-            </label>
+            <label class="label"><span class="label-text">Partition Key Value ({{.PartitionKey}})</span></label>
             <input type="text" name="partitionKeyValue" class="input input-bordered" required>
         </div>
 
-        <!-- Sort Key Condition -->
         {{if .SortKey}}
         <div class="form-control">
-            <label class="label">
-                <span class="label-text">Sort Key Condition ({{.SortKey}})</span>
-            </label>
+            <label class="label"><span class="label-text">Sort Key Condition ({{.SortKey}})</span></label>
             <div class="join w-full">
                 <select name="sortKeyOperator" class="select select-bordered join-item">
                     <option value="">None</option>
@@ -417,39 +398,28 @@
                     <option value="BETWEEN">BETWEEN</option>
                     <option value="begins_with">begins_with</option>
                 </select>
-                <input type="text" name="sortKeyValue" class="input input-bordered join-item flex-1"
-                    placeholder="Value">
-                <input type="text" name="sortKeyValue2" class="input input-bordered join-item flex-1"
-                    placeholder="Value 2 (for BETWEEN)">
+                <input type="text" name="sortKeyValue" class="input input-bordered join-item flex-1" placeholder="Value">
+                <input type="text" name="sortKeyValue2" class="input input-bordered join-item flex-1" placeholder="Value 2 (for BETWEEN)">
             </div>
         </div>
         {{end}}
 
-        <!-- Filter Expression -->
         <div class="form-control">
-            <label class="label">
-                <span class="label-text">Filter Expression (Optional)</span>
-            </label>
-            <textarea name="filterExpression" class="textarea textarea-bordered"
-                placeholder="attribute_exists(email)"></textarea>
+            <label class="label"><span class="label-text">Filter Expression (Optional)</span></label>
+            <textarea name="filterExpression" class="textarea textarea-bordered" placeholder="attribute_exists(email)"></textarea>
         </div>
 
-        <!-- Limit -->
         <div class="form-control">
-            <label class="label">
-                <span class="label-text">Limit</span>
-            </label>
+            <label class="label"><span class="label-text">Limit</span></label>
             <input type="number" name="limit" class="input input-bordered" value="100" min="1">
         </div>
 
-        <!-- Submit -->
         <button type="submit" class="btn btn-primary">
             <span class="query-indicator loading loading-spinner loading-sm htmx-indicator"></span>
             Execute Query
         </button>
     </form>
 
-    <!-- Results -->
     <div id="query-results"></div>
 </div>
 {{end}}
@@ -467,38 +437,27 @@
     <form hx-post="/dashboard/dynamodb/table/{{.TableName}}/scan" hx-target="#scan-results"
         hx-indicator=".scan-indicator" class="space-y-4">
 
-        <!-- Filter Expression -->
         <div class="form-control">
-            <label class="label">
-                <span class="label-text">Filter Expression (Optional)</span>
-            </label>
+            <label class="label"><span class="label-text">Filter Expression (Optional)</span></label>
             <textarea name="filterExpression" class="textarea textarea-bordered" placeholder="age > :minAge"></textarea>
         </div>
 
-        <!-- Projection Expression -->
         <div class="form-control">
-            <label class="label">
-                <span class="label-text">Projection Expression (Optional)</span>
-            </label>
+            <label class="label"><span class="label-text">Projection Expression (Optional)</span></label>
             <input type="text" name="projectionExpression" class="input input-bordered" placeholder="id, name, email">
         </div>
 
-        <!-- Limit -->
         <div class="form-control">
-            <label class="label">
-                <span class="label-text">Limit</span>
-            </label>
+            <label class="label"><span class="label-text">Limit</span></label>
             <input type="number" name="limit" class="input input-bordered" value="100" min="1">
         </div>
 
-        <!-- Submit -->
         <button type="submit" class="btn btn-primary">
             <span class="scan-indicator loading loading-spinner loading-sm htmx-indicator"></span>
             Execute Scan
         </button>
     </form>
 
-    <!-- Results -->
     <div id="scan-results"></div>
 </div>
 {{end}}

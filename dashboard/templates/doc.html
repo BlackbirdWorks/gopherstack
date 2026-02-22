@@ -1,76 +1,75 @@
 {{define "content"}}
 <div class="prose max-w-none">
-    <h1 class="mb-4">Supported API Operations</h1>
-    <p class="mb-8">This page lists the DynamoDB, S3, SSM, and SQS operations currently supported by the Gopherstack local
-        emulator.</p>
+    <h1 class="mb-4 text-gray-900 dark:text-white">Supported API Operations</h1>
+    <p class="mb-8 text-gray-700 dark:text-gray-300">This page lists the DynamoDB, S3, SSM, and SQS operations currently supported by the Gopherstack local emulator.</p>
 
     <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
         <!-- DynamoDB Operations -->
-        <div class="card bg-base-100 shadow-xl">
+        <div class="card">
             <div class="card-body">
-                <h2 class="card-title text-primary flex items-center gap-2">
+                <h2 class="card-title text-blue-600 dark:text-blue-400 flex items-center gap-2">
                     <span>⚡</span> DynamoDB
                 </h2>
-                <div class="divider my-0"></div>
-                <ul class="menu bg-base-100 rounded-box">
+                <hr class="my-2 border-gray-200 dark:border-gray-700">
+                <ul class="space-y-1">
                     {{range .DynamoDBOps}}
-                    <li><a class="cursor-default hover:bg-base-200">{{.}}</a></li>
+                    <li class="px-3 py-1 text-sm text-gray-700 dark:text-gray-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">{{.}}</li>
                     {{else}}
-                    <li class="disabled"><span>No operations found</span></li>
+                    <li class="text-sm text-gray-500 dark:text-gray-400">No operations found</li>
                     {{end}}
                 </ul>
             </div>
         </div>
 
         <!-- S3 Operations -->
-        <div class="card bg-base-100 shadow-xl">
+        <div class="card">
             <div class="card-body">
-                <h2 class="card-title text-secondary flex items-center gap-2">
+                <h2 class="card-title text-purple-600 dark:text-purple-400 flex items-center gap-2">
                     <span>🪣</span> S3
                 </h2>
-                <div class="divider my-0"></div>
-                <ul class="menu bg-base-100 rounded-box">
+                <hr class="my-2 border-gray-200 dark:border-gray-700">
+                <ul class="space-y-1">
                     {{range .S3Ops}}
-                    <li><a class="cursor-default hover:bg-base-200">{{.}}</a></li>
+                    <li class="px-3 py-1 text-sm text-gray-700 dark:text-gray-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">{{.}}</li>
                     {{else}}
-                    <li class="disabled"><span>No operations found</span></li>
+                    <li class="text-sm text-gray-500 dark:text-gray-400">No operations found</li>
                     {{end}}
                 </ul>
             </div>
         </div>
 
         <!-- SSM Operations -->
-        <div class="card bg-base-100 shadow-xl">
+        <div class="card">
             <div class="card-body">
-                <h2 class="card-title text-accent flex items-center gap-2">
+                <h2 class="card-title text-yellow-600 dark:text-yellow-400 flex items-center gap-2">
                     <span>🔐</span> SSM Parameter Store
                 </h2>
-                <div class="divider my-0"></div>
-                <ul class="menu bg-base-100 rounded-box">
+                <hr class="my-2 border-gray-200 dark:border-gray-700">
+                <ul class="space-y-1">
                     {{range .SSMOps}}
-                    <li><a class="cursor-default hover:bg-base-200">{{.}}</a></li>
+                    <li class="px-3 py-1 text-sm text-gray-700 dark:text-gray-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">{{.}}</li>
                     {{else}}
-                    <li class="disabled"><span>No operations found</span></li>
+                    <li class="text-sm text-gray-500 dark:text-gray-400">No operations found</li>
                     {{end}}
                 </ul>
             </div>
         </div>
 
         <!-- SQS Operations -->
-        <div class="card bg-base-100 shadow-xl">
+        <div class="card">
             <div class="card-body">
-                <h2 class="card-title text-warning flex items-center gap-2">
+                <h2 class="card-title text-orange-600 dark:text-orange-400 flex items-center gap-2">
                     <span>📨</span> SQS
                 </h2>
-                <div class="divider my-0"></div>
-                <ul class="menu bg-base-100 rounded-box">
+                <hr class="my-2 border-gray-200 dark:border-gray-700">
+                <ul class="space-y-1">
                     {{range .SQSOps}}
-                    <li><a class="cursor-default hover:bg-base-200">{{.}}</a></li>
+                    <li class="px-3 py-1 text-sm text-gray-700 dark:text-gray-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">{{.}}</li>
                     {{else}}
-                    <li class="disabled"><span>No operations found</span></li>
+                    <li class="text-sm text-gray-500 dark:text-gray-400">No operations found</li>
                     {{end}}
                 </ul>
             </div>
         </div>
     </div>
-    {{end}}
+{{end}}

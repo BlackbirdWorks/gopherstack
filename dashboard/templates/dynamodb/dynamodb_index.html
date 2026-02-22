@@ -2,7 +2,7 @@
 <div class="space-y-6">
     <!-- Header -->
     <div class="flex justify-between items-center">
-        <h1 class="text-3xl font-bold">DynamoDB Tables</h1>
+        <h1 class="text-3xl font-bold text-gray-900 dark:text-white">DynamoDB Tables</h1>
         <div class="flex gap-2">
             <button class="btn btn-error" hx-delete="/dashboard/dynamodb/purge"
                 hx-confirm="Are you sure you want to delete ALL tables? This cannot be undone." hx-target="#table-list">
@@ -24,9 +24,7 @@
                 hx-get="/dashboard/dynamodb/tables" hx-vals='{"offset": 0}'
                 hx-trigger="input changed delay:300ms, search" hx-target="#table-list" hx-push-url="true">
         </div>
-        <div id="pagination-top" class="flex-1 flex justify-end">
-            <!-- Pagination summary can be mirrored here via OOB if needed -->
-        </div>
+        <div id="pagination-top" class="flex-1 flex justify-end"></div>
     </div>
 
     <!-- Loading indicator -->
@@ -37,32 +35,25 @@
     <!-- Table list -->
     <div id="table-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
         hx-get="/dashboard/dynamodb/tables" hx-trigger="load" hx-indicator=".htmx-indicator">
-        <!-- Tables will be loaded here -->
     </div>
 </div>
 
 <!-- Create Table Modal -->
 <dialog id="create_table_modal" class="modal">
     <div class="modal-box">
-        <h3 class="font-bold text-lg">Create Table</h3>
+        <h3 class="font-bold text-lg text-gray-900 dark:text-white">Create Table</h3>
         <form method="dialog" class="space-y-4 mt-4" hx-post="/dashboard/dynamodb/create" hx-target="#table-list"
             hx-on::after-request="if(event.detail.successful) document.getElementById('create_table_modal').close()">
             <div class="form-control">
-                <label class="label">
-                    <span class="label-text">Table Name</span>
-                </label>
+                <label class="label"><span class="label-text">Table Name</span></label>
                 <input type="text" name="tableName" placeholder="users" class="input input-bordered" required>
             </div>
             <div class="form-control">
-                <label class="label">
-                    <span class="label-text">Partition Key</span>
-                </label>
+                <label class="label"><span class="label-text">Partition Key</span></label>
                 <input type="text" name="partitionKey" placeholder="id" class="input input-bordered" required>
             </div>
             <div class="form-control">
-                <label class="label">
-                    <span class="label-text">Partition Key Type</span>
-                </label>
+                <label class="label"><span class="label-text">Partition Key Type</span></label>
                 <select name="partitionKeyType" class="select select-bordered">
                     <option value="S">String</option>
                     <option value="N">Number</option>
@@ -70,15 +61,11 @@
                 </select>
             </div>
             <div class="form-control">
-                <label class="label">
-                    <span class="label-text">Sort Key (Optional)</span>
-                </label>
+                <label class="label"><span class="label-text">Sort Key (Optional)</span></label>
                 <input type="text" name="sortKey" placeholder="timestamp" class="input input-bordered">
             </div>
             <div class="form-control">
-                <label class="label">
-                    <span class="label-text">Sort Key Type</span>
-                </label>
+                <label class="label"><span class="label-text">Sort Key Type</span></label>
                 <select name="sortKeyType" class="select select-bordered">
                     <option value="S">String</option>
                     <option value="N">Number</option>
@@ -86,7 +73,7 @@
                 </select>
             </div>
             <div class="modal-action">
-                <button type="button" class="btn"
+                <button type="button" class="btn btn-ghost"
                     onclick="document.getElementById('create_table_modal').close()">Cancel</button>
                 <button type="submit" class="btn btn-primary">Create</button>
             </div>

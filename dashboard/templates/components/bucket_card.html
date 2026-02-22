@@ -1,24 +1,24 @@
 {{define "bucket-card"}}
-<div class="card bg-base-100 shadow-xl hover:shadow-2xl transition-shadow">
+<div class="card hover:shadow-2xl transition-shadow">
     <div class="card-body">
         <h2 class="card-title">
-            <a href="/dashboard/s3/bucket/{{.Name}}" class="link link-hover">🪣 {{.Name}}</a>
+            <a href="/dashboard/s3/bucket/{{.Name}}" class="text-blue-600 hover:underline dark:text-blue-400">🪣 {{.Name}}</a>
         </h2>
         <div class="space-y-2 text-sm">
             <div class="flex justify-between">
-                <span class="text-gray-600">Created:</span>
-                <span>{{.CreationDate}}</span>
+                <span class="text-gray-500 dark:text-gray-400">Created:</span>
+                <span class="text-gray-800 dark:text-gray-200">{{.CreationDate}}</span>
             </div>
             <div class="flex justify-between">
-                <span class="text-gray-600">Versioning:</span>
+                <span class="text-gray-500 dark:text-gray-400">Versioning:</span>
                 {{if .VersioningEnabled}}
                 <span class="badge badge-success">Enabled</span>
                 {{else}}
-                <span class="badge">Disabled</span>
+                <span class="badge badge-ghost">Disabled</span>
                 {{end}}
             </div>
             <div class="flex justify-between">
-                <span class="text-gray-600">Objects:</span>
+                <span class="text-gray-500 dark:text-gray-400">Objects:</span>
                 <span class="badge badge-primary">{{.ObjectCount}}</span>
             </div>
         </div>

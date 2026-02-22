@@ -1,6 +1,6 @@
 {{define "file-tree-item"}}
 {{if .IsFolder}}
-<div class="collapse collapse-arrow bg-base-200 mb-2">
+<div class="collapse collapse-arrow mb-2">
     <input type="checkbox" hx-get="/dashboard/s3/bucket/{{.BucketName}}/tree?prefix={{.FullPath}}"
         hx-trigger="change once" hx-target="next .collapse-content" />
     <label class="collapse-title font-medium flex items-center gap-2 cursor-pointer">
@@ -11,26 +11,25 @@
     </div>
 </div>
 {{else}}
-<div class="flex items-center justify-between p-3 bg-base-100 rounded-lg mb-2 hover:bg-base-200 s3-file-row">
+<div class="flex items-center justify-between p-3 bg-white dark:bg-gray-800 rounded-lg mb-2 hover:bg-gray-50 dark:hover:bg-gray-700 border border-gray-100 dark:border-gray-700 s3-file-row">
     <div class="flex items-center gap-3">
         <span>📄</span>
-        <a href="/dashboard/s3/bucket/{{.BucketName}}/file/{{.FullPath}}" class="link link-hover">{{.Name}}</a>
+        <a href="/dashboard/s3/bucket/{{.BucketName}}/file/{{.FullPath}}" class="text-blue-600 hover:underline dark:text-blue-400">{{.Name}}</a>
     </div>
-    <div class="flex items-center gap-2 text-sm text-base-content/60">
+    <div class="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
         <span>{{.Size}}</span>
         <span>{{.LastModified}}</span>
         <div class="dropdown dropdown-end">
             <label tabindex="0" class="btn btn-ghost btn-xs">⋮</label>
             <ul tabindex="0"
-                class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-64 border border-base-300">
-                <li><a href="/dashboard/s3/bucket/{{.BucketName}}/download/{{.FullPath}}">Download</a></li>
+                class="dropdown-content z-[1] p-2 shadow bg-white dark:bg-gray-800 rounded-lg w-56 border border-gray-200 dark:border-gray-700">
+                <li><a href="/dashboard/s3/bucket/{{.BucketName}}/download/{{.FullPath}}" class="block px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">Download</a></li>
                 <li><button hx-delete="/dashboard/s3/bucket/{{.BucketName}}/file/{{.FullPath}}"
                         hx-confirm="Are you sure you want to delete this file?" hx-target="closest .s3-file-row"
-                        hx-swap="outerHTML" class="text-left w-full">Delete (Latest)</button></li>
+                        hx-swap="outerHTML" class="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">Delete (Latest)</button></li>
                 <li><button hx-delete="/dashboard/s3/bucket/{{.BucketName}}/file/{{.FullPath}}?deleteAll=true"
                         hx-confirm="WARNING: This will permanently delete ALL versions of this file! Are you sure?"
-                        hx-target="closest .s3-file-row" hx-swap="outerHTML" class="text-error text-left w-full">Delete
-                        All Versions</button></li>
+                        hx-target="closest .s3-file-row" hx-swap="outerHTML" class="block w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">Delete All Versions</button></li>
             </ul>
         </div>
     </div>

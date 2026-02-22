@@ -1,229 +1,181 @@
-// Gopherstack UI JavaScript utilities
+// Gopherstack UI JavaScript — Flowbite + HTMX
 
-// Copy to clipboard functionality
+// ── Toast notifications ────────────────────────────────────────
+function showToast(message, type) {
+    type = type || 'info';
+    const colors = {
+        success: 'bg-green-100 text-green-800 dark:bg-green-800 dark:text-green-200',
+        error:   'bg-red-100 text-red-800 dark:bg-red-800 dark:text-red-200',
+        warning: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-800 dark:text-yellow-200',
+        info:    'bg-blue-100 text-blue-800 dark:bg-blue-800 dark:text-blue-200',
+    };
+    const icons = { success: '✅', error: '❌', warning: '⚠️', info: 'ℹ️' };
+    const colorClass = colors[type] || colors.info;
+    const icon = icons[type] || icons.info;
+
+    const toast = document.createElement('div');
+    toast.className = [
+        'flex items-center gap-3 px-4 py-3 rounded-lg shadow-lg border pointer-events-auto',
+        'text-sm font-medium transition-all duration-300 opacity-0 -translate-y-2',
+        colorClass,
+        'border-transparent',
+    ].join(' ');
+    toast.innerHTML = '<span>' + icon + '</span><span>' + message + '</span>';
+    document.getElementById('global-alerts').appendChild(toast);
+
+    requestAnimationFrame(function() {
+        toast.classList.remove('opacity-0', '-translate-y-2');
+        toast.classList.add('opacity-100', 'translate-y-0');
+    });
+    setTimeout(function() {
+        toast.classList.add('opacity-0', '-translate-y-2');
+        setTimeout(function() { toast.remove(); }, 300);
+    }, 5000);
+}
+
+// ── Copy to clipboard ──────────────────────────────────────────
 function copyToClipboard(text) {
-    navigator.clipboard.writeText(text).then(() => {
+    navigator.clipboard.writeText(text).then(function() {
         showToast('Copied to clipboard!', 'success');
-    }).catch(err => {
+    }).catch(function(err) {
         showToast('Failed to copy', 'error');
         console.error('Copy failed:', err);
     });
 }
 
-// Show toast notification
-function showToast(message, type = 'info') {
-    const toast = document.createElement('div');
-    toast.className = `alert alert-${type} fixed top-4 left-1/2 -translate-x-1/2 z-[1000] shadow-xl max-w-lg pointer-events-auto transition-all duration-300 opacity-0 transform -translate-y-4`;
-    toast.innerHTML = `
-        <div class="flex items-center gap-2">
-            <span>${type === 'error' ? '❌' : type === 'success' ? '✅' : 'ℹ️'}</span>
-            <span class="font-medium">${message}</span>
-        </div>
-    `;
-    document.body.appendChild(toast);
-
-    // Fade in
-    requestAnimationFrame(() => {
-        toast.classList.remove('opacity-0', '-translate-y-4');
-        toast.classList.add('opacity-100', 'translate-y-0');
-    });
-
-    setTimeout(() => {
-        // Fade out
-        toast.classList.add('opacity-0', '-translate-y-4');
-        setTimeout(() => toast.remove(), 300);
-    }, 5000);
-}
-
-// Format JSON for display
+// ── Format JSON ────────────────────────────────────────────────
 function formatJSON(obj) {
     return JSON.stringify(obj, null, 2);
 }
 
-// Confirm delete action (kept for semantic naming if needed, but HTMX now intercepts via event)
+// ── Global confirm modal (native <dialog>) ─────────────────────
 function confirmDelete(message) {
-    return new Promise((resolve) => {
-        const modal = document.getElementById('global_confirm_modal');
-        const confirmBtn = document.getElementById('global_confirm_proceed');
-        const cancelBtn = document.getElementById('global_confirm_cancel');
-        const messageEl = document.getElementById('global_confirm_message');
+    return new Promise(function(resolve) {
+        var modal = document.getElementById('global_confirm_modal');
+        var confirmBtn = document.getElementById('global_confirm_proceed');
+        var cancelBtn  = document.getElementById('global_confirm_cancel');
+        var msgEl      = document.getElementById('global_confirm_message');
+        msgEl.textContent = message || 'Are you sure you want to delete this?';
 
-        messageEl.textContent = message || 'Are you sure you want to delete this?';
-
-        const onConfirm = () => {
-            modal.close();
-            cleanup();
-            resolve(true);
-        };
-        const onCancel = () => {
-            modal.close();
-            cleanup();
-            resolve(false);
-        };
-        const cleanup = () => {
+        var onConfirm = function() { modal.close(); cleanup(); resolve(true); };
+        var onCancel  = function() { modal.close(); cleanup(); resolve(false); };
+        var cleanup   = function() {
             confirmBtn.removeEventListener('click', onConfirm);
             cancelBtn.removeEventListener('click', onCancel);
         };
-
         confirmBtn.addEventListener('click', onConfirm);
         cancelBtn.addEventListener('click', onCancel);
         modal.showModal();
     });
 }
 
-// HTMX event listeners
-document.addEventListener('htmx:confirm', (event) => {
-    // Skip if it's not a confirm event we want to intercept
+// ── HTMX: intercept hx-confirm ────────────────────────────────
+document.addEventListener('htmx:confirm', function(event) {
     if (!event.detail.question) return;
-
-    // Prevent default browser confirm
     event.preventDefault();
 
-    const modal = document.getElementById('global_confirm_modal');
-    const confirmBtn = document.getElementById('global_confirm_proceed');
-    const cancelBtn = document.getElementById('global_confirm_cancel');
-    const messageEl = document.getElementById('global_confirm_message');
+    var modal      = document.getElementById('global_confirm_modal');
+    var confirmBtn = document.getElementById('global_confirm_proceed');
+    var cancelBtn  = document.getElementById('global_confirm_cancel');
+    var msgEl      = document.getElementById('global_confirm_message');
+    msgEl.textContent = event.detail.question;
 
-    // Set message from hx-confirm
-    messageEl.textContent = event.detail.question;
-
-    const handleConfirm = () => {
-        modal.close();
-        cleanup();
-        event.detail.issueRequest(true); // Tell HTMX to proceed
-    };
-
-    const handleCancel = () => {
-        modal.close();
-        cleanup();
-    };
-
-    const cleanup = () => {
+    var handleConfirm = function() { modal.close(); cleanup(); event.detail.issueRequest(true); };
+    var handleCancel  = function() { modal.close(); cleanup(); };
+    var cleanup = function() {
         confirmBtn.removeEventListener('click', handleConfirm);
         cancelBtn.removeEventListener('click', handleCancel);
     };
-
     confirmBtn.addEventListener('click', handleConfirm);
     cancelBtn.addEventListener('click', handleCancel);
-
     modal.showModal();
 });
 
-// Toggle folder in file tree
-function toggleFolder(element) {
-    const children = element.nextElementSibling;
-    if (children && children.classList.contains('folder-children')) {
-        children.classList.toggle('hidden');
-        const icon = element.querySelector('.folder-icon');
-        if (icon) {
-            icon.textContent = children.classList.contains('hidden') ? '📁' : '📂';
-        }
-    }
-}
-
-// HTMX event listeners
-document.addEventListener('htmx:afterSwap', (event) => {
-    // Re-initialize any dynamic elements after HTMX swap
+// ── HTMX events ───────────────────────────────────────────────
+document.addEventListener('htmx:afterSwap', function() {
     console.log('HTMX swap completed');
 });
 
-document.addEventListener('htmx:responseError', (event) => {
-    const xhr = event.detail.xhr;
-    const trigger = xhr.getResponseHeader('HX-Trigger');
-    if (trigger && trigger.includes('showToast')) {
-        return; // Handled by custom showToast listener
-    }
+document.addEventListener('htmx:responseError', function(event) {
+    var xhr = event.detail.xhr;
+    var trigger = xhr.getResponseHeader('HX-Trigger');
+    if (trigger && trigger.includes('showToast')) return;
     showToast('Request failed. Please try again.', 'error');
     console.error('HTMX error:', event.detail);
 });
 
-document.addEventListener('htmx:sendError', (event) => {
+document.addEventListener('htmx:sendError', function() {
     showToast('Network error. Please check your connection.', 'error');
-    console.error('HTMX send error:', event.detail);
 });
 
-// Event listener for custom "showToast" trigger from HTMX responses
-document.body.addEventListener('showToast', (event) => {
-    const detail = event.detail;
-    if (detail && detail.message) {
-        showToast(detail.message, detail.type || 'info');
+document.body.addEventListener('showToast', function(event) {
+    var detail = event.detail;
+    if (detail && detail.message) showToast(detail.message, detail.type || 'info');
+});
+
+// ── S3 file-tree folder toggle ────────────────────────────────
+function toggleFolder(element) {
+    var children = element.nextElementSibling;
+    if (children && children.classList.contains('folder-children')) {
+        children.classList.toggle('hidden');
+        var icon = element.querySelector('.folder-icon');
+        if (icon) icon.textContent = children.classList.contains('hidden') ? '📁' : '📂';
     }
-});
+}
 
-// Dark mode theme management
-const ThemeManager = {
+// ── Dark mode theme manager ───────────────────────────────────
+var ThemeManager = {
     STORAGE_KEY: 'gopherstack-theme',
-    LIGHT_THEME: 'light',
-    DARK_THEME: 'dark',
 
-    // Get the current theme preference
-    getCurrentTheme() {
-        const stored = localStorage.getItem(this.STORAGE_KEY);
+    getCurrentTheme: function() {
+        var stored = localStorage.getItem(this.STORAGE_KEY);
         if (stored) return stored;
-
-        // Check system preference
-        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-            return this.DARK_THEME;
-        }
-        return this.LIGHT_THEME;
+        return (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
     },
 
-    // Set theme and update DOM/localStorage
-    setTheme(theme) {
-        const html = document.documentElement;
-        html.setAttribute('data-theme', theme);
-        html.classList.toggle('dark', theme === this.DARK_THEME);
-        localStorage.setItem(this.STORAGE_KEY, theme);
-        this.updateIcon(theme);
-
-        // Dispatch event for other listeners (like layout.html)
-        window.dispatchEvent(new CustomEvent('theme-changed', { detail: { theme } }));
-    },
-
-    // Update the toggle button icon
-    updateIcon(theme) {
-        const sunIcon = document.getElementById('sun-icon');
-        const moonIcon = document.getElementById('moon-icon');
-        if (theme === this.DARK_THEME) {
-            sunIcon?.classList.remove('hidden');
-            moonIcon?.classList.add('hidden');
+    setTheme: function(theme) {
+        var html = document.documentElement;
+        if (theme === 'dark') {
+            html.classList.add('dark');
         } else {
-            sunIcon?.classList.add('hidden');
-            moonIcon?.classList.remove('hidden');
+            html.classList.remove('dark');
+        }
+        localStorage.setItem(this.STORAGE_KEY, theme);
+        this.updateIcons(theme);
+    },
+
+    updateIcons: function(theme) {
+        var dark  = document.getElementById('theme-icon-dark');
+        var light = document.getElementById('theme-icon-light');
+        if (theme === 'dark') {
+            dark  && dark.classList.remove('hidden');
+            light && light.classList.add('hidden');
+        } else {
+            dark  && dark.classList.add('hidden');
+            light && light.classList.remove('hidden');
         }
     },
 
-    // Toggle between light and dark themes
-    toggleTheme() {
-        const current = document.documentElement.getAttribute('data-theme');
-        const newTheme = current === this.DARK_THEME ? this.LIGHT_THEME : this.DARK_THEME;
-        this.setTheme(newTheme);
+    toggleTheme: function() {
+        var current = document.documentElement.classList.contains('dark') ? 'dark' : 'light';
+        this.setTheme(current === 'dark' ? 'light' : 'dark');
     },
 
-    // Initialize theme on page load
-    init() {
-        const theme = this.getCurrentTheme();
-        this.setTheme(theme);
-
-        // Listen for toggle button clicks
-        const themeToggle = document.getElementById('theme-toggle');
-        if (themeToggle) {
-            themeToggle.addEventListener('click', () => this.toggleTheme());
-        }
-
-        // Listen for system theme changes
+    init: function() {
+        this.setTheme(this.getCurrentTheme());
+        var btn = document.getElementById('theme-toggle');
+        if (btn) btn.addEventListener('click', this.toggleTheme.bind(this));
         if (window.matchMedia) {
-            window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
-                if (!localStorage.getItem(this.STORAGE_KEY)) {
-                    this.setTheme(e.matches ? this.DARK_THEME : this.LIGHT_THEME);
+            window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(e) {
+                if (!localStorage.getItem(ThemeManager.STORAGE_KEY)) {
+                    ThemeManager.setTheme(e.matches ? 'dark' : 'light');
                 }
             });
         }
     }
 };
 
-// Initialize on page load
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', function() {
     ThemeManager.init();
     console.log('Gopherstack UI loaded');
 });
