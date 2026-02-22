@@ -13,6 +13,10 @@ import (
 func (h *DashboardHandler) snsIndex(c *echo.Context) error {
 	w := c.Response()
 
+	if h.SNSOps == nil {
+		return c.NoContent(http.StatusServiceUnavailable)
+	}
+
 	topics := h.SNSOps.Backend.ListAllTopics()
 
 	data := struct {
@@ -40,6 +44,10 @@ func (h *DashboardHandler) snsIndex(c *echo.Context) error {
 func (h *DashboardHandler) snsCreateTopic(c *echo.Context) error {
 	r := c.Request()
 	w := c.Response()
+
+	if h.SNSOps == nil {
+		return c.NoContent(http.StatusServiceUnavailable)
+	}
 
 	if err := r.ParseForm(); err != nil {
 		h.Logger.Error("Failed to parse form", "error", err)
@@ -73,6 +81,10 @@ func (h *DashboardHandler) snsDeleteTopic(c *echo.Context) error {
 	r := c.Request()
 	w := c.Response()
 
+	if h.SNSOps == nil {
+		return c.NoContent(http.StatusServiceUnavailable)
+	}
+
 	arn := r.URL.Query().Get("arn")
 	if arn == "" {
 		return c.String(http.StatusBadRequest, "Missing arn")
@@ -94,6 +106,10 @@ func (h *DashboardHandler) snsTopicDetail(c *echo.Context) error {
 	r := c.Request()
 	w := c.Response()
 
+	if h.SNSOps == nil {
+		return c.NoContent(http.StatusServiceUnavailable)
+	}
+
 	arn := r.URL.Query().Get("arn")
 	if arn == "" {
 		return c.String(http.StatusBadRequest, "Missing arn")
@@ -106,7 +122,10 @@ func (h *DashboardHandler) snsTopicDetail(c *echo.Context) error {
 		return c.String(http.StatusNotFound, "Topic not found")
 	}
 
-	subs, _, _ := h.SNSOps.Backend.ListSubscriptionsByTopic(arn, "")
+	subs, _, err := h.SNSOps.Backend.ListSubscriptionsByTopic(arn, "")
+	if err != nil {
+		h.Logger.Warn("Failed to list subscriptions for topic", "arn", arn, "error", err)
+	}
 
 	data := struct {
 		PageData
