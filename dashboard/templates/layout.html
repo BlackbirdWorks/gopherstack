@@ -29,59 +29,88 @@
 </head>
 
 <body class="bg-base-200">
-    <!-- Navbar -->
-    <div class="navbar bg-base-100 shadow-lg">
-        <div class="flex-1">
-            <a href="/dashboard" class="btn btn-ghost text-xl">
-                🐹 Gopherstack
-            </a>
+    <div class="drawer lg:drawer-open">
+        <input id="sidebar-drawer" type="checkbox" class="drawer-toggle" />
+        
+        <!-- Main content -->
+        <div class="drawer-content flex flex-col">
+            <!-- Top navbar with logo and menu button -->
+            <div class="navbar bg-base-100 shadow-lg sticky top-0 z-40">
+                <div class="flex-1">
+                    <label for="sidebar-drawer" class="btn btn-ghost btn-circle lg:hidden">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="inline-block w-5 h-5 stroke-current">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+                        </svg>
+                    </label>
+                    <a href="/dashboard" class="btn btn-ghost text-xl">
+                        🐹 Gopherstack
+                    </a>
+                </div>
+                <div class="flex-none gap-2">
+                    <button id="theme-toggle" class="btn btn-ghost btn-circle" title="Toggle dark mode">
+                        <svg id="theme-icon" class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                            stroke="currentColor" stroke-width="1.8">
+                            <!-- Sun icon -->
+                            <path id="sun-icon" class="hidden" stroke-linecap="round" stroke-linejoin="round"
+                                d="M12 3v2m0 14v2m9-9h-2M5 12H3m15.364-6.364-1.414 1.414M7.05 16.95l-1.414 1.414m0-11.314 1.414 1.414m11.314 11.314-1.414-1.414M12 8a4 4 0 100 8 4 4 0 000-8z" />
+                            <!-- Moon icon -->
+                            <path id="moon-icon" stroke-linecap="round" stroke-linejoin="round"
+                                d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Alerts Container (for OOB swaps) -->
+            <div id="global-alerts"
+                class="fixed top-4 left-1/2 -translate-x-1/2 z-[1000] w-full max-w-2xl px-4 space-y-2 pointer-events-none">
+                <!-- Alerts will be injected here -->
+            </div>
+
+            <!-- Main content area -->
+            <main class="flex-1 px-4 py-8">
+                {{template "content" .}}
+            </main>
+
+            <!-- Footer -->
+            <footer class="footer footer-center p-4 bg-base-100 text-base-content mt-8">
+                <div>
+                    <p>Gopherstack - In-Memory AWS Stack for Go</p>
+                </div>
+            </footer>
         </div>
-        <div class="flex-none">
-            <ul class="menu menu-horizontal px-1">
-                <li><a href="/dashboard/dynamodb" class='{{if eq .ActiveTab "dynamodb"}}active{{end}}'>DynamoDB</a>
+
+        <!-- Sidebar navigation -->
+        <div class="drawer-side">
+            <label for="sidebar-drawer" aria-label="close sidebar" class="drawer-overlay"></label>
+            <ul class="menu p-4 w-80 min-h-full bg-base-100 text-base-content">
+                <li class="menu-title">
+                    <span>Core Services</span>
                 </li>
-                <li><a href="/dashboard/s3" class='{{if eq .ActiveTab "s3"}}active{{end}}'>S3</a></li>
-                <li><a href="/dashboard/ssm" class='{{if eq .ActiveTab "ssm"}}active{{end}}'>SSM</a></li>
-                <li><a href="/dashboard/iam" class='{{if eq .ActiveTab "iam"}}active{{end}}'>IAM</a></li>
-                <li><a href="/dashboard/sts" class='{{if eq .ActiveTab "sts"}}active{{end}}'>STS</a></li>
-                <li><a href="/dashboard/sns" class='{{if eq .ActiveTab "sns"}}active{{end}}'>SNS</a></li>
-                <li><a href="/dashboard/sqs" class='{{if eq .ActiveTab "sqs"}}active{{end}}'>SQS</a></li>
-                <li><a href="/dashboard/metrics" class='{{if eq .ActiveTab "metrics"}}active{{end}}'>Metrics</a></li>
-                <li><a href="/dashboard/docs" class='{{if eq .ActiveTab "docs"}}active{{end}}'>Docs</a></li>
+                <li><a href="/dashboard/dynamodb" class='{{if eq .ActiveTab "dynamodb"}}active{{end}}'>📊 DynamoDB</a></li>
+                <li><a href="/dashboard/s3" class='{{if eq .ActiveTab "s3"}}active{{end}}'>🪣 S3</a></li>
+                
+                <li class="menu-title mt-4">
+                    <span>Standard Services</span>
+                </li>
+                <li><a href="/dashboard/ssm" class='{{if eq .ActiveTab "ssm"}}active{{end}}'>⚙️ SSM</a></li>
+                <li><a href="/dashboard/iam" class='{{if eq .ActiveTab "iam"}}active{{end}}'>🔐 IAM</a></li>
+                <li><a href="/dashboard/sts" class='{{if eq .ActiveTab "sts"}}active{{end}}'>🔑 STS</a></li>
+                
+                <li class="menu-title mt-4">
+                    <span>Message Services</span>
+                </li>
+                <li><a href="/dashboard/sns" class='{{if eq .ActiveTab "sns"}}active{{end}}'>📢 SNS</a></li>
+                <li><a href="/dashboard/sqs" class='{{if eq .ActiveTab "sqs"}}active{{end}}'>📭 SQS</a></li>
+                
+                <li class="menu-title mt-4">
+                    <span>Monitoring</span>
+                </li>
+                <li><a href="/dashboard/metrics" class='{{if eq .ActiveTab "metrics"}}active{{end}}'>📈 Metrics</a></li>
+                <li><a href="/dashboard/docs" class='{{if eq .ActiveTab "docs"}}active{{end}}'>📚 Docs</a></li>
             </ul>
         </div>
-        <div class="flex-none gap-2">
-            <button id="theme-toggle" class="btn btn-ghost btn-circle" title="Toggle dark mode">
-                <svg id="theme-icon" class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
-                    stroke="currentColor" stroke-width="1.8">
-                    <!-- Sun icon -->
-                    <path id="sun-icon" class="hidden" stroke-linecap="round" stroke-linejoin="round"
-                        d="M12 3v2m0 14v2m9-9h-2M5 12H3m15.364-6.364-1.414 1.414M7.05 16.95l-1.414 1.414m0-11.314 1.414 1.414m11.314 11.314-1.414-1.414M12 8a4 4 0 100 8 4 4 0 000-8z" />
-                    <!-- Moon icon -->
-                    <path id="moon-icon" stroke-linecap="round" stroke-linejoin="round"
-                        d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
-                </svg>
-            </button>
-        </div>
     </div>
-
-    <!-- Alerts Container (for OOB swaps) -->
-    <div id="global-alerts"
-        class="fixed top-4 left-1/2 -translate-x-1/2 z-[1000] w-full max-w-2xl px-4 space-y-2 pointer-events-none">
-        <!-- Alerts will be injected here -->
-    </div>
-
-    <!-- Main content -->
-    <main class="container mx-auto px-4 py-8">
-        {{template "content" .}}
-    </main>
-
-    <!-- Footer -->
-    <footer class="footer footer-center p-4 bg-base-100 text-base-content mt-8">
-        <div>
-            <p>Gopherstack - In-Memory AWS Stack for Go</p>
-        </div>
-    </footer>
 
     <!-- Global Confirmation Modal -->
     <dialog id="global_confirm_modal" class="modal">
