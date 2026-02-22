@@ -29,6 +29,13 @@ var (
 	ErrInvalidCiphertext = errors.New("InvalidCiphertextException")
 	// ErrCiphertextTooShort is returned when the ciphertext is too short.
 	ErrCiphertextTooShort = errors.New("ciphertext too short")
+	// ErrInvalidDataKeySize is returned when a data key size is invalid or too large.
+	ErrInvalidDataKeySize = errors.New("ValidationException: invalid data key size")
+)
+
+const (
+	// maxDataKeyBytes limits the maximum size of a generated data key when NumberOfBytes is specified.
+	maxDataKeyBytes = 4096
 )
 
 const (
@@ -322,6 +329,13 @@ func (b *InMemoryBackend) GenerateDataKey(input *GenerateDataKeyInput) (*Generat
 	}
 
 	if key.KeyState != KeyStateEnabled {
+	// Validate requested data key size to prevent excessive memory allocation.
+	if input.NumberOfBytes != nil {
+		if *input.NumberOfBytes <= 0 || *input.NumberOfBytes > maxDataKeyBytes {
+			return nil, ErrInvalidDataKeySize
+		}
+	}
+
 		return nil, ErrKeyDisabled
 	}
 
