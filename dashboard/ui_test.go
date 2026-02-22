@@ -177,7 +177,17 @@ func newFullStack(t *testing.T) (*integrationStack, *echo.Echo) {
 		o.BaseEndpoint = aws.String("http://local")
 	})
 
-	h := dashboard.NewHandler(ddbClient, s3Client, ssmClient, ddbHndlr, s3Hndlr, ssmHndlr, snsHndlr, sqsHndlr, slog.Default())
+	h := dashboard.NewHandler(
+		ddbClient,
+		s3Client,
+		ssmClient,
+		ddbHndlr,
+		s3Hndlr,
+		ssmHndlr,
+		snsHndlr,
+		sqsHndlr,
+		slog.Default(),
+	)
 
 	// Register all three services (including dashboard) to test RouteMatcher
 	e := echo.New()
@@ -2342,7 +2352,15 @@ func newSQSIntegrationStack(t *testing.T) *integrationStack {
 	})
 
 	h := dashboard.NewHandler(
-		ddbClient, s3Client, ssmClient, ddbHndlr, s3Hndlr, ssmHndlr, nil, sqsHndlr, slog.Default(),
+		ddbClient,
+		s3Client,
+		ssmClient,
+		ddbHndlr,
+		s3Hndlr,
+		ssmHndlr,
+		nil,
+		sqsHndlr,
+		slog.Default(),
 	)
 
 	return &integrationStack{
