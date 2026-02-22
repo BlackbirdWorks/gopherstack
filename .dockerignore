@@ -1,0 +1,12 @@
+.git
+bin/
+test/e2e/failures/
+coverage.out
+coverage.html
+.antigravity/
+.gemini/
+.idea/
+.vscode/
+node_modules/
+vendor/
+*.log

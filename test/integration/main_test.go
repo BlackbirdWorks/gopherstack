@@ -67,10 +67,11 @@ func TestMain(m *testing.M) {
 			Dockerfile:    "Dockerfile",
 			PrintBuildLog: true,
 			BuildOptionsModifier: func(options *build.ImageBuildOptions) {
-				options.NoCache = true
-				options.PullParent = true
+				options.NoCache = false
+				options.PullParent = false
 			},
 		},
+		AutoRemove:   true,
 		ExposedPorts: []string{"8000/tcp"},
 		WaitingFor: wait.ForHTTP("/").
 			WithStatusCodeMatcher(func(_ int) bool { return true }).
