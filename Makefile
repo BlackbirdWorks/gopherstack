@@ -66,4 +66,3 @@ demo:
 all: 
 	make lint-fix
 	make total-coverage
-	

@@ -63,6 +63,10 @@ func loadDynamoDB(ctx context.Context, logger *slog.Logger, ddb *dynamodb.Client
 				ReadCapacityUnits:  aws.Int64(defaultCapacity),
 				WriteCapacityUnits: aws.Int64(defaultCapacity),
 			},
+			StreamSpecification: &types.StreamSpecification{
+				StreamEnabled:  aws.Bool(true),
+				StreamViewType: types.StreamViewTypeNewAndOldImages,
+			},
 		})
 		if err != nil {
 			return fmt.Errorf("failed to create table: %w", err)

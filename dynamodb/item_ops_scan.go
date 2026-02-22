@@ -33,7 +33,7 @@ func (db *InMemoryDB) ScanWithContext(
 	}
 
 	tableName := aws.ToString(input.TableName)
-	table, err := db.getTable(tableName)
+	table, err := db.getTable(ctx, tableName)
 	if err != nil {
 		return nil, err
 	}

@@ -55,15 +55,18 @@ func (j *Janitor) Run(ctx context.Context) {
 func (j *Janitor) runOnce(ctx context.Context) {
 	db := j.Backend
 
-	// Snapshot pending tables under the lock, record depth before processing.
+	// Snapshot pending tables under the lock across all regions, record depth before processing.
 	db.mu.Lock("DDBJanitor")
-	depth := len(db.deletingTables)
-	names := make([]string, 0, depth)
+	depth := 0
+	names := make([]string, 0)
 
-	for name, table := range db.deletingTables {
-		names = append(names, name)
-		delete(db.deletingTables, name)
-		table.mu.Close()
+	for region, regionTables := range db.deletingTables {
+		for name, table := range regionTables {
+			depth++
+			names = append(names, name)
+			delete(db.deletingTables[region], name)
+			table.mu.Close()
+		}
 	}
 	db.mu.Unlock()
 

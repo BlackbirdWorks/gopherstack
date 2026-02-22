@@ -30,6 +30,8 @@ import (
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
+	snsbackend "github.com/blackbirdworks/gopherstack/sns"
+	sqsbackend "github.com/blackbirdworks/gopherstack/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/ssm"
 )
 
@@ -66,6 +68,7 @@ type integrationStack struct {
 	s3Backend  *s3backend.InMemoryBackend
 	s3Handler  *s3backend.S3Handler
 	ddbHandler *ddbbackend.DynamoDBHandler
+	sqsHandler *sqsbackend.Handler
 	s3Client   *s3.Client
 	dyClient   *dynamodb.Client
 }
@@ -120,10 +123,20 @@ func newIntegrationStack(t *testing.T) *integrationStack {
 	ssmBk := ssmbackend.NewInMemoryBackend()
 	ssmHndlr := ssmbackend.NewHandler(ssmBk, slog.Default())
 
-	dashHndlr := dashboard.NewHandler(ddbClient, s3Client, ssmClient, ddbHndlr, s3Hndlr, ssmHndlr, slog.Default())
+	snsBk := snsbackend.NewInMemoryBackend()
+	snsHndlr := snsbackend.NewHandler(snsBk, slog.Default())
+
+	sqsBk := sqsbackend.NewInMemoryBackend()
+	sqsHndlr := sqsbackend.NewHandler(sqsBk, slog.Default())
+
+	dashHndlr := dashboard.NewHandler(
+		ddbClient, s3Client, ssmClient, ddbHndlr, s3Hndlr, ssmHndlr, snsHndlr, sqsHndlr, slog.Default(),
+	)
 	_ = registry.Register(dashHndlr)
 	_ = registry.Register(s3Hndlr)
 	_ = registry.Register(ssmHndlr)
+	_ = registry.Register(snsHndlr)
+	_ = registry.Register(sqsHndlr)
 
 	router := service.NewServiceRouter(registry)
 	e.Use(router.RouteHandler())
@@ -135,6 +148,7 @@ func newIntegrationStack(t *testing.T) *integrationStack {
 		s3Backend:  s3Bk,
 		s3Handler:  s3Hndlr,
 		ddbHandler: ddbHndlr,
+		sqsHandler: sqsHndlr,
 		s3Client:   s3Client,
 		dyClient:   ddbClient,
 	}

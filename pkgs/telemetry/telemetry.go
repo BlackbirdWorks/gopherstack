@@ -70,6 +70,15 @@ var (
 		[]string{"service"},
 	)
 
+	// streamEventsTotal is a counter for DynamoDB Streams records delivered via GetRecords.
+	streamEventsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "gopherstack_stream_events_total",
+			Help: "Total stream records delivered via GetRecords",
+		},
+		[]string{"service"},
+	)
+
 	// mu protects access to metrics data structures.
 	mu sync.RWMutex
 )
@@ -113,6 +122,13 @@ func RecordDeleteQueueDepth(service string, depth int) {
 // RecordTTLEvictions records that count items were evicted via background TTL sweep.
 func RecordTTLEvictions(service string, count int) {
 	ttlEvictions.WithLabelValues(service).Add(float64(count))
+}
+
+// RecordStreamEvents records the number of stream records delivered via GetRecords.
+func RecordStreamEvents(service string, count int) {
+	if count > 0 {
+		streamEventsTotal.WithLabelValues(service).Add(float64(count))
+	}
 }
 
 // GetMetrics returns a snapshot of metrics for dashboard consumption.

@@ -20,7 +20,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodbstreams"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/docker/docker/api/types/build"
 	"github.com/google/go-cmp/cmp"
 	"github.com/testcontainers/testcontainers-go"
@@ -140,6 +142,26 @@ func createDynamoDBClient(t *testing.T) *dynamodb.Client {
 	})
 }
 
+// createDynamoDBStreamsClient returns a DynamoDB Streams client pointed at the shared test container.
+func createDynamoDBStreamsClient(t *testing.T) *dynamodbstreams.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		t.Fatalf("unable to load SDK config: %v", err)
+	}
+
+	return dynamodbstreams.NewFromConfig(cfg, func(o *dynamodbstreams.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
 // createS3Client returns an S3 client pointed at the shared test container.
 func createS3Client(t *testing.T) *s3.Client {
 	t.Helper()
@@ -157,6 +179,26 @@ func createS3Client(t *testing.T) *s3.Client {
 
 	return s3.NewFromConfig(cfg, func(o *s3.Options) {
 		o.UsePathStyle = true
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createSSMClient returns an SSM client pointed at the shared test container.
+func createSSMClient(t *testing.T) *ssm.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		t.Fatalf("unable to load SDK config: %v", err)
+	}
+
+	return ssm.NewFromConfig(cfg, func(o *ssm.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

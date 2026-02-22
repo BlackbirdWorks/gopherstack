@@ -129,7 +129,7 @@ linters:
     #- goheader # checks is file header matches to pattern
     #- inamedparam # [great idea, but too strict, need to ignore a lot of cases by default] reports interfaces with unnamed method parameters
     #- interfacebloat # checks the number of methods inside an interface
-    - ireturn # accept interfaces, return concrete types
+    #- ireturn # accept interfaces, return concrete types
     #- noinlineerr # disallows inline error handling `if err := ...; err != nil {`
     - prealloc # [premature optimization, but can be used in some cases] finds slice declarations that could potentially be preallocated
     #- tagalign # checks that struct tags are well aligned
@@ -464,6 +464,12 @@ linters:
     rules:
       - source: 'TODO'
         linters: [ godot ]
+      - path: 'dynamodb/expr/parser.go'
+        linters: [ ireturn ]
+      - path: 'pkgs/lockmetrics/lockmetrics.go'
+        linters: [ ireturn ]
+      - path: 'dynamodb/streams_ops.go'
+        linters: [ ireturn ]
       - text: 'should have a package comment'
         linters: [ revive ]
       - text: 'exported \S+ \S+ should have comment( \(or a comment on this block\))? or be unexported'

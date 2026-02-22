@@ -68,6 +68,29 @@ type DeleteParametersOutput struct {
 	InvalidParameters []string `json:"InvalidParameters"`
 }
 
+// ParameterHistory represents a historical version of a parameter.
+type ParameterHistory struct {
+	Name             string   `json:"Name"`
+	Type             string   `json:"Type"`
+	Value            string   `json:"Value"`
+	Labels           []string `json:"Labels,omitempty"`
+	Version          int64    `json:"Version"`
+	LastModifiedDate float64  `json:"LastModifiedDate"`
+}
+
+// GetParameterHistoryInput represents the request payload for GetParameterHistory.
+type GetParameterHistoryInput struct {
+	Name       string `json:"Name"`
+	MaxResults *int64 `json:"MaxResults,omitempty"` // 0 to 50, defaults to 50
+	NextToken  string `json:"NextToken,omitempty"`
+}
+
+// GetParameterHistoryOutput represents the response payload for GetParameterHistory.
+type GetParameterHistoryOutput struct {
+	NextToken  string             `json:"NextToken,omitempty"`
+	Parameters []ParameterHistory `json:"Parameters"`
+}
+
 // ErrorResponse represents an SSM wire error.
 type ErrorResponse struct {
 	Type    string `json:"__type"`

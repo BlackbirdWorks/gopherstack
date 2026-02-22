@@ -30,6 +30,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
+	snsbackend "github.com/blackbirdworks/gopherstack/sns"
+	sqsbackend "github.com/blackbirdworks/gopherstack/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/ssm"
 )
 
@@ -52,6 +54,10 @@ func newIntegrationStack(t *testing.T) *integrationStack {
 	ddbHndlr := ddbbackend.NewHandler(ddbBk, slog.Default())
 	ssmBk := ssmbackend.NewInMemoryBackend()
 	ssmHndlr := ssmbackend.NewHandler(ssmBk, slog.Default())
+	snsBk := snsbackend.NewInMemoryBackend()
+	snsHndlr := snsbackend.NewHandler(snsBk, slog.Default())
+	sqsBk := sqsbackend.NewInMemoryBackend()
+	sqsHndlr := sqsbackend.NewHandler(sqsBk, slog.Default())
 
 	// Setup Echo with service registry
 	e := echo.New()
@@ -61,6 +67,8 @@ func newIntegrationStack(t *testing.T) *integrationStack {
 	_ = registry.Register(ddbHndlr)
 	_ = registry.Register(s3Hndlr)
 	_ = registry.Register(ssmHndlr)
+	_ = registry.Register(snsHndlr)
+	_ = registry.Register(sqsHndlr)
 
 	router := service.NewServiceRouter(registry)
 	e.Use(router.RouteHandler())
@@ -88,7 +96,9 @@ func newIntegrationStack(t *testing.T) *integrationStack {
 		o.BaseEndpoint = aws.String("http://local")
 	})
 
-	h := dashboard.NewHandler(ddbClient, s3Client, ssmClient, ddbHndlr, s3Hndlr, ssmHndlr, slog.Default())
+	h := dashboard.NewHandler(
+		ddbClient, s3Client, ssmClient, ddbHndlr, s3Hndlr, ssmHndlr, snsHndlr, sqsHndlr, slog.Default(),
+	)
 
 	return &integrationStack{
 		handler:    h,
@@ -158,23 +168,38 @@ func newFullStack(t *testing.T) (*integrationStack, *echo.Echo) {
 
 	ssmBk := ssmbackend.NewInMemoryBackend()
 	ssmHndlr := ssmbackend.NewHandler(ssmBk, slog.Default())
-	registry := service.NewRegistry(slog.Default())
-	_ = registry.Register(ssmHndlr)
+	snsBk := snsbackend.NewInMemoryBackend()
+	snsHndlr := snsbackend.NewHandler(snsBk, slog.Default())
+	sqsBk := sqsbackend.NewInMemoryBackend()
+	sqsHndlr := sqsbackend.NewHandler(sqsBk, slog.Default())
+
 	ssmClient := ssmsdk.NewFromConfig(cfg, func(o *ssmsdk.Options) {
 		o.BaseEndpoint = aws.String("http://local")
 	})
 
-	h := dashboard.NewHandler(ddbClient, s3Client, ssmClient, ddbHndlr, s3Hndlr, ssmHndlr, slog.Default())
+	h := dashboard.NewHandler(
+		ddbClient,
+		s3Client,
+		ssmClient,
+		ddbHndlr,
+		s3Hndlr,
+		ssmHndlr,
+		snsHndlr,
+		sqsHndlr,
+		slog.Default(),
+	)
 
 	// Register all three services (including dashboard) to test RouteMatcher
 	e := echo.New()
 	e.Pre(logger.EchoMiddleware(slog.Default()))
 
-	registry = service.NewRegistry(slog.Default())
+	registry := service.NewRegistry(slog.Default())
 	_ = registry.Register(ddbHndlr)
 	_ = registry.Register(h)
 	_ = registry.Register(s3Hndlr)
 	_ = registry.Register(ssmHndlr)
+	_ = registry.Register(snsHndlr)
+	_ = registry.Register(sqsHndlr)
 
 	router := service.NewServiceRouter(registry)
 	e.Use(router.RouteHandler())
@@ -284,6 +309,13 @@ func TestDashboard_Routing(t *testing.T) {
 			path:         "/dashboard/docs",
 			wantStatus:   http.StatusOK,
 			wantContains: "API Documentation",
+		},
+		{
+			name:         "sns index renders page",
+			method:       http.MethodGet,
+			path:         "/dashboard/sns",
+			wantStatus:   http.StatusOK,
+			wantContains: "SNS Topics",
 		},
 	}
 
@@ -2270,4 +2302,596 @@ func TestDashboard_DDB_PurgeAll(t *testing.T) {
 		require.Equal(t, http.StatusOK, w.Code)
 		assert.Contains(t, w.Body.String(), "purged successfully")
 	})
+}
+
+// newSQSIntegrationStack creates an integration stack that includes an SQS handler.
+func newSQSIntegrationStack(t *testing.T) *integrationStack {
+	t.Helper()
+
+	s3Bk := s3backend.NewInMemoryBackend(nil)
+	s3Hndlr := s3backend.NewHandler(s3Bk, slog.Default())
+	ddbBk := ddbbackend.NewInMemoryDB()
+	ddbHndlr := ddbbackend.NewHandler(ddbBk, slog.Default())
+	ssmBk := ssmbackend.NewInMemoryBackend()
+	ssmHndlr := ssmbackend.NewHandler(ssmBk, slog.Default())
+	sqsBk := sqsbackend.NewInMemoryBackend()
+	sqsHndlr := sqsbackend.NewHandler(sqsBk, slog.Default())
+
+	e := echo.New()
+	e.Pre(logger.EchoMiddleware(slog.Default()))
+
+	registry := service.NewRegistry(slog.Default())
+	_ = registry.Register(ddbHndlr)
+	_ = registry.Register(s3Hndlr)
+	_ = registry.Register(ssmHndlr)
+	_ = registry.Register(sqsHndlr)
+
+	router := service.NewServiceRouter(registry)
+	e.Use(router.RouteHandler())
+
+	inMemClient := &dashboard.InMemClient{Handler: e}
+
+	cfg, err := config.LoadDefaultConfig(t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("dummy", "dummy", ""),
+		),
+		config.WithHTTPClient(inMemClient),
+	)
+	require.NoError(t, err)
+
+	ddbClient := dynamodb.NewFromConfig(cfg, func(o *dynamodb.Options) {
+		o.BaseEndpoint = aws.String("http://local")
+	})
+	s3Client := s3.NewFromConfig(cfg, func(o *s3.Options) {
+		o.UsePathStyle = true
+		o.BaseEndpoint = aws.String("http://local")
+	})
+	ssmClient := ssmsdk.NewFromConfig(cfg, func(o *ssmsdk.Options) {
+		o.BaseEndpoint = aws.String("http://local")
+	})
+
+	h := dashboard.NewHandler(
+		ddbClient,
+		s3Client,
+		ssmClient,
+		ddbHndlr,
+		s3Hndlr,
+		ssmHndlr,
+		nil,
+		sqsHndlr,
+		slog.Default(),
+	)
+
+	return &integrationStack{
+		handler:    h,
+		s3Backend:  s3Bk,
+		e:          e,
+		ddbHandler: ddbHndlr,
+		s3Client:   s3Client,
+		dyClient:   ddbClient,
+	}
+}
+
+func TestDashboard_SQS_Index(t *testing.T) {
+	t.Parallel()
+
+	t.Run("index page renders with empty queue list", func(t *testing.T) {
+		t.Parallel()
+		stack := newSQSIntegrationStack(t)
+
+		req := httptest.NewRequest(http.MethodGet, "/dashboard/sqs", nil)
+		w := httptest.NewRecorder()
+		serveHandler(stack.handler, w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), "SQS Queues")
+	})
+
+	t.Run("index page shows queues", func(t *testing.T) {
+		t.Parallel()
+		stack := newSQSIntegrationStack(t)
+
+		// Create queue via handler's SQSOps backend
+		req := httptest.NewRequest(http.MethodPost, "/dashboard/sqs/create",
+			strings.NewReader("queue_name=test-queue&visibility_timeout=30"))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		w := httptest.NewRecorder()
+		serveHandler(stack.handler, w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+
+		// Verify the queue appears in the index
+		req = httptest.NewRequest(http.MethodGet, "/dashboard/sqs", nil)
+		w = httptest.NewRecorder()
+		serveHandler(stack.handler, w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), "test-queue")
+	})
+
+	t.Run("index renders with nil SQSOps", func(t *testing.T) {
+		t.Parallel()
+		h := dashboard.NewHandler(nil, nil, nil, nil, nil, nil, nil, nil, slog.Default())
+
+		req := httptest.NewRequest(http.MethodGet, "/dashboard/sqs", nil)
+		w := httptest.NewRecorder()
+		serveHandler(h, w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), "SQS Queues")
+	})
+}
+
+func TestDashboard_SQS_CreateQueueModal(t *testing.T) {
+	t.Parallel()
+
+	stack := newSQSIntegrationStack(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/sqs/create", nil)
+	w := httptest.NewRecorder()
+	serveHandler(stack.handler, w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestDashboard_SQS_CreateQueue(t *testing.T) {
+	t.Parallel()
+
+	t.Run("create queue successfully", func(t *testing.T) {
+		t.Parallel()
+		stack := newSQSIntegrationStack(t)
+
+		req := httptest.NewRequest(http.MethodPost, "/dashboard/sqs/create",
+			strings.NewReader("queue_name=my-queue&visibility_timeout=30"))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		w := httptest.NewRecorder()
+		serveHandler(stack.handler, w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, "/dashboard/sqs", w.Header().Get("Hx-Redirect"))
+	})
+
+	t.Run("create FIFO queue successfully", func(t *testing.T) {
+		t.Parallel()
+		stack := newSQSIntegrationStack(t)
+
+		req := httptest.NewRequest(http.MethodPost, "/dashboard/sqs/create",
+			strings.NewReader("queue_name=my-fifo.fifo&visibility_timeout=30"))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		w := httptest.NewRecorder()
+		serveHandler(stack.handler, w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+	})
+
+	t.Run("create queue returns 400 when name is empty", func(t *testing.T) {
+		t.Parallel()
+		stack := newSQSIntegrationStack(t)
+
+		req := httptest.NewRequest(http.MethodPost, "/dashboard/sqs/create",
+			strings.NewReader("queue_name="))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		w := httptest.NewRecorder()
+		serveHandler(stack.handler, w, req)
+
+		require.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
+	t.Run("create duplicate queue returns 500", func(t *testing.T) {
+		t.Parallel()
+		stack := newSQSIntegrationStack(t)
+
+		// Create once
+		req := httptest.NewRequest(http.MethodPost, "/dashboard/sqs/create",
+			strings.NewReader("queue_name=dup-queue&visibility_timeout=30"))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		w := httptest.NewRecorder()
+		serveHandler(stack.handler, w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+
+		// Create again - should fail
+		req = httptest.NewRequest(http.MethodPost, "/dashboard/sqs/create",
+			strings.NewReader("queue_name=dup-queue&visibility_timeout=30"))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		w = httptest.NewRecorder()
+		serveHandler(stack.handler, w, req)
+		require.Equal(t, http.StatusInternalServerError, w.Code)
+	})
+
+	t.Run("create queue with nil SQSOps is a no-op", func(t *testing.T) {
+		t.Parallel()
+		h := dashboard.NewHandler(nil, nil, nil, nil, nil, nil, nil, nil, slog.Default())
+
+		req := httptest.NewRequest(http.MethodPost, "/dashboard/sqs/create",
+			strings.NewReader("queue_name=my-queue"))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		w := httptest.NewRecorder()
+		serveHandler(h, w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+	})
+}
+
+func TestDashboard_SQS_DeleteQueue(t *testing.T) {
+	t.Parallel()
+
+	t.Run("delete queue successfully", func(t *testing.T) {
+		t.Parallel()
+		stack := newSQSIntegrationStack(t)
+
+		// Create a queue first
+		req := httptest.NewRequest(http.MethodPost, "/dashboard/sqs/create",
+			strings.NewReader("queue_name=del-queue&visibility_timeout=30"))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		w := httptest.NewRecorder()
+		serveHandler(stack.handler, w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+
+		// Get the queue URL
+		qURL := url.QueryEscape("http://local/000000000000/del-queue")
+		req = httptest.NewRequest(http.MethodDelete, "/dashboard/sqs/delete?url="+qURL, nil)
+		w = httptest.NewRecorder()
+		serveHandler(stack.handler, w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, "/dashboard/sqs", w.Header().Get("Hx-Redirect"))
+	})
+
+	t.Run("delete queue returns 400 when URL missing", func(t *testing.T) {
+		t.Parallel()
+		stack := newSQSIntegrationStack(t)
+
+		req := httptest.NewRequest(http.MethodDelete, "/dashboard/sqs/delete", nil)
+		w := httptest.NewRecorder()
+		serveHandler(stack.handler, w, req)
+
+		require.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
+	t.Run("delete non-existent queue returns 500", func(t *testing.T) {
+		t.Parallel()
+		stack := newSQSIntegrationStack(t)
+
+		qURL := url.QueryEscape("http://local/000000000000/nonexistent")
+		req := httptest.NewRequest(http.MethodDelete, "/dashboard/sqs/delete?url="+qURL, nil)
+		w := httptest.NewRecorder()
+		serveHandler(stack.handler, w, req)
+
+		require.Equal(t, http.StatusInternalServerError, w.Code)
+	})
+
+	t.Run("delete queue with nil SQSOps is a no-op", func(t *testing.T) {
+		t.Parallel()
+		h := dashboard.NewHandler(nil, nil, nil, nil, nil, nil, nil, nil, slog.Default())
+
+		reqURL := "/dashboard/sqs/delete?url=" + url.QueryEscape("http://local/000000000000/x")
+		req := httptest.NewRequest(http.MethodDelete, reqURL, nil)
+		w := httptest.NewRecorder()
+		serveHandler(h, w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+	})
+}
+
+func TestDashboard_SQS_PurgeQueue(t *testing.T) {
+	t.Parallel()
+
+	t.Run("purge queue successfully", func(t *testing.T) {
+		t.Parallel()
+		stack := newSQSIntegrationStack(t)
+
+		// Create a queue
+		req := httptest.NewRequest(http.MethodPost, "/dashboard/sqs/create",
+			strings.NewReader("queue_name=purge-queue&visibility_timeout=30"))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		w := httptest.NewRecorder()
+		serveHandler(stack.handler, w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+
+		qURL := url.QueryEscape("http://local/000000000000/purge-queue")
+		req = httptest.NewRequest(http.MethodPost, "/dashboard/sqs/purge?url="+qURL, nil)
+		w = httptest.NewRecorder()
+		serveHandler(stack.handler, w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, "/dashboard/sqs", w.Header().Get("Hx-Redirect"))
+	})
+
+	t.Run("purge queue returns 400 when URL missing", func(t *testing.T) {
+		t.Parallel()
+		stack := newSQSIntegrationStack(t)
+
+		req := httptest.NewRequest(http.MethodPost, "/dashboard/sqs/purge", nil)
+		w := httptest.NewRecorder()
+		serveHandler(stack.handler, w, req)
+
+		require.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
+	t.Run("purge non-existent queue returns 500", func(t *testing.T) {
+		t.Parallel()
+		stack := newSQSIntegrationStack(t)
+
+		qURL := url.QueryEscape("http://local/000000000000/nonexistent")
+		req := httptest.NewRequest(http.MethodPost, "/dashboard/sqs/purge?url="+qURL, nil)
+		w := httptest.NewRecorder()
+		serveHandler(stack.handler, w, req)
+
+		require.Equal(t, http.StatusInternalServerError, w.Code)
+	})
+
+	t.Run("purge queue with nil SQSOps is a no-op", func(t *testing.T) {
+		t.Parallel()
+		h := dashboard.NewHandler(nil, nil, nil, nil, nil, nil, nil, nil, slog.Default())
+
+		reqURL := "/dashboard/sqs/purge?url=" + url.QueryEscape("http://local/000000000000/x")
+		req := httptest.NewRequest(http.MethodPost, reqURL, nil)
+		w := httptest.NewRecorder()
+		serveHandler(h, w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+	})
+}
+
+func TestDashboard_SQS_QueueDetail(t *testing.T) {
+	t.Parallel()
+
+	t.Run("queue detail renders successfully", func(t *testing.T) {
+		t.Parallel()
+		stack := newSQSIntegrationStack(t)
+
+		// Create a queue first
+		req := httptest.NewRequest(http.MethodPost, "/dashboard/sqs/create",
+			strings.NewReader("queue_name=detail-queue&visibility_timeout=30"))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		w := httptest.NewRecorder()
+		serveHandler(stack.handler, w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+
+		qURL := url.QueryEscape("http://local/000000000000/detail-queue")
+		req = httptest.NewRequest(http.MethodGet, "/dashboard/sqs/queue?url="+qURL, nil)
+		w = httptest.NewRecorder()
+		serveHandler(stack.handler, w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), "Queue Detail")
+	})
+
+	t.Run("queue detail returns 400 when URL missing", func(t *testing.T) {
+		t.Parallel()
+		stack := newSQSIntegrationStack(t)
+
+		req := httptest.NewRequest(http.MethodGet, "/dashboard/sqs/queue", nil)
+		w := httptest.NewRecorder()
+		serveHandler(stack.handler, w, req)
+
+		require.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
+	t.Run("queue detail returns 404 for non-existent queue", func(t *testing.T) {
+		t.Parallel()
+		stack := newSQSIntegrationStack(t)
+
+		qURL := url.QueryEscape("http://local/000000000000/nonexistent")
+		req := httptest.NewRequest(http.MethodGet, "/dashboard/sqs/queue?url="+qURL, nil)
+		w := httptest.NewRecorder()
+		serveHandler(stack.handler, w, req)
+
+		require.Equal(t, http.StatusNotFound, w.Code)
+	})
+
+	t.Run("queue detail returns 500 when SQSOps is nil", func(t *testing.T) {
+		t.Parallel()
+		h := dashboard.NewHandler(nil, nil, nil, nil, nil, nil, nil, nil, slog.Default())
+
+		reqURL := "/dashboard/sqs/queue?url=" + url.QueryEscape("http://local/000000000000/x")
+		req := httptest.NewRequest(http.MethodGet, reqURL, nil)
+		w := httptest.NewRecorder()
+		serveHandler(h, w, req)
+
+		require.Equal(t, http.StatusInternalServerError, w.Code)
+	})
+}
+
+func TestDashboard_SNS_Index(t *testing.T) {
+	t.Parallel()
+
+	stack := newIntegrationStack(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/sns", nil)
+	w := httptest.NewRecorder()
+	serveHandler(stack.handler, w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "SNS Topics")
+	assert.Contains(t, w.Body.String(), "No topics found")
+}
+
+func TestDashboard_SNS_CreateTopic(t *testing.T) {
+	t.Parallel()
+
+	stack := newIntegrationStack(t)
+
+	form := url.Values{}
+	form.Set("name", "test-topic")
+
+	req := httptest.NewRequest(http.MethodPost, "/dashboard/sns/create", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	serveHandler(stack.handler, w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "/dashboard/sns", w.Header().Get("Hx-Redirect"))
+
+	// Verify the topic was created by listing
+	req2 := httptest.NewRequest(http.MethodGet, "/dashboard/sns", nil)
+	w2 := httptest.NewRecorder()
+	serveHandler(stack.handler, w2, req2)
+	assert.Contains(t, w2.Body.String(), "test-topic")
+}
+
+func TestDashboard_SNS_CreateTopic_MissingName(t *testing.T) {
+	t.Parallel()
+
+	stack := newIntegrationStack(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/dashboard/sns/create", strings.NewReader(""))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	serveHandler(stack.handler, w, req)
+
+	require.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestDashboard_SNS_DeleteTopic(t *testing.T) {
+	t.Parallel()
+
+	stack := newIntegrationStack(t)
+
+	// Create topic first
+	form := url.Values{}
+	form.Set("name", "delete-me")
+	req := httptest.NewRequest(http.MethodPost, "/dashboard/sns/create", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	serveHandler(stack.handler, w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	// Get the ARN from the index page
+	req2 := httptest.NewRequest(http.MethodGet, "/dashboard/sns", nil)
+	w2 := httptest.NewRecorder()
+	serveHandler(stack.handler, w2, req2)
+	arn := "arn:aws:sns:us-east-1:000000000000:delete-me"
+
+	// Delete via ARN
+	req3 := httptest.NewRequest(http.MethodDelete, "/dashboard/sns/delete?arn="+arn, nil)
+	w3 := httptest.NewRecorder()
+	serveHandler(stack.handler, w3, req3)
+	require.Equal(t, http.StatusOK, w3.Code)
+	assert.Equal(t, "/dashboard/sns", w3.Header().Get("Hx-Redirect"))
+}
+
+func TestDashboard_SNS_DeleteTopic_MissingArn(t *testing.T) {
+	t.Parallel()
+
+	stack := newIntegrationStack(t)
+
+	req := httptest.NewRequest(http.MethodDelete, "/dashboard/sns/delete", nil)
+	w := httptest.NewRecorder()
+	serveHandler(stack.handler, w, req)
+
+	require.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestDashboard_SNS_TopicDetail(t *testing.T) {
+	t.Parallel()
+
+	stack := newIntegrationStack(t)
+
+	// Create topic first
+	form := url.Values{}
+	form.Set("name", "detail-topic")
+	req := httptest.NewRequest(http.MethodPost, "/dashboard/sns/create", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	serveHandler(stack.handler, w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	arn := "arn:aws:sns:us-east-1:000000000000:detail-topic"
+	req2 := httptest.NewRequest(http.MethodGet, "/dashboard/sns/topic?arn="+arn, nil)
+	w2 := httptest.NewRecorder()
+	serveHandler(stack.handler, w2, req2)
+
+	require.Equal(t, http.StatusOK, w2.Code)
+	assert.Contains(t, w2.Body.String(), "Topic Detail")
+	assert.Contains(t, w2.Body.String(), "detail-topic")
+}
+
+func TestDashboard_SNS_TopicDetail_MissingArn(t *testing.T) {
+	t.Parallel()
+
+	stack := newIntegrationStack(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/sns/topic", nil)
+	w := httptest.NewRecorder()
+	serveHandler(stack.handler, w, req)
+
+	require.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestDashboard_SNS_TopicDetail_NotFound(t *testing.T) {
+	t.Parallel()
+
+	stack := newIntegrationStack(t)
+
+	const notFoundArn = "arn:aws:sns:us-east-1:000000000000:nonexistent"
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/sns/topic?arn="+notFoundArn, nil)
+	w := httptest.NewRecorder()
+	serveHandler(stack.handler, w, req)
+
+	require.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestDashboard_SNS_CreateTopic_Duplicate(t *testing.T) {
+	t.Parallel()
+
+	stack := newIntegrationStack(t)
+
+	form := url.Values{}
+	form.Set("name", "dup-topic")
+
+	// First create
+	req := httptest.NewRequest(http.MethodPost, "/dashboard/sns/create", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	serveHandler(stack.handler, w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	// Duplicate create should return 409 (Conflict)
+	req2 := httptest.NewRequest(http.MethodPost, "/dashboard/sns/create", strings.NewReader(form.Encode()))
+	req2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w2 := httptest.NewRecorder()
+	serveHandler(stack.handler, w2, req2)
+	require.Equal(t, http.StatusConflict, w2.Code)
+}
+
+func TestDashboard_SNS_DeleteTopic_NotFound(t *testing.T) {
+	t.Parallel()
+
+	stack := newIntegrationStack(t)
+
+	const missingArn = "arn:aws:sns:us-east-1:000000000000:nonexistent"
+	req := httptest.NewRequest(http.MethodDelete, "/dashboard/sns/delete?arn="+missingArn, nil)
+	w := httptest.NewRecorder()
+	serveHandler(stack.handler, w, req)
+
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestDashboard_SNS_TopicDetail_WithSubscription(t *testing.T) {
+	t.Parallel()
+
+	stack := newIntegrationStack(t)
+
+	// Create topic
+	form := url.Values{}
+	form.Set("name", "sub-detail-topic")
+	req := httptest.NewRequest(http.MethodPost, "/dashboard/sns/create", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	serveHandler(stack.handler, w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	arn := "arn:aws:sns:us-east-1:000000000000:sub-detail-topic"
+
+	// Add a subscription directly through the backend
+	_, err := stack.handler.SNSOps.Backend.Subscribe(arn, "https", "https://example.com/endpoint", "")
+	require.NoError(t, err)
+
+	req2 := httptest.NewRequest(http.MethodGet, "/dashboard/sns/topic?arn="+arn, nil)
+	w2 := httptest.NewRecorder()
+	serveHandler(stack.handler, w2, req2)
+
+	require.Equal(t, http.StatusOK, w2.Code)
+	assert.Contains(t, w2.Body.String(), "https")
 }

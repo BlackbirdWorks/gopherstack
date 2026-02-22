@@ -53,7 +53,7 @@ func TestE2E_DynamoDB_TTL(t *testing.T) {
 	require.NoError(t, page.Locator("text=TTL Status").WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)}))
 	require.NoError(t, page.Locator("span.badge", playwright.PageLocatorOptions{
 		HasText: "DISABLED",
-	}).WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)}))
+	}).First().WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)}))
 
 	// 4. Configure TTL via UI
 	require.NoError(t, page.Fill("input[name='attributeName']", "ttl_attr"))
@@ -82,7 +82,7 @@ func TestE2E_DynamoDB_TTL(t *testing.T) {
 	require.NoError(t, page.Locator("text=TTL disabled successfully").WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)}))
 	require.NoError(t, page.Locator("span.badge", playwright.PageLocatorOptions{
 		HasText: "DISABLED",
-	}).WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)}))
+	}).First().WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)}))
 
 	// 9. Verify TTL status via SDK again
 	desc, err = stack.dyClient.DescribeTimeToLive(ctx, &dynamodb.DescribeTimeToLiveInput{

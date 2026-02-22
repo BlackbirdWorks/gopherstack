@@ -21,50 +21,88 @@ import (
 )
 
 const maxInt32 = 2147483647
+const defaultRegionName = "us-east-1"
 
 var _ StorageBackend = (*InMemoryBackend)(nil)
 
+// getRegionFromS3Context extracts the region from S3 request context.
+// Returns the default region if region is not found in context.
+func getRegionFromS3Context(ctx context.Context, defaultRegion string) string {
+	if region, ok := ctx.Value(regionContextKey{}).(string); ok && region != "" {
+		return region
+	}
+
+	return defaultRegion
+}
+
 type InMemoryBackend struct {
-	compressor Compressor
-	buckets    map[string]*StoredBucket
-	tags       map[string][]types.Tag
-	uploads    map[string]*StoredMultipartUpload
-	mu         *lockmetrics.RWMutex
+	compressor    Compressor
+	buckets       map[string]map[string]*StoredBucket
+	tags          map[string][]types.Tag
+	uploads       map[string]*StoredMultipartUpload
+	mu            *lockmetrics.RWMutex
+	defaultRegion string
 }
 
 func NewInMemoryBackend(compressor Compressor) *InMemoryBackend {
 	return &InMemoryBackend{
-		buckets:    make(map[string]*StoredBucket),
-		compressor: compressor,
-		mu:         lockmetrics.New("s3"),
+		buckets:       make(map[string]map[string]*StoredBucket),
+		compressor:    compressor,
+		defaultRegion: defaultRegionName,
+		mu:            lockmetrics.New("s3"),
 	}
 }
 
 // getBucket returns the bucket for a given name, returning ErrNoSuchBucket when the
 // bucket does not exist or is pending async deletion. The caller must hold at least b.mu.RLock.
 func (b *InMemoryBackend) getBucket(name string) (*StoredBucket, error) {
-	bucket, exists := b.buckets[name]
-	if !exists || bucket.DeletePending {
-		return nil, ErrNoSuchBucket
+	return b.getBucketInRegion(name, b.defaultRegion)
+}
+
+// getBucketInRegion returns the bucket for a given name in a specific region.
+// The caller must hold at least b.mu.RLock.
+func (b *InMemoryBackend) getBucketInRegion(name string, region string) (*StoredBucket, error) {
+	if region == "" {
+		region = b.defaultRegion
+	}
+	if regionBuckets, regionExists := b.buckets[region]; regionExists {
+		if bucket, bucketExists := regionBuckets[name]; bucketExists && !bucket.DeletePending {
+			return bucket, nil
+		}
 	}
 
-	return bucket, nil
+	return nil, ErrNoSuchBucket
+}
+
+// SetDefaultRegion sets the default region for this backend.
+func (b *InMemoryBackend) SetDefaultRegion(region string) {
+	if region == "" {
+		region = defaultRegionName
+	}
+	b.defaultRegion = region
 }
 
 func (b *InMemoryBackend) CreateBucket(
-	_ context.Context,
+	ctx context.Context,
 	input *s3.CreateBucketInput,
 ) (*s3.CreateBucketOutput, error) {
+	region := getRegionFromS3Context(ctx, b.defaultRegion)
+
 	b.mu.Lock("CreateBucket")
 	defer b.mu.Unlock()
 
 	bucketName := *input.Bucket
 
-	if _, exists := b.buckets[bucketName]; exists {
+	// Initialize region map if it doesn't exist
+	if _, exists := b.buckets[region]; !exists {
+		b.buckets[region] = make(map[string]*StoredBucket)
+	}
+
+	if _, exists := b.buckets[region][bucketName]; exists {
 		return nil, ErrBucketAlreadyExists
 	}
 
-	b.buckets[bucketName] = &StoredBucket{
+	b.buckets[region][bucketName] = &StoredBucket{
 		Name:         bucketName,
 		CreationDate: time.Now(),
 		Objects:      make(map[string]*StoredObject),
@@ -78,15 +116,20 @@ func (b *InMemoryBackend) CreateBucket(
 }
 
 func (b *InMemoryBackend) DeleteBucket(
-	_ context.Context,
+	ctx context.Context,
 	input *s3.DeleteBucketInput,
 ) (*s3.DeleteBucketOutput, error) {
+	region := getRegionFromS3Context(ctx, b.defaultRegion)
 	bucketName := *input.Bucket
 
 	b.mu.Lock("DeleteBucket")
 	defer b.mu.Unlock()
 
-	bucket, exists := b.buckets[bucketName]
+	if _, exists := b.buckets[region]; !exists {
+		return nil, ErrNoSuchBucket
+	}
+
+	bucket, exists := b.buckets[region][bucketName]
 	if !exists {
 		return nil, ErrNoSuchBucket
 	}
@@ -103,15 +146,21 @@ func (b *InMemoryBackend) DeleteBucket(
 }
 
 func (b *InMemoryBackend) HeadBucket(
-	_ context.Context,
+	ctx context.Context,
 	input *s3.HeadBucketInput,
 ) (*s3.HeadBucketOutput, error) {
+	region := getRegionFromS3Context(ctx, b.defaultRegion)
+
 	b.mu.RLock("HeadBucket")
 	defer b.mu.RUnlock()
 
 	bucketName := *input.Bucket
 
-	bucket, exists := b.buckets[bucketName]
+	if _, exists := b.buckets[region]; !exists {
+		return nil, ErrNoSuchBucket
+	}
+
+	bucket, exists := b.buckets[region][bucketName]
 	if !exists || bucket.DeletePending {
 		return nil, ErrNoSuchBucket
 	}
@@ -123,17 +172,19 @@ func (b *InMemoryBackend) ListBuckets(
 	_ context.Context,
 	_ *s3.ListBucketsInput,
 ) (*s3.ListBucketsOutput, error) {
-	// Snapshot bucket data under lock, release immediately
+	// Snapshot bucket data under lock across all regions, release immediately
 	b.mu.RLock("ListBuckets")
-	buckets := make([]types.Bucket, 0, len(b.buckets))
-	for _, bucket := range b.buckets {
-		if bucket.DeletePending {
-			continue
+	buckets := make([]types.Bucket, 0)
+	for _, regionBuckets := range b.buckets {
+		for _, bucket := range regionBuckets {
+			if bucket.DeletePending {
+				continue
+			}
+			buckets = append(buckets, types.Bucket{
+				Name:         aws.String(bucket.Name),
+				CreationDate: aws.Time(bucket.CreationDate),
+			})
 		}
-		buckets = append(buckets, types.Bucket{
-			Name:         aws.String(bucket.Name),
-			CreationDate: aws.Time(bucket.CreationDate),
-		})
 	}
 	b.mu.RUnlock()
 
