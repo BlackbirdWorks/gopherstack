@@ -254,3 +254,19 @@ func TestDashboard_S3_UpdateMetadata(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Equal(t, "true", w.Header().Get("Hx-Refresh"))
 }
+
+// TestDashboard_STS covers the STS index page.
+func TestDashboard_STS(t *testing.T) {
+	t.Parallel()
+
+	stack := newIntegrationStack(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/sts", nil)
+	w := httptest.NewRecorder()
+	serveHandler(stack.handler, w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Header().Get("Content-Type"), "text/html")
+	assert.Contains(t, w.Body.String(), "STS Security Token Service")
+	assert.Contains(t, w.Body.String(), "123456789012")
+}

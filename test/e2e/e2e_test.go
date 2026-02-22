@@ -31,7 +31,10 @@ import (
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
+	snsbackend "github.com/blackbirdworks/gopherstack/sns"
+	sqsbackend "github.com/blackbirdworks/gopherstack/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/ssm"
+	stsbackend "github.com/blackbirdworks/gopherstack/sts"
 )
 
 var pw *playwright.Playwright
@@ -69,6 +72,9 @@ type integrationStack struct {
 	ddbHandler *ddbbackend.DynamoDBHandler
 	iamBackend *iambackend.InMemoryBackend
 	iamHandler *iambackend.Handler
+	stsHandler *stsbackend.Handler
+	snsHandler *snsbackend.Handler
+	sqsHandler *sqsbackend.Handler
 	s3Client   *s3.Client
 	dyClient   *dynamodb.Client
 }
@@ -126,16 +132,25 @@ func newIntegrationStack(t *testing.T) *integrationStack {
 	iamBk := iambackend.NewInMemoryBackend()
 	iamHndlr := iambackend.NewHandler(iamBk, slog.Default())
 
-	dashHndlr := dashboard.NewHandler(ddbClient, s3Client, ssmClient, ddbHndlr, s3Hndlr, ssmHndlr, iamHndlr, slog.Default())
+	stsBk := stsbackend.NewInMemoryBackend()
+	stsHndlr := stsbackend.NewHandler(stsBk, slog.Default())
+
+	snsBk := snsbackend.NewInMemoryBackend()
+	snsHndlr := snsbackend.NewHandler(snsBk, slog.Default())
+
+	sqsBk := sqsbackend.NewInMemoryBackend()
+	sqsHndlr := sqsbackend.NewHandler(sqsBk, slog.Default())
+
+	dashHndlr := dashboard.NewHandler(
+		ddbClient, s3Client, ssmClient, ddbHndlr, s3Hndlr, ssmHndlr, iamHndlr, stsHndlr, snsHndlr, sqsHndlr, slog.Default(),
+	)
 	_ = registry.Register(dashHndlr)
 	_ = registry.Register(s3Hndlr)
 	_ = registry.Register(ssmHndlr)
 	_ = registry.Register(iamHndlr)
-
-	router := service.NewServiceRouter(registry)
-	e.Use(router.RouteHandler())
-
-	// Metrics handlers are now registered by DashboardHandler
+	_ = registry.Register(stsHndlr)
+	_ = registry.Register(snsHndlr)
+	_ = registry.Register(sqsHndlr)
 
 	return &integrationStack{
 		handler:    e,
@@ -144,6 +159,9 @@ func newIntegrationStack(t *testing.T) *integrationStack {
 		ddbHandler: ddbHndlr,
 		iamBackend: iamBk,
 		iamHandler: iamHndlr,
+		stsHandler: stsHndlr,
+		snsHandler: snsHndlr,
+		sqsHandler: sqsHndlr,
 		s3Client:   s3Client,
 		dyClient:   ddbClient,
 	}

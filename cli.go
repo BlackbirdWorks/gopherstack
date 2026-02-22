@@ -16,7 +16,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	sqssdk "github.com/aws/aws-sdk-go-v2/service/sqs"
 	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
+	stssdk "github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
@@ -26,7 +28,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
+	snsbackend "github.com/blackbirdworks/gopherstack/sns"
+	sqsbackend "github.com/blackbirdworks/gopherstack/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/ssm"
+	stsbackend "github.com/blackbirdworks/gopherstack/sts"
 )
 
 const (
@@ -41,10 +46,15 @@ type CLI struct {
 	ddbClient  *dynamodb.Client
 	s3Client   *s3.Client
 	ssmClient  *ssmsdk.Client
+	stsClient  *stssdk.Client
+	sqsClient  *sqssdk.Client
 	ddbHandler service.Registerable
 	s3Handler  service.Registerable
 	ssmHandler service.Registerable
 	iamHandler service.Registerable
+	stsHandler service.Registerable
+	snsHandler service.Registerable
+	sqsHandler service.Registerable
 
 	// LogLevel is the log level: debug, info, warn, error.
 	LogLevel string `name:"log-level" env:"LOG_LEVEL" default:"info" help:"Log level (debug|info|warn|error)."`
@@ -61,6 +71,12 @@ type CLI struct {
 	SSM struct{} `embed:"" prefix:"ssm-"`
 	// IAM holds IAM service-level settings.
 	IAM struct{} `embed:"" prefix:"iam-"`
+	// STS holds STS service-level settings.
+	STS struct{} `embed:"" prefix:"sts-"`
+	// SNS holds SNS service-level settings.
+	SNS struct{} `embed:"" prefix:"sns-"`
+	// SQS holds SQS service-level settings.
+	SQS sqsbackend.Settings `embed:"" prefix:"sqs-"`
 
 	// Demo enables loading of demo data on startup.
 	Demo bool `name:"demo" env:"DEMO" default:"false" help:"Load demo data on startup."`
@@ -92,6 +108,12 @@ func (c *CLI) GetS3Client() *s3.Client { return c.s3Client }
 // GetSSMClient returns the SDK client for SSM (dashboard.AWSSDKProvider).
 func (c *CLI) GetSSMClient() *ssmsdk.Client { return c.ssmClient }
 
+// GetSTSClient returns the SDK client for STS (dashboard.AWSSDKProvider).
+func (c *CLI) GetSTSClient() *stssdk.Client { return c.stsClient }
+
+// GetSQSClient returns the SDK client for SQS (dashboard.AWSSDKProvider).
+func (c *CLI) GetSQSClient() *sqssdk.Client { return c.sqsClient }
+
 // GetDynamoDBHandler returns the DynamoDB handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -111,6 +133,21 @@ func (c *CLI) GetSSMHandler() service.Registerable { return c.ssmHandler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetIAMHandler() service.Registerable { return c.iamHandler }
+
+// GetSTSHandler returns the STS handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetSTSHandler() service.Registerable { return c.stsHandler }
+
+// GetSNSHandler returns the SNS handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetSNSHandler() service.Registerable { return c.snsHandler }
+
+// GetSQSHandler returns the SQS handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetSQSHandler() service.Registerable { return c.sqsHandler }
 
 // Run parses CLI / environment-variable configuration and starts Gopherstack.
 // It is called from main() and exits on error.
@@ -185,7 +222,7 @@ func run(ctx context.Context, cli CLI) error {
 	return startServer(ctx, log, cli.Port, e)
 }
 
-// initializeClients configures the AWS SDK clients for DynamoDB, S3, and SSM.
+// initializeClients configures the AWS SDK clients for DynamoDB, S3, SSM, and STS.
 func initializeClients(cli *CLI, awsCfg aws.Config) {
 	cli.ddbClient = dynamodb.NewFromConfig(
 		awsCfg,
@@ -206,44 +243,63 @@ func initializeClients(cli *CLI, awsCfg aws.Config) {
 			o.BaseEndpoint = aws.String("http://local")
 		},
 	)
+	cli.stsClient = stssdk.NewFromConfig(
+		awsCfg,
+		func(o *stssdk.Options) {
+			o.BaseEndpoint = aws.String("http://local")
+		},
+	)
+	cli.sqsClient = sqssdk.NewFromConfig(
+		awsCfg,
+		func(o *sqssdk.Options) {
+			o.BaseEndpoint = aws.String("http://local")
+		},
+	)
 }
 
 // initializeServices initializes all service providers.
 func initializeServices(appCtx *service.AppContext) ([]service.Registerable, error) {
-	cli, _ := appCtx.Config.(*CLI)
-
-	var svcs []service.Registerable
-
-	for _, p := range []service.Provider{
+	var services []service.Registerable
+	serviceProviders := []service.Provider{
 		&ddbbackend.Provider{},
 		&s3backend.Provider{},
 		&ssmbackend.Provider{},
 		&iambackend.Provider{},
-	} {
-		svc, err := p.Init(appCtx)
+		&stsbackend.Provider{},
+		&snsbackend.Provider{},
+		&sqsbackend.Provider{},
+	}
+
+	for _, provider := range serviceProviders {
+		svc, err := provider.Init(appCtx)
 		if err != nil {
-			return nil, fmt.Errorf("failed to init %s: %w", p.Name(), err)
+			return nil, fmt.Errorf("failed to init %s: %w", provider.Name(), err)
 		}
 
-		svcs = append(svcs, svc)
+		services = append(services, svc)
 	}
 
-	// Store handler references in CLI so the dashboard can access them.
-	if cli != nil {
-		cli.ddbHandler = svcs[0]
-		cli.s3Handler = svcs[1]
-		cli.ssmHandler = svcs[2]
-		cli.iamHandler = svcs[3]
+	// Store handlers in CLI so dashboard can access them.
+	if cli, ok := appCtx.Config.(*CLI); ok {
+		cli.ddbHandler = services[0]
+		cli.s3Handler = services[1]
+		cli.ssmHandler = services[2]
+		cli.iamHandler = services[3]
+		cli.stsHandler = services[4]
+		cli.snsHandler = services[5]
+		cli.sqsHandler = services[6]
 	}
 
-	// Initialize the dashboard last, after all handlers are stored.
+	// Init dashboard last so it can access all service handlers.
 	dashSvc, err := (&dashboard.Provider{}).Init(appCtx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to init Dashboard: %w", err)
 	}
+	services = append(services, dashSvc)
 
-	// Routing priority: DynamoDB (100), SSM (100), IAM (80), Dashboard (50), S3 (0)
-	return []service.Registerable{svcs[0], svcs[2], svcs[3], dashSvc, svcs[1]}, nil
+	// The router sorts services by MatchPriority() at startup, so registration order
+	// does not affect routing correctness.
+	return services, nil
 }
 
 // startBackgroundWorkers starts all background workers from services.
