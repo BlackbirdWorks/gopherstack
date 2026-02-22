@@ -1,0 +1,560 @@
+package sns
+
+import (
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"net/url"
+	"sort"
+	"strings"
+
+	"github.com/google/uuid"
+	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
+)
+
+const (
+	snsVersion       = "Version=2010-03-31"
+	snsContentType   = "application/x-www-form-urlencoded"
+	snsMatchPriority = 80
+	unknownOperation = "Unknown"
+)
+
+// Handler is the Echo HTTP handler for SNS operations.
+type Handler struct {
+	Backend StorageBackend
+	Logger  *slog.Logger
+}
+
+// NewHandler creates a new SNS Handler with the given backend and logger.
+func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
+	return &Handler{Backend: backend, Logger: log}
+}
+
+// Name returns the service name.
+func (h *Handler) Name() string {
+	return "SNS"
+}
+
+// GetSupportedOperations returns the list of supported SNS operations.
+func (h *Handler) GetSupportedOperations() []string {
+	return []string{
+		"CreateTopic",
+		"DeleteTopic",
+		"ListTopics",
+		"GetTopicAttributes",
+		"SetTopicAttributes",
+		"Subscribe",
+		"Unsubscribe",
+		"ListSubscriptions",
+		"ListSubscriptionsByTopic",
+		"Publish",
+		"PublishBatch",
+	}
+}
+
+// RouteMatcher returns a function that matches SNS requests by Content-Type and body version.
+func (h *Handler) RouteMatcher() service.Matcher {
+	return func(c *echo.Context) bool {
+		ct := c.Request().Header.Get("Content-Type")
+		if !strings.Contains(ct, snsContentType) {
+			return false
+		}
+
+		body, err := httputil.ReadBody(c.Request())
+		if err != nil {
+			return false
+		}
+
+		return strings.Contains(string(body), snsVersion)
+	}
+}
+
+// MatchPriority returns the routing priority for the SNS handler.
+func (h *Handler) MatchPriority() int {
+	return snsMatchPriority
+}
+
+// ExtractOperation extracts the SNS action from the request form.
+func (h *Handler) ExtractOperation(c *echo.Context) string {
+	body, err := httputil.ReadBody(c.Request())
+	if err != nil {
+		return unknownOperation
+	}
+
+	vals, err := url.ParseQuery(string(body))
+	if err != nil {
+		return unknownOperation
+	}
+
+	action := vals.Get("Action")
+	if action == "" {
+		return unknownOperation
+	}
+
+	return action
+}
+
+// ExtractResource extracts the primary resource (TopicArn or Name) from the request form.
+func (h *Handler) ExtractResource(c *echo.Context) string {
+	body, err := httputil.ReadBody(c.Request())
+	if err != nil {
+		return ""
+	}
+
+	vals, err := url.ParseQuery(string(body))
+	if err != nil {
+		return ""
+	}
+
+	if arn := vals.Get("TopicArn"); arn != "" {
+		return arn
+	}
+
+	return vals.Get("Name")
+}
+
+// Handler returns the Echo HandlerFunc for SNS requests.
+func (h *Handler) Handler() echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		ctx := c.Request().Context()
+		log := logger.Load(ctx)
+
+		if err := c.Request().ParseForm(); err != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameter", err.Error())
+		}
+
+		action := c.Request().FormValue("Action")
+		log.DebugContext(ctx, "SNS request", "action", action)
+
+		return h.dispatch(c, action)
+	}
+}
+
+// dispatch routes the action to the appropriate handler method.
+func (h *Handler) dispatch(c *echo.Context, action string) error {
+	switch action {
+	case "CreateTopic":
+		return h.handleCreateTopic(c)
+	case "DeleteTopic":
+		return h.handleDeleteTopic(c)
+	case "ListTopics":
+		return h.handleListTopics(c)
+	case "GetTopicAttributes":
+		return h.handleGetTopicAttributes(c)
+	case "SetTopicAttributes":
+		return h.handleSetTopicAttributes(c)
+	case "Subscribe":
+		return h.handleSubscribe(c)
+	case "Unsubscribe":
+		return h.handleUnsubscribe(c)
+	case "ListSubscriptions":
+		return h.handleListSubscriptions(c)
+	case "ListSubscriptionsByTopic":
+		return h.handleListSubscriptionsByTopic(c)
+	case "Publish":
+		return h.handlePublish(c)
+	case "PublishBatch":
+		return h.handlePublishBatch(c)
+	default:
+		return h.writeError(c, http.StatusBadRequest, "InvalidAction",
+			fmt.Sprintf("Action %s is not valid for this endpoint", action))
+	}
+}
+
+func (h *Handler) handleCreateTopic(c *echo.Context) error {
+	name := c.Request().FormValue("Name")
+	if name == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "Name is required")
+	}
+
+	attrs := extractFormAttributes(c)
+
+	topic, err := h.Backend.CreateTopic(name, attrs)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, CreateTopicResponse{
+		CreateTopicResult: CreateTopicResult{TopicArn: topic.TopicArn},
+		ResponseMetadata:  ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleDeleteTopic(c *echo.Context) error {
+	topicArn := c.Request().FormValue("TopicArn")
+	if topicArn == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "TopicArn is required")
+	}
+
+	if err := h.Backend.DeleteTopic(topicArn); err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, DeleteTopicResponse{
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleListTopics(c *echo.Context) error {
+	nextToken := c.Request().FormValue("NextToken")
+
+	topics, token, err := h.Backend.ListTopics(nextToken)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	members := make([]XMLTopic, len(topics))
+	for i, t := range topics {
+		members[i] = XMLTopic{TopicArn: t.TopicArn}
+	}
+
+	return h.writeXML(c, ListTopicsResponse{
+		ListTopicsResult: ListTopicsResult{Topics: members, NextToken: token},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleGetTopicAttributes(c *echo.Context) error {
+	topicArn := c.Request().FormValue("TopicArn")
+	if topicArn == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "TopicArn is required")
+	}
+
+	attrs, err := h.Backend.GetTopicAttributes(topicArn)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	entries := attrsToEntries(attrs)
+
+	return h.writeXML(c, GetTopicAttributesResponse{
+		GetTopicAttributesResult: GetTopicAttributesResult{Attributes: entries},
+		ResponseMetadata:         ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleSetTopicAttributes(c *echo.Context) error {
+	topicArn := c.Request().FormValue("TopicArn")
+	attrName := c.Request().FormValue("AttributeName")
+	attrValue := c.Request().FormValue("AttributeValue")
+
+	if topicArn == "" || attrName == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "TopicArn and AttributeName are required")
+	}
+
+	if err := h.Backend.SetTopicAttributes(topicArn, attrName, attrValue); err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, SetTopicAttributesResponse{
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleSubscribe(c *echo.Context) error {
+	topicArn := c.Request().FormValue("TopicArn")
+	protocol := c.Request().FormValue("Protocol")
+	endpoint := c.Request().FormValue("Endpoint")
+
+	if topicArn == "" || protocol == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "TopicArn and Protocol are required")
+	}
+
+	filterPolicy := extractFilterPolicy(c.Request().Form)
+
+	sub, err := h.Backend.Subscribe(topicArn, protocol, endpoint, filterPolicy)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, SubscribeResponse{
+		SubscribeResult:  SubscribeResult{SubscriptionArn: sub.SubscriptionArn},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleUnsubscribe(c *echo.Context) error {
+	subscriptionArn := c.Request().FormValue("SubscriptionArn")
+	if subscriptionArn == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "SubscriptionArn is required")
+	}
+
+	if err := h.Backend.Unsubscribe(subscriptionArn); err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, UnsubscribeResponse{
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleListSubscriptions(c *echo.Context) error {
+	nextToken := c.Request().FormValue("NextToken")
+
+	subs, token, err := h.Backend.ListSubscriptions(nextToken)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, ListSubscriptionsResponse{
+		ListSubscriptionsResult: ListSubscriptionsResult{
+			Subscriptions: toXMLSubscriptions(subs),
+			NextToken:     token,
+		},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleListSubscriptionsByTopic(c *echo.Context) error {
+	topicArn := c.Request().FormValue("TopicArn")
+	if topicArn == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "TopicArn is required")
+	}
+
+	nextToken := c.Request().FormValue("NextToken")
+
+	subs, token, err := h.Backend.ListSubscriptionsByTopic(topicArn, nextToken)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, ListSubscriptionsByTopicResponse{
+		ListSubscriptionsByTopicResult: ListSubscriptionsByTopicResult{
+			Subscriptions: toXMLSubscriptions(subs),
+			NextToken:     token,
+		},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handlePublish(c *echo.Context) error {
+	topicArn := c.Request().FormValue("TopicArn")
+	message := c.Request().FormValue("Message")
+	subject := c.Request().FormValue("Subject")
+
+	if topicArn == "" || message == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "TopicArn and Message are required")
+	}
+
+	attrs := extractMessageAttributes(c.Request().Form)
+
+	messageID, err := h.Backend.Publish(topicArn, message, subject, attrs)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, PublishResponse{
+		PublishResult:    PublishResult{MessageID: messageID},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handlePublishBatch(c *echo.Context) error {
+	topicArn := c.Request().FormValue("TopicArn")
+	if topicArn == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "TopicArn is required")
+	}
+
+	entries := extractBatchEntries(c.Request().Form)
+
+	if len(entries) == 0 {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "PublishBatchRequestEntries is required")
+	}
+
+	successful := make([]XMLPublishBatchSuccessEntry, 0, len(entries))
+	failed := make([]XMLPublishBatchFailEntry, 0)
+
+	for _, entry := range entries {
+		msgID, err := h.Backend.Publish(topicArn, entry.message, entry.subject, nil)
+		if err != nil {
+			failed = append(failed, XMLPublishBatchFailEntry{
+				ID:          entry.id,
+				Code:        errorCode(err),
+				Message:     err.Error(),
+				SenderFault: true,
+			})
+
+			continue
+		}
+
+		successful = append(successful, XMLPublishBatchSuccessEntry{MessageID: msgID, ID: entry.id})
+	}
+
+	return h.writeXML(c, PublishBatchResponse{
+		PublishBatchResult: PublishBatchResult{Successful: successful, Failed: failed},
+		ResponseMetadata:   ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+// writeXML marshals v to XML and writes an HTTP 200 OK response.
+func (h *Handler) writeXML(c *echo.Context, v any) error {
+	httputil.WriteXML(h.Logger, c.Response(), http.StatusOK, v)
+
+	return nil
+}
+
+// writeError writes an XML error response.
+func (h *Handler) writeError(c *echo.Context, status int, code, message string) error {
+	errResp := ErrorResponse{
+		Error:     Error{Type: "Sender", Code: code, Message: message},
+		RequestID: uuid.New().String(),
+	}
+
+	httputil.WriteXML(h.Logger, c.Response(), status, errResp)
+
+	return nil
+}
+
+// handleBackendError maps a backend error to an XML error response.
+func (h *Handler) handleBackendError(c *echo.Context, err error) error {
+	ctx := c.Request().Context()
+	log := logger.Load(ctx)
+
+	code := errorCode(err)
+	status := http.StatusBadRequest
+
+	switch {
+	case errors.Is(err, ErrTopicNotFound), errors.Is(err, ErrSubscriptionNotFound):
+		log.WarnContext(ctx, "SNS resource not found", "error", err)
+	case errors.Is(err, ErrTopicAlreadyExists):
+		log.WarnContext(ctx, "SNS topic already exists", "error", err)
+	case errors.Is(err, ErrInvalidParameter):
+		log.WarnContext(ctx, "SNS invalid parameter", "error", err)
+	default:
+		status = http.StatusInternalServerError
+		log.ErrorContext(ctx, "SNS internal error", "error", err)
+	}
+
+	return h.writeError(c, status, code, err.Error())
+}
+
+// errorCode returns the SNS error code string for the given error.
+func errorCode(err error) string {
+	switch {
+	case errors.Is(err, ErrTopicNotFound), errors.Is(err, ErrSubscriptionNotFound):
+		return "NotFound"
+	case errors.Is(err, ErrTopicAlreadyExists):
+		return "TopicAlreadyExists"
+	case errors.Is(err, ErrInvalidParameter):
+		return "InvalidParameter"
+	default:
+		return "InternalError"
+	}
+}
+
+// attrsToEntries converts a string map to sorted XMLAttributeEntry slice.
+func attrsToEntries(attrs map[string]string) []XMLAttributeEntry {
+	keys := make([]string, 0, len(attrs))
+	for k := range attrs {
+		keys = append(keys, k)
+	}
+
+	sort.Strings(keys)
+
+	entries := make([]XMLAttributeEntry, len(keys))
+	for i, k := range keys {
+		entries[i] = XMLAttributeEntry{Key: k, Value: attrs[k]}
+	}
+
+	return entries
+}
+
+// toXMLSubscriptions converts Subscription slice to XMLSubscription slice.
+func toXMLSubscriptions(subs []Subscription) []XMLSubscription {
+	result := make([]XMLSubscription, len(subs))
+	for i, s := range subs {
+		result[i] = XMLSubscription{
+			TopicArn:        s.TopicArn,
+			Protocol:        s.Protocol,
+			SubscriptionArn: s.SubscriptionArn,
+			Owner:           s.Owner,
+			Endpoint:        s.Endpoint,
+		}
+	}
+
+	return result
+}
+
+// extractFormAttributes reads Attributes.entry.N.key/value pairs from the form.
+func extractFormAttributes(c *echo.Context) map[string]string {
+	attrs := make(map[string]string)
+
+	for i := 1; ; i++ {
+		key := c.Request().FormValue(fmt.Sprintf("Attributes.entry.%d.key", i))
+		if key == "" {
+			break
+		}
+
+		val := c.Request().FormValue(fmt.Sprintf("Attributes.entry.%d.value", i))
+		attrs[key] = val
+	}
+
+	return attrs
+}
+
+// extractFilterPolicy reads the FilterPolicy attribute from form Attributes entries.
+func extractFilterPolicy(form url.Values) string {
+	for i := 1; ; i++ {
+		key := form.Get(fmt.Sprintf("Attributes.entry.%d.key", i))
+		if key == "" {
+			break
+		}
+
+		if key == "FilterPolicy" {
+			return form.Get(fmt.Sprintf("Attributes.entry.%d.value", i))
+		}
+	}
+
+	return ""
+}
+
+// extractMessageAttributes reads MessageAttributes.entry.N.Name/Value pairs from the form.
+func extractMessageAttributes(form url.Values) map[string]MessageAttribute {
+	attrs := make(map[string]MessageAttribute)
+
+	for i := 1; ; i++ {
+		name := form.Get(fmt.Sprintf("MessageAttributes.entry.%d.Name", i))
+		if name == "" {
+			break
+		}
+
+		attrs[name] = MessageAttribute{
+			DataType:    form.Get(fmt.Sprintf("MessageAttributes.entry.%d.Value.DataType", i)),
+			StringValue: form.Get(fmt.Sprintf("MessageAttributes.entry.%d.Value.StringValue", i)),
+		}
+	}
+
+	return attrs
+}
+
+// batchEntry holds a single parsed PublishBatch entry.
+type batchEntry struct {
+	id      string
+	message string
+	subject string
+}
+
+// extractBatchEntries reads PublishBatchRequestEntries.member.N entries from the form.
+func extractBatchEntries(form url.Values) []batchEntry {
+	entries := make([]batchEntry, 0)
+
+	for i := 1; ; i++ {
+		id := form.Get(fmt.Sprintf("PublishBatchRequestEntries.member.%d.Id", i))
+		if id == "" {
+			break
+		}
+
+		entries = append(entries, batchEntry{
+			id:      id,
+			message: form.Get(fmt.Sprintf("PublishBatchRequestEntries.member.%d.Message", i)),
+			subject: form.Get(fmt.Sprintf("PublishBatchRequestEntries.member.%d.Subject", i)),
+		})
+	}
+
+	return entries
+}
