@@ -91,6 +91,54 @@ type GetParameterHistoryOutput struct {
 	Parameters []ParameterHistory `json:"Parameters"`
 }
 
+// ParameterFilter is a filter criterion for parameter queries.
+type ParameterFilter struct {
+	// Key is the filter key: Name, Type, KeyId, etc.
+	Key string `json:"Key"`
+	// Option is the comparison operator: Equals, BeginsWith, Contains.
+	Option string `json:"Option,omitempty"`
+	// Values contains the values to match against.
+	Values []string `json:"Values"`
+}
+
+// GetParametersByPathInput is the request payload for GetParametersByPath.
+type GetParametersByPathInput struct {
+	MaxResults       *int64            `json:"MaxResults,omitempty"`
+	Path             string            `json:"Path"`
+	NextToken        string            `json:"NextToken,omitempty"`
+	ParameterFilters []ParameterFilter `json:"ParameterFilters,omitempty"`
+	WithDecryption   bool              `json:"WithDecryption,omitempty"`
+	Recursive        bool              `json:"Recursive,omitempty"`
+}
+
+// GetParametersByPathOutput is the response payload for GetParametersByPath.
+type GetParametersByPathOutput struct {
+	NextToken  string      `json:"NextToken,omitempty"`
+	Parameters []Parameter `json:"Parameters"`
+}
+
+// ParameterMetadata contains parameter metadata without the parameter value.
+type ParameterMetadata struct {
+	Name             string  `json:"Name"`
+	Type             string  `json:"Type"`
+	Description      string  `json:"Description,omitempty"`
+	Version          int64   `json:"Version"`
+	LastModifiedDate float64 `json:"LastModifiedDate"`
+}
+
+// DescribeParametersInput is the request payload for DescribeParameters.
+type DescribeParametersInput struct {
+	MaxResults       *int64            `json:"MaxResults,omitempty"`
+	NextToken        string            `json:"NextToken,omitempty"`
+	ParameterFilters []ParameterFilter `json:"ParameterFilters,omitempty"`
+}
+
+// DescribeParametersOutput is the response payload for DescribeParameters.
+type DescribeParametersOutput struct {
+	NextToken  string              `json:"NextToken,omitempty"`
+	Parameters []ParameterMetadata `json:"Parameters"`
+}
+
 // ErrorResponse represents an SSM wire error.
 type ErrorResponse struct {
 	Type    string `json:"__type"`

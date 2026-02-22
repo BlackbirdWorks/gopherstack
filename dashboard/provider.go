@@ -8,8 +8,10 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/dynamodb"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
+	kmsbackend "github.com/blackbirdworks/gopherstack/kms"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/s3"
+	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/secretsmanager"
 	"github.com/blackbirdworks/gopherstack/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/sqs"
 	"github.com/blackbirdworks/gopherstack/ssm"
@@ -30,6 +32,8 @@ type AWSSDKProvider interface {
 	GetSTSHandler() service.Registerable
 	GetSNSHandler() service.Registerable
 	GetSQSHandler() service.Registerable
+	GetKMSHandler() service.Registerable
+	GetSecretsManagerHandler() service.Registerable
 }
 
 // Provider implements service.Provider for the Dashboard service.
@@ -54,6 +58,8 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	var stsHandler service.Registerable
 	var snsHandler service.Registerable
 	var sqsHandler service.Registerable
+	var kmsHandler service.Registerable
+	var secretsManagerHandler service.Registerable
 
 	// Try to extract SDK clients and handlers if the config implements the extractor interface
 	if ap, ok := ctx.Config.(AWSSDKProvider); ok {
@@ -67,6 +73,8 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		stsHandler = ap.GetSTSHandler()
 		snsHandler = ap.GetSNSHandler()
 		sqsHandler = ap.GetSQSHandler()
+		kmsHandler = ap.GetKMSHandler()
+		secretsManagerHandler = ap.GetSecretsManagerHandler()
 	}
 
 	// For dashboard, having the clients mapped is pretty much a requirement.
@@ -96,18 +104,30 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		sqsOps, _ = sqsHandler.(*sqsbackend.Handler)
 	}
 
+	var kmsOps *kmsbackend.Handler
+	if kmsHandler != nil {
+		kmsOps, _ = kmsHandler.(*kmsbackend.Handler)
+	}
+
+	var secretsManagerOps *secretsmanagerbackend.Handler
+	if secretsManagerHandler != nil {
+		secretsManagerOps, _ = secretsManagerHandler.(*secretsmanagerbackend.Handler)
+	}
+
 	handler := NewHandler(Config{
-		DDBClient: ddbClient,
-		S3Client:  s3Client,
-		SSMClient: ssmClient,
-		DDBOps:    ddb,
-		S3Ops:     s3h,
-		SSMOps:    ssmOps,
-		IAMOps:    iamOps,
-		STSOps:    stsOps,
-		SNSOps:    snsOps,
-		SQSOps:    sqsOps,
-		Logger:    ctx.Logger,
+		DDBClient:         ddbClient,
+		S3Client:          s3Client,
+		SSMClient:         ssmClient,
+		DDBOps:            ddb,
+		S3Ops:             s3h,
+		SSMOps:            ssmOps,
+		IAMOps:            iamOps,
+		STSOps:            stsOps,
+		SNSOps:            snsOps,
+		SQSOps:            sqsOps,
+		KMSOps:            kmsOps,
+		SecretsManagerOps: secretsManagerOps,
+		Logger:            ctx.Logger,
 	})
 
 	return handler, nil

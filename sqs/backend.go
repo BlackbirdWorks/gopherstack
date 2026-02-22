@@ -370,6 +370,9 @@ func (b *InMemoryBackend) receiveOnce(name string, input *ReceiveMessageInput) (
 	if maxMessages <= 0 {
 		maxMessages = 1
 	}
+	if maxMessages > maxBatchSize {
+		maxMessages = maxBatchSize
+	}
 
 	vt := resolveVisibilityTimeout(input.VisibilityTimeout, q)
 

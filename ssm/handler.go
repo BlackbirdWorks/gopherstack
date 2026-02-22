@@ -43,6 +43,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetParameter",
 		"GetParameters",
 		"GetParameterHistory",
+		"GetParametersByPath",
+		"DescribeParameters",
 		"PutParameter",
 		"DeleteParameter",
 		"DeleteParameters",
@@ -145,6 +147,8 @@ func (h *Handler) Handler() echo.HandlerFunc {
 }
 
 // dispatch routes the operation to the appropriate handler.
+//
+//nolint:cyclop // Dispatch switch is intentionally comprehensive.
 func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byte, error) {
 	var response any
 	var err error
@@ -191,6 +195,20 @@ func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byt
 			return nil, unmarshErr
 		}
 		response, err = h.Backend.DeleteParameters(&input)
+
+	case "GetParametersByPath":
+		var input GetParametersByPathInput
+		if unmarshErr := json.Unmarshal(body, &input); unmarshErr != nil {
+			return nil, unmarshErr
+		}
+		response, err = h.Backend.GetParametersByPath(&input)
+
+	case "DescribeParameters":
+		var input DescribeParametersInput
+		if unmarshErr := json.Unmarshal(body, &input); unmarshErr != nil {
+			return nil, unmarshErr
+		}
+		response, err = h.Backend.DescribeParameters(&input)
 
 	default:
 		return nil, fmt.Errorf("%w:%s", ErrUnknownOperation, action)

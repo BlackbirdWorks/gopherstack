@@ -96,6 +96,13 @@ type ErrorResponse struct {
 	RequestID string   `xml:"RequestId"`
 }
 
+// LocationConstraintResponse is the XML response body for GetBucketLocation.
+type LocationConstraintResponse struct {
+	XMLName xml.Name `xml:"LocationConstraint"`
+	Xmlns   string   `xml:"xmlns,attr"`
+	Region  string   `xml:",chardata"`
+}
+
 type ListVersionsResult struct {
 	XMLName       xml.Name           `xml:"ListVersionsResult"`
 	Name          string             `xml:"Name"`

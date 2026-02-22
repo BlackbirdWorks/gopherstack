@@ -25,9 +25,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/demo"
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
+	kmsbackend "github.com/blackbirdworks/gopherstack/kms"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
+	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/secretsmanager"
 	snsbackend "github.com/blackbirdworks/gopherstack/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/ssm"
@@ -43,18 +45,20 @@ const (
 
 // CLI holds all command-line / environment-variable configuration for Gopherstack.
 type CLI struct {
-	ddbClient  *dynamodb.Client
-	s3Client   *s3.Client
-	ssmClient  *ssmsdk.Client
-	stsClient  *stssdk.Client
-	sqsClient  *sqssdk.Client
-	ddbHandler service.Registerable
-	s3Handler  service.Registerable
-	ssmHandler service.Registerable
-	iamHandler service.Registerable
-	stsHandler service.Registerable
-	snsHandler service.Registerable
-	sqsHandler service.Registerable
+	ddbClient             *dynamodb.Client
+	s3Client              *s3.Client
+	ssmClient             *ssmsdk.Client
+	stsClient             *stssdk.Client
+	sqsClient             *sqssdk.Client
+	ddbHandler            service.Registerable
+	s3Handler             service.Registerable
+	ssmHandler            service.Registerable
+	iamHandler            service.Registerable
+	stsHandler            service.Registerable
+	snsHandler            service.Registerable
+	sqsHandler            service.Registerable
+	kmsHandler            service.Registerable
+	secretsManagerHandler service.Registerable
 
 	// LogLevel is the log level: debug, info, warn, error.
 	LogLevel string `name:"log-level" env:"LOG_LEVEL" default:"info" help:"Log level (debug|info|warn|error)."`
@@ -77,6 +81,10 @@ type CLI struct {
 	SNS struct{} `embed:"" prefix:"sns-"`
 	// SQS holds SQS service-level settings.
 	SQS sqsbackend.Settings `embed:"" prefix:"sqs-"`
+	// KMS holds KMS service-level settings.
+	KMS struct{} `embed:"" prefix:"kms-"`
+	// SecretsManager holds Secrets Manager service-level settings.
+	SecretsManager struct{} `embed:"" prefix:"secretsmanager-"`
 
 	// Demo enables loading of demo data on startup.
 	Demo bool `name:"demo" env:"DEMO" default:"false" help:"Load demo data on startup."`
@@ -149,6 +157,16 @@ func (c *CLI) GetSNSHandler() service.Registerable { return c.snsHandler }
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetSQSHandler() service.Registerable { return c.sqsHandler }
 
+// GetKMSHandler returns the KMS handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetKMSHandler() service.Registerable { return c.kmsHandler }
+
+// GetSecretsManagerHandler returns the Secrets Manager handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetSecretsManagerHandler() service.Registerable { return c.secretsManagerHandler }
+
 // Run parses CLI / environment-variable configuration and starts Gopherstack.
 // It is called from main() and exits on error.
 func Run() {
@@ -204,6 +222,7 @@ func run(ctx context.Context, cli CLI) error {
 
 	e := echo.New()
 	e.Pre(logger.EchoMiddleware(log))
+	e.GET("/_gopherstack/health", healthHandler)
 
 	if setupErr := setupRegistry(e, log, services); setupErr != nil {
 		return setupErr
@@ -268,6 +287,8 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		&stsbackend.Provider{},
 		&snsbackend.Provider{},
 		&sqsbackend.Provider{},
+		&kmsbackend.Provider{},
+		&secretsmanagerbackend.Provider{},
 	}
 
 	for _, provider := range serviceProviders {
@@ -288,6 +309,8 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		cli.stsHandler = services[4]
 		cli.snsHandler = services[5]
 		cli.sqsHandler = services[6]
+		cli.kmsHandler = services[7]
+		cli.secretsManagerHandler = services[8]
 	}
 
 	// Init dashboard last so it can access all service handlers.
@@ -375,6 +398,24 @@ func buildLogger(level string) *slog.Logger {
 	}
 
 	return logger.NewLogger(slogLevel)
+}
+
+// healthResponse is the JSON body returned by the health endpoint.
+type healthResponse struct {
+	// Status is always "ok" when the server is running.
+	Status string `json:"status"`
+	// Services lists all registered mock AWS services.
+	Services []string `json:"services"`
+}
+
+// healthHandler returns a JSON status response for all mock services.
+func healthHandler(c *echo.Context) error {
+	return c.JSON(http.StatusOK, healthResponse{
+		Status: "ok",
+		Services: []string{
+			"DynamoDB", "S3", "SSM", "IAM", "STS", "SNS", "SQS", "KMS", "SecretsManager",
+		},
+	})
 }
 
 func setupRegistry(

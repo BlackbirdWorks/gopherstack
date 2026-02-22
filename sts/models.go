@@ -44,8 +44,9 @@ type AssumedRoleUser struct {
 type Credentials struct {
 	AccessKeyID     string `xml:"AccessKeyId"`
 	SecretAccessKey string `xml:"SecretAccessKey"`
-	SessionToken    string `xml:"SessionToken"` //nolint:gosec // mock session token field
-	Expiration      string `xml:"Expiration"`
+	// SessionToken is part of AWS Credentials struct, not a secret being stored
+	SessionToken string `xml:"SessionToken"` //nolint:gosec // AWS Credentials field
+	Expiration   string `xml:"Expiration"`
 }
 
 // AssumeRoleResult wraps the assumed-role user and credentials.
