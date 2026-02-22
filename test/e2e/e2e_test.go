@@ -30,6 +30,7 @@ import (
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
+	snsbackend "github.com/blackbirdworks/gopherstack/sns"
 	ssmbackend "github.com/blackbirdworks/gopherstack/ssm"
 )
 
@@ -120,10 +121,14 @@ func newIntegrationStack(t *testing.T) *integrationStack {
 	ssmBk := ssmbackend.NewInMemoryBackend()
 	ssmHndlr := ssmbackend.NewHandler(ssmBk, slog.Default())
 
-	dashHndlr := dashboard.NewHandler(ddbClient, s3Client, ssmClient, ddbHndlr, s3Hndlr, ssmHndlr, slog.Default())
+	snsBk := snsbackend.NewInMemoryBackend()
+	snsHndlr := snsbackend.NewHandler(snsBk, slog.Default())
+
+	dashHndlr := dashboard.NewHandler(ddbClient, s3Client, ssmClient, ddbHndlr, s3Hndlr, ssmHndlr, snsHndlr, slog.Default())
 	_ = registry.Register(dashHndlr)
 	_ = registry.Register(s3Hndlr)
 	_ = registry.Register(ssmHndlr)
+	_ = registry.Register(snsHndlr)
 
 	router := service.NewServiceRouter(registry)
 	e.Use(router.RouteHandler())

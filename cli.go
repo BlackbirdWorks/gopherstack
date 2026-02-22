@@ -25,6 +25,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
+	snsbackend "github.com/blackbirdworks/gopherstack/sns"
 	ssmbackend "github.com/blackbirdworks/gopherstack/ssm"
 )
 
@@ -43,6 +44,7 @@ type CLI struct {
 	ddbHandler service.Registerable
 	s3Handler  service.Registerable
 	ssmHandler service.Registerable
+	snsHandler service.Registerable
 
 	// LogLevel is the log level: debug, info, warn, error.
 	LogLevel string `name:"log-level" env:"LOG_LEVEL" default:"info" help:"Log level (debug|info|warn|error)."`
@@ -57,6 +59,8 @@ type CLI struct {
 	S3 s3backend.Settings `embed:"" prefix:"s3-"`
 	// SSM holds SSM service-level settings.
 	SSM struct{} `embed:"" prefix:"ssm-"`
+	// SNS holds SNS service-level settings.
+	SNS struct{} `embed:"" prefix:"sns-"`
 
 	// Demo enables loading of demo data on startup.
 	Demo bool `name:"demo" env:"DEMO" default:"false" help:"Load demo data on startup."`
@@ -102,6 +106,11 @@ func (c *CLI) GetS3Handler() service.Registerable { return c.s3Handler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetSSMHandler() service.Registerable { return c.ssmHandler }
+
+// GetSNSHandler returns the SNS handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetSNSHandler() service.Registerable { return c.snsHandler }
 
 // Run parses CLI / environment-variable configuration and starts Gopherstack.
 // It is called from main() and exits on error.
@@ -202,14 +211,14 @@ func initializeClients(cli *CLI, awsCfg aws.Config) {
 // initializeServices initializes all service providers.
 func initializeServices(appCtx *service.AppContext) ([]service.Registerable, error) {
 	var services []service.Registerable
-	providers := []service.Provider{
+	serviceProviders := []service.Provider{
 		&ddbbackend.Provider{},
 		&s3backend.Provider{},
 		&ssmbackend.Provider{},
-		&dashboard.Provider{},
+		&snsbackend.Provider{},
 	}
 
-	for _, provider := range providers {
+	for _, provider := range serviceProviders {
 		svc, err := provider.Init(appCtx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to init %s: %w", provider.Name(), err)
@@ -217,8 +226,24 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		services = append(services, svc)
 	}
 
-	// Reorder for routing priority: DynamoDB (100), SSM (100), Dashboard (50), S3 (0)
-	return []service.Registerable{services[0], services[2], services[3], services[1]}, nil
+	// Store handlers in CLI so dashboard can access them.
+	if cli, ok := appCtx.Config.(*CLI); ok {
+		cli.ddbHandler = services[0]
+		cli.s3Handler = services[1]
+		cli.ssmHandler = services[2]
+		cli.snsHandler = services[3]
+	}
+
+	// Init dashboard last so it can access all service handlers.
+	dashSvc, err := (&dashboard.Provider{}).Init(appCtx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to init Dashboard: %w", err)
+	}
+	services = append(services, dashSvc)
+
+	// The router sorts services by MatchPriority() at startup, so registration order
+	// does not affect routing correctness.
+	return services, nil
 }
 
 // startBackgroundWorkers starts all background workers from services.
