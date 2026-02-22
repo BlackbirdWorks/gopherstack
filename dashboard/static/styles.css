@@ -251,52 +251,46 @@ html.dark .modal-box { background-color: #1f2937; color: #f9fafb; }
 .modal-action { display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem; }
 .modal-backdrop { position: fixed; inset: 0; z-index: -1; background: transparent; }
 
-/* ── Tabs (CSS-only, radio-input pattern) ───────────────────── */
-.tabs { display: flex; flex-wrap: wrap; border-bottom: 2px solid #e5e7eb; }
+/* ── Tabs (radio-input pattern matching DaisyUI) ────────────── */
+.tabs { display: flex; flex-wrap: wrap; align-items: flex-end; border-bottom: 2px solid #e5e7eb; }
 html.dark .tabs { border-bottom-color: #374151; }
 .tabs-bordered { border-bottom-color: #e5e7eb; }
-.tabs-lifted .tab-content { border: 1px solid #e5e7eb; border-top: none; }
-html.dark .tabs-lifted .tab-content { border-color: #374151; }
 
-.tab {
+/* Radio inputs styled as visible, clickable tab labels */
+input[type=radio].tab {
   display: inline-flex; align-items: center; justify-content: center;
   padding: 0.75rem 1.25rem; font-size: 0.875rem; font-weight: 500;
-  color: #6b7280; cursor: pointer; border-bottom: 2px solid transparent;
-  margin-bottom: -2px; transition: color .15s, border-color .15s;
-  /* hide the radio input but keep the label visible */
-  appearance: none; background: transparent; border-radius: 0; border: none; border-bottom: 2px solid transparent;
+  color: #6b7280; cursor: pointer;
+  appearance: none; background: transparent;
+  border-top: none; border-left: none; border-right: none; border-bottom: 2px solid transparent;
+  margin-bottom: -2px; outline: none;
+  transition: color .15s, border-color .15s;
 }
-.tab:hover { color: #374151; }
-html.dark .tab { color: #9ca3af; }
-html.dark .tab:hover { color: #d1d5db; }
-.tab-active, .tab:checked, input[type=radio].tab:checked {
-  color: #2563eb; border-bottom-color: #2563eb;
-}
-html.dark .tab-active, html.dark .tab:checked { color: #60a5fa; border-bottom-color: #60a5fa; }
+input[type=radio].tab::before { content: attr(aria-label); }
+input[type=radio].tab:hover { color: #374151; }
+html.dark input[type=radio].tab { color: #9ca3af; }
+html.dark input[type=radio].tab:hover { color: #d1d5db; }
+input[type=radio].tab:checked { color: #2563eb; border-bottom-color: #2563eb; }
+html.dark input[type=radio].tab:checked { color: #60a5fa; border-bottom-color: #60a5fa; }
 
-.tab-content { width: 100%; order: 999; }
-/* Hide all tab-content; show only the one after the checked radio */
-input[type=radio].tab { display: none; }
-input[type=radio].tab + .tab-content { display: none; }
-input[type=radio].tab:checked + .tab-content { display: block; }
-/* For tabs-lifted show labels as visible tabs */
-.tabs input[type=radio].tab ~ label.tab { display: inline-flex; }
-
-/* Simpler approach: use label-based tabs */
-.tabs input[type=radio] { display: none; }
-/* Show label for each tab */
-.tabs input[type=radio] + div[role=tabpanel] { display: none; }
-.tabs input[type=radio]:checked + div[role=tabpanel] { display: block; }
+/* Tab panels: hidden by default, shown only when the preceding radio is checked */
+.tab-content, div[role=tabpanel].tab-content { display: none; width: 100%; order: 999; }
+input[type=radio].tab:checked + .tab-content,
+input[type=radio].tab:checked + div[role=tabpanel] { display: block; }
 
 /* ── Collapse / Accordion ───────────────────────────────────── */
 .collapse {
-  position: relative; overflow: hidden;
-  background-color: #f1f5f9; border-radius: 0.5rem; margin-bottom: 0.5rem;
+  position: relative; display: flex; flex-direction: column;
+  overflow: hidden;
+  background-color: #f1f5f9; border-radius: 0.5rem; margin-bottom: 0.5rem; width: 100%;
 }
 html.dark .collapse { background-color: #212837; }
-.collapse > input[type=checkbox] { position: absolute; inset: 0; z-index: 1; opacity: 0; cursor: pointer; height: auto; }
+.collapse > input[type=checkbox] {
+  position: absolute; width: 100%; height: 4rem;
+  cursor: pointer; opacity: 0; z-index: 1; margin: 0;
+}
 .collapse-title {
-  padding: 0.75rem 1rem; font-weight: 500; cursor: pointer;
+  padding: 0.75rem 1rem; font-weight: 500; cursor: pointer; min-height: 4rem;
   position: relative; display: flex; align-items: center;
   color: #111827; padding-right: 2.5rem;
 }
