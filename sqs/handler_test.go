@@ -317,17 +317,30 @@ func TestHandlerRouteMatcher(t *testing.T) {
 	matcher := h.RouteMatcher()
 
 	e := echo.New()
+
+	// Match: root path + form-encoded (CreateQueue, ListQueues)
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	c := e.NewContext(req, httptest.NewRecorder())
-
 	assert.True(t, matcher(c))
 
+	// Match: /000000000000/queue path + form-encoded (SendMessage, etc.)
+	req3 := httptest.NewRequest(http.MethodPost, "/000000000000/my-queue", nil)
+	req3.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	c3 := e.NewContext(req3, httptest.NewRecorder())
+	assert.True(t, matcher(c3))
+
+	// No match: wrong Content-Type
 	req2 := httptest.NewRequest(http.MethodPost, "/", nil)
 	req2.Header.Set("Content-Type", "application/json")
 	c2 := e.NewContext(req2, httptest.NewRecorder())
-
 	assert.False(t, matcher(c2))
+
+	// No match: dashboard HTMX form (form-encoded but wrong path)
+	req4 := httptest.NewRequest(http.MethodPost, "/dashboard/sqs/create", nil)
+	req4.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	c4 := e.NewContext(req4, httptest.NewRecorder())
+	assert.False(t, matcher(c4))
 }
 
 func TestHandlerExtractOperation(t *testing.T) {

@@ -55,11 +55,20 @@ func (h *Handler) GetSupportedOperations() []string {
 }
 
 // RouteMatcher returns a function that matches incoming requests for SQS.
+// It matches POST requests with form-encoded bodies sent to the SQS path namespace.
+// AWS SQS SDK requests always target "/" (for queue-level ops like CreateQueue/ListQueues)
+// or "/000000000000/<queue-name>" (for queue operations). This prevents intercepting
+// Dashboard HTMX form submissions that also use application/x-www-form-urlencoded.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		ct := c.Request().Header.Get("Content-Type")
+		if !strings.HasPrefix(ct, "application/x-www-form-urlencoded") {
+			return false
+		}
 
-		return strings.HasPrefix(ct, "application/x-www-form-urlencoded")
+		path := c.Request().URL.Path
+
+		return path == "/" || strings.HasPrefix(path, "/000000000000/")
 	}
 }
 
