@@ -25,7 +25,7 @@
     <!-- Flowbite CSS -->
     <link href="https://cdn.jsdelivr.net/npm/flowbite@2.5.2/dist/flowbite.min.css" rel="stylesheet" />
 
-    <!-- Custom styles (DaisyUI-compatible layer) -->
+    <!-- Custom styles -->
     <link rel="stylesheet" href="/dashboard/static/styles.css">
 
     <!-- HTMX -->
@@ -39,19 +39,19 @@
         <div class="px-3 py-3 lg:px-5 lg:pl-3 flex items-center justify-between">
             <div class="flex items-center">
                 <!-- Mobile sidebar toggle -->
-                <button data-drawer-target="sidebar" data-drawer-toggle="sidebar"
-                    aria-controls="sidebar" type="button"
+                <button data-drawer-target="sidebar" data-drawer-toggle="sidebar" aria-controls="sidebar" type="button"
                     class="inline-flex items-center p-2 text-sm text-gray-500 rounded-lg lg:hidden
                            hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-200
                            dark:text-gray-400 dark:hover:bg-gray-700 dark:focus:ring-gray-600">
                     <span class="sr-only">Open sidebar</span>
                     <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
                         <path clip-rule="evenodd" fill-rule="evenodd"
-                            d="M2 4.75A.75.75 0 012.75 4h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 4.75zm0 10.5a.75.75 0 01.75-.75h7.5a.75.75 0 010 1.5h-7.5a.75.75 0 01-.75-.75zM2 10a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 10z"/>
+                            d="M2 4.75A.75.75 0 012.75 4h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 4.75zm0 10.5a.75.75 0 01.75-.75h7.5a.75.75 0 010 1.5h-7.5a.75.75 0 01-.75-.75zM2 10a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 10z" />
                     </svg>
                 </button>
                 <!-- Logo -->
-                <a href="/dashboard" class="flex ml-2 md:mr-24 items-center gap-2 text-gray-900 dark:text-white font-semibold text-lg">
+                <a href="/dashboard"
+                    class="flex ml-2 md:mr-24 items-center gap-2 text-gray-900 dark:text-white font-semibold text-lg">
                     🐹 <span>Gopherstack</span>
                 </a>
             </div>
@@ -60,10 +60,12 @@
                 class="p-2 text-gray-500 rounded-lg hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-200 dark:text-gray-400 dark:hover:bg-gray-700 dark:focus:ring-gray-600"
                 title="Toggle dark mode">
                 <svg id="theme-icon-dark" class="w-5 h-5 hidden" fill="currentColor" viewBox="0 0 20 20">
-                    <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"/>
+                    <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" />
                 </svg>
                 <svg id="theme-icon-light" class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                    <path fill-rule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clip-rule="evenodd"/>
+                    <path fill-rule="evenodd"
+                        d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z"
+                        clip-rule="evenodd" />
                 </svg>
             </button>
         </div>
@@ -75,7 +77,8 @@
         aria-label="Sidebar">
         <div class="h-full px-3 pb-4 overflow-y-auto bg-white dark:bg-gray-800">
             <ul class="space-y-1 font-medium mt-4">
-                <li class="px-3 py-1 text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500">Core Services</li>
+                <li class="px-3 py-1 text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500">Core
+                    Services</li>
                 <li>
                     <a href="/dashboard/dynamodb"
                         class="flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "dynamodb"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}">
@@ -89,7 +92,8 @@
                     </a>
                 </li>
 
-                <li class="px-3 py-1 mt-4 text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500">Standard Services</li>
+                <li class="px-3 py-1 mt-4 text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500">
+                    Standard Services</li>
                 <li>
                     <a href="/dashboard/ssm"
                         class="flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "ssm"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}">
@@ -109,7 +113,8 @@
                     </a>
                 </li>
 
-                <li class="px-3 py-1 mt-4 text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500">Message Services</li>
+                <li class="px-3 py-1 mt-4 text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500">
+                    Message Services</li>
                 <li>
                     <a href="/dashboard/sns"
                         class="flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "sns"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}">
@@ -123,7 +128,8 @@
                     </a>
                 </li>
 
-                <li class="px-3 py-1 mt-4 text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500">Security Services</li>
+                <li class="px-3 py-1 mt-4 text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500">
+                    Security Services</li>
                 <li>
                     <a href="/dashboard/kms"
                         class="flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "kms"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}">
@@ -132,12 +138,14 @@
                 </li>
                 <li>
                     <a href="/dashboard/secretsmanager"
-                        class="flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "secretsmanager"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}">
+                        class="flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "secretsmanager"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400
+                        font-semibold{{end}}">
                         <span>🗝️</span> Secrets Manager
                     </a>
                 </li>
 
-                <li class="px-3 py-1 mt-4 text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500">Monitoring</li>
+                <li class="px-3 py-1 mt-4 text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500">
+                    Monitoring</li>
                 <li>
                     <a href="/dashboard/metrics"
                         class="flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "metrics"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}">
@@ -167,25 +175,39 @@
         </main>
 
         <!-- Footer -->
-        <footer class="py-4 mt-8 text-center text-sm text-gray-500 dark:text-gray-400 border-t border-gray-200 dark:border-gray-700">
+        <footer
+            class="py-4 mt-8 text-center text-sm text-gray-500 dark:text-gray-400 border-t border-gray-200 dark:border-gray-700">
             Gopherstack — In-Memory AWS Stack for Go
         </footer>
     </div>
 
     <!-- Global Confirmation Modal -->
-    <dialog id="global_confirm_modal" class="modal">
-        <div class="modal-box">
-            <h3 id="global_confirm_title" class="text-lg font-bold text-gray-900 dark:text-white">Confirmation</h3>
-            <p id="global_confirm_message" class="mt-2 text-sm text-gray-600 dark:text-gray-300">Are you sure you want to proceed?</p>
-            <div class="modal-action">
-                <button id="global_confirm_cancel" class="btn btn-ghost">Cancel</button>
-                <button id="global_confirm_proceed" class="btn btn-primary">Confirm</button>
+    <div id="global_confirm_modal" tabindex="-1" aria-hidden="true"
+        class="hidden overflow-y-auto overflow-x-hidden fixed top-0 right-0 left-0 z-50 justify-center items-center w-full md:inset-0 h-modal md:h-full">
+        <div class="relative p-4 w-full max-w-md h-full md:h-auto">
+            <div class="relative bg-white rounded-lg shadow dark:bg-gray-700">
+                <div class="p-6 text-center">
+                    <svg aria-hidden="true" class="mx-auto mb-4 w-14 h-14 text-gray-400 dark:text-gray-200" fill="none"
+                        stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                    <h3 id="global_confirm_title" class="text-lg font-normal text-gray-500 dark:text-gray-400">
+                        Confirmation</h3>
+                    <p id="global_confirm_message" class="mb-5 text-sm font-normal text-gray-500 dark:text-gray-400">Are
+                        you sure you want to proceed?</p>
+                    <button id="global_confirm_proceed" type="button"
+                        class="text-white bg-red-600 hover:bg-red-800 focus:ring-4 focus:outline-none focus:ring-red-300 dark:focus:ring-red-800 font-medium rounded-lg text-sm inline-flex items-center px-5 py-2.5 text-center mr-2">
+                        Yes, I'm sure
+                    </button>
+                    <button id="global_confirm_cancel" type="button"
+                        class="text-gray-500 bg-white hover:bg-gray-100 focus:ring-4 focus:outline-none focus:ring-gray-200 rounded-lg border border-gray-200 text-sm font-medium px-5 py-2.5 hover:text-gray-900 focus:z-10 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-500 dark:hover:text-white dark:hover:bg-gray-600 dark:focus:ring-gray-600">
+                        No, cancel
+                    </button>
+                </div>
             </div>
         </div>
-        <form method="dialog" class="modal-backdrop">
-            <button>close</button>
-        </form>
-    </dialog>
+    </div>
 
     <!-- Flowbite JS (for sidebar toggle, etc.) -->
     <script src="https://cdn.jsdelivr.net/npm/flowbite@2.5.2/dist/flowbite.min.js"></script>

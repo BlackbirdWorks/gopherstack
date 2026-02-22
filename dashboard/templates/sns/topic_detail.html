@@ -1,34 +1,53 @@
 {{define "content"}}
 <div class="px-4 sm:px-6 lg:px-8">
-    <div class="sm:flex sm:items-center">
-        <div class="sm:flex-auto">
-            <nav class="flex mb-4" aria-label="Breadcrumb">
-                <ol class="flex items-center space-x-2">
-                    <li><a href="/dashboard/sns" class="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400">SNS Topics</a></li>
-                    <li class="text-gray-500 dark:text-gray-400">/</li>
-                    <li class="text-gray-900 dark:text-gray-100 font-medium font-mono truncate max-w-lg">{{.TopicArn}}</li>
-                </ol>
-            </nav>
-            <h1 class="text-base font-semibold leading-6 text-gray-900 dark:text-gray-100">Topic Detail</h1>
-        </div>
+    <nav class="flex mb-5" aria-label="Breadcrumb">
+        <ol class="inline-flex items-center space-x-1 md:space-x-2 rtl:space-x-reverse">
+            <li class="inline-flex items-center">
+                <a href="/dashboard/sns"
+                    class="inline-flex items-center text-sm font-medium text-gray-700 hover:text-blue-600 dark:text-gray-400 dark:hover:text-white">
+                    <svg class="w-3 h-3 me-2.5" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"
+                        fill="currentColor" viewBox="0 0 20 20">
+                        <path
+                            d="M19.707 9.293l-2-2-7-7a1 1 0 00-1.414 0l-7 7-2 2a1 1 0 001.414 1.414L2 10.414V18a2 2 0 002 2h3a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1h3a2 2 0 002-2v-7.586l.293.293a1 1 0 001.414-1.414z" />
+                    </svg>
+                    SNS Topics
+                </a>
+            </li>
+            <li aria-current="page">
+                <div class="flex items-center">
+                    <svg class="rtl:rotate-180 w-3 h-3 text-gray-400 mx-1" aria-hidden="true"
+                        xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 6 10">
+                        <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="m1 9 4-4-4-4" />
+                    </svg>
+                    <span class="ms-1 text-sm font-medium text-gray-500 md:ms-2 dark:text-gray-400">Topic Detail</span>
+                </div>
+            </li>
+        </ol>
+    </nav>
+
+    <div class="mb-8">
+        <h1 class="text-3xl font-bold text-gray-900 dark:text-white mb-2">Topic Detail</h1>
+        <p class="text-sm font-mono text-gray-500 dark:text-gray-400 break-all">{{.TopicArn}}</p>
     </div>
 
     <!-- Attributes section -->
-    <div class="mt-6">
-        <h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">Attributes</h2>
-        <div class="overflow-hidden shadow ring-1 ring-black ring-opacity-5 sm:rounded-lg">
-            <table class="min-w-full divide-y divide-gray-300 dark:divide-gray-700">
-                <thead class="bg-gray-50 dark:bg-gray-800">
+    <div class="mt-8">
+        <h2 class="text-xl font-bold text-gray-900 dark:text-white mb-4">Attributes</h2>
+        <div class="relative overflow-x-auto shadow-md sm:rounded-lg">
+            <table class="w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
+                <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
                     <tr>
-                        <th scope="col" class="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-900 dark:text-gray-200 sm:pl-6">Key</th>
-                        <th scope="col" class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-gray-200">Value</th>
+                        <th scope="col" class="px-6 py-3">Key</th>
+                        <th scope="col" class="px-6 py-3">Value</th>
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-900">
+                <tbody>
                     {{range $k, $v := .Attributes}}
-                    <tr>
-                        <td class="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-gray-900 dark:text-gray-100 sm:pl-6">{{$k}}</td>
-                        <td class="whitespace-nowrap px-3 py-4 text-sm text-gray-500 dark:text-gray-400">{{$v}}</td>
+                    <tr
+                        class="bg-white border-b dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
+                        <td class="px-6 py-4 font-medium text-gray-900 dark:text-white whitespace-nowrap">{{$k}}</td>
+                        <td class="px-6 py-4 font-mono text-xs">{{$v}}</td>
                     </tr>
                     {{end}}
                 </tbody>
@@ -38,29 +57,31 @@
 
     <!-- Subscriptions section -->
     <div class="mt-8">
-        <h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">Subscriptions</h2>
-        <div class="overflow-hidden shadow ring-1 ring-black ring-opacity-5 sm:rounded-lg">
-            <table class="min-w-full divide-y divide-gray-300 dark:divide-gray-700">
-                <thead class="bg-gray-50 dark:bg-gray-800">
+        <h2 class="text-xl font-bold text-gray-900 dark:text-white mb-4">Subscriptions</h2>
+        <div class="relative overflow-x-auto shadow-md sm:rounded-lg">
+            <table class="w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
+                <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
                     <tr>
-                        <th scope="col" class="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-900 dark:text-gray-200 sm:pl-6">Subscription ARN</th>
-                        <th scope="col" class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-gray-200">Protocol</th>
-                        <th scope="col" class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-gray-200">Endpoint</th>
+                        <th scope="col" class="px-6 py-3">Subscription ARN</th>
+                        <th scope="col" class="px-6 py-3">Protocol</th>
+                        <th scope="col" class="px-6 py-3">Endpoint</th>
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-900">
+                <tbody>
                     {{range .Subscriptions}}
-                    <tr>
-                        <td class="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-mono text-gray-900 dark:text-gray-100 sm:pl-6">{{.SubscriptionArn}}</td>
-                        <td class="whitespace-nowrap px-3 py-4 text-sm text-gray-500 dark:text-gray-400">
-                            <span class="inline-flex items-center rounded-md bg-blue-50 dark:bg-blue-400/10 px-2 py-1 text-xs font-medium text-blue-700 dark:text-blue-400 ring-1 ring-inset ring-blue-700/10 dark:ring-blue-400/30">{{.Protocol}}</span>
+                    <tr
+                        class="bg-white border-b dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
+                        <td class="px-6 py-4 font-mono text-xs text-gray-900 dark:text-white">{{.SubscriptionArn}}</td>
+                        <td class="px-6 py-4">
+                            <span
+                                class="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-blue-900 dark:text-blue-300">{{.Protocol}}</span>
                         </td>
-                        <td class="whitespace-nowrap px-3 py-4 text-sm text-gray-500 dark:text-gray-400 max-w-xs truncate">{{.Endpoint}}</td>
+                        <td class="px-6 py-4 max-w-xs truncate">{{.Endpoint}}</td>
                     </tr>
                     {{else}}
-                    <tr>
-                        <td colspan="3" class="px-3 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
-                            No subscriptions.
+                    <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
+                        <td colspan="3" class="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                            No subscriptions found.
                         </td>
                     </tr>
                     {{end}}

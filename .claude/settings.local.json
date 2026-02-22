@@ -27,7 +27,8 @@
       "WebFetch(domain:www.localstack.cloud)",
       "WebFetch(domain:blog.localstack.cloud)",
       "WebFetch(domain:github.com)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(wc:*)"
     ]
   }
 }

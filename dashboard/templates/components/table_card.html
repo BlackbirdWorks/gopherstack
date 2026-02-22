@@ -1,43 +1,49 @@
 {{define "table-card"}}
-<div class="card hover:shadow-2xl transition-shadow">
-    <div class="card-body">
-        <h2 class="card-title">
-            <a href="/dashboard/dynamodb/table/{{.TableName}}" class="text-blue-600 hover:underline dark:text-blue-400">{{.TableName}}</a>
-        </h2>
-        <div class="space-y-2 text-sm">
-            <div class="flex justify-between">
-                <span class="text-gray-500 dark:text-gray-400">Partition Key:</span>
-                <span class="font-mono text-gray-800 dark:text-gray-200">{{.PartitionKey}} ({{.PartitionKeyType}})</span>
-            </div>
-            {{if .SortKey}}
-            <div class="flex justify-between">
-                <span class="text-gray-500 dark:text-gray-400">Sort Key:</span>
-                <span class="font-mono text-gray-800 dark:text-gray-200">{{.SortKey}} ({{.SortKeyType}})</span>
-            </div>
-            {{end}}
-            <div class="flex justify-between">
-                <span class="text-gray-500 dark:text-gray-400">Item Count:</span>
-                <span class="badge badge-primary">{{.ItemCount}}</span>
-            </div>
-            {{if .GSICount}}
-            <div class="flex justify-between">
-                <span class="text-gray-500 dark:text-gray-400">GSI:</span>
-                <span class="badge badge-secondary">{{.GSICount}}</span>
-            </div>
-            {{end}}
-            {{if .LSICount}}
-            <div class="flex justify-between">
-                <span class="text-gray-500 dark:text-gray-400">LSI:</span>
-                <span class="badge badge-accent">{{.LSICount}}</span>
-            </div>
-            {{end}}
+<div
+    class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700 hover:shadow-lg transition-shadow">
+    <h2 class="mb-4 text-xl font-bold tracking-tight text-gray-900 dark:text-white">
+        <a href="/dashboard/dynamodb/table/{{.TableName}}"
+            class="text-blue-600 hover:underline dark:text-blue-400">{{.TableName}}</a>
+    </h2>
+    <div class="space-y-3 text-sm">
+        <div class="flex justify-between items-center">
+            <span class="text-gray-500 dark:text-gray-400">Partition Key:</span>
+            <span class="font-mono text-gray-900 dark:text-white font-medium">{{.PartitionKey}}
+                ({{.PartitionKeyType}})</span>
         </div>
-        <div class="card-actions justify-end mt-4">
-            <button class="btn btn-sm btn-error" hx-delete="/dashboard/dynamodb/table/{{.TableName}}"
-                hx-confirm="Are you sure you want to delete table '{{.TableName}}'?" hx-target="#table-list">
-                Delete
-            </button>
+        {{if .SortKey}}
+        <div class="flex justify-between items-center">
+            <span class="text-gray-500 dark:text-gray-400">Sort Key:</span>
+            <span class="font-mono text-gray-900 dark:text-white font-medium">{{.SortKey}} ({{.SortKeyType}})</span>
         </div>
+        {{end}}
+        <div class="flex justify-between items-center">
+            <span class="text-gray-500 dark:text-gray-400">Item Count:</span>
+            <span
+                class="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-blue-900 dark:text-blue-300">{{.ItemCount}}</span>
+        </div>
+        {{if .GSICount}}
+        <div class="flex justify-between items-center">
+            <span class="text-gray-500 dark:text-gray-400">GSI:</span>
+            <span
+                class="bg-purple-100 text-purple-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-purple-900 dark:text-purple-300">{{.GSICount}}</span>
+        </div>
+        {{end}}
+        {{if .LSICount}}
+        <div class="flex justify-between items-center">
+            <span class="text-gray-500 dark:text-gray-400">LSI:</span>
+            <span
+                class="bg-indigo-100 text-indigo-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-indigo-900 dark:text-indigo-300">{{.LSICount}}</span>
+        </div>
+        {{end}}
+    </div>
+    <div class="flex justify-end mt-6 pt-4 border-t border-gray-100 dark:border-gray-700">
+        <button
+            class="py-2 px-3 text-xs font-medium text-white bg-red-700 hover:bg-red-800 focus:ring-4 focus:outline-none focus:ring-red-300 rounded-lg text-center dark:bg-red-600 dark:hover:bg-red-700 dark:focus:ring-red-800"
+            hx-delete="/dashboard/dynamodb/table/{{.TableName}}"
+            hx-confirm="Are you sure you want to delete table '{{.TableName}}'?" hx-target="#table-list">
+            Delete
+        </button>
     </div>
 </div>
 {{end}}

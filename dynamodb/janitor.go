@@ -70,7 +70,9 @@ func (j *Janitor) runOnce(ctx context.Context) {
 	}
 	db.mu.Unlock()
 
-	telemetry.RecordDeleteQueueDepth("dynamodb", depth)
+	telemetry.RecordWorkerQueueDepth("dynamodb", "TableCleaner", depth)
+	telemetry.RecordWorkerTask("dynamodb", "TableCleaner", "success")
+	telemetry.RecordWorkerItems("dynamodb", "TableCleaner", depth)
 
 	for _, name := range names {
 		j.Log.InfoContext(ctx, "DynamoDB janitor: table deleted", "table", name)
@@ -126,6 +128,7 @@ func (j *Janitor) sweepTTL(ctx context.Context) {
 	}
 
 	if totalEvicted > 0 {
-		telemetry.RecordTTLEvictions("dynamodb", totalEvicted)
+		telemetry.RecordWorkerItems("dynamodb", "TTLSweeper", totalEvicted)
 	}
+	telemetry.RecordWorkerTask("dynamodb", "TTLSweeper", "success")
 }

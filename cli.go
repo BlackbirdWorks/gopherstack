@@ -15,7 +15,11 @@ import (
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/iam"
+	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
+	"github.com/aws/aws-sdk-go-v2/service/sns"
 	sqssdk "github.com/aws/aws-sdk-go-v2/service/sqs"
 	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
 	stssdk "github.com/aws/aws-sdk-go-v2/service/sts"
@@ -50,6 +54,10 @@ type CLI struct {
 	ssmClient             *ssmsdk.Client
 	stsClient             *stssdk.Client
 	sqsClient             *sqssdk.Client
+	snsClient             *sns.Client
+	iamClient             *iam.Client
+	kmsClient             *kms.Client
+	secretsManagerClient  *secretsmanager.Client
 	ddbHandler            service.Registerable
 	s3Handler             service.Registerable
 	ssmHandler            service.Registerable
@@ -233,7 +241,18 @@ func run(ctx context.Context, cli CLI) error {
 
 	if cli.Demo {
 		log.InfoContext(ctx, "Loading demo data...")
-		if err = demo.LoadData(ctx, log, cli.ddbClient, cli.s3Client); err != nil {
+		err = demo.LoadData(ctx, log, &demo.Clients{
+			DynamoDB:       cli.ddbClient,
+			S3:             cli.s3Client,
+			SQS:            cli.sqsClient,
+			SNS:            cli.snsClient,
+			IAM:            cli.iamClient,
+			STS:            cli.stsClient,
+			SSM:            cli.ssmClient,
+			KMS:            cli.kmsClient,
+			SecretsManager: cli.secretsManagerClient,
+		})
+		if err != nil {
 			log.ErrorContext(ctx, "Failed to load demo data", "error", err)
 		}
 	}
@@ -271,6 +290,30 @@ func initializeClients(cli *CLI, awsCfg aws.Config) {
 	cli.sqsClient = sqssdk.NewFromConfig(
 		awsCfg,
 		func(o *sqssdk.Options) {
+			o.BaseEndpoint = aws.String("http://local")
+		},
+	)
+	cli.snsClient = sns.NewFromConfig(
+		awsCfg,
+		func(o *sns.Options) {
+			o.BaseEndpoint = aws.String("http://local")
+		},
+	)
+	cli.iamClient = iam.NewFromConfig(
+		awsCfg,
+		func(o *iam.Options) {
+			o.BaseEndpoint = aws.String("http://local")
+		},
+	)
+	cli.kmsClient = kms.NewFromConfig(
+		awsCfg,
+		func(o *kms.Options) {
+			o.BaseEndpoint = aws.String("http://local")
+		},
+	)
+	cli.secretsManagerClient = secretsmanager.NewFromConfig(
+		awsCfg,
+		func(o *secretsmanager.Options) {
 			o.BaseEndpoint = aws.String("http://local")
 		},
 	)

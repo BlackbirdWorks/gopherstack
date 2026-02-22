@@ -79,6 +79,33 @@ var (
 		[]string{"service"},
 	)
 
+	// workerTasksTotal records total tasks processed by background workers.
+	workerTasksTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "gopherstack_worker_tasks_total",
+			Help: "Total tasks processed by background workers",
+		},
+		[]string{"service", "worker", "status"},
+	)
+
+	// workerItemsTotal records total items (objects, table rows, etc.) processed by workers.
+	workerItemsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "gopherstack_worker_items_total",
+			Help: "Total items processed by background workers",
+		},
+		[]string{"service", "worker"},
+	)
+
+	// workerQueueDepth is a gauge for pending work in background workers.
+	workerQueueDepth = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "gopherstack_worker_queue_depth",
+			Help: "Current queue depth for background workers",
+		},
+		[]string{"service", "worker"},
+	)
+
 	// mu protects access to metrics data structures.
 	mu sync.RWMutex
 )
@@ -129,6 +156,26 @@ func RecordStreamEvents(service string, count int) {
 	if count > 0 {
 		streamEventsTotal.WithLabelValues(service).Add(float64(count))
 	}
+}
+
+// RecordWorkerTask records that a background worker has processed a task.
+// service: e.g., "dynamodb", "s3"
+// worker: e.g., "TableCleaner", "TTLSweeper"
+// status: "success" or "error"
+func RecordWorkerTask(service, worker, status string) {
+	workerTasksTotal.WithLabelValues(service, worker, status).Inc()
+}
+
+// RecordWorkerItems records the number of items processed by a background worker.
+func RecordWorkerItems(service, worker string, count int) {
+	if count > 0 {
+		workerItemsTotal.WithLabelValues(service, worker).Add(float64(count))
+	}
+}
+
+// RecordWorkerQueueDepth updates the current queue depth for a background worker.
+func RecordWorkerQueueDepth(service, worker string, depth int) {
+	workerQueueDepth.WithLabelValues(service, worker).Set(float64(depth))
 }
 
 // GetMetrics returns a snapshot of metrics for dashboard consumption.

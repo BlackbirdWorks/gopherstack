@@ -366,7 +366,7 @@ func TestHandler_RouteMatcher_Matches(t *testing.T) {
 	t.Parallel()
 
 	h, e := newTestHandler(t)
-	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("Version=2011-06-15"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=utf-8")
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)

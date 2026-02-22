@@ -1,40 +1,91 @@
 {{define "content"}}
 <div class="space-y-6">
     <!-- Breadcrumbs -->
-    <div class="text-sm breadcrumbs">
-        <ul>
-            <li><a href="/dashboard/s3">Buckets</a></li>
-            <li><a href="/dashboard/s3/bucket/{{.BucketName}}">{{.BucketName}}</a></li>
-            <li>{{.Key}}</li>
-        </ul>
-    </div>
+    <nav class="flex" aria-label="Breadcrumb">
+        <ol class="inline-flex items-center space-x-1 md:space-x-2 rtl:space-x-reverse">
+            <li class="inline-flex items-center">
+                <a href="/dashboard/s3"
+                    class="inline-flex items-center text-sm font-medium text-gray-700 hover:text-blue-600 dark:text-gray-400 dark:hover:text-white">
+                    <svg class="w-3 h-3 me-2.5" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"
+                        fill="currentColor" viewBox="0 0 20 20">
+                        <path
+                            d="m19.707 9.293-2-2-7-7a1 1 0 0 0-1.414 0l-7 7-2 2a1 1 0 0 0 1.414 1.414L2 10.414V18a2 2 0 0 0 2 2h3a1 1 0 0 0 1-1v-4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v4a1 1 0 0 0 1 1h3a2 2 0 0 0 2-2v-7.586l.293.293a1 1 0 0 0 1.414-1.414Z" />
+                    </svg>
+                    Buckets
+                </a>
+            </li>
+            <li>
+                <div class="flex items-center">
+                    <svg class="rtl:rotate-180 w-3 h-3 text-gray-400 mx-1" aria-hidden="true"
+                        xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 6 10">
+                        <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="m1 9 4-4-4-4" />
+                    </svg>
+                    <a href="/dashboard/s3/bucket/{{.BucketName}}"
+                        class="ms-1 text-sm font-medium text-gray-700 hover:text-blue-600 md:ms-2 dark:text-gray-400 dark:hover:text-white">{{.BucketName}}</a>
+                </div>
+            </li>
+            <li aria-current="page">
+                <div class="flex items-center">
+                    <svg class="rtl:rotate-180 w-3 h-3 text-gray-400 mx-1" aria-hidden="true"
+                        xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 6 10">
+                        <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="m1 9 4-4-4-4" />
+                    </svg>
+                    <span
+                        class="ms-1 text-sm font-medium text-gray-500 md:ms-2 dark:text-gray-400 truncate max-w-xs">{{.Key}}</span>
+                </div>
+            </li>
+        </ol>
+    </nav>
 
     <!-- File Header -->
-    <div class="flex justify-between items-center bg-white dark:bg-gray-800 p-6 rounded-lg shadow border border-gray-200 dark:border-gray-700">
+    <div
+        class="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-white dark:bg-gray-800 p-6 rounded-lg shadow border border-gray-200 dark:border-gray-700 gap-4">
         <div>
-            <h1 class="text-2xl font-bold flex items-center gap-2 text-gray-900 dark:text-white">
+            <h1 class="text-2xl font-bold flex items-center gap-2 text-gray-900 dark:text-white break-all">
                 <span>📄</span> {{.Key}}
             </h1>
             <p class="text-gray-500 dark:text-gray-400 mt-1">Bucket: {{.BucketName}}</p>
         </div>
         <div class="flex gap-2 flex-wrap">
-            <a href="/dashboard/s3/bucket/{{.BucketName}}/download/{{.Key}}" class="btn btn-primary" download>
+            <a href="/dashboard/s3/bucket/{{.BucketName}}/download/{{.Key}}"
+                class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-blue-600 dark:hover:bg-blue-700 focus:outline-none dark:focus:ring-blue-800"
+                download>
                 Download
             </a>
-            <a href="/dashboard/s3/bucket/{{.BucketName}}/file/{{.Key}}/export" class="btn btn-outline" target="_blank">
+            <a href="/dashboard/s3/bucket/{{.BucketName}}/file/{{.Key}}/export"
+                class="py-2.5 px-5 text-sm font-medium text-gray-900 focus:outline-none bg-white rounded-lg border border-gray-200 hover:bg-gray-100 hover:text-blue-700 focus:z-10 focus:ring-4 focus:ring-gray-100 dark:focus:ring-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-600 dark:hover:text-white dark:hover:bg-gray-700"
+                target="_blank">
                 Export Metadata
             </a>
-            <div class="dropdown dropdown-end">
-                <button class="btn btn-error btn-outline">Delete ▾</button>
-                <ul class="dropdown-content z-[1] p-2 shadow bg-white dark:bg-gray-800 rounded-lg w-64 border border-gray-200 dark:border-gray-700">
-                    <li><button hx-delete="/dashboard/s3/bucket/{{.BucketName}}/file/{{.Key}}"
+
+            <button id="deleteDropdownButton" data-dropdown-toggle="deleteDropdown"
+                class="text-white bg-red-700 hover:bg-red-800 focus:ring-4 focus:outline-none focus:ring-red-300 font-medium rounded-lg text-sm px-5 py-2.5 text-center inline-flex items-center dark:bg-red-600 dark:hover:bg-red-700 dark:focus:ring-red-800"
+                type="button">Delete <svg class="w-2.5 h-2.5 ms-3" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"
+                    fill="none" viewBox="0 0 10 6">
+                    <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="m1 1 4 4 4-4" />
+                </svg>
+            </button>
+            <!-- Dropdown menu -->
+            <div id="deleteDropdown"
+                class="z-10 hidden bg-white divide-y divide-gray-100 rounded-lg shadow w-64 dark:bg-gray-700 dark:divide-gray-600 border border-gray-200 dark:border-gray-600">
+                <ul class="py-2 text-sm text-gray-700 dark:text-gray-200" aria-labelledby="deleteDropdownButton">
+                    <li>
+                        <button hx-delete="/dashboard/s3/bucket/{{.BucketName}}/file/{{.Key}}"
                             hx-confirm="Are you sure you want to delete the latest version? (Creates a delete marker)"
                             hx-target="body" hx-push-url="/dashboard/s3/bucket/{{.BucketName}}"
-                            class="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">Delete (Latest)</button></li>
-                    <li><button hx-delete="/dashboard/s3/bucket/{{.BucketName}}/file/{{.Key}}?deleteAll=true"
+                            class="block w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-600 dark:hover:text-white">Delete
+                            (Latest)</button>
+                    </li>
+                    <li>
+                        <button hx-delete="/dashboard/s3/bucket/{{.BucketName}}/file/{{.Key}}?deleteAll=true"
                             hx-confirm="WARNING: This will permanently delete ALL versions of this file! Are you sure?"
                             hx-target="body" hx-push-url="/dashboard/s3/bucket/{{.BucketName}}"
-                            class="block w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">Delete All Versions</button></li>
+                            class="block w-full text-left px-4 py-2 text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-600 dark:hover:text-white">Delete
+                            All Versions</button>
+                    </li>
                 </ul>
             </div>
         </div>
@@ -42,88 +93,87 @@
 
     <!-- File Details -->
     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div class="card">
-            <div class="card-body">
-                <h2 class="card-title text-sm uppercase tracking-wider text-gray-500 dark:text-gray-400">Metadata</h2>
-                <div class="overflow-x-auto">
-                    <table>
-                        <tbody>
-                            <tr>
-                                <td class="font-medium">Size</td>
-                                <td>{{.Size}}</td>
-                            </tr>
-                            <tr>
-                                <td class="font-medium">Last Modified</td>
-                                <td>{{.LastModified}}</td>
-                            </tr>
-                            <tr>
-                                <td class="font-medium">Content Type</td>
-                                <td>
-                                    <span class="badge badge-outline">{{.ContentType}}</span>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td class="font-medium">ETag</td>
-                                <td class="font-mono text-xs">{{.ETag}}</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-                {{if .Tags}}
-                <hr class="my-4 border-gray-200 dark:border-gray-700">
-                <h3 class="font-bold text-sm mb-2 text-gray-900 dark:text-white">Tags</h3>
-                <div class="flex flex-wrap gap-2">
-                    {{range $key, $value := .Tags}}
-                    <div class="badge badge-neutral">{{$key}}: {{$value}}</div>
-                    {{end}}
-                </div>
+        <div class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
+            <h2 class="mb-4 text-sm font-bold tracking-tight text-gray-500 dark:text-gray-400 uppercase">Metadata</h2>
+            <div class="relative overflow-x-auto">
+                <table class="w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
+                    <tbody>
+                        <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
+                            <td class="px-2 py-3 font-medium text-gray-900 dark:text-white">Size</td>
+                            <td class="px-2 py-3">{{.Size}}</td>
+                        </tr>
+                        <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
+                            <td class="px-2 py-3 font-medium text-gray-900 dark:text-white">Last Modified</td>
+                            <td class="px-2 py-3">{{.LastModified}}</td>
+                        </tr>
+                        <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
+                            <td class="px-2 py-3 font-medium text-gray-900 dark:text-white">Content Type</td>
+                            <td class="px-2 py-3">
+                                <span
+                                    class="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-blue-900 dark:text-blue-300">{{.ContentType}}</span>
+                            </td>
+                        </tr>
+                        <tr class="bg-white dark:bg-gray-800">
+                            <td class="px-2 py-3 font-medium text-gray-900 dark:text-white">ETag</td>
+                            <td class="px-2 py-3 font-mono text-xs break-all">{{.ETag}}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            {{if .Tags}}
+            <hr class="my-4 border-gray-200 dark:border-gray-700">
+            <h3 class="font-bold text-sm mb-2 text-gray-900 dark:text-white">Tags</h3>
+            <div class="flex flex-wrap gap-2">
+                {{range $key, $value := .Tags}}
+                <span
+                    class="bg-gray-100 text-gray-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-gray-700 dark:text-gray-300">{{$key}}:
+                    {{$value}}</span>
                 {{end}}
             </div>
+            {{end}}
         </div>
 
         {{if .VersioningEnabled}}
-        <div class="card">
-            <div class="card-body">
-                <h2 class="card-title text-sm uppercase tracking-wider text-gray-500 dark:text-gray-400">Versions</h2>
-                {{if .Versions}}
-                <div class="overflow-x-auto">
-                    <table class="table-sm">
-                        <thead>
-                            <tr>
-                                <th>Version ID</th>
-                                <th>Last Modified</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {{range .Versions}}
-                            <tr>
-                                <td class="font-mono text-xs">{{.VersionID}}</td>
-                                <td>{{.LastModified}}</td>
-                                <td>
-                                    <div class="flex gap-1">
-                                        <a href="/dashboard/s3/bucket/{{$.BucketName}}/download/{{$.Key}}?versionId={{.VersionID}}"
-                                            class="btn btn-xs btn-ghost">
-                                            Download
-                                        </a>
-                                        <button
-                                            hx-delete="/dashboard/s3/bucket/{{$.BucketName}}/file/{{$.Key}}?versionId={{.VersionID}}"
-                                            hx-confirm="Are you sure you want to permanently delete this specific version?"
-                                            hx-target="closest tr" hx-swap="outerHTML"
-                                            class="btn btn-xs btn-ghost text-red-600 dark:text-red-400">
-                                            Delete
-                                        </button>
-                                    </div>
-                                </td>
-                            </tr>
-                            {{end}}
-                        </tbody>
-                    </table>
-                </div>
-                {{else}}
-                <p class="text-gray-500 dark:text-gray-400 italic">No previous versions found.</p>
-                {{end}}
+        <div class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
+            <h2 class="mb-4 text-sm font-bold tracking-tight text-gray-500 dark:text-gray-400 uppercase">Versions</h2>
+            {{if .Versions}}
+            <div class="relative overflow-x-auto">
+                <table class="w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
+                    <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                        <tr>
+                            <th scope="col" class="px-4 py-2">Version ID</th>
+                            <th scope="col" class="px-4 py-2">Last Modified</th>
+                            <th scope="col" class="px-4 py-2 text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .Versions}}
+                        <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
+                            <td class="px-4 py-2 font-mono text-xs">{{.VersionID}}</td>
+                            <td class="px-4 py-2">{{.LastModified}}</td>
+                            <td class="px-4 py-2 text-right">
+                                <div class="inline-flex rounded-md shadow-sm" role="group">
+                                    <a href="/dashboard/s3/bucket/{{$.BucketName}}/download/{{$.Key}}?versionId={{.VersionID}}"
+                                        class="px-3 py-1 text-xs font-medium text-gray-900 bg-white border border-gray-200 rounded-s-lg hover:bg-gray-100 hover:text-blue-700 focus:z-10 focus:ring-2 focus:ring-blue-700 focus:text-blue-700 dark:bg-gray-800 dark:border-gray-600 dark:text-white dark:hover:text-white dark:hover:bg-gray-700 dark:focus:ring-blue-500 dark:focus:text-white">
+                                        Download
+                                    </a>
+                                    <button
+                                        hx-delete="/dashboard/s3/bucket/{{$.BucketName}}/file/{{$.Key}}?versionId={{.VersionID}}"
+                                        hx-confirm="Are you sure you want to permanently delete this specific version?"
+                                        hx-target="closest tr" hx-swap="outerHTML"
+                                        class="px-3 py-1 text-xs font-medium text-red-600 bg-white border border-gray-200 rounded-e-lg hover:bg-gray-100 hover:text-red-700 focus:z-10 focus:ring-2 focus:ring-red-700 focus:text-red-700 dark:bg-gray-800 dark:border-gray-600 dark:text-red-400 dark:hover:text-white dark:hover:bg-gray-700 dark:focus:ring-red-500 dark:focus:text-white">
+                                        Delete
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
             </div>
+            {{else}}
+            <p class="text-gray-500 dark:text-gray-400 italic">No previous versions found.</p>
+            {{end}}
         </div>
         {{end}}
     </div>
@@ -131,63 +181,85 @@
     <!-- Preview & Editor Extensions -->
     <div class="grid grid-cols-1 gap-6">
         {{if or .IsImage .IsPDF .IsText}}
-        <div class="card overflow-hidden">
-            <div class="card-body">
-                <h2 class="card-title text-sm uppercase tracking-wider text-gray-500 dark:text-gray-400">Preview</h2>
-                <div class="bg-gray-50 dark:bg-gray-900 rounded-lg flex justify-center items-center min-h-[200px] overflow-auto">
-                    {{if .IsImage}}
-                    <img src="/dashboard/s3/bucket/{{.BucketName}}/download/{{.Key}}" alt="{{.Key}}"
-                        class="max-w-full h-auto shadow-sm">
-                    {{else if .IsPDF}}
-                    <embed src="/dashboard/s3/bucket/{{.BucketName}}/download/{{.Key}}" type="application/pdf"
-                        width="100%" height="800px">
-                    {{else if .IsText}}
-                    <div hx-get="/dashboard/s3/bucket/{{.BucketName}}/file/{{.Key}}/preview" hx-trigger="load"
-                        class="w-full">
-                        <span class="loading loading-spinner loading-md"></span>
+        <div
+            class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700 overflow-hidden">
+            <h2 class="mb-4 text-sm font-bold tracking-tight text-gray-500 dark:text-gray-400 uppercase">Preview</h2>
+            <div
+                class="bg-gray-50 dark:bg-gray-900 rounded-lg flex justify-center items-center min-h-[200px] overflow-auto p-4 border border-gray-100 dark:border-gray-700">
+                {{if .IsImage}}
+                <img src="/dashboard/s3/bucket/{{.BucketName}}/download/{{.Key}}" alt="{{.Key}}"
+                    class="max-w-full h-auto shadow-sm rounded">
+                {{else if .IsPDF}}
+                <embed src="/dashboard/s3/bucket/{{.BucketName}}/download/{{.Key}}" type="application/pdf" width="100%"
+                    height="800px">
+                {{else if .IsText}}
+                <div hx-get="/dashboard/s3/bucket/{{.BucketName}}/file/{{.Key}}/preview" hx-trigger="load"
+                    class="w-full">
+                    <div role="status" class="flex justify-center p-8">
+                        <svg aria-hidden="true"
+                            class="w-8 h-8 text-gray-200 animate-spin dark:text-gray-600 fill-blue-600"
+                            viewBox="0 0 100 101" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path
+                                d="M100 50.5908C100 78.2051 77.6142 100.591 50 100.591C22.3858 100.591 0 78.2051 0 50.5908C0 22.9766 22.3858 0.59082 50 0.59082C77.6142 0.59082 100 22.9766 100 50.5908ZM9.08144 50.5908C9.08144 73.1895 27.4013 91.5094 50 91.5094C72.5987 91.5094 90.9186 73.1895 90.9186 50.5908C90.9186 27.9921 72.5987 9.67226 50 9.67226C27.4013 9.67226 9.08144 27.9921 9.08144 50.5908Z"
+                                fill="currentColor" />
+                            <path
+                                d="M93.9676 39.0409C96.393 38.4038 97.8624 35.9116 97.0079 33.5539C95.2932 28.8227 92.871 24.3692 89.8167 20.348C85.8452 15.1192 80.8826 10.7238 75.2124 7.41289C69.5422 4.10194 63.2754 1.94025 56.7698 1.05124C51.7666 0.367541 46.6976 0.446843 41.7345 1.27873C39.2613 1.69328 37.813 4.19778 38.4501 6.62326C39.0873 9.04874 41.5694 10.4717 44.0505 10.1071C47.8511 9.54855 51.7191 9.52689 55.5402 10.0491C60.8642 10.7766 65.9928 12.5457 70.6331 15.2552C75.2735 17.9648 79.3347 21.5619 82.5849 25.841C84.9175 28.9121 86.7997 32.2913 88.1811 35.8758C89.083 38.2158 91.5421 39.6781 93.9676 39.0409Z"
+                                fill="currentFill" />
+                        </svg>
+                        <span class="sr-only">Loading preview...</span>
                     </div>
-                    {{end}}
                 </div>
+                {{end}}
             </div>
         </div>
         {{end}}
 
         <!-- Metadata & Tagging Editor -->
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div class="card">
-                <div class="card-body">
-                    <h2 class="card-title text-sm uppercase tracking-wider text-gray-500 dark:text-gray-400">Edit Metadata</h2>
-                    <form hx-post="/dashboard/s3/bucket/{{.BucketName}}/file/{{.Key}}/metadata" hx-target="body"
-                        class="space-y-4">
-                        <div class="form-control">
-                            <label class="label"><span class="label-text">Content-Type</span></label>
-                            <input type="text" name="contentType" value="{{.ContentType}}" class="input input-bordered">
-                        </div>
-                        <button type="submit" class="btn btn-primary btn-sm">Update Content-Type</button>
-                    </form>
-                </div>
+            <div class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
+                <h2 class="mb-4 text-sm font-bold tracking-tight text-gray-500 dark:text-gray-400 uppercase">Edit
+                    Metadata</h2>
+                <form hx-post="/dashboard/s3/bucket/{{.BucketName}}/file/{{.Key}}/metadata" hx-target="body"
+                    class="space-y-4">
+                    <div>
+                        <label for="contentType"
+                            class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Content-Type</label>
+                        <input type="text" name="contentType" id="contentType" value="{{.ContentType}}"
+                            class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500">
+                    </div>
+                    <button type="submit"
+                        class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-4 py-2 dark:bg-blue-600 dark:hover:bg-blue-700 focus:outline-none dark:focus:ring-blue-800">Update
+                        Content-Type</button>
+                </form>
             </div>
 
-            <div class="card">
-                <div class="card-body">
-                    <h2 class="card-title text-sm uppercase tracking-wider text-gray-500 dark:text-gray-400">Manage Tags</h2>
-                    <form hx-post="/dashboard/s3/bucket/{{.BucketName}}/file/{{.Key}}/tag" hx-target="#tags-list"
-                        class="space-y-4">
-                        <div class="join w-full">
-                            <input type="text" name="key" placeholder="Key" class="input input-bordered join-item w-1/2" required>
-                            <input type="text" name="value" placeholder="Value" class="input input-bordered join-item w-1/2" required>
-                            <button type="submit" class="btn btn-primary join-item">Add</button>
-                        </div>
-                    </form>
-                    <div id="tags-list" class="mt-4 space-y-2">
-                        {{range $key, $value := .Tags}}
-                        <div class="flex justify-between items-center bg-gray-50 dark:bg-gray-700 p-2 rounded border border-gray-100 dark:border-gray-600">
-                            <span class="text-sm font-medium text-gray-800 dark:text-gray-200">{{$key}}: {{$value}}</span>
-                            <button hx-delete="/dashboard/s3/bucket/{{$.BucketName}}/file/{{$.Key}}/tag?key={{$key}}"
-                                hx-target="#tags-list" class="btn btn-ghost btn-xs text-red-600 dark:text-red-400">Remove</button>
-                        </div>
-                        {{end}}
+            <div class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
+                <h2 class="mb-4 text-sm font-bold tracking-tight text-gray-500 dark:text-gray-400 uppercase">Manage Tags
+                </h2>
+                <form hx-post="/dashboard/s3/bucket/{{.BucketName}}/file/{{.Key}}/tag" hx-target="#tags-list"
+                    class="space-y-4">
+                    <div class="flex gap-2">
+                        <input type="text" name="key" placeholder="Key"
+                            class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500"
+                            required>
+                        <input type="text" name="value" placeholder="Value"
+                            class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500"
+                            required>
+                        <button type="submit"
+                            class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 text-center dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800">Add</button>
                     </div>
+                </form>
+                <div id="tags-list" class="mt-4 space-y-2">
+                    {{range $key, $value := .Tags}}
+                    <div
+                        class="flex justify-between items-center bg-gray-50 dark:bg-gray-700 p-2 rounded border border-gray-100 dark:border-gray-600">
+                        <span class="text-sm font-medium text-gray-800 dark:text-gray-200 break-all">{{$key}}:
+                            {{$value}}</span>
+                        <button hx-delete="/dashboard/s3/bucket/{{$.BucketName}}/file/{{$.Key}}/tag?key={{$key}}"
+                            hx-target="#tags-list"
+                            class="text-xs font-medium text-red-600 hover:underline dark:text-red-400">Remove</button>
+                    </div>
+                    {{end}}
                 </div>
             </div>
         </div>

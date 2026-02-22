@@ -5,9 +5,9 @@ function showToast(message, type) {
     type = type || 'info';
     const colors = {
         success: 'bg-green-100 text-green-800 dark:bg-green-800 dark:text-green-200',
-        error:   'bg-red-100 text-red-800 dark:bg-red-800 dark:text-red-200',
+        error: 'bg-red-100 text-red-800 dark:bg-red-800 dark:text-red-200',
         warning: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-800 dark:text-yellow-200',
-        info:    'bg-blue-100 text-blue-800 dark:bg-blue-800 dark:text-blue-200',
+        info: 'bg-blue-100 text-blue-800 dark:bg-blue-800 dark:text-blue-200',
     };
     const icons = { success: '✅', error: '❌', warning: '⚠️', info: 'ℹ️' };
     const colorClass = colors[type] || colors.info;
@@ -23,21 +23,21 @@ function showToast(message, type) {
     toast.innerHTML = '<span>' + icon + '</span><span>' + message + '</span>';
     document.getElementById('global-alerts').appendChild(toast);
 
-    requestAnimationFrame(function() {
+    requestAnimationFrame(function () {
         toast.classList.remove('opacity-0', '-translate-y-2');
         toast.classList.add('opacity-100', 'translate-y-0');
     });
-    setTimeout(function() {
+    setTimeout(function () {
         toast.classList.add('opacity-0', '-translate-y-2');
-        setTimeout(function() { toast.remove(); }, 300);
+        setTimeout(function () { toast.remove(); }, 300);
     }, 5000);
 }
 
 // ── Copy to clipboard ──────────────────────────────────────────
 function copyToClipboard(text) {
-    navigator.clipboard.writeText(text).then(function() {
+    navigator.clipboard.writeText(text).then(function () {
         showToast('Copied to clipboard!', 'success');
-    }).catch(function(err) {
+    }).catch(function (err) {
         showToast('Failed to copy', 'error');
         console.error('Copy failed:', err);
     });
@@ -48,55 +48,84 @@ function formatJSON(obj) {
     return JSON.stringify(obj, null, 2);
 }
 
-// ── Global confirm modal (native <dialog>) ─────────────────────
+// ── Global confirm modal (Flowbite) ───────────────────────────
 function confirmDelete(message) {
-    return new Promise(function(resolve) {
-        var modal = document.getElementById('global_confirm_modal');
-        var confirmBtn = document.getElementById('global_confirm_proceed');
-        var cancelBtn  = document.getElementById('global_confirm_cancel');
-        var msgEl      = document.getElementById('global_confirm_message');
+    return new Promise(function (resolve) {
+        const modalEl = document.getElementById('global_confirm_modal');
+        const confirmBtn = document.getElementById('global_confirm_proceed');
+        const cancelBtn = document.getElementById('global_confirm_cancel');
+        const msgEl = document.getElementById('global_confirm_message');
         msgEl.textContent = message || 'Are you sure you want to delete this?';
 
-        var onConfirm = function() { modal.close(); cleanup(); resolve(true); };
-        var onCancel  = function() { modal.close(); cleanup(); resolve(false); };
-        var cleanup   = function() {
+        // Using Flowbite Modal API if available, otherwise fallback to hidden toggle
+        let modal = null;
+        if (window.Modal) {
+            modal = new Modal(modalEl);
+        }
+
+        const show = () => {
+            if (modal) modal.show();
+            else modalEl.classList.remove('hidden');
+        };
+        const hide = () => {
+            if (modal) modal.hide();
+            else modalEl.classList.add('hidden');
+        };
+
+        const onConfirm = function () { hide(); cleanup(); resolve(true); };
+        const onCancel = function () { hide(); cleanup(); resolve(false); };
+        const cleanup = function () {
             confirmBtn.removeEventListener('click', onConfirm);
             cancelBtn.removeEventListener('click', onCancel);
         };
         confirmBtn.addEventListener('click', onConfirm);
         cancelBtn.addEventListener('click', onCancel);
-        modal.showModal();
+        show();
     });
 }
 
 // ── HTMX: intercept hx-confirm ────────────────────────────────
-document.addEventListener('htmx:confirm', function(event) {
+document.addEventListener('htmx:confirm', function (event) {
     if (!event.detail.question) return;
     event.preventDefault();
 
-    var modal      = document.getElementById('global_confirm_modal');
-    var confirmBtn = document.getElementById('global_confirm_proceed');
-    var cancelBtn  = document.getElementById('global_confirm_cancel');
-    var msgEl      = document.getElementById('global_confirm_message');
+    const modalEl = document.getElementById('global_confirm_modal');
+    const confirmBtn = document.getElementById('global_confirm_proceed');
+    const cancelBtn = document.getElementById('global_confirm_cancel');
+    const msgEl = document.getElementById('global_confirm_message');
     msgEl.textContent = event.detail.question;
 
-    var handleConfirm = function() { modal.close(); cleanup(); event.detail.issueRequest(true); };
-    var handleCancel  = function() { modal.close(); cleanup(); };
-    var cleanup = function() {
+    let modal = null;
+    if (window.Modal) {
+        modal = new Modal(modalEl);
+    }
+
+    const show = () => {
+        if (modal) modal.show();
+        else modalEl.classList.remove('hidden');
+    };
+    const hide = () => {
+        if (modal) modal.hide();
+        else modalEl.classList.add('hidden');
+    };
+
+    const handleConfirm = function () { hide(); cleanup(); event.detail.issueRequest(true); };
+    const handleCancel = function () { hide(); cleanup(); };
+    const cleanup = function () {
         confirmBtn.removeEventListener('click', handleConfirm);
         cancelBtn.removeEventListener('click', handleCancel);
     };
     confirmBtn.addEventListener('click', handleConfirm);
     cancelBtn.addEventListener('click', handleCancel);
-    modal.showModal();
+    show();
 });
 
 // ── HTMX events ───────────────────────────────────────────────
-document.addEventListener('htmx:afterSwap', function() {
+document.addEventListener('htmx:afterSwap', function () {
     console.log('HTMX swap completed');
 });
 
-document.addEventListener('htmx:responseError', function(event) {
+document.addEventListener('htmx:responseError', function (event) {
     var xhr = event.detail.xhr;
     var trigger = xhr.getResponseHeader('HX-Trigger');
     if (trigger && trigger.includes('showToast')) return;
@@ -104,11 +133,11 @@ document.addEventListener('htmx:responseError', function(event) {
     console.error('HTMX error:', event.detail);
 });
 
-document.addEventListener('htmx:sendError', function() {
+document.addEventListener('htmx:sendError', function () {
     showToast('Network error. Please check your connection.', 'error');
 });
 
-document.body.addEventListener('showToast', function(event) {
+document.body.addEventListener('showToast', function (event) {
     var detail = event.detail;
     if (detail && detail.message) showToast(detail.message, detail.type || 'info');
 });
@@ -127,13 +156,13 @@ function toggleFolder(element) {
 var ThemeManager = {
     STORAGE_KEY: 'gopherstack-theme',
 
-    getCurrentTheme: function() {
+    getCurrentTheme: function () {
         var stored = localStorage.getItem(this.STORAGE_KEY);
         if (stored) return stored;
         return (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
     },
 
-    setTheme: function(theme) {
+    setTheme: function (theme) {
         var html = document.documentElement;
         if (theme === 'dark') {
             html.classList.add('dark');
@@ -144,29 +173,29 @@ var ThemeManager = {
         this.updateIcons(theme);
     },
 
-    updateIcons: function(theme) {
-        var dark  = document.getElementById('theme-icon-dark');
+    updateIcons: function (theme) {
+        var dark = document.getElementById('theme-icon-dark');
         var light = document.getElementById('theme-icon-light');
         if (theme === 'dark') {
-            dark  && dark.classList.remove('hidden');
+            dark && dark.classList.remove('hidden');
             light && light.classList.add('hidden');
         } else {
-            dark  && dark.classList.add('hidden');
+            dark && dark.classList.add('hidden');
             light && light.classList.remove('hidden');
         }
     },
 
-    toggleTheme: function() {
+    toggleTheme: function () {
         var current = document.documentElement.classList.contains('dark') ? 'dark' : 'light';
         this.setTheme(current === 'dark' ? 'light' : 'dark');
     },
 
-    init: function() {
+    init: function () {
         this.setTheme(this.getCurrentTheme());
         var btn = document.getElementById('theme-toggle');
         if (btn) btn.addEventListener('click', this.toggleTheme.bind(this));
         if (window.matchMedia) {
-            window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(e) {
+            window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function (e) {
                 if (!localStorage.getItem(ThemeManager.STORAGE_KEY)) {
                     ThemeManager.setTheme(e.matches ? 'dark' : 'light');
                 }
@@ -175,7 +204,7 @@ var ThemeManager = {
     }
 };
 
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
     ThemeManager.init();
     console.log('Gopherstack UI loaded');
 });
