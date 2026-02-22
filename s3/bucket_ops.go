@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/xml"
 	"errors"
-	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -347,10 +346,11 @@ func (h *S3Handler) getBucketLocation(
 		region = contextRegion
 	}
 
-	// Return the location constraint XML with the actual region
-	locationXML := `<?xml version="1.0" encoding="UTF-8"?>` + "\n" +
-		`<LocationConstraint xmlns="http://s3.amazonaws.com/doc/2006-03-01/">` + region + `</LocationConstraint>`
-	fmt.Fprint(w, locationXML)
+	log := logger.Load(ctx)
+	httputil.WriteXML(log, w, http.StatusOK, &LocationConstraintResponse{
+		Xmlns:  "http://s3.amazonaws.com/doc/2006-03-01/",
+		Region: region,
+	})
 }
 
 func (h *S3Handler) mapObjectsToXML(
