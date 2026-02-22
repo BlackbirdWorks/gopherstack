@@ -198,8 +198,8 @@ func (b *InMemoryBackend) GetQueueAttributes(input *GetQueueAttributesInput) (*G
 // computeDynamicAttributes returns the dynamically computed attributes for a queue.
 func computeDynamicAttributes(q *Queue) map[string]string {
 	return map[string]string{
-		attrApproxMessages:           strconv.Itoa(len(q.messages)),
-		attrApproxMessagesNotVisible: strconv.Itoa(len(q.inFlightMessages)),
+		AttrApproxMessages:           strconv.Itoa(len(q.messages)),
+		AttrApproxMessagesNotVisible: strconv.Itoa(len(q.inFlightMessages)),
 	}
 }
 

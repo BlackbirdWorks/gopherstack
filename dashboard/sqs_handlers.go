@@ -53,8 +53,8 @@ func (h *DashboardHandler) sqsIndex(c *echo.Context) error {
 			Name:             q.Name,
 			URL:              q.URL,
 			IsFIFO:           q.IsFIFO,
-			MessageCount:     q.Attributes["ApproximateNumberOfMessages"],
-			InFlightMessages: q.Attributes["ApproximateNumberOfMessagesNotVisible"],
+			MessageCount:     q.Attributes[sqsbackend.AttrApproxMessages],
+			InFlightMessages: q.Attributes[sqsbackend.AttrApproxMessagesNotVisible],
 		})
 	}
 
