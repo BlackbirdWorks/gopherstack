@@ -1,38 +1,49 @@
 /* Custom styles for Gopherstack UI */
 
-/* JSON viewer styling */
+/* Ensure theme-aware colors throughout */
+:root {
+    color-scheme: light dark;
+}
+
+html[data-theme="dark"] {
+    color-scheme: dark;
+}
+
+/* JSON viewer styling - theme aware */
 .json-viewer {
-    background-color: #f5f5f5;
+    background-color: hsl(var(--b2));
+    color: hsl(var(--bc));
     border-radius: 0.5rem;
     padding: 1rem;
     overflow-x: auto;
     font-family: 'Courier New', monospace;
     font-size: 0.875rem;
+    border: 1px solid hsl(var(--b3));
 }
 
 .json-key {
-    color: #0066cc;
+    color: hsl(var(--p) / 0.8);
     font-weight: 600;
 }
 
 .json-string {
-    color: #008000;
+    color: hsl(var(--s) / 0.8);
 }
 
 .json-number {
-    color: #ff6600;
+    color: hsl(var(--a) / 0.8);
 }
 
 .json-boolean {
-    color: #cc0066;
+    color: hsl(var(--w) / 0.8);
 }
 
 .json-null {
-    color: #999999;
+    color: hsl(var(--bc) / 0.5);
     font-style: italic;
 }
 
-/* File tree styling */
+/* File tree styling - theme aware */
 .file-tree {
     list-style: none;
     padding-left: 0;
@@ -43,10 +54,11 @@
     cursor: pointer;
     border-radius: 0.25rem;
     transition: background-color 0.2s;
+    color: hsl(var(--bc));
 }
 
 .file-tree li:hover {
-    background-color: #f0f0f0;
+    background-color: hsl(var(--b3));
 }
 
 .file-tree .folder {
@@ -70,7 +82,7 @@
     display: inline-block;
 }
 
-/* Breadcrumb styling */
+/* Breadcrumb styling - theme aware */
 .breadcrumb {
     display: flex;
     align-items: center;
@@ -79,11 +91,11 @@
 }
 
 .breadcrumb-item {
-    color: #666;
+    color: hsl(var(--bc) / 0.7);
 }
 
 .breadcrumb-item.active {
-    color: #000;
+    color: hsl(var(--bc));
     font-weight: 600;
 }
 
@@ -93,32 +105,70 @@
     -webkit-overflow-scrolling: touch;
 }
 
-/* Code block styling */
+/* Tables - theme aware with proper DaisyUI support */
+table {
+    background-color: hsl(var(--b1));
+    color: hsl(var(--bc));
+}
+
+table thead {
+    background-color: hsl(var(--b2));
+    color: hsl(var(--bc));
+}
+
+table tbody tr {
+    border-color: hsl(var(--b3));
+}
+
+table tbody tr:hover {
+    background-color: hsl(var(--b2));
+}
+
+.table {
+    background-color: hsl(var(--b1));
+}
+
+.table thead th {
+    background-color: hsl(var(--b2));
+    color: hsl(var(--bc));
+    border-bottom-color: hsl(var(--b3));
+}
+
+.table tbody tr {
+    border-bottom-color: hsl(var(--b3));
+}
+
+.table tbody tr:hover {
+    background-color: hsl(var(--b2));
+}
+
+/* Code block styling - theme aware */
 .code-block {
-    background-color: #1e1e1e;
-    color: #d4d4d4;
+    background-color: hsl(var(--b2));
+    color: hsl(var(--bc));
     padding: 1rem;
     border-radius: 0.5rem;
     overflow-x: auto;
     font-family: 'Courier New', monospace;
     font-size: 0.875rem;
+    border: 1px solid hsl(var(--b3));
 }
 
-/* Alert styling enhancements */
+/* Alert styling enhancements - theme aware */
 .alert-warning {
-    border-left: 4px solid #f59e0b;
+    border-left: 4px solid hsl(var(--wa));
 }
 
 .alert-info {
-    border-left: 4px solid #3b82f6;
+    border-left: 4px solid hsl(var(--in));
 }
 
 .alert-success {
-    border-left: 4px solid #10b981;
+    border-left: 4px solid hsl(var(--su));
 }
 
 .alert-error {
-    border-left: 4px solid #ef4444;
+    border-left: 4px solid hsl(var(--er));
 }
 
 /* Smooth transitions */
@@ -126,23 +176,23 @@
     transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
 }
 
-/* Custom scrollbar */
+/* Custom scrollbar - theme aware */
 ::-webkit-scrollbar {
     width: 8px;
     height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-    background: #f1f1f1;
+    background: hsl(var(--b2));
 }
 
 ::-webkit-scrollbar-thumb {
-    background: #888;
+    background: hsl(var(--b3));
     border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background: #555;
+    background: hsl(var(--bc) / 0.4);
 }
 
 /* Wide table layout for massive objects */
@@ -152,4 +202,6 @@
     margin-bottom: 1.5rem;
     overflow-x: auto;
     border-radius: 0.5rem;
+    background-color: hsl(var(--b1));
+    border: 1px solid hsl(var(--b3));
 }

@@ -22,11 +22,11 @@ func TestDashboard_Metrics(t *testing.T) {
 
 	t.Run("getMetricsJSON returns JSON", func(t *testing.T) {
 		t.Parallel()
-		stack := newIntegrationStack(t)
+		stack := newStack(t)
 
 		req := httptest.NewRequest(http.MethodGet, "/dashboard/api/metrics", nil)
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(stack.Dashboard, w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
@@ -37,11 +37,11 @@ func TestDashboard_Metrics(t *testing.T) {
 
 	t.Run("metricsIndex renders HTML page", func(t *testing.T) {
 		t.Parallel()
-		stack := newIntegrationStack(t)
+		stack := newStack(t)
 
 		req := httptest.NewRequest(http.MethodGet, "/dashboard/metrics", nil)
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(stack.Dashboard, w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Contains(t, w.Header().Get("Content-Type"), "text/html")
@@ -52,8 +52,8 @@ func TestDashboard_Metrics(t *testing.T) {
 func TestDashboard_GetSupportedOperations(t *testing.T) {
 	t.Parallel()
 
-	stack := newIntegrationStack(t)
-	ops := stack.handler.GetSupportedOperations()
+	stack := newStack(t)
+	ops := stack.Dashboard.GetSupportedOperations()
 
 	assert.NotNil(t, ops)
 	assert.Empty(t, ops)
@@ -65,12 +65,12 @@ func TestDashboard_DDB_DeleteItem(t *testing.T) {
 
 	t.Run("delete existing item succeeds", func(t *testing.T) {
 		t.Parallel()
-		stack := newIntegrationStack(t)
+		stack := newStack(t)
 		tableName := "del-item-table"
-		newDDBTable(t, stack, tableName)
+		stack.CreateDDBTable(t, tableName)
 
 		// Seed an item.
-		_, err := stack.dyClient.PutItem(t.Context(), &dynamodb.PutItemInput{
+		_, err := stack.DDBClient.PutItem(t.Context(), &dynamodb.PutItemInput{
 			TableName: aws.String(tableName),
 			Item: map[string]ddbtypes.AttributeValue{
 				"id": &ddbtypes.AttributeValueMemberS{Value: "to-delete"},
@@ -89,12 +89,12 @@ func TestDashboard_DDB_DeleteItem(t *testing.T) {
 			nil,
 		)
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(stack.Dashboard, w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		// Verify item is gone.
-		out, _ := stack.dyClient.GetItem(t.Context(), &dynamodb.GetItemInput{
+		out, _ := stack.DDBClient.GetItem(t.Context(), &dynamodb.GetItemInput{
 			TableName: aws.String(tableName),
 			Key: map[string]ddbtypes.AttributeValue{
 				"id": &ddbtypes.AttributeValueMemberS{Value: "to-delete"},
@@ -105,7 +105,7 @@ func TestDashboard_DDB_DeleteItem(t *testing.T) {
 
 	t.Run("delete from non-existent table returns 404", func(t *testing.T) {
 		t.Parallel()
-		stack := newIntegrationStack(t)
+		stack := newStack(t)
 
 		pkJSON, _ := json.Marshal("x")
 		req := httptest.NewRequest(
@@ -117,18 +117,18 @@ func TestDashboard_DDB_DeleteItem(t *testing.T) {
 			nil,
 		)
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(stack.Dashboard, w, req)
 
 		assert.Equal(t, http.StatusNotFound, w.Code)
 	})
 
 	t.Run("wrong method returns 405", func(t *testing.T) {
 		t.Parallel()
-		stack := newIntegrationStack(t)
+		stack := newStack(t)
 
 		req := httptest.NewRequest(http.MethodPut, "/dashboard/dynamodb/table/t/item", nil)
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(stack.Dashboard, w, req)
 
 		assert.Equal(t, http.StatusMethodNotAllowed, w.Code)
 	})
@@ -140,9 +140,9 @@ func TestDashboard_S3_TagOperations(t *testing.T) {
 
 	t.Run("add tag to object", func(t *testing.T) {
 		t.Parallel()
-		stack := newIntegrationStack(t)
+		stack := newStack(t)
 		bucketName := "tag-bucket"
-		newS3Bucket(t, stack, bucketName)
+		stack.CreateS3Bucket(t, bucketName)
 		uploadS3Object(t, stack, bucketName, "tagged.txt", "data")
 
 		form := url.Values{"key": {"env"}, "value": {"prod"}}
@@ -153,7 +153,7 @@ func TestDashboard_S3_TagOperations(t *testing.T) {
 		)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req)
+		serveHandler(stack.Dashboard, w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
 		// renderTagsList/renderTagItem produce HTML with the tag key
@@ -163,9 +163,9 @@ func TestDashboard_S3_TagOperations(t *testing.T) {
 
 	t.Run("update existing tag", func(t *testing.T) {
 		t.Parallel()
-		stack := newIntegrationStack(t)
+		stack := newStack(t)
 		bucketName := "tag-update-bucket"
-		newS3Bucket(t, stack, bucketName)
+		stack.CreateS3Bucket(t, bucketName)
 		uploadS3Object(t, stack, bucketName, "obj.txt", "data")
 
 		// Add initial tag.
@@ -176,7 +176,7 @@ func TestDashboard_S3_TagOperations(t *testing.T) {
 			strings.NewReader(form.Encode()),
 		)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		serveHandler(stack.handler, httptest.NewRecorder(), req)
+		serveHandler(stack.Dashboard, httptest.NewRecorder(), req)
 
 		// Update it.
 		form2 := url.Values{"key": {"color"}, "value": {"blue"}}
@@ -187,7 +187,7 @@ func TestDashboard_S3_TagOperations(t *testing.T) {
 		)
 		req2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req2)
+		serveHandler(stack.Dashboard, w, req2)
 
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Contains(t, w.Body.String(), "blue")
@@ -195,9 +195,9 @@ func TestDashboard_S3_TagOperations(t *testing.T) {
 
 	t.Run("delete tag from object", func(t *testing.T) {
 		t.Parallel()
-		stack := newIntegrationStack(t)
+		stack := newStack(t)
 		bucketName := "tag-del-bucket"
-		newS3Bucket(t, stack, bucketName)
+		stack.CreateS3Bucket(t, bucketName)
 		uploadS3Object(t, stack, bucketName, "del.txt", "data")
 
 		// Add two tags first (so after deletion one remains).
@@ -209,7 +209,7 @@ func TestDashboard_S3_TagOperations(t *testing.T) {
 				strings.NewReader(form.Encode()),
 			)
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-			serveHandler(stack.handler, httptest.NewRecorder(), req)
+			serveHandler(stack.Dashboard, httptest.NewRecorder(), req)
 		}
 
 		// Delete one of the tags.
@@ -223,7 +223,7 @@ func TestDashboard_S3_TagOperations(t *testing.T) {
 			nil,
 		)
 		w := httptest.NewRecorder()
-		serveHandler(stack.handler, w, req2)
+		serveHandler(stack.Dashboard, w, req2)
 
 		assert.Equal(t, http.StatusOK, w.Code)
 		// Deleted tag should not appear in rendered list; kept tag should.
@@ -236,9 +236,9 @@ func TestDashboard_S3_TagOperations(t *testing.T) {
 func TestDashboard_S3_UpdateMetadata(t *testing.T) {
 	t.Parallel()
 
-	stack := newIntegrationStack(t)
+	stack := newStack(t)
 	bucketName := "meta-update-bucket"
-	newS3Bucket(t, stack, bucketName)
+	stack.CreateS3Bucket(t, bucketName)
 	uploadS3Object(t, stack, bucketName, "doc.txt", "hello")
 
 	form := url.Values{"contentType": {"text/plain"}}
@@ -249,8 +249,24 @@ func TestDashboard_S3_UpdateMetadata(t *testing.T) {
 	)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
-	serveHandler(stack.handler, w, req)
+	serveHandler(stack.Dashboard, w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Equal(t, "true", w.Header().Get("Hx-Refresh"))
+}
+
+// TestDashboard_STS covers the STS index page.
+func TestDashboard_STS(t *testing.T) {
+	t.Parallel()
+
+	stack := newStack(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/sts", nil)
+	w := httptest.NewRecorder()
+	serveHandler(stack.Dashboard, w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Header().Get("Content-Type"), "text/html")
+	assert.Contains(t, w.Body.String(), "STS Security Token Service")
+	assert.Contains(t, w.Body.String(), "123456789012")
 }

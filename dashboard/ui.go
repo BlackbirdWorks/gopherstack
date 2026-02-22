@@ -13,12 +13,14 @@ import (
 	"github.com/labstack/echo/v5"
 
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
+	iambackend "github.com/blackbirdworks/gopherstack/iam"
 	pkgslogger "github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
 	snsbackend "github.com/blackbirdworks/gopherstack/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/ssm"
+	stsbackend "github.com/blackbirdworks/gopherstack/sts"
 )
 
 const (
@@ -55,6 +57,8 @@ type DashboardHandler struct {
 	DDBOps   *ddbbackend.DynamoDBHandler
 	S3Ops    *s3backend.S3Handler
 	SSMOps   *ssmbackend.Handler
+	IAMOps   *iambackend.Handler
+	STSOps   *stsbackend.Handler
 	SNSOps   *snsbackend.Handler
 	SQSOps   *sqsbackend.Handler
 
@@ -67,27 +71,30 @@ type DashboardHandler struct {
 	SubRouter *echo.Echo
 }
 
+// Config holds all dependencies for the Dashboard handler.
+type Config struct {
+	DDBClient *dynamodb.Client
+	S3Client  *s3.Client
+	SSMClient *ssmsdk.Client
+	DDBOps    *ddbbackend.DynamoDBHandler
+	S3Ops     *s3backend.S3Handler
+	SSMOps    *ssmbackend.Handler
+	IAMOps    *iambackend.Handler
+	STSOps    *stsbackend.Handler
+	SNSOps    *snsbackend.Handler
+	SQSOps    *sqsbackend.Handler
+	Logger    *slog.Logger
+}
+
 // NewHandler creates a new Dashboard handler.
-// It supports both registry-based discovery and legacy direct SDK client injection.
-// The registry parameter may be nil for backward compatibility.
-// If registry is provided, it discovers and initializes all DashboardProviders.
-// If SDK clients are provided, they are used for the legacy handlers.
-func NewHandler(
-	ddbClient *dynamodb.Client,
-	s3Client *s3.Client,
-	ssmClient *ssmsdk.Client,
-	ddbOps *ddbbackend.DynamoDBHandler,
-	s3Ops *s3backend.S3Handler,
-	ssmOps *ssmbackend.Handler,
-	snsOps *snsbackend.Handler,
-	sqsOps *sqsbackend.Handler,
-	logger *slog.Logger,
-) *DashboardHandler {
+func NewHandler(cfg Config) *DashboardHandler {
 	// Parse layout and components
 	tmpl := template.Must(template.ParseFS(templateFS,
 		"templates/layout.html",
 		"templates/components/*.html",
 		"templates/ssm/*.html",
+		"templates/iam/*.html",
+		"templates/sts/*.html",
 		"templates/sns/*.html",
 		"templates/sqs/*.html",
 	))
@@ -97,22 +104,24 @@ func NewHandler(
 	s3Provider := s3backend.NewDashboardProvider()
 
 	h := &DashboardHandler{
-		DynamoDB:    ddbClient,
-		S3:          s3Client,
-		SSM:         ssmClient,
-		DDBOps:      ddbOps,
-		S3Ops:       s3Ops,
-		SSMOps:      ssmOps,
-		SNSOps:      snsOps,
-		SQSOps:      sqsOps,
-		Logger:      logger,
+		DynamoDB:    cfg.DDBClient,
+		S3:          cfg.S3Client,
+		SSM:         cfg.SSMClient,
+		DDBOps:      cfg.DDBOps,
+		S3Ops:       cfg.S3Ops,
+		SSMOps:      cfg.SSMOps,
+		IAMOps:      cfg.IAMOps,
+		STSOps:      cfg.STSOps,
+		SNSOps:      cfg.SNSOps,
+		SQSOps:      cfg.SQSOps,
+		Logger:      cfg.Logger,
 		layout:      tmpl,
 		ddbProvider: ddbProvider,
 		s3Provider:  s3Provider,
 		SubRouter:   echo.New(),
 	}
 
-	h.SubRouter.Pre(pkgslogger.EchoMiddleware(logger))
+	h.SubRouter.Pre(pkgslogger.EchoMiddleware(cfg.Logger))
 
 	// Set up handler functions for providers
 	h.ddbProvider.Handlers.HandleDynamoDB = h.handleDynamoDB
@@ -159,6 +168,20 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.SubRouter.GET("/dashboard/ssm/modal/put", h.ssmPutModal)
 	h.SubRouter.POST("/dashboard/ssm/put", h.ssmPutParameter)
 	h.SubRouter.DELETE("/dashboard/ssm/delete", h.ssmDeleteParameter)
+
+	// IAM routes (direct dashboard integration)
+	h.SubRouter.GET("/dashboard/iam", h.iamIndex)
+	h.SubRouter.POST("/dashboard/iam/user", h.iamCreateUser)
+	h.SubRouter.DELETE("/dashboard/iam/user", h.iamDeleteUser)
+	h.SubRouter.POST("/dashboard/iam/role", h.iamCreateRole)
+	h.SubRouter.DELETE("/dashboard/iam/role", h.iamDeleteRole)
+	h.SubRouter.POST("/dashboard/iam/policy", h.iamCreatePolicy)
+	h.SubRouter.DELETE("/dashboard/iam/policy", h.iamDeletePolicy)
+	h.SubRouter.POST("/dashboard/iam/group", h.iamCreateGroup)
+	h.SubRouter.DELETE("/dashboard/iam/group", h.iamDeleteGroup)
+
+	// STS routes
+	h.SubRouter.GET("/dashboard/sts", h.stsIndex)
 
 	// SNS routes (direct dashboard integration)
 	h.SubRouter.GET("/dashboard/sns", h.snsIndex)
@@ -231,6 +254,10 @@ func (h *DashboardHandler) ExtractOperation(c *echo.Context) string {
 		return "S3"
 	case strings.HasPrefix(path, "/ssm"):
 		return "SSM"
+	case strings.HasPrefix(path, "/iam"):
+		return "IAM"
+	case strings.HasPrefix(path, "/sts"):
+		return "STS"
 	case strings.HasPrefix(path, "/sns"):
 		return "SNS"
 	case strings.HasPrefix(path, "/sqs"):

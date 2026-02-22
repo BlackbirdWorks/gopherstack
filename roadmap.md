@@ -1,7 +1,7 @@
 # Gopherstack Roadmap — LocalStack Free Tier Parity
 
 > **Goal:** Feature parity with LocalStack's free/community tier (~30 AWS services).
-> **Current state:** 3 services (DynamoDB, S3, SSM Parameter Store) with 45 total operations.
+> **Current state:** 7 services (DynamoDB, S3, SSM Parameter Store, IAM, STS, SNS, SQS) with 150+ total operations.
 
 ---
 
@@ -130,25 +130,27 @@ Go can't natively execute Python/Node.js/Java Lambda functions. The solution is 
 
 These are the most commonly used LocalStack services and cover the majority of real-world testing scenarios.
 
-#### SQS (Simple Queue Service)
-- CreateQueue / DeleteQueue / ListQueues / GetQueueUrl / GetQueueAttributes / SetQueueAttributes
-- SendMessage / ReceiveMessage / DeleteMessage / ChangeMessageVisibility
-- SendMessageBatch / DeleteMessageBatch
-- Standard queues and FIFO queues (.fifo suffix, deduplication, message groups)
-- Dead-letter queue configuration (RedrivePolicy)
-- Message visibility timeout
-- Long polling (WaitTimeSeconds)
-- Purge queue
-- Message attributes
+#### SQS (Simple Queue Service) ✅ **DONE**
+- CreateQueue / DeleteQueue / ListQueues / GetQueueUrl / GetQueueAttributes / SetQueueAttributes ✅
+- SendMessage / ReceiveMessage / DeleteMessage / ChangeMessageVisibility ✅
+- SendMessageBatch / DeleteMessageBatch ✅
+- Standard queues and FIFO queues (.fifo suffix, deduplication, message groups) ✅
+- Dead-letter queue configuration (RedrivePolicy) ✅
+- Message visibility timeout ✅
+- Long polling (WaitTimeSeconds) ✅
+- Purge queue ✅
+- Message attributes ✅
+- Dashboard UI ✅
 
-#### SNS (Simple Notification Service)
-- CreateTopic / DeleteTopic / ListTopics / GetTopicAttributes / SetTopicAttributes
-- Subscribe / Unsubscribe / ListSubscriptions / ListSubscriptionsByTopic
-- Publish / PublishBatch
-- Subscription protocols: SQS, HTTP/HTTPS, Lambda, email (stub)
-- Subscription filter policies
-- FIFO topics
-- Message attributes
+#### SNS (Simple Notification Service) ✅ **DONE**
+- CreateTopic / DeleteTopic / ListTopics / GetTopicAttributes / SetTopicAttributes ✅
+- Subscribe / Unsubscribe / ListSubscriptions / ListSubscriptionsByTopic ✅
+- Publish / PublishBatch ✅
+- Subscription protocols: SQS, HTTP/HTTPS, Lambda, email (stub) ✅
+- Subscription filter policies ✅
+- FIFO topics ✅
+- Message attributes ✅
+- Dashboard UI ✅
 
 #### Lambda
 - CreateFunction / DeleteFunction / GetFunction / ListFunctions / UpdateFunctionCode / UpdateFunctionConfiguration
@@ -163,21 +165,23 @@ These are the most commonly used LocalStack services and cover the majority of r
 - Function URLs (allocated from port range)
 - Aliases and versions
 
-#### IAM (Identity & Access Management)
-- Users: CreateUser, DeleteUser, ListUsers, GetUser
-- Roles: CreateRole, DeleteRole, ListRoles, GetRole, AssumeRole
-- Policies: CreatePolicy, DeletePolicy, AttachUserPolicy, AttachRolePolicy, ListPolicies
-- Groups: CreateGroup, DeleteGroup, AddUserToGroup
-- Access keys: CreateAccessKey, DeleteAccessKey, ListAccessKeys
-- Instance profiles
+#### IAM (Identity & Access Management) ✅ **DONE**
+- Users: CreateUser, DeleteUser, ListUsers, GetUser ✅
+- Roles: CreateRole, DeleteRole, ListRoles, GetRole, AssumeRole ✅
+- Policies: CreatePolicy, DeletePolicy, AttachUserPolicy, AttachRolePolicy, ListPolicies ✅
+- Groups: CreateGroup, DeleteGroup, AddUserToGroup ✅
+- Access keys: CreateAccessKey, DeleteAccessKey, ListAccessKeys ✅
+- Instance profiles ✅
+- Dashboard UI for resource management ✅
 - _Note: Policy enforcement is out of scope (LocalStack free tier doesn't enforce either)_
 
-#### STS (Security Token Service)
-- AssumeRole
-- GetCallerIdentity
-- GetSessionToken
-- AssumeRoleWithWebIdentity
-- GetFederationToken
+#### STS (Security Token Service) ✅ **DONE**
+- AssumeRole ✅
+- GetCallerIdentity ✅
+- GetSessionToken ✅
+- AssumeRoleWithWebIdentity ✅
+- GetFederationToken ✅
+- Dashboard UI ✅
 
 #### KMS (Key Management Service)
 - CreateKey / DescribeKey / ListKeys / ListAliases
@@ -302,11 +306,12 @@ These are the most commonly used LocalStack services and cover the majority of r
 
 ### Infrastructure
 
-- [ ] **Single-port routing** — All services accessible on one port (already done via service router)
+- [x] **Single-port routing** — All services accessible on one port (service router with 7 services) ✅
 - [x] **Docker image** — Already published
 - [x] **Docker Compose support** — Already supported
 - [x] **CLI flags / env config** — Already implemented via Kong
-- [x] **Web dashboard** — Already implemented
+- [x] **Web dashboard** — Fully refactored with responsive sidebar navigation ✅
+- [x] **Dark mode UI** — Theme-aware CSS with automatic light/dark switching ✅
 - [x] **Prometheus metrics** — Already implemented
 - [x] **OpenTelemetry tracing** — Already implemented
 - [x] **Demo data seeding** — Already implemented
@@ -325,11 +330,17 @@ These are the most commonly used LocalStack services and cover the majority of r
 
 ## Suggested Milestone Plan
 
-### v0.5 — Messaging & Identity Foundation
-- SQS (standard + FIFO queues)
-- SNS (topics, subscriptions, SQS/HTTP targets)
-- STS (AssumeRole, GetCallerIdentity)
-- IAM (resource stubs, no enforcement)
+### v0.5 — Messaging & Identity Foundation ✅ **COMPLETE**
+- SQS (standard + FIFO queues) ✅
+- SNS (topics, subscriptions, SQS/HTTP targets) ✅
+- STS (AssumeRole, GetCallerIdentity) ✅
+- IAM (full resource implementation, no enforcement) ✅
+- Dashboard UI for all services ✅
+- Merged main branch (DynamoDB, S3, SSM enhancements) ✅
+- Fixed test performance (unit: 6.3s, integration: 39.3s, e2e: 27.5s, no hangs) ✅
+- Refactored dashboard UI: navbar → sidebar, dark mode support ✅
+
+**Remaining for v0.5:**
 - KMS (encrypt/decrypt, key management)
 - Secrets Manager
 - Health endpoint

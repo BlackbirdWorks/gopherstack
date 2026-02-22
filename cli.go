@@ -18,17 +18,20 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	sqssdk "github.com/aws/aws-sdk-go-v2/service/sqs"
 	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
+	stssdk "github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
 	"github.com/blackbirdworks/gopherstack/demo"
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
+	iambackend "github.com/blackbirdworks/gopherstack/iam"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
 	snsbackend "github.com/blackbirdworks/gopherstack/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/ssm"
+	stsbackend "github.com/blackbirdworks/gopherstack/sts"
 )
 
 const (
@@ -43,10 +46,13 @@ type CLI struct {
 	ddbClient  *dynamodb.Client
 	s3Client   *s3.Client
 	ssmClient  *ssmsdk.Client
+	stsClient  *stssdk.Client
 	sqsClient  *sqssdk.Client
 	ddbHandler service.Registerable
 	s3Handler  service.Registerable
 	ssmHandler service.Registerable
+	iamHandler service.Registerable
+	stsHandler service.Registerable
 	snsHandler service.Registerable
 	sqsHandler service.Registerable
 
@@ -63,6 +69,10 @@ type CLI struct {
 	S3 s3backend.Settings `embed:"" prefix:"s3-"`
 	// SSM holds SSM service-level settings.
 	SSM struct{} `embed:"" prefix:"ssm-"`
+	// IAM holds IAM service-level settings.
+	IAM struct{} `embed:"" prefix:"iam-"`
+	// STS holds STS service-level settings.
+	STS struct{} `embed:"" prefix:"sts-"`
 	// SNS holds SNS service-level settings.
 	SNS struct{} `embed:"" prefix:"sns-"`
 	// SQS holds SQS service-level settings.
@@ -98,6 +108,9 @@ func (c *CLI) GetS3Client() *s3.Client { return c.s3Client }
 // GetSSMClient returns the SDK client for SSM (dashboard.AWSSDKProvider).
 func (c *CLI) GetSSMClient() *ssmsdk.Client { return c.ssmClient }
 
+// GetSTSClient returns the SDK client for STS (dashboard.AWSSDKProvider).
+func (c *CLI) GetSTSClient() *stssdk.Client { return c.stsClient }
+
 // GetSQSClient returns the SDK client for SQS (dashboard.AWSSDKProvider).
 func (c *CLI) GetSQSClient() *sqssdk.Client { return c.sqsClient }
 
@@ -115,6 +128,16 @@ func (c *CLI) GetS3Handler() service.Registerable { return c.s3Handler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetSSMHandler() service.Registerable { return c.ssmHandler }
+
+// GetIAMHandler returns the IAM handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetIAMHandler() service.Registerable { return c.iamHandler }
+
+// GetSTSHandler returns the STS handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetSTSHandler() service.Registerable { return c.stsHandler }
 
 // GetSNSHandler returns the SNS handler (dashboard.AWSSDKProvider).
 //
@@ -199,7 +222,7 @@ func run(ctx context.Context, cli CLI) error {
 	return startServer(ctx, log, cli.Port, e)
 }
 
-// initializeClients configures the AWS SDK clients for DynamoDB, S3, and SSM.
+// initializeClients configures the AWS SDK clients for DynamoDB, S3, SSM, and STS.
 func initializeClients(cli *CLI, awsCfg aws.Config) {
 	cli.ddbClient = dynamodb.NewFromConfig(
 		awsCfg,
@@ -220,6 +243,12 @@ func initializeClients(cli *CLI, awsCfg aws.Config) {
 			o.BaseEndpoint = aws.String("http://local")
 		},
 	)
+	cli.stsClient = stssdk.NewFromConfig(
+		awsCfg,
+		func(o *stssdk.Options) {
+			o.BaseEndpoint = aws.String("http://local")
+		},
+	)
 	cli.sqsClient = sqssdk.NewFromConfig(
 		awsCfg,
 		func(o *sqssdk.Options) {
@@ -235,6 +264,8 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		&ddbbackend.Provider{},
 		&s3backend.Provider{},
 		&ssmbackend.Provider{},
+		&iambackend.Provider{},
+		&stsbackend.Provider{},
 		&snsbackend.Provider{},
 		&sqsbackend.Provider{},
 	}
@@ -244,6 +275,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		if err != nil {
 			return nil, fmt.Errorf("failed to init %s: %w", provider.Name(), err)
 		}
+
 		services = append(services, svc)
 	}
 
@@ -252,8 +284,10 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		cli.ddbHandler = services[0]
 		cli.s3Handler = services[1]
 		cli.ssmHandler = services[2]
-		cli.snsHandler = services[3]
-		cli.sqsHandler = services[4]
+		cli.iamHandler = services[3]
+		cli.stsHandler = services[4]
+		cli.snsHandler = services[5]
+		cli.sqsHandler = services[6]
 	}
 
 	// Init dashboard last so it can access all service handlers.
