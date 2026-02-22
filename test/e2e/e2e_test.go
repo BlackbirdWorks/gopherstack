@@ -501,29 +501,46 @@ func TestE2E_S3_FolderNavigation(t *testing.T) {
 		}
 	}()
 
-	// 1. Go to bucket detail
+	// 1. Go to bucket detail; wait for HTMX hx-trigger="load" to populate the tree.
 	_, err = page.Goto(server.URL + "/dashboard/s3/bucket/nav-bucket")
 	require.NoError(t, err)
+	require.NoError(t, page.WaitForLoadState(playwright.PageWaitForLoadStateOptions{
+		State:   playwright.LoadStateNetworkidle,
+		Timeout: playwright.Float(10000),
+	}))
 
 	// 2. Verify tree structure (initially should see 'logs/' and 'readme.md')
 	require.NoError(t, page.Locator("#file-tree:has-text('logs')").WaitFor())
 	require.NoError(t, page.Locator("#file-tree:has-text('readme.md')").WaitFor())
 
-	// 3. Navigate into 'logs/'
+	// 3. Navigate into 'logs/' and wait for HTMX to load its contents.
 	logsNode := page.Locator(".collapse:has-text('logs')")
 	err = logsNode.Locator("input[type='checkbox']").Check()
 	require.NoError(t, err)
+	require.NoError(t, page.WaitForLoadState(playwright.PageWaitForLoadStateOptions{
+		State:   playwright.LoadStateNetworkidle,
+		Timeout: playwright.Float(10000),
+	}))
 
-	// 4. Verify '2024/' appears
+	// 4. Verify '2024/' is visible and navigate into it.
 	yearNode := logsNode.Locator(".collapse:has-text('2024')")
-	require.NoError(t, yearNode.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateAttached}))
+	require.NoError(t, yearNode.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible}))
 	err = yearNode.Locator("input[type='checkbox']").Check()
 	require.NoError(t, err)
+	require.NoError(t, page.WaitForLoadState(playwright.PageWaitForLoadStateOptions{
+		State:   playwright.LoadStateNetworkidle,
+		Timeout: playwright.Float(10000),
+	}))
 
+	// 5. Verify '01/' is visible and navigate into it.
 	monthNode := yearNode.Locator(".collapse:has-text('01')")
-	require.NoError(t, monthNode.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateAttached}))
+	require.NoError(t, monthNode.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible}))
 	err = monthNode.Locator("input[type='checkbox']").Check()
 	require.NoError(t, err)
+	require.NoError(t, page.WaitForLoadState(playwright.PageWaitForLoadStateOptions{
+		State:   playwright.LoadStateNetworkidle,
+		Timeout: playwright.Float(10000),
+	}))
 
 	// 6. Verify 'app.log' appears
 	require.NoError(t, page.Locator("#file-tree:has-text('app.log')").WaitFor())
