@@ -17,6 +17,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
 	snsbackend "github.com/blackbirdworks/gopherstack/sns"
+	sqsbackend "github.com/blackbirdworks/gopherstack/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/ssm"
 )
 
@@ -55,6 +56,7 @@ type DashboardHandler struct {
 	S3Ops    *s3backend.S3Handler
 	SSMOps   *ssmbackend.Handler
 	SNSOps   *snsbackend.Handler
+	SQSOps   *sqsbackend.Handler
 
 	// Dashboard providers for service discovery
 	ddbProvider *ddbbackend.DashboardProvider
@@ -78,6 +80,7 @@ func NewHandler(
 	s3Ops *s3backend.S3Handler,
 	ssmOps *ssmbackend.Handler,
 	snsOps *snsbackend.Handler,
+	sqsOps *sqsbackend.Handler,
 	logger *slog.Logger,
 ) *DashboardHandler {
 	// Parse layout and components
@@ -86,6 +89,7 @@ func NewHandler(
 		"templates/components/*.html",
 		"templates/ssm/*.html",
 		"templates/sns/*.html",
+		"templates/sqs/*.html",
 	))
 
 	// Create service-specific dashboard providers
@@ -100,6 +104,7 @@ func NewHandler(
 		S3Ops:       s3Ops,
 		SSMOps:      ssmOps,
 		SNSOps:      snsOps,
+		SQSOps:      sqsOps,
 		Logger:      logger,
 		layout:      tmpl,
 		ddbProvider: ddbProvider,
@@ -161,6 +166,14 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.SubRouter.DELETE("/dashboard/sns/delete", h.snsDeleteTopic)
 	h.SubRouter.GET("/dashboard/sns/topic", h.snsTopicDetail)
 
+	// SQS routes
+	h.SubRouter.GET("/dashboard/sqs", h.sqsIndex)
+	h.SubRouter.GET("/dashboard/sqs/create", h.sqsCreateQueueModal)
+	h.SubRouter.POST("/dashboard/sqs/create", h.sqsCreateQueue)
+	h.SubRouter.DELETE("/dashboard/sqs/delete", h.sqsDeleteQueue)
+	h.SubRouter.POST("/dashboard/sqs/purge", h.sqsPurgeQueue)
+	h.SubRouter.GET("/dashboard/sqs/queue", h.sqsQueueDetail)
+
 	// Metrics & Docs (always available)
 	dashboardGroup := h.SubRouter.Group("/dashboard")
 	RegisterMetricsHandlers(dashboardGroup, h)
@@ -220,6 +233,8 @@ func (h *DashboardHandler) ExtractOperation(c *echo.Context) string {
 		return "SSM"
 	case strings.HasPrefix(path, "/sns"):
 		return "SNS"
+	case strings.HasPrefix(path, "/sqs"):
+		return "SQS"
 	case strings.HasPrefix(path, "/metrics"):
 		return "Metrics"
 	case strings.HasPrefix(path, "/docs"):
