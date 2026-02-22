@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"strings" // Added for strings.NewReader
+	"strings"
 	"testing"
 
 	"github.com/blackbirdworks/gopherstack/ssm"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
 // TestInMemoryBackend verifies the logic of the in-memory SSM storage.
@@ -791,4 +792,247 @@ func TestSSMHandlerNewOps(t *testing.T) {
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 		assert.Len(t, out.Parameters, 3)
 	})
+}
+
+// TestSSMHandlerInterface verifies handler interface methods.
+func TestSSMHandlerInterface(t *testing.T) {
+t.Parallel()
+
+log := logger.NewLogger(slog.LevelDebug)
+backend := ssm.NewInMemoryBackend()
+h := ssm.NewHandler(backend, log)
+
+assert.Equal(t, "SSM", h.Name())
+assert.Equal(t, 100, h.MatchPriority())
+
+e := echo.New()
+
+// ExtractOperation
+req := httptest.NewRequest(http.MethodPost, "/", nil)
+req.Header.Set("X-Amz-Target", "AmazonSSM.GetParameter")
+c := e.NewContext(req, httptest.NewRecorder())
+assert.Equal(t, "GetParameter", h.ExtractOperation(c))
+
+// ExtractOperation with no separator
+req2 := httptest.NewRequest(http.MethodPost, "/", nil)
+req2.Header.Set("X-Amz-Target", "AmazonSSMNoSep")
+c2 := e.NewContext(req2, httptest.NewRecorder())
+assert.Equal(t, "Unknown", h.ExtractOperation(c2))
+
+// ExtractResource with Name
+body := `{"Name":"/my/param"}`
+req3 := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+c3 := e.NewContext(req3, httptest.NewRecorder())
+assert.Equal(t, "/my/param", h.ExtractResource(c3))
+
+// ExtractResource with no Name
+req4 := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`))
+c4 := e.NewContext(req4, httptest.NewRecorder())
+assert.Empty(t, h.ExtractResource(c4))
+}
+
+// TestSSMProvider verifies the Provider.
+func TestSSMProvider(t *testing.T) {
+t.Parallel()
+
+p := &ssm.Provider{}
+assert.Equal(t, "SSM", p.Name())
+
+log := logger.NewLogger(slog.LevelDebug)
+ctx := &service.AppContext{Logger: log}
+svc, err := p.Init(ctx)
+require.NoError(t, err)
+assert.NotNil(t, svc)
+}
+
+// TestSSMHandlerErrorCases exercises handleError paths.
+func TestSSMHandlerErrorCases(t *testing.T) {
+t.Parallel()
+
+tests := []struct {
+target         string
+body           string
+name           string
+expectedErrTyp string
+expectedStatus int
+}{
+{
+name:           "ParameterNotFound",
+target:         "AmazonSSM.GetParameter",
+body:           `{"Name":"/missing/param"}`,
+expectedStatus: http.StatusBadRequest,
+expectedErrTyp: "ParameterNotFound",
+},
+{
+name:           "ParameterAlreadyExists",
+target:         "AmazonSSM.PutParameter",
+body:           `{"Name":"/existing","Type":"String","Value":"v2","Overwrite":false}`,
+expectedStatus: http.StatusBadRequest,
+expectedErrTyp: "ParameterAlreadyExists",
+},
+{
+name:           "InvalidTarget",
+target:         "AmazonSSMNoSep",
+body:           `{}`,
+expectedStatus: http.StatusBadRequest,
+},
+}
+
+for _, tt := range tests {
+t.Run(tt.name, func(t *testing.T) {
+t.Parallel()
+
+e := echo.New()
+log := logger.NewLogger(slog.LevelDebug)
+backend := ssm.NewInMemoryBackend()
+h := ssm.NewHandler(backend, log)
+
+if tt.name == "ParameterAlreadyExists" {
+_, _ = backend.PutParameter(&ssm.PutParameterInput{Name: "/existing", Type: "String", Value: "v1"})
+}
+
+req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tt.body))
+req.Header.Set("X-Amz-Target", tt.target)
+rec := httptest.NewRecorder()
+
+require.NoError(t, h.Handler()(e.NewContext(req, rec)))
+assert.Equal(t, tt.expectedStatus, rec.Code)
+
+if tt.expectedErrTyp != "" {
+var errResp ssm.ErrorResponse
+require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+assert.Equal(t, tt.expectedErrTyp, errResp.Type)
+}
+})
+}
+}
+
+// TestSSMParamMatchesFilterOptions exercises paramMatchesFilter with different options.
+func TestSSMParamMatchesFilterOptions(t *testing.T) {
+t.Parallel()
+
+backend := ssm.NewInMemoryBackend()
+_, _ = backend.PutParameter(&ssm.PutParameterInput{Name: "/app/db/host", Type: "String", Value: "localhost"})
+_, _ = backend.PutParameter(&ssm.PutParameterInput{Name: "/app/cache/host", Type: "SecureString", Value: "cache"})
+_, _ = backend.PutParameter(&ssm.PutParameterInput{Name: "/other/key", Type: "String", Value: "v"})
+
+t.Run("Contains", func(t *testing.T) {
+t.Parallel()
+
+out, err := backend.DescribeParameters(&ssm.DescribeParametersInput{
+ParameterFilters: []ssm.ParameterFilter{
+{Key: "Name", Option: "Contains", Values: []string{"db"}},
+},
+})
+require.NoError(t, err)
+assert.Len(t, out.Parameters, 1)
+assert.Equal(t, "/app/db/host", out.Parameters[0].Name)
+})
+
+t.Run("UnknownKeyIgnored", func(t *testing.T) {
+t.Parallel()
+
+out, err := backend.DescribeParameters(&ssm.DescribeParametersInput{
+ParameterFilters: []ssm.ParameterFilter{
+{Key: "UnknownKey", Option: "Equals", Values: []string{"anything"}},
+},
+})
+require.NoError(t, err)
+// Unknown filter key matches everything
+assert.Len(t, out.Parameters, 3)
+})
+
+t.Run("DefaultOptionIsEquals", func(t *testing.T) {
+t.Parallel()
+
+out, err := backend.DescribeParameters(&ssm.DescribeParametersInput{
+ParameterFilters: []ssm.ParameterFilter{
+{Key: "Type", Values: []string{"SecureString"}},
+},
+})
+require.NoError(t, err)
+assert.Len(t, out.Parameters, 1)
+})
+}
+
+// TestSSMParseNextTokenBadToken verifies parseNextToken handles invalid tokens.
+func TestSSMParseNextTokenBadToken(t *testing.T) {
+t.Parallel()
+
+backend := ssm.NewInMemoryBackend()
+for i := range 3 {
+_, _ = backend.PutParameter(&ssm.PutParameterInput{
+Name: "/p" + string(rune('0'+i)), Type: "String", Value: "v",
+})
+}
+
+// A bad token is treated as 0 (start from beginning)
+out, err := backend.DescribeParameters(&ssm.DescribeParametersInput{
+NextToken: "not-a-number",
+})
+require.NoError(t, err)
+assert.Len(t, out.Parameters, 3)
+}
+
+// TestSSMHandlerGetParametersByPathViaHTTP tests GetParametersByPath via HTTP handler.
+func TestSSMHandlerGetParametersByPathViaHTTP(t *testing.T) {
+t.Parallel()
+
+e := echo.New()
+log := logger.NewLogger(slog.LevelDebug)
+backend := ssm.NewInMemoryBackend()
+h := ssm.NewHandler(backend, log)
+
+_, _ = backend.PutParameter(&ssm.PutParameterInput{Name: "/svc/a", Type: "String", Value: "1"})
+_, _ = backend.PutParameter(&ssm.PutParameterInput{Name: "/svc/b", Type: "String", Value: "2"})
+_, _ = backend.PutParameter(&ssm.PutParameterInput{Name: "/other/c", Type: "String", Value: "3"})
+
+req := httptest.NewRequest(http.MethodPost, "/",
+strings.NewReader(`{"Path":"/svc","Recursive":true}`))
+req.Header.Set("X-Amz-Target", "AmazonSSM.GetParametersByPath")
+rec := httptest.NewRecorder()
+require.NoError(t, h.Handler()(e.NewContext(req, rec)))
+assert.Equal(t, http.StatusOK, rec.Code)
+
+var out ssm.GetParametersByPathOutput
+require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+assert.Len(t, out.Parameters, 2)
+}
+
+// TestSSMHandlerDescribeParametersViaHTTP tests DescribeParameters via HTTP handler.
+func TestSSMHandlerDescribeParametersViaHTTP(t *testing.T) {
+t.Parallel()
+
+e := echo.New()
+log := logger.NewLogger(slog.LevelDebug)
+backend := ssm.NewInMemoryBackend()
+h := ssm.NewHandler(backend, log)
+
+_, _ = backend.PutParameter(&ssm.PutParameterInput{Name: "/a", Type: "String", Value: "1"})
+_, _ = backend.PutParameter(&ssm.PutParameterInput{Name: "/b", Type: "SecureString", Value: "2"})
+
+req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`))
+req.Header.Set("X-Amz-Target", "AmazonSSM.DescribeParameters")
+rec := httptest.NewRecorder()
+require.NoError(t, h.Handler()(e.NewContext(req, rec)))
+assert.Equal(t, http.StatusOK, rec.Code)
+
+var out ssm.DescribeParametersOutput
+require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+assert.Len(t, out.Parameters, 2)
+}
+
+// TestSSMHandlerMethodNotAllowed verifies non-POST/GET returns 405.
+func TestSSMHandlerMethodNotAllowed(t *testing.T) {
+t.Parallel()
+
+e := echo.New()
+log := logger.NewLogger(slog.LevelDebug)
+backend := ssm.NewInMemoryBackend()
+h := ssm.NewHandler(backend, log)
+
+req := httptest.NewRequest(http.MethodPut, "/", nil)
+rec := httptest.NewRecorder()
+require.NoError(t, h.Handler()(e.NewContext(req, rec)))
+assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
 }

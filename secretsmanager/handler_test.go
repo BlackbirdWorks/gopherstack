@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/secretsmanager"
 )
 
@@ -679,4 +680,210 @@ func TestSecretsManagerVersionByID(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "v1-value", out.SecretString)
+}
+
+// TestSecretsManagerHandlerInterface verifies handler interface methods.
+func TestSecretsManagerHandlerInterface(t *testing.T) {
+t.Parallel()
+
+log := logger.NewLogger(slog.LevelDebug)
+backend := secretsmanager.NewInMemoryBackend()
+h := secretsmanager.NewHandler(backend, log)
+
+assert.Equal(t, "SecretsManager", h.Name())
+assert.Equal(t, 95, h.MatchPriority())
+
+e := echo.New()
+
+// ExtractOperation
+req := httptest.NewRequest(http.MethodPost, "/", nil)
+req.Header.Set("X-Amz-Target", "secretsmanager.CreateSecret")
+c := e.NewContext(req, httptest.NewRecorder())
+assert.Equal(t, "CreateSecret", h.ExtractOperation(c))
+
+// ExtractOperation with no separator
+req2 := httptest.NewRequest(http.MethodPost, "/", nil)
+req2.Header.Set("X-Amz-Target", "secretsmanagerNoSep")
+c2 := e.NewContext(req2, httptest.NewRecorder())
+assert.Equal(t, "Unknown", h.ExtractOperation(c2))
+
+// ExtractResource via SecretId
+body := `{"SecretId":"my-secret"}`
+req3 := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+c3 := e.NewContext(req3, httptest.NewRecorder())
+assert.Equal(t, "my-secret", h.ExtractResource(c3))
+
+// ExtractResource via Name
+body2 := `{"Name":"my-name"}`
+req4 := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body2))
+c4 := e.NewContext(req4, httptest.NewRecorder())
+assert.Equal(t, "my-name", h.ExtractResource(c4))
+
+// ExtractResource with no known field
+req5 := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`))
+c5 := e.NewContext(req5, httptest.NewRecorder())
+assert.Empty(t, h.ExtractResource(c5))
+}
+
+// TestSecretsManagerProvider verifies the Provider.
+func TestSecretsManagerProvider(t *testing.T) {
+t.Parallel()
+
+p := &secretsmanager.Provider{}
+assert.Equal(t, "SecretsManager", p.Name())
+
+log := logger.NewLogger(slog.LevelDebug)
+ctx := &service.AppContext{Logger: log}
+svc, err := p.Init(ctx)
+require.NoError(t, err)
+assert.NotNil(t, svc)
+}
+
+// TestSecretsManagerHandlerErrorCases exercises handleError paths.
+func TestSecretsManagerHandlerErrorCases(t *testing.T) {
+t.Parallel()
+
+tests := []struct {
+target         string
+body           string
+name           string
+expectedErrTyp string
+expectedStatus int
+}{
+{
+name:           "SecretNotFound",
+target:         "secretsmanager.GetSecretValue",
+body:           `{"SecretId":"does-not-exist"}`,
+expectedStatus: http.StatusBadRequest,
+expectedErrTyp: "ResourceNotFoundException",
+},
+{
+name:           "SecretAlreadyExists",
+target:         "secretsmanager.CreateSecret",
+body:           `{"Name":"dup-secret"}`,
+expectedStatus: http.StatusBadRequest,
+expectedErrTyp: "ResourceExistsException",
+},
+{
+name:           "SecretDeleted",
+target:         "secretsmanager.GetSecretValue",
+body:           `{"SecretId":"deleted-secret"}`,
+expectedStatus: http.StatusBadRequest,
+expectedErrTyp: "InvalidRequestException",
+},
+}
+
+for _, tt := range tests {
+t.Run(tt.name, func(t *testing.T) {
+t.Parallel()
+
+e := echo.New()
+log := logger.NewLogger(slog.LevelDebug)
+backend := secretsmanager.NewInMemoryBackend()
+h := secretsmanager.NewHandler(backend, log)
+
+if tt.name == "SecretAlreadyExists" {
+_, _ = backend.CreateSecret(&secretsmanager.CreateSecretInput{Name: "dup-secret"})
+}
+if tt.name == "SecretDeleted" {
+_, _ = backend.CreateSecret(&secretsmanager.CreateSecretInput{
+Name:         "deleted-secret",
+SecretString: "value",
+})
+_, _ = backend.DeleteSecret(&secretsmanager.DeleteSecretInput{SecretID: "deleted-secret"})
+}
+
+req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tt.body))
+req.Header.Set("X-Amz-Target", tt.target)
+rec := httptest.NewRecorder()
+
+require.NoError(t, h.Handler()(e.NewContext(req, rec)))
+assert.Equal(t, tt.expectedStatus, rec.Code)
+
+var errResp secretsmanager.ErrorResponse
+require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+assert.Equal(t, tt.expectedErrTyp, errResp.Type)
+})
+}
+}
+
+// TestSecretsManagerResolveSecretIDARN verifies ARN-based secret resolution.
+func TestSecretsManagerResolveSecretIDARN(t *testing.T) {
+t.Parallel()
+
+backend := secretsmanager.NewInMemoryBackend()
+
+// Create a secret and retrieve its ARN
+out, err := backend.CreateSecret(&secretsmanager.CreateSecretInput{
+Name:         "arn-test-secret",
+SecretString: "arn-value",
+})
+require.NoError(t, err)
+arn := out.ARN
+
+// Get by ARN
+valOut, err := backend.GetSecretValue(&secretsmanager.GetSecretValueInput{
+SecretID: arn,
+})
+require.NoError(t, err)
+assert.Equal(t, "arn-value", valOut.SecretString)
+}
+
+// TestSecretsManagerGetSecretValueVersionLabel tests GetSecretValue with a version label.
+func TestSecretsManagerGetSecretValueVersionLabel(t *testing.T) {
+t.Parallel()
+
+backend := secretsmanager.NewInMemoryBackend()
+_, _ = backend.CreateSecret(&secretsmanager.CreateSecretInput{
+Name:         "labeled-secret",
+SecretString: "v1",
+})
+_, _ = backend.PutSecretValue(&secretsmanager.PutSecretValueInput{
+SecretID:     "labeled-secret",
+SecretString: "v2",
+})
+
+// Retrieve AWSPREVIOUS
+out, err := backend.GetSecretValue(&secretsmanager.GetSecretValueInput{
+SecretID:     "labeled-secret",
+VersionStage: secretsmanager.StagingLabelPrevious,
+})
+require.NoError(t, err)
+assert.Equal(t, "v1", out.SecretString)
+}
+
+// TestSecretsManagerPutSecretValueLabelRotation tests label rotation in PutSecretValue.
+func TestSecretsManagerPutSecretValueLabelRotation(t *testing.T) {
+t.Parallel()
+
+e := echo.New()
+log := logger.NewLogger(slog.LevelDebug)
+backend := secretsmanager.NewInMemoryBackend()
+h := secretsmanager.NewHandler(backend, log)
+
+// Create initial secret
+_, _ = backend.CreateSecret(&secretsmanager.CreateSecretInput{
+Name:         "rotate-test",
+SecretString: "v1",
+})
+
+// Put v2 via HTTP
+putBody, _ := json.Marshal(map[string]string{
+"SecretId":     "rotate-test",
+"SecretString": "v2",
+})
+req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(putBody)))
+req.Header.Set("X-Amz-Target", "secretsmanager.PutSecretValue")
+rec := httptest.NewRecorder()
+require.NoError(t, h.Handler()(e.NewContext(req, rec)))
+assert.Equal(t, http.StatusOK, rec.Code)
+
+var putOut secretsmanager.PutSecretValueOutput
+require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putOut))
+assert.Contains(t, putOut.VersionStages, secretsmanager.StagingLabelCurrent)
+
+// Current should be v2
+curr, err := backend.GetSecretValue(&secretsmanager.GetSecretValueInput{SecretID: "rotate-test"})
+require.NoError(t, err)
+assert.Equal(t, "v2", curr.SecretString)
 }
