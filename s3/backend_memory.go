@@ -55,8 +55,20 @@ func NewInMemoryBackend(compressor Compressor) *InMemoryBackend {
 
 // getBucket returns the bucket for a given name, returning ErrNoSuchBucket when the
 // bucket does not exist or is pending async deletion. The caller must hold at least b.mu.RLock.
+// Since bucket names are globally unique, it searches across all regions.
 func (b *InMemoryBackend) getBucket(name string) (*StoredBucket, error) {
-	return b.getBucketInRegion(name, b.defaultRegion)
+	// Search across all regions — bucket names are globally unique so there
+	// is at most one match. This handles the case where a bucket was created
+	// via a request with a non-default region (e.g. us-west-2) so it is
+	// stored under that region key but subsequent SDK calls (PutObject, etc.)
+	// must still be able to find it.
+	for _, regionBuckets := range b.buckets {
+		if bucket, exists := regionBuckets[name]; exists && !bucket.DeletePending {
+			return bucket, nil
+		}
+	}
+
+	return nil, ErrNoSuchBucket
 }
 
 // getBucketInRegion returns the bucket for a given name in a specific region.
@@ -86,7 +98,14 @@ func (b *InMemoryBackend) CreateBucket(
 	ctx context.Context,
 	input *s3.CreateBucketInput,
 ) (*s3.CreateBucketOutput, error) {
+	// Prefer the LocationConstraint from the input (set by the SDK for non-us-east-1
+	// regions) over the region extracted from the context, so the bucket is stored
+	// in the region the caller actually requested.
 	region := getRegionFromS3Context(ctx, b.defaultRegion)
+	if input.CreateBucketConfiguration != nil &&
+		input.CreateBucketConfiguration.LocationConstraint != "" {
+		region = string(input.CreateBucketConfiguration.LocationConstraint)
+	}
 
 	b.mu.Lock("CreateBucket")
 	defer b.mu.Unlock()

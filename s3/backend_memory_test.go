@@ -1073,3 +1073,36 @@ func TestListObjects_DelimiterWithPrefix(t *testing.T) {
 	}
 	assert.ElementsMatch(t, []string{"photos/2023/", "photos/2024/"}, prefixes)
 }
+
+func TestCreateBucket_NonDefaultRegion_PutObjectSucceeds(t *testing.T) {
+	t.Parallel()
+
+	// Reproduces the bug: bucket created with LocationConstraint != default region;
+	// subsequent PutObject must succeed (not 404).
+	backend := newTestBackend(t)
+
+	_, err := backend.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{
+		Bucket: aws.String("west-bucket"),
+		CreateBucketConfiguration: &types.CreateBucketConfiguration{
+			LocationConstraint: types.BucketLocationConstraint("us-west-2"),
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = backend.PutObject(t.Context(), &sdk_s3.PutObjectInput{
+		Bucket: aws.String("west-bucket"),
+		Key:    aws.String("hello.txt"),
+		Body:   bytes.NewReader([]byte("hello")),
+	})
+	require.NoError(t, err, "PutObject must succeed even when bucket was created with a non-default LocationConstraint")
+
+	out, err := backend.GetObject(t.Context(), &sdk_s3.GetObjectInput{
+		Bucket: aws.String("west-bucket"),
+		Key:    aws.String("hello.txt"),
+	})
+	require.NoError(t, err)
+	defer out.Body.Close()
+
+	body, _ := io.ReadAll(out.Body)
+	assert.Equal(t, "hello", string(body))
+}
