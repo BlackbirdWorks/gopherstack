@@ -41,6 +41,10 @@ const defaultPoolSize = 3
 // from the idle timeout. Reaper runs at half the idle timeout by default.
 const reaperIntervalDivisor = 2
 
+// minReaperInterval is the minimum allowed ticker interval to prevent a zero or
+// negative duration being passed to [time.NewTicker] (which would panic).
+const minReaperInterval = time.Millisecond
+
 // Config holds configuration for the Docker integration layer.
 type Config struct {
 	// Logger is an optional structured logger.
@@ -68,9 +72,9 @@ type PooledContainer struct {
 // Client is the Gopherstack Docker client. It wraps the Docker SDK and provides
 // image management and a per-image warm container pool.
 type Client struct {
-	cfg    Config
 	docker APIClient
 	pools  map[string][]*PooledContainer
+	cfg    Config
 	mu     sync.Mutex
 }
 
@@ -99,7 +103,11 @@ type realDockerClient struct {
 	c *client.Client
 }
 
-func (r *realDockerClient) ImagePull(ctx context.Context, refStr string, options image.PullOptions) (io.ReadCloser, error) {
+func (r *realDockerClient) ImagePull(
+	ctx context.Context,
+	refStr string,
+	options image.PullOptions,
+) (io.ReadCloser, error) {
 	return r.c.ImagePull(ctx, refStr, options)
 }
 
@@ -107,11 +115,22 @@ func (r *realDockerClient) ImageList(ctx context.Context, options image.ListOpti
 	return r.c.ImageList(ctx, options)
 }
 
-func (r *realDockerClient) ContainerCreate(ctx context.Context, cfg *container.Config, hostConfig *container.HostConfig, _ any, _ any, containerName string) (container.CreateResponse, error) {
+func (r *realDockerClient) ContainerCreate(
+	ctx context.Context,
+	cfg *container.Config,
+	hostConfig *container.HostConfig,
+	_ any,
+	_ any,
+	containerName string,
+) (container.CreateResponse, error) {
 	return r.c.ContainerCreate(ctx, cfg, hostConfig, nil, nil, containerName)
 }
 
-func (r *realDockerClient) ContainerStart(ctx context.Context, containerID string, options container.StartOptions) error {
+func (r *realDockerClient) ContainerStart(
+	ctx context.Context,
+	containerID string,
+	options container.StartOptions,
+) error {
 	return r.c.ContainerStart(ctx, containerID, options)
 }
 
@@ -119,7 +138,11 @@ func (r *realDockerClient) ContainerStop(ctx context.Context, containerID string
 	return r.c.ContainerStop(ctx, containerID, options)
 }
 
-func (r *realDockerClient) ContainerRemove(ctx context.Context, containerID string, options container.RemoveOptions) error {
+func (r *realDockerClient) ContainerRemove(
+	ctx context.Context,
+	containerID string,
+	options container.RemoveOptions,
+) error {
 	return r.c.ContainerRemove(ctx, containerID, options)
 }
 
@@ -375,6 +398,10 @@ func (c *Client) collectIdleLocked() []*PooledContainer {
 func (c *Client) StartReaper(ctx context.Context, interval time.Duration) {
 	if interval <= 0 {
 		interval = c.cfg.IdleTimeout / reaperIntervalDivisor
+	}
+
+	if interval < minReaperInterval {
+		interval = minReaperInterval
 	}
 
 	go func() {

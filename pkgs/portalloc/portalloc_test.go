@@ -117,7 +117,16 @@ func TestIsListening(t *testing.T) {
 
 	addr := fmt.Sprintf("127.0.0.1:%d", ln.Addr().(*net.TCPAddr).Port)
 	assert.True(t, portalloc.IsListening(addr))
-	assert.False(t, portalloc.IsListening("127.0.0.1:1")) // port 1 should not be open
+
+	// Bind a second listener to get a free port, close it, then assert IsListening
+	// returns false. This is more deterministic than using a well-known port like :1.
+	ln2, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	freePort := ln2.Addr().(*net.TCPAddr).Port
+	require.NoError(t, ln2.Close())
+
+	freeAddr := fmt.Sprintf("127.0.0.1:%d", freePort)
+	assert.False(t, portalloc.IsListening(freeAddr))
 }
 
 func TestConcurrentAcquire(t *testing.T) {

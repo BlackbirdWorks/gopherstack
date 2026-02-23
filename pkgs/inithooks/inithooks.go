@@ -50,19 +50,24 @@ func (r *Runner) runOne(ctx context.Context, script string) {
 	scriptCtx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(scriptCtx, "sh", "-c", script) //nolint:gosec // scripts are user-provided and intentional
+	cmd := exec.CommandContext(
+		scriptCtx,
+		"sh",
+		"-c",
+		script,
+	)
 	// WaitDelay ensures orphaned subprocesses are also killed when the context expires.
 	cmd.WaitDelay = r.timeout
 
 	if r.log != nil {
-		r.log.InfoContext(ctx, "init hook: running", "script", script)
+		r.log.InfoContext(scriptCtx, "init hook: running", "script", script)
 	}
 
 	out, err := cmd.CombinedOutput()
 
 	if err != nil {
 		if r.log != nil {
-			r.log.ErrorContext(ctx, "init hook: script failed",
+			r.log.ErrorContext(scriptCtx, "init hook: script failed",
 				"script", script,
 				"error", err,
 				"output", string(out),
@@ -73,6 +78,6 @@ func (r *Runner) runOne(ctx context.Context, script string) {
 	}
 
 	if r.log != nil {
-		r.log.InfoContext(ctx, "init hook: script succeeded", "script", script, "output", string(out))
+		r.log.InfoContext(scriptCtx, "init hook: script succeeded", "script", script, "output", string(out))
 	}
 }

@@ -50,14 +50,18 @@ func TestRun_FailingScript_ContinuesNext(t *testing.T) {
 	assert.Contains(t, string(data), "second")
 }
 
-func TestRun_WithLogger(_ *testing.T) {
+func TestRun_WithLogger(t *testing.T) {
+	t.Parallel()
+
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	r := inithooks.New([]string{"echo hi"}, 5*time.Second, log)
 
 	r.Run(context.Background())
 }
 
-func TestRun_WithLogger_FailingScript(_ *testing.T) {
+func TestRun_WithLogger_FailingScript(t *testing.T) {
+	t.Parallel()
+
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	r := inithooks.New([]string{"exit 42"}, 5*time.Second, log)
 
@@ -65,7 +69,9 @@ func TestRun_WithLogger_FailingScript(_ *testing.T) {
 	r.Run(context.Background())
 }
 
-func TestRun_EmptyScripts(_ *testing.T) {
+func TestRun_EmptyScripts(t *testing.T) {
+	t.Parallel()
+
 	r := inithooks.New(nil, 0, nil)
 
 	// Should complete immediately without error.

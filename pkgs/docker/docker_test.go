@@ -86,7 +86,14 @@ func (m *mockDockerAPI) ImageList(_ context.Context, opts image.ListOptions) ([]
 	return out, nil
 }
 
-func (m *mockDockerAPI) ContainerCreate(_ context.Context, cfg *container.Config, _ *container.HostConfig, _ any, _ any, _ string) (container.CreateResponse, error) {
+func (m *mockDockerAPI) ContainerCreate(
+	_ context.Context,
+	cfg *container.Config,
+	_ *container.HostConfig,
+	_ any,
+	_ any,
+	_ string,
+) (container.CreateResponse, error) {
 	if m.createError != nil {
 		return container.CreateResponse{}, m.createError
 	}
@@ -489,7 +496,9 @@ func TestReapIdleContainers_WithLogger_Error(t *testing.T) {
 	c.ReapIdleContainers(context.Background())
 }
 
-func TestStartReaper_DefaultInterval(_ *testing.T) {
+func TestStartReaper_DefaultInterval(t *testing.T) {
+	t.Parallel()
+
 	api := newMockAPI()
 	c := docker.NewClientWithAPI(api, docker.Config{
 		PoolSize:    2,

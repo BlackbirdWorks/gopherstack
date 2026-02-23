@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 	"testing"
 	"time"
 
@@ -187,7 +188,14 @@ func TestServerStartup_WithInitScript(t *testing.T) {
 		errCh <- run(ctx, cli)
 	}()
 
+	// Give init scripts time to run before checking for the marker.
 	time.Sleep(400 * time.Millisecond)
+
+	// Verify the init script wrote the marker file.
+	data, readErr := os.ReadFile(marker)
+	require.NoError(t, readErr, "init script should have created the marker file")
+	assert.Contains(t, string(data), "ran")
+
 	cancel()
 
 	select {

@@ -80,19 +80,19 @@ type CLI struct {
 	sqsClient             *sqssdk.Client
 	secretsManagerClient  *secretsmanager.Client
 	kmsClient             *kms.Client
-	Port                  string              `                                  name:"port"             env:"PORT"              default:"8000"         help:"HTTP server port."`
-	AccountID             string              `                                  name:"account-id"       env:"ACCOUNT_ID"        default:"000000000000" help:"Mock AWS account ID used in ARNs."`
-	Region                string              `                                  name:"region"           env:"REGION"            default:"us-east-1"    help:"AWS region."`
-	LogLevel              string              `                                  name:"log-level"        env:"LOG_LEVEL"         default:"info"         help:"Log level (debug|info|warn|error)."`
-	DNSListenAddr         string              `                                  name:"dns-addr"         env:"DNS_ADDR"          default:""             help:"Address for embedded DNS server (e.g. :10053). Empty = disabled."`
-	DNSResolveIP          string              `                                  name:"dns-resolve-ip"   env:"DNS_RESOLVE_IP"    default:"127.0.0.1"    help:"IP address synthetic hostnames resolve to."`
+	Port                  string              `                                  name:"port"             env:"PORT"             default:"8000"         help:"HTTP server port."`                                                //nolint:lll // config struct tags are intentionally verbose
+	AccountID             string              `                                  name:"account-id"       env:"ACCOUNT_ID"       default:"000000000000" help:"Mock AWS account ID used in ARNs."`                                //nolint:lll // config struct tags are intentionally verbose
+	Region                string              `                                  name:"region"           env:"REGION"           default:"us-east-1"    help:"AWS region."`                                                      //nolint:lll // config struct tags are intentionally verbose
+	LogLevel              string              `                                  name:"log-level"        env:"LOG_LEVEL"        default:"info"         help:"Log level (debug|info|warn|error)."`                               //nolint:lll // config struct tags are intentionally verbose
+	DNSListenAddr         string              `                                  name:"dns-addr"         env:"DNS_ADDR"         default:""             help:"Address for embedded DNS server (e.g. :10053). Empty = disabled."` //nolint:lll // config struct tags are intentionally verbose
+	DNSResolveIP          string              `                                  name:"dns-resolve-ip"   env:"DNS_RESOLVE_IP"   default:"127.0.0.1"    help:"IP address synthetic hostnames resolve to."`                       //nolint:lll // config struct tags are intentionally verbose
 	S3                    s3backend.Settings  `embed:"" prefix:"s3-"`
-	InitScripts           []string            `                                  name:"init-script"      env:"INIT_SCRIPTS"      help:"Shell scripts to run on startup (may be specified multiple times)."`
+	InitScripts           []string            `                                  name:"init-script"      env:"INIT_SCRIPTS"                            help:"Shell scripts to run on startup (may be specified multiple times)."` //nolint:lll // config struct tags are intentionally verbose
 	DynamoDB              ddbbackend.Settings `embed:"" prefix:"dynamodb-"`
-	PortRangeStart        int                 `                                  name:"port-range-start" env:"PORT_RANGE_START"  default:"10000"        help:"Start of the port range for resource endpoints."`
-	PortRangeEnd          int                 `                                  name:"port-range-end"   env:"PORT_RANGE_END"    default:"10100"        help:"End (exclusive) of the port range for resource endpoints."`
-	InitScriptTimeout     time.Duration       `                                  name:"init-timeout"     env:"INIT_TIMEOUT"      default:"30s"          help:"Per-script timeout for init hooks."`
-	Demo                  bool                `                                  name:"demo"             env:"DEMO"              default:"false"        help:"Load demo data on startup."`
+	PortRangeStart        int                 `                                  name:"port-range-start" env:"PORT_RANGE_START" default:"10000"        help:"Start of the port range for resource endpoints."`           //nolint:lll // config struct tags are intentionally verbose
+	PortRangeEnd          int                 `                                  name:"port-range-end"   env:"PORT_RANGE_END"   default:"10100"        help:"End (exclusive) of the port range for resource endpoints."` //nolint:lll // config struct tags are intentionally verbose
+	InitScriptTimeout     time.Duration       `                                  name:"init-timeout"     env:"INIT_TIMEOUT"     default:"30s"          help:"Per-script timeout for init hooks."`                        //nolint:lll // config struct tags are intentionally verbose
+	Demo                  bool                `                                  name:"demo"             env:"DEMO"             default:"false"        help:"Load demo data on startup."`                                //nolint:lll // config struct tags are intentionally verbose
 }
 
 // GetGlobalConfig returns the centralised account ID and region (config.Provider).
