@@ -282,3 +282,103 @@ func mustToAttributeValueMap(t *testing.T, m map[string]any) map[string]types.At
 
 	return sdk
 }
+
+func TestScan_PaginationWithLastEvaluatedKey(t *testing.T) {
+t.Parallel()
+
+db := dynamodb.NewInMemoryDB()
+tableName := "PaginationTable"
+_, err := db.CreateTable(t.Context(), &dynamodb_sdk.CreateTableInput{
+TableName: &tableName,
+AttributeDefinitions: []types.AttributeDefinition{
+{AttributeName: strPtr("pk"), AttributeType: types.ScalarAttributeTypeS},
+},
+KeySchema: []types.KeySchemaElement{
+{AttributeName: strPtr("pk"), KeyType: types.KeyTypeHash},
+},
+BillingMode: types.BillingModePayPerRequest,
+})
+require.NoError(t, err)
+
+for i := range 9 {
+item := map[string]types.AttributeValue{
+"pk": &types.AttributeValueMemberS{Value: "item-" + strconv.Itoa(i)},
+}
+_, err = db.PutItem(t.Context(), &dynamodb_sdk.PutItemInput{
+TableName: &tableName,
+Item:      item,
+})
+require.NoError(t, err)
+}
+
+// First page
+limit := int32(3)
+out, err := db.Scan(t.Context(), &dynamodb_sdk.ScanInput{
+TableName: &tableName,
+Limit:     &limit,
+})
+require.NoError(t, err)
+assert.LessOrEqual(t, int(out.Count), 3)
+require.NotNil(t, out.LastEvaluatedKey, "expected LastEvaluatedKey for paginated scan")
+
+// Collect all pages
+total := int(out.Count)
+lastKey := out.LastEvaluatedKey
+for lastKey != nil {
+nextOut, nextErr := db.Scan(t.Context(), &dynamodb_sdk.ScanInput{
+TableName:         &tableName,
+Limit:             &limit,
+ExclusiveStartKey: lastKey,
+})
+require.NoError(t, nextErr)
+total += int(nextOut.Count)
+lastKey = nextOut.LastEvaluatedKey
+}
+assert.Equal(t, 9, total)
+}
+
+func TestScan_ParallelSegments(t *testing.T) {
+t.Parallel()
+
+db := dynamodb.NewInMemoryDB()
+tableName := "ParallelTable"
+_, err := db.CreateTable(t.Context(), &dynamodb_sdk.CreateTableInput{
+TableName: &tableName,
+AttributeDefinitions: []types.AttributeDefinition{
+{AttributeName: strPtr("pk"), AttributeType: types.ScalarAttributeTypeS},
+},
+KeySchema: []types.KeySchemaElement{
+{AttributeName: strPtr("pk"), KeyType: types.KeyTypeHash},
+},
+BillingMode: types.BillingModePayPerRequest,
+})
+require.NoError(t, err)
+
+const n = 10
+for i := range n {
+item := map[string]types.AttributeValue{
+"pk": &types.AttributeValueMemberS{Value: "p-item-" + strconv.Itoa(i)},
+}
+_, err = db.PutItem(t.Context(), &dynamodb_sdk.PutItemInput{
+TableName: &tableName,
+Item:      item,
+})
+require.NoError(t, err)
+}
+
+totalSegments := int32(3)
+totalItems := 0
+for seg := range totalSegments {
+seg32 := seg
+out, scanErr := db.Scan(t.Context(), &dynamodb_sdk.ScanInput{
+TableName:     &tableName,
+Segment:       &seg32,
+TotalSegments: &totalSegments,
+})
+require.NoError(t, scanErr)
+totalItems += int(out.Count)
+}
+assert.Equal(t, n, totalItems, "all items should be returned across all segments exactly once")
+}
+
+func strPtr(s string) *string { return &s }
