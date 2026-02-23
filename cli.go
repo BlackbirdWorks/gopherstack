@@ -31,9 +31,12 @@ import (
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
 	kmsbackend "github.com/blackbirdworks/gopherstack/kms"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	gopherDNS "github.com/blackbirdworks/gopherstack/pkgs/dns"
 	snsevents "github.com/blackbirdworks/gopherstack/pkgs/events"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/inithooks"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/secretsmanager"
@@ -77,13 +80,19 @@ type CLI struct {
 	sqsClient             *sqssdk.Client
 	secretsManagerClient  *secretsmanager.Client
 	kmsClient             *kms.Client
-	Region                string              `                                  name:"region"     env:"REGION"     default:"us-east-1"    help:"AWS region."`                        //nolint:lll //config
-	AccountID             string              `                                  name:"account-id" env:"ACCOUNT_ID" default:"000000000000" help:"Mock AWS account ID used in ARNs."`  //nolint:lll //config
-	Port                  string              `                                  name:"port"       env:"PORT"       default:"8000"         help:"HTTP server port."`                  //nolint:lll //config
-	LogLevel              string              `                                  name:"log-level"  env:"LOG_LEVEL"  default:"info"         help:"Log level (debug|info|warn|error)."` //nolint:lll //config
+	Region                string              `                                  name:"region"           env:"REGION"            default:"us-east-1"    help:"AWS region."`                                             //nolint:lll //config
+	AccountID             string              `                                  name:"account-id"       env:"ACCOUNT_ID"        default:"000000000000" help:"Mock AWS account ID used in ARNs."`                       //nolint:lll //config
+	Port                  string              `                                  name:"port"             env:"PORT"              default:"8000"         help:"HTTP server port."`                                       //nolint:lll //config
+	LogLevel              string              `                                  name:"log-level"        env:"LOG_LEVEL"         default:"info"         help:"Log level (debug|info|warn|error)."`                      //nolint:lll //config
 	S3                    s3backend.Settings  `embed:"" prefix:"s3-"`
 	DynamoDB              ddbbackend.Settings `embed:"" prefix:"dynamodb-"`
-	Demo                  bool                `                                  name:"demo"       env:"DEMO"       default:"false"        help:"Load demo data on startup."` //nolint:lll //config
+	Demo                  bool                `                                  name:"demo"             env:"DEMO"              default:"false"        help:"Load demo data on startup."`                              //nolint:lll //config
+	PortRangeStart        int                 `                                  name:"port-range-start" env:"PORT_RANGE_START"  default:"10000"        help:"Start of the port range for resource endpoints."`         //nolint:lll //config
+	PortRangeEnd          int                 `                                  name:"port-range-end"   env:"PORT_RANGE_END"    default:"10100"        help:"End (exclusive) of the port range for resource endpoints."` //nolint:lll //config
+	DNSListenAddr         string              `                                  name:"dns-addr"         env:"DNS_ADDR"          default:""             help:"Address for embedded DNS server (e.g. :10053). Empty = disabled."` //nolint:lll //config
+	DNSResolveIP          string              `                                  name:"dns-resolve-ip"   env:"DNS_RESOLVE_IP"    default:"127.0.0.1"    help:"IP address synthetic hostnames resolve to."`               //nolint:lll //config
+	InitScripts           []string            `                                  name:"init-script"      env:"INIT_SCRIPTS"      help:"Shell scripts to run on startup (may be specified multiple times)."`              //nolint:lll //config
+	InitScriptTimeout     time.Duration       `                                  name:"init-timeout"     env:"INIT_TIMEOUT"      default:"30s"          help:"Per-script timeout for init hooks."`                       //nolint:lll //config
 }
 
 // GetGlobalConfig returns the centralised account ID and region (config.Provider).
@@ -193,6 +202,39 @@ func Run() {
 func run(ctx context.Context, cli CLI) error {
 	log := buildLogger(cli.LogLevel)
 
+	// --- Port allocator ---
+	portAlloc, err := portalloc.New(cli.PortRangeStart, cli.PortRangeEnd)
+	if err != nil {
+		log.WarnContext(ctx, "Port allocator disabled (invalid range)", "error", err)
+	} else {
+		log.InfoContext(ctx, "Port allocator ready",
+			"start", cli.PortRangeStart,
+			"end", cli.PortRangeEnd,
+			"available", portAlloc.Available(),
+		)
+	}
+
+	// --- Embedded DNS server ---
+	if cli.DNSListenAddr != "" {
+		dnsSrv, dnsErr := gopherDNS.New(gopherDNS.Config{
+			ListenAddr: cli.DNSListenAddr,
+			ResolveIP:  cli.DNSResolveIP,
+			Logger:     log,
+		})
+		if dnsErr != nil {
+			log.WarnContext(ctx, "DNS server disabled (config error)", "error", dnsErr)
+		} else {
+			dnsCtx, dnsCancel := context.WithCancel(ctx)
+			defer dnsCancel()
+
+			if startErr := dnsSrv.Start(dnsCtx); startErr != nil {
+				log.WarnContext(ctx, "DNS server failed to start", "error", startErr)
+			} else {
+				log.InfoContext(ctx, "DNS server started", "addr", cli.DNSListenAddr)
+			}
+		}
+	}
+
 	inMemMux := http.NewServeMux()
 	inMemClient := &dashboard.InMemClient{Handler: inMemMux}
 
@@ -252,6 +294,12 @@ func run(ctx context.Context, cli CLI) error {
 		if err != nil {
 			log.ErrorContext(ctx, "Failed to load demo data", "error", err)
 		}
+	}
+
+	// --- Init hooks ---
+	if len(cli.InitScripts) > 0 {
+		runner := inithooks.New(cli.InitScripts, cli.InitScriptTimeout, log)
+		runner.Run(ctx)
 	}
 
 	return startServer(ctx, log, cli.Port, e)

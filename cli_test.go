@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"net"
 	"testing"
 	"time"
 
@@ -129,4 +131,153 @@ func TestCLI_GetSTSClient(t *testing.T) {
 	cli := parseCLI(t, nil)
 	// For a freshly parsed CLI (before the server starts), the client is nil (not yet initialized).
 	assert.Nil(t, cli.GetSTSClient())
+}
+
+//nolint:paralleltest // uses t.Setenv which disallows t.Parallel
+func TestCLI_PortAllocatorDefaults(t *testing.T) {
+	cli := parseCLI(t, nil)
+
+	assert.Equal(t, 10000, cli.PortRangeStart)
+	assert.Equal(t, 10100, cli.PortRangeEnd)
+}
+
+//nolint:paralleltest // uses t.Setenv which disallows t.Parallel
+func TestCLI_PortAllocatorEnvVars(t *testing.T) {
+	cli := parseCLI(t, map[string]string{
+		"PORT_RANGE_START": "20000",
+		"PORT_RANGE_END":   "20200",
+	})
+
+	assert.Equal(t, 20000, cli.PortRangeStart)
+	assert.Equal(t, 20200, cli.PortRangeEnd)
+}
+
+//nolint:paralleltest // uses t.Setenv which disallows t.Parallel
+func TestCLI_DNSDefaults(t *testing.T) {
+	cli := parseCLI(t, nil)
+
+	assert.Equal(t, "", cli.DNSListenAddr)
+	assert.Equal(t, "127.0.0.1", cli.DNSResolveIP)
+}
+
+//nolint:paralleltest // uses t.Setenv which disallows t.Parallel
+func TestCLI_InitScriptTimeout(t *testing.T) {
+	cli := parseCLI(t, map[string]string{
+		"INIT_TIMEOUT": "1m",
+	})
+
+	assert.Equal(t, time.Minute, cli.InitScriptTimeout)
+}
+
+//nolint:paralleltest // uses t.Setenv via parseCLI, which is incompatible with t.Parallel.
+func TestServerStartup_WithInitScript(t *testing.T) {
+	dir := t.TempDir()
+	marker := dir + "/marker.txt"
+
+	cli := parseCLI(t, map[string]string{
+		"PORT": "8124",
+	})
+	cli.InitScripts = []string{"echo ran > " + marker}
+	cli.InitScriptTimeout = 5 * time.Second
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- run(ctx, cli)
+	}()
+
+	time.Sleep(400 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-errCh:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("server did not shut down within timeout")
+	}
+}
+
+//nolint:paralleltest // uses t.Setenv via parseCLI, which is incompatible with t.Parallel.
+func TestServerStartup_WithDNS(t *testing.T) {
+	// Find a free UDP port for the DNS server.
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	require.NoError(t, err)
+	dnsPort := pc.LocalAddr().(*net.UDPAddr).Port
+	_ = pc.Close()
+
+	cli := parseCLI(t, map[string]string{
+		"PORT": "8125",
+	})
+	cli.DNSListenAddr = fmt.Sprintf("127.0.0.1:%d", dnsPort)
+	cli.DNSResolveIP = "127.0.0.1"
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- run(ctx, cli)
+	}()
+
+	time.Sleep(300 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-errCh:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("server did not shut down within timeout")
+	}
+}
+
+//nolint:paralleltest // uses t.Setenv via parseCLI, which is incompatible with t.Parallel.
+func TestServerStartup_InvalidDNSConfig(t *testing.T) {
+	cli := parseCLI(t, map[string]string{
+		"PORT": "8126",
+	})
+	cli.DNSListenAddr = ":18553"
+	cli.DNSResolveIP = "not-an-ip" // invalid — server logs a warning and continues
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- run(ctx, cli)
+	}()
+
+	time.Sleep(200 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-errCh:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("server did not shut down within timeout")
+	}
+}
+
+//nolint:paralleltest // uses t.Setenv via parseCLI, which is incompatible with t.Parallel.
+func TestServerStartup_InvalidPortRange(t *testing.T) {
+	cli := parseCLI(t, map[string]string{
+		"PORT": "8127",
+	})
+	cli.PortRangeStart = 0 // invalid range — logs a warning and continues
+	cli.PortRangeEnd = 0
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- run(ctx, cli)
+	}()
+
+	time.Sleep(200 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-errCh:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("server did not shut down within timeout")
+	}
 }
