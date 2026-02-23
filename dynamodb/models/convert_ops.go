@@ -157,6 +157,8 @@ func ToSDKScanInput(input *ScanInput) (*dynamodb.ScanInput, error) {
 		ProjectionExpression:     ptrconv.NilIfEmpty(input.ProjectionExpression),
 		ExpressionAttributeNames: input.ExpressionAttributeNames,
 		Limit:                    input.Limit,
+		Segment:                  input.Segment,
+		TotalSegments:            input.TotalSegments,
 	}
 
 	if len(input.ExpressionAttributeValues) > 0 {
@@ -165,6 +167,14 @@ func ToSDKScanInput(input *ScanInput) (*dynamodb.ScanInput, error) {
 			return nil, valsErr
 		}
 		out.ExpressionAttributeValues = vals
+	}
+
+	if len(input.ExclusiveStartKey) > 0 {
+		startKey, startErr := ToSDKItem(input.ExclusiveStartKey)
+		if startErr != nil {
+			return nil, startErr
+		}
+		out.ExclusiveStartKey = startKey
 	}
 
 	return out, nil
@@ -182,6 +192,10 @@ func FromSDKScanOutput(output *dynamodb.ScanOutput) *ScanOutput {
 		}
 	} else {
 		out.Items = []map[string]any{}
+	}
+
+	if len(output.LastEvaluatedKey) > 0 {
+		out.LastEvaluatedKey = FromSDKItem(output.LastEvaluatedKey)
 	}
 
 	return out
