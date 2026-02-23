@@ -319,7 +319,7 @@ These are the most commonly used LocalStack services and cover the majority of r
 ### Gaps to close
 
 - [ ] **`awslocal`-style CLI wrapper** — Thin wrapper or docs for `aws --endpoint-url`
-- [ ] **Init hooks** — Run user scripts on startup to seed resources (create queues, buckets, etc.)
+- [x] **Init hooks** — Run user scripts on startup to seed resources (create queues, buckets, etc.) ✅
 - [ ] **Health endpoint** — `/_gopherstack/health` reporting status of all services
 - [ ] **Persistence** — Optional on-disk state persistence across restarts (LocalStack charges for this, so this would be a differentiator)
 - [ ] **Testcontainers module** — Official Go Testcontainers module for Gopherstack
@@ -346,11 +346,13 @@ These are the most commonly used LocalStack services and cover the majority of r
 - Health endpoint
 - SSM gaps (GetParametersByPath, DescribeParameters)
 
-### v0.6 — Platform Infrastructure
-- **Port allocator** (configurable range, central allocation/release, health checks)
-- **Internal DNS server** (embedded `miekg/dns`, synthetic hostnames → 127.0.0.1)
-- **Docker integration layer** (Go Docker SDK client, image pull, container lifecycle, volume mounts)
-- Init hooks (run user scripts on startup)
+### v0.6 — Platform Infrastructure ✅ **COMPLETE**
+- **Port allocator** (`pkgs/portalloc`) — configurable range [start, end), Acquire/Release, IsListening health check ✅
+- **Internal DNS server** (`pkgs/dns`) — embedded `miekg/dns`, synthetic AWS hostnames → 127.0.0.1, configurable port, SyntheticHostname helper ✅
+- **Docker integration layer** (`pkgs/docker`) — DockerAPIClient interface, image pull, container lifecycle, warm pool with idle reaping ✅
+- **Init hooks** (`pkgs/inithooks`) — run user shell scripts on startup, per-script timeout, wired into CLI via `--init-script` / `INIT_SCRIPTS` ✅
+- Port range wired into CLI: `--port-range-start` / `--port-range-end` (`PORT_RANGE_START` / `PORT_RANGE_END`) ✅
+- DNS server wired into CLI: `--dns-addr` / `--dns-resolve-ip` (`DNS_ADDR` / `DNS_RESOLVE_IP`) ✅
 
 ### v0.7 — Serverless Core
 - Lambda (Docker-based runtimes for Python/Node/Java, direct exec for Go)
