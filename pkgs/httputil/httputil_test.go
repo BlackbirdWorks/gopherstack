@@ -204,3 +204,61 @@ func TestExtractRegionFromRequest(t *testing.T) {
 		assert.Equal(t, "us-west-2", region)
 	})
 }
+
+func TestWriteS3ErrorResponse(t *testing.T) {
+	t.Parallel()
+
+	type s3Err struct {
+		XMLName xml.Name `xml:"Error"`
+		Code    string   `xml:"Code"`
+		Message string   `xml:"Message"`
+	}
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/bucket/key", nil)
+	httputil.WriteS3ErrorResponse(nil, w, req, s3Err{Code: "NoSuchKey", Message: "not found"}, http.StatusNotFound)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.Equal(t, "application/xml", w.Header().Get("Content-Type"))
+	assert.Contains(t, w.Body.String(), "NoSuchKey")
+}
+
+func TestWriteJSON_MarshalError(t *testing.T) {
+	t.Parallel()
+	// An un-marshallable value (channel) should cause a 500 response.
+	w := httptest.NewRecorder()
+	ch := make(chan int)
+	httputil.WriteJSON(nil, w, http.StatusOK, ch)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestWriteXML_MarshalError(t *testing.T) {
+	t.Parallel()
+	// A function value cannot be marshalled to XML.
+	w := httptest.NewRecorder()
+	type bad struct {
+		F func() `xml:"f"`
+	}
+	httputil.WriteXML(nil, w, http.StatusOK, bad{F: func() {}})
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestWriteDynamoDBResponse_MarshalError(t *testing.T) {
+	t.Parallel()
+	w := httptest.NewRecorder()
+	ch := make(chan int)
+	httputil.WriteDynamoDBResponse(nil, w, http.StatusOK, ch)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestEchoError_NilError(t *testing.T) {
+	t.Parallel()
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	res := httputil.EchoError(nil, c, http.StatusOK, "ok", nil)
+	require.NoError(t, res)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}

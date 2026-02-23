@@ -1107,3 +1107,61 @@ func TestCreateBucket_NonDefaultRegion_PutObjectSucceeds(t *testing.T) {
 	require.NoError(t, readErr)
 	assert.Equal(t, "hello", string(body))
 }
+
+func TestSetDefaultRegion(t *testing.T) {
+t.Parallel()
+
+backend := newTestBackend(t)
+
+// Set a non-empty region.
+backend.SetDefaultRegion("eu-central-1")
+
+// Create a bucket (should use "eu-central-1" as default region).
+_, err := backend.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{
+Bucket: aws.String("test-default-region-bucket"),
+})
+require.NoError(t, err)
+
+// Empty string should reset to the internal default.
+backend.SetDefaultRegion("")
+}
+
+func TestPutBucketACL_GetBucketACL(t *testing.T) {
+t.Parallel()
+
+backend := newTestBackend(t)
+
+_, err := backend.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{
+Bucket: aws.String("acl-test-bucket"),
+})
+require.NoError(t, err)
+
+// Default ACL is "private".
+acl, err := backend.GetBucketACL(t.Context(), "acl-test-bucket")
+require.NoError(t, err)
+assert.Equal(t, "private", acl)
+
+// Set a new ACL.
+err = backend.PutBucketACL(t.Context(), "acl-test-bucket", "public-read")
+require.NoError(t, err)
+
+acl, err = backend.GetBucketACL(t.Context(), "acl-test-bucket")
+require.NoError(t, err)
+assert.Equal(t, "public-read", acl)
+}
+
+func TestPutBucketACL_NotFound(t *testing.T) {
+t.Parallel()
+
+backend := newTestBackend(t)
+err := backend.PutBucketACL(t.Context(), "nonexistent-bucket", "private")
+assert.Error(t, err)
+}
+
+func TestGetBucketACL_NotFound(t *testing.T) {
+t.Parallel()
+
+backend := newTestBackend(t)
+_, err := backend.GetBucketACL(t.Context(), "nonexistent-bucket")
+assert.Error(t, err)
+}

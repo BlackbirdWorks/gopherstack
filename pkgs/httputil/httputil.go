@@ -241,7 +241,7 @@ func SetOperationAndResource(ctx context.Context, operation, resource string) co
 func RequestIDMiddleware() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
-			c.Response().Header().Set("x-amz-request-id", uuid.New().String())
+			c.Response().Header().Set("X-Amz-Request-Id", uuid.New().String())
 
 			return next(c)
 		}

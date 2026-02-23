@@ -975,3 +975,147 @@ func TestHandlerQueueNameFromURLEdgeCases(t *testing.T) {
 	rec := doRequest(t, h, "DeleteQueue", map[string]any{"QueueUrl": ""})
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
+
+// ---------------------------------------------------------------------------
+// Handler tests for TagQueue / UntagQueue / ListQueueTags / ChangeMessageVisibilityBatch
+// ---------------------------------------------------------------------------
+
+func TestHandlerTagQueue(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	queueURL := doCreateQueue(t, h, "tag-handler-queue")
+
+	rec := doRequest(t, h, "TagQueue", map[string]any{
+		"QueueUrl": queueURL,
+		"Tags":     map[string]string{"env": "test"},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestHandlerTagQueue_InvalidBody(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRawRequest(t, h, "TagQueue", []byte("{bad json"))
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandlerUntagQueue(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	queueURL := doCreateQueue(t, h, "untag-handler-queue")
+
+	// First tag it
+	rec := doRequest(t, h, "TagQueue", map[string]any{
+		"QueueUrl": queueURL,
+		"Tags":     map[string]string{"env": "test"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Then untag
+	rec = doRequest(t, h, "UntagQueue", map[string]any{
+		"QueueUrl": queueURL,
+		"TagKeys":  []string{"env"},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestHandlerUntagQueue_InvalidBody(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRawRequest(t, h, "UntagQueue", []byte("{bad"))
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandlerListQueueTags(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	queueURL := doCreateQueue(t, h, "list-tags-handler-queue")
+
+	rec := doRequest(t, h, "ListQueueTags", map[string]any{"QueueUrl": queueURL})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Tags map[string]string `json:"Tags"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.NotNil(t, resp.Tags)
+}
+
+func TestHandlerListQueueTags_InvalidBody(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRawRequest(t, h, "ListQueueTags", []byte("{bad"))
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandlerChangeMessageVisibilityBatch(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	queueURL := doCreateQueue(t, h, "cmvb-handler-queue")
+
+	// Send a message
+	sendRec := doRequest(t, h, "SendMessage", map[string]any{
+		"QueueUrl":    queueURL,
+		"MessageBody": "hello",
+	})
+	require.Equal(t, http.StatusOK, sendRec.Code)
+
+	// Receive with visibility=30
+	rcvRec := doRequest(t, h, "ReceiveMessage", map[string]any{
+		"QueueUrl":            queueURL,
+		"MaxNumberOfMessages": 1,
+		"VisibilityTimeout":   30,
+	})
+	require.Equal(t, http.StatusOK, rcvRec.Code)
+
+	var rcvResp struct {
+		Messages []struct {
+			ReceiptHandle string `json:"ReceiptHandle"`
+		} `json:"Messages"`
+	}
+	require.NoError(t, json.Unmarshal(rcvRec.Body.Bytes(), &rcvResp))
+	require.Len(t, rcvResp.Messages, 1)
+	handle := rcvResp.Messages[0].ReceiptHandle
+
+	// Batch change visibility to 0
+	rec := doRequest(t, h, "ChangeMessageVisibilityBatch", map[string]any{
+		"QueueUrl": queueURL,
+		"Entries": []map[string]any{
+			{"Id": "e1", "ReceiptHandle": handle, "VisibilityTimeout": 0},
+		},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestHandlerChangeMessageVisibilityBatch_InvalidBody(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRawRequest(t, h, "ChangeMessageVisibilityBatch", []byte("{bad"))
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// doRawRequest sends raw bytes to the handler with the given action header.
+func doRawRequest(t *testing.T, h *sqs.Handler, action string, body []byte) *httptest.ResponseRecorder {
+	t.Helper()
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-amz-json-1.0")
+	req.Header.Set("X-Amz-Target", "AmazonSQS."+action)
+
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := h.Handler()(c)
+	require.NoError(t, err)
+
+	return rec
+}

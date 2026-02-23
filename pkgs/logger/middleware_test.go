@@ -53,3 +53,29 @@ func TestEchoMiddleware(t *testing.T) {
 	assert.Contains(t, logOutput, "value")
 	assert.Contains(t, logOutput, "level=DEBUG")
 }
+
+func TestMiddleware(t *testing.T) {
+	t.Parallel()
+
+	var logBuffer bytes.Buffer
+	testLogger := slog.New(slog.NewTextHandler(&logBuffer, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	}))
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
+		log := logger.Load(r.Context())
+		log.DebugContext(r.Context(), "net/http handler called")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("OK"))
+	})
+
+	handler := logger.Middleware(testLogger)(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, logBuffer.String(), "net/http handler called")
+}
