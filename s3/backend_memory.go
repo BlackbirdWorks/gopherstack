@@ -1277,6 +1277,45 @@ func (b *InMemoryBackend) AbortMultipartUpload(
 	return &s3.AbortMultipartUploadOutput{}, nil
 }
 
+// PutBucketACL stores the canned ACL for a bucket.
+func (b *InMemoryBackend) PutBucketACL(_ context.Context, bucketName, acl string) error {
+	b.mu.RLock("PutBucketACL")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.Lock("PutBucketACL")
+	defer bucket.mu.Unlock()
+
+	bucket.ACL = acl
+
+	return nil
+}
+
+// GetBucketACL returns the canned ACL for a bucket.
+func (b *InMemoryBackend) GetBucketACL(_ context.Context, bucketName string) (string, error) {
+	b.mu.RLock("GetBucketACL")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return "", err
+	}
+
+	bucket.mu.RLock("GetBucketACL")
+	defer bucket.mu.RUnlock()
+
+	acl := bucket.ACL
+	if acl == "" {
+		acl = "private"
+	}
+
+	return acl, nil
+}
+
 // nilStringIfEmpty returns nil if s is empty, otherwise returns aws.String(s).
 func nilStringIfEmpty(s string) *string {
 	if s == "" {

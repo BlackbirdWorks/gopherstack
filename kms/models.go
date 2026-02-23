@@ -32,7 +32,7 @@ type Key struct {
 	Arn string `json:"Arn"`
 	// Description is an optional human-readable description.
 	Description string `json:"Description,omitempty"`
-	// KeyState is the current state: Enabled or Disabled.
+	// KeyState is the current state: Enabled, Disabled, or PendingDeletion.
 	KeyState string `json:"KeyState"`
 	// KeyUsage is the cryptographic operation: ENCRYPT_DECRYPT.
 	KeyUsage string `json:"KeyUsage"`
@@ -42,6 +42,10 @@ type Key struct {
 	CreationDate float64 `json:"CreationDate"`
 	// RotationEnabled indicates whether automatic key rotation is enabled.
 	RotationEnabled bool `json:"RotationEnabled"`
+	// Enabled indicates whether the key is currently enabled.
+	Enabled bool `json:"Enabled"`
+	// DeletionDate is the Unix timestamp when the key will be deleted (PendingDeletion state).
+	DeletionDate float64 `json:"DeletionDate,omitempty"`
 }
 
 // KeyMetadata is the metadata for a KMS key returned in API responses.
@@ -238,6 +242,37 @@ type GetKeyRotationStatusInput struct {
 type GetKeyRotationStatusOutput struct {
 	KeyID              string `json:"KeyId"`
 	KeyRotationEnabled bool   `json:"KeyRotationEnabled"`
+}
+
+// KeyStatePendingDeletion is the string constant for a key pending deletion.
+const KeyStatePendingDeletion = "PendingDeletion"
+
+// DisableKeyInput is the request payload for DisableKey.
+type DisableKeyInput struct {
+	KeyID string `json:"KeyId"`
+}
+
+// EnableKeyInput is the request payload for EnableKey.
+type EnableKeyInput struct {
+	KeyID string `json:"KeyId"`
+}
+
+// ScheduleKeyDeletionInput is the request payload for ScheduleKeyDeletion.
+type ScheduleKeyDeletionInput struct {
+	KeyID               string `json:"KeyId"`
+	PendingWindowInDays int    `json:"PendingWindowInDays,omitempty"`
+}
+
+// ScheduleKeyDeletionOutput is the response payload for ScheduleKeyDeletion.
+type ScheduleKeyDeletionOutput struct {
+	KeyID        string  `json:"KeyId"`
+	DeletionDate float64 `json:"DeletionDate"`
+	KeyState     string  `json:"KeyState"`
+}
+
+// CancelKeyDeletionInput is the request payload for CancelKeyDeletion.
+type CancelKeyDeletionInput struct {
+	KeyID string `json:"KeyId"`
 }
 
 // ErrorResponse is the KMS JSON error response format.

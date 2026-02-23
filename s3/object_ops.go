@@ -3,6 +3,8 @@ package s3
 import (
 	"bytes"
 	"context"
+	"crypto/md5" //nolint:gosec // MD5 required for Content-MD5 header validation per S3 spec
+	"encoding/base64"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -217,6 +219,28 @@ func (h *S3Handler) putObject(
 		WriteError(log, w, r, err)
 
 		return
+	}
+
+	if contentMD5 := r.Header.Get("Content-MD5"); contentMD5 != "" {
+		decoded, decErr := base64.StdEncoding.DecodeString(contentMD5)
+		if decErr != nil || len(decoded) != md5.Size { //nolint:gosec // MD5 required for S3 spec compliance
+			httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
+				Code:    "BadDigest",
+				Message: "The Content-MD5 you specified did not match what we received.",
+			}, http.StatusBadRequest)
+
+			return
+		}
+		//nolint:gosec // MD5 required for Content-MD5 header validation per S3 spec
+		computed := md5.Sum(data)
+		if !bytes.Equal(computed[:], decoded) {
+			httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
+				Code:    "BadDigest",
+				Message: "The Content-MD5 you specified did not match what we received.",
+			}, http.StatusBadRequest)
+
+			return
+		}
 	}
 
 	userMeta := parseUserMetadata(r.Header)
@@ -552,6 +576,16 @@ func (h *S3Handler) deleteObjects(
 	var req DeleteRequest
 	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
 		WriteError(log, w, r, ErrInvalidArgument)
+
+		return
+	}
+
+	const maxDeleteObjects = 1000
+	if len(req.Objects) > maxDeleteObjects {
+		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
+			Code:    "InvalidArgument",
+			Message: "You have attempted to delete more objects than allowed by the service's max-delete limit (1000).",
+		}, http.StatusBadRequest)
 
 		return
 	}

@@ -71,6 +71,10 @@ type StorageBackend interface {
 	EnableKeyRotation(input *EnableKeyRotationInput) error
 	DisableKeyRotation(input *DisableKeyRotationInput) error
 	GetKeyRotationStatus(input *GetKeyRotationStatusInput) (*GetKeyRotationStatusOutput, error)
+	DisableKey(input *DisableKeyInput) error
+	EnableKey(input *EnableKeyInput) error
+	ScheduleKeyDeletion(input *ScheduleKeyDeletionInput) (*ScheduleKeyDeletionOutput, error)
+	CancelKeyDeletion(input *CancelKeyDeletionInput) error
 }
 
 // InMemoryBackend is a concurrency-safe in-memory KMS backend.
@@ -215,6 +219,7 @@ func (b *InMemoryBackend) CreateKey(input *CreateKeyInput) (*CreateKeyOutput, er
 		KeyState:     KeyStateEnabled,
 		KeyUsage:     keyUsage,
 		CreationDate: UnixTimeFloat(time.Now()),
+		Enabled:      true,
 	}
 
 	if keyUsage == KeyUsageEncryptDecrypt {
@@ -551,6 +556,84 @@ func (b *InMemoryBackend) GetKeyRotationStatus(input *GetKeyRotationStatusInput)
 		KeyRotationEnabled: key.RotationEnabled,
 		KeyID:              key.KeyID,
 	}, nil
+}
+
+// DisableKey disables the specified key.
+func (b *InMemoryBackend) DisableKey(input *DisableKeyInput) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key, err := b.lookupKeyWrite(input.KeyID)
+	if err != nil {
+		return err
+	}
+
+	key.KeyState = KeyStateDisabled
+	key.Enabled = false
+
+	return nil
+}
+
+// EnableKey enables the specified key.
+func (b *InMemoryBackend) EnableKey(input *EnableKeyInput) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key, err := b.lookupKeyWrite(input.KeyID)
+	if err != nil {
+		return err
+	}
+
+	key.KeyState = KeyStateEnabled
+	key.Enabled = true
+
+	return nil
+}
+
+const defaultPendingWindowDays = 30
+
+// ScheduleKeyDeletion schedules a key for deletion.
+func (b *InMemoryBackend) ScheduleKeyDeletion(input *ScheduleKeyDeletionInput) (*ScheduleKeyDeletionOutput, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key, err := b.lookupKeyWrite(input.KeyID)
+	if err != nil {
+		return nil, err
+	}
+
+	days := input.PendingWindowInDays
+	if days <= 0 {
+		days = defaultPendingWindowDays
+	}
+
+	deletionDate := time.Now().UTC().AddDate(0, 0, days)
+	key.KeyState = KeyStatePendingDeletion
+	key.Enabled = false
+	key.DeletionDate = UnixTimeFloat(deletionDate)
+
+	return &ScheduleKeyDeletionOutput{
+		KeyID:        key.KeyID,
+		DeletionDate: key.DeletionDate,
+		KeyState:     key.KeyState,
+	}, nil
+}
+
+// CancelKeyDeletion cancels a pending key deletion and sets the key to Disabled.
+func (b *InMemoryBackend) CancelKeyDeletion(input *CancelKeyDeletionInput) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key, err := b.lookupKeyWrite(input.KeyID)
+	if err != nil {
+		return err
+	}
+
+	key.KeyState = KeyStateDisabled
+	key.Enabled = false
+	key.DeletionDate = 0
+
+	return nil
 }
 
 // lookupKey finds a key by ID, alias, or ARN. Caller must hold at least a read lock.

@@ -18,6 +18,7 @@ type StoredBucket struct {
 	mu           *lockmetrics.RWMutex
 	Name         string
 	CreationDate time.Time
+	ACL          string
 	// Versioning must precede non-pointer fields so its trailing len word falls
 	// outside the GC scan range, reducing pointer bytes to 64.
 	Versioning types.BucketVersioningStatus

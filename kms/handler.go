@@ -45,19 +45,23 @@ func (h *Handler) Name() string {
 // GetSupportedOperations returns the list of supported KMS operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
+		"CancelKeyDeletion",
 		"CreateKey",
 		"DescribeKey",
-		"ListKeys",
-		"Encrypt",
+		"DisableKey",
+		"DisableKeyRotation",
 		"Decrypt",
+		"EnableKey",
+		"EnableKeyRotation",
+		"Encrypt",
 		"GenerateDataKey",
+		"GetKeyRotationStatus",
+		"ListAliases",
+		"ListKeys",
 		"ReEncrypt",
+		"ScheduleKeyDeletion",
 		"CreateAlias",
 		"DeleteAlias",
-		"ListAliases",
-		"EnableKeyRotation",
-		"DisableKeyRotation",
-		"GetKeyRotationStatus",
 	}
 }
 
@@ -263,6 +267,37 @@ func (h *Handler) dispatch(_ context.Context, r *http.Request, action string, bo
 			return nil, uErr
 		}
 		response, err = h.Backend.GetKeyRotationStatus(&input)
+
+	case "DisableKey":
+		var input DisableKeyInput
+		if uErr := json.Unmarshal(body, &input); uErr != nil {
+			return nil, uErr
+		}
+		err = h.Backend.DisableKey(&input)
+		response = struct{}{}
+
+	case "EnableKey":
+		var input EnableKeyInput
+		if uErr := json.Unmarshal(body, &input); uErr != nil {
+			return nil, uErr
+		}
+		err = h.Backend.EnableKey(&input)
+		response = struct{}{}
+
+	case "ScheduleKeyDeletion":
+		var input ScheduleKeyDeletionInput
+		if uErr := json.Unmarshal(body, &input); uErr != nil {
+			return nil, uErr
+		}
+		response, err = h.Backend.ScheduleKeyDeletion(&input)
+
+	case "CancelKeyDeletion":
+		var input CancelKeyDeletionInput
+		if uErr := json.Unmarshal(body, &input); uErr != nil {
+			return nil, uErr
+		}
+		err = h.Backend.CancelKeyDeletion(&input)
+		response = struct{}{}
 
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrUnknownOperation, action)
