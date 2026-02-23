@@ -1103,6 +1103,7 @@ func TestCreateBucket_NonDefaultRegion_PutObjectSucceeds(t *testing.T) {
 	require.NoError(t, err)
 	defer out.Body.Close()
 
-	body, _ := io.ReadAll(out.Body)
+	body, readErr := io.ReadAll(out.Body)
+	require.NoError(t, readErr)
 	assert.Equal(t, "hello", string(body))
 }

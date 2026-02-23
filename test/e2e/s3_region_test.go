@@ -80,6 +80,7 @@ Key:    aws.String("greeting.txt"),
 require.NoError(t, err)
 defer out.Body.Close()
 
-body, _ := io.ReadAll(out.Body)
+body, readErr := io.ReadAll(out.Body)
+	require.NoError(t, readErr)
 assert.Equal(t, "hello region", string(body))
 }
