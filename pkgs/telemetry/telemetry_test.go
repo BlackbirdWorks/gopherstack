@@ -15,6 +15,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// errBoom is a package-level sentinel used in handler error tests (required by err113).
+var errBoom = errors.New("boom")
+
 func TestRecordOperation_Success(t *testing.T) {
 	t.Parallel()
 
@@ -246,9 +249,8 @@ func TestWrapEchoHandler_HandlerError(t *testing.T) {
 
 	log := slog.Default()
 	obs := &mockObserver{operation: "PutItem", resource: "MyTable"}
-	errExpected := errors.New("boom")
 	handler := telemetry.WrapEchoHandler("dynamodb", func(_ *echo.Context) error {
-		return errExpected
+		return errBoom
 	}, obs, log)
 
 	e := echo.New()
@@ -257,7 +259,7 @@ func TestWrapEchoHandler_HandlerError(t *testing.T) {
 	c := e.NewContext(req, rec)
 
 	err := handler(c)
-	assert.ErrorIs(t, err, errExpected)
+	assert.ErrorIs(t, err, errBoom)
 }
 
 func TestWrapEchoHandler_UnknownOperation(t *testing.T) {
@@ -267,10 +269,10 @@ func TestWrapEchoHandler_UnknownOperation(t *testing.T) {
 	// When operation starts as "Unknown", the wrapper re-extracts after the handler runs.
 	callCount := 0
 	obs := &refiningObserver{
-		callCount: &callCount,
-		first:     "Unknown",
+		callCount:  &callCount,
+		first:      "Unknown",
 		subsequent: "Resolved",
-		resource:  "table",
+		resource:   "table",
 	}
 
 	handler := telemetry.WrapEchoHandler("s3", func(c *echo.Context) error {
