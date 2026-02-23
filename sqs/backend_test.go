@@ -781,3 +781,37 @@ func TestSentTimestamp_PresentInAttributes(t *testing.T) {
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, sentTS, beforeSend)
 }
+
+// TestSendMessage_MD5OfMessageAttributes verifies that sending a message with MessageAttributes
+// returns a non-empty MD5OfMessageAttributes that matches the expected AWS algorithm output.
+func TestSendMessage_MD5OfMessageAttributes(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend()
+	qURL := createTestQueue(t, b, "md5-attrs-queue")
+
+	out, err := b.SendMessage(&sqs.SendMessageInput{
+		QueueURL:    qURL,
+		MessageBody: "hello",
+		MessageAttributes: map[string]sqs.MessageAttributeValue{
+			"MyAttr": {DataType: "String", StringValue: "TestValue"},
+		},
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(
+		t,
+		out.MD5OfMessageAttributes,
+		"MD5OfMessageAttributes should be set when MessageAttributes are present",
+	)
+
+	// Verify it's a valid 32-char hex string (MD5).
+	assert.Len(t, out.MD5OfMessageAttributes, 32)
+
+	// Sending without attributes should produce an empty MD5OfMessageAttributes.
+	outNoAttrs, err := b.SendMessage(&sqs.SendMessageInput{
+		QueueURL:    qURL,
+		MessageBody: "hello",
+	})
+	require.NoError(t, err)
+	assert.Empty(t, outNoAttrs.MD5OfMessageAttributes)
+}

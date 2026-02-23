@@ -34,6 +34,13 @@ func TestWriteError(t *testing.T) {
 				"<Resource></Resource><RequestId></RequestId></Error>",
 		},
 		{
+			err:          s3.ErrBucketAlreadyOwnedByYou,
+			expectedCode: http.StatusConflict,
+			expectedXML: "<Error><Code>BucketAlreadyOwnedByYou</Code>" +
+				"<Message>Your previous request to create the named bucket succeeded and you already own it.</Message>" +
+				"<Resource></Resource><RequestId></RequestId></Error>",
+		},
+		{
 			err:          s3.ErrBucketAlreadyExists,
 			expectedCode: http.StatusConflict,
 			expectedXML: "<Error><Code>BucketAlreadyExists</Code>" +

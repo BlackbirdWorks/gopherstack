@@ -71,6 +71,10 @@ type StorageBackend interface {
 	EnableKeyRotation(input *EnableKeyRotationInput) error
 	DisableKeyRotation(input *DisableKeyRotationInput) error
 	GetKeyRotationStatus(input *GetKeyRotationStatusInput) (*GetKeyRotationStatusOutput, error)
+	DisableKey(input *DisableKeyInput) error
+	EnableKey(input *EnableKeyInput) error
+	ScheduleKeyDeletion(input *ScheduleKeyDeletionInput) (*ScheduleKeyDeletionOutput, error)
+	CancelKeyDeletion(input *CancelKeyDeletionInput) error
 }
 
 // InMemoryBackend is a concurrency-safe in-memory KMS backend.
@@ -202,7 +206,12 @@ func (b *InMemoryBackend) CreateKey(input *CreateKeyInput) (*CreateKeyOutput, er
 		keyUsage = KeyUsageEncryptDecrypt
 	}
 
-	arn := fmt.Sprintf("arn:aws:kms:%s:%s:key/%s", b.region, b.accountID, keyID)
+	region := b.region
+	if input.Region != "" {
+		region = input.Region
+	}
+
+	arn := fmt.Sprintf("arn:aws:kms:%s:%s:key/%s", region, b.accountID, keyID)
 	key := &Key{
 		KeyID:        keyID,
 		Arn:          arn,
@@ -210,6 +219,11 @@ func (b *InMemoryBackend) CreateKey(input *CreateKeyInput) (*CreateKeyOutput, er
 		KeyState:     KeyStateEnabled,
 		KeyUsage:     keyUsage,
 		CreationDate: UnixTimeFloat(time.Now()),
+		Enabled:      true,
+	}
+
+	if keyUsage == KeyUsageEncryptDecrypt {
+		key.KeySpec = "SYMMETRIC_DEFAULT"
 	}
 
 	b.keys[keyID] = key
@@ -242,7 +256,7 @@ func (b *InMemoryBackend) ListKeys(input *ListKeysInput) (*ListKeysOutput, error
 	entries := make([]KeyListEntry, 0, len(b.keys))
 
 	for _, k := range b.keys {
-		entries = append(entries, KeyListEntry{KeyID: k.KeyID, KeyArn: k.Arn})
+		entries = append(entries, KeyListEntry{KeyID: k.KeyID, KeyArn: k.Arn, Description: k.Description})
 	}
 
 	sort.Slice(entries, func(i, j int) bool {
@@ -416,7 +430,7 @@ func (b *InMemoryBackend) CreateAlias(input *CreateAliasInput) error {
 		return ErrKeyNotFound
 	}
 
-	aliasArn := fmt.Sprintf("arn:aws:kms:%s:%s:%s", MockRegion, MockAccountID, input.AliasName)
+	aliasArn := fmt.Sprintf("arn:aws:kms:%s:%s:%s", b.region, b.accountID, input.AliasName)
 	b.aliases[input.AliasName] = &Alias{
 		AliasName:   input.AliasName,
 		AliasArn:    aliasArn,
@@ -544,6 +558,84 @@ func (b *InMemoryBackend) GetKeyRotationStatus(input *GetKeyRotationStatusInput)
 	}, nil
 }
 
+// DisableKey disables the specified key.
+func (b *InMemoryBackend) DisableKey(input *DisableKeyInput) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key, err := b.lookupKeyWrite(input.KeyID)
+	if err != nil {
+		return err
+	}
+
+	key.KeyState = KeyStateDisabled
+	key.Enabled = false
+
+	return nil
+}
+
+// EnableKey enables the specified key.
+func (b *InMemoryBackend) EnableKey(input *EnableKeyInput) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key, err := b.lookupKeyWrite(input.KeyID)
+	if err != nil {
+		return err
+	}
+
+	key.KeyState = KeyStateEnabled
+	key.Enabled = true
+
+	return nil
+}
+
+const defaultPendingWindowDays = 30
+
+// ScheduleKeyDeletion schedules a key for deletion.
+func (b *InMemoryBackend) ScheduleKeyDeletion(input *ScheduleKeyDeletionInput) (*ScheduleKeyDeletionOutput, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key, err := b.lookupKeyWrite(input.KeyID)
+	if err != nil {
+		return nil, err
+	}
+
+	days := input.PendingWindowInDays
+	if days <= 0 {
+		days = defaultPendingWindowDays
+	}
+
+	deletionDate := time.Now().UTC().AddDate(0, 0, days)
+	key.KeyState = KeyStatePendingDeletion
+	key.Enabled = false
+	key.DeletionDate = UnixTimeFloat(deletionDate)
+
+	return &ScheduleKeyDeletionOutput{
+		KeyID:        key.KeyID,
+		DeletionDate: key.DeletionDate,
+		KeyState:     key.KeyState,
+	}, nil
+}
+
+// CancelKeyDeletion cancels a pending key deletion and sets the key to Disabled.
+func (b *InMemoryBackend) CancelKeyDeletion(input *CancelKeyDeletionInput) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	key, err := b.lookupKeyWrite(input.KeyID)
+	if err != nil {
+		return err
+	}
+
+	key.KeyState = KeyStateDisabled
+	key.Enabled = false
+	key.DeletionDate = 0
+
+	return nil
+}
+
 // lookupKey finds a key by ID, alias, or ARN. Caller must hold at least a read lock.
 func (b *InMemoryBackend) lookupKey(keyID string) (*Key, error) {
 	resolved, err := b.resolveKeyID(keyID)
@@ -566,14 +658,24 @@ func (b *InMemoryBackend) lookupKeyWrite(keyID string) (*Key, error) {
 
 // keyToMetadata converts a Key to its KeyMetadata representation.
 func keyToMetadata(k *Key) KeyMetadata {
-	return KeyMetadata{
+	meta := KeyMetadata{
 		KeyID:        k.KeyID,
 		Arn:          k.Arn,
 		Description:  k.Description,
 		KeyState:     k.KeyState,
 		KeyUsage:     k.KeyUsage,
 		CreationDate: k.CreationDate,
+		KeyManager:   "CUSTOMER",
+		Origin:       "AWS_KMS",
+		MultiRegion:  false,
 	}
+
+	if k.KeyUsage == KeyUsageEncryptDecrypt {
+		meta.KeySpec = "SYMMETRIC_DEFAULT"
+		meta.EncryptionAlgorithms = []string{"SYMMETRIC_DEFAULT"}
+	}
+
+	return meta
 }
 
 // dataKeySize returns the number of bytes for a data key based on spec and override.

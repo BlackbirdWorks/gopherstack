@@ -9,11 +9,12 @@ import (
 )
 
 var (
-	ErrBucketAlreadyExists = errors.New("BucketAlreadyExists")
-	ErrNoSuchBucket        = errors.New("NoSuchBucket")
-	ErrNoSuchKey           = errors.New("NoSuchKey")
-	ErrInvalidBucketName   = errors.New("InvalidBucketName")
-	ErrBucketNotEmpty      = errors.New(
+	ErrBucketAlreadyExists     = errors.New("BucketAlreadyExists")
+	ErrBucketAlreadyOwnedByYou = errors.New("BucketAlreadyOwnedByYou")
+	ErrNoSuchBucket            = errors.New("NoSuchBucket")
+	ErrNoSuchKey               = errors.New("NoSuchKey")
+	ErrInvalidBucketName       = errors.New("InvalidBucketName")
+	ErrBucketNotEmpty          = errors.New(
 		"BucketNotEmpty: The bucket you tried to delete is not empty",
 	)
 	ErrNotImplemented   = errors.New("NotImplemented")
@@ -24,62 +25,79 @@ var (
 	ErrNoCompressor     = errors.New("data is compressed but no compressor available")
 )
 
+type s3ErrorInfo struct {
+	code    string
+	message string
+	status  int
+}
+
 // WriteError translates a typed Go error to an S3 ErrorResponse XML payload.
 func WriteError(log *slog.Logger, w http.ResponseWriter, r *http.Request, err error) {
-	var code string
-	var message string
-	status := http.StatusInternalServerError
-
-	switch {
-	case errors.Is(err, ErrNoSuchBucket):
-		code = "NoSuchBucket"
-		message = "The specified bucket does not exist."
-		status = http.StatusNotFound
-	case errors.Is(err, ErrNoSuchKey):
-		code = "NoSuchKey"
-		message = "The specified key does not exist."
-		status = http.StatusNotFound
-	case errors.Is(err, ErrBucketAlreadyExists):
-		code = "BucketAlreadyExists"
-		message = "The requested bucket name is not available."
-		status = http.StatusConflict
-	case errors.Is(err, ErrInvalidBucketName):
-		code = "InvalidBucketName"
-		message = "The specified bucket is not valid."
-		status = http.StatusBadRequest
-	case errors.Is(err, ErrBucketNotEmpty):
-		code = "BucketNotEmpty"
-		message = "The bucket you tried to delete is not empty."
-		status = http.StatusConflict
-	case errors.Is(err, ErrNoSuchUpload):
-		code = "NoSuchUpload"
-		message = "The specified multipart upload does not exist."
-		status = http.StatusNotFound
-	case errors.Is(err, ErrInvalidPart):
-		code = "InvalidPart"
-		message = "One or more of the specified parts could not be found."
-		status = http.StatusBadRequest
-	case errors.Is(err, ErrInvalidArgument):
-		code = "InvalidArgument"
-		message = "Invalid Argument."
-		status = http.StatusBadRequest
-	case errors.Is(err, ErrMethodNotAllowed):
-		code = "MethodNotAllowed"
-		message = "The specified method is not allowed against this resource."
-		status = http.StatusMethodNotAllowed
-	case errors.Is(err, ErrNotImplemented):
-		code = "NotImplemented"
-		message = "A header you provided implies functionality that is not implemented."
-		status = http.StatusNotImplemented
-	default:
-		code = "InternalError"
-		message = "We encountered an internal error. Please try again."
+	type s3ErrorEntry struct {
+		err  error
+		info s3ErrorInfo
 	}
 
-	resp := ErrorResponse{
-		Code:    code,
-		Message: message,
+	table := []s3ErrorEntry{
+		{ErrNoSuchBucket, s3ErrorInfo{"NoSuchBucket", "The specified bucket does not exist.", http.StatusNotFound}},
+		{ErrNoSuchKey, s3ErrorInfo{"NoSuchKey", "The specified key does not exist.", http.StatusNotFound}},
+		{ErrBucketAlreadyOwnedByYou, s3ErrorInfo{
+			"BucketAlreadyOwnedByYou",
+			"Your previous request to create the named bucket succeeded and you already own it.",
+			http.StatusConflict,
+		}},
+		{ErrBucketAlreadyExists, s3ErrorInfo{
+			"BucketAlreadyExists",
+			"The requested bucket name is not available.",
+			http.StatusConflict,
+		}},
+		{ErrInvalidBucketName, s3ErrorInfo{
+			"InvalidBucketName",
+			"The specified bucket is not valid.",
+			http.StatusBadRequest,
+		}},
+		{ErrBucketNotEmpty, s3ErrorInfo{
+			"BucketNotEmpty",
+			"The bucket you tried to delete is not empty.",
+			http.StatusConflict,
+		}},
+		{ErrNoSuchUpload, s3ErrorInfo{
+			"NoSuchUpload",
+			"The specified multipart upload does not exist.",
+			http.StatusNotFound,
+		}},
+		{ErrInvalidPart, s3ErrorInfo{
+			"InvalidPart",
+			"One or more of the specified parts could not be found.",
+			http.StatusBadRequest,
+		}},
+		{ErrInvalidArgument, s3ErrorInfo{"InvalidArgument", "Invalid Argument.", http.StatusBadRequest}},
+		{ErrMethodNotAllowed, s3ErrorInfo{
+			"MethodNotAllowed",
+			"The specified method is not allowed against this resource.",
+			http.StatusMethodNotAllowed,
+		}},
+		{ErrNotImplemented, s3ErrorInfo{
+			"NotImplemented",
+			"A header you provided implies functionality that is not implemented.",
+			http.StatusNotImplemented,
+		}},
 	}
 
-	httputil.WriteS3ErrorResponse(log, w, r, resp, status)
+	for _, e := range table {
+		if errors.Is(err, e.err) {
+			httputil.WriteS3ErrorResponse(
+				log, w, r,
+				ErrorResponse{Code: e.info.code, Message: e.info.message},
+				e.info.status,
+			)
+
+			return
+		}
+	}
+
+	httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
+		Code:    "InternalError",
+		Message: "We encountered an internal error. Please try again.",
+	}, http.StatusInternalServerError)
 }

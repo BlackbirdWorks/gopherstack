@@ -2,11 +2,13 @@ package sqs
 
 import (
 	"crypto/md5" //nolint:gosec // MD5 used for SQS wire protocol compatibility, not security
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"maps"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -109,6 +111,56 @@ func computeMD5(body string) string {
 	return hex.EncodeToString(hash[:])
 }
 
+// computeMD5OfMessageAttributes computes the MD5 of message attributes per the AWS SQS algorithm.
+// Attributes are sorted alphabetically, then each is encoded as:
+// 4-byte big-endian name length, name, 4-byte big-endian data-type length, data type,
+// 1-byte transport type (1=String/Number, 2=Binary), 4-byte big-endian value length, value bytes.
+func computeMD5OfMessageAttributes(attrs map[string]MessageAttributeValue) string {
+	if len(attrs) == 0 {
+		return ""
+	}
+
+	names := make([]string, 0, len(attrs))
+	for name := range attrs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	var buf []byte
+	for _, name := range names {
+		attr := attrs[name]
+		buf = appendWithLength(buf, []byte(name))
+		buf = appendWithLength(buf, []byte(attr.DataType))
+
+		if strings.HasPrefix(attr.DataType, "Binary") {
+			buf = append(buf, msgAttrTransportTypeBinary)
+			buf = appendWithLength(buf, attr.BinaryValue)
+		} else {
+			buf = append(buf, msgAttrTransportTypeString)
+			buf = appendWithLength(buf, []byte(attr.StringValue))
+		}
+	}
+
+	//nolint:gosec // MD5 required by SQS wire protocol
+	hash := md5.Sum(buf)
+
+	return hex.EncodeToString(hash[:])
+}
+
+// appendWithLength appends a 4-byte big-endian length prefix followed by data to buf.
+func appendWithLength(buf, data []byte) []byte {
+	var lenBuf [4]byte
+	binary.BigEndian.PutUint32(
+		lenBuf[:],
+		uint32(len(data)), //nolint:gosec // length is always non-negative and bounded by message size limits
+	)
+
+	buf = append(buf, lenBuf[:]...)
+	buf = append(buf, data...)
+
+	return buf
+}
+
 // buildDefaultAttributes initialises the attribute map for a new queue.
 func buildDefaultAttributes(queueName, accountID, region string, isFIFO bool) map[string]string {
 	now := strconv.FormatInt(time.Now().Unix(), 10)
@@ -144,7 +196,11 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 	}
 
 	isFIFO := strings.HasSuffix(input.QueueName, fifoSuffix)
-	attrs := buildDefaultAttributes(input.QueueName, b.accountID, b.region, isFIFO)
+	region := b.region
+	if input.Region != "" {
+		region = input.Region
+	}
+	attrs := buildDefaultAttributes(input.QueueName, b.accountID, region, isFIFO)
 
 	maps.Copy(attrs, input.Attributes)
 
@@ -297,6 +353,7 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 	}
 
 	md5Body := computeMD5(input.MessageBody)
+	md5Attrs := computeMD5OfMessageAttributes(input.MessageAttributes)
 
 	if q.IsFIFO {
 		if out, dup := checkDedup(
@@ -317,6 +374,7 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 		MessageID:              msgID,
 		Body:                   input.MessageBody,
 		MD5OfBody:              md5Body,
+		MD5OfMessageAttributes: md5Attrs,
 		MessageGroupID:         input.MessageGroupID,
 		MessageDeduplicationID: input.MessageDeduplicationID,
 		SentTimestamp:          now.UnixMilli(),
@@ -333,7 +391,7 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 
 	q.messages = append(q.messages, msg)
 
-	return &SendMessageOutput{MessageID: msgID, MD5OfBody: md5Body}, nil
+	return &SendMessageOutput{MessageID: msgID, MD5OfBody: md5Body, MD5OfMessageAttributes: md5Attrs}, nil
 }
 
 // checkDedup checks for a duplicate FIFO message and returns the original output if found.
@@ -635,9 +693,10 @@ func (b *InMemoryBackend) SendMessageBatch(input *SendMessageBatchInput) (*SendM
 		}
 
 		out.Successful = append(out.Successful, SendMessageBatchResultEntry{
-			ID:        entry.ID,
-			MessageID: sendOut.MessageID,
-			MD5OfBody: sendOut.MD5OfBody,
+			ID:                     entry.ID,
+			MessageID:              sendOut.MessageID,
+			MD5OfBody:              sendOut.MD5OfBody,
+			MD5OfMessageAttributes: sendOut.MD5OfMessageAttributes,
 		})
 	}
 

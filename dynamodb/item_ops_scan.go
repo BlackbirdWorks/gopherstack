@@ -3,6 +3,7 @@ package dynamodb
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"sort"
 
 	"github.com/blackbirdworks/gopherstack/dynamodb/models"
@@ -70,7 +71,7 @@ func (db *InMemoryDB) ScanWithContext(
 	}
 
 	// Process scan outside the lock
-	items := db.doScan(ctx, itemsCopy, ttlAttr, snapshotTable, input, pkDef, skDef)
+	items, lastKey := db.doScan(ctx, itemsCopy, ttlAttr, snapshotTable, input, pkDef, skDef)
 
 	outItems := make([]map[string]types.AttributeValue, len(items))
 	for i, it := range items {
@@ -78,11 +79,18 @@ func (db *InMemoryDB) ScanWithContext(
 		outItems[i] = sdkIt
 	}
 
-	return &dynamodb.ScanOutput{
+	out := &dynamodb.ScanOutput{
 		Items:        outItems,
 		Count:        int32(len(items)), // #nosec G115
 		ScannedCount: scannedCount,
-	}, nil
+	}
+
+	if lastKey != nil {
+		sdkKey, _ := models.ToSDKItem(lastKey)
+		out.LastEvaluatedKey = sdkKey
+	}
+
+	return out, nil
 }
 
 func (db *InMemoryDB) getScanKeySchema(
@@ -124,13 +132,13 @@ func (db *InMemoryDB) doScan(
 	table *Table,
 	input *dynamodb.ScanInput,
 	pkDef, skDef models.KeySchemaElement,
-) []map[string]any {
-	result := make([]map[string]any, 0, minScanAllocationSize)
-
+) ([]map[string]any, map[string]any) {
 	eav := models.FromSDKItem(input.ExpressionAttributeValues)
 	limit := int(aws.ToInt32(input.Limit))
-
 	proj := aws.ToString(input.ProjectionExpression)
+
+	// Collect all matching, non-expired items.
+	candidate := make([]map[string]any, 0, minScanAllocationSize)
 
 	for _, item := range items {
 		if isItemExpired(item, ttlAttr) {
@@ -138,25 +146,58 @@ func (db *InMemoryDB) doScan(
 		}
 
 		if db.shouldIncludeInScan(ctx, item, input, pkDef, skDef, eav) {
-			result = append(result, item)
+			candidate = append(candidate, item)
 		}
 	}
 
-	// Sort result by PK then SK
-	sortScanResults(result, pkDef, skDef, table)
+	// Sort candidate set by PK then SK (deterministic ordering for pagination).
+	sortScanResults(candidate, pkDef, skDef, table)
 
-	// Apply projection and limit
-	if limit > 0 && len(result) > limit {
-		result = result[:limit]
+	// Apply parallel-scan segment filter (Segment / TotalSegments).
+	// Assign each item to a segment by hashing its PK string representation.
+	totalSegments := int(aws.ToInt32(input.TotalSegments))
+	segment := int(aws.ToInt32(input.Segment))
+
+	if totalSegments > 1 {
+		filtered := candidate[:0]
+		for _, item := range candidate {
+			pkVal := fmt.Sprintf("%v", dynamoattr.UnwrapAttributeValue(item[pkDef.AttributeName]))
+			h := fnv.New32a()
+			_, _ = h.Write([]byte(pkVal))
+			if int(h.Sum32())%totalSegments == segment {
+				filtered = append(filtered, item)
+			}
+		}
+		candidate = filtered
 	}
 
+	// Apply ExclusiveStartKey: skip items up to and including the start-key item.
+	candidate = applyExclusiveStartKey(candidate, input.ExclusiveStartKey, pkDef, skDef)
+
+	// Apply limit and track LastEvaluatedKey.
+	var lastKey map[string]any
+
+	if limit > 0 && len(candidate) > limit {
+		lastItem := candidate[limit-1]
+		// Build LastEvaluatedKey from the last returned item's primary key attributes.
+		lastKey = map[string]any{
+			pkDef.AttributeName: lastItem[pkDef.AttributeName],
+		}
+		if skDef.AttributeName != "" {
+			lastKey[skDef.AttributeName] = lastItem[skDef.AttributeName]
+		}
+
+		candidate = candidate[:limit]
+	}
+
+	// Apply projection after limit so we still have key attrs for LastEvaluatedKey.
 	if proj != "" {
-		for i, item := range result {
-			result[i] = projectItem(item, proj, input.ExpressionAttributeNames)
+		for i, item := range candidate {
+			candidate[i] = projectItem(item, proj, input.ExpressionAttributeNames)
 		}
 	}
 
-	return result
+	return candidate, lastKey
 }
 
 func sortScanResults(
@@ -239,4 +280,53 @@ func (db *InMemoryDB) shouldIncludeInScan(
 	}
 
 	return true
+}
+
+func applyExclusiveStartKey(
+	candidate []map[string]any,
+	exclusiveStartKey map[string]types.AttributeValue,
+	pkDef, skDef models.KeySchemaElement,
+) []map[string]any {
+	if len(exclusiveStartKey) == 0 {
+		return candidate
+	}
+
+	startKey := models.FromSDKItem(exclusiveStartKey)
+	pkName := pkDef.AttributeName
+	skName := skDef.AttributeName
+
+	startPK := fmt.Sprintf("%v", dynamoattr.UnwrapAttributeValue(startKey[pkName]))
+
+	var startSK string
+	if skName != "" {
+		startSK = fmt.Sprintf("%v", dynamoattr.UnwrapAttributeValue(startKey[skName]))
+	}
+
+	skipUntil := -1
+
+	for i, item := range candidate {
+		itemPK := fmt.Sprintf("%v", dynamoattr.UnwrapAttributeValue(item[pkName]))
+		if itemPK != startPK {
+			continue
+		}
+
+		if skName == "" {
+			skipUntil = i
+
+			break
+		}
+
+		itemSK := fmt.Sprintf("%v", dynamoattr.UnwrapAttributeValue(item[skName]))
+		if itemSK == startSK {
+			skipUntil = i
+
+			break
+		}
+	}
+
+	if skipUntil >= 0 {
+		return candidate[skipUntil+1:]
+	}
+
+	return candidate
 }

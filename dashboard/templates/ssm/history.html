@@ -1,0 +1,64 @@
+{{define "content"}}
+<div class="px-4 sm:px-6 lg:px-8">
+    <div class="mb-6">
+        <nav class="flex" aria-label="Breadcrumb">
+            <ol class="inline-flex items-center space-x-1 md:space-x-3">
+                <li>
+                    <a href="/dashboard/ssm"
+                        class="text-sm font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-white">
+                        SSM Parameter Store
+                    </a>
+                </li>
+                <li>
+                    <span class="mx-2 text-gray-400">/</span>
+                    <span class="text-sm font-medium text-gray-700 dark:text-white">History: {{.Name}}</span>
+                </li>
+            </ol>
+        </nav>
+    </div>
+
+    <div class="sm:flex sm:items-center justify-between mb-8">
+        <div class="sm:flex-auto">
+            <h1 class="text-3xl font-bold text-gray-900 dark:text-white">Parameter History: {{.Name}}</h1>
+            <p class="mt-2 text-sm text-gray-700 dark:text-gray-300">All recorded versions of this parameter.</p>
+        </div>
+        <div class="mt-4 sm:ml-16 sm:mt-0 sm:flex-none">
+            <a href="/dashboard/ssm"
+                class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-blue-600 dark:hover:bg-blue-700 focus:outline-none dark:focus:ring-blue-800">
+                &larr; Back to Parameters
+            </a>
+        </div>
+    </div>
+
+    <div class="mt-8 relative overflow-x-auto shadow-md sm:rounded-lg">
+        <table class="w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
+            <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                <tr>
+                    <th scope="col" class="px-6 py-3">Version</th>
+                    <th scope="col" class="px-6 py-3">Type</th>
+                    <th scope="col" class="px-6 py-3">Value</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .History}}
+                <tr
+                    class="bg-white border-b dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
+                    <td class="px-6 py-4 font-medium text-gray-900 dark:text-white">{{.Version}}</td>
+                    <td class="px-6 py-4">
+                        <span
+                            class="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-blue-900 dark:text-blue-300">{{.Type}}</span>
+                    </td>
+                    <td class="px-6 py-4 font-mono max-w-xs truncate">{{.Value}}</td>
+                </tr>
+                {{else}}
+                <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
+                    <td colspan="3" class="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                        No history available for this parameter.
+                    </td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+</div>
+{{end}}

@@ -68,6 +68,8 @@
                     <td class="px-6 py-4 text-right whitespace-nowrap font-medium">
                         <button hx-get="/dashboard/ssm/modal/put?name={{.Name}}" hx-target="#modal-container"
                             class="text-blue-600 dark:text-blue-500 hover:underline mr-4">Edit</button>
+                        <a href="/dashboard/ssm/history?name={{.Name}}"
+                            class="text-green-600 dark:text-green-500 hover:underline mr-4">History</a>
                         <button hx-delete="/dashboard/ssm/delete?name={{.Name}}"
                             hx-confirm="Are you sure you want to delete this parameter?" hx-target="body"
                             class="text-red-600 dark:text-red-500 hover:underline">Delete</button>

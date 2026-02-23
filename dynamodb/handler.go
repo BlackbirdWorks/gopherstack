@@ -125,6 +125,8 @@ func (h *DynamoDBHandler) GetSupportedOperations() []string {
 		"TransactGetItems",
 		"TransactWriteItems",
 		"UntagResource",
+		"BatchExecuteStatement",
+		"ExecuteStatement",
 		"UpdateItem",
 		"UpdateTable",
 		"UpdateTimeToLive",
@@ -274,6 +276,10 @@ func (h *DynamoDBHandler) dispatch(ctx context.Context, action string, body []by
 		return h.dispatchTransactOps(ctx, action, body)
 	case "DescribeStream", "GetShardIterator", "GetRecords", "ListStreams":
 		return h.dispatchStreamsOps(ctx, action, body)
+	case "ExecuteStatement":
+		return h.handleExecuteStatement(ctx, body)
+	case "BatchExecuteStatement":
+		return h.handleBatchExecuteStatement(ctx, body)
 	default:
 		return nil, fmt.Errorf("%w:%s", ErrUnknownOperation, action)
 	}

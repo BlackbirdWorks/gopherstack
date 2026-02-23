@@ -48,8 +48,14 @@ func (h *S3Handler) routeBucketPut(
 ) {
 	log := logger.Load(ctx)
 	switch {
+	case r.URL.Query().Has("acl"):
+		h.putBucketACL(ctx, w, r, bucket)
 	case r.URL.Query().Has("versioning"):
 		h.putBucketVersioning(ctx, w, r, bucket)
+	case r.URL.Query().Has("notification"):
+		// Stub: accept notification configuration but do not deliver events.
+		h.setOperation(ctx, "PutBucketNotificationConfiguration")
+		w.WriteHeader(http.StatusOK)
 	case r.URL.Query().Has("tagging"):
 		WriteError(log, w, r, ErrNotImplemented)
 	default:
@@ -81,6 +87,14 @@ func (h *S3Handler) routeBucketGet(
 ) {
 	log := logger.Load(ctx)
 	switch {
+	case r.URL.Query().Has("acl"):
+		h.getBucketACL(ctx, w, r, bucket)
+	case r.URL.Query().Has("notification"):
+		// Stub: return empty notification configuration.
+		h.setOperation(ctx, "GetBucketNotificationConfiguration")
+		httputil.WriteXML(log, w, http.StatusOK, struct {
+			XMLName xml.Name `xml:"NotificationConfiguration"`
+		}{})
 	case r.URL.Query().Has("versioning"):
 		h.getBucketVersioning(ctx, w, r, bucket)
 	case r.URL.Query().Has("versions"):
@@ -177,6 +191,17 @@ func (h *S3Handler) createBucket(
 	}
 
 	output, err := h.Backend.CreateBucket(ctx, input)
+	if errors.Is(err, ErrBucketAlreadyOwnedByYou) {
+		log.ErrorContext(ctx, "request failed", "error", err, "code", http.StatusConflict, "path", r.URL.Path)
+		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
+			Code:     "BucketAlreadyOwnedByYou",
+			Message:  "Your previous request to create the named bucket succeeded and you already own it.",
+			Resource: r.URL.Path,
+		}, http.StatusConflict)
+
+		return
+	}
+
 	if errors.Is(err, ErrBucketAlreadyExists) {
 		log.ErrorContext(ctx, "request failed", "error", err, "code", http.StatusConflict, "path", r.URL.Path)
 		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
@@ -580,6 +605,68 @@ func (h *S3Handler) listObjectVersions(
 				DisplayName: "gopherstack",
 			},
 		})
+	}
+
+	httputil.WriteXML(log, w, http.StatusOK, resp)
+}
+
+func (h *S3Handler) putBucketACL(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucketName string,
+) {
+	h.setOperation(ctx, "PutBucketAcl")
+	log := logger.Load(ctx)
+
+	acl := r.Header.Get("X-Amz-Acl")
+	if acl == "" {
+		acl = "private"
+	}
+
+	if err := h.Backend.PutBucketACL(ctx, bucketName, acl); err != nil {
+		WriteError(log, w, r, err)
+
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *S3Handler) getBucketACL(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucketName string,
+) {
+	h.setOperation(ctx, "GetBucketAcl")
+	log := logger.Load(ctx)
+
+	_, err := h.Backend.GetBucketACL(ctx, bucketName)
+	if err != nil {
+		WriteError(log, w, r, err)
+
+		return
+	}
+
+	resp := AccessControlPolicy{
+		Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/",
+		Owner: Owner{
+			ID:          "gopherstack",
+			DisplayName: "gopherstack",
+		},
+		ACL: AccessControlList{
+			Grants: []Grant{
+				{
+					Grantee: Grantee{
+						XmlnsXsi: "http://www.w3.org/2001/XMLSchema-instance",
+						XsiType:  "CanonicalUser",
+						ID:       "gopherstack",
+					},
+					Permission: "FULL_CONTROL",
+				},
+			},
+		},
 	}
 
 	httputil.WriteXML(log, w, http.StatusOK, resp)

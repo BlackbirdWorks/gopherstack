@@ -3,6 +3,7 @@ package sts
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -57,7 +58,13 @@ func (h *Handler) Name() string {
 
 // GetSupportedOperations returns the list of supported STS operations.
 func (h *Handler) GetSupportedOperations() []string {
-	return []string{"AssumeRole", "GetCallerIdentity", "GetSessionToken"}
+	return []string{
+		"AssumeRole",
+		"DecodeAuthorizationMessage",
+		"GetAccessKeyInfo",
+		"GetCallerIdentity",
+		"GetSessionToken",
+	}
 }
 
 // RouteMatcher returns a matcher that identifies STS requests by Content-Type and Version.
@@ -166,6 +173,10 @@ func (h *Handler) dispatch(ctx context.Context, r *http.Request) (any, error) {
 		return h.Backend.GetCallerIdentity()
 	case "GetSessionToken":
 		return h.dispatchGetSessionToken(r)
+	case "GetAccessKeyInfo":
+		return h.dispatchGetAccessKeyInfo(r)
+	case "DecodeAuthorizationMessage":
+		return h.dispatchDecodeAuthorizationMessage(r)
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrInvalidAction, action)
 	}
@@ -211,6 +222,51 @@ func (h *Handler) dispatchGetSessionToken(r *http.Request) (*GetSessionTokenResp
 	}
 
 	return h.Backend.GetSessionToken(input)
+}
+
+// dispatchGetAccessKeyInfo handles the GetAccessKeyInfo action.
+func (h *Handler) dispatchGetAccessKeyInfo(r *http.Request) (*GetAccessKeyInfoResponse, error) {
+	_ = r.FormValue("AccessKeyId") // consumed but not validated in mock
+
+	callerIdentity, err := h.Backend.GetCallerIdentity()
+	if err != nil {
+		return nil, err
+	}
+
+	return &GetAccessKeyInfoResponse{
+		Xmlns: STSNamespace,
+		GetAccessKeyInfoResult: GetAccessKeyInfoResult{
+			Account: callerIdentity.GetCallerIdentityResult.Account,
+		},
+		ResponseMetadata: callerIdentity.ResponseMetadata,
+	}, nil
+}
+
+// dispatchDecodeAuthorizationMessage handles the DecodeAuthorizationMessage action.
+func (h *Handler) dispatchDecodeAuthorizationMessage(r *http.Request) (*DecodeAuthorizationMessageResponse, error) {
+	encoded := r.FormValue("EncodedMessage")
+
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		// Try URL-safe base64 as fallback
+		decoded, err = base64.URLEncoding.DecodeString(encoded)
+		if err != nil {
+			return nil, fmt.Errorf("invalid encoded message: %w", err)
+		}
+	}
+
+	callerIdentity, ciErr := h.Backend.GetCallerIdentity()
+	if ciErr != nil {
+		return nil, ciErr
+	}
+
+	return &DecodeAuthorizationMessageResponse{
+		Xmlns: STSNamespace,
+		DecodeAuthorizationMessageResult: DecodeAuthorizationMessageResult{
+			DecodedMessage: string(decoded),
+		},
+		ResponseMetadata: callerIdentity.ResponseMetadata,
+	}, nil
 }
 
 // handleError writes a standardised STS XML error response.

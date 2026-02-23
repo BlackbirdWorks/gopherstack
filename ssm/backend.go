@@ -6,7 +6,9 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"io"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,6 +21,7 @@ var (
 	ErrParameterAlreadyExists = errors.New("ParameterAlreadyExists")
 	ErrInvalidKeyID           = errors.New("InvalidKeyId")
 	ErrCiphertextTooShort     = errors.New("ciphertext too short")
+	ErrValidationException    = errors.New("ValidationException")
 )
 
 const (
@@ -31,6 +34,48 @@ const (
 //
 //nolint:gochecknoglobals // Mock KMS key needed for encryption.
 var mockKMSKey = []byte(mockKMSKeyStr)
+
+// validParamNameRegex matches only alphanumeric, ., -, _, and / characters.
+//
+
+var validParamNameRegex = regexp.MustCompile(`^[a-zA-Z0-9._\-/]+$`)
+
+const maxParamNameLength = 2048
+
+// reservedPrefixes are namespace prefixes that are not allowed for parameter names.
+var reservedPrefixes = []string{ //nolint:gochecknoglobals // reserved parameter name prefixes per AWS SSM spec
+	"ssm",
+	"aws",
+	"amazon",
+}
+
+// validateParameterName returns a ValidationException error when the name is invalid.
+func validateParameterName(name string) error {
+	if len(name) > maxParamNameLength {
+		return fmt.Errorf("%w: parameter name exceeds maximum length of %d", ErrValidationException, maxParamNameLength)
+	}
+
+	if strings.Contains(name, "//") {
+		return fmt.Errorf("%w: parameter name must not contain double slashes", ErrValidationException)
+	}
+
+	lower := strings.ToLower(strings.TrimPrefix(name, "/"))
+	for _, prefix := range reservedPrefixes {
+		if strings.HasPrefix(lower, prefix) {
+			return fmt.Errorf(
+				"%w: parameter name must not start with reserved namespace %q",
+				ErrValidationException,
+				prefix,
+			)
+		}
+	}
+
+	if !validParamNameRegex.MatchString(name) {
+		return fmt.Errorf("%w: parameter name contains invalid characters", ErrValidationException)
+	}
+
+	return nil
+}
 
 // encryptValue encrypts a value using AES-256 (mock KMS encryption).
 func encryptValue(plaintext string) (string, error) {
@@ -115,6 +160,10 @@ func NewInMemoryBackend() *InMemoryBackend {
 
 // PutParameter creates or updates a parameter.
 func (b *InMemoryBackend) PutParameter(input *PutParameterInput) (*PutParameterOutput, error) {
+	if err := validateParameterName(input.Name); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -306,9 +355,21 @@ const (
 	defaultDescribeMaxResults = 50
 )
 
+// paramMatchesPath checks if a parameter name matches the given path prefix.
+// If recursive is false, only direct children are matched (no nested paths).
+func paramMatchesPath(name, path string, recursive bool) bool {
+	if !strings.HasPrefix(name, path) {
+		return false
+	}
+	if recursive {
+		return true
+	}
+	suffix := name[len(path):]
+
+	return !strings.Contains(suffix, "/")
+}
+
 // GetParametersByPath returns parameters whose names begin with the given path.
-//
-//nolint:gocognit // Intentional complexity for path matching logic.
 func (b *InMemoryBackend) GetParametersByPath(input *GetParametersByPathInput) (*GetParametersByPathOutput, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -323,19 +384,9 @@ func (b *InMemoryBackend) GetParametersByPath(input *GetParametersByPathInput) (
 	var matched []Parameter
 
 	for name, param := range b.parameters {
-		if !strings.HasPrefix(name, path) {
-			continue
+		if paramMatchesPath(name, path, input.Recursive) {
+			matched = append(matched, param)
 		}
-
-		// Non-recursive: only direct children (no additional / after the prefix)
-		if !input.Recursive {
-			suffix := name[len(path):]
-			if strings.Contains(suffix, "/") {
-				continue
-			}
-		}
-
-		matched = append(matched, param)
 	}
 
 	sort.Slice(matched, func(i, j int) bool {

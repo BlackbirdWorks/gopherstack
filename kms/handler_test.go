@@ -1037,3 +1037,119 @@ func TestKMSDisableKeyRotationNotFound(t *testing.T) {
 	err := backend.DisableKeyRotation(&kms.DisableKeyRotationInput{KeyID: "missing"})
 	require.ErrorIs(t, err, kms.ErrKeyNotFound)
 }
+
+// TestKMSKeyMetadataFields verifies that DescribeKey returns the additional metadata fields.
+func TestKMSKeyMetadataFields(t *testing.T) {
+	t.Parallel()
+
+	backend := kms.NewInMemoryBackend()
+	created, err := backend.CreateKey(&kms.CreateKeyInput{
+		Description: "test key",
+		KeyUsage:    "ENCRYPT_DECRYPT",
+	})
+	require.NoError(t, err)
+
+	out, err := backend.DescribeKey(&kms.DescribeKeyInput{KeyID: created.KeyMetadata.KeyID})
+	require.NoError(t, err)
+
+	assert.Equal(t, "CUSTOMER", out.KeyMetadata.KeyManager)
+	assert.Equal(t, "AWS_KMS", out.KeyMetadata.Origin)
+	assert.Equal(t, "SYMMETRIC_DEFAULT", out.KeyMetadata.KeySpec)
+	assert.Equal(t, []string{"SYMMETRIC_DEFAULT"}, out.KeyMetadata.EncryptionAlgorithms)
+	assert.False(t, out.KeyMetadata.MultiRegion)
+}
+
+// TestKMSDisableEnableKey verifies disabling and re-enabling a key.
+func TestKMSDisableEnableKey(t *testing.T) {
+	t.Parallel()
+
+	backend := kms.NewInMemoryBackend()
+	out, err := backend.CreateKey(&kms.CreateKeyInput{})
+	require.NoError(t, err)
+	keyID := out.KeyMetadata.KeyID
+
+	require.NoError(t, backend.DisableKey(&kms.DisableKeyInput{KeyID: keyID}))
+
+	desc, err := backend.DescribeKey(&kms.DescribeKeyInput{KeyID: keyID})
+	require.NoError(t, err)
+	assert.Equal(t, kms.KeyStateDisabled, desc.KeyMetadata.KeyState)
+
+	// Encrypt should fail when key is disabled
+	_, err = backend.Encrypt(&kms.EncryptInput{KeyID: keyID, Plaintext: []byte("test")})
+	require.ErrorIs(t, err, kms.ErrKeyDisabled)
+
+	// Re-enable
+	require.NoError(t, backend.EnableKey(&kms.EnableKeyInput{KeyID: keyID}))
+
+	desc, err = backend.DescribeKey(&kms.DescribeKeyInput{KeyID: keyID})
+	require.NoError(t, err)
+	assert.Equal(t, kms.KeyStateEnabled, desc.KeyMetadata.KeyState)
+}
+
+// TestKMSScheduleAndCancelKeyDeletion verifies schedule and cancel key deletion.
+func TestKMSScheduleAndCancelKeyDeletion(t *testing.T) {
+	t.Parallel()
+
+	backend := kms.NewInMemoryBackend()
+	out, err := backend.CreateKey(&kms.CreateKeyInput{})
+	require.NoError(t, err)
+	keyID := out.KeyMetadata.KeyID
+
+	schedOut, err := backend.ScheduleKeyDeletion(&kms.ScheduleKeyDeletionInput{
+		KeyID:               keyID,
+		PendingWindowInDays: 7,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, kms.KeyStatePendingDeletion, schedOut.KeyState)
+	assert.NotZero(t, schedOut.DeletionDate)
+
+	// Cancel deletion — key should become Disabled
+	require.NoError(t, backend.CancelKeyDeletion(&kms.CancelKeyDeletionInput{KeyID: keyID}))
+
+	desc, err := backend.DescribeKey(&kms.DescribeKeyInput{KeyID: keyID})
+	require.NoError(t, err)
+	assert.Equal(t, kms.KeyStateDisabled, desc.KeyMetadata.KeyState)
+}
+
+// TestKMSHandlerDisableEnableKey verifies DisableKey and EnableKey via HTTP handler.
+func TestKMSHandlerDisableEnableKey(t *testing.T) {
+	t.Parallel()
+
+	backend := kms.NewInMemoryBackend()
+	h := kms.NewHandler(backend, slog.Default())
+
+	out, _ := backend.CreateKey(&kms.CreateKeyInput{})
+	keyID := out.KeyMetadata.KeyID
+
+	doKMSRequest := func(t *testing.T, h *kms.Handler, action, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+		req.Header.Set("X-Amz-Target", "TrentService."+action)
+		req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+		ctx := logger.Save(req.Context(), slog.Default())
+		req = req.WithContext(ctx)
+		rec := httptest.NewRecorder()
+		e := echo.New()
+		c := e.NewContext(req, rec)
+		err := h.Handler()(c)
+		require.NoError(t, err)
+
+		return rec
+	}
+
+	body := `{"KeyId":"` + keyID + `"}`
+	rec := doKMSRequest(t, h, "DisableKey", body)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doKMSRequest(t, h, "EnableKey", body)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doKMSRequest(t, h, "ScheduleKeyDeletion", `{"KeyId":"`+keyID+`","PendingWindowInDays":7}`)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	var schedResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &schedResp))
+	assert.Equal(t, kms.KeyStatePendingDeletion, schedResp["KeyState"])
+
+	rec = doKMSRequest(t, h, "CancelKeyDeletion", body)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}

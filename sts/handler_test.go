@@ -2,6 +2,7 @@ package sts_test
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -705,4 +706,77 @@ func TestDispatch_ParseFormError(t *testing.T) {
 
 	// ParseForm failure is an InternalFailure → 500
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+}
+
+// TestGetAccessKeyInfo verifies the GetAccessKeyInfo action.
+func TestGetAccessKeyInfo(t *testing.T) {
+	t.Parallel()
+
+	backend := sts.NewInMemoryBackend()
+	h := sts.NewHandler(backend, nil)
+	e := echo.New()
+
+	form := url.Values{
+		"Action":      {"GetAccessKeyInfo"},
+		"Version":     {"2011-06-15"},
+		"AccessKeyId": {"AKIAIOSFODNN7EXAMPLE"},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+
+	ctxWithLogger := logger.Save(req.Context(), nil)
+	req = req.WithContext(ctxWithLogger)
+
+	err := h.Handler()(e.NewContext(req, rec))
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		XMLName xml.Name `xml:"GetAccessKeyInfoResponse"`
+		Result  struct {
+			Account string `xml:"Account"`
+		} `xml:"GetAccessKeyInfoResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, sts.MockAccountID, resp.Result.Account)
+}
+
+// TestDecodeAuthorizationMessage verifies the DecodeAuthorizationMessage action.
+func TestDecodeAuthorizationMessage(t *testing.T) {
+	t.Parallel()
+
+	backend := sts.NewInMemoryBackend()
+	h := sts.NewHandler(backend, nil)
+	e := echo.New()
+
+	original := "this is a test message"
+	encoded := base64.StdEncoding.EncodeToString([]byte(original))
+
+	form := url.Values{
+		"Action":         {"DecodeAuthorizationMessage"},
+		"Version":        {"2011-06-15"},
+		"EncodedMessage": {encoded},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+
+	ctxWithLogger := logger.Save(req.Context(), nil)
+	req = req.WithContext(ctxWithLogger)
+
+	err := h.Handler()(e.NewContext(req, rec))
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		XMLName xml.Name `xml:"DecodeAuthorizationMessageResponse"`
+		Result  struct {
+			DecodedMessage string `xml:"DecodedMessage"`
+		} `xml:"DecodeAuthorizationMessageResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, original, resp.Result.DecodedMessage)
 }

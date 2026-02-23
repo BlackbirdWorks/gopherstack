@@ -257,8 +257,11 @@ type QueryOutput struct {
 
 type ScanInput struct {
 	Limit                     *int32            `json:"Limit,omitempty"`
+	Segment                   *int32            `json:"Segment,omitempty"`
+	TotalSegments             *int32            `json:"TotalSegments,omitempty"`
 	ExpressionAttributeNames  map[string]string `json:"ExpressionAttributeNames,omitempty"`
 	ExpressionAttributeValues map[string]any    `json:"ExpressionAttributeValues,omitempty"`
+	ExclusiveStartKey         map[string]any    `json:"ExclusiveStartKey,omitempty"`
 	TableName                 string            `json:"TableName"`
 	IndexName                 string            `json:"IndexName,omitempty"`
 	FilterExpression          string            `json:"FilterExpression,omitempty"`
@@ -266,9 +269,10 @@ type ScanInput struct {
 }
 
 type ScanOutput struct {
-	Items        []map[string]any `json:"Items"`
-	Count        int              `json:"Count"`
-	ScannedCount int              `json:"ScannedCount"`
+	LastEvaluatedKey map[string]any   `json:"LastEvaluatedKey,omitempty"`
+	Items            []map[string]any `json:"Items"`
+	Count            int              `json:"Count"`
+	ScannedCount     int              `json:"ScannedCount"`
 }
 
 // --- Batch Operations ---

@@ -28,6 +28,8 @@ const (
 type Handler struct {
 	Backend StorageBackend
 	Logger  *slog.Logger
+	// DefaultRegion is the fallback region used when region cannot be extracted from the request.
+	DefaultRegion string
 }
 
 // NewHandler creates a new SNS Handler with the given backend and logger.
@@ -177,7 +179,8 @@ func (h *Handler) handleCreateTopic(c *echo.Context) error {
 
 	attrs := extractFormAttributes(c)
 
-	topic, err := h.Backend.CreateTopic(name, attrs)
+	region := httputil.ExtractRegionFromRequest(c.Request(), h.DefaultRegion)
+	topic, err := h.Backend.CreateTopicInRegion(name, region, attrs)
 	if err != nil {
 		return h.handleBackendError(c, err)
 	}
@@ -268,6 +271,15 @@ func (h *Handler) handleSubscribe(c *echo.Context) error {
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "TopicArn and Protocol are required")
 	}
 
+	validProtocols := map[string]bool{
+		"email": true, "email-json": true, "http": true, "https": true,
+		"sqs": true, "lambda": true, "sms": true,
+	}
+	if !validProtocols[protocol] {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter",
+			fmt.Sprintf("Invalid parameter: Protocol Reason: %s is not a valid protocol", protocol))
+	}
+
 	filterPolicy := extractFilterPolicy(c.Request().Form)
 
 	sub, err := h.Backend.Subscribe(topicArn, protocol, endpoint, filterPolicy)
@@ -275,8 +287,13 @@ func (h *Handler) handleSubscribe(c *echo.Context) error {
 		return h.handleBackendError(c, err)
 	}
 
+	subArn := sub.SubscriptionArn
+	if sub.PendingConfirmation {
+		subArn = "PendingConfirmation"
+	}
+
 	return h.writeXML(c, SubscribeResponse{
-		SubscribeResult:  SubscribeResult{SubscriptionArn: sub.SubscriptionArn},
+		SubscribeResult:  SubscribeResult{SubscriptionArn: subArn},
 		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
 	})
 }
@@ -362,6 +379,7 @@ func (h *Handler) handlePublish(c *echo.Context) error {
 	topicArn := c.Request().FormValue("TopicArn")
 	message := c.Request().FormValue("Message")
 	subject := c.Request().FormValue("Subject")
+	messageStructure := c.Request().FormValue("MessageStructure")
 
 	if topicArn == "" || message == "" {
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "TopicArn and Message are required")
@@ -369,7 +387,7 @@ func (h *Handler) handlePublish(c *echo.Context) error {
 
 	attrs := extractMessageAttributes(c.Request().Form)
 
-	messageID, err := h.Backend.Publish(topicArn, message, subject, attrs)
+	messageID, err := h.Backend.Publish(topicArn, message, subject, messageStructure, attrs)
 	if err != nil {
 		return h.handleBackendError(c, err)
 	}
@@ -396,7 +414,7 @@ func (h *Handler) handlePublishBatch(c *echo.Context) error {
 	failed := make([]XMLPublishBatchFailEntry, 0)
 
 	for _, entry := range entries {
-		msgID, err := h.Backend.Publish(topicArn, entry.message, entry.subject, nil)
+		msgID, err := h.Backend.Publish(topicArn, entry.message, entry.subject, "", nil)
 		if err != nil {
 			failed = append(failed, XMLPublishBatchFailEntry{
 				ID:          entry.id,

@@ -59,6 +59,10 @@ type StorageBackend interface {
 		input *s3.DeleteObjectTaggingInput,
 	) (*s3.DeleteObjectTaggingOutput, error)
 
+	// ACL
+	PutBucketACL(ctx context.Context, bucket, acl string) error
+	GetBucketACL(ctx context.Context, bucket string) (string, error)
+
 	// Multipart
 	CreateMultipartUpload(
 		ctx context.Context,

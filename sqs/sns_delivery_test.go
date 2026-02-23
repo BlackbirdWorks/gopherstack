@@ -45,7 +45,7 @@ func TestSNSToSQSDelivery_BasicDelivery(t *testing.T) {
 	require.NoError(t, err)
 
 	// Publish a message.
-	_, err = snsBk.Publish(topic.TopicArn, "hello world", "subject", nil)
+	_, err = snsBk.Publish(topic.TopicArn, "hello world", "subject", "", nil)
 	require.NoError(t, err)
 
 	// Verify message was delivered to the SQS queue.
@@ -81,7 +81,7 @@ func TestSNSToSQSDelivery_NoDeliveryWithoutSubscription(t *testing.T) {
 	require.NoError(t, err)
 
 	// Publish without subscribing the queue.
-	_, err = snsBk.Publish(topic.TopicArn, "hello", "", nil)
+	_, err = snsBk.Publish(topic.TopicArn, "hello", "", "", nil)
 	require.NoError(t, err)
 
 	out, err := sqsBk.ReceiveMessage(&sqs.ReceiveMessageInput{
@@ -117,7 +117,7 @@ func TestSNSToSQSDelivery_FilterPolicyExcludes(t *testing.T) {
 	attrs := map[string]snsbackend.MessageAttribute{
 		"type": {DataType: "String", StringValue: "invoice"},
 	}
-	_, err = snsBk.Publish(topic.TopicArn, "pay invoice", "", attrs)
+	_, err = snsBk.Publish(topic.TopicArn, "pay invoice", "", "", attrs)
 	require.NoError(t, err)
 
 	out, err := sqsBk.ReceiveMessage(&sqs.ReceiveMessageInput{
@@ -151,7 +151,7 @@ func TestSNSToSQSDelivery_FilterPolicyMatches(t *testing.T) {
 	attrs := map[string]snsbackend.MessageAttribute{
 		"type": {DataType: "String", StringValue: "order"},
 	}
-	_, err = snsBk.Publish(topic.TopicArn, "new order", "", attrs)
+	_, err = snsBk.Publish(topic.TopicArn, "new order", "", "", attrs)
 	require.NoError(t, err)
 
 	out, err := sqsBk.ReceiveMessage(&sqs.ReceiveMessageInput{
@@ -184,7 +184,7 @@ func TestSNSToSQSDelivery_MultipleQueues(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	_, err = snsBk.Publish(topic.TopicArn, "broadcast msg", "", nil)
+	_, err = snsBk.Publish(topic.TopicArn, "broadcast msg", "", "", nil)
 	require.NoError(t, err)
 
 	for _, q := range []string{"queue-a", "queue-b"} {

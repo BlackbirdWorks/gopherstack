@@ -193,3 +193,29 @@ type DeleteErrorXML struct {
 	Code      string  `xml:"Code"`
 	Message   string  `xml:"Message"`
 }
+
+// AccessControlPolicy is the XML response for GetBucketAcl.
+type AccessControlPolicy struct {
+	XMLName xml.Name          `xml:"AccessControlPolicy"`
+	Xmlns   string            `xml:"xmlns,attr"`
+	Owner   Owner             `xml:"Owner"`
+	ACL     AccessControlList `xml:"AccessControlList"`
+}
+
+// AccessControlList contains the list of grants.
+type AccessControlList struct {
+	Grants []Grant `xml:"Grant"`
+}
+
+// Grant is a single permission grant.
+type Grant struct {
+	Grantee    Grantee `xml:"Grantee"`
+	Permission string  `xml:"Permission"`
+}
+
+// Grantee identifies who is being granted permissions.
+type Grantee struct {
+	XmlnsXsi string `xml:"xmlns:xsi,attr"`
+	XsiType  string `xml:"xsi:type,attr"`
+	ID       string `xml:"ID"`
+}

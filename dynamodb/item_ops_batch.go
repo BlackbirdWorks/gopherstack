@@ -2,6 +2,7 @@ package dynamodb
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"sync"
@@ -13,6 +14,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
+
+// batchWriteResponseLimit is the simulated 16 MB response size limit for BatchWriteItem.
+const batchWriteResponseLimit = 16 * 1024 * 1024
 
 func (db *InMemoryDB) BatchGetItem(
 	ctx context.Context,
@@ -159,6 +163,18 @@ func (db *InMemoryDB) BatchWriteItem(
 		return nil, err
 	}
 
+	// Split requests per table by size limit before processing.
+	toProcess := make(map[string][]types.WriteRequest, len(input.RequestItems))
+	unprocessedItems := make(map[string][]types.WriteRequest)
+
+	for tableName, requests := range input.RequestItems {
+		process, unprocessed := splitWriteRequestsBySize(requests, batchWriteResponseLimit)
+		toProcess[tableName] = process
+		if len(unprocessed) > 0 {
+			unprocessedItems[tableName] = unprocessed
+		}
+	}
+
 	// Process tables in sorted order (deadlock prevention)
 	tableNames := make([]string, 0, len(tables))
 	for name := range tables {
@@ -175,7 +191,7 @@ func (db *InMemoryDB) BatchWriteItem(
 		wg.Add(1)
 		go func(tblName string) {
 			defer wg.Done()
-			if e := db.processTableWriteRequests(tables[tblName], input.RequestItems[tblName]); e != nil {
+			if e := db.processTableWriteRequests(tables[tblName], toProcess[tblName]); e != nil {
 				mu.Lock()
 				if firstErr == nil {
 					firstErr = e
@@ -192,8 +208,42 @@ func (db *InMemoryDB) BatchWriteItem(
 	}
 
 	return &dynamodb.BatchWriteItemOutput{
-		UnprocessedItems: make(map[string][]types.WriteRequest),
+		UnprocessedItems: unprocessedItems,
 	}, nil
+}
+
+// splitWriteRequestsBySize splits write requests into those whose cumulative estimated JSON size
+// fits within sizeLimit bytes and those that exceed it. Only PutRequests contribute to size.
+func splitWriteRequestsBySize(
+	requests []types.WriteRequest,
+	sizeLimit int,
+) ([]types.WriteRequest, []types.WriteRequest) {
+	accumulated := 0
+	var process, unprocessed []types.WriteRequest
+
+	for _, req := range requests {
+		if req.PutRequest != nil {
+			data, err := json.Marshal(req.PutRequest.Item)
+			if err != nil {
+				// Cannot estimate size; process conservatively without counting toward limit.
+				process = append(process, req)
+
+				continue
+			}
+
+			if accumulated+len(data) > sizeLimit {
+				unprocessed = append(unprocessed, req)
+
+				continue
+			}
+
+			accumulated += len(data)
+		}
+
+		process = append(process, req)
+	}
+
+	return process, unprocessed
 }
 
 // getRequestTables retrieves all requested tables from the specified region.

@@ -3,10 +3,13 @@ package s3
 import (
 	"bytes"
 	"context"
+	"crypto/md5" //nolint:gosec // MD5 required for Content-MD5 header validation per S3 spec
+	"encoding/base64"
 	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -161,6 +164,12 @@ func (h *S3Handler) headObject(
 		return
 	}
 
+	if status, ok := checkConditionalHeaders(r, aws.ToString(out.ETag), aws.ToTime(out.LastModified)); !ok {
+		w.WriteHeader(status)
+
+		return
+	}
+
 	details := objectCommonDetails{
 		Metadata:       out.Metadata,
 		ETag:           out.ETag,
@@ -175,7 +184,64 @@ func (h *S3Handler) headObject(
 	}
 
 	h.setCommonHeaders(w, details)
+
+	if ce := aws.ToString(out.ContentEncoding); ce != "" {
+		w.Header().Set("Content-Encoding", ce)
+	}
+
+	if cd := aws.ToString(out.ContentDisposition); cd != "" {
+		w.Header().Set("Content-Disposition", cd)
+	}
+
 	w.WriteHeader(http.StatusOK)
+}
+
+// validateContentMD5 checks the Content-MD5 header against the data. Returns false and writes error if invalid.
+func validateContentMD5(log *slog.Logger, w http.ResponseWriter, r *http.Request, data []byte) bool {
+	contentMD5Header := r.Header.Get("Content-MD5")
+	if contentMD5Header == "" {
+		return true
+	}
+
+	decoded, decErr := base64.StdEncoding.DecodeString(contentMD5Header)
+	if decErr != nil || len(decoded) != md5.Size {
+		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
+			Code:    "BadDigest",
+			Message: "The Content-MD5 you specified did not match what we received.",
+		}, http.StatusBadRequest)
+
+		return false
+	}
+
+	//nolint:gosec // MD5 required for Content-MD5 header validation per S3 spec
+	computed := md5.Sum(data)
+	if !bytes.Equal(computed[:], decoded) {
+		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
+			Code:    "BadDigest",
+			Message: "The Content-MD5 you specified did not match what we received.",
+		}, http.StatusBadRequest)
+
+		return false
+	}
+
+	return true
+}
+
+// setPutObjectResponseHeaders sets ETag, version, and checksum headers on the response.
+func (h *S3Handler) setPutObjectResponseHeaders(w http.ResponseWriter, ver *s3.PutObjectOutput) {
+	w.Header().Set("ETag", *ver.ETag)
+	details := objectCommonDetails{
+		ETag:           ver.ETag,
+		VersionID:      ver.VersionId,
+		ChecksumCRC32:  ver.ChecksumCRC32,
+		ChecksumCRC32C: ver.ChecksumCRC32C,
+		ChecksumSHA1:   ver.ChecksumSHA1,
+		ChecksumSHA256: ver.ChecksumSHA256,
+	}
+	h.setChecksumHeaders(w, details)
+	if ver.VersionId != nil && *ver.VersionId != NullVersion {
+		w.Header().Set("X-Amz-Version-Id", *ver.VersionId)
+	}
 }
 
 func (h *S3Handler) putObject(
@@ -204,6 +270,10 @@ func (h *S3Handler) putObject(
 		return
 	}
 
+	if !validateContentMD5(log, w, r, data) {
+		return
+	}
+
 	userMeta := parseUserMetadata(r.Header)
 	algo := strings.ToUpper(r.Header.Get("X-Amz-Checksum-Algorithm"))
 
@@ -217,21 +287,25 @@ func (h *S3Handler) putObject(
 	)
 
 	contentType := r.Header.Get("Content-Type")
+	contentEncoding := r.Header.Get("Content-Encoding")
+	contentDisposition := r.Header.Get("Content-Disposition")
 
 	ver, err := h.Backend.PutObject(
 		ctx,
 		&s3.PutObjectInput{
-			Bucket:            aws.String(bucketName),
-			Key:               aws.String(key),
-			Body:              bytes.NewReader(data),
-			Metadata:          userMeta,
-			ContentType:       aws.String(contentType),
-			ChecksumAlgorithm: types.ChecksumAlgorithm(algo),
-			ChecksumCRC32:     checksumCRC32,
-			ChecksumCRC32C:    checksumCRC32C,
-			ChecksumSHA1:      checksumSHA1,
-			ChecksumSHA256:    checksumSHA256,
-			Tagging:           aws.String(r.Header.Get("X-Amz-Tagging")),
+			Bucket:             aws.String(bucketName),
+			Key:                aws.String(key),
+			Body:               bytes.NewReader(data),
+			Metadata:           userMeta,
+			ContentType:        aws.String(contentType),
+			ContentEncoding:    nilStringIfEmpty(contentEncoding),
+			ContentDisposition: nilStringIfEmpty(contentDisposition),
+			ChecksumAlgorithm:  types.ChecksumAlgorithm(algo),
+			ChecksumCRC32:      checksumCRC32,
+			ChecksumCRC32C:     checksumCRC32C,
+			ChecksumSHA1:       checksumSHA1,
+			ChecksumSHA256:     checksumSHA256,
+			Tagging:            aws.String(r.Header.Get("X-Amz-Tagging")),
 		},
 	)
 	if errors.Is(err, ErrNoSuchBucket) {
@@ -246,22 +320,7 @@ func (h *S3Handler) putObject(
 		return
 	}
 
-	w.Header().Set("ETag", *ver.ETag)
-
-	details := objectCommonDetails{
-		ETag:           ver.ETag,
-		VersionID:      ver.VersionId,
-		ChecksumCRC32:  ver.ChecksumCRC32,
-		ChecksumCRC32C: ver.ChecksumCRC32C,
-		ChecksumSHA1:   ver.ChecksumSHA1,
-		ChecksumSHA256: ver.ChecksumSHA256,
-	}
-
-	h.setChecksumHeaders(w, details)
-
-	if ver.VersionId != nil && *ver.VersionId != NullVersion {
-		w.Header().Set("X-Amz-Version-Id", *ver.VersionId)
-	}
+	h.setPutObjectResponseHeaders(w, ver)
 
 	log.DebugContext(ctx,
 		"S3 putObject output",
@@ -410,6 +469,12 @@ func (h *S3Handler) getObject(
 	}
 	defer ver.Body.Close()
 
+	if status, ok := checkConditionalHeaders(r, aws.ToString(ver.ETag), aws.ToTime(ver.LastModified)); !ok {
+		w.WriteHeader(status)
+
+		return
+	}
+
 	details := objectCommonDetails{
 		Metadata:       ver.Metadata,
 		ETag:           ver.ETag,
@@ -425,6 +490,14 @@ func (h *S3Handler) getObject(
 
 	h.setCommonHeaders(w, details)
 	w.Header().Set("Accept-Ranges", "bytes")
+
+	if ce := aws.ToString(ver.ContentEncoding); ce != "" {
+		w.Header().Set("Content-Encoding", ce)
+	}
+
+	if cd := aws.ToString(ver.ContentDisposition); cd != "" {
+		w.Header().Set("Content-Disposition", cd)
+	}
 
 	if r.Header.Get("X-Amz-Checksum-Mode") == "ENABLED" {
 		h.handleChecksumMode(w, ver, details)
@@ -519,6 +592,15 @@ func (h *S3Handler) deleteObjects(
 	var req DeleteRequest
 	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
 		WriteError(log, w, r, ErrInvalidArgument)
+
+		return
+	}
+
+	if len(req.Objects) > maxDeleteObjects {
+		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
+			Code:    "InvalidArgument",
+			Message: "You have attempted to delete more objects than allowed by the service's max-delete limit (1000).",
+		}, http.StatusBadRequest)
 
 		return
 	}
@@ -890,4 +972,39 @@ func parseRange(header string, size int64) (int64, int64, bool) {
 	}
 
 	return start, end, true
+}
+
+// checkConditionalHeaders evaluates HTTP conditional request headers per AWS/HTTP spec.
+// Returns (304, false) or (412, false) if a condition fails, or (0, true) if all pass.
+func checkConditionalHeaders(r *http.Request, etag string, lastModified time.Time) (int, bool) {
+	stripQuotes := func(s string) string { return strings.Trim(s, "\"") }
+	normalizedETag := stripQuotes(etag)
+
+	// 1. If-Match and If-Unmodified-Since return 412 Precondition Failed
+	if ifMatch := r.Header.Get("If-Match"); ifMatch != "" {
+		if stripQuotes(ifMatch) != normalizedETag {
+			return http.StatusPreconditionFailed, false
+		}
+	}
+
+	if ifUnmodSince := r.Header.Get("If-Unmodified-Since"); ifUnmodSince != "" {
+		if t, err := http.ParseTime(ifUnmodSince); err == nil && lastModified.After(t) {
+			return http.StatusPreconditionFailed, false
+		}
+	}
+
+	// 2. If-None-Match and If-Modified-Since return 304 Not Modified
+	if ifNoneMatch := r.Header.Get("If-None-Match"); ifNoneMatch != "" {
+		if stripQuotes(ifNoneMatch) == normalizedETag {
+			return http.StatusNotModified, false
+		}
+	}
+
+	if ifModSince := r.Header.Get("If-Modified-Since"); ifModSince != "" {
+		if t, err := http.ParseTime(ifModSince); err == nil && !lastModified.After(t) {
+			return http.StatusNotModified, false
+		}
+	}
+
+	return 0, true
 }

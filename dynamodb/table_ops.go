@@ -8,6 +8,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/dynamodb/models"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/google/uuid"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -47,6 +48,9 @@ func (db *InMemoryDB) CreateTable(
 	}
 
 	newTable := newTableFromCreateInput(tableName, input)
+	newTable.TableID = uuid.New().String()
+	newTable.CreationDateTime = time.Now()
+	newTable.TableArn = fmt.Sprintf("arn:aws:dynamodb:%s:%s:table/%s", region, db.accountID, tableName)
 
 	if input.StreamSpecification != nil && aws.ToBool(input.StreamSpecification.StreamEnabled) {
 		newTable.StreamsEnabled = true
@@ -226,6 +230,51 @@ func (db *InMemoryDB) DeleteTable(
 	}, nil
 }
 
+func buildGSIDescriptions(
+	gsiList []models.GlobalSecondaryIndex,
+	itemCount int64,
+) []models.GlobalSecondaryIndexDescription {
+	gsiDescs := make([]models.GlobalSecondaryIndexDescription, len(gsiList))
+	for i, gsi := range gsiList {
+		rc := int64(models.DefaultReadCapacity)
+		wc := int64(models.DefaultWriteCapacity)
+		if gsi.ProvisionedThroughput.ReadCapacityUnits != nil {
+			rc = *gsi.ProvisionedThroughput.ReadCapacityUnits
+		}
+		if gsi.ProvisionedThroughput.WriteCapacityUnits != nil {
+			wc = *gsi.ProvisionedThroughput.WriteCapacityUnits
+		}
+		gsiDescs[i] = models.GlobalSecondaryIndexDescription{
+			IndexName:  gsi.IndexName,
+			KeySchema:  gsi.KeySchema,
+			Projection: gsi.Projection,
+			ProvisionedThroughput: models.ProvisionedThroughputDescription{
+				ReadCapacityUnits:  int(rc),
+				WriteCapacityUnits: int(wc),
+			},
+			IndexStatus: models.TableStatusActive,
+			ItemCount:   int(itemCount),
+		}
+	}
+
+	return gsiDescs
+}
+
+func buildLSIDescriptions(lsiList []models.LocalSecondaryIndex) []models.LocalSecondaryIndexDescription {
+	lsiDescs := make([]models.LocalSecondaryIndexDescription, len(lsiList))
+	for i, lsi := range lsiList {
+		lsiDescs[i] = models.LocalSecondaryIndexDescription{
+			IndexName:      lsi.IndexName,
+			KeySchema:      lsi.KeySchema,
+			Projection:     lsi.Projection,
+			IndexSizeBytes: 0,
+			ItemCount:      0,
+		}
+	}
+
+	return lsiDescs
+}
+
 func (db *InMemoryDB) DescribeTable(
 	ctx context.Context,
 	input *dynamodb.DescribeTableInput,
@@ -264,44 +313,15 @@ func (db *InMemoryDB) DescribeTable(
 	if tableStatus == "" {
 		tableStatus = types.TableStatusActive
 	}
+	tableArn := table.TableArn
+	tableID := table.TableID
+	creationDateTime := table.CreationDateTime
 
 	table.mu.RUnlock()
 
 	// Build index descriptions outside lock
-	gsiDescs := make([]models.GlobalSecondaryIndexDescription, len(gsiList))
-	for i, gsi := range gsiList {
-		rc := int64(models.DefaultReadCapacity)
-		wc := int64(models.DefaultWriteCapacity)
-		if gsi.ProvisionedThroughput.ReadCapacityUnits != nil {
-			rc = *gsi.ProvisionedThroughput.ReadCapacityUnits
-		}
-		if gsi.ProvisionedThroughput.WriteCapacityUnits != nil {
-			wc = *gsi.ProvisionedThroughput.WriteCapacityUnits
-		}
-
-		gsiDescs[i] = models.GlobalSecondaryIndexDescription{
-			IndexName:  gsi.IndexName,
-			KeySchema:  gsi.KeySchema,
-			Projection: gsi.Projection,
-			ProvisionedThroughput: models.ProvisionedThroughputDescription{
-				ReadCapacityUnits:  int(rc),
-				WriteCapacityUnits: int(wc),
-			},
-			IndexStatus: models.TableStatusActive,
-			ItemCount:   int(itemCount),
-		}
-	}
-
-	lsiDescs := make([]models.LocalSecondaryIndexDescription, len(lsiList))
-	for i, lsi := range lsiList {
-		lsiDescs[i] = models.LocalSecondaryIndexDescription{
-			IndexName:      lsi.IndexName,
-			KeySchema:      lsi.KeySchema,
-			Projection:     lsi.Projection,
-			IndexSizeBytes: 0,
-			ItemCount:      0,
-		}
-	}
+	gsiDescs := buildGSIDescriptions(gsiList, itemCount)
+	lsiDescs := buildLSIDescriptions(lsiList)
 
 	sdkGSIs := models.ToSDKGlobalSecondaryIndexDescriptions(gsiDescs)
 	sdkLSIs := models.ToSDKLocalSecondaryIndexDescriptions(lsiDescs)
@@ -311,21 +331,37 @@ func (db *InMemoryDB) DescribeTable(
 	rcu := int64(pt.ReadCapacityUnits)
 	wcu := int64(pt.WriteCapacityUnits)
 
-	return &dynamodb.DescribeTableOutput{
-		Table: &types.TableDescription{
-			TableName:              input.TableName,
-			TableStatus:            tableStatus,
-			KeySchema:              sdkKeySchema,
-			AttributeDefinitions:   sdkAttrDefs,
-			GlobalSecondaryIndexes: sdkGSIs,
-			LocalSecondaryIndexes:  sdkLSIs,
-			ItemCount:              &itemCount,
-			ProvisionedThroughput: &types.ProvisionedThroughputDescription{
-				ReadCapacityUnits:  &rcu,
-				WriteCapacityUnits: &wcu,
-			},
+	// Estimate table size: item count * average item size (400 bytes).
+	const avgItemSizeBytes = 400
+	tableSizeBytes := itemCount * avgItemSizeBytes
+
+	tableDesc := &types.TableDescription{
+		TableName:              input.TableName,
+		TableStatus:            tableStatus,
+		KeySchema:              sdkKeySchema,
+		AttributeDefinitions:   sdkAttrDefs,
+		GlobalSecondaryIndexes: sdkGSIs,
+		LocalSecondaryIndexes:  sdkLSIs,
+		ItemCount:              &itemCount,
+		TableSizeBytes:         &tableSizeBytes,
+		BillingModeSummary:     &types.BillingModeSummary{BillingMode: types.BillingModeProvisioned},
+		ProvisionedThroughput: &types.ProvisionedThroughputDescription{
+			ReadCapacityUnits:  &rcu,
+			WriteCapacityUnits: &wcu,
 		},
-	}, nil
+	}
+
+	if tableArn != "" {
+		tableDesc.TableArn = &tableArn
+	}
+	if tableID != "" {
+		tableDesc.TableId = &tableID
+	}
+	if !creationDateTime.IsZero() {
+		tableDesc.CreationDateTime = &creationDateTime
+	}
+
+	return &dynamodb.DescribeTableOutput{Table: tableDesc}, nil
 }
 
 // UpdateTable modifies a DynamoDB table's provisioned throughput, GSI list, and stream spec.

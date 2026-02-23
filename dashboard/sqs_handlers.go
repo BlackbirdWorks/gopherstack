@@ -1,12 +1,16 @@
 package dashboard
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
 	sqsbackend "github.com/blackbirdworks/gopherstack/sqs"
 )
+
+// maxReceiveMessages is the maximum number of messages to receive in a dashboard peek.
+const maxReceiveMessages = 10
 
 // sqsQueueView is a view model for the SQS dashboard queue list.
 type sqsQueueView struct {
@@ -165,7 +169,96 @@ func (h *DashboardHandler) sqsPurgeQueue(c *echo.Context) error {
 	return c.NoContent(http.StatusOK)
 }
 
-// sqsQueueDetail renders the detail view for a specific queue.
+// sqsMessagesData is the template data for the SQS messages fragment.
+type sqsMessagesData struct {
+	PageData
+
+	QueueURL string
+	Messages []sqsMessageView
+}
+
+// sqsMessageView is a view model for a single SQS message.
+type sqsMessageView struct {
+	MessageID     string
+	Body          string
+	ReceiptHandle string
+}
+
+// sqsSendMessage handles sending a message to an SQS queue.
+func (h *DashboardHandler) sqsSendMessage(c *echo.Context) error {
+	r := c.Request()
+	w := c.Response()
+
+	queueURL := r.URL.Query().Get("url")
+	if queueURL == "" {
+		return c.String(http.StatusBadRequest, "Missing queue URL")
+	}
+
+	if parseErr := r.ParseForm(); parseErr != nil {
+		return c.String(http.StatusBadRequest, "Invalid request")
+	}
+
+	messageBody := r.FormValue("message_body")
+
+	var delaySeconds int
+	if d := r.FormValue("delay"); d != "" {
+		if _, err := fmt.Sscanf(d, "%d", &delaySeconds); err != nil {
+			delaySeconds = 0
+		}
+	}
+
+	if h.SQSOps != nil {
+		_, err := h.SQSOps.Backend.SendMessage(&sqsbackend.SendMessageInput{
+			QueueURL:     queueURL,
+			MessageBody:  messageBody,
+			DelaySeconds: delaySeconds,
+		})
+		if err != nil {
+			return c.String(http.StatusInternalServerError, "Failed to send message: "+err.Error())
+		}
+	}
+
+	w.Header().Set("Hx-Redirect", "/dashboard/sqs/queue?url="+queueURL)
+
+	return c.NoContent(http.StatusOK)
+}
+
+// sqsReceiveMessages handles receiving messages from an SQS queue and returns an HTMX fragment.
+func (h *DashboardHandler) sqsReceiveMessages(c *echo.Context) error {
+	r := c.Request()
+	w := c.Response()
+
+	queueURL := r.URL.Query().Get("url")
+	if queueURL == "" {
+		return c.String(http.StatusBadRequest, "Missing queue URL")
+	}
+
+	data := sqsMessagesData{
+		QueueURL: queueURL,
+		Messages: []sqsMessageView{},
+	}
+
+	if h.SQSOps != nil {
+		out, err := h.SQSOps.Backend.ReceiveMessage(&sqsbackend.ReceiveMessageInput{
+			QueueURL:            queueURL,
+			MaxNumberOfMessages: maxReceiveMessages,
+			WaitTimeSeconds:     0,
+		})
+		if err == nil {
+			for _, m := range out.Messages {
+				data.Messages = append(data.Messages, sqsMessageView{
+					MessageID:     m.MessageID,
+					Body:          m.Body,
+					ReceiptHandle: m.ReceiptHandle,
+				})
+			}
+		}
+	}
+
+	h.renderFragment(w, "messages_fragment", data)
+
+	return nil
+}
 func (h *DashboardHandler) sqsQueueDetail(c *echo.Context) error {
 	r := c.Request()
 	w := c.Response()

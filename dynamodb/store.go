@@ -62,6 +62,9 @@ type Table struct {
 	TTLAttribute           string
 	StreamViewType         string
 	StreamARN              string
+	TableArn               string
+	TableID                string
+	CreationDateTime       time.Time
 	AttributeDefinitions   []models.AttributeDefinition
 	GlobalSecondaryIndexes []models.GlobalSecondaryIndex
 	LocalSecondaryIndexes  []models.LocalSecondaryIndex

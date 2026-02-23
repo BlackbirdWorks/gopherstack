@@ -51,7 +51,7 @@ type Credentials struct {
 	AccessKeyID     string `xml:"AccessKeyId"`
 	SecretAccessKey string `xml:"SecretAccessKey"`
 	// SessionToken is part of AWS Credentials struct, not a secret being stored
-	SessionToken string `xml:"SessionToken"` //nolint:gosec // AWS Credentials field
+	SessionToken string `xml:"SessionToken"` //nolint:gosec // Part of AWS Credentials, required for AssumeRole responses
 	Expiration   string `xml:"Expiration"`
 }
 
@@ -122,4 +122,30 @@ type ErrorResponse struct {
 	Xmlns     string      `xml:"xmlns,attr"`
 	Error     ErrorDetail `xml:"Error"`
 	RequestID string      `xml:"RequestId"`
+}
+
+// GetAccessKeyInfoResult carries the account for the given access key.
+type GetAccessKeyInfoResult struct {
+	Account string `xml:"Account"`
+}
+
+// GetAccessKeyInfoResponse is the top-level XML envelope returned by GetAccessKeyInfo.
+type GetAccessKeyInfoResponse struct {
+	XMLName                xml.Name               `xml:"GetAccessKeyInfoResponse"`
+	Xmlns                  string                 `xml:"xmlns,attr"`
+	GetAccessKeyInfoResult GetAccessKeyInfoResult `xml:"GetAccessKeyInfoResult"`
+	ResponseMetadata       ResponseMetadata       `xml:"ResponseMetadata"`
+}
+
+// DecodeAuthorizationMessageResult carries the decoded message.
+type DecodeAuthorizationMessageResult struct {
+	DecodedMessage string `xml:"DecodedMessage"`
+}
+
+// DecodeAuthorizationMessageResponse is the top-level XML envelope returned by DecodeAuthorizationMessage.
+type DecodeAuthorizationMessageResponse struct {
+	XMLName                          xml.Name                         `xml:"DecodeAuthorizationMessageResponse"`
+	Xmlns                            string                           `xml:"xmlns,attr"`
+	DecodeAuthorizationMessageResult DecodeAuthorizationMessageResult `xml:"DecodeAuthorizationMessageResult"`
+	ResponseMetadata                 ResponseMetadata                 `xml:"ResponseMetadata"`
 }

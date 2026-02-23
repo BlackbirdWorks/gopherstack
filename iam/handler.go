@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/url"
 	"strings"
@@ -27,14 +28,19 @@ const (
 type Handler struct {
 	Backend StorageBackend
 	Logger  *slog.Logger
+	// actions is the pre-built dispatch table, initialized once at construction.
+	actions map[string]iamActionFn
 }
 
 // NewHandler creates a new IAM handler with the given storage backend.
 func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
-	return &Handler{
+	h := &Handler{
 		Backend: backend,
 		Logger:  log,
 	}
+	h.actions = h.buildDispatchTable()
+
+	return h
 }
 
 // Name returns the service name.
@@ -184,296 +190,391 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
+type iamActionFn func(vals url.Values, reqID string) (any, error)
+
+// buildDispatchTable merges all IAM sub-tables into a single map, called once at construction.
+func (h *Handler) buildDispatchTable() map[string]iamActionFn {
+	subtables := []map[string]iamActionFn{
+		h.iamUserDispatchTable(),
+		h.iamRoleDispatchTable(),
+		h.iamPolicyBasicDispatchTable(),
+		h.iamPolicyAttachDispatchTable(),
+		h.iamGroupDispatchTable(),
+		h.iamAccessKeyDispatchTable(),
+		h.iamInstanceProfileDispatchTable(),
+	}
+
+	combined := make(map[string]iamActionFn)
+	for _, t := range subtables {
+		maps.Copy(combined, t)
+	}
+
+	return combined
+}
+
+func (h *Handler) iamUserDispatchTable() map[string]iamActionFn {
+	return map[string]iamActionFn{
+		"CreateUser": func(vals url.Values, reqID string) (any, error) {
+			u, err := h.Backend.CreateUser(vals.Get("UserName"), vals.Get("Path"))
+			if err != nil {
+				return nil, err
+			}
+
+			return &CreateUserResponse{
+				Xmlns:            iamXMLNS,
+				CreateUserResult: CreateUserResult{User: toUserXML(u)},
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+		"GetUser": func(vals url.Values, reqID string) (any, error) {
+			u, err := h.Backend.GetUser(vals.Get("UserName"))
+			if err != nil {
+				return nil, err
+			}
+
+			return &GetUserResponse{
+				Xmlns:            iamXMLNS,
+				GetUserResult:    GetUserResult{User: toUserXML(u)},
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+		"DeleteUser": func(vals url.Values, reqID string) (any, error) {
+			if err := h.Backend.DeleteUser(vals.Get("UserName")); err != nil {
+				return nil, err
+			}
+
+			return &DeleteUserResponse{Xmlns: iamXMLNS, ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
+		},
+		"ListUsers": func(_ url.Values, reqID string) (any, error) {
+			users, err := h.Backend.ListUsers()
+			if err != nil {
+				return nil, err
+			}
+
+			xmlUsers := make([]UserXML, 0, len(users))
+			for i := range users {
+				xmlUsers = append(xmlUsers, toUserXML(&users[i]))
+			}
+
+			return &ListUsersResponse{
+				Xmlns:            iamXMLNS,
+				ListUsersResult:  ListUsersResult{Users: xmlUsers},
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+	}
+}
+
+func (h *Handler) iamRoleDispatchTable() map[string]iamActionFn {
+	return map[string]iamActionFn{
+		"CreateRole": func(vals url.Values, reqID string) (any, error) {
+			r, err := h.Backend.CreateRole(
+				vals.Get("RoleName"), vals.Get("Path"), vals.Get("AssumeRolePolicyDocument"),
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			return &CreateRoleResponse{
+				Xmlns:            iamXMLNS,
+				CreateRoleResult: CreateRoleResult{Role: toRoleXML(r)},
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+		"GetRole": func(vals url.Values, reqID string) (any, error) {
+			r, err := h.Backend.GetRole(vals.Get("RoleName"))
+			if err != nil {
+				return nil, err
+			}
+
+			return &GetRoleResponse{
+				Xmlns:            iamXMLNS,
+				GetRoleResult:    GetRoleResult{Role: toRoleXML(r)},
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+		"DeleteRole": func(vals url.Values, reqID string) (any, error) {
+			if err := h.Backend.DeleteRole(vals.Get("RoleName")); err != nil {
+				return nil, err
+			}
+
+			return &DeleteRoleResponse{Xmlns: iamXMLNS, ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
+		},
+		"ListRoles": func(_ url.Values, reqID string) (any, error) {
+			roles, err := h.Backend.ListRoles()
+			if err != nil {
+				return nil, err
+			}
+
+			xmlRoles := make([]RoleXML, 0, len(roles))
+			for i := range roles {
+				xmlRoles = append(xmlRoles, toRoleXML(&roles[i]))
+			}
+
+			return &ListRolesResponse{
+				Xmlns:            iamXMLNS,
+				ListRolesResult:  ListRolesResult{Roles: xmlRoles},
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+	}
+}
+
+func (h *Handler) iamPolicyBasicDispatchTable() map[string]iamActionFn {
+	return map[string]iamActionFn{
+		"CreatePolicy": func(vals url.Values, reqID string) (any, error) {
+			pol, err := h.Backend.CreatePolicy(
+				vals.Get("PolicyName"), vals.Get("Path"), vals.Get("PolicyDocument"),
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			return &CreatePolicyResponse{
+				Xmlns:              iamXMLNS,
+				CreatePolicyResult: CreatePolicyResult{Policy: toPolicyXML(pol)},
+				ResponseMetadata:   ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+		"DeletePolicy": func(vals url.Values, reqID string) (any, error) {
+			if err := h.Backend.DeletePolicy(vals.Get("PolicyArn")); err != nil {
+				return nil, err
+			}
+
+			return &DeletePolicyResponse{Xmlns: iamXMLNS, ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
+		},
+		"ListPolicies": func(_ url.Values, reqID string) (any, error) {
+			policies, err := h.Backend.ListPolicies()
+			if err != nil {
+				return nil, err
+			}
+
+			xmlPolicies := make([]PolicyXML, 0, len(policies))
+			for i := range policies {
+				xmlPolicies = append(xmlPolicies, toPolicyXML(&policies[i]))
+			}
+
+			return &ListPoliciesResponse{
+				Xmlns:              iamXMLNS,
+				ListPoliciesResult: ListPoliciesResult{Policies: xmlPolicies},
+				ResponseMetadata:   ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+		"GetPolicy": func(vals url.Values, reqID string) (any, error) {
+			pol, err := h.Backend.GetPolicy(vals.Get("PolicyArn"))
+			if err != nil {
+				return nil, err
+			}
+
+			return &GetPolicyResponse{
+				Xmlns:            iamXMLNS,
+				GetPolicyResult:  GetPolicyResult{Policy: toPolicyXML(pol)},
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+		"GetPolicyVersion": func(vals url.Values, reqID string) (any, error) {
+			pol, err := h.Backend.GetPolicyVersion(vals.Get("PolicyArn"), vals.Get("VersionId"))
+			if err != nil {
+				return nil, err
+			}
+
+			return &GetPolicyVersionResponse{
+				Xmlns: iamXMLNS,
+				GetPolicyVersionResult: GetPolicyVersionResult{PolicyVersion: PolicyVersionXML{
+					Document:         pol.PolicyDocument,
+					VersionID:        "v1",
+					IsDefaultVersion: true,
+					CreateDate:       isoTime(pol.CreateDate),
+				}},
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+	}
+}
+
+func (h *Handler) iamPolicyAttachDispatchTable() map[string]iamActionFn {
+	return map[string]iamActionFn{
+		"AttachUserPolicy": func(vals url.Values, reqID string) (any, error) {
+			if err := h.Backend.AttachUserPolicy(vals.Get("UserName"), vals.Get("PolicyArn")); err != nil {
+				return nil, err
+			}
+
+			return &AttachUserPolicyResponse{Xmlns: iamXMLNS, ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
+		},
+		"AttachRolePolicy": func(vals url.Values, reqID string) (any, error) {
+			if err := h.Backend.AttachRolePolicy(vals.Get("RoleName"), vals.Get("PolicyArn")); err != nil {
+				return nil, err
+			}
+
+			return &AttachRolePolicyResponse{Xmlns: iamXMLNS, ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
+		},
+		"ListAttachedUserPolicies": func(vals url.Values, reqID string) (any, error) {
+			policies, err := h.Backend.ListAttachedUserPolicies(vals.Get("UserName"))
+			if err != nil {
+				return nil, err
+			}
+
+			xmlPolicies := make([]AttachedPolicyXML, 0, len(policies))
+			for _, p := range policies {
+				xmlPolicies = append(xmlPolicies, AttachedPolicyXML(p))
+			}
+
+			return &ListAttachedUserPoliciesResponse{
+				Xmlns:                          iamXMLNS,
+				ListAttachedUserPoliciesResult: ListAttachedUserPoliciesResult{AttachedPolicies: xmlPolicies},
+				ResponseMetadata:               ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+		"ListAttachedRolePolicies": func(vals url.Values, reqID string) (any, error) {
+			policies, err := h.Backend.ListAttachedRolePolicies(vals.Get("RoleName"))
+			if err != nil {
+				return nil, err
+			}
+
+			xmlPolicies := make([]AttachedPolicyXML, 0, len(policies))
+			for _, p := range policies {
+				xmlPolicies = append(xmlPolicies, AttachedPolicyXML(p))
+			}
+
+			return &ListAttachedRolePoliciesResponse{
+				Xmlns:                          iamXMLNS,
+				ListAttachedRolePoliciesResult: ListAttachedRolePoliciesResult{AttachedPolicies: xmlPolicies},
+				ResponseMetadata:               ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+	}
+}
+
+func (h *Handler) iamGroupDispatchTable() map[string]iamActionFn {
+	return map[string]iamActionFn{
+		"CreateGroup": func(vals url.Values, reqID string) (any, error) {
+			g, err := h.Backend.CreateGroup(vals.Get("GroupName"), vals.Get("Path"))
+			if err != nil {
+				return nil, err
+			}
+
+			return &CreateGroupResponse{
+				Xmlns:             iamXMLNS,
+				CreateGroupResult: CreateGroupResult{Group: toGroupXML(g)},
+				ResponseMetadata:  ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+		"DeleteGroup": func(vals url.Values, reqID string) (any, error) {
+			if err := h.Backend.DeleteGroup(vals.Get("GroupName")); err != nil {
+				return nil, err
+			}
+
+			return &DeleteGroupResponse{Xmlns: iamXMLNS, ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
+		},
+		"AddUserToGroup": func(vals url.Values, reqID string) (any, error) {
+			if err := h.Backend.AddUserToGroup(vals.Get("GroupName"), vals.Get("UserName")); err != nil {
+				return nil, err
+			}
+
+			return &AddUserToGroupResponse{Xmlns: iamXMLNS, ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
+		},
+	}
+}
+
+func (h *Handler) iamAccessKeyDispatchTable() map[string]iamActionFn {
+	return map[string]iamActionFn{
+		"CreateAccessKey": func(vals url.Values, reqID string) (any, error) {
+			ak, err := h.Backend.CreateAccessKey(vals.Get("UserName"))
+			if err != nil {
+				return nil, err
+			}
+
+			return &CreateAccessKeyResponse{
+				Xmlns:                 iamXMLNS,
+				CreateAccessKeyResult: CreateAccessKeyResult{AccessKey: toAccessKeyXML(ak)},
+				ResponseMetadata:      ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+		"DeleteAccessKey": func(vals url.Values, reqID string) (any, error) {
+			if err := h.Backend.DeleteAccessKey(vals.Get("UserName"), vals.Get("AccessKeyId")); err != nil {
+				return nil, err
+			}
+
+			return &DeleteAccessKeyResponse{Xmlns: iamXMLNS, ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
+		},
+		"ListAccessKeys": func(vals url.Values, reqID string) (any, error) {
+			keys, err := h.Backend.ListAccessKeys(vals.Get("UserName"))
+			if err != nil {
+				return nil, err
+			}
+
+			xmlKeys := make([]AccessKeyMetadataXML, 0, len(keys))
+			for i := range keys {
+				xmlKeys = append(xmlKeys, toAccessKeyMetadataXML(&keys[i]))
+			}
+
+			return &ListAccessKeysResponse{
+				Xmlns:                iamXMLNS,
+				ListAccessKeysResult: ListAccessKeysResult{AccessKeyMetadata: xmlKeys},
+				ResponseMetadata:     ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+	}
+}
+
+func (h *Handler) iamInstanceProfileDispatchTable() map[string]iamActionFn {
+	return map[string]iamActionFn{
+		"CreateInstanceProfile": func(vals url.Values, reqID string) (any, error) {
+			ip, err := h.Backend.CreateInstanceProfile(vals.Get("InstanceProfileName"), vals.Get("Path"))
+			if err != nil {
+				return nil, err
+			}
+
+			return &CreateInstanceProfileResponse{
+				Xmlns:                       iamXMLNS,
+				CreateInstanceProfileResult: CreateInstanceProfileResult{InstanceProfile: toInstanceProfileXML(ip)},
+				ResponseMetadata:            ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+		"DeleteInstanceProfile": func(vals url.Values, reqID string) (any, error) {
+			if err := h.Backend.DeleteInstanceProfile(vals.Get("InstanceProfileName")); err != nil {
+				return nil, err
+			}
+
+			return &DeleteInstanceProfileResponse{
+				Xmlns:            iamXMLNS,
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+		"ListInstanceProfiles": func(_ url.Values, reqID string) (any, error) {
+			profiles, err := h.Backend.ListInstanceProfiles()
+			if err != nil {
+				return nil, err
+			}
+
+			xmlProfiles := make([]InstanceProfileXML, 0, len(profiles))
+			for i := range profiles {
+				xmlProfiles = append(xmlProfiles, toInstanceProfileXML(&profiles[i]))
+			}
+
+			return &ListInstanceProfilesResponse{
+				Xmlns:                      iamXMLNS,
+				ListInstanceProfilesResult: ListInstanceProfilesResult{InstanceProfiles: xmlProfiles},
+				ResponseMetadata:           ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+	}
+}
+
 // dispatch routes the IAM action to the appropriate handler.
-func (h *Handler) dispatch( //nolint:funlen,gocognit,gocyclo,cyclop // one switch handles all 22 IAM operations
+func (h *Handler) dispatch(
 	_ context.Context,
 	action string,
 	vals url.Values,
 ) (any, error) {
 	reqID := newRequestID()
 
-	switch action {
-	case "CreateUser":
-		u, err := h.Backend.CreateUser(vals.Get("UserName"), vals.Get("Path"))
-		if err != nil {
-			return nil, err
-		}
-
-		return &CreateUserResponse{Xmlns: iamXMLNS, CreateUserResult: CreateUserResult{User: toUserXML(u)},
-			ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
-
-	case "GetUser":
-		u, err := h.Backend.GetUser(vals.Get("UserName"))
-		if err != nil {
-			return nil, err
-		}
-
-		return &GetUserResponse{Xmlns: iamXMLNS, GetUserResult: GetUserResult{User: toUserXML(u)},
-			ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
-
-	case "DeleteUser":
-		if err := h.Backend.DeleteUser(vals.Get("UserName")); err != nil {
-			return nil, err
-		}
-
-		return &DeleteUserResponse{Xmlns: iamXMLNS, ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
-
-	case "ListUsers":
-		users, err := h.Backend.ListUsers()
-		if err != nil {
-			return nil, err
-		}
-
-		xmlUsers := make([]UserXML, 0, len(users))
-		for i := range users {
-			xmlUsers = append(xmlUsers, toUserXML(&users[i]))
-		}
-
-		return &ListUsersResponse{Xmlns: iamXMLNS,
-			ListUsersResult:  ListUsersResult{Users: xmlUsers},
-			ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
-
-	case "CreateRole":
-		r, err := h.Backend.CreateRole(vals.Get("RoleName"), vals.Get("Path"), vals.Get("AssumeRolePolicyDocument"))
-		if err != nil {
-			return nil, err
-		}
-
-		return &CreateRoleResponse{Xmlns: iamXMLNS, CreateRoleResult: CreateRoleResult{Role: toRoleXML(r)},
-			ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
-
-	case "GetRole":
-		r, err := h.Backend.GetRole(vals.Get("RoleName"))
-		if err != nil {
-			return nil, err
-		}
-
-		return &GetRoleResponse{Xmlns: iamXMLNS, GetRoleResult: GetRoleResult{Role: toRoleXML(r)},
-			ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
-
-	case "DeleteRole":
-		if err := h.Backend.DeleteRole(vals.Get("RoleName")); err != nil {
-			return nil, err
-		}
-
-		return &DeleteRoleResponse{Xmlns: iamXMLNS, ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
-
-	case "ListRoles":
-		roles, err := h.Backend.ListRoles()
-		if err != nil {
-			return nil, err
-		}
-
-		xmlRoles := make([]RoleXML, 0, len(roles))
-		for i := range roles {
-			xmlRoles = append(xmlRoles, toRoleXML(&roles[i]))
-		}
-
-		return &ListRolesResponse{Xmlns: iamXMLNS,
-			ListRolesResult:  ListRolesResult{Roles: xmlRoles},
-			ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
-
-	case "CreatePolicy":
-		pol, err := h.Backend.CreatePolicy(vals.Get("PolicyName"), vals.Get("Path"), vals.Get("PolicyDocument"))
-		if err != nil {
-			return nil, err
-		}
-
-		return &CreatePolicyResponse{Xmlns: iamXMLNS, CreatePolicyResult: CreatePolicyResult{Policy: toPolicyXML(pol)},
-			ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
-
-	case "DeletePolicy":
-		if err := h.Backend.DeletePolicy(vals.Get("PolicyArn")); err != nil {
-			return nil, err
-		}
-
-		return &DeletePolicyResponse{Xmlns: iamXMLNS, ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
-
-	case "ListPolicies":
-		policies, err := h.Backend.ListPolicies()
-		if err != nil {
-			return nil, err
-		}
-
-		xmlPolicies := make([]PolicyXML, 0, len(policies))
-		for i := range policies {
-			xmlPolicies = append(xmlPolicies, toPolicyXML(&policies[i]))
-		}
-
-		return &ListPoliciesResponse{Xmlns: iamXMLNS,
-			ListPoliciesResult: ListPoliciesResult{Policies: xmlPolicies},
-			ResponseMetadata:   ResponseMetadata{RequestID: reqID}}, nil
-
-	case "AttachUserPolicy":
-		if err := h.Backend.AttachUserPolicy(vals.Get("UserName"), vals.Get("PolicyArn")); err != nil {
-			return nil, err
-		}
-
-		return &AttachUserPolicyResponse{Xmlns: iamXMLNS, ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
-
-	case "AttachRolePolicy":
-		if err := h.Backend.AttachRolePolicy(vals.Get("RoleName"), vals.Get("PolicyArn")); err != nil {
-			return nil, err
-		}
-
-		return &AttachRolePolicyResponse{Xmlns: iamXMLNS, ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
-
-	case "ListAttachedUserPolicies":
-		policies, err := h.Backend.ListAttachedUserPolicies(vals.Get("UserName"))
-		if err != nil {
-			return nil, err
-		}
-
-		xmlPolicies := make([]AttachedPolicyXML, 0, len(policies))
-		for _, p := range policies {
-			xmlPolicies = append(xmlPolicies, AttachedPolicyXML(p))
-		}
-
-		return &ListAttachedUserPoliciesResponse{
-			Xmlns:                          iamXMLNS,
-			ListAttachedUserPoliciesResult: ListAttachedUserPoliciesResult{AttachedPolicies: xmlPolicies},
-			ResponseMetadata:               ResponseMetadata{RequestID: reqID},
-		}, nil
-
-	case "ListAttachedRolePolicies":
-		policies, err := h.Backend.ListAttachedRolePolicies(vals.Get("RoleName"))
-		if err != nil {
-			return nil, err
-		}
-
-		xmlPolicies := make([]AttachedPolicyXML, 0, len(policies))
-		for _, p := range policies {
-			xmlPolicies = append(xmlPolicies, AttachedPolicyXML(p))
-		}
-
-		return &ListAttachedRolePoliciesResponse{
-			Xmlns:                          iamXMLNS,
-			ListAttachedRolePoliciesResult: ListAttachedRolePoliciesResult{AttachedPolicies: xmlPolicies},
-			ResponseMetadata:               ResponseMetadata{RequestID: reqID},
-		}, nil
-
-	case "GetPolicy":
-		pol, err := h.Backend.GetPolicy(vals.Get("PolicyArn"))
-		if err != nil {
-			return nil, err
-		}
-
-		return &GetPolicyResponse{
-			Xmlns:            iamXMLNS,
-			GetPolicyResult:  GetPolicyResult{Policy: toPolicyXML(pol)},
-			ResponseMetadata: ResponseMetadata{RequestID: reqID},
-		}, nil
-
-	case "GetPolicyVersion":
-		pol, err := h.Backend.GetPolicyVersion(vals.Get("PolicyArn"), vals.Get("VersionId"))
-		if err != nil {
-			return nil, err
-		}
-
-		return &GetPolicyVersionResponse{
-			Xmlns: iamXMLNS,
-			GetPolicyVersionResult: GetPolicyVersionResult{PolicyVersion: PolicyVersionXML{
-				Document:         pol.PolicyDocument,
-				VersionID:        "v1",
-				IsDefaultVersion: true,
-				CreateDate:       isoTime(pol.CreateDate),
-			}},
-			ResponseMetadata: ResponseMetadata{RequestID: reqID},
-		}, nil
-
-	case "CreateGroup":
-		g, err := h.Backend.CreateGroup(vals.Get("GroupName"), vals.Get("Path"))
-		if err != nil {
-			return nil, err
-		}
-
-		return &CreateGroupResponse{Xmlns: iamXMLNS, CreateGroupResult: CreateGroupResult{Group: toGroupXML(g)},
-			ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
-
-	case "DeleteGroup":
-		if err := h.Backend.DeleteGroup(vals.Get("GroupName")); err != nil {
-			return nil, err
-		}
-
-		return &DeleteGroupResponse{Xmlns: iamXMLNS, ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
-
-	case "AddUserToGroup":
-		if err := h.Backend.AddUserToGroup(vals.Get("GroupName"), vals.Get("UserName")); err != nil {
-			return nil, err
-		}
-
-		return &AddUserToGroupResponse{Xmlns: iamXMLNS, ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
-
-	case "CreateAccessKey":
-		ak, err := h.Backend.CreateAccessKey(vals.Get("UserName"))
-		if err != nil {
-			return nil, err
-		}
-
-		return &CreateAccessKeyResponse{Xmlns: iamXMLNS,
-			CreateAccessKeyResult: CreateAccessKeyResult{AccessKey: toAccessKeyXML(ak)},
-			ResponseMetadata:      ResponseMetadata{RequestID: reqID}}, nil
-
-	case "DeleteAccessKey":
-		if err := h.Backend.DeleteAccessKey(vals.Get("UserName"), vals.Get("AccessKeyId")); err != nil {
-			return nil, err
-		}
-
-		return &DeleteAccessKeyResponse{Xmlns: iamXMLNS, ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
-
-	case "ListAccessKeys":
-		keys, err := h.Backend.ListAccessKeys(vals.Get("UserName"))
-		if err != nil {
-			return nil, err
-		}
-
-		xmlKeys := make([]AccessKeyMetadataXML, 0, len(keys))
-		for i := range keys {
-			xmlKeys = append(xmlKeys, toAccessKeyMetadataXML(&keys[i]))
-		}
-
-		return &ListAccessKeysResponse{Xmlns: iamXMLNS,
-			ListAccessKeysResult: ListAccessKeysResult{AccessKeyMetadata: xmlKeys},
-			ResponseMetadata:     ResponseMetadata{RequestID: reqID}}, nil
-
-	case "CreateInstanceProfile":
-		ip, err := h.Backend.CreateInstanceProfile(vals.Get("InstanceProfileName"), vals.Get("Path"))
-		if err != nil {
-			return nil, err
-		}
-
-		return &CreateInstanceProfileResponse{Xmlns: iamXMLNS,
-			CreateInstanceProfileResult: CreateInstanceProfileResult{InstanceProfile: toInstanceProfileXML(ip)},
-			ResponseMetadata:            ResponseMetadata{RequestID: reqID}}, nil
-
-	case "DeleteInstanceProfile":
-		if err := h.Backend.DeleteInstanceProfile(vals.Get("InstanceProfileName")); err != nil {
-			return nil, err
-		}
-
-		return &DeleteInstanceProfileResponse{
-			Xmlns:            iamXMLNS,
-			ResponseMetadata: ResponseMetadata{RequestID: reqID},
-		}, nil
-
-	case "ListInstanceProfiles":
-		profiles, err := h.Backend.ListInstanceProfiles()
-		if err != nil {
-			return nil, err
-		}
-
-		xmlProfiles := make([]InstanceProfileXML, 0, len(profiles))
-		for i := range profiles {
-			xmlProfiles = append(xmlProfiles, toInstanceProfileXML(&profiles[i]))
-		}
-
-		return &ListInstanceProfilesResponse{Xmlns: iamXMLNS,
-			ListInstanceProfilesResult: ListInstanceProfilesResult{InstanceProfiles: xmlProfiles},
-			ResponseMetadata:           ResponseMetadata{RequestID: reqID}}, nil
-
-	default:
+	fn, ok := h.actions[action]
+	if !ok {
 		return nil, fmt.Errorf("%w: %s is not a valid IAM action", ErrInvalidAction, action)
 	}
+
+	return fn(vals, reqID)
 }
 
 // handleError writes a standardized IAM XML error response.

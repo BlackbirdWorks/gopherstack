@@ -45,7 +45,7 @@ func TestCreateBucket(t *testing.T) {
 				t.Helper()
 				mustCreateBucket(t, b, "my-bucket")
 			},
-			wantErr:   s3.ErrBucketAlreadyExists,
+			wantErr:   s3.ErrBucketAlreadyOwnedByYou,
 			expectErr: true,
 		},
 	}
@@ -954,4 +954,214 @@ func TestDeleteObjects_Backend(t *testing.T) {
 			assert.Len(t, out.Errors, tt.wantErrors)
 		})
 	}
+}
+
+func TestCreateBucket_GlobalUniqueness(t *testing.T) {
+	t.Parallel()
+
+	backend := newTestBackend(t)
+
+	// Create bucket in default region
+	mustCreateBucket(t, backend, "unique-bucket")
+
+	// Attempt to create the same bucket name again (even if in a different region via context)
+	_, err := backend.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{
+		Bucket: aws.String("unique-bucket"),
+	})
+	require.ErrorIs(t, err, s3.ErrBucketAlreadyOwnedByYou, "same bucket name should be rejected globally")
+}
+
+func TestPutObject_ContentEncodingDisposition(t *testing.T) {
+	t.Parallel()
+
+	backend := newTestBackend(t)
+	mustCreateBucket(t, backend, "enc-bkt")
+
+	_, err := backend.PutObject(t.Context(), &sdk_s3.PutObjectInput{
+		Bucket:             aws.String("enc-bkt"),
+		Key:                aws.String("file"),
+		Body:               bytes.NewReader([]byte("data")),
+		ContentEncoding:    aws.String("gzip"),
+		ContentDisposition: aws.String(`attachment; filename="file.txt"`),
+	})
+	require.NoError(t, err)
+
+	t.Run("GetObject preserves ContentEncoding and ContentDisposition", func(t *testing.T) {
+		t.Parallel()
+
+		out, getErr := backend.GetObject(t.Context(), &sdk_s3.GetObjectInput{
+			Bucket: aws.String("enc-bkt"),
+			Key:    aws.String("file"),
+		})
+		require.NoError(t, getErr)
+		assert.Equal(t, "gzip", aws.ToString(out.ContentEncoding))
+		assert.Equal(t, `attachment; filename="file.txt"`, aws.ToString(out.ContentDisposition))
+	})
+
+	t.Run("HeadObject preserves ContentEncoding and ContentDisposition", func(t *testing.T) {
+		t.Parallel()
+
+		out, headErr := backend.HeadObject(t.Context(), &sdk_s3.HeadObjectInput{
+			Bucket: aws.String("enc-bkt"),
+			Key:    aws.String("file"),
+		})
+		require.NoError(t, headErr)
+		assert.Equal(t, "gzip", aws.ToString(out.ContentEncoding))
+		assert.Equal(t, `attachment; filename="file.txt"`, aws.ToString(out.ContentDisposition))
+	})
+}
+
+func TestListObjects_Delimiter(t *testing.T) {
+	t.Parallel()
+
+	backend := newTestBackend(t)
+	mustCreateBucket(t, backend, "delim-bkt")
+
+	for _, key := range []string{
+		"photos/2023/jan.jpg",
+		"photos/2023/feb.jpg",
+		"photos/2024/mar.jpg",
+		"docs/report.pdf",
+		"readme.txt",
+	} {
+		mustPutObject(t, backend, "delim-bkt", key, []byte("x"))
+	}
+
+	out, err := backend.ListObjects(t.Context(), &sdk_s3.ListObjectsInput{
+		Bucket:    aws.String("delim-bkt"),
+		Prefix:    aws.String(""),
+		Delimiter: aws.String("/"),
+	})
+	require.NoError(t, err)
+
+	require.Len(t, out.Contents, 1)
+	assert.Equal(t, "readme.txt", aws.ToString(out.Contents[0].Key))
+
+	prefixes := make([]string, len(out.CommonPrefixes))
+	for i, cp := range out.CommonPrefixes {
+		prefixes[i] = aws.ToString(cp.Prefix)
+	}
+	assert.ElementsMatch(t, []string{"photos/", "docs/"}, prefixes)
+}
+
+func TestListObjects_DelimiterWithPrefix(t *testing.T) {
+	t.Parallel()
+
+	backend := newTestBackend(t)
+	mustCreateBucket(t, backend, "delim2-bkt")
+
+	for _, key := range []string{
+		"photos/2023/jan.jpg",
+		"photos/2023/feb.jpg",
+		"photos/2024/mar.jpg",
+	} {
+		mustPutObject(t, backend, "delim2-bkt", key, []byte("x"))
+	}
+
+	out, err := backend.ListObjects(t.Context(), &sdk_s3.ListObjectsInput{
+		Bucket:    aws.String("delim2-bkt"),
+		Prefix:    aws.String("photos/"),
+		Delimiter: aws.String("/"),
+	})
+	require.NoError(t, err)
+
+	assert.Empty(t, out.Contents)
+
+	prefixes := make([]string, len(out.CommonPrefixes))
+	for i, cp := range out.CommonPrefixes {
+		prefixes[i] = aws.ToString(cp.Prefix)
+	}
+	assert.ElementsMatch(t, []string{"photos/2023/", "photos/2024/"}, prefixes)
+}
+
+func TestCreateBucket_NonDefaultRegion_PutObjectSucceeds(t *testing.T) {
+	t.Parallel()
+
+	// Reproduces the bug: bucket created with LocationConstraint != default region;
+	// subsequent PutObject must succeed (not 404).
+	backend := newTestBackend(t)
+
+	_, err := backend.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{
+		Bucket: aws.String("west-bucket"),
+		CreateBucketConfiguration: &types.CreateBucketConfiguration{
+			LocationConstraint: types.BucketLocationConstraint("us-west-2"),
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = backend.PutObject(t.Context(), &sdk_s3.PutObjectInput{
+		Bucket: aws.String("west-bucket"),
+		Key:    aws.String("hello.txt"),
+		Body:   bytes.NewReader([]byte("hello")),
+	})
+	require.NoError(t, err, "PutObject must succeed even when bucket was created with a non-default LocationConstraint")
+
+	out, err := backend.GetObject(t.Context(), &sdk_s3.GetObjectInput{
+		Bucket: aws.String("west-bucket"),
+		Key:    aws.String("hello.txt"),
+	})
+	require.NoError(t, err)
+	defer out.Body.Close()
+
+	body, readErr := io.ReadAll(out.Body)
+	require.NoError(t, readErr)
+	assert.Equal(t, "hello", string(body))
+}
+
+func TestSetDefaultRegion(t *testing.T) {
+	t.Parallel()
+
+	backend := newTestBackend(t)
+
+	// Set a non-empty region.
+	backend.SetDefaultRegion("eu-central-1")
+
+	// Create a bucket (should use "eu-central-1" as default region).
+	_, err := backend.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{
+		Bucket: aws.String("test-default-region-bucket"),
+	})
+	require.NoError(t, err)
+
+	// Empty string should reset to the internal default.
+	backend.SetDefaultRegion("")
+}
+
+func TestPutBucketACL_GetBucketACL(t *testing.T) {
+	t.Parallel()
+
+	backend := newTestBackend(t)
+
+	_, err := backend.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{
+		Bucket: aws.String("acl-test-bucket"),
+	})
+	require.NoError(t, err)
+
+	// Default ACL is "private".
+	acl, err := backend.GetBucketACL(t.Context(), "acl-test-bucket")
+	require.NoError(t, err)
+	assert.Equal(t, "private", acl)
+
+	// Set a new ACL.
+	err = backend.PutBucketACL(t.Context(), "acl-test-bucket", "public-read")
+	require.NoError(t, err)
+
+	acl, err = backend.GetBucketACL(t.Context(), "acl-test-bucket")
+	require.NoError(t, err)
+	assert.Equal(t, "public-read", acl)
+}
+
+func TestPutBucketACL_NotFound(t *testing.T) {
+	t.Parallel()
+
+	backend := newTestBackend(t)
+	err := backend.PutBucketACL(t.Context(), "nonexistent-bucket", "private")
+	assert.Error(t, err)
+}
+
+func TestGetBucketACL_NotFound(t *testing.T) {
+	t.Parallel()
+
+	backend := newTestBackend(t)
+	_, err := backend.GetBucketACL(t.Context(), "nonexistent-bucket")
+	assert.Error(t, err)
 }

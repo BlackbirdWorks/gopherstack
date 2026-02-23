@@ -1,13 +1,13 @@
 package sqs_test
 
 import (
-	"encoding/xml"
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"testing"
 
@@ -23,6 +23,12 @@ import (
 // errInternalTest is a sentinel used to exercise the default InternalError branch in errorDetails.
 var errInternalTest = errors.New("unexpected internal error")
 
+// jsonErr is a convenience struct for parsing JSON error responses.
+type jsonErr struct {
+	Type    string `json:"__type"`
+	Message string `json:"message"`
+}
+
 func newTestHandler(t *testing.T) *sqs.Handler {
 	t.Helper()
 
@@ -32,13 +38,28 @@ func newTestHandler(t *testing.T) *sqs.Handler {
 	return sqs.NewHandler(backend, log)
 }
 
-func doRequest(t *testing.T, h *sqs.Handler, form url.Values) *httptest.ResponseRecorder {
+// doRequest sends a JSON request to the handler with the given X-Amz-Target action.
+// Pass action="" to omit the X-Amz-Target header (tests missing action handling).
+func doRequest(t *testing.T, h *sqs.Handler, action string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 
+	var bodyBytes []byte
+	if body != nil {
+		var err error
+		bodyBytes, err = json.Marshal(body)
+		require.NoError(t, err)
+	} else {
+		bodyBytes = []byte("{}")
+	}
+
 	e := echo.New()
-	body := form.Encode()
-	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/x-amz-json-1.0")
+
+	if action != "" {
+		req.Header.Set("X-Amz-Target", "AmazonSQS."+action)
+	}
+
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
@@ -48,271 +69,254 @@ func doRequest(t *testing.T, h *sqs.Handler, form url.Values) *httptest.Response
 	return rec
 }
 
-func formCreateQueue(name string) url.Values {
-	return url.Values{
-		"Action":    {"CreateQueue"},
-		"QueueName": {name},
+func doCreateQueue(t *testing.T, h *sqs.Handler, name string) string {
+	t.Helper()
+
+	rec := doRequest(t, h, "CreateQueue", map[string]any{"QueueName": name})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		QueueURL string `json:"QueueUrl"`
 	}
+
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	return resp.QueueURL
 }
 
 func TestHandlerCreateQueue(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRequest(t, h, formCreateQueue("test-queue"))
+	rec := doRequest(t, h, "CreateQueue", map[string]any{"QueueName": "test-queue"})
 
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var resp sqs.CreateQueueResponse
-	err := xml.Unmarshal(rec.Body.Bytes(), &resp)
+	var resp struct {
+		QueueURL string `json:"QueueUrl"`
+	}
+
+	err := json.Unmarshal(rec.Body.Bytes(), &resp)
 	require.NoError(t, err)
-	assert.Contains(t, resp.CreateQueueResult.QueueURL, "test-queue")
-	assert.NotEmpty(t, resp.ResponseMetadata.RequestID)
+	assert.Contains(t, resp.QueueURL, "test-queue")
 }
 
 func TestHandlerCreateQueueDuplicate(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	doRequest(t, h, formCreateQueue("test-queue"))
-	rec := doRequest(t, h, formCreateQueue("test-queue"))
+	doRequest(t, h, "CreateQueue", map[string]any{"QueueName": "test-queue"})
+	rec := doRequest(t, h, "CreateQueue", map[string]any{"QueueName": "test-queue"})
 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
-	var errResp sqs.XMLErrorResponse
-	err := xml.Unmarshal(rec.Body.Bytes(), &errResp)
+	var errResp jsonErr
+	err := json.Unmarshal(rec.Body.Bytes(), &errResp)
 	require.NoError(t, err)
-	assert.Equal(t, "QueueAlreadyExists", errResp.Error.Code)
+	assert.Equal(t, "com.amazonaws.sqs#QueueNameExists", errResp.Type)
 }
 
 func TestHandlerListQueues(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	doRequest(t, h, formCreateQueue("queue-a"))
-	doRequest(t, h, formCreateQueue("queue-b"))
+	doCreateQueue(t, h, "queue-a")
+	doCreateQueue(t, h, "queue-b")
 
-	rec := doRequest(t, h, url.Values{"Action": {"ListQueues"}})
+	rec := doRequest(t, h, "ListQueues", map[string]any{})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var resp sqs.ListQueuesResponse
-	err := xml.Unmarshal(rec.Body.Bytes(), &resp)
+	var resp struct {
+		QueueURLs []string `json:"QueueUrls"`
+	}
+
+	err := json.Unmarshal(rec.Body.Bytes(), &resp)
 	require.NoError(t, err)
-	assert.Len(t, resp.ListQueuesResult.QueueURLs, 2)
+	assert.Len(t, resp.QueueURLs, 2)
 }
 
 func TestHandlerListQueuesWithPrefix(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	doRequest(t, h, formCreateQueue("alpha-queue"))
-	doRequest(t, h, formCreateQueue("beta-queue"))
+	doCreateQueue(t, h, "alpha-queue")
+	doCreateQueue(t, h, "beta-queue")
 
-	rec := doRequest(t, h, url.Values{
-		"Action":          {"ListQueues"},
-		"QueueNamePrefix": {"alpha"},
-	})
+	rec := doRequest(t, h, "ListQueues", map[string]any{"QueueNamePrefix": "alpha"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var resp sqs.ListQueuesResponse
-	err := xml.Unmarshal(rec.Body.Bytes(), &resp)
+	var resp struct {
+		QueueURLs []string `json:"QueueUrls"`
+	}
+
+	err := json.Unmarshal(rec.Body.Bytes(), &resp)
 	require.NoError(t, err)
-	assert.Len(t, resp.ListQueuesResult.QueueURLs, 1)
+	assert.Len(t, resp.QueueURLs, 1)
 }
 
 func TestHandlerSendMessage(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	createRec := doRequest(t, h, formCreateQueue("my-queue"))
-	require.Equal(t, http.StatusOK, createRec.Code)
+	queueURL := doCreateQueue(t, h, "my-queue")
 
-	var createResp sqs.CreateQueueResponse
-	require.NoError(t, xml.Unmarshal(createRec.Body.Bytes(), &createResp))
-
-	queueURLStr := createResp.CreateQueueResult.QueueURL
-
-	rec := doRequest(t, h, url.Values{
-		"Action":      {"SendMessage"},
-		"QueueUrl":    {queueURLStr},
-		"MessageBody": {"hello from handler"},
+	rec := doRequest(t, h, "SendMessage", map[string]any{
+		"QueueUrl":    queueURL,
+		"MessageBody": "hello from handler",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var resp sqs.SendMessageResponse
-	err := xml.Unmarshal(rec.Body.Bytes(), &resp)
+	var resp struct {
+		MessageID        string `json:"MessageId"`
+		MD5OfMessageBody string `json:"MD5OfMessageBody"`
+	}
+
+	err := json.Unmarshal(rec.Body.Bytes(), &resp)
 	require.NoError(t, err)
-	assert.NotEmpty(t, resp.SendMessageResult.MessageID)
-	assert.NotEmpty(t, resp.SendMessageResult.MD5OfMessageBody)
+	assert.NotEmpty(t, resp.MessageID)
+	assert.NotEmpty(t, resp.MD5OfMessageBody)
 }
 
 func TestHandlerReceiveMessage(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	createRec := doRequest(t, h, formCreateQueue("my-queue"))
-	require.Equal(t, http.StatusOK, createRec.Code)
+	queueURL := doCreateQueue(t, h, "my-queue")
 
-	var createResp sqs.CreateQueueResponse
-	require.NoError(t, xml.Unmarshal(createRec.Body.Bytes(), &createResp))
-
-	queueURLStr := createResp.CreateQueueResult.QueueURL
-
-	doRequest(t, h, url.Values{
-		"Action":      {"SendMessage"},
-		"QueueUrl":    {queueURLStr},
-		"MessageBody": {"hello"},
+	doRequest(t, h, "SendMessage", map[string]any{
+		"QueueUrl":    queueURL,
+		"MessageBody": "hello",
 	})
 
-	rec := doRequest(t, h, url.Values{
-		"Action":              {"ReceiveMessage"},
-		"QueueUrl":            {queueURLStr},
-		"MaxNumberOfMessages": {"1"},
-		"WaitTimeSeconds":     {"0"},
+	rec := doRequest(t, h, "ReceiveMessage", map[string]any{
+		"QueueUrl":            queueURL,
+		"MaxNumberOfMessages": 1,
+		"WaitTimeSeconds":     0,
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var resp sqs.ReceiveMessageResponse
-	err := xml.Unmarshal(rec.Body.Bytes(), &resp)
+	var resp struct {
+		Messages []struct {
+			Body string `json:"Body"`
+		} `json:"Messages"`
+	}
+
+	err := json.Unmarshal(rec.Body.Bytes(), &resp)
 	require.NoError(t, err)
-	require.Len(t, resp.ReceiveMessageResult.Messages, 1)
-	assert.Equal(t, "hello", resp.ReceiveMessageResult.Messages[0].Body)
+	require.Len(t, resp.Messages, 1)
+	assert.Equal(t, "hello", resp.Messages[0].Body)
 }
 
 func TestHandlerDeleteMessage(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	createRec := doRequest(t, h, formCreateQueue("my-queue"))
-	require.Equal(t, http.StatusOK, createRec.Code)
+	queueURL := doCreateQueue(t, h, "my-queue")
 
-	var createResp sqs.CreateQueueResponse
-	require.NoError(t, xml.Unmarshal(createRec.Body.Bytes(), &createResp))
-
-	queueURLStr := createResp.CreateQueueResult.QueueURL
-
-	doRequest(t, h, url.Values{
-		"Action":      {"SendMessage"},
-		"QueueUrl":    {queueURLStr},
-		"MessageBody": {"hello"},
+	doRequest(t, h, "SendMessage", map[string]any{
+		"QueueUrl":    queueURL,
+		"MessageBody": "hello",
 	})
 
-	recvRec := doRequest(t, h, url.Values{
-		"Action":              {"ReceiveMessage"},
-		"QueueUrl":            {queueURLStr},
-		"MaxNumberOfMessages": {"1"},
+	recvRec := doRequest(t, h, "ReceiveMessage", map[string]any{
+		"QueueUrl":            queueURL,
+		"MaxNumberOfMessages": 1,
 	})
 
-	var recvResp sqs.ReceiveMessageResponse
-	require.NoError(t, xml.Unmarshal(recvRec.Body.Bytes(), &recvResp))
-	require.Len(t, recvResp.ReceiveMessageResult.Messages, 1)
+	var recvResp struct {
+		Messages []struct {
+			ReceiptHandle string `json:"ReceiptHandle"`
+		} `json:"Messages"`
+	}
 
-	receipt := recvResp.ReceiveMessageResult.Messages[0].ReceiptHandle
+	require.NoError(t, json.Unmarshal(recvRec.Body.Bytes(), &recvResp))
+	require.Len(t, recvResp.Messages, 1)
 
-	rec := doRequest(t, h, url.Values{
-		"Action":        {"DeleteMessage"},
-		"QueueUrl":      {queueURLStr},
-		"ReceiptHandle": {receipt},
+	receipt := recvResp.Messages[0].ReceiptHandle
+
+	rec := doRequest(t, h, "DeleteMessage", map[string]any{
+		"QueueUrl":      queueURL,
+		"ReceiptHandle": receipt,
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp sqs.DeleteMessageResponse
-	err := xml.Unmarshal(rec.Body.Bytes(), &resp)
-	require.NoError(t, err)
-	assert.NotEmpty(t, resp.ResponseMetadata.RequestID)
 }
 
 func TestHandlerMissingAction(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRequest(t, h, url.Values{"QueueName": {"test"}})
+	rec := doRequest(t, h, "", map[string]any{"QueueName": "test"})
 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
-	var errResp sqs.XMLErrorResponse
-	err := xml.Unmarshal(rec.Body.Bytes(), &errResp)
+	var errResp jsonErr
+	err := json.Unmarshal(rec.Body.Bytes(), &errResp)
 	require.NoError(t, err)
-	assert.Equal(t, "InvalidAction", errResp.Error.Code)
+	assert.Equal(t, "com.amazonaws.sqs#InvalidAction", errResp.Type)
 }
 
 func TestHandlerUnknownAction(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRequest(t, h, url.Values{"Action": {"NonExistentAction"}})
+	rec := doRequest(t, h, "NonExistentAction", map[string]any{})
 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
-	var errResp sqs.XMLErrorResponse
-	err := xml.Unmarshal(rec.Body.Bytes(), &errResp)
+	var errResp jsonErr
+	err := json.Unmarshal(rec.Body.Bytes(), &errResp)
 	require.NoError(t, err)
-	assert.Equal(t, "InvalidAction", errResp.Error.Code)
+	assert.Equal(t, "com.amazonaws.sqs#InvalidAction", errResp.Type)
 }
 
 func TestHandlerQueueNotFound(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRequest(t, h, url.Values{
-		"Action":      {"SendMessage"},
-		"QueueUrl":    {"http://localhost/000000000000/nonexistent"},
-		"MessageBody": {"hello"},
+	rec := doRequest(t, h, "SendMessage", map[string]any{
+		"QueueUrl":    "http://localhost/000000000000/nonexistent",
+		"MessageBody": "hello",
 	})
 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
-	var errResp sqs.XMLErrorResponse
-	err := xml.Unmarshal(rec.Body.Bytes(), &errResp)
+	var errResp jsonErr
+	err := json.Unmarshal(rec.Body.Bytes(), &errResp)
 	require.NoError(t, err)
-	assert.Equal(t, "AWS.SimpleQueueService.NonExistentQueue", errResp.Error.Code)
+	assert.Equal(t, "com.amazonaws.sqs#QueueDoesNotExist", errResp.Type)
 }
 
 func TestHandlerGetQueueURL(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	doRequest(t, h, formCreateQueue("my-queue"))
+	doCreateQueue(t, h, "my-queue")
 
-	rec := doRequest(t, h, url.Values{
-		"Action":    {"GetQueueUrl"},
-		"QueueName": {"my-queue"},
-	})
+	rec := doRequest(t, h, "GetQueueUrl", map[string]any{"QueueName": "my-queue"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var resp sqs.GetQueueURLResponse
-	err := xml.Unmarshal(rec.Body.Bytes(), &resp)
+	var resp struct {
+		QueueURL string `json:"QueueUrl"`
+	}
+
+	err := json.Unmarshal(rec.Body.Bytes(), &resp)
 	require.NoError(t, err)
-	assert.Contains(t, resp.GetQueueURLResult.QueueURL, "my-queue")
+	assert.Contains(t, resp.QueueURL, "my-queue")
 }
 
 func TestHandlerPurgeQueue(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	createRec := doRequest(t, h, formCreateQueue("my-queue"))
+	queueURL := doCreateQueue(t, h, "my-queue")
 
-	var createResp sqs.CreateQueueResponse
-	require.NoError(t, xml.Unmarshal(createRec.Body.Bytes(), &createResp))
-
-	queueURLStr := createResp.CreateQueueResult.QueueURL
-
-	doRequest(t, h, url.Values{
-		"Action":      {"SendMessage"},
-		"QueueUrl":    {queueURLStr},
-		"MessageBody": {"hello"},
+	doRequest(t, h, "SendMessage", map[string]any{
+		"QueueUrl":    queueURL,
+		"MessageBody": "hello",
 	})
 
-	rec := doRequest(t, h, url.Values{
-		"Action":   {"PurgeQueue"},
-		"QueueUrl": {queueURLStr},
-	})
+	rec := doRequest(t, h, "PurgeQueue", map[string]any{"QueueUrl": queueURL})
 	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp sqs.PurgeQueueResponse
-	err := xml.Unmarshal(rec.Body.Bytes(), &resp)
-	require.NoError(t, err)
-	assert.NotEmpty(t, resp.ResponseMetadata.RequestID)
 }
 
 func TestHandlerRouteMatcher(t *testing.T) {
@@ -323,27 +327,26 @@ func TestHandlerRouteMatcher(t *testing.T) {
 
 	e := echo.New()
 
-	// Match: root path + form-encoded (CreateQueue, ListQueues)
+	// Match: root path + AmazonSQS. target
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-Amz-Target", "AmazonSQS.CreateQueue")
 	c := e.NewContext(req, httptest.NewRecorder())
 	assert.True(t, matcher(c))
 
-	// Match: /000000000000/queue path + form-encoded (SendMessage, etc.)
+	// Match: /000000000000/queue path + AmazonSQS. target
 	req3 := httptest.NewRequest(http.MethodPost, "/000000000000/my-queue", nil)
-	req3.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req3.Header.Set("X-Amz-Target", "AmazonSQS.SendMessage")
 	c3 := e.NewContext(req3, httptest.NewRecorder())
 	assert.True(t, matcher(c3))
 
-	// No match: wrong Content-Type
+	// No match: missing X-Amz-Target
 	req2 := httptest.NewRequest(http.MethodPost, "/", nil)
-	req2.Header.Set("Content-Type", "application/json")
 	c2 := e.NewContext(req2, httptest.NewRecorder())
 	assert.False(t, matcher(c2))
 
-	// No match: dashboard HTMX form (form-encoded but wrong path)
+	// No match: wrong path even with AmazonSQS. target
 	req4 := httptest.NewRequest(http.MethodPost, "/dashboard/sqs/create", nil)
-	req4.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req4.Header.Set("X-Amz-Target", "AmazonSQS.CreateQueue")
 	c4 := e.NewContext(req4, httptest.NewRecorder())
 	assert.False(t, matcher(c4))
 }
@@ -354,9 +357,10 @@ func TestHandlerExtractOperation(t *testing.T) {
 	h := newTestHandler(t)
 	e := echo.New()
 
-	body := url.Values{"Action": {"SendMessage"}, "QueueUrl": {"http://x/000000000000/q"}}.Encode()
-	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	body, _ := json.Marshal(map[string]any{"QueueUrl": "http://x/000000000000/q"})
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-amz-json-1.0")
+	req.Header.Set("X-Amz-Target", "AmazonSQS.SendMessage")
 	c := e.NewContext(req, httptest.NewRecorder())
 
 	assert.Equal(t, "SendMessage", h.ExtractOperation(c))
@@ -376,30 +380,18 @@ func TestHandlerDeleteQueue(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	createRec := doRequest(t, h, formCreateQueue("del-queue"))
+	queueURL := doCreateQueue(t, h, "del-queue")
 
-	var createResp sqs.CreateQueueResponse
-	require.NoError(t, xml.Unmarshal(createRec.Body.Bytes(), &createResp))
-
-	rec := doRequest(t, h, url.Values{
-		"Action":   {"DeleteQueue"},
-		"QueueUrl": {createResp.CreateQueueResult.QueueURL},
-	})
+	rec := doRequest(t, h, "DeleteQueue", map[string]any{"QueueUrl": queueURL})
 	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp sqs.DeleteQueueResponse
-	err := xml.Unmarshal(rec.Body.Bytes(), &resp)
-	require.NoError(t, err)
-	assert.NotEmpty(t, resp.ResponseMetadata.RequestID)
 }
 
 func TestHandlerDeleteQueueNotFound(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRequest(t, h, url.Values{
-		"Action":   {"DeleteQueue"},
-		"QueueUrl": {"http://localhost/000000000000/noqueue"},
+	rec := doRequest(t, h, "DeleteQueue", map[string]any{
+		"QueueUrl": "http://localhost/000000000000/noqueue",
 	})
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -408,31 +400,29 @@ func TestHandlerGetQueueAttributes(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	createRec := doRequest(t, h, formCreateQueue("attr-queue"))
+	queueURL := doCreateQueue(t, h, "attr-queue")
 
-	var createResp sqs.CreateQueueResponse
-	require.NoError(t, xml.Unmarshal(createRec.Body.Bytes(), &createResp))
-
-	rec := doRequest(t, h, url.Values{
-		"Action":          {"GetQueueAttributes"},
-		"QueueUrl":        {createResp.CreateQueueResult.QueueURL},
-		"AttributeName.1": {"All"},
+	rec := doRequest(t, h, "GetQueueAttributes", map[string]any{
+		"QueueUrl":       queueURL,
+		"AttributeNames": []string{"All"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var resp sqs.GetQueueAttributesResponse
-	err := xml.Unmarshal(rec.Body.Bytes(), &resp)
+	var resp struct {
+		Attributes map[string]string `json:"Attributes"`
+	}
+
+	err := json.Unmarshal(rec.Body.Bytes(), &resp)
 	require.NoError(t, err)
-	assert.NotEmpty(t, resp.GetQueueAttributesResult.Attributes)
+	assert.NotEmpty(t, resp.Attributes)
 }
 
 func TestHandlerGetQueueAttributesNotFound(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRequest(t, h, url.Values{
-		"Action":   {"GetQueueAttributes"},
-		"QueueUrl": {"http://localhost/000000000000/noqueue"},
+	rec := doRequest(t, h, "GetQueueAttributes", map[string]any{
+		"QueueUrl": "http://localhost/000000000000/noqueue",
 	})
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -441,34 +431,22 @@ func TestHandlerSetQueueAttributes(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	createRec := doRequest(t, h, formCreateQueue("set-attr-queue"))
+	queueURL := doCreateQueue(t, h, "set-attr-queue")
 
-	var createResp sqs.CreateQueueResponse
-	require.NoError(t, xml.Unmarshal(createRec.Body.Bytes(), &createResp))
-
-	rec := doRequest(t, h, url.Values{
-		"Action":            {"SetQueueAttributes"},
-		"QueueUrl":          {createResp.CreateQueueResult.QueueURL},
-		"Attribute.1.Name":  {"VisibilityTimeout"},
-		"Attribute.1.Value": {"60"},
+	rec := doRequest(t, h, "SetQueueAttributes", map[string]any{
+		"QueueUrl":   queueURL,
+		"Attributes": map[string]string{"VisibilityTimeout": "60"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp sqs.SetQueueAttributesResponse
-	err := xml.Unmarshal(rec.Body.Bytes(), &resp)
-	require.NoError(t, err)
-	assert.NotEmpty(t, resp.ResponseMetadata.RequestID)
 }
 
 func TestHandlerSetQueueAttributesNotFound(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRequest(t, h, url.Values{
-		"Action":            {"SetQueueAttributes"},
-		"QueueUrl":          {"http://localhost/000000000000/noqueue"},
-		"Attribute.1.Name":  {"VisibilityTimeout"},
-		"Attribute.1.Value": {"60"},
+	rec := doRequest(t, h, "SetQueueAttributes", map[string]any{
+		"QueueUrl":   "http://localhost/000000000000/noqueue",
+		"Attributes": map[string]string{"VisibilityTimeout": "60"},
 	})
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -477,58 +455,44 @@ func TestHandlerChangeMessageVisibility(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	createRec := doRequest(t, h, formCreateQueue("vis-queue"))
+	queueURL := doCreateQueue(t, h, "vis-queue")
 
-	var createResp sqs.CreateQueueResponse
-	require.NoError(t, xml.Unmarshal(createRec.Body.Bytes(), &createResp))
-
-	qURL := createResp.CreateQueueResult.QueueURL
-
-	doRequest(t, h, url.Values{
-		"Action":      {"SendMessage"},
-		"QueueUrl":    {qURL},
-		"MessageBody": {"hello"},
+	doRequest(t, h, "SendMessage", map[string]any{
+		"QueueUrl":    queueURL,
+		"MessageBody": "hello",
 	})
 
-	recvRec := doRequest(t, h, url.Values{
-		"Action":   {"ReceiveMessage"},
-		"QueueUrl": {qURL},
-	})
+	recvRec := doRequest(t, h, "ReceiveMessage", map[string]any{"QueueUrl": queueURL})
 
-	var recvResp sqs.ReceiveMessageResponse
-	require.NoError(t, xml.Unmarshal(recvRec.Body.Bytes(), &recvResp))
-	require.Len(t, recvResp.ReceiveMessageResult.Messages, 1)
+	var recvResp struct {
+		Messages []struct {
+			ReceiptHandle string `json:"ReceiptHandle"`
+		} `json:"Messages"`
+	}
 
-	receipt := recvResp.ReceiveMessageResult.Messages[0].ReceiptHandle
+	require.NoError(t, json.Unmarshal(recvRec.Body.Bytes(), &recvResp))
+	require.Len(t, recvResp.Messages, 1)
 
-	rec := doRequest(t, h, url.Values{
-		"Action":            {"ChangeMessageVisibility"},
-		"QueueUrl":          {qURL},
-		"ReceiptHandle":     {receipt},
-		"VisibilityTimeout": {"10"},
+	receipt := recvResp.Messages[0].ReceiptHandle
+
+	rec := doRequest(t, h, "ChangeMessageVisibility", map[string]any{
+		"QueueUrl":          queueURL,
+		"ReceiptHandle":     receipt,
+		"VisibilityTimeout": 10,
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp sqs.ChangeMessageVisibilityResponse
-	err := xml.Unmarshal(rec.Body.Bytes(), &resp)
-	require.NoError(t, err)
-	assert.NotEmpty(t, resp.ResponseMetadata.RequestID)
 }
 
 func TestHandlerChangeMessageVisibilityNotFound(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	createRec := doRequest(t, h, formCreateQueue("vis-queue"))
+	queueURL := doCreateQueue(t, h, "vis-queue")
 
-	var createResp sqs.CreateQueueResponse
-	require.NoError(t, xml.Unmarshal(createRec.Body.Bytes(), &createResp))
-
-	rec := doRequest(t, h, url.Values{
-		"Action":            {"ChangeMessageVisibility"},
-		"QueueUrl":          {createResp.CreateQueueResult.QueueURL},
-		"ReceiptHandle":     {"invalid-receipt"},
-		"VisibilityTimeout": {"10"},
+	rec := doRequest(t, h, "ChangeMessageVisibility", map[string]any{
+		"QueueUrl":          queueURL,
+		"ReceiptHandle":     "invalid-receipt",
+		"VisibilityTimeout": 10,
 	})
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -537,171 +501,171 @@ func TestHandlerSendMessageBatch(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	createRec := doRequest(t, h, formCreateQueue("batch-queue"))
+	queueURL := doCreateQueue(t, h, "batch-queue")
 
-	var createResp sqs.CreateQueueResponse
-	require.NoError(t, xml.Unmarshal(createRec.Body.Bytes(), &createResp))
-
-	qURL := createResp.CreateQueueResult.QueueURL
-
-	rec := doRequest(t, h, url.Values{
-		"Action":                            {"SendMessageBatch"},
-		"QueueUrl":                          {qURL},
-		"SendMessageBatchRequestEntry.1.Id": {"msg1"},
-		"SendMessageBatchRequestEntry.1.MessageBody": {"hello1"},
-		"SendMessageBatchRequestEntry.2.Id":          {"msg2"},
-		"SendMessageBatchRequestEntry.2.MessageBody": {"hello2"},
+	rec := doRequest(t, h, "SendMessageBatch", map[string]any{
+		"QueueUrl": queueURL,
+		"Entries": []map[string]any{
+			{"Id": "msg1", "MessageBody": "hello1"},
+			{"Id": "msg2", "MessageBody": "hello2"},
+		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var resp sqs.SendMessageBatchResponse
-	err := xml.Unmarshal(rec.Body.Bytes(), &resp)
+	var resp struct {
+		Successful []struct {
+			ID string `json:"Id"`
+		} `json:"Successful"`
+	}
+
+	err := json.Unmarshal(rec.Body.Bytes(), &resp)
 	require.NoError(t, err)
-	assert.Len(t, resp.SendMessageBatchResult.Successful, 2)
+	assert.Len(t, resp.Successful, 2)
 }
 
 func TestHandlerSendMessageBatchNotFound(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRequest(t, h, url.Values{
-		"Action":                            {"SendMessageBatch"},
-		"QueueUrl":                          {"http://localhost/000000000000/noqueue"},
-		"SendMessageBatchRequestEntry.1.Id": {"msg1"},
-		"SendMessageBatchRequestEntry.1.MessageBody": {"hello"},
+	rec := doRequest(t, h, "SendMessageBatch", map[string]any{
+		"QueueUrl": "http://localhost/000000000000/noqueue",
+		"Entries":  []map[string]any{{"Id": "msg1", "MessageBody": "hello"}},
 	})
 	// Batch returns 200 with failures for individual entries on non-existent queue
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var resp sqs.SendMessageBatchResponse
-	err := xml.Unmarshal(rec.Body.Bytes(), &resp)
+	var resp struct {
+		Failed []struct {
+			ID string `json:"Id"`
+		} `json:"Failed"`
+	}
+
+	err := json.Unmarshal(rec.Body.Bytes(), &resp)
 	require.NoError(t, err)
-	assert.Len(t, resp.SendMessageBatchResult.Failed, 1)
+	assert.Len(t, resp.Failed, 1)
 }
 
 func TestHandlerDeleteMessageBatch(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	createRec := doRequest(t, h, formCreateQueue("del-batch-queue"))
+	queueURL := doCreateQueue(t, h, "del-batch-queue")
 
-	var createResp sqs.CreateQueueResponse
-	require.NoError(t, xml.Unmarshal(createRec.Body.Bytes(), &createResp))
-
-	qURL := createResp.CreateQueueResult.QueueURL
-
-	doRequest(t, h, url.Values{
-		"Action":      {"SendMessage"},
-		"QueueUrl":    {qURL},
-		"MessageBody": {"hello"},
+	doRequest(t, h, "SendMessage", map[string]any{
+		"QueueUrl":    queueURL,
+		"MessageBody": "hello",
 	})
 
-	recvRec := doRequest(t, h, url.Values{
-		"Action":   {"ReceiveMessage"},
-		"QueueUrl": {qURL},
-	})
+	recvRec := doRequest(t, h, "ReceiveMessage", map[string]any{"QueueUrl": queueURL})
 
-	var recvResp sqs.ReceiveMessageResponse
-	require.NoError(t, xml.Unmarshal(recvRec.Body.Bytes(), &recvResp))
-	require.Len(t, recvResp.ReceiveMessageResult.Messages, 1)
+	var recvResp struct {
+		Messages []struct {
+			ReceiptHandle string `json:"ReceiptHandle"`
+		} `json:"Messages"`
+	}
 
-	receipt := recvResp.ReceiveMessageResult.Messages[0].ReceiptHandle
+	require.NoError(t, json.Unmarshal(recvRec.Body.Bytes(), &recvResp))
+	require.Len(t, recvResp.Messages, 1)
 
-	rec := doRequest(t, h, url.Values{
-		"Action":                              {"DeleteMessageBatch"},
-		"QueueUrl":                            {qURL},
-		"DeleteMessageBatchRequestEntry.1.Id": {"entry1"},
-		"DeleteMessageBatchRequestEntry.1.ReceiptHandle": {receipt},
+	receipt := recvResp.Messages[0].ReceiptHandle
+
+	rec := doRequest(t, h, "DeleteMessageBatch", map[string]any{
+		"QueueUrl": queueURL,
+		"Entries":  []map[string]any{{"Id": "entry1", "ReceiptHandle": receipt}},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var resp sqs.DeleteMessageBatchResponse
-	err := xml.Unmarshal(rec.Body.Bytes(), &resp)
+	var resp struct {
+		Successful []struct {
+			ID string `json:"Id"`
+		} `json:"Successful"`
+	}
+
+	err := json.Unmarshal(rec.Body.Bytes(), &resp)
 	require.NoError(t, err)
-	assert.Len(t, resp.DeleteMessageBatchResult.Successful, 1)
+	assert.Len(t, resp.Successful, 1)
 }
 
 func TestHandlerDeleteMessageBatchNotFound(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRequest(t, h, url.Values{
-		"Action":                              {"DeleteMessageBatch"},
-		"QueueUrl":                            {"http://localhost/000000000000/noqueue"},
-		"DeleteMessageBatchRequestEntry.1.Id": {"entry1"},
-		"DeleteMessageBatchRequestEntry.1.ReceiptHandle": {"some-receipt"},
+	rec := doRequest(t, h, "DeleteMessageBatch", map[string]any{
+		"QueueUrl": "http://localhost/000000000000/noqueue",
+		"Entries":  []map[string]any{{"Id": "entry1", "ReceiptHandle": "some-receipt"}},
 	})
 	// Batch returns 200 with failures for individual entries on non-existent queue
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var resp sqs.DeleteMessageBatchResponse
-	err := xml.Unmarshal(rec.Body.Bytes(), &resp)
+	var resp struct {
+		Failed []struct {
+			ID string `json:"Id"`
+		} `json:"Failed"`
+	}
+
+	err := json.Unmarshal(rec.Body.Bytes(), &resp)
 	require.NoError(t, err)
-	assert.Len(t, resp.DeleteMessageBatchResult.Failed, 1)
+	assert.Len(t, resp.Failed, 1)
 }
 
 func TestHandlerDeleteMessageBatchFailedEntry(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	createRec := doRequest(t, h, formCreateQueue("del-fail-queue"))
+	queueURL := doCreateQueue(t, h, "del-fail-queue")
 
-	var createResp sqs.CreateQueueResponse
-	require.NoError(t, xml.Unmarshal(createRec.Body.Bytes(), &createResp))
-
-	qURL := createResp.CreateQueueResult.QueueURL
-
-	rec := doRequest(t, h, url.Values{
-		"Action":                              {"DeleteMessageBatch"},
-		"QueueUrl":                            {qURL},
-		"DeleteMessageBatchRequestEntry.1.Id": {"entry1"},
-		"DeleteMessageBatchRequestEntry.1.ReceiptHandle": {"invalid-receipt"},
+	rec := doRequest(t, h, "DeleteMessageBatch", map[string]any{
+		"QueueUrl": queueURL,
+		"Entries":  []map[string]any{{"Id": "entry1", "ReceiptHandle": "invalid-receipt"}},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var resp sqs.DeleteMessageBatchResponse
-	err := xml.Unmarshal(rec.Body.Bytes(), &resp)
+	var resp struct {
+		Failed []struct {
+			ID string `json:"Id"`
+		} `json:"Failed"`
+	}
+
+	err := json.Unmarshal(rec.Body.Bytes(), &resp)
 	require.NoError(t, err)
-	assert.Len(t, resp.DeleteMessageBatchResult.Failed, 1)
+	assert.Len(t, resp.Failed, 1)
 }
 
 func TestHandlerReceiveMessageWithVisibilityTimeout(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	createRec := doRequest(t, h, formCreateQueue("vt-queue"))
+	queueURL := doCreateQueue(t, h, "vt-queue")
 
-	var createResp sqs.CreateQueueResponse
-	require.NoError(t, xml.Unmarshal(createRec.Body.Bytes(), &createResp))
-
-	qURL := createResp.CreateQueueResult.QueueURL
-
-	doRequest(t, h, url.Values{
-		"Action":      {"SendMessage"},
-		"QueueUrl":    {qURL},
-		"MessageBody": {"hello"},
+	doRequest(t, h, "SendMessage", map[string]any{
+		"QueueUrl":    queueURL,
+		"MessageBody": "hello",
 	})
 
-	rec := doRequest(t, h, url.Values{
-		"Action":            {"ReceiveMessage"},
-		"QueueUrl":          {qURL},
-		"VisibilityTimeout": {"30"},
+	vt := 30
+	rec := doRequest(t, h, "ReceiveMessage", map[string]any{
+		"QueueUrl":          queueURL,
+		"VisibilityTimeout": vt,
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var resp sqs.ReceiveMessageResponse
-	err := xml.Unmarshal(rec.Body.Bytes(), &resp)
+	var resp struct {
+		Messages []struct {
+			Body string `json:"Body"`
+		} `json:"Messages"`
+	}
+
+	err := json.Unmarshal(rec.Body.Bytes(), &resp)
 	require.NoError(t, err)
-	assert.Len(t, resp.ReceiveMessageResult.Messages, 1)
+	assert.Len(t, resp.Messages, 1)
 }
 
 func TestHandlerPurgeQueueNotFound(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRequest(t, h, url.Values{
-		"Action":   {"PurgeQueue"},
-		"QueueUrl": {"http://localhost/000000000000/noqueue"},
+	rec := doRequest(t, h, "PurgeQueue", map[string]any{
+		"QueueUrl": "http://localhost/000000000000/noqueue",
 	})
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -710,15 +674,11 @@ func TestHandlerDeleteMessageNotFound(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	createRec := doRequest(t, h, formCreateQueue("del-msg-queue"))
+	queueURL := doCreateQueue(t, h, "del-msg-queue")
 
-	var createResp sqs.CreateQueueResponse
-	require.NoError(t, xml.Unmarshal(createRec.Body.Bytes(), &createResp))
-
-	rec := doRequest(t, h, url.Values{
-		"Action":        {"DeleteMessage"},
-		"QueueUrl":      {createResp.CreateQueueResult.QueueURL},
-		"ReceiptHandle": {"invalid-receipt"},
+	rec := doRequest(t, h, "DeleteMessage", map[string]any{
+		"QueueUrl":      queueURL,
+		"ReceiptHandle": "invalid-receipt",
 	})
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -727,10 +687,7 @@ func TestHandlerGetQueueURLNotFound(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRequest(t, h, url.Values{
-		"Action":    {"GetQueueUrl"},
-		"QueueName": {"nonexistent-queue"},
-	})
+	rec := doRequest(t, h, "GetQueueUrl", map[string]any{"QueueName": "nonexistent-queue"})
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
@@ -751,70 +708,65 @@ func TestHandlerSendMessageBatchEmptyEntries(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	createRec := doRequest(t, h, formCreateQueue("empty-batch-queue"))
-
-	var createResp sqs.CreateQueueResponse
-	require.NoError(t, xml.Unmarshal(createRec.Body.Bytes(), &createResp))
+	queueURL := doCreateQueue(t, h, "empty-batch-queue")
 
 	// No batch entries — should return error via writeError.
-	rec := doRequest(t, h, url.Values{
-		"Action":   {"SendMessageBatch"},
-		"QueueUrl": {createResp.CreateQueueResult.QueueURL},
+	rec := doRequest(t, h, "SendMessageBatch", map[string]any{
+		"QueueUrl": queueURL,
+		"Entries":  []map[string]any{},
 	})
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
-	var errResp sqs.XMLErrorResponse
-	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
-	assert.Equal(t, "AWS.SimpleQueueService.EmptyBatchRequest", errResp.Error.Code)
+	var errResp jsonErr
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, "com.amazonaws.sqs#EmptyBatchRequest", errResp.Type)
 }
 
 func TestHandlerDeleteMessageBatchEmptyEntries(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	createRec := doRequest(t, h, formCreateQueue("empty-del-batch-queue"))
+	queueURL := doCreateQueue(t, h, "empty-del-batch-queue")
 
-	var createResp sqs.CreateQueueResponse
-	require.NoError(t, xml.Unmarshal(createRec.Body.Bytes(), &createResp))
-
-	rec := doRequest(t, h, url.Values{
-		"Action":   {"DeleteMessageBatch"},
-		"QueueUrl": {createResp.CreateQueueResult.QueueURL},
+	rec := doRequest(t, h, "DeleteMessageBatch", map[string]any{
+		"QueueUrl": queueURL,
+		"Entries":  []map[string]any{},
 	})
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
-	var errResp sqs.XMLErrorResponse
-	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
-	assert.Equal(t, "AWS.SimpleQueueService.EmptyBatchRequest", errResp.Error.Code)
+	var errResp jsonErr
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, "com.amazonaws.sqs#EmptyBatchRequest", errResp.Type)
 }
 
 func TestHandlerSendMessageBatchTooManyEntries(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	createRec := doRequest(t, h, formCreateQueue("toomany-batch-queue"))
+	queueURL := doCreateQueue(t, h, "toomany-batch-queue")
 
-	var createResp sqs.CreateQueueResponse
-	require.NoError(t, xml.Unmarshal(createRec.Body.Bytes(), &createResp))
-
-	// parseSendBatchEntries caps at maxBatchSize (10), so we can only test up to 10 entries
-	// which succeed. The TooManyEntriesInBatch error is only reachable via the backend
-	// directly (tested in backend_test.go). Here we verify 10 entries succeed fine.
-	form := url.Values{
-		"Action":   {"SendMessageBatch"},
-		"QueueUrl": {createResp.CreateQueueResult.QueueURL},
-	}
-	for i := 1; i <= 10; i++ {
-		form.Set(fmt.Sprintf("SendMessageBatchRequestEntry.%d.Id", i), fmt.Sprintf("msg%d", i))
-		form.Set(fmt.Sprintf("SendMessageBatchRequestEntry.%d.MessageBody", i), "body")
+	entries := make([]map[string]any, 10)
+	for i := range 10 {
+		entries[i] = map[string]any{
+			"Id":          fmt.Sprintf("msg%d", i+1),
+			"MessageBody": "body",
+		}
 	}
 
-	rec := doRequest(t, h, form)
+	rec := doRequest(t, h, "SendMessageBatch", map[string]any{
+		"QueueUrl": queueURL,
+		"Entries":  entries,
+	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var resp sqs.SendMessageBatchResponse
-	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Len(t, resp.SendMessageBatchResult.Successful, 10)
+	var resp struct {
+		Successful []struct {
+			ID string `json:"Id"`
+		} `json:"Successful"`
+	}
+
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Len(t, resp.Successful, 10)
 }
 
 func TestHandlerExtractResourceNoQueueURL(t *testing.T) {
@@ -823,9 +775,9 @@ func TestHandlerExtractResourceNoQueueURL(t *testing.T) {
 	h := newTestHandler(t)
 	e := echo.New()
 
-	body := url.Values{"Action": {"SendMessage"}}.Encode() // no QueueUrl
-	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	body, _ := json.Marshal(map[string]any{"Action": "SendMessage"}) // no QueueUrl
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-amz-json-1.0")
 	c := e.NewContext(req, httptest.NewRecorder())
 
 	assert.Empty(t, h.ExtractResource(c))
@@ -834,11 +786,12 @@ func TestHandlerExtractResourceNoQueueURL(t *testing.T) {
 func TestHandlerInvalidBodyParsing(t *testing.T) {
 	t.Parallel()
 
-	// An invalid URL-encoded body (with percent-encoding errors) causes ParseQuery to fail.
+	// An invalid JSON body causes json.Unmarshal to fail in the action handler.
 	h := newTestHandler(t)
 	e := echo.New()
-	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("%zz"))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("{invalid"))
+	req.Header.Set("Content-Type", "application/x-amz-json-1.0")
+	req.Header.Set("X-Amz-Target", "AmazonSQS.CreateQueue")
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
@@ -934,46 +887,41 @@ func TestHandlerListQueuesError(t *testing.T) {
 	t.Parallel()
 
 	h := newErrorHandler(t, sqs.ErrQueueNotFound)
-	rec := doRequest(t, h, url.Values{
-		"Action": {"ListQueues"},
-	})
+	rec := doRequest(t, h, "ListQueues", map[string]any{})
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
-	var errResp sqs.XMLErrorResponse
-	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
-	assert.Equal(t, "AWS.SimpleQueueService.NonExistentQueue", errResp.Error.Code)
+	var errResp jsonErr
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, "com.amazonaws.sqs#QueueDoesNotExist", errResp.Type)
 }
 
 func TestHandlerErrorDetailsInvalidAttribute(t *testing.T) {
 	t.Parallel()
 
 	h := newErrorHandler(t, sqs.ErrInvalidAttribute)
-	rec := doRequest(t, h, url.Values{
-		"Action":   {"SetQueueAttributes"},
-		"QueueUrl": {"http://localhost/000000000000/q"},
+	rec := doRequest(t, h, "SetQueueAttributes", map[string]any{
+		"QueueUrl": "http://localhost/000000000000/q",
 	})
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
-	var errResp sqs.XMLErrorResponse
-	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
-	assert.Equal(t, "InvalidAttributeValue", errResp.Error.Code)
+	var errResp jsonErr
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, "com.amazonaws.sqs#InvalidAttributeValue", errResp.Type)
 }
 
 func TestHandlerErrorDetailsTooManyEntriesInBatch(t *testing.T) {
 	t.Parallel()
 
 	h := newErrorHandler(t, sqs.ErrTooManyEntriesInBatch)
-	rec := doRequest(t, h, url.Values{
-		"Action":                            {"SendMessageBatch"},
-		"QueueUrl":                          {"http://localhost/000000000000/q"},
-		"SendMessageBatchRequestEntry.1.Id": {"1"},
-		"SendMessageBatchRequestEntry.1.MessageBody": {"body"},
+	rec := doRequest(t, h, "SendMessageBatch", map[string]any{
+		"QueueUrl": "http://localhost/000000000000/q",
+		"Entries":  []map[string]any{{"Id": "1", "MessageBody": "body"}},
 	})
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
-	var errResp sqs.XMLErrorResponse
-	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
-	assert.Equal(t, "AWS.SimpleQueueService.TooManyEntriesInBatchRequest", errResp.Error.Code)
+	var errResp jsonErr
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, "com.amazonaws.sqs#TooManyEntriesInBatchRequest", errResp.Type)
 }
 
 func TestHandlerErrorDetailsInternalError(t *testing.T) {
@@ -981,15 +929,14 @@ func TestHandlerErrorDetailsInternalError(t *testing.T) {
 
 	// Use a non-sentinel error to trigger the default internal error case.
 	h := newErrorHandler(t, errInternalTest)
-	rec := doRequest(t, h, url.Values{
-		"Action":   {"PurgeQueue"},
-		"QueueUrl": {"http://localhost/000000000000/q"},
+	rec := doRequest(t, h, "PurgeQueue", map[string]any{
+		"QueueUrl": "http://localhost/000000000000/q",
 	})
 	require.Equal(t, http.StatusInternalServerError, rec.Code)
 
-	var errResp sqs.XMLErrorResponse
-	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
-	assert.Equal(t, "InternalError", errResp.Error.Code)
+	var errResp jsonErr
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, "com.amazonaws.sqs#InternalError", errResp.Type)
 }
 
 func TestHandlerExtractOperationInvalidBody(t *testing.T) {
@@ -998,9 +945,9 @@ func TestHandlerExtractOperationInvalidBody(t *testing.T) {
 	h := newTestHandler(t)
 	e := echo.New()
 
-	// Invalid URL-encoded body causes ParseQuery to fail → unknownOperation.
-	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("%zz"))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	// No X-Amz-Target header → ExtractOperation returns unknownOperation.
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("{invalid}"))
+	req.Header.Set("Content-Type", "application/x-amz-json-1.0")
 	c := e.NewContext(req, httptest.NewRecorder())
 
 	assert.Equal(t, "Unknown", h.ExtractOperation(c))
@@ -1012,8 +959,8 @@ func TestHandlerExtractResourceInvalidBody(t *testing.T) {
 	h := newTestHandler(t)
 	e := echo.New()
 
-	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("%zz"))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("{invalid}"))
+	req.Header.Set("Content-Type", "application/x-amz-json-1.0")
 	c := e.NewContext(req, httptest.NewRecorder())
 
 	assert.Empty(t, h.ExtractResource(c))
@@ -1025,9 +972,150 @@ func TestHandlerQueueNameFromURLEdgeCases(t *testing.T) {
 	h := newErrorHandler(t, sqs.ErrQueueNotFound)
 
 	// QueueUrl with an empty URL - queueNameFromURL splits on "/" and returns last part.
-	rec := doRequest(t, h, url.Values{
-		"Action":   {"DeleteQueue"},
-		"QueueUrl": {""},
-	})
+	rec := doRequest(t, h, "DeleteQueue", map[string]any{"QueueUrl": ""})
 	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// ---------------------------------------------------------------------------
+// Handler tests for TagQueue / UntagQueue / ListQueueTags / ChangeMessageVisibilityBatch
+// ---------------------------------------------------------------------------
+
+func TestHandlerTagQueue(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	queueURL := doCreateQueue(t, h, "tag-handler-queue")
+
+	rec := doRequest(t, h, "TagQueue", map[string]any{
+		"QueueUrl": queueURL,
+		"Tags":     map[string]string{"env": "test"},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestHandlerTagQueue_InvalidBody(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRawRequest(t, h, "TagQueue", []byte("{bad json"))
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandlerUntagQueue(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	queueURL := doCreateQueue(t, h, "untag-handler-queue")
+
+	// First tag it
+	rec := doRequest(t, h, "TagQueue", map[string]any{
+		"QueueUrl": queueURL,
+		"Tags":     map[string]string{"env": "test"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Then untag
+	rec = doRequest(t, h, "UntagQueue", map[string]any{
+		"QueueUrl": queueURL,
+		"TagKeys":  []string{"env"},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestHandlerUntagQueue_InvalidBody(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRawRequest(t, h, "UntagQueue", []byte("{bad"))
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandlerListQueueTags(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	queueURL := doCreateQueue(t, h, "list-tags-handler-queue")
+
+	rec := doRequest(t, h, "ListQueueTags", map[string]any{"QueueUrl": queueURL})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Tags map[string]string `json:"Tags"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.NotNil(t, resp.Tags)
+}
+
+func TestHandlerListQueueTags_InvalidBody(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRawRequest(t, h, "ListQueueTags", []byte("{bad"))
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandlerChangeMessageVisibilityBatch(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	queueURL := doCreateQueue(t, h, "cmvb-handler-queue")
+
+	// Send a message
+	sendRec := doRequest(t, h, "SendMessage", map[string]any{
+		"QueueUrl":    queueURL,
+		"MessageBody": "hello",
+	})
+	require.Equal(t, http.StatusOK, sendRec.Code)
+
+	// Receive with visibility=30
+	rcvRec := doRequest(t, h, "ReceiveMessage", map[string]any{
+		"QueueUrl":            queueURL,
+		"MaxNumberOfMessages": 1,
+		"VisibilityTimeout":   30,
+	})
+	require.Equal(t, http.StatusOK, rcvRec.Code)
+
+	var rcvResp struct {
+		Messages []struct {
+			ReceiptHandle string `json:"ReceiptHandle"`
+		} `json:"Messages"`
+	}
+	require.NoError(t, json.Unmarshal(rcvRec.Body.Bytes(), &rcvResp))
+	require.Len(t, rcvResp.Messages, 1)
+	handle := rcvResp.Messages[0].ReceiptHandle
+
+	// Batch change visibility to 0
+	rec := doRequest(t, h, "ChangeMessageVisibilityBatch", map[string]any{
+		"QueueUrl": queueURL,
+		"Entries": []map[string]any{
+			{"Id": "e1", "ReceiptHandle": handle, "VisibilityTimeout": 0},
+		},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestHandlerChangeMessageVisibilityBatch_InvalidBody(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRawRequest(t, h, "ChangeMessageVisibilityBatch", []byte("{bad"))
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// doRawRequest sends raw bytes to the handler with the given action header.
+func doRawRequest(t *testing.T, h *sqs.Handler, action string, body []byte) *httptest.ResponseRecorder {
+	t.Helper()
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-amz-json-1.0")
+	req.Header.Set("X-Amz-Target", "AmazonSQS."+action)
+
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := h.Handler()(c)
+	require.NoError(t, err)
+
+	return rec
 }

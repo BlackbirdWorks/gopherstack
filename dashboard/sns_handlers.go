@@ -9,6 +9,97 @@ import (
 	"github.com/blackbirdworks/gopherstack/sns"
 )
 
+// snsSubscribeToTopic handles subscribing to an SNS topic.
+func (h *DashboardHandler) snsSubscribeToTopic(c *echo.Context) error {
+	r := c.Request()
+	w := c.Response()
+
+	if h.SNSOps == nil {
+		return c.NoContent(http.StatusServiceUnavailable)
+	}
+
+	arn := r.URL.Query().Get("arn")
+	if arn == "" {
+		return c.String(http.StatusBadRequest, "Missing arn")
+	}
+
+	if err := r.ParseForm(); err != nil {
+		return c.String(http.StatusBadRequest, "Invalid request")
+	}
+
+	protocol := r.FormValue("protocol")
+	endpoint := r.FormValue("endpoint")
+
+	if _, err := h.SNSOps.Backend.Subscribe(arn, protocol, endpoint, ""); err != nil {
+		h.Logger.Error("Failed to subscribe to SNS topic", "arn", arn, "error", err)
+
+		return c.String(http.StatusInternalServerError, "Failed to subscribe: "+err.Error())
+	}
+
+	w.Header().Set("Hx-Redirect", "/dashboard/sns/topic?arn="+arn)
+
+	return c.NoContent(http.StatusOK)
+}
+
+// snsUnsubscribeFromTopic handles unsubscribing from an SNS topic.
+func (h *DashboardHandler) snsUnsubscribeFromTopic(c *echo.Context) error {
+	r := c.Request()
+	w := c.Response()
+
+	if h.SNSOps == nil {
+		return c.NoContent(http.StatusServiceUnavailable)
+	}
+
+	subArn := r.URL.Query().Get("sub")
+	topicArn := r.URL.Query().Get("arn")
+
+	if subArn == "" {
+		return c.String(http.StatusBadRequest, "Missing sub")
+	}
+
+	if err := h.SNSOps.Backend.Unsubscribe(subArn); err != nil {
+		h.Logger.Error("Failed to unsubscribe from SNS topic", "subArn", subArn, "error", err)
+
+		return c.String(http.StatusInternalServerError, "Failed to unsubscribe: "+err.Error())
+	}
+
+	w.Header().Set("Hx-Redirect", "/dashboard/sns/topic?arn="+topicArn)
+
+	return c.NoContent(http.StatusOK)
+}
+
+// snsPublishMessage handles publishing a message to an SNS topic.
+func (h *DashboardHandler) snsPublishMessage(c *echo.Context) error {
+	r := c.Request()
+	w := c.Response()
+
+	if h.SNSOps == nil {
+		return c.NoContent(http.StatusServiceUnavailable)
+	}
+
+	arn := r.URL.Query().Get("arn")
+	if arn == "" {
+		return c.String(http.StatusBadRequest, "Missing arn")
+	}
+
+	if err := r.ParseForm(); err != nil {
+		return c.String(http.StatusBadRequest, "Invalid request")
+	}
+
+	message := r.FormValue("message")
+	subject := r.FormValue("subject")
+
+	if _, err := h.SNSOps.Backend.Publish(arn, message, subject, "", nil); err != nil {
+		h.Logger.Error("Failed to publish SNS message", "arn", arn, "error", err)
+
+		return c.String(http.StatusInternalServerError, "Failed to publish: "+err.Error())
+	}
+
+	w.Header().Set("Hx-Redirect", "/dashboard/sns/topic?arn="+arn)
+
+	return c.NoContent(http.StatusOK)
+}
+
 // snsIndex renders the list of all SNS topics.
 func (h *DashboardHandler) snsIndex(c *echo.Context) error {
 	w := c.Response()

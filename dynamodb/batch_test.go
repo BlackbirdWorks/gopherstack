@@ -2,6 +2,8 @@ package dynamodb_test
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/blackbirdworks/gopherstack/dynamodb"
@@ -336,4 +338,43 @@ func verifyItem(t *testing.T, db *dynamodb.InMemoryDB, tableName, pk string, sho
 	} else {
 		assert.Empty(t, res.Item, "Item %s should NOT exist in %s", pk, tableName)
 	}
+}
+
+// TestBatchWriteItem_UnprocessedItems verifies that items exceeding the 16 MB limit are
+// returned in UnprocessedItems rather than being written.
+func TestBatchWriteItem_UnprocessedItems(t *testing.T) {
+	t.Parallel()
+
+	db := dynamodb.NewInMemoryDB()
+	createTableHelper(t, db, "BigTable", "pk")
+
+	// Build 20 items each with ~1 MB of data; total > 16 MB triggers the limit.
+	const numItems = 20
+	const valueSizeBytes = 1024 * 1024 // 1 MB per item
+	bigValue := strings.Repeat("x", valueSizeBytes)
+
+	reqs := make([]models.WriteRequest, numItems)
+	for i := range numItems {
+		reqs[i] = models.WriteRequest{
+			PutRequest: &models.PutRequest{
+				Item: map[string]any{
+					"pk":  map[string]any{"S": fmt.Sprintf("item%d", i)},
+					"big": map[string]any{"S": bigValue},
+				},
+			},
+		}
+	}
+
+	sdkInput, err := models.ToSDKBatchWriteItemInput(&models.BatchWriteItemInput{
+		RequestItems: map[string][]models.WriteRequest{"BigTable": reqs},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, sdkInput)
+
+	out, err := db.BatchWriteItem(context.Background(), sdkInput)
+	require.NoError(t, err)
+	require.NotNil(t, out)
+
+	assert.NotEmpty(t, out.UnprocessedItems, "expected some items to be returned as UnprocessedItems")
+	assert.NotEmpty(t, out.UnprocessedItems["BigTable"])
 }

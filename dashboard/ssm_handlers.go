@@ -7,6 +7,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/aws/aws-sdk-go-v2/service/ssm/types"
 	"github.com/labstack/echo/v5"
+
+	ssmbackend "github.com/blackbirdworks/gopherstack/ssm"
 )
 
 // ssmIndex renders the list of all parameters in the Parameter Store.
@@ -153,4 +155,59 @@ func (h *DashboardHandler) ssmDeleteParameter(c *echo.Context) error {
 	w.Header().Set("Hx-Redirect", "/dashboard/ssm")
 
 	return c.NoContent(http.StatusOK)
+}
+
+// ssmHistoryData holds the data for the parameter history page.
+type ssmHistoryData struct {
+	PageData
+
+	Name    string
+	History []ssmHistoryEntry
+}
+
+// ssmHistoryEntry is a single version entry in parameter history.
+type ssmHistoryEntry struct {
+	Value   string
+	Type    string
+	Version int64
+}
+
+// ssmParameterHistory handles GET /dashboard/ssm/history?name=<paramName>.
+func (h *DashboardHandler) ssmParameterHistory(c *echo.Context) error {
+	r := c.Request()
+	w := c.Response()
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		return c.String(http.StatusBadRequest, "Missing name")
+	}
+
+	out, err := h.SSMOps.Backend.GetParameterHistory(&ssmbackend.GetParameterHistoryInput{Name: name})
+	if err != nil {
+		h.Logger.Error("failed to get parameter history", "name", name, "error", err)
+
+		return c.String(http.StatusInternalServerError, "Failed to fetch parameter history")
+	}
+
+	entries := make([]ssmHistoryEntry, 0, len(out.Parameters))
+	for _, p := range out.Parameters {
+		entries = append(entries, ssmHistoryEntry{
+			Version: p.Version,
+			Value:   p.Value,
+			Type:    p.Type,
+		})
+	}
+
+	data := ssmHistoryData{
+		PageData: PageData{
+			Title:     "Parameter History: " + name,
+			ActiveTab: "ssm",
+		},
+		Name:    name,
+		History: entries,
+	}
+
+	h.renderTemplate(w, "ssm/history.html", data)
+
+	return nil
 }

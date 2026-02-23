@@ -55,18 +55,15 @@ func NewInMemoryBackend(compressor Compressor) *InMemoryBackend {
 
 // getBucket returns the bucket for a given name, returning ErrNoSuchBucket when the
 // bucket does not exist or is pending async deletion. The caller must hold at least b.mu.RLock.
+// Since bucket names are globally unique, it searches across all regions.
 func (b *InMemoryBackend) getBucket(name string) (*StoredBucket, error) {
-	return b.getBucketInRegion(name, b.defaultRegion)
-}
-
-// getBucketInRegion returns the bucket for a given name in a specific region.
-// The caller must hold at least b.mu.RLock.
-func (b *InMemoryBackend) getBucketInRegion(name string, region string) (*StoredBucket, error) {
-	if region == "" {
-		region = b.defaultRegion
-	}
-	if regionBuckets, regionExists := b.buckets[region]; regionExists {
-		if bucket, bucketExists := regionBuckets[name]; bucketExists && !bucket.DeletePending {
+	// Search across all regions — bucket names are globally unique so there
+	// is at most one match. This handles the case where a bucket was created
+	// via a request with a non-default region (e.g. us-west-2) so it is
+	// stored under that region key but subsequent SDK calls (PutObject, etc.)
+	// must still be able to find it.
+	for _, regionBuckets := range b.buckets {
+		if bucket, exists := regionBuckets[name]; exists && !bucket.DeletePending {
 			return bucket, nil
 		}
 	}
@@ -86,20 +83,32 @@ func (b *InMemoryBackend) CreateBucket(
 	ctx context.Context,
 	input *s3.CreateBucketInput,
 ) (*s3.CreateBucketOutput, error) {
+	// Prefer the LocationConstraint from the input (set by the SDK for non-us-east-1
+	// regions) over the region extracted from the context, so the bucket is stored
+	// in the region the caller actually requested.
 	region := getRegionFromS3Context(ctx, b.defaultRegion)
+	if input.CreateBucketConfiguration != nil &&
+		input.CreateBucketConfiguration.LocationConstraint != "" {
+		region = string(input.CreateBucketConfiguration.LocationConstraint)
+	}
 
 	b.mu.Lock("CreateBucket")
 	defer b.mu.Unlock()
 
 	bucketName := *input.Bucket
 
+	// Check across all regions for global uniqueness.
+	// Since this is a single-tenant mock, a pre-existing bucket is always
+	// owned by the caller → return BucketAlreadyOwnedByYou (not BucketAlreadyExists).
+	for _, regionBuckets := range b.buckets {
+		if _, exists := regionBuckets[bucketName]; exists {
+			return nil, ErrBucketAlreadyOwnedByYou
+		}
+	}
+
 	// Initialize region map if it doesn't exist
 	if _, exists := b.buckets[region]; !exists {
 		b.buckets[region] = make(map[string]*StoredBucket)
-	}
-
-	if _, exists := b.buckets[region][bucketName]; exists {
-		return nil, ErrBucketAlreadyExists
 	}
 
 	b.buckets[region][bucketName] = &StoredBucket{
@@ -257,21 +266,23 @@ func (b *InMemoryBackend) PutObject(
 
 	finalQuotedETag := "\"" + etag + "\""
 	newVersion := &StoredObjectVersion{
-		VersionID:         newVersionID,
-		Key:               key,
-		Data:              compressedData,
-		IsCompressed:      isCompressed,
-		Size:              int64(len(data)),
-		ETag:              finalQuotedETag,
-		LastModified:      time.Now(),
-		ContentType:       aws.ToString(input.ContentType),
-		Metadata:          input.Metadata,
-		ChecksumCRC32:     checksums.crc32,
-		ChecksumCRC32C:    checksums.crc32c,
-		ChecksumSHA1:      checksums.sha1,
-		ChecksumSHA256:    checksums.sha256,
-		ChecksumAlgorithm: input.ChecksumAlgorithm,
-		IsLatest:          true,
+		VersionID:          newVersionID,
+		Key:                key,
+		Data:               compressedData,
+		IsCompressed:       isCompressed,
+		Size:               int64(len(data)),
+		ETag:               finalQuotedETag,
+		LastModified:       time.Now(),
+		ContentType:        aws.ToString(input.ContentType),
+		ContentEncoding:    aws.ToString(input.ContentEncoding),
+		ContentDisposition: aws.ToString(input.ContentDisposition),
+		Metadata:           input.Metadata,
+		ChecksumCRC32:      checksums.crc32,
+		ChecksumCRC32C:     checksums.crc32c,
+		ChecksumSHA1:       checksums.sha1,
+		ChecksumSHA256:     checksums.sha256,
+		ChecksumAlgorithm:  input.ChecksumAlgorithm,
+		IsLatest:           true,
 	}
 
 	for _, v := range obj.Versions {
@@ -412,6 +423,8 @@ func (b *InMemoryBackend) GetObject(
 	isCompressed := ver.IsCompressed
 	size := ver.Size
 	contentType := ver.ContentType
+	contentEncoding := ver.ContentEncoding
+	contentDisposition := ver.ContentDisposition
 	etag := ver.ETag
 	lastModified := ver.LastModified
 	metadata := ver.Metadata
@@ -434,17 +447,19 @@ func (b *InMemoryBackend) GetObject(
 	}
 
 	return &s3.GetObjectOutput{
-		Body:           io.NopCloser(bytes.NewReader(data)),
-		ContentLength:  aws.Int64(size),
-		ContentType:    aws.String(contentType),
-		ETag:           aws.String(etag),
-		LastModified:   aws.Time(lastModified),
-		Metadata:       metadata,
-		VersionId:      aws.String(versionIDStr),
-		ChecksumCRC32:  checksumCRC32,
-		ChecksumCRC32C: checksumCRC32C,
-		ChecksumSHA1:   checksumSHA1,
-		ChecksumSHA256: checksumSHA256,
+		Body:               io.NopCloser(bytes.NewReader(data)),
+		ContentLength:      aws.Int64(size),
+		ContentType:        aws.String(contentType),
+		ContentEncoding:    nilStringIfEmpty(contentEncoding),
+		ContentDisposition: nilStringIfEmpty(contentDisposition),
+		ETag:               aws.String(etag),
+		LastModified:       aws.Time(lastModified),
+		Metadata:           metadata,
+		VersionId:          aws.String(versionIDStr),
+		ChecksumCRC32:      checksumCRC32,
+		ChecksumCRC32C:     checksumCRC32C,
+		ChecksumSHA1:       checksumSHA1,
+		ChecksumSHA256:     checksumSHA256,
 	}, nil
 }
 
@@ -502,16 +517,18 @@ func (b *InMemoryBackend) HeadObject(
 	}
 
 	return &s3.HeadObjectOutput{
-		ContentLength:  aws.Int64(ver.Size),
-		ContentType:    aws.String(ver.ContentType),
-		ETag:           aws.String(ver.ETag),
-		LastModified:   aws.Time(ver.LastModified),
-		Metadata:       ver.Metadata,
-		VersionId:      aws.String(ver.VersionID),
-		ChecksumCRC32:  ver.ChecksumCRC32,
-		ChecksumCRC32C: ver.ChecksumCRC32C,
-		ChecksumSHA1:   ver.ChecksumSHA1,
-		ChecksumSHA256: ver.ChecksumSHA256,
+		ContentLength:      aws.Int64(ver.Size),
+		ContentType:        aws.String(ver.ContentType),
+		ContentEncoding:    nilStringIfEmpty(ver.ContentEncoding),
+		ContentDisposition: nilStringIfEmpty(ver.ContentDisposition),
+		ETag:               aws.String(ver.ETag),
+		LastModified:       aws.Time(ver.LastModified),
+		Metadata:           ver.Metadata,
+		VersionId:          aws.String(ver.VersionID),
+		ChecksumCRC32:      ver.ChecksumCRC32,
+		ChecksumCRC32C:     ver.ChecksumCRC32C,
+		ChecksumSHA1:       ver.ChecksumSHA1,
+		ChecksumSHA256:     ver.ChecksumSHA256,
 	}, nil
 }
 
@@ -645,6 +662,34 @@ func (b *InMemoryBackend) DeleteObjects(
 	return out, nil
 }
 
+func applyDelimiter(prefix, delimiter string, contents []types.Object) ([]types.Object, []types.CommonPrefix) {
+	var filtered []types.Object
+	var cpList []types.CommonPrefix
+	seenPrefixes := make(map[string]struct{})
+
+	for _, obj := range contents {
+		key := aws.ToString(obj.Key)
+		rest := key[len(prefix):]
+		idx := strings.Index(rest, delimiter)
+
+		if idx != -1 {
+			cp := prefix + rest[:idx+len(delimiter)]
+			if _, seen := seenPrefixes[cp]; !seen {
+				seenPrefixes[cp] = struct{}{}
+				cpList = append(cpList, types.CommonPrefix{Prefix: aws.String(cp)})
+			}
+		} else {
+			filtered = append(filtered, obj)
+		}
+	}
+
+	sort.Slice(cpList, func(i, j int) bool {
+		return aws.ToString(cpList[i].Prefix) < aws.ToString(cpList[j].Prefix)
+	})
+
+	return filtered, cpList
+}
+
 func (b *InMemoryBackend) ListObjects(
 	_ context.Context,
 	input *s3.ListObjectsInput,
@@ -711,11 +756,20 @@ func (b *InMemoryBackend) ListObjects(
 		return *contents[i].Key < *contents[j].Key
 	})
 
+	delimiter := aws.ToString(input.Delimiter)
+	var cpList []types.CommonPrefix
+
+	if delimiter != "" {
+		contents, cpList = applyDelimiter(prefix, delimiter, contents)
+	}
+
 	return &s3.ListObjectsOutput{
-		Name:     input.Bucket,
-		Prefix:   input.Prefix,
-		MaxKeys:  input.MaxKeys,
-		Contents: contents,
+		Name:           input.Bucket,
+		Prefix:         input.Prefix,
+		Delimiter:      input.Delimiter,
+		MaxKeys:        input.MaxKeys,
+		Contents:       contents,
+		CommonPrefixes: cpList,
 	}, nil
 }
 
@@ -1231,4 +1285,52 @@ func (b *InMemoryBackend) AbortMultipartUpload(
 	delete(b.uploads, uploadID)
 
 	return &s3.AbortMultipartUploadOutput{}, nil
+}
+
+// PutBucketACL stores the canned ACL for a bucket.
+func (b *InMemoryBackend) PutBucketACL(_ context.Context, bucketName, acl string) error {
+	b.mu.RLock("PutBucketACL")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.Lock("PutBucketACL")
+	defer bucket.mu.Unlock()
+
+	bucket.ACL = acl
+
+	return nil
+}
+
+// GetBucketACL returns the canned ACL for a bucket.
+func (b *InMemoryBackend) GetBucketACL(_ context.Context, bucketName string) (string, error) {
+	b.mu.RLock("GetBucketACL")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return "", err
+	}
+
+	bucket.mu.RLock("GetBucketACL")
+	defer bucket.mu.RUnlock()
+
+	acl := bucket.ACL
+	if acl == "" {
+		acl = "private"
+	}
+
+	return acl, nil
+}
+
+// nilStringIfEmpty returns nil if s is empty, otherwise returns aws.String(s).
+func nilStringIfEmpty(s string) *string {
+	if s == "" {
+		return nil
+	}
+
+	return aws.String(s)
 }

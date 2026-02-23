@@ -162,44 +162,41 @@ func NewHandler(cfg Config) *DashboardHandler {
 	return h
 }
 
-func (h *DashboardHandler) setupSubRouter() {
-	// Static files
+func (h *DashboardHandler) setupStaticAndRootRoutes() {
 	h.SubRouter.GET("/dashboard/static/*", func(c *echo.Context) error {
 		http.StripPrefix("/dashboard", http.FileServer(http.FS(staticFS))).
 			ServeHTTP(c.Response(), c.Request())
 
 		return nil
 	})
-
-	// Redirect root to dynamodb tab
 	h.SubRouter.GET("/dashboard", func(c *echo.Context) error {
 		return c.Redirect(http.StatusFound, "/dashboard/dynamodb")
 	})
 	h.SubRouter.GET("/dashboard/", func(c *echo.Context) error {
 		return c.Redirect(http.StatusFound, "/dashboard/dynamodb")
 	})
+}
 
-	// Register service provider routes dynamically
-	// DynamoDB routes (via provider)
+func (h *DashboardHandler) setupProviderRoutes() {
 	if h.ddbProvider != nil {
 		ddbGroup := h.SubRouter.Group("/dashboard/dynamodb")
 		h.ddbProvider.RegisterDashboardRoutes(ddbGroup, nil, "")
 	}
-
-	// S3 routes (via provider)
 	if h.s3Provider != nil {
 		s3Group := h.SubRouter.Group("/dashboard/s3")
 		h.s3Provider.RegisterDashboardRoutes(s3Group, nil, "")
 	}
+}
 
-	// SSM routes (direct dashboard integration)
-	// Fallback mechanism while transitioning providers
+func (h *DashboardHandler) setupSSMRoutes() {
 	h.SubRouter.GET("/dashboard/ssm", h.ssmIndex)
+	h.SubRouter.GET("/dashboard/ssm/history", h.ssmParameterHistory)
 	h.SubRouter.GET("/dashboard/ssm/modal/put", h.ssmPutModal)
 	h.SubRouter.POST("/dashboard/ssm/put", h.ssmPutParameter)
 	h.SubRouter.DELETE("/dashboard/ssm/delete", h.ssmDeleteParameter)
+}
 
-	// IAM routes (direct dashboard integration)
+func (h *DashboardHandler) setupIAMRoutes() {
 	h.SubRouter.GET("/dashboard/iam", h.iamIndex)
 	h.SubRouter.POST("/dashboard/iam/user", h.iamCreateUser)
 	h.SubRouter.DELETE("/dashboard/iam/user", h.iamDeleteUser)
@@ -209,36 +206,62 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.SubRouter.DELETE("/dashboard/iam/policy", h.iamDeletePolicy)
 	h.SubRouter.POST("/dashboard/iam/group", h.iamCreateGroup)
 	h.SubRouter.DELETE("/dashboard/iam/group", h.iamDeleteGroup)
-
-	// STS routes
 	h.SubRouter.GET("/dashboard/sts", h.stsIndex)
+}
 
-	// SNS routes (direct dashboard integration)
+func (h *DashboardHandler) setupSNSRoutes() {
 	h.SubRouter.GET("/dashboard/sns", h.snsIndex)
 	h.SubRouter.POST("/dashboard/sns/create", h.snsCreateTopic)
 	h.SubRouter.DELETE("/dashboard/sns/delete", h.snsDeleteTopic)
 	h.SubRouter.GET("/dashboard/sns/topic", h.snsTopicDetail)
+	h.SubRouter.POST("/dashboard/sns/topic/subscribe", h.snsSubscribeToTopic)
+	h.SubRouter.DELETE("/dashboard/sns/topic/subscribe", h.snsUnsubscribeFromTopic)
+	h.SubRouter.POST("/dashboard/sns/topic/publish", h.snsPublishMessage)
+}
 
-	// SQS routes
+func (h *DashboardHandler) setupSQSRoutes() {
 	h.SubRouter.GET("/dashboard/sqs", h.sqsIndex)
 	h.SubRouter.GET("/dashboard/sqs/create", h.sqsCreateQueueModal)
 	h.SubRouter.POST("/dashboard/sqs/create", h.sqsCreateQueue)
 	h.SubRouter.DELETE("/dashboard/sqs/delete", h.sqsDeleteQueue)
 	h.SubRouter.POST("/dashboard/sqs/purge", h.sqsPurgeQueue)
 	h.SubRouter.GET("/dashboard/sqs/queue", h.sqsQueueDetail)
+	h.SubRouter.POST("/dashboard/sqs/message", h.sqsSendMessage)
+	h.SubRouter.GET("/dashboard/sqs/messages", h.sqsReceiveMessages)
+}
 
-	// KMS routes
+func (h *DashboardHandler) setupKMSRoutes() {
 	h.SubRouter.GET("/dashboard/kms", h.kmsIndex)
+	h.SubRouter.POST("/dashboard/kms/create", h.kmsCreateKey)
+	h.SubRouter.GET("/dashboard/kms/key", h.kmsKeyDetail)
+	h.SubRouter.POST("/dashboard/kms/encrypt", h.kmsEncrypt)
+	h.SubRouter.POST("/dashboard/kms/decrypt", h.kmsDecrypt)
+}
 
-	// Secrets Manager routes
+func (h *DashboardHandler) setupSecretsManagerRoutes() {
 	h.SubRouter.GET("/dashboard/secretsmanager", h.secretsManagerIndex)
+	h.SubRouter.POST("/dashboard/secretsmanager/create", h.secretsManagerCreate)
+	h.SubRouter.POST("/dashboard/secretsmanager/update", h.secretsManagerUpdate)
+	h.SubRouter.DELETE("/dashboard/secretsmanager/delete", h.secretsManagerDelete)
+	h.SubRouter.GET("/dashboard/secretsmanager/secret", h.secretsManagerDetail)
+}
 
-	// Metrics & Docs (always available)
+func (h *DashboardHandler) setupMetaRoutes() {
 	dashboardGroup := h.SubRouter.Group("/dashboard")
 	RegisterMetricsHandlers(dashboardGroup, h)
-
-	// Settings page (read-only config view)
 	h.SubRouter.GET("/dashboard/settings", h.settingsIndex)
+}
+
+func (h *DashboardHandler) setupSubRouter() {
+	h.setupStaticAndRootRoutes()
+	h.setupProviderRoutes()
+	h.setupSSMRoutes()
+	h.setupIAMRoutes()
+	h.setupSNSRoutes()
+	h.setupSQSRoutes()
+	h.setupKMSRoutes()
+	h.setupSecretsManagerRoutes()
+	h.setupMetaRoutes()
 }
 
 // Handler returns the Echo handler function for dashboard requests.

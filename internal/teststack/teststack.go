@@ -17,10 +17,12 @@ import (
 	"github.com/blackbirdworks/gopherstack/dashboard"
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
+	kmsbackend "github.com/blackbirdworks/gopherstack/kms"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
+	smbackend "github.com/blackbirdworks/gopherstack/secretsmanager"
 	snsbackend "github.com/blackbirdworks/gopherstack/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/ssm"
@@ -36,18 +38,20 @@ const (
 // Stack holds a fully wired in-memory test stack with all services,
 // the Echo router (correctly mounted), AWS SDK clients, and the dashboard handler.
 type Stack struct {
-	Echo       *echo.Echo
-	S3Backend  *s3backend.InMemoryBackend
-	S3Handler  *s3backend.S3Handler
-	DDBHandler *ddbbackend.DynamoDBHandler
-	IAMBackend *iambackend.InMemoryBackend
-	IAMHandler *iambackend.Handler
-	STSHandler *stsbackend.Handler
-	SNSHandler *snsbackend.Handler
-	SQSHandler *sqsbackend.Handler
-	S3Client   *s3.Client
-	DDBClient  *dynamodb.Client
-	Dashboard  *dashboard.DashboardHandler
+	Echo                  *echo.Echo
+	S3Backend             *s3backend.InMemoryBackend
+	S3Handler             *s3backend.S3Handler
+	DDBHandler            *ddbbackend.DynamoDBHandler
+	IAMBackend            *iambackend.InMemoryBackend
+	IAMHandler            *iambackend.Handler
+	STSHandler            *stsbackend.Handler
+	SNSHandler            *snsbackend.Handler
+	SQSHandler            *sqsbackend.Handler
+	KMSHandler            *kmsbackend.Handler
+	SecretsManagerHandler *smbackend.Handler
+	S3Client              *s3.Client
+	DDBClient             *dynamodb.Client
+	Dashboard             *dashboard.DashboardHandler
 }
 
 // New creates a fully wired integration stack for testing.
@@ -71,6 +75,10 @@ func New(t *testing.T) *Stack {
 	snsHndlr := snsbackend.NewHandler(snsBk, slog.Default())
 	sqsBk := sqsbackend.NewInMemoryBackend()
 	sqsHndlr := sqsbackend.NewHandler(sqsBk, slog.Default())
+	kmsBk := kmsbackend.NewInMemoryBackend()
+	kmsHndlr := kmsbackend.NewHandler(kmsBk, slog.Default())
+	smBk := smbackend.NewInMemoryBackend()
+	smHndlr := smbackend.NewHandler(smBk, slog.Default())
 
 	// Set up Echo with service registry and router.
 	e := echo.New()
@@ -84,6 +92,8 @@ func New(t *testing.T) *Stack {
 	_ = registry.Register(stsHndlr)
 	_ = registry.Register(snsHndlr)
 	_ = registry.Register(sqsHndlr)
+	_ = registry.Register(kmsHndlr)
+	_ = registry.Register(smHndlr)
 
 	// Create AWS SDK clients routed through in-memory Echo.
 	inMemClient := &dashboard.InMemClient{Handler: e}
@@ -110,16 +120,18 @@ func New(t *testing.T) *Stack {
 
 	// Create dashboard handler and register it.
 	dashHndlr := dashboard.NewHandler(dashboard.Config{
-		DDBClient: ddbClient,
-		S3Client:  s3Client,
-		SSMClient: ssmClient,
-		DDBOps:    ddbHndlr,
-		S3Ops:     s3Hndlr,
-		SSMOps:    ssmHndlr,
-		IAMOps:    iamHndlr,
-		STSOps:    stsHndlr,
-		SNSOps:    snsHndlr,
-		SQSOps:    sqsHndlr,
+		DDBClient:         ddbClient,
+		S3Client:          s3Client,
+		SSMClient:         ssmClient,
+		DDBOps:            ddbHndlr,
+		S3Ops:             s3Hndlr,
+		SSMOps:            ssmHndlr,
+		IAMOps:            iamHndlr,
+		STSOps:            stsHndlr,
+		SNSOps:            snsHndlr,
+		SQSOps:            sqsHndlr,
+		KMSOps:            kmsHndlr,
+		SecretsManagerOps: smHndlr,
 		GlobalConfig: config.GlobalConfig{
 			AccountID: "000000000000",
 			Region:    "us-east-1",
@@ -133,18 +145,20 @@ func New(t *testing.T) *Stack {
 	e.Use(router.RouteHandler())
 
 	return &Stack{
-		Echo:       e,
-		S3Backend:  s3Bk,
-		S3Handler:  s3Hndlr,
-		DDBHandler: ddbHndlr,
-		IAMBackend: iamBk,
-		IAMHandler: iamHndlr,
-		STSHandler: stsHndlr,
-		SNSHandler: snsHndlr,
-		SQSHandler: sqsHndlr,
-		S3Client:   s3Client,
-		DDBClient:  ddbClient,
-		Dashboard:  dashHndlr,
+		Echo:                  e,
+		S3Backend:             s3Bk,
+		S3Handler:             s3Hndlr,
+		DDBHandler:            ddbHndlr,
+		IAMBackend:            iamBk,
+		IAMHandler:            iamHndlr,
+		STSHandler:            stsHndlr,
+		SNSHandler:            snsHndlr,
+		SQSHandler:            sqsHndlr,
+		KMSHandler:            kmsHndlr,
+		SecretsManagerHandler: smHndlr,
+		S3Client:              s3Client,
+		DDBClient:             ddbClient,
+		Dashboard:             dashHndlr,
 	}
 }
 

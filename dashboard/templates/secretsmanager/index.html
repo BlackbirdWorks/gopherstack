@@ -6,7 +6,42 @@
             <p class="mt-2 text-sm text-gray-700 dark:text-gray-300">A list of all secrets in the in-memory Secrets
                 Manager service.</p>
         </div>
+        <div class="mt-4 sm:ml-16 sm:mt-0 sm:flex-none">
+            <button type="button" onclick="document.getElementById('create-secret-form').classList.toggle('hidden')"
+                class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-blue-600 dark:hover:bg-blue-700">
+                + Create Secret
+            </button>
+        </div>
     </div>
+
+    <!-- Create Secret form -->
+    <div id="create-secret-form" class="hidden mb-6 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
+        <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-3">Create New Secret</h3>
+        <form hx-post="/dashboard/secretsmanager/create" class="space-y-3">
+            <div class="flex gap-3 flex-wrap">
+                <div class="flex-1 min-w-40">
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Name *</label>
+                    <input type="text" name="name" placeholder="Secret name" required
+                        class="bg-white border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2 dark:bg-gray-600 dark:border-gray-500 dark:text-white" />
+                </div>
+                <div class="flex-1 min-w-40">
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
+                    <input type="text" name="description" placeholder="Optional description"
+                        class="bg-white border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2 dark:bg-gray-600 dark:border-gray-500 dark:text-white" />
+                </div>
+                <div class="flex-1 min-w-40">
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Secret Value</label>
+                    <input type="text" name="secret_string" placeholder="Secret value"
+                        class="bg-white border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2 dark:bg-gray-600 dark:border-gray-500 dark:text-white" />
+                </div>
+            </div>
+            <button type="submit"
+                class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm px-4 py-2 dark:bg-blue-600 dark:hover:bg-blue-700">
+                Create
+            </button>
+        </form>
+    </div>
+
     <div class="mt-8 relative overflow-x-auto shadow-md sm:rounded-lg">
         <table class="w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
             <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
@@ -15,6 +50,7 @@
                     <th scope="col" class="px-6 py-3">Description</th>
                     <th scope="col" class="px-6 py-3">Value</th>
                     <th scope="col" class="px-6 py-3">Status</th>
+                    <th scope="col" class="px-6 py-3">Actions</th>
                 </tr>
             </thead>
             <tbody>
@@ -59,10 +95,24 @@
                             class="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-green-900 dark:text-green-300">Active</span>
                         {{end}}
                     </td>
+                    <td class="px-6 py-4">
+                        <div class="flex gap-3">
+                            <a href="/dashboard/secretsmanager/secret?name={{.Name}}"
+                                class="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300 text-xs font-medium">
+                                View
+                            </a>
+                            <button
+                                hx-delete="/dashboard/secretsmanager/delete?name={{.Name}}"
+                                hx-confirm="Delete secret '{{.Name}}'?"
+                                class="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 text-xs font-medium">
+                                Delete
+                            </button>
+                        </div>
+                    </td>
                 </tr>
                 {{else}}
                 <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
-                    <td colspan="4" class="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                    <td colspan="5" class="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
                         No secrets found. Use CreateSecret to add one.
                     </td>
                 </tr>

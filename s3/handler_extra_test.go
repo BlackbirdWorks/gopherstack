@@ -850,7 +850,7 @@ func TestHandler_CreateBucket_Errors(t *testing.T) {
 	}
 }
 
-func TestHandler_CreateBucket_BucketAlreadyExists_XMLResponse(t *testing.T) {
+func TestHandler_CreateBucket_BucketAlreadyOwnedByYou_XMLResponse(t *testing.T) {
 	t.Parallel()
 
 	handler, backend := newTestHandler(t)
@@ -865,7 +865,7 @@ func TestHandler_CreateBucket_BucketAlreadyExists_XMLResponse(t *testing.T) {
 
 	var errResp s3.ErrorResponse
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
-	assert.Equal(t, "BucketAlreadyExists", errResp.Code)
+	assert.Equal(t, "BucketAlreadyOwnedByYou", errResp.Code)
 	assert.NotEmpty(t, errResp.Message)
 }
 

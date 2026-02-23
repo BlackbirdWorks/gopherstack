@@ -23,6 +23,11 @@ const (
 	maxParseIterations = 20
 	noVisibilitySet    = -1
 
+	// msgAttrTransportTypeString is the SQS wire-format byte for String/Number message attributes.
+	msgAttrTransportTypeString byte = 1
+	// msgAttrTransportTypeBinary is the SQS wire-format byte for Binary message attributes.
+	msgAttrTransportTypeBinary byte = 2
+
 	attrVisibilityTimeout             = "VisibilityTimeout"
 	attrMaximumMessageSize            = "MaximumMessageSize"
 	attrMessageRetentionPeriod        = "MessageRetentionPeriod"
@@ -48,8 +53,6 @@ const (
 	attrValTrue  = "true"
 	attrValFalse = "false"
 	attrValZero  = "0"
-
-	errTypeSender = "Sender"
 )
 
 // MessageAttributeValue holds a message attribute value.
@@ -69,6 +72,7 @@ type Message struct {
 	MessageID                        string
 	ReceiptHandle                    string
 	MD5OfBody                        string
+	MD5OfMessageAttributes           string
 	SentTimestamp                    int64
 	ApproximateFirstReceiveTimestamp int64 // Unix ms; 0 means never received
 	ApproximateReceiveCount          int
@@ -108,6 +112,8 @@ type CreateQueueInput struct {
 	Attributes map[string]string
 	QueueName  string
 	Endpoint   string
+	// Region is the AWS region for ARN construction (optional; defaults to backend region).
+	Region string
 }
 
 // CreateQueueOutput is the output for CreateQueue.
@@ -169,8 +175,9 @@ type SendMessageInput struct {
 
 // SendMessageOutput is the output for SendMessage.
 type SendMessageOutput struct {
-	MessageID string
-	MD5OfBody string
+	MessageID              string
+	MD5OfBody              string
+	MD5OfMessageAttributes string
 }
 
 // ReceiveMessageInput is the input for ReceiveMessage.
@@ -218,9 +225,10 @@ type SendMessageBatchInput struct {
 
 // SendMessageBatchResultEntry is a successful entry in a SendMessageBatch result.
 type SendMessageBatchResultEntry struct {
-	ID        string
-	MessageID string
-	MD5OfBody string
+	ID                     string
+	MessageID              string
+	MD5OfBody              string
+	MD5OfMessageAttributes string
 }
 
 // BatchResultErrorEntry is a failed entry in a batch result.
@@ -363,8 +371,9 @@ type SetQueueAttributesResponse struct {
 
 // SendMessageResult holds the result of a SendMessage operation.
 type SendMessageResult struct {
-	MD5OfMessageBody string `xml:"MD5OfMessageBody"`
-	MessageID        string `xml:"MessageId"`
+	MD5OfMessageBody       string `xml:"MD5OfMessageBody"`
+	MD5OfMessageAttributes string `xml:"MD5OfMessageAttributes,omitempty"`
+	MessageID              string `xml:"MessageId"`
 }
 
 // SendMessageResponse is the XML response for SendMessage.
@@ -413,9 +422,10 @@ type ChangeMessageVisibilityResponse struct {
 
 // XMLSendMessageBatchResultEntry is a successful batch send entry.
 type XMLSendMessageBatchResultEntry struct {
-	ID               string `xml:"Id"`
-	MessageID        string `xml:"MessageId"`
-	MD5OfMessageBody string `xml:"MD5OfMessageBody"`
+	ID                     string `xml:"Id"`
+	MessageID              string `xml:"MessageId"`
+	MD5OfMessageBody       string `xml:"MD5OfMessageBody"`
+	MD5OfMessageAttributes string `xml:"MD5OfMessageAttributes,omitempty"`
 }
 
 // XMLSendMessageBatchFailedEntry is a failed batch send entry.
