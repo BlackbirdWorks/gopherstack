@@ -38,26 +38,32 @@ const DefaultWriteTimeout = 5 * time.Second
 // defaultTTL is the DNS time-to-live (in seconds) for synthetic A records.
 const defaultTTL = 60
 
+// ErrInvalidResolveIP is returned when the configured resolve IP cannot be parsed.
+var ErrInvalidResolveIP = errors.New("invalid resolve IP")
+
+// ErrIPv4Required is returned when the configured resolve IP is not an IPv4 address.
+var ErrIPv4Required = errors.New("resolve IP must be an IPv4 address")
+
 // Config holds the configuration for the embedded DNS server.
 type Config struct {
+	// Logger is an optional structured logger.
+	Logger *slog.Logger
 	// ListenAddr is the host:port to bind (default ":10053").
 	ListenAddr string
 	// ResolveIP is the IP address returned for every registered name (default "127.0.0.1").
 	ResolveIP string
-	// Logger is an optional structured logger.
-	Logger *slog.Logger
 }
 
 // Server is an embedded DNS server that answers A queries for registered
 // synthetic hostnames with a fixed IP address.
 type Server struct {
-	mu         sync.RWMutex
-	names      map[string]struct{} // fully-qualified names with trailing dot
 	cfg        Config
+	names      map[string]struct{}
 	udpServer  *dns.Server
 	tcpServer  *dns.Server
-	resolveIP  net.IP
 	listenAddr string
+	resolveIP  net.IP
+	mu         sync.RWMutex
 }
 
 // New creates a new Server with the given config.
@@ -73,12 +79,12 @@ func New(cfg Config) (*Server, error) {
 
 	ip := net.ParseIP(cfg.ResolveIP)
 	if ip == nil {
-		return nil, fmt.Errorf("invalid resolve IP %q", cfg.ResolveIP)
+		return nil, fmt.Errorf("%w: %q", ErrInvalidResolveIP, cfg.ResolveIP)
 	}
 
 	ip = ip.To4()
 	if ip == nil {
-		return nil, fmt.Errorf("resolve IP must be an IPv4 address, got %q", cfg.ResolveIP)
+		return nil, fmt.Errorf("%w: got %q", ErrIPv4Required, cfg.ResolveIP)
 	}
 
 	return &Server{
@@ -201,7 +207,7 @@ func (s *Server) Start(ctx context.Context) error {
 	}()
 
 	if s.cfg.Logger != nil {
-		s.cfg.Logger.Info("dns: server started", "addr", s.listenAddr)
+		s.cfg.Logger.InfoContext(ctx, "dns: server started", "addr", s.listenAddr)
 	}
 
 	return nil

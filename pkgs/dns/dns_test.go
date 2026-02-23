@@ -17,22 +17,30 @@ import (
 )
 
 func TestNew_InvalidIP(t *testing.T) {
+	t.Parallel()
+
 	_, err := gopherDNS.New(gopherDNS.Config{ResolveIP: "not-an-ip"})
-	assert.Error(t, err)
+	assert.ErrorIs(t, err, gopherDNS.ErrInvalidResolveIP)
 }
 
 func TestNew_IPv6NotSupported(t *testing.T) {
+	t.Parallel()
+
 	_, err := gopherDNS.New(gopherDNS.Config{ResolveIP: "::1"})
-	assert.Error(t, err)
+	assert.ErrorIs(t, err, gopherDNS.ErrIPv4Required)
 }
 
 func TestNew_Defaults(t *testing.T) {
+	t.Parallel()
+
 	s, err := gopherDNS.New(gopherDNS.Config{})
 	require.NoError(t, err)
 	assert.NotNil(t, s)
 }
 
 func TestRegisterDeregister(t *testing.T) {
+	t.Parallel()
+
 	s, err := gopherDNS.New(gopherDNS.Config{})
 	require.NoError(t, err)
 
@@ -47,6 +55,8 @@ func TestRegisterDeregister(t *testing.T) {
 }
 
 func TestSyntheticHostname(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name        string
 		resourceID  string
@@ -87,6 +97,8 @@ func TestSyntheticHostname(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got := gopherDNS.SyntheticHostname(tt.resourceID, "abc123", "us-east-1", tt.serviceType)
 			assert.Equal(t, tt.want, got)
 		})
@@ -152,6 +164,8 @@ func queryA(t *testing.T, addr, hostname string) (string, int) {
 }
 
 func TestServer_RegisteredHostnameResolvesToIP(t *testing.T) {
+	t.Parallel()
+
 	srv, addr := startTestServer(t)
 
 	hostname := "my-cluster.abc.us-east-1.cache.amazonaws.com"
@@ -163,6 +177,8 @@ func TestServer_RegisteredHostnameResolvesToIP(t *testing.T) {
 }
 
 func TestServer_UnregisteredHostnameReturnsNXDOMAIN(t *testing.T) {
+	t.Parallel()
+
 	_, addr := startTestServer(t)
 
 	_, rcode := queryA(t, addr, "unknown.example.com")
@@ -170,6 +186,8 @@ func TestServer_UnregisteredHostnameReturnsNXDOMAIN(t *testing.T) {
 }
 
 func TestServer_DeregisteredHostnameReturnsNXDOMAIN(t *testing.T) {
+	t.Parallel()
+
 	srv, addr := startTestServer(t)
 
 	hostname := "temp.us-east-1.rds.amazonaws.com"
@@ -186,6 +204,8 @@ func TestServer_DeregisteredHostnameReturnsNXDOMAIN(t *testing.T) {
 }
 
 func TestServer_NonAQueryReturnsNoData(t *testing.T) {
+	t.Parallel()
+
 	srv, addr := startTestServer(t)
 
 	hostname := "my-cluster.abc.us-east-1.cache.amazonaws.com"
@@ -206,6 +226,8 @@ func TestServer_NonAQueryReturnsNoData(t *testing.T) {
 }
 
 func TestServer_Stop(t *testing.T) {
+	t.Parallel()
+
 	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
 	require.NoError(t, err)
 	port := pc.LocalAddr().(*net.UDPAddr).Port
@@ -229,6 +251,8 @@ func TestServer_Stop(t *testing.T) {
 }
 
 func TestServer_TCPQuery(t *testing.T) {
+	t.Parallel()
+
 	srv, addr := startTestServer(t)
 
 	hostname := "my-db.abc.us-east-1.rds.amazonaws.com"
@@ -249,6 +273,8 @@ func TestServer_TCPQuery(t *testing.T) {
 }
 
 func TestRegister_WithLogger(t *testing.T) {
+	t.Parallel()
+
 	log := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	s, err := gopherDNS.New(gopherDNS.Config{Logger: log})
 	require.NoError(t, err)
@@ -259,6 +285,8 @@ func TestRegister_WithLogger(t *testing.T) {
 }
 
 func TestServer_ContextCancellation(t *testing.T) {
+	t.Parallel()
+
 	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
 	require.NoError(t, err)
 	port := pc.LocalAddr().(*net.UDPAddr).Port

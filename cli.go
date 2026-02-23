@@ -71,28 +71,28 @@ type CLI struct {
 	stsHandler            service.Registerable
 	snsHandler            service.Registerable
 	sqsHandler            service.Registerable
-	snsClient             *sns.Client
-	iamClient             *iam.Client
 	s3Client              *s3.Client
+	iamClient             *iam.Client
+	snsClient             *sns.Client
 	ssmClient             *ssmsdk.Client
 	ddbClient             *dynamodb.Client
 	stsClient             *stssdk.Client
 	sqsClient             *sqssdk.Client
 	secretsManagerClient  *secretsmanager.Client
 	kmsClient             *kms.Client
-	Region                string              `                                  name:"region"           env:"REGION"            default:"us-east-1"    help:"AWS region."`                                             //nolint:lll //config
-	AccountID             string              `                                  name:"account-id"       env:"ACCOUNT_ID"        default:"000000000000" help:"Mock AWS account ID used in ARNs."`                       //nolint:lll //config
-	Port                  string              `                                  name:"port"             env:"PORT"              default:"8000"         help:"HTTP server port."`                                       //nolint:lll //config
-	LogLevel              string              `                                  name:"log-level"        env:"LOG_LEVEL"         default:"info"         help:"Log level (debug|info|warn|error)."`                      //nolint:lll //config
+	Port                  string              `                                  name:"port"             env:"PORT"              default:"8000"         help:"HTTP server port."`
+	AccountID             string              `                                  name:"account-id"       env:"ACCOUNT_ID"        default:"000000000000" help:"Mock AWS account ID used in ARNs."`
+	Region                string              `                                  name:"region"           env:"REGION"            default:"us-east-1"    help:"AWS region."`
+	LogLevel              string              `                                  name:"log-level"        env:"LOG_LEVEL"         default:"info"         help:"Log level (debug|info|warn|error)."`
+	DNSListenAddr         string              `                                  name:"dns-addr"         env:"DNS_ADDR"          default:""             help:"Address for embedded DNS server (e.g. :10053). Empty = disabled."`
+	DNSResolveIP          string              `                                  name:"dns-resolve-ip"   env:"DNS_RESOLVE_IP"    default:"127.0.0.1"    help:"IP address synthetic hostnames resolve to."`
 	S3                    s3backend.Settings  `embed:"" prefix:"s3-"`
+	InitScripts           []string            `                                  name:"init-script"      env:"INIT_SCRIPTS"      help:"Shell scripts to run on startup (may be specified multiple times)."`
 	DynamoDB              ddbbackend.Settings `embed:"" prefix:"dynamodb-"`
-	Demo                  bool                `                                  name:"demo"             env:"DEMO"              default:"false"        help:"Load demo data on startup."`                              //nolint:lll //config
-	PortRangeStart        int                 `                                  name:"port-range-start" env:"PORT_RANGE_START"  default:"10000"        help:"Start of the port range for resource endpoints."`         //nolint:lll //config
-	PortRangeEnd          int                 `                                  name:"port-range-end"   env:"PORT_RANGE_END"    default:"10100"        help:"End (exclusive) of the port range for resource endpoints."` //nolint:lll //config
-	DNSListenAddr         string              `                                  name:"dns-addr"         env:"DNS_ADDR"          default:""             help:"Address for embedded DNS server (e.g. :10053). Empty = disabled."` //nolint:lll //config
-	DNSResolveIP          string              `                                  name:"dns-resolve-ip"   env:"DNS_RESOLVE_IP"    default:"127.0.0.1"    help:"IP address synthetic hostnames resolve to."`               //nolint:lll //config
-	InitScripts           []string            `                                  name:"init-script"      env:"INIT_SCRIPTS"      help:"Shell scripts to run on startup (may be specified multiple times)."`              //nolint:lll //config
-	InitScriptTimeout     time.Duration       `                                  name:"init-timeout"     env:"INIT_TIMEOUT"      default:"30s"          help:"Per-script timeout for init hooks."`                       //nolint:lll //config
+	PortRangeStart        int                 `                                  name:"port-range-start" env:"PORT_RANGE_START"  default:"10000"        help:"Start of the port range for resource endpoints."`
+	PortRangeEnd          int                 `                                  name:"port-range-end"   env:"PORT_RANGE_END"    default:"10100"        help:"End (exclusive) of the port range for resource endpoints."`
+	InitScriptTimeout     time.Duration       `                                  name:"init-timeout"     env:"INIT_TIMEOUT"      default:"30s"          help:"Per-script timeout for init hooks."`
+	Demo                  bool                `                                  name:"demo"             env:"DEMO"              default:"false"        help:"Load demo data on startup."`
 }
 
 // GetGlobalConfig returns the centralised account ID and region (config.Provider).
@@ -216,23 +216,7 @@ func run(ctx context.Context, cli CLI) error {
 
 	// --- Embedded DNS server ---
 	if cli.DNSListenAddr != "" {
-		dnsSrv, dnsErr := gopherDNS.New(gopherDNS.Config{
-			ListenAddr: cli.DNSListenAddr,
-			ResolveIP:  cli.DNSResolveIP,
-			Logger:     log,
-		})
-		if dnsErr != nil {
-			log.WarnContext(ctx, "DNS server disabled (config error)", "error", dnsErr)
-		} else {
-			dnsCtx, dnsCancel := context.WithCancel(ctx)
-			defer dnsCancel()
-
-			if startErr := dnsSrv.Start(dnsCtx); startErr != nil {
-				log.WarnContext(ctx, "DNS server failed to start", "error", startErr)
-			} else {
-				log.InfoContext(ctx, "DNS server started", "addr", cli.DNSListenAddr)
-			}
-		}
+		startEmbeddedDNS(ctx, log, cli.DNSListenAddr, cli.DNSResolveIP)
 	}
 
 	inMemMux := http.NewServeMux()
@@ -552,4 +536,28 @@ func setupRegistry(
 	e.Use(router.RouteHandler())
 
 	return nil
+}
+
+// startEmbeddedDNS creates and starts the embedded DNS server.
+// Configuration errors and startup failures are logged as warnings; the server
+// continues to run without DNS in those cases.
+func startEmbeddedDNS(ctx context.Context, log *slog.Logger, addr, resolveIP string) {
+	dnsSrv, err := gopherDNS.New(gopherDNS.Config{
+		ListenAddr: addr,
+		ResolveIP:  resolveIP,
+		Logger:     log,
+	})
+	if err != nil {
+		log.WarnContext(ctx, "DNS server disabled (config error)", "error", err)
+
+		return
+	}
+
+	if startErr := dnsSrv.Start(ctx); startErr != nil {
+		log.WarnContext(ctx, "DNS server failed to start", "error", startErr)
+
+		return
+	}
+
+	log.InfoContext(ctx, "DNS server started", "addr", addr)
 }

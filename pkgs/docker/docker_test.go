@@ -19,11 +19,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/docker"
 )
 
-// mockDockerAPI is a test double for DockerAPIClient.
+// mockDockerAPI is a test double for docker.APIClient.
 type mockDockerAPI struct {
-	mu          sync.Mutex
-	containers  map[string]string // id → image
-	images      []image.Summary
 	pullError   error
 	createError error
 	startError  error
@@ -31,8 +28,22 @@ type mockDockerAPI struct {
 	removeError error
 	listError   error
 	pingError   error
+	containers  map[string]string
+	images      []image.Summary
 	counter     int
+	mu          sync.Mutex
 }
+
+// Sentinel errors used in tests.
+var (
+	errDaemonNotRunning = errors.New("daemon not running")
+	errNetworkError     = errors.New("network error")
+	errImageNotFound    = errors.New("image not found")
+	errFailedToStart    = errors.New("failed to start")
+	errFailedToStop     = errors.New("failed to stop")
+	errFailedToRemove   = errors.New("failed to remove")
+	errDockerDaemon     = errors.New("docker daemon error")
+)
 
 func newMockAPI() *mockDockerAPI {
 	return &mockDockerAPI{
@@ -75,7 +86,7 @@ func (m *mockDockerAPI) ImageList(_ context.Context, opts image.ListOptions) ([]
 	return out, nil
 }
 
-func (m *mockDockerAPI) ContainerCreate(_ context.Context, cfg *container.Config, _ *container.HostConfig, _ interface{}, _ interface{}, _ string) (container.CreateResponse, error) {
+func (m *mockDockerAPI) ContainerCreate(_ context.Context, cfg *container.Config, _ *container.HostConfig, _ any, _ any, _ string) (container.CreateResponse, error) {
 	if m.createError != nil {
 		return container.CreateResponse{}, m.createError
 	}
@@ -109,7 +120,7 @@ func (m *mockDockerAPI) ContainerRemove(_ context.Context, containerID string, _
 	return nil
 }
 
-func (m *mockDockerAPI) Ping(_ context.Context) (interface{}, error) {
+func (m *mockDockerAPI) Ping(_ context.Context) (any, error) {
 	if m.pingError != nil {
 		return nil, m.pingError
 	}
@@ -122,6 +133,8 @@ func (m *mockDockerAPI) Close() error {
 }
 
 func TestPing_Success(t *testing.T) {
+	t.Parallel()
+
 	api := newMockAPI()
 	c := docker.NewClientWithAPI(api, docker.Config{})
 
@@ -130,8 +143,10 @@ func TestPing_Success(t *testing.T) {
 }
 
 func TestPing_Failure(t *testing.T) {
+	t.Parallel()
+
 	api := newMockAPI()
-	api.pingError = errors.New("daemon not running")
+	api.pingError = errDaemonNotRunning
 	c := docker.NewClientWithAPI(api, docker.Config{})
 
 	err := c.Ping(context.Background())
@@ -139,6 +154,8 @@ func TestPing_Failure(t *testing.T) {
 }
 
 func TestPullImage_Success(t *testing.T) {
+	t.Parallel()
+
 	api := newMockAPI()
 	c := docker.NewClientWithAPI(api, docker.Config{})
 
@@ -147,8 +164,10 @@ func TestPullImage_Success(t *testing.T) {
 }
 
 func TestPullImage_Error(t *testing.T) {
+	t.Parallel()
+
 	api := newMockAPI()
-	api.pullError = errors.New("network error")
+	api.pullError = errNetworkError
 	c := docker.NewClientWithAPI(api, docker.Config{})
 
 	err := c.PullImage(context.Background(), "alpine:latest")
@@ -156,6 +175,8 @@ func TestPullImage_Error(t *testing.T) {
 }
 
 func TestHasImage_Present(t *testing.T) {
+	t.Parallel()
+
 	api := newMockAPI()
 	api.images = []image.Summary{
 		{RepoTags: []string{"alpine:latest"}},
@@ -168,6 +189,8 @@ func TestHasImage_Present(t *testing.T) {
 }
 
 func TestHasImage_Absent(t *testing.T) {
+	t.Parallel()
+
 	api := newMockAPI()
 	c := docker.NewClientWithAPI(api, docker.Config{})
 
@@ -177,6 +200,8 @@ func TestHasImage_Absent(t *testing.T) {
 }
 
 func TestCreateAndStart(t *testing.T) {
+	t.Parallel()
+
 	api := newMockAPI()
 	c := docker.NewClientWithAPI(api, docker.Config{})
 
@@ -190,6 +215,8 @@ func TestCreateAndStart(t *testing.T) {
 }
 
 func TestCreateAndStart_WithMounts(t *testing.T) {
+	t.Parallel()
+
 	api := newMockAPI()
 	c := docker.NewClientWithAPI(api, docker.Config{})
 
@@ -202,8 +229,10 @@ func TestCreateAndStart_WithMounts(t *testing.T) {
 }
 
 func TestCreateAndStart_CreateError(t *testing.T) {
+	t.Parallel()
+
 	api := newMockAPI()
-	api.createError = errors.New("image not found")
+	api.createError = errImageNotFound
 	c := docker.NewClientWithAPI(api, docker.Config{})
 
 	_, err := c.CreateAndStart(context.Background(), docker.ContainerSpec{Image: "bad:image"})
@@ -211,8 +240,10 @@ func TestCreateAndStart_CreateError(t *testing.T) {
 }
 
 func TestCreateAndStart_StartError(t *testing.T) {
+	t.Parallel()
+
 	api := newMockAPI()
-	api.startError = errors.New("failed to start")
+	api.startError = errFailedToStart
 	c := docker.NewClientWithAPI(api, docker.Config{})
 
 	_, err := c.CreateAndStart(context.Background(), docker.ContainerSpec{Image: "alpine:latest"})
@@ -220,6 +251,8 @@ func TestCreateAndStart_StartError(t *testing.T) {
 }
 
 func TestStopAndRemove(t *testing.T) {
+	t.Parallel()
+
 	api := newMockAPI()
 	c := docker.NewClientWithAPI(api, docker.Config{})
 
@@ -231,8 +264,10 @@ func TestStopAndRemove(t *testing.T) {
 }
 
 func TestStopAndRemove_StopError(t *testing.T) {
+	t.Parallel()
+
 	api := newMockAPI()
-	api.stopError = errors.New("failed to stop")
+	api.stopError = errFailedToStop
 	c := docker.NewClientWithAPI(api, docker.Config{})
 
 	err := c.StopAndRemove(context.Background(), "some-id")
@@ -240,8 +275,10 @@ func TestStopAndRemove_StopError(t *testing.T) {
 }
 
 func TestStopAndRemove_RemoveError(t *testing.T) {
+	t.Parallel()
+
 	api := newMockAPI()
-	api.removeError = errors.New("failed to remove")
+	api.removeError = errFailedToRemove
 	c := docker.NewClientWithAPI(api, docker.Config{})
 
 	err := c.StopAndRemove(context.Background(), "some-id")
@@ -249,6 +286,8 @@ func TestStopAndRemove_RemoveError(t *testing.T) {
 }
 
 func TestAcquireWarm_NewContainer(t *testing.T) {
+	t.Parallel()
+
 	api := newMockAPI()
 	c := docker.NewClientWithAPI(api, docker.Config{PoolSize: 2})
 
@@ -259,6 +298,8 @@ func TestAcquireWarm_NewContainer(t *testing.T) {
 }
 
 func TestAcquireWarm_ReusesIdle(t *testing.T) {
+	t.Parallel()
+
 	api := newMockAPI()
 	c := docker.NewClientWithAPI(api, docker.Config{PoolSize: 2})
 
@@ -275,6 +316,8 @@ func TestAcquireWarm_ReusesIdle(t *testing.T) {
 }
 
 func TestAcquireWarm_Exhausted(t *testing.T) {
+	t.Parallel()
+
 	api := newMockAPI()
 	c := docker.NewClientWithAPI(api, docker.Config{PoolSize: 1})
 
@@ -286,8 +329,10 @@ func TestAcquireWarm_Exhausted(t *testing.T) {
 }
 
 func TestAcquireWarm_CreateError(t *testing.T) {
+	t.Parallel()
+
 	api := newMockAPI()
-	api.createError = errors.New("image not found")
+	api.createError = errImageNotFound
 	c := docker.NewClientWithAPI(api, docker.Config{PoolSize: 2})
 
 	_, err := c.AcquireWarm(context.Background(), docker.ContainerSpec{Image: "bad:image"})
@@ -295,6 +340,8 @@ func TestAcquireWarm_CreateError(t *testing.T) {
 }
 
 func TestReleaseContainer_NotFound(t *testing.T) {
+	t.Parallel()
+
 	api := newMockAPI()
 	c := docker.NewClientWithAPI(api, docker.Config{})
 
@@ -303,6 +350,8 @@ func TestReleaseContainer_NotFound(t *testing.T) {
 }
 
 func TestReapIdleContainers(t *testing.T) {
+	t.Parallel()
+
 	api := newMockAPI()
 	c := docker.NewClientWithAPI(api, docker.Config{
 		PoolSize:    2,
@@ -327,8 +376,10 @@ func TestReapIdleContainers(t *testing.T) {
 }
 
 func TestReapIdleContainers_ReapError(t *testing.T) {
+	t.Parallel()
+
 	api := newMockAPI()
-	api.stopError = errors.New("failed to stop")
+	api.stopError = errFailedToStop
 	c := docker.NewClientWithAPI(api, docker.Config{
 		PoolSize:    2,
 		IdleTimeout: 1 * time.Millisecond,
@@ -347,6 +398,8 @@ func TestReapIdleContainers_ReapError(t *testing.T) {
 }
 
 func TestStartReaper(t *testing.T) {
+	t.Parallel()
+
 	api := newMockAPI()
 	c := docker.NewClientWithAPI(api, docker.Config{
 		PoolSize:    2,
@@ -369,6 +422,8 @@ func TestStartReaper(t *testing.T) {
 }
 
 func TestClose(t *testing.T) {
+	t.Parallel()
+
 	api := newMockAPI()
 	c := docker.NewClientWithAPI(api, docker.Config{})
 
@@ -377,8 +432,10 @@ func TestClose(t *testing.T) {
 }
 
 func TestHasImage_ListError(t *testing.T) {
+	t.Parallel()
+
 	api := newMockAPI()
-	api.listError = errors.New("docker daemon error")
+	api.listError = errDockerDaemon
 	c := docker.NewClientWithAPI(api, docker.Config{})
 
 	_, err := c.HasImage(context.Background(), "alpine:latest")
@@ -386,6 +443,8 @@ func TestHasImage_ListError(t *testing.T) {
 }
 
 func TestReapIdleContainers_WithLogger_Success(t *testing.T) {
+	t.Parallel()
+
 	log := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	api := newMockAPI()
 	c := docker.NewClientWithAPI(api, docker.Config{
@@ -407,9 +466,11 @@ func TestReapIdleContainers_WithLogger_Success(t *testing.T) {
 }
 
 func TestReapIdleContainers_WithLogger_Error(t *testing.T) {
+	t.Parallel()
+
 	log := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	api := newMockAPI()
-	api.stopError = errors.New("failed to stop")
+	api.stopError = errFailedToStop
 	c := docker.NewClientWithAPI(api, docker.Config{
 		PoolSize:    2,
 		IdleTimeout: 1 * time.Millisecond,
@@ -428,7 +489,7 @@ func TestReapIdleContainers_WithLogger_Error(t *testing.T) {
 	c.ReapIdleContainers(context.Background())
 }
 
-func TestStartReaper_DefaultInterval(t *testing.T) {
+func TestStartReaper_DefaultInterval(_ *testing.T) {
 	api := newMockAPI()
 	c := docker.NewClientWithAPI(api, docker.Config{
 		PoolSize:    2,

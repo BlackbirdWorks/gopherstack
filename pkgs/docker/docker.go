@@ -43,14 +43,14 @@ const reaperIntervalDivisor = 2
 
 // Config holds configuration for the Docker integration layer.
 type Config struct {
+	// Logger is an optional structured logger.
+	Logger *slog.Logger
 	// PoolSize is the maximum number of warm containers per image.
 	// Defaults to 3.
 	PoolSize int
 	// IdleTimeout is the duration after which an idle container is reaped.
 	// Defaults to 10 minutes.
 	IdleTimeout time.Duration
-	// Logger is an optional structured logger.
-	Logger *slog.Logger
 }
 
 // PooledContainer tracks a container managed by the warm pool.
@@ -68,26 +68,33 @@ type PooledContainer struct {
 // Client is the Gopherstack Docker client. It wraps the Docker SDK and provides
 // image management and a per-image warm container pool.
 type Client struct {
-	mu     sync.Mutex
-	pools  map[string][]*PooledContainer // image → pool
 	cfg    Config
-	docker DockerAPIClient
+	docker APIClient
+	pools  map[string][]*PooledContainer
+	mu     sync.Mutex
 }
 
-// DockerAPIClient is a subset of the Docker SDK client interface used by this package.
+// APIClient is a subset of the Docker SDK client interface used by this package.
 // It is defined as an interface to enable testing without a real Docker daemon.
-type DockerAPIClient interface {
+type APIClient interface {
 	ImagePull(ctx context.Context, refStr string, options image.PullOptions) (io.ReadCloser, error)
 	ImageList(ctx context.Context, options image.ListOptions) ([]image.Summary, error)
-	ContainerCreate(ctx context.Context, cfg *container.Config, hostConfig *container.HostConfig, networkingConfig interface{}, platform interface{}, containerName string) (container.CreateResponse, error)
+	ContainerCreate(
+		ctx context.Context,
+		cfg *container.Config,
+		hostConfig *container.HostConfig,
+		networkingConfig any,
+		platform any,
+		containerName string,
+	) (container.CreateResponse, error)
 	ContainerStart(ctx context.Context, containerID string, options container.StartOptions) error
 	ContainerStop(ctx context.Context, containerID string, options container.StopOptions) error
 	ContainerRemove(ctx context.Context, containerID string, options container.RemoveOptions) error
-	Ping(ctx context.Context) (interface{}, error)
+	Ping(ctx context.Context) (any, error)
 	Close() error
 }
 
-// realDockerClient wraps the standard Docker SDK client to satisfy DockerAPIClient.
+// realDockerClient wraps the standard Docker SDK client to satisfy APIClient.
 type realDockerClient struct {
 	c *client.Client
 }
@@ -100,7 +107,7 @@ func (r *realDockerClient) ImageList(ctx context.Context, options image.ListOpti
 	return r.c.ImageList(ctx, options)
 }
 
-func (r *realDockerClient) ContainerCreate(ctx context.Context, cfg *container.Config, hostConfig *container.HostConfig, _ interface{}, _ interface{}, containerName string) (container.CreateResponse, error) {
+func (r *realDockerClient) ContainerCreate(ctx context.Context, cfg *container.Config, hostConfig *container.HostConfig, _ any, _ any, containerName string) (container.CreateResponse, error) {
 	return r.c.ContainerCreate(ctx, cfg, hostConfig, nil, nil, containerName)
 }
 
@@ -116,7 +123,7 @@ func (r *realDockerClient) ContainerRemove(ctx context.Context, containerID stri
 	return r.c.ContainerRemove(ctx, containerID, options)
 }
 
-func (r *realDockerClient) Ping(ctx context.Context) (interface{}, error) {
+func (r *realDockerClient) Ping(ctx context.Context) (any, error) {
 	return r.c.Ping(ctx)
 }
 
@@ -129,15 +136,15 @@ func (r *realDockerClient) Close() error {
 func NewClient(cfg Config) (*Client, error) {
 	sdkClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrDockerUnavailable, err)
+		return nil, fmt.Errorf("%w: %w", ErrDockerUnavailable, err)
 	}
 
 	return NewClientWithAPI(&realDockerClient{c: sdkClient}, cfg), nil
 }
 
-// NewClientWithAPI creates a Client with an injected DockerAPIClient.
+// NewClientWithAPI creates a Client with an injected APIClient.
 // This is primarily intended for testing; production code should use NewClient.
-func NewClientWithAPI(api DockerAPIClient, cfg Config) *Client {
+func NewClientWithAPI(api APIClient, cfg Config) *Client {
 	if cfg.PoolSize <= 0 {
 		cfg.PoolSize = defaultPoolSize
 	}
@@ -157,7 +164,7 @@ func NewClientWithAPI(api DockerAPIClient, cfg Config) *Client {
 func (c *Client) Ping(ctx context.Context) error {
 	_, err := c.docker.Ping(ctx)
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrDockerUnavailable, err)
+		return fmt.Errorf("%w: %w", ErrDockerUnavailable, err)
 	}
 
 	return nil
@@ -226,8 +233,8 @@ func (c *Client) CreateAndStart(ctx context.Context, spec ContainerSpec) (string
 		return "", fmt.Errorf("container create %q: %w", spec.Image, err)
 	}
 
-	if err := c.docker.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
-		return "", fmt.Errorf("container start %q: %w", resp.ID, err)
+	if startErr := c.docker.ContainerStart(ctx, resp.ID, container.StartOptions{}); startErr != nil {
+		return "", fmt.Errorf("container start %q: %w", resp.ID, startErr)
 	}
 
 	return resp.ID, nil
@@ -329,12 +336,12 @@ func (c *Client) ReapIdleContainers(ctx context.Context) {
 	for _, entry := range toReap {
 		if err := c.StopAndRemove(ctx, entry.ID); err != nil {
 			if c.cfg.Logger != nil {
-				c.cfg.Logger.Warn("docker: failed to reap idle container",
+				c.cfg.Logger.WarnContext(ctx, "docker: failed to reap idle container",
 					"id", entry.ID, "image", entry.Image, "error", err)
 			}
 		} else {
 			if c.cfg.Logger != nil {
-				c.cfg.Logger.Debug("docker: reaped idle container", "id", entry.ID, "image", entry.Image)
+				c.cfg.Logger.DebugContext(ctx, "docker: reaped idle container", "id", entry.ID, "image", entry.Image)
 			}
 		}
 	}

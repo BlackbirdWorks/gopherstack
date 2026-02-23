@@ -156,7 +156,7 @@ func TestCLI_PortAllocatorEnvVars(t *testing.T) {
 func TestCLI_DNSDefaults(t *testing.T) {
 	cli := parseCLI(t, nil)
 
-	assert.Equal(t, "", cli.DNSListenAddr)
+	assert.Empty(t, cli.DNSListenAddr)
 	assert.Equal(t, "127.0.0.1", cli.DNSResolveIP)
 }
 
@@ -223,8 +223,8 @@ func TestServerStartup_WithDNS(t *testing.T) {
 	cancel()
 
 	select {
-	case err := <-errCh:
-		require.NoError(t, err)
+	case runErr := <-errCh:
+		require.NoError(t, runErr)
 	case <-time.After(5 * time.Second):
 		t.Fatal("server did not shut down within timeout")
 	}

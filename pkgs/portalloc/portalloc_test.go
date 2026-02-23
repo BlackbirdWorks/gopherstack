@@ -12,9 +12,12 @@ import (
 )
 
 func TestNew_InvalidRange(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
-		start, end int
-		name       string
+		name  string
+		start int
+		end   int
 	}{
 		{name: "zero start", start: 0, end: 10},
 		{name: "end <= start", start: 10, end: 10},
@@ -23,19 +26,25 @@ func TestNew_InvalidRange(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			_, err := portalloc.New(tt.start, tt.end)
-			assert.Error(t, err)
+			assert.ErrorIs(t, err, portalloc.ErrInvalidRange)
 		})
 	}
 }
 
 func TestNew_ValidRange(t *testing.T) {
+	t.Parallel()
+
 	a, err := portalloc.New(10000, 10100)
 	require.NoError(t, err)
 	assert.NotNil(t, a)
 }
 
 func TestAcquireRelease(t *testing.T) {
+	t.Parallel()
+
 	a, err := portalloc.New(10000, 10003)
 	require.NoError(t, err)
 
@@ -58,6 +67,8 @@ func TestAcquireRelease(t *testing.T) {
 }
 
 func TestAcquire_Exhausted(t *testing.T) {
+	t.Parallel()
+
 	a, err := portalloc.New(10000, 10002)
 	require.NoError(t, err)
 
@@ -72,6 +83,8 @@ func TestAcquire_Exhausted(t *testing.T) {
 }
 
 func TestRelease_NotAllocated(t *testing.T) {
+	t.Parallel()
+
 	a, err := portalloc.New(10000, 10010)
 	require.NoError(t, err)
 
@@ -80,6 +93,8 @@ func TestRelease_NotAllocated(t *testing.T) {
 }
 
 func TestAllocated_Snapshot(t *testing.T) {
+	t.Parallel()
+
 	a, err := portalloc.New(10000, 10010)
 	require.NoError(t, err)
 
@@ -93,6 +108,8 @@ func TestAllocated_Snapshot(t *testing.T) {
 }
 
 func TestIsListening(t *testing.T) {
+	t.Parallel()
+
 	// Start a real TCP listener on a random free port.
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
@@ -104,6 +121,8 @@ func TestIsListening(t *testing.T) {
 }
 
 func TestConcurrentAcquire(t *testing.T) {
+	t.Parallel()
+
 	const total = 50
 	a, err := portalloc.New(20000, 20000+total)
 	require.NoError(t, err)

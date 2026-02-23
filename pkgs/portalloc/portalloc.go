@@ -4,10 +4,13 @@
 package portalloc
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"sync"
+	"time"
 )
 
 // ErrNoPortsAvailable is returned when the pool has no free ports.
@@ -16,20 +19,23 @@ var ErrNoPortsAvailable = errors.New("no ports available in range")
 // ErrPortNotAllocated is returned when trying to release a port that was not allocated.
 var ErrPortNotAllocated = errors.New("port not allocated")
 
+// ErrInvalidRange is returned when the port range is invalid.
+var ErrInvalidRange = errors.New("invalid port range: start must be ≥ 1 and end > start")
+
 // Allocator manages a pool of ports within a configurable range.
 // It is safe for concurrent use.
 type Allocator struct {
-	mu    sync.Mutex
+	used  map[int]string
 	start int
 	end   int
-	used  map[int]string // port → label
+	mu    sync.Mutex
 }
 
 // New creates a new Allocator for the half-open range [start, end).
 // start must be ≥ 1 and end must be > start.
 func New(start, end int) (*Allocator, error) {
 	if start < 1 || end <= start {
-		return nil, fmt.Errorf("invalid port range [%d, %d): start must be ≥ 1 and end > start", start, end)
+		return nil, fmt.Errorf("[%d, %d): %w", start, end, ErrInvalidRange)
 	}
 
 	return &Allocator{
@@ -48,6 +54,7 @@ func (a *Allocator) Acquire(label string) (int, error) {
 	for port := a.start; port < a.end; port++ {
 		if _, taken := a.used[port]; !taken {
 			a.used[port] = label
+
 			return port, nil
 		}
 	}
@@ -86,9 +93,7 @@ func (a *Allocator) Allocated() map[int]string {
 	defer a.mu.Unlock()
 
 	out := make(map[int]string, len(a.used))
-	for port, label := range a.used {
-		out[port] = label
-	}
+	maps.Copy(out, a.used)
 
 	return out
 }
@@ -105,7 +110,12 @@ func (a *Allocator) Available() int {
 // zombie listeners — ports that are allocated but no longer serving connections.
 // Returns true if a listener is detected.
 func IsListening(addr string) bool {
-	conn, err := net.Dial("tcp", addr)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	var d net.Dialer
+
+	conn, err := d.DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return false
 	}

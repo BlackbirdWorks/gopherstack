@@ -15,9 +15,9 @@ const defaultTimeout = 30 * time.Second
 
 // Runner executes a list of init scripts on startup.
 type Runner struct {
+	log     *slog.Logger
 	scripts []string
 	timeout time.Duration
-	log     *slog.Logger
 }
 
 // New creates a new Runner.
