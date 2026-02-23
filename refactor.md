@@ -68,7 +68,6 @@ Audit of Gopherstack against LocalStack free-tier parity. Items are grouped by t
 ### Missing Features
 
 - [x] **SNS → SQS delivery** — Publishing to a topic with SQS subscriptions does not enqueue messages into the target queue. This is the most critical cross-service gap.
-- [ ] **SNS → Lambda invocation** — Not implemented.
 - [x] **ConfirmSubscription** — No action handler for confirming HTTP/HTTPS endpoint subscriptions.
 - [ ] **TagResource / UntagResource / ListTagsForResource** — No tagging support.
 
@@ -187,7 +186,7 @@ The `REGION` env var already exists (`cli.go:76`) and is passed to the AWS SDK c
 
 - [ ] **SNS → SQS message delivery** — Highest priority. Event-driven architectures depend on this.
 - [ ] **DynamoDB Streams → Lambda trigger** — Not simulated (acknowledged as out of scope for now).
-- [ ] **S3 Event Notifications → SQS/SNS/Lambda** — Not simulated.
+- [ ] **S3 Event Notifications → SQS/SNS/Lambda** — Not simulated, stub this but don't implement any Lambda features. 
 - [ ] **No cross-service ARN validation** — SNS subscriptions referencing SQS queue ARNs are never verified against actual SQS state. Same for SQS redrive policies referencing DLQ ARNs.
 
 ### Proposed Inter-Service Event Bus
