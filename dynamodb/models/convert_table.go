@@ -339,3 +339,57 @@ func FromSDKItemCollectionMetrics(icm *types.ItemCollectionMetrics) *ItemCollect
 		SizeEstimateRangeGB: icm.SizeEstimateRangeGB,
 	}
 }
+
+// ToSDKTagResourceInput converts the wire-format TagResourceInput to an AWS SDK input.
+func ToSDKTagResourceInput(input *TagResourceInput) (*dynamodb.TagResourceInput, error) {
+	sdkTags := make([]types.Tag, len(input.Tags))
+	for i, t := range input.Tags {
+		tag := t // capture loop var
+		sdkTags[i] = types.Tag{Key: &tag.Key, Value: &tag.Value}
+	}
+
+	return &dynamodb.TagResourceInput{ResourceArn: &input.ResourceArn, Tags: sdkTags}, nil
+}
+
+// FromSDKTagResourceOutput converts the AWS SDK TagResourceOutput to wire format.
+func FromSDKTagResourceOutput(_ *dynamodb.TagResourceOutput) *TagResourceOutput {
+	return &TagResourceOutput{}
+}
+
+// ToSDKUntagResourceInput converts the wire-format UntagResourceInput to an AWS SDK input.
+func ToSDKUntagResourceInput(input *UntagResourceInput) (*dynamodb.UntagResourceInput, error) {
+	return &dynamodb.UntagResourceInput{ResourceArn: &input.ResourceArn, TagKeys: input.TagKeys}, nil
+}
+
+// FromSDKUntagResourceOutput converts the AWS SDK UntagResourceOutput to wire format.
+func FromSDKUntagResourceOutput(_ *dynamodb.UntagResourceOutput) *UntagResourceOutput {
+	return &UntagResourceOutput{}
+}
+
+// ToSDKListTagsOfResourceInput converts the wire-format input to an AWS SDK input.
+func ToSDKListTagsOfResourceInput(input *ListTagsOfResourceInput) (*dynamodb.ListTagsOfResourceInput, error) {
+	out := &dynamodb.ListTagsOfResourceInput{ResourceArn: &input.ResourceArn}
+	if input.NextToken != "" {
+		out.NextToken = &input.NextToken
+	}
+
+	return out, nil
+}
+
+// FromSDKListTagsOfResourceOutput converts the AWS SDK output to wire format.
+func FromSDKListTagsOfResourceOutput(output *dynamodb.ListTagsOfResourceOutput) *ListTagsOfResourceOutput {
+	tags := make([]Tag, len(output.Tags))
+	for i, t := range output.Tags {
+		tags[i] = Tag{
+			Key:   ptrconv.String(t.Key),
+			Value: ptrconv.String(t.Value),
+		}
+	}
+
+	result := &ListTagsOfResourceOutput{Tags: tags}
+	if output.NextToken != nil {
+		result.NextToken = *output.NextToken
+	}
+
+	return result
+}

@@ -402,3 +402,41 @@ type TransactGetItemsOutput struct {
 type ItemResponse struct {
 	Item map[string]any `json:"Item,omitempty"`
 }
+
+// --- Tagging ---
+
+// Tag is a key-value pair attached to a DynamoDB resource.
+type Tag struct {
+	Key   string `json:"Key"`
+	Value string `json:"Value"`
+}
+
+// TagResourceInput is the wire format for TagResource.
+type TagResourceInput struct {
+	ResourceArn string `json:"ResourceArn"`
+	Tags        []Tag  `json:"Tags"`
+}
+
+// TagResourceOutput is the wire format for TagResource response (empty body).
+type TagResourceOutput struct{}
+
+// UntagResourceInput is the wire format for UntagResource.
+type UntagResourceInput struct {
+	ResourceArn string   `json:"ResourceArn"`
+	TagKeys     []string `json:"TagKeys"`
+}
+
+// UntagResourceOutput is the wire format for UntagResource response (empty body).
+type UntagResourceOutput struct{}
+
+// ListTagsOfResourceInput is the wire format for ListTagsOfResource.
+type ListTagsOfResourceInput struct {
+	ResourceArn string `json:"ResourceArn"`
+	NextToken   string `json:"NextToken,omitempty"`
+}
+
+// ListTagsOfResourceOutput is the wire format for ListTagsOfResource response.
+type ListTagsOfResourceOutput struct {
+	NextToken string `json:"NextToken,omitempty"`
+	Tags      []Tag  `json:"Tags"`
+}

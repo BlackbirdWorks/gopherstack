@@ -49,21 +49,20 @@ const (
 )
 
 type Table struct {
-	pkIndex   map[string]int
-	pkskIndex map[string]map[string]int
-	// mu is placed before the slice fields so that Items' non-pointer
-	// len+cap words fall outside the GC scan range (176 → 160 pointer bytes).
+	pkIndex                map[string]int
+	pkskIndex              map[string]map[string]int
 	mu                     *lockmetrics.RWMutex
+	Tags                   map[string]string
 	Name                   string
 	TTLAttribute           string
 	StreamViewType         string
 	StreamARN              string
-	KeySchema              []models.KeySchemaElement
 	AttributeDefinitions   []models.AttributeDefinition
 	GlobalSecondaryIndexes []models.GlobalSecondaryIndex
 	LocalSecondaryIndexes  []models.LocalSecondaryIndex
 	Items                  []map[string]any
 	StreamRecords          []StreamRecord
+	KeySchema              []models.KeySchemaElement
 	ProvisionedThroughput  models.ProvisionedThroughputDescription
 	streamSeq              int64
 	StreamsEnabled         bool

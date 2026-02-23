@@ -14,7 +14,7 @@ Audit of Gopherstack against LocalStack free-tier parity. Items are grouped by t
 ### Missing Features
 
 - [x] **UpdateTable** — Cannot modify provisioned throughput, add/remove GSIs, or toggle streams on an existing table.
-- [ ] **TagResource / UntagResource / ListTagsOfResource** — No tagging support for tables.
+- [x] **TagResource / UntagResource / ListTagsOfResource** — No tagging support for tables.
 - [ ] **PartiQL (ExecuteStatement, BatchExecuteStatement)** — LocalStack free tier supports this.
 
 ### Out of Scope
