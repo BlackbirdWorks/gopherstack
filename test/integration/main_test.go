@@ -21,8 +21,13 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodbstreams"
+	kmssdk "github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	secretsmanagersdk "github.com/aws/aws-sdk-go-v2/service/secretsmanager"
+	snssdk "github.com/aws/aws-sdk-go-v2/service/sns"
+	sqssdk "github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
+	stssdk "github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/docker/docker/api/types/build"
 	"github.com/google/go-cmp/cmp"
 	"github.com/testcontainers/testcontainers-go"
@@ -200,6 +205,106 @@ func createSSMClient(t *testing.T) *ssm.Client {
 	}
 
 	return ssm.NewFromConfig(cfg, func(o *ssm.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createSQSClient returns an SQS client pointed at the shared test container.
+func createSQSClient(t *testing.T) *sqssdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		t.Fatalf("unable to load SDK config: %v", err)
+	}
+
+	return sqssdk.NewFromConfig(cfg, func(o *sqssdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createSNSClient returns an SNS client pointed at the shared test container.
+func createSNSClient(t *testing.T) *snssdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		t.Fatalf("unable to load SDK config: %v", err)
+	}
+
+	return snssdk.NewFromConfig(cfg, func(o *snssdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createSTSClient returns an STS client pointed at the shared test container.
+func createSTSClient(t *testing.T) *stssdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		t.Fatalf("unable to load SDK config: %v", err)
+	}
+
+	return stssdk.NewFromConfig(cfg, func(o *stssdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createKMSClient returns a KMS client pointed at the shared test container.
+func createKMSClient(t *testing.T) *kmssdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		t.Fatalf("unable to load SDK config: %v", err)
+	}
+
+	return kmssdk.NewFromConfig(cfg, func(o *kmssdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createSecretsManagerClient returns a Secrets Manager client pointed at the shared test container.
+func createSecretsManagerClient(t *testing.T) *secretsmanagersdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		t.Fatalf("unable to load SDK config: %v", err)
+	}
+
+	return secretsmanagersdk.NewFromConfig(cfg, func(o *secretsmanagersdk.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
