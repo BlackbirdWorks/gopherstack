@@ -746,7 +746,7 @@ func TestHandlerSendMessageBatchTooManyEntries(t *testing.T) {
 	queueURL := doCreateQueue(t, h, "toomany-batch-queue")
 
 	entries := make([]map[string]any, 10)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		entries[i] = map[string]any{
 			"Id":          fmt.Sprintf("msg%d", i+1),
 			"MessageBody": "body",

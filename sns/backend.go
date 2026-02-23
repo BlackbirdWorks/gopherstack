@@ -513,7 +513,7 @@ func deliverHTTP(endpoint, body string) {
 	}
 
 	// HTTP client used for SNS HTTP endpoint delivery, not internet requests
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := http.DefaultClient.Do(req) //nolint:gosec // subscriber URL is a configured endpoint, not user input
 	if err != nil {
 		return
 	}

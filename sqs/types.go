@@ -53,8 +53,6 @@ const (
 	attrValTrue  = "true"
 	attrValFalse = "false"
 	attrValZero  = "0"
-
-	errTypeSender = "Sender"
 )
 
 // MessageAttributeValue holds a message attribute value.

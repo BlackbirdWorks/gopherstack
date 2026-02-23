@@ -51,7 +51,7 @@ type Credentials struct {
 	AccessKeyID     string `xml:"AccessKeyId"`
 	SecretAccessKey string `xml:"SecretAccessKey"`
 	// SessionToken is part of AWS Credentials struct, not a secret being stored
-	SessionToken string `xml:"SessionToken"` // Part of AWS Credentials, required for AssumeRole responses
+	SessionToken string `xml:"SessionToken"` //nolint:gosec // Part of AWS Credentials, required for AssumeRole responses
 	Expiration   string `xml:"Expiration"`
 }
 

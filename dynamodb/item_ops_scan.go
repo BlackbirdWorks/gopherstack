@@ -172,41 +172,7 @@ func (db *InMemoryDB) doScan(
 	}
 
 	// Apply ExclusiveStartKey: skip items up to and including the start-key item.
-	if len(input.ExclusiveStartKey) > 0 {
-		startKey := models.FromSDKItem(input.ExclusiveStartKey)
-		pkName := pkDef.AttributeName
-		skName := skDef.AttributeName
-
-		startPK := fmt.Sprintf("%v", dynamoattr.UnwrapAttributeValue(startKey[pkName]))
-		var startSK string
-		if skName != "" {
-			startSK = fmt.Sprintf("%v", dynamoattr.UnwrapAttributeValue(startKey[skName]))
-		}
-
-		skipUntil := -1
-
-		for i, item := range candidate {
-			itemPK := fmt.Sprintf("%v", dynamoattr.UnwrapAttributeValue(item[pkName]))
-			if itemPK != startPK {
-				continue
-			}
-
-			if skName == "" {
-				skipUntil = i
-				break
-			}
-
-			itemSK := fmt.Sprintf("%v", dynamoattr.UnwrapAttributeValue(item[skName]))
-			if itemSK == startSK {
-				skipUntil = i
-				break
-			}
-		}
-
-		if skipUntil >= 0 {
-			candidate = candidate[skipUntil+1:]
-		}
-	}
+	candidate = applyExclusiveStartKey(candidate, input.ExclusiveStartKey, pkDef, skDef)
 
 	// Apply limit and track LastEvaluatedKey.
 	var lastKey map[string]any
@@ -314,4 +280,53 @@ func (db *InMemoryDB) shouldIncludeInScan(
 	}
 
 	return true
+}
+
+func applyExclusiveStartKey(
+	candidate []map[string]any,
+	exclusiveStartKey map[string]types.AttributeValue,
+	pkDef, skDef models.KeySchemaElement,
+) []map[string]any {
+	if len(exclusiveStartKey) == 0 {
+		return candidate
+	}
+
+	startKey := models.FromSDKItem(exclusiveStartKey)
+	pkName := pkDef.AttributeName
+	skName := skDef.AttributeName
+
+	startPK := fmt.Sprintf("%v", dynamoattr.UnwrapAttributeValue(startKey[pkName]))
+
+	var startSK string
+	if skName != "" {
+		startSK = fmt.Sprintf("%v", dynamoattr.UnwrapAttributeValue(startKey[skName]))
+	}
+
+	skipUntil := -1
+
+	for i, item := range candidate {
+		itemPK := fmt.Sprintf("%v", dynamoattr.UnwrapAttributeValue(item[pkName]))
+		if itemPK != startPK {
+			continue
+		}
+
+		if skName == "" {
+			skipUntil = i
+
+			break
+		}
+
+		itemSK := fmt.Sprintf("%v", dynamoattr.UnwrapAttributeValue(item[skName]))
+		if itemSK == startSK {
+			skipUntil = i
+
+			break
+		}
+	}
+
+	if skipUntil >= 0 {
+		return candidate[skipUntil+1:]
+	}
+
+	return candidate
 }

@@ -108,7 +108,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		QueueURL string `json:"QueueUrl"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
 		return ""
 	}
 
@@ -145,6 +145,8 @@ func (h *Handler) Handler() echo.HandlerFunc {
 }
 
 // dispatch routes the action to the appropriate handler method.
+//
+//nolint:cyclop // all cases are simple one-liner dispatches; extraction would add noise without reducing complexity
 func (h *Handler) dispatch(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -213,8 +215,8 @@ type jsonQueueURLReq struct {
 }
 
 type jsonGetQueueAttributesReq struct {
-	AttributeNames []string `json:"AttributeNames"`
 	QueueURL       string   `json:"QueueUrl"`
+	AttributeNames []string `json:"AttributeNames"`
 }
 
 type jsonSetQueueAttributesReq struct {
@@ -238,11 +240,11 @@ type jsonSendMessageReq struct {
 }
 
 type jsonReceiveMessageReq struct {
+	VisibilityTimeout     *int     `json:"VisibilityTimeout"`
 	QueueURL              string   `json:"QueueUrl"`
 	AttributeNames        []string `json:"AttributeNames"`
 	MessageAttributeNames []string `json:"MessageAttributeNames"`
 	MaxNumberOfMessages   int      `json:"MaxNumberOfMessages"`
-	VisibilityTimeout     *int     `json:"VisibilityTimeout"`
 	WaitTimeSeconds       int      `json:"WaitTimeSeconds"`
 }
 
@@ -309,8 +311,8 @@ type jsonQueueURLResp struct {
 }
 
 type jsonListQueuesResp struct {
-	QueueURLs []string `json:"QueueUrls"`
 	NextToken string   `json:"NextToken,omitempty"`
+	QueueURLs []string `json:"QueueUrls"`
 }
 
 type jsonSendMessageResp struct {
@@ -734,6 +736,7 @@ func (h *Handler) handleSendMessageBatch(
 	}
 
 	for _, f := range out.Failed {
+		//nolint:staticcheck // struct tags differ; type conversion not possible
 		result.Failed = append(result.Failed, jsonBatchFailure{
 			ID:          f.ID,
 			Code:        f.Code,
@@ -761,6 +764,7 @@ func (h *Handler) handleDeleteMessageBatch(
 
 	entries := make([]DeleteMessageBatchEntry, 0, len(req.Entries))
 	for _, e := range req.Entries {
+		//nolint:staticcheck // struct tags differ; type conversion not possible
 		entries = append(entries, DeleteMessageBatchEntry{
 			ID:            e.ID,
 			ReceiptHandle: e.ReceiptHandle,
@@ -787,6 +791,7 @@ func (h *Handler) handleDeleteMessageBatch(
 	}
 
 	for _, f := range out.Failed {
+		//nolint:staticcheck // struct tags differ; type conversion not possible
 		result.Failed = append(result.Failed, jsonBatchFailure{
 			ID:          f.ID,
 			Code:        f.Code,
@@ -814,6 +819,7 @@ func (h *Handler) handleChangeMessageVisibilityBatch(
 
 	entries := make([]ChangeMessageVisibilityBatchRequestEntry, 0, len(req.Entries))
 	for _, e := range req.Entries {
+		//nolint:staticcheck // struct tags differ; type conversion not possible
 		entries = append(entries, ChangeMessageVisibilityBatchRequestEntry{
 			ID:                e.ID,
 			ReceiptHandle:     e.ReceiptHandle,
@@ -841,6 +847,7 @@ func (h *Handler) handleChangeMessageVisibilityBatch(
 	}
 
 	for _, f := range out.Failed {
+		//nolint:staticcheck // struct tags differ; type conversion not possible
 		result.Failed = append(result.Failed, jsonBatchFailure{
 			ID:          f.ID,
 			Code:        f.Code,
@@ -1022,6 +1029,7 @@ func toMessageAttributeValues(attrs map[string]jsonMsgAttr) map[string]MessageAt
 	result := make(map[string]MessageAttributeValue, len(attrs))
 
 	for k, v := range attrs {
+		//nolint:staticcheck // struct tags differ; type conversion not possible
 		result[k] = MessageAttributeValue{
 			DataType:    v.DataType,
 			StringValue: v.StringValue,
@@ -1037,7 +1045,7 @@ func toJSONMsgAttrs(attrs map[string]MessageAttributeValue) map[string]jsonMsgAt
 	result := make(map[string]jsonMsgAttr, len(attrs))
 
 	for k, v := range attrs {
-		result[k] = jsonMsgAttr{
+		result[k] = jsonMsgAttr{ //nolint:staticcheck // types have same fields but different struct tags
 			DataType:    v.DataType,
 			StringValue: v.StringValue,
 			BinaryValue: v.BinaryValue,
