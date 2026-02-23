@@ -54,6 +54,8 @@ const (
 	checksumSHA1    = "SHA1"
 	checksumSHA256  = "SHA256"
 	storageStandard = "STANDARD"
+
+	maxDeleteObjects = 1000
 )
 
 // S3Handler implements the S3-compatible service for object storage operations.

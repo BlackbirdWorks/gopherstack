@@ -221,8 +221,8 @@ func (h *S3Handler) putObject(
 		return
 	}
 
-	if contentMD5 := r.Header.Get("Content-MD5"); contentMD5 != "" {
-		decoded, decErr := base64.StdEncoding.DecodeString(contentMD5)
+	if contentMD5Header := r.Header.Get("Content-MD5"); contentMD5Header != "" {
+		decoded, decErr := base64.StdEncoding.DecodeString(contentMD5Header)
 		if decErr != nil || len(decoded) != md5.Size { //nolint:gosec // MD5 required for S3 spec compliance
 			httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
 				Code:    "BadDigest",
@@ -580,7 +580,6 @@ func (h *S3Handler) deleteObjects(
 		return
 	}
 
-	const maxDeleteObjects = 1000
 	if len(req.Objects) > maxDeleteObjects {
 		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
 			Code:    "InvalidArgument",

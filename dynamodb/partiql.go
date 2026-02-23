@@ -12,7 +12,8 @@ import (
 )
 
 // fromClauseRegex extracts the table name from a SELECT ... FROM "tableName" PartiQL statement.
-var fromClauseRegex = regexp.MustCompile(`(?i)FROM\s+"(\w+)"`)
+// Supports DynamoDB table names: alphanumeric, hyphen, dot, and underscore.
+var fromClauseRegex = regexp.MustCompile(`(?i)FROM\s+"([\w.\-]+)"`)
 
 // executeStatementRequest is the wire format for ExecuteStatement.
 type executeStatementRequest struct {
