@@ -119,6 +119,52 @@ type ProvisionedThroughput struct {
 	WriteCapacityUnits *int64 `json:"WriteCapacityUnits"`
 }
 
+// UpdateTableInput is the wire-format for a DynamoDB UpdateTable request.
+type UpdateTableInput struct {
+	ProvisionedThroughput       *ProvisionedThroughput       `json:"ProvisionedThroughput,omitempty"`
+	StreamSpecification         *StreamSpecificationInput    `json:"StreamSpecification,omitempty"`
+	TableName                   string                       `json:"TableName"`
+	AttributeDefinitions        []AttributeDefinition        `json:"AttributeDefinitions,omitempty"`
+	GlobalSecondaryIndexUpdates []GlobalSecondaryIndexUpdate `json:"GlobalSecondaryIndexUpdates,omitempty"`
+}
+
+// GlobalSecondaryIndexUpdate describes a single GSI change.
+type GlobalSecondaryIndexUpdate struct {
+	Create *CreateGlobalSecondaryIndexAction `json:"Create,omitempty"`
+	Update *UpdateGlobalSecondaryIndexAction `json:"Update,omitempty"`
+	Delete *DeleteGlobalSecondaryIndexAction `json:"Delete,omitempty"`
+}
+
+// CreateGlobalSecondaryIndexAction adds a new GSI.
+type CreateGlobalSecondaryIndexAction struct {
+	ProvisionedThroughput *ProvisionedThroughput `json:"ProvisionedThroughput,omitempty"`
+	IndexName             string                 `json:"IndexName"`
+	Projection            Projection             `json:"Projection"`
+	KeySchema             []KeySchemaElement     `json:"KeySchema"`
+}
+
+// UpdateGlobalSecondaryIndexAction updates the throughput of an existing GSI.
+type UpdateGlobalSecondaryIndexAction struct {
+	ProvisionedThroughput ProvisionedThroughput `json:"ProvisionedThroughput"`
+	IndexName             string                `json:"IndexName"`
+}
+
+// DeleteGlobalSecondaryIndexAction removes an existing GSI.
+type DeleteGlobalSecondaryIndexAction struct {
+	IndexName string `json:"IndexName"`
+}
+
+// StreamSpecificationInput is the stream spec used in UpdateTable requests.
+type StreamSpecificationInput struct {
+	StreamViewType string `json:"StreamViewType,omitempty"`
+	StreamEnabled  bool   `json:"StreamEnabled"`
+}
+
+// UpdateTableOutput is the wire-format for a DynamoDB UpdateTable response.
+type UpdateTableOutput struct {
+	TableDescription TableDescription `json:"TableDescription"`
+}
+
 type ListTablesInput struct {
 	Limit int `json:"Limit"`
 }

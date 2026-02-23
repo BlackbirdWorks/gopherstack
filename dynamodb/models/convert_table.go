@@ -105,6 +105,82 @@ func FromSDKListTablesOutput(output *dynamodb.ListTablesOutput) *ListTablesOutpu
 	}
 }
 
+// ToSDKUpdateTableInput converts the wire-format UpdateTableInput to an AWS SDK input.
+func ToSDKUpdateTableInput(input *UpdateTableInput) (*dynamodb.UpdateTableInput, error) {
+	out := &dynamodb.UpdateTableInput{
+		TableName: &input.TableName,
+	}
+
+	if len(input.AttributeDefinitions) > 0 {
+		out.AttributeDefinitions = ToSDKAttributeDefinitions(input.AttributeDefinitions)
+	}
+
+	if input.ProvisionedThroughput != nil {
+		out.ProvisionedThroughput = &types.ProvisionedThroughput{
+			ReadCapacityUnits:  input.ProvisionedThroughput.ReadCapacityUnits,
+			WriteCapacityUnits: input.ProvisionedThroughput.WriteCapacityUnits,
+		}
+	}
+
+	if input.StreamSpecification != nil {
+		out.StreamSpecification = &types.StreamSpecification{
+			StreamEnabled:  &input.StreamSpecification.StreamEnabled,
+			StreamViewType: types.StreamViewType(input.StreamSpecification.StreamViewType),
+		}
+	}
+
+	gsiUpdates := make([]types.GlobalSecondaryIndexUpdate, 0, len(input.GlobalSecondaryIndexUpdates))
+
+	for _, u := range input.GlobalSecondaryIndexUpdates {
+		update := types.GlobalSecondaryIndexUpdate{}
+
+		switch {
+		case u.Create != nil:
+			sdkCreate := &types.CreateGlobalSecondaryIndexAction{
+				IndexName:  &u.Create.IndexName,
+				KeySchema:  ToSDKKeySchema(u.Create.KeySchema),
+				Projection: ToSDKProjection(u.Create.Projection),
+			}
+
+			if u.Create.ProvisionedThroughput != nil {
+				sdkCreate.ProvisionedThroughput = &types.ProvisionedThroughput{
+					ReadCapacityUnits:  u.Create.ProvisionedThroughput.ReadCapacityUnits,
+					WriteCapacityUnits: u.Create.ProvisionedThroughput.WriteCapacityUnits,
+				}
+			}
+
+			update.Create = sdkCreate
+
+		case u.Update != nil:
+			update.Update = &types.UpdateGlobalSecondaryIndexAction{
+				IndexName: &u.Update.IndexName,
+				ProvisionedThroughput: &types.ProvisionedThroughput{
+					ReadCapacityUnits:  u.Update.ProvisionedThroughput.ReadCapacityUnits,
+					WriteCapacityUnits: u.Update.ProvisionedThroughput.WriteCapacityUnits,
+				},
+			}
+
+		case u.Delete != nil:
+			update.Delete = &types.DeleteGlobalSecondaryIndexAction{
+				IndexName: &u.Delete.IndexName,
+			}
+		}
+
+		gsiUpdates = append(gsiUpdates, update)
+	}
+
+	out.GlobalSecondaryIndexUpdates = gsiUpdates
+
+	return out, nil
+}
+
+// FromSDKUpdateTableOutput converts the AWS SDK UpdateTableOutput to wire format.
+func FromSDKUpdateTableOutput(output *dynamodb.UpdateTableOutput) *UpdateTableOutput {
+	return &UpdateTableOutput{
+		TableDescription: FromSDKTableDescription(output.TableDescription),
+	}
+}
+
 func ToSDKUpdateTimeToLiveInput(input *UpdateTimeToLiveInput) *dynamodb.UpdateTimeToLiveInput {
 	return &dynamodb.UpdateTimeToLiveInput{
 		TableName: &input.TableName,

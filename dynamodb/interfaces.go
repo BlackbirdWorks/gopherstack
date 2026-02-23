@@ -17,6 +17,10 @@ type StorageBackend interface {
 		*dynamodb.DescribeTableInput,
 	) (*dynamodb.DescribeTableOutput, error)
 	ListTables(context.Context, *dynamodb.ListTablesInput) (*dynamodb.ListTablesOutput, error)
+	UpdateTable(
+		context.Context,
+		*dynamodb.UpdateTableInput,
+	) (*dynamodb.UpdateTableOutput, error)
 	UpdateTimeToLive(
 		context.Context,
 		*dynamodb.UpdateTimeToLiveInput,

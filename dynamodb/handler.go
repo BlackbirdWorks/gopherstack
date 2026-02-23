@@ -123,6 +123,7 @@ func (h *DynamoDBHandler) GetSupportedOperations() []string {
 		"TransactGetItems",
 		"TransactWriteItems",
 		"UpdateItem",
+		"UpdateTable",
 		"UpdateTimeToLive",
 	}
 }
@@ -250,6 +251,7 @@ func (h *DynamoDBHandler) dispatch(ctx context.Context, action string, body []by
 		"DeleteTable",
 		"DescribeTable",
 		"ListTables",
+		"UpdateTable",
 		"UpdateTimeToLive",
 		"DescribeTimeToLive":
 		return h.dispatchTableOps(ctx, action, body)
@@ -365,6 +367,11 @@ func (h *DynamoDBHandler) dispatchTableOps(ctx context.Context, action string, b
 		return handleOp(
 			ctx, action, body,
 			models.ToSDKListTablesInput, h.Backend.ListTables, models.FromSDKListTablesOutput,
+		)
+	case "UpdateTable":
+		return handleOpErr(
+			ctx, action, body,
+			models.ToSDKUpdateTableInput, h.Backend.UpdateTable, models.FromSDKUpdateTableOutput,
 		)
 	case "UpdateTimeToLive":
 		return handleOp(

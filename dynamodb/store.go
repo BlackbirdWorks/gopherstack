@@ -64,6 +64,7 @@ type Table struct {
 	LocalSecondaryIndexes  []models.LocalSecondaryIndex
 	Items                  []map[string]any
 	StreamRecords          []StreamRecord
+	ProvisionedThroughput  models.ProvisionedThroughputDescription
 	streamSeq              int64
 	StreamsEnabled         bool
 }

@@ -54,6 +54,20 @@ func (db *InMemoryDB) CreateTable(
 		LocalSecondaryIndexes:  models.FromSDKLocalSecondaryIndexes(input.LocalSecondaryIndexes),
 		Items:                  make([]map[string]any, 0),
 		mu:                     lockmetrics.New("ddb.table." + tableName),
+		ProvisionedThroughput: models.ProvisionedThroughputDescription{
+			ReadCapacityUnits:  models.DefaultReadCapacity,
+			WriteCapacityUnits: models.DefaultWriteCapacity,
+		},
+	}
+
+	if input.ProvisionedThroughput != nil {
+		if input.ProvisionedThroughput.ReadCapacityUnits != nil {
+			newTable.ProvisionedThroughput.ReadCapacityUnits = int(*input.ProvisionedThroughput.ReadCapacityUnits)
+		}
+
+		if input.ProvisionedThroughput.WriteCapacityUnits != nil {
+			newTable.ProvisionedThroughput.WriteCapacityUnits = int(*input.ProvisionedThroughput.WriteCapacityUnits)
+		}
 	}
 	newTable.initializeIndexes()
 
@@ -226,6 +240,7 @@ func (db *InMemoryDB) DescribeTable(
 	lsiList := make([]models.LocalSecondaryIndex, len(table.LocalSecondaryIndexes))
 	copy(lsiList, table.LocalSecondaryIndexes)
 	itemCount := int64(len(table.Items))
+	pt := table.ProvisionedThroughput
 	table.mu.RUnlock()
 
 	// Build index descriptions outside lock
@@ -269,8 +284,8 @@ func (db *InMemoryDB) DescribeTable(
 	sdkKeySchema := models.ToSDKKeySchema(keySchema)
 	sdkAttrDefs := models.ToSDKAttributeDefinitions(attrDefs)
 
-	rcu := int64(models.DefaultReadCapacity)
-	wcu := int64(models.DefaultWriteCapacity)
+	rcu := int64(pt.ReadCapacityUnits)
+	wcu := int64(pt.WriteCapacityUnits)
 
 	return &dynamodb.DescribeTableOutput{
 		Table: &types.TableDescription{
@@ -281,6 +296,167 @@ func (db *InMemoryDB) DescribeTable(
 			GlobalSecondaryIndexes: sdkGSIs,
 			LocalSecondaryIndexes:  sdkLSIs,
 			ItemCount:              &itemCount,
+			ProvisionedThroughput: &types.ProvisionedThroughputDescription{
+				ReadCapacityUnits:  &rcu,
+				WriteCapacityUnits: &wcu,
+			},
+		},
+	}, nil
+}
+
+// UpdateTable modifies a DynamoDB table's provisioned throughput, GSI list, and stream spec.
+func (db *InMemoryDB) UpdateTable(
+	ctx context.Context,
+	input *dynamodb.UpdateTableInput,
+) (*dynamodb.UpdateTableOutput, error) {
+	tableName := aws.ToString(input.TableName)
+	if tableName == "" {
+		return nil, NewValidationException("Table name is required")
+	}
+
+	table, err := db.getTable(ctx, tableName)
+	if err != nil {
+		return nil, err
+	}
+
+	table.mu.Lock("UpdateTable")
+	defer table.mu.Unlock()
+
+	// Update provisioned throughput.
+	if pt := input.ProvisionedThroughput; pt != nil {
+		if pt.ReadCapacityUnits != nil {
+			table.ProvisionedThroughput.ReadCapacityUnits = int(*pt.ReadCapacityUnits)
+		}
+
+		if pt.WriteCapacityUnits != nil {
+			table.ProvisionedThroughput.WriteCapacityUnits = int(*pt.WriteCapacityUnits)
+		}
+	}
+
+	// Update attribute definitions (merge: add new, keep existing).
+	if len(input.AttributeDefinitions) > 0 {
+		existing := make(map[string]struct{}, len(table.AttributeDefinitions))
+		for _, ad := range table.AttributeDefinitions {
+			existing[ad.AttributeName] = struct{}{}
+		}
+
+		for _, sdkAD := range input.AttributeDefinitions {
+			name := aws.ToString(sdkAD.AttributeName)
+			if _, found := existing[name]; !found {
+				table.AttributeDefinitions = append(table.AttributeDefinitions,
+					models.AttributeDefinition{
+						AttributeName: name,
+						AttributeType: string(sdkAD.AttributeType),
+					})
+			}
+		}
+	}
+
+	// Apply GSI updates.
+	for _, u := range input.GlobalSecondaryIndexUpdates {
+		switch {
+		case u.Create != nil:
+			idxName := aws.ToString(u.Create.IndexName)
+			newGSI := models.GlobalSecondaryIndex{
+				IndexName:  idxName,
+				KeySchema:  models.FromSDKKeySchema(u.Create.KeySchema),
+				Projection: models.FromSDKProjection(u.Create.Projection),
+			}
+
+			if u.Create.ProvisionedThroughput != nil {
+				newGSI.ProvisionedThroughput = models.ProvisionedThroughput{
+					ReadCapacityUnits:  u.Create.ProvisionedThroughput.ReadCapacityUnits,
+					WriteCapacityUnits: u.Create.ProvisionedThroughput.WriteCapacityUnits,
+				}
+			}
+
+			table.GlobalSecondaryIndexes = append(table.GlobalSecondaryIndexes, newGSI)
+			table.initializeIndexes()
+
+		case u.Update != nil:
+			idxName := aws.ToString(u.Update.IndexName)
+			for i, gsi := range table.GlobalSecondaryIndexes {
+				if gsi.IndexName == idxName {
+					if pt := u.Update.ProvisionedThroughput; pt != nil {
+						table.GlobalSecondaryIndexes[i].ProvisionedThroughput = models.ProvisionedThroughput{
+							ReadCapacityUnits:  pt.ReadCapacityUnits,
+							WriteCapacityUnits: pt.WriteCapacityUnits,
+						}
+					}
+
+					break
+				}
+			}
+
+		case u.Delete != nil:
+			idxName := aws.ToString(u.Delete.IndexName)
+			updated := make([]models.GlobalSecondaryIndex, 0, len(table.GlobalSecondaryIndexes)-1)
+
+			for _, gsi := range table.GlobalSecondaryIndexes {
+				if gsi.IndexName != idxName {
+					updated = append(updated, gsi)
+				}
+			}
+
+			table.GlobalSecondaryIndexes = updated
+			table.initializeIndexes()
+		}
+	}
+
+	// Update stream specification.
+	if ss := input.StreamSpecification; ss != nil {
+		if aws.ToBool(ss.StreamEnabled) {
+			table.StreamsEnabled = true
+			table.StreamViewType = string(ss.StreamViewType)
+
+			if table.StreamARN == "" {
+				table.StreamARN = db.buildStreamARN(tableName)
+			}
+		} else {
+			table.StreamsEnabled = false
+			table.StreamViewType = ""
+			table.StreamARN = ""
+		}
+	}
+
+	// Build response — snapshot current table state.
+	pt := table.ProvisionedThroughput
+	rcu := int64(pt.ReadCapacityUnits)
+	wcu := int64(pt.WriteCapacityUnits)
+
+	gsiDescs := make([]types.GlobalSecondaryIndexDescription, 0, len(table.GlobalSecondaryIndexes))
+	for _, gsi := range table.GlobalSecondaryIndexes {
+		rc := int64(models.DefaultReadCapacity)
+		wc := int64(models.DefaultWriteCapacity)
+
+		if gsi.ProvisionedThroughput.ReadCapacityUnits != nil {
+			rc = *gsi.ProvisionedThroughput.ReadCapacityUnits
+		}
+
+		if gsi.ProvisionedThroughput.WriteCapacityUnits != nil {
+			wc = *gsi.ProvisionedThroughput.WriteCapacityUnits
+		}
+
+		sdkGSI := types.GlobalSecondaryIndexDescription{
+			IndexName:   &gsi.IndexName,
+			KeySchema:   models.ToSDKKeySchema(gsi.KeySchema),
+			Projection:  models.ToSDKProjection(gsi.Projection),
+			IndexStatus: types.IndexStatusActive,
+			ProvisionedThroughput: &types.ProvisionedThroughputDescription{
+				ReadCapacityUnits:  &rc,
+				WriteCapacityUnits: &wc,
+			},
+		}
+		gsiDescs = append(gsiDescs, sdkGSI)
+	}
+
+	return &dynamodb.UpdateTableOutput{
+		TableDescription: &types.TableDescription{
+			TableName:              input.TableName,
+			TableStatus:            types.TableStatusActive,
+			KeySchema:              models.ToSDKKeySchema(table.KeySchema),
+			AttributeDefinitions:   models.ToSDKAttributeDefinitions(table.AttributeDefinitions),
+			GlobalSecondaryIndexes: gsiDescs,
 			ProvisionedThroughput: &types.ProvisionedThroughputDescription{
 				ReadCapacityUnits:  &rcu,
 				WriteCapacityUnits: &wcu,
