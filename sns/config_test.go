@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/sns"
 )
@@ -48,7 +49,7 @@ func TestNewInMemoryBackendWithConfig_ARNUsesInjectedAccountAndRegion(t *testing
 
 			b := sns.NewInMemoryBackendWithConfig(tc.accountID, tc.region)
 			topic, err := b.CreateTopic(tc.topic, nil)
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			assert.Equal(t, tc.wantARN, topic.TopicArn)
 		})
 	}
@@ -59,7 +60,7 @@ func TestNewInMemoryBackend_UsesDefaultAccountAndRegion(t *testing.T) {
 
 	b := sns.NewInMemoryBackend()
 	topic, err := b.CreateTopic("default-topic", nil)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.True(t, strings.HasPrefix(topic.TopicArn, "arn:aws:sns:us-east-1:000000000000:"),
 		"default backend should use account 000000000000 and region us-east-1, got: %s", topic.TopicArn)
 }

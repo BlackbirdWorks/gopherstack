@@ -1,7 +1,6 @@
 package sqs_test
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -48,7 +47,7 @@ func TestNewInMemoryBackendWithConfig_ARNUsesInjectedAccountAndRegion(t *testing
 			require.NoError(t, err)
 
 			// QueueURL should embed account ID
-			assert.True(t, strings.Contains(out.QueueURL, tc.accountID),
+			assert.Contains(t, out.QueueURL, tc.accountID,
 				"queue URL should contain account ID %s, got: %s", tc.accountID, out.QueueURL)
 
 			// QueueArn attribute should use the configured account and region

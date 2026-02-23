@@ -90,10 +90,10 @@ type InMemoryBackend struct {
 	roles            map[string]Role
 	policies         map[string]Policy
 	groups           map[string]Group
-	accessKeys       map[string]AccessKey // key = AccessKeyId
+	accessKeys       map[string]AccessKey
 	instanceProfiles map[string]InstanceProfile
-	accountID        string
 	mu               *lockmetrics.RWMutex
+	accountID        string
 }
 
 // NewInMemoryBackend creates a new empty IAM InMemoryBackend with default account ID.

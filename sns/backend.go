@@ -54,11 +54,6 @@ type InMemoryBackend struct {
 	mu            sync.RWMutex
 }
 
-// arnPrefix returns the SNS ARN prefix for this backend's account and region.
-func (b *InMemoryBackend) arnPrefix() string {
-	return "arn:aws:sns:" + b.region + ":" + b.accountID + ":"
-}
-
 // NewInMemoryBackend creates a new empty InMemoryBackend with default account/region.
 func NewInMemoryBackend() *InMemoryBackend {
 	return NewInMemoryBackendWithConfig(defaultAccountID, defaultRegion)
@@ -72,6 +67,11 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		accountID:     accountID,
 		region:        region,
 	}
+}
+
+// arnPrefix returns the SNS ARN prefix for this backend's account and region.
+func (b *InMemoryBackend) arnPrefix() string {
+	return "arn:aws:sns:" + b.region + ":" + b.accountID + ":"
 }
 
 // CreateTopic creates a new SNS topic with the given name and attributes.
