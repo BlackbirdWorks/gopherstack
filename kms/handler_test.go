@@ -1037,3 +1037,24 @@ func TestKMSDisableKeyRotationNotFound(t *testing.T) {
 	err := backend.DisableKeyRotation(&kms.DisableKeyRotationInput{KeyID: "missing"})
 	require.ErrorIs(t, err, kms.ErrKeyNotFound)
 }
+
+// TestKMSKeyMetadataFields verifies that DescribeKey returns the additional metadata fields.
+func TestKMSKeyMetadataFields(t *testing.T) {
+	t.Parallel()
+
+	backend := kms.NewInMemoryBackend()
+	created, err := backend.CreateKey(&kms.CreateKeyInput{
+		Description: "test key",
+		KeyUsage:    "ENCRYPT_DECRYPT",
+	})
+	require.NoError(t, err)
+
+	out, err := backend.DescribeKey(&kms.DescribeKeyInput{KeyID: created.KeyMetadata.KeyID})
+	require.NoError(t, err)
+
+	assert.Equal(t, "CUSTOMER", out.KeyMetadata.KeyManager)
+	assert.Equal(t, "AWS_KMS", out.KeyMetadata.Origin)
+	assert.Equal(t, "SYMMETRIC_DEFAULT", out.KeyMetadata.KeySpec)
+	assert.Equal(t, []string{"SYMMETRIC_DEFAULT"}, out.KeyMetadata.EncryptionAlgorithms)
+	assert.False(t, out.KeyMetadata.MultiRegion)
+}

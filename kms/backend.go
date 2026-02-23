@@ -217,6 +217,10 @@ func (b *InMemoryBackend) CreateKey(input *CreateKeyInput) (*CreateKeyOutput, er
 		CreationDate: UnixTimeFloat(time.Now()),
 	}
 
+	if keyUsage == KeyUsageEncryptDecrypt {
+		key.KeySpec = "SYMMETRIC_DEFAULT"
+	}
+
 	b.keys[keyID] = key
 
 	return &CreateKeyOutput{
@@ -571,14 +575,24 @@ func (b *InMemoryBackend) lookupKeyWrite(keyID string) (*Key, error) {
 
 // keyToMetadata converts a Key to its KeyMetadata representation.
 func keyToMetadata(k *Key) KeyMetadata {
-	return KeyMetadata{
+	meta := KeyMetadata{
 		KeyID:        k.KeyID,
 		Arn:          k.Arn,
 		Description:  k.Description,
 		KeyState:     k.KeyState,
 		KeyUsage:     k.KeyUsage,
 		CreationDate: k.CreationDate,
+		KeyManager:   "CUSTOMER",
+		Origin:       "AWS_KMS",
+		MultiRegion:  false,
 	}
+
+	if k.KeyUsage == KeyUsageEncryptDecrypt {
+		meta.KeySpec = "SYMMETRIC_DEFAULT"
+		meta.EncryptionAlgorithms = []string{"SYMMETRIC_DEFAULT"}
+	}
+
+	return meta
 }
 
 // dataKeySize returns the number of bytes for a data key based on spec and override.

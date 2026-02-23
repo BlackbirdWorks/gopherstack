@@ -36,6 +36,8 @@ type Key struct {
 	KeyState string `json:"KeyState"`
 	// KeyUsage is the cryptographic operation: ENCRYPT_DECRYPT.
 	KeyUsage string `json:"KeyUsage"`
+	// KeySpec is the key spec, e.g., "SYMMETRIC_DEFAULT".
+	KeySpec string `json:"KeySpec,omitempty"`
 	// CreationDate is the Unix timestamp when the key was created.
 	CreationDate float64 `json:"CreationDate"`
 	// RotationEnabled indicates whether automatic key rotation is enabled.
@@ -54,6 +56,16 @@ type KeyMetadata struct {
 	KeyState string `json:"KeyState"`
 	// KeyUsage is the cryptographic operation: ENCRYPT_DECRYPT.
 	KeyUsage string `json:"KeyUsage"`
+	// KeyManager is always "CUSTOMER" for customer-managed keys.
+	KeyManager string `json:"KeyManager,omitempty"`
+	// Origin is always "AWS_KMS" for keys created in KMS.
+	Origin string `json:"Origin,omitempty"`
+	// KeySpec is the key spec, e.g., "SYMMETRIC_DEFAULT".
+	KeySpec string `json:"KeySpec,omitempty"`
+	// EncryptionAlgorithms lists the encryption algorithms supported by this key.
+	EncryptionAlgorithms []string `json:"EncryptionAlgorithms,omitempty"`
+	// MultiRegion indicates whether this is a multi-region key.
+	MultiRegion bool `json:"MultiRegion"`
 	// CreationDate is the Unix timestamp when the key was created.
 	CreationDate float64 `json:"CreationDate"`
 }

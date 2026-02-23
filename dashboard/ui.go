@@ -195,6 +195,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	// SSM routes (direct dashboard integration)
 	// Fallback mechanism while transitioning providers
 	h.SubRouter.GET("/dashboard/ssm", h.ssmIndex)
+	h.SubRouter.GET("/dashboard/ssm/history", h.ssmParameterHistory)
 	h.SubRouter.GET("/dashboard/ssm/modal/put", h.ssmPutModal)
 	h.SubRouter.POST("/dashboard/ssm/put", h.ssmPutParameter)
 	h.SubRouter.DELETE("/dashboard/ssm/delete", h.ssmDeleteParameter)

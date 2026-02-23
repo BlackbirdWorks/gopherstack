@@ -400,9 +400,13 @@ func (h *Handler) handleSendMessage(
 	}
 
 	httputil.WriteXML(h.Logger, w, http.StatusOK, SendMessageResponse{
-		Xmlns:             sqsNamespace,
-		SendMessageResult: SendMessageResult{MD5OfMessageBody: out.MD5OfBody, MessageID: out.MessageID},
-		ResponseMetadata:  XMLResponseMetadata{RequestID: requestID},
+		Xmlns: sqsNamespace,
+		SendMessageResult: SendMessageResult{
+			MD5OfMessageBody:       out.MD5OfBody,
+			MD5OfMessageAttributes: out.MD5OfMessageAttributes,
+			MessageID:              out.MessageID,
+		},
+		ResponseMetadata: XMLResponseMetadata{RequestID: requestID},
 	})
 }
 
@@ -543,9 +547,10 @@ func buildXMLSendBatchResult(out *SendMessageBatchOutput) XMLSendMessageBatchRes
 
 	for _, s := range out.Successful {
 		result.Successful = append(result.Successful, XMLSendMessageBatchResultEntry{
-			ID:               s.ID,
-			MessageID:        s.MessageID,
-			MD5OfMessageBody: s.MD5OfBody,
+			ID:                     s.ID,
+			MessageID:              s.MessageID,
+			MD5OfMessageBody:       s.MD5OfBody,
+			MD5OfMessageAttributes: s.MD5OfMessageAttributes,
 		})
 	}
 
