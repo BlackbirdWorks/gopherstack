@@ -43,7 +43,11 @@ var validParamNameRegex = regexp.MustCompile(`^[a-zA-Z0-9._\-/]+$`)
 const maxParamNameLength = 2048
 
 // reservedPrefixes are namespace prefixes that are not allowed for parameter names.
-var reservedPrefixes = []string{"ssm", "aws", "amazon"} //nolint:gochecknoglobals // reserved parameter name prefixes per AWS SSM spec
+var reservedPrefixes = []string{ //nolint:gochecknoglobals // reserved parameter name prefixes per AWS SSM spec
+	"ssm",
+	"aws",
+	"amazon",
+}
 
 // validateParameterName returns a ValidationException error when the name is invalid.
 func validateParameterName(name string) error {

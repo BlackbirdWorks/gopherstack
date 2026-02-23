@@ -150,7 +150,10 @@ func computeMD5OfMessageAttributes(attrs map[string]MessageAttributeValue) strin
 // appendWithLength appends a 4-byte big-endian length prefix followed by data to buf.
 func appendWithLength(buf, data []byte) []byte {
 	var lenBuf [4]byte
-	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(data))) //nolint:gosec // length is always non-negative and bounded by message size limits
+	binary.BigEndian.PutUint32(
+		lenBuf[:],
+		uint32(len(data)), //nolint:gosec // length is always non-negative and bounded by message size limits
+	)
 
 	buf = append(buf, lenBuf[:]...)
 	buf = append(buf, data...)

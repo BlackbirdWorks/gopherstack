@@ -598,7 +598,7 @@ func (h *S3Handler) putBucketACL(
 	h.setOperation(ctx, "PutBucketAcl")
 	log := logger.Load(ctx)
 
-	acl := r.Header.Get("x-amz-acl")
+	acl := r.Header.Get("X-Amz-Acl")
 	if acl == "" {
 		acl = "private"
 	}

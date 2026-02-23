@@ -71,21 +71,6 @@ func (b *InMemoryBackend) getBucket(name string) (*StoredBucket, error) {
 	return nil, ErrNoSuchBucket
 }
 
-// getBucketInRegion returns the bucket for a given name in a specific region.
-// The caller must hold at least b.mu.RLock.
-func (b *InMemoryBackend) getBucketInRegion(name string, region string) (*StoredBucket, error) {
-	if region == "" {
-		region = b.defaultRegion
-	}
-	if regionBuckets, regionExists := b.buckets[region]; regionExists {
-		if bucket, bucketExists := regionBuckets[name]; bucketExists && !bucket.DeletePending {
-			return bucket, nil
-		}
-	}
-
-	return nil, ErrNoSuchBucket
-}
-
 // SetDefaultRegion sets the default region for this backend.
 func (b *InMemoryBackend) SetDefaultRegion(region string) {
 	if region == "" {
