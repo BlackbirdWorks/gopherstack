@@ -76,13 +76,13 @@ type CLI struct {
 	sqsClient             *sqssdk.Client
 	secretsManagerClient  *secretsmanager.Client
 	kmsClient             *kms.Client
-	Region                string              `                                  name:"region"     env:"REGION"     default:"us-east-1"    help:"AWS region."`
-	AccountID             string              `                                  name:"account-id" env:"ACCOUNT_ID" default:"000000000000" help:"Mock AWS account ID used in ARNs."`
-	Port                  string              `                                  name:"port"       env:"PORT"       default:"8000"         help:"HTTP server port."`
-	LogLevel              string              `                                  name:"log-level"  env:"LOG_LEVEL"  default:"info"         help:"Log level (debug|info|warn|error)."`
+	Region                string              `                                  name:"region"     env:"REGION"     default:"us-east-1"    help:"AWS region."` //nolint:lll //config
+	AccountID             string              `                                  name:"account-id" env:"ACCOUNT_ID" default:"000000000000" help:"Mock AWS account ID used in ARNs."` //nolint:lll //config
+	Port                  string              `                                  name:"port"       env:"PORT"       default:"8000"         help:"HTTP server port."` //nolint:lll //config
+	LogLevel              string              `                                  name:"log-level"  env:"LOG_LEVEL"  default:"info"         help:"Log level (debug|info|warn|error)."` //nolint:lll //config
 	S3                    s3backend.Settings  `embed:"" prefix:"s3-"`
 	DynamoDB              ddbbackend.Settings `embed:"" prefix:"dynamodb-"`
-	Demo                  bool                `                                  name:"demo"       env:"DEMO"       default:"false"        help:"Load demo data on startup."`
+	Demo                  bool                `                                  name:"demo"       env:"DEMO"       default:"false"        help:"Load demo data on startup."` //nolint:lll //config
 }
 
 // GetGlobalConfig returns the centralised account ID and region (config.Provider).
