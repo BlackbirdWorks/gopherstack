@@ -16,6 +16,10 @@ type InMemoryDB struct {
 	exprCache      *ExpressionCache
 	mu             *lockmetrics.RWMutex
 	defaultRegion  string
+	accountID      string
+	// createDelay is the time to wait before transitioning a new table to ACTIVE.
+	// Zero means immediate ACTIVE (no lifecycle simulation).
+	createDelay time.Duration
 }
 
 // StreamRecord captures a single item-level change event for DynamoDB Streams.
@@ -50,19 +54,21 @@ const (
 type Table struct {
 	pkIndex   map[string]int
 	pkskIndex map[string]map[string]int
-	// mu is placed before the slice fields so that Items' non-pointer
-	// len+cap words fall outside the GC scan range (176 → 160 pointer bytes).
-	mu                     *lockmetrics.RWMutex
-	Name                   string
+	mu        *lockmetrics.RWMutex
+	Tags      map[string]string
+	Name      string
+	// Status is the current table status: "CREATING", "ACTIVE", "DELETING", etc.
+	Status                 string
 	TTLAttribute           string
 	StreamViewType         string
 	StreamARN              string
-	KeySchema              []models.KeySchemaElement
 	AttributeDefinitions   []models.AttributeDefinition
 	GlobalSecondaryIndexes []models.GlobalSecondaryIndex
 	LocalSecondaryIndexes  []models.LocalSecondaryIndex
 	Items                  []map[string]any
 	StreamRecords          []StreamRecord
+	KeySchema              []models.KeySchemaElement
+	ProvisionedThroughput  models.ProvisionedThroughputDescription
 	streamSeq              int64
 	StreamsEnabled         bool
 }
@@ -75,6 +81,7 @@ func NewInMemoryDB() *InMemoryDB {
 		deletingTables: make(map[string]map[string]*Table),
 		exprCache:      NewExpressionCache(exprCacheSize),
 		defaultRegion:  "us-east-1",
+		accountID:      "000000000000",
 		mu:             lockmetrics.New("ddb"),
 	}
 }
@@ -204,4 +211,10 @@ func (db *InMemoryDB) SetDefaultRegion(region string) {
 		region = "us-east-1"
 	}
 	db.defaultRegion = region
+}
+
+// SetCreateDelay sets the CREATING → ACTIVE transition delay.
+// Call before CreateTable calls; intended for tests and CLI configuration.
+func (db *InMemoryDB) SetCreateDelay(d time.Duration) {
+	db.createDelay = d
 }

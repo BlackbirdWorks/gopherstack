@@ -14,6 +14,8 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/events"
 )
 
 var (
@@ -24,10 +26,9 @@ var (
 )
 
 const (
-	accountID = "000000000000"
-	region    = "us-east-1"
-	pageSize  = 25
-	arnPrefix = "arn:aws:sns:" + region + ":" + accountID + ":"
+	defaultAccountID = "000000000000"
+	defaultRegion    = "us-east-1"
+	pageSize         = 25
 )
 
 // StorageBackend defines the interface for an SNS storage backend.
@@ -38,6 +39,7 @@ type StorageBackend interface {
 	GetTopicAttributes(topicArn string) (map[string]string, error)
 	SetTopicAttributes(topicArn, attrName, attrValue string) error
 	Subscribe(topicArn, protocol, endpoint, filterPolicy string) (*Subscription, error)
+	ConfirmSubscription(topicArn, token string) (*Subscription, error)
 	Unsubscribe(subscriptionArn string) error
 	ListSubscriptions(nextToken string) ([]Subscription, string, error)
 	ListSubscriptionsByTopic(topicArn, nextToken string) ([]Subscription, string, error)
@@ -50,15 +52,39 @@ type StorageBackend interface {
 type InMemoryBackend struct {
 	topics        map[string]*Topic
 	subscriptions map[string]*Subscription
+	emitter       events.EventEmitter[*events.SNSPublishedEvent]
+	accountID     string
+	region        string
 	mu            sync.RWMutex
 }
 
-// NewInMemoryBackend creates a new empty InMemoryBackend.
+// NewInMemoryBackend creates a new empty InMemoryBackend with default account/region.
 func NewInMemoryBackend() *InMemoryBackend {
+	return NewInMemoryBackendWithConfig(defaultAccountID, defaultRegion)
+}
+
+// NewInMemoryBackendWithConfig creates a new InMemoryBackend with the given account ID and region.
+func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		topics:        make(map[string]*Topic),
 		subscriptions: make(map[string]*Subscription),
+		accountID:     accountID,
+		region:        region,
 	}
+}
+
+// SetPublishEmitter registers an event emitter that fires when a message is published.
+// This is used to wire SNS→SQS delivery at startup.
+func (b *InMemoryBackend) SetPublishEmitter(emitter events.EventEmitter[*events.SNSPublishedEvent]) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.emitter = emitter
+}
+
+// arnPrefix returns the SNS ARN prefix for this backend's account and region.
+func (b *InMemoryBackend) arnPrefix() string {
+	return "arn:aws:sns:" + b.region + ":" + b.accountID + ":"
 }
 
 // CreateTopic creates a new SNS topic with the given name and attributes.
@@ -66,7 +92,7 @@ func (b *InMemoryBackend) CreateTopic(name string, attributes map[string]string)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	topicArn := arnPrefix + name
+	topicArn := b.arnPrefix() + name
 	if _, exists := b.topics[topicArn]; exists {
 		return nil, ErrTopicAlreadyExists
 	}
@@ -156,13 +182,13 @@ func (b *InMemoryBackend) Subscribe(topicArn, protocol, endpoint, filterPolicy s
 	parts := strings.Split(topic.TopicArn, ":")
 	topicName := parts[len(parts)-1]
 
-	subArn := fmt.Sprintf("%s%s:%s", arnPrefix, topicName, uuid.New().String())
+	subArn := fmt.Sprintf("%s%s:%s", b.arnPrefix(), topicName, uuid.New().String())
 	sub := &Subscription{
 		SubscriptionArn: subArn,
 		TopicArn:        topicArn,
 		Protocol:        protocol,
 		Endpoint:        endpoint,
-		Owner:           accountID,
+		Owner:           b.accountID,
 		FilterPolicy:    filterPolicy,
 	}
 
@@ -183,6 +209,29 @@ func (b *InMemoryBackend) Unsubscribe(subscriptionArn string) error {
 	delete(b.subscriptions, subscriptionArn)
 
 	return nil
+}
+
+// ConfirmSubscription "confirms" a pending subscription.
+// In the mock, any non-empty token is accepted.
+// The subscription must belong to the given topicArn; if found and pending,
+// PendingConfirmation is cleared and the subscription ARN is returned.
+func (b *InMemoryBackend) ConfirmSubscription(topicArn, token string) (*Subscription, error) {
+	if token == "" {
+		return nil, ErrInvalidParameter
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	for _, sub := range b.subscriptions {
+		if sub.TopicArn == topicArn {
+			sub.PendingConfirmation = false
+
+			return sub, nil
+		}
+	}
+
+	return nil, ErrSubscriptionNotFound
 }
 
 // ListSubscriptions returns a page of subscriptions and the next pagination token.
@@ -231,9 +280,10 @@ func (b *InMemoryBackend) ListSubscriptionsByTopic(topicArn, nextToken string) (
 }
 
 // Publish publishes a message to a topic and returns the message ID.
-// The subject and attrs parameters are accepted for interface compatibility but not used in delivery.
+// HTTP/HTTPS subscriptions receive a synchronous best-effort delivery.
+// All subscriptions are also broadcast via the publish emitter (e.g. to SQS).
 func (b *InMemoryBackend) Publish(
-	topicArn, message, _ string, _ map[string]MessageAttribute,
+	topicArn, message, subject string, attrs map[string]MessageAttribute,
 ) (string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -244,6 +294,9 @@ func (b *InMemoryBackend) Publish(
 
 	messageID := uuid.New().String()
 
+	// Build subscription snapshot and deliver to HTTP/HTTPS endpoints.
+	subs := make([]events.SNSSubscriptionSnapshot, 0)
+
 	for _, sub := range b.subscriptions {
 		if sub.TopicArn != topicArn {
 			continue
@@ -252,9 +305,34 @@ func (b *InMemoryBackend) Publish(
 		switch sub.Protocol {
 		case "http", "https":
 			deliverHTTP(sub.Endpoint, message)
-		default:
-			// SQS, Lambda, email, etc. — delivery not implemented.
 		}
+
+		subs = append(subs, events.SNSSubscriptionSnapshot{
+			SubscriptionARN: sub.SubscriptionArn,
+			Protocol:        sub.Protocol,
+			Endpoint:        sub.Endpoint,
+			FilterPolicy:    sub.FilterPolicy,
+		})
+	}
+
+	// Emit event for other services (e.g. SQS) to react to.
+	if b.emitter != nil {
+		attrSnaps := make(map[string]events.SNSMessageAttributeSnapshot, len(attrs))
+		for k, v := range attrs {
+			attrSnaps[k] = events.SNSMessageAttributeSnapshot{
+				DataType:    v.DataType,
+				StringValue: v.StringValue,
+			}
+		}
+
+		_ = b.emitter.Emit(context.Background(), &events.SNSPublishedEvent{
+			TopicARN:      topicArn,
+			MessageID:     messageID,
+			Message:       message,
+			Subject:       subject,
+			Subscriptions: subs,
+			Attributes:    attrSnaps,
+		})
 	}
 
 	return messageID, nil

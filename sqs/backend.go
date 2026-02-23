@@ -3,6 +3,7 @@ package sqs
 import (
 	"crypto/md5" //nolint:gosec // MD5 used for SQS wire protocol compatibility, not security
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"slices"
@@ -29,19 +30,32 @@ type StorageBackend interface {
 	SendMessageBatch(input *SendMessageBatchInput) (*SendMessageBatchOutput, error)
 	DeleteMessageBatch(input *DeleteMessageBatchInput) (*DeleteMessageBatchOutput, error)
 	PurgeQueue(input *PurgeQueueInput) error
+	TagQueue(input *TagQueueInput) error
+	UntagQueue(input *UntagQueueInput) error
+	ListQueueTags(input *ListQueueTagsInput) (*ListQueueTagsOutput, error)
+	ChangeMessageVisibilityBatch(input *ChangeMessageVisibilityBatchInput) (*ChangeMessageVisibilityBatchOutput, error)
 	ListAll() []QueueInfo
 }
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	queues map[string]*Queue
-	mu     sync.RWMutex
+	queues    map[string]*Queue
+	accountID string
+	region    string
+	mu        sync.RWMutex
 }
 
-// NewInMemoryBackend creates a new empty InMemoryBackend.
+// NewInMemoryBackend creates a new empty InMemoryBackend with default account/region.
 func NewInMemoryBackend() *InMemoryBackend {
+	return NewInMemoryBackendWithConfig(accountID, sqsRegion)
+}
+
+// NewInMemoryBackendWithConfig creates a new InMemoryBackend with the given account ID and region.
+func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		queues: make(map[string]*Queue),
+		queues:    make(map[string]*Queue),
+		accountID: accountID,
+		region:    region,
 	}
 }
 
@@ -55,6 +69,38 @@ func queueNameFromInput(queueURL string) string {
 	return parts[len(parts)-1]
 }
 
+// applyRedrivePolicy parses the RedrivePolicy attribute and wires up DLQ fields on q.
+func applyRedrivePolicy(q *Queue, attrs map[string]string, backend *InMemoryBackend) {
+	raw, ok := attrs[attrRedrivePolicy]
+	if !ok || raw == "" {
+		return
+	}
+
+	var policy struct {
+		DeadLetterTargetArn string      `json:"deadLetterTargetArn"`
+		MaxReceiveCount     json.Number `json:"maxReceiveCount"`
+	}
+
+	if err := json.Unmarshal([]byte(raw), &policy); err != nil {
+		return
+	}
+
+	count, err := policy.MaxReceiveCount.Int64()
+	if err != nil || count <= 0 {
+		return
+	}
+
+	dlqName := queueNameFromARN(policy.DeadLetterTargetArn)
+
+	dlq, exists := backend.queues[dlqName]
+	if !exists {
+		return
+	}
+
+	q.MaxReceiveCount = int(count)
+	q.dlq = dlq
+}
+
 // computeMD5 returns the hex-encoded MD5 hash of the given string.
 func computeMD5(body string) string {
 	//nolint:gosec // MD5 required by SQS wire protocol
@@ -64,9 +110,9 @@ func computeMD5(body string) string {
 }
 
 // buildDefaultAttributes initialises the attribute map for a new queue.
-func buildDefaultAttributes(queueName string, isFIFO bool) map[string]string {
+func buildDefaultAttributes(queueName, accountID, region string, isFIFO bool) map[string]string {
 	now := strconv.FormatInt(time.Now().Unix(), 10)
-	arn := fmt.Sprintf("arn:aws:sqs:%s:%s:%s", sqsRegion, accountID, queueName)
+	arn := fmt.Sprintf("arn:aws:sqs:%s:%s:%s", region, accountID, queueName)
 
 	attrs := map[string]string{
 		attrVisibilityTimeout:             strconv.Itoa(defaultVisibilityTimeout),
@@ -98,11 +144,11 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 	}
 
 	isFIFO := strings.HasSuffix(input.QueueName, fifoSuffix)
-	attrs := buildDefaultAttributes(input.QueueName, isFIFO)
+	attrs := buildDefaultAttributes(input.QueueName, b.accountID, b.region, isFIFO)
 
 	maps.Copy(attrs, input.Attributes)
 
-	queueURL := "http://" + input.Endpoint + "/" + accountID + "/" + input.QueueName
+	queueURL := "http://" + input.Endpoint + "/" + b.accountID + "/" + input.QueueName
 
 	q := &Queue{
 		Name:                input.QueueName,
@@ -114,6 +160,8 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 	}
 
 	b.queues[input.QueueName] = q
+
+	applyRedrivePolicy(q, attrs, b)
 
 	return &CreateQueueOutput{QueueURL: queueURL}, nil
 }
@@ -226,6 +274,10 @@ func (b *InMemoryBackend) SetQueueAttributes(input *SetQueueAttributesInput) err
 	}
 
 	maps.Copy(q.Attributes, input.Attributes)
+
+	if _, hasRedrive := input.Attributes[attrRedrivePolicy]; hasRedrive {
+		applyRedrivePolicy(q, input.Attributes, b)
+	}
 
 	q.Attributes[attrLastModifiedTimestamp] = strconv.FormatInt(time.Now().Unix(), 10)
 
@@ -349,6 +401,26 @@ func (b *InMemoryBackend) ReceiveMessage(input *ReceiveMessageInput) (*ReceiveMe
 	}
 }
 
+// drainToDLQ moves messages that have hit maxReceiveCount into the DLQ queue.
+func drainToDLQ(q *Queue) {
+	if q.MaxReceiveCount <= 0 || q.dlq == nil {
+		return
+	}
+
+	remaining := q.messages[:0]
+
+	for _, msg := range q.messages {
+		if msg.ApproximateReceiveCount >= q.MaxReceiveCount {
+			msg.ReceiptHandle = ""
+			q.dlq.messages = append(q.dlq.messages, msg)
+		} else {
+			remaining = append(remaining, msg)
+		}
+	}
+
+	q.messages = remaining
+}
+
 // receiveOnce performs a single receive attempt under the backend lock.
 func (b *InMemoryBackend) receiveOnce(name string, input *ReceiveMessageInput) ([]*Message, error) {
 	b.mu.Lock()
@@ -361,6 +433,7 @@ func (b *InMemoryBackend) receiveOnce(name string, input *ReceiveMessageInput) (
 
 	now := time.Now()
 	reQueueExpired(q, now)
+	drainToDLQ(q)
 
 	if q.IsFIFO {
 		pruneDedup(q, now)
@@ -425,6 +498,15 @@ func pickMessages(q *Queue, maxMessages, vt int, now time.Time) []*Message {
 		msg.ApproximateReceiveCount++
 		msg.Attributes[attrApproxReceiveCount] = strconv.Itoa(msg.ApproximateReceiveCount)
 
+		// Set ApproximateFirstReceiveTimestamp on the first receive.
+		if msg.ApproximateFirstReceiveTimestamp == 0 {
+			msg.ApproximateFirstReceiveTimestamp = now.UnixMilli()
+			msg.Attributes[attrApproxFirstReceiveTimestamp] = strconv.FormatInt(
+				msg.ApproximateFirstReceiveTimestamp,
+				10,
+			)
+		}
+
 		inf := &InFlightMessage{
 			VisibleAt:     now.Add(time.Duration(vt) * time.Second),
 			ReceiptHandle: receipt,
@@ -472,15 +554,52 @@ func (b *InMemoryBackend) ChangeMessageVisibility(input *ChangeMessageVisibility
 		return ErrQueueNotFound
 	}
 
+	return changeVisibility(q, input.ReceiptHandle, input.VisibilityTimeout)
+}
+
+// changeVisibility updates the VisibleAt time for an in-flight message by receipt handle.
+func changeVisibility(q *Queue, receiptHandle string, visibilityTimeout int) error {
 	for _, inf := range q.inFlightMessages {
-		if inf.ReceiptHandle == input.ReceiptHandle {
-			inf.VisibleAt = time.Now().Add(time.Duration(input.VisibilityTimeout) * time.Second)
+		if inf.ReceiptHandle == receiptHandle {
+			inf.VisibleAt = time.Now().Add(time.Duration(visibilityTimeout) * time.Second)
 
 			return nil
 		}
 	}
 
 	return ErrReceiptHandleInvalid
+}
+
+// ChangeMessageVisibilityBatch updates visibility for a batch of in-flight messages.
+func (b *InMemoryBackend) ChangeMessageVisibilityBatch(
+	input *ChangeMessageVisibilityBatchInput,
+) (*ChangeMessageVisibilityBatchOutput, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	name := queueNameFromInput(input.QueueURL)
+
+	q, ok := b.queues[name]
+	if !ok {
+		return nil, ErrQueueNotFound
+	}
+
+	out := &ChangeMessageVisibilityBatchOutput{}
+
+	for _, entry := range input.Entries {
+		if err := changeVisibility(q, entry.ReceiptHandle, entry.VisibilityTimeout); err != nil {
+			out.Failed = append(out.Failed, BatchErrorEntry{
+				ID:          entry.ID,
+				Code:        "ReceiptHandleIsInvalid",
+				Message:     err.Error(),
+				SenderFault: true,
+			})
+		} else {
+			out.Successful = append(out.Successful, BatchResultEntry{ID: entry.ID})
+		}
+	}
+
+	return out, nil
 }
 
 // SendMessageBatch sends a batch of messages to the specified queue.
@@ -587,4 +706,62 @@ func (b *InMemoryBackend) ListAll() []QueueInfo {
 	}
 
 	return result
+}
+
+// TagQueue adds or updates tags on a queue.
+func (b *InMemoryBackend) TagQueue(input *TagQueueInput) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	name := queueNameFromInput(input.QueueURL)
+
+	q, ok := b.queues[name]
+	if !ok {
+		return ErrQueueNotFound
+	}
+
+	if q.Tags == nil {
+		q.Tags = make(map[string]string)
+	}
+
+	maps.Copy(q.Tags, input.Tags)
+
+	return nil
+}
+
+// UntagQueue removes tags from a queue.
+func (b *InMemoryBackend) UntagQueue(input *UntagQueueInput) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	name := queueNameFromInput(input.QueueURL)
+
+	q, ok := b.queues[name]
+	if !ok {
+		return ErrQueueNotFound
+	}
+
+	for _, k := range input.TagKeys {
+		delete(q.Tags, k)
+	}
+
+	return nil
+}
+
+// ListQueueTags returns the tags for a queue.
+func (b *InMemoryBackend) ListQueueTags(input *ListQueueTagsInput) (*ListQueueTagsOutput, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	name := queueNameFromInput(input.QueueURL)
+
+	q, ok := b.queues[name]
+	if !ok {
+		return nil, ErrQueueNotFound
+	}
+
+	tags := make(map[string]string, len(q.Tags))
+	maps.Copy(tags, q.Tags)
+
+	return &ListQueueTagsOutput{Tags: tags}, nil
 }

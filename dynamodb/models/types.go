@@ -119,6 +119,52 @@ type ProvisionedThroughput struct {
 	WriteCapacityUnits *int64 `json:"WriteCapacityUnits"`
 }
 
+// UpdateTableInput is the wire-format for a DynamoDB UpdateTable request.
+type UpdateTableInput struct {
+	ProvisionedThroughput       *ProvisionedThroughput       `json:"ProvisionedThroughput,omitempty"`
+	StreamSpecification         *StreamSpecificationInput    `json:"StreamSpecification,omitempty"`
+	TableName                   string                       `json:"TableName"`
+	AttributeDefinitions        []AttributeDefinition        `json:"AttributeDefinitions,omitempty"`
+	GlobalSecondaryIndexUpdates []GlobalSecondaryIndexUpdate `json:"GlobalSecondaryIndexUpdates,omitempty"`
+}
+
+// GlobalSecondaryIndexUpdate describes a single GSI change.
+type GlobalSecondaryIndexUpdate struct {
+	Create *CreateGlobalSecondaryIndexAction `json:"Create,omitempty"`
+	Update *UpdateGlobalSecondaryIndexAction `json:"Update,omitempty"`
+	Delete *DeleteGlobalSecondaryIndexAction `json:"Delete,omitempty"`
+}
+
+// CreateGlobalSecondaryIndexAction adds a new GSI.
+type CreateGlobalSecondaryIndexAction struct {
+	ProvisionedThroughput *ProvisionedThroughput `json:"ProvisionedThroughput,omitempty"`
+	IndexName             string                 `json:"IndexName"`
+	Projection            Projection             `json:"Projection"`
+	KeySchema             []KeySchemaElement     `json:"KeySchema"`
+}
+
+// UpdateGlobalSecondaryIndexAction updates the throughput of an existing GSI.
+type UpdateGlobalSecondaryIndexAction struct {
+	ProvisionedThroughput ProvisionedThroughput `json:"ProvisionedThroughput"`
+	IndexName             string                `json:"IndexName"`
+}
+
+// DeleteGlobalSecondaryIndexAction removes an existing GSI.
+type DeleteGlobalSecondaryIndexAction struct {
+	IndexName string `json:"IndexName"`
+}
+
+// StreamSpecificationInput is the stream spec used in UpdateTable requests.
+type StreamSpecificationInput struct {
+	StreamViewType string `json:"StreamViewType,omitempty"`
+	StreamEnabled  bool   `json:"StreamEnabled"`
+}
+
+// UpdateTableOutput is the wire-format for a DynamoDB UpdateTable response.
+type UpdateTableOutput struct {
+	TableDescription TableDescription `json:"TableDescription"`
+}
+
 type ListTablesInput struct {
 	Limit int `json:"Limit"`
 }
@@ -355,4 +401,42 @@ type TransactGetItemsOutput struct {
 
 type ItemResponse struct {
 	Item map[string]any `json:"Item,omitempty"`
+}
+
+// --- Tagging ---
+
+// Tag is a key-value pair attached to a DynamoDB resource.
+type Tag struct {
+	Key   string `json:"Key"`
+	Value string `json:"Value"`
+}
+
+// TagResourceInput is the wire format for TagResource.
+type TagResourceInput struct {
+	ResourceArn string `json:"ResourceArn"`
+	Tags        []Tag  `json:"Tags"`
+}
+
+// TagResourceOutput is the wire format for TagResource response (empty body).
+type TagResourceOutput struct{}
+
+// UntagResourceInput is the wire format for UntagResource.
+type UntagResourceInput struct {
+	ResourceArn string   `json:"ResourceArn"`
+	TagKeys     []string `json:"TagKeys"`
+}
+
+// UntagResourceOutput is the wire format for UntagResource response (empty body).
+type UntagResourceOutput struct{}
+
+// ListTagsOfResourceInput is the wire format for ListTagsOfResource.
+type ListTagsOfResourceInput struct {
+	ResourceArn string `json:"ResourceArn"`
+	NextToken   string `json:"NextToken,omitempty"`
+}
+
+// ListTagsOfResourceOutput is the wire format for ListTagsOfResource response.
+type ListTagsOfResourceOutput struct {
+	NextToken string `json:"NextToken,omitempty"`
+	Tags      []Tag  `json:"Tags"`
 }

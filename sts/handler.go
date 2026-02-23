@@ -57,7 +57,7 @@ func (h *Handler) Name() string {
 
 // GetSupportedOperations returns the list of supported STS operations.
 func (h *Handler) GetSupportedOperations() []string {
-	return []string{"AssumeRole", "GetCallerIdentity"}
+	return []string{"AssumeRole", "GetCallerIdentity", "GetSessionToken"}
 }
 
 // RouteMatcher returns a matcher that identifies STS requests by Content-Type and Version.
@@ -164,6 +164,8 @@ func (h *Handler) dispatch(ctx context.Context, r *http.Request) (any, error) {
 		return h.dispatchAssumeRole(r)
 	case "GetCallerIdentity":
 		return h.Backend.GetCallerIdentity()
+	case "GetSessionToken":
+		return h.dispatchGetSessionToken(r)
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrInvalidAction, action)
 	}
@@ -189,6 +191,26 @@ func (h *Handler) dispatchAssumeRole(r *http.Request) (*AssumeRoleResponse, erro
 	}
 
 	return h.Backend.AssumeRole(input)
+}
+
+// dispatchGetSessionToken handles the GetSessionToken action.
+func (h *Handler) dispatchGetSessionToken(r *http.Request) (*GetSessionTokenResponse, error) {
+	input := &GetSessionTokenInput{
+		SerialNumber: r.FormValue("SerialNumber"),
+		TokenCode:    r.FormValue("TokenCode"),
+	}
+
+	durationStr := r.FormValue("DurationSeconds")
+	if durationStr != "" {
+		d, err := strconv.ParseInt(durationStr, 10, 32)
+		if err != nil {
+			return nil, ErrInvalidDuration
+		}
+
+		input.DurationSeconds = int32(d)
+	}
+
+	return h.Backend.GetSessionToken(input)
 }
 
 // handleError writes a standardised STS XML error response.

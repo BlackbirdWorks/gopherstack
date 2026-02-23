@@ -13,8 +13,8 @@ Audit of Gopherstack against LocalStack free-tier parity. Items are grouped by t
 
 ### Missing Features
 
-- [ ] **UpdateTable** — Cannot modify provisioned throughput, add/remove GSIs, or toggle streams on an existing table.
-- [ ] **TagResource / UntagResource / ListTagsOfResource** — No tagging support for tables.
+- [x] **UpdateTable** — Cannot modify provisioned throughput, add/remove GSIs, or toggle streams on an existing table.
+- [x] **TagResource / UntagResource / ListTagsOfResource** — No tagging support for tables.
 - [ ] **PartiQL (ExecuteStatement, BatchExecuteStatement)** — LocalStack free tier supports this.
 
 ### Out of Scope
@@ -45,15 +45,15 @@ Audit of Gopherstack against LocalStack free-tier parity. Items are grouped by t
 
 ### Realism Gaps
 
-- [ ] **MessageSystemAttribute `ApproximateFirstReceiveTimestamp` / `SentTimestamp`** — Verify these are populated on ReceiveMessage responses. AWS always includes them.
-- [ ] **ReceiveMessage MaxNumberOfMessages clamping** — AWS caps at 10; verify Gopherstack enforces this.
-- [ ] **Queue ARN in GetQueueAttributes** — Verify `QueueArn` attribute is returned and correctly formatted.
+- [x] **MessageSystemAttribute `ApproximateFirstReceiveTimestamp` / `SentTimestamp`** — Verify these are populated on ReceiveMessage responses. AWS always includes them.
+- [x] **ReceiveMessage MaxNumberOfMessages clamping** — AWS caps at 10; verify Gopherstack enforces this.
+- [x] **Queue ARN in GetQueueAttributes** — Verify `QueueArn` attribute is returned and correctly formatted.
 
 ### Missing Features
 
-- [ ] **Redrive Policy / Dead Letter Queue** — RedrivePolicy attribute not handled. Messages that exceed maxReceiveCount are never moved to a DLQ.
-- [ ] **ChangeMessageVisibilityBatch** — Batch version of ChangeMessageVisibility not implemented.
-- [ ] **TagQueue / UntagQueue / ListQueueTags** — No queue tagging support.
+- [x] **Redrive Policy / Dead Letter Queue** — RedrivePolicy attribute not handled. Messages that exceed maxReceiveCount are never moved to a DLQ.
+- [x] **ChangeMessageVisibilityBatch** — Batch version of ChangeMessageVisibility not implemented.
+- [x] **TagQueue / UntagQueue / ListQueueTags** — No queue tagging support.
 
 ---
 
@@ -67,9 +67,8 @@ Audit of Gopherstack against LocalStack free-tier parity. Items are grouped by t
 
 ### Missing Features
 
-- [ ] **SNS → SQS delivery** — Publishing to a topic with SQS subscriptions does not enqueue messages into the target queue. This is the most critical cross-service gap.
-- [ ] **SNS → Lambda invocation** — Not implemented.
-- [ ] **ConfirmSubscription** — No action handler for confirming HTTP/HTTPS endpoint subscriptions.
+- [x] **SNS → SQS delivery** — Publishing to a topic with SQS subscriptions does not enqueue messages into the target queue. This is the most critical cross-service gap.
+- [x] **ConfirmSubscription** — No action handler for confirming HTTP/HTTPS endpoint subscriptions.
 - [ ] **TagResource / UntagResource / ListTagsForResource** — No tagging support.
 
 ---
@@ -83,9 +82,9 @@ Audit of Gopherstack against LocalStack free-tier parity. Items are grouped by t
 
 ### Missing Features
 
-- [ ] **ListAttachedRolePolicies** — Cannot list which policies are attached to a role.
-- [ ] **ListAttachedUserPolicies** — Cannot list which policies are attached to a user.
-- [ ] **GetPolicy / GetPolicyVersion** — Cannot retrieve a stored policy document back.
+- [x] **ListAttachedRolePolicies** — Cannot list which policies are attached to a role.
+- [x] **ListAttachedUserPolicies** — Cannot list which policies are attached to a user.
+- [x] **GetPolicy / GetPolicyVersion** — Cannot retrieve a stored policy document back.
 - [ ] **DetachUserPolicy / DetachRolePolicy** — Verify these are implemented (may exist but not visible in dispatch).
 - [ ] **ListGroupsForUser / ListUserPolicies / ListRolePolicies** — Missing query operations.
 
@@ -99,7 +98,7 @@ Audit of Gopherstack against LocalStack free-tier parity. Items are grouped by t
 
 ### Missing Features
 
-- [ ] **GetSessionToken** — Common action for generating temporary credentials without role assumption.
+- [x] **GetSessionToken** — Common action for generating temporary credentials without role assumption.
 - [ ] **GetAccessKeyInfo** — Returns the account ID for an access key.
 - [ ] **DecodeAuthorizationMessage** — Decodes error messages from encoded authorization failures.
 
@@ -169,7 +168,7 @@ The `REGION` env var already exists (`cli.go:76`) and is passed to the AWS SDK c
 
 ### Realism Gaps
 
-- [ ] **Account ID inconsistency across services** — STS uses `123456789012` (`sts/models.go:10`), every other service uses `000000000000` (`iam/models.go:12`, `kms/models.go:10`, `secretsmanager/models.go:10`, `sns/backend.go:27`, `sqs/types.go:10`). Unify to a single value injected from `cli.go` via env var `ACCOUNT_ID` (default `000000000000`).
+- [x] **Account ID inconsistency across services** — STS uses `123456789012` (`sts/models.go:10`), every other service uses `000000000000` (`iam/models.go:12`, `kms/models.go:10`, `secretsmanager/models.go:10`, `sns/backend.go:27`, `sqs/types.go:10`). Unify to a single value injected from `cli.go` via env var `ACCOUNT_ID` (default `000000000000`).
 - [ ] **ARN regions hardcoded to us-east-1** — KMS (`kms/backend.go:196`), Secrets Manager (`secretsmanager/backend.go:99`), SNS (`sns/backend.go:30`), SQS (`sqs/backend.go:69`), and DynamoDB Streams (`dynamodb/streams_ops.go:324-328`) all bake `us-east-1` into ARNs regardless of the region in the request. Should use request region with fallback to the centralized default from `cli.go`.
 - [ ] **No region extraction for SNS, SQS, KMS, Secrets Manager** — DynamoDB and S3 parse region from the Authorization header SigV4 credential scope. SNS, SQS, KMS, and Secrets Manager skip this entirely and fall through to a hardcoded constant. A shared `extractRegionFromRequest` utility should be used by all services, falling back to the centralized default region.
 - [ ] **DynamoDB Stream ARN uses wrong account ID** — Stream ARNs are built with `123456789012` (`dynamodb/streams_ops.go:324-328`) while table operations use whatever region comes from context. The stream ARN should derive from the injected account ID and the parent table's region.
@@ -187,7 +186,7 @@ The `REGION` env var already exists (`cli.go:76`) and is passed to the AWS SDK c
 
 - [ ] **SNS → SQS message delivery** — Highest priority. Event-driven architectures depend on this.
 - [ ] **DynamoDB Streams → Lambda trigger** — Not simulated (acknowledged as out of scope for now).
-- [ ] **S3 Event Notifications → SQS/SNS/Lambda** — Not simulated.
+- [ ] **S3 Event Notifications → SQS/SNS/Lambda** — Not simulated, stub this but don't implement any Lambda features. 
 - [ ] **No cross-service ARN validation** — SNS subscriptions referencing SQS queue ARNs are never verified against actual SQS state. Same for SQS redrive policies referencing DLQ ARNs.
 
 ### Proposed Inter-Service Event Bus

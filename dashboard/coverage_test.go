@@ -268,5 +268,5 @@ func TestDashboard_STS(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Header().Get("Content-Type"), "text/html")
 	assert.Contains(t, w.Body.String(), "STS Security Token Service")
-	assert.Contains(t, w.Body.String(), "123456789012")
+	assert.Contains(t, w.Body.String(), "000000000000")
 }

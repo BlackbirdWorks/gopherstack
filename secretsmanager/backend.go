@@ -54,14 +54,23 @@ type StorageBackend interface {
 
 // InMemoryBackend is a concurrency-safe in-memory Secrets Manager backend.
 type InMemoryBackend struct {
-	secrets map[string]*Secret // keyed by Name
-	mu      sync.RWMutex
+	secrets   map[string]*Secret // keyed by Name
+	accountID string
+	region    string
+	mu        sync.RWMutex
 }
 
-// NewInMemoryBackend creates and returns a new empty Secrets Manager backend.
+// NewInMemoryBackend creates and returns a new empty Secrets Manager backend with default account/region.
 func NewInMemoryBackend() *InMemoryBackend {
+	return NewInMemoryBackendWithConfig(MockAccountID, MockRegion)
+}
+
+// NewInMemoryBackendWithConfig creates a new Secrets Manager backend with the given account ID and region.
+func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		secrets: make(map[string]*Secret),
+		secrets:   make(map[string]*Secret),
+		accountID: accountID,
+		region:    region,
 	}
 }
 
@@ -95,9 +104,9 @@ func generateRandomSuffix() string {
 }
 
 // buildARN constructs a Secrets Manager ARN for the given secret name.
-func buildARN(name, suffix string) string {
+func (b *InMemoryBackend) buildARN(name, suffix string) string {
 	return fmt.Sprintf("arn:aws:secretsmanager:%s:%s:secret:%s-%s",
-		MockRegion, MockAccountID, name, suffix)
+		b.region, b.accountID, name, suffix)
 }
 
 // CreateSecret creates a new secret with an optional initial value.
@@ -110,7 +119,7 @@ func (b *InMemoryBackend) CreateSecret(input *CreateSecretInput) (*CreateSecretO
 	}
 
 	suffix := generateRandomSuffix()
-	arn := buildARN(input.Name, suffix)
+	arn := b.buildARN(input.Name, suffix)
 
 	secret := &Secret{
 		ARN:         arn,

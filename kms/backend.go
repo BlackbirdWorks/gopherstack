@@ -75,16 +75,25 @@ type StorageBackend interface {
 
 // InMemoryBackend is a concurrency-safe in-memory KMS backend.
 type InMemoryBackend struct {
-	keys    map[string]*Key   // keyed by KeyId
-	aliases map[string]*Alias // keyed by AliasName
-	mu      sync.RWMutex
+	keys      map[string]*Key   // keyed by KeyId
+	aliases   map[string]*Alias // keyed by AliasName
+	accountID string
+	region    string
+	mu        sync.RWMutex
 }
 
-// NewInMemoryBackend creates and returns a new empty KMS backend.
+// NewInMemoryBackend creates and returns a new empty KMS backend with default account/region.
 func NewInMemoryBackend() *InMemoryBackend {
+	return NewInMemoryBackendWithConfig(MockAccountID, MockRegion)
+}
+
+// NewInMemoryBackendWithConfig creates a new KMS backend with the given account ID and region.
+func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		keys:    make(map[string]*Key),
-		aliases: make(map[string]*Alias),
+		keys:      make(map[string]*Key),
+		aliases:   make(map[string]*Alias),
+		accountID: accountID,
+		region:    region,
 	}
 }
 
@@ -193,7 +202,7 @@ func (b *InMemoryBackend) CreateKey(input *CreateKeyInput) (*CreateKeyOutput, er
 		keyUsage = KeyUsageEncryptDecrypt
 	}
 
-	arn := fmt.Sprintf("arn:aws:kms:%s:%s:key/%s", MockRegion, MockAccountID, keyID)
+	arn := fmt.Sprintf("arn:aws:kms:%s:%s:key/%s", b.region, b.accountID, keyID)
 	key := &Key{
 		KeyID:        keyID,
 		Arn:          arn,

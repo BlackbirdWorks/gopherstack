@@ -36,14 +36,22 @@ const (
 type StorageBackend interface {
 	AssumeRole(input *AssumeRoleInput) (*AssumeRoleResponse, error)
 	GetCallerIdentity() (*GetCallerIdentityResponse, error)
+	GetSessionToken(input *GetSessionTokenInput) (*GetSessionTokenResponse, error)
 }
 
 // InMemoryBackend is a stateless in-memory STS backend.
-type InMemoryBackend struct{}
+type InMemoryBackend struct {
+	accountID string
+}
 
-// NewInMemoryBackend creates a new InMemoryBackend.
+// NewInMemoryBackend creates a new InMemoryBackend with the default account ID.
 func NewInMemoryBackend() *InMemoryBackend {
-	return &InMemoryBackend{}
+	return NewInMemoryBackendWithConfig(MockAccountID)
+}
+
+// NewInMemoryBackendWithConfig creates a new InMemoryBackend with the given account ID.
+func NewInMemoryBackendWithConfig(accountID string) *InMemoryBackend {
+	return &InMemoryBackend{accountID: accountID}
 }
 
 // AssumeRole generates temporary credentials for the given role.
@@ -103,14 +111,58 @@ func (b *InMemoryBackend) AssumeRole(input *AssumeRoleInput) (*AssumeRoleRespons
 	}, nil
 }
 
-// GetCallerIdentity returns the fixed mock caller identity.
+// GetCallerIdentity returns the mock caller identity using the configured account ID.
 func (b *InMemoryBackend) GetCallerIdentity() (*GetCallerIdentityResponse, error) {
+	arn := "arn:aws:iam::" + b.accountID + ":root"
+
 	return &GetCallerIdentityResponse{
 		Xmlns: STSNamespace,
 		GetCallerIdentityResult: GetCallerIdentityResult{
-			Account: MockAccountID,
-			Arn:     MockUserArn,
+			Account: b.accountID,
+			Arn:     arn,
 			UserID:  MockUserID,
+		},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
+	}, nil
+}
+
+// GetSessionToken generates temporary credentials without role assumption.
+func (b *InMemoryBackend) GetSessionToken(input *GetSessionTokenInput) (*GetSessionTokenResponse, error) {
+	duration := input.DurationSeconds
+	if duration == 0 {
+		duration = DefaultSessionTokenDurationSeconds
+	}
+
+	if duration < MinSessionTokenDurationSeconds || duration > MaxDurationSeconds {
+		return nil, ErrInvalidDuration
+	}
+
+	accessKeyID, err := generateAccessKeyID()
+	if err != nil {
+		return nil, fmt.Errorf("generate access key: %w", err)
+	}
+
+	secretKey, err := generateSecretKey()
+	if err != nil {
+		return nil, fmt.Errorf("generate secret key: %w", err)
+	}
+
+	sessionToken, err := generateSessionToken()
+	if err != nil {
+		return nil, fmt.Errorf("generate session token: %w", err)
+	}
+
+	expiration := time.Now().UTC().Add(time.Duration(duration) * time.Second)
+
+	return &GetSessionTokenResponse{
+		Xmlns: STSNamespace,
+		GetSessionTokenResult: GetSessionTokenResult{
+			Credentials: Credentials{
+				AccessKeyID:     accessKeyID,
+				SecretAccessKey: secretKey,
+				SessionToken:    sessionToken,
+				Expiration:      expiration.Format(time.RFC3339),
+			},
 		},
 		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	}, nil

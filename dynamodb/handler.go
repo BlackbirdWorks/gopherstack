@@ -117,12 +117,16 @@ func (h *DynamoDBHandler) GetSupportedOperations() []string {
 		"GetShardIterator",
 		"ListStreams",
 		"ListTables",
+		"ListTagsOfResource",
 		"PutItem",
 		"Query",
 		"Scan",
+		"TagResource",
 		"TransactGetItems",
 		"TransactWriteItems",
+		"UntagResource",
 		"UpdateItem",
+		"UpdateTable",
 		"UpdateTimeToLive",
 	}
 }
@@ -250,6 +254,10 @@ func (h *DynamoDBHandler) dispatch(ctx context.Context, action string, body []by
 		"DeleteTable",
 		"DescribeTable",
 		"ListTables",
+		"TagResource",
+		"UntagResource",
+		"ListTagsOfResource",
+		"UpdateTable",
 		"UpdateTimeToLive",
 		"DescribeTimeToLive":
 		return h.dispatchTableOps(ctx, action, body)
@@ -365,6 +373,26 @@ func (h *DynamoDBHandler) dispatchTableOps(ctx context.Context, action string, b
 		return handleOp(
 			ctx, action, body,
 			models.ToSDKListTablesInput, h.Backend.ListTables, models.FromSDKListTablesOutput,
+		)
+	case "UpdateTable":
+		return handleOpErr(
+			ctx, action, body,
+			models.ToSDKUpdateTableInput, h.Backend.UpdateTable, models.FromSDKUpdateTableOutput,
+		)
+	case "TagResource":
+		return handleOpErr(
+			ctx, action, body,
+			models.ToSDKTagResourceInput, h.Backend.TagResource, models.FromSDKTagResourceOutput,
+		)
+	case "UntagResource":
+		return handleOpErr(
+			ctx, action, body,
+			models.ToSDKUntagResourceInput, h.Backend.UntagResource, models.FromSDKUntagResourceOutput,
+		)
+	case "ListTagsOfResource":
+		return handleOpErr(
+			ctx, action, body,
+			models.ToSDKListTagsOfResourceInput, h.Backend.ListTagsOfResource, models.FromSDKListTagsOfResourceOutput,
 		)
 	case "UpdateTimeToLive":
 		return handleOp(

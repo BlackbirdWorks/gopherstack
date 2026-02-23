@@ -49,6 +49,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetTopicAttributes",
 		"SetTopicAttributes",
 		"Subscribe",
+		"ConfirmSubscription",
 		"Unsubscribe",
 		"ListSubscriptions",
 		"ListSubscriptionsByTopic",
@@ -150,6 +151,8 @@ func (h *Handler) dispatch(c *echo.Context, action string) error {
 		return h.handleSetTopicAttributes(c)
 	case "Subscribe":
 		return h.handleSubscribe(c)
+	case "ConfirmSubscription":
+		return h.handleConfirmSubscription(c)
 	case "Unsubscribe":
 		return h.handleUnsubscribe(c)
 	case "ListSubscriptions":
@@ -290,6 +293,29 @@ func (h *Handler) handleUnsubscribe(c *echo.Context) error {
 
 	return h.writeXML(c, UnsubscribeResponse{
 		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleConfirmSubscription(c *echo.Context) error {
+	topicArn := c.Request().FormValue("TopicArn")
+	token := c.Request().FormValue("Token")
+
+	if topicArn == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "TopicArn is required")
+	}
+
+	if token == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "Token is required")
+	}
+
+	sub, err := h.Backend.ConfirmSubscription(topicArn, token)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, ConfirmSubscriptionResponse{
+		ConfirmSubscriptionResult: ConfirmSubscriptionResult{SubscriptionArn: sub.SubscriptionArn},
+		ResponseMetadata:          ResponseMetadata{RequestID: uuid.New().String()},
 	})
 }
 

@@ -30,6 +30,8 @@ import (
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
 	kmsbackend "github.com/blackbirdworks/gopherstack/kms"
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	snsevents "github.com/blackbirdworks/gopherstack/pkgs/events"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
@@ -49,15 +51,15 @@ const (
 
 // CLI holds all command-line / environment-variable configuration for Gopherstack.
 type CLI struct {
-	ddbClient             *dynamodb.Client
-	s3Client              *s3.Client
-	ssmClient             *ssmsdk.Client
-	stsClient             *stssdk.Client
-	sqsClient             *sqssdk.Client
-	snsClient             *sns.Client
-	iamClient             *iam.Client
-	kmsClient             *kms.Client
-	secretsManagerClient  *secretsmanager.Client
+	SSM                   struct{}            `embed:"" prefix:"ssm-"`
+	SecretsManager        struct{}            `embed:"" prefix:"secretsmanager-"`
+	KMS                   struct{}            `embed:"" prefix:"kms-"`
+	SQS                   sqsbackend.Settings `embed:"" prefix:"sqs-"`
+	SNS                   struct{}            `embed:"" prefix:"sns-"`
+	STS                   struct{}            `embed:"" prefix:"sts-"`
+	IAM                   struct{}            `embed:"" prefix:"iam-"`
+	kmsHandler            service.Registerable
+	secretsManagerHandler service.Registerable
 	ddbHandler            service.Registerable
 	s3Handler             service.Registerable
 	ssmHandler            service.Registerable
@@ -65,37 +67,30 @@ type CLI struct {
 	stsHandler            service.Registerable
 	snsHandler            service.Registerable
 	sqsHandler            service.Registerable
-	kmsHandler            service.Registerable
-	secretsManagerHandler service.Registerable
+	snsClient             *sns.Client
+	iamClient             *iam.Client
+	s3Client              *s3.Client
+	ssmClient             *ssmsdk.Client
+	ddbClient             *dynamodb.Client
+	stsClient             *stssdk.Client
+	sqsClient             *sqssdk.Client
+	secretsManagerClient  *secretsmanager.Client
+	kmsClient             *kms.Client
+	Region                string              `                                  name:"region"     env:"REGION"     default:"us-east-1"    help:"AWS region."`                        //nolint:lll //config
+	AccountID             string              `                                  name:"account-id" env:"ACCOUNT_ID" default:"000000000000" help:"Mock AWS account ID used in ARNs."`  //nolint:lll //config
+	Port                  string              `                                  name:"port"       env:"PORT"       default:"8000"         help:"HTTP server port."`                  //nolint:lll //config
+	LogLevel              string              `                                  name:"log-level"  env:"LOG_LEVEL"  default:"info"         help:"Log level (debug|info|warn|error)."` //nolint:lll //config
+	S3                    s3backend.Settings  `embed:"" prefix:"s3-"`
+	DynamoDB              ddbbackend.Settings `embed:"" prefix:"dynamodb-"`
+	Demo                  bool                `                                  name:"demo"       env:"DEMO"       default:"false"        help:"Load demo data on startup."` //nolint:lll //config
+}
 
-	// LogLevel is the log level: debug, info, warn, error.
-	LogLevel string `name:"log-level" env:"LOG_LEVEL" default:"info" help:"Log level (debug|info|warn|error)."`
-	// Port is the HTTP server port.
-	Port string `name:"port" env:"PORT" default:"8000" help:"HTTP server port."`
-	// Region is the AWS region used for SDK clients.
-	Region string `name:"region" env:"REGION" default:"us-east-1" help:"AWS region."`
-
-	// DynamoDB holds DynamoDB service-level settings.
-	DynamoDB ddbbackend.Settings `embed:"" prefix:"dynamodb-"`
-	// S3 holds S3 service-level settings.
-	S3 s3backend.Settings `embed:"" prefix:"s3-"`
-	// SSM holds SSM service-level settings.
-	SSM struct{} `embed:"" prefix:"ssm-"`
-	// IAM holds IAM service-level settings.
-	IAM struct{} `embed:"" prefix:"iam-"`
-	// STS holds STS service-level settings.
-	STS struct{} `embed:"" prefix:"sts-"`
-	// SNS holds SNS service-level settings.
-	SNS struct{} `embed:"" prefix:"sns-"`
-	// SQS holds SQS service-level settings.
-	SQS sqsbackend.Settings `embed:"" prefix:"sqs-"`
-	// KMS holds KMS service-level settings.
-	KMS struct{} `embed:"" prefix:"kms-"`
-	// SecretsManager holds Secrets Manager service-level settings.
-	SecretsManager struct{} `embed:"" prefix:"secretsmanager-"`
-
-	// Demo enables loading of demo data on startup.
-	Demo bool `name:"demo" env:"DEMO" default:"false" help:"Load demo data on startup."`
+// GetGlobalConfig returns the centralised account ID and region (config.Provider).
+func (c *CLI) GetGlobalConfig() config.GlobalConfig {
+	return config.GlobalConfig{
+		AccountID: c.AccountID,
+		Region:    c.Region,
+	}
 }
 
 // GetDynamoDBSettings returns DynamoDB settings (dynamodb.ConfigProvider).
@@ -356,6 +351,9 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		cli.secretsManagerHandler = services[8]
 	}
 
+	// Wire SNS→SQS delivery: when SNS publishes a message, deliver it to SQS queues.
+	wireSNSToSQS(services[5], services[6])
+
 	// Init dashboard last so it can access all service handlers.
 	dashSvc, err := (&dashboard.Provider{}).Init(appCtx)
 	if err != nil {
@@ -377,6 +375,30 @@ func startBackgroundWorkers(ctx context.Context, log *slog.Logger, services []se
 			}
 		}
 	}
+}
+
+// wireSNSToSQS connects the SNS publish emitter to the SQS delivery handler so
+// that messages published to SNS topics are delivered to subscribed SQS queues.
+// snsReg and sqsReg must be the service.Registerable values returned by their
+// respective providers (indices 5 and 6 in the services slice).
+func wireSNSToSQS(snsReg, sqsReg service.Registerable) {
+	snsH, ok1 := snsReg.(*snsbackend.Handler)
+	sqsH, ok2 := sqsReg.(*sqsbackend.Handler)
+
+	if !ok1 || !ok2 {
+		return
+	}
+
+	snsBk, ok3 := snsH.Backend.(*snsbackend.InMemoryBackend)
+	sqsBk, ok4 := sqsH.Backend.(*sqsbackend.InMemoryBackend)
+
+	if !ok3 || !ok4 {
+		return
+	}
+
+	emitter := snsevents.NewInMemoryEmitter[*snsevents.SNSPublishedEvent]()
+	snsBk.SetPublishEmitter(emitter)
+	sqsBk.SubscribeToSNS(emitter)
 }
 
 // startServer starts the HTTP server and blocks until it shuts down.

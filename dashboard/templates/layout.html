@@ -55,8 +55,20 @@
                     🐹 <span>Gopherstack</span>
                 </a>
             </div>
-            <!-- Dark mode toggle -->
-            <button id="theme-toggle" type="button"
+            <!-- Right-side controls: settings icon + dark mode toggle -->
+            <div class="flex items-center gap-1">
+                <!-- Settings icon link -->
+                <a href="/dashboard/settings"
+                    class="p-2 text-gray-500 rounded-lg hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-200 dark:text-gray-400 dark:hover:bg-gray-700 dark:focus:ring-gray-600"
+                    title="Settings">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round"
+                            d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                </a>
+                <!-- Dark mode toggle -->
+                <button id="theme-toggle" type="button"
                 class="p-2 text-gray-500 rounded-lg hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-200 dark:text-gray-400 dark:hover:bg-gray-700 dark:focus:ring-gray-600"
                 title="Toggle dark mode">
                 <svg id="theme-icon-dark" class="w-5 h-5 hidden" fill="currentColor" viewBox="0 0 20 20">
@@ -67,7 +79,8 @@
                         d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z"
                         clip-rule="evenodd" />
                 </svg>
-            </button>
+                </button>
+            </div><!-- end right-side controls -->
         </div>
     </nav>
 
@@ -156,6 +169,12 @@
                     <a href="/dashboard/docs"
                         class='flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "docs"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}'>
                         <span>📚</span> Docs
+                    </a>
+                </li>
+                <li>
+                    <a href="/dashboard/settings"
+                        class='flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "settings"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}'>
+                        <span>⚙️</span> Settings
                     </a>
                 </li>
             </ul>

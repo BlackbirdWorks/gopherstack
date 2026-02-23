@@ -86,3 +86,38 @@ type ObjectDeletedEvent struct {
 func (e *ObjectDeletedEvent) EventType() string {
 	return "s3.object.deleted"
 }
+
+// SNSPublishedEvent is emitted whenever a message is published to an SNS topic.
+// Listeners (e.g. SQS) can subscribe to deliver the message to the appropriate endpoints.
+type SNSPublishedEvent struct {
+	Attributes    map[string]SNSMessageAttributeSnapshot
+	TopicARN      string
+	MessageID     string
+	Message       string
+	Subject       string
+	Subscriptions []SNSSubscriptionSnapshot
+}
+
+// SNSSubscriptionSnapshot holds subscription metadata at publish time.
+type SNSSubscriptionSnapshot struct {
+	// SubscriptionARN is the subscription ARN.
+	SubscriptionARN string
+	// Protocol is the delivery protocol (sqs, http, https, email, …).
+	Protocol string
+	// Endpoint is the delivery endpoint (queue ARN, URL, email address, …).
+	Endpoint string
+	// FilterPolicy is the JSON filter policy, or empty string if none.
+	FilterPolicy string
+}
+
+// SNSMessageAttributeSnapshot holds a single message attribute value.
+type SNSMessageAttributeSnapshot struct {
+	// DataType is the attribute data type (String, Number, Binary, …).
+	DataType string
+	// StringValue is the string value (set when DataType is String/Number).
+	StringValue string
+}
+
+func (e *SNSPublishedEvent) EventType() string {
+	return "sns.message.published"
+}

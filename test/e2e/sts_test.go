@@ -47,7 +47,7 @@ func TestSTSDashboard(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify the mock account ID is shown.
-	err = page.Locator("#sts-account:has-text('123456789012')").WaitFor(
+	err = page.Locator("#sts-account:has-text('000000000000')").WaitFor(
 		playwright.LocatorWaitForOptions{
 			State:   playwright.WaitForSelectorStateVisible,
 			Timeout: playwright.Float(60000),

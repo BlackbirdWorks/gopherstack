@@ -48,7 +48,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateUser", "DeleteUser", "ListUsers", "GetUser",
 		"CreateRole", "DeleteRole", "ListRoles", "GetRole",
 		"CreatePolicy", "DeletePolicy", "ListPolicies",
+		"GetPolicy", "GetPolicyVersion",
 		"AttachUserPolicy", "AttachRolePolicy",
+		"ListAttachedUserPolicies", "ListAttachedRolePolicies",
 		"CreateGroup", "DeleteGroup", "AddUserToGroup",
 		"CreateAccessKey", "DeleteAccessKey", "ListAccessKeys",
 		"CreateInstanceProfile", "DeleteInstanceProfile", "ListInstanceProfiles",
@@ -315,6 +317,69 @@ func (h *Handler) dispatch( //nolint:funlen,gocognit,gocyclo,cyclop // one switc
 		}
 
 		return &AttachRolePolicyResponse{Xmlns: iamXMLNS, ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
+
+	case "ListAttachedUserPolicies":
+		policies, err := h.Backend.ListAttachedUserPolicies(vals.Get("UserName"))
+		if err != nil {
+			return nil, err
+		}
+
+		xmlPolicies := make([]AttachedPolicyXML, 0, len(policies))
+		for _, p := range policies {
+			xmlPolicies = append(xmlPolicies, AttachedPolicyXML(p))
+		}
+
+		return &ListAttachedUserPoliciesResponse{
+			Xmlns:                          iamXMLNS,
+			ListAttachedUserPoliciesResult: ListAttachedUserPoliciesResult{AttachedPolicies: xmlPolicies},
+			ResponseMetadata:               ResponseMetadata{RequestID: reqID},
+		}, nil
+
+	case "ListAttachedRolePolicies":
+		policies, err := h.Backend.ListAttachedRolePolicies(vals.Get("RoleName"))
+		if err != nil {
+			return nil, err
+		}
+
+		xmlPolicies := make([]AttachedPolicyXML, 0, len(policies))
+		for _, p := range policies {
+			xmlPolicies = append(xmlPolicies, AttachedPolicyXML(p))
+		}
+
+		return &ListAttachedRolePoliciesResponse{
+			Xmlns:                          iamXMLNS,
+			ListAttachedRolePoliciesResult: ListAttachedRolePoliciesResult{AttachedPolicies: xmlPolicies},
+			ResponseMetadata:               ResponseMetadata{RequestID: reqID},
+		}, nil
+
+	case "GetPolicy":
+		pol, err := h.Backend.GetPolicy(vals.Get("PolicyArn"))
+		if err != nil {
+			return nil, err
+		}
+
+		return &GetPolicyResponse{
+			Xmlns:            iamXMLNS,
+			GetPolicyResult:  GetPolicyResult{Policy: toPolicyXML(pol)},
+			ResponseMetadata: ResponseMetadata{RequestID: reqID},
+		}, nil
+
+	case "GetPolicyVersion":
+		pol, err := h.Backend.GetPolicyVersion(vals.Get("PolicyArn"), vals.Get("VersionId"))
+		if err != nil {
+			return nil, err
+		}
+
+		return &GetPolicyVersionResponse{
+			Xmlns: iamXMLNS,
+			GetPolicyVersionResult: GetPolicyVersionResult{PolicyVersion: PolicyVersionXML{
+				Document:         pol.PolicyDocument,
+				VersionID:        "v1",
+				IsDefaultVersion: true,
+				CreateDate:       isoTime(pol.CreateDate),
+			}},
+			ResponseMetadata: ResponseMetadata{RequestID: reqID},
+		}, nil
 
 	case "CreateGroup":
 		g, err := h.Backend.CreateGroup(vals.Get("GroupName"), vals.Get("Path"))

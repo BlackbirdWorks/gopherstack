@@ -408,3 +408,73 @@ type ListInstanceProfilesResult struct {
 func isoTime(t time.Time) string {
 	return t.UTC().Format("2006-01-02T15:04:05Z")
 }
+
+// ---- Attached Policy XML ----
+
+// AttachedPolicyXML is the XML representation of an attached managed policy.
+type AttachedPolicyXML struct {
+	PolicyName string `xml:"PolicyName"`
+	PolicyArn  string `xml:"PolicyArn"`
+}
+
+// ListAttachedUserPoliciesResponse is the XML response for ListAttachedUserPolicies.
+type ListAttachedUserPoliciesResponse struct {
+	XMLName                        xml.Name                       `xml:"ListAttachedUserPoliciesResponse"`
+	Xmlns                          string                         `xml:"xmlns,attr"`
+	ResponseMetadata               ResponseMetadata               `xml:"ResponseMetadata"`
+	ListAttachedUserPoliciesResult ListAttachedUserPoliciesResult `xml:"ListAttachedUserPoliciesResult"`
+}
+
+// ListAttachedUserPoliciesResult contains the list of attached policies.
+type ListAttachedUserPoliciesResult struct {
+	AttachedPolicies []AttachedPolicyXML `xml:"AttachedPolicies>member"`
+	IsTruncated      bool                `xml:"IsTruncated"`
+}
+
+// ListAttachedRolePoliciesResponse is the XML response for ListAttachedRolePolicies.
+type ListAttachedRolePoliciesResponse struct {
+	XMLName                        xml.Name                       `xml:"ListAttachedRolePoliciesResponse"`
+	Xmlns                          string                         `xml:"xmlns,attr"`
+	ResponseMetadata               ResponseMetadata               `xml:"ResponseMetadata"`
+	ListAttachedRolePoliciesResult ListAttachedRolePoliciesResult `xml:"ListAttachedRolePoliciesResult"`
+}
+
+// ListAttachedRolePoliciesResult contains the list of attached policies for a role.
+type ListAttachedRolePoliciesResult struct {
+	AttachedPolicies []AttachedPolicyXML `xml:"AttachedPolicies>member"`
+	IsTruncated      bool                `xml:"IsTruncated"`
+}
+
+// PolicyVersionXML is the XML representation of a policy version.
+type PolicyVersionXML struct {
+	Document         string `xml:"Document"`
+	VersionID        string `xml:"VersionId"`
+	CreateDate       string `xml:"CreateDate"`
+	IsDefaultVersion bool   `xml:"IsDefaultVersion"`
+}
+
+// GetPolicyResponse is the XML response for GetPolicy.
+type GetPolicyResponse struct {
+	XMLName          xml.Name         `xml:"GetPolicyResponse"`
+	Xmlns            string           `xml:"xmlns,attr"`
+	GetPolicyResult  GetPolicyResult  `xml:"GetPolicyResult"`
+	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
+}
+
+// GetPolicyResult contains the policy details.
+type GetPolicyResult struct {
+	Policy PolicyXML `xml:"Policy"`
+}
+
+// GetPolicyVersionResponse is the XML response for GetPolicyVersion.
+type GetPolicyVersionResponse struct {
+	XMLName                xml.Name               `xml:"GetPolicyVersionResponse"`
+	Xmlns                  string                 `xml:"xmlns,attr"`
+	ResponseMetadata       ResponseMetadata       `xml:"ResponseMetadata"`
+	GetPolicyVersionResult GetPolicyVersionResult `xml:"GetPolicyVersionResult"`
+}
+
+// GetPolicyVersionResult contains the policy version details.
+type GetPolicyVersionResult struct {
+	PolicyVersion PolicyVersionXML `xml:"PolicyVersion"`
+}

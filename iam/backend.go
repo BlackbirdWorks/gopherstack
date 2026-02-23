@@ -3,6 +3,7 @@ package iam
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -59,6 +60,10 @@ type StorageBackend interface {
 	ListPolicies() ([]Policy, error)
 	AttachUserPolicy(userName, policyArn string) error
 	AttachRolePolicy(roleName, policyArn string) error
+	ListAttachedUserPolicies(userName string) ([]AttachedPolicy, error)
+	ListAttachedRolePolicies(roleName string) ([]AttachedPolicy, error)
+	GetPolicy(policyArn string) (*Policy, error)
+	GetPolicyVersion(policyArn, versionID string) (*Policy, error)
 
 	// Groups
 	CreateGroup(groupName, path string) (*Group, error)
@@ -90,13 +95,22 @@ type InMemoryBackend struct {
 	roles            map[string]Role
 	policies         map[string]Policy
 	groups           map[string]Group
-	accessKeys       map[string]AccessKey // key = AccessKeyId
+	accessKeys       map[string]AccessKey
 	instanceProfiles map[string]InstanceProfile
-	mu               *lockmetrics.RWMutex
+	// userPolicies and rolePolicies track attached policy ARNs keyed by entity name.
+	userPolicies map[string][]string // userName → []policyArn
+	rolePolicies map[string][]string // roleName → []policyArn
+	mu           *lockmetrics.RWMutex
+	accountID    string
 }
 
-// NewInMemoryBackend creates a new empty IAM InMemoryBackend.
+// NewInMemoryBackend creates a new empty IAM InMemoryBackend with default account ID.
 func NewInMemoryBackend() *InMemoryBackend {
+	return NewInMemoryBackendWithConfig(IAMAccountID)
+}
+
+// NewInMemoryBackendWithConfig creates a new IAM InMemoryBackend with the given account ID.
+func NewInMemoryBackendWithConfig(accountID string) *InMemoryBackend {
 	return &InMemoryBackend{
 		users:            make(map[string]User),
 		roles:            make(map[string]Role),
@@ -104,6 +118,9 @@ func NewInMemoryBackend() *InMemoryBackend {
 		groups:           make(map[string]Group),
 		accessKeys:       make(map[string]AccessKey),
 		instanceProfiles: make(map[string]InstanceProfile),
+		userPolicies:     make(map[string][]string),
+		rolePolicies:     make(map[string][]string),
+		accountID:        accountID,
 		mu:               lockmetrics.New("iam"),
 	}
 }
@@ -138,7 +155,7 @@ func (b *InMemoryBackend) CreateUser(userName, path string) (*User, error) {
 	u := User{
 		UserName:   userName,
 		UserID:     newID("AIDA"),
-		Arn:        fmt.Sprintf("arn:aws:iam::%s:user%s%s", IAMAccountID, p, userName),
+		Arn:        fmt.Sprintf("arn:aws:iam::%s:user%s%s", b.accountID, p, userName),
 		Path:       p,
 		CreateDate: time.Now().UTC(),
 	}
@@ -197,7 +214,7 @@ func (b *InMemoryBackend) CreateRole(roleName, path, assumeRolePolicyDocument st
 	r := Role{
 		RoleName:                 roleName,
 		RoleID:                   newID("AROA"),
-		Arn:                      fmt.Sprintf("arn:aws:iam::%s:role%s%s", IAMAccountID, p, roleName),
+		Arn:                      fmt.Sprintf("arn:aws:iam::%s:role%s%s", b.accountID, p, roleName),
 		Path:                     p,
 		AssumeRolePolicyDocument: assumeRolePolicyDocument,
 		CreateDate:               time.Now().UTC(),
@@ -264,7 +281,7 @@ func (b *InMemoryBackend) CreatePolicy(policyName, path, policyDocument string) 
 	pol := Policy{
 		PolicyName:     policyName,
 		PolicyID:       newID("ANPA"),
-		Arn:            fmt.Sprintf("arn:aws:iam::%s:policy%s%s", IAMAccountID, p, policyName),
+		Arn:            fmt.Sprintf("arn:aws:iam::%s:policy%s%s", b.accountID, p, policyName),
 		Path:           p,
 		PolicyDocument: policyDocument,
 		CreateDate:     time.Now().UTC(),
@@ -305,26 +322,38 @@ func (b *InMemoryBackend) ListPolicies() ([]Policy, error) {
 	return policies, nil
 }
 
-// AttachUserPolicy attaches a policy to a user (stub — no enforcement).
-func (b *InMemoryBackend) AttachUserPolicy(userName, _ string) error {
-	b.mu.RLock("AttachUserPolicy")
-	defer b.mu.RUnlock()
+// AttachUserPolicy attaches a policy to a user.
+func (b *InMemoryBackend) AttachUserPolicy(userName, policyArn string) error {
+	b.mu.Lock("AttachUserPolicy")
+	defer b.mu.Unlock()
 
 	if _, exists := b.users[userName]; !exists {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
+	if slices.Contains(b.userPolicies[userName], policyArn) {
+		return nil // already attached
+	}
+
+	b.userPolicies[userName] = append(b.userPolicies[userName], policyArn)
+
 	return nil
 }
 
-// AttachRolePolicy attaches a policy to a role (stub — no enforcement).
-func (b *InMemoryBackend) AttachRolePolicy(roleName, _ string) error {
-	b.mu.RLock("AttachRolePolicy")
-	defer b.mu.RUnlock()
+// AttachRolePolicy attaches a policy to a role.
+func (b *InMemoryBackend) AttachRolePolicy(roleName, policyArn string) error {
+	b.mu.Lock("AttachRolePolicy")
+	defer b.mu.Unlock()
 
 	if _, exists := b.roles[roleName]; !exists {
 		return fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
 	}
+
+	if slices.Contains(b.rolePolicies[roleName], policyArn) {
+		return nil // already attached
+	}
+
+	b.rolePolicies[roleName] = append(b.rolePolicies[roleName], policyArn)
 
 	return nil
 }
@@ -344,7 +373,7 @@ func (b *InMemoryBackend) CreateGroup(groupName, path string) (*Group, error) {
 	g := Group{
 		GroupName:  groupName,
 		GroupID:    newID("AGPA"),
-		Arn:        fmt.Sprintf("arn:aws:iam::%s:group%s%s", IAMAccountID, p, groupName),
+		Arn:        fmt.Sprintf("arn:aws:iam::%s:group%s%s", b.accountID, p, groupName),
 		Path:       p,
 		CreateDate: time.Now().UTC(),
 	}
@@ -457,7 +486,7 @@ func (b *InMemoryBackend) CreateInstanceProfile(name, path string) (*InstancePro
 	ip := InstanceProfile{
 		InstanceProfileName: name,
 		InstanceProfileID:   newID("AIPA"),
-		Arn:                 fmt.Sprintf("arn:aws:iam::%s:instance-profile%s%s", IAMAccountID, p, name),
+		Arn:                 fmt.Sprintf("arn:aws:iam::%s:instance-profile%s%s", b.accountID, p, name),
 		Path:                p,
 		Roles:               []string{},
 		CreateDate:          time.Now().UTC(),
@@ -608,4 +637,86 @@ func newID(prefix string) string {
 // newAccessKeyID generates a 20-character access key ID.
 func newAccessKeyID() string {
 	return "AKIA" + uuid.New().String()[:16]
+}
+
+// ---- Attached Policy Queries ----
+
+// AttachedPolicy is a simplified representation of an attached managed policy.
+type AttachedPolicy struct {
+	PolicyName string
+	PolicyArn  string
+}
+
+// ListAttachedUserPolicies returns all policy ARNs attached to the named user.
+func (b *InMemoryBackend) ListAttachedUserPolicies(userName string) ([]AttachedPolicy, error) {
+	b.mu.RLock("ListAttachedUserPolicies")
+	defer b.mu.RUnlock()
+
+	if _, exists := b.users[userName]; !exists {
+		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
+	}
+
+	arns := b.userPolicies[userName]
+	result := make([]AttachedPolicy, 0, len(arns))
+
+	for _, arn := range arns {
+		name := policyNameFromARN(arn)
+		result = append(result, AttachedPolicy{PolicyName: name, PolicyArn: arn})
+	}
+
+	return result, nil
+}
+
+// ListAttachedRolePolicies returns all policy ARNs attached to the named role.
+func (b *InMemoryBackend) ListAttachedRolePolicies(roleName string) ([]AttachedPolicy, error) {
+	b.mu.RLock("ListAttachedRolePolicies")
+	defer b.mu.RUnlock()
+
+	if _, exists := b.roles[roleName]; !exists {
+		return nil, fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
+	}
+
+	arns := b.rolePolicies[roleName]
+	result := make([]AttachedPolicy, 0, len(arns))
+
+	for _, arn := range arns {
+		name := policyNameFromARN(arn)
+		result = append(result, AttachedPolicy{PolicyName: name, PolicyArn: arn})
+	}
+
+	return result, nil
+}
+
+// GetPolicy returns the policy metadata for the given ARN.
+func (b *InMemoryBackend) GetPolicy(policyArn string) (*Policy, error) {
+	b.mu.RLock("GetPolicy")
+	defer b.mu.RUnlock()
+
+	for _, p := range b.policies {
+		if p.Arn == policyArn {
+			pol := p
+
+			return &pol, nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
+}
+
+// GetPolicyVersion returns the default (only) version of a policy document.
+// Gopherstack stores a single version per policy; version ID "v1" is always returned.
+func (b *InMemoryBackend) GetPolicyVersion(policyArn, _ string) (*Policy, error) {
+	return b.GetPolicy(policyArn)
+}
+
+// policyNameFromARN extracts the policy name from an ARN.
+// arn:aws:iam::<account>:policy/<name> → <name>
+func policyNameFromARN(arn string) string {
+	const prefix = "policy/"
+
+	if i := strings.LastIndex(arn, prefix); i >= 0 {
+		return arn[i+len(prefix):]
+	}
+
+	return arn
 }

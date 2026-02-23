@@ -69,7 +69,7 @@ func (db *InMemoryDB) EnableStream(ctx context.Context, tableName, viewType stri
 
 	table.StreamsEnabled = true
 	table.StreamViewType = viewType
-	table.StreamARN = buildStreamARN(tableName)
+	table.StreamARN = db.buildStreamARN(tableName)
 
 	return nil
 }
@@ -320,11 +320,11 @@ func (db *InMemoryDB) ListStreams(
 	}, nil
 }
 
-// buildStreamARN generates a fake ARN for a table stream.
-func buildStreamARN(tableName string) string {
+// buildStreamARN generates a stream ARN for the given table using the backend's account and region.
+func (db *InMemoryDB) buildStreamARN(tableName string) string {
 	return fmt.Sprintf(
-		"arn:aws:dynamodb:us-east-1:123456789012:table/%s/stream/2024-01-01T00:00:00.000",
-		tableName,
+		"arn:aws:dynamodb:%s:%s:table/%s/stream/2024-01-01T00:00:00.000",
+		db.defaultRegion, db.accountID, tableName,
 	)
 }
 

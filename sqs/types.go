@@ -41,8 +41,9 @@ const (
 	attrApproxMessagesDelayed     = "ApproximateNumberOfMessagesDelayed"
 	attrAll                       = "All"
 
-	attrApproxReceiveCount = "ApproximateReceiveCount"
-	attrSentTimestamp      = "SentTimestamp"
+	attrApproxReceiveCount          = "ApproximateReceiveCount"
+	attrSentTimestamp               = "SentTimestamp"
+	attrApproxFirstReceiveTimestamp = "ApproximateFirstReceiveTimestamp"
 
 	attrValTrue  = "true"
 	attrValFalse = "false"
@@ -60,16 +61,17 @@ type MessageAttributeValue struct {
 
 // Message represents an SQS message.
 type Message struct {
-	MessageAttributes       map[string]MessageAttributeValue
-	Attributes              map[string]string
-	Body                    string
-	MessageGroupID          string
-	MessageDeduplicationID  string
-	MessageID               string
-	ReceiptHandle           string
-	MD5OfBody               string
-	SentTimestamp           int64
-	ApproximateReceiveCount int
+	MessageAttributes                map[string]MessageAttributeValue
+	Attributes                       map[string]string
+	Body                             string
+	MessageGroupID                   string
+	MessageDeduplicationID           string
+	MessageID                        string
+	ReceiptHandle                    string
+	MD5OfBody                        string
+	SentTimestamp                    int64
+	ApproximateFirstReceiveTimestamp int64 // Unix ms; 0 means never received
+	ApproximateReceiveCount          int
 }
 
 // InFlightMessage wraps a message that has been received but not deleted.
@@ -84,10 +86,13 @@ type Queue struct {
 	deduplicationMsgIDs map[string]string
 	DeduplicationIDs    map[string]time.Time
 	Attributes          map[string]string
+	Tags                map[string]string
+	dlq                 *Queue // resolved DLQ queue pointer; nil = no DLQ
 	Name                string
 	URL                 string
 	messages            []*Message
 	inFlightMessages    []*InFlightMessage
+	MaxReceiveCount     int // 0 = no DLQ
 	IsFIFO              bool
 }
 
@@ -467,4 +472,105 @@ type PurgeQueueResponse struct {
 	XMLName          xml.Name            `xml:"PurgeQueueResponse"`
 	ResponseMetadata XMLResponseMetadata `xml:"ResponseMetadata"`
 	Xmlns            string              `xml:"xmlns,attr"`
+}
+
+// TagQueueInput holds the input for TagQueue.
+type TagQueueInput struct {
+	Tags     map[string]string
+	QueueURL string
+}
+
+// UntagQueueInput holds the input for UntagQueue.
+type UntagQueueInput struct {
+	QueueURL string
+	TagKeys  []string
+}
+
+// ListQueueTagsInput holds the input for ListQueueTags.
+type ListQueueTagsInput struct {
+	QueueURL string
+}
+
+// ListQueueTagsOutput holds the result of ListQueueTags.
+type ListQueueTagsOutput struct {
+	Tags map[string]string
+}
+
+// TagEntry is a single key/value tag pair in an XML response.
+type TagEntry struct {
+	Key   string `xml:"Key"`
+	Value string `xml:"Value"`
+}
+
+// ListQueueTagsResult is the XML body for ListQueueTagsResponse.
+type ListQueueTagsResult struct {
+	Tags []TagEntry `xml:"Tag"`
+}
+
+// ListQueueTagsResponse is the XML envelope for ListQueueTags.
+type ListQueueTagsResponse struct {
+	XMLName          xml.Name            `xml:"ListQueueTagsResponse"`
+	ResponseMetadata XMLResponseMetadata `xml:"ResponseMetadata"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	Result           ListQueueTagsResult `xml:"ListQueueTagsResult"`
+}
+
+// TagQueueResponse is the XML response for TagQueue.
+type TagQueueResponse struct {
+	XMLName          xml.Name            `xml:"TagQueueResponse"`
+	ResponseMetadata XMLResponseMetadata `xml:"ResponseMetadata"`
+	Xmlns            string              `xml:"xmlns,attr"`
+}
+
+// UntagQueueResponse is the XML response for UntagQueue.
+type UntagQueueResponse struct {
+	XMLName          xml.Name            `xml:"UntagQueueResponse"`
+	ResponseMetadata XMLResponseMetadata `xml:"ResponseMetadata"`
+	Xmlns            string              `xml:"xmlns,attr"`
+}
+
+// ChangeMessageVisibilityBatchRequestEntry is one item in a batch visibility change.
+type ChangeMessageVisibilityBatchRequestEntry struct {
+	ID                string
+	ReceiptHandle     string
+	VisibilityTimeout int
+}
+
+// ChangeMessageVisibilityBatchInput holds input for ChangeMessageVisibilityBatch.
+type ChangeMessageVisibilityBatchInput struct {
+	QueueURL string
+	Entries  []ChangeMessageVisibilityBatchRequestEntry
+}
+
+// BatchResultEntry is a successful batch result entry.
+type BatchResultEntry struct {
+	ID string `xml:"Id"`
+}
+
+// BatchErrorEntry is a failed batch result entry.
+type BatchErrorEntry struct {
+	ID          string `xml:"Id"`
+	Code        string `xml:"Code"`
+	Message     string `xml:"Message"`
+	SenderFault bool   `xml:"SenderFault"`
+}
+
+// ChangeMessageVisibilityBatchOutput holds the result of ChangeMessageVisibilityBatch.
+type ChangeMessageVisibilityBatchOutput struct {
+	Successful []BatchResultEntry
+	Failed     []BatchErrorEntry
+}
+
+// ChangeMessageVisibilityBatchResult is the XML body.
+type ChangeMessageVisibilityBatchResult struct {
+	Successful []BatchResultEntry `xml:"ChangeMessageVisibilityBatchResultEntry"`
+	Failed     []BatchErrorEntry  `xml:"BatchResultErrorEntry"`
+}
+
+// ChangeMessageVisibilityBatchResponse is the XML envelope.
+type ChangeMessageVisibilityBatchResponse struct {
+	XMLName          xml.Name                           `xml:"ChangeMessageVisibilityBatchResponse"`
+	ResponseMetadata XMLResponseMetadata                `xml:"ResponseMetadata"`
+	Xmlns            string                             `xml:"xmlns,attr"`
+	Result           ChangeMessageVisibilityBatchResult `xml:"ChangeMessageVisibilityBatchResult"`
 }

@@ -105,6 +105,82 @@ func FromSDKListTablesOutput(output *dynamodb.ListTablesOutput) *ListTablesOutpu
 	}
 }
 
+// ToSDKUpdateTableInput converts the wire-format UpdateTableInput to an AWS SDK input.
+func ToSDKUpdateTableInput(input *UpdateTableInput) (*dynamodb.UpdateTableInput, error) {
+	out := &dynamodb.UpdateTableInput{
+		TableName: &input.TableName,
+	}
+
+	if len(input.AttributeDefinitions) > 0 {
+		out.AttributeDefinitions = ToSDKAttributeDefinitions(input.AttributeDefinitions)
+	}
+
+	if input.ProvisionedThroughput != nil {
+		out.ProvisionedThroughput = &types.ProvisionedThroughput{
+			ReadCapacityUnits:  input.ProvisionedThroughput.ReadCapacityUnits,
+			WriteCapacityUnits: input.ProvisionedThroughput.WriteCapacityUnits,
+		}
+	}
+
+	if input.StreamSpecification != nil {
+		out.StreamSpecification = &types.StreamSpecification{
+			StreamEnabled:  &input.StreamSpecification.StreamEnabled,
+			StreamViewType: types.StreamViewType(input.StreamSpecification.StreamViewType),
+		}
+	}
+
+	gsiUpdates := make([]types.GlobalSecondaryIndexUpdate, 0, len(input.GlobalSecondaryIndexUpdates))
+
+	for _, u := range input.GlobalSecondaryIndexUpdates {
+		update := types.GlobalSecondaryIndexUpdate{}
+
+		switch {
+		case u.Create != nil:
+			sdkCreate := &types.CreateGlobalSecondaryIndexAction{
+				IndexName:  &u.Create.IndexName,
+				KeySchema:  ToSDKKeySchema(u.Create.KeySchema),
+				Projection: ToSDKProjection(u.Create.Projection),
+			}
+
+			if u.Create.ProvisionedThroughput != nil {
+				sdkCreate.ProvisionedThroughput = &types.ProvisionedThroughput{
+					ReadCapacityUnits:  u.Create.ProvisionedThroughput.ReadCapacityUnits,
+					WriteCapacityUnits: u.Create.ProvisionedThroughput.WriteCapacityUnits,
+				}
+			}
+
+			update.Create = sdkCreate
+
+		case u.Update != nil:
+			update.Update = &types.UpdateGlobalSecondaryIndexAction{
+				IndexName: &u.Update.IndexName,
+				ProvisionedThroughput: &types.ProvisionedThroughput{
+					ReadCapacityUnits:  u.Update.ProvisionedThroughput.ReadCapacityUnits,
+					WriteCapacityUnits: u.Update.ProvisionedThroughput.WriteCapacityUnits,
+				},
+			}
+
+		case u.Delete != nil:
+			update.Delete = &types.DeleteGlobalSecondaryIndexAction{
+				IndexName: &u.Delete.IndexName,
+			}
+		}
+
+		gsiUpdates = append(gsiUpdates, update)
+	}
+
+	out.GlobalSecondaryIndexUpdates = gsiUpdates
+
+	return out, nil
+}
+
+// FromSDKUpdateTableOutput converts the AWS SDK UpdateTableOutput to wire format.
+func FromSDKUpdateTableOutput(output *dynamodb.UpdateTableOutput) *UpdateTableOutput {
+	return &UpdateTableOutput{
+		TableDescription: FromSDKTableDescription(output.TableDescription),
+	}
+}
+
 func ToSDKUpdateTimeToLiveInput(input *UpdateTimeToLiveInput) *dynamodb.UpdateTimeToLiveInput {
 	return &dynamodb.UpdateTimeToLiveInput{
 		TableName: &input.TableName,
@@ -262,4 +338,58 @@ func FromSDKItemCollectionMetrics(icm *types.ItemCollectionMetrics) *ItemCollect
 		ItemCollectionKey:   FromSDKItem(icm.ItemCollectionKey),
 		SizeEstimateRangeGB: icm.SizeEstimateRangeGB,
 	}
+}
+
+// ToSDKTagResourceInput converts the wire-format TagResourceInput to an AWS SDK input.
+func ToSDKTagResourceInput(input *TagResourceInput) (*dynamodb.TagResourceInput, error) {
+	sdkTags := make([]types.Tag, len(input.Tags))
+	for i, t := range input.Tags {
+		tag := t // capture loop var
+		sdkTags[i] = types.Tag{Key: &tag.Key, Value: &tag.Value}
+	}
+
+	return &dynamodb.TagResourceInput{ResourceArn: &input.ResourceArn, Tags: sdkTags}, nil
+}
+
+// FromSDKTagResourceOutput converts the AWS SDK TagResourceOutput to wire format.
+func FromSDKTagResourceOutput(_ *dynamodb.TagResourceOutput) *TagResourceOutput {
+	return &TagResourceOutput{}
+}
+
+// ToSDKUntagResourceInput converts the wire-format UntagResourceInput to an AWS SDK input.
+func ToSDKUntagResourceInput(input *UntagResourceInput) (*dynamodb.UntagResourceInput, error) {
+	return &dynamodb.UntagResourceInput{ResourceArn: &input.ResourceArn, TagKeys: input.TagKeys}, nil
+}
+
+// FromSDKUntagResourceOutput converts the AWS SDK UntagResourceOutput to wire format.
+func FromSDKUntagResourceOutput(_ *dynamodb.UntagResourceOutput) *UntagResourceOutput {
+	return &UntagResourceOutput{}
+}
+
+// ToSDKListTagsOfResourceInput converts the wire-format input to an AWS SDK input.
+func ToSDKListTagsOfResourceInput(input *ListTagsOfResourceInput) (*dynamodb.ListTagsOfResourceInput, error) {
+	out := &dynamodb.ListTagsOfResourceInput{ResourceArn: &input.ResourceArn}
+	if input.NextToken != "" {
+		out.NextToken = &input.NextToken
+	}
+
+	return out, nil
+}
+
+// FromSDKListTagsOfResourceOutput converts the AWS SDK output to wire format.
+func FromSDKListTagsOfResourceOutput(output *dynamodb.ListTagsOfResourceOutput) *ListTagsOfResourceOutput {
+	tags := make([]Tag, len(output.Tags))
+	for i, t := range output.Tags {
+		tags[i] = Tag{
+			Key:   ptrconv.String(t.Key),
+			Value: ptrconv.String(t.Value),
+		}
+	}
+
+	result := &ListTagsOfResourceOutput{Tags: tags}
+	if output.NextToken != nil {
+		result.NextToken = *output.NextToken
+	}
+
+	return result
 }

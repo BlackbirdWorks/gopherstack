@@ -6,14 +6,14 @@ const (
 	// STSNamespace is the XML namespace for STS wire responses.
 	STSNamespace = "https://sts.amazonaws.com/doc/2011-06-15/"
 
-	// MockAccountID is the fixed account ID returned by the mock service.
-	MockAccountID = "123456789012"
+	// MockAccountID is the default mock AWS account ID returned by GetCallerIdentity.
+	MockAccountID = "000000000000"
 
 	// MockUserID is the fixed user ID returned by GetCallerIdentity.
 	MockUserID = "AKIAIOSFODNN7EXAMPLE" //nolint:gosec // well-known AWS example key, not real credentials
 
-	// MockUserArn is the fixed ARN returned by GetCallerIdentity.
-	MockUserArn = "arn:aws:iam::123456789012:root"
+	// MockUserArn is the default ARN returned by GetCallerIdentity.
+	MockUserArn = "arn:aws:iam::000000000000:root"
 
 	// DefaultDurationSeconds is the default credential lifetime (1 hour).
 	DefaultDurationSeconds = 3600
@@ -23,6 +23,12 @@ const (
 
 	// MaxDurationSeconds is the maximum allowed credential lifetime.
 	MaxDurationSeconds = 43200
+
+	// DefaultSessionTokenDurationSeconds is the default lifetime for GetSessionToken (12 hours).
+	DefaultSessionTokenDurationSeconds = 43200
+
+	// MinSessionTokenDurationSeconds is the minimum allowed lifetime (15 minutes).
+	MinSessionTokenDurationSeconds = 900
 )
 
 // AssumeRoleInput holds the parameters for an AssumeRole call.
@@ -88,6 +94,26 @@ type ErrorDetail struct {
 	Type    string `xml:"Type"`
 	Code    string `xml:"Code"`
 	Message string `xml:"Message"`
+}
+
+// GetSessionTokenInput holds the parameters for a GetSessionToken call.
+type GetSessionTokenInput struct {
+	SerialNumber    string
+	TokenCode       string
+	DurationSeconds int32
+}
+
+// GetSessionTokenResult wraps the credentials.
+type GetSessionTokenResult struct {
+	Credentials Credentials `xml:"Credentials"`
+}
+
+// GetSessionTokenResponse is the top-level XML envelope returned by GetSessionToken.
+type GetSessionTokenResponse struct {
+	XMLName               xml.Name              `xml:"GetSessionTokenResponse"`
+	Xmlns                 string                `xml:"xmlns,attr"`
+	GetSessionTokenResult GetSessionTokenResult `xml:"GetSessionTokenResult"`
+	ResponseMetadata      ResponseMetadata      `xml:"ResponseMetadata"`
 }
 
 // ErrorResponse is the XML error envelope returned on failed STS operations.
