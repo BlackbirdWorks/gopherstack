@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/dynamodb/models"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -51,6 +52,20 @@ func (db *InMemoryDB) CreateTable(
 		newTable.StreamsEnabled = true
 		newTable.StreamViewType = string(input.StreamSpecification.StreamViewType)
 		newTable.StreamARN = db.buildStreamARN(tableName)
+	}
+
+	// Set initial table status based on createDelay setting.
+	if db.createDelay > 0 {
+		newTable.Status = string(types.TableStatusCreating)
+
+		go func() {
+			time.Sleep(db.createDelay)
+			newTable.mu.Lock("activate")
+			newTable.Status = string(types.TableStatusActive)
+			newTable.mu.Unlock()
+		}()
+	} else {
+		newTable.Status = string(types.TableStatusActive)
 	}
 
 	db.Tables[region][tableName] = newTable
@@ -117,10 +132,15 @@ func buildCreateTableOutput(input *dynamodb.CreateTableInput, t *Table) *dynamod
 	rcu := int64(t.ProvisionedThroughput.ReadCapacityUnits)
 	wcu := int64(t.ProvisionedThroughput.WriteCapacityUnits)
 
+	tableStatus := types.TableStatus(t.Status)
+	if tableStatus == "" {
+		tableStatus = types.TableStatusActive
+	}
+
 	return &dynamodb.CreateTableOutput{
 		TableDescription: &types.TableDescription{
 			TableName:              input.TableName,
-			TableStatus:            types.TableStatusActive,
+			TableStatus:            tableStatus,
 			KeySchema:              models.ToSDKKeySchema(t.KeySchema),
 			AttributeDefinitions:   models.ToSDKAttributeDefinitions(t.AttributeDefinitions),
 			GlobalSecondaryIndexes: models.ToSDKGlobalSecondaryIndexDescriptions(gsiDescs),
@@ -240,6 +260,11 @@ func (db *InMemoryDB) DescribeTable(
 	copy(lsiList, table.LocalSecondaryIndexes)
 	itemCount := int64(len(table.Items))
 	pt := table.ProvisionedThroughput
+	tableStatus := types.TableStatus(table.Status)
+	if tableStatus == "" {
+		tableStatus = types.TableStatusActive
+	}
+
 	table.mu.RUnlock()
 
 	// Build index descriptions outside lock
@@ -289,7 +314,7 @@ func (db *InMemoryDB) DescribeTable(
 	return &dynamodb.DescribeTableOutput{
 		Table: &types.TableDescription{
 			TableName:              input.TableName,
-			TableStatus:            types.TableStatusActive,
+			TableStatus:            tableStatus,
 			KeySchema:              sdkKeySchema,
 			AttributeDefinitions:   sdkAttrDefs,
 			GlobalSecondaryIndexes: sdkGSIs,

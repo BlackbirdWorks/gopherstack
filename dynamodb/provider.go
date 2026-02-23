@@ -39,6 +39,8 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		backend.defaultRegion = cfg.Region
 	}
 
+	backend.createDelay = settings.CreateDelay
+
 	handler := NewHandler(backend, ctx.Logger).WithJanitor(settings)
 
 	return handler, nil

@@ -17,6 +17,9 @@ type InMemoryDB struct {
 	mu             *lockmetrics.RWMutex
 	defaultRegion  string
 	accountID      string
+	// createDelay is the time to wait before transitioning a new table to ACTIVE.
+	// Zero means immediate ACTIVE (no lifecycle simulation).
+	createDelay time.Duration
 }
 
 // StreamRecord captures a single item-level change event for DynamoDB Streams.
@@ -49,11 +52,13 @@ const (
 )
 
 type Table struct {
-	pkIndex                map[string]int
-	pkskIndex              map[string]map[string]int
-	mu                     *lockmetrics.RWMutex
-	Tags                   map[string]string
-	Name                   string
+	pkIndex   map[string]int
+	pkskIndex map[string]map[string]int
+	mu        *lockmetrics.RWMutex
+	Tags      map[string]string
+	Name      string
+	// Status is the current table status: "CREATING", "ACTIVE", "DELETING", etc.
+	Status                 string
 	TTLAttribute           string
 	StreamViewType         string
 	StreamARN              string
@@ -206,4 +211,10 @@ func (db *InMemoryDB) SetDefaultRegion(region string) {
 		region = "us-east-1"
 	}
 	db.defaultRegion = region
+}
+
+// SetCreateDelay sets the CREATING → ACTIVE transition delay.
+// Call before CreateTable calls; intended for tests and CLI configuration.
+func (db *InMemoryDB) SetCreateDelay(d time.Duration) {
+	db.createDelay = d
 }
