@@ -3,6 +3,7 @@ package iam
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -59,6 +60,10 @@ type StorageBackend interface {
 	ListPolicies() ([]Policy, error)
 	AttachUserPolicy(userName, policyArn string) error
 	AttachRolePolicy(roleName, policyArn string) error
+	ListAttachedUserPolicies(userName string) ([]AttachedPolicy, error)
+	ListAttachedRolePolicies(roleName string) ([]AttachedPolicy, error)
+	GetPolicy(policyArn string) (*Policy, error)
+	GetPolicyVersion(policyArn, versionID string) (*Policy, error)
 
 	// Groups
 	CreateGroup(groupName, path string) (*Group, error)
@@ -92,8 +97,11 @@ type InMemoryBackend struct {
 	groups           map[string]Group
 	accessKeys       map[string]AccessKey
 	instanceProfiles map[string]InstanceProfile
-	mu               *lockmetrics.RWMutex
-	accountID        string
+	// userPolicies and rolePolicies track attached policy ARNs keyed by entity name.
+	userPolicies map[string][]string // userName → []policyArn
+	rolePolicies map[string][]string // roleName → []policyArn
+	mu           *lockmetrics.RWMutex
+	accountID    string
 }
 
 // NewInMemoryBackend creates a new empty IAM InMemoryBackend with default account ID.
@@ -110,6 +118,8 @@ func NewInMemoryBackendWithConfig(accountID string) *InMemoryBackend {
 		groups:           make(map[string]Group),
 		accessKeys:       make(map[string]AccessKey),
 		instanceProfiles: make(map[string]InstanceProfile),
+		userPolicies:     make(map[string][]string),
+		rolePolicies:     make(map[string][]string),
 		accountID:        accountID,
 		mu:               lockmetrics.New("iam"),
 	}
@@ -312,26 +322,38 @@ func (b *InMemoryBackend) ListPolicies() ([]Policy, error) {
 	return policies, nil
 }
 
-// AttachUserPolicy attaches a policy to a user (stub — no enforcement).
-func (b *InMemoryBackend) AttachUserPolicy(userName, _ string) error {
-	b.mu.RLock("AttachUserPolicy")
-	defer b.mu.RUnlock()
+// AttachUserPolicy attaches a policy to a user.
+func (b *InMemoryBackend) AttachUserPolicy(userName, policyArn string) error {
+	b.mu.Lock("AttachUserPolicy")
+	defer b.mu.Unlock()
 
 	if _, exists := b.users[userName]; !exists {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
+	if slices.Contains(b.userPolicies[userName], policyArn) {
+		return nil // already attached
+	}
+
+	b.userPolicies[userName] = append(b.userPolicies[userName], policyArn)
+
 	return nil
 }
 
-// AttachRolePolicy attaches a policy to a role (stub — no enforcement).
-func (b *InMemoryBackend) AttachRolePolicy(roleName, _ string) error {
-	b.mu.RLock("AttachRolePolicy")
-	defer b.mu.RUnlock()
+// AttachRolePolicy attaches a policy to a role.
+func (b *InMemoryBackend) AttachRolePolicy(roleName, policyArn string) error {
+	b.mu.Lock("AttachRolePolicy")
+	defer b.mu.Unlock()
 
 	if _, exists := b.roles[roleName]; !exists {
 		return fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
 	}
+
+	if slices.Contains(b.rolePolicies[roleName], policyArn) {
+		return nil // already attached
+	}
+
+	b.rolePolicies[roleName] = append(b.rolePolicies[roleName], policyArn)
 
 	return nil
 }
@@ -615,4 +637,86 @@ func newID(prefix string) string {
 // newAccessKeyID generates a 20-character access key ID.
 func newAccessKeyID() string {
 	return "AKIA" + uuid.New().String()[:16]
+}
+
+// ---- Attached Policy Queries ----
+
+// AttachedPolicy is a simplified representation of an attached managed policy.
+type AttachedPolicy struct {
+	PolicyName string
+	PolicyArn  string
+}
+
+// ListAttachedUserPolicies returns all policy ARNs attached to the named user.
+func (b *InMemoryBackend) ListAttachedUserPolicies(userName string) ([]AttachedPolicy, error) {
+	b.mu.RLock("ListAttachedUserPolicies")
+	defer b.mu.RUnlock()
+
+	if _, exists := b.users[userName]; !exists {
+		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
+	}
+
+	arns := b.userPolicies[userName]
+	result := make([]AttachedPolicy, 0, len(arns))
+
+	for _, arn := range arns {
+		name := policyNameFromARN(arn)
+		result = append(result, AttachedPolicy{PolicyName: name, PolicyArn: arn})
+	}
+
+	return result, nil
+}
+
+// ListAttachedRolePolicies returns all policy ARNs attached to the named role.
+func (b *InMemoryBackend) ListAttachedRolePolicies(roleName string) ([]AttachedPolicy, error) {
+	b.mu.RLock("ListAttachedRolePolicies")
+	defer b.mu.RUnlock()
+
+	if _, exists := b.roles[roleName]; !exists {
+		return nil, fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
+	}
+
+	arns := b.rolePolicies[roleName]
+	result := make([]AttachedPolicy, 0, len(arns))
+
+	for _, arn := range arns {
+		name := policyNameFromARN(arn)
+		result = append(result, AttachedPolicy{PolicyName: name, PolicyArn: arn})
+	}
+
+	return result, nil
+}
+
+// GetPolicy returns the policy metadata for the given ARN.
+func (b *InMemoryBackend) GetPolicy(policyArn string) (*Policy, error) {
+	b.mu.RLock("GetPolicy")
+	defer b.mu.RUnlock()
+
+	for _, p := range b.policies {
+		if p.Arn == policyArn {
+			pol := p
+
+			return &pol, nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
+}
+
+// GetPolicyVersion returns the default (only) version of a policy document.
+// Gopherstack stores a single version per policy; version ID "v1" is always returned.
+func (b *InMemoryBackend) GetPolicyVersion(policyArn, _ string) (*Policy, error) {
+	return b.GetPolicy(policyArn)
+}
+
+// policyNameFromARN extracts the policy name from an ARN.
+// arn:aws:iam::<account>:policy/<name> → <name>
+func policyNameFromARN(arn string) string {
+	const prefix = "policy/"
+
+	if i := strings.LastIndex(arn, prefix); i >= 0 {
+		return arn[i+len(prefix):]
+	}
+
+	return arn
 }

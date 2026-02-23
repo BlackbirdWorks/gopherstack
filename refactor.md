@@ -83,9 +83,9 @@ Audit of Gopherstack against LocalStack free-tier parity. Items are grouped by t
 
 ### Missing Features
 
-- [ ] **ListAttachedRolePolicies** — Cannot list which policies are attached to a role.
-- [ ] **ListAttachedUserPolicies** — Cannot list which policies are attached to a user.
-- [ ] **GetPolicy / GetPolicyVersion** — Cannot retrieve a stored policy document back.
+- [x] **ListAttachedRolePolicies** — Cannot list which policies are attached to a role.
+- [x] **ListAttachedUserPolicies** — Cannot list which policies are attached to a user.
+- [x] **GetPolicy / GetPolicyVersion** — Cannot retrieve a stored policy document back.
 - [ ] **DetachUserPolicy / DetachRolePolicy** — Verify these are implemented (may exist but not visible in dispatch).
 - [ ] **ListGroupsForUser / ListUserPolicies / ListRolePolicies** — Missing query operations.
 
