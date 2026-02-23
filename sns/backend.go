@@ -39,6 +39,7 @@ type StorageBackend interface {
 	GetTopicAttributes(topicArn string) (map[string]string, error)
 	SetTopicAttributes(topicArn, attrName, attrValue string) error
 	Subscribe(topicArn, protocol, endpoint, filterPolicy string) (*Subscription, error)
+	ConfirmSubscription(topicArn, token string) (*Subscription, error)
 	Unsubscribe(subscriptionArn string) error
 	ListSubscriptions(nextToken string) ([]Subscription, string, error)
 	ListSubscriptionsByTopic(topicArn, nextToken string) ([]Subscription, string, error)
@@ -208,6 +209,29 @@ func (b *InMemoryBackend) Unsubscribe(subscriptionArn string) error {
 	delete(b.subscriptions, subscriptionArn)
 
 	return nil
+}
+
+// ConfirmSubscription "confirms" a pending subscription.
+// In the mock, any non-empty token is accepted.
+// The subscription must belong to the given topicArn; if found and pending,
+// PendingConfirmation is cleared and the subscription ARN is returned.
+func (b *InMemoryBackend) ConfirmSubscription(topicArn, token string) (*Subscription, error) {
+	if token == "" {
+		return nil, ErrInvalidParameter
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	for _, sub := range b.subscriptions {
+		if sub.TopicArn == topicArn {
+			sub.PendingConfirmation = false
+
+			return sub, nil
+		}
+	}
+
+	return nil, ErrSubscriptionNotFound
 }
 
 // ListSubscriptions returns a page of subscriptions and the next pagination token.

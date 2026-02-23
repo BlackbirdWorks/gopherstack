@@ -204,3 +204,15 @@ type PublishBatchResponse struct {
 	ResponseMetadata   ResponseMetadata   `xml:"ResponseMetadata"`
 	PublishBatchResult PublishBatchResult `xml:"PublishBatchResult"`
 }
+
+// ConfirmSubscriptionResult holds the subscription ARN after confirmation.
+type ConfirmSubscriptionResult struct {
+	SubscriptionArn string `xml:"SubscriptionArn"`
+}
+
+// ConfirmSubscriptionResponse is the XML response for ConfirmSubscription.
+type ConfirmSubscriptionResponse struct {
+	XMLName                   xml.Name                  `xml:"https://sns.amazonaws.com/doc/2010-03-31/ ConfirmSubscriptionResponse"` //nolint:lll // XML namespace makes this line long.
+	ConfirmSubscriptionResult ConfirmSubscriptionResult `xml:"ConfirmSubscriptionResult"`
+	ResponseMetadata          ResponseMetadata          `xml:"ResponseMetadata"`
+}

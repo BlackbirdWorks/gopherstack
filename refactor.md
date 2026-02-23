@@ -69,7 +69,7 @@ Audit of Gopherstack against LocalStack free-tier parity. Items are grouped by t
 
 - [x] **SNS → SQS delivery** — Publishing to a topic with SQS subscriptions does not enqueue messages into the target queue. This is the most critical cross-service gap.
 - [ ] **SNS → Lambda invocation** — Not implemented.
-- [ ] **ConfirmSubscription** — No action handler for confirming HTTP/HTTPS endpoint subscriptions.
+- [x] **ConfirmSubscription** — No action handler for confirming HTTP/HTTPS endpoint subscriptions.
 - [ ] **TagResource / UntagResource / ListTagsForResource** — No tagging support.
 
 ---
