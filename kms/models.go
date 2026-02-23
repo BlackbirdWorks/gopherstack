@@ -118,6 +118,8 @@ type KeyListEntry struct {
 	KeyID string `json:"KeyId"`
 	// KeyArn is the full ARN of the key.
 	KeyArn string `json:"KeyArn"`
+	// Description is the optional human-readable description of the key.
+	Description string `json:"Description,omitempty"`
 }
 
 // ListKeysInput is the request payload for ListKeys.

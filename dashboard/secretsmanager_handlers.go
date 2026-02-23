@@ -132,7 +132,8 @@ func (h *DashboardHandler) secretsManagerUpdate(c *echo.Context) error {
 		return c.String(http.StatusInternalServerError, "Failed to update secret: "+err.Error())
 	}
 
-	w.Header().Set("Hx-Redirect", "/dashboard/secretsmanager")
+	// Redirect back to the detail page so the updated version history is visible.
+	w.Header().Set("Hx-Redirect", "/dashboard/secretsmanager/secret?name="+name)
 
 	return c.NoContent(http.StatusOK)
 }

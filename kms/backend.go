@@ -256,7 +256,7 @@ func (b *InMemoryBackend) ListKeys(input *ListKeysInput) (*ListKeysOutput, error
 	entries := make([]KeyListEntry, 0, len(b.keys))
 
 	for _, k := range b.keys {
-		entries = append(entries, KeyListEntry{KeyID: k.KeyID, KeyArn: k.Arn})
+		entries = append(entries, KeyListEntry{KeyID: k.KeyID, KeyArn: k.Arn, Description: k.Description})
 	}
 
 	sort.Slice(entries, func(i, j int) bool {

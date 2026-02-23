@@ -132,13 +132,7 @@
 </div>
 {{end}}
 
-{{define "kms_encrypt_result"}}
-<div class="mt-2 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg border">
-    <p class="text-xs text-gray-500 mb-1">Key ID: {{.KeyID}}</p>
-    <p class="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">Ciphertext (base64):</p>
-    <p class="text-xs font-mono text-gray-900 dark:text-white break-all">{{.Ciphertext}}</p>
-</div>
-{{end}}
+{{define "kms_encrypt_result"}}<code class="block mt-2 px-3 py-2 bg-gray-50 dark:bg-gray-700 rounded-lg border text-xs font-mono text-gray-900 dark:text-white break-all">{{.Ciphertext}}</code>{{end}}
 
 {{define "kms_decrypt_result"}}
 <div class="mt-2 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg border">
