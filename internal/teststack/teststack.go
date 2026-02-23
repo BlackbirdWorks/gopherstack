@@ -17,6 +17,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/dashboard"
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
@@ -119,7 +120,11 @@ func New(t *testing.T) *Stack {
 		STSOps:    stsHndlr,
 		SNSOps:    snsHndlr,
 		SQSOps:    sqsHndlr,
-		Logger:    slog.Default(),
+		GlobalConfig: config.GlobalConfig{
+			AccountID: "000000000000",
+			Region:    "us-east-1",
+		},
+		Logger: slog.Default(),
 	})
 	_ = registry.Register(dashHndlr)
 

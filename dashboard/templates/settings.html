@@ -1,0 +1,58 @@
+{{template "layout" .}}
+
+{{define "content"}}
+<div class="p-4 sm:ml-64">
+    <div class="p-4 mt-14">
+
+        <!-- Header -->
+        <div class="flex items-center justify-between mb-6">
+            <div>
+                <h1 class="text-2xl font-bold text-gray-900 dark:text-white">⚙️ Settings</h1>
+                <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Runtime configuration — read only</p>
+            </div>
+        </div>
+
+        <!-- Config Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+            <!-- Account & Region -->
+            <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+                <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">🏦 Identity</h2>
+                <dl class="space-y-3">
+                    <div class="flex justify-between items-center">
+                        <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Account ID</dt>
+                        <dd>
+                            <span class="px-2 py-1 text-xs font-mono bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded">
+                                {{.AccountID}}
+                            </span>
+                        </dd>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Default Region</dt>
+                        <dd>
+                            <span class="px-2 py-1 text-xs font-mono bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded">
+                                {{.Region}}
+                            </span>
+                        </dd>
+                    </div>
+                </dl>
+            </div>
+
+            <!-- Info Notice -->
+            <div class="bg-blue-50 dark:bg-blue-900/30 rounded-lg border border-blue-200 dark:border-blue-800 p-6 flex flex-col justify-center">
+                <h2 class="text-lg font-semibold text-blue-800 dark:text-blue-200 mb-2">ℹ️ How to change</h2>
+                <p class="text-sm text-blue-700 dark:text-blue-300">
+                    Configuration is set at startup via CLI flags or environment variables.
+                    Restart the server with updated values to change them.
+                </p>
+                <ul class="mt-3 text-xs text-blue-600 dark:text-blue-400 font-mono space-y-1">
+                    <li>--account-id / ACCOUNT_ID</li>
+                    <li>--region / REGION</li>
+                </ul>
+            </div>
+
+        </div>
+
+    </div>
+</div>
+{{end}}

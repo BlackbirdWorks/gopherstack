@@ -9,6 +9,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/dynamodb"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
 	kmsbackend "github.com/blackbirdworks/gopherstack/kms"
+	globalcfg "github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/s3"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/secretsmanager"
@@ -34,6 +35,7 @@ type AWSSDKProvider interface {
 	GetSQSHandler() service.Registerable
 	GetKMSHandler() service.Registerable
 	GetSecretsManagerHandler() service.Registerable
+	GetGlobalConfig() globalcfg.GlobalConfig
 }
 
 // Provider implements service.Provider for the Dashboard service.
@@ -46,87 +48,88 @@ func (p *Provider) Name() string {
 
 // Init initializes the Dashboard service.
 //
+// extractedConfig holds all concrete service types extracted from a AWSSDKProvider.
+type extractedConfig struct {
+	ddbClient         *ddbsdk.Client
+	s3Client          *s3sdk.Client
+	ssmClient         *ssmsdk.Client
+	ddb               *dynamodb.DynamoDBHandler
+	s3h               *s3.S3Handler
+	ssmOps            *ssm.Handler
+	iamOps            *iambackend.Handler
+	stsOps            *stsbackend.Handler
+	snsOps            *sns.Handler
+	sqsOps            *sqsbackend.Handler
+	kmsOps            *kmsbackend.Handler
+	secretsManagerOps *secretsmanagerbackend.Handler
+	gCfg              globalcfg.GlobalConfig
+}
+
+// extractFromProvider tries to extract all service types from the AppContext.Config.
+func extractFromProvider(ctx *service.AppContext) extractedConfig {
+	var ec extractedConfig
+
+	ap, ok := ctx.Config.(AWSSDKProvider)
+	if !ok {
+		return ec
+	}
+
+	ec.ddbClient = ap.GetDynamoDBClient()
+	ec.s3Client = ap.GetS3Client()
+	ec.ssmClient = ap.GetSSMClient()
+	ec.gCfg = ap.GetGlobalConfig()
+	ec.ddb, _ = ap.GetDynamoDBHandler().(*dynamodb.DynamoDBHandler)
+	ec.s3h, _ = ap.GetS3Handler().(*s3.S3Handler)
+
+	if h := ap.GetSSMHandler(); h != nil {
+		ec.ssmOps, _ = h.(*ssm.Handler)
+	}
+
+	if h := ap.GetIAMHandler(); h != nil {
+		ec.iamOps, _ = h.(*iambackend.Handler)
+	}
+
+	if h := ap.GetSTSHandler(); h != nil {
+		ec.stsOps, _ = h.(*stsbackend.Handler)
+	}
+
+	if h := ap.GetSNSHandler(); h != nil {
+		ec.snsOps, _ = h.(*sns.Handler)
+	}
+
+	if h := ap.GetSQSHandler(); h != nil {
+		ec.sqsOps, _ = h.(*sqsbackend.Handler)
+	}
+
+	if h := ap.GetKMSHandler(); h != nil {
+		ec.kmsOps, _ = h.(*kmsbackend.Handler)
+	}
+
+	if h := ap.GetSecretsManagerHandler(); h != nil {
+		ec.secretsManagerOps, _ = h.(*secretsmanagerbackend.Handler)
+	}
+
+	return ec
+}
+
 //nolint:ireturn // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
-	var ddbClient *ddbsdk.Client
-	var s3Client *s3sdk.Client
-	var ssmClient *ssmsdk.Client
-	var ddbHandler service.Registerable
-	var s3Handler service.Registerable
-	var ssmHandler service.Registerable
-	var iamHandler service.Registerable
-	var stsHandler service.Registerable
-	var snsHandler service.Registerable
-	var sqsHandler service.Registerable
-	var kmsHandler service.Registerable
-	var secretsManagerHandler service.Registerable
-
-	// Try to extract SDK clients and handlers if the config implements the extractor interface
-	if ap, ok := ctx.Config.(AWSSDKProvider); ok {
-		ddbClient = ap.GetDynamoDBClient()
-		s3Client = ap.GetS3Client()
-		ssmClient = ap.GetSSMClient()
-		ddbHandler = ap.GetDynamoDBHandler()
-		s3Handler = ap.GetS3Handler()
-		ssmHandler = ap.GetSSMHandler()
-		iamHandler = ap.GetIAMHandler()
-		stsHandler = ap.GetSTSHandler()
-		snsHandler = ap.GetSNSHandler()
-		sqsHandler = ap.GetSQSHandler()
-		kmsHandler = ap.GetKMSHandler()
-		secretsManagerHandler = ap.GetSecretsManagerHandler()
-	}
-
-	// For dashboard, having the clients mapped is pretty much a requirement.
-	// The dashboard logic connects via SDK back into the memory stores.
-
-	ddb, _ := ddbHandler.(*dynamodb.DynamoDBHandler)
-	s3h, _ := s3Handler.(*s3.S3Handler)
-	var ssmOps *ssm.Handler
-	if ssmHandler != nil {
-		ssmOps, _ = ssmHandler.(*ssm.Handler)
-	}
-	var iamOps *iambackend.Handler
-	if iamHandler != nil {
-		iamOps, _ = iamHandler.(*iambackend.Handler)
-	}
-	var stsOps *stsbackend.Handler
-	if stsHandler != nil {
-		stsOps, _ = stsHandler.(*stsbackend.Handler)
-	}
-	var snsOps *sns.Handler
-	if snsHandler != nil {
-		snsOps, _ = snsHandler.(*sns.Handler)
-	}
-
-	var sqsOps *sqsbackend.Handler
-	if sqsHandler != nil {
-		sqsOps, _ = sqsHandler.(*sqsbackend.Handler)
-	}
-
-	var kmsOps *kmsbackend.Handler
-	if kmsHandler != nil {
-		kmsOps, _ = kmsHandler.(*kmsbackend.Handler)
-	}
-
-	var secretsManagerOps *secretsmanagerbackend.Handler
-	if secretsManagerHandler != nil {
-		secretsManagerOps, _ = secretsManagerHandler.(*secretsmanagerbackend.Handler)
-	}
+	ec := extractFromProvider(ctx)
 
 	handler := NewHandler(Config{
-		DDBClient:         ddbClient,
-		S3Client:          s3Client,
-		SSMClient:         ssmClient,
-		DDBOps:            ddb,
-		S3Ops:             s3h,
-		SSMOps:            ssmOps,
-		IAMOps:            iamOps,
-		STSOps:            stsOps,
-		SNSOps:            snsOps,
-		SQSOps:            sqsOps,
-		KMSOps:            kmsOps,
-		SecretsManagerOps: secretsManagerOps,
+		DDBClient:         ec.ddbClient,
+		S3Client:          ec.s3Client,
+		SSMClient:         ec.ssmClient,
+		DDBOps:            ec.ddb,
+		S3Ops:             ec.s3h,
+		SSMOps:            ec.ssmOps,
+		IAMOps:            ec.iamOps,
+		STSOps:            ec.stsOps,
+		SNSOps:            ec.snsOps,
+		SQSOps:            ec.sqsOps,
+		KMSOps:            ec.kmsOps,
+		SecretsManagerOps: ec.secretsManagerOps,
+		GlobalConfig:      ec.gCfg,
 		Logger:            ctx.Logger,
 	})
 

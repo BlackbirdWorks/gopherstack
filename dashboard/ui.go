@@ -15,6 +15,7 @@ import (
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
 	kmsbackend "github.com/blackbirdworks/gopherstack/kms"
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	pkgslogger "github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
@@ -52,29 +53,24 @@ type PageData struct {
 //
 //nolint:revive // Stuttering preferred here for clarity per Plan.md
 type DashboardHandler struct {
-	// Legacy direct SDK injection pattern
-	DynamoDB *dynamodb.Client
-	S3       *s3.Client
-	SSM      *ssmsdk.Client
-	DDBOps   *ddbbackend.DynamoDBHandler
-	S3Ops    *s3backend.S3Handler
-	SSMOps   *ssmbackend.Handler
-	IAMOps   *iambackend.Handler
-	STSOps   *stsbackend.Handler
-	SNSOps   *snsbackend.Handler
-	SQSOps   *sqsbackend.Handler
-	// KMSOps provides access to the KMS backend for dashboard display.
-	KMSOps *kmsbackend.Handler
-	// SecretsManagerOps provides access to the Secrets Manager backend for dashboard display.
+	SNSOps            *snsbackend.Handler
+	KMSOps            *kmsbackend.Handler
+	SSM               *ssmsdk.Client
+	DDBOps            *ddbbackend.DynamoDBHandler
+	S3Ops             *s3backend.S3Handler
+	SSMOps            *ssmbackend.Handler
+	IAMOps            *iambackend.Handler
+	STSOps            *stsbackend.Handler
+	S3                *s3.Client
+	DynamoDB          *dynamodb.Client
+	SQSOps            *sqsbackend.Handler
 	SecretsManagerOps *secretsmanagerbackend.Handler
-
-	// Dashboard providers for service discovery
-	ddbProvider *ddbbackend.DashboardProvider
-	s3Provider  *s3backend.DashboardProvider
-
-	Logger    *slog.Logger
-	layout    *template.Template
-	SubRouter *echo.Echo
+	SubRouter         *echo.Echo
+	ddbProvider       *ddbbackend.DashboardProvider
+	s3Provider        *s3backend.DashboardProvider
+	Logger            *slog.Logger
+	layout            *template.Template
+	GlobalConfig      config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -94,6 +90,8 @@ type Config struct {
 	// SecretsManagerOps provides access to the Secrets Manager backend.
 	SecretsManagerOps *secretsmanagerbackend.Handler
 	Logger            *slog.Logger
+	// GlobalConfig holds the centralized account and region configuration shown on the settings page.
+	GlobalConfig config.GlobalConfig
 }
 
 // NewHandler creates a new Dashboard handler.
@@ -125,6 +123,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		"templates/secretsmanager/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
+		"templates/settings.html",
 	))
 
 	// Create service-specific dashboard providers
@@ -144,6 +143,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		SQSOps:            cfg.SQSOps,
 		KMSOps:            cfg.KMSOps,
 		SecretsManagerOps: cfg.SecretsManagerOps,
+		GlobalConfig:      cfg.GlobalConfig,
 		Logger:            cfg.Logger,
 		layout:            tmpl,
 		ddbProvider:       ddbProvider,
@@ -236,6 +236,9 @@ func (h *DashboardHandler) setupSubRouter() {
 	// Metrics & Docs (always available)
 	dashboardGroup := h.SubRouter.Group("/dashboard")
 	RegisterMetricsHandlers(dashboardGroup, h)
+
+	// Settings page (read-only config view)
+	h.SubRouter.GET("/dashboard/settings", h.settingsIndex)
 }
 
 // Handler returns the Echo handler function for dashboard requests.
@@ -571,4 +574,25 @@ func (h *DashboardHandler) handleS3File(w http.ResponseWriter, r *http.Request, 
 			h.s3FileDetail(w, r, bucketName, key)
 		}
 	}
+}
+
+// SettingsPageData holds the data rendered by the settings page template.
+type SettingsPageData struct {
+	PageData
+
+	AccountID string
+	Region    string
+}
+
+// settingsIndex renders the read-only settings/config page.
+func (h *DashboardHandler) settingsIndex(c *echo.Context) error {
+	data := SettingsPageData{
+		PageData:  PageData{Title: "Settings", ActiveTab: "settings"},
+		AccountID: h.GlobalConfig.AccountID,
+		Region:    h.GlobalConfig.Region,
+	}
+
+	h.renderTemplate(c.Response(), "settings.html", data)
+
+	return nil
 }
