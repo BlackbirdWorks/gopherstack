@@ -1400,3 +1400,31 @@ func TestHandler_DeleteObjects_Versioning(t *testing.T) {
 	serveS3Handler(handler, rec, req)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
+
+func TestHandler_BucketNotificationStub(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		method     string
+		wantStatus int
+	}{
+		{name: "PUT ?notification returns 200", method: http.MethodPut, wantStatus: http.StatusOK},
+		{name: "GET ?notification returns 200", method: http.MethodGet, wantStatus: http.StatusOK},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, backend := newTestHandler(t)
+			mustCreateBucket(t, backend, "notify-bkt")
+
+			req := httptest.NewRequest(tt.method, "/notify-bkt?notification", nil)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}

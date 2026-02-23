@@ -52,6 +52,10 @@ func (h *S3Handler) routeBucketPut(
 		h.putBucketACL(ctx, w, r, bucket)
 	case r.URL.Query().Has("versioning"):
 		h.putBucketVersioning(ctx, w, r, bucket)
+	case r.URL.Query().Has("notification"):
+		// Stub: accept notification configuration but do not deliver events.
+		h.setOperation(ctx, "PutBucketNotificationConfiguration")
+		w.WriteHeader(http.StatusOK)
 	case r.URL.Query().Has("tagging"):
 		WriteError(log, w, r, ErrNotImplemented)
 	default:
@@ -85,6 +89,12 @@ func (h *S3Handler) routeBucketGet(
 	switch {
 	case r.URL.Query().Has("acl"):
 		h.getBucketACL(ctx, w, r, bucket)
+	case r.URL.Query().Has("notification"):
+		// Stub: return empty notification configuration.
+		h.setOperation(ctx, "GetBucketNotificationConfiguration")
+		httputil.WriteXML(log, w, http.StatusOK, struct {
+			XMLName xml.Name `xml:"NotificationConfiguration"`
+		}{})
 	case r.URL.Query().Has("versioning"):
 		h.getBucketVersioning(ctx, w, r, bucket)
 	case r.URL.Query().Has("versions"):
