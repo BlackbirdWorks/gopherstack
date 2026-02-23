@@ -914,6 +914,12 @@ func (e *errorBackend) ListQueueTags(_ *sqs.ListQueueTagsInput) (*sqs.ListQueueT
 	return nil, e.err
 }
 
+func (e *errorBackend) ChangeMessageVisibilityBatch(
+	_ *sqs.ChangeMessageVisibilityBatchInput,
+) (*sqs.ChangeMessageVisibilityBatchOutput, error) {
+	return nil, e.err
+}
+
 func (e *errorBackend) ListAll() []sqs.QueueInfo { return nil }
 
 func newErrorHandler(t *testing.T, err error) *sqs.Handler {

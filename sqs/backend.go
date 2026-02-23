@@ -33,6 +33,7 @@ type StorageBackend interface {
 	TagQueue(input *TagQueueInput) error
 	UntagQueue(input *UntagQueueInput) error
 	ListQueueTags(input *ListQueueTagsInput) (*ListQueueTagsOutput, error)
+	ChangeMessageVisibilityBatch(input *ChangeMessageVisibilityBatchInput) (*ChangeMessageVisibilityBatchOutput, error)
 	ListAll() []QueueInfo
 }
 
@@ -553,15 +554,52 @@ func (b *InMemoryBackend) ChangeMessageVisibility(input *ChangeMessageVisibility
 		return ErrQueueNotFound
 	}
 
+	return changeVisibility(q, input.ReceiptHandle, input.VisibilityTimeout)
+}
+
+// changeVisibility updates the VisibleAt time for an in-flight message by receipt handle.
+func changeVisibility(q *Queue, receiptHandle string, visibilityTimeout int) error {
 	for _, inf := range q.inFlightMessages {
-		if inf.ReceiptHandle == input.ReceiptHandle {
-			inf.VisibleAt = time.Now().Add(time.Duration(input.VisibilityTimeout) * time.Second)
+		if inf.ReceiptHandle == receiptHandle {
+			inf.VisibleAt = time.Now().Add(time.Duration(visibilityTimeout) * time.Second)
 
 			return nil
 		}
 	}
 
 	return ErrReceiptHandleInvalid
+}
+
+// ChangeMessageVisibilityBatch updates visibility for a batch of in-flight messages.
+func (b *InMemoryBackend) ChangeMessageVisibilityBatch(
+	input *ChangeMessageVisibilityBatchInput,
+) (*ChangeMessageVisibilityBatchOutput, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	name := queueNameFromInput(input.QueueURL)
+
+	q, ok := b.queues[name]
+	if !ok {
+		return nil, ErrQueueNotFound
+	}
+
+	out := &ChangeMessageVisibilityBatchOutput{}
+
+	for _, entry := range input.Entries {
+		if err := changeVisibility(q, entry.ReceiptHandle, entry.VisibilityTimeout); err != nil {
+			out.Failed = append(out.Failed, BatchErrorEntry{
+				ID:          entry.ID,
+				Code:        "ReceiptHandleIsInvalid",
+				Message:     err.Error(),
+				SenderFault: true,
+			})
+		} else {
+			out.Successful = append(out.Successful, BatchResultEntry{ID: entry.ID})
+		}
+	}
+
+	return out, nil
 }
 
 // SendMessageBatch sends a batch of messages to the specified queue.

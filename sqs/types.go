@@ -528,3 +528,49 @@ type UntagQueueResponse struct {
 	ResponseMetadata XMLResponseMetadata `xml:"ResponseMetadata"`
 	Xmlns            string              `xml:"xmlns,attr"`
 }
+
+// ChangeMessageVisibilityBatchRequestEntry is one item in a batch visibility change.
+type ChangeMessageVisibilityBatchRequestEntry struct {
+	ID                string
+	ReceiptHandle     string
+	VisibilityTimeout int
+}
+
+// ChangeMessageVisibilityBatchInput holds input for ChangeMessageVisibilityBatch.
+type ChangeMessageVisibilityBatchInput struct {
+	QueueURL string
+	Entries  []ChangeMessageVisibilityBatchRequestEntry
+}
+
+// BatchResultEntry is a successful batch result entry.
+type BatchResultEntry struct {
+	ID string `xml:"Id"`
+}
+
+// BatchErrorEntry is a failed batch result entry.
+type BatchErrorEntry struct {
+	ID          string `xml:"Id"`
+	Code        string `xml:"Code"`
+	Message     string `xml:"Message"`
+	SenderFault bool   `xml:"SenderFault"`
+}
+
+// ChangeMessageVisibilityBatchOutput holds the result of ChangeMessageVisibilityBatch.
+type ChangeMessageVisibilityBatchOutput struct {
+	Successful []BatchResultEntry
+	Failed     []BatchErrorEntry
+}
+
+// ChangeMessageVisibilityBatchResult is the XML body.
+type ChangeMessageVisibilityBatchResult struct {
+	Successful []BatchResultEntry `xml:"ChangeMessageVisibilityBatchResultEntry"`
+	Failed     []BatchErrorEntry  `xml:"BatchResultErrorEntry"`
+}
+
+// ChangeMessageVisibilityBatchResponse is the XML envelope.
+type ChangeMessageVisibilityBatchResponse struct {
+	XMLName          xml.Name                           `xml:"ChangeMessageVisibilityBatchResponse"`
+	ResponseMetadata XMLResponseMetadata                `xml:"ResponseMetadata"`
+	Xmlns            string                             `xml:"xmlns,attr"`
+	Result           ChangeMessageVisibilityBatchResult `xml:"ChangeMessageVisibilityBatchResult"`
+}

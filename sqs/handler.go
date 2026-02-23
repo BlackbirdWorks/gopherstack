@@ -51,6 +51,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ChangeMessageVisibility",
 		"SendMessageBatch",
 		"DeleteMessageBatch",
+		"ChangeMessageVisibilityBatch",
 		"PurgeQueue",
 		"TagQueue",
 		"UntagQueue",
@@ -196,7 +197,7 @@ func (h *Handler) dispatch(
 	}
 }
 
-// dispatchTagOps handles PurgeQueue, TagQueue, UntagQueue, and ListQueueTags actions.
+// dispatchTagOps handles PurgeQueue, TagQueue, UntagQueue, ListQueueTags, and ChangeMessageVisibilityBatch actions.
 // Returns true if the action was handled, false otherwise.
 func (h *Handler) dispatchTagOps(
 	ctx context.Context,
@@ -214,6 +215,8 @@ func (h *Handler) dispatchTagOps(
 		h.handleUntagQueue(ctx, w, r, form, requestID)
 	case "ListQueueTags":
 		h.handleListQueueTags(ctx, w, r, form, requestID)
+	case "ChangeMessageVisibilityBatch":
+		h.handleChangeMessageVisibilityBatch(ctx, w, r, form, requestID)
 	default:
 		return false
 	}
@@ -588,6 +591,34 @@ func buildXMLDeleteBatchResult(out *DeleteMessageBatchOutput) XMLDeleteMessageBa
 	return result
 }
 
+func (h *Handler) handleChangeMessageVisibilityBatch(
+	_ context.Context,
+	w http.ResponseWriter,
+	_ *http.Request,
+	form url.Values,
+	requestID string,
+) {
+	out, err := h.Backend.ChangeMessageVisibilityBatch(&ChangeMessageVisibilityBatchInput{
+		QueueURL: form.Get("QueueUrl"),
+		Entries:  parseChangeVisibilityBatchEntries(form),
+	})
+	if err != nil {
+		h.writeError(w, err, requestID)
+
+		return
+	}
+
+	result := ChangeMessageVisibilityBatchResult{}
+	result.Successful = append(result.Successful, out.Successful...)
+	result.Failed = append(result.Failed, out.Failed...)
+
+	httputil.WriteXML(h.Logger, w, http.StatusOK, ChangeMessageVisibilityBatchResponse{
+		Xmlns:            sqsNamespace,
+		Result:           result,
+		ResponseMetadata: XMLResponseMetadata{RequestID: requestID},
+	})
+}
+
 func (h *Handler) handlePurgeQueue(
 	_ context.Context,
 	w http.ResponseWriter,
@@ -815,6 +846,28 @@ func parseDeleteBatchEntries(form url.Values) []DeleteMessageBatchEntry {
 		entries = append(entries, DeleteMessageBatchEntry{
 			ID:            id,
 			ReceiptHandle: form.Get(fmt.Sprintf("DeleteMessageBatchRequestEntry.%d.ReceiptHandle", i)),
+		})
+	}
+
+	return entries
+}
+
+// parseChangeVisibilityBatchEntries parses ChangeMessageVisibilityBatchRequestEntry.N.* parameters.
+func parseChangeVisibilityBatchEntries(form url.Values) []ChangeMessageVisibilityBatchRequestEntry {
+	var entries []ChangeMessageVisibilityBatchRequestEntry
+
+	for i := 1; i <= maxBatchSize; i++ {
+		id := form.Get(fmt.Sprintf("ChangeMessageVisibilityBatchRequestEntry.%d.Id", i))
+		if id == "" {
+			break
+		}
+
+		vt, _ := strconv.Atoi(form.Get(fmt.Sprintf("ChangeMessageVisibilityBatchRequestEntry.%d.VisibilityTimeout", i)))
+
+		entries = append(entries, ChangeMessageVisibilityBatchRequestEntry{
+			ID:                id,
+			ReceiptHandle:     form.Get(fmt.Sprintf("ChangeMessageVisibilityBatchRequestEntry.%d.ReceiptHandle", i)),
+			VisibilityTimeout: vt,
 		})
 	}
 
