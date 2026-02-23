@@ -3,6 +3,7 @@ package sns
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -43,7 +44,7 @@ type StorageBackend interface {
 	Unsubscribe(subscriptionArn string) error
 	ListSubscriptions(nextToken string) ([]Subscription, string, error)
 	ListSubscriptionsByTopic(topicArn, nextToken string) ([]Subscription, string, error)
-	Publish(topicArn, message, subject string, attrs map[string]MessageAttribute) (string, error)
+	Publish(topicArn, message, subject, messageStructure string, attrs map[string]MessageAttribute) (string, error)
 	ListAllTopics() []Topic
 	ListAllSubscriptions() []Subscription
 }
@@ -183,13 +184,15 @@ func (b *InMemoryBackend) Subscribe(topicArn, protocol, endpoint, filterPolicy s
 	topicName := parts[len(parts)-1]
 
 	subArn := fmt.Sprintf("%s%s:%s", b.arnPrefix(), topicName, uuid.New().String())
+	pending := protocol == "http" || protocol == "https"
 	sub := &Subscription{
-		SubscriptionArn: subArn,
-		TopicArn:        topicArn,
-		Protocol:        protocol,
-		Endpoint:        endpoint,
-		Owner:           b.accountID,
-		FilterPolicy:    filterPolicy,
+		SubscriptionArn:     subArn,
+		TopicArn:            topicArn,
+		Protocol:            protocol,
+		Endpoint:            endpoint,
+		Owner:               b.accountID,
+		FilterPolicy:        filterPolicy,
+		PendingConfirmation: pending,
 	}
 
 	b.subscriptions[subArn] = sub
@@ -224,7 +227,7 @@ func (b *InMemoryBackend) ConfirmSubscription(topicArn, token string) (*Subscrip
 	defer b.mu.Unlock()
 
 	for _, sub := range b.subscriptions {
-		if sub.TopicArn == topicArn {
+		if sub.TopicArn == topicArn && sub.PendingConfirmation {
 			sub.PendingConfirmation = false
 
 			return sub, nil
@@ -283,7 +286,7 @@ func (b *InMemoryBackend) ListSubscriptionsByTopic(topicArn, nextToken string) (
 // HTTP/HTTPS subscriptions receive a synchronous best-effort delivery.
 // All subscriptions are also broadcast via the publish emitter (e.g. to SQS).
 func (b *InMemoryBackend) Publish(
-	topicArn, message, subject string, attrs map[string]MessageAttribute,
+	topicArn, message, subject, messageStructure string, attrs map[string]MessageAttribute,
 ) (string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -294,6 +297,31 @@ func (b *InMemoryBackend) Publish(
 
 	messageID := uuid.New().String()
 
+	// Pre-parse the per-protocol message map if MessageStructure is "json".
+	var perProtocolMessages map[string]string
+	if messageStructure == "json" {
+		if err := json.Unmarshal([]byte(message), &perProtocolMessages); err != nil {
+			perProtocolMessages = nil
+		}
+	}
+
+	// resolveMessage returns the appropriate message body for a given protocol.
+	resolveMessage := func(protocol string) string {
+		if perProtocolMessages == nil {
+			return message
+		}
+
+		if msg, ok := perProtocolMessages[protocol]; ok {
+			return msg
+		}
+
+		if msg, ok := perProtocolMessages["default"]; ok {
+			return msg
+		}
+
+		return message
+	}
+
 	// Build subscription snapshot and deliver to HTTP/HTTPS endpoints.
 	subs := make([]events.SNSSubscriptionSnapshot, 0)
 
@@ -302,9 +330,15 @@ func (b *InMemoryBackend) Publish(
 			continue
 		}
 
+		if !matchesFilterPolicy(sub.FilterPolicy, attrs) {
+			continue
+		}
+
+		msg := resolveMessage(sub.Protocol)
+
 		switch sub.Protocol {
 		case "http", "https":
-			deliverHTTP(sub.Endpoint, message)
+			deliverHTTP(sub.Endpoint, msg)
 		}
 
 		subs = append(subs, events.SNSSubscriptionSnapshot{
@@ -336,6 +370,75 @@ func (b *InMemoryBackend) Publish(
 	}
 
 	return messageID, nil
+}
+
+// matchesFilterPolicy returns true if the message attributes satisfy all conditions in the filter policy.
+// If filterPolicy is empty or invalid JSON, it returns true (no filtering).
+func matchesFilterPolicy(filterPolicy string, attrs map[string]MessageAttribute) bool {
+	if filterPolicy == "" {
+		return true
+	}
+
+	var policy map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(filterPolicy), &policy); err != nil {
+		return true
+	}
+
+	for key, rawConditions := range policy {
+		attr, ok := attrs[key]
+		if !ok {
+			return false
+		}
+
+		var conditions []json.RawMessage
+		if err := json.Unmarshal(rawConditions, &conditions); err != nil {
+			return true
+		}
+
+		if !matchesConditions(attr.StringValue, conditions) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// matchesConditions returns true if value satisfies at least one condition in the list.
+func matchesConditions(value string, conditions []json.RawMessage) bool {
+	for _, raw := range conditions {
+		// Try object condition first: {"prefix": "..."} or {"anything-but": "..."}
+		var obj map[string]string
+		if err := json.Unmarshal(raw, &obj); err == nil {
+			if prefix, ok := obj["prefix"]; ok && strings.HasPrefix(value, prefix) {
+				return true
+			}
+
+			if excluded, ok := obj["anything-but"]; ok && value != excluded {
+				return true
+			}
+
+			continue
+		}
+
+		// Try scalar (string or number) exact match.
+		var s string
+		if err := json.Unmarshal(raw, &s); err == nil {
+			if value == s {
+				return true
+			}
+
+			continue
+		}
+
+		var n json.Number
+		if err := json.Unmarshal(raw, &n); err == nil {
+			if value == n.String() {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // ListAllTopics returns all topics sorted by ARN.

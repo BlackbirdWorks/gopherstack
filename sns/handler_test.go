@@ -258,7 +258,7 @@ func TestInMemoryBackend(t *testing.T) {
 			run: func(t *testing.T, b *sns.InMemoryBackend) {
 				t.Helper()
 				arn := mustCreateTopic(t, b, "pub-topic")
-				msgID, err := b.Publish(arn, "hello", "subject", nil)
+				msgID, err := b.Publish(arn, "hello", "subject", "", nil)
 				require.NoError(t, err)
 				assert.NotEmpty(t, msgID)
 			},
@@ -267,7 +267,7 @@ func TestInMemoryBackend(t *testing.T) {
 			name: "Publish_TopicNotFound",
 			run: func(t *testing.T, b *sns.InMemoryBackend) {
 				t.Helper()
-				_, err := b.Publish("arn:aws:sns:us-east-1:000000000000:missing", "x", "", nil)
+				_, err := b.Publish("arn:aws:sns:us-east-1:000000000000:missing", "x", "", "", nil)
 				require.ErrorIs(t, err, sns.ErrTopicNotFound)
 			},
 		},
@@ -960,7 +960,7 @@ func TestSNSHTTPDelivery(t *testing.T) {
 	_, err = b.Subscribe(tp.TopicArn, "http", ts.URL, "")
 	require.NoError(t, err)
 
-	_, err = b.Publish(tp.TopicArn, "test-message", "", nil)
+	_, err = b.Publish(tp.TopicArn, "test-message", "", "", nil)
 	require.NoError(t, err)
 
 	// Verify message was delivered
@@ -983,7 +983,7 @@ func TestSNSHTTPDeliveryBadEndpoint(t *testing.T) {
 	require.NoError(t, err)
 
 	// Should not panic or return error; delivery is best-effort
-	_, err = b.Publish(tp.TopicArn, "test", "", nil)
+	_, err = b.Publish(tp.TopicArn, "test", "", "", nil)
 	require.NoError(t, err)
 }
 
@@ -1173,4 +1173,246 @@ func TestSNSHandlerInternalError(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 	assert.Contains(t, rec.Body.String(), "InternalError")
+}
+
+// TestFilterPolicy covers matchesFilterPolicy edge cases via the Publish method.
+func TestFilterPolicy(t *testing.T) {
+	t.Parallel()
+
+	b := sns.NewInMemoryBackend()
+	tp, err := b.CreateTopic("fp-topic", nil)
+	require.NoError(t, err)
+
+	delivered := make(chan string, 10)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		delivered <- string(body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	// Subscriber with exact-match filter on attribute "color"=["red"]
+	_, err = b.Subscribe(tp.TopicArn, "http", ts.URL, `{"color":["red"]}`)
+	require.NoError(t, err)
+
+	attrs := map[string]sns.MessageAttribute{
+		"color": {DataType: "String", StringValue: "red"},
+	}
+	_, err = b.Publish(tp.TopicArn, "match", "", "", attrs)
+	require.NoError(t, err)
+	select {
+	case msg := <-delivered:
+		assert.Equal(t, "match", msg)
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("expected delivery for matching attribute")
+	}
+
+	// Publish with non-matching attribute - subscriber should NOT receive it.
+	attrsBlue := map[string]sns.MessageAttribute{
+		"color": {DataType: "String", StringValue: "blue"},
+	}
+	_, err = b.Publish(tp.TopicArn, "no-match", "", "", attrsBlue)
+	require.NoError(t, err)
+	select {
+	case <-delivered:
+		t.Fatal("expected no delivery for non-matching attribute")
+	case <-time.After(100 * time.Millisecond):
+		// OK: nothing delivered
+	}
+}
+
+// TestFilterPolicyPrefixAndAnythingBut covers prefix and anything-but conditions.
+func TestFilterPolicyPrefixAndAnythingBut(t *testing.T) {
+	t.Parallel()
+
+	b := sns.NewInMemoryBackend()
+
+	delivered := make(chan string, 10)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		delivered <- string(body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	tp, err := b.CreateTopic("fp2-topic", nil)
+	require.NoError(t, err)
+
+	// prefix match subscriber
+	_, err = b.Subscribe(tp.TopicArn, "http", ts.URL, `{"event":[{"prefix":"order"}]}`)
+	require.NoError(t, err)
+
+	attrs := map[string]sns.MessageAttribute{"event": {DataType: "String", StringValue: "order.placed"}}
+	_, err = b.Publish(tp.TopicArn, "prefix-match", "", "", attrs)
+	require.NoError(t, err)
+	select {
+	case msg := <-delivered:
+		assert.Equal(t, "prefix-match", msg)
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("expected delivery for prefix match")
+	}
+
+	tp2, err := b.CreateTopic("fp3-topic", nil)
+	require.NoError(t, err)
+
+	// anything-but subscriber
+	_, err = b.Subscribe(tp2.TopicArn, "http", ts.URL, `{"status":[{"anything-but":"deleted"}]}`)
+	require.NoError(t, err)
+
+	attrsOK := map[string]sns.MessageAttribute{"status": {DataType: "String", StringValue: "active"}}
+	_, err = b.Publish(tp2.TopicArn, "anything-but-match", "", "", attrsOK)
+	require.NoError(t, err)
+	select {
+	case msg := <-delivered:
+		assert.Equal(t, "anything-but-match", msg)
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("expected delivery for anything-but match")
+	}
+
+	// "deleted" should NOT be delivered
+	attrsNo := map[string]sns.MessageAttribute{"status": {DataType: "String", StringValue: "deleted"}}
+	_, err = b.Publish(tp2.TopicArn, "should-not-deliver", "", "", attrsNo)
+	require.NoError(t, err)
+	select {
+	case <-delivered:
+		t.Fatal("expected no delivery for anything-but excluded value")
+	case <-time.After(100 * time.Millisecond):
+		// OK
+	}
+}
+
+// TestMessageStructureJSON verifies per-protocol message extraction when MessageStructure=json.
+func TestMessageStructureJSON(t *testing.T) {
+	t.Parallel()
+
+	b := sns.NewInMemoryBackend()
+
+	received := make(chan string, 1)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		received <- string(body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	tp, err := b.CreateTopic("ms-topic", nil)
+	require.NoError(t, err)
+
+	_, err = b.Subscribe(tp.TopicArn, "http", ts.URL, "")
+	require.NoError(t, err)
+
+	jsonMsg := `{"http":"http specific msg","default":"default msg"}`
+	_, err = b.Publish(tp.TopicArn, jsonMsg, "", "json", nil)
+	require.NoError(t, err)
+
+	select {
+	case msg := <-received:
+		assert.Equal(t, "http specific msg", msg)
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("expected HTTP delivery with per-protocol message")
+	}
+}
+
+// TestMessageStructureJSONDefaultFallback verifies default key is used when protocol key is absent.
+func TestMessageStructureJSONDefaultFallback(t *testing.T) {
+	t.Parallel()
+
+	b := sns.NewInMemoryBackend()
+
+	received := make(chan string, 1)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		received <- string(body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	tp, err := b.CreateTopic("ms-fallback-topic", nil)
+	require.NoError(t, err)
+
+	_, err = b.Subscribe(tp.TopicArn, "http", ts.URL, "")
+	require.NoError(t, err)
+
+	jsonMsg := `{"default":"fallback msg"}`
+	_, err = b.Publish(tp.TopicArn, jsonMsg, "", "json", nil)
+	require.NoError(t, err)
+
+	select {
+	case msg := <-received:
+		assert.Equal(t, "fallback msg", msg)
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("expected delivery with default fallback")
+	}
+}
+
+// TestHandlerSubscribeInvalidProtocol verifies protocol validation in handleSubscribe.
+func TestHandlerSubscribeInvalidProtocol(t *testing.T) {
+	t.Parallel()
+
+	h, b := func() (*sns.Handler, *sns.InMemoryBackend) {
+		bk := sns.NewInMemoryBackend()
+		return sns.NewHandler(bk, logger.NewLogger(slog.LevelDebug)), bk
+	}()
+	arn := mustCreateTopic(t, b, "proto-topic")
+
+	rec := snsPost(t, h, url.Values{
+		"Action":   {"Subscribe"},
+		"Version":  {"2010-03-31"},
+		"TopicArn": {arn},
+		"Protocol": {"ftp"},
+		"Endpoint": {"ftp://example.com"},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidParameter")
+}
+
+// TestHandlerSubscribePendingConfirmation verifies http/https subscriptions return PendingConfirmation.
+func TestHandlerSubscribePendingConfirmation(t *testing.T) {
+	t.Parallel()
+
+	newH := func() (*sns.Handler, *sns.InMemoryBackend) {
+		bk := sns.NewInMemoryBackend()
+		return sns.NewHandler(bk, logger.NewLogger(slog.LevelDebug)), bk
+	}
+
+	for _, proto := range []string{"http", "https"} {
+		proto := proto
+		t.Run(proto, func(t *testing.T) {
+			t.Parallel()
+			h, b := newH()
+			arn := mustCreateTopic(t, b, proto+"-topic")
+
+			rec := snsPost(t, h, url.Values{
+				"Action":   {"Subscribe"},
+				"Version":  {"2010-03-31"},
+				"TopicArn": {arn},
+				"Protocol": {proto},
+				"Endpoint": {proto + "://example.com/notify"},
+			})
+			assert.Equal(t, http.StatusOK, rec.Code)
+			assert.Contains(t, rec.Body.String(), "PendingConfirmation")
+		})
+	}
+}
+
+// TestHandlerPublishMessageStructure verifies MessageStructure=json is handled via the HTTP handler.
+func TestHandlerPublishMessageStructure(t *testing.T) {
+	t.Parallel()
+
+	h, b := func() (*sns.Handler, *sns.InMemoryBackend) {
+		bk := sns.NewInMemoryBackend()
+		return sns.NewHandler(bk, logger.NewLogger(slog.LevelDebug)), bk
+	}()
+	arn := mustCreateTopic(t, b, "ms-handler-topic")
+
+	jsonMsg := `{"default":"hello","sqs":"sqs-specific"}`
+	rec := snsPost(t, h, url.Values{
+		"Action":           {"Publish"},
+		"Version":          {"2010-03-31"},
+		"TopicArn":         {arn},
+		"Message":          {jsonMsg},
+		"MessageStructure": {"json"},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "MessageId")
 }
