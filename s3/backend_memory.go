@@ -662,7 +662,35 @@ func (b *InMemoryBackend) DeleteObjects(
 	return out, nil
 }
 
-func (b *InMemoryBackend) ListObjects( //nolint:gocognit // Delimiter logic requires multiple condition branches
+func applyDelimiter(prefix, delimiter string, contents []types.Object) ([]types.Object, []types.CommonPrefix) {
+	var filtered []types.Object
+	var cpList []types.CommonPrefix
+	seenPrefixes := make(map[string]struct{})
+
+	for _, obj := range contents {
+		key := aws.ToString(obj.Key)
+		rest := key[len(prefix):]
+		idx := strings.Index(rest, delimiter)
+
+		if idx != -1 {
+			cp := prefix + rest[:idx+len(delimiter)]
+			if _, seen := seenPrefixes[cp]; !seen {
+				seenPrefixes[cp] = struct{}{}
+				cpList = append(cpList, types.CommonPrefix{Prefix: aws.String(cp)})
+			}
+		} else {
+			filtered = append(filtered, obj)
+		}
+	}
+
+	sort.Slice(cpList, func(i, j int) bool {
+		return aws.ToString(cpList[i].Prefix) < aws.ToString(cpList[j].Prefix)
+	})
+
+	return filtered, cpList
+}
+
+func (b *InMemoryBackend) ListObjects(
 	_ context.Context,
 	input *s3.ListObjectsInput,
 ) (*s3.ListObjectsOutput, error) {
@@ -732,30 +760,7 @@ func (b *InMemoryBackend) ListObjects( //nolint:gocognit // Delimiter logic requ
 	var cpList []types.CommonPrefix
 
 	if delimiter != "" {
-		var filtered []types.Object
-		seenPrefixes := make(map[string]struct{})
-
-		for _, obj := range contents {
-			key := aws.ToString(obj.Key)
-			rest := key[len(prefix):]
-			idx := strings.Index(rest, delimiter)
-
-			if idx != -1 {
-				cp := prefix + rest[:idx+len(delimiter)]
-				if _, seen := seenPrefixes[cp]; !seen {
-					seenPrefixes[cp] = struct{}{}
-					cpList = append(cpList, types.CommonPrefix{Prefix: aws.String(cp)})
-				}
-			} else {
-				filtered = append(filtered, obj)
-			}
-		}
-
-		contents = filtered
-
-		sort.Slice(cpList, func(i, j int) bool {
-			return aws.ToString(cpList[i].Prefix) < aws.ToString(cpList[j].Prefix)
-		})
+		contents, cpList = applyDelimiter(prefix, delimiter, contents)
 	}
 
 	return &s3.ListObjectsOutput{

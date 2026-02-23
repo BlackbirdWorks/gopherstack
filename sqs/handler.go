@@ -144,9 +144,31 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
+type sqsDispatchFn func(ctx context.Context, w http.ResponseWriter, r *http.Request, body []byte, requestID string)
+
+func (h *Handler) sqsDispatchTable() map[string]sqsDispatchFn {
+	return map[string]sqsDispatchFn{
+		"CreateQueue":                  h.handleCreateQueue,
+		"DeleteQueue":                  h.handleDeleteQueue,
+		"ListQueues":                   h.handleListQueues,
+		"GetQueueUrl":                  h.handleGetQueueURL,
+		"GetQueueAttributes":           h.handleGetQueueAttributes,
+		"SetQueueAttributes":           h.handleSetQueueAttributes,
+		"SendMessage":                  h.handleSendMessage,
+		"ReceiveMessage":               h.handleReceiveMessage,
+		"DeleteMessage":                h.handleDeleteMessage,
+		"ChangeMessageVisibility":      h.handleChangeMessageVisibility,
+		"SendMessageBatch":             h.handleSendMessageBatch,
+		"DeleteMessageBatch":           h.handleDeleteMessageBatch,
+		"ChangeMessageVisibilityBatch": h.handleChangeMessageVisibilityBatch,
+		"PurgeQueue":                   h.handlePurgeQueue,
+		"TagQueue":                     h.handleTagQueue,
+		"UntagQueue":                   h.handleUntagQueue,
+		"ListQueueTags":                h.handleListQueueTags,
+	}
+}
+
 // dispatch routes the action to the appropriate handler method.
-//
-//nolint:cyclop // all cases are simple one-liner dispatches; extraction would add noise without reducing complexity
 func (h *Handler) dispatch(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -154,44 +176,14 @@ func (h *Handler) dispatch(
 	body []byte,
 	action, requestID string,
 ) {
-	switch action {
-	case "CreateQueue":
-		h.handleCreateQueue(ctx, w, r, body, requestID)
-	case "DeleteQueue":
-		h.handleDeleteQueue(ctx, w, r, body, requestID)
-	case "ListQueues":
-		h.handleListQueues(ctx, w, r, body, requestID)
-	case "GetQueueUrl":
-		h.handleGetQueueURL(ctx, w, r, body, requestID)
-	case "GetQueueAttributes":
-		h.handleGetQueueAttributes(ctx, w, r, body, requestID)
-	case "SetQueueAttributes":
-		h.handleSetQueueAttributes(ctx, w, r, body, requestID)
-	case "SendMessage":
-		h.handleSendMessage(ctx, w, r, body, requestID)
-	case "ReceiveMessage":
-		h.handleReceiveMessage(ctx, w, r, body, requestID)
-	case "DeleteMessage":
-		h.handleDeleteMessage(ctx, w, r, body, requestID)
-	case "ChangeMessageVisibility":
-		h.handleChangeMessageVisibility(ctx, w, r, body, requestID)
-	case "SendMessageBatch":
-		h.handleSendMessageBatch(ctx, w, r, body, requestID)
-	case "DeleteMessageBatch":
-		h.handleDeleteMessageBatch(ctx, w, r, body, requestID)
-	case "ChangeMessageVisibilityBatch":
-		h.handleChangeMessageVisibilityBatch(ctx, w, r, body, requestID)
-	case "PurgeQueue":
-		h.handlePurgeQueue(ctx, w, r, body, requestID)
-	case "TagQueue":
-		h.handleTagQueue(ctx, w, r, body, requestID)
-	case "UntagQueue":
-		h.handleUntagQueue(ctx, w, r, body, requestID)
-	case "ListQueueTags":
-		h.handleListQueueTags(ctx, w, r, body, requestID)
-	default:
+	fn, ok := h.sqsDispatchTable()[action]
+	if !ok {
 		h.writeError(w, ErrUnknownAction, requestID)
+
+		return
 	}
+
+	fn(ctx, w, r, body, requestID)
 }
 
 // --- JSON request types ---

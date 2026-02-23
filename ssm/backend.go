@@ -355,9 +355,21 @@ const (
 	defaultDescribeMaxResults = 50
 )
 
+// paramMatchesPath checks if a parameter name matches the given path prefix.
+// If recursive is false, only direct children are matched (no nested paths).
+func paramMatchesPath(name, path string, recursive bool) bool {
+	if !strings.HasPrefix(name, path) {
+		return false
+	}
+	if recursive {
+		return true
+	}
+	suffix := name[len(path):]
+
+	return !strings.Contains(suffix, "/")
+}
+
 // GetParametersByPath returns parameters whose names begin with the given path.
-//
-//nolint:gocognit // Intentional complexity for path matching logic.
 func (b *InMemoryBackend) GetParametersByPath(input *GetParametersByPathInput) (*GetParametersByPathOutput, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -372,19 +384,9 @@ func (b *InMemoryBackend) GetParametersByPath(input *GetParametersByPathInput) (
 	var matched []Parameter
 
 	for name, param := range b.parameters {
-		if !strings.HasPrefix(name, path) {
-			continue
+		if paramMatchesPath(name, path, input.Recursive) {
+			matched = append(matched, param)
 		}
-
-		// Non-recursive: only direct children (no additional / after the prefix)
-		if !input.Recursive {
-			suffix := name[len(path):]
-			if strings.Contains(suffix, "/") {
-				continue
-			}
-		}
-
-		matched = append(matched, param)
 	}
 
 	sort.Slice(matched, func(i, j int) bool {

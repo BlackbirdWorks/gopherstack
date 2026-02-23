@@ -414,41 +414,45 @@ func matchesFilterPolicy(filterPolicy string, attrs map[string]MessageAttribute)
 	return true
 }
 
+func matchObjectCondition(value string, obj map[string]string) bool {
+	if prefix, ok := obj["prefix"]; ok {
+		return strings.HasPrefix(value, prefix)
+	}
+
+	if excluded, ok := obj["anything-but"]; ok {
+		return value != excluded
+	}
+
+	return false
+}
+
+func matchCondition(value string, raw json.RawMessage) bool {
+	var obj map[string]string
+	if err := json.Unmarshal(raw, &obj); err == nil {
+		return matchObjectCondition(value, obj)
+	}
+
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return value == s
+	}
+
+	var n json.Number
+	if err := json.Unmarshal(raw, &n); err == nil {
+		return value == n.String()
+	}
+
+	return false
+}
+
 // matchesConditions returns true if value satisfies at least one condition in the list.
-func matchesConditions( //nolint:gocognit // Filter policy spec requires multiple condition types
+func matchesConditions(
 	value string,
 	conditions []json.RawMessage,
 ) bool {
 	for _, raw := range conditions {
-		// Try object condition first: {"prefix": "..."} or {"anything-but": "..."}
-		var obj map[string]string
-		if err := json.Unmarshal(raw, &obj); err == nil {
-			if prefix, ok := obj["prefix"]; ok && strings.HasPrefix(value, prefix) {
-				return true
-			}
-
-			if excluded, ok := obj["anything-but"]; ok && value != excluded {
-				return true
-			}
-
-			continue
-		}
-
-		// Try scalar (string or number) exact match.
-		var s string
-		if err := json.Unmarshal(raw, &s); err == nil {
-			if value == s {
-				return true
-			}
-
-			continue
-		}
-
-		var n json.Number
-		if err := json.Unmarshal(raw, &n); err == nil {
-			if value == n.String() {
-				return true
-			}
+		if matchCondition(value, raw) {
+			return true
 		}
 	}
 

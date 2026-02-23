@@ -230,7 +230,52 @@ func (db *InMemoryDB) DeleteTable(
 	}, nil
 }
 
-func (db *InMemoryDB) DescribeTable( //nolint:funlen // Complex response assembly; splitting would reduce readability
+func buildGSIDescriptions(
+	gsiList []models.GlobalSecondaryIndex,
+	itemCount int64,
+) []models.GlobalSecondaryIndexDescription {
+	gsiDescs := make([]models.GlobalSecondaryIndexDescription, len(gsiList))
+	for i, gsi := range gsiList {
+		rc := int64(models.DefaultReadCapacity)
+		wc := int64(models.DefaultWriteCapacity)
+		if gsi.ProvisionedThroughput.ReadCapacityUnits != nil {
+			rc = *gsi.ProvisionedThroughput.ReadCapacityUnits
+		}
+		if gsi.ProvisionedThroughput.WriteCapacityUnits != nil {
+			wc = *gsi.ProvisionedThroughput.WriteCapacityUnits
+		}
+		gsiDescs[i] = models.GlobalSecondaryIndexDescription{
+			IndexName:  gsi.IndexName,
+			KeySchema:  gsi.KeySchema,
+			Projection: gsi.Projection,
+			ProvisionedThroughput: models.ProvisionedThroughputDescription{
+				ReadCapacityUnits:  int(rc),
+				WriteCapacityUnits: int(wc),
+			},
+			IndexStatus: models.TableStatusActive,
+			ItemCount:   int(itemCount),
+		}
+	}
+
+	return gsiDescs
+}
+
+func buildLSIDescriptions(lsiList []models.LocalSecondaryIndex) []models.LocalSecondaryIndexDescription {
+	lsiDescs := make([]models.LocalSecondaryIndexDescription, len(lsiList))
+	for i, lsi := range lsiList {
+		lsiDescs[i] = models.LocalSecondaryIndexDescription{
+			IndexName:      lsi.IndexName,
+			KeySchema:      lsi.KeySchema,
+			Projection:     lsi.Projection,
+			IndexSizeBytes: 0,
+			ItemCount:      0,
+		}
+	}
+
+	return lsiDescs
+}
+
+func (db *InMemoryDB) DescribeTable(
 	ctx context.Context,
 	input *dynamodb.DescribeTableInput,
 ) (*dynamodb.DescribeTableOutput, error) {
@@ -275,40 +320,8 @@ func (db *InMemoryDB) DescribeTable( //nolint:funlen // Complex response assembl
 	table.mu.RUnlock()
 
 	// Build index descriptions outside lock
-	gsiDescs := make([]models.GlobalSecondaryIndexDescription, len(gsiList))
-	for i, gsi := range gsiList {
-		rc := int64(models.DefaultReadCapacity)
-		wc := int64(models.DefaultWriteCapacity)
-		if gsi.ProvisionedThroughput.ReadCapacityUnits != nil {
-			rc = *gsi.ProvisionedThroughput.ReadCapacityUnits
-		}
-		if gsi.ProvisionedThroughput.WriteCapacityUnits != nil {
-			wc = *gsi.ProvisionedThroughput.WriteCapacityUnits
-		}
-
-		gsiDescs[i] = models.GlobalSecondaryIndexDescription{
-			IndexName:  gsi.IndexName,
-			KeySchema:  gsi.KeySchema,
-			Projection: gsi.Projection,
-			ProvisionedThroughput: models.ProvisionedThroughputDescription{
-				ReadCapacityUnits:  int(rc),
-				WriteCapacityUnits: int(wc),
-			},
-			IndexStatus: models.TableStatusActive,
-			ItemCount:   int(itemCount),
-		}
-	}
-
-	lsiDescs := make([]models.LocalSecondaryIndexDescription, len(lsiList))
-	for i, lsi := range lsiList {
-		lsiDescs[i] = models.LocalSecondaryIndexDescription{
-			IndexName:      lsi.IndexName,
-			KeySchema:      lsi.KeySchema,
-			Projection:     lsi.Projection,
-			IndexSizeBytes: 0,
-			ItemCount:      0,
-		}
-	}
+	gsiDescs := buildGSIDescriptions(gsiList, itemCount)
+	lsiDescs := buildLSIDescriptions(lsiList)
 
 	sdkGSIs := models.ToSDKGlobalSecondaryIndexDescriptions(gsiDescs)
 	sdkLSIs := models.ToSDKLocalSecondaryIndexDescriptions(lsiDescs)

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"strings"
 
@@ -162,147 +163,168 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-// dispatch routes the KMS operation to the appropriate backend method.
-//
-//nolint:cyclop,gocognit,funlen,gocyclo // Dispatch switch is intentionally comprehensive.
-func (h *Handler) dispatch(_ context.Context, r *http.Request, action string, body []byte) ([]byte, error) {
-	var response any
-	var err error
+type kmsActionFn func(region string, body []byte) (any, error)
 
+func (h *Handler) kmsKeyDispatchTable() map[string]kmsActionFn {
+	return map[string]kmsActionFn{
+		"CreateKey": func(region string, b []byte) (any, error) {
+			var input CreateKeyInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			input.Region = region
+
+			return h.Backend.CreateKey(&input)
+		},
+		"DescribeKey": func(_ string, b []byte) (any, error) {
+			var input DescribeKeyInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.DescribeKey(&input)
+		},
+		"ListKeys": func(_ string, b []byte) (any, error) {
+			var input ListKeysInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.ListKeys(&input)
+		},
+		"Encrypt": func(_ string, b []byte) (any, error) {
+			var input EncryptInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.Encrypt(&input)
+		},
+		"Decrypt": func(_ string, b []byte) (any, error) {
+			var input DecryptInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.Decrypt(&input)
+		},
+		"DisableKey": func(_ string, b []byte) (any, error) {
+			var input DisableKeyInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return struct{}{}, h.Backend.DisableKey(&input)
+		},
+		"EnableKey": func(_ string, b []byte) (any, error) {
+			var input EnableKeyInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return struct{}{}, h.Backend.EnableKey(&input)
+		},
+		"ScheduleKeyDeletion": func(_ string, b []byte) (any, error) {
+			var input ScheduleKeyDeletionInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.ScheduleKeyDeletion(&input)
+		},
+		"CancelKeyDeletion": func(_ string, b []byte) (any, error) {
+			var input CancelKeyDeletionInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return struct{}{}, h.Backend.CancelKeyDeletion(&input)
+		},
+	}
+}
+
+func (h *Handler) kmsMiscDispatchTable() map[string]kmsActionFn {
+	return map[string]kmsActionFn{
+		"GenerateDataKey": func(_ string, b []byte) (any, error) {
+			var input GenerateDataKeyInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.GenerateDataKey(&input)
+		},
+		"ReEncrypt": func(_ string, b []byte) (any, error) {
+			var input ReEncryptInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.ReEncrypt(&input)
+		},
+		"CreateAlias": func(_ string, b []byte) (any, error) {
+			var input CreateAliasInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return struct{}{}, h.Backend.CreateAlias(&input)
+		},
+		"DeleteAlias": func(_ string, b []byte) (any, error) {
+			var input DeleteAliasInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return struct{}{}, h.Backend.DeleteAlias(&input)
+		},
+		"ListAliases": func(_ string, b []byte) (any, error) {
+			var input ListAliasesInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.ListAliases(&input)
+		},
+		"EnableKeyRotation": func(_ string, b []byte) (any, error) {
+			var input EnableKeyRotationInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return struct{}{}, h.Backend.EnableKeyRotation(&input)
+		},
+		"DisableKeyRotation": func(_ string, b []byte) (any, error) {
+			var input DisableKeyRotationInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return struct{}{}, h.Backend.DisableKeyRotation(&input)
+		},
+		"GetKeyRotationStatus": func(_ string, b []byte) (any, error) {
+			var input GetKeyRotationStatusInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.GetKeyRotationStatus(&input)
+		},
+	}
+}
+
+// dispatch routes the KMS operation to the appropriate backend method.
+func (h *Handler) dispatch(_ context.Context, r *http.Request, action string, body []byte) ([]byte, error) {
 	region := httputil.ExtractRegionFromRequest(r, h.DefaultRegion)
 
-	switch action {
-	case "CreateKey":
-		var input CreateKeyInput
-		if uErr := json.Unmarshal(body, &input); uErr != nil {
-			return nil, uErr
-		}
-		input.Region = region
-		response, err = h.Backend.CreateKey(&input)
+	table := h.kmsKeyDispatchTable()
+	maps.Copy(table, h.kmsMiscDispatchTable())
 
-	case "DescribeKey":
-		var input DescribeKeyInput
-		if uErr := json.Unmarshal(body, &input); uErr != nil {
-			return nil, uErr
-		}
-		response, err = h.Backend.DescribeKey(&input)
-
-	case "ListKeys":
-		var input ListKeysInput
-		if uErr := json.Unmarshal(body, &input); uErr != nil {
-			return nil, uErr
-		}
-		response, err = h.Backend.ListKeys(&input)
-
-	case "Encrypt":
-		var input EncryptInput
-		if uErr := json.Unmarshal(body, &input); uErr != nil {
-			return nil, uErr
-		}
-		response, err = h.Backend.Encrypt(&input)
-
-	case "Decrypt":
-		var input DecryptInput
-		if uErr := json.Unmarshal(body, &input); uErr != nil {
-			return nil, uErr
-		}
-		response, err = h.Backend.Decrypt(&input)
-
-	case "GenerateDataKey":
-		var input GenerateDataKeyInput
-		if uErr := json.Unmarshal(body, &input); uErr != nil {
-			return nil, uErr
-		}
-		response, err = h.Backend.GenerateDataKey(&input)
-
-	case "ReEncrypt":
-		var input ReEncryptInput
-		if uErr := json.Unmarshal(body, &input); uErr != nil {
-			return nil, uErr
-		}
-		response, err = h.Backend.ReEncrypt(&input)
-
-	case "CreateAlias":
-		var input CreateAliasInput
-		if uErr := json.Unmarshal(body, &input); uErr != nil {
-			return nil, uErr
-		}
-		err = h.Backend.CreateAlias(&input)
-		response = struct{}{}
-
-	case "DeleteAlias":
-		var input DeleteAliasInput
-		if uErr := json.Unmarshal(body, &input); uErr != nil {
-			return nil, uErr
-		}
-		err = h.Backend.DeleteAlias(&input)
-		response = struct{}{}
-
-	case "ListAliases":
-		var input ListAliasesInput
-		if uErr := json.Unmarshal(body, &input); uErr != nil {
-			return nil, uErr
-		}
-		response, err = h.Backend.ListAliases(&input)
-
-	case "EnableKeyRotation":
-		var input EnableKeyRotationInput
-		if uErr := json.Unmarshal(body, &input); uErr != nil {
-			return nil, uErr
-		}
-		err = h.Backend.EnableKeyRotation(&input)
-		response = struct{}{}
-
-	case "DisableKeyRotation":
-		var input DisableKeyRotationInput
-		if uErr := json.Unmarshal(body, &input); uErr != nil {
-			return nil, uErr
-		}
-		err = h.Backend.DisableKeyRotation(&input)
-		response = struct{}{}
-
-	case "GetKeyRotationStatus":
-		var input GetKeyRotationStatusInput
-		if uErr := json.Unmarshal(body, &input); uErr != nil {
-			return nil, uErr
-		}
-		response, err = h.Backend.GetKeyRotationStatus(&input)
-
-	case "DisableKey":
-		var input DisableKeyInput
-		if uErr := json.Unmarshal(body, &input); uErr != nil {
-			return nil, uErr
-		}
-		err = h.Backend.DisableKey(&input)
-		response = struct{}{}
-
-	case "EnableKey":
-		var input EnableKeyInput
-		if uErr := json.Unmarshal(body, &input); uErr != nil {
-			return nil, uErr
-		}
-		err = h.Backend.EnableKey(&input)
-		response = struct{}{}
-
-	case "ScheduleKeyDeletion":
-		var input ScheduleKeyDeletionInput
-		if uErr := json.Unmarshal(body, &input); uErr != nil {
-			return nil, uErr
-		}
-		response, err = h.Backend.ScheduleKeyDeletion(&input)
-
-	case "CancelKeyDeletion":
-		var input CancelKeyDeletionInput
-		if uErr := json.Unmarshal(body, &input); uErr != nil {
-			return nil, uErr
-		}
-		err = h.Backend.CancelKeyDeletion(&input)
-		response = struct{}{}
-
-	default:
+	fn, ok := table[action]
+	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrUnknownOperation, action)
 	}
 
+	response, err := fn(region, body)
 	if err != nil {
 		return nil, err
 	}

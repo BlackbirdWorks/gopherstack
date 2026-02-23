@@ -146,74 +146,85 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
+type ssmActionFn func([]byte) (any, error)
+
+func (h *Handler) ssmDispatchTable() map[string]ssmActionFn {
+	return map[string]ssmActionFn{
+		"PutParameter": func(b []byte) (any, error) {
+			var input PutParameterInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.PutParameter(&input)
+		},
+		"GetParameter": func(b []byte) (any, error) {
+			var input GetParameterInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.GetParameter(&input)
+		},
+		"GetParameters": func(b []byte) (any, error) {
+			var input GetParametersInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.GetParameters(&input)
+		},
+		"GetParameterHistory": func(b []byte) (any, error) {
+			var input GetParameterHistoryInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.GetParameterHistory(&input)
+		},
+		"DeleteParameter": func(b []byte) (any, error) {
+			var input DeleteParameterInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.DeleteParameter(&input)
+		},
+		"DeleteParameters": func(b []byte) (any, error) {
+			var input DeleteParametersInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.DeleteParameters(&input)
+		},
+		"GetParametersByPath": func(b []byte) (any, error) {
+			var input GetParametersByPathInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.GetParametersByPath(&input)
+		},
+		"DescribeParameters": func(b []byte) (any, error) {
+			var input DescribeParametersInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.DescribeParameters(&input)
+		},
+	}
+}
+
 // dispatch routes the operation to the appropriate handler.
-//
-//nolint:cyclop // Dispatch switch is intentionally comprehensive.
 func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byte, error) {
-	var response any
-	var err error
-
-	switch action {
-	case "PutParameter":
-		var input PutParameterInput
-		if unmarshErr := json.Unmarshal(body, &input); unmarshErr != nil {
-			return nil, unmarshErr
-		}
-		response, err = h.Backend.PutParameter(&input)
-
-	case "GetParameter":
-		var input GetParameterInput
-		if unmarshErr := json.Unmarshal(body, &input); unmarshErr != nil {
-			return nil, unmarshErr
-		}
-		response, err = h.Backend.GetParameter(&input)
-
-	case "GetParameters":
-		var input GetParametersInput
-		if unmarshErr := json.Unmarshal(body, &input); unmarshErr != nil {
-			return nil, unmarshErr
-		}
-		response, err = h.Backend.GetParameters(&input)
-
-	case "GetParameterHistory":
-		var input GetParameterHistoryInput
-		if unmarshErr := json.Unmarshal(body, &input); unmarshErr != nil {
-			return nil, unmarshErr
-		}
-		response, err = h.Backend.GetParameterHistory(&input)
-
-	case "DeleteParameter":
-		var input DeleteParameterInput
-		if unmarshErr := json.Unmarshal(body, &input); unmarshErr != nil {
-			return nil, unmarshErr
-		}
-		response, err = h.Backend.DeleteParameter(&input)
-
-	case "DeleteParameters":
-		var input DeleteParametersInput
-		if unmarshErr := json.Unmarshal(body, &input); unmarshErr != nil {
-			return nil, unmarshErr
-		}
-		response, err = h.Backend.DeleteParameters(&input)
-
-	case "GetParametersByPath":
-		var input GetParametersByPathInput
-		if unmarshErr := json.Unmarshal(body, &input); unmarshErr != nil {
-			return nil, unmarshErr
-		}
-		response, err = h.Backend.GetParametersByPath(&input)
-
-	case "DescribeParameters":
-		var input DescribeParametersInput
-		if unmarshErr := json.Unmarshal(body, &input); unmarshErr != nil {
-			return nil, unmarshErr
-		}
-		response, err = h.Backend.DescribeParameters(&input)
-
-	default:
+	fn, ok := h.ssmDispatchTable()[action]
+	if !ok {
 		return nil, fmt.Errorf("%w:%s", ErrUnknownOperation, action)
 	}
 
+	response, err := fn(body)
 	if err != nil {
 		return nil, err
 	}

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -195,7 +196,55 @@ func (h *S3Handler) headObject(
 	w.WriteHeader(http.StatusOK)
 }
 
-func (h *S3Handler) putObject( //nolint:funlen // Request parsing + multiple header fields require sequential steps
+// validateContentMD5 checks the Content-MD5 header against the data. Returns false and writes error if invalid.
+func validateContentMD5(log *slog.Logger, w http.ResponseWriter, r *http.Request, data []byte) bool {
+	contentMD5Header := r.Header.Get("Content-MD5")
+	if contentMD5Header == "" {
+		return true
+	}
+
+	decoded, decErr := base64.StdEncoding.DecodeString(contentMD5Header)
+	if decErr != nil || len(decoded) != md5.Size {
+		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
+			Code:    "BadDigest",
+			Message: "The Content-MD5 you specified did not match what we received.",
+		}, http.StatusBadRequest)
+
+		return false
+	}
+
+	//nolint:gosec // MD5 required for Content-MD5 header validation per S3 spec
+	computed := md5.Sum(data)
+	if !bytes.Equal(computed[:], decoded) {
+		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
+			Code:    "BadDigest",
+			Message: "The Content-MD5 you specified did not match what we received.",
+		}, http.StatusBadRequest)
+
+		return false
+	}
+
+	return true
+}
+
+// setPutObjectResponseHeaders sets ETag, version, and checksum headers on the response.
+func (h *S3Handler) setPutObjectResponseHeaders(w http.ResponseWriter, ver *s3.PutObjectOutput) {
+	w.Header().Set("ETag", *ver.ETag)
+	details := objectCommonDetails{
+		ETag:           ver.ETag,
+		VersionID:      ver.VersionId,
+		ChecksumCRC32:  ver.ChecksumCRC32,
+		ChecksumCRC32C: ver.ChecksumCRC32C,
+		ChecksumSHA1:   ver.ChecksumSHA1,
+		ChecksumSHA256: ver.ChecksumSHA256,
+	}
+	h.setChecksumHeaders(w, details)
+	if ver.VersionId != nil && *ver.VersionId != NullVersion {
+		w.Header().Set("X-Amz-Version-Id", *ver.VersionId)
+	}
+}
+
+func (h *S3Handler) putObject(
 	ctx context.Context,
 	w http.ResponseWriter,
 	r *http.Request,
@@ -221,26 +270,8 @@ func (h *S3Handler) putObject( //nolint:funlen // Request parsing + multiple hea
 		return
 	}
 
-	if contentMD5Header := r.Header.Get("Content-MD5"); contentMD5Header != "" {
-		decoded, decErr := base64.StdEncoding.DecodeString(contentMD5Header)
-		if decErr != nil || len(decoded) != md5.Size {
-			httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
-				Code:    "BadDigest",
-				Message: "The Content-MD5 you specified did not match what we received.",
-			}, http.StatusBadRequest)
-
-			return
-		}
-		//nolint:gosec // MD5 required for Content-MD5 header validation per S3 spec
-		computed := md5.Sum(data)
-		if !bytes.Equal(computed[:], decoded) {
-			httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
-				Code:    "BadDigest",
-				Message: "The Content-MD5 you specified did not match what we received.",
-			}, http.StatusBadRequest)
-
-			return
-		}
+	if !validateContentMD5(log, w, r, data) {
+		return
 	}
 
 	userMeta := parseUserMetadata(r.Header)
@@ -289,22 +320,7 @@ func (h *S3Handler) putObject( //nolint:funlen // Request parsing + multiple hea
 		return
 	}
 
-	w.Header().Set("ETag", *ver.ETag)
-
-	details := objectCommonDetails{
-		ETag:           ver.ETag,
-		VersionID:      ver.VersionId,
-		ChecksumCRC32:  ver.ChecksumCRC32,
-		ChecksumCRC32C: ver.ChecksumCRC32C,
-		ChecksumSHA1:   ver.ChecksumSHA1,
-		ChecksumSHA256: ver.ChecksumSHA256,
-	}
-
-	h.setChecksumHeaders(w, details)
-
-	if ver.VersionId != nil && *ver.VersionId != NullVersion {
-		w.Header().Set("X-Amz-Version-Id", *ver.VersionId)
-	}
+	h.setPutObjectResponseHeaders(w, ver)
 
 	log.DebugContext(ctx,
 		"S3 putObject output",

@@ -157,77 +157,88 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-// dispatch routes the operation to the appropriate backend method.
-//
-//nolint:cyclop // Dispatch switch is intentionally comprehensive.
-func (h *Handler) dispatch(_ context.Context, r *http.Request, action string, body []byte) ([]byte, error) {
-	var response any
-	var err error
+type smActionFn func(region string, body []byte) (any, error)
 
+func (h *Handler) smDispatchTable() map[string]smActionFn {
+	return map[string]smActionFn{
+		"CreateSecret": func(region string, b []byte) (any, error) {
+			var input CreateSecretInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			input.Region = region
+
+			return h.Backend.CreateSecret(&input)
+		},
+		"GetSecretValue": func(_ string, b []byte) (any, error) {
+			var input GetSecretValueInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.GetSecretValue(&input)
+		},
+		"PutSecretValue": func(_ string, b []byte) (any, error) {
+			var input PutSecretValueInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.PutSecretValue(&input)
+		},
+		"DeleteSecret": func(_ string, b []byte) (any, error) {
+			var input DeleteSecretInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.DeleteSecret(&input)
+		},
+		"ListSecrets": func(_ string, b []byte) (any, error) {
+			var input ListSecretsInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.ListSecrets(&input)
+		},
+		"DescribeSecret": func(_ string, b []byte) (any, error) {
+			var input DescribeSecretInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.DescribeSecret(&input)
+		},
+		"UpdateSecret": func(_ string, b []byte) (any, error) {
+			var input UpdateSecretInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.UpdateSecret(&input)
+		},
+		"RestoreSecret": func(_ string, b []byte) (any, error) {
+			var input RestoreSecretInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.RestoreSecret(&input)
+		},
+	}
+}
+
+// dispatch routes the operation to the appropriate backend method.
+func (h *Handler) dispatch(_ context.Context, r *http.Request, action string, body []byte) ([]byte, error) {
 	region := httputil.ExtractRegionFromRequest(r, h.DefaultRegion)
 
-	switch action {
-	case "CreateSecret":
-		var input CreateSecretInput
-		if uErr := json.Unmarshal(body, &input); uErr != nil {
-			return nil, uErr
-		}
-		input.Region = region
-		response, err = h.Backend.CreateSecret(&input)
-
-	case "GetSecretValue":
-		var input GetSecretValueInput
-		if uErr := json.Unmarshal(body, &input); uErr != nil {
-			return nil, uErr
-		}
-		response, err = h.Backend.GetSecretValue(&input)
-
-	case "PutSecretValue":
-		var input PutSecretValueInput
-		if uErr := json.Unmarshal(body, &input); uErr != nil {
-			return nil, uErr
-		}
-		response, err = h.Backend.PutSecretValue(&input)
-
-	case "DeleteSecret":
-		var input DeleteSecretInput
-		if uErr := json.Unmarshal(body, &input); uErr != nil {
-			return nil, uErr
-		}
-		response, err = h.Backend.DeleteSecret(&input)
-
-	case "ListSecrets":
-		var input ListSecretsInput
-		if uErr := json.Unmarshal(body, &input); uErr != nil {
-			return nil, uErr
-		}
-		response, err = h.Backend.ListSecrets(&input)
-
-	case "DescribeSecret":
-		var input DescribeSecretInput
-		if uErr := json.Unmarshal(body, &input); uErr != nil {
-			return nil, uErr
-		}
-		response, err = h.Backend.DescribeSecret(&input)
-
-	case "UpdateSecret":
-		var input UpdateSecretInput
-		if uErr := json.Unmarshal(body, &input); uErr != nil {
-			return nil, uErr
-		}
-		response, err = h.Backend.UpdateSecret(&input)
-
-	case "RestoreSecret":
-		var input RestoreSecretInput
-		if uErr := json.Unmarshal(body, &input); uErr != nil {
-			return nil, uErr
-		}
-		response, err = h.Backend.RestoreSecret(&input)
-
-	default:
+	fn, ok := h.smDispatchTable()[action]
+	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrUnknownOperation, action)
 	}
 
+	response, err := fn(region, body)
 	if err != nil {
 		return nil, err
 	}
