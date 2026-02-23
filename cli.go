@@ -51,15 +51,15 @@ const (
 
 // CLI holds all command-line / environment-variable configuration for Gopherstack.
 type CLI struct {
-	ddbClient             *dynamodb.Client
-	s3Client              *s3.Client
-	ssmClient             *ssmsdk.Client
-	stsClient             *stssdk.Client
-	sqsClient             *sqssdk.Client
-	snsClient             *sns.Client
-	iamClient             *iam.Client
-	kmsClient             *kms.Client
-	secretsManagerClient  *secretsmanager.Client
+	SSM                   struct{}            `embed:"" prefix:"ssm-"`
+	SecretsManager        struct{}            `embed:"" prefix:"secretsmanager-"`
+	KMS                   struct{}            `embed:"" prefix:"kms-"`
+	SQS                   sqsbackend.Settings `embed:"" prefix:"sqs-"`
+	SNS                   struct{}            `embed:"" prefix:"sns-"`
+	STS                   struct{}            `embed:"" prefix:"sts-"`
+	IAM                   struct{}            `embed:"" prefix:"iam-"`
+	kmsHandler            service.Registerable
+	secretsManagerHandler service.Registerable
 	ddbHandler            service.Registerable
 	s3Handler             service.Registerable
 	ssmHandler            service.Registerable
@@ -67,39 +67,22 @@ type CLI struct {
 	stsHandler            service.Registerable
 	snsHandler            service.Registerable
 	sqsHandler            service.Registerable
-	kmsHandler            service.Registerable
-	secretsManagerHandler service.Registerable
-
-	// LogLevel is the log level: debug, info, warn, error.
-	LogLevel string `name:"log-level" env:"LOG_LEVEL" default:"info" help:"Log level (debug|info|warn|error)."`
-	// Port is the HTTP server port.
-	Port string `name:"port" env:"PORT" default:"8000" help:"HTTP server port."`
-	// Region is the AWS region used for SDK clients.
-	Region string `name:"region" env:"REGION" default:"us-east-1" help:"AWS region."`
-	// AccountID is the mock AWS account ID embedded in all service ARNs.
-	AccountID string `name:"account-id" env:"ACCOUNT_ID" default:"000000000000" help:"Mock AWS account ID used in ARNs."`
-
-	// DynamoDB holds DynamoDB service-level settings.
-	DynamoDB ddbbackend.Settings `embed:"" prefix:"dynamodb-"`
-	// S3 holds S3 service-level settings.
-	S3 s3backend.Settings `embed:"" prefix:"s3-"`
-	// SSM holds SSM service-level settings.
-	SSM struct{} `embed:"" prefix:"ssm-"`
-	// IAM holds IAM service-level settings.
-	IAM struct{} `embed:"" prefix:"iam-"`
-	// STS holds STS service-level settings.
-	STS struct{} `embed:"" prefix:"sts-"`
-	// SNS holds SNS service-level settings.
-	SNS struct{} `embed:"" prefix:"sns-"`
-	// SQS holds SQS service-level settings.
-	SQS sqsbackend.Settings `embed:"" prefix:"sqs-"`
-	// KMS holds KMS service-level settings.
-	KMS struct{} `embed:"" prefix:"kms-"`
-	// SecretsManager holds Secrets Manager service-level settings.
-	SecretsManager struct{} `embed:"" prefix:"secretsmanager-"`
-
-	// Demo enables loading of demo data on startup.
-	Demo bool `name:"demo" env:"DEMO" default:"false" help:"Load demo data on startup."`
+	snsClient             *sns.Client
+	iamClient             *iam.Client
+	s3Client              *s3.Client
+	ssmClient             *ssmsdk.Client
+	ddbClient             *dynamodb.Client
+	stsClient             *stssdk.Client
+	sqsClient             *sqssdk.Client
+	secretsManagerClient  *secretsmanager.Client
+	kmsClient             *kms.Client
+	Region                string              `                                  name:"region"     env:"REGION"     default:"us-east-1"    help:"AWS region."`
+	AccountID             string              `                                  name:"account-id" env:"ACCOUNT_ID" default:"000000000000" help:"Mock AWS account ID used in ARNs."`
+	Port                  string              `                                  name:"port"       env:"PORT"       default:"8000"         help:"HTTP server port."`
+	LogLevel              string              `                                  name:"log-level"  env:"LOG_LEVEL"  default:"info"         help:"Log level (debug|info|warn|error)."`
+	S3                    s3backend.Settings  `embed:"" prefix:"s3-"`
+	DynamoDB              ddbbackend.Settings `embed:"" prefix:"dynamodb-"`
+	Demo                  bool                `                                  name:"demo"       env:"DEMO"       default:"false"        help:"Load demo data on startup."`
 }
 
 // GetGlobalConfig returns the centralised account ID and region (config.Provider).

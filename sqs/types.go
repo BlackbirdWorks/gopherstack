@@ -86,10 +86,13 @@ type Queue struct {
 	deduplicationMsgIDs map[string]string
 	DeduplicationIDs    map[string]time.Time
 	Attributes          map[string]string
+	Tags                map[string]string
+	dlq                 *Queue // resolved DLQ queue pointer; nil = no DLQ
 	Name                string
 	URL                 string
 	messages            []*Message
 	inFlightMessages    []*InFlightMessage
+	MaxReceiveCount     int // 0 = no DLQ
 	IsFIFO              bool
 }
 

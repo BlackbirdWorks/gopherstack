@@ -3,6 +3,7 @@ package sqs
 import (
 	"crypto/md5" //nolint:gosec // MD5 used for SQS wire protocol compatibility, not security
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"slices"
@@ -64,6 +65,38 @@ func queueNameFromInput(queueURL string) string {
 	return parts[len(parts)-1]
 }
 
+// applyRedrivePolicy parses the RedrivePolicy attribute and wires up DLQ fields on q.
+func applyRedrivePolicy(q *Queue, attrs map[string]string, backend *InMemoryBackend) {
+	raw, ok := attrs[attrRedrivePolicy]
+	if !ok || raw == "" {
+		return
+	}
+
+	var policy struct {
+		DeadLetterTargetArn string      `json:"deadLetterTargetArn"`
+		MaxReceiveCount     json.Number `json:"maxReceiveCount"`
+	}
+
+	if err := json.Unmarshal([]byte(raw), &policy); err != nil {
+		return
+	}
+
+	count, err := policy.MaxReceiveCount.Int64()
+	if err != nil || count <= 0 {
+		return
+	}
+
+	dlqName := queueNameFromARN(policy.DeadLetterTargetArn)
+
+	dlq, exists := backend.queues[dlqName]
+	if !exists {
+		return
+	}
+
+	q.MaxReceiveCount = int(count)
+	q.dlq = dlq
+}
+
 // computeMD5 returns the hex-encoded MD5 hash of the given string.
 func computeMD5(body string) string {
 	//nolint:gosec // MD5 required by SQS wire protocol
@@ -123,6 +156,8 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 	}
 
 	b.queues[input.QueueName] = q
+
+	applyRedrivePolicy(q, attrs, b)
 
 	return &CreateQueueOutput{QueueURL: queueURL}, nil
 }
@@ -235,6 +270,10 @@ func (b *InMemoryBackend) SetQueueAttributes(input *SetQueueAttributesInput) err
 	}
 
 	maps.Copy(q.Attributes, input.Attributes)
+
+	if _, hasRedrive := input.Attributes[attrRedrivePolicy]; hasRedrive {
+		applyRedrivePolicy(q, input.Attributes, b)
+	}
 
 	q.Attributes[attrLastModifiedTimestamp] = strconv.FormatInt(time.Now().Unix(), 10)
 
@@ -358,6 +397,26 @@ func (b *InMemoryBackend) ReceiveMessage(input *ReceiveMessageInput) (*ReceiveMe
 	}
 }
 
+// drainToDLQ moves messages that have hit maxReceiveCount into the DLQ queue.
+func drainToDLQ(q *Queue) {
+	if q.MaxReceiveCount <= 0 || q.dlq == nil {
+		return
+	}
+
+	remaining := q.messages[:0]
+
+	for _, msg := range q.messages {
+		if msg.ApproximateReceiveCount >= q.MaxReceiveCount {
+			msg.ReceiptHandle = ""
+			q.dlq.messages = append(q.dlq.messages, msg)
+		} else {
+			remaining = append(remaining, msg)
+		}
+	}
+
+	q.messages = remaining
+}
+
 // receiveOnce performs a single receive attempt under the backend lock.
 func (b *InMemoryBackend) receiveOnce(name string, input *ReceiveMessageInput) ([]*Message, error) {
 	b.mu.Lock()
@@ -370,6 +429,7 @@ func (b *InMemoryBackend) receiveOnce(name string, input *ReceiveMessageInput) (
 
 	now := time.Now()
 	reQueueExpired(q, now)
+	drainToDLQ(q)
 
 	if q.IsFIFO {
 		pruneDedup(q, now)
