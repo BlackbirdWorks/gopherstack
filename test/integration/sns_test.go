@@ -37,6 +37,7 @@ func TestIntegration_SNS_TopicLifecycle(t *testing.T) {
 	for _, t2 := range listOut.Topics {
 		if *t2.TopicArn == *topicARN {
 			found = true
+
 			break
 		}
 	}
@@ -217,6 +218,7 @@ func TestIntegration_SNS_ListSubscriptions(t *testing.T) {
 	for _, s := range listSubOut.Subscriptions {
 		if *s.SubscriptionArn == subARN {
 			foundInList = true
+
 			break
 		}
 	}
@@ -231,6 +233,7 @@ func TestIntegration_SNS_ListSubscriptions(t *testing.T) {
 	for _, s := range listByTopicOut.Subscriptions {
 		if *s.SubscriptionArn == subARN {
 			foundByTopic = true
+
 			break
 		}
 	}

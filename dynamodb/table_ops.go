@@ -230,7 +230,7 @@ func (db *InMemoryDB) DeleteTable(
 	}, nil
 }
 
-func (db *InMemoryDB) DescribeTable(
+func (db *InMemoryDB) DescribeTable( //nolint:funlen // Complex response assembly; splitting would reduce readability
 	ctx context.Context,
 	input *dynamodb.DescribeTableInput,
 ) (*dynamodb.DescribeTableOutput, error) {

@@ -3,6 +3,7 @@ package integration_test
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -33,7 +34,7 @@ func createScanTable(t *testing.T, client *dynamodb.Client, tableName string) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		client.DeleteTable(context.Background(), &dynamodb.DeleteTableInput{ //nolint:errcheck
+		client.DeleteTable(context.Background(), &dynamodb.DeleteTableInput{
 			TableName: aws.String(tableName),
 		})
 	})
@@ -61,7 +62,7 @@ func TestIntegration_DDB_Scan(t *testing.T) {
 						TableName: aws.String(tableName),
 						Item: map[string]types.AttributeValue{
 							"pk":    &types.AttributeValueMemberS{Value: fmt.Sprintf("item-%d", i)},
-							"value": &types.AttributeValueMemberN{Value: fmt.Sprintf("%d", i)},
+							"value": &types.AttributeValueMemberN{Value: strconv.Itoa(i)},
 						},
 					})
 					require.NoError(t, err)
@@ -219,7 +220,7 @@ func TestIntegration_DDB_Scan(t *testing.T) {
 				totalSegments := int32(2)
 				totalItems := 0
 
-				for seg := int32(0); seg < totalSegments; seg++ {
+				for seg := range totalSegments {
 					var lastKey map[string]types.AttributeValue
 					for {
 						out, err := client.Scan(ctx, &dynamodb.ScanInput{

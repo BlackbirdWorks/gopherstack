@@ -217,8 +217,9 @@ func (db *InMemoryDB) BatchWriteItem(
 func splitWriteRequestsBySize(
 	requests []types.WriteRequest,
 	sizeLimit int,
-) (process, unprocessed []types.WriteRequest) {
+) ([]types.WriteRequest, []types.WriteRequest) {
 	accumulated := 0
+	var process, unprocessed []types.WriteRequest
 
 	for _, req := range requests {
 		if req.PutRequest != nil {

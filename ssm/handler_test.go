@@ -1039,38 +1039,38 @@ func TestSSMHandlerMethodNotAllowed(t *testing.T) {
 
 // TestSSMValidateParameterName verifies PutParameter rejects invalid names.
 func TestSSMValidateParameterName(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-backend := ssm.NewInMemoryBackend()
+	backend := ssm.NewInMemoryBackend()
 
-tests := []struct {
-name      string
-paramName string
-wantErr   bool
-}{
-{name: "valid path", paramName: "/my/param", wantErr: false},
-{name: "valid simple", paramName: "MyParam", wantErr: false},
-{name: "double slash", paramName: "/my//param", wantErr: true},
-{name: "reserved ssm", paramName: "ssm/something", wantErr: true},
-{name: "reserved aws", paramName: "aws-param", wantErr: true},
-{name: "reserved amazon", paramName: "amazon.param", wantErr: true},
-{name: "invalid char", paramName: "/my param!", wantErr: true},
-}
+	tests := []struct {
+		name      string
+		paramName string
+		wantErr   bool
+	}{
+		{name: "valid path", paramName: "/my/param", wantErr: false},
+		{name: "valid simple", paramName: "MyParam", wantErr: false},
+		{name: "double slash", paramName: "/my//param", wantErr: true},
+		{name: "reserved ssm", paramName: "ssm/something", wantErr: true},
+		{name: "reserved aws", paramName: "aws-param", wantErr: true},
+		{name: "reserved amazon", paramName: "amazon.param", wantErr: true},
+		{name: "invalid char", paramName: "/my param!", wantErr: true},
+	}
 
-for _, tc := range tests {
-t.Run(tc.name, func(t *testing.T) {
-t.Parallel()
-_, err := backend.PutParameter(&ssm.PutParameterInput{
-Name:  tc.paramName,
-Type:  "String",
-Value: "val",
-})
-if tc.wantErr {
-require.Error(t, err)
-assert.ErrorIs(t, err, ssm.ErrValidationException)
-} else {
-require.NoError(t, err)
-}
-})
-}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := backend.PutParameter(&ssm.PutParameterInput{
+				Name:  tc.paramName,
+				Type:  "String",
+				Value: "val",
+			})
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, ssm.ErrValidationException)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }

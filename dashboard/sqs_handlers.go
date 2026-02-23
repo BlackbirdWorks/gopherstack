@@ -9,6 +9,9 @@ import (
 	sqsbackend "github.com/blackbirdworks/gopherstack/sqs"
 )
 
+// maxReceiveMessages is the maximum number of messages to receive in a dashboard peek.
+const maxReceiveMessages = 10
+
 // sqsQueueView is a view model for the SQS dashboard queue list.
 type sqsQueueView struct {
 	Name             string
@@ -170,8 +173,8 @@ func (h *DashboardHandler) sqsPurgeQueue(c *echo.Context) error {
 type sqsMessagesData struct {
 	PageData
 
-	Messages []sqsMessageView
 	QueueURL string
+	Messages []sqsMessageView
 }
 
 // sqsMessageView is a view model for a single SQS message.
@@ -238,7 +241,7 @@ func (h *DashboardHandler) sqsReceiveMessages(c *echo.Context) error {
 	if h.SQSOps != nil {
 		out, err := h.SQSOps.Backend.ReceiveMessage(&sqsbackend.ReceiveMessageInput{
 			QueueURL:            queueURL,
-			MaxNumberOfMessages: 10,
+			MaxNumberOfMessages: maxReceiveMessages,
 			WaitTimeSeconds:     0,
 		})
 		if err == nil {

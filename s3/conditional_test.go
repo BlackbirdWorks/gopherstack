@@ -2,7 +2,6 @@ package s3_test
 
 import (
 	"bytes"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -124,7 +123,7 @@ func TestConditionalHeaders(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			url := fmt.Sprintf("/cond-bucket/obj")
+			url := "/cond-bucket/obj"
 			req := httptest.NewRequest(tt.method, url, nil)
 			req.Header.Set(tt.headerKey, tt.headerVal)
 			w := httptest.NewRecorder()

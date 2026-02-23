@@ -40,6 +40,7 @@ func TestIntegration_KMS_KeyLifecycle(t *testing.T) {
 	for _, k := range listOut.Keys {
 		if *k.KeyId == keyID {
 			found = true
+
 			break
 		}
 	}
@@ -107,6 +108,7 @@ func TestIntegration_KMS_Aliases(t *testing.T) {
 		if *a.AliasName == aliasName {
 			found = true
 			assert.Equal(t, keyID, *a.TargetKeyId)
+
 			break
 		}
 	}

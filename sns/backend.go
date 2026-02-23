@@ -404,7 +404,7 @@ func matchesFilterPolicy(filterPolicy string, attrs map[string]MessageAttribute)
 }
 
 // matchesConditions returns true if value satisfies at least one condition in the list.
-func matchesConditions(value string, conditions []json.RawMessage) bool {
+func matchesConditions(value string, conditions []json.RawMessage) bool { //nolint:gocognit // Filter policy spec requires multiple condition types
 	for _, raw := range conditions {
 		// Try object condition first: {"prefix": "..."} or {"anything-but": "..."}
 		var obj map[string]string

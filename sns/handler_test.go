@@ -1351,6 +1351,7 @@ func TestHandlerSubscribeInvalidProtocol(t *testing.T) {
 
 	h, b := func() (*sns.Handler, *sns.InMemoryBackend) {
 		bk := sns.NewInMemoryBackend()
+
 		return sns.NewHandler(bk, logger.NewLogger(slog.LevelDebug)), bk
 	}()
 	arn := mustCreateTopic(t, b, "proto-topic")
@@ -1372,11 +1373,11 @@ func TestHandlerSubscribePendingConfirmation(t *testing.T) {
 
 	newH := func() (*sns.Handler, *sns.InMemoryBackend) {
 		bk := sns.NewInMemoryBackend()
+
 		return sns.NewHandler(bk, logger.NewLogger(slog.LevelDebug)), bk
 	}
 
 	for _, proto := range []string{"http", "https"} {
-		proto := proto
 		t.Run(proto, func(t *testing.T) {
 			t.Parallel()
 			h, b := newH()
@@ -1401,6 +1402,7 @@ func TestHandlerPublishMessageStructure(t *testing.T) {
 
 	h, b := func() (*sns.Handler, *sns.InMemoryBackend) {
 		bk := sns.NewInMemoryBackend()
+
 		return sns.NewHandler(bk, logger.NewLogger(slog.LevelDebug)), bk
 	}()
 	arn := mustCreateTopic(t, b, "ms-handler-topic")

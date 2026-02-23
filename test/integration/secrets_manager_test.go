@@ -42,6 +42,7 @@ func TestIntegration_SecretsManager_SecretLifecycle(t *testing.T) {
 	for _, s := range listOut.SecretList {
 		if *s.Name == secretName {
 			found = true
+
 			break
 		}
 	}

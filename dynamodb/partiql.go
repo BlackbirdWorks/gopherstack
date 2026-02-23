@@ -3,6 +3,7 @@ package dynamodb
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 
@@ -11,26 +12,28 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
 
+// ErrInvalidStatement is returned when a PartiQL statement cannot be parsed.
+var ErrInvalidStatement = errors.New("invalid PartiQL statement")
+
 // fromClauseRegex extracts the table name from a SELECT ... FROM "tableName" PartiQL statement.
 // Supports DynamoDB table names: alphanumeric, hyphen, dot, and underscore.
 var fromClauseRegex = regexp.MustCompile(`(?i)FROM\s+"([\w.\-]+)"`)
-
 // executeStatementRequest is the wire format for ExecuteStatement.
 type executeStatementRequest struct {
-	Statement  string                   `json:"Statement"`
+	Statement  string                            `json:"Statement"`
+	NextToken  string                            `json:"NextToken,omitempty"`
 	Parameters []map[string]types.AttributeValue `json:"Parameters,omitempty"`
-	NextToken  string                   `json:"NextToken,omitempty"`
 }
 
 // executeStatementResponse is the wire response for ExecuteStatement.
 type executeStatementResponse struct {
-	Items     []map[string]types.AttributeValue `json:"Items"`
 	NextToken string                            `json:"NextToken,omitempty"`
+	Items     []map[string]types.AttributeValue `json:"Items"`
 }
 
 // batchStatementRequest is one statement entry inside BatchExecuteStatement.
 type batchStatementRequest struct {
-	Statement  string                   `json:"Statement"`
+	Statement  string                            `json:"Statement"`
 	Parameters []map[string]types.AttributeValue `json:"Parameters,omitempty"`
 }
 
@@ -125,9 +128,11 @@ func (h *DynamoDBHandler) handleBatchExecuteStatement(ctx context.Context, body 
 
 // extractTableNameFromStatement extracts the table name from a SELECT PartiQL statement.
 func extractTableNameFromStatement(statement string) (string, error) {
+	const minMatchLen = 2 // full match + first capture group
+
 	matches := fromClauseRegex.FindStringSubmatch(statement)
-	if len(matches) < 2 {
-		return "", fmt.Errorf("cannot extract table name from statement: %q", statement)
+	if len(matches) < minMatchLen {
+		return "", fmt.Errorf("%w: %q", ErrInvalidStatement, statement)
 	}
 
 	return matches[1], nil

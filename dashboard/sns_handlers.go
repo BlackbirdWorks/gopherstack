@@ -32,6 +32,7 @@ func (h *DashboardHandler) snsSubscribeToTopic(c *echo.Context) error {
 
 	if _, err := h.SNSOps.Backend.Subscribe(arn, protocol, endpoint, ""); err != nil {
 		h.Logger.Error("Failed to subscribe to SNS topic", "arn", arn, "error", err)
+
 		return c.String(http.StatusInternalServerError, "Failed to subscribe: "+err.Error())
 	}
 
@@ -58,6 +59,7 @@ func (h *DashboardHandler) snsUnsubscribeFromTopic(c *echo.Context) error {
 
 	if err := h.SNSOps.Backend.Unsubscribe(subArn); err != nil {
 		h.Logger.Error("Failed to unsubscribe from SNS topic", "subArn", subArn, "error", err)
+
 		return c.String(http.StatusInternalServerError, "Failed to unsubscribe: "+err.Error())
 	}
 
@@ -89,6 +91,7 @@ func (h *DashboardHandler) snsPublishMessage(c *echo.Context) error {
 
 	if _, err := h.SNSOps.Backend.Publish(arn, message, subject, "", nil); err != nil {
 		h.Logger.Error("Failed to publish SNS message", "arn", arn, "error", err)
+
 		return c.String(http.StatusInternalServerError, "Failed to publish: "+err.Error())
 	}
 

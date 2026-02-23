@@ -590,63 +590,63 @@ func (h *S3Handler) listObjectVersions(
 }
 
 func (h *S3Handler) putBucketACL(
-ctx context.Context,
-w http.ResponseWriter,
-r *http.Request,
-bucketName string,
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucketName string,
 ) {
-h.setOperation(ctx, "PutBucketAcl")
-log := logger.Load(ctx)
+	h.setOperation(ctx, "PutBucketAcl")
+	log := logger.Load(ctx)
 
-acl := r.Header.Get("x-amz-acl")
-if acl == "" {
-acl = "private"
-}
+	acl := r.Header.Get("x-amz-acl")
+	if acl == "" {
+		acl = "private"
+	}
 
-if err := h.Backend.PutBucketACL(ctx, bucketName, acl); err != nil {
-WriteError(log, w, r, err)
+	if err := h.Backend.PutBucketACL(ctx, bucketName, acl); err != nil {
+		WriteError(log, w, r, err)
 
-return
-}
+		return
+	}
 
-w.WriteHeader(http.StatusOK)
+	w.WriteHeader(http.StatusOK)
 }
 
 func (h *S3Handler) getBucketACL(
-ctx context.Context,
-w http.ResponseWriter,
-r *http.Request,
-bucketName string,
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucketName string,
 ) {
-h.setOperation(ctx, "GetBucketAcl")
-log := logger.Load(ctx)
+	h.setOperation(ctx, "GetBucketAcl")
+	log := logger.Load(ctx)
 
-_, err := h.Backend.GetBucketACL(ctx, bucketName)
-if err != nil {
-WriteError(log, w, r, err)
+	_, err := h.Backend.GetBucketACL(ctx, bucketName)
+	if err != nil {
+		WriteError(log, w, r, err)
 
-return
-}
+		return
+	}
 
-resp := AccessControlPolicy{
-Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/",
-Owner: Owner{
-ID:          "gopherstack",
-DisplayName: "gopherstack",
-},
-ACL: AccessControlList{
-Grants: []Grant{
-{
-Grantee: Grantee{
-XmlnsXsi: "http://www.w3.org/2001/XMLSchema-instance",
-XsiType:  "CanonicalUser",
-ID:       "gopherstack",
-},
-Permission: "FULL_CONTROL",
-},
-},
-},
-}
+	resp := AccessControlPolicy{
+		Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/",
+		Owner: Owner{
+			ID:          "gopherstack",
+			DisplayName: "gopherstack",
+		},
+		ACL: AccessControlList{
+			Grants: []Grant{
+				{
+					Grantee: Grantee{
+						XmlnsXsi: "http://www.w3.org/2001/XMLSchema-instance",
+						XsiType:  "CanonicalUser",
+						ID:       "gopherstack",
+					},
+					Permission: "FULL_CONTROL",
+				},
+			},
+		},
+	}
 
-httputil.WriteXML(log, w, http.StatusOK, resp)
+	httputil.WriteXML(log, w, http.StatusOK, resp)
 }

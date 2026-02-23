@@ -144,8 +144,8 @@ type DecodeAuthorizationMessageResult struct {
 
 // DecodeAuthorizationMessageResponse is the top-level XML envelope returned by DecodeAuthorizationMessage.
 type DecodeAuthorizationMessageResponse struct {
-	XMLName                            xml.Name                          `xml:"DecodeAuthorizationMessageResponse"`
-	Xmlns                              string                            `xml:"xmlns,attr"`
-	DecodeAuthorizationMessageResult   DecodeAuthorizationMessageResult  `xml:"DecodeAuthorizationMessageResult"`
-	ResponseMetadata                   ResponseMetadata                  `xml:"ResponseMetadata"`
+	XMLName                          xml.Name                         `xml:"DecodeAuthorizationMessageResponse"`
+	Xmlns                            string                           `xml:"xmlns,attr"`
+	DecodeAuthorizationMessageResult DecodeAuthorizationMessageResult `xml:"DecodeAuthorizationMessageResult"`
+	ResponseMetadata                 ResponseMetadata                 `xml:"ResponseMetadata"`
 }

@@ -195,7 +195,7 @@ func (h *S3Handler) headObject(
 	w.WriteHeader(http.StatusOK)
 }
 
-func (h *S3Handler) putObject(
+func (h *S3Handler) putObject( //nolint:funlen // Request parsing + multiple header fields require sequential steps
 	ctx context.Context,
 	w http.ResponseWriter,
 	r *http.Request,
@@ -223,7 +223,7 @@ func (h *S3Handler) putObject(
 
 	if contentMD5Header := r.Header.Get("Content-MD5"); contentMD5Header != "" {
 		decoded, decErr := base64.StdEncoding.DecodeString(contentMD5Header)
-		if decErr != nil || len(decoded) != md5.Size { //nolint:gosec // MD5 required for S3 spec compliance
+		if decErr != nil || len(decoded) != md5.Size {
 			httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
 				Code:    "BadDigest",
 				Message: "The Content-MD5 you specified did not match what we received.",
@@ -960,7 +960,7 @@ func parseRange(header string, size int64) (int64, int64, bool) {
 
 // checkConditionalHeaders evaluates HTTP conditional request headers per AWS/HTTP spec.
 // Returns (304, false) or (412, false) if a condition fails, or (0, true) if all pass.
-func checkConditionalHeaders(r *http.Request, etag string, lastModified time.Time) (status int, ok bool) {
+func checkConditionalHeaders(r *http.Request, etag string, lastModified time.Time) (int, bool) {
 	stripQuotes := func(s string) string { return strings.Trim(s, "\"") }
 	normalizedETag := stripQuotes(etag)
 

@@ -266,8 +266,8 @@ type ScheduleKeyDeletionInput struct {
 // ScheduleKeyDeletionOutput is the response payload for ScheduleKeyDeletion.
 type ScheduleKeyDeletionOutput struct {
 	KeyID        string  `json:"KeyId"`
-	DeletionDate float64 `json:"DeletionDate"`
 	KeyState     string  `json:"KeyState"`
+	DeletionDate float64 `json:"DeletionDate"`
 }
 
 // CancelKeyDeletionInput is the request payload for CancelKeyDeletion.

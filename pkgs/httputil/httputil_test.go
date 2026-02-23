@@ -156,51 +156,51 @@ func TestEchoError(t *testing.T) {
 }
 
 func TestRequestIDMiddleware(t *testing.T) {
-t.Parallel()
-e := echo.New()
-e.Use(httputil.RequestIDMiddleware())
-e.GET("/", func(c *echo.Context) error {
-return c.String(http.StatusOK, "ok")
-})
+	t.Parallel()
+	e := echo.New()
+	e.Use(httputil.RequestIDMiddleware())
+	e.GET("/", func(c *echo.Context) error {
+		return c.String(http.StatusOK, "ok")
+	})
 
-req := httptest.NewRequest(http.MethodGet, "/", nil)
-rec := httptest.NewRecorder()
-e.ServeHTTP(rec, req)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
 
-requestID := rec.Header().Get("x-amz-request-id")
-assert.NotEmpty(t, requestID)
-// Should be a valid UUID (36 characters with hyphens).
-assert.Len(t, requestID, 36)
+	requestID := rec.Header().Get("X-Amz-Request-Id")
+	assert.NotEmpty(t, requestID)
+	// Should be a valid UUID (36 characters with hyphens).
+	assert.Len(t, requestID, 36)
 }
 
 func TestExtractRegionFromRequest(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-t.Run("extracts region from SigV4 Authorization header", func(t *testing.T) {
-t.Parallel()
-req := httptest.NewRequest(http.MethodPost, "/", nil)
-req.Header.Set("Authorization",
-"AWS4-HMAC-SHA256 Credential=AKID/20240101/eu-west-1/kms/aws4_request, "+
-"SignedHeaders=host, Signature=abc")
+	t.Run("extracts region from SigV4 Authorization header", func(t *testing.T) {
+		t.Parallel()
+		req := httptest.NewRequest(http.MethodPost, "/", nil)
+		req.Header.Set("Authorization",
+			"AWS4-HMAC-SHA256 Credential=AKID/20240101/eu-west-1/kms/aws4_request, "+
+				"SignedHeaders=host, Signature=abc")
 
-region := httputil.ExtractRegionFromRequest(req, "us-east-1")
-assert.Equal(t, "eu-west-1", region)
-})
+		region := httputil.ExtractRegionFromRequest(req, "us-east-1")
+		assert.Equal(t, "eu-west-1", region)
+	})
 
-t.Run("falls back to X-Amz-Region header", func(t *testing.T) {
-t.Parallel()
-req := httptest.NewRequest(http.MethodPost, "/", nil)
-req.Header.Set("X-Amz-Region", "ap-southeast-1")
+	t.Run("falls back to X-Amz-Region header", func(t *testing.T) {
+		t.Parallel()
+		req := httptest.NewRequest(http.MethodPost, "/", nil)
+		req.Header.Set("X-Amz-Region", "ap-southeast-1")
 
-region := httputil.ExtractRegionFromRequest(req, "us-east-1")
-assert.Equal(t, "ap-southeast-1", region)
-})
+		region := httputil.ExtractRegionFromRequest(req, "us-east-1")
+		assert.Equal(t, "ap-southeast-1", region)
+	})
 
-t.Run("falls back to defaultRegion when no headers", func(t *testing.T) {
-t.Parallel()
-req := httptest.NewRequest(http.MethodPost, "/", nil)
+	t.Run("falls back to defaultRegion when no headers", func(t *testing.T) {
+		t.Parallel()
+		req := httptest.NewRequest(http.MethodPost, "/", nil)
 
-region := httputil.ExtractRegionFromRequest(req, "us-west-2")
-assert.Equal(t, "us-west-2", region)
-})
+		region := httputil.ExtractRegionFromRequest(req, "us-west-2")
+		assert.Equal(t, "us-west-2", region)
+	})
 }

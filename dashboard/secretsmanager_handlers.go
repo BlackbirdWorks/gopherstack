@@ -20,12 +20,12 @@ type secretsManagerView struct {
 type secretsManagerDetailData struct {
 	PageData
 
-	Name             string
-	ARN              string
-	Description      string
-	SecretString     string
-	DeletedDate      *float64
+	DeletedDate        *float64
 	VersionIDsToStages map[string][]string
+	Name               string
+	ARN                string
+	Description        string
+	SecretString       string
 }
 
 // secretsManagerIndex renders the list of all Secrets Manager secrets.
@@ -95,6 +95,7 @@ func (h *DashboardHandler) secretsManagerCreate(c *echo.Context) error {
 	})
 	if err != nil {
 		h.Logger.Error("Failed to create secret", "name", name, "error", err)
+
 		return c.String(http.StatusInternalServerError, "Failed to create secret: "+err.Error())
 	}
 
@@ -127,6 +128,7 @@ func (h *DashboardHandler) secretsManagerUpdate(c *echo.Context) error {
 	})
 	if err != nil {
 		h.Logger.Error("Failed to update secret", "name", name, "error", err)
+
 		return c.String(http.StatusInternalServerError, "Failed to update secret: "+err.Error())
 	}
 
@@ -155,6 +157,7 @@ func (h *DashboardHandler) secretsManagerDelete(c *echo.Context) error {
 	})
 	if err != nil {
 		h.Logger.Error("Failed to delete secret", "name", name, "error", err)
+
 		return c.String(http.StatusInternalServerError, "Failed to delete secret: "+err.Error())
 	}
 
@@ -182,6 +185,7 @@ func (h *DashboardHandler) secretsManagerDetail(c *echo.Context) error {
 	})
 	if err != nil {
 		h.Logger.Error("Failed to describe secret", "name", name, "error", err)
+
 		return c.String(http.StatusNotFound, "Secret not found")
 	}
 

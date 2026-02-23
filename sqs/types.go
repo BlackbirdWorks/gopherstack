@@ -23,6 +23,11 @@ const (
 	maxParseIterations = 20
 	noVisibilitySet    = -1
 
+	// msgAttrTransportTypeString is the SQS wire-format byte for String/Number message attributes.
+	msgAttrTransportTypeString byte = 1
+	// msgAttrTransportTypeBinary is the SQS wire-format byte for Binary message attributes.
+	msgAttrTransportTypeBinary byte = 2
+
 	attrVisibilityTimeout             = "VisibilityTimeout"
 	attrMaximumMessageSize            = "MaximumMessageSize"
 	attrMessageRetentionPeriod        = "MessageRetentionPeriod"

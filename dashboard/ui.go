@@ -162,7 +162,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 	return h
 }
 
-func (h *DashboardHandler) setupSubRouter() {
+func (h *DashboardHandler) setupSubRouter() { //nolint:funlen // Route registration is inherently verbose
 	// Static files
 	h.SubRouter.GET("/dashboard/static/*", func(c *echo.Context) error {
 		http.StripPrefix("/dashboard", http.FileServer(http.FS(staticFS))).

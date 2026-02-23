@@ -196,9 +196,9 @@ type DeleteErrorXML struct {
 
 // AccessControlPolicy is the XML response for GetBucketAcl.
 type AccessControlPolicy struct {
-	XMLName xml.Name         `xml:"AccessControlPolicy"`
-	Xmlns   string           `xml:"xmlns,attr"`
-	Owner   Owner            `xml:"Owner"`
+	XMLName xml.Name          `xml:"AccessControlPolicy"`
+	Xmlns   string            `xml:"xmlns,attr"`
+	Owner   Owner             `xml:"Owner"`
 	ACL     AccessControlList `xml:"AccessControlList"`
 }
 

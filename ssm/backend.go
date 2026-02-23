@@ -37,13 +37,13 @@ var mockKMSKey = []byte(mockKMSKeyStr)
 
 // validParamNameRegex matches only alphanumeric, ., -, _, and / characters.
 //
-//nolint:gochecknoglobals // Compiled once for reuse.
+
 var validParamNameRegex = regexp.MustCompile(`^[a-zA-Z0-9._\-/]+$`)
 
 const maxParamNameLength = 2048
 
 // reservedPrefixes are namespace prefixes that are not allowed for parameter names.
-var reservedPrefixes = []string{"ssm", "aws", "amazon"} //nolint:gochecknoglobals
+var reservedPrefixes = []string{"ssm", "aws", "amazon"} //nolint:gochecknoglobals // reserved parameter name prefixes per AWS SSM spec
 
 // validateParameterName returns a ValidationException error when the name is invalid.
 func validateParameterName(name string) error {
@@ -58,7 +58,11 @@ func validateParameterName(name string) error {
 	lower := strings.ToLower(strings.TrimPrefix(name, "/"))
 	for _, prefix := range reservedPrefixes {
 		if strings.HasPrefix(lower, prefix) {
-			return fmt.Errorf("%w: parameter name must not start with reserved namespace %q", ErrValidationException, prefix)
+			return fmt.Errorf(
+				"%w: parameter name must not start with reserved namespace %q",
+				ErrValidationException,
+				prefix,
+			)
 		}
 	}
 

@@ -81,6 +81,7 @@ func (h *DashboardHandler) kmsCreateKey(c *echo.Context) error {
 
 	if _, err := h.KMSOps.Backend.CreateKey(&kmsbackend.CreateKeyInput{Description: desc}); err != nil {
 		h.Logger.Error("Failed to create KMS key", "error", err)
+
 		return c.String(http.StatusInternalServerError, "Failed to create key: "+err.Error())
 	}
 
@@ -106,6 +107,7 @@ func (h *DashboardHandler) kmsKeyDetail(c *echo.Context) error {
 	descOut, err := h.KMSOps.Backend.DescribeKey(&kmsbackend.DescribeKeyInput{KeyID: keyID})
 	if err != nil {
 		h.Logger.Error("Failed to describe KMS key", "keyID", keyID, "error", err)
+
 		return c.String(http.StatusNotFound, "Key not found")
 	}
 
@@ -168,6 +170,7 @@ func (h *DashboardHandler) kmsEncrypt(c *echo.Context) error {
 	})
 	if err != nil {
 		h.Logger.Error("Failed to encrypt with KMS key", "keyID", keyID, "error", err)
+
 		return c.String(http.StatusInternalServerError, "Encryption failed: "+err.Error())
 	}
 
@@ -206,6 +209,7 @@ func (h *DashboardHandler) kmsDecrypt(c *echo.Context) error {
 	})
 	if err != nil {
 		h.Logger.Error("Failed to decrypt with KMS key", "error", err)
+
 		return c.String(http.StatusInternalServerError, "Decryption failed: "+err.Error())
 	}
 

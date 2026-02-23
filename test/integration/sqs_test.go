@@ -1,6 +1,7 @@
 package integration_test
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -32,14 +33,7 @@ func TestIntegration_SQS_QueueLifecycle(t *testing.T) {
 	// ListQueues
 	listOut, err := client.ListQueues(ctx, &sqs.ListQueuesInput{})
 	require.NoError(t, err)
-	found := false
-	for _, u := range listOut.QueueUrls {
-		if u == *queueURL {
-			found = true
-			break
-		}
-	}
-	assert.True(t, found, "created queue should appear in ListQueues")
+	assert.True(t, slices.Contains(listOut.QueueUrls, *queueURL), "created queue should appear in ListQueues")
 
 	// GetQueueAttributes
 	attrOut, err := client.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{

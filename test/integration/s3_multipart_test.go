@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	minPartSize = 5*1024*1024 + 1 // 5 MiB + 1 byte (minimum multipart part size)
+	minPartSize  = 5*1024*1024 + 1 // 5 MiB + 1 byte (minimum multipart part size)
 	lastPartSize = 1024            // smaller last part is allowed
 )
 

@@ -164,7 +164,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 // dispatch routes the KMS operation to the appropriate backend method.
 //
-//nolint:cyclop,gocognit,funlen // Dispatch switch is intentionally comprehensive.
+//nolint:cyclop,gocognit,funlen,gocyclo // Dispatch switch is intentionally comprehensive.
 func (h *Handler) dispatch(_ context.Context, r *http.Request, action string, body []byte) ([]byte, error) {
 	var response any
 	var err error

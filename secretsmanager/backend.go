@@ -109,11 +109,6 @@ func (b *InMemoryBackend) buildARNWithRegion(region, name, suffix string) string
 		region, b.accountID, name, suffix)
 }
 
-// buildARN constructs a Secrets Manager ARN for the given secret name.
-func (b *InMemoryBackend) buildARN(name, suffix string) string {
-	return b.buildARNWithRegion(b.region, name, suffix)
-}
-
 // CreateSecret creates a new secret with an optional initial value.
 func (b *InMemoryBackend) CreateSecret(input *CreateSecretInput) (*CreateSecretOutput, error) {
 	b.mu.Lock()

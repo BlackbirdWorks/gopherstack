@@ -159,54 +159,55 @@ func (h *DashboardHandler) ssmDeleteParameter(c *echo.Context) error {
 
 // ssmHistoryData holds the data for the parameter history page.
 type ssmHistoryData struct {
-PageData
-Name    string
-History []ssmHistoryEntry
+	PageData
+
+	Name    string
+	History []ssmHistoryEntry
 }
 
 // ssmHistoryEntry is a single version entry in parameter history.
 type ssmHistoryEntry struct {
-Version int64
-Value   string
-Type    string
+	Value   string
+	Type    string
+	Version int64
 }
 
 // ssmParameterHistory handles GET /dashboard/ssm/history?name=<paramName>.
 func (h *DashboardHandler) ssmParameterHistory(c *echo.Context) error {
-r := c.Request()
-w := c.Response()
+	r := c.Request()
+	w := c.Response()
 
-name := r.URL.Query().Get("name")
-if name == "" {
-return c.String(http.StatusBadRequest, "Missing name")
-}
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		return c.String(http.StatusBadRequest, "Missing name")
+	}
 
-out, err := h.SSMOps.Backend.GetParameterHistory(&ssmbackend.GetParameterHistoryInput{Name: name})
-if err != nil {
-h.Logger.Error("failed to get parameter history", "name", name, "error", err)
+	out, err := h.SSMOps.Backend.GetParameterHistory(&ssmbackend.GetParameterHistoryInput{Name: name})
+	if err != nil {
+		h.Logger.Error("failed to get parameter history", "name", name, "error", err)
 
-return c.String(http.StatusInternalServerError, "Failed to fetch parameter history")
-}
+		return c.String(http.StatusInternalServerError, "Failed to fetch parameter history")
+	}
 
-entries := make([]ssmHistoryEntry, 0, len(out.Parameters))
-for _, p := range out.Parameters {
-entries = append(entries, ssmHistoryEntry{
-Version: p.Version,
-Value:   p.Value,
-Type:    p.Type,
-})
-}
+	entries := make([]ssmHistoryEntry, 0, len(out.Parameters))
+	for _, p := range out.Parameters {
+		entries = append(entries, ssmHistoryEntry{
+			Version: p.Version,
+			Value:   p.Value,
+			Type:    p.Type,
+		})
+	}
 
-data := ssmHistoryData{
-PageData: PageData{
-Title:     "Parameter History: " + name,
-ActiveTab: "ssm",
-},
-Name:    name,
-History: entries,
-}
+	data := ssmHistoryData{
+		PageData: PageData{
+			Title:     "Parameter History: " + name,
+			ActiveTab: "ssm",
+		},
+		Name:    name,
+		History: entries,
+	}
 
-h.renderTemplate(w, "ssm/history.html", data)
+	h.renderTemplate(w, "ssm/history.html", data)
 
-return nil
+	return nil
 }

@@ -798,7 +798,11 @@ func TestSendMessage_MD5OfMessageAttributes(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	assert.NotEmpty(t, out.MD5OfMessageAttributes, "MD5OfMessageAttributes should be set when MessageAttributes are present")
+	assert.NotEmpty(
+		t,
+		out.MD5OfMessageAttributes,
+		"MD5OfMessageAttributes should be set when MessageAttributes are present",
+	)
 
 	// Verify it's a valid 32-char hex string (MD5).
 	assert.Len(t, out.MD5OfMessageAttributes, 32)

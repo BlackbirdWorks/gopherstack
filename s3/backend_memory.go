@@ -656,7 +656,7 @@ func (b *InMemoryBackend) DeleteObjects(
 	return out, nil
 }
 
-func (b *InMemoryBackend) ListObjects(
+func (b *InMemoryBackend) ListObjects( //nolint:gocognit // Delimiter logic requires multiple condition branches
 	_ context.Context,
 	input *s3.ListObjectsInput,
 ) (*s3.ListObjectsOutput, error) {
@@ -728,7 +728,6 @@ func (b *InMemoryBackend) ListObjects(
 	if delimiter != "" {
 		var filtered []types.Object
 		seenPrefixes := make(map[string]struct{})
-		prefix := aws.ToString(input.Prefix)
 
 		for _, obj := range contents {
 			key := aws.ToString(obj.Key)

@@ -50,18 +50,12 @@ type Secret struct {
 
 // CreateSecretInput is the request payload for CreateSecret.
 type CreateSecretInput struct {
-	// Name is the human-readable name for the secret.
-	Name string `json:"Name"`
-	// Description is an optional description.
-	Description string `json:"Description,omitempty"`
-	// SecretString is the initial string value (mutually exclusive with SecretBinary).
+	Name         string `json:"Name"`
+	Description  string `json:"Description,omitempty"`
 	SecretString string `json:"SecretString,omitempty"`
-	// SecretBinary is the initial binary value (mutually exclusive with SecretString).
+	Region       string `json:"-"`
 	SecretBinary []byte `json:"SecretBinary,omitempty"`
-	// Tags is an optional list of tag objects.
-	Tags []Tag `json:"Tags,omitempty"`
-	// Region is the AWS region for ARN construction (optional; defaults to backend region).
-	Region string `json:"-"`
+	Tags         []Tag  `json:"Tags,omitempty"`
 }
 
 // Tag represents a key/value tag pair in the Secrets Manager wire format.
