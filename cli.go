@@ -31,6 +31,7 @@ import (
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
 	kmsbackend "github.com/blackbirdworks/gopherstack/kms"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	snsevents "github.com/blackbirdworks/gopherstack/pkgs/events"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
@@ -367,6 +368,9 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		cli.secretsManagerHandler = services[8]
 	}
 
+	// Wire SNS→SQS delivery: when SNS publishes a message, deliver it to SQS queues.
+	wireSNSToSQS(services[5], services[6])
+
 	// Init dashboard last so it can access all service handlers.
 	dashSvc, err := (&dashboard.Provider{}).Init(appCtx)
 	if err != nil {
@@ -388,6 +392,30 @@ func startBackgroundWorkers(ctx context.Context, log *slog.Logger, services []se
 			}
 		}
 	}
+}
+
+// wireSNSToSQS connects the SNS publish emitter to the SQS delivery handler so
+// that messages published to SNS topics are delivered to subscribed SQS queues.
+// snsReg and sqsReg must be the service.Registerable values returned by their
+// respective providers (indices 5 and 6 in the services slice).
+func wireSNSToSQS(snsReg, sqsReg service.Registerable) {
+	snsH, ok1 := snsReg.(*snsbackend.Handler)
+	sqsH, ok2 := sqsReg.(*sqsbackend.Handler)
+
+	if !ok1 || !ok2 {
+		return
+	}
+
+	snsBk, ok3 := snsH.Backend.(*snsbackend.InMemoryBackend)
+	sqsBk, ok4 := sqsH.Backend.(*sqsbackend.InMemoryBackend)
+
+	if !ok3 || !ok4 {
+		return
+	}
+
+	emitter := snsevents.NewInMemoryEmitter[*snsevents.SNSPublishedEvent]()
+	snsBk.SetPublishEmitter(emitter)
+	sqsBk.SubscribeToSNS(emitter)
 }
 
 // startServer starts the HTTP server and blocks until it shuts down.

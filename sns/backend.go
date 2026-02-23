@@ -14,6 +14,8 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/events"
 )
 
 var (
@@ -49,6 +51,7 @@ type StorageBackend interface {
 type InMemoryBackend struct {
 	topics        map[string]*Topic
 	subscriptions map[string]*Subscription
+	emitter       events.EventEmitter[*events.SNSPublishedEvent]
 	accountID     string
 	region        string
 	mu            sync.RWMutex
@@ -67,6 +70,15 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		accountID:     accountID,
 		region:        region,
 	}
+}
+
+// SetPublishEmitter registers an event emitter that fires when a message is published.
+// This is used to wire SNS→SQS delivery at startup.
+func (b *InMemoryBackend) SetPublishEmitter(emitter events.EventEmitter[*events.SNSPublishedEvent]) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.emitter = emitter
 }
 
 // arnPrefix returns the SNS ARN prefix for this backend's account and region.
@@ -244,9 +256,10 @@ func (b *InMemoryBackend) ListSubscriptionsByTopic(topicArn, nextToken string) (
 }
 
 // Publish publishes a message to a topic and returns the message ID.
-// The subject and attrs parameters are accepted for interface compatibility but not used in delivery.
+// HTTP/HTTPS subscriptions receive a synchronous best-effort delivery.
+// All subscriptions are also broadcast via the publish emitter (e.g. to SQS).
 func (b *InMemoryBackend) Publish(
-	topicArn, message, _ string, _ map[string]MessageAttribute,
+	topicArn, message, subject string, attrs map[string]MessageAttribute,
 ) (string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -257,6 +270,9 @@ func (b *InMemoryBackend) Publish(
 
 	messageID := uuid.New().String()
 
+	// Build subscription snapshot and deliver to HTTP/HTTPS endpoints.
+	subs := make([]events.SNSSubscriptionSnapshot, 0)
+
 	for _, sub := range b.subscriptions {
 		if sub.TopicArn != topicArn {
 			continue
@@ -265,9 +281,34 @@ func (b *InMemoryBackend) Publish(
 		switch sub.Protocol {
 		case "http", "https":
 			deliverHTTP(sub.Endpoint, message)
-		default:
-			// SQS, Lambda, email, etc. — delivery not implemented.
 		}
+
+		subs = append(subs, events.SNSSubscriptionSnapshot{
+			SubscriptionARN: sub.SubscriptionArn,
+			Protocol:        sub.Protocol,
+			Endpoint:        sub.Endpoint,
+			FilterPolicy:    sub.FilterPolicy,
+		})
+	}
+
+	// Emit event for other services (e.g. SQS) to react to.
+	if b.emitter != nil {
+		attrSnaps := make(map[string]events.SNSMessageAttributeSnapshot, len(attrs))
+		for k, v := range attrs {
+			attrSnaps[k] = events.SNSMessageAttributeSnapshot{
+				DataType:    v.DataType,
+				StringValue: v.StringValue,
+			}
+		}
+
+		_ = b.emitter.Emit(context.Background(), &events.SNSPublishedEvent{
+			TopicARN:      topicArn,
+			MessageID:     messageID,
+			Message:       message,
+			Subject:       subject,
+			Subscriptions: subs,
+			Attributes:    attrSnaps,
+		})
 	}
 
 	return messageID, nil
