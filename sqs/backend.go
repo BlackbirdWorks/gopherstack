@@ -30,6 +30,9 @@ type StorageBackend interface {
 	SendMessageBatch(input *SendMessageBatchInput) (*SendMessageBatchOutput, error)
 	DeleteMessageBatch(input *DeleteMessageBatchInput) (*DeleteMessageBatchOutput, error)
 	PurgeQueue(input *PurgeQueueInput) error
+	TagQueue(input *TagQueueInput) error
+	UntagQueue(input *UntagQueueInput) error
+	ListQueueTags(input *ListQueueTagsInput) (*ListQueueTagsOutput, error)
 	ListAll() []QueueInfo
 }
 
@@ -665,4 +668,62 @@ func (b *InMemoryBackend) ListAll() []QueueInfo {
 	}
 
 	return result
+}
+
+// TagQueue adds or updates tags on a queue.
+func (b *InMemoryBackend) TagQueue(input *TagQueueInput) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	name := queueNameFromInput(input.QueueURL)
+
+	q, ok := b.queues[name]
+	if !ok {
+		return ErrQueueNotFound
+	}
+
+	if q.Tags == nil {
+		q.Tags = make(map[string]string)
+	}
+
+	maps.Copy(q.Tags, input.Tags)
+
+	return nil
+}
+
+// UntagQueue removes tags from a queue.
+func (b *InMemoryBackend) UntagQueue(input *UntagQueueInput) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	name := queueNameFromInput(input.QueueURL)
+
+	q, ok := b.queues[name]
+	if !ok {
+		return ErrQueueNotFound
+	}
+
+	for _, k := range input.TagKeys {
+		delete(q.Tags, k)
+	}
+
+	return nil
+}
+
+// ListQueueTags returns the tags for a queue.
+func (b *InMemoryBackend) ListQueueTags(input *ListQueueTagsInput) (*ListQueueTagsOutput, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	name := queueNameFromInput(input.QueueURL)
+
+	q, ok := b.queues[name]
+	if !ok {
+		return nil, ErrQueueNotFound
+	}
+
+	tags := make(map[string]string, len(q.Tags))
+	maps.Copy(tags, q.Tags)
+
+	return &ListQueueTagsOutput{Tags: tags}, nil
 }

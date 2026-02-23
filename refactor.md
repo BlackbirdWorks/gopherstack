@@ -53,7 +53,7 @@ Audit of Gopherstack against LocalStack free-tier parity. Items are grouped by t
 
 - [x] **Redrive Policy / Dead Letter Queue** — RedrivePolicy attribute not handled. Messages that exceed maxReceiveCount are never moved to a DLQ.
 - [ ] **ChangeMessageVisibilityBatch** — Batch version of ChangeMessageVisibility not implemented.
-- [ ] **TagQueue / UntagQueue / ListQueueTags** — No queue tagging support.
+- [x] **TagQueue / UntagQueue / ListQueueTags** — No queue tagging support.
 
 ---
 

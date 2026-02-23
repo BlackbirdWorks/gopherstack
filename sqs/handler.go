@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -51,6 +52,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		"SendMessageBatch",
 		"DeleteMessageBatch",
 		"PurgeQueue",
+		"TagQueue",
+		"UntagQueue",
+		"ListQueueTags",
 	}
 }
 
@@ -185,11 +189,36 @@ func (h *Handler) dispatch(
 		h.handleSendMessageBatch(ctx, w, r, form, requestID)
 	case "DeleteMessageBatch":
 		h.handleDeleteMessageBatch(ctx, w, r, form, requestID)
+	default:
+		if !h.dispatchTagOps(ctx, w, r, form, action, requestID) {
+			h.writeError(w, ErrUnknownAction, requestID)
+		}
+	}
+}
+
+// dispatchTagOps handles PurgeQueue, TagQueue, UntagQueue, and ListQueueTags actions.
+// Returns true if the action was handled, false otherwise.
+func (h *Handler) dispatchTagOps(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	form url.Values,
+	action, requestID string,
+) bool {
+	switch action {
 	case "PurgeQueue":
 		h.handlePurgeQueue(ctx, w, r, form, requestID)
+	case "TagQueue":
+		h.handleTagQueue(ctx, w, r, form, requestID)
+	case "UntagQueue":
+		h.handleUntagQueue(ctx, w, r, form, requestID)
+	case "ListQueueTags":
+		h.handleListQueueTags(ctx, w, r, form, requestID)
 	default:
-		h.writeError(w, ErrUnknownAction, requestID)
+		return false
 	}
+
+	return true
 }
 
 func (h *Handler) handleCreateQueue(
@@ -574,6 +603,78 @@ func (h *Handler) handlePurgeQueue(
 
 	httputil.WriteXML(h.Logger, w, http.StatusOK, PurgeQueueResponse{
 		Xmlns:            sqsNamespace,
+		ResponseMetadata: XMLResponseMetadata{RequestID: requestID},
+	})
+}
+
+func (h *Handler) handleTagQueue(
+	_ context.Context,
+	w http.ResponseWriter,
+	_ *http.Request,
+	form url.Values,
+	requestID string,
+) {
+	if err := h.Backend.TagQueue(&TagQueueInput{
+		QueueURL: form.Get("QueueUrl"),
+		Tags:     parseKeyValuePairs(form, "Tag"),
+	}); err != nil {
+		h.writeError(w, err, requestID)
+
+		return
+	}
+
+	httputil.WriteXML(h.Logger, w, http.StatusOK, TagQueueResponse{
+		Xmlns:            sqsNamespace,
+		ResponseMetadata: XMLResponseMetadata{RequestID: requestID},
+	})
+}
+
+func (h *Handler) handleUntagQueue(
+	_ context.Context,
+	w http.ResponseWriter,
+	_ *http.Request,
+	form url.Values,
+	requestID string,
+) {
+	if err := h.Backend.UntagQueue(&UntagQueueInput{
+		QueueURL: form.Get("QueueUrl"),
+		TagKeys:  parseIndexedStrings(form, "TagKey"),
+	}); err != nil {
+		h.writeError(w, err, requestID)
+
+		return
+	}
+
+	httputil.WriteXML(h.Logger, w, http.StatusOK, UntagQueueResponse{
+		Xmlns:            sqsNamespace,
+		ResponseMetadata: XMLResponseMetadata{RequestID: requestID},
+	})
+}
+
+func (h *Handler) handleListQueueTags(
+	_ context.Context,
+	w http.ResponseWriter,
+	_ *http.Request,
+	form url.Values,
+	requestID string,
+) {
+	out, err := h.Backend.ListQueueTags(&ListQueueTagsInput{QueueURL: form.Get("QueueUrl")})
+	if err != nil {
+		h.writeError(w, err, requestID)
+
+		return
+	}
+
+	var entries []TagEntry
+	for k, v := range out.Tags {
+		entries = append(entries, TagEntry{Key: k, Value: v})
+	}
+
+	slices.SortFunc(entries, func(a, b TagEntry) int { return strings.Compare(a.Key, b.Key) })
+
+	httputil.WriteXML(h.Logger, w, http.StatusOK, ListQueueTagsResponse{
+		Xmlns:            sqsNamespace,
+		Result:           ListQueueTagsResult{Tags: entries},
 		ResponseMetadata: XMLResponseMetadata{RequestID: requestID},
 	})
 }
