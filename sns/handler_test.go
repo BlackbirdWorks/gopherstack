@@ -1428,24 +1428,47 @@ func TestHandlerPublishMessageStructure(t *testing.T) {
 func TestCreateTopic_RegionExtraction(t *testing.T) {
 	t.Parallel()
 
-	h, _ := func() (*sns.Handler, *sns.InMemoryBackend) {
-		bk := sns.NewInMemoryBackend()
-		handler := sns.NewHandler(bk, logger.NewLogger(slog.LevelDebug))
-		handler.DefaultRegion = "us-east-1"
+	bk := sns.NewInMemoryBackend()
+	h := sns.NewHandler(bk, logger.NewLogger(slog.LevelDebug))
+	h.DefaultRegion = "us-east-1"
 
-		return handler, bk
-	}()
+	t.Run("default region when no Authorization header", func(t *testing.T) {
+		t.Parallel()
 
-	// Create a topic with a eu-west-1 region extracted from the Authorization header.
-	rec := snsPost(t, h, url.Values{
-		"Action":  {"CreateTopic"},
-		"Version": {"2010-03-31"},
-		"Name":    {"eu-topic"},
+		rec := snsPost(t, h, url.Values{
+			"Action":  {"CreateTopic"},
+			"Version": {"2010-03-31"},
+			"Name":    {"default-topic"},
+		})
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Contains(t, rec.Body.String(), "arn:aws:sns:us-east-1:000000000000:default-topic")
 	})
-	// Set a SigV4-style Authorization header so ExtractRegionFromRequest extracts eu-west-1.
-	// We can't set headers after the POST, so just verify default region is used.
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "arn:aws:sns:us-east-1:000000000000:eu-topic")
+
+	t.Run("region extracted from SigV4 Authorization header", func(t *testing.T) {
+		t.Parallel()
+
+		bk2 := sns.NewInMemoryBackend()
+		h2 := sns.NewHandler(bk2, logger.NewLogger(slog.LevelDebug))
+		h2.DefaultRegion = "us-east-1"
+
+		e := echo.New()
+		form := url.Values{
+			"Action":  {"CreateTopic"},
+			"Version": {"2010-03-31"},
+			"Name":    {"eu-topic"},
+		}
+		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		// Minimal SigV4 Authorization header with eu-west-1 region in credential scope
+		req.Header.Set("Authorization",
+			"AWS4-HMAC-SHA256 Credential=AKID/20240101/eu-west-1/sns/aws4_request, SignedHeaders=host, Signature=abc")
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+		require.NoError(t, h2.Handler()(c))
+
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Contains(t, rec.Body.String(), "arn:aws:sns:eu-west-1:000000000000:eu-topic")
+	})
 }
 
 // TestCreateTopicInRegion_Backend tests the CreateTopicInRegion backend method directly.
