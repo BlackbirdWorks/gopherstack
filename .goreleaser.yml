@@ -13,7 +13,7 @@ before:
 
 builds:
   - id: gopherstack
-    main: ./main.go
+    main: ./
     binary: gopherstack
     env:
       - CGO_ENABLED=0
