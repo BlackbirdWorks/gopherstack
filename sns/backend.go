@@ -35,6 +35,7 @@ const (
 // StorageBackend defines the interface for an SNS storage backend.
 type StorageBackend interface {
 	CreateTopic(name string, attributes map[string]string) (*Topic, error)
+	CreateTopicInRegion(name, region string, attributes map[string]string) (*Topic, error)
 	DeleteTopic(topicArn string) error
 	ListTopics(nextToken string) ([]Topic, string, error)
 	GetTopicAttributes(topicArn string) (map[string]string, error)
@@ -88,12 +89,22 @@ func (b *InMemoryBackend) arnPrefix() string {
 	return "arn:aws:sns:" + b.region + ":" + b.accountID + ":"
 }
 
-// CreateTopic creates a new SNS topic with the given name and attributes.
+// CreateTopic creates a new SNS topic using the backend's default region.
 func (b *InMemoryBackend) CreateTopic(name string, attributes map[string]string) (*Topic, error) {
+	return b.CreateTopicInRegion(name, b.region, attributes)
+}
+
+// CreateTopicInRegion creates a new SNS topic in the specified region.
+// If region is empty, the backend's default region is used.
+func (b *InMemoryBackend) CreateTopicInRegion(name, region string, attributes map[string]string) (*Topic, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	topicArn := b.arnPrefix() + name
+	if region == "" {
+		region = b.region
+	}
+
+	topicArn := "arn:aws:sns:" + region + ":" + b.accountID + ":" + name
 	if _, exists := b.topics[topicArn]; exists {
 		return nil, ErrTopicAlreadyExists
 	}
@@ -502,7 +513,7 @@ func deliverHTTP(endpoint, body string) {
 	}
 
 	// HTTP client used for SNS HTTP endpoint delivery, not internet requests
-	resp, err := http.DefaultClient.Do(req) //nolint:gosec // HTTP endpoint delivery
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return
 	}

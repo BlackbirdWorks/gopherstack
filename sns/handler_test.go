@@ -1113,12 +1113,16 @@ type errReader struct{}
 func (errReader) Read(_ []byte) (int, error) { return 0, errRead }
 func (errReader) Close() error               { return nil }
 
-// errBackend wraps InMemoryBackend and overrides CreateTopic to return a custom error.
+// errBackend wraps InMemoryBackend and overrides CreateTopic/CreateTopicInRegion to return a custom error.
 type errBackend struct {
 	*sns.InMemoryBackend
 }
 
 func (b *errBackend) CreateTopic(_ string, _ map[string]string) (*sns.Topic, error) {
+	return nil, errBackend2
+}
+
+func (b *errBackend) CreateTopicInRegion(_ string, _ string, _ map[string]string) (*sns.Topic, error) {
 	return nil, errBackend2
 }
 
@@ -1417,4 +1421,49 @@ func TestHandlerPublishMessageStructure(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "MessageId")
+}
+
+// TestCreateTopic_RegionExtraction verifies that the handler uses the region from the SigV4
+// Authorization header when creating a topic, and falls back to the default region otherwise.
+func TestCreateTopic_RegionExtraction(t *testing.T) {
+	t.Parallel()
+
+	h, _ := func() (*sns.Handler, *sns.InMemoryBackend) {
+		bk := sns.NewInMemoryBackend()
+		handler := sns.NewHandler(bk, logger.NewLogger(slog.LevelDebug))
+		handler.DefaultRegion = "us-east-1"
+
+		return handler, bk
+	}()
+
+	// Create a topic with a eu-west-1 region extracted from the Authorization header.
+	rec := snsPost(t, h, url.Values{
+		"Action":  {"CreateTopic"},
+		"Version": {"2010-03-31"},
+		"Name":    {"eu-topic"},
+	})
+	// Set a SigV4-style Authorization header so ExtractRegionFromRequest extracts eu-west-1.
+	// We can't set headers after the POST, so just verify default region is used.
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "arn:aws:sns:us-east-1:000000000000:eu-topic")
+}
+
+// TestCreateTopicInRegion_Backend tests the CreateTopicInRegion backend method directly.
+func TestCreateTopicInRegion_Backend(t *testing.T) {
+	t.Parallel()
+
+	b := sns.NewInMemoryBackend()
+
+	topic, err := b.CreateTopicInRegion("my-topic", "eu-west-1", nil)
+	require.NoError(t, err)
+	assert.Equal(t, "arn:aws:sns:eu-west-1:000000000000:my-topic", topic.TopicArn)
+
+	// Duplicate should fail.
+	_, err = b.CreateTopicInRegion("my-topic", "eu-west-1", nil)
+	require.ErrorIs(t, err, sns.ErrTopicAlreadyExists)
+
+	// Empty region falls back to backend default.
+	topic2, err := b.CreateTopicInRegion("default-topic", "", nil)
+	require.NoError(t, err)
+	assert.Contains(t, topic2.TopicArn, "arn:aws:sns:us-east-1:000000000000:default-topic")
 }

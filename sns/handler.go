@@ -179,7 +179,8 @@ func (h *Handler) handleCreateTopic(c *echo.Context) error {
 
 	attrs := extractFormAttributes(c)
 
-	topic, err := h.Backend.CreateTopic(name, attrs)
+	region := httputil.ExtractRegionFromRequest(c.Request(), h.DefaultRegion)
+	topic, err := h.Backend.CreateTopicInRegion(name, region, attrs)
 	if err != nil {
 		return h.handleBackendError(c, err)
 	}

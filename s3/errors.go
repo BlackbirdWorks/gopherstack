@@ -26,6 +26,8 @@ var (
 )
 
 // WriteError translates a typed Go error to an S3 ErrorResponse XML payload.
+//
+//nolint:funlen // Large but straightforward error mapping switch — adding a helper would obscure the mapping.
 func WriteError(log *slog.Logger, w http.ResponseWriter, r *http.Request, err error) {
 	var code string
 	var message string
