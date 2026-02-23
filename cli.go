@@ -30,6 +30,7 @@ import (
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
 	kmsbackend "github.com/blackbirdworks/gopherstack/kms"
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
@@ -74,6 +75,8 @@ type CLI struct {
 	Port string `name:"port" env:"PORT" default:"8000" help:"HTTP server port."`
 	// Region is the AWS region used for SDK clients.
 	Region string `name:"region" env:"REGION" default:"us-east-1" help:"AWS region."`
+	// AccountID is the mock AWS account ID embedded in all service ARNs.
+	AccountID string `name:"account-id" env:"ACCOUNT_ID" default:"000000000000" help:"Mock AWS account ID used in ARNs."`
 
 	// DynamoDB holds DynamoDB service-level settings.
 	DynamoDB ddbbackend.Settings `embed:"" prefix:"dynamodb-"`
@@ -96,6 +99,14 @@ type CLI struct {
 
 	// Demo enables loading of demo data on startup.
 	Demo bool `name:"demo" env:"DEMO" default:"false" help:"Load demo data on startup."`
+}
+
+// GetGlobalConfig returns the centralised account ID and region (config.Provider).
+func (c *CLI) GetGlobalConfig() config.GlobalConfig {
+	return config.GlobalConfig{
+		AccountID: c.AccountID,
+		Region:    c.Region,
+	}
 }
 
 // GetDynamoDBSettings returns DynamoDB settings (dynamodb.ConfigProvider).

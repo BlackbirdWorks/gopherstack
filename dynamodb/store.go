@@ -16,6 +16,7 @@ type InMemoryDB struct {
 	exprCache      *ExpressionCache
 	mu             *lockmetrics.RWMutex
 	defaultRegion  string
+	accountID      string
 }
 
 // StreamRecord captures a single item-level change event for DynamoDB Streams.
@@ -75,6 +76,7 @@ func NewInMemoryDB() *InMemoryDB {
 		deletingTables: make(map[string]map[string]*Table),
 		exprCache:      NewExpressionCache(exprCacheSize),
 		defaultRegion:  "us-east-1",
+		accountID:      "000000000000",
 		mu:             lockmetrics.New("ddb"),
 	}
 }

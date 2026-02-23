@@ -39,11 +39,18 @@ type StorageBackend interface {
 }
 
 // InMemoryBackend is a stateless in-memory STS backend.
-type InMemoryBackend struct{}
+type InMemoryBackend struct {
+	accountID string
+}
 
-// NewInMemoryBackend creates a new InMemoryBackend.
+// NewInMemoryBackend creates a new InMemoryBackend with the default account ID.
 func NewInMemoryBackend() *InMemoryBackend {
-	return &InMemoryBackend{}
+	return NewInMemoryBackendWithConfig(MockAccountID)
+}
+
+// NewInMemoryBackendWithConfig creates a new InMemoryBackend with the given account ID.
+func NewInMemoryBackendWithConfig(accountID string) *InMemoryBackend {
+	return &InMemoryBackend{accountID: accountID}
 }
 
 // AssumeRole generates temporary credentials for the given role.
@@ -103,13 +110,15 @@ func (b *InMemoryBackend) AssumeRole(input *AssumeRoleInput) (*AssumeRoleRespons
 	}, nil
 }
 
-// GetCallerIdentity returns the fixed mock caller identity.
+// GetCallerIdentity returns the mock caller identity using the configured account ID.
 func (b *InMemoryBackend) GetCallerIdentity() (*GetCallerIdentityResponse, error) {
+	arn := "arn:aws:iam::" + b.accountID + ":root"
+
 	return &GetCallerIdentityResponse{
 		Xmlns: STSNamespace,
 		GetCallerIdentityResult: GetCallerIdentityResult{
-			Account: MockAccountID,
-			Arn:     MockUserArn,
+			Account: b.accountID,
+			Arn:     arn,
 			UserID:  MockUserID,
 		},
 		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},

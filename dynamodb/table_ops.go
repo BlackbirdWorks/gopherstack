@@ -61,7 +61,7 @@ func (db *InMemoryDB) CreateTable(
 	if input.StreamSpecification != nil && aws.ToBool(input.StreamSpecification.StreamEnabled) {
 		newTable.StreamsEnabled = true
 		newTable.StreamViewType = string(input.StreamSpecification.StreamViewType)
-		newTable.StreamARN = buildStreamARN(tableName)
+		newTable.StreamARN = db.buildStreamARN(tableName)
 	}
 
 	db.Tables[region][tableName] = newTable

@@ -1,6 +1,7 @@
 package dynamodb
 
 import (
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -30,6 +31,14 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	}
 
 	backend := NewInMemoryDB()
+
+	// Override account ID and region from global config if available.
+	if cp, ok := ctx.Config.(config.Provider); ok {
+		cfg := cp.GetGlobalConfig()
+		backend.accountID = cfg.AccountID
+		backend.defaultRegion = cfg.Region
+	}
+
 	handler := NewHandler(backend, ctx.Logger).WithJanitor(settings)
 
 	return handler, nil

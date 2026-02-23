@@ -1,6 +1,7 @@
 package sqs
 
 import (
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -14,7 +15,15 @@ func (p *Provider) Name() string { return "SQS" }
 //
 //nolint:ireturn,nolintlint // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
-	backend := NewInMemoryBackend()
+	var backend *InMemoryBackend
+
+	if cp, ok := ctx.Config.(config.Provider); ok {
+		cfg := cp.GetGlobalConfig()
+		backend = NewInMemoryBackendWithConfig(cfg.AccountID, cfg.Region)
+	} else {
+		backend = NewInMemoryBackend()
+	}
+
 	handler := NewHandler(backend, ctx.Logger)
 
 	return handler, nil

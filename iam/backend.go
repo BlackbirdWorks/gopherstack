@@ -92,11 +92,17 @@ type InMemoryBackend struct {
 	groups           map[string]Group
 	accessKeys       map[string]AccessKey // key = AccessKeyId
 	instanceProfiles map[string]InstanceProfile
+	accountID        string
 	mu               *lockmetrics.RWMutex
 }
 
-// NewInMemoryBackend creates a new empty IAM InMemoryBackend.
+// NewInMemoryBackend creates a new empty IAM InMemoryBackend with default account ID.
 func NewInMemoryBackend() *InMemoryBackend {
+	return NewInMemoryBackendWithConfig(IAMAccountID)
+}
+
+// NewInMemoryBackendWithConfig creates a new IAM InMemoryBackend with the given account ID.
+func NewInMemoryBackendWithConfig(accountID string) *InMemoryBackend {
 	return &InMemoryBackend{
 		users:            make(map[string]User),
 		roles:            make(map[string]Role),
@@ -104,6 +110,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		groups:           make(map[string]Group),
 		accessKeys:       make(map[string]AccessKey),
 		instanceProfiles: make(map[string]InstanceProfile),
+		accountID:        accountID,
 		mu:               lockmetrics.New("iam"),
 	}
 }
@@ -138,7 +145,7 @@ func (b *InMemoryBackend) CreateUser(userName, path string) (*User, error) {
 	u := User{
 		UserName:   userName,
 		UserID:     newID("AIDA"),
-		Arn:        fmt.Sprintf("arn:aws:iam::%s:user%s%s", IAMAccountID, p, userName),
+		Arn:        fmt.Sprintf("arn:aws:iam::%s:user%s%s", b.accountID, p, userName),
 		Path:       p,
 		CreateDate: time.Now().UTC(),
 	}
@@ -197,7 +204,7 @@ func (b *InMemoryBackend) CreateRole(roleName, path, assumeRolePolicyDocument st
 	r := Role{
 		RoleName:                 roleName,
 		RoleID:                   newID("AROA"),
-		Arn:                      fmt.Sprintf("arn:aws:iam::%s:role%s%s", IAMAccountID, p, roleName),
+		Arn:                      fmt.Sprintf("arn:aws:iam::%s:role%s%s", b.accountID, p, roleName),
 		Path:                     p,
 		AssumeRolePolicyDocument: assumeRolePolicyDocument,
 		CreateDate:               time.Now().UTC(),
@@ -264,7 +271,7 @@ func (b *InMemoryBackend) CreatePolicy(policyName, path, policyDocument string) 
 	pol := Policy{
 		PolicyName:     policyName,
 		PolicyID:       newID("ANPA"),
-		Arn:            fmt.Sprintf("arn:aws:iam::%s:policy%s%s", IAMAccountID, p, policyName),
+		Arn:            fmt.Sprintf("arn:aws:iam::%s:policy%s%s", b.accountID, p, policyName),
 		Path:           p,
 		PolicyDocument: policyDocument,
 		CreateDate:     time.Now().UTC(),
@@ -344,7 +351,7 @@ func (b *InMemoryBackend) CreateGroup(groupName, path string) (*Group, error) {
 	g := Group{
 		GroupName:  groupName,
 		GroupID:    newID("AGPA"),
-		Arn:        fmt.Sprintf("arn:aws:iam::%s:group%s%s", IAMAccountID, p, groupName),
+		Arn:        fmt.Sprintf("arn:aws:iam::%s:group%s%s", b.accountID, p, groupName),
 		Path:       p,
 		CreateDate: time.Now().UTC(),
 	}
@@ -457,7 +464,7 @@ func (b *InMemoryBackend) CreateInstanceProfile(name, path string) (*InstancePro
 	ip := InstanceProfile{
 		InstanceProfileName: name,
 		InstanceProfileID:   newID("AIPA"),
-		Arn:                 fmt.Sprintf("arn:aws:iam::%s:instance-profile%s%s", IAMAccountID, p, name),
+		Arn:                 fmt.Sprintf("arn:aws:iam::%s:instance-profile%s%s", b.accountID, p, name),
 		Path:                p,
 		Roles:               []string{},
 		CreateDate:          time.Now().UTC(),

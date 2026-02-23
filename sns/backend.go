@@ -24,10 +24,9 @@ var (
 )
 
 const (
-	accountID = "000000000000"
-	region    = "us-east-1"
-	pageSize  = 25
-	arnPrefix = "arn:aws:sns:" + region + ":" + accountID + ":"
+	defaultAccountID = "000000000000"
+	defaultRegion    = "us-east-1"
+	pageSize         = 25
 )
 
 // StorageBackend defines the interface for an SNS storage backend.
@@ -50,14 +49,28 @@ type StorageBackend interface {
 type InMemoryBackend struct {
 	topics        map[string]*Topic
 	subscriptions map[string]*Subscription
+	accountID     string
+	region        string
 	mu            sync.RWMutex
 }
 
-// NewInMemoryBackend creates a new empty InMemoryBackend.
+// arnPrefix returns the SNS ARN prefix for this backend's account and region.
+func (b *InMemoryBackend) arnPrefix() string {
+	return "arn:aws:sns:" + b.region + ":" + b.accountID + ":"
+}
+
+// NewInMemoryBackend creates a new empty InMemoryBackend with default account/region.
 func NewInMemoryBackend() *InMemoryBackend {
+	return NewInMemoryBackendWithConfig(defaultAccountID, defaultRegion)
+}
+
+// NewInMemoryBackendWithConfig creates a new InMemoryBackend with the given account ID and region.
+func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		topics:        make(map[string]*Topic),
 		subscriptions: make(map[string]*Subscription),
+		accountID:     accountID,
+		region:        region,
 	}
 }
 
@@ -66,7 +79,7 @@ func (b *InMemoryBackend) CreateTopic(name string, attributes map[string]string)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	topicArn := arnPrefix + name
+	topicArn := b.arnPrefix() + name
 	if _, exists := b.topics[topicArn]; exists {
 		return nil, ErrTopicAlreadyExists
 	}
@@ -156,13 +169,13 @@ func (b *InMemoryBackend) Subscribe(topicArn, protocol, endpoint, filterPolicy s
 	parts := strings.Split(topic.TopicArn, ":")
 	topicName := parts[len(parts)-1]
 
-	subArn := fmt.Sprintf("%s%s:%s", arnPrefix, topicName, uuid.New().String())
+	subArn := fmt.Sprintf("%s%s:%s", b.arnPrefix(), topicName, uuid.New().String())
 	sub := &Subscription{
 		SubscriptionArn: subArn,
 		TopicArn:        topicArn,
 		Protocol:        protocol,
 		Endpoint:        endpoint,
-		Owner:           accountID,
+		Owner:           b.accountID,
 		FilterPolicy:    filterPolicy,
 	}
 

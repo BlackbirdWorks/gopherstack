@@ -34,14 +34,23 @@ type StorageBackend interface {
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	queues map[string]*Queue
-	mu     sync.RWMutex
+	queues    map[string]*Queue
+	accountID string
+	region    string
+	mu        sync.RWMutex
 }
 
-// NewInMemoryBackend creates a new empty InMemoryBackend.
+// NewInMemoryBackend creates a new empty InMemoryBackend with default account/region.
 func NewInMemoryBackend() *InMemoryBackend {
+	return NewInMemoryBackendWithConfig(accountID, sqsRegion)
+}
+
+// NewInMemoryBackendWithConfig creates a new InMemoryBackend with the given account ID and region.
+func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		queues: make(map[string]*Queue),
+		queues:    make(map[string]*Queue),
+		accountID: accountID,
+		region:    region,
 	}
 }
 
@@ -64,9 +73,9 @@ func computeMD5(body string) string {
 }
 
 // buildDefaultAttributes initialises the attribute map for a new queue.
-func buildDefaultAttributes(queueName string, isFIFO bool) map[string]string {
+func buildDefaultAttributes(queueName, accountID, region string, isFIFO bool) map[string]string {
 	now := strconv.FormatInt(time.Now().Unix(), 10)
-	arn := fmt.Sprintf("arn:aws:sqs:%s:%s:%s", sqsRegion, accountID, queueName)
+	arn := fmt.Sprintf("arn:aws:sqs:%s:%s:%s", region, accountID, queueName)
 
 	attrs := map[string]string{
 		attrVisibilityTimeout:             strconv.Itoa(defaultVisibilityTimeout),
@@ -98,11 +107,11 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 	}
 
 	isFIFO := strings.HasSuffix(input.QueueName, fifoSuffix)
-	attrs := buildDefaultAttributes(input.QueueName, isFIFO)
+	attrs := buildDefaultAttributes(input.QueueName, b.accountID, b.region, isFIFO)
 
 	maps.Copy(attrs, input.Attributes)
 
-	queueURL := "http://" + input.Endpoint + "/" + accountID + "/" + input.QueueName
+	queueURL := "http://" + input.Endpoint + "/" + b.accountID + "/" + input.QueueName
 
 	q := &Queue{
 		Name:                input.QueueName,
