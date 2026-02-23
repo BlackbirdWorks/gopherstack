@@ -218,6 +218,9 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.SubRouter.POST("/dashboard/sns/create", h.snsCreateTopic)
 	h.SubRouter.DELETE("/dashboard/sns/delete", h.snsDeleteTopic)
 	h.SubRouter.GET("/dashboard/sns/topic", h.snsTopicDetail)
+	h.SubRouter.POST("/dashboard/sns/topic/subscribe", h.snsSubscribeToTopic)
+	h.SubRouter.DELETE("/dashboard/sns/topic/subscribe", h.snsUnsubscribeFromTopic)
+	h.SubRouter.POST("/dashboard/sns/topic/publish", h.snsPublishMessage)
 
 	// SQS routes
 	h.SubRouter.GET("/dashboard/sqs", h.sqsIndex)
@@ -226,12 +229,22 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.SubRouter.DELETE("/dashboard/sqs/delete", h.sqsDeleteQueue)
 	h.SubRouter.POST("/dashboard/sqs/purge", h.sqsPurgeQueue)
 	h.SubRouter.GET("/dashboard/sqs/queue", h.sqsQueueDetail)
+	h.SubRouter.POST("/dashboard/sqs/message", h.sqsSendMessage)
+	h.SubRouter.GET("/dashboard/sqs/messages", h.sqsReceiveMessages)
 
 	// KMS routes
 	h.SubRouter.GET("/dashboard/kms", h.kmsIndex)
+	h.SubRouter.POST("/dashboard/kms/create", h.kmsCreateKey)
+	h.SubRouter.GET("/dashboard/kms/key", h.kmsKeyDetail)
+	h.SubRouter.POST("/dashboard/kms/encrypt", h.kmsEncrypt)
+	h.SubRouter.POST("/dashboard/kms/decrypt", h.kmsDecrypt)
 
 	// Secrets Manager routes
 	h.SubRouter.GET("/dashboard/secretsmanager", h.secretsManagerIndex)
+	h.SubRouter.POST("/dashboard/secretsmanager/create", h.secretsManagerCreate)
+	h.SubRouter.POST("/dashboard/secretsmanager/update", h.secretsManagerUpdate)
+	h.SubRouter.DELETE("/dashboard/secretsmanager/delete", h.secretsManagerDelete)
+	h.SubRouter.GET("/dashboard/secretsmanager/secret", h.secretsManagerDetail)
 
 	// Metrics & Docs (always available)
 	dashboardGroup := h.SubRouter.Group("/dashboard")

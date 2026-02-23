@@ -65,6 +65,7 @@
                         <th scope="col" class="px-6 py-3">Subscription ARN</th>
                         <th scope="col" class="px-6 py-3">Protocol</th>
                         <th scope="col" class="px-6 py-3">Endpoint</th>
+                        <th scope="col" class="px-6 py-3">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -77,16 +78,76 @@
                                 class="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-blue-900 dark:text-blue-300">{{.Protocol}}</span>
                         </td>
                         <td class="px-6 py-4 max-w-xs truncate">{{.Endpoint}}</td>
+                        <td class="px-6 py-4">
+                            <button
+                                hx-delete="/dashboard/sns/topic/subscribe?sub={{.SubscriptionArn}}&arn={{$.TopicArn}}"
+                                hx-confirm="Unsubscribe this subscription?"
+                                class="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 text-xs font-medium">
+                                Unsubscribe
+                            </button>
+                        </td>
                     </tr>
                     {{else}}
                     <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
-                        <td colspan="3" class="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                        <td colspan="4" class="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
                             No subscriptions found.
                         </td>
                     </tr>
                     {{end}}
                 </tbody>
             </table>
+        </div>
+
+        <!-- Subscribe form -->
+        <div class="mt-4 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
+            <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-3">+ Subscribe</h3>
+            <form hx-post="/dashboard/sns/topic/subscribe?arn={{.TopicArn}}" class="flex flex-wrap gap-3 items-end">
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Protocol</label>
+                    <select name="protocol"
+                        class="bg-white border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2 dark:bg-gray-600 dark:border-gray-500 dark:text-white">
+                        <option value="sqs">sqs</option>
+                        <option value="http">http</option>
+                        <option value="https">https</option>
+                        <option value="email">email</option>
+                        <option value="lambda">lambda</option>
+                        <option value="sms">sms</option>
+                    </select>
+                </div>
+                <div class="flex-1 min-w-48">
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Endpoint</label>
+                    <input type="text" name="endpoint" placeholder="Endpoint URL or ARN"
+                        class="bg-white border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2 dark:bg-gray-600 dark:border-gray-500 dark:text-white" />
+                </div>
+                <button type="submit"
+                    class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm px-4 py-2 dark:bg-blue-600 dark:hover:bg-blue-700">
+                    Subscribe
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Publish Message section -->
+    <div class="mt-8">
+        <h2 class="text-xl font-bold text-gray-900 dark:text-white mb-4">Publish Message</h2>
+        <div class="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
+            <form hx-post="/dashboard/sns/topic/publish?arn={{.TopicArn}}" class="space-y-3">
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Subject
+                        (optional)</label>
+                    <input type="text" name="subject" placeholder="Message subject"
+                        class="bg-white border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2 dark:bg-gray-600 dark:border-gray-500 dark:text-white" />
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Message</label>
+                    <textarea name="message" rows="4" placeholder="Message body" required
+                        class="bg-white border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2 dark:bg-gray-600 dark:border-gray-500 dark:text-white"></textarea>
+                </div>
+                <button type="submit"
+                    class="text-white bg-green-700 hover:bg-green-800 focus:ring-4 focus:outline-none focus:ring-green-300 font-medium rounded-lg text-sm px-4 py-2 dark:bg-green-600 dark:hover:bg-green-700">
+                    Publish
+                </button>
+            </form>
         </div>
     </div>
 </div>

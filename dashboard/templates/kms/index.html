@@ -6,13 +6,37 @@
             <p class="mt-2 text-sm text-gray-700 dark:text-gray-300">A list of all customer-managed keys in the
                 in-memory KMS service.</p>
         </div>
+        <div class="mt-4 sm:ml-16 sm:mt-0 sm:flex-none">
+            <button type="button" onclick="document.getElementById('create-key-form').classList.toggle('hidden')"
+                class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-blue-600 dark:hover:bg-blue-700">
+                + Create Key
+            </button>
+        </div>
     </div>
+
+    <!-- Create Key form -->
+    <div id="create-key-form" class="hidden mb-6 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
+        <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-3">Create New Key</h3>
+        <form hx-post="/dashboard/kms/create" class="flex gap-3 items-end">
+            <div class="flex-1">
+                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Description (optional)</label>
+                <input type="text" name="description" placeholder="Key description"
+                    class="bg-white border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2 dark:bg-gray-600 dark:border-gray-500 dark:text-white" />
+            </div>
+            <button type="submit"
+                class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm px-4 py-2 dark:bg-blue-600 dark:hover:bg-blue-700">
+                Create
+            </button>
+        </form>
+    </div>
+
     <div class="mt-8 relative overflow-x-auto shadow-md sm:rounded-lg">
         <table class="w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
             <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
                 <tr>
                     <th scope="col" class="px-6 py-3">Key ID</th>
                     <th scope="col" class="px-6 py-3">ARN</th>
+                    <th scope="col" class="px-6 py-3">Actions</th>
                 </tr>
             </thead>
             <tbody>
@@ -22,10 +46,16 @@
                     <td class="px-6 py-4 font-mono text-sm text-gray-900 dark:text-white whitespace-nowrap">{{.KeyID}}
                     </td>
                     <td class="px-6 py-4 font-mono text-sm break-all" title="{{.KeyArn}}">{{.KeyArn}}</td>
+                    <td class="px-6 py-4">
+                        <a href="/dashboard/kms/key?id={{.KeyID}}"
+                            class="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300 text-xs font-medium">
+                            View
+                        </a>
+                    </td>
                 </tr>
                 {{else}}
                 <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
-                    <td colspan="2" class="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                    <td colspan="3" class="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
                         No KMS keys found. Use CreateKey to add one.
                     </td>
                 </tr>
