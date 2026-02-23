@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/url"
 	"strings"
@@ -27,14 +28,19 @@ const (
 type Handler struct {
 	Backend StorageBackend
 	Logger  *slog.Logger
+	// actions is the pre-built dispatch table, initialized once at construction.
+	actions map[string]iamActionFn
 }
 
 // NewHandler creates a new IAM handler with the given storage backend.
 func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
-	return &Handler{
+	h := &Handler{
 		Backend: backend,
 		Logger:  log,
 	}
+	h.actions = h.buildDispatchTable()
+
+	return h
 }
 
 // Name returns the service name.
@@ -185,6 +191,26 @@ func (h *Handler) Handler() echo.HandlerFunc {
 }
 
 type iamActionFn func(vals url.Values, reqID string) (any, error)
+
+// buildDispatchTable merges all IAM sub-tables into a single map, called once at construction.
+func (h *Handler) buildDispatchTable() map[string]iamActionFn {
+	subtables := []map[string]iamActionFn{
+		h.iamUserDispatchTable(),
+		h.iamRoleDispatchTable(),
+		h.iamPolicyBasicDispatchTable(),
+		h.iamPolicyAttachDispatchTable(),
+		h.iamGroupDispatchTable(),
+		h.iamAccessKeyDispatchTable(),
+		h.iamInstanceProfileDispatchTable(),
+	}
+
+	combined := make(map[string]iamActionFn)
+	for _, t := range subtables {
+		maps.Copy(combined, t)
+	}
+
+	return combined
+}
 
 func (h *Handler) iamUserDispatchTable() map[string]iamActionFn {
 	return map[string]iamActionFn{
@@ -543,23 +569,12 @@ func (h *Handler) dispatch(
 ) (any, error) {
 	reqID := newRequestID()
 
-	tables := []map[string]iamActionFn{
-		h.iamUserDispatchTable(),
-		h.iamRoleDispatchTable(),
-		h.iamPolicyBasicDispatchTable(),
-		h.iamPolicyAttachDispatchTable(),
-		h.iamGroupDispatchTable(),
-		h.iamAccessKeyDispatchTable(),
-		h.iamInstanceProfileDispatchTable(),
+	fn, ok := h.actions[action]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s is not a valid IAM action", ErrInvalidAction, action)
 	}
 
-	for _, t := range tables {
-		if fn, ok := t[action]; ok {
-			return fn(vals, reqID)
-		}
-	}
-
-	return nil, fmt.Errorf("%w: %s is not a valid IAM action", ErrInvalidAction, action)
+	return fn(vals, reqID)
 }
 
 // handleError writes a standardized IAM XML error response.

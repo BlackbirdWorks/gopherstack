@@ -26,16 +26,21 @@ type Handler struct {
 	Backend StorageBackend
 	// Logger is the structured logger for this handler.
 	Logger *slog.Logger
+	// actions is the pre-built dispatch table, initialized once at construction.
+	actions map[string]kmsActionFn
 	// DefaultRegion is the fallback region used when region cannot be extracted from the request.
 	DefaultRegion string
 }
 
 // NewHandler creates a new KMS handler with the given storage backend and logger.
 func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
-	return &Handler{
+	h := &Handler{
 		Backend: backend,
 		Logger:  log,
 	}
+	h.actions = h.buildDispatchTable()
+
+	return h
 }
 
 // Name returns the service name.
@@ -165,7 +170,17 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 type kmsActionFn func(region string, body []byte) (any, error)
 
-func (h *Handler) kmsKeyDispatchTable() map[string]kmsActionFn {
+// buildDispatchTable merges key lifecycle, crypto, and alias/rotation actions into a single lookup map.
+func (h *Handler) buildDispatchTable() map[string]kmsActionFn {
+	table := h.buildKeyLifecycleActions()
+	maps.Copy(table, h.buildCryptoActions())
+	maps.Copy(table, h.buildAliasRotationActions())
+
+	return table
+}
+
+// buildKeyLifecycleActions returns dispatch entries for key creation, description, listing and deletion.
+func (h *Handler) buildKeyLifecycleActions() map[string]kmsActionFn {
 	return map[string]kmsActionFn{
 		"CreateKey": func(region string, b []byte) (any, error) {
 			var input CreateKeyInput
@@ -191,22 +206,6 @@ func (h *Handler) kmsKeyDispatchTable() map[string]kmsActionFn {
 			}
 
 			return h.Backend.ListKeys(&input)
-		},
-		"Encrypt": func(_ string, b []byte) (any, error) {
-			var input EncryptInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.Encrypt(&input)
-		},
-		"Decrypt": func(_ string, b []byte) (any, error) {
-			var input DecryptInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.Decrypt(&input)
 		},
 		"DisableKey": func(_ string, b []byte) (any, error) {
 			var input DisableKeyInput
@@ -243,8 +242,25 @@ func (h *Handler) kmsKeyDispatchTable() map[string]kmsActionFn {
 	}
 }
 
-func (h *Handler) kmsMiscDispatchTable() map[string]kmsActionFn {
+// buildCryptoActions returns dispatch entries for encrypt, decrypt, and data-key operations.
+func (h *Handler) buildCryptoActions() map[string]kmsActionFn {
 	return map[string]kmsActionFn{
+		"Encrypt": func(_ string, b []byte) (any, error) {
+			var input EncryptInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.Encrypt(&input)
+		},
+		"Decrypt": func(_ string, b []byte) (any, error) {
+			var input DecryptInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.Decrypt(&input)
+		},
 		"GenerateDataKey": func(_ string, b []byte) (any, error) {
 			var input GenerateDataKeyInput
 			if err := json.Unmarshal(b, &input); err != nil {
@@ -261,6 +277,12 @@ func (h *Handler) kmsMiscDispatchTable() map[string]kmsActionFn {
 
 			return h.Backend.ReEncrypt(&input)
 		},
+	}
+}
+
+// buildAliasRotationActions returns dispatch entries for alias management and key rotation.
+func (h *Handler) buildAliasRotationActions() map[string]kmsActionFn {
+	return map[string]kmsActionFn{
 		"CreateAlias": func(_ string, b []byte) (any, error) {
 			var input CreateAliasInput
 			if err := json.Unmarshal(b, &input); err != nil {
@@ -316,10 +338,7 @@ func (h *Handler) kmsMiscDispatchTable() map[string]kmsActionFn {
 func (h *Handler) dispatch(_ context.Context, r *http.Request, action string, body []byte) ([]byte, error) {
 	region := httputil.ExtractRegionFromRequest(r, h.DefaultRegion)
 
-	table := h.kmsKeyDispatchTable()
-	maps.Copy(table, h.kmsMiscDispatchTable())
-
-	fn, ok := table[action]
+	fn, ok := h.actions[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrUnknownOperation, action)
 	}
