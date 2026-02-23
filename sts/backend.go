@@ -36,6 +36,7 @@ const (
 type StorageBackend interface {
 	AssumeRole(input *AssumeRoleInput) (*AssumeRoleResponse, error)
 	GetCallerIdentity() (*GetCallerIdentityResponse, error)
+	GetSessionToken(input *GetSessionTokenInput) (*GetSessionTokenResponse, error)
 }
 
 // InMemoryBackend is a stateless in-memory STS backend.
@@ -120,6 +121,48 @@ func (b *InMemoryBackend) GetCallerIdentity() (*GetCallerIdentityResponse, error
 			Account: b.accountID,
 			Arn:     arn,
 			UserID:  MockUserID,
+		},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
+	}, nil
+}
+
+// GetSessionToken generates temporary credentials without role assumption.
+func (b *InMemoryBackend) GetSessionToken(input *GetSessionTokenInput) (*GetSessionTokenResponse, error) {
+	duration := input.DurationSeconds
+	if duration == 0 {
+		duration = DefaultSessionTokenDurationSeconds
+	}
+
+	if duration < MinSessionTokenDurationSeconds || duration > MaxDurationSeconds {
+		return nil, ErrInvalidDuration
+	}
+
+	accessKeyID, err := generateAccessKeyID()
+	if err != nil {
+		return nil, fmt.Errorf("generate access key: %w", err)
+	}
+
+	secretKey, err := generateSecretKey()
+	if err != nil {
+		return nil, fmt.Errorf("generate secret key: %w", err)
+	}
+
+	sessionToken, err := generateSessionToken()
+	if err != nil {
+		return nil, fmt.Errorf("generate session token: %w", err)
+	}
+
+	expiration := time.Now().UTC().Add(time.Duration(duration) * time.Second)
+
+	return &GetSessionTokenResponse{
+		Xmlns: STSNamespace,
+		GetSessionTokenResult: GetSessionTokenResult{
+			Credentials: Credentials{
+				AccessKeyID:     accessKeyID,
+				SecretAccessKey: secretKey,
+				SessionToken:    sessionToken,
+				Expiration:      expiration.Format(time.RFC3339),
+			},
 		},
 		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	}, nil

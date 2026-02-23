@@ -99,7 +99,7 @@ Audit of Gopherstack against LocalStack free-tier parity. Items are grouped by t
 
 ### Missing Features
 
-- [ ] **GetSessionToken** — Common action for generating temporary credentials without role assumption.
+- [x] **GetSessionToken** — Common action for generating temporary credentials without role assumption.
 - [ ] **GetAccessKeyInfo** — Returns the account ID for an access key.
 - [ ] **DecodeAuthorizationMessage** — Decodes error messages from encoded authorization failures.
 

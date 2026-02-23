@@ -590,6 +590,10 @@ func (b *errorBackend) GetCallerIdentity() (*sts.GetCallerIdentityResponse, erro
 	return nil, fmt.Errorf("GetCallerIdentity: %w", errBackendFailure)
 }
 
+func (b *errorBackend) GetSessionToken(_ *sts.GetSessionTokenInput) (*sts.GetSessionTokenResponse, error) {
+	return nil, fmt.Errorf("GetSessionToken: %w", errBackendFailure)
+}
+
 // TestHandler_InternalError tests the default (InternalFailure) path in handleError.
 func TestHandler_InternalError(t *testing.T) {
 	t.Parallel()
