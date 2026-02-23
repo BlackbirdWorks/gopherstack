@@ -108,6 +108,8 @@ type CreateQueueInput struct {
 	Attributes map[string]string
 	QueueName  string
 	Endpoint   string
+	// Region is the AWS region for ARN construction (optional; defaults to backend region).
+	Region string
 }
 
 // CreateQueueOutput is the output for CreateQueue.

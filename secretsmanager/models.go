@@ -60,6 +60,8 @@ type CreateSecretInput struct {
 	SecretBinary []byte `json:"SecretBinary,omitempty"`
 	// Tags is an optional list of tag objects.
 	Tags []Tag `json:"Tags,omitempty"`
+	// Region is the AWS region for ARN construction (optional; defaults to backend region).
+	Region string `json:"-"`
 }
 
 // Tag represents a key/value tag pair in the Secrets Manager wire format.

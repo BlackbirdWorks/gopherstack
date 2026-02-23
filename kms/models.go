@@ -74,6 +74,8 @@ type CreateKeyInput struct {
 	Description string `json:"Description,omitempty"`
 	// KeyUsage is the cryptographic operation (default ENCRYPT_DECRYPT).
 	KeyUsage string `json:"KeyUsage,omitempty"`
+	// Region is the AWS region for ARN construction (optional; defaults to backend region).
+	Region string `json:"-"`
 }
 
 // CreateKeyOutput is the response payload for CreateKey.

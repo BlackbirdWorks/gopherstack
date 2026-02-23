@@ -11,7 +11,9 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 )
 
@@ -232,4 +234,41 @@ func SetOperationAndResource(ctx context.Context, operation, resource string) co
 		operation: operation,
 		resource:  resource,
 	})
+}
+
+// RequestIDMiddleware returns an Echo middleware that injects an x-amz-request-id
+// header (a new UUID) into every HTTP response.
+func RequestIDMiddleware() echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			c.Response().Header().Set("x-amz-request-id", uuid.New().String())
+
+			return next(c)
+		}
+	}
+}
+
+// minSigV4CredentialParts is the minimum number of slash-separated parts in the
+// SigV4 credential scope (AKID/date/region/service/aws4_request).
+const minSigV4CredentialParts = 3
+
+// ExtractRegionFromRequest extracts the AWS region from an HTTP request.
+// It checks the SigV4 Authorization header credential scope first, then the
+// X-Amz-Region header, then falls back to defaultRegion.
+func ExtractRegionFromRequest(r *http.Request, defaultRegion string) string {
+	if auth := r.Header.Get("Authorization"); auth != "" && strings.Contains(auth, "Credential=") {
+		parts := strings.Split(auth, "Credential=")
+		if len(parts) > 1 {
+			credParts := strings.Split(parts[1], "/")
+			if len(credParts) >= minSigV4CredentialParts {
+				return credParts[2]
+			}
+		}
+	}
+
+	if region := r.Header.Get("X-Amz-Region"); region != "" {
+		return region
+	}
+
+	return defaultRegion
 }

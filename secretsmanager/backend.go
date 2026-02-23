@@ -103,10 +103,15 @@ func generateRandomSuffix() string {
 	return hex.EncodeToString(b)
 }
 
+// buildARNWithRegion constructs a Secrets Manager ARN using the given region.
+func (b *InMemoryBackend) buildARNWithRegion(region, name, suffix string) string {
+	return fmt.Sprintf("arn:aws:secretsmanager:%s:%s:secret:%s-%s",
+		region, b.accountID, name, suffix)
+}
+
 // buildARN constructs a Secrets Manager ARN for the given secret name.
 func (b *InMemoryBackend) buildARN(name, suffix string) string {
-	return fmt.Sprintf("arn:aws:secretsmanager:%s:%s:secret:%s-%s",
-		b.region, b.accountID, name, suffix)
+	return b.buildARNWithRegion(b.region, name, suffix)
 }
 
 // CreateSecret creates a new secret with an optional initial value.
@@ -119,7 +124,11 @@ func (b *InMemoryBackend) CreateSecret(input *CreateSecretInput) (*CreateSecretO
 	}
 
 	suffix := generateRandomSuffix()
-	arn := b.buildARN(input.Name, suffix)
+	region := b.region
+	if input.Region != "" {
+		region = input.Region
+	}
+	arn := b.buildARNWithRegion(region, input.Name, suffix)
 
 	secret := &Secret{
 		ARN:         arn,

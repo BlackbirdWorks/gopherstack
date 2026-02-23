@@ -24,6 +24,8 @@ type Handler struct {
 	Backend  StorageBackend
 	Logger   *slog.Logger
 	Endpoint string
+	// DefaultRegion is the fallback region used when region cannot be extracted from the request.
+	DefaultRegion string
 }
 
 // NewHandler creates a new SQS Handler.
@@ -236,10 +238,13 @@ func (h *Handler) handleCreateQueue(
 		endpoint = r.Host
 	}
 
+	region := httputil.ExtractRegionFromRequest(r, h.DefaultRegion)
+
 	out, err := h.Backend.CreateQueue(&CreateQueueInput{
 		QueueName:  form.Get("QueueName"),
 		Attributes: parseKeyValuePairs(form, "Attribute"),
 		Endpoint:   endpoint,
+		Region:     region,
 	})
 	if err != nil {
 		if !errors.Is(err, ErrQueueAlreadyExists) {

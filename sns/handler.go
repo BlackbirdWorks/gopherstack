@@ -28,6 +28,8 @@ const (
 type Handler struct {
 	Backend StorageBackend
 	Logger  *slog.Logger
+	// DefaultRegion is the fallback region used when region cannot be extracted from the request.
+	DefaultRegion string
 }
 
 // NewHandler creates a new SNS Handler with the given backend and logger.

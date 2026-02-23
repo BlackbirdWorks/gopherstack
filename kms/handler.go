@@ -25,6 +25,8 @@ type Handler struct {
 	Backend StorageBackend
 	// Logger is the structured logger for this handler.
 	Logger *slog.Logger
+	// DefaultRegion is the fallback region used when region cannot be extracted from the request.
+	DefaultRegion string
 }
 
 // NewHandler creates a new KMS handler with the given storage backend and logger.
@@ -145,7 +147,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		log.DebugContext(ctx, "KMS request", "action", action)
 
-		response, reqErr := h.dispatch(ctx, action, body)
+		response, reqErr := h.dispatch(ctx, c.Request(), action, body)
 		if reqErr != nil {
 			return h.handleError(ctx, c, action, reqErr)
 		}
@@ -159,9 +161,11 @@ func (h *Handler) Handler() echo.HandlerFunc {
 // dispatch routes the KMS operation to the appropriate backend method.
 //
 //nolint:cyclop,gocognit,funlen // Dispatch switch is intentionally comprehensive.
-func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byte, error) {
+func (h *Handler) dispatch(_ context.Context, r *http.Request, action string, body []byte) ([]byte, error) {
 	var response any
 	var err error
+
+	region := httputil.ExtractRegionFromRequest(r, h.DefaultRegion)
 
 	switch action {
 	case "CreateKey":
@@ -169,6 +173,7 @@ func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byt
 		if uErr := json.Unmarshal(body, &input); uErr != nil {
 			return nil, uErr
 		}
+		input.Region = region
 		response, err = h.Backend.CreateKey(&input)
 
 	case "DescribeKey":

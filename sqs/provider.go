@@ -16,15 +16,18 @@ func (p *Provider) Name() string { return "SQS" }
 //nolint:ireturn,nolintlint // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	var backend *InMemoryBackend
+	var defaultRegion string
 
 	if cp, ok := ctx.Config.(config.Provider); ok {
 		cfg := cp.GetGlobalConfig()
 		backend = NewInMemoryBackendWithConfig(cfg.AccountID, cfg.Region)
+		defaultRegion = cfg.Region
 	} else {
 		backend = NewInMemoryBackend()
 	}
 
 	handler := NewHandler(backend, ctx.Logger)
+	handler.DefaultRegion = defaultRegion
 
 	return handler, nil
 }

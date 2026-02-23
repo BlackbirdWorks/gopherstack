@@ -32,6 +32,7 @@ import (
 	kmsbackend "github.com/blackbirdworks/gopherstack/kms"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	snsevents "github.com/blackbirdworks/gopherstack/pkgs/events"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
@@ -224,6 +225,7 @@ func run(ctx context.Context, cli CLI) error {
 	}
 
 	e := echo.New()
+	e.Use(httputil.RequestIDMiddleware())
 	e.Pre(logger.EchoMiddleware(log))
 	e.GET("/_gopherstack/health", healthHandler)
 

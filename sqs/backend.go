@@ -144,7 +144,11 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 	}
 
 	isFIFO := strings.HasSuffix(input.QueueName, fifoSuffix)
-	attrs := buildDefaultAttributes(input.QueueName, b.accountID, b.region, isFIFO)
+	region := b.region
+	if input.Region != "" {
+		region = input.Region
+	}
+	attrs := buildDefaultAttributes(input.QueueName, b.accountID, region, isFIFO)
 
 	maps.Copy(attrs, input.Attributes)
 

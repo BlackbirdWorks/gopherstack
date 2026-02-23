@@ -8,6 +8,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/dynamodb/models"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/google/uuid"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -47,6 +48,9 @@ func (db *InMemoryDB) CreateTable(
 	}
 
 	newTable := newTableFromCreateInput(tableName, input)
+	newTable.TableID = uuid.New().String()
+	newTable.CreationDateTime = time.Now()
+	newTable.TableArn = fmt.Sprintf("arn:aws:dynamodb:%s:%s:table/%s", region, db.accountID, tableName)
 
 	if input.StreamSpecification != nil && aws.ToBool(input.StreamSpecification.StreamEnabled) {
 		newTable.StreamsEnabled = true
@@ -264,6 +268,9 @@ func (db *InMemoryDB) DescribeTable(
 	if tableStatus == "" {
 		tableStatus = types.TableStatusActive
 	}
+	tableArn := table.TableArn
+	tableID := table.TableID
+	creationDateTime := table.CreationDateTime
 
 	table.mu.RUnlock()
 
@@ -311,21 +318,37 @@ func (db *InMemoryDB) DescribeTable(
 	rcu := int64(pt.ReadCapacityUnits)
 	wcu := int64(pt.WriteCapacityUnits)
 
-	return &dynamodb.DescribeTableOutput{
-		Table: &types.TableDescription{
-			TableName:              input.TableName,
-			TableStatus:            tableStatus,
-			KeySchema:              sdkKeySchema,
-			AttributeDefinitions:   sdkAttrDefs,
-			GlobalSecondaryIndexes: sdkGSIs,
-			LocalSecondaryIndexes:  sdkLSIs,
-			ItemCount:              &itemCount,
-			ProvisionedThroughput: &types.ProvisionedThroughputDescription{
-				ReadCapacityUnits:  &rcu,
-				WriteCapacityUnits: &wcu,
-			},
+	// Estimate table size: item count * average item size (400 bytes).
+	const avgItemSizeBytes = 400
+	tableSizeBytes := itemCount * avgItemSizeBytes
+
+	tableDesc := &types.TableDescription{
+		TableName:              input.TableName,
+		TableStatus:            tableStatus,
+		KeySchema:              sdkKeySchema,
+		AttributeDefinitions:   sdkAttrDefs,
+		GlobalSecondaryIndexes: sdkGSIs,
+		LocalSecondaryIndexes:  sdkLSIs,
+		ItemCount:              &itemCount,
+		TableSizeBytes:         &tableSizeBytes,
+		BillingModeSummary:     &types.BillingModeSummary{BillingMode: types.BillingModeProvisioned},
+		ProvisionedThroughput: &types.ProvisionedThroughputDescription{
+			ReadCapacityUnits:  &rcu,
+			WriteCapacityUnits: &wcu,
 		},
-	}, nil
+	}
+
+	if tableArn != "" {
+		tableDesc.TableArn = &tableArn
+	}
+	if tableID != "" {
+		tableDesc.TableId = &tableID
+	}
+	if !creationDateTime.IsZero() {
+		tableDesc.CreationDateTime = &creationDateTime
+	}
+
+	return &dynamodb.DescribeTableOutput{Table: tableDesc}, nil
 }
 
 // UpdateTable modifies a DynamoDB table's provisioned throughput, GSI list, and stream spec.

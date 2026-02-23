@@ -202,7 +202,12 @@ func (b *InMemoryBackend) CreateKey(input *CreateKeyInput) (*CreateKeyOutput, er
 		keyUsage = KeyUsageEncryptDecrypt
 	}
 
-	arn := fmt.Sprintf("arn:aws:kms:%s:%s:key/%s", b.region, b.accountID, keyID)
+	region := b.region
+	if input.Region != "" {
+		region = input.Region
+	}
+
+	arn := fmt.Sprintf("arn:aws:kms:%s:%s:key/%s", region, b.accountID, keyID)
 	key := &Key{
 		KeyID:        keyID,
 		Arn:          arn,
@@ -416,7 +421,7 @@ func (b *InMemoryBackend) CreateAlias(input *CreateAliasInput) error {
 		return ErrKeyNotFound
 	}
 
-	aliasArn := fmt.Sprintf("arn:aws:kms:%s:%s:%s", MockRegion, MockAccountID, input.AliasName)
+	aliasArn := fmt.Sprintf("arn:aws:kms:%s:%s:%s", b.region, b.accountID, input.AliasName)
 	b.aliases[input.AliasName] = &Alias{
 		AliasName:   input.AliasName,
 		AliasArn:    aliasArn,
