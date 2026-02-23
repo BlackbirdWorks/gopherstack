@@ -2,13 +2,10 @@ package sqs
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
-	"net/url"
-	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -61,15 +58,12 @@ func (h *Handler) GetSupportedOperations() []string {
 	}
 }
 
-// RouteMatcher returns a function that matches incoming requests for SQS.
-// It matches POST requests with form-encoded bodies sent to the SQS path namespace.
-// AWS SQS SDK requests always target "/" (for queue-level ops like CreateQueue/ListQueues)
-// or "/000000000000/<queue-name>" (for queue operations). This prevents intercepting
-// Dashboard HTMX form submissions that also use application/x-www-form-urlencoded.
+// RouteMatcher returns a function that matches incoming SQS requests.
+// It matches POST requests whose X-Amz-Target header starts with "AmazonSQS." and whose
+// path is "/" or starts with "/000000000000/" (to avoid capturing Dashboard form POSTs).
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		ct := c.Request().Header.Get("Content-Type")
-		if !strings.HasPrefix(ct, "application/x-www-form-urlencoded") {
+		if !strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), "AmazonSQS.") {
 			return false
 		}
 
@@ -80,7 +74,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 }
 
 // sqsMatchPriority is lower than header-based matchers (e.g. SSM at 100) but higher
-// than path-based matchers (e.g. Dashboard at 50), so content-type matching runs second.
+// than path-based matchers (e.g. Dashboard at 50).
 const sqsMatchPriority = 75
 
 // unknownOperation is the default operation name returned when the action cannot be determined.
@@ -91,38 +85,34 @@ func (h *Handler) MatchPriority() int {
 	return sqsMatchPriority
 }
 
-// ExtractOperation extracts the SQS Action from the request form body.
+// ExtractOperation extracts the SQS action from the X-Amz-Target header.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
-	body, err := httputil.ReadBody(c.Request())
-	if err != nil {
+	target := c.Request().Header.Get("X-Amz-Target")
+	action := strings.TrimPrefix(target, "AmazonSQS.")
+
+	if action == "" || action == target {
 		return unknownOperation
 	}
 
-	form, err := url.ParseQuery(string(body))
-	if err != nil {
-		return unknownOperation
-	}
-
-	if action := form.Get("Action"); action != "" {
-		return action
-	}
-
-	return unknownOperation
+	return action
 }
 
-// ExtractResource extracts the queue name from the request form body.
+// ExtractResource extracts the queue name from the JSON request body's QueueUrl field.
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	body, err := httputil.ReadBody(c.Request())
 	if err != nil {
 		return ""
 	}
 
-	form, err := url.ParseQuery(string(body))
-	if err != nil {
+	var req struct {
+		QueueURL string `json:"QueueUrl"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
 		return ""
 	}
 
-	return queueNameFromURL(form.Get("QueueUrl"))
+	return queueNameFromURL(req.QueueURL)
 }
 
 // Handler returns the Echo handler function for SQS operations.
@@ -138,12 +128,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return c.String(http.StatusInternalServerError, "internal server error")
 		}
 
-		form, err := url.ParseQuery(string(body))
-		if err != nil {
-			return c.String(http.StatusBadRequest, "invalid request body")
-		}
-
-		action := form.Get("Action")
+		action := strings.TrimPrefix(c.Request().Header.Get("X-Amz-Target"), "AmazonSQS.")
 		requestID := uuid.New().String()
 
 		if action == "" {
@@ -153,7 +138,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		}
 
 		log.DebugContext(ctx, "SQS request", "action", action)
-		h.dispatch(ctx, c.Response(), c.Request(), form, action, requestID)
+		h.dispatch(ctx, c.Response(), c.Request(), body, action, requestID)
 
 		return nil
 	}
@@ -164,75 +149,239 @@ func (h *Handler) dispatch(
 	ctx context.Context,
 	w http.ResponseWriter,
 	r *http.Request,
-	form url.Values,
+	body []byte,
 	action, requestID string,
 ) {
 	switch action {
 	case "CreateQueue":
-		h.handleCreateQueue(ctx, w, r, form, requestID)
+		h.handleCreateQueue(ctx, w, r, body, requestID)
 	case "DeleteQueue":
-		h.handleDeleteQueue(ctx, w, r, form, requestID)
+		h.handleDeleteQueue(ctx, w, r, body, requestID)
 	case "ListQueues":
-		h.handleListQueues(ctx, w, r, form, requestID)
+		h.handleListQueues(ctx, w, r, body, requestID)
 	case "GetQueueUrl":
-		h.handleGetQueueURL(ctx, w, r, form, requestID)
+		h.handleGetQueueURL(ctx, w, r, body, requestID)
 	case "GetQueueAttributes":
-		h.handleGetQueueAttributes(ctx, w, r, form, requestID)
+		h.handleGetQueueAttributes(ctx, w, r, body, requestID)
 	case "SetQueueAttributes":
-		h.handleSetQueueAttributes(ctx, w, r, form, requestID)
+		h.handleSetQueueAttributes(ctx, w, r, body, requestID)
 	case "SendMessage":
-		h.handleSendMessage(ctx, w, r, form, requestID)
+		h.handleSendMessage(ctx, w, r, body, requestID)
 	case "ReceiveMessage":
-		h.handleReceiveMessage(ctx, w, r, form, requestID)
+		h.handleReceiveMessage(ctx, w, r, body, requestID)
 	case "DeleteMessage":
-		h.handleDeleteMessage(ctx, w, r, form, requestID)
+		h.handleDeleteMessage(ctx, w, r, body, requestID)
 	case "ChangeMessageVisibility":
-		h.handleChangeMessageVisibility(ctx, w, r, form, requestID)
+		h.handleChangeMessageVisibility(ctx, w, r, body, requestID)
 	case "SendMessageBatch":
-		h.handleSendMessageBatch(ctx, w, r, form, requestID)
+		h.handleSendMessageBatch(ctx, w, r, body, requestID)
 	case "DeleteMessageBatch":
-		h.handleDeleteMessageBatch(ctx, w, r, form, requestID)
-	default:
-		if !h.dispatchTagOps(ctx, w, r, form, action, requestID) {
-			h.writeError(w, ErrUnknownAction, requestID)
-		}
-	}
-}
-
-// dispatchTagOps handles PurgeQueue, TagQueue, UntagQueue, ListQueueTags, and ChangeMessageVisibilityBatch actions.
-// Returns true if the action was handled, false otherwise.
-func (h *Handler) dispatchTagOps(
-	ctx context.Context,
-	w http.ResponseWriter,
-	r *http.Request,
-	form url.Values,
-	action, requestID string,
-) bool {
-	switch action {
-	case "PurgeQueue":
-		h.handlePurgeQueue(ctx, w, r, form, requestID)
-	case "TagQueue":
-		h.handleTagQueue(ctx, w, r, form, requestID)
-	case "UntagQueue":
-		h.handleUntagQueue(ctx, w, r, form, requestID)
-	case "ListQueueTags":
-		h.handleListQueueTags(ctx, w, r, form, requestID)
+		h.handleDeleteMessageBatch(ctx, w, r, body, requestID)
 	case "ChangeMessageVisibilityBatch":
-		h.handleChangeMessageVisibilityBatch(ctx, w, r, form, requestID)
+		h.handleChangeMessageVisibilityBatch(ctx, w, r, body, requestID)
+	case "PurgeQueue":
+		h.handlePurgeQueue(ctx, w, r, body, requestID)
+	case "TagQueue":
+		h.handleTagQueue(ctx, w, r, body, requestID)
+	case "UntagQueue":
+		h.handleUntagQueue(ctx, w, r, body, requestID)
+	case "ListQueueTags":
+		h.handleListQueueTags(ctx, w, r, body, requestID)
 	default:
-		return false
+		h.writeError(w, ErrUnknownAction, requestID)
 	}
-
-	return true
 }
+
+// --- JSON request types ---
+
+type jsonCreateQueueReq struct {
+	Attributes map[string]string `json:"Attributes"`
+	Tags       map[string]string `json:"tags"`
+	QueueName  string            `json:"QueueName"`
+}
+
+type jsonGetQueueURLReq struct {
+	QueueName string `json:"QueueName"`
+}
+
+type jsonListQueuesReq struct {
+	QueueNamePrefix string `json:"QueueNamePrefix"`
+}
+
+type jsonQueueURLReq struct {
+	QueueURL string `json:"QueueUrl"`
+}
+
+type jsonGetQueueAttributesReq struct {
+	AttributeNames []string `json:"AttributeNames"`
+	QueueURL       string   `json:"QueueUrl"`
+}
+
+type jsonSetQueueAttributesReq struct {
+	Attributes map[string]string `json:"Attributes"`
+	QueueURL   string            `json:"QueueUrl"`
+}
+
+type jsonMsgAttr struct {
+	DataType    string `json:"DataType"`
+	StringValue string `json:"StringValue"`
+	BinaryValue []byte `json:"BinaryValue"`
+}
+
+type jsonSendMessageReq struct {
+	MessageAttributes      map[string]jsonMsgAttr `json:"MessageAttributes"`
+	QueueURL               string                 `json:"QueueUrl"`
+	MessageBody            string                 `json:"MessageBody"`
+	MessageGroupID         string                 `json:"MessageGroupId"`
+	MessageDeduplicationID string                 `json:"MessageDeduplicationId"`
+	DelaySeconds           int                    `json:"DelaySeconds"`
+}
+
+type jsonReceiveMessageReq struct {
+	QueueURL              string   `json:"QueueUrl"`
+	AttributeNames        []string `json:"AttributeNames"`
+	MessageAttributeNames []string `json:"MessageAttributeNames"`
+	MaxNumberOfMessages   int      `json:"MaxNumberOfMessages"`
+	VisibilityTimeout     *int     `json:"VisibilityTimeout"`
+	WaitTimeSeconds       int      `json:"WaitTimeSeconds"`
+}
+
+type jsonDeleteMessageReq struct {
+	QueueURL      string `json:"QueueUrl"`
+	ReceiptHandle string `json:"ReceiptHandle"`
+}
+
+type jsonChangeVisibilityReq struct {
+	QueueURL          string `json:"QueueUrl"`
+	ReceiptHandle     string `json:"ReceiptHandle"`
+	VisibilityTimeout int    `json:"VisibilityTimeout"`
+}
+
+type jsonSendBatchEntry struct {
+	MessageAttributes      map[string]jsonMsgAttr `json:"MessageAttributes"`
+	ID                     string                 `json:"Id"`
+	MessageBody            string                 `json:"MessageBody"`
+	MessageGroupID         string                 `json:"MessageGroupId"`
+	MessageDeduplicationID string                 `json:"MessageDeduplicationId"`
+	DelaySeconds           int                    `json:"DelaySeconds"`
+}
+
+type jsonSendMessageBatchReq struct {
+	QueueURL string               `json:"QueueUrl"`
+	Entries  []jsonSendBatchEntry `json:"Entries"`
+}
+
+type jsonDeleteBatchEntry struct {
+	ID            string `json:"Id"`
+	ReceiptHandle string `json:"ReceiptHandle"`
+}
+
+type jsonDeleteMessageBatchReq struct {
+	QueueURL string                 `json:"QueueUrl"`
+	Entries  []jsonDeleteBatchEntry `json:"Entries"`
+}
+
+type jsonChangeBatchEntry struct {
+	ID                string `json:"Id"`
+	ReceiptHandle     string `json:"ReceiptHandle"`
+	VisibilityTimeout int    `json:"VisibilityTimeout"`
+}
+
+type jsonChangeVisibilityBatchReq struct {
+	QueueURL string                 `json:"QueueUrl"`
+	Entries  []jsonChangeBatchEntry `json:"Entries"`
+}
+
+type jsonTagQueueReq struct {
+	Tags     map[string]string `json:"Tags"`
+	QueueURL string            `json:"QueueUrl"`
+}
+
+type jsonUntagQueueReq struct {
+	QueueURL string   `json:"QueueUrl"`
+	TagKeys  []string `json:"TagKeys"`
+}
+
+// --- JSON response types ---
+
+type jsonQueueURLResp struct {
+	QueueURL string `json:"QueueUrl"`
+}
+
+type jsonListQueuesResp struct {
+	QueueURLs []string `json:"QueueUrls"`
+	NextToken string   `json:"NextToken,omitempty"`
+}
+
+type jsonSendMessageResp struct {
+	MessageID              string `json:"MessageId"`
+	MD5OfMessageBody       string `json:"MD5OfMessageBody"`
+	MD5OfMessageAttributes string `json:"MD5OfMessageAttributes,omitempty"`
+	SequenceNumber         string `json:"SequenceNumber"`
+}
+
+type jsonReceivedMessage struct {
+	Attributes             map[string]string      `json:"Attributes"`
+	MessageAttributes      map[string]jsonMsgAttr `json:"MessageAttributes"`
+	MessageID              string                 `json:"MessageId"`
+	ReceiptHandle          string                 `json:"ReceiptHandle"`
+	MD5OfBody              string                 `json:"MD5OfBody"`
+	MD5OfMessageAttributes string                 `json:"MD5OfMessageAttributes,omitempty"`
+	Body                   string                 `json:"Body"`
+}
+
+type jsonReceiveMessageResp struct {
+	Messages []jsonReceivedMessage `json:"Messages"`
+}
+
+type jsonGetQueueAttributesResp struct {
+	Attributes map[string]string `json:"Attributes"`
+}
+
+type jsonBatchSuccess struct {
+	ID                     string `json:"Id"`
+	MessageID              string `json:"MessageId,omitempty"`
+	MD5OfMessageBody       string `json:"MD5OfMessageBody,omitempty"`
+	MD5OfMessageAttributes string `json:"MD5OfMessageAttributes,omitempty"`
+}
+
+type jsonBatchFailure struct {
+	ID          string `json:"Id"`
+	Code        string `json:"Code"`
+	Message     string `json:"Message"`
+	SenderFault bool   `json:"SenderFault"`
+}
+
+type jsonBatchResult struct {
+	Successful []jsonBatchSuccess `json:"Successful"`
+	Failed     []jsonBatchFailure `json:"Failed"`
+}
+
+type jsonListQueueTagsResp struct {
+	Tags map[string]string `json:"Tags"`
+}
+
+type jsonSQSError struct {
+	Type    string `json:"__type"`
+	Message string `json:"message"`
+}
+
+// --- handler methods ---
 
 func (h *Handler) handleCreateQueue(
 	ctx context.Context,
 	w http.ResponseWriter,
 	r *http.Request,
-	form url.Values,
+	body []byte,
 	requestID string,
 ) {
+	var req jsonCreateQueueReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		h.writeError(w, ErrUnknownAction, requestID)
+
+		return
+	}
+
 	endpoint := h.Endpoint
 	if endpoint == "" {
 		endpoint = r.Host
@@ -241,8 +390,8 @@ func (h *Handler) handleCreateQueue(
 	region := httputil.ExtractRegionFromRequest(r, h.DefaultRegion)
 
 	out, err := h.Backend.CreateQueue(&CreateQueueInput{
-		QueueName:  form.Get("QueueName"),
-		Attributes: parseKeyValuePairs(form, "Attribute"),
+		QueueName:  req.QueueName,
+		Attributes: req.Attributes,
 		Endpoint:   endpoint,
 		Region:     region,
 	})
@@ -250,46 +399,51 @@ func (h *Handler) handleCreateQueue(
 		if !errors.Is(err, ErrQueueAlreadyExists) {
 			logger.Load(ctx).WarnContext(ctx, "CreateQueue failed", "error", err)
 		}
+
 		h.writeError(w, err, requestID)
 
 		return
 	}
 
-	httputil.WriteXML(h.Logger, w, http.StatusOK, CreateQueueResponse{
-		Xmlns:             sqsNamespace,
-		CreateQueueResult: CreateQueueResult{QueueURL: out.QueueURL},
-		ResponseMetadata:  XMLResponseMetadata{RequestID: requestID},
-	})
+	httputil.WriteJSON(h.Logger, w, http.StatusOK, jsonQueueURLResp{QueueURL: out.QueueURL})
 }
 
 func (h *Handler) handleDeleteQueue(
 	_ context.Context,
 	w http.ResponseWriter,
 	_ *http.Request,
-	form url.Values,
+	body []byte,
 	requestID string,
 ) {
-	if err := h.Backend.DeleteQueue(&DeleteQueueInput{QueueURL: form.Get("QueueUrl")}); err != nil {
+	var req jsonQueueURLReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		h.writeError(w, ErrUnknownAction, requestID)
+
+		return
+	}
+
+	if err := h.Backend.DeleteQueue(&DeleteQueueInput{QueueURL: req.QueueURL}); err != nil {
 		h.writeError(w, err, requestID)
 
 		return
 	}
 
-	httputil.WriteXML(h.Logger, w, http.StatusOK, DeleteQueueResponse{
-		Xmlns:            sqsNamespace,
-		ResponseMetadata: XMLResponseMetadata{RequestID: requestID},
-	})
+	httputil.WriteJSON(h.Logger, w, http.StatusOK, struct{}{})
 }
 
 func (h *Handler) handleListQueues(
 	_ context.Context,
 	w http.ResponseWriter,
 	_ *http.Request,
-	form url.Values,
+	body []byte,
 	requestID string,
 ) {
+	var req jsonListQueuesReq
+	// ListQueues body may be empty; ignore unmarshal errors
+	_ = json.Unmarshal(body, &req)
+
 	out, err := h.Backend.ListQueues(&ListQueuesInput{
-		QueueNamePrefix: form.Get("QueueNamePrefix"),
+		QueueNamePrefix: req.QueueNamePrefix,
 	})
 	if err != nil {
 		h.writeError(w, err, requestID)
@@ -297,44 +451,55 @@ func (h *Handler) handleListQueues(
 		return
 	}
 
-	httputil.WriteXML(h.Logger, w, http.StatusOK, ListQueuesResponse{
-		Xmlns:            sqsNamespace,
-		ListQueuesResult: ListQueuesResult{QueueURLs: out.QueueURLs},
-		ResponseMetadata: XMLResponseMetadata{RequestID: requestID},
-	})
+	queueURLs := out.QueueURLs
+	if queueURLs == nil {
+		queueURLs = []string{}
+	}
+
+	httputil.WriteJSON(h.Logger, w, http.StatusOK, jsonListQueuesResp{QueueURLs: queueURLs})
 }
 
 func (h *Handler) handleGetQueueURL(
 	_ context.Context,
 	w http.ResponseWriter,
 	_ *http.Request,
-	form url.Values,
+	body []byte,
 	requestID string,
 ) {
-	out, err := h.Backend.GetQueueURL(&GetQueueURLInput{QueueName: form.Get("QueueName")})
+	var req jsonGetQueueURLReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		h.writeError(w, ErrUnknownAction, requestID)
+
+		return
+	}
+
+	out, err := h.Backend.GetQueueURL(&GetQueueURLInput{QueueName: req.QueueName})
 	if err != nil {
 		h.writeError(w, err, requestID)
 
 		return
 	}
 
-	httputil.WriteXML(h.Logger, w, http.StatusOK, GetQueueURLResponse{
-		Xmlns:             sqsNamespace,
-		GetQueueURLResult: GetQueueURLResult{QueueURL: out.QueueURL},
-		ResponseMetadata:  XMLResponseMetadata{RequestID: requestID},
-	})
+	httputil.WriteJSON(h.Logger, w, http.StatusOK, jsonQueueURLResp{QueueURL: out.QueueURL})
 }
 
 func (h *Handler) handleGetQueueAttributes(
 	_ context.Context,
 	w http.ResponseWriter,
 	_ *http.Request,
-	form url.Values,
+	body []byte,
 	requestID string,
 ) {
+	var req jsonGetQueueAttributesReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		h.writeError(w, ErrUnknownAction, requestID)
+
+		return
+	}
+
 	out, err := h.Backend.GetQueueAttributes(&GetQueueAttributesInput{
-		QueueURL:       form.Get("QueueUrl"),
-		AttributeNames: parseIndexedStrings(form, "AttributeName"),
+		QueueURL:       req.QueueURL,
+		AttributeNames: req.AttributeNames,
 	})
 	if err != nil {
 		h.writeError(w, err, requestID)
@@ -342,56 +507,61 @@ func (h *Handler) handleGetQueueAttributes(
 		return
 	}
 
-	var xmlAttrs []XMLAttribute
-	for k, v := range out.Attributes {
-		xmlAttrs = append(xmlAttrs, XMLAttribute{Name: k, Value: v})
+	attrs := out.Attributes
+	if attrs == nil {
+		attrs = map[string]string{}
 	}
 
-	httputil.WriteXML(h.Logger, w, http.StatusOK, GetQueueAttributesResponse{
-		Xmlns:                    sqsNamespace,
-		GetQueueAttributesResult: GetQueueAttributesResult{Attributes: xmlAttrs},
-		ResponseMetadata:         XMLResponseMetadata{RequestID: requestID},
-	})
+	httputil.WriteJSON(h.Logger, w, http.StatusOK, jsonGetQueueAttributesResp{Attributes: attrs})
 }
 
 func (h *Handler) handleSetQueueAttributes(
 	_ context.Context,
 	w http.ResponseWriter,
 	_ *http.Request,
-	form url.Values,
+	body []byte,
 	requestID string,
 ) {
+	var req jsonSetQueueAttributesReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		h.writeError(w, ErrUnknownAction, requestID)
+
+		return
+	}
+
 	if err := h.Backend.SetQueueAttributes(&SetQueueAttributesInput{
-		QueueURL:   form.Get("QueueUrl"),
-		Attributes: parseKeyValuePairs(form, "Attribute"),
+		QueueURL:   req.QueueURL,
+		Attributes: req.Attributes,
 	}); err != nil {
 		h.writeError(w, err, requestID)
 
 		return
 	}
 
-	httputil.WriteXML(h.Logger, w, http.StatusOK, SetQueueAttributesResponse{
-		Xmlns:            sqsNamespace,
-		ResponseMetadata: XMLResponseMetadata{RequestID: requestID},
-	})
+	httputil.WriteJSON(h.Logger, w, http.StatusOK, struct{}{})
 }
 
 func (h *Handler) handleSendMessage(
 	_ context.Context,
 	w http.ResponseWriter,
 	_ *http.Request,
-	form url.Values,
+	body []byte,
 	requestID string,
 ) {
-	delay, _ := strconv.Atoi(form.Get("DelaySeconds"))
+	var req jsonSendMessageReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		h.writeError(w, ErrUnknownAction, requestID)
+
+		return
+	}
 
 	out, err := h.Backend.SendMessage(&SendMessageInput{
-		QueueURL:               form.Get("QueueUrl"),
-		MessageBody:            form.Get("MessageBody"),
-		MessageGroupID:         form.Get("MessageGroupId"),
-		MessageDeduplicationID: form.Get("MessageDeduplicationId"),
-		DelaySeconds:           delay,
-		MessageAttributes:      parseMessageAttributes(form),
+		QueueURL:               req.QueueURL,
+		MessageBody:            req.MessageBody,
+		MessageGroupID:         req.MessageGroupID,
+		MessageDeduplicationID: req.MessageDeduplicationID,
+		DelaySeconds:           req.DelaySeconds,
+		MessageAttributes:      toMessageAttributeValues(req.MessageAttributes),
 	})
 	if err != nil {
 		h.writeError(w, err, requestID)
@@ -399,14 +569,11 @@ func (h *Handler) handleSendMessage(
 		return
 	}
 
-	httputil.WriteXML(h.Logger, w, http.StatusOK, SendMessageResponse{
-		Xmlns: sqsNamespace,
-		SendMessageResult: SendMessageResult{
-			MD5OfMessageBody:       out.MD5OfBody,
-			MD5OfMessageAttributes: out.MD5OfMessageAttributes,
-			MessageID:              out.MessageID,
-		},
-		ResponseMetadata: XMLResponseMetadata{RequestID: requestID},
+	httputil.WriteJSON(h.Logger, w, http.StatusOK, jsonSendMessageResp{
+		MessageID:              out.MessageID,
+		MD5OfMessageBody:       out.MD5OfBody,
+		MD5OfMessageAttributes: out.MD5OfMessageAttributes,
+		SequenceNumber:         "",
 	})
 }
 
@@ -414,25 +581,27 @@ func (h *Handler) handleReceiveMessage(
 	_ context.Context,
 	w http.ResponseWriter,
 	_ *http.Request,
-	form url.Values,
+	body []byte,
 	requestID string,
 ) {
-	maxMsgs, _ := strconv.Atoi(form.Get("MaxNumberOfMessages"))
-	waitSecs, _ := strconv.Atoi(form.Get("WaitTimeSeconds"))
+	var req jsonReceiveMessageReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		h.writeError(w, ErrUnknownAction, requestID)
+
+		return
+	}
 
 	vt := noVisibilitySet
-	if vtStr := form.Get("VisibilityTimeout"); vtStr != "" {
-		if v, err := strconv.Atoi(vtStr); err == nil {
-			vt = v
-		}
+	if req.VisibilityTimeout != nil {
+		vt = *req.VisibilityTimeout
 	}
 
 	out, err := h.Backend.ReceiveMessage(&ReceiveMessageInput{
-		QueueURL:            form.Get("QueueUrl"),
-		MaxNumberOfMessages: maxMsgs,
+		QueueURL:            req.QueueURL,
+		MaxNumberOfMessages: req.MaxNumberOfMessages,
 		VisibilityTimeout:   vt,
-		WaitTimeSeconds:     waitSecs,
-		AttributeNames:      parseIndexedStrings(form, "AttributeName"),
+		WaitTimeSeconds:     req.WaitTimeSeconds,
+		AttributeNames:      req.AttributeNames,
 	})
 	if err != nil {
 		h.writeError(w, err, requestID)
@@ -440,92 +609,109 @@ func (h *Handler) handleReceiveMessage(
 		return
 	}
 
-	xmlMsgs := make([]XMLMessage, 0, len(out.Messages))
+	msgs := make([]jsonReceivedMessage, 0, len(out.Messages))
 	for _, msg := range out.Messages {
-		xmlMsgs = append(xmlMsgs, toXMLMessage(msg))
+		attrs := msg.Attributes
+		if attrs == nil {
+			attrs = map[string]string{}
+		}
+
+		msgs = append(msgs, jsonReceivedMessage{
+			MessageID:              msg.MessageID,
+			ReceiptHandle:          msg.ReceiptHandle,
+			MD5OfBody:              msg.MD5OfBody,
+			MD5OfMessageAttributes: msg.MD5OfMessageAttributes,
+			Body:                   msg.Body,
+			Attributes:             attrs,
+			MessageAttributes:      toJSONMsgAttrs(msg.MessageAttributes),
+		})
 	}
 
-	httputil.WriteXML(h.Logger, w, http.StatusOK, ReceiveMessageResponse{
-		Xmlns:                sqsNamespace,
-		ReceiveMessageResult: ReceiveMessageResult{Messages: xmlMsgs},
-		ResponseMetadata:     XMLResponseMetadata{RequestID: requestID},
-	})
-}
-
-// toXMLMessage converts an internal Message to its XML representation.
-func toXMLMessage(msg *Message) XMLMessage {
-	attrs := make([]XMLAttribute, 0, len(msg.Attributes))
-
-	for k, v := range msg.Attributes {
-		attrs = append(attrs, XMLAttribute{Name: k, Value: v})
-	}
-
-	return XMLMessage{
-		MessageID:     msg.MessageID,
-		ReceiptHandle: msg.ReceiptHandle,
-		MD5OfBody:     msg.MD5OfBody,
-		Body:          msg.Body,
-		Attributes:    attrs,
-	}
+	httputil.WriteJSON(h.Logger, w, http.StatusOK, jsonReceiveMessageResp{Messages: msgs})
 }
 
 func (h *Handler) handleDeleteMessage(
 	_ context.Context,
 	w http.ResponseWriter,
 	_ *http.Request,
-	form url.Values,
+	body []byte,
 	requestID string,
 ) {
+	var req jsonDeleteMessageReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		h.writeError(w, ErrUnknownAction, requestID)
+
+		return
+	}
+
 	if err := h.Backend.DeleteMessage(&DeleteMessageInput{
-		QueueURL:      form.Get("QueueUrl"),
-		ReceiptHandle: form.Get("ReceiptHandle"),
+		QueueURL:      req.QueueURL,
+		ReceiptHandle: req.ReceiptHandle,
 	}); err != nil {
 		h.writeError(w, err, requestID)
 
 		return
 	}
 
-	httputil.WriteXML(h.Logger, w, http.StatusOK, DeleteMessageResponse{
-		Xmlns:            sqsNamespace,
-		ResponseMetadata: XMLResponseMetadata{RequestID: requestID},
-	})
+	httputil.WriteJSON(h.Logger, w, http.StatusOK, struct{}{})
 }
 
 func (h *Handler) handleChangeMessageVisibility(
 	_ context.Context,
 	w http.ResponseWriter,
 	_ *http.Request,
-	form url.Values,
+	body []byte,
 	requestID string,
 ) {
-	vt, _ := strconv.Atoi(form.Get("VisibilityTimeout"))
+	var req jsonChangeVisibilityReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		h.writeError(w, ErrUnknownAction, requestID)
+
+		return
+	}
 
 	if err := h.Backend.ChangeMessageVisibility(&ChangeMessageVisibilityInput{
-		QueueURL:          form.Get("QueueUrl"),
-		ReceiptHandle:     form.Get("ReceiptHandle"),
-		VisibilityTimeout: vt,
+		QueueURL:          req.QueueURL,
+		ReceiptHandle:     req.ReceiptHandle,
+		VisibilityTimeout: req.VisibilityTimeout,
 	}); err != nil {
 		h.writeError(w, err, requestID)
 
 		return
 	}
 
-	httputil.WriteXML(h.Logger, w, http.StatusOK, ChangeMessageVisibilityResponse{
-		Xmlns:            sqsNamespace,
-		ResponseMetadata: XMLResponseMetadata{RequestID: requestID},
-	})
+	httputil.WriteJSON(h.Logger, w, http.StatusOK, struct{}{})
 }
 
 func (h *Handler) handleSendMessageBatch(
 	_ context.Context,
 	w http.ResponseWriter,
 	_ *http.Request,
-	form url.Values,
+	body []byte,
 	requestID string,
 ) {
+	var req jsonSendMessageBatchReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		h.writeError(w, ErrUnknownAction, requestID)
+
+		return
+	}
+
+	entries := make([]SendMessageBatchEntry, 0, len(req.Entries))
+	for _, e := range req.Entries {
+		entries = append(entries, SendMessageBatchEntry{
+			ID:                     e.ID,
+			MessageBody:            e.MessageBody,
+			MessageGroupID:         e.MessageGroupID,
+			MessageDeduplicationID: e.MessageDeduplicationID,
+			DelaySeconds:           e.DelaySeconds,
+			MessageAttributes:      toMessageAttributeValues(e.MessageAttributes),
+		})
+	}
+
 	out, err := h.Backend.SendMessageBatch(&SendMessageBatchInput{
-		QueueURL: form.Get("QueueUrl"),
-		Entries:  parseSendBatchEntries(form),
+		QueueURL: req.QueueURL,
+		Entries:  entries,
 	})
 	if err != nil {
 		h.writeError(w, err, requestID)
@@ -533,20 +719,13 @@ func (h *Handler) handleSendMessageBatch(
 		return
 	}
 
-	result := buildXMLSendBatchResult(out)
-
-	httputil.WriteXML(h.Logger, w, http.StatusOK, SendMessageBatchResponse{
-		Xmlns:                  sqsNamespace,
-		SendMessageBatchResult: result,
-		ResponseMetadata:       XMLResponseMetadata{RequestID: requestID},
-	})
-}
-
-func buildXMLSendBatchResult(out *SendMessageBatchOutput) XMLSendMessageBatchResult {
-	result := XMLSendMessageBatchResult{}
+	result := jsonBatchResult{
+		Successful: make([]jsonBatchSuccess, 0, len(out.Successful)),
+		Failed:     make([]jsonBatchFailure, 0, len(out.Failed)),
+	}
 
 	for _, s := range out.Successful {
-		result.Successful = append(result.Successful, XMLSendMessageBatchResultEntry{
+		result.Successful = append(result.Successful, jsonBatchSuccess{
 			ID:                     s.ID,
 			MessageID:              s.MessageID,
 			MD5OfMessageBody:       s.MD5OfBody,
@@ -555,22 +734,42 @@ func buildXMLSendBatchResult(out *SendMessageBatchOutput) XMLSendMessageBatchRes
 	}
 
 	for _, f := range out.Failed {
-		result.Failed = append(result.Failed, XMLSendMessageBatchFailedEntry(f))
+		result.Failed = append(result.Failed, jsonBatchFailure{
+			ID:          f.ID,
+			Code:        f.Code,
+			Message:     f.Message,
+			SenderFault: f.SenderFault,
+		})
 	}
 
-	return result
+	httputil.WriteJSON(h.Logger, w, http.StatusOK, result)
 }
 
 func (h *Handler) handleDeleteMessageBatch(
 	_ context.Context,
 	w http.ResponseWriter,
 	_ *http.Request,
-	form url.Values,
+	body []byte,
 	requestID string,
 ) {
+	var req jsonDeleteMessageBatchReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		h.writeError(w, ErrUnknownAction, requestID)
+
+		return
+	}
+
+	entries := make([]DeleteMessageBatchEntry, 0, len(req.Entries))
+	for _, e := range req.Entries {
+		entries = append(entries, DeleteMessageBatchEntry{
+			ID:            e.ID,
+			ReceiptHandle: e.ReceiptHandle,
+		})
+	}
+
 	out, err := h.Backend.DeleteMessageBatch(&DeleteMessageBatchInput{
-		QueueURL: form.Get("QueueUrl"),
-		Entries:  parseDeleteBatchEntries(form),
+		QueueURL: req.QueueURL,
+		Entries:  entries,
 	})
 	if err != nil {
 		h.writeError(w, err, requestID)
@@ -578,39 +777,53 @@ func (h *Handler) handleDeleteMessageBatch(
 		return
 	}
 
-	result := buildXMLDeleteBatchResult(out)
-
-	httputil.WriteXML(h.Logger, w, http.StatusOK, DeleteMessageBatchResponse{
-		Xmlns:                    sqsNamespace,
-		DeleteMessageBatchResult: result,
-		ResponseMetadata:         XMLResponseMetadata{RequestID: requestID},
-	})
-}
-
-func buildXMLDeleteBatchResult(out *DeleteMessageBatchOutput) XMLDeleteMessageBatchResult {
-	result := XMLDeleteMessageBatchResult{}
+	result := jsonBatchResult{
+		Successful: make([]jsonBatchSuccess, 0, len(out.Successful)),
+		Failed:     make([]jsonBatchFailure, 0, len(out.Failed)),
+	}
 
 	for _, s := range out.Successful {
-		result.Successful = append(result.Successful, XMLDeleteMessageBatchResultEntry(s))
+		result.Successful = append(result.Successful, jsonBatchSuccess{ID: s.ID})
 	}
 
 	for _, f := range out.Failed {
-		result.Failed = append(result.Failed, XMLDeleteMessageBatchFailedEntry(f))
+		result.Failed = append(result.Failed, jsonBatchFailure{
+			ID:          f.ID,
+			Code:        f.Code,
+			Message:     f.Message,
+			SenderFault: f.SenderFault,
+		})
 	}
 
-	return result
+	httputil.WriteJSON(h.Logger, w, http.StatusOK, result)
 }
 
 func (h *Handler) handleChangeMessageVisibilityBatch(
 	_ context.Context,
 	w http.ResponseWriter,
 	_ *http.Request,
-	form url.Values,
+	body []byte,
 	requestID string,
 ) {
+	var req jsonChangeVisibilityBatchReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		h.writeError(w, ErrUnknownAction, requestID)
+
+		return
+	}
+
+	entries := make([]ChangeMessageVisibilityBatchRequestEntry, 0, len(req.Entries))
+	for _, e := range req.Entries {
+		entries = append(entries, ChangeMessageVisibilityBatchRequestEntry{
+			ID:                e.ID,
+			ReceiptHandle:     e.ReceiptHandle,
+			VisibilityTimeout: e.VisibilityTimeout,
+		})
+	}
+
 	out, err := h.Backend.ChangeMessageVisibilityBatch(&ChangeMessageVisibilityBatchInput{
-		QueueURL: form.Get("QueueUrl"),
-		Entries:  parseChangeVisibilityBatchEntries(form),
+		QueueURL: req.QueueURL,
+		Entries:  entries,
 	})
 	if err != nil {
 		h.writeError(w, err, requestID)
@@ -618,143 +831,175 @@ func (h *Handler) handleChangeMessageVisibilityBatch(
 		return
 	}
 
-	result := ChangeMessageVisibilityBatchResult{}
-	result.Successful = append(result.Successful, out.Successful...)
-	result.Failed = append(result.Failed, out.Failed...)
+	result := jsonBatchResult{
+		Successful: make([]jsonBatchSuccess, 0, len(out.Successful)),
+		Failed:     make([]jsonBatchFailure, 0, len(out.Failed)),
+	}
 
-	httputil.WriteXML(h.Logger, w, http.StatusOK, ChangeMessageVisibilityBatchResponse{
-		Xmlns:            sqsNamespace,
-		Result:           result,
-		ResponseMetadata: XMLResponseMetadata{RequestID: requestID},
-	})
+	for _, s := range out.Successful {
+		result.Successful = append(result.Successful, jsonBatchSuccess{ID: s.ID})
+	}
+
+	for _, f := range out.Failed {
+		result.Failed = append(result.Failed, jsonBatchFailure{
+			ID:          f.ID,
+			Code:        f.Code,
+			Message:     f.Message,
+			SenderFault: f.SenderFault,
+		})
+	}
+
+	httputil.WriteJSON(h.Logger, w, http.StatusOK, result)
 }
 
 func (h *Handler) handlePurgeQueue(
 	_ context.Context,
 	w http.ResponseWriter,
 	_ *http.Request,
-	form url.Values,
+	body []byte,
 	requestID string,
 ) {
-	if err := h.Backend.PurgeQueue(&PurgeQueueInput{QueueURL: form.Get("QueueUrl")}); err != nil {
+	var req jsonQueueURLReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		h.writeError(w, ErrUnknownAction, requestID)
+
+		return
+	}
+
+	if err := h.Backend.PurgeQueue(&PurgeQueueInput{QueueURL: req.QueueURL}); err != nil {
 		h.writeError(w, err, requestID)
 
 		return
 	}
 
-	httputil.WriteXML(h.Logger, w, http.StatusOK, PurgeQueueResponse{
-		Xmlns:            sqsNamespace,
-		ResponseMetadata: XMLResponseMetadata{RequestID: requestID},
-	})
+	httputil.WriteJSON(h.Logger, w, http.StatusOK, struct{}{})
 }
 
 func (h *Handler) handleTagQueue(
 	_ context.Context,
 	w http.ResponseWriter,
 	_ *http.Request,
-	form url.Values,
+	body []byte,
 	requestID string,
 ) {
+	var req jsonTagQueueReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		h.writeError(w, ErrUnknownAction, requestID)
+
+		return
+	}
+
 	if err := h.Backend.TagQueue(&TagQueueInput{
-		QueueURL: form.Get("QueueUrl"),
-		Tags:     parseKeyValuePairs(form, "Tag"),
+		QueueURL: req.QueueURL,
+		Tags:     req.Tags,
 	}); err != nil {
 		h.writeError(w, err, requestID)
 
 		return
 	}
 
-	httputil.WriteXML(h.Logger, w, http.StatusOK, TagQueueResponse{
-		Xmlns:            sqsNamespace,
-		ResponseMetadata: XMLResponseMetadata{RequestID: requestID},
-	})
+	httputil.WriteJSON(h.Logger, w, http.StatusOK, struct{}{})
 }
 
 func (h *Handler) handleUntagQueue(
 	_ context.Context,
 	w http.ResponseWriter,
 	_ *http.Request,
-	form url.Values,
+	body []byte,
 	requestID string,
 ) {
+	var req jsonUntagQueueReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		h.writeError(w, ErrUnknownAction, requestID)
+
+		return
+	}
+
 	if err := h.Backend.UntagQueue(&UntagQueueInput{
-		QueueURL: form.Get("QueueUrl"),
-		TagKeys:  parseIndexedStrings(form, "TagKey"),
+		QueueURL: req.QueueURL,
+		TagKeys:  req.TagKeys,
 	}); err != nil {
 		h.writeError(w, err, requestID)
 
 		return
 	}
 
-	httputil.WriteXML(h.Logger, w, http.StatusOK, UntagQueueResponse{
-		Xmlns:            sqsNamespace,
-		ResponseMetadata: XMLResponseMetadata{RequestID: requestID},
-	})
+	httputil.WriteJSON(h.Logger, w, http.StatusOK, struct{}{})
 }
 
 func (h *Handler) handleListQueueTags(
 	_ context.Context,
 	w http.ResponseWriter,
 	_ *http.Request,
-	form url.Values,
+	body []byte,
 	requestID string,
 ) {
-	out, err := h.Backend.ListQueueTags(&ListQueueTagsInput{QueueURL: form.Get("QueueUrl")})
+	var req jsonQueueURLReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		h.writeError(w, ErrUnknownAction, requestID)
+
+		return
+	}
+
+	out, err := h.Backend.ListQueueTags(&ListQueueTagsInput{QueueURL: req.QueueURL})
 	if err != nil {
 		h.writeError(w, err, requestID)
 
 		return
 	}
 
-	var entries []TagEntry
-	for k, v := range out.Tags {
-		entries = append(entries, TagEntry{Key: k, Value: v})
+	tags := out.Tags
+	if tags == nil {
+		tags = map[string]string{}
 	}
 
-	slices.SortFunc(entries, func(a, b TagEntry) int { return strings.Compare(a.Key, b.Key) })
+	httputil.WriteJSON(h.Logger, w, http.StatusOK, jsonListQueueTagsResp{Tags: tags})
+}
 
-	httputil.WriteXML(h.Logger, w, http.StatusOK, ListQueueTagsResponse{
-		Xmlns:            sqsNamespace,
-		Result:           ListQueueTagsResult{Tags: entries},
-		ResponseMetadata: XMLResponseMetadata{RequestID: requestID},
+// writeError writes a JSON SQS error response.
+func (h *Handler) writeError(w http.ResponseWriter, err error, _ string) {
+	errType, message, status := errorDetails(err)
+	httputil.WriteJSON(h.Logger, w, status, jsonSQSError{
+		Type:    errType,
+		Message: message,
 	})
 }
 
-// writeError writes an SQS XML error response.
-func (h *Handler) writeError(w http.ResponseWriter, err error, requestID string) {
-	code, message, status := errorDetails(err)
-	httputil.WriteXML(h.Logger, w, status, XMLErrorResponse{
-		Xmlns: sqsNamespace,
-		Error: XMLError{
-			Type:    errTypeSender,
-			Code:    code,
-			Message: message,
-			Detail:  XMLErrorDetail{},
-		},
-		RequestID: requestID,
-	})
-}
-
-// errorDetails maps an error to its SQS error code, message, and HTTP status.
+// errorDetails maps an error to its SQS JSON error type, message, and HTTP status.
 func errorDetails(err error) (string, string, int) {
 	switch {
 	case errors.Is(err, ErrQueueNotFound):
-		return "AWS.SimpleQueueService.NonExistentQueue", "The specified queue does not exist.", http.StatusBadRequest
+		return "com.amazonaws.sqs#QueueDoesNotExist",
+			"The specified queue does not exist.",
+			http.StatusBadRequest
 	case errors.Is(err, ErrQueueAlreadyExists):
-		return "QueueAlreadyExists", "A queue with this name already exists.", http.StatusBadRequest
+		return "com.amazonaws.sqs#QueueNameExists",
+			"A queue with this name already exists.",
+			http.StatusBadRequest
 	case errors.Is(err, ErrReceiptHandleInvalid):
-		return "ReceiptHandleIsInvalid", "The receipt handle is not valid.", http.StatusBadRequest
+		return "com.amazonaws.sqs#ReceiptHandleIsInvalid",
+			"The receipt handle is not valid.",
+			http.StatusBadRequest
 	case errors.Is(err, ErrTooManyEntriesInBatch):
-		return "AWS.SimpleQueueService.TooManyEntriesInBatchRequest",
-			"Too many entries in batch request.", http.StatusBadRequest
+		return "com.amazonaws.sqs#TooManyEntriesInBatchRequest",
+			"Too many entries in batch request.",
+			http.StatusBadRequest
 	case errors.Is(err, ErrInvalidBatchEntry):
-		return "AWS.SimpleQueueService.EmptyBatchRequest", "The batch request is empty.", http.StatusBadRequest
+		return "com.amazonaws.sqs#EmptyBatchRequest",
+			"The batch request is empty.",
+			http.StatusBadRequest
 	case errors.Is(err, ErrInvalidAttribute):
-		return "InvalidAttributeValue", "Invalid attribute value.", http.StatusBadRequest
+		return "com.amazonaws.sqs#InvalidAttributeValue",
+			"Invalid attribute value.",
+			http.StatusBadRequest
 	case errors.Is(err, ErrUnknownAction):
-		return "InvalidAction", "The action or operation requested is invalid.", http.StatusBadRequest
+		return "com.amazonaws.sqs#InvalidAction",
+			"The action or operation requested is invalid.",
+			http.StatusBadRequest
 	default:
-		return "InternalError", "An internal error occurred.", http.StatusInternalServerError
+		return "com.amazonaws.sqs#InternalError",
+			"An internal error occurred.",
+			http.StatusInternalServerError
 	}
 }
 
@@ -768,118 +1013,36 @@ func queueNameFromURL(queueURL string) string {
 	return parts[len(parts)-1]
 }
 
-// parseKeyValuePairs parses indexed Attribute.N.Name / Attribute.N.Value form pairs.
-func parseKeyValuePairs(form url.Values, prefix string) map[string]string {
-	result := make(map[string]string)
-
-	for i := 1; i <= maxParseIterations; i++ {
-		name := form.Get(fmt.Sprintf("%s.%d.Name", prefix, i))
-		if name == "" {
-			break
-		}
-
-		result[name] = form.Get(fmt.Sprintf("%s.%d.Value", prefix, i))
+// toMessageAttributeValues converts JSON message attributes to internal representation.
+func toMessageAttributeValues(attrs map[string]jsonMsgAttr) map[string]MessageAttributeValue {
+	if len(attrs) == 0 {
+		return nil
 	}
 
-	return result
-}
+	result := make(map[string]MessageAttributeValue, len(attrs))
 
-// parseIndexedStrings parses AttributeName.N or MessageAttributeName.N lists.
-func parseIndexedStrings(form url.Values, prefix string) []string {
-	var result []string
-
-	for i := 1; i <= maxParseIterations; i++ {
-		val := form.Get(fmt.Sprintf("%s.%d", prefix, i))
-		if val == "" {
-			break
-		}
-
-		result = append(result, val)
-	}
-
-	return result
-}
-
-// parseMessageAttributes parses MessageAttribute.N.* parameters from a form.
-func parseMessageAttributes(form url.Values) map[string]MessageAttributeValue {
-	result := make(map[string]MessageAttributeValue)
-
-	for i := 1; i <= maxParseIterations; i++ {
-		name := form.Get(fmt.Sprintf("MessageAttribute.%d.Name", i))
-		if name == "" {
-			break
-		}
-
-		result[name] = MessageAttributeValue{
-			DataType:    form.Get(fmt.Sprintf("MessageAttribute.%d.Value.DataType", i)),
-			StringValue: form.Get(fmt.Sprintf("MessageAttribute.%d.Value.StringValue", i)),
+	for k, v := range attrs {
+		result[k] = MessageAttributeValue{
+			DataType:    v.DataType,
+			StringValue: v.StringValue,
+			BinaryValue: v.BinaryValue,
 		}
 	}
 
 	return result
 }
 
-// parseSendBatchEntries parses SendMessageBatchRequestEntry.N.* parameters.
-func parseSendBatchEntries(form url.Values) []SendMessageBatchEntry {
-	var entries []SendMessageBatchEntry
+// toJSONMsgAttrs converts internal message attributes to JSON representation.
+func toJSONMsgAttrs(attrs map[string]MessageAttributeValue) map[string]jsonMsgAttr {
+	result := make(map[string]jsonMsgAttr, len(attrs))
 
-	for i := 1; i <= maxBatchSize; i++ {
-		id := form.Get(fmt.Sprintf("SendMessageBatchRequestEntry.%d.Id", i))
-		if id == "" {
-			break
+	for k, v := range attrs {
+		result[k] = jsonMsgAttr{
+			DataType:    v.DataType,
+			StringValue: v.StringValue,
+			BinaryValue: v.BinaryValue,
 		}
-
-		delay, _ := strconv.Atoi(form.Get(fmt.Sprintf("SendMessageBatchRequestEntry.%d.DelaySeconds", i)))
-
-		entries = append(entries, SendMessageBatchEntry{
-			ID:                     id,
-			MessageBody:            form.Get(fmt.Sprintf("SendMessageBatchRequestEntry.%d.MessageBody", i)),
-			MessageGroupID:         form.Get(fmt.Sprintf("SendMessageBatchRequestEntry.%d.MessageGroupId", i)),
-			MessageDeduplicationID: form.Get(fmt.Sprintf("SendMessageBatchRequestEntry.%d.MessageDeduplicationId", i)),
-			DelaySeconds:           delay,
-		})
 	}
 
-	return entries
-}
-
-// parseDeleteBatchEntries parses DeleteMessageBatchRequestEntry.N.* parameters.
-func parseDeleteBatchEntries(form url.Values) []DeleteMessageBatchEntry {
-	var entries []DeleteMessageBatchEntry
-
-	for i := 1; i <= maxBatchSize; i++ {
-		id := form.Get(fmt.Sprintf("DeleteMessageBatchRequestEntry.%d.Id", i))
-		if id == "" {
-			break
-		}
-
-		entries = append(entries, DeleteMessageBatchEntry{
-			ID:            id,
-			ReceiptHandle: form.Get(fmt.Sprintf("DeleteMessageBatchRequestEntry.%d.ReceiptHandle", i)),
-		})
-	}
-
-	return entries
-}
-
-// parseChangeVisibilityBatchEntries parses ChangeMessageVisibilityBatchRequestEntry.N.* parameters.
-func parseChangeVisibilityBatchEntries(form url.Values) []ChangeMessageVisibilityBatchRequestEntry {
-	var entries []ChangeMessageVisibilityBatchRequestEntry
-
-	for i := 1; i <= maxBatchSize; i++ {
-		id := form.Get(fmt.Sprintf("ChangeMessageVisibilityBatchRequestEntry.%d.Id", i))
-		if id == "" {
-			break
-		}
-
-		vt, _ := strconv.Atoi(form.Get(fmt.Sprintf("ChangeMessageVisibilityBatchRequestEntry.%d.VisibilityTimeout", i)))
-
-		entries = append(entries, ChangeMessageVisibilityBatchRequestEntry{
-			ID:                id,
-			ReceiptHandle:     form.Get(fmt.Sprintf("ChangeMessageVisibilityBatchRequestEntry.%d.ReceiptHandle", i)),
-			VisibilityTimeout: vt,
-		})
-	}
-
-	return entries
+	return result
 }
