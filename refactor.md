@@ -45,9 +45,9 @@ Audit of Gopherstack against LocalStack free-tier parity. Items are grouped by t
 
 ### Realism Gaps
 
-- [ ] **MessageSystemAttribute `ApproximateFirstReceiveTimestamp` / `SentTimestamp`** — Verify these are populated on ReceiveMessage responses. AWS always includes them.
-- [ ] **ReceiveMessage MaxNumberOfMessages clamping** — AWS caps at 10; verify Gopherstack enforces this.
-- [ ] **Queue ARN in GetQueueAttributes** — Verify `QueueArn` attribute is returned and correctly formatted.
+- [x] **MessageSystemAttribute `ApproximateFirstReceiveTimestamp` / `SentTimestamp`** — Verify these are populated on ReceiveMessage responses. AWS always includes them.
+- [x] **ReceiveMessage MaxNumberOfMessages clamping** — AWS caps at 10; verify Gopherstack enforces this.
+- [x] **Queue ARN in GetQueueAttributes** — Verify `QueueArn` attribute is returned and correctly formatted.
 
 ### Missing Features
 

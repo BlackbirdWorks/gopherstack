@@ -700,3 +700,84 @@ func TestQueueNameFromInputEmpty(t *testing.T) {
 	})
 	require.ErrorIs(t, err, sqs.ErrQueueNotFound)
 }
+
+func TestApproximateFirstReceiveTimestamp_SetOnFirstReceive(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend()
+	qURL := createTestQueue(t, b, "first-receive-ts-queue")
+
+	_, err := b.SendMessage(&sqs.SendMessageInput{QueueURL: qURL, MessageBody: "hello"})
+	require.NoError(t, err)
+
+	// First receive: ApproximateFirstReceiveTimestamp should be set.
+	out1, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{QueueURL: qURL, MaxNumberOfMessages: 1})
+	require.NoError(t, err)
+	require.Len(t, out1.Messages, 1)
+
+	msg := out1.Messages[0]
+	firstTS := msg.Attributes["ApproximateFirstReceiveTimestamp"]
+	assert.NotEmpty(t, firstTS, "ApproximateFirstReceiveTimestamp should be set on first receive")
+
+	// The value should be a Unix millisecond timestamp (13-digit integer).
+	assert.Len(t, firstTS, 13)
+
+	// Return the message to queue (simulate visibility timeout = 0).
+	_ = b.ChangeMessageVisibility(&sqs.ChangeMessageVisibilityInput{
+		QueueURL:          qURL,
+		ReceiptHandle:     msg.ReceiptHandle,
+		VisibilityTimeout: 0,
+	})
+
+	// Second receive: ApproximateFirstReceiveTimestamp should NOT change.
+	out2, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{QueueURL: qURL, MaxNumberOfMessages: 1})
+	require.NoError(t, err)
+	require.Len(t, out2.Messages, 1)
+
+	secondTS := out2.Messages[0].Attributes["ApproximateFirstReceiveTimestamp"]
+	assert.Equal(t, firstTS, secondTS, "ApproximateFirstReceiveTimestamp must not change on subsequent receives")
+}
+
+func TestMaxNumberOfMessages_ClampsAt10(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend()
+	qURL := createTestQueue(t, b, "clamp-queue")
+
+	// Send 15 messages.
+	for i := range 15 {
+		_, err := b.SendMessage(&sqs.SendMessageInput{
+			QueueURL:    qURL,
+			MessageBody: strconv.Itoa(i),
+		})
+		require.NoError(t, err)
+	}
+
+	// Request more than 10: should be clamped to 10.
+	out, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{QueueURL: qURL, MaxNumberOfMessages: 20})
+	require.NoError(t, err)
+	assert.LessOrEqual(t, len(out.Messages), 10, "MaxNumberOfMessages should be clamped to 10")
+}
+
+func TestSentTimestamp_PresentInAttributes(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend()
+	qURL := createTestQueue(t, b, "sent-ts-queue")
+
+	beforeSend := time.Now().UnixMilli()
+
+	_, err := b.SendMessage(&sqs.SendMessageInput{QueueURL: qURL, MessageBody: "check"})
+	require.NoError(t, err)
+
+	out, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{QueueURL: qURL, MaxNumberOfMessages: 1})
+	require.NoError(t, err)
+	require.Len(t, out.Messages, 1)
+
+	sentTSStr := out.Messages[0].Attributes["SentTimestamp"]
+	require.NotEmpty(t, sentTSStr)
+
+	sentTS, err := strconv.ParseInt(sentTSStr, 10, 64)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, sentTS, beforeSend)
+}

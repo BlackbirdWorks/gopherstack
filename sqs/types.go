@@ -41,8 +41,9 @@ const (
 	attrApproxMessagesDelayed     = "ApproximateNumberOfMessagesDelayed"
 	attrAll                       = "All"
 
-	attrApproxReceiveCount = "ApproximateReceiveCount"
-	attrSentTimestamp      = "SentTimestamp"
+	attrApproxReceiveCount          = "ApproximateReceiveCount"
+	attrSentTimestamp               = "SentTimestamp"
+	attrApproxFirstReceiveTimestamp = "ApproximateFirstReceiveTimestamp"
 
 	attrValTrue  = "true"
 	attrValFalse = "false"
@@ -60,16 +61,17 @@ type MessageAttributeValue struct {
 
 // Message represents an SQS message.
 type Message struct {
-	MessageAttributes       map[string]MessageAttributeValue
-	Attributes              map[string]string
-	Body                    string
-	MessageGroupID          string
-	MessageDeduplicationID  string
-	MessageID               string
-	ReceiptHandle           string
-	MD5OfBody               string
-	SentTimestamp           int64
-	ApproximateReceiveCount int
+	MessageAttributes                map[string]MessageAttributeValue
+	Attributes                       map[string]string
+	Body                             string
+	MessageGroupID                   string
+	MessageDeduplicationID           string
+	MessageID                        string
+	ReceiptHandle                    string
+	MD5OfBody                        string
+	SentTimestamp                    int64
+	ApproximateFirstReceiveTimestamp int64 // Unix ms; 0 means never received
+	ApproximateReceiveCount          int
 }
 
 // InFlightMessage wraps a message that has been received but not deleted.

@@ -434,6 +434,15 @@ func pickMessages(q *Queue, maxMessages, vt int, now time.Time) []*Message {
 		msg.ApproximateReceiveCount++
 		msg.Attributes[attrApproxReceiveCount] = strconv.Itoa(msg.ApproximateReceiveCount)
 
+		// Set ApproximateFirstReceiveTimestamp on the first receive.
+		if msg.ApproximateFirstReceiveTimestamp == 0 {
+			msg.ApproximateFirstReceiveTimestamp = now.UnixMilli()
+			msg.Attributes[attrApproxFirstReceiveTimestamp] = strconv.FormatInt(
+				msg.ApproximateFirstReceiveTimestamp,
+				10,
+			)
+		}
+
 		inf := &InFlightMessage{
 			VisibleAt:     now.Add(time.Duration(vt) * time.Second),
 			ReceiptHandle: receipt,
