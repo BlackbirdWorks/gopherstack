@@ -9,11 +9,12 @@ import (
 )
 
 var (
-	ErrBucketAlreadyExists = errors.New("BucketAlreadyExists")
-	ErrNoSuchBucket        = errors.New("NoSuchBucket")
-	ErrNoSuchKey           = errors.New("NoSuchKey")
-	ErrInvalidBucketName   = errors.New("InvalidBucketName")
-	ErrBucketNotEmpty      = errors.New(
+	ErrBucketAlreadyExists     = errors.New("BucketAlreadyExists")
+	ErrBucketAlreadyOwnedByYou = errors.New("BucketAlreadyOwnedByYou")
+	ErrNoSuchBucket            = errors.New("NoSuchBucket")
+	ErrNoSuchKey               = errors.New("NoSuchKey")
+	ErrInvalidBucketName       = errors.New("InvalidBucketName")
+	ErrBucketNotEmpty          = errors.New(
 		"BucketNotEmpty: The bucket you tried to delete is not empty",
 	)
 	ErrNotImplemented   = errors.New("NotImplemented")
@@ -39,6 +40,10 @@ func WriteError(log *slog.Logger, w http.ResponseWriter, r *http.Request, err er
 		code = "NoSuchKey"
 		message = "The specified key does not exist."
 		status = http.StatusNotFound
+	case errors.Is(err, ErrBucketAlreadyOwnedByYou):
+		code = "BucketAlreadyOwnedByYou"
+		message = "Your previous request to create the named bucket succeeded and you already own it."
+		status = http.StatusConflict
 	case errors.Is(err, ErrBucketAlreadyExists):
 		code = "BucketAlreadyExists"
 		message = "The requested bucket name is not available."

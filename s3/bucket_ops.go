@@ -191,6 +191,17 @@ func (h *S3Handler) createBucket(
 	}
 
 	output, err := h.Backend.CreateBucket(ctx, input)
+	if errors.Is(err, ErrBucketAlreadyOwnedByYou) {
+		log.ErrorContext(ctx, "request failed", "error", err, "code", http.StatusConflict, "path", r.URL.Path)
+		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
+			Code:     "BucketAlreadyOwnedByYou",
+			Message:  "Your previous request to create the named bucket succeeded and you already own it.",
+			Resource: r.URL.Path,
+		}, http.StatusConflict)
+
+		return
+	}
+
 	if errors.Is(err, ErrBucketAlreadyExists) {
 		log.ErrorContext(ctx, "request failed", "error", err, "code", http.StatusConflict, "path", r.URL.Path)
 		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{

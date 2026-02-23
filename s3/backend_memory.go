@@ -97,10 +97,12 @@ func (b *InMemoryBackend) CreateBucket(
 
 	bucketName := *input.Bucket
 
-	// Check across all regions for global uniqueness
+	// Check across all regions for global uniqueness.
+	// Since this is a single-tenant mock, a pre-existing bucket is always
+	// owned by the caller → return BucketAlreadyOwnedByYou (not BucketAlreadyExists).
 	for _, regionBuckets := range b.buckets {
 		if _, exists := regionBuckets[bucketName]; exists {
-			return nil, ErrBucketAlreadyExists
+			return nil, ErrBucketAlreadyOwnedByYou
 		}
 	}
 

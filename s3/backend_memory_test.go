@@ -45,7 +45,7 @@ func TestCreateBucket(t *testing.T) {
 				t.Helper()
 				mustCreateBucket(t, b, "my-bucket")
 			},
-			wantErr:   s3.ErrBucketAlreadyExists,
+			wantErr:   s3.ErrBucketAlreadyOwnedByYou,
 			expectErr: true,
 		},
 	}
@@ -968,7 +968,7 @@ func TestCreateBucket_GlobalUniqueness(t *testing.T) {
 	_, err := backend.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{
 		Bucket: aws.String("unique-bucket"),
 	})
-	require.ErrorIs(t, err, s3.ErrBucketAlreadyExists, "same bucket name should be rejected globally")
+	require.ErrorIs(t, err, s3.ErrBucketAlreadyOwnedByYou, "same bucket name should be rejected globally")
 }
 
 func TestPutObject_ContentEncodingDisposition(t *testing.T) {

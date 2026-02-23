@@ -128,7 +128,7 @@ func TestIntegration_S3_BucketLifecycle(t *testing.T) {
 			},
 		},
 		{
-			name: "duplicate bucket creation fails",
+			name: "duplicate bucket creation returns BucketAlreadyOwnedByYou",
 			verify: func(t *testing.T, client *s3.Client) {
 				t.Helper()
 				ctx := t.Context()
@@ -143,6 +143,9 @@ func TestIntegration_S3_BucketLifecycle(t *testing.T) {
 					Bucket: aws.String(bkt),
 				})
 				require.Error(t, err)
+
+				var alreadyOwned *types.BucketAlreadyOwnedByYou
+				assert.ErrorAs(t, err, &alreadyOwned, "expected BucketAlreadyOwnedByYou, got %T: %v", err, err)
 			},
 		},
 	}
