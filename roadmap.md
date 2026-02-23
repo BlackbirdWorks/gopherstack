@@ -23,7 +23,7 @@
 | Pagination | Done |
 
 **Gaps to close:**
-- [ ] UpdateTable (modify provisioned throughput, add/remove GSI)
+- [x] UpdateTable (modify provisioned throughput, add/remove GSI)
 - [ ] DescribeContinuousBackups / point-in-time recovery stubs
 - [ ] PartiQL support (ExecuteStatement, BatchExecuteStatement)
 - [ ] TagResource / UntagResource / ListTagsOfResource

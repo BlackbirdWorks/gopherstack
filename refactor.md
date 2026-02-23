@@ -13,7 +13,7 @@ Audit of Gopherstack against LocalStack free-tier parity. Items are grouped by t
 
 ### Missing Features
 
-- [ ] **UpdateTable** — Cannot modify provisioned throughput, add/remove GSIs, or toggle streams on an existing table.
+- [x] **UpdateTable** — Cannot modify provisioned throughput, add/remove GSIs, or toggle streams on an existing table.
 - [ ] **TagResource / UntagResource / ListTagsOfResource** — No tagging support for tables.
 - [ ] **PartiQL (ExecuteStatement, BatchExecuteStatement)** — LocalStack free tier supports this.
 
@@ -67,7 +67,7 @@ Audit of Gopherstack against LocalStack free-tier parity. Items are grouped by t
 
 ### Missing Features
 
-- [ ] **SNS → SQS delivery** — Publishing to a topic with SQS subscriptions does not enqueue messages into the target queue. This is the most critical cross-service gap.
+- [x] **SNS → SQS delivery** — Publishing to a topic with SQS subscriptions does not enqueue messages into the target queue. This is the most critical cross-service gap.
 - [ ] **SNS → Lambda invocation** — Not implemented.
 - [ ] **ConfirmSubscription** — No action handler for confirming HTTP/HTTPS endpoint subscriptions.
 - [ ] **TagResource / UntagResource / ListTagsForResource** — No tagging support.
@@ -169,7 +169,7 @@ The `REGION` env var already exists (`cli.go:76`) and is passed to the AWS SDK c
 
 ### Realism Gaps
 
-- [ ] **Account ID inconsistency across services** — STS uses `123456789012` (`sts/models.go:10`), every other service uses `000000000000` (`iam/models.go:12`, `kms/models.go:10`, `secretsmanager/models.go:10`, `sns/backend.go:27`, `sqs/types.go:10`). Unify to a single value injected from `cli.go` via env var `ACCOUNT_ID` (default `000000000000`).
+- [x] **Account ID inconsistency across services** — STS uses `123456789012` (`sts/models.go:10`), every other service uses `000000000000` (`iam/models.go:12`, `kms/models.go:10`, `secretsmanager/models.go:10`, `sns/backend.go:27`, `sqs/types.go:10`). Unify to a single value injected from `cli.go` via env var `ACCOUNT_ID` (default `000000000000`).
 - [ ] **ARN regions hardcoded to us-east-1** — KMS (`kms/backend.go:196`), Secrets Manager (`secretsmanager/backend.go:99`), SNS (`sns/backend.go:30`), SQS (`sqs/backend.go:69`), and DynamoDB Streams (`dynamodb/streams_ops.go:324-328`) all bake `us-east-1` into ARNs regardless of the region in the request. Should use request region with fallback to the centralized default from `cli.go`.
 - [ ] **No region extraction for SNS, SQS, KMS, Secrets Manager** — DynamoDB and S3 parse region from the Authorization header SigV4 credential scope. SNS, SQS, KMS, and Secrets Manager skip this entirely and fall through to a hardcoded constant. A shared `extractRegionFromRequest` utility should be used by all services, falling back to the centralized default region.
 - [ ] **DynamoDB Stream ARN uses wrong account ID** — Stream ARNs are built with `123456789012` (`dynamodb/streams_ops.go:324-328`) while table operations use whatever region comes from context. The stream ARN should derive from the injected account ID and the parent table's region.
