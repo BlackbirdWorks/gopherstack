@@ -1,0 +1,55 @@
+{{define "content"}}
+<div class="px-4 sm:px-6 lg:px-8">
+    <div class="sm:flex sm:items-center justify-between">
+        <div class="sm:flex-auto">
+            <h1 class="text-3xl font-bold text-gray-900 dark:text-white">Lambda Functions</h1>
+            <p class="mt-2 text-sm text-gray-700 dark:text-gray-300">A list of all functions in your in-memory mocked Lambda environment.</p>
+        </div>
+    </div>
+    <div class="mt-8 relative overflow-x-auto shadow-md sm:rounded-lg">
+        <table class="w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
+            <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                <tr>
+                    <th scope="col" class="px-6 py-3">Name</th>
+                    <th scope="col" class="px-6 py-3">Runtime</th>
+                    <th scope="col" class="px-6 py-3">Package Type</th>
+                    <th scope="col" class="px-6 py-3">State</th>
+                    <th scope="col" class="px-6 py-3">Memory (MB)</th>
+                    <th scope="col" class="px-6 py-3">Timeout (s)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Functions}}
+                <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
+                    <td class="px-6 py-4 font-mono text-gray-900 dark:text-white whitespace-nowrap">
+                        <a href="/dashboard/lambda/function?name={{.FunctionName}}"
+                            class="text-blue-600 hover:underline dark:text-blue-400">
+                            {{.FunctionName}}
+                        </a>
+                    </td>
+                    <td class="px-6 py-4">{{if .Runtime}}{{.Runtime}}{{else}}<span class="italic text-gray-400">—</span>{{end}}</td>
+                    <td class="px-6 py-4">{{.PackageType}}</td>
+                    <td class="px-6 py-4">
+                        {{if eq (print .State) "Active"}}
+                        <span class="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-green-900 dark:text-green-300">{{.State}}</span>
+                        {{else if eq (print .State) "Failed"}}
+                        <span class="bg-red-100 text-red-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-red-900 dark:text-red-300">{{.State}}</span>
+                        {{else}}
+                        <span class="bg-yellow-100 text-yellow-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-yellow-900 dark:text-yellow-300">{{.State}}</span>
+                        {{end}}
+                    </td>
+                    <td class="px-6 py-4">{{.MemorySize}}</td>
+                    <td class="px-6 py-4">{{.Timeout}}</td>
+                </tr>
+                {{else}}
+                <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
+                    <td colspan="6" class="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                        No Lambda functions found.
+                    </td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+</div>
+{{end}}

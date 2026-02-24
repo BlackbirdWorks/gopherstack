@@ -15,6 +15,7 @@ import (
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
 	kmsbackend "github.com/blackbirdworks/gopherstack/kms"
+	lambdabackend "github.com/blackbirdworks/gopherstack/lambda"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	pkgslogger "github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -65,6 +66,7 @@ type DashboardHandler struct {
 	DynamoDB          *dynamodb.Client
 	SQSOps            *sqsbackend.Handler
 	SecretsManagerOps *secretsmanagerbackend.Handler
+	LambdaOps         *lambdabackend.Handler
 	SubRouter         *echo.Echo
 	ddbProvider       *ddbbackend.DashboardProvider
 	s3Provider        *s3backend.DashboardProvider
@@ -89,7 +91,9 @@ type Config struct {
 	KMSOps *kmsbackend.Handler
 	// SecretsManagerOps provides access to the Secrets Manager backend.
 	SecretsManagerOps *secretsmanagerbackend.Handler
-	Logger            *slog.Logger
+	// LambdaOps provides access to the Lambda backend.
+	LambdaOps *lambdabackend.Handler
+	Logger    *slog.Logger
 	// GlobalConfig holds the centralized account and region configuration shown on the settings page.
 	GlobalConfig config.GlobalConfig
 }
@@ -121,6 +125,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		"templates/sqs/*.html",
 		"templates/kms/*.html",
 		"templates/secretsmanager/*.html",
+		"templates/lambda/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
 		"templates/settings.html",
@@ -143,6 +148,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		SQSOps:            cfg.SQSOps,
 		KMSOps:            cfg.KMSOps,
 		SecretsManagerOps: cfg.SecretsManagerOps,
+		LambdaOps:         cfg.LambdaOps,
 		GlobalConfig:      cfg.GlobalConfig,
 		Logger:            cfg.Logger,
 		layout:            tmpl,
@@ -246,6 +252,12 @@ func (h *DashboardHandler) setupSecretsManagerRoutes() {
 	h.SubRouter.GET("/dashboard/secretsmanager/secret", h.secretsManagerDetail)
 }
 
+func (h *DashboardHandler) setupLambdaRoutes() {
+	h.SubRouter.GET("/dashboard/lambda", h.lambdaIndex)
+	h.SubRouter.GET("/dashboard/lambda/function", h.lambdaFunctionDetail)
+	h.SubRouter.POST("/dashboard/lambda/invoke", h.lambdaInvoke)
+}
+
 func (h *DashboardHandler) setupMetaRoutes() {
 	dashboardGroup := h.SubRouter.Group("/dashboard")
 	RegisterMetricsHandlers(dashboardGroup, h)
@@ -261,6 +273,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.setupSQSRoutes()
 	h.setupKMSRoutes()
 	h.setupSecretsManagerRoutes()
+	h.setupLambdaRoutes()
 	h.setupMetaRoutes()
 }
 
@@ -328,6 +341,8 @@ func (h *DashboardHandler) ExtractOperation(c *echo.Context) string {
 		return "KMS"
 	case strings.HasPrefix(path, "/secretsmanager"):
 		return "SecretsManager"
+	case strings.HasPrefix(path, "/lambda"):
+		return "Lambda"
 	case strings.HasPrefix(path, "/metrics"):
 		return "Metrics"
 	case strings.HasPrefix(path, "/docs"):
