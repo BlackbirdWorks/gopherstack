@@ -77,4 +77,12 @@ type StorageBackend interface {
 		ctx context.Context,
 		input *s3.AbortMultipartUploadInput,
 	) (*s3.AbortMultipartUploadOutput, error)
+	ListMultipartUploads(
+		ctx context.Context,
+		input *s3.ListMultipartUploadsInput,
+	) (*s3.ListMultipartUploadsOutput, error)
+	ListParts(
+		ctx context.Context,
+		input *s3.ListPartsInput,
+	) (*s3.ListPartsOutput, error)
 }

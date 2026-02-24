@@ -1114,10 +1114,11 @@ func (b *InMemoryBackend) CreateMultipartUpload(
 	}
 
 	b.uploads[uploadID] = &StoredMultipartUpload{
-		UploadID: uploadID,
-		Bucket:   bucketName,
-		Key:      key,
-		Parts:    make(map[int32]*StoredPart),
+		UploadID:  uploadID,
+		Bucket:    bucketName,
+		Key:       key,
+		Parts:     make(map[int32]*StoredPart),
+		Initiated: time.Now().UTC(),
 	}
 	b.mu.Unlock()
 
@@ -1287,7 +1288,93 @@ func (b *InMemoryBackend) AbortMultipartUpload(
 	return &s3.AbortMultipartUploadOutput{}, nil
 }
 
-// PutBucketACL stores the canned ACL for a bucket.
+// ListMultipartUploads returns in-progress multipart uploads for a bucket.
+func (b *InMemoryBackend) ListMultipartUploads(
+	_ context.Context,
+	input *s3.ListMultipartUploadsInput,
+) (*s3.ListMultipartUploadsOutput, error) {
+	bucketName := aws.ToString(input.Bucket)
+
+	b.mu.RLock("ListMultipartUploads")
+	defer b.mu.RUnlock()
+
+	if _, err := b.getBucket(bucketName); err != nil {
+		return nil, err
+	}
+
+	prefix := aws.ToString(input.Prefix)
+	var uploads []types.MultipartUpload
+
+	for _, u := range b.uploads {
+		if u.Bucket != bucketName {
+			continue
+		}
+
+		if prefix != "" && !strings.HasPrefix(u.Key, prefix) {
+			continue
+		}
+
+		uploads = append(uploads, types.MultipartUpload{
+			Key:       aws.String(u.Key),
+			UploadId:  aws.String(u.UploadID),
+			Initiated: aws.Time(u.Initiated),
+		})
+	}
+
+	sort.Slice(uploads, func(i, j int) bool {
+		ki, kj := aws.ToString(uploads[i].Key), aws.ToString(uploads[j].Key)
+		if ki != kj {
+			return ki < kj
+		}
+
+		return aws.ToString(uploads[i].UploadId) < aws.ToString(uploads[j].UploadId)
+	})
+
+	return &s3.ListMultipartUploadsOutput{
+		Bucket:  aws.String(bucketName),
+		Uploads: uploads,
+	}, nil
+}
+
+// ListParts returns the parts that have been uploaded for a specific multipart upload.
+func (b *InMemoryBackend) ListParts(
+	_ context.Context,
+	input *s3.ListPartsInput,
+) (*s3.ListPartsOutput, error) {
+	uploadID := aws.ToString(input.UploadId)
+
+	b.mu.RLock("ListParts")
+	defer b.mu.RUnlock()
+
+	upload, exists := b.uploads[uploadID]
+	if !exists {
+		return nil, ErrNoSuchUpload
+	}
+
+	partNumbers := make([]int32, 0, len(upload.Parts))
+	for pn := range upload.Parts {
+		partNumbers = append(partNumbers, pn)
+	}
+
+	sort.Slice(partNumbers, func(i, j int) bool { return partNumbers[i] < partNumbers[j] })
+
+	var parts []types.Part
+	for _, pn := range partNumbers {
+		p := upload.Parts[pn]
+		parts = append(parts, types.Part{
+			PartNumber: aws.Int32(pn),
+			ETag:       aws.String(p.ETag),
+			Size:       aws.Int64(p.Size),
+		})
+	}
+
+	return &s3.ListPartsOutput{
+		Bucket:   input.Bucket,
+		Key:      input.Key,
+		UploadId: input.UploadId,
+		Parts:    parts,
+	}, nil
+}
 func (b *InMemoryBackend) PutBucketACL(_ context.Context, bucketName, acl string) error {
 	b.mu.RLock("PutBucketACL")
 	bucket, err := b.getBucket(bucketName)

@@ -133,8 +133,10 @@ func (h *S3Handler) GetSupportedOperations() []string {
 		"HeadObject",
 		"DeleteObject",
 		"DeleteObjects",
+		"CopyObject",
 		"ListObjects",
 		"ListObjectsV2",
+		"ListObjectVersions",
 		"PutObjectTagging",
 		"GetObjectTagging",
 		"DeleteObjectTagging",
@@ -142,6 +144,8 @@ func (h *S3Handler) GetSupportedOperations() []string {
 		"UploadPart",
 		"CompleteMultipartUpload",
 		"AbortMultipartUpload",
+		"ListMultipartUploads",
+		"ListParts",
 	}
 }
 

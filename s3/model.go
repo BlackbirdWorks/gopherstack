@@ -1,6 +1,9 @@
 package s3
 
-import "encoding/xml"
+import (
+	"encoding/xml"
+	"time"
+)
 
 type ListAllMyBucketsResult struct {
 	XMLName xml.Name    `xml:"ListAllMyBucketsResult"`
@@ -218,4 +221,47 @@ type Grantee struct {
 	XmlnsXsi string `xml:"xmlns:xsi,attr"`
 	XsiType  string `xml:"xsi:type,attr"`
 	ID       string `xml:"ID"`
+}
+
+// ListMultipartUploadsResult is the XML response for ListMultipartUploads.
+type ListMultipartUploadsResult struct {
+XMLName            xml.Name          `xml:"ListMultipartUploadsResult"`
+Xmlns              string            `xml:"xmlns,attr,omitempty"`
+Bucket             string            `xml:"Bucket"`
+Prefix             string            `xml:"Prefix,omitempty"`
+KeyMarker          string            `xml:"KeyMarker,omitempty"`
+UploadIDMarker     string            `xml:"UploadIdMarker,omitempty"`
+NextKeyMarker      string            `xml:"NextKeyMarker,omitempty"`
+NextUploadIDMarker string            `xml:"NextUploadIdMarker,omitempty"`
+MaxUploads         int               `xml:"MaxUploads"`
+IsTruncated        bool              `xml:"IsTruncated"`
+Uploads            []MultipartUpload `xml:"Upload"`
+}
+
+// MultipartUpload describes a single in-progress multipart upload.
+type MultipartUpload struct {
+Key       string    `xml:"Key"`
+UploadID  string    `xml:"UploadId"`
+Initiated time.Time `xml:"Initiated"`
+}
+
+// ListPartsResult is the XML response for ListParts.
+type ListPartsResult struct {
+XMLName              xml.Name    `xml:"ListPartsResult"`
+Xmlns                string      `xml:"xmlns,attr,omitempty"`
+Bucket               string      `xml:"Bucket"`
+Key                  string      `xml:"Key"`
+UploadID             string      `xml:"UploadId"`
+PartNumberMarker     int         `xml:"PartNumberMarker"`
+NextPartNumberMarker int         `xml:"NextPartNumberMarker,omitempty"`
+MaxParts             int         `xml:"MaxParts"`
+IsTruncated          bool        `xml:"IsTruncated"`
+Parts                []PartXML   `xml:"Part"`
+}
+
+// PartXML describes a single uploaded part in a multipart upload.
+type PartXML struct {
+PartNumber int    `xml:"PartNumber"`
+ETag       string `xml:"ETag"`
+Size       int64  `xml:"Size"`
 }
