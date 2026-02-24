@@ -2,7 +2,7 @@ package apigateway
 
 import "time"
 
-// RestApi represents an API Gateway REST API.
+// RestAPI represents an API Gateway REST API.
 type RestAPI struct {
 	CreatedDate time.Time         `json:"createdDate"`
 	Tags        map[string]string `json:"tags,omitempty"`

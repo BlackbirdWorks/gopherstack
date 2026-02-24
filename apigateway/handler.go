@@ -155,7 +155,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 type actionFn func([]byte) (int, any, error)
 
-func (h *Handler) dispatchTable() map[string]actionFn {
+func (h *Handler) restAPIActions() map[string]actionFn {
 	return map[string]actionFn{
 		"CreateRestApi": func(b []byte) (int, any, error) {
 			var input struct {
@@ -215,6 +215,11 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 
 			return http.StatusOK, map[string]any{"item": apis, "position": position}, nil
 		},
+	}
+}
+
+func (h *Handler) resourceActions() map[string]actionFn {
+	return map[string]actionFn{
 		"GetResources": func(b []byte) (int, any, error) {
 			var input struct {
 				RestAPIID string `json:"restApiId"`
@@ -276,6 +281,11 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 
 			return http.StatusNoContent, map[string]any{}, nil
 		},
+	}
+}
+
+func (h *Handler) methodActions() map[string]actionFn {
+	return map[string]actionFn{
 		"PutMethod": func(b []byte) (int, any, error) {
 			var input struct {
 				RestAPIID         string `json:"restApiId"`
@@ -331,6 +341,11 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 
 			return http.StatusNoContent, map[string]any{}, nil
 		},
+	}
+}
+
+func (h *Handler) integrationActions() map[string]actionFn {
+	return map[string]actionFn{
 		"PutIntegration": func(b []byte) (int, any, error) {
 			var input struct {
 				PutIntegrationInput
@@ -385,6 +400,11 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 
 			return http.StatusNoContent, map[string]any{}, nil
 		},
+	}
+}
+
+func (h *Handler) deploymentActions() map[string]actionFn {
+	return map[string]actionFn{
 		"CreateDeployment": func(b []byte) (int, any, error) {
 			var input struct {
 				RestAPIID   string `json:"restApiId"`
@@ -459,6 +479,27 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 			return http.StatusNoContent, map[string]any{}, nil
 		},
 	}
+}
+
+func (h *Handler) dispatchTable() map[string]actionFn {
+	table := make(map[string]actionFn)
+	for k, v := range h.restAPIActions() {
+		table[k] = v
+	}
+	for k, v := range h.resourceActions() {
+		table[k] = v
+	}
+	for k, v := range h.methodActions() {
+		table[k] = v
+	}
+	for k, v := range h.integrationActions() {
+		table[k] = v
+	}
+	for k, v := range h.deploymentActions() {
+		table[k] = v
+	}
+
+	return table
 }
 
 // dispatch routes the action to the correct handler function.

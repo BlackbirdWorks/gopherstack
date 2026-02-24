@@ -147,7 +147,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 type actionFn func([]byte) (any, error)
 
-func (h *Handler) dispatchTable() map[string]actionFn {
+func (h *Handler) eventBusActions() map[string]actionFn {
 	return map[string]actionFn{
 		"CreateEventBus": func(b []byte) (any, error) {
 			var input struct {
@@ -207,6 +207,11 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 
 			return bus, nil
 		},
+	}
+}
+
+func (h *Handler) ruleActions() map[string]actionFn {
+	return map[string]actionFn{
 		"PutRule": func(b []byte) (any, error) {
 			var input PutRuleInput
 			if err := json.Unmarshal(b, &input); err != nil {
@@ -289,6 +294,11 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 
 			return map[string]any{}, nil
 		},
+	}
+}
+
+func (h *Handler) targetActions() map[string]actionFn {
+	return map[string]actionFn{
 		"PutTargets": func(b []byte) (any, error) {
 			var input struct {
 				Rule         string   `json:"Rule"`
@@ -350,6 +360,11 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 
 			return map[string]any{"Targets": targets, "NextToken": next}, nil
 		},
+	}
+}
+
+func (h *Handler) eventsActions() map[string]actionFn {
+	return map[string]actionFn{
 		"PutEvents": func(b []byte) (any, error) {
 			var input struct {
 				Entries []EventEntry `json:"Entries"`
@@ -365,6 +380,24 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 			}, nil
 		},
 	}
+}
+
+func (h *Handler) dispatchTable() map[string]actionFn {
+	table := make(map[string]actionFn)
+	for k, v := range h.eventBusActions() {
+		table[k] = v
+	}
+	for k, v := range h.ruleActions() {
+		table[k] = v
+	}
+	for k, v := range h.targetActions() {
+		table[k] = v
+	}
+	for k, v := range h.eventsActions() {
+		table[k] = v
+	}
+
+	return table
 }
 
 // dispatch routes the action to the correct handler function.

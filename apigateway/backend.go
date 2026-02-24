@@ -77,10 +77,10 @@ func randomID(length int) string {
 
 // apiData holds per-REST-API state.
 type apiData struct {
-	api         RestAPI
 	resources   map[string]*Resource   // resourceID -> Resource
 	deployments map[string]*Deployment // deploymentID -> Deployment
 	stages      map[string]*Stage      // stageName -> Stage
+	api         RestAPI
 }
 
 // InMemoryBackend implements StorageBackend using in-memory maps.

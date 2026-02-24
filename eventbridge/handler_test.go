@@ -285,7 +285,9 @@ func TestHandler_PutTargetsListAndRemove(t *testing.T) {
 		handler,
 		e,
 		"PutTargets",
-		`{"Rule":"rule-t","Targets":[{"Id":"t1","Arn":"arn:aws:lambda:us-east-1:123:function:fn"},{"Id":"t2","Arn":"arn:aws:sqs:us-east-1:123:q"}]}`,
+		`{"Rule":"rule-t","Targets":[`+
+			`{"Id":"t1","Arn":"arn:aws:lambda:us-east-1:123:function:fn"},`+
+			`{"Id":"t2","Arn":"arn:aws:sqs:us-east-1:123:q"}]}`,
 	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -327,7 +329,9 @@ func TestHandler_PutEvents(t *testing.T) {
 		handler,
 		e,
 		"PutEvents",
-		`{"Entries":[{"Source":"my.app","DetailType":"UserCreated","Detail":"{\"userId\":\"1\"}"},{"Source":"my.app","DetailType":"UserDeleted","Detail":"{}"}]}`,
+		`{"Entries":[`+
+			`{"Source":"my.app","DetailType":"UserCreated","Detail":"{\"userId\":\"1\"}"},`+
+			`{"Source":"my.app","DetailType":"UserDeleted","Detail":"{}"}]}`,
 	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 

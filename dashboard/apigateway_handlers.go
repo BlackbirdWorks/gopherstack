@@ -13,10 +13,10 @@ func (h *DashboardHandler) apiGatewayIndex(c *echo.Context) error {
 		return c.NoContent(http.StatusServiceUnavailable)
 	}
 
-	apis, _, _ := h.APIGatewayOps.Backend.GetRestApis(0, "")
+	apis, _, _ := h.APIGatewayOps.Backend.GetRestAPIs(0, "")
 	data := struct {
 		PageData
-		APIs []apigwbackend.RestApi
+		APIs []apigwbackend.RestAPI
 	}{
 		PageData: PageData{Title: "API Gateway", ActiveTab: "apigateway"},
 		APIs:     apis,
@@ -37,7 +37,7 @@ func (h *DashboardHandler) apiGatewayDetail(c *echo.Context) error {
 		return c.String(http.StatusBadRequest, "Missing id")
 	}
 
-	api, err := h.APIGatewayOps.Backend.GetRestApi(id)
+	api, err := h.APIGatewayOps.Backend.GetRestAPI(id)
 	if err != nil {
 		return c.String(http.StatusNotFound, "API not found")
 	}
@@ -46,7 +46,7 @@ func (h *DashboardHandler) apiGatewayDetail(c *echo.Context) error {
 	stages, _ := h.APIGatewayOps.Backend.GetStages(id)
 	data := struct {
 		PageData
-		API       *apigwbackend.RestApi
+		API       *apigwbackend.RestAPI
 		Resources []apigwbackend.Resource
 		Stages    []apigwbackend.Stage
 	}{
