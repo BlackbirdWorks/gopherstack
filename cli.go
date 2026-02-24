@@ -123,7 +123,7 @@ func (c *CLI) GetS3Endpoint() string {
 	return "localhost:" + s3Port
 }
 
-// GetLambdaSettings returns Lambda settings (lambda.LambdaSettingsProvider).
+// GetLambdaSettings returns Lambda settings (lambda.SettingsProvider).
 func (c *CLI) GetLambdaSettings() lambdabackend.Settings {
 	return c.Lambda
 }

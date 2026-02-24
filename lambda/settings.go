@@ -13,11 +13,16 @@ type Settings struct {
 	IdleTimeout time.Duration `name:"idle-timeout" env:"LAMBDA_IDLE_TIMEOUT" default:"10m" help:"Idle container timeout."` //nolint:lll // config struct tags are intentionally verbose
 }
 
+const (
+	defaultPoolSize    = 3
+	defaultIdleTimeout = 10 * time.Minute
+)
+
 // DefaultSettings returns Settings with sensible defaults for use without Kong.
 func DefaultSettings() Settings {
 	return Settings{
 		DockerHost:  "172.17.0.1",
-		PoolSize:    3,
-		IdleTimeout: 10 * time.Minute,
+		PoolSize:    defaultPoolSize,
+		IdleTimeout: defaultIdleTimeout,
 	}
 }

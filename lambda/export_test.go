@@ -1,5 +1,6 @@
 // This file exports internal types for use in external (_test) packages.
 // It is compiled only during testing.
+
 package lambda
 
 import (
@@ -32,6 +33,10 @@ func (e *ExportedRuntimeServer) Stop(ctx context.Context) {
 }
 
 // Invoke enqueues a payload and waits for the container response.
-func (e *ExportedRuntimeServer) Invoke(ctx context.Context, payload []byte, timeout time.Duration) ([]byte, bool, error) {
+func (e *ExportedRuntimeServer) Invoke(
+	ctx context.Context,
+	payload []byte,
+	timeout time.Duration,
+) ([]byte, bool, error) {
 	return e.inner.invoke(ctx, payload, timeout)
 }

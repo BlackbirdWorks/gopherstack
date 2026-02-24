@@ -51,9 +51,9 @@ type InMemoryBackend struct {
 	docker    *docker.Client
 	portAlloc *portalloc.Allocator
 	logger    *slog.Logger
-	settings  Settings
 	accountID string
 	region    string
+	settings  Settings
 	mu        sync.RWMutex
 }
 
@@ -140,7 +140,7 @@ func (b *InMemoryBackend) DeleteFunction(name string) error {
 	// Clean up runtime resources outside the lock to avoid blocking while stopping the server.
 	if rt != nil {
 		if rt.srv != nil {
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
 			defer cancel()
 			rt.srv.stop(shutdownCtx)
 		}
@@ -226,6 +226,9 @@ func (b *InMemoryBackend) InvokeFunction(
 // defaultFunctionTimeout is used when the function has no timeout configured.
 const defaultFunctionTimeout = 3 * time.Second
 
+// containerShutdownTimeout is the maximum time to wait for a container to stop.
+const containerShutdownTimeout = 5 * time.Second
+
 // getOrCreateRuntime returns the runtime server for a function, creating it on first use.
 // Must not be called with b.mu held.
 func (b *InMemoryBackend) getOrCreateRuntime(ctx context.Context, fn *FunctionConfiguration) (*runtimeServer, error) {
@@ -277,7 +280,10 @@ func (b *InMemoryBackend) getOrCreateRuntime(ctx context.Context, fn *FunctionCo
 	rt.started = true
 
 	if containerErr := b.startContainer(ctx, fn, port); containerErr != nil {
-		b.logger.WarnContext(ctx, "lambda: failed to start container", "function", fn.FunctionName, "error", containerErr)
+		b.logger.WarnContext(
+			ctx, "lambda: failed to start container",
+			"function", fn.FunctionName, "error", containerErr,
+		)
 	}
 
 	return srv, nil

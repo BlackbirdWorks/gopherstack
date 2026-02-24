@@ -23,6 +23,31 @@ const lambdaMatchPriority = 95
 // lambdaPathPrefix is the path prefix for Lambda REST API v1 endpoints.
 const lambdaPathPrefix = "/2015-03-31/functions"
 
+// routeSpec binds an HTTP method and path predicate to an operation name or handler.
+type routeSpec struct {
+	method string
+	match  func(rest string) bool
+	op     string
+}
+
+// lambdaOpRoutes maps HTTP method + path predicates to operation names.
+//
+//nolint:gochecknoglobals // intentional package-level route table
+var lambdaOpRoutes = []routeSpec{
+	{http.MethodPost, isEmptyRest, "CreateFunction"},
+	{http.MethodGet, isEmptyRest, "ListFunctions"},
+	{http.MethodGet, isNameOnly, "GetFunction"},
+	{http.MethodDelete, isNameOnly, "DeleteFunction"},
+	{http.MethodPut, hasSuffixCode, "UpdateFunctionCode"},
+	{http.MethodPut, hasSuffixConfiguration, "UpdateFunctionConfiguration"},
+	{http.MethodPost, hasSuffixInvocations, "InvokeFunction"},
+}
+
+func isEmptyRest(rest string) bool            { return rest == "" }
+func hasSuffixCode(rest string) bool          { return strings.HasSuffix(rest, "/code") }
+func hasSuffixConfiguration(rest string) bool { return strings.HasSuffix(rest, "/configuration") }
+func hasSuffixInvocations(rest string) bool   { return strings.HasSuffix(rest, "/invocations") }
+
 // Handler is the Echo HTTP handler for Lambda operations.
 type Handler struct {
 	Backend       StorageBackend
@@ -74,24 +99,13 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	rest := strings.TrimPrefix(c.Request().URL.Path, lambdaPathPrefix)
 	method := c.Request().Method
 
-	switch {
-	case method == http.MethodPost && rest == "":
-		return "CreateFunction"
-	case method == http.MethodGet && rest == "":
-		return "ListFunctions"
-	case method == http.MethodGet && isNameOnly(rest):
-		return "GetFunction"
-	case method == http.MethodDelete && isNameOnly(rest):
-		return "DeleteFunction"
-	case method == http.MethodPut && strings.HasSuffix(rest, "/code"):
-		return "UpdateFunctionCode"
-	case method == http.MethodPut && strings.HasSuffix(rest, "/configuration"):
-		return "UpdateFunctionConfiguration"
-	case method == http.MethodPost && strings.HasSuffix(rest, "/invocations"):
-		return "InvokeFunction"
-	default:
-		return "Unknown"
+	for _, route := range lambdaOpRoutes {
+		if route.method == method && route.match(rest) {
+			return route.op
+		}
 	}
+
+	return "Unknown"
 }
 
 // ExtractResource returns the function name from the request path.
@@ -106,38 +120,84 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	return ""
 }
 
+// handlerEntry binds a route to a handler function.
+type handlerEntry struct {
+	execute func(c *echo.Context, rest string) error
+	match   func(rest string) bool
+	method  string
+}
+
+func (h *Handler) buildRouteHandlers() []handlerEntry {
+	return []handlerEntry{
+		{
+			method:  http.MethodPost,
+			match:   isEmptyRest,
+			execute: func(c *echo.Context, _ string) error { return h.handleCreateFunction(c) },
+		},
+		{
+			method:  http.MethodGet,
+			match:   isEmptyRest,
+			execute: func(c *echo.Context, _ string) error { return h.handleListFunctions(c) },
+		},
+		{
+			method:  http.MethodGet,
+			match:   isNameOnly,
+			execute: func(c *echo.Context, rest string) error { return h.handleGetFunction(c, nameFromRest(rest)) },
+		},
+		{
+			method:  http.MethodDelete,
+			match:   isNameOnly,
+			execute: func(c *echo.Context, rest string) error { return h.handleDeleteFunction(c, nameFromRest(rest)) },
+		},
+		{
+			method: http.MethodPut,
+			match:  hasSuffixCode,
+			execute: func(c *echo.Context, rest string) error {
+				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/code")
+
+				return h.handleUpdateFunctionCode(c, name)
+			},
+		},
+		{
+			method: http.MethodPut,
+			match:  hasSuffixConfiguration,
+			execute: func(c *echo.Context, rest string) error {
+				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/configuration")
+
+				return h.handleUpdateFunctionConfiguration(c, name)
+			},
+		},
+		{
+			method: http.MethodPost,
+			match:  hasSuffixInvocations,
+			execute: func(c *echo.Context, rest string) error {
+				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/invocations")
+
+				return h.handleInvoke(c, name)
+			},
+		},
+	}
+}
+
 // Handler returns the Echo handler function for Lambda operations.
 func (h *Handler) Handler() echo.HandlerFunc {
+	routes := h.buildRouteHandlers()
+
 	return func(c *echo.Context) error {
 		ctx := c.Request().Context()
 		log := logger.Load(ctx)
-
-		method := c.Request().Method
 		rest := strings.TrimPrefix(c.Request().URL.Path, lambdaPathPrefix)
+		method := c.Request().Method
 
-		switch {
-		case method == http.MethodPost && rest == "":
-			return h.handleCreateFunction(c)
-		case method == http.MethodGet && rest == "":
-			return h.handleListFunctions(c)
-		case method == http.MethodGet && isNameOnly(rest):
-			return h.handleGetFunction(c, nameFromRest(rest))
-		case method == http.MethodDelete && isNameOnly(rest):
-			return h.handleDeleteFunction(c, nameFromRest(rest))
-		case method == http.MethodPut && strings.HasSuffix(rest, "/code"):
-			name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/code")
-			return h.handleUpdateFunctionCode(c, name)
-		case method == http.MethodPut && strings.HasSuffix(rest, "/configuration"):
-			name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/configuration")
-			return h.handleUpdateFunctionConfiguration(c, name)
-		case method == http.MethodPost && strings.HasSuffix(rest, "/invocations"):
-			name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/invocations")
-			return h.handleInvoke(c, name)
-		default:
-			log.DebugContext(ctx, "lambda: unknown route", "method", method, "path", c.Request().URL.Path)
-
-			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+		for _, route := range routes {
+			if route.method == method && route.match(rest) {
+				return route.execute(c, rest)
+			}
 		}
+
+		log.DebugContext(ctx, "lambda: unknown route", "method", method, "path", c.Request().URL.Path)
+
+		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 	}
 }
 
@@ -190,7 +250,7 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 		State:        FunctionStateActive,
 		CreatedAt:    now,
 		LastModified: now.Format(time.RFC3339),
-		RevisionId:   uuid.New().String(),
+		RevisionID:   uuid.New().String(),
 	}
 
 	if createErr := h.Backend.CreateFunction(fn); createErr != nil {
@@ -272,7 +332,7 @@ func (h *Handler) handleUpdateFunctionCode(c *echo.Context, name string) error {
 
 	fn.ImageURI = input.ImageURI
 	fn.LastModified = time.Now().UTC().Format(time.RFC3339)
-	fn.RevisionId = uuid.New().String()
+	fn.RevisionID = uuid.New().String()
 
 	if updateErr := h.Backend.UpdateFunction(fn); updateErr != nil {
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", updateErr.Error())
@@ -323,7 +383,7 @@ func (h *Handler) handleUpdateFunctionConfiguration(c *echo.Context, name string
 	}
 
 	fn.LastModified = time.Now().UTC().Format(time.RFC3339)
-	fn.RevisionId = uuid.New().String()
+	fn.RevisionID = uuid.New().String()
 
 	if updateErr := h.Backend.UpdateFunction(fn); updateErr != nil {
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", updateErr.Error())
@@ -376,7 +436,7 @@ func (h *Handler) handleInvoke(c *echo.Context, name string) error {
 
 // writeError writes a Lambda-formatted JSON error response.
 func (h *Handler) writeError(c *echo.Context, status int, errType, message string) error {
-	return c.JSON(status, &LambdaError{
+	return c.JSON(status, &Error{
 		Type:    errType,
 		Message: message,
 	})

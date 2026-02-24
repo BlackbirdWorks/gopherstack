@@ -29,9 +29,9 @@ import (
 // ---- mock backend ----
 
 type mockBackend struct {
+	invokeErr    error
 	functions    map[string]*lambda.FunctionConfiguration
 	invokeResult []byte
-	invokeErr    error
 	mu           sync.RWMutex
 }
 
@@ -145,7 +145,12 @@ func newHandler(t *testing.T) (*lambda.Handler, *mockBackend) {
 	return h, bk
 }
 
-func callHandler(t *testing.T, h *lambda.Handler, method, path, body string, headers map[string]string) *httptest.ResponseRecorder {
+func callHandler(
+	t *testing.T,
+	h *lambda.Handler,
+	method, path, body string,
+	headers map[string]string,
+) *httptest.ResponseRecorder {
 	t.Helper()
 
 	var bodyReader *strings.Reader
@@ -178,7 +183,9 @@ func TestCreateFunction_Success(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newHandler(t)
-	body := `{"FunctionName":"my-func","PackageType":"Image","Code":{"ImageUri":"123456789012.dkr.ecr.us-east-1.amazonaws.com/myimage:latest"},"Role":"arn:aws:iam::000000000000:role/myrole"}`
+	body := `{"FunctionName":"my-func","PackageType":"Image",` +
+		`"Code":{"ImageUri":"123456789012.dkr.ecr.us-east-1.amazonaws.com/myimage:latest"},` +
+		`"Role":"arn:aws:iam::000000000000:role/myrole"}`
 
 	rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions", body, nil)
 
@@ -192,14 +199,15 @@ func TestCreateFunction_Success(t *testing.T) {
 	assert.Equal(t, lambda.FunctionStateActive, fn.State)
 	assert.Equal(t, 128, fn.MemorySize)
 	assert.Equal(t, 3, fn.Timeout)
-	assert.NotEmpty(t, fn.RevisionId)
+	assert.NotEmpty(t, fn.RevisionID)
 }
 
 func TestCreateFunction_DefaultsApplied(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newHandler(t)
-	body := `{"FunctionName":"defaults-func","PackageType":"Image","Code":{"ImageUri":"myimage:latest"},"MemorySize":256,"Timeout":60}`
+	body := `{"FunctionName":"defaults-func","PackageType":"Image",` +
+		`"Code":{"ImageUri":"myimage:latest"},"MemorySize":256,"Timeout":60}`
 
 	rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions", body, nil)
 	require.Equal(t, http.StatusCreated, rec.Code)
@@ -384,7 +392,7 @@ func TestUpdateFunctionCode_Success(t *testing.T) {
 	var fn lambda.FunctionConfiguration
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &fn))
 	assert.Equal(t, "new-image:v2", fn.ImageURI)
-	assert.NotEmpty(t, fn.RevisionId)
+	assert.NotEmpty(t, fn.RevisionID)
 }
 
 func TestUpdateFunctionCode_NotFound(t *testing.T) {
@@ -652,7 +660,7 @@ func TestHandler_ExtractResource(t *testing.T) {
 
 	req2 := httptest.NewRequest(http.MethodGet, "/2015-03-31/functions", nil)
 	c2 := e.NewContext(req2, httptest.NewRecorder())
-	assert.Equal(t, "", h.ExtractResource(c2))
+	assert.Empty(t, h.ExtractResource(c2))
 }
 
 func TestHandler_Name(t *testing.T) {
@@ -680,7 +688,7 @@ func TestBackend_CRUD(t *testing.T) {
 	require.NoError(t, bk.CreateFunction(fn))
 
 	// Duplicate
-	assert.ErrorIs(t, bk.CreateFunction(fn), lambda.ErrFunctionAlreadyExists)
+	require.ErrorIs(t, bk.CreateFunction(fn), lambda.ErrFunctionAlreadyExists)
 
 	// Get
 	got, err := bk.GetFunction("test-func")
@@ -689,7 +697,7 @@ func TestBackend_CRUD(t *testing.T) {
 
 	// Get not found
 	_, err = bk.GetFunction("nonexistent")
-	assert.ErrorIs(t, err, lambda.ErrFunctionNotFound)
+	require.ErrorIs(t, err, lambda.ErrFunctionNotFound)
 
 	// List
 	list := bk.ListFunctions()
@@ -706,7 +714,7 @@ func TestBackend_CRUD(t *testing.T) {
 
 	// Update not found
 	notExist := &lambda.FunctionConfiguration{FunctionName: "nonexistent"}
-	assert.ErrorIs(t, bk.UpdateFunction(notExist), lambda.ErrFunctionNotFound)
+	require.ErrorIs(t, bk.UpdateFunction(notExist), lambda.ErrFunctionNotFound)
 
 	// Delete
 	require.NoError(t, bk.DeleteFunction("test-func"))
@@ -728,7 +736,9 @@ func TestBackend_InvokeFunction_NoPortAlloc(t *testing.T) {
 	}
 	require.NoError(t, bk.CreateFunction(fn))
 
-	_, _, err := bk.InvokeFunction(context.Background(), "invoke-func", lambda.InvocationTypeRequestResponse, []byte("{}"))
+	_, _, err := bk.InvokeFunction(
+		context.Background(), "invoke-func", lambda.InvocationTypeRequestResponse, []byte("{}"),
+	)
 	assert.ErrorIs(t, err, lambda.ErrLambdaUnavailable)
 }
 
@@ -747,7 +757,9 @@ func TestBackend_InvokeFunction_NoDocker(t *testing.T) {
 	}
 	require.NoError(t, bk.CreateFunction(fn))
 
-	_, _, err = bk.InvokeFunction(context.Background(), "invoke-func", lambda.InvocationTypeRequestResponse, []byte("{}"))
+	_, _, err = bk.InvokeFunction(
+		context.Background(), "invoke-func", lambda.InvocationTypeRequestResponse, []byte("{}"),
+	)
 	assert.ErrorIs(t, err, lambda.ErrLambdaUnavailable)
 }
 
@@ -756,8 +768,10 @@ func TestBackend_InvokeFunction_NotFound(t *testing.T) {
 
 	bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1", nil)
 
-	_, statusCode, err := bk.InvokeFunction(context.Background(), "nonexistent", lambda.InvocationTypeRequestResponse, []byte("{}"))
-	assert.ErrorIs(t, err, lambda.ErrFunctionNotFound)
+	_, statusCode, err := bk.InvokeFunction(
+		context.Background(), "nonexistent", lambda.InvocationTypeRequestResponse, []byte("{}"),
+	)
+	require.ErrorIs(t, err, lambda.ErrFunctionNotFound)
 	assert.Equal(t, http.StatusNotFound, statusCode)
 }
 
@@ -792,6 +806,7 @@ func TestRuntimeServer_NextAndResponse(t *testing.T) {
 		result, _, invokeErr := srv.Invoke(ctx, payload, 5*time.Second)
 		if invokeErr != nil {
 			errCh <- invokeErr
+
 			return
 		}
 
@@ -828,6 +843,7 @@ func TestRuntimeServer_NextAndError(t *testing.T) {
 		result, isErr, invokeErr := srv.Invoke(ctx, []byte(`{}`), 5*time.Second)
 		if invokeErr != nil {
 			errCh <- invokeErr
+
 			return
 		}
 
@@ -923,7 +939,7 @@ func TestRuntimeServer_InvokeTimeout(t *testing.T) {
 	ctx := context.Background()
 	// Use a very short timeout — no container will call /next.
 	_, _, err := srv.Invoke(ctx, []byte(`{}`), 100*time.Millisecond)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "timed out")
 }
 
@@ -947,7 +963,7 @@ func TestRuntimeServer_InvokeContextCancelled(t *testing.T) {
 
 	select {
 	case err := <-errCh:
-		assert.Error(t, err)
+		require.Error(t, err)
 	case <-time.After(2 * time.Second):
 		t.Fatal("expected context cancellation error")
 	}
@@ -1086,7 +1102,7 @@ func simulateContainerError(t *testing.T, port int, requestID, errorBody string)
 func assertLambdaError(t *testing.T, rec *httptest.ResponseRecorder, errType string) {
 	t.Helper()
 
-	var lambdaErr lambda.LambdaError
+	var lambdaErr lambda.Error
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &lambdaErr))
 	assert.Equal(t, errType, lambdaErr.Type)
 }
@@ -1141,7 +1157,7 @@ func (m *mockDockerAPI) ContainerRemove(_ context.Context, _ string, _ container
 }
 
 func (m *mockDockerAPI) Ping(_ context.Context) (any, error) {
-	return nil, nil
+	return struct{}{}, nil
 }
 
 func (m *mockDockerAPI) Close() error {
@@ -1343,7 +1359,7 @@ func TestProvider_Init_WithConfig(t *testing.T) {
 	assert.NotNil(t, svc)
 }
 
-// mockConfig implements lambda.LambdaSettingsProvider for provider tests.
+// mockConfig implements lambda.SettingsProvider for provider tests.
 type mockConfig struct {
 	accountID string
 	region    string

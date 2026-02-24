@@ -1,5 +1,3 @@
-// Package lambda provides a mock AWS Lambda service for Gopherstack.
-// Only Image-based functions (PackageType: Image) are supported.
 package lambda
 
 import "time"
@@ -48,12 +46,12 @@ type FunctionConfiguration struct {
 	Role         string             `json:"Role"`
 	LastModified string             `json:"LastModified"`
 	Runtime      string             `json:"Runtime,omitempty"`
-	RevisionId   string             `json:"RevisionId"`
+	RevisionID   string             `json:"RevisionId"`
+	CreatedAt    time.Time          `json:"-"`
 	State        FunctionState      `json:"State"`
 	MemorySize   int                `json:"MemorySize"`
 	Timeout      int                `json:"Timeout"`
 	CodeSize     int64              `json:"CodeSize"`
-	CreatedAt    time.Time          `json:"-"`
 }
 
 // EnvironmentConfig holds Lambda function environment variables.
@@ -77,8 +75,8 @@ type CreateFunctionInput struct {
 // ImageConfig holds optional image command/entrypoint overrides.
 type ImageConfig struct {
 	Command          []string `json:"Command,omitempty"`
-	EntryPoint       []string `json:"EntryPoint,omitempty"`
 	WorkingDirectory string   `json:"WorkingDirectory,omitempty"`
+	EntryPoint       []string `json:"EntryPoint,omitempty"`
 }
 
 // UpdateFunctionCodeInput holds the request body for UpdateFunctionCode.
@@ -109,12 +107,12 @@ type FunctionCodeLocation struct {
 
 // ListFunctionsOutput is the response for ListFunctions.
 type ListFunctionsOutput struct {
-	Functions  []*FunctionConfiguration `json:"Functions"`
 	NextMarker string                   `json:"NextMarker,omitempty"`
+	Functions  []*FunctionConfiguration `json:"Functions"`
 }
 
-// LambdaError represents an error response from Lambda.
-type LambdaError struct {
+// Error represents an error response from Lambda.
+type Error struct {
 	Type    string `json:"__type"`
 	Message string `json:"message"`
 }

@@ -26,7 +26,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 
 	settings := DefaultSettings()
 
-	if sp, ok := ctx.Config.(LambdaSettingsProvider); ok {
+	if sp, ok := ctx.Config.(SettingsProvider); ok {
 		settings = sp.GetLambdaSettings()
 	}
 
@@ -59,7 +59,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	return handler, nil
 }
 
-// LambdaSettingsProvider is implemented by config objects that supply Lambda settings.
-type LambdaSettingsProvider interface {
+// SettingsProvider is implemented by config objects that supply Lambda settings.
+type SettingsProvider interface {
 	GetLambdaSettings() Settings
 }

@@ -2,11 +2,13 @@ package lambda
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -14,12 +16,15 @@ import (
 	"github.com/google/uuid"
 )
 
+// ErrInvocationTimeout is returned when a Lambda invocation exceeds its deadline.
+var ErrInvocationTimeout = errors.New("lambda invocation timed out")
+
 // pendingInvocation represents an in-flight Lambda invocation waiting for a container response.
 type pendingInvocation struct {
+	deadline  time.Time
+	requestID string
 	result    chan invocationResult
 	payload   []byte
-	requestID string
-	deadline  time.Time
 }
 
 // invocationResult holds the outcome of a Lambda container invocation.
@@ -43,6 +48,12 @@ type runtimeServer struct {
 // runtimeQueueSize is the buffered depth of the invocation queue per function.
 const runtimeQueueSize = 10
 
+// invocationPathParts is the expected number of path segments after stripping the prefix.
+const invocationPathParts = 2
+
+// runtimeReadHeaderTimeout limits time to read request headers, guarding against Slowloris.
+const runtimeReadHeaderTimeout = 10 * time.Second
+
 // newRuntimeServer creates a runtimeServer for the given port. Call start() to begin listening.
 func newRuntimeServer(port int, log *slog.Logger) *runtimeServer {
 	return &runtimeServer{
@@ -60,17 +71,18 @@ func (s *runtimeServer) start(ctx context.Context) error {
 	mux.HandleFunc("/2018-06-01/runtime/init/error", s.handleInitError)
 
 	s.srv = &http.Server{
-		Addr:    fmt.Sprintf(":%d", s.port),
-		Handler: mux,
+		Addr:              fmt.Sprintf(":%d", s.port),
+		Handler:           mux,
+		ReadHeaderTimeout: runtimeReadHeaderTimeout,
 	}
 
-	ln, err := net.Listen("tcp", s.srv.Addr)
+	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", s.srv.Addr)
 	if err != nil {
 		return fmt.Errorf("runtime server listen on :%d: %w", s.port, err)
 	}
 
 	go func() {
-		if serveErr := s.srv.Serve(ln); serveErr != nil && serveErr != http.ErrServerClosed {
+		if serveErr := s.srv.Serve(ln); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 			s.logger.ErrorContext(ctx, "lambda runtime server error", "port", s.port, "error", serveErr)
 		}
 	}()
@@ -106,9 +118,11 @@ func (s *runtimeServer) invoke(ctx context.Context, payload []byte, timeout time
 		return res.payload, res.isError, nil
 	case <-time.After(timeout):
 		s.pending.Delete(inv.requestID)
-		return nil, false, fmt.Errorf("lambda invocation timed out after %s", timeout)
+
+		return nil, false, fmt.Errorf("%w after %s", ErrInvocationTimeout, timeout)
 	case <-ctx.Done():
 		s.pending.Delete(inv.requestID)
+
 		return nil, false, ctx.Err()
 	}
 }
@@ -118,6 +132,7 @@ func (s *runtimeServer) invoke(ctx context.Context, payload []byte, timeout time
 func (s *runtimeServer) handleNext(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+
 		return
 	}
 
@@ -125,7 +140,7 @@ func (s *runtimeServer) handleNext(w http.ResponseWriter, r *http.Request) {
 	case inv := <-s.queue:
 		s.pending.Store(inv.requestID, inv)
 		w.Header().Set("Lambda-Runtime-Aws-Request-Id", inv.requestID)
-		w.Header().Set("Lambda-Runtime-Deadline-Ms", fmt.Sprintf("%d", inv.deadline.UnixMilli()))
+		w.Header().Set("Lambda-Runtime-Deadline-Ms", strconv.FormatInt(inv.deadline.UnixMilli(), 10))
 		w.Header().Set("Lambda-Runtime-Invoked-Function-Arn", "arn:aws:lambda:us-east-1:000000000000:function:unknown")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -142,16 +157,18 @@ func (s *runtimeServer) handleNext(w http.ResponseWriter, r *http.Request) {
 func (s *runtimeServer) handleInvocationResult(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+
 		return
 	}
 
 	const prefix = "/2018-06-01/runtime/invocation/"
 
 	rest := strings.TrimPrefix(r.URL.Path, prefix)
-	parts := strings.SplitN(rest, "/", 2)
+	parts := strings.SplitN(rest, "/", invocationPathParts)
 
-	if len(parts) != 2 { //nolint:mnd // 2 parts: requestID and action
+	if len(parts) != invocationPathParts {
 		http.Error(w, "invalid path", http.StatusBadRequest)
+
 		return
 	}
 
@@ -169,10 +186,18 @@ func (s *runtimeServer) handleInvocationResult(w http.ResponseWriter, r *http.Re
 	raw, ok := s.pending.LoadAndDelete(requestID)
 	if !ok {
 		http.Error(w, "request not found", http.StatusNotFound)
+
 		return
 	}
 
-	inv := raw.(*pendingInvocation) //nolint:forcetypeassert // always *pendingInvocation
+	inv, isInv := raw.(*pendingInvocation)
+	if !isInv {
+		s.logger.Error("lambda: unexpected type in pending invocations map")
+		http.Error(w, "internal error", http.StatusInternalServerError)
+
+		return
+	}
+
 	inv.result <- invocationResult{
 		payload:    body,
 		statusCode: http.StatusOK,
@@ -188,6 +213,7 @@ func (s *runtimeServer) handleInvocationResult(w http.ResponseWriter, r *http.Re
 func (s *runtimeServer) handleInitError(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+
 		return
 	}
 
