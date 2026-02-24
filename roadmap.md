@@ -28,30 +28,30 @@
 - [ ] DescribeContinuousBackups / point-in-time recovery stubs
 - [ ] Table export / import stubs
 
-### S3 — ~80% parity (19 operations)
+### S3 — ~90% parity (26 operations)
 
 | Feature | Status |
 |---------|--------|
 | Bucket CRUD (CreateBucket, DeleteBucket, ListBuckets, HeadBucket) | Done |
 | Object CRUD (PutObject, GetObject, HeadObject, DeleteObject, DeleteObjects) | Done |
 | ListObjects / ListObjectsV2 | Done |
+| ListObjectVersions | Done |
+| CopyObject | Done |
 | Multipart uploads (Create, UploadPart, Complete, Abort) | Done |
+| ListMultipartUploads / ListParts | Done (v0.8) |
 | Versioning (GetBucketVersioning, PutBucketVersioning) | Done |
 | Object tagging (PutObjectTagging, GetObjectTagging, DeleteObjectTagging) | Done |
 | Checksums (CRC32, CRC32C, SHA1, SHA256) | Done |
 | Compression support | Done |
+| BucketACL (GetBucketAcl, PutBucketAcl) | Done |
 
 **Remaining gaps:**
-- [ ] CopyObject
 - [ ] Presigned URLs
 - [ ] Bucket lifecycle configuration (expiration rules)
 - [ ] Bucket notifications (events to SQS/SNS/Lambda)
 - [ ] CORS configuration
 - [ ] Bucket policies
-- [ ] ACLs (GetObjectAcl, PutObjectAcl, GetBucketAcl, PutBucketAcl)
 - [ ] Object lock / legal hold
-- [ ] ListObjectVersions
-- [ ] ListMultipartUploads / ListParts
 
 ### SQS — ~95% parity (17 operations) ✅
 
@@ -100,14 +100,14 @@
 | Warm container pool with idle timeout + reaper | Done |
 | Environment variables passed to containers | Done |
 | Graceful degradation when Docker unavailable | Done |
+| `PackageType: Zip` — extract zip, bind-mount into AWS base image | Done (v0.8) |
+| Runtime → base image mapping (python, nodejs, java, dotnet, ruby, provided) | Done (v0.8) |
+| ZipFile inline + S3Bucket/S3Key code delivery | Done (v0.8) |
 
 **Remaining gaps:**
-- [ ] Zip Lambda support (planned — see below)
 - [ ] Event source mappings (SQS → Lambda, DynamoDB Streams → Lambda)
 - [ ] Function URLs (via port allocator)
 - [ ] Aliases and versions
-
-> **Zip Lambda design:** Extract the zip to a temp directory and bind-mount it into an AWS base image container (`public.ecr.aws/lambda/python:3.12`, `public.ecr.aws/lambda/nodejs:20`, etc.). The container already has the runtime installed — Gopherstack just mounts the handler code at `/var/task`. The Lambda Runtime API is already implemented, so standard base images work unmodified. Same Docker infrastructure as image-based Lambda, just with a volume mount instead of a custom image. `Runtime` field in CreateFunction determines which base image to pull.
 
 ### IAM — ~90% parity (25 operations) ✅
 
@@ -241,18 +241,23 @@
 
 ## Remaining Milestones (v0.8+)
 
-### v0.8 — Lambda Zip + Integrations & S3 Gaps
-- Zip Lambda support (`PackageType: Zip` — extract zip, bind-mount into AWS base image container)
-- Runtime → base image mapping (`python3.12` → `public.ecr.aws/lambda/python:3.12`, etc.)
-- S3-based code delivery (pull zip from Gopherstack's own S3 service)
-- Event source mappings (SQS → Lambda, DynamoDB Streams → Lambda)
-- Function URLs (via port allocator + DNS)
-- Lambda aliases and versions
-- Lambda Dashboard UI: function list, function detail (config, env vars, runtime, last invocation), invoke button with JSON payload editor, invocation log
-- DynamoDB Dashboard: PartiQL tab on table detail page — SQL-style query editor, execute button, results table (backend already has ExecuteStatement/BatchExecuteStatement)
-- S3: CopyObject, presigned URLs, ListObjectVersions
-- S3: Bucket lifecycle configuration, CORS, bucket policies
-- S3: ListMultipartUploads / ListParts
+### v0.8 — Lambda Zip + Integrations & S3 Gaps ✅ (In Progress)
+
+**Completed in this cycle:**
+- ✅ Zip Lambda support (`PackageType: Zip` — extract zip, bind-mount into AWS base image container)
+- ✅ Runtime → base image mapping (`python3.12` → `public.ecr.aws/lambda/python:3.12`, etc.)
+- ✅ S3-based code delivery (pull zip from Gopherstack's own S3 service via S3CodeFetcher)
+- ✅ Lambda Dashboard UI: function list, function detail (config, env vars, runtime), invoke button with JSON payload editor
+- ✅ DynamoDB Dashboard: PartiQL tab on table detail page
+- ✅ S3: ListMultipartUploads / ListParts
+- ✅ S3: GetSupportedOperations updated (CopyObject, ListObjectVersions, ListMultipartUploads, ListParts)
+
+**Remaining:**
+- [ ] Event source mappings (SQS → Lambda, DynamoDB Streams → Lambda)
+- [ ] Function URLs (via port allocator + DNS)
+- [ ] Lambda aliases and versions
+- [ ] S3: presigned URLs
+- [ ] S3: Bucket lifecycle configuration, CORS, bucket policies
 
 ### v0.9 — API Gateway & Event-Driven
 - **API Gateway** (REST APIs)

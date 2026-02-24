@@ -92,14 +92,12 @@ func (h *DashboardHandler) lambdaInvoke(c *echo.Context) error {
 		return c.String(http.StatusBadRequest, "Payload must be valid JSON")
 	}
 
-	result, statusCode, err := h.LambdaOps.Backend.InvokeFunction(
+	result, httpStatus, err := h.LambdaOps.Backend.InvokeFunction(
 		r.Context(), name, lambdabackend.InvocationTypeRequestResponse, []byte(payload),
 	)
 	if err != nil {
 		return c.String(http.StatusInternalServerError, "Invoke failed: "+err.Error())
 	}
-
-	_ = statusCode
 
 	if len(result) == 0 {
 		result = []byte(`{"status":"ok"}`)
@@ -113,5 +111,5 @@ func (h *DashboardHandler) lambdaInvoke(c *echo.Context) error {
 		prettyBuf = result
 	}
 
-	return c.String(http.StatusOK, string(prettyBuf))
+	return c.String(httpStatus, string(prettyBuf))
 }

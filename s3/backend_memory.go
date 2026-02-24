@@ -1375,6 +1375,8 @@ func (b *InMemoryBackend) ListParts(
 		Parts:    parts,
 	}, nil
 }
+
+// PutBucketACL stores the canned ACL for a bucket.
 func (b *InMemoryBackend) PutBucketACL(_ context.Context, bucketName, acl string) error {
 	b.mu.RLock("PutBucketACL")
 	bucket, err := b.getBucket(bucketName)
