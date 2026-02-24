@@ -27,6 +27,7 @@ import (
 
 	apigwbackend "github.com/blackbirdworks/gopherstack/apigateway"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/cloudwatchlogs"
+	sfnbackend "github.com/blackbirdworks/gopherstack/stepfunctions"
 	"github.com/blackbirdworks/gopherstack/dashboard"
 	"github.com/blackbirdworks/gopherstack/demo"
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
@@ -80,6 +81,7 @@ type CLI struct {
 	eventBridgeHandler    service.Registerable
 	apiGatewayHandler     service.Registerable
 	cloudWatchLogsHandler service.Registerable
+	stepFunctionsHandler  service.Registerable
 	s3Client              *s3.Client
 	iamClient             *iam.Client
 	snsClient             *sns.Client
@@ -213,6 +215,11 @@ func (c *CLI) GetAPIGatewayHandler() service.Registerable { return c.apiGatewayH
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetCloudWatchLogsHandler() service.Registerable { return c.cloudWatchLogsHandler }
+
+// GetStepFunctionsHandler returns the Step Functions handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetStepFunctionsHandler() service.Registerable { return c.stepFunctionsHandler }
 
 // Run parses CLI / environment-variable configuration and starts Gopherstack.
 // It is called from main() and exits on error.
@@ -400,6 +407,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		&ebbackend.Provider{},
 		&apigwbackend.Provider{},
 		&cwlogsbackend.Provider{},
+		&sfnbackend.Provider{},
 	}
 
 	for _, provider := range serviceProviders {
@@ -426,6 +434,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		cli.eventBridgeHandler = services[10]
 		cli.apiGatewayHandler = services[11]
 		cli.cloudWatchLogsHandler = services[12]
+		cli.stepFunctionsHandler = services[13]
 	}
 
 	// Wire SNS→SQS delivery: when SNS publishes a message, deliver it to SQS queues.
@@ -556,7 +565,7 @@ func healthHandler(c *echo.Context) error {
 		Status: "ok",
 		Services: []string{
 			"DynamoDB", "S3", "SSM", "IAM", "STS", "SNS", "SQS", "KMS", "SecretsManager", "Lambda",
-			"EventBridge", "APIGateway", "CloudWatchLogs",
+			"EventBridge", "APIGateway", "CloudWatchLogs", "StepFunctions",
 		},
 	})
 }

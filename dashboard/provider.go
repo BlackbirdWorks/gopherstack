@@ -7,6 +7,7 @@ import (
 	stssdk "github.com/aws/aws-sdk-go-v2/service/sts"
 	apigwbackend "github.com/blackbirdworks/gopherstack/apigateway"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/cloudwatchlogs"
+	sfnbackend "github.com/blackbirdworks/gopherstack/stepfunctions"
 
 	"github.com/blackbirdworks/gopherstack/dynamodb"
 	ebbackend "github.com/blackbirdworks/gopherstack/eventbridge"
@@ -43,6 +44,7 @@ type AWSSDKProvider interface {
 	GetEventBridgeHandler() service.Registerable
 	GetAPIGatewayHandler() service.Registerable
 	GetCloudWatchLogsHandler() service.Registerable
+	GetStepFunctionsHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 }
 
@@ -74,6 +76,7 @@ type extractedConfig struct {
 	eventBridgeOps    *ebbackend.Handler
 	apiGatewayOps     *apigwbackend.Handler
 	cloudWatchLogsOps *cwlogsbackend.Handler
+	stepFunctionsOps  *sfnbackend.Handler
 	gCfg              globalcfg.GlobalConfig
 }
 
@@ -137,6 +140,10 @@ func extractFromProvider(ctx *service.AppContext) extractedConfig {
 		ec.cloudWatchLogsOps, _ = h.(*cwlogsbackend.Handler)
 	}
 
+	if h := ap.GetStepFunctionsHandler(); h != nil {
+		ec.stepFunctionsOps, _ = h.(*sfnbackend.Handler)
+	}
+
 	return ec
 }
 
@@ -161,6 +168,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		EventBridgeOps:    ec.eventBridgeOps,
 		APIGatewayOps:     ec.apiGatewayOps,
 		CloudWatchLogsOps: ec.cloudWatchLogsOps,
+		StepFunctionsOps:  ec.stepFunctionsOps,
 		GlobalConfig:      ec.gCfg,
 		Logger:            ctx.Logger,
 	})
