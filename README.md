@@ -10,7 +10,7 @@
 [![Go Report Card](https://raw.githubusercontent.com/agbishop/Gopherstack/badges/.badges/goreportcard.svg?v=1)](https://goreportcard.com/report/github.com/agbishop/Gopherstack)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Gopherstack is a lightweight, in-memory AWS stack implementation for Go. It provides high-performance, mock-compatible versions of core AWS services like DynamoDB and S3, designed for rapid development, testing, and CI/CD pipelines.
+Gopherstack is a lightweight, in-memory AWS stack implementation for Go. It provides high-performance, mock-compatible versions of core AWS services, designed for rapid development, testing, and CI/CD pipelines. It currently supports DynamoDB, S3, SSM Parameter Store, IAM, STS, SNS, SQS, KMS, Secrets Manager, and **Lambda (image-based)**.
 
 > [!IMPORTANT]
 > **This project is vibe coded.** 🚀 It's built for speed, performance, and developer experience.
@@ -32,7 +32,50 @@ Gopherstack is a lightweight, in-memory AWS stack implementation for Go. It prov
 - **Data Integrity**: Automatic checksum calculation supporting CRC32, CRC32C, SHA1, and SHA256.
 - **Compression**: Integrated Gzip compression for efficient memory usage.
 
-## Dashboard
+### Lambda (image-based only)
+
+Gopherstack supports AWS Lambda with **Docker image-based functions only** (`PackageType: Image`).
+
+> **Important:** Only `PackageType: Image` is supported. Zip deployments, S3-based code delivery, and direct Go binary execution on the host are **not supported**. Your function must be packaged as a Docker image (e.g. a standard AWS base image or your own custom image).
+
+- **Supported operations**: `CreateFunction`, `GetFunction`, `ListFunctions`, `DeleteFunction`, `UpdateFunctionCode`, `UpdateFunctionConfiguration`, `Invoke`
+- **Invocation modes**: `RequestResponse` (synchronous) and `Event` (asynchronous / fire-and-forget)
+- **Lambda Runtime API**: Full implementation of the [Lambda Runtime API](https://docs.aws.amazon.com/lambda/latest/dg/runtimes-api.html) — standard AWS base images work without modification
+- **Warm container pool**: Configurable per-function pool keeps containers warm to reduce cold-start latency
+- **Environment variables**: Passed directly to the container
+- **Requires Docker**: Lambda functions need a running Docker daemon. All other Gopherstack services continue to work without Docker.
+
+#### Lambda CLI examples
+
+```bash
+# Create an image-based Lambda function
+aws lambda create-function \
+    --endpoint-url http://localhost:8000 \
+    --function-name my-function \
+    --package-type Image \
+    --code ImageUri=public.ecr.aws/lambda/python:3.12 \
+    --role arn:aws:iam::000000000000:role/my-role
+
+# Invoke synchronously
+aws lambda invoke \
+    --endpoint-url http://localhost:8000 \
+    --function-name my-function \
+    --payload '{"key":"value"}' \
+    response.json
+
+# List functions
+aws lambda list-functions --endpoint-url http://localhost:8000
+```
+
+#### Lambda configuration
+
+| Flag | Env var | Default | Description |
+|------|---------|---------|-------------|
+| `--lambda-docker-host` | `LAMBDA_DOCKER_HOST` | `172.17.0.1` | Host/IP that Lambda containers use to reach Gopherstack's Runtime API |
+| `--lambda-pool-size` | `LAMBDA_POOL_SIZE` | `3` | Maximum warm containers per function |
+| `--lambda-idle-timeout` | `LAMBDA_IDLE_TIMEOUT` | `10m` | Idle container lifetime before reaping |
+
+
 
 Gopherstack includes a built-in web dashboard for managing DynamoDB tables and S3 buckets.
 

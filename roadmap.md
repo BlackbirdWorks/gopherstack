@@ -100,27 +100,22 @@ Services that expose real network endpoints (ElastiCache, OpenSearch, RDS, Lambd
 
 ### Docker Integration (Lambda Runtimes)
 
-Go can't natively execute Python/Node.js/Java Lambda functions. The solution is **Docker-based runtime containers**, similar to how LocalStack does it:
+Gopherstack supports **image-based Lambda functions only** (`PackageType: Image`). Zip deployments, S3-based code delivery, and direct Go binary execution on the host are **not supported** — bring your function as a Docker image.
+
+> **Note:** CLI-based Lambda invocation (direct binary execution without Docker) is out of scope. All Lambda functions must be packaged as Docker images.
 
 - Use the Docker SDK for Go (`github.com/docker/docker/client`) to manage containers
-- On `Lambda.Invoke`, spin up (or reuse) a container from the appropriate runtime image:
-  - `public.ecr.aws/lambda/python:3.12`
-  - `public.ecr.aws/lambda/nodejs:20`
-  - `public.ecr.aws/lambda/go:al2023` (or run Go binaries directly on the host)
-  - `public.ecr.aws/lambda/java:21`
-  - Custom images via `PackageType: Image`
+- On `Lambda.Invoke`, spin up (or reuse) a container from the function's image:
+  - `PackageType: Image` with `ImageUri` pointing to any Lambda-compatible image
+  - Standard AWS base images work out-of-the-box (Python, Node.js, Java, .NET, Ruby, Go, custom)
 - **Container lifecycle:**
-  - Cold start: pull image → create container → mount code → invoke via Runtime Interface Client (RIC)
+  - Cold start: pull image → create container → invoke via Runtime Interface Client (RIC)
   - Warm containers: keep alive for reuse with a configurable idle timeout
-  - Container pool: pre-warm N containers per runtime for lower latency
+  - Container pool: keep up to N warm containers per function for lower latency
   - Cleanup janitor: reap idle containers after timeout
-- **Code delivery:**
-  - `ZipFile`: extract to temp dir, bind-mount into container
-  - `S3Bucket/S3Key`: pull from Gopherstack's own S3 service
-  - `ImageUri`: pull and run directly
-- **Runtime API:** Implement the [Lambda Runtime API](https://docs.aws.amazon.com/lambda/latest/dg/runtimes-api.html) HTTP endpoints (`/runtime/invocation/next`, `/runtime/invocation/{id}/response`) so standard Lambda runtimes work unmodified
-- **Optional Docker-free mode:** For Go-only Lambda functions, support direct binary execution without Docker (compile and exec the handler binary on the host)
-- **Requires Docker:** Lambda support is gated behind Docker availability — if Docker is not present, Lambda API returns a clear error
+- **Code delivery:** `ImageUri` only — the image must contain all function code
+- **Runtime API:** Implements the [Lambda Runtime API](https://docs.aws.amazon.com/lambda/latest/dg/runtimes-api.html) HTTP endpoints (`/runtime/invocation/next`, `/runtime/invocation/{id}/response`) so standard Lambda base images work unmodified
+- **Requires Docker:** Lambda support requires Docker. If Docker is not available, Lambda API returns a clear error; all other services continue to work
 
 ---
 
@@ -152,18 +147,19 @@ These are the most commonly used LocalStack services and cover the majority of r
 - Message attributes ✅
 - Dashboard UI ✅
 
-#### Lambda
-- CreateFunction / DeleteFunction / GetFunction / ListFunctions / UpdateFunctionCode / UpdateFunctionConfiguration
-- Invoke (RequestResponse and Event invocation types)
-- **Runtime execution via Docker containers** (Python, Node.js, Java, .NET, Ruby, custom images)
-- **Go binary direct execution** (no Docker needed for Go handlers)
-- Implement Lambda Runtime API so official AWS base images work unmodified
-- Warm container pooling with configurable idle timeout
-- Environment variables
-- Event source mappings (SQS, DynamoDB Streams, Kinesis)
-- Layers (mount as additional overlay in container)
-- Function URLs (allocated from port range)
-- Aliases and versions
+#### Lambda ⚠️ **IMAGE-ONLY** (v0.7 in progress)
+- CreateFunction / DeleteFunction / GetFunction / ListFunctions / UpdateFunctionCode / UpdateFunctionConfiguration ✅
+- Invoke (RequestResponse and Event invocation types) ✅
+- **`PackageType: Image` only** — Zip and S3 code deployment are not supported; functions must be packaged as Docker images ✅
+- **Docker-based runtime execution** — all Lambda functions run as Docker containers ✅
+- Implement Lambda Runtime API so official AWS base images work unmodified ✅
+- Warm container pooling with configurable idle timeout ✅
+- Environment variables ✅
+- Go binary direct execution (no Docker) — **out of scope, not supported**
+- Event source mappings (SQS, DynamoDB Streams, Kinesis) — planned
+- Layers — not planned
+- Function URLs (allocated from port range) — planned
+- Aliases and versions — planned
 
 #### IAM (Identity & Access Management) ✅ **DONE**
 - Users: CreateUser, DeleteUser, ListUsers, GetUser ✅
@@ -354,14 +350,20 @@ These are the most commonly used LocalStack services and cover the majority of r
 - Port range wired into CLI: `--port-range-start` / `--port-range-end` (`PORT_RANGE_START` / `PORT_RANGE_END`) ✅
 - DNS server wired into CLI: `--dns-addr` / `--dns-resolve-ip` (`DNS_ADDR` / `DNS_RESOLVE_IP`) ✅
 
-### v0.7 — Serverless Core
-- Lambda (Docker-based runtimes for Python/Node/Java, direct exec for Go)
-- Lambda Runtime API implementation
-- Warm container pooling and idle reaping
-- API Gateway (REST, Lambda proxy integration)
-- Event source mappings (SQS → Lambda, DynamoDB Streams → Lambda)
-- Function URLs (via port allocator)
-- S3 gaps (CopyObject, presigned URLs, lifecycle, notifications)
+### v0.7 — Serverless Core (in progress)
+- **Lambda** (image-only — `PackageType: Image`) ✅
+  - CRUD: CreateFunction, GetFunction, ListFunctions, DeleteFunction, UpdateFunctionCode, UpdateFunctionConfiguration ✅
+  - Invoke (RequestResponse + Event) ✅
+  - Lambda Runtime API (`/2018-06-01/runtime/invocation/*`) ✅
+  - Per-function Runtime API server on dedicated port from port-range allocator ✅
+  - Warm container pool with configurable idle timeout and reaper ✅
+  - Environment variables passed to containers ✅
+  - Docker required; degrades gracefully when Docker is unavailable ✅
+  - **CLI-based / Zip / S3 Lambda execution — not supported (image-only)** ✅
+- API Gateway (REST, Lambda proxy integration) — planned
+- Event source mappings (SQS → Lambda, DynamoDB Streams → Lambda) — planned
+- Function URLs (via port allocator) — planned
+- S3 gaps (CopyObject, presigned URLs, lifecycle, notifications) — planned
 
 ### v0.8 — Orchestration & Observability
 - Step Functions
@@ -395,7 +397,7 @@ These are the most commonly used LocalStack services and cover the majority of r
 
 Gopherstack already has or can build advantages over LocalStack:
 
-1. **No Docker required for core services** — Single Go binary for DynamoDB/S3/SQS/SNS/etc. Docker only needed for Lambda runtimes (and optional proxied services like ElastiCache/OpenSearch)
+1. **No Docker required for core services** — Single Go binary for DynamoDB/S3/SQS/SNS/etc. Docker only needed for Lambda runtimes (image-based, and optional proxied services like ElastiCache/OpenSearch)
 2. **Persistence for free** — LocalStack charges for persistence; Gopherstack can offer it in the base product
 3. **No account/auth required** — LocalStack is dropping its open-source edition (March 2026); Gopherstack remains fully open
 4. **Native Go performance** — Faster startup, lower memory footprint than LocalStack's Python runtime

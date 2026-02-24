@@ -56,14 +56,14 @@ const (
 
 // CLI holds all command-line / environment-variable configuration for Gopherstack.
 type CLI struct {
-	SSM                   struct{}                `embed:"" prefix:"ssm-"`
-	SecretsManager        struct{}                `embed:"" prefix:"secretsmanager-"`
-	KMS                   struct{}                `embed:"" prefix:"kms-"`
-	SQS                   sqsbackend.Settings     `embed:"" prefix:"sqs-"`
-	SNS                   struct{}                `embed:"" prefix:"sns-"`
-	STS                   struct{}                `embed:"" prefix:"sts-"`
-	IAM                   struct{}                `embed:"" prefix:"iam-"`
-	Lambda                lambdabackend.Settings  `embed:"" prefix:"lambda-"`
+	SSM                   struct{}               `embed:"" prefix:"ssm-"`
+	SecretsManager        struct{}               `embed:"" prefix:"secretsmanager-"`
+	KMS                   struct{}               `embed:"" prefix:"kms-"`
+	SQS                   sqsbackend.Settings    `embed:"" prefix:"sqs-"`
+	SNS                   struct{}               `embed:"" prefix:"sns-"`
+	STS                   struct{}               `embed:"" prefix:"sts-"`
+	IAM                   struct{}               `embed:"" prefix:"iam-"`
+	Lambda                lambdabackend.Settings `embed:"" prefix:"lambda-"`
 	kmsHandler            service.Registerable
 	secretsManagerHandler service.Registerable
 	ddbHandler            service.Registerable
