@@ -13,6 +13,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	apigwbackend "github.com/blackbirdworks/gopherstack/apigateway"
+	cfnbackend "github.com/blackbirdworks/gopherstack/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/cloudwatchlogs"
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
@@ -77,6 +78,7 @@ type DashboardHandler struct {
 	CloudWatchLogsOps *cwlogsbackend.Handler
 	StepFunctionsOps  *sfnbackend.Handler
 	CloudWatchOps     *cwbackend.Handler
+	CloudFormationOps *cfnbackend.Handler
 	SubRouter         *echo.Echo
 	ddbProvider       *ddbbackend.DashboardProvider
 	s3Provider        *s3backend.DashboardProvider
@@ -113,6 +115,8 @@ type Config struct {
 	StepFunctionsOps *sfnbackend.Handler
 	// CloudWatchOps provides access to the CloudWatch Metrics backend.
 	CloudWatchOps *cwbackend.Handler
+	// CloudFormationOps provides access to the CloudFormation backend.
+	CloudFormationOps *cfnbackend.Handler
 	// Logger is the structured logger for dashboard operations.
 	Logger *slog.Logger
 	// GlobalConfig holds the centralized account and region configuration shown on the settings page.
@@ -152,6 +156,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		"templates/cloudwatchlogs/*.html",
 		"templates/stepfunctions/*.html",
 		"templates/cloudwatch/*.html",
+		"templates/cloudformation/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
 		"templates/settings.html",
@@ -180,6 +185,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		CloudWatchLogsOps: cfg.CloudWatchLogsOps,
 		StepFunctionsOps:  cfg.StepFunctionsOps,
 		CloudWatchOps:     cfg.CloudWatchOps,
+		CloudFormationOps: cfg.CloudFormationOps,
 		GlobalConfig:      cfg.GlobalConfig,
 		Logger:            cfg.Logger,
 		layout:            tmpl,
@@ -314,6 +320,11 @@ func (h *DashboardHandler) setupCloudWatchRoutes() {
 	h.SubRouter.GET("/dashboard/cloudwatch", h.cloudWatchIndex)
 }
 
+func (h *DashboardHandler) setupCloudFormationRoutes() {
+	h.SubRouter.GET("/dashboard/cloudformation", h.cloudFormationIndex)
+	h.SubRouter.GET("/dashboard/cloudformation/stack", h.cloudFormationStackDetail)
+}
+
 func (h *DashboardHandler) setupMetaRoutes() {
 	dashboardGroup := h.SubRouter.Group("/dashboard")
 	RegisterMetricsHandlers(dashboardGroup, h)
@@ -335,6 +346,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.setupCloudWatchLogsRoutes()
 	h.setupStepFunctionsRoutes()
 	h.setupCloudWatchRoutes()
+	h.setupCloudFormationRoutes()
 	h.setupMetaRoutes()
 }
 
@@ -398,6 +410,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/cloudwatchlogs", "CloudWatchLogs"},
 	{"/stepfunctions", "StepFunctions"},
 	{"/cloudwatch", "CloudWatch"},
+	{"/cloudformation", "CloudFormation"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},
 }

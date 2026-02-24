@@ -6,6 +6,7 @@ import (
 	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
 	stssdk "github.com/aws/aws-sdk-go-v2/service/sts"
 	apigwbackend "github.com/blackbirdworks/gopherstack/apigateway"
+	cfnbackend "github.com/blackbirdworks/gopherstack/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/cloudwatchlogs"
 	sfnbackend "github.com/blackbirdworks/gopherstack/stepfunctions"
@@ -47,6 +48,7 @@ type AWSSDKProvider interface {
 	GetCloudWatchLogsHandler() service.Registerable
 	GetStepFunctionsHandler() service.Registerable
 	GetCloudWatchHandler() service.Registerable
+	GetCloudFormationHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 }
 
@@ -80,6 +82,7 @@ type extractedConfig struct {
 	cloudWatchLogsOps *cwlogsbackend.Handler
 	stepFunctionsOps  *sfnbackend.Handler
 	cloudWatchOps     *cwbackend.Handler
+	cloudFormationOps *cfnbackend.Handler
 	gCfg              globalcfg.GlobalConfig
 }
 
@@ -151,6 +154,10 @@ func extractFromProvider(ctx *service.AppContext) extractedConfig {
 		ec.cloudWatchOps, _ = h.(*cwbackend.Handler)
 	}
 
+	if h := ap.GetCloudFormationHandler(); h != nil {
+		ec.cloudFormationOps, _ = h.(*cfnbackend.Handler)
+	}
+
 	return ec
 }
 
@@ -177,6 +184,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		CloudWatchLogsOps: ec.cloudWatchLogsOps,
 		StepFunctionsOps:  ec.stepFunctionsOps,
 		CloudWatchOps:     ec.cloudWatchOps,
+		CloudFormationOps: ec.cloudFormationOps,
 		GlobalConfig:      ec.gCfg,
 		Logger:            ctx.Logger,
 	})

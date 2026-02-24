@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	apigwbackend "github.com/blackbirdworks/gopherstack/apigateway"
+	cfnbackend "github.com/blackbirdworks/gopherstack/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/cloudwatchlogs"
 	"github.com/blackbirdworks/gopherstack/dashboard"
@@ -61,6 +62,7 @@ type Stack struct {
 	CloudWatchLogsHandler *cwlogsbackend.Handler
 	StepFunctionsHandler  *sfnbackend.Handler
 	CloudWatchHandler     *cwbackend.Handler
+	CloudFormationHandler *cfnbackend.Handler
 	S3Client              *s3.Client
 	DDBClient             *dynamodb.Client
 	Dashboard             *dashboard.DashboardHandler
@@ -127,6 +129,7 @@ func registerServices(
 	cwlogsHndlr *cwlogsbackend.Handler,
 	sfnHndlr *sfnbackend.Handler,
 	cwHndlr *cwbackend.Handler,
+	cfnHndlr *cfnbackend.Handler,
 ) {
 	_ = registry.Register(ddbHndlr)
 	_ = registry.Register(s3Hndlr)
@@ -143,6 +146,7 @@ func registerServices(
 	_ = registry.Register(cwlogsHndlr)
 	_ = registry.Register(sfnHndlr)
 	_ = registry.Register(cwHndlr)
+	_ = registry.Register(cfnHndlr)
 }
 
 // handlers bundles all service handlers created for a test stack.
@@ -162,6 +166,7 @@ type handlers struct {
 	cwlogs *cwlogsbackend.Handler
 	sfn    *sfnbackend.Handler
 	cw     *cwbackend.Handler
+	cfn    *cfnbackend.Handler
 	iamBk  *iambackend.InMemoryBackend
 	s3Bk   *s3backend.InMemoryBackend
 }
@@ -189,6 +194,7 @@ func newHandlers() handlers {
 		cwlogs: cwlogsbackend.NewHandler(cwlogsbackend.NewInMemoryBackend(), slog.Default()),
 		sfn:    sfnbackend.NewHandler(sfnbackend.NewInMemoryBackend(), slog.Default()),
 		cw:     cwbackend.NewHandler(cwbackend.NewInMemoryBackend(), slog.Default()),
+		cfn:    cfnbackend.NewHandler(cfnbackend.NewInMemoryBackend(), slog.Default()),
 	}
 }
 
@@ -208,7 +214,7 @@ func New(t *testing.T) *Stack {
 	registerServices(
 		registry,
 		h.ddb, h.s3, h.ssm, h.iam, h.sts, h.sns, h.sqs, h.kms, h.sm,
-		h.lambda, h.eb, h.apigw, h.cwlogs, h.sfn, h.cw,
+		h.lambda, h.eb, h.apigw, h.cwlogs, h.sfn, h.cw, h.cfn,
 	)
 
 	// Create AWS SDK clients routed through in-memory Echo.
@@ -235,6 +241,7 @@ func New(t *testing.T) *Stack {
 		CloudWatchLogsOps: h.cwlogs,
 		StepFunctionsOps:  h.sfn,
 		CloudWatchOps:     h.cw,
+		CloudFormationOps: h.cfn,
 		GlobalConfig:      config.GlobalConfig{AccountID: "000000000000", Region: "us-east-1"},
 		Logger:            slog.Default(),
 	})
@@ -262,6 +269,7 @@ func New(t *testing.T) *Stack {
 		CloudWatchLogsHandler: h.cwlogs,
 		StepFunctionsHandler:  h.sfn,
 		CloudWatchHandler:     h.cw,
+		CloudFormationHandler: h.cfn,
 		S3Client:              s3Client,
 		DDBClient:             ddbClient,
 		Dashboard:             dashHndlr,

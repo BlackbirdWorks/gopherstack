@@ -26,6 +26,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	apigwbackend "github.com/blackbirdworks/gopherstack/apigateway"
+	cfnbackend "github.com/blackbirdworks/gopherstack/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/cloudwatchlogs"
 	"github.com/blackbirdworks/gopherstack/dashboard"
@@ -83,7 +84,8 @@ type CLI struct {
 	apiGatewayHandler     service.Registerable
 	cloudWatchLogsHandler service.Registerable
 	stepFunctionsHandler  service.Registerable
-	cloudWatchHandler     service.Registerable
+	cloudWatchHandler        service.Registerable
+	cloudFormationHandler    service.Registerable
 	s3Client              *s3.Client
 	iamClient             *iam.Client
 	snsClient             *sns.Client
@@ -227,6 +229,11 @@ func (c *CLI) GetStepFunctionsHandler() service.Registerable { return c.stepFunc
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetCloudWatchHandler() service.Registerable { return c.cloudWatchHandler }
+
+// GetCloudFormationHandler returns the CloudFormation handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetCloudFormationHandler() service.Registerable { return c.cloudFormationHandler }
 
 // Run parses CLI / environment-variable configuration and starts Gopherstack.
 // It is called from main() and exits on error.
@@ -416,6 +423,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		&cwlogsbackend.Provider{},
 		&sfnbackend.Provider{},
 		&cwbackend.Provider{},
+		&cfnbackend.Provider{},
 	}
 
 	for _, provider := range serviceProviders {
@@ -444,6 +452,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		cli.cloudWatchLogsHandler = services[12]
 		cli.stepFunctionsHandler = services[13]
 		cli.cloudWatchHandler = services[14]
+		cli.cloudFormationHandler = services[15]
 	}
 
 	// Wire SNS→SQS delivery: when SNS publishes a message, deliver it to SQS queues.
@@ -574,7 +583,7 @@ func healthHandler(c *echo.Context) error {
 		Status: "ok",
 		Services: []string{
 			"DynamoDB", "S3", "SSM", "IAM", "STS", "SNS", "SQS", "KMS", "SecretsManager", "Lambda",
-			"EventBridge", "APIGateway", "CloudWatchLogs", "StepFunctions", "CloudWatch",
+			"EventBridge", "APIGateway", "CloudWatchLogs", "StepFunctions", "CloudWatch", "CloudFormation",
 		},
 	})
 }
