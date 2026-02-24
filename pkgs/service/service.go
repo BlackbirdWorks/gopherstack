@@ -5,6 +5,8 @@ import (
 	"log/slog"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 )
 
 // Middleware defines a function that wraps an Echo handler.
@@ -98,6 +100,9 @@ type AppContext struct {
 	Logger     *slog.Logger
 	Config     any // The raw configuration object
 	JanitorCtx context.Context
+	// PortAlloc is the shared port allocator for services that need dedicated ports (e.g. Lambda).
+	// May be nil if the port range was not configured.
+	PortAlloc *portalloc.Allocator
 }
 
 // Provider encapsulates the logic to initialize a service.

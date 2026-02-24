@@ -30,6 +30,7 @@ import (
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
 	kmsbackend "github.com/blackbirdworks/gopherstack/kms"
+	lambdabackend "github.com/blackbirdworks/gopherstack/lambda"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	gopherDNS "github.com/blackbirdworks/gopherstack/pkgs/dns"
 	snsevents "github.com/blackbirdworks/gopherstack/pkgs/events"
@@ -55,13 +56,14 @@ const (
 
 // CLI holds all command-line / environment-variable configuration for Gopherstack.
 type CLI struct {
-	SSM                   struct{}            `embed:"" prefix:"ssm-"`
-	SecretsManager        struct{}            `embed:"" prefix:"secretsmanager-"`
-	KMS                   struct{}            `embed:"" prefix:"kms-"`
-	SQS                   sqsbackend.Settings `embed:"" prefix:"sqs-"`
-	SNS                   struct{}            `embed:"" prefix:"sns-"`
-	STS                   struct{}            `embed:"" prefix:"sts-"`
-	IAM                   struct{}            `embed:"" prefix:"iam-"`
+	SSM                   struct{}                `embed:"" prefix:"ssm-"`
+	SecretsManager        struct{}                `embed:"" prefix:"secretsmanager-"`
+	KMS                   struct{}                `embed:"" prefix:"kms-"`
+	SQS                   sqsbackend.Settings     `embed:"" prefix:"sqs-"`
+	SNS                   struct{}                `embed:"" prefix:"sns-"`
+	STS                   struct{}                `embed:"" prefix:"sts-"`
+	IAM                   struct{}                `embed:"" prefix:"iam-"`
+	Lambda                lambdabackend.Settings  `embed:"" prefix:"lambda-"`
 	kmsHandler            service.Registerable
 	secretsManagerHandler service.Registerable
 	ddbHandler            service.Registerable
@@ -71,6 +73,7 @@ type CLI struct {
 	stsHandler            service.Registerable
 	snsHandler            service.Registerable
 	sqsHandler            service.Registerable
+	lambdaHandler         service.Registerable
 	s3Client              *s3.Client
 	iamClient             *iam.Client
 	snsClient             *sns.Client
@@ -118,6 +121,11 @@ func (c *CLI) GetS3Endpoint() string {
 	s3Port := strings.TrimPrefix(c.Port, ":")
 
 	return "localhost:" + s3Port
+}
+
+// GetLambdaSettings returns Lambda settings (lambda.LambdaSettingsProvider).
+func (c *CLI) GetLambdaSettings() lambdabackend.Settings {
+	return c.Lambda
 }
 
 // GetDynamoDBClient returns the SDK client for DynamoDB (dashboard.AWSSDKProvider).
@@ -179,6 +187,11 @@ func (c *CLI) GetKMSHandler() service.Registerable { return c.kmsHandler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetSecretsManagerHandler() service.Registerable { return c.secretsManagerHandler }
+
+// GetLambdaHandler returns the Lambda handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetLambdaHandler() service.Registerable { return c.lambdaHandler }
 
 // Run parses CLI / environment-variable configuration and starts Gopherstack.
 // It is called from main() and exits on error.
@@ -243,6 +256,7 @@ func run(ctx context.Context, cli CLI) error {
 		Logger:     log,
 		Config:     &cli,
 		JanitorCtx: janitorCtx,
+		PortAlloc:  portAlloc,
 	}
 
 	services, err := initializeServices(appCtx)
@@ -361,6 +375,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		&sqsbackend.Provider{},
 		&kmsbackend.Provider{},
 		&secretsmanagerbackend.Provider{},
+		&lambdabackend.Provider{},
 	}
 
 	for _, provider := range serviceProviders {
@@ -383,6 +398,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		cli.sqsHandler = services[6]
 		cli.kmsHandler = services[7]
 		cli.secretsManagerHandler = services[8]
+		cli.lambdaHandler = services[9]
 	}
 
 	// Wire SNS→SQS delivery: when SNS publishes a message, deliver it to SQS queues.
@@ -512,7 +528,7 @@ func healthHandler(c *echo.Context) error {
 	return c.JSON(http.StatusOK, healthResponse{
 		Status: "ok",
 		Services: []string{
-			"DynamoDB", "S3", "SSM", "IAM", "STS", "SNS", "SQS", "KMS", "SecretsManager",
+			"DynamoDB", "S3", "SSM", "IAM", "STS", "SNS", "SQS", "KMS", "SecretsManager", "Lambda",
 		},
 	})
 }
