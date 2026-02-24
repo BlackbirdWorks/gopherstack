@@ -56,6 +56,7 @@ func (h *Handler) GetSupportedOperations() []string {
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		target := c.Request().Header.Get("X-Amz-Target")
+
 		return strings.HasPrefix(target, "AmazonEventBridge.")
 	}
 }
@@ -85,7 +86,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	}
 
 	var data map[string]any
-	if err := json.Unmarshal(body, &data); err != nil {
+	if uerr := json.Unmarshal(body, &data); uerr != nil {
 		return ""
 	}
 
@@ -127,6 +128,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		body, err := httputil.ReadBody(c.Request())
 		if err != nil {
 			log.ErrorContext(ctx, "failed to read request body", "error", err)
+
 			return c.String(http.StatusInternalServerError, "internal server error")
 		}
 
@@ -159,6 +161,7 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 			if err != nil {
 				return nil, err
 			}
+
 			return map[string]string{"EventBusArn": bus.Arn}, nil
 		},
 		"DeleteEventBus": func(b []byte) (any, error) {
@@ -171,6 +174,7 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 			if err := h.Backend.DeleteEventBus(input.Name); err != nil {
 				return nil, err
 			}
+
 			return map[string]any{}, nil
 		},
 		"ListEventBuses": func(b []byte) (any, error) {
@@ -186,6 +190,7 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 			if err != nil {
 				return nil, err
 			}
+
 			return map[string]any{"EventBuses": buses, "NextToken": next}, nil
 		},
 		"DescribeEventBus": func(b []byte) (any, error) {
@@ -199,6 +204,7 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 			if err != nil {
 				return nil, err
 			}
+
 			return bus, nil
 		},
 		"PutRule": func(b []byte) (any, error) {
@@ -210,6 +216,7 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 			if err != nil {
 				return nil, err
 			}
+
 			return map[string]string{"RuleArn": rule.Arn}, nil
 		},
 		"DeleteRule": func(b []byte) (any, error) {
@@ -223,6 +230,7 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 			if err := h.Backend.DeleteRule(input.Name, input.EventBusName); err != nil {
 				return nil, err
 			}
+
 			return map[string]any{}, nil
 		},
 		"ListRules": func(b []byte) (any, error) {
@@ -239,6 +247,7 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 			if err != nil {
 				return nil, err
 			}
+
 			return map[string]any{"Rules": rules, "NextToken": next}, nil
 		},
 		"DescribeRule": func(b []byte) (any, error) {
@@ -249,6 +258,7 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
+
 			return h.Backend.DescribeRule(input.Name, input.EventBusName)
 		},
 		"EnableRule": func(b []byte) (any, error) {
@@ -262,6 +272,7 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 			if err := h.Backend.EnableRule(input.Name, input.EventBusName); err != nil {
 				return nil, err
 			}
+
 			return map[string]any{}, nil
 		},
 		"DisableRule": func(b []byte) (any, error) {
@@ -275,6 +286,7 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 			if err := h.Backend.DisableRule(input.Name, input.EventBusName); err != nil {
 				return nil, err
 			}
+
 			return map[string]any{}, nil
 		},
 		"PutTargets": func(b []byte) (any, error) {
@@ -293,6 +305,7 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 			if failed == nil {
 				failed = []FailedEntry{}
 			}
+
 			return map[string]any{
 				"FailedEntryCount": len(failed),
 				"FailedEntries":    failed,
@@ -302,18 +315,19 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 			var input struct {
 				Rule         string   `json:"Rule"`
 				EventBusName string   `json:"EventBusName"`
-				Ids          []string `json:"Ids"`
+				IDs          []string `json:"Ids"`
 			}
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			failed, err := h.Backend.RemoveTargets(input.Rule, input.EventBusName, input.Ids)
+			failed, err := h.Backend.RemoveTargets(input.Rule, input.EventBusName, input.IDs)
 			if err != nil {
 				return nil, err
 			}
 			if failed == nil {
 				failed = []FailedEntry{}
 			}
+
 			return map[string]any{
 				"FailedEntryCount": len(failed),
 				"FailedEntries":    failed,
@@ -333,6 +347,7 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 			if err != nil {
 				return nil, err
 			}
+
 			return map[string]any{"Targets": targets, "NextToken": next}, nil
 		},
 		"PutEvents": func(b []byte) (any, error) {
@@ -343,6 +358,7 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 				return nil, err
 			}
 			entries := h.Backend.PutEvents(input.Entries)
+
 			return map[string]any{
 				"FailedEntryCount": 0,
 				"Entries":          entries,
@@ -372,7 +388,7 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 	c.Response().Header().Set("Content-Type", "application/x-amz-json-1.1")
 
 	var errType string
-	statusCode := http.StatusBadRequest
+	var statusCode int
 
 	switch {
 	case errors.Is(reqErr, ErrEventBusNotFound), errors.Is(reqErr, ErrRuleNotFound):

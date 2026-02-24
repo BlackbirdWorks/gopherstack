@@ -166,8 +166,8 @@ func TestHandler_CreateAndListEventBuses(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp struct {
-		EventBuses []eventbridge.EventBus `json:"EventBuses"`
 		NextToken  string                 `json:"NextToken"`
+		EventBuses []eventbridge.EventBus `json:"EventBuses"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.GreaterOrEqual(t, len(resp.EventBuses), 3) // default + bus-a + bus-b
@@ -280,13 +280,18 @@ func TestHandler_PutTargetsListAndRemove(t *testing.T) {
 
 	makeRequestWithHandler(t, handler, e, "PutRule", `{"Name":"rule-t"}`)
 
-	rec := makeRequestWithHandler(t, handler, e, "PutTargets",
-		`{"Rule":"rule-t","Targets":[{"Id":"t1","Arn":"arn:aws:lambda:us-east-1:123:function:fn"},{"Id":"t2","Arn":"arn:aws:sqs:us-east-1:123:q"}]}`)
+	rec := makeRequestWithHandler(
+		t,
+		handler,
+		e,
+		"PutTargets",
+		`{"Rule":"rule-t","Targets":[{"Id":"t1","Arn":"arn:aws:lambda:us-east-1:123:function:fn"},{"Id":"t2","Arn":"arn:aws:sqs:us-east-1:123:q"}]}`,
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var putResp struct {
-		FailedEntryCount int                    `json:"FailedEntryCount"`
 		FailedEntries    []eventbridge.FailedEntry `json:"FailedEntries"`
+		FailedEntryCount int                       `json:"FailedEntryCount"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putResp))
 	assert.Equal(t, 0, putResp.FailedEntryCount)
@@ -306,7 +311,7 @@ func TestHandler_PutTargetsListAndRemove(t *testing.T) {
 	rec = makeRequestWithHandler(t, handler, e, "ListTargetsByRule", `{"Rule":"rule-t"}`)
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
 	assert.Len(t, listResp.Targets, 1)
-	assert.Equal(t, "t2", listResp.Targets[0].Id)
+	assert.Equal(t, "t2", listResp.Targets[0].ID)
 }
 
 func TestHandler_PutEvents(t *testing.T) {
@@ -317,19 +322,24 @@ func TestHandler_PutEvents(t *testing.T) {
 	backend := eventbridge.NewInMemoryBackend()
 	handler := eventbridge.NewHandler(backend, log)
 
-	rec := makeRequestWithHandler(t, handler, e, "PutEvents",
-		`{"Entries":[{"Source":"my.app","DetailType":"UserCreated","Detail":"{\"userId\":\"1\"}"},{"Source":"my.app","DetailType":"UserDeleted","Detail":"{}"}]}`)
+	rec := makeRequestWithHandler(
+		t,
+		handler,
+		e,
+		"PutEvents",
+		`{"Entries":[{"Source":"my.app","DetailType":"UserCreated","Detail":"{\"userId\":\"1\"}"},{"Source":"my.app","DetailType":"UserDeleted","Detail":"{}"}]}`,
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp struct {
-		FailedEntryCount int                            `json:"FailedEntryCount"`
 		Entries          []eventbridge.EventResultEntry `json:"Entries"`
+		FailedEntryCount int                            `json:"FailedEntryCount"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, 0, resp.FailedEntryCount)
 	assert.Len(t, resp.Entries, 2)
 	for _, entry := range resp.Entries {
-		assert.NotEmpty(t, entry.EventId)
+		assert.NotEmpty(t, entry.EventID)
 	}
 }
 

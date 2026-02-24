@@ -13,11 +13,11 @@ import (
 )
 
 var (
-	ErrEventBusNotFound      = errors.New("ResourceNotFoundException")
-	ErrEventBusAlreadyExists = errors.New("ResourceAlreadyExistsException")
-	ErrRuleNotFound          = errors.New("ResourceNotFoundException")
+	ErrEventBusNotFound       = errors.New("ResourceNotFoundException")
+	ErrEventBusAlreadyExists  = errors.New("ResourceAlreadyExistsException")
+	ErrRuleNotFound           = errors.New("ResourceNotFoundException")
 	ErrCannotDeleteDefaultBus = errors.New("IllegalArgumentException")
-	ErrInvalidParameter      = errors.New("InvalidParameterException")
+	ErrInvalidParameter       = errors.New("InvalidParameterException")
 )
 
 const (
@@ -46,13 +46,13 @@ type StorageBackend interface {
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	mu        sync.RWMutex
+	buses     map[string]*EventBus
+	rules     map[string]map[string]*Rule
+	targets   map[string]map[string]*Target
 	accountID string
 	region    string
-	buses     map[string]*EventBus
-	rules     map[string]map[string]*Rule   // busName -> ruleName -> Rule
-	targets   map[string]map[string]*Target // busName/ruleName -> targetId -> Target
 	eventLog  []EventLogEntry
+	mu        sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with default configuration.
@@ -116,6 +116,7 @@ func (b *InMemoryBackend) CreateEventBus(name, description string) (*EventBus, e
 }
 
 // DeleteEventBus deletes an event bus by name (default bus cannot be deleted).
+// It also removes all rules and targets associated with the bus.
 func (b *InMemoryBackend) DeleteEventBus(name string) error {
 	if name == defaultEventBusName {
 		return fmt.Errorf("%w: cannot delete the default event bus", ErrCannotDeleteDefaultBus)
@@ -129,6 +130,15 @@ func (b *InMemoryBackend) DeleteEventBus(name string) error {
 	}
 
 	delete(b.buses, name)
+
+	// Clean up all rules for this bus.
+	if busRules, ok := b.rules[name]; ok {
+		for ruleName := range busRules {
+			delete(b.targets, b.targetKey(name, ruleName))
+		}
+
+		delete(b.rules, name)
+	}
 
 	return nil
 }
@@ -178,9 +188,9 @@ func (b *InMemoryBackend) DescribeEventBus(name string) (*EventBus, error) {
 		return nil, fmt.Errorf("%w: Event bus %s not found", ErrEventBusNotFound, name)
 	}
 
-	copy := *bus
+	cp := *bus
 
-	return &copy, nil
+	return &cp, nil
 }
 
 // PutRule creates or updates a rule on an event bus.
@@ -239,7 +249,7 @@ func (b *InMemoryBackend) DeleteRule(name, eventBusName string) error {
 		return fmt.Errorf("%w: Rule %s not found", ErrRuleNotFound, name)
 	}
 
-	if _, exists := busRules[name]; !exists {
+	if _, ruleExists := busRules[name]; !ruleExists {
 		return fmt.Errorf("%w: Rule %s not found", ErrRuleNotFound, name)
 	}
 
@@ -305,9 +315,9 @@ func (b *InMemoryBackend) DescribeRule(name, eventBusName string) (*Rule, error)
 		return nil, fmt.Errorf("%w: Rule %s not found", ErrRuleNotFound, name)
 	}
 
-	copy := *rule
+	cp := *rule
 
-	return &copy, nil
+	return &cp, nil
 }
 
 // EnableRule sets a rule's state to ENABLED.
@@ -357,7 +367,7 @@ func (b *InMemoryBackend) PutTargets(ruleName, eventBusName string, targets []Ta
 		return nil, fmt.Errorf("%w: Rule %s not found", ErrRuleNotFound, ruleName)
 	}
 
-	if _, exists := busRules[ruleName]; !exists {
+	if _, ruleExists := busRules[ruleName]; !ruleExists {
 		return nil, fmt.Errorf("%w: Rule %s not found", ErrRuleNotFound, ruleName)
 	}
 
@@ -368,16 +378,17 @@ func (b *InMemoryBackend) PutTargets(ruleName, eventBusName string, targets []Ta
 
 	var failed []FailedEntry
 	for _, t := range targets {
-		if t.Id == "" {
+		if t.ID == "" {
 			failed = append(failed, FailedEntry{
-				TargetId:     t.Id,
+				TargetID:     t.ID,
 				ErrorCode:    "InvalidParameter",
 				ErrorMessage: "Target Id is required",
 			})
+
 			continue
 		}
-		copy := t
-		b.targets[key][t.Id] = &copy
+		cp := t
+		b.targets[key][t.ID] = &cp
 	}
 
 	return failed, nil
@@ -399,10 +410,11 @@ func (b *InMemoryBackend) RemoveTargets(ruleName, eventBusName string, ids []str
 	for _, id := range ids {
 		if _, exists := ruleTargets[id]; !exists {
 			failed = append(failed, FailedEntry{
-				TargetId:     id,
+				TargetID:     id,
 				ErrorCode:    "ResourceNotFoundException",
 				ErrorMessage: fmt.Sprintf("Target %s not found", id),
 			})
+
 			continue
 		}
 		delete(ruleTargets, id)
@@ -427,7 +439,7 @@ func (b *InMemoryBackend) ListTargetsByRule(ruleName, eventBusName, nextToken st
 		all = append(all, *t)
 	}
 
-	sort.Slice(all, func(i, j int) bool { return all[i].Id < all[j].Id })
+	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 
 	startIdx := parseNextToken(nextToken)
 	if startIdx >= len(all) {
@@ -475,7 +487,7 @@ func (b *InMemoryBackend) PutEvents(entries []EventEntry) []EventResultEntry {
 		if len(b.eventLog) > maxEventLogSize {
 			b.eventLog = b.eventLog[len(b.eventLog)-maxEventLogSize:]
 		}
-		results = append(results, EventResultEntry{EventId: eventID})
+		results = append(results, EventResultEntry{EventID: eventID})
 	}
 
 	return results

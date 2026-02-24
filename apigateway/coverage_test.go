@@ -111,7 +111,7 @@ func TestHandler_APIGateway_ExtractResource(t *testing.T) {
 	assert.Equal(t, "abc123", h.ExtractResource(e.NewContext(req, httptest.NewRecorder())))
 
 	reqEmpty := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`))
-	assert.Equal(t, "", h.ExtractResource(e.NewContext(reqEmpty, httptest.NewRecorder())))
+	assert.Empty(t, h.ExtractResource(e.NewContext(reqEmpty, httptest.NewRecorder())))
 }
 
 func TestHandler_APIGateway_MissingTarget(t *testing.T) {
@@ -165,7 +165,11 @@ func TestHandler_APIGateway_NotFoundErrors(t *testing.T) {
 	rec = post(t, "DeleteResource", `{"restApiId":"nonexistent","resourceId":"r1"}`)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 
-	rec = post(t, "PutMethod", `{"restApiId":"nonexistent","resourceId":"r1","httpMethod":"GET","authorizationType":"NONE"}`)
+	rec = post(
+		t,
+		"PutMethod",
+		`{"restApiId":"nonexistent","resourceId":"r1","httpMethod":"GET","authorizationType":"NONE"}`,
+	)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 
 	rec = post(t, "GetMethod", `{"restApiId":"nonexistent","resourceId":"r1","httpMethod":"GET"}`)

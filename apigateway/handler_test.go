@@ -24,11 +24,17 @@ func post(t *testing.T, action, body string) *httptest.ResponseRecorder {
 	log := logger.NewLogger(slog.LevelDebug)
 	backend := apigateway.NewInMemoryBackend()
 	handler := apigateway.NewHandler(backend, log)
+
 	return postWithHandler(t, handler, e, action, body)
 }
 
 // postWithHandler sends a POST to a specific handler instance.
-func postWithHandler(t *testing.T, handler *apigateway.Handler, e *echo.Echo, action, body string) *httptest.ResponseRecorder {
+func postWithHandler(
+	t *testing.T,
+	handler *apigateway.Handler,
+	e *echo.Echo,
+	action, body string,
+) *httptest.ResponseRecorder {
 	t.Helper()
 
 	var req *http.Request
@@ -45,6 +51,7 @@ func postWithHandler(t *testing.T, handler *apigateway.Handler, e *echo.Echo, ac
 	c := e.NewContext(req, rec)
 	err := handler.Handler()(c)
 	require.NoError(t, err)
+
 	return rec
 }
 
@@ -54,6 +61,7 @@ func sharedSetup() (*apigateway.Handler, *echo.Echo) {
 	backend := apigateway.NewInMemoryBackend()
 	handler := apigateway.NewHandler(backend, log)
 	e := echo.New()
+
 	return handler, e
 }
 
@@ -62,7 +70,13 @@ func TestHandler_CreateAndGetRestApi(t *testing.T) {
 
 	handler, e := sharedSetup()
 
-	rec := postWithHandler(t, handler, e, "CreateRestApi", `{"name":"my-api","description":"desc","tags":{"env":"test"}}`)
+	rec := postWithHandler(
+		t,
+		handler,
+		e,
+		"CreateRestApi",
+		`{"name":"my-api","description":"desc","tags":{"env":"test"}}`,
+	)
 	assert.Equal(t, http.StatusCreated, rec.Code)
 
 	var created map[string]any
@@ -137,7 +151,13 @@ func TestHandler_CreateAndGetResources(t *testing.T) {
 	assert.Equal(t, "/", root["path"])
 
 	// Create a child resource
-	rec3 := postWithHandler(t, handler, e, "CreateResource", `{"restApiId":"`+apiID+`","parentId":"`+rootID+`","pathPart":"users"}`)
+	rec3 := postWithHandler(
+		t,
+		handler,
+		e,
+		"CreateResource",
+		`{"restApiId":"`+apiID+`","parentId":"`+rootID+`","pathPart":"users"}`,
+	)
 	assert.Equal(t, http.StatusCreated, rec3.Code)
 	var child map[string]any
 	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &child))
@@ -159,7 +179,13 @@ func TestHandler_DeleteResource(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &res))
 	rootID := res["item"].([]any)[0].(map[string]any)["id"].(string)
 
-	rec3 := postWithHandler(t, handler, e, "CreateResource", `{"restApiId":"`+apiID+`","parentId":"`+rootID+`","pathPart":"items"}`)
+	rec3 := postWithHandler(
+		t,
+		handler,
+		e,
+		"CreateResource",
+		`{"restApiId":"`+apiID+`","parentId":"`+rootID+`","pathPart":"items"}`,
+	)
 	var child map[string]any
 	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &child))
 	childID := child["id"].(string)

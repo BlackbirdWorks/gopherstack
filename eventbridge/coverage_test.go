@@ -104,10 +104,10 @@ func TestHandler_ExtractResource(t *testing.T) {
 	assert.Equal(t, "my-rule", h.ExtractResource(e.NewContext(reqRule, httptest.NewRecorder())))
 
 	reqEmpty := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`))
-	assert.Equal(t, "", h.ExtractResource(e.NewContext(reqEmpty, httptest.NewRecorder())))
+	assert.Empty(t, h.ExtractResource(e.NewContext(reqEmpty, httptest.NewRecorder())))
 
 	reqBadJSON := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`not-json`))
-	assert.Equal(t, "", h.ExtractResource(e.NewContext(reqBadJSON, httptest.NewRecorder())))
+	assert.Empty(t, h.ExtractResource(e.NewContext(reqBadJSON, httptest.NewRecorder())))
 }
 
 func TestHandler_InvalidTarget(t *testing.T) {

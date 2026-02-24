@@ -186,8 +186,8 @@ func TestPutAndListTargets(t *testing.T) {
 	require.NoError(t, err)
 
 	targets := []eventbridge.Target{
-		{Id: "t1", Arn: "arn:aws:lambda:us-east-1:123456789012:function:my-func"},
-		{Id: "t2", Arn: "arn:aws:sqs:us-east-1:123456789012:my-queue"},
+		{ID: "t1", Arn: "arn:aws:lambda:us-east-1:123456789012:function:my-func"},
+		{ID: "t2", Arn: "arn:aws:sqs:us-east-1:123456789012:my-queue"},
 	}
 
 	failed, err := b.PutTargets("rule-with-targets", "", targets)
@@ -208,7 +208,7 @@ func TestRemoveTargets(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = b.PutTargets("rule-remove", "", []eventbridge.Target{
-		{Id: "t1", Arn: "arn:aws:lambda:us-east-1:123456789012:function:fn"},
+		{ID: "t1", Arn: "arn:aws:lambda:us-east-1:123456789012:function:fn"},
 	})
 	require.NoError(t, err)
 
@@ -234,7 +234,7 @@ func TestPutEvents(t *testing.T) {
 	results := b.PutEvents(entries)
 	assert.Len(t, results, 2)
 	for _, r := range results {
-		assert.NotEmpty(t, r.EventId)
+		assert.NotEmpty(t, r.EventID)
 		assert.Empty(t, r.ErrorCode)
 	}
 

@@ -14,16 +14,16 @@ func TestBackend_CreateAndGetRestApi(t *testing.T) {
 
 	b := apigateway.NewInMemoryBackend()
 
-	api, err := b.CreateRestApi("my-api", "desc", map[string]string{"env": "test"})
+	api, err := b.CreateRestAPI("my-api", "desc", map[string]string{"env": "test"})
 	require.NoError(t, err)
 	assert.NotEmpty(t, api.ID)
 	assert.Equal(t, "my-api", api.Name)
 
-	got, err := b.GetRestApi(api.ID)
+	got, err := b.GetRestAPI(api.ID)
 	require.NoError(t, err)
 	assert.Equal(t, api.ID, got.ID)
 
-	_, err = b.GetRestApi("nonexistent")
+	_, err = b.GetRestAPI("nonexistent")
 	require.Error(t, err)
 }
 
@@ -31,10 +31,10 @@ func TestBackend_GetRestApis(t *testing.T) {
 	t.Parallel()
 
 	b := apigateway.NewInMemoryBackend()
-	_, _ = b.CreateRestApi("a", "", nil)
-	_, _ = b.CreateRestApi("b", "", nil)
+	_, _ = b.CreateRestAPI("a", "", nil)
+	_, _ = b.CreateRestAPI("b", "", nil)
 
-	apis, pos, err := b.GetRestApis(0, "")
+	apis, pos, err := b.GetRestAPIs(0, "")
 	require.NoError(t, err)
 	assert.Len(t, apis, 2)
 	assert.Empty(t, pos)
@@ -44,15 +44,15 @@ func TestBackend_DeleteRestApi(t *testing.T) {
 	t.Parallel()
 
 	b := apigateway.NewInMemoryBackend()
-	api, _ := b.CreateRestApi("to-del", "", nil)
+	api, _ := b.CreateRestAPI("to-del", "", nil)
 
-	err := b.DeleteRestApi(api.ID)
+	err := b.DeleteRestAPI(api.ID)
 	require.NoError(t, err)
 
-	_, err = b.GetRestApi(api.ID)
+	_, err = b.GetRestAPI(api.ID)
 	require.Error(t, err)
 
-	err = b.DeleteRestApi("nonexistent")
+	err = b.DeleteRestAPI("nonexistent")
 	require.Error(t, err)
 }
 
@@ -60,7 +60,7 @@ func TestBackend_RootResourceCreatedOnApiCreate(t *testing.T) {
 	t.Parallel()
 
 	b := apigateway.NewInMemoryBackend()
-	api, _ := b.CreateRestApi("api", "", nil)
+	api, _ := b.CreateRestAPI("api", "", nil)
 
 	resources, _, err := b.GetResources(api.ID, "", 0)
 	require.NoError(t, err)
@@ -73,7 +73,7 @@ func TestBackend_CreateAndGetResource(t *testing.T) {
 	t.Parallel()
 
 	b := apigateway.NewInMemoryBackend()
-	api, _ := b.CreateRestApi("api", "", nil)
+	api, _ := b.CreateRestAPI("api", "", nil)
 
 	resources, _, _ := b.GetResources(api.ID, "", 0)
 	rootID := resources[0].ID
@@ -92,7 +92,7 @@ func TestBackend_DeleteResource(t *testing.T) {
 	t.Parallel()
 
 	b := apigateway.NewInMemoryBackend()
-	api, _ := b.CreateRestApi("api", "", nil)
+	api, _ := b.CreateRestAPI("api", "", nil)
 	resources, _, _ := b.GetResources(api.ID, "", 0)
 	rootID := resources[0].ID
 
@@ -109,13 +109,13 @@ func TestBackend_PutGetDeleteMethod(t *testing.T) {
 	t.Parallel()
 
 	b := apigateway.NewInMemoryBackend()
-	api, _ := b.CreateRestApi("api", "", nil)
+	api, _ := b.CreateRestAPI("api", "", nil)
 	resources, _, _ := b.GetResources(api.ID, "", 0)
 	rootID := resources[0].ID
 
 	m, err := b.PutMethod(api.ID, rootID, "GET", "NONE", false)
 	require.NoError(t, err)
-	assert.Equal(t, "GET", m.HttpMethod)
+	assert.Equal(t, "GET", m.HTTPMethod)
 
 	got, err := b.GetMethod(api.ID, rootID, "GET")
 	require.NoError(t, err)
@@ -132,11 +132,11 @@ func TestBackend_PutGetDeleteIntegration(t *testing.T) {
 	t.Parallel()
 
 	b := apigateway.NewInMemoryBackend()
-	api, _ := b.CreateRestApi("api", "", nil)
+	api, _ := b.CreateRestAPI("api", "", nil)
 	resources, _, _ := b.GetResources(api.ID, "", 0)
 	rootID := resources[0].ID
 
-	b.PutMethod(api.ID, rootID, "POST", "NONE", false) //nolint:errcheck
+	b.PutMethod(api.ID, rootID, "POST", "NONE", false)
 
 	input := apigateway.PutIntegrationInput{Type: "MOCK"}
 	integ, err := b.PutIntegration(api.ID, rootID, "POST", input)
@@ -158,7 +158,7 @@ func TestBackend_CreateDeploymentAndStage(t *testing.T) {
 	t.Parallel()
 
 	b := apigateway.NewInMemoryBackend()
-	api, _ := b.CreateRestApi("api", "", nil)
+	api, _ := b.CreateRestAPI("api", "", nil)
 
 	depl, err := b.CreateDeployment(api.ID, "prod", "initial")
 	require.NoError(t, err)
@@ -178,8 +178,8 @@ func TestBackend_GetAndDeleteStage(t *testing.T) {
 	t.Parallel()
 
 	b := apigateway.NewInMemoryBackend()
-	api, _ := b.CreateRestApi("api", "", nil)
-	b.CreateDeployment(api.ID, "v1", "") //nolint:errcheck
+	api, _ := b.CreateRestAPI("api", "", nil)
+	b.CreateDeployment(api.ID, "v1", "")
 
 	stage, err := b.GetStage(api.ID, "v1")
 	require.NoError(t, err)
@@ -197,10 +197,10 @@ func TestBackend_InvalidParams(t *testing.T) {
 
 	b := apigateway.NewInMemoryBackend()
 
-	_, err := b.CreateRestApi("", "", nil)
+	_, err := b.CreateRestAPI("", "", nil)
 	require.Error(t, err)
 
-	api, _ := b.CreateRestApi("api", "", nil)
+	api, _ := b.CreateRestAPI("api", "", nil)
 	resources, _, _ := b.GetResources(api.ID, "", 0)
 	rootID := resources[0].ID
 

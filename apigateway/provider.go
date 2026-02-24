@@ -16,5 +16,6 @@ func (p *Provider) Name() string { return "APIGateway" }
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	backend := NewInMemoryBackend()
 	handler := NewHandler(backend, ctx.Logger)
+
 	return handler, nil
 }
