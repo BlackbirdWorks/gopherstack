@@ -146,7 +146,7 @@ func TestHandler_ListParts_WithParts(t *testing.T) {
 	require.Len(t, result.Parts, 2)
 	assert.Equal(t, 1, result.Parts[0].PartNumber)
 	assert.Equal(t, 2, result.Parts[1].PartNumber)
-	assert.Greater(t, result.Parts[0].Size, int64(0))
+	assert.Positive(t, result.Parts[0].Size)
 	assert.NotEmpty(t, result.Parts[0].ETag)
 }
 

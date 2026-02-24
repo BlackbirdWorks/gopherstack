@@ -47,7 +47,7 @@ func (h *DashboardHandler) dynamoDBPartiQL(w http.ResponseWriter, r *http.Reques
 			return
 		}
 
-		h.renderPageFragment(w, "dynamodb/table_detail.html", "partiql-results", map[string]interface{}{
+		h.renderTableDetailFragment(w, "partiql-results", map[string]any{
 			"TableName":  tableName,
 			"ActiveTab":  "dynamodb",
 			"ResultJSON": string(itemsJSON),
@@ -57,7 +57,7 @@ func (h *DashboardHandler) dynamoDBPartiQL(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	h.renderPageFragment(w, "dynamodb/table_detail.html", "partiql-form", map[string]interface{}{
+	h.renderTableDetailFragment(w, "partiql-form", map[string]any{
 		"TableName": tableName,
 		"ActiveTab": "dynamodb",
 	})

@@ -224,44 +224,48 @@ type Grantee struct {
 }
 
 // ListMultipartUploadsResult is the XML response for ListMultipartUploads.
+//
+//nolint:govet // fieldalignment: fields reordered for memory alignment; XML tags control marshalling order
 type ListMultipartUploadsResult struct {
-XMLName            xml.Name          `xml:"ListMultipartUploadsResult"`
-Xmlns              string            `xml:"xmlns,attr,omitempty"`
-Bucket             string            `xml:"Bucket"`
-Prefix             string            `xml:"Prefix,omitempty"`
-KeyMarker          string            `xml:"KeyMarker,omitempty"`
-UploadIDMarker     string            `xml:"UploadIdMarker,omitempty"`
-NextKeyMarker      string            `xml:"NextKeyMarker,omitempty"`
-NextUploadIDMarker string            `xml:"NextUploadIdMarker,omitempty"`
-MaxUploads         int               `xml:"MaxUploads"`
-IsTruncated        bool              `xml:"IsTruncated"`
-Uploads            []MultipartUpload `xml:"Upload"`
+	XMLName            xml.Name          `xml:"ListMultipartUploadsResult"`
+	Uploads            []MultipartUpload `xml:"Upload"`
+	Xmlns              string            `xml:"xmlns,attr,omitempty"`
+	Bucket             string            `xml:"Bucket"`
+	Prefix             string            `xml:"Prefix,omitempty"`
+	KeyMarker          string            `xml:"KeyMarker,omitempty"`
+	UploadIDMarker     string            `xml:"UploadIdMarker,omitempty"`
+	NextKeyMarker      string            `xml:"NextKeyMarker,omitempty"`
+	NextUploadIDMarker string            `xml:"NextUploadIdMarker,omitempty"`
+	MaxUploads         int               `xml:"MaxUploads"`
+	IsTruncated        bool              `xml:"IsTruncated"`
 }
 
 // MultipartUpload describes a single in-progress multipart upload.
 type MultipartUpload struct {
-Key       string    `xml:"Key"`
-UploadID  string    `xml:"UploadId"`
-Initiated time.Time `xml:"Initiated"`
+	Initiated time.Time `xml:"Initiated"`
+	Key       string    `xml:"Key"`
+	UploadID  string    `xml:"UploadId"`
 }
 
 // ListPartsResult is the XML response for ListParts.
+//
+//nolint:govet // fieldalignment: fields reordered for memory alignment; XML tags control marshalling order
 type ListPartsResult struct {
-XMLName              xml.Name    `xml:"ListPartsResult"`
-Xmlns                string      `xml:"xmlns,attr,omitempty"`
-Bucket               string      `xml:"Bucket"`
-Key                  string      `xml:"Key"`
-UploadID             string      `xml:"UploadId"`
-PartNumberMarker     int         `xml:"PartNumberMarker"`
-NextPartNumberMarker int         `xml:"NextPartNumberMarker,omitempty"`
-MaxParts             int         `xml:"MaxParts"`
-IsTruncated          bool        `xml:"IsTruncated"`
-Parts                []PartXML   `xml:"Part"`
+	XMLName              xml.Name  `xml:"ListPartsResult"`
+	Parts                []PartXML `xml:"Part"`
+	Xmlns                string    `xml:"xmlns,attr,omitempty"`
+	Bucket               string    `xml:"Bucket"`
+	Key                  string    `xml:"Key"`
+	UploadID             string    `xml:"UploadId"`
+	PartNumberMarker     int       `xml:"PartNumberMarker"`
+	NextPartNumberMarker int       `xml:"NextPartNumberMarker,omitempty"`
+	MaxParts             int       `xml:"MaxParts"`
+	IsTruncated          bool      `xml:"IsTruncated"`
 }
 
 // PartXML describes a single uploaded part in a multipart upload.
 type PartXML struct {
-PartNumber int    `xml:"PartNumber"`
-ETag       string `xml:"ETag"`
-Size       int64  `xml:"Size"`
+	ETag       string `xml:"ETag"`
+	Size       int64  `xml:"Size"`
+	PartNumber int    `xml:"PartNumber"`
 }

@@ -186,85 +186,85 @@ func (h *S3Handler) abortMultipartUpload(
 }
 
 func (h *S3Handler) listMultipartUploads(
-ctx context.Context,
-w http.ResponseWriter,
-r *http.Request,
-bucketName string,
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucketName string,
 ) {
-h.setOperation(ctx, "ListMultipartUploads")
-log := logger.Load(ctx)
+	h.setOperation(ctx, "ListMultipartUploads")
+	log := logger.Load(ctx)
 
-out, err := h.Backend.ListMultipartUploads(ctx, &s3.ListMultipartUploadsInput{
-Bucket: aws.String(bucketName),
-Prefix: aws.String(r.URL.Query().Get("prefix")),
-})
-if err != nil {
-WriteError(log, w, r, err)
+	out, err := h.Backend.ListMultipartUploads(ctx, &s3.ListMultipartUploadsInput{
+		Bucket: aws.String(bucketName),
+		Prefix: aws.String(r.URL.Query().Get("prefix")),
+	})
+	if err != nil {
+		WriteError(log, w, r, err)
 
-return
-}
+		return
+	}
 
-result := ListMultipartUploadsResult{
-Xmlns:       "http://s3.amazonaws.com/doc/2006-03-01/",
-Bucket:      bucketName,
-MaxUploads:  1000, //nolint:mnd // S3 default max uploads per page
-IsTruncated: false,
-}
+	result := ListMultipartUploadsResult{
+		Xmlns:       "http://s3.amazonaws.com/doc/2006-03-01/",
+		Bucket:      bucketName,
+		MaxUploads:  1000, //nolint:mnd // S3 default max uploads per page
+		IsTruncated: false,
+	}
 
-for _, u := range out.Uploads {
-result.Uploads = append(result.Uploads, MultipartUpload{
-Key:       aws.ToString(u.Key),
-UploadID:  aws.ToString(u.UploadId),
-Initiated: aws.ToTime(u.Initiated),
-})
-}
+	for _, u := range out.Uploads {
+		result.Uploads = append(result.Uploads, MultipartUpload{
+			Key:       aws.ToString(u.Key),
+			UploadID:  aws.ToString(u.UploadId),
+			Initiated: aws.ToTime(u.Initiated),
+		})
+	}
 
-httputil.WriteXML(log, w, http.StatusOK, result)
+	httputil.WriteXML(log, w, http.StatusOK, result)
 }
 
 func (h *S3Handler) listParts(
-ctx context.Context,
-w http.ResponseWriter,
-r *http.Request,
-bucketName, key string,
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucketName, key string,
 ) {
-h.setOperation(ctx, "ListParts")
-log := logger.Load(ctx)
-uploadID := r.URL.Query().Get("uploadId")
+	h.setOperation(ctx, "ListParts")
+	log := logger.Load(ctx)
+	uploadID := r.URL.Query().Get("uploadId")
 
-out, err := h.Backend.ListParts(ctx, &s3.ListPartsInput{
-Bucket:   aws.String(bucketName),
-Key:      aws.String(key),
-UploadId: aws.String(uploadID),
-})
-if errors.Is(err, ErrNoSuchUpload) {
-WriteError(log, w, r, err)
+	out, err := h.Backend.ListParts(ctx, &s3.ListPartsInput{
+		Bucket:   aws.String(bucketName),
+		Key:      aws.String(key),
+		UploadId: aws.String(uploadID),
+	})
+	if errors.Is(err, ErrNoSuchUpload) {
+		WriteError(log, w, r, err)
 
-return
-}
+		return
+	}
 
-if err != nil {
-WriteError(log, w, r, err)
+	if err != nil {
+		WriteError(log, w, r, err)
 
-return
-}
+		return
+	}
 
-result := ListPartsResult{
-Xmlns:       "http://s3.amazonaws.com/doc/2006-03-01/",
-Bucket:      bucketName,
-Key:         key,
-UploadID:    uploadID,
-MaxParts:    1000, //nolint:mnd // S3 default max parts per page
-IsTruncated: false,
-}
+	result := ListPartsResult{
+		Xmlns:       "http://s3.amazonaws.com/doc/2006-03-01/",
+		Bucket:      bucketName,
+		Key:         key,
+		UploadID:    uploadID,
+		MaxParts:    1000, //nolint:mnd // S3 default max parts per page
+		IsTruncated: false,
+	}
 
-for _, p := range out.Parts {
-result.Parts = append(result.Parts, PartXML{
-PartNumber: int(aws.ToInt32(p.PartNumber)),
-ETag:       aws.ToString(p.ETag),
-Size:       aws.ToInt64(p.Size),
-})
-}
+	for _, p := range out.Parts {
+		result.Parts = append(result.Parts, PartXML{
+			PartNumber: int(aws.ToInt32(p.PartNumber)),
+			ETag:       aws.ToString(p.ETag),
+			Size:       aws.ToInt64(p.Size),
+		})
+	}
 
-httputil.WriteXML(log, w, http.StatusOK, result)
+	httputil.WriteXML(log, w, http.StatusOK, result)
 }

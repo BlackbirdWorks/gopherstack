@@ -79,7 +79,7 @@ func (h *DashboardHandler) dynamoDBUpdateStreams(w http.ResponseWriter, r *http.
 		return
 	}
 
-	h.renderPageFragment(w, "dynamodb/table_detail.html", "table-overview", info)
+	h.renderTableDetailFragment(w, "table-overview", info)
 }
 
 // dynamoDBStreamEvents returns the stream event log as an HTMX fragment.
@@ -93,7 +93,7 @@ func (h *DashboardHandler) dynamoDBStreamEvents(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	h.renderPageFragment(w, "dynamodb/table_detail.html", "stream-events", info)
+	h.renderTableDetailFragment(w, "stream-events", info)
 }
 
 // fetchTableInfoWithStreams builds a TableInfo that includes stream state from the in-memory backend.

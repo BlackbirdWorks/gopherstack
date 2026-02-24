@@ -137,7 +137,7 @@ func TestIntegration_S3_ListMultipartUploads(t *testing.T) {
 				require.Len(t, listOut.Uploads, 2)
 
 				for _, u := range listOut.Uploads {
-					assert.True(t, len(aws.ToString(u.Key)) > len("logs/"), "key too short")
+					assert.Greater(t, len(aws.ToString(u.Key)), len("logs/"), "key too short")
 				}
 			},
 		},

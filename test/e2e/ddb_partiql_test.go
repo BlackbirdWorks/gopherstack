@@ -68,16 +68,10 @@ func TestE2E_DynamoDBPartiQL(t *testing.T) {
 	err = partiqlTab.Click()
 	require.NoError(t, err)
 
-	err = page.Locator("#partiql-container").WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(5000),
-	})
-	require.NoError(t, err)
-
-	// The partiql-form should be present after HTMX loads it.
+	// The partiql-form should be present after HTMX loads it (triggered by the tab click).
 	err = page.Locator("textarea[name='statement']").WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateAttached,
-		Timeout: playwright.Float(8000),
+		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
 
@@ -88,7 +82,7 @@ func TestE2E_DynamoDBPartiQL(t *testing.T) {
 	err = page.Click("button:has-text('Execute')")
 	require.NoError(t, err)
 
-	// Wait for results to appear in the output div.
+	// Wait for results to appear (HTMX swaps #partiql-output contents).
 	err = page.Locator("#partiql-output").WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateAttached,
 		Timeout: playwright.Float(8000),

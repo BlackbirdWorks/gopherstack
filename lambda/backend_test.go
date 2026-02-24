@@ -3,6 +3,7 @@ package lambda_test
 import (
 	"context"
 	"log/slog"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -14,8 +15,8 @@ import (
 
 // mockS3Fetcher implements lambda.S3CodeFetcher for testing.
 type mockS3Fetcher struct {
-	data []byte
 	err  error
+	data []byte
 }
 
 func (m *mockS3Fetcher) GetObjectBytes(_ context.Context, _, _ string) ([]byte, error) {
@@ -25,7 +26,14 @@ func (m *mockS3Fetcher) GetObjectBytes(_ context.Context, _, _ string) ([]byte, 
 func TestInMemoryBackend_SetS3CodeFetcher(t *testing.T) {
 	t.Parallel()
 
-	backend := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "123456789012", "us-east-1", slog.Default())
+	backend := lambda.NewInMemoryBackend(
+		nil,
+		nil,
+		lambda.DefaultSettings(),
+		"123456789012",
+		"us-east-1",
+		slog.Default(),
+	)
 	fetcher := &mockS3Fetcher{data: []byte("zip-data")}
 	// SetS3CodeFetcher should not panic
 	backend.SetS3CodeFetcher(fetcher)
@@ -35,7 +43,14 @@ func TestInMemoryBackend_InvokeFunction_NoPortAlloc(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	backend := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "123456789012", "us-east-1", slog.Default())
+	backend := lambda.NewInMemoryBackend(
+		nil,
+		nil,
+		lambda.DefaultSettings(),
+		"123456789012",
+		"us-east-1",
+		slog.Default(),
+	)
 
 	fn := &lambda.FunctionConfiguration{
 		FunctionName: "no-port-fn",
@@ -52,18 +67,32 @@ func TestInMemoryBackend_InvokeFunction_NotFound(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	backend := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "123456789012", "us-east-1", slog.Default())
+	backend := lambda.NewInMemoryBackend(
+		nil,
+		nil,
+		lambda.DefaultSettings(),
+		"123456789012",
+		"us-east-1",
+		slog.Default(),
+	)
 
 	_, statusCode, err := backend.InvokeFunction(ctx, "nonexistent", lambda.InvocationTypeRequestResponse, []byte("{}"))
 	require.Error(t, err)
-	assert.Equal(t, 404, statusCode) //nolint:mnd // HTTP 404 Not Found
+	assert.Equal(t, http.StatusNotFound, statusCode)
 }
 
 func TestInMemoryBackend_InvokeFunction_DryRun(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	backend := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "123456789012", "us-east-1", slog.Default())
+	backend := lambda.NewInMemoryBackend(
+		nil,
+		nil,
+		lambda.DefaultSettings(),
+		"123456789012",
+		"us-east-1",
+		slog.Default(),
+	)
 
 	fn := &lambda.FunctionConfiguration{
 		FunctionName: "dry-run-fn",
@@ -74,7 +103,7 @@ func TestInMemoryBackend_InvokeFunction_DryRun(t *testing.T) {
 
 	result, statusCode, err := backend.InvokeFunction(ctx, "dry-run-fn", lambda.InvocationTypeDryRun, []byte("{}"))
 	require.NoError(t, err)
-	assert.Equal(t, 204, statusCode) //nolint:mnd // HTTP 204 No Content
+	assert.Equal(t, http.StatusNoContent, statusCode)
 	assert.Nil(t, result)
 }
 
@@ -82,7 +111,14 @@ func TestInMemoryBackend_InvokeFunction_EventType_NoDocker(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	backend := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "123456789012", "us-east-1", slog.Default())
+	backend := lambda.NewInMemoryBackend(
+		nil,
+		nil,
+		lambda.DefaultSettings(),
+		"123456789012",
+		"us-east-1",
+		slog.Default(),
+	)
 
 	fn := &lambda.FunctionConfiguration{
 		FunctionName: "event-fn",
@@ -98,7 +134,14 @@ func TestInMemoryBackend_InvokeFunction_EventType_NoDocker(t *testing.T) {
 func TestInMemoryBackend_CreateAndGet(t *testing.T) {
 	t.Parallel()
 
-	backend := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "123456789012", "us-east-1", slog.Default())
+	backend := lambda.NewInMemoryBackend(
+		nil,
+		nil,
+		lambda.DefaultSettings(),
+		"123456789012",
+		"us-east-1",
+		slog.Default(),
+	)
 
 	fn := &lambda.FunctionConfiguration{
 		FunctionName: "test-create-get",
@@ -116,7 +159,14 @@ func TestInMemoryBackend_CreateAndGet(t *testing.T) {
 func TestInMemoryBackend_CreateDuplicate(t *testing.T) {
 	t.Parallel()
 
-	backend := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "123456789012", "us-east-1", slog.Default())
+	backend := lambda.NewInMemoryBackend(
+		nil,
+		nil,
+		lambda.DefaultSettings(),
+		"123456789012",
+		"us-east-1",
+		slog.Default(),
+	)
 
 	fn := &lambda.FunctionConfiguration{FunctionName: "dup-fn"}
 	require.NoError(t, backend.CreateFunction(fn))
@@ -128,7 +178,14 @@ func TestInMemoryBackend_CreateDuplicate(t *testing.T) {
 func TestInMemoryBackend_ListFunctions(t *testing.T) {
 	t.Parallel()
 
-	backend := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "123456789012", "us-east-1", slog.Default())
+	backend := lambda.NewInMemoryBackend(
+		nil,
+		nil,
+		lambda.DefaultSettings(),
+		"123456789012",
+		"us-east-1",
+		slog.Default(),
+	)
 
 	for _, name := range []string{"fn-b", "fn-a", "fn-c"} {
 		require.NoError(t, backend.CreateFunction(&lambda.FunctionConfiguration{FunctionName: name}))
@@ -145,7 +202,14 @@ func TestInMemoryBackend_ListFunctions(t *testing.T) {
 func TestInMemoryBackend_UpdateFunction_NotFound(t *testing.T) {
 	t.Parallel()
 
-	backend := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "123456789012", "us-east-1", slog.Default())
+	backend := lambda.NewInMemoryBackend(
+		nil,
+		nil,
+		lambda.DefaultSettings(),
+		"123456789012",
+		"us-east-1",
+		slog.Default(),
+	)
 
 	err := backend.UpdateFunction(&lambda.FunctionConfiguration{FunctionName: "nonexistent"})
 	require.ErrorIs(t, err, lambda.ErrFunctionNotFound)
@@ -154,7 +218,14 @@ func TestInMemoryBackend_UpdateFunction_NotFound(t *testing.T) {
 func TestInMemoryBackend_DeleteFunction_NotFound(t *testing.T) {
 	t.Parallel()
 
-	backend := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "123456789012", "us-east-1", slog.Default())
+	backend := lambda.NewInMemoryBackend(
+		nil,
+		nil,
+		lambda.DefaultSettings(),
+		"123456789012",
+		"us-east-1",
+		slog.Default(),
+	)
 
 	err := backend.DeleteFunction("nonexistent")
 	require.ErrorIs(t, err, lambda.ErrFunctionNotFound)
@@ -163,7 +234,14 @@ func TestInMemoryBackend_DeleteFunction_NotFound(t *testing.T) {
 func TestInMemoryBackend_DeleteFunction_WithRuntime(t *testing.T) {
 	t.Parallel()
 
-	backend := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "123456789012", "us-east-1", slog.Default())
+	backend := lambda.NewInMemoryBackend(
+		nil,
+		nil,
+		lambda.DefaultSettings(),
+		"123456789012",
+		"us-east-1",
+		slog.Default(),
+	)
 
 	fn := &lambda.FunctionConfiguration{
 		FunctionName: "delete-with-rt",
@@ -177,132 +255,147 @@ func TestInMemoryBackend_DeleteFunction_WithRuntime(t *testing.T) {
 }
 
 func TestInMemoryBackend_Zip_InvokeWithMockDocker(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-pa, paErr := portalloc.New(19600, 19650)
-require.NoError(t, paErr)
+	pa, paErr := portalloc.New(19600, 19650)
+	require.NoError(t, paErr)
 
-dc := newMockDockerClient()
-backend := lambda.NewInMemoryBackend(dc, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default())
+	dc := newMockDockerClient()
+	backend := lambda.NewInMemoryBackend(dc, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default())
 
-zipBytes := makeTestZip(t, "index.py", `def handler(event, context): return "hello"`)
-fn := &lambda.FunctionConfiguration{
-FunctionName: "zip-invoke-fn",
-PackageType:  lambda.PackageTypeZip,
-Runtime:      "python3.12",
-Handler:      "index.handler",
-Timeout:      3,
-ZipData:      zipBytes,
-}
-require.NoError(t, backend.CreateFunction(fn))
+	zipBytes := makeTestZip(t, `def handler(event, context): return "hello"`)
+	fn := &lambda.FunctionConfiguration{
+		FunctionName: "zip-invoke-fn",
+		PackageType:  lambda.PackageTypeZip,
+		Runtime:      "python3.12",
+		Handler:      "index.handler",
+		Timeout:      3,
+		ZipData:      zipBytes,
+	}
+	require.NoError(t, backend.CreateFunction(fn))
 
-// Event invocation (fire-and-forget) — should start container with Zip mount
-_, statusCode, err := backend.InvokeFunction(context.Background(), "zip-invoke-fn", lambda.InvocationTypeEvent, []byte(`{}`))
-require.NoError(t, err)
-assert.Equal(t, 202, statusCode) //nolint:mnd // HTTP 202 Accepted
+	// Event invocation (fire-and-forget) — should start container with Zip mount
+	_, statusCode, err := backend.InvokeFunction(
+		context.Background(),
+		"zip-invoke-fn",
+		lambda.InvocationTypeEvent,
+		[]byte(`{}`),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusAccepted, statusCode)
 }
 
 func TestInMemoryBackend_Zip_UnknownRuntime(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-pa, paErr := portalloc.New(19700, 19750)
-require.NoError(t, paErr)
+	pa, paErr := portalloc.New(19700, 19750)
+	require.NoError(t, paErr)
 
-dc := newMockDockerClient()
-backend := lambda.NewInMemoryBackend(dc, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default())
+	dc := newMockDockerClient()
+	backend := lambda.NewInMemoryBackend(dc, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default())
 
-zipBytes := makeTestZip(t, "index.py", `def handler(e, c): return "hi"`)
-fn := &lambda.FunctionConfiguration{
-FunctionName: "unknown-runtime-fn",
-PackageType:  lambda.PackageTypeZip,
-Runtime:      "cobol99",
-Timeout:      3,
-ZipData:      zipBytes,
-}
-require.NoError(t, backend.CreateFunction(fn))
+	zipBytes := makeTestZip(t, `def handler(e, c): return "hi"`)
+	fn := &lambda.FunctionConfiguration{
+		FunctionName: "unknown-runtime-fn",
+		PackageType:  lambda.PackageTypeZip,
+		Runtime:      "cobol99",
+		Timeout:      3,
+		ZipData:      zipBytes,
+	}
+	require.NoError(t, backend.CreateFunction(fn))
 
-// Should fail: unknown runtime has no base image
-_, _, err := backend.InvokeFunction(context.Background(), "unknown-runtime-fn", lambda.InvocationTypeEvent, []byte(`{}`))
-require.NoError(t, err) // Event invocations log errors but don't return them
+	// Should fail: unknown runtime has no base image
+	_, _, err := backend.InvokeFunction(
+		context.Background(),
+		"unknown-runtime-fn",
+		lambda.InvocationTypeEvent,
+		[]byte(`{}`),
+	)
+	require.NoError(t, err) // Event invocations log errors but don't return them
 }
 
 func TestInMemoryBackend_Zip_S3Fetcher(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-pa, paErr := portalloc.New(19800, 19850)
-require.NoError(t, paErr)
+	pa, paErr := portalloc.New(19800, 19850)
+	require.NoError(t, paErr)
 
-dc := newMockDockerClient()
-backend := lambda.NewInMemoryBackend(dc, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default())
+	dc := newMockDockerClient()
+	backend := lambda.NewInMemoryBackend(dc, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default())
 
-zipBytes := makeTestZip(t, "index.py", `def handler(e, c): return "hello"`)
-fetcher := &mockS3Fetcher{data: zipBytes}
-backend.SetS3CodeFetcher(fetcher)
+	zipBytes := makeTestZip(t, `def handler(e, c): return "hello"`)
+	fetcher := &mockS3Fetcher{data: zipBytes}
+	backend.SetS3CodeFetcher(fetcher)
 
-fn := &lambda.FunctionConfiguration{
-FunctionName: "s3-zip-fn",
-PackageType:  lambda.PackageTypeZip,
-Runtime:      "python3.12",
-Handler:      "index.handler",
-Timeout:      3,
-S3BucketCode: "my-bucket",
-S3KeyCode:    "my-key.zip",
-}
-require.NoError(t, backend.CreateFunction(fn))
+	fn := &lambda.FunctionConfiguration{
+		FunctionName: "s3-zip-fn",
+		PackageType:  lambda.PackageTypeZip,
+		Runtime:      "python3.12",
+		Handler:      "index.handler",
+		Timeout:      3,
+		S3BucketCode: "my-bucket",
+		S3KeyCode:    "my-key.zip",
+	}
+	require.NoError(t, backend.CreateFunction(fn))
 
-// Event invocation - should fetch from S3
-_, statusCode, err := backend.InvokeFunction(context.Background(), "s3-zip-fn", lambda.InvocationTypeEvent, []byte(`{}`))
-require.NoError(t, err)
-assert.Equal(t, 202, statusCode) //nolint:mnd // HTTP 202 Accepted
+	// Event invocation - should fetch from S3
+	_, statusCode, err := backend.InvokeFunction(
+		context.Background(),
+		"s3-zip-fn",
+		lambda.InvocationTypeEvent,
+		[]byte(`{}`),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusAccepted, statusCode)
 }
 
 func TestInMemoryBackend_Zip_S3FetcherNoFetcher(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-pa, paErr := portalloc.New(19900, 19950)
-require.NoError(t, paErr)
+	pa, paErr := portalloc.New(19900, 19950)
+	require.NoError(t, paErr)
 
-dc := newMockDockerClient()
-backend := lambda.NewInMemoryBackend(dc, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default())
-// No S3 fetcher set
+	dc := newMockDockerClient()
+	backend := lambda.NewInMemoryBackend(dc, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default())
+	// No S3 fetcher set
 
-fn := &lambda.FunctionConfiguration{
-FunctionName: "s3-no-fetcher",
-PackageType:  lambda.PackageTypeZip,
-Runtime:      "python3.12",
-Timeout:      3,
-S3BucketCode: "my-bucket",
-S3KeyCode:    "my-key.zip",
-}
-require.NoError(t, backend.CreateFunction(fn))
+	fn := &lambda.FunctionConfiguration{
+		FunctionName: "s3-no-fetcher",
+		PackageType:  lambda.PackageTypeZip,
+		Runtime:      "python3.12",
+		Timeout:      3,
+		S3BucketCode: "my-bucket",
+		S3KeyCode:    "my-key.zip",
+	}
+	require.NoError(t, backend.CreateFunction(fn))
 
-// Event invocation - should fail gracefully (logs error, returns 202 for fire-and-forget)
-_, _, _ = backend.InvokeFunction(context.Background(), "s3-no-fetcher", lambda.InvocationTypeEvent, []byte(`{}`))
-// Just verify no panic
+	// Event invocation - should fail gracefully (logs error, returns 202 for fire-and-forget)
+	_, _, _ = backend.InvokeFunction(context.Background(), "s3-no-fetcher", lambda.InvocationTypeEvent, []byte(`{}`))
+	// Just verify no panic
 }
 
 func TestInMemoryBackend_DeleteZipFunction_CleansUpDir(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-pa, paErr := portalloc.New(20000, 20050)
-require.NoError(t, paErr)
+	pa, paErr := portalloc.New(20000, 20050)
+	require.NoError(t, paErr)
 
-dc := newMockDockerClient()
-backend := lambda.NewInMemoryBackend(dc, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default())
+	dc := newMockDockerClient()
+	backend := lambda.NewInMemoryBackend(dc, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default())
 
-zipBytes := makeTestZip(t, "index.py", `def handler(e, c): return "hello"`)
-fn := &lambda.FunctionConfiguration{
-FunctionName: "zip-cleanup",
-PackageType:  lambda.PackageTypeZip,
-Runtime:      "python3.12",
-Timeout:      3,
-ZipData:      zipBytes,
-}
-require.NoError(t, backend.CreateFunction(fn))
+	zipBytes := makeTestZip(t, `def handler(e, c): return "hello"`)
+	fn := &lambda.FunctionConfiguration{
+		FunctionName: "zip-cleanup",
+		PackageType:  lambda.PackageTypeZip,
+		Runtime:      "python3.12",
+		Timeout:      3,
+		ZipData:      zipBytes,
+	}
+	require.NoError(t, backend.CreateFunction(fn))
 
-// Trigger zip extraction by invoking
-_, _, _ = backend.InvokeFunction(context.Background(), "zip-cleanup", lambda.InvocationTypeEvent, []byte(`{}`))
+	// Trigger zip extraction by invoking
+	_, _, _ = backend.InvokeFunction(context.Background(), "zip-cleanup", lambda.InvocationTypeEvent, []byte(`{}`))
 
-// Delete should clean up temp dir without error
-require.NoError(t, backend.DeleteFunction("zip-cleanup"))
+	// Delete should clean up temp dir without error
+	require.NoError(t, backend.DeleteFunction("zip-cleanup"))
 }

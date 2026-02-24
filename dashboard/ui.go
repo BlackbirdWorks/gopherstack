@@ -413,8 +413,8 @@ func (h *DashboardHandler) renderFragment(w http.ResponseWriter, name string, da
 	}
 }
 
-// renderPageFragment renders a fragment from a specific page template.
-func (h *DashboardHandler) renderPageFragment(w http.ResponseWriter, pageFile string, fragmentName string, data any) {
+// renderTableDetailFragment renders a fragment from the DynamoDB table detail template.
+func (h *DashboardHandler) renderTableDetailFragment(w http.ResponseWriter, fragmentName string, data any) {
 	if w.Header().Get("Content-Type") == "" {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	}
@@ -427,12 +427,12 @@ func (h *DashboardHandler) renderPageFragment(w http.ResponseWriter, pageFile st
 		return
 	}
 
-	_, err = tmpl.ParseFS(templateFS, "templates/"+pageFile)
+	_, err = tmpl.ParseFS(templateFS, "templates/dynamodb/table_detail.html")
 	if err != nil {
 		h.Logger.Error(
 			"Failed to parse page template for fragment",
 			"page",
-			pageFile,
+			"dynamodb/table_detail.html",
 			"fragment",
 			fragmentName,
 			"error",
@@ -444,7 +444,8 @@ func (h *DashboardHandler) renderPageFragment(w http.ResponseWriter, pageFile st
 	}
 
 	if err = tmpl.ExecuteTemplate(w, fragmentName, data); err != nil {
-		h.Logger.Error("Failed to render page fragment", "page", pageFile, "fragment", fragmentName, "error", err)
+		h.Logger.Error("Failed to render page fragment",
+			"page", "dynamodb/table_detail.html", "fragment", fragmentName, "error", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}
 }

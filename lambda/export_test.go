@@ -43,8 +43,8 @@ func (e *ExportedRuntimeServer) Invoke(
 
 // BaseImageForRuntime exports the internal runtimeBaseImages lookup for testing.
 func BaseImageForRuntime(runtime string) string {
-return baseImageForRuntime(runtime)
+	return baseImageForRuntime(runtime)
 }
 
 // ExtractZip exports the internal extractZip function for testing.
-var ExtractZip = extractZip
+func ExtractZip(zipData []byte) (string, error) { return extractZip(zipData) }

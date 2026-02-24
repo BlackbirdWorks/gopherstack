@@ -53,6 +53,7 @@ func (h *DashboardHandler) lambdaFunctionDetail(c *echo.Context) error {
 		return c.Redirect(http.StatusFound, "/dashboard/lambda")
 	}
 
+	//nolint:govet // fieldalignment: embedded fields must precede regular fields per embeddedstructfieldcheck
 	data := struct {
 		PageData
 

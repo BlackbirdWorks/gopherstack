@@ -196,8 +196,8 @@ func TestIntegration_Lambda_Zip_ValidationErrors(t *testing.T) {
 	ctx := t.Context()
 
 	tests := []struct {
-		name       string
 		body       map[string]any
+		name       string
 		wantStatus int
 	}{
 		{

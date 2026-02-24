@@ -17,9 +17,9 @@ func TestBaseImageForRuntime(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		runtime  string
-		wantImg  string
-		wantHit  bool
+		runtime string
+		wantImg string
+		wantHit bool
 	}{
 		{"python3.12", "public.ecr.aws/lambda/python:3.12", true},
 		{"python3.11", "public.ecr.aws/lambda/python:3.11", true},
@@ -101,9 +101,9 @@ func TestExtractZip_MultipleFiles(t *testing.T) {
 	defer os.RemoveAll(dir)
 
 	for name, content := range files {
-		data, err := os.ReadFile(filepath.Join(dir, name))
-		require.NoError(t, err)
-		assert.Equal(t, content, string(data))
+		fileData, readErr := os.ReadFile(filepath.Join(dir, name))
+		require.NoError(t, readErr)
+		assert.Equal(t, content, string(fileData))
 	}
 }
 

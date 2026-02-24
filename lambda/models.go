@@ -36,38 +36,34 @@ const (
 // For Image package type, only ImageUri is used.
 // For Zip package type, either ZipFile (inline base64) or S3Bucket+S3Key is used.
 type FunctionCode struct {
-	ZipFile  []byte `json:"ZipFile,omitempty"`
 	ImageURI string `json:"ImageUri,omitempty"`
 	S3Bucket string `json:"S3Bucket,omitempty"`
 	S3Key    string `json:"S3Key,omitempty"`
+	ZipFile  []byte `json:"ZipFile,omitempty"`
 }
 
 // FunctionConfiguration represents a Lambda function's configuration.
 type FunctionConfiguration struct {
+	CreatedAt    time.Time          `json:"-"`
 	Environment  *EnvironmentConfig `json:"Environment,omitempty"`
-	FunctionName string             `json:"FunctionName"`
-	FunctionArn  string             `json:"FunctionArn"`
-	Description  string             `json:"Description"`
+	Handler      string             `json:"Handler,omitempty"`
+	RevisionID   string             `json:"RevisionId"`
 	ImageURI     string             `json:"ImageUri,omitempty"`
 	PackageType  string             `json:"PackageType"`
 	StateReason  string             `json:"StateReason,omitempty"`
 	Role         string             `json:"Role"`
 	LastModified string             `json:"LastModified"`
 	Runtime      string             `json:"Runtime,omitempty"`
-	Handler      string             `json:"Handler,omitempty"`
-	RevisionID   string             `json:"RevisionId"`
-	CreatedAt    time.Time          `json:"-"`
-	// ZipData holds the raw zip bytes for Zip-packaged functions.
-	// This field is internal and never serialized to JSON.
-	ZipData []byte `json:"-"`
-	// S3BucketCode and S3KeyCode hold the S3 location for Zip-packaged functions
-	// when code is stored in S3. These fields are internal.
-	S3BucketCode string `json:"-"`
-	S3KeyCode    string `json:"-"`
-	State        FunctionState `json:"State"`
-	MemorySize   int           `json:"MemorySize"`
-	Timeout      int           `json:"Timeout"`
-	CodeSize     int64         `json:"CodeSize"`
+	FunctionArn  string             `json:"FunctionArn"`
+	Description  string             `json:"Description"`
+	FunctionName string             `json:"FunctionName"`
+	State        FunctionState      `json:"State"`
+	S3BucketCode string             `json:"-"`
+	S3KeyCode    string             `json:"-"`
+	ZipData      []byte             `json:"-"`
+	MemorySize   int                `json:"MemorySize"`
+	Timeout      int                `json:"Timeout"`
+	CodeSize     int64              `json:"CodeSize"`
 }
 
 // EnvironmentConfig holds Lambda function environment variables.
@@ -99,10 +95,10 @@ type ImageConfig struct {
 
 // UpdateFunctionCodeInput holds the request body for UpdateFunctionCode.
 type UpdateFunctionCodeInput struct {
-	ZipFile  []byte `json:"ZipFile,omitempty"`
 	ImageURI string `json:"ImageUri,omitempty"`
 	S3Bucket string `json:"S3Bucket,omitempty"`
 	S3Key    string `json:"S3Key,omitempty"`
+	ZipFile  []byte `json:"ZipFile,omitempty"`
 }
 
 // UpdateFunctionConfigurationInput holds the request body for UpdateFunctionConfiguration.

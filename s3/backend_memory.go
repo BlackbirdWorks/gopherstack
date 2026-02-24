@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1356,7 +1357,7 @@ func (b *InMemoryBackend) ListParts(
 		partNumbers = append(partNumbers, pn)
 	}
 
-	sort.Slice(partNumbers, func(i, j int) bool { return partNumbers[i] < partNumbers[j] })
+	slices.Sort(partNumbers)
 
 	var parts []types.Part
 	for _, pn := range partNumbers {

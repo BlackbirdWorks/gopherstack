@@ -611,5 +611,5 @@ func (h *DashboardHandler) dynamoDBUpdateTTL(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Re-render table overview fragment
-	h.renderPageFragment(w, "dynamodb/table_detail.html", "table-overview", data)
+	h.renderTableDetailFragment(w, "table-overview", data)
 }

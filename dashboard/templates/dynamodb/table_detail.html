@@ -262,7 +262,7 @@
             aria-labelledby="partiql-tab">
             <div id="partiql-container"
                 hx-get="/dashboard/dynamodb/table/{{.TableName}}/partiql"
-                hx-trigger="intersect once"
+                hx-trigger="click from:#partiql-tab"
                 hx-swap="innerHTML">
                 <div class="flex items-center justify-center p-8">
                     <span class="text-gray-500 dark:text-gray-400 text-sm">Loading PartiQL editor...</span>

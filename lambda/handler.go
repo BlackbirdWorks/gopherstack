@@ -201,6 +201,59 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
+// validateCreateFunctionInput checks required fields and package-type-specific constraints.
+// It normalizes PackageType to Image when omitted. Returns true if validation passes.
+// If validation fails, it writes the HTTP error response and returns false.
+func (h *Handler) validateCreateFunctionInput(c *echo.Context, input *CreateFunctionInput) bool {
+	if input.FunctionName == "" {
+		_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "FunctionName is required")
+
+		return false
+	}
+
+	if input.PackageType == "" {
+		input.PackageType = PackageTypeImage
+	}
+
+	if input.PackageType != PackageTypeImage && input.PackageType != PackageTypeZip {
+		_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			"PackageType must be Image or Zip")
+
+		return false
+	}
+
+	if input.Code == nil {
+		_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "Code is required")
+
+		return false
+	}
+
+	if input.PackageType == PackageTypeImage && input.Code.ImageURI == "" {
+		_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			"Code.ImageUri is required for Image package type")
+
+		return false
+	}
+
+	if input.PackageType == PackageTypeZip {
+		if input.Runtime == "" {
+			_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+				"Runtime is required for Zip package type")
+
+			return false
+		}
+
+		if input.Code.ZipFile == nil && (input.Code.S3Bucket == "" || input.Code.S3Key == "") {
+			_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+				"Code.ZipFile or Code.S3Bucket+Code.S3Key is required for Zip package type")
+
+			return false
+		}
+	}
+
+	return true
+}
+
 func (h *Handler) handleCreateFunction(c *echo.Context) error {
 	body, err := httputil.ReadBody(c.Request())
 	if err != nil {
@@ -212,38 +265,8 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid request body")
 	}
 
-	if input.FunctionName == "" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "FunctionName is required")
-	}
-
-	if input.PackageType == "" {
-		input.PackageType = PackageTypeImage
-	}
-
-	if input.PackageType != PackageTypeImage && input.PackageType != PackageTypeZip {
-		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
-			"PackageType must be Image or Zip")
-	}
-
-	if input.Code == nil {
-		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "Code is required")
-	}
-
-	if input.PackageType == PackageTypeImage && input.Code.ImageURI == "" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
-			"Code.ImageUri is required for Image package type")
-	}
-
-	if input.PackageType == PackageTypeZip {
-		if input.Runtime == "" {
-			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
-				"Runtime is required for Zip package type")
-		}
-
-		if input.Code.ZipFile == nil && (input.Code.S3Bucket == "" || input.Code.S3Key == "") {
-			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
-				"Code.ZipFile or Code.S3Bucket+Code.S3Key is required for Zip package type")
-		}
+	if !h.validateCreateFunctionInput(c, &input) {
+		return nil
 	}
 
 	memorySize := input.MemorySize

@@ -59,16 +59,16 @@ type functionRuntime struct {
 
 // InMemoryBackend is a concurrency-safe in-memory Lambda backend.
 type InMemoryBackend struct {
-	functions  map[string]*FunctionConfiguration
-	runtimes   map[string]*functionRuntime
-	docker     *docker.Client
-	portAlloc  *portalloc.Allocator
-	s3Fetcher  S3CodeFetcher
-	logger     *slog.Logger
-	accountID  string
-	region     string
-	settings   Settings
-	mu         sync.RWMutex
+	functions map[string]*FunctionConfiguration
+	runtimes  map[string]*functionRuntime
+	docker    *docker.Client
+	portAlloc *portalloc.Allocator
+	s3Fetcher S3CodeFetcher
+	logger    *slog.Logger
+	accountID string
+	region    string
+	settings  Settings
+	mu        sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new Lambda in-memory backend.
@@ -322,21 +322,21 @@ func (b *InMemoryBackend) getOrCreateRuntime(ctx context.Context, fn *FunctionCo
 //
 //nolint:gochecknoglobals // intentional package-level lookup table
 var runtimeBaseImages = map[string]string{
-	"python3.13":   "public.ecr.aws/lambda/python:3.13",
-	"python3.12":   "public.ecr.aws/lambda/python:3.12",
-	"python3.11":   "public.ecr.aws/lambda/python:3.11",
-	"python3.10":   "public.ecr.aws/lambda/python:3.10",
-	"python3.9":    "public.ecr.aws/lambda/python:3.9",
-	"nodejs22.x":   "public.ecr.aws/lambda/nodejs:22",
-	"nodejs20.x":   "public.ecr.aws/lambda/nodejs:20",
-	"nodejs18.x":   "public.ecr.aws/lambda/nodejs:18",
-	"java21":       "public.ecr.aws/lambda/java:21",
-	"java17":       "public.ecr.aws/lambda/java:17",
-	"java11":       "public.ecr.aws/lambda/java:11",
-	"dotnet9":      "public.ecr.aws/lambda/dotnet:9",
-	"dotnet8":      "public.ecr.aws/lambda/dotnet:8",
-	"ruby3.3":      "public.ecr.aws/lambda/ruby:3.3",
-	"ruby3.2":      "public.ecr.aws/lambda/ruby:3.2",
+	"python3.13":      "public.ecr.aws/lambda/python:3.13",
+	"python3.12":      "public.ecr.aws/lambda/python:3.12",
+	"python3.11":      "public.ecr.aws/lambda/python:3.11",
+	"python3.10":      "public.ecr.aws/lambda/python:3.10",
+	"python3.9":       "public.ecr.aws/lambda/python:3.9",
+	"nodejs22.x":      "public.ecr.aws/lambda/nodejs:22",
+	"nodejs20.x":      "public.ecr.aws/lambda/nodejs:20",
+	"nodejs18.x":      "public.ecr.aws/lambda/nodejs:18",
+	"java21":          "public.ecr.aws/lambda/java:21",
+	"java17":          "public.ecr.aws/lambda/java:17",
+	"java11":          "public.ecr.aws/lambda/java:11",
+	"dotnet9":         "public.ecr.aws/lambda/dotnet:9",
+	"dotnet8":         "public.ecr.aws/lambda/dotnet:8",
+	"ruby3.3":         "public.ecr.aws/lambda/ruby:3.3",
+	"ruby3.2":         "public.ecr.aws/lambda/ruby:3.2",
 	"provided.al2023": "public.ecr.aws/lambda/provided:al2023",
 	"provided.al2":    "public.ecr.aws/lambda/provided:al2",
 	"provided":        "public.ecr.aws/lambda/provided:alami",
@@ -349,7 +349,7 @@ func baseImageForRuntime(runtime string) string {
 }
 
 // extractZip extracts zip bytes into a new temporary directory and returns the directory path.
-// The caller is responsible for calling os.RemoveAll on the returned path when done.
+// The caller is responsible for calling [os.RemoveAll] on the returned path when done.
 func extractZip(zipData []byte) (string, error) {
 	dir, err := os.MkdirTemp("", "gopherstack-lambda-zip-*")
 	if err != nil {
@@ -364,24 +364,24 @@ func extractZip(zipData []byte) (string, error) {
 	}
 
 	for _, f := range r.File {
-		if err := extractZipFile(dir, f); err != nil {
+		if extractErr := extractZipFile(dir, f); extractErr != nil {
 			_ = os.RemoveAll(dir)
 
-			return "", err
+			return "", extractErr
 		}
 	}
 
 	return dir, nil
 }
 
-// extractZipFile extracts a single zip.File entry into destDir.
+// extractZipFile extracts a single [zip.File] entry into destDir.
 func extractZipFile(destDir string, f *zip.File) error {
 	// Sanitize path to prevent zip-slip attacks.
-	destPath := filepath.Join(destDir, filepath.Clean("/"+f.Name)) //nolint:gosec // path is cleaned
+	destPath := filepath.Join(destDir, filepath.Clean("/"+f.Name))
 	destPath = filepath.Join(destDir, strings.TrimPrefix(destPath, destDir))
 
 	if f.FileInfo().IsDir() {
-		return os.MkdirAll(destPath, f.Mode())
+		return os.MkdirAll(destPath, f.Mode()) //nolint:gosec // destPath is sanitized above
 	}
 
 	if err := os.MkdirAll(filepath.Dir(destPath), 0o750); err != nil {
@@ -394,14 +394,14 @@ func extractZipFile(destDir string, f *zip.File) error {
 	}
 	defer rc.Close()
 
-	outFile, err := os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
+	outFile, err := os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode()) //nolint:gosec // sanitized
 	if err != nil {
 		return fmt.Errorf("create file %q: %w", destPath, err)
 	}
 	defer outFile.Close()
 
-	if _, err := io.Copy(outFile, rc); err != nil { //nolint:gosec // zip entries are trusted input from user
-		return fmt.Errorf("extract file %q: %w", f.Name, err)
+	if _, copyErr := io.Copy(outFile, rc); copyErr != nil { //nolint:gosec // zip entries are trusted input from user
+		return fmt.Errorf("extract file %q: %w", f.Name, copyErr)
 	}
 
 	return nil
@@ -410,7 +410,11 @@ func extractZipFile(destDir string, f *zip.File) error {
 // startContainer creates and starts a Lambda container for the given function.
 // For Zip functions it extracts the code to a temp directory and bind-mounts it.
 // Returns the temp directory path (non-empty only for Zip functions) and any error.
-func (b *InMemoryBackend) startContainer(ctx context.Context, fn *FunctionConfiguration, runtimePort int) (string, error) {
+func (b *InMemoryBackend) startContainer(
+	ctx context.Context,
+	fn *FunctionConfiguration,
+	runtimePort int,
+) (string, error) {
 	env := []string{
 		fmt.Sprintf("AWS_LAMBDA_RUNTIME_API=%s:%d", b.settings.DockerHost, runtimePort),
 		"AWS_DEFAULT_REGION=" + b.region,
@@ -431,7 +435,7 @@ func (b *InMemoryBackend) startContainer(ctx context.Context, fn *FunctionConfig
 	}
 
 	if fn.PackageType == PackageTypeZip {
-		return b.startZipContainer(ctx, fn, runtimePort, env)
+		return b.startZipContainer(ctx, fn, env)
 	}
 
 	spec := docker.ContainerSpec{
@@ -451,7 +455,6 @@ func (b *InMemoryBackend) startContainer(ctx context.Context, fn *FunctionConfig
 func (b *InMemoryBackend) startZipContainer(
 	ctx context.Context,
 	fn *FunctionConfiguration,
-	runtimePort int,
 	env []string,
 ) (string, error) {
 	baseImage := baseImageForRuntime(fn.Runtime)
@@ -495,7 +498,7 @@ func (b *InMemoryBackend) startZipContainer(
 	}
 
 	if _, err := b.docker.CreateAndStart(ctx, spec); err != nil {
-		_ = os.RemoveAll(zipDir)
+		_ = os.RemoveAll(zipDir) //nolint:gosec // zipDir is a temp dir created by os.MkdirTemp
 
 		return "", err
 	}
