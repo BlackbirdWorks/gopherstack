@@ -40,3 +40,11 @@ func (e *ExportedRuntimeServer) Invoke(
 ) ([]byte, bool, error) {
 	return e.inner.invoke(ctx, payload, timeout)
 }
+
+// BaseImageForRuntime exports the internal runtimeBaseImages lookup for testing.
+func BaseImageForRuntime(runtime string) string {
+return baseImageForRuntime(runtime)
+}
+
+// ExtractZip exports the internal extractZip function for testing.
+var ExtractZip = extractZip
