@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	apigwbackend "github.com/blackbirdworks/gopherstack/apigateway"
+	cwlogsbackend "github.com/blackbirdworks/gopherstack/cloudwatchlogs"
 	"github.com/blackbirdworks/gopherstack/dashboard"
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
 	ebbackend "github.com/blackbirdworks/gopherstack/eventbridge"
@@ -55,6 +56,7 @@ type Stack struct {
 	LambdaHandler         *lambdabackend.Handler
 	EventBridgeHandler    *ebbackend.Handler
 	APIGatewayHandler     *apigwbackend.Handler
+	CloudWatchLogsHandler *cwlogsbackend.Handler
 	S3Client              *s3.Client
 	DDBClient             *dynamodb.Client
 	Dashboard             *dashboard.DashboardHandler
@@ -118,6 +120,7 @@ func registerServices(
 	lambdaHndlr *lambdabackend.Handler,
 	ebHndlr *ebbackend.Handler,
 	apigwHndlr *apigwbackend.Handler,
+	cwlogsHndlr *cwlogsbackend.Handler,
 ) {
 	_ = registry.Register(ddbHndlr)
 	_ = registry.Register(s3Hndlr)
@@ -131,6 +134,7 @@ func registerServices(
 	_ = registry.Register(lambdaHndlr)
 	_ = registry.Register(ebHndlr)
 	_ = registry.Register(apigwHndlr)
+	_ = registry.Register(cwlogsHndlr)
 }
 
 // New creates a fully wired integration stack for testing.
@@ -163,6 +167,8 @@ func New(t *testing.T) *Stack {
 	ebHndlr := ebbackend.NewHandler(ebBk, slog.Default())
 	apigwBk := apigwbackend.NewInMemoryBackend()
 	apigwHndlr := apigwbackend.NewHandler(apigwBk, slog.Default())
+	cwlogsBk := cwlogsbackend.NewInMemoryBackend()
+	cwlogsHndlr := cwlogsbackend.NewHandler(cwlogsBk, slog.Default())
 
 	// Set up Echo with service registry and router.
 	e := echo.New()
@@ -183,6 +189,7 @@ func New(t *testing.T) *Stack {
 		lambdaHndlr,
 		ebHndlr,
 		apigwHndlr,
+		cwlogsHndlr,
 	)
 
 	// Create AWS SDK clients routed through in-memory Echo.
@@ -206,6 +213,7 @@ func New(t *testing.T) *Stack {
 		LambdaOps:         lambdaHndlr,
 		EventBridgeOps:    ebHndlr,
 		APIGatewayOps:     apigwHndlr,
+		CloudWatchLogsOps: cwlogsHndlr,
 		GlobalConfig: config.GlobalConfig{
 			AccountID: "000000000000",
 			Region:    "us-east-1",
@@ -233,6 +241,7 @@ func New(t *testing.T) *Stack {
 		LambdaHandler:         lambdaHndlr,
 		EventBridgeHandler:    ebHndlr,
 		APIGatewayHandler:     apigwHndlr,
+		CloudWatchLogsHandler: cwlogsHndlr,
 		S3Client:              s3Client,
 		DDBClient:             ddbClient,
 		Dashboard:             dashHndlr,

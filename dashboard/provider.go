@@ -6,6 +6,7 @@ import (
 	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
 	stssdk "github.com/aws/aws-sdk-go-v2/service/sts"
 	apigwbackend "github.com/blackbirdworks/gopherstack/apigateway"
+	cwlogsbackend "github.com/blackbirdworks/gopherstack/cloudwatchlogs"
 
 	"github.com/blackbirdworks/gopherstack/dynamodb"
 	ebbackend "github.com/blackbirdworks/gopherstack/eventbridge"
@@ -41,6 +42,7 @@ type AWSSDKProvider interface {
 	GetLambdaHandler() service.Registerable
 	GetEventBridgeHandler() service.Registerable
 	GetAPIGatewayHandler() service.Registerable
+	GetCloudWatchLogsHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 }
 
@@ -71,6 +73,7 @@ type extractedConfig struct {
 	lambdaOps         *lambdabackend.Handler
 	eventBridgeOps    *ebbackend.Handler
 	apiGatewayOps     *apigwbackend.Handler
+	cloudWatchLogsOps *cwlogsbackend.Handler
 	gCfg              globalcfg.GlobalConfig
 }
 
@@ -130,6 +133,10 @@ func extractFromProvider(ctx *service.AppContext) extractedConfig {
 		ec.apiGatewayOps, _ = h.(*apigwbackend.Handler)
 	}
 
+	if h := ap.GetCloudWatchLogsHandler(); h != nil {
+		ec.cloudWatchLogsOps, _ = h.(*cwlogsbackend.Handler)
+	}
+
 	return ec
 }
 
@@ -153,6 +160,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		LambdaOps:         ec.lambdaOps,
 		EventBridgeOps:    ec.eventBridgeOps,
 		APIGatewayOps:     ec.apiGatewayOps,
+		CloudWatchLogsOps: ec.cloudWatchLogsOps,
 		GlobalConfig:      ec.gCfg,
 		Logger:            ctx.Logger,
 	})

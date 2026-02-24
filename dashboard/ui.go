@@ -13,6 +13,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	apigwbackend "github.com/blackbirdworks/gopherstack/apigateway"
+	cwlogsbackend "github.com/blackbirdworks/gopherstack/cloudwatchlogs"
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
 	ebbackend "github.com/blackbirdworks/gopherstack/eventbridge"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
@@ -71,6 +72,7 @@ type DashboardHandler struct {
 	LambdaOps         *lambdabackend.Handler
 	EventBridgeOps    *ebbackend.Handler
 	APIGatewayOps     *apigwbackend.Handler
+	CloudWatchLogsOps *cwlogsbackend.Handler
 	SubRouter         *echo.Echo
 	ddbProvider       *ddbbackend.DashboardProvider
 	s3Provider        *s3backend.DashboardProvider
@@ -101,6 +103,8 @@ type Config struct {
 	EventBridgeOps *ebbackend.Handler
 	// APIGatewayOps provides access to the API Gateway backend.
 	APIGatewayOps *apigwbackend.Handler
+	// CloudWatchLogsOps provides access to the CloudWatch Logs backend.
+	CloudWatchLogsOps *cwlogsbackend.Handler
 	// Logger is the structured logger for dashboard operations.
 	Logger *slog.Logger
 	// GlobalConfig holds the centralized account and region configuration shown on the settings page.
@@ -137,6 +141,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		"templates/lambda/*.html",
 		"templates/eventbridge/*.html",
 		"templates/apigateway/*.html",
+		"templates/cloudwatchlogs/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
 		"templates/settings.html",
@@ -162,6 +167,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		LambdaOps:         cfg.LambdaOps,
 		EventBridgeOps:    cfg.EventBridgeOps,
 		APIGatewayOps:     cfg.APIGatewayOps,
+		CloudWatchLogsOps: cfg.CloudWatchLogsOps,
 		GlobalConfig:      cfg.GlobalConfig,
 		Logger:            cfg.Logger,
 		layout:            tmpl,
@@ -282,6 +288,11 @@ func (h *DashboardHandler) setupAPIGatewayRoutes() {
 	h.SubRouter.GET("/dashboard/apigateway/api", h.apiGatewayDetail)
 }
 
+func (h *DashboardHandler) setupCloudWatchLogsRoutes() {
+	h.SubRouter.GET("/dashboard/cloudwatchlogs", h.cloudWatchLogsIndex)
+	h.SubRouter.GET("/dashboard/cloudwatchlogs/group", h.cloudWatchLogsGroupDetail)
+}
+
 func (h *DashboardHandler) setupMetaRoutes() {
 	dashboardGroup := h.SubRouter.Group("/dashboard")
 	RegisterMetricsHandlers(dashboardGroup, h)
@@ -300,6 +311,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.setupLambdaRoutes()
 	h.setupEventBridgeRoutes()
 	h.setupAPIGatewayRoutes()
+	h.setupCloudWatchLogsRoutes()
 	h.setupMetaRoutes()
 }
 
@@ -360,6 +372,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/lambda", "Lambda"},
 	{"/eventbridge", "EventBridge"},
 	{"/apigateway", "APIGateway"},
+	{"/cloudwatchlogs", "CloudWatchLogs"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},
 }

@@ -26,6 +26,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	apigwbackend "github.com/blackbirdworks/gopherstack/apigateway"
+	cwlogsbackend "github.com/blackbirdworks/gopherstack/cloudwatchlogs"
 	"github.com/blackbirdworks/gopherstack/dashboard"
 	"github.com/blackbirdworks/gopherstack/demo"
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
@@ -78,6 +79,7 @@ type CLI struct {
 	lambdaHandler         service.Registerable
 	eventBridgeHandler    service.Registerable
 	apiGatewayHandler     service.Registerable
+	cloudWatchLogsHandler service.Registerable
 	s3Client              *s3.Client
 	iamClient             *iam.Client
 	snsClient             *sns.Client
@@ -206,6 +208,11 @@ func (c *CLI) GetEventBridgeHandler() service.Registerable { return c.eventBridg
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetAPIGatewayHandler() service.Registerable { return c.apiGatewayHandler }
+
+// GetCloudWatchLogsHandler returns the CloudWatch Logs handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetCloudWatchLogsHandler() service.Registerable { return c.cloudWatchLogsHandler }
 
 // Run parses CLI / environment-variable configuration and starts Gopherstack.
 // It is called from main() and exits on error.
@@ -392,6 +399,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		&lambdabackend.Provider{},
 		&ebbackend.Provider{},
 		&apigwbackend.Provider{},
+		&cwlogsbackend.Provider{},
 	}
 
 	for _, provider := range serviceProviders {
@@ -417,6 +425,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		cli.lambdaHandler = services[9]
 		cli.eventBridgeHandler = services[10]
 		cli.apiGatewayHandler = services[11]
+		cli.cloudWatchLogsHandler = services[12]
 	}
 
 	// Wire SNS→SQS delivery: when SNS publishes a message, deliver it to SQS queues.
@@ -547,7 +556,7 @@ func healthHandler(c *echo.Context) error {
 		Status: "ok",
 		Services: []string{
 			"DynamoDB", "S3", "SSM", "IAM", "STS", "SNS", "SQS", "KMS", "SecretsManager", "Lambda",
-			"EventBridge", "APIGateway",
+			"EventBridge", "APIGateway", "CloudWatchLogs",
 		},
 	})
 }
