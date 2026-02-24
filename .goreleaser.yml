@@ -123,7 +123,7 @@ release:
   header: |
     ## Gopherstack {{ .Tag }} Release
     
-    **Full Changelog**: https://github.com/blackbirdworks/Gopherstack/compare/{{ .PreviousTag }}...{{ .Tag }}
+    **Full Changelog**: https://github.com/blackbirdworks/gopherstack/compare/{{ .PreviousTag }}...{{ .Tag }}
   footer: |
     ## Docker Images
     
