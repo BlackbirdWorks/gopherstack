@@ -56,3 +56,36 @@ func (h *DashboardHandler) stepFunctionsStateMachineDetail(c *echo.Context) erro
 
 	return nil
 }
+
+func (h *DashboardHandler) stepFunctionsExecutionDetail(c *echo.Context) error {
+	if h.StepFunctionsOps == nil {
+		return c.NoContent(http.StatusServiceUnavailable)
+	}
+
+	execArn := c.Request().URL.Query().Get("arn")
+
+	exec, err := h.StepFunctionsOps.Backend.DescribeExecution(execArn)
+	if err != nil {
+		return c.NoContent(http.StatusNotFound)
+	}
+
+	events, _, err := h.StepFunctionsOps.Backend.GetExecutionHistory(execArn, "", 0, false)
+	if err != nil {
+		h.Logger.Warn("failed to get execution history", "arn", execArn, "err", err)
+	}
+
+	data := struct {
+		PageData
+
+		Execution *sfnbackend.Execution
+		Events    []sfnbackend.HistoryEvent
+	}{
+		PageData:  PageData{Title: "Execution: " + exec.Name, ActiveTab: "stepfunctions"},
+		Execution: exec,
+		Events:    events,
+	}
+
+	h.renderTemplate(c.Response(), "stepfunctions/execution_detail.html", data)
+
+	return nil
+}

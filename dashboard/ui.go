@@ -309,11 +309,13 @@ func (h *DashboardHandler) setupAPIGatewayRoutes() {
 func (h *DashboardHandler) setupCloudWatchLogsRoutes() {
 	h.SubRouter.GET("/dashboard/cloudwatchlogs", h.cloudWatchLogsIndex)
 	h.SubRouter.GET("/dashboard/cloudwatchlogs/group", h.cloudWatchLogsGroupDetail)
+	h.SubRouter.GET("/dashboard/cloudwatchlogs/stream", h.cloudWatchLogsStreamDetail)
 }
 
 func (h *DashboardHandler) setupStepFunctionsRoutes() {
 	h.SubRouter.GET("/dashboard/stepfunctions", h.stepFunctionsIndex)
 	h.SubRouter.GET("/dashboard/stepfunctions/statemachine", h.stepFunctionsStateMachineDetail)
+	h.SubRouter.GET("/dashboard/stepfunctions/execution", h.stepFunctionsExecutionDetail)
 }
 
 func (h *DashboardHandler) setupCloudWatchRoutes() {

@@ -278,13 +278,13 @@
 - [ ] API Gateway: Request/response mapping templates (VTL)
 - [ ] EventBridge: Scheduled rules (cron/rate expressions)
 
-### v0.10 — Orchestration & Observability
+### v0.10 — Orchestration & Observability ✅
 - **Step Functions** ✅
   - CreateStateMachine / DeleteStateMachine / ListStateMachines / DescribeStateMachine
   - StartExecution / StopExecution / DescribeExecution / ListExecutions / GetExecutionHistory
   - Standard and Express workflows
   - Auto-succeed stub execution (no ASL interpreter)
-  - Dashboard UI: state machine list, execution list per state machine
+  - Dashboard UI: state machine list, execution list per state machine, **execution detail with history events**
 - **CloudWatch Metrics** ✅
   - PutMetricData / GetMetricStatistics / ListMetrics (AWS query/XML protocol)
   - PutMetricAlarm / DescribeAlarms / DeleteAlarms (basic)
@@ -293,7 +293,7 @@
   - CreateLogGroup / DeleteLogGroup / DescribeLogGroups
   - CreateLogStream / DescribeLogStreams
   - PutLogEvents / GetLogEvents / FilterLogEvents
-  - Dashboard UI: log group list, log stream viewer
+  - Dashboard UI: log group list, log stream viewer, **stream event viewer with search/filter**
 
 **Remaining gaps (v0.10):**
 - [ ] Step Functions: actual ASL state machine interpreter (Task, Choice, Wait, Parallel, Map, Pass, Succeed, Fail states)
