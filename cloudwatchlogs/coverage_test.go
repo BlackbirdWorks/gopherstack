@@ -125,7 +125,7 @@ func TestHandler_DescribeLogGroups_Pagination_Coverage(t *testing.T) {
 	log := logger.NewLogger(slog.LevelDebug)
 	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), log)
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		doLogsRequest(t, h, e, "CreateLogGroup",
 			`{"logGroupName":"/group/`+string(rune('a'+i))+`"}`)
 	}

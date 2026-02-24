@@ -54,7 +54,7 @@ func TestProvider_Init_WithoutConfig(t *testing.T) {
 }
 
 // cwServer creates a test HTTP server backed by a real CloudWatch handler.
-func cwServer(t *testing.T) (*httptest.Server, *cloudwatch.Handler) {
+func cwServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	h := cloudwatch.NewHandler(cloudwatch.NewInMemoryBackend(), slog.Default())
 	e := echo.New()
@@ -63,10 +63,12 @@ func cwServer(t *testing.T) (*httptest.Server, *cloudwatch.Handler) {
 		c := e.NewContext(r, rec)
 		if err := r.ParseForm(); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
+
 			return
 		}
 		if herr := h.Handler()(c); herr != nil {
 			http.Error(w, herr.Error(), http.StatusInternalServerError)
+
 			return
 		}
 		for k, vals := range rec.Result().Header {
@@ -78,19 +80,21 @@ func cwServer(t *testing.T) (*httptest.Server, *cloudwatch.Handler) {
 		_, _ = w.Write(rec.Body.Bytes())
 	}))
 	t.Cleanup(ts.Close)
-	return ts, h
+
+	return ts
 }
 
 func cwPost(t *testing.T, ts *httptest.Server, body string) *http.Response {
 	t.Helper()
 	resp, err := ts.Client().Post(ts.URL+"/", "application/x-www-form-urlencoded", strings.NewReader(body))
 	require.NoError(t, err)
+
 	return resp
 }
 
 func TestCoverage_PutMetricData(t *testing.T) {
 	t.Parallel()
-	ts, _ := cwServer(t)
+	ts := cwServer(t)
 	resp := cwPost(t, ts,
 		"Action=PutMetricData&Namespace=Coverage&MetricData.member.1.MetricName=Hits&MetricData.member.1.Value=1")
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -99,9 +103,12 @@ func TestCoverage_PutMetricData(t *testing.T) {
 
 func TestCoverage_ListMetrics(t *testing.T) {
 	t.Parallel()
-	ts, _ := cwServer(t)
-	cwPost(t, ts,
-		"Action=PutMetricData&Namespace=Coverage&MetricData.member.1.MetricName=Hits&MetricData.member.1.Value=1").Body.Close()
+	ts := cwServer(t)
+	cwPost(
+		t,
+		ts,
+		"Action=PutMetricData&Namespace=Coverage&MetricData.member.1.MetricName=Hits&MetricData.member.1.Value=1",
+	).Body.Close()
 	resp := cwPost(t, ts, "Action=ListMetrics&Namespace=Coverage")
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	resp.Body.Close()
@@ -109,9 +116,12 @@ func TestCoverage_ListMetrics(t *testing.T) {
 
 func TestCoverage_GetMetricStatistics(t *testing.T) {
 	t.Parallel()
-	ts, _ := cwServer(t)
-	cwPost(t, ts,
-		"Action=PutMetricData&Namespace=Coverage&MetricData.member.1.MetricName=Hits&MetricData.member.1.Value=5").Body.Close()
+	ts := cwServer(t)
+	cwPost(
+		t,
+		ts,
+		"Action=PutMetricData&Namespace=Coverage&MetricData.member.1.MetricName=Hits&MetricData.member.1.Value=5",
+	).Body.Close()
 
 	start := time.Now().Add(-time.Minute).UTC().Format(time.RFC3339)
 	end := time.Now().Add(time.Minute).UTC().Format(time.RFC3339)
@@ -128,7 +138,7 @@ func TestCoverage_GetMetricStatistics(t *testing.T) {
 
 func TestCoverage_PutAndDescribeAlarms(t *testing.T) {
 	t.Parallel()
-	ts, _ := cwServer(t)
+	ts := cwServer(t)
 	resp := cwPost(t, ts,
 		"Action=PutMetricAlarm&AlarmName=cov-alarm&Namespace=NS&MetricName=M"+
 			"&ComparisonOperator=GreaterThanThreshold&Threshold=90&EvaluationPeriods=2&Period=300&Statistic=Average"+
@@ -147,7 +157,7 @@ func TestCoverage_PutAndDescribeAlarms(t *testing.T) {
 
 func TestCoverage_DeleteAlarms(t *testing.T) {
 	t.Parallel()
-	ts, _ := cwServer(t)
+	ts := cwServer(t)
 	cwPost(t, ts, "Action=PutMetricAlarm&AlarmName=del-me&Namespace=NS&MetricName=M").Body.Close()
 	resp := cwPost(t, ts, "Action=DeleteAlarms&AlarmNames.member.1=del-me")
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -156,7 +166,7 @@ func TestCoverage_DeleteAlarms(t *testing.T) {
 
 func TestCoverage_ErrorPaths(t *testing.T) {
 	t.Parallel()
-	ts, _ := cwServer(t)
+	ts := cwServer(t)
 
 	// Missing namespace for PutMetricData
 	resp := cwPost(t, ts, "Action=PutMetricData&MetricData.member.1.MetricName=M&MetricData.member.1.Value=1")

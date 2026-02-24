@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -59,12 +60,8 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return false
 		}
 		action := r.Form.Get("Action")
-		for _, op := range h.GetSupportedOperations() {
-			if op == action {
-				return true
-			}
-		}
-		return false
+
+		return slices.Contains(h.GetSupportedOperations(), action)
 	}
 }
 
@@ -79,6 +76,7 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	if err := r.ParseForm(); err != nil {
 		return ""
 	}
+
 	return r.Form.Get("Action")
 }
 
@@ -88,6 +86,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	if err := r.ParseForm(); err != nil {
 		return ""
 	}
+
 	return r.Form.Get("Namespace")
 }
 
@@ -134,6 +133,7 @@ func (h *Handler) xmlError(c *echo.Context, status int, code, message string) er
 	w.WriteHeader(status)
 	enc := xml.NewEncoder(w)
 	_ = enc.Encode(xmlErrorBody{Code: code, Message: message, RequestID: uuid.New().String()})
+
 	return nil
 }
 
@@ -145,6 +145,7 @@ func writeXML(c *echo.Context, v any) error {
 	if _, err := fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>`); err != nil {
 		return err
 	}
+
 	return xml.NewEncoder(w).Encode(v)
 }
 
@@ -170,6 +171,7 @@ func parseMetricDataFromForm(form url.Values) []MetricDatum {
 			Max:        val,
 		})
 	}
+
 	return data
 }
 
@@ -183,6 +185,7 @@ func parseMemberList(form url.Values, prefix string) []string {
 		}
 		result = append(result, v)
 	}
+
 	return result
 }
 
@@ -201,6 +204,7 @@ func (h *Handler) handlePutMetricData(form url.Values, c *echo.Context) error {
 		Xmlns     string   `xml:"xmlns,attr"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
+
 	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
 }
 
@@ -235,13 +239,13 @@ func (h *Handler) handleGetMetricStatistics(form url.Values, c *echo.Context) er
 
 func buildGetMetricStatisticsResponse(metricName string, dps []Datapoint) any {
 	type dpXML struct {
-		Timestamp   string   `xml:"Timestamp"`
-		Unit        string   `xml:"Unit,omitempty"`
 		Average     *float64 `xml:"Average,omitempty"`
 		Sum         *float64 `xml:"Sum,omitempty"`
 		Minimum     *float64 `xml:"Minimum,omitempty"`
 		Maximum     *float64 `xml:"Maximum,omitempty"`
 		SampleCount *float64 `xml:"SampleCount,omitempty"`
+		Timestamp   string   `xml:"Timestamp"`
+		Unit        string   `xml:"Unit,omitempty"`
 	}
 	members := make([]dpXML, 0, len(dps))
 	for _, dp := range dps {
@@ -256,15 +260,16 @@ func buildGetMetricStatisticsResponse(metricName string, dps []Datapoint) any {
 		})
 	}
 	type result struct {
-		Datapoints []dpXML `xml:"Datapoints>member"`
 		Label      string  `xml:"Label"`
+		Datapoints []dpXML `xml:"Datapoints>member"`
 	}
 	type response struct {
 		XMLName   xml.Name `xml:"GetMetricStatisticsResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
-		Result    result   `xml:"GetMetricStatisticsResult"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
+		Result    result   `xml:"GetMetricStatisticsResult"`
 	}
+
 	return response{
 		Xmlns:     cloudwatchNS,
 		Result:    result{Datapoints: members, Label: metricName},
@@ -293,21 +298,22 @@ func (h *Handler) handleListMetrics(form url.Values, c *echo.Context) error {
 	for _, m := range metrics {
 		dims := make([]dimXML, 0, len(m.Dimensions))
 		for _, d := range m.Dimensions {
-			dims = append(dims, dimXML{Name: d.Name, Value: d.Value})
+			dims = append(dims, dimXML(d))
 		}
 		members = append(members, metricXML{Namespace: m.Namespace, MetricName: m.MetricName, Dimensions: dims})
 	}
 
 	type listResult struct {
-		Metrics   []metricXML `xml:"Metrics>member"`
 		NextToken string      `xml:"NextToken"`
+		Metrics   []metricXML `xml:"Metrics>member"`
 	}
 	type response struct {
 		XMLName   xml.Name   `xml:"ListMetricsResponse"`
 		Xmlns     string     `xml:"xmlns,attr"`
-		Result    listResult `xml:"ListMetricsResult"`
 		RequestID string     `xml:"ResponseMetadata>RequestId"`
+		Result    listResult `xml:"ListMetricsResult"`
 	}
+
 	return writeXML(c, response{
 		Xmlns:     cloudwatchNS,
 		Result:    listResult{Metrics: members},
@@ -345,6 +351,7 @@ func (h *Handler) handlePutMetricAlarm(form url.Values, c *echo.Context) error {
 		Xmlns     string   `xml:"xmlns,attr"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
+
 	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
 }
 
@@ -363,13 +370,13 @@ func (h *Handler) handleDescribeAlarms(form url.Values, c *echo.Context) error {
 		Namespace          string  `xml:"Namespace"`
 		MetricName         string  `xml:"MetricName"`
 		ComparisonOperator string  `xml:"ComparisonOperator"`
-		EvaluationPeriods  int32   `xml:"EvaluationPeriods"`
-		Period             int32   `xml:"Period"`
 		Statistic          string  `xml:"Statistic"`
-		Threshold          float64 `xml:"Threshold"`
 		StateValue         string  `xml:"StateValue"`
 		StateReason        string  `xml:"StateReason,omitempty"`
 		AlarmDescription   string  `xml:"AlarmDescription,omitempty"`
+		Threshold          float64 `xml:"Threshold"`
+		EvaluationPeriods  int32   `xml:"EvaluationPeriods"`
+		Period             int32   `xml:"Period"`
 	}
 	members := make([]alarmXML, 0, len(alarms))
 	for _, a := range alarms {
@@ -395,9 +402,10 @@ func (h *Handler) handleDescribeAlarms(form url.Values, c *echo.Context) error {
 	type response struct {
 		XMLName   xml.Name   `xml:"DescribeAlarmsResponse"`
 		Xmlns     string     `xml:"xmlns,attr"`
-		Result    descResult `xml:"DescribeAlarmsResult"`
 		RequestID string     `xml:"ResponseMetadata>RequestId"`
+		Result    descResult `xml:"DescribeAlarmsResult"`
 	}
+
 	return writeXML(c, response{
 		Xmlns:     cloudwatchNS,
 		Result:    descResult{MetricAlarms: members},
@@ -416,5 +424,6 @@ func (h *Handler) handleDeleteAlarms(form url.Values, c *echo.Context) error {
 		Xmlns     string   `xml:"xmlns,attr"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
+
 	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
 }

@@ -15,9 +15,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	apigwbackend "github.com/blackbirdworks/gopherstack/apigateway"
-	cwlogsbackend "github.com/blackbirdworks/gopherstack/cloudwatchlogs"
 	cwbackend "github.com/blackbirdworks/gopherstack/cloudwatch"
-	sfnbackend "github.com/blackbirdworks/gopherstack/stepfunctions"
+	cwlogsbackend "github.com/blackbirdworks/gopherstack/cloudwatchlogs"
 	"github.com/blackbirdworks/gopherstack/dashboard"
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
 	ebbackend "github.com/blackbirdworks/gopherstack/eventbridge"
@@ -32,6 +31,7 @@ import (
 	snsbackend "github.com/blackbirdworks/gopherstack/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/ssm"
+	sfnbackend "github.com/blackbirdworks/gopherstack/stepfunctions"
 	stsbackend "github.com/blackbirdworks/gopherstack/sts"
 )
 
@@ -145,42 +145,60 @@ func registerServices(
 	_ = registry.Register(cwHndlr)
 }
 
+// handlers bundles all service handlers created for a test stack.
+type handlers struct {
+	s3     *s3backend.S3Handler
+	ddb    *ddbbackend.DynamoDBHandler
+	ssm    *ssmbackend.Handler
+	iam    *iambackend.Handler
+	sts    *stsbackend.Handler
+	sns    *snsbackend.Handler
+	sqs    *sqsbackend.Handler
+	kms    *kmsbackend.Handler
+	sm     *smbackend.Handler
+	lambda *lambdabackend.Handler
+	eb     *ebbackend.Handler
+	apigw  *apigwbackend.Handler
+	cwlogs *cwlogsbackend.Handler
+	sfn    *sfnbackend.Handler
+	cw     *cwbackend.Handler
+	iamBk  *iambackend.InMemoryBackend
+	s3Bk   *s3backend.InMemoryBackend
+}
+
+// newHandlers creates in-memory backends and handlers for all services.
+func newHandlers() handlers {
+	s3Bk := s3backend.NewInMemoryBackend(nil)
+	iamBk := iambackend.NewInMemoryBackend()
+
+	return handlers{
+		s3Bk:   s3Bk,
+		iamBk:  iamBk,
+		s3:     s3backend.NewHandler(s3Bk, slog.Default()),
+		ddb:    ddbbackend.NewHandler(ddbbackend.NewInMemoryDB(), slog.Default()),
+		ssm:    ssmbackend.NewHandler(ssmbackend.NewInMemoryBackend(), slog.Default()),
+		iam:    iambackend.NewHandler(iamBk, slog.Default()),
+		sts:    stsbackend.NewHandler(stsbackend.NewInMemoryBackend(), slog.Default()),
+		sns:    snsbackend.NewHandler(snsbackend.NewInMemoryBackend(), slog.Default()),
+		sqs:    sqsbackend.NewHandler(sqsbackend.NewInMemoryBackend(), slog.Default()),
+		kms:    kmsbackend.NewHandler(kmsbackend.NewInMemoryBackend(), slog.Default()),
+		sm:     smbackend.NewHandler(smbackend.NewInMemoryBackend(), slog.Default()),
+		lambda: newLambdaHandler(),
+		eb:     ebbackend.NewHandler(ebbackend.NewInMemoryBackend(), slog.Default()),
+		apigw:  apigwbackend.NewHandler(apigwbackend.NewInMemoryBackend(), slog.Default()),
+		cwlogs: cwlogsbackend.NewHandler(cwlogsbackend.NewInMemoryBackend(), slog.Default()),
+		sfn:    sfnbackend.NewHandler(sfnbackend.NewInMemoryBackend(), slog.Default()),
+		cw:     cwbackend.NewHandler(cwbackend.NewInMemoryBackend(), slog.Default()),
+	}
+}
+
 // New creates a fully wired integration stack for testing.
 // It sets up all in-memory backends, handlers, the service registry with router,
 // AWS SDK clients (routed back through Echo via InMemClient), and the dashboard.
 func New(t *testing.T) *Stack {
 	t.Helper()
 
-	// Create in-memory backends and handlers for all services.
-	s3Bk := s3backend.NewInMemoryBackend(nil)
-	s3Hndlr := s3backend.NewHandler(s3Bk, slog.Default())
-	ddbBk := ddbbackend.NewInMemoryDB()
-	ddbHndlr := ddbbackend.NewHandler(ddbBk, slog.Default())
-	ssmBk := ssmbackend.NewInMemoryBackend()
-	ssmHndlr := ssmbackend.NewHandler(ssmBk, slog.Default())
-	iamBk := iambackend.NewInMemoryBackend()
-	iamHndlr := iambackend.NewHandler(iamBk, slog.Default())
-	stsBk := stsbackend.NewInMemoryBackend()
-	stsHndlr := stsbackend.NewHandler(stsBk, slog.Default())
-	snsBk := snsbackend.NewInMemoryBackend()
-	snsHndlr := snsbackend.NewHandler(snsBk, slog.Default())
-	sqsBk := sqsbackend.NewInMemoryBackend()
-	sqsHndlr := sqsbackend.NewHandler(sqsBk, slog.Default())
-	kmsBk := kmsbackend.NewInMemoryBackend()
-	kmsHndlr := kmsbackend.NewHandler(kmsBk, slog.Default())
-	smBk := smbackend.NewInMemoryBackend()
-	smHndlr := smbackend.NewHandler(smBk, slog.Default())
-	lambdaHndlr := newLambdaHandler()
-	ebBk := ebbackend.NewInMemoryBackend()
-	ebHndlr := ebbackend.NewHandler(ebBk, slog.Default())
-	apigwBk := apigwbackend.NewInMemoryBackend()
-	apigwHndlr := apigwbackend.NewHandler(apigwBk, slog.Default())
-	cwlogsBk := cwlogsbackend.NewInMemoryBackend()
-	cwlogsHndlr := cwlogsbackend.NewHandler(cwlogsBk, slog.Default())
-	sfnBk := sfnbackend.NewInMemoryBackend()
-	sfnHndlr := sfnbackend.NewHandler(sfnBk, slog.Default())
-	cwBk := cwbackend.NewInMemoryBackend()
-	cwHndlr := cwbackend.NewHandler(cwBk, slog.Default())
+	h := newHandlers()
 
 	// Set up Echo with service registry and router.
 	e := echo.New()
@@ -189,21 +207,8 @@ func New(t *testing.T) *Stack {
 	registry := service.NewRegistry(slog.Default())
 	registerServices(
 		registry,
-		ddbHndlr,
-		s3Hndlr,
-		ssmHndlr,
-		iamHndlr,
-		stsHndlr,
-		snsHndlr,
-		sqsHndlr,
-		kmsHndlr,
-		smHndlr,
-		lambdaHndlr,
-		ebHndlr,
-		apigwHndlr,
-		cwlogsHndlr,
-		sfnHndlr,
-		cwHndlr,
+		h.ddb, h.s3, h.ssm, h.iam, h.sts, h.sns, h.sqs, h.kms, h.sm,
+		h.lambda, h.eb, h.apigw, h.cwlogs, h.sfn, h.cw,
 	)
 
 	// Create AWS SDK clients routed through in-memory Echo.
@@ -215,26 +220,23 @@ func New(t *testing.T) *Stack {
 		DDBClient:         ddbClient,
 		S3Client:          s3Client,
 		SSMClient:         ssmClient,
-		DDBOps:            ddbHndlr,
-		S3Ops:             s3Hndlr,
-		SSMOps:            ssmHndlr,
-		IAMOps:            iamHndlr,
-		STSOps:            stsHndlr,
-		SNSOps:            snsHndlr,
-		SQSOps:            sqsHndlr,
-		KMSOps:            kmsHndlr,
-		SecretsManagerOps: smHndlr,
-		LambdaOps:         lambdaHndlr,
-		EventBridgeOps:    ebHndlr,
-		APIGatewayOps:     apigwHndlr,
-		CloudWatchLogsOps: cwlogsHndlr,
-		StepFunctionsOps:  sfnHndlr,
-		CloudWatchOps:     cwHndlr,
-		GlobalConfig: config.GlobalConfig{
-			AccountID: "000000000000",
-			Region:    "us-east-1",
-		},
-		Logger: slog.Default(),
+		DDBOps:            h.ddb,
+		S3Ops:             h.s3,
+		SSMOps:            h.ssm,
+		IAMOps:            h.iam,
+		STSOps:            h.sts,
+		SNSOps:            h.sns,
+		SQSOps:            h.sqs,
+		KMSOps:            h.kms,
+		SecretsManagerOps: h.sm,
+		LambdaOps:         h.lambda,
+		EventBridgeOps:    h.eb,
+		APIGatewayOps:     h.apigw,
+		CloudWatchLogsOps: h.cwlogs,
+		StepFunctionsOps:  h.sfn,
+		CloudWatchOps:     h.cw,
+		GlobalConfig:      config.GlobalConfig{AccountID: "000000000000", Region: "us-east-1"},
+		Logger:            slog.Default(),
 	})
 	_ = registry.Register(dashHndlr)
 
@@ -244,22 +246,22 @@ func New(t *testing.T) *Stack {
 
 	return &Stack{
 		Echo:                  e,
-		S3Backend:             s3Bk,
-		S3Handler:             s3Hndlr,
-		DDBHandler:            ddbHndlr,
-		IAMBackend:            iamBk,
-		IAMHandler:            iamHndlr,
-		STSHandler:            stsHndlr,
-		SNSHandler:            snsHndlr,
-		SQSHandler:            sqsHndlr,
-		KMSHandler:            kmsHndlr,
-		SecretsManagerHandler: smHndlr,
-		LambdaHandler:         lambdaHndlr,
-		EventBridgeHandler:    ebHndlr,
-		APIGatewayHandler:     apigwHndlr,
-		CloudWatchLogsHandler: cwlogsHndlr,
-		StepFunctionsHandler:  sfnHndlr,
-		CloudWatchHandler:     cwHndlr,
+		S3Backend:             h.s3Bk,
+		S3Handler:             h.s3,
+		DDBHandler:            h.ddb,
+		IAMBackend:            h.iamBk,
+		IAMHandler:            h.iam,
+		STSHandler:            h.sts,
+		SNSHandler:            h.sns,
+		SQSHandler:            h.sqs,
+		KMSHandler:            h.kms,
+		SecretsManagerHandler: h.sm,
+		LambdaHandler:         h.lambda,
+		EventBridgeHandler:    h.eb,
+		APIGatewayHandler:     h.apigw,
+		CloudWatchLogsHandler: h.cwlogs,
+		StepFunctionsHandler:  h.sfn,
+		CloudWatchHandler:     h.cw,
 		S3Client:              s3Client,
 		DDBClient:             ddbClient,
 		Dashboard:             dashHndlr,

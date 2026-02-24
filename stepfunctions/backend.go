@@ -16,6 +16,9 @@ var (
 	ErrExecutionDoesNotExist     = errors.New("ExecutionDoesNotExist")
 )
 
+// executionSucceededEventID is the history event ID for ExecutionSucceeded.
+const executionSucceededEventID = 2
+
 // StorageBackend is the interface for a Step Functions in-memory store.
 type StorageBackend interface {
 	CreateStateMachine(name, definition, roleArn, smType string) (*StateMachine, error)
@@ -26,13 +29,17 @@ type StorageBackend interface {
 	StopExecution(executionArn, errCode, cause string) error
 	DescribeExecution(executionArn string) (*Execution, error)
 	ListExecutions(stateMachineArn, statusFilter, nextToken string, maxResults int) ([]Execution, string, error)
-	GetExecutionHistory(executionArn, nextToken string, maxResults int, reverseOrder bool) ([]HistoryEvent, string, error)
+	GetExecutionHistory(
+		executionArn, nextToken string,
+		maxResults int,
+		reverseOrder bool,
+	) ([]HistoryEvent, string, error)
 }
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	stateMachines map[string]*StateMachine  // key = stateMachineArn
-	executions    map[string]*Execution     // key = executionArn
+	stateMachines map[string]*StateMachine   // key = stateMachineArn
+	executions    map[string]*Execution      // key = executionArn
 	history       map[string][]*HistoryEvent // key = executionArn
 	accountID     string
 	region        string
@@ -122,7 +129,9 @@ func (b *InMemoryBackend) ListStateMachines(nextToken string, maxResults int) ([
 
 	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
 
-	return paginate(all, nextToken, maxResults)
+	sms, token := paginate(all, nextToken, maxResults)
+
+	return sms, token, nil
 }
 
 // DescribeStateMachine returns details for a single state machine.
@@ -151,7 +160,7 @@ func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*
 	}
 
 	execArn := b.execARN(sm.Name, name)
-	if _, exists := b.executions[execArn]; exists {
+	if _, alreadyExists := b.executions[execArn]; alreadyExists {
 		return nil, fmt.Errorf("%w: %s", ErrExecutionAlreadyExists, name)
 	}
 
@@ -176,7 +185,7 @@ func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*
 	exec.Status = "SUCCEEDED"
 	exec.Output = input
 	b.history[execArn] = append(b.history[execArn], &HistoryEvent{
-		Timestamp: now, Type: "ExecutionSucceeded", ID: 2, PreviousEventID: 1,
+		Timestamp: now, Type: "ExecutionSucceeded", ID: executionSucceededEventID, PreviousEventID: 1,
 	})
 
 	return exec, nil
@@ -241,7 +250,9 @@ func (b *InMemoryBackend) ListExecutions(
 
 	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
 
-	return paginate(all, nextToken, maxResults)
+	execs, token := paginate(all, nextToken, maxResults)
+
+	return execs, token, nil
 }
 
 // GetExecutionHistory returns history events for an execution.
@@ -265,16 +276,18 @@ func (b *InMemoryBackend) GetExecutionHistory(
 		sort.Slice(all, func(i, j int) bool { return all[i].ID > all[j].ID })
 	}
 
-	return paginate(all, nextToken, maxResults)
+	events, token := paginate(all, nextToken, maxResults)
+
+	return events, token, nil
 }
 
 // paginate applies token-based pagination to a sorted slice.
-func paginate[T any](all []T, nextToken string, maxResults int) ([]T, string, error) {
+func paginate[T any](all []T, nextToken string, maxResults int) ([]T, string) {
 	const defaultLimit = 100
 
 	startIdx := parseNextToken(nextToken)
 	if startIdx >= len(all) {
-		return []T{}, "", nil
+		return []T{}, ""
 	}
 
 	limit := defaultLimit
@@ -283,6 +296,7 @@ func paginate[T any](all []T, nextToken string, maxResults int) ([]T, string, er
 	}
 
 	end := startIdx + limit
+
 	var outToken string
 	if end < len(all) {
 		outToken = strconv.Itoa(end)
@@ -290,7 +304,7 @@ func paginate[T any](all []T, nextToken string, maxResults int) ([]T, string, er
 		end = len(all)
 	}
 
-	return all[startIdx:end], outToken, nil
+	return all[startIdx:end], outToken
 }
 
 func parseNextToken(token string) int {

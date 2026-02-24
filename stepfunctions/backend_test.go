@@ -56,7 +56,7 @@ func TestDescribeStateMachine(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "desc-sm", got.Name)
 	assert.Equal(t, "EXPRESS", got.Type)
-	assert.Equal(t, `{"Comment":"test"}`, got.Definition)
+	assert.JSONEq(t, `{"Comment":"test"}`, got.Definition)
 }
 
 func TestDescribeStateMachine_NotFound(t *testing.T) {
@@ -148,7 +148,7 @@ func TestStartExecution(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, exec.ExecutionArn, "exec1")
 	assert.Equal(t, "SUCCEEDED", exec.Status)
-	assert.Equal(t, `{"key":"value"}`, exec.Output)
+	assert.JSONEq(t, `{"key":"value"}`, exec.Output)
 	assert.NotNil(t, exec.StopDate)
 }
 

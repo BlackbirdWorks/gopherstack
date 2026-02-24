@@ -12,6 +12,9 @@ import (
 // ErrAlarmNotFound is returned when a requested alarm does not exist.
 var ErrAlarmNotFound = errors.New("ResourceNotFoundException")
 
+// ErrAlarmNameRequired is returned when an alarm name is missing.
+var ErrAlarmNameRequired = errors.New("AlarmName is required")
+
 // StorageBackend is the interface for the CloudWatch in-memory store.
 type StorageBackend interface {
 	PutMetricData(namespace string, data []MetricDatum) error
@@ -68,6 +71,83 @@ func (b *InMemoryBackend) PutMetricData(namespace string, data []MetricDatum) er
 	return nil
 }
 
+// metricBucket holds aggregated data for a single time bucket.
+type metricBucket struct {
+	ts    time.Time
+	unit  string
+	sum   float64
+	min   float64
+	max   float64
+	count float64
+}
+
+// populateBuckets groups metric data into period-aligned time buckets.
+func populateBuckets(all []MetricDatum, startTime, endTime time.Time, period int32) map[int64]*metricBucket {
+	buckets := make(map[int64]*metricBucket)
+
+	for _, d := range all {
+		if d.Timestamp.Before(startTime) || !d.Timestamp.Before(endTime) {
+			continue
+		}
+
+		idx := d.Timestamp.Unix() / int64(period)
+		if _, ok := buckets[idx]; !ok {
+			buckets[idx] = &metricBucket{
+				min: math.MaxFloat64,
+				max: -math.MaxFloat64,
+				ts:  time.Unix(idx*int64(period), 0).UTC(),
+			}
+		}
+
+		bk := buckets[idx]
+		bk.sum += d.Sum
+		bk.count += d.Count
+
+		if d.Min < bk.min {
+			bk.min = d.Min
+		}
+
+		if d.Max > bk.max {
+			bk.max = d.Max
+		}
+
+		if bk.unit == "" {
+			bk.unit = d.Unit
+		}
+	}
+
+	return buckets
+}
+
+// buildDatapoint converts a bucket into a Datapoint with requested statistics.
+func buildDatapoint(bk *metricBucket, statSet map[string]bool) Datapoint {
+	dp := Datapoint{Timestamp: bk.ts, Unit: bk.unit}
+
+	if statSet["Average"] {
+		avg := bk.sum / bk.count
+		dp.Average = &avg
+	}
+
+	if statSet["Sum"] {
+		s := bk.sum
+		dp.Sum = &s
+	}
+
+	if statSet["Minimum"] {
+		dp.Minimum = &bk.min
+	}
+
+	if statSet["Maximum"] {
+		dp.Maximum = &bk.max
+	}
+
+	if statSet["SampleCount"] {
+		dp.SampleCount = &bk.count
+	}
+
+	return dp
+}
+
 // GetMetricStatistics aggregates data for a metric over a time range into period-sized buckets.
 func (b *InMemoryBackend) GetMetricStatistics(
 	namespace, metricName string,
@@ -83,41 +163,7 @@ func (b *InMemoryBackend) GetMetricStatistics(
 		all = nsMap[metricName]
 	}
 
-	type bucket struct {
-		sum   float64
-		min   float64
-		max   float64
-		count float64
-		unit  string
-		ts    time.Time
-	}
-	buckets := make(map[int64]*bucket)
-
-	for _, d := range all {
-		if d.Timestamp.Before(startTime) || !d.Timestamp.Before(endTime) {
-			continue
-		}
-		idx := d.Timestamp.Unix() / int64(period)
-		if _, ok := buckets[idx]; !ok {
-			buckets[idx] = &bucket{
-				min: math.MaxFloat64,
-				max: -math.MaxFloat64,
-				ts:  time.Unix(idx*int64(period), 0).UTC(),
-			}
-		}
-		bk := buckets[idx]
-		bk.sum += d.Sum
-		bk.count += d.Count
-		if d.Min < bk.min {
-			bk.min = d.Min
-		}
-		if d.Max > bk.max {
-			bk.max = d.Max
-		}
-		if bk.unit == "" {
-			bk.unit = d.Unit
-		}
-	}
+	buckets := populateBuckets(all, startTime, endTime, period)
 
 	statSet := make(map[string]bool, len(statistics))
 	for _, s := range statistics {
@@ -129,25 +175,8 @@ func (b *InMemoryBackend) GetMetricStatistics(
 		if bk.count == 0 {
 			continue
 		}
-		dp := Datapoint{Timestamp: bk.ts, Unit: bk.unit}
-		if statSet["Average"] {
-			avg := bk.sum / bk.count
-			dp.Average = &avg
-		}
-		if statSet["Sum"] {
-			s := bk.sum
-			dp.Sum = &s
-		}
-		if statSet["Minimum"] {
-			dp.Minimum = &bk.min
-		}
-		if statSet["Maximum"] {
-			dp.Maximum = &bk.max
-		}
-		if statSet["SampleCount"] {
-			dp.SampleCount = &bk.count
-		}
-		datapoints = append(datapoints, dp)
+
+		datapoints = append(datapoints, buildDatapoint(bk, statSet))
 	}
 
 	sort.Slice(datapoints, func(i, j int) bool {
@@ -179,6 +208,7 @@ func (b *InMemoryBackend) ListMetrics(namespace, metricName string) ([]Metric, e
 		if result[i].Namespace != result[j].Namespace {
 			return result[i].Namespace < result[j].Namespace
 		}
+
 		return result[i].MetricName < result[j].MetricName
 	})
 
@@ -188,7 +218,7 @@ func (b *InMemoryBackend) ListMetrics(namespace, metricName string) ([]Metric, e
 // PutMetricAlarm creates or updates an alarm.
 func (b *InMemoryBackend) PutMetricAlarm(alarm *MetricAlarm) error {
 	if alarm.AlarmName == "" {
-		return fmt.Errorf("AlarmName is required")
+		return ErrAlarmNameRequired
 	}
 
 	b.mu.Lock()

@@ -75,7 +75,7 @@ func TestDescribeLogGroups_Pagination(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		_, _ = b.CreateLogGroup("/group/" + string(rune('a'+i)))
 	}
 
@@ -326,7 +326,7 @@ func TestFilterLogEvents_Pagination(t *testing.T) {
 
 	_, _ = b.CreateLogGroup("grp")
 	_, _ = b.CreateLogStream("grp", "s")
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		_, _ = b.PutLogEvents("grp", "s", []cloudwatchlogs.InputLogEvent{
 			{Message: "msg", Timestamp: int64(i * 100)},
 		})

@@ -6,8 +6,8 @@ import (
 	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
 	stssdk "github.com/aws/aws-sdk-go-v2/service/sts"
 	apigwbackend "github.com/blackbirdworks/gopherstack/apigateway"
-	cwlogsbackend "github.com/blackbirdworks/gopherstack/cloudwatchlogs"
 	cwbackend "github.com/blackbirdworks/gopherstack/cloudwatch"
+	cwlogsbackend "github.com/blackbirdworks/gopherstack/cloudwatchlogs"
 	sfnbackend "github.com/blackbirdworks/gopherstack/stepfunctions"
 
 	"github.com/blackbirdworks/gopherstack/dynamodb"

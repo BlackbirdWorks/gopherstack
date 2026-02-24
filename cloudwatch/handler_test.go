@@ -27,6 +27,7 @@ func postForm(t *testing.T, h *cloudwatch.Handler, body string) *httptest.Respon
 	require.NoError(t, req.ParseForm())
 	err := h.Handler()(c)
 	require.NoError(t, err)
+
 	return rec
 }
 

@@ -122,7 +122,9 @@ func (b *InMemoryBackend) DescribeLogGroups(prefix, nextToken string, limit int)
 
 	sort.Slice(all, func(i, j int) bool { return all[i].LogGroupName < all[j].LogGroupName })
 
-	return paginateGroups(all, nextToken, limit)
+	groups, token := paginateGroups(all, nextToken, limit)
+
+	return groups, token, nil
 }
 
 // CreateLogStream creates a new log stream within a log group.
@@ -169,7 +171,9 @@ func (b *InMemoryBackend) DescribeLogStreams(groupName, prefix, nextToken string
 
 	sort.Slice(all, func(i, j int) bool { return all[i].LogStreamName < all[j].LogStreamName })
 
-	return paginateStreams(all, nextToken, limit)
+	streams, token := paginateStreams(all, nextToken, limit)
+
+	return streams, token, nil
 }
 
 // PutLogEvents appends log events to a stream and returns the next sequence token.
@@ -235,10 +239,7 @@ func (b *InMemoryBackend) GetLogEvents(groupName, streamName string, startTime, 
 		limit = defaultEventLimit
 	}
 
-	end := startIdx + limit
-	if end > len(filtered) {
-		end = len(filtered)
-	}
+	end := min(startIdx+limit, len(filtered))
 
 	page := filtered[startIdx:end]
 
@@ -336,10 +337,10 @@ func sortedKeys(m map[string]*LogStream) []string {
 	return keys
 }
 
-func paginateGroups(all []LogGroup, nextToken string, limit int) ([]LogGroup, string, error) {
+func paginateGroups(all []LogGroup, nextToken string, limit int) ([]LogGroup, string) {
 	startIdx := parseNextToken(nextToken)
 	if startIdx >= len(all) {
-		return []LogGroup{}, "", nil
+		return []LogGroup{}, ""
 	}
 
 	if limit <= 0 {
@@ -347,6 +348,7 @@ func paginateGroups(all []LogGroup, nextToken string, limit int) ([]LogGroup, st
 	}
 
 	end := startIdx + limit
+
 	var outToken string
 	if end < len(all) {
 		outToken = strconv.Itoa(end)
@@ -354,13 +356,13 @@ func paginateGroups(all []LogGroup, nextToken string, limit int) ([]LogGroup, st
 		end = len(all)
 	}
 
-	return all[startIdx:end], outToken, nil
+	return all[startIdx:end], outToken
 }
 
-func paginateStreams(all []LogStream, nextToken string, limit int) ([]LogStream, string, error) {
+func paginateStreams(all []LogStream, nextToken string, limit int) ([]LogStream, string) {
 	startIdx := parseNextToken(nextToken)
 	if startIdx >= len(all) {
-		return []LogStream{}, "", nil
+		return []LogStream{}, ""
 	}
 
 	if limit <= 0 {
@@ -368,6 +370,7 @@ func paginateStreams(all []LogStream, nextToken string, limit int) ([]LogStream,
 	}
 
 	end := startIdx + limit
+
 	var outToken string
 	if end < len(all) {
 		outToken = strconv.Itoa(end)
@@ -375,7 +378,7 @@ func paginateStreams(all []LogStream, nextToken string, limit int) ([]LogStream,
 		end = len(all)
 	}
 
-	return all[startIdx:end], outToken, nil
+	return all[startIdx:end], outToken
 }
 
 func parseNextToken(token string) int {

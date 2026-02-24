@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"strings"
 
@@ -253,12 +254,12 @@ func (h *Handler) logEventActions() map[string]actionFn {
 		},
 		"GetLogEvents": func(b []byte) (any, error) {
 			var input struct {
-				LogGroupName  string `json:"logGroupName"`
-				LogStreamName string `json:"logStreamName"`
 				StartTime     *int64 `json:"startTime"`
 				EndTime       *int64 `json:"endTime"`
-				Limit         int    `json:"limit"`
+				LogGroupName  string `json:"logGroupName"`
+				LogStreamName string `json:"logStreamName"`
 				NextToken     string `json:"nextToken"`
+				Limit         int    `json:"limit"`
 			}
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -278,13 +279,13 @@ func (h *Handler) logEventActions() map[string]actionFn {
 		},
 		"FilterLogEvents": func(b []byte) (any, error) {
 			var input struct {
-				LogGroupName    string   `json:"logGroupName"`
-				LogStreamNames  []string `json:"logStreamNames"`
-				FilterPattern   string   `json:"filterPattern"`
-				StartTime       *int64   `json:"startTime"`
-				EndTime         *int64   `json:"endTime"`
-				Limit           int      `json:"limit"`
-				NextToken       string   `json:"nextToken"`
+				StartTime      *int64   `json:"startTime"`
+				EndTime        *int64   `json:"endTime"`
+				LogGroupName   string   `json:"logGroupName"`
+				FilterPattern  string   `json:"filterPattern"`
+				NextToken      string   `json:"nextToken"`
+				LogStreamNames []string `json:"logStreamNames"`
+				Limit          int      `json:"limit"`
 			}
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -307,15 +308,9 @@ func (h *Handler) logEventActions() map[string]actionFn {
 
 func (h *Handler) dispatchTable() map[string]actionFn {
 	table := make(map[string]actionFn)
-	for k, v := range h.logGroupActions() {
-		table[k] = v
-	}
-	for k, v := range h.logStreamActions() {
-		table[k] = v
-	}
-	for k, v := range h.logEventActions() {
-		table[k] = v
-	}
+	maps.Copy(table, h.logGroupActions())
+	maps.Copy(table, h.logStreamActions())
+	maps.Copy(table, h.logEventActions())
 
 	return table
 }
