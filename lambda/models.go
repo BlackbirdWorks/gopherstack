@@ -2,8 +2,11 @@ package lambda
 
 import "time"
 
-// PackageTypeImage is the only supported Lambda package type.
+// PackageTypeImage is the Image-based Lambda package type (Docker image).
 const PackageTypeImage = "Image"
+
+// PackageTypeZip is the Zip-based Lambda package type (code archive).
+const PackageTypeZip = "Zip"
 
 // FunctionState represents the lifecycle state of a Lambda function.
 type FunctionState string
@@ -29,26 +32,35 @@ const (
 	InvocationTypeDryRun InvocationType = "DryRun"
 )
 
-// FunctionCode holds the code location for an image-based Lambda function.
+// FunctionCode holds the code location for a Lambda function.
+// For Image package type, only ImageUri is used.
+// For Zip package type, either ZipFile (inline base64) or S3Bucket+S3Key is used.
 type FunctionCode struct {
-	ImageURI string `json:"ImageUri"`
+	ImageURI string `json:"ImageUri,omitempty"`
+	S3Bucket string `json:"S3Bucket,omitempty"`
+	S3Key    string `json:"S3Key,omitempty"`
+	ZipFile  []byte `json:"ZipFile,omitempty"`
 }
 
 // FunctionConfiguration represents a Lambda function's configuration.
 type FunctionConfiguration struct {
+	CreatedAt    time.Time          `json:"-"`
 	Environment  *EnvironmentConfig `json:"Environment,omitempty"`
-	FunctionName string             `json:"FunctionName"`
-	FunctionArn  string             `json:"FunctionArn"`
-	Description  string             `json:"Description"`
-	ImageURI     string             `json:"ImageUri"`
+	Handler      string             `json:"Handler,omitempty"`
+	RevisionID   string             `json:"RevisionId"`
+	ImageURI     string             `json:"ImageUri,omitempty"`
 	PackageType  string             `json:"PackageType"`
 	StateReason  string             `json:"StateReason,omitempty"`
 	Role         string             `json:"Role"`
 	LastModified string             `json:"LastModified"`
 	Runtime      string             `json:"Runtime,omitempty"`
-	RevisionID   string             `json:"RevisionId"`
-	CreatedAt    time.Time          `json:"-"`
+	FunctionArn  string             `json:"FunctionArn"`
+	Description  string             `json:"Description"`
+	FunctionName string             `json:"FunctionName"`
 	State        FunctionState      `json:"State"`
+	S3BucketCode string             `json:"-"`
+	S3KeyCode    string             `json:"-"`
+	ZipData      []byte             `json:"-"`
 	MemorySize   int                `json:"MemorySize"`
 	Timeout      int                `json:"Timeout"`
 	CodeSize     int64              `json:"CodeSize"`
@@ -67,6 +79,8 @@ type CreateFunctionInput struct {
 	FunctionName string             `json:"FunctionName"`
 	Description  string             `json:"Description"`
 	PackageType  string             `json:"PackageType"`
+	Runtime      string             `json:"Runtime,omitempty"`
+	Handler      string             `json:"Handler,omitempty"`
 	Role         string             `json:"Role"`
 	MemorySize   int                `json:"MemorySize"`
 	Timeout      int                `json:"Timeout"`
@@ -81,13 +95,18 @@ type ImageConfig struct {
 
 // UpdateFunctionCodeInput holds the request body for UpdateFunctionCode.
 type UpdateFunctionCodeInput struct {
-	ImageURI string `json:"ImageUri"`
+	ImageURI string `json:"ImageUri,omitempty"`
+	S3Bucket string `json:"S3Bucket,omitempty"`
+	S3Key    string `json:"S3Key,omitempty"`
+	ZipFile  []byte `json:"ZipFile,omitempty"`
 }
 
 // UpdateFunctionConfigurationInput holds the request body for UpdateFunctionConfiguration.
 type UpdateFunctionConfigurationInput struct {
 	Environment *EnvironmentConfig `json:"Environment,omitempty"`
 	Description string             `json:"Description,omitempty"`
+	Runtime     string             `json:"Runtime,omitempty"`
+	Handler     string             `json:"Handler,omitempty"`
 	Role        string             `json:"Role,omitempty"`
 	MemorySize  int                `json:"MemorySize,omitempty"`
 	Timeout     int                `json:"Timeout,omitempty"`
@@ -103,6 +122,7 @@ type GetFunctionOutput struct {
 type FunctionCodeLocation struct {
 	ImageURI       string `json:"ImageUri,omitempty"`
 	RepositoryType string `json:"RepositoryType,omitempty"`
+	Location       string `json:"Location,omitempty"`
 }
 
 // ListFunctionsOutput is the response for ListFunctions.

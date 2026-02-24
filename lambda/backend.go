@@ -1,12 +1,18 @@
 package lambda
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -35,10 +41,17 @@ type StorageBackend interface {
 	InvokeFunction(ctx context.Context, name string, invocationType InvocationType, payload []byte) ([]byte, int, error)
 }
 
+// S3CodeFetcher can retrieve zip bytes from an S3-compatible store.
+// It is used by InMemoryBackend to pull Zip Lambda code from S3.
+type S3CodeFetcher interface {
+	GetObjectBytes(ctx context.Context, bucket, key string) ([]byte, error)
+}
+
 // functionRuntime holds the runtime server and startup state for a single Lambda function.
 type functionRuntime struct {
 	srv      *runtimeServer
 	startErr error
+	zipDir   string // temp directory for extracted Zip Lambda code; cleaned up on delete
 	mu       sync.Mutex
 	port     int
 	started  bool
@@ -50,6 +63,7 @@ type InMemoryBackend struct {
 	runtimes  map[string]*functionRuntime
 	docker    *docker.Client
 	portAlloc *portalloc.Allocator
+	s3Fetcher S3CodeFetcher
 	logger    *slog.Logger
 	accountID string
 	region    string
@@ -75,6 +89,13 @@ func NewInMemoryBackend(
 		region:    region,
 		logger:    log,
 	}
+}
+
+// SetS3CodeFetcher sets the S3CodeFetcher for fetching Zip Lambda code from S3.
+func (b *InMemoryBackend) SetS3CodeFetcher(f S3CodeFetcher) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.s3Fetcher = f
 }
 
 // CreateFunction stores a new Lambda function configuration.
@@ -147,6 +168,10 @@ func (b *InMemoryBackend) DeleteFunction(name string) error {
 
 		if rt.port > 0 && b.portAlloc != nil {
 			_ = b.portAlloc.Release(rt.port)
+		}
+
+		if rt.zipDir != "" {
+			_ = os.RemoveAll(rt.zipDir)
 		}
 	}
 
@@ -279,18 +304,117 @@ func (b *InMemoryBackend) getOrCreateRuntime(ctx context.Context, fn *FunctionCo
 	rt.port = port
 	rt.started = true
 
-	if containerErr := b.startContainer(ctx, fn, port); containerErr != nil {
+	zipDir, containerErr := b.startContainer(ctx, fn, port)
+	if containerErr != nil {
 		b.logger.WarnContext(
 			ctx, "lambda: failed to start container",
 			"function", fn.FunctionName, "error", containerErr,
 		)
 	}
 
+	rt.zipDir = zipDir
+
 	return srv, nil
 }
 
+// runtimeImageForRuntime maps a Lambda runtime identifier to the corresponding
+// AWS public ECR base image reference.
+//
+//nolint:gochecknoglobals // intentional package-level lookup table
+var runtimeBaseImages = map[string]string{
+	"python3.13":      "public.ecr.aws/lambda/python:3.13",
+	"python3.12":      "public.ecr.aws/lambda/python:3.12",
+	"python3.11":      "public.ecr.aws/lambda/python:3.11",
+	"python3.10":      "public.ecr.aws/lambda/python:3.10",
+	"python3.9":       "public.ecr.aws/lambda/python:3.9",
+	"nodejs22.x":      "public.ecr.aws/lambda/nodejs:22",
+	"nodejs20.x":      "public.ecr.aws/lambda/nodejs:20",
+	"nodejs18.x":      "public.ecr.aws/lambda/nodejs:18",
+	"java21":          "public.ecr.aws/lambda/java:21",
+	"java17":          "public.ecr.aws/lambda/java:17",
+	"java11":          "public.ecr.aws/lambda/java:11",
+	"dotnet9":         "public.ecr.aws/lambda/dotnet:9",
+	"dotnet8":         "public.ecr.aws/lambda/dotnet:8",
+	"ruby3.3":         "public.ecr.aws/lambda/ruby:3.3",
+	"ruby3.2":         "public.ecr.aws/lambda/ruby:3.2",
+	"provided.al2023": "public.ecr.aws/lambda/provided:al2023",
+	"provided.al2":    "public.ecr.aws/lambda/provided:al2",
+	"provided":        "public.ecr.aws/lambda/provided:alami",
+}
+
+// baseImageForRuntime returns the ECR base image for the given runtime string.
+// Returns "" if the runtime is unknown.
+func baseImageForRuntime(runtime string) string {
+	return runtimeBaseImages[runtime]
+}
+
+// extractZip extracts zip bytes into a new temporary directory and returns the directory path.
+// The caller is responsible for calling [os.RemoveAll] on the returned path when done.
+func extractZip(zipData []byte) (string, error) {
+	dir, err := os.MkdirTemp("", "gopherstack-lambda-zip-*")
+	if err != nil {
+		return "", fmt.Errorf("create temp dir: %w", err)
+	}
+
+	r, err := zip.NewReader(bytes.NewReader(zipData), int64(len(zipData)))
+	if err != nil {
+		_ = os.RemoveAll(dir)
+
+		return "", fmt.Errorf("open zip: %w", err)
+	}
+
+	for _, f := range r.File {
+		if extractErr := extractZipFile(dir, f); extractErr != nil {
+			_ = os.RemoveAll(dir)
+
+			return "", extractErr
+		}
+	}
+
+	return dir, nil
+}
+
+// extractZipFile extracts a single [zip.File] entry into destDir.
+func extractZipFile(destDir string, f *zip.File) error {
+	// Sanitize path to prevent zip-slip attacks.
+	destPath := filepath.Join(destDir, filepath.Clean("/"+f.Name))
+	destPath = filepath.Join(destDir, strings.TrimPrefix(destPath, destDir))
+
+	if f.FileInfo().IsDir() {
+		return os.MkdirAll(destPath, f.Mode()) //nolint:gosec // destPath is sanitized above
+	}
+
+	if err := os.MkdirAll(filepath.Dir(destPath), 0o750); err != nil {
+		return fmt.Errorf("mkdir %q: %w", filepath.Dir(destPath), err)
+	}
+
+	rc, err := f.Open()
+	if err != nil {
+		return fmt.Errorf("open zip entry %q: %w", f.Name, err)
+	}
+	defer rc.Close()
+
+	outFile, err := os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode()) //nolint:gosec // sanitized
+	if err != nil {
+		return fmt.Errorf("create file %q: %w", destPath, err)
+	}
+	defer outFile.Close()
+
+	if _, copyErr := io.Copy(outFile, rc); copyErr != nil { //nolint:gosec // zip entries are trusted input from user
+		return fmt.Errorf("extract file %q: %w", f.Name, copyErr)
+	}
+
+	return nil
+}
+
 // startContainer creates and starts a Lambda container for the given function.
-func (b *InMemoryBackend) startContainer(ctx context.Context, fn *FunctionConfiguration, runtimePort int) error {
+// For Zip functions it extracts the code to a temp directory and bind-mounts it.
+// Returns the temp directory path (non-empty only for Zip functions) and any error.
+func (b *InMemoryBackend) startContainer(
+	ctx context.Context,
+	fn *FunctionConfiguration,
+	runtimePort int,
+) (string, error) {
 	env := []string{
 		fmt.Sprintf("AWS_LAMBDA_RUNTIME_API=%s:%d", b.settings.DockerHost, runtimePort),
 		"AWS_DEFAULT_REGION=" + b.region,
@@ -300,10 +424,18 @@ func (b *InMemoryBackend) startContainer(ctx context.Context, fn *FunctionConfig
 		fmt.Sprintf("AWS_LAMBDA_FUNCTION_TIMEOUT=%d", fn.Timeout),
 	}
 
+	if fn.Handler != "" {
+		env = append(env, "AWS_LAMBDA_FUNCTION_HANDLER="+fn.Handler)
+	}
+
 	if fn.Environment != nil {
 		for k, v := range fn.Environment.Variables {
 			env = append(env, fmt.Sprintf("%s=%s", k, v))
 		}
+	}
+
+	if fn.PackageType == PackageTypeZip {
+		return b.startZipContainer(ctx, fn, env)
 	}
 
 	spec := docker.ContainerSpec{
@@ -314,5 +446,62 @@ func (b *InMemoryBackend) startContainer(ctx context.Context, fn *FunctionConfig
 
 	_, err := b.docker.CreateAndStart(ctx, spec)
 
-	return err
+	return "", err
+}
+
+// startZipContainer handles container startup for Zip-packaged Lambda functions.
+// It fetches the zip (from inline ZipData or S3), extracts it to a temp directory,
+// and bind-mounts the directory into the appropriate AWS base image container.
+func (b *InMemoryBackend) startZipContainer(
+	ctx context.Context,
+	fn *FunctionConfiguration,
+	env []string,
+) (string, error) {
+	baseImage := baseImageForRuntime(fn.Runtime)
+	if baseImage == "" {
+		return "", fmt.Errorf("%w: unsupported runtime %q", ErrLambdaUnavailable, fn.Runtime)
+	}
+
+	// Resolve zip bytes from inline data or S3.
+	zipData := fn.ZipData
+	if len(zipData) == 0 && fn.S3BucketCode != "" && fn.S3KeyCode != "" {
+		if b.s3Fetcher == nil {
+			return "", fmt.Errorf("%w: S3 code delivery requires S3 integration", ErrLambdaUnavailable)
+		}
+
+		var fetchErr error
+
+		zipData, fetchErr = b.s3Fetcher.GetObjectBytes(ctx, fn.S3BucketCode, fn.S3KeyCode)
+		if fetchErr != nil {
+			return "", fmt.Errorf("%w: failed to fetch zip from S3: %w", ErrLambdaUnavailable, fetchErr)
+		}
+	}
+
+	if len(zipData) == 0 {
+		return "", fmt.Errorf("%w: no zip data available for function %q", ErrLambdaUnavailable, fn.FunctionName)
+	}
+
+	zipDir, extractErr := extractZip(zipData)
+	if extractErr != nil {
+		return "", fmt.Errorf("%w: zip extraction failed: %w", ErrLambdaUnavailable, extractErr)
+	}
+
+	spec := docker.ContainerSpec{
+		Image:  baseImage,
+		Name:   fmt.Sprintf("gopherstack-lambda-%s-%s", fn.FunctionName, uuid.New().String()[:8]),
+		Env:    env,
+		Mounts: []string{zipDir + ":/var/task:ro"},
+	}
+
+	if fn.Handler != "" {
+		spec.Cmd = []string{fn.Handler}
+	}
+
+	if _, err := b.docker.CreateAndStart(ctx, spec); err != nil {
+		_ = os.RemoveAll(zipDir) //nolint:gosec // zipDir is a temp dir created by os.MkdirTemp
+
+		return "", err
+	}
+
+	return zipDir, nil
 }

@@ -99,6 +99,8 @@ func (h *S3Handler) routeBucketGet(
 		h.getBucketVersioning(ctx, w, r, bucket)
 	case r.URL.Query().Has("versions"):
 		h.listObjectVersions(ctx, w, r, bucket)
+	case r.URL.Query().Has("uploads"):
+		h.listMultipartUploads(ctx, w, r, bucket)
 	case r.URL.Query().Has("location"):
 		h.getBucketLocation(ctx, w, r, bucket)
 	case r.URL.Query().Has("tagging"):

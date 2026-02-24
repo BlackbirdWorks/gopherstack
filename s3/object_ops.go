@@ -92,6 +92,8 @@ func (h *S3Handler) routeObjectGet(
 	case r.URL.Query().Has("acl"):
 		h.setOperation(ctx, "GetObjectAcl")
 		w.WriteHeader(http.StatusNotImplemented) // ACLs ignored
+	case r.URL.Query().Has("uploadId"):
+		h.listParts(ctx, w, r, bucket, key)
 	default:
 		h.getObject(ctx, w, r, bucket, key)
 	}

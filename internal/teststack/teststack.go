@@ -18,6 +18,7 @@ import (
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
 	kmsbackend "github.com/blackbirdworks/gopherstack/kms"
+	lambdabackend "github.com/blackbirdworks/gopherstack/lambda"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -49,9 +50,79 @@ type Stack struct {
 	SQSHandler            *sqsbackend.Handler
 	KMSHandler            *kmsbackend.Handler
 	SecretsManagerHandler *smbackend.Handler
+	LambdaHandler         *lambdabackend.Handler
 	S3Client              *s3.Client
 	DDBClient             *dynamodb.Client
 	Dashboard             *dashboard.DashboardHandler
+}
+
+// sdkClients holds the AWS SDK clients wired through the in-memory test server.
+type sdkClients struct {
+	DDB *dynamodb.Client
+	S3  *s3.Client
+	SSM *ssmsdk.Client
+}
+
+// newSDKClients creates AWS SDK clients pointed at the in-memory Echo server.
+func newSDKClients(t *testing.T, e *echo.Echo) sdkClients {
+	t.Helper()
+
+	inMemClient := &dashboard.InMemClient{Handler: e}
+
+	cfg, err := awscfg.LoadDefaultConfig(t.Context(),
+		awscfg.WithRegion("us-east-1"),
+		awscfg.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("dummy", "dummy", "")),
+		awscfg.WithHTTPClient(inMemClient),
+	)
+	require.NoError(t, err)
+
+	return sdkClients{
+		DDB: dynamodb.NewFromConfig(cfg, func(o *dynamodb.Options) { o.BaseEndpoint = aws.String("http://local") }),
+		S3: s3.NewFromConfig(cfg, func(o *s3.Options) {
+			o.UsePathStyle = true
+			o.BaseEndpoint = aws.String("http://local")
+		}),
+		SSM: ssmsdk.NewFromConfig(cfg, func(o *ssmsdk.Options) { o.BaseEndpoint = aws.String("http://local") }),
+	}
+}
+
+// newLambdaHandler creates a Lambda handler backed by an in-memory backend with no Docker
+// or portalloc dependency — invocations are disabled; only management-plane CRUD works.
+func newLambdaHandler() *lambdabackend.Handler {
+	bk := lambdabackend.NewInMemoryBackend(
+		nil, nil, lambdabackend.DefaultSettings(), "000000000000", "us-east-1", slog.Default(),
+	)
+	h := lambdabackend.NewHandler(bk, slog.Default())
+	h.AccountID = "000000000000"
+	h.DefaultRegion = "us-east-1"
+
+	return h
+}
+
+// registerServices registers all service handlers with the registry.
+func registerServices(
+	registry *service.Registry,
+	ddbHndlr *ddbbackend.DynamoDBHandler,
+	s3Hndlr *s3backend.S3Handler,
+	ssmHndlr *ssmbackend.Handler,
+	iamHndlr *iambackend.Handler,
+	stsHndlr *stsbackend.Handler,
+	snsHndlr *snsbackend.Handler,
+	sqsHndlr *sqsbackend.Handler,
+	kmsHndlr *kmsbackend.Handler,
+	smHndlr *smbackend.Handler,
+	lambdaHndlr *lambdabackend.Handler,
+) {
+	_ = registry.Register(ddbHndlr)
+	_ = registry.Register(s3Hndlr)
+	_ = registry.Register(ssmHndlr)
+	_ = registry.Register(iamHndlr)
+	_ = registry.Register(stsHndlr)
+	_ = registry.Register(snsHndlr)
+	_ = registry.Register(sqsHndlr)
+	_ = registry.Register(kmsHndlr)
+	_ = registry.Register(smHndlr)
+	_ = registry.Register(lambdaHndlr)
 }
 
 // New creates a fully wired integration stack for testing.
@@ -79,44 +150,30 @@ func New(t *testing.T) *Stack {
 	kmsHndlr := kmsbackend.NewHandler(kmsBk, slog.Default())
 	smBk := smbackend.NewInMemoryBackend()
 	smHndlr := smbackend.NewHandler(smBk, slog.Default())
+	lambdaHndlr := newLambdaHandler()
 
 	// Set up Echo with service registry and router.
 	e := echo.New()
 	e.Pre(logger.EchoMiddleware(slog.Default()))
 
 	registry := service.NewRegistry(slog.Default())
-	_ = registry.Register(ddbHndlr)
-	_ = registry.Register(s3Hndlr)
-	_ = registry.Register(ssmHndlr)
-	_ = registry.Register(iamHndlr)
-	_ = registry.Register(stsHndlr)
-	_ = registry.Register(snsHndlr)
-	_ = registry.Register(sqsHndlr)
-	_ = registry.Register(kmsHndlr)
-	_ = registry.Register(smHndlr)
+	registerServices(
+		registry,
+		ddbHndlr,
+		s3Hndlr,
+		ssmHndlr,
+		iamHndlr,
+		stsHndlr,
+		snsHndlr,
+		sqsHndlr,
+		kmsHndlr,
+		smHndlr,
+		lambdaHndlr,
+	)
 
 	// Create AWS SDK clients routed through in-memory Echo.
-	inMemClient := &dashboard.InMemClient{Handler: e}
-
-	cfg, err := awscfg.LoadDefaultConfig(t.Context(),
-		awscfg.WithRegion("us-east-1"),
-		awscfg.WithCredentialsProvider(
-			credentials.NewStaticCredentialsProvider("dummy", "dummy", ""),
-		),
-		awscfg.WithHTTPClient(inMemClient),
-	)
-	require.NoError(t, err)
-
-	ddbClient := dynamodb.NewFromConfig(cfg, func(o *dynamodb.Options) {
-		o.BaseEndpoint = aws.String("http://local")
-	})
-	s3Client := s3.NewFromConfig(cfg, func(o *s3.Options) {
-		o.UsePathStyle = true
-		o.BaseEndpoint = aws.String("http://local")
-	})
-	ssmClient := ssmsdk.NewFromConfig(cfg, func(o *ssmsdk.Options) {
-		o.BaseEndpoint = aws.String("http://local")
-	})
+	clients := newSDKClients(t, e)
+	ddbClient, s3Client, ssmClient := clients.DDB, clients.S3, clients.SSM
 
 	// Create dashboard handler and register it.
 	dashHndlr := dashboard.NewHandler(dashboard.Config{
@@ -132,6 +189,7 @@ func New(t *testing.T) *Stack {
 		SQSOps:            sqsHndlr,
 		KMSOps:            kmsHndlr,
 		SecretsManagerOps: smHndlr,
+		LambdaOps:         lambdaHndlr,
 		GlobalConfig: config.GlobalConfig{
 			AccountID: "000000000000",
 			Region:    "us-east-1",
@@ -156,6 +214,7 @@ func New(t *testing.T) *Stack {
 		SQSHandler:            sqsHndlr,
 		KMSHandler:            kmsHndlr,
 		SecretsManagerHandler: smHndlr,
+		LambdaHandler:         lambdaHndlr,
 		S3Client:              s3Client,
 		DDBClient:             ddbClient,
 		Dashboard:             dashHndlr,

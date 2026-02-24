@@ -4,10 +4,10 @@
   <img src="assets/logo.png" width="400" alt="Gopherstack Logo">
 </p>
 
-[![Release](https://github.com/agbishop/Gopherstack/actions/workflows/release.yml/badge.svg)](https://github.com/agbishop/Gopherstack/actions/workflows/release.yml)
-[![Build](https://github.com/agbishop/Gopherstack/actions/workflows/release.yml/badge.svg?label=build)](https://github.com/agbishop/Gopherstack/actions/workflows/release.yml)
-[![Coverage](https://raw.githubusercontent.com/agbishop/Gopherstack/badges/.badges/coverage.svg?v=1)](https://github.com/agbishop/Gopherstack/actions/workflows/main.yml)
-[![Go Report Card](https://raw.githubusercontent.com/agbishop/Gopherstack/badges/.badges/goreportcard.svg?v=1)](https://goreportcard.com/report/github.com/agbishop/Gopherstack)
+[![Release](https://github.com/blackbirdworks/gopherstack/actions/workflows/release.yml/badge.svg)](https://github.com/blackbirdworks/gopherstack/actions/workflows/release.yml)
+[![Build](https://github.com/blackbirdworks/gopherstack/actions/workflows/release.yml/badge.svg?label=build)](https://github.com/blackbirdworks/gopherstack/actions/workflows/release.yml)
+[![Coverage](https://raw.githubusercontent.com/blackbirdworks/gopherstack/badges/.badges/coverage.svg?v=1)](https://github.com/blackbirdworks/gopherstack/actions/workflows/main.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/blackbirdworks/gopherstack)](https://goreportcard.com/report/github.com/blackbirdworks/gopherstack)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Gopherstack is a lightweight, in-memory AWS stack implementation for Go. It provides high-performance, mock-compatible versions of core AWS services, designed for rapid development, testing, and CI/CD pipelines. It currently supports DynamoDB, S3, SSM Parameter Store, IAM, STS, SNS, SQS, KMS, Secrets Manager, and **Lambda (image-based)**.

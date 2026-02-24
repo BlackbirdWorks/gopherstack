@@ -201,6 +201,59 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
+// validateCreateFunctionInput checks required fields and package-type-specific constraints.
+// It normalizes PackageType to Image when omitted. Returns true if validation passes.
+// If validation fails, it writes the HTTP error response and returns false.
+func (h *Handler) validateCreateFunctionInput(c *echo.Context, input *CreateFunctionInput) bool {
+	if input.FunctionName == "" {
+		_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "FunctionName is required")
+
+		return false
+	}
+
+	if input.PackageType == "" {
+		input.PackageType = PackageTypeImage
+	}
+
+	if input.PackageType != PackageTypeImage && input.PackageType != PackageTypeZip {
+		_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			"PackageType must be Image or Zip")
+
+		return false
+	}
+
+	if input.Code == nil {
+		_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "Code is required")
+
+		return false
+	}
+
+	if input.PackageType == PackageTypeImage && input.Code.ImageURI == "" {
+		_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			"Code.ImageUri is required for Image package type")
+
+		return false
+	}
+
+	if input.PackageType == PackageTypeZip {
+		if input.Runtime == "" {
+			_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+				"Runtime is required for Zip package type")
+
+			return false
+		}
+
+		if input.Code.ZipFile == nil && (input.Code.S3Bucket == "" || input.Code.S3Key == "") {
+			_ = h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+				"Code.ZipFile or Code.S3Bucket+Code.S3Key is required for Zip package type")
+
+			return false
+		}
+	}
+
+	return true
+}
+
 func (h *Handler) handleCreateFunction(c *echo.Context) error {
 	body, err := httputil.ReadBody(c.Request())
 	if err != nil {
@@ -212,18 +265,8 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid request body")
 	}
 
-	if input.FunctionName == "" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "FunctionName is required")
-	}
-
-	if input.PackageType != PackageTypeImage {
-		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
-			"only PackageType=Image is supported")
-	}
-
-	if input.Code == nil || input.Code.ImageURI == "" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
-			"Code.ImageUri is required for Image package type")
+	if !h.validateCreateFunctionInput(c, &input) {
+		return nil
 	}
 
 	memorySize := input.MemorySize
@@ -242,7 +285,9 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 		FunctionArn:  buildARN(h.DefaultRegion, h.AccountID, input.FunctionName),
 		Description:  input.Description,
 		ImageURI:     input.Code.ImageURI,
-		PackageType:  PackageTypeImage,
+		PackageType:  input.PackageType,
+		Runtime:      input.Runtime,
+		Handler:      input.Handler,
 		Role:         input.Role,
 		MemorySize:   memorySize,
 		Timeout:      timeout,
@@ -251,6 +296,13 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 		CreatedAt:    now,
 		LastModified: now.Format(time.RFC3339),
 		RevisionID:   uuid.New().String(),
+		ZipData:      input.Code.ZipFile,
+		S3BucketCode: input.Code.S3Bucket,
+		S3KeyCode:    input.Code.S3Key,
+	}
+
+	if len(fn.ZipData) > 0 {
+		fn.CodeSize = int64(len(fn.ZipData))
 	}
 
 	if createErr := h.Backend.CreateFunction(fn); createErr != nil {
@@ -277,10 +329,7 @@ func (h *Handler) handleGetFunction(c *echo.Context, name string) error {
 
 	return c.JSON(http.StatusOK, &GetFunctionOutput{
 		Configuration: fn,
-		Code: &FunctionCodeLocation{
-			ImageURI:       fn.ImageURI,
-			RepositoryType: "ECR",
-		},
+		Code:          buildCodeLocation(fn),
 	})
 }
 
@@ -316,10 +365,6 @@ func (h *Handler) handleUpdateFunctionCode(c *echo.Context, name string) error {
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid request body")
 	}
 
-	if input.ImageURI == "" {
-		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "ImageUri is required")
-	}
-
 	fn, getFnErr := h.Backend.GetFunction(name)
 	if getFnErr != nil {
 		if errors.Is(getFnErr, ErrFunctionNotFound) {
@@ -330,7 +375,29 @@ func (h *Handler) handleUpdateFunctionCode(c *echo.Context, name string) error {
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", getFnErr.Error())
 	}
 
-	fn.ImageURI = input.ImageURI
+	if fn.PackageType == PackageTypeImage || fn.PackageType == "" {
+		if input.ImageURI == "" {
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+				"ImageUri is required for Image package type")
+		}
+
+		fn.ImageURI = input.ImageURI
+	} else {
+		// Zip package type: update zip data or S3 reference
+		if input.ZipFile == nil && (input.S3Bucket == "" || input.S3Key == "") {
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+				"ZipFile or S3Bucket+S3Key is required for Zip package type")
+		}
+
+		fn.ZipData = input.ZipFile
+		fn.S3BucketCode = input.S3Bucket
+		fn.S3KeyCode = input.S3Key
+
+		if len(fn.ZipData) > 0 {
+			fn.CodeSize = int64(len(fn.ZipData))
+		}
+	}
+
 	fn.LastModified = time.Now().UTC().Format(time.RFC3339)
 	fn.RevisionID = uuid.New().String()
 
@@ -380,6 +447,14 @@ func (h *Handler) handleUpdateFunctionConfiguration(c *echo.Context, name string
 
 	if input.Role != "" {
 		fn.Role = input.Role
+	}
+
+	if input.Runtime != "" {
+		fn.Runtime = input.Runtime
+	}
+
+	if input.Handler != "" {
+		fn.Handler = input.Handler
 	}
 
 	fn.LastModified = time.Now().UTC().Format(time.RFC3339)
@@ -452,6 +527,23 @@ func isNameOnly(rest string) bool {
 // nameFromRest strips the leading slash from a single-segment path like /{name}.
 func nameFromRest(rest string) string {
 	return strings.TrimPrefix(rest, "/")
+}
+
+// buildCodeLocation constructs the FunctionCodeLocation response for a function.
+func buildCodeLocation(fn *FunctionConfiguration) *FunctionCodeLocation {
+	if fn.PackageType == PackageTypeZip {
+		loc := &FunctionCodeLocation{RepositoryType: "S3"}
+		if fn.S3BucketCode != "" && fn.S3KeyCode != "" {
+			loc.Location = fmt.Sprintf("s3://%s/%s", fn.S3BucketCode, fn.S3KeyCode)
+		}
+
+		return loc
+	}
+
+	return &FunctionCodeLocation{
+		ImageURI:       fn.ImageURI,
+		RepositoryType: "ECR",
+	}
 }
 
 // buildARN constructs a Lambda function ARN.

@@ -1,0 +1,138 @@
+{{define "content"}}
+<div class="px-4 sm:px-6 lg:px-8">
+    <nav class="flex mb-5" aria-label="Breadcrumb">
+        <ol class="inline-flex items-center space-x-1 md:space-x-2 rtl:space-x-reverse">
+            <li class="inline-flex items-center">
+                <a href="/dashboard/lambda"
+                    class="inline-flex items-center text-sm font-medium text-gray-700 hover:text-blue-600 dark:text-gray-400 dark:hover:text-white">
+                    <svg class="w-3 h-3 me-2.5" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"
+                        fill="currentColor" viewBox="0 0 20 20">
+                        <path
+                            d="M19.707 9.293l-2-2-7-7a1 1 0 00-1.414 0l-7 7-2 2a1 1 0 001.414 1.414L2 10.414V18a2 2 0 002 2h3a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1h3a2 2 0 002-2v-7.586l.293.293a1 1 0 001.414-1.414z" />
+                    </svg>
+                    Lambda Functions
+                </a>
+            </li>
+            <li aria-current="page">
+                <div class="flex items-center">
+                    <svg class="rtl:rotate-180 w-3 h-3 text-gray-400 mx-1" aria-hidden="true"
+                        xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 6 10">
+                        <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="m1 9 4-4-4-4" />
+                    </svg>
+                    <span class="ms-1 text-sm font-medium text-gray-500 md:ms-2 dark:text-gray-400">{{.Function.FunctionName}}</span>
+                </div>
+            </li>
+        </ol>
+    </nav>
+
+    <div class="mb-8">
+        <h1 class="text-3xl font-bold text-gray-900 dark:text-white mb-2">Lambda Function Detail</h1>
+        <p class="text-sm font-mono text-gray-500 dark:text-gray-400 break-all">{{.Function.FunctionArn}}</p>
+    </div>
+
+    <!-- Function Metadata -->
+    <div class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700 mb-8">
+        <h2 class="mb-4 text-xl font-bold tracking-tight text-gray-900 dark:text-white">Configuration</h2>
+        <dl class="grid grid-cols-1 gap-x-4 gap-y-4 sm:grid-cols-2">
+            <div class="border-b border-gray-100 dark:border-gray-700 pb-2">
+                <dt class="text-sm font-semibold text-gray-500 dark:text-gray-400">Name</dt>
+                <dd class="mt-1 text-sm text-gray-900 dark:text-white font-mono">{{.Function.FunctionName}}</dd>
+            </div>
+            <div class="border-b border-gray-100 dark:border-gray-700 pb-2">
+                <dt class="text-sm font-semibold text-gray-500 dark:text-gray-400">ARN</dt>
+                <dd class="mt-1 text-sm text-gray-900 dark:text-white font-mono break-all">{{.Function.FunctionArn}}</dd>
+            </div>
+            <div class="border-b border-gray-100 dark:border-gray-700 pb-2">
+                <dt class="text-sm font-semibold text-gray-500 dark:text-gray-400">Runtime</dt>
+                <dd class="mt-1 text-sm text-gray-900 dark:text-white">{{if .Function.Runtime}}{{.Function.Runtime}}{{else}}<span class="italic text-gray-400">—</span>{{end}}</dd>
+            </div>
+            <div class="border-b border-gray-100 dark:border-gray-700 pb-2">
+                <dt class="text-sm font-semibold text-gray-500 dark:text-gray-400">Handler</dt>
+                <dd class="mt-1 text-sm text-gray-900 dark:text-white font-mono">{{if .Function.Handler}}{{.Function.Handler}}{{else}}<span class="italic text-gray-400">—</span>{{end}}</dd>
+            </div>
+            <div class="border-b border-gray-100 dark:border-gray-700 pb-2">
+                <dt class="text-sm font-semibold text-gray-500 dark:text-gray-400">Package Type</dt>
+                <dd class="mt-1 text-sm text-gray-900 dark:text-white">{{.Function.PackageType}}</dd>
+            </div>
+            <div class="border-b border-gray-100 dark:border-gray-700 pb-2">
+                <dt class="text-sm font-semibold text-gray-500 dark:text-gray-400">State</dt>
+                <dd class="mt-1">
+                    {{if eq (print .Function.State) "Active"}}
+                    <span class="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-green-900 dark:text-green-300">{{.Function.State}}</span>
+                    {{else if eq (print .Function.State) "Failed"}}
+                    <span class="bg-red-100 text-red-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-red-900 dark:text-red-300">{{.Function.State}}</span>
+                    {{else}}
+                    <span class="bg-yellow-100 text-yellow-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-yellow-900 dark:text-yellow-300">{{.Function.State}}</span>
+                    {{end}}
+                </dd>
+            </div>
+            <div class="border-b border-gray-100 dark:border-gray-700 pb-2">
+                <dt class="text-sm font-semibold text-gray-500 dark:text-gray-400">Memory (MB)</dt>
+                <dd class="mt-1 text-sm text-gray-900 dark:text-white">{{.Function.MemorySize}}</dd>
+            </div>
+            <div class="border-b border-gray-100 dark:border-gray-700 pb-2">
+                <dt class="text-sm font-semibold text-gray-500 dark:text-gray-400">Timeout (s)</dt>
+                <dd class="mt-1 text-sm text-gray-900 dark:text-white">{{.Function.Timeout}}</dd>
+            </div>
+        </dl>
+    </div>
+
+    <!-- Environment Variables -->
+    {{if and .Function.Environment .Function.Environment.Variables}}
+    <div class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700 mb-8">
+        <h2 class="mb-4 text-xl font-bold tracking-tight text-gray-900 dark:text-white">Environment Variables</h2>
+        <div class="relative overflow-x-auto sm:rounded-lg">
+            <table class="w-full text-sm text-left text-gray-500 dark:text-gray-400">
+                <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                    <tr>
+                        <th scope="col" class="px-6 py-3">Key</th>
+                        <th scope="col" class="px-6 py-3">Value</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range $k, $v := .Function.Environment.Variables}}
+                    <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
+                        <td class="px-6 py-3 font-mono text-sm text-gray-900 dark:text-white">{{$k}}</td>
+                        <td class="px-6 py-3 font-mono text-sm">{{$v}}</td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {{end}}
+
+    <!-- Invoke -->
+    <div class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
+        <h2 class="mb-4 text-xl font-bold tracking-tight text-gray-900 dark:text-white">Invoke</h2>
+        <form hx-post="/dashboard/lambda/invoke?name={{.Function.FunctionName}}"
+              hx-target="#invoke-result" hx-swap="innerHTML" class="space-y-3">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">JSON Payload</label>
+                <textarea name="payload" rows="6" placeholder="{}"
+                    class="bg-white border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 font-mono dark:bg-gray-700 dark:border-gray-600 dark:text-white">{}</textarea>
+            </div>
+            <button type="submit"
+                class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-blue-600 dark:hover:bg-blue-700">
+                Invoke
+            </button>
+        </form>
+        <div id="invoke-result" class="mt-4">
+            <pre class="hidden p-3 bg-gray-50 dark:bg-gray-700 rounded-lg border text-xs font-mono text-gray-900 dark:text-white overflow-x-auto whitespace-pre-wrap"></pre>
+        </div>
+        <script>
+            (function () {
+                const form = document.currentScript.closest('.p-6').querySelector('form');
+                const resultDiv = document.getElementById('invoke-result');
+                document.body.addEventListener('htmx:afterSwap', function (e) {
+                    if (e.detail.target === resultDiv) {
+                        const pre = resultDiv.querySelector('pre');
+                        if (pre) pre.classList.remove('hidden');
+                    }
+                });
+            })();
+        </script>
+    </div>
+</div>
+{{end}}

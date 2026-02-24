@@ -9,6 +9,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/dynamodb"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
 	kmsbackend "github.com/blackbirdworks/gopherstack/kms"
+	lambdabackend "github.com/blackbirdworks/gopherstack/lambda"
 	globalcfg "github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/s3"
@@ -35,6 +36,7 @@ type AWSSDKProvider interface {
 	GetSQSHandler() service.Registerable
 	GetKMSHandler() service.Registerable
 	GetSecretsManagerHandler() service.Registerable
+	GetLambdaHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 }
 
@@ -62,6 +64,7 @@ type extractedConfig struct {
 	sqsOps            *sqsbackend.Handler
 	kmsOps            *kmsbackend.Handler
 	secretsManagerOps *secretsmanagerbackend.Handler
+	lambdaOps         *lambdabackend.Handler
 	gCfg              globalcfg.GlobalConfig
 }
 
@@ -109,6 +112,10 @@ func extractFromProvider(ctx *service.AppContext) extractedConfig {
 		ec.secretsManagerOps, _ = h.(*secretsmanagerbackend.Handler)
 	}
 
+	if h := ap.GetLambdaHandler(); h != nil {
+		ec.lambdaOps, _ = h.(*lambdabackend.Handler)
+	}
+
 	return ec
 }
 
@@ -129,6 +136,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		SQSOps:            ec.sqsOps,
 		KMSOps:            ec.kmsOps,
 		SecretsManagerOps: ec.secretsManagerOps,
+		LambdaOps:         ec.lambdaOps,
 		GlobalConfig:      ec.gCfg,
 		Logger:            ctx.Logger,
 	})
