@@ -56,6 +56,30 @@ func (h *S3Handler) routeBucketPut(
 		// Stub: accept notification configuration but do not deliver events.
 		h.setOperation(ctx, "PutBucketNotificationConfiguration")
 		w.WriteHeader(http.StatusOK)
+	case r.URL.Query().Has("policy"):
+		// Stub: accept bucket policy (stored but not enforced).
+		h.setOperation(ctx, "PutBucketPolicy")
+		w.WriteHeader(http.StatusNoContent)
+	case r.URL.Query().Has("cors"):
+		// Stub: accept CORS configuration.
+		h.setOperation(ctx, "PutBucketCors")
+		w.WriteHeader(http.StatusOK)
+	case r.URL.Query().Has("website"):
+		// Stub: accept static website configuration.
+		h.setOperation(ctx, "PutBucketWebsite")
+		w.WriteHeader(http.StatusOK)
+	case r.URL.Query().Has("lifecycle"):
+		// Stub: accept lifecycle configuration.
+		h.setOperation(ctx, "PutBucketLifecycleConfiguration")
+		w.WriteHeader(http.StatusNoContent)
+	case r.URL.Query().Has("replication"):
+		// Stub: accept replication configuration.
+		h.setOperation(ctx, "PutBucketReplication")
+		w.WriteHeader(http.StatusOK)
+	case r.URL.Query().Has("encryption"):
+		// Stub: accept encryption configuration.
+		h.setOperation(ctx, "PutBucketEncryption")
+		w.WriteHeader(http.StatusOK)
 	case r.URL.Query().Has("tagging"):
 		WriteError(log, w, r, ErrNotImplemented)
 	default:
@@ -95,6 +119,87 @@ func (h *S3Handler) routeBucketGet(
 		httputil.WriteXML(log, w, http.StatusOK, struct {
 			XMLName xml.Name `xml:"NotificationConfiguration"`
 		}{})
+	case r.URL.Query().Has("policy"):
+		// Stub: no bucket policy; return NoSuchBucketPolicy so the AWS provider
+		// (and Terraform) treats the bucket as having no policy attached.
+		h.setOperation(ctx, "GetBucketPolicy")
+		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
+			Code:    "NoSuchBucketPolicy",
+			Message: "The bucket policy does not exist",
+		}, http.StatusNotFound)
+	case r.URL.Query().Has("accelerate"):
+		// Stub: acceleration not enabled; return empty configuration.
+		h.setOperation(ctx, "GetBucketAccelerateConfiguration")
+		httputil.WriteXML(log, w, http.StatusOK, struct {
+			XMLName xml.Name `xml:"AccelerateConfiguration"`
+			Xmlns   string   `xml:"xmlns,attr"`
+		}{Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/"})
+	case r.URL.Query().Has("cors"):
+		// Stub: no CORS configuration.
+		h.setOperation(ctx, "GetBucketCors")
+		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
+			Code:    "NoSuchCORSConfiguration",
+			Message: "The CORS configuration does not exist",
+		}, http.StatusNotFound)
+	case r.URL.Query().Has("website"):
+		// Stub: no static website configuration.
+		h.setOperation(ctx, "GetBucketWebsite")
+		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
+			Code:    "NoSuchWebsiteConfiguration",
+			Message: "The specified bucket does not have a website configuration",
+		}, http.StatusNotFound)
+	case r.URL.Query().Has("logging"):
+		// Stub: logging not enabled; return empty configuration.
+		h.setOperation(ctx, "GetBucketLogging")
+		httputil.WriteXML(log, w, http.StatusOK, struct {
+			XMLName xml.Name `xml:"BucketLoggingStatus"`
+			Xmlns   string   `xml:"xmlns,attr"`
+		}{Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/"})
+	case r.URL.Query().Has("replication"):
+		// Stub: no replication configuration.
+		h.setOperation(ctx, "GetBucketReplication")
+		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
+			Code:    "ReplicationConfigurationNotFoundError",
+			Message: "The replication configuration was not found",
+		}, http.StatusNotFound)
+	case r.URL.Query().Has("lifecycle"):
+		// Stub: no lifecycle configuration.
+		h.setOperation(ctx, "GetBucketLifecycleConfiguration")
+		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
+			Code:    "NoSuchLifecycleConfiguration",
+			Message: "The lifecycle configuration does not exist",
+		}, http.StatusNotFound)
+	case r.URL.Query().Has("object-lock"):
+		// Stub: object lock not configured.
+		h.setOperation(ctx, "GetObjectLockConfiguration")
+		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
+			Code:    "ObjectLockConfigurationNotFoundError",
+			Message: "Object Lock configuration does not exist for this bucket",
+		}, http.StatusNotFound)
+	case r.URL.Query().Has("request-payment"):
+		// Stub: bucket owner pays (default).
+		h.setOperation(ctx, "GetBucketRequestPayment")
+		httputil.WriteXML(log, w, http.StatusOK, struct {
+			XMLName xml.Name `xml:"RequestPaymentConfiguration"`
+			Xmlns   string   `xml:"xmlns,attr"`
+			Payer   string   `xml:"Payer"`
+		}{Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/", Payer: "BucketOwner"})
+	case r.URL.Query().Has("encryption"):
+		// Stub: no server-side encryption configuration.
+		h.setOperation(ctx, "GetBucketEncryption")
+		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
+			Code:    "ServerSideEncryptionConfigurationNotFoundError",
+			Message: "The server side encryption configuration was not found",
+		}, http.StatusNotFound)
+	case r.URL.Query().Has("intelligent-tiering"):
+		// Stub: no intelligent tiering configurations.
+		h.setOperation(ctx, "ListBucketIntelligentTieringConfigurations")
+		httputil.WriteXML(log, w, http.StatusOK, struct {
+			XMLName                         xml.Name `xml:"ListBucketIntelligentTieringConfigurationsOutput"`
+			Xmlns                           string   `xml:"xmlns,attr"`
+			IsTruncated                     bool     `xml:"IsTruncated"`
+			IntelligentTieringConfiguration []any    `xml:"IntelligentTieringConfiguration"`
+		}{Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/"})
 	case r.URL.Query().Has("versioning"):
 		h.getBucketVersioning(ctx, w, r, bucket)
 	case r.URL.Query().Has("versions"):

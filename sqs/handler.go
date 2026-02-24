@@ -968,7 +968,9 @@ func (h *Handler) writeError(w http.ResponseWriter, err error, _ string) {
 func errorDetails(err error) (string, string, int) {
 	switch {
 	case errors.Is(err, ErrQueueNotFound):
-		return "com.amazonaws.sqs#QueueDoesNotExist",
+		// Use the legacy error code that real AWS SQS returns; the AWS SDK v2
+		// maps "AWS.SimpleQueueService.NonExistentQueue" → *types.QueueDoesNotExist.
+		return "AWS.SimpleQueueService.NonExistentQueue",
 			"The specified queue does not exist.",
 			http.StatusBadRequest
 	case errors.Is(err, ErrQueueAlreadyExists):
