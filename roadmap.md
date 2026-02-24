@@ -275,10 +275,7 @@
   - Dashboard UI: event bus list, rules with targets, event log viewer
 
 **Remaining gaps (v0.9):**
-- [ ] API Gateway: Lambda proxy integration (invoke Lambda on route hit)
 - [ ] API Gateway: Request/response mapping templates (VTL)
-- [ ] EventBridge: Target fan-out (deliver events to Lambda/SQS/SNS targets)
-- [ ] EventBridge: Event pattern matching
 - [ ] EventBridge: Scheduled rules (cron/rate expressions)
 
 ### v0.10 — Orchestration & Observability
@@ -391,6 +388,13 @@
 - Full test coverage across all services
 - Performance benchmarks vs LocalStack
 - Testcontainers module for Go
+
+### v1.1 — Service Integration Depth
+- **API Gateway** enhancements:
+  - Lambda proxy integration (invoke Lambda on route hit)
+- **EventBridge** enhancements:
+  - Target fan-out (deliver events to Lambda/SQS/SNS targets)
+  - Event pattern matching (filter events by source, detail-type, and field patterns)
 
 ---
 
