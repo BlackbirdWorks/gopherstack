@@ -217,3 +217,87 @@ func TestUpdateFunctionConfiguration_RuntimeAndHandler(t *testing.T) {
 	assert.Equal(t, "python3.12", fn.Runtime)
 	assert.Equal(t, "new.handler", fn.Handler)
 }
+
+func TestBuildCodeLocation_Image(t *testing.T) {
+t.Parallel()
+
+h, bk := newHandler(t)
+bk.functions["img-fn"] = &lambda.FunctionConfiguration{
+FunctionName: "img-fn",
+PackageType:  lambda.PackageTypeImage,
+ImageURI:     "my-registry/my-image:latest",
+}
+
+rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/img-fn", "", nil)
+
+require.Equal(t, http.StatusOK, rec.Code)
+
+var out lambda.GetFunctionOutput
+require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+require.NotNil(t, out.Code)
+assert.Equal(t, "my-registry/my-image:latest", out.Code.ImageURI)
+assert.Equal(t, "ECR", out.Code.RepositoryType)
+}
+
+func TestBuildCodeLocation_ZipWithS3(t *testing.T) {
+t.Parallel()
+
+h, bk := newHandler(t)
+bk.functions["zip-s3-loc"] = &lambda.FunctionConfiguration{
+FunctionName: "zip-s3-loc",
+PackageType:  lambda.PackageTypeZip,
+Runtime:      "python3.12",
+// S3BucketCode and S3KeyCode are internal fields, not in JSON
+}
+
+rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/zip-s3-loc", "", nil)
+
+require.Equal(t, http.StatusOK, rec.Code)
+
+var out lambda.GetFunctionOutput
+require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+require.NotNil(t, out.Code)
+assert.Equal(t, "S3", out.Code.RepositoryType)
+}
+
+func TestCreateFunction_DefaultsToImage(t *testing.T) {
+t.Parallel()
+
+h, _ := newHandler(t)
+
+// When PackageType is not specified, it should default to Image
+input := map[string]interface{}{
+"FunctionName": "default-type",
+"Code":         map[string]interface{}{"ImageUri": "my-image:v1"},
+"Role":         "arn:aws:iam::123456789012:role/test",
+}
+
+body, err := json.Marshal(input)
+require.NoError(t, err)
+
+rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions", string(body), nil)
+
+require.Equal(t, http.StatusCreated, rec.Code)
+
+var fn lambda.FunctionConfiguration
+require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &fn))
+assert.Equal(t, lambda.PackageTypeImage, fn.PackageType)
+}
+
+func TestCreateFunction_NilCode(t *testing.T) {
+t.Parallel()
+
+h, _ := newHandler(t)
+
+input := map[string]interface{}{
+"FunctionName": "nil-code",
+"PackageType":  "Image",
+}
+
+body, err := json.Marshal(input)
+require.NoError(t, err)
+
+rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions", string(body), nil)
+
+assert.Equal(t, http.StatusBadRequest, rec.Code)
+}

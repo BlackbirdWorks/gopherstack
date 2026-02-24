@@ -270,3 +270,117 @@ func TestDashboard_STS(t *testing.T) {
 	assert.Contains(t, w.Body.String(), "STS Security Token Service")
 	assert.Contains(t, w.Body.String(), "000000000000")
 }
+
+// TestDashboard_Lambda covers Lambda dashboard handlers.
+func TestDashboard_Lambda(t *testing.T) {
+t.Parallel()
+
+t.Run("lambdaIndex nil ops returns 200", func(t *testing.T) {
+t.Parallel()
+stack := newStack(t)
+// LambdaOps is nil in the default test stack
+
+req := httptest.NewRequest(http.MethodGet, "/dashboard/lambda", nil)
+w := httptest.NewRecorder()
+serveHandler(stack.Dashboard, w, req)
+
+assert.Equal(t, http.StatusOK, w.Code)
+assert.Contains(t, w.Header().Get("Content-Type"), "text/html")
+})
+
+t.Run("lambdaFunctionDetail redirect when no name", func(t *testing.T) {
+t.Parallel()
+stack := newStack(t)
+
+req := httptest.NewRequest(http.MethodGet, "/dashboard/lambda/function", nil)
+w := httptest.NewRecorder()
+serveHandler(stack.Dashboard, w, req)
+
+// Should redirect back to lambda index
+assert.True(t, w.Code == http.StatusFound || w.Code == http.StatusOK)
+})
+
+t.Run("lambdaInvoke nil ops returns 400", func(t *testing.T) {
+t.Parallel()
+stack := newStack(t)
+
+form := url.Values{"payload": {"{}"}}
+req := httptest.NewRequest(http.MethodPost, "/dashboard/lambda/invoke?name=", strings.NewReader(form.Encode()))
+req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+w := httptest.NewRecorder()
+serveHandler(stack.Dashboard, w, req)
+
+assert.Equal(t, http.StatusBadRequest, w.Code)
+})
+
+}
+
+
+// TestDashboard_DynamoDBPartiQL covers the DynamoDB PartiQL handler.
+func TestDashboard_DynamoDBPartiQL(t *testing.T) {
+t.Parallel()
+
+t.Run("GET partiql form", func(t *testing.T) {
+t.Parallel()
+stack := newStack(t)
+
+// Create a table first
+_, err := stack.DDBClient.CreateTable(t.Context(), &dynamodb.CreateTableInput{
+TableName: aws.String("partiql-test"),
+AttributeDefinitions: []ddbtypes.AttributeDefinition{
+{AttributeName: aws.String("pk"), AttributeType: ddbtypes.ScalarAttributeTypeS},
+},
+KeySchema: []ddbtypes.KeySchemaElement{
+{AttributeName: aws.String("pk"), KeyType: ddbtypes.KeyTypeHash},
+},
+BillingMode: ddbtypes.BillingModePayPerRequest,
+})
+require.NoError(t, err)
+
+req := httptest.NewRequest(http.MethodGet, "/dashboard/dynamodb/table/partiql-test/partiql", nil)
+w := httptest.NewRecorder()
+serveHandler(stack.Dashboard, w, req)
+
+assert.Equal(t, http.StatusOK, w.Code)
+})
+
+t.Run("POST partiql execute", func(t *testing.T) {
+t.Parallel()
+stack := newStack(t)
+
+// Create a table first
+_, err := stack.DDBClient.CreateTable(t.Context(), &dynamodb.CreateTableInput{
+TableName: aws.String("partiql-exec"),
+AttributeDefinitions: []ddbtypes.AttributeDefinition{
+{AttributeName: aws.String("pk"), AttributeType: ddbtypes.ScalarAttributeTypeS},
+},
+KeySchema: []ddbtypes.KeySchemaElement{
+{AttributeName: aws.String("pk"), KeyType: ddbtypes.KeyTypeHash},
+},
+BillingMode: ddbtypes.BillingModePayPerRequest,
+})
+require.NoError(t, err)
+
+form := url.Values{"statement": {`SELECT * FROM "partiql-exec"`}}
+req := httptest.NewRequest(http.MethodPost, "/dashboard/dynamodb/table/partiql-exec/partiql",
+strings.NewReader(form.Encode()))
+req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+w := httptest.NewRecorder()
+serveHandler(stack.Dashboard, w, req)
+
+assert.Equal(t, http.StatusOK, w.Code)
+})
+
+t.Run("POST partiql missing statement", func(t *testing.T) {
+t.Parallel()
+stack := newStack(t)
+
+req := httptest.NewRequest(http.MethodPost, "/dashboard/dynamodb/table/any/partiql",
+strings.NewReader(""))
+req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+w := httptest.NewRecorder()
+serveHandler(stack.Dashboard, w, req)
+
+assert.Equal(t, http.StatusBadRequest, w.Code)
+})
+}
