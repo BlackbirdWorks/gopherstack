@@ -9,7 +9,8 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+
+	"github.com/blackbirdworks/gopherstack/dynamodb/models"
 )
 
 // ErrInvalidStatement is returned when a PartiQL statement cannot be parsed.
@@ -21,21 +22,23 @@ var fromClauseRegex = regexp.MustCompile(`(?i)FROM\s+"([\w.\-]+)"`)
 
 // executeStatementRequest is the wire format for ExecuteStatement.
 type executeStatementRequest struct {
-	Statement  string                            `json:"Statement"`
-	NextToken  string                            `json:"NextToken,omitempty"`
-	Parameters []map[string]types.AttributeValue `json:"Parameters,omitempty"`
+	Statement  string           `json:"Statement"`
+	NextToken  string           `json:"NextToken,omitempty"`
+	Parameters []map[string]any `json:"Parameters,omitempty"`
 }
 
 // executeStatementResponse is the wire response for ExecuteStatement.
+// Items uses the DynamoDB wire format (map[string]any with {"S":…}, {"N":…} etc.)
+// so that the AWS SDK can deserialise it correctly.
 type executeStatementResponse struct {
-	NextToken string                            `json:"NextToken,omitempty"`
-	Items     []map[string]types.AttributeValue `json:"Items"`
+	NextToken string           `json:"NextToken,omitempty"`
+	Items     []map[string]any `json:"Items"`
 }
 
 // batchStatementRequest is one statement entry inside BatchExecuteStatement.
 type batchStatementRequest struct {
-	Statement  string                            `json:"Statement"`
-	Parameters []map[string]types.AttributeValue `json:"Parameters,omitempty"`
+	Statement  string           `json:"Statement"`
+	Parameters []map[string]any `json:"Parameters,omitempty"`
 }
 
 // batchExecuteStatementRequest is the wire format for BatchExecuteStatement.
@@ -45,8 +48,8 @@ type batchExecuteStatementRequest struct {
 
 // batchStatementResponse is one result entry inside BatchExecuteStatement response.
 type batchStatementResponse struct {
-	Item  map[string]types.AttributeValue `json:"Item,omitempty"`
-	Error *batchStatementError            `json:"Error,omitempty"`
+	Item  map[string]any       `json:"Item,omitempty"`
+	Error *batchStatementError `json:"Error,omitempty"`
 }
 
 type batchStatementError struct {
@@ -78,12 +81,14 @@ func (h *DynamoDBHandler) handleExecuteStatement(ctx context.Context, body []byt
 		return nil, err
 	}
 
-	items := out.Items
-	if items == nil {
-		items = []map[string]types.AttributeValue{}
+	// Convert SDK attribute values to DynamoDB wire format ({"S":…}, {"N":…}, etc.)
+	// so the AWS SDK client can correctly deserialise the response.
+	wireItems := make([]map[string]any, 0, len(out.Items))
+	for _, item := range out.Items {
+		wireItems = append(wireItems, models.FromSDKItem(item))
 	}
 
-	return &executeStatementResponse{Items: items}, nil
+	return &executeStatementResponse{Items: wireItems}, nil
 }
 
 // handleBatchExecuteStatement handles multiple PartiQL statements via individual scans.

@@ -78,24 +78,20 @@ func TestE2E_DynamoDBPartiQL(t *testing.T) {
 	// Type a SELECT statement.
 	require.NoError(t, page.Fill("textarea[name='statement']", `SELECT * FROM "PartiQLTestTable"`))
 
-	// Submit the form.
-	err = page.Click("button:has-text('Execute')")
+	// Submit the form using the uniquely-id'd button to avoid matching the hidden
+	// "Execute Query" / "Execute Scan" buttons in the other (hidden) tab panels.
+	err = page.Click("#partiql-execute")
 	require.NoError(t, err)
 
 	// Wait for results to appear (HTMX swaps #partiql-output contents).
-	err = page.Locator("#partiql-output").WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateAttached,
+	err = page.Locator("#partiql-output pre").WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: playwright.Float(8000),
 	})
 	require.NoError(t, err)
 
-	err = page.WaitForLoadState(playwright.PageWaitForLoadStateOptions{
-		State: playwright.LoadStateNetworkidle,
-	})
-	require.NoError(t, err)
-
 	// Results should appear.
-	body, err := page.TextContent("body")
+	body, err := page.TextContent("#partiql-output")
 	require.NoError(t, err)
 	assert.Contains(t, body, "item-1", "expected item ID in PartiQL results")
 }

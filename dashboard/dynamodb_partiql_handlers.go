@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -39,8 +40,15 @@ func (h *DashboardHandler) dynamoDBPartiQL(w http.ResponseWriter, r *http.Reques
 			return
 		}
 
-		// Convert items to JSON for display
-		itemsJSON, marshalErr := json.MarshalIndent(result.Items, "", "  ")
+		// Convert DynamoDB AttributeValue items to native Go maps for human-readable JSON.
+		var nativeItems []map[string]any
+		if unmarshalErr := attributevalue.UnmarshalListOfMaps(result.Items, &nativeItems); unmarshalErr != nil {
+			http.Error(w, "Failed to unmarshal results: "+unmarshalErr.Error(), http.StatusInternalServerError)
+
+			return
+		}
+
+		itemsJSON, marshalErr := json.MarshalIndent(nativeItems, "", "  ")
 		if marshalErr != nil {
 			http.Error(w, "Failed to marshal results", http.StatusInternalServerError)
 

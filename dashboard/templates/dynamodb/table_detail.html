@@ -706,12 +706,35 @@
 <div class="space-y-4">
     <div>
         <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-1">PartiQL Editor</h3>
-        <p class="text-sm text-gray-500 dark:text-gray-400">
-            Run SQL-style queries against DynamoDB using PartiQL.
-            Example: <code class="font-mono bg-gray-100 dark:bg-gray-700 px-1 rounded">SELECT * FROM "{{.TableName}}" WHERE pk='value'</code>
+        <p class="text-sm text-gray-500 dark:text-gray-400 mb-2">
+            Run SQL-style queries against DynamoDB using PartiQL syntax.
         </p>
+        <div class="flex flex-wrap gap-2 text-xs">
+            <span class="text-gray-500 dark:text-gray-400 self-center">Examples:</span>
+            <code class="font-mono bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900"
+                data-query='SELECT * FROM "{{.TableName}}"'
+                onclick="document.getElementById('partiql-statement').value=this.dataset.query"
+                title="Fetch all items">SELECT * FROM "{{.TableName}}"</code>
+            <code class="font-mono bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900"
+                data-query="SELECT * FROM &quot;{{.TableName}}&quot; WHERE id='value'"
+                onclick="document.getElementById('partiql-statement').value=this.dataset.query"
+                title="Filter by partition key">SELECT * FROM "{{.TableName}}" WHERE id='value'</code>
+            <code class="font-mono bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900"
+                data-query="INSERT INTO &quot;{{.TableName}}&quot; VALUE {'id': 'new-id', 'attr': 'val'}"
+                onclick="document.getElementById('partiql-statement').value=this.dataset.query"
+                title="Insert an item">INSERT INTO "{{.TableName}}" VALUE {'id': 'new-id', 'attr': 'val'}</code>
+            <code class="font-mono bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900"
+                data-query="UPDATE &quot;{{.TableName}}&quot; SET attr='new-val' WHERE id='value'"
+                onclick="document.getElementById('partiql-statement').value=this.dataset.query"
+                title="Update an attribute">UPDATE "{{.TableName}}" SET attr='new-val' WHERE id='value'</code>
+            <code class="font-mono bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900"
+                data-query="DELETE FROM &quot;{{.TableName}}&quot; WHERE id='value'"
+                onclick="document.getElementById('partiql-statement').value=this.dataset.query"
+                title="Delete an item">DELETE FROM "{{.TableName}}" WHERE id='value'</code>
+        </div>
     </div>
-    <form hx-post="/dashboard/dynamodb/table/{{.TableName}}/partiql"
+    <form id="partiql-form"
+          hx-post="/dashboard/dynamodb/table/{{.TableName}}/partiql"
           hx-target="#partiql-output"
           hx-swap="innerHTML">
         <div class="mb-3">
@@ -720,7 +743,7 @@
                 class="w-full font-mono text-sm p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
                 placeholder='SELECT * FROM "{{.TableName}}"'></textarea>
         </div>
-        <button type="submit"
+        <button id="partiql-execute" type="submit"
             class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-300 text-sm font-medium">
             Execute
         </button>
