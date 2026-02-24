@@ -14,8 +14,10 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 
+	apigwbackend "github.com/blackbirdworks/gopherstack/apigateway"
 	"github.com/blackbirdworks/gopherstack/dashboard"
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
+	ebbackend "github.com/blackbirdworks/gopherstack/eventbridge"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
 	kmsbackend "github.com/blackbirdworks/gopherstack/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/lambda"
@@ -51,6 +53,8 @@ type Stack struct {
 	KMSHandler            *kmsbackend.Handler
 	SecretsManagerHandler *smbackend.Handler
 	LambdaHandler         *lambdabackend.Handler
+	EventBridgeHandler    *ebbackend.Handler
+	APIGatewayHandler     *apigwbackend.Handler
 	S3Client              *s3.Client
 	DDBClient             *dynamodb.Client
 	Dashboard             *dashboard.DashboardHandler
@@ -112,6 +116,8 @@ func registerServices(
 	kmsHndlr *kmsbackend.Handler,
 	smHndlr *smbackend.Handler,
 	lambdaHndlr *lambdabackend.Handler,
+	ebHndlr *ebbackend.Handler,
+	apigwHndlr *apigwbackend.Handler,
 ) {
 	_ = registry.Register(ddbHndlr)
 	_ = registry.Register(s3Hndlr)
@@ -123,6 +129,8 @@ func registerServices(
 	_ = registry.Register(kmsHndlr)
 	_ = registry.Register(smHndlr)
 	_ = registry.Register(lambdaHndlr)
+	_ = registry.Register(ebHndlr)
+	_ = registry.Register(apigwHndlr)
 }
 
 // New creates a fully wired integration stack for testing.
@@ -151,6 +159,10 @@ func New(t *testing.T) *Stack {
 	smBk := smbackend.NewInMemoryBackend()
 	smHndlr := smbackend.NewHandler(smBk, slog.Default())
 	lambdaHndlr := newLambdaHandler()
+	ebBk := ebbackend.NewInMemoryBackend()
+	ebHndlr := ebbackend.NewHandler(ebBk, slog.Default())
+	apigwBk := apigwbackend.NewInMemoryBackend()
+	apigwHndlr := apigwbackend.NewHandler(apigwBk, slog.Default())
 
 	// Set up Echo with service registry and router.
 	e := echo.New()
@@ -169,6 +181,8 @@ func New(t *testing.T) *Stack {
 		kmsHndlr,
 		smHndlr,
 		lambdaHndlr,
+		ebHndlr,
+		apigwHndlr,
 	)
 
 	// Create AWS SDK clients routed through in-memory Echo.
@@ -190,6 +204,8 @@ func New(t *testing.T) *Stack {
 		KMSOps:            kmsHndlr,
 		SecretsManagerOps: smHndlr,
 		LambdaOps:         lambdaHndlr,
+		EventBridgeOps:    ebHndlr,
+		APIGatewayOps:     apigwHndlr,
 		GlobalConfig: config.GlobalConfig{
 			AccountID: "000000000000",
 			Region:    "us-east-1",
@@ -215,6 +231,8 @@ func New(t *testing.T) *Stack {
 		KMSHandler:            kmsHndlr,
 		SecretsManagerHandler: smHndlr,
 		LambdaHandler:         lambdaHndlr,
+		EventBridgeHandler:    ebHndlr,
+		APIGatewayHandler:     apigwHndlr,
 		S3Client:              s3Client,
 		DDBClient:             ddbClient,
 		Dashboard:             dashHndlr,

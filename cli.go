@@ -25,9 +25,11 @@ import (
 	stssdk "github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/labstack/echo/v5"
 
+	apigwbackend "github.com/blackbirdworks/gopherstack/apigateway"
 	"github.com/blackbirdworks/gopherstack/dashboard"
 	"github.com/blackbirdworks/gopherstack/demo"
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
+	ebbackend "github.com/blackbirdworks/gopherstack/eventbridge"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
 	kmsbackend "github.com/blackbirdworks/gopherstack/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/lambda"
@@ -74,6 +76,8 @@ type CLI struct {
 	snsHandler            service.Registerable
 	sqsHandler            service.Registerable
 	lambdaHandler         service.Registerable
+	eventBridgeHandler    service.Registerable
+	apiGatewayHandler     service.Registerable
 	s3Client              *s3.Client
 	iamClient             *iam.Client
 	snsClient             *sns.Client
@@ -192,6 +196,16 @@ func (c *CLI) GetSecretsManagerHandler() service.Registerable { return c.secrets
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetLambdaHandler() service.Registerable { return c.lambdaHandler }
+
+// GetEventBridgeHandler returns the EventBridge handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetEventBridgeHandler() service.Registerable { return c.eventBridgeHandler }
+
+// GetAPIGatewayHandler returns the API Gateway handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetAPIGatewayHandler() service.Registerable { return c.apiGatewayHandler }
 
 // Run parses CLI / environment-variable configuration and starts Gopherstack.
 // It is called from main() and exits on error.
@@ -376,6 +390,8 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		&kmsbackend.Provider{},
 		&secretsmanagerbackend.Provider{},
 		&lambdabackend.Provider{},
+		&ebbackend.Provider{},
+		&apigwbackend.Provider{},
 	}
 
 	for _, provider := range serviceProviders {
@@ -399,6 +415,8 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		cli.kmsHandler = services[7]
 		cli.secretsManagerHandler = services[8]
 		cli.lambdaHandler = services[9]
+		cli.eventBridgeHandler = services[10]
+		cli.apiGatewayHandler = services[11]
 	}
 
 	// Wire SNS→SQS delivery: when SNS publishes a message, deliver it to SQS queues.
@@ -529,6 +547,7 @@ func healthHandler(c *echo.Context) error {
 		Status: "ok",
 		Services: []string{
 			"DynamoDB", "S3", "SSM", "IAM", "STS", "SNS", "SQS", "KMS", "SecretsManager", "Lambda",
+			"EventBridge", "APIGateway",
 		},
 	})
 }

@@ -5,8 +5,10 @@ import (
 	s3sdk "github.com/aws/aws-sdk-go-v2/service/s3"
 	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
 	stssdk "github.com/aws/aws-sdk-go-v2/service/sts"
+	apigwbackend "github.com/blackbirdworks/gopherstack/apigateway"
 
 	"github.com/blackbirdworks/gopherstack/dynamodb"
+	ebbackend "github.com/blackbirdworks/gopherstack/eventbridge"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
 	kmsbackend "github.com/blackbirdworks/gopherstack/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/lambda"
@@ -37,6 +39,8 @@ type AWSSDKProvider interface {
 	GetKMSHandler() service.Registerable
 	GetSecretsManagerHandler() service.Registerable
 	GetLambdaHandler() service.Registerable
+	GetEventBridgeHandler() service.Registerable
+	GetAPIGatewayHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 }
 
@@ -65,6 +69,8 @@ type extractedConfig struct {
 	kmsOps            *kmsbackend.Handler
 	secretsManagerOps *secretsmanagerbackend.Handler
 	lambdaOps         *lambdabackend.Handler
+	eventBridgeOps    *ebbackend.Handler
+	apiGatewayOps     *apigwbackend.Handler
 	gCfg              globalcfg.GlobalConfig
 }
 
@@ -116,6 +122,14 @@ func extractFromProvider(ctx *service.AppContext) extractedConfig {
 		ec.lambdaOps, _ = h.(*lambdabackend.Handler)
 	}
 
+	if h := ap.GetEventBridgeHandler(); h != nil {
+		ec.eventBridgeOps, _ = h.(*ebbackend.Handler)
+	}
+
+	if h := ap.GetAPIGatewayHandler(); h != nil {
+		ec.apiGatewayOps, _ = h.(*apigwbackend.Handler)
+	}
+
 	return ec
 }
 
@@ -137,6 +151,8 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		KMSOps:            ec.kmsOps,
 		SecretsManagerOps: ec.secretsManagerOps,
 		LambdaOps:         ec.lambdaOps,
+		EventBridgeOps:    ec.eventBridgeOps,
+		APIGatewayOps:     ec.apiGatewayOps,
 		GlobalConfig:      ec.gCfg,
 		Logger:            ctx.Logger,
 	})

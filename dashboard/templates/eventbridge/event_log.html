@@ -1,0 +1,35 @@
+{{define "content"}}
+<div class="px-4 sm:px-6 lg:px-8">
+    <h1 class="text-3xl font-bold text-gray-900 dark:text-white">Event Log</h1>
+    <p class="mt-2 text-sm text-gray-700 dark:text-gray-300">Recent events received via PutEvents (last 1000).</p>
+    <div class="mt-4">
+        <a href="/dashboard/eventbridge" class="text-blue-600 hover:underline">← Back to Event Buses</a>
+    </div>
+    <div class="mt-8 relative overflow-x-auto shadow-md sm:rounded-lg">
+        <table class="w-full text-sm text-left text-gray-500 dark:text-gray-400">
+            <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                <tr>
+                    <th class="px-6 py-3">Time</th>
+                    <th class="px-6 py-3">Source</th>
+                    <th class="px-6 py-3">Detail Type</th>
+                    <th class="px-6 py-3">Event Bus</th>
+                    <th class="px-6 py-3">Detail</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Events}}
+                <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
+                    <td class="px-6 py-4 text-xs font-mono">{{.Time}}</td>
+                    <td class="px-6 py-4">{{.Source}}</td>
+                    <td class="px-6 py-4">{{.DetailType}}</td>
+                    <td class="px-6 py-4">{{.EventBusName}}</td>
+                    <td class="px-6 py-4 font-mono text-xs truncate max-w-xs">{{.Detail}}</td>
+                </tr>
+                {{else}}
+                <tr><td colspan="5" class="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">No events found.</td></tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+</div>
+{{end}}
