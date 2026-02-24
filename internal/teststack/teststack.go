@@ -18,6 +18,7 @@ import (
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
 	kmsbackend "github.com/blackbirdworks/gopherstack/kms"
+	lambdabackend "github.com/blackbirdworks/gopherstack/lambda"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -49,6 +50,7 @@ type Stack struct {
 	SQSHandler            *sqsbackend.Handler
 	KMSHandler            *kmsbackend.Handler
 	SecretsManagerHandler *smbackend.Handler
+	LambdaHandler         *lambdabackend.Handler
 	S3Client              *s3.Client
 	DDBClient             *dynamodb.Client
 	Dashboard             *dashboard.DashboardHandler
@@ -80,6 +82,15 @@ func New(t *testing.T) *Stack {
 	smBk := smbackend.NewInMemoryBackend()
 	smHndlr := smbackend.NewHandler(smBk, slog.Default())
 
+	// Lambda backend with nil Docker and nil portalloc — real invocations are not tested here.
+	// The backend and handler are included so the dashboard Lambda UI has data to display.
+	lambdaBk := lambdabackend.NewInMemoryBackend(
+		nil, nil, lambdabackend.DefaultSettings(), "000000000000", "us-east-1", slog.Default(),
+	)
+	lambdaHndlr := lambdabackend.NewHandler(lambdaBk, slog.Default())
+	lambdaHndlr.AccountID = "000000000000"
+	lambdaHndlr.DefaultRegion = "us-east-1"
+
 	// Set up Echo with service registry and router.
 	e := echo.New()
 	e.Pre(logger.EchoMiddleware(slog.Default()))
@@ -94,6 +105,7 @@ func New(t *testing.T) *Stack {
 	_ = registry.Register(sqsHndlr)
 	_ = registry.Register(kmsHndlr)
 	_ = registry.Register(smHndlr)
+	_ = registry.Register(lambdaHndlr)
 
 	// Create AWS SDK clients routed through in-memory Echo.
 	inMemClient := &dashboard.InMemClient{Handler: e}
@@ -132,6 +144,7 @@ func New(t *testing.T) *Stack {
 		SQSOps:            sqsHndlr,
 		KMSOps:            kmsHndlr,
 		SecretsManagerOps: smHndlr,
+		LambdaOps:         lambdaHndlr,
 		GlobalConfig: config.GlobalConfig{
 			AccountID: "000000000000",
 			Region:    "us-east-1",
@@ -156,6 +169,7 @@ func New(t *testing.T) *Stack {
 		SQSHandler:            sqsHndlr,
 		KMSHandler:            kmsHndlr,
 		SecretsManagerHandler: smHndlr,
+		LambdaHandler:         lambdaHndlr,
 		S3Client:              s3Client,
 		DDBClient:             ddbClient,
 		Dashboard:             dashHndlr,
