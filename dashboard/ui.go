@@ -14,6 +14,7 @@ import (
 
 	apigwbackend "github.com/blackbirdworks/gopherstack/apigateway"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/cloudwatchlogs"
+	cwbackend "github.com/blackbirdworks/gopherstack/cloudwatch"
 	sfnbackend "github.com/blackbirdworks/gopherstack/stepfunctions"
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
 	ebbackend "github.com/blackbirdworks/gopherstack/eventbridge"
@@ -75,6 +76,7 @@ type DashboardHandler struct {
 	APIGatewayOps     *apigwbackend.Handler
 	CloudWatchLogsOps *cwlogsbackend.Handler
 	StepFunctionsOps  *sfnbackend.Handler
+	CloudWatchOps     *cwbackend.Handler
 	SubRouter         *echo.Echo
 	ddbProvider       *ddbbackend.DashboardProvider
 	s3Provider        *s3backend.DashboardProvider
@@ -109,6 +111,8 @@ type Config struct {
 	CloudWatchLogsOps *cwlogsbackend.Handler
 	// StepFunctionsOps provides access to the Step Functions backend.
 	StepFunctionsOps *sfnbackend.Handler
+	// CloudWatchOps provides access to the CloudWatch Metrics backend.
+	CloudWatchOps *cwbackend.Handler
 	// Logger is the structured logger for dashboard operations.
 	Logger *slog.Logger
 	// GlobalConfig holds the centralized account and region configuration shown on the settings page.
@@ -147,6 +151,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		"templates/apigateway/*.html",
 		"templates/cloudwatchlogs/*.html",
 		"templates/stepfunctions/*.html",
+		"templates/cloudwatch/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
 		"templates/settings.html",
@@ -174,6 +179,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		APIGatewayOps:     cfg.APIGatewayOps,
 		CloudWatchLogsOps: cfg.CloudWatchLogsOps,
 		StepFunctionsOps:  cfg.StepFunctionsOps,
+		CloudWatchOps:     cfg.CloudWatchOps,
 		GlobalConfig:      cfg.GlobalConfig,
 		Logger:            cfg.Logger,
 		layout:            tmpl,
@@ -304,6 +310,10 @@ func (h *DashboardHandler) setupStepFunctionsRoutes() {
 	h.SubRouter.GET("/dashboard/stepfunctions/statemachine", h.stepFunctionsStateMachineDetail)
 }
 
+func (h *DashboardHandler) setupCloudWatchRoutes() {
+	h.SubRouter.GET("/dashboard/cloudwatch", h.cloudWatchIndex)
+}
+
 func (h *DashboardHandler) setupMetaRoutes() {
 	dashboardGroup := h.SubRouter.Group("/dashboard")
 	RegisterMetricsHandlers(dashboardGroup, h)
@@ -324,6 +334,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.setupAPIGatewayRoutes()
 	h.setupCloudWatchLogsRoutes()
 	h.setupStepFunctionsRoutes()
+	h.setupCloudWatchRoutes()
 	h.setupMetaRoutes()
 }
 
@@ -386,6 +397,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/apigateway", "APIGateway"},
 	{"/cloudwatchlogs", "CloudWatchLogs"},
 	{"/stepfunctions", "StepFunctions"},
+	{"/cloudwatch", "CloudWatch"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},
 }

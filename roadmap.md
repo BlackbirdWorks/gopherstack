@@ -279,25 +279,27 @@
 - [ ] EventBridge: Scheduled rules (cron/rate expressions)
 
 ### v0.10 — Orchestration & Observability
-- **Step Functions**
+- **Step Functions** ✅
   - CreateStateMachine / DeleteStateMachine / ListStateMachines / DescribeStateMachine
   - StartExecution / StopExecution / DescribeExecution / ListExecutions / GetExecutionHistory
   - Standard and Express workflows
-  - State types: Task, Choice, Wait, Parallel, Map, Pass, Succeed, Fail
-  - Error handling (Retry, Catch)
-  - Lambda and service integrations
-  - Dashboard UI: state machine list, visual execution graph, execution history with state transitions
-- **CloudWatch Metrics**
-  - PutMetricData / GetMetricData / GetMetricStatistics / ListMetrics
+  - Auto-succeed stub execution (no ASL interpreter)
+  - Dashboard UI: state machine list, execution list per state machine
+- **CloudWatch Metrics** ✅
+  - PutMetricData / GetMetricStatistics / ListMetrics (AWS query/XML protocol)
   - PutMetricAlarm / DescribeAlarms / DeleteAlarms (basic)
-  - Dashboard UI: metric namespace browser, time-series charts, alarm status
-- **CloudWatch Logs**
+  - Dashboard UI: metric namespace browser, alarm status
+- **CloudWatch Logs** ✅
   - CreateLogGroup / DeleteLogGroup / DescribeLogGroups
   - CreateLogStream / DescribeLogStreams
   - PutLogEvents / GetLogEvents / FilterLogEvents
-  - Wire Lambda container stdout/stderr → CloudWatch Logs automatically
-  - Dashboard UI: log group list, log stream viewer with search/filter, live tail
-- **Persistence** — optional on-disk state snapshots (differentiator vs LocalStack)
+  - Dashboard UI: log group list, log stream viewer
+
+**Remaining gaps (v0.10):**
+- [ ] Step Functions: actual ASL state machine interpreter (Task, Choice, Wait, Parallel, Map, Pass, Succeed, Fail states)
+- [ ] Step Functions: Lambda and service integrations via Task states
+- [ ] CloudWatch Metrics: GetMetricData (extended query with MetricDataQuery)
+- [ ] CloudWatch Logs: Lambda container stdout/stderr → CloudWatch Logs wiring
 
 ### v0.11 — Infrastructure-as-Code
 - **CloudFormation**
@@ -594,10 +596,10 @@ DNS is only needed for:
 | Secrets Manager | Yes | Yes | ~90% ✅ |
 | SSM (Parameter Store) | Yes | Yes | ~95% ✅ |
 | CloudFormation | Yes | No | v0.11 |
-| CloudWatch Metrics | Yes | No | v0.10 |
-| CloudWatch Logs | Yes | No | v0.10 |
+| CloudWatch Metrics | Yes | Yes | Core API (PutMetricData, GetMetricStatistics, ListMetrics, alarms) ✅ (v0.10) |
+| CloudWatch Logs | Yes | Yes | Core API (log groups, streams, events) ✅ (v0.10) |
 | API Gateway (REST) | Yes | Yes | Core CRUD + mock integrations ✅ (v0.9) |
-| Step Functions | Yes | No | v0.10 |
+| Step Functions | Yes | Yes | Core CRUD + stub execution ✅ (v0.10) |
 | EventBridge | Yes | Yes | Core CRUD + event log ✅ (v0.9) |
 | Kinesis Streams | Yes | No | v0.12 |
 | Kinesis Firehose | Yes | No | v0.13 |
