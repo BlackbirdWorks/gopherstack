@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/lambda"
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/docker"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -1357,9 +1358,15 @@ func TestProvider_Init_WithConfig(t *testing.T) {
 	svc, err := p.Init(appCtx)
 	require.NoError(t, err)
 	assert.NotNil(t, svc)
+
+	// Verify accountID and region are propagated from config.Provider.
+	h, ok := svc.(*lambda.Handler)
+	require.True(t, ok)
+	assert.Equal(t, "111111111111", h.AccountID)
+	assert.Equal(t, "eu-west-1", h.DefaultRegion)
 }
 
-// mockConfig implements lambda.SettingsProvider for provider tests.
+// mockConfig implements lambda.SettingsProvider and config.Provider for provider tests.
 type mockConfig struct {
 	accountID string
 	region    string
@@ -1367,4 +1374,8 @@ type mockConfig struct {
 
 func (m *mockConfig) GetLambdaSettings() lambda.Settings {
 	return lambda.DefaultSettings()
+}
+
+func (m *mockConfig) GetGlobalConfig() config.GlobalConfig {
+	return config.GlobalConfig{AccountID: m.accountID, Region: m.region}
 }
