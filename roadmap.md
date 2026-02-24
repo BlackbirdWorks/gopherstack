@@ -233,9 +233,9 @@
 **DX gaps remaining:**
 - [ ] `awslocal`-style CLI wrapper or docs for `aws --endpoint-url`
 - [ ] Persistence — on-disk state snapshots across restarts (differentiator vs LocalStack)
-- [ ] Testcontainers module for Go
-- [ ] Terraform compatibility docs
-- [ ] CDK compatibility docs
+- [x] Testcontainers module for Go ✅ (`modules/gopherstack`)
+- [x] Terraform compatibility docs ✅ (README)
+- [x] CDK compatibility docs ✅ (README)
 
 ---
 
@@ -311,9 +311,9 @@
   - JSON and YAML template support
   - Dashboard UI: stack list, stack detail (resources, outputs, events)
   - _Coverage limited to resources backed by implemented services_
-- Terraform compatibility testing & docs
-- CDK compatibility docs
-- Testcontainers module for Go
+- **Terraform compatibility docs** ✅ — provider endpoint override guide in README
+- **CDK compatibility docs** ✅ — `AWS_ENDPOINT_URL` + bootstrap guide in README
+- **Testcontainers module for Go** ✅ — `modules/gopherstack` package: `Run`, `BaseURL`, `WithEnv`
 
 ### v0.12 — Streaming & DNS-Bound Services
 - **Kinesis Streams**
