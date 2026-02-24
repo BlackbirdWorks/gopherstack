@@ -1,7 +1,7 @@
 # Gopherstack Roadmap — LocalStack Free Tier Parity
 
 > **Goal:** Feature parity with LocalStack's free/community tier (~30 AWS services).
-> **Current state:** 10 services, ~145 operations, plus platform infrastructure (DNS, port allocator, Docker, init hooks).
+> **Current state:** 12 services, ~178 operations, plus platform infrastructure (DNS, port allocator, Docker, init hooks).
 
 ---
 
@@ -259,25 +259,27 @@
 - [ ] S3: presigned URLs
 - [ ] S3: Bucket lifecycle configuration, CORS, bucket policies
 
-### v0.9 — API Gateway & Event-Driven
-- **API Gateway** (REST APIs)
-  - CreateRestApi / DeleteRestApi / GetRestApis
-  - Resources, methods, integrations
-  - Deployments and stages
-  - Lambda proxy integration
-  - Mock integrations
-  - Request/response mapping templates
+### v0.9 — API Gateway & Event-Driven ✅
+- **API Gateway** (REST APIs) — Done (v0.9)
+  - CreateRestApi / DeleteRestApi / GetRestApi / GetRestApis
+  - Resources: GetResources / GetResource / CreateResource / DeleteResource
+  - Methods: PutMethod / GetMethod / DeleteMethod
+  - Integrations: PutIntegration / GetIntegration / DeleteIntegration (MOCK, AWS, HTTP types)
+  - Deployments and stages: CreateDeployment / GetDeployments / GetStages / GetStage / DeleteStage
   - Dashboard UI: API list, resource tree, method/integration detail, deployment management
-- **EventBridge**
-  - CreateEventBus / DeleteEventBus / ListEventBuses
-  - PutRule / DeleteRule / ListRules / DescribeRule
+- **EventBridge** — Done (v0.9)
+  - CreateEventBus / DeleteEventBus / ListEventBuses / DescribeEventBus
+  - PutRule / DeleteRule / ListRules / DescribeRule / EnableRule / DisableRule
   - PutTargets / RemoveTargets / ListTargetsByRule
-  - PutEvents
-  - Target types: Lambda, SQS, SNS, Step Functions
-  - Event pattern matching
-  - Scheduled rules (cron/rate expressions)
-  - EventBridge Scheduler
+  - PutEvents with event log (last 1000 events)
   - Dashboard UI: event bus list, rules with targets, event log viewer
+
+**Remaining gaps (v0.9):**
+- [ ] API Gateway: Lambda proxy integration (invoke Lambda on route hit)
+- [ ] API Gateway: Request/response mapping templates (VTL)
+- [ ] EventBridge: Target fan-out (deliver events to Lambda/SQS/SNS targets)
+- [ ] EventBridge: Event pattern matching
+- [ ] EventBridge: Scheduled rules (cron/rate expressions)
 
 ### v0.10 — Orchestration & Observability
 - **Step Functions**
@@ -590,9 +592,9 @@ DNS is only needed for:
 | CloudFormation | Yes | No | v0.11 |
 | CloudWatch Metrics | Yes | No | v0.10 |
 | CloudWatch Logs | Yes | No | v0.10 |
-| API Gateway (REST) | Yes | No | v0.9 |
+| API Gateway (REST) | Yes | Yes | Core CRUD + mock integrations ✅ (v0.9) |
 | Step Functions | Yes | No | v0.10 |
-| EventBridge | Yes | No | v0.9 |
+| EventBridge | Yes | Yes | Core CRUD + event log ✅ (v0.9) |
 | Kinesis Streams | Yes | No | v0.12 |
 | Kinesis Firehose | Yes | No | v0.13 |
 | Route 53 | Yes | No | v0.13 |
