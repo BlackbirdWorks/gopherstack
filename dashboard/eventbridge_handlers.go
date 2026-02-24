@@ -16,6 +16,7 @@ func (h *DashboardHandler) eventBridgeIndex(c *echo.Context) error {
 	buses, _, _ := h.EventBridgeOps.Backend.ListEventBuses("", "")
 	data := struct {
 		PageData
+
 		Buses []ebbackend.EventBus
 	}{
 		PageData: PageData{Title: "EventBridge", ActiveTab: "eventbridge"},
@@ -40,6 +41,7 @@ func (h *DashboardHandler) eventBridgeRules(c *echo.Context) error {
 	rules, _, _ := h.EventBridgeOps.Backend.ListRules(busName, "", "")
 	data := struct {
 		PageData
+
 		BusName string
 		Rules   []ebbackend.Rule
 	}{
@@ -61,6 +63,7 @@ func (h *DashboardHandler) eventBridgeEventLog(c *echo.Context) error {
 	log := h.EventBridgeOps.Backend.GetEventLog()
 	data := struct {
 		PageData
+
 		Events []ebbackend.EventLogEntry
 	}{
 		PageData: PageData{Title: "EventBridge Event Log", ActiveTab: "eventbridge"},

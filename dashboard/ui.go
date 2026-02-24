@@ -343,43 +343,39 @@ func (h *DashboardHandler) MatchPriority() int {
 	return priority
 }
 
+// dashboardPathPrefixes maps URL path prefixes to operation names.
+var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table for ExtractOperation
+	prefix string
+	name   string
+}{
+	{"/dynamodb", "DynamoDB"},
+	{"/s3", "S3"},
+	{"/ssm", "SSM"},
+	{"/iam", "IAM"},
+	{"/sts", "STS"},
+	{"/sns", "SNS"},
+	{"/sqs", "SQS"},
+	{"/kms", "KMS"},
+	{"/secretsmanager", "SecretsManager"},
+	{"/lambda", "Lambda"},
+	{"/eventbridge", "EventBridge"},
+	{"/apigateway", "APIGateway"},
+	{"/metrics", "Metrics"},
+	{"/docs", "Docs"},
+}
+
 // ExtractOperation returns the dashboard operation based on path.
 func (h *DashboardHandler) ExtractOperation(c *echo.Context) string {
 	path := c.Request().URL.Path
 	path, _ = strings.CutPrefix(path, "/dashboard")
 
-	switch {
-	case strings.HasPrefix(path, "/dynamodb"):
-		return "DynamoDB"
-	case strings.HasPrefix(path, "/s3"):
-		return "S3"
-	case strings.HasPrefix(path, "/ssm"):
-		return "SSM"
-	case strings.HasPrefix(path, "/iam"):
-		return "IAM"
-	case strings.HasPrefix(path, "/sts"):
-		return "STS"
-	case strings.HasPrefix(path, "/sns"):
-		return "SNS"
-	case strings.HasPrefix(path, "/sqs"):
-		return "SQS"
-	case strings.HasPrefix(path, "/kms"):
-		return "KMS"
-	case strings.HasPrefix(path, "/secretsmanager"):
-		return "SecretsManager"
-	case strings.HasPrefix(path, "/lambda"):
-		return "Lambda"
-	case strings.HasPrefix(path, "/eventbridge"):
-		return "EventBridge"
-	case strings.HasPrefix(path, "/apigateway"):
-		return "APIGateway"
-	case strings.HasPrefix(path, "/metrics"):
-		return "Metrics"
-	case strings.HasPrefix(path, "/docs"):
-		return "Docs"
-	default:
-		return "Dashboard"
+	for _, p := range dashboardPathPrefixes {
+		if strings.HasPrefix(path, p.prefix) {
+			return p.name
+		}
 	}
+
+	return "Dashboard"
 }
 
 // ExtractResource returns empty string for dashboard (not resource-specific).

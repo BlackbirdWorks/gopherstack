@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"strings"
 
@@ -266,6 +267,11 @@ func (h *Handler) ruleActions() map[string]actionFn {
 
 			return h.Backend.DescribeRule(input.Name, input.EventBusName)
 		},
+	}
+}
+
+func (h *Handler) ruleStateActions() map[string]actionFn {
+	return map[string]actionFn{
 		"EnableRule": func(b []byte) (any, error) {
 			var input struct {
 				Name         string `json:"Name"`
@@ -384,18 +390,11 @@ func (h *Handler) eventsActions() map[string]actionFn {
 
 func (h *Handler) dispatchTable() map[string]actionFn {
 	table := make(map[string]actionFn)
-	for k, v := range h.eventBusActions() {
-		table[k] = v
-	}
-	for k, v := range h.ruleActions() {
-		table[k] = v
-	}
-	for k, v := range h.targetActions() {
-		table[k] = v
-	}
-	for k, v := range h.eventsActions() {
-		table[k] = v
-	}
+	maps.Copy(table, h.eventBusActions())
+	maps.Copy(table, h.ruleActions())
+	maps.Copy(table, h.ruleStateActions())
+	maps.Copy(table, h.targetActions())
+	maps.Copy(table, h.eventsActions())
 
 	return table
 }

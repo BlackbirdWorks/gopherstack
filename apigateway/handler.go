@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"strings"
 
@@ -483,21 +484,11 @@ func (h *Handler) deploymentActions() map[string]actionFn {
 
 func (h *Handler) dispatchTable() map[string]actionFn {
 	table := make(map[string]actionFn)
-	for k, v := range h.restAPIActions() {
-		table[k] = v
-	}
-	for k, v := range h.resourceActions() {
-		table[k] = v
-	}
-	for k, v := range h.methodActions() {
-		table[k] = v
-	}
-	for k, v := range h.integrationActions() {
-		table[k] = v
-	}
-	for k, v := range h.deploymentActions() {
-		table[k] = v
-	}
+	maps.Copy(table, h.restAPIActions())
+	maps.Copy(table, h.resourceActions())
+	maps.Copy(table, h.methodActions())
+	maps.Copy(table, h.integrationActions())
+	maps.Copy(table, h.deploymentActions())
 
 	return table
 }

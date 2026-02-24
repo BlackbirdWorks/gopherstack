@@ -16,6 +16,7 @@ func (h *DashboardHandler) apiGatewayIndex(c *echo.Context) error {
 	apis, _, _ := h.APIGatewayOps.Backend.GetRestAPIs(0, "")
 	data := struct {
 		PageData
+
 		APIs []apigwbackend.RestAPI
 	}{
 		PageData: PageData{Title: "API Gateway", ActiveTab: "apigateway"},
@@ -46,6 +47,7 @@ func (h *DashboardHandler) apiGatewayDetail(c *echo.Context) error {
 	stages, _ := h.APIGatewayOps.Backend.GetStages(id)
 	data := struct {
 		PageData
+
 		API       *apigwbackend.RestAPI
 		Resources []apigwbackend.Resource
 		Stages    []apigwbackend.Stage
