@@ -9,19 +9,20 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	s3svc "github.com/aws/aws-sdk-go-v2/service/s3"
+	sqssvc "github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	s3svc "github.com/aws/aws-sdk-go-v2/service/s3"
-	sqssvc "github.com/aws/aws-sdk-go-v2/service/sqs"
 )
 
 // tfProviderCacheDir is a shared provider cache so both tests only download
 // the hashicorp/aws provider once per test run.
-var tfProviderCacheDir = filepath.Join(os.TempDir(), "gopherstack-tf-provider-cache") //nolint:gochecknoglobals
+//
+//nolint:gochecknoglobals // shared provider cache path, read-only after init
+var tfProviderCacheDir = filepath.Join(os.TempDir(), "gopherstack-tf-provider-cache")
 
 // providerBlock returns the Terraform required_providers + provider "aws" block
 // pointing all service endpoints at addr (e.g. "http://localhost:32768").
@@ -93,7 +94,7 @@ func applyTerraform(t *testing.T, tfBin, dir, hcl string) {
 	run := func(failFatal bool, args ...string) bool {
 		t.Helper()
 
-		cmd := exec.Command(tfBin, args...) //nolint:gosec
+		cmd := exec.Command(tfBin, args...) //nolint:gosec // tfBin comes from exec.LookPath, args are controlled test inputs
 		cmd.Dir = dir
 		cmd.Env = env
 
@@ -124,6 +125,7 @@ func applyTerraform(t *testing.T, tfBin, dir, hcl string) {
 // TestTerraform_DynamoDB provisions a DynamoDB table via Terraform and verifies
 // it exists and has the expected key schema.
 func TestTerraform_DynamoDB(t *testing.T) {
+	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
 	tfBin := findTerraformOrSkip(t)
@@ -164,6 +166,7 @@ resource "aws_dynamodb_table" "this" {
 // TestTerraform_S3AndSQS provisions an S3 bucket and an SQS queue via Terraform
 // and verifies both are visible through their respective AWS APIs.
 func TestTerraform_S3AndSQS(t *testing.T) {
+	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
 	tfBin := findTerraformOrSkip(t)
