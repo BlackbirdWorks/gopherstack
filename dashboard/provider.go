@@ -6,6 +6,9 @@ import (
 	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
 	stssdk "github.com/aws/aws-sdk-go-v2/service/sts"
 	apigwbackend "github.com/blackbirdworks/gopherstack/apigateway"
+	cwbackend "github.com/blackbirdworks/gopherstack/cloudwatch"
+	cwlogsbackend "github.com/blackbirdworks/gopherstack/cloudwatchlogs"
+	sfnbackend "github.com/blackbirdworks/gopherstack/stepfunctions"
 
 	"github.com/blackbirdworks/gopherstack/dynamodb"
 	ebbackend "github.com/blackbirdworks/gopherstack/eventbridge"
@@ -41,6 +44,9 @@ type AWSSDKProvider interface {
 	GetLambdaHandler() service.Registerable
 	GetEventBridgeHandler() service.Registerable
 	GetAPIGatewayHandler() service.Registerable
+	GetCloudWatchLogsHandler() service.Registerable
+	GetStepFunctionsHandler() service.Registerable
+	GetCloudWatchHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 }
 
@@ -71,6 +77,9 @@ type extractedConfig struct {
 	lambdaOps         *lambdabackend.Handler
 	eventBridgeOps    *ebbackend.Handler
 	apiGatewayOps     *apigwbackend.Handler
+	cloudWatchLogsOps *cwlogsbackend.Handler
+	stepFunctionsOps  *sfnbackend.Handler
+	cloudWatchOps     *cwbackend.Handler
 	gCfg              globalcfg.GlobalConfig
 }
 
@@ -130,6 +139,18 @@ func extractFromProvider(ctx *service.AppContext) extractedConfig {
 		ec.apiGatewayOps, _ = h.(*apigwbackend.Handler)
 	}
 
+	if h := ap.GetCloudWatchLogsHandler(); h != nil {
+		ec.cloudWatchLogsOps, _ = h.(*cwlogsbackend.Handler)
+	}
+
+	if h := ap.GetStepFunctionsHandler(); h != nil {
+		ec.stepFunctionsOps, _ = h.(*sfnbackend.Handler)
+	}
+
+	if h := ap.GetCloudWatchHandler(); h != nil {
+		ec.cloudWatchOps, _ = h.(*cwbackend.Handler)
+	}
+
 	return ec
 }
 
@@ -153,6 +174,9 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		LambdaOps:         ec.lambdaOps,
 		EventBridgeOps:    ec.eventBridgeOps,
 		APIGatewayOps:     ec.apiGatewayOps,
+		CloudWatchLogsOps: ec.cloudWatchLogsOps,
+		StepFunctionsOps:  ec.stepFunctionsOps,
+		CloudWatchOps:     ec.cloudWatchOps,
 		GlobalConfig:      ec.gCfg,
 		Logger:            ctx.Logger,
 	})

@@ -1,0 +1,35 @@
+{{define "content"}}
+<div class="px-4 sm:px-6 lg:px-8">
+    <h1 class="text-3xl font-bold text-gray-900 dark:text-white">Log Group: {{.GroupName}}</h1>
+    <p class="mt-2 text-sm text-gray-700 dark:text-gray-300">Log streams in this log group.</p>
+    <div class="mt-4">
+        <a href="/dashboard/cloudwatchlogs" class="text-blue-600 hover:underline dark:text-blue-400">← Back to Log Groups</a>
+    </div>
+    <div class="mt-8 relative overflow-x-auto shadow-md sm:rounded-lg">
+        <table class="w-full text-sm text-left text-gray-500 dark:text-gray-400">
+            <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                <tr>
+                    <th class="px-6 py-3">Stream Name</th>
+                    <th class="px-6 py-3">Stored Bytes</th>
+                    <th class="px-6 py-3">Last Ingestion</th>
+                    <th class="px-6 py-3">ARN</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Streams}}
+                <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
+                    <td class="px-6 py-4 font-mono text-gray-900 dark:text-white">{{.LogStreamName}}</td>
+                    <td class="px-6 py-4 font-mono text-gray-500 dark:text-gray-400">{{.StoredBytes}}</td>
+                    <td class="px-6 py-4 font-mono text-gray-500 dark:text-gray-400">
+                        {{if .LastIngestionTime}}{{.LastIngestionTime}}{{else}}—{{end}}
+                    </td>
+                    <td class="px-6 py-4 font-mono text-xs text-gray-500 dark:text-gray-400">{{.Arn}}</td>
+                </tr>
+                {{else}}
+                <tr><td colspan="4" class="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">No log streams found.</td></tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+</div>
+{{end}}

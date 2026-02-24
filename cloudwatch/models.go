@@ -1,0 +1,57 @@
+package cloudwatch
+
+import "time"
+
+// MetricDatum holds a single metric data point.
+type MetricDatum struct {
+	Timestamp  time.Time `json:"Timestamp"`
+	MetricName string    `json:"MetricName"`
+	Namespace  string    `json:"Namespace"`
+	Unit       string    `json:"Unit,omitempty"`
+	Value      float64   `json:"Value"`
+	Count      float64   `json:"SampleCount"`
+	Sum        float64   `json:"Sum"`
+	Min        float64   `json:"Min"`
+	Max        float64   `json:"Max"`
+}
+
+// Metric represents a named metric (name+namespace+dimensions).
+type Metric struct {
+	Namespace  string      `json:"Namespace"`
+	MetricName string      `json:"MetricName"`
+	Dimensions []Dimension `json:"Dimensions,omitempty"`
+}
+
+// Dimension is a key-value pair for a metric.
+type Dimension struct {
+	Name  string `json:"Name"`
+	Value string `json:"Value"`
+}
+
+// Datapoint holds aggregated stats for GetMetricStatistics.
+type Datapoint struct {
+	Timestamp   time.Time `json:"Timestamp"`
+	Average     *float64  `json:"Average,omitempty"`
+	Sum         *float64  `json:"Sum,omitempty"`
+	Minimum     *float64  `json:"Minimum,omitempty"`
+	Maximum     *float64  `json:"Maximum,omitempty"`
+	SampleCount *float64  `json:"SampleCount,omitempty"`
+	Unit        string    `json:"Unit,omitempty"`
+}
+
+// MetricAlarm represents a CloudWatch alarm.
+type MetricAlarm struct {
+	CreatedAt          time.Time `json:"AlarmCreatedAt"`
+	StateValue         string    `json:"StateValue"`
+	Namespace          string    `json:"Namespace"`
+	MetricName         string    `json:"MetricName"`
+	ComparisonOperator string    `json:"ComparisonOperator"`
+	Statistic          string    `json:"Statistic"`
+	AlarmName          string    `json:"AlarmName"`
+	StateReason        string    `json:"StateReason,omitempty"`
+	AlarmDescription   string    `json:"AlarmDescription,omitempty"`
+	AlarmArn           string    `json:"AlarmArn"`
+	Threshold          float64   `json:"Threshold"`
+	EvaluationPeriods  int32     `json:"EvaluationPeriods"`
+	Period             int32     `json:"Period"`
+}

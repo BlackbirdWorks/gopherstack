@@ -13,6 +13,8 @@ import (
 	"github.com/labstack/echo/v5"
 
 	apigwbackend "github.com/blackbirdworks/gopherstack/apigateway"
+	cwbackend "github.com/blackbirdworks/gopherstack/cloudwatch"
+	cwlogsbackend "github.com/blackbirdworks/gopherstack/cloudwatchlogs"
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
 	ebbackend "github.com/blackbirdworks/gopherstack/eventbridge"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
@@ -26,6 +28,7 @@ import (
 	snsbackend "github.com/blackbirdworks/gopherstack/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/ssm"
+	sfnbackend "github.com/blackbirdworks/gopherstack/stepfunctions"
 	stsbackend "github.com/blackbirdworks/gopherstack/sts"
 )
 
@@ -71,6 +74,9 @@ type DashboardHandler struct {
 	LambdaOps         *lambdabackend.Handler
 	EventBridgeOps    *ebbackend.Handler
 	APIGatewayOps     *apigwbackend.Handler
+	CloudWatchLogsOps *cwlogsbackend.Handler
+	StepFunctionsOps  *sfnbackend.Handler
+	CloudWatchOps     *cwbackend.Handler
 	SubRouter         *echo.Echo
 	ddbProvider       *ddbbackend.DashboardProvider
 	s3Provider        *s3backend.DashboardProvider
@@ -101,6 +107,12 @@ type Config struct {
 	EventBridgeOps *ebbackend.Handler
 	// APIGatewayOps provides access to the API Gateway backend.
 	APIGatewayOps *apigwbackend.Handler
+	// CloudWatchLogsOps provides access to the CloudWatch Logs backend.
+	CloudWatchLogsOps *cwlogsbackend.Handler
+	// StepFunctionsOps provides access to the Step Functions backend.
+	StepFunctionsOps *sfnbackend.Handler
+	// CloudWatchOps provides access to the CloudWatch Metrics backend.
+	CloudWatchOps *cwbackend.Handler
 	// Logger is the structured logger for dashboard operations.
 	Logger *slog.Logger
 	// GlobalConfig holds the centralized account and region configuration shown on the settings page.
@@ -137,6 +149,9 @@ func NewHandler(cfg Config) *DashboardHandler {
 		"templates/lambda/*.html",
 		"templates/eventbridge/*.html",
 		"templates/apigateway/*.html",
+		"templates/cloudwatchlogs/*.html",
+		"templates/stepfunctions/*.html",
+		"templates/cloudwatch/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
 		"templates/settings.html",
@@ -162,6 +177,9 @@ func NewHandler(cfg Config) *DashboardHandler {
 		LambdaOps:         cfg.LambdaOps,
 		EventBridgeOps:    cfg.EventBridgeOps,
 		APIGatewayOps:     cfg.APIGatewayOps,
+		CloudWatchLogsOps: cfg.CloudWatchLogsOps,
+		StepFunctionsOps:  cfg.StepFunctionsOps,
+		CloudWatchOps:     cfg.CloudWatchOps,
 		GlobalConfig:      cfg.GlobalConfig,
 		Logger:            cfg.Logger,
 		layout:            tmpl,
@@ -282,6 +300,20 @@ func (h *DashboardHandler) setupAPIGatewayRoutes() {
 	h.SubRouter.GET("/dashboard/apigateway/api", h.apiGatewayDetail)
 }
 
+func (h *DashboardHandler) setupCloudWatchLogsRoutes() {
+	h.SubRouter.GET("/dashboard/cloudwatchlogs", h.cloudWatchLogsIndex)
+	h.SubRouter.GET("/dashboard/cloudwatchlogs/group", h.cloudWatchLogsGroupDetail)
+}
+
+func (h *DashboardHandler) setupStepFunctionsRoutes() {
+	h.SubRouter.GET("/dashboard/stepfunctions", h.stepFunctionsIndex)
+	h.SubRouter.GET("/dashboard/stepfunctions/statemachine", h.stepFunctionsStateMachineDetail)
+}
+
+func (h *DashboardHandler) setupCloudWatchRoutes() {
+	h.SubRouter.GET("/dashboard/cloudwatch", h.cloudWatchIndex)
+}
+
 func (h *DashboardHandler) setupMetaRoutes() {
 	dashboardGroup := h.SubRouter.Group("/dashboard")
 	RegisterMetricsHandlers(dashboardGroup, h)
@@ -300,6 +332,9 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.setupLambdaRoutes()
 	h.setupEventBridgeRoutes()
 	h.setupAPIGatewayRoutes()
+	h.setupCloudWatchLogsRoutes()
+	h.setupStepFunctionsRoutes()
+	h.setupCloudWatchRoutes()
 	h.setupMetaRoutes()
 }
 
@@ -360,6 +395,9 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/lambda", "Lambda"},
 	{"/eventbridge", "EventBridge"},
 	{"/apigateway", "APIGateway"},
+	{"/cloudwatchlogs", "CloudWatchLogs"},
+	{"/stepfunctions", "StepFunctions"},
+	{"/cloudwatch", "CloudWatch"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},
 }
