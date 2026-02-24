@@ -17,6 +17,11 @@ var (
 	ErrLogStreamAlreadyExist = errors.New("ResourceAlreadyExistsException")
 )
 
+const (
+	defaultDescribeLimit = 50
+	defaultEventLimit    = 10000
+)
+
 // StorageBackend is the interface for a CloudWatch Logs in-memory store.
 type StorageBackend interface {
 	CreateLogGroup(name string) (*LogGroup, error)
@@ -227,7 +232,7 @@ func (b *InMemoryBackend) GetLogEvents(groupName, streamName string, startTime, 
 
 	startIdx := parseNextToken(nextToken)
 	if limit <= 0 {
-		limit = 10000
+		limit = defaultEventLimit
 	}
 
 	end := startIdx + limit
@@ -282,7 +287,7 @@ func (b *InMemoryBackend) FilterLogEvents(groupName string, streamNames []string
 
 	startIdx := parseNextToken(nextToken)
 	if limit <= 0 {
-		limit = 10000
+		limit = defaultEventLimit
 	}
 
 	end := startIdx + limit
@@ -338,7 +343,7 @@ func paginateGroups(all []LogGroup, nextToken string, limit int) ([]LogGroup, st
 	}
 
 	if limit <= 0 {
-		limit = 50
+		limit = defaultDescribeLimit
 	}
 
 	end := startIdx + limit
@@ -359,7 +364,7 @@ func paginateStreams(all []LogStream, nextToken string, limit int) ([]LogStream,
 	}
 
 	if limit <= 0 {
-		limit = 50
+		limit = defaultDescribeLimit
 	}
 
 	end := startIdx + limit
