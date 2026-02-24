@@ -502,6 +502,8 @@ func (h *DashboardHandler) handleDynamoDBTableAction(
 		h.dynamoDBQuery(w, r, tableName)
 	case "scan":
 		h.dynamoDBScan(w, r, tableName)
+	case "partiql":
+		h.dynamoDBPartiQL(w, r, tableName)
 	case "item":
 		h.handleDynamoDBItem(w, r, tableName)
 	case "export":

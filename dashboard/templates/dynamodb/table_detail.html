@@ -216,6 +216,12 @@
                     id="streams-tab" data-tabs-target="#streams" type="button" role="tab" aria-controls="streams"
                     aria-selected="false">Stream Events</button>
             </li>
+            <li class="me-2" role="presentation">
+                <button
+                    class="inline-block p-4 border-b-2 rounded-t-lg border-transparent hover:text-gray-600 hover:border-gray-300 dark:hover:text-gray-300"
+                    id="partiql-tab" data-tabs-target="#partiql" type="button" role="tab" aria-controls="partiql"
+                    aria-selected="false">PartiQL</button>
+            </li>
         </ul>
     </div>
     <div id="table-detail-content">
@@ -249,6 +255,17 @@
                         </svg>
                         <span class="sr-only">Loading...</span>
                     </div>
+                </div>
+            </div>
+        </div>
+        <div class="hidden p-4 rounded-lg bg-gray-50 dark:bg-gray-800" id="partiql" role="tabpanel"
+            aria-labelledby="partiql-tab">
+            <div id="partiql-container"
+                hx-get="/dashboard/dynamodb/table/{{.TableName}}/partiql"
+                hx-trigger="intersect once"
+                hx-swap="innerHTML">
+                <div class="flex items-center justify-center p-8">
+                    <span class="text-gray-500 dark:text-gray-400 text-sm">Loading PartiQL editor...</span>
                 </div>
             </div>
         </div>
@@ -683,5 +700,44 @@
     </form>
 
     <div id="scan-results"></div>
+</div>
+{{end}}
+{{define "partiql-form"}}
+<div class="space-y-4">
+    <div>
+        <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-1">PartiQL Editor</h3>
+        <p class="text-sm text-gray-500 dark:text-gray-400">
+            Run SQL-style queries against DynamoDB using PartiQL.
+            Example: <code class="font-mono bg-gray-100 dark:bg-gray-700 px-1 rounded">SELECT * FROM "{{.TableName}}" WHERE pk='value'</code>
+        </p>
+    </div>
+    <form hx-post="/dashboard/dynamodb/table/{{.TableName}}/partiql"
+          hx-target="#partiql-output"
+          hx-swap="innerHTML">
+        <div class="mb-3">
+            <label for="partiql-statement" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Statement</label>
+            <textarea id="partiql-statement" name="statement" rows="4"
+                class="w-full font-mono text-sm p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                placeholder='SELECT * FROM "{{.TableName}}"'></textarea>
+        </div>
+        <button type="submit"
+            class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-300 text-sm font-medium">
+            Execute
+        </button>
+    </form>
+    <div id="partiql-output" class="mt-4"></div>
+</div>
+{{end}}
+
+{{define "partiql-results"}}
+<div class="mt-4">
+    <div class="flex items-center justify-between mb-2">
+        <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Results ({{.ItemCount}} item{{if ne .ItemCount 1}}s{{end}})</span>
+    </div>
+    {{if eq .ItemCount 0}}
+    <p class="text-sm text-gray-500 dark:text-gray-400">No items returned.</p>
+    {{else}}
+    <pre class="overflow-auto text-xs font-mono p-4 bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200 rounded-lg max-h-96">{{.ResultJSON}}</pre>
+    {{end}}
 </div>
 {{end}}
