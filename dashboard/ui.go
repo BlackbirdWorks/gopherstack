@@ -12,7 +12,9 @@ import (
 	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/labstack/echo/v5"
 
+	apigwbackend "github.com/blackbirdworks/gopherstack/apigateway"
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
+	ebbackend "github.com/blackbirdworks/gopherstack/eventbridge"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
 	kmsbackend "github.com/blackbirdworks/gopherstack/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/lambda"
@@ -67,6 +69,8 @@ type DashboardHandler struct {
 	SQSOps            *sqsbackend.Handler
 	SecretsManagerOps *secretsmanagerbackend.Handler
 	LambdaOps         *lambdabackend.Handler
+	EventBridgeOps    *ebbackend.Handler
+	APIGatewayOps     *apigwbackend.Handler
 	SubRouter         *echo.Echo
 	ddbProvider       *ddbbackend.DashboardProvider
 	s3Provider        *s3backend.DashboardProvider
@@ -93,7 +97,12 @@ type Config struct {
 	SecretsManagerOps *secretsmanagerbackend.Handler
 	// LambdaOps provides access to the Lambda backend.
 	LambdaOps *lambdabackend.Handler
-	Logger    *slog.Logger
+	// EventBridgeOps provides access to the EventBridge backend.
+	EventBridgeOps *ebbackend.Handler
+	// APIGatewayOps provides access to the API Gateway backend.
+	APIGatewayOps *apigwbackend.Handler
+	// Logger is the structured logger for dashboard operations.
+	Logger *slog.Logger
 	// GlobalConfig holds the centralized account and region configuration shown on the settings page.
 	GlobalConfig config.GlobalConfig
 }
@@ -126,6 +135,8 @@ func NewHandler(cfg Config) *DashboardHandler {
 		"templates/kms/*.html",
 		"templates/secretsmanager/*.html",
 		"templates/lambda/*.html",
+		"templates/eventbridge/*.html",
+		"templates/apigateway/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
 		"templates/settings.html",
@@ -149,6 +160,8 @@ func NewHandler(cfg Config) *DashboardHandler {
 		KMSOps:            cfg.KMSOps,
 		SecretsManagerOps: cfg.SecretsManagerOps,
 		LambdaOps:         cfg.LambdaOps,
+		EventBridgeOps:    cfg.EventBridgeOps,
+		APIGatewayOps:     cfg.APIGatewayOps,
 		GlobalConfig:      cfg.GlobalConfig,
 		Logger:            cfg.Logger,
 		layout:            tmpl,
@@ -258,6 +271,17 @@ func (h *DashboardHandler) setupLambdaRoutes() {
 	h.SubRouter.POST("/dashboard/lambda/invoke", h.lambdaInvoke)
 }
 
+func (h *DashboardHandler) setupEventBridgeRoutes() {
+	h.SubRouter.GET("/dashboard/eventbridge", h.eventBridgeIndex)
+	h.SubRouter.GET("/dashboard/eventbridge/rules", h.eventBridgeRules)
+	h.SubRouter.GET("/dashboard/eventbridge/events", h.eventBridgeEventLog)
+}
+
+func (h *DashboardHandler) setupAPIGatewayRoutes() {
+	h.SubRouter.GET("/dashboard/apigateway", h.apiGatewayIndex)
+	h.SubRouter.GET("/dashboard/apigateway/api", h.apiGatewayDetail)
+}
+
 func (h *DashboardHandler) setupMetaRoutes() {
 	dashboardGroup := h.SubRouter.Group("/dashboard")
 	RegisterMetricsHandlers(dashboardGroup, h)
@@ -274,6 +298,8 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.setupKMSRoutes()
 	h.setupSecretsManagerRoutes()
 	h.setupLambdaRoutes()
+	h.setupEventBridgeRoutes()
+	h.setupAPIGatewayRoutes()
 	h.setupMetaRoutes()
 }
 
@@ -343,6 +369,10 @@ func (h *DashboardHandler) ExtractOperation(c *echo.Context) string {
 		return "SecretsManager"
 	case strings.HasPrefix(path, "/lambda"):
 		return "Lambda"
+	case strings.HasPrefix(path, "/eventbridge"):
+		return "EventBridge"
+	case strings.HasPrefix(path, "/apigateway"):
+		return "APIGateway"
 	case strings.HasPrefix(path, "/metrics"):
 		return "Metrics"
 	case strings.HasPrefix(path, "/docs"):

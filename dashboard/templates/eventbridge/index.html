@@ -1,0 +1,32 @@
+{{define "content"}}
+<div class="px-4 sm:px-6 lg:px-8">
+    <h1 class="text-3xl font-bold text-gray-900 dark:text-white">EventBridge</h1>
+    <p class="mt-2 text-sm text-gray-700 dark:text-gray-300">Event buses in your in-memory EventBridge environment.</p>
+    <div class="mt-4 flex gap-4">
+        <a href="/dashboard/eventbridge/rules?bus=default" class="text-blue-600 hover:underline">View Default Bus Rules</a>
+        <a href="/dashboard/eventbridge/events" class="text-blue-600 hover:underline">Event Log</a>
+    </div>
+    <div class="mt-8 relative overflow-x-auto shadow-md sm:rounded-lg">
+        <table class="w-full text-sm text-left text-gray-500 dark:text-gray-400">
+            <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                <tr>
+                    <th class="px-6 py-3">Name</th>
+                    <th class="px-6 py-3">ARN</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Buses}}
+                <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
+                    <td class="px-6 py-4 font-mono text-gray-900 dark:text-white">
+                        <a href="/dashboard/eventbridge/rules?bus={{.Name}}" class="text-blue-600 hover:underline dark:text-blue-400">{{.Name}}</a>
+                    </td>
+                    <td class="px-6 py-4 font-mono text-gray-500 dark:text-gray-400">{{.Arn}}</td>
+                </tr>
+                {{else}}
+                <tr><td colspan="2" class="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">No event buses found.</td></tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+</div>
+{{end}}
