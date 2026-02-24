@@ -84,8 +84,8 @@ type CLI struct {
 	apiGatewayHandler     service.Registerable
 	cloudWatchLogsHandler service.Registerable
 	stepFunctionsHandler  service.Registerable
-	cloudWatchHandler        service.Registerable
-	cloudFormationHandler    service.Registerable
+	cloudWatchHandler     service.Registerable
+	cloudFormationHandler service.Registerable
 	s3Client              *s3.Client
 	iamClient             *iam.Client
 	snsClient             *sns.Client
@@ -423,7 +423,6 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		&cwlogsbackend.Provider{},
 		&sfnbackend.Provider{},
 		&cwbackend.Provider{},
-		&cfnbackend.Provider{},
 	}
 
 	for _, provider := range serviceProviders {
@@ -435,7 +434,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		services = append(services, svc)
 	}
 
-	// Store handlers in CLI so dashboard can access them.
+	// Store handlers in CLI so dashboard and CloudFormation can access them.
 	if cli, ok := appCtx.Config.(*CLI); ok {
 		cli.ddbHandler = services[0]
 		cli.s3Handler = services[1]
@@ -452,11 +451,22 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		cli.cloudWatchLogsHandler = services[12]
 		cli.stepFunctionsHandler = services[13]
 		cli.cloudWatchHandler = services[14]
-		cli.cloudFormationHandler = services[15]
 	}
 
 	// Wire SNS→SQS delivery: when SNS publishes a message, deliver it to SQS queues.
 	wireSNSToSQS(services[5], services[6])
+
+	// Init CloudFormation after core handlers are stored so it can access their backends.
+	cfnSvc, err := (&cfnbackend.Provider{}).Init(appCtx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to init CloudFormation: %w", err)
+	}
+
+	services = append(services, cfnSvc)
+
+	if cli, ok := appCtx.Config.(*CLI); ok {
+		cli.cloudFormationHandler = cfnSvc
+	}
 
 	// Init dashboard last so it can access all service handlers.
 	dashSvc, err := (&dashboard.Provider{}).Init(appCtx)

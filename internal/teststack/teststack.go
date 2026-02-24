@@ -175,27 +175,61 @@ type handlers struct {
 func newHandlers() handlers {
 	s3Bk := s3backend.NewInMemoryBackend(nil)
 	iamBk := iambackend.NewInMemoryBackend()
+	ddb := ddbbackend.NewHandler(ddbbackend.NewInMemoryDB(), slog.Default())
+	sqs := sqsbackend.NewHandler(sqsbackend.NewInMemoryBackend(), slog.Default())
+	sns := snsbackend.NewHandler(snsbackend.NewInMemoryBackend(), slog.Default())
+	ssm := ssmbackend.NewHandler(ssmbackend.NewInMemoryBackend(), slog.Default())
+	kms := kmsbackend.NewHandler(kmsbackend.NewInMemoryBackend(), slog.Default())
+	sm := smbackend.NewHandler(smbackend.NewInMemoryBackend(), slog.Default())
 
 	return handlers{
 		s3Bk:   s3Bk,
 		iamBk:  iamBk,
 		s3:     s3backend.NewHandler(s3Bk, slog.Default()),
-		ddb:    ddbbackend.NewHandler(ddbbackend.NewInMemoryDB(), slog.Default()),
-		ssm:    ssmbackend.NewHandler(ssmbackend.NewInMemoryBackend(), slog.Default()),
+		ddb:    ddb,
+		ssm:    ssm,
 		iam:    iambackend.NewHandler(iamBk, slog.Default()),
 		sts:    stsbackend.NewHandler(stsbackend.NewInMemoryBackend(), slog.Default()),
-		sns:    snsbackend.NewHandler(snsbackend.NewInMemoryBackend(), slog.Default()),
-		sqs:    sqsbackend.NewHandler(sqsbackend.NewInMemoryBackend(), slog.Default()),
-		kms:    kmsbackend.NewHandler(kmsbackend.NewInMemoryBackend(), slog.Default()),
-		sm:     smbackend.NewHandler(smbackend.NewInMemoryBackend(), slog.Default()),
+		sns:    sns,
+		sqs:    sqs,
+		kms:    kms,
+		sm:     sm,
 		lambda: newLambdaHandler(),
 		eb:     ebbackend.NewHandler(ebbackend.NewInMemoryBackend(), slog.Default()),
 		apigw:  apigwbackend.NewHandler(apigwbackend.NewInMemoryBackend(), slog.Default()),
 		cwlogs: cwlogsbackend.NewHandler(cwlogsbackend.NewInMemoryBackend(), slog.Default()),
 		sfn:    sfnbackend.NewHandler(sfnbackend.NewInMemoryBackend(), slog.Default()),
 		cw:     cwbackend.NewHandler(cwbackend.NewInMemoryBackend(), slog.Default()),
-		cfn:    cfnbackend.NewHandler(cfnbackend.NewInMemoryBackend(), slog.Default()),
+		cfn:    newCFNHandler(s3Bk, ddb, sqs, sns, ssm, kms, sm),
 	}
+}
+
+// newCFNHandler creates a CloudFormation handler wired to the given service backends
+// so that CreateStack actually provisions real resources.
+func newCFNHandler(
+	s3Bk *s3backend.InMemoryBackend,
+	ddb *ddbbackend.DynamoDBHandler,
+	sqs *sqsbackend.Handler,
+	sns *snsbackend.Handler,
+	ssm *ssmbackend.Handler,
+	kms *kmsbackend.Handler,
+	sm *smbackend.Handler,
+) *cfnbackend.Handler {
+	backends := &cfnbackend.ServiceBackends{
+		S3:             s3backend.NewHandler(s3Bk, slog.Default()),
+		DynamoDB:       ddb,
+		SQS:            sqs,
+		SNS:            sns,
+		SSM:            ssm,
+		KMS:            kms,
+		SecretsManager: sm,
+		AccountID:      "000000000000",
+		Region:         "us-east-1",
+	}
+	creator := cfnbackend.NewResourceCreator(backends)
+	backend := cfnbackend.NewInMemoryBackendWithConfig("000000000000", "us-east-1", creator)
+
+	return cfnbackend.NewHandler(backend, slog.Default())
 }
 
 // New creates a fully wired integration stack for testing.

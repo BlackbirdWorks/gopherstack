@@ -301,12 +301,15 @@
 - [ ] CloudWatch Metrics: GetMetricData (extended query with MetricDataQuery)
 - [ ] CloudWatch Logs: Lambda container stdout/stderr → CloudWatch Logs wiring
 
-### v0.11 — Infrastructure-as-Code
-- **CloudFormation**
+### v0.11 — Infrastructure-as-Code ✅
+- **CloudFormation** ✅
   - CreateStack / DeleteStack / UpdateStack / DescribeStacks / ListStacks
-  - Resource creation for all implemented services
-  - Outputs, parameters, mappings, conditions
-  - Stack events, change sets
+  - Resource creation: AWS::S3::Bucket, AWS::DynamoDB::Table, AWS::SQS::Queue, AWS::SNS::Topic, AWS::SSM::Parameter, AWS::KMS::Key, AWS::SecretsManager::Secret
+  - Outputs, parameters, intrinsic functions (Ref, Fn::Sub, Fn::Join)
+  - Stack events, change sets (CreateChangeSet, DescribeChangeSet, ExecuteChangeSet, DeleteChangeSet, ListChangeSets)
+  - GetTemplate
+  - JSON and YAML template support
+  - Dashboard UI: stack list, stack detail (resources, outputs, events)
   - _Coverage limited to resources backed by implemented services_
 - Terraform compatibility testing & docs
 - CDK compatibility docs
@@ -595,7 +598,7 @@ DNS is only needed for:
 | KMS | Yes | Yes | ~90% — missing grants ✅ |
 | Secrets Manager | Yes | Yes | ~90% ✅ |
 | SSM (Parameter Store) | Yes | Yes | ~95% ✅ |
-| CloudFormation | Yes | No | v0.11 |
+| CloudFormation | Yes | Yes | Core CRUD + resource creation + change sets ✅ (v0.11) |
 | CloudWatch Metrics | Yes | Yes | Core API (PutMetricData, GetMetricStatistics, ListMetrics, alarms) ✅ (v0.10) |
 | CloudWatch Logs | Yes | Yes | Core API (log groups, streams, events) ✅ (v0.10) |
 | API Gateway (REST) | Yes | Yes | Core CRUD + mock integrations ✅ (v0.9) |
