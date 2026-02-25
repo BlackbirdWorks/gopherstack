@@ -169,7 +169,8 @@ func cborTime(m cbor.Map, key string) time.Time {
 
 func cborValTime(v cbor.Value) time.Time {
 	// Tag(1, ...) means epoch timestamp per RFC 8949.
-	if t, isTag := v.(cbor.Tag); isTag {
+	// cbor.Decode returns *cbor.Tag (pointer) even though encoding uses cbor.Tag (value).
+	if t, isTag := v.(*cbor.Tag); isTag {
 		return cborValTime(t.Value)
 	}
 
