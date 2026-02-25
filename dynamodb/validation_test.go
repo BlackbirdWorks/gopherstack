@@ -161,6 +161,11 @@ func TestPutItem_ValidationErrors(t *testing.T) {
 			item:      `{"pk": {"S": "val"}, "map": {"M": {"bad": {"N": "abc"}}}}`,
 			wantError: "Attribute bad of type N must be a valid number",
 		},
+		{
+			name:      "Empty string PK",
+			item:      `{"pk": {"S": ""}}`,
+			wantError: "cannot contain an empty string value. Key: pk",
+		},
 	}
 
 	for _, tc := range tests {
@@ -190,6 +195,33 @@ func TestPutItem_ValidationErrors(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestPutItem_BlankSK(t *testing.T) {
+	t.Parallel()
+	db := dynamodb.NewInMemoryDB()
+	tableName := "BlankSKTable"
+	ctInput := models.CreateTableInput{
+		TableName: tableName,
+		KeySchema: []models.KeySchemaElement{
+			{AttributeName: "pk", KeyType: models.KeyTypeHash},
+			{AttributeName: "sk", KeyType: models.KeyTypeRange},
+		},
+		AttributeDefinitions: []models.AttributeDefinition{
+			{AttributeName: "pk", AttributeType: "S"},
+			{AttributeName: "sk", AttributeType: "S"},
+		},
+	}
+	_, err := db.CreateTable(context.Background(), models.ToSDKCreateTableInput(&ctInput))
+	require.NoError(t, err)
+
+	inputStr := `{"TableName": "` + tableName + `", "Item": {"pk": {"S": "val"}, "sk": {"S": ""}}}`
+	putInput := mustUnmarshal[models.PutItemInput](t, inputStr)
+	sdkPut, _ := models.ToSDKPutItemInput(&putInput)
+
+	_, pErr := db.PutItem(context.Background(), sdkPut)
+	require.Error(t, pErr)
+	assert.Contains(t, pErr.Error(), "cannot contain an empty string value. Key: sk")
 }
 
 func TestPutItem_ItemTooLarge(t *testing.T) {

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/dynamodb/models"
 )
@@ -83,6 +84,18 @@ func validateKeySchema(item map[string]any, schema []models.KeySchemaElement) er
 		val, ok := item[k.AttributeName]
 		if !ok {
 			return NewValidationException(fmt.Sprintf("Missing key element: %s", k.AttributeName))
+		}
+
+		// Check for empty string value on a key attribute
+		if valMap, isMap := val.(map[string]any); isMap {
+			if sVal, hasS := valMap["S"]; hasS {
+				if str, isStr := sVal.(string); isStr && str == "" {
+					return NewValidationException(fmt.Sprintf(
+						"One or more parameter values not valid. The AttributeValue for a key attribute cannot contain an empty string value. Key: %s",
+						k.AttributeName,
+					))
+				}
+			}
 		}
 
 		// Check size
@@ -303,4 +316,82 @@ func validateComplexValue(k, t string, val any) error {
 	}
 
 	return nil
+}
+
+// validateQueryKeyValues checks that ExpressionAttributeValues referenced by key
+// attribute conditions in the KeyConditionExpression do not contain empty string values.
+func validateQueryKeyValues(
+	exprParts []string,
+	keySchema []models.KeySchemaElement,
+	eav map[string]any,
+	attrNames map[string]string,
+) error {
+	// Build a map from token/alias -> actual key attribute name.
+	keyNames := make(map[string]string, len(keySchema))
+	for _, k := range keySchema {
+		keyNames[k.AttributeName] = k.AttributeName
+	}
+	for alias, name := range attrNames {
+		if actual, isKey := keyNames[name]; isKey {
+			keyNames[alias] = actual
+		}
+	}
+
+	for _, part := range exprParts {
+		part = strings.TrimSpace(part)
+
+		// Find if this part references a key attribute.
+		var keyAttr string
+		for name, actual := range keyNames {
+			if containsToken(part, name) {
+				keyAttr = actual
+				break
+			}
+		}
+		if keyAttr == "" {
+			continue
+		}
+
+		// Check all value tokens that appear in this part for empty strings.
+		for tok, val := range eav {
+			if !containsToken(part, tok) {
+				continue
+			}
+			valMap, ok := val.(map[string]any)
+			if !ok {
+				continue
+			}
+			sVal, hasS := valMap["S"]
+			if !hasS {
+				continue
+			}
+			str, ok := sVal.(string)
+			if ok && str == "" {
+				return NewValidationException(fmt.Sprintf(
+					"One or more parameter values not valid. The AttributeValue for a key attribute cannot contain an empty string value. Key: %s",
+					keyAttr,
+				))
+			}
+		}
+	}
+
+	return nil
+}
+
+// containsToken reports whether token appears in expr as a complete identifier
+// token (not as a substring of a longer identifier).
+func containsToken(expr, token string) bool {
+	idx := strings.Index(expr, token)
+	if idx < 0 {
+		return false
+	}
+	end := idx + len(token)
+	before := idx == 0 || !isIdentChar(expr[idx-1])
+	after := end == len(expr) || !isIdentChar(expr[end])
+
+	return before && after
+}
+
+func isIdentChar(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_'
 }
