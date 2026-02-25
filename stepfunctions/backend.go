@@ -88,7 +88,7 @@ func (b *InMemoryBackend) CreateStateMachine(name, definition, roleArn, smType s
 	}
 
 	sm := &StateMachine{
-		CreationDate:    time.Now(),
+		CreationDate:    float64(time.Now().Unix()),
 		Name:            name,
 		StateMachineArn: arn,
 		Type:            smType,
@@ -164,7 +164,7 @@ func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*
 		return nil, fmt.Errorf("%w: %s", ErrExecutionAlreadyExists, name)
 	}
 
-	now := time.Now()
+	now := float64(time.Now().Unix())
 	exec := &Execution{
 		StartDate:       now,
 		ExecutionArn:    execArn,
@@ -201,7 +201,7 @@ func (b *InMemoryBackend) StopExecution(executionArn, errCode, cause string) err
 		return fmt.Errorf("%w: %s", ErrExecutionDoesNotExist, executionArn)
 	}
 
-	now := time.Now()
+	now := float64(time.Now().Unix())
 	exec.Status = "ABORTED"
 	exec.StopDate = &now
 	exec.Error = errCode
