@@ -289,3 +289,106 @@ func TestCBOR_InvalidBody(t *testing.T) {
 	require.NoError(t, h.Handler()(c))
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
+
+func TestCBOR_GetMetricData(t *testing.T) {
+	t.Parallel()
+
+	h := newCBORHandler()
+	ts := time.Now().UTC()
+
+	// First put some metric data
+	postCBOR(t, h, "PutMetricData", cbor.Map{
+		"Namespace": cbor.String("MDataNS"),
+		"MetricData": cbor.List{
+			cbor.Map{
+				"MetricName": cbor.String("Errors"),
+				"Value":      cbor.Float64(42.0),
+				"Timestamp":  cbor.Tag{ID: 1, Value: cbor.Float64(float64(ts.Unix()))},
+			},
+		},
+	})
+
+	rec := postCBOR(t, h, "GetMetricData", cbor.Map{
+		"StartTime": cbor.Tag{ID: 1, Value: cbor.Float64(float64(ts.Add(-time.Hour).Unix()))},
+		"EndTime":   cbor.Tag{ID: 1, Value: cbor.Float64(float64(ts.Add(time.Minute).Unix()))},
+		"MetricDataQueries": cbor.List{
+			cbor.Map{
+				"Id":    cbor.String("q1"),
+				"Label": cbor.String("ErrorCount"),
+				"MetricStat": cbor.Map{
+					"Stat":   cbor.String("Sum"),
+					"Period": cbor.Uint(3600),
+					"Metric": cbor.Map{
+						"Namespace":  cbor.String("MDataNS"),
+						"MetricName": cbor.String("Errors"),
+					},
+				},
+			},
+		},
+	})
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "rpc-v2-cbor", rec.Header().Get("Smithy-Protocol"))
+
+	m := decodeCBORResponse(t, rec)
+	results, ok := m["MetricDataResults"].(cbor.List)
+	require.True(t, ok)
+	assert.NotEmpty(t, results)
+}
+
+func TestCBOR_GetMetricData_EmptyQueries(t *testing.T) {
+	t.Parallel()
+
+	h := newCBORHandler()
+	rec := postCBOR(t, h, "GetMetricData", cbor.Map{})
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	m := decodeCBORResponse(t, rec)
+	results, ok := m["MetricDataResults"].(cbor.List)
+	require.True(t, ok)
+	assert.Empty(t, results)
+}
+
+func TestCBOR_PutMetricAlarm_MissingName(t *testing.T) {
+	t.Parallel()
+
+	h := newCBORHandler()
+	rec := postCBOR(t, h, "PutMetricAlarm", cbor.Map{})
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, "rpc-v2-cbor", rec.Header().Get("Smithy-Protocol"))
+}
+
+func TestCBOR_DescribeAlarms_Empty(t *testing.T) {
+	t.Parallel()
+
+	h := newCBORHandler()
+	rec := postCBOR(t, h, "DescribeAlarms", cbor.Map{})
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	m := decodeCBORResponse(t, rec)
+	alarms, ok := m["MetricAlarms"].(cbor.List)
+	require.True(t, ok)
+	assert.Empty(t, alarms)
+}
+
+func TestCBOR_EmptyBody(t *testing.T) {
+	t.Parallel()
+
+	h := newCBORHandler()
+	e := echo.New()
+	req := httptest.NewRequest(
+		http.MethodPost,
+		cborTestServicePath+"PutMetricData",
+		bytes.NewReader(nil), // empty body
+	)
+	req.Header.Set("Content-Type", "application/cbor")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	require.NoError(t, h.Handler()(c))
+	// Empty body defaults to empty map, but missing Namespace returns 400
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
