@@ -11,6 +11,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// Test sentinel errors — used as mock return values in Lambda error tests.
+var (
+	errLambdaService = errors.New("Lambda.ServiceException")
+	errMyError       = errors.New("MyError")
+	errMySpecific    = errors.New("MySpecificError")
+	errUnhandled     = errors.New("UnhandledError")
+)
+
 func TestParse_Valid(t *testing.T) {
 	t.Parallel()
 
@@ -35,7 +43,7 @@ func TestParse_MissingStartAt(t *testing.T) {
 	def := `{"States": {"S": {"Type": "Pass", "End": true}}}`
 	_, err := asl.Parse(def)
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, asl.ErrParseError))
+	assert.ErrorIs(t, err, asl.ErrParseError)
 }
 
 func TestParse_MissingStates(t *testing.T) {
@@ -88,7 +96,7 @@ func TestExecutor_PassState_PassThrough(t *testing.T) {
 
 	m, ok := result.Output.(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, float64(1), m["x"])
+	assert.InDelta(t, float64(1), m["x"], 1e-9)
 }
 
 func TestExecutor_PassState_WithResult(t *testing.T) {
@@ -411,7 +419,7 @@ func TestExecutor_TaskState_LambdaError_Catch(t *testing.T) {
 	t.Parallel()
 
 	mockLambda := &mockLambda{
-		returnErr: errors.New("Lambda.ServiceException"),
+		returnErr: errLambdaService,
 	}
 
 	def := `{
@@ -442,9 +450,9 @@ func TestExecutor_TaskState_LambdaError_Catch(t *testing.T) {
 
 // mockLambda implements asl.LambdaInvoker for testing.
 type mockLambda struct {
+	returnErr  error
 	response   string
 	statusCode int
-	returnErr  error
 }
 
 func (m *mockLambda) InvokeFunction(_ context.Context, _, _ string, _ []byte) ([]byte, int, error) {
@@ -487,27 +495,20 @@ func TestExecutor_ResultPath_Null(t *testing.T) {
 	assert.False(t, hasDiscarded)
 }
 
-// marshalResult marshals a result to JSON for comparison.
-func marshalResult(v any) string {
-	b, _ := json.Marshal(v)
-
-	return string(b)
-}
-
 func TestExecutor_FailError_Method(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-err := &asl.FailError{ErrCode: "E1", Cause: "cause1"}
-assert.Equal(t, "E1: cause1", err.Error())
+	err := &asl.FailError{ErrCode: "E1", Cause: "cause1"}
+	assert.Equal(t, "E1: cause1", err.Error())
 
-err2 := &asl.FailError{ErrCode: "E2"}
-assert.Equal(t, "E2", err2.Error())
+	err2 := &asl.FailError{ErrCode: "E2"}
+	assert.Equal(t, "E2", err2.Error())
 }
 
 func TestExecutor_ChoiceState_NoMatchNoDefault(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-def := `{
+	def := `{
 "StartAt": "C",
 "States": {
 "C": {
@@ -519,19 +520,19 @@ def := `{
 "Done": {"Type": "Succeed"}
 }
 }`
-sm, err := asl.Parse(def)
-require.NoError(t, err)
-exec := asl.NewExecutor(sm, nil, nil)
-result, err := exec.Execute(context.Background(), "test", `{"x": "no"}`)
-require.NoError(t, err)
-// No match and no default → FailError with States.NoChoiceMatched
-assert.NotEmpty(t, result.Error)
+	sm, err := asl.Parse(def)
+	require.NoError(t, err)
+	exec := asl.NewExecutor(sm, nil, nil)
+	result, err := exec.Execute(context.Background(), "test", `{"x": "no"}`)
+	require.NoError(t, err)
+	// No match and no default → FailError with States.NoChoiceMatched
+	assert.NotEmpty(t, result.Error)
 }
 
 func TestExecutor_Choice_Or(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-def := `{
+	def := `{
 "StartAt": "C",
 "States": {
 "C": {
@@ -552,17 +553,17 @@ def := `{
 }
 }`
 
-result := execute(t, def, `{"x": "a"}`)
-assert.Equal(t, "match", result.Output)
+	result := execute(t, def, `{"x": "a"}`)
+	assert.Equal(t, "match", result.Output)
 
-result2 := execute(t, def, `{"x": "c"}`)
-assert.Equal(t, "no-match", result2.Output)
+	result2 := execute(t, def, `{"x": "c"}`)
+	assert.Equal(t, "no-match", result2.Output)
 }
 
 func TestExecutor_Choice_Not(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-def := `{
+	def := `{
 "StartAt": "C",
 "States": {
 "C": {
@@ -580,17 +581,17 @@ def := `{
 }
 }`
 
-result := execute(t, def, `{"status": "running"}`)
-assert.Equal(t, "active", result.Output)
+	result := execute(t, def, `{"status": "running"}`)
+	assert.Equal(t, "active", result.Output)
 
-result2 := execute(t, def, `{"status": "inactive"}`)
-assert.Equal(t, "inactive", result2.Output)
+	result2 := execute(t, def, `{"status": "inactive"}`)
+	assert.Equal(t, "inactive", result2.Output)
 }
 
 func TestExecutor_Choice_BooleanEquals(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-def := `{
+	def := `{
 "StartAt": "C",
 "States": {
 "C": {
@@ -605,17 +606,17 @@ def := `{
 }
 }`
 
-result := execute(t, def, `{"flag": true}`)
-assert.Equal(t, "yes", result.Output)
+	result := execute(t, def, `{"flag": true}`)
+	assert.Equal(t, "yes", result.Output)
 
-result2 := execute(t, def, `{"flag": false}`)
-assert.Equal(t, "no", result2.Output)
+	result2 := execute(t, def, `{"flag": false}`)
+	assert.Equal(t, "no", result2.Output)
 }
 
 func TestExecutor_Choice_NumericLessThan(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-def := `{
+	def := `{
 "StartAt": "C",
 "States": {
 "C": {
@@ -630,17 +631,17 @@ def := `{
 }
 }`
 
-result := execute(t, def, `{"n": 5}`)
-assert.Equal(t, "low", result.Output)
+	result := execute(t, def, `{"n": 5}`)
+	assert.Equal(t, "low", result.Output)
 
-result2 := execute(t, def, `{"n": 15}`)
-assert.Equal(t, "high", result2.Output)
+	result2 := execute(t, def, `{"n": 15}`)
+	assert.Equal(t, "high", result2.Output)
 }
 
 func TestExecutor_Choice_NumericEquals(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-def := `{
+	def := `{
 "StartAt": "C",
 "States": {
 "C": {
@@ -655,14 +656,14 @@ def := `{
 }
 }`
 
-result := execute(t, def, `{"n": 42}`)
-assert.Equal(t, "match", result.Output)
+	result := execute(t, def, `{"n": 42}`)
+	assert.Equal(t, "match", result.Output)
 }
 
 func TestExecutor_Choice_StringGreaterThan(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-def := `{
+	def := `{
 "StartAt": "C",
 "States": {
 "C": {
@@ -677,17 +678,17 @@ def := `{
 }
 }`
 
-result := execute(t, def, `{"s": "z"}`)
-assert.Equal(t, "high", result.Output)
+	result := execute(t, def, `{"s": "z"}`)
+	assert.Equal(t, "high", result.Output)
 
-result2 := execute(t, def, `{"s": "a"}`)
-assert.Equal(t, "low", result2.Output)
+	result2 := execute(t, def, `{"s": "a"}`)
+	assert.Equal(t, "low", result2.Output)
 }
 
 func TestExecutor_Choice_IsPresent(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-def := `{
+	def := `{
 "StartAt": "C",
 "States": {
 "C": {
@@ -702,17 +703,17 @@ def := `{
 }
 }`
 
-result := execute(t, def, `{"optional": "value"}`)
-assert.Equal(t, "has", result.Output)
+	result := execute(t, def, `{"optional": "value"}`)
+	assert.Equal(t, "has", result.Output)
 
-result2 := execute(t, def, `{}`)
-assert.Equal(t, "missing", result2.Output)
+	result2 := execute(t, def, `{}`)
+	assert.Equal(t, "missing", result2.Output)
 }
 
 func TestExecutor_MapState_WithItemsPath(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-def := `{
+	def := `{
 "StartAt": "Map",
 "States": {
 "Map": {
@@ -729,16 +730,16 @@ def := `{
 }
 }`
 
-result := execute(t, def, `{"items": ["a", "b", "c"]}`)
-arr, ok := result.Output.([]any)
-require.True(t, ok)
-assert.Len(t, arr, 3)
+	result := execute(t, def, `{"items": ["a", "b", "c"]}`)
+	arr, ok := result.Output.([]any)
+	require.True(t, ok)
+	assert.Len(t, arr, 3)
 }
 
 func TestExecutor_MapState_MaxConcurrency(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-def := `{
+	def := `{
 "StartAt": "Map",
 "States": {
 "Map": {
@@ -755,10 +756,10 @@ def := `{
 }
 }`
 
-result := execute(t, def, `[1, 2, 3, 4, 5]`)
-arr, ok := result.Output.([]any)
-require.True(t, ok)
-assert.Len(t, arr, 5)
+	result := execute(t, def, `[1, 2, 3, 4, 5]`)
+	arr, ok := result.Output.([]any)
+	require.True(t, ok)
+	assert.Len(t, arr, 5)
 }
 
 func TestExecutor_LambdaTask_StatusError(t *testing.T) {
@@ -792,9 +793,9 @@ func TestExecutor_LambdaTask_StatusError(t *testing.T) {
 }
 
 func TestExecutor_OutputPath(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-def := `{
+	def := `{
 "StartAt": "P",
 "States": {
 "P": {
@@ -805,14 +806,14 @@ def := `{
 }
 }`
 
-result := execute(t, def, `{"key": "extracted"}`)
-assert.Equal(t, "extracted", result.Output)
+	result := execute(t, def, `{"key": "extracted"}`)
+	assert.Equal(t, "extracted", result.Output)
 }
 
 func TestExecutor_ContextCancellation(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-def := `{
+	def := `{
 "StartAt": "W",
 "States": {
 "W": {
@@ -823,23 +824,23 @@ def := `{
 }
 }`
 
-sm, err := asl.Parse(def)
-require.NoError(t, err)
+	sm, err := asl.Parse(def)
+	require.NoError(t, err)
 
-ctx, cancel := context.WithCancel(context.Background())
-cancel() // Cancel immediately.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately.
 
-exec := asl.NewExecutor(sm, nil, nil)
-_, err = exec.Execute(ctx, "test", `{}`)
-require.Error(t, err)
+	exec := asl.NewExecutor(sm, nil, nil)
+	_, err = exec.Execute(ctx, "test", `{}`)
+	require.Error(t, err)
 }
 
 func TestExecutor_TaskState_CatchWithResultPath(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-lam := &mockLambda{returnErr: errors.New("MyError")}
+	lam := &mockLambda{returnErr: errMyError}
 
-def := `{
+	def := `{
 "StartAt": "T",
 "States": {
 "T": {
@@ -852,21 +853,21 @@ def := `{
 }
 }`
 
-sm, err := asl.Parse(def)
-require.NoError(t, err)
-exec := asl.NewExecutor(sm, lam, nil)
-result, err := exec.Execute(context.Background(), "test", `{"original": "data"}`)
-require.NoError(t, err)
-assert.Empty(t, result.Error)
+	sm, err := asl.Parse(def)
+	require.NoError(t, err)
+	exec := asl.NewExecutor(sm, lam, nil)
+	result, err := exec.Execute(context.Background(), "test", `{"original": "data"}`)
+	require.NoError(t, err)
+	assert.Empty(t, result.Error)
 }
 
 func TestExecutor_catchesError_SpecificError(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-// Test that a specific error name in Catch catches that specific error.
-lam := &mockLambda{returnErr: errors.New("MySpecificError")}
+	// Test that a specific error name in Catch catches that specific error.
+	lam := &mockLambda{returnErr: errMySpecific}
 
-def := `{
+	def := `{
 "StartAt": "T",
 "States": {
 "T": {
@@ -879,20 +880,20 @@ def := `{
 }
 }`
 
-sm, err := asl.Parse(def)
-require.NoError(t, err)
-exec := asl.NewExecutor(sm, lam, nil)
-result, err := exec.Execute(context.Background(), "test", `{}`)
-require.NoError(t, err)
-assert.Equal(t, "caught", result.Output)
+	sm, err := asl.Parse(def)
+	require.NoError(t, err)
+	exec := asl.NewExecutor(sm, lam, nil)
+	result, err := exec.Execute(context.Background(), "test", `{}`)
+	require.NoError(t, err)
+	assert.Equal(t, "caught", result.Output)
 }
 
 func TestExecutor_TaskState_FailWithNoCatch(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-lam := &mockLambda{returnErr: errors.New("UnhandledError")}
+	lam := &mockLambda{returnErr: errUnhandled}
 
-def := `{
+	def := `{
 "StartAt": "T",
 "States": {
 "T": {
@@ -903,18 +904,18 @@ def := `{
 }
 }`
 
-sm, err := asl.Parse(def)
-require.NoError(t, err)
-exec := asl.NewExecutor(sm, lam, nil)
-result, err := exec.Execute(context.Background(), "test", `{}`)
-require.NoError(t, err)
-assert.Equal(t, "TaskFailed", result.Error)
+	sm, err := asl.Parse(def)
+	require.NoError(t, err)
+	exec := asl.NewExecutor(sm, lam, nil)
+	result, err := exec.Execute(context.Background(), "test", `{}`)
+	require.NoError(t, err)
+	assert.Equal(t, "TaskFailed", result.Error)
 }
 
 func TestExecutor_MapState_EmptyArray(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-def := `{
+	def := `{
 "StartAt": "Map",
 "States": {
 "Map": {
@@ -928,18 +929,18 @@ def := `{
 }
 }`
 
-result := execute(t, def, `[]`)
-arr, ok := result.Output.([]any)
-require.True(t, ok)
-assert.Empty(t, arr)
+	result := execute(t, def, `[]`)
+	arr, ok := result.Output.([]any)
+	require.True(t, ok)
+	assert.Empty(t, arr)
 }
 
 func TestExecutor_LambdaTask_NonJSONResponse(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-lam := &mockLambda{response: "plain text response"}
+	lam := &mockLambda{response: "plain text response"}
 
-def := `{
+	def := `{
 "StartAt": "T",
 "States": {
 "T": {
@@ -950,18 +951,18 @@ def := `{
 }
 }`
 
-sm, err := asl.Parse(def)
-require.NoError(t, err)
-exec := asl.NewExecutor(sm, lam, nil)
-result, err := exec.Execute(context.Background(), "test", `{}`)
-require.NoError(t, err)
-assert.Empty(t, result.Error)
+	sm, err := asl.Parse(def)
+	require.NoError(t, err)
+	exec := asl.NewExecutor(sm, lam, nil)
+	result, err := exec.Execute(context.Background(), "test", `{}`)
+	require.NoError(t, err)
+	assert.Empty(t, result.Error)
 }
 
 func TestExecutor_InputPath_Invalid(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-def := `{
+	def := `{
 "StartAt": "P",
 "States": {
 "P": {
@@ -971,17 +972,17 @@ def := `{
 }
 }
 }`
-sm, err := asl.Parse(def)
-require.NoError(t, err)
-exec := asl.NewExecutor(sm, nil, nil)
-_, err = exec.Execute(context.Background(), "test", `{"x": 1}`)
-require.Error(t, err)
+	sm, err := asl.Parse(def)
+	require.NoError(t, err)
+	exec := asl.NewExecutor(sm, nil, nil)
+	_, err = exec.Execute(context.Background(), "test", `{"x": 1}`)
+	require.Error(t, err)
 }
 
 func TestExecutor_MapState_NotArray(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-def := `{
+	def := `{
 "StartAt": "Map",
 "States": {
 "Map": {
@@ -995,17 +996,17 @@ def := `{
 }
 }`
 
-sm, err := asl.Parse(def)
-require.NoError(t, err)
-exec := asl.NewExecutor(sm, nil, nil)
-_, err = exec.Execute(context.Background(), "test", `{"not": "array"}`)
-require.Error(t, err)
+	sm, err := asl.Parse(def)
+	require.NoError(t, err)
+	exec := asl.NewExecutor(sm, nil, nil)
+	_, err = exec.Execute(context.Background(), "test", `{"not": "array"}`)
+	require.Error(t, err)
 }
 
 func TestExecutor_MapState_ItemsPath_NotArray(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-def := `{
+	def := `{
 "StartAt": "Map",
 "States": {
 "Map": {
@@ -1020,17 +1021,17 @@ def := `{
 }
 }`
 
-sm, err := asl.Parse(def)
-require.NoError(t, err)
-exec := asl.NewExecutor(sm, nil, nil)
-_, err = exec.Execute(context.Background(), "test", `{"count": 5}`)
-require.Error(t, err)
+	sm, err := asl.Parse(def)
+	require.NoError(t, err)
+	exec := asl.NewExecutor(sm, nil, nil)
+	_, err = exec.Execute(context.Background(), "test", `{"count": 5}`)
+	require.Error(t, err)
 }
 
 func TestExecutor_ResultPath_NestedCreate(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-def := `{
+	def := `{
 "StartAt": "P",
 "States": {
 "P": {
@@ -1042,33 +1043,33 @@ def := `{
 }
 }`
 
-result := execute(t, def, `{"data": "original"}`)
-m := result.Output.(map[string]any)
-assert.Equal(t, "original", m["data"])
+	result := execute(t, def, `{"data": "original"}`)
+	m := result.Output.(map[string]any)
+	assert.Equal(t, "original", m["data"])
 }
 
 func TestExecutor_UnknownStateType(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-def := `{
+	def := `{
 "StartAt": "X",
 "States": {
 "X": {"Type": "Unknown", "End": true}
 }
 }`
 
-// Parse will succeed but execute will fail on unknown type.
-var sm asl.StateMachine
-require.NoError(t, json.Unmarshal([]byte(def), &sm))
-exec := asl.NewExecutor(&sm, nil, nil)
-_, err := exec.Execute(context.Background(), "test", `{}`)
-require.Error(t, err)
+	// Parse will succeed but execute will fail on unknown type.
+	var sm asl.StateMachine
+	require.NoError(t, json.Unmarshal([]byte(def), &sm))
+	exec := asl.NewExecutor(&sm, nil, nil)
+	_, err := exec.Execute(context.Background(), "test", `{}`)
+	require.Error(t, err)
 }
 
 func TestExecutor_TaskNoLambdaInvoker(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-def := `{
+	def := `{
 "StartAt": "T",
 "States": {
 "T": {
@@ -1079,11 +1080,11 @@ def := `{
 }
 }`
 
-sm, err := asl.Parse(def)
-require.NoError(t, err)
-// No lambda invoker - should fail
-exec := asl.NewExecutor(sm, nil, nil)
-result, err := exec.Execute(context.Background(), "test", `{}`)
-require.NoError(t, err)
-assert.NotEmpty(t, result.Error)
+	sm, err := asl.Parse(def)
+	require.NoError(t, err)
+	// No lambda invoker - should fail
+	exec := asl.NewExecutor(sm, nil, nil)
+	result, err := exec.Execute(context.Background(), "test", `{}`)
+	require.NoError(t, err)
+	assert.NotEmpty(t, result.Error)
 }

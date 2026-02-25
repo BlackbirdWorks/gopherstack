@@ -34,7 +34,7 @@ func TestScheduler_FiresRateRule(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	go scheduler.Start(ctx)
+	go scheduler.Run(ctx)
 
 	// Wait for at least one scheduled event to appear in the event log.
 	require.Eventually(t, func() bool {
@@ -71,7 +71,7 @@ func TestScheduler_SkipsDisabledRule(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 
-	go scheduler.Start(ctx)
+	go scheduler.Run(ctx)
 
 	// Disabled rules should not fire events.
 	time.Sleep(300 * time.Millisecond)
@@ -103,7 +103,7 @@ func TestScheduler_InvalidExpression(t *testing.T) {
 	defer cancel()
 
 	// Should not panic; invalid expressions are logged and skipped.
-	scheduler.Start(ctx)
+	scheduler.Run(ctx)
 }
 
 func TestScheduler_CronRule(t *testing.T) {
@@ -126,7 +126,7 @@ func TestScheduler_CronRule(t *testing.T) {
 	defer cancel()
 
 	// Just verify it doesn't panic.
-	scheduler.Start(ctx)
+	scheduler.Run(ctx)
 }
 
 func TestNewScheduler_DefaultTickInterval(t *testing.T) {

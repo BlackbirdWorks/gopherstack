@@ -311,52 +311,54 @@ const passDefinition = `{
 }`
 
 func TestStartExecution_ASL_Pass(t *testing.T) {
-t.Parallel()
-b := newBackend()
+	t.Parallel()
+	b := newBackend()
 
-sm, err := b.CreateStateMachine("asl-pass", passDefinition, "arn:role", "STANDARD")
-require.NoError(t, err)
+	sm, err := b.CreateStateMachine("asl-pass", passDefinition, "arn:role", "STANDARD")
+	require.NoError(t, err)
 
-exec, err := b.StartExecution(sm.StateMachineArn, "asl-exec-1", `{"key":"val"}`)
-require.NoError(t, err)
-assert.Equal(t, "RUNNING", exec.Status)
+	exec, err := b.StartExecution(sm.StateMachineArn, "asl-exec-1", `{"key":"val"}`)
+	require.NoError(t, err)
+	assert.Equal(t, "RUNNING", exec.Status)
 
-// Wait for ASL execution to complete.
-require.Eventually(t, func() bool {
-desc, descErr := b.DescribeExecution(exec.ExecutionArn)
-return descErr == nil && desc.Status == "SUCCEEDED"
-}, 5*time.Second, 50*time.Millisecond, "execution should succeed")
+	// Wait for ASL execution to complete.
+	require.Eventually(t, func() bool {
+		desc, descErr := b.DescribeExecution(exec.ExecutionArn)
 
-desc, err := b.DescribeExecution(exec.ExecutionArn)
-require.NoError(t, err)
-assert.Equal(t, "SUCCEEDED", desc.Status)
-assert.Contains(t, desc.Output, "key")
+		return descErr == nil && desc.Status == "SUCCEEDED"
+	}, 5*time.Second, 50*time.Millisecond, "execution should succeed")
+
+	desc, err := b.DescribeExecution(exec.ExecutionArn)
+	require.NoError(t, err)
+	assert.Equal(t, "SUCCEEDED", desc.Status)
+	assert.Contains(t, desc.Output, "key")
 }
 
 func TestStartExecution_ASL_Fail(t *testing.T) {
-t.Parallel()
-b := newBackend()
+	t.Parallel()
+	b := newBackend()
 
-failDef := `{
+	failDef := `{
 "StartAt": "F",
 "States": {
 "F": {"Type": "Fail", "Error": "MyErr", "Cause": "test cause"}
 }
 }`
 
-sm, err := b.CreateStateMachine("asl-fail-sm", failDef, "arn:role", "STANDARD")
-require.NoError(t, err)
+	sm, err := b.CreateStateMachine("asl-fail-sm", failDef, "arn:role", "STANDARD")
+	require.NoError(t, err)
 
-exec, err := b.StartExecution(sm.StateMachineArn, "asl-fail-exec", `{}`)
-require.NoError(t, err)
+	exec, err := b.StartExecution(sm.StateMachineArn, "asl-fail-exec", `{}`)
+	require.NoError(t, err)
 
-require.Eventually(t, func() bool {
-desc, descErr := b.DescribeExecution(exec.ExecutionArn)
-return descErr == nil && desc.Status == "FAILED"
-}, 5*time.Second, 50*time.Millisecond, "execution should fail")
+	require.Eventually(t, func() bool {
+		desc, descErr := b.DescribeExecution(exec.ExecutionArn)
 
-desc, err := b.DescribeExecution(exec.ExecutionArn)
-require.NoError(t, err)
-assert.Equal(t, "FAILED", desc.Status)
-assert.Equal(t, "MyErr", desc.Error)
+		return descErr == nil && desc.Status == "FAILED"
+	}, 5*time.Second, 50*time.Millisecond, "execution should fail")
+
+	desc, err := b.DescribeExecution(exec.ExecutionArn)
+	require.NoError(t, err)
+	assert.Equal(t, "FAILED", desc.Status)
+	assert.Equal(t, "MyErr", desc.Error)
 }

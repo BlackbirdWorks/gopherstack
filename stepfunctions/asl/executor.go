@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"reflect"
 	"strings"
 	"sync"
@@ -16,6 +17,23 @@ var ErrExecutionFailed = errors.New("ExecutionFailed")
 
 // ErrChoiceNoMatch is returned when a Choice state has no matching rule and no Default.
 var ErrChoiceNoMatch = errors.New("States.NoChoiceMatched")
+
+// Sentinel errors for executor internals.
+var (
+	ErrStateNotFound         = errors.New("state not found")
+	ErrMaxTransitions        = errors.New("state machine exceeded maximum transitions")
+	ErrUnsupportedStateType  = errors.New("unsupported state type")
+	ErrChoiceNoNext          = errors.New("choice rule has no Next")
+	ErrLambdaNotConfigured   = errors.New("lambda invoker not configured")
+	ErrLambdaStatusError     = errors.New("lambda returned non-2xx status")
+	ErrMapRequiresIterator   = errors.New("map state requires Iterator")
+	ErrUnsupportedPathExpr   = errors.New("unsupported path expression")
+	ErrUnsupportedResultPath = errors.New("unsupported ResultPath")
+	ErrCannotIndexNonObject  = errors.New("cannot index non-object with path")
+	ErrFieldNotFound         = errors.New("field not found")
+	ErrMapInputNotArray      = errors.New("input is not an array for Map state")
+	ErrItemsPathNotArray     = errors.New("ItemsPath does not point to an array")
+)
 
 // LambdaInvoker can invoke a Lambda function.
 type LambdaInvoker interface {
@@ -40,9 +58,9 @@ type ExecutionResult struct {
 
 // Executor runs an ASL state machine.
 type Executor struct {
-	sm       *StateMachine
-	lambda   LambdaInvoker
-	history  HistoryRecorder
+	sm      *StateMachine
+	lambda  LambdaInvoker
+	history HistoryRecorder
 }
 
 // NewExecutor creates an Executor for the given state machine.
@@ -85,10 +103,10 @@ func (e *Executor) runStates(
 
 	const maxTransitions = 10000
 
-	for i := 0; i < maxTransitions; i++ {
+	for range maxTransitions {
 		state, ok := states[current]
 		if !ok {
-			return nil, fmt.Errorf("state %q not found", current)
+			return nil, fmt.Errorf("%w: %q", ErrStateNotFound, current)
 		}
 
 		if e.history != nil {
@@ -133,7 +151,7 @@ func (e *Executor) runStates(
 		current = nextState
 	}
 
-	return nil, fmt.Errorf("state machine exceeded maximum transitions")
+	return nil, ErrMaxTransitions
 }
 
 // executeState executes a single state and returns (nextStateName, output, error).
@@ -161,7 +179,7 @@ func (e *Executor) executeState(
 	case "Map":
 		return e.executeMap(ctx, executionARN, state, input)
 	default:
-		return "", nil, fmt.Errorf("unsupported state type %q in state %q", state.Type, stateName)
+		return "", nil, fmt.Errorf("%w: %q in state %q", ErrUnsupportedStateType, state.Type, stateName)
 	}
 }
 
@@ -200,7 +218,7 @@ func (e *Executor) executeChoice(state *State, input any) (string, any, error) {
 	for _, rule := range state.Choices {
 		if evaluateChoiceRule(&rule, input) {
 			if rule.Next == "" {
-				return "", nil, fmt.Errorf("Choice rule has no Next")
+				return "", nil, ErrChoiceNoNext
 			}
 
 			return rule.Next, input, nil
@@ -273,7 +291,7 @@ func (e *Executor) invokeTask(ctx context.Context, state *State, input any) (any
 // invokeLambdaTask invokes a Lambda function as a Task state.
 func (e *Executor) invokeLambdaTask(ctx context.Context, state *State, input any) (any, error) {
 	if e.lambda == nil {
-		return nil, fmt.Errorf("Lambda invoker not configured")
+		return nil, ErrLambdaNotConfigured
 	}
 
 	payload, err := json.Marshal(input)
@@ -288,20 +306,25 @@ func (e *Executor) invokeLambdaTask(ctx context.Context, state *State, input any
 
 	const statusOK = 200
 	if statusCode >= 400 || statusCode < statusOK {
-		return nil, fmt.Errorf("Lambda returned status %d", statusCode)
+		return nil, fmt.Errorf("%w: %d", ErrLambdaStatusError, statusCode)
 	}
 
 	var result any
-	if err := json.Unmarshal(respBytes, &result); err != nil {
-		// If not JSON, return as string.
-		return string(respBytes), nil
+	if unmarshalErr := json.Unmarshal(respBytes, &result); unmarshalErr != nil {
+		// If not JSON, return raw string as the output — the error is expected and intentional.
+		return string(respBytes), nil //nolint:nilerr // non-JSON Lambda response is valid; return as string
 	}
 
 	return result, nil
 }
 
 // executeParallel handles Parallel state: runs all branches concurrently.
-func (e *Executor) executeParallel(ctx context.Context, executionARN string, state *State, input any) (string, any, error) {
+func (e *Executor) executeParallel(
+	ctx context.Context,
+	executionARN string,
+	state *State,
+	input any,
+) (string, any, error) {
 	results := make([]any, len(state.Branches))
 	errs := make([]error, len(state.Branches))
 
@@ -340,13 +363,13 @@ func (e *Executor) executeParallel(ctx context.Context, executionARN string, sta
 // executeMap handles Map state: iterates over an array.
 func (e *Executor) executeMap(ctx context.Context, executionARN string, state *State, input any) (string, any, error) {
 	if state.Iterator == nil {
-		return "", nil, fmt.Errorf("Map state requires Iterator")
+		return "", nil, ErrMapRequiresIterator
 	}
 
 	// Resolve the items to iterate over.
 	items, err := resolveItems(state.ItemsPath, input)
 	if err != nil {
-		return "", nil, fmt.Errorf("Map ItemsPath error: %w", err)
+		return "", nil, fmt.Errorf("map ItemsPath error: %w", err)
 	}
 
 	results := make([]any, len(items))
@@ -421,7 +444,7 @@ func applyPath(path string, value any) (any, error) {
 		return jsonPathGet(path[2:], value)
 	}
 
-	return nil, fmt.Errorf("unsupported path expression: %q", path)
+	return nil, fmt.Errorf("%w: %q", ErrUnsupportedPathExpr, path)
 }
 
 // applyResultPath merges result into input according to ResultPath.
@@ -439,7 +462,7 @@ func applyResultPath(resultPath string, input, result any) (any, error) {
 	}
 
 	if !strings.HasPrefix(resultPath, "$.") {
-		return nil, fmt.Errorf("unsupported ResultPath: %q", resultPath)
+		return nil, fmt.Errorf("%w: %q", ErrUnsupportedResultPath, resultPath)
 	}
 
 	field := resultPath[2:]
@@ -449,15 +472,14 @@ func applyResultPath(resultPath string, input, result any) (any, error) {
 		inputMap = make(map[string]any)
 	} else {
 		// Copy to avoid mutation.
-		copy := make(map[string]any, len(inputMap))
-		for k, v := range inputMap {
-			copy[k] = v
-		}
-		inputMap = copy
+		inputCopy := make(map[string]any, len(inputMap))
+		maps.Copy(inputCopy, inputMap)
+		inputMap = inputCopy
 	}
 
 	// Support nested paths like $.a.b.
-	parts := strings.SplitN(field, ".", 2)
+	const splitFieldParts = 2
+	parts := strings.SplitN(field, ".", splitFieldParts)
 	if len(parts) == 1 {
 		inputMap[field] = result
 	} else {
@@ -477,15 +499,16 @@ func jsonPathGet(path string, value any) (any, error) {
 		return value, nil
 	}
 
-	parts := strings.SplitN(path, ".", 2)
+	const splitPathParts = 2
+	parts := strings.SplitN(path, ".", splitPathParts)
 	m, ok := value.(map[string]any)
 	if !ok {
-		return nil, fmt.Errorf("cannot index non-object with path %q", path)
+		return nil, fmt.Errorf("%w: %q", ErrCannotIndexNonObject, path)
 	}
 
 	child, ok := m[parts[0]]
 	if !ok {
-		return nil, fmt.Errorf("field %q not found", parts[0])
+		return nil, fmt.Errorf("%w: %q", ErrFieldNotFound, parts[0])
 	}
 
 	if len(parts) == 1 {
@@ -496,6 +519,8 @@ func jsonPathGet(path string, value any) (any, error) {
 }
 
 // evaluateChoiceRule checks whether a ChoiceRule matches the given input.
+//
+//nolint:gocognit,cyclop // choice rule evaluation requires checking many condition types
 func evaluateChoiceRule(rule *ChoiceRule, input any) bool {
 	// Logical operators.
 	if len(rule.And) > 0 {
@@ -597,7 +622,7 @@ func toFloat(v any) (float64, bool) {
 	}
 
 	rv := reflect.ValueOf(v)
-	switch rv.Kind() { //nolint:exhaustive // only handle numeric types
+	switch rv.Kind() {
 	case reflect.Float32, reflect.Float64:
 		return rv.Float(), true
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
@@ -631,7 +656,7 @@ func resolveItems(itemsPath string, input any) ([]any, error) {
 	if itemsPath == "" || itemsPath == "$" {
 		arr, ok := input.([]any)
 		if !ok {
-			return nil, fmt.Errorf("input is not an array for Map state")
+			return nil, ErrMapInputNotArray
 		}
 
 		return arr, nil
@@ -644,7 +669,7 @@ func resolveItems(itemsPath string, input any) ([]any, error) {
 
 	arr, ok := val.([]any)
 	if !ok {
-		return nil, fmt.Errorf("ItemsPath %q does not point to an array", itemsPath)
+		return nil, fmt.Errorf("%w: %q", ErrItemsPathNotArray, itemsPath)
 	}
 
 	return arr, nil

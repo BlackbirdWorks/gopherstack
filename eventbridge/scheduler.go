@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 )
 
 const defaultSchedulerTickInterval = time.Minute
@@ -31,8 +33,9 @@ func NewScheduler(backend *InMemoryBackend, log *slog.Logger, tickInterval time.
 	}
 }
 
-// Start runs the scheduler until ctx is cancelled.
-func (s *Scheduler) Start(ctx context.Context) {
+// Run runs the scheduler until ctx is cancelled.
+// Renamed from Start → Run to match the janitor.Run convention used by other workers.
+func (s *Scheduler) Run(ctx context.Context) {
 	ticker := time.NewTicker(s.tickInterval)
 	defer ticker.Stop()
 
@@ -60,7 +63,7 @@ func (s *Scheduler) initLastFired(lastFired map[string]time.Time, now time.Time)
 
 	for _, busRules := range s.backend.rules {
 		for _, rule := range busRules {
-			if rule.ScheduleExpression != "" && rule.State == "ENABLED" {
+			if rule.ScheduleExpression != "" && rule.State == ruleStateEnabled {
 				lastFired[rule.Arn] = now
 			}
 		}
@@ -78,12 +81,14 @@ func (s *Scheduler) processTick(ctx context.Context, tick time.Time, lastFired m
 	var scheduled []ruleInfo
 	for busName, busRules := range s.backend.rules {
 		for _, rule := range busRules {
-			if rule.ScheduleExpression != "" && rule.State == "ENABLED" {
+			if rule.ScheduleExpression != "" && rule.State == ruleStateEnabled {
 				scheduled = append(scheduled, ruleInfo{rule: *rule, busName: busName})
 			}
 		}
 	}
 	s.backend.mu.RUnlock()
+
+	fired := 0
 
 	for _, info := range scheduled {
 		rule := info.rule
@@ -91,6 +96,7 @@ func (s *Scheduler) processTick(ctx context.Context, tick time.Time, lastFired m
 		if err != nil {
 			s.logger.WarnContext(ctx, "EventBridge: failed to parse schedule expression",
 				"rule", rule.Name, "expr", rule.ScheduleExpression, "error", err)
+			telemetry.RecordWorkerTask("eventbridge", "Scheduler", "error")
 
 			continue
 		}
@@ -105,7 +111,15 @@ func (s *Scheduler) processTick(ctx context.Context, tick time.Time, lastFired m
 		if next.Before(tick) || next.Equal(tick) {
 			s.fireRule(ctx, rule, info.busName)
 			lastFired[rule.Arn] = tick
+			fired++
 		}
+	}
+
+	// Record one task observation per tick (even if no rules fired).
+	telemetry.RecordWorkerTask("eventbridge", "Scheduler", "success")
+
+	if fired > 0 {
+		telemetry.RecordWorkerItems("eventbridge", "Scheduler", fired)
 	}
 }
 

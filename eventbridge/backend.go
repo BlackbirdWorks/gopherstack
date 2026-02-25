@@ -25,6 +25,8 @@ var (
 const (
 	defaultEventBusName = "default"
 	maxEventLogSize     = 1000
+	ruleStateEnabled    = "ENABLED"
+	ruleStateDisabled   = "DISABLED"
 )
 
 // StorageBackend is the interface for an EventBridge in-memory store.
@@ -233,7 +235,7 @@ func (b *InMemoryBackend) PutRule(input PutRuleInput) (*Rule, error) {
 
 	state := input.State
 	if state == "" {
-		state = "ENABLED"
+		state = ruleStateEnabled
 	}
 
 	if b.rules[busName] == nil {
@@ -342,12 +344,12 @@ func (b *InMemoryBackend) DescribeRule(name, eventBusName string) (*Rule, error)
 
 // EnableRule sets a rule's state to ENABLED.
 func (b *InMemoryBackend) EnableRule(name, eventBusName string) error {
-	return b.setRuleState(name, eventBusName, "ENABLED")
+	return b.setRuleState(name, eventBusName, ruleStateEnabled)
 }
 
 // DisableRule sets a rule's state to DISABLED.
 func (b *InMemoryBackend) DisableRule(name, eventBusName string) error {
-	return b.setRuleState(name, eventBusName, "DISABLED")
+	return b.setRuleState(name, eventBusName, ruleStateDisabled)
 }
 
 func (b *InMemoryBackend) setRuleState(name, eventBusName, state string) error {

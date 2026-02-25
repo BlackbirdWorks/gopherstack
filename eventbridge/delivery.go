@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"maps"
 	"strings"
 )
 
@@ -35,12 +36,8 @@ func (b *InMemoryBackend) deliverEvents(ctx context.Context, entries []EventEntr
 	b.mu.RLock()
 	busRules := make(map[string]map[string]*Rule)
 	busTargets := make(map[string]map[string]*Target)
-	for busName, rules := range b.rules {
-		busRules[busName] = rules
-	}
-	for key, t := range b.targets {
-		busTargets[key] = t
-	}
+	maps.Copy(busRules, b.rules)
+	maps.Copy(busTargets, b.targets)
 	b.mu.RUnlock()
 
 	for _, entry := range entries {

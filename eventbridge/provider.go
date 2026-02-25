@@ -26,5 +26,9 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 
 	handler := NewHandler(backend, ctx.Logger)
 
+	// Attach the scheduled-rules scheduler so it runs as a BackgroundWorker.
+	scheduler := NewScheduler(backend, ctx.Logger, 0 /* default tick interval */)
+	handler.SetScheduler(scheduler)
+
 	return handler, nil
 }

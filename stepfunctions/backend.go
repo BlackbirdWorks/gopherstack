@@ -21,6 +21,10 @@ var (
 	ErrExecutionDoesNotExist     = errors.New("ExecutionDoesNotExist")
 )
 
+const (
+	executionStartedEventID   = int64(1)
+	executionSucceededEventID = int64(2)
+)
 
 // StorageBackend is the interface for a Step Functions in-memory store.
 type StorageBackend interface {
@@ -201,7 +205,7 @@ func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*
 	b.executions[execArn] = exec
 
 	b.history[execArn] = []*HistoryEvent{
-		{Timestamp: now, Type: "ExecutionStarted", ID: 1, PreviousEventID: 0},
+		{Timestamp: now, Type: "ExecutionStarted", ID: executionStartedEventID, PreviousEventID: 0},
 	}
 
 	definition := sm.Definition
@@ -211,16 +215,20 @@ func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*
 	parsedSM, parseErr := asl.Parse(definition)
 	if parseErr != nil {
 		// Invalid definition: fall back to synchronous pass-through for backward compatibility.
+		// Intentionally returning nil error — the execution still "succeeds" as a no-op.
 		stopDate := now
 		exec.StopDate = &stopDate
 		exec.Status = "SUCCEEDED"
 		exec.Output = input
 		b.history[execArn] = append(b.history[execArn], &HistoryEvent{
-			Timestamp: now, Type: "ExecutionSucceeded", ID: 2, PreviousEventID: 1,
+			Timestamp:       now,
+			Type:            "ExecutionSucceeded",
+			ID:              executionSucceededEventID,
+			PreviousEventID: executionStartedEventID,
 		})
 		b.mu.Unlock()
 
-		return exec, nil
+		return exec, nil //nolint:nilerr // parseErr is an expected condition; caller gets a valid execution
 	}
 
 	b.mu.Unlock()
@@ -270,7 +278,7 @@ func (r *historyRecorder) RecordStateExited(execARN, stateName, stateType string
 	})
 }
 
-func (r *historyRecorder) RecordTaskScheduled(execARN, stateName, resource string) {
+func (r *historyRecorder) RecordTaskScheduled(execARN, _ /* stateName */, _ /* resource */ string) {
 	r.backend.mu.Lock()
 	defer r.backend.mu.Unlock()
 
@@ -284,7 +292,7 @@ func (r *historyRecorder) RecordTaskScheduled(execARN, stateName, resource strin
 	})
 }
 
-func (r *historyRecorder) RecordTaskSucceeded(execARN, stateName string, _ any) {
+func (r *historyRecorder) RecordTaskSucceeded(execARN, _ /* stateName */ string, _ any) {
 	r.backend.mu.Lock()
 	defer r.backend.mu.Unlock()
 
@@ -298,7 +306,7 @@ func (r *historyRecorder) RecordTaskSucceeded(execARN, stateName string, _ any) 
 	})
 }
 
-func (r *historyRecorder) RecordTaskFailed(execARN, stateName, errCode, cause string) {
+func (r *historyRecorder) RecordTaskFailed(execARN, _ /* stateName */, _ /* errCode */, _ /* cause */ string) {
 	r.backend.mu.Lock()
 	defer r.backend.mu.Unlock()
 
@@ -365,7 +373,6 @@ func (b *InMemoryBackend) runParsedExecution(
 		Timestamp: now, Type: "ExecutionSucceeded", ID: nextID, PreviousEventID: nextID - 1,
 	})
 }
-
 
 // StopExecution marks an execution as ABORTED.
 func (b *InMemoryBackend) StopExecution(executionArn, errCode, cause string) error {

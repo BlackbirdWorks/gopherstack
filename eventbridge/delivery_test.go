@@ -15,8 +15,8 @@ import (
 
 // mockSQSSender records messages sent to queues.
 type mockSQSSender struct {
+	messages map[string][]string
 	mu       sync.Mutex
-	messages map[string][]string // queueARN -> messages
 }
 
 func newMockSQSSender() *mockSQSSender {
@@ -40,8 +40,8 @@ func (m *mockSQSSender) MessagesFor(queueARN string) []string {
 
 // mockLambdaInvoker records Lambda invocations.
 type mockLambdaInvoker struct {
-	mu          sync.Mutex
 	invocations []lambdaInvocation
+	mu          sync.Mutex
 }
 
 type lambdaInvocation struct {
@@ -238,5 +238,5 @@ func TestDelivery_InputOverride(t *testing.T) {
 
 	msgs := sqsMock.MessagesFor(queueARN)
 	assert.Len(t, msgs, 1)
-	assert.Equal(t, `{"custom": "payload"}`, msgs[0])
+	assert.JSONEq(t, `{"custom": "payload"}`, msgs[0])
 }

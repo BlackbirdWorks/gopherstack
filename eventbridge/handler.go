@@ -21,14 +21,34 @@ var errUnknownOperation = errors.New("UnknownOperationException")
 
 // Handler is the Echo HTTP service handler for EventBridge operations.
 type Handler struct {
-	Backend StorageBackend
-	Logger  *slog.Logger
+	Backend   StorageBackend
+	Logger    *slog.Logger
+	scheduler *Scheduler
 }
 
 // NewHandler creates a new EventBridge handler.
 func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
 	return &Handler{Backend: backend, Logger: log}
 }
+
+// SetScheduler attaches a Scheduler to the handler. The scheduler is started as a
+// background worker when StartWorker is called (which satisfies service.BackgroundWorker).
+func (h *Handler) SetScheduler(s *Scheduler) {
+	h.scheduler = s
+}
+
+// StartWorker implements service.BackgroundWorker.
+// It starts the EventBridge scheduled-rules scheduler as a background goroutine.
+func (h *Handler) StartWorker(ctx context.Context) error {
+	if h.scheduler != nil {
+		go h.scheduler.Run(ctx)
+	}
+
+	return nil
+}
+
+// Ensure Handler implements service.BackgroundWorker at compile time.
+var _ service.BackgroundWorker = (*Handler)(nil)
 
 // Name returns the service name.
 func (h *Handler) Name() string { return "EventBridge" }

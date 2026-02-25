@@ -6,10 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"strings"
-	"sync"
 	"unicode/utf8"
 )
 
@@ -18,52 +16,21 @@ type LambdaInvoker interface {
 	InvokeFunction(ctx context.Context, name, invocationType string, payload []byte) ([]byte, int, error)
 }
 
-// ProxyRouter manages HTTP stage proxy servers for Lambda-backed API Gateway stages.
-// When a stage has resources with AWS_PROXY integrations, the ProxyRouter starts
-// an HTTP server that converts incoming requests to Lambda proxy events.
-type ProxyRouter struct {
-	backend  StorageBackend
-	lambda   LambdaInvoker
-	logger   *slog.Logger
-	portBase int
-	servers  map[string]*proxyServer // key = restApiId/stageName
-	mu       sync.RWMutex
-}
-
-// NewProxyRouter creates a new ProxyRouter.
-func NewProxyRouter(backend StorageBackend, lambda LambdaInvoker, log *slog.Logger, portBase int) *ProxyRouter {
-	return &ProxyRouter{
-		backend:  backend,
-		lambda:   lambda,
-		logger:   log,
-		portBase: portBase,
-		servers:  make(map[string]*proxyServer),
-	}
-}
-
-// proxyServer represents a running HTTP server for a stage.
-type proxyServer struct {
-	server *http.Server
-	port   int
-	apiID  string
-	stage  string
-}
-
 // LambdaProxyEvent is the API Gateway Lambda proxy event format.
 // https://docs.aws.amazon.com/apigateway/latest/developerguide/set-up-lambda-proxy-integrations.html
 type LambdaProxyEvent struct {
-	QueryStringParameters    map[string]string  `json:"queryStringParameters,omitempty"`
-	Headers                  map[string]string  `json:"headers,omitempty"`
-	MultiValueHeaders        map[string][]string `json:"multiValueHeaders,omitempty"`
-	PathParameters           map[string]string  `json:"pathParameters,omitempty"`
-	MultiValueQueryString    map[string][]string `json:"multiValueQueryStringParameters,omitempty"`
-	RequestContext           LambdaProxyContext  `json:"requestContext"`
-	Resource                 string             `json:"resource"`
-	Path                     string             `json:"path"`
-	HTTPMethod               string             `json:"httpMethod"`
-	Body                     string             `json:"body,omitempty"`
-	StageVariables           map[string]string  `json:"stageVariables,omitempty"`
-	IsBase64Encoded          bool               `json:"isBase64Encoded"`
+	QueryStringParameters map[string]string   `json:"queryStringParameters,omitempty"`
+	Headers               map[string]string   `json:"headers,omitempty"`
+	MultiValueHeaders     map[string][]string `json:"multiValueHeaders,omitempty"`
+	PathParameters        map[string]string   `json:"pathParameters,omitempty"`
+	MultiValueQueryString map[string][]string `json:"multiValueQueryStringParameters,omitempty"`
+	StageVariables        map[string]string   `json:"stageVariables,omitempty"`
+	RequestContext        LambdaProxyContext  `json:"requestContext"`
+	Resource              string              `json:"resource"`
+	Path                  string              `json:"path"`
+	HTTPMethod            string              `json:"httpMethod"`
+	Body                  string              `json:"body,omitempty"`
+	IsBase64Encoded       bool                `json:"isBase64Encoded"`
 }
 
 // LambdaProxyContext provides context for the Lambda proxy event.
@@ -142,6 +109,8 @@ func BuildProxyEvent(r *http.Request, apiID, stageName, resource, path string) (
 }
 
 // handleProxyRequest handles a single HTTP request for a Lambda proxy integration.
+//
+//nolint:gocognit // proxy request handling requires multiple decision points
 func (h *Handler) handleProxyRequest(apiID, stageName string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -214,7 +183,7 @@ func (h *Handler) handleProxyRequest(apiID, stageName string) http.HandlerFunc {
 		if parseErr := json.Unmarshal(respBytes, &lambdaResp); parseErr != nil {
 			// If not a proxy response format, return body as-is.
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write(respBytes)
+			_, _ = w.Write(respBytes) //nolint:gosec // intentional pass-through of Lambda response body
 
 			return
 		}

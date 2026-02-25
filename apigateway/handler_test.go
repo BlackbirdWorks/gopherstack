@@ -359,60 +359,60 @@ func TestHandler_MissingTarget(t *testing.T) {
 
 // mockLambdaInvoker is a simple mock for Lambda invocation in tests.
 type mockLambdaInvoker struct {
-response    []byte
-statusCode  int
-returnError error
+	returnError error
+	response    []byte
+	statusCode  int
 }
 
 func (m *mockLambdaInvoker) InvokeFunction(_ context.Context, _, _ string, _ []byte) ([]byte, int, error) {
-if m.returnError != nil {
-return nil, 500, m.returnError
-}
+	if m.returnError != nil {
+		return nil, 500, m.returnError
+	}
 
-if m.response != nil {
-return m.response, m.statusCode, nil
-}
+	if m.response != nil {
+		return m.response, m.statusCode, nil
+	}
 
-return []byte(`{"statusCode":200,"body":"hello"}`), 200, nil
+	return []byte(`{"statusCode":200,"body":"hello"}`), 200, nil
 }
 
 func TestHandler_SetLambdaInvoker(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-log := logger.NewLogger(slog.LevelDebug)
-backend := apigateway.NewInMemoryBackend()
-handler := apigateway.NewHandler(backend, log)
+	log := logger.NewLogger(slog.LevelDebug)
+	backend := apigateway.NewInMemoryBackend()
+	handler := apigateway.NewHandler(backend, log)
 
-mock := &mockLambdaInvoker{}
-handler.SetLambdaInvoker(mock)
-// If SetLambdaInvoker doesn't panic, the test passes.
+	mock := &mockLambdaInvoker{}
+	handler.SetLambdaInvoker(mock)
+	// If SetLambdaInvoker doesn't panic, the test passes.
 }
 
 func TestBuildProxyEvent(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-req := httptest.NewRequest(http.MethodPost, "/my-stage/items?key=val", strings.NewReader(`{"data":"test"}`))
-req.Header.Set("Content-Type", "application/json")
+	req := httptest.NewRequest(http.MethodPost, "/my-stage/items?key=val", strings.NewReader(`{"data":"test"}`))
+	req.Header.Set("Content-Type", "application/json")
 
-event, err := apigateway.BuildProxyEvent(req, "abc123", "my-stage", "/items", "/my-stage/items")
-require.NoError(t, err)
-assert.Equal(t, http.MethodPost, event.HTTPMethod)
-assert.Equal(t, "/my-stage/items", event.Path)
-assert.Equal(t, "/items", event.Resource)
-assert.Equal(t, "val", event.QueryStringParameters["key"])
-assert.Equal(t, `{"data":"test"}`, event.Body)
-assert.Equal(t, "my-stage", event.RequestContext.Stage)
-assert.Equal(t, "abc123", event.RequestContext.APIId)
+	event, err := apigateway.BuildProxyEvent(req, "abc123", "my-stage", "/items", "/my-stage/items")
+	require.NoError(t, err)
+	assert.Equal(t, http.MethodPost, event.HTTPMethod)
+	assert.Equal(t, "/my-stage/items", event.Path)
+	assert.Equal(t, "/items", event.Resource)
+	assert.Equal(t, "val", event.QueryStringParameters["key"])
+	assert.JSONEq(t, `{"data":"test"}`, event.Body)
+	assert.Equal(t, "my-stage", event.RequestContext.Stage)
+	assert.Equal(t, "abc123", event.RequestContext.APIId)
 }
 
 func TestBuildProxyEvent_BinaryBody(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-// Use non-UTF8 bytes to trigger base64 encoding.
-binaryData := []byte{0xFF, 0xFE, 0x00, 0x01}
-req := httptest.NewRequest(http.MethodPost, "/test", strings.NewReader(string(binaryData)))
+	// Use non-UTF8 bytes to trigger base64 encoding.
+	binaryData := []byte{0xFF, 0xFE, 0x00, 0x01}
+	req := httptest.NewRequest(http.MethodPost, "/test", strings.NewReader(string(binaryData)))
 
-event, err := apigateway.BuildProxyEvent(req, "id1", "stage1", "/", "/")
-require.NoError(t, err)
-assert.True(t, event.IsBase64Encoded)
+	event, err := apigateway.BuildProxyEvent(req, "id1", "stage1", "/", "/")
+	require.NoError(t, err)
+	assert.True(t, event.IsBase64Encoded)
 }

@@ -121,6 +121,12 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return c.JSON(http.StatusOK, h.GetSupportedOperations())
 		}
 
+		// Handle proxy invocations for deployed API stages.
+		// Path format: /proxy/{apiId}/{stageName}/{resourcePath}
+		if strings.HasPrefix(c.Request().URL.Path, "/proxy/") {
+			return h.handleStageProxyEcho(c)
+		}
+
 		if c.Request().Method != http.MethodPost {
 			return c.String(http.StatusMethodNotAllowed, "Method not allowed")
 		}
@@ -161,6 +167,25 @@ func (h *Handler) Handler() echo.HandlerFunc {
 }
 
 type actionFn func([]byte) (int, any, error)
+
+// handleStageProxyEcho routes /proxy/{apiId}/{stageName}/{path} requests to the Lambda proxy handler.
+func (h *Handler) handleStageProxyEcho(c *echo.Context) error {
+	// Strip the /proxy/ prefix to get /{apiId}/{stageName}/{path}
+	rest := strings.TrimPrefix(c.Request().URL.Path, "/proxy/")
+	const minProxyPathParts = 2
+	parts := strings.SplitN(rest, "/", 3) //nolint:mnd // 3-part split: apiId, stage, path
+	if len(parts) < minProxyPathParts {
+		return c.String(http.StatusNotFound, "invalid proxy path")
+	}
+
+	apiID := parts[0]
+	stageName := parts[1]
+
+	fn := h.handleProxyRequest(apiID, stageName)
+	fn(c.Response(), c.Request())
+
+	return nil
+}
 
 func (h *Handler) restAPIActions() map[string]actionFn {
 	return map[string]actionFn{

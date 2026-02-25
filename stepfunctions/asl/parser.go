@@ -20,46 +20,31 @@ type StateMachine struct {
 
 // State represents a single state in the state machine.
 type State struct {
-	// Common fields
-	Type    string  `json:"Type"`
-	Comment string  `json:"Comment,omitempty"`
-	Next    string  `json:"Next,omitempty"`
-	End     bool    `json:"End,omitempty"`
-	InputPath  string `json:"InputPath,omitempty"`
-	OutputPath string `json:"OutputPath,omitempty"`
-	ResultPath string `json:"ResultPath,omitempty"`
-
-	// Pass state
-	Result json.RawMessage `json:"Result,omitempty"`
-
-	// Fail state
-	Error string `json:"Error,omitempty"`
-	Cause string `json:"Cause,omitempty"`
-
-	// Wait state
-	Seconds      int    `json:"Seconds,omitempty"`
-	Timestamp    string `json:"Timestamp,omitempty"`
-	SecondsPath  string `json:"SecondsPath,omitempty"`
-	TimestampPath string `json:"TimestampPath,omitempty"`
-
-	// Task state
-	Resource      string       `json:"Resource,omitempty"`
-	TimeoutSeconds int         `json:"TimeoutSeconds,omitempty"`
-	Retry         []Retrier    `json:"Retry,omitempty"`
-	Catch         []Catcher    `json:"Catch,omitempty"`
-
-	// Choice state
-	Choices []ChoiceRule `json:"Choices,omitempty"`
-	Default string       `json:"Default,omitempty"`
-
-	// Parallel state
-	Branches []Branch `json:"Branches,omitempty"`
-
-	// Map state
-	Iterator    *StateMachine `json:"Iterator,omitempty"`
-	ItemsPath   string        `json:"ItemsPath,omitempty"`
-	MaxConcurrency int        `json:"MaxConcurrency,omitempty"`
-	Parameters  json.RawMessage `json:"Parameters,omitempty"`
+	Iterator       *StateMachine   `json:"Iterator,omitempty"`
+	SecondsPath    string          `json:"SecondsPath,omitempty"`
+	TimestampPath  string          `json:"TimestampPath,omitempty"`
+	ItemsPath      string          `json:"ItemsPath,omitempty"`
+	InputPath      string          `json:"InputPath,omitempty"`
+	OutputPath     string          `json:"OutputPath,omitempty"`
+	ResultPath     string          `json:"ResultPath,omitempty"`
+	Type           string          `json:"Type"`
+	Error          string          `json:"Error,omitempty"`
+	Cause          string          `json:"Cause,omitempty"`
+	Comment        string          `json:"Comment,omitempty"`
+	Next           string          `json:"Next,omitempty"`
+	Default        string          `json:"Default,omitempty"`
+	Timestamp      string          `json:"Timestamp,omitempty"`
+	Resource       string          `json:"Resource,omitempty"`
+	Retry          []Retrier       `json:"Retry,omitempty"`
+	Catch          []Catcher       `json:"Catch,omitempty"`
+	Choices        []ChoiceRule    `json:"Choices,omitempty"`
+	Result         json.RawMessage `json:"Result,omitempty"`
+	Branches       []Branch        `json:"Branches,omitempty"`
+	Parameters     json.RawMessage `json:"Parameters,omitempty"`
+	TimeoutSeconds int             `json:"TimeoutSeconds,omitempty"`
+	Seconds        int             `json:"Seconds,omitempty"`
+	MaxConcurrency int             `json:"MaxConcurrency,omitempty"`
+	End            bool            `json:"End,omitempty"`
 }
 
 // Retrier defines retry behavior for a Task state on error.
@@ -72,9 +57,9 @@ type Retrier struct {
 
 // Catcher defines catch behavior for a Task state on error.
 type Catcher struct {
-	ErrorEquals []string `json:"ErrorEquals"`
 	Next        string   `json:"Next"`
 	ResultPath  string   `json:"ResultPath,omitempty"`
+	ErrorEquals []string `json:"ErrorEquals"`
 }
 
 // Branch represents a parallel branch (or iterator root).
@@ -86,26 +71,21 @@ type Branch struct {
 
 // ChoiceRule represents a single condition/transition in a Choice state.
 type ChoiceRule struct {
-	// Comparison fields
-	Variable            string          `json:"Variable,omitempty"`
-	StringEquals        *string         `json:"StringEquals,omitempty"`
-	StringEqualsPath    *string         `json:"StringEqualsPath,omitempty"`
-	StringLessThan      *string         `json:"StringLessThan,omitempty"`
-	StringGreaterThan   *string         `json:"StringGreaterThan,omitempty"`
-	NumericEquals       *float64        `json:"NumericEquals,omitempty"`
-	NumericLessThan     *float64        `json:"NumericLessThan,omitempty"`
-	NumericGreaterThan  *float64        `json:"NumericGreaterThan,omitempty"`
-	BooleanEquals       *bool           `json:"BooleanEquals,omitempty"`
-	IsPresent           *bool           `json:"IsPresent,omitempty"`
-	IsNull              *bool           `json:"IsNull,omitempty"`
-
-	// Logical operators
-	And []ChoiceRule    `json:"And,omitempty"`
-	Or  []ChoiceRule    `json:"Or,omitempty"`
-	Not *ChoiceRule     `json:"Not,omitempty"`
-
-	// Transition
-	Next string          `json:"Next,omitempty"`
+	NumericLessThan    *float64     `json:"NumericLessThan,omitempty"`
+	IsNull             *bool        `json:"IsNull,omitempty"`
+	StringEqualsPath   *string      `json:"StringEqualsPath,omitempty"`
+	StringLessThan     *string      `json:"StringLessThan,omitempty"`
+	StringGreaterThan  *string      `json:"StringGreaterThan,omitempty"`
+	NumericEquals      *float64     `json:"NumericEquals,omitempty"`
+	StringEquals       *string      `json:"StringEquals,omitempty"`
+	BooleanEquals      *bool        `json:"BooleanEquals,omitempty"`
+	Not                *ChoiceRule  `json:"Not,omitempty"`
+	IsPresent          *bool        `json:"IsPresent,omitempty"`
+	NumericGreaterThan *float64     `json:"NumericGreaterThan,omitempty"`
+	Variable           string       `json:"Variable,omitempty"`
+	Next               string       `json:"Next,omitempty"`
+	And                []ChoiceRule `json:"And,omitempty"`
+	Or                 []ChoiceRule `json:"Or,omitempty"`
 }
 
 // Parse parses an ASL state machine definition from JSON.

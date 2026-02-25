@@ -2,6 +2,7 @@ package eventbridge
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 )
 
@@ -91,9 +92,9 @@ func matchSingle(matcher, eventVal any, exists bool) bool {
 // matchSpecialMatcher handles special matcher objects like {"prefix": ...}, {"exists": ...}, etc.
 func matchSpecialMatcher(m map[string]any, eventVal any, exists bool) bool {
 	if prefix, ok := m["prefix"]; ok {
-		ps, ps_ok := prefix.(string)
-		es, es_ok := eventVal.(string)
-		if !ps_ok || !es_ok {
+		ps, psOk := prefix.(string)
+		es, esOk := eventVal.(string)
+		if !psOk || !esOk {
 			return false
 		}
 
@@ -125,6 +126,8 @@ func matchSpecialMatcher(m map[string]any, eventVal any, exists bool) bool {
 
 // matchNumeric applies numeric comparison rules like [">", 5, "<", 10].
 // Rules come in pairs: [op, val, op, val, ...].
+//
+//nolint:gocognit,cyclop // numeric comparison logic is inherently branchy
 func matchNumeric(rules any, eventVal any) bool {
 	ruleList, ok := rules.([]any)
 	if !ok {
@@ -178,13 +181,7 @@ func matchNumeric(rules any, eventVal any) bool {
 func matchAnythingBut(v, eventVal any) bool {
 	switch ab := v.(type) {
 	case []any:
-		for _, item := range ab {
-			if eventVal == item {
-				return false
-			}
-		}
-
-		return true
+		return !slices.Contains(ab, eventVal)
 	default:
 		return eventVal != v
 	}

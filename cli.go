@@ -534,27 +534,27 @@ func wireEventBridgeDelivery(ebReg, lambdaReg, sqsReg, snsReg service.Registerab
 		return
 	}
 
-	ebBk, ok := ebH.Backend.(*ebbackend.InMemoryBackend)
-	if !ok {
+	ebBk, bkOk := ebH.Backend.(*ebbackend.InMemoryBackend)
+	if !bkOk {
 		return
 	}
 
 	dt := &ebbackend.DeliveryTargets{}
 
-	if lambdaH, ok := lambdaReg.(*lambdabackend.Handler); ok {
-		if lambdaBk, ok := lambdaH.Backend.(*lambdabackend.InMemoryBackend); ok {
+	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
+		if lambdaBk, bk2Ok := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bk2Ok {
 			dt.Lambda = &lambdaInvokerAdapter{backend: lambdaBk}
 		}
 	}
 
-	if sqsH, ok := sqsReg.(*sqsbackend.Handler); ok {
-		if sqsBk, ok := sqsH.Backend.(*sqsbackend.InMemoryBackend); ok {
+	if sqsH, sqsOk := sqsReg.(*sqsbackend.Handler); sqsOk {
+		if sqsBk, bk2Ok := sqsH.Backend.(*sqsbackend.InMemoryBackend); bk2Ok {
 			dt.SQS = &sqsSenderAdapter{backend: sqsBk}
 		}
 	}
 
-	if snsH, ok := snsReg.(*snsbackend.Handler); ok {
-		if snsBk, ok := snsH.Backend.(*snsbackend.InMemoryBackend); ok {
+	if snsH, snsOk := snsReg.(*snsbackend.Handler); snsOk {
+		if snsBk, bk2Ok := snsH.Backend.(*snsbackend.InMemoryBackend); bk2Ok {
 			dt.SNS = &snsPublisherAdapter{backend: snsBk}
 		}
 	}
@@ -580,7 +580,7 @@ type sqsSenderAdapter struct {
 	backend *sqsbackend.InMemoryBackend
 }
 
-func (a *sqsSenderAdapter) SendMessageToQueue(ctx context.Context, queueARN, messageBody string) error {
+func (a *sqsSenderAdapter) SendMessageToQueue(_ context.Context, queueARN, messageBody string) error {
 	// Convert SQS ARN to queue name (last segment after ':').
 	queueURL := arnToSQSQueueURL(queueARN)
 	_, err := a.backend.SendMessage(&sqsbackend.SendMessageInput{
@@ -610,8 +610,8 @@ func wireAPIGatewayLambda(apigwReg, lambdaReg service.Registerable) {
 		return
 	}
 
-	if lambdaH, ok := lambdaReg.(*lambdabackend.Handler); ok {
-		if lambdaBk, ok := lambdaH.Backend.(*lambdabackend.InMemoryBackend); ok {
+	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
+		if lambdaBk, bkOk := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bkOk {
 			apigwH.SetLambdaInvoker(&apigwLambdaInvokerAdapter{backend: lambdaBk})
 		}
 	}
@@ -630,7 +630,6 @@ func (a *apigwLambdaInvokerAdapter) InvokeFunction(
 	return a.backend.InvokeFunction(ctx, name, it, payload)
 }
 
-
 // so that Task states with Lambda resources can invoke functions.
 func wireStepFunctionsLambda(sfnReg, lambdaReg service.Registerable) {
 	sfnH, ok := sfnReg.(*sfnbackend.Handler)
@@ -638,13 +637,13 @@ func wireStepFunctionsLambda(sfnReg, lambdaReg service.Registerable) {
 		return
 	}
 
-	sfnBk, ok := sfnH.Backend.(*sfnbackend.InMemoryBackend)
-	if !ok {
+	sfnBk, bkOk := sfnH.Backend.(*sfnbackend.InMemoryBackend)
+	if !bkOk {
 		return
 	}
 
-	if lambdaH, ok := lambdaReg.(*lambdabackend.Handler); ok {
-		if lambdaBk, ok := lambdaH.Backend.(*lambdabackend.InMemoryBackend); ok {
+	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
+		if lambdaBk, bk2Ok := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bk2Ok {
 			sfnBk.SetLambdaInvoker(&sfnLambdaInvokerAdapter{backend: lambdaBk})
 		}
 	}
@@ -665,7 +664,6 @@ func (a *sfnLambdaInvokerAdapter) InvokeFunction(
 
 // Ensure sfnLambdaInvokerAdapter implements sfnasl.LambdaInvoker.
 var _ sfnasl.LambdaInvoker = (*sfnLambdaInvokerAdapter)(nil)
-
 
 // ARN format: arn:aws:sqs:region:accountId:queueName
 // URL format expected by SQS backend: http://endpoint/accountId/queueName

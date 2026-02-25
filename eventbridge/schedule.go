@@ -1,10 +1,20 @@
 package eventbridge
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
+)
+
+// Sentinel errors for schedule expression parsing.
+var (
+	ErrUnsupportedScheduleExpression = errors.New("unsupported schedule expression")
+	ErrInvalidRateExpression         = errors.New("invalid rate expression")
+	ErrInvalidRateValue              = errors.New("invalid rate value")
+	ErrUnsupportedRateUnit           = errors.New("unsupported rate unit")
+	ErrInvalidCronExpression         = errors.New("invalid cron expression")
 )
 
 // scheduleExpression represents a parsed schedule expression.
@@ -22,10 +32,10 @@ type rateExpression struct {
 func (r *rateExpression) NextAfter(t time.Time) time.Time {
 	epoch := time.Unix(0, 0).UTC()
 	since := t.Sub(epoch)
-	// Next multiple of interval after t.
-	n := since/r.interval + 1
+	// n is a dimensionless multiple (stored as int64 to avoid duration*duration lint error).
+	n := int64(since/r.interval) + 1
 
-	return epoch.Add(n * r.interval)
+	return epoch.Add(time.Duration(n) * r.interval)
 }
 
 // parseScheduleExpression parses a rate() or cron() schedule expression.
@@ -41,8 +51,11 @@ func parseScheduleExpression(expr string) (scheduleExpression, error) {
 		return parseCron(expr)
 	}
 
-	return nil, fmt.Errorf("unsupported schedule expression: %q", expr)
+	return nil, fmt.Errorf("%w: %q", ErrUnsupportedScheduleExpression, expr)
 }
+
+// rateExpressionFields is the expected number of fields in a rate expression.
+const rateExpressionFields = 2
 
 // parseRate parses expressions like "rate(5 minutes)" or "rate(1 hour)".
 func parseRate(expr string) (*rateExpression, error) {
@@ -50,13 +63,13 @@ func parseRate(expr string) (*rateExpression, error) {
 	inner = strings.TrimSpace(inner)
 	parts := strings.Fields(inner)
 
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid rate expression: %q", expr)
+	if len(parts) != rateExpressionFields {
+		return nil, fmt.Errorf("%w: %q", ErrInvalidRateExpression, expr)
 	}
 
 	n, err := strconv.ParseInt(parts[0], 10, 64)
 	if err != nil || n <= 0 {
-		return nil, fmt.Errorf("invalid rate value: %q", parts[0])
+		return nil, fmt.Errorf("%w: %q", ErrInvalidRateValue, parts[0])
 	}
 
 	unit := strings.ToLower(parts[1])
@@ -72,13 +85,32 @@ func parseRate(expr string) (*rateExpression, error) {
 	case "hour":
 		d = time.Duration(n) * time.Hour
 	case "day":
-		d = time.Duration(n) * 24 * time.Hour
+		d = time.Duration(n) * cronHoursPerDay * time.Hour
 	default:
-		return nil, fmt.Errorf("unsupported rate unit: %q", parts[1])
+		return nil, fmt.Errorf("%w: %q", ErrUnsupportedRateUnit, parts[1])
 	}
 
 	return &rateExpression{interval: d}, nil
 }
+
+// cronFieldRanges defines the valid bounds for cron fields.
+const (
+	cronFields        = 6  // required number of fields in a cron expression
+	cronHoursPerDay   = 24 // hours in a day (for rate day computation)
+	cronMinuteMin     = 0
+	cronMinuteMax     = 59
+	cronHourMin       = 0
+	cronHourMax       = 23
+	cronMonthMin      = 1
+	cronMonthMax      = 12
+	cronDayOfMonthMin = 1
+	cronDayOfMonthMax = 31
+	cronDayOfWeekMin  = 0
+	cronDayOfWeekMax  = 6
+	cronYearMin       = 1970
+	cronYearMax       = 2199
+	cronScanYears     = 2 // forward scan limit in years
+)
 
 // cronExpression represents a parsed cron(min hour day month weekday year) schedule.
 // Fields: minute, hour, dayOfMonth, month, dayOfWeek, year
@@ -97,9 +129,14 @@ func parseCron(expr string) (*cronExpression, error) {
 	inner := expr[len("cron(") : len(expr)-1]
 	fields := strings.Fields(inner)
 
-	const cronFields = 6
 	if len(fields) != cronFields {
-		return nil, fmt.Errorf("cron expression requires 6 fields, got %d: %q", len(fields), expr)
+		return nil, fmt.Errorf(
+			"%w: requires %d fields, got %d: %q",
+			ErrInvalidCronExpression,
+			cronFields,
+			len(fields),
+			expr,
+		)
 	}
 
 	return &cronExpression{
@@ -117,7 +154,8 @@ func parseCron(expr string) (*cronExpression, error) {
 func (c *cronExpression) NextAfter(t time.Time) time.Time {
 	// Start from the next minute.
 	candidate := t.UTC().Truncate(time.Minute).Add(time.Minute)
-	limit := t.UTC().Add(2 * 365 * 24 * time.Hour)
+
+	limit := t.UTC().Add(cronScanYears * 365 * cronHoursPerDay * time.Hour)
 
 	for candidate.Before(limit) {
 		if c.matches(candidate) {
@@ -132,20 +170,22 @@ func (c *cronExpression) NextAfter(t time.Time) time.Time {
 }
 
 // matches checks whether a time matches all cron fields.
+//
+//nolint:cyclop // inherently complex cron field matching
 func (c *cronExpression) matches(t time.Time) bool {
-	if !matchCronField(c.minute, t.Minute(), 0, 59) {
+	if !matchCronField(c.minute, t.Minute(), cronMinuteMin, cronMinuteMax) {
 		return false
 	}
 
-	if !matchCronField(c.hour, t.Hour(), 0, 23) {
+	if !matchCronField(c.hour, t.Hour(), cronHourMin, cronHourMax) {
 		return false
 	}
 
-	if !matchCronField(c.month, int(t.Month()), 1, 12) {
+	if !matchCronField(c.month, int(t.Month()), cronMonthMin, cronMonthMax) {
 		return false
 	}
 
-	if !matchCronField(c.year, t.Year(), 1970, 2199) {
+	if !matchCronField(c.year, t.Year(), cronYearMin, cronYearMax) {
 		return false
 	}
 
@@ -157,17 +197,17 @@ func (c *cronExpression) matches(t time.Time) bool {
 	case domWild && dowWild:
 		// both wildcards: always match
 	case domWild:
-		if !matchCronField(c.dayOfWeek, int(t.Weekday()), 0, 6) {
+		if !matchCronField(c.dayOfWeek, int(t.Weekday()), cronDayOfWeekMin, cronDayOfWeekMax) {
 			return false
 		}
 	case dowWild:
-		if !matchCronField(c.dayOfMonth, t.Day(), 1, 31) {
+		if !matchCronField(c.dayOfMonth, t.Day(), cronDayOfMonthMin, cronDayOfMonthMax) {
 			return false
 		}
 	default:
 		// Both specified: either must match (AWS behavior).
-		domMatch := matchCronField(c.dayOfMonth, t.Day(), 1, 31)
-		dowMatch := matchCronField(c.dayOfWeek, int(t.Weekday()), 0, 6)
+		domMatch := matchCronField(c.dayOfMonth, t.Day(), cronDayOfMonthMin, cronDayOfMonthMax)
+		dowMatch := matchCronField(c.dayOfWeek, int(t.Weekday()), cronDayOfWeekMin, cronDayOfWeekMax)
 		if !domMatch && !dowMatch {
 			return false
 		}
@@ -177,18 +217,20 @@ func (c *cronExpression) matches(t time.Time) bool {
 }
 
 // matchCronField checks if val matches a cron field (numeric, *, ?, or comma-list).
-func matchCronField(field string, val, min, max int) bool {
+//
+//nolint:gocognit,cyclop // inherently complex cron field tokenization
+func matchCronField(field string, val, fieldMin, fieldMax int) bool {
 	if field == "*" || field == "?" {
 		return true
 	}
 
 	// Comma-separated list.
-	for _, part := range strings.Split(field, ",") {
+	for part := range strings.SplitSeq(field, ",") {
 		part = strings.TrimSpace(part)
 
 		// Range a-b.
 		if strings.Contains(part, "-") {
-			rangeParts := strings.SplitN(part, "-", 2)
+			rangeParts := strings.SplitN(part, "-", rateExpressionFields)
 			lo, err1 := strconv.Atoi(rangeParts[0])
 			hi, err2 := strconv.Atoi(rangeParts[1])
 
@@ -201,19 +243,19 @@ func matchCronField(field string, val, min, max int) bool {
 
 		// Step */step or a/step.
 		if strings.Contains(part, "/") {
-			stepParts := strings.SplitN(part, "/", 2)
+			stepParts := strings.SplitN(part, "/", rateExpressionFields)
 			step, err := strconv.Atoi(stepParts[1])
 
 			if err != nil || step <= 0 {
 				continue
 			}
 
-			start := min
+			start := fieldMin
 			if stepParts[0] != "*" {
 				start, _ = strconv.Atoi(stepParts[0])
 			}
 
-			for v := start; v <= max; v += step {
+			for v := start; v <= fieldMax; v += step {
 				if v == val {
 					return true
 				}
