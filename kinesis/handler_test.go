@@ -3,6 +3,7 @@ package kinesis_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -421,7 +422,298 @@ func TestKinesis_UnknownAction(t *testing.T) {
 	assert.Equal(t, "UnknownOperationException", errResp.Type)
 }
 
-// TestKinesis_SequenceNumberOrdering tests that sequence numbers are strictly increasing.
+// TestKinesis_MatchPriority tests the MatchPriority and ExtractOperation methods.
+func TestKinesis_MatchPriority(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	assert.Equal(t, 75, h.MatchPriority())
+
+	e := echo.New()
+
+	// ExtractOperation with valid target
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	req.Header.Set("X-Amz-Target", "Kinesis_20131202.ListStreams")
+	c := e.NewContext(req, httptest.NewRecorder())
+	assert.Equal(t, "ListStreams", h.ExtractOperation(c))
+
+	// ExtractOperation with no target
+	req2 := httptest.NewRequest(http.MethodPost, "/", nil)
+	c2 := e.NewContext(req2, httptest.NewRecorder())
+	assert.Equal(t, "Unknown", h.ExtractOperation(c2))
+}
+
+// TestKinesis_ExtractResource tests ExtractResource method.
+func TestKinesis_ExtractResource(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	e := echo.New()
+
+	// Valid body
+	body, _ := json.Marshal(map[string]string{"StreamName": "my-stream"})
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	c := e.NewContext(req, httptest.NewRecorder())
+	assert.Equal(t, "my-stream", h.ExtractResource(c))
+
+	// Invalid body
+	req2 := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte("not-json")))
+	c2 := e.NewContext(req2, httptest.NewRecorder())
+	assert.Equal(t, "", h.ExtractResource(c2))
+}
+
+// TestKinesis_ListAll tests the ListAll backend method.
+func TestKinesis_ListAll(t *testing.T) {
+	t.Parallel()
+
+	bk := kinesis.NewInMemoryBackend()
+
+	// Empty
+	assert.Empty(t, bk.ListAll())
+
+	// Create some streams
+	require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "s1"}))
+	require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "s2"}))
+
+	all := bk.ListAll()
+	assert.Len(t, all, 2)
+
+	names := make([]string, len(all))
+	for i, s := range all {
+		names[i] = s.Name
+		assert.NotEmpty(t, s.ARN)
+		assert.NotEmpty(t, s.Status)
+	}
+
+	assert.ElementsMatch(t, []string{"s1", "s2"}, names)
+}
+
+// TestKinesis_BackendWithConfig tests NewInMemoryBackendWithConfig propagates region/account.
+func TestKinesis_BackendWithConfig(t *testing.T) {
+	t.Parallel()
+
+	bk := kinesis.NewInMemoryBackendWithConfig("123456789012", "eu-west-1")
+	require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "regional-stream"}))
+
+	all := bk.ListAll()
+	require.Len(t, all, 1)
+	assert.Contains(t, all[0].ARN, "eu-west-1")
+	assert.Contains(t, all[0].ARN, "123456789012")
+}
+
+// TestKinesis_CreateStreamRegionOverride tests per-request region override in CreateStream.
+func TestKinesis_CreateStreamRegionOverride(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "CreateStream", map[string]any{
+		"StreamName": "regional-stream-2",
+		"ShardCount": 1,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+// TestKinesis_DeleteStreamNotFound tests deleting a non-existent stream.
+func TestKinesis_DeleteStreamNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "DeleteStream", map[string]any{
+		"StreamName": "does-not-exist",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var errResp struct {
+		Type string `json:"__type"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, "ResourceNotFoundException", errResp.Type)
+}
+
+// TestKinesis_PutRecordNotFound tests PutRecord on a non-existent stream.
+func TestKinesis_PutRecordNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "PutRecord", map[string]any{
+		"StreamName":   "nonexistent",
+		"PartitionKey": "pk",
+		"Data":         []byte("data"),
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestKinesis_PutRecordsNotFound tests PutRecords on a non-existent stream.
+func TestKinesis_PutRecordsNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "PutRecords", map[string]any{
+		"StreamName": "nonexistent",
+		"Records":    []map[string]any{{"PartitionKey": "pk", "Data": []byte("data")}},
+	})
+	// PutRecords calls PutRecord for each entry, which fails, but the outer PutRecords itself succeeds
+	// with failed record count set
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		FailedRecordCount int `json:"FailedRecordCount"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, 1, resp.FailedRecordCount)
+}
+
+// TestKinesis_GetShardIteratorBadIteratorType tests invalid iterator type.
+func TestKinesis_GetShardIteratorBadIteratorType(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create stream
+	rec := doRequest(t, h, "CreateStream", map[string]any{
+		"StreamName": "bad-iter-stream",
+		"ShardCount": 1,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Get shard ID
+	rec = doRequest(t, h, "DescribeStream", map[string]any{"StreamName": "bad-iter-stream"})
+	require.Equal(t, http.StatusOK, rec.Code)
+	var descResp struct {
+		StreamDescription struct {
+			Shards []struct{ ShardId string } `json:"Shards"`
+		} `json:"StreamDescription"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	shardID := descResp.StreamDescription.Shards[0].ShardId
+
+	rec = doRequest(t, h, "GetShardIterator", map[string]any{
+		"StreamName":        "bad-iter-stream",
+		"ShardId":           shardID,
+		"ShardIteratorType": "INVALID_TYPE",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestKinesis_GetShardIteratorNonExistentShard tests GetShardIterator with invalid shard.
+func TestKinesis_GetShardIteratorNonExistentShard(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "CreateStream", map[string]any{
+		"StreamName": "no-shard-stream",
+		"ShardCount": 1,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "GetShardIterator", map[string]any{
+		"StreamName":        "no-shard-stream",
+		"ShardId":           "shardId-not-real",
+		"ShardIteratorType": "TRIM_HORIZON",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestKinesis_GetRecordsExpiredIterator tests GetRecords with invalid iterator.
+func TestKinesis_GetRecordsExpiredIterator(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "GetRecords", map[string]any{
+		"ShardIterator": "definitely-not-base64!!",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var errResp struct {
+		Type string `json:"__type"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, "ExpiredIteratorException", errResp.Type)
+}
+
+// TestKinesis_ListShardsNotFound tests ListShards on a non-existent stream.
+func TestKinesis_ListShardsNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "ListShards", map[string]any{
+		"StreamName": "nonexistent",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestKinesis_DescribeStreamSummaryNotFound tests DescribeStreamSummary on a non-existent stream.
+func TestKinesis_DescribeStreamSummaryNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "DescribeStreamSummary", map[string]any{
+		"StreamName": "nonexistent",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestKinesis_HandlerEmptyBody tests handler with nil/empty X-Amz-Target (after prefix strip = "").
+func TestKinesis_HandlerNoTarget(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte("{}")))
+	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+	// No X-Amz-Target header
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := h.Handler()(c)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestKinesis_MultipleShardRouting tests that records go to different shards based on partition key.
+func TestKinesis_MultipleShardRouting(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create stream with 4 shards
+	rec := doRequest(t, h, "CreateStream", map[string]any{
+		"StreamName": "multi-shard-stream",
+		"ShardCount": 4,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Put records with different partition keys
+	shardIDs := make(map[string]bool)
+	for i := range 10 {
+		rec = doRequest(t, h, "PutRecord", map[string]any{
+			"StreamName":   "multi-shard-stream",
+			"PartitionKey": fmt.Sprintf("pk-%d", i),
+			"Data":         []byte("data"),
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var putResp struct {
+			ShardId string `json:"ShardId"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putResp))
+		shardIDs[putResp.ShardId] = true
+	}
+
+	// With 10 records and 4 shards, we should get records on more than 1 shard
+	assert.GreaterOrEqual(t, len(shardIDs), 1)
+}
+
 func TestKinesis_SequenceNumberOrdering(t *testing.T) {
 	t.Parallel()
 

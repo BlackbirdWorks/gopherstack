@@ -475,6 +475,9 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	// Wire API Gateway → Lambda proxy integration.
 	wireAPIGatewayLambda(services[11], services[9])
 
+	// Wire Kinesis → Lambda event source mapping poller.
+	wireKinesisLambda(services[15], services[9])
+
 	// Init CloudFormation after core handlers are stored so it can access their backends.
 	cfnSvc, err := (&cfnbackend.Provider{}).Init(appCtx)
 	if err != nil {
@@ -673,6 +676,83 @@ func (a *sfnLambdaInvokerAdapter) InvokeFunction(
 
 // Ensure sfnLambdaInvokerAdapter implements sfnasl.LambdaInvoker.
 var _ sfnasl.LambdaInvoker = (*sfnLambdaInvokerAdapter)(nil)
+
+// wireKinesisLambda connects the Kinesis backend to the Lambda event source poller
+// so that records written to Kinesis streams trigger Lambda functions with active
+// event source mappings.
+func wireKinesisLambda(kinesisReg, lambdaReg service.Registerable) {
+	kinesisH, ok := kinesisReg.(*kinesisbackend.Handler)
+	if !ok {
+		return
+	}
+
+	kinesisBk, bkOk := kinesisH.Backend.(*kinesisbackend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
+		if lambdaBk, bk2Ok := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bk2Ok {
+			adapter := &kinesisReaderAdapter{backend: kinesisBk}
+			lambdaBk.SetKinesisPoller(lambdabackend.NewEventSourcePoller(lambdaBk, adapter, lambdaH.Logger))
+		}
+	}
+}
+
+// kinesisReaderAdapter adapts the Kinesis backend to the lambda.KinesisReader interface.
+type kinesisReaderAdapter struct {
+	backend *kinesisbackend.InMemoryBackend
+}
+
+func (a *kinesisReaderAdapter) GetShardIDs(streamName string) ([]string, error) {
+	out, err := a.backend.DescribeStream(&kinesisbackend.DescribeStreamInput{StreamName: streamName})
+	if err != nil {
+		return nil, err
+	}
+
+	ids := make([]string, len(out.Shards))
+	for i, s := range out.Shards {
+		ids[i] = s.ShardID
+	}
+
+	return ids, nil
+}
+
+func (a *kinesisReaderAdapter) GetShardIterator(streamName, shardID, iteratorType, startingSeqNum string) (string, error) {
+	out, err := a.backend.GetShardIterator(&kinesisbackend.GetShardIteratorInput{
+		StreamName:             streamName,
+		ShardID:                shardID,
+		ShardIteratorType:      iteratorType,
+		StartingSequenceNumber: startingSeqNum,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	return out.ShardIterator, nil
+}
+
+func (a *kinesisReaderAdapter) GetRecords(iteratorToken string, limit int) ([]lambdabackend.KinesisRecord, string, error) {
+	out, err := a.backend.GetRecords(&kinesisbackend.GetRecordsInput{
+		ShardIterator: iteratorToken,
+		Limit:         limit,
+	})
+	if err != nil {
+		return nil, "", err
+	}
+
+	records := make([]lambdabackend.KinesisRecord, len(out.Records))
+	for i, r := range out.Records {
+		records[i] = lambdabackend.KinesisRecord{
+			PartitionKey:   r.PartitionKey,
+			SequenceNumber: r.SequenceNumber,
+			Data:           r.Data,
+			ArrivalTime:    r.ApproximateArrivalTimestamp,
+		}
+	}
+
+	return records, out.NextShardIterator, nil
+}
 
 // ARN format: arn:aws:sqs:region:accountId:queueName
 // URL format expected by SQS backend: http://endpoint/accountId/queueName

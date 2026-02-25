@@ -546,7 +546,7 @@ func (h *Handler) handlePutRecords(
 
 	results := make([]jsonPutRecordsResultEntry, len(out.Records))
 	for i, r := range out.Records {
-		results[i] = jsonPutRecordsResultEntry{ //nolint:staticcheck // struct tags differ; type conversion not possible
+		results[i] = jsonPutRecordsResultEntry{
 			ShardId:        r.ShardID,
 			SequenceNumber: r.SequenceNumber,
 			ErrorCode:      r.ErrorCode,

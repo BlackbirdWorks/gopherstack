@@ -1,6 +1,7 @@
 package lambda
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,6 +23,9 @@ const lambdaMatchPriority = 95
 
 // lambdaPathPrefix is the path prefix for Lambda REST API v1 endpoints.
 const lambdaPathPrefix = "/2015-03-31/functions"
+
+// esmPathPrefix is the path prefix for Lambda event source mapping endpoints.
+const esmPathPrefix = "/2015-03-31/event-source-mappings"
 
 // routeSpec binds an HTTP method and path predicate to an operation name or handler.
 type routeSpec struct {
@@ -67,6 +71,16 @@ func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
 // Name returns the service name.
 func (h *Handler) Name() string { return "Lambda" }
 
+// StartWorker starts the Kinesis event source poller background goroutine, if one is configured.
+// It implements service.BackgroundWorker.
+func (h *Handler) StartWorker(ctx context.Context) error {
+	if lambdaBk, ok := h.Backend.(*InMemoryBackend); ok {
+		lambdaBk.StartKinesisPoller(ctx)
+	}
+
+	return nil
+}
+
 // GetSupportedOperations returns the list of supported Lambda operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
@@ -77,6 +91,10 @@ func (h *Handler) GetSupportedOperations() []string {
 		"UpdateFunctionCode",
 		"UpdateFunctionConfiguration",
 		"InvokeFunction",
+		"CreateEventSourceMapping",
+		"GetEventSourceMapping",
+		"ListEventSourceMappings",
+		"DeleteEventSourceMapping",
 	}
 }
 
@@ -87,6 +105,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		target := c.Request().Header.Get("X-Amz-Target")
 
 		return strings.HasPrefix(path, lambdaPathPrefix) ||
+			strings.HasPrefix(path, esmPathPrefix) ||
 			strings.HasPrefix(target, "AWSLambda")
 	}
 }
@@ -186,8 +205,15 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		ctx := c.Request().Context()
 		log := logger.Load(ctx)
-		rest := strings.TrimPrefix(c.Request().URL.Path, lambdaPathPrefix)
+		path := c.Request().URL.Path
 		method := c.Request().Method
+
+		// Handle event-source-mappings routes
+		if strings.HasPrefix(path, esmPathPrefix) {
+			return h.handleESMRoute(c, path, method)
+		}
+
+		rest := strings.TrimPrefix(path, lambdaPathPrefix)
 
 		for _, route := range routes {
 			if route.method == method && route.match(rest) {
@@ -195,10 +221,113 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			}
 		}
 
-		log.DebugContext(ctx, "lambda: unknown route", "method", method, "path", c.Request().URL.Path)
+		log.DebugContext(ctx, "lambda: unknown route", "method", method, "path", path)
 
 		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 	}
+}
+
+// handleESMRoute dispatches event-source-mapping REST API requests.
+func (h *Handler) handleESMRoute(c *echo.Context, path, method string) error {
+	rest := strings.TrimPrefix(path, esmPathPrefix)
+	// Remove leading slash
+	rest = strings.TrimPrefix(rest, "/")
+
+	switch {
+	case method == http.MethodPost && rest == "":
+		return h.handleCreateESM(c)
+	case method == http.MethodGet && rest == "":
+		return h.handleListESMs(c)
+	case method == http.MethodGet && rest != "":
+		return h.handleGetESM(c, rest)
+	case method == http.MethodDelete && rest != "":
+		return h.handleDeleteESM(c, rest)
+	default:
+		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+	}
+}
+
+// handleCreateESM handles POST /2015-03-31/event-source-mappings/.
+func (h *Handler) handleCreateESM(c *echo.Context) error {
+	if lambdaBk, ok := h.Backend.(*InMemoryBackend); ok {
+		body, err := httputil.ReadBody(c.Request())
+		if err != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
+		}
+
+		var req struct {
+			EventSourceARN   string `json:"EventSourceArn"`
+			FunctionName     string `json:"FunctionName"`
+			StartingPosition string `json:"StartingPosition"`
+			BatchSize        int    `json:"BatchSize"`
+			Enabled          *bool  `json:"Enabled"`
+		}
+
+		if err = json.Unmarshal(body, &req); err != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
+		}
+
+		enabled := req.Enabled == nil || *req.Enabled // default enabled=true
+
+		m, err := lambdaBk.CreateEventSourceMapping(&CreateEventSourceMappingInput{
+			EventSourceARN:   req.EventSourceARN,
+			FunctionName:     req.FunctionName,
+			StartingPosition: req.StartingPosition,
+			BatchSize:        req.BatchSize,
+			Enabled:          enabled,
+		})
+		if err != nil {
+			return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+		}
+
+		return c.JSON(http.StatusCreated, toJSONESMResponse(m))
+	}
+
+	return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+}
+
+// handleListESMs handles GET /2015-03-31/event-source-mappings/.
+func (h *Handler) handleListESMs(c *echo.Context) error {
+	if lambdaBk, ok := h.Backend.(*InMemoryBackend); ok {
+		functionName := c.Request().URL.Query().Get("FunctionName")
+		mappings := lambdaBk.ListEventSourceMappings(functionName)
+		resp := make([]jsonESMResponse, len(mappings))
+		for i, m := range mappings {
+			resp[i] = toJSONESMResponse(m)
+		}
+
+		return c.JSON(http.StatusOK, jsonListESMResponse{EventSourceMappings: resp})
+	}
+
+	return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+}
+
+// handleGetESM handles GET /2015-03-31/event-source-mappings/{UUID}.
+func (h *Handler) handleGetESM(c *echo.Context, id string) error {
+	if lambdaBk, ok := h.Backend.(*InMemoryBackend); ok {
+		m, err := lambdaBk.GetEventSourceMapping(id)
+		if err != nil {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "event source mapping not found")
+		}
+
+		return c.JSON(http.StatusOK, toJSONESMResponse(m))
+	}
+
+	return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+}
+
+// handleDeleteESM handles DELETE /2015-03-31/event-source-mappings/{UUID}.
+func (h *Handler) handleDeleteESM(c *echo.Context, id string) error {
+	if lambdaBk, ok := h.Backend.(*InMemoryBackend); ok {
+		m, err := lambdaBk.DeleteEventSourceMapping(id)
+		if err != nil {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "event source mapping not found")
+		}
+
+		return c.JSON(http.StatusOK, toJSONESMResponse(m))
+	}
+
+	return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
 }
 
 // validateCreateFunctionInput checks required fields and package-type-specific constraints.
