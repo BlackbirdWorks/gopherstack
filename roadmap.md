@@ -110,7 +110,7 @@ Log group CRUD, log stream CRUD, PutLogEvents, GetLogEvents, FilterLogEvents. Da
 
 ### CloudFormation (12 operations) ✅
 
-Stack CRUD (create, update, delete, describe, list), stack events, change sets (create, describe, execute, delete, list), GetTemplate. Resource creation for 7 resource types (S3::Bucket, DynamoDB::Table, SQS::Queue, SNS::Topic, SSM::Parameter, KMS::Key, SecretsManager::Secret). Intrinsic functions (Ref, Fn::Sub, Fn::Join), JSON + YAML. Dashboard UI with stack list, detail, events.
+Stack CRUD (create, update, delete, describe, list), stack events, change sets (create, describe, execute, delete, list), GetTemplate. Resource creation for 12 resource types (S3::Bucket, DynamoDB::Table, SQS::Queue, SNS::Topic, SSM::Parameter, KMS::Key, SecretsManager::Secret, Lambda::Function, Events::Rule, StepFunctions::StateMachine, Logs::LogGroup, ApiGateway::RestApi). Intrinsic functions (Ref, Fn::Sub, Fn::Join), JSON + YAML. Dashboard UI with stack list, detail, events.
 
 ---
 
@@ -264,7 +264,7 @@ Close gaps in the 16 implemented services before adding new ones.
 - Unit tests in `cloudwatch/handler_test.go` — put metric data, query via GetMetricData, verify results
 - Integration test in `test/integration/lambda_logs_test.go` — invoke Lambda, check CloudWatch Logs for function output
 
-**Task 14: CloudFormation resources for newer services**
+**Task 14: CloudFormation resources for newer services** ✅
 - Add resource handlers in `cloudformation/resources.go` for:
   - `AWS::Lambda::Function` — call Lambda CreateFunction with properties from template
   - `AWS::Events::Rule` — call EventBridge PutRule + PutTargets
