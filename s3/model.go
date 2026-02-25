@@ -225,10 +225,9 @@ type Grantee struct {
 
 // ListMultipartUploadsResult is the XML response for ListMultipartUploads.
 //
-//nolint:govet // fieldalignment: fields reordered for memory alignment; XML tags control marshalling order
+
 type ListMultipartUploadsResult struct {
 	XMLName            xml.Name          `xml:"ListMultipartUploadsResult"`
-	Uploads            []MultipartUpload `xml:"Upload"`
 	Xmlns              string            `xml:"xmlns,attr,omitempty"`
 	Bucket             string            `xml:"Bucket"`
 	Prefix             string            `xml:"Prefix,omitempty"`
@@ -236,6 +235,7 @@ type ListMultipartUploadsResult struct {
 	UploadIDMarker     string            `xml:"UploadIdMarker,omitempty"`
 	NextKeyMarker      string            `xml:"NextKeyMarker,omitempty"`
 	NextUploadIDMarker string            `xml:"NextUploadIdMarker,omitempty"`
+	Uploads            []MultipartUpload `xml:"Upload"`
 	MaxUploads         int               `xml:"MaxUploads"`
 	IsTruncated        bool              `xml:"IsTruncated"`
 }
@@ -249,14 +249,14 @@ type MultipartUpload struct {
 
 // ListPartsResult is the XML response for ListParts.
 //
-//nolint:govet // fieldalignment: fields reordered for memory alignment; XML tags control marshalling order
+
 type ListPartsResult struct {
 	XMLName              xml.Name  `xml:"ListPartsResult"`
-	Parts                []PartXML `xml:"Part"`
 	Xmlns                string    `xml:"xmlns,attr,omitempty"`
 	Bucket               string    `xml:"Bucket"`
 	Key                  string    `xml:"Key"`
 	UploadID             string    `xml:"UploadId"`
+	Parts                []PartXML `xml:"Part"`
 	PartNumberMarker     int       `xml:"PartNumberMarker"`
 	NextPartNumberMarker int       `xml:"NextPartNumberMarker,omitempty"`
 	MaxParts             int       `xml:"MaxParts"`

@@ -17,4 +17,4 @@ coverage.html
 *.md
 **/*.md
 *.pdf
-test/e2e/failures/
+test/e2e/failures/go.mod.bak
