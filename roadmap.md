@@ -180,20 +180,20 @@ Each task below is scoped to be completable in a single focused session (~1 hour
 
 Close gaps in the 16 implemented services before adding new ones.
 
-**Task 1: S3 presigned URLs**
+**Task 1: S3 presigned URLs** ✅
 - Add `GeneratePresignedUrl` support to `s3/handler.go` — accept `X-Amz-Expires` query param on GET/PUT, return signed URL with HMAC token
 - Add presigned URL verification middleware in `s3/handler.go` — validate token on incoming requests with `X-Amz-Signature` query param
 - Unit tests in `s3/handler_test.go` — generate URL, fetch object via presigned URL, expired URL returns 403
 - Integration test in `test/integration/s3_presigned_test.go` — use AWS SDK `PresignClient` to generate and consume URLs
 
-**Task 2: S3 bucket policies**
+**Task 2: S3 bucket policies** ✅
 - Add `PutBucketPolicy` / `GetBucketPolicy` / `DeleteBucketPolicy` handlers in `s3/handler.go` — store JSON policy document per bucket
 - Add policy field to bucket model in `s3/backend_memory.go`
 - Update `s3/handler.go` `GetSupportedOperations()` to include new ops
 - Unit tests in `s3/handler_test.go` — put/get/delete policy, policy persists across requests
 - No enforcement needed (same as LocalStack) — just store and return the document
 
-**Task 3: S3 CORS configuration**
+**Task 3: S3 CORS configuration** ✅
 - Add `PutBucketCors` / `GetBucketCors` / `DeleteBucketCors` handlers in `s3/handler.go` — parse XML CORS rules, store per bucket
 - Add CORS preflight handling — respond to OPTIONS requests with configured CORS headers
 - Add CORS fields to bucket model in `s3/backend_memory.go`
@@ -243,20 +243,20 @@ Close gaps in the 16 implemented services before adding new ones.
 - Support `Qualifier` parameter on `Invoke` — resolve alias → version → function config
 - Unit tests in `lambda/handler_test.go` — publish version, create alias pointing to version, invoke via alias
 
-**Task 10: KMS grants + key policies**
+**Task 10: KMS grants + key policies** ✅
 - Add `CreateGrant` / `ListGrants` / `RevokeGrant` / `RetireGrant` / `ListRetirableGrants` handlers in `kms/handler.go`
 - Add `GenerateDataKeyWithoutPlaintext` handler — same as GenerateDataKey but omit plaintext from response
 - Add `PutKeyPolicy` / `GetKeyPolicy` handlers — store JSON policy document per key
 - Store grants in `kms/backend.go` — grant ID, grantee principal, operations list, constraints
 - Unit tests in `kms/handler_test.go` — create grant, list grants, revoke grant, generate data key without plaintext, put/get key policy
 
-**Task 11: Secrets Manager tags + rotation stub**
+**Task 11: Secrets Manager tags + rotation stub** ✅
 - Add `TagResource` / `UntagResource` / `ListSecretTags` handlers in `secretsmanager/handler.go` (reuse the tag map pattern from DynamoDB)
 - Add `RotateSecret` handler — accept rotation Lambda ARN, create new version with `AWSPENDING` staging label, invoke the rotation Lambda if configured, move labels on completion
 - Store tags per secret in `secretsmanager/backend.go`
 - Unit tests in `secretsmanager/handler_test.go` — tag/untag/list tags, rotate secret creates new version
 
-**Task 12: SSM parameter tags + DynamoDB backup stubs**
+**Task 12: SSM parameter tags + DynamoDB backup stubs** ✅
 - Add `AddTagsToResource` / `RemoveTagsFromResource` / `ListTagsForResource` handlers in `ssm/handler.go`
 - Store tags per parameter in `ssm/backend.go`
 - Add `DescribeContinuousBackups` / `UpdateContinuousBackups` stubs in `dynamodb/handler.go` — return synthetic backup description with PointInTimeRecovery status

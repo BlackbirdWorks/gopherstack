@@ -61,6 +61,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"EnableKeyRotation",
 		"Encrypt",
 		"GenerateDataKey",
+		"GenerateDataKeyWithoutPlaintext",
 		"GetKeyRotationStatus",
 		"ListAliases",
 		"ListKeys",
@@ -68,6 +69,13 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ScheduleKeyDeletion",
 		"CreateAlias",
 		"DeleteAlias",
+		"CreateGrant",
+		"ListGrants",
+		"RevokeGrant",
+		"RetireGrant",
+		"ListRetirableGrants",
+		"PutKeyPolicy",
+		"GetKeyPolicy",
 	}
 }
 
@@ -175,6 +183,7 @@ func (h *Handler) buildDispatchTable() map[string]kmsActionFn {
 	table := h.buildKeyLifecycleActions()
 	maps.Copy(table, h.buildCryptoActions())
 	maps.Copy(table, h.buildAliasRotationActions())
+	maps.Copy(table, h.buildGrantPolicyActions())
 
 	return table
 }
@@ -269,6 +278,14 @@ func (h *Handler) buildCryptoActions() map[string]kmsActionFn {
 
 			return h.Backend.GenerateDataKey(&input)
 		},
+		"GenerateDataKeyWithoutPlaintext": func(_ string, b []byte) (any, error) {
+			var input GenerateDataKeyWithoutPlaintextInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.GenerateDataKeyWithoutPlaintext(&input)
+		},
 		"ReEncrypt": func(_ string, b []byte) (any, error) {
 			var input ReEncryptInput
 			if err := json.Unmarshal(b, &input); err != nil {
@@ -334,6 +351,68 @@ func (h *Handler) buildAliasRotationActions() map[string]kmsActionFn {
 	}
 }
 
+// buildGrantPolicyActions returns dispatch entries for grant and key policy operations.
+func (h *Handler) buildGrantPolicyActions() map[string]kmsActionFn {
+	return map[string]kmsActionFn{
+		"CreateGrant": func(_ string, b []byte) (any, error) {
+			var input CreateGrantInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.CreateGrant(&input)
+		},
+		"ListGrants": func(_ string, b []byte) (any, error) {
+			var input ListGrantsInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.ListGrants(&input)
+		},
+		"RevokeGrant": func(_ string, b []byte) (any, error) {
+			var input RevokeGrantInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return struct{}{}, h.Backend.RevokeGrant(&input)
+		},
+		"RetireGrant": func(_ string, b []byte) (any, error) {
+			var input RetireGrantInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return struct{}{}, h.Backend.RetireGrant(&input)
+		},
+		"ListRetirableGrants": func(_ string, b []byte) (any, error) {
+			var input ListRetirableGrantsInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.ListRetirableGrants(&input)
+		},
+		"PutKeyPolicy": func(_ string, b []byte) (any, error) {
+			var input PutKeyPolicyInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return struct{}{}, h.Backend.PutKeyPolicy(&input)
+		},
+		"GetKeyPolicy": func(_ string, b []byte) (any, error) {
+			var input GetKeyPolicyInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.GetKeyPolicy(&input)
+		},
+	}
+}
+
 // dispatch routes the KMS operation to the appropriate backend method.
 func (h *Handler) dispatch(_ context.Context, r *http.Request, action string, body []byte) ([]byte, error) {
 	region := httputil.ExtractRegionFromRequest(r, h.DefaultRegion)
@@ -361,7 +440,7 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 	statusCode := http.StatusBadRequest
 
 	switch {
-	case errors.Is(reqErr, ErrKeyNotFound), errors.Is(reqErr, ErrAliasNotFound):
+	case errors.Is(reqErr, ErrKeyNotFound), errors.Is(reqErr, ErrAliasNotFound), errors.Is(reqErr, ErrGrantNotFound):
 		errorType = "NotFoundException"
 	case errors.Is(reqErr, ErrKeyDisabled):
 		errorType = "DisabledException"

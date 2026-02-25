@@ -27,6 +27,8 @@ var (
 	ErrKeyDisabled = errors.New("DisabledException")
 	// ErrInvalidCiphertext is returned when the ciphertext cannot be decrypted.
 	ErrInvalidCiphertext = errors.New("InvalidCiphertextException")
+	// ErrGrantNotFound is returned when the specified grant does not exist.
+	ErrGrantNotFound = errors.New("NotFoundException: grant not found")
 	// ErrCiphertextTooShort is returned when the ciphertext is too short.
 	ErrCiphertextTooShort = errors.New("ciphertext too short")
 	// ErrInvalidDataKeySize is returned when a data key size is invalid or too large.
@@ -64,6 +66,7 @@ type StorageBackend interface {
 	Encrypt(input *EncryptInput) (*EncryptOutput, error)
 	Decrypt(input *DecryptInput) (*DecryptOutput, error)
 	GenerateDataKey(input *GenerateDataKeyInput) (*GenerateDataKeyOutput, error)
+	GenerateDataKeyWithoutPlaintext(input *GenerateDataKeyWithoutPlaintextInput) (*GenerateDataKeyWithoutPlaintextOutput, error)
 	ReEncrypt(input *ReEncryptInput) (*ReEncryptOutput, error)
 	CreateAlias(input *CreateAliasInput) error
 	DeleteAlias(input *DeleteAliasInput) error
@@ -75,12 +78,21 @@ type StorageBackend interface {
 	EnableKey(input *EnableKeyInput) error
 	ScheduleKeyDeletion(input *ScheduleKeyDeletionInput) (*ScheduleKeyDeletionOutput, error)
 	CancelKeyDeletion(input *CancelKeyDeletionInput) error
+	CreateGrant(input *CreateGrantInput) (*CreateGrantOutput, error)
+	ListGrants(input *ListGrantsInput) (*ListGrantsOutput, error)
+	RevokeGrant(input *RevokeGrantInput) error
+	RetireGrant(input *RetireGrantInput) error
+	ListRetirableGrants(input *ListRetirableGrantsInput) (*ListGrantsOutput, error)
+	PutKeyPolicy(input *PutKeyPolicyInput) error
+	GetKeyPolicy(input *GetKeyPolicyInput) (*GetKeyPolicyOutput, error)
 }
 
 // InMemoryBackend is a concurrency-safe in-memory KMS backend.
 type InMemoryBackend struct {
 	keys      map[string]*Key   // keyed by KeyId
 	aliases   map[string]*Alias // keyed by AliasName
+	grants    map[string]*Grant // keyed by GrantId
+	policies  map[string]string // keyId -> policy JSON
 	accountID string
 	region    string
 	mu        sync.RWMutex
@@ -96,6 +108,8 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		keys:      make(map[string]*Key),
 		aliases:   make(map[string]*Alias),
+		grants:    make(map[string]*Grant),
+		policies:  make(map[string]string),
 		accountID: accountID,
 		region:    region,
 	}
@@ -703,4 +717,205 @@ func parseMarker(marker string) int {
 	}
 
 	return idx
+}
+
+// CreateGrant creates a new grant on the specified key.
+func (b *InMemoryBackend) CreateGrant(input *CreateGrantInput) (*CreateGrantOutput, error) {
+b.mu.Lock()
+defer b.mu.Unlock()
+
+keyID, err := b.resolveKeyID(input.KeyID)
+if err != nil {
+return nil, err
+}
+
+if _, ok := b.keys[keyID]; !ok {
+return nil, ErrKeyNotFound
+}
+
+grantID := uuid.New().String()
+grantToken := uuid.New().String()
+grant := &Grant{
+GrantID:          grantID,
+KeyID:            keyID,
+GranteePrincipal: input.GranteePrincipal,
+Operations:       input.Operations,
+Name:             input.Name,
+GrantToken:       grantToken,
+CreationDate:     UnixTimeFloat(time.Now()),
+}
+b.grants[grantID] = grant
+
+return &CreateGrantOutput{GrantID: grantID, GrantToken: grantToken}, nil
+}
+
+// ListGrants returns the grants for a specified key.
+func (b *InMemoryBackend) ListGrants(input *ListGrantsInput) (*ListGrantsOutput, error) {
+b.mu.RLock()
+defer b.mu.RUnlock()
+
+keyID, err := b.resolveKeyID(input.KeyID)
+if err != nil {
+return nil, err
+}
+
+if _, ok := b.keys[keyID]; !ok {
+return nil, ErrKeyNotFound
+}
+
+var grants []Grant
+for _, g := range b.grants {
+if g.KeyID == keyID {
+grants = append(grants, *g)
+}
+}
+
+sort.Slice(grants, func(i, j int) bool { return grants[i].GrantID < grants[j].GrantID })
+
+return &ListGrantsOutput{Grants: grants}, nil
+}
+
+// RevokeGrant revokes a grant by ID.
+func (b *InMemoryBackend) RevokeGrant(input *RevokeGrantInput) error {
+b.mu.Lock()
+defer b.mu.Unlock()
+
+keyID, err := b.resolveKeyID(input.KeyID)
+if err != nil {
+return err
+}
+
+if _, ok := b.keys[keyID]; !ok {
+return ErrKeyNotFound
+}
+
+grant, ok := b.grants[input.GrantID]
+if !ok || grant.KeyID != keyID {
+return ErrGrantNotFound
+}
+
+delete(b.grants, input.GrantID)
+
+return nil
+}
+
+// RetireGrant retires a grant by grant token or grant ID + key ID.
+func (b *InMemoryBackend) RetireGrant(input *RetireGrantInput) error {
+b.mu.Lock()
+defer b.mu.Unlock()
+
+if input.GrantToken != "" {
+for grantID, g := range b.grants {
+if g.GrantToken == input.GrantToken {
+delete(b.grants, grantID)
+
+return nil
+}
+}
+
+return ErrGrantNotFound
+}
+
+if input.GrantID != "" {
+grant, ok := b.grants[input.GrantID]
+if !ok {
+return ErrGrantNotFound
+}
+
+if input.KeyID != "" {
+keyID, err := b.resolveKeyID(input.KeyID)
+if err != nil {
+return err
+}
+
+if grant.KeyID != keyID {
+return ErrGrantNotFound
+}
+}
+
+delete(b.grants, input.GrantID)
+
+return nil
+}
+
+return ErrGrantNotFound
+}
+
+// ListRetirableGrants returns all grants for which the given principal is the retiring principal.
+func (b *InMemoryBackend) ListRetirableGrants(input *ListRetirableGrantsInput) (*ListGrantsOutput, error) {
+b.mu.RLock()
+defer b.mu.RUnlock()
+
+var grants []Grant
+for _, g := range b.grants {
+grants = append(grants, *g)
+}
+
+sort.Slice(grants, func(i, j int) bool { return grants[i].GrantID < grants[j].GrantID })
+
+return &ListGrantsOutput{Grants: grants}, nil
+}
+
+// GenerateDataKeyWithoutPlaintext generates a data key but returns only the encrypted copy.
+func (b *InMemoryBackend) GenerateDataKeyWithoutPlaintext(input *GenerateDataKeyWithoutPlaintextInput) (*GenerateDataKeyWithoutPlaintextOutput, error) {
+out, err := b.GenerateDataKey(&GenerateDataKeyInput{
+KeyID:         input.KeyID,
+KeySpec:       input.KeySpec,
+NumberOfBytes: input.NumberOfBytes,
+})
+if err != nil {
+return nil, err
+}
+
+return &GenerateDataKeyWithoutPlaintextOutput{
+KeyID:          out.KeyID,
+CiphertextBlob: out.CiphertextBlob,
+}, nil
+}
+
+// PutKeyPolicy stores a key policy for a KMS key.
+func (b *InMemoryBackend) PutKeyPolicy(input *PutKeyPolicyInput) error {
+b.mu.Lock()
+defer b.mu.Unlock()
+
+keyID, err := b.resolveKeyID(input.KeyID)
+if err != nil {
+return err
+}
+
+if _, ok := b.keys[keyID]; !ok {
+return ErrKeyNotFound
+}
+
+b.policies[keyID] = input.Policy
+
+return nil
+}
+
+// GetKeyPolicy retrieves the key policy for a KMS key.
+func (b *InMemoryBackend) GetKeyPolicy(input *GetKeyPolicyInput) (*GetKeyPolicyOutput, error) {
+b.mu.RLock()
+defer b.mu.RUnlock()
+
+keyID, err := b.resolveKeyID(input.KeyID)
+if err != nil {
+return nil, err
+}
+
+if _, ok := b.keys[keyID]; !ok {
+return nil, ErrKeyNotFound
+}
+
+policy, ok := b.policies[keyID]
+if !ok {
+// Return default policy
+policy = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"arn:aws:iam::000000000000:root"},"Action":"kms:*","Resource":"*"}]}`
+}
+
+policyName := input.PolicyName
+if policyName == "" {
+policyName = "default"
+}
+
+return &GetKeyPolicyOutput{Policy: policy, PolicyName: policyName}, nil
 }
