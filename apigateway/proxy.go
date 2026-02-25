@@ -183,7 +183,7 @@ func (h *Handler) handleProxyRequest(apiID, stageName string) http.HandlerFunc {
 		if parseErr := json.Unmarshal(respBytes, &lambdaResp); parseErr != nil {
 			// If not a proxy response format, return body as-is.
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write(respBytes)
+			_, _ = w.Write(respBytes) //nolint:gosec // G705: Lambda response bytes
 
 			return
 		}

@@ -487,10 +487,10 @@ func extractZipFile(destDir string, f *zip.File) error {
 	destPath = filepath.Join(destDir, strings.TrimPrefix(destPath, destDir))
 
 	if f.FileInfo().IsDir() {
-		return os.MkdirAll(destPath, f.Mode())
+		return os.MkdirAll(destPath, f.Mode()) //nolint:gosec // G703: path sanitized above
 	}
 
-	if err := os.MkdirAll(filepath.Dir(destPath), 0o750); err != nil {
+	if err := os.MkdirAll(filepath.Dir(destPath), 0o750); err != nil { //nolint:gosec // G703: sanitized path
 		return fmt.Errorf("mkdir %q: %w", filepath.Dir(destPath), err)
 	}
 
@@ -500,7 +500,7 @@ func extractZipFile(destDir string, f *zip.File) error {
 	}
 	defer rc.Close()
 
-	outFile, err := os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
+	outFile, err := os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode()) //nolint:gosec // G703: safe
 	if err != nil {
 		return fmt.Errorf("create file %q: %w", destPath, err)
 	}
@@ -604,7 +604,7 @@ func (b *InMemoryBackend) startZipContainer(
 	}
 
 	if _, err := b.docker.CreateAndStart(ctx, spec); err != nil {
-		_ = os.RemoveAll(zipDir)
+		_ = os.RemoveAll(zipDir) //nolint:gosec // G703: zipDir is a temp dir from os.MkdirTemp
 
 		return "", err
 	}
