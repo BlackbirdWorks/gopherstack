@@ -64,8 +64,8 @@ func TestLambda_ESM_CRUD(t *testing.T) {
 
 	// CreateEventSourceMapping
 	rec := doESMRequest(t, h, http.MethodPost, "/2015-03-31/event-source-mappings/", map[string]any{
-		"EventSourceArn": streamARN,
-		"FunctionName":   "my-function",
+		"EventSourceArn":   streamARN,
+		"FunctionName":     "my-function",
 		"StartingPosition": "TRIM_HORIZON",
 		"BatchSize":        50,
 		"Enabled":          true,
@@ -250,7 +250,7 @@ func TestLambda_SetKinesisPoller(t *testing.T) {
 
 	// Should have started the poller - just verify no panic
 	err := h.StartWorker(ctx)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Let context expire
 	<-ctx.Done()
@@ -278,7 +278,11 @@ func TestLambda_ESM_InvalidJSON(t *testing.T) {
 	h, _ := newRealHandler(t)
 
 	e := echo.New()
-	req := httptest.NewRequest(http.MethodPost, "/2015-03-31/event-source-mappings/", bytes.NewReader([]byte("{invalid")))
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/2015-03-31/event-source-mappings/",
+		bytes.NewReader([]byte("{invalid")),
+	)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
@@ -314,7 +318,11 @@ func TestLambda_ESM_UnknownESMMethod(t *testing.T) {
 
 	// PUT is not supported for ESM
 	e := echo.New()
-	req := httptest.NewRequest(http.MethodPut, "/2015-03-31/event-source-mappings/some-uuid", bytes.NewReader([]byte("{}")))
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"/2015-03-31/event-source-mappings/some-uuid",
+		bytes.NewReader([]byte("{}")),
+	)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
@@ -467,14 +475,14 @@ func TestLambda_Poller_PollWithRecords(t *testing.T) {
 	ctx := context.Background()
 
 	// Call poll directly instead of running the goroutine
-	lambda.PollOnce(poller, ctx)
+	lambda.PollOnce(ctx, poller)
 
 	reader.mu.Lock()
 	calls := reader.readCalls
 	reader.mu.Unlock()
 
 	// Should have polled at least once
-	assert.Greater(t, calls, 0)
+	assert.Positive(t, calls)
 }
 
 // TestLambda_Poller_PollWithDisabledMapping tests that disabled mappings are skipped.
@@ -498,7 +506,7 @@ func TestLambda_Poller_PollWithDisabledMapping(t *testing.T) {
 	poller := lambda.NewEventSourcePoller(backend, reader, slog.Default())
 	ctx := context.Background()
 
-	lambda.PollOnce(poller, ctx)
+	lambda.PollOnce(ctx, poller)
 
 	reader.mu.Lock()
 	calls := reader.readCalls
@@ -532,10 +540,10 @@ func TestLambda_Poller_PollStreamNotFound(t *testing.T) {
 	poller := lambda.NewEventSourcePoller(backend, errReader, slog.Default())
 	ctx := context.Background()
 
-	lambda.PollOnce(poller, ctx)
+	lambda.PollOnce(ctx, poller)
 
 	// Should have attempted to read at least once
-	assert.Greater(t, readErrors, 0)
+	assert.Positive(t, readErrors)
 }
 
 // TestLambda_Poller_StartAndStop tests the goroutine lifecycle.

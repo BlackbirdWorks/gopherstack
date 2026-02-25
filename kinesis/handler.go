@@ -134,7 +134,7 @@ func (h *Handler) kinesisDispatchTable() map[string]kinesisDispatchFn {
 		"DeleteStream":          h.handleDeleteStream,
 		"DescribeStream":        h.handleDescribeStream,
 		"DescribeStreamSummary": h.handleDescribeStreamSummary,
-		"ListStreams":            h.handleListStreams,
+		"ListStreams":           h.handleListStreams,
 		"PutRecord":             h.handlePutRecord,
 		"PutRecords":            h.handlePutRecords,
 		"GetShardIterator":      h.handleGetShardIterator,
@@ -177,8 +177,8 @@ type jsonDescribeStreamReq struct {
 }
 
 type jsonListStreamsReq struct {
-	Limit     int    `json:"Limit"`
 	NextToken string `json:"NextToken"`
+	Limit     int    `json:"Limit"`
 }
 
 type jsonPutRecordReq struct {
@@ -199,7 +199,7 @@ type jsonPutRecordsReq struct {
 
 type jsonGetShardIteratorReq struct {
 	StreamName             string `json:"StreamName"`
-	ShardId                string `json:"ShardId"`
+	ShardID                string `json:"ShardId"`
 	ShardIteratorType      string `json:"ShardIteratorType"`
 	StartingSequenceNumber string `json:"StartingSequenceNumber"`
 }
@@ -216,9 +216,9 @@ type jsonListShardsReq struct {
 }
 
 type jsonShardDescription struct {
-	ShardID               string `json:"ShardId"`
-	HashKeyRange          jsonHashKeyRange `json:"HashKeyRange"`
-	SequenceNumberRange   jsonSeqNumRange  `json:"SequenceNumberRange"`
+	ShardID             string           `json:"ShardId"`
+	HashKeyRange        jsonHashKeyRange `json:"HashKeyRange"`
+	SequenceNumberRange jsonSeqNumRange  `json:"SequenceNumberRange"`
 }
 
 type jsonHashKeyRange struct {
@@ -243,8 +243,8 @@ type jsonStreamDescription struct {
 	StreamName           string                 `json:"StreamName"`
 	StreamARN            string                 `json:"StreamARN"`
 	StreamStatus         string                 `json:"StreamStatus"`
-	RetentionPeriodHours int                    `json:"RetentionPeriodHours"`
 	Shards               []jsonShardDescription `json:"Shards"`
+	RetentionPeriodHours int                    `json:"RetentionPeriodHours"`
 	HasMoreShards        bool                   `json:"HasMoreShards"`
 }
 
@@ -257,26 +257,26 @@ type jsonDescribeStreamSummaryResp struct {
 }
 
 type jsonListStreamsResp struct {
-	StreamNames   []string `json:"StreamNames"`
+	NextToken      string   `json:"NextToken,omitempty"`
+	StreamNames    []string `json:"StreamNames"`
 	HasMoreStreams bool     `json:"HasMoreStreams"`
-	NextToken     string   `json:"NextToken,omitempty"`
 }
 
 type jsonPutRecordResp struct {
-	ShardId        string `json:"ShardId"`
+	ShardID        string `json:"ShardId"`
 	SequenceNumber string `json:"SequenceNumber"`
 }
 
 type jsonPutRecordsResultEntry struct {
-	ShardId        string `json:"ShardId,omitempty"`
+	ShardID        string `json:"ShardId,omitempty"`
 	SequenceNumber string `json:"SequenceNumber,omitempty"`
 	ErrorCode      string `json:"ErrorCode,omitempty"`
 	ErrorMessage   string `json:"ErrorMessage,omitempty"`
 }
 
 type jsonPutRecordsResp struct {
-	Records          []jsonPutRecordsResultEntry `json:"Records"`
-	FailedRecordCount int                        `json:"FailedRecordCount"`
+	Records           []jsonPutRecordsResultEntry `json:"Records"`
+	FailedRecordCount int                         `json:"FailedRecordCount"`
 }
 
 type jsonGetShardIteratorResp struct {
@@ -284,21 +284,21 @@ type jsonGetShardIteratorResp struct {
 }
 
 type jsonRecord struct {
-	Data                        []byte `json:"Data"`
-	PartitionKey                string `json:"PartitionKey"`
-	SequenceNumber              string `json:"SequenceNumber"`
+	PartitionKey                string  `json:"PartitionKey"`
+	SequenceNumber              string  `json:"SequenceNumber"`
+	Data                        []byte  `json:"Data"`
 	ApproximateArrivalTimestamp float64 `json:"ApproximateArrivalTimestamp"`
 }
 
 type jsonGetRecordsResp struct {
-	Records            []jsonRecord `json:"Records"`
 	NextShardIterator  string       `json:"NextShardIterator"`
+	Records            []jsonRecord `json:"Records"`
 	MillisBehindLatest int64        `json:"MillisBehindLatest"`
 }
 
 type jsonListShardsResp struct {
-	Shards    []jsonShardDescription `json:"Shards"`
 	NextToken string                 `json:"NextToken,omitempty"`
+	Shards    []jsonShardDescription `json:"Shards"`
 }
 
 type jsonKinesisError struct {
@@ -476,7 +476,7 @@ func (h *Handler) handleListStreams(
 	}
 
 	httputil.WriteJSON(h.Logger, w, http.StatusOK, jsonListStreamsResp{
-		StreamNames:   names,
+		StreamNames:    names,
 		HasMoreStreams: out.HasMoreStreams,
 	})
 }
@@ -507,7 +507,7 @@ func (h *Handler) handlePutRecord(
 	}
 
 	httputil.WriteJSON(h.Logger, w, http.StatusOK, jsonPutRecordResp{
-		ShardId:        out.ShardID,
+		ShardID:        out.ShardID,
 		SequenceNumber: out.SequenceNumber,
 	})
 }
@@ -546,16 +546,11 @@ func (h *Handler) handlePutRecords(
 
 	results := make([]jsonPutRecordsResultEntry, len(out.Records))
 	for i, r := range out.Records {
-		results[i] = jsonPutRecordsResultEntry{
-			ShardId:        r.ShardID,
-			SequenceNumber: r.SequenceNumber,
-			ErrorCode:      r.ErrorCode,
-			ErrorMessage:   r.ErrorMessage,
-		}
+		results[i] = jsonPutRecordsResultEntry(r)
 	}
 
 	httputil.WriteJSON(h.Logger, w, http.StatusOK, jsonPutRecordsResp{
-		Records:          results,
+		Records:           results,
 		FailedRecordCount: out.FailedRecordCount,
 	})
 }
@@ -576,7 +571,7 @@ func (h *Handler) handleGetShardIterator(
 
 	out, err := h.Backend.GetShardIterator(&GetShardIteratorInput{
 		StreamName:             req.StreamName,
-		ShardID:                req.ShardId,
+		ShardID:                req.ShardID,
 		ShardIteratorType:      req.ShardIteratorType,
 		StartingSequenceNumber: req.StartingSequenceNumber,
 	})
@@ -621,13 +616,13 @@ func (h *Handler) handleGetRecords(
 			Data:                        r.Data,
 			PartitionKey:                r.PartitionKey,
 			SequenceNumber:              r.SequenceNumber,
-			ApproximateArrivalTimestamp: float64(r.ApproximateArrivalTimestamp.UnixMilli()) / 1000.0,
+			ApproximateArrivalTimestamp: float64(r.ApproximateArrivalTimestamp.UnixMilli()) / millisToSeconds,
 		}
 	}
 
 	httputil.WriteJSON(h.Logger, w, http.StatusOK, jsonGetRecordsResp{
-		Records:           records,
-		NextShardIterator: out.NextShardIterator,
+		Records:            records,
+		NextShardIterator:  out.NextShardIterator,
 		MillisBehindLatest: out.MillisBehindLatest,
 	})
 }

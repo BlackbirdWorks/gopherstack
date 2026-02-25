@@ -256,11 +256,11 @@ func (h *Handler) handleCreateESM(c *echo.Context) error {
 		}
 
 		var req struct {
+			Enabled          *bool  `json:"Enabled"`
 			EventSourceARN   string `json:"EventSourceArn"`
 			FunctionName     string `json:"FunctionName"`
 			StartingPosition string `json:"StartingPosition"`
 			BatchSize        int    `json:"BatchSize"`
-			Enabled          *bool  `json:"Enabled"`
 		}
 
 		if err = json.Unmarshal(body, &req); err != nil {

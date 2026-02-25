@@ -90,7 +90,7 @@ func TestKinesis_StreamLifecycle(t *testing.T) {
 			StreamName   string `json:"StreamName"`
 			StreamStatus string `json:"StreamStatus"`
 			Shards       []struct {
-				ShardId string `json:"ShardId"`
+				ShardID string `json:"ShardId"`
 			} `json:"Shards"`
 		} `json:"StreamDescription"`
 	}
@@ -150,13 +150,13 @@ func TestKinesis_PutAndGetRecords(t *testing.T) {
 	var descResp struct {
 		StreamDescription struct {
 			Shards []struct {
-				ShardId string `json:"ShardId"`
+				ShardID string `json:"ShardId"`
 			} `json:"Shards"`
 		} `json:"StreamDescription"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
 	require.NotEmpty(t, descResp.StreamDescription.Shards)
-	shardID := descResp.StreamDescription.Shards[0].ShardId
+	shardID := descResp.StreamDescription.Shards[0].ShardID
 
 	// PutRecord
 	rec = doRequest(t, h, "PutRecord", map[string]any{
@@ -167,11 +167,11 @@ func TestKinesis_PutAndGetRecords(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var putResp struct {
-		ShardId        string `json:"ShardId"`
+		ShardID        string `json:"ShardId"`
 		SequenceNumber string `json:"SequenceNumber"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putResp))
-	assert.NotEmpty(t, putResp.ShardId)
+	assert.NotEmpty(t, putResp.ShardID)
 	assert.NotEmpty(t, putResp.SequenceNumber)
 	firstSeq := putResp.SequenceNumber
 
@@ -187,7 +187,7 @@ func TestKinesis_PutAndGetRecords(t *testing.T) {
 
 	var batchResp struct {
 		Records []struct {
-			ShardId        string `json:"ShardId"`
+			ShardID        string `json:"ShardId"`
 			SequenceNumber string `json:"SequenceNumber"`
 		} `json:"Records"`
 		FailedRecordCount int `json:"FailedRecordCount"`
@@ -218,12 +218,12 @@ func TestKinesis_PutAndGetRecords(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var getResp struct {
-		Records []struct {
+		NextShardIterator string `json:"NextShardIterator"`
+		Records           []struct {
 			PartitionKey   string `json:"PartitionKey"`
 			SequenceNumber string `json:"SequenceNumber"`
 			Data           []byte `json:"Data"`
 		} `json:"Records"`
-		NextShardIterator string `json:"NextShardIterator"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
 	assert.Len(t, getResp.Records, 3) // 1 + 2 batch
@@ -334,7 +334,7 @@ func TestKinesis_ListShards(t *testing.T) {
 
 	var listShardsResp struct {
 		Shards []struct {
-			ShardId string `json:"ShardId"`
+			ShardID string `json:"ShardId"`
 		} `json:"Shards"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listShardsResp))
@@ -460,7 +460,7 @@ func TestKinesis_ExtractResource(t *testing.T) {
 	// Invalid body
 	req2 := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte("not-json")))
 	c2 := e.NewContext(req2, httptest.NewRecorder())
-	assert.Equal(t, "", h.ExtractResource(c2))
+	assert.Empty(t, h.ExtractResource(c2))
 }
 
 // TestKinesis_ListAll tests the ListAll backend method.
@@ -586,11 +586,13 @@ func TestKinesis_GetShardIteratorBadIteratorType(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	var descResp struct {
 		StreamDescription struct {
-			Shards []struct{ ShardId string } `json:"Shards"`
+			Shards []struct {
+				ShardID string `json:"ShardId"`
+			} `json:"Shards"`
 		} `json:"StreamDescription"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
-	shardID := descResp.StreamDescription.Shards[0].ShardId
+	shardID := descResp.StreamDescription.Shards[0].ShardID
 
 	rec = doRequest(t, h, "GetShardIterator", map[string]any{
 		"StreamName":        "bad-iter-stream",
@@ -704,10 +706,10 @@ func TestKinesis_MultipleShardRouting(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var putResp struct {
-			ShardId string `json:"ShardId"`
+			ShardID string `json:"ShardId"`
 		}
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putResp))
-		shardIDs[putResp.ShardId] = true
+		shardIDs[putResp.ShardID] = true
 	}
 
 	// With 10 records and 4 shards, we should get records on more than 1 shard
@@ -735,12 +737,12 @@ func TestKinesis_SequenceNumberOrdering(t *testing.T) {
 	var descResp struct {
 		StreamDescription struct {
 			Shards []struct {
-				ShardId string `json:"ShardId"`
+				ShardID string `json:"ShardId"`
 			} `json:"Shards"`
 		} `json:"StreamDescription"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
-	shardID := descResp.StreamDescription.Shards[0].ShardId
+	shardID := descResp.StreamDescription.Shards[0].ShardID
 
 	// Put 5 records
 	seqNums := make([]string, 5)
@@ -761,7 +763,7 @@ func TestKinesis_SequenceNumberOrdering(t *testing.T) {
 
 	// Verify ordering
 	for i := 1; i < len(seqNums); i++ {
-		assert.True(t, seqNums[i] > seqNums[i-1],
+		assert.Greater(t, seqNums[i], seqNums[i-1],
 			"sequence numbers should be strictly increasing: %s <= %s", seqNums[i], seqNums[i-1])
 	}
 

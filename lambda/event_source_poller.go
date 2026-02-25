@@ -9,6 +9,15 @@ import (
 	"time"
 )
 
+const (
+	// arnKinesisPartCount is the number of colon-separated parts in a Kinesis ARN.
+	arnKinesisPartCount = 6
+	// arnLambdaPartCount is the number of colon-separated parts in a Lambda ARN.
+	arnLambdaPartCount = 7
+	// millisToSeconds converts Unix milliseconds to a float64 second timestamp.
+	millisToSeconds = 1000.0
+)
+
 // KinesisReader is the interface for reading Kinesis records.
 // It is implemented by the kinesis backend.
 type KinesisReader interface {
@@ -22,10 +31,10 @@ type KinesisReader interface {
 
 // KinesisRecord is a single record from a Kinesis shard.
 type KinesisRecord struct {
+	ArrivalTime    time.Time
 	PartitionKey   string
 	SequenceNumber string
 	Data           []byte
-	ArrivalTime    time.Time
 }
 
 // EventSourcePoller polls Kinesis streams for new records and invokes Lambda functions.
@@ -38,7 +47,11 @@ type EventSourcePoller struct {
 }
 
 // NewEventSourcePoller creates a new EventSourcePoller.
-func NewEventSourcePoller(lambdaBackend *InMemoryBackend, kinesisReader KinesisReader, log *slog.Logger) *EventSourcePoller {
+func NewEventSourcePoller(
+	lambdaBackend *InMemoryBackend,
+	kinesisReader KinesisReader,
+	log *slog.Logger,
+) *EventSourcePoller {
 	return &EventSourcePoller{
 		lambdaBackend:  lambdaBackend,
 		kinesisReader:  kinesisReader,
@@ -116,12 +129,12 @@ func (p *EventSourcePoller) processMapping(ctx context.Context, m *EventSourceMa
 			p.shardIterators[iterKey] = it
 		}
 
-		records, nextIt, err := p.kinesisReader.GetRecords(it, m.BatchSize)
-		if err != nil {
+		records, nextIt, readErr := p.kinesisReader.GetRecords(it, m.BatchSize)
+		if readErr != nil {
 			// Iterator may have expired; reset it
 			delete(p.shardIterators, iterKey)
 			p.logger.WarnContext(ctx, "event source poller: GetRecords failed, resetting iterator",
-				"stream", streamName, "shard", shardID, "error", err)
+				"stream", streamName, "shard", shardID, "error", readErr)
 
 			continue
 		}
@@ -144,21 +157,21 @@ func (p *EventSourcePoller) invokeLambda(
 	records []KinesisRecord,
 ) {
 	type kinesisRecord struct {
-		KinesisSchemaVersion         string  `json:"kinesisSchemaVersion"`
-		PartitionKey                 string  `json:"partitionKey"`
-		SequenceNumber               string  `json:"sequenceNumber"`
-		Data                         string  `json:"data"`
-		ApproximateArrivalTimestamp  float64 `json:"approximateArrivalTimestamp"`
+		KinesisSchemaVersion        string  `json:"kinesisSchemaVersion"`
+		PartitionKey                string  `json:"partitionKey"`
+		SequenceNumber              string  `json:"sequenceNumber"`
+		Data                        string  `json:"data"`
+		ApproximateArrivalTimestamp float64 `json:"approximateArrivalTimestamp"`
 	}
 	type lambdaRecord struct {
-		Kinesis          kinesisRecord `json:"kinesis"`
-		EventSource      string        `json:"eventSource"`
-		EventVersion     string        `json:"eventVersion"`
-		EventID          string        `json:"eventID"`
-		EventName        string        `json:"eventName"`
-		InvokeIdentityArn string       `json:"invokeIdentityArn"`
-		AWSRegion        string        `json:"awsRegion"`
-		EventSourceARN   string        `json:"eventSourceARN"`
+		EventSource       string        `json:"eventSource"`
+		EventVersion      string        `json:"eventVersion"`
+		EventID           string        `json:"eventID"`
+		EventName         string        `json:"eventName"`
+		InvokeIdentityArn string        `json:"invokeIdentityArn"`
+		AWSRegion         string        `json:"awsRegion"`
+		EventSourceARN    string        `json:"eventSourceARN"`
+		Kinesis           kinesisRecord `json:"kinesis"`
 	}
 	type lambdaEvent struct {
 		Records []lambdaRecord `json:"Records"`
@@ -172,7 +185,7 @@ func (p *EventSourcePoller) invokeLambda(
 				PartitionKey:                r.PartitionKey,
 				SequenceNumber:              r.SequenceNumber,
 				Data:                        base64.StdEncoding.EncodeToString(r.Data),
-				ApproximateArrivalTimestamp: float64(r.ArrivalTime.UnixMilli()) / 1000.0,
+				ApproximateArrivalTimestamp: float64(r.ArrivalTime.UnixMilli()) / millisToSeconds,
 			},
 			EventSource:       "aws:kinesis",
 			EventVersion:      "1.0",
@@ -208,7 +221,7 @@ func (p *EventSourcePoller) invokeLambda(
 }
 
 // streamNameFromARN extracts the stream name from a Kinesis ARN.
-// Example: arn:aws:kinesis:us-east-1:000000000000:stream/my-stream → my-stream
+// Example: arn:aws:kinesis:us-east-1:000000000000:stream/my-stream → my-stream.
 func streamNameFromARN(arn string) string {
 	const prefix = "arn:aws:kinesis:"
 	if len(arn) <= len(prefix) {
@@ -216,12 +229,12 @@ func streamNameFromARN(arn string) string {
 	}
 
 	// Format: arn:aws:kinesis:region:account:stream/name
-	parts := splitN(arn, ":", 6) //nolint:mnd // ARN has 6 parts
-	if len(parts) < 6 {
+	parts := splitN(arn, ":", arnKinesisPartCount)
+	if len(parts) < arnKinesisPartCount {
 		return ""
 	}
 
-	last := parts[5]
+	last := parts[arnKinesisPartCount-1]
 	const streamPrefix = "stream/"
 	if len(last) <= len(streamPrefix) {
 		return ""
@@ -231,20 +244,20 @@ func streamNameFromARN(arn string) string {
 }
 
 // functionNameFromARN extracts the function name from a Lambda ARN.
-// Example: arn:aws:lambda:us-east-1:000000000000:function:my-func → my-func
+// Example: arn:aws:lambda:us-east-1:000000000000:function:my-func → my-func.
 func functionNameFromARN(arn string) string {
-	parts := splitN(arn, ":", 7) //nolint:mnd // Lambda ARN has up to 7 parts
-	if len(parts) < 7 {
+	parts := splitN(arn, ":", arnLambdaPartCount)
+	if len(parts) < arnLambdaPartCount {
 		return ""
 	}
 
-	return parts[6]
+	return parts[arnLambdaPartCount-1]
 }
 
 // splitN splits s by sep into at most n parts.
 func splitN(s, sep string, n int) []string {
 	var parts []string
-	for i := 0; i < n-1; i++ {
+	for range n - 1 {
 		idx := indexOf(s, sep)
 		if idx < 0 {
 			break

@@ -718,7 +718,9 @@ func (a *kinesisReaderAdapter) GetShardIDs(streamName string) ([]string, error) 
 	return ids, nil
 }
 
-func (a *kinesisReaderAdapter) GetShardIterator(streamName, shardID, iteratorType, startingSeqNum string) (string, error) {
+func (a *kinesisReaderAdapter) GetShardIterator(
+	streamName, shardID, iteratorType, startingSeqNum string,
+) (string, error) {
 	out, err := a.backend.GetShardIterator(&kinesisbackend.GetShardIteratorInput{
 		StreamName:             streamName,
 		ShardID:                shardID,
@@ -732,7 +734,10 @@ func (a *kinesisReaderAdapter) GetShardIterator(streamName, shardID, iteratorTyp
 	return out.ShardIterator, nil
 }
 
-func (a *kinesisReaderAdapter) GetRecords(iteratorToken string, limit int) ([]lambdabackend.KinesisRecord, string, error) {
+func (a *kinesisReaderAdapter) GetRecords(
+	iteratorToken string,
+	limit int,
+) ([]lambdabackend.KinesisRecord, string, error) {
 	out, err := a.backend.GetRecords(&kinesisbackend.GetRecordsInput{
 		ShardIterator: iteratorToken,
 		Limit:         limit,

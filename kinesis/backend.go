@@ -48,16 +48,12 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	}
 }
 
-// streamARN builds the ARN for a Kinesis stream.
-func (b *InMemoryBackend) streamARN(name string) string {
-	return fmt.Sprintf("arn:aws:kinesis:%s:%s:stream/%s", b.region, b.accountID, name)
-}
-
 // hashKey computes a numeric hash key for a partition key using a simple mapping.
 // The result is in the range [0, 2^128-1] as required by Kinesis.
 func hashKey(partitionKey string) *big.Int {
 	// Use a simple deterministic hash by interpreting the UUID v5 of the partition key.
 	sum := uuid.NewSHA1(uuid.NameSpaceOID, []byte(partitionKey))
+
 	return new(big.Int).SetBytes(sum[:])
 }
 
@@ -95,7 +91,7 @@ func (b *InMemoryBackend) CreateStream(input *CreateStreamInput) error {
 	}
 
 	maxHashKey := new(big.Int).Sub(
-		new(big.Int).Lsh(big.NewInt(1), 128),
+		new(big.Int).Lsh(big.NewInt(1), maxHashKeyBits),
 		big.NewInt(1),
 	)
 	shardRange := new(big.Int).Div(
@@ -143,7 +139,7 @@ func (b *InMemoryBackend) CreateStream(input *CreateStreamInput) error {
 		Shards:          shards,
 		Tags:            make(map[string]string),
 		CreatedAt:       time.Now(),
-		RetentionPeriod: 24,
+		RetentionPeriod: defaultRetentionHours,
 	}
 
 	return nil
@@ -223,7 +219,7 @@ func (b *InMemoryBackend) ListStreams(input *ListStreamsInput) (*ListStreamsOutp
 	}
 
 	return &ListStreamsOutput{
-		StreamNames:   names[:limit],
+		StreamNames:    names[:limit],
 		HasMoreStreams: len(names) > limit,
 	}, nil
 }
@@ -292,7 +288,7 @@ func (b *InMemoryBackend) PutRecords(input *PutRecordsInput) (*PutRecordsOutput,
 	}
 
 	return &PutRecordsOutput{
-		Records:          results,
+		Records:           results,
 		FailedRecordCount: failedCount,
 	}, nil
 }
@@ -434,15 +430,9 @@ func (b *InMemoryBackend) GetRecords(input *GetRecordsInput) (*GetRecordsOutput,
 		limit = maxGetRecordsLimit
 	}
 
-	start := it.Position
-	if start > len(shard.Records) {
-		start = len(shard.Records)
-	}
+	start := min(it.Position, len(shard.Records))
 
-	end := start + limit
-	if end > len(shard.Records) {
-		end = len(shard.Records)
-	}
+	end := min(start+limit, len(shard.Records))
 
 	results := make([]GetRecordResult, 0, end-start)
 	for _, r := range shard.Records[start:end] {
@@ -472,8 +462,8 @@ func (b *InMemoryBackend) GetRecords(input *GetRecordsInput) (*GetRecordsOutput,
 	}
 
 	return &GetRecordsOutput{
-		Records:           results,
-		NextShardIterator: nextToken,
+		Records:            results,
+		NextShardIterator:  nextToken,
 		MillisBehindLatest: millisBehind,
 	}, nil
 }

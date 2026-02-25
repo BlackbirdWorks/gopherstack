@@ -20,14 +20,14 @@ const (
 
 // EventSourceMapping represents a Kinesis → Lambda event source mapping.
 type EventSourceMapping struct {
-	EventSourceARN        string
-	FunctionARN           string
-	UUID                  string
-	State                 EventSourceMappingState
-	LastModified          time.Time
-	BatchSize             int
-	StartingPosition      string // TRIM_HORIZON or LATEST
-	LastProcessingResult  string
+	LastModified         time.Time
+	EventSourceARN       string
+	FunctionARN          string
+	UUID                 string
+	State                EventSourceMappingState
+	StartingPosition     string
+	LastProcessingResult string
+	BatchSize            int
 }
 
 // CreateEventSourceMappingInput is the input for CreateEventSourceMapping.
@@ -41,20 +41,20 @@ type CreateEventSourceMappingInput struct {
 
 // UpdateEventSourceMappingInput is the input for UpdateEventSourceMapping.
 type UpdateEventSourceMappingInput struct {
+	Enabled   *bool
 	UUID      string
 	BatchSize int
-	Enabled   *bool
 }
 
 // jsonESMResponse is the JSON representation of an event source mapping.
 type jsonESMResponse struct {
-	UUID                  string `json:"UUID"`
-	EventSourceARN        string `json:"EventSourceArn"`
-	FunctionARN           string `json:"FunctionArn"`
-	State                 string `json:"State"`
-	BatchSize             int    `json:"BatchSize"`
-	StartingPosition      string `json:"StartingPosition,omitempty"`
-	LastProcessingResult  string `json:"LastProcessingResult,omitempty"`
+	UUID                 string `json:"UUID"`
+	EventSourceARN       string `json:"EventSourceArn"`
+	FunctionARN          string `json:"FunctionArn"`
+	State                string `json:"State"`
+	StartingPosition     string `json:"StartingPosition,omitempty"`
+	LastProcessingResult string `json:"LastProcessingResult,omitempty"`
+	BatchSize            int    `json:"BatchSize"`
 }
 
 // jsonListESMResponse is the JSON response for ListEventSourceMappings.

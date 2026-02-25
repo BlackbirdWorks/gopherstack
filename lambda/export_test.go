@@ -56,4 +56,4 @@ func StreamNameFromARN(arn string) string { return streamNameFromARN(arn) }
 func FunctionNameFromARN(arn string) string { return functionNameFromARN(arn) }
 
 // PollOnce triggers a single poll cycle on the given EventSourcePoller.
-func PollOnce(p *EventSourcePoller, ctx context.Context) { p.poll(ctx) }
+func PollOnce(ctx context.Context, p *EventSourcePoller) { p.poll(ctx) }
