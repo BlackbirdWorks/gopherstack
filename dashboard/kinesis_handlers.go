@@ -50,17 +50,11 @@ func (h *DashboardHandler) kinesisIndex(c *echo.Context) error {
 	views := make([]kinesisStreamView, 0, len(all))
 
 	for _, s := range all {
-		desc, err := h.KinesisOps.Backend.DescribeStream(&kinesisbackend.DescribeStreamInput{StreamName: s.Name})
-		shardCount := 0
-		if err == nil {
-			shardCount = len(desc.Shards)
-		}
-
 		views = append(views, kinesisStreamView{
 			Name:       s.Name,
 			ARN:        s.ARN,
 			Status:     s.Status,
-			ShardCount: shardCount,
+			ShardCount: s.ShardCount,
 		})
 	}
 

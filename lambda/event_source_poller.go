@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
+	"sync"
 	"time"
 )
 
@@ -39,11 +41,11 @@ type KinesisRecord struct {
 
 // EventSourcePoller polls Kinesis streams for new records and invokes Lambda functions.
 type EventSourcePoller struct {
-	lambdaBackend *InMemoryBackend
-	kinesisReader KinesisReader
-	logger        *slog.Logger
-	// shardIterators holds the current iterator position per "uuid:shardID" key.
+	kinesisReader  KinesisReader
+	lambdaBackend  *InMemoryBackend
+	logger         *slog.Logger
 	shardIterators map[string]string
+	mu             sync.Mutex
 }
 
 // NewEventSourcePoller creates a new EventSourcePoller.
@@ -115,7 +117,10 @@ func (p *EventSourcePoller) processMapping(ctx context.Context, m *EventSourceMa
 	for _, shardID := range shardIDs {
 		iterKey := m.UUID + ":" + shardID
 
+		p.mu.Lock()
 		it, exists := p.shardIterators[iterKey]
+		p.mu.Unlock()
+
 		if !exists {
 			// Initialize iterator at starting position
 			it, err = p.kinesisReader.GetShardIterator(streamName, shardID, m.StartingPosition, "")
@@ -126,20 +131,26 @@ func (p *EventSourcePoller) processMapping(ctx context.Context, m *EventSourceMa
 				continue
 			}
 
+			p.mu.Lock()
 			p.shardIterators[iterKey] = it
+			p.mu.Unlock()
 		}
 
 		records, nextIt, readErr := p.kinesisReader.GetRecords(it, m.BatchSize)
 		if readErr != nil {
 			// Iterator may have expired; reset it
+			p.mu.Lock()
 			delete(p.shardIterators, iterKey)
+			p.mu.Unlock()
 			p.logger.WarnContext(ctx, "event source poller: GetRecords failed, resetting iterator",
 				"stream", streamName, "shard", shardID, "error", readErr)
 
 			continue
 		}
 
+		p.mu.Lock()
 		p.shardIterators[iterKey] = nextIt
+		p.mu.Unlock()
 
 		if len(records) == 0 {
 			continue
@@ -229,7 +240,7 @@ func streamNameFromARN(arn string) string {
 	}
 
 	// Format: arn:aws:kinesis:region:account:stream/name
-	parts := splitN(arn, ":", arnKinesisPartCount)
+	parts := strings.SplitN(arn, ":", arnKinesisPartCount)
 	if len(parts) < arnKinesisPartCount {
 		return ""
 	}
@@ -246,39 +257,10 @@ func streamNameFromARN(arn string) string {
 // functionNameFromARN extracts the function name from a Lambda ARN.
 // Example: arn:aws:lambda:us-east-1:000000000000:function:my-func → my-func.
 func functionNameFromARN(arn string) string {
-	parts := splitN(arn, ":", arnLambdaPartCount)
+	parts := strings.SplitN(arn, ":", arnLambdaPartCount)
 	if len(parts) < arnLambdaPartCount {
 		return ""
 	}
 
 	return parts[arnLambdaPartCount-1]
-}
-
-// splitN splits s by sep into at most n parts.
-func splitN(s, sep string, n int) []string {
-	var parts []string
-	for range n - 1 {
-		idx := indexOf(s, sep)
-		if idx < 0 {
-			break
-		}
-
-		parts = append(parts, s[:idx])
-		s = s[idx+len(sep):]
-	}
-
-	parts = append(parts, s)
-
-	return parts
-}
-
-// indexOf returns the index of sep in s, or -1 if not found.
-func indexOf(s, sep string) int {
-	for i := range len(s) - len(sep) + 1 {
-		if s[i:i+len(sep)] == sep {
-			return i
-		}
-	}
-
-	return -1
 }

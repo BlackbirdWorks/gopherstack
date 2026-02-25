@@ -69,9 +69,10 @@ type Record struct {
 
 // StreamInfo holds summary information about a stream, safe to return without lock.
 type StreamInfo struct {
-	Name   string
-	ARN    string
-	Status string
+	Name       string
+	ARN        string
+	Status     string
+	ShardCount int
 }
 
 // ShardIterator holds the position within a shard for GetRecords.

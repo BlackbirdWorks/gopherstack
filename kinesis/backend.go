@@ -458,7 +458,7 @@ func (b *InMemoryBackend) GetRecords(input *GetRecordsInput) (*GetRecordsOutput,
 
 	millisBehind := int64(0)
 	if end < len(shard.Records) {
-		millisBehind = time.Since(shard.Records[end-1].ApproximateArrivalTimestamp).Milliseconds()
+		millisBehind = time.Since(shard.Records[len(shard.Records)-1].ApproximateArrivalTimestamp).Milliseconds()
 	}
 
 	return &GetRecordsOutput{
@@ -510,9 +510,10 @@ func (b *InMemoryBackend) ListAll() []StreamInfo {
 	result := make([]StreamInfo, 0, len(b.streams))
 	for _, s := range b.streams {
 		result = append(result, StreamInfo{
-			Name:   s.Name,
-			ARN:    s.ARN,
-			Status: s.Status,
+			Name:       s.Name,
+			ARN:        s.ARN,
+			Status:     s.Status,
+			ShardCount: len(s.Shards),
 		})
 	}
 
