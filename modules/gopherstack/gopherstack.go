@@ -14,6 +14,9 @@ package gopherstack
 import (
 	"context"
 	"fmt"
+	"maps"
+	"net"
+	"net/http"
 	"time"
 
 	"github.com/testcontainers/testcontainers-go"
@@ -26,16 +29,19 @@ const (
 
 	// defaultPort is the single port Gopherstack listens on inside the container.
 	defaultPort = "8000/tcp"
+
+	// startupTimeout is the maximum time to wait for the container health check.
+	startupTimeout = 60 * time.Second
 )
 
-// GopherstackContainer wraps testcontainers.Container and adds Gopherstack helpers.
-type GopherstackContainer struct {
+// Container wraps testcontainers.Container and adds Gopherstack helpers.
+type Container struct {
 	testcontainers.Container
 }
 
 // BaseURL returns the HTTP URL that AWS SDK clients should use as their
 // endpoint override (e.g. "http://localhost:32768").
-func (c *GopherstackContainer) BaseURL(ctx context.Context) (string, error) {
+func (c *Container) BaseURL(ctx context.Context) (string, error) {
 	host, err := c.Host(ctx)
 	if err != nil {
 		return "", fmt.Errorf("gopherstack: get container host: %w", err)
@@ -46,7 +52,7 @@ func (c *GopherstackContainer) BaseURL(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("gopherstack: get mapped port: %w", err)
 	}
 
-	return fmt.Sprintf("http://%s:%s", host, port.Port()), nil
+	return "http://" + net.JoinHostPort(host, port.Port()), nil
 }
 
 // WithEnv returns a ContainerCustomizer that sets environment variables on the
@@ -58,9 +64,7 @@ func WithEnv(env map[string]string) testcontainers.ContainerCustomizer {
 			req.Env = make(map[string]string)
 		}
 
-		for k, v := range env {
-			req.Env[k] = v
-		}
+		maps.Copy(req.Env, env)
 
 		return nil
 	})
@@ -72,14 +76,14 @@ func WithEnv(env map[string]string) testcontainers.ContainerCustomizer {
 //
 //	container, err := gopherstack.Run(ctx, gopherstack.DefaultImage)
 //	defer testcontainers.TerminateContainer(container)
-func Run(ctx context.Context, image string, opts ...testcontainers.ContainerCustomizer) (*GopherstackContainer, error) {
+func Run(ctx context.Context, image string, opts ...testcontainers.ContainerCustomizer) (*Container, error) {
 	req := testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
 			Image:        image,
 			ExposedPorts: []string{defaultPort},
 			WaitingFor: wait.ForHTTP("/_gopherstack/health").
-				WithStatusCodeMatcher(func(code int) bool { return code == 200 }).
-				WithStartupTimeout(60 * time.Second),
+				WithStatusCodeMatcher(func(code int) bool { return code == http.StatusOK }).
+				WithStartupTimeout(startupTimeout),
 		},
 		Started: true,
 	}
@@ -95,5 +99,5 @@ func Run(ctx context.Context, image string, opts ...testcontainers.ContainerCust
 		return nil, fmt.Errorf("gopherstack: start container: %w", err)
 	}
 
-	return &GopherstackContainer{Container: c}, nil
+	return &Container{Container: c}, nil
 }

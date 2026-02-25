@@ -196,9 +196,9 @@ func (h *S3Handler) routeBucketGet(
 		h.setOperation(ctx, "ListBucketIntelligentTieringConfigurations")
 		httputil.WriteXML(log, w, http.StatusOK, struct {
 			XMLName                         xml.Name `xml:"ListBucketIntelligentTieringConfigurationsOutput"`
+			IntelligentTieringConfiguration []any    `xml:"IntelligentTieringConfiguration"`
 			Xmlns                           string   `xml:"xmlns,attr"`
 			IsTruncated                     bool     `xml:"IsTruncated"`
-			IntelligentTieringConfiguration []any    `xml:"IntelligentTieringConfiguration"`
 		}{Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/"})
 	case r.URL.Query().Has("versioning"):
 		h.getBucketVersioning(ctx, w, r, bucket)

@@ -3,6 +3,7 @@ package gopherstack_test
 import (
 	"context"
 	"net/http"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -14,11 +15,13 @@ import (
 
 // TestRun verifies that a Gopherstack container starts, exposes a valid
 // endpoint, and responds to the health check.
-// Requires Docker and network access to pull the pre-built image; skipped in
-// short mode and when the Docker provider is unavailable.
+// Requires Docker and a published Gopherstack image; only runs when
+// GOPHERSTACK_MODULE_TESTS=1 is set.
 func TestRun(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
+	t.Parallel()
+
+	if os.Getenv("GOPHERSTACK_MODULE_TESTS") != "1" {
+		t.Skip("skipping: set GOPHERSTACK_MODULE_TESTS=1 to run Docker-based module tests")
 	}
 
 	testcontainers.SkipIfProviderIsNotHealthy(t)
@@ -28,17 +31,17 @@ func TestRun(t *testing.T) {
 	container, err := gopherstackmodule.Run(ctx, gopherstackmodule.DefaultImage)
 	require.NoError(t, err)
 
-	defer testcontainers.TerminateContainer(container) //nolint:errcheck
+	defer testcontainers.TerminateContainer(container)
 
 	url, err := container.BaseURL(ctx)
 	require.NoError(t, err)
-	assert.Truef(t, len(url) > 0, "expected non-empty base URL, got %q", url)
+	assert.NotEmpty(t, url, "expected non-empty base URL")
 
 	// Health endpoint should return 200 OK.
-	resp, err := http.Get(url + "/_gopherstack/health") //nolint:noctx
+	resp, err := http.Get(url + "/_gopherstack/health")
 	require.NoError(t, err)
 
-	defer resp.Body.Close() //nolint:errcheck
+	defer resp.Body.Close()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }
