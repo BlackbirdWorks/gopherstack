@@ -111,7 +111,12 @@ func strProp(props map[string]any, key string, params, physicalIDs map[string]st
 	return resolve(props[key], params, physicalIDs)
 }
 
-func (rc *ResourceCreator) createS3Bucket(ctx context.Context, logicalID string, props map[string]any, params, physicalIDs map[string]string) (string, error) {
+func (rc *ResourceCreator) createS3Bucket(
+	ctx context.Context,
+	logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
 	if rc.backends.S3 == nil {
 		return logicalID + "-stub", nil
 	}
@@ -140,7 +145,12 @@ func (rc *ResourceCreator) deleteS3Bucket(ctx context.Context, physicalID string
 	return nil
 }
 
-func (rc *ResourceCreator) createDynamoDBTable(ctx context.Context, logicalID string, props map[string]any, params, physicalIDs map[string]string) (string, error) {
+func (rc *ResourceCreator) createDynamoDBTable(
+	ctx context.Context,
+	logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
 	if rc.backends.DynamoDB == nil {
 		return logicalID + "-stub", nil
 	}
@@ -180,7 +190,10 @@ func (rc *ResourceCreator) deleteDynamoDBTable(ctx context.Context, physicalID s
 	return err
 }
 
-func parseDDBAttributeDefinitions(props map[string]any, params, physicalIDs map[string]string) []ddbtypes.AttributeDefinition {
+func parseDDBAttributeDefinitions(
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) []ddbtypes.AttributeDefinition {
 	rawList, _ := props["AttributeDefinitions"].([]any)
 	defs := make([]ddbtypes.AttributeDefinition, 0, len(rawList))
 	for _, item := range rawList {
@@ -234,7 +247,10 @@ func parseDDBKeySchema(props map[string]any, params, physicalIDs map[string]stri
 	return schema
 }
 
-const defaultCapacityUnits = int64(5)
+const (
+	defaultCapacityUnits    = int64(5)
+	kmsMinDeletionWindowDays = 7
+)
 
 func parseDDBProvisionedThroughput(props map[string]any) *ddbtypes.ProvisionedThroughput {
 	pt, _ := props["ProvisionedThroughput"].(map[string]any)
@@ -255,7 +271,12 @@ func parseDDBProvisionedThroughput(props map[string]any) *ddbtypes.ProvisionedTh
 	}
 }
 
-func (rc *ResourceCreator) createSQSQueue(_ context.Context, logicalID string, props map[string]any, params, physicalIDs map[string]string) (string, error) {
+func (rc *ResourceCreator) createSQSQueue(
+	_ context.Context,
+	logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
 	if rc.backends.SQS == nil {
 		return logicalID + "-stub", nil
 	}
@@ -294,7 +315,12 @@ func (rc *ResourceCreator) deleteSQSQueue(_ context.Context, physicalID string) 
 	return nil
 }
 
-func (rc *ResourceCreator) createSNSTopic(_ context.Context, logicalID string, props map[string]any, params, physicalIDs map[string]string) (string, error) {
+func (rc *ResourceCreator) createSNSTopic(
+	_ context.Context,
+	logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
 	if rc.backends.SNS == nil {
 		return logicalID + "-stub", nil
 	}
@@ -323,7 +349,12 @@ func (rc *ResourceCreator) deleteSNSTopic(_ context.Context, physicalID string) 
 	return nil
 }
 
-func (rc *ResourceCreator) createSSMParameter(_ context.Context, logicalID string, props map[string]any, params, physicalIDs map[string]string) (string, error) {
+func (rc *ResourceCreator) createSSMParameter(
+	_ context.Context,
+	logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
 	if rc.backends.SSM == nil {
 		return logicalID + "-stub", nil
 	}
@@ -359,7 +390,12 @@ func (rc *ResourceCreator) deleteSSMParameter(_ context.Context, physicalID stri
 	return nil
 }
 
-func (rc *ResourceCreator) createKMSKey(_ context.Context, logicalID string, props map[string]any, params, physicalIDs map[string]string) (string, error) {
+func (rc *ResourceCreator) createKMSKey(
+	_ context.Context,
+	logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
 	if rc.backends.KMS == nil {
 		return logicalID + "-stub", nil
 	}
@@ -381,13 +417,18 @@ func (rc *ResourceCreator) deleteKMSKey(_ context.Context, physicalID string) er
 	}
 	_, _ = rc.backends.KMS.Backend.ScheduleKeyDeletion(&kmsbackend.ScheduleKeyDeletionInput{
 		KeyID:               physicalID,
-		PendingWindowInDays: 7,
+		PendingWindowInDays: kmsMinDeletionWindowDays,
 	})
 
 	return nil
 }
 
-func (rc *ResourceCreator) createSecretsManagerSecret(_ context.Context, logicalID string, props map[string]any, params, physicalIDs map[string]string) (string, error) {
+func (rc *ResourceCreator) createSecretsManagerSecret(
+	_ context.Context,
+	logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
 	if rc.backends.SecretsManager == nil {
 		return logicalID + "-stub", nil
 	}

@@ -2,19 +2,23 @@ package cloudformation
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 )
 
+// ErrEmptyTemplate is returned when a template body is empty.
+var ErrEmptyTemplate = errors.New("template body is empty")
+
 // Template represents a parsed CloudFormation template.
 type Template struct {
-	AWSTemplateFormatVersion string                       `json:"AWSTemplateFormatVersion" yaml:"AWSTemplateFormatVersion"`
-	Description              string                       `json:"Description"              yaml:"Description"`
 	Parameters               map[string]TemplateParameter `json:"Parameters"               yaml:"Parameters"`
 	Resources                map[string]TemplateResource  `json:"Resources"                yaml:"Resources"`
 	Outputs                  map[string]TemplateOutput    `json:"Outputs"                  yaml:"Outputs"`
+	AWSTemplateFormatVersion string                       `json:"AWSTemplateFormatVersion" yaml:"AWSTemplateFormatVersion"`
+	Description              string                       `json:"Description"              yaml:"Description"`
 }
 
 // TemplateParameter represents a CloudFormation template parameter.
@@ -26,8 +30,8 @@ type TemplateParameter struct {
 
 // TemplateResource represents a CloudFormation template resource.
 type TemplateResource struct {
-	Type       string         `json:"Type"       yaml:"Type"`
 	Properties map[string]any `json:"Properties" yaml:"Properties"`
+	Type       string         `json:"Type"       yaml:"Type"`
 }
 
 // TemplateOutput represents a CloudFormation template output.
@@ -40,7 +44,7 @@ type TemplateOutput struct {
 func ParseTemplate(body string) (*Template, error) {
 	body = strings.TrimSpace(body)
 	if body == "" {
-		return nil, fmt.Errorf("template body is empty")
+		return nil, ErrEmptyTemplate
 	}
 
 	var tmpl Template

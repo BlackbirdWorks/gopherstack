@@ -99,7 +99,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		r := c.Request()
 		if err := r.ParseForm(); err != nil {
-			return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "cannot parse form body")
+			return h.xmlError(c, "InvalidParameterValue", "cannot parse form body")
 		}
 		action := r.Form.Get("Action")
 		c.Response().Header().Set("Content-Type", "text/xml")
@@ -130,12 +130,12 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		case "GetTemplate":
 			return h.handleGetTemplate(r.Form, c)
 		default:
-			return h.xmlError(c, http.StatusBadRequest, "InvalidAction", "unknown action: "+action)
+			return h.xmlError(c, "InvalidAction", "unknown action: "+action)
 		}
 	}
 }
 
-func (h *Handler) xmlError(c *echo.Context, status int, code, message string) error {
+func (h *Handler) xmlError(c *echo.Context, code, message string) error {
 	type xmlErrBody struct {
 		XMLName   xml.Name `xml:"ErrorResponse"`
 		Code      string   `xml:"Error>Code"`
@@ -144,7 +144,7 @@ func (h *Handler) xmlError(c *echo.Context, status int, code, message string) er
 	}
 	w := c.Response()
 	w.Header().Set("Content-Type", "text/xml")
-	w.WriteHeader(status)
+	w.WriteHeader(http.StatusBadRequest)
 	enc := xml.NewEncoder(w)
 	_ = enc.Encode(xmlErrBody{Code: code, Message: message, RequestID: uuid.New().String()})
 
@@ -213,7 +213,7 @@ func parseTags(form url.Values) []Tag {
 func (h *Handler) handleCreateStack(form url.Values, c *echo.Context) error {
 	stackName := form.Get("StackName")
 	if stackName == "" {
-		return h.xmlError(c, http.StatusBadRequest, "ValidationError", "StackName is required")
+		return h.xmlError(c, "ValidationError", "StackName is required")
 	}
 	templateBody := form.Get("TemplateBody")
 	params := parseParams(form)
@@ -221,7 +221,7 @@ func (h *Handler) handleCreateStack(form url.Values, c *echo.Context) error {
 
 	stack, err := h.Backend.CreateStack(c.Request().Context(), stackName, templateBody, params, tags)
 	if err != nil {
-		return h.xmlError(c, http.StatusBadRequest, "AlreadyExistsException", err.Error())
+		return h.xmlError(c, "AlreadyExistsException", err.Error())
 	}
 
 	type result struct {
@@ -244,14 +244,14 @@ func (h *Handler) handleCreateStack(form url.Values, c *echo.Context) error {
 func (h *Handler) handleUpdateStack(form url.Values, c *echo.Context) error {
 	stackName := form.Get("StackName")
 	if stackName == "" {
-		return h.xmlError(c, http.StatusBadRequest, "ValidationError", "StackName is required")
+		return h.xmlError(c, "ValidationError", "StackName is required")
 	}
 	templateBody := form.Get("TemplateBody")
 	params := parseParams(form)
 
 	stack, err := h.Backend.UpdateStack(c.Request().Context(), stackName, templateBody, params)
 	if err != nil {
-		return h.xmlError(c, http.StatusBadRequest, "ValidationError", err.Error())
+		return h.xmlError(c, "ValidationError", err.Error())
 	}
 
 	type result struct {
@@ -274,11 +274,11 @@ func (h *Handler) handleUpdateStack(form url.Values, c *echo.Context) error {
 func (h *Handler) handleDeleteStack(form url.Values, c *echo.Context) error {
 	stackName := form.Get("StackName")
 	if stackName == "" {
-		return h.xmlError(c, http.StatusBadRequest, "ValidationError", "StackName is required")
+		return h.xmlError(c, "ValidationError", "StackName is required")
 	}
 
 	if err := h.Backend.DeleteStack(c.Request().Context(), stackName); err != nil {
-		return h.xmlError(c, http.StatusBadRequest, "ValidationError", err.Error())
+		return h.xmlError(c, "ValidationError", err.Error())
 	}
 
 	type response struct {
@@ -310,7 +310,7 @@ func (h *Handler) handleDescribeStacks(form url.Values, c *echo.Context) error {
 	if stackName != "" {
 		s, err := h.Backend.DescribeStack(stackName)
 		if err != nil {
-			return h.xmlError(c, http.StatusBadRequest, "ValidationError", err.Error())
+			return h.xmlError(c, "ValidationError", err.Error())
 		}
 		stacks = append(stacks, stackXML{
 			StackID:           s.StackID,
@@ -397,12 +397,12 @@ func (h *Handler) handleListStacks(form url.Values, c *echo.Context) error {
 func (h *Handler) handleDescribeStackEvents(form url.Values, c *echo.Context) error {
 	stackName := form.Get("StackName")
 	if stackName == "" {
-		return h.xmlError(c, http.StatusBadRequest, "ValidationError", "StackName is required")
+		return h.xmlError(c, "ValidationError", "StackName is required")
 	}
 
 	events, err := h.Backend.DescribeStackEvents(stackName)
 	if err != nil {
-		return h.xmlError(c, http.StatusBadRequest, "ValidationError", err.Error())
+		return h.xmlError(c, "ValidationError", err.Error())
 	}
 
 	type eventXML struct {
@@ -452,16 +452,18 @@ func (h *Handler) handleCreateChangeSet(form url.Values, c *echo.Context) error 
 	stackName := form.Get("StackName")
 	changeSetName := form.Get("ChangeSetName")
 	if stackName == "" || changeSetName == "" {
-		return h.xmlError(c, http.StatusBadRequest, "ValidationError", "StackName and ChangeSetName are required")
+		return h.xmlError(c, "ValidationError", "StackName and ChangeSetName are required")
 	}
 
 	templateBody := form.Get("TemplateBody")
 	description := form.Get("Description")
 	params := parseParams(form)
 
-	cs, err := h.Backend.CreateChangeSet(c.Request().Context(), stackName, changeSetName, templateBody, description, params)
+	cs, err := h.Backend.CreateChangeSet(
+		c.Request().Context(), stackName, changeSetName, templateBody, description, params,
+	)
 	if err != nil {
-		return h.xmlError(c, http.StatusBadRequest, "AlreadyExistsException", err.Error())
+		return h.xmlError(c, "AlreadyExistsException", err.Error())
 	}
 
 	type result struct {
@@ -488,7 +490,7 @@ func (h *Handler) handleDescribeChangeSet(form url.Values, c *echo.Context) erro
 
 	cs, err := h.Backend.DescribeChangeSet(stackName, changeSetName)
 	if err != nil {
-		return h.xmlError(c, http.StatusBadRequest, "ChangeSetNotFoundException", err.Error())
+		return h.xmlError(c, "ChangeSetNotFoundException", err.Error())
 	}
 
 	type resourceChangeXML struct {
@@ -552,7 +554,7 @@ func (h *Handler) handleExecuteChangeSet(form url.Values, c *echo.Context) error
 	changeSetName := form.Get("ChangeSetName")
 
 	if err := h.Backend.ExecuteChangeSet(c.Request().Context(), stackName, changeSetName); err != nil {
-		return h.xmlError(c, http.StatusBadRequest, "ChangeSetNotFoundException", err.Error())
+		return h.xmlError(c, "ChangeSetNotFoundException", err.Error())
 	}
 
 	type response struct {
@@ -569,7 +571,7 @@ func (h *Handler) handleDeleteChangeSet(form url.Values, c *echo.Context) error 
 	changeSetName := form.Get("ChangeSetName")
 
 	if err := h.Backend.DeleteChangeSet(stackName, changeSetName); err != nil {
-		return h.xmlError(c, http.StatusBadRequest, "ChangeSetNotFoundException", err.Error())
+		return h.xmlError(c, "ChangeSetNotFoundException", err.Error())
 	}
 
 	type response struct {
@@ -586,7 +588,7 @@ func (h *Handler) handleListChangeSets(form url.Values, c *echo.Context) error {
 
 	summaries, err := h.Backend.ListChangeSets(stackName)
 	if err != nil {
-		return h.xmlError(c, http.StatusBadRequest, "ValidationError", err.Error())
+		return h.xmlError(c, "ValidationError", err.Error())
 	}
 
 	type summaryXML struct {
@@ -631,12 +633,12 @@ func (h *Handler) handleListChangeSets(form url.Values, c *echo.Context) error {
 func (h *Handler) handleGetTemplate(form url.Values, c *echo.Context) error {
 	stackName := form.Get("StackName")
 	if stackName == "" {
-		return h.xmlError(c, http.StatusBadRequest, "ValidationError", "StackName is required")
+		return h.xmlError(c, "ValidationError", "StackName is required")
 	}
 
 	body, err := h.Backend.GetTemplate(stackName)
 	if err != nil {
-		return h.xmlError(c, http.StatusBadRequest, "ValidationError", err.Error())
+		return h.xmlError(c, "ValidationError", err.Error())
 	}
 
 	type result struct {

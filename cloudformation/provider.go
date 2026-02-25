@@ -31,6 +31,59 @@ type Provider struct{}
 // Name returns the logical name of the provider.
 func (p *Provider) Name() string { return "CloudFormation" }
 
+// extractBackends initializes service backends from the given BackendsProvider.
+func extractBackends(bp BackendsProvider) *ServiceBackends {
+	cfg := bp.GetGlobalConfig()
+	backends := &ServiceBackends{
+		AccountID: cfg.AccountID,
+		Region:    cfg.Region,
+	}
+
+	if h := bp.GetDynamoDBHandler(); h != nil {
+		if ddb, okDDB := h.(*ddbbackend.DynamoDBHandler); okDDB {
+			backends.DynamoDB = ddb
+		}
+	}
+
+	if h := bp.GetS3Handler(); h != nil {
+		if s3, okS3 := h.(*s3backend.S3Handler); okS3 {
+			backends.S3 = s3
+		}
+	}
+
+	if h := bp.GetSQSHandler(); h != nil {
+		if sqs, okSQS := h.(*sqsbackend.Handler); okSQS {
+			backends.SQS = sqs
+		}
+	}
+
+	if h := bp.GetSNSHandler(); h != nil {
+		if sns, okSNS := h.(*snsbackend.Handler); okSNS {
+			backends.SNS = sns
+		}
+	}
+
+	if h := bp.GetSSMHandler(); h != nil {
+		if ssm, okSSM := h.(*ssmbackend.Handler); okSSM {
+			backends.SSM = ssm
+		}
+	}
+
+	if h := bp.GetKMSHandler(); h != nil {
+		if kms, okKMS := h.(*kmsbackend.Handler); okKMS {
+			backends.KMS = kms
+		}
+	}
+
+	if h := bp.GetSecretsManagerHandler(); h != nil {
+		if sm, okSM := h.(*secretsmanagerbackend.Handler); okSM {
+			backends.SecretsManager = sm
+		}
+	}
+
+	return backends
+}
+
 // Init initializes the CloudFormation service backend and handler.
 //
 //nolint:ireturn,nolintlint // architecturally required to return interface
@@ -40,52 +93,11 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 
 	var backends *ServiceBackends
 
-	if bp, ok := ctx.Config.(BackendsProvider); ok {
-		cfg := bp.GetGlobalConfig()
-		accountID = cfg.AccountID
-		region = cfg.Region
-
-		backends = &ServiceBackends{
-			AccountID: accountID,
-			Region:    region,
-		}
-
-		if h := bp.GetDynamoDBHandler(); h != nil {
-			if ddb, ok := h.(*ddbbackend.DynamoDBHandler); ok {
-				backends.DynamoDB = ddb
-			}
-		}
-		if h := bp.GetS3Handler(); h != nil {
-			if s3, ok := h.(*s3backend.S3Handler); ok {
-				backends.S3 = s3
-			}
-		}
-		if h := bp.GetSQSHandler(); h != nil {
-			if sqs, ok := h.(*sqsbackend.Handler); ok {
-				backends.SQS = sqs
-			}
-		}
-		if h := bp.GetSNSHandler(); h != nil {
-			if sns, ok := h.(*snsbackend.Handler); ok {
-				backends.SNS = sns
-			}
-		}
-		if h := bp.GetSSMHandler(); h != nil {
-			if ssm, ok := h.(*ssmbackend.Handler); ok {
-				backends.SSM = ssm
-			}
-		}
-		if h := bp.GetKMSHandler(); h != nil {
-			if kms, ok := h.(*kmsbackend.Handler); ok {
-				backends.KMS = kms
-			}
-		}
-		if h := bp.GetSecretsManagerHandler(); h != nil {
-			if sm, ok := h.(*secretsmanagerbackend.Handler); ok {
-				backends.SecretsManager = sm
-			}
-		}
-	} else if cp, ok := ctx.Config.(config.Provider); ok {
+	if bp, isBP := ctx.Config.(BackendsProvider); isBP {
+		backends = extractBackends(bp)
+		accountID = backends.AccountID
+		region = backends.Region
+	} else if cp, isCP := ctx.Config.(config.Provider); isCP {
 		cfg := cp.GetGlobalConfig()
 		accountID = cfg.AccountID
 		region = cfg.Region

@@ -37,10 +37,12 @@ func postForm(t *testing.T, h *cloudformation.Handler, body string) *httptest.Re
 	require.NoError(t, req.ParseForm())
 	err := h.Handler()(c)
 	require.NoError(t, err)
+
 	return rec
 }
 
-const simpleTemplate = `{"AWSTemplateFormatVersion":"2010-09-09","Resources":{"MyBucket":{"Type":"AWS::S3::Bucket","Properties":{}}}}`
+const simpleTemplate = `{"AWSTemplateFormatVersion":"2010-09-09",` +
+	`"Resources":{"MyBucket":{"Type":"AWS::S3::Bucket","Properties":{}}}}`
 
 const templateWithParams = `{
   "AWSTemplateFormatVersion": "2010-09-09",
