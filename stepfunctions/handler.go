@@ -53,7 +53,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		target := c.Request().Header.Get("X-Amz-Target")
 
-		return strings.HasPrefix(target, "AmazonStates.")
+		return strings.HasPrefix(target, "AmazonStates.") || strings.HasPrefix(target, "AWSStepFunctions.")
 	}
 }
 

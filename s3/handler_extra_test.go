@@ -1129,3 +1129,163 @@ func TestHandler_ListObjectsV2Error(t *testing.T) {
 		assert.Equal(t, http.StatusNotFound, rec.Code)
 	})
 }
+
+// TestS3BucketPolicyCRUD verifies put/get/delete bucket policy operations.
+func TestS3BucketPolicyCRUD(t *testing.T) {
+	t.Parallel()
+	handler, sdkClient := newTestHandler(t)
+	bucket := "policy-test-bucket"
+
+	_, err := sdkClient.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{Bucket: &bucket})
+	require.NoError(t, err)
+
+	policy := `{"Version":"2012-10-17","Statement":[]}`
+
+	// PutBucketPolicy
+	req := httptest.NewRequest(http.MethodPut, "/"+bucket+"?policy", strings.NewReader(policy))
+	rec := httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+
+	// GetBucketPolicy
+	req = httptest.NewRequest(http.MethodGet, "/"+bucket+"?policy", nil)
+	rec = httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, policy, rec.Body.String())
+
+	// DeleteBucketPolicy
+	req = httptest.NewRequest(http.MethodDelete, "/"+bucket+"?policy", nil)
+	rec = httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+
+	// GetBucketPolicy after delete → NoSuchBucketPolicy
+	req = httptest.NewRequest(http.MethodGet, "/"+bucket+"?policy", nil)
+	rec = httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// TestS3BucketCORSCRUD verifies put/get/delete bucket CORS + OPTIONS preflight.
+func TestS3BucketCORSCRUD(t *testing.T) {
+	t.Parallel()
+	handler, sdkClient := newTestHandler(t)
+	bucket := "cors-test-bucket"
+
+	_, err := sdkClient.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{Bucket: &bucket})
+	require.NoError(t, err)
+
+	corsXML := `<CORSConfiguration><CORSRule><AllowedMethod>GET</AllowedMethod>` +
+		`<AllowedOrigin>https://example.com</AllowedOrigin></CORSRule></CORSConfiguration>`
+
+	// PutBucketCORS
+	req := httptest.NewRequest(http.MethodPut, "/"+bucket+"?cors", strings.NewReader(corsXML))
+	rec := httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// GetBucketCORS
+	req = httptest.NewRequest(http.MethodGet, "/"+bucket+"?cors", nil)
+	rec = httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "AllowedOrigin")
+
+	// OPTIONS preflight (CORS configured)
+	req = httptest.NewRequest(http.MethodOptions, "/"+bucket, nil)
+	req.Header.Set("Origin", "https://example.com")
+	req.Header.Set("Access-Control-Request-Method", "GET")
+	rec = httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "https://example.com", rec.Header().Get("Access-Control-Allow-Origin"))
+
+	// DeleteBucketCORS
+	req = httptest.NewRequest(http.MethodDelete, "/"+bucket+"?cors", nil)
+	rec = httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+
+	// OPTIONS preflight after delete → 403
+	req = httptest.NewRequest(http.MethodOptions, "/"+bucket, nil)
+	rec = httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+}
+
+// TestS3BucketLifecycleCRUD verifies put/get/delete lifecycle configuration.
+func TestS3BucketLifecycleCRUD(t *testing.T) {
+	t.Parallel()
+	handler, sdkClient := newTestHandler(t)
+	bucket := "lifecycle-test-bucket"
+
+	_, err := sdkClient.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{Bucket: &bucket})
+	require.NoError(t, err)
+
+	lifecycleXML := `<LifecycleConfiguration><Rule><ID>expire-old</ID>` +
+		`<Status>Enabled</Status><Expiration><Days>30</Days></Expiration></Rule></LifecycleConfiguration>`
+
+	// PutBucketLifecycleConfiguration
+	req := httptest.NewRequest(http.MethodPut, "/"+bucket+"?lifecycle", strings.NewReader(lifecycleXML))
+	rec := httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+
+	// GetBucketLifecycleConfiguration
+	req = httptest.NewRequest(http.MethodGet, "/"+bucket+"?lifecycle", nil)
+	rec = httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "expire-old")
+
+	// DeleteBucketLifecycleConfiguration
+	req = httptest.NewRequest(http.MethodDelete, "/"+bucket+"?lifecycle", nil)
+	rec = httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+
+	// GetBucketLifecycleConfiguration after delete → NoSuchLifecycleConfiguration
+	req = httptest.NewRequest(http.MethodGet, "/"+bucket+"?lifecycle", nil)
+	rec = httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// TestS3BucketNotificationCRUD verifies put/get bucket notification configuration.
+func TestS3BucketNotificationCRUD(t *testing.T) {
+	t.Parallel()
+	handler, sdkClient := newTestHandler(t)
+	bucket := "notif-test-bucket"
+
+	_, err := sdkClient.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{Bucket: &bucket})
+	require.NoError(t, err)
+
+	notifXML := `<NotificationConfiguration><TopicConfiguration>` +
+		`<Topic>arn:aws:sns:us-east-1:000000000000:my-topic</Topic>` +
+		`<Event>s3:ObjectCreated:*</Event></TopicConfiguration></NotificationConfiguration>`
+
+	// PutBucketNotificationConfiguration
+	req := httptest.NewRequest(http.MethodPut, "/"+bucket+"?notification", strings.NewReader(notifXML))
+	rec := httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// GetBucketNotificationConfiguration
+	req = httptest.NewRequest(http.MethodGet, "/"+bucket+"?notification", nil)
+	rec = httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "TopicConfiguration")
+
+	// GetBucketNotificationConfiguration on bucket without notifications
+	bucket2 := "notif-empty-bucket"
+	_, err = sdkClient.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{Bucket: aws.String(bucket2)})
+	require.NoError(t, err)
+
+	req = httptest.NewRequest(http.MethodGet, "/"+bucket2+"?notification", nil)
+	rec = httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "NotificationConfiguration")
+}

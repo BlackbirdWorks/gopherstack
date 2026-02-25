@@ -60,6 +60,7 @@ type StorageBackend interface {
 	ListPolicies() ([]Policy, error)
 	AttachUserPolicy(userName, policyArn string) error
 	AttachRolePolicy(roleName, policyArn string) error
+	DetachRolePolicy(roleName, policyArn string) error
 	ListAttachedUserPolicies(userName string) ([]AttachedPolicy, error)
 	ListAttachedRolePolicies(roleName string) ([]AttachedPolicy, error)
 	GetPolicy(policyArn string) (*Policy, error)
@@ -354,6 +355,27 @@ func (b *InMemoryBackend) AttachRolePolicy(roleName, policyArn string) error {
 	}
 
 	b.rolePolicies[roleName] = append(b.rolePolicies[roleName], policyArn)
+
+	return nil
+}
+
+// DetachRolePolicy detaches a policy from a role.
+func (b *InMemoryBackend) DetachRolePolicy(roleName, policyArn string) error {
+	b.mu.Lock("DetachRolePolicy")
+	defer b.mu.Unlock()
+
+	if _, exists := b.roles[roleName]; !exists {
+		return fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
+	}
+
+	policies := b.rolePolicies[roleName]
+	for i, p := range policies {
+		if p == policyArn {
+			b.rolePolicies[roleName] = append(policies[:i], policies[i+1:]...)
+
+			return nil
+		}
+	}
 
 	return nil
 }

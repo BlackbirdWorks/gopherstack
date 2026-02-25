@@ -63,6 +63,25 @@ type StorageBackend interface {
 	PutBucketACL(ctx context.Context, bucket, acl string) error
 	GetBucketACL(ctx context.Context, bucket string) (string, error)
 
+	// Policy
+	PutBucketPolicy(ctx context.Context, bucket, policy string) error
+	GetBucketPolicy(ctx context.Context, bucket string) (string, error)
+	DeleteBucketPolicy(ctx context.Context, bucket string) error
+
+	// CORS
+	PutBucketCORS(ctx context.Context, bucket, corsXML string) error
+	GetBucketCORS(ctx context.Context, bucket string) (string, error)
+	DeleteBucketCORS(ctx context.Context, bucket string) error
+
+	// Lifecycle
+	PutBucketLifecycleConfiguration(ctx context.Context, bucket, lifecycleXML string) error
+	GetBucketLifecycleConfiguration(ctx context.Context, bucket string) (string, error)
+	DeleteBucketLifecycleConfiguration(ctx context.Context, bucket string) error
+
+	// Notifications
+	PutBucketNotificationConfiguration(ctx context.Context, bucket, notifXML string) error
+	GetBucketNotificationConfiguration(ctx context.Context, bucket string) (string, error)
+
 	// Multipart
 	CreateMultipartUpload(
 		ctx context.Context,

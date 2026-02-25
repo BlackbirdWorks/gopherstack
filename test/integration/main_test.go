@@ -18,12 +18,18 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	cloudformationsdk "github.com/aws/aws-sdk-go-v2/service/cloudformation"
+	cloudwatchsdk "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
+	cloudwatchlogssdk "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodbstreams"
+	eventbridgesdk "github.com/aws/aws-sdk-go-v2/service/eventbridge"
+	iamsdk "github.com/aws/aws-sdk-go-v2/service/iam"
 	kmssdk "github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	secretsmanagersdk "github.com/aws/aws-sdk-go-v2/service/secretsmanager"
+	sfnsdk "github.com/aws/aws-sdk-go-v2/service/sfn"
 	snssdk "github.com/aws/aws-sdk-go-v2/service/sns"
 	sqssdk "github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
@@ -305,6 +311,126 @@ func createSecretsManagerClient(t *testing.T) *secretsmanagersdk.Client {
 	}
 
 	return secretsmanagersdk.NewFromConfig(cfg, func(o *secretsmanagersdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createIAMClient returns an IAM client pointed at the shared test container.
+func createIAMClient(t *testing.T) *iamsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		t.Fatalf("unable to load SDK config: %v", err)
+	}
+
+	return iamsdk.NewFromConfig(cfg, func(o *iamsdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createEventBridgeClient returns an EventBridge client pointed at the shared test container.
+func createEventBridgeClient(t *testing.T) *eventbridgesdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		t.Fatalf("unable to load SDK config: %v", err)
+	}
+
+	return eventbridgesdk.NewFromConfig(cfg, func(o *eventbridgesdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createCloudWatchClient returns a CloudWatch client pointed at the shared test container.
+func createCloudWatchClient(t *testing.T) *cloudwatchsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		t.Fatalf("unable to load SDK config: %v", err)
+	}
+
+	return cloudwatchsdk.NewFromConfig(cfg, func(o *cloudwatchsdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createCloudWatchLogsClient returns a CloudWatch Logs client pointed at the shared test container.
+func createCloudWatchLogsClient(t *testing.T) *cloudwatchlogssdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		t.Fatalf("unable to load SDK config: %v", err)
+	}
+
+	return cloudwatchlogssdk.NewFromConfig(cfg, func(o *cloudwatchlogssdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createStepFunctionsClient returns a Step Functions client pointed at the shared test container.
+func createStepFunctionsClient(t *testing.T) *sfnsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		t.Fatalf("unable to load SDK config: %v", err)
+	}
+
+	return sfnsdk.NewFromConfig(cfg, func(o *sfnsdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createCloudFormationClient returns a CloudFormation client pointed at the shared test container.
+func createCloudFormationClient(t *testing.T) *cloudformationsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		t.Fatalf("unable to load SDK config: %v", err)
+	}
+
+	return cloudformationsdk.NewFromConfig(cfg, func(o *cloudformationsdk.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

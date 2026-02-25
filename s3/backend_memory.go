@@ -1424,3 +1424,206 @@ func nilStringIfEmpty(s string) *string {
 
 	return aws.String(s)
 }
+
+// PutBucketPolicy stores the bucket policy document.
+func (b *InMemoryBackend) PutBucketPolicy(_ context.Context, bucketName, policy string) error {
+	b.mu.RLock("PutBucketPolicy")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.Lock("PutBucketPolicy")
+	defer bucket.mu.Unlock()
+
+	bucket.Policy = policy
+
+	return nil
+}
+
+// GetBucketPolicy returns the bucket policy document.
+func (b *InMemoryBackend) GetBucketPolicy(_ context.Context, bucketName string) (string, error) {
+	b.mu.RLock("GetBucketPolicy")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return "", err
+	}
+
+	bucket.mu.RLock("GetBucketPolicy")
+	defer bucket.mu.RUnlock()
+
+	if bucket.Policy == "" {
+		return "", ErrNoBucketPolicy
+	}
+
+	return bucket.Policy, nil
+}
+
+// DeleteBucketPolicy clears the bucket policy document.
+func (b *InMemoryBackend) DeleteBucketPolicy(_ context.Context, bucketName string) error {
+	b.mu.RLock("DeleteBucketPolicy")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.Lock("DeleteBucketPolicy")
+	defer bucket.mu.Unlock()
+
+	bucket.Policy = ""
+
+	return nil
+}
+
+// PutBucketCORS stores the bucket CORS configuration.
+func (b *InMemoryBackend) PutBucketCORS(_ context.Context, bucketName, corsXML string) error {
+	b.mu.RLock("PutBucketCORS")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.Lock("PutBucketCORS")
+	defer bucket.mu.Unlock()
+
+	bucket.CORSConfig = corsXML
+
+	return nil
+}
+
+// GetBucketCORS returns the bucket CORS configuration.
+func (b *InMemoryBackend) GetBucketCORS(_ context.Context, bucketName string) (string, error) {
+	b.mu.RLock("GetBucketCORS")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return "", err
+	}
+
+	bucket.mu.RLock("GetBucketCORS")
+	defer bucket.mu.RUnlock()
+
+	if bucket.CORSConfig == "" {
+		return "", ErrNoCORSConfig
+	}
+
+	return bucket.CORSConfig, nil
+}
+
+// DeleteBucketCORS clears the bucket CORS configuration.
+func (b *InMemoryBackend) DeleteBucketCORS(_ context.Context, bucketName string) error {
+	b.mu.RLock("DeleteBucketCORS")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.Lock("DeleteBucketCORS")
+	defer bucket.mu.Unlock()
+
+	bucket.CORSConfig = ""
+
+	return nil
+}
+
+// PutBucketLifecycleConfiguration stores the lifecycle configuration for a bucket.
+func (b *InMemoryBackend) PutBucketLifecycleConfiguration(_ context.Context, bucketName, lifecycleXML string) error {
+	b.mu.RLock("PutBucketLifecycleConfiguration")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.Lock("PutBucketLifecycleConfiguration")
+	defer bucket.mu.Unlock()
+
+	bucket.LifecycleConfig = lifecycleXML
+
+	return nil
+}
+
+// GetBucketLifecycleConfiguration returns the lifecycle configuration for a bucket.
+func (b *InMemoryBackend) GetBucketLifecycleConfiguration(_ context.Context, bucketName string) (string, error) {
+	b.mu.RLock("GetBucketLifecycleConfiguration")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return "", err
+	}
+
+	bucket.mu.RLock("GetBucketLifecycleConfiguration")
+	defer bucket.mu.RUnlock()
+
+	if bucket.LifecycleConfig == "" {
+		return "", ErrNoLifecycleConfig
+	}
+
+	return bucket.LifecycleConfig, nil
+}
+
+// DeleteBucketLifecycleConfiguration clears the lifecycle configuration for a bucket.
+func (b *InMemoryBackend) DeleteBucketLifecycleConfiguration(_ context.Context, bucketName string) error {
+	b.mu.RLock("DeleteBucketLifecycleConfiguration")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.Lock("DeleteBucketLifecycleConfiguration")
+	defer bucket.mu.Unlock()
+
+	bucket.LifecycleConfig = ""
+
+	return nil
+}
+
+// PutBucketNotificationConfiguration stores the notification configuration for a bucket.
+func (b *InMemoryBackend) PutBucketNotificationConfiguration(_ context.Context, bucketName, notifXML string) error {
+	b.mu.RLock("PutBucketNotificationConfiguration")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.Lock("PutBucketNotificationConfiguration")
+	defer bucket.mu.Unlock()
+
+	bucket.NotificationConfig = notifXML
+
+	return nil
+}
+
+// GetBucketNotificationConfiguration returns the notification configuration for a bucket.
+func (b *InMemoryBackend) GetBucketNotificationConfiguration(_ context.Context, bucketName string) (string, error) {
+	b.mu.RLock("GetBucketNotificationConfiguration")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return "", err
+	}
+
+	bucket.mu.RLock("GetBucketNotificationConfiguration")
+	defer bucket.mu.RUnlock()
+
+	// Notification config is always returned, even if empty (AWS returns empty XML)
+	return bucket.NotificationConfig, nil
+}

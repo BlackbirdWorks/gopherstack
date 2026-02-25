@@ -54,6 +54,8 @@ func (h *S3Handler) handleObjectOperation(
 		h.routeObjectPost(ctx, w, r, bucket, key)
 	case http.MethodHead:
 		h.headObject(ctx, w, r, bucket, key)
+	case http.MethodOptions:
+		h.handleCORSPreflight(ctx, w, r, bucket)
 	default:
 		WriteError(log, w, r, ErrMethodNotAllowed)
 	}

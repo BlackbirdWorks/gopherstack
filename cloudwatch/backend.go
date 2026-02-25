@@ -24,6 +24,7 @@ type StorageBackend interface {
 		period int32,
 		statistics []string,
 	) ([]Datapoint, error)
+	GetMetricData(queries []MetricDataQuery, startTime, endTime time.Time) ([]MetricDataResult, error)
 	ListMetrics(namespace, metricName string) ([]Metric, error)
 	PutMetricAlarm(alarm *MetricAlarm) error
 	DescribeAlarms(alarmNames []string, stateValue string) ([]MetricAlarm, error)
@@ -184,6 +185,90 @@ func (b *InMemoryBackend) GetMetricStatistics(
 	})
 
 	return datapoints, nil
+}
+
+// GetMetricData executes multiple metric queries and returns results.
+// Each query specifies a namespace, metric name, statistic, and period.
+func (b *InMemoryBackend) GetMetricData(
+	queries []MetricDataQuery,
+	startTime, endTime time.Time,
+) ([]MetricDataResult, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	results := make([]MetricDataResult, 0, len(queries))
+
+	for _, q := range queries {
+		ns := q.MetricStat.Namespace
+		metricName := q.MetricStat.MetricName
+		period := q.MetricStat.Period
+		stat := q.MetricStat.Stat
+
+		var all []MetricDatum
+		if nsMap, ok := b.metrics[ns]; ok {
+			all = nsMap[metricName]
+		}
+
+		buckets := populateBuckets(all, startTime, endTime, period)
+
+		statSet := map[string]bool{stat: true}
+		var timestamps []time.Time
+		var values []float64
+
+		for _, bk := range buckets {
+			if bk.count == 0 {
+				continue
+			}
+
+			dp := buildDatapoint(bk, statSet)
+			v := statValue(dp, stat)
+			timestamps = append(timestamps, dp.Timestamp)
+			values = append(values, v)
+		}
+
+		label := q.Label
+		if label == "" {
+			label = metricName
+		}
+
+		results = append(results, MetricDataResult{
+			ID:         q.ID,
+			Label:      label,
+			Timestamps: timestamps,
+			Values:     values,
+			StatusCode: "Complete",
+		})
+	}
+
+	return results, nil
+}
+
+// statValue extracts a single float value from a Datapoint based on the requested statistic.
+func statValue(dp Datapoint, stat string) float64 {
+	switch stat {
+	case "Sum":
+		if dp.Sum != nil {
+			return *dp.Sum
+		}
+	case "Average":
+		if dp.Average != nil {
+			return *dp.Average
+		}
+	case "Minimum", "Min":
+		if dp.Minimum != nil {
+			return *dp.Minimum
+		}
+	case "Maximum", "Max":
+		if dp.Maximum != nil {
+			return *dp.Maximum
+		}
+	case "SampleCount":
+		if dp.SampleCount != nil {
+			return *dp.SampleCount
+		}
+	}
+
+	return 0
 }
 
 // ListMetrics returns unique metrics matching optional namespace and metricName filters.

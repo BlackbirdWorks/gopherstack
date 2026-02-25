@@ -4,13 +4,18 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 
+	apigwbackend "github.com/blackbirdworks/gopherstack/apigateway"
+	cwlogsbackend "github.com/blackbirdworks/gopherstack/cloudwatchlogs"
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
+	ebbackend "github.com/blackbirdworks/gopherstack/eventbridge"
 	kmsbackend "github.com/blackbirdworks/gopherstack/kms"
+	lambdabackend "github.com/blackbirdworks/gopherstack/lambda"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/secretsmanager"
 	snsbackend "github.com/blackbirdworks/gopherstack/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/ssm"
+	sfnbackend "github.com/blackbirdworks/gopherstack/stepfunctions"
 )
 
 // BackendsProvider is a private interface to extract service backends for resource creation.
@@ -22,6 +27,11 @@ type BackendsProvider interface {
 	GetSSMHandler() service.Registerable
 	GetKMSHandler() service.Registerable
 	GetSecretsManagerHandler() service.Registerable
+	GetLambdaHandler() service.Registerable
+	GetEventBridgeHandler() service.Registerable
+	GetStepFunctionsHandler() service.Registerable
+	GetCloudWatchLogsHandler() service.Registerable
+	GetAPIGatewayHandler() service.Registerable
 	GetGlobalConfig() config.GlobalConfig
 }
 
@@ -65,6 +75,26 @@ func extractBackends(bp BackendsProvider) *ServiceBackends {
 
 	if h := bp.GetSecretsManagerHandler(); h != nil {
 		backends.SecretsManager, _ = h.(*secretsmanagerbackend.Handler)
+	}
+
+	if h := bp.GetLambdaHandler(); h != nil {
+		backends.Lambda, _ = h.(*lambdabackend.Handler)
+	}
+
+	if h := bp.GetEventBridgeHandler(); h != nil {
+		backends.EventBridge, _ = h.(*ebbackend.Handler)
+	}
+
+	if h := bp.GetStepFunctionsHandler(); h != nil {
+		backends.StepFunctions, _ = h.(*sfnbackend.Handler)
+	}
+
+	if h := bp.GetCloudWatchLogsHandler(); h != nil {
+		backends.CloudWatchLogs, _ = h.(*cwlogsbackend.Handler)
+	}
+
+	if h := bp.GetAPIGatewayHandler(); h != nil {
+		backends.APIGateway, _ = h.(*apigwbackend.Handler)
 	}
 
 	return backends

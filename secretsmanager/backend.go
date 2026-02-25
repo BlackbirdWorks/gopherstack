@@ -49,6 +49,9 @@ type StorageBackend interface {
 	DescribeSecret(input *DescribeSecretInput) (*DescribeSecretOutput, error)
 	UpdateSecret(input *UpdateSecretInput) (*UpdateSecretOutput, error)
 	RestoreSecret(input *RestoreSecretInput) (*RestoreSecretOutput, error)
+	TagResource(input *TagResourceInput) error
+	UntagResource(input *UntagResourceInput) error
+	RotateSecret(input *RotateSecretInput) (*RotateSecretOutput, error)
 	ListAll() []SecretListEntry
 }
 
@@ -486,4 +489,92 @@ func parseToken(token string) int {
 	}
 
 	return idx
+}
+
+// generateVersionID generates a random version ID for secret rotation.
+func generateVersionID() string {
+	return fmt.Sprintf("%s-%s", generateRandomSuffix(), generateRandomSuffix())
+}
+
+// TagResource adds or updates tags on a secret.
+func (b *InMemoryBackend) TagResource(input *TagResourceInput) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	id := resolveSecretID(input.SecretID)
+	secret, ok := b.secrets[id]
+	if !ok {
+		return ErrSecretNotFound
+	}
+	if secret.DeletedDate != nil {
+		return ErrSecretDeleted
+	}
+	if secret.Tags == nil {
+		secret.Tags = make(map[string]string)
+	}
+	for _, t := range input.Tags {
+		secret.Tags[t.Key] = t.Value
+	}
+
+	return nil
+}
+
+// UntagResource removes tags from a secret.
+func (b *InMemoryBackend) UntagResource(input *UntagResourceInput) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	id := resolveSecretID(input.SecretID)
+	secret, ok := b.secrets[id]
+	if !ok {
+		return ErrSecretNotFound
+	}
+	if secret.DeletedDate != nil {
+		return ErrSecretDeleted
+	}
+	for _, k := range input.TagKeys {
+		delete(secret.Tags, k)
+	}
+
+	return nil
+}
+
+// RotateSecret creates a new version of the secret (rotation stub).
+func (b *InMemoryBackend) RotateSecret(input *RotateSecretInput) (*RotateSecretOutput, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	id := resolveSecretID(input.SecretID)
+	secret, ok := b.secrets[id]
+	if !ok {
+		return nil, ErrSecretNotFound
+	}
+	if secret.DeletedDate != nil {
+		return nil, ErrSecretDeleted
+	}
+
+	currentVer := b.findVersion(secret, "", StagingLabelCurrent)
+	if currentVer == nil {
+		return nil, ErrVersionNotFound
+	}
+
+	versionID := generateVersionID()
+	newVer := &SecretVersion{
+		VersionID:     versionID,
+		SecretString:  currentVer.SecretString,
+		SecretBinary:  currentVer.SecretBinary,
+		StagingLabels: []string{"AWSPENDING"},
+		CreatedDate:   UnixTimeFloat(time.Now()),
+	}
+	secret.Versions[versionID] = newVer
+
+	b.rotateStagingLabels(secret, versionID)
+	newVer.StagingLabels = []string{StagingLabelCurrent}
+	secret.CurrentVersionID = versionID
+
+	return &RotateSecretOutput{
+		ARN:       secret.ARN,
+		Name:      secret.Name,
+		VersionID: versionID,
+	}, nil
 }

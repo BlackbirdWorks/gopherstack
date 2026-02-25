@@ -12,8 +12,12 @@ install-deps:
 		if command -v brew >/dev/null 2>&1; then \
 			brew install golangci-lint; \
 		else \
-			echo "Homebrew not found. Falling back to curl..."; \
-			curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin $(GOLANGCI_LINT_VERSION); \
+			echo "Homebrew not found. Trying go install from source..."; \
+			GOMODCACHE=$$(mktemp -d) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest || { \
+				echo "go install failed; cloning and building from source..."; \
+				TMPDIR=$$(mktemp -d) && git clone --depth=1 https://github.com/golangci/golangci-lint "$${TMPDIR}/golangci-lint" && \
+				cd "$${TMPDIR}/golangci-lint" && go build -o "$$(go env GOPATH)/bin/golangci-lint" ./cmd/golangci-lint; \
+			}; \
 		fi \
 	else \
 		echo "golangci-lint is already installed."; \

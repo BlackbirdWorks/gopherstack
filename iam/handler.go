@@ -56,6 +56,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreatePolicy", "DeletePolicy", "ListPolicies",
 		"GetPolicy", "GetPolicyVersion",
 		"AttachUserPolicy", "AttachRolePolicy",
+		"DetachRolePolicy",
 		"ListAttachedUserPolicies", "ListAttachedRolePolicies",
 		"CreateGroup", "DeleteGroup", "AddUserToGroup",
 		"CreateAccessKey", "DeleteAccessKey", "ListAccessKeys",
@@ -407,6 +408,13 @@ func (h *Handler) iamPolicyAttachDispatchTable() map[string]iamActionFn {
 			}
 
 			return &AttachRolePolicyResponse{Xmlns: iamXMLNS, ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
+		},
+		"DetachRolePolicy": func(vals url.Values, reqID string) (any, error) {
+			if err := h.Backend.DetachRolePolicy(vals.Get("RoleName"), vals.Get("PolicyArn")); err != nil {
+				return nil, err
+			}
+
+			return &DetachRolePolicyResponse{Xmlns: iamXMLNS, ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
 		},
 		"ListAttachedUserPolicies": func(vals url.Values, reqID string) (any, error) {
 			policies, err := h.Backend.ListAttachedUserPolicies(vals.Get("UserName"))

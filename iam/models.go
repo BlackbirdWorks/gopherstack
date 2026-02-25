@@ -268,6 +268,13 @@ type AttachRolePolicyResponse struct {
 	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
 }
 
+// DetachRolePolicyResponse is the XML response for DetachRolePolicy.
+type DetachRolePolicyResponse struct {
+	XMLName          xml.Name         `xml:"DetachRolePolicyResponse"`
+	Xmlns            string           `xml:"xmlns,attr"`
+	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
+}
+
 // ---- Group XML responses ----
 
 // GroupXML is the XML representation of an IAM Group.

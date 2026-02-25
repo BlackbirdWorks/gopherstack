@@ -887,3 +887,80 @@ func TestSecretsManagerPutSecretValueLabelRotation(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "v2", curr.SecretString)
 }
+
+// TestSecretsManagerTagResource tests tag add/remove operations.
+func TestSecretsManagerTagResource(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	log := logger.NewLogger(slog.LevelDebug)
+	backend := secretsmanager.NewInMemoryBackend()
+	h := secretsmanager.NewHandler(backend, log)
+
+	_, err := backend.CreateSecret(&secretsmanager.CreateSecretInput{
+		Name:         "tag-secret",
+		SecretString: "value",
+	})
+	require.NoError(t, err)
+
+	// TagResource via HTTP
+	tagBody := `{"SecretId":"tag-secret","Tags":[{"Key":"env","Value":"test"},{"Key":"team","Value":"platform"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tagBody))
+	req.Header.Set("X-Amz-Target", "secretsmanager.TagResource")
+	rec := httptest.NewRecorder()
+	require.NoError(t, h.Handler()(e.NewContext(req, rec)))
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// DescribeSecret should show tags
+	desc, err := backend.DescribeSecret(&secretsmanager.DescribeSecretInput{SecretID: "tag-secret"})
+	require.NoError(t, err)
+	assert.Equal(t, "test", desc.Tags["env"])
+	assert.Equal(t, "platform", desc.Tags["team"])
+
+	// UntagResource via HTTP
+	untagBody := `{"SecretId":"tag-secret","TagKeys":["env"]}`
+	req2 := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(untagBody))
+	req2.Header.Set("X-Amz-Target", "secretsmanager.UntagResource")
+	rec2 := httptest.NewRecorder()
+	require.NoError(t, h.Handler()(e.NewContext(req2, rec2)))
+	assert.Equal(t, http.StatusOK, rec2.Code)
+
+	desc2, err := backend.DescribeSecret(&secretsmanager.DescribeSecretInput{SecretID: "tag-secret"})
+	require.NoError(t, err)
+	assert.NotContains(t, desc2.Tags, "env")
+	assert.Equal(t, "platform", desc2.Tags["team"])
+}
+
+// TestSecretsManagerRotateSecret tests the rotation stub.
+func TestSecretsManagerRotateSecret(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	log := logger.NewLogger(slog.LevelDebug)
+	backend := secretsmanager.NewInMemoryBackend()
+	h := secretsmanager.NewHandler(backend, log)
+
+	_, err := backend.CreateSecret(&secretsmanager.CreateSecretInput{
+		Name:         "rotate-secret",
+		SecretString: "original-value",
+	})
+	require.NoError(t, err)
+
+	rotateBody := `{"SecretId":"rotate-secret"}`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(rotateBody))
+	req.Header.Set("X-Amz-Target", "secretsmanager.RotateSecret")
+	rec := httptest.NewRecorder()
+	require.NoError(t, h.Handler()(e.NewContext(req, rec)))
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var out secretsmanager.RotateSecretOutput
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Equal(t, "rotate-secret", out.Name)
+	assert.NotEmpty(t, out.VersionID)
+
+	// New version should be AWSCURRENT
+	curr, err := backend.GetSecretValue(&secretsmanager.GetSecretValueInput{SecretID: "rotate-secret"})
+	require.NoError(t, err)
+	assert.Equal(t, out.VersionID, curr.VersionID)
+	assert.Equal(t, "original-value", curr.SecretString)
+}
