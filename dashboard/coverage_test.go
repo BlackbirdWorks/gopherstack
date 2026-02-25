@@ -14,6 +14,8 @@ import (
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	cwlogsbackend "github.com/blackbirdworks/gopherstack/cloudwatchlogs"
 )
 
 // TestDashboard_Metrics covers getMetricsJSON and metricsIndex.
@@ -380,5 +382,196 @@ func TestDashboard_DynamoDBPartiQL(t *testing.T) {
 		serveHandler(stack.Dashboard, w, req)
 
 		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+}
+
+// TestDashboard_CloudWatchLogs covers CloudWatch Logs dashboard handlers including the stream viewer.
+func TestDashboard_CloudWatchLogs(t *testing.T) {
+	t.Parallel()
+
+	t.Run("index renders log groups", func(t *testing.T) {
+		t.Parallel()
+		stack := newStack(t)
+
+		// Create a log group directly via backend
+		_, err := stack.CloudWatchLogsHandler.Backend.CreateLogGroup("/aws/test/group")
+		require.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodGet, "/dashboard/cloudwatchlogs", nil)
+		w := httptest.NewRecorder()
+		serveHandler(stack.Dashboard, w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Header().Get("Content-Type"), "text/html")
+		assert.Contains(t, w.Body.String(), "/aws/test/group")
+	})
+
+	t.Run("group detail shows streams and links to viewer", func(t *testing.T) {
+		t.Parallel()
+		stack := newStack(t)
+
+		_, err := stack.CloudWatchLogsHandler.Backend.CreateLogGroup("/aws/my-group")
+		require.NoError(t, err)
+		_, err = stack.CloudWatchLogsHandler.Backend.CreateLogStream("/aws/my-group", "my-stream")
+		require.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodGet, "/dashboard/cloudwatchlogs/group?name=%2Faws%2Fmy-group", nil)
+		w := httptest.NewRecorder()
+		serveHandler(stack.Dashboard, w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), "my-stream")
+		// Stream name should be a link to the viewer
+		assert.Contains(t, w.Body.String(), "/dashboard/cloudwatchlogs/stream")
+	})
+
+	t.Run("stream detail shows events", func(t *testing.T) {
+		t.Parallel()
+		stack := newStack(t)
+
+		_, err := stack.CloudWatchLogsHandler.Backend.CreateLogGroup("/aws/stream-test")
+		require.NoError(t, err)
+		_, err = stack.CloudWatchLogsHandler.Backend.CreateLogStream("/aws/stream-test", "app-log")
+		require.NoError(t, err)
+		_, err = stack.CloudWatchLogsHandler.Backend.PutLogEvents("/aws/stream-test", "app-log",
+			[]cwlogsbackend.InputLogEvent{
+				{Timestamp: 1000, Message: "hello world"},
+				{Timestamp: 2000, Message: "ERROR something failed"},
+			},
+		)
+		require.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodGet,
+			"/dashboard/cloudwatchlogs/stream?group=%2Faws%2Fstream-test&stream=app-log", nil)
+		w := httptest.NewRecorder()
+		serveHandler(stack.Dashboard, w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), "hello world")
+		assert.Contains(t, w.Body.String(), "ERROR something failed")
+	})
+
+	t.Run("stream detail with filter", func(t *testing.T) {
+		t.Parallel()
+		stack := newStack(t)
+
+		_, err := stack.CloudWatchLogsHandler.Backend.CreateLogGroup("/aws/filter-test")
+		require.NoError(t, err)
+		_, err = stack.CloudWatchLogsHandler.Backend.CreateLogStream("/aws/filter-test", "svc-log")
+		require.NoError(t, err)
+		_, err = stack.CloudWatchLogsHandler.Backend.PutLogEvents("/aws/filter-test", "svc-log",
+			[]cwlogsbackend.InputLogEvent{
+				{Timestamp: 1000, Message: "INFO startup"},
+				{Timestamp: 2000, Message: "ERROR boom"},
+			},
+		)
+		require.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodGet,
+			"/dashboard/cloudwatchlogs/stream?group=%2Faws%2Ffilter-test&stream=svc-log&filter=ERROR", nil)
+		w := httptest.NewRecorder()
+		serveHandler(stack.Dashboard, w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), "ERROR boom")
+		assert.NotContains(t, w.Body.String(), "INFO startup")
+	})
+
+	t.Run("stream detail nil ops returns 503", func(t *testing.T) {
+		t.Parallel()
+		stack := newStack(t)
+		stack.Dashboard.CloudWatchLogsOps = nil
+
+		req := httptest.NewRequest(http.MethodGet,
+			"/dashboard/cloudwatchlogs/stream?group=g&stream=s", nil)
+		w := httptest.NewRecorder()
+		serveHandler(stack.Dashboard, w, req)
+
+		assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+	})
+}
+
+// TestDashboard_StepFunctions covers Step Functions dashboard handlers including execution detail.
+func TestDashboard_StepFunctions(t *testing.T) {
+	t.Parallel()
+
+	t.Run("index renders state machines", func(t *testing.T) {
+		t.Parallel()
+		stack := newStack(t)
+
+		_, err := stack.StepFunctionsHandler.Backend.CreateStateMachine("my-sm", "{}", "arn:role", "STANDARD")
+		require.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodGet, "/dashboard/stepfunctions", nil)
+		w := httptest.NewRecorder()
+		serveHandler(stack.Dashboard, w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), "my-sm")
+	})
+
+	t.Run("statemachine detail shows executions and links to detail", func(t *testing.T) {
+		t.Parallel()
+		stack := newStack(t)
+
+		sm, err := stack.StepFunctionsHandler.Backend.CreateStateMachine("link-sm", "{}", "arn:role", "STANDARD")
+		require.NoError(t, err)
+		_, err = stack.StepFunctionsHandler.Backend.StartExecution(sm.StateMachineArn, "exec-1", "{}")
+		require.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodGet,
+			fmt.Sprintf("/dashboard/stepfunctions/statemachine?arn=%s", url.QueryEscape(sm.StateMachineArn)), nil)
+		w := httptest.NewRecorder()
+		serveHandler(stack.Dashboard, w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), "exec-1")
+		// Execution name should be a link to execution detail
+		assert.Contains(t, w.Body.String(), "/dashboard/stepfunctions/execution")
+	})
+
+	t.Run("execution detail shows history events", func(t *testing.T) {
+		t.Parallel()
+		stack := newStack(t)
+
+		sm, err := stack.StepFunctionsHandler.Backend.CreateStateMachine("hist-sm", "{}", "arn:role", "STANDARD")
+		require.NoError(t, err)
+		exec, err := stack.StepFunctionsHandler.Backend.StartExecution(sm.StateMachineArn, "hist-exec", `{"key":"val"}`)
+		require.NoError(t, err)
+
+		req := httptest.NewRequest(http.MethodGet,
+			fmt.Sprintf("/dashboard/stepfunctions/execution?arn=%s", url.QueryEscape(exec.ExecutionArn)), nil)
+		w := httptest.NewRecorder()
+		serveHandler(stack.Dashboard, w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), "hist-exec")
+		// History events should be visible
+		assert.Contains(t, w.Body.String(), "ExecutionStarted")
+		assert.Contains(t, w.Body.String(), "ExecutionSucceeded")
+	})
+
+	t.Run("execution detail not found returns 404", func(t *testing.T) {
+		t.Parallel()
+		stack := newStack(t)
+
+		req := httptest.NewRequest(http.MethodGet,
+			"/dashboard/stepfunctions/execution?arn=arn%3Anonexistent", nil)
+		w := httptest.NewRecorder()
+		serveHandler(stack.Dashboard, w, req)
+
+		assert.Equal(t, http.StatusNotFound, w.Code)
+	})
+
+	t.Run("execution detail nil ops returns 503", func(t *testing.T) {
+		t.Parallel()
+		stack := newStack(t)
+		stack.Dashboard.StepFunctionsOps = nil
+
+		req := httptest.NewRequest(http.MethodGet, "/dashboard/stepfunctions/execution?arn=x", nil)
+		w := httptest.NewRecorder()
+		serveHandler(stack.Dashboard, w, req)
+
+		assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 	})
 }

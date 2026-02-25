@@ -210,11 +210,13 @@ func (h *S3Handler) Name() string {
 func (h *S3Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
-		// Exclude API and dashboard endpoints - let them be handled by other routes
+		// Exclude API, dashboard, and internal Gopherstack endpoints so they
+		// fall through to Echo's registered routes.
 		// Matches /api/, /metrics/, /dashboard/ but NOT /api, /metrics, /dashboard
 		// which could be valid bucket names.
 		if strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/metrics/") ||
-			strings.HasPrefix(path, "/dashboard/") || path == "/favicon.ico" || path == "/robots.txt" {
+			strings.HasPrefix(path, "/dashboard/") || strings.HasPrefix(path, "/_gopherstack/") ||
+			path == "/favicon.ico" || path == "/robots.txt" {
 			return false
 		}
 		// Accept all other requests - priority ensures we're evaluated last

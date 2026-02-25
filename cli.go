@@ -26,6 +26,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	apigwbackend "github.com/blackbirdworks/gopherstack/apigateway"
+	cfnbackend "github.com/blackbirdworks/gopherstack/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/cloudwatchlogs"
 	"github.com/blackbirdworks/gopherstack/dashboard"
@@ -84,6 +85,7 @@ type CLI struct {
 	cloudWatchLogsHandler service.Registerable
 	stepFunctionsHandler  service.Registerable
 	cloudWatchHandler     service.Registerable
+	cloudFormationHandler service.Registerable
 	s3Client              *s3.Client
 	iamClient             *iam.Client
 	snsClient             *sns.Client
@@ -227,6 +229,11 @@ func (c *CLI) GetStepFunctionsHandler() service.Registerable { return c.stepFunc
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetCloudWatchHandler() service.Registerable { return c.cloudWatchHandler }
+
+// GetCloudFormationHandler returns the CloudFormation handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetCloudFormationHandler() service.Registerable { return c.cloudFormationHandler }
 
 // Run parses CLI / environment-variable configuration and starts Gopherstack.
 // It is called from main() and exits on error.
@@ -427,7 +434,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		services = append(services, svc)
 	}
 
-	// Store handlers in CLI so dashboard can access them.
+	// Store handlers in CLI so dashboard and CloudFormation can access them.
 	if cli, ok := appCtx.Config.(*CLI); ok {
 		cli.ddbHandler = services[0]
 		cli.s3Handler = services[1]
@@ -448,6 +455,18 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 
 	// Wire SNS→SQS delivery: when SNS publishes a message, deliver it to SQS queues.
 	wireSNSToSQS(services[5], services[6])
+
+	// Init CloudFormation after core handlers are stored so it can access their backends.
+	cfnSvc, err := (&cfnbackend.Provider{}).Init(appCtx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to init CloudFormation: %w", err)
+	}
+
+	services = append(services, cfnSvc)
+
+	if cli, ok := appCtx.Config.(*CLI); ok {
+		cli.cloudFormationHandler = cfnSvc
+	}
 
 	// Init dashboard last so it can access all service handlers.
 	dashSvc, err := (&dashboard.Provider{}).Init(appCtx)
@@ -574,7 +593,7 @@ func healthHandler(c *echo.Context) error {
 		Status: "ok",
 		Services: []string{
 			"DynamoDB", "S3", "SSM", "IAM", "STS", "SNS", "SQS", "KMS", "SecretsManager", "Lambda",
-			"EventBridge", "APIGateway", "CloudWatchLogs", "StepFunctions", "CloudWatch",
+			"EventBridge", "APIGateway", "CloudWatchLogs", "StepFunctions", "CloudWatch", "CloudFormation",
 		},
 	})
 }

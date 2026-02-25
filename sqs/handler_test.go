@@ -283,7 +283,7 @@ func TestHandlerQueueNotFound(t *testing.T) {
 	var errResp jsonErr
 	err := json.Unmarshal(rec.Body.Bytes(), &errResp)
 	require.NoError(t, err)
-	assert.Equal(t, "com.amazonaws.sqs#QueueDoesNotExist", errResp.Type)
+	assert.Equal(t, "AWS.SimpleQueueService.NonExistentQueue", errResp.Type)
 }
 
 func TestHandlerGetQueueURL(t *testing.T) {
@@ -892,7 +892,7 @@ func TestHandlerListQueuesError(t *testing.T) {
 
 	var errResp jsonErr
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
-	assert.Equal(t, "com.amazonaws.sqs#QueueDoesNotExist", errResp.Type)
+	assert.Equal(t, "AWS.SimpleQueueService.NonExistentQueue", errResp.Type)
 }
 
 func TestHandlerErrorDetailsInvalidAttribute(t *testing.T) {

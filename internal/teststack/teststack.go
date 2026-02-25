@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	apigwbackend "github.com/blackbirdworks/gopherstack/apigateway"
+	cfnbackend "github.com/blackbirdworks/gopherstack/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/cloudwatchlogs"
 	"github.com/blackbirdworks/gopherstack/dashboard"
@@ -61,6 +62,7 @@ type Stack struct {
 	CloudWatchLogsHandler *cwlogsbackend.Handler
 	StepFunctionsHandler  *sfnbackend.Handler
 	CloudWatchHandler     *cwbackend.Handler
+	CloudFormationHandler *cfnbackend.Handler
 	S3Client              *s3.Client
 	DDBClient             *dynamodb.Client
 	Dashboard             *dashboard.DashboardHandler
@@ -127,6 +129,7 @@ func registerServices(
 	cwlogsHndlr *cwlogsbackend.Handler,
 	sfnHndlr *sfnbackend.Handler,
 	cwHndlr *cwbackend.Handler,
+	cfnHndlr *cfnbackend.Handler,
 ) {
 	_ = registry.Register(ddbHndlr)
 	_ = registry.Register(s3Hndlr)
@@ -143,6 +146,7 @@ func registerServices(
 	_ = registry.Register(cwlogsHndlr)
 	_ = registry.Register(sfnHndlr)
 	_ = registry.Register(cwHndlr)
+	_ = registry.Register(cfnHndlr)
 }
 
 // handlers bundles all service handlers created for a test stack.
@@ -162,6 +166,7 @@ type handlers struct {
 	cwlogs *cwlogsbackend.Handler
 	sfn    *sfnbackend.Handler
 	cw     *cwbackend.Handler
+	cfn    *cfnbackend.Handler
 	iamBk  *iambackend.InMemoryBackend
 	s3Bk   *s3backend.InMemoryBackend
 }
@@ -170,26 +175,61 @@ type handlers struct {
 func newHandlers() handlers {
 	s3Bk := s3backend.NewInMemoryBackend(nil)
 	iamBk := iambackend.NewInMemoryBackend()
+	ddb := ddbbackend.NewHandler(ddbbackend.NewInMemoryDB(), slog.Default())
+	sqs := sqsbackend.NewHandler(sqsbackend.NewInMemoryBackend(), slog.Default())
+	sns := snsbackend.NewHandler(snsbackend.NewInMemoryBackend(), slog.Default())
+	ssm := ssmbackend.NewHandler(ssmbackend.NewInMemoryBackend(), slog.Default())
+	kms := kmsbackend.NewHandler(kmsbackend.NewInMemoryBackend(), slog.Default())
+	sm := smbackend.NewHandler(smbackend.NewInMemoryBackend(), slog.Default())
 
 	return handlers{
 		s3Bk:   s3Bk,
 		iamBk:  iamBk,
 		s3:     s3backend.NewHandler(s3Bk, slog.Default()),
-		ddb:    ddbbackend.NewHandler(ddbbackend.NewInMemoryDB(), slog.Default()),
-		ssm:    ssmbackend.NewHandler(ssmbackend.NewInMemoryBackend(), slog.Default()),
+		ddb:    ddb,
+		ssm:    ssm,
 		iam:    iambackend.NewHandler(iamBk, slog.Default()),
 		sts:    stsbackend.NewHandler(stsbackend.NewInMemoryBackend(), slog.Default()),
-		sns:    snsbackend.NewHandler(snsbackend.NewInMemoryBackend(), slog.Default()),
-		sqs:    sqsbackend.NewHandler(sqsbackend.NewInMemoryBackend(), slog.Default()),
-		kms:    kmsbackend.NewHandler(kmsbackend.NewInMemoryBackend(), slog.Default()),
-		sm:     smbackend.NewHandler(smbackend.NewInMemoryBackend(), slog.Default()),
+		sns:    sns,
+		sqs:    sqs,
+		kms:    kms,
+		sm:     sm,
 		lambda: newLambdaHandler(),
 		eb:     ebbackend.NewHandler(ebbackend.NewInMemoryBackend(), slog.Default()),
 		apigw:  apigwbackend.NewHandler(apigwbackend.NewInMemoryBackend(), slog.Default()),
 		cwlogs: cwlogsbackend.NewHandler(cwlogsbackend.NewInMemoryBackend(), slog.Default()),
 		sfn:    sfnbackend.NewHandler(sfnbackend.NewInMemoryBackend(), slog.Default()),
 		cw:     cwbackend.NewHandler(cwbackend.NewInMemoryBackend(), slog.Default()),
+		cfn:    newCFNHandler(s3Bk, ddb, sqs, sns, ssm, kms, sm),
 	}
+}
+
+// newCFNHandler creates a CloudFormation handler wired to the given service backends
+// so that CreateStack actually provisions real resources.
+func newCFNHandler(
+	s3Bk *s3backend.InMemoryBackend,
+	ddb *ddbbackend.DynamoDBHandler,
+	sqs *sqsbackend.Handler,
+	sns *snsbackend.Handler,
+	ssm *ssmbackend.Handler,
+	kms *kmsbackend.Handler,
+	sm *smbackend.Handler,
+) *cfnbackend.Handler {
+	backends := &cfnbackend.ServiceBackends{
+		S3:             s3backend.NewHandler(s3Bk, slog.Default()),
+		DynamoDB:       ddb,
+		SQS:            sqs,
+		SNS:            sns,
+		SSM:            ssm,
+		KMS:            kms,
+		SecretsManager: sm,
+		AccountID:      "000000000000",
+		Region:         "us-east-1",
+	}
+	creator := cfnbackend.NewResourceCreator(backends)
+	backend := cfnbackend.NewInMemoryBackendWithConfig("000000000000", "us-east-1", creator)
+
+	return cfnbackend.NewHandler(backend, slog.Default())
 }
 
 // New creates a fully wired integration stack for testing.
@@ -208,7 +248,7 @@ func New(t *testing.T) *Stack {
 	registerServices(
 		registry,
 		h.ddb, h.s3, h.ssm, h.iam, h.sts, h.sns, h.sqs, h.kms, h.sm,
-		h.lambda, h.eb, h.apigw, h.cwlogs, h.sfn, h.cw,
+		h.lambda, h.eb, h.apigw, h.cwlogs, h.sfn, h.cw, h.cfn,
 	)
 
 	// Create AWS SDK clients routed through in-memory Echo.
@@ -235,6 +275,7 @@ func New(t *testing.T) *Stack {
 		CloudWatchLogsOps: h.cwlogs,
 		StepFunctionsOps:  h.sfn,
 		CloudWatchOps:     h.cw,
+		CloudFormationOps: h.cfn,
 		GlobalConfig:      config.GlobalConfig{AccountID: "000000000000", Region: "us-east-1"},
 		Logger:            slog.Default(),
 	})
@@ -262,6 +303,7 @@ func New(t *testing.T) *Stack {
 		CloudWatchLogsHandler: h.cwlogs,
 		StepFunctionsHandler:  h.sfn,
 		CloudWatchHandler:     h.cw,
+		CloudFormationHandler: h.cfn,
 		S3Client:              s3Client,
 		DDBClient:             ddbClient,
 		Dashboard:             dashHndlr,

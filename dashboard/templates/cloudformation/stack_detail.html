@@ -1,0 +1,74 @@
+{{define "content"}}
+<div class="px-4 sm:px-6 lg:px-8">
+    <div class="mb-6">
+        <a href="/dashboard/cloudformation" class="text-blue-600 hover:underline dark:text-blue-400">&larr; Back to Stacks</a>
+    </div>
+    <h1 class="text-3xl font-bold text-gray-900 dark:text-white">{{.Stack.StackName}}</h1>
+    <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{.Stack.StackID}}</p>
+
+    <div class="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-4">
+            <dl class="space-y-2">
+                <div>
+                    <dt class="text-xs text-gray-500 dark:text-gray-400 uppercase font-semibold">Status</dt>
+                    <dd class="text-sm font-mono text-gray-900 dark:text-white">{{.Stack.StackStatus}}</dd>
+                </div>
+                {{if .Stack.Description}}
+                <div>
+                    <dt class="text-xs text-gray-500 dark:text-gray-400 uppercase font-semibold">Description</dt>
+                    <dd class="text-sm text-gray-900 dark:text-white">{{.Stack.Description}}</dd>
+                </div>
+                {{end}}
+                <div>
+                    <dt class="text-xs text-gray-500 dark:text-gray-400 uppercase font-semibold">Created</dt>
+                    <dd class="text-sm font-mono text-gray-900 dark:text-white">{{.Stack.CreationTime.Format "2006-01-02 15:04:05"}}</dd>
+                </div>
+            </dl>
+        </div>
+
+        {{if .Stack.Outputs}}
+        <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-4">
+            <h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300 uppercase mb-2">Outputs</h2>
+            <dl class="space-y-1">
+                {{range .Stack.Outputs}}
+                <div>
+                    <dt class="text-xs text-gray-500 dark:text-gray-400">{{.OutputKey}}</dt>
+                    <dd class="text-sm font-mono text-gray-900 dark:text-white">{{.OutputValue}}</dd>
+                </div>
+                {{end}}
+            </dl>
+        </div>
+        {{end}}
+    </div>
+
+    <div class="mt-8">
+        <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Stack Events</h2>
+        <div class="relative overflow-x-auto shadow-md sm:rounded-lg">
+            <table class="w-full text-sm text-left text-gray-500 dark:text-gray-400">
+                <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                    <tr>
+                        <th class="px-6 py-3">Timestamp</th>
+                        <th class="px-6 py-3">Logical ID</th>
+                        <th class="px-6 py-3">Resource Type</th>
+                        <th class="px-6 py-3">Status</th>
+                        <th class="px-6 py-3">Reason</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .Events}}
+                    <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
+                        <td class="px-6 py-4 font-mono text-xs text-gray-500 dark:text-gray-400">{{.Timestamp.Format "2006-01-02 15:04:05"}}</td>
+                        <td class="px-6 py-4 font-mono text-gray-900 dark:text-white">{{.LogicalResourceID}}</td>
+                        <td class="px-6 py-4 font-mono text-xs text-gray-500 dark:text-gray-400">{{.ResourceType}}</td>
+                        <td class="px-6 py-4 font-mono text-gray-500 dark:text-gray-400">{{.ResourceStatus}}</td>
+                        <td class="px-6 py-4 text-xs text-gray-500 dark:text-gray-400">{{.ResourceStatusReason}}</td>
+                    </tr>
+                    {{else}}
+                    <tr><td colspan="5" class="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">No events found.</td></tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{{end}}

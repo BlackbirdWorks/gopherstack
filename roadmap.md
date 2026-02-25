@@ -233,9 +233,9 @@
 **DX gaps remaining:**
 - [ ] `awslocal`-style CLI wrapper or docs for `aws --endpoint-url`
 - [ ] Persistence — on-disk state snapshots across restarts (differentiator vs LocalStack)
-- [ ] Testcontainers module for Go
-- [ ] Terraform compatibility docs
-- [ ] CDK compatibility docs
+- [x] Testcontainers module for Go ✅ (`modules/gopherstack`)
+- [x] Terraform compatibility docs ✅ (README)
+- [x] CDK compatibility docs ✅ (README)
 
 ---
 
@@ -278,13 +278,13 @@
 - [ ] API Gateway: Request/response mapping templates (VTL)
 - [ ] EventBridge: Scheduled rules (cron/rate expressions)
 
-### v0.10 — Orchestration & Observability
+### v0.10 — Orchestration & Observability ✅
 - **Step Functions** ✅
   - CreateStateMachine / DeleteStateMachine / ListStateMachines / DescribeStateMachine
   - StartExecution / StopExecution / DescribeExecution / ListExecutions / GetExecutionHistory
   - Standard and Express workflows
   - Auto-succeed stub execution (no ASL interpreter)
-  - Dashboard UI: state machine list, execution list per state machine
+  - Dashboard UI: state machine list, execution list per state machine, **execution detail with history events**
 - **CloudWatch Metrics** ✅
   - PutMetricData / GetMetricStatistics / ListMetrics (AWS query/XML protocol)
   - PutMetricAlarm / DescribeAlarms / DeleteAlarms (basic)
@@ -293,7 +293,7 @@
   - CreateLogGroup / DeleteLogGroup / DescribeLogGroups
   - CreateLogStream / DescribeLogStreams
   - PutLogEvents / GetLogEvents / FilterLogEvents
-  - Dashboard UI: log group list, log stream viewer
+  - Dashboard UI: log group list, log stream viewer, **stream event viewer with search/filter**
 
 **Remaining gaps (v0.10):**
 - [ ] Step Functions: actual ASL state machine interpreter (Task, Choice, Wait, Parallel, Map, Pass, Succeed, Fail states)
@@ -301,16 +301,19 @@
 - [ ] CloudWatch Metrics: GetMetricData (extended query with MetricDataQuery)
 - [ ] CloudWatch Logs: Lambda container stdout/stderr → CloudWatch Logs wiring
 
-### v0.11 — Infrastructure-as-Code
-- **CloudFormation**
+### v0.11 — Infrastructure-as-Code ✅
+- **CloudFormation** ✅
   - CreateStack / DeleteStack / UpdateStack / DescribeStacks / ListStacks
-  - Resource creation for all implemented services
-  - Outputs, parameters, mappings, conditions
-  - Stack events, change sets
+  - Resource creation: AWS::S3::Bucket, AWS::DynamoDB::Table, AWS::SQS::Queue, AWS::SNS::Topic, AWS::SSM::Parameter, AWS::KMS::Key, AWS::SecretsManager::Secret
+  - Outputs, parameters, intrinsic functions (Ref, Fn::Sub, Fn::Join)
+  - Stack events, change sets (CreateChangeSet, DescribeChangeSet, ExecuteChangeSet, DeleteChangeSet, ListChangeSets)
+  - GetTemplate
+  - JSON and YAML template support
+  - Dashboard UI: stack list, stack detail (resources, outputs, events)
   - _Coverage limited to resources backed by implemented services_
-- Terraform compatibility testing & docs
-- CDK compatibility docs
-- Testcontainers module for Go
+- **Terraform compatibility docs** ✅ — provider endpoint override guide in README
+- **CDK compatibility docs** ✅ — `AWS_ENDPOINT_URL` + bootstrap guide in README
+- **Testcontainers module for Go** ✅ — `modules/gopherstack` package: `Run`, `BaseURL`, `WithEnv`
 
 ### v0.12 — Streaming & DNS-Bound Services
 - **Kinesis Streams**
@@ -595,7 +598,7 @@ DNS is only needed for:
 | KMS | Yes | Yes | ~90% — missing grants ✅ |
 | Secrets Manager | Yes | Yes | ~90% ✅ |
 | SSM (Parameter Store) | Yes | Yes | ~95% ✅ |
-| CloudFormation | Yes | No | v0.11 |
+| CloudFormation | Yes | Yes | Core CRUD + resource creation + change sets ✅ (v0.11) |
 | CloudWatch Metrics | Yes | Yes | Core API (PutMetricData, GetMetricStatistics, ListMetrics, alarms) ✅ (v0.10) |
 | CloudWatch Logs | Yes | Yes | Core API (log groups, streams, events) ✅ (v0.10) |
 | API Gateway (REST) | Yes | Yes | Core CRUD + mock integrations ✅ (v0.9) |

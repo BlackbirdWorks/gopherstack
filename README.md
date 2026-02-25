@@ -175,6 +175,174 @@ aws s3 cp myfile.txt s3://my-bucket/ --endpoint-url http://localhost:8000
 aws s3 ls s3://my-bucket/ --endpoint-url http://localhost:8000
 ```
 
+## Testcontainers Module
+
+Gopherstack ships a reusable [Testcontainers for Go](https://golang.testcontainers.org/) module so you can spin up all AWS mock services in a single call from any Go test suite.
+
+### Installation
+
+```bash
+go get github.com/blackbirdworks/gopherstack/modules/gopherstack
+```
+
+### Usage
+
+```go
+import (
+    "context"
+    "testing"
+
+    "github.com/aws/aws-sdk-go-v2/aws"
+    "github.com/aws/aws-sdk-go-v2/config"
+    "github.com/aws/aws-sdk-go-v2/credentials"
+    "github.com/aws/aws-sdk-go-v2/service/dynamodb"
+    "github.com/testcontainers/testcontainers-go"
+
+    gopherstack "github.com/blackbirdworks/gopherstack/modules/gopherstack"
+)
+
+func TestMyService(t *testing.T) {
+    ctx := context.Background()
+
+    container, err := gopherstack.Run(ctx, gopherstack.DefaultImage)
+    if err != nil {
+        t.Fatal(err)
+    }
+    defer testcontainers.TerminateContainer(container)
+
+    endpoint, err := container.BaseURL(ctx)
+    if err != nil {
+        t.Fatal(err)
+    }
+
+    cfg, _ := config.LoadDefaultConfig(ctx,
+        config.WithRegion("us-east-1"),
+        config.WithCredentialsProvider(
+            credentials.NewStaticCredentialsProvider("test", "test", ""),
+        ),
+    )
+
+    ddb := dynamodb.NewFromConfig(cfg, func(o *dynamodb.Options) {
+        o.BaseEndpoint = aws.String(endpoint)
+    })
+
+    // … use ddb in your tests
+}
+```
+
+Pass environment variables with `gopherstack.WithEnv`:
+
+```go
+container, err := gopherstack.Run(ctx, gopherstack.DefaultImage,
+    gopherstack.WithEnv(map[string]string{
+        "LOG_LEVEL": "debug",
+        "DEMO":      "true",
+    }),
+)
+```
+
+## Terraform Compatibility
+
+Point the AWS provider at Gopherstack by overriding the service endpoints. No
+real credentials are required — any non-empty string works.
+
+```hcl
+terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+}
+
+provider "aws" {
+  region                      = "us-east-1"
+  access_key                  = "test"
+  secret_key                  = "test"
+  skip_credentials_validation = true
+  skip_metadata_api_check     = true
+  skip_requesting_account_id  = true
+
+  endpoints {
+    dynamodb       = "http://localhost:8000"
+    s3             = "http://localhost:8000"
+    sqs            = "http://localhost:8000"
+    sns            = "http://localhost:8000"
+    ssm            = "http://localhost:8000"
+    kms            = "http://localhost:8000"
+    secretsmanager = "http://localhost:8000"
+    iam            = "http://localhost:8000"
+    sts            = "http://localhost:8000"
+    lambda         = "http://localhost:8000"
+    cloudformation = "http://localhost:8000"
+    cloudwatch     = "http://localhost:8000"
+    cloudwatchlogs = "http://localhost:8000"
+    stepfunctions  = "http://localhost:8000"
+    eventbridge    = "http://localhost:8000"
+    apigateway     = "http://localhost:8000"
+  }
+}
+```
+
+Terraform uses path-style S3 URLs. Set `use_path_style = true` on the S3
+resource or provider if you create `aws_s3_bucket` resources:
+
+```hcl
+resource "aws_s3_bucket" "example" {
+  bucket = "my-bucket"
+
+  # Path-style is required when using Gopherstack
+  force_destroy = true
+}
+```
+
+Start Gopherstack, then run your plan/apply as usual:
+
+```bash
+docker compose up -d   # or: ./gopherstack --port 8000
+terraform init
+terraform apply
+```
+
+## AWS CDK Compatibility
+
+CDK synthesises CloudFormation templates locally and deploys them via the AWS
+SDK. Point the SDK at Gopherstack by setting `AWS_ENDPOINT_URL` (AWS CLI / SDK
+v2 unified endpoint) before running `cdk deploy`.
+
+```bash
+export AWS_ENDPOINT_URL=http://localhost:8000
+export AWS_ACCESS_KEY_ID=test
+export AWS_SECRET_ACCESS_KEY=test
+export AWS_DEFAULT_REGION=us-east-1
+export CDK_DEFAULT_ACCOUNT=000000000000
+export CDK_DEFAULT_REGION=us-east-1
+```
+
+Deploy your CDK app:
+
+```bash
+docker compose up -d   # start Gopherstack
+cdk bootstrap          # creates the CDKToolkit stack (uses CloudFormation)
+cdk deploy             # deploy your stack
+```
+
+For CDK apps written in TypeScript / Python that configure the SDK explicitly:
+
+```typescript
+// cdk.json or app code — override the endpoint for local development
+const app = new cdk.App();
+const env: cdk.Environment = {
+  account: process.env.CDK_DEFAULT_ACCOUNT ?? "000000000000",
+  region:  process.env.CDK_DEFAULT_REGION  ?? "us-east-1",
+};
+new MyStack(app, "MyStack", { env });
+```
+
+The `AWS_ENDPOINT_URL` environment variable is picked up automatically by the
+AWS SDK v2 used by the CDK CLI.
+
 ## License
 
 Gopherstack is released under the [MIT License](LICENSE).
