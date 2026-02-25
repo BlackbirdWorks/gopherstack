@@ -146,6 +146,8 @@ func (h *S3Handler) GetSupportedOperations() []string {
 		"AbortMultipartUpload",
 		"ListMultipartUploads",
 		"ListParts",
+		"PresignedGetObject",
+		"PresignedPutObject",
 	}
 }
 
@@ -166,6 +168,11 @@ func (h *S3Handler) Handler() echo.HandlerFunc {
 		sw := httputil.NewResponseWriter(c.Response())
 
 		log := logger.Load(ctx)
+
+		// Validate presigned URL expiry before processing.
+		if isPresignedRequest(requestWithCtx) && !h.validatePresignedRequest(ctx, sw, requestWithCtx) {
+			return nil
+		}
 
 		bucketName, key, ok := h.resolveBucketAndKey(ctx, sw, requestWithCtx)
 
