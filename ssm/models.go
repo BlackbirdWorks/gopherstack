@@ -4,12 +4,13 @@ import "time"
 
 // Parameter represents a single SSM Parameter.
 type Parameter struct {
-	Name             string  `json:"Name"`
-	Type             string  `json:"Type"`
-	Value            string  `json:"Value"`
-	Description      string  `json:"Description,omitempty"`
-	Version          int64   `json:"Version"`
-	LastModifiedDate float64 `json:"LastModifiedDate"`
+	Name             string            `json:"Name"`
+	Type             string            `json:"Type"`
+	Value            string            `json:"Value"`
+	Description      string            `json:"Description,omitempty"`
+	Tags             map[string]string `json:"Tags,omitempty"`
+	Version          int64             `json:"Version"`
+	LastModifiedDate float64           `json:"LastModifiedDate"`
 }
 
 // PutParameterInput represents the request payload for PutParameter.
@@ -137,6 +138,37 @@ type DescribeParametersInput struct {
 type DescribeParametersOutput struct {
 	NextToken  string              `json:"NextToken,omitempty"`
 	Parameters []ParameterMetadata `json:"Parameters"`
+}
+
+// Tag represents a key/value tag pair.
+type Tag struct {
+	Key   string `json:"Key"`
+	Value string `json:"Value"`
+}
+
+// AddTagsToResourceInput is the request payload for AddTagsToResource.
+type AddTagsToResourceInput struct {
+	ResourceType string `json:"ResourceType"`
+	ResourceID   string `json:"ResourceId"`
+	Tags         []Tag  `json:"Tags"`
+}
+
+// RemoveTagsFromResourceInput is the request payload for RemoveTagsFromResource.
+type RemoveTagsFromResourceInput struct {
+	ResourceType string   `json:"ResourceType"`
+	ResourceID   string   `json:"ResourceId"`
+	TagKeys      []string `json:"TagKeys"`
+}
+
+// ListTagsForResourceInput is the request payload for ListTagsForResource.
+type ListTagsForResourceInput struct {
+	ResourceType string `json:"ResourceType"`
+	ResourceID   string `json:"ResourceId"`
+}
+
+// ListTagsForResourceOutput is the response payload for ListTagsForResource.
+type ListTagsForResourceOutput struct {
+	TagList []Tag `json:"TagList"`
 }
 
 // ErrorResponse represents an SSM wire error.

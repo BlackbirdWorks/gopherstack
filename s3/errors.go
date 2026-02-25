@@ -23,6 +23,8 @@ var (
 	ErrNoSuchUpload     = errors.New("NoSuchUpload")
 	ErrInvalidPart      = errors.New("InvalidPart")
 	ErrNoCompressor     = errors.New("data is compressed but no compressor available")
+	ErrNoBucketPolicy   = errors.New("NoSuchBucketPolicy")
+	ErrNoCORSConfig     = errors.New("NoSuchCORSConfiguration")
 )
 
 type s3ErrorInfo struct {
@@ -81,6 +83,16 @@ func WriteError(log *slog.Logger, w http.ResponseWriter, r *http.Request, err er
 			"NotImplemented",
 			"A header you provided implies functionality that is not implemented.",
 			http.StatusNotImplemented,
+		}},
+		{ErrNoBucketPolicy, s3ErrorInfo{
+			"NoSuchBucketPolicy",
+			"The bucket policy does not exist",
+			http.StatusNotFound,
+		}},
+		{ErrNoCORSConfig, s3ErrorInfo{
+			"NoSuchCORSConfiguration",
+			"The CORS configuration does not exist",
+			http.StatusNotFound,
 		}},
 	}
 

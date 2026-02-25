@@ -1074,3 +1074,56 @@ func TestSSMValidateParameterName(t *testing.T) {
 		})
 	}
 }
+
+// TestSSMTagOperations tests AddTagsToResource, RemoveTagsFromResource, ListTagsForResource.
+func TestSSMTagOperations(t *testing.T) {
+t.Parallel()
+
+e := echo.New()
+log := logger.NewLogger(slog.LevelDebug)
+backend := ssm.NewInMemoryBackend()
+h := ssm.NewHandler(backend, log)
+
+_, err := backend.PutParameter(&ssm.PutParameterInput{
+Name:  "my-param",
+Type:  "String",
+Value: "val",
+})
+require.NoError(t, err)
+
+// AddTagsToResource
+addBody := `{"ResourceType":"Parameter","ResourceId":"my-param","Tags":[{"Key":"env","Value":"prod"},{"Key":"team","Value":"ops"}]}`
+req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(addBody))
+req.Header.Set("X-Amz-Target", "AmazonSSM.AddTagsToResource")
+rec := httptest.NewRecorder()
+require.NoError(t, h.Handler()(e.NewContext(req, rec)))
+assert.Equal(t, http.StatusOK, rec.Code)
+
+// ListTagsForResource
+listBody := `{"ResourceType":"Parameter","ResourceId":"my-param"}`
+req2 := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(listBody))
+req2.Header.Set("X-Amz-Target", "AmazonSSM.ListTagsForResource")
+rec2 := httptest.NewRecorder()
+require.NoError(t, h.Handler()(e.NewContext(req2, rec2)))
+assert.Equal(t, http.StatusOK, rec2.Code)
+
+var listOut ssm.ListTagsForResourceOutput
+require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &listOut))
+require.Len(t, listOut.TagList, 2)
+assert.Equal(t, "env", listOut.TagList[0].Key)
+assert.Equal(t, "prod", listOut.TagList[0].Value)
+
+// RemoveTagsFromResource
+removeBody := `{"ResourceType":"Parameter","ResourceId":"my-param","TagKeys":["env"]}`
+req3 := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(removeBody))
+req3.Header.Set("X-Amz-Target", "AmazonSSM.RemoveTagsFromResource")
+rec3 := httptest.NewRecorder()
+require.NoError(t, h.Handler()(e.NewContext(req3, rec3)))
+assert.Equal(t, http.StatusOK, rec3.Code)
+
+// Verify only team tag remains
+listOut2, err := backend.ListTagsForResource(&ssm.ListTagsForResourceInput{ResourceID: "my-param"})
+require.NoError(t, err)
+require.Len(t, listOut2.TagList, 1)
+assert.Equal(t, "team", listOut2.TagList[0].Key)
+}

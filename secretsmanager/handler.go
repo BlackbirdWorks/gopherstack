@@ -53,6 +53,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeSecret",
 		"UpdateSecret",
 		"RestoreSecret",
+		"TagResource",
+		"UntagResource",
+		"RotateSecret",
 	}
 }
 
@@ -225,6 +228,30 @@ func (h *Handler) smDispatchTable() map[string]smActionFn {
 			}
 
 			return h.Backend.RestoreSecret(&input)
+		},
+		"TagResource": func(_ string, b []byte) (any, error) {
+			var input TagResourceInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return struct{}{}, h.Backend.TagResource(&input)
+		},
+		"UntagResource": func(_ string, b []byte) (any, error) {
+			var input UntagResourceInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return struct{}{}, h.Backend.UntagResource(&input)
+		},
+		"RotateSecret": func(_ string, b []byte) (any, error) {
+			var input RotateSecretInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.RotateSecret(&input)
 		},
 	}
 }

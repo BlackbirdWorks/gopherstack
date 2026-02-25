@@ -17,6 +17,8 @@ type StoredBucket struct {
 	Objects      map[string]*StoredObject
 	mu           *lockmetrics.RWMutex
 	Name         string
+	Policy       string // JSON policy document
+	CORSConfig   string // XML CORS configuration
 	CreationDate time.Time
 	ACL          string
 	// Versioning must precede non-pointer fields so its trailing len word falls

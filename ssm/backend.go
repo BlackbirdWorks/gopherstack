@@ -140,6 +140,9 @@ type StorageBackend interface {
 	GetParameterHistory(input *GetParameterHistoryInput) (*GetParameterHistoryOutput, error)
 	GetParametersByPath(input *GetParametersByPathInput) (*GetParametersByPathOutput, error)
 	DescribeParameters(input *DescribeParametersInput) (*DescribeParametersOutput, error)
+	AddTagsToResource(input *AddTagsToResourceInput) error
+	RemoveTagsFromResource(input *RemoveTagsFromResourceInput) error
+	ListTagsForResource(input *ListTagsForResourceInput) (*ListTagsForResourceOutput, error)
 	ListAll() []Parameter
 }
 
@@ -147,6 +150,7 @@ type StorageBackend interface {
 type InMemoryBackend struct {
 	parameters map[string]Parameter
 	history    map[string][]ParameterHistory // Stores all versions of each parameter
+	tags       map[string]map[string]string  // paramName -> tags
 	mu         sync.RWMutex
 }
 
@@ -155,6 +159,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
 		parameters: make(map[string]Parameter),
 		history:    make(map[string][]ParameterHistory),
+		tags:       make(map[string]map[string]string),
 	}
 }
 
@@ -555,4 +560,57 @@ func paramMatchesFilter(meta ParameterMetadata, f ParameterFilter) bool {
 	}
 
 	return false
+}
+
+// AddTagsToResource adds or updates tags for a parameter.
+func (b *InMemoryBackend) AddTagsToResource(input *AddTagsToResourceInput) error {
+b.mu.Lock()
+defer b.mu.Unlock()
+
+name := input.ResourceID
+if _, ok := b.parameters[name]; !ok {
+return ErrParameterNotFound
+}
+if b.tags[name] == nil {
+b.tags[name] = make(map[string]string)
+}
+for _, t := range input.Tags {
+b.tags[name][t.Key] = t.Value
+}
+
+return nil
+}
+
+// RemoveTagsFromResource removes tags from a parameter.
+func (b *InMemoryBackend) RemoveTagsFromResource(input *RemoveTagsFromResourceInput) error {
+b.mu.Lock()
+defer b.mu.Unlock()
+
+name := input.ResourceID
+if _, ok := b.parameters[name]; !ok {
+return ErrParameterNotFound
+}
+for _, k := range input.TagKeys {
+delete(b.tags[name], k)
+}
+
+return nil
+}
+
+// ListTagsForResource returns all tags for a parameter.
+func (b *InMemoryBackend) ListTagsForResource(input *ListTagsForResourceInput) (*ListTagsForResourceOutput, error) {
+b.mu.RLock()
+defer b.mu.RUnlock()
+
+name := input.ResourceID
+if _, ok := b.parameters[name]; !ok {
+return nil, ErrParameterNotFound
+}
+var tagList []Tag
+for k, v := range b.tags[name] {
+tagList = append(tagList, Tag{Key: k, Value: v})
+}
+sort.Slice(tagList, func(i, j int) bool { return tagList[i].Key < tagList[j].Key })
+
+return &ListTagsForResourceOutput{TagList: tagList}, nil
 }

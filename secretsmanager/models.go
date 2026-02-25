@@ -219,6 +219,32 @@ type RestoreSecretOutput struct {
 	Name string `json:"Name"`
 }
 
+// TagResourceInput is the request payload for TagResource.
+type TagResourceInput struct {
+	SecretID string `json:"SecretId"`
+	Tags     []Tag  `json:"Tags"`
+}
+
+// UntagResourceInput is the request payload for UntagResource.
+type UntagResourceInput struct {
+	SecretID string   `json:"SecretId"`
+	TagKeys  []string `json:"TagKeys"`
+}
+
+// RotateSecretInput is the request payload for RotateSecret.
+type RotateSecretInput struct {
+	SecretID           string `json:"SecretId"`
+	RotationLambdaARN  string `json:"RotationLambdaARN,omitempty"`
+	ClientRequestToken string `json:"ClientRequestToken,omitempty"`
+}
+
+// RotateSecretOutput is the response payload for RotateSecret.
+type RotateSecretOutput struct {
+	ARN       string `json:"ARN"`
+	Name      string `json:"Name"`
+	VersionID string `json:"VersionId,omitempty"`
+}
+
 // ErrorResponse is the Secrets Manager JSON error response format.
 type ErrorResponse struct {
 	// Type is the error type string.

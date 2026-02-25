@@ -148,6 +148,14 @@ func (h *S3Handler) GetSupportedOperations() []string {
 		"ListParts",
 		"PresignedGetObject",
 		"PresignedPutObject",
+		"GetBucketAcl",
+		"PutBucketAcl",
+		"PutBucketPolicy",
+		"GetBucketPolicy",
+		"DeleteBucketPolicy",
+		"PutBucketCors",
+		"GetBucketCors",
+		"DeleteBucketCors",
 	}
 }
 

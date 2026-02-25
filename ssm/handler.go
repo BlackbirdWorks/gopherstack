@@ -48,6 +48,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		"PutParameter",
 		"DeleteParameter",
 		"DeleteParameters",
+		"AddTagsToResource",
+		"RemoveTagsFromResource",
+		"ListTagsForResource",
 	}
 }
 
@@ -213,6 +216,30 @@ func (h *Handler) ssmDispatchTable() map[string]ssmActionFn {
 			}
 
 			return h.Backend.DescribeParameters(&input)
+		},
+		"AddTagsToResource": func(b []byte) (any, error) {
+			var input AddTagsToResourceInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return struct{}{}, h.Backend.AddTagsToResource(&input)
+		},
+		"RemoveTagsFromResource": func(b []byte) (any, error) {
+			var input RemoveTagsFromResourceInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return struct{}{}, h.Backend.RemoveTagsFromResource(&input)
+		},
+		"ListTagsForResource": func(b []byte) (any, error) {
+			var input ListTagsForResourceInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.ListTagsForResource(&input)
 		},
 	}
 }

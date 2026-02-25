@@ -1424,3 +1424,115 @@ func nilStringIfEmpty(s string) *string {
 
 	return aws.String(s)
 }
+
+// PutBucketPolicy stores the bucket policy document.
+func (b *InMemoryBackend) PutBucketPolicy(_ context.Context, bucketName, policy string) error {
+b.mu.RLock("PutBucketPolicy")
+bucket, err := b.getBucket(bucketName)
+b.mu.RUnlock()
+
+if err != nil {
+return err
+}
+
+bucket.mu.Lock("PutBucketPolicy")
+defer bucket.mu.Unlock()
+
+bucket.Policy = policy
+
+return nil
+}
+
+// GetBucketPolicy returns the bucket policy document.
+func (b *InMemoryBackend) GetBucketPolicy(_ context.Context, bucketName string) (string, error) {
+b.mu.RLock("GetBucketPolicy")
+bucket, err := b.getBucket(bucketName)
+b.mu.RUnlock()
+
+if err != nil {
+return "", err
+}
+
+bucket.mu.RLock("GetBucketPolicy")
+defer bucket.mu.RUnlock()
+
+if bucket.Policy == "" {
+return "", ErrNoBucketPolicy
+}
+
+return bucket.Policy, nil
+}
+
+// DeleteBucketPolicy clears the bucket policy document.
+func (b *InMemoryBackend) DeleteBucketPolicy(_ context.Context, bucketName string) error {
+b.mu.RLock("DeleteBucketPolicy")
+bucket, err := b.getBucket(bucketName)
+b.mu.RUnlock()
+
+if err != nil {
+return err
+}
+
+bucket.mu.Lock("DeleteBucketPolicy")
+defer bucket.mu.Unlock()
+
+bucket.Policy = ""
+
+return nil
+}
+
+// PutBucketCORS stores the bucket CORS configuration.
+func (b *InMemoryBackend) PutBucketCORS(_ context.Context, bucketName, corsXML string) error {
+b.mu.RLock("PutBucketCORS")
+bucket, err := b.getBucket(bucketName)
+b.mu.RUnlock()
+
+if err != nil {
+return err
+}
+
+bucket.mu.Lock("PutBucketCORS")
+defer bucket.mu.Unlock()
+
+bucket.CORSConfig = corsXML
+
+return nil
+}
+
+// GetBucketCORS returns the bucket CORS configuration.
+func (b *InMemoryBackend) GetBucketCORS(_ context.Context, bucketName string) (string, error) {
+b.mu.RLock("GetBucketCORS")
+bucket, err := b.getBucket(bucketName)
+b.mu.RUnlock()
+
+if err != nil {
+return "", err
+}
+
+bucket.mu.RLock("GetBucketCORS")
+defer bucket.mu.RUnlock()
+
+if bucket.CORSConfig == "" {
+return "", ErrNoCORSConfig
+}
+
+return bucket.CORSConfig, nil
+}
+
+// DeleteBucketCORS clears the bucket CORS configuration.
+func (b *InMemoryBackend) DeleteBucketCORS(_ context.Context, bucketName string) error {
+b.mu.RLock("DeleteBucketCORS")
+bucket, err := b.getBucket(bucketName)
+b.mu.RUnlock()
+
+if err != nil {
+return err
+}
+
+bucket.mu.Lock("DeleteBucketCORS")
+defer bucket.mu.Unlock()
+
+bucket.CORSConfig = ""
+
+return nil
+}

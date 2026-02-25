@@ -109,12 +109,16 @@ func (h *DynamoDBHandler) GetSupportedOperations() []string {
 		"CreateTable",
 		"DeleteItem",
 		"DeleteTable",
+		"DescribeContinuousBackups",
+		"DescribeExport",
 		"DescribeStream",
 		"DescribeTable",
 		"DescribeTimeToLive",
+		"ExportTableToPointInTime",
 		"GetItem",
 		"GetRecords",
 		"GetShardIterator",
+		"ListExports",
 		"ListStreams",
 		"ListTables",
 		"ListTagsOfResource",
@@ -127,6 +131,7 @@ func (h *DynamoDBHandler) GetSupportedOperations() []string {
 		"UntagResource",
 		"BatchExecuteStatement",
 		"ExecuteStatement",
+		"UpdateContinuousBackups",
 		"UpdateItem",
 		"UpdateTable",
 		"UpdateTimeToLive",
@@ -280,6 +285,16 @@ func (h *DynamoDBHandler) dispatch(ctx context.Context, action string, body []by
 		return h.handleExecuteStatement(ctx, body)
 	case "BatchExecuteStatement":
 		return h.handleBatchExecuteStatement(ctx, body)
+	case "DescribeContinuousBackups":
+		return h.describeContinuousBackups(ctx, body)
+	case "UpdateContinuousBackups":
+		return h.updateContinuousBackups(ctx, body)
+	case "ExportTableToPointInTime":
+		return h.exportTableToPointInTime(ctx, body)
+	case "DescribeExport":
+		return h.describeExport(ctx, body)
+	case "ListExports":
+		return map[string]any{"ExportSummaries": []any{}}, nil
 	default:
 		return nil, fmt.Errorf("%w:%s", ErrUnknownOperation, action)
 	}
@@ -630,4 +645,85 @@ func (h *DynamoDBHandler) classifyError(reqErr error) (int, *Error) {
 		Type:    "com.amazonaws.dynamodb.v20120810#InternalServerError",
 		Message: reqErr.Error(),
 	}
+}
+
+func (h *DynamoDBHandler) describeContinuousBackups(_ context.Context, body []byte) (any, error) {
+var req struct {
+TableName string `json:"TableName"`
+}
+if err := json.Unmarshal(body, &req); err != nil {
+return nil, err
+}
+
+return map[string]any{
+"ContinuousBackupsDescription": map[string]any{
+"ContinuousBackupsStatus": "ENABLED",
+"PointInTimeRecoveryDescription": map[string]any{
+"PointInTimeRecoveryStatus": "DISABLED",
+},
+},
+}, nil
+}
+
+func (h *DynamoDBHandler) updateContinuousBackups(_ context.Context, body []byte) (any, error) {
+var req struct {
+TableName                        string `json:"TableName"`
+PointInTimeRecoverySpecification struct {
+PointInTimeRecoveryEnabled bool `json:"PointInTimeRecoveryEnabled"`
+} `json:"PointInTimeRecoverySpecification"`
+}
+if err := json.Unmarshal(body, &req); err != nil {
+return nil, err
+}
+
+status := "DISABLED"
+if req.PointInTimeRecoverySpecification.PointInTimeRecoveryEnabled {
+status = "ENABLED"
+}
+
+return map[string]any{
+"ContinuousBackupsDescription": map[string]any{
+"ContinuousBackupsStatus": "ENABLED",
+"PointInTimeRecoveryDescription": map[string]any{
+"PointInTimeRecoveryStatus": status,
+},
+},
+}, nil
+}
+
+func (h *DynamoDBHandler) exportTableToPointInTime(_ context.Context, body []byte) (any, error) {
+var req struct {
+TableArn string `json:"TableArn"`
+S3Bucket string `json:"S3Bucket"`
+}
+if err := json.Unmarshal(body, &req); err != nil {
+return nil, err
+}
+
+exportArn := "arn:aws:dynamodb:us-east-1:000000000000:table/table/export/01000000-0000-0000-0000-000000000000"
+
+return map[string]any{
+"ExportDescription": map[string]any{
+"ExportArn":    exportArn,
+"ExportStatus": "COMPLETED",
+"TableArn":     req.TableArn,
+"S3Bucket":     req.S3Bucket,
+},
+}, nil
+}
+
+func (h *DynamoDBHandler) describeExport(_ context.Context, body []byte) (any, error) {
+var req struct {
+ExportArn string `json:"ExportArn"`
+}
+if err := json.Unmarshal(body, &req); err != nil {
+return nil, err
+}
+
+return map[string]any{
+"ExportDescription": map[string]any{
+"ExportArn":    req.ExportArn,
+"ExportStatus": "COMPLETED",
+},
+}, nil
 }
