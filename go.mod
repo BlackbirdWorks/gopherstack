@@ -8,12 +8,18 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.32.10
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.10
 	github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue v1.20.33
+	github.com/aws/aws-sdk-go-v2/service/apigateway v1.38.5
+	github.com/aws/aws-sdk-go-v2/service/cloudformation v1.71.6
+	github.com/aws/aws-sdk-go-v2/service/cloudwatch v1.55.0
+	github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.63.2
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.56.0
 	github.com/aws/aws-sdk-go-v2/service/dynamodbstreams v1.32.11
+	github.com/aws/aws-sdk-go-v2/service/eventbridge v1.45.19
 	github.com/aws/aws-sdk-go-v2/service/iam v1.53.3
 	github.com/aws/aws-sdk-go-v2/service/kms v1.50.1
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.96.1
 	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.41.2
+	github.com/aws/aws-sdk-go-v2/service/sfn v1.40.7
 	github.com/aws/aws-sdk-go-v2/service/sns v1.39.12
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.42.22
 	github.com/aws/aws-sdk-go-v2/service/ssm v1.68.1

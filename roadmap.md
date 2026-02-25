@@ -7,24 +7,20 @@
 
 ## Current Coverage (v0.5–v0.11 Complete)
 
-### DynamoDB — ~95% parity (24 operations) ✅
+### DynamoDB — ~95% parity (29 operations) ✅
 
-Table CRUD, item CRUD, batch ops, query/scan with expressions, GSI/LSI, transactions, DynamoDB Streams, TTL with background reaper, conditional writes, pagination, PartiQL (ExecuteStatement, BatchExecuteStatement), tagging. Full dashboard UI with PartiQL tab.
-
-**Remaining gaps:**
-- [ ] DescribeContinuousBackups / point-in-time recovery stubs
-- [ ] Table export / import stubs
-
-### S3 — ~90% parity (24 operations) ✅
-
-Bucket CRUD, object CRUD, ListObjects/V2, ListObjectVersions, CopyObject, multipart uploads (Create, UploadPart, Complete, Abort, ListMultipartUploads, ListParts), versioning, object tagging, checksums (CRC32, CRC32C, SHA1, SHA256), compression, BucketACL. Full dashboard UI with folder navigation, file preview, metadata/tagging.
+Table CRUD, item CRUD, batch ops, query/scan with expressions, GSI/LSI, transactions, DynamoDB Streams, TTL with background reaper, conditional writes, pagination, PartiQL (ExecuteStatement, BatchExecuteStatement), tagging. Backup stubs: DescribeContinuousBackups, UpdateContinuousBackups, ExportTableToPointInTime, DescribeExport, ListExports. Full dashboard UI with PartiQL tab.
 
 **Remaining gaps:**
-- [ ] Presigned URLs
+- None significant
+
+### S3 — ~95% parity (30 operations) ✅
+
+Bucket CRUD, object CRUD, ListObjects/V2, ListObjectVersions, CopyObject, multipart uploads (Create, UploadPart, Complete, Abort, ListMultipartUploads, ListParts), versioning, object tagging, checksums (CRC32, CRC32C, SHA1, SHA256), compression, BucketACL. Presigned URLs (GET/PUT with expiry validation). Bucket policies (PutBucketPolicy, GetBucketPolicy, DeleteBucketPolicy). CORS configuration (PutBucketCors, GetBucketCors, DeleteBucketCors) with OPTIONS preflight. Full dashboard UI with folder navigation, file preview, metadata/tagging.
+
+**Remaining gaps:**
 - [ ] Bucket lifecycle configuration (expiration rules)
 - [ ] Bucket notifications (events to SQS/SNS/Lambda)
-- [ ] CORS configuration
-- [ ] Bucket policies
 - [ ] Object lock / legal hold
 
 ### SQS — ~95% parity (17 operations) ✅
@@ -52,29 +48,26 @@ Users, roles, policies, groups, access keys, instance profiles, attach/detach po
 
 AssumeRole, GetCallerIdentity, GetSessionToken, DecodeAuthorizationMessage, GetAccessKeyInfo. Dashboard UI.
 
-### KMS — ~90% parity (17 operations) ✅
+### KMS — ~95% parity (25 operations) ✅
 
-Key CRUD, aliases, encrypt/decrypt/GenerateDataKey/ReEncrypt, enable/disable, key rotation, scheduled deletion. Dashboard UI with key detail.
-
-**Remaining gaps:**
-- [ ] Grants (CreateGrant, ListGrants, RevokeGrant)
-- [ ] GenerateDataKeyWithoutPlaintext
-- [ ] Key policies
-
-### Secrets Manager — ~90% parity (8 operations) ✅
-
-Create, get, put, delete, restore, list, describe, update. Secret versioning (AWSCURRENT, AWSPREVIOUS). Dashboard UI with secret detail.
+Key CRUD, aliases, encrypt/decrypt/GenerateDataKey/GenerateDataKeyWithoutPlaintext/ReEncrypt, enable/disable, key rotation, scheduled deletion, grants (CreateGrant, ListGrants, RevokeGrant, RetireGrant, ListRetirableGrants), key policies (PutKeyPolicy, GetKeyPolicy). Dashboard UI with key detail.
 
 **Remaining gaps:**
-- [ ] TagResource / UntagResource
-- [ ] RotateSecret (rotation Lambda integration)
+- None significant
 
-### SSM Parameter Store — ~95% parity (8 operations) ✅
+### Secrets Manager — ~95% parity (11 operations) ✅
 
-Put, get, delete (single + batch), GetParameterHistory, GetParametersByPath, DescribeParameters, SecureString with KMS. Dashboard UI with history and put modal.
+Create, get, put, delete, restore, list, describe, update. Secret versioning (AWSCURRENT, AWSPREVIOUS). TagResource, UntagResource. RotateSecret stub (creates new version). Dashboard UI with secret detail.
 
 **Remaining gaps:**
-- [ ] Parameter tags (AddTagsToResource, ListTagsForResource)
+- [ ] RotateSecret with actual Lambda invocation
+
+### SSM Parameter Store — ~95% parity (11 operations) ✅
+
+Put, get, delete (single + batch), GetParameterHistory, GetParametersByPath, DescribeParameters, SecureString with KMS. Parameter tags (AddTagsToResource, RemoveTagsFromResource, ListTagsForResource). Dashboard UI with history and put modal.
+
+**Remaining gaps:**
+- None significant
 
 ### API Gateway — REST APIs (19 operations) ✅
 
@@ -101,12 +94,12 @@ State machine CRUD, start/stop/describe/list executions, GetExecutionHistory. St
 - [ ] ASL state machine interpreter (Task, Choice, Wait, Parallel, Map, Pass, Succeed, Fail)
 - [ ] Lambda and service integrations via Task states
 
-### CloudWatch Metrics (6 operations) ✅
+### CloudWatch Metrics (7 operations) ✅
 
-PutMetricData, GetMetricStatistics, ListMetrics, PutMetricAlarm, DescribeAlarms, DeleteAlarms. AWS query/XML protocol. Dashboard UI with namespace browser and alarm status.
+PutMetricData, GetMetricStatistics, GetMetricData, ListMetrics, PutMetricAlarm, DescribeAlarms, DeleteAlarms. AWS query/XML protocol. Dashboard UI with namespace browser and alarm status.
 
 **Remaining gaps:**
-- [ ] GetMetricData (MetricDataQuery)
+- None significant
 
 ### CloudWatch Logs (8 operations) ✅
 
@@ -264,7 +257,7 @@ Close gaps in the 16 implemented services before adding new ones.
 - Unit tests in `ssm/handler_test.go` — add/remove/list tags
 - Unit tests in `dynamodb/handler_test.go` — describe backups returns valid response
 
-**Task 13: CloudWatch GetMetricData + Lambda→CloudWatch Logs wiring**
+**Task 13: CloudWatch GetMetricData + Lambda→CloudWatch Logs wiring** ✅ (GetMetricData)
 - Add `GetMetricData` handler in `cloudwatch/handler.go` — accept `MetricDataQuery` array, resolve each query against stored metrics, return `MetricDataResult` array with timestamps and values
 - Wire Lambda container stdout/stderr to CloudWatch Logs in `lambda/docker.go` — on invoke, capture container logs, create log group `/aws/lambda/{function-name}` and log stream, call PutLogEvents
 - Pass CloudWatch Logs backend reference to Lambda service in `cli.go`
@@ -281,7 +274,7 @@ Close gaps in the 16 implemented services before adding new ones.
 - Each resource needs: create handler, delete handler, physical resource ID generation
 - Unit tests in `cloudformation/resources_test.go` — create stack with each new resource type, verify resource exists, delete stack, verify cleanup
 
-**Task 15: Integration tests for under-tested services**
+**Task 15: Integration tests for under-tested services** ✅
 - `test/integration/iam_test.go` — create user, create role, create policy, attach policy to role, create access key, list attached policies, delete chain
 - `test/integration/eventbridge_test.go` — create event bus, put rule, put targets, put events, list rules, describe rule, delete chain
 - `test/integration/cloudwatch_test.go` — put metric data, get metric statistics, put alarm, describe alarms, delete alarm

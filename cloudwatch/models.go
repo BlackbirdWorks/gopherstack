@@ -55,3 +55,27 @@ type MetricAlarm struct {
 	EvaluationPeriods  int32     `json:"EvaluationPeriods"`
 	Period             int32     `json:"Period"`
 }
+
+// MetricStat specifies a metric and statistic for a MetricDataQuery.
+type MetricStat struct {
+Namespace  string  `json:"Namespace"`
+MetricName string  `json:"MetricName"`
+Stat       string  `json:"Stat"`
+Period     int32   `json:"Period"`
+}
+
+// MetricDataQuery is a single query in a GetMetricData request.
+type MetricDataQuery struct {
+ID         string     `json:"Id"`
+MetricStat MetricStat `json:"MetricStat"`
+Label      string     `json:"Label,omitempty"`
+}
+
+// MetricDataResult is a single result entry in a GetMetricData response.
+type MetricDataResult struct {
+Timestamps []time.Time `json:"Timestamps"`
+Values     []float64   `json:"Values"`
+ID         string      `json:"Id"`
+Label      string      `json:"Label,omitempty"`
+StatusCode string      `json:"StatusCode"`
+}
