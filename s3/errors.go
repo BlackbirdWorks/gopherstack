@@ -25,6 +25,7 @@ var (
 	ErrNoCompressor     = errors.New("data is compressed but no compressor available")
 	ErrNoBucketPolicy   = errors.New("NoSuchBucketPolicy")
 	ErrNoCORSConfig     = errors.New("NoSuchCORSConfiguration")
+	ErrNoLifecycleConfig = errors.New("NoSuchLifecycleConfiguration")
 )
 
 type s3ErrorInfo struct {
@@ -92,6 +93,11 @@ func WriteError(log *slog.Logger, w http.ResponseWriter, r *http.Request, err er
 		{ErrNoCORSConfig, s3ErrorInfo{
 			"NoSuchCORSConfiguration",
 			"The CORS configuration does not exist",
+			http.StatusNotFound,
+		}},
+		{ErrNoLifecycleConfig, s3ErrorInfo{
+			"NoSuchLifecycleConfiguration",
+			"The lifecycle configuration does not exist",
 			http.StatusNotFound,
 		}},
 	}

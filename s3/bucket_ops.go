@@ -33,6 +33,8 @@ func (h *S3Handler) handleBucketOperation(
 			h.deleteBucketPolicy(ctx, w, r, bucket)
 		case r.URL.Query().Has("cors"):
 			h.deleteBucketCORS(ctx, w, r, bucket)
+		case r.URL.Query().Has("lifecycle"):
+			h.deleteBucketLifecycleConfiguration(ctx, w, r, bucket)
 		default:
 			h.deleteBucket(ctx, w, r, bucket)
 		}
@@ -62,9 +64,7 @@ func (h *S3Handler) routeBucketPut(
 	case r.URL.Query().Has("versioning"):
 		h.putBucketVersioning(ctx, w, r, bucket)
 	case r.URL.Query().Has("notification"):
-		// Stub: accept notification configuration but do not deliver events.
-		h.setOperation(ctx, "PutBucketNotificationConfiguration")
-		w.WriteHeader(http.StatusOK)
+		h.putBucketNotificationConfiguration(ctx, w, r, bucket)
 	case r.URL.Query().Has("policy"):
 		h.putBucketPolicy(ctx, w, r, bucket)
 	case r.URL.Query().Has("cors"):
@@ -74,9 +74,7 @@ func (h *S3Handler) routeBucketPut(
 		h.setOperation(ctx, "PutBucketWebsite")
 		w.WriteHeader(http.StatusOK)
 	case r.URL.Query().Has("lifecycle"):
-		// Stub: accept lifecycle configuration.
-		h.setOperation(ctx, "PutBucketLifecycleConfiguration")
-		w.WriteHeader(http.StatusNoContent)
+		h.putBucketLifecycleConfiguration(ctx, w, r, bucket)
 	case r.URL.Query().Has("replication"):
 		// Stub: accept replication configuration.
 		h.setOperation(ctx, "PutBucketReplication")
@@ -121,6 +119,12 @@ func (h *S3Handler) routeBucketGet(
 		return
 	case q.Has("cors"):
 		h.getBucketCORS(ctx, w, r, bucket)
+		return
+	case q.Has("notification"):
+		h.getBucketNotificationConfiguration(ctx, w, r, bucket)
+		return
+	case q.Has("lifecycle"):
+		h.getBucketLifecycleConfiguration(ctx, w, r, bucket)
 		return
 	}
 
@@ -173,11 +177,6 @@ func (h *S3Handler) routeBucketGetStubs(
 			Xmlns   string   `xml:"xmlns,attr"`
 		}{Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/"})
 	case q.Has("cors"):
-		h.setOperation(ctx, "GetBucketCors")
-		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
-			Code:    "NoSuchCORSConfiguration",
-			Message: "The CORS configuration does not exist",
-		}, http.StatusNotFound)
 	case q.Has("website"):
 		h.setOperation(ctx, "GetBucketWebsite")
 		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
@@ -888,4 +887,77 @@ w.Header().Set("Access-Control-Allow-Methods", method)
 w.Header().Set("Access-Control-Allow-Headers", r.Header.Get("Access-Control-Request-Headers"))
 w.Header().Set("Access-Control-Max-Age", "3000")
 w.WriteHeader(http.StatusOK)
+}
+
+func (h *S3Handler) putBucketLifecycleConfiguration(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+h.setOperation(ctx, "PutBucketLifecycleConfiguration")
+log := logger.Load(ctx)
+body, err := httputil.ReadBody(r)
+if err != nil {
+WriteError(log, w, r, err)
+return
+}
+if err := h.Backend.PutBucketLifecycleConfiguration(ctx, bucket, string(body)); err != nil {
+WriteError(log, w, r, err)
+return
+}
+w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *S3Handler) getBucketLifecycleConfiguration(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+h.setOperation(ctx, "GetBucketLifecycleConfiguration")
+log := logger.Load(ctx)
+lifecycleXML, err := h.Backend.GetBucketLifecycleConfiguration(ctx, bucket)
+if err != nil {
+WriteError(log, w, r, err)
+return
+}
+w.Header().Set("Content-Type", "application/xml")
+w.WriteHeader(http.StatusOK)
+_, _ = w.Write([]byte(lifecycleXML))
+}
+
+func (h *S3Handler) deleteBucketLifecycleConfiguration(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+h.setOperation(ctx, "DeleteBucketLifecycleConfiguration")
+log := logger.Load(ctx)
+if err := h.Backend.DeleteBucketLifecycleConfiguration(ctx, bucket); err != nil {
+WriteError(log, w, r, err)
+return
+}
+w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *S3Handler) putBucketNotificationConfiguration(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+h.setOperation(ctx, "PutBucketNotificationConfiguration")
+log := logger.Load(ctx)
+body, err := httputil.ReadBody(r)
+if err != nil {
+WriteError(log, w, r, err)
+return
+}
+if err := h.Backend.PutBucketNotificationConfiguration(ctx, bucket, string(body)); err != nil {
+WriteError(log, w, r, err)
+return
+}
+w.WriteHeader(http.StatusOK)
+}
+
+func (h *S3Handler) getBucketNotificationConfiguration(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+h.setOperation(ctx, "GetBucketNotificationConfiguration")
+log := logger.Load(ctx)
+notifXML, err := h.Backend.GetBucketNotificationConfiguration(ctx, bucket)
+if err != nil {
+WriteError(log, w, r, err)
+return
+}
+if notifXML == "" {
+// Return empty notification config
+httputil.WriteXML(log, w, http.StatusOK, struct {
+XMLName xml.Name `xml:"NotificationConfiguration"`
+}{})
+return
+}
+w.Header().Set("Content-Type", "application/xml")
+w.WriteHeader(http.StatusOK)
+_, _ = w.Write([]byte(notifXML))
 }

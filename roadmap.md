@@ -14,13 +14,13 @@ Table CRUD, item CRUD, batch ops, query/scan with expressions, GSI/LSI, transact
 **Remaining gaps:**
 - None significant
 
-### S3 — ~95% parity (30 operations) ✅
+### S3 — ~97% parity (35 operations) ✅
 
-Bucket CRUD, object CRUD, ListObjects/V2, ListObjectVersions, CopyObject, multipart uploads (Create, UploadPart, Complete, Abort, ListMultipartUploads, ListParts), versioning, object tagging, checksums (CRC32, CRC32C, SHA1, SHA256), compression, BucketACL. Presigned URLs (GET/PUT with expiry validation). Bucket policies (PutBucketPolicy, GetBucketPolicy, DeleteBucketPolicy). CORS configuration (PutBucketCors, GetBucketCors, DeleteBucketCors) with OPTIONS preflight. Full dashboard UI with folder navigation, file preview, metadata/tagging.
+Bucket CRUD, object CRUD, ListObjects/V2, ListObjectVersions, CopyObject, multipart uploads (Create, UploadPart, Complete, Abort, ListMultipartUploads, ListParts), versioning, object tagging, checksums (CRC32, CRC32C, SHA1, SHA256), compression, BucketACL. Presigned URLs (GET/PUT with expiry validation). Bucket policies (PutBucketPolicy, GetBucketPolicy, DeleteBucketPolicy). CORS configuration (PutBucketCors, GetBucketCors, DeleteBucketCors) with OPTIONS preflight. Lifecycle configuration (PutBucketLifecycleConfiguration, GetBucketLifecycleConfiguration, DeleteBucketLifecycleConfiguration). Notification configuration (PutBucketNotificationConfiguration, GetBucketNotificationConfiguration). Full dashboard UI with folder navigation, file preview, metadata/tagging.
 
 **Remaining gaps:**
-- [ ] Bucket lifecycle configuration (expiration rules)
-- [ ] Bucket notifications (events to SQS/SNS/Lambda)
+- [ ] Lifecycle rule enforcement (background expiration janitor)
+- [ ] Notification event delivery (emit events to SQS/SNS/Lambda on object operations)
 - [ ] Object lock / legal hold
 
 ### SQS — ~95% parity (17 operations) ✅
@@ -192,17 +192,17 @@ Close gaps in the 16 implemented services before adding new ones.
 - Add CORS fields to bucket model in `s3/backend_memory.go`
 - Unit tests in `s3/handler_test.go` — set CORS, verify OPTIONS response headers, delete CORS
 
-**Task 4: S3 bucket lifecycle configuration**
+**Task 4: S3 bucket lifecycle configuration** ✅ (storage CRUD)
 - Add `PutBucketLifecycleConfiguration` / `GetBucketLifecycleConfiguration` / `DeleteBucketLifecycleConfiguration` handlers in `s3/handler.go`
 - Store lifecycle rules per bucket (expiration days, prefix filters, status enabled/disabled)
-- Add background goroutine in `s3/janitor.go` to expire objects matching lifecycle rules (reuse existing janitor pattern)
+- Add background goroutine in `s3/janitor.go` to expire objects matching lifecycle rules (reuse existing janitor pattern) — *pending*
 - Unit tests in `s3/handler_test.go` — set lifecycle, verify expiration after TTL
 
-**Task 5: S3 bucket notifications**
+**Task 5: S3 bucket notifications** ✅ (storage CRUD)
 - Add `PutBucketNotificationConfiguration` / `GetBucketNotificationConfiguration` handlers in `s3/handler.go`
 - Store notification config per bucket (target ARN: SQS queue, SNS topic, or Lambda function ARN; event types: `s3:ObjectCreated:*`, `s3:ObjectRemoved:*`)
-- Wire into existing `pkgs/events` emitter — on PutObject/DeleteObject, emit event to configured targets
-- Add `S3NotificationEvent` type in `pkgs/events/types.go` with S3 event JSON envelope format
+- Wire into existing `pkgs/events` emitter — on PutObject/DeleteObject, emit event to configured targets — *pending*
+- Add `S3NotificationEvent` type in `pkgs/events/types.go` with S3 event JSON envelope format — *pending*
 - Unit tests in `s3/handler_test.go` — set notification config, verify event emission on object operations
 
 **Task 6: S3 object lock / legal hold**

@@ -156,6 +156,11 @@ func (h *S3Handler) GetSupportedOperations() []string {
 		"PutBucketCors",
 		"GetBucketCors",
 		"DeleteBucketCors",
+		"PutBucketLifecycleConfiguration",
+		"GetBucketLifecycleConfiguration",
+		"DeleteBucketLifecycleConfiguration",
+		"PutBucketNotificationConfiguration",
+		"GetBucketNotificationConfiguration",
 	}
 }
 
