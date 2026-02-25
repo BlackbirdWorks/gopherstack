@@ -170,17 +170,6 @@ func (h *S3Handler) routeBucketGetStubs(
 	q := r.URL.Query()
 
 	switch {
-	case q.Has("notification"):
-		h.setOperation(ctx, "GetBucketNotificationConfiguration")
-		httputil.WriteXML(log, w, http.StatusOK, struct {
-			XMLName xml.Name `xml:"NotificationConfiguration"`
-		}{})
-		h.setOperation(ctx, "GetBucketAccelerateConfiguration")
-		httputil.WriteXML(log, w, http.StatusOK, struct {
-			XMLName xml.Name `xml:"AccelerateConfiguration"`
-			Xmlns   string   `xml:"xmlns,attr"`
-		}{Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/"})
-	case q.Has("cors"):
 	case q.Has("website"):
 		h.setOperation(ctx, "GetBucketWebsite")
 		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
@@ -198,12 +187,6 @@ func (h *S3Handler) routeBucketGetStubs(
 		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
 			Code:    "ReplicationConfigurationNotFoundError",
 			Message: "The replication configuration was not found",
-		}, http.StatusNotFound)
-	case q.Has("lifecycle"):
-		h.setOperation(ctx, "GetBucketLifecycleConfiguration")
-		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
-			Code:    "NoSuchLifecycleConfiguration",
-			Message: "The lifecycle configuration does not exist",
 		}, http.StatusNotFound)
 	case q.Has("object-lock"):
 		h.setOperation(ctx, "GetObjectLockConfiguration")

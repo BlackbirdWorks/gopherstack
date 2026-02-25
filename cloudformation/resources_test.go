@@ -8,14 +8,18 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	apigwbackend "github.com/blackbirdworks/gopherstack/apigateway"
 	"github.com/blackbirdworks/gopherstack/cloudformation"
+	cwlogsbackend "github.com/blackbirdworks/gopherstack/cloudwatchlogs"
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
+	ebbackend "github.com/blackbirdworks/gopherstack/eventbridge"
 	kmsbackend "github.com/blackbirdworks/gopherstack/kms"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
 	smbackend "github.com/blackbirdworks/gopherstack/secretsmanager"
 	snsbackend "github.com/blackbirdworks/gopherstack/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/ssm"
+	sfnbackend "github.com/blackbirdworks/gopherstack/stepfunctions"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -391,6 +395,11 @@ func (m *mockBackendsProvider) GetSNSHandler() service.Registerable            {
 func (m *mockBackendsProvider) GetSSMHandler() service.Registerable            { return m.ssm }
 func (m *mockBackendsProvider) GetKMSHandler() service.Registerable            { return m.kms }
 func (m *mockBackendsProvider) GetSecretsManagerHandler() service.Registerable { return m.sm }
+func (m *mockBackendsProvider) GetLambdaHandler() service.Registerable         { return nil }
+func (m *mockBackendsProvider) GetEventBridgeHandler() service.Registerable    { return nil }
+func (m *mockBackendsProvider) GetStepFunctionsHandler() service.Registerable  { return nil }
+func (m *mockBackendsProvider) GetCloudWatchLogsHandler() service.Registerable { return nil }
+func (m *mockBackendsProvider) GetAPIGatewayHandler() service.Registerable     { return nil }
 func (m *mockBackendsProvider) GetGlobalConfig() config.GlobalConfig {
 	return config.GlobalConfig{AccountID: "111111111111", Region: "eu-west-1"}
 }
@@ -533,4 +542,120 @@ func TestResourceCreator_SQSQueue_WithAttributes(t *testing.T) {
 	physID, err := rc.Create(context.Background(), "AttrQueue", "AWS::SQS::Queue", props, nil, nil)
 	require.NoError(t, err)
 	assert.NotEmpty(t, physID)
+}
+
+// newExtendedServiceBackends creates a ServiceBackends with all backends including extended types.
+func newExtendedServiceBackends() *cloudformation.ServiceBackends {
+	b := newServiceBackends()
+	b.EventBridge = ebbackend.NewHandler(
+		ebbackend.NewInMemoryBackendWithConfig("000000000000", "us-east-1"), slog.Default())
+	b.StepFunctions = sfnbackend.NewHandler(
+		sfnbackend.NewInMemoryBackendWithConfig("000000000000", "us-east-1"), slog.Default())
+	b.CloudWatchLogs = cwlogsbackend.NewHandler(
+		cwlogsbackend.NewInMemoryBackendWithConfig("000000000000", "us-east-1"), slog.Default())
+	b.APIGateway = apigwbackend.NewHandler(apigwbackend.NewInMemoryBackend(), slog.Default())
+
+	return b
+}
+
+// ---- Extended resource types (Lambda nil-backend stub path) ----------------
+
+func TestResourceCreator_Lambda_NilBackend_Stub(t *testing.T) {
+	t.Parallel()
+	// newServiceBackends() leaves Lambda=nil, so createLambdaFunction returns a stub.
+	backends := newServiceBackends()
+	rc := cloudformation.NewResourceCreator(backends)
+
+	physID, err := rc.Create(context.Background(), "MyFunction", "AWS::Lambda::Function",
+		map[string]any{"FunctionName": "my-fn", "Runtime": "python3.12", "Handler": "index.handler"},
+		nil, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "MyFunction-stub", physID)
+
+	// delete also goes through the nil path
+	err = rc.Delete(context.Background(), "AWS::Lambda::Function", "my-fn", nil)
+	require.NoError(t, err)
+}
+
+// ---- Extended resource types with real backends ----------------------------
+
+func TestResourceCreator_EventBridgeRule_RealBackend(t *testing.T) {
+	t.Parallel()
+	backends := newExtendedServiceBackends()
+	rc := cloudformation.NewResourceCreator(backends)
+
+	physID, err := rc.Create(context.Background(), "MyRule", "AWS::Events::Rule",
+		map[string]any{
+			"Name":         "my-cfn-rule",
+			"EventPattern": `{"source":["aws.s3"]}`,
+			"State":        "ENABLED",
+		}, nil, nil)
+	require.NoError(t, err)
+	assert.Contains(t, physID, "my-cfn-rule")
+
+	err = rc.Delete(context.Background(), "AWS::Events::Rule", physID, nil)
+	require.NoError(t, err)
+}
+
+func TestResourceCreator_StepFunctionsStateMachine_RealBackend(t *testing.T) {
+	t.Parallel()
+	backends := newExtendedServiceBackends()
+	rc := cloudformation.NewResourceCreator(backends)
+
+	definition := `{"Comment":"test","StartAt":"Done","States":{"Done":{"Type":"Succeed"}}}`
+	physID, err := rc.Create(context.Background(), "MyStateMachine", "AWS::StepFunctions::StateMachine",
+		map[string]any{
+			"StateMachineName": "cfn-sm",
+			"DefinitionString": definition,
+			"RoleArn":          "arn:aws:iam::000000000000:role/sfn-role",
+		}, nil, nil)
+	require.NoError(t, err)
+	assert.Contains(t, physID, "cfn-sm")
+
+	err = rc.Delete(context.Background(), "AWS::StepFunctions::StateMachine", physID, nil)
+	require.NoError(t, err)
+}
+
+func TestResourceCreator_CloudWatchLogGroup_RealBackend(t *testing.T) {
+	t.Parallel()
+	backends := newExtendedServiceBackends()
+	rc := cloudformation.NewResourceCreator(backends)
+
+	physID, err := rc.Create(context.Background(), "MyLogGroup", "AWS::Logs::LogGroup",
+		map[string]any{"LogGroupName": "/cfn/my-log-group"},
+		nil, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "/cfn/my-log-group", physID)
+
+	err = rc.Delete(context.Background(), "AWS::Logs::LogGroup", physID, nil)
+	require.NoError(t, err)
+}
+
+func TestResourceCreator_APIGatewayRestAPI_RealBackend(t *testing.T) {
+	t.Parallel()
+	backends := newExtendedServiceBackends()
+	rc := cloudformation.NewResourceCreator(backends)
+
+	physID, err := rc.Create(context.Background(), "MyAPI", "AWS::ApiGateway::RestApi",
+		map[string]any{"Name": "cfn-rest-api", "Description": "created by cfn"},
+		nil, nil)
+	require.NoError(t, err)
+	assert.NotEmpty(t, physID)
+
+	err = rc.Delete(context.Background(), "AWS::ApiGateway::RestApi", physID, nil)
+	require.NoError(t, err)
+}
+
+func TestResourceCreator_ExtendedResource_DefaultStub(t *testing.T) {
+	t.Parallel()
+	backends := newExtendedServiceBackends()
+	rc := cloudformation.NewResourceCreator(backends)
+
+	// Unknown extended resource type → returns logicalID + "-stub"
+	physID, err := rc.Create(context.Background(), "MyWhatever", "AWS::Whatever::Thing", nil, nil, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "MyWhatever-stub", physID)
+
+	err = rc.Delete(context.Background(), "AWS::Whatever::Thing", "whatever-id", nil)
+	require.NoError(t, err)
 }

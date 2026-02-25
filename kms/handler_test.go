@@ -1259,3 +1259,48 @@ func TestKMSGenerateDataKeyWithoutPlaintext(t *testing.T) {
 	assert.NotEmpty(t, out.CiphertextBlob)
 	assert.Equal(t, keyID, out.KeyID)
 }
+
+// TestKMSRetireGrant verifies RetireGrant and ListRetirableGrants operations.
+func TestKMSRetireGrant(t *testing.T) {
+	t.Parallel()
+
+	backend := kms.NewInMemoryBackend()
+	h := kms.NewHandler(backend, slog.Default())
+
+	// Create a key and grant
+	keyOut, err := backend.CreateKey(&kms.CreateKeyInput{Description: "retire-grant-test"})
+	require.NoError(t, err)
+	keyID := keyOut.KeyMetadata.KeyID
+
+	createBody := `{"KeyId":"` + keyID + `","GranteePrincipal":"arn:aws:iam::000000000000:role/my-role",` +
+		`"Operations":["Decrypt"],"RetiringPrincipal":"arn:aws:iam::000000000000:role/retire-role"}`
+	rec := doKMSHTTPRequest(t, h, "CreateGrant", createBody)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var createOut kms.CreateGrantOutput
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+	grantToken := createOut.GrantToken
+
+	// ListRetirableGrants for the retiring principal
+	listBody, _ := json.Marshal(map[string]string{
+		"RetiringPrincipal": "arn:aws:iam::000000000000:role/retire-role",
+	})
+	rec = doKMSHTTPRequest(t, h, "ListRetirableGrants", string(listBody))
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var listOut kms.ListGrantsOutput
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut))
+	require.Len(t, listOut.Grants, 1)
+	assert.Equal(t, createOut.GrantID, listOut.Grants[0].GrantID)
+
+	// RetireGrant using grant token
+	retireBody, _ := json.Marshal(map[string]string{"GrantToken": grantToken})
+	rec = doKMSHTTPRequest(t, h, "RetireGrant", string(retireBody))
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// ListGrants should now be empty
+	listGrantsBody := `{"KeyId":"` + keyID + `"}`
+	rec = doKMSHTTPRequest(t, h, "ListGrants", listGrantsBody)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut))
+	assert.Empty(t, listOut.Grants)
+}
