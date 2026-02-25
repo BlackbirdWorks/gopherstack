@@ -1,8 +1,10 @@
 package eventbridge
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strconv"
 	"strings"
@@ -23,6 +25,8 @@ var (
 const (
 	defaultEventBusName = "default"
 	maxEventLogSize     = 1000
+	ruleStateEnabled    = "ENABLED"
+	ruleStateDisabled   = "DISABLED"
 )
 
 // StorageBackend is the interface for an EventBridge in-memory store.
@@ -46,13 +50,15 @@ type StorageBackend interface {
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	buses     map[string]*EventBus
-	rules     map[string]map[string]*Rule
-	targets   map[string]map[string]*Target
-	accountID string
-	region    string
-	eventLog  []EventLogEntry
-	mu        sync.RWMutex
+	logger          *slog.Logger
+	deliveryTargets *DeliveryTargets
+	buses           map[string]*EventBus
+	rules           map[string]map[string]*Rule
+	targets         map[string]map[string]*Target
+	accountID       string
+	region          string
+	eventLog        []EventLogEntry
+	mu              sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with default configuration.
@@ -63,11 +69,13 @@ func NewInMemoryBackend() *InMemoryBackend {
 // NewInMemoryBackendWithConfig creates a new InMemoryBackend with given account and region.
 func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		accountID: accountID,
-		region:    region,
-		buses:     make(map[string]*EventBus),
-		rules:     make(map[string]map[string]*Rule),
-		targets:   make(map[string]map[string]*Target),
+		accountID:       accountID,
+		region:          region,
+		buses:           make(map[string]*EventBus),
+		rules:           make(map[string]map[string]*Rule),
+		targets:         make(map[string]map[string]*Target),
+		logger:          slog.Default(),
+		deliveryTargets: &DeliveryTargets{},
 	}
 	// Create the default event bus.
 	b.buses[defaultEventBusName] = &EventBus{
@@ -77,6 +85,20 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	}
 
 	return b
+}
+
+// SetLogger sets the logger for the backend.
+func (b *InMemoryBackend) SetLogger(log *slog.Logger) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.logger = log
+}
+
+// SetDeliveryTargets configures the service references used for fan-out delivery.
+func (b *InMemoryBackend) SetDeliveryTargets(dt *DeliveryTargets) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.deliveryTargets = dt
 }
 
 func (b *InMemoryBackend) busARN(name string) string {
@@ -213,7 +235,7 @@ func (b *InMemoryBackend) PutRule(input PutRuleInput) (*Rule, error) {
 
 	state := input.State
 	if state == "" {
-		state = "ENABLED"
+		state = ruleStateEnabled
 	}
 
 	if b.rules[busName] == nil {
@@ -322,12 +344,12 @@ func (b *InMemoryBackend) DescribeRule(name, eventBusName string) (*Rule, error)
 
 // EnableRule sets a rule's state to ENABLED.
 func (b *InMemoryBackend) EnableRule(name, eventBusName string) error {
-	return b.setRuleState(name, eventBusName, "ENABLED")
+	return b.setRuleState(name, eventBusName, ruleStateEnabled)
 }
 
 // DisableRule sets a rule's state to DISABLED.
 func (b *InMemoryBackend) DisableRule(name, eventBusName string) error {
-	return b.setRuleState(name, eventBusName, "DISABLED")
+	return b.setRuleState(name, eventBusName, ruleStateDisabled)
 }
 
 func (b *InMemoryBackend) setRuleState(name, eventBusName, state string) error {
@@ -461,7 +483,6 @@ func (b *InMemoryBackend) ListTargetsByRule(ruleName, eventBusName, nextToken st
 // PutEvents records events in the event log and returns result entries.
 func (b *InMemoryBackend) PutEvents(entries []EventEntry) []EventResultEntry {
 	b.mu.Lock()
-	defer b.mu.Unlock()
 
 	results := make([]EventResultEntry, 0, len(entries))
 	for _, entry := range entries {
@@ -488,6 +509,16 @@ func (b *InMemoryBackend) PutEvents(entries []EventEntry) []EventResultEntry {
 			b.eventLog = b.eventLog[len(b.eventLog)-maxEventLogSize:]
 		}
 		results = append(results, EventResultEntry{EventID: eventID})
+	}
+
+	dt := b.deliveryTargets
+	b.mu.Unlock()
+
+	// Trigger async fan-out delivery after releasing the lock.
+	if dt != nil {
+		entriesCopy := make([]EventEntry, len(entries))
+		copy(entriesCopy, entries)
+		go b.deliverEvents(context.Background(), entriesCopy, *dt)
 	}
 
 	return results

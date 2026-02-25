@@ -50,6 +50,7 @@ import (
 	sqsbackend "github.com/blackbirdworks/gopherstack/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/ssm"
 	sfnbackend "github.com/blackbirdworks/gopherstack/stepfunctions"
+	sfnasl "github.com/blackbirdworks/gopherstack/stepfunctions/asl"
 	stsbackend "github.com/blackbirdworks/gopherstack/sts"
 )
 
@@ -456,6 +457,15 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	// Wire SNS→SQS delivery: when SNS publishes a message, deliver it to SQS queues.
 	wireSNSToSQS(services[5], services[6])
 
+	// Wire EventBridge target fan-out: deliver events to Lambda, SQS, SNS targets.
+	wireEventBridgeDelivery(services[10], services[9], services[6], services[5])
+
+	// Wire Step Functions → Lambda Task integration.
+	wireStepFunctionsLambda(services[13], services[9])
+
+	// Wire API Gateway → Lambda proxy integration.
+	wireAPIGatewayLambda(services[11], services[9])
+
 	// Init CloudFormation after core handlers are stored so it can access their backends.
 	cfnSvc, err := (&cfnbackend.Provider{}).Init(appCtx)
 	if err != nil {
@@ -515,7 +525,162 @@ func wireSNSToSQS(snsReg, sqsReg service.Registerable) {
 	sqsBk.SubscribeToSNS(emitter)
 }
 
-// startServer starts the HTTP server and blocks until it shuts down.
+// wireEventBridgeDelivery connects EventBridge fan-out to Lambda, SQS, and SNS backends.
+// ebReg, lambdaReg, sqsReg, snsReg must be the service.Registerable values returned
+// by their respective providers (indices 10, 9, 6, 5 in the services slice).
+func wireEventBridgeDelivery(ebReg, lambdaReg, sqsReg, snsReg service.Registerable) {
+	ebH, ok := ebReg.(*ebbackend.Handler)
+	if !ok {
+		return
+	}
+
+	ebBk, bkOk := ebH.Backend.(*ebbackend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	dt := &ebbackend.DeliveryTargets{}
+
+	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
+		if lambdaBk, bk2Ok := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bk2Ok {
+			dt.Lambda = &lambdaInvokerAdapter{backend: lambdaBk}
+		}
+	}
+
+	if sqsH, sqsOk := sqsReg.(*sqsbackend.Handler); sqsOk {
+		if sqsBk, bk2Ok := sqsH.Backend.(*sqsbackend.InMemoryBackend); bk2Ok {
+			dt.SQS = &sqsSenderAdapter{backend: sqsBk}
+		}
+	}
+
+	if snsH, snsOk := snsReg.(*snsbackend.Handler); snsOk {
+		if snsBk, bk2Ok := snsH.Backend.(*snsbackend.InMemoryBackend); bk2Ok {
+			dt.SNS = &snsPublisherAdapter{backend: snsBk}
+		}
+	}
+
+	ebBk.SetDeliveryTargets(dt)
+}
+
+// lambdaInvokerAdapter adapts the Lambda backend to the eventbridge.LambdaInvoker interface.
+type lambdaInvokerAdapter struct {
+	backend *lambdabackend.InMemoryBackend
+}
+
+func (a *lambdaInvokerAdapter) InvokeFunction(
+	ctx context.Context, name, invocationType string, payload []byte,
+) ([]byte, int, error) {
+	it := lambdabackend.InvocationType(invocationType)
+
+	return a.backend.InvokeFunction(ctx, name, it, payload)
+}
+
+// sqsSenderAdapter adapts the SQS backend to the eventbridge.SQSSender interface.
+type sqsSenderAdapter struct {
+	backend *sqsbackend.InMemoryBackend
+}
+
+func (a *sqsSenderAdapter) SendMessageToQueue(_ context.Context, queueARN, messageBody string) error {
+	// Convert SQS ARN to queue name (last segment after ':').
+	queueURL := arnToSQSQueueURL(queueARN)
+	_, err := a.backend.SendMessage(&sqsbackend.SendMessageInput{
+		QueueURL:    queueURL,
+		MessageBody: messageBody,
+	})
+
+	return err
+}
+
+// snsPublisherAdapter adapts the SNS backend to the eventbridge.SNSPublisher interface.
+type snsPublisherAdapter struct {
+	backend *snsbackend.InMemoryBackend
+}
+
+func (a *snsPublisherAdapter) PublishToTopic(_ context.Context, topicARN, message string) error {
+	_, err := a.backend.Publish(topicARN, message, "", "", nil)
+
+	return err
+}
+
+// wireAPIGatewayLambda connects the API Gateway handler to the Lambda backend
+// for AWS_PROXY integrations.
+func wireAPIGatewayLambda(apigwReg, lambdaReg service.Registerable) {
+	apigwH, ok := apigwReg.(*apigwbackend.Handler)
+	if !ok {
+		return
+	}
+
+	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
+		if lambdaBk, bkOk := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bkOk {
+			apigwH.SetLambdaInvoker(&apigwLambdaInvokerAdapter{backend: lambdaBk})
+		}
+	}
+}
+
+// apigwLambdaInvokerAdapter adapts the Lambda backend to the apigateway.LambdaInvoker interface.
+type apigwLambdaInvokerAdapter struct {
+	backend *lambdabackend.InMemoryBackend
+}
+
+func (a *apigwLambdaInvokerAdapter) InvokeFunction(
+	ctx context.Context, name, invocationType string, payload []byte,
+) ([]byte, int, error) {
+	it := lambdabackend.InvocationType(invocationType)
+
+	return a.backend.InvokeFunction(ctx, name, it, payload)
+}
+
+// so that Task states with Lambda resources can invoke functions.
+func wireStepFunctionsLambda(sfnReg, lambdaReg service.Registerable) {
+	sfnH, ok := sfnReg.(*sfnbackend.Handler)
+	if !ok {
+		return
+	}
+
+	sfnBk, bkOk := sfnH.Backend.(*sfnbackend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
+		if lambdaBk, bk2Ok := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bk2Ok {
+			sfnBk.SetLambdaInvoker(&sfnLambdaInvokerAdapter{backend: lambdaBk})
+		}
+	}
+}
+
+// sfnLambdaInvokerAdapter adapts the Lambda backend to the asl.LambdaInvoker interface.
+type sfnLambdaInvokerAdapter struct {
+	backend *lambdabackend.InMemoryBackend
+}
+
+func (a *sfnLambdaInvokerAdapter) InvokeFunction(
+	ctx context.Context, name, invocationType string, payload []byte,
+) ([]byte, int, error) {
+	it := lambdabackend.InvocationType(invocationType)
+
+	return a.backend.InvokeFunction(ctx, name, it, payload)
+}
+
+// Ensure sfnLambdaInvokerAdapter implements sfnasl.LambdaInvoker.
+var _ sfnasl.LambdaInvoker = (*sfnLambdaInvokerAdapter)(nil)
+
+// ARN format: arn:aws:sqs:region:accountId:queueName
+// URL format expected by SQS backend: http://endpoint/accountId/queueName
+func arnToSQSQueueURL(arn string) string {
+	parts := strings.Split(arn, ":")
+	// Minimum parts for a valid SQS ARN: arn, aws, sqs, region, accountId, queueName
+	const minARNParts = 6
+	if len(parts) < minARNParts {
+		return arn
+	}
+
+	accountID := parts[4]
+	queueName := parts[5]
+
+	return "http://local/" + accountID + "/" + queueName
+}
+
 func startServer(ctx context.Context, log *slog.Logger, port string, e *echo.Echo) error {
 	if port[0] != ':' {
 		port = ":" + port

@@ -1,12 +1,17 @@
 package stepfunctions
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/stepfunctions/asl"
 )
 
 var (
@@ -16,8 +21,10 @@ var (
 	ErrExecutionDoesNotExist     = errors.New("ExecutionDoesNotExist")
 )
 
-// executionSucceededEventID is the history event ID for ExecutionSucceeded.
-const executionSucceededEventID = 2
+const (
+	executionStartedEventID   = int64(1)
+	executionSucceededEventID = int64(2)
+)
 
 // StorageBackend is the interface for a Step Functions in-memory store.
 type StorageBackend interface {
@@ -41,6 +48,8 @@ type InMemoryBackend struct {
 	stateMachines map[string]*StateMachine   // key = stateMachineArn
 	executions    map[string]*Execution      // key = executionArn
 	history       map[string][]*HistoryEvent // key = executionArn
+	lambdaInvoker asl.LambdaInvoker
+	logger        *slog.Logger
 	accountID     string
 	region        string
 	mu            sync.RWMutex
@@ -59,7 +68,22 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		stateMachines: make(map[string]*StateMachine),
 		executions:    make(map[string]*Execution),
 		history:       make(map[string][]*HistoryEvent),
+		logger:        slog.Default(),
 	}
+}
+
+// SetLambdaInvoker configures the Lambda invoker for Task states.
+func (b *InMemoryBackend) SetLambdaInvoker(invoker asl.LambdaInvoker) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.lambdaInvoker = invoker
+}
+
+// SetLogger sets the logger for the backend.
+func (b *InMemoryBackend) SetLogger(log *slog.Logger) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.logger = log
 }
 
 func (b *InMemoryBackend) smARN(name string) string {
@@ -149,18 +173,23 @@ func (b *InMemoryBackend) DescribeStateMachine(arn string) (*StateMachine, error
 	return &cp, nil
 }
 
-// StartExecution creates an execution and immediately marks it SUCCEEDED (stub).
+// StartExecution creates an execution and runs the ASL interpreter.
+// If the state machine definition is a valid ASL, the interpreter runs asynchronously.
+// If the definition cannot be parsed, execution completes synchronously with pass-through output.
 func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*Execution, error) {
 	b.mu.Lock()
-	defer b.mu.Unlock()
 
 	sm, exists := b.stateMachines[stateMachineArn]
 	if !exists {
+		b.mu.Unlock()
+
 		return nil, fmt.Errorf("%w: %s", ErrStateMachineDoesNotExist, stateMachineArn)
 	}
 
 	execArn := b.execARN(sm.Name, name)
 	if _, alreadyExists := b.executions[execArn]; alreadyExists {
+		b.mu.Unlock()
+
 		return nil, fmt.Errorf("%w: %s", ErrExecutionAlreadyExists, name)
 	}
 
@@ -176,19 +205,173 @@ func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*
 	b.executions[execArn] = exec
 
 	b.history[execArn] = []*HistoryEvent{
-		{Timestamp: now, Type: "ExecutionStarted", ID: 1, PreviousEventID: 0},
+		{Timestamp: now, Type: "ExecutionStarted", ID: executionStartedEventID, PreviousEventID: 0},
 	}
 
-	// Auto-succeed: mark as SUCCEEDED with pass-through output.
-	stopDate := now
-	exec.StopDate = &stopDate
-	exec.Status = "SUCCEEDED"
-	exec.Output = input
-	b.history[execArn] = append(b.history[execArn], &HistoryEvent{
-		Timestamp: now, Type: "ExecutionSucceeded", ID: executionSucceededEventID, PreviousEventID: 1,
-	})
+	definition := sm.Definition
+	lambdaInvoker := b.lambdaInvoker
+
+	// Try to parse the definition to decide whether to run async.
+	parsedSM, parseErr := asl.Parse(definition)
+	if parseErr != nil {
+		// Invalid definition: fall back to synchronous pass-through for backward compatibility.
+		// Intentionally returning nil error — the execution still "succeeds" as a no-op.
+		stopDate := now
+		exec.StopDate = &stopDate
+		exec.Status = "SUCCEEDED"
+		exec.Output = input
+		b.history[execArn] = append(b.history[execArn], &HistoryEvent{
+			Timestamp:       now,
+			Type:            "ExecutionSucceeded",
+			ID:              executionSucceededEventID,
+			PreviousEventID: executionStartedEventID,
+		})
+		b.mu.Unlock()
+
+		return exec, nil //nolint:nilerr // parseErr is an expected condition; caller gets a valid execution
+	}
+
+	b.mu.Unlock()
+
+	// Run the ASL interpreter asynchronously for valid state machine definitions.
+	go b.runParsedExecution(context.Background(), execArn, parsedSM, input, lambdaInvoker)
 
 	return exec, nil
+}
+
+// historyRecorder adapts InMemoryBackend to the asl.HistoryRecorder interface.
+type historyRecorder struct {
+	backend *InMemoryBackend
+}
+
+func (r *historyRecorder) RecordStateEntered(execARN, stateName, stateType string, _ any) {
+	r.backend.mu.Lock()
+	defer r.backend.mu.Unlock()
+
+	events := r.backend.history[execARN]
+	nextID := int64(len(events) + 1)
+	r.backend.history[execARN] = append(events, &HistoryEvent{
+		Timestamp:       float64(time.Now().Unix()),
+		Type:            "TaskStateEntered",
+		ID:              nextID,
+		PreviousEventID: nextID - 1,
+		StateEnteredEventDetails: &StateEnteredEventDetails{
+			Name: stateName + "(" + stateType + ")",
+		},
+	})
+}
+
+func (r *historyRecorder) RecordStateExited(execARN, stateName, stateType string, _ any) {
+	r.backend.mu.Lock()
+	defer r.backend.mu.Unlock()
+
+	events := r.backend.history[execARN]
+	nextID := int64(len(events) + 1)
+	r.backend.history[execARN] = append(events, &HistoryEvent{
+		Timestamp:       float64(time.Now().Unix()),
+		Type:            "TaskStateExited",
+		ID:              nextID,
+		PreviousEventID: nextID - 1,
+		StateExitedEventDetails: &StateExitedEventDetails{
+			Name: stateName + "(" + stateType + ")",
+		},
+	})
+}
+
+func (r *historyRecorder) RecordTaskScheduled(execARN, _ /* stateName */, _ /* resource */ string) {
+	r.backend.mu.Lock()
+	defer r.backend.mu.Unlock()
+
+	events := r.backend.history[execARN]
+	nextID := int64(len(events) + 1)
+	r.backend.history[execARN] = append(events, &HistoryEvent{
+		Timestamp:       float64(time.Now().Unix()),
+		Type:            "TaskScheduled",
+		ID:              nextID,
+		PreviousEventID: nextID - 1,
+	})
+}
+
+func (r *historyRecorder) RecordTaskSucceeded(execARN, _ /* stateName */ string, _ any) {
+	r.backend.mu.Lock()
+	defer r.backend.mu.Unlock()
+
+	events := r.backend.history[execARN]
+	nextID := int64(len(events) + 1)
+	r.backend.history[execARN] = append(events, &HistoryEvent{
+		Timestamp:       float64(time.Now().Unix()),
+		Type:            "TaskSucceeded",
+		ID:              nextID,
+		PreviousEventID: nextID - 1,
+	})
+}
+
+func (r *historyRecorder) RecordTaskFailed(execARN, _ /* stateName */, _ /* errCode */, _ /* cause */ string) {
+	r.backend.mu.Lock()
+	defer r.backend.mu.Unlock()
+
+	events := r.backend.history[execARN]
+	nextID := int64(len(events) + 1)
+	r.backend.history[execARN] = append(events, &HistoryEvent{
+		Timestamp:       float64(time.Now().Unix()),
+		Type:            "TaskFailed",
+		ID:              nextID,
+		PreviousEventID: nextID - 1,
+	})
+}
+
+// runParsedExecution runs the ASL interpreter for a pre-parsed state machine and updates the execution record.
+func (b *InMemoryBackend) runParsedExecution(
+	ctx context.Context,
+	execARN string,
+	sm *asl.StateMachine,
+	input string,
+	lambdaInvoker asl.LambdaInvoker,
+) {
+	rec := &historyRecorder{backend: b}
+	executor := asl.NewExecutor(sm, lambdaInvoker, rec)
+	result, execErr := executor.Execute(ctx, execARN, input)
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	exec := b.executions[execARN]
+	if exec == nil {
+		return
+	}
+
+	now := float64(time.Now().Unix())
+	exec.StopDate = &now
+	events := b.history[execARN]
+	nextID := int64(len(events) + 1)
+
+	if execErr != nil {
+		exec.Status = "FAILED"
+		exec.Error = execErr.Error()
+		b.history[execARN] = append(events, &HistoryEvent{
+			Timestamp: now, Type: "ExecutionFailed", ID: nextID, PreviousEventID: nextID - 1,
+		})
+
+		return
+	}
+
+	if result.Error != "" {
+		exec.Status = "FAILED"
+		exec.Error = result.Error
+		exec.Cause = result.Cause
+		b.history[execARN] = append(events, &HistoryEvent{
+			Timestamp: now, Type: "ExecutionFailed", ID: nextID, PreviousEventID: nextID - 1,
+		})
+
+		return
+	}
+
+	outputBytes, _ := json.Marshal(result.Output)
+	exec.Status = "SUCCEEDED"
+	exec.Output = string(outputBytes)
+	b.history[execARN] = append(events, &HistoryEvent{
+		Timestamp: now, Type: "ExecutionSucceeded", ID: nextID, PreviousEventID: nextID - 1,
+	})
 }
 
 // StopExecution marks an execution as ABORTED.

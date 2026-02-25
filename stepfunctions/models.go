@@ -29,10 +29,24 @@ type Execution struct {
 
 // HistoryEvent represents a single event in execution history.
 type HistoryEvent struct {
-	Type            string  `json:"type"` // e.g. "ExecutionStarted", "ExecutionSucceeded"
-	Timestamp       float64 `json:"timestamp"`
-	ID              int64   `json:"id"`
-	PreviousEventID int64   `json:"previousEventId"`
+	StateEnteredEventDetails *StateEnteredEventDetails `json:"stateEnteredEventDetails,omitempty"`
+	StateExitedEventDetails  *StateExitedEventDetails  `json:"stateExitedEventDetails,omitempty"`
+	Type                     string                    `json:"type"` // e.g. "ExecutionStarted", "ExecutionSucceeded"
+	Timestamp                float64                   `json:"timestamp"`
+	ID                       int64                     `json:"id"`
+	PreviousEventID          int64                     `json:"previousEventId"`
+}
+
+// StateEnteredEventDetails holds details for state-entered events.
+type StateEnteredEventDetails struct {
+	Name  string `json:"name"`
+	Input string `json:"input,omitempty"`
+}
+
+// StateExitedEventDetails holds details for state-exited events.
+type StateExitedEventDetails struct {
+	Name   string `json:"name"`
+	Output string `json:"output,omitempty"`
 }
 
 // ErrorResponse is the standard error format.
