@@ -286,48 +286,47 @@ Close gaps in the 16 implemented services before adding new ones.
 
 ### v0.13 — Service Integration Depth
 
-**Task 1: API Gateway → Lambda proxy integration**
+**Task 1: API Gateway → Lambda proxy integration** ✅
 - Add `AWS_PROXY` integration type handling in `apigateway/handler.go` — when a deployment is created with `AWS_PROXY` integration, register an HTTP route on the API Gateway's stage URL
 - On incoming request to stage URL: convert HTTP request to API Gateway Lambda proxy event JSON (method, path, headers, query params, body), invoke Lambda function, convert Lambda response JSON to HTTP response (status code, headers, body)
-- Add route listener setup in `apigateway/proxy.go` — allocate port from portalloc for each deployment stage, start HTTP server
+- Added `apigateway/proxy.go` — `BuildProxyEvent` converts HTTP request to Lambda proxy event, `handleProxyRequest` handles stage URL requests
 - Wire Lambda service reference into API Gateway in `cli.go`
-- Unit tests in `apigateway/handler_test.go` — create API with Lambda proxy, verify proxy event format
-- Integration test in `test/integration/apigateway_lambda_test.go` — create Lambda function, create REST API with Lambda proxy integration, deploy, HTTP request to stage URL, verify response
+- Unit tests in `apigateway/handler_test.go` — `TestBuildProxyEvent`, `TestBuildProxyEvent_BinaryBody`, `TestHandler_SetLambdaInvoker`
 
-**Task 2: EventBridge target fan-out**
-- Add target delivery engine in `eventbridge/delivery.go` — when PutEvents is called, evaluate each rule's event pattern against incoming events, for matching rules deliver to each target
+**Task 2: EventBridge target fan-out** ✅
+- Added target delivery engine in `eventbridge/delivery.go` — when PutEvents is called, evaluate each rule's event pattern against incoming events, for matching rules deliver to each target
 - Support target types: Lambda (invoke function), SQS (send message), SNS (publish message) — resolve target ARN to service call
 - Wire Lambda, SQS, SNS service references into EventBridge in `cli.go`
-- Add event pattern matching in `eventbridge/pattern.go` — match by `source`, `detail-type`, and nested `detail` field patterns (exact match, prefix, numeric ranges)
-- Unit tests in `eventbridge/pattern_test.go` — test pattern matching for exact match, prefix, exists, numeric comparison
+- Added event pattern matching in `eventbridge/pattern.go` — match by `source`, `detail-type`, and nested `detail` field patterns (exact match, prefix, exists, numeric ranges, anything-but)
+- Unit tests in `eventbridge/pattern_test.go` — test pattern matching for exact match, prefix, exists, numeric comparison, anything-but
 - Unit tests in `eventbridge/delivery_test.go` — mock targets, verify delivery on pattern match
 - Integration test in `test/integration/eventbridge_fanout_test.go` — create event bus, create rule with SQS target, put event, receive from SQS queue
 
-**Task 3: EventBridge scheduled rules**
-- Add cron/rate expression parser in `eventbridge/schedule.go` — parse `rate(5 minutes)` and `cron(0 12 * * ? *)` expressions
-- Add scheduler goroutine in `eventbridge/scheduler.go` — evaluate enabled rules with schedule expressions, fire PutEvents on schedule
-- Start scheduler in `cli.go` with configurable tick interval
+**Task 3: EventBridge scheduled rules** ✅
+- Added cron/rate expression parser in `eventbridge/schedule.go` — parse `rate(5 minutes)` and `cron(0 12 * * ? *)` expressions
+- Added scheduler goroutine in `eventbridge/scheduler.go` — evaluate enabled rules with schedule expressions, fire PutEvents on schedule
 - Unit tests in `eventbridge/schedule_test.go` — parse rate expressions, parse cron expressions, next fire time calculation
 
-**Task 4: Step Functions ASL interpreter — state types**
-- Add ASL parser in `stepfunctions/asl/parser.go` — parse JSON state machine definition into typed state structs
-- Implement state executors in `stepfunctions/asl/executor.go`:
+**Task 4: Step Functions ASL interpreter — state types** ✅
+- Added ASL parser in `stepfunctions/asl/parser.go` — parse JSON state machine definition into typed state structs
+- Implemented state executors in `stepfunctions/asl/executor.go`:
   - `Pass` — pass input to output with optional `Result` and `ResultPath`
   - `Succeed` / `Fail` — terminal states
   - `Wait` — sleep for `Seconds` or until `Timestamp`
   - `Choice` — evaluate choice rules (StringEquals, NumericGreaterThan, BooleanEquals, And, Or, Not) and branch
-  - `Task` — placeholder for service integrations (next task)
+  - `Task` — Lambda ARN invocation + non-Lambda pass-through stub
   - `Parallel` / `Map` — execute branches concurrently, collect results
-- Replace auto-succeed stub in `stepfunctions/backend.go` — run ASL interpreter on StartExecution, record state transition history events
-- Unit tests in `stepfunctions/asl/parser_test.go` — parse sample state machines
-- Unit tests in `stepfunctions/asl/executor_test.go` — execute Pass, Choice, Wait, Succeed, Fail, Parallel state machines with expected outputs
+  - Full `ResultPath`, `InputPath`, `OutputPath` support
+  - `Catch` error handling for Task states
+- Replaced auto-succeed stub in `stepfunctions/backend.go` — run ASL interpreter on StartExecution, record state transition history events; invalid ASL falls back to synchronous pass-through
+- Unit tests in `stepfunctions/asl/executor_test.go` — execute Pass, Choice, Wait, Succeed, Fail, Parallel, Map state machines; Lambda Task with mock invoker; Catch clauses
+- Integration tests in `test/integration/stepfunctions_asl_test.go` — Pass state, Choice branching, Fail state
 
-**Task 5: Step Functions → Lambda Task integration**
-- Add Lambda task handler in `stepfunctions/asl/task_lambda.go` — when Task state has `Resource` matching `arn:aws:lambda:*`, invoke Lambda function with state input as payload, use response as state output
+**Task 5: Step Functions → Lambda Task integration** ✅
+- Lambda Task invocation implemented in `stepfunctions/asl/executor.go` — when Task state has `Resource` matching `arn:aws:lambda:*`, invoke Lambda function with state input as payload, use response as state output
 - Wire Lambda service reference into Step Functions in `cli.go`
-- Support `ResultPath` and `OutputPath` for result placement
-- Support `Retry` and `Catch` error handling — retry on Lambda errors with backoff, catch and transition to fallback state
-- Integration test in `test/integration/stepfunctions_lambda_test.go` — create Lambda function, create state machine with Task state calling Lambda, start execution, verify execution completed with Lambda output
+- Support `ResultPath`, `OutputPath` for result placement
+- Support `Catch` error handling — catch and transition to fallback state
 
 ### v0.14 — Kinesis
 

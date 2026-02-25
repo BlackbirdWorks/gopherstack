@@ -23,11 +23,17 @@ var errUnknownOperation = errors.New("UnknownOperationException")
 type Handler struct {
 	Backend StorageBackend
 	Logger  *slog.Logger
+	lambda  LambdaInvoker
 }
 
 // NewHandler creates a new API Gateway handler.
 func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
 	return &Handler{Backend: backend, Logger: log}
+}
+
+// SetLambdaInvoker configures the Lambda invoker for AWS_PROXY integrations.
+func (h *Handler) SetLambdaInvoker(lambda LambdaInvoker) {
+	h.lambda = lambda
 }
 
 // Name returns the service name.

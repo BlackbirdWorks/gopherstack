@@ -1,7 +1,9 @@
 package stepfunctions_test
 
 import (
+	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -285,4 +287,76 @@ func TestStopExecution_NotFound(t *testing.T) {
 
 	err := b.StopExecution("arn:nonexistent", "", "")
 	require.ErrorIs(t, err, stepfunctions.ErrExecutionDoesNotExist)
+}
+
+func TestSetLambdaInvoker(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+	// Setting nil is a no-op but shouldn't panic.
+	b.SetLambdaInvoker(nil)
+}
+
+func TestSetLogger(t *testing.T) {
+	t.Parallel()
+	b := newBackend()
+	// SetLogger with a real logger should not panic.
+	b.SetLogger(slog.Default())
+}
+
+const passDefinition = `{
+"StartAt": "P",
+"States": {
+"P": {"Type": "Pass", "End": true}
+}
+}`
+
+func TestStartExecution_ASL_Pass(t *testing.T) {
+t.Parallel()
+b := newBackend()
+
+sm, err := b.CreateStateMachine("asl-pass", passDefinition, "arn:role", "STANDARD")
+require.NoError(t, err)
+
+exec, err := b.StartExecution(sm.StateMachineArn, "asl-exec-1", `{"key":"val"}`)
+require.NoError(t, err)
+assert.Equal(t, "RUNNING", exec.Status)
+
+// Wait for ASL execution to complete.
+require.Eventually(t, func() bool {
+desc, descErr := b.DescribeExecution(exec.ExecutionArn)
+return descErr == nil && desc.Status == "SUCCEEDED"
+}, 5*time.Second, 50*time.Millisecond, "execution should succeed")
+
+desc, err := b.DescribeExecution(exec.ExecutionArn)
+require.NoError(t, err)
+assert.Equal(t, "SUCCEEDED", desc.Status)
+assert.Contains(t, desc.Output, "key")
+}
+
+func TestStartExecution_ASL_Fail(t *testing.T) {
+t.Parallel()
+b := newBackend()
+
+failDef := `{
+"StartAt": "F",
+"States": {
+"F": {"Type": "Fail", "Error": "MyErr", "Cause": "test cause"}
+}
+}`
+
+sm, err := b.CreateStateMachine("asl-fail-sm", failDef, "arn:role", "STANDARD")
+require.NoError(t, err)
+
+exec, err := b.StartExecution(sm.StateMachineArn, "asl-fail-exec", `{}`)
+require.NoError(t, err)
+
+require.Eventually(t, func() bool {
+desc, descErr := b.DescribeExecution(exec.ExecutionArn)
+return descErr == nil && desc.Status == "FAILED"
+}, 5*time.Second, 50*time.Millisecond, "execution should fail")
+
+desc, err := b.DescribeExecution(exec.ExecutionArn)
+require.NoError(t, err)
+assert.Equal(t, "FAILED", desc.Status)
+assert.Equal(t, "MyErr", desc.Error)
 }
