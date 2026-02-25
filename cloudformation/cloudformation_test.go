@@ -20,7 +20,11 @@ import (
 // ---- helpers ----------------------------------------------------------------
 
 func newBackend() *cloudformation.InMemoryBackend {
-	return cloudformation.NewInMemoryBackendWithConfig("000000000000", "us-east-1", cloudformation.NewResourceCreator(nil))
+	return cloudformation.NewInMemoryBackendWithConfig(
+		"000000000000",
+		"us-east-1",
+		cloudformation.NewResourceCreator(nil),
+	)
 }
 
 func newHandler() *cloudformation.Handler {
@@ -321,7 +325,7 @@ func TestBackend_GetTemplate(t *testing.T) {
 
 	body, err := b.GetTemplate("tmpl-stack")
 	require.NoError(t, err)
-	assert.Equal(t, simpleTemplate, body)
+	assert.JSONEq(t, simpleTemplate, body)
 }
 
 func TestBackend_GetTemplate_NotFound(t *testing.T) {

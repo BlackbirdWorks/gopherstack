@@ -4,18 +4,18 @@ import "time"
 
 // Stack represents a CloudFormation stack.
 type Stack struct {
-	StackID           string     `xml:"StackId"`
-	StackName         string     `xml:"StackName"`
-	Description       string     `xml:"Description,omitempty"`
-	StackStatus       string     `xml:"StackStatus"`
-	StackStatusReason string     `xml:"StackStatusReason,omitempty"`
-	CreationTime      time.Time  `xml:"CreationTime"`
-	LastUpdatedTime   *time.Time `xml:"LastUpdatedTime,omitempty"`
-	DeletionTime      *time.Time `xml:"DeletionTime,omitempty"`
+	CreationTime      time.Time   `xml:"CreationTime"`
+	LastUpdatedTime   *time.Time  `xml:"LastUpdatedTime,omitempty"`
+	DeletionTime      *time.Time  `xml:"DeletionTime,omitempty"`
+	StackID           string      `xml:"StackId"`
+	StackName         string      `xml:"StackName"`
+	Description       string      `xml:"Description,omitempty"`
+	StackStatus       string      `xml:"StackStatus"`
+	StackStatusReason string      `xml:"StackStatusReason,omitempty"`
+	TemplateBody      string      `xml:"-"`
 	Parameters        []Parameter `xml:"Parameters>member,omitempty"`
 	Outputs           []Output    `xml:"Outputs>member,omitempty"`
 	Tags              []Tag       `xml:"Tags>member,omitempty"`
-	TemplateBody      string     `xml:"-"`
 }
 
 // Parameter is a CloudFormation stack parameter.
@@ -39,15 +39,16 @@ type Tag struct {
 
 // StackSummary is a brief summary of a stack for ListStacks.
 type StackSummary struct {
+	CreationTime time.Time  `xml:"CreationTime"`
+	DeletionTime *time.Time `xml:"DeletionTime,omitempty"`
 	StackID      string     `xml:"StackId"`
 	StackName    string     `xml:"StackName"`
 	StackStatus  string     `xml:"StackStatus"`
-	CreationTime time.Time  `xml:"CreationTime"`
-	DeletionTime *time.Time `xml:"DeletionTime,omitempty"`
 }
 
 // StackEvent is a single event in a stack's history.
 type StackEvent struct {
+	Timestamp            time.Time `xml:"Timestamp"`
 	EventID              string    `xml:"EventId"`
 	StackID              string    `xml:"StackId"`
 	StackName            string    `xml:"StackName"`
@@ -56,16 +57,15 @@ type StackEvent struct {
 	ResourceType         string    `xml:"ResourceType"`
 	ResourceStatus       string    `xml:"ResourceStatus"`
 	ResourceStatusReason string    `xml:"ResourceStatusReason,omitempty"`
-	Timestamp            time.Time `xml:"Timestamp"`
 }
 
 // StackResource represents a resource within a stack.
 type StackResource struct {
+	Properties map[string]any
 	LogicalID  string
 	PhysicalID string
 	Type       string
 	Status     string
-	Properties map[string]any
 }
 
 // ChangeSet represents a CloudFormation change set.

@@ -109,97 +109,15 @@ func (h *S3Handler) routeBucketGet(
 	r *http.Request,
 	bucket string,
 ) {
+	if h.routeBucketGetStubs(ctx, w, r) {
+		return
+	}
+
 	log := logger.Load(ctx)
+
 	switch {
 	case r.URL.Query().Has("acl"):
 		h.getBucketACL(ctx, w, r, bucket)
-	case r.URL.Query().Has("notification"):
-		// Stub: return empty notification configuration.
-		h.setOperation(ctx, "GetBucketNotificationConfiguration")
-		httputil.WriteXML(log, w, http.StatusOK, struct {
-			XMLName xml.Name `xml:"NotificationConfiguration"`
-		}{})
-	case r.URL.Query().Has("policy"):
-		// Stub: no bucket policy; return NoSuchBucketPolicy so the AWS provider
-		// (and Terraform) treats the bucket as having no policy attached.
-		h.setOperation(ctx, "GetBucketPolicy")
-		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
-			Code:    "NoSuchBucketPolicy",
-			Message: "The bucket policy does not exist",
-		}, http.StatusNotFound)
-	case r.URL.Query().Has("accelerate"):
-		// Stub: acceleration not enabled; return empty configuration.
-		h.setOperation(ctx, "GetBucketAccelerateConfiguration")
-		httputil.WriteXML(log, w, http.StatusOK, struct {
-			XMLName xml.Name `xml:"AccelerateConfiguration"`
-			Xmlns   string   `xml:"xmlns,attr"`
-		}{Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/"})
-	case r.URL.Query().Has("cors"):
-		// Stub: no CORS configuration.
-		h.setOperation(ctx, "GetBucketCors")
-		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
-			Code:    "NoSuchCORSConfiguration",
-			Message: "The CORS configuration does not exist",
-		}, http.StatusNotFound)
-	case r.URL.Query().Has("website"):
-		// Stub: no static website configuration.
-		h.setOperation(ctx, "GetBucketWebsite")
-		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
-			Code:    "NoSuchWebsiteConfiguration",
-			Message: "The specified bucket does not have a website configuration",
-		}, http.StatusNotFound)
-	case r.URL.Query().Has("logging"):
-		// Stub: logging not enabled; return empty configuration.
-		h.setOperation(ctx, "GetBucketLogging")
-		httputil.WriteXML(log, w, http.StatusOK, struct {
-			XMLName xml.Name `xml:"BucketLoggingStatus"`
-			Xmlns   string   `xml:"xmlns,attr"`
-		}{Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/"})
-	case r.URL.Query().Has("replication"):
-		// Stub: no replication configuration.
-		h.setOperation(ctx, "GetBucketReplication")
-		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
-			Code:    "ReplicationConfigurationNotFoundError",
-			Message: "The replication configuration was not found",
-		}, http.StatusNotFound)
-	case r.URL.Query().Has("lifecycle"):
-		// Stub: no lifecycle configuration.
-		h.setOperation(ctx, "GetBucketLifecycleConfiguration")
-		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
-			Code:    "NoSuchLifecycleConfiguration",
-			Message: "The lifecycle configuration does not exist",
-		}, http.StatusNotFound)
-	case r.URL.Query().Has("object-lock"):
-		// Stub: object lock not configured.
-		h.setOperation(ctx, "GetObjectLockConfiguration")
-		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
-			Code:    "ObjectLockConfigurationNotFoundError",
-			Message: "Object Lock configuration does not exist for this bucket",
-		}, http.StatusNotFound)
-	case r.URL.Query().Has("request-payment"):
-		// Stub: bucket owner pays (default).
-		h.setOperation(ctx, "GetBucketRequestPayment")
-		httputil.WriteXML(log, w, http.StatusOK, struct {
-			XMLName xml.Name `xml:"RequestPaymentConfiguration"`
-			Xmlns   string   `xml:"xmlns,attr"`
-			Payer   string   `xml:"Payer"`
-		}{Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/", Payer: "BucketOwner"})
-	case r.URL.Query().Has("encryption"):
-		// Stub: no server-side encryption configuration.
-		h.setOperation(ctx, "GetBucketEncryption")
-		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
-			Code:    "ServerSideEncryptionConfigurationNotFoundError",
-			Message: "The server side encryption configuration was not found",
-		}, http.StatusNotFound)
-	case r.URL.Query().Has("intelligent-tiering"):
-		// Stub: no intelligent tiering configurations.
-		h.setOperation(ctx, "ListBucketIntelligentTieringConfigurations")
-		httputil.WriteXML(log, w, http.StatusOK, struct {
-			XMLName                         xml.Name `xml:"ListBucketIntelligentTieringConfigurationsOutput"`
-			IntelligentTieringConfiguration []any    `xml:"IntelligentTieringConfiguration"`
-			Xmlns                           string   `xml:"xmlns,attr"`
-			IsTruncated                     bool     `xml:"IsTruncated"`
-		}{Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/"})
 	case r.URL.Query().Has("versioning"):
 		h.getBucketVersioning(ctx, w, r, bucket)
 	case r.URL.Query().Has("versions"):
@@ -215,6 +133,99 @@ func (h *S3Handler) routeBucketGet(
 	default:
 		h.listObjects(ctx, w, r, bucket)
 	}
+}
+
+// routeBucketGetStubs handles Terraform-compatible bucket sub-resource stub
+// responses (always returns empty config or NoSuchX error). Returns true if the
+// request was handled so the caller can skip further processing.
+func (h *S3Handler) routeBucketGetStubs(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+) bool {
+	log := logger.Load(ctx)
+	q := r.URL.Query()
+
+	switch {
+	case q.Has("notification"):
+		h.setOperation(ctx, "GetBucketNotificationConfiguration")
+		httputil.WriteXML(log, w, http.StatusOK, struct {
+			XMLName xml.Name `xml:"NotificationConfiguration"`
+		}{})
+	case q.Has("policy"):
+		h.setOperation(ctx, "GetBucketPolicy")
+		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
+			Code:    "NoSuchBucketPolicy",
+			Message: "The bucket policy does not exist",
+		}, http.StatusNotFound)
+	case q.Has("accelerate"):
+		h.setOperation(ctx, "GetBucketAccelerateConfiguration")
+		httputil.WriteXML(log, w, http.StatusOK, struct {
+			XMLName xml.Name `xml:"AccelerateConfiguration"`
+			Xmlns   string   `xml:"xmlns,attr"`
+		}{Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/"})
+	case q.Has("cors"):
+		h.setOperation(ctx, "GetBucketCors")
+		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
+			Code:    "NoSuchCORSConfiguration",
+			Message: "The CORS configuration does not exist",
+		}, http.StatusNotFound)
+	case q.Has("website"):
+		h.setOperation(ctx, "GetBucketWebsite")
+		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
+			Code:    "NoSuchWebsiteConfiguration",
+			Message: "The specified bucket does not have a website configuration",
+		}, http.StatusNotFound)
+	case q.Has("logging"):
+		h.setOperation(ctx, "GetBucketLogging")
+		httputil.WriteXML(log, w, http.StatusOK, struct {
+			XMLName xml.Name `xml:"BucketLoggingStatus"`
+			Xmlns   string   `xml:"xmlns,attr"`
+		}{Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/"})
+	case q.Has("replication"):
+		h.setOperation(ctx, "GetBucketReplication")
+		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
+			Code:    "ReplicationConfigurationNotFoundError",
+			Message: "The replication configuration was not found",
+		}, http.StatusNotFound)
+	case q.Has("lifecycle"):
+		h.setOperation(ctx, "GetBucketLifecycleConfiguration")
+		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
+			Code:    "NoSuchLifecycleConfiguration",
+			Message: "The lifecycle configuration does not exist",
+		}, http.StatusNotFound)
+	case q.Has("object-lock"):
+		h.setOperation(ctx, "GetObjectLockConfiguration")
+		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
+			Code:    "ObjectLockConfigurationNotFoundError",
+			Message: "Object Lock configuration does not exist for this bucket",
+		}, http.StatusNotFound)
+	case q.Has("request-payment"):
+		h.setOperation(ctx, "GetBucketRequestPayment")
+		httputil.WriteXML(log, w, http.StatusOK, struct {
+			XMLName xml.Name `xml:"RequestPaymentConfiguration"`
+			Xmlns   string   `xml:"xmlns,attr"`
+			Payer   string   `xml:"Payer"`
+		}{Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/", Payer: "BucketOwner"})
+	case q.Has("encryption"):
+		h.setOperation(ctx, "GetBucketEncryption")
+		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
+			Code:    "ServerSideEncryptionConfigurationNotFoundError",
+			Message: "The server side encryption configuration was not found",
+		}, http.StatusNotFound)
+	case q.Has("intelligent-tiering"):
+		h.setOperation(ctx, "ListBucketIntelligentTieringConfigurations")
+		httputil.WriteXML(log, w, http.StatusOK, struct {
+			XMLName                         xml.Name `xml:"ListBucketIntelligentTieringConfigurationsOutput"`
+			Xmlns                           string   `xml:"xmlns,attr"`
+			IntelligentTieringConfiguration []any    `xml:"IntelligentTieringConfiguration"`
+			IsTruncated                     bool     `xml:"IsTruncated"`
+		}{Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/"})
+	default:
+		return false
+	}
+
+	return true
 }
 
 func (h *S3Handler) listBuckets(ctx context.Context, w http.ResponseWriter, r *http.Request) {

@@ -92,7 +92,7 @@ func ResolveValue(v any, params map[string]string, physicalIDs map[string]string
 		return val
 	case bool:
 		if val {
-			return "true"
+			return boolTrue
 		}
 
 		return "false"

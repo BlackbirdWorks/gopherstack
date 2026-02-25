@@ -94,7 +94,9 @@ func applyTerraform(t *testing.T, tfBin, dir, hcl string) {
 	run := func(failFatal bool, args ...string) bool {
 		t.Helper()
 
-		cmd := exec.Command(tfBin, args...) //nolint:gosec // tfBin comes from exec.LookPath, args are controlled test inputs
+		cmd := exec.Command(
+			tfBin,
+			args...)
 		cmd.Dir = dir
 		cmd.Env = env
 

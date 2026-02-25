@@ -129,7 +129,7 @@ func TestResourceCreator_DynamoDBTable_PAYPerRequest(t *testing.T) {
 	rc := cloudformation.NewResourceCreator(backends)
 
 	props := map[string]any{
-		"TableName": "cfn-ondemand-table",
+		"TableName":   "cfn-ondemand-table",
 		"BillingMode": "PAY_PER_REQUEST",
 		"AttributeDefinitions": []any{
 			map[string]any{"AttributeName": "pk", "AttributeType": "S"},
@@ -384,7 +384,7 @@ func newMockBackendsProvider() *mockBackendsProvider {
 	}
 }
 
-func (m *mockBackendsProvider) GetDynamoDBHandler() service.Registerable      { return m.ddb }
+func (m *mockBackendsProvider) GetDynamoDBHandler() service.Registerable       { return m.ddb }
 func (m *mockBackendsProvider) GetS3Handler() service.Registerable             { return m.s3h }
 func (m *mockBackendsProvider) GetSQSHandler() service.Registerable            { return m.sqs }
 func (m *mockBackendsProvider) GetSNSHandler() service.Registerable            { return m.sns }

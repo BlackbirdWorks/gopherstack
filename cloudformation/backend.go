@@ -54,18 +54,18 @@ const (
 	MockAccountID = "000000000000"
 	MockRegion    = "us-east-1"
 
-	cfnStackType          = "AWS::CloudFormation::Stack"
-	statusCreateInProgress  = "CREATE_IN_PROGRESS"
-	statusCreateComplete    = "CREATE_COMPLETE"
-	statusCreateFailed      = "CREATE_FAILED"
-	statusUpdateInProgress  = "UPDATE_IN_PROGRESS"
-	statusUpdateComplete    = "UPDATE_COMPLETE"
-	statusUpdateFailed      = "UPDATE_FAILED"
-	statusDeleteInProgress  = "DELETE_IN_PROGRESS"
-	statusDeleteComplete    = "DELETE_COMPLETE"
+	cfnStackType             = "AWS::CloudFormation::Stack"
+	statusCreateInProgress   = "CREATE_IN_PROGRESS"
+	statusCreateComplete     = "CREATE_COMPLETE"
+	statusCreateFailed       = "CREATE_FAILED"
+	statusUpdateInProgress   = "UPDATE_IN_PROGRESS"
+	statusUpdateComplete     = "UPDATE_COMPLETE"
+	statusUpdateFailed       = "UPDATE_FAILED"
+	statusDeleteInProgress   = "DELETE_IN_PROGRESS"
+	statusDeleteComplete     = "DELETE_COMPLETE"
 	statusRollbackInProgress = "ROLLBACK_IN_PROGRESS"
-	statusRollbackComplete  = "ROLLBACK_COMPLETE"
-	reasonUserInitiated     = "User Initiated"
+	statusRollbackComplete   = "ROLLBACK_COMPLETE"
+	reasonUserInitiated      = "User Initiated"
 )
 
 // NewInMemoryBackend creates a new empty CloudFormation backend.
@@ -273,7 +273,15 @@ func (b *InMemoryBackend) applyTemplateToStack(ctx context.Context, stack *Stack
 	for logicalID, res := range tmpl.Resources {
 		if existing, exists := b.resources[stack.StackID][logicalID]; exists {
 			existing.Status = statusUpdateComplete
-			b.addEvent(stack.StackID, stack.StackName, logicalID, existing.PhysicalID, res.Type, statusUpdateComplete, "")
+			b.addEvent(
+				stack.StackID,
+				stack.StackName,
+				logicalID,
+				existing.PhysicalID,
+				res.Type,
+				statusUpdateComplete,
+				"",
+			)
 		} else {
 			b.addEvent(stack.StackID, stack.StackName, logicalID, "", res.Type, statusCreateInProgress, "")
 			physicalID, cerr := b.creator.Create(ctx, logicalID, res.Type, res.Properties, resolvedParams, physicalIDs)

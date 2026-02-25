@@ -40,45 +40,31 @@ func extractBackends(bp BackendsProvider) *ServiceBackends {
 	}
 
 	if h := bp.GetDynamoDBHandler(); h != nil {
-		if ddb, okDDB := h.(*ddbbackend.DynamoDBHandler); okDDB {
-			backends.DynamoDB = ddb
-		}
+		backends.DynamoDB, _ = h.(*ddbbackend.DynamoDBHandler)
 	}
 
 	if h := bp.GetS3Handler(); h != nil {
-		if s3, okS3 := h.(*s3backend.S3Handler); okS3 {
-			backends.S3 = s3
-		}
+		backends.S3, _ = h.(*s3backend.S3Handler)
 	}
 
 	if h := bp.GetSQSHandler(); h != nil {
-		if sqs, okSQS := h.(*sqsbackend.Handler); okSQS {
-			backends.SQS = sqs
-		}
+		backends.SQS, _ = h.(*sqsbackend.Handler)
 	}
 
 	if h := bp.GetSNSHandler(); h != nil {
-		if sns, okSNS := h.(*snsbackend.Handler); okSNS {
-			backends.SNS = sns
-		}
+		backends.SNS, _ = h.(*snsbackend.Handler)
 	}
 
 	if h := bp.GetSSMHandler(); h != nil {
-		if ssm, okSSM := h.(*ssmbackend.Handler); okSSM {
-			backends.SSM = ssm
-		}
+		backends.SSM, _ = h.(*ssmbackend.Handler)
 	}
 
 	if h := bp.GetKMSHandler(); h != nil {
-		if kms, okKMS := h.(*kmsbackend.Handler); okKMS {
-			backends.KMS = kms
-		}
+		backends.KMS, _ = h.(*kmsbackend.Handler)
 	}
 
 	if h := bp.GetSecretsManagerHandler(); h != nil {
-		if sm, okSM := h.(*secretsmanagerbackend.Handler); okSM {
-			backends.SecretsManager = sm
-		}
+		backends.SecretsManager, _ = h.(*secretsmanagerbackend.Handler)
 	}
 
 	return backends

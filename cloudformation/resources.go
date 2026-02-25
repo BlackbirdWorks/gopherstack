@@ -78,7 +78,7 @@ func (rc *ResourceCreator) Create(
 func (rc *ResourceCreator) Delete(
 	ctx context.Context,
 	resourceType, physicalID string,
-	props map[string]any,
+	_ map[string]any,
 ) error {
 	if rc == nil || rc.backends == nil {
 		return nil
@@ -248,8 +248,9 @@ func parseDDBKeySchema(props map[string]any, params, physicalIDs map[string]stri
 }
 
 const (
-	defaultCapacityUnits    = int64(5)
+	defaultCapacityUnits     = int64(5)
 	kmsMinDeletionWindowDays = 7
+	boolTrue                 = "true"
 )
 
 func parseDDBProvisionedThroughput(props map[string]any) *ddbtypes.ProvisionedThroughput {
@@ -293,7 +294,7 @@ func (rc *ResourceCreator) createSQSQueue(
 	}
 	if isFIFO, _ := props["FifoQueue"].(bool); isFIFO {
 		queueName = strings.TrimSuffix(queueName, ".fifo") + ".fifo"
-		attrs["FifoQueue"] = "true"
+		attrs["FifoQueue"] = boolTrue
 	}
 	out, err := rc.backends.SQS.Backend.CreateQueue(&sqsbackend.CreateQueueInput{
 		QueueName:  queueName,
@@ -330,7 +331,7 @@ func (rc *ResourceCreator) createSNSTopic(
 	}
 	attrs := map[string]string{}
 	if isFIFO, _ := props["FifoTopic"].(bool); isFIFO {
-		attrs["FifoTopic"] = "true"
+		attrs["FifoTopic"] = boolTrue
 	}
 	topic, err := rc.backends.SNS.Backend.CreateTopic(topicName, attrs)
 	if err != nil {

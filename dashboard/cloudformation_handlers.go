@@ -15,6 +15,7 @@ func (h *DashboardHandler) cloudFormationIndex(c *echo.Context) error {
 	stacks := h.CloudFormationOps.Backend.ListAll()
 	data := struct {
 		PageData
+
 		Stacks []*cfnbackend.Stack
 	}{
 		PageData: PageData{Title: "CloudFormation", ActiveTab: "cloudformation"},
@@ -37,6 +38,7 @@ func (h *DashboardHandler) cloudFormationStackDetail(c *echo.Context) error {
 	events, _ := h.CloudFormationOps.Backend.DescribeStackEvents(stackName)
 	data := struct {
 		PageData
+
 		Stack  *cfnbackend.Stack
 		Events []cfnbackend.StackEvent
 	}{

@@ -346,8 +346,8 @@ func (h *Handler) handleDescribeStacks(form url.Values, c *echo.Context) error {
 	type response struct {
 		XMLName   xml.Name   `xml:"DescribeStacksResponse"`
 		Xmlns     string     `xml:"xmlns,attr"`
-		Result    descResult `xml:"DescribeStacksResult"`
 		RequestID string     `xml:"ResponseMetadata>RequestId"`
+		Result    descResult `xml:"DescribeStacksResult"`
 	}
 
 	return writeXML(c, response{
@@ -383,8 +383,8 @@ func (h *Handler) handleListStacks(form url.Values, c *echo.Context) error {
 	type response struct {
 		XMLName   xml.Name   `xml:"ListStacksResponse"`
 		Xmlns     string     `xml:"xmlns,attr"`
-		Result    listResult `xml:"ListStacksResult"`
 		RequestID string     `xml:"ResponseMetadata>RequestId"`
+		Result    listResult `xml:"ListStacksResult"`
 	}
 
 	return writeXML(c, response{
@@ -437,8 +437,8 @@ func (h *Handler) handleDescribeStackEvents(form url.Values, c *echo.Context) er
 	type response struct {
 		XMLName   xml.Name     `xml:"DescribeStackEventsResponse"`
 		Xmlns     string       `xml:"xmlns,attr"`
-		Result    eventsResult `xml:"DescribeStackEventsResult"`
 		RequestID string       `xml:"ResponseMetadata>RequestId"`
+		Result    eventsResult `xml:"DescribeStackEventsResult"`
 	}
 
 	return writeXML(c, response{
@@ -528,8 +528,8 @@ func (h *Handler) handleDescribeChangeSet(form url.Values, c *echo.Context) erro
 	type response struct {
 		XMLName   xml.Name   `xml:"DescribeChangeSetResponse"`
 		Xmlns     string     `xml:"xmlns,attr"`
-		Result    descResult `xml:"DescribeChangeSetResult"`
 		RequestID string     `xml:"ResponseMetadata>RequestId"`
+		Result    descResult `xml:"DescribeChangeSetResult"`
 	}
 
 	return writeXML(c, response{
@@ -619,8 +619,8 @@ func (h *Handler) handleListChangeSets(form url.Values, c *echo.Context) error {
 	type response struct {
 		XMLName   xml.Name   `xml:"ListChangeSetsResponse"`
 		Xmlns     string     `xml:"xmlns,attr"`
-		Result    listResult `xml:"ListChangeSetsResult"`
 		RequestID string     `xml:"ResponseMetadata>RequestId"`
+		Result    listResult `xml:"ListChangeSetsResult"`
 	}
 
 	return writeXML(c, response{

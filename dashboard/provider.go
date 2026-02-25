@@ -154,9 +154,7 @@ func extractFromProvider(ctx *service.AppContext) extractedConfig {
 		ec.cloudWatchOps, _ = h.(*cwbackend.Handler)
 	}
 
-	if h := ap.GetCloudFormationHandler(); h != nil {
-		ec.cloudFormationOps, _ = h.(*cfnbackend.Handler)
-	}
+	ec.cloudFormationOps, _ = ap.GetCloudFormationHandler().(*cfnbackend.Handler)
 
 	return ec
 }
