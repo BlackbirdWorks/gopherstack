@@ -1,6 +1,6 @@
 module github.com/blackbirdworks/gopherstack
 
-go 1.26
+go 1.26.0
 
 require (
 	github.com/alecthomas/kong v1.14.0
@@ -23,6 +23,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.42.22
 	github.com/aws/aws-sdk-go-v2/service/ssm v1.68.1
 	github.com/aws/aws-sdk-go-v2/service/sts v1.41.7
+	github.com/aws/smithy-go v1.24.1
 	github.com/docker/docker v28.5.2+incompatible
 	github.com/google/go-cmp v0.7.0
 	github.com/google/uuid v1.6.0
@@ -56,7 +57,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/signin v1.0.6 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sso v1.30.11 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.35.15 // indirect
-	github.com/aws/smithy-go v1.24.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bitfield/gotestdox v0.2.2 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect

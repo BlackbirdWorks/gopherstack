@@ -53,6 +53,14 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		if r.Method != http.MethodPost {
 			return false
 		}
+
+		// Match rpc-v2-cbor requests (AWS SDK v2 ≥ cloudwatch@v1.55)
+		if isCBORRequest(r) {
+			op := extractCBOROperation(r.URL.Path)
+
+			return slices.Contains(h.GetSupportedOperations(), op)
+		}
+
 		ct := r.Header.Get("Content-Type")
 		if !strings.Contains(ct, "application/x-www-form-urlencoded") {
 			return false
@@ -71,9 +79,14 @@ const cloudwatchMatchPriority = 80
 // MatchPriority returns the routing priority for the CloudWatch handler.
 func (h *Handler) MatchPriority() int { return cloudwatchMatchPriority }
 
-// ExtractOperation extracts the operation name from the Action form field.
+// ExtractOperation extracts the operation name from the Action form field or CBOR path.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
 	r := c.Request()
+
+	if isCBORRequest(r) {
+		return extractCBOROperation(r.URL.Path)
+	}
+
 	if err := r.ParseForm(); err != nil {
 		return ""
 	}
@@ -95,6 +108,12 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		r := c.Request()
+
+		// Route rpc-v2-cbor requests (AWS SDK v2 ≥ cloudwatch@v1.55)
+		if isCBORRequest(r) {
+			return h.handleCBOR(c)
+		}
+
 		// ParseForm is idempotent; RouteMatcher may have already called it.
 		if err := r.ParseForm(); err != nil {
 			return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "cannot parse form body")

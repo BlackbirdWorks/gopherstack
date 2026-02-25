@@ -40,9 +40,9 @@ CreateFunction, GetFunction, ListFunctions, DeleteFunction, UpdateFunctionCode, 
 - [ ] Function URLs (via port allocator)
 - [ ] Aliases and versions
 
-### IAM — ~90% parity (23 operations) ✅
+### IAM — ~92% parity (24 operations) ✅
 
-Users, roles, policies, groups, access keys, instance profiles, attach/detach policies. Dashboard UI. Policy enforcement out of scope (same as LocalStack free tier).
+Users, roles, policies, groups, access keys, instance profiles, attach/detach policies (AttachRolePolicy, DetachRolePolicy, AttachUserPolicy). Dashboard UI. Policy enforcement out of scope (same as LocalStack free tier).
 
 ### STS — ~95% parity (5 operations) ✅
 
@@ -79,7 +79,7 @@ REST API CRUD, resources, methods, integrations (MOCK, AWS, HTTP), deployments, 
 
 ### EventBridge (14 operations) ✅
 
-Event bus CRUD, rules (put/delete/list/describe/enable/disable), targets (put/remove/list), PutEvents with event log (last 1000). Dashboard UI with event bus list, rules, event log viewer.
+Event bus CRUD, rules (put/delete/list/describe/enable/disable), targets (put/remove/list), PutEvents with event log (last 1000). Dashboard UI with event bus list, rules, event log viewer. Supports both `AmazonEventBridge.*` and `AWSEvents.*` target prefixes (AWS SDK v2 changed prefix in recent versions).
 
 **Remaining gaps:**
 - [ ] Target fan-out (deliver events to Lambda/SQS/SNS targets)
@@ -88,7 +88,7 @@ Event bus CRUD, rules (put/delete/list/describe/enable/disable), targets (put/re
 
 ### Step Functions (9 operations) ✅
 
-State machine CRUD, start/stop/describe/list executions, GetExecutionHistory. Standard and Express workflows, auto-succeed stub execution. Dashboard UI with state machine list, execution history.
+State machine CRUD, start/stop/describe/list executions, GetExecutionHistory. Standard and Express workflows, auto-succeed stub execution. Dashboard UI with state machine list, execution history. Supports both `AmazonStates.*` and `AWSStepFunctions.*` target prefixes (AWS SDK v2 changed prefix in recent versions).
 
 **Remaining gaps:**
 - [ ] ASL state machine interpreter (Task, Choice, Wait, Parallel, Map, Pass, Succeed, Fail)
@@ -96,7 +96,7 @@ State machine CRUD, start/stop/describe/list executions, GetExecutionHistory. St
 
 ### CloudWatch Metrics (7 operations) ✅
 
-PutMetricData, GetMetricStatistics, GetMetricData, ListMetrics, PutMetricAlarm, DescribeAlarms, DeleteAlarms. AWS query/XML protocol. Dashboard UI with namespace browser and alarm status.
+PutMetricData, GetMetricStatistics, GetMetricData, ListMetrics, PutMetricAlarm, DescribeAlarms, DeleteAlarms. Supports both legacy query/XML protocol AND rpc-v2-cbor (Smithy RPCv2) protocol used by AWS SDK v2 ≥ cloudwatch@v1.55. Dashboard UI with namespace browser and alarm status.
 
 **Remaining gaps:**
 - None significant
