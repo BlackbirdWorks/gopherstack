@@ -34,6 +34,7 @@ import (
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
 	ebbackend "github.com/blackbirdworks/gopherstack/eventbridge"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
+	kinesisbackend "github.com/blackbirdworks/gopherstack/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/lambda"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -87,6 +88,7 @@ type CLI struct {
 	stepFunctionsHandler  service.Registerable
 	cloudWatchHandler     service.Registerable
 	cloudFormationHandler service.Registerable
+	kinesisHandler        service.Registerable
 	s3Client              *s3.Client
 	iamClient             *iam.Client
 	snsClient             *sns.Client
@@ -235,6 +237,11 @@ func (c *CLI) GetCloudWatchHandler() service.Registerable { return c.cloudWatchH
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetCloudFormationHandler() service.Registerable { return c.cloudFormationHandler }
+
+// GetKinesisHandler returns the Kinesis handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetKinesisHandler() service.Registerable { return c.kinesisHandler }
 
 // Run parses CLI / environment-variable configuration and starts Gopherstack.
 // It is called from main() and exits on error.
@@ -424,6 +431,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		&cwlogsbackend.Provider{},
 		&sfnbackend.Provider{},
 		&cwbackend.Provider{},
+		&kinesisbackend.Provider{},
 	}
 
 	for _, provider := range serviceProviders {
@@ -452,6 +460,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		cli.cloudWatchLogsHandler = services[12]
 		cli.stepFunctionsHandler = services[13]
 		cli.cloudWatchHandler = services[14]
+		cli.kinesisHandler = services[15]
 	}
 
 	// Wire SNS→SQS delivery: when SNS publishes a message, deliver it to SQS queues.
@@ -759,6 +768,7 @@ func healthHandler(c *echo.Context) error {
 		Services: []string{
 			"DynamoDB", "S3", "SSM", "IAM", "STS", "SNS", "SQS", "KMS", "SecretsManager", "Lambda",
 			"EventBridge", "APIGateway", "CloudWatchLogs", "StepFunctions", "CloudWatch", "CloudFormation",
+			"Kinesis",
 		},
 	})
 }
