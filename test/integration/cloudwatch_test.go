@@ -27,7 +27,11 @@ func TestIntegration_CloudWatch_MetricsAndAlarms(t *testing.T) {
 		Namespace: aws.String(ns),
 		MetricData: []cwtypes.MetricDatum{
 			{MetricName: aws.String(metricName), Value: aws.Float64(100.0), Timestamp: aws.Time(time.Now().UTC())},
-			{MetricName: aws.String(metricName), Value: aws.Float64(200.0), Timestamp: aws.Time(time.Now().UTC().Add(-time.Minute))},
+			{
+				MetricName: aws.String(metricName),
+				Value:      aws.Float64(200.0),
+				Timestamp:  aws.Time(time.Now().UTC().Add(-time.Minute)),
+			},
 		},
 	})
 	require.NoError(t, err)

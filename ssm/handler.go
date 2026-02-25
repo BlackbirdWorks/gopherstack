@@ -151,7 +151,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 type ssmActionFn func([]byte) (any, error)
 
-func (h *Handler) ssmDispatchTable() map[string]ssmActionFn {
+func (h *Handler) ssmDispatchTable() map[string]ssmActionFn { //nolint:gocognit
 	return map[string]ssmActionFn{
 		"PutParameter": func(b []byte) (any, error) {
 			var input PutParameterInput

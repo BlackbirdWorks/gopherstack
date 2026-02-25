@@ -26,7 +26,10 @@ func TestIntegration_CloudWatchLogs_Lifecycle(t *testing.T) {
 	require.NoError(t, err)
 
 	// DescribeLogGroups
-	descGroups, err := client.DescribeLogGroups(ctx, &cloudwatchlogssdk.DescribeLogGroupsInput{LogGroupNamePrefix: aws.String(groupName)})
+	descGroups, err := client.DescribeLogGroups(
+		ctx,
+		&cloudwatchlogssdk.DescribeLogGroupsInput{LogGroupNamePrefix: aws.String(groupName)},
+	)
 	require.NoError(t, err)
 	require.NotEmpty(t, descGroups.LogGroups)
 

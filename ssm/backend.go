@@ -564,53 +564,53 @@ func paramMatchesFilter(meta ParameterMetadata, f ParameterFilter) bool {
 
 // AddTagsToResource adds or updates tags for a parameter.
 func (b *InMemoryBackend) AddTagsToResource(input *AddTagsToResourceInput) error {
-b.mu.Lock()
-defer b.mu.Unlock()
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
-name := input.ResourceID
-if _, ok := b.parameters[name]; !ok {
-return ErrParameterNotFound
-}
-if b.tags[name] == nil {
-b.tags[name] = make(map[string]string)
-}
-for _, t := range input.Tags {
-b.tags[name][t.Key] = t.Value
-}
+	name := input.ResourceID
+	if _, ok := b.parameters[name]; !ok {
+		return ErrParameterNotFound
+	}
+	if b.tags[name] == nil {
+		b.tags[name] = make(map[string]string)
+	}
+	for _, t := range input.Tags {
+		b.tags[name][t.Key] = t.Value
+	}
 
-return nil
+	return nil
 }
 
 // RemoveTagsFromResource removes tags from a parameter.
 func (b *InMemoryBackend) RemoveTagsFromResource(input *RemoveTagsFromResourceInput) error {
-b.mu.Lock()
-defer b.mu.Unlock()
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
-name := input.ResourceID
-if _, ok := b.parameters[name]; !ok {
-return ErrParameterNotFound
-}
-for _, k := range input.TagKeys {
-delete(b.tags[name], k)
-}
+	name := input.ResourceID
+	if _, ok := b.parameters[name]; !ok {
+		return ErrParameterNotFound
+	}
+	for _, k := range input.TagKeys {
+		delete(b.tags[name], k)
+	}
 
-return nil
+	return nil
 }
 
 // ListTagsForResource returns all tags for a parameter.
 func (b *InMemoryBackend) ListTagsForResource(input *ListTagsForResourceInput) (*ListTagsForResourceOutput, error) {
-b.mu.RLock()
-defer b.mu.RUnlock()
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 
-name := input.ResourceID
-if _, ok := b.parameters[name]; !ok {
-return nil, ErrParameterNotFound
-}
-var tagList []Tag
-for k, v := range b.tags[name] {
-tagList = append(tagList, Tag{Key: k, Value: v})
-}
-sort.Slice(tagList, func(i, j int) bool { return tagList[i].Key < tagList[j].Key })
+	name := input.ResourceID
+	if _, ok := b.parameters[name]; !ok {
+		return nil, ErrParameterNotFound
+	}
+	var tagList []Tag
+	for k, v := range b.tags[name] {
+		tagList = append(tagList, Tag{Key: k, Value: v})
+	}
+	sort.Slice(tagList, func(i, j int) bool { return tagList[i].Key < tagList[j].Key })
 
-return &ListTagsForResourceOutput{TagList: tagList}, nil
+	return &ListTagsForResourceOutput{TagList: tagList}, nil
 }

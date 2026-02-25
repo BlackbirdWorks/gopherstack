@@ -648,82 +648,82 @@ func (h *DynamoDBHandler) classifyError(reqErr error) (int, *Error) {
 }
 
 func (h *DynamoDBHandler) describeContinuousBackups(_ context.Context, body []byte) (any, error) {
-var req struct {
-TableName string `json:"TableName"`
-}
-if err := json.Unmarshal(body, &req); err != nil {
-return nil, err
-}
+	var req struct {
+		TableName string `json:"TableName"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, err
+	}
 
-return map[string]any{
-"ContinuousBackupsDescription": map[string]any{
-"ContinuousBackupsStatus": "ENABLED",
-"PointInTimeRecoveryDescription": map[string]any{
-"PointInTimeRecoveryStatus": "DISABLED",
-},
-},
-}, nil
+	return map[string]any{
+		"ContinuousBackupsDescription": map[string]any{
+			"ContinuousBackupsStatus": "ENABLED",
+			"PointInTimeRecoveryDescription": map[string]any{
+				"PointInTimeRecoveryStatus": "DISABLED",
+			},
+		},
+	}, nil
 }
 
 func (h *DynamoDBHandler) updateContinuousBackups(_ context.Context, body []byte) (any, error) {
-var req struct {
-TableName                        string `json:"TableName"`
-PointInTimeRecoverySpecification struct {
-PointInTimeRecoveryEnabled bool `json:"PointInTimeRecoveryEnabled"`
-} `json:"PointInTimeRecoverySpecification"`
-}
-if err := json.Unmarshal(body, &req); err != nil {
-return nil, err
-}
+	var req struct {
+		TableName                        string `json:"TableName"`
+		PointInTimeRecoverySpecification struct {
+			PointInTimeRecoveryEnabled bool `json:"PointInTimeRecoveryEnabled"`
+		} `json:"PointInTimeRecoverySpecification"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, err
+	}
 
-status := "DISABLED"
-if req.PointInTimeRecoverySpecification.PointInTimeRecoveryEnabled {
-status = "ENABLED"
-}
+	status := "DISABLED"
+	if req.PointInTimeRecoverySpecification.PointInTimeRecoveryEnabled {
+		status = "ENABLED"
+	}
 
-return map[string]any{
-"ContinuousBackupsDescription": map[string]any{
-"ContinuousBackupsStatus": "ENABLED",
-"PointInTimeRecoveryDescription": map[string]any{
-"PointInTimeRecoveryStatus": status,
-},
-},
-}, nil
+	return map[string]any{
+		"ContinuousBackupsDescription": map[string]any{
+			"ContinuousBackupsStatus": "ENABLED",
+			"PointInTimeRecoveryDescription": map[string]any{
+				"PointInTimeRecoveryStatus": status,
+			},
+		},
+	}, nil
 }
 
 func (h *DynamoDBHandler) exportTableToPointInTime(_ context.Context, body []byte) (any, error) {
-var req struct {
-TableArn string `json:"TableArn"`
-S3Bucket string `json:"S3Bucket"`
-}
-if err := json.Unmarshal(body, &req); err != nil {
-return nil, err
-}
+	var req struct {
+		TableArn string `json:"TableArn"`
+		S3Bucket string `json:"S3Bucket"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, err
+	}
 
-exportArn := "arn:aws:dynamodb:us-east-1:000000000000:table/table/export/01000000-0000-0000-0000-000000000000"
+	exportArn := "arn:aws:dynamodb:us-east-1:000000000000:table/table/export/01000000-0000-0000-0000-000000000000"
 
-return map[string]any{
-"ExportDescription": map[string]any{
-"ExportArn":    exportArn,
-"ExportStatus": "COMPLETED",
-"TableArn":     req.TableArn,
-"S3Bucket":     req.S3Bucket,
-},
-}, nil
+	return map[string]any{
+		"ExportDescription": map[string]any{
+			"ExportArn":    exportArn,
+			"ExportStatus": "COMPLETED",
+			"TableArn":     req.TableArn,
+			"S3Bucket":     req.S3Bucket,
+		},
+	}, nil
 }
 
 func (h *DynamoDBHandler) describeExport(_ context.Context, body []byte) (any, error) {
-var req struct {
-ExportArn string `json:"ExportArn"`
-}
-if err := json.Unmarshal(body, &req); err != nil {
-return nil, err
-}
+	var req struct {
+		ExportArn string `json:"ExportArn"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, err
+	}
 
-return map[string]any{
-"ExportDescription": map[string]any{
-"ExportArn":    req.ExportArn,
-"ExportStatus": "COMPLETED",
-},
-}, nil
+	return map[string]any{
+		"ExportDescription": map[string]any{
+			"ExportArn":    req.ExportArn,
+			"ExportStatus": "COMPLETED",
+		},
+	}, nil
 }

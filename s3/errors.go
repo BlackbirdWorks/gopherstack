@@ -17,14 +17,14 @@ var (
 	ErrBucketNotEmpty          = errors.New(
 		"BucketNotEmpty: The bucket you tried to delete is not empty",
 	)
-	ErrNotImplemented   = errors.New("NotImplemented")
-	ErrMethodNotAllowed = errors.New("MethodNotAllowed")
-	ErrInvalidArgument  = errors.New("InvalidArgument")
-	ErrNoSuchUpload     = errors.New("NoSuchUpload")
-	ErrInvalidPart      = errors.New("InvalidPart")
-	ErrNoCompressor     = errors.New("data is compressed but no compressor available")
-	ErrNoBucketPolicy   = errors.New("NoSuchBucketPolicy")
-	ErrNoCORSConfig     = errors.New("NoSuchCORSConfiguration")
+	ErrNotImplemented    = errors.New("NotImplemented")
+	ErrMethodNotAllowed  = errors.New("MethodNotAllowed")
+	ErrInvalidArgument   = errors.New("InvalidArgument")
+	ErrNoSuchUpload      = errors.New("NoSuchUpload")
+	ErrInvalidPart       = errors.New("InvalidPart")
+	ErrNoCompressor      = errors.New("data is compressed but no compressor available")
+	ErrNoBucketPolicy    = errors.New("NoSuchBucketPolicy")
+	ErrNoCORSConfig      = errors.New("NoSuchCORSConfiguration")
 	ErrNoLifecycleConfig = errors.New("NoSuchLifecycleConfiguration")
 )
 

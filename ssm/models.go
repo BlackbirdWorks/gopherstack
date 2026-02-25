@@ -7,8 +7,8 @@ type Parameter struct {
 	Name             string            `json:"Name"`
 	Type             string            `json:"Type"`
 	Value            string            `json:"Value"`
-	Description      string            `json:"Description,omitempty"`
 	Tags             map[string]string `json:"Tags,omitempty"`
+	Description      string            `json:"Description,omitempty"`
 	Version          int64             `json:"Version"`
 	LastModifiedDate float64           `json:"LastModifiedDate"`
 }

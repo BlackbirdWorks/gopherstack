@@ -12,10 +12,10 @@ import (
 	lambdabackend "github.com/blackbirdworks/gopherstack/lambda"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/secretsmanager"
-	sfnbackend "github.com/blackbirdworks/gopherstack/stepfunctions"
 	snsbackend "github.com/blackbirdworks/gopherstack/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/ssm"
+	sfnbackend "github.com/blackbirdworks/gopherstack/stepfunctions"
 )
 
 // BackendsProvider is a private interface to extract service backends for resource creation.

@@ -189,7 +189,10 @@ func (b *InMemoryBackend) GetMetricStatistics(
 
 // GetMetricData executes multiple metric queries and returns results.
 // Each query specifies a namespace, metric name, statistic, and period.
-func (b *InMemoryBackend) GetMetricData(queries []MetricDataQuery, startTime, endTime time.Time) ([]MetricDataResult, error) {
+func (b *InMemoryBackend) GetMetricData(
+	queries []MetricDataQuery,
+	startTime, endTime time.Time,
+) ([]MetricDataResult, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 

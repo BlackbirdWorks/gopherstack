@@ -18,13 +18,12 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodbstreams"
-	apigatewaysdk "github.com/aws/aws-sdk-go-v2/service/apigateway"
 	cloudformationsdk "github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	cloudwatchsdk "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cloudwatchlogssdk "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodbstreams"
 	eventbridgesdk "github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	iamsdk "github.com/aws/aws-sdk-go-v2/service/iam"
 	kmssdk "github.com/aws/aws-sdk-go-v2/service/kms"
@@ -392,26 +391,6 @@ func createCloudWatchLogsClient(t *testing.T) *cloudwatchlogssdk.Client {
 	}
 
 	return cloudwatchlogssdk.NewFromConfig(cfg, func(o *cloudwatchlogssdk.Options) {
-		o.BaseEndpoint = aws.String(endpoint)
-	})
-}
-
-// createAPIGatewayClient returns an API Gateway client pointed at the shared test container.
-func createAPIGatewayClient(t *testing.T) *apigatewaysdk.Client {
-	t.Helper()
-
-	cfg, err := config.LoadDefaultConfig(
-		t.Context(),
-		config.WithRegion("us-east-1"),
-		config.WithCredentialsProvider(
-			credentials.NewStaticCredentialsProvider("test", "test", ""),
-		),
-	)
-	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
-	}
-
-	return apigatewaysdk.NewFromConfig(cfg, func(o *apigatewaysdk.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

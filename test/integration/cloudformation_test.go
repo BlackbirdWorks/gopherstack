@@ -51,7 +51,10 @@ func TestIntegration_CloudFormation_StackLifecycle(t *testing.T) {
 	assert.NotEmpty(t, listOut.StackSummaries)
 
 	// DescribeStackEvents
-	eventsOut, err := client.DescribeStackEvents(ctx, &cloudformationsdk.DescribeStackEventsInput{StackName: aws.String(stackName)})
+	eventsOut, err := client.DescribeStackEvents(
+		ctx,
+		&cloudformationsdk.DescribeStackEventsInput{StackName: aws.String(stackName)},
+	)
 	require.NoError(t, err)
 	assert.NotEmpty(t, eventsOut.StackEvents)
 

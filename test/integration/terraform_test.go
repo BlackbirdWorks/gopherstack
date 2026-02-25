@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -14,6 +15,11 @@ import (
 	s3svc "github.com/aws/aws-sdk-go-v2/service/s3"
 	sqssvc "github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/google/uuid"
+	install "github.com/hashicorp/hc-install"
+	"github.com/hashicorp/hc-install/fs"
+	"github.com/hashicorp/hc-install/product"
+	"github.com/hashicorp/hc-install/releases"
+	"github.com/hashicorp/hc-install/src"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -23,6 +29,15 @@ import (
 //
 //nolint:gochecknoglobals // shared provider cache path, read-only after init
 var tfProviderCacheDir = filepath.Join(os.TempDir(), "gopherstack-tf-provider-cache")
+
+// tfBinaryOnce ensures terraform is only downloaded once per test run.
+//
+//nolint:gochecknoglobals // lazy-init singleton for the terraform binary path
+var (
+	tfBinaryOnce sync.Once
+	tfBinaryPath string
+	errTfBinary  error
+)
 
 // providerBlock returns the Terraform required_providers + provider "aws" block
 // pointing all service endpoints at addr (e.g. "http://localhost:32768").
@@ -60,16 +75,48 @@ provider "aws" {
 `, addr)
 }
 
-// findTerraformOrSkip returns the path to the terraform binary or skips the test.
-func findTerraformOrSkip(t *testing.T) string {
+// ensureTerraformBinary returns the path to the terraform binary, downloading
+// it automatically via hc-install if it is not already present in PATH.
+// The download happens at most once per test run (guarded by a [sync.Once]).
+func ensureTerraformBinary(t *testing.T) string {
 	t.Helper()
 
-	tfBin, err := exec.LookPath("terraform")
-	if err != nil {
-		t.Skip("terraform binary not found in PATH; skipping Terraform integration test")
+	tfBinaryOnce.Do(func() {
+		// First, check if terraform is already in PATH.
+		if path, err := exec.LookPath("terraform"); err == nil {
+			tfBinaryPath = path
+
+			return
+		}
+
+		// Not found in PATH — download via hc-install.
+		t.Log("terraform not found in PATH; downloading via hc-install...")
+
+		installer := install.NewInstaller()
+		ctx := context.Background()
+
+		path, err := installer.Ensure(ctx, []src.Source{
+			&fs.AnyVersion{
+				Product: &product.Product{
+					BinaryName: func() string { return "terraform" },
+				},
+			},
+			&releases.LatestVersion{
+				Product: product.Terraform,
+				//nolint:usetesting // terraform binary must outlive individual tests; t.TempDir() is cleaned up too early
+				InstallDir: os.TempDir(),
+			},
+		})
+
+		tfBinaryPath = path
+		errTfBinary = err
+	})
+
+	if errTfBinary != nil {
+		t.Fatalf("could not obtain terraform binary: %v", errTfBinary)
 	}
 
-	return tfBin
+	return tfBinaryPath
 }
 
 // applyTerraform writes hcl to a main.tf in dir, runs terraform init and
@@ -130,7 +177,7 @@ func TestTerraform_DynamoDB(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	tfBin := findTerraformOrSkip(t)
+	tfBin := ensureTerraformBinary(t)
 	ctx := context.Background()
 
 	tableName := "tf-ddb-" + uuid.NewString()
@@ -171,7 +218,7 @@ func TestTerraform_S3AndSQS(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	tfBin := findTerraformOrSkip(t)
+	tfBin := ensureTerraformBinary(t)
 	ctx := context.Background()
 
 	id := uuid.NewString()

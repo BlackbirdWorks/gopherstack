@@ -292,98 +292,98 @@ func UnixTimeFloat(t time.Time) float64 {
 
 // Grant represents a KMS key grant.
 type Grant struct {
-// GrantID is the unique identifier for the grant.
-GrantID string `json:"GrantId"`
-// KeyID is the ID of the KMS key.
-KeyID string `json:"KeyId"`
-// GranteePrincipal is the principal that receives the grant.
-GranteePrincipal string `json:"GranteePrincipal"`
-// Operations is the list of cryptographic operations the grantee can perform.
-Operations []string `json:"Operations"`
-// GrantToken is a token that can be used to identify this grant.
-GrantToken string `json:"GrantToken"`
-// Name is an optional name for the grant.
-Name string `json:"Name,omitempty"`
-// CreationDate is the Unix timestamp when the grant was created.
-CreationDate float64 `json:"CreationDate"`
+	// GrantID is the unique identifier for the grant.
+	GrantID string `json:"GrantId"`
+	// KeyID is the ID of the KMS key.
+	KeyID string `json:"KeyId"`
+	// GranteePrincipal is the principal that receives the grant.
+	GranteePrincipal string `json:"GranteePrincipal"`
+	// GrantToken is a token that can be used to identify this grant.
+	GrantToken string `json:"GrantToken"`
+	// Name is an optional name for the grant.
+	Name string `json:"Name,omitempty"`
+	// Operations is the list of cryptographic operations the grantee can perform.
+	Operations []string `json:"Operations"`
+	// CreationDate is the Unix timestamp when the grant was created.
+	CreationDate float64 `json:"CreationDate"`
 }
 
 // CreateGrantInput is the request payload for CreateGrant.
 type CreateGrantInput struct {
-KeyID            string   `json:"KeyId"`
-GranteePrincipal string   `json:"GranteePrincipal"`
-Operations       []string `json:"Operations"`
-Name             string   `json:"Name,omitempty"`
+	KeyID            string   `json:"KeyId"`
+	GranteePrincipal string   `json:"GranteePrincipal"`
+	Name             string   `json:"Name,omitempty"`
+	Operations       []string `json:"Operations"`
 }
 
 // CreateGrantOutput is the response payload for CreateGrant.
 type CreateGrantOutput struct {
-GrantID    string `json:"GrantId"`
-GrantToken string `json:"GrantToken"`
+	GrantID    string `json:"GrantId"`
+	GrantToken string `json:"GrantToken"`
 }
 
 // ListGrantsInput is the request payload for ListGrants.
 type ListGrantsInput struct {
-KeyID  string `json:"KeyId"`
-Marker string `json:"Marker,omitempty"`
-Limit  *int32 `json:"Limit,omitempty"`
+	Limit  *int32 `json:"Limit,omitempty"`
+	KeyID  string `json:"KeyId"`
+	Marker string `json:"Marker,omitempty"`
 }
 
 // ListGrantsOutput is the response payload for ListGrants.
 type ListGrantsOutput struct {
-Grants     []Grant `json:"Grants"`
-NextMarker string  `json:"NextMarker,omitempty"`
-Truncated  bool    `json:"Truncated"`
+	NextMarker string  `json:"NextMarker,omitempty"`
+	Grants     []Grant `json:"Grants"`
+	Truncated  bool    `json:"Truncated"`
 }
 
 // RevokeGrantInput is the request payload for RevokeGrant.
 type RevokeGrantInput struct {
-KeyID   string `json:"KeyId"`
-GrantID string `json:"GrantId"`
+	KeyID   string `json:"KeyId"`
+	GrantID string `json:"GrantId"`
 }
 
 // RetireGrantInput is the request payload for RetireGrant.
 type RetireGrantInput struct {
-GrantToken string `json:"GrantToken,omitempty"`
-GrantID    string `json:"GrantId,omitempty"`
-KeyID      string `json:"KeyId,omitempty"`
+	GrantToken string `json:"GrantToken,omitempty"`
+	GrantID    string `json:"GrantId,omitempty"`
+	KeyID      string `json:"KeyId,omitempty"`
 }
 
 // ListRetirableGrantsInput is the request payload for ListRetirableGrants.
 type ListRetirableGrantsInput struct {
-RetiringPrincipal string `json:"RetiringPrincipal"`
-Marker            string `json:"Marker,omitempty"`
-Limit             *int32 `json:"Limit,omitempty"`
+	Limit             *int32 `json:"Limit,omitempty"`
+	RetiringPrincipal string `json:"RetiringPrincipal"`
+	Marker            string `json:"Marker,omitempty"`
 }
 
 // GenerateDataKeyWithoutPlaintextInput is the request payload for GenerateDataKeyWithoutPlaintext.
 type GenerateDataKeyWithoutPlaintextInput struct {
-KeyID         string `json:"KeyId"`
-KeySpec       string `json:"KeySpec,omitempty"`
-NumberOfBytes *int32 `json:"NumberOfBytes,omitempty"`
+	NumberOfBytes *int32 `json:"NumberOfBytes,omitempty"`
+	KeyID         string `json:"KeyId"`
+	KeySpec       string `json:"KeySpec,omitempty"`
 }
 
 // GenerateDataKeyWithoutPlaintextOutput is the response payload for GenerateDataKeyWithoutPlaintext.
 type GenerateDataKeyWithoutPlaintextOutput struct {
-KeyID          string `json:"KeyId"`
-CiphertextBlob []byte `json:"CiphertextBlob"`
+	KeyID          string `json:"KeyId"`
+	CiphertextBlob []byte `json:"CiphertextBlob"`
 }
 
 // PutKeyPolicyInput is the request payload for PutKeyPolicy.
 type PutKeyPolicyInput struct {
-KeyID      string `json:"KeyId"`
-PolicyName string `json:"PolicyName"`
-Policy     string `json:"Policy"`
+	KeyID      string `json:"KeyId"`
+	PolicyName string `json:"PolicyName"`
+	Policy     string `json:"Policy"`
 }
 
 // GetKeyPolicyInput is the request payload for GetKeyPolicy.
 type GetKeyPolicyInput struct {
-KeyID      string `json:"KeyId"`
-PolicyName string `json:"PolicyName"`
+	KeyID      string `json:"KeyId"`
+	PolicyName string `json:"PolicyName"`
 }
 
 // GetKeyPolicyOutput is the response payload for GetKeyPolicy.
 type GetKeyPolicyOutput struct {
-Policy     string `json:"Policy"`
-PolicyName string `json:"PolicyName"`
+	Policy     string `json:"Policy"`
+	PolicyName string `json:"PolicyName"`
 }

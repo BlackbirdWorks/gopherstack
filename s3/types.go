@@ -14,15 +14,15 @@ const NullVersion = "null"
 
 // StoredBucket represents an S3 bucket in memory.
 type StoredBucket struct {
-	Objects              map[string]*StoredObject
-	mu                   *lockmetrics.RWMutex
-	Name                 string
-	Policy               string // JSON policy document
-	CORSConfig           string // XML CORS configuration
-	LifecycleConfig      string // XML lifecycle configuration
-	NotificationConfig   string // XML notification configuration
-	CreationDate         time.Time
-	ACL                  string
+	Objects            map[string]*StoredObject
+	mu                 *lockmetrics.RWMutex
+	Name               string
+	Policy             string // JSON policy document
+	CORSConfig         string // XML CORS configuration
+	LifecycleConfig    string // XML lifecycle configuration
+	NotificationConfig string // XML notification configuration
+	CreationDate       time.Time
+	ACL                string
 	// Versioning must precede non-pointer fields so its trailing len word falls
 	// outside the GC scan range, reducing pointer bytes to 64.
 	Versioning types.BucketVersioningStatus

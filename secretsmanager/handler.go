@@ -162,7 +162,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 type smActionFn func(region string, body []byte) (any, error)
 
-func (h *Handler) smDispatchTable() map[string]smActionFn {
+func (h *Handler) smDispatchTable() map[string]smActionFn { //nolint:gocognit
 	return map[string]smActionFn{
 		"CreateSecret": func(region string, b []byte) (any, error) {
 			var input CreateSecretInput
