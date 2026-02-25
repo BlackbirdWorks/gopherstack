@@ -55,7 +55,7 @@ func TestIntegration_S3_PresignedURLs(t *testing.T) {
 				require.NotEmpty(t, presigned.URL)
 
 				// Fetch via the presigned URL.
-				resp, err := http.Get(presigned.URL) //nolint:noctx // test helper
+				resp, err := http.Get(presigned.URL)
 				require.NoError(t, err)
 				defer resp.Body.Close()
 
@@ -149,7 +149,7 @@ func TestIntegration_S3_PresignedURLs(t *testing.T) {
 				// Wait for expiry.
 				time.Sleep(2 * time.Second)
 
-				resp, err := http.Get(presigned.URL) //nolint:noctx // test helper
+				resp, err := http.Get(presigned.URL)
 				require.NoError(t, err)
 				defer resp.Body.Close()
 

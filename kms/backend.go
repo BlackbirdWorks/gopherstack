@@ -66,7 +66,9 @@ type StorageBackend interface {
 	Encrypt(input *EncryptInput) (*EncryptOutput, error)
 	Decrypt(input *DecryptInput) (*DecryptOutput, error)
 	GenerateDataKey(input *GenerateDataKeyInput) (*GenerateDataKeyOutput, error)
-	GenerateDataKeyWithoutPlaintext(input *GenerateDataKeyWithoutPlaintextInput) (*GenerateDataKeyWithoutPlaintextOutput, error)
+	GenerateDataKeyWithoutPlaintext(
+		input *GenerateDataKeyWithoutPlaintextInput,
+	) (*GenerateDataKeyWithoutPlaintextOutput, error)
 	ReEncrypt(input *ReEncryptInput) (*ReEncryptOutput, error)
 	CreateAlias(input *CreateAliasInput) error
 	DeleteAlias(input *DeleteAliasInput) error
@@ -721,201 +723,204 @@ func parseMarker(marker string) int {
 
 // CreateGrant creates a new grant on the specified key.
 func (b *InMemoryBackend) CreateGrant(input *CreateGrantInput) (*CreateGrantOutput, error) {
-b.mu.Lock()
-defer b.mu.Unlock()
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
-keyID, err := b.resolveKeyID(input.KeyID)
-if err != nil {
-return nil, err
-}
+	keyID, err := b.resolveKeyID(input.KeyID)
+	if err != nil {
+		return nil, err
+	}
 
-if _, ok := b.keys[keyID]; !ok {
-return nil, ErrKeyNotFound
-}
+	if _, ok := b.keys[keyID]; !ok {
+		return nil, ErrKeyNotFound
+	}
 
-grantID := uuid.New().String()
-grantToken := uuid.New().String()
-grant := &Grant{
-GrantID:          grantID,
-KeyID:            keyID,
-GranteePrincipal: input.GranteePrincipal,
-Operations:       input.Operations,
-Name:             input.Name,
-GrantToken:       grantToken,
-CreationDate:     UnixTimeFloat(time.Now()),
-}
-b.grants[grantID] = grant
+	grantID := uuid.New().String()
+	grantToken := uuid.New().String()
+	grant := &Grant{
+		GrantID:          grantID,
+		KeyID:            keyID,
+		GranteePrincipal: input.GranteePrincipal,
+		Operations:       input.Operations,
+		Name:             input.Name,
+		GrantToken:       grantToken,
+		CreationDate:     UnixTimeFloat(time.Now()),
+	}
+	b.grants[grantID] = grant
 
-return &CreateGrantOutput{GrantID: grantID, GrantToken: grantToken}, nil
+	return &CreateGrantOutput{GrantID: grantID, GrantToken: grantToken}, nil
 }
 
 // ListGrants returns the grants for a specified key.
 func (b *InMemoryBackend) ListGrants(input *ListGrantsInput) (*ListGrantsOutput, error) {
-b.mu.RLock()
-defer b.mu.RUnlock()
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 
-keyID, err := b.resolveKeyID(input.KeyID)
-if err != nil {
-return nil, err
-}
+	keyID, err := b.resolveKeyID(input.KeyID)
+	if err != nil {
+		return nil, err
+	}
 
-if _, ok := b.keys[keyID]; !ok {
-return nil, ErrKeyNotFound
-}
+	if _, ok := b.keys[keyID]; !ok {
+		return nil, ErrKeyNotFound
+	}
 
-var grants []Grant
-for _, g := range b.grants {
-if g.KeyID == keyID {
-grants = append(grants, *g)
-}
-}
+	var grants []Grant
+	for _, g := range b.grants {
+		if g.KeyID == keyID {
+			grants = append(grants, *g)
+		}
+	}
 
-sort.Slice(grants, func(i, j int) bool { return grants[i].GrantID < grants[j].GrantID })
+	sort.Slice(grants, func(i, j int) bool { return grants[i].GrantID < grants[j].GrantID })
 
-return &ListGrantsOutput{Grants: grants}, nil
+	return &ListGrantsOutput{Grants: grants}, nil
 }
 
 // RevokeGrant revokes a grant by ID.
 func (b *InMemoryBackend) RevokeGrant(input *RevokeGrantInput) error {
-b.mu.Lock()
-defer b.mu.Unlock()
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
-keyID, err := b.resolveKeyID(input.KeyID)
-if err != nil {
-return err
-}
+	keyID, err := b.resolveKeyID(input.KeyID)
+	if err != nil {
+		return err
+	}
 
-if _, ok := b.keys[keyID]; !ok {
-return ErrKeyNotFound
-}
+	if _, ok := b.keys[keyID]; !ok {
+		return ErrKeyNotFound
+	}
 
-grant, ok := b.grants[input.GrantID]
-if !ok || grant.KeyID != keyID {
-return ErrGrantNotFound
-}
+	grant, ok := b.grants[input.GrantID]
+	if !ok || grant.KeyID != keyID {
+		return ErrGrantNotFound
+	}
 
-delete(b.grants, input.GrantID)
+	delete(b.grants, input.GrantID)
 
-return nil
+	return nil
 }
 
 // RetireGrant retires a grant by grant token or grant ID + key ID.
 func (b *InMemoryBackend) RetireGrant(input *RetireGrantInput) error {
-b.mu.Lock()
-defer b.mu.Unlock()
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
-if input.GrantToken != "" {
-for grantID, g := range b.grants {
-if g.GrantToken == input.GrantToken {
-delete(b.grants, grantID)
+	if input.GrantToken != "" {
+		for grantID, g := range b.grants {
+			if g.GrantToken == input.GrantToken {
+				delete(b.grants, grantID)
 
-return nil
-}
-}
+				return nil
+			}
+		}
 
-return ErrGrantNotFound
-}
+		return ErrGrantNotFound
+	}
 
-if input.GrantID != "" {
-grant, ok := b.grants[input.GrantID]
-if !ok {
-return ErrGrantNotFound
-}
+	if input.GrantID == "" {
+		return ErrGrantNotFound
+	}
 
-if input.KeyID != "" {
-keyID, err := b.resolveKeyID(input.KeyID)
-if err != nil {
-return err
-}
+	grant, ok := b.grants[input.GrantID]
+	if !ok {
+		return ErrGrantNotFound
+	}
 
-if grant.KeyID != keyID {
-return ErrGrantNotFound
-}
-}
+	if input.KeyID != "" {
+		keyID, err := b.resolveKeyID(input.KeyID)
+		if err != nil {
+			return err
+		}
 
-delete(b.grants, input.GrantID)
+		if grant.KeyID != keyID {
+			return ErrGrantNotFound
+		}
+	}
 
-return nil
-}
+	delete(b.grants, input.GrantID)
 
-return ErrGrantNotFound
+	return nil
 }
 
 // ListRetirableGrants returns all grants for which the given principal is the retiring principal.
-func (b *InMemoryBackend) ListRetirableGrants(input *ListRetirableGrantsInput) (*ListGrantsOutput, error) {
-b.mu.RLock()
-defer b.mu.RUnlock()
+func (b *InMemoryBackend) ListRetirableGrants(_ *ListRetirableGrantsInput) (*ListGrantsOutput, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 
-var grants []Grant
-for _, g := range b.grants {
-grants = append(grants, *g)
-}
+	grants := make([]Grant, 0, len(b.grants))
+	for _, g := range b.grants {
+		grants = append(grants, *g)
+	}
 
-sort.Slice(grants, func(i, j int) bool { return grants[i].GrantID < grants[j].GrantID })
+	sort.Slice(grants, func(i, j int) bool { return grants[i].GrantID < grants[j].GrantID })
 
-return &ListGrantsOutput{Grants: grants}, nil
+	return &ListGrantsOutput{Grants: grants}, nil
 }
 
 // GenerateDataKeyWithoutPlaintext generates a data key but returns only the encrypted copy.
-func (b *InMemoryBackend) GenerateDataKeyWithoutPlaintext(input *GenerateDataKeyWithoutPlaintextInput) (*GenerateDataKeyWithoutPlaintextOutput, error) {
-out, err := b.GenerateDataKey(&GenerateDataKeyInput{
-KeyID:         input.KeyID,
-KeySpec:       input.KeySpec,
-NumberOfBytes: input.NumberOfBytes,
-})
-if err != nil {
-return nil, err
-}
+func (b *InMemoryBackend) GenerateDataKeyWithoutPlaintext(
+	input *GenerateDataKeyWithoutPlaintextInput,
+) (*GenerateDataKeyWithoutPlaintextOutput, error) {
+	out, err := b.GenerateDataKey(&GenerateDataKeyInput{
+		KeyID:         input.KeyID,
+		KeySpec:       input.KeySpec,
+		NumberOfBytes: input.NumberOfBytes,
+	})
+	if err != nil {
+		return nil, err
+	}
 
-return &GenerateDataKeyWithoutPlaintextOutput{
-KeyID:          out.KeyID,
-CiphertextBlob: out.CiphertextBlob,
-}, nil
+	return &GenerateDataKeyWithoutPlaintextOutput{
+		KeyID:          out.KeyID,
+		CiphertextBlob: out.CiphertextBlob,
+	}, nil
 }
 
 // PutKeyPolicy stores a key policy for a KMS key.
 func (b *InMemoryBackend) PutKeyPolicy(input *PutKeyPolicyInput) error {
-b.mu.Lock()
-defer b.mu.Unlock()
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
-keyID, err := b.resolveKeyID(input.KeyID)
-if err != nil {
-return err
-}
+	keyID, err := b.resolveKeyID(input.KeyID)
+	if err != nil {
+		return err
+	}
 
-if _, ok := b.keys[keyID]; !ok {
-return ErrKeyNotFound
-}
+	if _, ok := b.keys[keyID]; !ok {
+		return ErrKeyNotFound
+	}
 
-b.policies[keyID] = input.Policy
+	b.policies[keyID] = input.Policy
 
-return nil
+	return nil
 }
 
 // GetKeyPolicy retrieves the key policy for a KMS key.
 func (b *InMemoryBackend) GetKeyPolicy(input *GetKeyPolicyInput) (*GetKeyPolicyOutput, error) {
-b.mu.RLock()
-defer b.mu.RUnlock()
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 
-keyID, err := b.resolveKeyID(input.KeyID)
-if err != nil {
-return nil, err
-}
+	keyID, err := b.resolveKeyID(input.KeyID)
+	if err != nil {
+		return nil, err
+	}
 
-if _, ok := b.keys[keyID]; !ok {
-return nil, ErrKeyNotFound
-}
+	if _, ok := b.keys[keyID]; !ok {
+		return nil, ErrKeyNotFound
+	}
 
-policy, ok := b.policies[keyID]
-if !ok {
-// Return default policy
-policy = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"arn:aws:iam::000000000000:root"},"Action":"kms:*","Resource":"*"}]}`
-}
+	policy, ok := b.policies[keyID]
+	if !ok {
+		// Return default policy
+		policy = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
+			`"Principal":{"AWS":"arn:aws:iam::000000000000:root"},"Action":"kms:*","Resource":"*"}]}`
+	}
 
-policyName := input.PolicyName
-if policyName == "" {
-policyName = "default"
-}
+	policyName := input.PolicyName
+	if policyName == "" {
+		policyName = "default"
+	}
 
-return &GetKeyPolicyOutput{Policy: policy, PolicyName: policyName}, nil
+	return &GetKeyPolicyOutput{Policy: policy, PolicyName: policyName}, nil
 }

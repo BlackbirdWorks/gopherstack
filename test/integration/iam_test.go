@@ -34,6 +34,7 @@ func TestIntegration_IAM_UserAndRole(t *testing.T) {
 	for _, u := range listOut.Users {
 		if *u.UserName == userName {
 			found = true
+
 			break
 		}
 	}
@@ -52,7 +53,8 @@ func TestIntegration_IAM_RoleAndPolicy(t *testing.T) {
 
 	roleName := "test-role-" + uuid.NewString()[:8]
 	policyName := "test-policy-" + uuid.NewString()[:8]
-	assumeRoleDoc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}`
+	assumeRoleDoc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
+		`"Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}`
 	policyDoc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:*","Resource":"*"}]}`
 
 	// CreateRole
@@ -80,7 +82,10 @@ func TestIntegration_IAM_RoleAndPolicy(t *testing.T) {
 	require.NoError(t, err)
 
 	// ListAttachedRolePolicies
-	attachedOut, err := client.ListAttachedRolePolicies(ctx, &iamsdk.ListAttachedRolePoliciesInput{RoleName: aws.String(roleName)})
+	attachedOut, err := client.ListAttachedRolePolicies(
+		ctx,
+		&iamsdk.ListAttachedRolePoliciesInput{RoleName: aws.String(roleName)},
+	)
 	require.NoError(t, err)
 	assert.Len(t, attachedOut.AttachedPolicies, 1)
 

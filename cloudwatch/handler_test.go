@@ -266,24 +266,34 @@ func TestHandler_UnknownAction(t *testing.T) {
 }
 
 func TestHandler_GetMetricData(t *testing.T) {
-t.Parallel()
-h := newCWHandler()
+	t.Parallel()
+	h := newCWHandler()
 
-// Put some metric data
-postForm(t, h, "Action=PutMetricData&Namespace=MyNS&MetricData.member.1.MetricName=Latency&MetricData.member.1.Value=100&MetricData.member.1.Timestamp=2024-01-01T00:00:00Z")
-postForm(t, h, "Action=PutMetricData&Namespace=MyNS&MetricData.member.1.MetricName=Latency&MetricData.member.1.Value=200&MetricData.member.1.Timestamp=2024-01-01T00:01:00Z")
+	// Put some metric data
+	postForm(
+		t,
+		h,
+		"Action=PutMetricData&Namespace=MyNS&MetricData.member.1.MetricName=Latency"+
+			"&MetricData.member.1.Value=100&MetricData.member.1.Timestamp=2024-01-01T00:00:00Z",
+	)
+	postForm(
+		t,
+		h,
+		"Action=PutMetricData&Namespace=MyNS&MetricData.member.1.MetricName=Latency"+
+			"&MetricData.member.1.Value=200&MetricData.member.1.Timestamp=2024-01-01T00:01:00Z",
+	)
 
-// GetMetricData
-rec := postForm(t, h, "Action=GetMetricData"+
-"&StartTime=2024-01-01T00:00:00Z"+
-"&EndTime=2024-01-01T00:10:00Z"+
-"&MetricDataQueries.member.1.Id=latency1"+
-"&MetricDataQueries.member.1.MetricStat.Metric.Namespace=MyNS"+
-"&MetricDataQueries.member.1.MetricStat.Metric.MetricName=Latency"+
-"&MetricDataQueries.member.1.MetricStat.Stat=Sum"+
-"&MetricDataQueries.member.1.MetricStat.Period=60")
+	// GetMetricData
+	rec := postForm(t, h, "Action=GetMetricData"+
+		"&StartTime=2024-01-01T00:00:00Z"+
+		"&EndTime=2024-01-01T00:10:00Z"+
+		"&MetricDataQueries.member.1.Id=latency1"+
+		"&MetricDataQueries.member.1.MetricStat.Metric.Namespace=MyNS"+
+		"&MetricDataQueries.member.1.MetricStat.Metric.MetricName=Latency"+
+		"&MetricDataQueries.member.1.MetricStat.Stat=Sum"+
+		"&MetricDataQueries.member.1.MetricStat.Period=60")
 
-assert.Equal(t, http.StatusOK, rec.Code)
-assert.Contains(t, rec.Body.String(), "GetMetricDataResponse")
-assert.Contains(t, rec.Body.String(), "latency1")
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "GetMetricDataResponse")
+	assert.Contains(t, rec.Body.String(), "latency1")
 }

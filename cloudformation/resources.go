@@ -19,10 +19,10 @@ import (
 	lambdabackend "github.com/blackbirdworks/gopherstack/lambda"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/secretsmanager"
-	sfnbackend "github.com/blackbirdworks/gopherstack/stepfunctions"
 	snsbackend "github.com/blackbirdworks/gopherstack/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/ssm"
+	sfnbackend "github.com/blackbirdworks/gopherstack/stepfunctions"
 )
 
 // ServiceBackends holds references to all service backends.
@@ -64,21 +64,65 @@ func (rc *ResourceCreator) Create(
 	if rc == nil || rc.backends == nil {
 		return logicalID + "-" + uuid.New().String()[:8], nil
 	}
+
+	if id, handled, err := rc.createCoreResource(ctx, logicalID, resourceType, props, params, physicalIDs); handled {
+		return id, err
+	}
+
+	return rc.createExtendedResource(ctx, logicalID, resourceType, props, params, physicalIDs)
+}
+
+// createCoreResource handles the original 7 core AWS resource types.
+func (rc *ResourceCreator) createCoreResource(
+	ctx context.Context,
+	logicalID, resourceType string,
+	props map[string]any,
+	params map[string]string,
+	physicalIDs map[string]string,
+) (string, bool, error) {
 	switch resourceType {
 	case "AWS::S3::Bucket":
-		return rc.createS3Bucket(ctx, logicalID, props, params, physicalIDs)
+		id, err := rc.createS3Bucket(ctx, logicalID, props, params, physicalIDs)
+
+		return id, true, err
 	case "AWS::DynamoDB::Table":
-		return rc.createDynamoDBTable(ctx, logicalID, props, params, physicalIDs)
+		id, err := rc.createDynamoDBTable(ctx, logicalID, props, params, physicalIDs)
+
+		return id, true, err
 	case "AWS::SQS::Queue":
-		return rc.createSQSQueue(ctx, logicalID, props, params, physicalIDs)
+		id, err := rc.createSQSQueue(ctx, logicalID, props, params, physicalIDs)
+
+		return id, true, err
 	case "AWS::SNS::Topic":
-		return rc.createSNSTopic(ctx, logicalID, props, params, physicalIDs)
+		id, err := rc.createSNSTopic(ctx, logicalID, props, params, physicalIDs)
+
+		return id, true, err
 	case "AWS::SSM::Parameter":
-		return rc.createSSMParameter(ctx, logicalID, props, params, physicalIDs)
+		id, err := rc.createSSMParameter(ctx, logicalID, props, params, physicalIDs)
+
+		return id, true, err
 	case "AWS::KMS::Key":
-		return rc.createKMSKey(ctx, logicalID, props, params, physicalIDs)
+		id, err := rc.createKMSKey(ctx, logicalID, props, params, physicalIDs)
+
+		return id, true, err
 	case "AWS::SecretsManager::Secret":
-		return rc.createSecretsManagerSecret(ctx, logicalID, props, params, physicalIDs)
+		id, err := rc.createSecretsManagerSecret(ctx, logicalID, props, params, physicalIDs)
+
+		return id, true, err
+	default:
+		return "", false, nil
+	}
+}
+
+// createExtendedResource handles extended AWS resource types (Lambda, EventBridge, etc.).
+func (rc *ResourceCreator) createExtendedResource(
+	ctx context.Context,
+	logicalID, resourceType string,
+	props map[string]any,
+	params map[string]string,
+	physicalIDs map[string]string,
+) (string, error) {
+	switch resourceType {
 	case "AWS::Lambda::Function":
 		return rc.createLambdaFunction(ctx, logicalID, props, params, physicalIDs)
 	case "AWS::Events::Rule":
@@ -103,21 +147,39 @@ func (rc *ResourceCreator) Delete(
 	if rc == nil || rc.backends == nil {
 		return nil
 	}
+
+	if handled, err := rc.deleteCoreResource(ctx, resourceType, physicalID); handled {
+		return err
+	}
+
+	return rc.deleteExtendedResource(ctx, resourceType, physicalID)
+}
+
+// deleteCoreResource handles deletion of the original 7 core AWS resource types.
+func (rc *ResourceCreator) deleteCoreResource(ctx context.Context, resourceType, physicalID string) (bool, error) {
 	switch resourceType {
 	case "AWS::S3::Bucket":
-		return rc.deleteS3Bucket(ctx, physicalID)
+		return true, rc.deleteS3Bucket(ctx, physicalID)
 	case "AWS::DynamoDB::Table":
-		return rc.deleteDynamoDBTable(ctx, physicalID)
+		return true, rc.deleteDynamoDBTable(ctx, physicalID)
 	case "AWS::SQS::Queue":
-		return rc.deleteSQSQueue(ctx, physicalID)
+		return true, rc.deleteSQSQueue(ctx, physicalID)
 	case "AWS::SNS::Topic":
-		return rc.deleteSNSTopic(ctx, physicalID)
+		return true, rc.deleteSNSTopic(ctx, physicalID)
 	case "AWS::SSM::Parameter":
-		return rc.deleteSSMParameter(ctx, physicalID)
+		return true, rc.deleteSSMParameter(ctx, physicalID)
 	case "AWS::KMS::Key":
-		return rc.deleteKMSKey(ctx, physicalID)
+		return true, rc.deleteKMSKey(ctx, physicalID)
 	case "AWS::SecretsManager::Secret":
-		return rc.deleteSecretsManagerSecret(ctx, physicalID)
+		return true, rc.deleteSecretsManagerSecret(ctx, physicalID)
+	default:
+		return false, nil
+	}
+}
+
+// deleteExtendedResource handles deletion of extended AWS resource types (Lambda, EventBridge, etc.).
+func (rc *ResourceCreator) deleteExtendedResource(ctx context.Context, resourceType, physicalID string) error {
+	switch resourceType {
 	case "AWS::Lambda::Function":
 		return rc.deleteLambdaFunction(physicalID)
 	case "AWS::Events::Rule":
@@ -168,11 +230,11 @@ func (rc *ResourceCreator) deleteS3Bucket(ctx context.Context, physicalID string
 	if rc.backends.S3 == nil {
 		return nil
 	}
-	_, _ = rc.backends.S3.Backend.DeleteBucket(ctx, &awss3.DeleteBucketInput{
+	_, err := rc.backends.S3.Backend.DeleteBucket(ctx, &awss3.DeleteBucketInput{
 		Bucket: aws.String(physicalID),
 	})
 
-	return nil
+	return err
 }
 
 func (rc *ResourceCreator) createDynamoDBTable(
@@ -341,9 +403,8 @@ func (rc *ResourceCreator) deleteSQSQueue(_ context.Context, physicalID string) 
 	if rc.backends.SQS == nil {
 		return nil
 	}
-	_ = rc.backends.SQS.Backend.DeleteQueue(&sqsbackend.DeleteQueueInput{QueueURL: physicalID})
 
-	return nil
+	return rc.backends.SQS.Backend.DeleteQueue(&sqsbackend.DeleteQueueInput{QueueURL: physicalID})
 }
 
 func (rc *ResourceCreator) createSNSTopic(
@@ -375,9 +436,8 @@ func (rc *ResourceCreator) deleteSNSTopic(_ context.Context, physicalID string) 
 	if rc.backends.SNS == nil {
 		return nil
 	}
-	_ = rc.backends.SNS.Backend.DeleteTopic(physicalID)
 
-	return nil
+	return rc.backends.SNS.Backend.DeleteTopic(physicalID)
 }
 
 func (rc *ResourceCreator) createSSMParameter(
@@ -416,9 +476,9 @@ func (rc *ResourceCreator) deleteSSMParameter(_ context.Context, physicalID stri
 	if rc.backends.SSM == nil {
 		return nil
 	}
-	_, _ = rc.backends.SSM.Backend.DeleteParameter(&ssmbackend.DeleteParameterInput{Name: physicalID})
+	_, err := rc.backends.SSM.Backend.DeleteParameter(&ssmbackend.DeleteParameterInput{Name: physicalID})
 
-	return nil
+	return err
 }
 
 func (rc *ResourceCreator) createKMSKey(
@@ -446,12 +506,12 @@ func (rc *ResourceCreator) deleteKMSKey(_ context.Context, physicalID string) er
 	if rc.backends.KMS == nil {
 		return nil
 	}
-	_, _ = rc.backends.KMS.Backend.ScheduleKeyDeletion(&kmsbackend.ScheduleKeyDeletionInput{
+	_, err := rc.backends.KMS.Backend.ScheduleKeyDeletion(&kmsbackend.ScheduleKeyDeletionInput{
 		KeyID:               physicalID,
 		PendingWindowInDays: kmsMinDeletionWindowDays,
 	})
 
-	return nil
+	return err
 }
 
 func (rc *ResourceCreator) createSecretsManagerSecret(
@@ -485,218 +545,218 @@ func (rc *ResourceCreator) deleteSecretsManagerSecret(_ context.Context, physica
 	if rc.backends.SecretsManager == nil {
 		return nil
 	}
-	_, _ = rc.backends.SecretsManager.Backend.DeleteSecret(&secretsmanagerbackend.DeleteSecretInput{
+	_, err := rc.backends.SecretsManager.Backend.DeleteSecret(&secretsmanagerbackend.DeleteSecretInput{
 		SecretID:                   physicalID,
 		ForceDeleteWithoutRecovery: true,
 	})
 
-	return nil
+	return err
 }
 
 // createLambdaFunction creates a Lambda function from CloudFormation template properties.
 func (rc *ResourceCreator) createLambdaFunction(
-_ context.Context,
-logicalID string,
-props map[string]any,
+	_ context.Context,
+	logicalID string,
+	props map[string]any,
 	params, physicalIDs map[string]string,
 ) (string, error) {
-if rc.backends.Lambda == nil {
-return logicalID + "-stub", nil
-}
+	if rc.backends.Lambda == nil {
+		return logicalID + "-stub", nil
+	}
 
-name := strProp(props, "FunctionName", params, physicalIDs)
-if name == "" {
-name = logicalID + "-" + uuid.New().String()[:8]
-}
+	name := strProp(props, "FunctionName", params, physicalIDs)
+	if name == "" {
+		name = logicalID + "-" + uuid.New().String()[:8]
+	}
 
-runtime := strProp(props, "Runtime", params, physicalIDs)
-handler := strProp(props, "Handler", params, physicalIDs)
-role := strProp(props, "Role", params, physicalIDs)
+	runtime := strProp(props, "Runtime", params, physicalIDs)
+	handler := strProp(props, "Handler", params, physicalIDs)
+	role := strProp(props, "Role", params, physicalIDs)
 
-fn := &lambdabackend.FunctionConfiguration{
-FunctionName: name,
-Runtime:      runtime,
-Handler:      handler,
-Role:         role,
-}
+	fn := &lambdabackend.FunctionConfiguration{
+		FunctionName: name,
+		Runtime:      runtime,
+		Handler:      handler,
+		Role:         role,
+	}
 
-if err := rc.backends.Lambda.Backend.CreateFunction(fn); err != nil {
-return "", fmt.Errorf("create Lambda function: %w", err)
-}
+	if err := rc.backends.Lambda.Backend.CreateFunction(fn); err != nil {
+		return "", fmt.Errorf("create Lambda function: %w", err)
+	}
 
-return name, nil
+	return name, nil
 }
 
 func (rc *ResourceCreator) deleteLambdaFunction(name string) error {
-if rc.backends.Lambda == nil {
-return nil
-}
-// Ignore not-found errors on delete
-_ = rc.backends.Lambda.Backend.DeleteFunction(name)
+	if rc.backends.Lambda == nil {
+		return nil
+	}
+	// Ignore not-found errors on delete
+	_ = rc.backends.Lambda.Backend.DeleteFunction(name)
 
-return nil
+	return nil
 }
 
 // createEventBridgeRule creates an EventBridge rule from CloudFormation template properties.
 func (rc *ResourceCreator) createEventBridgeRule(
-_ context.Context,
-logicalID string,
-props map[string]any,
+	_ context.Context,
+	logicalID string,
+	props map[string]any,
 	params, physicalIDs map[string]string,
 ) (string, error) {
-if rc.backends.EventBridge == nil {
-return logicalID + "-stub", nil
-}
+	if rc.backends.EventBridge == nil {
+		return logicalID + "-stub", nil
+	}
 
-name := strProp(props, "Name", params, physicalIDs)
-if name == "" {
-name = logicalID
-}
+	name := strProp(props, "Name", params, physicalIDs)
+	if name == "" {
+		name = logicalID
+	}
 
-eventBusName := strProp(props, "EventBusName", params, physicalIDs)
-if eventBusName == "" {
-eventBusName = "default"
-}
+	eventBusName := strProp(props, "EventBusName", params, physicalIDs)
+	if eventBusName == "" {
+		eventBusName = "default"
+	}
 
-pattern := strProp(props, "EventPattern", params, physicalIDs)
-schedExpr := strProp(props, "ScheduleExpression", params, physicalIDs)
-state := strProp(props, "State", params, physicalIDs)
-if state == "" {
-state = "ENABLED"
-}
+	pattern := strProp(props, "EventPattern", params, physicalIDs)
+	schedExpr := strProp(props, "ScheduleExpression", params, physicalIDs)
+	state := strProp(props, "State", params, physicalIDs)
+	if state == "" {
+		state = "ENABLED"
+	}
 
-input := ebbackend.PutRuleInput{
-Name:               name,
-EventBusName:       eventBusName,
-EventPattern:       pattern,
-ScheduleExpression: schedExpr,
-State:              state,
-}
+	input := ebbackend.PutRuleInput{
+		Name:               name,
+		EventBusName:       eventBusName,
+		EventPattern:       pattern,
+		ScheduleExpression: schedExpr,
+		State:              state,
+	}
 
-rule, err := rc.backends.EventBridge.Backend.PutRule(input)
-if err != nil {
-return "", fmt.Errorf("create EventBridge rule: %w", err)
-}
+	rule, err := rc.backends.EventBridge.Backend.PutRule(input)
+	if err != nil {
+		return "", fmt.Errorf("create EventBridge rule: %w", err)
+	}
 
-return rule.Arn, nil
+	return rule.Arn, nil
 }
 
 func (rc *ResourceCreator) deleteEventBridgeRule(_ context.Context, physicalID string) error {
-if rc.backends.EventBridge == nil {
-return nil
-}
-// physicalID is the rule ARN; extract name from it
-parts := strings.Split(physicalID, "/")
-name := parts[len(parts)-1]
-_ = rc.backends.EventBridge.Backend.DeleteRule(name, "default")
+	if rc.backends.EventBridge == nil {
+		return nil
+	}
+	// physicalID is the rule ARN; extract name from it
+	parts := strings.Split(physicalID, "/")
+	name := parts[len(parts)-1]
+	_ = rc.backends.EventBridge.Backend.DeleteRule(name, "default")
 
-return nil
+	return nil
 }
 
 // createStepFunctionsStateMachine creates a Step Functions state machine.
 func (rc *ResourceCreator) createStepFunctionsStateMachine(
-_ context.Context,
-logicalID string,
-props map[string]any,
+	_ context.Context,
+	logicalID string,
+	props map[string]any,
 	params, physicalIDs map[string]string,
 ) (string, error) {
-if rc.backends.StepFunctions == nil {
-return logicalID + "-stub", nil
-}
+	if rc.backends.StepFunctions == nil {
+		return logicalID + "-stub", nil
+	}
 
-name := strProp(props, "StateMachineName", params, physicalIDs)
-if name == "" {
-name = logicalID
-}
+	name := strProp(props, "StateMachineName", params, physicalIDs)
+	if name == "" {
+		name = logicalID
+	}
 
-definition := strProp(props, "DefinitionString", params, physicalIDs)
-roleArn := strProp(props, "RoleArn", params, physicalIDs)
-smType := strProp(props, "StateMachineType", params, physicalIDs)
-if smType == "" {
-smType = "STANDARD"
-}
+	definition := strProp(props, "DefinitionString", params, physicalIDs)
+	roleArn := strProp(props, "RoleArn", params, physicalIDs)
+	smType := strProp(props, "StateMachineType", params, physicalIDs)
+	if smType == "" {
+		smType = "STANDARD"
+	}
 
-sm, err := rc.backends.StepFunctions.Backend.CreateStateMachine(name, definition, roleArn, smType)
-if err != nil {
-return "", fmt.Errorf("create StepFunctions state machine: %w", err)
-}
+	sm, err := rc.backends.StepFunctions.Backend.CreateStateMachine(name, definition, roleArn, smType)
+	if err != nil {
+		return "", fmt.Errorf("create StepFunctions state machine: %w", err)
+	}
 
-return sm.StateMachineArn, nil
+	return sm.StateMachineArn, nil
 }
 
 func (rc *ResourceCreator) deleteStepFunctionsStateMachine(_ context.Context, arn string) error {
-if rc.backends.StepFunctions == nil {
-return nil
-}
-_ = rc.backends.StepFunctions.Backend.DeleteStateMachine(arn)
+	if rc.backends.StepFunctions == nil {
+		return nil
+	}
+	_ = rc.backends.StepFunctions.Backend.DeleteStateMachine(arn)
 
-return nil
+	return nil
 }
 
 // createCloudWatchLogGroup creates a CloudWatch Logs log group.
 func (rc *ResourceCreator) createCloudWatchLogGroup(
-_ context.Context,
-logicalID string,
-props map[string]any,
+	_ context.Context,
+	logicalID string,
+	props map[string]any,
 	params, physicalIDs map[string]string,
 ) (string, error) {
-if rc.backends.CloudWatchLogs == nil {
-return logicalID + "-stub", nil
-}
+	if rc.backends.CloudWatchLogs == nil {
+		return logicalID + "-stub", nil
+	}
 
-name := strProp(props, "LogGroupName", params, physicalIDs)
-if name == "" {
-name = "/aws/cfn/" + logicalID
-}
+	name := strProp(props, "LogGroupName", params, physicalIDs)
+	if name == "" {
+		name = "/aws/cfn/" + logicalID
+	}
 
-_, err := rc.backends.CloudWatchLogs.Backend.CreateLogGroup(name)
-if err != nil {
-return "", fmt.Errorf("create CloudWatch Logs log group: %w", err)
-}
+	_, err := rc.backends.CloudWatchLogs.Backend.CreateLogGroup(name)
+	if err != nil {
+		return "", fmt.Errorf("create CloudWatch Logs log group: %w", err)
+	}
 
-return name, nil
+	return name, nil
 }
 
 func (rc *ResourceCreator) deleteCloudWatchLogGroup(name string) error {
-if rc.backends.CloudWatchLogs == nil {
-return nil
-}
-_ = rc.backends.CloudWatchLogs.Backend.DeleteLogGroup(name)
+	if rc.backends.CloudWatchLogs == nil {
+		return nil
+	}
+	_ = rc.backends.CloudWatchLogs.Backend.DeleteLogGroup(name)
 
-return nil
+	return nil
 }
 
 // createAPIGatewayRestAPI creates an API Gateway REST API.
 func (rc *ResourceCreator) createAPIGatewayRestAPI(
-_ context.Context,
-logicalID string,
-props map[string]any,
+	_ context.Context,
+	logicalID string,
+	props map[string]any,
 	params, physicalIDs map[string]string,
 ) (string, error) {
-if rc.backends.APIGateway == nil {
-return logicalID + "-stub", nil
-}
+	if rc.backends.APIGateway == nil {
+		return logicalID + "-stub", nil
+	}
 
-name := strProp(props, "Name", params, physicalIDs)
-if name == "" {
-name = logicalID
-}
+	name := strProp(props, "Name", params, physicalIDs)
+	if name == "" {
+		name = logicalID
+	}
 
-description := strProp(props, "Description", params, physicalIDs)
+	description := strProp(props, "Description", params, physicalIDs)
 
-api, err := rc.backends.APIGateway.Backend.CreateRestAPI(name, description, nil)
-if err != nil {
-return "", fmt.Errorf("create API Gateway REST API: %w", err)
-}
+	api, err := rc.backends.APIGateway.Backend.CreateRestAPI(name, description, nil)
+	if err != nil {
+		return "", fmt.Errorf("create API Gateway REST API: %w", err)
+	}
 
-return api.ID, nil
+	return api.ID, nil
 }
 
 func (rc *ResourceCreator) deleteAPIGatewayRestAPI(_ context.Context, apiID string) error {
-if rc.backends.APIGateway == nil {
-return nil
-}
-_ = rc.backends.APIGateway.Backend.DeleteRestAPI(apiID)
+	if rc.backends.APIGateway == nil {
+		return nil
+	}
+	_ = rc.backends.APIGateway.Backend.DeleteRestAPI(apiID)
 
-return nil
+	return nil
 }

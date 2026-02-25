@@ -432,80 +432,80 @@ func (h *Handler) handleDeleteAlarms(form url.Values, c *echo.Context) error {
 }
 
 func (h *Handler) handleGetMetricData(form url.Values, c *echo.Context) error {
-startStr := form.Get("StartTime")
-endStr := form.Get("EndTime")
+	startStr := form.Get("StartTime")
+	endStr := form.Get("EndTime")
 
-startTime, err := time.Parse(time.RFC3339, startStr)
-if err != nil {
-startTime = time.Now().UTC().Add(-time.Hour)
-}
+	startTime, err := time.Parse(time.RFC3339, startStr)
+	if err != nil {
+		startTime = time.Now().UTC().Add(-time.Hour)
+	}
 
-endTime, err := time.Parse(time.RFC3339, endStr)
-if err != nil {
-endTime = time.Now().UTC()
-}
+	endTime, err := time.Parse(time.RFC3339, endStr)
+	if err != nil {
+		endTime = time.Now().UTC()
+	}
 
-var queries []MetricDataQuery
-for i := 1; ; i++ {
-prefix := fmt.Sprintf("MetricDataQueries.member.%d.", i)
-id := form.Get(prefix + "Id")
-if id == "" {
-break
-}
+	var queries []MetricDataQuery
+	for i := 1; ; i++ {
+		prefix := fmt.Sprintf("MetricDataQueries.member.%d.", i)
+		id := form.Get(prefix + "Id")
+		if id == "" {
+			break
+		}
 
-period, _ := strconv.ParseInt(form.Get(prefix+"MetricStat.Period"), 10, 32)
-if period <= 0 {
-period = 60
-}
+		period, _ := strconv.ParseInt(form.Get(prefix+"MetricStat.Period"), 10, 32)
+		if period <= 0 {
+			period = 60
+		}
 
-queries = append(queries, MetricDataQuery{
-ID:    id,
-Label: form.Get(prefix + "Label"),
-MetricStat: MetricStat{
-Namespace:  form.Get(prefix + "MetricStat.Metric.Namespace"),
-MetricName: form.Get(prefix + "MetricStat.Metric.MetricName"),
-Stat:       form.Get(prefix + "MetricStat.Stat"),
-Period:     int32(period), //nolint:gosec // Validated range
-},
-})
-}
+		queries = append(queries, MetricDataQuery{
+			ID:    id,
+			Label: form.Get(prefix + "Label"),
+			MetricStat: MetricStat{
+				Namespace:  form.Get(prefix + "MetricStat.Metric.Namespace"),
+				MetricName: form.Get(prefix + "MetricStat.Metric.MetricName"),
+				Stat:       form.Get(prefix + "MetricStat.Stat"),
+				Period:     int32(period),
+			},
+		})
+	}
 
-results, berr := h.Backend.GetMetricData(queries, startTime, endTime)
-if berr != nil {
-return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", berr.Error())
-}
+	results, berr := h.Backend.GetMetricData(queries, startTime, endTime)
+	if berr != nil {
+		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", berr.Error())
+	}
 
-type resultEntry struct {
-XMLName    xml.Name  `xml:"member"`
-ID         string    `xml:"Id"`
-Label      string    `xml:"Label,omitempty"`
-StatusCode string    `xml:"StatusCode"`
-Timestamps []string  `xml:"Timestamps>member"`
-Values     []float64 `xml:"Values>member"`
-}
+	type resultEntry struct {
+		XMLName    xml.Name  `xml:"member"`
+		ID         string    `xml:"Id"`
+		Label      string    `xml:"Label,omitempty"`
+		StatusCode string    `xml:"StatusCode"`
+		Timestamps []string  `xml:"Timestamps>member"`
+		Values     []float64 `xml:"Values>member"`
+	}
 
-type response struct {
-XMLName         xml.Name      `xml:"GetMetricDataResponse"`
-Xmlns           string        `xml:"xmlns,attr"`
-MetricDataResults []resultEntry `xml:"GetMetricDataResult>MetricDataResults"`
-RequestID       string        `xml:"ResponseMetadata>RequestId"`
-}
+	type response struct {
+		XMLName           xml.Name      `xml:"GetMetricDataResponse"`
+		Xmlns             string        `xml:"xmlns,attr"`
+		RequestID         string        `xml:"ResponseMetadata>RequestId"`
+		MetricDataResults []resultEntry `xml:"GetMetricDataResult>MetricDataResults"`
+	}
 
-resp := response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()}
+	resp := response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()}
 
-for _, r := range results {
-entry := resultEntry{
-ID:         r.ID,
-Label:      r.Label,
-StatusCode: r.StatusCode,
-Values:     r.Values,
-}
-for _, ts := range r.Timestamps {
-entry.Timestamps = append(entry.Timestamps, ts.UTC().Format(time.RFC3339))
-}
+	for _, r := range results {
+		entry := resultEntry{
+			ID:         r.ID,
+			Label:      r.Label,
+			StatusCode: r.StatusCode,
+			Values:     r.Values,
+		}
+		for _, ts := range r.Timestamps {
+			entry.Timestamps = append(entry.Timestamps, ts.UTC().Format(time.RFC3339))
+		}
 
-resp.MetricDataResults = append(resp.MetricDataResults, entry)
-}
+		resp.MetricDataResults = append(resp.MetricDataResults, entry)
+	}
 
-return writeXML(c, resp)
+	return writeXML(c, resp)
 }

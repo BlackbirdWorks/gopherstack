@@ -1156,104 +1156,106 @@ func TestKMSHandlerDisableEnableKey(t *testing.T) {
 
 // doKMSHTTPRequest is a test helper for issuing HTTP requests to the KMS handler.
 func doKMSHTTPRequest(t *testing.T, h *kms.Handler, action, body string) *httptest.ResponseRecorder {
-t.Helper()
-req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
-req.Header.Set("X-Amz-Target", "TrentService."+action)
-req.Header.Set("Content-Type", "application/x-amz-json-1.1")
-ctx := logger.Save(req.Context(), slog.Default())
-req = req.WithContext(ctx)
-rec := httptest.NewRecorder()
-e := echo.New()
-c := e.NewContext(req, rec)
-err := h.Handler()(c)
-require.NoError(t, err)
-return rec
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("X-Amz-Target", "TrentService."+action)
+	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+	ctx := logger.Save(req.Context(), slog.Default())
+	req = req.WithContext(ctx)
+	rec := httptest.NewRecorder()
+	e := echo.New()
+	c := e.NewContext(req, rec)
+	err := h.Handler()(c)
+	require.NoError(t, err)
+
+	return rec
 }
 
 // TestKMSGrantOperations verifies CreateGrant, ListGrants, RevokeGrant, and RetireGrant.
 func TestKMSGrantOperations(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-backend := kms.NewInMemoryBackend()
-h := kms.NewHandler(backend, slog.Default())
+	backend := kms.NewInMemoryBackend()
+	h := kms.NewHandler(backend, slog.Default())
 
-keyOut, err := backend.CreateKey(&kms.CreateKeyInput{Description: "grant-test"})
-require.NoError(t, err)
-keyID := keyOut.KeyMetadata.KeyID
+	keyOut, err := backend.CreateKey(&kms.CreateKeyInput{Description: "grant-test"})
+	require.NoError(t, err)
+	keyID := keyOut.KeyMetadata.KeyID
 
-// CreateGrant
-createBody := `{"KeyId":"` + keyID + `","GranteePrincipal":"arn:aws:iam::000000000000:role/my-role","Operations":["Decrypt","Encrypt"]}`
-rec := doKMSHTTPRequest(t, h, "CreateGrant", createBody)
-assert.Equal(t, http.StatusOK, rec.Code)
-var createOut kms.CreateGrantOutput
-require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
-assert.NotEmpty(t, createOut.GrantID)
-assert.NotEmpty(t, createOut.GrantToken)
+	// CreateGrant
+	createBody := `{"KeyId":"` + keyID + `","GranteePrincipal":"arn:aws:iam::000000000000:role/my-role",` +
+		`"Operations":["Decrypt","Encrypt"]}`
+	rec := doKMSHTTPRequest(t, h, "CreateGrant", createBody)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	var createOut kms.CreateGrantOutput
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+	assert.NotEmpty(t, createOut.GrantID)
+	assert.NotEmpty(t, createOut.GrantToken)
 
-// ListGrants
-listBody := `{"KeyId":"` + keyID + `"}`
-rec = doKMSHTTPRequest(t, h, "ListGrants", listBody)
-assert.Equal(t, http.StatusOK, rec.Code)
-var listOut kms.ListGrantsOutput
-require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut))
-require.Len(t, listOut.Grants, 1)
-assert.Equal(t, createOut.GrantID, listOut.Grants[0].GrantID)
+	// ListGrants
+	listBody := `{"KeyId":"` + keyID + `"}`
+	rec = doKMSHTTPRequest(t, h, "ListGrants", listBody)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	var listOut kms.ListGrantsOutput
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut))
+	require.Len(t, listOut.Grants, 1)
+	assert.Equal(t, createOut.GrantID, listOut.Grants[0].GrantID)
 
-// RevokeGrant
-revokeBody := `{"KeyId":"` + keyID + `","GrantId":"` + createOut.GrantID + `"}`
-rec = doKMSHTTPRequest(t, h, "RevokeGrant", revokeBody)
-assert.Equal(t, http.StatusOK, rec.Code)
+	// RevokeGrant
+	revokeBody := `{"KeyId":"` + keyID + `","GrantId":"` + createOut.GrantID + `"}`
+	rec = doKMSHTTPRequest(t, h, "RevokeGrant", revokeBody)
+	assert.Equal(t, http.StatusOK, rec.Code)
 
-// ListGrants after revoke — should be empty
-rec = doKMSHTTPRequest(t, h, "ListGrants", listBody)
-require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut))
-assert.Empty(t, listOut.Grants)
+	// ListGrants after revoke — should be empty
+	rec = doKMSHTTPRequest(t, h, "ListGrants", listBody)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut))
+	assert.Empty(t, listOut.Grants)
 }
 
 // TestKMSKeyPolicy verifies PutKeyPolicy and GetKeyPolicy.
 func TestKMSKeyPolicy(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-backend := kms.NewInMemoryBackend()
-h := kms.NewHandler(backend, slog.Default())
+	backend := kms.NewInMemoryBackend()
+	h := kms.NewHandler(backend, slog.Default())
 
-keyOut, err := backend.CreateKey(&kms.CreateKeyInput{Description: "policy-test"})
-require.NoError(t, err)
-keyID := keyOut.KeyMetadata.KeyID
+	keyOut, err := backend.CreateKey(&kms.CreateKeyInput{Description: "policy-test"})
+	require.NoError(t, err)
+	keyID := keyOut.KeyMetadata.KeyID
 
-policy := `{"Version":"2012-10-17","Statement":[]}`
-putBody, _ := json.Marshal(map[string]string{
-"KeyId":      keyID,
-"PolicyName": "default",
-"Policy":     policy,
-})
-rec := doKMSHTTPRequest(t, h, "PutKeyPolicy", string(putBody))
-assert.Equal(t, http.StatusOK, rec.Code)
+	policy := `{"Version":"2012-10-17","Statement":[]}`
+	putBody, _ := json.Marshal(map[string]string{
+		"KeyId":      keyID,
+		"PolicyName": "default",
+		"Policy":     policy,
+	})
+	rec := doKMSHTTPRequest(t, h, "PutKeyPolicy", string(putBody))
+	assert.Equal(t, http.StatusOK, rec.Code)
 
-getBody, _ := json.Marshal(map[string]string{"KeyId": keyID, "PolicyName": "default"})
-rec = doKMSHTTPRequest(t, h, "GetKeyPolicy", string(getBody))
-assert.Equal(t, http.StatusOK, rec.Code)
-var getOut kms.GetKeyPolicyOutput
-require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getOut))
-assert.Equal(t, policy, getOut.Policy)
+	getBody, _ := json.Marshal(map[string]string{"KeyId": keyID, "PolicyName": "default"})
+	rec = doKMSHTTPRequest(t, h, "GetKeyPolicy", string(getBody))
+	assert.Equal(t, http.StatusOK, rec.Code)
+	var getOut kms.GetKeyPolicyOutput
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getOut))
+	assert.Equal(t, policy, getOut.Policy)
 }
 
 // TestKMSGenerateDataKeyWithoutPlaintext verifies GenerateDataKeyWithoutPlaintext.
 func TestKMSGenerateDataKeyWithoutPlaintext(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-backend := kms.NewInMemoryBackend()
-h := kms.NewHandler(backend, slog.Default())
+	backend := kms.NewInMemoryBackend()
+	h := kms.NewHandler(backend, slog.Default())
 
-keyOut, err := backend.CreateKey(&kms.CreateKeyInput{})
-require.NoError(t, err)
-keyID := keyOut.KeyMetadata.KeyID
+	keyOut, err := backend.CreateKey(&kms.CreateKeyInput{})
+	require.NoError(t, err)
+	keyID := keyOut.KeyMetadata.KeyID
 
-body, _ := json.Marshal(map[string]string{"KeyId": keyID, "KeySpec": "AES_256"})
-rec := doKMSHTTPRequest(t, h, "GenerateDataKeyWithoutPlaintext", string(body))
-assert.Equal(t, http.StatusOK, rec.Code)
-var out kms.GenerateDataKeyWithoutPlaintextOutput
-require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-assert.NotEmpty(t, out.CiphertextBlob)
-assert.Equal(t, keyID, out.KeyID)
+	body, _ := json.Marshal(map[string]string{"KeyId": keyID, "KeySpec": "AES_256"})
+	rec := doKMSHTTPRequest(t, h, "GenerateDataKeyWithoutPlaintext", string(body))
+	assert.Equal(t, http.StatusOK, rec.Code)
+	var out kms.GenerateDataKeyWithoutPlaintextOutput
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.NotEmpty(t, out.CiphertextBlob)
+	assert.Equal(t, keyID, out.KeyID)
 }
