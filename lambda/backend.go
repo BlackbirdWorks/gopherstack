@@ -255,34 +255,9 @@ func (b *InMemoryBackend) CreateFunctionURLConfig(functionName, authType string)
 		return nil, ErrFunctionAlreadyExists
 	}
 
-	var port int
-	var urlStr string
-
-	if b.portAlloc != nil {
-		var allocErr error
-		port, allocErr = b.portAlloc.Acquire(fmt.Sprintf("lambda-url:%s", functionName))
-		if allocErr != nil {
-			return nil, fmt.Errorf("%w: port allocation failed: %w", ErrLambdaUnavailable, allocErr)
-		}
-
-		// Start the function URL HTTP listener.
-		srv, listenErr := b.startFunctionURLServer(functionName, port)
-		if listenErr != nil {
-			_ = b.portAlloc.Release(port)
-
-			return nil, fmt.Errorf("%w: failed to start URL listener: %w", ErrLambdaUnavailable, listenErr)
-		}
-
-		b.functionURLServers[functionName] = srv
-		hostname := b.functionURLHostname(functionName)
-
-		if b.dnsRegistrar != nil {
-			b.dnsRegistrar.Register(hostname)
-		}
-
-		urlStr = "http://" + net.JoinHostPort(hostname, strconv.Itoa(port)) + "/"
-	} else {
-		urlStr = fmt.Sprintf("http://localhost/%s/", functionName)
+	urlStr, startErr := b.allocateAndStartURLServer(functionName)
+	if startErr != nil {
+		return nil, startErr
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -297,6 +272,38 @@ func (b *InMemoryBackend) CreateFunctionURLConfig(functionName, authType string)
 	b.functionURLConfigs[functionName] = cfg
 
 	return cfg, nil
+}
+
+// allocateAndStartURLServer allocates a port, starts the HTTP listener, optionally registers DNS,
+// and returns the function URL string. Must be called with b.mu already held (write).
+func (b *InMemoryBackend) allocateAndStartURLServer(functionName string) (string, error) {
+	if b.portAlloc == nil {
+		return fmt.Sprintf("http://localhost/%s/", functionName), nil
+	}
+
+	port, allocErr := b.portAlloc.Acquire(fmt.Sprintf("lambda-url:%s", functionName))
+	if allocErr != nil {
+		return "", fmt.Errorf("%w: port allocation failed: %w", ErrLambdaUnavailable, allocErr)
+	}
+
+	srv, listenErr := b.startFunctionURLServer(functionName, port)
+	if listenErr != nil {
+		_ = b.portAlloc.Release(port)
+
+		return "", fmt.Errorf("%w: failed to start URL listener: %w", ErrLambdaUnavailable, listenErr)
+	}
+
+	b.functionURLServers[functionName] = srv
+	hostname := b.functionURLHostname(functionName)
+
+	if b.dnsRegistrar != nil {
+		b.dnsRegistrar.Register(hostname)
+
+		return "http://" + net.JoinHostPort(hostname, strconv.Itoa(port)) + "/", nil
+	}
+
+	// No DNS registered; use loopback so the URL is immediately reachable.
+	return "http://" + net.JoinHostPort("127.0.0.1", strconv.Itoa(port)) + "/", nil
 }
 
 // GetFunctionURLConfig returns the function URL config for a function.
@@ -421,9 +428,15 @@ func (b *InMemoryBackend) buildFunctionURLHandler(functionName string) http.Hand
 
 // buildURLEventPayload converts an HTTP request to a Lambda Function URL event payload.
 func (b *InMemoryBackend) buildURLEventPayload(r *http.Request) ([]byte, error) {
-	bodyBytes, readErr := io.ReadAll(r.Body)
-	if readErr != nil {
-		return nil, fmt.Errorf("failed to read request body: %w", readErr)
+	var bodyBytes []byte
+
+	if r.Body != nil {
+		var readErr error
+
+		bodyBytes, readErr = io.ReadAll(r.Body)
+		if readErr != nil {
+			return nil, fmt.Errorf("failed to read request body: %w", readErr)
+		}
 	}
 
 	headers := make(map[string]string, len(r.Header))

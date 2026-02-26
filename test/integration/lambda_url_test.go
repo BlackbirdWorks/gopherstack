@@ -39,7 +39,14 @@ func TestLambdaFunctionURL_CreateGetDelete(t *testing.T) {
 	pa, err := portalloc.New(urlTestPortStart, urlTestPortEnd)
 	require.NoError(t, err)
 
-	backend := lambdapkg.NewInMemoryBackend(nil, pa, lambdapkg.DefaultSettings(), "000000000000", "us-east-1", slog.Default())
+	backend := lambdapkg.NewInMemoryBackend(
+		nil,
+		pa,
+		lambdapkg.DefaultSettings(),
+		"000000000000",
+		"us-east-1",
+		slog.Default(),
+	)
 	handler := lambdapkg.NewHandler(backend, slog.Default())
 	handler.AccountID = "000000000000"
 	handler.DefaultRegion = "us-east-1"
@@ -131,7 +138,14 @@ func TestLambdaFunctionURL_HTTPEndpoint(t *testing.T) {
 	pa, err := portalloc.New(urlTestPortStart+50, urlTestPortEnd)
 	require.NoError(t, err)
 
-	backend := lambdapkg.NewInMemoryBackend(nil, pa, lambdapkg.DefaultSettings(), "000000000000", "us-east-1", slog.Default())
+	backend := lambdapkg.NewInMemoryBackend(
+		nil,
+		pa,
+		lambdapkg.DefaultSettings(),
+		"000000000000",
+		"us-east-1",
+		slog.Default(),
+	)
 
 	const fnName = "http-endpoint-fn"
 
