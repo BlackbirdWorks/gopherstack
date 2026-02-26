@@ -2,11 +2,48 @@ package s3
 
 import (
 	"context"
+	"encoding/xml"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 )
+
+// lifecycleConfiguration mirrors the AWS S3 XML lifecycle configuration schema
+// used to persist and evaluate lifecycle rules stored in StoredBucket.LifecycleConfig.
+type lifecycleConfiguration struct {
+	Rules []lifecycleRule `xml:"Rule"`
+}
+
+type lifecycleRule struct {
+	Filter     lifecycleFilter     `xml:"Filter"`
+	Expiration lifecycleExpiration `xml:"Expiration"`
+	// Prefix is the legacy top-level prefix field (pre-Filter XML format).
+	Prefix string `xml:"Prefix"`
+	ID     string `xml:"ID"`
+	Status string `xml:"Status"`
+}
+
+// prefix returns the effective filter prefix, preferring the nested Filter
+// element's Prefix over the legacy top-level Prefix.
+func (r *lifecycleRule) prefix() string {
+	if r.Filter.Prefix != "" {
+		return r.Filter.Prefix
+	}
+
+	return r.Prefix
+}
+
+type lifecycleFilter struct {
+	Prefix string `xml:"Prefix"`
+}
+
+type lifecycleExpiration struct {
+	// Days is the number of days after creation before an object expires.
+	// A value of 0 means objects expire immediately (used in tests).
+	Days int `xml:"Days"`
+}
 
 const (
 	defaultJanitorInterval = 500 * time.Millisecond
@@ -52,6 +89,7 @@ func (j *Janitor) Run(ctx context.Context) {
 			return
 		case <-ticker.C:
 			j.runOnce(ctx)
+			j.sweepLifecycle(ctx)
 		}
 	}
 }
@@ -135,4 +173,114 @@ func (j *Janitor) processBucket(ctx context.Context, name string) {
 	b.mu.Unlock()
 
 	j.Log.InfoContext(ctx, "S3 janitor: bucket deleted", "bucket", name)
+}
+
+// sweepLifecycle iterates over all active buckets, evaluates lifecycle rules,
+// and deletes objects that have exceeded their expiration age.
+func (j *Janitor) sweepLifecycle(ctx context.Context) {
+	b := j.Backend
+	now := time.Now().UTC()
+	totalEvicted := 0
+
+	// Snapshot bucket names and their lifecycle configs under a read-lock.
+	b.mu.RLock("S3Janitor.sweepLifecycle")
+	type bucketSnapshot struct {
+		name    string
+		bucket  *StoredBucket
+		lcXML   string
+	}
+	var snapshots []bucketSnapshot
+
+	for _, regionBuckets := range b.buckets {
+		for name, bucket := range regionBuckets {
+			if bucket.DeletePending || bucket.LifecycleConfig == "" {
+				continue
+			}
+			bucket.mu.RLock("S3Janitor.sweepLifecycleLCRead")
+			lcXML := bucket.LifecycleConfig
+			bucket.mu.RUnlock()
+			if lcXML != "" {
+				snapshots = append(snapshots, bucketSnapshot{name: name, bucket: bucket, lcXML: lcXML})
+			}
+		}
+	}
+	b.mu.RUnlock()
+
+	for _, snap := range snapshots {
+		evicted := j.applyLifecycleRules(ctx, snap.bucket, snap.name, snap.lcXML, now)
+		totalEvicted += evicted
+	}
+
+	if totalEvicted > 0 {
+		telemetry.RecordWorkerItems("s3", "LifecycleSweeper", totalEvicted)
+	}
+
+	telemetry.RecordWorkerTask("s3", "LifecycleSweeper", "success")
+}
+
+// applyLifecycleRules parses lifecycle rules and deletes expired objects from a bucket.
+// Returns the number of objects evicted.
+func (j *Janitor) applyLifecycleRules(
+	ctx context.Context,
+	bucket *StoredBucket,
+	bucketName, lcXML string,
+	now time.Time,
+) int {
+	var cfg lifecycleConfiguration
+	if err := xml.Unmarshal([]byte(lcXML), &cfg); err != nil {
+		j.Log.WarnContext(ctx, "S3 janitor: failed to parse lifecycle config",
+			"bucket", bucketName, "error", err)
+
+		return 0
+	}
+
+	evicted := 0
+
+	for i := range cfg.Rules {
+		rule := &cfg.Rules[i]
+		if !strings.EqualFold(rule.Status, "Enabled") {
+			continue
+		}
+
+		if rule.Expiration.Days < 0 {
+			continue
+		}
+
+		prefix := rule.prefix()
+		expireBefore := now.Add(-time.Duration(rule.Expiration.Days) * 24 * time.Hour)
+
+		bucket.mu.Lock("S3Janitor.applyLifecycleRules")
+		for key, obj := range bucket.Objects {
+			if !strings.HasPrefix(key, prefix) {
+				continue
+			}
+			// Check the latest version's LastModified.
+			obj.mu.RLock()
+			var latestMod time.Time
+			for _, ver := range obj.Versions {
+				if ver.IsLatest && !ver.Deleted {
+					latestMod = ver.LastModified
+					break
+				}
+			}
+			obj.mu.RUnlock()
+
+			if latestMod.IsZero() {
+				continue
+			}
+
+			if latestMod.Before(expireBefore) || latestMod.Equal(expireBefore) {
+				delete(bucket.Objects, key)
+				evicted++
+			}
+		}
+		bucket.mu.Unlock()
+	}
+
+	if evicted > 0 {
+		j.Log.InfoContext(ctx, "S3 janitor: lifecycle objects evicted",
+			"bucket", bucketName, "count", evicted)
+	}
+
+	return evicted
 }

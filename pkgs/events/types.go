@@ -121,3 +121,19 @@ type SNSMessageAttributeSnapshot struct {
 func (e *SNSPublishedEvent) EventType() string {
 	return "sns.message.published"
 }
+
+// S3NotificationEvent is emitted when an S3 notification must be delivered
+// to external targets (SQS, SNS, Lambda) configured via PutBucketNotificationConfiguration.
+// The Payload field contains the standard AWS S3 event notification JSON (Records array).
+type S3NotificationEvent struct {
+	// Payload is the JSON-encoded S3 event notification body (Records array).
+	Payload string
+	// TargetARN is the destination ARN (SQS queue ARN, SNS topic ARN, Lambda function ARN).
+	TargetARN string
+	// TargetType is the notification target type: "sqs", "sns", or "lambda".
+	TargetType string
+}
+
+func (e *S3NotificationEvent) EventType() string {
+	return "s3.notification"
+}

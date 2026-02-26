@@ -2,6 +2,7 @@ package s3_test
 
 import (
 	"bytes"
+	"context"
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/xml"
@@ -11,7 +12,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
@@ -1427,4 +1430,119 @@ func TestHandler_BucketNotificationStub(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
+}
+
+// mockNotificationDispatcher is a test double for NotificationDispatcher.
+type mockNotificationDispatcher struct {
+mu      sync.Mutex
+created []notificationEvent
+deleted []notificationEvent
+}
+
+type notificationEvent struct {
+bucket   string
+key      string
+notifXML string
+}
+
+func (m *mockNotificationDispatcher) DispatchObjectCreated(
+_ context.Context, bucket, key, _ string, _ int64, notifXML string,
+) {
+m.mu.Lock()
+defer m.mu.Unlock()
+m.created = append(m.created, notificationEvent{bucket: bucket, key: key, notifXML: notifXML})
+}
+
+func (m *mockNotificationDispatcher) DispatchObjectDeleted(
+_ context.Context, bucket, key, notifXML string,
+) {
+m.mu.Lock()
+defer m.mu.Unlock()
+m.deleted = append(m.deleted, notificationEvent{bucket: bucket, key: key, notifXML: notifXML})
+}
+
+func TestHandler_NotificationDispatch_PutObject(t *testing.T) {
+t.Parallel()
+
+handler, backend := newTestHandler(t)
+mustCreateBucket(t, backend, "notif-put")
+
+notifXML := `<NotificationConfiguration><QueueConfiguration><Id>q1</Id><Queue>arn:aws:sqs:us-east-1:000000000000:my-queue</Queue><Event>s3:ObjectCreated:*</Event></QueueConfiguration></NotificationConfiguration>`
+req := httptest.NewRequest(http.MethodPut, "/notif-put?notification", strings.NewReader(notifXML))
+rec := httptest.NewRecorder()
+serveS3Handler(handler, rec, req)
+require.Equal(t, http.StatusOK, rec.Code)
+
+mock := &mockNotificationDispatcher{}
+handler.SetNotificationDispatcher(mock)
+
+req = httptest.NewRequest(http.MethodPut, "/notif-put/key1", strings.NewReader("hello"))
+rec = httptest.NewRecorder()
+serveS3Handler(handler, rec, req)
+require.Equal(t, http.StatusOK, rec.Code)
+
+require.Eventually(t, func() bool {
+mock.mu.Lock()
+defer mock.mu.Unlock()
+return len(mock.created) == 1
+}, 200*time.Millisecond, 5*time.Millisecond)
+
+mock.mu.Lock()
+defer mock.mu.Unlock()
+assert.Equal(t, "notif-put", mock.created[0].bucket)
+assert.Equal(t, "key1", mock.created[0].key)
+}
+
+func TestHandler_NotificationDispatch_DeleteObject(t *testing.T) {
+t.Parallel()
+
+handler, backend := newTestHandler(t)
+mustCreateBucket(t, backend, "notif-del")
+mustPutObject(t, backend, "notif-del", "key1", []byte("data"))
+
+notifXML := `<NotificationConfiguration><QueueConfiguration><Id>q1</Id><Queue>arn:aws:sqs:us-east-1:000000000000:my-queue</Queue><Event>s3:ObjectRemoved:*</Event></QueueConfiguration></NotificationConfiguration>`
+putNotifReq := httptest.NewRequest(http.MethodPut, "/notif-del?notification", strings.NewReader(notifXML))
+rec := httptest.NewRecorder()
+serveS3Handler(handler, rec, putNotifReq)
+require.Equal(t, http.StatusOK, rec.Code)
+
+mock := &mockNotificationDispatcher{}
+handler.SetNotificationDispatcher(mock)
+
+req := httptest.NewRequest(http.MethodDelete, "/notif-del/key1", nil)
+rec = httptest.NewRecorder()
+serveS3Handler(handler, rec, req)
+require.Equal(t, http.StatusNoContent, rec.Code)
+
+require.Eventually(t, func() bool {
+mock.mu.Lock()
+defer mock.mu.Unlock()
+return len(mock.deleted) == 1
+}, 200*time.Millisecond, 5*time.Millisecond)
+
+mock.mu.Lock()
+defer mock.mu.Unlock()
+assert.Equal(t, "notif-del", mock.deleted[0].bucket)
+assert.Equal(t, "key1", mock.deleted[0].key)
+}
+
+func TestHandler_NotificationDispatch_NoDispatchWithoutConfig(t *testing.T) {
+t.Parallel()
+
+handler, backend := newTestHandler(t)
+mustCreateBucket(t, backend, "no-notif")
+
+mock := &mockNotificationDispatcher{}
+handler.SetNotificationDispatcher(mock)
+
+	req := httptest.NewRequest(http.MethodPut, "/no-notif/key1", strings.NewReader("hello"))
+	rec := httptest.NewRecorder()
+serveS3Handler(handler, rec, req)
+require.Equal(t, http.StatusOK, rec.Code)
+
+time.Sleep(20 * time.Millisecond)
+mock.mu.Lock()
+defer mock.mu.Unlock()
+assert.Empty(t, mock.created)
+assert.Empty(t, mock.deleted)
 }

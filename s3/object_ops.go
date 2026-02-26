@@ -332,6 +332,15 @@ func (h *S3Handler) putObject(
 		"versionId", aws.ToString(ver.VersionId),
 	)
 
+	// Dispatch S3 notification if configured.
+	if h.notifier != nil {
+		if notifXML, ncErr := h.Backend.GetBucketNotificationConfiguration(ctx, bucketName); ncErr == nil && notifXML != "" {
+			etag := aws.ToString(ver.ETag)
+			size := aws.ToInt64(ver.Size)
+			go h.notifier.DispatchObjectCreated(ctx, bucketName, key, etag, size, notifXML)
+		}
+	}
+
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -581,6 +590,13 @@ func (h *S3Handler) deleteObject(
 		"S3 deleteObject output",
 		"bucket", bucketName, "key", key, "deleteMarker", aws.ToBool(out.DeleteMarker),
 	)
+
+	// Dispatch S3 notification if configured.
+	if h.notifier != nil {
+		if notifXML, ncErr := h.Backend.GetBucketNotificationConfiguration(ctx, bucketName); ncErr == nil && notifXML != "" {
+			go h.notifier.DispatchObjectDeleted(ctx, bucketName, key, notifXML)
+		}
+	}
 
 	w.WriteHeader(http.StatusNoContent)
 }
