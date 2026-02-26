@@ -183,7 +183,7 @@ func TestSES_SendRawEmail(t *testing.T) {
 	rec := postForm(t, h, body.Encode())
 
 	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "SendEmailResponse")
+	assert.Contains(t, rec.Body.String(), "SendRawEmailResponse")
 }
 
 func TestSES_UnknownAction(t *testing.T) {
@@ -214,6 +214,16 @@ func TestSES_DeleteIdentity_NotFound(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Contains(t, rec.Body.String(), "NoSuchEntity")
+}
+
+func TestSES_VerifyEmailIdentity_EmptyIdentity(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+	rec := postForm(t, h, "Action=VerifyEmailIdentity&Version=2010-12-01&EmailAddress=")
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidParameterValue")
 }
 
 func TestSES_Provider_Init(t *testing.T) {

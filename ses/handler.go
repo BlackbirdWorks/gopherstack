@@ -131,26 +131,32 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		ctx := c.Request().Context()
 		log := logger.Load(ctx)
 
+		reqID := newRequestID()
+
 		body, err := httputil.ReadBody(c.Request())
 		if err != nil {
 			log.ErrorContext(ctx, "failed to read SES request body", "error", err)
 
-			return h.writeError(c, http.StatusInternalServerError, "InternalFailure", "failed to read request body")
+			return h.writeError(
+				c,
+				reqID,
+				http.StatusInternalServerError,
+				"InternalFailure",
+				"failed to read request body",
+			)
 		}
 
 		vals, err := url.ParseQuery(string(body))
 		if err != nil {
-			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValue", "invalid request body")
+			return h.writeError(c, reqID, http.StatusBadRequest, "InvalidParameterValue", "invalid request body")
 		}
 
 		action := vals.Get("Action")
 		if action == "" {
-			return h.writeError(c, http.StatusBadRequest, "MissingAction", "missing Action parameter")
+			return h.writeError(c, reqID, http.StatusBadRequest, "MissingAction", "missing Action parameter")
 		}
 
 		log.DebugContext(ctx, "SES request", "action", action)
-
-		reqID := newRequestID()
 
 		var (
 			resp  any
@@ -171,19 +177,19 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		case "SendRawEmail":
 			resp, opErr = h.handleSendRawEmail(vals, reqID)
 		default:
-			return h.writeError(c, http.StatusBadRequest, "InvalidAction",
+			return h.writeError(c, reqID, http.StatusBadRequest, "InvalidAction",
 				fmt.Sprintf("%s is not a valid SES action", action))
 		}
 
 		if opErr != nil {
-			return h.handleOpError(c, action, opErr)
+			return h.handleOpError(c, reqID, action, opErr)
 		}
 
 		xmlBytes, marshalErr := marshalXML(resp)
 		if marshalErr != nil {
 			log.ErrorContext(ctx, "failed to marshal SES response", "action", action, "error", marshalErr)
 
-			return h.writeError(c, http.StatusInternalServerError, "InternalFailure", "internal server error")
+			return h.writeError(c, reqID, http.StatusInternalServerError, "InternalFailure", "internal server error")
 		}
 
 		return c.Blob(http.StatusOK, "text/xml", xmlBytes)
@@ -316,7 +322,7 @@ func (h *Handler) handleSendRawEmail(vals url.Values, reqID string) (any, error)
 		return nil, err
 	}
 
-	return &sendEmailResponse{
+	return &sendRawEmailResponse{
 		Xmlns: sesXMLNS,
 		Result: sendEmailResult{
 			MessageID: msgID,
@@ -327,7 +333,7 @@ func (h *Handler) handleSendRawEmail(vals url.Values, reqID string) (any, error)
 
 // ---- error handling ----
 
-func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) error {
+func (h *Handler) handleOpError(c *echo.Context, reqID, action string, opErr error) error {
 	statusCode := http.StatusBadRequest
 
 	var code string
@@ -335,20 +341,22 @@ func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) err
 	switch {
 	case errors.Is(opErr, ErrIdentityNotFound):
 		code = "NoSuchEntity"
+	case errors.Is(opErr, ErrInvalidParameter):
+		code = "InvalidParameterValue"
 	default:
 		code = "InternalFailure"
 		statusCode = http.StatusInternalServerError
 		h.Logger.Error("SES internal error", "error", opErr, "action", action)
 	}
 
-	return h.writeError(c, statusCode, code, opErr.Error())
+	return h.writeError(c, reqID, statusCode, code, opErr.Error())
 }
 
-func (h *Handler) writeError(c *echo.Context, statusCode int, code, message string) error {
+func (h *Handler) writeError(c *echo.Context, reqID string, statusCode int, code, message string) error {
 	errResp := &sesErrorResponse{
 		Xmlns:     sesXMLNS,
 		Error:     sesError{Code: code, Message: message, Type: "Sender"},
-		RequestID: newRequestID(),
+		RequestID: reqID,
 	}
 
 	xmlBytes, err := marshalXML(errResp)
@@ -452,5 +460,12 @@ type sendEmailResponse struct {
 	XMLName   xml.Name        `xml:"SendEmailResponse"`
 	Xmlns     string          `xml:"xmlns,attr"`
 	Result    sendEmailResult `xml:"SendEmailResult"`
+	RequestID string          `xml:"ResponseMetadata>RequestId"`
+}
+
+type sendRawEmailResponse struct {
+	XMLName   xml.Name        `xml:"SendRawEmailResponse"`
+	Xmlns     string          `xml:"xmlns,attr"`
+	Result    sendEmailResult `xml:"SendRawEmailResult"`
 	RequestID string          `xml:"ResponseMetadata>RequestId"`
 }

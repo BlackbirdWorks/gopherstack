@@ -59,10 +59,10 @@ func TestIntegration_SES_SendEmail(t *testing.T) {
 	dumpContainerLogsOnFailure(t)
 
 	// Verify sender first.
-	sesPost(t, url.Values{
+	sesReadBody(t, sesPost(t, url.Values{
 		"Action":       {"VerifyEmailIdentity"},
 		"EmailAddress": {"sender@integ-test.com"},
-	})
+	}))
 
 	// Send email.
 	resp := sesPost(t, url.Values{
@@ -93,14 +93,14 @@ func TestIntegration_SES_ListIdentities(t *testing.T) {
 	dumpContainerLogsOnFailure(t)
 
 	// Verify two identities.
-	sesPost(t, url.Values{
+	sesReadBody(t, sesPost(t, url.Values{
 		"Action":       {"VerifyEmailIdentity"},
 		"EmailAddress": {"list-a@integ-test.com"},
-	})
-	sesPost(t, url.Values{
+	}))
+	sesReadBody(t, sesPost(t, url.Values{
 		"Action":       {"VerifyEmailIdentity"},
 		"EmailAddress": {"list-b@integ-test.com"},
-	})
+	}))
 
 	resp := sesPost(t, url.Values{
 		"Action": {"ListIdentities"},
@@ -116,10 +116,10 @@ func TestIntegration_SES_GetIdentityVerificationAttributes(t *testing.T) {
 	dumpContainerLogsOnFailure(t)
 
 	// Verify identity.
-	sesPost(t, url.Values{
+	sesReadBody(t, sesPost(t, url.Values{
 		"Action":       {"VerifyEmailIdentity"},
 		"EmailAddress": {"attr-test@integ-test.com"},
-	})
+	}))
 
 	resp := sesPost(t, url.Values{
 		"Action":              {"GetIdentityVerificationAttributes"},

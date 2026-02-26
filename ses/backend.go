@@ -3,6 +3,7 @@ package ses
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -13,6 +14,7 @@ import (
 // Errors returned by the SES backend.
 var (
 	ErrIdentityNotFound = errors.New("IdentityNotFound")
+	ErrInvalidParameter = errors.New("InvalidParameterValue")
 )
 
 // Email captures a sent email for local inspection.
@@ -43,7 +45,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 // VerifyEmailIdentity adds an identity (address or domain) and marks it as verified.
 func (b *InMemoryBackend) VerifyEmailIdentity(identity string) error {
 	if strings.TrimSpace(identity) == "" {
-		return fmt.Errorf("%w: identity is required", ErrIdentityNotFound)
+		return fmt.Errorf("%w: identity is required", ErrInvalidParameter)
 	}
 
 	b.mu.Lock()
@@ -77,6 +79,8 @@ func (b *InMemoryBackend) ListIdentities() []string {
 		out = append(out, id)
 	}
 
+	sort.Strings(out)
+
 	return out
 }
 
@@ -102,7 +106,7 @@ func (b *InMemoryBackend) GetIdentityVerificationAttributes(identities []string)
 // SendEmail captures an outbound email and returns a message ID.
 func (b *InMemoryBackend) SendEmail(from string, to []string, subject, bodyHTML, bodyText string) (string, error) {
 	if from == "" {
-		return "", fmt.Errorf("%w: Source is required", ErrIdentityNotFound)
+		return "", fmt.Errorf("%w: Source is required", ErrInvalidParameter)
 	}
 
 	msgID := "ses-" + uuid.New().String()
