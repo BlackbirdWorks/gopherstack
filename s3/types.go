@@ -21,6 +21,7 @@ type StoredBucket struct {
 	CORSConfig         string // XML CORS configuration
 	LifecycleConfig    string // XML lifecycle configuration
 	NotificationConfig string // XML notification configuration
+	ObjectLockConfig   string // XML object lock configuration
 	CreationDate       time.Time
 	ACL                string
 	// Versioning must precede non-pointer fields so its trailing len word falls
@@ -42,6 +43,7 @@ type StoredObject struct {
 // StoredObjectVersion represents a specific version of an S3 object.
 type StoredObjectVersion struct {
 	LastModified       time.Time
+	RetainUntil        time.Time
 	ChecksumSHA1       *string
 	Metadata           map[string]string
 	ChecksumSHA256     *string
@@ -52,6 +54,7 @@ type StoredObjectVersion struct {
 	ContentType        string
 	ContentEncoding    string
 	ContentDisposition string
+	RetentionMode      string
 	ChecksumAlgorithm  types.ChecksumAlgorithm
 	VersionID          string
 	Data               []byte
@@ -59,6 +62,7 @@ type StoredObjectVersion struct {
 	IsCompressed       bool
 	IsLatest           bool
 	Deleted            bool
+	LegalHold          bool
 }
 
 // StoredMultipartUpload represents an ongoing multipart upload session.

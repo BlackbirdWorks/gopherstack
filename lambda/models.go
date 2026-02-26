@@ -136,3 +136,22 @@ type Error struct {
 	Type    string `json:"__type"`
 	Message string `json:"message"`
 }
+
+// FunctionURLConfig holds the configuration for a Lambda function URL.
+type FunctionURLConfig struct {
+	FunctionArn      string `json:"FunctionArn"`
+	FunctionURL      string `json:"FunctionUrl"`
+	AuthType         string `json:"AuthType"`
+	CreationTime     string `json:"CreationTime"`
+	LastModifiedTime string `json:"LastModifiedTime"`
+}
+
+// CreateFunctionURLConfigInput is the request body for CreateFunctionUrlConfig.
+type CreateFunctionURLConfigInput struct {
+	AuthType string `json:"AuthType"`
+}
+
+// ListFunctionURLConfigsOutput is the response for listing function URL configs.
+type ListFunctionURLConfigsOutput struct {
+	FunctionURLConfigs []*FunctionURLConfig `json:"FunctionUrlConfigs"`
+}

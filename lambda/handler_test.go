@@ -1384,3 +1384,119 @@ func (m *mockConfig) GetLambdaSettings() lambda.Settings {
 func (m *mockConfig) GetGlobalConfig() config.GlobalConfig {
 	return config.GlobalConfig{AccountID: m.accountID, Region: m.region}
 }
+
+// ---- Function URL tests ----
+
+func newInMemHandlerWithPortAlloc(t *testing.T) *lambda.Handler {
+	t.Helper()
+
+	pa, err := portalloc.New(20000, 20050)
+	require.NoError(t, err)
+
+	bk := lambda.NewInMemoryBackend(nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default())
+	h := lambda.NewHandler(bk, slog.Default())
+	h.DefaultRegion = "us-east-1"
+	h.AccountID = "000000000000"
+
+	return h
+}
+
+func mustCreateFunctionViaHandler(t *testing.T, h *lambda.Handler, name string) {
+	t.Helper()
+
+	const roleARN = "arn:aws:iam::000000000000:role/r"
+	body := fmt.Sprintf(
+		`{"FunctionName":%q,"PackageType":"Image","Code":{"ImageUri":"test:latest"},"Role":%q}`,
+		name, roleARN,
+	)
+	rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions", body, nil)
+	require.Equal(t, http.StatusCreated, rec.Code)
+}
+
+func TestFunctionUrl_CreateGetDelete(t *testing.T) {
+	t.Parallel()
+
+	h := newInMemHandlerWithPortAlloc(t)
+	mustCreateFunctionViaHandler(t, h, "url-fn")
+
+	// Create function URL config
+	rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/url-fn/url",
+		`{"AuthType":"NONE"}`, nil)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var cfg lambda.FunctionURLConfig
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cfg))
+	assert.NotEmpty(t, cfg.FunctionURL)
+	assert.Equal(t, "NONE", cfg.AuthType)
+	assert.NotEmpty(t, cfg.FunctionArn)
+	assert.NotEmpty(t, cfg.CreationTime)
+
+	// Get function URL config
+	rec = callHandler(t, h, http.MethodGet, "/2015-03-31/functions/url-fn/url", "", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var getCfg lambda.FunctionURLConfig
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getCfg))
+	assert.Equal(t, cfg.FunctionURL, getCfg.FunctionURL)
+
+	// Delete function URL config
+	rec = callHandler(t, h, http.MethodDelete, "/2015-03-31/functions/url-fn/url", "", nil)
+	require.Equal(t, http.StatusNoContent, rec.Code)
+
+	// Get after delete — expect 404
+	rec = callHandler(t, h, http.MethodGet, "/2015-03-31/functions/url-fn/url", "", nil)
+	require.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestFunctionUrl_Create_FunctionNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newInMemHandlerWithPortAlloc(t)
+
+	rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/nonexistent/url",
+		`{"AuthType":"NONE"}`, nil)
+	require.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestFunctionUrl_Get_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newInMemHandlerWithPortAlloc(t)
+	mustCreateFunctionViaHandler(t, h, "no-url-fn")
+
+	rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/no-url-fn/url", "", nil)
+	require.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestFunctionUrl_Delete_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newInMemHandlerWithPortAlloc(t)
+	mustCreateFunctionViaHandler(t, h, "del-url-fn")
+
+	rec := callHandler(t, h, http.MethodDelete, "/2015-03-31/functions/del-url-fn/url", "", nil)
+	require.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestFunctionUrl_HTTP_ForwardsToLambda(t *testing.T) {
+	t.Parallel()
+
+	pa, err := portalloc.New(20100, 20200)
+	require.NoError(t, err)
+
+	bk := lambda.NewInMemoryBackend(nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default())
+
+	// Create function
+	fn := &lambda.FunctionConfiguration{
+		FunctionName: "http-url-fn",
+		PackageType:  lambda.PackageTypeImage,
+		ImageURI:     "test:latest",
+	}
+	require.NoError(t, bk.CreateFunction(fn))
+
+	// Create function URL config
+	cfg, createErr := bk.CreateFunctionURLConfig("http-url-fn", "NONE")
+	require.NoError(t, createErr)
+	assert.NotEmpty(t, cfg.FunctionURL)
+	assert.Contains(t, cfg.FunctionURL, "http://")
+}

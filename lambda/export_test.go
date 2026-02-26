@@ -6,6 +6,7 @@ package lambda
 import (
 	"context"
 	"log/slog"
+	"net/http"
 	"time"
 )
 
@@ -57,3 +58,18 @@ func FunctionNameFromARN(arn string) string { return functionNameFromARN(arn) }
 
 // PollOnce triggers a single poll cycle on the given EventSourcePoller.
 func PollOnce(ctx context.Context, p *EventSourcePoller) { p.poll(ctx) }
+
+// BuildURLEventPayload exports buildURLEventPayload for testing.
+func BuildURLEventPayload(b *InMemoryBackend, r *http.Request) ([]byte, error) {
+	return b.buildURLEventPayload(r)
+}
+
+// WriteFunctionURLResponse exports writeFunctionURLResponse for testing.
+func WriteFunctionURLResponse(w http.ResponseWriter, result []byte) {
+	writeFunctionURLResponse(w, result)
+}
+
+// SetDNSRegistrarExported exports SetDNSRegistrar for testing.
+func SetDNSRegistrarExported(b *InMemoryBackend, dns DNSRegistrar) {
+	b.SetDNSRegistrar(dns)
+}

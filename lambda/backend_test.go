@@ -2,9 +2,15 @@ package lambda_test
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -398,4 +404,188 @@ func TestInMemoryBackend_DeleteZipFunction_CleansUpDir(t *testing.T) {
 
 	// Delete should clean up temp dir without error
 	require.NoError(t, backend.DeleteFunction("zip-cleanup"))
+}
+
+// mockDNSRegistrar is a simple in-memory DNSRegistrar for testing.
+type mockDNSRegistrar struct {
+	registered   []string
+	deregistered []string
+	mu           sync.Mutex
+}
+
+func (m *mockDNSRegistrar) Register(hostname string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.registered = append(m.registered, hostname)
+}
+
+func (m *mockDNSRegistrar) Deregister(hostname string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.deregistered = append(m.deregistered, hostname)
+}
+
+func TestInMemoryBackend_SetDNSRegistrar(t *testing.T) {
+	t.Parallel()
+
+	pa, paErr := portalloc.New(20300, 20350)
+	require.NoError(t, paErr)
+
+	backend := lambda.NewInMemoryBackend(
+		nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default(),
+	)
+
+	dns := &mockDNSRegistrar{}
+	lambda.SetDNSRegistrarExported(backend, dns)
+
+	fn := &lambda.FunctionConfiguration{
+		FunctionName: "dns-test-fn",
+		PackageType:  lambda.PackageTypeImage,
+		ImageURI:     "test:latest",
+	}
+	require.NoError(t, backend.CreateFunction(fn))
+
+	cfg, err := backend.CreateFunctionURLConfig("dns-test-fn", "NONE")
+	require.NoError(t, err)
+	assert.NotEmpty(t, cfg.FunctionURL)
+
+	// DNS should have been registered
+	dns.mu.Lock()
+	assert.NotEmpty(t, dns.registered)
+	dns.mu.Unlock()
+
+	// Delete should deregister
+	require.NoError(t, backend.DeleteFunctionURLConfig("dns-test-fn"))
+
+	dns.mu.Lock()
+	assert.NotEmpty(t, dns.deregistered)
+	dns.mu.Unlock()
+}
+
+func TestBuildURLEventPayload(t *testing.T) {
+	t.Parallel()
+
+	backend := lambda.NewInMemoryBackend(
+		nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default(),
+	)
+
+	req, err := http.NewRequestWithContext(
+		context.Background(),
+		http.MethodPost,
+		"http://example.com/my/path?foo=bar",
+		strings.NewReader("hello world"),
+	)
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "text/plain")
+
+	payload, err := lambda.BuildURLEventPayload(backend, req)
+	require.NoError(t, err)
+
+	var event map[string]any
+	require.NoError(t, json.Unmarshal(payload, &event))
+
+	assert.Equal(t, "2.0", event["version"])
+	assert.Equal(t, "$default", event["routeKey"])
+	assert.Equal(t, "/my/path", event["rawPath"])
+	assert.Equal(t, "foo=bar", event["rawQueryString"])
+	assert.True(t, event["isBase64Encoded"].(bool), "body should be base64-encoded")
+}
+
+func TestBuildURLEventPayload_EmptyBody(t *testing.T) {
+	t.Parallel()
+
+	backend := lambda.NewInMemoryBackend(
+		nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default(),
+	)
+
+	req, err := http.NewRequestWithContext(
+		context.Background(),
+		http.MethodGet,
+		"http://example.com/",
+		nil,
+	)
+	require.NoError(t, err)
+
+	payload, err := lambda.BuildURLEventPayload(backend, req)
+	require.NoError(t, err)
+
+	var event map[string]any
+	require.NoError(t, json.Unmarshal(payload, &event))
+	_, hasBody := event["body"]
+	assert.False(t, hasBody, "empty body should not include body field")
+}
+
+func TestWriteFunctionURLResponse_StructuredResponse(t *testing.T) {
+	t.Parallel()
+
+	// Structured Lambda URL response with statusCode
+	result := []byte(`{"statusCode":200,"headers":{"content-type":"application/json"},"body":"{\"ok\":true}"}`)
+	rec := httptest.NewRecorder()
+	lambda.WriteFunctionURLResponse(rec, result)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+	assert.Equal(t, `{"ok":true}`, rec.Body.String())
+}
+
+func TestWriteFunctionURLResponse_Base64Body(t *testing.T) {
+	t.Parallel()
+
+	// Structured response with base64-encoded body
+	encoded := base64.StdEncoding.EncodeToString([]byte("binary data"))
+	result := []byte(`{"statusCode":200,"body":"` + encoded + `","isBase64Encoded":true}`)
+	rec := httptest.NewRecorder()
+	lambda.WriteFunctionURLResponse(rec, result)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "binary data", rec.Body.String())
+}
+
+func TestWriteFunctionURLResponse_RawFallback(t *testing.T) {
+	t.Parallel()
+
+	// Raw result (not structured URL response)
+	result := []byte(`{"result":"plain"}`)
+	rec := httptest.NewRecorder()
+	lambda.WriteFunctionURLResponse(rec, result)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+	assert.JSONEq(t, `{"result":"plain"}`, rec.Body.String())
+}
+
+func TestFunctionURLConfig_HTTPEndpoint(t *testing.T) {
+	t.Parallel()
+
+	pa, paErr := portalloc.New(20400, 20450)
+	require.NoError(t, paErr)
+
+	backend := lambda.NewInMemoryBackend(
+		nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default(),
+	)
+
+	fn := &lambda.FunctionConfiguration{
+		FunctionName: "http-test-fn",
+		PackageType:  lambda.PackageTypeImage,
+		ImageURI:     "test:latest",
+	}
+	require.NoError(t, backend.CreateFunction(fn))
+
+	cfg, err := backend.CreateFunctionURLConfig("http-test-fn", "NONE")
+	require.NoError(t, err)
+	assert.Contains(t, cfg.FunctionURL, "127.0.0.1", "URL should use loopback when no DNS")
+
+	// The listener is running — make an HTTP request to it.
+	client := &http.Client{Timeout: 5 * time.Second}
+	req, err := http.NewRequestWithContext(
+		context.Background(), http.MethodGet, cfg.FunctionURL, nil,
+	)
+	require.NoError(t, err)
+
+	resp, err := client.Do(req)
+	require.NoError(t, err, "listener should respond")
+	defer resp.Body.Close()
+
+	// Without Docker the invocation fails, so we expect a 500 error response.
+	assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
 }

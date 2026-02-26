@@ -45,12 +45,16 @@ var lambdaOpRoutes = []routeSpec{
 	{http.MethodPut, hasSuffixCode, "UpdateFunctionCode"},
 	{http.MethodPut, hasSuffixConfiguration, "UpdateFunctionConfiguration"},
 	{http.MethodPost, hasSuffixInvocations, "InvokeFunction"},
+	{http.MethodPost, hasSuffixURL, "CreateFunctionURLConfig"},
+	{http.MethodGet, hasSuffixURL, "GetFunctionURLConfig"},
+	{http.MethodDelete, hasSuffixURL, "DeleteFunctionURLConfig"},
 }
 
 func isEmptyRest(rest string) bool            { return rest == "" }
 func hasSuffixCode(rest string) bool          { return strings.HasSuffix(rest, "/code") }
 func hasSuffixConfiguration(rest string) bool { return strings.HasSuffix(rest, "/configuration") }
 func hasSuffixInvocations(rest string) bool   { return strings.HasSuffix(rest, "/invocations") }
+func hasSuffixURL(rest string) bool           { return strings.HasSuffix(rest, "/url") }
 
 // Handler is the Echo HTTP handler for Lambda operations.
 type Handler struct {
@@ -95,6 +99,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetEventSourceMapping",
 		"ListEventSourceMappings",
 		"DeleteEventSourceMapping",
+		"CreateFunctionURLConfig",
+		"GetFunctionURLConfig",
+		"DeleteFunctionURLConfig",
 	}
 }
 
@@ -193,6 +200,33 @@ func (h *Handler) buildRouteHandlers() []handlerEntry {
 				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/invocations")
 
 				return h.handleInvoke(c, name)
+			},
+		},
+		{
+			method: http.MethodPost,
+			match:  hasSuffixURL,
+			execute: func(c *echo.Context, rest string) error {
+				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/url")
+
+				return h.handleCreateFunctionURLConfig(c, name)
+			},
+		},
+		{
+			method: http.MethodGet,
+			match:  hasSuffixURL,
+			execute: func(c *echo.Context, rest string) error {
+				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/url")
+
+				return h.handleGetFunctionURLConfig(c, name)
+			},
+		},
+		{
+			method: http.MethodDelete,
+			match:  hasSuffixURL,
+			execute: func(c *echo.Context, rest string) error {
+				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/url")
+
+				return h.handleDeleteFunctionURLConfig(c, name)
 			},
 		},
 	}
@@ -644,6 +678,83 @@ func (h *Handler) writeError(c *echo.Context, status int, errType, message strin
 		Type:    errType,
 		Message: message,
 	})
+}
+
+func (h *Handler) handleCreateFunctionURLConfig(c *echo.Context, name string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	body, err := httputil.ReadBody(c.Request())
+	if err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
+	}
+
+	var input CreateFunctionURLConfigInput
+	if len(body) > 0 {
+		if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
+		}
+	}
+
+	if input.AuthType == "" {
+		input.AuthType = "NONE"
+	}
+
+	cfg, createErr := lambdaBk.CreateFunctionURLConfig(name, input.AuthType)
+	if createErr != nil {
+		if errors.Is(createErr, ErrFunctionNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Function not found: %s", name))
+		}
+
+		if errors.Is(createErr, ErrFunctionAlreadyExists) {
+			return h.writeError(c, http.StatusConflict, "ResourceConflictException",
+				fmt.Sprintf("Function URL config already exists for: %s", name))
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", createErr.Error())
+	}
+
+	return c.JSON(http.StatusCreated, cfg)
+}
+
+func (h *Handler) handleGetFunctionURLConfig(c *echo.Context, name string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	cfg, err := lambdaBk.GetFunctionURLConfig(name)
+	if err != nil {
+		if errors.Is(err, ErrFunctionURLNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Function URL config not found: %s", name))
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+	}
+
+	return c.JSON(http.StatusOK, cfg)
+}
+
+func (h *Handler) handleDeleteFunctionURLConfig(c *echo.Context, name string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	if err := lambdaBk.DeleteFunctionURLConfig(name); err != nil {
+		if errors.Is(err, ErrFunctionURLNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Function URL config not found: %s", name))
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+	}
+
+	return c.NoContent(http.StatusNoContent)
 }
 
 // isNameOnly returns true when rest is a single path segment (/{name} with no sub-paths).
