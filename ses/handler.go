@@ -12,13 +12,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
 const (
-	sesAPIVersion    = "Version=2010-12-01"
+	sesVersion       = "2010-12-01"
 	sesXMLNS         = "http://ses.amazonaws.com/doc/2010-12-01/"
 	sesMatchPriority = 80
 	unknownAction    = "Unknown"
@@ -70,12 +69,11 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return false
 		}
 
-		body, err := httputil.ReadBody(r)
-		if err != nil {
+		if err := r.ParseForm(); err != nil {
 			return false
 		}
 
-		return strings.Contains(string(body), sesAPIVersion)
+		return r.Form.Get("Version") == sesVersion
 	}
 }
 
@@ -86,17 +84,12 @@ func (h *Handler) MatchPriority() int {
 
 // ExtractOperation extracts the SES action from the request body.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
-	body, err := httputil.ReadBody(c.Request())
-	if err != nil {
+	r := c.Request()
+	if err := r.ParseForm(); err != nil {
 		return unknownAction
 	}
 
-	vals, err := url.ParseQuery(string(body))
-	if err != nil {
-		return unknownAction
-	}
-
-	action := vals.Get("Action")
+	action := r.Form.Get("Action")
 	if action == "" {
 		return unknownAction
 	}
@@ -106,18 +99,13 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 
 // ExtractResource returns the source email address or identity from the request.
 func (h *Handler) ExtractResource(c *echo.Context) string {
-	body, err := httputil.ReadBody(c.Request())
-	if err != nil {
-		return ""
-	}
-
-	vals, err := url.ParseQuery(string(body))
-	if err != nil {
+	r := c.Request()
+	if err := r.ParseForm(); err != nil {
 		return ""
 	}
 
 	for _, key := range []string{"Source", "EmailAddress", "Identity"} {
-		if v := vals.Get(key); v != "" {
+		if v := r.Form.Get(key); v != "" {
 			return v
 		}
 	}
@@ -133,9 +121,9 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		reqID := newRequestID()
 
-		body, err := httputil.ReadBody(c.Request())
-		if err != nil {
-			log.ErrorContext(ctx, "failed to read SES request body", "error", err)
+		r := c.Request()
+		if err := r.ParseForm(); err != nil {
+			log.ErrorContext(ctx, "failed to parse SES request form", "error", err)
 
 			return h.writeError(
 				c,
@@ -146,10 +134,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			)
 		}
 
-		vals, err := url.ParseQuery(string(body))
-		if err != nil {
-			return h.writeError(c, reqID, http.StatusBadRequest, "InvalidParameterValue", "invalid request body")
-		}
+		vals := r.Form
 
 		action := vals.Get("Action")
 		if action == "" {
