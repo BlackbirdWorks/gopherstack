@@ -138,3 +138,17 @@ func (b *InMemoryBackend) ListEmails() []Email {
 
 	return out
 }
+
+// GetEmailByID returns the email with the given MessageID, or an error if not found.
+func (b *InMemoryBackend) GetEmailByID(messageID string) (Email, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	for _, e := range b.emails {
+		if e.MessageID == messageID {
+			return e, nil
+		}
+	}
+
+	return Email{}, fmt.Errorf("%w: %s", ErrIdentityNotFound, messageID)
+}

@@ -23,6 +23,7 @@ import (
 	route53backend "github.com/blackbirdworks/gopherstack/route53"
 	"github.com/blackbirdworks/gopherstack/s3"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/secretsmanager"
+	sesbackend "github.com/blackbirdworks/gopherstack/ses"
 	"github.com/blackbirdworks/gopherstack/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/sqs"
 	"github.com/blackbirdworks/gopherstack/ssm"
@@ -55,6 +56,7 @@ type AWSSDKProvider interface {
 	GetKinesisHandler() service.Registerable
 	GetElastiCacheHandler() service.Registerable
 	GetRoute53Handler() service.Registerable
+	GetSESHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 }
 
@@ -92,6 +94,7 @@ type extractedConfig struct {
 	kinesisOps        *kinesisbackend.Handler
 	elasticacheOps    *elasticachebackend.Handler
 	route53Ops        *route53backend.Handler
+	sesOps            *sesbackend.Handler
 	gCfg              globalcfg.GlobalConfig
 }
 
@@ -186,6 +189,10 @@ func extractMonitoringHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetRoute53Handler(); h != nil {
 		ec.route53Ops, _ = h.(*route53backend.Handler)
 	}
+
+	if h := ap.GetSESHandler(); h != nil {
+		ec.sesOps, _ = h.(*sesbackend.Handler)
+	}
 }
 
 //nolint:ireturn // architecturally required to return interface
@@ -215,6 +222,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		KinesisOps:        ec.kinesisOps,
 		ElastiCacheOps:    ec.elasticacheOps,
 		Route53Ops:        ec.route53Ops,
+		SESOps:            ec.sesOps,
 		GlobalConfig:      ec.gCfg,
 		Logger:            ctx.Logger,
 	})
