@@ -23,6 +23,36 @@ const (
 	unknownOp                = "Unknown"
 )
 
+// cacheEndpoint is the XML representation of a cache node endpoint.
+type cacheEndpoint struct {
+	Address string `xml:"Address"`
+	Port    int    `xml:"Port"`
+}
+
+// cacheNode is the XML representation of a cache node.
+type cacheNode struct {
+	CacheNodeID     string        `xml:"CacheNodeId"`
+	CacheNodeStatus string        `xml:"CacheNodeStatus"`
+	Endpoint        cacheEndpoint `xml:"Endpoint"`
+}
+
+// cacheNodes is the XML container for cache nodes.
+type cacheNodes struct {
+	CacheNode []cacheNode `xml:"CacheNode"`
+}
+
+// cacheClusterXML is the XML representation of a cache cluster.
+type cacheClusterXML struct {
+	CacheClusterId     string     `xml:"CacheClusterId"`
+	CacheClusterStatus string     `xml:"CacheClusterStatus"`
+	CacheNodeType      string     `xml:"CacheNodeType"`
+	Engine             string     `xml:"Engine"`
+	EngineVersion      string     `xml:"EngineVersion"`
+	NumCacheNodes      int        `xml:"NumCacheNodes"`
+	ARN                string     `xml:"ARN"`
+	CacheNodes         cacheNodes `xml:"CacheNodes"`
+}
+
 // Handler is the Echo HTTP handler for ElastiCache operations.
 type Handler struct {
 	Backend   StorageBackend
@@ -160,57 +190,16 @@ func (h *Handler) createCacheCluster(c *echo.Context, form url.Values) error {
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
-	type endpoint struct {
-		Address string `xml:"Address"`
-		Port    int    `xml:"Port"`
-	}
-	type cacheNode struct {
-		CacheNodeID     string   `xml:"CacheNodeId"`
-		CacheNodeStatus string   `xml:"CacheNodeStatus"`
-		Endpoint        endpoint `xml:"Endpoint"`
-	}
-	type cacheNodes struct {
-		CacheNode []cacheNode `xml:"CacheNode"`
-	}
-	type cacheCluster struct {
-		CacheClusterId     string     `xml:"CacheClusterId"`
-		CacheClusterStatus string     `xml:"CacheClusterStatus"`
-		CacheNodeType      string     `xml:"CacheNodeType"`
-		Engine             string     `xml:"Engine"`
-		EngineVersion      string     `xml:"EngineVersion"`
-		NumCacheNodes      int        `xml:"NumCacheNodes"`
-		ARN                string     `xml:"ARN"`
-		CacheNodes         cacheNodes `xml:"CacheNodes"`
-	}
 	type result struct {
-		XMLName      xml.Name     `xml:"CreateCacheClusterResponse"`
-		Xmlns        string       `xml:"xmlns,attr"`
-		CacheCluster cacheCluster `xml:"CreateCacheClusterResult>CacheCluster"`
+		XMLName      xml.Name        `xml:"CreateCacheClusterResponse"`
+		Xmlns        string          `xml:"xmlns,attr"`
+		CacheCluster cacheClusterXML `xml:"CreateCacheClusterResult>CacheCluster"`
 	}
 
-	resp := result{
-		Xmlns: elasticacheNS,
-		CacheCluster: cacheCluster{
-			CacheClusterId:     cluster.ClusterID,
-			CacheClusterStatus: cluster.Status,
-			CacheNodeType:      cluster.NodeType,
-			Engine:             cluster.Engine,
-			EngineVersion:      cluster.EngineVersion,
-			NumCacheNodes:      cluster.NumCacheNodes,
-			ARN:                cluster.ARN,
-			CacheNodes: cacheNodes{
-				CacheNode: []cacheNode{{
-					CacheNodeID:     "0001",
-					CacheNodeStatus: "available",
-					Endpoint: endpoint{
-						Address: cluster.Endpoint,
-						Port:    cluster.Port,
-					},
-				}},
-			},
-		},
-	}
-	return xmlResp(c, http.StatusOK, resp)
+	return xmlResp(c, http.StatusOK, result{
+		Xmlns:        elasticacheNS,
+		CacheCluster: clusterToXML(cluster, cluster.Status),
+	})
 }
 
 func (h *Handler) deleteCacheCluster(c *echo.Context, form url.Values) error {
@@ -230,57 +219,16 @@ func (h *Handler) deleteCacheCluster(c *echo.Context, form url.Values) error {
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
-	type endpoint struct {
-		Address string `xml:"Address"`
-		Port    int    `xml:"Port"`
-	}
-	type cacheNode struct {
-		CacheNodeID     string   `xml:"CacheNodeId"`
-		CacheNodeStatus string   `xml:"CacheNodeStatus"`
-		Endpoint        endpoint `xml:"Endpoint"`
-	}
-	type cacheNodes struct {
-		CacheNode []cacheNode `xml:"CacheNode"`
-	}
-	type cacheCluster struct {
-		CacheClusterId     string     `xml:"CacheClusterId"`
-		CacheClusterStatus string     `xml:"CacheClusterStatus"`
-		CacheNodeType      string     `xml:"CacheNodeType"`
-		Engine             string     `xml:"Engine"`
-		EngineVersion      string     `xml:"EngineVersion"`
-		NumCacheNodes      int        `xml:"NumCacheNodes"`
-		ARN                string     `xml:"ARN"`
-		CacheNodes         cacheNodes `xml:"CacheNodes"`
-	}
 	type result struct {
-		XMLName      xml.Name     `xml:"DeleteCacheClusterResponse"`
-		Xmlns        string       `xml:"xmlns,attr"`
-		CacheCluster cacheCluster `xml:"DeleteCacheClusterResult>CacheCluster"`
+		XMLName      xml.Name        `xml:"DeleteCacheClusterResponse"`
+		Xmlns        string          `xml:"xmlns,attr"`
+		CacheCluster cacheClusterXML `xml:"DeleteCacheClusterResult>CacheCluster"`
 	}
 
-	resp := result{
-		Xmlns: elasticacheNS,
-		CacheCluster: cacheCluster{
-			CacheClusterId:     cl.ClusterID,
-			CacheClusterStatus: "deleting",
-			CacheNodeType:      cl.NodeType,
-			Engine:             cl.Engine,
-			EngineVersion:      cl.EngineVersion,
-			NumCacheNodes:      cl.NumCacheNodes,
-			ARN:                cl.ARN,
-			CacheNodes: cacheNodes{
-				CacheNode: []cacheNode{{
-					CacheNodeID:     "0001",
-					CacheNodeStatus: "deleting",
-					Endpoint: endpoint{
-						Address: cl.Endpoint,
-						Port:    cl.Port,
-					},
-				}},
-			},
-		},
-	}
-	return xmlResp(c, http.StatusOK, resp)
+	return xmlResp(c, http.StatusOK, result{
+		Xmlns:        elasticacheNS,
+		CacheCluster: clusterToXML(&cl, "deleting"),
+	})
 }
 
 func (h *Handler) describeCacheClusters(c *echo.Context, form url.Values) error {
@@ -293,30 +241,8 @@ func (h *Handler) describeCacheClusters(c *echo.Context, form url.Values) error 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
-	type endpoint struct {
-		Address string `xml:"Address"`
-		Port    int    `xml:"Port"`
-	}
-	type cacheNode struct {
-		CacheNodeID     string   `xml:"CacheNodeId"`
-		CacheNodeStatus string   `xml:"CacheNodeStatus"`
-		Endpoint        endpoint `xml:"Endpoint"`
-	}
-	type cacheNodes struct {
-		CacheNode []cacheNode `xml:"CacheNode"`
-	}
-	type cacheCluster struct {
-		CacheClusterId     string     `xml:"CacheClusterId"`
-		CacheClusterStatus string     `xml:"CacheClusterStatus"`
-		CacheNodeType      string     `xml:"CacheNodeType"`
-		Engine             string     `xml:"Engine"`
-		EngineVersion      string     `xml:"EngineVersion"`
-		NumCacheNodes      int        `xml:"NumCacheNodes"`
-		ARN                string     `xml:"ARN"`
-		CacheNodes         cacheNodes `xml:"CacheNodes"`
-	}
 	type cacheClusters struct {
-		CacheCluster []cacheCluster `xml:"CacheCluster"`
+		CacheCluster []cacheClusterXML `xml:"CacheCluster"`
 	}
 	type result struct {
 		XMLName       xml.Name      `xml:"DescribeCacheClustersResponse"`
@@ -324,27 +250,9 @@ func (h *Handler) describeCacheClusters(c *echo.Context, form url.Values) error 
 		CacheClusters cacheClusters `xml:"DescribeCacheClustersResult>CacheClusters"`
 	}
 
-	items := make([]cacheCluster, 0, len(clusters))
-	for _, cl := range clusters {
-		items = append(items, cacheCluster{
-			CacheClusterId:     cl.ClusterID,
-			CacheClusterStatus: cl.Status,
-			CacheNodeType:      cl.NodeType,
-			Engine:             cl.Engine,
-			EngineVersion:      cl.EngineVersion,
-			NumCacheNodes:      cl.NumCacheNodes,
-			ARN:                cl.ARN,
-			CacheNodes: cacheNodes{
-				CacheNode: []cacheNode{{
-					CacheNodeID:     "0001",
-					CacheNodeStatus: "available",
-					Endpoint: endpoint{
-						Address: cl.Endpoint,
-						Port:    cl.Port,
-					},
-				}},
-			},
-		})
+	items := make([]cacheClusterXML, 0, len(clusters))
+	for i := range clusters {
+		items = append(items, clusterToXML(&clusters[i], clusters[i].Status))
 	}
 
 	return xmlResp(c, http.StatusOK, result{
@@ -495,6 +403,29 @@ func (h *Handler) describeReplicationGroups(c *echo.Context, form url.Values) er
 		Xmlns:             elasticacheNS,
 		ReplicationGroups: replicationGroups{ReplicationGroup: items},
 	})
+}
+
+// clusterToXML converts a Cluster to its XML representation with the given status.
+func clusterToXML(cl *Cluster, status string) cacheClusterXML {
+	return cacheClusterXML{
+		CacheClusterId:     cl.ClusterID,
+		CacheClusterStatus: status,
+		CacheNodeType:      cl.NodeType,
+		Engine:             cl.Engine,
+		EngineVersion:      cl.EngineVersion,
+		NumCacheNodes:      cl.NumCacheNodes,
+		ARN:                cl.ARN,
+		CacheNodes: cacheNodes{
+			CacheNode: []cacheNode{{
+				CacheNodeID:     "0001",
+				CacheNodeStatus: status,
+				Endpoint: cacheEndpoint{
+					Address: cl.Endpoint,
+					Port:    cl.Port,
+				},
+			}},
+		},
+	}
 }
 
 func xmlResp(c *echo.Context, status int, v any) error {
