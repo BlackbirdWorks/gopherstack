@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/ec2"
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
 // newHandler creates a new EC2 handler with a fresh backend.
@@ -356,4 +357,161 @@ func TestEC2_Provider_Name(t *testing.T) {
 
 	p := &ec2.Provider{}
 	assert.Equal(t, "EC2", p.Name())
+}
+
+func TestEC2_Provider_Init(t *testing.T) {
+	t.Parallel()
+
+	p := &ec2.Provider{}
+	appCtx := &service.AppContext{Logger: slog.Default()}
+
+	reg, err := p.Init(appCtx)
+	require.NoError(t, err)
+	require.NotNil(t, reg)
+	assert.Equal(t, "EC2", reg.Name())
+}
+
+func TestEC2_Name_And_Operations(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+	assert.Equal(t, "EC2", h.Name())
+
+	ops := h.GetSupportedOperations()
+	assert.Contains(t, ops, "RunInstances")
+	assert.Contains(t, ops, "DescribeInstances")
+	assert.Contains(t, ops, "TerminateInstances")
+}
+
+func TestEC2_MatchPriority(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+	assert.Equal(t, 80, h.MatchPriority())
+}
+
+func TestEC2_ExtractOperation(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+	e := echo.New()
+
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("Action=DescribeInstances&Version=2016-11-15"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	c := e.NewContext(req, httptest.NewRecorder())
+
+	assert.Equal(t, "DescribeInstances", h.ExtractOperation(c))
+}
+
+func TestEC2_ExtractResource(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+	e := echo.New()
+
+	req := httptest.NewRequest(http.MethodPost, "/",
+		strings.NewReader("Action=TerminateInstances&InstanceId.1=i-abc123&Version=2016-11-15"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	c := e.NewContext(req, httptest.NewRecorder())
+
+	assert.Equal(t, "i-abc123", h.ExtractResource(c))
+}
+
+func TestEC2_TerminateInstances_MissingID(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+	rec := postForm(t, h, "Action=TerminateInstances&Version=2016-11-15")
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidParameterValue")
+}
+
+func TestEC2_CreateSecurityGroup_MissingName(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+	rec := postForm(t, h, "Action=CreateSecurityGroup&Version=2016-11-15&GroupDescription=test")
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidParameterValue")
+}
+
+func TestEC2_DeleteSecurityGroup_MissingGroupID(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+	rec := postForm(t, h, "Action=DeleteSecurityGroup&Version=2016-11-15")
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidParameterValue")
+}
+
+func TestEC2_CreateSubnet_MissingVPC(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+	rec := postForm(t, h, "Action=CreateSubnet&Version=2016-11-15&CidrBlock=10.0.1.0/24")
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidParameterValue")
+}
+
+func TestEC2_CreateSubnet_MissingCIDR(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+	rec := postForm(t, h, "Action=CreateSubnet&Version=2016-11-15&VpcId=vpc-default")
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidParameterValue")
+}
+
+func TestEC2_DescribeInstances_FilterByState(t *testing.T) {
+	t.Parallel()
+
+	bk := ec2.NewInMemoryBackend("000000000000", "us-east-1")
+
+	// Run instance.
+	instances, err := bk.RunInstances("ami-test", "t2.micro", "", 1)
+	require.NoError(t, err)
+	require.Len(t, instances, 1)
+
+	// Describe running instances.
+	running := bk.DescribeInstances(nil, "running")
+	assert.Len(t, running, 1)
+
+	// Describe terminated (should be empty).
+	terminated := bk.DescribeInstances(nil, "terminated")
+	assert.Empty(t, terminated)
+}
+
+func TestEC2_DuplicateSecurityGroup(t *testing.T) {
+	t.Parallel()
+
+	bk := ec2.NewInMemoryBackend("000000000000", "us-east-1")
+
+	_, err := bk.CreateSecurityGroup("my-sg", "test", "vpc-default")
+	require.NoError(t, err)
+
+	_, err = bk.CreateSecurityGroup("my-sg", "test", "vpc-default")
+	require.ErrorIs(t, err, ec2.ErrDuplicateSGName)
+}
+
+func TestEC2_DescribeSecurityGroups_ByID(t *testing.T) {
+	t.Parallel()
+
+	bk := ec2.NewInMemoryBackend("000000000000", "us-east-1")
+
+	sg, err := bk.CreateSecurityGroup("test-sg", "test", "vpc-default")
+	require.NoError(t, err)
+
+	// Describe by ID.
+	sgs := bk.DescribeSecurityGroups([]string{sg.ID})
+	require.Len(t, sgs, 1)
+	assert.Equal(t, sg.ID, sgs[0].ID)
+
+	// Non-existent ID.
+	sgs = bk.DescribeSecurityGroups([]string{"sg-nonexistent"})
+	assert.Empty(t, sgs)
 }

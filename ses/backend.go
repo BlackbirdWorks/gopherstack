@@ -14,6 +14,7 @@ import (
 // Errors returned by the SES backend.
 var (
 	ErrIdentityNotFound = errors.New("IdentityNotFound")
+	ErrEmailNotFound    = errors.New("EmailNotFound")
 	ErrInvalidParameter = errors.New("InvalidParameterValue")
 )
 
@@ -150,5 +151,5 @@ func (b *InMemoryBackend) GetEmailByID(messageID string) (Email, error) {
 		}
 	}
 
-	return Email{}, fmt.Errorf("%w: %s", ErrIdentityNotFound, messageID)
+	return Email{}, fmt.Errorf("%w: %s", ErrEmailNotFound, messageID)
 }

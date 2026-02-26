@@ -169,5 +169,3 @@ func (h *DashboardHandler) sesDeleteIdentity(c *echo.Context) error {
 
 	return c.Redirect(http.StatusFound, "/dashboard/ses")
 }
-
-
