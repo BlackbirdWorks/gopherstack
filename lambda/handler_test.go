@@ -1504,329 +1504,329 @@ func TestFunctionUrl_HTTP_ForwardsToLambda(t *testing.T) {
 // ---- Version tests ----
 
 func TestPublishVersion_Success(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h := newInMemHandlerWithPortAlloc(t)
-mustCreateFunctionViaHandler(t, h, "ver-fn")
+	h := newInMemHandlerWithPortAlloc(t)
+	mustCreateFunctionViaHandler(t, h, "ver-fn")
 
-rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/ver-fn/versions",
-`{"Description":"v1"}`, nil)
-require.Equal(t, http.StatusCreated, rec.Code)
+	rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/ver-fn/versions",
+		`{"Description":"v1"}`, nil)
+	require.Equal(t, http.StatusCreated, rec.Code)
 
-var ver lambda.FunctionVersion
-require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ver))
-assert.Equal(t, "1", ver.Version)
-assert.Equal(t, "v1", ver.Description)
-assert.Equal(t, "ver-fn", ver.FunctionName)
+	var ver lambda.FunctionVersion
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ver))
+	assert.Equal(t, "1", ver.Version)
+	assert.Equal(t, "v1", ver.Description)
+	assert.Equal(t, "ver-fn", ver.FunctionName)
 }
 
 func TestPublishVersion_FunctionNotFound(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h := newInMemHandlerWithPortAlloc(t)
+	h := newInMemHandlerWithPortAlloc(t)
 
-rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/no-fn/versions", `{}`, nil)
-require.Equal(t, http.StatusNotFound, rec.Code)
+	rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/no-fn/versions", `{}`, nil)
+	require.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 func TestListVersionsByFunction_Success(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h := newInMemHandlerWithPortAlloc(t)
-mustCreateFunctionViaHandler(t, h, "list-ver-fn")
+	h := newInMemHandlerWithPortAlloc(t)
+	mustCreateFunctionViaHandler(t, h, "list-ver-fn")
 
-// Publish two versions
-callHandler(t, h, http.MethodPost, "/2015-03-31/functions/list-ver-fn/versions", `{}`, nil)
-callHandler(t, h, http.MethodPost, "/2015-03-31/functions/list-ver-fn/versions", `{}`, nil)
+	// Publish two versions
+	callHandler(t, h, http.MethodPost, "/2015-03-31/functions/list-ver-fn/versions", `{}`, nil)
+	callHandler(t, h, http.MethodPost, "/2015-03-31/functions/list-ver-fn/versions", `{}`, nil)
 
-rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/list-ver-fn/versions", "", nil)
-require.Equal(t, http.StatusOK, rec.Code)
+	rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/list-ver-fn/versions", "", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
 
-var out lambda.ListVersionsByFunctionOutput
-require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-// $LATEST + 2 published versions
-assert.Len(t, out.Versions, 3)
-assert.Equal(t, "$LATEST", out.Versions[0].Version)
-assert.Equal(t, "1", out.Versions[1].Version)
-assert.Equal(t, "2", out.Versions[2].Version)
+	var out lambda.ListVersionsByFunctionOutput
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	// $LATEST + 2 published versions
+	assert.Len(t, out.Versions, 3)
+	assert.Equal(t, "$LATEST", out.Versions[0].Version)
+	assert.Equal(t, "1", out.Versions[1].Version)
+	assert.Equal(t, "2", out.Versions[2].Version)
 }
 
 // ---- Alias tests ----
 
 func TestCreateAlias_Success(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h := newInMemHandlerWithPortAlloc(t)
-mustCreateFunctionViaHandler(t, h, "alias-fn")
-// Publish a version first
-callHandler(t, h, http.MethodPost, "/2015-03-31/functions/alias-fn/versions", `{}`, nil)
+	h := newInMemHandlerWithPortAlloc(t)
+	mustCreateFunctionViaHandler(t, h, "alias-fn")
+	// Publish a version first
+	callHandler(t, h, http.MethodPost, "/2015-03-31/functions/alias-fn/versions", `{}`, nil)
 
-rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/alias-fn/aliases",
-`{"Name":"live","FunctionVersion":"1"}`, nil)
-require.Equal(t, http.StatusCreated, rec.Code)
+	rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/alias-fn/aliases",
+		`{"Name":"live","FunctionVersion":"1"}`, nil)
+	require.Equal(t, http.StatusCreated, rec.Code)
 
-var alias lambda.FunctionAlias
-require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &alias))
-assert.Equal(t, "live", alias.Name)
-assert.Equal(t, "1", alias.FunctionVersion)
+	var alias lambda.FunctionAlias
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &alias))
+	assert.Equal(t, "live", alias.Name)
+	assert.Equal(t, "1", alias.FunctionVersion)
 }
 
 func TestGetAlias_Success(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h := newInMemHandlerWithPortAlloc(t)
-mustCreateFunctionViaHandler(t, h, "getalias-fn")
-callHandler(t, h, http.MethodPost, "/2015-03-31/functions/getalias-fn/versions", `{}`, nil)
-callHandler(t, h, http.MethodPost, "/2015-03-31/functions/getalias-fn/aliases",
-`{"Name":"stable","FunctionVersion":"1"}`, nil)
+	h := newInMemHandlerWithPortAlloc(t)
+	mustCreateFunctionViaHandler(t, h, "getalias-fn")
+	callHandler(t, h, http.MethodPost, "/2015-03-31/functions/getalias-fn/versions", `{}`, nil)
+	callHandler(t, h, http.MethodPost, "/2015-03-31/functions/getalias-fn/aliases",
+		`{"Name":"stable","FunctionVersion":"1"}`, nil)
 
-rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/getalias-fn/aliases/stable", "", nil)
-require.Equal(t, http.StatusOK, rec.Code)
+	rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/getalias-fn/aliases/stable", "", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
 
-var alias lambda.FunctionAlias
-require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &alias))
-assert.Equal(t, "stable", alias.Name)
+	var alias lambda.FunctionAlias
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &alias))
+	assert.Equal(t, "stable", alias.Name)
 }
 
 func TestGetAlias_NotFound(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h := newInMemHandlerWithPortAlloc(t)
-mustCreateFunctionViaHandler(t, h, "noalias-fn")
+	h := newInMemHandlerWithPortAlloc(t)
+	mustCreateFunctionViaHandler(t, h, "noalias-fn")
 
-rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/noalias-fn/aliases/missing", "", nil)
-require.Equal(t, http.StatusNotFound, rec.Code)
+	rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/noalias-fn/aliases/missing", "", nil)
+	require.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 func TestListAliases_Success(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h := newInMemHandlerWithPortAlloc(t)
-mustCreateFunctionViaHandler(t, h, "listalias-fn")
-callHandler(t, h, http.MethodPost, "/2015-03-31/functions/listalias-fn/versions", `{}`, nil)
-callHandler(t, h, http.MethodPost, "/2015-03-31/functions/listalias-fn/aliases",
-`{"Name":"v1","FunctionVersion":"1"}`, nil)
-callHandler(t, h, http.MethodPost, "/2015-03-31/functions/listalias-fn/aliases",
-`{"Name":"v2","FunctionVersion":"1"}`, nil)
+	h := newInMemHandlerWithPortAlloc(t)
+	mustCreateFunctionViaHandler(t, h, "listalias-fn")
+	callHandler(t, h, http.MethodPost, "/2015-03-31/functions/listalias-fn/versions", `{}`, nil)
+	callHandler(t, h, http.MethodPost, "/2015-03-31/functions/listalias-fn/aliases",
+		`{"Name":"v1","FunctionVersion":"1"}`, nil)
+	callHandler(t, h, http.MethodPost, "/2015-03-31/functions/listalias-fn/aliases",
+		`{"Name":"v2","FunctionVersion":"1"}`, nil)
 
-rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/listalias-fn/aliases", "", nil)
-require.Equal(t, http.StatusOK, rec.Code)
+	rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/listalias-fn/aliases", "", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
 
-var out lambda.ListAliasesOutput
-require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-assert.Len(t, out.Aliases, 2)
+	var out lambda.ListAliasesOutput
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Len(t, out.Aliases, 2)
 }
 
 func TestUpdateAlias_Success(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h := newInMemHandlerWithPortAlloc(t)
-mustCreateFunctionViaHandler(t, h, "updalias-fn")
-callHandler(t, h, http.MethodPost, "/2015-03-31/functions/updalias-fn/versions", `{}`, nil)
-callHandler(t, h, http.MethodPost, "/2015-03-31/functions/updalias-fn/versions", `{}`, nil)
-callHandler(t, h, http.MethodPost, "/2015-03-31/functions/updalias-fn/aliases",
-`{"Name":"prod","FunctionVersion":"1"}`, nil)
+	h := newInMemHandlerWithPortAlloc(t)
+	mustCreateFunctionViaHandler(t, h, "updalias-fn")
+	callHandler(t, h, http.MethodPost, "/2015-03-31/functions/updalias-fn/versions", `{}`, nil)
+	callHandler(t, h, http.MethodPost, "/2015-03-31/functions/updalias-fn/versions", `{}`, nil)
+	callHandler(t, h, http.MethodPost, "/2015-03-31/functions/updalias-fn/aliases",
+		`{"Name":"prod","FunctionVersion":"1"}`, nil)
 
-rec := callHandler(t, h, http.MethodPut, "/2015-03-31/functions/updalias-fn/aliases/prod",
-`{"FunctionVersion":"2"}`, nil)
-require.Equal(t, http.StatusOK, rec.Code)
+	rec := callHandler(t, h, http.MethodPut, "/2015-03-31/functions/updalias-fn/aliases/prod",
+		`{"FunctionVersion":"2"}`, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
 
-var alias lambda.FunctionAlias
-require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &alias))
-assert.Equal(t, "2", alias.FunctionVersion)
+	var alias lambda.FunctionAlias
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &alias))
+	assert.Equal(t, "2", alias.FunctionVersion)
 }
 
 func TestDeleteAlias_Success(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h := newInMemHandlerWithPortAlloc(t)
-mustCreateFunctionViaHandler(t, h, "delalias-fn")
-callHandler(t, h, http.MethodPost, "/2015-03-31/functions/delalias-fn/versions", `{}`, nil)
-callHandler(t, h, http.MethodPost, "/2015-03-31/functions/delalias-fn/aliases",
-`{"Name":"old","FunctionVersion":"1"}`, nil)
+	h := newInMemHandlerWithPortAlloc(t)
+	mustCreateFunctionViaHandler(t, h, "delalias-fn")
+	callHandler(t, h, http.MethodPost, "/2015-03-31/functions/delalias-fn/versions", `{}`, nil)
+	callHandler(t, h, http.MethodPost, "/2015-03-31/functions/delalias-fn/aliases",
+		`{"Name":"old","FunctionVersion":"1"}`, nil)
 
-rec := callHandler(t, h, http.MethodDelete, "/2015-03-31/functions/delalias-fn/aliases/old", "", nil)
-require.Equal(t, http.StatusNoContent, rec.Code)
+	rec := callHandler(t, h, http.MethodDelete, "/2015-03-31/functions/delalias-fn/aliases/old", "", nil)
+	require.Equal(t, http.StatusNoContent, rec.Code)
 
-// Verify deleted
-rec = callHandler(t, h, http.MethodGet, "/2015-03-31/functions/delalias-fn/aliases/old", "", nil)
-require.Equal(t, http.StatusNotFound, rec.Code)
+	// Verify deleted
+	rec = callHandler(t, h, http.MethodGet, "/2015-03-31/functions/delalias-fn/aliases/old", "", nil)
+	require.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 func TestInvokeWithQualifier_Alias(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h, bk := newHandler(t)
+	h, bk := newHandler(t)
 
-// Create function and add it to backend
-fn := &lambda.FunctionConfiguration{
-FunctionName: "qual-fn",
-PackageType:  lambda.PackageTypeImage,
-}
-require.NoError(t, bk.CreateFunction(fn))
+	// Create function and add it to backend
+	fn := &lambda.FunctionConfiguration{
+		FunctionName: "qual-fn",
+		PackageType:  lambda.PackageTypeImage,
+	}
+	require.NoError(t, bk.CreateFunction(fn))
 
-// Use the InMemoryBackend route handlers via a real InMemoryBackend
-// for alias → version resolution test: we test the handler routing only.
-// A real qualifier invocation test requires Docker, so we just check
-// that the qualifier query param is accepted and routed correctly.
+	// Use the InMemoryBackend route handlers via a real InMemoryBackend
+	// for alias → version resolution test: we test the handler routing only.
+	// A real qualifier invocation test requires Docker, so we just check
+	// that the qualifier query param is accepted and routed correctly.
 
-// With mock backend (no InMemoryBackend), qualifier is ignored, uses normal invoke
-bk.invokeResult = []byte(`{"result":"alias-ok"}`)
+	// With mock backend (no InMemoryBackend), qualifier is ignored, uses normal invoke
+	bk.invokeResult = []byte(`{"result":"alias-ok"}`)
 
-rec := callHandler(t, h, http.MethodPost,
-"/2015-03-31/functions/qual-fn/invocations?Qualifier=live",
-`{"event":"test"}`, nil)
-// Mock backend doesn't support qualifier resolution, but returns 200 from normal invoke
-require.Equal(t, http.StatusOK, rec.Code)
+	rec := callHandler(t, h, http.MethodPost,
+		"/2015-03-31/functions/qual-fn/invocations?Qualifier=live",
+		`{"event":"test"}`, nil)
+	// Mock backend doesn't support qualifier resolution, but returns 200 from normal invoke
+	require.Equal(t, http.StatusOK, rec.Code)
 }
 
 func TestCreateAlias_MissingName(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h := newInMemHandlerWithPortAlloc(t)
-mustCreateFunctionViaHandler(t, h, "alias-missing-name-fn")
+	h := newInMemHandlerWithPortAlloc(t)
+	mustCreateFunctionViaHandler(t, h, "alias-missing-name-fn")
 
-rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/alias-missing-name-fn/aliases",
-`{"FunctionVersion":"1"}`, nil)
-require.Equal(t, http.StatusBadRequest, rec.Code)
+	rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/alias-missing-name-fn/aliases",
+		`{"FunctionVersion":"1"}`, nil)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestCreateAlias_MissingVersion(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h := newInMemHandlerWithPortAlloc(t)
-mustCreateFunctionViaHandler(t, h, "alias-missing-ver-fn")
+	h := newInMemHandlerWithPortAlloc(t)
+	mustCreateFunctionViaHandler(t, h, "alias-missing-ver-fn")
 
-rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/alias-missing-ver-fn/aliases",
-`{"Name":"v1"}`, nil)
-require.Equal(t, http.StatusBadRequest, rec.Code)
+	rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/alias-missing-ver-fn/aliases",
+		`{"Name":"v1"}`, nil)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestCreateAlias_Duplicate(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h := newInMemHandlerWithPortAlloc(t)
-mustCreateFunctionViaHandler(t, h, "dup-alias-fn")
-callHandler(t, h, http.MethodPost, "/2015-03-31/functions/dup-alias-fn/versions", `{}`, nil)
-callHandler(t, h, http.MethodPost, "/2015-03-31/functions/dup-alias-fn/aliases",
-`{"Name":"dup","FunctionVersion":"1"}`, nil)
+	h := newInMemHandlerWithPortAlloc(t)
+	mustCreateFunctionViaHandler(t, h, "dup-alias-fn")
+	callHandler(t, h, http.MethodPost, "/2015-03-31/functions/dup-alias-fn/versions", `{}`, nil)
+	callHandler(t, h, http.MethodPost, "/2015-03-31/functions/dup-alias-fn/aliases",
+		`{"Name":"dup","FunctionVersion":"1"}`, nil)
 
-rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/dup-alias-fn/aliases",
-`{"Name":"dup","FunctionVersion":"1"}`, nil)
-require.Equal(t, http.StatusConflict, rec.Code)
+	rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/dup-alias-fn/aliases",
+		`{"Name":"dup","FunctionVersion":"1"}`, nil)
+	require.Equal(t, http.StatusConflict, rec.Code)
 }
 
 func TestCreateAlias_FunctionNotFound(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h := newInMemHandlerWithPortAlloc(t)
+	h := newInMemHandlerWithPortAlloc(t)
 
-rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/nofn/aliases",
-`{"Name":"v1","FunctionVersion":"1"}`, nil)
-require.Equal(t, http.StatusNotFound, rec.Code)
+	rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/nofn/aliases",
+		`{"Name":"v1","FunctionVersion":"1"}`, nil)
+	require.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 func TestListVersionsByFunction_FunctionNotFound(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h := newInMemHandlerWithPortAlloc(t)
+	h := newInMemHandlerWithPortAlloc(t)
 
-rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/nofn/versions", "", nil)
-require.Equal(t, http.StatusNotFound, rec.Code)
+	rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/nofn/versions", "", nil)
+	require.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 func TestListAliases_FunctionNotFound(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h := newInMemHandlerWithPortAlloc(t)
+	h := newInMemHandlerWithPortAlloc(t)
 
-rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/nofn/aliases", "", nil)
-require.Equal(t, http.StatusNotFound, rec.Code)
+	rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/nofn/aliases", "", nil)
+	require.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 func TestUpdateAlias_NotFound(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h := newInMemHandlerWithPortAlloc(t)
-mustCreateFunctionViaHandler(t, h, "updnotfound-fn")
+	h := newInMemHandlerWithPortAlloc(t)
+	mustCreateFunctionViaHandler(t, h, "updnotfound-fn")
 
-rec := callHandler(t, h, http.MethodPut, "/2015-03-31/functions/updnotfound-fn/aliases/missing",
-`{"FunctionVersion":"1"}`, nil)
-require.Equal(t, http.StatusNotFound, rec.Code)
+	rec := callHandler(t, h, http.MethodPut, "/2015-03-31/functions/updnotfound-fn/aliases/missing",
+		`{"FunctionVersion":"1"}`, nil)
+	require.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 func TestDeleteAlias_NotFound(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h := newInMemHandlerWithPortAlloc(t)
-mustCreateFunctionViaHandler(t, h, "delnotfound-fn")
+	h := newInMemHandlerWithPortAlloc(t)
+	mustCreateFunctionViaHandler(t, h, "delnotfound-fn")
 
-rec := callHandler(t, h, http.MethodDelete, "/2015-03-31/functions/delnotfound-fn/aliases/missing", "", nil)
-require.Equal(t, http.StatusNotFound, rec.Code)
+	rec := callHandler(t, h, http.MethodDelete, "/2015-03-31/functions/delnotfound-fn/aliases/missing", "", nil)
+	require.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 func TestPublishVersion_MockBackend_ServiceError(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-// When using mock backend (not InMemoryBackend), PublishVersion returns 500.
-h, _ := newHandler(t)
+	// When using mock backend (not InMemoryBackend), PublishVersion returns 500.
+	h, _ := newHandler(t)
 
-rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/fn/versions", `{}`, nil)
-require.Equal(t, http.StatusInternalServerError, rec.Code)
+	rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/fn/versions", `{}`, nil)
+	require.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
 func TestListVersionsByFunction_MockBackend_ServiceError(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h, _ := newHandler(t)
+	h, _ := newHandler(t)
 
-rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/fn/versions", "", nil)
-require.Equal(t, http.StatusInternalServerError, rec.Code)
+	rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/fn/versions", "", nil)
+	require.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
 func TestCreateAlias_MockBackend_ServiceError(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h, _ := newHandler(t)
+	h, _ := newHandler(t)
 
-rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/fn/aliases",
-`{"Name":"v1","FunctionVersion":"1"}`, nil)
-require.Equal(t, http.StatusInternalServerError, rec.Code)
+	rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/fn/aliases",
+		`{"Name":"v1","FunctionVersion":"1"}`, nil)
+	require.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
 func TestGetAlias_MockBackend_ServiceError(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h, _ := newHandler(t)
+	h, _ := newHandler(t)
 
-rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/fn/aliases/v1", "", nil)
-require.Equal(t, http.StatusInternalServerError, rec.Code)
+	rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/fn/aliases/v1", "", nil)
+	require.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
 func TestListAliases_MockBackend_ServiceError(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h, _ := newHandler(t)
+	h, _ := newHandler(t)
 
-rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/fn/aliases", "", nil)
-require.Equal(t, http.StatusInternalServerError, rec.Code)
+	rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/fn/aliases", "", nil)
+	require.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
 func TestUpdateAlias_MockBackend_ServiceError(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h, _ := newHandler(t)
+	h, _ := newHandler(t)
 
-rec := callHandler(t, h, http.MethodPut, "/2015-03-31/functions/fn/aliases/v1",
-`{"FunctionVersion":"2"}`, nil)
-require.Equal(t, http.StatusInternalServerError, rec.Code)
+	rec := callHandler(t, h, http.MethodPut, "/2015-03-31/functions/fn/aliases/v1",
+		`{"FunctionVersion":"2"}`, nil)
+	require.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
 func TestDeleteAlias_MockBackend_ServiceError(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h, _ := newHandler(t)
+	h, _ := newHandler(t)
 
-rec := callHandler(t, h, http.MethodDelete, "/2015-03-31/functions/fn/aliases/v1", "", nil)
-require.Equal(t, http.StatusInternalServerError, rec.Code)
+	rec := callHandler(t, h, http.MethodDelete, "/2015-03-31/functions/fn/aliases/v1", "", nil)
+	require.Equal(t, http.StatusInternalServerError, rec.Code)
 }

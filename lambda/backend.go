@@ -45,6 +45,9 @@ var (
 	ErrAliasAlreadyExists = errors.New("ResourceConflictException")
 )
 
+// versionLatest is the sentinel qualifier for the live function configuration.
+const versionLatest = "$LATEST"
+
 // StorageBackend defines the interface for Lambda backend operations.
 type StorageBackend interface {
 	CreateFunction(fn *FunctionConfiguration) error
@@ -100,7 +103,7 @@ type InMemoryBackend struct {
 	// versions stores immutable version snapshots: functionName → []FunctionVersion (sorted by number)
 	versions map[string][]*FunctionVersion
 	// aliases stores alias configs: functionName → aliasName → FunctionAlias
-	aliases       map[string]map[string]*FunctionAlias
+	aliases map[string]map[string]*FunctionAlias
 	// versionCounters tracks the next version number per function
 	versionCounters map[string]int
 	kinesisPoller   *EventSourcePoller
@@ -666,7 +669,7 @@ func (b *InMemoryBackend) GetVersion(name, version string) (*FunctionVersion, er
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	if version == "$LATEST" {
+	if version == versionLatest {
 		fn, ok := b.functions[name]
 		if !ok {
 			return nil, ErrFunctionNotFound
@@ -738,13 +741,17 @@ func (b *InMemoryBackend) GetAlias(name, aliasName string) (*FunctionAlias, erro
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	if aliasMap, ok := b.aliases[name]; ok {
-		if alias, ok := aliasMap[aliasName]; ok {
-			return alias, nil
-		}
+	aliasMap, ok := b.aliases[name]
+	if !ok {
+		return nil, ErrAliasNotFound
 	}
 
-	return nil, ErrAliasNotFound
+	alias, ok := aliasMap[aliasName]
+	if !ok {
+		return nil, ErrAliasNotFound
+	}
+
+	return alias, nil
 }
 
 // ListAliases returns all aliases for a function sorted by name.
@@ -800,12 +807,12 @@ func (b *InMemoryBackend) DeleteAlias(name, aliasName string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	aliasMap, ok := b.aliases[name]
-	if !ok {
+	aliasMap, hasMap := b.aliases[name]
+	if !hasMap {
 		return ErrAliasNotFound
 	}
 
-	if _, ok := aliasMap[aliasName]; !ok {
+	if _, hasAlias := aliasMap[aliasName]; !hasAlias {
 		return ErrAliasNotFound
 	}
 
@@ -818,7 +825,7 @@ func (b *InMemoryBackend) DeleteAlias(name, aliasName string) error {
 // Qualifier may be a version number, alias name, or "$LATEST" (default when empty).
 // Returns the resolved function config.
 func (b *InMemoryBackend) resolveQualifier(name, qualifier string) (*FunctionConfiguration, error) {
-	if qualifier == "" || qualifier == "$LATEST" {
+	if qualifier == "" || qualifier == versionLatest {
 		return b.GetFunction(name)
 	}
 
@@ -846,7 +853,7 @@ func (b *InMemoryBackend) resolveQualifier(name, qualifier string) (*FunctionCon
 	}
 
 	// If it's "$LATEST" after alias resolution, fall through to live config.
-	if qualifier == "$LATEST" {
+	if qualifier == versionLatest {
 		return b.GetFunction(name)
 	}
 
@@ -857,9 +864,9 @@ func (b *InMemoryBackend) resolveQualifier(name, qualifier string) (*FunctionCon
 func fnToVersion(fn *FunctionConfiguration, region, accountID string) *FunctionVersion {
 	return &FunctionVersion{
 		FunctionName: fn.FunctionName,
-		FunctionArn:  buildVersionARN(region, accountID, fn.FunctionName, "$LATEST"),
+		FunctionArn:  buildVersionARN(region, accountID, fn.FunctionName, versionLatest),
 		Description:  fn.Description,
-		Version:      "$LATEST",
+		Version:      versionLatest,
 		Runtime:      fn.Runtime,
 		Handler:      fn.Handler,
 		Role:         fn.Role,

@@ -26,14 +26,10 @@ type LambdaInvoker interface {
 
 // Handler is the Echo HTTP handler for Secrets Manager operations.
 type Handler struct {
-	// Backend is the underlying Secrets Manager storage backend.
-	Backend StorageBackend
-	// Logger is the structured logger for this handler.
-	Logger *slog.Logger
-	// DefaultRegion is the fallback region used when region cannot be extracted from the request.
-	DefaultRegion string
-	// lambdaInvoker is an optional Lambda invoker used for rotation Lambda ARNs.
+	Backend       StorageBackend
 	lambdaInvoker LambdaInvoker
+	Logger        *slog.Logger
+	DefaultRegion string
 }
 
 // NewHandler creates a new Secrets Manager handler.
@@ -360,7 +356,12 @@ func (h *Handler) rotateSecret(_ string, input *RotateSecretInput) (*RotateSecre
 			return nil, fmt.Errorf("rotation event marshal: %w", marshalErr)
 		}
 
-		if _, _, invokeErr := h.lambdaInvoker.InvokeFunction(ctx, functionName, "RequestResponse", event); invokeErr != nil {
+		if _, _, invokeErr := h.lambdaInvoker.InvokeFunction(
+			ctx,
+			functionName,
+			"RequestResponse",
+			event,
+		); invokeErr != nil {
 			return nil, fmt.Errorf("rotation Lambda step %q failed: %w", step, invokeErr)
 		}
 	}

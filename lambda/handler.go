@@ -59,6 +59,7 @@ func hasSuffixVersions(rest string) bool      { return strings.HasSuffix(rest, "
 func hasSuffixAliasPath(rest string) bool {
 	trimmed := strings.TrimPrefix(rest, "/")
 	parts := strings.SplitN(trimmed, "/", 3) //nolint:mnd // split into name + "aliases" + optional alias name
+
 	return len(parts) >= 2 && parts[1] == "aliases"
 }
 
@@ -167,6 +168,11 @@ type handlerEntry struct {
 }
 
 func (h *Handler) buildRouteHandlers() []handlerEntry {
+	return append(h.buildCoreRoutes(), h.buildVersionAliasRoutes()...)
+}
+
+// buildCoreRoutes returns the core function CRUD + invoke + URL routes.
+func (h *Handler) buildCoreRoutes() []handlerEntry {
 	return []handlerEntry{
 		{
 			method:  http.MethodPost,
@@ -177,59 +183,6 @@ func (h *Handler) buildRouteHandlers() []handlerEntry {
 			method:  http.MethodGet,
 			match:   isEmptyRest,
 			execute: func(c *echo.Context, _ string) error { return h.handleListFunctions(c) },
-		},
-		// Versions: POST and GET /2015-03-31/functions/{name}/versions
-		{
-			method: http.MethodPost,
-			match:  hasSuffixVersions,
-			execute: func(c *echo.Context, rest string) error {
-				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/versions")
-				return h.handlePublishVersion(c, name)
-			},
-		},
-		{
-			method: http.MethodGet,
-			match:  hasSuffixVersions,
-			execute: func(c *echo.Context, rest string) error {
-				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/versions")
-				return h.handleListVersionsByFunction(c, name)
-			},
-		},
-		// Aliases: POST, GET /2015-03-31/functions/{name}/aliases[/{aliasName}]
-		{
-			method: http.MethodPost,
-			match:  hasSuffixAliasPath,
-			execute: func(c *echo.Context, rest string) error {
-				name := extractNameFromAliasPath(rest)
-				return h.handleCreateAlias(c, name)
-			},
-		},
-		{
-			method: http.MethodGet,
-			match:  hasSuffixAliasPath,
-			execute: func(c *echo.Context, rest string) error {
-				name, aliasName := extractNameAndAlias(rest)
-				if aliasName != "" {
-					return h.handleGetAlias(c, name, aliasName)
-				}
-				return h.handleListAliases(c, name)
-			},
-		},
-		{
-			method: http.MethodPut,
-			match:  hasSuffixAliasPath,
-			execute: func(c *echo.Context, rest string) error {
-				name, aliasName := extractNameAndAlias(rest)
-				return h.handleUpdateAlias(c, name, aliasName)
-			},
-		},
-		{
-			method: http.MethodDelete,
-			match:  hasSuffixAliasPath,
-			execute: func(c *echo.Context, rest string) error {
-				name, aliasName := extractNameAndAlias(rest)
-				return h.handleDeleteAlias(c, name, aliasName)
-			},
 		},
 		{
 			method:  http.MethodGet,
@@ -293,6 +246,71 @@ func (h *Handler) buildRouteHandlers() []handlerEntry {
 				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/url")
 
 				return h.handleDeleteFunctionURLConfig(c, name)
+			},
+		},
+	}
+}
+
+// buildVersionAliasRoutes returns routes for Lambda versions and aliases.
+func (h *Handler) buildVersionAliasRoutes() []handlerEntry {
+	return []handlerEntry{
+		// Versions: POST and GET /2015-03-31/functions/{name}/versions
+		{
+			method: http.MethodPost,
+			match:  hasSuffixVersions,
+			execute: func(c *echo.Context, rest string) error {
+				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/versions")
+
+				return h.handlePublishVersion(c, name)
+			},
+		},
+		{
+			method: http.MethodGet,
+			match:  hasSuffixVersions,
+			execute: func(c *echo.Context, rest string) error {
+				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/versions")
+
+				return h.handleListVersionsByFunction(c, name)
+			},
+		},
+		// Aliases: POST, GET, PUT, DELETE /2015-03-31/functions/{name}/aliases[/{aliasName}]
+		{
+			method: http.MethodPost,
+			match:  hasSuffixAliasPath,
+			execute: func(c *echo.Context, rest string) error {
+				name := extractNameFromAliasPath(rest)
+
+				return h.handleCreateAlias(c, name)
+			},
+		},
+		{
+			method: http.MethodGet,
+			match:  hasSuffixAliasPath,
+			execute: func(c *echo.Context, rest string) error {
+				name, aliasName := extractNameAndAlias(rest)
+				if aliasName != "" {
+					return h.handleGetAlias(c, name, aliasName)
+				}
+
+				return h.handleListAliases(c, name)
+			},
+		},
+		{
+			method: http.MethodPut,
+			match:  hasSuffixAliasPath,
+			execute: func(c *echo.Context, rest string) error {
+				name, aliasName := extractNameAndAlias(rest)
+
+				return h.handleUpdateAlias(c, name, aliasName)
+			},
+		},
+		{
+			method: http.MethodDelete,
+			match:  hasSuffixAliasPath,
+			execute: func(c *echo.Context, rest string) error {
+				name, aliasName := extractNameAndAlias(rest)
+
+				return h.handleDeleteAlias(c, name, aliasName)
 			},
 		},
 	}
@@ -888,19 +906,21 @@ func extractNameFromAliasPath(rest string) string {
 }
 
 // extractNameAndAlias extracts both the function name and optional alias name from rest path.
-func extractNameAndAlias(rest string) (name, aliasName string) {
+func extractNameAndAlias(rest string) (string, string) {
 	trimmed := strings.TrimPrefix(rest, "/")
 	parts := strings.SplitN(trimmed, "/", 3) //nolint:mnd // at most: name, aliases, aliasName
 
+	var fnName, aliasName string
+
 	if len(parts) >= 1 {
-		name = parts[0]
+		fnName = parts[0]
 	}
 
 	if len(parts) >= 3 { //nolint:mnd // parts: name, "aliases", aliasName
 		aliasName = parts[2]
 	}
 
-	return name, aliasName
+	return fnName, aliasName
 }
 
 // handlePublishVersion handles POST /2015-03-31/functions/{name}/versions.

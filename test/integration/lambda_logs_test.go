@@ -93,7 +93,8 @@ func TestLambdaCWLogs_WiringProducesLogEntries(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	// Create the function.
-	createBody := `{"FunctionName":"log-test-fn","PackageType":"Image","Code":{"ImageUri":"test:latest"},"Role":"arn:aws:iam::000000000000:role/r"}`
+	createBody := `{"FunctionName":"log-test-fn","PackageType":"Image",` +
+		`"Code":{"ImageUri":"test:latest"},"Role":"arn:aws:iam::000000000000:role/r"}`
 	createResp, createErr := http.Post(
 		server.URL+"/2015-03-31/functions",
 		"application/json",
@@ -136,7 +137,7 @@ func TestLambdaCWLogs_WiringProducesLogEntries(t *testing.T) {
 	}))
 
 	// Verify the log group was created in CloudWatch Logs.
-	groups, _, _, err := cwlogsBackend.DescribeLogGroups(groupName, "", 10)
+	groups, _, err := cwlogsBackend.DescribeLogGroups(groupName, "", 10)
 	require.NoError(t, err)
 	require.Len(t, groups, 1)
 	assert.Equal(t, groupName, groups[0].LogGroupName)
@@ -180,7 +181,8 @@ func TestLambdaVersionsAndAliases_Integration(t *testing.T) {
 
 	// Create function.
 	createBody := fmt.Sprintf(
-		`{"FunctionName":%q,"PackageType":"Image","Code":{"ImageUri":"test:latest"},"Role":"arn:aws:iam::000000000000:role/r"}`,
+		`{"FunctionName":%q,"PackageType":"Image",`+
+			`"Code":{"ImageUri":"test:latest"},"Role":"arn:aws:iam::000000000000:role/r"}`,
 		fnName,
 	)
 	createResp, err := http.Post(
