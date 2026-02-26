@@ -487,10 +487,10 @@ func extractZipFile(destDir string, f *zip.File) error {
 	destPath = filepath.Join(destDir, strings.TrimPrefix(destPath, destDir))
 
 	if f.FileInfo().IsDir() {
-		return os.MkdirAll(destPath, f.Mode()) //nolint:gosec // G703: path sanitized above
+		return os.MkdirAll(destPath, f.Mode()) //nolint:gosec // sanitized above
 	}
 
-	if err := os.MkdirAll(filepath.Dir(destPath), 0o750); err != nil { //nolint:gosec // G703: sanitized path
+	if err := os.MkdirAll(filepath.Dir(destPath), 0o750); err != nil {
 		return fmt.Errorf("mkdir %q: %w", filepath.Dir(destPath), err)
 	}
 
@@ -500,13 +500,13 @@ func extractZipFile(destDir string, f *zip.File) error {
 	}
 	defer rc.Close()
 
-	outFile, err := os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode()) //nolint:gosec // G703: safe
+	outFile, err := os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode()) //nolint:gosec // sanitized
 	if err != nil {
 		return fmt.Errorf("create file %q: %w", destPath, err)
 	}
 	defer outFile.Close()
 
-	if _, copyErr := io.Copy(outFile, rc); copyErr != nil { //nolint:gosec // zip entries are trusted input from user
+	if _, copyErr := io.Copy(outFile, rc); copyErr != nil { //nolint:gosec // G110: trusted zip
 		return fmt.Errorf("extract file %q: %w", f.Name, copyErr)
 	}
 
@@ -604,7 +604,7 @@ func (b *InMemoryBackend) startZipContainer(
 	}
 
 	if _, err := b.docker.CreateAndStart(ctx, spec); err != nil {
-		_ = os.RemoveAll(zipDir) //nolint:gosec // G703: zipDir is a temp dir from os.MkdirTemp
+		_ = os.RemoveAll(zipDir) //nolint:gosec // zipDir is a temp directory created via os.MkdirTemp
 
 		return "", err
 	}
