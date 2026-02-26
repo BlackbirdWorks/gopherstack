@@ -1,6 +1,11 @@
 package lambda
 
-import "time"
+import (
+	"os"
+	"runtime"
+	"strconv"
+	"time"
+)
 
 // Settings holds configurable settings for the Lambda service.
 type Settings struct {
@@ -20,9 +25,32 @@ const (
 
 // DefaultSettings returns Settings with sensible defaults for use without Kong.
 func DefaultSettings() Settings {
+	dockerHost := "172.17.0.1"
+	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
+		dockerHost = "host.docker.internal"
+	}
+
+	if h := os.Getenv("LAMBDA_DOCKER_HOST"); h != "" {
+		dockerHost = h
+	}
+
+	poolSize := defaultPoolSize
+	if s := os.Getenv("LAMBDA_POOL_SIZE"); s != "" {
+		if val, err := strconv.Atoi(s); err == nil {
+			poolSize = val
+		}
+	}
+
+	idleTimeout := defaultIdleTimeout
+	if t := os.Getenv("LAMBDA_IDLE_TIMEOUT"); t != "" {
+		if val, err := time.ParseDuration(t); err == nil {
+			idleTimeout = val
+		}
+	}
+
 	return Settings{
-		DockerHost:  "172.17.0.1",
-		PoolSize:    defaultPoolSize,
-		IdleTimeout: defaultIdleTimeout,
+		DockerHost:  dockerHost,
+		PoolSize:    poolSize,
+		IdleTimeout: idleTimeout,
 	}
 }

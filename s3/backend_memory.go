@@ -114,7 +114,7 @@ func (b *InMemoryBackend) CreateBucket(
 
 	b.buckets[region][bucketName] = &StoredBucket{
 		Name:         bucketName,
-		CreationDate: time.Now(),
+		CreationDate: time.Now().UTC(),
 		Objects:      make(map[string]*StoredObject),
 		Versioning:   types.BucketVersioningStatusSuspended,
 		mu:           lockmetrics.New("s3.bucket." + bucketName),
@@ -273,7 +273,7 @@ func (b *InMemoryBackend) PutObject(
 		IsCompressed:       isCompressed,
 		Size:               int64(len(data)),
 		ETag:               finalQuotedETag,
-		LastModified:       time.Now(),
+		LastModified:       time.Now().UTC(),
 		ContentType:        aws.ToString(input.ContentType),
 		ContentEncoding:    aws.ToString(input.ContentEncoding),
 		ContentDisposition: aws.ToString(input.ContentDisposition),
@@ -594,7 +594,7 @@ func (b *InMemoryBackend) deleteObjectLocked(
 			Key:          key,
 			Deleted:      true,
 			IsLatest:     true,
-			LastModified: time.Now(),
+			LastModified: time.Now().UTC(),
 		}
 		obj.Versions[newVersionID] = deleteMarker
 		obj.LatestVersionID = newVersionID // Update cache

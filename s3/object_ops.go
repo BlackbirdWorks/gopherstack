@@ -426,7 +426,7 @@ func (h *S3Handler) copyObject(
 
 	httputil.WriteXML(log, w, http.StatusOK, CopyObjectResult{
 		ETag:         etag,
-		LastModified: time.Now().Format(time.RFC3339),
+		LastModified: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 

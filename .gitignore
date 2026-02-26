@@ -19,3 +19,4 @@ coverage.html
 *.pdf
 test/e2e/failures/go.mod.bak
 /go.mod.bak
+*.png

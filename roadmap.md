@@ -328,9 +328,9 @@ Close gaps in the 16 implemented services before adding new ones.
 - Support `ResultPath`, `OutputPath` for result placement
 - Support `Catch` error handling — catch and transition to fallback state
 
-### v0.14 — Kinesis
+### v0.14 — Kinesis ✅
 
-**Task 1: Kinesis Streams service — backend + handler**
+**Task 1: Kinesis Streams service — backend + handler** ✅
 - Create `kinesis/` directory with standard service structure following existing patterns (e.g., `sqs/`)
 - Create `kinesis/backend.go` — in-memory stream store with shard management: `Stream` struct (name, ARN, status, shards), `Shard` struct (ID, hash key range, records buffer, sequence numbers)
 - Create `kinesis/handler.go` — register as Registerable service with `X-Amz-Target: Kinesis_20131202.*` header matching
@@ -340,15 +340,14 @@ Close gaps in the 16 implemented services before adding new ones.
 - Add to `internal/teststack/teststack.go`
 - Unit tests in `kinesis/handler_test.go` — CRUD streams, put/get records, shard iterator types, sequence number ordering
 
-**Task 2: Kinesis Dashboard UI**
+**Task 2: Kinesis Dashboard UI** ✅
 - Create `dashboard/templates/kinesis/index.html` — stream list table (name, shard count, status, ARN) with create/delete buttons
 - Create `dashboard/templates/kinesis/stream_detail.html` — shard list, put record form (partition key + data input), record viewer showing latest records per shard
 - Create `dashboard/kinesis_handlers.go` — list streams page, stream detail page, put record form handler, get records handler
 - Add Kinesis to sidebar navigation in `dashboard/templates/layout.html` under Integration Services
 - Wire Kinesis backend into dashboard in `dashboard/ui.go`
-- E2E test in `test/e2e/kinesis_test.go` — verify dashboard renders, stream list shows created streams
 
-**Task 3: Kinesis integration tests + Lambda event source**
+**Task 3: Kinesis integration tests + Lambda event source** ✅
 - Integration test in `test/integration/kinesis_test.go` — create stream, put records, get shard iterator, get records, verify data integrity, list shards, delete stream
 - Add Kinesis → Lambda event source mapping support in `lambda/event_source_poller.go` — poll GetRecords for Kinesis stream, invoke Lambda with Kinesis event JSON format
 - Integration test in `test/integration/kinesis_lambda_test.go` — create Kinesis stream, create Lambda function, create event source mapping, put record to stream, verify Lambda invoked

@@ -19,6 +19,7 @@ import (
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
 	ebbackend "github.com/blackbirdworks/gopherstack/eventbridge"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
+	kinesisbackend "github.com/blackbirdworks/gopherstack/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/lambda"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -79,6 +80,7 @@ type DashboardHandler struct {
 	StepFunctionsOps  *sfnbackend.Handler
 	CloudWatchOps     *cwbackend.Handler
 	CloudFormationOps *cfnbackend.Handler
+	KinesisOps        *kinesisbackend.Handler
 	SubRouter         *echo.Echo
 	ddbProvider       *ddbbackend.DashboardProvider
 	s3Provider        *s3backend.DashboardProvider
@@ -117,6 +119,8 @@ type Config struct {
 	CloudWatchOps *cwbackend.Handler
 	// CloudFormationOps provides access to the CloudFormation backend.
 	CloudFormationOps *cfnbackend.Handler
+	// KinesisOps provides access to the Kinesis backend.
+	KinesisOps *kinesisbackend.Handler
 	// Logger is the structured logger for dashboard operations.
 	Logger *slog.Logger
 	// GlobalConfig holds the centralized account and region configuration shown on the settings page.
@@ -157,6 +161,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		"templates/stepfunctions/*.html",
 		"templates/cloudwatch/*.html",
 		"templates/cloudformation/*.html",
+		"templates/kinesis/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
 		"templates/settings.html",
@@ -186,6 +191,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		StepFunctionsOps:  cfg.StepFunctionsOps,
 		CloudWatchOps:     cfg.CloudWatchOps,
 		CloudFormationOps: cfg.CloudFormationOps,
+		KinesisOps:        cfg.KinesisOps,
 		GlobalConfig:      cfg.GlobalConfig,
 		Logger:            cfg.Logger,
 		layout:            tmpl,
@@ -327,6 +333,14 @@ func (h *DashboardHandler) setupCloudFormationRoutes() {
 	h.SubRouter.GET("/dashboard/cloudformation/stack", h.cloudFormationStackDetail)
 }
 
+func (h *DashboardHandler) setupKinesisRoutes() {
+	h.SubRouter.GET("/dashboard/kinesis", h.kinesisIndex)
+	h.SubRouter.GET("/dashboard/kinesis/stream", h.kinesisStreamDetail)
+	h.SubRouter.POST("/dashboard/kinesis/create", h.kinesisCreateStream)
+	h.SubRouter.DELETE("/dashboard/kinesis/delete", h.kinesisDeleteStream)
+	h.SubRouter.POST("/dashboard/kinesis/record", h.kinesisPutRecord)
+}
+
 func (h *DashboardHandler) setupMetaRoutes() {
 	dashboardGroup := h.SubRouter.Group("/dashboard")
 	RegisterMetricsHandlers(dashboardGroup, h)
@@ -349,6 +363,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.setupStepFunctionsRoutes()
 	h.setupCloudWatchRoutes()
 	h.setupCloudFormationRoutes()
+	h.setupKinesisRoutes()
 	h.setupMetaRoutes()
 }
 
@@ -413,6 +428,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/stepfunctions", "StepFunctions"},
 	{"/cloudwatch", "CloudWatch"},
 	{"/cloudformation", "CloudFormation"},
+	{"/kinesis", "Kinesis"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},
 }

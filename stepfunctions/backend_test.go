@@ -319,7 +319,11 @@ func TestStartExecution_ASL_Pass(t *testing.T) {
 
 	exec, err := b.StartExecution(sm.StateMachineArn, "asl-exec-1", `{"key":"val"}`)
 	require.NoError(t, err)
-	assert.Equal(t, "RUNNING", exec.Status)
+	// Use DescribeExecution (returns a copy) to safely read status — avoids a data race
+	// with the goroutine launched inside StartExecution that also writes to the execution struct.
+	initialDesc, initDescErr := b.DescribeExecution(exec.ExecutionArn)
+	require.NoError(t, initDescErr)
+	assert.Contains(t, []string{"RUNNING", "SUCCEEDED"}, initialDesc.Status)
 
 	// Wait for ASL execution to complete.
 	require.Eventually(t, func() bool {

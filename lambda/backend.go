@@ -29,6 +29,8 @@ var (
 	ErrFunctionAlreadyExists = errors.New("ResourceConflictException")
 	// ErrLambdaUnavailable is returned when Lambda cannot invoke (no Docker or no port range).
 	ErrLambdaUnavailable = errors.New("ServiceException")
+	// ErrESMNotFound is returned when an event source mapping UUID is not found.
+	ErrESMNotFound = errors.New("ResourceNotFoundException")
 )
 
 // StorageBackend defines the interface for Lambda backend operations.
@@ -59,16 +61,18 @@ type functionRuntime struct {
 
 // InMemoryBackend is a concurrency-safe in-memory Lambda backend.
 type InMemoryBackend struct {
-	functions map[string]*FunctionConfiguration
-	runtimes  map[string]*functionRuntime
-	docker    *docker.Client
-	portAlloc *portalloc.Allocator
-	s3Fetcher S3CodeFetcher
-	logger    *slog.Logger
-	accountID string
-	region    string
-	settings  Settings
-	mu        sync.RWMutex
+	functions           map[string]*FunctionConfiguration
+	runtimes            map[string]*functionRuntime
+	eventSourceMappings map[string]*EventSourceMapping
+	kinesisPoller       *EventSourcePoller
+	docker              *docker.Client
+	portAlloc           *portalloc.Allocator
+	s3Fetcher           S3CodeFetcher
+	logger              *slog.Logger
+	accountID           string
+	region              string
+	settings            Settings
+	mu                  sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new Lambda in-memory backend.
@@ -80,14 +84,15 @@ func NewInMemoryBackend(
 	log *slog.Logger,
 ) *InMemoryBackend {
 	return &InMemoryBackend{
-		functions: make(map[string]*FunctionConfiguration),
-		runtimes:  make(map[string]*functionRuntime),
-		docker:    dockerClient,
-		portAlloc: portAlloc,
-		settings:  settings,
-		accountID: accountID,
-		region:    region,
-		logger:    log,
+		functions:           make(map[string]*FunctionConfiguration),
+		runtimes:            make(map[string]*functionRuntime),
+		eventSourceMappings: make(map[string]*EventSourceMapping),
+		docker:              dockerClient,
+		portAlloc:           portAlloc,
+		settings:            settings,
+		accountID:           accountID,
+		region:              region,
+		logger:              log,
 	}
 }
 
@@ -96,6 +101,107 @@ func (b *InMemoryBackend) SetS3CodeFetcher(f S3CodeFetcher) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.s3Fetcher = f
+}
+
+// SetKinesisPoller sets the event source poller for Kinesis stream polling.
+func (b *InMemoryBackend) SetKinesisPoller(p *EventSourcePoller) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.kinesisPoller = p
+}
+
+// StartKinesisPoller starts the Kinesis event source poller if one has been set.
+func (b *InMemoryBackend) StartKinesisPoller(ctx context.Context) {
+	b.mu.RLock()
+	p := b.kinesisPoller
+	b.mu.RUnlock()
+
+	if p != nil {
+		p.Start(ctx)
+	}
+}
+
+// CreateEventSourceMapping creates a new event source mapping.
+func (b *InMemoryBackend) CreateEventSourceMapping(input *CreateEventSourceMappingInput) (*EventSourceMapping, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	id := uuid.New().String()
+	state := ESMStateEnabled
+	if !input.Enabled {
+		state = ESMStateDisabled
+	}
+
+	batchSize := input.BatchSize
+	if batchSize <= 0 {
+		batchSize = 100
+	}
+
+	startingPosition := input.StartingPosition
+	if startingPosition == "" {
+		startingPosition = "TRIM_HORIZON"
+	}
+
+	fnARN := fmt.Sprintf("arn:aws:lambda:%s:%s:function:%s", b.region, b.accountID, input.FunctionName)
+
+	m := &EventSourceMapping{
+		UUID:             id,
+		EventSourceARN:   input.EventSourceARN,
+		FunctionARN:      fnARN,
+		State:            state,
+		BatchSize:        batchSize,
+		StartingPosition: startingPosition,
+		LastModified:     time.Now(),
+	}
+
+	b.eventSourceMappings[id] = m
+
+	return m, nil
+}
+
+// GetEventSourceMapping retrieves an event source mapping by UUID.
+func (b *InMemoryBackend) GetEventSourceMapping(uuid string) (*EventSourceMapping, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	m, ok := b.eventSourceMappings[uuid]
+	if !ok {
+		return nil, ErrESMNotFound
+	}
+
+	return m, nil
+}
+
+// ListEventSourceMappings returns all event source mappings, optionally filtered by function name.
+func (b *InMemoryBackend) ListEventSourceMappings(functionName string) []*EventSourceMapping {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	result := make([]*EventSourceMapping, 0, len(b.eventSourceMappings))
+	for _, m := range b.eventSourceMappings {
+		if functionName != "" && !strings.HasSuffix(m.FunctionARN, ":function:"+functionName) {
+			continue
+		}
+
+		result = append(result, m)
+	}
+
+	return result
+}
+
+// DeleteEventSourceMapping removes an event source mapping by UUID.
+func (b *InMemoryBackend) DeleteEventSourceMapping(id string) (*EventSourceMapping, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	m, ok := b.eventSourceMappings[id]
+	if !ok {
+		return nil, ErrESMNotFound
+	}
+
+	delete(b.eventSourceMappings, id)
+
+	return m, nil
 }
 
 // CreateFunction stores a new Lambda function configuration.
@@ -381,10 +487,10 @@ func extractZipFile(destDir string, f *zip.File) error {
 	destPath = filepath.Join(destDir, strings.TrimPrefix(destPath, destDir))
 
 	if f.FileInfo().IsDir() {
-		return os.MkdirAll(destPath, f.Mode()) //nolint:gosec // destPath is sanitized above
+		return os.MkdirAll(destPath, f.Mode()) // #nosec G703
 	}
 
-	if err := os.MkdirAll(filepath.Dir(destPath), 0o750); err != nil {
+	if err := os.MkdirAll(filepath.Dir(destPath), 0o750); err != nil { // #nosec G703
 		return fmt.Errorf("mkdir %q: %w", filepath.Dir(destPath), err)
 	}
 
@@ -394,13 +500,13 @@ func extractZipFile(destDir string, f *zip.File) error {
 	}
 	defer rc.Close()
 
-	outFile, err := os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode()) //nolint:gosec // sanitized
+	outFile, err := os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode()) // #nosec G304 G703
 	if err != nil {
 		return fmt.Errorf("create file %q: %w", destPath, err)
 	}
 	defer outFile.Close()
 
-	if _, copyErr := io.Copy(outFile, rc); copyErr != nil { //nolint:gosec // zip entries are trusted input from user
+	if _, copyErr := io.Copy(outFile, rc); copyErr != nil { // #nosec G110
 		return fmt.Errorf("extract file %q: %w", f.Name, copyErr)
 	}
 
@@ -498,7 +604,7 @@ func (b *InMemoryBackend) startZipContainer(
 	}
 
 	if _, err := b.docker.CreateAndStart(ctx, spec); err != nil {
-		_ = os.RemoveAll(zipDir) //nolint:gosec // zipDir is a temp dir created by os.MkdirTemp
+		_ = os.RemoveAll(zipDir) // #nosec G703
 
 		return "", err
 	}
