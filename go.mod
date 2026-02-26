@@ -4,6 +4,7 @@ go 1.26.0
 
 require (
 	github.com/alecthomas/kong v1.14.0
+	github.com/alicebob/miniredis/v2 v2.37.0
 	github.com/aws/aws-sdk-go-v2 v1.41.2
 	github.com/aws/aws-sdk-go-v2/config v1.32.10
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.10
@@ -13,9 +14,12 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.63.2
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.56.0
 	github.com/aws/aws-sdk-go-v2/service/dynamodbstreams v1.32.11
+	github.com/aws/aws-sdk-go-v2/service/elasticache v1.51.10
 	github.com/aws/aws-sdk-go-v2/service/eventbridge v1.45.19
 	github.com/aws/aws-sdk-go-v2/service/iam v1.53.3
+	github.com/aws/aws-sdk-go-v2/service/kinesis v1.43.1
 	github.com/aws/aws-sdk-go-v2/service/kms v1.50.1
+	github.com/aws/aws-sdk-go-v2/service/lambda v1.88.1
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.96.1
 	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.41.2
 	github.com/aws/aws-sdk-go-v2/service/sfn v1.40.7
@@ -113,6 +117,7 @@ require (
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/tklauser/go-sysconf v0.3.12 // indirect
 	github.com/tklauser/numcpus v0.6.1 // indirect
+	github.com/yuin/gopher-lua v1.1.1 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.65.0 // indirect

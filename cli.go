@@ -32,8 +32,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/dashboard"
 	"github.com/blackbirdworks/gopherstack/demo"
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
+	elasticachebackend "github.com/blackbirdworks/gopherstack/elasticache"
 	ebbackend "github.com/blackbirdworks/gopherstack/eventbridge"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
+	kinesisbackend "github.com/blackbirdworks/gopherstack/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/lambda"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -63,15 +65,15 @@ const (
 
 // CLI holds all command-line / environment-variable configuration for Gopherstack.
 type CLI struct {
-	SSM                   struct{}               `embed:"" prefix:"ssm-"`
-	SecretsManager        struct{}               `embed:"" prefix:"secretsmanager-"`
-	KMS                   struct{}               `embed:"" prefix:"kms-"`
-	SQS                   sqsbackend.Settings    `embed:"" prefix:"sqs-"`
-	SNS                   struct{}               `embed:"" prefix:"sns-"`
-	STS                   struct{}               `embed:"" prefix:"sts-"`
-	IAM                   struct{}               `embed:"" prefix:"iam-"`
-	Lambda                lambdabackend.Settings `embed:"" prefix:"lambda-"`
-	kmsHandler            service.Registerable
+	SSM                   struct{}            `embed:"" prefix:"ssm-"`
+	SecretsManager        struct{}            `embed:"" prefix:"secretsmanager-"`
+	KMS                   struct{}            `embed:"" prefix:"kms-"`
+	SQS                   sqsbackend.Settings `embed:"" prefix:"sqs-"`
+	SNS                   struct{}            `embed:"" prefix:"sns-"`
+	STS                   struct{}            `embed:"" prefix:"sts-"`
+	IAM                   struct{}            `embed:"" prefix:"iam-"`
+	kinesisHandler        service.Registerable
+	elasticacheHandler    service.Registerable
 	secretsManagerHandler service.Registerable
 	ddbHandler            service.Registerable
 	s3Handler             service.Registerable
@@ -87,28 +89,31 @@ type CLI struct {
 	stepFunctionsHandler  service.Registerable
 	cloudWatchHandler     service.Registerable
 	cloudFormationHandler service.Registerable
-	s3Client              *s3.Client
-	iamClient             *iam.Client
+	kmsHandler            service.Registerable
 	snsClient             *sns.Client
+	kmsClient             *kms.Client
+	iamClient             *iam.Client
+	s3Client              *s3.Client
 	ssmClient             *ssmsdk.Client
 	ddbClient             *dynamodb.Client
 	stsClient             *stssdk.Client
 	sqsClient             *sqssdk.Client
 	secretsManagerClient  *secretsmanager.Client
-	kmsClient             *kms.Client
-	Port                  string              `                                  name:"port"             env:"PORT"             default:"8000"         help:"HTTP server port."`                                                //nolint:lll // config struct tags are intentionally verbose
-	AccountID             string              `                                  name:"account-id"       env:"ACCOUNT_ID"       default:"000000000000" help:"Mock AWS account ID used in ARNs."`                                //nolint:lll // config struct tags are intentionally verbose
-	Region                string              `                                  name:"region"           env:"REGION"           default:"us-east-1"    help:"AWS region."`                                                      //nolint:lll // config struct tags are intentionally verbose
-	LogLevel              string              `                                  name:"log-level"        env:"LOG_LEVEL"        default:"info"         help:"Log level (debug|info|warn|error)."`                               //nolint:lll // config struct tags are intentionally verbose
-	DNSListenAddr         string              `                                  name:"dns-addr"         env:"DNS_ADDR"         default:""             help:"Address for embedded DNS server (e.g. :10053). Empty = disabled."` //nolint:lll // config struct tags are intentionally verbose
-	DNSResolveIP          string              `                                  name:"dns-resolve-ip"   env:"DNS_RESOLVE_IP"   default:"127.0.0.1"    help:"IP address synthetic hostnames resolve to."`                       //nolint:lll // config struct tags are intentionally verbose
-	S3                    s3backend.Settings  `embed:"" prefix:"s3-"`
-	InitScripts           []string            `                                  name:"init-script"      env:"INIT_SCRIPTS"                            help:"Shell scripts to run on startup (may be specified multiple times)."` //nolint:lll // config struct tags are intentionally verbose
-	DynamoDB              ddbbackend.Settings `embed:"" prefix:"dynamodb-"`
-	PortRangeStart        int                 `                                  name:"port-range-start" env:"PORT_RANGE_START" default:"10000"        help:"Start of the port range for resource endpoints."`           //nolint:lll // config struct tags are intentionally verbose
-	PortRangeEnd          int                 `                                  name:"port-range-end"   env:"PORT_RANGE_END"   default:"10100"        help:"End (exclusive) of the port range for resource endpoints."` //nolint:lll // config struct tags are intentionally verbose
-	InitScriptTimeout     time.Duration       `                                  name:"init-timeout"     env:"INIT_TIMEOUT"     default:"30s"          help:"Per-script timeout for init hooks."`                        //nolint:lll // config struct tags are intentionally verbose
-	Demo                  bool                `                                  name:"demo"             env:"DEMO"             default:"false"        help:"Load demo data on startup."`                                //nolint:lll // config struct tags are intentionally verbose
+	AccountID             string                 `                                  name:"account-id"         env:"ACCOUNT_ID"         default:"000000000000" help:"Mock AWS account ID used in ARNs."`                                //nolint:lll // config struct tags are intentionally verbose
+	Port                  string                 `                                  name:"port"               env:"PORT"               default:"8000"         help:"HTTP server port."`                                                //nolint:lll // config struct tags are intentionally verbose
+	ElastiCacheEngine     string                 `                                  name:"elasticache-engine" env:"ELASTICACHE_ENGINE" default:"embedded"     help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`  //nolint:lll // config struct tags are intentionally verbose
+	Region                string                 `                                  name:"region"             env:"REGION"             default:"us-east-1"    help:"AWS region."`                                                      //nolint:lll // config struct tags are intentionally verbose
+	LogLevel              string                 `                                  name:"log-level"          env:"LOG_LEVEL"          default:"info"         help:"Log level (debug|info|warn|error)."`                               //nolint:lll // config struct tags are intentionally verbose
+	DNSListenAddr         string                 `                                  name:"dns-addr"           env:"DNS_ADDR"           default:""             help:"Address for embedded DNS server (e.g. :10053). Empty = disabled."` //nolint:lll // config struct tags are intentionally verbose
+	DNSResolveIP          string                 `                                  name:"dns-resolve-ip"     env:"DNS_RESOLVE_IP"     default:"127.0.0.1"    help:"IP address synthetic hostnames resolve to."`                       //nolint:lll // config struct tags are intentionally verbose
+	S3                    s3backend.Settings     `embed:"" prefix:"s3-"`
+	InitScripts           []string               `                                  name:"init-script"        env:"INIT_SCRIPTS"                              help:"Shell scripts to run on startup (may be specified multiple times)."` //nolint:lll // config struct tags are intentionally verbose
+	DynamoDB              ddbbackend.Settings    `embed:"" prefix:"dynamodb-"`
+	Lambda                lambdabackend.Settings `embed:"" prefix:"lambda-"`
+	PortRangeStart        int                    `                                  name:"port-range-start"   env:"PORT_RANGE_START"   default:"10000"        help:"Start of the port range for resource endpoints."`           //nolint:lll // config struct tags are intentionally verbose
+	PortRangeEnd          int                    `                                  name:"port-range-end"     env:"PORT_RANGE_END"     default:"10100"        help:"End (exclusive) of the port range for resource endpoints."` //nolint:lll // config struct tags are intentionally verbose
+	InitScriptTimeout     time.Duration          `                                  name:"init-timeout"       env:"INIT_TIMEOUT"       default:"30s"          help:"Per-script timeout for init hooks."`                        //nolint:lll // config struct tags are intentionally verbose
+	Demo                  bool                   `                                  name:"demo"               env:"DEMO"               default:"false"        help:"Load demo data on startup."`                                //nolint:lll // config struct tags are intentionally verbose
 }
 
 // GetGlobalConfig returns the centralised account ID and region (config.Provider).
@@ -235,6 +240,19 @@ func (c *CLI) GetCloudWatchHandler() service.Registerable { return c.cloudWatchH
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetCloudFormationHandler() service.Registerable { return c.cloudFormationHandler }
+
+// GetKinesisHandler returns the Kinesis handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetKinesisHandler() service.Registerable { return c.kinesisHandler }
+
+// GetElastiCacheHandler returns the ElastiCache handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetElastiCacheHandler() service.Registerable { return c.elasticacheHandler }
+
+// GetElastiCacheEngine returns the ElastiCache engine mode (elasticache.EngineConfig).
+func (c *CLI) GetElastiCacheEngine() string { return c.ElastiCacheEngine }
 
 // Run parses CLI / environment-variable configuration and starts Gopherstack.
 // It is called from main() and exits on error.
@@ -424,6 +442,8 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		&cwlogsbackend.Provider{},
 		&sfnbackend.Provider{},
 		&cwbackend.Provider{},
+		&kinesisbackend.Provider{},
+		&elasticachebackend.Provider{},
 	}
 
 	for _, provider := range serviceProviders {
@@ -452,6 +472,8 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		cli.cloudWatchLogsHandler = services[12]
 		cli.stepFunctionsHandler = services[13]
 		cli.cloudWatchHandler = services[14]
+		cli.kinesisHandler = services[15]
+		cli.elasticacheHandler = services[16]
 	}
 
 	// Wire SNS→SQS delivery: when SNS publishes a message, deliver it to SQS queues.
@@ -465,6 +487,9 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 
 	// Wire API Gateway → Lambda proxy integration.
 	wireAPIGatewayLambda(services[11], services[9])
+
+	// Wire Kinesis → Lambda event source mapping poller.
+	wireKinesisLambda(services[15], services[9])
 
 	// Init CloudFormation after core handlers are stored so it can access their backends.
 	cfnSvc, err := (&cfnbackend.Provider{}).Init(appCtx)
@@ -665,6 +690,88 @@ func (a *sfnLambdaInvokerAdapter) InvokeFunction(
 // Ensure sfnLambdaInvokerAdapter implements sfnasl.LambdaInvoker.
 var _ sfnasl.LambdaInvoker = (*sfnLambdaInvokerAdapter)(nil)
 
+// wireKinesisLambda connects the Kinesis backend to the Lambda event source poller
+// so that records written to Kinesis streams trigger Lambda functions with active
+// event source mappings.
+func wireKinesisLambda(kinesisReg, lambdaReg service.Registerable) {
+	kinesisH, ok := kinesisReg.(*kinesisbackend.Handler)
+	if !ok {
+		return
+	}
+
+	kinesisBk, bkOk := kinesisH.Backend.(*kinesisbackend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
+		if lambdaBk, bk2Ok := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bk2Ok {
+			adapter := &kinesisReaderAdapter{backend: kinesisBk}
+			lambdaBk.SetKinesisPoller(lambdabackend.NewEventSourcePoller(lambdaBk, adapter, lambdaH.Logger))
+		}
+	}
+}
+
+// kinesisReaderAdapter adapts the Kinesis backend to the lambda.KinesisReader interface.
+type kinesisReaderAdapter struct {
+	backend *kinesisbackend.InMemoryBackend
+}
+
+func (a *kinesisReaderAdapter) GetShardIDs(streamName string) ([]string, error) {
+	out, err := a.backend.DescribeStream(&kinesisbackend.DescribeStreamInput{StreamName: streamName})
+	if err != nil {
+		return nil, err
+	}
+
+	ids := make([]string, len(out.Shards))
+	for i, s := range out.Shards {
+		ids[i] = s.ShardID
+	}
+
+	return ids, nil
+}
+
+func (a *kinesisReaderAdapter) GetShardIterator(
+	streamName, shardID, iteratorType, startingSeqNum string,
+) (string, error) {
+	out, err := a.backend.GetShardIterator(&kinesisbackend.GetShardIteratorInput{
+		StreamName:             streamName,
+		ShardID:                shardID,
+		ShardIteratorType:      iteratorType,
+		StartingSequenceNumber: startingSeqNum,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	return out.ShardIterator, nil
+}
+
+func (a *kinesisReaderAdapter) GetRecords(
+	iteratorToken string,
+	limit int,
+) ([]lambdabackend.KinesisRecord, string, error) {
+	out, err := a.backend.GetRecords(&kinesisbackend.GetRecordsInput{
+		ShardIterator: iteratorToken,
+		Limit:         limit,
+	})
+	if err != nil {
+		return nil, "", err
+	}
+
+	records := make([]lambdabackend.KinesisRecord, len(out.Records))
+	for i, r := range out.Records {
+		records[i] = lambdabackend.KinesisRecord{
+			PartitionKey:   r.PartitionKey,
+			SequenceNumber: r.SequenceNumber,
+			Data:           r.Data,
+			ArrivalTime:    r.ApproximateArrivalTimestamp,
+		}
+	}
+
+	return records, out.NextShardIterator, nil
+}
+
 // ARN format: arn:aws:sqs:region:accountId:queueName
 // URL format expected by SQS backend: http://endpoint/accountId/queueName
 func arnToSQSQueueURL(arn string) string {
@@ -759,6 +866,7 @@ func healthHandler(c *echo.Context) error {
 		Services: []string{
 			"DynamoDB", "S3", "SSM", "IAM", "STS", "SNS", "SQS", "KMS", "SecretsManager", "Lambda",
 			"EventBridge", "APIGateway", "CloudWatchLogs", "StepFunctions", "CloudWatch", "CloudFormation",
+			"Kinesis",
 		},
 	})
 }

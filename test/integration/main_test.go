@@ -24,9 +24,12 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodbstreams"
+	elasticachesdk "github.com/aws/aws-sdk-go-v2/service/elasticache"
 	eventbridgesdk "github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	iamsdk "github.com/aws/aws-sdk-go-v2/service/iam"
+	kinesissdk "github.com/aws/aws-sdk-go-v2/service/kinesis"
 	kmssdk "github.com/aws/aws-sdk-go-v2/service/kms"
+	lambdaclientsdk "github.com/aws/aws-sdk-go-v2/service/lambda"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	secretsmanagersdk "github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	sfnsdk "github.com/aws/aws-sdk-go-v2/service/sfn"
@@ -431,6 +434,66 @@ func createCloudFormationClient(t *testing.T) *cloudformationsdk.Client {
 	}
 
 	return cloudformationsdk.NewFromConfig(cfg, func(o *cloudformationsdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createKinesisClient returns a Kinesis client pointed at the shared test container.
+func createKinesisClient(t *testing.T) *kinesissdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		t.Fatalf("unable to load SDK config: %v", err)
+	}
+
+	return kinesissdk.NewFromConfig(cfg, func(o *kinesissdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createLambdaClient returns a Lambda client pointed at the shared test container.
+func createLambdaClient(t *testing.T) *lambdaclientsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		t.Fatalf("unable to load SDK config: %v", err)
+	}
+
+	return lambdaclientsdk.NewFromConfig(cfg, func(o *lambdaclientsdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createElastiCacheClient returns an ElastiCache client pointed at the shared test container.
+func createElastiCacheClient(t *testing.T) *elasticachesdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		t.Fatalf("unable to load SDK config: %v", err)
+	}
+
+	return elasticachesdk.NewFromConfig(cfg, func(o *elasticachesdk.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

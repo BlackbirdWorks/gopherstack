@@ -1,0 +1,71 @@
+{{define "content"}}
+<div class="px-4 sm:px-6 lg:px-8">
+    <div class="mb-6">
+        <a href="/dashboard/elasticache"
+            class="text-sm text-blue-600 hover:underline dark:text-blue-400">← Back to Clusters</a>
+    </div>
+
+    <div class="sm:flex sm:items-center justify-between mb-6">
+        <div class="sm:flex-auto">
+            <h1 class="text-3xl font-bold text-gray-900 dark:text-white">{{.ClusterID}}</h1>
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Cache Cluster Detail</p>
+        </div>
+        <div>
+            <span class="bg-green-100 text-green-800 text-sm font-medium px-3 py-1 rounded dark:bg-green-900 dark:text-green-300">{{.Status}}</span>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+        <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Configuration</h2>
+            <dl class="space-y-3">
+                <div class="flex justify-between">
+                    <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Cluster ID</dt>
+                    <dd class="text-sm text-gray-900 dark:text-white font-mono">{{.ClusterID}}</dd>
+                </div>
+                <div class="flex justify-between">
+                    <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Engine</dt>
+                    <dd class="text-sm text-gray-900 dark:text-white">
+                        <span class="bg-red-100 text-red-800 text-xs font-medium px-2 py-0.5 rounded dark:bg-red-900 dark:text-red-300">{{.Engine}}</span>
+                    </dd>
+                </div>
+                <div class="flex justify-between">
+                    <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Engine Version</dt>
+                    <dd class="text-sm text-gray-900 dark:text-white">{{.EngineVersion}}</dd>
+                </div>
+                <div class="flex justify-between">
+                    <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Node Type</dt>
+                    <dd class="text-sm text-gray-900 dark:text-white font-mono">{{.NodeType}}</dd>
+                </div>
+                <div class="flex justify-between">
+                    <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Number of Nodes</dt>
+                    <dd class="text-sm text-gray-900 dark:text-white">{{.NumCacheNodes}}</dd>
+                </div>
+            </dl>
+        </div>
+
+        <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Endpoint</h2>
+            <dl class="space-y-3">
+                <div class="flex justify-between">
+                    <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Address</dt>
+                    <dd class="text-sm text-gray-900 dark:text-white font-mono">{{.Endpoint}}</dd>
+                </div>
+                <div class="flex justify-between">
+                    <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Port</dt>
+                    <dd class="text-sm text-gray-900 dark:text-white font-mono">{{.Port}}</dd>
+                </div>
+                <div class="flex justify-between">
+                    <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Connection String</dt>
+                    <dd class="text-sm text-gray-900 dark:text-white font-mono">{{.Endpoint}}:{{.Port}}</dd>
+                </div>
+            </dl>
+        </div>
+    </div>
+
+    <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+        <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">ARN</h2>
+        <p class="text-sm font-mono text-gray-500 dark:text-gray-400 break-all">{{.ARN}}</p>
+    </div>
+</div>
+{{end}}

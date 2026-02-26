@@ -159,6 +159,10 @@ func (db *InMemoryDB) filterCandidatesForKeyCondition(
 
 	eav := models.FromSDKItem(input.ExpressionAttributeValues)
 
+	if err := validateQueryKeyValues(exprParts, keySchema, eav, input.ExpressionAttributeNames); err != nil {
+		return nil, err
+	}
+
 	// Try to use index for primary table queries (not GSI/LSI)
 	if idxName == "" {
 		candidates, ok := db.tryFilterUsingAuthoritativeIndex(

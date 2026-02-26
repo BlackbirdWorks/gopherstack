@@ -117,3 +117,85 @@ func TestDeleteItem_SwapWithLast(t *testing.T) {
 		})
 	}
 }
+
+func TestMissingSK_KeyOperations(t *testing.T) {
+	t.Parallel()
+
+	setup := func(t *testing.T) *dynamodb.InMemoryDB {
+		t.Helper()
+		db := dynamodb.NewInMemoryDB()
+		createTableHelper(t, db, "PKSKTable", "pk", "sk")
+		putInput := models.PutItemInput{
+			TableName: "PKSKTable",
+			Item: map[string]any{
+				"pk":  map[string]any{"S": "p1"},
+				"sk":  map[string]any{"S": "s1"},
+				"val": map[string]any{"S": "v1"},
+			},
+		}
+		sdkPut, _ := models.ToSDKPutItemInput(&putInput)
+		_, err := db.PutItem(context.Background(), sdkPut)
+		require.NoError(t, err)
+
+		return db
+	}
+
+	t.Run("GetItem missing SK returns error", func(t *testing.T) {
+		t.Parallel()
+		db := setup(t)
+		getInput := models.GetItemInput{
+			TableName: "PKSKTable",
+			Key:       map[string]any{"pk": map[string]any{"S": "p1"}},
+		}
+		sdkGet, _ := models.ToSDKGetItemInput(&getInput)
+		_, err := db.GetItem(context.Background(), sdkGet)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "Missing key element: sk")
+	})
+
+	t.Run("DeleteItem missing SK returns error", func(t *testing.T) {
+		t.Parallel()
+		db := setup(t)
+		delInput := models.DeleteItemInput{
+			TableName: "PKSKTable",
+			Key:       map[string]any{"pk": map[string]any{"S": "p1"}},
+		}
+		sdkDel, _ := models.ToSDKDeleteItemInput(&delInput)
+		_, err := db.DeleteItem(context.Background(), sdkDel)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "Missing key element: sk")
+	})
+
+	t.Run("UpdateItem missing SK returns error", func(t *testing.T) {
+		t.Parallel()
+		db := setup(t)
+		updateInput := models.UpdateItemInput{
+			TableName:        "PKSKTable",
+			Key:              map[string]any{"pk": map[string]any{"S": "p1"}},
+			UpdateExpression: "SET val = :v",
+			ExpressionAttributeValues: map[string]any{
+				":v": map[string]any{"S": "updated"},
+			},
+		}
+		sdkUpd, _ := models.ToSDKUpdateItemInput(&updateInput)
+		_, err := db.UpdateItem(context.Background(), sdkUpd)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "Missing key element: sk")
+	})
+
+	t.Run("GetItem with SK succeeds", func(t *testing.T) {
+		t.Parallel()
+		db := setup(t)
+		getInput := models.GetItemInput{
+			TableName: "PKSKTable",
+			Key: map[string]any{
+				"pk": map[string]any{"S": "p1"},
+				"sk": map[string]any{"S": "s1"},
+			},
+		}
+		sdkGet, _ := models.ToSDKGetItemInput(&getInput)
+		resp, err := db.GetItem(context.Background(), sdkGet)
+		require.NoError(t, err)
+		assert.NotEmpty(t, resp.Item)
+	})
+}
