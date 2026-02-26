@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"unicode/utf8"
@@ -109,8 +110,6 @@ func BuildProxyEvent(r *http.Request, apiID, stageName, resource, path string) (
 }
 
 // handleProxyRequest handles a single HTTP request for a Lambda proxy integration.
-//
-//nolint:gocognit // proxy request handling requires multiple decision points
 func (h *Handler) handleProxyRequest(apiID, stageName string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -151,67 +150,148 @@ func (h *Handler) handleProxyRequest(apiID, stageName string) http.HandlerFunc {
 			}
 		}
 
-		if integration.Type != "AWS_PROXY" {
+		switch integration.Type {
+		case "AWS_PROXY":
+			h.handleAWSProxy(ctx, w, r, apiID, stageName, resource, integration, log)
+		case "AWS":
+			h.handleAWSIntegration(ctx, w, r, integration, log)
+		default:
 			http.Error(w, "Non-proxy integrations not supported on stage URL", http.StatusNotImplemented)
-
-			return
 		}
+	}
+}
 
-		// Build Lambda proxy event.
-		event, buildErr := BuildProxyEvent(r, apiID, stageName, resource.Path, r.URL.Path)
-		if buildErr != nil {
-			log.ErrorContext(ctx, "APIGateway proxy: failed to build event", "error", buildErr)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+// handleAWSProxy handles an AWS_PROXY Lambda integration — the full event is forwarded as-is.
+func (h *Handler) handleAWSProxy(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	apiID, stageName string,
+	resource *Resource,
+	integration *Integration,
+	log *slog.Logger,
+) {
+	event, buildErr := BuildProxyEvent(r, apiID, stageName, resource.Path, r.URL.Path)
+	if buildErr != nil {
+		log.ErrorContext(ctx, "APIGateway proxy: failed to build event", "error", buildErr)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 
-			return
-		}
+		return
+	}
 
-		payload, _ := json.Marshal(event)
+	payload, _ := json.Marshal(event)
 
-		// Invoke Lambda.
-		respBytes, _, invokeErr := h.lambda.InvokeFunction(ctx, integration.URI, "RequestResponse", payload)
-		if invokeErr != nil {
-			log.WarnContext(ctx, "APIGateway proxy: Lambda invocation failed",
-				"uri", integration.URI, "error", invokeErr)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
+	respBytes, _, invokeErr := h.lambda.InvokeFunction(ctx, integration.URI, "RequestResponse", payload)
+	if invokeErr != nil {
+		log.WarnContext(ctx, "APIGateway proxy: Lambda invocation failed",
+			"uri", integration.URI, "error", invokeErr)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 
-			return
-		}
+		return
+	}
 
-		// Parse Lambda response.
-		var lambdaResp LambdaProxyResponse
-		if parseErr := json.Unmarshal(respBytes, &lambdaResp); parseErr != nil {
-			// If not a proxy response format, return body as-is.
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write(respBytes) //nolint:gosec // G705: Lambda response bytes
+	// Parse Lambda response.
+	var lambdaResp LambdaProxyResponse
+	if parseErr := json.Unmarshal(respBytes, &lambdaResp); parseErr != nil {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(respBytes) //nolint:gosec // G705: Lambda response bytes
 
-			return
-		}
+		return
+	}
 
-		// Write response.
-		for k, v := range lambdaResp.Headers {
-			w.Header().Set(k, v)
-		}
+	for k, v := range lambdaResp.Headers {
+		w.Header().Set(k, v)
+	}
 
-		statusCode := lambdaResp.StatusCode
-		if statusCode == 0 {
-			statusCode = http.StatusOK
-		}
+	statusCode := lambdaResp.StatusCode
+	if statusCode == 0 {
+		statusCode = http.StatusOK
+	}
 
-		w.WriteHeader(statusCode)
+	w.WriteHeader(statusCode)
 
-		body := lambdaResp.Body
-		if lambdaResp.IsBase64Encoded {
-			decoded, decErr := base64.StdEncoding.DecodeString(body)
-			if decErr == nil {
-				_, _ = w.Write(decoded)
-			} else {
-				_, _ = w.Write([]byte(body))
-			}
+	body := lambdaResp.Body
+	if lambdaResp.IsBase64Encoded {
+		decoded, decErr := base64.StdEncoding.DecodeString(body)
+		if decErr == nil {
+			_, _ = w.Write(decoded)
 		} else {
 			_, _ = w.Write([]byte(body))
 		}
+	} else {
+		_, _ = w.Write([]byte(body))
 	}
+}
+
+// handleAWSIntegration handles an AWS (non-proxy) Lambda integration using VTL templates.
+func (h *Handler) handleAWSIntegration(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	integration *Integration,
+	log *slog.Logger,
+) {
+	// Read the raw request body.
+	rawBody, readErr := io.ReadAll(r.Body)
+	if readErr != nil {
+		log.ErrorContext(ctx, "APIGateway AWS integration: failed to read body", "error", readErr)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+
+		return
+	}
+
+	vtlCtx := VTLContext{
+		Body:      string(rawBody),
+		RequestID: r.Header.Get("X-Amzn-Requestid"),
+	}
+
+	// Apply request mapping template (content-type "application/json" is standard).
+	payload := rawBody
+	if tpl, ok := integration.RequestTemplates["application/json"]; ok && tpl != "" {
+		rendered := RenderTemplate(tpl, vtlCtx)
+		payload = []byte(rendered)
+	}
+
+	// Invoke Lambda.
+	respBytes, _, invokeErr := h.lambda.InvokeFunction(ctx, integration.URI, "RequestResponse", payload)
+	if invokeErr != nil {
+		log.WarnContext(ctx, "APIGateway AWS integration: Lambda invocation failed",
+			"uri", integration.URI, "error", invokeErr)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+
+		return
+	}
+
+	// Apply response mapping template for status code "200" if present.
+	responseBody := applyResponseTemplate(respBytes, integration, vtlCtx.RequestID)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(responseBody) //nolint:gosec // G705: Lambda response bytes
+}
+
+// applyResponseTemplate applies the response VTL template (status "200") if configured.
+func applyResponseTemplate(respBytes []byte, integration *Integration, requestID string) []byte {
+	if integration.IntegrationResponses == nil {
+		return respBytes
+	}
+
+	ir, ok := integration.IntegrationResponses["200"]
+	if !ok || ir == nil {
+		return respBytes
+	}
+
+	tpl, ok := ir.ResponseTemplates["application/json"]
+	if !ok || tpl == "" {
+		return respBytes
+	}
+
+	respVTLCtx := VTLContext{
+		Body:      string(respBytes),
+		RequestID: requestID,
+	}
+
+	return []byte(RenderTemplate(tpl, respVTLCtx))
 }
 
 // findMatchingResource finds a resource whose path matches the request path.
