@@ -1,0 +1,258 @@
+package dashboard
+
+import (
+	"fmt"
+	"net/http"
+	"strconv"
+	"strings"
+
+	"github.com/labstack/echo/v5"
+
+	route53backend "github.com/blackbirdworks/gopherstack/route53"
+)
+
+// route53ZoneView is the view model for a single hosted zone in the index listing.
+type route53ZoneView struct {
+	Name        string
+	ID          string
+	RecordCount int
+}
+
+// route53IndexData is the template data for the Route 53 index page.
+type route53IndexData struct {
+	PageData
+
+	Zones []route53ZoneView
+}
+
+// route53RecordView is the view model for a single DNS record.
+type route53RecordView struct {
+	Name   string
+	Type   string
+	TTL    int64
+	Values string
+}
+
+// route53ZoneDetailData is the template data for the Route 53 zone detail page.
+type route53ZoneDetailData struct {
+	PageData
+
+	ZoneID   string
+	ZoneName string
+	Records  []route53RecordView
+}
+
+// route53Index renders the list of all Route 53 hosted zones.
+func (h *DashboardHandler) route53Index(c *echo.Context) error {
+	w := c.Response()
+
+	if h.Route53Ops == nil {
+		h.renderTemplate(w, "route53/index.html", route53IndexData{
+			PageData: PageData{Title: "Route 53 Hosted Zones", ActiveTab: "route53"},
+			Zones:    []route53ZoneView{},
+		})
+
+		return nil
+	}
+
+	zones, err := h.Route53Ops.Backend.ListHostedZones()
+	if err != nil {
+		return c.NoContent(http.StatusInternalServerError)
+	}
+
+	views := make([]route53ZoneView, 0, len(zones))
+
+	for _, z := range zones {
+		views = append(views, route53ZoneView{
+			Name:        z.Name,
+			ID:          z.ID,
+			RecordCount: z.ResourceRecordSetCount,
+		})
+	}
+
+	h.renderTemplate(w, "route53/index.html", route53IndexData{
+		PageData: PageData{Title: "Route 53 Hosted Zones", ActiveTab: "route53"},
+		Zones:    views,
+	})
+
+	return nil
+}
+
+// route53ZoneDetail renders the detail page for a single hosted zone.
+func (h *DashboardHandler) route53ZoneDetail(c *echo.Context) error {
+	w := c.Response()
+
+	if h.Route53Ops == nil {
+		return c.NoContent(http.StatusServiceUnavailable)
+	}
+
+	zoneID := c.Request().URL.Query().Get("id")
+
+	hz, err := h.Route53Ops.Backend.GetHostedZone(zoneID)
+	if err != nil {
+		return c.NoContent(http.StatusNotFound)
+	}
+
+	rrs, err := h.Route53Ops.Backend.ListResourceRecordSets(zoneID)
+	if err != nil {
+		return c.NoContent(http.StatusInternalServerError)
+	}
+
+	records := make([]route53RecordView, 0, len(rrs))
+
+	for _, r := range rrs {
+		values := make([]string, 0, len(r.Records))
+		for _, rec := range r.Records {
+			values = append(values, rec.Value)
+		}
+
+		records = append(records, route53RecordView{
+			Name:   r.Name,
+			Type:   r.Type,
+			TTL:    r.TTL,
+			Values: strings.Join(values, ", "),
+		})
+	}
+
+	h.renderTemplate(w, "route53/zone_detail.html", route53ZoneDetailData{
+		PageData: PageData{Title: "Zone: " + hz.Name, ActiveTab: "route53"},
+		ZoneID:   zoneID,
+		ZoneName: hz.Name,
+		Records:  records,
+	})
+
+	return nil
+}
+
+// route53CreateZone handles POST /dashboard/route53/create.
+func (h *DashboardHandler) route53CreateZone(c *echo.Context) error {
+	if h.Route53Ops == nil {
+		return c.NoContent(http.StatusServiceUnavailable)
+	}
+
+	if err := c.Request().ParseForm(); err != nil {
+		return c.NoContent(http.StatusBadRequest)
+	}
+
+	name := c.Request().FormValue("zone_name")
+	if name == "" {
+		return c.NoContent(http.StatusBadRequest)
+	}
+
+	callerRef := fmt.Sprintf("dashboard-%s", name)
+
+	if _, err := h.Route53Ops.Backend.CreateHostedZone(name, callerRef, "", false); err != nil {
+		return c.NoContent(http.StatusInternalServerError)
+	}
+
+	return c.Redirect(http.StatusFound, "/dashboard/route53")
+}
+
+// route53DeleteZone handles DELETE /dashboard/route53/delete.
+func (h *DashboardHandler) route53DeleteZone(c *echo.Context) error {
+	if h.Route53Ops == nil {
+		return c.NoContent(http.StatusServiceUnavailable)
+	}
+
+	zoneID := c.Request().URL.Query().Get("id")
+	if zoneID == "" {
+		return c.NoContent(http.StatusBadRequest)
+	}
+
+	if err := h.Route53Ops.Backend.DeleteHostedZone(zoneID); err != nil {
+		return c.NoContent(http.StatusNotFound)
+	}
+
+	return c.Redirect(http.StatusFound, "/dashboard/route53")
+}
+
+// route53CreateRecord handles POST /dashboard/route53/record.
+func (h *DashboardHandler) route53CreateRecord(c *echo.Context) error {
+	if h.Route53Ops == nil {
+		return c.NoContent(http.StatusServiceUnavailable)
+	}
+
+	if err := c.Request().ParseForm(); err != nil {
+		return c.NoContent(http.StatusBadRequest)
+	}
+
+	zoneID := c.Request().FormValue("zone_id")
+	name := c.Request().FormValue("rec_name")
+	recType := c.Request().FormValue("rec_type")
+	ttlStr := c.Request().FormValue("rec_ttl")
+	value := c.Request().FormValue("rec_value")
+
+	if zoneID == "" || name == "" || recType == "" || value == "" {
+		return c.NoContent(http.StatusBadRequest)
+	}
+
+	ttl := int64(300)
+
+	if ttlStr != "" {
+		if v, err := strconv.ParseInt(ttlStr, 10, 64); err == nil {
+			ttl = v
+		}
+	}
+
+	change := route53backend.Change{
+		Action: route53backend.ChangeActionUpsert,
+		ResourceRecordSet: route53backend.ResourceRecordSet{
+			Name:    name,
+			Type:    recType,
+			TTL:     ttl,
+			Records: []route53backend.ResourceRecord{{Value: value}},
+		},
+	}
+
+	if err := h.Route53Ops.Backend.ChangeResourceRecordSets(zoneID, []route53backend.Change{change}); err != nil {
+		return c.NoContent(http.StatusInternalServerError)
+	}
+
+	return c.Redirect(http.StatusFound, "/dashboard/route53/zone?id="+zoneID)
+}
+
+// route53DeleteRecord handles DELETE /dashboard/route53/record.
+func (h *DashboardHandler) route53DeleteRecord(c *echo.Context) error {
+	if h.Route53Ops == nil {
+		return c.NoContent(http.StatusServiceUnavailable)
+	}
+
+	zoneID := c.Request().URL.Query().Get("zone_id")
+	name := c.Request().URL.Query().Get("name")
+	recType := c.Request().URL.Query().Get("type")
+
+	if zoneID == "" || name == "" || recType == "" {
+		return c.NoContent(http.StatusBadRequest)
+	}
+
+	// Look up the existing record to delete it properly
+	rrs, err := h.Route53Ops.Backend.ListResourceRecordSets(zoneID)
+	if err != nil {
+		return c.NoContent(http.StatusNotFound)
+	}
+
+	var target *route53backend.ResourceRecordSet
+
+	for i := range rrs {
+		if rrs[i].Name == name && rrs[i].Type == recType {
+			target = &rrs[i]
+
+			break
+		}
+	}
+
+	if target == nil {
+		return c.NoContent(http.StatusNotFound)
+	}
+
+	change := route53backend.Change{
+		Action:            route53backend.ChangeActionDelete,
+		ResourceRecordSet: *target,
+	}
+
+	if err := h.Route53Ops.Backend.ChangeResourceRecordSets(zoneID, []route53backend.Change{change}); err != nil {
+		return c.NoContent(http.StatusInternalServerError)
+	}
+
+	return c.Redirect(http.StatusFound, "/dashboard/route53/zone?id="+zoneID)
+}

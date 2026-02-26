@@ -20,6 +20,7 @@ import (
 	lambdabackend "github.com/blackbirdworks/gopherstack/lambda"
 	globalcfg "github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	route53backend "github.com/blackbirdworks/gopherstack/route53"
 	"github.com/blackbirdworks/gopherstack/s3"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/secretsmanager"
 	"github.com/blackbirdworks/gopherstack/sns"
@@ -53,6 +54,7 @@ type AWSSDKProvider interface {
 	GetCloudFormationHandler() service.Registerable
 	GetKinesisHandler() service.Registerable
 	GetElastiCacheHandler() service.Registerable
+	GetRoute53Handler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 }
 
@@ -89,6 +91,7 @@ type extractedConfig struct {
 	cloudFormationOps *cfnbackend.Handler
 	kinesisOps        *kinesisbackend.Handler
 	elasticacheOps    *elasticachebackend.Handler
+	route53Ops        *route53backend.Handler
 	gCfg              globalcfg.GlobalConfig
 }
 
@@ -174,6 +177,10 @@ func extractIntegrationHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetKinesisHandler(); h != nil {
 		ec.kinesisOps, _ = h.(*kinesisbackend.Handler)
 	}
+
+	if h := ap.GetRoute53Handler(); h != nil {
+		ec.route53Ops, _ = h.(*route53backend.Handler)
+	}
 }
 
 //nolint:ireturn // architecturally required to return interface
@@ -202,6 +209,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		CloudFormationOps: ec.cloudFormationOps,
 		KinesisOps:        ec.kinesisOps,
 		ElastiCacheOps:    ec.elasticacheOps,
+		Route53Ops:        ec.route53Ops,
 		GlobalConfig:      ec.gCfg,
 		Logger:            ctx.Logger,
 	})
