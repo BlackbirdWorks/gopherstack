@@ -18,11 +18,10 @@ type lifecycleConfiguration struct {
 
 type lifecycleRule struct {
 	Filter     lifecycleFilter     `xml:"Filter"`
+	Prefix     string              `xml:"Prefix"`
+	ID         string              `xml:"ID"`
+	Status     string              `xml:"Status"`
 	Expiration lifecycleExpiration `xml:"Expiration"`
-	// Prefix is the legacy top-level prefix field (pre-Filter XML format).
-	Prefix string `xml:"Prefix"`
-	ID     string `xml:"ID"`
-	Status string `xml:"Status"`
 }
 
 // prefix returns the effective filter prefix, preferring the nested Filter
@@ -185,9 +184,9 @@ func (j *Janitor) sweepLifecycle(ctx context.Context) {
 	// Snapshot bucket names and their lifecycle configs under a read-lock.
 	b.mu.RLock("S3Janitor.sweepLifecycle")
 	type bucketSnapshot struct {
-		name    string
-		bucket  *StoredBucket
-		lcXML   string
+		name   string
+		bucket *StoredBucket
+		lcXML  string
 	}
 	var snapshots []bucketSnapshot
 
@@ -248,33 +247,7 @@ func (j *Janitor) applyLifecycleRules(
 
 		prefix := rule.prefix()
 		expireBefore := now.Add(-time.Duration(rule.Expiration.Days) * 24 * time.Hour)
-
-		bucket.mu.Lock("S3Janitor.applyLifecycleRules")
-		for key, obj := range bucket.Objects {
-			if !strings.HasPrefix(key, prefix) {
-				continue
-			}
-			// Check the latest version's LastModified.
-			obj.mu.RLock()
-			var latestMod time.Time
-			for _, ver := range obj.Versions {
-				if ver.IsLatest && !ver.Deleted {
-					latestMod = ver.LastModified
-					break
-				}
-			}
-			obj.mu.RUnlock()
-
-			if latestMod.IsZero() {
-				continue
-			}
-
-			if latestMod.Before(expireBefore) || latestMod.Equal(expireBefore) {
-				delete(bucket.Objects, key)
-				evicted++
-			}
-		}
-		bucket.mu.Unlock()
+		evicted += j.evictExpiredObjects(bucket, prefix, expireBefore)
 	}
 
 	if evicted > 0 {
@@ -283,4 +256,46 @@ func (j *Janitor) applyLifecycleRules(
 	}
 
 	return evicted
+}
+
+// evictExpiredObjects deletes objects from the bucket that match the prefix and
+// whose latest version was last modified before expireBefore.
+func (j *Janitor) evictExpiredObjects(bucket *StoredBucket, prefix string, expireBefore time.Time) int {
+	bucket.mu.Lock("S3Janitor.evictExpiredObjects")
+	defer bucket.mu.Unlock()
+
+	evicted := 0
+
+	for key, obj := range bucket.Objects {
+		if !strings.HasPrefix(key, prefix) {
+			continue
+		}
+
+		latestMod := latestVersion(obj)
+		if latestMod.IsZero() {
+			continue
+		}
+
+		if !latestMod.After(expireBefore) {
+			delete(bucket.Objects, key)
+			evicted++
+		}
+	}
+
+	return evicted
+}
+
+// latestVersion returns the LastModified timestamp of the latest non-deleted
+// object version, or the zero time if none exists.
+func latestVersion(obj *StoredObject) time.Time {
+	obj.mu.RLock()
+	defer obj.mu.RUnlock()
+
+	for _, ver := range obj.Versions {
+		if ver.IsLatest && !ver.Deleted {
+			return ver.LastModified
+		}
+	}
+
+	return time.Time{}
 }

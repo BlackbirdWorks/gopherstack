@@ -13,9 +13,9 @@ import (
 
 // captureQueue is a test SQSSender that records sent messages.
 type captureQueue struct {
-	mu       sync.Mutex
-	messages []string
 	lastARN  string
+	messages []string
+	mu       sync.Mutex
 }
 
 func (c *captureQueue) SendMessageToQueue(_ context.Context, queueARN, messageBody string) error {
@@ -29,8 +29,8 @@ func (c *captureQueue) SendMessageToQueue(_ context.Context, queueARN, messageBo
 
 // captureTopic is a test SNSPublisher that records published messages.
 type captureTopic struct {
-	mu       sync.Mutex
 	messages []string
+	mu       sync.Mutex
 }
 
 func (c *captureTopic) PublishToTopic(_ context.Context, _, message, _ string) error {

@@ -18,21 +18,21 @@ type notificationConfiguration struct {
 }
 
 type queueConfiguration struct {
-	Events  []string `xml:"Event"`
 	QueueID string   `xml:"Id"`
 	Queue   string   `xml:"Queue"`
+	Events  []string `xml:"Event"`
 }
 
 type topicConfiguration struct {
-	Events  []string `xml:"Event"`
 	TopicID string   `xml:"Id"`
 	Topic   string   `xml:"Topic"`
+	Events  []string `xml:"Event"`
 }
 
 type lambdaConfiguration struct {
-	Events     []string `xml:"Event"`
-	LambdaID   string   `xml:"Id"`
-	CloudFunc  string   `xml:"CloudFunction"`
+	LambdaID  string   `xml:"Id"`
+	CloudFunc string   `xml:"CloudFunction"`
+	Events    []string `xml:"Event"`
 }
 
 // NotificationDispatcher delivers S3 event notifications to configured targets.
@@ -45,7 +45,7 @@ type NotificationDispatcher interface {
 
 // NotificationTargets holds concrete delivery clients for each supported target type.
 type NotificationTargets struct {
-	SQSSender   SQSSender
+	SQSSender    SQSSender
 	SNSPublisher SNSPublisher
 }
 
@@ -61,19 +61,19 @@ type SNSPublisher interface {
 
 // s3EventRecord is the standard AWS S3 event notification record structure.
 type s3EventRecord struct {
-	S3              s3EventRecordS3 `json:"s3"`
-	EventTime       string         `json:"eventTime"`
-	EventSource     string         `json:"eventSource"`
-	AwsRegion       string         `json:"awsRegion"`
-	EventName       string         `json:"eventName"`
-	EventVersion    string         `json:"eventVersion"`
+	EventTime    string          `json:"eventTime"`
+	EventSource  string          `json:"eventSource"`
+	AwsRegion    string          `json:"awsRegion"`
+	EventName    string          `json:"eventName"`
+	EventVersion string          `json:"eventVersion"`
+	S3           s3EventRecordS3 `json:"s3"`
 }
 
 type s3EventRecordS3 struct {
 	Bucket          s3EventBucket `json:"bucket"`
-	Object          s3EventObject `json:"object"`
 	S3SchemaVersion string        `json:"s3SchemaVersion"`
 	ConfigurationID string        `json:"configurationId"`
+	Object          s3EventObject `json:"object"`
 }
 
 type s3EventBucket struct {
@@ -128,8 +128,8 @@ func eventMatches(pattern, eventName string) bool {
 		return true
 	}
 	// Support trailing wildcard: "s3:ObjectCreated:*" matches "s3:ObjectCreated:Put"
-	if strings.HasSuffix(pattern, "*") {
-		return strings.HasPrefix(eventName, strings.TrimSuffix(pattern, "*"))
+	if before, ok := strings.CutSuffix(pattern, "*"); ok {
+		return strings.HasPrefix(eventName, before)
 	}
 
 	return false

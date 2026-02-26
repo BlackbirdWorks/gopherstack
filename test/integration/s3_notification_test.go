@@ -2,7 +2,6 @@ package integration_test
 
 import (
 	"encoding/json"
-	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -147,5 +146,5 @@ func TestIntegration_S3_NotificationToSQS(t *testing.T) {
 	require.NoError(t, json.Unmarshal(objectBlock["key"], &key))
 	assert.Equal(t, objectKey, key)
 
-	fmt.Printf("S3 notification delivered: eventName=%s bucket=%s key=%s\n", eventName, bucketName, key)
+	t.Logf("S3 notification delivered: eventName=%s bucket=%s key=%s", eventName, bucketName, key)
 }

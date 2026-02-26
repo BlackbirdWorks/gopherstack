@@ -334,7 +334,11 @@ func (h *S3Handler) putObject(
 
 	// Dispatch S3 notification if configured.
 	if h.notifier != nil {
-		if notifXML, ncErr := h.Backend.GetBucketNotificationConfiguration(ctx, bucketName); ncErr == nil && notifXML != "" {
+		if notifXML, ncErr := h.Backend.GetBucketNotificationConfiguration(
+			ctx,
+			bucketName,
+		); ncErr == nil &&
+			notifXML != "" {
 			etag := aws.ToString(ver.ETag)
 			size := aws.ToInt64(ver.Size)
 			go h.notifier.DispatchObjectCreated(ctx, bucketName, key, etag, size, notifXML)
@@ -593,7 +597,11 @@ func (h *S3Handler) deleteObject(
 
 	// Dispatch S3 notification if configured.
 	if h.notifier != nil {
-		if notifXML, ncErr := h.Backend.GetBucketNotificationConfiguration(ctx, bucketName); ncErr == nil && notifXML != "" {
+		if notifXML, ncErr := h.Backend.GetBucketNotificationConfiguration(
+			ctx,
+			bucketName,
+		); ncErr == nil &&
+			notifXML != "" {
 			go h.notifier.DispatchObjectDeleted(ctx, bucketName, key, notifXML)
 		}
 	}

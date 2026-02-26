@@ -1434,9 +1434,9 @@ func TestHandler_BucketNotificationStub(t *testing.T) {
 
 // mockNotificationDispatcher is a test double for NotificationDispatcher.
 type mockNotificationDispatcher struct {
-	mu      sync.Mutex
 	created []notificationEvent
 	deleted []notificationEvent
+	mu      sync.Mutex
 }
 
 type notificationEvent struct {
@@ -1467,7 +1467,11 @@ func TestHandler_NotificationDispatch_PutObject(t *testing.T) {
 	handler, backend := newTestHandler(t)
 	mustCreateBucket(t, backend, "notif-put")
 
-	notifXML := `<NotificationConfiguration><QueueConfiguration><Id>q1</Id><Queue>arn:aws:sqs:us-east-1:000000000000:my-queue</Queue><Event>s3:ObjectCreated:*</Event></QueueConfiguration></NotificationConfiguration>`
+	notifXML := `<NotificationConfiguration>` +
+		`<QueueConfiguration><Id>q1</Id>` +
+		`<Queue>arn:aws:sqs:us-east-1:000000000000:my-queue</Queue>` +
+		`<Event>s3:ObjectCreated:*</Event></QueueConfiguration>` +
+		`</NotificationConfiguration>`
 	req := httptest.NewRequest(http.MethodPut, "/notif-put?notification", strings.NewReader(notifXML))
 	rec := httptest.NewRecorder()
 	serveS3Handler(handler, rec, req)
@@ -1484,6 +1488,7 @@ func TestHandler_NotificationDispatch_PutObject(t *testing.T) {
 	require.Eventually(t, func() bool {
 		mock.mu.Lock()
 		defer mock.mu.Unlock()
+
 		return len(mock.created) == 1
 	}, 200*time.Millisecond, 5*time.Millisecond)
 
@@ -1500,7 +1505,11 @@ func TestHandler_NotificationDispatch_DeleteObject(t *testing.T) {
 	mustCreateBucket(t, backend, "notif-del")
 	mustPutObject(t, backend, "notif-del", "key1", []byte("data"))
 
-	notifXML := `<NotificationConfiguration><QueueConfiguration><Id>q1</Id><Queue>arn:aws:sqs:us-east-1:000000000000:my-queue</Queue><Event>s3:ObjectRemoved:*</Event></QueueConfiguration></NotificationConfiguration>`
+	notifXML := `<NotificationConfiguration>` +
+		`<QueueConfiguration><Id>q1</Id>` +
+		`<Queue>arn:aws:sqs:us-east-1:000000000000:my-queue</Queue>` +
+		`<Event>s3:ObjectRemoved:*</Event></QueueConfiguration>` +
+		`</NotificationConfiguration>`
 	putNotifReq := httptest.NewRequest(http.MethodPut, "/notif-del?notification", strings.NewReader(notifXML))
 	rec := httptest.NewRecorder()
 	serveS3Handler(handler, rec, putNotifReq)
@@ -1517,6 +1526,7 @@ func TestHandler_NotificationDispatch_DeleteObject(t *testing.T) {
 	require.Eventually(t, func() bool {
 		mock.mu.Lock()
 		defer mock.mu.Unlock()
+
 		return len(mock.deleted) == 1
 	}, 200*time.Millisecond, 5*time.Millisecond)
 
