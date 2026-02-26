@@ -28,10 +28,12 @@ func TestIntegration_S3_LifecycleEnforcement(t *testing.T) {
 
 	t.Cleanup(func() {
 		out, _ := client.ListObjects(t.Context(), &s3.ListObjectsInput{Bucket: aws.String(bucket)})
-		for _, obj := range out.Contents {
-			_, _ = client.DeleteObject(t.Context(), &s3.DeleteObjectInput{
-				Bucket: aws.String(bucket), Key: obj.Key,
-			})
+		if out != nil {
+			for _, obj := range out.Contents {
+				_, _ = client.DeleteObject(t.Context(), &s3.DeleteObjectInput{
+					Bucket: aws.String(bucket), Key: obj.Key,
+				})
+			}
 		}
 		_, _ = client.DeleteBucket(t.Context(), &s3.DeleteBucketInput{Bucket: aws.String(bucket)})
 	})
