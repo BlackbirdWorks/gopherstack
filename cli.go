@@ -289,8 +289,9 @@ func run(ctx context.Context, cli CLI) error {
 	}
 
 	// --- Embedded DNS server ---
+	var dnsSrv *gopherDNS.Server
 	if cli.DNSListenAddr != "" {
-		startEmbeddedDNS(ctx, log, cli.DNSListenAddr, cli.DNSResolveIP)
+		dnsSrv = startEmbeddedDNS(ctx, log, cli.DNSListenAddr, cli.DNSResolveIP)
 	}
 
 	inMemMux := http.NewServeMux()
@@ -323,6 +324,11 @@ func run(ctx context.Context, cli CLI) error {
 	services, err := initializeServices(appCtx)
 	if err != nil {
 		return err
+	}
+
+	// Wire DNS registrar to Lambda backend for function URL hostname registration.
+	if dnsSrv != nil {
+		wireLambdaDNS(cli.lambdaHandler, dnsSrv)
 	}
 
 	e := echo.New()
@@ -935,7 +941,7 @@ func setupRegistry(
 // startEmbeddedDNS creates and starts the embedded DNS server.
 // Configuration errors and startup failures are logged as warnings; the server
 // continues to run without DNS in those cases.
-func startEmbeddedDNS(ctx context.Context, log *slog.Logger, addr, resolveIP string) {
+func startEmbeddedDNS(ctx context.Context, log *slog.Logger, addr, resolveIP string) *gopherDNS.Server {
 	dnsSrv, err := gopherDNS.New(gopherDNS.Config{
 		ListenAddr: addr,
 		ResolveIP:  resolveIP,
@@ -944,14 +950,33 @@ func startEmbeddedDNS(ctx context.Context, log *slog.Logger, addr, resolveIP str
 	if err != nil {
 		log.WarnContext(ctx, "DNS server disabled (config error)", "error", err)
 
-		return
+		return nil
 	}
 
 	if startErr := dnsSrv.Start(ctx); startErr != nil {
 		log.WarnContext(ctx, "DNS server failed to start", "error", startErr)
 
-		return
+		return nil
 	}
 
 	log.InfoContext(ctx, "DNS server started", "addr", addr)
+
+	return dnsSrv
+}
+
+// wireLambdaDNS sets the DNS registrar on the Lambda backend so function URL
+// hostnames are automatically registered when CreateFunctionUrlConfig is called.
+func wireLambdaDNS(lambdaReg service.Registerable, dns lambdabackend.DNSRegistrar) {
+	if lambdaReg == nil || dns == nil {
+		return
+	}
+
+	lambdaH, ok := lambdaReg.(*lambdabackend.Handler)
+	if !ok {
+		return
+	}
+
+	if lambdaBk, bkOk := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bkOk {
+		lambdaBk.SetDNSRegistrar(dns)
+	}
 }

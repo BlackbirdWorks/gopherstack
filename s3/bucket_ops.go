@@ -83,6 +83,8 @@ func (h *S3Handler) routeBucketPut(
 		// Stub: accept encryption configuration.
 		h.setOperation(ctx, "PutBucketEncryption")
 		w.WriteHeader(http.StatusOK)
+	case r.URL.Query().Has("object-lock"):
+		h.putObjectLockConfiguration(ctx, w, r, bucket)
 	case r.URL.Query().Has("tagging"):
 		WriteError(log, w, r, ErrNotImplemented)
 	default:
@@ -128,6 +130,10 @@ func (h *S3Handler) routeBucketGet(
 		return
 	case q.Has("lifecycle"):
 		h.getBucketLifecycleConfiguration(ctx, w, r, bucket)
+
+		return
+	case q.Has("object-lock"):
+		h.getObjectLockConfiguration(ctx, w, r, bucket)
 
 		return
 	}
@@ -187,12 +193,6 @@ func (h *S3Handler) routeBucketGetStubs(
 		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
 			Code:    "ReplicationConfigurationNotFoundError",
 			Message: "The replication configuration was not found",
-		}, http.StatusNotFound)
-	case q.Has("object-lock"):
-		h.setOperation(ctx, "GetObjectLockConfiguration")
-		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
-			Code:    "ObjectLockConfigurationNotFoundError",
-			Message: "Object Lock configuration does not exist for this bucket",
 		}, http.StatusNotFound)
 	case q.Has("request-payment"):
 		h.setOperation(ctx, "GetBucketRequestPayment")
@@ -993,4 +993,55 @@ func (h *S3Handler) getBucketNotificationConfiguration(
 	w.Header().Set("Content-Type", "application/xml")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(notifXML)) //nolint:gosec // G705: writing HTTP response is intentional
+}
+
+func (h *S3Handler) putObjectLockConfiguration(
+ctx context.Context,
+w http.ResponseWriter,
+r *http.Request,
+bucket string,
+) {
+h.setOperation(ctx, "PutObjectLockConfiguration")
+log := logger.Load(ctx)
+body, err := httputil.ReadBody(r)
+if err != nil {
+WriteError(log, w, r, err)
+
+return
+}
+
+if err = h.Backend.PutObjectLockConfiguration(ctx, bucket, string(body)); err != nil {
+WriteError(log, w, r, err)
+
+return
+}
+
+w.WriteHeader(http.StatusOK)
+}
+
+func (h *S3Handler) getObjectLockConfiguration(
+ctx context.Context,
+w http.ResponseWriter,
+r *http.Request,
+bucket string,
+) {
+h.setOperation(ctx, "GetObjectLockConfiguration")
+log := logger.Load(ctx)
+configXML, err := h.Backend.GetObjectLockConfiguration(ctx, bucket)
+
+if errors.Is(err, ErrNoObjectLockConfig) {
+WriteError(log, w, r, err)
+
+return
+}
+
+if err != nil {
+WriteError(log, w, r, err)
+
+return
+}
+
+w.Header().Set("Content-Type", "application/xml")
+w.WriteHeader(http.StatusOK)
+_, _ = w.Write([]byte(configXML)) //nolint:gosec // G705: writing HTTP response is intentional
 }

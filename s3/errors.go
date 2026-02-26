@@ -23,9 +23,12 @@ var (
 	ErrNoSuchUpload      = errors.New("NoSuchUpload")
 	ErrInvalidPart       = errors.New("InvalidPart")
 	ErrNoCompressor      = errors.New("data is compressed but no compressor available")
-	ErrNoBucketPolicy    = errors.New("NoSuchBucketPolicy")
-	ErrNoCORSConfig      = errors.New("NoSuchCORSConfiguration")
-	ErrNoLifecycleConfig = errors.New("NoSuchLifecycleConfiguration")
+	ErrNoBucketPolicy          = errors.New("NoSuchBucketPolicy")
+	ErrNoCORSConfig            = errors.New("NoSuchCORSConfiguration")
+	ErrNoLifecycleConfig       = errors.New("NoSuchLifecycleConfiguration")
+	ErrNoObjectLockConfig      = errors.New("ObjectLockConfigurationNotFoundError")
+	ErrObjectLocked            = errors.New("AccessDenied")
+	ErrNoSuchObjectLockConfig  = errors.New("NoSuchObjectLockConfiguration")
 )
 
 type s3ErrorInfo struct {
@@ -99,6 +102,16 @@ func WriteError(log *slog.Logger, w http.ResponseWriter, r *http.Request, err er
 			"NoSuchLifecycleConfiguration",
 			"The lifecycle configuration does not exist",
 			http.StatusNotFound,
+		}},
+		{ErrNoObjectLockConfig, s3ErrorInfo{
+			"ObjectLockConfigurationNotFoundError",
+			"Object Lock configuration does not exist for this bucket",
+			http.StatusNotFound,
+		}},
+		{ErrObjectLocked, s3ErrorInfo{
+			"AccessDenied",
+			"Access Denied",
+			http.StatusForbidden,
 		}},
 	}
 

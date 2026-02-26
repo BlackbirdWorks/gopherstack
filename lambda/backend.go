@@ -4,10 +4,13 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -31,6 +34,8 @@ var (
 	ErrLambdaUnavailable = errors.New("ServiceException")
 	// ErrESMNotFound is returned when an event source mapping UUID is not found.
 	ErrESMNotFound = errors.New("ResourceNotFoundException")
+	// ErrFunctionUrlNotFound is returned when no function URL config exists for the function.
+	ErrFunctionUrlNotFound = errors.New("ResourceNotFoundException")
 )
 
 // StorageBackend defines the interface for Lambda backend operations.
@@ -49,6 +54,12 @@ type S3CodeFetcher interface {
 	GetObjectBytes(ctx context.Context, bucket, key string) ([]byte, error)
 }
 
+// DNSRegistrar is an optional interface for registering synthetic DNS hostnames.
+type DNSRegistrar interface {
+	Register(hostname string)
+	Deregister(hostname string)
+}
+
 // functionRuntime holds the runtime server and startup state for a single Lambda function.
 type functionRuntime struct {
 	srv      *runtimeServer
@@ -59,12 +70,22 @@ type functionRuntime struct {
 	started  bool
 }
 
+// functionUrlServer holds a running HTTP listener for a Lambda function URL.
+type functionUrlServer struct {
+	listener net.Listener
+	server   *http.Server
+	port     int
+}
+
 // InMemoryBackend is a concurrency-safe in-memory Lambda backend.
 type InMemoryBackend struct {
 	functions           map[string]*FunctionConfiguration
 	runtimes            map[string]*functionRuntime
 	eventSourceMappings map[string]*EventSourceMapping
+	functionUrlConfigs  map[string]*FunctionUrlConfig
+	functionUrlServers  map[string]*functionUrlServer
 	kinesisPoller       *EventSourcePoller
+	dnsRegistrar        DNSRegistrar
 	docker              *docker.Client
 	portAlloc           *portalloc.Allocator
 	s3Fetcher           S3CodeFetcher
@@ -87,6 +108,8 @@ func NewInMemoryBackend(
 		functions:           make(map[string]*FunctionConfiguration),
 		runtimes:            make(map[string]*functionRuntime),
 		eventSourceMappings: make(map[string]*EventSourceMapping),
+		functionUrlConfigs:  make(map[string]*FunctionUrlConfig),
+		functionUrlServers:  make(map[string]*functionUrlServer),
 		docker:              dockerClient,
 		portAlloc:           portAlloc,
 		settings:            settings,
@@ -94,6 +117,13 @@ func NewInMemoryBackend(
 		region:              region,
 		logger:              log,
 	}
+}
+
+// SetDNSRegistrar sets the optional DNS registrar used to register function URL hostnames.
+func (b *InMemoryBackend) SetDNSRegistrar(r DNSRegistrar) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.dnsRegistrar = r
 }
 
 // SetS3CodeFetcher sets the S3CodeFetcher for fetching Zip Lambda code from S3.
@@ -204,7 +234,240 @@ func (b *InMemoryBackend) DeleteEventSourceMapping(id string) (*EventSourceMappi
 	return m, nil
 }
 
-// CreateFunction stores a new Lambda function configuration.
+// functionURLHostname returns the synthetic DNS hostname for a function URL.
+func (b *InMemoryBackend) functionURLHostname(functionName string) string {
+	return fmt.Sprintf("%s.lambda-url.%s.on.aws", functionName, b.region)
+}
+
+// CreateFunctionUrlConfig creates a function URL endpoint for the given function.
+// It allocates a port, starts an HTTP listener, registers DNS, and returns the config.
+func (b *InMemoryBackend) CreateFunctionUrlConfig(functionName, authType string) (*FunctionUrlConfig, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if _, ok := b.functions[functionName]; !ok {
+		return nil, ErrFunctionNotFound
+	}
+
+	// If a URL config already exists, return ResourceConflictException
+	if _, exists := b.functionUrlConfigs[functionName]; exists {
+		return nil, ErrFunctionAlreadyExists
+	}
+
+	var port int
+	var urlStr string
+
+	if b.portAlloc != nil {
+		var allocErr error
+		port, allocErr = b.portAlloc.Acquire(fmt.Sprintf("lambda-url:%s", functionName))
+		if allocErr != nil {
+			return nil, fmt.Errorf("%w: port allocation failed: %w", ErrLambdaUnavailable, allocErr)
+		}
+
+		// Start the function URL HTTP listener.
+		srv, listenErr := b.startFunctionURLServer(functionName, port)
+		if listenErr != nil {
+			_ = b.portAlloc.Release(port)
+
+			return nil, fmt.Errorf("%w: failed to start URL listener: %w", ErrLambdaUnavailable, listenErr)
+		}
+
+		b.functionUrlServers[functionName] = srv
+		hostname := b.functionURLHostname(functionName)
+
+		if b.dnsRegistrar != nil {
+			b.dnsRegistrar.Register(hostname)
+		}
+
+		urlStr = fmt.Sprintf("http://%s:%d/", hostname, port)
+	} else {
+		urlStr = fmt.Sprintf("http://localhost/%s/", functionName)
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	cfg := &FunctionUrlConfig{
+		FunctionArn:      buildURLARN(b.region, b.accountID, functionName),
+		FunctionUrl:      urlStr,
+		AuthType:         authType,
+		CreationTime:     now,
+		LastModifiedTime: now,
+	}
+
+	b.functionUrlConfigs[functionName] = cfg
+
+	return cfg, nil
+}
+
+// GetFunctionUrlConfig returns the function URL config for a function.
+func (b *InMemoryBackend) GetFunctionUrlConfig(functionName string) (*FunctionUrlConfig, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	cfg, ok := b.functionUrlConfigs[functionName]
+	if !ok {
+		return nil, ErrFunctionUrlNotFound
+	}
+
+	return cfg, nil
+}
+
+// DeleteFunctionUrlConfig removes the function URL config, stops the listener, and deregisters DNS.
+func (b *InMemoryBackend) DeleteFunctionUrlConfig(functionName string) error {
+	b.mu.Lock()
+
+	if _, ok := b.functionUrlConfigs[functionName]; !ok {
+		b.mu.Unlock()
+
+		return ErrFunctionUrlNotFound
+	}
+
+	delete(b.functionUrlConfigs, functionName)
+
+	srv := b.functionUrlServers[functionName]
+	delete(b.functionUrlServers, functionName)
+	dns := b.dnsRegistrar
+	hostname := b.functionURLHostname(functionName)
+	b.mu.Unlock()
+
+	if srv != nil {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
+		defer cancel()
+		_ = srv.server.Shutdown(shutdownCtx)
+
+		if b.portAlloc != nil {
+			_ = b.portAlloc.Release(srv.port)
+		}
+	}
+
+	if dns != nil {
+		dns.Deregister(hostname)
+	}
+
+	return nil
+}
+
+// startFunctionURLServer starts an HTTP server on the given port that converts HTTP requests
+// to Lambda invocation events and returns the function's response.
+func (b *InMemoryBackend) startFunctionURLServer(functionName string, port int) (*functionUrlServer, error) {
+	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	if err != nil {
+		return nil, err
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", b.buildFunctionURLHandler(functionName))
+
+	srv := &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: 30 * time.Second,
+	}
+
+	go func() {
+		if serveErr := srv.Serve(ln); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+			if b.logger != nil {
+				b.logger.Warn("lambda: function URL server stopped", "function", functionName, "error", serveErr)
+			}
+		}
+	}()
+
+	return &functionUrlServer{listener: ln, server: srv, port: port}, nil
+}
+
+// lambdaURLEvent is a simplified Lambda Function URL (HTTP API v2) event.
+type lambdaURLEvent struct {
+	RawPath        string            `json:"rawPath"`
+	RawQueryString string            `json:"rawQueryString"`
+	Headers        map[string]string `json:"headers"`
+	Body           string            `json:"body,omitempty"`
+	Version        string            `json:"version"`
+	RouteKey       string            `json:"routeKey"`
+	IsBase64Encoded bool             `json:"isBase64Encoded"`
+}
+
+// lambdaURLResponse is a simplified Lambda Function URL response.
+type lambdaURLResponse struct {
+	Headers         map[string]string `json:"headers,omitempty"`
+	Body            string            `json:"body,omitempty"`
+	StatusCode      int               `json:"statusCode"`
+	IsBase64Encoded bool              `json:"isBase64Encoded,omitempty"`
+}
+
+// buildFunctionURLHandler builds an http.HandlerFunc that invokes the Lambda function.
+func (b *InMemoryBackend) buildFunctionURLHandler(functionName string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		bodyBytes, readErr := io.ReadAll(r.Body)
+		if readErr != nil {
+			http.Error(w, "failed to read request body", http.StatusInternalServerError)
+
+			return
+		}
+
+		headers := make(map[string]string, len(r.Header))
+		for k, vs := range r.Header {
+			headers[strings.ToLower(k)] = strings.Join(vs, ",")
+		}
+
+		event := lambdaURLEvent{
+			Version:        "2.0",
+			RouteKey:       "$default",
+			RawPath:        r.URL.Path,
+			RawQueryString: r.URL.RawQuery,
+			Headers:        headers,
+		}
+
+		if len(bodyBytes) > 0 {
+			event.Body = base64.StdEncoding.EncodeToString(bodyBytes)
+			event.IsBase64Encoded = true
+		}
+
+		payload, marshalErr := json.Marshal(event)
+		if marshalErr != nil {
+			http.Error(w, "failed to build event", http.StatusInternalServerError)
+
+			return
+		}
+
+		result, _, invokeErr := b.InvokeFunction(r.Context(), functionName, InvocationTypeRequestResponse, payload)
+		if invokeErr != nil {
+			http.Error(w, invokeErr.Error(), http.StatusInternalServerError)
+
+			return
+		}
+
+		// Try to parse as Lambda function URL response format.
+		var resp lambdaURLResponse
+		if jsonErr := json.Unmarshal(result, &resp); jsonErr == nil && resp.StatusCode != 0 {
+			for k, v := range resp.Headers {
+				w.Header().Set(k, v)
+			}
+
+			w.WriteHeader(resp.StatusCode)
+
+			if resp.IsBase64Encoded {
+				decoded, decErr := base64.StdEncoding.DecodeString(resp.Body)
+				if decErr == nil {
+					_, _ = w.Write(decoded)
+				}
+			} else {
+				_, _ = w.Write([]byte(resp.Body))
+			}
+
+			return
+		}
+
+		// Fall back to returning raw result.
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(result)
+	}
+}
+
+// buildURLARN constructs an ARN for a Lambda function URL.
+func buildURLARN(region, accountID, functionName string) string {
+	return fmt.Sprintf("arn:aws:lambda:%s:%s:function:%s", region, accountID, functionName)
+}
+
+
 func (b *InMemoryBackend) CreateFunction(fn *FunctionConfiguration) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
