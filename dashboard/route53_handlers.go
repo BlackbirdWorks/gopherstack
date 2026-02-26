@@ -11,6 +11,10 @@ import (
 	route53backend "github.com/blackbirdworks/gopherstack/route53"
 )
 
+const (
+	defaultTTL = int64(300)
+)
+
 // route53ZoneView is the view model for a single hosted zone in the index listing.
 type route53ZoneView struct {
 	Name        string
@@ -29,8 +33,8 @@ type route53IndexData struct {
 type route53RecordView struct {
 	Name   string
 	Type   string
-	TTL    int64
 	Values string
+	TTL    int64
 }
 
 // route53ZoneDetailData is the template data for the Route 53 zone detail page.
@@ -186,7 +190,7 @@ func (h *DashboardHandler) route53CreateRecord(c *echo.Context) error {
 		return c.NoContent(http.StatusBadRequest)
 	}
 
-	ttl := int64(300)
+	ttl := defaultTTL
 
 	if ttlStr != "" {
 		if v, err := strconv.ParseInt(ttlStr, 10, 64); err == nil {
@@ -250,7 +254,8 @@ func (h *DashboardHandler) route53DeleteRecord(c *echo.Context) error {
 		ResourceRecordSet: *target,
 	}
 
-	if err := h.Route53Ops.Backend.ChangeResourceRecordSets(zoneID, []route53backend.Change{change}); err != nil {
+	changeErr := h.Route53Ops.Backend.ChangeResourceRecordSets(zoneID, []route53backend.Change{change})
+	if changeErr != nil {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 

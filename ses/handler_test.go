@@ -96,10 +96,10 @@ func TestSES_GetIdentityVerificationAttributes(t *testing.T) {
 	postForm(t, h, "Action=VerifyEmailIdentity&Version=2010-12-01&EmailAddress=verified@example.com")
 
 	body := url.Values{
-		"Action":                  {"GetIdentityVerificationAttributes"},
-		"Version":                 {"2010-12-01"},
-		"Identities.member.1":     {"verified@example.com"},
-		"Identities.member.2":     {"unknown@example.com"},
+		"Action":              {"GetIdentityVerificationAttributes"},
+		"Version":             {"2010-12-01"},
+		"Identities.member.1": {"verified@example.com"},
+		"Identities.member.2": {"unknown@example.com"},
 	}
 
 	rec := postForm(t, h, body.Encode())
@@ -174,10 +174,10 @@ func TestSES_SendRawEmail(t *testing.T) {
 	h := newHandler()
 
 	body := url.Values{
-		"Action":           {"SendRawEmail"},
-		"Version":          {"2010-12-01"},
-		"Source":           {"raw@example.com"},
-		"RawMessage.Data":  {"From: raw@example.com\r\nTo: dest@example.com\r\nSubject: raw\r\n\r\nBody"},
+		"Action":          {"SendRawEmail"},
+		"Version":         {"2010-12-01"},
+		"Source":          {"raw@example.com"},
+		"RawMessage.Data": {"From: raw@example.com\r\nTo: dest@example.com\r\nSubject: raw\r\n\r\nBody"},
 	}
 
 	rec := postForm(t, h, body.Encode())

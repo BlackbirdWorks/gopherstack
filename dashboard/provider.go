@@ -154,6 +154,11 @@ func extractIntegrationHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.lambdaOps, _ = h.(*lambdabackend.Handler)
 	}
 
+	extractMonitoringHandlers(ap, ec)
+}
+
+// extractMonitoringHandlers populates monitoring and infrastructure service handlers on ec.
+func extractMonitoringHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetEventBridgeHandler(); h != nil {
 		ec.eventBridgeOps, _ = h.(*ebbackend.Handler)
 	}

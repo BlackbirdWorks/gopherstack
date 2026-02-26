@@ -19,18 +19,18 @@ var (
 type Email struct {
 	Timestamp time.Time
 	From      string
-	To        []string
 	Subject   string
 	BodyHTML  string
 	BodyText  string
 	MessageID string
+	To        []string
 }
 
 // InMemoryBackend is an in-memory store for SES emails and verified identities.
 type InMemoryBackend struct {
-	mu         sync.RWMutex
+	identities map[string]bool
 	emails     []Email
-	identities map[string]bool // identity → verified
+	mu         sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.

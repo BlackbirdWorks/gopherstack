@@ -18,9 +18,10 @@ import (
 )
 
 const (
-	sesAPIVersion  = "Version=2010-12-01"
-	sesXMLNS       = "http://ses.amazonaws.com/doc/2010-12-01/"
+	sesAPIVersion    = "Version=2010-12-01"
+	sesXMLNS         = "http://ses.amazonaws.com/doc/2010-12-01/"
 	sesMatchPriority = 80
+	unknownAction    = "Unknown"
 )
 
 // Handler is the Echo HTTP handler for SES operations.
@@ -87,17 +88,17 @@ func (h *Handler) MatchPriority() int {
 func (h *Handler) ExtractOperation(c *echo.Context) string {
 	body, err := httputil.ReadBody(c.Request())
 	if err != nil {
-		return "Unknown"
+		return unknownAction
 	}
 
 	vals, err := url.ParseQuery(string(body))
 	if err != nil {
-		return "Unknown"
+		return unknownAction
 	}
 
 	action := vals.Get("Action")
 	if action == "" {
-		return "Unknown"
+		return unknownAction
 	}
 
 	return action
@@ -152,8 +153,8 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		reqID := newRequestID()
 
 		var (
-			resp    any
-			opErr   error
+			resp  any
+			opErr error
 		)
 
 		switch action {
@@ -162,9 +163,9 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		case "DeleteIdentity":
 			resp, opErr = h.handleDeleteIdentity(vals, reqID)
 		case "ListIdentities":
-			resp, opErr = h.handleListIdentities(vals, reqID)
+			resp = h.handleListIdentities(vals, reqID)
 		case "GetIdentityVerificationAttributes":
-			resp, opErr = h.handleGetIdentityVerificationAttributes(vals, reqID)
+			resp = h.handleGetIdentityVerificationAttributes(vals, reqID)
 		case "SendEmail":
 			resp, opErr = h.handleSendEmail(vals, reqID)
 		case "SendRawEmail":
@@ -202,8 +203,8 @@ func (h *Handler) handleVerifyEmailIdentity(vals url.Values, reqID string) (any,
 	}
 
 	return &verifyEmailIdentityResponse{
-		Xmlns:            sesXMLNS,
-		RequestID:        reqID,
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
 	}, nil
 }
 
@@ -220,7 +221,7 @@ func (h *Handler) handleDeleteIdentity(vals url.Values, reqID string) (any, erro
 	}, nil
 }
 
-func (h *Handler) handleListIdentities(vals url.Values, reqID string) (any, error) {
+func (h *Handler) handleListIdentities(vals url.Values, reqID string) any {
 	_ = vals // no filter params needed for stub
 
 	identities := h.Backend.ListIdentities()
@@ -236,10 +237,10 @@ func (h *Handler) handleListIdentities(vals url.Values, reqID string) (any, erro
 			Identities: xmlMemberList{Members: members},
 		},
 		RequestID: reqID,
-	}, nil
+	}
 }
 
-func (h *Handler) handleGetIdentityVerificationAttributes(vals url.Values, reqID string) (any, error) {
+func (h *Handler) handleGetIdentityVerificationAttributes(vals url.Values, reqID string) any {
 	var identities []string
 
 	// AWS SDK sends Identities.member.1, Identities.member.2, ...
@@ -272,7 +273,7 @@ func (h *Handler) handleGetIdentityVerificationAttributes(vals url.Values, reqID
 			VerificationAttributes: xmlVerificationMap{Entries: entries},
 		},
 		RequestID: reqID,
-	}, nil
+	}
 }
 
 func (h *Handler) handleSendEmail(vals url.Values, reqID string) (any, error) {
@@ -415,8 +416,8 @@ type listIdentitiesResult struct {
 type listIdentitiesResponse struct {
 	XMLName   xml.Name             `xml:"ListIdentitiesResponse"`
 	Xmlns     string               `xml:"xmlns,attr"`
-	Result    listIdentitiesResult `xml:"ListIdentitiesResult"`
 	RequestID string               `xml:"ResponseMetadata>RequestId"`
+	Result    listIdentitiesResult `xml:"ListIdentitiesResult"`
 }
 
 type xmlVerificationAttributes struct {
@@ -439,8 +440,8 @@ type getIdentityVerificationAttributesResult struct {
 type getIdentityVerificationAttributesResponse struct {
 	XMLName   xml.Name                                `xml:"GetIdentityVerificationAttributesResponse"`
 	Xmlns     string                                  `xml:"xmlns,attr"`
-	Result    getIdentityVerificationAttributesResult `xml:"GetIdentityVerificationAttributesResult"`
 	RequestID string                                  `xml:"ResponseMetadata>RequestId"`
+	Result    getIdentityVerificationAttributesResult `xml:"GetIdentityVerificationAttributesResult"`
 }
 
 type sendEmailResult struct {
