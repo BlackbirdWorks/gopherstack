@@ -789,10 +789,7 @@ func (b *InMemoryBackend) UpdateAlias(name, aliasName string, input *UpdateAlias
 		alias.FunctionVersion = input.FunctionVersion
 	}
 
-	if input.Description != "" {
-		alias.Description = input.Description
-	}
-
+	alias.Description = input.Description
 	alias.RevisionID = uuid.New().String()
 
 	return alias, nil

@@ -1679,3 +1679,154 @@ rec := callHandler(t, h, http.MethodPost,
 // Mock backend doesn't support qualifier resolution, but returns 200 from normal invoke
 require.Equal(t, http.StatusOK, rec.Code)
 }
+
+func TestCreateAlias_MissingName(t *testing.T) {
+t.Parallel()
+
+h := newInMemHandlerWithPortAlloc(t)
+mustCreateFunctionViaHandler(t, h, "alias-missing-name-fn")
+
+rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/alias-missing-name-fn/aliases",
+`{"FunctionVersion":"1"}`, nil)
+require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestCreateAlias_MissingVersion(t *testing.T) {
+t.Parallel()
+
+h := newInMemHandlerWithPortAlloc(t)
+mustCreateFunctionViaHandler(t, h, "alias-missing-ver-fn")
+
+rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/alias-missing-ver-fn/aliases",
+`{"Name":"v1"}`, nil)
+require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestCreateAlias_Duplicate(t *testing.T) {
+t.Parallel()
+
+h := newInMemHandlerWithPortAlloc(t)
+mustCreateFunctionViaHandler(t, h, "dup-alias-fn")
+callHandler(t, h, http.MethodPost, "/2015-03-31/functions/dup-alias-fn/versions", `{}`, nil)
+callHandler(t, h, http.MethodPost, "/2015-03-31/functions/dup-alias-fn/aliases",
+`{"Name":"dup","FunctionVersion":"1"}`, nil)
+
+rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/dup-alias-fn/aliases",
+`{"Name":"dup","FunctionVersion":"1"}`, nil)
+require.Equal(t, http.StatusConflict, rec.Code)
+}
+
+func TestCreateAlias_FunctionNotFound(t *testing.T) {
+t.Parallel()
+
+h := newInMemHandlerWithPortAlloc(t)
+
+rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/nofn/aliases",
+`{"Name":"v1","FunctionVersion":"1"}`, nil)
+require.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestListVersionsByFunction_FunctionNotFound(t *testing.T) {
+t.Parallel()
+
+h := newInMemHandlerWithPortAlloc(t)
+
+rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/nofn/versions", "", nil)
+require.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestListAliases_FunctionNotFound(t *testing.T) {
+t.Parallel()
+
+h := newInMemHandlerWithPortAlloc(t)
+
+rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/nofn/aliases", "", nil)
+require.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestUpdateAlias_NotFound(t *testing.T) {
+t.Parallel()
+
+h := newInMemHandlerWithPortAlloc(t)
+mustCreateFunctionViaHandler(t, h, "updnotfound-fn")
+
+rec := callHandler(t, h, http.MethodPut, "/2015-03-31/functions/updnotfound-fn/aliases/missing",
+`{"FunctionVersion":"1"}`, nil)
+require.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestDeleteAlias_NotFound(t *testing.T) {
+t.Parallel()
+
+h := newInMemHandlerWithPortAlloc(t)
+mustCreateFunctionViaHandler(t, h, "delnotfound-fn")
+
+rec := callHandler(t, h, http.MethodDelete, "/2015-03-31/functions/delnotfound-fn/aliases/missing", "", nil)
+require.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestPublishVersion_MockBackend_ServiceError(t *testing.T) {
+t.Parallel()
+
+// When using mock backend (not InMemoryBackend), PublishVersion returns 500.
+h, _ := newHandler(t)
+
+rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/fn/versions", `{}`, nil)
+require.Equal(t, http.StatusInternalServerError, rec.Code)
+}
+
+func TestListVersionsByFunction_MockBackend_ServiceError(t *testing.T) {
+t.Parallel()
+
+h, _ := newHandler(t)
+
+rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/fn/versions", "", nil)
+require.Equal(t, http.StatusInternalServerError, rec.Code)
+}
+
+func TestCreateAlias_MockBackend_ServiceError(t *testing.T) {
+t.Parallel()
+
+h, _ := newHandler(t)
+
+rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/fn/aliases",
+`{"Name":"v1","FunctionVersion":"1"}`, nil)
+require.Equal(t, http.StatusInternalServerError, rec.Code)
+}
+
+func TestGetAlias_MockBackend_ServiceError(t *testing.T) {
+t.Parallel()
+
+h, _ := newHandler(t)
+
+rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/fn/aliases/v1", "", nil)
+require.Equal(t, http.StatusInternalServerError, rec.Code)
+}
+
+func TestListAliases_MockBackend_ServiceError(t *testing.T) {
+t.Parallel()
+
+h, _ := newHandler(t)
+
+rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/fn/aliases", "", nil)
+require.Equal(t, http.StatusInternalServerError, rec.Code)
+}
+
+func TestUpdateAlias_MockBackend_ServiceError(t *testing.T) {
+t.Parallel()
+
+h, _ := newHandler(t)
+
+rec := callHandler(t, h, http.MethodPut, "/2015-03-31/functions/fn/aliases/v1",
+`{"FunctionVersion":"2"}`, nil)
+require.Equal(t, http.StatusInternalServerError, rec.Code)
+}
+
+func TestDeleteAlias_MockBackend_ServiceError(t *testing.T) {
+t.Parallel()
+
+h, _ := newHandler(t)
+
+rec := callHandler(t, h, http.MethodDelete, "/2015-03-31/functions/fn/aliases/v1", "", nil)
+require.Equal(t, http.StatusInternalServerError, rec.Code)
+}

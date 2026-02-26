@@ -589,3 +589,132 @@ func TestFunctionURLConfig_HTTPEndpoint(t *testing.T) {
 	// Without Docker the invocation fails, so we expect a 500 error response.
 	assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
 }
+
+// mockCWLogsBackend is a test mock for the CWLogsBackend interface.
+type mockCWLogsBackend struct {
+ensureCalls []string
+putCalls    [][]string
+}
+
+func (m *mockCWLogsBackend) EnsureLogGroupAndStream(groupName, _ string) error {
+m.ensureCalls = append(m.ensureCalls, groupName)
+return nil
+}
+
+func (m *mockCWLogsBackend) PutLogLines(_, _ string, messages []string) error {
+m.putCalls = append(m.putCalls, messages)
+return nil
+}
+
+func TestInMemoryBackend_SetCWLogsBackend(t *testing.T) {
+t.Parallel()
+
+backend := lambda.NewInMemoryBackend(
+nil,
+nil,
+lambda.DefaultSettings(),
+"000000000000",
+"us-east-1",
+slog.Default(),
+)
+
+mock := &mockCWLogsBackend{}
+backend.SetCWLogsBackend(mock) // should not panic
+}
+
+func TestInMemoryBackend_GetVersion(t *testing.T) {
+t.Parallel()
+
+pa, paErr := portalloc.New(19680, 19700)
+require.NoError(t, paErr)
+
+backend := lambda.NewInMemoryBackend(
+nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default(),
+)
+
+fn := &lambda.FunctionConfiguration{
+FunctionName: "get-ver-fn",
+PackageType:  lambda.PackageTypeImage,
+ImageURI:     "test:latest",
+State:        lambda.FunctionStateActive,
+}
+require.NoError(t, backend.CreateFunction(fn))
+
+// $LATEST version
+v, err := backend.GetVersion("get-ver-fn", "$LATEST")
+require.NoError(t, err)
+assert.Equal(t, "$LATEST", v.Version)
+assert.Equal(t, "get-ver-fn", v.FunctionName)
+
+// Publish version 1
+_, err = backend.PublishVersion("get-ver-fn", "desc")
+require.NoError(t, err)
+
+v1, err := backend.GetVersion("get-ver-fn", "1")
+require.NoError(t, err)
+assert.Equal(t, "1", v1.Version)
+
+// Non-existent version
+_, err = backend.GetVersion("get-ver-fn", "999")
+require.ErrorIs(t, err, lambda.ErrVersionNotFound)
+
+// Non-existent function with $LATEST
+_, err = backend.GetVersion("no-fn", "$LATEST")
+require.ErrorIs(t, err, lambda.ErrFunctionNotFound)
+}
+
+func TestInMemoryBackend_ResolveQualifier(t *testing.T) {
+t.Parallel()
+
+pa, paErr := portalloc.New(19700, 19720)
+require.NoError(t, paErr)
+
+backend := lambda.NewInMemoryBackend(
+nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default(),
+)
+
+fn := &lambda.FunctionConfiguration{
+FunctionName: "resolve-fn",
+PackageType:  lambda.PackageTypeImage,
+ImageURI:     "test:latest",
+State:        lambda.FunctionStateActive,
+}
+require.NoError(t, backend.CreateFunction(fn))
+
+// Publish two versions
+_, err := backend.PublishVersion("resolve-fn", "v1")
+require.NoError(t, err)
+_, err = backend.PublishVersion("resolve-fn", "v2")
+require.NoError(t, err)
+
+// Create alias pointing to v1
+_, err = backend.CreateAlias("resolve-fn", &lambda.CreateAliasInput{
+Name:            "stable",
+FunctionVersion: "1",
+})
+require.NoError(t, err)
+
+// Invoke with no qualifier should succeed (resolves to ErrLambdaUnavailable, not ErrFunctionNotFound)
+_, _, invokeErr := backend.InvokeFunctionWithQualifier(
+context.Background(), "resolve-fn", "", lambda.InvocationTypeRequestResponse, []byte("{}"),
+)
+assert.ErrorIs(t, invokeErr, lambda.ErrLambdaUnavailable)
+
+// Invoke with alias qualifier (resolves alias → version → config)
+_, _, invokeErr = backend.InvokeFunctionWithQualifier(
+context.Background(), "resolve-fn", "stable", lambda.InvocationTypeRequestResponse, []byte("{}"),
+)
+assert.ErrorIs(t, invokeErr, lambda.ErrLambdaUnavailable)
+
+// Invoke with version qualifier
+_, _, invokeErr = backend.InvokeFunctionWithQualifier(
+context.Background(), "resolve-fn", "1", lambda.InvocationTypeRequestResponse, []byte("{}"),
+)
+assert.ErrorIs(t, invokeErr, lambda.ErrLambdaUnavailable)
+
+// Invoke with non-existent version should return ErrVersionNotFound
+_, _, invokeErr = backend.InvokeFunctionWithQualifier(
+context.Background(), "resolve-fn", "999", lambda.InvocationTypeRequestResponse, []byte("{}"),
+)
+assert.ErrorIs(t, invokeErr, lambda.ErrVersionNotFound)
+}
