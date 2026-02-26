@@ -49,6 +49,7 @@ import (
 	route53backend "github.com/blackbirdworks/gopherstack/route53"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/secretsmanager"
+	sesbackend "github.com/blackbirdworks/gopherstack/ses"
 	snsbackend "github.com/blackbirdworks/gopherstack/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/ssm"
@@ -92,6 +93,7 @@ type CLI struct {
 	cloudFormationHandler service.Registerable
 	kmsHandler            service.Registerable
 	route53Handler        service.Registerable
+	sesHandler            service.Registerable
 	snsClient             *sns.Client
 	kmsClient             *kms.Client
 	iamClient             *iam.Client
@@ -255,6 +257,16 @@ func (c *CLI) GetElastiCacheHandler() service.Registerable { return c.elasticach
 
 // GetElastiCacheEngine returns the ElastiCache engine mode (elasticache.EngineConfig).
 func (c *CLI) GetElastiCacheEngine() string { return c.ElastiCacheEngine }
+
+// GetRoute53Handler returns the Route 53 handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetRoute53Handler() service.Registerable { return c.route53Handler }
+
+// GetSESHandler returns the SES handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetSESHandler() service.Registerable { return c.sesHandler }
 
 // Run parses CLI / environment-variable configuration and starts Gopherstack.
 // It is called from main() and exits on error.
@@ -454,6 +466,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		&kinesisbackend.Provider{},
 		&elasticachebackend.Provider{},
 		&route53backend.Provider{},
+		&sesbackend.Provider{},
 	}
 
 	for _, provider := range serviceProviders {
@@ -485,6 +498,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		cli.kinesisHandler = services[15]
 		cli.elasticacheHandler = services[16]
 		cli.route53Handler = services[17]
+		cli.sesHandler = services[18]
 	}
 
 	// Wire SNS→SQS delivery: when SNS publishes a message, deliver it to SQS queues.
@@ -990,7 +1004,7 @@ func healthHandler(c *echo.Context) error {
 		Services: []string{
 			"DynamoDB", "S3", "SSM", "IAM", "STS", "SNS", "SQS", "KMS", "SecretsManager", "Lambda",
 			"EventBridge", "APIGateway", "CloudWatchLogs", "StepFunctions", "CloudWatch", "CloudFormation",
-			"Kinesis", "Route53",
+			"Kinesis", "Route53", "SES",
 		},
 	})
 }

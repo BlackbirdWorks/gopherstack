@@ -26,6 +26,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	pkgslogger "github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	route53backend "github.com/blackbirdworks/gopherstack/route53"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/secretsmanager"
 	snsbackend "github.com/blackbirdworks/gopherstack/sns"
@@ -83,6 +84,7 @@ type DashboardHandler struct {
 	CloudFormationOps *cfnbackend.Handler
 	KinesisOps        *kinesisbackend.Handler
 	ElastiCacheOps    *elasticachebackend.Handler
+	Route53Ops        *route53backend.Handler
 	SubRouter         *echo.Echo
 	ddbProvider       *ddbbackend.DashboardProvider
 	s3Provider        *s3backend.DashboardProvider
@@ -125,6 +127,8 @@ type Config struct {
 	KinesisOps *kinesisbackend.Handler
 	// ElastiCacheOps provides access to the ElastiCache backend.
 	ElastiCacheOps *elasticachebackend.Handler
+	// Route53Ops provides access to the Route 53 backend.
+	Route53Ops *route53backend.Handler
 	// Logger is the structured logger for dashboard operations.
 	Logger *slog.Logger
 	// GlobalConfig holds the centralized account and region configuration shown on the settings page.
@@ -167,6 +171,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		"templates/cloudformation/*.html",
 		"templates/kinesis/*.html",
 		"templates/elasticache/*.html",
+		"templates/route53/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
 		"templates/settings.html",
@@ -198,6 +203,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		CloudFormationOps: cfg.CloudFormationOps,
 		KinesisOps:        cfg.KinesisOps,
 		ElastiCacheOps:    cfg.ElastiCacheOps,
+		Route53Ops:        cfg.Route53Ops,
 		GlobalConfig:      cfg.GlobalConfig,
 		Logger:            cfg.Logger,
 		layout:            tmpl,
@@ -354,6 +360,15 @@ func (h *DashboardHandler) setupElastiCacheRoutes() {
 	h.SubRouter.DELETE("/dashboard/elasticache/delete", h.elastiCacheDeleteCluster)
 }
 
+func (h *DashboardHandler) setupRoute53Routes() {
+	h.SubRouter.GET("/dashboard/route53", h.route53Index)
+	h.SubRouter.GET("/dashboard/route53/zone", h.route53ZoneDetail)
+	h.SubRouter.POST("/dashboard/route53/create", h.route53CreateZone)
+	h.SubRouter.DELETE("/dashboard/route53/delete", h.route53DeleteZone)
+	h.SubRouter.POST("/dashboard/route53/record", h.route53CreateRecord)
+	h.SubRouter.DELETE("/dashboard/route53/record", h.route53DeleteRecord)
+}
+
 func (h *DashboardHandler) setupMetaRoutes() {
 	dashboardGroup := h.SubRouter.Group("/dashboard")
 	RegisterMetricsHandlers(dashboardGroup, h)
@@ -378,6 +393,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.setupCloudFormationRoutes()
 	h.setupKinesisRoutes()
 	h.setupElastiCacheRoutes()
+	h.setupRoute53Routes()
 	h.setupMetaRoutes()
 }
 
@@ -444,6 +460,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/cloudformation", "CloudFormation"},
 	{"/kinesis", "Kinesis"},
 	{"/elasticache", "ElastiCache"},
+	{"/route53", "Route53"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},
 }
