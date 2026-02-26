@@ -46,6 +46,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	route53backend "github.com/blackbirdworks/gopherstack/route53"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/secretsmanager"
 	snsbackend "github.com/blackbirdworks/gopherstack/sns"
@@ -90,6 +91,7 @@ type CLI struct {
 	cloudWatchHandler     service.Registerable
 	cloudFormationHandler service.Registerable
 	kmsHandler            service.Registerable
+	route53Handler        service.Registerable
 	snsClient             *sns.Client
 	kmsClient             *kms.Client
 	iamClient             *iam.Client
@@ -329,6 +331,7 @@ func run(ctx context.Context, cli CLI) error {
 	// Wire DNS registrar to Lambda backend for function URL hostname registration.
 	if dnsSrv != nil {
 		wireLambdaDNS(cli.lambdaHandler, dnsSrv)
+		wireRoute53DNS(cli.route53Handler, dnsSrv)
 	}
 
 	e := echo.New()
@@ -450,6 +453,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		&cwbackend.Provider{},
 		&kinesisbackend.Provider{},
 		&elasticachebackend.Provider{},
+		&route53backend.Provider{},
 	}
 
 	for _, provider := range serviceProviders {
@@ -480,6 +484,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		cli.cloudWatchHandler = services[14]
 		cli.kinesisHandler = services[15]
 		cli.elasticacheHandler = services[16]
+		cli.route53Handler = services[17]
 	}
 
 	// Wire SNS→SQS delivery: when SNS publishes a message, deliver it to SQS queues.
@@ -985,7 +990,7 @@ func healthHandler(c *echo.Context) error {
 		Services: []string{
 			"DynamoDB", "S3", "SSM", "IAM", "STS", "SNS", "SQS", "KMS", "SecretsManager", "Lambda",
 			"EventBridge", "APIGateway", "CloudWatchLogs", "StepFunctions", "CloudWatch", "CloudFormation",
-			"Kinesis",
+			"Kinesis", "Route53",
 		},
 	})
 }
@@ -1052,4 +1057,19 @@ func wireLambdaDNS(lambdaReg service.Registerable, dns lambdabackend.DNSRegistra
 	if lambdaBk, bkOk := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bkOk {
 		lambdaBk.SetDNSRegistrar(dns)
 	}
+}
+
+// wireRoute53DNS sets the DNS registrar on the Route 53 backend so that
+// A and CNAME record sets are automatically registered in the embedded DNS server.
+func wireRoute53DNS(r53Reg service.Registerable, dns route53backend.DNSRegistrar) {
+	if r53Reg == nil || dns == nil {
+		return
+	}
+
+	r53H, ok := r53Reg.(*route53backend.Handler)
+	if !ok {
+		return
+	}
+
+	r53H.Backend.SetDNSRegistrar(dns)
 }

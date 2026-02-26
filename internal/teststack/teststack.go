@@ -29,6 +29,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	route53backend "github.com/blackbirdworks/gopherstack/route53"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
 	smbackend "github.com/blackbirdworks/gopherstack/secretsmanager"
 	snsbackend "github.com/blackbirdworks/gopherstack/sns"
@@ -67,6 +68,7 @@ type Stack struct {
 	CloudFormationHandler *cfnbackend.Handler
 	KinesisHandler        *kinesisbackend.Handler
 	ElastiCacheHandler    *elasticachebackend.Handler
+	Route53Handler        *route53backend.Handler
 	S3Client              *s3.Client
 	DDBClient             *dynamodb.Client
 	Dashboard             *dashboard.DashboardHandler
@@ -136,6 +138,7 @@ func registerServices(
 	cfnHndlr *cfnbackend.Handler,
 	kinesisHndlr *kinesisbackend.Handler,
 	elasticacheHndlr *elasticachebackend.Handler,
+	r53Hndlr *route53backend.Handler,
 ) {
 	_ = registry.Register(ddbHndlr)
 	_ = registry.Register(s3Hndlr)
@@ -155,6 +158,7 @@ func registerServices(
 	_ = registry.Register(cfnHndlr)
 	_ = registry.Register(kinesisHndlr)
 	_ = registry.Register(elasticacheHndlr)
+	_ = registry.Register(r53Hndlr)
 }
 
 // handlers bundles all service handlers created for a test stack.
@@ -177,6 +181,7 @@ type handlers struct {
 	cfn         *cfnbackend.Handler
 	kinesis     *kinesisbackend.Handler
 	elasticache *elasticachebackend.Handler
+	route53     *route53backend.Handler
 	iamBk       *iambackend.InMemoryBackend
 	s3Bk        *s3backend.InMemoryBackend
 }
@@ -216,6 +221,7 @@ func newHandlers() handlers {
 			elasticachebackend.NewInMemoryBackend(elasticachebackend.EngineStub, "000000000000", "us-east-1"),
 			slog.Default(),
 		),
+		route53: route53backend.NewHandler(route53backend.NewInMemoryBackend(), slog.Default()),
 	}
 }
 
@@ -263,7 +269,7 @@ func New(t *testing.T) *Stack {
 	registerServices(
 		registry,
 		h.ddb, h.s3, h.ssm, h.iam, h.sts, h.sns, h.sqs, h.kms, h.sm,
-		h.lambda, h.eb, h.apigw, h.cwlogs, h.sfn, h.cw, h.cfn, h.kinesis, h.elasticache,
+		h.lambda, h.eb, h.apigw, h.cwlogs, h.sfn, h.cw, h.cfn, h.kinesis, h.elasticache, h.route53,
 	)
 
 	// Create AWS SDK clients routed through in-memory Echo.
@@ -323,6 +329,7 @@ func New(t *testing.T) *Stack {
 		CloudFormationHandler: h.cfn,
 		KinesisHandler:        h.kinesis,
 		ElastiCacheHandler:    h.elasticache,
+		Route53Handler:        h.route53,
 		S3Client:              s3Client,
 		DDBClient:             ddbClient,
 		Dashboard:             dashHndlr,

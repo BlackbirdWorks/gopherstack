@@ -181,8 +181,17 @@ func (h *Handler) handleStageProxyEcho(c *echo.Context) error {
 	apiID := parts[0]
 	stageName := parts[1]
 
+	// Rewrite the URL so handleProxyRequest sees "/{stageName}/{resourcePath}".
+	resourcePath := "/"
+	if len(parts) == 3 && parts[2] != "" {
+		resourcePath = "/" + parts[2]
+	}
+
+	r := c.Request().Clone(c.Request().Context())
+	r.URL.Path = "/" + stageName + resourcePath
+
 	fn := h.handleProxyRequest(apiID, stageName)
-	fn(c.Response(), c.Request())
+	fn(c.Response(), r)
 
 	return nil
 }
