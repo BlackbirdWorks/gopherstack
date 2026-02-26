@@ -91,7 +91,8 @@ func validateKeySchema(item map[string]any, schema []models.KeySchemaElement) er
 			if sVal, hasS := valMap["S"]; hasS {
 				if str, isStr := sVal.(string); isStr && str == "" {
 					return NewValidationException(fmt.Sprintf(
-						"One or more parameter values not valid. The AttributeValue for a key attribute cannot contain an empty string value. Key: %s",
+						"One or more parameter values not valid. "+
+							"The AttributeValue for a key attribute cannot contain an empty string value. Key: %s",
 						k.AttributeName,
 					))
 				}
@@ -326,52 +327,72 @@ func validateQueryKeyValues(
 	eav map[string]any,
 	attrNames map[string]string,
 ) error {
-	// Build a map from token/alias -> actual key attribute name.
+	keyNames := buildKeyNamesMap(keySchema, attrNames)
+
+	for _, part := range exprParts {
+		part = strings.TrimSpace(part)
+
+		keyAttr := findKeyAttributeInExpression(part, keyNames)
+		if keyAttr == "" {
+			continue
+		}
+
+		if err := checkEAVForEmptyStrings(part, eav, keyAttr); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func buildKeyNamesMap(keySchema []models.KeySchemaElement, attrNames map[string]string) map[string]string {
 	keyNames := make(map[string]string, len(keySchema))
 	for _, k := range keySchema {
 		keyNames[k.AttributeName] = k.AttributeName
 	}
+
 	for alias, name := range attrNames {
 		if actual, isKey := keyNames[name]; isKey {
 			keyNames[alias] = actual
 		}
 	}
 
-	for _, part := range exprParts {
-		part = strings.TrimSpace(part)
+	return keyNames
+}
 
-		// Find if this part references a key attribute.
-		var keyAttr string
-		for name, actual := range keyNames {
-			if containsToken(part, name) {
-				keyAttr = actual
-				break
-			}
+func findKeyAttributeInExpression(part string, keyNames map[string]string) string {
+	for name, actual := range keyNames {
+		if containsToken(part, name) {
+			return actual
 		}
-		if keyAttr == "" {
+	}
+
+	return ""
+}
+
+func checkEAVForEmptyStrings(part string, eav map[string]any, keyAttr string) error {
+	for tok, val := range eav {
+		if !containsToken(part, tok) {
 			continue
 		}
 
-		// Check all value tokens that appear in this part for empty strings.
-		for tok, val := range eav {
-			if !containsToken(part, tok) {
-				continue
-			}
-			valMap, ok := val.(map[string]any)
-			if !ok {
-				continue
-			}
-			sVal, hasS := valMap["S"]
-			if !hasS {
-				continue
-			}
-			str, ok := sVal.(string)
-			if ok && str == "" {
-				return NewValidationException(fmt.Sprintf(
-					"One or more parameter values not valid. The AttributeValue for a key attribute cannot contain an empty string value. Key: %s",
-					keyAttr,
-				))
-			}
+		valMap, ok := val.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		sVal, hasS := valMap["S"]
+		if !hasS {
+			continue
+		}
+
+		str, ok := sVal.(string)
+		if ok && str == "" {
+			return NewValidationException(fmt.Sprintf(
+				"One or more parameter values not valid. "+
+					"The AttributeValue for a key attribute cannot contain an empty string value. Key: %s",
+				keyAttr,
+			))
 		}
 	}
 

@@ -185,7 +185,8 @@ func (db *InMemoryDB) GetItem(
 	defer table.mu.RUnlock()
 
 	wireKey := models.FromSDKItem(input.Key)
-	if err := validateKeySchema(wireKey, table.KeySchema); err != nil {
+	err = validateKeySchema(wireKey, table.KeySchema)
+	if err != nil {
 		return nil, err
 	}
 
@@ -225,7 +226,8 @@ func (db *InMemoryDB) DeleteItem(
 	defer table.mu.Unlock()
 
 	wireKey := models.FromSDKItem(input.Key)
-	if err := validateKeySchema(wireKey, table.KeySchema); err != nil {
+	err = validateKeySchema(wireKey, table.KeySchema)
+	if err != nil {
 		return nil, err
 	}
 	pkDef, skDef := getPKAndSK(table.KeySchema)
@@ -311,7 +313,8 @@ func (db *InMemoryDB) UpdateItem(
 	defer table.mu.Unlock()
 
 	wireKey := models.FromSDKItem(input.Key)
-	if err := validateKeySchema(wireKey, table.KeySchema); err != nil {
+	err = validateKeySchema(wireKey, table.KeySchema)
+	if err != nil {
 		return nil, err
 	}
 	existing, matchIndex := db.findMatchForPut(table, wireKey)
