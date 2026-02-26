@@ -229,3 +229,53 @@ func reverseItems(items []map[string]any) []map[string]any {
 
 	return reversed
 }
+
+func TestQuery_BlankSKValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		skValue    string
+		errMessage string
+		wantErr    bool
+	}{
+		{
+			name:    "Non-blank SK is valid",
+			skValue: `{"S": "valid"}`,
+			wantErr: false,
+		},
+		{
+			name:       "Blank SK string value is rejected",
+			skValue:    `{"S": ""}`,
+			wantErr:    true,
+			errMessage: "cannot contain an empty string value. Key: sk",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			db := dynamodb.NewInMemoryDB()
+
+			createTableHelper(t, db, "BlankSKTable", "pk", "sk")
+
+			queryInput := mustUnmarshal[models.QueryInput](t, `{
+				"TableName": "BlankSKTable",
+				"KeyConditionExpression": "pk = :pk AND sk = :sk",
+				"ExpressionAttributeValues": {
+					":pk": {"S": "somekey"},
+					":sk": `+tc.skValue+`
+				}
+			}`)
+			sdkQuery, _ := models.ToSDKQueryInput(&queryInput)
+
+			_, err := db.Query(t.Context(), sdkQuery)
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.errMessage)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
