@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -34,8 +35,8 @@ var (
 	ErrLambdaUnavailable = errors.New("ServiceException")
 	// ErrESMNotFound is returned when an event source mapping UUID is not found.
 	ErrESMNotFound = errors.New("ResourceNotFoundException")
-	// ErrFunctionUrlNotFound is returned when no function URL config exists for the function.
-	ErrFunctionUrlNotFound = errors.New("ResourceNotFoundException")
+	// ErrFunctionURLNotFound is returned when no function URL config exists for the function.
+	ErrFunctionURLNotFound = errors.New("ResourceNotFoundException")
 )
 
 // StorageBackend defines the interface for Lambda backend operations.
@@ -70,8 +71,8 @@ type functionRuntime struct {
 	started  bool
 }
 
-// functionUrlServer holds a running HTTP listener for a Lambda function URL.
-type functionUrlServer struct {
+// functionURLServer holds a running HTTP listener for a Lambda function URL.
+type functionURLServer struct {
 	listener net.Listener
 	server   *http.Server
 	port     int
@@ -82,8 +83,8 @@ type InMemoryBackend struct {
 	functions           map[string]*FunctionConfiguration
 	runtimes            map[string]*functionRuntime
 	eventSourceMappings map[string]*EventSourceMapping
-	functionUrlConfigs  map[string]*FunctionUrlConfig
-	functionUrlServers  map[string]*functionUrlServer
+	functionURLConfigs  map[string]*FunctionURLConfig
+	functionURLServers  map[string]*functionURLServer
 	kinesisPoller       *EventSourcePoller
 	dnsRegistrar        DNSRegistrar
 	docker              *docker.Client
@@ -108,8 +109,8 @@ func NewInMemoryBackend(
 		functions:           make(map[string]*FunctionConfiguration),
 		runtimes:            make(map[string]*functionRuntime),
 		eventSourceMappings: make(map[string]*EventSourceMapping),
-		functionUrlConfigs:  make(map[string]*FunctionUrlConfig),
-		functionUrlServers:  make(map[string]*functionUrlServer),
+		functionURLConfigs:  make(map[string]*FunctionURLConfig),
+		functionURLServers:  make(map[string]*functionURLServer),
 		docker:              dockerClient,
 		portAlloc:           portAlloc,
 		settings:            settings,
@@ -239,9 +240,9 @@ func (b *InMemoryBackend) functionURLHostname(functionName string) string {
 	return fmt.Sprintf("%s.lambda-url.%s.on.aws", functionName, b.region)
 }
 
-// CreateFunctionUrlConfig creates a function URL endpoint for the given function.
+// CreateFunctionURLConfig creates a function URL endpoint for the given function.
 // It allocates a port, starts an HTTP listener, registers DNS, and returns the config.
-func (b *InMemoryBackend) CreateFunctionUrlConfig(functionName, authType string) (*FunctionUrlConfig, error) {
+func (b *InMemoryBackend) CreateFunctionURLConfig(functionName, authType string) (*FunctionURLConfig, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -250,7 +251,7 @@ func (b *InMemoryBackend) CreateFunctionUrlConfig(functionName, authType string)
 	}
 
 	// If a URL config already exists, return ResourceConflictException
-	if _, exists := b.functionUrlConfigs[functionName]; exists {
+	if _, exists := b.functionURLConfigs[functionName]; exists {
 		return nil, ErrFunctionAlreadyExists
 	}
 
@@ -272,59 +273,59 @@ func (b *InMemoryBackend) CreateFunctionUrlConfig(functionName, authType string)
 			return nil, fmt.Errorf("%w: failed to start URL listener: %w", ErrLambdaUnavailable, listenErr)
 		}
 
-		b.functionUrlServers[functionName] = srv
+		b.functionURLServers[functionName] = srv
 		hostname := b.functionURLHostname(functionName)
 
 		if b.dnsRegistrar != nil {
 			b.dnsRegistrar.Register(hostname)
 		}
 
-		urlStr = fmt.Sprintf("http://%s:%d/", hostname, port)
+		urlStr = "http://" + net.JoinHostPort(hostname, strconv.Itoa(port)) + "/"
 	} else {
 		urlStr = fmt.Sprintf("http://localhost/%s/", functionName)
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	cfg := &FunctionUrlConfig{
+	cfg := &FunctionURLConfig{
 		FunctionArn:      buildURLARN(b.region, b.accountID, functionName),
-		FunctionUrl:      urlStr,
+		FunctionURL:      urlStr,
 		AuthType:         authType,
 		CreationTime:     now,
 		LastModifiedTime: now,
 	}
 
-	b.functionUrlConfigs[functionName] = cfg
+	b.functionURLConfigs[functionName] = cfg
 
 	return cfg, nil
 }
 
-// GetFunctionUrlConfig returns the function URL config for a function.
-func (b *InMemoryBackend) GetFunctionUrlConfig(functionName string) (*FunctionUrlConfig, error) {
+// GetFunctionURLConfig returns the function URL config for a function.
+func (b *InMemoryBackend) GetFunctionURLConfig(functionName string) (*FunctionURLConfig, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	cfg, ok := b.functionUrlConfigs[functionName]
+	cfg, ok := b.functionURLConfigs[functionName]
 	if !ok {
-		return nil, ErrFunctionUrlNotFound
+		return nil, ErrFunctionURLNotFound
 	}
 
 	return cfg, nil
 }
 
-// DeleteFunctionUrlConfig removes the function URL config, stops the listener, and deregisters DNS.
-func (b *InMemoryBackend) DeleteFunctionUrlConfig(functionName string) error {
+// DeleteFunctionURLConfig removes the function URL config, stops the listener, and deregisters DNS.
+func (b *InMemoryBackend) DeleteFunctionURLConfig(functionName string) error {
 	b.mu.Lock()
 
-	if _, ok := b.functionUrlConfigs[functionName]; !ok {
+	if _, ok := b.functionURLConfigs[functionName]; !ok {
 		b.mu.Unlock()
 
-		return ErrFunctionUrlNotFound
+		return ErrFunctionURLNotFound
 	}
 
-	delete(b.functionUrlConfigs, functionName)
+	delete(b.functionURLConfigs, functionName)
 
-	srv := b.functionUrlServers[functionName]
-	delete(b.functionUrlServers, functionName)
+	srv := b.functionURLServers[functionName]
+	delete(b.functionURLServers, functionName)
 	dns := b.dnsRegistrar
 	hostname := b.functionURLHostname(functionName)
 	b.mu.Unlock()
@@ -346,10 +347,15 @@ func (b *InMemoryBackend) DeleteFunctionUrlConfig(functionName string) error {
 	return nil
 }
 
+// functionURLReadHeaderTimeout is the timeout for reading HTTP request headers on the function URL listener.
+const functionURLReadHeaderTimeout = 30 * time.Second
+
 // startFunctionURLServer starts an HTTP server on the given port that converts HTTP requests
 // to Lambda invocation events and returns the function's response.
-func (b *InMemoryBackend) startFunctionURLServer(functionName string, port int) (*functionUrlServer, error) {
-	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+func (b *InMemoryBackend) startFunctionURLServer(functionName string, port int) (*functionURLServer, error) {
+	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+	lc := &net.ListenConfig{}
+	ln, err := lc.Listen(context.Background(), "tcp", addr)
 	if err != nil {
 		return nil, err
 	}
@@ -359,7 +365,7 @@ func (b *InMemoryBackend) startFunctionURLServer(functionName string, port int) 
 
 	srv := &http.Server{
 		Handler:           mux,
-		ReadHeaderTimeout: 30 * time.Second,
+		ReadHeaderTimeout: functionURLReadHeaderTimeout,
 	}
 
 	go func() {
@@ -370,18 +376,18 @@ func (b *InMemoryBackend) startFunctionURLServer(functionName string, port int) 
 		}
 	}()
 
-	return &functionUrlServer{listener: ln, server: srv, port: port}, nil
+	return &functionURLServer{listener: ln, server: srv, port: port}, nil
 }
 
 // lambdaURLEvent is a simplified Lambda Function URL (HTTP API v2) event.
 type lambdaURLEvent struct {
-	RawPath        string            `json:"rawPath"`
-	RawQueryString string            `json:"rawQueryString"`
-	Headers        map[string]string `json:"headers"`
-	Body           string            `json:"body,omitempty"`
-	Version        string            `json:"version"`
-	RouteKey       string            `json:"routeKey"`
-	IsBase64Encoded bool             `json:"isBase64Encoded"`
+	RawPath         string            `json:"rawPath"`
+	RawQueryString  string            `json:"rawQueryString"`
+	Headers         map[string]string `json:"headers"`
+	Body            string            `json:"body,omitempty"`
+	Version         string            `json:"version"`
+	RouteKey        string            `json:"routeKey"`
+	IsBase64Encoded bool              `json:"isBase64Encoded"`
 }
 
 // lambdaURLResponse is a simplified Lambda Function URL response.
@@ -392,37 +398,12 @@ type lambdaURLResponse struct {
 	IsBase64Encoded bool              `json:"isBase64Encoded,omitempty"`
 }
 
-// buildFunctionURLHandler builds an http.HandlerFunc that invokes the Lambda function.
+// buildFunctionURLHandler builds an [http.HandlerFunc] that invokes the Lambda function.
 func (b *InMemoryBackend) buildFunctionURLHandler(functionName string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		bodyBytes, readErr := io.ReadAll(r.Body)
-		if readErr != nil {
-			http.Error(w, "failed to read request body", http.StatusInternalServerError)
-
-			return
-		}
-
-		headers := make(map[string]string, len(r.Header))
-		for k, vs := range r.Header {
-			headers[strings.ToLower(k)] = strings.Join(vs, ",")
-		}
-
-		event := lambdaURLEvent{
-			Version:        "2.0",
-			RouteKey:       "$default",
-			RawPath:        r.URL.Path,
-			RawQueryString: r.URL.RawQuery,
-			Headers:        headers,
-		}
-
-		if len(bodyBytes) > 0 {
-			event.Body = base64.StdEncoding.EncodeToString(bodyBytes)
-			event.IsBase64Encoded = true
-		}
-
-		payload, marshalErr := json.Marshal(event)
-		if marshalErr != nil {
-			http.Error(w, "failed to build event", http.StatusInternalServerError)
+		payload, buildErr := b.buildURLEventPayload(r)
+		if buildErr != nil {
+			http.Error(w, buildErr.Error(), http.StatusInternalServerError)
 
 			return
 		}
@@ -434,32 +415,71 @@ func (b *InMemoryBackend) buildFunctionURLHandler(functionName string) http.Hand
 			return
 		}
 
-		// Try to parse as Lambda function URL response format.
-		var resp lambdaURLResponse
-		if jsonErr := json.Unmarshal(result, &resp); jsonErr == nil && resp.StatusCode != 0 {
-			for k, v := range resp.Headers {
-				w.Header().Set(k, v)
-			}
+		writeFunctionURLResponse(w, result)
+	}
+}
 
-			w.WriteHeader(resp.StatusCode)
+// buildURLEventPayload converts an HTTP request to a Lambda Function URL event payload.
+func (b *InMemoryBackend) buildURLEventPayload(r *http.Request) ([]byte, error) {
+	bodyBytes, readErr := io.ReadAll(r.Body)
+	if readErr != nil {
+		return nil, fmt.Errorf("failed to read request body: %w", readErr)
+	}
 
-			if resp.IsBase64Encoded {
-				decoded, decErr := base64.StdEncoding.DecodeString(resp.Body)
-				if decErr == nil {
-					_, _ = w.Write(decoded)
-				}
-			} else {
-				_, _ = w.Write([]byte(resp.Body))
-			}
+	headers := make(map[string]string, len(r.Header))
+	for k, vs := range r.Header {
+		headers[strings.ToLower(k)] = strings.Join(vs, ",")
+	}
 
-			return
+	event := lambdaURLEvent{
+		Version:        "2.0",
+		RouteKey:       "$default",
+		RawPath:        r.URL.Path,
+		RawQueryString: r.URL.RawQuery,
+		Headers:        headers,
+	}
+
+	if len(bodyBytes) > 0 {
+		event.Body = base64.StdEncoding.EncodeToString(bodyBytes)
+		event.IsBase64Encoded = true
+	}
+
+	return json.Marshal(event)
+}
+
+// writeFunctionURLResponse writes the Lambda function URL response to the HTTP response writer.
+func writeFunctionURLResponse(w http.ResponseWriter, result []byte) {
+	// Try to parse as Lambda function URL response format.
+	var resp lambdaURLResponse
+	if jsonErr := json.Unmarshal(result, &resp); jsonErr == nil && resp.StatusCode != 0 {
+		for k, v := range resp.Headers {
+			w.Header().Set(k, v)
 		}
 
-		// Fall back to returning raw result.
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(result)
+		w.WriteHeader(resp.StatusCode)
+		writeFunctionURLBody(w, resp)
+
+		return
 	}
+
+	// Fall back to returning raw result.
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(result) //nolint:gosec // G705: writing Lambda invoke result to HTTP response is intentional
+}
+
+// writeFunctionURLBody writes the body portion of a Lambda URL response.
+func writeFunctionURLBody(w http.ResponseWriter, resp lambdaURLResponse) {
+	if resp.IsBase64Encoded {
+		decoded, decErr := base64.StdEncoding.DecodeString(resp.Body)
+		if decErr == nil {
+			_, _ = w.Write(decoded)
+		}
+
+		return
+	}
+
+	_, _ = w.Write([]byte(resp.Body))
 }
 
 // buildURLARN constructs an ARN for a Lambda function URL.
@@ -467,7 +487,7 @@ func buildURLARN(region, accountID, functionName string) string {
 	return fmt.Sprintf("arn:aws:lambda:%s:%s:function:%s", region, accountID, functionName)
 }
 
-
+// CreateFunction stores a new Lambda function configuration.
 func (b *InMemoryBackend) CreateFunction(fn *FunctionConfiguration) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()

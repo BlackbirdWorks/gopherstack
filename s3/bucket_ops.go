@@ -996,52 +996,52 @@ func (h *S3Handler) getBucketNotificationConfiguration(
 }
 
 func (h *S3Handler) putObjectLockConfiguration(
-ctx context.Context,
-w http.ResponseWriter,
-r *http.Request,
-bucket string,
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
 ) {
-h.setOperation(ctx, "PutObjectLockConfiguration")
-log := logger.Load(ctx)
-body, err := httputil.ReadBody(r)
-if err != nil {
-WriteError(log, w, r, err)
+	h.setOperation(ctx, "PutObjectLockConfiguration")
+	log := logger.Load(ctx)
+	body, err := httputil.ReadBody(r)
+	if err != nil {
+		WriteError(log, w, r, err)
 
-return
-}
+		return
+	}
 
-if err = h.Backend.PutObjectLockConfiguration(ctx, bucket, string(body)); err != nil {
-WriteError(log, w, r, err)
+	if err = h.Backend.PutObjectLockConfiguration(ctx, bucket, string(body)); err != nil {
+		WriteError(log, w, r, err)
 
-return
-}
+		return
+	}
 
-w.WriteHeader(http.StatusOK)
+	w.WriteHeader(http.StatusOK)
 }
 
 func (h *S3Handler) getObjectLockConfiguration(
-ctx context.Context,
-w http.ResponseWriter,
-r *http.Request,
-bucket string,
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
 ) {
-h.setOperation(ctx, "GetObjectLockConfiguration")
-log := logger.Load(ctx)
-configXML, err := h.Backend.GetObjectLockConfiguration(ctx, bucket)
+	h.setOperation(ctx, "GetObjectLockConfiguration")
+	log := logger.Load(ctx)
+	configXML, err := h.Backend.GetObjectLockConfiguration(ctx, bucket)
 
-if errors.Is(err, ErrNoObjectLockConfig) {
-WriteError(log, w, r, err)
+	if errors.Is(err, ErrNoObjectLockConfig) {
+		WriteError(log, w, r, err)
 
-return
-}
+		return
+	}
 
-if err != nil {
-WriteError(log, w, r, err)
+	if err != nil {
+		WriteError(log, w, r, err)
 
-return
-}
+		return
+	}
 
-w.Header().Set("Content-Type", "application/xml")
-w.WriteHeader(http.StatusOK)
-_, _ = w.Write([]byte(configXML)) //nolint:gosec // G705: writing HTTP response is intentional
+	w.Header().Set("Content-Type", "application/xml")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(configXML)) //nolint:gosec // G705: writing HTTP response is intentional
 }

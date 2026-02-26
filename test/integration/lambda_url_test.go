@@ -80,17 +80,17 @@ func TestLambdaFunctionURL_CreateGetDelete(t *testing.T) {
 	defer urlResp.Body.Close()
 	require.Equal(t, http.StatusCreated, urlResp.StatusCode)
 
-	var cfg lambdapkg.FunctionUrlConfig
+	var cfg lambdapkg.FunctionURLConfig
 	respBody, err := io.ReadAll(urlResp.Body)
 	require.NoError(t, err)
 	require.NoError(t, json.Unmarshal(respBody, &cfg))
 
-	assert.NotEmpty(t, cfg.FunctionUrl, "FunctionUrl should not be empty")
+	assert.NotEmpty(t, cfg.FunctionURL, "FunctionURL should not be empty")
 	assert.Equal(t, "NONE", cfg.AuthType)
 	assert.NotEmpty(t, cfg.FunctionArn)
 	assert.NotEmpty(t, cfg.CreationTime)
 
-	t.Logf("function URL: %s", cfg.FunctionUrl)
+	t.Logf("function URL: %s", cfg.FunctionURL)
 
 	// Get function URL config
 	getResp, err := doLambdaRequest(ctx, http.MethodGet,
@@ -100,11 +100,11 @@ func TestLambdaFunctionURL_CreateGetDelete(t *testing.T) {
 	defer getResp.Body.Close()
 	require.Equal(t, http.StatusOK, getResp.StatusCode)
 
-	var getCfg lambdapkg.FunctionUrlConfig
+	var getCfg lambdapkg.FunctionURLConfig
 	getBody, err := io.ReadAll(getResp.Body)
 	require.NoError(t, err)
 	require.NoError(t, json.Unmarshal(getBody, &getCfg))
-	assert.Equal(t, cfg.FunctionUrl, getCfg.FunctionUrl)
+	assert.Equal(t, cfg.FunctionURL, getCfg.FunctionURL)
 
 	// Delete function URL config
 	delResp, err := doLambdaRequest(ctx, http.MethodDelete,
@@ -142,15 +142,15 @@ func TestLambdaFunctionURL_HTTPEndpoint(t *testing.T) {
 	}
 	require.NoError(t, backend.CreateFunction(fn))
 
-	cfg, createErr := backend.CreateFunctionUrlConfig(fnName, "NONE")
+	cfg, createErr := backend.CreateFunctionURLConfig(fnName, "NONE")
 	require.NoError(t, createErr)
-	assert.NotEmpty(t, cfg.FunctionUrl)
+	assert.NotEmpty(t, cfg.FunctionURL)
 
 	// The URL listener is running; an HTTP request should be handled
 	// (may fail with invocation error since Docker isn't available,
 	// but the listener itself should respond).
 	client := &http.Client{Timeout: 5 * time.Second}
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, cfg.FunctionUrl, nil)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, cfg.FunctionURL, nil)
 	require.NoError(t, err)
 
 	httpResp, err := client.Do(req)

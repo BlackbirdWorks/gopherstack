@@ -1052,179 +1052,179 @@ func checkConditionalHeaders(r *http.Request, etag string, lastModified time.Tim
 }
 
 func (h *S3Handler) putObjectRetention(
-ctx context.Context,
-w http.ResponseWriter,
-r *http.Request,
-bucketName, key string,
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucketName, key string,
 ) {
-h.setOperation(ctx, "PutObjectRetention")
-log := logger.Load(ctx)
+	h.setOperation(ctx, "PutObjectRetention")
+	log := logger.Load(ctx)
 
-body, err := httputil.ReadBody(r)
-if err != nil {
-WriteError(log, w, r, err)
+	body, err := httputil.ReadBody(r)
+	if err != nil {
+		WriteError(log, w, r, err)
 
-return
-}
+		return
+	}
 
-var ret ObjectRetention
-if xmlErr := xml.NewDecoder(bytes.NewReader(body)).Decode(&ret); xmlErr != nil {
-httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
-Code:    "MalformedXML",
-Message: "The XML you provided was not well-formed",
-}, http.StatusBadRequest)
+	var ret ObjectRetention
+	if xmlErr := xml.NewDecoder(bytes.NewReader(body)).Decode(&ret); xmlErr != nil {
+		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
+			Code:    "MalformedXML",
+			Message: "The XML you provided was not well-formed",
+		}, http.StatusBadRequest)
 
-return
-}
+		return
+	}
 
-retainUntil, parseErr := time.Parse(time.RFC3339, ret.RetainUntilDate)
-if parseErr != nil {
-// Try alternative format
-retainUntil, parseErr = time.Parse("2006-01-02T15:04:05.999Z", ret.RetainUntilDate)
-if parseErr != nil {
-httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
-Code:    "InvalidArgument",
-Message: "Invalid RetainUntilDate format",
-}, http.StatusBadRequest)
+	retainUntil, parseErr := time.Parse(time.RFC3339, ret.RetainUntilDate)
+	if parseErr != nil {
+		// Try alternative format
+		retainUntil, parseErr = time.Parse("2006-01-02T15:04:05.999Z", ret.RetainUntilDate)
+		if parseErr != nil {
+			httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
+				Code:    "InvalidArgument",
+				Message: "Invalid RetainUntilDate format",
+			}, http.StatusBadRequest)
 
-return
-}
-}
+			return
+		}
+	}
 
-versionID := r.URL.Query().Get("versionId")
-var vid *string
-if versionID != "" {
-vid = &versionID
-}
+	versionID := r.URL.Query().Get("versionId")
+	var vid *string
+	if versionID != "" {
+		vid = &versionID
+	}
 
-if putErr := h.Backend.PutObjectRetention(ctx, bucketName, key, vid, ret.Mode, retainUntil); putErr != nil {
-WriteError(log, w, r, putErr)
+	if putErr := h.Backend.PutObjectRetention(ctx, bucketName, key, vid, ret.Mode, retainUntil); putErr != nil {
+		WriteError(log, w, r, putErr)
 
-return
-}
+		return
+	}
 
-w.WriteHeader(http.StatusOK)
+	w.WriteHeader(http.StatusOK)
 }
 
 func (h *S3Handler) getObjectRetention(
-ctx context.Context,
-w http.ResponseWriter,
-r *http.Request,
-bucketName, key string,
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucketName, key string,
 ) {
-h.setOperation(ctx, "GetObjectRetention")
-log := logger.Load(ctx)
+	h.setOperation(ctx, "GetObjectRetention")
+	log := logger.Load(ctx)
 
-versionID := r.URL.Query().Get("versionId")
-var vid *string
-if versionID != "" {
-vid = &versionID
-}
+	versionID := r.URL.Query().Get("versionId")
+	var vid *string
+	if versionID != "" {
+		vid = &versionID
+	}
 
-mode, retainUntil, err := h.Backend.GetObjectRetention(ctx, bucketName, key, vid)
-if errors.Is(err, ErrNoSuchKey) || errors.Is(err, ErrNoSuchBucket) {
-WriteError(log, w, r, err)
+	mode, retainUntil, err := h.Backend.GetObjectRetention(ctx, bucketName, key, vid)
+	if errors.Is(err, ErrNoSuchKey) || errors.Is(err, ErrNoSuchBucket) {
+		WriteError(log, w, r, err)
 
-return
-}
+		return
+	}
 
-if errors.Is(err, ErrNoSuchObjectLockConfig) {
-httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
-Code:    "NoSuchObjectLockConfiguration",
-Message: "The specified object does not have a ObjectLock configuration",
-}, http.StatusNotFound)
+	if errors.Is(err, ErrNoSuchObjectLockConfig) {
+		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
+			Code:    "NoSuchObjectLockConfiguration",
+			Message: "The specified object does not have a ObjectLock configuration",
+		}, http.StatusNotFound)
 
-return
-}
+		return
+	}
 
-if err != nil {
-WriteError(log, w, r, err)
+	if err != nil {
+		WriteError(log, w, r, err)
 
-return
-}
+		return
+	}
 
-ret := ObjectRetention{
-Xmlns:           "http://s3.amazonaws.com/doc/2006-03-01/",
-Mode:            mode,
-RetainUntilDate: retainUntil.UTC().Format(time.RFC3339),
-}
+	ret := ObjectRetention{
+		Xmlns:           "http://s3.amazonaws.com/doc/2006-03-01/",
+		Mode:            mode,
+		RetainUntilDate: retainUntil.UTC().Format(time.RFC3339),
+	}
 
-httputil.WriteXML(log, w, http.StatusOK, ret)
+	httputil.WriteXML(log, w, http.StatusOK, ret)
 }
 
 func (h *S3Handler) putObjectLegalHold(
-ctx context.Context,
-w http.ResponseWriter,
-r *http.Request,
-bucketName, key string,
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucketName, key string,
 ) {
-h.setOperation(ctx, "PutObjectLegalHold")
-log := logger.Load(ctx)
+	h.setOperation(ctx, "PutObjectLegalHold")
+	log := logger.Load(ctx)
 
-body, err := httputil.ReadBody(r)
-if err != nil {
-WriteError(log, w, r, err)
+	body, err := httputil.ReadBody(r)
+	if err != nil {
+		WriteError(log, w, r, err)
 
-return
-}
+		return
+	}
 
-var lh ObjectLegalHold
-if xmlErr := xml.NewDecoder(bytes.NewReader(body)).Decode(&lh); xmlErr != nil {
-httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
-Code:    "MalformedXML",
-Message: "The XML you provided was not well-formed",
-}, http.StatusBadRequest)
+	var lh ObjectLegalHold
+	if xmlErr := xml.NewDecoder(bytes.NewReader(body)).Decode(&lh); xmlErr != nil {
+		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
+			Code:    "MalformedXML",
+			Message: "The XML you provided was not well-formed",
+		}, http.StatusBadRequest)
 
-return
-}
+		return
+	}
 
-versionID := r.URL.Query().Get("versionId")
-var vid *string
-if versionID != "" {
-vid = &versionID
-}
+	versionID := r.URL.Query().Get("versionId")
+	var vid *string
+	if versionID != "" {
+		vid = &versionID
+	}
 
-if putErr := h.Backend.PutObjectLegalHold(ctx, bucketName, key, vid, lh.Status); putErr != nil {
-WriteError(log, w, r, putErr)
+	if putErr := h.Backend.PutObjectLegalHold(ctx, bucketName, key, vid, lh.Status); putErr != nil {
+		WriteError(log, w, r, putErr)
 
-return
-}
+		return
+	}
 
-w.WriteHeader(http.StatusOK)
+	w.WriteHeader(http.StatusOK)
 }
 
 func (h *S3Handler) getObjectLegalHold(
-ctx context.Context,
-w http.ResponseWriter,
-r *http.Request,
-bucketName, key string,
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucketName, key string,
 ) {
-h.setOperation(ctx, "GetObjectLegalHold")
-log := logger.Load(ctx)
+	h.setOperation(ctx, "GetObjectLegalHold")
+	log := logger.Load(ctx)
 
-versionID := r.URL.Query().Get("versionId")
-var vid *string
-if versionID != "" {
-vid = &versionID
-}
+	versionID := r.URL.Query().Get("versionId")
+	var vid *string
+	if versionID != "" {
+		vid = &versionID
+	}
 
-status, err := h.Backend.GetObjectLegalHold(ctx, bucketName, key, vid)
-if errors.Is(err, ErrNoSuchKey) || errors.Is(err, ErrNoSuchBucket) {
-WriteError(log, w, r, err)
+	status, err := h.Backend.GetObjectLegalHold(ctx, bucketName, key, vid)
+	if errors.Is(err, ErrNoSuchKey) || errors.Is(err, ErrNoSuchBucket) {
+		WriteError(log, w, r, err)
 
-return
-}
+		return
+	}
 
-if err != nil {
-WriteError(log, w, r, err)
+	if err != nil {
+		WriteError(log, w, r, err)
 
-return
-}
+		return
+	}
 
-lh := ObjectLegalHold{
-Xmlns:  "http://s3.amazonaws.com/doc/2006-03-01/",
-Status: status,
-}
+	lh := ObjectLegalHold{
+		Xmlns:  "http://s3.amazonaws.com/doc/2006-03-01/",
+		Status: status,
+	}
 
-httputil.WriteXML(log, w, http.StatusOK, lh)
+	httputil.WriteXML(log, w, http.StatusOK, lh)
 }

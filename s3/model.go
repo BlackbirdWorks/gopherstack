@@ -249,10 +249,10 @@ type MultipartUpload struct {
 
 // ObjectLockConfiguration is the XML body for PutObjectLockConfiguration / GetObjectLockConfiguration.
 type ObjectLockConfiguration struct {
-	XMLName           xml.Name                  `xml:"ObjectLockConfiguration"`
-	Xmlns             string                    `xml:"xmlns,attr,omitempty"`
-	ObjectLockEnabled string                    `xml:"ObjectLockEnabled"`
-	Rule              *ObjectLockRule           `xml:"Rule,omitempty"`
+	Rule              *ObjectLockRule `xml:"Rule,omitempty"`
+	XMLName           xml.Name        `xml:"ObjectLockConfiguration"`
+	Xmlns             string          `xml:"xmlns,attr,omitempty"`
+	ObjectLockEnabled string          `xml:"ObjectLockEnabled"`
 }
 
 // ObjectLockRule holds the default retention rule for a bucket.
@@ -269,10 +269,10 @@ type DefaultRetention struct {
 
 // ObjectRetention is the XML body for PutObjectRetention / GetObjectRetention.
 type ObjectRetention struct {
-	XMLName        xml.Name `xml:"Retention"`
-	Xmlns          string   `xml:"xmlns,attr,omitempty"`
-	Mode           string   `xml:"Mode"`
-	RetainUntilDate string  `xml:"RetainUntilDate"`
+	XMLName         xml.Name `xml:"Retention"`
+	Xmlns           string   `xml:"xmlns,attr,omitempty"`
+	Mode            string   `xml:"Mode"`
+	RetainUntilDate string   `xml:"RetainUntilDate"`
 }
 
 // ObjectLegalHold is the XML body for PutObjectLegalHold / GetObjectLegalHold.

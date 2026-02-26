@@ -567,51 +567,78 @@ func (b *InMemoryBackend) deleteObjectLocked(
 		return &s3.DeleteObjectOutput{}, nil
 	}
 
-	// Find the version to delete so we can check lock status.
-	var verToCheck *StoredObjectVersion
+	if err := checkObjectLockForDelete(obj, versionID); err != nil {
+		return nil, err
+	}
+
 	if versionID != nil && *versionID != "" {
-		verToCheck = obj.Versions[*versionID]
-	} else if obj.LatestVersionID != "" {
-		verToCheck = obj.Versions[obj.LatestVersionID]
-	} else {
+		return deleteSpecificVersion(bucket, obj, key, versionID), nil
+	}
+
+	return deleteLatestVersion(bucket, obj, key), nil
+}
+
+// checkObjectLockForDelete returns ErrObjectLocked if the target version is under
+// a legal hold or an active retention policy. Must be called with bucket.mu held.
+func checkObjectLockForDelete(obj *StoredObject, versionID *string) error {
+	var ver *StoredObjectVersion
+
+	switch {
+	case versionID != nil && *versionID != "":
+		ver = obj.Versions[*versionID]
+	case obj.LatestVersionID != "":
+		ver = obj.Versions[obj.LatestVersionID]
+	default:
 		for _, v := range obj.Versions {
 			if v.IsLatest {
-				verToCheck = v
+				ver = v
 
 				break
 			}
 		}
 	}
 
-	if verToCheck != nil && !verToCheck.Deleted {
-		if verToCheck.LegalHold {
-			return nil, ErrObjectLocked
-		}
-
-		if verToCheck.RetentionMode != "" && !verToCheck.RetainUntil.IsZero() && time.Now().Before(verToCheck.RetainUntil) {
-			return nil, ErrObjectLocked
-		}
+	if ver == nil || ver.Deleted {
+		return nil
 	}
 
-	if versionID != nil && *versionID != "" {
-		if _, ok := obj.Versions[*versionID]; ok {
-			delete(obj.Versions, *versionID)
-			if len(obj.Versions) == 0 {
-				delete(bucket.Objects, key)
-			}
-
-			return &s3.DeleteObjectOutput{VersionId: versionID}, nil
-		}
-
-		return &s3.DeleteObjectOutput{}, nil
+	if ver.LegalHold {
+		return ErrObjectLocked
 	}
 
+	if ver.RetentionMode != "" && !ver.RetainUntil.IsZero() && time.Now().Before(ver.RetainUntil) {
+		return ErrObjectLocked
+	}
+
+	return nil
+}
+
+// deleteSpecificVersion removes the specified version from the object.
+func deleteSpecificVersion(
+	bucket *StoredBucket,
+	obj *StoredObject,
+	key string,
+	versionID *string,
+) *s3.DeleteObjectOutput {
+	if _, ok := obj.Versions[*versionID]; ok {
+		delete(obj.Versions, *versionID)
+		if len(obj.Versions) == 0 {
+			delete(bucket.Objects, key)
+		}
+
+		return &s3.DeleteObjectOutput{VersionId: versionID}
+	}
+
+	return &s3.DeleteObjectOutput{}
+}
+
+// deleteLatestVersion deletes the latest version of an object (or marks it deleted if versioning is enabled).
+func deleteLatestVersion(bucket *StoredBucket, obj *StoredObject, key string) *s3.DeleteObjectOutput {
 	// Delete latest (Versioning enabled -> add delete marker, Suspended -> delete null version)
 	if bucket.Versioning == types.BucketVersioningStatusEnabled {
 		newVersionID := strconv.FormatInt(time.Now().UnixNano(), 10)
 
-		// Create delete marker
-		// Mark others as not latest
+		// Create delete marker; mark others as not latest
 		for _, v := range obj.Versions {
 			v.IsLatest = false
 		}
@@ -628,14 +655,13 @@ func (b *InMemoryBackend) deleteObjectLocked(
 		return &s3.DeleteObjectOutput{
 			DeleteMarker: aws.Bool(true),
 			VersionId:    aws.String(newVersionID),
-		}, nil
+		}
 	}
 
 	// Suspended or null: Delete object (or null version)
-	// Simple remove for now
 	delete(bucket.Objects, key)
 
-	return &s3.DeleteObjectOutput{}, nil
+	return &s3.DeleteObjectOutput{}
 }
 
 func (b *InMemoryBackend) DeleteObjects(
@@ -1703,7 +1729,13 @@ func (b *InMemoryBackend) GetObjectLockConfiguration(_ context.Context, bucketNa
 }
 
 // PutObjectRetention sets the retention mode and retain-until-date for a specific object version.
-func (b *InMemoryBackend) PutObjectRetention(_ context.Context, bucketName, key string, versionID *string, mode string, retainUntil time.Time) error {
+func (b *InMemoryBackend) PutObjectRetention(
+	_ context.Context,
+	bucketName, key string,
+	versionID *string,
+	mode string,
+	retainUntil time.Time,
+) error {
 	b.mu.RLock("PutObjectRetention")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -1727,7 +1759,11 @@ func (b *InMemoryBackend) PutObjectRetention(_ context.Context, bucketName, key 
 }
 
 // GetObjectRetention returns the retention mode and retain-until-date for a specific object version.
-func (b *InMemoryBackend) GetObjectRetention(_ context.Context, bucketName, key string, versionID *string) (string, time.Time, error) {
+func (b *InMemoryBackend) GetObjectRetention(
+	_ context.Context,
+	bucketName, key string,
+	versionID *string,
+) (string, time.Time, error) {
 	b.mu.RLock("GetObjectRetention")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -1752,7 +1788,12 @@ func (b *InMemoryBackend) GetObjectRetention(_ context.Context, bucketName, key 
 }
 
 // PutObjectLegalHold sets or clears the legal hold status for a specific object version.
-func (b *InMemoryBackend) PutObjectLegalHold(_ context.Context, bucketName, key string, versionID *string, status string) error {
+func (b *InMemoryBackend) PutObjectLegalHold(
+	_ context.Context,
+	bucketName, key string,
+	versionID *string,
+	status string,
+) error {
 	b.mu.RLock("PutObjectLegalHold")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -1775,7 +1816,11 @@ func (b *InMemoryBackend) PutObjectLegalHold(_ context.Context, bucketName, key 
 }
 
 // GetObjectLegalHold returns the legal hold status for a specific object version.
-func (b *InMemoryBackend) GetObjectLegalHold(_ context.Context, bucketName, key string, versionID *string) (string, error) {
+func (b *InMemoryBackend) GetObjectLegalHold(
+	_ context.Context,
+	bucketName, key string,
+	versionID *string,
+) (string, error) {
 	b.mu.RLock("GetObjectLegalHold")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()

@@ -86,8 +86,18 @@ type StorageBackend interface {
 	// Object Lock
 	PutObjectLockConfiguration(ctx context.Context, bucket, configXML string) error
 	GetObjectLockConfiguration(ctx context.Context, bucket string) (string, error)
-	PutObjectRetention(ctx context.Context, bucket, key string, versionID *string, mode string, retainUntil time.Time) error
-	GetObjectRetention(ctx context.Context, bucket, key string, versionID *string) (mode string, retainUntil time.Time, err error)
+	PutObjectRetention(
+		ctx context.Context,
+		bucket, key string,
+		versionID *string,
+		mode string,
+		retainUntil time.Time,
+	) error
+	GetObjectRetention(
+		ctx context.Context,
+		bucket, key string,
+		versionID *string,
+	) (mode string, retainUntil time.Time, err error)
 	PutObjectLegalHold(ctx context.Context, bucket, key string, versionID *string, status string) error
 	GetObjectLegalHold(ctx context.Context, bucket, key string, versionID *string) (status string, err error)
 
