@@ -20,6 +20,7 @@ import (
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/cloudwatchlogs"
 	"github.com/blackbirdworks/gopherstack/dashboard"
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
+	elasticachebackend "github.com/blackbirdworks/gopherstack/elasticache"
 	ebbackend "github.com/blackbirdworks/gopherstack/eventbridge"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/kinesis"
@@ -65,6 +66,7 @@ type Stack struct {
 	CloudWatchHandler     *cwbackend.Handler
 	CloudFormationHandler *cfnbackend.Handler
 	KinesisHandler        *kinesisbackend.Handler
+	ElastiCacheHandler    *elasticachebackend.Handler
 	S3Client              *s3.Client
 	DDBClient             *dynamodb.Client
 	Dashboard             *dashboard.DashboardHandler
@@ -133,6 +135,7 @@ func registerServices(
 	cwHndlr *cwbackend.Handler,
 	cfnHndlr *cfnbackend.Handler,
 	kinesisHndlr *kinesisbackend.Handler,
+	elasticacheHndlr *elasticachebackend.Handler,
 ) {
 	_ = registry.Register(ddbHndlr)
 	_ = registry.Register(s3Hndlr)
@@ -151,29 +154,31 @@ func registerServices(
 	_ = registry.Register(cwHndlr)
 	_ = registry.Register(cfnHndlr)
 	_ = registry.Register(kinesisHndlr)
+	_ = registry.Register(elasticacheHndlr)
 }
 
 // handlers bundles all service handlers created for a test stack.
 type handlers struct {
-	s3      *s3backend.S3Handler
-	ddb     *ddbbackend.DynamoDBHandler
-	ssm     *ssmbackend.Handler
-	iam     *iambackend.Handler
-	sts     *stsbackend.Handler
-	sns     *snsbackend.Handler
-	sqs     *sqsbackend.Handler
-	kms     *kmsbackend.Handler
-	sm      *smbackend.Handler
-	lambda  *lambdabackend.Handler
-	eb      *ebbackend.Handler
-	apigw   *apigwbackend.Handler
-	cwlogs  *cwlogsbackend.Handler
-	sfn     *sfnbackend.Handler
-	cw      *cwbackend.Handler
-	cfn     *cfnbackend.Handler
-	kinesis *kinesisbackend.Handler
-	iamBk   *iambackend.InMemoryBackend
-	s3Bk    *s3backend.InMemoryBackend
+	s3          *s3backend.S3Handler
+	ddb         *ddbbackend.DynamoDBHandler
+	ssm         *ssmbackend.Handler
+	iam         *iambackend.Handler
+	sts         *stsbackend.Handler
+	sns         *snsbackend.Handler
+	sqs         *sqsbackend.Handler
+	kms         *kmsbackend.Handler
+	sm          *smbackend.Handler
+	lambda      *lambdabackend.Handler
+	eb          *ebbackend.Handler
+	apigw       *apigwbackend.Handler
+	cwlogs      *cwlogsbackend.Handler
+	sfn         *sfnbackend.Handler
+	cw          *cwbackend.Handler
+	cfn         *cfnbackend.Handler
+	kinesis     *kinesisbackend.Handler
+	elasticache *elasticachebackend.Handler
+	iamBk       *iambackend.InMemoryBackend
+	s3Bk        *s3backend.InMemoryBackend
 }
 
 // newHandlers creates in-memory backends and handlers for all services.
@@ -207,6 +212,10 @@ func newHandlers() handlers {
 		cw:      cwbackend.NewHandler(cwbackend.NewInMemoryBackend(), slog.Default()),
 		cfn:     newCFNHandler(s3Bk, ddb, sqs, sns, ssm, kms, sm),
 		kinesis: kinesisbackend.NewHandler(kinesisbackend.NewInMemoryBackend(), slog.Default()),
+		elasticache: elasticachebackend.NewHandler(
+			elasticachebackend.NewInMemoryBackend(elasticachebackend.EngineStub, "000000000000", "us-east-1"),
+			slog.Default(),
+		),
 	}
 }
 
@@ -254,7 +263,7 @@ func New(t *testing.T) *Stack {
 	registerServices(
 		registry,
 		h.ddb, h.s3, h.ssm, h.iam, h.sts, h.sns, h.sqs, h.kms, h.sm,
-		h.lambda, h.eb, h.apigw, h.cwlogs, h.sfn, h.cw, h.cfn, h.kinesis,
+		h.lambda, h.eb, h.apigw, h.cwlogs, h.sfn, h.cw, h.cfn, h.kinesis, h.elasticache,
 	)
 
 	// Create AWS SDK clients routed through in-memory Echo.
@@ -283,6 +292,7 @@ func New(t *testing.T) *Stack {
 		CloudWatchOps:     h.cw,
 		CloudFormationOps: h.cfn,
 		KinesisOps:        h.kinesis,
+		ElastiCacheOps:    h.elasticache,
 		GlobalConfig:      config.GlobalConfig{AccountID: "000000000000", Region: "us-east-1"},
 		Logger:            slog.Default(),
 	})
@@ -312,6 +322,7 @@ func New(t *testing.T) *Stack {
 		CloudWatchHandler:     h.cw,
 		CloudFormationHandler: h.cfn,
 		KinesisHandler:        h.kinesis,
+		ElastiCacheHandler:    h.elasticache,
 		S3Client:              s3Client,
 		DDBClient:             ddbClient,
 		Dashboard:             dashHndlr,

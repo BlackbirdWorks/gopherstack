@@ -32,6 +32,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/dashboard"
 	"github.com/blackbirdworks/gopherstack/demo"
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
+	elasticachebackend "github.com/blackbirdworks/gopherstack/elasticache"
 	ebbackend "github.com/blackbirdworks/gopherstack/eventbridge"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/kinesis"
@@ -64,15 +65,15 @@ const (
 
 // CLI holds all command-line / environment-variable configuration for Gopherstack.
 type CLI struct {
-	SSM                   struct{}               `embed:"" prefix:"ssm-"`
-	SecretsManager        struct{}               `embed:"" prefix:"secretsmanager-"`
-	KMS                   struct{}               `embed:"" prefix:"kms-"`
-	SQS                   sqsbackend.Settings    `embed:"" prefix:"sqs-"`
-	SNS                   struct{}               `embed:"" prefix:"sns-"`
-	STS                   struct{}               `embed:"" prefix:"sts-"`
-	IAM                   struct{}               `embed:"" prefix:"iam-"`
-	Lambda                lambdabackend.Settings `embed:"" prefix:"lambda-"`
-	kmsHandler            service.Registerable
+	SSM                   struct{}            `embed:"" prefix:"ssm-"`
+	SecretsManager        struct{}            `embed:"" prefix:"secretsmanager-"`
+	KMS                   struct{}            `embed:"" prefix:"kms-"`
+	SQS                   sqsbackend.Settings `embed:"" prefix:"sqs-"`
+	SNS                   struct{}            `embed:"" prefix:"sns-"`
+	STS                   struct{}            `embed:"" prefix:"sts-"`
+	IAM                   struct{}            `embed:"" prefix:"iam-"`
+	kinesisHandler        service.Registerable
+	elasticacheHandler    service.Registerable
 	secretsManagerHandler service.Registerable
 	ddbHandler            service.Registerable
 	s3Handler             service.Registerable
@@ -88,29 +89,31 @@ type CLI struct {
 	stepFunctionsHandler  service.Registerable
 	cloudWatchHandler     service.Registerable
 	cloudFormationHandler service.Registerable
-	kinesisHandler        service.Registerable
-	s3Client              *s3.Client
-	iamClient             *iam.Client
+	kmsHandler            service.Registerable
 	snsClient             *sns.Client
+	kmsClient             *kms.Client
+	iamClient             *iam.Client
+	s3Client              *s3.Client
 	ssmClient             *ssmsdk.Client
 	ddbClient             *dynamodb.Client
 	stsClient             *stssdk.Client
 	sqsClient             *sqssdk.Client
 	secretsManagerClient  *secretsmanager.Client
-	kmsClient             *kms.Client
-	Port                  string              `                                  name:"port"             env:"PORT"             default:"8000"         help:"HTTP server port."`                                                //nolint:lll // config struct tags are intentionally verbose
-	AccountID             string              `                                  name:"account-id"       env:"ACCOUNT_ID"       default:"000000000000" help:"Mock AWS account ID used in ARNs."`                                //nolint:lll // config struct tags are intentionally verbose
-	Region                string              `                                  name:"region"           env:"REGION"           default:"us-east-1"    help:"AWS region."`                                                      //nolint:lll // config struct tags are intentionally verbose
-	LogLevel              string              `                                  name:"log-level"        env:"LOG_LEVEL"        default:"info"         help:"Log level (debug|info|warn|error)."`                               //nolint:lll // config struct tags are intentionally verbose
-	DNSListenAddr         string              `                                  name:"dns-addr"         env:"DNS_ADDR"         default:""             help:"Address for embedded DNS server (e.g. :10053). Empty = disabled."` //nolint:lll // config struct tags are intentionally verbose
-	DNSResolveIP          string              `                                  name:"dns-resolve-ip"   env:"DNS_RESOLVE_IP"   default:"127.0.0.1"    help:"IP address synthetic hostnames resolve to."`                       //nolint:lll // config struct tags are intentionally verbose
-	S3                    s3backend.Settings  `embed:"" prefix:"s3-"`
-	InitScripts           []string            `                                  name:"init-script"      env:"INIT_SCRIPTS"                            help:"Shell scripts to run on startup (may be specified multiple times)."` //nolint:lll // config struct tags are intentionally verbose
-	DynamoDB              ddbbackend.Settings `embed:"" prefix:"dynamodb-"`
-	PortRangeStart        int                 `                                  name:"port-range-start" env:"PORT_RANGE_START" default:"10000"        help:"Start of the port range for resource endpoints."`           //nolint:lll // config struct tags are intentionally verbose
-	PortRangeEnd          int                 `                                  name:"port-range-end"   env:"PORT_RANGE_END"   default:"10100"        help:"End (exclusive) of the port range for resource endpoints."` //nolint:lll // config struct tags are intentionally verbose
-	InitScriptTimeout     time.Duration       `                                  name:"init-timeout"     env:"INIT_TIMEOUT"     default:"30s"          help:"Per-script timeout for init hooks."`                        //nolint:lll // config struct tags are intentionally verbose
-	Demo                  bool                `                                  name:"demo"             env:"DEMO"             default:"false"        help:"Load demo data on startup."`                                //nolint:lll // config struct tags are intentionally verbose
+	AccountID             string                 `                                  name:"account-id"         env:"ACCOUNT_ID"         default:"000000000000" help:"Mock AWS account ID used in ARNs."`                                //nolint:lll // config struct tags are intentionally verbose
+	Port                  string                 `                                  name:"port"               env:"PORT"               default:"8000"         help:"HTTP server port."`                                                //nolint:lll // config struct tags are intentionally verbose
+	ElastiCacheEngine     string                 `                                  name:"elasticache-engine" env:"ELASTICACHE_ENGINE" default:"embedded"     help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`  //nolint:lll // config struct tags are intentionally verbose
+	Region                string                 `                                  name:"region"             env:"REGION"             default:"us-east-1"    help:"AWS region."`                                                      //nolint:lll // config struct tags are intentionally verbose
+	LogLevel              string                 `                                  name:"log-level"          env:"LOG_LEVEL"          default:"info"         help:"Log level (debug|info|warn|error)."`                               //nolint:lll // config struct tags are intentionally verbose
+	DNSListenAddr         string                 `                                  name:"dns-addr"           env:"DNS_ADDR"           default:""             help:"Address for embedded DNS server (e.g. :10053). Empty = disabled."` //nolint:lll // config struct tags are intentionally verbose
+	DNSResolveIP          string                 `                                  name:"dns-resolve-ip"     env:"DNS_RESOLVE_IP"     default:"127.0.0.1"    help:"IP address synthetic hostnames resolve to."`                       //nolint:lll // config struct tags are intentionally verbose
+	S3                    s3backend.Settings     `embed:"" prefix:"s3-"`
+	InitScripts           []string               `                                  name:"init-script"        env:"INIT_SCRIPTS"                              help:"Shell scripts to run on startup (may be specified multiple times)."` //nolint:lll // config struct tags are intentionally verbose
+	DynamoDB              ddbbackend.Settings    `embed:"" prefix:"dynamodb-"`
+	Lambda                lambdabackend.Settings `embed:"" prefix:"lambda-"`
+	PortRangeStart        int                    `                                  name:"port-range-start"   env:"PORT_RANGE_START"   default:"10000"        help:"Start of the port range for resource endpoints."`           //nolint:lll // config struct tags are intentionally verbose
+	PortRangeEnd          int                    `                                  name:"port-range-end"     env:"PORT_RANGE_END"     default:"10100"        help:"End (exclusive) of the port range for resource endpoints."` //nolint:lll // config struct tags are intentionally verbose
+	InitScriptTimeout     time.Duration          `                                  name:"init-timeout"       env:"INIT_TIMEOUT"       default:"30s"          help:"Per-script timeout for init hooks."`                        //nolint:lll // config struct tags are intentionally verbose
+	Demo                  bool                   `                                  name:"demo"               env:"DEMO"               default:"false"        help:"Load demo data on startup."`                                //nolint:lll // config struct tags are intentionally verbose
 }
 
 // GetGlobalConfig returns the centralised account ID and region (config.Provider).
@@ -242,6 +245,14 @@ func (c *CLI) GetCloudFormationHandler() service.Registerable { return c.cloudFo
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetKinesisHandler() service.Registerable { return c.kinesisHandler }
+
+// GetElastiCacheHandler returns the ElastiCache handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetElastiCacheHandler() service.Registerable { return c.elasticacheHandler }
+
+// GetElastiCacheEngine returns the ElastiCache engine mode (elasticache.EngineConfig).
+func (c *CLI) GetElastiCacheEngine() string { return c.ElastiCacheEngine }
 
 // Run parses CLI / environment-variable configuration and starts Gopherstack.
 // It is called from main() and exits on error.
@@ -432,6 +443,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		&sfnbackend.Provider{},
 		&cwbackend.Provider{},
 		&kinesisbackend.Provider{},
+		&elasticachebackend.Provider{},
 	}
 
 	for _, provider := range serviceProviders {
@@ -461,6 +473,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		cli.stepFunctionsHandler = services[13]
 		cli.cloudWatchHandler = services[14]
 		cli.kinesisHandler = services[15]
+		cli.elasticacheHandler = services[16]
 	}
 
 	// Wire SNS→SQS delivery: when SNS publishes a message, deliver it to SQS queues.

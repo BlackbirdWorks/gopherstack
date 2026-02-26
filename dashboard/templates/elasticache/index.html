@@ -1,0 +1,103 @@
+{{define "content"}}
+<div class="px-4 sm:px-6 lg:px-8">
+    <div class="sm:flex sm:items-center justify-between">
+        <div class="sm:flex-auto">
+            <h1 class="text-3xl font-bold text-gray-900 dark:text-white">ElastiCache Clusters</h1>
+            <p class="mt-2 text-sm text-gray-700 dark:text-gray-300">A list of all ElastiCache cache clusters in your
+                in-memory environment.</p>
+        </div>
+        <div class="mt-4 sm:ml-16 sm:mt-0 sm:flex-none">
+            <button type="button" onclick="document.getElementById('create-cluster-modal').classList.remove('hidden')"
+                class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-blue-600 dark:hover:bg-blue-700 focus:outline-none dark:focus:ring-blue-800">
+                + Create Cluster
+            </button>
+        </div>
+    </div>
+
+    <div class="mt-8 relative overflow-x-auto shadow-md sm:rounded-lg">
+        <table class="w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
+            <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                <tr>
+                    <th scope="col" class="px-6 py-3">Cluster ID</th>
+                    <th scope="col" class="px-6 py-3">Engine</th>
+                    <th scope="col" class="px-6 py-3">Status</th>
+                    <th scope="col" class="px-6 py-3">Endpoint</th>
+                    <th scope="col" class="px-6 py-3">Node Type</th>
+                    <th scope="col" class="px-6 py-3 text-right"><span class="sr-only">Actions</span></th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Clusters}}
+                <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
+                    <td class="px-6 py-4 font-medium text-gray-900 dark:text-white whitespace-nowrap">
+                        <a href="/dashboard/elasticache/cluster?id={{.ClusterID}}"
+                            class="text-blue-600 hover:underline dark:text-blue-400">{{.ClusterID}}</a>
+                    </td>
+                    <td class="px-6 py-4">
+                        <span class="bg-red-100 text-red-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-red-900 dark:text-red-300">{{.Engine}}</span>
+                    </td>
+                    <td class="px-6 py-4">
+                        <span class="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-green-900 dark:text-green-300">{{.Status}}</span>
+                    </td>
+                    <td class="px-6 py-4 text-xs text-gray-500 dark:text-gray-400 font-mono">{{.Endpoint}}:{{.Port}}</td>
+                    <td class="px-6 py-4">{{.NodeType}}</td>
+                    <td class="px-6 py-4 text-right whitespace-nowrap">
+                        <form method="DELETE" action="/dashboard/elasticache/delete?id={{.ClusterID}}" style="display:inline">
+                            <button type="submit" hx-delete="/dashboard/elasticache/delete?id={{.ClusterID}}"
+                                hx-confirm="Are you sure you want to delete cluster {{.ClusterID}}?" hx-target="body"
+                                class="font-medium text-red-600 dark:text-red-500 hover:underline">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                {{else}}
+                <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
+                    <td colspan="6" class="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                        No clusters found. Create one to get started.
+                    </td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Create Cluster Modal -->
+<div id="create-cluster-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+    <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white dark:bg-gray-800">
+        <h3 class="text-lg font-medium leading-6 text-gray-900 dark:text-white mb-4">Create Cache Cluster</h3>
+        <form method="POST" action="/dashboard/elasticache/create">
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="cluster_id">Cluster ID</label>
+                <input id="cluster_id" name="cluster_id" type="text" required
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                    placeholder="my-cluster">
+            </div>
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="engine">Engine</label>
+                <select id="engine" name="engine"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                    <option value="redis">Redis</option>
+                    <option value="valkey">Valkey</option>
+                    <option value="memcached">Memcached</option>
+                </select>
+            </div>
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="node_type">Node Type</label>
+                <input id="node_type" name="node_type" type="text"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                    placeholder="cache.t3.micro" value="cache.t3.micro">
+            </div>
+            <div class="flex justify-end gap-3">
+                <button type="button" onclick="document.getElementById('create-cluster-modal').classList.add('hidden')"
+                    class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600">
+                    Cancel
+                </button>
+                <button type="submit"
+                    class="px-4 py-2 text-sm font-medium text-white bg-blue-700 rounded-md hover:bg-blue-800 focus:outline-none dark:bg-blue-600 dark:hover:bg-blue-700">
+                    Create
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{{end}}

@@ -12,6 +12,7 @@ import (
 	sfnbackend "github.com/blackbirdworks/gopherstack/stepfunctions"
 
 	"github.com/blackbirdworks/gopherstack/dynamodb"
+	elasticachebackend "github.com/blackbirdworks/gopherstack/elasticache"
 	ebbackend "github.com/blackbirdworks/gopherstack/eventbridge"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/kinesis"
@@ -51,6 +52,7 @@ type AWSSDKProvider interface {
 	GetCloudWatchHandler() service.Registerable
 	GetCloudFormationHandler() service.Registerable
 	GetKinesisHandler() service.Registerable
+	GetElastiCacheHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 }
 
@@ -86,6 +88,7 @@ type extractedConfig struct {
 	cloudWatchOps     *cwbackend.Handler
 	cloudFormationOps *cfnbackend.Handler
 	kinesisOps        *kinesisbackend.Handler
+	elasticacheOps    *elasticachebackend.Handler
 	gCfg              globalcfg.GlobalConfig
 }
 
@@ -105,6 +108,9 @@ func extractFromProvider(ctx *service.AppContext) extractedConfig {
 	ec.ddb, _ = ap.GetDynamoDBHandler().(*dynamodb.DynamoDBHandler)
 	ec.s3h, _ = ap.GetS3Handler().(*s3.S3Handler)
 	ec.cloudFormationOps, _ = ap.GetCloudFormationHandler().(*cfnbackend.Handler)
+	if h := ap.GetElastiCacheHandler(); h != nil {
+		ec.elasticacheOps, _ = h.(*elasticachebackend.Handler)
+	}
 
 	extractIntegrationHandlers(ap, &ec)
 
@@ -195,6 +201,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		CloudWatchOps:     ec.cloudWatchOps,
 		CloudFormationOps: ec.cloudFormationOps,
 		KinesisOps:        ec.kinesisOps,
+		ElastiCacheOps:    ec.elasticacheOps,
 		GlobalConfig:      ec.gCfg,
 		Logger:            ctx.Logger,
 	})
