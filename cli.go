@@ -34,6 +34,7 @@ import (
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
 	ebbackend "github.com/blackbirdworks/gopherstack/eventbridge"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
+	elasticachebackend "github.com/blackbirdworks/gopherstack/elasticache"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/lambda"
@@ -89,6 +90,7 @@ type CLI struct {
 	cloudWatchHandler     service.Registerable
 	cloudFormationHandler service.Registerable
 	kinesisHandler        service.Registerable
+	elasticacheHandler    service.Registerable
 	s3Client              *s3.Client
 	iamClient             *iam.Client
 	snsClient             *sns.Client
@@ -111,6 +113,7 @@ type CLI struct {
 	PortRangeEnd          int                 `                                  name:"port-range-end"   env:"PORT_RANGE_END"   default:"10100"        help:"End (exclusive) of the port range for resource endpoints."` //nolint:lll // config struct tags are intentionally verbose
 	InitScriptTimeout     time.Duration       `                                  name:"init-timeout"     env:"INIT_TIMEOUT"     default:"30s"          help:"Per-script timeout for init hooks."`                        //nolint:lll // config struct tags are intentionally verbose
 	Demo                  bool                `                                  name:"demo"             env:"DEMO"             default:"false"        help:"Load demo data on startup."`                                //nolint:lll // config struct tags are intentionally verbose
+	ElastiCacheEngine     string              `                                  name:"elasticache-engine" env:"ELASTICACHE_ENGINE" default:"embedded"  help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."` //nolint:lll // config struct tags are intentionally verbose
 }
 
 // GetGlobalConfig returns the centralised account ID and region (config.Provider).
@@ -242,6 +245,14 @@ func (c *CLI) GetCloudFormationHandler() service.Registerable { return c.cloudFo
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetKinesisHandler() service.Registerable { return c.kinesisHandler }
+
+// GetElastiCacheHandler returns the ElastiCache handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetElastiCacheHandler() service.Registerable { return c.elasticacheHandler }
+
+// GetElastiCacheEngine returns the ElastiCache engine mode (elasticache.ElastiCacheConfig).
+func (c *CLI) GetElastiCacheEngine() string { return c.ElastiCacheEngine }
 
 // Run parses CLI / environment-variable configuration and starts Gopherstack.
 // It is called from main() and exits on error.
@@ -432,6 +443,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		&sfnbackend.Provider{},
 		&cwbackend.Provider{},
 		&kinesisbackend.Provider{},
+		&elasticachebackend.Provider{},
 	}
 
 	for _, provider := range serviceProviders {
@@ -461,6 +473,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		cli.stepFunctionsHandler = services[13]
 		cli.cloudWatchHandler = services[14]
 		cli.kinesisHandler = services[15]
+		cli.elasticacheHandler = services[16]
 	}
 
 	// Wire SNS→SQS delivery: when SNS publishes a message, deliver it to SQS queues.
