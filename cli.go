@@ -251,7 +251,7 @@ func (c *CLI) GetKinesisHandler() service.Registerable { return c.kinesisHandler
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetElastiCacheHandler() service.Registerable { return c.elasticacheHandler }
 
-// GetElastiCacheEngine returns the ElastiCache engine mode (elasticache.ElastiCacheConfig).
+// GetElastiCacheEngine returns the ElastiCache engine mode (elasticache.EngineConfig).
 func (c *CLI) GetElastiCacheEngine() string { return c.ElastiCacheEngine }
 
 // Run parses CLI / environment-variable configuration and starts Gopherstack.

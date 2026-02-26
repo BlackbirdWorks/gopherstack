@@ -5,8 +5,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
-// ElastiCacheConfig is the interface for accessing ElastiCache configuration.
-type ElastiCacheConfig interface {
+// EngineConfig is the interface for accessing the ElastiCache engine mode configuration (embedded, stub, or docker).
+type EngineConfig interface {
 	GetElastiCacheEngine() string
 }
 
@@ -29,7 +29,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		accountID = cfg.AccountID
 		region = cfg.Region
 	}
-	if ec, ok := ctx.Config.(ElastiCacheConfig); ok {
+	if ec, ok := ctx.Config.(EngineConfig); ok {
 		engineMode = ec.GetElastiCacheEngine()
 	}
 

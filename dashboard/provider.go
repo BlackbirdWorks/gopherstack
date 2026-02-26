@@ -108,6 +108,9 @@ func extractFromProvider(ctx *service.AppContext) extractedConfig {
 	ec.ddb, _ = ap.GetDynamoDBHandler().(*dynamodb.DynamoDBHandler)
 	ec.s3h, _ = ap.GetS3Handler().(*s3.S3Handler)
 	ec.cloudFormationOps, _ = ap.GetCloudFormationHandler().(*cfnbackend.Handler)
+	if h := ap.GetElastiCacheHandler(); h != nil {
+		ec.elasticacheOps, _ = h.(*elasticachebackend.Handler)
+	}
 
 	extractIntegrationHandlers(ap, &ec)
 
@@ -170,10 +173,6 @@ func extractIntegrationHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 
 	if h := ap.GetKinesisHandler(); h != nil {
 		ec.kinesisOps, _ = h.(*kinesisbackend.Handler)
-	}
-
-	if h := ap.GetElastiCacheHandler(); h != nil {
-		ec.elasticacheOps, _ = h.(*elasticachebackend.Handler)
 	}
 }
 

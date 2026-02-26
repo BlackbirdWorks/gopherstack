@@ -14,14 +14,13 @@ type elastiCacheClusterView struct {
 	Engine    string
 	Status    string
 	Endpoint  string
-	Port      int
 	NodeType  string
 	ARN       string
+	Port      int
 }
 
 // elastiCacheIndexData is the template data for the ElastiCache index page.
 type elastiCacheIndexData struct {
-	//nolint:embeddedstructfieldcheck // fieldalignment places this after pointer fields
 	PageData
 
 	Clusters []elastiCacheClusterView
@@ -29,7 +28,6 @@ type elastiCacheIndexData struct {
 
 // elastiCacheClusterDetailData is the template data for the ElastiCache cluster detail page.
 type elastiCacheClusterDetailData struct {
-	//nolint:embeddedstructfieldcheck // fieldalignment places this after pointer fields
 	PageData
 
 	ClusterID     string
@@ -37,10 +35,10 @@ type elastiCacheClusterDetailData struct {
 	EngineVersion string
 	Status        string
 	Endpoint      string
-	Port          int
 	NodeType      string
-	NumCacheNodes int
 	ARN           string
+	Port          int
+	NumCacheNodes int
 }
 
 // elastiCacheIndex renders the list of all ElastiCache clusters.

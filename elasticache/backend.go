@@ -3,6 +3,7 @@ package elasticache
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"sync"
 	"time"
 
@@ -21,32 +22,33 @@ var (
 	ErrClusterAlreadyExists          = errors.New("CacheClusterAlreadyExists")
 	ErrReplicationGroupNotFound      = errors.New("ReplicationGroupNotFound")
 	ErrReplicationGroupAlreadyExists = errors.New("ReplicationGroupAlreadyExists")
+	ErrResourceNotFound              = errors.New("resource not found")
 )
 
 // Cluster represents an ElastiCache cluster.
 type Cluster struct {
+	CreatedAt     time.Time
+	Tags          map[string]string
+	mini          *miniredis.Miniredis
 	ClusterID     string
 	Engine        string
 	EngineVersion string
 	Status        string
 	Endpoint      string
-	Port          int
 	NodeType      string
-	NumCacheNodes int
 	ARN           string
-	Tags          map[string]string
-	CreatedAt     time.Time
-	mini          *miniredis.Miniredis // non-nil for embedded mode
+	Port          int
+	NumCacheNodes int
 }
 
 // ReplicationGroup represents an ElastiCache replication group.
 type ReplicationGroup struct {
+	CreatedAt          time.Time
+	Tags               map[string]string
 	ReplicationGroupID string
 	Description        string
 	Status             string
 	ARN                string
-	Tags               map[string]string
-	CreatedAt          time.Time
 }
 
 // StorageBackend defines the interface for the ElastiCache in-memory store.
@@ -62,12 +64,12 @@ type StorageBackend interface {
 
 // InMemoryBackend is an in-memory ElastiCache backend.
 type InMemoryBackend struct {
-	mu                sync.RWMutex
 	clusters          map[string]*Cluster
 	replicationGroups map[string]*ReplicationGroup
 	engineMode        string
 	accountID         string
 	region            string
+	mu                sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new backend with the given engine mode.
@@ -75,6 +77,7 @@ func NewInMemoryBackend(engineMode, accountID, region string) *InMemoryBackend {
 	if engineMode == "" {
 		engineMode = EngineEmbedded
 	}
+
 	return &InMemoryBackend{
 		clusters:          make(map[string]*Cluster),
 		replicationGroups: make(map[string]*ReplicationGroup),
@@ -140,6 +143,7 @@ func (b *InMemoryBackend) CreateCluster(id, engine, nodeType string, port int) (
 	}
 
 	b.clusters[id] = c
+
 	return c, nil
 }
 
@@ -157,6 +161,7 @@ func (b *InMemoryBackend) DeleteCluster(id string) error {
 		c.mini.Close()
 	}
 	delete(b.clusters, id)
+
 	return nil
 }
 
@@ -171,6 +176,7 @@ func (b *InMemoryBackend) DescribeClusters(id string) ([]Cluster, error) {
 			return nil, ErrClusterNotFound
 		}
 		out := *c
+
 		return []Cluster{out}, nil
 	}
 
@@ -179,6 +185,7 @@ func (b *InMemoryBackend) DescribeClusters(id string) ([]Cluster, error) {
 		cp := *c
 		out = append(out, cp)
 	}
+
 	return out, nil
 }
 
@@ -190,22 +197,21 @@ func (b *InMemoryBackend) ListTagsForResource(arn string) (map[string]string, er
 	for _, c := range b.clusters {
 		if c.ARN == arn {
 			tags := make(map[string]string, len(c.Tags))
-			for k, v := range c.Tags {
-				tags[k] = v
-			}
+			maps.Copy(tags, c.Tags)
+
 			return tags, nil
 		}
 	}
 	for _, rg := range b.replicationGroups {
 		if rg.ARN == arn {
 			tags := make(map[string]string, len(rg.Tags))
-			for k, v := range rg.Tags {
-				tags[k] = v
-			}
+			maps.Copy(tags, rg.Tags)
+
 			return tags, nil
 		}
 	}
-	return nil, fmt.Errorf("resource with ARN %s not found", arn)
+
+	return nil, fmt.Errorf("resource with ARN %s: %w", arn, ErrResourceNotFound)
 }
 
 // CreateReplicationGroup creates a replication group.
@@ -226,6 +232,7 @@ func (b *InMemoryBackend) CreateReplicationGroup(id, description string) (*Repli
 		CreatedAt:          time.Now(),
 	}
 	b.replicationGroups[id] = rg
+
 	return rg, nil
 }
 
@@ -238,6 +245,7 @@ func (b *InMemoryBackend) DeleteReplicationGroup(id string) error {
 		return ErrReplicationGroupNotFound
 	}
 	delete(b.replicationGroups, id)
+
 	return nil
 }
 
@@ -252,6 +260,7 @@ func (b *InMemoryBackend) DescribeReplicationGroups(id string) ([]ReplicationGro
 			return nil, ErrReplicationGroupNotFound
 		}
 		out := *rg
+
 		return []ReplicationGroup{out}, nil
 	}
 
@@ -260,6 +269,7 @@ func (b *InMemoryBackend) DescribeReplicationGroups(id string) ([]ReplicationGro
 		cp := *rg
 		out = append(out, cp)
 	}
+
 	return out, nil
 }
 
@@ -272,5 +282,6 @@ func (b *InMemoryBackend) ListAll() []Cluster {
 		cp := *c
 		out = append(out, cp)
 	}
+
 	return out
 }

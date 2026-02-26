@@ -43,14 +43,14 @@ type cacheNodes struct {
 
 // cacheClusterXML is the XML representation of a cache cluster.
 type cacheClusterXML struct {
-	CacheClusterId     string     `xml:"CacheClusterId"`
+	CacheClusterID     string     `xml:"CacheClusterId"`
 	CacheClusterStatus string     `xml:"CacheClusterStatus"`
 	CacheNodeType      string     `xml:"CacheNodeType"`
 	Engine             string     `xml:"Engine"`
 	EngineVersion      string     `xml:"EngineVersion"`
-	NumCacheNodes      int        `xml:"NumCacheNodes"`
 	ARN                string     `xml:"ARN"`
 	CacheNodes         cacheNodes `xml:"CacheNodes"`
+	NumCacheNodes      int        `xml:"NumCacheNodes"`
 }
 
 // Handler is the Echo HTTP handler for ElastiCache operations.
@@ -101,6 +101,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		if err != nil {
 			return false
 		}
+
 		return vals.Get("Version") == elasticacheVersion &&
 			slices.Contains(h.GetSupportedOperations(), vals.Get("Action"))
 	}
@@ -123,6 +124,7 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	if action == "" {
 		return unknownOp
 	}
+
 	return action
 }
 
@@ -141,6 +143,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 			return v
 		}
 	}
+
 	return ""
 }
 
@@ -187,6 +190,7 @@ func (h *Handler) createCacheCluster(c *echo.Context, form url.Values) error {
 		if errors.Is(err, ErrClusterAlreadyExists) {
 			return xmlError(c, http.StatusBadRequest, "CacheClusterAlreadyExists", "Cache cluster already exists")
 		}
+
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
@@ -209,6 +213,7 @@ func (h *Handler) deleteCacheCluster(c *echo.Context, form url.Values) error {
 		if errors.Is(descErr, ErrClusterNotFound) {
 			return xmlError(c, http.StatusBadRequest, "CacheClusterNotFound", "Cache cluster not found")
 		}
+
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", descErr.Error())
 	}
 	cl := clusters[0]
@@ -216,6 +221,7 @@ func (h *Handler) deleteCacheCluster(c *echo.Context, form url.Values) error {
 		if errors.Is(err, ErrClusterNotFound) {
 			return xmlError(c, http.StatusBadRequest, "CacheClusterNotFound", "Cache cluster not found")
 		}
+
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
@@ -238,6 +244,7 @@ func (h *Handler) describeCacheClusters(c *echo.Context, form url.Values) error 
 		if errors.Is(err, ErrClusterNotFound) {
 			return xmlError(c, http.StatusBadRequest, "CacheClusterNotFound", "Cache cluster not found")
 		}
+
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
@@ -285,6 +292,7 @@ func (h *Handler) listTagsForResource(c *echo.Context, form url.Values) error {
 	for k, v := range tags {
 		items = append(items, tag{Key: k, Value: v})
 	}
+
 	return xmlResp(c, http.StatusOK, result{
 		Xmlns:   elasticacheNS,
 		TagList: tagList{Tag: items},
@@ -297,13 +305,19 @@ func (h *Handler) createReplicationGroup(c *echo.Context, form url.Values) error
 	rg, err := h.Backend.CreateReplicationGroup(id, desc)
 	if err != nil {
 		if errors.Is(err, ErrReplicationGroupAlreadyExists) {
-			return xmlError(c, http.StatusBadRequest, "ReplicationGroupAlreadyExists", "Replication group already exists")
+			return xmlError(
+				c,
+				http.StatusBadRequest,
+				"ReplicationGroupAlreadyExists",
+				"Replication group already exists",
+			)
 		}
+
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
 	type replicationGroup struct {
-		ReplicationGroupId string `xml:"ReplicationGroupId"`
+		ReplicationGroupID string `xml:"ReplicationGroupId"`
 		Description        string `xml:"Description"`
 		Status             string `xml:"Status"`
 		ARN                string `xml:"ARN"`
@@ -317,7 +331,7 @@ func (h *Handler) createReplicationGroup(c *echo.Context, form url.Values) error
 	return xmlResp(c, http.StatusOK, result{
 		Xmlns: elasticacheNS,
 		ReplicationGroup: replicationGroup{
-			ReplicationGroupId: rg.ReplicationGroupID,
+			ReplicationGroupID: rg.ReplicationGroupID,
 			Description:        rg.Description,
 			Status:             rg.Status,
 			ARN:                rg.ARN,
@@ -332,6 +346,7 @@ func (h *Handler) deleteReplicationGroup(c *echo.Context, form url.Values) error
 		if errors.Is(descErr, ErrReplicationGroupNotFound) {
 			return xmlError(c, http.StatusBadRequest, "ReplicationGroupNotFound", "Replication group not found")
 		}
+
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", descErr.Error())
 	}
 	rg := rgs[0]
@@ -339,11 +354,12 @@ func (h *Handler) deleteReplicationGroup(c *echo.Context, form url.Values) error
 		if errors.Is(err, ErrReplicationGroupNotFound) {
 			return xmlError(c, http.StatusBadRequest, "ReplicationGroupNotFound", "Replication group not found")
 		}
+
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
 	type replicationGroup struct {
-		ReplicationGroupId string `xml:"ReplicationGroupId"`
+		ReplicationGroupID string `xml:"ReplicationGroupId"`
 		Description        string `xml:"Description"`
 		Status             string `xml:"Status"`
 		ARN                string `xml:"ARN"`
@@ -357,7 +373,7 @@ func (h *Handler) deleteReplicationGroup(c *echo.Context, form url.Values) error
 	return xmlResp(c, http.StatusOK, result{
 		Xmlns: elasticacheNS,
 		ReplicationGroup: replicationGroup{
-			ReplicationGroupId: rg.ReplicationGroupID,
+			ReplicationGroupID: rg.ReplicationGroupID,
 			Description:        rg.Description,
 			Status:             "deleting",
 			ARN:                rg.ARN,
@@ -372,11 +388,12 @@ func (h *Handler) describeReplicationGroups(c *echo.Context, form url.Values) er
 		if errors.Is(err, ErrReplicationGroupNotFound) {
 			return xmlError(c, http.StatusBadRequest, "ReplicationGroupNotFound", "Replication group not found")
 		}
+
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
 	type replicationGroup struct {
-		ReplicationGroupId string `xml:"ReplicationGroupId"`
+		ReplicationGroupID string `xml:"ReplicationGroupId"`
 		Description        string `xml:"Description"`
 		Status             string `xml:"Status"`
 		ARN                string `xml:"ARN"`
@@ -393,12 +410,13 @@ func (h *Handler) describeReplicationGroups(c *echo.Context, form url.Values) er
 	items := make([]replicationGroup, 0, len(rgs))
 	for _, rg := range rgs {
 		items = append(items, replicationGroup{
-			ReplicationGroupId: rg.ReplicationGroupID,
+			ReplicationGroupID: rg.ReplicationGroupID,
 			Description:        rg.Description,
 			Status:             rg.Status,
 			ARN:                rg.ARN,
 		})
 	}
+
 	return xmlResp(c, http.StatusOK, result{
 		Xmlns:             elasticacheNS,
 		ReplicationGroups: replicationGroups{ReplicationGroup: items},
@@ -408,7 +426,7 @@ func (h *Handler) describeReplicationGroups(c *echo.Context, form url.Values) er
 // clusterToXML converts a Cluster to its XML representation with the given status.
 func clusterToXML(cl *Cluster, status string) cacheClusterXML {
 	return cacheClusterXML{
-		CacheClusterId:     cl.ClusterID,
+		CacheClusterID:     cl.ClusterID,
 		CacheClusterStatus: status,
 		CacheNodeType:      cl.NodeType,
 		Engine:             cl.Engine,
@@ -437,6 +455,7 @@ func xmlResp(c *echo.Context, status int, v any) error {
 	c.Response().WriteHeader(status)
 	_, _ = c.Response().Write([]byte(xml.Header))
 	_, _ = c.Response().Write(data)
+
 	return nil
 }
 
@@ -454,5 +473,6 @@ func xmlError(c *echo.Context, status int, code, message string) error {
 	resp.Error.Code = code
 	resp.Error.Message = message
 	resp.RequestID = "elasticache-stub"
+
 	return xmlResp(c, status, resp)
 }
