@@ -36,7 +36,7 @@ func TestIntegration_ElastiCache_ClusterLifecycle(t *testing.T) {
 	ep := createOut.CacheCluster.CacheNodes[0].Endpoint
 	require.NotNil(t, ep)
 	assert.Equal(t, "localhost", aws.ToString(ep.Address))
-	assert.Greater(t, aws.ToInt32(ep.Port), int32(0))
+	assert.Positive(t, aws.ToInt32(ep.Port))
 
 	// DescribeCacheClusters — specific cluster
 	descOut, err := client.DescribeCacheClusters(ctx, &elasticachesdk.DescribeCacheClustersInput{
@@ -96,10 +96,10 @@ func TestIntegration_ElastiCache_DescribeAll(t *testing.T) {
 
 	// Clean up
 	for _, id := range ids {
-		_, err := client.DeleteCacheCluster(ctx, &elasticachesdk.DeleteCacheClusterInput{
+		_, delErr := client.DeleteCacheCluster(ctx, &elasticachesdk.DeleteCacheClusterInput{
 			CacheClusterId: aws.String(id),
 		})
-		require.NoError(t, err)
+		require.NoError(t, delErr)
 	}
 }
 

@@ -20,10 +20,10 @@ import (
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/cloudwatchlogs"
 	"github.com/blackbirdworks/gopherstack/dashboard"
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
+	elasticachebackend "github.com/blackbirdworks/gopherstack/elasticache"
 	ebbackend "github.com/blackbirdworks/gopherstack/eventbridge"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/kinesis"
-	elasticachebackend "github.com/blackbirdworks/gopherstack/elasticache"
 	kmsbackend "github.com/blackbirdworks/gopherstack/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/lambda"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -159,26 +159,26 @@ func registerServices(
 
 // handlers bundles all service handlers created for a test stack.
 type handlers struct {
-	s3      *s3backend.S3Handler
-	ddb     *ddbbackend.DynamoDBHandler
-	ssm     *ssmbackend.Handler
-	iam     *iambackend.Handler
-	sts     *stsbackend.Handler
-	sns     *snsbackend.Handler
-	sqs     *sqsbackend.Handler
-	kms     *kmsbackend.Handler
-	sm      *smbackend.Handler
-	lambda  *lambdabackend.Handler
-	eb      *ebbackend.Handler
-	apigw   *apigwbackend.Handler
-	cwlogs  *cwlogsbackend.Handler
-	sfn     *sfnbackend.Handler
-	cw      *cwbackend.Handler
-	cfn     *cfnbackend.Handler
-	kinesis *kinesisbackend.Handler
+	s3          *s3backend.S3Handler
+	ddb         *ddbbackend.DynamoDBHandler
+	ssm         *ssmbackend.Handler
+	iam         *iambackend.Handler
+	sts         *stsbackend.Handler
+	sns         *snsbackend.Handler
+	sqs         *sqsbackend.Handler
+	kms         *kmsbackend.Handler
+	sm          *smbackend.Handler
+	lambda      *lambdabackend.Handler
+	eb          *ebbackend.Handler
+	apigw       *apigwbackend.Handler
+	cwlogs      *cwlogsbackend.Handler
+	sfn         *sfnbackend.Handler
+	cw          *cwbackend.Handler
+	cfn         *cfnbackend.Handler
+	kinesis     *kinesisbackend.Handler
 	elasticache *elasticachebackend.Handler
-	iamBk   *iambackend.InMemoryBackend
-	s3Bk    *s3backend.InMemoryBackend
+	iamBk       *iambackend.InMemoryBackend
+	s3Bk        *s3backend.InMemoryBackend
 }
 
 // newHandlers creates in-memory backends and handlers for all services.
@@ -210,9 +210,12 @@ func newHandlers() handlers {
 		cwlogs:  cwlogsbackend.NewHandler(cwlogsbackend.NewInMemoryBackend(), slog.Default()),
 		sfn:     sfnbackend.NewHandler(sfnbackend.NewInMemoryBackend(), slog.Default()),
 		cw:      cwbackend.NewHandler(cwbackend.NewInMemoryBackend(), slog.Default()),
-		cfn:         newCFNHandler(s3Bk, ddb, sqs, sns, ssm, kms, sm),
-		kinesis:     kinesisbackend.NewHandler(kinesisbackend.NewInMemoryBackend(), slog.Default()),
-		elasticache: elasticachebackend.NewHandler(elasticachebackend.NewInMemoryBackend(elasticachebackend.EngineStub, "000000000000", "us-east-1"), slog.Default()),
+		cfn:     newCFNHandler(s3Bk, ddb, sqs, sns, ssm, kms, sm),
+		kinesis: kinesisbackend.NewHandler(kinesisbackend.NewInMemoryBackend(), slog.Default()),
+		elasticache: elasticachebackend.NewHandler(
+			elasticachebackend.NewInMemoryBackend(elasticachebackend.EngineStub, "000000000000", "us-east-1"),
+			slog.Default(),
+		),
 	}
 }
 
