@@ -147,7 +147,7 @@ func (h *DashboardHandler) elastiCacheCreateCluster(c *echo.Context) error {
 		return c.String(http.StatusBadRequest, err.Error())
 	}
 
-	return c.Redirect(http.StatusSeeOther, "/dashboard/elasticache")
+	return c.Redirect(http.StatusFound, "/dashboard/elasticache")
 }
 
 // elastiCacheDeleteCluster handles a DELETE to remove a cache cluster.
@@ -161,5 +161,5 @@ func (h *DashboardHandler) elastiCacheDeleteCluster(c *echo.Context) error {
 		return c.String(http.StatusBadRequest, err.Error())
 	}
 
-	return c.Redirect(http.StatusSeeOther, "/dashboard/elasticache")
+	return c.Redirect(http.StatusFound, "/dashboard/elasticache")
 }
