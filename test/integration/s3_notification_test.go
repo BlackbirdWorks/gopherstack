@@ -54,10 +54,12 @@ func TestIntegration_S3_NotificationToSQS(t *testing.T) {
 
 	t.Cleanup(func() {
 		out, _ := s3Client.ListObjects(t.Context(), &s3.ListObjectsInput{Bucket: aws.String(bucket)})
-		for _, obj := range out.Contents {
-			_, _ = s3Client.DeleteObject(t.Context(), &s3.DeleteObjectInput{
-				Bucket: aws.String(bucket), Key: obj.Key,
-			})
+		if out != nil {
+			for _, obj := range out.Contents {
+				_, _ = s3Client.DeleteObject(t.Context(), &s3.DeleteObjectInput{
+					Bucket: aws.String(bucket), Key: obj.Key,
+				})
+			}
 		}
 		_, _ = s3Client.DeleteBucket(t.Context(), &s3.DeleteBucketInput{Bucket: aws.String(bucket)})
 	})
