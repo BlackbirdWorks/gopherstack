@@ -733,13 +733,12 @@ func (h *Handler) handleInvoke(c *echo.Context, name string) error {
 		body = []byte("{}")
 	}
 
-	lambdaBk, ok := h.Backend.(*InMemoryBackend)
 	var result []byte
 	var statusCode int
 	var invokeErr error
 
-	if ok && qualifier != "" {
-		result, statusCode, invokeErr = lambdaBk.InvokeFunctionWithQualifier(ctx, name, qualifier, invType, body)
+	if qi, ok := h.Backend.(QualifierInvoker); ok && qualifier != "" {
+		result, statusCode, invokeErr = qi.InvokeFunctionWithQualifier(ctx, name, qualifier, invType, body)
 	} else {
 		result, statusCode, invokeErr = h.Backend.InvokeFunction(ctx, name, invType, body)
 	}

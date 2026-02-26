@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -26,6 +27,10 @@ const (
 	lambdaLogsPortStart = 21200
 	// lambdaLogsPortEnd is the exclusive end of that range.
 	lambdaLogsPortEnd = 21300
+	// lambdaVersionsPortStart is the start of the port range for Lambda version/alias integration tests.
+	lambdaVersionsPortStart = 21300
+	// lambdaVersionsPortEnd is the exclusive end of that range.
+	lambdaVersionsPortEnd = 21400
 )
 
 // inProcessCWLogsAdapter adapts a cloudwatchlogs.InMemoryBackend to lambdapkg.CWLogsBackend.
@@ -34,8 +39,15 @@ type inProcessCWLogsAdapter struct {
 }
 
 func (a *inProcessCWLogsAdapter) EnsureLogGroupAndStream(groupName, streamName string) error {
-	_, _ = a.backend.CreateLogGroup(groupName)
-	_, _ = a.backend.CreateLogStream(groupName, streamName)
+	if _, err := a.backend.CreateLogGroup(groupName); err != nil &&
+		!errors.Is(err, cwlogspkg.ErrLogGroupAlreadyExists) {
+		return err
+	}
+
+	if _, err := a.backend.CreateLogStream(groupName, streamName); err != nil &&
+		!errors.Is(err, cwlogspkg.ErrLogStreamAlreadyExist) {
+		return err
+	}
 
 	return nil
 }
@@ -104,48 +116,29 @@ func TestLambdaCWLogs_WiringProducesLogEntries(t *testing.T) {
 	defer createResp.Body.Close()
 	require.Equal(t, http.StatusCreated, createResp.StatusCode)
 
-	// Invoke the function — it will fail (no Docker) but we still check CW Logs behaviour.
-	// The InvokeFunctionWithQualifier call returns ErrLambdaUnavailable before pushInvocationLog,
-	// so we test the CW Logs wiring by invoking the backend directly.
+	// Invoke the function. This test verifies Lambda → CloudWatch Logs wiring and
+	// therefore requires a working Lambda runtime. If the runtime is unavailable
+	// (no Docker), skip instead of simulating logs directly.
 	result, status, invokeErr := lambdaBackend.InvokeFunctionWithQualifier(
 		ctx, "log-test-fn", "", lambdapkg.InvocationTypeRequestResponse,
 		[]byte(`{"event":"test"}`),
 	)
 
-	// Without Docker the invocation fails — that's expected. We verify the wiring
-	// produces log entries on successful invocations by using a stub backend.
 	if invokeErr != nil {
-		t.Logf("Invocation failed as expected without Docker: %v", invokeErr)
-		// Fall through to verify that when we call pushInvocationLog directly
-		// (via a successful invocation path), logs are created.
-	} else {
-		// If Docker happened to be available, verify logs were written.
-		assert.Equal(t, http.StatusOK, status)
-		t.Logf("Invocation succeeded, response: %s", result)
+		t.Skipf("skipping Lambda → CloudWatch Logs wiring test: Lambda unavailable: %v", invokeErr)
 	}
 
-	// Verify CW Logs wiring by calling EnsureLogGroupAndStream + PutLogLines directly.
-	// This ensures the adapter works end-to-end.
+	// If we get here, the invocation succeeded; verify the response status.
+	assert.Equal(t, http.StatusOK, status)
+	t.Logf("Invocation succeeded, response: %s", result)
+
+	// Verify that pushInvocationLog created the log group in CloudWatch Logs.
 	groupName := fmt.Sprintf("/aws/lambda/%s", "log-test-fn")
-	streamName := "2024/01/01/[$LATEST]abcd1234"
 
-	require.NoError(t, cwlogsAdapter.EnsureLogGroupAndStream(groupName, streamName))
-	require.NoError(t, cwlogsAdapter.PutLogLines(groupName, streamName, []string{
-		"START RequestId: test-request-id",
-		"END RequestId: test-request-id",
-		"REPORT RequestId: test-request-id  Duration: 12.34 ms",
-	}))
-
-	// Verify the log group was created in CloudWatch Logs.
 	groups, _, err := cwlogsBackend.DescribeLogGroups(groupName, "", 10)
 	require.NoError(t, err)
 	require.Len(t, groups, 1)
 	assert.Equal(t, groupName, groups[0].LogGroupName)
-
-	// Verify events were written to the log stream.
-	events, _, _, getErr := cwlogsBackend.GetLogEvents(groupName, streamName, nil, nil, 100, "")
-	require.NoError(t, getErr)
-	assert.Len(t, events, 3)
 }
 
 // TestLambdaVersionsAndAliases_Integration tests the full version + alias lifecycle
@@ -153,7 +146,7 @@ func TestLambdaCWLogs_WiringProducesLogEntries(t *testing.T) {
 func TestLambdaVersionsAndAliases_Integration(t *testing.T) {
 	t.Parallel()
 
-	pa, err := portalloc.New(lambdaLogsPortStart+100, lambdaLogsPortEnd)
+	pa, err := portalloc.New(lambdaVersionsPortStart, lambdaVersionsPortEnd)
 	require.NoError(t, err)
 
 	lambdaBackend := lambdapkg.NewInMemoryBackend(

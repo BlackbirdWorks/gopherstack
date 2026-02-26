@@ -866,8 +866,15 @@ type cwLogsAdapter struct {
 }
 
 func (a *cwLogsAdapter) EnsureLogGroupAndStream(groupName, streamName string) error {
-	_, _ = a.backend.CreateLogGroup(groupName)
-	_, _ = a.backend.CreateLogStream(groupName, streamName)
+	if _, err := a.backend.CreateLogGroup(groupName); err != nil &&
+		!errors.Is(err, cwlogsbackend.ErrLogGroupAlreadyExists) {
+		return err
+	}
+
+	if _, err := a.backend.CreateLogStream(groupName, streamName); err != nil &&
+		!errors.Is(err, cwlogsbackend.ErrLogStreamAlreadyExist) {
+		return err
+	}
 
 	return nil
 }

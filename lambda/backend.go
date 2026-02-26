@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net"
 	"net/http"
 	"os"
@@ -56,6 +57,14 @@ type StorageBackend interface {
 	DeleteFunction(name string) error
 	UpdateFunction(fn *FunctionConfiguration) error
 	InvokeFunction(ctx context.Context, name string, invocationType InvocationType, payload []byte) ([]byte, int, error)
+}
+
+// QualifierInvoker is an optional extension of StorageBackend that supports qualified invocations.
+// Backends implement this to support ?Qualifier= on Invoke (alias or version qualifier).
+type QualifierInvoker interface {
+	InvokeFunctionWithQualifier(
+		ctx context.Context, name, qualifier string, invocationType InvocationType, payload []byte,
+	) ([]byte, int, error)
 }
 
 // S3CodeFetcher can retrieve zip bytes from an S3-compatible store.
@@ -651,11 +660,11 @@ func (b *InMemoryBackend) PublishVersion(name, description string) (*FunctionVer
 		Timeout:      fn.Timeout,
 		PackageType:  fn.PackageType,
 		ImageURI:     fn.ImageURI,
-		Environment:  fn.Environment,
+		Environment:  deepCopyEnvironment(fn.Environment),
 		CodeSize:     fn.CodeSize,
 		RevisionID:   uuid.New().String(),
 		CreatedAt:    fn.LastModified,
-		State:        FunctionStateActive,
+		State:        fn.State,
 	}
 
 	b.versions[name] = append(b.versions[name], ver)
@@ -675,7 +684,7 @@ func (b *InMemoryBackend) GetVersion(name, version string) (*FunctionVersion, er
 			return nil, ErrFunctionNotFound
 		}
 
-		return fnToVersion(fn, b.region, b.accountID), nil
+		return fnToVersion(fn), nil
 	}
 
 	for _, v := range b.versions[name] {
@@ -700,7 +709,7 @@ func (b *InMemoryBackend) ListVersionsByFunction(name string) ([]*FunctionVersio
 	result := make([]*FunctionVersion, 0, len(b.versions[name])+1)
 
 	// $LATEST is always first.
-	result = append(result, fnToVersion(fn, b.region, b.accountID))
+	result = append(result, fnToVersion(fn))
 	result = append(result, b.versions[name]...)
 
 	return result, nil
@@ -713,6 +722,23 @@ func (b *InMemoryBackend) CreateAlias(name string, input *CreateAliasInput) (*Fu
 
 	if _, ok := b.functions[name]; !ok {
 		return nil, ErrFunctionNotFound
+	}
+
+	// Validate the target version: must be "$LATEST" or an existing published version.
+	if input.FunctionVersion != versionLatest {
+		found := false
+
+		for _, v := range b.versions[name] {
+			if v.Version == input.FunctionVersion {
+				found = true
+
+				break
+			}
+		}
+
+		if !found {
+			return nil, ErrVersionNotFound
+		}
 	}
 
 	if _, ok := b.aliases[name]; !ok {
@@ -740,6 +766,10 @@ func (b *InMemoryBackend) CreateAlias(name string, input *CreateAliasInput) (*Fu
 func (b *InMemoryBackend) GetAlias(name, aliasName string) (*FunctionAlias, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
+
+	if _, ok := b.functions[name]; !ok {
+		return nil, ErrFunctionNotFound
+	}
 
 	aliasMap, ok := b.aliases[name]
 	if !ok {
@@ -796,7 +826,10 @@ func (b *InMemoryBackend) UpdateAlias(name, aliasName string, input *UpdateAlias
 		alias.FunctionVersion = input.FunctionVersion
 	}
 
-	alias.Description = input.Description
+	if input.Description != "" {
+		alias.Description = input.Description
+	}
+
 	alias.RevisionID = uuid.New().String()
 
 	return alias, nil
@@ -829,28 +862,28 @@ func (b *InMemoryBackend) resolveQualifier(name, qualifier string) (*FunctionCon
 		return b.GetFunction(name)
 	}
 
-	// Check if qualifier is an alias.
+	// Check if qualifier is an alias; if so, resolve to the target version string.
+	// Hold a single RLock for both the alias lookup and the version search to avoid
+	// TOCTOU races with concurrent alias/version updates.
 	b.mu.RLock()
-	aliasMap := b.aliases[name]
-	b.mu.RUnlock()
 
-	if aliasMap != nil {
+	if aliasMap := b.aliases[name]; aliasMap != nil {
 		if alias, ok := aliasMap[qualifier]; ok {
 			qualifier = alias.FunctionVersion
 		}
 	}
 
 	// Now qualifier is a version number. Find the version snapshot.
-	b.mu.RLock()
-	versionList := b.versions[name]
-	b.mu.RUnlock()
-
-	for _, v := range versionList {
+	for _, v := range b.versions[name] {
 		if v.Version == qualifier {
-			// Return a synthesised FunctionConfiguration from the version snapshot.
-			return versionToFn(v), nil
+			fn := versionToFn(v)
+			b.mu.RUnlock()
+
+			return fn, nil
 		}
 	}
+
+	b.mu.RUnlock()
 
 	// If it's "$LATEST" after alias resolution, fall through to live config.
 	if qualifier == versionLatest {
@@ -860,11 +893,23 @@ func (b *InMemoryBackend) resolveQualifier(name, qualifier string) (*FunctionCon
 	return nil, ErrVersionNotFound
 }
 
+// deepCopyEnvironment returns a deep copy of an EnvironmentConfig, or nil if src is nil.
+func deepCopyEnvironment(src *EnvironmentConfig) *EnvironmentConfig {
+	if src == nil {
+		return nil
+	}
+
+	vars := make(map[string]string, len(src.Variables))
+	maps.Copy(vars, src.Variables)
+
+	return &EnvironmentConfig{Variables: vars}
+}
+
 // fnToVersion converts a live FunctionConfiguration to a $LATEST FunctionVersion.
-func fnToVersion(fn *FunctionConfiguration, region, accountID string) *FunctionVersion {
+func fnToVersion(fn *FunctionConfiguration) *FunctionVersion {
 	return &FunctionVersion{
 		FunctionName: fn.FunctionName,
-		FunctionArn:  buildVersionARN(region, accountID, fn.FunctionName, versionLatest),
+		FunctionArn:  fn.FunctionArn,
 		Description:  fn.Description,
 		Version:      versionLatest,
 		Runtime:      fn.Runtime,
@@ -914,9 +959,8 @@ func buildAliasARN(region, accountID, functionName, aliasName string) string {
 	return fmt.Sprintf("arn:aws:lambda:%s:%s:function:%s:%s", region, accountID, functionName, aliasName)
 }
 
-// InvokeFunction invokes a Lambda function and returns the response payload and HTTP status code.
-// qualifier is optional; pass "" or "$LATEST" for the live function. An alias or version number
-// resolves to the corresponding configuration snapshot.
+// InvokeFunction invokes a Lambda function without a qualifier (equivalent to "$LATEST").
+// For qualified invocations (alias or version number), use InvokeFunctionWithQualifier.
 func (b *InMemoryBackend) InvokeFunction(
 	ctx context.Context,
 	name string,
@@ -996,6 +1040,9 @@ func (b *InMemoryBackend) pushInvocationLog(functionName string, _ []byte, resul
 	streamName := time.Now().UTC().Format("2006/01/02") + "/[$LATEST]" + uuid.New().String()[:8]
 
 	if err := cwl.EnsureLogGroupAndStream(groupName, streamName); err != nil {
+		b.logger.Warn("pushInvocationLog: failed to ensure log group/stream",
+			"function", functionName, "error", err)
+
 		return
 	}
 
@@ -1004,7 +1051,10 @@ func (b *InMemoryBackend) pushInvocationLog(functionName string, _ []byte, resul
 		"REPORT response length: " + strconv.Itoa(len(result)),
 	}
 
-	_ = cwl.PutLogLines(groupName, streamName, messages)
+	if err := cwl.PutLogLines(groupName, streamName, messages); err != nil {
+		b.logger.Warn("pushInvocationLog: failed to put log lines",
+			"function", functionName, "error", err)
+	}
 }
 
 // defaultFunctionTimeout is used when the function has no timeout configured.
