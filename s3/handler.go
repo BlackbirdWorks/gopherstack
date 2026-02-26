@@ -65,6 +65,7 @@ type S3Handler struct {
 	Logger        *slog.Logger
 	DefaultRegion string
 	janitor       *Janitor
+	notifier      NotificationDispatcher
 	Backend       StorageBackend
 	// Endpoint is the base host (e.g. "localhost:9000") of this server.
 	// When set, virtual-hosted-style URLs (bucket.host/key) are supported
@@ -102,6 +103,12 @@ func (h *S3Handler) StartWorker(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// SetNotificationDispatcher attaches a NotificationDispatcher that delivers
+// S3 event notifications to SQS/SNS/Lambda targets on PutObject and DeleteObject.
+func (h *S3Handler) SetNotificationDispatcher(d NotificationDispatcher) {
+	h.notifier = d
 }
 
 type s3Metrics struct {
