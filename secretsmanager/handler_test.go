@@ -1,6 +1,7 @@
 package secretsmanager_test
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -963,4 +964,97 @@ func TestSecretsManagerRotateSecret(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, out.VersionID, curr.VersionID)
 	assert.Equal(t, "original-value", curr.SecretString)
+}
+
+// mockLambdaInvoker is a test mock for the LambdaInvoker interface.
+type mockLambdaInvoker struct {
+calls      []lambdaCall
+invokeErr  error
+invokeResp []byte
+}
+
+type lambdaCall struct {
+name            string
+invocationType  string
+payload         []byte
+}
+
+func (m *mockLambdaInvoker) InvokeFunction(_ context.Context, name, invocationType string, payload []byte) ([]byte, int, error) {
+m.calls = append(m.calls, lambdaCall{name: name, invocationType: invocationType, payload: payload})
+if m.invokeErr != nil {
+return nil, 500, m.invokeErr
+}
+if m.invokeResp != nil {
+return m.invokeResp, 200, nil
+}
+return []byte(`{}`), 200, nil
+}
+
+// TestSecretsManagerRotateSecret_WithLambda tests RotateSecret invoking a rotation Lambda.
+func TestSecretsManagerRotateSecret_WithLambda(t *testing.T) {
+t.Parallel()
+
+e := echo.New()
+log := logger.NewLogger(slog.LevelDebug)
+backend := secretsmanager.NewInMemoryBackend()
+h := secretsmanager.NewHandler(backend, log)
+
+mock := &mockLambdaInvoker{}
+h.SetLambdaInvoker(mock)
+
+_, err := backend.CreateSecret(&secretsmanager.CreateSecretInput{
+Name:         "lambda-rotate-secret",
+SecretString: "initial-value",
+})
+require.NoError(t, err)
+
+rotateBody := `{"SecretId":"lambda-rotate-secret","RotationLambdaARN":"arn:aws:lambda:us-east-1:000000000000:function:my-rotator"}`
+req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(rotateBody))
+req.Header.Set("X-Amz-Target", "secretsmanager.RotateSecret")
+rec := httptest.NewRecorder()
+require.NoError(t, h.Handler()(e.NewContext(req, rec)))
+assert.Equal(t, http.StatusOK, rec.Code)
+
+// Rotation Lambda should have been invoked 4 times (one per step).
+require.Len(t, mock.calls, 4)
+
+steps := []string{"createSecret", "setSecret", "testSecret", "finishSecret"}
+for i, call := range mock.calls {
+assert.Equal(t, "my-rotator", call.name)
+assert.Equal(t, "RequestResponse", call.invocationType)
+var event map[string]string
+require.NoError(t, json.Unmarshal(call.payload, &event))
+assert.Equal(t, "lambda-rotate-secret", event["SecretId"])
+assert.Equal(t, steps[i], event["Step"])
+assert.NotEmpty(t, event["ClientRequestToken"])
+}
+}
+
+// TestSecretsManagerRotateSecret_NoLambdaInvoker tests rotation without Lambda (stub only).
+func TestSecretsManagerRotateSecret_NoLambdaInvoker(t *testing.T) {
+t.Parallel()
+
+e := echo.New()
+log := logger.NewLogger(slog.LevelDebug)
+backend := secretsmanager.NewInMemoryBackend()
+h := secretsmanager.NewHandler(backend, log)
+// No lambda invoker set
+
+_, err := backend.CreateSecret(&secretsmanager.CreateSecretInput{
+Name:         "no-lambda-rotate",
+SecretString: "value",
+})
+require.NoError(t, err)
+
+// Even with a RotationLambdaARN, if no invoker is wired, it should still succeed (stub rotation).
+rotateBody := `{"SecretId":"no-lambda-rotate","RotationLambdaARN":"arn:aws:lambda:us-east-1:000000000000:function:rotator"}`
+req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(rotateBody))
+req.Header.Set("X-Amz-Target", "secretsmanager.RotateSecret")
+rec := httptest.NewRecorder()
+require.NoError(t, h.Handler()(e.NewContext(req, rec)))
+assert.Equal(t, http.StatusOK, rec.Code)
+
+var out secretsmanager.RotateSecretOutput
+require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+assert.NotEmpty(t, out.VersionID)
 }

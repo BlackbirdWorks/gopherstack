@@ -500,6 +500,12 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	// Wire Kinesis → Lambda event source mapping poller.
 	wireKinesisLambda(services[15], services[9])
 
+	// Wire CloudWatch Logs → Lambda log delivery.
+	wireLambdaCWLogs(services[9], services[12])
+
+	// Wire Lambda invoker → SecretsManager rotation.
+	wireSecretsManagerLambda(services[8], services[9])
+
 	// Init CloudFormation after core handlers are stored so it can access their backends.
 	cfnSvc, err := (&cfnbackend.Provider{}).Init(appCtx)
 	if err != nil {
@@ -832,6 +838,66 @@ func arnToSQSQueueURL(arn string) string {
 	queueName := parts[5]
 
 	return "http://local/" + accountID + "/" + queueName
+}
+
+// wireLambdaCWLogs connects the Lambda backend to CloudWatch Logs so that
+// function invocations produce log entries in /aws/lambda/{function-name}.
+func wireLambdaCWLogs(lambdaReg, cwlogsReg service.Registerable) {
+	lambdaH, ok := lambdaReg.(*lambdabackend.Handler)
+	if !ok {
+		return
+	}
+
+	lambdaBk, bkOk := lambdaH.Backend.(*lambdabackend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	if cwlogsH, cwlogsOk := cwlogsReg.(*cwlogsbackend.Handler); cwlogsOk {
+		if cwlogsBk, cwBkOk := cwlogsH.Backend.(*cwlogsbackend.InMemoryBackend); cwBkOk {
+			lambdaBk.SetCWLogsBackend(&cwLogsAdapter{backend: cwlogsBk})
+		}
+	}
+}
+
+// cwLogsAdapter adapts the CloudWatch Logs InMemoryBackend to the lambda.CWLogsBackend interface.
+type cwLogsAdapter struct {
+	backend *cwlogsbackend.InMemoryBackend
+}
+
+func (a *cwLogsAdapter) EnsureLogGroupAndStream(groupName, streamName string) error {
+	_, _ = a.backend.CreateLogGroup(groupName)
+	_, _ = a.backend.CreateLogStream(groupName, streamName)
+
+	return nil
+}
+
+func (a *cwLogsAdapter) PutLogLines(groupName, streamName string, messages []string) error {
+	events := make([]cwlogsbackend.InputLogEvent, len(messages))
+	now := time.Now().UnixMilli()
+
+	for i, msg := range messages {
+		events[i] = cwlogsbackend.InputLogEvent{Message: msg, Timestamp: now}
+	}
+
+	_, err := a.backend.PutLogEvents(groupName, streamName, events)
+
+	return err
+}
+
+// wireSecretsManagerLambda wires the Lambda invoker into the SecretsManager handler
+// so that RotateSecret with a RotationLambdaARN invokes the Lambda function.
+func wireSecretsManagerLambda(smReg, lambdaReg service.Registerable) {
+	smH, ok := smReg.(*secretsmanagerbackend.Handler)
+	if !ok {
+		return
+	}
+
+	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
+		if lambdaBk, bkOk := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bkOk {
+			smH.SetLambdaInvoker(&lambdaInvokerAdapter{backend: lambdaBk})
+		}
+	}
 }
 
 func startServer(ctx context.Context, log *slog.Logger, port string, e *echo.Echo) error {

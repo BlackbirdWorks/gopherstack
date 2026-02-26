@@ -37,6 +37,12 @@ var (
 	ErrESMNotFound = errors.New("ResourceNotFoundException")
 	// ErrFunctionURLNotFound is returned when no function URL config exists for the function.
 	ErrFunctionURLNotFound = errors.New("ResourceNotFoundException")
+	// ErrVersionNotFound is returned when the specified function version does not exist.
+	ErrVersionNotFound = errors.New("ResourceNotFoundException")
+	// ErrAliasNotFound is returned when the specified alias does not exist.
+	ErrAliasNotFound = errors.New("ResourceNotFoundException")
+	// ErrAliasAlreadyExists is returned when creating an alias that already exists.
+	ErrAliasAlreadyExists = errors.New("ResourceConflictException")
 )
 
 // StorageBackend defines the interface for Lambda backend operations.
@@ -53,6 +59,12 @@ type StorageBackend interface {
 // It is used by InMemoryBackend to pull Zip Lambda code from S3.
 type S3CodeFetcher interface {
 	GetObjectBytes(ctx context.Context, bucket, key string) ([]byte, error)
+}
+
+// CWLogsBackend is the minimum CloudWatch Logs interface needed by Lambda for log delivery.
+type CWLogsBackend interface {
+	EnsureLogGroupAndStream(groupName, streamName string) error
+	PutLogLines(groupName, streamName string, messages []string) error
 }
 
 // DNSRegistrar is an optional interface for registering synthetic DNS hostnames.
@@ -85,16 +97,23 @@ type InMemoryBackend struct {
 	eventSourceMappings map[string]*EventSourceMapping
 	functionURLConfigs  map[string]*FunctionURLConfig
 	functionURLServers  map[string]*functionURLServer
-	kinesisPoller       *EventSourcePoller
-	dnsRegistrar        DNSRegistrar
-	docker              *docker.Client
-	portAlloc           *portalloc.Allocator
-	s3Fetcher           S3CodeFetcher
-	logger              *slog.Logger
-	accountID           string
-	region              string
-	settings            Settings
-	mu                  sync.RWMutex
+	// versions stores immutable version snapshots: functionName → []FunctionVersion (sorted by number)
+	versions map[string][]*FunctionVersion
+	// aliases stores alias configs: functionName → aliasName → FunctionAlias
+	aliases       map[string]map[string]*FunctionAlias
+	// versionCounters tracks the next version number per function
+	versionCounters map[string]int
+	kinesisPoller   *EventSourcePoller
+	cwLogs          CWLogsBackend
+	dnsRegistrar    DNSRegistrar
+	docker          *docker.Client
+	portAlloc       *portalloc.Allocator
+	s3Fetcher       S3CodeFetcher
+	logger          *slog.Logger
+	accountID       string
+	region          string
+	settings        Settings
+	mu              sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new Lambda in-memory backend.
@@ -111,6 +130,9 @@ func NewInMemoryBackend(
 		eventSourceMappings: make(map[string]*EventSourceMapping),
 		functionURLConfigs:  make(map[string]*FunctionURLConfig),
 		functionURLServers:  make(map[string]*functionURLServer),
+		versions:            make(map[string][]*FunctionVersion),
+		aliases:             make(map[string]map[string]*FunctionAlias),
+		versionCounters:     make(map[string]int),
 		docker:              dockerClient,
 		portAlloc:           portAlloc,
 		settings:            settings,
@@ -132,6 +154,13 @@ func (b *InMemoryBackend) SetS3CodeFetcher(f S3CodeFetcher) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.s3Fetcher = f
+}
+
+// SetCWLogsBackend sets the CloudWatch Logs backend for Lambda log delivery.
+func (b *InMemoryBackend) SetCWLogsBackend(cwl CWLogsBackend) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.cwLogs = cwl
 }
 
 // SetKinesisPoller sets the event source poller for Kinesis stream polling.
@@ -594,14 +623,313 @@ func (b *InMemoryBackend) UpdateFunction(fn *FunctionConfiguration) error {
 	return nil
 }
 
+// PublishVersion creates an immutable version snapshot of the current $LATEST function config.
+func (b *InMemoryBackend) PublishVersion(name, description string) (*FunctionVersion, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	fn, ok := b.functions[name]
+	if !ok {
+		return nil, ErrFunctionNotFound
+	}
+
+	b.versionCounters[name]++
+	versionNum := strconv.Itoa(b.versionCounters[name])
+
+	ver := &FunctionVersion{
+		FunctionName: fn.FunctionName,
+		FunctionArn:  buildVersionARN(b.region, b.accountID, fn.FunctionName, versionNum),
+		Description:  description,
+		Version:      versionNum,
+		Runtime:      fn.Runtime,
+		Handler:      fn.Handler,
+		Role:         fn.Role,
+		MemorySize:   fn.MemorySize,
+		Timeout:      fn.Timeout,
+		PackageType:  fn.PackageType,
+		ImageURI:     fn.ImageURI,
+		Environment:  fn.Environment,
+		CodeSize:     fn.CodeSize,
+		RevisionID:   uuid.New().String(),
+		CreatedAt:    fn.LastModified,
+		State:        FunctionStateActive,
+	}
+
+	b.versions[name] = append(b.versions[name], ver)
+
+	return ver, nil
+}
+
+// GetVersion returns a specific version snapshot of a function.
+// Pass "$LATEST" to get the live function config as a FunctionVersion.
+func (b *InMemoryBackend) GetVersion(name, version string) (*FunctionVersion, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if version == "$LATEST" {
+		fn, ok := b.functions[name]
+		if !ok {
+			return nil, ErrFunctionNotFound
+		}
+
+		return fnToVersion(fn, b.region, b.accountID), nil
+	}
+
+	for _, v := range b.versions[name] {
+		if v.Version == version {
+			return v, nil
+		}
+	}
+
+	return nil, ErrVersionNotFound
+}
+
+// ListVersionsByFunction returns all published versions for a function (including $LATEST).
+func (b *InMemoryBackend) ListVersionsByFunction(name string) ([]*FunctionVersion, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	fn, ok := b.functions[name]
+	if !ok {
+		return nil, ErrFunctionNotFound
+	}
+
+	result := make([]*FunctionVersion, 0, len(b.versions[name])+1)
+
+	// $LATEST is always first.
+	result = append(result, fnToVersion(fn, b.region, b.accountID))
+	result = append(result, b.versions[name]...)
+
+	return result, nil
+}
+
+// CreateAlias creates a new alias for a Lambda function pointing to a version.
+func (b *InMemoryBackend) CreateAlias(name string, input *CreateAliasInput) (*FunctionAlias, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if _, ok := b.functions[name]; !ok {
+		return nil, ErrFunctionNotFound
+	}
+
+	if _, ok := b.aliases[name]; !ok {
+		b.aliases[name] = make(map[string]*FunctionAlias)
+	}
+
+	if _, exists := b.aliases[name][input.Name]; exists {
+		return nil, ErrAliasAlreadyExists
+	}
+
+	alias := &FunctionAlias{
+		Name:            input.Name,
+		AliasArn:        buildAliasARN(b.region, b.accountID, name, input.Name),
+		FunctionVersion: input.FunctionVersion,
+		Description:     input.Description,
+		RevisionID:      uuid.New().String(),
+	}
+
+	b.aliases[name][input.Name] = alias
+
+	return alias, nil
+}
+
+// GetAlias returns a named alias for a function.
+func (b *InMemoryBackend) GetAlias(name, aliasName string) (*FunctionAlias, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if aliasMap, ok := b.aliases[name]; ok {
+		if alias, ok := aliasMap[aliasName]; ok {
+			return alias, nil
+		}
+	}
+
+	return nil, ErrAliasNotFound
+}
+
+// ListAliases returns all aliases for a function sorted by name.
+func (b *InMemoryBackend) ListAliases(name string) ([]*FunctionAlias, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if _, ok := b.functions[name]; !ok {
+		return nil, ErrFunctionNotFound
+	}
+
+	aliasMap := b.aliases[name]
+	result := make([]*FunctionAlias, 0, len(aliasMap))
+
+	for _, a := range aliasMap {
+		result = append(result, a)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Name < result[j].Name
+	})
+
+	return result, nil
+}
+
+// UpdateAlias updates an existing alias.
+func (b *InMemoryBackend) UpdateAlias(name, aliasName string, input *UpdateAliasInput) (*FunctionAlias, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	aliasMap, ok := b.aliases[name]
+	if !ok {
+		return nil, ErrAliasNotFound
+	}
+
+	alias, ok := aliasMap[aliasName]
+	if !ok {
+		return nil, ErrAliasNotFound
+	}
+
+	if input.FunctionVersion != "" {
+		alias.FunctionVersion = input.FunctionVersion
+	}
+
+	if input.Description != "" {
+		alias.Description = input.Description
+	}
+
+	alias.RevisionID = uuid.New().String()
+
+	return alias, nil
+}
+
+// DeleteAlias removes a named alias from a function.
+func (b *InMemoryBackend) DeleteAlias(name, aliasName string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	aliasMap, ok := b.aliases[name]
+	if !ok {
+		return ErrAliasNotFound
+	}
+
+	if _, ok := aliasMap[aliasName]; !ok {
+		return ErrAliasNotFound
+	}
+
+	delete(aliasMap, aliasName)
+
+	return nil
+}
+
+// resolveQualifier resolves a function name with an optional qualifier to a FunctionConfiguration.
+// Qualifier may be a version number, alias name, or "$LATEST" (default when empty).
+// Returns the resolved function config.
+func (b *InMemoryBackend) resolveQualifier(name, qualifier string) (*FunctionConfiguration, error) {
+	if qualifier == "" || qualifier == "$LATEST" {
+		return b.GetFunction(name)
+	}
+
+	// Check if qualifier is an alias.
+	b.mu.RLock()
+	aliasMap := b.aliases[name]
+	b.mu.RUnlock()
+
+	if aliasMap != nil {
+		if alias, ok := aliasMap[qualifier]; ok {
+			qualifier = alias.FunctionVersion
+		}
+	}
+
+	// Now qualifier is a version number. Find the version snapshot.
+	b.mu.RLock()
+	versionList := b.versions[name]
+	b.mu.RUnlock()
+
+	for _, v := range versionList {
+		if v.Version == qualifier {
+			// Return a synthesised FunctionConfiguration from the version snapshot.
+			return versionToFn(v), nil
+		}
+	}
+
+	// If it's "$LATEST" after alias resolution, fall through to live config.
+	if qualifier == "$LATEST" {
+		return b.GetFunction(name)
+	}
+
+	return nil, ErrVersionNotFound
+}
+
+// fnToVersion converts a live FunctionConfiguration to a $LATEST FunctionVersion.
+func fnToVersion(fn *FunctionConfiguration, region, accountID string) *FunctionVersion {
+	return &FunctionVersion{
+		FunctionName: fn.FunctionName,
+		FunctionArn:  buildVersionARN(region, accountID, fn.FunctionName, "$LATEST"),
+		Description:  fn.Description,
+		Version:      "$LATEST",
+		Runtime:      fn.Runtime,
+		Handler:      fn.Handler,
+		Role:         fn.Role,
+		MemorySize:   fn.MemorySize,
+		Timeout:      fn.Timeout,
+		PackageType:  fn.PackageType,
+		ImageURI:     fn.ImageURI,
+		Environment:  fn.Environment,
+		CodeSize:     fn.CodeSize,
+		RevisionID:   fn.RevisionID,
+		CreatedAt:    fn.LastModified,
+		State:        fn.State,
+	}
+}
+
+// versionToFn synthesises a FunctionConfiguration from an immutable version snapshot.
+// This is used for qualified invocations.
+func versionToFn(v *FunctionVersion) *FunctionConfiguration {
+	return &FunctionConfiguration{
+		FunctionName: v.FunctionName,
+		FunctionArn:  v.FunctionArn,
+		Description:  v.Description,
+		Runtime:      v.Runtime,
+		Handler:      v.Handler,
+		Role:         v.Role,
+		MemorySize:   v.MemorySize,
+		Timeout:      v.Timeout,
+		PackageType:  v.PackageType,
+		ImageURI:     v.ImageURI,
+		Environment:  v.Environment,
+		CodeSize:     v.CodeSize,
+		RevisionID:   v.RevisionID,
+		LastModified: v.CreatedAt,
+		State:        v.State,
+	}
+}
+
+// buildVersionARN constructs a Lambda function version ARN.
+func buildVersionARN(region, accountID, functionName, version string) string {
+	return fmt.Sprintf("arn:aws:lambda:%s:%s:function:%s:%s", region, accountID, functionName, version)
+}
+
+// buildAliasARN constructs a Lambda function alias ARN.
+func buildAliasARN(region, accountID, functionName, aliasName string) string {
+	return fmt.Sprintf("arn:aws:lambda:%s:%s:function:%s:%s", region, accountID, functionName, aliasName)
+}
+
 // InvokeFunction invokes a Lambda function and returns the response payload and HTTP status code.
+// qualifier is optional; pass "" or "$LATEST" for the live function. An alias or version number
+// resolves to the corresponding configuration snapshot.
 func (b *InMemoryBackend) InvokeFunction(
 	ctx context.Context,
 	name string,
 	invocationType InvocationType,
 	payload []byte,
 ) ([]byte, int, error) {
-	fn, err := b.GetFunction(name)
+	return b.InvokeFunctionWithQualifier(ctx, name, "", invocationType, payload)
+}
+
+// InvokeFunctionWithQualifier invokes a Lambda function using an optional qualifier.
+func (b *InMemoryBackend) InvokeFunctionWithQualifier(
+	ctx context.Context,
+	name, qualifier string,
+	invocationType InvocationType,
+	payload []byte,
+) ([]byte, int, error) {
+	fn, err := b.resolveQualifier(name, qualifier)
 	if err != nil {
 		return nil, http.StatusNotFound, err
 	}
@@ -643,11 +971,36 @@ func (b *InMemoryBackend) InvokeFunction(
 	}
 
 	// Per Lambda convention, function-level errors (isError=true) still return HTTP 200.
-	// The caller can inspect the response body for error details.
-	// X-Amz-Function-Error header enhancement can be added if needed.
 	_ = isError
 
+	b.pushInvocationLog(fn.FunctionName, payload, result)
+
 	return result, http.StatusOK, nil
+}
+
+// pushInvocationLog writes a minimal invocation log entry to CloudWatch Logs when a backend is set.
+func (b *InMemoryBackend) pushInvocationLog(functionName string, _ []byte, result []byte) {
+	b.mu.RLock()
+	cwl := b.cwLogs
+	b.mu.RUnlock()
+
+	if cwl == nil {
+		return
+	}
+
+	groupName := "/aws/lambda/" + functionName
+	streamName := time.Now().UTC().Format("2006/01/02") + "/[$LATEST]" + uuid.New().String()[:8]
+
+	if err := cwl.EnsureLogGroupAndStream(groupName, streamName); err != nil {
+		return
+	}
+
+	messages := []string{
+		"END RequestId: " + uuid.New().String(),
+		"REPORT response length: " + strconv.Itoa(len(result)),
+	}
+
+	_ = cwl.PutLogLines(groupName, streamName, messages)
 }
 
 // defaultFunctionTimeout is used when the function has no timeout configured.

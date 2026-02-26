@@ -55,6 +55,12 @@ func hasSuffixCode(rest string) bool          { return strings.HasSuffix(rest, "
 func hasSuffixConfiguration(rest string) bool { return strings.HasSuffix(rest, "/configuration") }
 func hasSuffixInvocations(rest string) bool   { return strings.HasSuffix(rest, "/invocations") }
 func hasSuffixURL(rest string) bool           { return strings.HasSuffix(rest, "/url") }
+func hasSuffixVersions(rest string) bool      { return strings.HasSuffix(rest, "/versions") }
+func hasSuffixAliasPath(rest string) bool {
+	trimmed := strings.TrimPrefix(rest, "/")
+	parts := strings.SplitN(trimmed, "/", 3) //nolint:mnd // split into name + "aliases" + optional alias name
+	return len(parts) >= 2 && parts[1] == "aliases"
+}
 
 // Handler is the Echo HTTP handler for Lambda operations.
 type Handler struct {
@@ -102,6 +108,13 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateFunctionURLConfig",
 		"GetFunctionURLConfig",
 		"DeleteFunctionURLConfig",
+		"PublishVersion",
+		"ListVersionsByFunction",
+		"CreateAlias",
+		"GetAlias",
+		"ListAliases",
+		"UpdateAlias",
+		"DeleteAlias",
 	}
 }
 
@@ -164,6 +177,59 @@ func (h *Handler) buildRouteHandlers() []handlerEntry {
 			method:  http.MethodGet,
 			match:   isEmptyRest,
 			execute: func(c *echo.Context, _ string) error { return h.handleListFunctions(c) },
+		},
+		// Versions: POST and GET /2015-03-31/functions/{name}/versions
+		{
+			method: http.MethodPost,
+			match:  hasSuffixVersions,
+			execute: func(c *echo.Context, rest string) error {
+				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/versions")
+				return h.handlePublishVersion(c, name)
+			},
+		},
+		{
+			method: http.MethodGet,
+			match:  hasSuffixVersions,
+			execute: func(c *echo.Context, rest string) error {
+				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/versions")
+				return h.handleListVersionsByFunction(c, name)
+			},
+		},
+		// Aliases: POST, GET /2015-03-31/functions/{name}/aliases[/{aliasName}]
+		{
+			method: http.MethodPost,
+			match:  hasSuffixAliasPath,
+			execute: func(c *echo.Context, rest string) error {
+				name := extractNameFromAliasPath(rest)
+				return h.handleCreateAlias(c, name)
+			},
+		},
+		{
+			method: http.MethodGet,
+			match:  hasSuffixAliasPath,
+			execute: func(c *echo.Context, rest string) error {
+				name, aliasName := extractNameAndAlias(rest)
+				if aliasName != "" {
+					return h.handleGetAlias(c, name, aliasName)
+				}
+				return h.handleListAliases(c, name)
+			},
+		},
+		{
+			method: http.MethodPut,
+			match:  hasSuffixAliasPath,
+			execute: func(c *echo.Context, rest string) error {
+				name, aliasName := extractNameAndAlias(rest)
+				return h.handleUpdateAlias(c, name, aliasName)
+			},
+		},
+		{
+			method: http.MethodDelete,
+			match:  hasSuffixAliasPath,
+			execute: func(c *echo.Context, rest string) error {
+				name, aliasName := extractNameAndAlias(rest)
+				return h.handleDeleteAlias(c, name, aliasName)
+			},
 		},
 		{
 			method:  http.MethodGet,
@@ -638,6 +704,8 @@ func (h *Handler) handleInvoke(c *echo.Context, name string) error {
 		invType = InvocationTypeRequestResponse
 	}
 
+	qualifier := c.Request().URL.Query().Get("Qualifier")
+
 	body, err := httputil.ReadBody(c.Request())
 	if err != nil {
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "failed to read request")
@@ -647,7 +715,17 @@ func (h *Handler) handleInvoke(c *echo.Context, name string) error {
 		body = []byte("{}")
 	}
 
-	result, statusCode, invokeErr := h.Backend.InvokeFunction(ctx, name, invType, body)
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	var result []byte
+	var statusCode int
+	var invokeErr error
+
+	if ok && qualifier != "" {
+		result, statusCode, invokeErr = lambdaBk.InvokeFunctionWithQualifier(ctx, name, qualifier, invType, body)
+	} else {
+		result, statusCode, invokeErr = h.Backend.InvokeFunction(ctx, name, invType, body)
+	}
+
 	if invokeErr != nil {
 		if errors.Is(invokeErr, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
@@ -796,3 +874,218 @@ const defaultMemorySize = 128
 
 // defaultTimeout is the default Lambda function timeout in seconds.
 const defaultTimeout = 3
+
+// extractNameFromAliasPath extracts the function name from a rest path like /{name}/aliases
+// or /{name}/aliases/{aliasName}.
+func extractNameFromAliasPath(rest string) string {
+	trimmed := strings.TrimPrefix(rest, "/")
+	parts := strings.SplitN(trimmed, "/", 3) //nolint:mnd // at most: name, aliases, aliasName
+	if len(parts) >= 1 {
+		return parts[0]
+	}
+
+	return ""
+}
+
+// extractNameAndAlias extracts both the function name and optional alias name from rest path.
+func extractNameAndAlias(rest string) (name, aliasName string) {
+	trimmed := strings.TrimPrefix(rest, "/")
+	parts := strings.SplitN(trimmed, "/", 3) //nolint:mnd // at most: name, aliases, aliasName
+
+	if len(parts) >= 1 {
+		name = parts[0]
+	}
+
+	if len(parts) >= 3 { //nolint:mnd // parts: name, "aliases", aliasName
+		aliasName = parts[2]
+	}
+
+	return name, aliasName
+}
+
+// handlePublishVersion handles POST /2015-03-31/functions/{name}/versions.
+func (h *Handler) handlePublishVersion(c *echo.Context, name string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	body, err := httputil.ReadBody(c.Request())
+	if err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
+	}
+
+	var input struct {
+		Description string `json:"Description"`
+	}
+
+	if len(body) > 0 {
+		if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
+		}
+	}
+
+	ver, publishErr := lambdaBk.PublishVersion(name, input.Description)
+	if publishErr != nil {
+		if errors.Is(publishErr, ErrFunctionNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Function not found: %s", name))
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", publishErr.Error())
+	}
+
+	return c.JSON(http.StatusCreated, ver)
+}
+
+// handleListVersionsByFunction handles GET /2015-03-31/functions/{name}/versions.
+func (h *Handler) handleListVersionsByFunction(c *echo.Context, name string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	versions, err := lambdaBk.ListVersionsByFunction(name)
+	if err != nil {
+		if errors.Is(err, ErrFunctionNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Function not found: %s", name))
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+	}
+
+	return c.JSON(http.StatusOK, &ListVersionsByFunctionOutput{Versions: versions})
+}
+
+// handleCreateAlias handles POST /2015-03-31/functions/{name}/aliases.
+func (h *Handler) handleCreateAlias(c *echo.Context, name string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	body, err := httputil.ReadBody(c.Request())
+	if err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
+	}
+
+	var input CreateAliasInput
+	if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
+	}
+
+	if input.Name == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "Name is required")
+	}
+
+	if input.FunctionVersion == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "FunctionVersion is required")
+	}
+
+	alias, createErr := lambdaBk.CreateAlias(name, &input)
+	if createErr != nil {
+		if errors.Is(createErr, ErrFunctionNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Function not found: %s", name))
+		}
+
+		if errors.Is(createErr, ErrAliasAlreadyExists) {
+			return h.writeError(c, http.StatusConflict, "ResourceConflictException",
+				fmt.Sprintf("Alias already exists: %s", input.Name))
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", createErr.Error())
+	}
+
+	return c.JSON(http.StatusCreated, alias)
+}
+
+// handleGetAlias handles GET /2015-03-31/functions/{name}/aliases/{aliasName}.
+func (h *Handler) handleGetAlias(c *echo.Context, name, aliasName string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	alias, err := lambdaBk.GetAlias(name, aliasName)
+	if err != nil {
+		if errors.Is(err, ErrAliasNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Alias not found: %s", aliasName))
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+	}
+
+	return c.JSON(http.StatusOK, alias)
+}
+
+// handleListAliases handles GET /2015-03-31/functions/{name}/aliases.
+func (h *Handler) handleListAliases(c *echo.Context, name string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	aliases, err := lambdaBk.ListAliases(name)
+	if err != nil {
+		if errors.Is(err, ErrFunctionNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Function not found: %s", name))
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+	}
+
+	return c.JSON(http.StatusOK, &ListAliasesOutput{Aliases: aliases})
+}
+
+// handleUpdateAlias handles PUT /2015-03-31/functions/{name}/aliases/{aliasName}.
+func (h *Handler) handleUpdateAlias(c *echo.Context, name, aliasName string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	body, err := httputil.ReadBody(c.Request())
+	if err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
+	}
+
+	var input UpdateAliasInput
+	if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
+	}
+
+	alias, updateErr := lambdaBk.UpdateAlias(name, aliasName, &input)
+	if updateErr != nil {
+		if errors.Is(updateErr, ErrAliasNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Alias not found: %s", aliasName))
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", updateErr.Error())
+	}
+
+	return c.JSON(http.StatusOK, alias)
+}
+
+// handleDeleteAlias handles DELETE /2015-03-31/functions/{name}/aliases/{aliasName}.
+func (h *Handler) handleDeleteAlias(c *echo.Context, name, aliasName string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	if err := lambdaBk.DeleteAlias(name, aliasName); err != nil {
+		if errors.Is(err, ErrAliasNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Alias not found: %s", aliasName))
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}

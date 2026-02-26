@@ -19,6 +19,11 @@ import (
 // ErrUnknownOperation is returned when an unsupported operation is requested.
 var ErrUnknownOperation = errors.New("UnknownOperationException")
 
+// LambdaInvoker can invoke a Lambda function synchronously.
+type LambdaInvoker interface {
+	InvokeFunction(ctx context.Context, name, invocationType string, payload []byte) ([]byte, int, error)
+}
+
 // Handler is the Echo HTTP handler for Secrets Manager operations.
 type Handler struct {
 	// Backend is the underlying Secrets Manager storage backend.
@@ -27,6 +32,8 @@ type Handler struct {
 	Logger *slog.Logger
 	// DefaultRegion is the fallback region used when region cannot be extracted from the request.
 	DefaultRegion string
+	// lambdaInvoker is an optional Lambda invoker used for rotation Lambda ARNs.
+	lambdaInvoker LambdaInvoker
 }
 
 // NewHandler creates a new Secrets Manager handler.
@@ -35,6 +42,11 @@ func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
 		Backend: backend,
 		Logger:  log,
 	}
+}
+
+// SetLambdaInvoker sets the Lambda invoker used for RotateSecret with a rotation Lambda ARN.
+func (h *Handler) SetLambdaInvoker(invoker LambdaInvoker) {
+	h.lambdaInvoker = invoker
 }
 
 // Name returns the service name.
@@ -245,13 +257,13 @@ func (h *Handler) smDispatchTable() map[string]smActionFn { //nolint:gocognit
 
 			return struct{}{}, h.Backend.UntagResource(&input)
 		},
-		"RotateSecret": func(_ string, b []byte) (any, error) {
+		"RotateSecret": func(region string, b []byte) (any, error) {
 			var input RotateSecretInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.RotateSecret(&input)
+			return h.rotateSecret(region, &input)
 		},
 	}
 }
@@ -308,4 +320,50 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 	})
 
 	return c.JSONBlob(statusCode, payload)
+}
+
+// rotationSteps is the ordered sequence of rotation steps sent to a rotation Lambda.
+//
+//nolint:gochecknoglobals // intentional package-level constant slice
+var rotationSteps = []string{"createSecret", "setSecret", "testSecret", "finishSecret"}
+
+// rotateSecret performs RotateSecret, optionally invoking a rotation Lambda for each step.
+func (h *Handler) rotateSecret(_ string, input *RotateSecretInput) (*RotateSecretOutput, error) {
+	out, err := h.Backend.RotateSecret(input)
+	if err != nil {
+		return nil, err
+	}
+
+	if input.RotationLambdaARN == "" || h.lambdaInvoker == nil {
+		return out, nil
+	}
+
+	// Extract function name from ARN (last colon-separated segment).
+	functionName := input.RotationLambdaARN
+	if idx := strings.LastIndex(functionName, ":"); idx >= 0 {
+		functionName = functionName[idx+1:]
+	}
+
+	ctx := context.Background()
+	token := input.ClientRequestToken
+	if token == "" {
+		token = out.VersionID
+	}
+
+	for _, step := range rotationSteps {
+		event, marshalErr := json.Marshal(map[string]string{
+			"SecretId":           input.SecretID,
+			"ClientRequestToken": token,
+			"Step":               step,
+		})
+		if marshalErr != nil {
+			return nil, fmt.Errorf("rotation event marshal: %w", marshalErr)
+		}
+
+		if _, _, invokeErr := h.lambdaInvoker.InvokeFunction(ctx, functionName, "RequestResponse", event); invokeErr != nil {
+			return nil, fmt.Errorf("rotation Lambda step %q failed: %w", step, invokeErr)
+		}
+	}
+
+	return out, nil
 }

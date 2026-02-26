@@ -155,3 +155,57 @@ type CreateFunctionURLConfigInput struct {
 type ListFunctionURLConfigsOutput struct {
 	FunctionURLConfigs []*FunctionURLConfig `json:"FunctionUrlConfigs"`
 }
+
+// FunctionVersion holds an immutable snapshot of a Lambda function configuration at publish time.
+type FunctionVersion struct {
+	CreatedAt    string             `json:"LastModified"`
+	Environment  *EnvironmentConfig `json:"Environment,omitempty"`
+	Handler      string             `json:"Handler,omitempty"`
+	RevisionID   string             `json:"RevisionId"`
+	ImageURI     string             `json:"ImageUri,omitempty"`
+	PackageType  string             `json:"PackageType"`
+	Role         string             `json:"Role"`
+	Runtime      string             `json:"Runtime,omitempty"`
+	FunctionArn  string             `json:"FunctionArn"`
+	Description  string             `json:"Description"`
+	FunctionName string             `json:"FunctionName"`
+	State        FunctionState      `json:"State"`
+	Version      string             `json:"Version"`
+	MemorySize   int                `json:"MemorySize"`
+	Timeout      int                `json:"Timeout"`
+	CodeSize     int64              `json:"CodeSize"`
+}
+
+// ListVersionsByFunctionOutput is the response for ListVersionsByFunction.
+type ListVersionsByFunctionOutput struct {
+	NextMarker string             `json:"NextMarker,omitempty"`
+	Versions   []*FunctionVersion `json:"Versions"`
+}
+
+// FunctionAlias holds an alias mapping (alias name → version number).
+type FunctionAlias struct {
+	AliasArn        string `json:"AliasArn"`
+	Description     string `json:"Description,omitempty"`
+	FunctionVersion string `json:"FunctionVersion"`
+	Name            string `json:"Name"`
+	RevisionID      string `json:"RevisionId"`
+}
+
+// CreateAliasInput holds the request body for CreateAlias.
+type CreateAliasInput struct {
+	Description     string `json:"Description,omitempty"`
+	FunctionVersion string `json:"FunctionVersion"`
+	Name            string `json:"Name"`
+}
+
+// UpdateAliasInput holds the request body for UpdateAlias.
+type UpdateAliasInput struct {
+	Description     string `json:"Description,omitempty"`
+	FunctionVersion string `json:"FunctionVersion,omitempty"`
+}
+
+// ListAliasesOutput is the response for ListAliases.
+type ListAliasesOutput struct {
+	NextMarker string           `json:"NextMarker,omitempty"`
+	Aliases    []*FunctionAlias `json:"Aliases"`
+}
