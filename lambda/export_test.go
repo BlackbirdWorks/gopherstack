@@ -48,3 +48,12 @@ func BaseImageForRuntime(runtime string) string {
 
 // ExtractZip exports the internal extractZip function for testing.
 func ExtractZip(zipData []byte) (string, error) { return extractZip(zipData) }
+
+// StreamNameFromARN exports the internal streamNameFromARN function for testing.
+func StreamNameFromARN(arn string) string { return streamNameFromARN(arn) }
+
+// FunctionNameFromARN exports the internal functionNameFromARN function for testing.
+func FunctionNameFromARN(arn string) string { return functionNameFromARN(arn) }
+
+// PollOnce triggers a single poll cycle on the given EventSourcePoller.
+func PollOnce(ctx context.Context, p *EventSourcePoller) { p.poll(ctx) }

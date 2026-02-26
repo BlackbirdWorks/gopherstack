@@ -30,24 +30,10 @@ const (
 	maxHistoryResults = 50
 )
 
-// mockKMSKey is a 32-byte root key for AES-256 encryption (mock KMS).
-//
-//nolint:gochecknoglobals // Mock KMS key needed for encryption.
-var mockKMSKey = []byte(mockKMSKeyStr)
-
 // validParamNameRegex matches only alphanumeric, ., -, _, and / characters.
-//
-
 var validParamNameRegex = regexp.MustCompile(`^[a-zA-Z0-9._\-/]+$`)
 
 const maxParamNameLength = 2048
-
-// reservedPrefixes are namespace prefixes that are not allowed for parameter names.
-var reservedPrefixes = []string{ //nolint:gochecknoglobals // reserved parameter name prefixes per AWS SSM spec
-	"ssm",
-	"aws",
-	"amazon",
-}
 
 // validateParameterName returns a ValidationException error when the name is invalid.
 func validateParameterName(name string) error {
@@ -60,6 +46,7 @@ func validateParameterName(name string) error {
 	}
 
 	lower := strings.ToLower(strings.TrimPrefix(name, "/"))
+	reservedPrefixes := []string{"ssm", "aws", "amazon"}
 	for _, prefix := range reservedPrefixes {
 		if strings.HasPrefix(lower, prefix) {
 			return fmt.Errorf(
@@ -79,7 +66,7 @@ func validateParameterName(name string) error {
 
 // encryptValue encrypts a value using AES-256 (mock KMS encryption).
 func encryptValue(plaintext string) (string, error) {
-	block, err := aes.NewCipher(mockKMSKey)
+	block, err := aes.NewCipher([]byte(mockKMSKeyStr))
 	if err != nil {
 		return "", err
 	}
@@ -101,7 +88,7 @@ func encryptValue(plaintext string) (string, error) {
 
 // decryptValue decrypts a value encrypted with encryptValue.
 func decryptValue(ciphertext string) (string, error) {
-	block, err := aes.NewCipher(mockKMSKey)
+	block, err := aes.NewCipher([]byte(mockKMSKeyStr))
 	if err != nil {
 		return "", err
 	}

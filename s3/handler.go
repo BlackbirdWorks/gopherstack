@@ -110,8 +110,7 @@ type s3Metrics struct {
 
 type s3ContextKey struct{}
 
-//nolint:gochecknoglobals // Context key must be package-level for consistent use.
-var s3Key s3ContextKey
+var s3Key = s3ContextKey{} //nolint:gochecknoglobals // unexported context key used internally
 
 func (h *S3Handler) setOperation(ctx context.Context, op string) {
 	if m, ok := ctx.Value(s3Key).(*s3Metrics); ok {

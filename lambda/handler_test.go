@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -976,7 +977,11 @@ func TestDefaultSettings(t *testing.T) {
 	t.Parallel()
 
 	s := lambda.DefaultSettings()
-	assert.Equal(t, "172.17.0.1", s.DockerHost)
+	expectedHost := "172.17.0.1"
+	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
+		expectedHost = "host.docker.internal"
+	}
+	assert.Equal(t, expectedHost, s.DockerHost)
 	assert.Equal(t, 3, s.PoolSize)
 	assert.Equal(t, 10*time.Minute, s.IdleTimeout)
 }

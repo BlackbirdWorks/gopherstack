@@ -53,11 +53,6 @@ const (
 	aes128Bytes = 16
 )
 
-// mockMasterKey is the AES-256 encryption key shared across all KMS keys (mock only).
-//
-//nolint:gochecknoglobals // Mock KMS master key required for encryption.
-var mockMasterKey = []byte(mockMasterKeyStr)
-
 // StorageBackend defines the interface for the KMS in-memory backend.
 type StorageBackend interface {
 	CreateKey(input *CreateKeyInput) (*CreateKeyOutput, error)
@@ -140,7 +135,7 @@ func (b *InMemoryBackend) resolveKeyID(keyID string) (string, error) {
 
 // encryptData encrypts plaintext with AES-256-GCM, embedding the key ID in the blob.
 func encryptData(plaintext []byte, keyID string) ([]byte, error) {
-	block, err := aes.NewCipher(mockMasterKey)
+	block, err := aes.NewCipher([]byte(mockMasterKeyStr))
 	if err != nil {
 		return nil, err
 	}
@@ -184,7 +179,7 @@ func decryptData(blob []byte) ([]byte, string, error) {
 	keyID := strings.TrimRight(string(blob[:keyIDPrefixLen]), "\x00")
 	encrypted := blob[keyIDPrefixLen:]
 
-	block, err := aes.NewCipher(mockMasterKey)
+	block, err := aes.NewCipher([]byte(mockMasterKeyStr))
 	if err != nil {
 		return nil, "", err
 	}
