@@ -19,13 +19,16 @@ import (
 // ErrUnknownOperation is returned when an unsupported operation is requested.
 var ErrUnknownOperation = errors.New("UnknownOperationException")
 
+// LambdaInvoker can invoke a Lambda function synchronously.
+type LambdaInvoker interface {
+	InvokeFunction(ctx context.Context, name, invocationType string, payload []byte) ([]byte, int, error)
+}
+
 // Handler is the Echo HTTP handler for Secrets Manager operations.
 type Handler struct {
-	// Backend is the underlying Secrets Manager storage backend.
-	Backend StorageBackend
-	// Logger is the structured logger for this handler.
-	Logger *slog.Logger
-	// DefaultRegion is the fallback region used when region cannot be extracted from the request.
+	Backend       StorageBackend
+	lambdaInvoker LambdaInvoker
+	Logger        *slog.Logger
 	DefaultRegion string
 }
 
@@ -35,6 +38,11 @@ func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
 		Backend: backend,
 		Logger:  log,
 	}
+}
+
+// SetLambdaInvoker sets the Lambda invoker used for RotateSecret with a rotation Lambda ARN.
+func (h *Handler) SetLambdaInvoker(invoker LambdaInvoker) {
+	h.lambdaInvoker = invoker
 }
 
 // Name returns the service name.
@@ -160,11 +168,11 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-type smActionFn func(region string, body []byte) (any, error)
+type smActionFn func(ctx context.Context, region string, body []byte) (any, error)
 
 func (h *Handler) smDispatchTable() map[string]smActionFn { //nolint:gocognit
 	return map[string]smActionFn{
-		"CreateSecret": func(region string, b []byte) (any, error) {
+		"CreateSecret": func(_ context.Context, region string, b []byte) (any, error) {
 			var input CreateSecretInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -173,7 +181,7 @@ func (h *Handler) smDispatchTable() map[string]smActionFn { //nolint:gocognit
 
 			return h.Backend.CreateSecret(&input)
 		},
-		"GetSecretValue": func(_ string, b []byte) (any, error) {
+		"GetSecretValue": func(_ context.Context, _ string, b []byte) (any, error) {
 			var input GetSecretValueInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -181,7 +189,7 @@ func (h *Handler) smDispatchTable() map[string]smActionFn { //nolint:gocognit
 
 			return h.Backend.GetSecretValue(&input)
 		},
-		"PutSecretValue": func(_ string, b []byte) (any, error) {
+		"PutSecretValue": func(_ context.Context, _ string, b []byte) (any, error) {
 			var input PutSecretValueInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -189,7 +197,7 @@ func (h *Handler) smDispatchTable() map[string]smActionFn { //nolint:gocognit
 
 			return h.Backend.PutSecretValue(&input)
 		},
-		"DeleteSecret": func(_ string, b []byte) (any, error) {
+		"DeleteSecret": func(_ context.Context, _ string, b []byte) (any, error) {
 			var input DeleteSecretInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -197,7 +205,7 @@ func (h *Handler) smDispatchTable() map[string]smActionFn { //nolint:gocognit
 
 			return h.Backend.DeleteSecret(&input)
 		},
-		"ListSecrets": func(_ string, b []byte) (any, error) {
+		"ListSecrets": func(_ context.Context, _ string, b []byte) (any, error) {
 			var input ListSecretsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -205,7 +213,7 @@ func (h *Handler) smDispatchTable() map[string]smActionFn { //nolint:gocognit
 
 			return h.Backend.ListSecrets(&input)
 		},
-		"DescribeSecret": func(_ string, b []byte) (any, error) {
+		"DescribeSecret": func(_ context.Context, _ string, b []byte) (any, error) {
 			var input DescribeSecretInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -213,7 +221,7 @@ func (h *Handler) smDispatchTable() map[string]smActionFn { //nolint:gocognit
 
 			return h.Backend.DescribeSecret(&input)
 		},
-		"UpdateSecret": func(_ string, b []byte) (any, error) {
+		"UpdateSecret": func(_ context.Context, _ string, b []byte) (any, error) {
 			var input UpdateSecretInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -221,7 +229,7 @@ func (h *Handler) smDispatchTable() map[string]smActionFn { //nolint:gocognit
 
 			return h.Backend.UpdateSecret(&input)
 		},
-		"RestoreSecret": func(_ string, b []byte) (any, error) {
+		"RestoreSecret": func(_ context.Context, _ string, b []byte) (any, error) {
 			var input RestoreSecretInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -229,7 +237,7 @@ func (h *Handler) smDispatchTable() map[string]smActionFn { //nolint:gocognit
 
 			return h.Backend.RestoreSecret(&input)
 		},
-		"TagResource": func(_ string, b []byte) (any, error) {
+		"TagResource": func(_ context.Context, _ string, b []byte) (any, error) {
 			var input TagResourceInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -237,7 +245,7 @@ func (h *Handler) smDispatchTable() map[string]smActionFn { //nolint:gocognit
 
 			return struct{}{}, h.Backend.TagResource(&input)
 		},
-		"UntagResource": func(_ string, b []byte) (any, error) {
+		"UntagResource": func(_ context.Context, _ string, b []byte) (any, error) {
 			var input UntagResourceInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
@@ -245,19 +253,19 @@ func (h *Handler) smDispatchTable() map[string]smActionFn { //nolint:gocognit
 
 			return struct{}{}, h.Backend.UntagResource(&input)
 		},
-		"RotateSecret": func(_ string, b []byte) (any, error) {
+		"RotateSecret": func(ctx context.Context, region string, b []byte) (any, error) {
 			var input RotateSecretInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.Backend.RotateSecret(&input)
+			return h.rotateSecret(ctx, region, &input)
 		},
 	}
 }
 
 // dispatch routes the operation to the appropriate backend method.
-func (h *Handler) dispatch(_ context.Context, r *http.Request, action string, body []byte) ([]byte, error) {
+func (h *Handler) dispatch(ctx context.Context, r *http.Request, action string, body []byte) ([]byte, error) {
 	region := httputil.ExtractRegionFromRequest(r, h.DefaultRegion)
 
 	fn, ok := h.smDispatchTable()[action]
@@ -265,7 +273,7 @@ func (h *Handler) dispatch(_ context.Context, r *http.Request, action string, bo
 		return nil, fmt.Errorf("%w: %s", ErrUnknownOperation, action)
 	}
 
-	response, err := fn(region, body)
+	response, err := fn(ctx, region, body)
 	if err != nil {
 		return nil, err
 	}
@@ -308,4 +316,70 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 	})
 
 	return c.JSONBlob(statusCode, payload)
+}
+
+// rotationSteps is the ordered sequence of rotation steps sent to a rotation Lambda.
+//
+//nolint:gochecknoglobals // intentional package-level constant slice
+var rotationSteps = []string{"createSecret", "setSecret", "testSecret", "finishSecret"}
+
+// extractFunctionNameFromARN extracts the bare function name from a Lambda ARN.
+// Handles both unqualified ARNs (…:function:my-fn) and qualified ARNs (…:function:my-fn:alias).
+func extractFunctionNameFromARN(arn string) string {
+	const functionSegment = ":function:"
+
+	if _, after, found := strings.Cut(arn, functionSegment); found {
+		// Strip trailing qualifier (alias or version) if present.
+		name, _, _ := strings.Cut(after, ":")
+
+		return name
+	}
+
+	// Fallback: take the last colon-separated segment.
+	if idx := strings.LastIndex(arn, ":"); idx >= 0 {
+		return arn[idx+1:]
+	}
+
+	return arn
+}
+
+// rotateSecret performs RotateSecret, optionally invoking a rotation Lambda for each step.
+func (h *Handler) rotateSecret(ctx context.Context, _ string, input *RotateSecretInput) (*RotateSecretOutput, error) {
+	out, err := h.Backend.RotateSecret(input)
+	if err != nil {
+		return nil, err
+	}
+
+	if input.RotationLambdaARN == "" || h.lambdaInvoker == nil {
+		return out, nil
+	}
+
+	functionName := extractFunctionNameFromARN(input.RotationLambdaARN)
+
+	token := input.ClientRequestToken
+	if token == "" {
+		token = out.VersionID
+	}
+
+	for _, step := range rotationSteps {
+		event, marshalErr := json.Marshal(map[string]string{
+			"SecretId":           input.SecretID,
+			"ClientRequestToken": token,
+			"Step":               step,
+		})
+		if marshalErr != nil {
+			return nil, fmt.Errorf("rotation event marshal: %w", marshalErr)
+		}
+
+		if _, _, invokeErr := h.lambdaInvoker.InvokeFunction(
+			ctx,
+			functionName,
+			"RequestResponse",
+			event,
+		); invokeErr != nil {
+			return nil, fmt.Errorf("rotation Lambda step %q failed: %w", step, invokeErr)
+		}
+	}
+
+	return out, nil
 }
