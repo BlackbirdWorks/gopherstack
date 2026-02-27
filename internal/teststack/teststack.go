@@ -14,6 +14,7 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 
+	acmbackend "github.com/blackbirdworks/gopherstack/acm"
 	apigwbackend "github.com/blackbirdworks/gopherstack/apigateway"
 	cfnbackend "github.com/blackbirdworks/gopherstack/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/cloudwatch"
@@ -31,6 +32,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	redshiftbackend "github.com/blackbirdworks/gopherstack/redshift"
 	route53backend "github.com/blackbirdworks/gopherstack/route53"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
 	smbackend "github.com/blackbirdworks/gopherstack/secretsmanager"
@@ -75,6 +77,8 @@ type Stack struct {
 	SESHandler            *sesbackend.Handler
 	EC2Handler            *ec2backend.Handler
 	OpenSearchHandler     *opensearchbackend.Handler
+	ACMHandler            *acmbackend.Handler
+	RedshiftHandler       *redshiftbackend.Handler
 	S3Client              *s3.Client
 	DDBClient             *dynamodb.Client
 	Dashboard             *dashboard.DashboardHandler
@@ -148,6 +152,8 @@ func registerServices(
 	sesHndlr *sesbackend.Handler,
 	ec2Hndlr *ec2backend.Handler,
 	openSearchHndlr *opensearchbackend.Handler,
+	acmHndlr *acmbackend.Handler,
+	redshiftHndlr *redshiftbackend.Handler,
 ) {
 	_ = registry.Register(ddbHndlr)
 	_ = registry.Register(s3Hndlr)
@@ -171,6 +177,8 @@ func registerServices(
 	_ = registry.Register(sesHndlr)
 	_ = registry.Register(ec2Hndlr)
 	_ = registry.Register(openSearchHndlr)
+	_ = registry.Register(acmHndlr)
+	_ = registry.Register(redshiftHndlr)
 }
 
 // handlers bundles all service handlers created for a test stack.
@@ -197,6 +205,8 @@ type handlers struct {
 	ses         *sesbackend.Handler
 	ec2         *ec2backend.Handler
 	opensearch  *opensearchbackend.Handler
+	acm         *acmbackend.Handler
+	redshift    *redshiftbackend.Handler
 	iamBk       *iambackend.InMemoryBackend
 	s3Bk        *s3backend.InMemoryBackend
 }
@@ -242,6 +252,8 @@ func newHandlers() handlers {
 		opensearch: opensearchbackend.NewHandler(
 			opensearchbackend.NewInMemoryBackend("000000000000", "us-east-1"), slog.Default(),
 		),
+		acm:      acmbackend.NewHandler(acmbackend.NewInMemoryBackend("000000000000", "us-east-1"), slog.Default()),
+		redshift: redshiftbackend.NewHandler(redshiftbackend.NewInMemoryBackend("000000000000", "us-east-1"), slog.Default()),
 	}
 }
 
@@ -291,6 +303,7 @@ func New(t *testing.T) *Stack {
 		h.ddb, h.s3, h.ssm, h.iam, h.sts, h.sns, h.sqs, h.kms, h.sm,
 		h.lambda, h.eb, h.apigw, h.cwlogs, h.sfn, h.cw, h.cfn, h.kinesis,
 		h.elasticache, h.route53, h.ses, h.ec2, h.opensearch,
+		h.acm, h.redshift,
 	)
 
 	// Create AWS SDK clients routed through in-memory Echo.
@@ -323,6 +336,9 @@ func New(t *testing.T) *Stack {
 		Route53Ops:        h.route53,
 		SESOps:            h.ses,
 		EC2Ops:            h.ec2,
+		OpenSearchOps:     h.opensearch,
+		ACMOps:            h.acm,
+		RedshiftOps:       h.redshift,
 		GlobalConfig:      config.GlobalConfig{AccountID: "000000000000", Region: "us-east-1"},
 		Logger:            slog.Default(),
 	})
@@ -357,6 +373,8 @@ func New(t *testing.T) *Stack {
 		SESHandler:            h.ses,
 		EC2Handler:            h.ec2,
 		OpenSearchHandler:     h.opensearch,
+		ACMHandler:            h.acm,
+		RedshiftHandler:       h.redshift,
 		S3Client:              s3Client,
 		DDBClient:             ddbClient,
 		Dashboard:             dashHndlr,

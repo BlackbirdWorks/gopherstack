@@ -40,6 +40,8 @@ import (
 	kmsbackend "github.com/blackbirdworks/gopherstack/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/lambda"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/opensearch"
+	acmbackend "github.com/blackbirdworks/gopherstack/acm"
+	redshiftbackend "github.com/blackbirdworks/gopherstack/redshift"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	gopherDNS "github.com/blackbirdworks/gopherstack/pkgs/dns"
 	snsevents "github.com/blackbirdworks/gopherstack/pkgs/events"
@@ -98,6 +100,8 @@ type CLI struct {
 	sesHandler            service.Registerable
 	ec2Handler            service.Registerable
 	openSearchHandler     service.Registerable
+	acmHandler            service.Registerable
+	redshiftHandler       service.Registerable
 	snsClient             *sns.Client
 	kmsClient             *kms.Client
 	iamClient             *iam.Client
@@ -286,6 +290,16 @@ func (c *CLI) GetOpenSearchEngine() string { return c.OpenSearchEngine }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetOpenSearchHandler() service.Registerable { return c.openSearchHandler }
+
+// GetACMHandler returns the ACM handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetACMHandler() service.Registerable { return c.acmHandler }
+
+// GetRedshiftHandler returns the Redshift handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetRedshiftHandler() service.Registerable { return c.redshiftHandler }
 
 // Run parses CLI / environment-variable configuration and starts Gopherstack.
 // It is called from main() and exits on error.
@@ -488,6 +502,8 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		&sesbackend.Provider{},
 		&ec2backend.Provider{},
 		&opensearchbackend.Provider{},
+		&acmbackend.Provider{},
+		&redshiftbackend.Provider{},
 	}
 
 	for _, provider := range serviceProviders {
@@ -522,6 +538,8 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		cli.sesHandler = services[18]
 		cli.ec2Handler = services[19]
 		cli.openSearchHandler = services[20]
+		cli.acmHandler = services[21]
+		cli.redshiftHandler = services[22]
 	}
 
 	// Wire SNS→SQS delivery: when SNS publishes a message, deliver it to SQS queues.

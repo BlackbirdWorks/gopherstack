@@ -12,6 +12,7 @@ import (
 	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/labstack/echo/v5"
 
+	acmbackend "github.com/blackbirdworks/gopherstack/acm"
 	apigwbackend "github.com/blackbirdworks/gopherstack/apigateway"
 	cfnbackend "github.com/blackbirdworks/gopherstack/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/cloudwatch"
@@ -24,9 +25,11 @@ import (
 	kinesisbackend "github.com/blackbirdworks/gopherstack/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/lambda"
+	opensearchbackend "github.com/blackbirdworks/gopherstack/opensearch"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	pkgslogger "github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	redshiftbackend "github.com/blackbirdworks/gopherstack/redshift"
 	route53backend "github.com/blackbirdworks/gopherstack/route53"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/secretsmanager"
@@ -89,6 +92,9 @@ type DashboardHandler struct {
 	Route53Ops        *route53backend.Handler
 	SESOps            *sesbackend.Handler
 	EC2Ops            *ec2backend.Handler
+	OpenSearchOps     *opensearchbackend.Handler
+	ACMOps            *acmbackend.Handler
+	RedshiftOps       *redshiftbackend.Handler
 	SubRouter         *echo.Echo
 	ddbProvider       *ddbbackend.DashboardProvider
 	s3Provider        *s3backend.DashboardProvider
@@ -137,6 +143,12 @@ type Config struct {
 	SESOps *sesbackend.Handler
 	// EC2Ops provides access to the EC2 backend.
 	EC2Ops *ec2backend.Handler
+	// OpenSearchOps provides access to the OpenSearch backend.
+	OpenSearchOps *opensearchbackend.Handler
+	// ACMOps provides access to the ACM backend.
+	ACMOps *acmbackend.Handler
+	// RedshiftOps provides access to the Redshift backend.
+	RedshiftOps *redshiftbackend.Handler
 	// Logger is the structured logger for dashboard operations.
 	Logger *slog.Logger
 	// GlobalConfig holds the centralized account and region configuration shown on the settings page.
@@ -182,6 +194,9 @@ func NewHandler(cfg Config) *DashboardHandler {
 		"templates/route53/*.html",
 		"templates/ses/*.html",
 		"templates/ec2/*.html",
+		"templates/opensearch/*.html",
+		"templates/acm/*.html",
+		"templates/redshift/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
 		"templates/settings.html",
@@ -216,6 +231,9 @@ func NewHandler(cfg Config) *DashboardHandler {
 		Route53Ops:        cfg.Route53Ops,
 		SESOps:            cfg.SESOps,
 		EC2Ops:            cfg.EC2Ops,
+		OpenSearchOps:     cfg.OpenSearchOps,
+		ACMOps:            cfg.ACMOps,
+		RedshiftOps:       cfg.RedshiftOps,
 		GlobalConfig:      cfg.GlobalConfig,
 		Logger:            cfg.Logger,
 		layout:            tmpl,
@@ -392,6 +410,25 @@ func (h *DashboardHandler) setupEC2Routes() {
 	h.SubRouter.GET("/dashboard/ec2", h.ec2Index)
 }
 
+func (h *DashboardHandler) setupOpenSearchRoutes() {
+	h.SubRouter.GET("/dashboard/opensearch", h.opensearchIndex)
+	h.SubRouter.GET("/dashboard/opensearch/domain", h.opensearchDomainDetail)
+	h.SubRouter.POST("/dashboard/opensearch/create", h.opensearchCreateDomain)
+	h.SubRouter.POST("/dashboard/opensearch/delete", h.opensearchDeleteDomain)
+}
+
+func (h *DashboardHandler) setupACMRoutes() {
+	h.SubRouter.GET("/dashboard/acm", h.acmIndex)
+	h.SubRouter.POST("/dashboard/acm/request", h.acmRequestCertificate)
+	h.SubRouter.POST("/dashboard/acm/delete", h.acmDeleteCertificate)
+}
+
+func (h *DashboardHandler) setupRedshiftRoutes() {
+	h.SubRouter.GET("/dashboard/redshift", h.redshiftIndex)
+	h.SubRouter.POST("/dashboard/redshift/create", h.redshiftCreateCluster)
+	h.SubRouter.POST("/dashboard/redshift/delete", h.redshiftDeleteCluster)
+}
+
 func (h *DashboardHandler) setupMetaRoutes() {
 	dashboardGroup := h.SubRouter.Group("/dashboard")
 	RegisterMetricsHandlers(dashboardGroup, h)
@@ -419,6 +456,9 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.setupRoute53Routes()
 	h.setupSESRoutes()
 	h.setupEC2Routes()
+	h.setupOpenSearchRoutes()
+	h.setupACMRoutes()
+	h.setupRedshiftRoutes()
 	h.setupMetaRoutes()
 }
 
@@ -488,6 +528,9 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/route53", "Route53"},
 	{"/ses", "SES"},
 	{"/ec2", "EC2"},
+	{"/opensearch", "OpenSearch"},
+	{"/acm", "ACM"},
+	{"/redshift", "Redshift"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},
 }

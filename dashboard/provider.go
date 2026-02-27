@@ -5,6 +5,7 @@ import (
 	s3sdk "github.com/aws/aws-sdk-go-v2/service/s3"
 	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
 	stssdk "github.com/aws/aws-sdk-go-v2/service/sts"
+	acmbackend "github.com/blackbirdworks/gopherstack/acm"
 	apigwbackend "github.com/blackbirdworks/gopherstack/apigateway"
 	cfnbackend "github.com/blackbirdworks/gopherstack/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/cloudwatch"
@@ -21,6 +22,8 @@ import (
 	lambdabackend "github.com/blackbirdworks/gopherstack/lambda"
 	globalcfg "github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	opensearchbackend "github.com/blackbirdworks/gopherstack/opensearch"
+	redshiftbackend "github.com/blackbirdworks/gopherstack/redshift"
 	route53backend "github.com/blackbirdworks/gopherstack/route53"
 	"github.com/blackbirdworks/gopherstack/s3"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/secretsmanager"
@@ -59,6 +62,9 @@ type AWSSDKProvider interface {
 	GetRoute53Handler() service.Registerable
 	GetSESHandler() service.Registerable
 	GetEC2Handler() service.Registerable
+	GetOpenSearchHandler() service.Registerable
+	GetACMHandler() service.Registerable
+	GetRedshiftHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 }
 
@@ -98,6 +104,9 @@ type extractedConfig struct {
 	route53Ops        *route53backend.Handler
 	sesOps            *sesbackend.Handler
 	ec2Ops            *ec2backend.Handler
+	opensearchOps     *opensearchbackend.Handler
+	acmOps            *acmbackend.Handler
+	redshiftOps       *redshiftbackend.Handler
 	gCfg              globalcfg.GlobalConfig
 }
 
@@ -200,6 +209,18 @@ func extractMonitoringHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetEC2Handler(); h != nil {
 		ec.ec2Ops, _ = h.(*ec2backend.Handler)
 	}
+
+	if h := ap.GetOpenSearchHandler(); h != nil {
+		ec.opensearchOps, _ = h.(*opensearchbackend.Handler)
+	}
+
+	if h := ap.GetACMHandler(); h != nil {
+		ec.acmOps, _ = h.(*acmbackend.Handler)
+	}
+
+	if h := ap.GetRedshiftHandler(); h != nil {
+		ec.redshiftOps, _ = h.(*redshiftbackend.Handler)
+	}
 }
 
 //nolint:ireturn // architecturally required to return interface
@@ -231,6 +252,9 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		Route53Ops:        ec.route53Ops,
 		SESOps:            ec.sesOps,
 		EC2Ops:            ec.ec2Ops,
+		OpenSearchOps:     ec.opensearchOps,
+		ACMOps:            ec.acmOps,
+		RedshiftOps:       ec.redshiftOps,
 		GlobalConfig:      ec.gCfg,
 		Logger:            ctx.Logger,
 	})
