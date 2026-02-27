@@ -15,8 +15,8 @@ import (
 )
 
 const (
-	swfTargetPrefix   = "SimpleWorkflowService."
-	swfMatchPriority  = 100
+	swfTargetPrefix  = "SimpleWorkflowService."
+	swfMatchPriority = 100
 )
 
 // Handler is the Echo HTTP handler for SWF operations.

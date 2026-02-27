@@ -203,37 +203,37 @@ func registerServices(
 
 // handlers bundles all service handlers created for a test stack.
 type handlers struct {
-	s3          *s3backend.S3Handler
-	ddb         *ddbbackend.DynamoDBHandler
-	ssm         *ssmbackend.Handler
-	iam         *iambackend.Handler
-	sts         *stsbackend.Handler
-	sns         *snsbackend.Handler
-	sqs         *sqsbackend.Handler
-	kms         *kmsbackend.Handler
-	sm          *smbackend.Handler
-	lambda      *lambdabackend.Handler
-	eb          *ebbackend.Handler
-	apigw       *apigwbackend.Handler
-	cwlogs      *cwlogsbackend.Handler
-	sfn         *sfnbackend.Handler
-	cw          *cwbackend.Handler
-	cfn         *cfnbackend.Handler
-	kinesis     *kinesisbackend.Handler
-	elasticache *elasticachebackend.Handler
-	route53     *route53backend.Handler
-	ses         *sesbackend.Handler
-	ec2         *ec2backend.Handler
-	opensearch  *opensearchbackend.Handler
-	acm         *acmbackend.Handler
-	redshift    *redshiftbackend.Handler
-	awsconfig   *awsconfigbackend.Handler
-	s3control   *s3controlbackend.Handler
+	s3             *s3backend.S3Handler
+	ddb            *ddbbackend.DynamoDBHandler
+	ssm            *ssmbackend.Handler
+	iam            *iambackend.Handler
+	sts            *stsbackend.Handler
+	sns            *snsbackend.Handler
+	sqs            *sqsbackend.Handler
+	kms            *kmsbackend.Handler
+	sm             *smbackend.Handler
+	lambda         *lambdabackend.Handler
+	eb             *ebbackend.Handler
+	apigw          *apigwbackend.Handler
+	cwlogs         *cwlogsbackend.Handler
+	sfn            *sfnbackend.Handler
+	cw             *cwbackend.Handler
+	cfn            *cfnbackend.Handler
+	kinesis        *kinesisbackend.Handler
+	elasticache    *elasticachebackend.Handler
+	route53        *route53backend.Handler
+	ses            *sesbackend.Handler
+	ec2            *ec2backend.Handler
+	opensearch     *opensearchbackend.Handler
+	acm            *acmbackend.Handler
+	redshift       *redshiftbackend.Handler
+	awsconfig      *awsconfigbackend.Handler
+	s3control      *s3controlbackend.Handler
 	resourcegroups *resourcegroupsbackend.Handler
-	swf         *swfbackend.Handler
-	firehose    *firehosebackend.Handler
-	iamBk       *iambackend.InMemoryBackend
-	s3Bk        *s3backend.InMemoryBackend
+	swf            *swfbackend.Handler
+	firehose       *firehosebackend.Handler
+	iamBk          *iambackend.InMemoryBackend
+	s3Bk           *s3backend.InMemoryBackend
 }
 
 // newHandlers creates in-memory backends and handlers for all services.
@@ -282,11 +282,17 @@ func newHandlers() handlers {
 			redshiftbackend.NewInMemoryBackend("000000000000", "us-east-1"),
 			slog.Default(),
 		),
-		awsconfig:      awsconfigbackend.NewHandler(awsconfigbackend.NewInMemoryBackend(), slog.Default()),
-		s3control:      s3controlbackend.NewHandler(s3controlbackend.NewInMemoryBackend(), slog.Default()),
-		resourcegroups: resourcegroupsbackend.NewHandler(resourcegroupsbackend.NewInMemoryBackend("000000000000", "us-east-1"), slog.Default()),
-		swf:            swfbackend.NewHandler(swfbackend.NewInMemoryBackend(), slog.Default()),
-		firehose:       firehosebackend.NewHandler(firehosebackend.NewInMemoryBackend("000000000000", "us-east-1"), slog.Default()),
+		awsconfig: awsconfigbackend.NewHandler(awsconfigbackend.NewInMemoryBackend(), slog.Default()),
+		s3control: s3controlbackend.NewHandler(s3controlbackend.NewInMemoryBackend(), slog.Default()),
+		resourcegroups: resourcegroupsbackend.NewHandler(
+			resourcegroupsbackend.NewInMemoryBackend("000000000000", "us-east-1"),
+			slog.Default(),
+		),
+		swf: swfbackend.NewHandler(swfbackend.NewInMemoryBackend(), slog.Default()),
+		firehose: firehosebackend.NewHandler(
+			firehosebackend.NewInMemoryBackend("000000000000", "us-east-1"),
+			slog.Default(),
+		),
 	}
 }
 

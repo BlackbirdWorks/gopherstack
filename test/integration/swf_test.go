@@ -105,7 +105,7 @@ func TestIntegration_SWF_DescribeWorkflowExecution(t *testing.T) {
 	swfPost(t, "StartWorkflowExecution", map[string]any{"domain": "swf-desc-domain", "workflowId": "exec-desc-001"})
 
 	resp := swfPost(t, "DescribeWorkflowExecution", map[string]any{
-		"domain": "swf-desc-domain",
+		"domain":    "swf-desc-domain",
 		"execution": map[string]any{"workflowId": "exec-desc-001"},
 	})
 	body := swfReadBody(t, resp)

@@ -13,6 +13,8 @@ var (
 	ErrAlreadyExists = errors.New("DomainAlreadyExistsFault")
 	// ErrDeprecated is returned when a deprecated resource is used.
 	ErrDeprecated = errors.New("DomainDeprecatedFault")
+	// ErrTypeAlreadyExists is returned when a workflow type already exists.
+	ErrTypeAlreadyExists = errors.New("TypeAlreadyExistsFault")
 )
 
 // Domain represents an SWF domain.
@@ -41,7 +43,7 @@ type WorkflowExecution struct {
 // InMemoryBackend is the in-memory store for SWF resources.
 type InMemoryBackend struct {
 	domains    map[string]*Domain
-	workflows  map[string]*WorkflowType // key: domain+":"+name+":"+version
+	workflows  map[string]*WorkflowType      // key: domain+":"+name+":"+version
 	executions map[string]*WorkflowExecution // key: domain+":"+workflowID
 	mu         sync.RWMutex
 }
@@ -110,7 +112,7 @@ func (b *InMemoryBackend) RegisterWorkflowType(domain, name, version string) err
 
 	key := domain + ":" + name + ":" + version
 	if _, ok := b.workflows[key]; ok {
-		return fmt.Errorf("TypeAlreadyExistsFault: %s/%s", name, version)
+		return fmt.Errorf("%w: %s/%s", ErrTypeAlreadyExists, name, version)
 	}
 
 	b.workflows[key] = &WorkflowType{Domain: domain, Name: name, Version: version, Status: "REGISTERED"}

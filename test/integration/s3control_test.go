@@ -10,10 +10,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func s3controlRequest(t *testing.T, method, path, accountID, body string) *http.Response {
+const s3controlPublicAccessBlockPath = "/v20180820/configuration/publicAccessBlock"
+
+func s3controlRequest(t *testing.T, method, accountID, body string) *http.Response {
 	t.Helper()
 
-	req, err := http.NewRequestWithContext(t.Context(), method, endpoint+path, strings.NewReader(body))
+	req, err := http.NewRequestWithContext(
+		t.Context(),
+		method,
+		endpoint+s3controlPublicAccessBlockPath,
+		strings.NewReader(body),
+	)
 	require.NoError(t, err)
 
 	if accountID != "" {
@@ -52,11 +59,11 @@ func TestIntegration_S3Control_PutAndGetPublicAccessBlock(t *testing.T) {
 		<RestrictPublicBuckets>false</RestrictPublicBuckets>
 	</PublicAccessBlockConfiguration>`
 
-	putResp := s3controlRequest(t, http.MethodPut, "/v20180820/configuration/publicAccessBlock", accountID, putBody)
+	putResp := s3controlRequest(t, http.MethodPut, accountID, putBody)
 	putRespBody := s3controlReadBody(t, putResp)
 	assert.Equal(t, http.StatusCreated, putResp.StatusCode, "body: %s", putRespBody)
 
-	getResp := s3controlRequest(t, http.MethodGet, "/v20180820/configuration/publicAccessBlock", accountID, "")
+	getResp := s3controlRequest(t, http.MethodGet, accountID, "")
 	getBody := s3controlReadBody(t, getResp)
 	require.Equal(t, http.StatusOK, getResp.StatusCode, "body: %s", getBody)
 	assert.Contains(t, getBody, "BlockPublicAcls")
@@ -68,9 +75,9 @@ func TestIntegration_S3Control_DeletePublicAccessBlock(t *testing.T) {
 
 	accountID := "s3ctrl-test-delete"
 	putBody := `<PublicAccessBlockConfiguration><BlockPublicAcls>true</BlockPublicAcls></PublicAccessBlockConfiguration>`
-	s3controlRequest(t, http.MethodPut, "/v20180820/configuration/publicAccessBlock", accountID, putBody)
+	s3controlRequest(t, http.MethodPut, accountID, putBody)
 
-	delResp := s3controlRequest(t, http.MethodDelete, "/v20180820/configuration/publicAccessBlock", accountID, "")
+	delResp := s3controlRequest(t, http.MethodDelete, accountID, "")
 	delBody := s3controlReadBody(t, delResp)
 	assert.Equal(t, http.StatusNoContent, delResp.StatusCode, "body: %s", delBody)
 }
@@ -79,7 +86,12 @@ func TestIntegration_S3Control_GetNotFound(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	getResp := s3controlRequest(t, http.MethodGet, "/v20180820/configuration/publicAccessBlock", "nonexistent-account-99999", "")
+	getResp := s3controlRequest(
+		t,
+		http.MethodGet,
+		"nonexistent-account-99999",
+		"",
+	)
 	getBody := s3controlReadBody(t, getResp)
 	assert.Equal(t, http.StatusNotFound, getResp.StatusCode, "body: %s", getBody)
 }

@@ -180,7 +180,7 @@ func (h *Handler) handleListDeliveryStreams(c *echo.Context) error {
 	names := h.Backend.ListDeliveryStreams()
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"DeliveryStreamNames": names,
+		"DeliveryStreamNames":    names,
 		"HasMoreDeliveryStreams": false,
 	})
 }
@@ -201,12 +201,12 @@ func (h *Handler) handlePutRecord(c *echo.Context, body []byte) error {
 		data = []byte(req.Record.Data)
 	}
 
-	if err := h.Backend.PutRecord(req.DeliveryStreamName, data); err != nil {
-		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]string{"message": err.Error()})
+	if putErr := h.Backend.PutRecord(req.DeliveryStreamName, data); putErr != nil {
+		if errors.Is(putErr, ErrNotFound) {
+			return c.JSON(http.StatusNotFound, map[string]string{"message": putErr.Error()})
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{"message": putErr.Error()})
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{
@@ -245,7 +245,7 @@ func (h *Handler) handlePutRecordBatch(c *echo.Context, body []byte) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"FailedPutCount": failedCount,
+		"FailedPutCount":   failedCount,
 		"RequestResponses": []map[string]string{},
 	})
 }

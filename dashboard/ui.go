@@ -176,7 +176,9 @@ type Config struct {
 }
 
 // NewHandler creates a new Dashboard handler.
-func NewHandler(cfg Config) *DashboardHandler {
+
+// parseDashboardTemplates loads and parses all HTML templates for the dashboard.
+func parseDashboardTemplates() *template.Template {
 	funcMap := template.FuncMap{
 		"safeID": func(s string) string {
 			s = strings.ReplaceAll(s, "/", "-")
@@ -189,8 +191,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		},
 	}
 
-	// Parse layout and components
-	tmpl := template.Must(template.New("layout").Funcs(funcMap).ParseFS(templateFS,
+	return template.Must(template.New("layout").Funcs(funcMap).ParseFS(templateFS,
 		"templates/layout.html",
 		"templates/components/*.html",
 		"templates/s3/*.html",
@@ -226,6 +227,10 @@ func NewHandler(cfg Config) *DashboardHandler {
 		"templates/doc.html",
 		"templates/settings.html",
 	))
+}
+
+func NewHandler(cfg Config) *DashboardHandler {
+	tmpl := parseDashboardTemplates()
 
 	// Create service-specific dashboard providers
 	ddbProvider := ddbbackend.NewDashboardProvider()

@@ -143,7 +143,7 @@ func TestSWF_Handler_DescribeWorkflowExecution(t *testing.T) {
 	doSWFRequest(t, h, "StartWorkflowExecution", map[string]any{"domain": "d1", "workflowId": "wf-001"})
 
 	rec := doSWFRequest(t, h, "DescribeWorkflowExecution", map[string]any{
-		"domain": "d1",
+		"domain":    "d1",
 		"execution": map[string]any{"workflowId": "wf-001"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)

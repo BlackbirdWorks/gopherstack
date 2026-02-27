@@ -512,6 +512,38 @@ func initializeClients(cli *CLI, awsCfg aws.Config) {
 	)
 }
 
+// storeCLIHandlers assigns initialized service handlers to the CLI fields.
+func storeCLIHandlers(cli *CLI, services []service.Registerable) {
+	cli.ddbHandler = services[0]
+	cli.s3Handler = services[1]
+	cli.ssmHandler = services[2]
+	cli.iamHandler = services[3]
+	cli.stsHandler = services[4]
+	cli.snsHandler = services[5]
+	cli.sqsHandler = services[6]
+	cli.kmsHandler = services[7]
+	cli.secretsManagerHandler = services[8]
+	cli.lambdaHandler = services[9]
+	cli.eventBridgeHandler = services[10]
+	cli.apiGatewayHandler = services[11]
+	cli.cloudWatchLogsHandler = services[12]
+	cli.stepFunctionsHandler = services[13]
+	cli.cloudWatchHandler = services[14]
+	cli.kinesisHandler = services[15]
+	cli.elasticacheHandler = services[16]
+	cli.route53Handler = services[17]
+	cli.sesHandler = services[18]
+	cli.ec2Handler = services[19]
+	cli.openSearchHandler = services[20]
+	cli.acmHandler = services[21]
+	cli.redshiftHandler = services[22]
+	cli.awsconfigHandler = services[23]
+	cli.s3controlHandler = services[24]
+	cli.resourcegroupsHandler = services[25]
+	cli.swfHandler = services[26]
+	cli.firehoseHandler = services[27]
+}
+
 // initializeServices initializes all service providers.
 func initializeServices(appCtx *service.AppContext) ([]service.Registerable, error) {
 	var services []service.Registerable
@@ -557,34 +589,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 
 	// Store handlers in CLI so dashboard and CloudFormation can access them.
 	if cli, ok := appCtx.Config.(*CLI); ok {
-		cli.ddbHandler = services[0]
-		cli.s3Handler = services[1]
-		cli.ssmHandler = services[2]
-		cli.iamHandler = services[3]
-		cli.stsHandler = services[4]
-		cli.snsHandler = services[5]
-		cli.sqsHandler = services[6]
-		cli.kmsHandler = services[7]
-		cli.secretsManagerHandler = services[8]
-		cli.lambdaHandler = services[9]
-		cli.eventBridgeHandler = services[10]
-		cli.apiGatewayHandler = services[11]
-		cli.cloudWatchLogsHandler = services[12]
-		cli.stepFunctionsHandler = services[13]
-		cli.cloudWatchHandler = services[14]
-		cli.kinesisHandler = services[15]
-		cli.elasticacheHandler = services[16]
-		cli.route53Handler = services[17]
-		cli.sesHandler = services[18]
-		cli.ec2Handler = services[19]
-		cli.openSearchHandler = services[20]
-		cli.acmHandler = services[21]
-		cli.redshiftHandler = services[22]
-		cli.awsconfigHandler = services[23]
-		cli.s3controlHandler = services[24]
-		cli.resourcegroupsHandler = services[25]
-		cli.swfHandler = services[26]
-		cli.firehoseHandler = services[27]
+		storeCLIHandlers(cli, services)
 	}
 
 	// Wire SNS→SQS delivery: when SNS publishes a message, deliver it to SQS queues.

@@ -185,9 +185,10 @@ func extractIntegrationHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	}
 
 	extractMonitoringHandlers(ap, ec)
+	extractLongTailHandlers(ap, ec)
 }
 
-// extractMonitoringHandlers populates monitoring and infrastructure service handlers on ec.
+// extractMonitoringHandlers populates integration/monitoring service handlers on ec.
 func extractMonitoringHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetEventBridgeHandler(); h != nil {
 		ec.eventBridgeOps, _ = h.(*ebbackend.Handler)
@@ -224,7 +225,10 @@ func extractMonitoringHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetEC2Handler(); h != nil {
 		ec.ec2Ops, _ = h.(*ec2backend.Handler)
 	}
+}
 
+// extractLongTailHandlers populates long-tail service handlers on ec.
+func extractLongTailHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetOpenSearchHandler(); h != nil {
 		ec.opensearchOps, _ = h.(*opensearchbackend.Handler)
 	}

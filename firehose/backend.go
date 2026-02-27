@@ -18,9 +18,9 @@ type DeliveryStream struct {
 	Name      string
 	ARN       string
 	Status    string
-	Records   [][]byte
 	AccountID string
 	Region    string
+	Records   [][]byte
 }
 
 // InMemoryBackend is the in-memory store for Firehose resources.
