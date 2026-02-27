@@ -51,6 +51,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	rdsbackend "github.com/blackbirdworks/gopherstack/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/redshift"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/resourcegroups"
 	route53backend "github.com/blackbirdworks/gopherstack/route53"
@@ -109,6 +110,7 @@ type CLI struct {
 	openSearchHandler      service.Registerable
 	acmHandler             service.Registerable
 	redshiftHandler        service.Registerable
+	rdsHandler             service.Registerable
 	awsconfigHandler       service.Registerable
 	s3controlHandler       service.Registerable
 	resourcegroupsHandler  service.Registerable
@@ -314,6 +316,11 @@ func (c *CLI) GetACMHandler() service.Registerable { return c.acmHandler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetRedshiftHandler() service.Registerable { return c.redshiftHandler }
+
+// GetRDSHandler returns the RDS handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetRDSHandler() service.Registerable { return c.rdsHandler }
 
 // GetAWSConfigHandler returns the AWS Config handler (dashboard.AWSSDKProvider).
 //
@@ -558,6 +565,7 @@ func storeCLIHandlers(cli *CLI, services []service.Registerable) {
 	cli.firehoseHandler = services[27]
 	cli.schedulerHandler = services[28]
 	cli.route53resolverHandler = services[29]
+	cli.rdsHandler = services[30]
 }
 
 // initializeServices initializes all service providers.
@@ -594,6 +602,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		&firehosebackend.Provider{},
 		&schedulerbackend.Provider{},
 		&route53resolverbackend.Provider{},
+		&rdsbackend.Provider{},
 	}
 
 	for _, provider := range serviceProviders {

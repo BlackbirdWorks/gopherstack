@@ -31,6 +31,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	pkgslogger "github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	rdsbackend "github.com/blackbirdworks/gopherstack/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/redshift"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/resourcegroups"
 	route53backend "github.com/blackbirdworks/gopherstack/route53"
@@ -102,6 +103,7 @@ type DashboardHandler struct {
 	OpenSearchOps      *opensearchbackend.Handler
 	ACMOps             *acmbackend.Handler
 	RedshiftOps        *redshiftbackend.Handler
+	RDSOps             *rdsbackend.Handler
 	AWSConfigOps       *awsconfigbackend.Handler
 	S3ControlOps       *s3controlbackend.Handler
 	ResourceGroupsOps  *resourcegroupsbackend.Handler
@@ -163,6 +165,8 @@ type Config struct {
 	ACMOps *acmbackend.Handler
 	// RedshiftOps provides access to the Redshift backend.
 	RedshiftOps *redshiftbackend.Handler
+	// RDSOps provides access to the RDS backend.
+	RDSOps *rdsbackend.Handler
 	// AWSConfigOps provides access to the AWS Config backend.
 	AWSConfigOps *awsconfigbackend.Handler
 	// S3ControlOps provides access to the S3 Control backend.
@@ -226,6 +230,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/opensearch/*.html",
 		"templates/acm/*.html",
 		"templates/redshift/*.html",
+		"templates/rds/*.html",
 		"templates/awsconfig/*.html",
 		"templates/s3control/*.html",
 		"templates/resourcegroups/*.html",
@@ -274,6 +279,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		OpenSearchOps:      cfg.OpenSearchOps,
 		ACMOps:             cfg.ACMOps,
 		RedshiftOps:        cfg.RedshiftOps,
+		RDSOps:             cfg.RDSOps,
 		AWSConfigOps:       cfg.AWSConfigOps,
 		S3ControlOps:       cfg.S3ControlOps,
 		ResourceGroupsOps:  cfg.ResourceGroupsOps,
@@ -476,6 +482,13 @@ func (h *DashboardHandler) setupRedshiftRoutes() {
 	h.SubRouter.POST("/dashboard/redshift/delete", h.redshiftDeleteCluster)
 }
 
+func (h *DashboardHandler) setupRDSRoutes() {
+	h.SubRouter.GET("/dashboard/rds", h.rdsIndex)
+	h.SubRouter.GET("/dashboard/rds/instance", h.rdsInstanceDetail)
+	h.SubRouter.POST("/dashboard/rds/create", h.rdsCreateInstance)
+	h.SubRouter.POST("/dashboard/rds/delete", h.rdsDeleteInstance)
+}
+
 func (h *DashboardHandler) setupAWSConfigRoutes() {
 	h.SubRouter.GET("/dashboard/awsconfig", h.awsconfigIndex)
 	h.SubRouter.POST("/dashboard/awsconfig/recorder", h.awsconfigPutRecorder)
@@ -545,6 +558,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.setupOpenSearchRoutes()
 	h.setupACMRoutes()
 	h.setupRedshiftRoutes()
+	h.setupRDSRoutes()
 	h.setupAWSConfigRoutes()
 	h.setupS3ControlRoutes()
 	h.setupResourceGroupsRoutes()
@@ -624,6 +638,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/opensearch", "OpenSearch"},
 	{"/acm", "ACM"},
 	{"/redshift", "Redshift"},
+	{"/rds", "RDS"},
 	{"/awsconfig", "AWSConfig"},
 	{"/s3control", "S3Control"},
 	{"/resourcegroups", "ResourceGroups"},

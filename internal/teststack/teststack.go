@@ -34,6 +34,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	rdsbackend "github.com/blackbirdworks/gopherstack/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/redshift"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/resourcegroups"
 	route53backend "github.com/blackbirdworks/gopherstack/route53"
@@ -86,6 +87,7 @@ type Stack struct {
 	OpenSearchHandler      *opensearchbackend.Handler
 	ACMHandler             *acmbackend.Handler
 	RedshiftHandler        *redshiftbackend.Handler
+	RDSHandler             *rdsbackend.Handler
 	AWSConfigHandler       *awsconfigbackend.Handler
 	S3ControlHandler       *s3controlbackend.Handler
 	ResourceGroupsHandler  *resourcegroupsbackend.Handler
@@ -168,6 +170,7 @@ func registerServices(
 	openSearchHndlr *opensearchbackend.Handler,
 	acmHndlr *acmbackend.Handler,
 	redshiftHndlr *redshiftbackend.Handler,
+	rdsHndlr *rdsbackend.Handler,
 	awsconfigHndlr *awsconfigbackend.Handler,
 	s3controlHndlr *s3controlbackend.Handler,
 	resourcegroupsHndlr *resourcegroupsbackend.Handler,
@@ -200,6 +203,7 @@ func registerServices(
 	_ = registry.Register(openSearchHndlr)
 	_ = registry.Register(acmHndlr)
 	_ = registry.Register(redshiftHndlr)
+	_ = registry.Register(rdsHndlr)
 	_ = registry.Register(awsconfigHndlr)
 	_ = registry.Register(s3controlHndlr)
 	_ = registry.Register(resourcegroupsHndlr)
@@ -235,6 +239,7 @@ type handlers struct {
 	opensearch      *opensearchbackend.Handler
 	acm             *acmbackend.Handler
 	redshift        *redshiftbackend.Handler
+	rds             *rdsbackend.Handler
 	awsconfig       *awsconfigbackend.Handler
 	s3control       *s3controlbackend.Handler
 	resourcegroups  *resourcegroupsbackend.Handler
@@ -290,6 +295,10 @@ func newHandlers() handlers {
 		acm: acmbackend.NewHandler(acmbackend.NewInMemoryBackend("000000000000", "us-east-1"), slog.Default()),
 		redshift: redshiftbackend.NewHandler(
 			redshiftbackend.NewInMemoryBackend("000000000000", "us-east-1"),
+			slog.Default(),
+		),
+		rds: rdsbackend.NewHandler(
+			rdsbackend.NewInMemoryBackend("000000000000", "us-east-1"),
 			slog.Default(),
 		),
 		awsconfig: awsconfigbackend.NewHandler(awsconfigbackend.NewInMemoryBackend(), slog.Default()),
@@ -372,6 +381,7 @@ func newDashboardConfig(h handlers, clients sdkClients) dashboard.Config {
 		OpenSearchOps:      h.opensearch,
 		ACMOps:             h.acm,
 		RedshiftOps:        h.redshift,
+		RDSOps:             h.rds,
 		AWSConfigOps:       h.awsconfig,
 		S3ControlOps:       h.s3control,
 		ResourceGroupsOps:  h.resourcegroups,
@@ -402,7 +412,7 @@ func New(t *testing.T) *Stack {
 		h.ddb, h.s3, h.ssm, h.iam, h.sts, h.sns, h.sqs, h.kms, h.sm,
 		h.lambda, h.eb, h.apigw, h.cwlogs, h.sfn, h.cw, h.cfn, h.kinesis,
 		h.elasticache, h.route53, h.ses, h.ec2, h.opensearch,
-		h.acm, h.redshift, h.awsconfig, h.s3control, h.resourcegroups, h.swf, h.firehose,
+		h.acm, h.redshift, h.rds, h.awsconfig, h.s3control, h.resourcegroups, h.swf, h.firehose,
 		h.scheduler, h.route53resolver,
 	)
 
@@ -442,6 +452,7 @@ func New(t *testing.T) *Stack {
 		OpenSearchHandler:      h.opensearch,
 		ACMHandler:             h.acm,
 		RedshiftHandler:        h.redshift,
+		RDSHandler:             h.rds,
 		AWSConfigHandler:       h.awsconfig,
 		S3ControlHandler:       h.s3control,
 		ResourceGroupsHandler:  h.resourcegroups,
