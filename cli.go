@@ -54,8 +54,10 @@ import (
 	redshiftbackend "github.com/blackbirdworks/gopherstack/redshift"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/resourcegroups"
 	route53backend "github.com/blackbirdworks/gopherstack/route53"
+	route53resolverbackend "github.com/blackbirdworks/gopherstack/route53resolver"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
 	s3controlbackend "github.com/blackbirdworks/gopherstack/s3control"
+	schedulerbackend "github.com/blackbirdworks/gopherstack/scheduler"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/secretsmanager"
 	sesbackend "github.com/blackbirdworks/gopherstack/ses"
 	snsbackend "github.com/blackbirdworks/gopherstack/sns"
@@ -76,51 +78,53 @@ const (
 
 // CLI holds all command-line / environment-variable configuration for Gopherstack.
 type CLI struct {
-	SSM                   struct{}            `embed:"" prefix:"ssm-"`
-	SecretsManager        struct{}            `embed:"" prefix:"secretsmanager-"`
-	KMS                   struct{}            `embed:"" prefix:"kms-"`
-	SQS                   sqsbackend.Settings `embed:"" prefix:"sqs-"`
-	SNS                   struct{}            `embed:"" prefix:"sns-"`
-	STS                   struct{}            `embed:"" prefix:"sts-"`
-	IAM                   struct{}            `embed:"" prefix:"iam-"`
-	kinesisHandler        service.Registerable
-	elasticacheHandler    service.Registerable
-	secretsManagerHandler service.Registerable
-	ddbHandler            service.Registerable
-	s3Handler             service.Registerable
-	ssmHandler            service.Registerable
-	iamHandler            service.Registerable
-	stsHandler            service.Registerable
-	snsHandler            service.Registerable
-	sqsHandler            service.Registerable
-	lambdaHandler         service.Registerable
-	eventBridgeHandler    service.Registerable
-	apiGatewayHandler     service.Registerable
-	cloudWatchLogsHandler service.Registerable
-	stepFunctionsHandler  service.Registerable
-	cloudWatchHandler     service.Registerable
-	cloudFormationHandler service.Registerable
-	kmsHandler            service.Registerable
-	route53Handler        service.Registerable
-	sesHandler            service.Registerable
-	ec2Handler            service.Registerable
-	openSearchHandler     service.Registerable
-	acmHandler            service.Registerable
-	redshiftHandler       service.Registerable
-	awsconfigHandler      service.Registerable
-	s3controlHandler      service.Registerable
-	resourcegroupsHandler service.Registerable
-	swfHandler            service.Registerable
-	firehoseHandler       service.Registerable
-	snsClient             *sns.Client
-	kmsClient             *kms.Client
-	iamClient             *iam.Client
-	s3Client              *s3.Client
-	ssmClient             *ssmsdk.Client
-	ddbClient             *dynamodb.Client
-	stsClient             *stssdk.Client
-	sqsClient             *sqssdk.Client
-	secretsManagerClient  *secretsmanager.Client
+	SSM                    struct{}            `embed:"" prefix:"ssm-"`
+	SecretsManager         struct{}            `embed:"" prefix:"secretsmanager-"`
+	KMS                    struct{}            `embed:"" prefix:"kms-"`
+	SQS                    sqsbackend.Settings `embed:"" prefix:"sqs-"`
+	SNS                    struct{}            `embed:"" prefix:"sns-"`
+	STS                    struct{}            `embed:"" prefix:"sts-"`
+	IAM                    struct{}            `embed:"" prefix:"iam-"`
+	kinesisHandler         service.Registerable
+	elasticacheHandler     service.Registerable
+	secretsManagerHandler  service.Registerable
+	ddbHandler             service.Registerable
+	s3Handler              service.Registerable
+	ssmHandler             service.Registerable
+	iamHandler             service.Registerable
+	stsHandler             service.Registerable
+	snsHandler             service.Registerable
+	sqsHandler             service.Registerable
+	lambdaHandler          service.Registerable
+	eventBridgeHandler     service.Registerable
+	apiGatewayHandler      service.Registerable
+	cloudWatchLogsHandler  service.Registerable
+	stepFunctionsHandler   service.Registerable
+	cloudWatchHandler      service.Registerable
+	cloudFormationHandler  service.Registerable
+	kmsHandler             service.Registerable
+	route53Handler         service.Registerable
+	sesHandler             service.Registerable
+	ec2Handler             service.Registerable
+	openSearchHandler      service.Registerable
+	acmHandler             service.Registerable
+	redshiftHandler        service.Registerable
+	awsconfigHandler       service.Registerable
+	s3controlHandler       service.Registerable
+	resourcegroupsHandler  service.Registerable
+	swfHandler             service.Registerable
+	firehoseHandler        service.Registerable
+	schedulerHandler       service.Registerable
+	route53resolverHandler service.Registerable
+	snsClient              *sns.Client
+	kmsClient              *kms.Client
+	iamClient              *iam.Client
+	s3Client               *s3.Client
+	ssmClient              *ssmsdk.Client
+	ddbClient              *dynamodb.Client
+	stsClient              *stssdk.Client
+	sqsClient              *sqssdk.Client
+	secretsManagerClient   *secretsmanager.Client
 
 	AccountID         string                 `name:"account-id"         env:"ACCOUNT_ID"         default:"000000000000" help:"Mock AWS account ID used in ARNs."`                                                              //nolint:lll // config struct tags are intentionally verbose
 	Port              string                 `name:"port"               env:"PORT"               default:"8000"         help:"HTTP server port."`                                                                              //nolint:lll // config struct tags are intentionally verbose
@@ -336,6 +340,16 @@ func (c *CLI) GetSWFHandler() service.Registerable { return c.swfHandler }
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetFirehoseHandler() service.Registerable { return c.firehoseHandler }
 
+// GetSchedulerHandler returns the Scheduler handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetSchedulerHandler() service.Registerable { return c.schedulerHandler }
+
+// GetRoute53ResolverHandler returns the Route53Resolver handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetRoute53ResolverHandler() service.Registerable { return c.route53resolverHandler }
+
 // Run parses CLI / environment-variable configuration and starts Gopherstack.
 // It is called from main() and exits on error.
 func Run() {
@@ -542,6 +556,8 @@ func storeCLIHandlers(cli *CLI, services []service.Registerable) {
 	cli.resourcegroupsHandler = services[25]
 	cli.swfHandler = services[26]
 	cli.firehoseHandler = services[27]
+	cli.schedulerHandler = services[28]
+	cli.route53resolverHandler = services[29]
 }
 
 // initializeServices initializes all service providers.
@@ -576,6 +592,8 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		&resourcegroupsbackend.Provider{},
 		&swfbackend.Provider{},
 		&firehosebackend.Provider{},
+		&schedulerbackend.Provider{},
+		&route53resolverbackend.Provider{},
 	}
 
 	for _, provider := range serviceProviders {
