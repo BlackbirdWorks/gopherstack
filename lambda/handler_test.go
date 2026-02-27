@@ -23,7 +23,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/lambda"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
-	"github.com/blackbirdworks/gopherstack/pkgs/docker"
+	gophercontainer "github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -1115,7 +1115,7 @@ func assertLambdaError(t *testing.T, rec *httptest.ResponseRecorder, errType str
 
 // ---- Mock Docker API ----
 
-// mockDockerAPI implements docker.APIClient for testing without a real daemon.
+// mockDockerAPI implements container.APIClient for testing without a real daemon.
 type mockDockerAPI struct {
 	createErr error
 	counter   int
@@ -1170,9 +1170,9 @@ func (m *mockDockerAPI) Close() error {
 	return nil
 }
 
-// newMockDockerClient creates a docker.Client backed by mockDockerAPI.
-func newMockDockerClient() *docker.Client {
-	return docker.NewClientWithAPI(&mockDockerAPI{}, docker.Config{
+// newMockDockerClient creates a container.Runtime backed by mockDockerAPI.
+func newMockDockerClient() gophercontainer.Runtime {
+	return gophercontainer.NewDockerRuntimeWithAPI(&mockDockerAPI{}, gophercontainer.Config{
 		PoolSize:    3,
 		IdleTimeout: time.Minute,
 	})

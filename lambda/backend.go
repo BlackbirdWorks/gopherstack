@@ -23,7 +23,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/docker"
+	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 )
 
@@ -118,7 +118,7 @@ type InMemoryBackend struct {
 	kinesisPoller   *EventSourcePoller
 	cwLogs          CWLogsBackend
 	dnsRegistrar    DNSRegistrar
-	docker          *docker.Client
+	docker          container.Runtime
 	portAlloc       *portalloc.Allocator
 	s3Fetcher       S3CodeFetcher
 	logger          *slog.Logger
@@ -130,7 +130,7 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new Lambda in-memory backend.
 func NewInMemoryBackend(
-	dockerClient *docker.Client,
+	dockerClient container.Runtime,
 	portAlloc *portalloc.Allocator,
 	settings Settings,
 	accountID, region string,
@@ -1071,7 +1071,7 @@ func (b *InMemoryBackend) getOrCreateRuntime(ctx context.Context, fn *FunctionCo
 	}
 
 	if b.docker == nil {
-		return nil, fmt.Errorf("%w: Docker unavailable", ErrLambdaUnavailable)
+		return nil, fmt.Errorf("%w: container runtime unavailable", ErrLambdaUnavailable)
 	}
 
 	b.mu.Lock()
@@ -1247,7 +1247,7 @@ func (b *InMemoryBackend) startContainer(
 		return b.startZipContainer(ctx, fn, env)
 	}
 
-	spec := docker.ContainerSpec{
+	spec := container.ContainerSpec{
 		Image: fn.ImageURI,
 		Name:  fmt.Sprintf("gopherstack-lambda-%s-%s", fn.FunctionName, uuid.New().String()[:8]),
 		Env:   env,
@@ -1295,7 +1295,7 @@ func (b *InMemoryBackend) startZipContainer(
 		return "", fmt.Errorf("%w: zip extraction failed: %w", ErrLambdaUnavailable, extractErr)
 	}
 
-	spec := docker.ContainerSpec{
+	spec := container.ContainerSpec{
 		Image:  baseImage,
 		Name:   fmt.Sprintf("gopherstack-lambda-%s-%s", fn.FunctionName, uuid.New().String()[:8]),
 		Env:    env,
