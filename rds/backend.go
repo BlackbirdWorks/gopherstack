@@ -207,6 +207,14 @@ func (b *InMemoryBackend) ModifyDBInstance(id, instanceClass string, allocatedSt
 
 // CreateDBSnapshot creates a snapshot of the given DB instance.
 func (b *InMemoryBackend) CreateDBSnapshot(snapshotID, instanceID string) (*DBSnapshot, error) {
+	if snapshotID == "" {
+		return nil, fmt.Errorf("%w: DBSnapshotIdentifier is required", ErrInvalidParameter)
+	}
+
+	if instanceID == "" {
+		return nil, fmt.Errorf("%w: DBInstanceIdentifier is required", ErrInvalidParameter)
+	}
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -275,6 +283,10 @@ func (b *InMemoryBackend) CreateDBSubnetGroup(
 	name, description, vpcID string,
 	subnetIDs []string,
 ) (*DBSubnetGroup, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: DBSubnetGroupName must not be empty", ErrInvalidParameter)
+	}
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 

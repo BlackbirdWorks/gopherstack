@@ -173,6 +173,60 @@ func TestRDSHandler_CreateDBInstance_DefaultEngine(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "<Port>5432</Port>")
 }
 
+func TestRDSHandler_CreateDBInstance_InvalidAllocatedStorage(t *testing.T) {
+	t.Parallel()
+
+	h := newRDSHandler()
+	rec := postRDSForm(t, h,
+		"Action=CreateDBInstance&Version=2014-10-31&DBInstanceIdentifier=bad-db&AllocatedStorage=abc")
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidParameterValue")
+}
+
+func TestRDSHandler_ModifyDBInstance_InvalidAllocatedStorage(t *testing.T) {
+	t.Parallel()
+
+	h := newRDSHandler()
+	postRDSForm(t, h, "Action=CreateDBInstance&Version=2014-10-31&DBInstanceIdentifier=mod-bad-db")
+
+	rec := postRDSForm(t, h,
+		"Action=ModifyDBInstance&Version=2014-10-31&DBInstanceIdentifier=mod-bad-db&AllocatedStorage=notanumber")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidParameterValue")
+}
+
+func TestRDSHandler_CreateDBSnapshot_EmptySnapshotID(t *testing.T) {
+	t.Parallel()
+
+	h := newRDSHandler()
+	postRDSForm(t, h, "Action=CreateDBInstance&Version=2014-10-31&DBInstanceIdentifier=snap-empty-db")
+
+	rec := postRDSForm(t, h,
+		"Action=CreateDBSnapshot&Version=2014-10-31&DBSnapshotIdentifier=&DBInstanceIdentifier=snap-empty-db")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidParameterValue")
+}
+
+func TestRDSHandler_CreateDBSnapshot_EmptyInstanceID(t *testing.T) {
+	t.Parallel()
+
+	h := newRDSHandler()
+	rec := postRDSForm(t, h,
+		"Action=CreateDBSnapshot&Version=2014-10-31&DBSnapshotIdentifier=snap-noinst&DBInstanceIdentifier=")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidParameterValue")
+}
+
+func TestRDSHandler_CreateDBSubnetGroup_EmptyName(t *testing.T) {
+	t.Parallel()
+
+	h := newRDSHandler()
+	rec := postRDSForm(t, h, "Action=CreateDBSubnetGroup&Version=2014-10-31&DBSubnetGroupName=")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidParameterValue")
+}
+
 func TestRDSHandler_CreateDBInstance_EmptyID(t *testing.T) {
 	t.Parallel()
 

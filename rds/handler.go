@@ -173,7 +173,17 @@ func (h *Handler) handleCreateDBInstance(vals url.Values) (any, error) {
 	dbName := vals.Get("DBName")
 	masterUser := vals.Get("MasterUsername")
 
-	allocatedStorage, _ := strconv.Atoi(vals.Get("AllocatedStorage"))
+	rawStorage := vals.Get("AllocatedStorage")
+	allocatedStorage := 0
+
+	if rawStorage != "" {
+		var err error
+
+		allocatedStorage, err = strconv.Atoi(rawStorage)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid AllocatedStorage %q", ErrInvalidParameter, rawStorage)
+		}
+	}
 
 	inst, err := h.Backend.CreateDBInstance(id, engine, instanceClass, dbName, masterUser, allocatedStorage)
 	if err != nil {
@@ -223,7 +233,18 @@ func (h *Handler) handleDescribeDBInstances(vals url.Values) (any, error) {
 func (h *Handler) handleModifyDBInstance(vals url.Values) (any, error) {
 	id := vals.Get("DBInstanceIdentifier")
 	instanceClass := vals.Get("DBInstanceClass")
-	allocatedStorage, _ := strconv.Atoi(vals.Get("AllocatedStorage"))
+
+	rawStorage := vals.Get("AllocatedStorage")
+	allocatedStorage := 0
+
+	if rawStorage != "" {
+		var err error
+
+		allocatedStorage, err = strconv.Atoi(rawStorage)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid AllocatedStorage %q", ErrInvalidParameter, rawStorage)
+		}
+	}
 
 	inst, err := h.Backend.ModifyDBInstance(id, instanceClass, allocatedStorage)
 	if err != nil {
