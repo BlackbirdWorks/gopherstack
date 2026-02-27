@@ -91,8 +91,8 @@ func TestIntegration_OpenSearch_DomainLifecycle(t *testing.T) {
 	found := false
 
 	for _, entry := range names {
-		e, ok := entry.(map[string]any)
-		if !ok {
+		e, eok := entry.(map[string]any)
+		if !eok {
 			continue
 		}
 

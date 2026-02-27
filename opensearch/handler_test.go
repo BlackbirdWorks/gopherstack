@@ -46,6 +46,7 @@ func doRequest(t *testing.T, h *opensearch.Handler, method, path string, body an
 }
 
 func TestCreateDomain(t *testing.T) {
+	t.Parallel()
 	h := newTestHandler()
 
 	resp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain", map[string]any{
@@ -68,6 +69,7 @@ func TestCreateDomain(t *testing.T) {
 }
 
 func TestCreateDomain_AlreadyExists(t *testing.T) {
+	t.Parallel()
 	h := newTestHandler()
 
 	body := map[string]any{"DomainName": "my-domain"}
@@ -81,6 +83,7 @@ func TestCreateDomain_AlreadyExists(t *testing.T) {
 }
 
 func TestCreateDomain_NoName(t *testing.T) {
+	t.Parallel()
 	h := newTestHandler()
 
 	resp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain", map[string]any{})
@@ -90,6 +93,7 @@ func TestCreateDomain_NoName(t *testing.T) {
 }
 
 func TestDescribeDomain(t *testing.T) {
+	t.Parallel()
 	h := newTestHandler()
 
 	// Create first
@@ -112,6 +116,7 @@ func TestDescribeDomain(t *testing.T) {
 }
 
 func TestDescribeDomain_NotFound(t *testing.T) {
+	t.Parallel()
 	h := newTestHandler()
 
 	resp := doRequest(t, h, http.MethodGet, "/2021-01-01/opensearch/domain/nonexistent", nil)
@@ -121,6 +126,7 @@ func TestDescribeDomain_NotFound(t *testing.T) {
 }
 
 func TestListDomainNames(t *testing.T) {
+	t.Parallel()
 	h := newTestHandler()
 
 	// Create two domains
@@ -145,6 +151,7 @@ func TestListDomainNames(t *testing.T) {
 }
 
 func TestDeleteDomain(t *testing.T) {
+	t.Parallel()
 	h := newTestHandler()
 
 	// Create
@@ -167,6 +174,7 @@ func TestDeleteDomain(t *testing.T) {
 }
 
 func TestDeleteDomain_NotFound(t *testing.T) {
+	t.Parallel()
 	h := newTestHandler()
 
 	resp := doRequest(t, h, http.MethodDelete, "/2021-01-01/opensearch/domain/nonexistent", nil)

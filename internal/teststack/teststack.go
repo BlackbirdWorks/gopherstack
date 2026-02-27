@@ -289,7 +289,8 @@ func New(t *testing.T) *Stack {
 	registerServices(
 		registry,
 		h.ddb, h.s3, h.ssm, h.iam, h.sts, h.sns, h.sqs, h.kms, h.sm,
-		h.lambda, h.eb, h.apigw, h.cwlogs, h.sfn, h.cw, h.cfn, h.kinesis, h.elasticache, h.route53, h.ses, h.ec2, h.opensearch,
+		h.lambda, h.eb, h.apigw, h.cwlogs, h.sfn, h.cw, h.cfn, h.kinesis,
+		h.elasticache, h.route53, h.ses, h.ec2, h.opensearch,
 	)
 
 	// Create AWS SDK clients routed through in-memory Echo.

@@ -33,8 +33,8 @@ type ec2SubnetView struct {
 type ec2VPCView struct {
 	ID        string
 	CIDRBlock string
-	IsDefault bool
 	Subnets   []ec2SubnetView
+	IsDefault bool
 }
 
 // ec2IndexData is the template data for the EC2 dashboard index page.

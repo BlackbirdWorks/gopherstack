@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	openSearchPathPrefix  = "/2021-01-01/opensearch/domain"
+	openSearchPathPrefix    = "/2021-01-01/opensearch/domain"
 	openSearchMatchPriority = 82
 )
 
@@ -105,11 +105,11 @@ type domainJSON struct {
 
 // domainStatusJSON is the JSON response for domain operations.
 type domainStatusJSON struct {
-	ClusterConfig clusterConfigJSON `json:"ClusterConfig"`
 	DomainName    string            `json:"DomainName"`
 	ARN           string            `json:"ARN"`
 	EngineVersion string            `json:"EngineVersion"`
 	Endpoint      string            `json:"Endpoint"`
+	ClusterConfig clusterConfigJSON `json:"ClusterConfig"`
 	Processing    bool              `json:"Processing"`
 }
 
@@ -135,7 +135,7 @@ type domainNameEntry struct {
 	EngineVersion string `json:"EngineVersion"`
 }
 
-// ServeHTTP implements http.Handler for the OpenSearch service.
+// ServeHTTP implements [http.Handler] for the OpenSearch service.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 	rest := strings.TrimPrefix(path, openSearchPathPrefix)
@@ -208,7 +208,7 @@ func (h *Handler) handleCreateDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.writeJSON(w, http.StatusOK, domainStatusWrapJSON{
+	h.writeJSON(w, domainStatusWrapJSON{
 		DomainStatus: toDomainStatusJSON(domain),
 	})
 }
@@ -225,7 +225,7 @@ func (h *Handler) handleDescribeDomain(w http.ResponseWriter, _ *http.Request, n
 		return
 	}
 
-	h.writeJSON(w, http.StatusOK, domainStatusWrapJSON{
+	h.writeJSON(w, domainStatusWrapJSON{
 		DomainStatus: toDomainStatusJSON(domain),
 	})
 }
@@ -242,7 +242,7 @@ func (h *Handler) handleDeleteDomain(w http.ResponseWriter, _ *http.Request, nam
 		return
 	}
 
-	h.writeJSON(w, http.StatusOK, domainStatusWrapJSON{
+	h.writeJSON(w, domainStatusWrapJSON{
 		DomainStatus: toDomainStatusJSON(domain),
 	})
 }
@@ -263,7 +263,7 @@ func (h *Handler) handleListDomainNames(w http.ResponseWriter, _ *http.Request) 
 		})
 	}
 
-	h.writeJSON(w, http.StatusOK, domainListJSON{DomainNames: entries})
+	h.writeJSON(w, domainListJSON{DomainNames: entries})
 }
 
 func toDomainStatusJSON(d *Domain) domainStatusJSON {
@@ -290,6 +290,6 @@ func (h *Handler) writeError(w http.ResponseWriter, status int, code, message st
 	httputil.WriteJSON(h.Logger, w, status, errorResponseJSON{Message: message})
 }
 
-func (h *Handler) writeJSON(w http.ResponseWriter, status int, v any) {
-	httputil.WriteJSON(h.Logger, w, status, v)
+func (h *Handler) writeJSON(w http.ResponseWriter, v any) {
+	httputil.WriteJSON(h.Logger, w, http.StatusOK, v)
 }

@@ -8,9 +8,9 @@ import (
 
 // Errors returned by the OpenSearch backend.
 var (
-	ErrDomainNotFound     = errors.New("ResourceNotFoundException")
+	ErrDomainNotFound      = errors.New("ResourceNotFoundException")
 	ErrDomainAlreadyExists = errors.New("ResourceAlreadyExistsException")
-	ErrInvalidParameter   = errors.New("ValidationException")
+	ErrInvalidParameter    = errors.New("ValidationException")
 )
 
 // ClusterConfig represents the cluster configuration for an OpenSearch domain.
@@ -21,12 +21,12 @@ type ClusterConfig struct {
 
 // Domain represents an OpenSearch domain.
 type Domain struct {
-	ClusterConfig ClusterConfig
 	Name          string
 	ARN           string
 	EngineVersion string
 	Endpoint      string
 	Status        string
+	ClusterConfig ClusterConfig
 }
 
 // InMemoryBackend is the in-memory store for OpenSearch domains.
