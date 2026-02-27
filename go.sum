@@ -68,6 +68,8 @@ github.com/aws/aws-sdk-go-v2/service/kms v1.50.1 h1:wb/PYYm3wlcqGzw7Ls4GD3X5+seD
 github.com/aws/aws-sdk-go-v2/service/kms v1.50.1/go.mod h1:xvHowJ6J9CuaFE04S8fitWQXytf4sHz3DTPGhw9FtmU=
 github.com/aws/aws-sdk-go-v2/service/lambda v1.88.1 h1:9WZiZ+1YXpvqvOi2CszopJJlzvv2h8cpxzPBy/rF+NA=
 github.com/aws/aws-sdk-go-v2/service/lambda v1.88.1/go.mod h1:NFUHqj4J37VOyZvFHoMn4FjSBaFsPEHeTaBup0isZWM=
+github.com/aws/aws-sdk-go-v2/service/rds v1.116.1 h1:a5PMhM3lOcu2DKgvYGjhCDToKQnz9VEUo9iSc5+DsyA=
+github.com/aws/aws-sdk-go-v2/service/rds v1.116.1/go.mod h1:bMaMwbVQ96bx42kDw/Ko+YiDyT/UCotPO+1RDp6lq7E=
 github.com/aws/aws-sdk-go-v2/service/s3 v1.96.2 h1:M1A9AjcFwlxTLuf0Faj88L8Iqw0n/AJHjpZTQzMMsSc=
 github.com/aws/aws-sdk-go-v2/service/s3 v1.96.2/go.mod h1:KsdTV6Q9WKUZm2mNJnUFmIoXfZux91M3sr/a4REX8e0=
 github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.41.2 h1:hezAo5AQM0moD4qitsn8bZuc2WE/MmP+cySGfJWEi1A=
