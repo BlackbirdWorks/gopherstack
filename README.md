@@ -74,6 +74,34 @@ aws lambda list-functions --endpoint-url http://localhost:8000
 | `--lambda-docker-host` | `LAMBDA_DOCKER_HOST` | `172.17.0.1` | Host/IP that Lambda containers use to reach Gopherstack's Runtime API |
 | `--lambda-pool-size` | `LAMBDA_POOL_SIZE` | `3` | Maximum warm containers per function |
 | `--lambda-idle-timeout` | `LAMBDA_IDLE_TIMEOUT` | `10m` | Idle container lifetime before reaping |
+| `--container-runtime` | `CONTAINER_RUNTIME` | `docker` | Container runtime to use: `docker`, `podman`, or `auto` |
+
+#### Using Podman
+
+Gopherstack supports [Podman](https://podman.io/) as a drop-in replacement for Docker via
+Podman's Docker-compatible API socket.
+
+**Rootless Podman setup (Linux):**
+
+```bash
+# Enable the Podman socket for your user
+systemctl --user enable --now podman.socket
+
+# Point Gopherstack at Podman
+export CONTAINER_RUNTIME=podman
+# Optional: override the socket path
+export CONTAINER_HOST=unix://${XDG_RUNTIME_DIR}/podman/podman.sock
+```
+
+**Rootless networking note:** In rootless Podman the Docker bridge (`172.17.0.1`) is not
+available.  Use the host's routable IP or `host.containers.internal` instead:
+
+```bash
+export LAMBDA_DOCKER_HOST=host.containers.internal
+```
+
+**Auto-detection:** Set `CONTAINER_RUNTIME=auto` to let Gopherstack probe Docker first,
+then Podman, and use whichever socket is reachable.
 
 
 
@@ -98,7 +126,7 @@ Features:
 
 ### Prerequisites
 - Go 1.26+
-- Docker (optional)
+- Docker or Podman (optional, required for Lambda `PackageType: Image` invocations)
 - AWS CLI (optional, for testing)
 
 ### Development
