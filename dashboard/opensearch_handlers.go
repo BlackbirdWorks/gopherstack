@@ -121,7 +121,11 @@ func (h *DashboardHandler) opensearchCreateDomain(c *echo.Context) error {
 		return c.NoContent(http.StatusBadRequest)
 	}
 
-	if _, err := h.OpenSearchOps.Backend.CreateDomain(name, engineVersion, opensearchbackend.ClusterConfig{}); err != nil {
+	if _, err := h.OpenSearchOps.Backend.CreateDomain(
+		name,
+		engineVersion,
+		opensearchbackend.ClusterConfig{},
+	); err != nil {
 		h.Logger.Error("failed to create OpenSearch domain", "name", name, "error", err)
 
 		return c.NoContent(http.StatusBadRequest)

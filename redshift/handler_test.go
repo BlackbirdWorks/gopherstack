@@ -38,8 +38,11 @@ func postRedshiftForm(t *testing.T, h *redshift.Handler, body string) *httptest.
 func TestRedshiftHandler_CreateCluster(t *testing.T) {
 	t.Parallel()
 
+	const createForm = "Action=CreateCluster&Version=2012-12-01" +
+		"&ClusterIdentifier=test-cluster&NodeType=dc2.large&DBName=mydb&MasterUsername=admin"
+
 	h := newRedshiftHandler()
-	rec := postRedshiftForm(t, h, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=test-cluster&NodeType=dc2.large&DBName=mydb&MasterUsername=admin")
+	rec := postRedshiftForm(t, h, createForm)
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "CreateClusterResponse")

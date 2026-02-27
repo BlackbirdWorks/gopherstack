@@ -67,6 +67,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		if err != nil {
 			return false
 		}
+
 		return vals.Get("Version") == acmVersion
 	}
 }
@@ -84,6 +85,7 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	if action == "" {
 		return "Unknown"
 	}
+
 	return action
 }
 
@@ -93,6 +95,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	if err := r.ParseForm(); err != nil {
 		return ""
 	}
+
 	return r.Form.Get("CertificateArn")
 }
 
@@ -152,6 +155,7 @@ func (h *Handler) handleRequestCertificate(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return &requestCertificateResponse{
 		Xmlns:          acmXMLNS,
 		CertificateArn: cert.ARN,
@@ -164,6 +168,7 @@ func (h *Handler) handleDescribeCertificate(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return &describeCertificateResponse{
 		Xmlns: acmXMLNS,
 		Certificate: xmlCertificateDetail{
@@ -185,6 +190,7 @@ func (h *Handler) handleListCertificates() any {
 			DomainName:     c.DomainName,
 		})
 	}
+
 	return &listCertificatesResponse{
 		Xmlns: acmXMLNS,
 		CertificateSummaryList: xmlCertSummaryList{
@@ -198,6 +204,7 @@ func (h *Handler) handleDeleteCertificate(vals url.Values) (any, error) {
 	if err := h.Backend.DeleteCertificate(arn); err != nil {
 		return nil, err
 	}
+
 	return &deleteCertificateResponse{Xmlns: acmXMLNS}, nil
 }
 
@@ -214,6 +221,7 @@ func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) err
 		statusCode = http.StatusInternalServerError
 		h.Logger.Error("ACM internal error", "error", opErr, "action", action)
 	}
+
 	return h.writeError(c, statusCode, code, opErr.Error())
 }
 
@@ -226,6 +234,7 @@ func (h *Handler) writeError(c *echo.Context, statusCode int, code, message stri
 	if err != nil {
 		return c.String(http.StatusInternalServerError, "internal server error")
 	}
+
 	return c.Blob(statusCode, "text/xml", xmlBytes)
 }
 
@@ -234,6 +243,7 @@ func marshalXML(v any) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return append([]byte(xml.Header), raw...), nil
 }
 

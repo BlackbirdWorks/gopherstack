@@ -14,11 +14,11 @@ var (
 
 // Certificate represents an ACM certificate.
 type Certificate struct {
+	CreatedAt  time.Time
 	ARN        string
 	DomainName string
 	Status     string
 	Type       string
-	CreatedAt  time.Time
 }
 
 // InMemoryBackend is the in-memory store for ACM certificates.

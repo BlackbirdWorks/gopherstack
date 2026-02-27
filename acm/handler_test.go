@@ -114,8 +114,11 @@ func TestACMHandler_DeleteCertificate(t *testing.T) {
 func TestACMHandler_DescribeCertificate_NotFound(t *testing.T) {
 	t.Parallel()
 
+	const notFoundForm = "Action=DescribeCertificate&Version=2015-12-08" +
+		"&CertificateArn=arn:aws:acm:us-east-1:000000000000:certificate/nonexistent"
+
 	h := newACMHandler()
-	rec := postACMForm(t, h, "Action=DescribeCertificate&Version=2015-12-08&CertificateArn=arn:aws:acm:us-east-1:000000000000:certificate/nonexistent")
+	rec := postACMForm(t, h, notFoundForm)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Contains(t, rec.Body.String(), "ErrorResponse")
 }

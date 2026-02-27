@@ -252,8 +252,11 @@ func newHandlers() handlers {
 		opensearch: opensearchbackend.NewHandler(
 			opensearchbackend.NewInMemoryBackend("000000000000", "us-east-1"), slog.Default(),
 		),
-		acm:      acmbackend.NewHandler(acmbackend.NewInMemoryBackend("000000000000", "us-east-1"), slog.Default()),
-		redshift: redshiftbackend.NewHandler(redshiftbackend.NewInMemoryBackend("000000000000", "us-east-1"), slog.Default()),
+		acm: acmbackend.NewHandler(acmbackend.NewInMemoryBackend("000000000000", "us-east-1"), slog.Default()),
+		redshift: redshiftbackend.NewHandler(
+			redshiftbackend.NewInMemoryBackend("000000000000", "us-east-1"),
+			slog.Default(),
+		),
 	}
 }
 

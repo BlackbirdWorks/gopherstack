@@ -104,6 +104,7 @@ func (b *InMemoryBackend) DescribeClusters(id string) ([]Cluster, error) {
 		if !exists {
 			return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 		}
+
 		return []Cluster{*c}, nil
 	}
 

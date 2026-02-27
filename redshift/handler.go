@@ -66,6 +66,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		if err != nil {
 			return false
 		}
+
 		return vals.Get("Version") == redshiftVersion
 	}
 }
@@ -83,6 +84,7 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	if action == "" {
 		return "Unknown"
 	}
+
 	return action
 }
 
@@ -92,6 +94,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	if err := r.ParseForm(); err != nil {
 		return ""
 	}
+
 	return r.Form.Get("ClusterIdentifier")
 }
 
@@ -162,6 +165,7 @@ func (h *Handler) handleDeleteCluster(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return &deleteClusterResponse{
 		Xmlns:   redshiftXMLNS,
 		Cluster: toXMLCluster(cluster),
@@ -179,6 +183,7 @@ func (h *Handler) handleDescribeClusters(vals url.Values) (any, error) {
 		cp := c
 		members = append(members, toXMLCluster(&cp))
 	}
+
 	return &describeClustersResponse{
 		Xmlns:    redshiftXMLNS,
 		Clusters: xmlClusterList{Members: members},
@@ -211,6 +216,7 @@ func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) err
 		statusCode = http.StatusInternalServerError
 		h.Logger.Error("Redshift internal error", "error", opErr, "action", action)
 	}
+
 	return h.writeError(c, statusCode, code, opErr.Error())
 }
 
@@ -223,6 +229,7 @@ func (h *Handler) writeError(c *echo.Context, statusCode int, code, message stri
 	if err != nil {
 		return c.String(http.StatusInternalServerError, "internal server error")
 	}
+
 	return c.Blob(statusCode, "text/xml", xmlBytes)
 }
 
@@ -231,6 +238,7 @@ func marshalXML(v any) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return append([]byte(xml.Header), raw...), nil
 }
 
