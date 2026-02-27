@@ -36,6 +36,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListResolverEndpoints",
 		"GetResolverEndpoint",
 		"CreateResolverRule",
+		"GetResolverRule",
 		"DeleteResolverRule",
 		"ListResolverRules",
 	}
@@ -91,6 +92,8 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.handleGetResolverEndpoint(c, body)
 		case "CreateResolverRule":
 			return h.handleCreateResolverRule(c, body)
+		case "GetResolverRule":
+			return h.handleGetResolverRule(c, body)
 		case "DeleteResolverRule":
 			return h.handleDeleteResolverRule(c, body)
 		case "ListResolverRules":
@@ -196,6 +199,28 @@ func (h *Handler) handleCreateResolverRule(c *echo.Context, body []byte) error {
 
 	r, err := h.Backend.CreateResolverRule(req.Name, req.DomainName, req.RuleType, req.ResolverEndpointID)
 	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"ResolverRule": ruleToMap(r),
+	})
+}
+
+func (h *Handler) handleGetResolverRule(c *echo.Context, body []byte) error {
+	var req struct {
+		ResolverRuleID string `json:"ResolverRuleId"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
+	}
+
+	r, err := h.Backend.GetResolverRule(req.ResolverRuleID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return c.JSON(http.StatusNotFound, map[string]string{"message": err.Error()})
+		}
+
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
 	}
 

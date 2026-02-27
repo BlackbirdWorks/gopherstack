@@ -190,3 +190,31 @@ func TestIntegration_Route53Resolver_DeleteRule(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "body: %s", body)
 }
+
+func TestIntegration_Route53Resolver_GetRule(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	createResp := route53resolverPost(t, "CreateResolverRule", map[string]any{
+		"Name":       "get-rule-test",
+		"DomainName": "get.internal",
+		"RuleType":   "FORWARD",
+	})
+
+	var createBody map[string]any
+	createData, _ := io.ReadAll(createResp.Body)
+	createResp.Body.Close()
+	require.NoError(t, json.Unmarshal(createData, &createBody))
+
+	rule, _ := createBody["ResolverRule"].(map[string]any)
+	id, _ := rule["Id"].(string)
+	require.NotEmpty(t, id)
+
+	resp := route53resolverPost(t, "GetResolverRule", map[string]any{
+		"ResolverRuleId": id,
+	})
+	body := route53resolverReadBody(t, resp)
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode, "body: %s", body)
+	assert.Contains(t, body, "get-rule-test")
+}

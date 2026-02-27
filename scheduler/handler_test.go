@@ -431,3 +431,113 @@ func TestScheduler_Provider_Init(t *testing.T) {
 	assert.NotNil(t, svc)
 	assert.Equal(t, "Scheduler", svc.Name())
 }
+
+// doInvalidSchedulerRequest sends a request with invalid JSON body.
+func doInvalidSchedulerRequest(t *testing.T, h *scheduler.Handler, action string) *httptest.ResponseRecorder {
+	t.Helper()
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("not-json"))
+	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+	req.Header.Set("X-Amz-Target", "AWSScheduler."+action)
+
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := h.Handler()(c)
+	require.NoError(t, err)
+
+	return rec
+}
+
+func TestScheduler_Handler_CreateSchedule_InvalidJSON(t *testing.T) {
+	t.Parallel()
+
+	h := newTestSchedulerHandler(t)
+	rec := doInvalidSchedulerRequest(t, h, "CreateSchedule")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestScheduler_Handler_GetSchedule_InvalidJSON(t *testing.T) {
+	t.Parallel()
+
+	h := newTestSchedulerHandler(t)
+	rec := doInvalidSchedulerRequest(t, h, "GetSchedule")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestScheduler_Handler_DeleteSchedule_InvalidJSON(t *testing.T) {
+	t.Parallel()
+
+	h := newTestSchedulerHandler(t)
+	rec := doInvalidSchedulerRequest(t, h, "DeleteSchedule")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestScheduler_Handler_UpdateSchedule_InvalidJSON(t *testing.T) {
+	t.Parallel()
+
+	h := newTestSchedulerHandler(t)
+	rec := doInvalidSchedulerRequest(t, h, "UpdateSchedule")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestScheduler_Handler_TagResource_InvalidJSON(t *testing.T) {
+	t.Parallel()
+
+	h := newTestSchedulerHandler(t)
+	rec := doInvalidSchedulerRequest(t, h, "TagResource")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestScheduler_Handler_ListTagsForResource_InvalidJSON(t *testing.T) {
+	t.Parallel()
+
+	h := newTestSchedulerHandler(t)
+	rec := doInvalidSchedulerRequest(t, h, "ListTagsForResource")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestScheduler_Handler_CreateSchedule_DefaultState(t *testing.T) {
+	t.Parallel()
+
+	// When State is omitted, it should default to ENABLED.
+	h := newTestSchedulerHandler(t)
+
+	rec := doSchedulerRequest(t, h, "CreateSchedule", map[string]any{
+		"Name":               "no-state-schedule",
+		"ScheduleExpression": "rate(1 hour)",
+		"Target": map[string]string{
+			"Arn":     "arn:aws:lambda:us-east-1:0:function:f",
+			"RoleArn": "arn:aws:iam::0:role/r",
+		},
+		"FlexibleTimeWindow": map[string]string{"Mode": "OFF"},
+		// State intentionally omitted
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	getRec := doSchedulerRequest(t, h, "GetSchedule", map[string]any{"Name": "no-state-schedule"})
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+	assert.Equal(t, "ENABLED", resp["State"])
+}
+
+func TestScheduler_Handler_CreateSchedule_CronExpression(t *testing.T) {
+	t.Parallel()
+
+	h := newTestSchedulerHandler(t)
+
+	rec := doSchedulerRequest(t, h, "CreateSchedule", map[string]any{
+		"Name":               "cron-schedule",
+		"ScheduleExpression": "cron(0 12 * * ? *)",
+		"Target": map[string]string{
+			"Arn":     "arn:aws:lambda:us-east-1:0:function:f",
+			"RoleArn": "arn:aws:iam::0:role/r",
+		},
+		"FlexibleTimeWindow": map[string]string{"Mode": "OFF"},
+		"State":              "ENABLED",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+}

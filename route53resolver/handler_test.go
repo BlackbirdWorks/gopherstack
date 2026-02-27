@@ -317,6 +317,45 @@ func TestRoute53Resolver_Handler_DeleteResolverRule_NotFound(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
+func TestRoute53Resolver_Handler_GetResolverRule(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createRec := doRequest(t, h, "CreateResolverRule", map[string]any{
+		"Name":       "get-rule",
+		"DomainName": "get.example.com",
+		"RuleType":   "FORWARD",
+	})
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	rule := createResp["ResolverRule"].(map[string]any)
+	id := rule["Id"].(string)
+
+	rec := doRequest(t, h, "GetResolverRule", map[string]any{
+		"ResolverRuleId": id,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	got, ok := resp["ResolverRule"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, id, got["Id"])
+	assert.Equal(t, "get-rule", got["Name"])
+}
+
+func TestRoute53Resolver_Handler_GetResolverRule_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "GetResolverRule", map[string]any{
+		"ResolverRuleId": "nonexistent",
+	})
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
 func TestRoute53Resolver_Handler_UnknownAction(t *testing.T) {
 	t.Parallel()
 
@@ -342,4 +381,78 @@ func TestRoute53Resolver_Provider_Init(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, svc)
 	assert.Equal(t, "Route53Resolver", svc.Name())
+}
+
+// doInvalidJSONRequest sends a request with invalid JSON body to test parse errors.
+func doInvalidJSONRequest(t *testing.T, h *route53resolver.Handler, action string) *httptest.ResponseRecorder {
+	t.Helper()
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("not-json"))
+	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+	req.Header.Set("X-Amz-Target", "Route53Resolver."+action)
+
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := h.Handler()(c)
+	require.NoError(t, err)
+
+	return rec
+}
+
+func TestRoute53Resolver_Handler_CreateResolverEndpoint_InvalidJSON(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doInvalidJSONRequest(t, h, "CreateResolverEndpoint")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestRoute53Resolver_Handler_DeleteResolverEndpoint_InvalidJSON(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doInvalidJSONRequest(t, h, "DeleteResolverEndpoint")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestRoute53Resolver_Handler_GetResolverEndpoint_InvalidJSON(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doInvalidJSONRequest(t, h, "GetResolverEndpoint")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestRoute53Resolver_Handler_CreateResolverRule_InvalidJSON(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doInvalidJSONRequest(t, h, "CreateResolverRule")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestRoute53Resolver_Handler_GetResolverRule_InvalidJSON(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doInvalidJSONRequest(t, h, "GetResolverRule")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestRoute53Resolver_Handler_DeleteResolverRule_InvalidJSON(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doInvalidJSONRequest(t, h, "DeleteResolverRule")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestRoute53Resolver_Handler_GetSupportedOperations_ContainsGetResolverRule(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	ops := h.GetSupportedOperations()
+	assert.Contains(t, ops, "GetResolverRule")
 }
