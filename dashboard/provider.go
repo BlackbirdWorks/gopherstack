@@ -12,6 +12,7 @@ import (
 	sfnbackend "github.com/blackbirdworks/gopherstack/stepfunctions"
 
 	"github.com/blackbirdworks/gopherstack/dynamodb"
+	ec2backend "github.com/blackbirdworks/gopherstack/ec2"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/elasticache"
 	ebbackend "github.com/blackbirdworks/gopherstack/eventbridge"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
@@ -57,6 +58,7 @@ type AWSSDKProvider interface {
 	GetElastiCacheHandler() service.Registerable
 	GetRoute53Handler() service.Registerable
 	GetSESHandler() service.Registerable
+	GetEC2Handler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 }
 
@@ -95,6 +97,7 @@ type extractedConfig struct {
 	elasticacheOps    *elasticachebackend.Handler
 	route53Ops        *route53backend.Handler
 	sesOps            *sesbackend.Handler
+	ec2Ops            *ec2backend.Handler
 	gCfg              globalcfg.GlobalConfig
 }
 
@@ -193,6 +196,10 @@ func extractMonitoringHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetSESHandler(); h != nil {
 		ec.sesOps, _ = h.(*sesbackend.Handler)
 	}
+
+	if h := ap.GetEC2Handler(); h != nil {
+		ec.ec2Ops, _ = h.(*ec2backend.Handler)
+	}
 }
 
 //nolint:ireturn // architecturally required to return interface
@@ -223,6 +230,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		ElastiCacheOps:    ec.elasticacheOps,
 		Route53Ops:        ec.route53Ops,
 		SESOps:            ec.sesOps,
+		EC2Ops:            ec.ec2Ops,
 		GlobalConfig:      ec.gCfg,
 		Logger:            ctx.Logger,
 	})

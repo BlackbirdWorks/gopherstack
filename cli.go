@@ -270,6 +270,11 @@ func (c *CLI) GetRoute53Handler() service.Registerable { return c.route53Handler
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetSESHandler() service.Registerable { return c.sesHandler }
 
+// GetEC2Handler returns the EC2 handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetEC2Handler() service.Registerable { return c.ec2Handler }
+
 // Run parses CLI / environment-variable configuration and starts Gopherstack.
 // It is called from main() and exits on error.
 func Run() {

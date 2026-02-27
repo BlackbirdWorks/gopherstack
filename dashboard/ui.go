@@ -17,6 +17,7 @@ import (
 	cwbackend "github.com/blackbirdworks/gopherstack/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/cloudwatchlogs"
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
+	ec2backend "github.com/blackbirdworks/gopherstack/ec2"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/elasticache"
 	ebbackend "github.com/blackbirdworks/gopherstack/eventbridge"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
@@ -87,6 +88,7 @@ type DashboardHandler struct {
 	ElastiCacheOps    *elasticachebackend.Handler
 	Route53Ops        *route53backend.Handler
 	SESOps            *sesbackend.Handler
+	EC2Ops            *ec2backend.Handler
 	SubRouter         *echo.Echo
 	ddbProvider       *ddbbackend.DashboardProvider
 	s3Provider        *s3backend.DashboardProvider
@@ -133,6 +135,8 @@ type Config struct {
 	Route53Ops *route53backend.Handler
 	// SESOps provides access to the SES backend.
 	SESOps *sesbackend.Handler
+	// EC2Ops provides access to the EC2 backend.
+	EC2Ops *ec2backend.Handler
 	// Logger is the structured logger for dashboard operations.
 	Logger *slog.Logger
 	// GlobalConfig holds the centralized account and region configuration shown on the settings page.
@@ -177,6 +181,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		"templates/elasticache/*.html",
 		"templates/route53/*.html",
 		"templates/ses/*.html",
+		"templates/ec2/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
 		"templates/settings.html",
@@ -210,6 +215,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		ElastiCacheOps:    cfg.ElastiCacheOps,
 		Route53Ops:        cfg.Route53Ops,
 		SESOps:            cfg.SESOps,
+		EC2Ops:            cfg.EC2Ops,
 		GlobalConfig:      cfg.GlobalConfig,
 		Logger:            cfg.Logger,
 		layout:            tmpl,
@@ -382,6 +388,10 @@ func (h *DashboardHandler) setupRoute53Routes() {
 	h.SubRouter.DELETE("/dashboard/route53/record", h.route53DeleteRecord)
 }
 
+func (h *DashboardHandler) setupEC2Routes() {
+	h.SubRouter.GET("/dashboard/ec2", h.ec2Index)
+}
+
 func (h *DashboardHandler) setupMetaRoutes() {
 	dashboardGroup := h.SubRouter.Group("/dashboard")
 	RegisterMetricsHandlers(dashboardGroup, h)
@@ -408,6 +418,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.setupElastiCacheRoutes()
 	h.setupRoute53Routes()
 	h.setupSESRoutes()
+	h.setupEC2Routes()
 	h.setupMetaRoutes()
 }
 
@@ -476,6 +487,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/elasticache", "ElastiCache"},
 	{"/route53", "Route53"},
 	{"/ses", "SES"},
+	{"/ec2", "EC2"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},
 }

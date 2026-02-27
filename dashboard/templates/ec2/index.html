@@ -1,0 +1,157 @@
+{{define "content"}}
+<div class="px-4 sm:px-6 lg:px-8">
+    <div class="sm:flex sm:items-center justify-between">
+        <div class="sm:flex-auto">
+            <h1 class="text-3xl font-bold text-gray-900 dark:text-white">EC2</h1>
+            <p class="mt-2 text-sm text-gray-700 dark:text-gray-300">In-memory EC2 instances, security groups, and VPCs.</p>
+        </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="mt-6 border-b border-gray-200 dark:border-gray-700">
+        <ul class="flex flex-wrap -mb-px text-sm font-medium text-center" id="ec2-tabs" role="tablist">
+            <li class="mr-2" role="presentation">
+                <button class="inline-block p-4 border-b-2 rounded-t-lg" id="instances-tab" data-tabs-target="#instances" type="button" role="tab" aria-controls="instances" aria-selected="true">
+                    Instances <span class="ml-1 bg-blue-100 text-blue-800 text-xs font-medium px-2 py-0.5 rounded dark:bg-blue-900 dark:text-blue-300">{{len .Instances}}</span>
+                </button>
+            </li>
+            <li class="mr-2" role="presentation">
+                <button class="inline-block p-4 border-b-2 border-transparent rounded-t-lg hover:text-gray-600 hover:border-gray-300 dark:hover:text-gray-300" id="security-groups-tab" data-tabs-target="#security-groups" type="button" role="tab" aria-controls="security-groups" aria-selected="false">
+                    Security Groups <span class="ml-1 bg-gray-100 text-gray-800 text-xs font-medium px-2 py-0.5 rounded dark:bg-gray-700 dark:text-gray-300">{{len .SecurityGroups}}</span>
+                </button>
+            </li>
+            <li class="mr-2" role="presentation">
+                <button class="inline-block p-4 border-b-2 border-transparent rounded-t-lg hover:text-gray-600 hover:border-gray-300 dark:hover:text-gray-300" id="vpc-tab" data-tabs-target="#vpc-subnet" type="button" role="tab" aria-controls="vpc-subnet" aria-selected="false">
+                    VPCs &amp; Subnets <span class="ml-1 bg-gray-100 text-gray-800 text-xs font-medium px-2 py-0.5 rounded dark:bg-gray-700 dark:text-gray-300">{{len .VPCs}}</span>
+                </button>
+            </li>
+        </ul>
+    </div>
+
+    <!-- Instances Tab -->
+    <div id="instances" role="tabpanel" aria-labelledby="instances-tab">
+        <div class="mt-4 relative overflow-x-auto shadow-md sm:rounded-lg">
+            <table class="w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
+                <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                    <tr>
+                        <th scope="col" class="px-6 py-3">Instance ID</th>
+                        <th scope="col" class="px-6 py-3">State</th>
+                        <th scope="col" class="px-6 py-3">Type</th>
+                        <th scope="col" class="px-6 py-3">Launch Time</th>
+                        <th scope="col" class="px-6 py-3">VPC</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .Instances}}
+                    <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
+                        <td class="px-6 py-4 font-mono text-xs text-gray-900 dark:text-white">{{.ID}}</td>
+                        <td class="px-6 py-4">
+                            {{if eq .State "running"}}
+                            <span class="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-green-900 dark:text-green-300">running</span>
+                            {{else if eq .State "terminated"}}
+                            <span class="bg-red-100 text-red-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-red-900 dark:text-red-300">terminated</span>
+                            {{else if eq .State "stopped"}}
+                            <span class="bg-yellow-100 text-yellow-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-yellow-900 dark:text-yellow-300">stopped</span>
+                            {{else}}
+                            <span class="bg-gray-100 text-gray-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-gray-700 dark:text-gray-300">{{.State}}</span>
+                            {{end}}
+                        </td>
+                        <td class="px-6 py-4 text-xs">{{.InstanceType}}</td>
+                        <td class="px-6 py-4 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">{{.LaunchTime}}</td>
+                        <td class="px-6 py-4 font-mono text-xs text-gray-500 dark:text-gray-400">{{.VPCID}}</td>
+                    </tr>
+                    {{else}}
+                    <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
+                        <td colspan="5" class="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                            No instances. Use RunInstances to create some.
+                        </td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Security Groups Tab -->
+    <div id="security-groups" class="hidden" role="tabpanel" aria-labelledby="security-groups-tab">
+        <div class="mt-4 relative overflow-x-auto shadow-md sm:rounded-lg">
+            <table class="w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
+                <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                    <tr>
+                        <th scope="col" class="px-6 py-3">Group ID</th>
+                        <th scope="col" class="px-6 py-3">Name</th>
+                        <th scope="col" class="px-6 py-3">VPC</th>
+                        <th scope="col" class="px-6 py-3">Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .SecurityGroups}}
+                    <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
+                        <td class="px-6 py-4 font-mono text-xs text-gray-900 dark:text-white">{{.ID}}</td>
+                        <td class="px-6 py-4 font-medium text-gray-900 dark:text-white">{{.Name}}</td>
+                        <td class="px-6 py-4 font-mono text-xs text-gray-500 dark:text-gray-400">{{.VPCID}}</td>
+                        <td class="px-6 py-4 text-xs text-gray-500 dark:text-gray-400">{{.Description}}</td>
+                    </tr>
+                    {{else}}
+                    <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
+                        <td colspan="4" class="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                            No security groups found.
+                        </td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- VPCs & Subnets Tab -->
+    <div id="vpc-subnet" class="hidden" role="tabpanel" aria-labelledby="vpc-tab">
+        <div class="mt-4 space-y-4">
+            {{range .VPCs}}
+            <div class="bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
+                <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center gap-2">
+                    <span class="font-mono text-sm text-gray-900 dark:text-white font-medium">{{.ID}}</span>
+                    <span class="text-xs text-gray-500 dark:text-gray-400">{{.CIDRBlock}}</span>
+                    {{if .IsDefault}}<span class="bg-blue-100 text-blue-800 text-xs font-medium px-2 py-0.5 rounded dark:bg-blue-900 dark:text-blue-300">default</span>{{end}}
+                </div>
+                {{range .Subnets}}
+                <div class="px-6 py-2 flex items-center gap-3 text-sm border-b border-gray-100 dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700">
+                    <span class="text-gray-400 dark:text-gray-500">└</span>
+                    <span class="font-mono text-xs text-gray-900 dark:text-white">{{.ID}}</span>
+                    <span class="text-xs text-gray-500 dark:text-gray-400">{{.CIDRBlock}}</span>
+                    <span class="text-xs text-gray-400 dark:text-gray-500">{{.AvailabilityZone}}</span>
+                    {{if .IsDefault}}<span class="bg-gray-100 text-gray-700 text-xs font-medium px-1.5 py-0.5 rounded dark:bg-gray-700 dark:text-gray-300">default</span>{{end}}
+                </div>
+                {{else}}
+                <div class="px-6 py-2 text-xs text-gray-400 dark:text-gray-500">No subnets</div>
+                {{end}}
+            </div>
+            {{else}}
+            <div class="text-center py-8 text-sm text-gray-500 dark:text-gray-400">No VPCs found.</div>
+            {{end}}
+        </div>
+    </div>
+</div>
+
+<script>
+// Simple tab switcher
+document.querySelectorAll('[data-tabs-target]').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+        var target = document.querySelector(this.dataset.tabsTarget);
+        // hide all
+        document.querySelectorAll('[role="tabpanel"]').forEach(function(p) { p.classList.add('hidden'); });
+        document.querySelectorAll('[data-tabs-target]').forEach(function(b) {
+            b.classList.remove('border-blue-600', 'text-blue-600', 'dark:text-blue-500', 'dark:border-blue-500');
+            b.classList.add('border-transparent');
+        });
+        // show target
+        target.classList.remove('hidden');
+        this.classList.add('border-blue-600', 'text-blue-600', 'dark:text-blue-500', 'dark:border-blue-500');
+        this.classList.remove('border-transparent');
+    });
+});
+// init first tab
+var first = document.querySelector('[data-tabs-target]');
+if (first) { first.click(); }
+</script>
+{{end}}
