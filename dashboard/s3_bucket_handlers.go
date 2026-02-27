@@ -298,13 +298,8 @@ func (h *DashboardHandler) s3Purge(w http.ResponseWriter, r *http.Request) {
 		h.purgeBucket(ctx, bucketName)
 	}
 
-	w.Header().Set("Hx-Trigger", "bucketsPurged")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(
-		[]byte(
-			`<div class="alert alert-success col-span-full"><span>All buckets purged successfully.</span></div>`,
-		),
-	)
+	// Return the refreshed (empty) bucket list so the UI updates immediately.
+	h.s3BucketList(w, r)
 }
 
 func (h *DashboardHandler) purgeBucket(ctx context.Context, bucketName string) {

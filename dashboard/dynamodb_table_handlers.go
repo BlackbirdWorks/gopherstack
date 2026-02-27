@@ -524,14 +524,8 @@ func (h *DashboardHandler) dynamoDBPurge(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	// Trigger a refresh of the table list
-	w.Header().Set("Hx-Trigger", "tablesPurged")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(
-		[]byte(
-			`<div class="alert alert-success col-span-full"><span>All tables purged successfully.</span></div>`,
-		),
-	)
+	// Return the refreshed (empty) table list so the UI updates immediately.
+	h.dynamoDBTableList(w, r)
 }
 
 // dynamoDBUpdateTTL handles updating TTL configuration for a table.
