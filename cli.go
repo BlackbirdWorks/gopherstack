@@ -37,7 +37,8 @@ import (
 	ec2backend "github.com/blackbirdworks/gopherstack/ec2"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/elasticache"
 	ebbackend "github.com/blackbirdworks/gopherstack/eventbridge"
-	firehosebackend "github.com/blackbirdworks/gopherstack/firehose"
+	firehosebackend   "github.com/blackbirdworks/gopherstack/firehose"
+	schedulerbackend  "github.com/blackbirdworks/gopherstack/scheduler"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/kms"
@@ -112,6 +113,7 @@ type CLI struct {
 	resourcegroupsHandler service.Registerable
 	swfHandler            service.Registerable
 	firehoseHandler       service.Registerable
+	schedulerHandler      service.Registerable
 	snsClient             *sns.Client
 	kmsClient             *kms.Client
 	iamClient             *iam.Client
@@ -336,6 +338,11 @@ func (c *CLI) GetSWFHandler() service.Registerable { return c.swfHandler }
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetFirehoseHandler() service.Registerable { return c.firehoseHandler }
 
+// GetSchedulerHandler returns the Scheduler handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetSchedulerHandler() service.Registerable { return c.schedulerHandler }
+
 // Run parses CLI / environment-variable configuration and starts Gopherstack.
 // It is called from main() and exits on error.
 func Run() {
@@ -542,6 +549,7 @@ func storeCLIHandlers(cli *CLI, services []service.Registerable) {
 	cli.resourcegroupsHandler = services[25]
 	cli.swfHandler = services[26]
 	cli.firehoseHandler = services[27]
+	cli.schedulerHandler = services[28]
 }
 
 // initializeServices initializes all service providers.
@@ -576,6 +584,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		&resourcegroupsbackend.Provider{},
 		&swfbackend.Provider{},
 		&firehosebackend.Provider{},
+		&schedulerbackend.Provider{},
 	}
 
 	for _, provider := range serviceProviders {
