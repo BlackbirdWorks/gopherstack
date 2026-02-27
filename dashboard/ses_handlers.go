@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"fmt"
+	"html/template"
 	"net/http"
 	"strings"
 	"time"
@@ -26,11 +27,12 @@ type sesEmailDetailView struct {
 	MessageID    string
 	From         string
 	Subject      string
-	BodyHTML     string
+	BodyHTML     template.HTML
 	BodyText     string
 	RawMessage   string
 	ToStr        string
 	TimestampStr string
+	DefaultTab   string
 }
 
 // sesIndexData is the template data for the SES inbox page.
@@ -106,17 +108,25 @@ func (h *DashboardHandler) sesEmailDetail(c *echo.Context) error {
 		email.BodyText,
 	)
 
+	defaultTab := "raw-body"
+	if email.BodyHTML != "" {
+		defaultTab = "html-body"
+	} else if email.BodyText != "" {
+		defaultTab = "text-body"
+	}
+
 	h.renderTemplate(w, "ses/email_detail.html", sesEmailDetailView{
 		PageData:     PageData{Title: email.Subject, ActiveTab: "ses"},
 		MessageID:    email.MessageID,
 		From:         email.From,
 		ToStr:        strings.Join(email.To, ", "),
 		Subject:      email.Subject,
-		BodyHTML:     email.BodyHTML,
+		BodyHTML:     template.HTML(email.BodyHTML), //nolint:gosec // controlled test-only SES content
 		BodyText:     email.BodyText,
 		RawMessage:   raw,
 		Timestamp:    email.Timestamp,
 		TimestampStr: email.Timestamp.Format(time.RFC3339),
+		DefaultTab:   defaultTab,
 	})
 
 	return nil

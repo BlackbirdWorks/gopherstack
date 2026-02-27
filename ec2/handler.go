@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -75,12 +75,11 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return false
 		}
 
-		body, err := httputil.ReadBody(r)
-		if err != nil {
+		if err := r.ParseForm(); err != nil {
 			return false
 		}
 
-		return strings.Contains(string(body), "Version="+ec2APIVersion)
+		return r.Form.Get("Version") == ec2APIVersion
 	}
 }
 
@@ -89,37 +88,31 @@ func (h *Handler) MatchPriority() int {
 	return ec2MatchPriority
 }
 
-// ExtractOperation extracts the EC2 action from the request body.
+// ExtractOperation extracts the EC2 action from the request form.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
-	body, err := httputil.ReadBody(c.Request())
-	if err != nil {
+	r := c.Request()
+	if err := r.ParseForm(); err != nil {
 		return unknownOp
 	}
 
-	for _, part := range strings.Split(string(body), "&") {
-		if strings.HasPrefix(part, "Action=") {
-			action := strings.TrimPrefix(part, "Action=")
-			if action != "" {
-				return action
-			}
-		}
+	action := r.Form.Get("Action")
+	if action == "" {
+		return unknownOp
 	}
 
-	return unknownOp
+	return action
 }
 
 // ExtractResource returns the primary resource identifier from the EC2 request.
 func (h *Handler) ExtractResource(c *echo.Context) string {
-	body, err := httputil.ReadBody(c.Request())
-	if err != nil {
+	r := c.Request()
+	if err := r.ParseForm(); err != nil {
 		return ""
 	}
 
-	for _, part := range strings.Split(string(body), "&") {
-		for _, prefix := range []string{"InstanceId.1=", "GroupId.1=", "VpcId.1="} {
-			if strings.HasPrefix(part, prefix) {
-				return strings.TrimPrefix(part, prefix)
-			}
+	for _, key := range []string{"InstanceId.1", "GroupId.1", "GroupId", "VpcId.1", "VpcId", "SubnetId.1", "SubnetId"} {
+		if v := r.Form.Get(key); v != "" {
+			return v
 		}
 	}
 
@@ -134,23 +127,21 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		reqID := newRequestID()
 
-		body, err := httputil.ReadBody(c.Request())
-		if err != nil {
-			log.ErrorContext(ctx, "failed to read EC2 request body", "error", err)
+		r := c.Request()
+		if err := r.ParseForm(); err != nil {
+			log.ErrorContext(ctx, "failed to parse EC2 request form", "error", err)
 
-			return h.writeError(c, reqID, http.StatusInternalServerError, "InternalFailure", "failed to read request body")
+			return h.writeError(c, reqID, http.StatusBadRequest, "InvalidParameterValue", "failed to parse request body")
 		}
 
-		vals := parseFormBody(string(body))
-
-		action := vals["Action"]
+		action := r.Form.Get("Action")
 		if action == "" {
 			return h.writeError(c, reqID, http.StatusBadRequest, "MissingAction", "missing Action parameter")
 		}
 
 		log.DebugContext(ctx, "EC2 request", "action", action)
 
-		resp, opErr := h.dispatch(action, vals, reqID)
+		resp, opErr := h.dispatch(action, r.Form, reqID)
 		if opErr != nil {
 			return h.handleOpError(c, reqID, action, opErr)
 		}
@@ -167,7 +158,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 }
 
 // dispatch routes the EC2 action to the appropriate handler function.
-func (h *Handler) dispatch(action string, vals map[string]string, reqID string) (any, error) {
+func (h *Handler) dispatch(action string, vals url.Values, reqID string) (any, error) {
 	switch action {
 	case "RunInstances":
 		return h.handleRunInstances(vals, reqID)
@@ -196,13 +187,13 @@ func (h *Handler) dispatch(action string, vals map[string]string, reqID string) 
 
 // ---- action handlers ----
 
-func (h *Handler) handleRunInstances(vals map[string]string, reqID string) (any, error) {
-	imageID := vals["ImageId"]
-	instanceType := vals["InstanceType"]
-	subnetID := vals["SubnetId"]
+func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error) {
+	imageID := vals.Get("ImageId")
+	instanceType := vals.Get("InstanceType")
+	subnetID := vals.Get("SubnetId")
 
 	count := 1
-	if v := vals["MinCount"]; v != "" {
+	if v := vals.Get("MinCount"); v != "" {
 		fmt.Sscan(v, &count) //nolint:errcheck // parse best-effort; invalid values fall back to 1
 	}
 
@@ -225,9 +216,9 @@ func (h *Handler) handleRunInstances(vals map[string]string, reqID string) (any,
 	}, nil
 }
 
-func (h *Handler) handleDescribeInstances(vals map[string]string, reqID string) (any, error) {
+func (h *Handler) handleDescribeInstances(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "InstanceId")
-	state := vals["Filter.1.Value.1"]
+	state := vals.Get("Filter.1.Value.1")
 
 	instances := h.Backend.DescribeInstances(ids, state)
 
@@ -249,7 +240,7 @@ func (h *Handler) handleDescribeInstances(vals map[string]string, reqID string) 
 	}, nil
 }
 
-func (h *Handler) handleTerminateInstances(vals map[string]string, reqID string) (any, error) {
+func (h *Handler) handleTerminateInstances(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "InstanceId")
 	if len(ids) == 0 {
 		return nil, fmt.Errorf("%w: at least one InstanceId is required", ErrInvalidParameter)
@@ -276,7 +267,7 @@ func (h *Handler) handleTerminateInstances(vals map[string]string, reqID string)
 	}, nil
 }
 
-func (h *Handler) handleDescribeSecurityGroups(vals map[string]string, reqID string) (any, error) {
+func (h *Handler) handleDescribeSecurityGroups(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "GroupId")
 	groups := h.Backend.DescribeSecurityGroups(ids)
 
@@ -292,10 +283,10 @@ func (h *Handler) handleDescribeSecurityGroups(vals map[string]string, reqID str
 	}, nil
 }
 
-func (h *Handler) handleCreateSecurityGroup(vals map[string]string, reqID string) (any, error) {
-	name := vals["GroupName"]
-	desc := vals["GroupDescription"]
-	vpcID := vals["VpcId"]
+func (h *Handler) handleCreateSecurityGroup(vals url.Values, reqID string) (any, error) {
+	name := vals.Get("GroupName")
+	desc := vals.Get("GroupDescription")
+	vpcID := vals.Get("VpcId")
 
 	sg, err := h.Backend.CreateSecurityGroup(name, desc, vpcID)
 	if err != nil {
@@ -310,8 +301,8 @@ func (h *Handler) handleCreateSecurityGroup(vals map[string]string, reqID string
 	}, nil
 }
 
-func (h *Handler) handleDeleteSecurityGroup(vals map[string]string, reqID string) (any, error) {
-	id := vals["GroupId"]
+func (h *Handler) handleDeleteSecurityGroup(vals url.Values, reqID string) (any, error) {
+	id := vals.Get("GroupId")
 	if id == "" {
 		return nil, fmt.Errorf("%w: GroupId is required", ErrInvalidParameter)
 	}
@@ -327,7 +318,7 @@ func (h *Handler) handleDeleteSecurityGroup(vals map[string]string, reqID string
 	}, nil
 }
 
-func (h *Handler) handleDescribeVpcs(vals map[string]string, reqID string) (any, error) {
+func (h *Handler) handleDescribeVpcs(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "VpcId")
 	vpcs := h.Backend.DescribeVpcs(ids)
 
@@ -343,8 +334,8 @@ func (h *Handler) handleDescribeVpcs(vals map[string]string, reqID string) (any,
 	}, nil
 }
 
-func (h *Handler) handleCreateVpc(vals map[string]string, reqID string) (any, error) {
-	cidr := vals["CidrBlock"]
+func (h *Handler) handleCreateVpc(vals url.Values, reqID string) (any, error) {
+	cidr := vals.Get("CidrBlock")
 
 	v, err := h.Backend.CreateVpc(cidr)
 	if err != nil {
@@ -358,7 +349,7 @@ func (h *Handler) handleCreateVpc(vals map[string]string, reqID string) (any, er
 	}, nil
 }
 
-func (h *Handler) handleDescribeSubnets(vals map[string]string, reqID string) (any, error) {
+func (h *Handler) handleDescribeSubnets(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "SubnetId")
 	subnets := h.Backend.DescribeSubnets(ids)
 
@@ -374,10 +365,10 @@ func (h *Handler) handleDescribeSubnets(vals map[string]string, reqID string) (a
 	}, nil
 }
 
-func (h *Handler) handleCreateSubnet(vals map[string]string, reqID string) (any, error) {
-	vpcID := vals["VpcId"]
-	cidr := vals["CidrBlock"]
-	az := vals["AvailabilityZone"]
+func (h *Handler) handleCreateSubnet(vals url.Values, reqID string) (any, error) {
+	vpcID := vals.Get("VpcId")
+	cidr := vals.Get("CidrBlock")
+	az := vals.Get("AvailabilityZone")
 
 	s, err := h.Backend.CreateSubnet(vpcID, cidr, az)
 	if err != nil {
@@ -437,34 +428,15 @@ func (h *Handler) writeError(c *echo.Context, reqID string, statusCode int, code
 
 // ---- helpers ----
 
-// parseFormBody parses a URL-encoded form body into a map.
-// Only the first value for each key is kept (sufficient for EC2 dispatch).
-func parseFormBody(body string) map[string]string {
-	vals := make(map[string]string)
-
-	for _, part := range strings.Split(body, "&") {
-		kv := strings.SplitN(part, "=", 2) //nolint:mnd // split into key and value
-		if len(kv) == 2 {
-			key := kv[0]
-			value := kv[1]
-			if _, exists := vals[key]; !exists {
-				vals[key] = value
-			}
-		}
-	}
-
-	return vals
-}
-
 // parseMemberList extracts ordered list parameters like "InstanceId.1", "InstanceId.2", ...
-func parseMemberList(vals map[string]string, prefix string) []string {
+func parseMemberList(vals url.Values, prefix string) []string {
 	var result []string
 
 	for i := 1; ; i++ {
 		key := fmt.Sprintf("%s.%d", prefix, i)
-		v, ok := vals[key]
+		v := vals.Get(key)
 
-		if !ok || v == "" {
+		if v == "" {
 			break
 		}
 

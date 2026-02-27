@@ -515,3 +515,68 @@ func TestEC2_DescribeSecurityGroups_ByID(t *testing.T) {
 	sgs = bk.DescribeSecurityGroups([]string{"sg-nonexistent"})
 	assert.Empty(t, sgs)
 }
+
+func TestEC2_RunInstances_InvalidSubnet(t *testing.T) {
+	t.Parallel()
+
+	bk := ec2.NewInMemoryBackend("000000000000", "us-east-1")
+	_, err := bk.RunInstances("ami-test", "t2.micro", "subnet-nonexistent", 1)
+	require.ErrorIs(t, err, ec2.ErrSubnetNotFound)
+}
+
+func TestEC2_CreateSecurityGroup_InvalidVPC(t *testing.T) {
+	t.Parallel()
+
+	bk := ec2.NewInMemoryBackend("000000000000", "us-east-1")
+	_, err := bk.CreateSecurityGroup("sg-name", "test", "vpc-nonexistent")
+	require.ErrorIs(t, err, ec2.ErrVPCNotFound)
+}
+
+func TestEC2_CreateSecurityGroup_InvalidVPC_Handler(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+	rec := postForm(t, h,
+		"Action=CreateSecurityGroup&Version=2016-11-15&GroupName=sg-name&GroupDescription=test&VpcId=vpc-nonexistent")
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidVpcID.NotFound")
+}
+
+func TestEC2_RunInstances_InvalidSubnet_Handler(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+	rec := postForm(t, h,
+		"Action=RunInstances&Version=2016-11-15&ImageId=ami-test&SubnetId=subnet-nonexistent&MinCount=1")
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidSubnetID.NotFound")
+}
+
+func TestEC2_URLEncodedCIDR(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+	// CIDR with slash percent-encoded as %2F (as real AWS clients send it).
+	rec := postForm(t, h, "Action=CreateVpc&Version=2016-11-15&CidrBlock=10.0.0.0%2F16")
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	// url.ParseQuery decodes %2F → / so CIDR should be stored correctly.
+	assert.Contains(t, rec.Body.String(), "10.0.0.0/16")
+}
+
+func TestEC2_ExtractResource_GroupId(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+	e := echo.New()
+
+	// DeleteSecurityGroup uses non-indexed GroupId=.
+	req := httptest.NewRequest(http.MethodPost, "/",
+		strings.NewReader("Action=DeleteSecurityGroup&GroupId=sg-abc123&Version=2016-11-15"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	c := e.NewContext(req, httptest.NewRecorder())
+
+	assert.Equal(t, "sg-abc123", h.ExtractResource(c))
+}

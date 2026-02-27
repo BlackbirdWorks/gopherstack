@@ -154,6 +154,8 @@ func (b *InMemoryBackend) RunInstances(imageID, instanceType, subnetID string, c
 				break
 			}
 		}
+	} else if _, ok := b.subnets[subnetID]; !ok {
+		return nil, fmt.Errorf("%w: %s", ErrSubnetNotFound, subnetID)
 	}
 
 	vpcID := ""
@@ -263,6 +265,12 @@ func (b *InMemoryBackend) CreateSecurityGroup(name, description, vpcID string) (
 
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	if vpcID != "" {
+		if _, ok := b.vpcs[vpcID]; !ok {
+			return nil, fmt.Errorf("%w: %s", ErrVPCNotFound, vpcID)
+		}
+	}
 
 	for _, sg := range b.securityGroups {
 		if sg.Name == name && sg.VPCID == vpcID {
