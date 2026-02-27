@@ -28,12 +28,22 @@ func (p *Provider) Name() string { return "OpenSearch" }
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	accountID := "000000000000"
 	region := "us-east-1"
+	engineMode := EngineStub
 
 	if cp, ok := ctx.Config.(config.Provider); ok {
 		cfg := cp.GetGlobalConfig()
 		accountID = cfg.AccountID
 		region = cfg.Region
 	}
+
+	if ec, ok := ctx.Config.(EngineConfig); ok {
+		if mode := ec.GetOpenSearchEngine(); mode != "" {
+			engineMode = mode
+		}
+	}
+
+	// docker mode is reserved for future use; for now both modes use the in-memory backend.
+	_ = engineMode
 
 	backend := NewInMemoryBackend(accountID, region)
 	handler := NewHandler(backend, ctx.Logger)

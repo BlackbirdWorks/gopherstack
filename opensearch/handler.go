@@ -62,12 +62,16 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	rest := strings.TrimPrefix(path, openSearchPathPrefix)
 
 	switch {
-	case rest == "" || rest == "/" :
+	case rest == "" || rest == "/":
 		if method == http.MethodPost {
 			return "CreateDomain"
 		}
 
-		return "ListDomainNames"
+		if method == http.MethodGet {
+			return "ListDomainNames"
+		}
+
+		return "Unknown"
 	case strings.HasPrefix(rest, "/") && method == http.MethodGet:
 		return "DescribeDomain"
 	case strings.HasPrefix(rest, "/") && method == http.MethodDelete:
@@ -282,24 +286,10 @@ type errorResponseJSON struct {
 
 func (h *Handler) writeError(w http.ResponseWriter, status int, code, message string) {
 	h.Logger.Error("opensearch error", "code", code, "message", message)
-	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("x-amzn-ErrorType", code)
-	w.WriteHeader(status)
-
-	body, _ := json.Marshal(errorResponseJSON{Message: message})
-	_, _ = w.Write(body)
+	httputil.WriteJSON(h.Logger, w, status, errorResponseJSON{Message: message})
 }
 
 func (h *Handler) writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-
-	body, err := json.Marshal(v)
-	if err != nil {
-		h.Logger.Error("failed to marshal opensearch response", "error", err)
-
-		return
-	}
-
-	_, _ = w.Write(body)
+	httputil.WriteJSON(h.Logger, w, status, v)
 }

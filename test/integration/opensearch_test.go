@@ -69,9 +69,9 @@ func TestIntegration_OpenSearch_DomainLifecycle(t *testing.T) {
 	assert.Equal(t, "OpenSearch_2.11", status["EngineVersion"])
 	assert.NotEmpty(t, status["ARN"])
 
-	endpoint, ok := status["Endpoint"].(string)
+	domainEndpoint, ok := status["Endpoint"].(string)
 	require.True(t, ok, "expected Endpoint in DomainStatus")
-	assert.NotEmpty(t, endpoint, "Endpoint should be set")
+	assert.NotEmpty(t, domainEndpoint, "Endpoint should be set")
 
 	// DescribeDomain
 	descCode, descBody := doOpenSearchRequest(t, http.MethodGet, fmt.Sprintf("%s/%s", basePath, domainName), nil)
