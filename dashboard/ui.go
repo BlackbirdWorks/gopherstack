@@ -24,6 +24,8 @@ import (
 	ebbackend "github.com/blackbirdworks/gopherstack/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/firehose"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
+	route53resolverbackend "github.com/blackbirdworks/gopherstack/route53resolver"
+	schedulerbackend "github.com/blackbirdworks/gopherstack/scheduler"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/lambda"
@@ -104,8 +106,10 @@ type DashboardHandler struct {
 	S3ControlOps      *s3controlbackend.Handler
 	ResourceGroupsOps *resourcegroupsbackend.Handler
 	SWFOps            *swfbackend.Handler
-	FirehoseOps       *firehosebackend.Handler
-	SubRouter         *echo.Echo
+	FirehoseOps        *firehosebackend.Handler
+	SchedulerOps       *schedulerbackend.Handler
+	Route53ResolverOps *route53resolverbackend.Handler
+	SubRouter          *echo.Echo
 	ddbProvider       *ddbbackend.DashboardProvider
 	s3Provider        *s3backend.DashboardProvider
 	Logger            *slog.Logger
@@ -169,6 +173,10 @@ type Config struct {
 	SWFOps *swfbackend.Handler
 	// FirehoseOps provides access to the Firehose backend.
 	FirehoseOps *firehosebackend.Handler
+	// SchedulerOps provides access to the EventBridge Scheduler backend.
+	SchedulerOps *schedulerbackend.Handler
+	// Route53ResolverOps provides access to the Route53 Resolver backend.
+	Route53ResolverOps *route53resolverbackend.Handler
 	// Logger is the structured logger for dashboard operations.
 	Logger *slog.Logger
 	// GlobalConfig holds the centralized account and region configuration shown on the settings page.
@@ -223,6 +231,8 @@ func parseDashboardTemplates() *template.Template {
 		"templates/resourcegroups/*.html",
 		"templates/swf/*.html",
 		"templates/firehose/*.html",
+		"templates/scheduler/*.html",
+		"templates/route53resolver/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
 		"templates/settings.html",
@@ -268,8 +278,10 @@ func NewHandler(cfg Config) *DashboardHandler {
 		S3ControlOps:      cfg.S3ControlOps,
 		ResourceGroupsOps: cfg.ResourceGroupsOps,
 		SWFOps:            cfg.SWFOps,
-		FirehoseOps:       cfg.FirehoseOps,
-		GlobalConfig:      cfg.GlobalConfig,
+		FirehoseOps:        cfg.FirehoseOps,
+		SchedulerOps:       cfg.SchedulerOps,
+		Route53ResolverOps: cfg.Route53ResolverOps,
+		GlobalConfig:       cfg.GlobalConfig,
 		Logger:            cfg.Logger,
 		layout:            tmpl,
 		ddbProvider:       ddbProvider,
@@ -485,6 +497,18 @@ func (h *DashboardHandler) setupSWFRoutes() {
 	h.SubRouter.POST("/dashboard/swf/register", h.swfRegisterDomain)
 }
 
+func (h *DashboardHandler) setupSchedulerRoutes() {
+	h.SubRouter.GET("/dashboard/scheduler", h.schedulerIndex)
+	h.SubRouter.POST("/dashboard/scheduler/create", h.schedulerCreate)
+	h.SubRouter.POST("/dashboard/scheduler/delete", h.schedulerDelete)
+}
+
+func (h *DashboardHandler) setupRoute53ResolverRoutes() {
+	h.SubRouter.GET("/dashboard/route53resolver", h.route53resolverIndex)
+	h.SubRouter.POST("/dashboard/route53resolver/create", h.route53resolverCreateEndpoint)
+	h.SubRouter.POST("/dashboard/route53resolver/delete", h.route53resolverDeleteEndpoint)
+}
+
 func (h *DashboardHandler) setupFirehoseRoutes() {
 	h.SubRouter.GET("/dashboard/firehose", h.firehoseIndex)
 	h.SubRouter.POST("/dashboard/firehose/create", h.firehoseCreate)
@@ -526,6 +550,8 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.setupResourceGroupsRoutes()
 	h.setupSWFRoutes()
 	h.setupFirehoseRoutes()
+	h.setupSchedulerRoutes()
+	h.setupRoute53ResolverRoutes()
 	h.setupMetaRoutes()
 }
 
@@ -603,6 +629,8 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/resourcegroups", "ResourceGroups"},
 	{"/swf", "SWF"},
 	{"/firehose", "Firehose"},
+	{"/scheduler", "Scheduler"},
+	{"/route53resolver", "Route53Resolver"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},
 }

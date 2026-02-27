@@ -37,6 +37,7 @@ import (
 	redshiftbackend "github.com/blackbirdworks/gopherstack/redshift"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/resourcegroups"
 	route53backend "github.com/blackbirdworks/gopherstack/route53"
+	route53resolverbackend "github.com/blackbirdworks/gopherstack/route53resolver"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
 	s3controlbackend "github.com/blackbirdworks/gopherstack/s3control"
 	smbackend "github.com/blackbirdworks/gopherstack/secretsmanager"
@@ -47,6 +48,7 @@ import (
 	sfnbackend "github.com/blackbirdworks/gopherstack/stepfunctions"
 	stsbackend "github.com/blackbirdworks/gopherstack/sts"
 	swfbackend "github.com/blackbirdworks/gopherstack/swf"
+	schedulerbackend "github.com/blackbirdworks/gopherstack/scheduler"
 )
 
 const (
@@ -88,8 +90,10 @@ type Stack struct {
 	S3ControlHandler      *s3controlbackend.Handler
 	ResourceGroupsHandler *resourcegroupsbackend.Handler
 	SWFHandler            *swfbackend.Handler
-	FirehoseHandler       *firehosebackend.Handler
-	S3Client              *s3.Client
+	FirehoseHandler        *firehosebackend.Handler
+	SchedulerHandler       *schedulerbackend.Handler
+	Route53ResolverHandler *route53resolverbackend.Handler
+	S3Client               *s3.Client
 	DDBClient             *dynamodb.Client
 	Dashboard             *dashboard.DashboardHandler
 }
@@ -169,6 +173,8 @@ func registerServices(
 	resourcegroupsHndlr *resourcegroupsbackend.Handler,
 	swfHndlr *swfbackend.Handler,
 	firehoseHndlr *firehosebackend.Handler,
+	schedulerHndlr *schedulerbackend.Handler,
+	route53resolverHndlr *route53resolverbackend.Handler,
 ) {
 	_ = registry.Register(ddbHndlr)
 	_ = registry.Register(s3Hndlr)
@@ -199,6 +205,8 @@ func registerServices(
 	_ = registry.Register(resourcegroupsHndlr)
 	_ = registry.Register(swfHndlr)
 	_ = registry.Register(firehoseHndlr)
+	_ = registry.Register(schedulerHndlr)
+	_ = registry.Register(route53resolverHndlr)
 }
 
 // handlers bundles all service handlers created for a test stack.
@@ -232,6 +240,8 @@ type handlers struct {
 	resourcegroups *resourcegroupsbackend.Handler
 	swf            *swfbackend.Handler
 	firehose       *firehosebackend.Handler
+	scheduler      *schedulerbackend.Handler
+	route53resolver *route53resolverbackend.Handler
 	iamBk          *iambackend.InMemoryBackend
 	s3Bk           *s3backend.InMemoryBackend
 }
@@ -293,6 +303,14 @@ func newHandlers() handlers {
 			firehosebackend.NewInMemoryBackend("000000000000", "us-east-1"),
 			slog.Default(),
 		),
+		scheduler: schedulerbackend.NewHandler(
+			schedulerbackend.NewInMemoryBackend("000000000000", "us-east-1"),
+			slog.Default(),
+		),
+		route53resolver: route53resolverbackend.NewHandler(
+			route53resolverbackend.NewInMemoryBackend("000000000000", "us-east-1"),
+			slog.Default(),
+		),
 	}
 }
 
@@ -343,6 +361,7 @@ func New(t *testing.T) *Stack {
 		h.lambda, h.eb, h.apigw, h.cwlogs, h.sfn, h.cw, h.cfn, h.kinesis,
 		h.elasticache, h.route53, h.ses, h.ec2, h.opensearch,
 		h.acm, h.redshift, h.awsconfig, h.s3control, h.resourcegroups, h.swf, h.firehose,
+		h.scheduler, h.route53resolver,
 	)
 
 	// Create AWS SDK clients routed through in-memory Echo.
@@ -382,8 +401,10 @@ func New(t *testing.T) *Stack {
 		S3ControlOps:      h.s3control,
 		ResourceGroupsOps: h.resourcegroups,
 		SWFOps:            h.swf,
-		FirehoseOps:       h.firehose,
-		GlobalConfig:      config.GlobalConfig{AccountID: "000000000000", Region: "us-east-1"},
+		FirehoseOps:        h.firehose,
+		SchedulerOps:       h.scheduler,
+		Route53ResolverOps: h.route53resolver,
+		GlobalConfig:       config.GlobalConfig{AccountID: "000000000000", Region: "us-east-1"},
 		Logger:            slog.Default(),
 	})
 	_ = registry.Register(dashHndlr)
@@ -423,8 +444,10 @@ func New(t *testing.T) *Stack {
 		S3ControlHandler:      h.s3control,
 		ResourceGroupsHandler: h.resourcegroups,
 		SWFHandler:            h.swf,
-		FirehoseHandler:       h.firehose,
-		S3Client:              s3Client,
+		FirehoseHandler:        h.firehose,
+		SchedulerHandler:       h.scheduler,
+		Route53ResolverHandler: h.route53resolver,
+		S3Client:               s3Client,
 		DDBClient:             ddbClient,
 		Dashboard:             dashHndlr,
 	}
