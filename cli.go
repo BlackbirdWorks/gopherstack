@@ -33,6 +33,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/demo"
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
 	ec2backend "github.com/blackbirdworks/gopherstack/ec2"
+	opensearchbackend "github.com/blackbirdworks/gopherstack/opensearch"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/elasticache"
 	ebbackend "github.com/blackbirdworks/gopherstack/eventbridge"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
@@ -96,6 +97,7 @@ type CLI struct {
 	route53Handler        service.Registerable
 	sesHandler            service.Registerable
 	ec2Handler            service.Registerable
+	openSearchHandler     service.Registerable
 	snsClient             *sns.Client
 	kmsClient             *kms.Client
 	iamClient             *iam.Client
@@ -107,7 +109,8 @@ type CLI struct {
 	secretsManagerClient  *secretsmanager.Client
 	AccountID             string                 `                                  name:"account-id"         env:"ACCOUNT_ID"         default:"000000000000" help:"Mock AWS account ID used in ARNs."`                                //nolint:lll // config struct tags are intentionally verbose
 	Port                  string                 `                                  name:"port"               env:"PORT"               default:"8000"         help:"HTTP server port."`                                                //nolint:lll // config struct tags are intentionally verbose
-	ElastiCacheEngine     string                 `                                  name:"elasticache-engine" env:"ELASTICACHE_ENGINE" default:"embedded"     help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`  //nolint:lll // config struct tags are intentionally verbose
+	ElastiCacheEngine     string                 `                                  name:"elasticache-engine"  env:"ELASTICACHE_ENGINE"  default:"embedded"     help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`  //nolint:lll // config struct tags are intentionally verbose
+	OpenSearchEngine      string                 `                                  name:"opensearch-engine"   env:"OPENSEARCH_ENGINE"   default:"stub"         help:"OpenSearch engine mode: stub (API-only) or docker."`               //nolint:lll // config struct tags are intentionally verbose
 	Region                string                 `                                  name:"region"             env:"REGION"             default:"us-east-1"    help:"AWS region."`                                                      //nolint:lll // config struct tags are intentionally verbose
 	LogLevel              string                 `                                  name:"log-level"          env:"LOG_LEVEL"          default:"info"         help:"Log level (debug|info|warn|error)."`                               //nolint:lll // config struct tags are intentionally verbose
 	DNSListenAddr         string                 `                                  name:"dns-addr"           env:"DNS_ADDR"           default:""             help:"Address for embedded DNS server (e.g. :10053). Empty = disabled."` //nolint:lll // config struct tags are intentionally verbose
@@ -274,6 +277,14 @@ func (c *CLI) GetSESHandler() service.Registerable { return c.sesHandler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetEC2Handler() service.Registerable { return c.ec2Handler }
+
+// GetOpenSearchEngine returns the OpenSearch engine mode (opensearch.EngineConfig).
+func (c *CLI) GetOpenSearchEngine() string { return c.OpenSearchEngine }
+
+// GetOpenSearchHandler returns the OpenSearch handler.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetOpenSearchHandler() service.Registerable { return c.openSearchHandler }
 
 // Run parses CLI / environment-variable configuration and starts Gopherstack.
 // It is called from main() and exits on error.
@@ -475,6 +486,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		&route53backend.Provider{},
 		&sesbackend.Provider{},
 		&ec2backend.Provider{},
+		&opensearchbackend.Provider{},
 	}
 
 	for _, provider := range serviceProviders {
@@ -508,6 +520,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		cli.route53Handler = services[17]
 		cli.sesHandler = services[18]
 		cli.ec2Handler = services[19]
+		cli.openSearchHandler = services[20]
 	}
 
 	// Wire SNS→SQS delivery: when SNS publishes a message, deliver it to SQS queues.

@@ -27,6 +27,7 @@ import (
 	kinesisbackend "github.com/blackbirdworks/gopherstack/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/lambda"
+	opensearchbackend "github.com/blackbirdworks/gopherstack/opensearch"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -73,6 +74,7 @@ type Stack struct {
 	Route53Handler        *route53backend.Handler
 	SESHandler            *sesbackend.Handler
 	EC2Handler            *ec2backend.Handler
+	OpenSearchHandler     *opensearchbackend.Handler
 	S3Client              *s3.Client
 	DDBClient             *dynamodb.Client
 	Dashboard             *dashboard.DashboardHandler
@@ -145,6 +147,7 @@ func registerServices(
 	r53Hndlr *route53backend.Handler,
 	sesHndlr *sesbackend.Handler,
 	ec2Hndlr *ec2backend.Handler,
+	openSearchHndlr *opensearchbackend.Handler,
 ) {
 	_ = registry.Register(ddbHndlr)
 	_ = registry.Register(s3Hndlr)
@@ -167,6 +170,7 @@ func registerServices(
 	_ = registry.Register(r53Hndlr)
 	_ = registry.Register(sesHndlr)
 	_ = registry.Register(ec2Hndlr)
+	_ = registry.Register(openSearchHndlr)
 }
 
 // handlers bundles all service handlers created for a test stack.
@@ -192,6 +196,7 @@ type handlers struct {
 	route53     *route53backend.Handler
 	ses         *sesbackend.Handler
 	ec2         *ec2backend.Handler
+	opensearch  *opensearchbackend.Handler
 	iamBk       *iambackend.InMemoryBackend
 	s3Bk        *s3backend.InMemoryBackend
 }
@@ -234,6 +239,9 @@ func newHandlers() handlers {
 		route53: route53backend.NewHandler(route53backend.NewInMemoryBackend(), slog.Default()),
 		ses:     sesbackend.NewHandler(sesbackend.NewInMemoryBackend(), slog.Default()),
 		ec2:     ec2backend.NewHandler(ec2backend.NewInMemoryBackend("000000000000", "us-east-1"), slog.Default()),
+		opensearch: opensearchbackend.NewHandler(
+			opensearchbackend.NewInMemoryBackend("000000000000", "us-east-1"), slog.Default(),
+		),
 	}
 }
 
@@ -281,7 +289,7 @@ func New(t *testing.T) *Stack {
 	registerServices(
 		registry,
 		h.ddb, h.s3, h.ssm, h.iam, h.sts, h.sns, h.sqs, h.kms, h.sm,
-		h.lambda, h.eb, h.apigw, h.cwlogs, h.sfn, h.cw, h.cfn, h.kinesis, h.elasticache, h.route53, h.ses, h.ec2,
+		h.lambda, h.eb, h.apigw, h.cwlogs, h.sfn, h.cw, h.cfn, h.kinesis, h.elasticache, h.route53, h.ses, h.ec2, h.opensearch,
 	)
 
 	// Create AWS SDK clients routed through in-memory Echo.
@@ -313,6 +321,7 @@ func New(t *testing.T) *Stack {
 		ElastiCacheOps:    h.elasticache,
 		Route53Ops:        h.route53,
 		SESOps:            h.ses,
+		EC2Ops:            h.ec2,
 		GlobalConfig:      config.GlobalConfig{AccountID: "000000000000", Region: "us-east-1"},
 		Logger:            slog.Default(),
 	})
@@ -346,6 +355,7 @@ func New(t *testing.T) *Stack {
 		Route53Handler:        h.route53,
 		SESHandler:            h.ses,
 		EC2Handler:            h.ec2,
+		OpenSearchHandler:     h.opensearch,
 		S3Client:              s3Client,
 		DDBClient:             ddbClient,
 		Dashboard:             dashHndlr,
