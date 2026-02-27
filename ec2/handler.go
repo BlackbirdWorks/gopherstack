@@ -131,7 +131,13 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		if err := r.ParseForm(); err != nil {
 			log.ErrorContext(ctx, "failed to parse EC2 request form", "error", err)
 
-			return h.writeError(c, reqID, http.StatusBadRequest, "InvalidParameterValue", "failed to parse request body")
+			return h.writeError(
+				c,
+				reqID,
+				http.StatusBadRequest,
+				"InvalidParameterValue",
+				"failed to parse request body",
+			)
 		}
 
 		action := r.Form.Get("Action")
@@ -194,7 +200,7 @@ func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error)
 
 	count := 1
 	if v := vals.Get("MinCount"); v != "" {
-		fmt.Sscan(v, &count) //nolint:errcheck // parse best-effort; invalid values fall back to 1
+		fmt.Sscan(v, &count) //nolint:errcheck,gosec // parse best-effort; invalid values fall back to 1
 	}
 
 	instances, err := h.Backend.RunInstances(imageID, instanceType, subnetID, count)
@@ -256,7 +262,7 @@ func (h *Handler) handleTerminateInstances(vals url.Values, reqID string) (any, 
 		items = append(items, instanceStateChangeItem{
 			InstanceID:    inst.ID,
 			CurrentState:  stateItem{Code: inst.State.Code, Name: inst.State.Name},
-			PreviousState: stateItem{Code: StateRunning.Code, Name: StateRunning.Name},
+			PreviousState: stateItem(StateRunning),
 		})
 	}
 
@@ -477,10 +483,10 @@ func toInstanceItem(inst *Instance) instanceItem {
 
 func toSGItem(sg *SecurityGroup) sgItem {
 	return sgItem{
-		GroupID:     sg.ID,
-		GroupName:   sg.Name,
+		GroupID:          sg.ID,
+		GroupName:        sg.Name,
 		GroupDescription: sg.Description,
-		VPCID:       sg.VPCID,
+		VPCID:            sg.VPCID,
 	}
 }
 
@@ -524,8 +530,8 @@ type ec2ErrorResponse struct {
 }
 
 type stateItem struct {
-	Code int    `xml:"code"`
 	Name string `xml:"name"`
+	Code int    `xml:"code"`
 }
 
 type instanceItem struct {

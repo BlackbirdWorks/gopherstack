@@ -303,7 +303,11 @@ func TestEC2_RouteMatcher(t *testing.T) {
 	t.Run("matches EC2 POST", func(t *testing.T) {
 		t.Parallel()
 
-		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("Version=2016-11-15&Action=DescribeInstances"))
+		req := httptest.NewRequest(
+			http.MethodPost,
+			"/",
+			strings.NewReader("Version=2016-11-15&Action=DescribeInstances"),
+		)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		c := e.NewContext(req, httptest.NewRecorder())
 		assert.True(t, matcher(c))

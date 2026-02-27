@@ -23,6 +23,7 @@ type sesEmailView struct {
 // sesEmailDetailView is the view model for the email detail page.
 type sesEmailDetailView struct {
 	PageData
+
 	Timestamp    time.Time
 	MessageID    string
 	From         string
@@ -38,6 +39,7 @@ type sesEmailDetailView struct {
 // sesIndexData is the template data for the SES inbox page.
 type sesIndexData struct {
 	PageData
+
 	Emails     []sesEmailView
 	Identities []string
 }

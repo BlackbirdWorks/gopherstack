@@ -19,17 +19,26 @@ var (
 	ErrDuplicateSGName       = errors.New("InvalidGroup.Duplicate")
 )
 
+// EC2 instance state codes as defined by the AWS EC2 API.
+const (
+	stateCodeRunning    = 16
+	stateCodeTerminated = 48
+	stateCodeStopped    = 80
+)
+
 // InstanceState represents the state of an EC2 instance.
 type InstanceState struct {
-	Code int
 	Name string
+	Code int
 }
 
 // Well-known instance states.
+//
+//nolint:gochecknoglobals // package-level sentinel values, analogous to exported errors
 var (
-	StateRunning    = InstanceState{Code: 16, Name: "running"}
-	StateTerminated = InstanceState{Code: 48, Name: "terminated"}
-	StateStopped    = InstanceState{Code: 80, Name: "stopped"}
+	StateRunning    = InstanceState{Code: stateCodeRunning, Name: "running"}
+	StateTerminated = InstanceState{Code: stateCodeTerminated, Name: "terminated"}
+	StateStopped    = InstanceState{Code: stateCodeStopped, Name: "stopped"}
 )
 
 // Instance represents an EC2 instance (metadata only, no actual compute).
@@ -55,10 +64,10 @@ type SecurityGroupRule struct {
 
 // SecurityGroup represents an EC2 security group.
 type SecurityGroup struct {
-	ID          string
-	Name        string
-	Description string
-	VPCID       string
+	ID           string
+	Name         string
+	Description  string
+	VPCID        string
 	IngressRules []SecurityGroupRule
 	EgressRules  []SecurityGroupRule
 }
@@ -85,9 +94,9 @@ type InMemoryBackend struct {
 	securityGroups map[string]*SecurityGroup
 	vpcs           map[string]*VPC
 	subnets        map[string]*Subnet
-	mu             sync.RWMutex
 	AccountID      string
 	Region         string
+	mu             sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with a default VPC and subnet.
@@ -151,6 +160,7 @@ func (b *InMemoryBackend) RunInstances(imageID, instanceType, subnetID string, c
 		for id, s := range b.subnets {
 			if s.IsDefault {
 				subnetID = id
+
 				break
 			}
 		}
