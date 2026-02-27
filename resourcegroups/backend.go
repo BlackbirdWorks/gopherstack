@@ -3,6 +3,7 @@ package resourcegroups
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"sync"
 )
 
@@ -15,10 +16,10 @@ var (
 
 // Group represents a Resource Group.
 type Group struct {
+	Tags        map[string]string
 	Name        string
 	ARN         string
 	Description string
-	Tags        map[string]string
 }
 
 // InMemoryBackend is the in-memory store for Resource Groups.
@@ -49,14 +50,14 @@ func (b *InMemoryBackend) CreateGroup(name, description string, tags map[string]
 
 	arn := fmt.Sprintf("arn:aws:resource-groups:%s:%s:group/%s", b.region, b.accountID, name)
 	t := make(map[string]string)
-	for k, v := range tags {
-		t[k] = v
-	}
+	maps.Copy(t, tags)
 
 	g := &Group{Name: name, ARN: arn, Description: description, Tags: t}
 	b.groups[name] = g
 
 	cp := *g
+	cp.Tags = make(map[string]string, len(g.Tags))
+	maps.Copy(cp.Tags, g.Tags)
 
 	return &cp, nil
 }
@@ -82,7 +83,10 @@ func (b *InMemoryBackend) ListGroups() []Group {
 
 	out := make([]Group, 0, len(b.groups))
 	for _, g := range b.groups {
-		out = append(out, *g)
+		cp := *g
+		cp.Tags = make(map[string]string, len(g.Tags))
+		maps.Copy(cp.Tags, g.Tags)
+		out = append(out, cp)
 	}
 
 	return out
@@ -99,6 +103,8 @@ func (b *InMemoryBackend) GetGroup(name string) (*Group, error) {
 	}
 
 	cp := *g
+	cp.Tags = make(map[string]string, len(g.Tags))
+	maps.Copy(cp.Tags, g.Tags)
 
 	return &cp, nil
 }

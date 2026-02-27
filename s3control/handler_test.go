@@ -21,11 +21,17 @@ func newTestS3ControlHandler(t *testing.T) *s3control.Handler {
 	return s3control.NewHandler(s3control.NewInMemoryBackend(), slog.Default())
 }
 
-func doS3ControlRequest(t *testing.T, h *s3control.Handler, method, path, accountID, body string) *httptest.ResponseRecorder {
+const publicAccessBlockPath = "/v20180820/configuration/publicAccessBlock"
+
+func doS3ControlRequest(
+	t *testing.T,
+	h *s3control.Handler,
+	method, accountID, body string,
+) *httptest.ResponseRecorder {
 	t.Helper()
 
 	e := echo.New()
-	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	req := httptest.NewRequest(method, publicAccessBlockPath, strings.NewReader(body))
 	if accountID != "" {
 		req.Header.Set("X-Amz-Account-Id", accountID)
 	}
@@ -51,10 +57,16 @@ func TestS3Control_Handler_PutAndGetPublicAccessBlock(t *testing.T) {
 		<RestrictPublicBuckets>false</RestrictPublicBuckets>
 	</PublicAccessBlockConfiguration>`
 
-	putRec := doS3ControlRequest(t, h, http.MethodPut, "/v20180820/configuration/publicAccessBlock", "000000000000", putBody)
+	putRec := doS3ControlRequest(
+		t,
+		h,
+		http.MethodPut,
+		"000000000000",
+		putBody,
+	)
 	assert.Equal(t, http.StatusCreated, putRec.Code)
 
-	getRec := doS3ControlRequest(t, h, http.MethodGet, "/v20180820/configuration/publicAccessBlock", "000000000000", "")
+	getRec := doS3ControlRequest(t, h, http.MethodGet, "000000000000", "")
 	require.Equal(t, http.StatusOK, getRec.Code)
 	assert.Contains(t, getRec.Body.String(), "BlockPublicAcls")
 }
@@ -65,12 +77,18 @@ func TestS3Control_Handler_DeletePublicAccessBlock(t *testing.T) {
 	h := newTestS3ControlHandler(t)
 
 	putBody := `<PublicAccessBlockConfiguration><BlockPublicAcls>true</BlockPublicAcls></PublicAccessBlockConfiguration>`
-	doS3ControlRequest(t, h, http.MethodPut, "/v20180820/configuration/publicAccessBlock", "000000000000", putBody)
+	doS3ControlRequest(t, h, http.MethodPut, "000000000000", putBody)
 
-	delRec := doS3ControlRequest(t, h, http.MethodDelete, "/v20180820/configuration/publicAccessBlock", "000000000000", "")
+	delRec := doS3ControlRequest(
+		t,
+		h,
+		http.MethodDelete,
+		"000000000000",
+		"",
+	)
 	assert.Equal(t, http.StatusNoContent, delRec.Code)
 
-	getRec := doS3ControlRequest(t, h, http.MethodGet, "/v20180820/configuration/publicAccessBlock", "000000000000", "")
+	getRec := doS3ControlRequest(t, h, http.MethodGet, "000000000000", "")
 	assert.Equal(t, http.StatusNotFound, getRec.Code)
 }
 
@@ -79,7 +97,7 @@ func TestS3Control_Handler_GetPublicAccessBlock_NotFound(t *testing.T) {
 
 	h := newTestS3ControlHandler(t)
 
-	rec := doS3ControlRequest(t, h, http.MethodGet, "/v20180820/configuration/publicAccessBlock", "999999999999", "")
+	rec := doS3ControlRequest(t, h, http.MethodGet, "999999999999", "")
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
@@ -90,7 +108,7 @@ func TestS3Control_Handler_RouteMatcher(t *testing.T) {
 	matcher := h.RouteMatcher()
 
 	e := echo.New()
-	req := httptest.NewRequest(http.MethodGet, "/v20180820/configuration/publicAccessBlock", nil)
+	req := httptest.NewRequest(http.MethodGet, publicAccessBlockPath, nil)
 	c := e.NewContext(req, httptest.NewRecorder())
 
 	assert.True(t, matcher(c))
@@ -120,9 +138,9 @@ func TestS3Control_Handler_XMLResponse(t *testing.T) {
 		<BlockPublicPolicy>true</BlockPublicPolicy>
 		<RestrictPublicBuckets>true</RestrictPublicBuckets>
 	</PublicAccessBlockConfiguration>`
-	doS3ControlRequest(t, h, http.MethodPut, "/v20180820/configuration/publicAccessBlock", "test-account", putBody)
+	doS3ControlRequest(t, h, http.MethodPut, "test-account", putBody)
 
-	rec := doS3ControlRequest(t, h, http.MethodGet, "/v20180820/configuration/publicAccessBlock", "test-account", "")
+	rec := doS3ControlRequest(t, h, http.MethodGet, "test-account", "")
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out struct {

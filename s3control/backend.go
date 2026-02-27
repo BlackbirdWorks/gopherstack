@@ -56,6 +56,19 @@ func (b *InMemoryBackend) GetPublicAccessBlock(accountID string) (*PublicAccessB
 	return &cp, nil
 }
 
+// ListAll returns all stored public access block configurations.
+func (b *InMemoryBackend) ListAll() []PublicAccessBlock {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	out := make([]PublicAccessBlock, 0, len(b.configs))
+	for _, cfg := range b.configs {
+		out = append(out, *cfg)
+	}
+
+	return out
+}
+
 // DeletePublicAccessBlock deletes the public access block configuration for an account.
 func (b *InMemoryBackend) DeletePublicAccessBlock(accountID string) error {
 	b.mu.Lock()

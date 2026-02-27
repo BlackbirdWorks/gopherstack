@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	awsConfigTargetPrefix = "StarlingDoveService."
+	awsConfigTargetPrefix  = "StarlingDoveService."
 	awsConfigMatchPriority = 100
 )
 
@@ -63,19 +63,92 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	return action
 }
 
-// ExtractResource extracts the recorder name from the request body.
+// ExtractResource extracts a resource identifier from the request body based on the operation.
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	body, err := httputil.ReadBody(c.Request())
 	if err != nil {
 		return ""
 	}
 
-	var req struct {
-		ConfigurationRecorderName string
+	switch h.ExtractOperation(c) {
+	case "PutConfigurationRecorder":
+		return extractConfigRecorderName(body)
+	case "StartConfigurationRecorder":
+		return extractTopLevelRecorderName(body)
+	case "DescribeConfigurationRecorders":
+		return extractFirstRecorderName(body)
+	case "PutDeliveryChannel":
+		return extractDeliveryChannelName(body)
+	case "DescribeDeliveryChannels":
+		return extractFirstDeliveryChannelName(body)
+	default:
+		return extractTopLevelRecorderName(body)
 	}
-	_ = json.Unmarshal(body, &req)
+}
+
+func extractConfigRecorderName(body []byte) string {
+	var req struct {
+		ConfigurationRecorder struct {
+			Name string `json:"name"`
+		} `json:"ConfigurationRecorder"`
+	}
+	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+		return ""
+	}
+
+	return req.ConfigurationRecorder.Name
+}
+
+func extractTopLevelRecorderName(body []byte) string {
+	var req struct {
+		ConfigurationRecorderName string `json:"ConfigurationRecorderName"`
+	}
+	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+		return ""
+	}
 
 	return req.ConfigurationRecorderName
+}
+
+func extractFirstRecorderName(body []byte) string {
+	var req struct {
+		ConfigurationRecorderNames []string `json:"ConfigurationRecorderNames"`
+	}
+	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+		return ""
+	}
+	if len(req.ConfigurationRecorderNames) > 0 {
+		return req.ConfigurationRecorderNames[0]
+	}
+
+	return ""
+}
+
+func extractDeliveryChannelName(body []byte) string {
+	var req struct {
+		DeliveryChannel struct {
+			Name string `json:"name"`
+		} `json:"DeliveryChannel"`
+	}
+	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+		return ""
+	}
+
+	return req.DeliveryChannel.Name
+}
+
+func extractFirstDeliveryChannelName(body []byte) string {
+	var req struct {
+		DeliveryChannelNames []string `json:"DeliveryChannelNames"`
+	}
+	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+		return ""
+	}
+	if len(req.DeliveryChannelNames) > 0 {
+		return req.DeliveryChannelNames[0]
+	}
+
+	return ""
 }
 
 // Handler returns the Echo handler function.
@@ -117,7 +190,10 @@ func (h *Handler) handlePutConfigurationRecorder(c *echo.Context, body []byte) e
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
 	}
 
-	if err := h.Backend.PutConfigurationRecorder(req.ConfigurationRecorder.Name, req.ConfigurationRecorder.RoleARN); err != nil {
+	if err := h.Backend.PutConfigurationRecorder(
+		req.ConfigurationRecorder.Name,
+		req.ConfigurationRecorder.RoleARN,
+	); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
 	}
 
@@ -134,7 +210,7 @@ func (h *Handler) handleDescribeConfigurationRecorders(c *echo.Context) error {
 
 func (h *Handler) handleStartConfigurationRecorder(c *echo.Context, body []byte) error {
 	var req struct {
-		ConfigurationRecorderName string
+		ConfigurationRecorderName string `json:"ConfigurationRecorderName"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
@@ -159,7 +235,11 @@ func (h *Handler) handlePutDeliveryChannel(c *echo.Context, body []byte) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
 	}
 
-	if err := h.Backend.PutDeliveryChannel(req.DeliveryChannel.Name, req.DeliveryChannel.S3BucketName, req.DeliveryChannel.SnsTopicARN); err != nil {
+	if err := h.Backend.PutDeliveryChannel(
+		req.DeliveryChannel.Name,
+		req.DeliveryChannel.S3BucketName,
+		req.DeliveryChannel.SnsTopicARN,
+	); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
 	}
 

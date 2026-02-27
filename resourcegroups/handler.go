@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	resourceGroupsTargetPrefix = "ResourceGroups."
+	resourceGroupsTargetPrefix  = "ResourceGroups."
 	resourceGroupsMatchPriority = 100
 )
 
@@ -63,7 +63,8 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	return action
 }
 
-// ExtractResource extracts the group name from the request body.
+// ExtractResource extracts the group name from the request body, checking both
+// the Name (CreateGroup) and GroupName (GetGroup/DeleteGroup) fields.
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	body, err := httputil.ReadBody(c.Request())
 	if err != nil {
@@ -71,11 +72,16 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	}
 
 	var req struct {
-		Name string `json:"Name"`
+		Name      string `json:"Name"`
+		GroupName string `json:"GroupName"`
 	}
 	_ = json.Unmarshal(body, &req)
 
-	return req.Name
+	if req.Name != "" {
+		return req.Name
+	}
+
+	return req.GroupName
 }
 
 // Handler returns the Echo handler function.
@@ -104,9 +110,9 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) handleCreateGroup(c *echo.Context, body []byte) error {
 	var req struct {
+		Tags        map[string]string `json:"Tags"`
 		Name        string            `json:"Name"`
 		Description string            `json:"Description"`
-		Tags        map[string]string `json:"Tags"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})

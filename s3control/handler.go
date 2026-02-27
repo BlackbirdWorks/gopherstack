@@ -12,7 +12,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
-const s3ControlMatchPriority = 85
+const (
+	s3ControlMatchPriority = 85
+	// defaultAccountID is used when no account ID is provided in the request header.
+	defaultAccountID = "default"
+)
 
 // Handler is the Echo HTTP handler for S3 Control operations.
 type Handler struct {
@@ -97,14 +101,14 @@ type publicAccessBlockConfigurationXML struct {
 }
 
 type getPublicAccessBlockOutputXML struct {
-	XMLName                    xml.Name                           `xml:"GetPublicAccessBlockOutput"`
+	XMLName                        xml.Name                          `xml:"GetPublicAccessBlockOutput"`
 	PublicAccessBlockConfiguration publicAccessBlockConfigurationXML `xml:"PublicAccessBlockConfiguration"`
 }
 
 func (h *Handler) handleGetPublicAccessBlock(c *echo.Context) error {
 	accountID := c.Request().Header.Get("X-Amz-Account-Id")
 	if accountID == "" {
-		accountID = "default"
+		accountID = defaultAccountID
 	}
 
 	cfg, err := h.Backend.GetPublicAccessBlock(accountID)
@@ -136,7 +140,7 @@ func (h *Handler) handleGetPublicAccessBlock(c *echo.Context) error {
 func (h *Handler) handlePutPublicAccessBlock(c *echo.Context) error {
 	accountID := c.Request().Header.Get("X-Amz-Account-Id")
 	if accountID == "" {
-		accountID = "default"
+		accountID = defaultAccountID
 	}
 
 	var body publicAccessBlockConfigurationXML
@@ -158,7 +162,7 @@ func (h *Handler) handlePutPublicAccessBlock(c *echo.Context) error {
 func (h *Handler) handleDeletePublicAccessBlock(c *echo.Context) error {
 	accountID := c.Request().Header.Get("X-Amz-Account-Id")
 	if accountID == "" {
-		accountID = "default"
+		accountID = defaultAccountID
 	}
 
 	if err := h.Backend.DeletePublicAccessBlock(accountID); err != nil {

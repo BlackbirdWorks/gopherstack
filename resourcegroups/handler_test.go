@@ -21,7 +21,12 @@ func newTestResourceGroupsHandler(t *testing.T) *resourcegroups.Handler {
 	return resourcegroups.NewHandler(resourcegroups.NewInMemoryBackend("000000000000", "us-east-1"), slog.Default())
 }
 
-func doResourceGroupsRequest(t *testing.T, h *resourcegroups.Handler, action string, body any) *httptest.ResponseRecorder {
+func doResourceGroupsRequest(
+	t *testing.T,
+	h *resourcegroups.Handler,
+	action string,
+	body any,
+) *httptest.ResponseRecorder {
 	t.Helper()
 
 	var bodyBytes []byte
