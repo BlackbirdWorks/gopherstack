@@ -506,6 +506,41 @@ func TestRDSHandler_DeleteDBSubnetGroup_NotFound(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "DBSubnetGroupNotFound")
 }
 
+func TestRDSHandler_ListTagsForResource(t *testing.T) {
+	t.Parallel()
+
+	h := newRDSHandler()
+	rec := postRDSForm(t, h,
+		"Action=ListTagsForResource&Version=2014-10-31"+
+			"&ResourceName=arn:aws:rds:us-east-1:000000000000:db:test-db")
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "ListTagsForResourceResponse")
+}
+
+func TestRDSHandler_AddTagsToResource(t *testing.T) {
+	t.Parallel()
+
+	h := newRDSHandler()
+	rec := postRDSForm(t, h,
+		"Action=AddTagsToResource&Version=2014-10-31"+
+			"&ResourceName=arn:aws:rds:us-east-1:000000000000:db:test-db"+
+			"&Tags.member.1.Key=Env&Tags.member.1.Value=test")
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "AddTagsToResourceResponse")
+}
+
+func TestRDSHandler_RemoveTagsFromResource(t *testing.T) {
+	t.Parallel()
+
+	h := newRDSHandler()
+	rec := postRDSForm(t, h,
+		"Action=RemoveTagsFromResource&Version=2014-10-31"+
+			"&ResourceName=arn:aws:rds:us-east-1:000000000000:db:test-db"+
+			"&TagKeys.member.1=Env")
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "RemoveTagsFromResourceResponse")
+}
+
 func TestRDSHandler_InvalidAction(t *testing.T) {
 	t.Parallel()
 

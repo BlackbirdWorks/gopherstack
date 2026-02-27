@@ -49,6 +49,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateDBSubnetGroup",
 		"DescribeDBSubnetGroups",
 		"DeleteDBSubnetGroup",
+		"ListTagsForResource",
+		"AddTagsToResource",
+		"RemoveTagsFromResource",
 	}
 }
 
@@ -161,6 +164,12 @@ func (h *Handler) dispatch(action string, vals url.Values) (any, error) {
 		return h.handleDescribeDBSubnetGroups(vals)
 	case "DeleteDBSubnetGroup":
 		return h.handleDeleteDBSubnetGroup(vals)
+	case "ListTagsForResource":
+		return h.handleListTagsForResource(vals)
+	case "AddTagsToResource":
+		return h.handleAddTagsToResource(vals)
+	case "RemoveTagsFromResource":
+		return h.handleRemoveTagsFromResource(vals)
 	default:
 		return nil, fmt.Errorf("%w: %s is not a valid RDS action", ErrUnknownAction, action)
 	}
@@ -362,6 +371,18 @@ func (h *Handler) handleDeleteDBSubnetGroup(vals url.Values) (any, error) {
 	return &deleteDBSubnetGroupResponse{
 		Xmlns: rdsXMLNS,
 	}, nil
+}
+
+func (h *Handler) handleListTagsForResource(_ url.Values) (any, error) {
+	return &listTagsForResourceResponse{Xmlns: rdsXMLNS}, nil
+}
+
+func (h *Handler) handleAddTagsToResource(_ url.Values) (any, error) {
+	return &addTagsToResourceResponse{Xmlns: rdsXMLNS}, nil
+}
+
+func (h *Handler) handleRemoveTagsFromResource(_ url.Values) (any, error) {
+	return &removeTagsFromResourceResponse{Xmlns: rdsXMLNS}, nil
 }
 
 func toXMLInstance(inst *DBInstance) xmlDBInstance {
@@ -578,4 +599,22 @@ type describeDBSubnetGroupsResponse struct {
 	XMLName        xml.Name             `xml:"DescribeDBSubnetGroupsResponse"`
 	Xmlns          string               `xml:"xmlns,attr"`
 	DBSubnetGroups xmlDBSubnetGroupList `xml:"DescribeDBSubnetGroupsResult>DBSubnetGroups"`
+}
+
+type listTagsForResourceResponse struct {
+	TagList xmlTagList `xml:"ListTagsForResourceResult>TagList"`
+	XMLName xml.Name   `xml:"ListTagsForResourceResponse"`
+	Xmlns   string     `xml:"xmlns,attr"`
+}
+
+type xmlTagList struct{}
+
+type addTagsToResourceResponse struct {
+	XMLName xml.Name `xml:"AddTagsToResourceResponse"`
+	Xmlns   string   `xml:"xmlns,attr"`
+}
+
+type removeTagsFromResourceResponse struct {
+	XMLName xml.Name `xml:"RemoveTagsFromResourceResponse"`
+	Xmlns   string   `xml:"xmlns,attr"`
 }
