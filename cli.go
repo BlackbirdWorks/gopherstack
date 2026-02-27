@@ -37,8 +37,9 @@ import (
 	ec2backend "github.com/blackbirdworks/gopherstack/ec2"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/elasticache"
 	ebbackend "github.com/blackbirdworks/gopherstack/eventbridge"
-	firehosebackend   "github.com/blackbirdworks/gopherstack/firehose"
-	schedulerbackend  "github.com/blackbirdworks/gopherstack/scheduler"
+	firehosebackend          "github.com/blackbirdworks/gopherstack/firehose"
+	route53resolverbackend   "github.com/blackbirdworks/gopherstack/route53resolver"
+	schedulerbackend         "github.com/blackbirdworks/gopherstack/scheduler"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/kms"
@@ -112,8 +113,9 @@ type CLI struct {
 	s3controlHandler      service.Registerable
 	resourcegroupsHandler service.Registerable
 	swfHandler            service.Registerable
-	firehoseHandler       service.Registerable
-	schedulerHandler      service.Registerable
+	firehoseHandler          service.Registerable
+	schedulerHandler         service.Registerable
+	route53resolverHandler   service.Registerable
 	snsClient             *sns.Client
 	kmsClient             *kms.Client
 	iamClient             *iam.Client
@@ -343,6 +345,11 @@ func (c *CLI) GetFirehoseHandler() service.Registerable { return c.firehoseHandl
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetSchedulerHandler() service.Registerable { return c.schedulerHandler }
 
+// GetRoute53ResolverHandler returns the Route53Resolver handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetRoute53ResolverHandler() service.Registerable { return c.route53resolverHandler }
+
 // Run parses CLI / environment-variable configuration and starts Gopherstack.
 // It is called from main() and exits on error.
 func Run() {
@@ -550,6 +557,7 @@ func storeCLIHandlers(cli *CLI, services []service.Registerable) {
 	cli.swfHandler = services[26]
 	cli.firehoseHandler = services[27]
 	cli.schedulerHandler = services[28]
+	cli.route53resolverHandler = services[29]
 }
 
 // initializeServices initializes all service providers.
@@ -585,6 +593,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		&swfbackend.Provider{},
 		&firehosebackend.Provider{},
 		&schedulerbackend.Provider{},
+		&route53resolverbackend.Provider{},
 	}
 
 	for _, provider := range serviceProviders {
