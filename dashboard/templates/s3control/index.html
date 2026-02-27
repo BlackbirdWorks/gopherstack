@@ -1,0 +1,43 @@
+{{define "content"}}
+<div class="px-4 sm:px-6 lg:px-8">
+    <div class="sm:flex sm:items-center justify-between">
+        <div class="sm:flex-auto">
+            <h1 class="text-3xl font-bold text-gray-900 dark:text-white">
+                S3 Control
+            </h1>
+            <p class="mt-2 text-sm text-gray-700 dark:text-gray-300">In-memory S3 Control public access block configurations.</p>
+        </div>
+    </div>
+
+    <div class="mt-8 relative overflow-x-auto shadow-md sm:rounded-lg">
+        <table class="w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
+            <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                <tr>
+                    <th scope="col" class="px-6 py-3">Account ID</th>
+                    <th scope="col" class="px-6 py-3">Block Public ACLs</th>
+                    <th scope="col" class="px-6 py-3">Ignore Public ACLs</th>
+                    <th scope="col" class="px-6 py-3">Block Public Policy</th>
+                    <th scope="col" class="px-6 py-3">Restrict Public Buckets</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Configs}}
+                <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
+                    <td class="px-6 py-4 font-medium text-gray-900 dark:text-white">{{.AccountID}}</td>
+                    <td class="px-6 py-4">{{if .BlockPublicAcls}}✅{{else}}❌{{end}}</td>
+                    <td class="px-6 py-4">{{if .IgnorePublicAcls}}✅{{else}}❌{{end}}</td>
+                    <td class="px-6 py-4">{{if .BlockPublicPolicy}}✅{{else}}❌{{end}}</td>
+                    <td class="px-6 py-4">{{if .RestrictPublicBuckets}}✅{{else}}❌{{end}}</td>
+                </tr>
+                {{else}}
+                <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
+                    <td colspan="5" class="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                        No public access block configurations. Use the API to configure.
+                    </td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+</div>
+{{end}}

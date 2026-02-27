@@ -27,6 +27,7 @@ import (
 
 	acmbackend "github.com/blackbirdworks/gopherstack/acm"
 	apigwbackend "github.com/blackbirdworks/gopherstack/apigateway"
+	awsconfigbackend "github.com/blackbirdworks/gopherstack/awsconfig"
 	cfnbackend "github.com/blackbirdworks/gopherstack/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/cloudwatchlogs"
@@ -36,6 +37,7 @@ import (
 	ec2backend "github.com/blackbirdworks/gopherstack/ec2"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/elasticache"
 	ebbackend "github.com/blackbirdworks/gopherstack/eventbridge"
+	firehosebackend "github.com/blackbirdworks/gopherstack/firehose"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/kms"
@@ -50,8 +52,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/redshift"
+	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/resourcegroups"
 	route53backend "github.com/blackbirdworks/gopherstack/route53"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
+	s3controlbackend "github.com/blackbirdworks/gopherstack/s3control"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/secretsmanager"
 	sesbackend "github.com/blackbirdworks/gopherstack/ses"
 	snsbackend "github.com/blackbirdworks/gopherstack/sns"
@@ -60,6 +64,7 @@ import (
 	sfnbackend "github.com/blackbirdworks/gopherstack/stepfunctions"
 	sfnasl "github.com/blackbirdworks/gopherstack/stepfunctions/asl"
 	stsbackend "github.com/blackbirdworks/gopherstack/sts"
+	swfbackend "github.com/blackbirdworks/gopherstack/swf"
 )
 
 const (
@@ -102,6 +107,11 @@ type CLI struct {
 	openSearchHandler     service.Registerable
 	acmHandler            service.Registerable
 	redshiftHandler       service.Registerable
+	awsconfigHandler      service.Registerable
+	s3controlHandler      service.Registerable
+	resourcegroupsHandler service.Registerable
+	swfHandler            service.Registerable
+	firehoseHandler       service.Registerable
 	snsClient             *sns.Client
 	kmsClient             *kms.Client
 	iamClient             *iam.Client
@@ -300,6 +310,31 @@ func (c *CLI) GetACMHandler() service.Registerable { return c.acmHandler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetRedshiftHandler() service.Registerable { return c.redshiftHandler }
+
+// GetAWSConfigHandler returns the AWS Config handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetAWSConfigHandler() service.Registerable { return c.awsconfigHandler }
+
+// GetS3ControlHandler returns the S3 Control handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetS3ControlHandler() service.Registerable { return c.s3controlHandler }
+
+// GetResourceGroupsHandler returns the Resource Groups handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetResourceGroupsHandler() service.Registerable { return c.resourcegroupsHandler }
+
+// GetSWFHandler returns the SWF handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetSWFHandler() service.Registerable { return c.swfHandler }
+
+// GetFirehoseHandler returns the Firehose handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetFirehoseHandler() service.Registerable { return c.firehoseHandler }
 
 // Run parses CLI / environment-variable configuration and starts Gopherstack.
 // It is called from main() and exits on error.
@@ -504,6 +539,11 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		&opensearchbackend.Provider{},
 		&acmbackend.Provider{},
 		&redshiftbackend.Provider{},
+		&awsconfigbackend.Provider{},
+		&s3controlbackend.Provider{},
+		&resourcegroupsbackend.Provider{},
+		&swfbackend.Provider{},
+		&firehosebackend.Provider{},
 	}
 
 	for _, provider := range serviceProviders {
@@ -540,6 +580,11 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		cli.openSearchHandler = services[20]
 		cli.acmHandler = services[21]
 		cli.redshiftHandler = services[22]
+		cli.awsconfigHandler = services[23]
+		cli.s3controlHandler = services[24]
+		cli.resourcegroupsHandler = services[25]
+		cli.swfHandler = services[26]
+		cli.firehoseHandler = services[27]
 	}
 
 	// Wire SNS→SQS delivery: when SNS publishes a message, deliver it to SQS queues.

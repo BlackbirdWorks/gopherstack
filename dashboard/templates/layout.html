@@ -249,6 +249,36 @@
                         <span>🗃️</span> Redshift
                     </a>
                 </li>
+                <li>
+                    <a href="/dashboard/awsconfig"
+                        class='flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "awsconfig"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}'>
+                        <span>⚙️</span> AWS Config
+                    </a>
+                </li>
+                <li>
+                    <a href="/dashboard/s3control"
+                        class='flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "s3control"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}'>
+                        <span>🪣</span> S3 Control
+                    </a>
+                </li>
+                <li>
+                    <a href="/dashboard/resourcegroups"
+                        class='flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "resourcegroups"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}'>
+                        <span>🏷️</span> Resource Groups
+                    </a>
+                </li>
+                <li>
+                    <a href="/dashboard/swf"
+                        class='flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "swf"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}'>
+                        <span>🔄</span> SWF
+                    </a>
+                </li>
+                <li>
+                    <a href="/dashboard/firehose"
+                        class='flex items-center gap-3 p-2 rounded-lg text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 {{if eq .ActiveTab "firehose"}}bg-blue-50 text-blue-700 dark:bg-gray-700 dark:text-blue-400 font-semibold{{end}}'>
+                        <span>🔥</span> Firehose
+                    </a>
+                </li>
 
                 <li class="px-3 py-1 mt-4 text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500">
                     Monitoring</li>
