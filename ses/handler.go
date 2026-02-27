@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -69,11 +70,17 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return false
 		}
 
-		if err := r.ParseForm(); err != nil {
+		body, err := httputil.ReadBody(r)
+		if err != nil {
 			return false
 		}
 
-		return r.Form.Get("Version") == sesVersion
+		vals, err := url.ParseQuery(string(body))
+		if err != nil {
+			return false
+		}
+
+		return vals.Get("Version") == sesVersion
 	}
 }
 

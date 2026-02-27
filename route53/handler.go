@@ -184,21 +184,19 @@ type xmlChangeInfo struct {
 	Status      string    `xml:"Status"`
 }
 
-//nolint:govet // field order fixed for XML output compatibility
 type xmlCreateHostedZoneResponse struct {
+	ChangeInfo    xmlChangeInfo    `xml:"ChangeInfo"`
 	XMLName       xml.Name         `xml:"CreateHostedZoneResponse"`
 	Xmlns         string           `xml:"xmlns,attr"`
-	HostedZone    xmlHostedZone    `xml:"HostedZone"`
-	ChangeInfo    xmlChangeInfo    `xml:"ChangeInfo"`
 	DelegationSet xmlDelegationSet `xml:"DelegationSet"`
+	HostedZone    xmlHostedZone    `xml:"HostedZone"`
 }
 
-//nolint:govet // field order fixed for XML output compatibility
 type xmlGetHostedZoneResponse struct {
 	XMLName       xml.Name         `xml:"GetHostedZoneResponse"`
 	Xmlns         string           `xml:"xmlns,attr"`
-	HostedZone    xmlHostedZone    `xml:"HostedZone"`
 	DelegationSet xmlDelegationSet `xml:"DelegationSet"`
+	HostedZone    xmlHostedZone    `xml:"HostedZone"`
 }
 
 type xmlListHostedZonesResponse struct {
