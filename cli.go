@@ -32,6 +32,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/dashboard"
 	"github.com/blackbirdworks/gopherstack/demo"
 	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
+	ec2backend "github.com/blackbirdworks/gopherstack/ec2"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/elasticache"
 	ebbackend "github.com/blackbirdworks/gopherstack/eventbridge"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
@@ -94,6 +95,7 @@ type CLI struct {
 	kmsHandler            service.Registerable
 	route53Handler        service.Registerable
 	sesHandler            service.Registerable
+	ec2Handler            service.Registerable
 	snsClient             *sns.Client
 	kmsClient             *kms.Client
 	iamClient             *iam.Client
@@ -467,6 +469,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		&elasticachebackend.Provider{},
 		&route53backend.Provider{},
 		&sesbackend.Provider{},
+		&ec2backend.Provider{},
 	}
 
 	for _, provider := range serviceProviders {
@@ -499,6 +502,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		cli.elasticacheHandler = services[16]
 		cli.route53Handler = services[17]
 		cli.sesHandler = services[18]
+		cli.ec2Handler = services[19]
 	}
 
 	// Wire SNS→SQS delivery: when SNS publishes a message, deliver it to SQS queues.

@@ -1,0 +1,415 @@
+package ec2
+
+import (
+	"errors"
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/google/uuid"
+)
+
+// Errors returned by the EC2 backend.
+var (
+	ErrInstanceNotFound      = errors.New("InvalidInstanceID.NotFound")
+	ErrSecurityGroupNotFound = errors.New("InvalidGroup.NotFound")
+	ErrVPCNotFound           = errors.New("InvalidVpcID.NotFound")
+	ErrSubnetNotFound        = errors.New("InvalidSubnetID.NotFound")
+	ErrInvalidParameter      = errors.New("InvalidParameterValue")
+	ErrDuplicateSGName       = errors.New("InvalidGroup.Duplicate")
+)
+
+// EC2 instance state codes as defined by the AWS EC2 API.
+const (
+	stateCodeRunning    = 16
+	stateCodeTerminated = 48
+	stateCodeStopped    = 80
+)
+
+// InstanceState represents the state of an EC2 instance.
+type InstanceState struct {
+	Name string
+	Code int
+}
+
+// Well-known instance states.
+//
+//nolint:gochecknoglobals // package-level sentinel values, analogous to exported errors
+var (
+	StateRunning    = InstanceState{Code: stateCodeRunning, Name: "running"}
+	StateTerminated = InstanceState{Code: stateCodeTerminated, Name: "terminated"}
+	StateStopped    = InstanceState{Code: stateCodeStopped, Name: "stopped"}
+)
+
+// Instance represents an EC2 instance (metadata only, no actual compute).
+type Instance struct {
+	LaunchTime     time.Time
+	State          InstanceState
+	ID             string
+	InstanceType   string
+	ImageID        string
+	VPCID          string
+	SubnetID       string
+	PrivateIP      string
+	SecurityGroups []string
+}
+
+// SecurityGroupRule represents an inbound or outbound rule.
+type SecurityGroupRule struct {
+	Protocol string
+	IPRange  string
+	FromPort int
+	ToPort   int
+}
+
+// SecurityGroup represents an EC2 security group.
+type SecurityGroup struct {
+	ID           string
+	Name         string
+	Description  string
+	VPCID        string
+	IngressRules []SecurityGroupRule
+	EgressRules  []SecurityGroupRule
+}
+
+// VPC represents an EC2 VPC.
+type VPC struct {
+	ID        string
+	CIDRBlock string
+	IsDefault bool
+}
+
+// Subnet represents an EC2 Subnet.
+type Subnet struct {
+	ID               string
+	VPCID            string
+	CIDRBlock        string
+	AvailabilityZone string
+	IsDefault        bool
+}
+
+// InMemoryBackend is the in-memory store for EC2 resources.
+type InMemoryBackend struct {
+	instances      map[string]*Instance
+	securityGroups map[string]*SecurityGroup
+	vpcs           map[string]*VPC
+	subnets        map[string]*Subnet
+	AccountID      string
+	Region         string
+	mu             sync.RWMutex
+}
+
+// NewInMemoryBackend creates a new InMemoryBackend with a default VPC and subnet.
+func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
+	b := &InMemoryBackend{
+		instances:      make(map[string]*Instance),
+		securityGroups: make(map[string]*SecurityGroup),
+		vpcs:           make(map[string]*VPC),
+		subnets:        make(map[string]*Subnet),
+		AccountID:      accountID,
+		Region:         region,
+	}
+
+	b.initDefaults()
+
+	return b
+}
+
+// initDefaults pre-populates a default VPC, subnet, and security group.
+func (b *InMemoryBackend) initDefaults() {
+	defaultVPCID := "vpc-default"
+	b.vpcs[defaultVPCID] = &VPC{
+		ID:        defaultVPCID,
+		CIDRBlock: "172.31.0.0/16",
+		IsDefault: true,
+	}
+
+	defaultSubnetID := "subnet-default"
+	b.subnets[defaultSubnetID] = &Subnet{
+		ID:               defaultSubnetID,
+		VPCID:            defaultVPCID,
+		CIDRBlock:        "172.31.0.0/20",
+		AvailabilityZone: b.Region + "a",
+		IsDefault:        true,
+	}
+
+	defaultSGID := "sg-default"
+	b.securityGroups[defaultSGID] = &SecurityGroup{
+		ID:          defaultSGID,
+		Name:        "default",
+		Description: "default VPC security group",
+		VPCID:       defaultVPCID,
+	}
+}
+
+// RunInstances creates one or more EC2 instance stubs.
+func (b *InMemoryBackend) RunInstances(imageID, instanceType, subnetID string, count int) ([]*Instance, error) {
+	if imageID == "" {
+		return nil, fmt.Errorf("%w: ImageId is required", ErrInvalidParameter)
+	}
+
+	if count < 1 {
+		count = 1
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if subnetID == "" {
+		// Use the default subnet.
+		for id, s := range b.subnets {
+			if s.IsDefault {
+				subnetID = id
+
+				break
+			}
+		}
+	} else if _, ok := b.subnets[subnetID]; !ok {
+		return nil, fmt.Errorf("%w: %s", ErrSubnetNotFound, subnetID)
+	}
+
+	vpcID := ""
+
+	if sub, ok := b.subnets[subnetID]; ok {
+		vpcID = sub.VPCID
+	}
+
+	instances := make([]*Instance, 0, count)
+
+	for range count {
+		id := "i-" + uuid.New().String()[:17]
+		inst := &Instance{
+			ID:           id,
+			ImageID:      imageID,
+			InstanceType: instanceType,
+			State:        StateRunning,
+			VPCID:        vpcID,
+			SubnetID:     subnetID,
+			LaunchTime:   time.Now(),
+		}
+		b.instances[id] = inst
+		instances = append(instances, inst)
+	}
+
+	return instances, nil
+}
+
+// DescribeInstances returns instances, optionally filtered by IDs or state.
+func (b *InMemoryBackend) DescribeInstances(ids []string, state string) []*Instance {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	idSet := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		idSet[id] = true
+	}
+
+	var out []*Instance
+
+	for _, inst := range b.instances {
+		if len(idSet) > 0 && !idSet[inst.ID] {
+			continue
+		}
+
+		if state != "" && inst.State.Name != state {
+			continue
+		}
+
+		cp := *inst
+		out = append(out, &cp)
+	}
+
+	return out
+}
+
+// TerminateInstances sets the state of each instance to terminated.
+func (b *InMemoryBackend) TerminateInstances(ids []string) ([]*Instance, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	var result []*Instance
+
+	for _, id := range ids {
+		inst, ok := b.instances[id]
+		if !ok {
+			return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, id)
+		}
+
+		inst.State = StateTerminated
+		cp := *inst
+		result = append(result, &cp)
+	}
+
+	return result, nil
+}
+
+// DescribeSecurityGroups returns security groups, optionally filtered by IDs.
+func (b *InMemoryBackend) DescribeSecurityGroups(ids []string) []*SecurityGroup {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	idSet := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		idSet[id] = true
+	}
+
+	var out []*SecurityGroup
+
+	for _, sg := range b.securityGroups {
+		if len(idSet) > 0 && !idSet[sg.ID] {
+			continue
+		}
+
+		cp := *sg
+		out = append(out, &cp)
+	}
+
+	return out
+}
+
+// CreateSecurityGroup creates a new security group and returns its ID.
+func (b *InMemoryBackend) CreateSecurityGroup(name, description, vpcID string) (*SecurityGroup, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: GroupName is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if vpcID != "" {
+		if _, ok := b.vpcs[vpcID]; !ok {
+			return nil, fmt.Errorf("%w: %s", ErrVPCNotFound, vpcID)
+		}
+	}
+
+	for _, sg := range b.securityGroups {
+		if sg.Name == name && sg.VPCID == vpcID {
+			return nil, fmt.Errorf("%w: group named %s already exists in VPC %s", ErrDuplicateSGName, name, vpcID)
+		}
+	}
+
+	id := "sg-" + uuid.New().String()[:17]
+	sg := &SecurityGroup{
+		ID:          id,
+		Name:        name,
+		Description: description,
+		VPCID:       vpcID,
+	}
+	b.securityGroups[id] = sg
+
+	return sg, nil
+}
+
+// DeleteSecurityGroup removes a security group by ID.
+func (b *InMemoryBackend) DeleteSecurityGroup(id string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if _, ok := b.securityGroups[id]; !ok {
+		return fmt.Errorf("%w: %s", ErrSecurityGroupNotFound, id)
+	}
+
+	delete(b.securityGroups, id)
+
+	return nil
+}
+
+// DescribeVpcs returns VPCs, optionally filtered by IDs.
+func (b *InMemoryBackend) DescribeVpcs(ids []string) []*VPC {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	idSet := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		idSet[id] = true
+	}
+
+	var out []*VPC
+
+	for _, v := range b.vpcs {
+		if len(idSet) > 0 && !idSet[v.ID] {
+			continue
+		}
+
+		cp := *v
+		out = append(out, &cp)
+	}
+
+	return out
+}
+
+// CreateVpc creates a new VPC with the given CIDR block.
+func (b *InMemoryBackend) CreateVpc(cidr string) (*VPC, error) {
+	if cidr == "" {
+		return nil, fmt.Errorf("%w: CidrBlock is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	id := "vpc-" + uuid.New().String()[:17]
+	v := &VPC{
+		ID:        id,
+		CIDRBlock: cidr,
+	}
+	b.vpcs[id] = v
+
+	return v, nil
+}
+
+// DescribeSubnets returns subnets, optionally filtered by IDs.
+func (b *InMemoryBackend) DescribeSubnets(ids []string) []*Subnet {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	idSet := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		idSet[id] = true
+	}
+
+	var out []*Subnet
+
+	for _, s := range b.subnets {
+		if len(idSet) > 0 && !idSet[s.ID] {
+			continue
+		}
+
+		cp := *s
+		out = append(out, &cp)
+	}
+
+	return out
+}
+
+// CreateSubnet creates a new subnet in the given VPC.
+func (b *InMemoryBackend) CreateSubnet(vpcID, cidr, az string) (*Subnet, error) {
+	if vpcID == "" {
+		return nil, fmt.Errorf("%w: VpcId is required", ErrInvalidParameter)
+	}
+
+	if cidr == "" {
+		return nil, fmt.Errorf("%w: CidrBlock is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if _, ok := b.vpcs[vpcID]; !ok {
+		return nil, fmt.Errorf("%w: %s", ErrVPCNotFound, vpcID)
+	}
+
+	if az == "" {
+		az = b.Region + "a"
+	}
+
+	id := "subnet-" + uuid.New().String()[:17]
+	s := &Subnet{
+		ID:               id,
+		VPCID:            vpcID,
+		CIDRBlock:        cidr,
+		AvailabilityZone: az,
+	}
+	b.subnets[id] = s
+
+	return s, nil
+}

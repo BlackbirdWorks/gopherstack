@@ -14,6 +14,7 @@ import (
 // Errors returned by the SES backend.
 var (
 	ErrIdentityNotFound = errors.New("IdentityNotFound")
+	ErrEmailNotFound    = errors.New("EmailNotFound")
 	ErrInvalidParameter = errors.New("InvalidParameterValue")
 )
 
@@ -137,4 +138,18 @@ func (b *InMemoryBackend) ListEmails() []Email {
 	copy(out, b.emails)
 
 	return out
+}
+
+// GetEmailByID returns the email with the given MessageID, or an error if not found.
+func (b *InMemoryBackend) GetEmailByID(messageID string) (Email, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	for _, e := range b.emails {
+		if e.MessageID == messageID {
+			return e, nil
+		}
+	}
+
+	return Email{}, fmt.Errorf("%w: %s", ErrEmailNotFound, messageID)
 }

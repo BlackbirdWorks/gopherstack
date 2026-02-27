@@ -1,0 +1,95 @@
+{{define "content"}}
+<div class="px-4 sm:px-6 lg:px-8">
+    <div class="sm:flex sm:items-center justify-between mb-6">
+        <div class="sm:flex-auto">
+            <nav class="text-sm text-gray-500 dark:text-gray-400 mb-2">
+                <a href="/dashboard/ses" class="hover:underline text-blue-600 dark:text-blue-400">SES Inbox</a>
+                <span class="mx-2">›</span>
+                <span class="font-mono text-xs">{{.MessageID}}</span>
+            </nav>
+            <h1 class="text-3xl font-bold text-gray-900 dark:text-white truncate">{{.Subject}}</h1>
+        </div>
+    </div>
+
+    <!-- Headers -->
+    <div class="bg-white dark:bg-gray-800 shadow-md rounded-lg p-6 mb-6">
+        <h2 class="text-sm font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-4">Headers</h2>
+        <dl class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+                <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">Message ID</dt>
+                <dd class="mt-1 text-xs font-mono text-gray-900 dark:text-white break-all">{{.MessageID}}</dd>
+            </div>
+            <div>
+                <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">Timestamp</dt>
+                <dd class="mt-1 text-xs text-gray-900 dark:text-white">{{.TimestampStr}}</dd>
+            </div>
+            <div>
+                <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">From</dt>
+                <dd class="mt-1 text-xs font-mono text-gray-900 dark:text-white">{{.From}}</dd>
+            </div>
+            <div>
+                <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">To</dt>
+                <dd class="mt-1 text-xs font-mono text-gray-900 dark:text-white">{{.ToStr}}</dd>
+            </div>
+            <div class="sm:col-span-2">
+                <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">Subject</dt>
+                <dd class="mt-1 text-sm text-gray-900 dark:text-white">{{.Subject}}</dd>
+            </div>
+        </dl>
+    </div>
+
+    <!-- Body Tabs -->
+    <div class="bg-white dark:bg-gray-800 shadow-md rounded-lg overflow-hidden">
+        <div class="border-b border-gray-200 dark:border-gray-700">
+            <nav class="-mb-px flex" aria-label="Tabs">
+                {{if .BodyHTML}}
+                <button onclick="showTab('html-body', this)"
+                    class="tab-btn {{if eq .DefaultTab "html-body"}}border-blue-500 text-blue-600 dark:text-blue-400{{else}}border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-200{{end}} whitespace-nowrap py-4 px-6 border-b-2 font-medium text-sm">
+                    HTML
+                </button>
+                {{end}}
+                {{if .BodyText}}
+                <button onclick="showTab('text-body', this)"
+                    class="tab-btn {{if eq .DefaultTab "text-body"}}border-blue-500 text-blue-600 dark:text-blue-400{{else}}border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-200{{end}} whitespace-nowrap py-4 px-6 border-b-2 font-medium text-sm">
+                    Plain Text
+                </button>
+                {{end}}
+                <button onclick="showTab('raw-body', this)"
+                    class="tab-btn {{if eq .DefaultTab "raw-body"}}border-blue-500 text-blue-600 dark:text-blue-400{{else}}border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-200{{end}} whitespace-nowrap py-4 px-6 border-b-2 font-medium text-sm">
+                    Raw
+                </button>
+            </nav>
+        </div>
+
+        {{if .BodyHTML}}
+        <div id="html-body" class="tab-panel {{if ne .DefaultTab "html-body"}}hidden{{end}} p-4">
+            <iframe srcdoc="{{.BodyHTML}}" sandbox="allow-same-origin"
+                class="w-full min-h-64 border border-gray-200 dark:border-gray-700 rounded bg-white"></iframe>
+        </div>
+        {{end}}
+
+        {{if .BodyText}}
+        <div id="text-body" class="tab-panel {{if ne .DefaultTab "text-body"}}hidden{{end}} p-4">
+            <pre class="whitespace-pre-wrap text-sm font-mono text-gray-900 dark:text-gray-100 bg-gray-50 dark:bg-gray-900 p-4 rounded overflow-auto max-h-96">{{.BodyText}}</pre>
+        </div>
+        {{end}}
+
+        <div id="raw-body" class="tab-panel {{if ne .DefaultTab "raw-body"}}hidden{{end}} p-4">
+            <pre class="whitespace-pre-wrap text-xs font-mono text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-900 p-4 rounded overflow-auto max-h-96">{{.RawMessage}}</pre>
+        </div>
+    </div>
+</div>
+
+<script>
+function showTab(id, btn) {
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
+    document.querySelectorAll('.tab-btn').forEach(b => {
+        b.classList.remove('border-blue-500', 'text-blue-600', 'dark:text-blue-400');
+        b.classList.add('border-transparent', 'text-gray-500');
+    });
+    document.getElementById(id).classList.remove('hidden');
+    btn.classList.add('border-blue-500', 'text-blue-600', 'dark:text-blue-400');
+    btn.classList.remove('border-transparent', 'text-gray-500');
+}
+</script>
+{{end}}
