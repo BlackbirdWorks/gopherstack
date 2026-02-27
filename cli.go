@@ -39,6 +39,7 @@ import (
 	kinesisbackend "github.com/blackbirdworks/gopherstack/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/lambda"
+	opensearchbackend "github.com/blackbirdworks/gopherstack/opensearch"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	gopherDNS "github.com/blackbirdworks/gopherstack/pkgs/dns"
 	snsevents "github.com/blackbirdworks/gopherstack/pkgs/events"
@@ -96,6 +97,7 @@ type CLI struct {
 	route53Handler        service.Registerable
 	sesHandler            service.Registerable
 	ec2Handler            service.Registerable
+	openSearchHandler     service.Registerable
 	snsClient             *sns.Client
 	kmsClient             *kms.Client
 	iamClient             *iam.Client
@@ -105,21 +107,23 @@ type CLI struct {
 	stsClient             *stssdk.Client
 	sqsClient             *sqssdk.Client
 	secretsManagerClient  *secretsmanager.Client
-	AccountID             string                 `                                  name:"account-id"         env:"ACCOUNT_ID"         default:"000000000000" help:"Mock AWS account ID used in ARNs."`                                //nolint:lll // config struct tags are intentionally verbose
-	Port                  string                 `                                  name:"port"               env:"PORT"               default:"8000"         help:"HTTP server port."`                                                //nolint:lll // config struct tags are intentionally verbose
-	ElastiCacheEngine     string                 `                                  name:"elasticache-engine" env:"ELASTICACHE_ENGINE" default:"embedded"     help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`  //nolint:lll // config struct tags are intentionally verbose
-	Region                string                 `                                  name:"region"             env:"REGION"             default:"us-east-1"    help:"AWS region."`                                                      //nolint:lll // config struct tags are intentionally verbose
-	LogLevel              string                 `                                  name:"log-level"          env:"LOG_LEVEL"          default:"info"         help:"Log level (debug|info|warn|error)."`                               //nolint:lll // config struct tags are intentionally verbose
-	DNSListenAddr         string                 `                                  name:"dns-addr"           env:"DNS_ADDR"           default:""             help:"Address for embedded DNS server (e.g. :10053). Empty = disabled."` //nolint:lll // config struct tags are intentionally verbose
-	DNSResolveIP          string                 `                                  name:"dns-resolve-ip"     env:"DNS_RESOLVE_IP"     default:"127.0.0.1"    help:"IP address synthetic hostnames resolve to."`                       //nolint:lll // config struct tags are intentionally verbose
-	S3                    s3backend.Settings     `embed:"" prefix:"s3-"`
-	InitScripts           []string               `                                  name:"init-script"        env:"INIT_SCRIPTS"                              help:"Shell scripts to run on startup (may be specified multiple times)."` //nolint:lll // config struct tags are intentionally verbose
-	DynamoDB              ddbbackend.Settings    `embed:"" prefix:"dynamodb-"`
-	Lambda                lambdabackend.Settings `embed:"" prefix:"lambda-"`
-	PortRangeStart        int                    `                                  name:"port-range-start"   env:"PORT_RANGE_START"   default:"10000"        help:"Start of the port range for resource endpoints."`           //nolint:lll // config struct tags are intentionally verbose
-	PortRangeEnd          int                    `                                  name:"port-range-end"     env:"PORT_RANGE_END"     default:"10100"        help:"End (exclusive) of the port range for resource endpoints."` //nolint:lll // config struct tags are intentionally verbose
-	InitScriptTimeout     time.Duration          `                                  name:"init-timeout"       env:"INIT_TIMEOUT"       default:"30s"          help:"Per-script timeout for init hooks."`                        //nolint:lll // config struct tags are intentionally verbose
-	Demo                  bool                   `                                  name:"demo"               env:"DEMO"               default:"false"        help:"Load demo data on startup."`                                //nolint:lll // config struct tags are intentionally verbose
+
+	AccountID         string                 `                                  name:"account-id"         env:"ACCOUNT_ID"         default:"000000000000" help:"Mock AWS account ID used in ARNs."`                                 //nolint:lll,golines // config struct tags are intentionally verbose
+	Port              string                 `                                  name:"port"               env:"PORT"               default:"8000"         help:"HTTP server port."`                                                 //nolint:lll // config struct tags are intentionally verbose
+	ElastiCacheEngine string                 `                                  name:"elasticache-engine"  env:"ELASTICACHE_ENGINE"  default:"embedded"     help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."` //nolint:lll // config struct tags are intentionally verbose
+	OpenSearchEngine  string                 `                                  name:"opensearch-engine"   env:"OPENSEARCH_ENGINE"   default:"stub"         help:"OpenSearch engine mode: stub (API-only) or docker."`              //nolint:lll // config struct tags are intentionally verbose
+	Region            string                 `                                  name:"region"             env:"REGION"             default:"us-east-1"    help:"AWS region."`                                                       //nolint:lll // config struct tags are intentionally verbose
+	LogLevel          string                 `                                  name:"log-level"          env:"LOG_LEVEL"          default:"info"         help:"Log level (debug|info|warn|error)."`                                //nolint:lll // config struct tags are intentionally verbose
+	DNSListenAddr     string                 `                                  name:"dns-addr"           env:"DNS_ADDR"           default:""             help:"Address for embedded DNS server (e.g. :10053). Empty = disabled."`  //nolint:lll // config struct tags are intentionally verbose
+	DNSResolveIP      string                 `                                  name:"dns-resolve-ip"     env:"DNS_RESOLVE_IP"     default:"127.0.0.1"    help:"IP address synthetic hostnames resolve to."`                        //nolint:lll // config struct tags are intentionally verbose
+	S3                s3backend.Settings     `embed:"" prefix:"s3-"`
+	InitScripts       []string               `                                  name:"init-script"        env:"INIT_SCRIPTS"                              help:"Shell scripts to run on startup (may be specified multiple times)."` //nolint:lll // config struct tags are intentionally verbose
+	DynamoDB          ddbbackend.Settings    `embed:"" prefix:"dynamodb-"`
+	Lambda            lambdabackend.Settings `embed:"" prefix:"lambda-"`
+	PortRangeStart    int                    `                                  name:"port-range-start"   env:"PORT_RANGE_START"   default:"10000"        help:"Start of the port range for resource endpoints."`           //nolint:lll // config struct tags are intentionally verbose
+	PortRangeEnd      int                    `                                  name:"port-range-end"     env:"PORT_RANGE_END"     default:"10100"        help:"End (exclusive) of the port range for resource endpoints."` //nolint:lll // config struct tags are intentionally verbose
+	InitScriptTimeout time.Duration          `                                  name:"init-timeout"       env:"INIT_TIMEOUT"       default:"30s"          help:"Per-script timeout for init hooks."`                        //nolint:lll // config struct tags are intentionally verbose
+	Demo              bool                   `                                  name:"demo"               env:"DEMO"               default:"false"        help:"Load demo data on startup."`                                //nolint:lll // config struct tags are intentionally verbose
 }
 
 // GetGlobalConfig returns the centralised account ID and region (config.Provider).
@@ -269,6 +273,19 @@ func (c *CLI) GetRoute53Handler() service.Registerable { return c.route53Handler
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetSESHandler() service.Registerable { return c.sesHandler }
+
+// GetEC2Handler returns the EC2 handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetEC2Handler() service.Registerable { return c.ec2Handler }
+
+// GetOpenSearchEngine returns the OpenSearch engine mode (opensearch.EngineConfig).
+func (c *CLI) GetOpenSearchEngine() string { return c.OpenSearchEngine }
+
+// GetOpenSearchHandler returns the OpenSearch handler.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetOpenSearchHandler() service.Registerable { return c.openSearchHandler }
 
 // Run parses CLI / environment-variable configuration and starts Gopherstack.
 // It is called from main() and exits on error.
@@ -470,6 +487,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		&route53backend.Provider{},
 		&sesbackend.Provider{},
 		&ec2backend.Provider{},
+		&opensearchbackend.Provider{},
 	}
 
 	for _, provider := range serviceProviders {
@@ -503,6 +521,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		cli.route53Handler = services[17]
 		cli.sesHandler = services[18]
 		cli.ec2Handler = services[19]
+		cli.openSearchHandler = services[20]
 	}
 
 	// Wire SNS→SQS delivery: when SNS publishes a message, deliver it to SQS queues.

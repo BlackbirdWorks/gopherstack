@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -60,10 +61,18 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		if !strings.Contains(ct, "application/x-www-form-urlencoded") {
 			return false
 		}
-		if err := r.ParseForm(); err != nil {
+
+		body, err := httputil.ReadBody(r)
+		if err != nil {
 			return false
 		}
-		action := r.Form.Get("Action")
+
+		vals, err := url.ParseQuery(string(body))
+		if err != nil {
+			return false
+		}
+
+		action := vals.Get("Action")
 
 		return slices.Contains(h.GetSupportedOperations(), action)
 	}
