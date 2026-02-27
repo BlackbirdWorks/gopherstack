@@ -16,6 +16,7 @@ import (
 
 	acmbackend "github.com/blackbirdworks/gopherstack/acm"
 	apigwbackend "github.com/blackbirdworks/gopherstack/apigateway"
+	awsconfigbackend "github.com/blackbirdworks/gopherstack/awsconfig"
 	cfnbackend "github.com/blackbirdworks/gopherstack/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/cloudwatchlogs"
@@ -24,6 +25,7 @@ import (
 	ec2backend "github.com/blackbirdworks/gopherstack/ec2"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/elasticache"
 	ebbackend "github.com/blackbirdworks/gopherstack/eventbridge"
+	firehosebackend "github.com/blackbirdworks/gopherstack/firehose"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/kms"
@@ -33,8 +35,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/redshift"
+	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/resourcegroups"
 	route53backend "github.com/blackbirdworks/gopherstack/route53"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
+	s3controlbackend "github.com/blackbirdworks/gopherstack/s3control"
 	smbackend "github.com/blackbirdworks/gopherstack/secretsmanager"
 	sesbackend "github.com/blackbirdworks/gopherstack/ses"
 	snsbackend "github.com/blackbirdworks/gopherstack/sns"
@@ -42,6 +46,7 @@ import (
 	ssmbackend "github.com/blackbirdworks/gopherstack/ssm"
 	sfnbackend "github.com/blackbirdworks/gopherstack/stepfunctions"
 	stsbackend "github.com/blackbirdworks/gopherstack/sts"
+	swfbackend "github.com/blackbirdworks/gopherstack/swf"
 )
 
 const (
@@ -79,6 +84,11 @@ type Stack struct {
 	OpenSearchHandler     *opensearchbackend.Handler
 	ACMHandler            *acmbackend.Handler
 	RedshiftHandler       *redshiftbackend.Handler
+	AWSConfigHandler      *awsconfigbackend.Handler
+	S3ControlHandler      *s3controlbackend.Handler
+	ResourceGroupsHandler *resourcegroupsbackend.Handler
+	SWFHandler            *swfbackend.Handler
+	FirehoseHandler       *firehosebackend.Handler
 	S3Client              *s3.Client
 	DDBClient             *dynamodb.Client
 	Dashboard             *dashboard.DashboardHandler
@@ -154,6 +164,11 @@ func registerServices(
 	openSearchHndlr *opensearchbackend.Handler,
 	acmHndlr *acmbackend.Handler,
 	redshiftHndlr *redshiftbackend.Handler,
+	awsconfigHndlr *awsconfigbackend.Handler,
+	s3controlHndlr *s3controlbackend.Handler,
+	resourcegroupsHndlr *resourcegroupsbackend.Handler,
+	swfHndlr *swfbackend.Handler,
+	firehoseHndlr *firehosebackend.Handler,
 ) {
 	_ = registry.Register(ddbHndlr)
 	_ = registry.Register(s3Hndlr)
@@ -179,36 +194,46 @@ func registerServices(
 	_ = registry.Register(openSearchHndlr)
 	_ = registry.Register(acmHndlr)
 	_ = registry.Register(redshiftHndlr)
+	_ = registry.Register(awsconfigHndlr)
+	_ = registry.Register(s3controlHndlr)
+	_ = registry.Register(resourcegroupsHndlr)
+	_ = registry.Register(swfHndlr)
+	_ = registry.Register(firehoseHndlr)
 }
 
 // handlers bundles all service handlers created for a test stack.
 type handlers struct {
-	s3          *s3backend.S3Handler
-	ddb         *ddbbackend.DynamoDBHandler
-	ssm         *ssmbackend.Handler
-	iam         *iambackend.Handler
-	sts         *stsbackend.Handler
-	sns         *snsbackend.Handler
-	sqs         *sqsbackend.Handler
-	kms         *kmsbackend.Handler
-	sm          *smbackend.Handler
-	lambda      *lambdabackend.Handler
-	eb          *ebbackend.Handler
-	apigw       *apigwbackend.Handler
-	cwlogs      *cwlogsbackend.Handler
-	sfn         *sfnbackend.Handler
-	cw          *cwbackend.Handler
-	cfn         *cfnbackend.Handler
-	kinesis     *kinesisbackend.Handler
-	elasticache *elasticachebackend.Handler
-	route53     *route53backend.Handler
-	ses         *sesbackend.Handler
-	ec2         *ec2backend.Handler
-	opensearch  *opensearchbackend.Handler
-	acm         *acmbackend.Handler
-	redshift    *redshiftbackend.Handler
-	iamBk       *iambackend.InMemoryBackend
-	s3Bk        *s3backend.InMemoryBackend
+	s3             *s3backend.S3Handler
+	ddb            *ddbbackend.DynamoDBHandler
+	ssm            *ssmbackend.Handler
+	iam            *iambackend.Handler
+	sts            *stsbackend.Handler
+	sns            *snsbackend.Handler
+	sqs            *sqsbackend.Handler
+	kms            *kmsbackend.Handler
+	sm             *smbackend.Handler
+	lambda         *lambdabackend.Handler
+	eb             *ebbackend.Handler
+	apigw          *apigwbackend.Handler
+	cwlogs         *cwlogsbackend.Handler
+	sfn            *sfnbackend.Handler
+	cw             *cwbackend.Handler
+	cfn            *cfnbackend.Handler
+	kinesis        *kinesisbackend.Handler
+	elasticache    *elasticachebackend.Handler
+	route53        *route53backend.Handler
+	ses            *sesbackend.Handler
+	ec2            *ec2backend.Handler
+	opensearch     *opensearchbackend.Handler
+	acm            *acmbackend.Handler
+	redshift       *redshiftbackend.Handler
+	awsconfig      *awsconfigbackend.Handler
+	s3control      *s3controlbackend.Handler
+	resourcegroups *resourcegroupsbackend.Handler
+	swf            *swfbackend.Handler
+	firehose       *firehosebackend.Handler
+	iamBk          *iambackend.InMemoryBackend
+	s3Bk           *s3backend.InMemoryBackend
 }
 
 // newHandlers creates in-memory backends and handlers for all services.
@@ -255,6 +280,17 @@ func newHandlers() handlers {
 		acm: acmbackend.NewHandler(acmbackend.NewInMemoryBackend("000000000000", "us-east-1"), slog.Default()),
 		redshift: redshiftbackend.NewHandler(
 			redshiftbackend.NewInMemoryBackend("000000000000", "us-east-1"),
+			slog.Default(),
+		),
+		awsconfig: awsconfigbackend.NewHandler(awsconfigbackend.NewInMemoryBackend(), slog.Default()),
+		s3control: s3controlbackend.NewHandler(s3controlbackend.NewInMemoryBackend(), slog.Default()),
+		resourcegroups: resourcegroupsbackend.NewHandler(
+			resourcegroupsbackend.NewInMemoryBackend("000000000000", "us-east-1"),
+			slog.Default(),
+		),
+		swf: swfbackend.NewHandler(swfbackend.NewInMemoryBackend(), slog.Default()),
+		firehose: firehosebackend.NewHandler(
+			firehosebackend.NewInMemoryBackend("000000000000", "us-east-1"),
 			slog.Default(),
 		),
 	}
@@ -306,7 +342,7 @@ func New(t *testing.T) *Stack {
 		h.ddb, h.s3, h.ssm, h.iam, h.sts, h.sns, h.sqs, h.kms, h.sm,
 		h.lambda, h.eb, h.apigw, h.cwlogs, h.sfn, h.cw, h.cfn, h.kinesis,
 		h.elasticache, h.route53, h.ses, h.ec2, h.opensearch,
-		h.acm, h.redshift,
+		h.acm, h.redshift, h.awsconfig, h.s3control, h.resourcegroups, h.swf, h.firehose,
 	)
 
 	// Create AWS SDK clients routed through in-memory Echo.
@@ -342,6 +378,11 @@ func New(t *testing.T) *Stack {
 		OpenSearchOps:     h.opensearch,
 		ACMOps:            h.acm,
 		RedshiftOps:       h.redshift,
+		AWSConfigOps:      h.awsconfig,
+		S3ControlOps:      h.s3control,
+		ResourceGroupsOps: h.resourcegroups,
+		SWFOps:            h.swf,
+		FirehoseOps:       h.firehose,
 		GlobalConfig:      config.GlobalConfig{AccountID: "000000000000", Region: "us-east-1"},
 		Logger:            slog.Default(),
 	})
@@ -378,6 +419,11 @@ func New(t *testing.T) *Stack {
 		OpenSearchHandler:     h.opensearch,
 		ACMHandler:            h.acm,
 		RedshiftHandler:       h.redshift,
+		AWSConfigHandler:      h.awsconfig,
+		S3ControlHandler:      h.s3control,
+		ResourceGroupsHandler: h.resourcegroups,
+		SWFHandler:            h.swf,
+		FirehoseHandler:       h.firehose,
 		S3Client:              s3Client,
 		DDBClient:             ddbClient,
 		Dashboard:             dashHndlr,

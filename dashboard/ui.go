@@ -14,6 +14,7 @@ import (
 
 	acmbackend "github.com/blackbirdworks/gopherstack/acm"
 	apigwbackend "github.com/blackbirdworks/gopherstack/apigateway"
+	awsconfigbackend "github.com/blackbirdworks/gopherstack/awsconfig"
 	cfnbackend "github.com/blackbirdworks/gopherstack/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/cloudwatchlogs"
@@ -21,6 +22,7 @@ import (
 	ec2backend "github.com/blackbirdworks/gopherstack/ec2"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/elasticache"
 	ebbackend "github.com/blackbirdworks/gopherstack/eventbridge"
+	firehosebackend "github.com/blackbirdworks/gopherstack/firehose"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/kms"
@@ -30,8 +32,10 @@ import (
 	pkgslogger "github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/redshift"
+	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/resourcegroups"
 	route53backend "github.com/blackbirdworks/gopherstack/route53"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
+	s3controlbackend "github.com/blackbirdworks/gopherstack/s3control"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/secretsmanager"
 	sesbackend "github.com/blackbirdworks/gopherstack/ses"
 	snsbackend "github.com/blackbirdworks/gopherstack/sns"
@@ -39,6 +43,7 @@ import (
 	ssmbackend "github.com/blackbirdworks/gopherstack/ssm"
 	sfnbackend "github.com/blackbirdworks/gopherstack/stepfunctions"
 	stsbackend "github.com/blackbirdworks/gopherstack/sts"
+	swfbackend "github.com/blackbirdworks/gopherstack/swf"
 )
 
 const (
@@ -95,6 +100,11 @@ type DashboardHandler struct {
 	OpenSearchOps     *opensearchbackend.Handler
 	ACMOps            *acmbackend.Handler
 	RedshiftOps       *redshiftbackend.Handler
+	AWSConfigOps      *awsconfigbackend.Handler
+	S3ControlOps      *s3controlbackend.Handler
+	ResourceGroupsOps *resourcegroupsbackend.Handler
+	SWFOps            *swfbackend.Handler
+	FirehoseOps       *firehosebackend.Handler
 	SubRouter         *echo.Echo
 	ddbProvider       *ddbbackend.DashboardProvider
 	s3Provider        *s3backend.DashboardProvider
@@ -149,6 +159,16 @@ type Config struct {
 	ACMOps *acmbackend.Handler
 	// RedshiftOps provides access to the Redshift backend.
 	RedshiftOps *redshiftbackend.Handler
+	// AWSConfigOps provides access to the AWS Config backend.
+	AWSConfigOps *awsconfigbackend.Handler
+	// S3ControlOps provides access to the S3 Control backend.
+	S3ControlOps *s3controlbackend.Handler
+	// ResourceGroupsOps provides access to the Resource Groups backend.
+	ResourceGroupsOps *resourcegroupsbackend.Handler
+	// SWFOps provides access to the SWF backend.
+	SWFOps *swfbackend.Handler
+	// FirehoseOps provides access to the Firehose backend.
+	FirehoseOps *firehosebackend.Handler
 	// Logger is the structured logger for dashboard operations.
 	Logger *slog.Logger
 	// GlobalConfig holds the centralized account and region configuration shown on the settings page.
@@ -156,7 +176,9 @@ type Config struct {
 }
 
 // NewHandler creates a new Dashboard handler.
-func NewHandler(cfg Config) *DashboardHandler {
+
+// parseDashboardTemplates loads and parses all HTML templates for the dashboard.
+func parseDashboardTemplates() *template.Template {
 	funcMap := template.FuncMap{
 		"safeID": func(s string) string {
 			s = strings.ReplaceAll(s, "/", "-")
@@ -169,8 +191,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		},
 	}
 
-	// Parse layout and components
-	tmpl := template.Must(template.New("layout").Funcs(funcMap).ParseFS(templateFS,
+	return template.Must(template.New("layout").Funcs(funcMap).ParseFS(templateFS,
 		"templates/layout.html",
 		"templates/components/*.html",
 		"templates/s3/*.html",
@@ -197,10 +218,19 @@ func NewHandler(cfg Config) *DashboardHandler {
 		"templates/opensearch/*.html",
 		"templates/acm/*.html",
 		"templates/redshift/*.html",
+		"templates/awsconfig/*.html",
+		"templates/s3control/*.html",
+		"templates/resourcegroups/*.html",
+		"templates/swf/*.html",
+		"templates/firehose/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
 		"templates/settings.html",
 	))
+}
+
+func NewHandler(cfg Config) *DashboardHandler {
+	tmpl := parseDashboardTemplates()
 
 	// Create service-specific dashboard providers
 	ddbProvider := ddbbackend.NewDashboardProvider()
@@ -234,6 +264,11 @@ func NewHandler(cfg Config) *DashboardHandler {
 		OpenSearchOps:     cfg.OpenSearchOps,
 		ACMOps:            cfg.ACMOps,
 		RedshiftOps:       cfg.RedshiftOps,
+		AWSConfigOps:      cfg.AWSConfigOps,
+		S3ControlOps:      cfg.S3ControlOps,
+		ResourceGroupsOps: cfg.ResourceGroupsOps,
+		SWFOps:            cfg.SWFOps,
+		FirehoseOps:       cfg.FirehoseOps,
 		GlobalConfig:      cfg.GlobalConfig,
 		Logger:            cfg.Logger,
 		layout:            tmpl,
@@ -429,6 +464,33 @@ func (h *DashboardHandler) setupRedshiftRoutes() {
 	h.SubRouter.POST("/dashboard/redshift/delete", h.redshiftDeleteCluster)
 }
 
+func (h *DashboardHandler) setupAWSConfigRoutes() {
+	h.SubRouter.GET("/dashboard/awsconfig", h.awsconfigIndex)
+	h.SubRouter.POST("/dashboard/awsconfig/recorder", h.awsconfigPutRecorder)
+}
+
+func (h *DashboardHandler) setupS3ControlRoutes() {
+	h.SubRouter.GET("/dashboard/s3control", h.s3controlIndex)
+	h.SubRouter.POST("/dashboard/s3control/config", h.s3controlPutConfig)
+}
+
+func (h *DashboardHandler) setupResourceGroupsRoutes() {
+	h.SubRouter.GET("/dashboard/resourcegroups", h.resourcegroupsIndex)
+	h.SubRouter.POST("/dashboard/resourcegroups/create", h.resourcegroupsCreate)
+	h.SubRouter.POST("/dashboard/resourcegroups/delete", h.resourcegroupsDelete)
+}
+
+func (h *DashboardHandler) setupSWFRoutes() {
+	h.SubRouter.GET("/dashboard/swf", h.swfIndex)
+	h.SubRouter.POST("/dashboard/swf/register", h.swfRegisterDomain)
+}
+
+func (h *DashboardHandler) setupFirehoseRoutes() {
+	h.SubRouter.GET("/dashboard/firehose", h.firehoseIndex)
+	h.SubRouter.POST("/dashboard/firehose/create", h.firehoseCreate)
+	h.SubRouter.POST("/dashboard/firehose/delete", h.firehoseDelete)
+}
+
 func (h *DashboardHandler) setupMetaRoutes() {
 	dashboardGroup := h.SubRouter.Group("/dashboard")
 	RegisterMetricsHandlers(dashboardGroup, h)
@@ -459,6 +521,11 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.setupOpenSearchRoutes()
 	h.setupACMRoutes()
 	h.setupRedshiftRoutes()
+	h.setupAWSConfigRoutes()
+	h.setupS3ControlRoutes()
+	h.setupResourceGroupsRoutes()
+	h.setupSWFRoutes()
+	h.setupFirehoseRoutes()
 	h.setupMetaRoutes()
 }
 
@@ -531,6 +598,11 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/opensearch", "OpenSearch"},
 	{"/acm", "ACM"},
 	{"/redshift", "Redshift"},
+	{"/awsconfig", "AWSConfig"},
+	{"/s3control", "S3Control"},
+	{"/resourcegroups", "ResourceGroups"},
+	{"/swf", "SWF"},
+	{"/firehose", "Firehose"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},
 }

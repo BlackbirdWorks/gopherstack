@@ -1994,7 +1994,7 @@ func TestDashboard_CustomModal_Plumbing(t *testing.T) {
 func TestDashboard_S3_PurgeAll(t *testing.T) {
 	t.Parallel()
 
-	t.Run("purge all deletes all buckets and returns success", func(t *testing.T) {
+	t.Run("purge all deletes all buckets and returns empty list", func(t *testing.T) {
 		t.Parallel()
 		stack := newStack(t)
 		stack.CreateS3Bucket(t, "purge-bucket-one")
@@ -2005,8 +2005,9 @@ func TestDashboard_S3_PurgeAll(t *testing.T) {
 		serveHandler(stack.Dashboard, w, req)
 
 		require.Equal(t, http.StatusOK, w.Code)
-		assert.Contains(t, w.Body.String(), "purged successfully")
-		assert.Equal(t, "bucketsPurged", w.Header().Get("Hx-Trigger"))
+		// The response should be the refreshed (empty) bucket list, not a success message.
+		assert.NotContains(t, w.Body.String(), "purge-bucket-one")
+		assert.NotContains(t, w.Body.String(), "purge-bucket-two")
 	})
 
 	t.Run("purge all on empty store returns success", func(t *testing.T) {
@@ -2050,14 +2051,14 @@ func TestDashboard_S3_PurgeAll(t *testing.T) {
 		serveFullStack(stack.Echo, w, req)
 
 		require.Equal(t, http.StatusOK, w.Code)
-		assert.Contains(t, w.Body.String(), "purged successfully")
+		assert.NotContains(t, w.Body.String(), "route-test-bucket")
 	})
 }
 
 func TestDashboard_DDB_PurgeAll(t *testing.T) {
 	t.Parallel()
 
-	t.Run("purge all deletes all tables and returns success", func(t *testing.T) {
+	t.Run("purge all deletes all tables and returns empty list", func(t *testing.T) {
 		t.Parallel()
 		stack := newStack(t)
 		stack.CreateDDBTable(t, "purge-table-one")
@@ -2068,8 +2069,9 @@ func TestDashboard_DDB_PurgeAll(t *testing.T) {
 		serveHandler(stack.Dashboard, w, req)
 
 		require.Equal(t, http.StatusOK, w.Code)
-		assert.Contains(t, w.Body.String(), "purged successfully")
-		assert.Equal(t, "tablesPurged", w.Header().Get("Hx-Trigger"))
+		// The response should be the refreshed (empty) table list, not a success message.
+		assert.NotContains(t, w.Body.String(), "purge-table-one")
+		assert.NotContains(t, w.Body.String(), "purge-table-two")
 	})
 
 	t.Run("purge all on empty store returns success", func(t *testing.T) {
@@ -2083,7 +2085,7 @@ func TestDashboard_DDB_PurgeAll(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 	})
 
-	t.Run("purge all deletes tables and triggers list refresh", func(t *testing.T) {
+	t.Run("purge all deletes tables and returns refreshed list", func(t *testing.T) {
 		t.Parallel()
 		stack := newStack(t)
 		stack.CreateDDBTable(t, "to-be-purged")
@@ -2093,11 +2095,7 @@ func TestDashboard_DDB_PurgeAll(t *testing.T) {
 		serveHandler(stack.Dashboard, w, req)
 
 		require.Equal(t, http.StatusOK, w.Code)
-
-		// Verify tables are gone
-		req = httptest.NewRequest(http.MethodGet, "/dashboard/dynamodb/tables", nil)
-		w = httptest.NewRecorder()
-		serveHandler(stack.Dashboard, w, req)
+		// The purge response itself should no longer contain the deleted table.
 		assert.NotContains(t, w.Body.String(), "to-be-purged")
 	})
 
@@ -2111,7 +2109,7 @@ func TestDashboard_DDB_PurgeAll(t *testing.T) {
 		serveFullStack(stack.Echo, w, req)
 
 		require.Equal(t, http.StatusOK, w.Code)
-		assert.Contains(t, w.Body.String(), "purged successfully")
+		assert.NotContains(t, w.Body.String(), "route-test-table")
 	})
 }
 

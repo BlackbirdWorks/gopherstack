@@ -7,6 +7,7 @@ import (
 	stssdk "github.com/aws/aws-sdk-go-v2/service/sts"
 	acmbackend "github.com/blackbirdworks/gopherstack/acm"
 	apigwbackend "github.com/blackbirdworks/gopherstack/apigateway"
+	awsconfigbackend "github.com/blackbirdworks/gopherstack/awsconfig"
 	cfnbackend "github.com/blackbirdworks/gopherstack/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/cloudwatchlogs"
@@ -16,6 +17,7 @@ import (
 	ec2backend "github.com/blackbirdworks/gopherstack/ec2"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/elasticache"
 	ebbackend "github.com/blackbirdworks/gopherstack/eventbridge"
+	firehosebackend "github.com/blackbirdworks/gopherstack/firehose"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/kms"
@@ -24,14 +26,17 @@ import (
 	globalcfg "github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/redshift"
+	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/resourcegroups"
 	route53backend "github.com/blackbirdworks/gopherstack/route53"
 	"github.com/blackbirdworks/gopherstack/s3"
+	s3controlbackend "github.com/blackbirdworks/gopherstack/s3control"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/secretsmanager"
 	sesbackend "github.com/blackbirdworks/gopherstack/ses"
 	"github.com/blackbirdworks/gopherstack/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/sqs"
 	"github.com/blackbirdworks/gopherstack/ssm"
 	stsbackend "github.com/blackbirdworks/gopherstack/sts"
+	swfbackend "github.com/blackbirdworks/gopherstack/swf"
 )
 
 // AWSSDKProvider is a private interface to extract AWS SDK clients
@@ -65,6 +70,11 @@ type AWSSDKProvider interface {
 	GetOpenSearchHandler() service.Registerable
 	GetACMHandler() service.Registerable
 	GetRedshiftHandler() service.Registerable
+	GetAWSConfigHandler() service.Registerable
+	GetS3ControlHandler() service.Registerable
+	GetResourceGroupsHandler() service.Registerable
+	GetSWFHandler() service.Registerable
+	GetFirehoseHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 }
 
@@ -107,6 +117,11 @@ type extractedConfig struct {
 	opensearchOps     *opensearchbackend.Handler
 	acmOps            *acmbackend.Handler
 	redshiftOps       *redshiftbackend.Handler
+	awsconfigOps      *awsconfigbackend.Handler
+	s3controlOps      *s3controlbackend.Handler
+	resourcegroupsOps *resourcegroupsbackend.Handler
+	swfOps            *swfbackend.Handler
+	firehoseOps       *firehosebackend.Handler
 	gCfg              globalcfg.GlobalConfig
 }
 
@@ -170,9 +185,10 @@ func extractIntegrationHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	}
 
 	extractMonitoringHandlers(ap, ec)
+	extractLongTailHandlers(ap, ec)
 }
 
-// extractMonitoringHandlers populates monitoring and infrastructure service handlers on ec.
+// extractMonitoringHandlers populates integration/monitoring service handlers on ec.
 func extractMonitoringHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetEventBridgeHandler(); h != nil {
 		ec.eventBridgeOps, _ = h.(*ebbackend.Handler)
@@ -209,7 +225,10 @@ func extractMonitoringHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetEC2Handler(); h != nil {
 		ec.ec2Ops, _ = h.(*ec2backend.Handler)
 	}
+}
 
+// extractLongTailHandlers populates long-tail service handlers on ec.
+func extractLongTailHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetOpenSearchHandler(); h != nil {
 		ec.opensearchOps, _ = h.(*opensearchbackend.Handler)
 	}
@@ -220,6 +239,26 @@ func extractMonitoringHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 
 	if h := ap.GetRedshiftHandler(); h != nil {
 		ec.redshiftOps, _ = h.(*redshiftbackend.Handler)
+	}
+
+	if h := ap.GetAWSConfigHandler(); h != nil {
+		ec.awsconfigOps, _ = h.(*awsconfigbackend.Handler)
+	}
+
+	if h := ap.GetS3ControlHandler(); h != nil {
+		ec.s3controlOps, _ = h.(*s3controlbackend.Handler)
+	}
+
+	if h := ap.GetResourceGroupsHandler(); h != nil {
+		ec.resourcegroupsOps, _ = h.(*resourcegroupsbackend.Handler)
+	}
+
+	if h := ap.GetSWFHandler(); h != nil {
+		ec.swfOps, _ = h.(*swfbackend.Handler)
+	}
+
+	if h := ap.GetFirehoseHandler(); h != nil {
+		ec.firehoseOps, _ = h.(*firehosebackend.Handler)
 	}
 }
 
@@ -255,6 +294,11 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		OpenSearchOps:     ec.opensearchOps,
 		ACMOps:            ec.acmOps,
 		RedshiftOps:       ec.redshiftOps,
+		AWSConfigOps:      ec.awsconfigOps,
+		S3ControlOps:      ec.s3controlOps,
+		ResourceGroupsOps: ec.resourcegroupsOps,
+		SWFOps:            ec.swfOps,
+		FirehoseOps:       ec.firehoseOps,
 		GlobalConfig:      ec.gCfg,
 		Logger:            ctx.Logger,
 	})
