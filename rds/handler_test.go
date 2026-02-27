@@ -510,35 +510,95 @@ func TestRDSHandler_ListTagsForResource(t *testing.T) {
 	t.Parallel()
 
 	h := newRDSHandler()
+	arn := "arn:aws:rds:us-east-1:000000000000:db:test-db"
+
+	// No tags yet – list should be empty.
 	rec := postRDSForm(t, h,
-		"Action=ListTagsForResource&Version=2014-10-31"+
-			"&ResourceName=arn:aws:rds:us-east-1:000000000000:db:test-db")
+		"Action=ListTagsForResource&Version=2014-10-31&ResourceName="+arn)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "ListTagsForResourceResponse")
+	assert.NotContains(t, rec.Body.String(), "<Tag>")
 }
 
 func TestRDSHandler_AddTagsToResource(t *testing.T) {
 	t.Parallel()
 
 	h := newRDSHandler()
+	arn := "arn:aws:rds:us-east-1:000000000000:db:test-db"
+
+	// Add two tags (SDK encodes as Tags.Tag.N.Key).
 	rec := postRDSForm(t, h,
 		"Action=AddTagsToResource&Version=2014-10-31"+
-			"&ResourceName=arn:aws:rds:us-east-1:000000000000:db:test-db"+
-			"&Tags.member.1.Key=Env&Tags.member.1.Value=test")
+			"&ResourceName="+arn+
+			"&Tags.Tag.1.Key=Env&Tags.Tag.1.Value=prod"+
+			"&Tags.Tag.2.Key=Team&Tags.Tag.2.Value=platform")
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "AddTagsToResourceResponse")
+
+	// List should now return both tags.
+	rec2 := postRDSForm(t, h,
+		"Action=ListTagsForResource&Version=2014-10-31&ResourceName="+arn)
+	assert.Equal(t, http.StatusOK, rec2.Code)
+	body := rec2.Body.String()
+	assert.Contains(t, body, "<Key>Env</Key>")
+	assert.Contains(t, body, "<Value>prod</Value>")
+	assert.Contains(t, body, "<Key>Team</Key>")
+	assert.Contains(t, body, "<Value>platform</Value>")
+}
+
+func TestRDSHandler_AddTagsToResource_Overwrite(t *testing.T) {
+	t.Parallel()
+
+	h := newRDSHandler()
+	arn := "arn:aws:rds:us-east-1:000000000000:db:tag-db"
+
+	// Add initial tag.
+	postRDSForm(t, h,
+		"Action=AddTagsToResource&Version=2014-10-31"+
+			"&ResourceName="+arn+
+			"&Tags.Tag.1.Key=Env&Tags.Tag.1.Value=staging")
+
+	// Overwrite same key.
+	postRDSForm(t, h,
+		"Action=AddTagsToResource&Version=2014-10-31"+
+			"&ResourceName="+arn+
+			"&Tags.Tag.1.Key=Env&Tags.Tag.1.Value=prod")
+
+	// Should return only one Env tag with the new value.
+	rec := postRDSForm(t, h,
+		"Action=ListTagsForResource&Version=2014-10-31&ResourceName="+arn)
+	body := rec.Body.String()
+	assert.Contains(t, body, "<Value>prod</Value>")
+	assert.NotContains(t, body, "<Value>staging</Value>")
 }
 
 func TestRDSHandler_RemoveTagsFromResource(t *testing.T) {
 	t.Parallel()
 
 	h := newRDSHandler()
+	arn := "arn:aws:rds:us-east-1:000000000000:db:rm-db"
+
+	// Add two tags.
+	postRDSForm(t, h,
+		"Action=AddTagsToResource&Version=2014-10-31"+
+			"&ResourceName="+arn+
+			"&Tags.Tag.1.Key=Env&Tags.Tag.1.Value=test"+
+			"&Tags.Tag.2.Key=Team&Tags.Tag.2.Value=infra")
+
+	// Remove one (SDK encodes as TagKeys.member.N).
 	rec := postRDSForm(t, h,
 		"Action=RemoveTagsFromResource&Version=2014-10-31"+
-			"&ResourceName=arn:aws:rds:us-east-1:000000000000:db:test-db"+
+			"&ResourceName="+arn+
 			"&TagKeys.member.1=Env")
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "RemoveTagsFromResourceResponse")
+
+	// List should only have Team left.
+	rec2 := postRDSForm(t, h,
+		"Action=ListTagsForResource&Version=2014-10-31&ResourceName="+arn)
+	body := rec2.Body.String()
+	assert.NotContains(t, body, "<Key>Env</Key>")
+	assert.Contains(t, body, "<Key>Team</Key>")
 }
 
 func TestRDSHandler_InvalidAction(t *testing.T) {

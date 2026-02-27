@@ -373,15 +373,57 @@ func (h *Handler) handleDeleteDBSubnetGroup(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleListTagsForResource(_ url.Values) (any, error) {
-	return &listTagsForResourceResponse{Xmlns: rdsXMLNS}, nil
+func (h *Handler) handleListTagsForResource(vals url.Values) (any, error) {
+	arn := vals.Get("ResourceName")
+	tags := h.Backend.ListTagsForResource(arn)
+
+	members := make([]xmlTag, 0, len(tags))
+	for _, t := range tags {
+		members = append(members, xmlTag(t))
+	}
+
+	return &listTagsForResourceResponse{
+		Xmlns:   rdsXMLNS,
+		TagList: xmlTagList{Members: members},
+	}, nil
 }
 
-func (h *Handler) handleAddTagsToResource(_ url.Values) (any, error) {
+func (h *Handler) handleAddTagsToResource(vals url.Values) (any, error) {
+	arn := vals.Get("ResourceName")
+
+	var tags []Tag
+
+	for i := 1; ; i++ {
+		key := vals.Get(fmt.Sprintf("Tags.Tag.%d.Key", i))
+		if key == "" {
+			break
+		}
+
+		value := vals.Get(fmt.Sprintf("Tags.Tag.%d.Value", i))
+		tags = append(tags, Tag{Key: key, Value: value})
+	}
+
+	h.Backend.AddTagsToResource(arn, tags)
+
 	return &addTagsToResourceResponse{Xmlns: rdsXMLNS}, nil
 }
 
-func (h *Handler) handleRemoveTagsFromResource(_ url.Values) (any, error) {
+func (h *Handler) handleRemoveTagsFromResource(vals url.Values) (any, error) {
+	arn := vals.Get("ResourceName")
+
+	var keys []string
+
+	for i := 1; ; i++ {
+		k := vals.Get(fmt.Sprintf("TagKeys.member.%d", i))
+		if k == "" {
+			break
+		}
+
+		keys = append(keys, k)
+	}
+
+	h.Backend.RemoveTagsFromResource(arn, keys)
+
 	return &removeTagsFromResourceResponse{Xmlns: rdsXMLNS}, nil
 }
 
@@ -602,12 +644,19 @@ type describeDBSubnetGroupsResponse struct {
 }
 
 type listTagsForResourceResponse struct {
-	TagList xmlTagList `xml:"ListTagsForResourceResult>TagList"`
 	XMLName xml.Name   `xml:"ListTagsForResourceResponse"`
 	Xmlns   string     `xml:"xmlns,attr"`
+	TagList xmlTagList `xml:"ListTagsForResourceResult>TagList"`
 }
 
-type xmlTagList struct{}
+type xmlTag struct {
+	Key   string `xml:"Key"`
+	Value string `xml:"Value"`
+}
+
+type xmlTagList struct {
+	Members []xmlTag `xml:"Tag"`
+}
 
 type addTagsToResourceResponse struct {
 	XMLName xml.Name `xml:"AddTagsToResourceResponse"`
