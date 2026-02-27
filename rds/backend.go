@@ -35,6 +35,7 @@ const (
 // DBInstance represents an RDS database instance.
 type DBInstance struct {
 	DBInstanceIdentifier string
+	DbiResourceId        string
 	DBInstanceClass      string
 	Engine               string
 	DBInstanceStatus     string
@@ -138,6 +139,7 @@ func (b *InMemoryBackend) CreateDBInstance(
 
 	inst := &DBInstance{
 		DBInstanceIdentifier: id,
+		DbiResourceId:        id,
 		DBInstanceClass:      instanceClass,
 		Engine:               engine,
 		DBInstanceStatus:     "available",

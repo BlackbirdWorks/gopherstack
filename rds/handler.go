@@ -430,6 +430,7 @@ func (h *Handler) handleRemoveTagsFromResource(vals url.Values) (any, error) {
 func toXMLInstance(inst *DBInstance) xmlDBInstance {
 	return xmlDBInstance{
 		DBInstanceIdentifier: inst.DBInstanceIdentifier,
+		DbiResourceId:        inst.DbiResourceId,
 		DBInstanceClass:      inst.DBInstanceClass,
 		Engine:               inst.Engine,
 		DBInstanceStatus:     inst.DBInstanceStatus,
@@ -537,6 +538,7 @@ type rdsErrorResponse struct {
 
 type xmlDBInstance struct {
 	DBInstanceIdentifier string `xml:"DBInstanceIdentifier"`
+	DbiResourceId        string `xml:"DbiResourceId,omitempty"`
 	DBInstanceClass      string `xml:"DBInstanceClass"`
 	Engine               string `xml:"Engine"`
 	DBInstanceStatus     string `xml:"DBInstanceStatus"`
