@@ -295,5 +295,17 @@ When developing a UI for a service, ensure:
 - All services look good in both light and dark modes
 - All services define demo data for visual inspections
 
+## Build and Development Commands
+
+Always use Makefile targets instead of running tools directly:
+- `make build` — build the project
+- `make lint` — run linting (installs deps automatically)
+- `make lint-fix` — auto-fix lint issues including fieldalignment
+- `make test` — run unit tests
+- `make total-coverage` — run all tests with coverage
+- `make integration-test` — run integration tests
+
+Do NOT run `golangci-lint`, `fieldalignment`, `go test`, or `go build` directly. The Makefile targets handle tool installation, flags, and configuration automatically.
+
 - Always ensure code follows the rules in this file
 - You are to NEVER change the `golangci-lint` configuration
