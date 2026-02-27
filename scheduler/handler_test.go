@@ -19,6 +19,7 @@ import (
 
 func newTestSchedulerHandler(t *testing.T) *scheduler.Handler {
 	t.Helper()
+
 	return scheduler.NewHandler(scheduler.NewInMemoryBackend("000000000000", "us-east-1"), slog.Default())
 }
 
@@ -211,12 +212,22 @@ func TestScheduler_Handler_ListSchedules(t *testing.T) {
 
 	h := newTestSchedulerHandler(t)
 	doSchedulerRequest(t, h, "CreateSchedule", map[string]any{
-		"Name": "s1", "ScheduleExpression": "rate(1 minute)",
-		"Target": map[string]string{"Arn": "arn:a", "RoleArn": "arn:r"}, "FlexibleTimeWindow": map[string]any{"Mode": "OFF"},
+		"Name":               "s1",
+		"ScheduleExpression": "rate(1 minute)",
+		"Target": map[string]string{
+			"Arn":     "arn:a",
+			"RoleArn": "arn:r",
+		},
+		"FlexibleTimeWindow": map[string]any{"Mode": "OFF"},
 	})
 	doSchedulerRequest(t, h, "CreateSchedule", map[string]any{
-		"Name": "s2", "ScheduleExpression": "rate(2 minutes)",
-		"Target": map[string]string{"Arn": "arn:a", "RoleArn": "arn:r"}, "FlexibleTimeWindow": map[string]any{"Mode": "OFF"},
+		"Name":               "s2",
+		"ScheduleExpression": "rate(2 minutes)",
+		"Target": map[string]string{
+			"Arn":     "arn:a",
+			"RoleArn": "arn:r",
+		},
+		"FlexibleTimeWindow": map[string]any{"Mode": "OFF"},
 	})
 
 	rec := doSchedulerRequest(t, h, "ListSchedules", nil)
@@ -235,8 +246,13 @@ func TestScheduler_Handler_DeleteSchedule(t *testing.T) {
 
 	h := newTestSchedulerHandler(t)
 	doSchedulerRequest(t, h, "CreateSchedule", map[string]any{
-		"Name": "my-schedule", "ScheduleExpression": "rate(5 minutes)",
-		"Target": map[string]string{"Arn": "arn:a", "RoleArn": "arn:r"}, "FlexibleTimeWindow": map[string]any{"Mode": "OFF"},
+		"Name":               "my-schedule",
+		"ScheduleExpression": "rate(5 minutes)",
+		"Target": map[string]string{
+			"Arn":     "arn:a",
+			"RoleArn": "arn:r",
+		},
+		"FlexibleTimeWindow": map[string]any{"Mode": "OFF"},
 	})
 
 	rec := doSchedulerRequest(t, h, "DeleteSchedule", map[string]any{"Name": "my-schedule"})
@@ -261,8 +277,13 @@ func TestScheduler_Handler_UpdateSchedule(t *testing.T) {
 
 	h := newTestSchedulerHandler(t)
 	doSchedulerRequest(t, h, "CreateSchedule", map[string]any{
-		"Name": "my-schedule", "ScheduleExpression": "rate(5 minutes)",
-		"Target": map[string]string{"Arn": "arn:a", "RoleArn": "arn:r"}, "FlexibleTimeWindow": map[string]any{"Mode": "OFF"},
+		"Name":               "my-schedule",
+		"ScheduleExpression": "rate(5 minutes)",
+		"Target": map[string]string{
+			"Arn":     "arn:a",
+			"RoleArn": "arn:r",
+		},
+		"FlexibleTimeWindow": map[string]any{"Mode": "OFF"},
 	})
 
 	rec := doSchedulerRequest(t, h, "UpdateSchedule", map[string]any{
@@ -307,8 +328,13 @@ func TestScheduler_Handler_TagResource(t *testing.T) {
 
 	// Create a schedule and get its ARN
 	createRec := doSchedulerRequest(t, h, "CreateSchedule", map[string]any{
-		"Name": "my-schedule", "ScheduleExpression": "rate(5 minutes)",
-		"Target": map[string]string{"Arn": "arn:a", "RoleArn": "arn:r"}, "FlexibleTimeWindow": map[string]any{"Mode": "OFF"},
+		"Name":               "my-schedule",
+		"ScheduleExpression": "rate(5 minutes)",
+		"Target": map[string]string{
+			"Arn":     "arn:a",
+			"RoleArn": "arn:r",
+		},
+		"FlexibleTimeWindow": map[string]any{"Mode": "OFF"},
 	})
 	var createResp map[string]string
 	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
@@ -340,8 +366,13 @@ func TestScheduler_Handler_ListTagsForResource(t *testing.T) {
 
 	// Create schedule and tag it
 	createRec := doSchedulerRequest(t, h, "CreateSchedule", map[string]any{
-		"Name": "my-schedule", "ScheduleExpression": "rate(5 minutes)",
-		"Target": map[string]string{"Arn": "arn:a", "RoleArn": "arn:r"}, "FlexibleTimeWindow": map[string]any{"Mode": "OFF"},
+		"Name":               "my-schedule",
+		"ScheduleExpression": "rate(5 minutes)",
+		"Target": map[string]string{
+			"Arn":     "arn:a",
+			"RoleArn": "arn:r",
+		},
+		"FlexibleTimeWindow": map[string]any{"Mode": "OFF"},
 	})
 	var createResp map[string]string
 	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))

@@ -14,7 +14,7 @@ var (
 )
 
 type IPAddress struct {
-	SubnetId string
+	SubnetID string
 	IP       string
 }
 
@@ -24,10 +24,10 @@ type ResolverEndpoint struct {
 	Direction   string
 	Name        string
 	Status      string
-	VpcId       string
-	IPAddresses []IPAddress
+	VpcID       string
 	AccountID   string
 	Region      string
+	IPAddresses []IPAddress
 }
 
 type ResolverRule struct {
@@ -37,7 +37,7 @@ type ResolverRule struct {
 	DomainName         string
 	RuleType           string
 	Status             string
-	ResolverEndpointId string
+	ResolverEndpointID string
 	AccountID          string
 	Region             string
 }
@@ -59,13 +59,18 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	}
 }
 
-func (b *InMemoryBackend) CreateResolverEndpoint(name, direction, vpcId string, ips []IPAddress) (*ResolverEndpoint, error) {
+const dirPrefixLen = 2
+
+func (b *InMemoryBackend) CreateResolverEndpoint(
+	name, direction, vpcID string,
+	ips []IPAddress,
+) (*ResolverEndpoint, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	dirPrefix := direction
-	if len(dirPrefix) > 2 {
-		dirPrefix = dirPrefix[:2]
+	if len(dirPrefix) > dirPrefixLen {
+		dirPrefix = dirPrefix[:dirPrefixLen]
 	}
 	id := "rslvr-" + dirPrefix + "-" + uuid.New().String()[:8]
 	arn := fmt.Sprintf("arn:aws:route53resolver:%s:%s:resolver-endpoint/%s", b.region, b.accountID, id)
@@ -75,7 +80,7 @@ func (b *InMemoryBackend) CreateResolverEndpoint(name, direction, vpcId string, 
 		Name:        name,
 		Direction:   direction,
 		Status:      "OPERATIONAL",
-		VpcId:       vpcId,
+		VpcID:       vpcID,
 		IPAddresses: ips,
 		AccountID:   b.accountID,
 		Region:      b.region,
@@ -84,6 +89,7 @@ func (b *InMemoryBackend) CreateResolverEndpoint(name, direction, vpcId string, 
 	cp := *ep
 	cp.IPAddresses = make([]IPAddress, len(ep.IPAddresses))
 	copy(cp.IPAddresses, ep.IPAddresses)
+
 	return &cp, nil
 }
 
@@ -98,6 +104,7 @@ func (b *InMemoryBackend) GetResolverEndpoint(id string) (*ResolverEndpoint, err
 	cp := *ep
 	cp.IPAddresses = make([]IPAddress, len(ep.IPAddresses))
 	copy(cp.IPAddresses, ep.IPAddresses)
+
 	return &cp, nil
 }
 
@@ -108,8 +115,11 @@ func (b *InMemoryBackend) ListResolverEndpoints() []*ResolverEndpoint {
 	list := make([]*ResolverEndpoint, 0, len(b.endpoints))
 	for _, ep := range b.endpoints {
 		cp := *ep
+		cp.IPAddresses = make([]IPAddress, len(ep.IPAddresses))
+		copy(cp.IPAddresses, ep.IPAddresses)
 		list = append(list, &cp)
 	}
+
 	return list
 }
 
@@ -121,10 +131,11 @@ func (b *InMemoryBackend) DeleteResolverEndpoint(id string) error {
 		return fmt.Errorf("%w: resolver endpoint %s not found", ErrNotFound, id)
 	}
 	delete(b.endpoints, id)
+
 	return nil
 }
 
-func (b *InMemoryBackend) CreateResolverRule(name, domainName, ruleType, endpointId string) (*ResolverRule, error) {
+func (b *InMemoryBackend) CreateResolverRule(name, domainName, ruleType, endpointID string) (*ResolverRule, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -137,12 +148,13 @@ func (b *InMemoryBackend) CreateResolverRule(name, domainName, ruleType, endpoin
 		DomainName:         domainName,
 		RuleType:           ruleType,
 		Status:             "COMPLETE",
-		ResolverEndpointId: endpointId,
+		ResolverEndpointID: endpointID,
 		AccountID:          b.accountID,
 		Region:             b.region,
 	}
 	b.rules[id] = r
 	cp := *r
+
 	return &cp, nil
 }
 
@@ -155,6 +167,7 @@ func (b *InMemoryBackend) GetResolverRule(id string) (*ResolverRule, error) {
 		return nil, fmt.Errorf("%w: resolver rule %s not found", ErrNotFound, id)
 	}
 	cp := *r
+
 	return &cp, nil
 }
 
@@ -167,6 +180,7 @@ func (b *InMemoryBackend) ListResolverRules() []*ResolverRule {
 		cp := *r
 		list = append(list, &cp)
 	}
+
 	return list
 }
 
@@ -178,5 +192,6 @@ func (b *InMemoryBackend) DeleteResolverRule(id string) error {
 		return fmt.Errorf("%w: resolver rule %s not found", ErrNotFound, id)
 	}
 	delete(b.rules, id)
+
 	return nil
 }

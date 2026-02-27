@@ -62,6 +62,7 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	if action == "" || action == target {
 		return "Unknown"
 	}
+
 	return action
 }
 
@@ -75,6 +76,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		Name string `json:"Name"`
 	}
 	_ = json.Unmarshal(body, &req)
+
 	return req.Name
 }
 
@@ -136,12 +138,16 @@ func (h *Handler) handleCreateSchedule(c *echo.Context, body []byte) error {
 		req.ScheduleExpression,
 		Target{ARN: req.Target.Arn, RoleARN: req.Target.RoleArn},
 		state,
-		FlexibleTimeWindow{Mode: req.FlexibleTimeWindow.Mode, MaximumWindowInMinutes: req.FlexibleTimeWindow.MaximumWindowInMinutes},
+		FlexibleTimeWindow{
+			Mode:                   req.FlexibleTimeWindow.Mode,
+			MaximumWindowInMinutes: req.FlexibleTimeWindow.MaximumWindowInMinutes,
+		},
 	)
 	if err != nil {
 		if errors.Is(err, ErrAlreadyExists) {
 			return c.JSON(http.StatusConflict, map[string]string{"message": err.Error()})
 		}
+
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
 	}
 
@@ -161,6 +167,7 @@ func (h *Handler) handleGetSchedule(c *echo.Context, body []byte) error {
 		if errors.Is(err, ErrNotFound) {
 			return c.JSON(http.StatusNotFound, map[string]string{"message": err.Error()})
 		}
+
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
 	}
 
@@ -191,6 +198,7 @@ func (h *Handler) handleListSchedules(c *echo.Context) error {
 			"State":              s.State,
 		})
 	}
+
 	return c.JSON(http.StatusOK, map[string]any{
 		"Schedules": items,
 	})
@@ -208,6 +216,7 @@ func (h *Handler) handleDeleteSchedule(c *echo.Context, body []byte) error {
 		if errors.Is(err, ErrNotFound) {
 			return c.JSON(http.StatusNotFound, map[string]string{"message": err.Error()})
 		}
+
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
 	}
 
@@ -237,12 +246,16 @@ func (h *Handler) handleUpdateSchedule(c *echo.Context, body []byte) error {
 		req.ScheduleExpression,
 		Target{ARN: req.Target.Arn, RoleARN: req.Target.RoleArn},
 		req.State,
-		FlexibleTimeWindow{Mode: req.FlexibleTimeWindow.Mode, MaximumWindowInMinutes: req.FlexibleTimeWindow.MaximumWindowInMinutes},
+		FlexibleTimeWindow{
+			Mode:                   req.FlexibleTimeWindow.Mode,
+			MaximumWindowInMinutes: req.FlexibleTimeWindow.MaximumWindowInMinutes,
+		},
 	)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return c.JSON(http.StatusNotFound, map[string]string{"message": err.Error()})
 		}
+
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
 	}
 
@@ -251,8 +264,8 @@ func (h *Handler) handleUpdateSchedule(c *echo.Context, body []byte) error {
 
 func (h *Handler) handleTagResource(c *echo.Context, body []byte) error {
 	var req struct {
-		ResourceArn string            `json:"ResourceArn"`
 		Tags        map[string]string `json:"Tags"`
+		ResourceArn string            `json:"ResourceArn"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
@@ -262,6 +275,7 @@ func (h *Handler) handleTagResource(c *echo.Context, body []byte) error {
 		if errors.Is(err, ErrNotFound) {
 			return c.JSON(http.StatusNotFound, map[string]string{"message": err.Error()})
 		}
+
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
 	}
 
@@ -281,6 +295,7 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, body []byte) error 
 		if errors.Is(err, ErrNotFound) {
 			return c.JSON(http.StatusNotFound, map[string]string{"message": err.Error()})
 		}
+
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
 	}
 

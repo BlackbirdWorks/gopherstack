@@ -37,9 +37,7 @@ import (
 	ec2backend "github.com/blackbirdworks/gopherstack/ec2"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/elasticache"
 	ebbackend "github.com/blackbirdworks/gopherstack/eventbridge"
-	firehosebackend          "github.com/blackbirdworks/gopherstack/firehose"
-	route53resolverbackend   "github.com/blackbirdworks/gopherstack/route53resolver"
-	schedulerbackend         "github.com/blackbirdworks/gopherstack/scheduler"
+	firehosebackend "github.com/blackbirdworks/gopherstack/firehose"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/kms"
@@ -56,8 +54,10 @@ import (
 	redshiftbackend "github.com/blackbirdworks/gopherstack/redshift"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/resourcegroups"
 	route53backend "github.com/blackbirdworks/gopherstack/route53"
+	route53resolverbackend "github.com/blackbirdworks/gopherstack/route53resolver"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
 	s3controlbackend "github.com/blackbirdworks/gopherstack/s3control"
+	schedulerbackend "github.com/blackbirdworks/gopherstack/scheduler"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/secretsmanager"
 	sesbackend "github.com/blackbirdworks/gopherstack/ses"
 	snsbackend "github.com/blackbirdworks/gopherstack/sns"
@@ -78,53 +78,53 @@ const (
 
 // CLI holds all command-line / environment-variable configuration for Gopherstack.
 type CLI struct {
-	SSM                   struct{}            `embed:"" prefix:"ssm-"`
-	SecretsManager        struct{}            `embed:"" prefix:"secretsmanager-"`
-	KMS                   struct{}            `embed:"" prefix:"kms-"`
-	SQS                   sqsbackend.Settings `embed:"" prefix:"sqs-"`
-	SNS                   struct{}            `embed:"" prefix:"sns-"`
-	STS                   struct{}            `embed:"" prefix:"sts-"`
-	IAM                   struct{}            `embed:"" prefix:"iam-"`
-	kinesisHandler        service.Registerable
-	elasticacheHandler    service.Registerable
-	secretsManagerHandler service.Registerable
-	ddbHandler            service.Registerable
-	s3Handler             service.Registerable
-	ssmHandler            service.Registerable
-	iamHandler            service.Registerable
-	stsHandler            service.Registerable
-	snsHandler            service.Registerable
-	sqsHandler            service.Registerable
-	lambdaHandler         service.Registerable
-	eventBridgeHandler    service.Registerable
-	apiGatewayHandler     service.Registerable
-	cloudWatchLogsHandler service.Registerable
-	stepFunctionsHandler  service.Registerable
-	cloudWatchHandler     service.Registerable
-	cloudFormationHandler service.Registerable
-	kmsHandler            service.Registerable
-	route53Handler        service.Registerable
-	sesHandler            service.Registerable
-	ec2Handler            service.Registerable
-	openSearchHandler     service.Registerable
-	acmHandler            service.Registerable
-	redshiftHandler       service.Registerable
-	awsconfigHandler      service.Registerable
-	s3controlHandler      service.Registerable
-	resourcegroupsHandler service.Registerable
-	swfHandler            service.Registerable
-	firehoseHandler          service.Registerable
-	schedulerHandler         service.Registerable
-	route53resolverHandler   service.Registerable
-	snsClient             *sns.Client
-	kmsClient             *kms.Client
-	iamClient             *iam.Client
-	s3Client              *s3.Client
-	ssmClient             *ssmsdk.Client
-	ddbClient             *dynamodb.Client
-	stsClient             *stssdk.Client
-	sqsClient             *sqssdk.Client
-	secretsManagerClient  *secretsmanager.Client
+	SSM                    struct{}            `embed:"" prefix:"ssm-"`
+	SecretsManager         struct{}            `embed:"" prefix:"secretsmanager-"`
+	KMS                    struct{}            `embed:"" prefix:"kms-"`
+	SQS                    sqsbackend.Settings `embed:"" prefix:"sqs-"`
+	SNS                    struct{}            `embed:"" prefix:"sns-"`
+	STS                    struct{}            `embed:"" prefix:"sts-"`
+	IAM                    struct{}            `embed:"" prefix:"iam-"`
+	kinesisHandler         service.Registerable
+	elasticacheHandler     service.Registerable
+	secretsManagerHandler  service.Registerable
+	ddbHandler             service.Registerable
+	s3Handler              service.Registerable
+	ssmHandler             service.Registerable
+	iamHandler             service.Registerable
+	stsHandler             service.Registerable
+	snsHandler             service.Registerable
+	sqsHandler             service.Registerable
+	lambdaHandler          service.Registerable
+	eventBridgeHandler     service.Registerable
+	apiGatewayHandler      service.Registerable
+	cloudWatchLogsHandler  service.Registerable
+	stepFunctionsHandler   service.Registerable
+	cloudWatchHandler      service.Registerable
+	cloudFormationHandler  service.Registerable
+	kmsHandler             service.Registerable
+	route53Handler         service.Registerable
+	sesHandler             service.Registerable
+	ec2Handler             service.Registerable
+	openSearchHandler      service.Registerable
+	acmHandler             service.Registerable
+	redshiftHandler        service.Registerable
+	awsconfigHandler       service.Registerable
+	s3controlHandler       service.Registerable
+	resourcegroupsHandler  service.Registerable
+	swfHandler             service.Registerable
+	firehoseHandler        service.Registerable
+	schedulerHandler       service.Registerable
+	route53resolverHandler service.Registerable
+	snsClient              *sns.Client
+	kmsClient              *kms.Client
+	iamClient              *iam.Client
+	s3Client               *s3.Client
+	ssmClient              *ssmsdk.Client
+	ddbClient              *dynamodb.Client
+	stsClient              *stssdk.Client
+	sqsClient              *sqssdk.Client
+	secretsManagerClient   *secretsmanager.Client
 
 	AccountID         string                 `name:"account-id"         env:"ACCOUNT_ID"         default:"000000000000" help:"Mock AWS account ID used in ARNs."`                                                              //nolint:lll // config struct tags are intentionally verbose
 	Port              string                 `name:"port"               env:"PORT"               default:"8000"         help:"HTTP server port."`                                                                              //nolint:lll // config struct tags are intentionally verbose

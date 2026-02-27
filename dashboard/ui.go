@@ -24,8 +24,6 @@ import (
 	ebbackend "github.com/blackbirdworks/gopherstack/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/firehose"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
-	route53resolverbackend "github.com/blackbirdworks/gopherstack/route53resolver"
-	schedulerbackend "github.com/blackbirdworks/gopherstack/scheduler"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/lambda"
@@ -36,8 +34,10 @@ import (
 	redshiftbackend "github.com/blackbirdworks/gopherstack/redshift"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/resourcegroups"
 	route53backend "github.com/blackbirdworks/gopherstack/route53"
+	route53resolverbackend "github.com/blackbirdworks/gopherstack/route53resolver"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
 	s3controlbackend "github.com/blackbirdworks/gopherstack/s3control"
+	schedulerbackend "github.com/blackbirdworks/gopherstack/scheduler"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/secretsmanager"
 	sesbackend "github.com/blackbirdworks/gopherstack/ses"
 	snsbackend "github.com/blackbirdworks/gopherstack/sns"
@@ -75,46 +75,46 @@ type PageData struct {
 //
 //nolint:revive // Stuttering preferred here for clarity per Plan.md
 type DashboardHandler struct {
-	SNSOps            *snsbackend.Handler
-	KMSOps            *kmsbackend.Handler
-	SSM               *ssmsdk.Client
-	DDBOps            *ddbbackend.DynamoDBHandler
-	S3Ops             *s3backend.S3Handler
-	SSMOps            *ssmbackend.Handler
-	IAMOps            *iambackend.Handler
-	STSOps            *stsbackend.Handler
-	S3                *s3.Client
-	DynamoDB          *dynamodb.Client
-	SQSOps            *sqsbackend.Handler
-	SecretsManagerOps *secretsmanagerbackend.Handler
-	LambdaOps         *lambdabackend.Handler
-	EventBridgeOps    *ebbackend.Handler
-	APIGatewayOps     *apigwbackend.Handler
-	CloudWatchLogsOps *cwlogsbackend.Handler
-	StepFunctionsOps  *sfnbackend.Handler
-	CloudWatchOps     *cwbackend.Handler
-	CloudFormationOps *cfnbackend.Handler
-	KinesisOps        *kinesisbackend.Handler
-	ElastiCacheOps    *elasticachebackend.Handler
-	Route53Ops        *route53backend.Handler
-	SESOps            *sesbackend.Handler
-	EC2Ops            *ec2backend.Handler
-	OpenSearchOps     *opensearchbackend.Handler
-	ACMOps            *acmbackend.Handler
-	RedshiftOps       *redshiftbackend.Handler
-	AWSConfigOps      *awsconfigbackend.Handler
-	S3ControlOps      *s3controlbackend.Handler
-	ResourceGroupsOps *resourcegroupsbackend.Handler
-	SWFOps            *swfbackend.Handler
+	SNSOps             *snsbackend.Handler
+	KMSOps             *kmsbackend.Handler
+	SSM                *ssmsdk.Client
+	DDBOps             *ddbbackend.DynamoDBHandler
+	S3Ops              *s3backend.S3Handler
+	SSMOps             *ssmbackend.Handler
+	IAMOps             *iambackend.Handler
+	STSOps             *stsbackend.Handler
+	S3                 *s3.Client
+	DynamoDB           *dynamodb.Client
+	SQSOps             *sqsbackend.Handler
+	SecretsManagerOps  *secretsmanagerbackend.Handler
+	LambdaOps          *lambdabackend.Handler
+	EventBridgeOps     *ebbackend.Handler
+	APIGatewayOps      *apigwbackend.Handler
+	CloudWatchLogsOps  *cwlogsbackend.Handler
+	StepFunctionsOps   *sfnbackend.Handler
+	CloudWatchOps      *cwbackend.Handler
+	CloudFormationOps  *cfnbackend.Handler
+	KinesisOps         *kinesisbackend.Handler
+	ElastiCacheOps     *elasticachebackend.Handler
+	Route53Ops         *route53backend.Handler
+	SESOps             *sesbackend.Handler
+	EC2Ops             *ec2backend.Handler
+	OpenSearchOps      *opensearchbackend.Handler
+	ACMOps             *acmbackend.Handler
+	RedshiftOps        *redshiftbackend.Handler
+	AWSConfigOps       *awsconfigbackend.Handler
+	S3ControlOps       *s3controlbackend.Handler
+	ResourceGroupsOps  *resourcegroupsbackend.Handler
+	SWFOps             *swfbackend.Handler
 	FirehoseOps        *firehosebackend.Handler
 	SchedulerOps       *schedulerbackend.Handler
 	Route53ResolverOps *route53resolverbackend.Handler
 	SubRouter          *echo.Echo
-	ddbProvider       *ddbbackend.DashboardProvider
-	s3Provider        *s3backend.DashboardProvider
-	Logger            *slog.Logger
-	layout            *template.Template
-	GlobalConfig      config.GlobalConfig
+	ddbProvider        *ddbbackend.DashboardProvider
+	s3Provider         *s3backend.DashboardProvider
+	Logger             *slog.Logger
+	layout             *template.Template
+	GlobalConfig       config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -247,46 +247,46 @@ func NewHandler(cfg Config) *DashboardHandler {
 	s3Provider := s3backend.NewDashboardProvider()
 
 	h := &DashboardHandler{
-		DynamoDB:          cfg.DDBClient,
-		S3:                cfg.S3Client,
-		SSM:               cfg.SSMClient,
-		DDBOps:            cfg.DDBOps,
-		S3Ops:             cfg.S3Ops,
-		SSMOps:            cfg.SSMOps,
-		IAMOps:            cfg.IAMOps,
-		STSOps:            cfg.STSOps,
-		SNSOps:            cfg.SNSOps,
-		SQSOps:            cfg.SQSOps,
-		KMSOps:            cfg.KMSOps,
-		SecretsManagerOps: cfg.SecretsManagerOps,
-		LambdaOps:         cfg.LambdaOps,
-		EventBridgeOps:    cfg.EventBridgeOps,
-		APIGatewayOps:     cfg.APIGatewayOps,
-		CloudWatchLogsOps: cfg.CloudWatchLogsOps,
-		StepFunctionsOps:  cfg.StepFunctionsOps,
-		CloudWatchOps:     cfg.CloudWatchOps,
-		CloudFormationOps: cfg.CloudFormationOps,
-		KinesisOps:        cfg.KinesisOps,
-		ElastiCacheOps:    cfg.ElastiCacheOps,
-		Route53Ops:        cfg.Route53Ops,
-		SESOps:            cfg.SESOps,
-		EC2Ops:            cfg.EC2Ops,
-		OpenSearchOps:     cfg.OpenSearchOps,
-		ACMOps:            cfg.ACMOps,
-		RedshiftOps:       cfg.RedshiftOps,
-		AWSConfigOps:      cfg.AWSConfigOps,
-		S3ControlOps:      cfg.S3ControlOps,
-		ResourceGroupsOps: cfg.ResourceGroupsOps,
-		SWFOps:            cfg.SWFOps,
+		DynamoDB:           cfg.DDBClient,
+		S3:                 cfg.S3Client,
+		SSM:                cfg.SSMClient,
+		DDBOps:             cfg.DDBOps,
+		S3Ops:              cfg.S3Ops,
+		SSMOps:             cfg.SSMOps,
+		IAMOps:             cfg.IAMOps,
+		STSOps:             cfg.STSOps,
+		SNSOps:             cfg.SNSOps,
+		SQSOps:             cfg.SQSOps,
+		KMSOps:             cfg.KMSOps,
+		SecretsManagerOps:  cfg.SecretsManagerOps,
+		LambdaOps:          cfg.LambdaOps,
+		EventBridgeOps:     cfg.EventBridgeOps,
+		APIGatewayOps:      cfg.APIGatewayOps,
+		CloudWatchLogsOps:  cfg.CloudWatchLogsOps,
+		StepFunctionsOps:   cfg.StepFunctionsOps,
+		CloudWatchOps:      cfg.CloudWatchOps,
+		CloudFormationOps:  cfg.CloudFormationOps,
+		KinesisOps:         cfg.KinesisOps,
+		ElastiCacheOps:     cfg.ElastiCacheOps,
+		Route53Ops:         cfg.Route53Ops,
+		SESOps:             cfg.SESOps,
+		EC2Ops:             cfg.EC2Ops,
+		OpenSearchOps:      cfg.OpenSearchOps,
+		ACMOps:             cfg.ACMOps,
+		RedshiftOps:        cfg.RedshiftOps,
+		AWSConfigOps:       cfg.AWSConfigOps,
+		S3ControlOps:       cfg.S3ControlOps,
+		ResourceGroupsOps:  cfg.ResourceGroupsOps,
+		SWFOps:             cfg.SWFOps,
 		FirehoseOps:        cfg.FirehoseOps,
 		SchedulerOps:       cfg.SchedulerOps,
 		Route53ResolverOps: cfg.Route53ResolverOps,
 		GlobalConfig:       cfg.GlobalConfig,
-		Logger:            cfg.Logger,
-		layout:            tmpl,
-		ddbProvider:       ddbProvider,
-		s3Provider:        s3Provider,
-		SubRouter:         echo.New(),
+		Logger:             cfg.Logger,
+		layout:             tmpl,
+		ddbProvider:        ddbProvider,
+		s3Provider:         s3Provider,
+		SubRouter:          echo.New(),
 	}
 
 	h.SubRouter.Pre(pkgslogger.EchoMiddleware(cfg.Logger))

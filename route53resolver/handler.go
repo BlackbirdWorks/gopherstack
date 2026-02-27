@@ -55,6 +55,7 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	if action == "" || action == target {
 		return "Unknown"
 	}
+
 	return action
 }
 
@@ -67,6 +68,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		Name string `json:"Name"`
 	}
 	_ = json.Unmarshal(body, &req)
+
 	return req.Name
 }
 
@@ -103,19 +105,19 @@ func (h *Handler) handleCreateResolverEndpoint(c *echo.Context, body []byte) err
 	var req struct {
 		Name             string   `json:"Name"`
 		Direction        string   `json:"Direction"`
-		SecurityGroupIds []string `json:"SecurityGroupIds"`
-		IpAddresses      []struct {
-			SubnetId string `json:"SubnetId"`
-			Ip       string `json:"Ip"`
+		SecurityGroupIDs []string `json:"SecurityGroupIds"`
+		IPAddresses      []struct {
+			SubnetID string `json:"SubnetId"`
+			IP       string `json:"Ip"`
 		} `json:"IpAddresses"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
 	}
 
-	ips := make([]IPAddress, 0, len(req.IpAddresses))
-	for _, ip := range req.IpAddresses {
-		ips = append(ips, IPAddress{SubnetId: ip.SubnetId, IP: ip.Ip})
+	ips := make([]IPAddress, 0, len(req.IPAddresses))
+	for _, ip := range req.IPAddresses {
+		ips = append(ips, IPAddress{SubnetID: ip.SubnetID, IP: ip.IP})
 	}
 
 	ep, err := h.Backend.CreateResolverEndpoint(req.Name, req.Direction, "", ips)
@@ -130,16 +132,17 @@ func (h *Handler) handleCreateResolverEndpoint(c *echo.Context, body []byte) err
 
 func (h *Handler) handleDeleteResolverEndpoint(c *echo.Context, body []byte) error {
 	var req struct {
-		ResolverEndpointId string `json:"ResolverEndpointId"`
+		ResolverEndpointID string `json:"ResolverEndpointId"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
 	}
 
-	if err := h.Backend.DeleteResolverEndpoint(req.ResolverEndpointId); err != nil {
+	if err := h.Backend.DeleteResolverEndpoint(req.ResolverEndpointID); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return c.JSON(http.StatusNotFound, map[string]string{"message": err.Error()})
 		}
+
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
 	}
 
@@ -152,6 +155,7 @@ func (h *Handler) handleListResolverEndpoints(c *echo.Context) error {
 	for _, ep := range eps {
 		items = append(items, endpointToMap(ep))
 	}
+
 	return c.JSON(http.StatusOK, map[string]any{
 		"ResolverEndpoints": items,
 	})
@@ -159,17 +163,18 @@ func (h *Handler) handleListResolverEndpoints(c *echo.Context) error {
 
 func (h *Handler) handleGetResolverEndpoint(c *echo.Context, body []byte) error {
 	var req struct {
-		ResolverEndpointId string `json:"ResolverEndpointId"`
+		ResolverEndpointID string `json:"ResolverEndpointId"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
 	}
 
-	ep, err := h.Backend.GetResolverEndpoint(req.ResolverEndpointId)
+	ep, err := h.Backend.GetResolverEndpoint(req.ResolverEndpointID)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return c.JSON(http.StatusNotFound, map[string]string{"message": err.Error()})
 		}
+
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
 	}
 
@@ -183,13 +188,13 @@ func (h *Handler) handleCreateResolverRule(c *echo.Context, body []byte) error {
 		Name               string `json:"Name"`
 		DomainName         string `json:"DomainName"`
 		RuleType           string `json:"RuleType"`
-		ResolverEndpointId string `json:"ResolverEndpointId"`
+		ResolverEndpointID string `json:"ResolverEndpointId"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
 	}
 
-	r, err := h.Backend.CreateResolverRule(req.Name, req.DomainName, req.RuleType, req.ResolverEndpointId)
+	r, err := h.Backend.CreateResolverRule(req.Name, req.DomainName, req.RuleType, req.ResolverEndpointID)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
 	}
@@ -201,16 +206,17 @@ func (h *Handler) handleCreateResolverRule(c *echo.Context, body []byte) error {
 
 func (h *Handler) handleDeleteResolverRule(c *echo.Context, body []byte) error {
 	var req struct {
-		ResolverRuleId string `json:"ResolverRuleId"`
+		ResolverRuleID string `json:"ResolverRuleId"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
 	}
 
-	if err := h.Backend.DeleteResolverRule(req.ResolverRuleId); err != nil {
+	if err := h.Backend.DeleteResolverRule(req.ResolverRuleID); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return c.JSON(http.StatusNotFound, map[string]string{"message": err.Error()})
 		}
+
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
 	}
 
@@ -223,6 +229,7 @@ func (h *Handler) handleListResolverRules(c *echo.Context) error {
 	for _, r := range rules {
 		items = append(items, ruleToMap(r))
 	}
+
 	return c.JSON(http.StatusOK, map[string]any{
 		"ResolverRules": items,
 	})
@@ -231,8 +238,9 @@ func (h *Handler) handleListResolverRules(c *echo.Context) error {
 func endpointToMap(ep *ResolverEndpoint) map[string]any {
 	ips := make([]map[string]string, 0, len(ep.IPAddresses))
 	for _, ip := range ep.IPAddresses {
-		ips = append(ips, map[string]string{"SubnetId": ip.SubnetId, "Ip": ip.IP})
+		ips = append(ips, map[string]string{"SubnetId": ip.SubnetID, "Ip": ip.IP})
 	}
+
 	return map[string]any{
 		"Id":          ep.ID,
 		"Arn":         ep.ARN,
@@ -251,6 +259,6 @@ func ruleToMap(r *ResolverRule) map[string]any {
 		"DomainName":         r.DomainName,
 		"RuleType":           r.RuleType,
 		"Status":             r.Status,
-		"ResolverEndpointId": r.ResolverEndpointId,
+		"ResolverEndpointId": r.ResolverEndpointID,
 	}
 }

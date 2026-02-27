@@ -3,6 +3,7 @@ package scheduler
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"sync"
 )
 
@@ -22,15 +23,15 @@ type Target struct {
 }
 
 type Schedule struct {
+	Tags               map[string]string
+	Target             Target
 	Name               string
 	ARN                string
 	ScheduleExpression string
-	Target             Target
 	State              string
-	FlexibleTimeWindow FlexibleTimeWindow
 	AccountID          string
 	Region             string
-	Tags               map[string]string
+	FlexibleTimeWindow FlexibleTimeWindow
 }
 
 type InMemoryBackend struct {
@@ -48,7 +49,12 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	}
 }
 
-func (b *InMemoryBackend) CreateSchedule(name, expr string, target Target, state string, ftw FlexibleTimeWindow) (*Schedule, error) {
+func (b *InMemoryBackend) CreateSchedule(
+	name, expr string,
+	target Target,
+	state string,
+	ftw FlexibleTimeWindow,
+) (*Schedule, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -71,9 +77,8 @@ func (b *InMemoryBackend) CreateSchedule(name, expr string, target Target, state
 	b.schedules[name] = s
 	cp := *s
 	cp.Tags = make(map[string]string)
-	for k, v := range s.Tags {
-		cp.Tags[k] = v
-	}
+	maps.Copy(cp.Tags, s.Tags)
+
 	return &cp, nil
 }
 
@@ -87,9 +92,8 @@ func (b *InMemoryBackend) GetSchedule(name string) (*Schedule, error) {
 	}
 	cp := *s
 	cp.Tags = make(map[string]string)
-	for k, v := range s.Tags {
-		cp.Tags[k] = v
-	}
+	maps.Copy(cp.Tags, s.Tags)
+
 	return &cp, nil
 }
 
@@ -101,11 +105,10 @@ func (b *InMemoryBackend) ListSchedules() []*Schedule {
 	for _, s := range b.schedules {
 		cp := *s
 		cp.Tags = make(map[string]string)
-		for k, v := range s.Tags {
-			cp.Tags[k] = v
-		}
+		maps.Copy(cp.Tags, s.Tags)
 		list = append(list, &cp)
 	}
+
 	return list
 }
 
@@ -117,10 +120,16 @@ func (b *InMemoryBackend) DeleteSchedule(name string) error {
 		return fmt.Errorf("%w: schedule %s not found", ErrNotFound, name)
 	}
 	delete(b.schedules, name)
+
 	return nil
 }
 
-func (b *InMemoryBackend) UpdateSchedule(name, expr string, target Target, state string, ftw FlexibleTimeWindow) (*Schedule, error) {
+func (b *InMemoryBackend) UpdateSchedule(
+	name, expr string,
+	target Target,
+	state string,
+	ftw FlexibleTimeWindow,
+) (*Schedule, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -134,9 +143,8 @@ func (b *InMemoryBackend) UpdateSchedule(name, expr string, target Target, state
 	s.FlexibleTimeWindow = ftw
 	cp := *s
 	cp.Tags = make(map[string]string)
-	for k, v := range s.Tags {
-		cp.Tags[k] = v
-	}
+	maps.Copy(cp.Tags, s.Tags)
+
 	return &cp, nil
 }
 
@@ -146,12 +154,12 @@ func (b *InMemoryBackend) TagResource(arn string, tags map[string]string) error 
 
 	for _, s := range b.schedules {
 		if s.ARN == arn {
-			for k, v := range tags {
-				s.Tags[k] = v
-			}
+			maps.Copy(s.Tags, tags)
+
 			return nil
 		}
 	}
+
 	return fmt.Errorf("%w: resource %s not found", ErrNotFound, arn)
 }
 
@@ -162,11 +170,11 @@ func (b *InMemoryBackend) ListTagsForResource(arn string) (map[string]string, er
 	for _, s := range b.schedules {
 		if s.ARN == arn {
 			tags := make(map[string]string, len(s.Tags))
-			for k, v := range s.Tags {
-				tags[k] = v
-			}
+			maps.Copy(tags, s.Tags)
+
 			return tags, nil
 		}
 	}
+
 	return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, arn)
 }
