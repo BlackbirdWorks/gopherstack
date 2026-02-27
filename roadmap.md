@@ -1,24 +1,19 @@
 # Gopherstack Roadmap — LocalStack Free Tier Parity
 
-> **Goal:** Feature parity with LocalStack's free/community tier (~30 AWS services).
-> **Current state:** 18 services, ~230 operations, full platform infrastructure, dashboard UI for all services.
+> **Goal:** Feature parity with LocalStack's free/community tier (~34 AWS services).
+> **Current state:** 29 services, ~290 operations, full platform infrastructure, dashboard UI for all services.
 
 ---
 
-## Current Coverage (v0.5–v0.15 Complete)
+## Current Coverage (v0.5–v0.24 Complete)
 
-### DynamoDB — ~95% parity (29 operations) ✅
+### DynamoDB — ~95% parity (31 operations) ✅
 
-Table CRUD, item CRUD, batch ops, query/scan with expressions, GSI/LSI, transactions, DynamoDB Streams, TTL with background reaper, conditional writes, pagination, PartiQL (ExecuteStatement, BatchExecuteStatement), tagging. Backup stubs: DescribeContinuousBackups, UpdateContinuousBackups, ExportTableToPointInTime, DescribeExport, ListExports. Full dashboard UI with PartiQL tab.
+Table CRUD (Create, Delete, Describe, List, Update), item CRUD (Put, Get, Delete, Update), batch ops (BatchGetItem, BatchWriteItem), query/scan with expressions, GSI/LSI, transactions (TransactWriteItems, TransactGetItems), DynamoDB Streams (DescribeStream, GetShardIterator, GetRecords, ListStreams), TTL with background reaper (UpdateTimeToLive, DescribeTimeToLive), conditional writes, pagination, PartiQL (ExecuteStatement, BatchExecuteStatement), tagging (TagResource, UntagResource, ListTagsOfResource). Backup stubs: DescribeContinuousBackups, UpdateContinuousBackups, ExportTableToPointInTime, DescribeExport, ListExports. Full dashboard UI with PartiQL tab.
 
-### S3 — ~97% parity (35 operations) ✅
+### S3 — ~98% parity (39+ operations) ✅
 
-Bucket CRUD, object CRUD, ListObjects/V2, ListObjectVersions, CopyObject, multipart uploads (Create, UploadPart, Complete, Abort, ListMultipartUploads, ListParts), versioning, object tagging, checksums (CRC32, CRC32C, SHA1, SHA256), compression, BucketACL. Presigned URLs (GET/PUT with expiry validation). Bucket policies (PutBucketPolicy, GetBucketPolicy, DeleteBucketPolicy). CORS configuration (PutBucketCors, GetBucketCors, DeleteBucketCors) with OPTIONS preflight. Lifecycle configuration (PutBucketLifecycleConfiguration, GetBucketLifecycleConfiguration, DeleteBucketLifecycleConfiguration). Notification configuration (PutBucketNotificationConfiguration, GetBucketNotificationConfiguration). Full dashboard UI with folder navigation, file preview, metadata/tagging.
-
-**Remaining gaps:**
-- [ ] Lifecycle rule enforcement (background expiration janitor)
-- [ ] Notification event delivery (emit events to SQS/SNS/Lambda on object operations)
-- [ ] Object lock / legal hold
+Bucket CRUD, object CRUD, ListObjects/V2, ListObjectVersions, CopyObject, multipart uploads (Create, UploadPart, Complete, Abort, ListMultipartUploads, ListParts), versioning, object tagging, checksums (CRC32, CRC32C, SHA1, SHA256), compression, BucketACL. Presigned URLs (GET/PUT with expiry validation). Bucket policies (Put/Get/Delete). CORS configuration (Put/Get/Delete) with OPTIONS preflight. Lifecycle configuration (Put/Get/Delete) with background expiration janitor. Notification configuration (Put/Get) with event delivery to SQS/SNS/Lambda. Object lock (PutObjectLockConfiguration, GetObjectLockConfiguration). Object retention (PutObjectRetention, GetObjectRetention). Legal hold (PutObjectLegalHold, GetObjectLegalHold). Full dashboard UI with folder navigation, file preview, metadata/tagging.
 
 ### SQS — ~95% parity (17 operations) ✅
 
@@ -28,60 +23,49 @@ Full queue CRUD, send/receive/delete, batch operations, FIFO queues with dedupli
 
 Topic CRUD, subscribe/confirm/unsubscribe, publish/publishBatch, subscription protocols (SQS, HTTP/HTTPS, Lambda, email stub), filter policies, FIFO topics, message attributes. Dashboard UI with topic and subscription management.
 
-### Lambda — Image + Zip + ESM (11 operations) ✅
+### Lambda — Image + Zip + ESM + URLs + Versions (21 operations) ✅
 
-CreateFunction, GetFunction, ListFunctions, DeleteFunction, UpdateFunctionCode, UpdateFunctionConfiguration, Invoke (RequestResponse + Event). PackageType Image (Docker) and Zip (bind-mount into AWS base image). Lambda Runtime API, warm container pool, environment variables, S3-based code delivery, graceful degradation when Docker unavailable. Event source mappings: CreateEventSourceMapping, GetEventSourceMapping, ListEventSourceMappings, DeleteEventSourceMapping — Kinesis→Lambda polling with background worker. Dashboard UI with function list, detail, and invoke button.
-
-**Remaining gaps:**
-- [ ] Function URLs (via port allocator)
-- [ ] Aliases and versions
-- [ ] Lambda container stdout/stderr → CloudWatch Logs wiring
+CreateFunction, GetFunction, ListFunctions, DeleteFunction, UpdateFunctionCode, UpdateFunctionConfiguration, Invoke (RequestResponse + Event). PackageType Image (Docker) and Zip (bind-mount into AWS base image). Lambda Runtime API, warm container pool, environment variables, S3-based code delivery, graceful degradation when Docker unavailable. Event source mappings: CreateEventSourceMapping, GetEventSourceMapping, ListEventSourceMappings, DeleteEventSourceMapping — Kinesis→Lambda polling with background worker. Function URLs: CreateFunctionURLConfig, GetFunctionURLConfig, DeleteFunctionURLConfig — port allocation + DNS. Versions: PublishVersion, ListVersionsByFunction. Aliases: CreateAlias, GetAlias, ListAliases, UpdateAlias, DeleteAlias — qualifier-based invoke. Lambda→CloudWatch Logs wiring (stdout/stderr → log groups). Dashboard UI with function list, detail, and invoke button.
 
 ### IAM — ~92% parity (24 operations) ✅
 
-Users, roles, policies, groups, access keys, instance profiles, attach/detach policies (AttachRolePolicy, DetachRolePolicy, AttachUserPolicy). Dashboard UI. Policy enforcement out of scope (same as LocalStack free tier).
+Users, roles, policies, groups, access keys, instance profiles, attach/detach policies (AttachRolePolicy, DetachRolePolicy, AttachUserPolicy, ListAttachedUserPolicies, ListAttachedRolePolicies). Dashboard UI. Policy enforcement out of scope (same as LocalStack free tier).
 
 ### STS — ~95% parity (5 operations) ✅
 
 AssumeRole, GetCallerIdentity, GetSessionToken, DecodeAuthorizationMessage, GetAccessKeyInfo. Dashboard UI.
 
-### KMS — ~95% parity (25 operations) ✅
+### KMS — ~95% parity (23 operations) ✅
 
-Key CRUD, aliases, encrypt/decrypt/GenerateDataKey/GenerateDataKeyWithoutPlaintext/ReEncrypt, enable/disable, key rotation, scheduled deletion, grants (CreateGrant, ListGrants, RevokeGrant, RetireGrant, ListRetirableGrants), key policies (PutKeyPolicy, GetKeyPolicy). Dashboard UI with key detail.
+Key CRUD (CreateKey, DescribeKey, ListKeys, DisableKey, EnableKey, ScheduleKeyDeletion, CancelKeyDeletion), cryptography (Encrypt, Decrypt, GenerateDataKey, GenerateDataKeyWithoutPlaintext, ReEncrypt), aliases (CreateAlias, DeleteAlias, ListAliases), key rotation (EnableKeyRotation, DisableKeyRotation, GetKeyRotationStatus), grants (CreateGrant, ListGrants, RevokeGrant, RetireGrant, ListRetirableGrants), key policies (PutKeyPolicy, GetKeyPolicy). Dashboard UI with key detail.
 
 ### Secrets Manager — ~95% parity (11 operations) ✅
 
-Create, get, put, delete, restore, list, describe, update. Secret versioning (AWSCURRENT, AWSPREVIOUS). TagResource, UntagResource. RotateSecret stub (creates new version). Dashboard UI with secret detail.
-
-**Remaining gaps:**
-- [ ] RotateSecret with actual Lambda invocation
+Create, get, put, delete, restore, list, describe, update. Secret versioning (AWSCURRENT, AWSPREVIOUS). TagResource, UntagResource. RotateSecret with Lambda invocation support. Dashboard UI with secret detail.
 
 ### SSM Parameter Store — ~95% parity (11 operations) ✅
 
 Put, get, delete (single + batch), GetParameterHistory, GetParametersByPath, DescribeParameters, SecureString with KMS. Parameter tags (AddTagsToResource, RemoveTagsFromResource, ListTagsForResource). Dashboard UI with history and put modal.
 
-### API Gateway — REST APIs + Lambda Proxy (19 operations) ✅
+### API Gateway — REST APIs + Lambda Proxy + VTL (19 operations) ✅
 
-REST API CRUD, resources, methods, integrations (MOCK, AWS, HTTP, AWS_PROXY), deployments, stages. Lambda proxy integration: `AWS_PROXY` integration type converts HTTP requests to Lambda proxy event JSON, invokes Lambda, converts response. `/proxy/{apiId}/{stageName}/{path}` routing. Dashboard UI with API list, resource tree, method/integration detail.
-
-**Remaining gaps:**
-- [ ] Request/response mapping templates (VTL)
+REST API CRUD, resources, methods, integrations (MOCK, AWS, HTTP, AWS_PROXY), deployments, stages. Lambda proxy integration: AWS_PROXY converts HTTP→Lambda event JSON→invoke→response. `/proxy/{apiId}/{stageName}/{path}` routing. VTL template rendering for request/response mapping (`$input.json()`, `$input.path()`, `$input.body`, `$context.requestId`). Dashboard UI with API list, resource tree, method/integration detail.
 
 ### EventBridge — Full Event Processing (14 operations) ✅
 
-Event bus CRUD, rules (put/delete/list/describe/enable/disable), targets (put/remove/list), PutEvents with event log (last 1000). Target fan-out delivery to Lambda/SQS/SNS targets. Event pattern matching (source, detail-type, nested detail field patterns — exact match, prefix, exists, numeric ranges, anything-but). Scheduled rules with cron/rate expression parsing and background scheduler. Dashboard UI with event bus list, rules, event log viewer. Supports both `AmazonEventBridge.*` and `AWSEvents.*` target prefixes.
+Event bus CRUD, rules (put/delete/list/describe/enable/disable), targets (put/remove/list), PutEvents with event log (last 1000). Target fan-out delivery to Lambda/SQS/SNS targets. Event pattern matching (source, detail-type, nested detail field patterns — exact match, prefix, exists, numeric ranges, anything-but). Scheduled rules with cron/rate expression parsing and background scheduler. Dashboard UI with event bus list, rules, event log viewer.
 
 ### Step Functions — ASL Interpreter (9 operations) ✅
 
-State machine CRUD, start/stop/describe/list executions, GetExecutionHistory. Standard and Express workflows. Full ASL state machine interpreter: Pass, Task (Lambda invocation), Choice (StringEquals, NumericGreaterThan, BooleanEquals, And, Or, Not), Wait, Succeed, Fail, Parallel, Map. ResultPath, InputPath, OutputPath support. Catch error handling for Task states. Dashboard UI with state machine list, execution history. Supports both `AmazonStates.*` and `AWSStepFunctions.*` target prefixes.
+State machine CRUD, start/stop/describe/list executions, GetExecutionHistory. Full ASL state machine interpreter: Pass, Task (Lambda invocation), Choice (StringEquals, NumericGreaterThan, BooleanEquals, And, Or, Not), Wait, Succeed, Fail, Parallel, Map. ResultPath, InputPath, OutputPath support. Catch error handling. Dashboard UI with state machine list, execution history.
 
 ### CloudWatch Metrics (7 operations) ✅
 
-PutMetricData, GetMetricStatistics, GetMetricData, ListMetrics, PutMetricAlarm, DescribeAlarms, DeleteAlarms. Supports both legacy query/XML protocol AND rpc-v2-cbor (Smithy RPCv2) protocol used by AWS SDK v2 ≥ cloudwatch@v1.55. Dashboard UI with namespace browser and alarm status.
+PutMetricData, GetMetricStatistics, GetMetricData, ListMetrics, PutMetricAlarm, DescribeAlarms, DeleteAlarms. Supports both legacy query/XML and rpc-v2-cbor (Smithy RPCv2) protocol. Dashboard UI with namespace browser and alarm status.
 
 ### CloudWatch Logs (8 operations) ✅
 
-Log group CRUD, log stream CRUD, PutLogEvents, GetLogEvents, FilterLogEvents. Dashboard UI with log group list, stream viewer, search/filter.
+Log group CRUD, log stream CRUD, PutLogEvents, GetLogEvents, FilterLogEvents. Lambda container stdout/stderr→CloudWatch Logs wiring. Dashboard UI with log group list, stream viewer, search/filter.
 
 ### CloudFormation (12 operations) ✅
 
@@ -89,11 +73,55 @@ Stack CRUD (create, update, delete, describe, list), stack events, change sets (
 
 ### Kinesis Streams (10 operations) ✅
 
-CreateStream, DeleteStream, DescribeStream, DescribeStreamSummary, ListStreams, PutRecord, PutRecords, GetShardIterator (TRIM_HORIZON, LATEST, AT_SEQUENCE_NUMBER, AFTER_SEQUENCE_NUMBER), GetRecords, ListShards. Shard management with configurable shard count, partition key hashing, sequence number ordering. Kinesis→Lambda event source mapping with background poller. Dashboard UI with stream list, shard viewer, put record form.
+CreateStream, DeleteStream, DescribeStream, DescribeStreamSummary, ListStreams, PutRecord, PutRecords, GetShardIterator (TRIM_HORIZON, LATEST, AT_SEQUENCE_NUMBER, AFTER_SEQUENCE_NUMBER), GetRecords, ListShards. Kinesis→Lambda event source mapping with background poller. Dashboard UI with stream list, shard viewer, put record form.
 
-### ElastiCache (7 operations) ✅
+### ElastiCache (7 operations) ✅ — LocalStack charges for this
 
-CreateCacheCluster, DeleteCacheCluster, DescribeCacheClusters, ListTagsForResource, CreateReplicationGroup, DeleteReplicationGroup, DescribeReplicationGroups. Three engine modes: embedded (miniredis — zero deps), docker (real Redis/Valkey containers), stub (API-only). Redis + Valkey engine support. Dashboard UI with cluster list and cluster detail.
+CreateCacheCluster, DeleteCacheCluster, DescribeCacheClusters, ListTagsForResource, CreateReplicationGroup, DeleteReplicationGroup, DescribeReplicationGroups. Three engine modes: embedded (miniredis — zero deps), docker (real Redis/Valkey containers), stub (API-only). Dashboard UI with cluster list and cluster detail.
+
+### EC2 — Basic Stubs (10 operations) ✅
+
+RunInstances, DescribeInstances, TerminateInstances, DescribeSecurityGroups, CreateSecurityGroup, DeleteSecurityGroup, DescribeVpcs, DescribeSubnets, CreateVpc, CreateSubnet. Metadata stubs only — no actual compute (same as LocalStack free tier). Default VPC/subnet pre-populated. Dashboard UI with instances, security groups, VPC/subnet views.
+
+### Route 53 (6 operations) ✅
+
+CreateHostedZone, DeleteHostedZone, ListHostedZones, GetHostedZone, ChangeResourceRecordSets (CREATE, DELETE, UPSERT), ListResourceRecordSets. Wired into `pkgs/dns` for actual DNS resolution. Dashboard UI with hosted zone list and record set management.
+
+### SES (6 operations) ✅
+
+SendEmail, SendRawEmail, VerifyEmailIdentity, ListIdentities, GetIdentityVerificationAttributes, DeleteIdentity. All emails captured locally for inspection — no real sending (same as LocalStack). Dashboard UI with inbox, email detail, identity management.
+
+### OpenSearch (4 operations) ✅
+
+CreateDomain, DescribeDomain, DeleteDomain, ListDomainNames. `OPENSEARCH_ENGINE` config: docker (real OpenSearch container) or stub (API-only, default). Dashboard UI with domain list and domain detail.
+
+### ACM (4 operations) ✅
+
+RequestCertificate, DescribeCertificate, ListCertificates, DeleteCertificate. Synthetic ARNs, status=ISSUED. No real TLS. Dashboard UI with certificate list.
+
+### Redshift (3 operations) ✅
+
+CreateCluster, DeleteCluster, DescribeClusters. Synthetic endpoints via DNS. No query engine (same as LocalStack free tier). Dashboard UI with cluster list.
+
+### AWS Config (5 operations) ✅
+
+PutConfigurationRecorder, DescribeConfigurationRecorders, StartConfigurationRecorder, PutDeliveryChannel, DescribeDeliveryChannels. Stub storage only — no actual configuration tracking (same as LocalStack). Dashboard UI with recorder/channel list.
+
+### S3 Control (3 operations) ✅
+
+GetPublicAccessBlock, PutPublicAccessBlock, DeletePublicAccessBlock. Per-account public access block settings. Dashboard UI.
+
+### Resource Groups (4 operations) ✅
+
+CreateGroup, DeleteGroup, ListGroups, GetGroup. Dashboard UI with group list.
+
+### SWF (7 operations) ✅
+
+RegisterDomain, ListDomains, DeprecateDomain, RegisterWorkflowType, ListWorkflowTypes, StartWorkflowExecution, DescribeWorkflowExecution. Minimal workflow metadata stubs. Dashboard UI with domain/workflow list.
+
+### Kinesis Firehose (6 operations) ✅
+
+CreateDeliveryStream, DeleteDeliveryStream, DescribeDeliveryStream, ListDeliveryStreams, PutRecord, PutRecordBatch. Records stored in memory — no actual delivery (same as LocalStack). Dashboard UI with delivery stream list.
 
 ---
 
@@ -104,23 +132,23 @@ CreateCacheCluster, DeleteCacheCluster, DescribeCacheClusters, ListTagsForResour
 - **Docker Integration** — `pkgs/docker`, container lifecycle, warm pool with idle reaping, Lambda Image + Zip
 - **Init Hooks** — `pkgs/inithooks`, user shell scripts on startup
 - **Health Endpoint** — `/_gopherstack/health` with all registered services
-- **Cross-Service Event Bus** — `pkgs/events`, SNS→SQS delivery, DynamoDB/S3 event emission
+- **Cross-Service Event Bus** — `pkgs/events`, SNS→SQS, EventBridge→Lambda/SQS/SNS, S3→SQS/SNS/Lambda delivery
 
 ---
 
 ## Developer Experience ✅
 
-- [x] Single-port routing — all 18 services on one port via priority-based service router
+- [x] Single-port routing — all 29 services on one port via priority-based service router
 - [x] Docker image + Docker Compose support
 - [x] CLI flags / env config via Kong
-- [x] Web dashboard with sidebar navigation for all 18 services
+- [x] Web dashboard with sidebar navigation for all 29 services
 - [x] Dark mode UI with automatic theme switching (HTMX + Flowbite + Tailwind)
 - [x] Prometheus metrics + operation tracking
 - [x] OpenTelemetry tracing
 - [x] Demo data seeding (`--demo`)
 - [x] Init hooks for resource seeding on startup
 - [x] Testcontainers module for Go (`modules/gopherstack`)
-- [x] Terraform compatibility docs (README)
+- [x] Terraform compatibility (tested with HashiCorp AWS provider v5.0)
 - [x] CDK compatibility docs (README)
 
 **DX gaps remaining:**
@@ -133,351 +161,201 @@ CreateCacheCluster, DeleteCacheCluster, DescribeCacheClusters, ListTagsForResour
 
 | Layer | Tests | Coverage |
 |-------|-------|----------|
-| Unit tests | ~150+ files | All 18 services + platform packages |
-| Integration tests | 96 tests | All 18 services + cross-service (SNS→SQS, EventBridge→SQS, Kinesis→Lambda, StepFunctions ASL) |
-| E2E / browser tests | 31 tests | Playwright — all 18 services have dashboard tests |
+| Unit tests | 129 files | All 29 services + platform packages |
+| Integration tests | 151+ tests (67 files) | All 29 services + cross-service (SNS→SQS, EventBridge→SQS, Kinesis→Lambda, S3→SQS, StepFunctions ASL) |
+| E2E / browser tests | 47 tests (18 files) | Playwright — dashboard tests for 15+ services |
+| Terraform tests | 2 scenarios | DynamoDB, S3+SQS via HashiCorp AWS provider v5.0 |
+
+**Test coverage gaps:**
+- [ ] API Gateway — unit tests only, no integration tests
+- [ ] E2E dashboard tests missing for: EventBridge, StepFunctions, CloudFormation, CloudWatch, CloudWatch Logs, Kinesis, ACM, Redshift, Firehose, Resource Groups, S3 Control, AWS Config, SWF
+- [ ] Terraform tests only cover 3 resource types — should cover more services
 
 ---
 
 ## Remaining Milestones
 
-Each version is scoped to 2–3 tasks completable in a single focused session (~1 hour each). Tasks include the specific files to create/modify, operations to implement, and tests to write.
+### v0.25 — EventBridge Scheduler + Route 53 Resolver
 
-### v0.16 — S3 Deep Gaps
+Two services in LocalStack's free tier that we don't have yet.
 
-**Task 1: S3 lifecycle rule enforcement**
-- Add background goroutine in `s3/janitor.go` to expire objects matching lifecycle rules — scan buckets with lifecycle config, delete objects past expiration days, filter by prefix
-- Reuse existing janitor/reaper pattern from DynamoDB TTL
-- Unit tests in `s3/handler_test.go` — set lifecycle with 0-day expiration, trigger janitor, verify objects deleted
-- Integration test in `test/integration/s3_lifecycle_test.go` — set lifecycle, put objects, wait for expiration, verify objects gone
-
-**Task 2: S3 notification event delivery**
-- Wire notification config into `pkgs/events` emitter — on PutObject/DeleteObject, emit event to configured SQS/SNS/Lambda targets
-- Add `S3NotificationEvent` type in `pkgs/events/types.go` with S3 event JSON envelope format (Records array with eventSource, eventName, s3 bucket/object info)
-- Resolve target ARN to service call (SQS SendMessage, SNS Publish, Lambda Invoke)
-- Unit tests in `s3/handler_test.go` — set notification config, put object, verify event emitted
-- Integration test in `test/integration/s3_notification_test.go` — set notification with SQS target, put object, receive event from SQS
-
-### v0.17 — S3 Object Lock + Lambda Features
-
-**Task 1: S3 object lock / legal hold**
-- Add `PutObjectLockConfiguration` / `GetObjectLockConfiguration` handlers in `s3/handler.go` — enable object lock on bucket
-- Add `PutObjectRetention` / `GetObjectRetention` / `PutObjectLegalHold` / `GetObjectLegalHold` handlers
-- Store retention mode (GOVERNANCE/COMPLIANCE), retain-until-date, and legal hold status per object version in `s3/backend_memory.go`
-- Block DeleteObject when object is locked or under legal hold — return `AccessDenied`
-- Unit tests in `s3/handler_test.go` — lock object, attempt delete (expect 403), remove hold, delete succeeds
-
-**Task 2: Lambda function URLs**
-- Add `CreateFunctionUrlConfig` / `GetFunctionUrlConfig` / `DeleteFunctionUrlConfig` handlers in `lambda/handler.go`
-- Allocate a port from `pkgs/portalloc` for the function URL endpoint
-- Start an HTTP listener on the allocated port that forwards requests to the Lambda invoke path (convert HTTP request → Lambda event JSON → invoke → convert response)
-- Register synthetic DNS hostname via `pkgs/dns` — `{function-name}.lambda-url.{region}.on.aws`
-- Return the URL in the API response (`FunctionUrl` field)
-- Unit tests in `lambda/handler_test.go` — create/get/delete URL config
-- Integration test in `test/integration/lambda_url_test.go` — create function, create URL, HTTP GET to URL, verify response
-
-### v0.18 — Lambda Versions + Integration Polish
-
-**Task 1: Lambda aliases and versions**
-- Add `PublishVersion` / `GetFunctionConfiguration` (with qualifier) / `ListVersionsByFunction` handlers in `lambda/handler.go`
-- Add `CreateAlias` / `GetAlias` / `ListAliases` / `UpdateAlias` / `DeleteAlias` handlers
-- Store version snapshots (immutable copies of function config) and alias mappings (alias name → version number) in `lambda/backend.go`
-- Support `Qualifier` parameter on `Invoke` — resolve alias → version → function config
-- Unit tests in `lambda/handler_test.go` — publish version, create alias pointing to version, invoke via alias
-
-**Task 2: Lambda → CloudWatch Logs wiring**
-- Wire Lambda container stdout/stderr to CloudWatch Logs in `lambda/docker.go` — on invoke, capture container logs, create log group `/aws/lambda/{function-name}` and log stream, call PutLogEvents
-- Pass CloudWatch Logs backend reference to Lambda service in `cli.go`
-- Integration test in `test/integration/lambda_logs_test.go` — invoke Lambda, check CloudWatch Logs for function output
-
-**Task 3: SecretsManager rotation with Lambda**
-- Update `RotateSecret` handler in `secretsmanager/handler.go` — accept rotation Lambda ARN, invoke Lambda with rotation event JSON (Step: createSecret → setSecret → testSecret → finishSecret)
-- Wire Lambda invoker into SecretsManager in `cli.go`
-- Unit tests in `secretsmanager/handler_test.go` — rotate secret invokes Lambda with correct event format
-
-### v0.19 — API Gateway VTL + Route 53
-
-**Task 1: API Gateway request/response mapping templates**
-- Add VTL template rendering in `apigateway/vtl.go` — parse Velocity Template Language strings, support `$input.json()`, `$input.path()`, `$input.body`, `$context.requestId`, `$util.escapeJavaScript()`
-- Apply request mapping template before integration call, response mapping template after
-- Unit tests in `apigateway/vtl_test.go` — render templates with mock input, verify JSON transformation
-
-**Task 2: Route 53 service**
-- Create `route53/` directory with standard service structure
-- Create `route53/backend.go` — hosted zone store with `HostedZone` struct (ID, name, record sets), `ResourceRecordSet` struct (name, type, TTL, records)
-- Create `route53/handler.go` — REST-style XML protocol (Route 53 uses `/2013-04-01/hostedzone/` path prefix)
-- Implement operations: `CreateHostedZone`, `DeleteHostedZone`, `ListHostedZones`, `GetHostedZone`, `ChangeResourceRecordSets` (CREATE, DELETE, UPSERT actions), `ListResourceRecordSets`
-- Wire into `pkgs/dns` — when a record set is created/updated, register it with the internal DNS server so it actually resolves
+**Task 1: EventBridge Scheduler service**
+- Create `scheduler/` directory with standard service structure
+- Create `scheduler/backend.go` — schedule store with `Schedule` struct (name, ARN, schedule expression, target ARN, role ARN, state, flexible time window)
+- Create `scheduler/handler.go` — JSON protocol with `X-Amz-Target: AWSScheduler.*` header matching
+- Implement operations: `CreateSchedule` (store schedule config, parse rate/cron expression), `GetSchedule`, `ListSchedules`, `DeleteSchedule`, `UpdateSchedule`, `TagResource`, `ListTagsForResource`
+- Wire scheduler to EventBridge's existing schedule execution engine for actual target triggering (competitive advantage — LocalStack's Scheduler is mocked-only)
 - Register service in `cli.go`, add to `internal/teststack/teststack.go`
-- Unit tests in `route53/handler_test.go` — create hosted zone, add A/CNAME records, list records, delete zone
-- Integration test in `test/integration/route53_test.go` — create hosted zone, add record, verify DNS resolution
+- Unit tests in `scheduler/handler_test.go` — CRUD operations, schedule expression validation
+- Integration test in `test/integration/scheduler_test.go` — create schedule, list, get, update, delete
 
-### v0.20 — Route 53 Dashboard + SES Service
-
-**Task 1: Route 53 Dashboard UI**
-- Create `dashboard/templates/route53/index.html` — hosted zone list (name, record count, ID)
-- Create `dashboard/templates/route53/zone_detail.html` — record set table with inline editing (name, type, TTL, value), create/delete record buttons
-- Create `dashboard/route53_handlers.go` — list zones page, zone detail page, create/delete record handlers
-- Add Route 53 to sidebar navigation in `dashboard/templates/layout.html`
-- E2E test in `test/e2e/route53_test.go` — verify dashboard renders
-
-**Task 2: SES service**
-- Create `ses/` directory with standard service structure
-- Create `ses/backend.go` — email store with `Email` struct (from, to, subject, body HTML, body text, timestamp, message ID), verified identities list
-- Create `ses/handler.go` — form-encoded XML protocol (same pattern as IAM/CloudFormation)
-- Implement operations: `SendEmail` (capture email to in-memory store, return message ID), `SendRawEmail`, `VerifyEmailIdentity`, `ListIdentities`, `GetIdentityVerificationAttributes` (auto-verify all identities), `DeleteIdentity`
-- No actual email sending — all emails captured locally for inspection
+**Task 2: Route 53 Resolver service**
+- Create `route53resolver/` directory with standard service structure
+- Create `route53resolver/backend.go` — resolver endpoint store with `ResolverEndpoint` struct (ID, direction, IP addresses, status, VPC ID)
+- Create `route53resolver/handler.go` — JSON protocol with `X-Amz-Target: Route53Resolver.*` header matching
+- Implement operations: `CreateResolverEndpoint`, `DeleteResolverEndpoint`, `ListResolverEndpoints`, `GetResolverEndpoint`, `CreateResolverRule`, `DeleteResolverRule`, `ListResolverRules`
 - Register service in `cli.go`, add to `internal/teststack/teststack.go`
-- Unit tests in `ses/handler_test.go` — verify identity, send email, list identities
-- Integration test in `test/integration/ses_test.go` — verify identity, send email via SDK, verify email captured
+- Unit tests in `route53resolver/handler_test.go` — endpoint and rule CRUD
+- Integration test in `test/integration/route53resolver_test.go`
 
-### v0.21 — SES Dashboard + EC2 Service
+**Task 3: Dashboard UI for both**
+- Create `dashboard/templates/scheduler/index.html` — schedule list with create/delete
+- Create `dashboard/scheduler_handlers.go`
+- Create `dashboard/templates/route53resolver/index.html` — resolver endpoint/rule list
+- Create `dashboard/route53resolver_handlers.go`
+- Add both to sidebar navigation
+- E2E tests for both dashboards
 
-**Task 1: SES Dashboard UI**
-- Create `dashboard/templates/ses/index.html` — sent email inbox table (from, to, subject, timestamp) with email count badge, verified identities list
-- Create `dashboard/templates/ses/email_detail.html` — email detail with HTML body preview, headers, raw message
-- Create `dashboard/ses_handlers.go` — inbox page, email detail page, verify identity form
-- Add SES to sidebar navigation in `dashboard/templates/layout.html`
-- E2E test in `test/e2e/ses_test.go` — verify dashboard renders, email list shows sent emails
+### v0.26 — RDS Service (Competitive Advantage — LocalStack charges for this)
 
-**Task 2: EC2 basic stubs**
-- Create `ec2/` directory with standard service structure
-- Create `ec2/backend.go` — instance store with `Instance` struct (ID, state, type, AMI, VPC/subnet, security groups, launch time), `SecurityGroup` struct (ID, name, VPC, rules), `VPC` struct (ID, CIDR), `Subnet` struct (ID, VPC, CIDR, AZ)
-- Create `ec2/handler.go` — form-encoded XML protocol with `Action` parameter routing (same pattern as IAM)
-- Implement operations: `RunInstances` (create instance metadata, assign `i-` prefixed ID, state=running), `DescribeInstances` (filter by instance ID, state), `TerminateInstances` (set state=terminated), `DescribeSecurityGroups`, `CreateSecurityGroup`, `DeleteSecurityGroup`, `DescribeVpcs`, `DescribeSubnets`, `CreateVpc`, `CreateSubnet`
-- Metadata stubs only — no actual compute, no networking
-- Pre-populate a default VPC and subnet on service init
+**Task 1: RDS service — stub + Docker mode**
+- Create `rds/` directory with standard service structure
+- Create `rds/backend.go` — instance store with `DBInstance` struct (ID, engine, status, endpoint, port, master username, DB name, instance class, allocated storage, VPC/subnet group)
+- Create `rds/handler.go` — form-encoded XML protocol (same pattern as EC2/IAM)
+- Implement operations: `CreateDBInstance` (allocate port, start container if docker mode), `DeleteDBInstance`, `DescribeDBInstances`, `ModifyDBInstance`, `CreateDBSnapshot`, `DescribeDBSnapshots`, `DeleteDBSnapshot`, `CreateDBSubnetGroup`, `DescribeDBSubnetGroups`, `DeleteDBSubnetGroup`
+- Add `RDS_ENGINE` config flag — `docker` (start real Postgres/MySQL container) or `stub` (API-only, default)
+- Docker mode: on CreateDBInstance, select image based on Engine field (postgres → `postgres:16-alpine`, mysql → `mysql:8-lts`), start container on allocated port, register DNS hostname, return real connectable endpoint
 - Register service in `cli.go`, add to `internal/teststack/teststack.go`
-- Unit tests in `ec2/handler_test.go` — run instance, describe, terminate, security group CRUD, VPC/subnet describe
+- Unit tests in `rds/handler_test.go` — CRUD operations, engine selection, subnet groups
 
-### v0.22 — EC2 Dashboard + OpenSearch
+**Task 2: RDS Dashboard UI + integration tests**
+- Create `dashboard/templates/rds/index.html` — instance list (ID, engine badge, status, endpoint), subnet groups, snapshots
+- Create `dashboard/templates/rds/instance_detail.html` — instance detail with endpoint, engine, configuration
+- Create `dashboard/rds_handlers.go` — list/detail/create/delete handlers
+- Add RDS to sidebar navigation
+- Integration test in `test/integration/rds_test.go` — create instance (stub mode), describe, modify, create snapshot, delete
+- E2E test in `test/e2e/rds_test.go` — verify dashboard renders
 
-**Task 1: EC2 Dashboard UI**
-- Create `dashboard/templates/ec2/index.html` — tabbed interface: instances table (ID, state badge, type, launch time), security groups table (ID, name, VPC), VPC/subnet tree view
-- Create `dashboard/ec2_handlers.go` — instances page, security groups page, VPC page
-- Add EC2 to sidebar navigation in `dashboard/templates/layout.html`
-- E2E test in `test/e2e/ec2_test.go` — verify dashboard renders
+### v0.27 — Test Coverage Gaps + Minor Stubs
 
-**Task 2: OpenSearch service**
-- Create `opensearch/` directory with standard service structure
-- Create `opensearch/backend.go` — domain store with `Domain` struct (name, ARN, engine version, endpoint, status, cluster config)
-- Create `opensearch/handler.go` — JSON REST protocol with path-based routing (`/2021-01-01/opensearch/domain/`)
-- Implement operations: `CreateDomain` (store domain metadata, allocate port if docker mode, register DNS hostname), `DeleteDomain`, `DescribeDomain`, `ListDomainNames`
-- Add `OPENSEARCH_ENGINE` config flag — `docker` (start OpenSearch container) or `stub` (API-only, default)
-- Register service in `cli.go`, add to `internal/teststack/teststack.go`
-- Unit tests in `opensearch/handler_test.go` — create domain, describe, list, delete
-- Integration test in `test/integration/opensearch_test.go` — create domain, verify endpoint returned, delete domain
+**Task 1: API Gateway integration tests**
+- `test/integration/apigateway_test.go` — create REST API, create resource, put method, put integration, create deployment, get stages, verify proxy route, delete chain
 
-### v0.23 — OpenSearch Dashboard + ACM + Redshift
+**Task 2: Missing E2E dashboard tests**
+- Add E2E tests for services without them: EventBridge, StepFunctions, CloudFormation, CloudWatch, CloudWatch Logs, Kinesis, ACM, Firehose, Redshift, S3 Control, AWS Config, SWF, Resource Groups
 
-**Task 1: OpenSearch Dashboard UI**
-- Create `dashboard/templates/opensearch/index.html` — domain list (name, engine version, endpoint, status) with create/delete buttons
-- Create `dashboard/templates/opensearch/domain_detail.html` — domain detail (endpoint, engine version, cluster config, status)
-- Create `dashboard/opensearch_handlers.go` — list domains page, domain detail page, create/delete handlers
-- Add OpenSearch to sidebar navigation in `dashboard/templates/layout.html`
-- E2E test in `test/e2e/opensearch_test.go` — verify dashboard renders
+**Task 3: Transcribe + Support API stubs**
+- Create `transcribe/` — `StartTranscriptionJob`, `ListTranscriptionJobs`, `GetTranscriptionJob`. Return synthetic transcription results. No real speech-to-text.
+- Create `support/` — `CreateCase`, `DescribeCases`, `ResolveCase`. Fully mocked.
+- Unit tests, register in cli.go, add to teststack, dashboard pages for each
 
-**Task 2: ACM + Redshift stubs**
-- Create `acm/` — `RequestCertificate` (generate synthetic ARN, status=ISSUED), `DescribeCertificate`, `ListCertificates`, `DeleteCertificate`. Store cert metadata (domain, ARN, status, type). No real TLS.
-- Create `redshift/` — `CreateCluster` (synthetic endpoint via DNS), `DeleteCluster`, `DescribeClusters`. Store cluster metadata (ID, endpoint, status, node type). No query engine.
-- Unit tests, register in cli.go, add to teststack
-- Dashboard page for each: list view with create/delete
+### v0.28 — Expanded Terraform Tests
 
-### v0.24 — Long Tail Stubs
+**Task 1: Terraform provider coverage**
+- Expand `test/integration/terraform_test.go` to cover additional resource types:
+  - `aws_lambda_function` (zip package)
+  - `aws_iam_role` + `aws_iam_policy` + `aws_iam_role_policy_attachment`
+  - `aws_sns_topic` + `aws_sqs_queue` + `aws_sns_topic_subscription`
+  - `aws_kms_key` + `aws_kms_alias`
+  - `aws_secretsmanager_secret` + `aws_secretsmanager_secret_version`
+  - `aws_ssm_parameter`
+  - `aws_route53_zone` + `aws_route53_record`
+  - `aws_cloudwatch_log_group`
+  - `aws_ses_email_identity`
 
-**Task 1: AWS Config + S3 Control + Resource Groups stubs**
-- Create `awsconfig/` — `PutConfigurationRecorder`, `DescribeConfigurationRecorders`, `StartConfigurationRecorder`, `PutDeliveryChannel`, `DescribeDeliveryChannels`. Stub storage only.
-- Create `s3control/` — `GetPublicAccessBlock`, `PutPublicAccessBlock`, `DeletePublicAccessBlock`. Store per-account public access block settings.
-- Create `resourcegroups/` — `CreateGroup`, `DeleteGroup`, `ListGroups`, `GetGroup`, `GetResources`. Cross-service tag aggregation (query tags from all services).
-- Unit tests, register in cli.go, add to teststack
-- Dashboard page for each: list view
+**Task 2: Terraform data source tests**
+- Test Terraform data sources: `data.aws_caller_identity`, `data.aws_region`, `data.aws_iam_policy_document`, `data.aws_s3_bucket`
 
-**Task 2: SWF + Kinesis Firehose stubs**
-- Create `swf/` — `RegisterDomain`, `ListDomains`, `DeprecateDomain`, `RegisterWorkflowType`, `ListWorkflowTypes`, `StartWorkflowExecution`, `DescribeWorkflowExecution`. Minimal workflow metadata stubs.
-- Create `firehose/` — `CreateDeliveryStream`, `DeleteDeliveryStream`, `DescribeDeliveryStream`, `ListDeliveryStreams`, `PutRecord`, `PutRecordBatch`. Store records in memory (no actual delivery).
-- Unit tests, register in cli.go, add to teststack
-- Dashboard page for each: list view
+### v0.29 — Code Quality Refactor
+
+Clean pass across the entire codebase to enforce the style guide in `.github/instructions`. This must happen before the architectural changes in v0.30–v0.31.
+
+**Task 1: Eliminate `break` statements**
+- Audit every `for`/`switch` loop across all 29 service packages and `pkgs/`
+- Replace `break` in loops with extracted helper functions that use early `return`
+- Note: `switch` case fallthrough is fine — the rule targets loop `break` specifically
+
+**Task 2: Eliminate anonymous structs**
+- Audit all handler files for inline `var req struct { ... }` patterns (used heavily in request parsing)
+- Extract each into a named, unexported type (e.g., `type registerDomainInput struct { ... }`)
+- Ensure JSON/XML struct tags are preserved
+
+**Task 3: Interface compliance audit**
+- Verify all service backends follow "accept interfaces, return concrete types"
+- Ensure all interfaces are small (1-3 methods) and defined near usage, not implementation
+- Check for any exported interfaces that shouldn't be — unexport where possible
+- Ensure `-er` suffix naming convention on single-method interfaces
+
+**Task 4: Error handling cleanup**
+- Ensure all errors are lowercase, no trailing punctuation
+- Replace any `fmt.Errorf("...", err)` that should use `%w` for wrapping
+- Verify no code both logs and returns the same error (choose one)
+- Consolidate duplicate sentinel errors across packages where appropriate
+
+**Task 5: General style enforcement**
+- Run `make lint-fix` across entire codebase
+- Ensure all exported types/functions/methods have doc comments starting with the name
+- Remove any `nolint` directives that can be fixed instead
+- Verify table tests everywhere, parallel where possible, `require`/`assert` only (no `t.Fatal`/`t.Error`)
+- Ensure all logging uses `log/slog` (no `fmt.Println`, `log.Println`, etc.)
+
+### v0.30 — Container Runtime Abstraction (Docker + Podman)
+
+`pkgs/docker/` already has an `APIClient` interface that isolates the Docker SDK. This milestone generalizes it to support Podman (and any OCI-compatible runtime) via a single env var switch.
+
+**Task 1: Runtime interface + Podman provider**
+- Rename `pkgs/docker/` → `pkgs/container/` (keep `pkgs/docker/` as a thin re-export for backwards compat if needed)
+- Extract `Runtime` interface from existing `Client`: `CreateAndStart(spec)`, `StopAndRemove(id)`, `AcquireWarm(image)`, `ReleaseContainer(id)`, `PullImage(image)`, `HasImage(image)`, `Ping()`
+- Create `DockerRuntime` — wraps existing `realDockerClient` adapter (no behaviour change)
+- Create `PodmanRuntime` — connects to Podman socket (`podman.sock` or `CONTAINER_HOST`), implements same `Runtime` interface via Podman's Docker-compatible API
+- Add `CONTAINER_RUNTIME` env var / `--container-runtime` CLI flag: `docker` (default) | `podman` | `auto` (detect which socket exists)
+- Update `docker.Config` → `container.Config`, add `Runtime` field
+- Unit tests: mock-based tests for both runtimes, auto-detection logic
+
+**Task 2: Update all consumers**
+- Update Lambda (`lambda/backend.go`, `lambda/provider.go`, `lambda/settings.go`) to use `container.Runtime` instead of `docker.Client`
+- Update ElastiCache docker mode (`elasticache/backend.go`) to use `container.Runtime`
+- Update OpenSearch docker mode (`opensearch/backend.go`) to use `container.Runtime`
+- Update RDS docker mode (`rds/backend.go`, from v0.26) to use `container.Runtime`
+- Update `DockerHost` setting to be runtime-aware (Podman rootless uses different networking)
+- Integration tests verifying Lambda invoke works with both runtimes (skip Podman tests if socket not available)
+
+**Task 3: Documentation + Compose files**
+- Add Podman-specific notes to README (rootless setup, socket path, `CONTAINER_RUNTIME=podman`)
+- Create `docker-compose.podman.yml` or document `podman compose` compatibility
+- Update `docs/architecture/` with container runtime diagram
+
+### v0.31 — Persistence
+
+State survives restarts. Container-backed mode uses volumes; binary-only mode uses `~/.gopherstack/` (or `GOPHERSTACK_DATA_DIR`). A single env var (`PERSIST=true`) enables it.
+
+**Task 1: Persistence interface + file-based backend**
+- Create `pkgs/persistence/` package with `Store` interface: `Save(service, key, data)`, `Load(service, key)`, `Delete(service, key)`, `ListKeys(service)`
+- Implement `FileStore` — writes JSON files to `~/.gopherstack/data/{service}/{key}.json` (or `GOPHERSTACK_DATA_DIR`)
+- Implement `NullStore` (default) — no-ops, current behaviour preserved
+- Add `PERSIST` env var / `--persist` CLI flag: `true` | `false` (default)
+- Add `GOPHERSTACK_DATA_DIR` env var / `--data-dir` CLI flag for custom path
+- Unit tests for FileStore: write/read/delete/list, concurrent access, corrupt file handling
+
+**Task 2: Wire persistence into services**
+- Define `Persistable` interface that backends can implement: `Snapshot() []byte`, `Restore([]byte) error`
+- Update each `InMemoryBackend` to implement `Persistable` — serialize state to JSON on writes, restore on startup
+- Implement `Persistable` on ALL service backends — every `InMemoryBackend` across all 29+ services must serialize/restore its state
+- On startup: if `PERSIST=true`, load snapshots for all registered services
+- On mutation: debounced async write (e.g. 500ms after last write) to avoid disk thrashing
+- Integration tests: create resources → restart Gopherstack → verify resources still exist
+
+**Task 3: Container volume mode + Docker Compose**
+- When running in a container with `PERSIST=true`, default `GOPHERSTACK_DATA_DIR` to `/data` and document volume mount: `-v gopherstack-data:/data`
+- Update `docker-compose.yml` to include named volume with persistence enabled
+- Update Podman compose file (from v0.30) similarly
+- E2E test: docker-compose up → create resources → docker-compose restart → verify resources survive
 
 ### v1.0 — Documentation & Production Ready
 
 **Task 1: Service documentation**
-- Create `docs/services/` directory with one markdown file per service (e.g., `dynamodb.md`, `s3.md`)
-- Each doc: supported operations table, request/response examples using AWS CLI, known limitations vs real AWS, configuration options (env vars, CLI flags)
-- Code examples in Go, Python, Node.js using standard AWS SDKs with `endpoint_url` override
+- Create `docs/services/` directory with one markdown file per service
+- Each doc: supported operations table, request/response examples using AWS CLI, known limitations vs real AWS, configuration options
 
 **Task 2: Getting started + architecture guides**
 - `docs/quickstart.md` — download binary, run `gopherstack`, connect with AWS CLI
 - `docs/docker.md` — Docker Compose quickstart with all services
 - `docs/migration.md` — migrating from LocalStack (endpoint config, feature comparison)
-- `docs/architecture/elasticache.md` — engine modes explained
-- `docs/architecture/dns.md` — DNS setup per platform (macOS, Linux, Docker)
-- `docs/architecture/lambda.md` — Image vs Zip, base image mapping, Runtime API
-- `docs/integration/terraform.md`, `docs/integration/cdk.md`, `docs/integration/testcontainers.md`, `docs/integration/ci-cd.md`
+- `docs/architecture/` — ElastiCache engine modes, DNS setup, Lambda runtime, container runtimes, persistence
 
-**Task 3: CLI wrapper + persistence + benchmarks**
+**Task 3: CLI wrapper + benchmarks**
 - Create `cmd/awsgs` CLI wrapper — thin wrapper around `aws` CLI that sets `--endpoint-url` automatically
-- Add persistence mode in `pkgs/persistence/` — serialize in-memory state to disk (JSON/gob), restore on startup, CLI flag `--persist` / `PERSIST=true`
-- Create `bench/` directory with comparative benchmarks vs LocalStack — startup time, operation latency, memory usage
-- Document results in `docs/benchmarks.md`
-
----
-
-## ElastiCache Design
-
-### Engine Selection
-
-Two config axes control ElastiCache behavior:
-
-```
-# Backend mode — how the cache process runs
-ELASTICACHE_ENGINE=embedded|docker|stub    (default: embedded)
---elasticache-engine=embedded|docker|stub
-
-# Cache engine — Redis or Valkey (maps to AWS Engine field)
-# Determined per-cluster by the `Engine` field in CreateCacheCluster:
-#   Engine=redis   → uses Redis-compatible backend
-#   Engine=valkey  → uses Valkey-compatible backend (default if omitted)
-```
-
-### Mode: `embedded` (default — zero dependencies)
-
-Uses [`alicebob/miniredis`](https://github.com/alicebob/miniredis), a pure-Go in-memory Redis/Valkey-compatible implementation. No Docker, no external process, no DNS needed.
-
-- On `CreateCacheCluster`, Gopherstack starts a `miniredis` instance on a port from the port allocator
-- The API returns `localhost:{port}` as the endpoint — your Redis/Valkey client connects directly
-- Behaves like a real Redis: supports GET, SET, HSET, LPUSH, pub/sub, Lua scripting, etc.
-- Both `Engine=redis` and `Engine=valkey` use the same `miniredis` backend (Valkey is wire-compatible with Redis)
-- On `DeleteCacheCluster`, the miniredis instance is stopped and the port is released
-- **No DNS needed** — endpoint address is `localhost`, port is from the port range
-- **This is the recommended mode for local development** — nothing to install, works everywhere
-
-```go
-// Developer's code — works identically against real AWS or Gopherstack
-cluster, _ := client.DescribeCacheClusters(ctx, &elasticache.DescribeCacheClustersInput{
-    CacheClusterId: aws.String("my-cache"),
-})
-endpoint := cluster.CacheClusters[0].CacheNodes[0].Endpoint
-redisClient := redis.NewClient(&redis.Options{
-    Addr: fmt.Sprintf("%s:%d", *endpoint.Address, endpoint.Port),
-})
-```
-
-**DNS routing:** None. Endpoint is `localhost:{port}`. No DNS resolver configuration needed.
-
-### Mode: `docker` (higher fidelity)
-
-Spins up a real Redis or Valkey container via the Docker SDK (same pattern as Lambda).
-
-- On `CreateCacheCluster`, selects image based on `Engine` field:
-  - `Engine=redis` → pulls `redis:7-alpine`
-  - `Engine=valkey` → pulls `valkey/valkey:8-alpine`
-- Starts container on an allocated port from the port range
-- Returns a synthetic DNS hostname via internal DNS: `{cluster-id}.{hash}.{region}.cache.amazonaws.com`
-- Warm container pool with idle reaping (same as Lambda)
-- **Requires Docker + DNS configuration** (see [DNS on a Developer Laptop](#dns-on-a-developer-laptop) below)
-
-**DNS routing:** The synthetic hostname resolves via Gopherstack's internal DNS to the configured resolve IP (default `127.0.0.1`). The port is embedded in the endpoint metadata. Your client connects to `{resolved-ip}:{port}`. DNS must be configured so your app can resolve `*.cache.amazonaws.com` — see the DNS section below for per-platform setup.
-
-### Mode: `stub` (API-only)
-
-Returns valid-looking API responses with synthetic endpoints and DNS hostnames, but nothing is actually listening. Useful for testing IaC templates (CloudFormation/Terraform) where you only need the API to accept the calls.
-
-**DNS routing:** Hostnames are registered in internal DNS (they resolve to `127.0.0.1`) but no process is listening on the port. Useful for verifying that your infrastructure code correctly reads and passes endpoint values.
-
----
-
-## DNS on a Developer Laptop
-
-The internal DNS server is only needed when services return synthetic AWS-style hostnames (ElastiCache in `docker` mode, OpenSearch in `docker` mode, Redshift, etc.). **Most developers won't need it** — the `embedded` mode for ElastiCache returns `localhost:{port}` which needs no DNS at all.
-
-For services that do use synthetic hostnames, here's how DNS resolution works in each deployment model:
-
-### Docker Compose (simplest — recommended for DNS-bound services)
-
-```yaml
-services:
-  gopherstack:
-    image: gopherstack
-    ports:
-      - "8000:8000"
-      - "10000-10100:10000-10100"   # port range for ElastiCache, Lambda, etc.
-      - "10053:10053/udp"           # DNS
-    environment:
-      - DNS_ADDR=0.0.0.0:10053
-      - DNS_RESOLVE_IP=gopherstack  # resolve to container's own IP
-      - PORT_RANGE_START=10000
-      - PORT_RANGE_END=10100
-      - ELASTICACHE_ENGINE=docker
-
-  your-app:
-    build: .
-    dns: gopherstack               # <-- your app resolves *.amazonaws.com via Gopherstack
-    environment:
-      - AWS_ENDPOINT_URL=http://gopherstack:8000
-    depends_on:
-      - gopherstack
-```
-
-All containers in the compose network use Gopherstack's DNS. Synthetic hostnames like `my-cache.abc.us-east-1.cache.amazonaws.com` resolve to the Gopherstack container IP automatically. No host-level configuration needed.
-
-### Bare Binary on macOS
-
-macOS supports per-domain DNS resolvers. Create a file that routes `*.amazonaws.com` to Gopherstack's DNS:
-
-```bash
-# Start Gopherstack with DNS on port 10053
-gopherstack --dns-addr=127.0.0.1:10053 --elasticache-engine=docker
-
-# Route amazonaws.com lookups to Gopherstack's DNS
-sudo mkdir -p /etc/resolver
-echo "nameserver 127.0.0.1" | sudo tee /etc/resolver/cache.amazonaws.com
-echo "port 10053" | sudo tee -a /etc/resolver/cache.amazonaws.com
-# Repeat for other domains:
-# /etc/resolver/es.amazonaws.com      (OpenSearch)
-# /etc/resolver/rds.amazonaws.com     (RDS)
-```
-
-Now `dig my-cache.abc.us-east-1.cache.amazonaws.com` resolves to `127.0.0.1` and your Redis client connects via the port range.
-
-**Teardown:** `sudo rm /etc/resolver/cache.amazonaws.com`
-
-### Bare Binary on Linux
-
-Use `systemd-resolved` split DNS:
-
-```bash
-# Start Gopherstack with DNS on port 10053
-gopherstack --dns-addr=127.0.0.1:10053 --elasticache-engine=docker
-
-# Route amazonaws.com lookups (systemd-resolved)
-resolvectl dns lo 127.0.0.1:10053
-resolvectl domain lo ~cache.amazonaws.com ~es.amazonaws.com
-```
-
-Or add to `/etc/systemd/resolved.conf.d/gopherstack.conf`:
-```ini
-[Resolve]
-DNS=127.0.0.1:10053
-Domains=~cache.amazonaws.com ~es.amazonaws.com
-```
-
-### Just Skip DNS (simplest — recommended)
-
-**Use `embedded` mode and you don't need DNS at all.** The endpoint is `localhost:{port}`. This is how most developers should use Gopherstack day-to-day:
-
-```bash
-# Bare binary — no Docker, no DNS, no config
-gopherstack
-
-# Your app connects to localhost:8000 for AWS APIs
-# ElastiCache endpoints are localhost:{allocated-port}
-# Everything just works
-```
-
-DNS is only needed for:
-1. Docker-backed ElastiCache/OpenSearch where you want real AWS-style hostnames
-2. CloudFormation templates that reference endpoint hostnames
-3. Integration tests that validate endpoint format
+- Create `bench/` directory with comparative benchmarks vs LocalStack
 
 ---
 
@@ -485,49 +363,59 @@ DNS is only needed for:
 
 | Service | LocalStack Free | Gopherstack | Status |
 |---------|:-:|:-:|--------|
-| S3 | Yes | Yes | ~97% ✅ |
-| DynamoDB | Yes | Yes | ~95% ✅ |
-| SQS | Yes | Yes | ~95% ✅ |
-| SNS | Yes | Yes | ~90% ✅ |
-| Lambda | Yes | Yes | Image + Zip + ESM ✅ |
-| IAM | Yes | Yes | ~92% ✅ |
+| S3 | Yes | Yes | ~98% — full CRUD + lifecycle + notifications + object lock ✅ |
+| DynamoDB | Yes | Yes | ~95% — streams, TTL, PartiQL, transactions ✅ |
+| SQS | Yes | Yes | ~95% — FIFO, DLQ, batch, long polling ✅ |
+| SNS | Yes | Yes | ~90% — filter policies, cross-service delivery ✅ |
+| Lambda | Yes | Yes | 21 ops — Image + Zip + ESM + URLs + versions ✅ |
+| IAM | Yes | Yes | ~92% — users, roles, policies, groups ✅ |
 | STS | Yes | Yes | ~95% ✅ |
-| KMS | Yes | Yes | ~95% ✅ |
-| Secrets Manager | Yes | Yes | ~95% ✅ |
-| SSM (Parameter Store) | Yes | Yes | ~95% ✅ |
+| KMS | Yes | Yes | 23 ops — grants, key policies, rotation ✅ |
+| Secrets Manager | Yes | Yes | 11 ops — rotation with Lambda ✅ |
+| SSM (Parameter Store) | Yes | Yes | 11 ops — SecureString with KMS ✅ |
 | CloudFormation | Yes | Yes | 12 ops + 12 resource types ✅ |
 | CloudWatch Metrics | Yes | Yes | 7 ops + RPCv2 CBOR ✅ |
-| CloudWatch Logs | Yes | Yes | Core API ✅ |
-| API Gateway (REST) | Yes | Yes | 19 ops + Lambda proxy ✅ |
-| Step Functions | Yes | Yes | 9 ops + ASL interpreter ✅ |
+| CloudWatch Logs | Yes | Yes | 8 ops + Lambda log wiring ✅ |
+| API Gateway (REST) | Yes | Yes | 19 ops + Lambda proxy + VTL ✅ |
+| Step Functions | Yes | Yes | 9 ops + full ASL interpreter ✅ |
 | EventBridge | Yes | Yes | 14 ops + fan-out + patterns + scheduler ✅ |
 | Kinesis Streams | Yes | Yes | 10 ops + Lambda ESM ✅ |
-| ElastiCache | Yes | Yes | 7 ops + 3 engine modes ✅ |
-| Route 53 | Yes | No | v0.19 |
-| SES | Yes | No | v0.20 |
-| EC2 (basic) | Yes | No | v0.21 |
-| OpenSearch | Yes | No | v0.22 |
-| Elasticsearch | Yes | No | v0.22 (alias of OpenSearch) |
-| Redshift | Yes | No | v0.23 |
-| ACM | Yes | No | v0.23 |
-| AWS Config | Yes | No | v0.24 |
-| S3 Control | Yes | No | v0.24 |
-| Resource Groups | Yes | No | v0.24 |
-| SWF | Yes | No | v0.24 |
-| Kinesis Firehose | Yes | No | v0.24 |
-| Transcribe | Yes | No | Not planned |
+| Kinesis Firehose | Yes | Yes | 6 ops ✅ |
+| EC2 (basic) | Yes | Yes | 10 ops — stub (same as LocalStack free) ✅ |
+| Route 53 | Yes | Yes | 6 ops + real DNS resolution ✅ |
+| SES | Yes | Yes | 6 ops — captured locally ✅ |
+| OpenSearch | Yes | Yes | 4 ops + Docker mode ✅ |
+| Elasticsearch | Yes | Yes | Alias of OpenSearch ✅ |
+| Redshift | Yes | Yes | 3 ops — stub ✅ |
+| ACM | Yes | Yes | 4 ops ✅ |
+| AWS Config | Yes | Yes | 5 ops — stub (same as LocalStack) ✅ |
+| S3 Control | Yes | Yes | 3 ops ✅ |
+| Resource Groups | Yes | Yes | 4 ops ✅ |
+| SWF | Yes | Yes | 7 ops ✅ |
+| EventBridge Scheduler | Yes | No | v0.25 |
+| Route 53 Resolver | Yes | No | v0.25 |
+| Transcribe | Yes | No | v0.27 (stub — no real speech-to-text) |
+| Support API | Yes | No | v0.27 (stub) |
+| **ElastiCache** | **No (paid)** | **Yes** | 7 ops + embedded Redis — **free in Gopherstack** ✅ |
+| **RDS** | **No (paid)** | No | v0.26 — **will be free in Gopherstack** |
 
-**Current: 18/30 services (60%) — 9 milestones to v1.0**
+**Current: 29/34 free tier services (85%) + 1 paid-tier service (ElastiCache) included free**
+
+**After v0.27: 33/34 free tier services (97%) + 2 paid-tier services (ElastiCache, RDS) included free**
 
 ---
 
 ## Competitive Advantages
 
-1. **No Docker required for core services** — Single Go binary for 18 AWS services. Docker only needed for Lambda and optional Docker-backed ElastiCache/OpenSearch
-2. **Embedded ElastiCache** — Real Redis (via `miniredis`) running inside the Go binary. No Docker, no DNS, no external processes. `ELASTICACHE_ENGINE=embedded` is the default
-3. **Persistence for free** — LocalStack charges for persistence; Gopherstack can offer it in the base product
-4. **No account/auth required** — LocalStack is dropping its open-source edition (March 2026); Gopherstack remains fully open
-5. **Native Go performance** — Faster startup, lower memory footprint than LocalStack's Python runtime
-6. **Built-in web dashboard** — Full resource browser for all 18 services with dark mode, HTMX-powered interactions
-7. **Built-in observability** — Prometheus metrics + OpenTelemetry tracing out of the box
-8. **Progressive complexity** — Start with a bare binary (zero deps), add Docker for Lambda/Redis, add DNS only if you need AWS-style hostnames. Most devs never need Docker at all
+1. **No Docker required for core services** — Single Go binary for 29 AWS services. Docker only needed for Lambda and optional Docker-backed ElastiCache/OpenSearch/RDS
+2. **ElastiCache for free** — Real Redis (via `miniredis`) running inside the Go binary. LocalStack charges for this (Base tier)
+3. **RDS for free** (v0.26) — Real Postgres/MySQL via Docker, or API stubs. LocalStack charges for this (Base tier)
+4. **Real EventBridge execution** — Pattern matching, fan-out delivery, scheduled rules actually fire. LocalStack free tier is mocked-only
+5. **Real Step Functions ASL** — Full state machine interpreter. LocalStack free tier auto-succeeds
+6. **Persistence for free** (v0.31) — LocalStack charges for persistence; Gopherstack will offer it in the base product
+7. **No account/auth required** — LocalStack is dropping its open-source edition (March 2026); Gopherstack remains fully open
+8. **Native Go performance** — Faster startup, lower memory footprint than LocalStack's Python runtime
+9. **Built-in web dashboard** — Full resource browser for all 29 services with dark mode, HTMX-powered interactions
+10. **Built-in observability** — Prometheus metrics + OpenTelemetry tracing out of the box
+11. **Progressive complexity** — Start with a bare binary (zero deps), add Docker/Podman for Lambda/Redis/RDS, add DNS only if you need AWS-style hostnames
+12. **Podman support** (v0.30) — First-class Podman support via `CONTAINER_RUNTIME=podman`. LocalStack requires Docker
