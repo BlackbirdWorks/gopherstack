@@ -23,8 +23,9 @@ type Settings struct {
 }
 
 const (
-	defaultPoolSize    = 3
-	defaultIdleTimeout = 10 * time.Minute
+	defaultPoolSize         = 3
+	defaultIdleTimeout      = 10 * time.Minute
+	defaultContainerRuntime = "docker"
 )
 
 // DefaultSettings returns Settings with sensible defaults for use without Kong.
@@ -52,9 +53,14 @@ func DefaultSettings() Settings {
 		}
 	}
 
+	containerRuntime := defaultContainerRuntime
+	if r := os.Getenv("CONTAINER_RUNTIME"); r != "" {
+		containerRuntime = r
+	}
+
 	return Settings{
 		DockerHost:       dockerHost,
-		ContainerRuntime: os.Getenv("CONTAINER_RUNTIME"),
+		ContainerRuntime: containerRuntime,
 		PoolSize:         poolSize,
 		IdleTimeout:      idleTimeout,
 	}

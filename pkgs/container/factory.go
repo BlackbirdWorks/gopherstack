@@ -2,12 +2,15 @@ package container
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/docker/docker/client"
 )
+
+// ErrUnknownRuntime is returned when an unrecognised runtime name is provided.
+var ErrUnknownRuntime = errors.New("unknown container runtime")
 
 // NewRuntime creates a Runtime using the configured (or auto-detected) container runtime.
 //
@@ -36,7 +39,7 @@ func NewRuntime(cfg Config) (Runtime, error) {
 	case RuntimeAuto:
 		return autoDetectRuntime(cfg)
 	default:
-		return nil, fmt.Errorf("unknown container runtime %q; valid values: docker, podman, auto", name)
+		return nil, fmt.Errorf("%w %q; valid values: docker, podman, auto", ErrUnknownRuntime, name)
 	}
 }
 
@@ -52,7 +55,7 @@ func autoDetectRuntime(cfg Config) (Runtime, error) {
 			continue
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), socketProbeTimeout)
 		_, pingErr := sdkClient.Ping(ctx)
 		cancel()
 
@@ -69,5 +72,9 @@ func autoDetectRuntime(cfg Config) (Runtime, error) {
 		return rt, nil
 	}
 
-	return nil, fmt.Errorf("%w: neither Docker (tried %v) nor Podman socket is reachable", ErrUnavailable, dockerSocketPaths)
+	return nil, fmt.Errorf(
+		"%w: neither Docker (tried %v) nor Podman socket is reachable",
+		ErrUnavailable,
+		dockerSocketPaths,
+	)
 }

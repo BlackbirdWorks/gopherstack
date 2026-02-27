@@ -86,7 +86,11 @@ func (r *realDockerClient) ContainerStart(
 	return r.c.ContainerStart(ctx, containerID, options)
 }
 
-func (r *realDockerClient) ContainerStop(ctx context.Context, containerID string, options dockercontainer.StopOptions) error {
+func (r *realDockerClient) ContainerStop(
+	ctx context.Context,
+	containerID string,
+	options dockercontainer.StopOptions,
+) error {
 	return r.c.ContainerStop(ctx, containerID, options)
 }
 
@@ -185,7 +189,7 @@ func (r *DockerRuntime) HasImage(ctx context.Context, imageRef string) (bool, er
 
 // CreateAndStart creates a new container from spec and starts it.
 // Returns the container ID.
-func (r *DockerRuntime) CreateAndStart(ctx context.Context, spec ContainerSpec) (string, error) {
+func (r *DockerRuntime) CreateAndStart(ctx context.Context, spec Spec) (string, error) {
 	cfg := &dockercontainer.Config{
 		Image: spec.Image,
 		Env:   spec.Env,
@@ -229,7 +233,11 @@ func (r *DockerRuntime) StopAndRemove(ctx context.Context, containerID string) e
 // AcquireWarm returns a warm container from the pool for the given image.
 // If no warm container is available, a new one is created (up to PoolSize).
 // The caller must call ReleaseContainer when done.
-func (r *DockerRuntime) AcquireWarm(ctx context.Context, spec ContainerSpec) (*PooledContainer, error) {
+//
+// Note: PoolSize is a soft limit. When multiple goroutines call AcquireWarm concurrently,
+// the pool may temporarily exceed PoolSize by the number of concurrent callers that see no
+// idle container and concurrently create new ones.
+func (r *DockerRuntime) AcquireWarm(ctx context.Context, spec Spec) (*PooledContainer, error) {
 	r.mu.Lock()
 
 	pool := r.pools[spec.Image]

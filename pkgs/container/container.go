@@ -37,21 +37,14 @@ const (
 
 // Config holds configuration for the container runtime layer.
 type Config struct {
-	// Logger is an optional structured logger.
-	Logger *slog.Logger
-	// PoolSize is the maximum number of warm containers per image.
-	// Defaults to 3.
-	PoolSize int
-	// IdleTimeout is the duration after which an idle container is reaped.
-	// Defaults to 10 minutes.
+	Logger      *slog.Logger
+	Runtime     RuntimeName
+	PoolSize    int
 	IdleTimeout time.Duration
-	// Runtime selects the container runtime: docker, podman, or auto.
-	// Defaults to docker.  Can be overridden via CONTAINER_RUNTIME env var.
-	Runtime RuntimeName
 }
 
-// ContainerSpec holds the specification for creating a container.
-type ContainerSpec struct {
+// Spec holds the specification for creating a container.
+type Spec struct {
 	// Image is the container image reference.
 	Image string
 	// Name is an optional container name.
@@ -87,11 +80,11 @@ type Runtime interface {
 	HasImage(ctx context.Context, imageRef string) (bool, error)
 	// CreateAndStart creates a new container from spec and starts it.
 	// Returns the container ID.
-	CreateAndStart(ctx context.Context, spec ContainerSpec) (string, error)
+	CreateAndStart(ctx context.Context, spec Spec) (string, error)
 	// StopAndRemove stops and removes a container.
 	StopAndRemove(ctx context.Context, containerID string) error
 	// AcquireWarm returns a warm container from the pool for the given image.
-	AcquireWarm(ctx context.Context, spec ContainerSpec) (*PooledContainer, error)
+	AcquireWarm(ctx context.Context, spec Spec) (*PooledContainer, error)
 	// ReleaseContainer marks a pooled container as idle.
 	ReleaseContainer(containerID string) error
 	// ReapIdleContainers stops and removes containers idle longer than IdleTimeout.

@@ -9,12 +9,17 @@ import (
 	"github.com/docker/docker/client"
 )
 
-// podmanSocketPaths lists common Podman socket locations for auto-detection.
-// The first readable socket wins.
-var podmanSocketPaths = []string{
-	// XDG_RUNTIME_DIR-based rootless socket (most common on modern Linux).
-	// Evaluated at runtime via os.Getenv.
-	"", // placeholder — filled in by podmanCandidateSockets
+// socketProbeTimeout is the deadline for probing whether a container socket is reachable.
+const socketProbeTimeout = 2 * time.Second
+
+// podmanExtraCapacity is the number of extra slots reserved in podmanCandidateSockets
+// for the CONTAINER_HOST and XDG_RUNTIME_DIR entries that are added dynamically.
+const podmanExtraCapacity = 2
+
+// podmanSocketPaths lists common fixed Podman socket locations for auto-detection.
+// The first reachable socket wins. XDG_RUNTIME_DIR-based sockets are added dynamically
+// in podmanCandidateSockets.
+var podmanSocketPaths = []string{ //nolint:gochecknoglobals // intentional package-level constant slice
 	// Common fixed paths for rootless and rootful Podman.
 	"/run/user/1000/podman/podman.sock",
 	"/run/podman/podman.sock",
@@ -23,9 +28,11 @@ var podmanSocketPaths = []string{
 
 // podmanCandidateSockets returns the ordered list of Podman socket paths to probe.
 func podmanCandidateSockets() []string {
-	candidates := make([]string, 0, len(podmanSocketPaths))
+	candidates := make([]string, 0, len(podmanSocketPaths)+podmanExtraCapacity)
 
-	// Honour CONTAINER_HOST / DOCKER_HOST if set.
+	// Honour CONTAINER_HOST if set. This is a generic container endpoint override
+	// and takes precedence over all auto-detection (XDG_RUNTIME_DIR and well-known paths).
+	// Note: Docker auto-detection uses dockerSocketPaths and does not consult CONTAINER_HOST.
 	if h := os.Getenv("CONTAINER_HOST"); h != "" {
 		candidates = append(candidates, h)
 	}
@@ -44,7 +51,7 @@ func podmanCandidateSockets() []string {
 }
 
 // dockerSocketPaths lists common Docker socket locations for auto-detection.
-var dockerSocketPaths = []string{
+var dockerSocketPaths = []string{ //nolint:gochecknoglobals // intentional package-level constant slice
 	"unix:///var/run/docker.sock",
 	"unix:///run/docker.sock",
 }
@@ -69,12 +76,13 @@ func newPodmanRuntime(cfg Config) (*DockerRuntime, error) {
 			continue
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), socketProbeTimeout)
 		_, pingErr := sdkClient.Ping(ctx)
 		cancel()
 
 		if pingErr != nil {
 			_ = sdkClient.Close()
+
 			continue
 		}
 

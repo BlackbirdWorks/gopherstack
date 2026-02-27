@@ -1247,7 +1247,7 @@ func (b *InMemoryBackend) startContainer(
 		return b.startZipContainer(ctx, fn, env)
 	}
 
-	spec := container.ContainerSpec{
+	spec := container.Spec{
 		Image: fn.ImageURI,
 		Name:  fmt.Sprintf("gopherstack-lambda-%s-%s", fn.FunctionName, uuid.New().String()[:8]),
 		Env:   env,
@@ -1295,7 +1295,7 @@ func (b *InMemoryBackend) startZipContainer(
 		return "", fmt.Errorf("%w: zip extraction failed: %w", ErrLambdaUnavailable, extractErr)
 	}
 
-	spec := container.ContainerSpec{
+	spec := container.Spec{
 		Image:  baseImage,
 		Name:   fmt.Sprintf("gopherstack-lambda-%s-%s", fn.FunctionName, uuid.New().String()[:8]),
 		Env:    env,

@@ -19,20 +19,32 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 )
 
+// ---- sentinel errors used in tests ----
+
+var (
+	errDaemonDown      = errors.New("daemon down")
+	errRegistryUnreach = errors.New("registry unreachable")
+	errDaemonError     = errors.New("daemon error")
+	errCreateFailed    = errors.New("create failed")
+	errStartFailed     = errors.New("start failed")
+	errStopFailed      = errors.New("stop failed")
+	errRemoveFailed    = errors.New("remove failed")
+)
+
 // ---- mock APIClient for testing ----
 
 type mockAPI struct {
-	pullErr    error
-	createErr  error
-	startErr   error
-	stopErr    error
-	removeErr  error
-	listErr    error
-	pingErr    error
-	images     []image.Summary
-	counter    int
+	pullErr     error
+	createErr   error
+	startErr    error
+	stopErr     error
+	removeErr   error
+	listErr     error
+	pingErr     error
+	images      []image.Summary
+	counter     int
 	closeCalled bool
-	mu         sync.Mutex
+	mu          sync.Mutex
 }
 
 func (m *mockAPI) ImagePull(_ context.Context, _ string, _ image.PullOptions) (io.ReadCloser, error) {
@@ -89,6 +101,7 @@ func (m *mockAPI) Ping(_ context.Context) (any, error) {
 
 func (m *mockAPI) Close() error {
 	m.closeCalled = true
+
 	return nil
 }
 
@@ -112,7 +125,7 @@ func TestDockerRuntime_Ping_OK(t *testing.T) {
 func TestDockerRuntime_Ping_Err(t *testing.T) {
 	t.Parallel()
 
-	rt := newRuntime(&mockAPI{pingErr: errors.New("daemon down")})
+	rt := newRuntime(&mockAPI{pingErr: errDaemonDown})
 	err := rt.Ping(t.Context())
 	require.Error(t, err)
 	assert.ErrorIs(t, err, container.ErrUnavailable)
@@ -130,7 +143,7 @@ func TestDockerRuntime_PullImage_OK(t *testing.T) {
 func TestDockerRuntime_PullImage_Err(t *testing.T) {
 	t.Parallel()
 
-	rt := newRuntime(&mockAPI{pullErr: errors.New("registry unreachable")})
+	rt := newRuntime(&mockAPI{pullErr: errRegistryUnreach})
 	err := rt.PullImage(t.Context(), "alpine:latest")
 	require.Error(t, err)
 }
@@ -158,7 +171,7 @@ func TestDockerRuntime_HasImage_False(t *testing.T) {
 func TestDockerRuntime_HasImage_Err(t *testing.T) {
 	t.Parallel()
 
-	rt := newRuntime(&mockAPI{listErr: errors.New("daemon error")})
+	rt := newRuntime(&mockAPI{listErr: errDaemonError})
 	_, err := rt.HasImage(t.Context(), "alpine:latest")
 	require.Error(t, err)
 }
@@ -169,7 +182,7 @@ func TestDockerRuntime_CreateAndStart_OK(t *testing.T) {
 	t.Parallel()
 
 	rt := newRuntime(&mockAPI{})
-	id, err := rt.CreateAndStart(t.Context(), container.ContainerSpec{Image: "alpine"})
+	id, err := rt.CreateAndStart(t.Context(), container.Spec{Image: "alpine"})
 	require.NoError(t, err)
 	assert.Equal(t, "ctr-1", id)
 }
@@ -177,16 +190,16 @@ func TestDockerRuntime_CreateAndStart_OK(t *testing.T) {
 func TestDockerRuntime_CreateAndStart_CreateErr(t *testing.T) {
 	t.Parallel()
 
-	rt := newRuntime(&mockAPI{createErr: errors.New("create failed")})
-	_, err := rt.CreateAndStart(t.Context(), container.ContainerSpec{Image: "alpine"})
+	rt := newRuntime(&mockAPI{createErr: errCreateFailed})
+	_, err := rt.CreateAndStart(t.Context(), container.Spec{Image: "alpine"})
 	require.Error(t, err)
 }
 
 func TestDockerRuntime_CreateAndStart_StartErr(t *testing.T) {
 	t.Parallel()
 
-	rt := newRuntime(&mockAPI{startErr: errors.New("start failed")})
-	_, err := rt.CreateAndStart(t.Context(), container.ContainerSpec{Image: "alpine"})
+	rt := newRuntime(&mockAPI{startErr: errStartFailed})
+	_, err := rt.CreateAndStart(t.Context(), container.Spec{Image: "alpine"})
 	require.Error(t, err)
 }
 
@@ -202,7 +215,7 @@ func TestDockerRuntime_StopAndRemove_OK(t *testing.T) {
 func TestDockerRuntime_StopAndRemove_StopErr(t *testing.T) {
 	t.Parallel()
 
-	rt := newRuntime(&mockAPI{stopErr: errors.New("stop failed")})
+	rt := newRuntime(&mockAPI{stopErr: errStopFailed})
 	err := rt.StopAndRemove(t.Context(), "ctr-1")
 	require.Error(t, err)
 }
@@ -213,7 +226,7 @@ func TestDockerRuntime_AcquireWarm_CreatesNew(t *testing.T) {
 	t.Parallel()
 
 	rt := newRuntime(&mockAPI{})
-	pc, err := rt.AcquireWarm(t.Context(), container.ContainerSpec{Image: "myimage"})
+	pc, err := rt.AcquireWarm(t.Context(), container.Spec{Image: "myimage"})
 	require.NoError(t, err)
 	assert.True(t, pc.InUse)
 	assert.Equal(t, "myimage", pc.Image)
@@ -223,7 +236,7 @@ func TestDockerRuntime_AcquireWarm_ReusesIdle(t *testing.T) {
 	t.Parallel()
 
 	rt := newRuntime(&mockAPI{})
-	spec := container.ContainerSpec{Image: "reuse-image"}
+	spec := container.Spec{Image: "reuse-image"}
 
 	pc, err := rt.AcquireWarm(t.Context(), spec)
 	require.NoError(t, err)
@@ -238,7 +251,7 @@ func TestDockerRuntime_AcquireWarm_PoolExhausted(t *testing.T) {
 	t.Parallel()
 
 	rt := container.NewDockerRuntimeWithAPI(&mockAPI{}, container.Config{PoolSize: 1})
-	spec := container.ContainerSpec{Image: "limited-image"}
+	spec := container.Spec{Image: "limited-image"}
 
 	_, err := rt.AcquireWarm(t.Context(), spec)
 	require.NoError(t, err)
@@ -265,7 +278,7 @@ func TestDockerRuntime_ReapIdleContainers(t *testing.T) {
 		IdleTimeout: time.Nanosecond, // immediately expired
 	})
 
-	spec := container.ContainerSpec{Image: "reap-image"}
+	spec := container.Spec{Image: "reap-image"}
 	pc, err := rt.AcquireWarm(t.Context(), spec)
 	require.NoError(t, err)
 	require.NoError(t, rt.ReleaseContainer(pc.ID))
@@ -309,13 +322,13 @@ func TestDockerRuntime_ReapIdleContainers_WithLogger(t *testing.T) {
 	t.Parallel()
 
 	// Use a stop error so the reaper logs a warning.
-	rt := container.NewDockerRuntimeWithAPI(&mockAPI{stopErr: errors.New("stop failed")}, container.Config{
+	rt := container.NewDockerRuntimeWithAPI(&mockAPI{stopErr: errStopFailed}, container.Config{
 		PoolSize:    2,
 		IdleTimeout: time.Nanosecond,
 		Logger:      slog.Default(),
 	})
 
-	spec := container.ContainerSpec{Image: "warn-image"}
+	spec := container.Spec{Image: "warn-image"}
 	pc, err := rt.AcquireWarm(t.Context(), spec)
 	require.NoError(t, err)
 	require.NoError(t, rt.ReleaseContainer(pc.ID))
@@ -328,7 +341,7 @@ func TestDockerRuntime_ReapIdleContainers_WithLogger(t *testing.T) {
 func TestDockerRuntime_StopAndRemove_RemoveErr(t *testing.T) {
 	t.Parallel()
 
-	rt := newRuntime(&mockAPI{removeErr: errors.New("remove failed")})
+	rt := newRuntime(&mockAPI{removeErr: errRemoveFailed})
 	err := rt.StopAndRemove(t.Context(), "ctr-1")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "container remove")
@@ -337,8 +350,8 @@ func TestDockerRuntime_StopAndRemove_RemoveErr(t *testing.T) {
 func TestDockerRuntime_AcquireWarm_CreateErr(t *testing.T) {
 	t.Parallel()
 
-	rt := newRuntime(&mockAPI{createErr: errors.New("create failed")})
-	_, err := rt.AcquireWarm(t.Context(), container.ContainerSpec{Image: "err-image"})
+	rt := newRuntime(&mockAPI{createErr: errCreateFailed})
+	_, err := rt.AcquireWarm(t.Context(), container.Spec{Image: "err-image"})
 	require.Error(t, err)
 }
 
@@ -373,7 +386,7 @@ func TestDockerRuntime_StartReaper_ReapsAfterInterval(t *testing.T) {
 		IdleTimeout: time.Nanosecond,
 	})
 
-	spec := container.ContainerSpec{Image: "ticker-image"}
+	spec := container.Spec{Image: "ticker-image"}
 	pc, err := rt.AcquireWarm(t.Context(), spec)
 	require.NoError(t, err)
 	require.NoError(t, rt.ReleaseContainer(pc.ID))
@@ -388,9 +401,9 @@ func TestDockerRuntime_StartReaper_ReapsAfterInterval(t *testing.T) {
 func TestRuntimeName_Constants(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, container.RuntimeName("docker"), container.RuntimeDocker)
-	assert.Equal(t, container.RuntimeName("podman"), container.RuntimePodman)
-	assert.Equal(t, container.RuntimeName("auto"), container.RuntimeAuto)
+	assert.Equal(t, container.RuntimeDocker, container.RuntimeName("docker"))
+	assert.Equal(t, container.RuntimePodman, container.RuntimeName("podman"))
+	assert.Equal(t, container.RuntimeAuto, container.RuntimeName("auto"))
 }
 
 // ---- NewRuntime factory / auto-detection ----
@@ -400,7 +413,7 @@ func TestNewRuntime_UnknownRuntimeName(t *testing.T) {
 
 	_, err := container.NewRuntime(container.Config{Runtime: "invalid-runtime"})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unknown container runtime")
+	assert.ErrorIs(t, err, container.ErrUnknownRuntime)
 }
 
 func TestNewRuntime_DockerUnavailable(t *testing.T) {
