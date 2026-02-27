@@ -6,12 +6,14 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/swf"
 )
 
@@ -181,4 +183,143 @@ func TestSWF_Provider(t *testing.T) {
 
 	p := &swf.Provider{}
 	assert.Equal(t, "SWF", p.Name())
+}
+
+func TestSWF_Handler_Name(t *testing.T) {
+	t.Parallel()
+
+	h := newTestSWFHandler(t)
+	assert.Equal(t, "SWF", h.Name())
+}
+
+func TestSWF_Handler_GetSupportedOperations(t *testing.T) {
+	t.Parallel()
+
+	h := newTestSWFHandler(t)
+	ops := h.GetSupportedOperations()
+	assert.Contains(t, ops, "RegisterDomain")
+	assert.Contains(t, ops, "ListDomains")
+	assert.Contains(t, ops, "DeprecateDomain")
+	assert.Contains(t, ops, "RegisterWorkflowType")
+	assert.Contains(t, ops, "ListWorkflowTypes")
+	assert.Contains(t, ops, "StartWorkflowExecution")
+	assert.Contains(t, ops, "DescribeWorkflowExecution")
+}
+
+func TestSWF_Handler_MatchPriority(t *testing.T) {
+	t.Parallel()
+
+	h := newTestSWFHandler(t)
+	assert.Equal(t, 100, h.MatchPriority())
+}
+
+func TestSWF_Handler_ExtractOperation(t *testing.T) {
+	t.Parallel()
+
+	h := newTestSWFHandler(t)
+	e := echo.New()
+
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	req.Header.Set("X-Amz-Target", "SimpleWorkflowService.RegisterDomain")
+	c := e.NewContext(req, httptest.NewRecorder())
+	assert.Equal(t, "RegisterDomain", h.ExtractOperation(c))
+
+	// No target → "Unknown"
+	req2 := httptest.NewRequest(http.MethodPost, "/", nil)
+	c2 := e.NewContext(req2, httptest.NewRecorder())
+	assert.Equal(t, "Unknown", h.ExtractOperation(c2))
+}
+
+func TestSWF_Handler_ExtractResource(t *testing.T) {
+	t.Parallel()
+
+	h := newTestSWFHandler(t)
+	e := echo.New()
+
+	// name field
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"name":"my-domain"}`))
+	c := e.NewContext(req, httptest.NewRecorder())
+	assert.Equal(t, "my-domain", h.ExtractResource(c))
+
+	// domain field (fallback)
+	req2 := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"domain":"test-domain"}`))
+	c2 := e.NewContext(req2, httptest.NewRecorder())
+	assert.Equal(t, "test-domain", h.ExtractResource(c2))
+}
+
+func TestSWF_Handler_RouteMatcher_NoMatch(t *testing.T) {
+	t.Parallel()
+
+	h := newTestSWFHandler(t)
+	matcher := h.RouteMatcher()
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	req.Header.Set("X-Amz-Target", "Firehose_20150804.CreateDeliveryStream")
+	c := e.NewContext(req, httptest.NewRecorder())
+
+	assert.False(t, matcher(c))
+}
+
+func TestSWF_Handler_RegisterDomain_AlreadyExists(t *testing.T) {
+	t.Parallel()
+
+	h := newTestSWFHandler(t)
+	doSWFRequest(t, h, "RegisterDomain", map[string]any{"name": "my-domain"})
+
+	rec := doSWFRequest(t, h, "RegisterDomain", map[string]any{"name": "my-domain"})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestSWF_Handler_RegisterDomain_Deprecated(t *testing.T) {
+	t.Parallel()
+
+	h := newTestSWFHandler(t)
+	doSWFRequest(t, h, "RegisterDomain", map[string]any{"name": "my-domain"})
+	doSWFRequest(t, h, "DeprecateDomain", map[string]any{"name": "my-domain"})
+
+	// Re-registering a deprecated domain returns ErrDeprecated
+	rec := doSWFRequest(t, h, "RegisterDomain", map[string]any{"name": "my-domain"})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestSWF_Handler_RegisterWorkflowType_AlreadyExists(t *testing.T) {
+	t.Parallel()
+
+	h := newTestSWFHandler(t)
+	doSWFRequest(t, h, "RegisterWorkflowType", map[string]any{
+		"domain":  "my-domain",
+		"name":    "my-wf",
+		"version": "1.0",
+	})
+
+	rec := doSWFRequest(t, h, "RegisterWorkflowType", map[string]any{
+		"domain":  "my-domain",
+		"name":    "my-wf",
+		"version": "1.0",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestSWF_Handler_DescribeWorkflowExecution_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestSWFHandler(t)
+
+	rec := doSWFRequest(t, h, "DescribeWorkflowExecution", map[string]any{
+		"domain":    "d1",
+		"execution": map[string]any{"workflowId": "nonexistent"},
+	})
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestSWF_Provider_Init(t *testing.T) {
+	t.Parallel()
+
+	p := &swf.Provider{}
+	ctx := &service.AppContext{Logger: slog.Default()}
+	svc, err := p.Init(ctx)
+	require.NoError(t, err)
+	assert.NotNil(t, svc)
+	assert.Equal(t, "SWF", svc.Name())
 }

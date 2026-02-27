@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/s3control"
 )
 
@@ -160,4 +161,147 @@ func TestS3Control_Provider(t *testing.T) {
 
 	p := &s3control.Provider{}
 	assert.Equal(t, "S3Control", p.Name())
+}
+
+func TestS3Control_Handler_Name(t *testing.T) {
+	t.Parallel()
+
+	h := newTestS3ControlHandler(t)
+	assert.Equal(t, "S3Control", h.Name())
+}
+
+func TestS3Control_Handler_GetSupportedOperations(t *testing.T) {
+	t.Parallel()
+
+	h := newTestS3ControlHandler(t)
+	ops := h.GetSupportedOperations()
+	assert.Contains(t, ops, "GetPublicAccessBlock")
+	assert.Contains(t, ops, "PutPublicAccessBlock")
+	assert.Contains(t, ops, "DeletePublicAccessBlock")
+}
+
+func TestS3Control_Handler_MatchPriority(t *testing.T) {
+	t.Parallel()
+
+	h := newTestS3ControlHandler(t)
+	assert.Equal(t, 85, h.MatchPriority())
+}
+
+func TestS3Control_Handler_ExtractOperation(t *testing.T) {
+	t.Parallel()
+
+	h := newTestS3ControlHandler(t)
+	e := echo.New()
+
+	for _, tc := range []struct {
+		method string
+		want   string
+	}{
+		{http.MethodGet, "GetPublicAccessBlock"},
+		{http.MethodPut, "PutPublicAccessBlock"},
+		{http.MethodDelete, "DeletePublicAccessBlock"},
+	} {
+		req := httptest.NewRequest(tc.method, publicAccessBlockPath, nil)
+		c := e.NewContext(req, httptest.NewRecorder())
+		assert.Equal(t, tc.want, h.ExtractOperation(c))
+	}
+
+	// Unknown path
+	req := httptest.NewRequest(http.MethodGet, "/other/path", nil)
+	c := e.NewContext(req, httptest.NewRecorder())
+	assert.Equal(t, "Unknown", h.ExtractOperation(c))
+}
+
+func TestS3Control_Handler_ExtractResource(t *testing.T) {
+	t.Parallel()
+
+	h := newTestS3ControlHandler(t)
+	e := echo.New()
+
+	req := httptest.NewRequest(http.MethodGet, publicAccessBlockPath, nil)
+	req.Header.Set("X-Amz-Account-Id", "123456789012")
+	c := e.NewContext(req, httptest.NewRecorder())
+	assert.Equal(t, "123456789012", h.ExtractResource(c))
+}
+
+func TestS3Control_Handler_DeletePublicAccessBlock_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestS3ControlHandler(t)
+
+	rec := doS3ControlRequest(t, h, http.MethodDelete, "nonexistent-account", "")
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestS3Control_Handler_GetWithDefaultAccount(t *testing.T) {
+	t.Parallel()
+
+	h := newTestS3ControlHandler(t)
+
+	// Put a config using empty account (uses "default")
+	putBody := `<PublicAccessBlockConfiguration><BlockPublicAcls>true</BlockPublicAcls></PublicAccessBlockConfiguration>`
+	putRec := doS3ControlRequest(t, h, http.MethodPut, "", putBody)
+	assert.Equal(t, http.StatusCreated, putRec.Code)
+
+	// Get it back using empty account ID (uses "default")
+	getRec := doS3ControlRequest(t, h, http.MethodGet, "", "")
+	assert.Equal(t, http.StatusOK, getRec.Code)
+
+	// Delete using empty account ID
+	delRec := doS3ControlRequest(t, h, http.MethodDelete, "", "")
+	assert.Equal(t, http.StatusNoContent, delRec.Code)
+}
+
+func TestS3Control_Handler_InvalidMethod(t *testing.T) {
+	t.Parallel()
+
+	h := newTestS3ControlHandler(t)
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, publicAccessBlockPath, nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := h.Handler()(c)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestS3Control_Backend_ListAll(t *testing.T) {
+	t.Parallel()
+
+	b := s3control.NewInMemoryBackend()
+	assert.Empty(t, b.ListAll())
+
+	b.PutPublicAccessBlock(s3control.PublicAccessBlock{AccountID: "acc1", BlockPublicAcls: true})
+	b.PutPublicAccessBlock(s3control.PublicAccessBlock{AccountID: "acc2", BlockPublicPolicy: true})
+
+	all := b.ListAll()
+	assert.Len(t, all, 2)
+}
+
+func TestS3Control_Handler_PutInvalidXML(t *testing.T) {
+	t.Parallel()
+
+	h := newTestS3ControlHandler(t)
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPut, publicAccessBlockPath, strings.NewReader("not-xml"))
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := h.Handler()(c)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestS3Control_Provider_Init(t *testing.T) {
+	t.Parallel()
+
+	p := &s3control.Provider{}
+	ctx := &service.AppContext{Logger: slog.Default()}
+	svc, err := p.Init(ctx)
+	require.NoError(t, err)
+	assert.NotNil(t, svc)
+	assert.Equal(t, "S3Control", svc.Name())
 }

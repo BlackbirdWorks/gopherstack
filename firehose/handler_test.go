@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/labstack/echo/v5"
@@ -14,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/firehose"
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
 func newTestFirehoseHandler(t *testing.T) *firehose.Handler {
@@ -164,4 +166,165 @@ func TestFirehose_Provider(t *testing.T) {
 
 	p := &firehose.Provider{}
 	assert.Equal(t, "Firehose", p.Name())
+}
+
+func TestFirehose_Handler_Name(t *testing.T) {
+	t.Parallel()
+
+	h := newTestFirehoseHandler(t)
+	assert.Equal(t, "Firehose", h.Name())
+}
+
+func TestFirehose_Handler_GetSupportedOperations(t *testing.T) {
+	t.Parallel()
+
+	h := newTestFirehoseHandler(t)
+	ops := h.GetSupportedOperations()
+	assert.Contains(t, ops, "CreateDeliveryStream")
+	assert.Contains(t, ops, "DeleteDeliveryStream")
+	assert.Contains(t, ops, "DescribeDeliveryStream")
+	assert.Contains(t, ops, "ListDeliveryStreams")
+	assert.Contains(t, ops, "PutRecord")
+	assert.Contains(t, ops, "PutRecordBatch")
+}
+
+func TestFirehose_Handler_MatchPriority(t *testing.T) {
+	t.Parallel()
+
+	h := newTestFirehoseHandler(t)
+	assert.Equal(t, 100, h.MatchPriority())
+}
+
+func TestFirehose_Handler_ExtractOperation(t *testing.T) {
+	t.Parallel()
+
+	h := newTestFirehoseHandler(t)
+	e := echo.New()
+
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	req.Header.Set("X-Amz-Target", "Firehose_20150804.CreateDeliveryStream")
+	c := e.NewContext(req, httptest.NewRecorder())
+	assert.Equal(t, "CreateDeliveryStream", h.ExtractOperation(c))
+
+	// No target → "Unknown"
+	req2 := httptest.NewRequest(http.MethodPost, "/", nil)
+	c2 := e.NewContext(req2, httptest.NewRecorder())
+	assert.Equal(t, "Unknown", h.ExtractOperation(c2))
+}
+
+func TestFirehose_Handler_ExtractResource(t *testing.T) {
+	t.Parallel()
+
+	h := newTestFirehoseHandler(t)
+	e := echo.New()
+
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"DeliveryStreamName":"my-stream"}`))
+	c := e.NewContext(req, httptest.NewRecorder())
+	assert.Equal(t, "my-stream", h.ExtractResource(c))
+}
+
+func TestFirehose_Handler_RouteMatcher_NoMatch(t *testing.T) {
+	t.Parallel()
+
+	h := newTestFirehoseHandler(t)
+	matcher := h.RouteMatcher()
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	req.Header.Set("X-Amz-Target", "SimpleWorkflowService.RegisterDomain")
+	c := e.NewContext(req, httptest.NewRecorder())
+
+	assert.False(t, matcher(c))
+}
+
+func TestFirehose_Handler_CreateDeliveryStream_AlreadyExists(t *testing.T) {
+	t.Parallel()
+
+	h := newTestFirehoseHandler(t)
+	doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
+
+	rec := doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestFirehose_Handler_DeleteDeliveryStream_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestFirehoseHandler(t)
+
+	rec := doFirehoseRequest(t, h, "DeleteDeliveryStream", map[string]any{"DeliveryStreamName": "nonexistent"})
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestFirehose_Handler_DescribeDeliveryStream_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestFirehoseHandler(t)
+
+	rec := doFirehoseRequest(t, h, "DescribeDeliveryStream", map[string]any{"DeliveryStreamName": "nonexistent"})
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestFirehose_Handler_PutRecord_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestFirehoseHandler(t)
+
+	data := base64.StdEncoding.EncodeToString([]byte("hello"))
+	rec := doFirehoseRequest(t, h, "PutRecord", map[string]any{
+		"DeliveryStreamName": "nonexistent",
+		"Record":             map[string]string{"Data": data},
+	})
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestFirehose_Handler_PutRecord_RawData(t *testing.T) {
+	t.Parallel()
+
+	h := newTestFirehoseHandler(t)
+	doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
+
+	// Non-base64 data falls back to raw bytes
+	rec := doFirehoseRequest(t, h, "PutRecord", map[string]any{
+		"DeliveryStreamName": "my-stream",
+		"Record":             map[string]string{"Data": "not-base64!@#"},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestFirehose_Handler_PutRecordBatch_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestFirehoseHandler(t)
+
+	rec := doFirehoseRequest(t, h, "PutRecordBatch", map[string]any{
+		"DeliveryStreamName": "nonexistent",
+		"Records":            []map[string]string{{"Data": base64.StdEncoding.EncodeToString([]byte("a"))}},
+	})
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestFirehose_Handler_PutRecordBatch_RawData(t *testing.T) {
+	t.Parallel()
+
+	h := newTestFirehoseHandler(t)
+	doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
+
+	// Non-base64 data falls back to raw bytes
+	rec := doFirehoseRequest(t, h, "PutRecordBatch", map[string]any{
+		"DeliveryStreamName": "my-stream",
+		"Records":            []map[string]string{{"Data": "not-base64!@#"}},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestFirehose_Provider_Init(t *testing.T) {
+	t.Parallel()
+
+	p := &firehose.Provider{}
+	ctx := &service.AppContext{Logger: slog.Default()}
+	svc, err := p.Init(ctx)
+	require.NoError(t, err)
+	assert.NotNil(t, svc)
+	assert.Equal(t, "Firehose", svc.Name())
 }
