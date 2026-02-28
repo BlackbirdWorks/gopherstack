@@ -99,7 +99,7 @@ jobs:
       - name: Run OpenTofu Tests
         run: |
           go tool gotestsum --format pkgname -- \
-            -race -timeout 15m \
+            -race -parallel 8 -timeout 15m \
             ./test/terraform/...
 
   e2e:
