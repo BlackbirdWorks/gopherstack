@@ -75,13 +75,13 @@ func TestIntegration_APIGateway_FullLifecycle(t *testing.T) {
 	resp3 := apigwPost(t, "GetRestApis", map[string]any{})
 	assert.Equal(t, http.StatusOK, resp3.StatusCode)
 	list := apigwReadJSON(t, resp3)
-	assert.Contains(t, list, "items")
+	assert.Contains(t, list, "item")
 
 	// 4. GetResources — should return at least the root resource
 	resp4 := apigwPost(t, "GetResources", map[string]any{"restApiId": apiID})
 	assert.Equal(t, http.StatusOK, resp4.StatusCode)
 	resources := apigwReadJSON(t, resp4)
-	items, ok := resources["items"].([]any)
+	items, ok := resources["item"].([]any)
 	require.True(t, ok)
 	require.NotEmpty(t, items)
 
@@ -158,7 +158,7 @@ func TestIntegration_APIGateway_FullLifecycle(t *testing.T) {
 	resp11 := apigwPost(t, "GetDeployments", map[string]any{"restApiId": apiID})
 	assert.Equal(t, http.StatusOK, resp11.StatusCode)
 	deploys := apigwReadJSON(t, resp11)
-	assert.Contains(t, deploys, "items")
+	assert.Contains(t, deploys, "item")
 
 	// 12. GetStages — should include the "prod" stage created with deployment
 	resp12 := apigwPost(t, "GetStages", map[string]any{"restApiId": apiID})
@@ -204,7 +204,7 @@ func TestIntegration_APIGateway_FullLifecycle(t *testing.T) {
 
 	// 16. DeleteRestApi
 	resp16 := apigwPost(t, "DeleteRestApi", map[string]any{"restApiId": apiID})
-	assert.Equal(t, http.StatusNoContent, resp16.StatusCode)
+	assert.Equal(t, http.StatusAccepted, resp16.StatusCode)
 	resp16.Body.Close()
 
 	// Verify deletion

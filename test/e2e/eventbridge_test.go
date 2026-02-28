@@ -85,7 +85,7 @@ func TestEventBridgeDashboard_Rules(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/eventbridge/rules?bus=rules-bus")
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('EventBridge')").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("h1:has-text('Rules')").WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
@@ -93,4 +93,5 @@ func TestEventBridgeDashboard_Rules(t *testing.T) {
 	content, err := page.Content()
 	require.NoError(t, err)
 	assert.Contains(t, content, "test-rule")
+	assert.Contains(t, content, "rules-bus")
 }
