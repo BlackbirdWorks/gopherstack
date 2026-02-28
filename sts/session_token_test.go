@@ -14,7 +14,7 @@ import (
 func TestGetSessionToken(t *testing.T) {
 	tests := []struct {
 		name            string
-		duration        int
+		duration        int32
 		wantErr         bool
 		wantDuration    time.Duration
 		tolerance       time.Duration
