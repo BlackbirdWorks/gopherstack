@@ -42,6 +42,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListDeliveryStreams",
 		"PutRecord",
 		"PutRecordBatch",
+		"ListTagsForDeliveryStream",
+		"TagDeliveryStream",
+		"UntagDeliveryStream",
 	}
 }
 
@@ -103,6 +106,8 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.handlePutRecord(c, body)
 		case "PutRecordBatch":
 			return h.handlePutRecordBatch(c, body)
+		case "ListTagsForDeliveryStream", "TagDeliveryStream", "UntagDeliveryStream":
+			return h.handleTagOperation(c, action, body)
 		default:
 			return c.JSON(http.StatusBadRequest, map[string]string{"message": "unknown action: " + action})
 		}
@@ -248,4 +253,15 @@ func (h *Handler) handlePutRecordBatch(c *echo.Context, body []byte) error {
 		"FailedPutCount":   failedCount,
 		"RequestResponses": []map[string]string{},
 	})
+}
+
+func (h *Handler) handleTagOperation(c *echo.Context, action string, _ []byte) error {
+	if action == "ListTagsForDeliveryStream" {
+		return c.JSON(http.StatusOK, map[string]any{
+			"Tags":        []any{},
+			"HasMoreTags": false,
+		})
+	}
+	// TagDeliveryStream and UntagDeliveryStream: no-op stubs.
+	return c.JSON(http.StatusOK, map[string]any{})
 }

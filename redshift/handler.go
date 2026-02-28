@@ -41,6 +41,10 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateCluster",
 		"DeleteCluster",
 		"DescribeClusters",
+		"DescribeLoggingStatus",
+		"DescribeTags",
+		"CreateTags",
+		"DeleteTags",
 	}
 }
 
@@ -124,6 +128,12 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			resp, opErr = h.handleDeleteCluster(vals)
 		case "DescribeClusters":
 			resp, opErr = h.handleDescribeClusters(vals)
+		case "DescribeLoggingStatus":
+			return h.writeXMLResponse(c, http.StatusOK, h.loggingStatusResponse())
+		case "DescribeTags":
+			return h.writeXMLResponse(c, http.StatusOK, h.describeTagsResponse())
+		case "CreateTags", "DeleteTags":
+			return h.writeXMLResponse(c, http.StatusOK, h.emptyTagsResponse(action))
 		default:
 			return h.writeError(c, http.StatusBadRequest, "InvalidAction",
 				fmt.Sprintf("%s is not a valid Redshift action", action))
@@ -285,4 +295,59 @@ type describeClustersResponse struct {
 	XMLName  xml.Name       `xml:"DescribeClustersResponse"`
 	Xmlns    string         `xml:"xmlns,attr"`
 	Clusters xmlClusterList `xml:"DescribeClustersResult>Clusters"`
+}
+
+func (h *Handler) writeXMLResponse(c *echo.Context, status int, v any) error {
+	xmlBytes, err := marshalXML(v)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, "internal server error")
+	}
+
+	return c.Blob(status, "text/xml", xmlBytes)
+}
+
+func (h *Handler) loggingStatusResponse() any {
+	type describeLoggingStatusResult struct {
+		XMLName        xml.Name `xml:"DescribeLoggingStatusResult"`
+		LoggingEnabled bool     `xml:"LoggingEnabled"`
+	}
+	type response struct {
+		XMLName                     xml.Name                    `xml:"DescribeLoggingStatusResponse"`
+		Xmlns                       string                      `xml:"xmlns,attr"`
+		DescribeLoggingStatusResult describeLoggingStatusResult `xml:"DescribeLoggingStatusResult"`
+	}
+
+	return &response{
+		Xmlns:                       redshiftXMLNS,
+		DescribeLoggingStatusResult: describeLoggingStatusResult{LoggingEnabled: false},
+	}
+}
+
+func (h *Handler) describeTagsResponse() any {
+	type describeTagsResult struct {
+		XMLName xml.Name `xml:"DescribeTagsResult"`
+		Marker  string   `xml:"Marker,omitempty"`
+	}
+	type response struct {
+		XMLName            xml.Name           `xml:"DescribeTagsResponse"`
+		Xmlns              string             `xml:"xmlns,attr"`
+		DescribeTagsResult describeTagsResult `xml:"DescribeTagsResult"`
+	}
+
+	return &response{
+		Xmlns:              redshiftXMLNS,
+		DescribeTagsResult: describeTagsResult{},
+	}
+}
+
+func (h *Handler) emptyTagsResponse(action string) any {
+	type response struct {
+		XMLName xml.Name
+		Xmlns   string `xml:"xmlns,attr"`
+	}
+
+	return &response{
+		XMLName: xml.Name{Local: action + "Response"},
+		Xmlns:   redshiftXMLNS,
+	}
 }

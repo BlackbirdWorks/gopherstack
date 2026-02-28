@@ -15,6 +15,8 @@ import (
 
 const (
 	openSearchPathPrefix    = "/2021-01-01/opensearch/domain"
+	openSearchTagsPath      = "/2021-01-01/tags"
+	openSearchTagsRemoval   = "/2021-01-01/tags-removal"
 	openSearchMatchPriority = 82
 )
 
@@ -40,7 +42,11 @@ func (h *Handler) MatchPriority() int { return openSearchMatchPriority }
 // RouteMatcher returns a matcher that selects OpenSearch requests by path prefix.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		return strings.HasPrefix(c.Request().URL.Path, openSearchPathPrefix)
+		path := c.Request().URL.Path
+
+		return strings.HasPrefix(path, openSearchPathPrefix) ||
+			path == openSearchTagsPath ||
+			path == openSearchTagsRemoval
 	}
 }
 
@@ -137,8 +143,11 @@ type domainNameEntry struct {
 
 // ServeHTTP implements [http.Handler] for the OpenSearch service.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	path := r.URL.Path
-	rest := strings.TrimPrefix(path, openSearchPathPrefix)
+	if h.handleTagRoutes(w, r) {
+		return
+	}
+
+	rest := strings.TrimPrefix(r.URL.Path, openSearchPathPrefix)
 
 	switch {
 	case (rest == "" || rest == "/") && r.Method == http.MethodPost:
@@ -146,16 +155,41 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case (rest == "" || rest == "/") && r.Method == http.MethodGet:
 		h.handleListDomainNames(w, r)
 	case strings.HasPrefix(rest, "/") && r.Method == http.MethodGet:
-		domainName := strings.TrimPrefix(rest, "/")
-		domainName = strings.TrimSuffix(domainName, "/")
-		h.handleDescribeDomain(w, r, domainName)
+		h.handleDescribeDomain(w, r, domainNameFromRest(rest))
 	case strings.HasPrefix(rest, "/") && r.Method == http.MethodDelete:
-		domainName := strings.TrimPrefix(rest, "/")
-		domainName = strings.TrimSuffix(domainName, "/")
-		h.handleDeleteDomain(w, r, domainName)
+		h.handleDeleteDomain(w, r, domainNameFromRest(rest))
 	default:
 		h.writeError(w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 	}
+}
+
+func domainNameFromRest(rest string) string {
+	name := strings.TrimPrefix(rest, "/")
+
+	return strings.TrimSuffix(name, "/")
+}
+
+// handleTagRoutes processes /2021-01-01/tags and /2021-01-01/tags-removal requests.
+// Returns true if the request was handled.
+func (h *Handler) handleTagRoutes(w http.ResponseWriter, r *http.Request) bool {
+	path := r.URL.Path
+
+	switch {
+	case path == openSearchTagsPath && r.Method == http.MethodGet:
+		h.handleListTags(w, r)
+
+		return true
+	case path == openSearchTagsPath && r.Method == http.MethodPost:
+		w.WriteHeader(http.StatusOK)
+
+		return true
+	case path == openSearchTagsRemoval && r.Method == http.MethodPost:
+		w.WriteHeader(http.StatusOK)
+
+		return true
+	}
+
+	return false
 }
 
 // Handle satisfies the Echo handler interface.
@@ -292,4 +326,8 @@ func (h *Handler) writeError(w http.ResponseWriter, status int, code, message st
 
 func (h *Handler) writeJSON(w http.ResponseWriter, v any) {
 	httputil.WriteJSON(h.Logger, w, http.StatusOK, v)
+}
+
+func (h *Handler) handleListTags(w http.ResponseWriter, _ *http.Request) {
+	h.writeJSON(w, map[string]any{"TagList": []any{}})
 }

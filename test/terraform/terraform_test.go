@@ -14,17 +14,22 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	acmsvc "github.com/aws/aws-sdk-go-v2/service/acm"
+	cfnsvc "github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	cwsvc "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 	cwlogssvc "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	elasticachesvc "github.com/aws/aws-sdk-go-v2/service/elasticache"
 	ebsvc "github.com/aws/aws-sdk-go-v2/service/eventbridge"
+	firehosesvc "github.com/aws/aws-sdk-go-v2/service/firehose"
 	iamsvc "github.com/aws/aws-sdk-go-v2/service/iam"
 	kinesissvc "github.com/aws/aws-sdk-go-v2/service/kinesis"
 	kmssvc "github.com/aws/aws-sdk-go-v2/service/kms"
 	lambdasvc "github.com/aws/aws-sdk-go-v2/service/lambda"
+	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
+	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
 	route53svc "github.com/aws/aws-sdk-go-v2/service/route53"
 	s3svc "github.com/aws/aws-sdk-go-v2/service/s3"
 	secretssvc "github.com/aws/aws-sdk-go-v2/service/secretsmanager"
@@ -83,14 +88,19 @@ provider "aws" {
   # Endpoints are listed alphabetically — keep them sorted when adding new ones.
   endpoints {
     acm            = %[1]q
+    cloudformation = %[1]q
     cloudwatch     = %[1]q
     cloudwatchlogs = %[1]q
     dynamodb       = %[1]q
+    elasticache    = %[1]q
     events         = %[1]q
+    firehose       = %[1]q
     iam            = %[1]q
     kinesis        = %[1]q
     kms            = %[1]q
     lambda         = %[1]q
+    opensearch     = %[1]q
+    redshift       = %[1]q
     route53        = %[1]q
     s3             = %[1]q
     secretsmanager = %[1]q
@@ -987,4 +997,201 @@ resource "aws_acm_certificate" "this" {
 	}
 
 	assert.True(t, found, "certificate for %q should exist after terraform apply", domain)
+}
+
+// TestTerraform_CloudFormation provisions an aws_cloudformation_stack via Terraform
+// and verifies it exists through the AWS CloudFormation SDK.
+func TestTerraform_CloudFormation(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	tfBin := ensureTerraformBinary(t)
+	ctx := context.Background()
+
+	id := uuid.NewString()[:8]
+	stackName := "tf-cfn-" + id
+
+	hcl := providerBlock(endpoint) + fmt.Sprintf(`
+resource "aws_cloudformation_stack" "this" {
+  name = %q
+
+  template_body = <<TEMPLATE
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Gopherstack test stack",
+  "Resources": {
+    "WaitHandle": {
+      "Type": "AWS::CloudFormation::WaitConditionHandle"
+    }
+  }
+}
+TEMPLATE
+}
+`, stackName)
+
+	applyTerraform(t, tfBin, t.TempDir(), hcl)
+
+	client := createCloudFormationClient(t)
+
+	out, err := client.DescribeStacks(ctx, &cfnsvc.DescribeStacksInput{
+		StackName: aws.String(stackName),
+	})
+	require.NoError(t, err, "DescribeStacks should succeed after terraform apply")
+	require.Len(t, out.Stacks, 1)
+	assert.Equal(t, stackName, aws.ToString(out.Stacks[0].StackName))
+}
+
+// TestTerraform_ElastiCache provisions an aws_elasticache_cluster via Terraform
+// and verifies it exists through the AWS ElastiCache SDK.
+func TestTerraform_ElastiCache(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	tfBin := ensureTerraformBinary(t)
+	ctx := context.Background()
+
+	id := uuid.NewString()[:8]
+	clusterID := "tf-ec-" + id
+
+	hcl := providerBlock(endpoint) + fmt.Sprintf(`
+resource "aws_elasticache_cluster" "this" {
+  cluster_id           = %q
+  engine               = "memcached"
+  node_type            = "cache.t3.micro"
+  num_cache_nodes      = 1
+  parameter_group_name = "default.memcached1.6"
+}
+`, clusterID)
+
+	applyTerraform(t, tfBin, t.TempDir(), hcl)
+
+	client := createElastiCacheClient(t)
+
+	out, err := client.DescribeCacheClusters(ctx, &elasticachesvc.DescribeCacheClustersInput{
+		CacheClusterId: aws.String(clusterID),
+	})
+	require.NoError(t, err, "DescribeCacheClusters should succeed after terraform apply")
+	require.Len(t, out.CacheClusters, 1)
+	assert.Equal(t, clusterID, aws.ToString(out.CacheClusters[0].CacheClusterId))
+}
+
+// TestTerraform_OpenSearch provisions an aws_opensearch_domain via Terraform
+// and verifies it exists through the AWS OpenSearch SDK.
+func TestTerraform_OpenSearch(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	tfBin := ensureTerraformBinary(t)
+	ctx := context.Background()
+
+	id := uuid.NewString()[:8]
+	domainName := "tf-os-" + id
+
+	hcl := providerBlock(endpoint) + fmt.Sprintf(`
+resource "aws_opensearch_domain" "this" {
+  domain_name    = %q
+  engine_version = "OpenSearch_2.3"
+}
+`, domainName)
+
+	applyTerraform(t, tfBin, t.TempDir(), hcl)
+
+	client := createOpenSearchClient(t)
+
+	out, err := client.DescribeDomain(ctx, &opensearchsvc.DescribeDomainInput{
+		DomainName: aws.String(domainName),
+	})
+	require.NoError(t, err, "DescribeDomain should succeed after terraform apply")
+	require.NotNil(t, out.DomainStatus)
+	assert.Equal(t, domainName, aws.ToString(out.DomainStatus.DomainName))
+}
+
+// TestTerraform_Redshift provisions an aws_redshift_cluster via Terraform
+// and verifies it exists through the AWS Redshift SDK.
+func TestTerraform_Redshift(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	tfBin := ensureTerraformBinary(t)
+	ctx := context.Background()
+
+	id := uuid.NewString()[:8]
+	clusterID := "tf-rs-" + id
+
+	hcl := providerBlock(endpoint) + fmt.Sprintf(`
+resource "aws_redshift_cluster" "this" {
+  cluster_identifier  = %q
+  database_name       = "testdb"
+  master_username     = "admin"
+  master_password     = "Test1234!"
+  node_type           = "dc2.large"
+  cluster_type        = "single-node"
+  skip_final_snapshot = true
+}
+`, clusterID)
+
+	applyTerraform(t, tfBin, t.TempDir(), hcl)
+
+	client := createRedshiftClient(t)
+
+	out, err := client.DescribeClusters(ctx, &redshiftsvc.DescribeClustersInput{
+		ClusterIdentifier: aws.String(clusterID),
+	})
+	require.NoError(t, err, "DescribeClusters should succeed after terraform apply")
+	require.Len(t, out.Clusters, 1)
+	assert.Equal(t, clusterID, aws.ToString(out.Clusters[0].ClusterIdentifier))
+}
+
+// TestTerraform_Firehose provisions an aws_kinesis_firehose_delivery_stream via Terraform
+// and verifies it exists through the AWS Firehose SDK.
+func TestTerraform_Firehose(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	tfBin := ensureTerraformBinary(t)
+	ctx := context.Background()
+
+	id := uuid.NewString()[:8]
+	streamName := "tf-fh-" + id
+	roleName := "tf-fh-role-" + id
+	bucketName := "tf-fh-bucket-" + id
+
+	hcl := providerBlock(endpoint) + fmt.Sprintf(`
+resource "aws_iam_role" "firehose" {
+  name = %q
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "firehose.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_s3_bucket" "firehose" {
+  bucket = %q
+}
+
+resource "aws_kinesis_firehose_delivery_stream" "this" {
+  name        = %q
+  destination = "extended_s3"
+
+  extended_s3_configuration {
+    role_arn   = aws_iam_role.firehose.arn
+    bucket_arn = aws_s3_bucket.firehose.arn
+  }
+}
+`, roleName, bucketName, streamName)
+
+	applyTerraform(t, tfBin, t.TempDir(), hcl)
+
+	client := createFirehoseClient(t)
+
+	out, err := client.DescribeDeliveryStream(ctx, &firehosesvc.DescribeDeliveryStreamInput{
+		DeliveryStreamName: aws.String(streamName),
+	})
+	require.NoError(t, err, "DescribeDeliveryStream should succeed after terraform apply")
+	require.NotNil(t, out.DeliveryStreamDescription)
+	assert.Equal(t, streamName, aws.ToString(out.DeliveryStreamDescription.DeliveryStreamName))
 }

@@ -16,15 +16,20 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	acmsvc "github.com/aws/aws-sdk-go-v2/service/acm"
+	cfnsvc "github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	cwsvc "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cwlogssvc "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	elasticachesvc "github.com/aws/aws-sdk-go-v2/service/elasticache"
 	ebsvc "github.com/aws/aws-sdk-go-v2/service/eventbridge"
+	firehosesvc "github.com/aws/aws-sdk-go-v2/service/firehose"
 	iamsvc "github.com/aws/aws-sdk-go-v2/service/iam"
 	kinesissvc "github.com/aws/aws-sdk-go-v2/service/kinesis"
 	kmssvc "github.com/aws/aws-sdk-go-v2/service/kms"
 	lambdasvc "github.com/aws/aws-sdk-go-v2/service/lambda"
+	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
+	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
 	route53svc "github.com/aws/aws-sdk-go-v2/service/route53"
 	s3svc "github.com/aws/aws-sdk-go-v2/service/s3"
 	secretssvc "github.com/aws/aws-sdk-go-v2/service/secretsmanager"
@@ -485,6 +490,106 @@ func createACMClient(t *testing.T) *acmsvc.Client {
 	}
 
 	return acmsvc.NewFromConfig(cfg, func(o *acmsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createCloudFormationClient returns a CloudFormation client pointed at the shared test container.
+func createCloudFormationClient(t *testing.T) *cfnsvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		t.Fatalf("unable to load SDK config: %v", err)
+	}
+
+	return cfnsvc.NewFromConfig(cfg, func(o *cfnsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createElastiCacheClient returns an ElastiCache client pointed at the shared test container.
+func createElastiCacheClient(t *testing.T) *elasticachesvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		t.Fatalf("unable to load SDK config: %v", err)
+	}
+
+	return elasticachesvc.NewFromConfig(cfg, func(o *elasticachesvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createOpenSearchClient returns an OpenSearch client pointed at the shared test container.
+func createOpenSearchClient(t *testing.T) *opensearchsvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		t.Fatalf("unable to load SDK config: %v", err)
+	}
+
+	return opensearchsvc.NewFromConfig(cfg, func(o *opensearchsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createRedshiftClient returns a Redshift client pointed at the shared test container.
+func createRedshiftClient(t *testing.T) *redshiftsvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		t.Fatalf("unable to load SDK config: %v", err)
+	}
+
+	return redshiftsvc.NewFromConfig(cfg, func(o *redshiftsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createFirehoseClient returns a Firehose client pointed at the shared test container.
+func createFirehoseClient(t *testing.T) *firehosesvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		t.Fatalf("unable to load SDK config: %v", err)
+	}
+
+	return firehosesvc.NewFromConfig(cfg, func(o *firehosesvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
