@@ -24,7 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	lambdapkg "github.com/blackbirdworks/gopherstack/lambda"
-	"github.com/blackbirdworks/gopherstack/pkgs/docker"
+	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -127,14 +127,14 @@ func TestLambdaIntegration_Invoke_DockerEchoContainer(t *testing.T) {
 	// TestMain already calls os.Exit(0) in short mode, so no t.Skip needed here.
 	ctx := t.Context()
 
-	// Attempt to create a Docker client. Skip gracefully if Docker is unavailable.
-	dc, err := docker.NewClient(docker.Config{
+	// Attempt to create a container runtime. Skip gracefully if Docker is unavailable.
+	dc, err := container.NewRuntime(container.Config{
 		Logger:      slog.Default(),
 		PoolSize:    lambdaContainerPoolSize,
 		IdleTimeout: lambdaContainerIdleTimeout,
 	})
 	if err != nil {
-		t.Skipf("Docker unavailable for Lambda integration test: %v", err)
+		t.Skipf("container runtime unavailable for Lambda integration test: %v", err)
 	}
 
 	t.Cleanup(func() { _ = dc.Close() })
