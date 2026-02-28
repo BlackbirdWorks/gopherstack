@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/stepfunctions/asl"
 )
 
@@ -58,7 +59,7 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new InMemoryBackend with default configuration.
 func NewInMemoryBackend() *InMemoryBackend {
-	return NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+	return NewInMemoryBackendWithConfig(config.DefaultAccountID, config.DefaultRegion)
 }
 
 // NewInMemoryBackendWithConfig creates a new InMemoryBackend with given account and region.

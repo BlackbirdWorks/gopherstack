@@ -7,6 +7,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 )
 
 // ErrAlarmNotFound is returned when a requested alarm does not exist.
@@ -43,7 +45,7 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new InMemoryBackend with default configuration.
 func NewInMemoryBackend() *InMemoryBackend {
-	return NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+	return NewInMemoryBackendWithConfig(config.DefaultAccountID, config.DefaultRegion)
 }
 
 // NewInMemoryBackendWithConfig creates a new InMemoryBackend with given account and region.

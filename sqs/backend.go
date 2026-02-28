@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 )
 
 // StorageBackend defines the interface for an SQS backend.
@@ -50,7 +51,7 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new empty InMemoryBackend with default account/region.
 func NewInMemoryBackend() *InMemoryBackend {
-	return NewInMemoryBackendWithConfig(accountID, sqsRegion)
+	return NewInMemoryBackendWithConfig(config.DefaultAccountID, config.DefaultRegion)
 }
 
 // NewInMemoryBackendWithConfig creates a new InMemoryBackend with the given account ID and region.

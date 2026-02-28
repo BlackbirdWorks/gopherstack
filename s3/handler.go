@@ -9,6 +9,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -78,7 +79,7 @@ func NewHandler(backend StorageBackend, logger *slog.Logger) *S3Handler {
 	return &S3Handler{
 		Backend:       backend,
 		Logger:        logger,
-		DefaultRegion: "us-east-1",
+		DefaultRegion: config.DefaultRegion,
 	}
 }
 
@@ -86,7 +87,7 @@ func NewHandler(backend StorageBackend, logger *slog.Logger) *S3Handler {
 func (h *S3Handler) WithJanitor(settings Settings) *S3Handler {
 	h.DefaultRegion = settings.DefaultRegion
 	if h.DefaultRegion == "" {
-		h.DefaultRegion = "us-east-1"
+		h.DefaultRegion = config.DefaultRegion
 	}
 	if memBackend, ok := h.Backend.(*InMemoryBackend); ok {
 		memBackend.SetDefaultRegion(h.DefaultRegion)

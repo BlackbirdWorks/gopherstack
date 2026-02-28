@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 )
 
 var (
@@ -53,8 +54,8 @@ type InMemoryBackend struct {
 }
 
 const (
-	MockAccountID = "000000000000"
-	MockRegion    = "us-east-1"
+	MockAccountID = config.DefaultAccountID
+	MockRegion    = config.DefaultRegion
 
 	cfnStackType             = "AWS::CloudFormation::Stack"
 	statusCreateInProgress   = "CREATE_IN_PROGRESS"
