@@ -1,5 +1,6 @@
 .git
 bin/
+!bin/gopherstack
 test/e2e/failures/
 coverage.out
 coverage.html

@@ -76,10 +76,18 @@ func TestMain(m *testing.M) {
 
 	ctx := context.Background()
 
+	dockerfile := "Dockerfile"
+	if _, err := os.Stat("../../bin/gopherstack"); err == nil {
+		dockerfile = "Dockerfile.test"
+		logger.Info("using pre-built binary via Dockerfile.test")
+	} else {
+		logger.Info("no pre-built binary found, building from source via Dockerfile")
+	}
+
 	req := testcontainers.ContainerRequest{
 		FromDockerfile: testcontainers.FromDockerfile{
 			Context:       "../../",
-			Dockerfile:    "Dockerfile",
+			Dockerfile:    dockerfile,
 			PrintBuildLog: true,
 			BuildOptionsModifier: func(options *build.ImageBuildOptions) {
 				options.NoCache = false

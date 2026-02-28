@@ -69,12 +69,22 @@ jobs:
           check-latest: true
           cache: true
 
+      - name: Pre-build binary for container tests
+        run: |
+          echo "::group::Building static binary"
+          START=$SECONDS
+          CGO_ENABLED=0 GOOS=linux go build -tags 'netgo osusergo static_build' -trimpath \
+            -ldflags="-w -s" -o bin/gopherstack .
+          echo "Binary built in $((SECONDS - START))s"
+          ls -lh bin/gopherstack
+          echo "::endgroup::"
+
       - name: Run Integration Tests
         run: |
-          COVERPKGS=$(go list ./... | grep -v -E '(test/|/demo$|/modules/|/teststack$)' | tr '\n' ',' | sed 's/,$//')
-          go tool gotestsum --format pkgname -- \
-            -race -shuffle on -timeout 10m \
-            -coverpkg="$COVERPKGS" -coverprofile=integration-coverage.out -covermode=atomic \
+          echo "bin/gopherstack exists: $(test -f bin/gopherstack && echo yes || echo no)"
+          go tool gotestsum --format standard-verbose -- \
+            -race -shuffle on -timeout 10m -v \
+            -coverpkg=./... -coverprofile=integration-coverage.out -covermode=atomic \
             ./test/integration/...
 
       - name: Upload Coverage
@@ -96,6 +106,16 @@ jobs:
           check-latest: true
           cache: true
 
+      - name: Pre-build binary for container tests
+        run: |
+          echo "::group::Building static binary"
+          START=$SECONDS
+          CGO_ENABLED=0 GOOS=linux go build -tags 'netgo osusergo static_build' -trimpath \
+            -ldflags="-w -s" -o bin/gopherstack .
+          echo "Binary built in $((SECONDS - START))s"
+          ls -lh bin/gopherstack
+          echo "::endgroup::"
+
       - name: Install OpenTofu
         uses: opentofu/setup-opentofu@v1
         with:
@@ -103,9 +123,11 @@ jobs:
 
       - name: Run OpenTofu Tests
         run: |
-          go tool gotestsum --format pkgname -- \
+          echo "tofu version: $(tofu version)"
+          echo "bin/gopherstack exists: $(test -f bin/gopherstack && echo yes || echo no)"
+          go tool gotestsum --format standard-verbose -- \
             -race -parallel 8 -timeout 15m \
-            ./test/terraform/...
+            -v ./test/terraform/...
 
   e2e:
     runs-on: ubuntu-latest
