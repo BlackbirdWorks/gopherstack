@@ -208,6 +208,7 @@ func toXMLCluster(c *Cluster) xmlCluster {
 		ClusterStatus:                    c.Status,
 		ClusterAvailabilityStatus:        "Available",
 		AvailabilityZoneRelocationStatus: "disabled",
+		MultiAZ:                          "Disabled",
 		AquaConfiguration:                xmlAquaConfig{AquaConfigurationStatus: "disabled", AquaStatus: "disabled"},
 		ClusterNodes: xmlClusterNodes{
 			Members: []xmlClusterNode{{
@@ -283,17 +284,18 @@ type redshiftErrorResponse struct {
 }
 
 type xmlCluster struct {
-	ClusterIdentifier                string                  `xml:"ClusterIdentifier"`
-	NodeType                         string                  `xml:"NodeType"`
-	Endpoint                         string                  `xml:"Endpoint>Address"`
-	ClusterStatus                    string                  `xml:"ClusterStatus"`
-	ClusterAvailabilityStatus        string                  `xml:"ClusterAvailabilityStatus"`
-	AvailabilityZoneRelocationStatus string                  `xml:"AvailabilityZoneRelocationStatus"`
-	AquaConfiguration                xmlAquaConfig           `xml:"AquaConfiguration"`
-	ClusterNodes                     xmlClusterNodes         `xml:"ClusterNodes"`
-	ClusterParameterGroups           xmlClusterParamGroups   `xml:"ClusterParameterGroups"`
-	DBName                           string                  `xml:"DBName"`
-	MasterUsername                   string                  `xml:"MasterUsername"`
+	ClusterIdentifier                string                `xml:"ClusterIdentifier"`
+	NodeType                         string                `xml:"NodeType"`
+	Endpoint                         string                `xml:"Endpoint>Address"`
+	ClusterStatus                    string                `xml:"ClusterStatus"`
+	ClusterAvailabilityStatus        string                `xml:"ClusterAvailabilityStatus"`
+	AvailabilityZoneRelocationStatus string                `xml:"AvailabilityZoneRelocationStatus"`
+	MultiAZ                          string                `xml:"MultiAZ"`
+	AquaConfiguration                xmlAquaConfig         `xml:"AquaConfiguration"`
+	ClusterNodes                     xmlClusterNodes       `xml:"ClusterNodes"`
+	ClusterParameterGroups           xmlClusterParamGroups `xml:"ClusterParameterGroups"`
+	DBName                           string                `xml:"DBName"`
+	MasterUsername                   string                `xml:"MasterUsername"`
 }
 
 type xmlAquaConfig struct {
