@@ -156,14 +156,7 @@ func (b *InMemoryBackend) RunInstances(imageID, instanceType, subnetID string, c
 	defer b.mu.Unlock()
 
 	if subnetID == "" {
-		// Use the default subnet.
-		for id, s := range b.subnets {
-			if s.IsDefault {
-				subnetID = id
-
-				break
-			}
-		}
+		subnetID = b.findDefaultSubnetID()
 	} else if _, ok := b.subnets[subnetID]; !ok {
 		return nil, fmt.Errorf("%w: %s", ErrSubnetNotFound, subnetID)
 	}
@@ -192,6 +185,18 @@ func (b *InMemoryBackend) RunInstances(imageID, instanceType, subnetID string, c
 	}
 
 	return instances, nil
+}
+
+// findDefaultSubnetID returns the ID of the default subnet, or empty string if none.
+// Must be called with b.mu held.
+func (b *InMemoryBackend) findDefaultSubnetID() string {
+	for id, s := range b.subnets {
+		if s.IsDefault {
+			return id
+		}
+	}
+
+	return ""
 }
 
 // DescribeInstances returns instances, optionally filtered by IDs or state.

@@ -165,14 +165,7 @@ func (l *Lexer) handleDefault() Token {
 
 func (l *Lexer) readIdentifier() string {
 	position := l.position
-	for isLetter(l.ch) || isDigit(l.ch) || l.ch == '_' || l.ch == '#' || l.ch == ':' || l.ch == '.' {
-		// Note: '.' is allowed in paths like 'info.tags', but technically it's a separator.
-		// However, for simplicity, we might want to lex 'info.tags' as multiple tokens or one?
-		// Standard SQL lexers treat '.' as a separator.
-		// Let's treat it as a separator.
-		if l.ch == '.' {
-			break
-		}
+	for isLetter(l.ch) || isDigit(l.ch) || l.ch == '_' || l.ch == '#' || l.ch == ':' {
 		l.readChar()
 	}
 

@@ -235,15 +235,7 @@ func (h *DashboardHandler) route53DeleteRecord(c *echo.Context) error {
 		return c.NoContent(http.StatusNotFound)
 	}
 
-	var target *route53backend.ResourceRecordSet
-
-	for i := range rrs {
-		if rrs[i].Name == name && rrs[i].Type == recType {
-			target = &rrs[i]
-
-			break
-		}
-	}
+	target := findResourceRecordSet(rrs, name, recType)
 
 	if target == nil {
 		return c.NoContent(http.StatusNotFound)
@@ -260,4 +252,18 @@ func (h *DashboardHandler) route53DeleteRecord(c *echo.Context) error {
 	}
 
 	return c.Redirect(http.StatusFound, "/dashboard/route53/zone?id="+zoneID)
+}
+
+// findResourceRecordSet returns the first record matching name and recType, or nil.
+func findResourceRecordSet(
+	rrs []route53backend.ResourceRecordSet,
+	name, recType string,
+) *route53backend.ResourceRecordSet {
+	for i := range rrs {
+		if rrs[i].Name == name && rrs[i].Type == recType {
+			return &rrs[i]
+		}
+	}
+
+	return nil
 }

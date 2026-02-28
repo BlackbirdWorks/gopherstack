@@ -127,16 +127,10 @@ func processWorkerMetrics(mf *io_prometheus_client.MetricFamily, result *Dashboa
 		}
 		depth := int(m.GetGauge().GetValue())
 
-		found := false
-		for i := range result.Workers {
-			if result.Workers[i].Service == svc && result.Workers[i].Worker == name {
-				result.Workers[i].QueueDepth = depth
-				found = true
-
-				break
-			}
-		}
-		if !found {
+		idx := findWorkerIndex(result.Workers, svc, name)
+		if idx >= 0 {
+			result.Workers[idx].QueueDepth = depth
+		} else {
 			result.Workers = append(result.Workers, WorkerStats{
 				Service:    svc,
 				Worker:     name,
@@ -144,6 +138,17 @@ func processWorkerMetrics(mf *io_prometheus_client.MetricFamily, result *Dashboa
 			})
 		}
 	}
+}
+
+// findWorkerIndex returns the index of the worker matching svc and name, or -1 if not found.
+func findWorkerIndex(workers []WorkerStats, svc, name string) int {
+	for i := range workers {
+		if workers[i].Service == svc && workers[i].Worker == name {
+			return i
+		}
+	}
+
+	return -1
 }
 
 // processWorkerTasks extracts worker task completion metrics.

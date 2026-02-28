@@ -491,18 +491,7 @@ func (h *DashboardHandler) s3UpdateTag(w http.ResponseWriter, r *http.Request, b
 		tags = current.TagSet
 	}
 
-	found := false
-	for i := range tags {
-		if *tags[i].Key == tagKey {
-			tags[i].Value = &tagValue
-			found = true
-
-			break
-		}
-	}
-	if !found {
-		tags = append(tags, types.Tag{Key: &tagKey, Value: &tagValue})
-	}
+	tags = upsertS3Tag(tags, tagKey, tagValue)
 
 	_, err = h.S3.PutObjectTagging(ctx, &s3.PutObjectTaggingInput{
 		Bucket:  &bucketName,
@@ -516,6 +505,19 @@ func (h *DashboardHandler) s3UpdateTag(w http.ResponseWriter, r *http.Request, b
 	}
 
 	h.renderTagsList(w, bucketName, key, tags)
+}
+
+// upsertS3Tag updates the value of an existing tag matching key, or appends a new tag.
+func upsertS3Tag(tags []types.Tag, key, value string) []types.Tag {
+	for i := range tags {
+		if *tags[i].Key == key {
+			tags[i].Value = &value
+
+			return tags
+		}
+	}
+
+	return append(tags, types.Tag{Key: &key, Value: &value})
 }
 
 // s3DeleteTag removes a tag.

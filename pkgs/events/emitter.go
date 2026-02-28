@@ -55,13 +55,17 @@ func (e *InMemoryEmitter[T]) Subscribe(listener EventListener[T]) func() {
 	return func() {
 		e.mu.Lock()
 		defer e.mu.Unlock()
-		// Remove the listener by ID
-		for i, entry := range e.listeners {
-			if entry.id == id {
-				e.listeners = append(e.listeners[:i], e.listeners[i+1:]...)
+		e.removeByID(id)
+	}
+}
 
-				break
-			}
+// removeByID removes the listener with the given ID from the emitter.
+func (e *InMemoryEmitter[T]) removeByID(id uint64) {
+	for i, entry := range e.listeners {
+		if entry.id == id {
+			e.listeners = append(e.listeners[:i], e.listeners[i+1:]...)
+
+			return
 		}
 	}
 }

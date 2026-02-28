@@ -114,14 +114,13 @@ func (h *DashboardHandler) fetchAllTableNames(ctx context.Context) ([]string, er
 		}
 
 		allNames = append(allNames, output.TableNames...)
-		lastEvaluatedTable = output.LastEvaluatedTableName
 
-		if lastEvaluatedTable == nil {
-			break
+		if output.LastEvaluatedTableName == nil {
+			return allNames, nil
 		}
-	}
 
-	return allNames, nil
+		lastEvaluatedTable = output.LastEvaluatedTableName
+	}
 }
 
 func (h *DashboardHandler) handleListTablesError(w http.ResponseWriter, r *http.Request, err error) {

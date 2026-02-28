@@ -445,17 +445,12 @@ func parseMemberList(vals url.Values, prefix string) []string {
 	var result []string
 
 	for i := 1; ; i++ {
-		key := fmt.Sprintf("%s.%d", prefix, i)
-		v := vals.Get(key)
-
+		v := vals.Get(fmt.Sprintf("%s.%d", prefix, i))
 		if v == "" {
-			break
+			return result
 		}
-
 		result = append(result, v)
 	}
-
-	return result
 }
 
 // marshalXML encodes the payload with the XML declaration header.

@@ -332,14 +332,7 @@ func (b *InMemoryBackend) GetShardIterator(input *GetShardIteratorInput) (*GetSh
 	}
 
 	// Find the shard
-	var shard *Shard
-	for _, s := range stream.Shards {
-		if s.ID == input.ShardID {
-			shard = s
-
-			break
-		}
-	}
+	shard := findShard(stream.Shards, input.ShardID)
 
 	if shard == nil {
 		return nil, ErrInvalidArgument
@@ -396,6 +389,17 @@ func findSequencePosition(records []*Record, seqNum string, after bool) int {
 	return len(records)
 }
 
+// findShard returns the shard with the given ID from a slice, or nil if not found.
+func findShard(shards []*Shard, shardID string) *Shard {
+	for _, s := range shards {
+		if s.ID == shardID {
+			return s
+		}
+	}
+
+	return nil
+}
+
 // GetRecords retrieves records starting at the given shard iterator position.
 func (b *InMemoryBackend) GetRecords(input *GetRecordsInput) (*GetRecordsOutput, error) {
 	it, err := decodeIterator(input.ShardIterator)
@@ -411,14 +415,7 @@ func (b *InMemoryBackend) GetRecords(input *GetRecordsInput) (*GetRecordsOutput,
 		return nil, ErrStreamNotFound
 	}
 
-	var shard *Shard
-	for _, s := range stream.Shards {
-		if s.ID == it.ShardID {
-			shard = s
-
-			break
-		}
-	}
+	shard := findShard(stream.Shards, it.ShardID)
 
 	if shard == nil {
 		return nil, ErrInvalidArgument
