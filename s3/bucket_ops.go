@@ -17,6 +17,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
+// createBucketConfiguration is the XML body of a CreateBucket request.
+type createBucketConfiguration struct {
+	LocationConstraint string `xml:"LocationConstraint"`
+}
+
 func (h *S3Handler) handleBucketOperation(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -271,11 +276,9 @@ func (h *S3Handler) createBucket(
 	}
 
 	if len(body) > 0 {
-		var config struct {
-			LocationConstraint string `xml:"LocationConstraint"`
-		}
-		if xmlErr := xml.Unmarshal(body, &config); xmlErr == nil {
-			region = config.LocationConstraint
+		var bucketConfig createBucketConfiguration
+		if xmlErr := xml.Unmarshal(body, &bucketConfig); xmlErr == nil {
+			region = bucketConfig.LocationConstraint
 		} else {
 			log.WarnContext(ctx, "failed to parse CreateBucketConfiguration", "error", xmlErr)
 		}
