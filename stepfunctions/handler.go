@@ -248,7 +248,13 @@ func (h *Handler) stateMachineActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return map[string]any{"tags": h.getTags(input.ResourceArn)}, nil
+			tagMap := h.getTags(input.ResourceArn)
+			tagList := make([]map[string]string, 0, len(tagMap))
+			for k, v := range tagMap {
+				tagList = append(tagList, map[string]string{"key": k, "value": v})
+			}
+
+			return map[string]any{"tags": tagList}, nil
 		},
 		"TagResource": func(b []byte) (any, error) {
 			var input struct {
