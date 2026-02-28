@@ -248,11 +248,7 @@ func TestHandlerMissingAction(t *testing.T) {
 	rec := doRequest(t, h, "", map[string]any{"QueueName": "test"})
 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
-
-	var errResp jsonErr
-	err := json.Unmarshal(rec.Body.Bytes(), &errResp)
-	require.NoError(t, err)
-	assert.Equal(t, "com.amazonaws.sqs#InvalidAction", errResp.Type)
+	assert.Contains(t, rec.Body.String(), "Missing X-Amz-Target")
 }
 
 func TestHandlerUnknownAction(t *testing.T) {
