@@ -390,8 +390,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		}
 
 		// Handle 2020-06-30 API routes (e.g. GetFunctionCodeSigningConfig)
-		if strings.HasPrefix(path, lambda2020PathPrefix) {
-			rest2020 := strings.TrimPrefix(path, lambda2020PathPrefix)
+		if rest2020, ok := strings.CutPrefix(path, lambda2020PathPrefix); ok {
 			if method == http.MethodGet && hasSuffixCodeSigningConfig(rest2020) {
 				return c.JSON(http.StatusOK, map[string]any{})
 			}
