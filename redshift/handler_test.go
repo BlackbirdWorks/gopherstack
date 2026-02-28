@@ -35,72 +35,89 @@ func postRedshiftForm(t *testing.T, h *redshift.Handler, body string) *httptest.
 	return rec
 }
 
-func TestRedshiftHandler_CreateCluster(t *testing.T) {
+func TestRedshiftHandler(t *testing.T) {
 	t.Parallel()
 
-	const createForm = "Action=CreateCluster&Version=2012-12-01" +
-		"&ClusterIdentifier=test-cluster&NodeType=dc2.large&DBName=mydb&MasterUsername=admin"
+	tests := []struct {
+		name string
+		run  func(t *testing.T)
+	}{
+		{
+			name: "CreateCluster",
+			run: func(t *testing.T) {
+				const createForm = "Action=CreateCluster&Version=2012-12-01" +
+					"&ClusterIdentifier=test-cluster&NodeType=dc2.large&DBName=mydb&MasterUsername=admin"
 
-	h := newRedshiftHandler()
-	rec := postRedshiftForm(t, h, createForm)
+				h := newRedshiftHandler()
+				rec := postRedshiftForm(t, h, createForm)
 
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "CreateClusterResponse")
-	assert.Contains(t, rec.Body.String(), "test-cluster")
-}
+				assert.Equal(t, http.StatusOK, rec.Code)
+				assert.Contains(t, rec.Body.String(), "CreateClusterResponse")
+				assert.Contains(t, rec.Body.String(), "test-cluster")
+			},
+		},
+		{
+			name: "CreateCluster_EmptyID",
+			run: func(t *testing.T) {
+				h := newRedshiftHandler()
+				rec := postRedshiftForm(t, h, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=")
 
-func TestRedshiftHandler_CreateCluster_EmptyID(t *testing.T) {
-	t.Parallel()
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "DeleteCluster",
+			run: func(t *testing.T) {
+				h := newRedshiftHandler()
+				postRedshiftForm(t, h, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=del-cluster")
 
-	h := newRedshiftHandler()
-	rec := postRedshiftForm(t, h, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=")
+				rec := postRedshiftForm(t, h, "Action=DeleteCluster&Version=2012-12-01&ClusterIdentifier=del-cluster")
+				assert.Equal(t, http.StatusOK, rec.Code)
+				assert.Contains(t, rec.Body.String(), "DeleteClusterResponse")
+			},
+		},
+		{
+			name: "DescribeClusters",
+			run: func(t *testing.T) {
+				h := newRedshiftHandler()
+				postRedshiftForm(t, h, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=desc-cluster")
 
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
+				rec := postRedshiftForm(t, h, "Action=DescribeClusters&Version=2012-12-01")
+				assert.Equal(t, http.StatusOK, rec.Code)
+				assert.Contains(t, rec.Body.String(), "DescribeClustersResponse")
+				assert.Contains(t, rec.Body.String(), "desc-cluster")
+			},
+		},
+		{
+			name: "DescribeClusters_NotFound",
+			run: func(t *testing.T) {
+				h := newRedshiftHandler()
+				rec := postRedshiftForm(t, h, "Action=DescribeClusters&Version=2012-12-01&ClusterIdentifier=nonexistent")
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "InvalidAction",
+			run: func(t *testing.T) {
+				h := newRedshiftHandler()
+				rec := postRedshiftForm(t, h, "Action=InvalidAction&Version=2012-12-01")
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "MissingAction",
+			run: func(t *testing.T) {
+				h := newRedshiftHandler()
+				rec := postRedshiftForm(t, h, "Version=2012-12-01")
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+	}
 
-func TestRedshiftHandler_DeleteCluster(t *testing.T) {
-	t.Parallel()
-
-	h := newRedshiftHandler()
-	postRedshiftForm(t, h, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=del-cluster")
-
-	rec := postRedshiftForm(t, h, "Action=DeleteCluster&Version=2012-12-01&ClusterIdentifier=del-cluster")
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "DeleteClusterResponse")
-}
-
-func TestRedshiftHandler_DescribeClusters(t *testing.T) {
-	t.Parallel()
-
-	h := newRedshiftHandler()
-	postRedshiftForm(t, h, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=desc-cluster")
-
-	rec := postRedshiftForm(t, h, "Action=DescribeClusters&Version=2012-12-01")
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "DescribeClustersResponse")
-	assert.Contains(t, rec.Body.String(), "desc-cluster")
-}
-
-func TestRedshiftHandler_DescribeClusters_NotFound(t *testing.T) {
-	t.Parallel()
-
-	h := newRedshiftHandler()
-	rec := postRedshiftForm(t, h, "Action=DescribeClusters&Version=2012-12-01&ClusterIdentifier=nonexistent")
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestRedshiftHandler_InvalidAction(t *testing.T) {
-	t.Parallel()
-
-	h := newRedshiftHandler()
-	rec := postRedshiftForm(t, h, "Action=InvalidAction&Version=2012-12-01")
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestRedshiftHandler_MissingAction(t *testing.T) {
-	t.Parallel()
-
-	h := newRedshiftHandler()
-	rec := postRedshiftForm(t, h, "Version=2012-12-01")
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			tt.run(t)
+		})
+	}
 }
