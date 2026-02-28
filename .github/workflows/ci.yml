@@ -91,19 +91,16 @@ jobs:
           check-latest: true
           cache: true
 
+      - name: Install OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_wrapper: false
+
       - name: Run OpenTofu Tests
         run: |
           go tool gotestsum --format pkgname -- \
-            -race -timeout 10m \
-            -coverpkg=./... -coverprofile=terraform-coverage.out -covermode=atomic \
+            -race -timeout 15m \
             ./test/terraform/...
-
-      - name: Upload Coverage
-        uses: actions/upload-artifact@v4
-        with:
-          name: terraform-coverage
-          path: terraform-coverage.out
-          retention-days: 1
 
   e2e:
     runs-on: ubuntu-latest

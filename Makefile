@@ -1,4 +1,4 @@
-.PHONY: build install-deps lint lint-fix test integration-test terraform-test e2e-test total-coverage clean demo all
+.PHONY: build install-deps install-tofu lint lint-fix test integration-test terraform-test e2e-test total-coverage clean demo all
 
 BINARY_NAME=gopherstack
 
@@ -34,6 +34,31 @@ install-deps:
 		echo "fieldalignment is already installed."; \
 	fi
 
+TOFU_VERSION ?= latest
+
+install-tofu:
+	@mkdir -p bin
+	@if [ -x bin/tofu ]; then \
+		echo "OpenTofu is already installed at bin/tofu"; \
+	else \
+		echo "Downloading OpenTofu..."; \
+		if [ "$(TOFU_VERSION)" = "latest" ]; then \
+			TOFU_VER=$$(curl -sS https://get.opentofu.org/tofu/api.json | jq -r '[.versions[].id | select(contains("-") | not)][0]'); \
+		else \
+			TOFU_VER=$(TOFU_VERSION); \
+		fi; \
+		OS=$$(uname -s | tr '[:upper:]' '[:lower:]'); \
+		ARCH=$$(uname -m); \
+		if [ "$$ARCH" = "x86_64" ]; then ARCH="amd64"; fi; \
+		if [ "$$ARCH" = "aarch64" ]; then ARCH="arm64"; fi; \
+		echo "Downloading OpenTofu $$TOFU_VER ($$OS/$$ARCH)..."; \
+		curl -sSfL "https://github.com/opentofu/opentofu/releases/download/v$${TOFU_VER}/tofu_$${TOFU_VER}_$${OS}_$${ARCH}.zip" -o bin/tofu.zip; \
+		unzip -o bin/tofu.zip tofu -d bin/; \
+		rm bin/tofu.zip; \
+		chmod +x bin/tofu; \
+		echo "OpenTofu $$TOFU_VER installed to bin/tofu"; \
+	fi
+
 lint: install-deps
 	golangci-lint run ./...
 
@@ -49,8 +74,8 @@ test:
 integration-test:
 	go tool gotestsum --format pkgname -- -race -shuffle on -timeout 10m ./test/integration/...
 
-terraform-test:
-	go tool gotestsum --format pkgname -- -race -timeout 10m ./test/terraform/...
+terraform-test: install-tofu
+	PATH="$$PWD/bin:$$PATH" go tool gotestsum --format pkgname -- -race -timeout 10m ./test/terraform/...
 
 e2e-test:
 	go tool gotestsum --format pkgname -- -race -shuffle on -timeout 10m -tags=e2e ./test/e2e/...
@@ -99,7 +124,7 @@ upgrade-static:
 	curl -sSfL https://unpkg.com/htmx.org@$(NEW_HTMX_VERSION)/dist/htmx.min.js -o dashboard/static/vendor/htmx.min.js
 	curl -sSfL https://cdn.tailwindcss.com -o dashboard/static/vendor/tailwind.min.js
 
-upgrade: upgrade-static
+upgrade: upgrade-static install-tofu
 	go get -u ./...
 	go mod tidy
 
