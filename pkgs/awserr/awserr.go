@@ -1,6 +1,6 @@
 // Package awserr provides shared sentinel errors for AWS service stubs.
-// Service packages wrap these sentinels so callers can use [errors.Is] across
-// any service: [errors.Is](err, awserr.ErrNotFound).
+// Service packages wrap these sentinels so callers can use [errors.Is]
+// to match any service error against a shared sentinel.
 package awserr
 
 import "errors"
