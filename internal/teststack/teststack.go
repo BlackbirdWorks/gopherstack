@@ -118,7 +118,7 @@ func newSDKClients(t *testing.T, e *echo.Echo) sdkClients {
 	inMemClient := &dashboard.InMemClient{Handler: e}
 
 	cfg, err := awscfg.LoadDefaultConfig(t.Context(),
-		awscfg.WithRegion("us-east-1"),
+		awscfg.WithRegion(config.DefaultRegion),
 		awscfg.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("dummy", "dummy", "")),
 		awscfg.WithHTTPClient(inMemClient),
 	)
@@ -138,11 +138,11 @@ func newSDKClients(t *testing.T, e *echo.Echo) sdkClients {
 // or portalloc dependency — invocations are disabled; only management-plane CRUD works.
 func newLambdaHandler() *lambdabackend.Handler {
 	bk := lambdabackend.NewInMemoryBackend(
-		nil, nil, lambdabackend.DefaultSettings(), "000000000000", "us-east-1", slog.Default(),
+		nil, nil, lambdabackend.DefaultSettings(), config.DefaultAccountID, config.DefaultRegion, slog.Default(),
 	)
 	h := lambdabackend.NewHandler(bk, slog.Default())
-	h.AccountID = "000000000000"
-	h.DefaultRegion = "us-east-1"
+	h.AccountID = config.DefaultAccountID
+	h.DefaultRegion = config.DefaultRegion
 
 	return h
 }
@@ -293,41 +293,47 @@ func newHandlers() handlers {
 		cfn:     newCFNHandler(s3Bk, ddb, sqs, sns, ssm, kms, sm),
 		kinesis: kinesisbackend.NewHandler(kinesisbackend.NewInMemoryBackend(), slog.Default()),
 		elasticache: elasticachebackend.NewHandler(
-			elasticachebackend.NewInMemoryBackend(elasticachebackend.EngineStub, "000000000000", "us-east-1"),
+			elasticachebackend.NewInMemoryBackend(
+				elasticachebackend.EngineStub, config.DefaultAccountID, config.DefaultRegion,
+			),
 			slog.Default(),
 		),
 		route53: route53backend.NewHandler(route53backend.NewInMemoryBackend(), slog.Default()),
 		ses:     sesbackend.NewHandler(sesbackend.NewInMemoryBackend(), slog.Default()),
-		ec2:     ec2backend.NewHandler(ec2backend.NewInMemoryBackend("000000000000", "us-east-1"), slog.Default()),
-		opensearch: opensearchbackend.NewHandler(
-			opensearchbackend.NewInMemoryBackend("000000000000", "us-east-1"), slog.Default(),
+		ec2: ec2backend.NewHandler(
+			ec2backend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion), slog.Default(),
 		),
-		acm: acmbackend.NewHandler(acmbackend.NewInMemoryBackend("000000000000", "us-east-1"), slog.Default()),
+		opensearch: opensearchbackend.NewHandler(
+			opensearchbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion), slog.Default(),
+		),
+		acm: acmbackend.NewHandler(
+			acmbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion), slog.Default(),
+		),
 		redshift: redshiftbackend.NewHandler(
-			redshiftbackend.NewInMemoryBackend("000000000000", "us-east-1"),
+			redshiftbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 			slog.Default(),
 		),
 		rds: rdsbackend.NewHandler(
-			rdsbackend.NewInMemoryBackend("000000000000", "us-east-1"),
+			rdsbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 			slog.Default(),
 		),
 		awsconfig: awsconfigbackend.NewHandler(awsconfigbackend.NewInMemoryBackend(), slog.Default()),
 		s3control: s3controlbackend.NewHandler(s3controlbackend.NewInMemoryBackend(), slog.Default()),
 		resourcegroups: resourcegroupsbackend.NewHandler(
-			resourcegroupsbackend.NewInMemoryBackend("000000000000", "us-east-1"),
+			resourcegroupsbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 			slog.Default(),
 		),
 		swf: swfbackend.NewHandler(swfbackend.NewInMemoryBackend(), slog.Default()),
 		firehose: firehosebackend.NewHandler(
-			firehosebackend.NewInMemoryBackend("000000000000", "us-east-1"),
+			firehosebackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 			slog.Default(),
 		),
 		scheduler: schedulerbackend.NewHandler(
-			schedulerbackend.NewInMemoryBackend("000000000000", "us-east-1"),
+			schedulerbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 			slog.Default(),
 		),
 		route53resolver: route53resolverbackend.NewHandler(
-			route53resolverbackend.NewInMemoryBackend("000000000000", "us-east-1"),
+			route53resolverbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 			slog.Default(),
 		),
 		transcribe: transcribebackend.NewHandler(transcribebackend.NewInMemoryBackend(), slog.Default()),
@@ -354,11 +360,11 @@ func newCFNHandler(
 		SSM:            ssm,
 		KMS:            kms,
 		SecretsManager: sm,
-		AccountID:      "000000000000",
-		Region:         "us-east-1",
+		AccountID:      config.DefaultAccountID,
+		Region:         config.DefaultRegion,
 	}
 	creator := cfnbackend.NewResourceCreator(backends)
-	backend := cfnbackend.NewInMemoryBackendWithConfig("000000000000", "us-east-1", creator)
+	backend := cfnbackend.NewInMemoryBackendWithConfig(config.DefaultAccountID, config.DefaultRegion, creator)
 
 	return cfnbackend.NewHandler(backend, slog.Default())
 }
@@ -403,7 +409,7 @@ func newDashboardConfig(h handlers, clients sdkClients) dashboard.Config {
 		Route53ResolverOps: h.route53resolver,
 		TranscribeOps:      h.transcribe,
 		SupportOps:         h.support,
-		GlobalConfig:       config.GlobalConfig{AccountID: "000000000000", Region: "us-east-1"},
+		GlobalConfig:       config.GlobalConfig{AccountID: config.DefaultAccountID, Region: config.DefaultRegion},
 		Logger:             slog.Default(),
 	}
 }

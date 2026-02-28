@@ -15,6 +15,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/dynamodb/models"
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -68,7 +69,7 @@ func NewHandler(backend StorageBackend, logger *slog.Logger) *DynamoDBHandler {
 	h := &DynamoDBHandler{
 		Backend:       backend,
 		Logger:        logger,
-		DefaultRegion: "us-east-1",
+		DefaultRegion: config.DefaultRegion,
 	}
 
 	if sb, ok := backend.(StreamsBackend); ok {
@@ -82,7 +83,7 @@ func NewHandler(backend StorageBackend, logger *slog.Logger) *DynamoDBHandler {
 func (h *DynamoDBHandler) WithJanitor(settings Settings) *DynamoDBHandler {
 	h.DefaultRegion = settings.DefaultRegion
 	if h.DefaultRegion == "" {
-		h.DefaultRegion = "us-east-1"
+		h.DefaultRegion = config.DefaultRegion
 	}
 	if memBackend, ok := h.Backend.(*InMemoryDB); ok {
 		memBackend.SetDefaultRegion(h.DefaultRegion)

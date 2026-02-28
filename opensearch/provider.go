@@ -26,8 +26,8 @@ func (p *Provider) Name() string { return "OpenSearch" }
 //
 //nolint:ireturn,nolintlint // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
-	accountID := "000000000000"
-	region := "us-east-1"
+	accountID := config.DefaultAccountID
+	region := config.DefaultRegion
 	engineMode := EngineStub
 
 	if cp, ok := ctx.Config.(config.Provider); ok {

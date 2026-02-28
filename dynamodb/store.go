@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/dynamodb/models"
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/dynamoattr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
@@ -83,8 +84,8 @@ func NewInMemoryDB() *InMemoryDB {
 		Tables:         make(map[string]map[string]*Table),
 		deletingTables: make(map[string]map[string]*Table),
 		exprCache:      NewExpressionCache(exprCacheSize),
-		defaultRegion:  "us-east-1",
-		accountID:      "000000000000",
+		defaultRegion:  config.DefaultRegion,
+		accountID:      config.DefaultAccountID,
 		mu:             lockmetrics.New("ddb"),
 	}
 }
@@ -211,7 +212,7 @@ func (db *InMemoryDB) GetTableInRegion(name string, region string) (*Table, bool
 // SetDefaultRegion sets the default region for this backend.
 func (db *InMemoryDB) SetDefaultRegion(region string) {
 	if region == "" {
-		region = "us-east-1"
+		region = config.DefaultRegion
 	}
 	db.defaultRegion = region
 }

@@ -1,15 +1,19 @@
 // Package secretsmanager provides a mock AWS Secrets Manager implementation.
 package secretsmanager
 
-import "time"
+import (
+	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
+)
 
 const (
 	// nanoToSeconds converts nanoseconds to seconds.
 	nanoToSeconds = 1e9
 	// MockAccountID is the mock AWS account ID.
-	MockAccountID = "000000000000"
+	MockAccountID = config.DefaultAccountID
 	// MockRegion is the mock AWS region.
-	MockRegion = "us-east-1"
+	MockRegion = config.DefaultRegion
 	// StagingLabelCurrent is the staging label for the current secret version.
 	StagingLabelCurrent = "AWSCURRENT"
 	// StagingLabelPrevious is the staging label for the previous secret version.

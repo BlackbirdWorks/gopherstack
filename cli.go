@@ -806,7 +806,7 @@ func wireS3Notifications(s3Reg, sqsReg, snsReg service.Registerable) {
 		}
 	}
 
-	s3H.SetNotificationDispatcher(s3backend.NewNotificationDispatcher(targets, "us-east-1"))
+	s3H.SetNotificationDispatcher(s3backend.NewNotificationDispatcher(targets, config.DefaultRegion))
 }
 
 // s3SNSPublisherAdapter adapts the SNS backend to the s3.SNSPublisher interface.
