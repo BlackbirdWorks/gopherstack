@@ -121,8 +121,12 @@ func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byt
 		result, err = h.handlePutRecord(body)
 	case "PutRecordBatch":
 		result, err = h.handlePutRecordBatch(body)
-	case "ListTagsForDeliveryStream", "TagDeliveryStream", "UntagDeliveryStream":
-		result, err = h.handleTagOperation(action)
+	case "ListTagsForDeliveryStream":
+		result, err = h.handleListTagsForDeliveryStream(body)
+	case "TagDeliveryStream":
+		result, err = h.handleTagDeliveryStream(body)
+	case "UntagDeliveryStream":
+		result, err = h.handleUntagDeliveryStream(body)
 	default:
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
@@ -266,14 +270,74 @@ func (h *Handler) handlePutRecordBatch(body []byte) (any, error) {
 	}, nil
 }
 
-//nolint:unparam // error returned for consistent dispatch signature
-func (h *Handler) handleTagOperation(action string) (any, error) {
-	if action == "ListTagsForDeliveryStream" {
-		return map[string]any{
-			"Tags":        []any{},
-			"HasMoreTags": false,
-		}, nil
+type firehoseTag struct {
+	Key   string `json:"Key"`
+	Value string `json:"Value"`
+}
+
+type listTagsInput struct {
+	DeliveryStreamName string `json:"DeliveryStreamName"`
+}
+
+func (h *Handler) handleListTagsForDeliveryStream(body []byte) (any, error) {
+	var req listTagsInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, errInvalidRequest
 	}
-	// TagDeliveryStream and UntagDeliveryStream: no-op stubs.
+
+	tags, err := h.Backend.ListTagsForDeliveryStream(req.DeliveryStreamName)
+	if err != nil {
+		return nil, err
+	}
+
+	tagList := make([]firehoseTag, 0, len(tags))
+	for k, v := range tags {
+		tagList = append(tagList, firehoseTag{Key: k, Value: v})
+	}
+
+	return map[string]any{
+		"Tags":        tagList,
+		"HasMoreTags": false,
+	}, nil
+}
+
+type tagDeliveryStreamInput struct {
+	DeliveryStreamName string        `json:"DeliveryStreamName"`
+	Tags               []firehoseTag `json:"Tags"`
+}
+
+func (h *Handler) handleTagDeliveryStream(body []byte) (any, error) {
+	var req tagDeliveryStreamInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, errInvalidRequest
+	}
+
+	tagMap := make(map[string]string, len(req.Tags))
+	for _, t := range req.Tags {
+		tagMap[t.Key] = t.Value
+	}
+
+	if err := h.Backend.TagDeliveryStream(req.DeliveryStreamName, tagMap); err != nil {
+		return nil, err
+	}
+
+	return map[string]any{}, nil
+}
+
+type untagDeliveryStreamInput struct {
+	DeliveryStreamName string   `json:"DeliveryStreamName"`
+	TagKeys            []string `json:"TagKeys"`
+}
+
+func (h *Handler) handleUntagDeliveryStream(body []byte) (any, error) {
+	var req untagDeliveryStreamInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, errInvalidRequest
+	}
+
+	if err := h.Backend.UntagDeliveryStream(req.DeliveryStreamName, req.TagKeys); err != nil {
+		return nil, err
+	}
+
 	return map[string]any{}, nil
 }

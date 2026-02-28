@@ -217,11 +217,11 @@ func (h *Handler) handleTagRoutes(w http.ResponseWriter, r *http.Request) bool {
 
 		return true
 	case path == openSearchTagsPath && r.Method == http.MethodPost:
-		w.WriteHeader(http.StatusOK)
+		h.handleAddTags(w, r)
 
 		return true
 	case path == openSearchTagsRemoval && r.Method == http.MethodPost:
-		w.WriteHeader(http.StatusOK)
+		h.handleRemoveTags(w, r)
 
 		return true
 	}
@@ -371,8 +371,80 @@ func (h *Handler) writeJSON(w http.ResponseWriter, v any) {
 	httputil.WriteJSON(h.Logger, w, http.StatusOK, v)
 }
 
-func (h *Handler) handleListTags(w http.ResponseWriter, _ *http.Request) {
-	h.writeJSON(w, map[string]any{"TagList": []any{}})
+type opensearchTag struct {
+	Key   string `json:"Key"`
+	Value string `json:"Value"`
+}
+
+func (h *Handler) handleListTags(w http.ResponseWriter, r *http.Request) {
+	domainARN := r.URL.Query().Get("arn")
+
+	tags, err := h.Backend.ListTags(domainARN)
+	if err != nil {
+		h.writeJSON(w, map[string]any{"TagList": []any{}})
+
+		return
+	}
+
+	tagList := make([]opensearchTag, 0, len(tags))
+	for k, v := range tags {
+		tagList = append(tagList, opensearchTag{Key: k, Value: v})
+	}
+
+	h.writeJSON(w, map[string]any{"TagList": tagList})
+}
+
+type addTagsInput struct {
+	ARN     string          `json:"ARN"`
+	TagList []opensearchTag `json:"TagList"`
+}
+
+func (h *Handler) handleAddTags(w http.ResponseWriter, r *http.Request) {
+	body, err := httputil.ReadBody(r)
+	if err != nil {
+		h.writeError(w, http.StatusBadRequest, "ValidationException", "failed to read body")
+
+		return
+	}
+
+	var req addTagsInput
+	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+		h.writeError(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+
+		return
+	}
+
+	tagMap := make(map[string]string, len(req.TagList))
+	for _, t := range req.TagList {
+		tagMap[t.Key] = t.Value
+	}
+
+	_ = h.Backend.AddTags(req.ARN, tagMap)
+	w.WriteHeader(http.StatusOK)
+}
+
+type removeTagsInput struct {
+	ARN     string   `json:"ARN"`
+	TagKeys []string `json:"TagKeys"`
+}
+
+func (h *Handler) handleRemoveTags(w http.ResponseWriter, r *http.Request) {
+	body, err := httputil.ReadBody(r)
+	if err != nil {
+		h.writeError(w, http.StatusBadRequest, "ValidationException", "failed to read body")
+
+		return
+	}
+
+	var req removeTagsInput
+	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+		h.writeError(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+
+		return
+	}
+
+	_ = h.Backend.RemoveTags(req.ARN, req.TagKeys)
+	w.WriteHeader(http.StatusOK)
 }
 
 func (h *Handler) handleDescribeDomainConfig(w http.ResponseWriter, _ *http.Request, name string) {

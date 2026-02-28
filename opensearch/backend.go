@@ -3,6 +3,7 @@ package opensearch
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"sync"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -23,6 +24,7 @@ type ClusterConfig struct {
 
 // Domain represents an OpenSearch domain.
 type Domain struct {
+	Tags          map[string]string
 	Name          string
 	ARN           string
 	EngineVersion string
@@ -83,6 +85,7 @@ func (b *InMemoryBackend) CreateDomain(name, engineVersion string, clusterConfig
 		Endpoint:      endpoint,
 		Status:        "Active",
 		ClusterConfig: clusterConfig,
+		Tags:          make(map[string]string),
 	}
 	b.domains[name] = d
 
@@ -133,4 +136,63 @@ func (b *InMemoryBackend) ListDomainNames() []string {
 	}
 
 	return names
+}
+
+// findDomainByARN returns the domain matching the given ARN, or nil if not found.
+func (b *InMemoryBackend) findDomainByARN(domainARN string) *Domain {
+	for _, d := range b.domains {
+		if d.ARN == domainARN {
+			return d
+		}
+	}
+
+	return nil
+}
+
+// ListTags returns tags for the domain identified by ARN.
+func (b *InMemoryBackend) ListTags(domainARN string) (map[string]string, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	d := b.findDomainByARN(domainARN)
+	if d == nil {
+		return nil, fmt.Errorf("%w: domain not found for ARN %s", ErrDomainNotFound, domainARN)
+	}
+
+	result := make(map[string]string, len(d.Tags))
+	maps.Copy(result, d.Tags)
+
+	return result, nil
+}
+
+// AddTags adds or updates tags on the domain identified by ARN.
+func (b *InMemoryBackend) AddTags(domainARN string, tags map[string]string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	d := b.findDomainByARN(domainARN)
+	if d == nil {
+		return fmt.Errorf("%w: domain not found for ARN %s", ErrDomainNotFound, domainARN)
+	}
+
+	maps.Copy(d.Tags, tags)
+
+	return nil
+}
+
+// RemoveTags removes tag keys from the domain identified by ARN.
+func (b *InMemoryBackend) RemoveTags(domainARN string, keys []string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	d := b.findDomainByARN(domainARN)
+	if d == nil {
+		return fmt.Errorf("%w: domain not found for ARN %s", ErrDomainNotFound, domainARN)
+	}
+
+	for _, k := range keys {
+		delete(d.Tags, k)
+	}
+
+	return nil
 }

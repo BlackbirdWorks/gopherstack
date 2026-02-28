@@ -2,6 +2,7 @@ package firehose
 
 import (
 	"fmt"
+	"maps"
 	"sync"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -17,6 +18,7 @@ var (
 
 // DeliveryStream represents a Kinesis Firehose delivery stream.
 type DeliveryStream struct {
+	Tags      map[string]string
 	Name      string
 	ARN       string
 	Status    string
@@ -57,6 +59,7 @@ func (b *InMemoryBackend) CreateDeliveryStream(name string) (*DeliveryStream, er
 		ARN:       streamARN,
 		Status:    "ACTIVE",
 		Records:   [][]byte{},
+		Tags:      make(map[string]string),
 		AccountID: b.accountID,
 		Region:    b.region,
 	}
@@ -137,4 +140,52 @@ func (b *InMemoryBackend) PutRecordBatch(streamName string, records [][]byte) (i
 	s.Records = append(s.Records, records...)
 
 	return 0, nil
+}
+
+// ListTagsForDeliveryStream returns tags for a delivery stream.
+func (b *InMemoryBackend) ListTagsForDeliveryStream(name string) (map[string]string, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	s, ok := b.streams[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: stream %s not found", ErrNotFound, name)
+	}
+
+	result := make(map[string]string, len(s.Tags))
+	maps.Copy(result, s.Tags)
+
+	return result, nil
+}
+
+// TagDeliveryStream adds or updates tags on a delivery stream.
+func (b *InMemoryBackend) TagDeliveryStream(name string, tags map[string]string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	s, ok := b.streams[name]
+	if !ok {
+		return fmt.Errorf("%w: stream %s not found", ErrNotFound, name)
+	}
+
+	maps.Copy(s.Tags, tags)
+
+	return nil
+}
+
+// UntagDeliveryStream removes tag keys from a delivery stream.
+func (b *InMemoryBackend) UntagDeliveryStream(name string, keys []string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	s, ok := b.streams[name]
+	if !ok {
+		return fmt.Errorf("%w: stream %s not found", ErrNotFound, name)
+	}
+
+	for _, k := range keys {
+		delete(s.Tags, k)
+	}
+
+	return nil
 }

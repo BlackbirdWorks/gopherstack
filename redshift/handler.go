@@ -131,8 +131,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.writeXMLResponse(c, http.StatusOK, h.loggingStatusResponse())
 		case "DescribeTags":
 			return h.writeXMLResponse(c, http.StatusOK, h.describeTagsResponse())
-		case "CreateTags", "DeleteTags":
-			return h.writeXMLResponse(c, http.StatusOK, h.emptyTagsResponse(action))
+		case "CreateTags":
+			resp, opErr = h.handleCreateTags(vals)
+		case "DeleteTags":
+			resp, opErr = h.handleDeleteTags(vals)
 		default:
 			return h.writeError(c, http.StatusBadRequest, "InvalidAction",
 				fmt.Sprintf("%s is not a valid Redshift action", action))
@@ -369,10 +371,24 @@ func (h *Handler) loggingStatusResponse() any {
 	}
 }
 
+type redshiftTaggedResource struct {
+	Tag          redshiftTag `xml:"Tag"`
+	ResourceName string      `xml:"ResourceName"`
+	ResourceType string      `xml:"ResourceType"`
+}
+
+type redshiftTag struct {
+	Key   string `xml:"Key"`
+	Value string `xml:"Value"`
+}
+
 func (h *Handler) describeTagsResponse() any {
+	allTags := h.Backend.DescribeTags()
+
 	type describeTagsResult struct {
-		XMLName xml.Name `xml:"DescribeTagsResult"`
-		Marker  string   `xml:"Marker,omitempty"`
+		XMLName         xml.Name                 `xml:"DescribeTagsResult"`
+		Marker          string                   `xml:"Marker,omitempty"`
+		TaggedResources []redshiftTaggedResource `xml:"TaggedResources>TaggedResource,omitempty"`
 	}
 	type response struct {
 		XMLName            xml.Name           `xml:"DescribeTagsResponse"`
@@ -380,20 +396,83 @@ func (h *Handler) describeTagsResponse() any {
 		DescribeTagsResult describeTagsResult `xml:"DescribeTagsResult"`
 	}
 
+	var resources []redshiftTaggedResource
+	for clusterID, tags := range allTags {
+		for k, v := range tags {
+			resources = append(resources, redshiftTaggedResource{
+				Tag:          redshiftTag{Key: k, Value: v},
+				ResourceName: clusterID,
+				ResourceType: "cluster",
+			})
+		}
+	}
+
 	return &response{
-		Xmlns:              redshiftXMLNS,
-		DescribeTagsResult: describeTagsResult{},
+		Xmlns: redshiftXMLNS,
+		DescribeTagsResult: describeTagsResult{
+			TaggedResources: resources,
+		},
 	}
 }
 
-func (h *Handler) emptyTagsResponse(action string) any {
-	type response struct {
-		XMLName xml.Name
-		Xmlns   string `xml:"xmlns,attr"`
+func (h *Handler) handleCreateTags(vals url.Values) (any, error) {
+	clusterID := vals.Get("ResourceName")
+	tags := parseRedshiftTags(vals)
+
+	if err := h.Backend.CreateTags(clusterID, tags); err != nil {
+		return nil, err
 	}
 
-	return &response{
-		XMLName: xml.Name{Local: action + "Response"},
-		Xmlns:   redshiftXMLNS,
+	type response struct {
+		XMLName xml.Name `xml:"CreateTagsResponse"`
+		Xmlns   string   `xml:"xmlns,attr"`
+	}
+
+	return &response{Xmlns: redshiftXMLNS}, nil
+}
+
+func (h *Handler) handleDeleteTags(vals url.Values) (any, error) {
+	clusterID := vals.Get("ResourceName")
+	keys := parseRedshiftTagKeys(vals)
+
+	if err := h.Backend.DeleteTags(clusterID, keys); err != nil {
+		return nil, err
+	}
+
+	type response struct {
+		XMLName xml.Name `xml:"DeleteTagsResponse"`
+		Xmlns   string   `xml:"xmlns,attr"`
+	}
+
+	return &response{Xmlns: redshiftXMLNS}, nil
+}
+
+// parseRedshiftTags extracts Tags.Tag.N.Key/Tags.Tag.N.Value from form values.
+func parseRedshiftTags(vals url.Values) map[string]string {
+	tags := make(map[string]string)
+
+	for i := 1; ; i++ {
+		prefix := fmt.Sprintf("Tags.Tag.%d.", i)
+		key := vals.Get(prefix + "Key")
+
+		if key == "" {
+			return tags
+		}
+
+		tags[key] = vals.Get(prefix + "Value")
+	}
+}
+
+// parseRedshiftTagKeys extracts TagKeys.TagKey.N from form values.
+func parseRedshiftTagKeys(vals url.Values) []string {
+	var keys []string
+
+	for i := 1; ; i++ {
+		key := vals.Get(fmt.Sprintf("TagKeys.TagKey.%d", i))
+		if key == "" {
+			return keys
+		}
+
+		keys = append(keys, key)
 	}
 }
