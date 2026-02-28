@@ -15,10 +15,9 @@ import (
 )
 
 const (
-	openSearchPathPrefix    = "/2021-01-01/opensearch/domain"
-	openSearchTagsPath      = "/2021-01-01/tags"
-	openSearchTagsRemoval   = "/2021-01-01/tags-removal"
-	openSearchMatchPriority = 82
+	openSearchPathPrefix  = "/2021-01-01/opensearch/domain"
+	openSearchTagsPath    = "/2021-01-01/tags"
+	openSearchTagsRemoval = "/2021-01-01/tags-removal"
 )
 
 // Handler is the HTTP handler for OpenSearch operations.
@@ -38,7 +37,7 @@ func NewHandler(backend *InMemoryBackend, log *slog.Logger) *Handler {
 func (h *Handler) Name() string { return "OpenSearch" }
 
 // MatchPriority returns the routing priority.
-func (h *Handler) MatchPriority() int { return openSearchMatchPriority }
+func (h *Handler) MatchPriority() int { return service.PriorityPathSubdomain }
 
 // RouteMatcher returns a matcher that selects OpenSearch requests by path prefix.
 func (h *Handler) RouteMatcher() service.Matcher {

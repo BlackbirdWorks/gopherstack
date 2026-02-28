@@ -253,7 +253,7 @@ func (h *S3Handler) RouteMatcher() service.Matcher {
 // MatchPriority returns the priority for the S3 matcher.
 // Catch-all matchers have the lowest priority (0), ensuring other services match first.
 func (h *S3Handler) MatchPriority() int {
-	return 0
+	return service.PriorityCatchAll
 }
 
 // ExtractOperation returns the current S3 operation from context.

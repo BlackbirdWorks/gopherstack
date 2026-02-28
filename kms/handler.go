@@ -117,12 +117,9 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	}
 }
 
-// kmsMatchPriority is the routing priority for the KMS handler.
-const kmsMatchPriority = 95
-
 // MatchPriority returns the routing priority for the KMS handler.
 func (h *Handler) MatchPriority() int {
-	return kmsMatchPriority
+	return service.PriorityHeaderPartial
 }
 
 // ExtractOperation extracts the KMS operation name from the X-Amz-Target header.

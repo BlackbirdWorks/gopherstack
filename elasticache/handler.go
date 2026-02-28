@@ -18,10 +18,9 @@ import (
 )
 
 const (
-	elasticacheVersion       = "2015-02-02"
-	elasticacheNS            = "http://elasticache.amazonaws.com/doc/2015-02-02/"
-	elasticacheMatchPriority = 82
-	unknownOp                = "Unknown"
+	elasticacheVersion = "2015-02-02"
+	elasticacheNS      = "http://elasticache.amazonaws.com/doc/2015-02-02/"
+	unknownOp          = "Unknown"
 )
 
 // cacheEndpoint is the XML representation of a cache node endpoint.
@@ -111,7 +110,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 }
 
 // MatchPriority returns the routing priority.
-func (h *Handler) MatchPriority() int { return elasticacheMatchPriority }
+func (h *Handler) MatchPriority() int { return service.PriorityPathSubdomain }
 
 // ExtractOperation extracts the Action from the form body.
 func (h *Handler) ExtractOperation(c *echo.Context) string {

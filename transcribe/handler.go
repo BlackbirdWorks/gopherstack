@@ -13,10 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
-const (
-	transcribeTargetPrefix  = "Transcribe."
-	transcribeMatchPriority = 100
-)
+const transcribeTargetPrefix = "Transcribe."
 
 // Handler is the Echo HTTP handler for Amazon Transcribe operations.
 type Handler struct {
@@ -49,7 +46,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 }
 
 // MatchPriority returns the routing priority.
-func (h *Handler) MatchPriority() int { return transcribeMatchPriority }
+func (h *Handler) MatchPriority() int { return service.PriorityHeaderExact }
 
 // ExtractOperation extracts the Transcribe action from the X-Amz-Target header.
 func (h *Handler) ExtractOperation(c *echo.Context) string {

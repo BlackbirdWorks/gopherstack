@@ -93,11 +93,9 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	}
 }
 
-const kinesisMatchPriority = 75
-
 // MatchPriority returns the routing priority for the Kinesis handler.
 func (h *Handler) MatchPriority() int {
-	return kinesisMatchPriority
+	return service.PriorityTargetPrefixed
 }
 
 // ExtractOperation extracts the Kinesis action from the X-Amz-Target header.

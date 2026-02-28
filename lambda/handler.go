@@ -21,9 +21,6 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
-// lambdaMatchPriority is the routing priority for the Lambda handler.
-const lambdaMatchPriority = 95
-
 // lambdaPathPrefix is the path prefix for Lambda REST API v1 endpoints.
 const lambdaPathPrefix = "/2015-03-31/functions"
 
@@ -178,7 +175,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 }
 
 // MatchPriority returns the routing priority for the Lambda handler.
-func (h *Handler) MatchPriority() int { return lambdaMatchPriority }
+func (h *Handler) MatchPriority() int { return service.PriorityHeaderPartial }
 
 // ExtractOperation returns the Lambda operation name derived from the request method and path.
 func (h *Handler) ExtractOperation(c *echo.Context) string {

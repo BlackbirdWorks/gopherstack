@@ -18,10 +18,9 @@ import (
 )
 
 const (
-	sesVersion       = "2010-12-01"
-	sesXMLNS         = "http://ses.amazonaws.com/doc/2010-12-01/"
-	sesMatchPriority = 80
-	unknownAction    = "Unknown"
+	sesVersion    = "2010-12-01"
+	sesXMLNS      = "http://ses.amazonaws.com/doc/2010-12-01/"
+	unknownAction = "Unknown"
 )
 
 // Handler is the Echo HTTP handler for SES operations.
@@ -86,7 +85,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 // MatchPriority returns the routing priority for the SES handler.
 func (h *Handler) MatchPriority() int {
-	return sesMatchPriority
+	return service.PriorityFormStandard
 }
 
 // ExtractOperation extracts the SES action from the request body.

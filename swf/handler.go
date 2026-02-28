@@ -14,10 +14,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
-const (
-	swfTargetPrefix  = "SimpleWorkflowService."
-	swfMatchPriority = 100
-)
+const swfTargetPrefix = "SimpleWorkflowService."
 
 // Handler is the Echo HTTP handler for SWF operations.
 type Handler struct {
@@ -54,7 +51,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 }
 
 // MatchPriority returns the routing priority.
-func (h *Handler) MatchPriority() int { return swfMatchPriority }
+func (h *Handler) MatchPriority() int { return service.PriorityHeaderExact }
 
 // ExtractOperation extracts the SWF action from the X-Amz-Target header.
 func (h *Handler) ExtractOperation(c *echo.Context) string {

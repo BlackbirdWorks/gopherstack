@@ -12,10 +12,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
-const (
-	awsConfigTargetPrefix  = "StarlingDoveService."
-	awsConfigMatchPriority = 100
-)
+const awsConfigTargetPrefix = "StarlingDoveService."
 
 type configurationRecorderNameInput struct {
 	ConfigurationRecorderName string `json:"ConfigurationRecorderName"`
@@ -54,7 +51,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 }
 
 // MatchPriority returns the routing priority.
-func (h *Handler) MatchPriority() int { return awsConfigMatchPriority }
+func (h *Handler) MatchPriority() int { return service.PriorityHeaderExact }
 
 // ExtractOperation extracts the AWS Config action from the X-Amz-Target header.
 func (h *Handler) ExtractOperation(c *echo.Context) string {

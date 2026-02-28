@@ -16,9 +16,8 @@ import (
 )
 
 const (
-	redshiftVersion       = "2012-12-01"
-	redshiftXMLNS         = "http://redshift.amazonaws.com/doc/2012-12-01/"
-	redshiftMatchPriority = 83
+	redshiftVersion = "2012-12-01"
+	redshiftXMLNS   = "http://redshift.amazonaws.com/doc/2012-12-01/"
 )
 
 // Handler is the Echo HTTP handler for Redshift operations.
@@ -76,7 +75,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 }
 
 // MatchPriority returns the routing priority.
-func (h *Handler) MatchPriority() int { return redshiftMatchPriority }
+func (h *Handler) MatchPriority() int { return service.PriorityFormRedshift }
 
 // ExtractOperation extracts the Redshift action from the request.
 func (h *Handler) ExtractOperation(c *echo.Context) string {

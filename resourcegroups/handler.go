@@ -13,10 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
-const (
-	resourceGroupsTargetPrefix  = "ResourceGroups."
-	resourceGroupsMatchPriority = 100
-)
+const resourceGroupsTargetPrefix = "ResourceGroups."
 
 type groupNameInput struct {
 	GroupName string `json:"GroupName"`
@@ -54,7 +51,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 }
 
 // MatchPriority returns the routing priority.
-func (h *Handler) MatchPriority() int { return resourceGroupsMatchPriority }
+func (h *Handler) MatchPriority() int { return service.PriorityHeaderExact }
 
 // ExtractOperation extracts the Resource Groups action from the X-Amz-Target header.
 func (h *Handler) ExtractOperation(c *echo.Context) string {

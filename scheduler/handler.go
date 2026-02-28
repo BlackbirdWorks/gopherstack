@@ -13,10 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
-const (
-	schedulerTargetPrefix  = "AWSScheduler."
-	schedulerMatchPriority = 100
-)
+const schedulerTargetPrefix = "AWSScheduler."
 
 type scheduleNameInput struct {
 	Name string `json:"Name"`
@@ -71,7 +68,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 }
 
 // MatchPriority returns the routing priority.
-func (h *Handler) MatchPriority() int { return schedulerMatchPriority }
+func (h *Handler) MatchPriority() int { return service.PriorityHeaderExact }
 
 // ExtractOperation extracts the Scheduler action from the X-Amz-Target header.
 func (h *Handler) ExtractOperation(c *echo.Context) string {

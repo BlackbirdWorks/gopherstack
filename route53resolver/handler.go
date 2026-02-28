@@ -13,10 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
-const (
-	resolverTargetPrefix  = "Route53Resolver."
-	resolverMatchPriority = 100
-)
+const resolverTargetPrefix = "Route53Resolver."
 
 type resolverEndpointIDInput struct {
 	ResolverEndpointID string `json:"ResolverEndpointId"`
@@ -56,7 +53,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	}
 }
 
-func (h *Handler) MatchPriority() int { return resolverMatchPriority }
+func (h *Handler) MatchPriority() int { return service.PriorityHeaderExact }
 
 func (h *Handler) ExtractOperation(c *echo.Context) string {
 	target := c.Request().Header.Get("X-Amz-Target")

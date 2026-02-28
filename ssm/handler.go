@@ -64,10 +64,8 @@ func (h *Handler) RouteMatcher() service.Matcher {
 }
 
 // MatchPriority returns the routing priority for the SSM handler.
-const ssmMatchPriority = 100
-
 func (h *Handler) MatchPriority() int {
-	return ssmMatchPriority // Same header-based priority as DynamoDB
+	return service.PriorityHeaderExact // Same header-based priority as DynamoDB
 }
 
 // ExtractOperation attempts to extract the specific SSM operation from the request.

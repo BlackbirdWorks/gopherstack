@@ -17,9 +17,8 @@ import (
 )
 
 const (
-	rdsVersion       = "2014-10-31"
-	rdsXMLNS         = "http://rds.amazonaws.com/doc/2014-10-31/"
-	rdsMatchPriority = 84
+	rdsVersion = "2014-10-31"
+	rdsXMLNS   = "http://rds.amazonaws.com/doc/2014-10-31/"
 )
 
 // Handler is the Echo HTTP handler for RDS operations.
@@ -86,7 +85,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 }
 
 // MatchPriority returns the routing priority.
-func (h *Handler) MatchPriority() int { return rdsMatchPriority }
+func (h *Handler) MatchPriority() int { return service.PriorityFormRDS }
 
 // ExtractOperation extracts the RDS action from the request.
 func (h *Handler) ExtractOperation(c *echo.Context) string {

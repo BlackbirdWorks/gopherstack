@@ -217,9 +217,7 @@ func (h *DynamoDBHandler) RouteMatcher() service.Matcher {
 // MatchPriority returns the priority for the DynamoDB matcher.
 // Header-based matchers have high priority (100).
 func (h *DynamoDBHandler) MatchPriority() int {
-	const priority = 100
-
-	return priority
+	return service.PriorityHeaderExact
 }
 
 // ExtractOperation extracts the DynamoDB operation from the X-Amz-Target header.

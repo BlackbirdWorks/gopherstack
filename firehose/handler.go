@@ -14,10 +14,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
-const (
-	firehoseTargetPrefix  = "Firehose_20150804."
-	firehoseMatchPriority = 100
-)
+const firehoseTargetPrefix = "Firehose_20150804."
 
 // Handler is the Echo HTTP handler for Kinesis Firehose operations.
 type Handler struct {
@@ -56,7 +53,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 }
 
 // MatchPriority returns the routing priority.
-func (h *Handler) MatchPriority() int { return firehoseMatchPriority }
+func (h *Handler) MatchPriority() int { return service.PriorityHeaderExact }
 
 // ExtractOperation extracts the Firehose action from the X-Amz-Target header.
 func (h *Handler) ExtractOperation(c *echo.Context) string {

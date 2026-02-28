@@ -73,10 +73,8 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	}
 }
 
-const apiGatewayMatchPriority = 100
-
 // MatchPriority returns the routing priority for the API Gateway handler.
-func (h *Handler) MatchPriority() int { return apiGatewayMatchPriority }
+func (h *Handler) MatchPriority() int { return service.PriorityHeaderExact }
 
 // ExtractOperation extracts the operation name from the X-Amz-Target header.
 func (h *Handler) ExtractOperation(c *echo.Context) string {

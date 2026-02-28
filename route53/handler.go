@@ -27,8 +27,6 @@ const (
 	route53HZPrefix     = "/2013-04-01/hostedzone/"
 	route53TagsPrefix   = "/2013-04-01/tags/"
 	route53ChangePrefix = "/2013-04-01/change/"
-	// matchPriority is higher than path-based dashboard (50) but lower than header-based services (100).
-	matchPriority = 80
 	// zoneIDAndRest is the number of parts when splitting a zone path at the first "/".
 	zoneIDAndRest = 2
 )
@@ -80,7 +78,7 @@ func (h *Handler) getTags(resourceID string) map[string]string {
 func (h *Handler) Name() string { return "Route53" }
 
 // MatchPriority returns the routing priority for Route 53.
-func (h *Handler) MatchPriority() int { return matchPriority }
+func (h *Handler) MatchPriority() int { return service.PriorityFormStandard }
 
 // RouteMatcher returns a matcher that selects Route 53 requests by path prefix.
 func (h *Handler) RouteMatcher() service.Matcher {

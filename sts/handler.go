@@ -29,7 +29,6 @@ var (
 )
 
 const (
-	stsMatchPriority = 90
 	contentTypeForm  = "application/x-www-form-urlencoded"
 	stsVersion       = "Version=2011-06-15"
 	unknownOperation = "Unknown"
@@ -93,7 +92,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 // MatchPriority returns the routing priority for the STS handler.
 func (h *Handler) MatchPriority() int {
-	return stsMatchPriority
+	return service.PriorityFormEncoded
 }
 
 // ExtractOperation reads the Action parameter from the request body.

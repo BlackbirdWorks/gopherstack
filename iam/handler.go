@@ -126,10 +126,8 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 // MatchPriority returns the routing priority for the IAM handler.
 // Higher than Dashboard (50) but lower than DynamoDB/SSM (100).
-const iamMatchPriority = 80
-
 func (h *Handler) MatchPriority() int {
-	return iamMatchPriority
+	return service.PriorityFormStandard
 }
 
 // ExtractOperation extracts the IAM action from the request body.

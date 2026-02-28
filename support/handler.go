@@ -13,10 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
-const (
-	supportTargetPrefix  = "AmazonSupport."
-	supportMatchPriority = 100
-)
+const supportTargetPrefix = "AmazonSupport."
 
 // Handler is the Echo HTTP handler for AWS Support operations.
 type Handler struct {
@@ -49,7 +46,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 }
 
 // MatchPriority returns the routing priority.
-func (h *Handler) MatchPriority() int { return supportMatchPriority }
+func (h *Handler) MatchPriority() int { return service.PriorityHeaderExact }
 
 // ExtractOperation extracts the Support action from the X-Amz-Target header.
 func (h *Handler) ExtractOperation(c *echo.Context) string {

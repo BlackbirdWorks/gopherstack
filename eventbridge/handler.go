@@ -114,10 +114,8 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	}
 }
 
-const eventBridgeMatchPriority = 100
-
 // MatchPriority returns the routing priority for the EventBridge handler.
-func (h *Handler) MatchPriority() int { return eventBridgeMatchPriority }
+func (h *Handler) MatchPriority() int { return service.PriorityHeaderExact }
 
 // ExtractOperation extracts the operation name from the X-Amz-Target header.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
