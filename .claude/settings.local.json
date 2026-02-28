@@ -31,7 +31,9 @@
       "Bash(wc:*)",
       "Bash(gh repo view:*)",
       "Bash(gh auth status:*)",
-      "Bash(gh issue:*)"
+      "Bash(gh issue:*)",
+      "Bash(go list:*)",
+      "Bash(make:*)"
     ]
   }
 }
