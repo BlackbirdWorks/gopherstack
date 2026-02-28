@@ -9,95 +9,105 @@ import (
 	"github.com/blackbirdworks/gopherstack/swf"
 )
 
-func TestSWF_RegisterDomain(t *testing.T) {
+func TestSWFBackend(t *testing.T) {
 	t.Parallel()
 
-	b := swf.NewInMemoryBackend()
-	err := b.RegisterDomain("my-domain", "test domain")
-	require.NoError(t, err)
+	tests := []struct {
+		name string
+		run  func(t *testing.T, b *swf.InMemoryBackend)
+	}{
+		{
+			name: "RegisterDomain",
+			run: func(t *testing.T, b *swf.InMemoryBackend) {
+				err := b.RegisterDomain("my-domain", "test domain")
+				require.NoError(t, err)
 
-	domains := b.ListDomains("REGISTERED")
-	require.Len(t, domains, 1)
-	assert.Equal(t, "my-domain", domains[0].Name)
-	assert.Equal(t, "REGISTERED", domains[0].Status)
-}
+				domains := b.ListDomains("REGISTERED")
+				require.Len(t, domains, 1)
+				assert.Equal(t, "my-domain", domains[0].Name)
+				assert.Equal(t, "REGISTERED", domains[0].Status)
+			},
+		},
+		{
+			name: "RegisterDomain/AlreadyExists",
+			run: func(t *testing.T, b *swf.InMemoryBackend) {
+				require.NoError(t, b.RegisterDomain("my-domain", ""))
 
-func TestSWF_RegisterDomain_AlreadyExists(t *testing.T) {
-	t.Parallel()
+				err := b.RegisterDomain("my-domain", "")
+				require.Error(t, err)
+				assert.ErrorIs(t, err, swf.ErrAlreadyExists)
+			},
+		},
+		{
+			name: "DeprecateDomain",
+			run: func(t *testing.T, b *swf.InMemoryBackend) {
+				require.NoError(t, b.RegisterDomain("my-domain", ""))
 
-	b := swf.NewInMemoryBackend()
-	require.NoError(t, b.RegisterDomain("my-domain", ""))
+				err := b.DeprecateDomain("my-domain")
+				require.NoError(t, err)
 
-	err := b.RegisterDomain("my-domain", "")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, swf.ErrAlreadyExists)
-}
+				domains := b.ListDomains("DEPRECATED")
+				require.Len(t, domains, 1)
+			},
+		},
+		{
+			name: "DeprecateDomain/NotFound",
+			run: func(t *testing.T, b *swf.InMemoryBackend) {
+				err := b.DeprecateDomain("nonexistent")
+				require.Error(t, err)
+				assert.ErrorIs(t, err, swf.ErrNotFound)
+			},
+		},
+		{
+			name: "RegisterWorkflowType",
+			run: func(t *testing.T, b *swf.InMemoryBackend) {
+				require.NoError(t, b.RegisterDomain("my-domain", ""))
 
-func TestSWF_DeprecateDomain(t *testing.T) {
-	t.Parallel()
+				err := b.RegisterWorkflowType("my-domain", "my-workflow", "1.0")
+				require.NoError(t, err)
 
-	b := swf.NewInMemoryBackend()
-	require.NoError(t, b.RegisterDomain("my-domain", ""))
+				wts := b.ListWorkflowTypes("my-domain")
+				require.Len(t, wts, 1)
+				assert.Equal(t, "my-workflow", wts[0].Name)
+			},
+		},
+		{
+			name: "StartAndDescribeExecution",
+			run: func(t *testing.T, b *swf.InMemoryBackend) {
+				exec, err := b.StartWorkflowExecution("my-domain", "wf-001", "run-001")
+				require.NoError(t, err)
+				assert.Equal(t, "RUNNING", exec.Status)
 
-	err := b.DeprecateDomain("my-domain")
-	require.NoError(t, err)
+				got, err := b.DescribeWorkflowExecution("my-domain", "wf-001")
+				require.NoError(t, err)
+				assert.Equal(t, "run-001", got.RunID)
+			},
+		},
+		{
+			name: "DescribeWorkflowExecution/NotFound",
+			run: func(t *testing.T, b *swf.InMemoryBackend) {
+				_, err := b.DescribeWorkflowExecution("my-domain", "nonexistent")
+				require.Error(t, err)
+				assert.ErrorIs(t, err, swf.ErrNotFound)
+			},
+		},
+		{
+			name: "ListDomains/AllStatuses",
+			run: func(t *testing.T, b *swf.InMemoryBackend) {
+				require.NoError(t, b.RegisterDomain("d1", ""))
+				require.NoError(t, b.RegisterDomain("d2", ""))
 
-	domains := b.ListDomains("DEPRECATED")
-	require.Len(t, domains, 1)
-}
+				all := b.ListDomains("")
+				assert.Len(t, all, 2)
+			},
+		},
+	}
 
-func TestSWF_DeprecateDomain_NotFound(t *testing.T) {
-	t.Parallel()
-
-	b := swf.NewInMemoryBackend()
-	err := b.DeprecateDomain("nonexistent")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, swf.ErrNotFound)
-}
-
-func TestSWF_RegisterWorkflowType(t *testing.T) {
-	t.Parallel()
-
-	b := swf.NewInMemoryBackend()
-	require.NoError(t, b.RegisterDomain("my-domain", ""))
-
-	err := b.RegisterWorkflowType("my-domain", "my-workflow", "1.0")
-	require.NoError(t, err)
-
-	wts := b.ListWorkflowTypes("my-domain")
-	require.Len(t, wts, 1)
-	assert.Equal(t, "my-workflow", wts[0].Name)
-}
-
-func TestSWF_StartAndDescribeWorkflowExecution(t *testing.T) {
-	t.Parallel()
-
-	b := swf.NewInMemoryBackend()
-	exec, err := b.StartWorkflowExecution("my-domain", "wf-001", "run-001")
-	require.NoError(t, err)
-	assert.Equal(t, "RUNNING", exec.Status)
-
-	got, err := b.DescribeWorkflowExecution("my-domain", "wf-001")
-	require.NoError(t, err)
-	assert.Equal(t, "run-001", got.RunID)
-}
-
-func TestSWF_DescribeWorkflowExecution_NotFound(t *testing.T) {
-	t.Parallel()
-
-	b := swf.NewInMemoryBackend()
-	_, err := b.DescribeWorkflowExecution("my-domain", "nonexistent")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, swf.ErrNotFound)
-}
-
-func TestSWF_ListDomains_AllStatuses(t *testing.T) {
-	t.Parallel()
-
-	b := swf.NewInMemoryBackend()
-	require.NoError(t, b.RegisterDomain("d1", ""))
-	require.NoError(t, b.RegisterDomain("d2", ""))
-
-	all := b.ListDomains("")
-	assert.Len(t, all, 2)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			b := swf.NewInMemoryBackend()
+			tt.run(t, b)
+		})
+	}
 }
