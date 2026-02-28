@@ -27,6 +27,9 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
 
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
   unit:
     runs-on: ubuntu-latest
     steps:
@@ -41,9 +44,10 @@ jobs:
 
       - name: Run Unit Tests
         run: |
+          COVERPKGS=$(go list ./... | grep -v -E '(test/|/demo$|/modules/|/teststack$)' | tr '\n' ',' | sed 's/,$//')
           go tool gotestsum --format pkgname -- \
             -race -shuffle on -short -timeout 5m \
-            -coverpkg=./... -coverprofile=unit-coverage.out -covermode=atomic \
+            -coverpkg="$COVERPKGS" -coverprofile=unit-coverage.out -covermode=atomic \
             ./...
 
       - name: Upload Coverage
@@ -67,9 +71,10 @@ jobs:
 
       - name: Run Integration Tests
         run: |
+          COVERPKGS=$(go list ./... | grep -v -E '(test/|/demo$|/modules/|/teststack$)' | tr '\n' ',' | sed 's/,$//')
           go tool gotestsum --format pkgname -- \
             -race -shuffle on -timeout 10m \
-            -coverpkg=./... -coverprofile=integration-coverage.out -covermode=atomic \
+            -coverpkg="$COVERPKGS" -coverprofile=integration-coverage.out -covermode=atomic \
             ./test/integration/...
 
       - name: Upload Coverage
@@ -120,9 +125,10 @@ jobs:
 
       - name: Run E2E Tests
         run: |
+          COVERPKGS=$(go list ./... | grep -v -E '(test/|/demo$|/modules/|/teststack$)' | tr '\n' ',' | sed 's/,$//')
           go tool gotestsum --format pkgname -- \
             -race -shuffle on -timeout 10m -tags=e2e \
-            -coverpkg=./... -coverprofile=e2e-coverage.out -covermode=atomic \
+            -coverpkg="$COVERPKGS" -coverprofile=e2e-coverage.out -covermode=atomic \
             ./test/e2e/...
 
       - name: Upload Coverage
@@ -134,7 +140,7 @@ jobs:
 
   coverage:
     runs-on: ubuntu-latest
-    needs: [unit, integration, terraform, e2e]
+    needs: [unit, integration, e2e]
     permissions:
       contents: write
       checks: write
@@ -161,7 +167,7 @@ jobs:
         run: |
           # Merge all coverage files into one
           echo "mode: atomic" > coverage.out
-          for f in unit-coverage.out integration-coverage.out terraform-coverage.out e2e-coverage.out; do
+          for f in unit-coverage.out integration-coverage.out e2e-coverage.out; do
             if [ -f "$f" ]; then
               tail -n +2 "$f" >> coverage.out
             fi
