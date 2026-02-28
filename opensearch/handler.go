@@ -112,19 +112,44 @@ type domainJSON struct {
 
 // domainStatusJSON is the JSON response for domain operations.
 type domainStatusJSON struct {
-	DomainName             string            `json:"DomainName"`
-	ARN                    string            `json:"ARN"`
-	EngineVersion          string            `json:"EngineVersion"`
-	Endpoint               string            `json:"Endpoint"`
-	DomainProcessingStatus string            `json:"DomainProcessingStatus"`
-	ClusterConfig          clusterConfigJSON `json:"ClusterConfig"`
-	EBSOptions             ebsOptionsJSON    `json:"EBSOptions"`
-	Processing             bool              `json:"Processing"`
+	DomainName                  string                      `json:"DomainName"`
+	ARN                         string                      `json:"ARN"`
+	EngineVersion               string                      `json:"EngineVersion"`
+	Endpoint                    string                      `json:"Endpoint"`
+	DomainProcessingStatus      string                      `json:"DomainProcessingStatus"`
+	ClusterConfig               clusterConfigJSON           `json:"ClusterConfig"`
+	EBSOptions                  ebsOptionsJSON              `json:"EBSOptions"`
+	CognitoOptions              cognitoOptionsJSON          `json:"CognitoOptions"`
+	EncryptionAtRestOptions     encryptAtRestOptionsJSON    `json:"EncryptionAtRestOptions"`
+	NodeToNodeEncryptionOptions nodeToNodeEncryptJSON       `json:"NodeToNodeEncryptionOptions"`
+	AdvancedSecurityOptions     advancedSecurityOptionsJSON `json:"AdvancedSecurityOptions"`
+	Processing                  bool                        `json:"Processing"`
 }
 
 // ebsOptionsJSON is the JSON representation of EBS options.
 type ebsOptionsJSON struct {
 	EBSEnabled bool `json:"EBSEnabled"`
+}
+
+// cognitoOptionsJSON is the JSON representation of Cognito options.
+type cognitoOptionsJSON struct {
+	Enabled bool `json:"Enabled"`
+}
+
+// encryptAtRestOptionsJSON is the JSON representation of encryption at rest options.
+type encryptAtRestOptionsJSON struct {
+	Enabled bool `json:"Enabled"`
+}
+
+// nodeToNodeEncryptJSON is the JSON representation of node-to-node encryption options.
+type nodeToNodeEncryptJSON struct {
+	Enabled bool `json:"Enabled"`
+}
+
+// advancedSecurityOptionsJSON is the JSON representation of advanced security options.
+type advancedSecurityOptionsJSON struct {
+	Enabled                     bool `json:"Enabled"`
+	InternalUserDatabaseEnabled bool `json:"InternalUserDatabaseEnabled"`
 }
 
 // clusterConfigJSON is the JSON representation of cluster config.
@@ -315,13 +340,17 @@ func (h *Handler) handleListDomainNames(w http.ResponseWriter, _ *http.Request) 
 
 func toDomainStatusJSON(d *Domain) domainStatusJSON {
 	return domainStatusJSON{
-		DomainName:             d.Name,
-		ARN:                    d.ARN,
-		EngineVersion:          d.EngineVersion,
-		Endpoint:               d.Endpoint,
-		Processing:             false,
-		DomainProcessingStatus: "Active",
-		EBSOptions:             ebsOptionsJSON{EBSEnabled: false},
+		DomainName:                  d.Name,
+		ARN:                         d.ARN,
+		EngineVersion:               d.EngineVersion,
+		Endpoint:                    d.Endpoint,
+		Processing:                  false,
+		DomainProcessingStatus:      "Active",
+		EBSOptions:                  ebsOptionsJSON{EBSEnabled: false},
+		CognitoOptions:              cognitoOptionsJSON{Enabled: false},
+		EncryptionAtRestOptions:     encryptAtRestOptionsJSON{Enabled: false},
+		NodeToNodeEncryptionOptions: nodeToNodeEncryptJSON{Enabled: false},
+		AdvancedSecurityOptions:     advancedSecurityOptionsJSON{Enabled: false},
 		ClusterConfig: clusterConfigJSON{
 			InstanceType:  d.ClusterConfig.InstanceType,
 			InstanceCount: d.ClusterConfig.InstanceCount,
