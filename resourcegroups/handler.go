@@ -18,6 +18,10 @@ const (
 	resourceGroupsMatchPriority = 100
 )
 
+type groupNameInput struct {
+	GroupName string `json:"GroupName"`
+}
+
 // Handler is the Echo HTTP handler for Resource Groups operations.
 type Handler struct {
 	Backend *InMemoryBackend
@@ -63,6 +67,11 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	return action
 }
 
+type extractResourceGroupInput struct {
+	Name      string `json:"Name"`
+	GroupName string `json:"GroupName"`
+}
+
 // ExtractResource extracts the group name from the request body, checking both
 // the Name (CreateGroup) and GroupName (GetGroup/DeleteGroup) fields.
 func (h *Handler) ExtractResource(c *echo.Context) string {
@@ -71,10 +80,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return ""
 	}
 
-	var req struct {
-		Name      string `json:"Name"`
-		GroupName string `json:"GroupName"`
-	}
+	var req extractResourceGroupInput
 	_ = json.Unmarshal(body, &req)
 
 	if req.Name != "" {
@@ -108,12 +114,14 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
+type handleCreateGroupInput struct {
+	Tags        map[string]string `json:"Tags"`
+	Name        string            `json:"Name"`
+	Description string            `json:"Description"`
+}
+
 func (h *Handler) handleCreateGroup(c *echo.Context, body []byte) error {
-	var req struct {
-		Tags        map[string]string `json:"Tags"`
-		Name        string            `json:"Name"`
-		Description string            `json:"Description"`
-	}
+	var req handleCreateGroupInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
 	}
@@ -133,9 +141,7 @@ func (h *Handler) handleCreateGroup(c *echo.Context, body []byte) error {
 }
 
 func (h *Handler) handleDeleteGroup(c *echo.Context, body []byte) error {
-	var req struct {
-		GroupName string `json:"GroupName"`
-	}
+	var req groupNameInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
 	}
@@ -160,9 +166,7 @@ func (h *Handler) handleListGroups(c *echo.Context) error {
 }
 
 func (h *Handler) handleGetGroup(c *echo.Context, body []byte) error {
-	var req struct {
-		GroupName string `json:"GroupName"`
-	}
+	var req groupNameInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
 	}

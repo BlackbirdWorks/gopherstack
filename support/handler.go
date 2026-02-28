@@ -62,6 +62,11 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	return action
 }
 
+type extractSupportResourceInput struct {
+	CaseID  string `json:"caseId"`
+	Subject string `json:"subject"`
+}
+
 // ExtractResource extracts the case ID from the request body.
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	body, err := httputil.ReadBody(c.Request())
@@ -69,10 +74,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return ""
 	}
 
-	var req struct {
-		CaseID  string `json:"caseId"`
-		Subject string `json:"subject"`
-	}
+	var req extractSupportResourceInput
 	_ = json.Unmarshal(body, &req)
 
 	if req.CaseID != "" {
@@ -104,14 +106,16 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
+type handleCreateCaseInput struct {
+	Subject           string `json:"subject"`
+	ServiceCode       string `json:"serviceCode"`
+	CategoryCode      string `json:"categoryCode"`
+	SeverityCode      string `json:"severityCode"`
+	CommunicationBody string `json:"communicationBody"`
+}
+
 func (h *Handler) handleCreateCase(c *echo.Context, body []byte) error {
-	var req struct {
-		Subject           string `json:"subject"`
-		ServiceCode       string `json:"serviceCode"`
-		CategoryCode      string `json:"categoryCode"`
-		SeverityCode      string `json:"severityCode"`
-		CommunicationBody string `json:"communicationBody"`
-	}
+	var req handleCreateCaseInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
 	}
@@ -136,10 +140,12 @@ func (h *Handler) handleCreateCase(c *echo.Context, body []byte) error {
 	})
 }
 
+type handleDescribeCasesInput struct {
+	CaseIDList []string `json:"caseIdList"`
+}
+
 func (h *Handler) handleDescribeCases(c *echo.Context, body []byte) error {
-	var req struct {
-		CaseIDList []string `json:"caseIdList"`
-	}
+	var req handleDescribeCasesInput
 	_ = json.Unmarshal(body, &req)
 
 	cases := h.Backend.DescribeCases(req.CaseIDList)
@@ -162,10 +168,12 @@ func (h *Handler) handleDescribeCases(c *echo.Context, body []byte) error {
 	})
 }
 
+type handleResolveCaseInput struct {
+	CaseID string `json:"caseId"`
+}
+
 func (h *Handler) handleResolveCase(c *echo.Context, body []byte) error {
-	var req struct {
-		CaseID string `json:"caseId"`
-	}
+	var req handleResolveCaseInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
 	}

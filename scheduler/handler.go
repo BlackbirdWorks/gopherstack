@@ -18,6 +18,24 @@ const (
 	schedulerMatchPriority = 100
 )
 
+type scheduleNameInput struct {
+	Name string `json:"Name"`
+}
+
+type scheduleInput struct {
+	Name               string `json:"Name"`
+	ScheduleExpression string `json:"ScheduleExpression"`
+	Target             struct {
+		Arn     string `json:"Arn"`
+		RoleArn string `json:"RoleArn"`
+	} `json:"Target"`
+	State              string `json:"State"`
+	FlexibleTimeWindow struct {
+		Mode                   string `json:"Mode"`
+		MaximumWindowInMinutes int    `json:"MaximumWindowInMinutes"`
+	} `json:"FlexibleTimeWindow"`
+}
+
 // Handler is the Echo HTTP handler for EventBridge Scheduler operations.
 type Handler struct {
 	Backend *InMemoryBackend
@@ -72,9 +90,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	if err != nil {
 		return ""
 	}
-	var req struct {
-		Name string `json:"Name"`
-	}
+	var req scheduleNameInput
 	_ = json.Unmarshal(body, &req)
 
 	return req.Name
@@ -111,19 +127,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 }
 
 func (h *Handler) handleCreateSchedule(c *echo.Context, body []byte) error {
-	var req struct {
-		Name               string `json:"Name"`
-		ScheduleExpression string `json:"ScheduleExpression"`
-		Target             struct {
-			Arn     string `json:"Arn"`
-			RoleArn string `json:"RoleArn"`
-		} `json:"Target"`
-		State              string `json:"State"`
-		FlexibleTimeWindow struct {
-			Mode                   string `json:"Mode"`
-			MaximumWindowInMinutes int    `json:"MaximumWindowInMinutes"`
-		} `json:"FlexibleTimeWindow"`
-	}
+	var req scheduleInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
 	}
@@ -155,9 +159,7 @@ func (h *Handler) handleCreateSchedule(c *echo.Context, body []byte) error {
 }
 
 func (h *Handler) handleGetSchedule(c *echo.Context, body []byte) error {
-	var req struct {
-		Name string `json:"Name"`
-	}
+	var req scheduleNameInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
 	}
@@ -205,9 +207,7 @@ func (h *Handler) handleListSchedules(c *echo.Context) error {
 }
 
 func (h *Handler) handleDeleteSchedule(c *echo.Context, body []byte) error {
-	var req struct {
-		Name string `json:"Name"`
-	}
+	var req scheduleNameInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
 	}
@@ -224,19 +224,7 @@ func (h *Handler) handleDeleteSchedule(c *echo.Context, body []byte) error {
 }
 
 func (h *Handler) handleUpdateSchedule(c *echo.Context, body []byte) error {
-	var req struct {
-		Name               string `json:"Name"`
-		ScheduleExpression string `json:"ScheduleExpression"`
-		Target             struct {
-			Arn     string `json:"Arn"`
-			RoleArn string `json:"RoleArn"`
-		} `json:"Target"`
-		State              string `json:"State"`
-		FlexibleTimeWindow struct {
-			Mode                   string `json:"Mode"`
-			MaximumWindowInMinutes int    `json:"MaximumWindowInMinutes"`
-		} `json:"FlexibleTimeWindow"`
-	}
+	var req scheduleInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
 	}
@@ -262,11 +250,13 @@ func (h *Handler) handleUpdateSchedule(c *echo.Context, body []byte) error {
 	return c.JSON(http.StatusOK, map[string]string{"ScheduleArn": s.ARN})
 }
 
+type handleTagResourceInput struct {
+	Tags        map[string]string `json:"Tags"`
+	ResourceArn string            `json:"ResourceArn"`
+}
+
 func (h *Handler) handleTagResource(c *echo.Context, body []byte) error {
-	var req struct {
-		Tags        map[string]string `json:"Tags"`
-		ResourceArn string            `json:"ResourceArn"`
-	}
+	var req handleTagResourceInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
 	}
@@ -282,10 +272,12 @@ func (h *Handler) handleTagResource(c *echo.Context, body []byte) error {
 	return c.JSON(http.StatusOK, map[string]string{})
 }
 
+type handleListTagsForResourceInput struct {
+	ResourceArn string `json:"ResourceArn"`
+}
+
 func (h *Handler) handleListTagsForResource(c *echo.Context, body []byte) error {
-	var req struct {
-		ResourceArn string `json:"ResourceArn"`
-	}
+	var req handleListTagsForResourceInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
 	}

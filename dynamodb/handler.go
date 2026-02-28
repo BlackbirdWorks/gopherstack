@@ -647,10 +647,12 @@ func (h *DynamoDBHandler) classifyError(reqErr error) (int, *Error) {
 	}
 }
 
+type describeContinuousBackupsInput struct {
+	TableName string `json:"TableName"`
+}
+
 func (h *DynamoDBHandler) describeContinuousBackups(_ context.Context, body []byte) (any, error) {
-	var req struct {
-		TableName string `json:"TableName"`
-	}
+	var req describeContinuousBackupsInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
 	}
@@ -665,13 +667,15 @@ func (h *DynamoDBHandler) describeContinuousBackups(_ context.Context, body []by
 	}, nil
 }
 
+type updateContinuousBackupsInput struct {
+	TableName                        string `json:"TableName"`
+	PointInTimeRecoverySpecification struct {
+		PointInTimeRecoveryEnabled bool `json:"PointInTimeRecoveryEnabled"`
+	} `json:"PointInTimeRecoverySpecification"`
+}
+
 func (h *DynamoDBHandler) updateContinuousBackups(_ context.Context, body []byte) (any, error) {
-	var req struct {
-		TableName                        string `json:"TableName"`
-		PointInTimeRecoverySpecification struct {
-			PointInTimeRecoveryEnabled bool `json:"PointInTimeRecoveryEnabled"`
-		} `json:"PointInTimeRecoverySpecification"`
-	}
+	var req updateContinuousBackupsInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
 	}
@@ -691,11 +695,13 @@ func (h *DynamoDBHandler) updateContinuousBackups(_ context.Context, body []byte
 	}, nil
 }
 
+type exportTableToPointInTimeInput struct {
+	TableArn string `json:"TableArn"`
+	S3Bucket string `json:"S3Bucket"`
+}
+
 func (h *DynamoDBHandler) exportTableToPointInTime(_ context.Context, body []byte) (any, error) {
-	var req struct {
-		TableArn string `json:"TableArn"`
-		S3Bucket string `json:"S3Bucket"`
-	}
+	var req exportTableToPointInTimeInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
 	}
@@ -712,10 +718,12 @@ func (h *DynamoDBHandler) exportTableToPointInTime(_ context.Context, body []byt
 	}, nil
 }
 
+type describeExportInput struct {
+	ExportArn string `json:"ExportArn"`
+}
+
 func (h *DynamoDBHandler) describeExport(_ context.Context, body []byte) (any, error) {
-	var req struct {
-		ExportArn string `json:"ExportArn"`
-	}
+	var req describeExportInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
 	}

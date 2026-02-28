@@ -18,6 +18,14 @@ const (
 	resolverMatchPriority = 100
 )
 
+type resolverEndpointIDInput struct {
+	ResolverEndpointID string `json:"ResolverEndpointId"`
+}
+
+type resolverRuleIDInput struct {
+	ResolverRuleID string `json:"ResolverRuleId"`
+}
+
 type Handler struct {
 	Backend *InMemoryBackend
 	Logger  *slog.Logger
@@ -60,14 +68,16 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	return action
 }
 
+type extractResolverResourceInput struct {
+	Name string `json:"Name"`
+}
+
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	body, err := httputil.ReadBody(c.Request())
 	if err != nil {
 		return ""
 	}
-	var req struct {
-		Name string `json:"Name"`
-	}
+	var req extractResolverResourceInput
 	_ = json.Unmarshal(body, &req)
 
 	return req.Name
@@ -104,16 +114,18 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
+type handleCreateResolverEndpointInput struct {
+	Name             string   `json:"Name"`
+	Direction        string   `json:"Direction"`
+	SecurityGroupIDs []string `json:"SecurityGroupIds"`
+	IPAddresses      []struct {
+		SubnetID string `json:"SubnetId"`
+		IP       string `json:"Ip"`
+	} `json:"IpAddresses"`
+}
+
 func (h *Handler) handleCreateResolverEndpoint(c *echo.Context, body []byte) error {
-	var req struct {
-		Name             string   `json:"Name"`
-		Direction        string   `json:"Direction"`
-		SecurityGroupIDs []string `json:"SecurityGroupIds"`
-		IPAddresses      []struct {
-			SubnetID string `json:"SubnetId"`
-			IP       string `json:"Ip"`
-		} `json:"IpAddresses"`
-	}
+	var req handleCreateResolverEndpointInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
 	}
@@ -134,9 +146,7 @@ func (h *Handler) handleCreateResolverEndpoint(c *echo.Context, body []byte) err
 }
 
 func (h *Handler) handleDeleteResolverEndpoint(c *echo.Context, body []byte) error {
-	var req struct {
-		ResolverEndpointID string `json:"ResolverEndpointId"`
-	}
+	var req resolverEndpointIDInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
 	}
@@ -165,9 +175,7 @@ func (h *Handler) handleListResolverEndpoints(c *echo.Context) error {
 }
 
 func (h *Handler) handleGetResolverEndpoint(c *echo.Context, body []byte) error {
-	var req struct {
-		ResolverEndpointID string `json:"ResolverEndpointId"`
-	}
+	var req resolverEndpointIDInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
 	}
@@ -186,13 +194,15 @@ func (h *Handler) handleGetResolverEndpoint(c *echo.Context, body []byte) error 
 	})
 }
 
+type handleCreateResolverRuleInput struct {
+	Name               string `json:"Name"`
+	DomainName         string `json:"DomainName"`
+	RuleType           string `json:"RuleType"`
+	ResolverEndpointID string `json:"ResolverEndpointId"`
+}
+
 func (h *Handler) handleCreateResolverRule(c *echo.Context, body []byte) error {
-	var req struct {
-		Name               string `json:"Name"`
-		DomainName         string `json:"DomainName"`
-		RuleType           string `json:"RuleType"`
-		ResolverEndpointID string `json:"ResolverEndpointId"`
-	}
+	var req handleCreateResolverRuleInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
 	}
@@ -208,9 +218,7 @@ func (h *Handler) handleCreateResolverRule(c *echo.Context, body []byte) error {
 }
 
 func (h *Handler) handleGetResolverRule(c *echo.Context, body []byte) error {
-	var req struct {
-		ResolverRuleID string `json:"ResolverRuleId"`
-	}
+	var req resolverRuleIDInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
 	}
@@ -230,9 +238,7 @@ func (h *Handler) handleGetResolverRule(c *echo.Context, body []byte) error {
 }
 
 func (h *Handler) handleDeleteResolverRule(c *echo.Context, body []byte) error {
-	var req struct {
-		ResolverRuleID string `json:"ResolverRuleId"`
-	}
+	var req resolverRuleIDInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
 	}

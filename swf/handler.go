@@ -67,6 +67,11 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	return action
 }
 
+type extractSWFResourceInput struct {
+	Name   string `json:"name"`
+	Domain string `json:"domain"`
+}
+
 // ExtractResource extracts the domain name from the request body.
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	body, err := httputil.ReadBody(c.Request())
@@ -74,10 +79,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return ""
 	}
 
-	var req struct {
-		Name   string `json:"name"`
-		Domain string `json:"domain"`
-	}
+	var req extractSWFResourceInput
 	_ = json.Unmarshal(body, &req)
 
 	if req.Name != "" {
@@ -117,11 +119,13 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
+type handleRegisterDomainInput struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
 func (h *Handler) handleRegisterDomain(c *echo.Context, body []byte) error {
-	var req struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
-	}
+	var req handleRegisterDomainInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
 	}
@@ -137,10 +141,12 @@ func (h *Handler) handleRegisterDomain(c *echo.Context, body []byte) error {
 	return c.JSON(http.StatusOK, map[string]string{})
 }
 
+type handleListDomainsInput struct {
+	RegistrationStatus string `json:"registrationStatus"`
+}
+
 func (h *Handler) handleListDomains(c *echo.Context, body []byte) error {
-	var req struct {
-		RegistrationStatus string `json:"registrationStatus"`
-	}
+	var req handleListDomainsInput
 	_ = json.Unmarshal(body, &req)
 
 	domains := h.Backend.ListDomains(req.RegistrationStatus)
@@ -150,10 +156,12 @@ func (h *Handler) handleListDomains(c *echo.Context, body []byte) error {
 	})
 }
 
+type handleDeprecateDomainInput struct {
+	Name string `json:"name"`
+}
+
 func (h *Handler) handleDeprecateDomain(c *echo.Context, body []byte) error {
-	var req struct {
-		Name string `json:"name"`
-	}
+	var req handleDeprecateDomainInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
 	}
@@ -169,12 +177,14 @@ func (h *Handler) handleDeprecateDomain(c *echo.Context, body []byte) error {
 	return c.JSON(http.StatusOK, map[string]string{})
 }
 
+type handleRegisterWorkflowTypeInput struct {
+	Domain  string `json:"domain"`
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
+
 func (h *Handler) handleRegisterWorkflowType(c *echo.Context, body []byte) error {
-	var req struct {
-		Domain  string `json:"domain"`
-		Name    string `json:"name"`
-		Version string `json:"version"`
-	}
+	var req handleRegisterWorkflowTypeInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
 	}
@@ -186,10 +196,12 @@ func (h *Handler) handleRegisterWorkflowType(c *echo.Context, body []byte) error
 	return c.JSON(http.StatusOK, map[string]string{})
 }
 
+type handleListWorkflowTypesInput struct {
+	Domain string `json:"domain"`
+}
+
 func (h *Handler) handleListWorkflowTypes(c *echo.Context, body []byte) error {
-	var req struct {
-		Domain string `json:"domain"`
-	}
+	var req handleListWorkflowTypesInput
 	_ = json.Unmarshal(body, &req)
 
 	wts := h.Backend.ListWorkflowTypes(req.Domain)
@@ -199,11 +211,13 @@ func (h *Handler) handleListWorkflowTypes(c *echo.Context, body []byte) error {
 	})
 }
 
+type handleStartWorkflowExecutionInput struct {
+	Domain     string `json:"domain"`
+	WorkflowID string `json:"workflowId"`
+}
+
 func (h *Handler) handleStartWorkflowExecution(c *echo.Context, body []byte) error {
-	var req struct {
-		Domain     string `json:"domain"`
-		WorkflowID string `json:"workflowId"`
-	}
+	var req handleStartWorkflowExecutionInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
 	}
@@ -219,14 +233,16 @@ func (h *Handler) handleStartWorkflowExecution(c *echo.Context, body []byte) err
 	})
 }
 
+type handleDescribeWorkflowExecutionInput struct {
+	Domain    string `json:"domain"`
+	Execution struct {
+		WorkflowID string `json:"workflowId"`
+		RunID      string `json:"runId"`
+	} `json:"execution"`
+}
+
 func (h *Handler) handleDescribeWorkflowExecution(c *echo.Context, body []byte) error {
-	var req struct {
-		Domain    string `json:"domain"`
-		Execution struct {
-			WorkflowID string `json:"workflowId"`
-			RunID      string `json:"runId"`
-		} `json:"execution"`
-	}
+	var req handleDescribeWorkflowExecutionInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
 	}

@@ -603,6 +603,14 @@ func (h *Handler) changeTagsForResource(c *echo.Context) error {
 	return writeXML(c, http.StatusOK, changeTagsResp{Xmlns: route53Namespace})
 }
 
+type applyTagChangesInput struct {
+	AddTags []struct {
+		Key   string `xml:"Key"`
+		Value string `xml:"Value"`
+	} `xml:"AddTags>Tag"`
+	RemoveTagKeys []string `xml:"RemoveTagKeys>Key"`
+}
+
 // applyTagChanges reads a ChangeTagsForResource XML body and applies the add/remove operations.
 // It returns an error if the body cannot be read or parsed.
 func (h *Handler) applyTagChanges(resourceID string, r *http.Request) error {
@@ -615,13 +623,7 @@ func (h *Handler) applyTagChanges(resourceID string, r *http.Request) error {
 		return nil
 	}
 
-	var req struct {
-		AddTags []struct {
-			Key   string `xml:"Key"`
-			Value string `xml:"Value"`
-		} `xml:"AddTags>Tag"`
-		RemoveTagKeys []string `xml:"RemoveTagKeys>Key"`
-	}
+	var req applyTagChangesInput
 
 	if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
 		return fmt.Errorf("failed to parse XML: %w", xmlErr)

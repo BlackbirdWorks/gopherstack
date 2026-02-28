@@ -62,6 +62,10 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	return action
 }
 
+type transcriptionJobNameInput struct {
+	TranscriptionJobName string `json:"TranscriptionJobName"`
+}
+
 // ExtractResource extracts the job name from the request body.
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	body, err := httputil.ReadBody(c.Request())
@@ -69,9 +73,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return ""
 	}
 
-	var req struct {
-		TranscriptionJobName string `json:"TranscriptionJobName"`
-	}
+	var req transcriptionJobNameInput
 	_ = json.Unmarshal(body, &req)
 
 	return req.TranscriptionJobName
@@ -99,14 +101,16 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
+type handleStartTranscriptionJobInput struct {
+	TranscriptionJobName string `json:"TranscriptionJobName"`
+	LanguageCode         string `json:"LanguageCode"`
+	Media                struct {
+		MediaFileURI string `json:"MediaFileUri"`
+	} `json:"Media"`
+}
+
 func (h *Handler) handleStartTranscriptionJob(c *echo.Context, body []byte) error {
-	var req struct {
-		TranscriptionJobName string `json:"TranscriptionJobName"`
-		LanguageCode         string `json:"LanguageCode"`
-		Media                struct {
-			MediaFileURI string `json:"MediaFileUri"`
-		} `json:"Media"`
-	}
+	var req handleStartTranscriptionJobInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
 	}
@@ -137,9 +141,7 @@ func (h *Handler) handleStartTranscriptionJob(c *echo.Context, body []byte) erro
 }
 
 func (h *Handler) handleGetTranscriptionJob(c *echo.Context, body []byte) error {
-	var req struct {
-		TranscriptionJobName string `json:"TranscriptionJobName"`
-	}
+	var req transcriptionJobNameInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
 	}
@@ -166,10 +168,12 @@ func (h *Handler) handleGetTranscriptionJob(c *echo.Context, body []byte) error 
 	})
 }
 
+type handleListTranscriptionJobsInput struct {
+	Status string `json:"Status"`
+}
+
 func (h *Handler) handleListTranscriptionJobs(c *echo.Context, body []byte) error {
-	var req struct {
-		Status string `json:"Status"`
-	}
+	var req handleListTranscriptionJobsInput
 	_ = json.Unmarshal(body, &req)
 
 	jobs := h.Backend.ListTranscriptionJobs(req.Status)

@@ -97,6 +97,10 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	return action
 }
 
+type extractQueueURLInput struct {
+	QueueURL string `json:"QueueUrl"`
+}
+
 // ExtractResource extracts the queue name from the JSON request body's QueueUrl field.
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	body, err := httputil.ReadBody(c.Request())
@@ -104,9 +108,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return ""
 	}
 
-	var req struct {
-		QueueURL string `json:"QueueUrl"`
-	}
+	var req extractQueueURLInput
 
 	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
 		return ""

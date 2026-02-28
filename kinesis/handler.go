@@ -112,6 +112,10 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	return action
 }
 
+type extractStreamNameInput struct {
+	StreamName string `json:"StreamName"`
+}
+
 // ExtractResource extracts the stream name from the JSON request body.
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	body, err := httputil.ReadBody(c.Request())
@@ -119,9 +123,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return ""
 	}
 
-	var req struct {
-		StreamName string `json:"StreamName"`
-	}
+	var req extractStreamNameInput
 
 	if err = json.Unmarshal(body, &req); err != nil {
 		return ""
@@ -748,6 +750,11 @@ func errorDetails(err error) (string, string, int) {
 	}
 }
 
+type handleAddTagsToStreamInput struct {
+	Tags       map[string]string `json:"Tags"`
+	StreamName string            `json:"StreamName"`
+}
+
 func (h *Handler) handleAddTagsToStream(
 	_ context.Context,
 	w http.ResponseWriter,
@@ -755,10 +762,7 @@ func (h *Handler) handleAddTagsToStream(
 	body []byte,
 	requestID string,
 ) {
-	var req struct {
-		Tags       map[string]string `json:"Tags"`
-		StreamName string            `json:"StreamName"`
-	}
+	var req handleAddTagsToStreamInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		h.writeError(w, ErrInvalidArgument, requestID)
 
@@ -768,6 +772,11 @@ func (h *Handler) handleAddTagsToStream(
 	httputil.WriteJSON(h.Logger, w, http.StatusOK, struct{}{})
 }
 
+type handleRemoveTagsFromStreamInput struct {
+	StreamName string   `json:"StreamName"`
+	TagKeys    []string `json:"TagKeys"`
+}
+
 func (h *Handler) handleRemoveTagsFromStream(
 	_ context.Context,
 	w http.ResponseWriter,
@@ -775,10 +784,7 @@ func (h *Handler) handleRemoveTagsFromStream(
 	body []byte,
 	requestID string,
 ) {
-	var req struct {
-		StreamName string   `json:"StreamName"`
-		TagKeys    []string `json:"TagKeys"`
-	}
+	var req handleRemoveTagsFromStreamInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		h.writeError(w, ErrInvalidArgument, requestID)
 
@@ -795,9 +801,7 @@ func (h *Handler) handleListTagsForStream(
 	body []byte,
 	requestID string,
 ) {
-	var req struct {
-		StreamName string `json:"StreamName"`
-	}
+	var req extractStreamNameInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		h.writeError(w, ErrInvalidArgument, requestID)
 

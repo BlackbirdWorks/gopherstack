@@ -17,6 +17,10 @@ const (
 	awsConfigMatchPriority = 100
 )
 
+type configurationRecorderNameInput struct {
+	ConfigurationRecorderName string `json:"ConfigurationRecorderName"`
+}
+
 // Handler is the Echo HTTP handler for AWS Config operations.
 type Handler struct {
 	Backend *InMemoryBackend
@@ -86,12 +90,14 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	}
 }
 
+type extractConfigRecorderNameInput struct {
+	ConfigurationRecorder struct {
+		Name string `json:"name"`
+	} `json:"ConfigurationRecorder"`
+}
+
 func extractConfigRecorderName(body []byte) string {
-	var req struct {
-		ConfigurationRecorder struct {
-			Name string `json:"name"`
-		} `json:"ConfigurationRecorder"`
-	}
+	var req extractConfigRecorderNameInput
 	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
 		return ""
 	}
@@ -100,9 +106,7 @@ func extractConfigRecorderName(body []byte) string {
 }
 
 func extractTopLevelRecorderName(body []byte) string {
-	var req struct {
-		ConfigurationRecorderName string `json:"ConfigurationRecorderName"`
-	}
+	var req configurationRecorderNameInput
 	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
 		return ""
 	}
@@ -110,10 +114,12 @@ func extractTopLevelRecorderName(body []byte) string {
 	return req.ConfigurationRecorderName
 }
 
+type extractFirstRecorderNameInput struct {
+	ConfigurationRecorderNames []string `json:"ConfigurationRecorderNames"`
+}
+
 func extractFirstRecorderName(body []byte) string {
-	var req struct {
-		ConfigurationRecorderNames []string `json:"ConfigurationRecorderNames"`
-	}
+	var req extractFirstRecorderNameInput
 	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
 		return ""
 	}
@@ -124,12 +130,14 @@ func extractFirstRecorderName(body []byte) string {
 	return ""
 }
 
+type extractDeliveryChannelNameInput struct {
+	DeliveryChannel struct {
+		Name string `json:"name"`
+	} `json:"DeliveryChannel"`
+}
+
 func extractDeliveryChannelName(body []byte) string {
-	var req struct {
-		DeliveryChannel struct {
-			Name string `json:"name"`
-		} `json:"DeliveryChannel"`
-	}
+	var req extractDeliveryChannelNameInput
 	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
 		return ""
 	}
@@ -137,10 +145,12 @@ func extractDeliveryChannelName(body []byte) string {
 	return req.DeliveryChannel.Name
 }
 
+type extractFirstDeliveryChannelNameInput struct {
+	DeliveryChannelNames []string `json:"DeliveryChannelNames"`
+}
+
 func extractFirstDeliveryChannelName(body []byte) string {
-	var req struct {
-		DeliveryChannelNames []string `json:"DeliveryChannelNames"`
-	}
+	var req extractFirstDeliveryChannelNameInput
 	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
 		return ""
 	}
@@ -209,9 +219,7 @@ func (h *Handler) handleDescribeConfigurationRecorders(c *echo.Context) error {
 }
 
 func (h *Handler) handleStartConfigurationRecorder(c *echo.Context, body []byte) error {
-	var req struct {
-		ConfigurationRecorderName string `json:"ConfigurationRecorderName"`
-	}
+	var req configurationRecorderNameInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
 	}
@@ -223,14 +231,16 @@ func (h *Handler) handleStartConfigurationRecorder(c *echo.Context, body []byte)
 	return c.JSON(http.StatusOK, map[string]string{})
 }
 
+type handlePutDeliveryChannelInput struct {
+	DeliveryChannel struct {
+		Name         string `json:"name"`
+		S3BucketName string `json:"s3BucketName"`
+		SnsTopicARN  string `json:"snsTopicARN"`
+	} `json:"DeliveryChannel"`
+}
+
 func (h *Handler) handlePutDeliveryChannel(c *echo.Context, body []byte) error {
-	var req struct {
-		DeliveryChannel struct {
-			Name         string `json:"name"`
-			S3BucketName string `json:"s3BucketName"`
-			SnsTopicARN  string `json:"snsTopicARN"`
-		} `json:"DeliveryChannel"`
-	}
+	var req handlePutDeliveryChannelInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
 	}

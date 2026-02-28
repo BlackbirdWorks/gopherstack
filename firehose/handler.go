@@ -69,6 +69,10 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	return action
 }
 
+type deliveryStreamNameInput struct {
+	DeliveryStreamName string `json:"DeliveryStreamName"`
+}
+
 // ExtractResource extracts the delivery stream name from the request body.
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	body, err := httputil.ReadBody(c.Request())
@@ -76,9 +80,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return ""
 	}
 
-	var req struct {
-		DeliveryStreamName string `json:"DeliveryStreamName"`
-	}
+	var req deliveryStreamNameInput
 	_ = json.Unmarshal(body, &req)
 
 	return req.DeliveryStreamName
@@ -115,9 +117,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 }
 
 func (h *Handler) handleCreateDeliveryStream(c *echo.Context, body []byte) error {
-	var req struct {
-		DeliveryStreamName string `json:"DeliveryStreamName"`
-	}
+	var req deliveryStreamNameInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
 	}
@@ -137,9 +137,7 @@ func (h *Handler) handleCreateDeliveryStream(c *echo.Context, body []byte) error
 }
 
 func (h *Handler) handleDeleteDeliveryStream(c *echo.Context, body []byte) error {
-	var req struct {
-		DeliveryStreamName string `json:"DeliveryStreamName"`
-	}
+	var req deliveryStreamNameInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
 	}
@@ -159,9 +157,7 @@ func (h *Handler) handleDeleteDeliveryStream(c *echo.Context, body []byte) error
 }
 
 func (h *Handler) handleDescribeDeliveryStream(c *echo.Context, body []byte) error {
-	var req struct {
-		DeliveryStreamName string `json:"DeliveryStreamName"`
-	}
+	var req deliveryStreamNameInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
 	}
@@ -196,13 +192,15 @@ func (h *Handler) handleListDeliveryStreams(c *echo.Context) error {
 	})
 }
 
+type handlePutRecordInput struct {
+	DeliveryStreamName string `json:"DeliveryStreamName"`
+	Record             struct {
+		Data string `json:"Data"`
+	} `json:"Record"`
+}
+
 func (h *Handler) handlePutRecord(c *echo.Context, body []byte) error {
-	var req struct {
-		DeliveryStreamName string `json:"DeliveryStreamName"`
-		Record             struct {
-			Data string `json:"Data"`
-		} `json:"Record"`
-	}
+	var req handlePutRecordInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
 	}
@@ -228,13 +226,15 @@ func (h *Handler) handlePutRecord(c *echo.Context, body []byte) error {
 	})
 }
 
+type handlePutRecordBatchInput struct {
+	DeliveryStreamName string `json:"DeliveryStreamName"`
+	Records            []struct {
+		Data string `json:"Data"`
+	} `json:"Records"`
+}
+
 func (h *Handler) handlePutRecordBatch(c *echo.Context, body []byte) error {
-	var req struct {
-		DeliveryStreamName string `json:"DeliveryStreamName"`
-		Records            []struct {
-			Data string `json:"Data"`
-		} `json:"Records"`
-	}
+	var req handlePutRecordBatchInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
 	}

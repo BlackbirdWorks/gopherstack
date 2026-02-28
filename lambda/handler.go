@@ -466,6 +466,14 @@ func (h *Handler) handleESMRoute(c *echo.Context, path, method string) error {
 	}
 }
 
+type handleCreateESMInput struct {
+	Enabled          *bool  `json:"Enabled"`
+	EventSourceARN   string `json:"EventSourceArn"`
+	FunctionName     string `json:"FunctionName"`
+	StartingPosition string `json:"StartingPosition"`
+	BatchSize        int    `json:"BatchSize"`
+}
+
 // handleCreateESM handles POST /2015-03-31/event-source-mappings/.
 func (h *Handler) handleCreateESM(c *echo.Context) error {
 	if lambdaBk, ok := h.Backend.(*InMemoryBackend); ok {
@@ -474,13 +482,7 @@ func (h *Handler) handleCreateESM(c *echo.Context) error {
 			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
 		}
 
-		var req struct {
-			Enabled          *bool  `json:"Enabled"`
-			EventSourceARN   string `json:"EventSourceArn"`
-			FunctionName     string `json:"FunctionName"`
-			StartingPosition string `json:"StartingPosition"`
-			BatchSize        int    `json:"BatchSize"`
-		}
+		var req handleCreateESMInput
 
 		if err = json.Unmarshal(body, &req); err != nil {
 			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
