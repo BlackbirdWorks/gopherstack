@@ -216,6 +216,12 @@ func toXMLCluster(c *Cluster) xmlCluster {
 				PublicIPAddress:  "0.0.0.0",
 			}},
 		},
+		ClusterParameterGroups: xmlClusterParamGroups{
+			Members: []xmlClusterParamGroup{{
+				ParameterGroupName:   "default.redshift-1.0",
+				ParameterApplyStatus: "in-sync",
+			}},
+		},
 		DBName:         c.DBName,
 		MasterUsername: c.MasterUsername,
 	}
@@ -277,16 +283,17 @@ type redshiftErrorResponse struct {
 }
 
 type xmlCluster struct {
-	ClusterIdentifier                string         `xml:"ClusterIdentifier"`
-	NodeType                         string         `xml:"NodeType"`
-	Endpoint                         string         `xml:"Endpoint>Address"`
-	ClusterStatus                    string         `xml:"ClusterStatus"`
-	ClusterAvailabilityStatus        string         `xml:"ClusterAvailabilityStatus"`
-	AvailabilityZoneRelocationStatus string         `xml:"AvailabilityZoneRelocationStatus"`
-	AquaConfiguration                xmlAquaConfig  `xml:"AquaConfiguration"`
-	ClusterNodes                     xmlClusterNodes `xml:"ClusterNodes"`
-	DBName                           string         `xml:"DBName"`
-	MasterUsername                   string         `xml:"MasterUsername"`
+	ClusterIdentifier                string                  `xml:"ClusterIdentifier"`
+	NodeType                         string                  `xml:"NodeType"`
+	Endpoint                         string                  `xml:"Endpoint>Address"`
+	ClusterStatus                    string                  `xml:"ClusterStatus"`
+	ClusterAvailabilityStatus        string                  `xml:"ClusterAvailabilityStatus"`
+	AvailabilityZoneRelocationStatus string                  `xml:"AvailabilityZoneRelocationStatus"`
+	AquaConfiguration                xmlAquaConfig           `xml:"AquaConfiguration"`
+	ClusterNodes                     xmlClusterNodes         `xml:"ClusterNodes"`
+	ClusterParameterGroups           xmlClusterParamGroups   `xml:"ClusterParameterGroups"`
+	DBName                           string                  `xml:"DBName"`
+	MasterUsername                   string                  `xml:"MasterUsername"`
 }
 
 type xmlAquaConfig struct {
@@ -302,6 +309,15 @@ type xmlClusterNode struct {
 
 type xmlClusterNodes struct {
 	Members []xmlClusterNode `xml:"member"`
+}
+
+type xmlClusterParamGroup struct {
+	ParameterGroupName   string `xml:"ParameterGroupName"`
+	ParameterApplyStatus string `xml:"ParameterApplyStatus"`
+}
+
+type xmlClusterParamGroups struct {
+	Members []xmlClusterParamGroup `xml:"ClusterParameterGroup"`
 }
 
 type createClusterResponse struct {
