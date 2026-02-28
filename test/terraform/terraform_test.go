@@ -73,6 +73,7 @@ provider "aws" {
   skip_requesting_account_id  = true
   s3_use_path_style           = true
 
+  # Endpoints are listed alphabetically — keep them sorted when adding new ones.
   endpoints {
     cloudwatchlogs = %[1]q
     dynamodb       = %[1]q

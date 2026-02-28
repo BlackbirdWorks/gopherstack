@@ -219,12 +219,12 @@ type ConfirmSubscriptionResponse struct {
 
 // GetSubscriptionAttributesResult holds the attributes of a subscription.
 type GetSubscriptionAttributesResult struct {
-Attributes []XMLAttributeEntry `xml:"Attributes>entry"`
+	Attributes []XMLAttributeEntry `xml:"Attributes>entry"`
 }
 
 // GetSubscriptionAttributesResponse is the XML response for GetSubscriptionAttributes.
 type GetSubscriptionAttributesResponse struct {
-XMLName                         xml.Name                         `xml:"https://sns.amazonaws.com/doc/2010-03-31/ GetSubscriptionAttributesResponse"` //nolint:lll // XML namespace makes this line long.
-GetSubscriptionAttributesResult GetSubscriptionAttributesResult  `xml:"GetSubscriptionAttributesResult"`
-ResponseMetadata                ResponseMetadata                 `xml:"ResponseMetadata"`
+	XMLName                         xml.Name                        `xml:"https://sns.amazonaws.com/doc/2010-03-31/ GetSubscriptionAttributesResponse"` //nolint:lll // XML namespace makes this line long.
+	GetSubscriptionAttributesResult GetSubscriptionAttributesResult `xml:"GetSubscriptionAttributesResult"`
+	ResponseMetadata                ResponseMetadata                `xml:"ResponseMetadata"`
 }
