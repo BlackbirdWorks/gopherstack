@@ -1,6 +1,7 @@
 package acm
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -12,6 +13,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -161,28 +163,34 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		action := h.ExtractOperation(c)
-		if action == "" {
-			return h.writeJSONError(c, http.StatusBadRequest, "MissingAction", "missing X-Amz-Target")
-		}
-
-		body, err := httputil.ReadBody(c.Request())
-		if err != nil {
-			return h.writeJSONError(c, http.StatusBadRequest, "InvalidParameterValue", "cannot read body")
-		}
-
-		resp, opErr := h.dispatchJSON(action, body)
-		if errors.Is(opErr, errUnknownACMAction) {
-			return h.writeJSONError(c, http.StatusBadRequest, "InvalidAction",
-				action+" is not a valid ACM action")
-		}
-
-		if opErr != nil {
-			return h.handleOpError(c, action, opErr)
-		}
-
-		return c.JSON(http.StatusOK, resp)
+		return service.HandleTarget(
+			c, logger.Load(c.Request().Context()),
+			"ACM", "application/x-amz-json-1.1",
+			h.GetSupportedOperations(),
+			h.dispatch,
+			h.handleError,
+		)
 	}
+}
+
+// dispatch routes the operation to the appropriate handler and marshals the response.
+func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byte, error) {
+	resp, err := h.dispatchJSON(action, body)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(resp)
+}
+
+// handleError writes a standardized error response back to the client.
+func (h *Handler) handleError(_ context.Context, c *echo.Context, action string, reqErr error) error {
+	if errors.Is(reqErr, errUnknownACMAction) {
+		return h.writeJSONError(c, http.StatusBadRequest, "InvalidAction",
+			action+" is not a valid ACM action")
+	}
+
+	return h.handleOpError(c, action, reqErr)
 }
 
 // errUnknownACMAction is returned by dispatchJSON for unrecognised action names.

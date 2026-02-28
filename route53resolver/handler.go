@@ -1,8 +1,10 @@
 package route53resolver
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -10,10 +12,16 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
 const resolverTargetPrefix = "Route53Resolver."
+
+var (
+	errUnknownAction  = errors.New("unknown action")
+	errInvalidRequest = errors.New("invalid request")
+)
 
 type resolverEndpointIDInput struct {
 	ResolverEndpointID string `json:"ResolverEndpointId"`
@@ -82,32 +90,56 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		body, err := httputil.ReadBody(c.Request())
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"message": "failed to read body"})
-		}
+		return service.HandleTarget(
+			c, logger.Load(c.Request().Context()),
+			"Route53Resolver", "application/x-amz-json-1.1",
+			h.GetSupportedOperations(),
+			h.dispatch,
+			h.handleError,
+		)
+	}
+}
 
-		action := strings.TrimPrefix(c.Request().Header.Get("X-Amz-Target"), resolverTargetPrefix)
-		switch action {
-		case "CreateResolverEndpoint":
-			return h.handleCreateResolverEndpoint(c, body)
-		case "DeleteResolverEndpoint":
-			return h.handleDeleteResolverEndpoint(c, body)
-		case "ListResolverEndpoints":
-			return h.handleListResolverEndpoints(c)
-		case "GetResolverEndpoint":
-			return h.handleGetResolverEndpoint(c, body)
-		case "CreateResolverRule":
-			return h.handleCreateResolverRule(c, body)
-		case "GetResolverRule":
-			return h.handleGetResolverRule(c, body)
-		case "DeleteResolverRule":
-			return h.handleDeleteResolverRule(c, body)
-		case "ListResolverRules":
-			return h.handleListResolverRules(c)
-		default:
-			return c.JSON(http.StatusBadRequest, map[string]string{"message": "unknown action: " + action})
-		}
+func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byte, error) {
+	var result any
+	var err error
+
+	switch action {
+	case "CreateResolverEndpoint":
+		result, err = h.handleCreateResolverEndpoint(body)
+	case "DeleteResolverEndpoint":
+		result, err = h.handleDeleteResolverEndpoint(body)
+	case "ListResolverEndpoints":
+		result, err = h.handleListResolverEndpoints()
+	case "GetResolverEndpoint":
+		result, err = h.handleGetResolverEndpoint(body)
+	case "CreateResolverRule":
+		result, err = h.handleCreateResolverRule(body)
+	case "GetResolverRule":
+		result, err = h.handleGetResolverRule(body)
+	case "DeleteResolverRule":
+		result, err = h.handleDeleteResolverRule(body)
+	case "ListResolverRules":
+		result, err = h.handleListResolverRules()
+	default:
+		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(result)
+}
+
+func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
+	switch {
+	case errors.Is(err, ErrNotFound):
+		return c.JSON(http.StatusNotFound, map[string]string{"message": err.Error()})
+	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction):
+		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
+	default:
+		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
 	}
 }
 
@@ -121,10 +153,10 @@ type handleCreateResolverEndpointInput struct {
 	} `json:"IpAddresses"`
 }
 
-func (h *Handler) handleCreateResolverEndpoint(c *echo.Context, body []byte) error {
+func (h *Handler) handleCreateResolverEndpoint(body []byte) (any, error) {
 	var req handleCreateResolverEndpointInput
 	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
+		return nil, errInvalidRequest
 	}
 
 	ips := make([]IPAddress, 0, len(req.IPAddresses))
@@ -134,61 +166,54 @@ func (h *Handler) handleCreateResolverEndpoint(c *echo.Context, body []byte) err
 
 	ep, err := h.Backend.CreateResolverEndpoint(req.Name, req.Direction, "", ips)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return nil, err
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
+	return map[string]any{
 		"ResolverEndpoint": endpointToMap(ep),
-	})
+	}, nil
 }
 
-func (h *Handler) handleDeleteResolverEndpoint(c *echo.Context, body []byte) error {
+func (h *Handler) handleDeleteResolverEndpoint(body []byte) (any, error) {
 	var req resolverEndpointIDInput
 	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
+		return nil, errInvalidRequest
 	}
 
 	if err := h.Backend.DeleteResolverEndpoint(req.ResolverEndpointID); err != nil {
-		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]string{"message": err.Error()})
-		}
-
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return nil, err
 	}
 
-	return c.JSON(http.StatusOK, map[string]string{})
+	return map[string]string{}, nil
 }
 
-func (h *Handler) handleListResolverEndpoints(c *echo.Context) error {
+//nolint:unparam // error returned for consistent dispatch signature
+func (h *Handler) handleListResolverEndpoints() (any, error) {
 	eps := h.Backend.ListResolverEndpoints()
 	items := make([]map[string]any, 0, len(eps))
 	for _, ep := range eps {
 		items = append(items, endpointToMap(ep))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
+	return map[string]any{
 		"ResolverEndpoints": items,
-	})
+	}, nil
 }
 
-func (h *Handler) handleGetResolverEndpoint(c *echo.Context, body []byte) error {
+func (h *Handler) handleGetResolverEndpoint(body []byte) (any, error) {
 	var req resolverEndpointIDInput
 	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
+		return nil, errInvalidRequest
 	}
 
 	ep, err := h.Backend.GetResolverEndpoint(req.ResolverEndpointID)
 	if err != nil {
-		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]string{"message": err.Error()})
-		}
-
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return nil, err
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
+	return map[string]any{
 		"ResolverEndpoint": endpointToMap(ep),
-	})
+	}, nil
 }
 
 type handleCreateResolverRuleInput struct {
@@ -198,69 +223,62 @@ type handleCreateResolverRuleInput struct {
 	ResolverEndpointID string `json:"ResolverEndpointId"`
 }
 
-func (h *Handler) handleCreateResolverRule(c *echo.Context, body []byte) error {
+func (h *Handler) handleCreateResolverRule(body []byte) (any, error) {
 	var req handleCreateResolverRuleInput
 	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
+		return nil, errInvalidRequest
 	}
 
 	r, err := h.Backend.CreateResolverRule(req.Name, req.DomainName, req.RuleType, req.ResolverEndpointID)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return nil, err
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
+	return map[string]any{
 		"ResolverRule": ruleToMap(r),
-	})
+	}, nil
 }
 
-func (h *Handler) handleGetResolverRule(c *echo.Context, body []byte) error {
+func (h *Handler) handleGetResolverRule(body []byte) (any, error) {
 	var req resolverRuleIDInput
 	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
+		return nil, errInvalidRequest
 	}
 
 	r, err := h.Backend.GetResolverRule(req.ResolverRuleID)
 	if err != nil {
-		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]string{"message": err.Error()})
-		}
-
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return nil, err
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
+	return map[string]any{
 		"ResolverRule": ruleToMap(r),
-	})
+	}, nil
 }
 
-func (h *Handler) handleDeleteResolverRule(c *echo.Context, body []byte) error {
+func (h *Handler) handleDeleteResolverRule(body []byte) (any, error) {
 	var req resolverRuleIDInput
 	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
+		return nil, errInvalidRequest
 	}
 
 	if err := h.Backend.DeleteResolverRule(req.ResolverRuleID); err != nil {
-		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]string{"message": err.Error()})
-		}
-
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return nil, err
 	}
 
-	return c.JSON(http.StatusOK, map[string]string{})
+	return map[string]string{}, nil
 }
 
-func (h *Handler) handleListResolverRules(c *echo.Context) error {
+//nolint:unparam // error returned for consistent dispatch signature
+func (h *Handler) handleListResolverRules() (any, error) {
 	rules := h.Backend.ListResolverRules()
 	items := make([]map[string]any, 0, len(rules))
 	for _, r := range rules {
 		items = append(items, ruleToMap(r))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
+	return map[string]any{
 		"ResolverRules": items,
-	})
+	}, nil
 }
 
 func endpointToMap(ep *ResolverEndpoint) map[string]any {

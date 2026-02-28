@@ -1,8 +1,10 @@
 package transcribe
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -10,10 +12,16 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
 const transcribeTargetPrefix = "Transcribe."
+
+var (
+	errUnknownAction  = errors.New("unknown action")
+	errInvalidRequest = errors.New("invalid request")
+)
 
 // Handler is the Echo HTTP handler for Amazon Transcribe operations.
 type Handler struct {
@@ -79,22 +87,46 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		body, err := httputil.ReadBody(c.Request())
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"message": "failed to read body"})
-		}
+		return service.HandleTarget(
+			c, logger.Load(c.Request().Context()),
+			"Transcribe", "application/x-amz-json-1.1",
+			h.GetSupportedOperations(),
+			h.dispatch,
+			h.handleError,
+		)
+	}
+}
 
-		action := strings.TrimPrefix(c.Request().Header.Get("X-Amz-Target"), transcribeTargetPrefix)
-		switch action {
-		case "StartTranscriptionJob":
-			return h.handleStartTranscriptionJob(c, body)
-		case "GetTranscriptionJob":
-			return h.handleGetTranscriptionJob(c, body)
-		case "ListTranscriptionJobs":
-			return h.handleListTranscriptionJobs(c, body)
-		default:
-			return c.JSON(http.StatusBadRequest, map[string]string{"message": "unknown action: " + action})
-		}
+func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byte, error) {
+	var result any
+	var err error
+
+	switch action {
+	case "StartTranscriptionJob":
+		result, err = h.handleStartTranscriptionJob(body)
+	case "GetTranscriptionJob":
+		result, err = h.handleGetTranscriptionJob(body)
+	case "ListTranscriptionJobs":
+		result, err = h.handleListTranscriptionJobs(body)
+	default:
+		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(result)
+}
+
+func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
+	switch {
+	case errors.Is(err, ErrNotFound):
+		return c.JSON(http.StatusNotFound, map[string]string{"message": err.Error()})
+	case errors.Is(err, ErrAlreadyExists), errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction):
+		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
+	default:
+		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
 	}
 }
 
@@ -106,26 +138,22 @@ type handleStartTranscriptionJobInput struct {
 	} `json:"Media"`
 }
 
-func (h *Handler) handleStartTranscriptionJob(c *echo.Context, body []byte) error {
+func (h *Handler) handleStartTranscriptionJob(body []byte) (any, error) {
 	var req handleStartTranscriptionJobInput
 	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
+		return nil, errInvalidRequest
 	}
 
 	if req.TranscriptionJobName == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": "TranscriptionJobName is required"})
+		return nil, fmt.Errorf("%w: TranscriptionJobName is required", errInvalidRequest)
 	}
 
 	job, err := h.Backend.StartTranscriptionJob(req.TranscriptionJobName, req.LanguageCode, req.Media.MediaFileURI)
 	if err != nil {
-		if errors.Is(err, ErrAlreadyExists) {
-			return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
-		}
-
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return nil, err
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
+	return map[string]any{
 		"TranscriptionJob": map[string]any{
 			"TranscriptionJobName":   job.JobName,
 			"TranscriptionJobStatus": job.JobStatus,
@@ -134,25 +162,21 @@ func (h *Handler) handleStartTranscriptionJob(c *echo.Context, body []byte) erro
 				"TranscriptFileUri": "s3://synthetic-transcripts/" + job.JobName + ".json",
 			},
 		},
-	})
+	}, nil
 }
 
-func (h *Handler) handleGetTranscriptionJob(c *echo.Context, body []byte) error {
+func (h *Handler) handleGetTranscriptionJob(body []byte) (any, error) {
 	var req transcriptionJobNameInput
 	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
+		return nil, errInvalidRequest
 	}
 
 	job, err := h.Backend.GetTranscriptionJob(req.TranscriptionJobName)
 	if err != nil {
-		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]string{"message": err.Error()})
-		}
-
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return nil, err
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
+	return map[string]any{
 		"TranscriptionJob": map[string]any{
 			"TranscriptionJobName":   job.JobName,
 			"TranscriptionJobStatus": job.JobStatus,
@@ -162,14 +186,15 @@ func (h *Handler) handleGetTranscriptionJob(c *echo.Context, body []byte) error 
 				"RedactedTranscriptFileUri": nil,
 			},
 		},
-	})
+	}, nil
 }
 
 type handleListTranscriptionJobsInput struct {
 	Status string `json:"Status"`
 }
 
-func (h *Handler) handleListTranscriptionJobs(c *echo.Context, body []byte) error {
+//nolint:unparam // error returned for consistent dispatch signature
+func (h *Handler) handleListTranscriptionJobs(body []byte) (any, error) {
 	var req handleListTranscriptionJobsInput
 	_ = json.Unmarshal(body, &req)
 
@@ -184,7 +209,7 @@ func (h *Handler) handleListTranscriptionJobs(c *echo.Context, body []byte) erro
 		})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
+	return map[string]any{
 		"TranscriptionJobSummaries": summaries,
-	})
+	}, nil
 }
