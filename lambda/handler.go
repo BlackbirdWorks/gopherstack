@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,8 +26,14 @@ const lambdaMatchPriority = 95
 // lambdaPathPrefix is the path prefix for Lambda REST API v1 endpoints.
 const lambdaPathPrefix = "/2015-03-31/functions"
 
+// lambda2020PathPrefix is the path prefix for Lambda REST API v2 endpoints (e.g. code signing configs).
+const lambda2020PathPrefix = "/2020-06-30/functions"
+
 // esmPathPrefix is the path prefix for Lambda event source mapping endpoints.
 const esmPathPrefix = "/2015-03-31/event-source-mappings"
+
+// lambdaTagsPathPrefix is the path prefix for Lambda resource tag endpoints.
+const lambdaTagsPathPrefix = "/2015-03-31/tags"
 
 // routeSpec binds an HTTP method and path predicate to an operation name or handler.
 type routeSpec struct {
@@ -55,7 +63,10 @@ func hasSuffixCode(rest string) bool          { return strings.HasSuffix(rest, "
 func hasSuffixConfiguration(rest string) bool { return strings.HasSuffix(rest, "/configuration") }
 func hasSuffixInvocations(rest string) bool   { return strings.HasSuffix(rest, "/invocations") }
 func hasSuffixURL(rest string) bool           { return strings.HasSuffix(rest, "/url") }
-func hasSuffixVersions(rest string) bool      { return strings.HasSuffix(rest, "/versions") }
+func hasSuffixCodeSigningConfig(rest string) bool {
+	return strings.HasSuffix(rest, "/code-signing-config")
+}
+func hasSuffixVersions(rest string) bool { return strings.HasSuffix(rest, "/versions") }
 func hasSuffixAliasPath(rest string) bool {
 	trimmed := strings.TrimPrefix(rest, "/")
 	parts := strings.SplitN(trimmed, "/", 3) //nolint:mnd // split into name + "aliases" + optional alias name
@@ -67,8 +78,10 @@ func hasSuffixAliasPath(rest string) bool {
 type Handler struct {
 	Backend       StorageBackend
 	Logger        *slog.Logger
+	tags          map[string]map[string]string
 	DefaultRegion string
 	AccountID     string
+	tagsMu        sync.RWMutex
 }
 
 // NewHandler creates a new Lambda handler with the given backend and logger.
@@ -76,7 +89,34 @@ func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
 	return &Handler{
 		Backend: backend,
 		Logger:  log,
+		tags:    make(map[string]map[string]string),
 	}
+}
+
+func (h *Handler) setTags(resourceID string, kv map[string]string) {
+	h.tagsMu.Lock()
+	defer h.tagsMu.Unlock()
+	if h.tags[resourceID] == nil {
+		h.tags[resourceID] = make(map[string]string)
+	}
+	maps.Copy(h.tags[resourceID], kv)
+}
+
+func (h *Handler) removeTags(resourceID string, keys []string) {
+	h.tagsMu.Lock()
+	defer h.tagsMu.Unlock()
+	for _, k := range keys {
+		delete(h.tags[resourceID], k)
+	}
+}
+
+func (h *Handler) getTags(resourceID string) map[string]string {
+	h.tagsMu.RLock()
+	defer h.tagsMu.RUnlock()
+	result := make(map[string]string)
+	maps.Copy(result, h.tags[resourceID])
+
+	return result
 }
 
 // Name returns the service name.
@@ -116,6 +156,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListAliases",
 		"UpdateAlias",
 		"DeleteAlias",
+		"ListTags",
+		"TagResource",
+		"UntagResource",
 	}
 }
 
@@ -126,7 +169,9 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		target := c.Request().Header.Get("X-Amz-Target")
 
 		return strings.HasPrefix(path, lambdaPathPrefix) ||
+			strings.HasPrefix(path, lambda2020PathPrefix) ||
 			strings.HasPrefix(path, esmPathPrefix) ||
+			strings.HasPrefix(path, lambdaTagsPathPrefix) ||
 			strings.HasPrefix(target, "AWSLambda")
 	}
 }
@@ -248,6 +293,14 @@ func (h *Handler) buildCoreRoutes() []handlerEntry {
 				return h.handleDeleteFunctionURLConfig(c, name)
 			},
 		},
+		{
+			method: http.MethodGet,
+			match:  hasSuffixCodeSigningConfig,
+			execute: func(c *echo.Context, _ string) error {
+				// Stub: no code signing config → empty 200 response.
+				return c.JSON(http.StatusOK, map[string]any{})
+			},
+		},
 	}
 }
 
@@ -331,6 +384,20 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.handleESMRoute(c, path, method)
 		}
 
+		// Handle tags routes
+		if strings.HasPrefix(path, lambdaTagsPathPrefix) {
+			return h.handleTagsRoute(c, method)
+		}
+
+		// Handle 2020-06-30 API routes (e.g. GetFunctionCodeSigningConfig)
+		if rest2020, ok := strings.CutPrefix(path, lambda2020PathPrefix); ok {
+			if method == http.MethodGet && hasSuffixCodeSigningConfig(rest2020) {
+				return c.JSON(http.StatusOK, map[string]any{})
+			}
+
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+		}
+
 		rest := strings.TrimPrefix(path, lambdaPathPrefix)
 
 		for _, route := range routes {
@@ -342,6 +409,39 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		log.DebugContext(ctx, "lambda: unknown route", "method", method, "path", path)
 
 		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+	}
+}
+
+// handleTagsRoute handles GET/POST/DELETE /2015-03-31/tags/{arn}.
+func (h *Handler) handleTagsRoute(c *echo.Context, method string) error {
+	arn := strings.TrimPrefix(c.Request().URL.Path, lambdaTagsPathPrefix+"/")
+
+	switch method {
+	case http.MethodGet:
+		return c.JSON(http.StatusOK, map[string]any{"Tags": h.getTags(arn)})
+	case http.MethodPost:
+		body, err := httputil.ReadBody(c.Request())
+		if err != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
+		}
+		var input struct {
+			Tags map[string]string `json:"Tags"`
+		}
+		if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid body")
+		}
+		h.setTags(arn, input.Tags)
+		c.Response().WriteHeader(http.StatusNoContent)
+
+		return nil
+	case http.MethodDelete:
+		keys := c.Request().URL.Query()["tagKeys"]
+		h.removeTags(arn, keys)
+		c.Response().WriteHeader(http.StatusNoContent)
+
+		return nil
+	default:
+		return h.writeError(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
 	}
 }
 

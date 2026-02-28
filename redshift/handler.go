@@ -41,6 +41,10 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateCluster",
 		"DeleteCluster",
 		"DescribeClusters",
+		"DescribeLoggingStatus",
+		"DescribeTags",
+		"CreateTags",
+		"DeleteTags",
 	}
 }
 
@@ -124,6 +128,12 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			resp, opErr = h.handleDeleteCluster(vals)
 		case "DescribeClusters":
 			resp, opErr = h.handleDescribeClusters(vals)
+		case "DescribeLoggingStatus":
+			return h.writeXMLResponse(c, http.StatusOK, h.loggingStatusResponse())
+		case "DescribeTags":
+			return h.writeXMLResponse(c, http.StatusOK, h.describeTagsResponse())
+		case "CreateTags", "DeleteTags":
+			return h.writeXMLResponse(c, http.StatusOK, h.emptyTagsResponse(action))
 		default:
 			return h.writeError(c, http.StatusBadRequest, "InvalidAction",
 				fmt.Sprintf("%s is not a valid Redshift action", action))
@@ -192,12 +202,29 @@ func (h *Handler) handleDescribeClusters(vals url.Values) (any, error) {
 
 func toXMLCluster(c *Cluster) xmlCluster {
 	return xmlCluster{
-		ClusterIdentifier: c.ClusterIdentifier,
-		NodeType:          c.NodeType,
-		Endpoint:          c.Endpoint,
-		ClusterStatus:     c.Status,
-		DBName:            c.DBName,
-		MasterUsername:    c.MasterUsername,
+		ClusterIdentifier:                c.ClusterIdentifier,
+		NodeType:                         c.NodeType,
+		Endpoint:                         c.Endpoint,
+		ClusterStatus:                    c.Status,
+		ClusterAvailabilityStatus:        "Available",
+		AvailabilityZoneRelocationStatus: "disabled",
+		MultiAZ:                          "Disabled",
+		AquaConfiguration:                xmlAquaConfig{AquaConfigurationStatus: "disabled", AquaStatus: "disabled"},
+		ClusterNodes: xmlClusterNodes{
+			Members: []xmlClusterNode{{
+				NodeRole:         "LEADER",
+				PrivateIPAddress: "10.0.0.1",
+				PublicIPAddress:  "0.0.0.0",
+			}},
+		},
+		ClusterParameterGroups: xmlClusterParamGroups{
+			Members: []xmlClusterParamGroup{{
+				ParameterGroupName:   "default.redshift-1.0",
+				ParameterApplyStatus: "in-sync",
+			}},
+		},
+		DBName:         c.DBName,
+		MasterUsername: c.MasterUsername,
 	}
 }
 
@@ -257,12 +284,42 @@ type redshiftErrorResponse struct {
 }
 
 type xmlCluster struct {
-	ClusterIdentifier string `xml:"ClusterIdentifier"`
-	NodeType          string `xml:"NodeType"`
-	Endpoint          string `xml:"Endpoint>Address"`
-	ClusterStatus     string `xml:"ClusterStatus"`
-	DBName            string `xml:"DBName"`
-	MasterUsername    string `xml:"MasterUsername"`
+	AquaConfiguration                xmlAquaConfig         `xml:"AquaConfiguration"`
+	ClusterIdentifier                string                `xml:"ClusterIdentifier"`
+	NodeType                         string                `xml:"NodeType"`
+	Endpoint                         string                `xml:"Endpoint>Address"`
+	ClusterStatus                    string                `xml:"ClusterStatus"`
+	ClusterAvailabilityStatus        string                `xml:"ClusterAvailabilityStatus"`
+	AvailabilityZoneRelocationStatus string                `xml:"AvailabilityZoneRelocationStatus"`
+	MultiAZ                          string                `xml:"MultiAZ"`
+	DBName                           string                `xml:"DBName"`
+	MasterUsername                   string                `xml:"MasterUsername"`
+	ClusterNodes                     xmlClusterNodes       `xml:"ClusterNodes"`
+	ClusterParameterGroups           xmlClusterParamGroups `xml:"ClusterParameterGroups"`
+}
+
+type xmlAquaConfig struct {
+	AquaConfigurationStatus string `xml:"AquaConfigurationStatus"`
+	AquaStatus              string `xml:"AquaStatus"`
+}
+
+type xmlClusterNode struct {
+	NodeRole         string `xml:"NodeRole"`
+	PrivateIPAddress string `xml:"PrivateIPAddress"`
+	PublicIPAddress  string `xml:"PublicIPAddress"`
+}
+
+type xmlClusterNodes struct {
+	Members []xmlClusterNode `xml:"member"`
+}
+
+type xmlClusterParamGroup struct {
+	ParameterGroupName   string `xml:"ParameterGroupName"`
+	ParameterApplyStatus string `xml:"ParameterApplyStatus"`
+}
+
+type xmlClusterParamGroups struct {
+	Members []xmlClusterParamGroup `xml:"ClusterParameterGroup"`
 }
 
 type createClusterResponse struct {
@@ -285,4 +342,59 @@ type describeClustersResponse struct {
 	XMLName  xml.Name       `xml:"DescribeClustersResponse"`
 	Xmlns    string         `xml:"xmlns,attr"`
 	Clusters xmlClusterList `xml:"DescribeClustersResult>Clusters"`
+}
+
+func (h *Handler) writeXMLResponse(c *echo.Context, status int, v any) error {
+	xmlBytes, err := marshalXML(v)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, "internal server error")
+	}
+
+	return c.Blob(status, "text/xml", xmlBytes)
+}
+
+func (h *Handler) loggingStatusResponse() any {
+	type describeLoggingStatusResult struct {
+		XMLName        xml.Name `xml:"DescribeLoggingStatusResult"`
+		LoggingEnabled bool     `xml:"LoggingEnabled"`
+	}
+	type response struct {
+		XMLName                     xml.Name                    `xml:"DescribeLoggingStatusResponse"`
+		Xmlns                       string                      `xml:"xmlns,attr"`
+		DescribeLoggingStatusResult describeLoggingStatusResult `xml:"DescribeLoggingStatusResult"`
+	}
+
+	return &response{
+		Xmlns:                       redshiftXMLNS,
+		DescribeLoggingStatusResult: describeLoggingStatusResult{LoggingEnabled: false},
+	}
+}
+
+func (h *Handler) describeTagsResponse() any {
+	type describeTagsResult struct {
+		XMLName xml.Name `xml:"DescribeTagsResult"`
+		Marker  string   `xml:"Marker,omitempty"`
+	}
+	type response struct {
+		XMLName            xml.Name           `xml:"DescribeTagsResponse"`
+		Xmlns              string             `xml:"xmlns,attr"`
+		DescribeTagsResult describeTagsResult `xml:"DescribeTagsResult"`
+	}
+
+	return &response{
+		Xmlns:              redshiftXMLNS,
+		DescribeTagsResult: describeTagsResult{},
+	}
+}
+
+func (h *Handler) emptyTagsResponse(action string) any {
+	type response struct {
+		XMLName xml.Name
+		Xmlns   string `xml:"xmlns,attr"`
+	}
+
+	return &response{
+		XMLName: xml.Name{Local: action + "Response"},
+		Xmlns:   redshiftXMLNS,
+	}
 }

@@ -9,6 +9,7 @@ import (
 	"maps"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/labstack/echo/v5"
 
@@ -24,11 +25,39 @@ type Handler struct {
 	Backend   StorageBackend
 	Logger    *slog.Logger
 	scheduler *Scheduler
+	tags      map[string]map[string]string
+	tagsMu    sync.RWMutex
 }
 
 // NewHandler creates a new EventBridge handler.
 func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
-	return &Handler{Backend: backend, Logger: log}
+	return &Handler{Backend: backend, Logger: log, tags: make(map[string]map[string]string)}
+}
+
+func (h *Handler) setTags(resourceID string, kv map[string]string) {
+	h.tagsMu.Lock()
+	defer h.tagsMu.Unlock()
+	if h.tags[resourceID] == nil {
+		h.tags[resourceID] = make(map[string]string)
+	}
+	maps.Copy(h.tags[resourceID], kv)
+}
+
+func (h *Handler) removeTags(resourceID string, keys []string) {
+	h.tagsMu.Lock()
+	defer h.tagsMu.Unlock()
+	for _, k := range keys {
+		delete(h.tags[resourceID], k)
+	}
+}
+
+func (h *Handler) getTags(resourceID string) map[string]string {
+	h.tagsMu.RLock()
+	defer h.tagsMu.RUnlock()
+	result := make(map[string]string)
+	maps.Copy(result, h.tags[resourceID])
+
+	return result
 }
 
 // SetScheduler attaches a Scheduler to the handler. The scheduler is started as a
@@ -70,6 +99,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		"RemoveTargets",
 		"ListTargetsByRule",
 		"PutEvents",
+		"ListTagsForResource",
+		"TagResource",
+		"UntagResource",
 	}
 }
 
@@ -408,6 +440,57 @@ func (h *Handler) eventsActions() map[string]actionFn {
 	}
 }
 
+func (h *Handler) tagActions() map[string]actionFn {
+	return map[string]actionFn{
+		"ListTagsForResource": func(b []byte) (any, error) {
+			var input struct {
+				ResourceARN string `json:"ResourceARN"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			tagMap := h.getTags(input.ResourceARN)
+			tagList := make([]map[string]string, 0, len(tagMap))
+			for k, v := range tagMap {
+				tagList = append(tagList, map[string]string{"Key": k, "Value": v})
+			}
+
+			return map[string]any{"Tags": tagList}, nil
+		},
+		"TagResource": func(b []byte) (any, error) {
+			var input struct {
+				ResourceARN string `json:"ResourceARN"`
+				Tags        []struct {
+					Key   string `json:"Key"`
+					Value string `json:"Value"`
+				} `json:"Tags"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			kv := make(map[string]string, len(input.Tags))
+			for _, t := range input.Tags {
+				kv[t.Key] = t.Value
+			}
+			h.setTags(input.ResourceARN, kv)
+
+			return map[string]any{}, nil
+		},
+		"UntagResource": func(b []byte) (any, error) {
+			var input struct {
+				ResourceARN string   `json:"ResourceARN"`
+				TagKeys     []string `json:"TagKeys"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			h.removeTags(input.ResourceARN, input.TagKeys)
+
+			return map[string]any{}, nil
+		},
+	}
+}
+
 func (h *Handler) dispatchTable() map[string]actionFn {
 	table := make(map[string]actionFn)
 	maps.Copy(table, h.eventBusActions())
@@ -415,6 +498,7 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 	maps.Copy(table, h.ruleStateActions())
 	maps.Copy(table, h.targetActions())
 	maps.Copy(table, h.eventsActions())
+	maps.Copy(table, h.tagActions())
 
 	return table
 }

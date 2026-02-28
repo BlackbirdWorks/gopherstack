@@ -9,6 +9,8 @@ import (
 	"maps"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -23,11 +25,39 @@ var errUnknownOperation = errors.New("UnknownOperationException")
 type Handler struct {
 	Backend StorageBackend
 	Logger  *slog.Logger
+	tags    map[string]map[string]string
+	tagsMu  sync.RWMutex
 }
 
 // NewHandler creates a new Step Functions handler.
 func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
-	return &Handler{Backend: backend, Logger: log}
+	return &Handler{Backend: backend, Logger: log, tags: make(map[string]map[string]string)}
+}
+
+func (h *Handler) setTags(resourceID string, kv map[string]string) {
+	h.tagsMu.Lock()
+	defer h.tagsMu.Unlock()
+	if h.tags[resourceID] == nil {
+		h.tags[resourceID] = make(map[string]string)
+	}
+	maps.Copy(h.tags[resourceID], kv)
+}
+
+func (h *Handler) removeTags(resourceID string, keys []string) {
+	h.tagsMu.Lock()
+	defer h.tagsMu.Unlock()
+	for _, k := range keys {
+		delete(h.tags[resourceID], k)
+	}
+}
+
+func (h *Handler) getTags(resourceID string) map[string]string {
+	h.tagsMu.RLock()
+	defer h.tagsMu.RUnlock()
+	result := make(map[string]string)
+	maps.Copy(result, h.tags[resourceID])
+
+	return result
 }
 
 // Name returns the service name.
@@ -40,11 +70,15 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteStateMachine",
 		"ListStateMachines",
 		"DescribeStateMachine",
+		"UpdateStateMachine",
 		"StartExecution",
 		"StopExecution",
 		"DescribeExecution",
 		"ListExecutions",
 		"GetExecutionHistory",
+		"ListTagsForResource",
+		"TagResource",
+		"UntagResource",
 	}
 }
 
@@ -144,7 +178,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 type actionFn func([]byte) (any, error)
 
 func (h *Handler) stateMachineActions() map[string]actionFn {
-	return map[string]actionFn{
+	m := map[string]actionFn{
 		"CreateStateMachine": func(b []byte) (any, error) {
 			var input struct {
 				Name       string `json:"name"`
@@ -202,6 +236,58 @@ func (h *Handler) stateMachineActions() map[string]actionFn {
 			}
 
 			return h.Backend.DescribeStateMachine(input.StateMachineArn)
+		},
+		"UpdateStateMachine": func(_ []byte) (any, error) {
+			return map[string]any{"updateDate": time.Now().UTC()}, nil
+		},
+	}
+	maps.Copy(m, h.stateMachineTagActions())
+
+	return m
+}
+
+// stateMachineTagActions returns tag-related actions for state machines.
+func (h *Handler) stateMachineTagActions() map[string]actionFn {
+	return map[string]actionFn{
+		"ListTagsForResource": func(b []byte) (any, error) {
+			var input struct {
+				ResourceArn string `json:"resourceArn"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			tagMap := h.getTags(input.ResourceArn)
+			tagList := make([]map[string]string, 0, len(tagMap))
+			for k, v := range tagMap {
+				tagList = append(tagList, map[string]string{"key": k, "value": v})
+			}
+
+			return map[string]any{"tags": tagList}, nil
+		},
+		"TagResource": func(b []byte) (any, error) {
+			var input struct {
+				Tags        map[string]string `json:"tags"`
+				ResourceArn string            `json:"resourceArn"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			h.setTags(input.ResourceArn, input.Tags)
+
+			return map[string]any{}, nil
+		},
+		"UntagResource": func(b []byte) (any, error) {
+			var input struct {
+				ResourceArn string   `json:"resourceArn"`
+				TagKeys     []string `json:"tagKeys"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			h.removeTags(input.ResourceArn, input.TagKeys)
+
+			return map[string]any{}, nil
 		},
 	}
 }
@@ -301,8 +387,21 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 	table := make(map[string]actionFn)
 	maps.Copy(table, h.stateMachineActions())
 	maps.Copy(table, h.executionActions())
+	maps.Copy(table, h.utilActions())
 
 	return table
+}
+
+// utilActions returns stubs for utility operations like definition validation.
+func (h *Handler) utilActions() map[string]actionFn {
+	return map[string]actionFn{
+		"ValidateStateMachineDefinition": func(_ []byte) (any, error) {
+			return map[string]any{"result": "OK", "diagnostics": []any{}}, nil
+		},
+		"ListStateMachineVersions": func(_ []byte) (any, error) {
+			return map[string]any{"stateMachineVersions": []any{}}, nil
+		},
+	}
 }
 
 // dispatch routes the action to the correct handler function.

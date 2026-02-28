@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -18,11 +20,13 @@ import (
 )
 
 const (
-	route53PathPrefix  = "/2013-04-01/"
-	route53HostedZone  = "/2013-04-01/hostedzone"
-	route53Namespace   = "https://route53.amazonaws.com/doc/2013-04-01/"
-	route53RRSetSuffix = "/rrset"
-	route53HZPrefix    = "/2013-04-01/hostedzone/"
+	route53PathPrefix   = "/2013-04-01/"
+	route53HostedZone   = "/2013-04-01/hostedzone"
+	route53Namespace    = "https://route53.amazonaws.com/doc/2013-04-01/"
+	route53RRSetSuffix  = "/rrset"
+	route53HZPrefix     = "/2013-04-01/hostedzone/"
+	route53TagsPrefix   = "/2013-04-01/tags/"
+	route53ChangePrefix = "/2013-04-01/change/"
 	// matchPriority is higher than path-based dashboard (50) but lower than header-based services (100).
 	matchPriority = 80
 	// zoneIDAndRest is the number of parts when splitting a zone path at the first "/".
@@ -33,6 +37,8 @@ const (
 type Handler struct {
 	Backend *InMemoryBackend
 	Logger  *slog.Logger
+	tags    map[string]map[string]string
+	tagsMu  sync.RWMutex
 }
 
 // NewHandler creates a new Route 53 Handler.
@@ -41,7 +47,33 @@ func NewHandler(backend *InMemoryBackend, log *slog.Logger) *Handler {
 		log = slog.Default()
 	}
 
-	return &Handler{Backend: backend, Logger: log}
+	return &Handler{Backend: backend, Logger: log, tags: make(map[string]map[string]string)}
+}
+
+func (h *Handler) setTags(resourceID string, kv map[string]string) {
+	h.tagsMu.Lock()
+	defer h.tagsMu.Unlock()
+	if h.tags[resourceID] == nil {
+		h.tags[resourceID] = make(map[string]string)
+	}
+	maps.Copy(h.tags[resourceID], kv)
+}
+
+func (h *Handler) removeTags(resourceID string, keys []string) {
+	h.tagsMu.Lock()
+	defer h.tagsMu.Unlock()
+	for _, k := range keys {
+		delete(h.tags[resourceID], k)
+	}
+}
+
+func (h *Handler) getTags(resourceID string) map[string]string {
+	h.tagsMu.RLock()
+	defer h.tagsMu.RUnlock()
+	result := make(map[string]string)
+	maps.Copy(result, h.tags[resourceID])
+
+	return result
 }
 
 // Name returns the service name.
@@ -66,6 +98,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetHostedZone",
 		"ChangeResourceRecordSets",
 		"ListResourceRecordSets",
+		"ListTagsForResource",
+		"ChangeTagsForResource",
 	}
 }
 
@@ -109,6 +143,8 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 //nolint:cyclop // routing switch inherently requires multiple cases
 func (h *Handler) routeRequest(c *echo.Context, path, method string) error {
 	isHZPath := strings.HasPrefix(path, route53HZPrefix)
+	isTagsPath := strings.HasPrefix(path, route53TagsPrefix)
+	isChangePath := strings.HasPrefix(path, route53ChangePrefix)
 
 	switch {
 	case path == route53HostedZone && method == http.MethodPost:
@@ -123,6 +159,12 @@ func (h *Handler) routeRequest(c *echo.Context, path, method string) error {
 		return h.deleteHostedZone(c)
 	case isHZPath && method == http.MethodGet:
 		return h.getHostedZone(c)
+	case isTagsPath && method == http.MethodGet:
+		return h.listTagsForResource(c, path)
+	case isTagsPath && method == http.MethodPost:
+		return h.changeTagsForResource(c)
+	case isChangePath && method == http.MethodGet:
+		return h.getChange(c, path)
 	default:
 		return xmlError(c, http.StatusNotFound, "NoSuchOperation",
 			fmt.Sprintf("unknown Route53 endpoint: %s %s", method, path))
@@ -476,6 +518,129 @@ func toXMLHostedZone(hz *HostedZone) xmlHostedZone {
 		},
 		ResourceRecordSetCount: hz.ResourceRecordSetCount,
 	}
+}
+
+func (h *Handler) listTagsForResource(c *echo.Context, path string) error {
+	rest := strings.TrimPrefix(path, route53TagsPrefix)
+	parts := strings.SplitN(rest, "/", 2) //nolint:mnd // split into type + id
+	resourceType := ""
+	resourceID := ""
+
+	if len(parts) >= 1 {
+		resourceType = parts[0]
+	}
+
+	if len(parts) >= 2 { //nolint:mnd // path has two segments: type + id
+		resourceID = parts[1]
+	}
+
+	tags := h.getTags(resourceID)
+	type r53Tag struct {
+		Key   string `xml:"Key"`
+		Value string `xml:"Value"`
+	}
+	tagList := make([]r53Tag, 0, len(tags))
+	for k, v := range tags {
+		tagList = append(tagList, r53Tag{Key: k, Value: v})
+	}
+
+	type resourceTagSet struct {
+		ResourceType string   `xml:"ResourceType"`
+		ResourceID   string   `xml:"ResourceId"`
+		Tags         []r53Tag `xml:"Tags>Tag"`
+	}
+	type tagsResp struct {
+		XMLName        xml.Name       `xml:"ListTagsForResourceResponse"`
+		Xmlns          string         `xml:"xmlns,attr"`
+		ResourceTagSet resourceTagSet `xml:"ResourceTagSet"`
+	}
+
+	resp := tagsResp{Xmlns: route53Namespace}
+	resp.ResourceTagSet.ResourceType = resourceType
+	resp.ResourceTagSet.ResourceID = resourceID
+	resp.ResourceTagSet.Tags = tagList
+
+	return writeXML(c, http.StatusOK, resp)
+}
+
+// getChange stubs the Route53 GetChange API, always returning INSYNC so callers don't wait.
+func (h *Handler) getChange(c *echo.Context, path string) error {
+	type getChangeResp struct {
+		XMLName    xml.Name      `xml:"GetChangeResponse"`
+		Xmlns      string        `xml:"xmlns,attr"`
+		ChangeInfo xmlChangeInfo `xml:"ChangeInfo"`
+	}
+
+	return writeXML(c, http.StatusOK, getChangeResp{
+		Xmlns: route53Namespace,
+		ChangeInfo: xmlChangeInfo{
+			ID:          "/" + path,
+			Status:      "INSYNC",
+			SubmittedAt: time.Now(),
+		},
+	})
+}
+
+func (h *Handler) changeTagsForResource(c *echo.Context) error {
+	path := c.Request().URL.Path
+	rest := strings.TrimPrefix(path, route53TagsPrefix)
+	parts := strings.SplitN(rest, "/", 2) //nolint:mnd // path has two segments: type + id
+	resourceID := ""
+
+	if len(parts) >= 2 { //nolint:mnd // path has two segments: type + id
+		resourceID = parts[1]
+	}
+
+	if err := h.applyTagChanges(resourceID, c.Request()); err != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", err.Error())
+	}
+
+	type changeTagsResp struct {
+		XMLName xml.Name `xml:"ChangeTagsForResourceResponse"`
+		Xmlns   string   `xml:"xmlns,attr"`
+	}
+
+	return writeXML(c, http.StatusOK, changeTagsResp{Xmlns: route53Namespace})
+}
+
+// applyTagChanges reads a ChangeTagsForResource XML body and applies the add/remove operations.
+// It returns an error if the body cannot be read or parsed.
+func (h *Handler) applyTagChanges(resourceID string, r *http.Request) error {
+	body, err := httputil.ReadBody(r)
+	if err != nil {
+		return fmt.Errorf("failed to read request body: %w", err)
+	}
+
+	if len(body) == 0 {
+		return nil
+	}
+
+	var req struct {
+		AddTags []struct {
+			Key   string `xml:"Key"`
+			Value string `xml:"Value"`
+		} `xml:"AddTags>Tag"`
+		RemoveTagKeys []string `xml:"RemoveTagKeys>Key"`
+	}
+
+	if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+		return fmt.Errorf("failed to parse XML: %w", xmlErr)
+	}
+
+	if len(req.AddTags) > 0 {
+		kv := make(map[string]string, len(req.AddTags))
+		for _, t := range req.AddTags {
+			kv[t.Key] = t.Value
+		}
+
+		h.setTags(resourceID, kv)
+	}
+
+	if len(req.RemoveTagKeys) > 0 {
+		h.removeTags(resourceID, req.RemoveTagKeys)
+	}
+
+	return nil
 }
 
 // writeXML marshals v to XML and writes it to the response.

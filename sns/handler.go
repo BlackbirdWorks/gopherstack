@@ -1,6 +1,7 @@
 package sns
 
 import (
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -25,7 +26,10 @@ const (
 )
 
 // Handler is the Echo HTTP handler for SNS operations.
+type snsActionFn func(c *echo.Context) error
+
 type Handler struct {
+	actions map[string]snsActionFn
 	Backend StorageBackend
 	Logger  *slog.Logger
 	// DefaultRegion is the fallback region used when region cannot be extracted from the request.
@@ -34,7 +38,10 @@ type Handler struct {
 
 // NewHandler creates a new SNS Handler with the given backend and logger.
 func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
-	return &Handler{Backend: backend, Logger: log}
+	h := &Handler{Backend: backend, Logger: log}
+	h.actions = h.buildActions()
+
+	return h
 }
 
 // Name returns the service name.
@@ -57,6 +64,10 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListSubscriptionsByTopic",
 		"Publish",
 		"PublishBatch",
+		"GetSubscriptionAttributes",
+		"ListTagsForResource",
+		"TagResource",
+		"UntagResource",
 	}
 }
 
@@ -140,34 +151,34 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 // dispatch routes the action to the appropriate handler method.
 func (h *Handler) dispatch(c *echo.Context, action string) error {
-	switch action {
-	case "CreateTopic":
-		return h.handleCreateTopic(c)
-	case "DeleteTopic":
-		return h.handleDeleteTopic(c)
-	case "ListTopics":
-		return h.handleListTopics(c)
-	case "GetTopicAttributes":
-		return h.handleGetTopicAttributes(c)
-	case "SetTopicAttributes":
-		return h.handleSetTopicAttributes(c)
-	case "Subscribe":
-		return h.handleSubscribe(c)
-	case "ConfirmSubscription":
-		return h.handleConfirmSubscription(c)
-	case "Unsubscribe":
-		return h.handleUnsubscribe(c)
-	case "ListSubscriptions":
-		return h.handleListSubscriptions(c)
-	case "ListSubscriptionsByTopic":
-		return h.handleListSubscriptionsByTopic(c)
-	case "Publish":
-		return h.handlePublish(c)
-	case "PublishBatch":
-		return h.handlePublishBatch(c)
-	default:
+	fn, ok := h.actions[action]
+	if !ok {
 		return h.writeError(c, http.StatusBadRequest, "InvalidAction",
 			fmt.Sprintf("Action %s is not valid for this endpoint", action))
+	}
+
+	return fn(c)
+}
+
+// buildActions constructs the action dispatch table.
+func (h *Handler) buildActions() map[string]snsActionFn {
+	return map[string]snsActionFn{
+		"CreateTopic":               h.handleCreateTopic,
+		"DeleteTopic":               h.handleDeleteTopic,
+		"ListTopics":                h.handleListTopics,
+		"GetTopicAttributes":        h.handleGetTopicAttributes,
+		"SetTopicAttributes":        h.handleSetTopicAttributes,
+		"Subscribe":                 h.handleSubscribe,
+		"ConfirmSubscription":       h.handleConfirmSubscription,
+		"Unsubscribe":               h.handleUnsubscribe,
+		"ListSubscriptions":         h.handleListSubscriptions,
+		"ListSubscriptionsByTopic":  h.handleListSubscriptionsByTopic,
+		"Publish":                   h.handlePublish,
+		"PublishBatch":              h.handlePublishBatch,
+		"GetSubscriptionAttributes": h.handleGetSubscriptionAttributes,
+		"ListTagsForResource":       h.handleListTagsForResource,
+		"TagResource":               h.handleTagResource,
+		"UntagResource":             h.handleUntagResource,
 	}
 }
 
@@ -433,6 +444,87 @@ func (h *Handler) handlePublishBatch(c *echo.Context) error {
 		PublishBatchResult: PublishBatchResult{Successful: successful, Failed: failed},
 		ResponseMetadata:   ResponseMetadata{RequestID: uuid.New().String()},
 	})
+}
+
+func (h *Handler) handleGetSubscriptionAttributes(c *echo.Context) error {
+	subscriptionArn := c.Request().FormValue("SubscriptionArn")
+	if subscriptionArn == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "SubscriptionArn is required")
+	}
+
+	attrs, err := h.Backend.GetSubscriptionAttributes(subscriptionArn)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	entries := attrsToEntries(attrs)
+
+	return h.writeXML(c, GetSubscriptionAttributesResponse{
+		GetSubscriptionAttributesResult: GetSubscriptionAttributesResult{Attributes: entries},
+		ResponseMetadata:                ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleListTagsForResource(c *echo.Context) error {
+	resourceArn := c.Request().FormValue("ResourceArn")
+	tags := h.Backend.GetTopicTags(resourceArn)
+	type snsTag struct {
+		Key   string `xml:"Key"`
+		Value string `xml:"Value"`
+	}
+	tagList := make([]snsTag, 0, len(tags))
+	for k, v := range tags {
+		tagList = append(tagList, snsTag{Key: k, Value: v})
+	}
+
+	return h.writeXML(c, struct {
+		XMLName          xml.Name         `xml:"https://sns.amazonaws.com/doc/2010-03-31/ ListTagsForResourceResponse"`
+		ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
+		Result           struct {
+			XMLName xml.Name `xml:"ListTagsForResourceResult"`
+			Tags    []snsTag `xml:"Tags>Tag"`
+		}
+	}{
+		Result: struct {
+			XMLName xml.Name `xml:"ListTagsForResourceResult"`
+			Tags    []snsTag `xml:"Tags>Tag"`
+		}{Tags: tagList},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleTagResource(c *echo.Context) error {
+	resourceArn := c.Request().FormValue("ResourceArn")
+	tags := make(map[string]string)
+	for i := 1; ; i++ {
+		k := c.Request().FormValue(fmt.Sprintf("Tags.member.%d.Key", i))
+		if k == "" {
+			break
+		}
+		tags[k] = c.Request().FormValue(fmt.Sprintf("Tags.member.%d.Value", i))
+	}
+	h.Backend.SetTopicTags(resourceArn, tags)
+
+	return h.writeXML(c, struct {
+		XMLName xml.Name `xml:"https://sns.amazonaws.com/doc/2010-03-31/ TagResourceResponse"`
+	}{})
+}
+
+func (h *Handler) handleUntagResource(c *echo.Context) error {
+	resourceArn := c.Request().FormValue("ResourceArn")
+	var keys []string
+	for i := 1; ; i++ {
+		k := c.Request().FormValue(fmt.Sprintf("TagKeys.member.%d", i))
+		if k == "" {
+			break
+		}
+		keys = append(keys, k)
+	}
+	h.Backend.RemoveTopicTags(resourceArn, keys)
+
+	return h.writeXML(c, struct {
+		XMLName xml.Name `xml:"https://sns.amazonaws.com/doc/2010-03-31/ UntagResourceResponse"`
+	}{})
 }
 
 // writeXML marshals v to XML and writes an HTTP 200 OK response.

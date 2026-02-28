@@ -9,6 +9,7 @@ import (
 	"maps"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/labstack/echo/v5"
 
@@ -23,11 +24,39 @@ var errUnknownOperation = errors.New("UnknownOperationException")
 type Handler struct {
 	Backend StorageBackend
 	Logger  *slog.Logger
+	tags    map[string]map[string]string
+	tagsMu  sync.RWMutex
 }
 
 // NewHandler creates a new CloudWatch Logs handler.
 func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
-	return &Handler{Backend: backend, Logger: log}
+	return &Handler{Backend: backend, Logger: log, tags: make(map[string]map[string]string)}
+}
+
+func (h *Handler) setTags(resourceID string, kv map[string]string) {
+	h.tagsMu.Lock()
+	defer h.tagsMu.Unlock()
+	if h.tags[resourceID] == nil {
+		h.tags[resourceID] = make(map[string]string)
+	}
+	maps.Copy(h.tags[resourceID], kv)
+}
+
+func (h *Handler) removeTags(resourceID string, keys []string) {
+	h.tagsMu.Lock()
+	defer h.tagsMu.Unlock()
+	for _, k := range keys {
+		delete(h.tags[resourceID], k)
+	}
+}
+
+func (h *Handler) getTags(resourceID string) map[string]string {
+	h.tagsMu.RLock()
+	defer h.tagsMu.RUnlock()
+	result := make(map[string]string)
+	maps.Copy(result, h.tags[resourceID])
+
+	return result
 }
 
 // Name returns the service name.
@@ -44,6 +73,12 @@ func (h *Handler) GetSupportedOperations() []string {
 		"PutLogEvents",
 		"GetLogEvents",
 		"FilterLogEvents",
+		"ListTagsLogGroup",
+		"ListTagsForResource",
+		"TagLogGroup",
+		"UntagLogGroup",
+		"PutRetentionPolicy",
+		"DeleteRetentionPolicy",
 	}
 }
 
@@ -306,11 +341,68 @@ func (h *Handler) logEventActions() map[string]actionFn {
 	}
 }
 
+func (h *Handler) logTagActions() map[string]actionFn {
+	return map[string]actionFn{
+		"ListTagsLogGroup": func(b []byte) (any, error) {
+			var input struct {
+				LogGroupName string `json:"logGroupName"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return map[string]any{"tags": h.getTags(input.LogGroupName)}, nil
+		},
+		"ListTagsForResource": func(b []byte) (any, error) {
+			var input struct {
+				ResourceArn string `json:"resourceArn"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return map[string]any{"tags": h.getTags(input.ResourceArn)}, nil
+		},
+		"TagLogGroup": func(b []byte) (any, error) {
+			var input struct {
+				Tags         map[string]string `json:"tags"`
+				LogGroupName string            `json:"logGroupName"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			h.setTags(input.LogGroupName, input.Tags)
+
+			return struct{}{}, nil
+		},
+		"UntagLogGroup": func(b []byte) (any, error) {
+			var input struct {
+				LogGroupName string   `json:"logGroupName"`
+				Tags         []string `json:"tags"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			h.removeTags(input.LogGroupName, input.Tags)
+
+			return struct{}{}, nil
+		},
+		"PutRetentionPolicy": func(_ []byte) (any, error) {
+			// Stub: accept any retention days, return success.
+			return struct{}{}, nil
+		},
+		"DeleteRetentionPolicy": func(_ []byte) (any, error) {
+			return struct{}{}, nil
+		},
+	}
+}
+
 func (h *Handler) dispatchTable() map[string]actionFn {
 	table := make(map[string]actionFn)
 	maps.Copy(table, h.logGroupActions())
 	maps.Copy(table, h.logStreamActions())
 	maps.Copy(table, h.logEventActions())
+	maps.Copy(table, h.logTagActions())
 
 	return table
 }

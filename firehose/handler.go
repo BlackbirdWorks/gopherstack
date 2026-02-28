@@ -42,6 +42,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListDeliveryStreams",
 		"PutRecord",
 		"PutRecordBatch",
+		"ListTagsForDeliveryStream",
+		"TagDeliveryStream",
+		"UntagDeliveryStream",
 	}
 }
 
@@ -103,6 +106,8 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.handlePutRecord(c, body)
 		case "PutRecordBatch":
 			return h.handlePutRecordBatch(c, body)
+		case "ListTagsForDeliveryStream", "TagDeliveryStream", "UntagDeliveryStream":
+			return h.handleTagOperation(c, action, body)
 		default:
 			return c.JSON(http.StatusBadRequest, map[string]string{"message": "unknown action: " + action})
 		}
@@ -141,7 +146,10 @@ func (h *Handler) handleDeleteDeliveryStream(c *echo.Context, body []byte) error
 
 	if err := h.Backend.DeleteDeliveryStream(req.DeliveryStreamName); err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]string{"message": err.Error()})
+			return c.JSON(
+				http.StatusNotFound,
+				map[string]any{"__type": "ResourceNotFoundException", "message": err.Error()},
+			)
 		}
 
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
@@ -161,7 +169,10 @@ func (h *Handler) handleDescribeDeliveryStream(c *echo.Context, body []byte) err
 	s, err := h.Backend.DescribeDeliveryStream(req.DeliveryStreamName)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]string{"message": err.Error()})
+			return c.JSON(
+				http.StatusNotFound,
+				map[string]any{"__type": "ResourceNotFoundException", "message": err.Error()},
+			)
 		}
 
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
@@ -203,7 +214,10 @@ func (h *Handler) handlePutRecord(c *echo.Context, body []byte) error {
 
 	if putErr := h.Backend.PutRecord(req.DeliveryStreamName, data); putErr != nil {
 		if errors.Is(putErr, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]string{"message": putErr.Error()})
+			return c.JSON(
+				http.StatusNotFound,
+				map[string]any{"__type": "ResourceNotFoundException", "message": putErr.Error()},
+			)
 		}
 
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": putErr.Error()})
@@ -238,7 +252,10 @@ func (h *Handler) handlePutRecordBatch(c *echo.Context, body []byte) error {
 	failedCount, err := h.Backend.PutRecordBatch(req.DeliveryStreamName, records)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]string{"message": err.Error()})
+			return c.JSON(
+				http.StatusNotFound,
+				map[string]any{"__type": "ResourceNotFoundException", "message": err.Error()},
+			)
 		}
 
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
@@ -248,4 +265,15 @@ func (h *Handler) handlePutRecordBatch(c *echo.Context, body []byte) error {
 		"FailedPutCount":   failedCount,
 		"RequestResponses": []map[string]string{},
 	})
+}
+
+func (h *Handler) handleTagOperation(c *echo.Context, action string, _ []byte) error {
+	if action == "ListTagsForDeliveryStream" {
+		return c.JSON(http.StatusOK, map[string]any{
+			"Tags":        []any{},
+			"HasMoreTags": false,
+		})
+	}
+	// TagDeliveryStream and UntagDeliveryStream: no-op stubs.
+	return c.JSON(http.StatusOK, map[string]any{})
 }

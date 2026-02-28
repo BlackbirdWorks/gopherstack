@@ -4,11 +4,13 @@ import (
 	"encoding/xml"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/url"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,11 +26,39 @@ const cloudwatchNS = "http://monitoring.amazonaws.com/doc/2010-08-01/"
 type Handler struct {
 	Backend StorageBackend
 	Logger  *slog.Logger
+	tags    map[string]map[string]string
+	tagsMu  sync.RWMutex
 }
 
 // NewHandler creates a new CloudWatch handler.
 func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
-	return &Handler{Backend: backend, Logger: log}
+	return &Handler{Backend: backend, Logger: log, tags: make(map[string]map[string]string)}
+}
+
+func (h *Handler) setTags(resourceID string, kv map[string]string) {
+	h.tagsMu.Lock()
+	defer h.tagsMu.Unlock()
+	if h.tags[resourceID] == nil {
+		h.tags[resourceID] = make(map[string]string)
+	}
+	maps.Copy(h.tags[resourceID], kv)
+}
+
+func (h *Handler) removeTags(resourceID string, keys []string) {
+	h.tagsMu.Lock()
+	defer h.tagsMu.Unlock()
+	for _, k := range keys {
+		delete(h.tags[resourceID], k)
+	}
+}
+
+func (h *Handler) getTags(resourceID string) map[string]string {
+	h.tagsMu.RLock()
+	defer h.tagsMu.RUnlock()
+	result := make(map[string]string)
+	maps.Copy(result, h.tags[resourceID])
+
+	return result
 }
 
 // Name returns the service name.
@@ -44,6 +74,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		"PutMetricAlarm",
 		"DescribeAlarms",
 		"DeleteAlarms",
+		"ListTagsForResource",
+		"TagResource",
+		"UntagResource",
 	}
 }
 
@@ -123,32 +156,116 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.handleCBOR(c)
 		}
 
-		// ParseForm is idempotent; RouteMatcher may have already called it.
-		if err := r.ParseForm(); err != nil {
-			return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "cannot parse form body")
-		}
-		action := r.Form.Get("Action")
-		c.Response().Header().Set("Content-Type", "text/xml")
-
-		switch action {
-		case "PutMetricData":
-			return h.handlePutMetricData(r.Form, c)
-		case "GetMetricStatistics":
-			return h.handleGetMetricStatistics(r.Form, c)
-		case "GetMetricData":
-			return h.handleGetMetricData(r.Form, c)
-		case "ListMetrics":
-			return h.handleListMetrics(r.Form, c)
-		case "PutMetricAlarm":
-			return h.handlePutMetricAlarm(r.Form, c)
-		case "DescribeAlarms":
-			return h.handleDescribeAlarms(r.Form, c)
-		case "DeleteAlarms":
-			return h.handleDeleteAlarms(r.Form, c)
-		default:
-			return h.xmlError(c, http.StatusBadRequest, "InvalidAction", "unknown action: "+action)
-		}
+		return h.handleFormRequest(c, r)
 	}
+}
+
+// handleFormRequest handles the query-protocol (form-encoded) path for CloudWatch requests.
+func (h *Handler) handleFormRequest(c *echo.Context, r *http.Request) error {
+	// ParseForm is idempotent; RouteMatcher may have already called it.
+	if err := r.ParseForm(); err != nil {
+		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "cannot parse form body")
+	}
+	action := r.Form.Get("Action")
+	c.Response().Header().Set("Content-Type", "text/xml")
+
+	switch action {
+	case "PutMetricData":
+		return h.handlePutMetricData(r.Form, c)
+	case "GetMetricStatistics":
+		return h.handleGetMetricStatistics(r.Form, c)
+	case "GetMetricData":
+		return h.handleGetMetricData(r.Form, c)
+	case "ListMetrics":
+		return h.handleListMetrics(r.Form, c)
+	case "PutMetricAlarm":
+		return h.handlePutMetricAlarm(r.Form, c)
+	case "DescribeAlarms":
+		return h.handleDescribeAlarms(r.Form, c)
+	case "DeleteAlarms":
+		return h.handleDeleteAlarms(r.Form, c)
+	case "ListTagsForResource":
+		return h.handleListTagsForResource(r.Form, c)
+	case "TagResource":
+		return h.handleTagResource(r.Form, c)
+	case "UntagResource":
+		return h.handleUntagResource(r.Form, c)
+	default:
+		return h.xmlError(c, http.StatusBadRequest, "InvalidAction", "unknown action: "+action)
+	}
+}
+
+func (h *Handler) handleListTagsForResource(form url.Values, c *echo.Context) error {
+	arn := form.Get("ResourceARN")
+	tags := h.getTags(arn)
+	type xmlCWTag struct {
+		Key   string `xml:"Key"`
+		Value string `xml:"Value"`
+	}
+	type listTagsForResourceResp struct {
+		XMLName   xml.Name   `xml:"ListTagsForResourceResponse"`
+		Xmlns     string     `xml:"xmlns,attr"`
+		RequestID string     `xml:"ResponseMetadata>RequestId"`
+		Tags      []xmlCWTag `xml:"ListTagsForResourceResult>Tags>member"`
+	}
+	resp := listTagsForResourceResp{
+		Xmlns:     cloudwatchNS,
+		RequestID: uuid.New().String(),
+	}
+	for k, v := range tags {
+		resp.Tags = append(resp.Tags, xmlCWTag{Key: k, Value: v})
+	}
+
+	return writeXML(c, resp)
+}
+
+func (h *Handler) handleTagResource(form url.Values, c *echo.Context) error {
+	arn := form.Get("ResourceARN")
+	newTags := make(map[string]string)
+
+	for i := 1; ; i++ {
+		k := form.Get(fmt.Sprintf("Tags.member.%d.Key", i))
+		if k == "" {
+			break
+		}
+
+		newTags[k] = form.Get(fmt.Sprintf("Tags.member.%d.Value", i))
+	}
+
+	h.setTags(arn, newTags)
+
+	type tagResourceResp struct {
+		XMLName   xml.Name `xml:"TagResourceResponse"`
+		Xmlns     string   `xml:"xmlns,attr"`
+		RequestID string   `xml:"ResponseMetadata>RequestId"`
+	}
+
+	return writeXML(c, tagResourceResp{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
+}
+
+func (h *Handler) handleUntagResource(form url.Values, c *echo.Context) error {
+	arn := form.Get("ResourceARN")
+
+	var keys []string
+
+	for i := 1; ; i++ {
+		k := form.Get(fmt.Sprintf("TagKeys.member.%d", i))
+		if k == "" {
+			break
+		}
+
+		keys = append(keys, k)
+	}
+
+	h.removeTags(arn, keys)
+
+	type untagResourceResp struct {
+		XMLName   xml.Name `xml:"UntagResourceResponse"`
+		Xmlns     string   `xml:"xmlns,attr"`
+		RequestID string   `xml:"ResponseMetadata>RequestId"`
+	}
+
+	return writeXML(c, untagResourceResp{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
 }
 
 // xmlError writes an XML error response.

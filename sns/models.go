@@ -216,3 +216,15 @@ type ConfirmSubscriptionResponse struct {
 	ConfirmSubscriptionResult ConfirmSubscriptionResult `xml:"ConfirmSubscriptionResult"`
 	ResponseMetadata          ResponseMetadata          `xml:"ResponseMetadata"`
 }
+
+// GetSubscriptionAttributesResult holds the attributes of a subscription.
+type GetSubscriptionAttributesResult struct {
+	Attributes []XMLAttributeEntry `xml:"Attributes>entry"`
+}
+
+// GetSubscriptionAttributesResponse is the XML response for GetSubscriptionAttributes.
+type GetSubscriptionAttributesResponse struct {
+	XMLName                         xml.Name                        `xml:"https://sns.amazonaws.com/doc/2010-03-31/ GetSubscriptionAttributesResponse"` //nolint:lll // XML namespace
+	ResponseMetadata                ResponseMetadata                `xml:"ResponseMetadata"`
+	GetSubscriptionAttributesResult GetSubscriptionAttributesResult `xml:"GetSubscriptionAttributesResult"`
+}

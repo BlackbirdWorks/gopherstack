@@ -3,6 +3,7 @@ package opensearch
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -15,6 +16,8 @@ import (
 
 const (
 	openSearchPathPrefix    = "/2021-01-01/opensearch/domain"
+	openSearchTagsPath      = "/2021-01-01/tags"
+	openSearchTagsRemoval   = "/2021-01-01/tags-removal"
 	openSearchMatchPriority = 82
 )
 
@@ -40,7 +43,11 @@ func (h *Handler) MatchPriority() int { return openSearchMatchPriority }
 // RouteMatcher returns a matcher that selects OpenSearch requests by path prefix.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		return strings.HasPrefix(c.Request().URL.Path, openSearchPathPrefix)
+		path := c.Request().URL.Path
+
+		return strings.HasPrefix(path, openSearchPathPrefix) ||
+			path == openSearchTagsPath ||
+			path == openSearchTagsRemoval
 	}
 }
 
@@ -105,12 +112,44 @@ type domainJSON struct {
 
 // domainStatusJSON is the JSON response for domain operations.
 type domainStatusJSON struct {
-	DomainName    string            `json:"DomainName"`
-	ARN           string            `json:"ARN"`
-	EngineVersion string            `json:"EngineVersion"`
-	Endpoint      string            `json:"Endpoint"`
-	ClusterConfig clusterConfigJSON `json:"ClusterConfig"`
-	Processing    bool              `json:"Processing"`
+	DomainName                  string                      `json:"DomainName"`
+	ARN                         string                      `json:"ARN"`
+	EngineVersion               string                      `json:"EngineVersion"`
+	Endpoint                    string                      `json:"Endpoint"`
+	DomainProcessingStatus      string                      `json:"DomainProcessingStatus"`
+	ClusterConfig               clusterConfigJSON           `json:"ClusterConfig"`
+	EBSOptions                  ebsOptionsJSON              `json:"EBSOptions"`
+	CognitoOptions              cognitoOptionsJSON          `json:"CognitoOptions"`
+	EncryptionAtRestOptions     encryptAtRestOptionsJSON    `json:"EncryptionAtRestOptions"`
+	NodeToNodeEncryptionOptions nodeToNodeEncryptJSON       `json:"NodeToNodeEncryptionOptions"`
+	AdvancedSecurityOptions     advancedSecurityOptionsJSON `json:"AdvancedSecurityOptions"`
+	Processing                  bool                        `json:"Processing"`
+}
+
+// ebsOptionsJSON is the JSON representation of EBS options.
+type ebsOptionsJSON struct {
+	EBSEnabled bool `json:"EBSEnabled"`
+}
+
+// cognitoOptionsJSON is the JSON representation of Cognito options.
+type cognitoOptionsJSON struct {
+	Enabled bool `json:"Enabled"`
+}
+
+// encryptAtRestOptionsJSON is the JSON representation of encryption at rest options.
+type encryptAtRestOptionsJSON struct {
+	Enabled bool `json:"Enabled"`
+}
+
+// nodeToNodeEncryptJSON is the JSON representation of node-to-node encryption options.
+type nodeToNodeEncryptJSON struct {
+	Enabled bool `json:"Enabled"`
+}
+
+// advancedSecurityOptionsJSON is the JSON representation of advanced security options.
+type advancedSecurityOptionsJSON struct {
+	Enabled                     bool `json:"Enabled"`
+	InternalUserDatabaseEnabled bool `json:"InternalUserDatabaseEnabled"`
 }
 
 // clusterConfigJSON is the JSON representation of cluster config.
@@ -137,8 +176,11 @@ type domainNameEntry struct {
 
 // ServeHTTP implements [http.Handler] for the OpenSearch service.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	path := r.URL.Path
-	rest := strings.TrimPrefix(path, openSearchPathPrefix)
+	if h.handleTagRoutes(w, r) {
+		return
+	}
+
+	rest := strings.TrimPrefix(r.URL.Path, openSearchPathPrefix)
 
 	switch {
 	case (rest == "" || rest == "/") && r.Method == http.MethodPost:
@@ -146,16 +188,46 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case (rest == "" || rest == "/") && r.Method == http.MethodGet:
 		h.handleListDomainNames(w, r)
 	case strings.HasPrefix(rest, "/") && r.Method == http.MethodGet:
-		domainName := strings.TrimPrefix(rest, "/")
-		domainName = strings.TrimSuffix(domainName, "/")
-		h.handleDescribeDomain(w, r, domainName)
+		trimmed := domainNameFromRest(rest)
+		if before, ok := strings.CutSuffix(trimmed, "/config"); ok {
+			h.handleDescribeDomainConfig(w, r, before)
+		} else {
+			h.handleDescribeDomain(w, r, trimmed)
+		}
 	case strings.HasPrefix(rest, "/") && r.Method == http.MethodDelete:
-		domainName := strings.TrimPrefix(rest, "/")
-		domainName = strings.TrimSuffix(domainName, "/")
-		h.handleDeleteDomain(w, r, domainName)
+		h.handleDeleteDomain(w, r, domainNameFromRest(rest))
 	default:
 		h.writeError(w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 	}
+}
+
+func domainNameFromRest(rest string) string {
+	name := strings.TrimPrefix(rest, "/")
+
+	return strings.TrimSuffix(name, "/")
+}
+
+// handleTagRoutes processes /2021-01-01/tags and /2021-01-01/tags-removal requests.
+// Returns true if the request was handled.
+func (h *Handler) handleTagRoutes(w http.ResponseWriter, r *http.Request) bool {
+	path := r.URL.Path
+
+	switch {
+	case path == openSearchTagsPath && r.Method == http.MethodGet:
+		h.handleListTags(w, r)
+
+		return true
+	case path == openSearchTagsPath && r.Method == http.MethodPost:
+		w.WriteHeader(http.StatusOK)
+
+		return true
+	case path == openSearchTagsRemoval && r.Method == http.MethodPost:
+		w.WriteHeader(http.StatusOK)
+
+		return true
+	}
+
+	return false
 }
 
 // Handle satisfies the Echo handler interface.
@@ -268,11 +340,17 @@ func (h *Handler) handleListDomainNames(w http.ResponseWriter, _ *http.Request) 
 
 func toDomainStatusJSON(d *Domain) domainStatusJSON {
 	return domainStatusJSON{
-		DomainName:    d.Name,
-		ARN:           d.ARN,
-		EngineVersion: d.EngineVersion,
-		Endpoint:      d.Endpoint,
-		Processing:    false,
+		DomainName:                  d.Name,
+		ARN:                         d.ARN,
+		EngineVersion:               d.EngineVersion,
+		Endpoint:                    d.Endpoint,
+		Processing:                  false,
+		DomainProcessingStatus:      "Active",
+		EBSOptions:                  ebsOptionsJSON{EBSEnabled: false},
+		CognitoOptions:              cognitoOptionsJSON{Enabled: false},
+		EncryptionAtRestOptions:     encryptAtRestOptionsJSON{Enabled: false},
+		NodeToNodeEncryptionOptions: nodeToNodeEncryptJSON{Enabled: false},
+		AdvancedSecurityOptions:     advancedSecurityOptionsJSON{Enabled: false},
 		ClusterConfig: clusterConfigJSON{
 			InstanceType:  d.ClusterConfig.InstanceType,
 			InstanceCount: d.ClusterConfig.InstanceCount,
@@ -292,4 +370,35 @@ func (h *Handler) writeError(w http.ResponseWriter, status int, code, message st
 
 func (h *Handler) writeJSON(w http.ResponseWriter, v any) {
 	httputil.WriteJSON(h.Logger, w, http.StatusOK, v)
+}
+
+func (h *Handler) handleListTags(w http.ResponseWriter, _ *http.Request) {
+	h.writeJSON(w, map[string]any{"TagList": []any{}})
+}
+
+func (h *Handler) handleDescribeDomainConfig(w http.ResponseWriter, _ *http.Request, name string) {
+	_, err := h.Backend.DescribeDomain(name)
+	if err != nil {
+		if errors.Is(err, ErrDomainNotFound) {
+			h.writeError(w, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("domain %s/config not found", name))
+		} else {
+			h.writeError(w, http.StatusInternalServerError, "InternalException", err.Error())
+		}
+
+		return
+	}
+
+	h.writeJSON(w, map[string]any{
+		"DomainConfig": map[string]any{
+			"EngineVersion":  map[string]any{"Options": "", "Status": map[string]any{"State": "Active"}},
+			"ClusterConfig":  map[string]any{"Options": map[string]any{}, "Status": map[string]any{"State": "Active"}},
+			"EBSOptions":     map[string]any{"Options": map[string]any{}, "Status": map[string]any{"State": "Active"}},
+			"AccessPolicies": map[string]any{"Options": "", "Status": map[string]any{"State": "Active"}},
+			"AdvancedOptions": map[string]any{
+				"Options": map[string]any{},
+				"Status":  map[string]any{"State": "Active"},
+			},
+		},
+	})
 }

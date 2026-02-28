@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -31,9 +32,11 @@ type cacheEndpoint struct {
 
 // cacheNode is the XML representation of a cache node.
 type cacheNode struct {
-	CacheNodeID     string        `xml:"CacheNodeId"`
-	CacheNodeStatus string        `xml:"CacheNodeStatus"`
-	Endpoint        cacheEndpoint `xml:"Endpoint"`
+	CacheNodeID              string        `xml:"CacheNodeId"`
+	CacheNodeStatus          string        `xml:"CacheNodeStatus"`
+	CacheNodeCreateTime      string        `xml:"CacheNodeCreateTime"`
+	CustomerAvailabilityZone string        `xml:"CustomerAvailabilityZone"`
+	Endpoint                 cacheEndpoint `xml:"Endpoint"`
 }
 
 // cacheNodes is the XML container for cache nodes.
@@ -435,8 +438,10 @@ func clusterToXML(cl *Cluster, status string) cacheClusterXML {
 		ARN:                cl.ARN,
 		CacheNodes: cacheNodes{
 			CacheNode: []cacheNode{{
-				CacheNodeID:     "0001",
-				CacheNodeStatus: status,
+				CacheNodeID:              "0001",
+				CacheNodeStatus:          status,
+				CacheNodeCreateTime:      time.Now().UTC().Format(time.RFC3339),
+				CustomerAvailabilityZone: "us-east-1a",
 				Endpoint: cacheEndpoint{
 					Address: cl.Endpoint,
 					Port:    cl.Port,

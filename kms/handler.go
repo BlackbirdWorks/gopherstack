@@ -9,6 +9,7 @@ import (
 	"maps"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/labstack/echo/v5"
 
@@ -22,14 +23,12 @@ var ErrUnknownOperation = errors.New("UnknownOperationException")
 
 // Handler is the Echo HTTP handler for KMS operations.
 type Handler struct {
-	// Backend is the underlying KMS storage backend.
-	Backend StorageBackend
-	// Logger is the structured logger for this handler.
-	Logger *slog.Logger
-	// actions is the pre-built dispatch table, initialized once at construction.
-	actions map[string]kmsActionFn
-	// DefaultRegion is the fallback region used when region cannot be extracted from the request.
+	Backend       StorageBackend
+	Logger        *slog.Logger
+	actions       map[string]kmsActionFn
+	tags          map[string]map[string]string
 	DefaultRegion string
+	tagsMu        sync.RWMutex
 }
 
 // NewHandler creates a new KMS handler with the given storage backend and logger.
@@ -37,10 +36,37 @@ func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
 	h := &Handler{
 		Backend: backend,
 		Logger:  log,
+		tags:    make(map[string]map[string]string),
 	}
 	h.actions = h.buildDispatchTable()
 
 	return h
+}
+
+func (h *Handler) setTags(resourceID string, kv map[string]string) {
+	h.tagsMu.Lock()
+	defer h.tagsMu.Unlock()
+	if h.tags[resourceID] == nil {
+		h.tags[resourceID] = make(map[string]string)
+	}
+	maps.Copy(h.tags[resourceID], kv)
+}
+
+func (h *Handler) removeTags(resourceID string, keys []string) {
+	h.tagsMu.Lock()
+	defer h.tagsMu.Unlock()
+	for _, k := range keys {
+		delete(h.tags[resourceID], k)
+	}
+}
+
+func (h *Handler) getTags(resourceID string) map[string]string {
+	h.tagsMu.RLock()
+	defer h.tagsMu.RUnlock()
+	result := make(map[string]string)
+	maps.Copy(result, h.tags[resourceID])
+
+	return result
 }
 
 // Name returns the service name.
@@ -76,6 +102,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListRetirableGrants",
 		"PutKeyPolicy",
 		"GetKeyPolicy",
+		"ListResourceTags",
+		"TagResource",
+		"UntagResource",
 	}
 }
 
@@ -178,12 +207,13 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 type kmsActionFn func(region string, body []byte) (any, error)
 
-// buildDispatchTable merges key lifecycle, crypto, and alias/rotation actions into a single lookup map.
+// buildDispatchTable merges key lifecycle, crypto, alias/rotation, and tag actions into a single lookup map.
 func (h *Handler) buildDispatchTable() map[string]kmsActionFn {
 	table := h.buildKeyLifecycleActions()
 	maps.Copy(table, h.buildCryptoActions())
 	maps.Copy(table, h.buildAliasRotationActions())
 	maps.Copy(table, h.buildGrantPolicyActions())
+	maps.Copy(table, h.buildTagActions())
 
 	return table
 }
@@ -409,6 +439,62 @@ func (h *Handler) buildGrantPolicyActions() map[string]kmsActionFn {
 			}
 
 			return h.Backend.GetKeyPolicy(&input)
+		},
+	}
+}
+
+// buildTagActions returns dispatch entries for KMS resource tag operations.
+func (h *Handler) buildTagActions() map[string]kmsActionFn {
+	return map[string]kmsActionFn{
+		"ListResourceTags": func(_ string, b []byte) (any, error) {
+			var input struct {
+				KeyID string `json:"KeyId"` //nolint:tagliatelle // AWS API uses KeyId
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			tags := h.getTags(input.KeyID)
+			type kmsTag struct {
+				TagKey   string `json:"TagKey"`
+				TagValue string `json:"TagValue"`
+			}
+			tagList := make([]kmsTag, 0, len(tags))
+			for k, v := range tags {
+				tagList = append(tagList, kmsTag{TagKey: k, TagValue: v})
+			}
+
+			return map[string]any{"Tags": tagList, "Truncated": false}, nil
+		},
+		"TagResource": func(_ string, b []byte) (any, error) {
+			var input struct {
+				KeyID string `json:"KeyId"` //nolint:tagliatelle // AWS API uses KeyId
+				Tags  []struct {
+					TagKey   string `json:"TagKey"`
+					TagValue string `json:"TagValue"`
+				} `json:"Tags"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			kv := make(map[string]string, len(input.Tags))
+			for _, t := range input.Tags {
+				kv[t.TagKey] = t.TagValue
+			}
+			h.setTags(input.KeyID, kv)
+
+			return struct{}{}, nil
+		},
+		"UntagResource": func(_ string, b []byte) (any, error) {
+			var input struct {
+				KeyID   string   `json:"KeyId"` //nolint:tagliatelle // AWS API uses KeyId
+				TagKeys []string `json:"TagKeys"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			h.removeTags(input.KeyID, input.TagKeys)
+
+			return struct{}{}, nil
 		},
 	}
 }

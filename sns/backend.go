@@ -45,15 +45,20 @@ type StorageBackend interface {
 	Unsubscribe(subscriptionArn string) error
 	ListSubscriptions(nextToken string) ([]Subscription, string, error)
 	ListSubscriptionsByTopic(topicArn, nextToken string) ([]Subscription, string, error)
+	GetSubscriptionAttributes(subscriptionArn string) (map[string]string, error)
 	Publish(topicArn, message, subject, messageStructure string, attrs map[string]MessageAttribute) (string, error)
 	ListAllTopics() []Topic
 	ListAllSubscriptions() []Subscription
+	GetTopicTags(arn string) map[string]string
+	SetTopicTags(arn string, tags map[string]string)
+	RemoveTopicTags(arn string, keys []string)
 }
 
 // InMemoryBackend implements StorageBackend using an in-memory concurrency-safe store.
 type InMemoryBackend struct {
 	topics        map[string]*Topic
 	subscriptions map[string]*Subscription
+	topicTags     map[string]map[string]string
 	emitter       events.EventEmitter[*events.SNSPublishedEvent]
 	accountID     string
 	region        string
@@ -70,6 +75,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		topics:        make(map[string]*Topic),
 		subscriptions: make(map[string]*Subscription),
+		topicTags:     make(map[string]map[string]string),
 		accountID:     accountID,
 		region:        region,
 	}
@@ -112,6 +118,11 @@ func (b *InMemoryBackend) CreateTopicInRegion(name, region string, attributes ma
 	attrs := make(map[string]string, len(attributes)+1)
 	maps.Copy(attrs, attributes)
 	attrs["TopicArn"] = topicArn
+	// Ensure Policy is a valid JSON string with an empty Statement array so
+	// Terraform's PolicyHasValidAWSPrincipals JMESPath check returns []any{}.
+	if attrs["Policy"] == "" {
+		attrs["Policy"] = `{"Version":"2012-10-17","Statement":[]}`
+	}
 
 	topic := &Topic{TopicArn: topicArn, Attributes: attrs}
 	b.topics[topicArn] = topic
@@ -162,6 +173,12 @@ func (b *InMemoryBackend) GetTopicAttributes(topicArn string) (map[string]string
 
 	attrs := make(map[string]string, len(topic.Attributes))
 	maps.Copy(attrs, topic.Attributes)
+
+	// Ensure Policy is always a valid JSON string with an empty Statement array so
+	// Terraform's PolicyHasValidAWSPrincipals JMESPath check returns []any{}.
+	if attrs["Policy"] == "" {
+		attrs["Policy"] = `{"Version":"2012-10-17","Statement":[]}`
+	}
 
 	return attrs, nil
 }
@@ -246,6 +263,26 @@ func (b *InMemoryBackend) ConfirmSubscription(topicArn, token string) (*Subscrip
 	}
 
 	return nil, ErrSubscriptionNotFound
+}
+
+// GetSubscriptionAttributes returns the attributes of a subscription.
+func (b *InMemoryBackend) GetSubscriptionAttributes(subscriptionArn string) (map[string]string, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	sub, exists := b.subscriptions[subscriptionArn]
+	if !exists {
+		return nil, ErrSubscriptionNotFound
+	}
+
+	return map[string]string{
+		"SubscriptionArn":     sub.SubscriptionArn,
+		"TopicArn":            sub.TopicArn,
+		"Protocol":            sub.Protocol,
+		"Endpoint":            sub.Endpoint,
+		"Owner":               sub.Owner,
+		"PendingConfirmation": "false",
+	}, nil
 }
 
 // ListSubscriptions returns a page of subscriptions and the next pagination token.
@@ -567,4 +604,33 @@ func paginate[T any](items []T, offset, size int) ([]T, string) {
 	}
 
 	return items[offset:end], nextToken
+}
+
+// GetTopicTags returns tags for the given topic ARN.
+func (b *InMemoryBackend) GetTopicTags(arn string) map[string]string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	result := make(map[string]string)
+	maps.Copy(result, b.topicTags[arn])
+
+	return result
+}
+
+// SetTopicTags stores tags for the given topic ARN.
+func (b *InMemoryBackend) SetTopicTags(arn string, tags map[string]string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.topicTags[arn] == nil {
+		b.topicTags[arn] = make(map[string]string)
+	}
+	maps.Copy(b.topicTags[arn], tags)
+}
+
+// RemoveTopicTags removes specified tag keys for the given topic ARN.
+func (b *InMemoryBackend) RemoveTopicTags(arn string, keys []string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, k := range keys {
+		delete(b.topicTags[arn], k)
+	}
 }
