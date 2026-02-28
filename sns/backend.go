@@ -118,9 +118,10 @@ func (b *InMemoryBackend) CreateTopicInRegion(name, region string, attributes ma
 	attrs := make(map[string]string, len(attributes)+1)
 	maps.Copy(attrs, attributes)
 	attrs["TopicArn"] = topicArn
-	// Ensure Policy is a valid JSON string so Terraform can parse it.
+	// Ensure Policy is a valid JSON string with an empty Statement array so
+	// Terraform's PolicyHasValidAWSPrincipals JMESPath check returns []any{}.
 	if attrs["Policy"] == "" {
-		attrs["Policy"] = "{}"
+		attrs["Policy"] = `{"Version":"2012-10-17","Statement":[]}`
 	}
 
 	topic := &Topic{TopicArn: topicArn, Attributes: attrs}
@@ -173,9 +174,10 @@ func (b *InMemoryBackend) GetTopicAttributes(topicArn string) (map[string]string
 	attrs := make(map[string]string, len(topic.Attributes))
 	maps.Copy(attrs, topic.Attributes)
 
-	// Ensure Policy is always a valid JSON string so Terraform can parse it.
+	// Ensure Policy is always a valid JSON string with an empty Statement array so
+	// Terraform's PolicyHasValidAWSPrincipals JMESPath check returns []any{}.
 	if attrs["Policy"] == "" {
-		attrs["Policy"] = "{}"
+		attrs["Policy"] = `{"Version":"2012-10-17","Statement":[]}`
 	}
 
 	return attrs, nil

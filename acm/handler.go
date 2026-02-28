@@ -213,6 +213,14 @@ func (h *Handler) jsonDescribeCertificate(body []byte) (any, error) {
 			"Status":         cert.Status,
 			"Type":           cert.Type,
 			"CreatedAt":      cert.CreatedAt.Unix(),
+			"DomainValidationOptions": []map[string]any{
+				{
+					"DomainName":       cert.DomainName,
+					"ValidationDomain": cert.DomainName,
+					"ValidationStatus": "SUCCESS",
+					"ValidationMethod": "DNS",
+				},
+			},
 		},
 	}, nil
 }

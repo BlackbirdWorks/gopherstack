@@ -26,6 +26,9 @@ const lambdaMatchPriority = 95
 // lambdaPathPrefix is the path prefix for Lambda REST API v1 endpoints.
 const lambdaPathPrefix = "/2015-03-31/functions"
 
+// lambda2020PathPrefix is the path prefix for Lambda REST API v2 endpoints (e.g. code signing configs).
+const lambda2020PathPrefix = "/2020-06-30/functions"
+
 // esmPathPrefix is the path prefix for Lambda event source mapping endpoints.
 const esmPathPrefix = "/2015-03-31/event-source-mappings"
 
@@ -166,6 +169,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		target := c.Request().Header.Get("X-Amz-Target")
 
 		return strings.HasPrefix(path, lambdaPathPrefix) ||
+			strings.HasPrefix(path, lambda2020PathPrefix) ||
 			strings.HasPrefix(path, esmPathPrefix) ||
 			strings.HasPrefix(path, lambdaTagsPathPrefix) ||
 			strings.HasPrefix(target, "AWSLambda")
@@ -383,6 +387,16 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		// Handle tags routes
 		if strings.HasPrefix(path, lambdaTagsPathPrefix) {
 			return h.handleTagsRoute(c, method)
+		}
+
+		// Handle 2020-06-30 API routes (e.g. GetFunctionCodeSigningConfig)
+		if strings.HasPrefix(path, lambda2020PathPrefix) {
+			rest2020 := strings.TrimPrefix(path, lambda2020PathPrefix)
+			if method == http.MethodGet && hasSuffixCodeSigningConfig(rest2020) {
+				return c.JSON(http.StatusOK, map[string]any{})
+			}
+
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 		}
 
 		rest := strings.TrimPrefix(path, lambdaPathPrefix)

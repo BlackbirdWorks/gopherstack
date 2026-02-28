@@ -178,7 +178,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 type actionFn func([]byte) (any, error)
 
 func (h *Handler) stateMachineActions() map[string]actionFn {
-	return map[string]actionFn{
+	m := map[string]actionFn{
 		"CreateStateMachine": func(b []byte) (any, error) {
 			var input struct {
 				Name       string `json:"name"`
@@ -240,6 +240,15 @@ func (h *Handler) stateMachineActions() map[string]actionFn {
 		"UpdateStateMachine": func(_ []byte) (any, error) {
 			return map[string]any{"updateDate": time.Now().UTC()}, nil
 		},
+	}
+	maps.Copy(m, h.stateMachineTagActions())
+
+	return m
+}
+
+// stateMachineTagActions returns tag-related actions for state machines.
+func (h *Handler) stateMachineTagActions() map[string]actionFn {
+	return map[string]actionFn{
 		"ListTagsForResource": func(b []byte) (any, error) {
 			var input struct {
 				ResourceArn string `json:"resourceArn"`

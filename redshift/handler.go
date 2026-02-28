@@ -284,6 +284,7 @@ type redshiftErrorResponse struct {
 }
 
 type xmlCluster struct {
+	AquaConfiguration                xmlAquaConfig         `xml:"AquaConfiguration"`
 	ClusterIdentifier                string                `xml:"ClusterIdentifier"`
 	NodeType                         string                `xml:"NodeType"`
 	Endpoint                         string                `xml:"Endpoint>Address"`
@@ -291,11 +292,10 @@ type xmlCluster struct {
 	ClusterAvailabilityStatus        string                `xml:"ClusterAvailabilityStatus"`
 	AvailabilityZoneRelocationStatus string                `xml:"AvailabilityZoneRelocationStatus"`
 	MultiAZ                          string                `xml:"MultiAZ"`
-	AquaConfiguration                xmlAquaConfig         `xml:"AquaConfiguration"`
-	ClusterNodes                     xmlClusterNodes       `xml:"ClusterNodes"`
-	ClusterParameterGroups           xmlClusterParamGroups `xml:"ClusterParameterGroups"`
 	DBName                           string                `xml:"DBName"`
 	MasterUsername                   string                `xml:"MasterUsername"`
+	ClusterNodes                     xmlClusterNodes       `xml:"ClusterNodes"`
+	ClusterParameterGroups           xmlClusterParamGroups `xml:"ClusterParameterGroups"`
 }
 
 type xmlAquaConfig struct {
