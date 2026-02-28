@@ -1,13 +1,14 @@
 package s3control
 
 import (
-	"errors"
 	"sync"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
 var (
 	// ErrNotFound is returned when public access block config is not found.
-	ErrNotFound = errors.New("NoSuchPublicAccessBlockConfiguration")
+	ErrNotFound = awserr.New("NoSuchPublicAccessBlockConfiguration", awserr.ErrNotFound)
 )
 
 // PublicAccessBlock represents the S3 Control public access block configuration.

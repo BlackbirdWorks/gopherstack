@@ -1,18 +1,18 @@
 package route53resolver
 
 import (
-	"errors"
 	"fmt"
 	"sync"
 
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
 var (
-	ErrNotFound      = errors.New("ResourceNotFoundException")
-	ErrAlreadyExists = errors.New("ResourceExistsException")
+	ErrNotFound      = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+	ErrAlreadyExists = awserr.New("ResourceExistsException", awserr.ErrAlreadyExists)
 )
 
 type IPAddress struct {

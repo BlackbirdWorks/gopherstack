@@ -10,13 +10,15 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
 var (
 	ErrRestAPINotFound  = errors.New("NotFoundException")
 	ErrResourceNotFound = errors.New("NotFoundException")
 	ErrMethodNotFound   = errors.New("NotFoundException")
-	ErrAlreadyExists    = errors.New("ConflictException")
+	ErrAlreadyExists    = awserr.New("ConflictException", awserr.ErrAlreadyExists)
 	ErrInvalidParameter = errors.New("BadRequestException")
 )
 

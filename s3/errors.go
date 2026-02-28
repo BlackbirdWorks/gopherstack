@@ -5,14 +5,15 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
 )
 
 var (
-	ErrBucketAlreadyExists     = errors.New("BucketAlreadyExists")
-	ErrBucketAlreadyOwnedByYou = errors.New("BucketAlreadyOwnedByYou")
-	ErrNoSuchBucket            = errors.New("NoSuchBucket")
-	ErrNoSuchKey               = errors.New("NoSuchKey")
+	ErrBucketAlreadyExists     = awserr.New("BucketAlreadyExists", awserr.ErrAlreadyExists)
+	ErrBucketAlreadyOwnedByYou = awserr.New("BucketAlreadyOwnedByYou", awserr.ErrAlreadyExists)
+	ErrNoSuchBucket            = awserr.New("NoSuchBucket", awserr.ErrNotFound)
+	ErrNoSuchKey               = awserr.New("NoSuchKey", awserr.ErrNotFound)
 	ErrInvalidBucketName       = errors.New("InvalidBucketName")
 	ErrBucketNotEmpty          = errors.New(
 		"BucketNotEmpty: The bucket you tried to delete is not empty",
@@ -20,7 +21,7 @@ var (
 	ErrNotImplemented         = errors.New("NotImplemented")
 	ErrMethodNotAllowed       = errors.New("MethodNotAllowed")
 	ErrInvalidArgument        = errors.New("InvalidArgument")
-	ErrNoSuchUpload           = errors.New("NoSuchUpload")
+	ErrNoSuchUpload           = awserr.New("NoSuchUpload", awserr.ErrNotFound)
 	ErrInvalidPart            = errors.New("InvalidPart")
 	ErrNoCompressor           = errors.New("data is compressed but no compressor available")
 	ErrNoBucketPolicy         = errors.New("NoSuchBucketPolicy")
@@ -28,7 +29,7 @@ var (
 	ErrNoLifecycleConfig      = errors.New("NoSuchLifecycleConfiguration")
 	ErrNoObjectLockConfig     = errors.New("ObjectLockConfigurationNotFoundError")
 	ErrObjectLocked           = errors.New("AccessDenied")
-	ErrNoSuchObjectLockConfig = errors.New("NoSuchObjectLockConfiguration")
+	ErrNoSuchObjectLockConfig = awserr.New("NoSuchObjectLockConfiguration", awserr.ErrNotFound)
 )
 
 type s3ErrorInfo struct {

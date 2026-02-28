@@ -1,17 +1,17 @@
 package scheduler
 
 import (
-	"errors"
 	"fmt"
 	"maps"
 	"sync"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
 var (
-	ErrNotFound      = errors.New("ResourceNotFoundException")
-	ErrAlreadyExists = errors.New("ConflictException")
+	ErrNotFound      = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+	ErrAlreadyExists = awserr.New("ConflictException", awserr.ErrConflict)
 )
 
 type FlexibleTimeWindow struct {

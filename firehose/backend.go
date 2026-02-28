@@ -1,18 +1,18 @@
 package firehose
 
 import (
-	"errors"
 	"fmt"
 	"sync"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
 var (
 	// ErrNotFound is returned when a delivery stream is not found.
-	ErrNotFound = errors.New("ResourceNotFoundException")
+	ErrNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	// ErrAlreadyExists is returned when a delivery stream already exists.
-	ErrAlreadyExists = errors.New("ResourceInUseException")
+	ErrAlreadyExists = awserr.New("ResourceInUseException", awserr.ErrAlreadyExists)
 )
 
 // DeliveryStream represents a Kinesis Firehose delivery stream.

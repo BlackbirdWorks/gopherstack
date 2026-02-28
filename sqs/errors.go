@@ -1,11 +1,15 @@
 package sqs
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+)
 
 // Sentinel errors for SQS operations.
 var (
-	ErrQueueNotFound         = errors.New("AWS.SimpleQueueService.NonExistentQueue")
-	ErrQueueAlreadyExists    = errors.New("QueueAlreadyExists")
+	ErrQueueNotFound         = awserr.New("AWS.SimpleQueueService.NonExistentQueue", awserr.ErrNotFound)
+	ErrQueueAlreadyExists    = awserr.New("QueueAlreadyExists", awserr.ErrAlreadyExists)
 	ErrInvalidAttribute      = errors.New("InvalidAttributeValue")
 	ErrInvalidBatchEntry     = errors.New("AWS.SimpleQueueService.EmptyBatchRequest")
 	ErrReceiptHandleInvalid  = errors.New("ReceiptHandleIsInvalid")

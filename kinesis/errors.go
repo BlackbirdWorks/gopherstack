@@ -1,12 +1,16 @@
 package kinesis
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+)
 
 // Sentinel errors for Kinesis operations.
 var (
-	ErrStreamNotFound       = errors.New("ResourceNotFoundException")
-	ErrStreamAlreadyExists  = errors.New("ResourceInUseException")
-	ErrInvalidArgument      = errors.New("InvalidArgumentException")
+	ErrStreamNotFound       = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+	ErrStreamAlreadyExists  = awserr.New("ResourceInUseException", awserr.ErrAlreadyExists)
+	ErrInvalidArgument      = awserr.New("InvalidArgumentException", awserr.ErrInvalidParameter)
 	ErrUnknownAction        = errors.New("UnknownOperationException")
 	ErrShardIteratorExpired = errors.New("ExpiredIteratorException")
 )

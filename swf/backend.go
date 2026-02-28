@@ -4,13 +4,15 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
 var (
 	// ErrNotFound is returned when a resource is not found.
-	ErrNotFound = errors.New("UnknownResourceFault")
+	ErrNotFound = awserr.New("UnknownResourceFault", awserr.ErrNotFound)
 	// ErrAlreadyExists is returned when a resource already exists.
-	ErrAlreadyExists = errors.New("DomainAlreadyExistsFault")
+	ErrAlreadyExists = awserr.New("DomainAlreadyExistsFault", awserr.ErrAlreadyExists)
 	// ErrDeprecated is returned when a deprecated resource is used.
 	ErrDeprecated = errors.New("DomainDeprecatedFault")
 	// ErrTypeAlreadyExists is returned when a workflow type already exists.

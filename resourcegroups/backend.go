@@ -1,19 +1,19 @@
 package resourcegroups
 
 import (
-	"errors"
 	"fmt"
 	"maps"
 	"sync"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
 var (
 	// ErrNotFound is returned when a resource group is not found.
-	ErrNotFound = errors.New("NotFoundException")
+	ErrNotFound = awserr.New("NotFoundException", awserr.ErrNotFound)
 	// ErrAlreadyExists is returned when a resource group already exists.
-	ErrAlreadyExists = errors.New("BadRequestException")
+	ErrAlreadyExists = awserr.New("BadRequestException", awserr.ErrAlreadyExists)
 )
 
 // Group represents a Resource Group.
