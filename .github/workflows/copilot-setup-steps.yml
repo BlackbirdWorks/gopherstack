@@ -15,6 +15,11 @@ jobs:
           check-latest: true
           cache: true
 
+      - name: Install OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_wrapper: false
+
       - name: Install golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:

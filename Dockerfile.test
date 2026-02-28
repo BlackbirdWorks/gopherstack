@@ -1,0 +1,5 @@
+# Lightweight test image — expects a pre-built static binary at bin/gopherstack.
+FROM scratch
+COPY bin/gopherstack /root/gopherstack
+EXPOSE 8000
+CMD ["/root/gopherstack"]
