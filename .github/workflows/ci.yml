@@ -91,7 +91,7 @@ jobs:
           check-latest: true
           cache: true
 
-      - name: Run Terraform Tests
+      - name: Run OpenTofu Tests
         run: |
           go tool gotestsum --format pkgname -- \
             -race -timeout 10m \

@@ -4,11 +4,17 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 
@@ -39,31 +45,32 @@ import (
 	sqssvc "github.com/aws/aws-sdk-go-v2/service/sqs"
 	ssmsvc "github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/google/uuid"
-	install "github.com/hashicorp/hc-install"
-	"github.com/hashicorp/hc-install/fs"
-	"github.com/hashicorp/hc-install/product"
-	"github.com/hashicorp/hc-install/releases"
-	"github.com/hashicorp/hc-install/src"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// tfProviderCacheDir is a shared provider cache so both tests only download
+// tofuProviderCacheDir is a shared provider cache so both tests only download
 // the hashicorp/aws provider once per test run.
 //
 //nolint:gochecknoglobals // shared provider cache path, read-only after init
-var tfProviderCacheDir = filepath.Join(os.TempDir(), "gopherstack-tf-provider-cache")
+var tofuProviderCacheDir = filepath.Join(os.TempDir(), "gopherstack-tofu-provider-cache")
 
-// tfBinaryOnce ensures terraform is only downloaded once per test run.
+// tofuBinaryOnce ensures tofu is only downloaded once per test run.
 //
-//nolint:gochecknoglobals // lazy-init singleton for the terraform binary path
+//nolint:gochecknoglobals // lazy-init singleton for the tofu binary path
 var (
-	tfBinaryOnce sync.Once
-	tfBinaryPath string
-	errTfBinary  error
+	tofuBinaryOnce sync.Once
+	tofuBinaryPath string
+	errTofuBinary  error
 )
 
-// providerBlock returns the Terraform required_providers + provider "aws" block
+// Sentinel errors for the OpenTofu binary download helper.
+var (
+	errNoTofuVersions = errors.New("no stable versions found in OpenTofu API response")
+	errTofuNotInZip   = errors.New("tofu binary not found in zip archive")
+)
+
+// providerBlock returns the OpenTofu required_providers + provider "aws" block
 // pointing all service endpoints at addr (e.g. "http://localhost:32768").
 func providerBlock(addr string) string {
 	return fmt.Sprintf(`terraform {
@@ -115,66 +122,169 @@ provider "aws" {
 `, addr)
 }
 
-// ensureTerraformBinary returns the path to the terraform binary, downloading
-// it automatically via hc-install if it is not already present in PATH.
-// The download happens at most once per test run (guarded by a [sync.Once]).
-func ensureTerraformBinary(t *testing.T) string {
+// ensureTofuBinary returns the path to the tofu binary, downloading it
+// automatically from the OpenTofu GitHub releases if it is not already present
+// in PATH. The download happens at most once per test run (guarded by a
+// [sync.Once]).
+func ensureTofuBinary(t *testing.T) string {
 	t.Helper()
 
-	tfBinaryOnce.Do(func() {
-		// First, check if terraform is already in PATH.
-		if path, err := exec.LookPath("terraform"); err == nil {
-			tfBinaryPath = path
+	tofuBinaryOnce.Do(func() {
+		// First, check if tofu is already in PATH.
+		if path, err := exec.LookPath("tofu"); err == nil {
+			tofuBinaryPath = path
 
 			return
 		}
 
-		// Not found in PATH — download via hc-install.
-		t.Log("terraform not found in PATH; downloading via hc-install...")
+		// Not found in PATH — download from OpenTofu releases.
+		t.Log("tofu not found in PATH; downloading from OpenTofu releases...")
 
-		installer := install.NewInstaller()
-		ctx := context.Background()
-
-		path, err := installer.Ensure(ctx, []src.Source{
-			&fs.AnyVersion{
-				Product: &product.Product{
-					BinaryName: func() string { return "terraform" },
-				},
-			},
-			&releases.LatestVersion{
-				Product: product.Terraform,
-				//nolint:usetesting // terraform binary must outlive individual tests; t.TempDir() is cleaned up too early
-				InstallDir: os.TempDir(),
-			},
-		})
-
-		tfBinaryPath = path
-		errTfBinary = err
+		tofuBinaryPath, errTofuBinary = downloadTofuBinary(t)
 	})
 
-	if errTfBinary != nil {
-		t.Fatalf("could not obtain terraform binary: %v", errTfBinary)
+	if errTofuBinary != nil {
+		t.Fatalf("could not obtain tofu binary: %v", errTofuBinary)
 	}
 
-	return tfBinaryPath
+	return tofuBinaryPath
 }
 
-// applyTerraform writes hcl to a main.tf in dir, runs terraform init and
-// terraform apply -auto-approve, then registers a cleanup that destroys
+// downloadTofuBinary fetches the latest stable OpenTofu release for the current
+// platform, extracts the binary to [os.TempDir], and returns its path.
+func downloadTofuBinary(t *testing.T) (string, error) {
+	t.Helper()
+
+	ctx := context.Background()
+
+	versionReq, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://get.opentofu.org/tofu/api.json", nil)
+	if err != nil {
+		return "", fmt.Errorf("creating OpenTofu version request: %w", err)
+	}
+	resp, err := http.DefaultClient.Do(versionReq)
+	if err != nil {
+		return "", fmt.Errorf("fetching OpenTofu version list: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var api struct {
+		Versions []struct {
+			ID string `json:"id"`
+		} `json:"versions"`
+	}
+	err = json.NewDecoder(resp.Body).Decode(&api)
+	if err != nil {
+		return "", fmt.Errorf("decoding OpenTofu version list: %w", err)
+	}
+
+	// The API lists versions in most-recently-published order. Pick the first
+	// entry that has no pre-release suffix (no hyphen), which is the latest
+	// stable release.
+	version := latestStableTofuVersion(api.Versions)
+	if version == "" {
+		return "", errNoTofuVersions
+	}
+	goos := runtime.GOOS
+	goarch := runtime.GOARCH
+
+	downloadURL := fmt.Sprintf(
+		"https://github.com/opentofu/opentofu/releases/download/v%s/tofu_%s_%s_%s.zip",
+		version, version, goos, goarch,
+	)
+	t.Logf("downloading OpenTofu %s from %s", version, downloadURL)
+
+	zipReq, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("creating OpenTofu download request: %w", err)
+	}
+	zipResp, err := http.DefaultClient.Do(zipReq)
+	if err != nil {
+		return "", fmt.Errorf("downloading OpenTofu zip: %w", err)
+	}
+	defer zipResp.Body.Close()
+
+	zipData, err := io.ReadAll(zipResp.Body)
+	if err != nil {
+		return "", fmt.Errorf("reading OpenTofu zip: %w", err)
+	}
+
+	zr, err := zip.NewReader(bytes.NewReader(zipData), int64(len(zipData)))
+	if err != nil {
+		return "", fmt.Errorf("opening OpenTofu zip: %w", err)
+	}
+
+	binaryName := "tofu"
+	if goos == "windows" {
+		binaryName = "tofu.exe"
+	}
+
+	for _, f := range zr.File {
+		if f.Name != binaryName {
+			continue
+		}
+
+		return extractTofuBinary(f, binaryName)
+	}
+
+	return "", errTofuNotInZip
+}
+
+// extractTofuBinary writes a single [zip.File] to [os.TempDir] with executable
+// permissions and returns its path.
+func extractTofuBinary(f *zip.File, binaryName string) (string, error) {
+	destPath := filepath.Join(os.TempDir(), binaryName)
+
+	rc, err := f.Open()
+	if err != nil {
+		return "", fmt.Errorf("opening %s in zip: %w", binaryName, err)
+	}
+	defer rc.Close()
+
+	out, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+	if err != nil {
+		return "", fmt.Errorf("creating tofu binary: %w", err)
+	}
+	defer out.Close()
+
+	if _, err = io.Copy(out, rc); err != nil {
+		return "", fmt.Errorf("writing tofu binary: %w", err)
+	}
+
+	return destPath, nil
+}
+
+// latestStableTofuVersion returns the first stable (non-pre-release) version ID
+// from the OpenTofu API versions list, or an empty string if none is found.
+// Versions with a hyphen in the ID (e.g. "1.8.0-alpha1") are considered
+// pre-release and are skipped.
+func latestStableTofuVersion(versions []struct {
+	ID string `json:"id"`
+}) string {
+	for _, v := range versions {
+		if !strings.Contains(v.ID, "-") {
+			return v.ID
+		}
+	}
+
+	return ""
+}
+
+// applyTofu writes hcl to a main.tf in dir, runs tofu init and
+// tofu apply -auto-approve, then registers a cleanup that destroys
 // all created resources.
-func applyTerraform(t *testing.T, tfBin, dir, hcl string) {
+func applyTofu(t *testing.T, tofuBin, dir, hcl string) {
 	t.Helper()
 
 	cfgPath := dir + "/main.tf"
 	require.NoError(t, os.WriteFile(cfgPath, []byte(hcl), 0o644))
 
-	if err := os.MkdirAll(tfProviderCacheDir, 0o755); err != nil {
+	if err := os.MkdirAll(tofuProviderCacheDir, 0o755); err != nil {
 		t.Logf("could not create provider cache dir: %v", err)
 	}
 
 	env := append(os.Environ(),
 		"TF_IN_AUTOMATION=1",
-		"TF_PLUGIN_CACHE_DIR="+tfProviderCacheDir,
+		"TF_PLUGIN_CACHE_DIR="+tofuProviderCacheDir,
 		"TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE=true",
 	)
 
@@ -182,20 +292,20 @@ func applyTerraform(t *testing.T, tfBin, dir, hcl string) {
 		t.Helper()
 
 		cmd := exec.Command(
-			tfBin,
+			tofuBin,
 			args...)
 		cmd.Dir = dir
 		cmd.Env = env
 
 		out, err := cmd.CombinedOutput()
-		t.Logf("terraform %v:\n%s", args, out)
+		t.Logf("tofu %v:\n%s", args, out)
 
 		if err != nil {
 			if failFatal {
-				t.Fatalf("terraform %v failed: %v", args, err)
+				t.Fatalf("tofu %v failed: %v", args, err)
 			}
 
-			t.Logf("terraform %v failed (non-fatal): %v", args, err)
+			t.Logf("tofu %v failed (non-fatal): %v", args, err)
 
 			return false
 		}
@@ -217,7 +327,7 @@ func TestTerraform_DynamoDB(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	tfBin := ensureTerraformBinary(t)
+	tofuBin := ensureTofuBinary(t)
 	ctx := context.Background()
 
 	tableName := "tf-ddb-" + uuid.NewString()
@@ -235,7 +345,7 @@ resource "aws_dynamodb_table" "this" {
 }
 `, tableName)
 
-	applyTerraform(t, tfBin, t.TempDir(), hcl)
+	applyTofu(t, tofuBin, t.TempDir(), hcl)
 
 	// Verify the table exists and has the correct key schema.
 	client := createDynamoDBClient(t)
@@ -258,7 +368,7 @@ func TestTerraform_S3AndSQS(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	tfBin := ensureTerraformBinary(t)
+	tofuBin := ensureTofuBinary(t)
 	ctx := context.Background()
 
 	id := uuid.NewString()
@@ -276,7 +386,7 @@ resource "aws_sqs_queue" "this" {
 }
 `, bucketName, queueName)
 
-	applyTerraform(t, tfBin, t.TempDir(), hcl)
+	applyTofu(t, tofuBin, t.TempDir(), hcl)
 
 	// Verify S3 bucket exists.
 	s3Client := createS3Client(t)
@@ -296,7 +406,7 @@ resource "aws_sqs_queue" "this" {
 	assert.Contains(t, aws.ToString(getURLOut.QueueUrl), queueName)
 }
 
-// rdsProviderBlock returns a Terraform provider block that includes the rds endpoint.
+// rdsProviderBlock returns an OpenTofu provider block that includes the rds endpoint.
 func rdsProviderBlock(addr string) string {
 	return fmt.Sprintf(`terraform {
   required_providers {
@@ -330,7 +440,7 @@ func TestTerraform_RDS(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	tfBin := ensureTerraformBinary(t)
+	tofuBin := ensureTofuBinary(t)
 	ctx := context.Background()
 
 	id := "tf-rds-" + uuid.NewString()[:8]
@@ -348,7 +458,7 @@ resource "aws_db_instance" "this" {
 }
 `, id)
 
-	applyTerraform(t, tfBin, t.TempDir(), hcl)
+	applyTofu(t, tofuBin, t.TempDir(), hcl)
 
 	// Verify the instance exists via RDS SDK.
 	client := createRDSClient(t)
@@ -369,7 +479,7 @@ func TestTerraform_Lambda(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	tfBin := ensureTerraformBinary(t)
+	tofuBin := ensureTofuBinary(t)
 	ctx := context.Background()
 
 	id := uuid.NewString()[:8]
@@ -411,7 +521,7 @@ resource "aws_lambda_function" "this" {
 }
 `, id, zipPath, funcName, zipPath)
 
-	applyTerraform(t, tfBin, dir, hcl)
+	applyTofu(t, tofuBin, dir, hcl)
 
 	// Verify the function exists via Lambda SDK.
 	client := createLambdaClient(t)
@@ -430,7 +540,7 @@ func TestTerraform_IAM(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	tfBin := ensureTerraformBinary(t)
+	tofuBin := ensureTofuBinary(t)
 	ctx := context.Background()
 
 	id := uuid.NewString()[:8]
@@ -468,7 +578,7 @@ resource "aws_iam_role_policy_attachment" "this" {
 }
 `, roleName, policyName)
 
-	applyTerraform(t, tfBin, t.TempDir(), hcl)
+	applyTofu(t, tofuBin, t.TempDir(), hcl)
 
 	// Verify the role exists via IAM SDK.
 	client := createIAMClient(t)
@@ -487,7 +597,7 @@ func TestTerraform_SNSSQSSubscription(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	tfBin := ensureTerraformBinary(t)
+	tofuBin := ensureTofuBinary(t)
 	ctx := context.Background()
 
 	id := uuid.NewString()[:8]
@@ -510,7 +620,7 @@ resource "aws_sns_topic_subscription" "this" {
 }
 `, topicName, queueName)
 
-	applyTerraform(t, tfBin, t.TempDir(), hcl)
+	applyTofu(t, tofuBin, t.TempDir(), hcl)
 
 	// Verify the SNS topic exists via SNS SDK.
 	client := createSNSClient(t)
@@ -528,7 +638,7 @@ func TestTerraform_KMS(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	tfBin := ensureTerraformBinary(t)
+	tofuBin := ensureTofuBinary(t)
 	ctx := context.Background()
 
 	id := uuid.NewString()[:8]
@@ -546,7 +656,7 @@ resource "aws_kms_alias" "this" {
 }
 `, id, aliasName)
 
-	applyTerraform(t, tfBin, t.TempDir(), hcl)
+	applyTofu(t, tofuBin, t.TempDir(), hcl)
 
 	// Verify the key alias exists via KMS SDK.
 	client := createKMSClient(t)
@@ -564,7 +674,7 @@ func TestTerraform_SecretsManager(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	tfBin := ensureTerraformBinary(t)
+	tofuBin := ensureTofuBinary(t)
 	ctx := context.Background()
 
 	id := uuid.NewString()[:8]
@@ -582,7 +692,7 @@ resource "aws_secretsmanager_secret_version" "this" {
 }
 `, secretName)
 
-	applyTerraform(t, tfBin, t.TempDir(), hcl)
+	applyTofu(t, tofuBin, t.TempDir(), hcl)
 
 	// Verify the secret exists via SecretsManager SDK.
 	client := createSecretsManagerClient(t)
@@ -600,7 +710,7 @@ func TestTerraform_SSMParameter(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	tfBin := ensureTerraformBinary(t)
+	tofuBin := ensureTofuBinary(t)
 	ctx := context.Background()
 
 	id := uuid.NewString()[:8]
@@ -614,7 +724,7 @@ resource "aws_ssm_parameter" "this" {
 }
 `, paramName)
 
-	applyTerraform(t, tfBin, t.TempDir(), hcl)
+	applyTofu(t, tofuBin, t.TempDir(), hcl)
 
 	// Verify the parameter exists via SSM SDK.
 	client := createSSMClient(t)
@@ -633,7 +743,7 @@ func TestTerraform_Route53(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	tfBin := ensureTerraformBinary(t)
+	tofuBin := ensureTofuBinary(t)
 	ctx := context.Background()
 
 	id := uuid.NewString()[:8]
@@ -653,7 +763,7 @@ resource "aws_route53_record" "this" {
 }
 `, zoneName, zoneName)
 
-	applyTerraform(t, tfBin, t.TempDir(), hcl)
+	applyTofu(t, tofuBin, t.TempDir(), hcl)
 
 	// Verify the hosted zone exists via Route53 SDK.
 	client := createRoute53Client(t)
@@ -678,7 +788,7 @@ func TestTerraform_CloudWatchLogGroup(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	tfBin := ensureTerraformBinary(t)
+	tofuBin := ensureTofuBinary(t)
 	ctx := context.Background()
 
 	id := uuid.NewString()[:8]
@@ -691,7 +801,7 @@ resource "aws_cloudwatch_log_group" "this" {
 }
 `, logGroupName)
 
-	applyTerraform(t, tfBin, t.TempDir(), hcl)
+	applyTofu(t, tofuBin, t.TempDir(), hcl)
 
 	// Verify the log group exists via CloudWatchLogs SDK.
 	client := createCloudWatchLogsClient(t)
@@ -718,7 +828,7 @@ func TestTerraform_SESEmailIdentity(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	tfBin := ensureTerraformBinary(t)
+	tofuBin := ensureTofuBinary(t)
 	ctx := context.Background()
 
 	id := uuid.NewString()[:8]
@@ -730,7 +840,7 @@ resource "aws_ses_email_identity" "this" {
 }
 `, email)
 
-	applyTerraform(t, tfBin, t.TempDir(), hcl)
+	applyTofu(t, tofuBin, t.TempDir(), hcl)
 
 	// Verify the email identity is listed via SES SDK.
 	client := createSESClient(t)
@@ -748,7 +858,7 @@ func TestTerraform_DataSources(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	tfBin := ensureTerraformBinary(t)
+	tofuBin := ensureTofuBinary(t)
 
 	id := uuid.NewString()[:8]
 	bucketName := "tf-ds-test-" + id
@@ -789,7 +899,7 @@ output "policy_json" {
 }
 `, bucketName)
 
-	applyTerraform(t, tfBin, t.TempDir(), hcl)
+	applyTofu(t, tofuBin, t.TempDir(), hcl)
 }
 
 // TestTerraform_StepFunctions provisions an aws_sfn_state_machine via Terraform
@@ -798,7 +908,7 @@ func TestTerraform_StepFunctions(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	tfBin := ensureTerraformBinary(t)
+	tofuBin := ensureTofuBinary(t)
 	ctx := context.Background()
 
 	id := uuid.NewString()[:8]
@@ -830,7 +940,7 @@ resource "aws_sfn_state_machine" "this" {
 }
 `, id, smName)
 
-	applyTerraform(t, tfBin, t.TempDir(), hcl)
+	applyTofu(t, tofuBin, t.TempDir(), hcl)
 
 	client := createSFNClient(t)
 
@@ -856,7 +966,7 @@ func TestTerraform_EventBridge(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	tfBin := ensureTerraformBinary(t)
+	tofuBin := ensureTofuBinary(t)
 	ctx := context.Background()
 
 	id := uuid.NewString()[:8]
@@ -875,7 +985,7 @@ resource "aws_cloudwatch_event_rule" "this" {
 }
 `, busName, ruleName)
 
-	applyTerraform(t, tfBin, t.TempDir(), hcl)
+	applyTofu(t, tofuBin, t.TempDir(), hcl)
 
 	client := createEventBridgeClient(t)
 
@@ -893,7 +1003,7 @@ func TestTerraform_CloudWatchAlarm(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	tfBin := ensureTerraformBinary(t)
+	tofuBin := ensureTofuBinary(t)
 	ctx := context.Background()
 
 	id := uuid.NewString()[:8]
@@ -912,7 +1022,7 @@ resource "aws_cloudwatch_metric_alarm" "this" {
 }
 `, alarmName)
 
-	applyTerraform(t, tfBin, t.TempDir(), hcl)
+	applyTofu(t, tofuBin, t.TempDir(), hcl)
 
 	client := createCloudWatchClient(t)
 
@@ -931,7 +1041,7 @@ func TestTerraform_Kinesis(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	tfBin := ensureTerraformBinary(t)
+	tofuBin := ensureTofuBinary(t)
 	ctx := context.Background()
 
 	id := uuid.NewString()[:8]
@@ -944,7 +1054,7 @@ resource "aws_kinesis_stream" "this" {
 }
 `, streamName)
 
-	applyTerraform(t, tfBin, t.TempDir(), hcl)
+	applyTofu(t, tofuBin, t.TempDir(), hcl)
 
 	client := createKinesisClient(t)
 
@@ -962,7 +1072,7 @@ func TestTerraform_ACM(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	tfBin := ensureTerraformBinary(t)
+	tofuBin := ensureTofuBinary(t)
 	ctx := context.Background()
 
 	id := uuid.NewString()[:8]
@@ -979,7 +1089,7 @@ resource "aws_acm_certificate" "this" {
 }
 `, domain)
 
-	applyTerraform(t, tfBin, t.TempDir(), hcl)
+	applyTofu(t, tofuBin, t.TempDir(), hcl)
 
 	client := createACMClient(t)
 
@@ -1005,7 +1115,7 @@ func TestTerraform_CloudFormation(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	tfBin := ensureTerraformBinary(t)
+	tofuBin := ensureTofuBinary(t)
 	ctx := context.Background()
 
 	id := uuid.NewString()[:8]
@@ -1034,7 +1144,7 @@ TEMPLATE
 }
 `, stackName)
 
-	applyTerraform(t, tfBin, t.TempDir(), hcl)
+	applyTofu(t, tofuBin, t.TempDir(), hcl)
 
 	client := createCloudFormationClient(t)
 
@@ -1052,7 +1162,7 @@ func TestTerraform_ElastiCache(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	tfBin := ensureTerraformBinary(t)
+	tofuBin := ensureTofuBinary(t)
 	ctx := context.Background()
 
 	id := uuid.NewString()[:8]
@@ -1073,7 +1183,7 @@ resource "aws_elasticache_cluster" "this" {
 }
 `, clusterID)
 
-	applyTerraform(t, tfBin, t.TempDir(), hcl)
+	applyTofu(t, tofuBin, t.TempDir(), hcl)
 
 	client := createElastiCacheClient(t)
 
@@ -1091,7 +1201,7 @@ func TestTerraform_OpenSearch(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	tfBin := ensureTerraformBinary(t)
+	tofuBin := ensureTofuBinary(t)
 	ctx := context.Background()
 
 	id := uuid.NewString()[:8]
@@ -1110,7 +1220,7 @@ resource "aws_opensearch_domain" "this" {
 }
 `, domainName)
 
-	applyTerraform(t, tfBin, t.TempDir(), hcl)
+	applyTofu(t, tofuBin, t.TempDir(), hcl)
 
 	client := createOpenSearchClient(t)
 
@@ -1128,7 +1238,7 @@ func TestTerraform_Redshift(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	tfBin := ensureTerraformBinary(t)
+	tofuBin := ensureTofuBinary(t)
 	ctx := context.Background()
 
 	id := uuid.NewString()[:8]
@@ -1152,7 +1262,7 @@ resource "aws_redshift_cluster" "this" {
 }
 `, clusterID)
 
-	applyTerraform(t, tfBin, t.TempDir(), hcl)
+	applyTofu(t, tofuBin, t.TempDir(), hcl)
 
 	client := createRedshiftClient(t)
 
@@ -1170,7 +1280,7 @@ func TestTerraform_Firehose(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	tfBin := ensureTerraformBinary(t)
+	tofuBin := ensureTofuBinary(t)
 	ctx := context.Background()
 
 	id := uuid.NewString()[:8]
@@ -1212,7 +1322,7 @@ resource "aws_kinesis_firehose_delivery_stream" "this" {
 }
 `, roleName, bucketName, streamName)
 
-	applyTerraform(t, tfBin, t.TempDir(), hcl)
+	applyTofu(t, tofuBin, t.TempDir(), hcl)
 
 	client := createFirehoseClient(t)
 
