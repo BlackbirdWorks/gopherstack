@@ -208,6 +208,7 @@ func toXMLCluster(c *Cluster) xmlCluster {
 		ClusterStatus:             c.Status,
 		ClusterAvailabilityStatus: "Available",
 		RelocationStatus:          "disabled",
+		AquaConfiguration:         xmlAquaConfig{AquaStatus: "disabled"},
 		DBName:                    c.DBName,
 		MasterUsername:            c.MasterUsername,
 	}
@@ -269,14 +270,19 @@ type redshiftErrorResponse struct {
 }
 
 type xmlCluster struct {
-	ClusterIdentifier         string `xml:"ClusterIdentifier"`
-	NodeType                  string `xml:"NodeType"`
-	Endpoint                  string `xml:"Endpoint>Address"`
-	ClusterStatus             string `xml:"ClusterStatus"`
-	ClusterAvailabilityStatus string `xml:"ClusterAvailabilityStatus"`
-	RelocationStatus          string `xml:"RelocationStatus"`
-	DBName                    string `xml:"DBName"`
-	MasterUsername            string `xml:"MasterUsername"`
+	ClusterIdentifier         string            `xml:"ClusterIdentifier"`
+	NodeType                  string            `xml:"NodeType"`
+	Endpoint                  string            `xml:"Endpoint>Address"`
+	ClusterStatus             string            `xml:"ClusterStatus"`
+	ClusterAvailabilityStatus string            `xml:"ClusterAvailabilityStatus"`
+	RelocationStatus          string            `xml:"RelocationStatus"`
+	AquaConfiguration         xmlAquaConfig     `xml:"AquaConfiguration"`
+	DBName                    string            `xml:"DBName"`
+	MasterUsername            string            `xml:"MasterUsername"`
+}
+
+type xmlAquaConfig struct {
+	AquaStatus string `xml:"AquaStatus"`
 }
 
 type createClusterResponse struct {

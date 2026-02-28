@@ -118,7 +118,13 @@ type domainStatusJSON struct {
 	Endpoint               string            `json:"Endpoint"`
 	DomainProcessingStatus string            `json:"DomainProcessingStatus"`
 	ClusterConfig          clusterConfigJSON `json:"ClusterConfig"`
+	EBSOptions             ebsOptionsJSON    `json:"EBSOptions"`
 	Processing             bool              `json:"Processing"`
+}
+
+// ebsOptionsJSON is the JSON representation of EBS options.
+type ebsOptionsJSON struct {
+	EBSEnabled bool `json:"EBSEnabled"`
 }
 
 // clusterConfigJSON is the JSON representation of cluster config.
@@ -315,6 +321,7 @@ func toDomainStatusJSON(d *Domain) domainStatusJSON {
 		Endpoint:               d.Endpoint,
 		Processing:             false,
 		DomainProcessingStatus: "Active",
+		EBSOptions:             ebsOptionsJSON{EBSEnabled: false},
 		ClusterConfig: clusterConfigJSON{
 			InstanceType:  d.ClusterConfig.InstanceType,
 			InstanceCount: d.ClusterConfig.InstanceCount,
