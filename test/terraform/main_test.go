@@ -16,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
 	s3svc "github.com/aws/aws-sdk-go-v2/service/s3"
 	sqssvc "github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/docker/docker/api/types/build"
@@ -170,6 +171,26 @@ func createSQSClient(t *testing.T) *sqssvc.Client {
 	}
 
 	return sqssvc.NewFromConfig(cfg, func(o *sqssvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createRDSClient returns an RDS client pointed at the shared test container.
+func createRDSClient(t *testing.T) *rdssvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		t.Fatalf("unable to load SDK config: %v", err)
+	}
+
+	return rdssvc.NewFromConfig(cfg, func(o *rdssvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

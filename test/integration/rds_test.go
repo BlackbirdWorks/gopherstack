@@ -2,7 +2,6 @@ package integration_test
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -160,71 +159,4 @@ func TestSDK_RDS_SubnetGroup(t *testing.T) {
 		DBSubnetGroupName: aws.String(name),
 	})
 	require.NoError(t, err, "DeleteDBSubnetGroup should succeed")
-}
-
-// TestTerraform_RDS provisions an RDS DB instance via Terraform,
-// verifies it exists through the AWS SDK, then lets Terraform destroy it.
-func TestTerraform_RDS(t *testing.T) {
-	t.Parallel()
-	dumpContainerLogsOnFailure(t)
-
-	tfBin := ensureTerraformBinary(t)
-	ctx := context.Background()
-
-	id := "tf-rds-" + uuid.NewString()[:8]
-
-	hcl := rdsProviderBlock(endpoint) + fmt.Sprintf(`
-resource "aws_db_instance" "this" {
-  identifier         = %q
-  engine             = "postgres"
-  instance_class     = "db.t3.micro"
-  username           = "admin"
-  password           = "password123"
-  db_name            = "testdb"
-  allocated_storage  = 20
-  skip_final_snapshot = true
-}
-`, id)
-
-	applyTerraform(t, tfBin, t.TempDir(), hcl)
-
-	// Verify the instance exists via RDS SDK.
-	client := createRDSClient(t)
-
-	descOut, err := client.DescribeDBInstances(ctx, &rdssdk.DescribeDBInstancesInput{
-		DBInstanceIdentifier: aws.String(id),
-	})
-	require.NoError(t, err, "DescribeDBInstances should succeed after terraform apply")
-	require.Len(t, descOut.DBInstances, 1)
-	assert.Equal(t, id, aws.ToString(descOut.DBInstances[0].DBInstanceIdentifier))
-	assert.Equal(t, "postgres", aws.ToString(descOut.DBInstances[0].Engine))
-	assert.Equal(t, "available", aws.ToString(descOut.DBInstances[0].DBInstanceStatus))
-}
-
-// rdsProviderBlock returns a Terraform provider block that includes the rds endpoint.
-func rdsProviderBlock(addr string) string {
-	return fmt.Sprintf(`terraform {
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.0"
-    }
-  }
-  required_version = ">= 1.0"
-}
-
-provider "aws" {
-  region                      = "us-east-1"
-  access_key                  = "test"
-  secret_key                  = "test"
-  skip_credentials_validation = true
-  skip_metadata_api_check     = true
-  skip_requesting_account_id  = true
-
-  endpoints {
-    rds = %[1]q
-    sts = %[1]q
-  }
-}
-`, addr)
 }
