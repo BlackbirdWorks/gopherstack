@@ -83,8 +83,4 @@ type EventLogEntry struct {
 	EventBusName string
 }
 
-// ErrorResponse is the JSON error format expected by EventBridge clients.
-type ErrorResponse struct {
-	Type    string `json:"__type"`
-	Message string `json:"message"`
-}
+// FailedEntry describes a target or event that failed to process.

@@ -34,9 +34,3 @@ type OutputLogEvent struct {
 	IngestionTime int64  `json:"ingestionTime"`
 	Timestamp     int64  `json:"timestamp"`
 }
-
-// ErrorResponse is the standard error format.
-type ErrorResponse struct {
-	Type    string `json:"__type"`
-	Message string `json:"message"`
-}

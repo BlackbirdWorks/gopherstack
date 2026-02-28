@@ -14,6 +14,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/eventbridge"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
 // makeRequest is a helper to send a POST request to the EventBridge handler.
@@ -135,7 +136,7 @@ func TestHandler_UnknownAction(t *testing.T) {
 	rec := makeRequest(t, "NonExistentAction", `{}`)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
-	var errResp eventbridge.ErrorResponse
+	var errResp service.JSONErrorResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
 	assert.Equal(t, "UnknownOperationException", errResp.Type)
 }

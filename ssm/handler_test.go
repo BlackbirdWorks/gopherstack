@@ -189,7 +189,7 @@ func TestSSMHandler(t *testing.T) {
 		{
 			expectedCheck: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
-				var errResp ssm.ErrorResponse
+				var errResp service.JSONErrorResponse
 				json.Unmarshal(rec.Body.Bytes(), &errResp)
 				assert.Equal(t, "UnknownOperationException", errResp.Type)
 			},
@@ -899,7 +899,7 @@ func TestSSMHandlerErrorCases(t *testing.T) {
 			assert.Equal(t, tt.expectedStatus, rec.Code)
 
 			if tt.expectedErrTyp != "" {
-				var errResp ssm.ErrorResponse
+				var errResp service.JSONErrorResponse
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
 				assert.Equal(t, tt.expectedErrTyp, errResp.Type)
 			}
