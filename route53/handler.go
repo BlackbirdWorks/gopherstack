@@ -569,7 +569,9 @@ func (h *Handler) changeTagsForResource(c *echo.Context) error {
 		resourceID = parts[1]
 	}
 
-	h.applyTagChanges(resourceID, c.Request())
+	if err := h.applyTagChanges(resourceID, c.Request()); err != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", err.Error())
+	}
 
 	type changeTagsResp struct {
 		XMLName xml.Name `xml:"ChangeTagsForResourceResponse"`
@@ -580,10 +582,15 @@ func (h *Handler) changeTagsForResource(c *echo.Context) error {
 }
 
 // applyTagChanges reads a ChangeTagsForResource XML body and applies the add/remove operations.
-func (h *Handler) applyTagChanges(resourceID string, r *http.Request) {
+// It returns an error if the body cannot be read or parsed.
+func (h *Handler) applyTagChanges(resourceID string, r *http.Request) error {
 	body, err := httputil.ReadBody(r)
-	if err != nil || len(body) == 0 {
-		return
+	if err != nil {
+		return fmt.Errorf("failed to read request body: %w", err)
+	}
+
+	if len(body) == 0 {
+		return nil
 	}
 
 	var req struct {
@@ -595,7 +602,7 @@ func (h *Handler) applyTagChanges(resourceID string, r *http.Request) {
 	}
 
 	if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
-		return
+		return fmt.Errorf("failed to parse XML: %w", xmlErr)
 	}
 
 	if len(req.AddTags) > 0 {
@@ -610,6 +617,8 @@ func (h *Handler) applyTagChanges(resourceID string, r *http.Request) {
 	if len(req.RemoveTagKeys) > 0 {
 		h.removeTags(resourceID, req.RemoveTagKeys)
 	}
+
+	return nil
 }
 
 // writeXML marshals v to XML and writes it to the response.

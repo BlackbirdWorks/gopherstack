@@ -15,6 +15,12 @@ const cborServicePath = "/service/GraniteServiceVersion20100801/operation/"
 // nanosPerSecond is the number of nanoseconds in a second.
 const nanosPerSecond = 1e9
 
+const (
+	cborOpListTagsForResource = "ListTagsForResource"
+	cborOpTagResource         = "TagResource"
+	cborOpUntagResource       = "UntagResource"
+)
+
 // isCBORRequest returns true when the request uses the rpc-v2-cbor (Smithy RPCv2) protocol.
 func isCBORRequest(r *http.Request) bool {
 	return r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, cborServicePath)
@@ -68,8 +74,8 @@ func (h *Handler) handleCBOR(c *echo.Context) error {
 		return h.cborDescribeAlarms(input, c)
 	case "DeleteAlarms":
 		return h.cborDeleteAlarms(input, c)
-	case "ListTagsForResource", "TagResource", "UntagResource":
-		return writeCBOR(c, cbor.Map{})
+	case cborOpListTagsForResource, cborOpTagResource, cborOpUntagResource:
+		return h.cborTagOperation(op, input, c)
 	default:
 		return h.cborError(c, http.StatusBadRequest, "InvalidAction", "unknown operation: "+op)
 	}
@@ -491,6 +497,65 @@ func (h *Handler) cborDeleteAlarms(input cbor.Map, c *echo.Context) error {
 
 	if err := h.Backend.DeleteAlarms(alarmNames); err != nil {
 		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	return writeCBOR(c, cbor.Map{})
+}
+
+// cborTagOperation routes tag operations to their respective handlers.
+func (h *Handler) cborTagOperation(op string, input cbor.Map, c *echo.Context) error {
+	switch op {
+	case cborOpListTagsForResource:
+		return h.cborListTagsForResource(input, c)
+	case cborOpTagResource:
+		return h.cborTagResource(input, c)
+	default: // UntagResource
+		return h.cborUntagResource(input, c)
+	}
+}
+
+func (h *Handler) cborListTagsForResource(input cbor.Map, c *echo.Context) error {
+	arn := cborStr(input, "ResourceARN")
+	tags := h.getTags(arn)
+	tagList := make(cbor.List, 0, len(tags))
+
+	for k, v := range tags {
+		tagList = append(tagList, cbor.Map{
+			"Key":   cbor.String(k),
+			"Value": cbor.String(v),
+		})
+	}
+
+	return writeCBOR(c, cbor.Map{"Tags": tagList})
+}
+
+func (h *Handler) cborTagResource(input cbor.Map, c *echo.Context) error {
+	arn := cborStr(input, "ResourceARN")
+
+	if tagList, ok := input["Tags"].(cbor.List); ok {
+		kv := make(map[string]string, len(tagList))
+		for _, item := range tagList {
+			if m, isMap := item.(cbor.Map); isMap {
+				kv[cborStr(m, "Key")] = cborStr(m, "Value")
+			}
+		}
+		h.setTags(arn, kv)
+	}
+
+	return writeCBOR(c, cbor.Map{})
+}
+
+func (h *Handler) cborUntagResource(input cbor.Map, c *echo.Context) error {
+	arn := cborStr(input, "ResourceARN")
+
+	if keyList, ok := input["TagKeys"].(cbor.List); ok {
+		keys := make([]string, 0, len(keyList))
+		for _, item := range keyList {
+			if s, isStr := item.(cbor.String); isStr {
+				keys = append(keys, string(s))
+			}
+		}
+		h.removeTags(arn, keys)
 	}
 
 	return writeCBOR(c, cbor.Map{})

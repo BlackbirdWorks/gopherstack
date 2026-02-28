@@ -203,15 +203,17 @@ func (h *Handler) handleListTagsForResource(form url.Values, c *echo.Context) er
 		Value string `xml:"Value"`
 	}
 	type listTagsForResourceResp struct {
-		XMLName xml.Name `xml:"ListTagsForResourceResponse"`
-		Result  struct {
-			XMLName xml.Name   `xml:"ListTagsForResourceResult"`
-			Tags    []xmlCWTag `xml:"Tags>member"`
-		} `xml:"ListTagsForResourceResult"`
+		XMLName   xml.Name   `xml:"ListTagsForResourceResponse"`
+		Xmlns     string     `xml:"xmlns,attr"`
+		RequestID string     `xml:"ResponseMetadata>RequestId"`
+		Tags      []xmlCWTag `xml:"ListTagsForResourceResult>Tags>member"`
 	}
-	var resp listTagsForResourceResp
+	resp := listTagsForResourceResp{
+		Xmlns:     cloudwatchNS,
+		RequestID: uuid.New().String(),
+	}
 	for k, v := range tags {
-		resp.Result.Tags = append(resp.Result.Tags, xmlCWTag{Key: k, Value: v})
+		resp.Tags = append(resp.Tags, xmlCWTag{Key: k, Value: v})
 	}
 
 	return writeXML(c, resp)
@@ -232,9 +234,13 @@ func (h *Handler) handleTagResource(form url.Values, c *echo.Context) error {
 
 	h.setTags(arn, newTags)
 
-	return writeXML(c, struct {
-		XMLName xml.Name `xml:"TagResourceResponse"`
-	}{})
+	type tagResourceResp struct {
+		XMLName   xml.Name `xml:"TagResourceResponse"`
+		Xmlns     string   `xml:"xmlns,attr"`
+		RequestID string   `xml:"ResponseMetadata>RequestId"`
+	}
+
+	return writeXML(c, tagResourceResp{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
 }
 
 func (h *Handler) handleUntagResource(form url.Values, c *echo.Context) error {
@@ -253,9 +259,13 @@ func (h *Handler) handleUntagResource(form url.Values, c *echo.Context) error {
 
 	h.removeTags(arn, keys)
 
-	return writeXML(c, struct {
-		XMLName xml.Name `xml:"UntagResourceResponse"`
-	}{})
+	type untagResourceResp struct {
+		XMLName   xml.Name `xml:"UntagResourceResponse"`
+		Xmlns     string   `xml:"xmlns,attr"`
+		RequestID string   `xml:"ResponseMetadata>RequestId"`
+	}
+
+	return writeXML(c, untagResourceResp{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
 }
 
 // xmlError writes an XML error response.

@@ -379,15 +379,27 @@ func TestTerraform_Lambda(t *testing.T) {
 	require.NoError(t, os.WriteFile(zipPath, buf.Bytes(), 0o644))
 
 	hcl := providerBlock(endpoint) + fmt.Sprintf(`
+resource "aws_iam_role" "lambda" {
+  name = "tf-lambda-role-%s"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "lambda.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
 resource "aws_lambda_function" "this" {
-  filename      = %q
-  function_name = %q
-  role          = "arn:aws:iam::000000000000:role/test-role"
-  handler       = "index.handler"
-  runtime       = "python3.12"
+  filename         = %q
+  function_name    = %q
+  role             = aws_iam_role.lambda.arn
+  handler          = "index.handler"
+  runtime          = "python3.12"
   source_code_hash = filebase64sha256(%q)
 }
-`, zipPath, funcName, zipPath)
+`, id, zipPath, funcName, zipPath)
 
 	applyTerraform(t, tfBin, dir, hcl)
 
@@ -783,9 +795,21 @@ func TestTerraform_StepFunctions(t *testing.T) {
 	smName := "tf-sfn-" + id
 
 	hcl := providerBlock(endpoint) + fmt.Sprintf(`
+resource "aws_iam_role" "sfn" {
+  name = "tf-sfn-role-%s"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "states.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
 resource "aws_sfn_state_machine" "this" {
   name     = %q
-  role_arn = "arn:aws:iam::000000000000:role/test-role"
+  role_arn = aws_iam_role.sfn.arn
   definition = jsonencode({
     Comment = "test"
     StartAt = "Pass"
@@ -794,7 +818,7 @@ resource "aws_sfn_state_machine" "this" {
     }
   })
 }
-`, smName)
+`, id, smName)
 
 	applyTerraform(t, tfBin, t.TempDir(), hcl)
 
