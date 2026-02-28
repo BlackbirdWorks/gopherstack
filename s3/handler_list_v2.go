@@ -93,13 +93,7 @@ func (h *S3Handler) renderListObjectsV2Response(
 	}
 
 	if startCursor != "" {
-		for i, obj := range objects {
-			if *obj.Key > startCursor {
-				objects = objects[i:]
-
-				break
-			}
-		}
+		objects = applyStartCursor(objects, startCursor)
 	}
 
 	isTruncated := false
@@ -134,4 +128,16 @@ func (h *S3Handler) renderListObjectsV2Response(
 	resp.KeyCount = len(resp.Contents) + len(resp.CommonPrefixes)
 
 	httputil.WriteXML(log, w, http.StatusOK, resp)
+}
+
+// applyStartCursor advances objects past all keys that are <= startCursor,
+// returning the subslice starting at the first key greater than startCursor.
+func applyStartCursor(objects []types.Object, startCursor string) []types.Object {
+	for i, obj := range objects {
+		if *obj.Key > startCursor {
+			return objects[i:]
+		}
+	}
+
+	return nil
 }

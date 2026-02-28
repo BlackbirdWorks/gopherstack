@@ -421,15 +421,7 @@ func (h *S3Handler) listObjects(
 
 	// Apply marker: skip all keys <= marker
 	if marker != "" {
-		start := len(objects)
-		for i, obj := range objects {
-			if *obj.Key > marker {
-				start = i
-
-				break
-			}
-		}
-		objects = objects[start:]
+		objects = objects[findFirstIndexAfterMarker(objects, marker):]
 	}
 
 	isTruncated := false
@@ -1044,4 +1036,16 @@ func (h *S3Handler) getObjectLockConfiguration(
 	w.Header().Set("Content-Type", "application/xml")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(configXML)) //nolint:gosec // G705: writing HTTP response is intentional
+}
+
+// findFirstIndexAfterMarker returns the index of the first object whose key
+// is strictly greater than marker. Returns len(objects) if no such object exists.
+func findFirstIndexAfterMarker(objects []types.Object, marker string) int {
+	for i, obj := range objects {
+		if *obj.Key > marker {
+			return i
+		}
+	}
+
+	return len(objects)
 }

@@ -177,12 +177,10 @@ func parseMemberList(form url.Values, prefix string) []string {
 	for i := 1; ; i++ {
 		v := form.Get(fmt.Sprintf("%smember.%d", prefix, i))
 		if v == "" {
-			break
+			return result
 		}
 		result = append(result, v)
 	}
-
-	return result
 }
 
 func parseParams(form url.Values) []Parameter {
@@ -191,15 +189,13 @@ func parseParams(form url.Values) []Parameter {
 		prefix := fmt.Sprintf("Parameters.member.%d.", i)
 		key := form.Get(prefix + "ParameterKey")
 		if key == "" {
-			break
+			return params
 		}
 		params = append(params, Parameter{
 			ParameterKey:   key,
 			ParameterValue: form.Get(prefix + "ParameterValue"),
 		})
 	}
-
-	return params
 }
 
 func parseTags(form url.Values) []Tag {
@@ -208,15 +204,13 @@ func parseTags(form url.Values) []Tag {
 		prefix := fmt.Sprintf("Tags.member.%d.", i)
 		key := form.Get(prefix + "Key")
 		if key == "" {
-			break
+			return tags
 		}
 		tags = append(tags, Tag{
 			Key:   key,
 			Value: form.Get(prefix + "Value"),
 		})
 	}
-
-	return tags
 }
 
 func (h *Handler) handleCreateStack(form url.Values, c *echo.Context) error {

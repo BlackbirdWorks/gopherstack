@@ -360,22 +360,31 @@ func (h *S3Handler) extractVirtualHostedBucketName(r *http.Request) string {
 	// We want to extract just <bucket>.
 	parts := strings.Split(candidate, ".")
 	if len(parts) > 1 {
-		// Check for s3. or s3-<region>. parts
-		for i, p := range parts {
-			if p == "s3" || strings.HasPrefix(p, "s3-") {
-				// The bucket is everything before the first 's3' part.
-				bucket := strings.Join(parts[:i], ".")
-				if IsValidBucketName(bucket) {
-					return bucket
-				}
-
-				break
-			}
+		if bucket := findBucketInParts(parts); bucket != "" {
+			return bucket
 		}
 	}
 
 	if IsValidBucketName(candidate) {
 		return candidate
+	}
+
+	return ""
+}
+
+// findBucketInParts scans parts for an "s3" or "s3-*" segment and returns the
+// bucket name formed by joining everything before that segment. Returns an
+// empty string if no s3 segment is found or the resulting name is invalid.
+func findBucketInParts(parts []string) string {
+	for i, p := range parts {
+		if p == "s3" || strings.HasPrefix(p, "s3-") {
+			bucket := strings.Join(parts[:i], ".")
+			if IsValidBucketName(bucket) {
+				return bucket
+			}
+
+			return ""
+		}
 	}
 
 	return ""

@@ -468,7 +468,7 @@ func applyGSIUpdate(table *Table, u *types.UpdateGlobalSecondaryIndexAction) {
 				WriteCapacityUnits: u.ProvisionedThroughput.WriteCapacityUnits,
 			}
 
-			break
+			return
 		}
 	}
 }
@@ -632,20 +632,14 @@ func (db *InMemoryDB) ListTables(
 	startName := aws.ToString(input.ExclusiveStartTableName)
 	startIndex := 0
 	if startName != "" {
-		found := false
-		for i, name := range names {
-			if name > startName {
-				startIndex = i
-				found = true
-
-				break
-			}
-		}
+		idx, found := findStartIndex(names, startName)
 		if !found {
 			return &dynamodb.ListTablesOutput{
 				TableNames: []string{},
 			}, nil
 		}
+
+		startIndex = idx
 	}
 
 	names = names[startIndex:]
@@ -670,4 +664,16 @@ func (db *InMemoryDB) ListTables(
 	}
 
 	return out, nil
+}
+
+// findStartIndex returns the index of the first name strictly greater than after,
+// and whether such a name exists.
+func findStartIndex(names []string, after string) (int, bool) {
+	for i, name := range names {
+		if name > after {
+			return i, true
+		}
+	}
+
+	return 0, false
 }

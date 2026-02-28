@@ -221,17 +221,7 @@ func (h *Handler) handleListTagsForResource(form url.Values, c *echo.Context) er
 
 func (h *Handler) handleTagResource(form url.Values, c *echo.Context) error {
 	arn := form.Get("ResourceARN")
-	newTags := make(map[string]string)
-
-	for i := 1; ; i++ {
-		k := form.Get(fmt.Sprintf("Tags.member.%d.Key", i))
-		if k == "" {
-			break
-		}
-
-		newTags[k] = form.Get(fmt.Sprintf("Tags.member.%d.Value", i))
-	}
-
+	newTags := parseCWTagsFromForm(form)
 	h.setTags(arn, newTags)
 
 	type tagResourceResp struct {
@@ -245,18 +235,7 @@ func (h *Handler) handleTagResource(form url.Values, c *echo.Context) error {
 
 func (h *Handler) handleUntagResource(form url.Values, c *echo.Context) error {
 	arn := form.Get("ResourceARN")
-
-	var keys []string
-
-	for i := 1; ; i++ {
-		k := form.Get(fmt.Sprintf("TagKeys.member.%d", i))
-		if k == "" {
-			break
-		}
-
-		keys = append(keys, k)
-	}
-
+	keys := parseCWTagKeysFromForm(form)
 	h.removeTags(arn, keys)
 
 	type untagResourceResp struct {
@@ -304,7 +283,7 @@ func parseMetricDataFromForm(form url.Values) []MetricDatum {
 		prefix := fmt.Sprintf("MetricData.member.%d.", i)
 		name := form.Get(prefix + "MetricName")
 		if name == "" {
-			break
+			return data
 		}
 		val, _ := strconv.ParseFloat(form.Get(prefix+"Value"), 64)
 		unit := form.Get(prefix + "Unit")
@@ -319,8 +298,6 @@ func parseMetricDataFromForm(form url.Values) []MetricDatum {
 			Max:        val,
 		})
 	}
-
-	return data
 }
 
 // parseMemberList parses form values like "Prefix.member.1", "Prefix.member.2", ...
@@ -329,12 +306,62 @@ func parseMemberList(form url.Values, prefix string) []string {
 	for i := 1; ; i++ {
 		v := form.Get(fmt.Sprintf("%smember.%d", prefix, i))
 		if v == "" {
-			break
+			return result
 		}
 		result = append(result, v)
 	}
+}
 
-	return result
+// parseCWTagsFromForm reads Tags.member.N.Key/Value pairs from the form.
+func parseCWTagsFromForm(form url.Values) map[string]string {
+	tags := make(map[string]string)
+	for i := 1; ; i++ {
+		k := form.Get(fmt.Sprintf("Tags.member.%d.Key", i))
+		if k == "" {
+			return tags
+		}
+		tags[k] = form.Get(fmt.Sprintf("Tags.member.%d.Value", i))
+	}
+}
+
+// parseCWTagKeysFromForm reads TagKeys.member.N values from the form.
+func parseCWTagKeysFromForm(form url.Values) []string {
+	var keys []string
+	for i := 1; ; i++ {
+		k := form.Get(fmt.Sprintf("TagKeys.member.%d", i))
+		if k == "" {
+			return keys
+		}
+		keys = append(keys, k)
+	}
+}
+
+// parseMetricDataQueriesFromForm reads MetricDataQueries.member.N.* values from the form.
+func parseMetricDataQueriesFromForm(form url.Values) []MetricDataQuery {
+	var queries []MetricDataQuery
+	for i := 1; ; i++ {
+		prefix := fmt.Sprintf("MetricDataQueries.member.%d.", i)
+		id := form.Get(prefix + "Id")
+		if id == "" {
+			return queries
+		}
+
+		period, _ := strconv.ParseInt(form.Get(prefix+"MetricStat.Period"), 10, 32)
+		if period <= 0 {
+			period = 60
+		}
+
+		queries = append(queries, MetricDataQuery{
+			ID:    id,
+			Label: form.Get(prefix + "Label"),
+			MetricStat: MetricStat{
+				Namespace:  form.Get(prefix + "MetricStat.Metric.Namespace"),
+				MetricName: form.Get(prefix + "MetricStat.Metric.MetricName"),
+				Stat:       form.Get(prefix + "MetricStat.Stat"),
+				Period:     int32(period),
+			},
+		})
+	}
 }
 
 func (h *Handler) handlePutMetricData(form url.Values, c *echo.Context) error {
@@ -590,30 +617,7 @@ func (h *Handler) handleGetMetricData(form url.Values, c *echo.Context) error {
 		endTime = time.Now().UTC()
 	}
 
-	var queries []MetricDataQuery
-	for i := 1; ; i++ {
-		prefix := fmt.Sprintf("MetricDataQueries.member.%d.", i)
-		id := form.Get(prefix + "Id")
-		if id == "" {
-			break
-		}
-
-		period, _ := strconv.ParseInt(form.Get(prefix+"MetricStat.Period"), 10, 32)
-		if period <= 0 {
-			period = 60
-		}
-
-		queries = append(queries, MetricDataQuery{
-			ID:    id,
-			Label: form.Get(prefix + "Label"),
-			MetricStat: MetricStat{
-				Namespace:  form.Get(prefix + "MetricStat.Metric.Namespace"),
-				MetricName: form.Get(prefix + "MetricStat.Metric.MetricName"),
-				Stat:       form.Get(prefix + "MetricStat.Stat"),
-				Period:     int32(period),
-			},
-		})
-	}
+	queries := parseMetricDataQueriesFromForm(form)
 
 	results, berr := h.Backend.GetMetricData(queries, startTime, endTime)
 	if berr != nil {

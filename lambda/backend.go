@@ -716,6 +716,17 @@ func (b *InMemoryBackend) ListVersionsByFunction(name string) ([]*FunctionVersio
 	return result, nil
 }
 
+// versionInList reports whether target matches any version in the list.
+func versionInList(versions []*FunctionVersion, target string) bool {
+	for _, v := range versions {
+		if v.Version == target {
+			return true
+		}
+	}
+
+	return false
+}
+
 // CreateAlias creates a new alias for a Lambda function pointing to a version.
 func (b *InMemoryBackend) CreateAlias(name string, input *CreateAliasInput) (*FunctionAlias, error) {
 	b.mu.Lock()
@@ -727,17 +738,7 @@ func (b *InMemoryBackend) CreateAlias(name string, input *CreateAliasInput) (*Fu
 
 	// Validate the target version: must be "$LATEST" or an existing published version.
 	if input.FunctionVersion != versionLatest {
-		found := false
-
-		for _, v := range b.versions[name] {
-			if v.Version == input.FunctionVersion {
-				found = true
-
-				break
-			}
-		}
-
-		if !found {
+		if !versionInList(b.versions[name], input.FunctionVersion) {
 			return nil, ErrVersionNotFound
 		}
 	}

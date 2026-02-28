@@ -407,13 +407,7 @@ func (b *InMemoryBackend) GetObject(
 		}
 		ver = v
 	} else {
-		for _, v := range obj.Versions {
-			if v.IsLatest {
-				ver = v
-
-				break
-			}
-		}
+		ver = findLatestVersion(obj.Versions)
 	}
 
 	if ver == nil || ver.Deleted {
@@ -505,13 +499,7 @@ func (b *InMemoryBackend) HeadObject(
 		ver = obj.Versions[latestID]
 	} else {
 		// Fallback: scan for latest (shouldn't happen in normal operation)
-		for _, v := range obj.Versions {
-			if v.IsLatest {
-				ver = v
-
-				break
-			}
-		}
+		ver = findLatestVersion(obj.Versions)
 	}
 
 	if ver == nil || ver.Deleted {
@@ -579,6 +567,17 @@ func (b *InMemoryBackend) deleteObjectLocked(
 	return deleteLatestVersion(bucket, obj, key), nil
 }
 
+// findLatestVersion returns the version with IsLatest set, or nil if none exists.
+func findLatestVersion(versions map[string]*StoredObjectVersion) *StoredObjectVersion {
+	for _, v := range versions {
+		if v.IsLatest {
+			return v
+		}
+	}
+
+	return nil
+}
+
 // checkObjectLockForDelete returns ErrObjectLocked if the target version is under
 // a legal hold or an active retention policy. Must be called with bucket.mu held.
 func checkObjectLockForDelete(obj *StoredObject, versionID *string) error {
@@ -590,13 +589,7 @@ func checkObjectLockForDelete(obj *StoredObject, versionID *string) error {
 	case obj.LatestVersionID != "":
 		ver = obj.Versions[obj.LatestVersionID]
 	default:
-		for _, v := range obj.Versions {
-			if v.IsLatest {
-				ver = v
-
-				break
-			}
-		}
+		ver = findLatestVersion(obj.Versions)
 	}
 
 	if ver == nil || ver.Deleted {
@@ -789,13 +782,7 @@ func (b *InMemoryBackend) ListObjects(
 			latest = obj.Versions[latestID]
 		} else {
 			// Fallback: scan for latest if not cached
-			for _, v := range obj.Versions {
-				if v.IsLatest {
-					latest = v
-
-					break
-				}
-			}
+			latest = findLatestVersion(obj.Versions)
 		}
 		obj.mu.RUnlock()
 
@@ -1008,13 +995,7 @@ func (b *InMemoryBackend) PutObjectTagging(
 			}
 			ver = v
 		} else {
-			for _, v := range obj.Versions {
-				if v.IsLatest {
-					ver = v
-
-					break
-				}
-			}
+			ver = findLatestVersion(obj.Versions)
 		}
 
 		if ver == nil || ver.Deleted {
