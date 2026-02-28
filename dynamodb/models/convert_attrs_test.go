@@ -153,9 +153,7 @@ func TestToSDKAttributeValue(t *testing.T) {
 					types.AttributeValueMemberBS{},
 				),
 			}
-			if diff := cmp.Diff(tt.expected, got, opts...); diff != "" {
-				t.Errorf("ToSDKAttributeValue() mismatch (-want +got):\n%s", diff)
-			}
+			assert.Empty(t, cmp.Diff(tt.expected, got, opts...), "ToSDKAttributeValue() mismatch")
 		})
 	}
 }
@@ -234,9 +232,7 @@ func TestFromSDKAttributeValue(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got := models.FromSDKAttributeValue(tt.input)
-			if diff := cmp.Diff(tt.expected, got); diff != "" {
-				t.Errorf("FromSDKAttributeValue() mismatch (-want +got):\n%s", diff)
-			}
+			assert.Empty(t, cmp.Diff(tt.expected, got), "FromSDKAttributeValue() mismatch")
 		})
 	}
 }

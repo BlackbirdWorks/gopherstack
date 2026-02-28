@@ -120,7 +120,7 @@ func TestServerStartupAndShutdown(t *testing.T) {
 	case err := <-errCh:
 		require.NoError(t, err, "server should shutdown cleanly without error")
 	case <-time.After(5 * time.Second):
-		t.Fatal("server did not shut down within timeout")
+		require.FailNow(t, "server did not shut down within timeout")
 	}
 }
 
@@ -202,7 +202,7 @@ func TestServerStartup_WithInitScript(t *testing.T) {
 	case err := <-errCh:
 		require.NoError(t, err)
 	case <-time.After(5 * time.Second):
-		t.Fatal("server did not shut down within timeout")
+		require.FailNow(t, "server did not shut down within timeout")
 	}
 }
 
@@ -234,7 +234,7 @@ func TestServerStartup_WithDNS(t *testing.T) {
 	case runErr := <-errCh:
 		require.NoError(t, runErr)
 	case <-time.After(5 * time.Second):
-		t.Fatal("server did not shut down within timeout")
+		require.FailNow(t, "server did not shut down within timeout")
 	}
 }
 
@@ -260,7 +260,7 @@ func TestServerStartup_InvalidDNSConfig(t *testing.T) {
 	case err := <-errCh:
 		require.NoError(t, err)
 	case <-time.After(5 * time.Second):
-		t.Fatal("server did not shut down within timeout")
+		require.FailNow(t, "server did not shut down within timeout")
 	}
 }
 
@@ -286,6 +286,6 @@ func TestServerStartup_InvalidPortRange(t *testing.T) {
 	case err := <-errCh:
 		require.NoError(t, err)
 	case <-time.After(5 * time.Second):
-		t.Fatal("server did not shut down within timeout")
+		require.FailNow(t, "server did not shut down within timeout")
 	}
 }

@@ -40,6 +40,8 @@ import (
 	stssdk "github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/docker/docker/api/types/build"
 	"github.com/google/go-cmp/cmp"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
@@ -158,7 +160,7 @@ func createDynamoDBClient(t *testing.T) *dynamodb.Client {
 		),
 	)
 	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
+		require.NoError(t, err, "unable to load SDK config")
 	}
 
 	return dynamodb.NewFromConfig(cfg, func(o *dynamodb.Options) {
@@ -178,7 +180,7 @@ func createDynamoDBStreamsClient(t *testing.T) *dynamodbstreams.Client {
 		),
 	)
 	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
+		require.NoError(t, err, "unable to load SDK config")
 	}
 
 	return dynamodbstreams.NewFromConfig(cfg, func(o *dynamodbstreams.Options) {
@@ -198,7 +200,7 @@ func createS3Client(t *testing.T) *s3.Client {
 		),
 	)
 	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
+		require.NoError(t, err, "unable to load SDK config")
 	}
 
 	return s3.NewFromConfig(cfg, func(o *s3.Options) {
@@ -219,7 +221,7 @@ func createSSMClient(t *testing.T) *ssm.Client {
 		),
 	)
 	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
+		require.NoError(t, err, "unable to load SDK config")
 	}
 
 	return ssm.NewFromConfig(cfg, func(o *ssm.Options) {
@@ -239,7 +241,7 @@ func createSQSClient(t *testing.T) *sqssdk.Client {
 		),
 	)
 	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
+		require.NoError(t, err, "unable to load SDK config")
 	}
 
 	return sqssdk.NewFromConfig(cfg, func(o *sqssdk.Options) {
@@ -259,7 +261,7 @@ func createSNSClient(t *testing.T) *snssdk.Client {
 		),
 	)
 	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
+		require.NoError(t, err, "unable to load SDK config")
 	}
 
 	return snssdk.NewFromConfig(cfg, func(o *snssdk.Options) {
@@ -279,7 +281,7 @@ func createSTSClient(t *testing.T) *stssdk.Client {
 		),
 	)
 	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
+		require.NoError(t, err, "unable to load SDK config")
 	}
 
 	return stssdk.NewFromConfig(cfg, func(o *stssdk.Options) {
@@ -299,7 +301,7 @@ func createKMSClient(t *testing.T) *kmssdk.Client {
 		),
 	)
 	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
+		require.NoError(t, err, "unable to load SDK config")
 	}
 
 	return kmssdk.NewFromConfig(cfg, func(o *kmssdk.Options) {
@@ -319,7 +321,7 @@ func createSecretsManagerClient(t *testing.T) *secretsmanagersdk.Client {
 		),
 	)
 	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
+		require.NoError(t, err, "unable to load SDK config")
 	}
 
 	return secretsmanagersdk.NewFromConfig(cfg, func(o *secretsmanagersdk.Options) {
@@ -339,7 +341,7 @@ func createIAMClient(t *testing.T) *iamsdk.Client {
 		),
 	)
 	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
+		require.NoError(t, err, "unable to load SDK config")
 	}
 
 	return iamsdk.NewFromConfig(cfg, func(o *iamsdk.Options) {
@@ -359,7 +361,7 @@ func createEventBridgeClient(t *testing.T) *eventbridgesdk.Client {
 		),
 	)
 	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
+		require.NoError(t, err, "unable to load SDK config")
 	}
 
 	return eventbridgesdk.NewFromConfig(cfg, func(o *eventbridgesdk.Options) {
@@ -379,7 +381,7 @@ func createCloudWatchClient(t *testing.T) *cloudwatchsdk.Client {
 		),
 	)
 	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
+		require.NoError(t, err, "unable to load SDK config")
 	}
 
 	return cloudwatchsdk.NewFromConfig(cfg, func(o *cloudwatchsdk.Options) {
@@ -399,7 +401,7 @@ func createCloudWatchLogsClient(t *testing.T) *cloudwatchlogssdk.Client {
 		),
 	)
 	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
+		require.NoError(t, err, "unable to load SDK config")
 	}
 
 	return cloudwatchlogssdk.NewFromConfig(cfg, func(o *cloudwatchlogssdk.Options) {
@@ -419,7 +421,7 @@ func createStepFunctionsClient(t *testing.T) *sfnsdk.Client {
 		),
 	)
 	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
+		require.NoError(t, err, "unable to load SDK config")
 	}
 
 	return sfnsdk.NewFromConfig(cfg, func(o *sfnsdk.Options) {
@@ -439,7 +441,7 @@ func createCloudFormationClient(t *testing.T) *cloudformationsdk.Client {
 		),
 	)
 	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
+		require.NoError(t, err, "unable to load SDK config")
 	}
 
 	return cloudformationsdk.NewFromConfig(cfg, func(o *cloudformationsdk.Options) {
@@ -459,7 +461,7 @@ func createKinesisClient(t *testing.T) *kinesissdk.Client {
 		),
 	)
 	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
+		require.NoError(t, err, "unable to load SDK config")
 	}
 
 	return kinesissdk.NewFromConfig(cfg, func(o *kinesissdk.Options) {
@@ -479,7 +481,7 @@ func createLambdaClient(t *testing.T) *lambdaclientsdk.Client {
 		),
 	)
 	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
+		require.NoError(t, err, "unable to load SDK config")
 	}
 
 	return lambdaclientsdk.NewFromConfig(cfg, func(o *lambdaclientsdk.Options) {
@@ -499,7 +501,7 @@ func createElastiCacheClient(t *testing.T) *elasticachesdk.Client {
 		),
 	)
 	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
+		require.NoError(t, err, "unable to load SDK config")
 	}
 
 	return elasticachesdk.NewFromConfig(cfg, func(o *elasticachesdk.Options) {
@@ -519,7 +521,7 @@ func createRDSClient(t *testing.T) *rdssdk.Client {
 		),
 	)
 	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
+		require.NoError(t, err, "unable to load SDK config")
 	}
 
 	return rdssdk.NewFromConfig(cfg, func(o *rdssdk.Options) {
@@ -572,9 +574,7 @@ func AssertItem(t *testing.T, item map[string]types.AttributeValue, expected map
 	t.Helper()
 
 	actual := unwrapItem(models.FromSDKItem(item))
-	if diff := cmp.Diff(expected, actual); diff != "" {
-		t.Errorf("Item mismatch (-want +got):\n%s", diff)
-	}
+	assert.Empty(t, cmp.Diff(expected, actual), "Item mismatch")
 }
 
 func unwrapItem(item map[string]any) map[string]any {

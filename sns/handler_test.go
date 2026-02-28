@@ -968,7 +968,7 @@ func TestSNSHTTPDelivery(t *testing.T) {
 	case msg := <-received:
 		assert.Equal(t, "test-message", msg)
 	case <-time.After(500 * time.Millisecond):
-		t.Fatal("HTTP delivery did not arrive in time")
+		require.FailNow(t, "HTTP delivery did not arrive in time")
 	}
 }
 
@@ -1208,7 +1208,7 @@ func TestFilterPolicy(t *testing.T) {
 	case msg := <-delivered:
 		assert.Equal(t, "match", msg)
 	case <-time.After(500 * time.Millisecond):
-		t.Fatal("expected delivery for matching attribute")
+		require.FailNow(t, "expected delivery for matching attribute")
 	}
 
 	// Publish with non-matching attribute - subscriber should NOT receive it.
@@ -1219,7 +1219,7 @@ func TestFilterPolicy(t *testing.T) {
 	require.NoError(t, err)
 	select {
 	case <-delivered:
-		t.Fatal("expected no delivery for non-matching attribute")
+		require.FailNow(t, "expected no delivery for non-matching attribute")
 	case <-time.After(100 * time.Millisecond):
 		// OK: nothing delivered
 	}
@@ -1253,7 +1253,7 @@ func TestFilterPolicyPrefixAndAnythingBut(t *testing.T) {
 	case msg := <-delivered:
 		assert.Equal(t, "prefix-match", msg)
 	case <-time.After(500 * time.Millisecond):
-		t.Fatal("expected delivery for prefix match")
+		require.FailNow(t, "expected delivery for prefix match")
 	}
 
 	tp2, err := b.CreateTopic("fp3-topic", nil)
@@ -1270,7 +1270,7 @@ func TestFilterPolicyPrefixAndAnythingBut(t *testing.T) {
 	case msg := <-delivered:
 		assert.Equal(t, "anything-but-match", msg)
 	case <-time.After(500 * time.Millisecond):
-		t.Fatal("expected delivery for anything-but match")
+		require.FailNow(t, "expected delivery for anything-but match")
 	}
 
 	// "deleted" should NOT be delivered
@@ -1279,7 +1279,7 @@ func TestFilterPolicyPrefixAndAnythingBut(t *testing.T) {
 	require.NoError(t, err)
 	select {
 	case <-delivered:
-		t.Fatal("expected no delivery for anything-but excluded value")
+		require.FailNow(t, "expected no delivery for anything-but excluded value")
 	case <-time.After(100 * time.Millisecond):
 		// OK
 	}
@@ -1313,7 +1313,7 @@ func TestMessageStructureJSON(t *testing.T) {
 	case msg := <-received:
 		assert.Equal(t, "http specific msg", msg)
 	case <-time.After(500 * time.Millisecond):
-		t.Fatal("expected HTTP delivery with per-protocol message")
+		require.FailNow(t, "expected HTTP delivery with per-protocol message")
 	}
 }
 
@@ -1345,7 +1345,7 @@ func TestMessageStructureJSONDefaultFallback(t *testing.T) {
 	case msg := <-received:
 		assert.Equal(t, "fallback msg", msg)
 	case <-time.After(500 * time.Millisecond):
-		t.Fatal("expected delivery with default fallback")
+		require.FailNow(t, "expected delivery with default fallback")
 	}
 }
 

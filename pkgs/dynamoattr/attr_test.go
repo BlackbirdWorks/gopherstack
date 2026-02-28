@@ -49,9 +49,7 @@ func TestUnwrapAttributeValue(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := dynamoattr.UnwrapAttributeValue(tc.in)
-			if diff := cmp.Diff(tc.want, got); diff != "" {
-				t.Errorf("UnwrapAttributeValue() mismatch (-want +got):\n%s", diff)
-			}
+			assert.Empty(t, cmp.Diff(tc.want, got), "UnwrapAttributeValue() mismatch")
 		})
 	}
 }
@@ -213,9 +211,7 @@ func TestSplitANDConditions(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := dynamoattr.SplitANDConditions(tc.expr)
-			if diff := cmp.Diff(tc.want, got); diff != "" {
-				t.Errorf("SplitANDConditions() mismatch (-want +got):\n%s", diff)
-			}
+			assert.Empty(t, cmp.Diff(tc.want, got), "SplitANDConditions() mismatch")
 		})
 	}
 }

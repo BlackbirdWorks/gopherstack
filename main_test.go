@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMultipleServersStartupAndShutdown(t *testing.T) {
@@ -42,14 +45,12 @@ func TestMultipleServersStartupAndShutdown(t *testing.T) {
 			client := &http.Client{Timeout: 5 * time.Second}
 
 			resp, err := client.Get("http://localhost" + tt.port + "/dashboard")
-			if err != nil {
-				t.Fatalf("failed to reach server on %s: %v", tt.port, err)
-			}
+			require.NoError(t, err, "failed to reach server on %s", tt.port)
 			defer resp.Body.Close()
 
-			if resp.StatusCode < 200 || resp.StatusCode >= 500 {
-				t.Fatalf("unexpected status code: %d", resp.StatusCode)
-			}
+			assert.True(t,
+				resp.StatusCode >= 200 && resp.StatusCode < 500,
+				"unexpected status code: %d", resp.StatusCode)
 
 			t.Logf("Server responding with status %d on port %s", resp.StatusCode, tt.port)
 

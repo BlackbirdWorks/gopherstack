@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -71,9 +72,8 @@ func TestDynamoDB_ExtraTypes(t *testing.T) {
 			require.NotNil(t, res.Item)
 
 			got := models.FromSDKItem(res.Item)
-			if diff := cmp.Diff(tt.want, got, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
-				t.Errorf("GetItem response mismatch (-want +got):\n%s", diff)
-			}
+			diff := cmp.Diff(tt.want, got, cmpopts.SortSlices(func(a, b string) bool { return a < b }))
+			assert.Empty(t, diff, "GetItem response mismatch")
 		})
 	}
 }
@@ -118,11 +118,8 @@ func TestDynamoDB_TTL_Operations(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			diff := cmp.Diff(tt.want.TimeToLiveDescription, res.TimeToLiveDescription,
-				cmpopts.IgnoreUnexported(types.TimeToLiveDescription{}))
-			if diff != "" {
-				t.Errorf("DescribeTimeToLive mismatch (-want +got):\n%s", diff)
-			}
+			assert.Empty(t, cmp.Diff(tt.want.TimeToLiveDescription, res.TimeToLiveDescription,
+				cmpopts.IgnoreUnexported(types.TimeToLiveDescription{})), "DescribeTimeToLive mismatch")
 		})
 	}
 }
@@ -208,9 +205,7 @@ func TestDynamoDB_Transaction_Operations(t *testing.T) {
 
 			for i, resp := range res.Responses {
 				got := models.FromSDKItem(resp.Item)
-				if diff := cmp.Diff(tt.wantItems[i], got); diff != "" {
-					t.Errorf("Transact item %d mismatch (-want +got):\n%s", i, diff)
-				}
+				assert.Empty(t, cmp.Diff(tt.wantItems[i], got), "Transact item %d mismatch", i)
 			}
 		})
 	}

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
@@ -27,7 +29,7 @@ func TestSentinelsAreDistinct(t *testing.T) {
 				continue
 			}
 			if errors.Is(a.err, b.err) {
-				t.Errorf("%s should not match %s", a.name, b.name)
+				assert.Failf(t, "test failed", "%s should not match %s", a.name, b.name)
 			}
 		}
 	}
@@ -84,9 +86,7 @@ func TestWrappedErrorsIs(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := errors.Is(tc.err, tc.sentinel)
-			if got != tc.want {
-				t.Errorf("errors.Is(%q, sentinel) = %v, want %v", tc.err, got, tc.want)
-			}
+			assert.Equal(t, tc.want, got, "errors.Is(%q, sentinel)", tc.err)
 		})
 	}
 }
@@ -95,7 +95,5 @@ func TestWrappedErrorMessage(t *testing.T) {
 	t.Parallel()
 
 	err := awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
-	if err.Error() != "ResourceNotFoundException" {
-		t.Errorf("Error() = %q, want %q", err.Error(), "ResourceNotFoundException")
-	}
+	assert.Equal(t, "ResourceNotFoundException", err.Error())
 }

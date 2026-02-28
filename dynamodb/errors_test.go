@@ -6,6 +6,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/dynamodb"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestErrorHelpers(t *testing.T) {
@@ -50,9 +51,7 @@ func TestErrorHelpers(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got := tt.errFunc(tt.msg)
-			if diff := cmp.Diff(tt.want, got); diff != "" {
-				t.Errorf("Error mismatch (-want +got):\n%s", diff)
-			}
+			assert.Empty(t, cmp.Diff(tt.want, got), "Error mismatch")
 		})
 	}
 }

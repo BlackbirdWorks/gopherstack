@@ -110,9 +110,7 @@ func TestInt64FromAny(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got := ptrconv.Int64FromAny(tt.in)
-			if diff := cmp.Diff(tt.want, got); diff != "" {
-				t.Errorf("Int64FromAny() mismatch (-want +got):\n%s", diff)
-			}
+			assert.Empty(t, cmp.Diff(tt.want, got), "Int64FromAny() mismatch")
 		})
 	}
 }
@@ -133,9 +131,7 @@ func TestNilIfEmpty(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got := ptrconv.NilIfEmpty(tt.in)
-			if diff := cmp.Diff(tt.want, got); diff != "" {
-				t.Errorf("NilIfEmpty() mismatch (-want +got):\n%s", diff)
-			}
+			assert.Empty(t, cmp.Diff(tt.want, got), "NilIfEmpty() mismatch")
 		})
 	}
 }

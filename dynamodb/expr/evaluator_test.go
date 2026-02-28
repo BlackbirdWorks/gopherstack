@@ -164,9 +164,7 @@ func TestEvaluator_ApplyUpdate(t *testing.T) {
 			err := eval.ApplyUpdate(tt.update)
 			require.NoError(t, err)
 
-			if diff := cmp.Diff(tt.expected, eval.Item); diff != "" {
-				t.Errorf("ApplyUpdate() mismatch (-want +got):\n%s", diff)
-			}
+			assert.Empty(t, cmp.Diff(tt.expected, eval.Item), "ApplyUpdate() mismatch")
 		})
 	}
 }
@@ -208,9 +206,7 @@ func TestEvaluator_ApplyAdd(t *testing.T) {
 			err := eval.ExportedApplyAdd(tt.path, tt.val)
 			require.NoError(t, err)
 
-			if diff := cmp.Diff(tt.expected, eval.Item); diff != "" {
-				t.Errorf("ApplyAdd() mismatch (-want +got):\n%s", diff)
-			}
+			assert.Empty(t, cmp.Diff(tt.expected, eval.Item), "ApplyAdd() mismatch")
 		})
 	}
 }
@@ -894,9 +890,7 @@ func TestEvaluator_ApplyUpdate_Nested(t *testing.T) {
 			err := eval.ApplyUpdate(tt.update)
 			require.NoError(t, err)
 
-			if diff := cmp.Diff(tt.expected, eval.Item); diff != "" {
-				t.Errorf("ApplyUpdate() mismatch (-want +got):\n%s", diff)
-			}
+			assert.Empty(t, cmp.Diff(tt.expected, eval.Item), "ApplyUpdate() mismatch")
 		})
 	}
 }

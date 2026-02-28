@@ -823,9 +823,9 @@ func TestRuntimeServer_NextAndResponse(t *testing.T) {
 	case result := <-resultCh:
 		assert.JSONEq(t, `{"answer":42}`, string(result))
 	case err := <-errCh:
-		t.Fatalf("invoke error: %v", err)
+		require.NoError(t, err, "invoke error")
 	case <-time.After(5 * time.Second):
-		t.Fatal("test timed out")
+		require.FailNow(t, "test timed out")
 	}
 }
 
@@ -862,9 +862,9 @@ func TestRuntimeServer_NextAndError(t *testing.T) {
 		assert.True(t, isError, "expected isError=true")
 		assert.Contains(t, string(result), "panicked")
 	case err := <-errCh:
-		t.Fatalf("invoke error: %v", err)
+		require.NoError(t, err, "invoke error")
 	case <-time.After(5 * time.Second):
-		t.Fatal("test timed out")
+		require.FailNow(t, "test timed out")
 	}
 }
 
@@ -967,7 +967,7 @@ func TestRuntimeServer_InvokeContextCancelled(t *testing.T) {
 	case err := <-errCh:
 		require.Error(t, err)
 	case <-time.After(2 * time.Second):
-		t.Fatal("expected context cancellation error")
+		require.FailNow(t, "expected context cancellation error")
 	}
 }
 

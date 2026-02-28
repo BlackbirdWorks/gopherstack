@@ -3,6 +3,8 @@ package arn_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
@@ -72,10 +74,7 @@ func TestBuild(t *testing.T) {
 			t.Parallel()
 
 			got := arn.Build(tc.service, tc.region, tc.accountID, tc.resource)
-			if got != tc.want {
-				t.Errorf("Build(%q, %q, %q, %q) = %q; want %q",
-					tc.service, tc.region, tc.accountID, tc.resource, got, tc.want)
-			}
+			assert.Equal(t, tc.want, got)
 		})
 	}
 }
@@ -110,9 +109,7 @@ func TestBuildS3(t *testing.T) {
 			t.Parallel()
 
 			got := arn.BuildS3(tc.resource)
-			if got != tc.want {
-				t.Errorf("BuildS3(%q) = %q; want %q", tc.resource, got, tc.want)
-			}
+			assert.Equal(t, tc.want, got)
 		})
 	}
 }

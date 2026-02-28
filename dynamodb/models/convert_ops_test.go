@@ -86,9 +86,7 @@ func TestSDKItemRoundTrip(t *testing.T) {
 
 	back := models.FromSDKItem(sdkItem)
 
-	if diff := cmp.Diff(item, back); diff != "" {
-		t.Errorf("RoundTrip mismatch (-want +got):\n%s", diff)
-	}
+	assert.Empty(t, cmp.Diff(item, back), "RoundTrip mismatch")
 }
 
 func TestBatchOperations(t *testing.T) {

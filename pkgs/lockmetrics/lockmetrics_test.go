@@ -103,7 +103,7 @@ func TestWriteBlocksRead(t *testing.T) {
 	// The reader goroutine should still be blocked.
 	select {
 	case <-done:
-		t.Fatal("reader should be blocked while write lock is held")
+		require.FailNow(t, "reader should be blocked while write lock is held")
 	case <-time.After(20 * time.Millisecond):
 		// expected: reader is waiting
 	}
@@ -114,7 +114,7 @@ func TestWriteBlocksRead(t *testing.T) {
 	case <-done:
 		// reader unblocked after write lock released
 	case <-time.After(time.Second):
-		t.Fatal("reader should have unblocked after write lock released")
+		require.FailNow(t, "reader should have unblocked after write lock released")
 	}
 }
 
@@ -139,7 +139,7 @@ func TestDeferPattern(t *testing.T) {
 	select {
 	case <-acquired:
 	case <-time.After(time.Second):
-		t.Fatal("lock should have been acquirable after deferred unlock")
+		require.FailNow(t, "lock should have been acquirable after deferred unlock")
 	}
 }
 
@@ -164,7 +164,7 @@ func TestDeferRLockPattern(t *testing.T) {
 	select {
 	case <-acquired:
 	case <-time.After(time.Second):
-		t.Fatal("write lock should be acquirable after read lock is released")
+		require.FailNow(t, "write lock should be acquirable after read lock is released")
 	}
 }
 

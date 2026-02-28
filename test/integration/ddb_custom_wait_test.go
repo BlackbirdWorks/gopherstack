@@ -65,7 +65,7 @@ func TestIntegration_DDB_CustomWaitForDeletion(t *testing.T) {
 
 		// Table still exists
 		if time.Since(start) > maxWait {
-			t.Fatalf("Timeout waiting for table deletion after %v", time.Since(start))
+			require.Failf(t, "timeout", "Timeout waiting for table deletion after %v", time.Since(start))
 		}
 
 		time.Sleep(pollInterval)

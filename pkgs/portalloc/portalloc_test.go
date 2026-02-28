@@ -158,7 +158,7 @@ func TestConcurrentAcquire(t *testing.T) {
 			assert.False(t, seen[p], "duplicate port %d", p)
 			seen[p] = true
 		case acqErr := <-errs:
-			t.Fatalf("unexpected acquire error: %v", acqErr)
+			require.NoError(t, acqErr, "unexpected acquire error")
 		}
 	}
 }

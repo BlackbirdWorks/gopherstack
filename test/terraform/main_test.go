@@ -39,6 +39,7 @@ import (
 	sqssvc "github.com/aws/aws-sdk-go-v2/service/sqs"
 	ssmsvc "github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/docker/docker/api/types/build"
+	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
@@ -156,7 +157,7 @@ func createDynamoDBClient(t *testing.T) *dynamodb.Client {
 		),
 	)
 	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
+		require.NoError(t, err, "unable to load SDK config")
 	}
 
 	return dynamodb.NewFromConfig(cfg, func(o *dynamodb.Options) {
@@ -176,7 +177,7 @@ func createS3Client(t *testing.T) *s3svc.Client {
 		),
 	)
 	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
+		require.NoError(t, err, "unable to load SDK config")
 	}
 
 	return s3svc.NewFromConfig(cfg, func(o *s3svc.Options) {
@@ -197,7 +198,7 @@ func createSQSClient(t *testing.T) *sqssvc.Client {
 		),
 	)
 	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
+		require.NoError(t, err, "unable to load SDK config")
 	}
 
 	return sqssvc.NewFromConfig(cfg, func(o *sqssvc.Options) {
@@ -217,7 +218,7 @@ func createRDSClient(t *testing.T) *rdssvc.Client {
 		),
 	)
 	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
+		require.NoError(t, err, "unable to load SDK config")
 	}
 
 	return rdssvc.NewFromConfig(cfg, func(o *rdssvc.Options) {
@@ -237,7 +238,7 @@ func createIAMClient(t *testing.T) *iamsvc.Client {
 		),
 	)
 	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
+		require.NoError(t, err, "unable to load SDK config")
 	}
 
 	return iamsvc.NewFromConfig(cfg, func(o *iamsvc.Options) {
@@ -257,7 +258,7 @@ func createKMSClient(t *testing.T) *kmssvc.Client {
 		),
 	)
 	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
+		require.NoError(t, err, "unable to load SDK config")
 	}
 
 	return kmssvc.NewFromConfig(cfg, func(o *kmssvc.Options) {
@@ -277,7 +278,7 @@ func createSNSClient(t *testing.T) *snssvc.Client {
 		),
 	)
 	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
+		require.NoError(t, err, "unable to load SDK config")
 	}
 
 	return snssvc.NewFromConfig(cfg, func(o *snssvc.Options) {
@@ -297,7 +298,7 @@ func createSecretsManagerClient(t *testing.T) *secretssvc.Client {
 		),
 	)
 	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
+		require.NoError(t, err, "unable to load SDK config")
 	}
 
 	return secretssvc.NewFromConfig(cfg, func(o *secretssvc.Options) {
@@ -317,7 +318,7 @@ func createSSMClient(t *testing.T) *ssmsvc.Client {
 		),
 	)
 	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
+		require.NoError(t, err, "unable to load SDK config")
 	}
 
 	return ssmsvc.NewFromConfig(cfg, func(o *ssmsvc.Options) {
@@ -337,7 +338,7 @@ func createCloudWatchLogsClient(t *testing.T) *cwlogssvc.Client {
 		),
 	)
 	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
+		require.NoError(t, err, "unable to load SDK config")
 	}
 
 	return cwlogssvc.NewFromConfig(cfg, func(o *cwlogssvc.Options) {
@@ -357,7 +358,7 @@ func createRoute53Client(t *testing.T) *route53svc.Client {
 		),
 	)
 	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
+		require.NoError(t, err, "unable to load SDK config")
 	}
 
 	return route53svc.NewFromConfig(cfg, func(o *route53svc.Options) {
@@ -377,7 +378,7 @@ func createLambdaClient(t *testing.T) *lambdasvc.Client {
 		),
 	)
 	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
+		require.NoError(t, err, "unable to load SDK config")
 	}
 
 	return lambdasvc.NewFromConfig(cfg, func(o *lambdasvc.Options) {
@@ -397,7 +398,7 @@ func createSESClient(t *testing.T) *sessvc.Client {
 		),
 	)
 	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
+		require.NoError(t, err, "unable to load SDK config")
 	}
 
 	return sessvc.NewFromConfig(cfg, func(o *sessvc.Options) {
@@ -417,7 +418,7 @@ func createSFNClient(t *testing.T) *sfnsvc.Client {
 		),
 	)
 	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
+		require.NoError(t, err, "unable to load SDK config")
 	}
 
 	return sfnsvc.NewFromConfig(cfg, func(o *sfnsvc.Options) {
@@ -437,7 +438,7 @@ func createEventBridgeClient(t *testing.T) *ebsvc.Client {
 		),
 	)
 	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
+		require.NoError(t, err, "unable to load SDK config")
 	}
 
 	return ebsvc.NewFromConfig(cfg, func(o *ebsvc.Options) {
@@ -457,7 +458,7 @@ func createCloudWatchClient(t *testing.T) *cwsvc.Client {
 		),
 	)
 	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
+		require.NoError(t, err, "unable to load SDK config")
 	}
 
 	return cwsvc.NewFromConfig(cfg, func(o *cwsvc.Options) {
@@ -477,7 +478,7 @@ func createKinesisClient(t *testing.T) *kinesissvc.Client {
 		),
 	)
 	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
+		require.NoError(t, err, "unable to load SDK config")
 	}
 
 	return kinesissvc.NewFromConfig(cfg, func(o *kinesissvc.Options) {
@@ -497,7 +498,7 @@ func createACMClient(t *testing.T) *acmsvc.Client {
 		),
 	)
 	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
+		require.NoError(t, err, "unable to load SDK config")
 	}
 
 	return acmsvc.NewFromConfig(cfg, func(o *acmsvc.Options) {
@@ -517,7 +518,7 @@ func createCloudFormationClient(t *testing.T) *cfnsvc.Client {
 		),
 	)
 	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
+		require.NoError(t, err, "unable to load SDK config")
 	}
 
 	return cfnsvc.NewFromConfig(cfg, func(o *cfnsvc.Options) {
@@ -537,7 +538,7 @@ func createElastiCacheClient(t *testing.T) *elasticachesvc.Client {
 		),
 	)
 	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
+		require.NoError(t, err, "unable to load SDK config")
 	}
 
 	return elasticachesvc.NewFromConfig(cfg, func(o *elasticachesvc.Options) {
@@ -557,7 +558,7 @@ func createOpenSearchClient(t *testing.T) *opensearchsvc.Client {
 		),
 	)
 	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
+		require.NoError(t, err, "unable to load SDK config")
 	}
 
 	return opensearchsvc.NewFromConfig(cfg, func(o *opensearchsvc.Options) {
@@ -577,7 +578,7 @@ func createRedshiftClient(t *testing.T) *redshiftsvc.Client {
 		),
 	)
 	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
+		require.NoError(t, err, "unable to load SDK config")
 	}
 
 	return redshiftsvc.NewFromConfig(cfg, func(o *redshiftsvc.Options) {
@@ -597,7 +598,7 @@ func createFirehoseClient(t *testing.T) *firehosesvc.Client {
 		),
 	)
 	if err != nil {
-		t.Fatalf("unable to load SDK config: %v", err)
+		require.NoError(t, err, "unable to load SDK config")
 	}
 
 	return firehosesvc.NewFromConfig(cfg, func(o *firehosesvc.Options) {
