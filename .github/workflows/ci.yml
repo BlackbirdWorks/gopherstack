@@ -27,8 +27,117 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
 
-  tests:
+  unit:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: true
+
+      - name: Run Unit Tests
+        run: |
+          go tool gotestsum --format pkgname -- \
+            -race -shuffle on -short -timeout 5m \
+            -coverpkg=./... -coverprofile=unit-coverage.out -covermode=atomic \
+            ./...
+
+      - name: Upload Coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-coverage
+          path: unit-coverage.out
+          retention-days: 1
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: true
+
+      - name: Run Integration Tests
+        run: |
+          go tool gotestsum --format pkgname -- \
+            -race -shuffle on -timeout 10m \
+            -coverpkg=./... -coverprofile=integration-coverage.out -covermode=atomic \
+            ./test/integration/...
+
+      - name: Upload Coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-coverage
+          path: integration-coverage.out
+          retention-days: 1
+
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: true
+
+      - name: Run Terraform Tests
+        run: |
+          go tool gotestsum --format pkgname -- \
+            -race -timeout 10m \
+            -coverpkg=./... -coverprofile=terraform-coverage.out -covermode=atomic \
+            ./test/terraform/...
+
+      - name: Upload Coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-coverage
+          path: terraform-coverage.out
+          retention-days: 1
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: true
+
+      - name: Install Playwright Browsers
+        run: |
+          go run github.com/playwright-community/playwright-go/cmd/playwright@latest install --with-deps chromium
+
+      - name: Run E2E Tests
+        run: |
+          go tool gotestsum --format pkgname -- \
+            -race -shuffle on -timeout 10m -tags=e2e \
+            -coverpkg=./... -coverprofile=e2e-coverage.out -covermode=atomic \
+            ./test/e2e/...
+
+      - name: Upload Coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-coverage
+          path: e2e-coverage.out
+          retention-days: 1
+
+  coverage:
+    runs-on: ubuntu-latest
+    needs: [unit, integration, terraform, e2e]
     permissions:
       contents: write
       checks: write
@@ -45,12 +154,22 @@ jobs:
           check-latest: true
           cache: true
 
-      - name: Install Playwright Browsers
-        run: |
-          go run github.com/playwright-community/playwright-go/cmd/playwright@latest install --with-deps chromium
+      - name: Download All Coverage Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: '*-coverage'
+          merge-multiple: true
 
-      - name: Run All Tests with Combined Coverage
-        run: make total-coverage
+      - name: Merge Coverage Profiles
+        run: |
+          # Merge all coverage files into one
+          echo "mode: atomic" > coverage.out
+          for f in unit-coverage.out integration-coverage.out terraform-coverage.out e2e-coverage.out; do
+            if [ -f "$f" ]; then
+              tail -n +2 "$f" >> coverage.out
+            fi
+          done
+          go tool cover -func=coverage.out | tail -1
 
       - name: Check Coverage Thresholds
         id: coverage
@@ -67,7 +186,7 @@ jobs:
           script: |
             const fs = require('fs');
             const { execSync } = require('child_process');
-            
+
             let totalCoverage = '0.0%';
             let newCodeCoverage = 'N/A';
             let newCodeStats = { covered: 0, total: 0 };
@@ -81,13 +200,13 @@ jobs:
               // 2. New Code Coverage (Diff-based)
               const baseRef = context.payload.pull_request.base.ref;
               console.log(`Comparing against base ref: ${baseRef}`);
-              
+
               // Ensure base ref is fetched
               execSync(`git fetch origin ${baseRef} --depth=1`);
-              
+
               const diff = execSync(`git diff origin/${baseRef}...HEAD -U0`).toString();
               const changedLines = {}; // file -> Set of line numbers
-              
+
               const diffLines = diff.split('\n');
               let currentFile = null;
               for (const line of diffLines) {
@@ -112,7 +231,7 @@ jobs:
 
               for (const line of coverageData) {
                 if (!line || line.startsWith('mode:')) continue;
-                
+
                 const [loc, numStmt, hits] = line.split(' ');
                 const [fullPath, range] = loc.split(':');
                 const [start, end] = range.split(',');
@@ -120,13 +239,13 @@ jobs:
                 const endLine = parseInt(end.split('.')[0]);
                 const stmts = parseInt(numStmt);
                 const hitCount = parseInt(hits);
-                
+
                 // Find relative path
                 const relativePath = fullPath.replace(/^github\.com\/[^\/]+\/[^\/]+\//, '');
-                
+
                 if (changedLines[relativePath]) {
                   if (!fileStats[relativePath]) fileStats[relativePath] = { covered: 0, total: 0 };
-                  
+
                   const fileLines = changedLines[relativePath];
                   let blockImpacted = false;
                   for (let l = startLine; l <= endLine; l++) {
@@ -166,7 +285,7 @@ jobs:
             const header = '## 📊 Code Coverage Report';
             const totalStatus = parseFloat(totalCoverage) >= 85 ? '✅' : '❌';
             const newStatus = parseFloat(newCodeCoverage) >= 85 || newCodeCoverage === 'N/A' ? '✅' : '⚠️';
-            
+
             let fileTable = '';
             if (fileBreakdown.length > 0) {
               fileTable = '\n### 📄 Impacted Files Breakdown\n\n' +
@@ -176,7 +295,7 @@ jobs:
             }
 
             const body = `${header}
-            
+
             | Metric | Value | Status |
             | :--- | :--- | :--- |
             | **Total Coverage** | ${totalCoverage} | ${totalStatus} |
@@ -185,7 +304,7 @@ jobs:
 
             > [!TIP]
             > This project maintains a minimum coverage threshold of **85%**. Maintain or improve coverage on new code to ensure long-term stability.
-            
+
             ---
             *Last updated: ${new Date().toUTCString()}*`;
 
@@ -194,9 +313,9 @@ jobs:
               repo: context.repo.repo,
               issue_number: context.issue.number,
             });
-            
+
             const botComment = comments.find(c => c.body.startsWith(header));
-            
+
             if (botComment) {
               await github.rest.issues.updateComment({
                 owner: context.repo.owner,
