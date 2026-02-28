@@ -82,3 +82,78 @@ func TestRedshiftBackend_DescribeClusters_NotFound(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, redshift.ErrClusterNotFound)
 }
+
+func TestRedshiftBackend_CreateTags(t *testing.T) {
+	t.Parallel()
+
+	b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+	_, err := b.CreateCluster("tagged-cluster", "dc2.large", "mydb", "admin")
+	require.NoError(t, err)
+
+	err = b.CreateTags("tagged-cluster", map[string]string{"env": "prod", "team": "platform"})
+	require.NoError(t, err)
+
+	allTags := b.DescribeTags()
+	tags, ok := allTags["tagged-cluster"]
+	require.True(t, ok)
+	assert.Equal(t, "prod", tags["env"])
+	assert.Equal(t, "platform", tags["team"])
+}
+
+func TestRedshiftBackend_CreateTags_Overwrite(t *testing.T) {
+	t.Parallel()
+
+	b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+	_, _ = b.CreateCluster("overwrite-cluster", "", "", "")
+	_ = b.CreateTags("overwrite-cluster", map[string]string{"env": "dev"})
+	_ = b.CreateTags("overwrite-cluster", map[string]string{"env": "prod"})
+
+	allTags := b.DescribeTags()
+	assert.Equal(t, "prod", allTags["overwrite-cluster"]["env"])
+}
+
+func TestRedshiftBackend_CreateTags_NotFound(t *testing.T) {
+	t.Parallel()
+
+	b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+	err := b.CreateTags("nonexistent", map[string]string{"k": "v"})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, redshift.ErrClusterNotFound)
+}
+
+func TestRedshiftBackend_DeleteTags(t *testing.T) {
+	t.Parallel()
+
+	b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+	_, _ = b.CreateCluster("del-tags-cluster", "", "", "")
+	_ = b.CreateTags("del-tags-cluster", map[string]string{"env": "prod", "team": "platform"})
+
+	err := b.DeleteTags("del-tags-cluster", []string{"env"})
+	require.NoError(t, err)
+
+	allTags := b.DescribeTags()
+	tags := allTags["del-tags-cluster"]
+	assert.NotContains(t, tags, "env")
+	assert.Equal(t, "platform", tags["team"])
+}
+
+func TestRedshiftBackend_DeleteTags_NotFound(t *testing.T) {
+	t.Parallel()
+
+	b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+	err := b.DeleteTags("nonexistent", []string{"k"})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, redshift.ErrClusterNotFound)
+}
+
+func TestRedshiftBackend_DescribeTags_Empty(t *testing.T) {
+	t.Parallel()
+
+	b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+	_, _ = b.CreateCluster("empty-tags-cluster", "", "", "")
+
+	allTags := b.DescribeTags()
+	tags, ok := allTags["empty-tags-cluster"]
+	require.True(t, ok)
+	assert.Empty(t, tags)
+}

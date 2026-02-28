@@ -182,3 +182,122 @@ func TestDeleteDomain_NotFound(t *testing.T) {
 
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
+
+func TestAddTags(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler()
+
+	// Create a domain to get its ARN
+	createResp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain", map[string]any{
+		"DomainName": "tag-domain",
+	})
+
+	var createOut map[string]any
+	require.NoError(t, json.NewDecoder(createResp.Body).Decode(&createOut))
+	createResp.Body.Close()
+
+	status := createOut["DomainStatus"].(map[string]any)
+	domainARN := status["ARN"].(string)
+
+	// Add tags
+	resp := doRequest(t, h, http.MethodPost, "/2021-01-01/tags", map[string]any{
+		"ARN": domainARN,
+		"TagList": []map[string]string{
+			{"Key": "env", "Value": "prod"},
+			{"Key": "team", "Value": "platform"},
+		},
+	})
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// List tags
+	listResp := doRequest(t, h, http.MethodGet, "/2021-01-01/tags?arn="+domainARN, nil)
+	defer listResp.Body.Close()
+
+	var listOut map[string]any
+	require.NoError(t, json.NewDecoder(listResp.Body).Decode(&listOut))
+
+	tagList, ok := listOut["TagList"].([]any)
+	require.True(t, ok)
+	assert.Len(t, tagList, 2)
+}
+
+func TestRemoveTags(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler()
+
+	// Create domain
+	createResp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain", map[string]any{
+		"DomainName": "remove-tag-domain",
+	})
+
+	var createOut map[string]any
+	require.NoError(t, json.NewDecoder(createResp.Body).Decode(&createOut))
+	createResp.Body.Close()
+
+	status := createOut["DomainStatus"].(map[string]any)
+	domainARN := status["ARN"].(string)
+
+	// Add tags
+	addResp := doRequest(t, h, http.MethodPost, "/2021-01-01/tags", map[string]any{
+		"ARN": domainARN,
+		"TagList": []map[string]string{
+			{"Key": "env", "Value": "prod"},
+			{"Key": "team", "Value": "platform"},
+		},
+	})
+	addResp.Body.Close()
+
+	// Remove one tag
+	removeResp := doRequest(t, h, http.MethodPost, "/2021-01-01/tags-removal", map[string]any{
+		"ARN":     domainARN,
+		"TagKeys": []string{"env"},
+	})
+	defer removeResp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, removeResp.StatusCode)
+
+	// List tags — only "team" should remain
+	listResp := doRequest(t, h, http.MethodGet, "/2021-01-01/tags?arn="+domainARN, nil)
+	defer listResp.Body.Close()
+
+	var listOut map[string]any
+	require.NoError(t, json.NewDecoder(listResp.Body).Decode(&listOut))
+
+	tagList, ok := listOut["TagList"].([]any)
+	require.True(t, ok)
+	assert.Len(t, tagList, 1)
+
+	tag := tagList[0].(map[string]any)
+	assert.Equal(t, "team", tag["Key"])
+	assert.Equal(t, "platform", tag["Value"])
+}
+
+func TestListTags_EmptyDomain(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler()
+
+	// Create domain with no tags
+	createResp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain", map[string]any{
+		"DomainName": "empty-tags-domain",
+	})
+
+	var createOut map[string]any
+	require.NoError(t, json.NewDecoder(createResp.Body).Decode(&createOut))
+	createResp.Body.Close()
+
+	status := createOut["DomainStatus"].(map[string]any)
+	domainARN := status["ARN"].(string)
+
+	// List tags on new domain — should be empty
+	resp := doRequest(t, h, http.MethodGet, "/2021-01-01/tags?arn="+domainARN, nil)
+	defer resp.Body.Close()
+
+	var out map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+
+	tagList, ok := out["TagList"].([]any)
+	require.True(t, ok)
+	assert.Empty(t, tagList)
+}
