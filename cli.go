@@ -65,7 +65,6 @@ import (
 	sqsbackend "github.com/blackbirdworks/gopherstack/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/ssm"
 	sfnbackend "github.com/blackbirdworks/gopherstack/stepfunctions"
-	sfnasl "github.com/blackbirdworks/gopherstack/stepfunctions/asl"
 	stsbackend "github.com/blackbirdworks/gopherstack/sts"
 	supportbackend "github.com/blackbirdworks/gopherstack/support"
 	swfbackend "github.com/blackbirdworks/gopherstack/swf"
@@ -738,7 +737,7 @@ func wireEventBridgeDelivery(ebReg, lambdaReg, sqsReg, snsReg service.Registerab
 
 	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
 		if lambdaBk, bk2Ok := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bk2Ok {
-			dt.Lambda = &lambdaInvokerAdapter{backend: lambdaBk}
+			dt.Lambda = lambdaBk
 		}
 	}
 
@@ -755,19 +754,6 @@ func wireEventBridgeDelivery(ebReg, lambdaReg, sqsReg, snsReg service.Registerab
 	}
 
 	ebBk.SetDeliveryTargets(dt)
-}
-
-// lambdaInvokerAdapter adapts the Lambda backend to the eventbridge.LambdaInvoker interface.
-type lambdaInvokerAdapter struct {
-	backend *lambdabackend.InMemoryBackend
-}
-
-func (a *lambdaInvokerAdapter) InvokeFunction(
-	ctx context.Context, name, invocationType string, payload []byte,
-) ([]byte, int, error) {
-	it := lambdabackend.InvocationType(invocationType)
-
-	return a.backend.InvokeFunction(ctx, name, it, payload)
 }
 
 // sqsSenderAdapter adapts the SQS backend to the eventbridge.SQSSender interface.
@@ -844,22 +830,9 @@ func wireAPIGatewayLambda(apigwReg, lambdaReg service.Registerable) {
 
 	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
 		if lambdaBk, bkOk := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bkOk {
-			apigwH.SetLambdaInvoker(&apigwLambdaInvokerAdapter{backend: lambdaBk})
+			apigwH.SetLambdaInvoker(lambdaBk)
 		}
 	}
-}
-
-// apigwLambdaInvokerAdapter adapts the Lambda backend to the apigateway.LambdaInvoker interface.
-type apigwLambdaInvokerAdapter struct {
-	backend *lambdabackend.InMemoryBackend
-}
-
-func (a *apigwLambdaInvokerAdapter) InvokeFunction(
-	ctx context.Context, name, invocationType string, payload []byte,
-) ([]byte, int, error) {
-	it := lambdabackend.InvocationType(invocationType)
-
-	return a.backend.InvokeFunction(ctx, name, it, payload)
 }
 
 // so that Task states with Lambda resources can invoke functions.
@@ -876,26 +849,10 @@ func wireStepFunctionsLambda(sfnReg, lambdaReg service.Registerable) {
 
 	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
 		if lambdaBk, bk2Ok := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bk2Ok {
-			sfnBk.SetLambdaInvoker(&sfnLambdaInvokerAdapter{backend: lambdaBk})
+			sfnBk.SetLambdaInvoker(lambdaBk)
 		}
 	}
 }
-
-// sfnLambdaInvokerAdapter adapts the Lambda backend to the asl.LambdaInvoker interface.
-type sfnLambdaInvokerAdapter struct {
-	backend *lambdabackend.InMemoryBackend
-}
-
-func (a *sfnLambdaInvokerAdapter) InvokeFunction(
-	ctx context.Context, name, invocationType string, payload []byte,
-) ([]byte, int, error) {
-	it := lambdabackend.InvocationType(invocationType)
-
-	return a.backend.InvokeFunction(ctx, name, it, payload)
-}
-
-// Ensure sfnLambdaInvokerAdapter implements sfnasl.LambdaInvoker.
-var _ sfnasl.LambdaInvoker = (*sfnLambdaInvokerAdapter)(nil)
 
 // wireKinesisLambda connects the Kinesis backend to the Lambda event source poller
 // so that records written to Kinesis streams trigger Lambda functions with active
@@ -1057,7 +1014,7 @@ func wireSecretsManagerLambda(smReg, lambdaReg service.Registerable) {
 
 	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
 		if lambdaBk, bkOk := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bkOk {
-			smH.SetLambdaInvoker(&lambdaInvokerAdapter{backend: lambdaBk})
+			smH.SetLambdaInvoker(lambdaBk)
 		}
 	}
 }

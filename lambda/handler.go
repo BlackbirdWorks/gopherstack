@@ -817,7 +817,7 @@ func (h *Handler) handleUpdateFunctionConfiguration(c *echo.Context, name string
 func (h *Handler) handleInvoke(c *echo.Context, name string) error {
 	ctx := c.Request().Context()
 
-	invType := InvocationType(c.Request().Header.Get("X-Amz-Invocation-Type"))
+	invType := c.Request().Header.Get("X-Amz-Invocation-Type")
 	if invType == "" {
 		invType = InvocationTypeRequestResponse
 	}
