@@ -67,7 +67,9 @@ import (
 	sfnbackend "github.com/blackbirdworks/gopherstack/stepfunctions"
 	sfnasl "github.com/blackbirdworks/gopherstack/stepfunctions/asl"
 	stsbackend "github.com/blackbirdworks/gopherstack/sts"
+	supportbackend "github.com/blackbirdworks/gopherstack/support"
 	swfbackend "github.com/blackbirdworks/gopherstack/swf"
+	transcribebackend "github.com/blackbirdworks/gopherstack/transcribe"
 )
 
 const (
@@ -118,6 +120,8 @@ type CLI struct {
 	firehoseHandler        service.Registerable
 	schedulerHandler       service.Registerable
 	route53resolverHandler service.Registerable
+	transcribeHandler      service.Registerable
+	supportHandler         service.Registerable
 	snsClient              *sns.Client
 	kmsClient              *kms.Client
 	iamClient              *iam.Client
@@ -357,6 +361,16 @@ func (c *CLI) GetSchedulerHandler() service.Registerable { return c.schedulerHan
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetRoute53ResolverHandler() service.Registerable { return c.route53resolverHandler }
 
+// GetTranscribeHandler returns the Transcribe handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetTranscribeHandler() service.Registerable { return c.transcribeHandler }
+
+// GetSupportHandler returns the Support handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetSupportHandler() service.Registerable { return c.supportHandler }
+
 // Run parses CLI / environment-variable configuration and starts Gopherstack.
 // It is called from main() and exits on error.
 func Run() {
@@ -566,6 +580,8 @@ func storeCLIHandlers(cli *CLI, services []service.Registerable) {
 	cli.schedulerHandler = services[28]
 	cli.route53resolverHandler = services[29]
 	cli.rdsHandler = services[30]
+	cli.transcribeHandler = services[31]
+	cli.supportHandler = services[32]
 }
 
 // initializeServices initializes all service providers.
@@ -603,6 +619,8 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		&schedulerbackend.Provider{},
 		&route53resolverbackend.Provider{},
 		&rdsbackend.Provider{},
+		&transcribebackend.Provider{},
+		&supportbackend.Provider{},
 	}
 
 	for _, provider := range serviceProviders {

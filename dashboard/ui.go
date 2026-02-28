@@ -46,7 +46,9 @@ import (
 	ssmbackend "github.com/blackbirdworks/gopherstack/ssm"
 	sfnbackend "github.com/blackbirdworks/gopherstack/stepfunctions"
 	stsbackend "github.com/blackbirdworks/gopherstack/sts"
+	supportbackend "github.com/blackbirdworks/gopherstack/support"
 	swfbackend "github.com/blackbirdworks/gopherstack/swf"
+	transcribebackend "github.com/blackbirdworks/gopherstack/transcribe"
 )
 
 const (
@@ -111,6 +113,8 @@ type DashboardHandler struct {
 	FirehoseOps        *firehosebackend.Handler
 	SchedulerOps       *schedulerbackend.Handler
 	Route53ResolverOps *route53resolverbackend.Handler
+	TranscribeOps      *transcribebackend.Handler
+	SupportOps         *supportbackend.Handler
 	SubRouter          *echo.Echo
 	ddbProvider        *ddbbackend.DashboardProvider
 	s3Provider         *s3backend.DashboardProvider
@@ -181,6 +185,10 @@ type Config struct {
 	SchedulerOps *schedulerbackend.Handler
 	// Route53ResolverOps provides access to the Route53 Resolver backend.
 	Route53ResolverOps *route53resolverbackend.Handler
+	// TranscribeOps provides access to the Transcribe backend.
+	TranscribeOps *transcribebackend.Handler
+	// SupportOps provides access to the Support backend.
+	SupportOps *supportbackend.Handler
 	// Logger is the structured logger for dashboard operations.
 	Logger *slog.Logger
 	// GlobalConfig holds the centralized account and region configuration shown on the settings page.
@@ -238,6 +246,8 @@ func parseDashboardTemplates() *template.Template {
 		"templates/firehose/*.html",
 		"templates/scheduler/*.html",
 		"templates/route53resolver/*.html",
+		"templates/transcribe/*.html",
+		"templates/support/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
 		"templates/settings.html",
@@ -287,6 +297,8 @@ func NewHandler(cfg Config) *DashboardHandler {
 		FirehoseOps:        cfg.FirehoseOps,
 		SchedulerOps:       cfg.SchedulerOps,
 		Route53ResolverOps: cfg.Route53ResolverOps,
+		TranscribeOps:      cfg.TranscribeOps,
+		SupportOps:         cfg.SupportOps,
 		GlobalConfig:       cfg.GlobalConfig,
 		Logger:             cfg.Logger,
 		layout:             tmpl,
@@ -528,6 +540,16 @@ func (h *DashboardHandler) setupFirehoseRoutes() {
 	h.SubRouter.POST("/dashboard/firehose/delete", h.firehoseDelete)
 }
 
+func (h *DashboardHandler) setupTranscribeRoutes() {
+	h.SubRouter.GET("/dashboard/transcribe", h.transcribeIndex)
+	h.SubRouter.POST("/dashboard/transcribe/start", h.transcribeStartJob)
+}
+
+func (h *DashboardHandler) setupSupportRoutes() {
+	h.SubRouter.GET("/dashboard/support", h.supportIndex)
+	h.SubRouter.POST("/dashboard/support/create", h.supportCreateCase)
+}
+
 func (h *DashboardHandler) setupMetaRoutes() {
 	dashboardGroup := h.SubRouter.Group("/dashboard")
 	RegisterMetricsHandlers(dashboardGroup, h)
@@ -566,6 +588,8 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.setupFirehoseRoutes()
 	h.setupSchedulerRoutes()
 	h.setupRoute53ResolverRoutes()
+	h.setupTranscribeRoutes()
+	h.setupSupportRoutes()
 	h.setupMetaRoutes()
 }
 
@@ -646,6 +670,8 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/firehose", "Firehose"},
 	{"/scheduler", "Scheduler"},
 	{"/route53resolver", "Route53Resolver"},
+	{"/transcribe", "Transcribe"},
+	{"/support", "Support"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},
 }

@@ -49,7 +49,9 @@ import (
 	ssmbackend "github.com/blackbirdworks/gopherstack/ssm"
 	sfnbackend "github.com/blackbirdworks/gopherstack/stepfunctions"
 	stsbackend "github.com/blackbirdworks/gopherstack/sts"
+	supportbackend "github.com/blackbirdworks/gopherstack/support"
 	swfbackend "github.com/blackbirdworks/gopherstack/swf"
+	transcribebackend "github.com/blackbirdworks/gopherstack/transcribe"
 )
 
 const (
@@ -95,6 +97,8 @@ type Stack struct {
 	FirehoseHandler        *firehosebackend.Handler
 	SchedulerHandler       *schedulerbackend.Handler
 	Route53ResolverHandler *route53resolverbackend.Handler
+	TranscribeHandler      *transcribebackend.Handler
+	SupportHandler         *supportbackend.Handler
 	S3Client               *s3.Client
 	DDBClient              *dynamodb.Client
 	Dashboard              *dashboard.DashboardHandler
@@ -178,6 +182,8 @@ func registerServices(
 	firehoseHndlr *firehosebackend.Handler,
 	schedulerHndlr *schedulerbackend.Handler,
 	route53resolverHndlr *route53resolverbackend.Handler,
+	transcribeHndlr *transcribebackend.Handler,
+	supportHndlr *supportbackend.Handler,
 ) {
 	_ = registry.Register(ddbHndlr)
 	_ = registry.Register(s3Hndlr)
@@ -211,6 +217,8 @@ func registerServices(
 	_ = registry.Register(firehoseHndlr)
 	_ = registry.Register(schedulerHndlr)
 	_ = registry.Register(route53resolverHndlr)
+	_ = registry.Register(transcribeHndlr)
+	_ = registry.Register(supportHndlr)
 }
 
 // handlers bundles all service handlers created for a test stack.
@@ -247,6 +255,8 @@ type handlers struct {
 	firehose        *firehosebackend.Handler
 	scheduler       *schedulerbackend.Handler
 	route53resolver *route53resolverbackend.Handler
+	transcribe      *transcribebackend.Handler
+	support         *supportbackend.Handler
 	iamBk           *iambackend.InMemoryBackend
 	s3Bk            *s3backend.InMemoryBackend
 }
@@ -320,6 +330,8 @@ func newHandlers() handlers {
 			route53resolverbackend.NewInMemoryBackend("000000000000", "us-east-1"),
 			slog.Default(),
 		),
+		transcribe: transcribebackend.NewHandler(transcribebackend.NewInMemoryBackend(), slog.Default()),
+		support:    supportbackend.NewHandler(supportbackend.NewInMemoryBackend(), slog.Default()),
 	}
 }
 
@@ -389,6 +401,8 @@ func newDashboardConfig(h handlers, clients sdkClients) dashboard.Config {
 		FirehoseOps:        h.firehose,
 		SchedulerOps:       h.scheduler,
 		Route53ResolverOps: h.route53resolver,
+		TranscribeOps:      h.transcribe,
+		SupportOps:         h.support,
 		GlobalConfig:       config.GlobalConfig{AccountID: "000000000000", Region: "us-east-1"},
 		Logger:             slog.Default(),
 	}
@@ -413,7 +427,7 @@ func New(t *testing.T) *Stack {
 		h.lambda, h.eb, h.apigw, h.cwlogs, h.sfn, h.cw, h.cfn, h.kinesis,
 		h.elasticache, h.route53, h.ses, h.ec2, h.opensearch,
 		h.acm, h.redshift, h.rds, h.awsconfig, h.s3control, h.resourcegroups, h.swf, h.firehose,
-		h.scheduler, h.route53resolver,
+		h.scheduler, h.route53resolver, h.transcribe, h.support,
 	)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
@@ -460,6 +474,8 @@ func New(t *testing.T) *Stack {
 		FirehoseHandler:        h.firehose,
 		SchedulerHandler:       h.scheduler,
 		Route53ResolverHandler: h.route53resolver,
+		TranscribeHandler:      h.transcribe,
+		SupportHandler:         h.support,
 		S3Client:               clients.S3,
 		DDBClient:              clients.DDB,
 		Dashboard:              dashHndlr,
