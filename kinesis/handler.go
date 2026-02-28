@@ -10,7 +10,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
@@ -133,33 +132,19 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function for Kinesis operations.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		ctx := c.Request().Context()
-		log := logger.Load(ctx)
-
-		body, err := httputil.ReadBody(c.Request())
-		if err != nil {
-			log.ErrorContext(ctx, "failed to read Kinesis request body", "error", err)
-
-			return c.String(http.StatusInternalServerError, "internal server error")
-		}
-
-		action := strings.TrimPrefix(c.Request().Header.Get("X-Amz-Target"), kinesisTargetPrefix)
-		requestID := uuid.New().String()
-
-		if action == "" {
-			h.writeError(c.Response(), ErrUnknownAction, requestID)
-
-			return nil
-		}
-
-		log.DebugContext(ctx, "Kinesis request", "action", action)
-		h.dispatch(ctx, c.Response(), c.Request(), body, action, requestID)
-
-		return nil
+		return service.HandleTarget(
+			c, logger.Load(c.Request().Context()),
+			"Kinesis", "application/x-amz-json-1.1",
+			h.GetSupportedOperations(),
+			func(ctx context.Context, action string, body []byte) ([]byte, error) {
+				return h.kinesisRoute(ctx, c.Request(), action, body)
+			},
+			h.handleError,
+		)
 	}
 }
 
-type kinesisDispatchFn func(ctx context.Context, w http.ResponseWriter, r *http.Request, body []byte, requestID string)
+type kinesisDispatchFn func(ctx context.Context, r *http.Request, body []byte) (any, error)
 
 func (h *Handler) kinesisDispatchTable() map[string]kinesisDispatchFn {
 	return map[string]kinesisDispatchFn{
@@ -182,22 +167,26 @@ func (h *Handler) kinesisDispatchTable() map[string]kinesisDispatchFn {
 	}
 }
 
-// dispatch routes the action to the appropriate handler method.
-func (h *Handler) dispatch(
-	ctx context.Context,
-	w http.ResponseWriter,
-	r *http.Request,
-	body []byte,
-	action, requestID string,
-) {
+// kinesisRoute dispatches a Kinesis action to the appropriate handler method.
+func (h *Handler) kinesisRoute(ctx context.Context, r *http.Request, action string, body []byte) ([]byte, error) {
 	fn, ok := h.kinesisDispatchTable()[action]
 	if !ok {
-		h.writeError(w, ErrUnknownAction, requestID)
-
-		return
+		return nil, ErrUnknownAction
 	}
 
-	fn(ctx, w, r, body, requestID)
+	result, err := fn(ctx, r, body)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(result)
+}
+
+// handleError writes a Kinesis error response using the standard error details mapping.
+func (h *Handler) handleError(_ context.Context, c *echo.Context, action string, err error) error {
+	errType, message, status := errorDetails(err)
+
+	return c.JSON(status, jsonKinesisError{Type: errType, Message: message})
 }
 
 // --- JSON request/response types ---
@@ -349,16 +338,12 @@ type jsonKinesisError struct {
 
 func (h *Handler) handleCreateStream(
 	ctx context.Context,
-	w http.ResponseWriter,
 	r *http.Request,
 	body []byte,
-	requestID string,
-) {
+) (any, error) {
 	var req jsonCreateStreamReq
 	if err := json.Unmarshal(body, &req); err != nil {
-		h.writeError(w, ErrInvalidArgument, requestID)
-
-		return
+		return nil, ErrInvalidArgument
 	}
 
 	region := httputil.ExtractRegionFromRequest(r, h.DefaultRegion)
@@ -374,56 +359,42 @@ func (h *Handler) handleCreateStream(
 			logger.Load(ctx).WarnContext(ctx, "CreateStream failed", "error", err)
 		}
 
-		h.writeError(w, err, requestID)
-
-		return
+		return nil, err
 	}
 
-	httputil.WriteJSON(h.Logger, w, http.StatusOK, struct{}{})
+	return struct{}{}, nil
 }
 
 func (h *Handler) handleDeleteStream(
 	_ context.Context,
-	w http.ResponseWriter,
 	_ *http.Request,
 	body []byte,
-	requestID string,
-) {
+) (any, error) {
 	var req jsonDeleteStreamReq
 	if err := json.Unmarshal(body, &req); err != nil {
-		h.writeError(w, ErrInvalidArgument, requestID)
-
-		return
+		return nil, ErrInvalidArgument
 	}
 
 	if err := h.Backend.DeleteStream(&DeleteStreamInput{StreamName: req.StreamName}); err != nil {
-		h.writeError(w, err, requestID)
-
-		return
+		return nil, err
 	}
 
-	httputil.WriteJSON(h.Logger, w, http.StatusOK, struct{}{})
+	return struct{}{}, nil
 }
 
 func (h *Handler) handleDescribeStream(
 	_ context.Context,
-	w http.ResponseWriter,
 	_ *http.Request,
 	body []byte,
-	requestID string,
-) {
+) (any, error) {
 	var req jsonDescribeStreamReq
 	if err := json.Unmarshal(body, &req); err != nil {
-		h.writeError(w, ErrInvalidArgument, requestID)
-
-		return
+		return nil, ErrInvalidArgument
 	}
 
 	out, err := h.Backend.DescribeStream(&DescribeStreamInput{StreamName: req.StreamName})
 	if err != nil {
-		h.writeError(w, err, requestID)
-
-		return
+		return nil, err
 	}
 
 	shards := make([]jsonShardDescription, len(out.Shards))
@@ -441,7 +412,7 @@ func (h *Handler) handleDescribeStream(
 		}
 	}
 
-	resp := jsonDescribeStreamResp{
+	return jsonDescribeStreamResp{
 		StreamDescription: jsonStreamDescription{
 			StreamName:           out.StreamName,
 			StreamARN:            out.StreamARN,
@@ -450,33 +421,25 @@ func (h *Handler) handleDescribeStream(
 			Shards:               shards,
 			HasMoreShards:        false,
 		},
-	}
-
-	httputil.WriteJSON(h.Logger, w, http.StatusOK, resp)
+	}, nil
 }
 
 func (h *Handler) handleDescribeStreamSummary(
 	_ context.Context,
-	w http.ResponseWriter,
 	_ *http.Request,
 	body []byte,
-	requestID string,
-) {
+) (any, error) {
 	var req jsonDescribeStreamReq
 	if err := json.Unmarshal(body, &req); err != nil {
-		h.writeError(w, ErrInvalidArgument, requestID)
-
-		return
+		return nil, ErrInvalidArgument
 	}
 
 	out, err := h.Backend.DescribeStream(&DescribeStreamInput{StreamName: req.StreamName})
 	if err != nil {
-		h.writeError(w, err, requestID)
-
-		return
+		return nil, err
 	}
 
-	resp := jsonDescribeStreamSummaryResp{
+	return jsonDescribeStreamSummaryResp{
 		StreamDescriptionSummary: jsonStreamDescriptionSummary{
 			StreamName:           out.StreamName,
 			StreamARN:            out.StreamARN,
@@ -484,18 +447,14 @@ func (h *Handler) handleDescribeStreamSummary(
 			RetentionPeriodHours: out.RetentionPeriodHours,
 			OpenShardCount:       len(out.Shards),
 		},
-	}
-
-	httputil.WriteJSON(h.Logger, w, http.StatusOK, resp)
+	}, nil
 }
 
 func (h *Handler) handleListStreams(
 	_ context.Context,
-	w http.ResponseWriter,
 	_ *http.Request,
 	body []byte,
-	requestID string,
-) {
+) (any, error) {
 	var req jsonListStreamsReq
 	_ = json.Unmarshal(body, &req)
 
@@ -504,9 +463,7 @@ func (h *Handler) handleListStreams(
 		NextToken: req.NextToken,
 	})
 	if err != nil {
-		h.writeError(w, err, requestID)
-
-		return
+		return nil, err
 	}
 
 	names := out.StreamNames
@@ -514,24 +471,20 @@ func (h *Handler) handleListStreams(
 		names = []string{}
 	}
 
-	httputil.WriteJSON(h.Logger, w, http.StatusOK, jsonListStreamsResp{
+	return jsonListStreamsResp{
 		StreamNames:    names,
 		HasMoreStreams: out.HasMoreStreams,
-	})
+	}, nil
 }
 
 func (h *Handler) handlePutRecord(
 	_ context.Context,
-	w http.ResponseWriter,
 	_ *http.Request,
 	body []byte,
-	requestID string,
-) {
+) (any, error) {
 	var req jsonPutRecordReq
 	if err := json.Unmarshal(body, &req); err != nil {
-		h.writeError(w, ErrInvalidArgument, requestID)
-
-		return
+		return nil, ErrInvalidArgument
 	}
 
 	out, err := h.Backend.PutRecord(&PutRecordInput{
@@ -540,29 +493,23 @@ func (h *Handler) handlePutRecord(
 		Data:         req.Data,
 	})
 	if err != nil {
-		h.writeError(w, err, requestID)
-
-		return
+		return nil, err
 	}
 
-	httputil.WriteJSON(h.Logger, w, http.StatusOK, jsonPutRecordResp{
+	return jsonPutRecordResp{
 		ShardID:        out.ShardID,
 		SequenceNumber: out.SequenceNumber,
-	})
+	}, nil
 }
 
 func (h *Handler) handlePutRecords(
 	_ context.Context,
-	w http.ResponseWriter,
 	_ *http.Request,
 	body []byte,
-	requestID string,
-) {
+) (any, error) {
 	var req jsonPutRecordsReq
 	if err := json.Unmarshal(body, &req); err != nil {
-		h.writeError(w, ErrInvalidArgument, requestID)
-
-		return
+		return nil, ErrInvalidArgument
 	}
 
 	entries := make([]PutRecordsEntry, len(req.Records))
@@ -578,9 +525,7 @@ func (h *Handler) handlePutRecords(
 		Records:    entries,
 	})
 	if err != nil {
-		h.writeError(w, err, requestID)
-
-		return
+		return nil, err
 	}
 
 	results := make([]jsonPutRecordsResultEntry, len(out.Records))
@@ -588,24 +533,20 @@ func (h *Handler) handlePutRecords(
 		results[i] = jsonPutRecordsResultEntry(r)
 	}
 
-	httputil.WriteJSON(h.Logger, w, http.StatusOK, jsonPutRecordsResp{
+	return jsonPutRecordsResp{
 		Records:           results,
 		FailedRecordCount: out.FailedRecordCount,
-	})
+	}, nil
 }
 
 func (h *Handler) handleGetShardIterator(
 	_ context.Context,
-	w http.ResponseWriter,
 	_ *http.Request,
 	body []byte,
-	requestID string,
-) {
+) (any, error) {
 	var req jsonGetShardIteratorReq
 	if err := json.Unmarshal(body, &req); err != nil {
-		h.writeError(w, ErrInvalidArgument, requestID)
-
-		return
+		return nil, ErrInvalidArgument
 	}
 
 	out, err := h.Backend.GetShardIterator(&GetShardIteratorInput{
@@ -615,28 +556,22 @@ func (h *Handler) handleGetShardIterator(
 		StartingSequenceNumber: req.StartingSequenceNumber,
 	})
 	if err != nil {
-		h.writeError(w, err, requestID)
-
-		return
+		return nil, err
 	}
 
-	httputil.WriteJSON(h.Logger, w, http.StatusOK, jsonGetShardIteratorResp{
+	return jsonGetShardIteratorResp{
 		ShardIterator: out.ShardIterator,
-	})
+	}, nil
 }
 
 func (h *Handler) handleGetRecords(
 	_ context.Context,
-	w http.ResponseWriter,
 	_ *http.Request,
 	body []byte,
-	requestID string,
-) {
+) (any, error) {
 	var req jsonGetRecordsReq
 	if err := json.Unmarshal(body, &req); err != nil {
-		h.writeError(w, ErrInvalidArgument, requestID)
-
-		return
+		return nil, ErrInvalidArgument
 	}
 
 	out, err := h.Backend.GetRecords(&GetRecordsInput{
@@ -644,9 +579,7 @@ func (h *Handler) handleGetRecords(
 		Limit:         req.Limit,
 	})
 	if err != nil {
-		h.writeError(w, err, requestID)
-
-		return
+		return nil, err
 	}
 
 	records := make([]jsonRecord, len(out.Records))
@@ -659,25 +592,21 @@ func (h *Handler) handleGetRecords(
 		}
 	}
 
-	httputil.WriteJSON(h.Logger, w, http.StatusOK, jsonGetRecordsResp{
+	return jsonGetRecordsResp{
 		Records:            records,
 		NextShardIterator:  out.NextShardIterator,
 		MillisBehindLatest: out.MillisBehindLatest,
-	})
+	}, nil
 }
 
 func (h *Handler) handleListShards(
 	_ context.Context,
-	w http.ResponseWriter,
 	_ *http.Request,
 	body []byte,
-	requestID string,
-) {
+) (any, error) {
 	var req jsonListShardsReq
 	if err := json.Unmarshal(body, &req); err != nil {
-		h.writeError(w, ErrInvalidArgument, requestID)
-
-		return
+		return nil, ErrInvalidArgument
 	}
 
 	out, err := h.Backend.ListShards(&ListShardsInput{
@@ -686,9 +615,7 @@ func (h *Handler) handleListShards(
 		MaxResults: req.MaxResults,
 	})
 	if err != nil {
-		h.writeError(w, err, requestID)
-
-		return
+		return nil, err
 	}
 
 	shards := make([]jsonShardDescription, len(out.Shards))
@@ -706,16 +633,7 @@ func (h *Handler) handleListShards(
 		}
 	}
 
-	httputil.WriteJSON(h.Logger, w, http.StatusOK, jsonListShardsResp{Shards: shards})
-}
-
-// writeError writes a JSON Kinesis error response.
-func (h *Handler) writeError(w http.ResponseWriter, err error, _ string) {
-	errType, message, status := errorDetails(err)
-	httputil.WriteJSON(h.Logger, w, status, jsonKinesisError{
-		Type:    errType,
-		Message: message,
-	})
+	return jsonListShardsResp{Shards: shards}, nil
 }
 
 // errorDetails maps an error to its Kinesis JSON error type, message, and HTTP status.
@@ -755,19 +673,16 @@ type handleAddTagsToStreamInput struct {
 
 func (h *Handler) handleAddTagsToStream(
 	_ context.Context,
-	w http.ResponseWriter,
 	_ *http.Request,
 	body []byte,
-	requestID string,
-) {
+) (any, error) {
 	var req handleAddTagsToStreamInput
 	if err := json.Unmarshal(body, &req); err != nil {
-		h.writeError(w, ErrInvalidArgument, requestID)
-
-		return
+		return nil, ErrInvalidArgument
 	}
 	h.setTags(req.StreamName, req.Tags)
-	httputil.WriteJSON(h.Logger, w, http.StatusOK, struct{}{})
+
+	return struct{}{}, nil
 }
 
 type handleRemoveTagsFromStreamInput struct {
@@ -777,33 +692,26 @@ type handleRemoveTagsFromStreamInput struct {
 
 func (h *Handler) handleRemoveTagsFromStream(
 	_ context.Context,
-	w http.ResponseWriter,
 	_ *http.Request,
 	body []byte,
-	requestID string,
-) {
+) (any, error) {
 	var req handleRemoveTagsFromStreamInput
 	if err := json.Unmarshal(body, &req); err != nil {
-		h.writeError(w, ErrInvalidArgument, requestID)
-
-		return
+		return nil, ErrInvalidArgument
 	}
 	h.removeTags(req.StreamName, req.TagKeys)
-	httputil.WriteJSON(h.Logger, w, http.StatusOK, struct{}{})
+
+	return struct{}{}, nil
 }
 
 func (h *Handler) handleListTagsForStream(
 	_ context.Context,
-	w http.ResponseWriter,
 	_ *http.Request,
 	body []byte,
-	requestID string,
-) {
+) (any, error) {
 	var req extractStreamNameInput
 	if err := json.Unmarshal(body, &req); err != nil {
-		h.writeError(w, ErrInvalidArgument, requestID)
-
-		return
+		return nil, ErrInvalidArgument
 	}
 	tags := h.getTags(req.StreamName)
 	type kinesisTag struct {
@@ -814,43 +722,38 @@ func (h *Handler) handleListTagsForStream(
 	for k, v := range tags {
 		tagList = append(tagList, kinesisTag{Key: k, Value: v})
 	}
-	httputil.WriteJSON(h.Logger, w, http.StatusOK, map[string]any{
+
+	return map[string]any{
 		"Tags":        tagList,
 		"HasMoreTags": false,
-	})
+	}, nil
 }
 
 func (h *Handler) handleIncreaseStreamRetentionPeriod(
 	_ context.Context,
-	w http.ResponseWriter,
 	_ *http.Request,
 	_ []byte,
-	_ string,
-) {
-	w.WriteHeader(http.StatusOK)
+) (any, error) {
+	return struct{}{}, nil
 }
 
 func (h *Handler) handleDecreaseStreamRetentionPeriod(
 	_ context.Context,
-	w http.ResponseWriter,
 	_ *http.Request,
 	_ []byte,
-	_ string,
-) {
-	w.WriteHeader(http.StatusOK)
+) (any, error) {
+	return struct{}{}, nil
 }
 
 const kinesisDefaultShardLimit = 500
 
 func (h *Handler) handleDescribeLimits(
 	_ context.Context,
-	w http.ResponseWriter,
 	_ *http.Request,
 	_ []byte,
-	_ string,
-) {
-	httputil.WriteJSON(h.Logger, w, http.StatusOK, map[string]any{
+) (any, error) {
+	return map[string]any{
 		"OpenShardCount": 0,
 		"ShardLimit":     kinesisDefaultShardLimit,
-	})
+	}, nil
 }
