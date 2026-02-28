@@ -173,6 +173,11 @@ func (b *InMemoryBackend) GetTopicAttributes(topicArn string) (map[string]string
 	attrs := make(map[string]string, len(topic.Attributes))
 	maps.Copy(attrs, topic.Attributes)
 
+	// Ensure Policy is always a valid JSON string so Terraform can parse it.
+	if attrs["Policy"] == "" {
+		attrs["Policy"] = "{}"
+	}
+
 	return attrs, nil
 }
 

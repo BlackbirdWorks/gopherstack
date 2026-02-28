@@ -424,6 +424,30 @@ func (h *Handler) iamPolicyBasicDispatchTable() map[string]iamActionFn {
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
+		"ListPolicyVersions": func(_ url.Values, reqID string) (any, error) {
+			type policyVersionXML struct {
+				VersionID        string `xml:"VersionId"`
+				IsDefaultVersion bool   `xml:"IsDefaultVersion"`
+			}
+			type listPolicyVersionsResult struct {
+				XMLName  xml.Name           `xml:"ListPolicyVersionsResult"`
+				Versions []policyVersionXML `xml:"Versions>member"`
+			}
+			type listPolicyVersionsResponse struct {
+				XMLName                  xml.Name                 `xml:"ListPolicyVersionsResponse"`
+				Xmlns                    string                   `xml:"xmlns,attr"`
+				ResponseMetadata         ResponseMetadata         `xml:"ResponseMetadata"`
+				ListPolicyVersionsResult listPolicyVersionsResult `xml:"ListPolicyVersionsResult"`
+			}
+
+			return &listPolicyVersionsResponse{
+				Xmlns: iamXMLNS,
+				ListPolicyVersionsResult: listPolicyVersionsResult{
+					Versions: []policyVersionXML{{VersionID: "v1", IsDefaultVersion: true}},
+				},
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
 	}
 }
 
@@ -502,6 +526,25 @@ func (h *Handler) iamPolicyAttachDispatchTable() map[string]iamActionFn {
 				Xmlns:                  iamXMLNS,
 				ListRolePoliciesResult: listRolePoliciesResult{PolicyNames: []string{}},
 				ResponseMetadata:       ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+		"ListInstanceProfilesForRole": func(_ url.Values, reqID string) (any, error) {
+			type listInstanceProfilesResult struct {
+				XMLName          xml.Name `xml:"ListInstanceProfilesForRoleResult"`
+				InstanceProfiles []any    `xml:"InstanceProfiles>member"`
+				IsTruncated      bool     `xml:"IsTruncated"`
+			}
+			type listInstanceProfilesResponse struct {
+				XMLName                           xml.Name                   `xml:"ListInstanceProfilesForRoleResponse"`
+				Xmlns                             string                     `xml:"xmlns,attr"`
+				ResponseMetadata                  ResponseMetadata           `xml:"ResponseMetadata"`
+				ListInstanceProfilesForRoleResult listInstanceProfilesResult `xml:"ListInstanceProfilesForRoleResult"`
+			}
+
+			return &listInstanceProfilesResponse{
+				Xmlns:                             iamXMLNS,
+				ListInstanceProfilesForRoleResult: listInstanceProfilesResult{InstanceProfiles: []any{}},
+				ResponseMetadata:                  ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
 	}

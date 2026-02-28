@@ -383,6 +383,9 @@ func (h *Handler) utilActions() map[string]actionFn {
 		"ValidateStateMachineDefinition": func(_ []byte) (any, error) {
 			return map[string]any{"result": "OK", "diagnostics": []any{}}, nil
 		},
+		"ListStateMachineVersions": func(_ []byte) (any, error) {
+			return map[string]any{"stateMachineVersions": []any{}}, nil
+		},
 	}
 }
 

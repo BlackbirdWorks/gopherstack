@@ -207,12 +207,12 @@ func (h *Handler) jsonDescribeCertificate(body []byte) (any, error) {
 	}
 
 	return map[string]any{
-		"Certificate": map[string]string{
+		"Certificate": map[string]any{
 			"CertificateArn": cert.ARN,
 			"DomainName":     cert.DomainName,
 			"Status":         cert.Status,
 			"Type":           cert.Type,
-			"CreatedAt":      cert.CreatedAt.Format("2006-01-02T15:04:05Z"),
+			"CreatedAt":      cert.CreatedAt.Unix(),
 		},
 	}, nil
 }

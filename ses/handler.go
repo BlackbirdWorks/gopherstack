@@ -399,10 +399,13 @@ type verifyEmailIdentityResponse struct {
 type verifyEmailIdentityResult struct{}
 
 type deleteIdentityResponse struct {
-	XMLName   xml.Name `xml:"DeleteIdentityResponse"`
-	Xmlns     string   `xml:"xmlns,attr"`
-	RequestID string   `xml:"ResponseMetadata>RequestId"`
+	XMLName   xml.Name             `xml:"DeleteIdentityResponse"`
+	Xmlns     string               `xml:"xmlns,attr"`
+	Result    deleteIdentityResult `xml:"DeleteIdentityResult"`
+	RequestID string               `xml:"ResponseMetadata>RequestId"`
 }
+
+type deleteIdentityResult struct{}
 
 type xmlMember struct {
 	Value string `xml:",chardata"`

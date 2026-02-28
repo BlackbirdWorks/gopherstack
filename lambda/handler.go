@@ -60,7 +60,10 @@ func hasSuffixCode(rest string) bool          { return strings.HasSuffix(rest, "
 func hasSuffixConfiguration(rest string) bool { return strings.HasSuffix(rest, "/configuration") }
 func hasSuffixInvocations(rest string) bool   { return strings.HasSuffix(rest, "/invocations") }
 func hasSuffixURL(rest string) bool           { return strings.HasSuffix(rest, "/url") }
-func hasSuffixVersions(rest string) bool      { return strings.HasSuffix(rest, "/versions") }
+func hasSuffixCodeSigningConfig(rest string) bool {
+	return strings.HasSuffix(rest, "/code-signing-config")
+}
+func hasSuffixVersions(rest string) bool { return strings.HasSuffix(rest, "/versions") }
 func hasSuffixAliasPath(rest string) bool {
 	trimmed := strings.TrimPrefix(rest, "/")
 	parts := strings.SplitN(trimmed, "/", 3) //nolint:mnd // split into name + "aliases" + optional alias name
@@ -284,6 +287,14 @@ func (h *Handler) buildCoreRoutes() []handlerEntry {
 				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/url")
 
 				return h.handleDeleteFunctionURLConfig(c, name)
+			},
+		},
+		{
+			method: http.MethodGet,
+			match:  hasSuffixCodeSigningConfig,
+			execute: func(c *echo.Context, _ string) error {
+				// Stub: no code signing config → empty 200 response.
+				return c.JSON(http.StatusOK, map[string]any{})
 			},
 		},
 	}
