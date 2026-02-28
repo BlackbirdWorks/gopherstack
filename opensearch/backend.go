@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // Errors returned by the OpenSearch backend.
@@ -63,7 +65,7 @@ func (b *InMemoryBackend) CreateDomain(name, engineVersion string, clusterConfig
 		engineVersion = "OpenSearch_2.11"
 	}
 
-	arn := fmt.Sprintf("arn:aws:es:%s:%s:domain/%s", b.region, b.accountID, name)
+	domainARN := arn.Build("es", b.region, b.accountID, "domain/"+name)
 	endpoint := fmt.Sprintf("search-%s-%s.%s.es.amazonaws.com", name, b.accountID, b.region)
 
 	if clusterConfig.InstanceCount == 0 {
@@ -76,7 +78,7 @@ func (b *InMemoryBackend) CreateDomain(name, engineVersion string, clusterConfig
 
 	d := &Domain{
 		Name:          name,
-		ARN:           arn,
+		ARN:           domainARN,
 		EngineVersion: engineVersion,
 		Endpoint:      endpoint,
 		Status:        "Active",

@@ -10,6 +10,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 )
 
 // StorageBackend defines the interface for a Kinesis backend.
@@ -36,7 +39,7 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new empty InMemoryBackend with default account/region.
 func NewInMemoryBackend() *InMemoryBackend {
-	return NewInMemoryBackendWithConfig(kinesisAccountID, kinesisRegion)
+	return NewInMemoryBackendWithConfig(config.DefaultAccountID, config.DefaultRegion)
 }
 
 // NewInMemoryBackendWithConfig creates a new InMemoryBackend with the given account ID and region.
@@ -130,11 +133,11 @@ func (b *InMemoryBackend) CreateStream(input *CreateStreamInput) error {
 		region = input.Region
 	}
 
-	arn := fmt.Sprintf("arn:aws:kinesis:%s:%s:stream/%s", region, accountID, input.StreamName)
+	streamARN := arn.Build("kinesis", region, accountID, "stream/"+input.StreamName)
 
 	b.streams[input.StreamName] = &Stream{
 		Name:            input.StreamName,
-		ARN:             arn,
+		ARN:             streamARN,
 		Status:          streamStatusActive,
 		Shards:          shards,
 		Tags:            make(map[string]string),

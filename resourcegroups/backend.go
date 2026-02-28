@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"maps"
 	"sync"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 var (
@@ -48,11 +50,11 @@ func (b *InMemoryBackend) CreateGroup(name, description string, tags map[string]
 		return nil, fmt.Errorf("%w: group %s already exists", ErrAlreadyExists, name)
 	}
 
-	arn := fmt.Sprintf("arn:aws:resource-groups:%s:%s:group/%s", b.region, b.accountID, name)
+	groupARN := arn.Build("resource-groups", b.region, b.accountID, "group/"+name)
 	t := make(map[string]string)
 	maps.Copy(t, tags)
 
-	g := &Group{Name: name, ARN: arn, Description: description, Tags: t}
+	g := &Group{Name: name, ARN: groupARN, Description: description, Tags: t}
 	b.groups[name] = g
 
 	cp := *g

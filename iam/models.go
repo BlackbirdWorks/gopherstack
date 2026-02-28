@@ -3,13 +3,15 @@ package iam
 import (
 	"encoding/xml"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 )
 
 // iamXMLNS is the IAM XML namespace used in all responses.
 const iamXMLNS = "https://iam.amazonaws.com/doc/2010-05-08/"
 
 // IAMAccountID is the dummy AWS account ID used in ARNs.
-const IAMAccountID = "000000000000"
+const IAMAccountID = config.DefaultAccountID
 
 // User represents an IAM user resource.
 type User struct {

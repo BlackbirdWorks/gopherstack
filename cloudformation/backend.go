@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 var (
@@ -87,8 +89,7 @@ func NewInMemoryBackendWithConfig(accountID, region string, creator *ResourceCre
 }
 
 func (b *InMemoryBackend) buildStackARN(stackName, stackID string) string {
-	return fmt.Sprintf("arn:aws:cloudformation:%s:%s:stack/%s/%s",
-		b.region, b.accountID, stackName, stackID)
+	return arn.Build("cloudformation", b.region, b.accountID, "stack/"+stackName+"/"+stackID)
 }
 
 func (b *InMemoryBackend) resolveStack(nameOrID string) (*Stack, bool) {

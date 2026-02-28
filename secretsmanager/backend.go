@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 var (
@@ -108,8 +110,7 @@ func generateRandomSuffix() string {
 
 // buildARNWithRegion constructs a Secrets Manager ARN using the given region.
 func (b *InMemoryBackend) buildARNWithRegion(region, name, suffix string) string {
-	return fmt.Sprintf("arn:aws:secretsmanager:%s:%s:secret:%s-%s",
-		region, b.accountID, name, suffix)
+	return arn.Build("secretsmanager", region, b.accountID, "secret:"+name+"-"+suffix)
 }
 
 // CreateSecret creates a new secret with an optional initial value.

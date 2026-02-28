@@ -74,7 +74,7 @@ import (
 
 const (
 	defaultPort     = "8000"
-	defaultRegion   = "us-east-1"
+	defaultRegion   = config.DefaultRegion
 	defaultTimeout  = 30 * time.Second
 	shutdownTimeout = 5 * time.Second
 )

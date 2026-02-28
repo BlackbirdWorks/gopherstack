@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"maps"
 	"slices"
 	"sort"
@@ -15,6 +14,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // StorageBackend defines the interface for an SQS backend.
@@ -164,7 +165,7 @@ func appendWithLength(buf, data []byte) []byte {
 // buildDefaultAttributes initialises the attribute map for a new queue.
 func buildDefaultAttributes(queueName, accountID, region string, isFIFO bool) map[string]string {
 	now := strconv.FormatInt(time.Now().Unix(), 10)
-	arn := fmt.Sprintf("arn:aws:sqs:%s:%s:%s", region, accountID, queueName)
+	queueARN := arn.Build("sqs", region, accountID, queueName)
 
 	attrs := map[string]string{
 		attrVisibilityTimeout:             strconv.Itoa(defaultVisibilityTimeout),
@@ -174,7 +175,7 @@ func buildDefaultAttributes(queueName, accountID, region string, isFIFO bool) ma
 		attrReceiveMessageWaitTimeSeconds: strconv.Itoa(defaultWaitTimeSeconds),
 		attrCreatedTimestamp:              now,
 		attrLastModifiedTimestamp:         now,
-		attrQueueArn:                      arn,
+		attrQueueArn:                      queueARN,
 		attrApproxMessagesDelayed:         attrValZero,
 	}
 

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"maps"
 	"sync"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 var (
@@ -62,10 +64,10 @@ func (b *InMemoryBackend) CreateSchedule(
 		return nil, fmt.Errorf("%w: schedule %s already exists", ErrAlreadyExists, name)
 	}
 
-	arn := fmt.Sprintf("arn:aws:scheduler:%s:%s:schedule/default/%s", b.region, b.accountID, name)
+	schedARN := arn.Build("scheduler", b.region, b.accountID, "schedule/default/"+name)
 	s := &Schedule{
 		Name:               name,
-		ARN:                arn,
+		ARN:                schedARN,
 		ScheduleExpression: expr,
 		Target:             target,
 		State:              state,

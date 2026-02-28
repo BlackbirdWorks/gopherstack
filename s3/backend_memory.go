@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -22,7 +23,7 @@ import (
 )
 
 const maxInt32 = 2147483647
-const defaultRegionName = "us-east-1"
+const defaultRegionName = config.DefaultRegion
 
 var _ StorageBackend = (*InMemoryBackend)(nil)
 

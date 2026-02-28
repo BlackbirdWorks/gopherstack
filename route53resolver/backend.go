@@ -6,6 +6,8 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 var (
@@ -73,10 +75,10 @@ func (b *InMemoryBackend) CreateResolverEndpoint(
 		dirPrefix = dirPrefix[:dirPrefixLen]
 	}
 	id := "rslvr-" + dirPrefix + "-" + uuid.New().String()[:8]
-	arn := fmt.Sprintf("arn:aws:route53resolver:%s:%s:resolver-endpoint/%s", b.region, b.accountID, id)
+	epARN := arn.Build("route53resolver", b.region, b.accountID, "resolver-endpoint/"+id)
 	ep := &ResolverEndpoint{
 		ID:          id,
-		ARN:         arn,
+		ARN:         epARN,
 		Name:        name,
 		Direction:   direction,
 		Status:      "OPERATIONAL",
@@ -140,10 +142,10 @@ func (b *InMemoryBackend) CreateResolverRule(name, domainName, ruleType, endpoin
 	defer b.mu.Unlock()
 
 	id := "rslvr-rr-" + uuid.New().String()[:8]
-	arn := fmt.Sprintf("arn:aws:route53resolver:%s:%s:resolver-rule/%s", b.region, b.accountID, id)
+	ruleARN := arn.Build("route53resolver", b.region, b.accountID, "resolver-rule/"+id)
 	r := &ResolverRule{
 		ID:                 id,
-		ARN:                arn,
+		ARN:                ruleARN,
 		Name:               name,
 		DomainName:         domainName,
 		RuleType:           ruleType,

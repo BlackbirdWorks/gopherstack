@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 var (
@@ -102,11 +104,11 @@ func (b *InMemoryBackend) SetDeliveryTargets(dt *DeliveryTargets) {
 }
 
 func (b *InMemoryBackend) busARN(name string) string {
-	return fmt.Sprintf("arn:aws:events:%s:%s:event-bus/%s", b.region, b.accountID, name)
+	return arn.Build("events", b.region, b.accountID, "event-bus/"+name)
 }
 
 func (b *InMemoryBackend) ruleARN(busName, ruleName string) string {
-	return fmt.Sprintf("arn:aws:events:%s:%s:rule/%s/%s", b.region, b.accountID, busName, ruleName)
+	return arn.Build("events", b.region, b.accountID, "rule/"+busName+"/"+ruleName)
 }
 
 func (b *InMemoryBackend) targetKey(busName, ruleName string) string {

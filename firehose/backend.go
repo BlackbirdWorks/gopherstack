@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 var (
@@ -49,10 +51,10 @@ func (b *InMemoryBackend) CreateDeliveryStream(name string) (*DeliveryStream, er
 		return nil, fmt.Errorf("%w: stream %s already exists", ErrAlreadyExists, name)
 	}
 
-	arn := fmt.Sprintf("arn:aws:firehose:%s:%s:deliverystream/%s", b.region, b.accountID, name)
+	streamARN := arn.Build("firehose", b.region, b.accountID, "deliverystream/"+name)
 	s := &DeliveryStream{
 		Name:      name,
-		ARN:       arn,
+		ARN:       streamARN,
 		Status:    "ACTIVE",
 		Records:   [][]byte{},
 		AccountID: b.accountID,

@@ -23,6 +23,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 )
@@ -214,7 +215,7 @@ func (b *InMemoryBackend) CreateEventSourceMapping(input *CreateEventSourceMappi
 		startingPosition = "TRIM_HORIZON"
 	}
 
-	fnARN := fmt.Sprintf("arn:aws:lambda:%s:%s:function:%s", b.region, b.accountID, input.FunctionName)
+	fnARN := arn.Build("lambda", b.region, b.accountID, "function:"+input.FunctionName)
 
 	m := &EventSourceMapping{
 		UUID:             id,
@@ -538,7 +539,7 @@ func writeFunctionURLBody(w http.ResponseWriter, resp lambdaURLResponse) {
 
 // buildURLARN constructs an ARN for a Lambda function URL.
 func buildURLARN(region, accountID, functionName string) string {
-	return fmt.Sprintf("arn:aws:lambda:%s:%s:function:%s", region, accountID, functionName)
+	return arn.Build("lambda", region, accountID, "function:"+functionName)
 }
 
 // CreateFunction stores a new Lambda function configuration.
@@ -951,12 +952,12 @@ func versionToFn(v *FunctionVersion) *FunctionConfiguration {
 
 // buildVersionARN constructs a Lambda function version ARN.
 func buildVersionARN(region, accountID, functionName, version string) string {
-	return fmt.Sprintf("arn:aws:lambda:%s:%s:function:%s:%s", region, accountID, functionName, version)
+	return arn.Build("lambda", region, accountID, "function:"+functionName+":"+version)
 }
 
 // buildAliasARN constructs a Lambda function alias ARN.
 func buildAliasARN(region, accountID, functionName, aliasName string) string {
-	return fmt.Sprintf("arn:aws:lambda:%s:%s:function:%s:%s", region, accountID, functionName, aliasName)
+	return arn.Build("lambda", region, accountID, "function:"+functionName+":"+aliasName)
 }
 
 // InvokeFunction invokes a Lambda function without a qualifier (equivalent to "$LATEST").

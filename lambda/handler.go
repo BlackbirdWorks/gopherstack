@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -983,7 +984,7 @@ func buildCodeLocation(fn *FunctionConfiguration) *FunctionCodeLocation {
 
 // buildARN constructs a Lambda function ARN.
 func buildARN(region, accountID, functionName string) string {
-	return fmt.Sprintf("arn:aws:lambda:%s:%s:function:%s", region, accountID, functionName)
+	return arn.Build("lambda", region, accountID, "function:"+functionName)
 }
 
 // defaultMemorySize is the default Lambda function memory in MB.

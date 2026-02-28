@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // notificationConfiguration mirrors the AWS S3 XML notification configuration
@@ -101,7 +103,7 @@ func buildS3EventPayload(eventName, configID, region, bucket, key, etag string, 
 			ConfigurationID: configID,
 			Bucket: s3EventBucket{
 				Name: bucket,
-				ARN:  fmt.Sprintf("arn:aws:s3:::%s", bucket),
+				ARN:  arn.BuildS3(bucket),
 			},
 			Object: s3EventObject{
 				Key:       key,
