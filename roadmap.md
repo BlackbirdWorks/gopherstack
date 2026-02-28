@@ -258,31 +258,49 @@ Two services in LocalStack's free tier that we don't have yet.
 
 ### v0.29 — Code Quality Refactor
 
-Clean pass across the entire codebase to enforce the style guide in `.github/instructions`. This must happen before the architectural changes in v0.30–v0.31.
+Clean pass across the entire codebase to enforce the style guide in `.github/instructions` and eliminate brittleness patterns found during audit. This must happen before the architectural changes in v0.30–v0.31.
 
-**Task 1: Eliminate `break` statements**
+**Task 1: Shared ARN builder + central constants**
+- Create `pkgs/arn/` package with `Build(service, region, accountID, resource string) string` helper
+- Replace all `fmt.Sprintf("arn:aws:...", region, accountID, ...)` across 10+ services with `arn.Build()` calls
+- Centralize default region (`"us-east-1"`) and default account ID (`"000000000000"`) into `pkgs/config/defaults.go` — remove per-service copies (`kinesis/types.go`, `iam/models.go`, `s3/backend_memory.go`, `cli.go`, etc.)
+
+**Task 2: Shared error package**
+- Create `pkgs/awserr/` with common sentinel errors: `ErrNotFound`, `ErrAlreadyExists`, `ErrInvalidParameter`, `ErrConflict`
+- Each service error (e.g. `ErrStreamNotFound`, `ErrQueueNotFound`, `ErrNoSuchBucket`) should wrap the shared sentinel so callers can use `errors.Is(err, awserr.ErrNotFound)` across any service
+- Keep service-specific error messages — only unify the sentinel identity
+- Ensure all error messages are lowercase, no trailing punctuation
+- Replace any `fmt.Errorf("...", err)` that should use `%w` for wrapping
+- Verify no code both logs and returns the same error (choose one)
+
+**Task 3: Reduce handler boilerplate**
+- Create a shared JSON-protocol dispatcher in `pkgs/service/` that handles: read body → extract action from header → dispatch to named handler → marshal error response
+- Refactor JSON-protocol services (DynamoDB, SSM, SQS, Kinesis, EventBridge, StepFunctions, Lambda, KMS, SecretsManager, CloudWatch Logs, Resource Groups, SWF) to use the shared dispatcher
+- Similarly consider a shared form-encoded XML dispatcher for EC2/IAM/SNS/Redshift/ElastiCache pattern
+- Centralize match priority constants into `pkgs/service/priorities.go` with documented priority scheme
+
+**Task 4: Eliminate `break` statements**
 - Audit every `for`/`switch` loop across all 29 service packages and `pkgs/`
 - Replace `break` in loops with extracted helper functions that use early `return`
 - Note: `switch` case fallthrough is fine — the rule targets loop `break` specifically
 
-**Task 2: Eliminate anonymous structs**
+**Task 5: Eliminate anonymous structs**
 - Audit all handler files for inline `var req struct { ... }` patterns (used heavily in request parsing)
 - Extract each into a named, unexported type (e.g., `type registerDomainInput struct { ... }`)
 - Ensure JSON/XML struct tags are preserved
 
-**Task 3: Interface compliance audit**
+**Task 6: Interface compliance audit**
 - Verify all service backends follow "accept interfaces, return concrete types"
 - Ensure all interfaces are small (1-3 methods) and defined near usage, not implementation
 - Check for any exported interfaces that shouldn't be — unexport where possible
 - Ensure `-er` suffix naming convention on single-method interfaces
 
-**Task 4: Error handling cleanup**
-- Ensure all errors are lowercase, no trailing punctuation
-- Replace any `fmt.Errorf("...", err)` that should use `%w` for wrapping
-- Verify no code both logs and returns the same error (choose one)
-- Consolidate duplicate sentinel errors across packages where appropriate
+**Task 7: Simplify `cli.go` wiring**
+- The current wiring code (`cli.go:515–1018`) uses manual index-based assignment and dozens of type assertions to concrete `*InMemoryBackend` types
+- Refactor cross-service wiring to use interfaces (e.g., `LambdaInvoker`, `QueueSender`, `TopicPublisher`) that backends implement directly, eliminating adapter structs
+- Consider a service registry pattern so adding a new service doesn't require touching 4+ locations in `cli.go`
 
-**Task 5: General style enforcement**
+**Task 8: General style enforcement**
 - Run `make lint-fix` across entire codebase
 - Ensure all exported types/functions/methods have doc comments starting with the name
 - Remove any `nolint` directives that can be fixed instead
