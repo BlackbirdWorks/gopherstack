@@ -1,4 +1,4 @@
-package integration_test
+package terraform_test
 
 import (
 	"context"

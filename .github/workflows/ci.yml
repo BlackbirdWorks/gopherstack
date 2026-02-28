@@ -43,7 +43,7 @@ jobs:
         run: |
           go tool gotestsum --format pkgname -- \
             -race -shuffle on -short -timeout 5m \
-            -coverprofile=unit-coverage.out -covermode=atomic \
+            -coverpkg=./... -coverprofile=unit-coverage.out -covermode=atomic \
             ./...
 
       - name: Upload Coverage
@@ -79,6 +79,32 @@ jobs:
           path: integration-coverage.out
           retention-days: 1
 
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: true
+
+      - name: Run Terraform Tests
+        run: |
+          go tool gotestsum --format pkgname -- \
+            -race -timeout 10m \
+            -coverpkg=./... -coverprofile=terraform-coverage.out -covermode=atomic \
+            ./test/terraform/...
+
+      - name: Upload Coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-coverage
+          path: terraform-coverage.out
+          retention-days: 1
+
   e2e:
     runs-on: ubuntu-latest
     steps:
@@ -111,7 +137,7 @@ jobs:
 
   coverage:
     runs-on: ubuntu-latest
-    needs: [unit, integration, e2e]
+    needs: [unit, integration, terraform, e2e]
     permissions:
       contents: write
       checks: write
@@ -138,7 +164,7 @@ jobs:
         run: |
           # Merge all coverage files into one
           echo "mode: atomic" > coverage.out
-          for f in unit-coverage.out integration-coverage.out e2e-coverage.out; do
+          for f in unit-coverage.out integration-coverage.out terraform-coverage.out e2e-coverage.out; do
             if [ -f "$f" ]; then
               tail -n +2 "$f" >> coverage.out
             fi

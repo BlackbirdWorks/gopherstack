@@ -1,4 +1,4 @@
-.PHONY: build install-deps lint lint-fix test integration-test e2e-test total-coverage clean demo all
+.PHONY: build install-deps lint lint-fix test integration-test terraform-test e2e-test total-coverage clean demo all
 
 BINARY_NAME=gopherstack
 
@@ -49,22 +49,28 @@ test:
 integration-test:
 	go tool gotestsum --format pkgname -- -race -shuffle on -timeout 10m ./test/integration/...
 
+terraform-test:
+	go tool gotestsum --format pkgname -- -race -timeout 10m ./test/terraform/...
+
 e2e-test:
 	go tool gotestsum --format pkgname -- -race -shuffle on -timeout 10m -tags=e2e ./test/e2e/...
 
 total-coverage:
 	@echo "Running unit tests with coverage..."
-	go tool gotestsum --format pkgname -- -race -shuffle on -short -timeout 5m -coverprofile=unit-coverage.out -covermode=atomic ./...
+	go tool gotestsum --format pkgname -- -race -shuffle on -short -timeout 5m -coverpkg=./... -coverprofile=unit-coverage.out -covermode=atomic ./...
 	@echo "Running integration tests with coverage..."
 	go tool gotestsum --format pkgname -- -race -shuffle on -timeout 10m -coverpkg=./... -coverprofile=integration-coverage.out -covermode=atomic ./test/integration/...
+	@echo "Running terraform tests with coverage..."
+	go tool gotestsum --format pkgname -- -race -timeout 10m -coverpkg=./... -coverprofile=terraform-coverage.out -covermode=atomic ./test/terraform/...
 	@echo "Running E2E tests with coverage..."
 	go tool gotestsum --format pkgname -- -race -shuffle on -timeout 10m -tags=e2e -coverpkg=./... -coverprofile=e2e-coverage.out -covermode=atomic ./test/e2e/...
 	@echo "Merging coverage profiles..."
 	@echo "mode: atomic" > coverage.out
 	@tail -n +2 unit-coverage.out >> coverage.out
 	@tail -n +2 integration-coverage.out >> coverage.out
+	@tail -n +2 terraform-coverage.out >> coverage.out
 	@tail -n +2 e2e-coverage.out >> coverage.out
-	@rm -f unit-coverage.out integration-coverage.out e2e-coverage.out
+	@rm -f unit-coverage.out integration-coverage.out terraform-coverage.out e2e-coverage.out
 	go tool cover -func=coverage.out | tail -1
 	go tool cover -html=coverage.out -o coverage.html
 
