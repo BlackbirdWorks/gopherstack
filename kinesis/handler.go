@@ -163,19 +163,22 @@ type kinesisDispatchFn func(ctx context.Context, w http.ResponseWriter, r *http.
 
 func (h *Handler) kinesisDispatchTable() map[string]kinesisDispatchFn {
 	return map[string]kinesisDispatchFn{
-		"CreateStream":          h.handleCreateStream,
-		"DeleteStream":          h.handleDeleteStream,
-		"DescribeStream":        h.handleDescribeStream,
-		"DescribeStreamSummary": h.handleDescribeStreamSummary,
-		"ListStreams":           h.handleListStreams,
-		"PutRecord":             h.handlePutRecord,
-		"PutRecords":            h.handlePutRecords,
-		"GetShardIterator":      h.handleGetShardIterator,
-		"GetRecords":            h.handleGetRecords,
-		"ListShards":            h.handleListShards,
-		"AddTagsToStream":       h.handleAddTagsToStream,
-		"RemoveTagsFromStream":  h.handleRemoveTagsFromStream,
-		"ListTagsForStream":     h.handleListTagsForStream,
+		"CreateStream":                  h.handleCreateStream,
+		"DeleteStream":                  h.handleDeleteStream,
+		"DescribeStream":                h.handleDescribeStream,
+		"DescribeStreamSummary":         h.handleDescribeStreamSummary,
+		"ListStreams":                   h.handleListStreams,
+		"PutRecord":                     h.handlePutRecord,
+		"PutRecords":                    h.handlePutRecords,
+		"GetShardIterator":              h.handleGetShardIterator,
+		"GetRecords":                    h.handleGetRecords,
+		"ListShards":                    h.handleListShards,
+		"AddTagsToStream":               h.handleAddTagsToStream,
+		"RemoveTagsFromStream":          h.handleRemoveTagsFromStream,
+		"ListTagsForStream":             h.handleListTagsForStream,
+		"IncreaseStreamRetentionPeriod": h.handleIncreaseStreamRetentionPeriod,
+		"DecreaseStreamRetentionPeriod": h.handleDecreaseStreamRetentionPeriod,
+		"DescribeLimits":                h.handleDescribeLimits,
 	}
 }
 
@@ -812,5 +815,40 @@ func (h *Handler) handleListTagsForStream(
 	httputil.WriteJSON(h.Logger, w, http.StatusOK, map[string]any{
 		"Tags":        tagList,
 		"HasMoreTags": false,
+	})
+}
+
+func (h *Handler) handleIncreaseStreamRetentionPeriod(
+	_ context.Context,
+	w http.ResponseWriter,
+	_ *http.Request,
+	_ []byte,
+	_ string,
+) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *Handler) handleDecreaseStreamRetentionPeriod(
+	_ context.Context,
+	w http.ResponseWriter,
+	_ *http.Request,
+	_ []byte,
+	_ string,
+) {
+	w.WriteHeader(http.StatusOK)
+}
+
+const kinesisDefaultShardLimit = 500
+
+func (h *Handler) handleDescribeLimits(
+	_ context.Context,
+	w http.ResponseWriter,
+	_ *http.Request,
+	_ []byte,
+	_ string,
+) {
+	httputil.WriteJSON(h.Logger, w, http.StatusOK, map[string]any{
+		"OpenShardCount": 0,
+		"ShardLimit":     kinesisDefaultShardLimit,
 	})
 }

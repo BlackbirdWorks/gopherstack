@@ -87,6 +87,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"AttachUserPolicy", "AttachRolePolicy",
 		"DetachRolePolicy",
 		"ListAttachedUserPolicies", "ListAttachedRolePolicies",
+		"ListRolePolicies",
 		"CreateGroup", "DeleteGroup", "AddUserToGroup",
 		"CreateAccessKey", "DeleteAccessKey", "ListAccessKeys",
 		"CreateInstanceProfile", "DeleteInstanceProfile", "ListInstanceProfiles",
@@ -481,6 +482,26 @@ func (h *Handler) iamPolicyAttachDispatchTable() map[string]iamActionFn {
 				Xmlns:                          iamXMLNS,
 				ListAttachedRolePoliciesResult: ListAttachedRolePoliciesResult{AttachedPolicies: xmlPolicies},
 				ResponseMetadata:               ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+		"ListRolePolicies": func(_ url.Values, reqID string) (any, error) {
+			// Stub: return empty list of inline policy names.
+			type listRolePoliciesResult struct {
+				XMLName     xml.Name `xml:"ListRolePoliciesResult"`
+				PolicyNames []string `xml:"PolicyNames>member"`
+				IsTruncated bool     `xml:"IsTruncated"`
+			}
+			type listRolePoliciesResponse struct {
+				XMLName                xml.Name               `xml:"ListRolePoliciesResponse"`
+				Xmlns                  string                 `xml:"xmlns,attr"`
+				ResponseMetadata       ResponseMetadata       `xml:"ResponseMetadata"`
+				ListRolePoliciesResult listRolePoliciesResult `xml:"ListRolePoliciesResult"`
+			}
+
+			return &listRolePoliciesResponse{
+				Xmlns:                  iamXMLNS,
+				ListRolePoliciesResult: listRolePoliciesResult{PolicyNames: []string{}},
+				ResponseMetadata:       ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
 	}

@@ -1,7 +1,7 @@
 package acm_test
 
 import (
-	"encoding/xml"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -19,11 +19,13 @@ func newACMHandler() *acm.Handler {
 	return acm.NewHandler(acm.NewInMemoryBackend("000000000000", "us-east-1"), slog.Default())
 }
 
-func postACMForm(t *testing.T, h *acm.Handler, body string) *httptest.ResponseRecorder {
+// postACMJSON sends an ACM JSON-protocol request with the given target and body.
+func postACMJSON(t *testing.T, h *acm.Handler, target, body string) *httptest.ResponseRecorder {
 	t.Helper()
 
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+	req.Header.Set("X-Amz-Target", "CertificateManager."+target)
 
 	rec := httptest.NewRecorder()
 
@@ -40,41 +42,38 @@ func TestACMHandler_RequestCertificate(t *testing.T) {
 	t.Parallel()
 
 	h := newACMHandler()
-	rec := postACMForm(t, h, "Action=RequestCertificate&Version=2015-12-08&DomainName=example.com")
+	rec := postACMJSON(t, h, "RequestCertificate", `{"DomainName":"example.com"}`)
 
 	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "RequestCertificateResponse")
-	assert.Contains(t, rec.Body.String(), "arn:aws:acm:")
+
+	var out map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Contains(t, out["CertificateArn"], "arn:aws:acm:")
 }
 
 func TestACMHandler_RequestCertificate_EmptyDomain(t *testing.T) {
 	t.Parallel()
 
 	h := newACMHandler()
-	rec := postACMForm(t, h, "Action=RequestCertificate&Version=2015-12-08&DomainName=")
+	rec := postACMJSON(t, h, "RequestCertificate", `{"DomainName":""}`)
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "ErrorResponse")
 }
 
 func TestACMHandler_DescribeCertificate(t *testing.T) {
 	t.Parallel()
 
 	h := newACMHandler()
-	rec := postACMForm(t, h, "Action=RequestCertificate&Version=2015-12-08&DomainName=describe-test.com")
+	rec := postACMJSON(t, h, "RequestCertificate", `{"DomainName":"describe-test.com"}`)
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	// Extract ARN from response
-	type reqResp struct {
-		XMLName xml.Name `xml:"RequestCertificateResponse"`
-		ARN     string   `xml:"RequestCertificateResult>CertificateArn"`
-	}
-	var result reqResp
-	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &result))
+	var created map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	arn := created["CertificateArn"]
 
-	rec2 := postACMForm(t, h, "Action=DescribeCertificate&Version=2015-12-08&CertificateArn="+result.ARN)
+	body, _ := json.Marshal(map[string]string{"CertificateArn": arn})
+	rec2 := postACMJSON(t, h, "DescribeCertificate", string(body))
 	assert.Equal(t, http.StatusOK, rec2.Code)
-	assert.Contains(t, rec2.Body.String(), "DescribeCertificateResponse")
 	assert.Contains(t, rec2.Body.String(), "describe-test.com")
 }
 
@@ -82,12 +81,11 @@ func TestACMHandler_ListCertificates(t *testing.T) {
 	t.Parallel()
 
 	h := newACMHandler()
-	postACMForm(t, h, "Action=RequestCertificate&Version=2015-12-08&DomainName=list1.com")
-	postACMForm(t, h, "Action=RequestCertificate&Version=2015-12-08&DomainName=list2.com")
+	postACMJSON(t, h, "RequestCertificate", `{"DomainName":"list1.com"}`)
+	postACMJSON(t, h, "RequestCertificate", `{"DomainName":"list2.com"}`)
 
-	rec := postACMForm(t, h, "Action=ListCertificates&Version=2015-12-08")
+	rec := postACMJSON(t, h, "ListCertificates", `{}`)
 	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "ListCertificatesResponse")
 	assert.Contains(t, rec.Body.String(), "list1.com")
 	assert.Contains(t, rec.Body.String(), "list2.com")
 }
@@ -96,45 +94,49 @@ func TestACMHandler_DeleteCertificate(t *testing.T) {
 	t.Parallel()
 
 	h := newACMHandler()
-	rec := postACMForm(t, h, "Action=RequestCertificate&Version=2015-12-08&DomainName=delete-cert.com")
+	rec := postACMJSON(t, h, "RequestCertificate", `{"DomainName":"delete-cert.com"}`)
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	type reqResp struct {
-		XMLName xml.Name `xml:"RequestCertificateResponse"`
-		ARN     string   `xml:"RequestCertificateResult>CertificateArn"`
-	}
-	var result reqResp
-	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &result))
+	var created map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	arn := created["CertificateArn"]
 
-	rec2 := postACMForm(t, h, "Action=DeleteCertificate&Version=2015-12-08&CertificateArn="+result.ARN)
+	body, _ := json.Marshal(map[string]string{"CertificateArn": arn})
+	rec2 := postACMJSON(t, h, "DeleteCertificate", string(body))
 	assert.Equal(t, http.StatusOK, rec2.Code)
-	assert.Contains(t, rec2.Body.String(), "DeleteCertificateResponse")
 }
 
 func TestACMHandler_DescribeCertificate_NotFound(t *testing.T) {
 	t.Parallel()
 
-	const notFoundForm = "Action=DescribeCertificate&Version=2015-12-08" +
-		"&CertificateArn=arn:aws:acm:us-east-1:000000000000:certificate/nonexistent"
-
+	const arn = "arn:aws:acm:us-east-1:000000000000:certificate/nonexistent"
 	h := newACMHandler()
-	rec := postACMForm(t, h, notFoundForm)
+	body, _ := json.Marshal(map[string]string{"CertificateArn": arn})
+	rec := postACMJSON(t, h, "DescribeCertificate", string(body))
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "ErrorResponse")
 }
 
 func TestACMHandler_InvalidAction(t *testing.T) {
 	t.Parallel()
 
 	h := newACMHandler()
-	rec := postACMForm(t, h, "Action=InvalidAction&Version=2015-12-08")
+	rec := postACMJSON(t, h, "InvalidAction", `{}`)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestACMHandler_MissingAction(t *testing.T) {
 	t.Parallel()
 
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+	// No X-Amz-Target header
+	rec := httptest.NewRecorder()
+
 	h := newACMHandler()
-	rec := postACMForm(t, h, "Version=2015-12-08")
+	e := echo.New()
+	c := e.NewContext(req, rec)
+
+	err := h.Handler()(c)
+	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }

@@ -20,12 +20,13 @@ import (
 )
 
 const (
-	route53PathPrefix  = "/2013-04-01/"
-	route53HostedZone  = "/2013-04-01/hostedzone"
-	route53Namespace   = "https://route53.amazonaws.com/doc/2013-04-01/"
-	route53RRSetSuffix = "/rrset"
-	route53HZPrefix    = "/2013-04-01/hostedzone/"
-	route53TagsPrefix  = "/2013-04-01/tags/"
+	route53PathPrefix   = "/2013-04-01/"
+	route53HostedZone   = "/2013-04-01/hostedzone"
+	route53Namespace    = "https://route53.amazonaws.com/doc/2013-04-01/"
+	route53RRSetSuffix  = "/rrset"
+	route53HZPrefix     = "/2013-04-01/hostedzone/"
+	route53TagsPrefix   = "/2013-04-01/tags/"
+	route53ChangePrefix = "/2013-04-01/change/"
 	// matchPriority is higher than path-based dashboard (50) but lower than header-based services (100).
 	matchPriority = 80
 	// zoneIDAndRest is the number of parts when splitting a zone path at the first "/".
@@ -143,6 +144,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 func (h *Handler) routeRequest(c *echo.Context, path, method string) error {
 	isHZPath := strings.HasPrefix(path, route53HZPrefix)
 	isTagsPath := strings.HasPrefix(path, route53TagsPrefix)
+	isChangePath := strings.HasPrefix(path, route53ChangePrefix)
 
 	switch {
 	case path == route53HostedZone && method == http.MethodPost:
@@ -161,6 +163,8 @@ func (h *Handler) routeRequest(c *echo.Context, path, method string) error {
 		return h.listTagsForResource(c, path)
 	case isTagsPath && method == http.MethodPost:
 		return h.changeTagsForResource(c)
+	case isChangePath && method == http.MethodGet:
+		return h.getChange(c, path)
 	default:
 		return xmlError(c, http.StatusNotFound, "NoSuchOperation",
 			fmt.Sprintf("unknown Route53 endpoint: %s %s", method, path))
@@ -557,6 +561,24 @@ func (h *Handler) listTagsForResource(c *echo.Context, path string) error {
 	resp.ResourceTagSet.Tags = tagList
 
 	return writeXML(c, http.StatusOK, resp)
+}
+
+// getChange stubs the Route53 GetChange API, always returning INSYNC so callers don't wait.
+func (h *Handler) getChange(c *echo.Context, path string) error {
+	type getChangeResp struct {
+		XMLName    xml.Name      `xml:"GetChangeResponse"`
+		Xmlns      string        `xml:"xmlns,attr"`
+		ChangeInfo xmlChangeInfo `xml:"ChangeInfo"`
+	}
+
+	return writeXML(c, http.StatusOK, getChangeResp{
+		Xmlns: route53Namespace,
+		ChangeInfo: xmlChangeInfo{
+			ID:          "/" + path,
+			Status:      "INSYNC",
+			SubmittedAt: time.Now(),
+		},
+	})
 }
 
 func (h *Handler) changeTagsForResource(c *echo.Context) error {

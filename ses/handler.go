@@ -390,10 +390,13 @@ type sesErrorResponse struct {
 }
 
 type verifyEmailIdentityResponse struct {
-	XMLName   xml.Name `xml:"VerifyEmailIdentityResponse"`
-	Xmlns     string   `xml:"xmlns,attr"`
-	RequestID string   `xml:"ResponseMetadata>RequestId"`
+	XMLName   xml.Name                  `xml:"VerifyEmailIdentityResponse"`
+	Xmlns     string                    `xml:"xmlns,attr"`
+	Result    verifyEmailIdentityResult `xml:"VerifyEmailIdentityResult"`
+	RequestID string                    `xml:"ResponseMetadata>RequestId"`
 }
+
+type verifyEmailIdentityResult struct{}
 
 type deleteIdentityResponse struct {
 	XMLName   xml.Name `xml:"DeleteIdentityResponse"`

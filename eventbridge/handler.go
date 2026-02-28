@@ -449,18 +449,30 @@ func (h *Handler) tagActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
+			tagMap := h.getTags(input.ResourceARN)
+			tagList := make([]map[string]string, 0, len(tagMap))
+			for k, v := range tagMap {
+				tagList = append(tagList, map[string]string{"Key": k, "Value": v})
+			}
 
-			return map[string]any{"Tags": h.getTags(input.ResourceARN)}, nil
+			return map[string]any{"Tags": tagList}, nil
 		},
 		"TagResource": func(b []byte) (any, error) {
 			var input struct {
-				Tags        map[string]string `json:"Tags"`
-				ResourceARN string            `json:"ResourceARN"`
+				ResourceARN string `json:"ResourceARN"`
+				Tags        []struct {
+					Key   string `json:"Key"`
+					Value string `json:"Value"`
+				} `json:"Tags"`
 			}
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			h.setTags(input.ResourceARN, input.Tags)
+			kv := make(map[string]string, len(input.Tags))
+			for _, t := range input.Tags {
+				kv[t.Key] = t.Value
+			}
+			h.setTags(input.ResourceARN, kv)
 
 			return map[string]any{}, nil
 		},

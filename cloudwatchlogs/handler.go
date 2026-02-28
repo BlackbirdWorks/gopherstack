@@ -77,6 +77,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListTagsForResource",
 		"TagLogGroup",
 		"UntagLogGroup",
+		"PutRetentionPolicy",
+		"DeleteRetentionPolicy",
 	}
 }
 
@@ -383,6 +385,13 @@ func (h *Handler) logTagActions() map[string]actionFn {
 			}
 			h.removeTags(input.LogGroupName, input.Tags)
 
+			return struct{}{}, nil
+		},
+		"PutRetentionPolicy": func(_ []byte) (any, error) {
+			// Stub: accept any retention days, return success.
+			return struct{}{}, nil
+		},
+		"DeleteRetentionPolicy": func(_ []byte) (any, error) {
 			return struct{}{}, nil
 		},
 	}

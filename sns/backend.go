@@ -118,6 +118,10 @@ func (b *InMemoryBackend) CreateTopicInRegion(name, region string, attributes ma
 	attrs := make(map[string]string, len(attributes)+1)
 	maps.Copy(attrs, attributes)
 	attrs["TopicArn"] = topicArn
+	// Ensure Policy is a valid JSON string so Terraform can parse it.
+	if attrs["Policy"] == "" {
+		attrs["Policy"] = "{}"
+	}
 
 	topic := &Topic{TopicArn: topicArn, Attributes: attrs}
 	b.topics[topicArn] = topic

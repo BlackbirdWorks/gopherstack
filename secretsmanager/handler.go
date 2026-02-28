@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"strings"
 
@@ -170,7 +171,16 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 type smActionFn func(ctx context.Context, region string, body []byte) (any, error)
 
-func (h *Handler) smDispatchTable() map[string]smActionFn { //nolint:gocognit
+func (h *Handler) smDispatchTable() map[string]smActionFn {
+	table := make(map[string]smActionFn)
+	maps.Copy(table, h.smCRUDActions())
+	maps.Copy(table, h.smTagActions())
+	maps.Copy(table, h.smPolicyActions())
+
+	return table
+}
+
+func (h *Handler) smCRUDActions() map[string]smActionFn {
 	return map[string]smActionFn{
 		"CreateSecret": func(_ context.Context, region string, b []byte) (any, error) {
 			var input CreateSecretInput
@@ -237,6 +247,19 @@ func (h *Handler) smDispatchTable() map[string]smActionFn { //nolint:gocognit
 
 			return h.Backend.RestoreSecret(&input)
 		},
+		"RotateSecret": func(ctx context.Context, region string, b []byte) (any, error) {
+			var input RotateSecretInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.rotateSecret(ctx, region, &input)
+		},
+	}
+}
+
+func (h *Handler) smTagActions() map[string]smActionFn {
+	return map[string]smActionFn{
 		"TagResource": func(_ context.Context, _ string, b []byte) (any, error) {
 			var input TagResourceInput
 			if err := json.Unmarshal(b, &input); err != nil {
@@ -253,13 +276,26 @@ func (h *Handler) smDispatchTable() map[string]smActionFn { //nolint:gocognit
 
 			return struct{}{}, h.Backend.UntagResource(&input)
 		},
-		"RotateSecret": func(ctx context.Context, region string, b []byte) (any, error) {
-			var input RotateSecretInput
+	}
+}
+
+func (h *Handler) smPolicyActions() map[string]smActionFn {
+	return map[string]smActionFn{
+		"GetResourcePolicy": func(_ context.Context, _ string, b []byte) (any, error) {
+			var input struct {
+				SecretID string `json:"SecretId"`
+			}
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 
-			return h.rotateSecret(ctx, region, &input)
+			return map[string]string{"ARN": input.SecretID, "Name": input.SecretID}, nil
+		},
+		"PutResourcePolicy": func(_ context.Context, _ string, _ []byte) (any, error) {
+			return struct{}{}, nil
+		},
+		"DeleteResourcePolicy": func(_ context.Context, _ string, _ []byte) (any, error) {
+			return struct{}{}, nil
 		},
 	}
 }

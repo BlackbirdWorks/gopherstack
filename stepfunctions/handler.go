@@ -372,8 +372,18 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 	table := make(map[string]actionFn)
 	maps.Copy(table, h.stateMachineActions())
 	maps.Copy(table, h.executionActions())
+	maps.Copy(table, h.utilActions())
 
 	return table
+}
+
+// utilActions returns stubs for utility operations like definition validation.
+func (h *Handler) utilActions() map[string]actionFn {
+	return map[string]actionFn{
+		"ValidateStateMachineDefinition": func(_ []byte) (any, error) {
+			return map[string]any{"result": "OK", "diagnostics": []any{}}, nil
+		},
+	}
 }
 
 // dispatch routes the action to the correct handler function.
