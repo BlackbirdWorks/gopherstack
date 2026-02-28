@@ -45,6 +45,7 @@ type StorageBackend interface {
 	Unsubscribe(subscriptionArn string) error
 	ListSubscriptions(nextToken string) ([]Subscription, string, error)
 	ListSubscriptionsByTopic(topicArn, nextToken string) ([]Subscription, string, error)
+	GetSubscriptionAttributes(subscriptionArn string) (map[string]string, error)
 	Publish(topicArn, message, subject, messageStructure string, attrs map[string]MessageAttribute) (string, error)
 	ListAllTopics() []Topic
 	ListAllSubscriptions() []Subscription
@@ -246,6 +247,25 @@ func (b *InMemoryBackend) ConfirmSubscription(topicArn, token string) (*Subscrip
 	}
 
 	return nil, ErrSubscriptionNotFound
+}
+
+// GetSubscriptionAttributes returns the attributes of a subscription.
+func (b *InMemoryBackend) GetSubscriptionAttributes(subscriptionArn string) (map[string]string, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	sub, exists := b.subscriptions[subscriptionArn]
+	if !exists {
+		return nil, ErrSubscriptionNotFound
+	}
+
+	return map[string]string{
+		"SubscriptionArn": sub.SubscriptionArn,
+		"TopicArn":        sub.TopicArn,
+		"Protocol":        sub.Protocol,
+		"Endpoint":        sub.Endpoint,
+		"Owner":           sub.Owner,
+	}, nil
 }
 
 // ListSubscriptions returns a page of subscriptions and the next pagination token.

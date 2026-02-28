@@ -76,6 +76,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListRetirableGrants",
 		"PutKeyPolicy",
 		"GetKeyPolicy",
+		"ListResourceTags",
+		"TagResource",
+		"UntagResource",
 	}
 }
 
@@ -409,6 +412,22 @@ func (h *Handler) buildGrantPolicyActions() map[string]kmsActionFn {
 			}
 
 			return h.Backend.GetKeyPolicy(&input)
+		},
+		"ListResourceTags": func(_ string, b []byte) (any, error) {
+			var input struct {
+				KeyId string `json:"KeyId"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return map[string]any{"Tags": []any{}, "Truncated": false}, nil
+		},
+		"TagResource": func(_ string, _ []byte) (any, error) {
+			return struct{}{}, nil
+		},
+		"UntagResource": func(_ string, _ []byte) (any, error) {
+			return struct{}{}, nil
 		},
 	}
 }

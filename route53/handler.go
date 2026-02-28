@@ -23,6 +23,7 @@ const (
 	route53Namespace   = "https://route53.amazonaws.com/doc/2013-04-01/"
 	route53RRSetSuffix = "/rrset"
 	route53HZPrefix    = "/2013-04-01/hostedzone/"
+	route53TagsPrefix  = "/2013-04-01/tags/"
 	// matchPriority is higher than path-based dashboard (50) but lower than header-based services (100).
 	matchPriority = 80
 	// zoneIDAndRest is the number of parts when splitting a zone path at the first "/".
@@ -66,6 +67,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetHostedZone",
 		"ChangeResourceRecordSets",
 		"ListResourceRecordSets",
+		"ListTagsForResource",
+		"ChangeTagsForResource",
 	}
 }
 
@@ -109,6 +112,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 //nolint:cyclop // routing switch inherently requires multiple cases
 func (h *Handler) routeRequest(c *echo.Context, path, method string) error {
 	isHZPath := strings.HasPrefix(path, route53HZPrefix)
+	isTagsPath := strings.HasPrefix(path, route53TagsPrefix)
 
 	switch {
 	case path == route53HostedZone && method == http.MethodPost:
@@ -123,6 +127,10 @@ func (h *Handler) routeRequest(c *echo.Context, path, method string) error {
 		return h.deleteHostedZone(c)
 	case isHZPath && method == http.MethodGet:
 		return h.getHostedZone(c)
+	case isTagsPath && method == http.MethodGet:
+		return h.listTagsForResource(c, path)
+	case isTagsPath && method == http.MethodPost:
+		return h.changeTagsForResource(c)
 	default:
 		return xmlError(c, http.StatusNotFound, "NoSuchOperation",
 			fmt.Sprintf("unknown Route53 endpoint: %s %s", method, path))
@@ -476,6 +484,46 @@ func toXMLHostedZone(hz *HostedZone) xmlHostedZone {
 		},
 		ResourceRecordSetCount: hz.ResourceRecordSetCount,
 	}
+}
+
+func (h *Handler) listTagsForResource(c *echo.Context, path string) error {
+	rest := strings.TrimPrefix(path, route53TagsPrefix)
+	parts := strings.SplitN(rest, "/", 2) //nolint:mnd // split into type + id
+	resourceType := ""
+	resourceID := ""
+
+	if len(parts) >= 1 {
+		resourceType = parts[0]
+	}
+
+	if len(parts) >= 2 { //nolint:mnd
+		resourceID = parts[1]
+	}
+
+	type tagsResp struct {
+		XMLName        xml.Name `xml:"ListTagsForResourceResponse"`
+		Xmlns          string   `xml:"xmlns,attr"`
+		ResourceTagSet struct {
+			ResourceType string   `xml:"ResourceType"`
+			ResourceID   string   `xml:"ResourceId"`
+			Tags         struct{} `xml:"Tags"`
+		} `xml:"ResourceTagSet"`
+	}
+
+	resp := tagsResp{Xmlns: route53Namespace}
+	resp.ResourceTagSet.ResourceType = resourceType
+	resp.ResourceTagSet.ResourceID = resourceID
+
+	return writeXML(c, http.StatusOK, resp)
+}
+
+func (h *Handler) changeTagsForResource(c *echo.Context) error {
+	type changeTagsResp struct {
+		XMLName xml.Name `xml:"ChangeTagsForResourceResponse"`
+		Xmlns   string   `xml:"xmlns,attr"`
+	}
+
+	return writeXML(c, http.StatusOK, changeTagsResp{Xmlns: route53Namespace})
 }
 
 // writeXML marshals v to XML and writes it to the response.

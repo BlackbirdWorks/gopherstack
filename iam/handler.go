@@ -61,6 +61,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateGroup", "DeleteGroup", "AddUserToGroup",
 		"CreateAccessKey", "DeleteAccessKey", "ListAccessKeys",
 		"CreateInstanceProfile", "DeleteInstanceProfile", "ListInstanceProfiles",
+		"ListRoleTags", "TagRole", "UntagRole",
+		"ListPolicyTags", "TagPolicy", "UntagPolicy",
+		"ListUserTags", "TagUser", "UntagUser",
 	}
 }
 
@@ -203,6 +206,7 @@ func (h *Handler) buildDispatchTable() map[string]iamActionFn {
 		h.iamGroupDispatchTable(),
 		h.iamAccessKeyDispatchTable(),
 		h.iamInstanceProfileDispatchTable(),
+		h.iamTagDispatchTable(),
 	}
 
 	combined := make(map[string]iamActionFn)
@@ -566,6 +570,41 @@ func (h *Handler) iamInstanceProfileDispatchTable() map[string]iamActionFn {
 				ResponseMetadata:           ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
+	}
+}
+
+func (h *Handler) iamTagDispatchTable() map[string]iamActionFn {
+	emptyTagsResult := func(_ url.Values, reqID string) (any, error) {
+		return &struct {
+			Xmlns            string           `xml:"xmlns,attr"`
+			IsTruncated      bool             `xml:"IsTruncated"`
+			Tags             struct{}         `xml:"Tags"`
+			ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
+		}{
+			Xmlns:            iamXMLNS,
+			ResponseMetadata: ResponseMetadata{RequestID: reqID},
+		}, nil
+	}
+	noopFn := func(_ url.Values, reqID string) (any, error) {
+		return &struct {
+			Xmlns            string           `xml:"xmlns,attr"`
+			ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
+		}{
+			Xmlns:            iamXMLNS,
+			ResponseMetadata: ResponseMetadata{RequestID: reqID},
+		}, nil
+	}
+
+	return map[string]iamActionFn{
+		"ListRoleTags":   emptyTagsResult,
+		"ListPolicyTags": emptyTagsResult,
+		"ListUserTags":   emptyTagsResult,
+		"TagRole":        noopFn,
+		"UntagRole":      noopFn,
+		"TagPolicy":      noopFn,
+		"UntagPolicy":    noopFn,
+		"TagUser":        noopFn,
+		"UntagUser":      noopFn,
 	}
 }
 

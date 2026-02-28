@@ -1,6 +1,7 @@
 package sns
 
 import (
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -57,6 +58,10 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListSubscriptionsByTopic",
 		"Publish",
 		"PublishBatch",
+		"GetSubscriptionAttributes",
+		"ListTagsForResource",
+		"TagResource",
+		"UntagResource",
 	}
 }
 
@@ -165,6 +170,18 @@ func (h *Handler) dispatch(c *echo.Context, action string) error {
 		return h.handlePublish(c)
 	case "PublishBatch":
 		return h.handlePublishBatch(c)
+	case "GetSubscriptionAttributes":
+		return h.handleGetSubscriptionAttributes(c)
+	case "ListTagsForResource":
+		return h.handleListTagsForResource(c)
+	case "TagResource":
+		return h.writeXML(c, struct {
+			XMLName xml.Name `xml:"https://sns.amazonaws.com/doc/2010-03-31/ TagResourceResponse"`
+		}{})
+	case "UntagResource":
+		return h.writeXML(c, struct {
+			XMLName xml.Name `xml:"https://sns.amazonaws.com/doc/2010-03-31/ UntagResourceResponse"`
+		}{})
 	default:
 		return h.writeError(c, http.StatusBadRequest, "InvalidAction",
 			fmt.Sprintf("Action %s is not valid for this endpoint", action))
@@ -432,6 +449,38 @@ func (h *Handler) handlePublishBatch(c *echo.Context) error {
 	return h.writeXML(c, PublishBatchResponse{
 		PublishBatchResult: PublishBatchResult{Successful: successful, Failed: failed},
 		ResponseMetadata:   ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleGetSubscriptionAttributes(c *echo.Context) error {
+	subscriptionArn := c.Request().FormValue("SubscriptionArn")
+	if subscriptionArn == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "SubscriptionArn is required")
+	}
+
+	attrs, err := h.Backend.GetSubscriptionAttributes(subscriptionArn)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	entries := attrsToEntries(attrs)
+
+	return h.writeXML(c, GetSubscriptionAttributesResponse{
+		GetSubscriptionAttributesResult: GetSubscriptionAttributesResult{Attributes: entries},
+		ResponseMetadata:                ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleListTagsForResource(c *echo.Context) error {
+	return h.writeXML(c, struct {
+		XMLName xml.Name `xml:"https://sns.amazonaws.com/doc/2010-03-31/ ListTagsForResourceResponse"`
+		Result  struct {
+			XMLName xml.Name `xml:"ListTagsForResourceResult"`
+			Tags    struct{} `xml:"Tags"`
+		}
+		ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
+	}{
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
 	})
 }
 

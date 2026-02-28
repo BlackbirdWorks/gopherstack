@@ -27,6 +27,9 @@ const lambdaPathPrefix = "/2015-03-31/functions"
 // esmPathPrefix is the path prefix for Lambda event source mapping endpoints.
 const esmPathPrefix = "/2015-03-31/event-source-mappings"
 
+// lambdaTagsPathPrefix is the path prefix for Lambda resource tag endpoints.
+const lambdaTagsPathPrefix = "/2015-03-31/tags"
+
 // routeSpec binds an HTTP method and path predicate to an operation name or handler.
 type routeSpec struct {
 	method string
@@ -116,6 +119,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListAliases",
 		"UpdateAlias",
 		"DeleteAlias",
+		"ListTags",
+		"TagResource",
+		"UntagResource",
 	}
 }
 
@@ -127,6 +133,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 		return strings.HasPrefix(path, lambdaPathPrefix) ||
 			strings.HasPrefix(path, esmPathPrefix) ||
+			strings.HasPrefix(path, lambdaTagsPathPrefix) ||
 			strings.HasPrefix(target, "AWSLambda")
 	}
 }
@@ -331,6 +338,11 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.handleESMRoute(c, path, method)
 		}
 
+		// Handle tags routes
+		if strings.HasPrefix(path, lambdaTagsPathPrefix) {
+			return h.handleTagsRoute(c, method)
+		}
+
 		rest := strings.TrimPrefix(path, lambdaPathPrefix)
 
 		for _, route := range routes {
@@ -342,6 +354,20 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		log.DebugContext(ctx, "lambda: unknown route", "method", method, "path", path)
 
 		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+	}
+}
+
+// handleTagsRoute handles GET/POST/DELETE /2015-03-31/tags/{arn}.
+func (h *Handler) handleTagsRoute(c *echo.Context, method string) error {
+	switch method {
+	case http.MethodGet:
+		return c.JSON(http.StatusOK, map[string]any{"Tags": map[string]string{}})
+	case http.MethodPost, http.MethodDelete:
+		c.Response().WriteHeader(http.StatusNoContent)
+
+		return nil
+	default:
+		return h.writeError(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
 	}
 }
 

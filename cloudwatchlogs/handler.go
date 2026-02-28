@@ -44,6 +44,10 @@ func (h *Handler) GetSupportedOperations() []string {
 		"PutLogEvents",
 		"GetLogEvents",
 		"FilterLogEvents",
+		"ListTagsLogGroup",
+		"ListTagsForResource",
+		"TagLogGroup",
+		"UntagLogGroup",
 	}
 }
 
@@ -306,11 +310,29 @@ func (h *Handler) logEventActions() map[string]actionFn {
 	}
 }
 
+func (h *Handler) logTagActions() map[string]actionFn {
+	return map[string]actionFn{
+		"ListTagsLogGroup": func(_ []byte) (any, error) {
+			return map[string]any{"tags": map[string]string{}}, nil
+		},
+		"ListTagsForResource": func(_ []byte) (any, error) {
+			return map[string]any{"tags": map[string]string{}}, nil
+		},
+		"TagLogGroup": func(_ []byte) (any, error) {
+			return struct{}{}, nil
+		},
+		"UntagLogGroup": func(_ []byte) (any, error) {
+			return struct{}{}, nil
+		},
+	}
+}
+
 func (h *Handler) dispatchTable() map[string]actionFn {
 	table := make(map[string]actionFn)
 	maps.Copy(table, h.logGroupActions())
 	maps.Copy(table, h.logStreamActions())
 	maps.Copy(table, h.logEventActions())
+	maps.Copy(table, h.logTagActions())
 
 	return table
 }
