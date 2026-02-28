@@ -276,11 +276,12 @@ func (b *InMemoryBackend) GetSubscriptionAttributes(subscriptionArn string) (map
 	}
 
 	return map[string]string{
-		"SubscriptionArn": sub.SubscriptionArn,
-		"TopicArn":        sub.TopicArn,
-		"Protocol":        sub.Protocol,
-		"Endpoint":        sub.Endpoint,
-		"Owner":           sub.Owner,
+		"SubscriptionArn":     sub.SubscriptionArn,
+		"TopicArn":            sub.TopicArn,
+		"Protocol":            sub.Protocol,
+		"Endpoint":            sub.Endpoint,
+		"Owner":               sub.Owner,
+		"PendingConfirmation": "false",
 	}, nil
 }
 
