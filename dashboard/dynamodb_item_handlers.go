@@ -761,17 +761,7 @@ func (h *DashboardHandler) parseItemKey(
 	key := make(map[string]types.AttributeValue)
 
 	parseVal := func(name, valRaw string) (types.AttributeValue, error) {
-		findAttrDef := func(attrName string) *types.AttributeDefinition {
-			for i := range desc.Table.AttributeDefinitions {
-				if *desc.Table.AttributeDefinitions[i].AttributeName == attrName {
-					return &desc.Table.AttributeDefinitions[i]
-				}
-			}
-
-			return nil
-		}
-
-		ad := findAttrDef(name)
+		ad := findAttrDef(desc.Table.AttributeDefinitions, name)
 		if ad == nil {
 			return nil, fmt.Errorf("%w for %s", errAttrDefNotFound, name)
 		}

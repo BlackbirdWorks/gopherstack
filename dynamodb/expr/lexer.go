@@ -165,6 +165,9 @@ func (l *Lexer) handleDefault() Token {
 
 func (l *Lexer) readIdentifier() string {
 	position := l.position
+	// DynamoDB expression identifiers allow letters, digits, underscores, '#' (expression
+	// attribute name placeholder prefix), and ':' (expression attribute value placeholder prefix).
+	// '.' is treated as a path separator and is NOT part of the identifier token.
 	for isLetter(l.ch) || isDigit(l.ch) || l.ch == '_' || l.ch == '#' || l.ch == ':' {
 		l.readChar()
 	}
