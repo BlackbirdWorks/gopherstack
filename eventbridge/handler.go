@@ -25,8 +25,8 @@ type Handler struct {
 	Backend   StorageBackend
 	Logger    *slog.Logger
 	scheduler *Scheduler
-	tagsMu    sync.RWMutex
 	tags      map[string]map[string]string
+	tagsMu    sync.RWMutex
 }
 
 // NewHandler creates a new EventBridge handler.
@@ -40,9 +40,7 @@ func (h *Handler) setTags(resourceID string, kv map[string]string) {
 	if h.tags[resourceID] == nil {
 		h.tags[resourceID] = make(map[string]string)
 	}
-	for k, v := range kv {
-		h.tags[resourceID][k] = v
-	}
+	maps.Copy(h.tags[resourceID], kv)
 }
 
 func (h *Handler) removeTags(resourceID string, keys []string) {
@@ -57,9 +55,8 @@ func (h *Handler) getTags(resourceID string) map[string]string {
 	h.tagsMu.RLock()
 	defer h.tagsMu.RUnlock()
 	result := make(map[string]string)
-	for k, v := range h.tags[resourceID] {
-		result[k] = v
-	}
+	maps.Copy(result, h.tags[resourceID])
+
 	return result
 }
 
@@ -452,17 +449,19 @@ func (h *Handler) tagActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
+
 			return map[string]any{"Tags": h.getTags(input.ResourceARN)}, nil
 		},
 		"TagResource": func(b []byte) (any, error) {
 			var input struct {
-				ResourceARN string            `json:"ResourceARN"`
 				Tags        map[string]string `json:"Tags"`
+				ResourceARN string            `json:"ResourceARN"`
 			}
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 			h.setTags(input.ResourceARN, input.Tags)
+
 			return map[string]any{}, nil
 		},
 		"UntagResource": func(b []byte) (any, error) {
@@ -474,6 +473,7 @@ func (h *Handler) tagActions() map[string]actionFn {
 				return nil, err
 			}
 			h.removeTags(input.ResourceARN, input.TagKeys)
+
 			return map[string]any{}, nil
 		},
 	}

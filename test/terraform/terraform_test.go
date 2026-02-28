@@ -8,14 +8,20 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	acmsvc "github.com/aws/aws-sdk-go-v2/service/acm"
+	cwsvc "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
+	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 	cwlogssvc "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	ebsvc "github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	iamsvc "github.com/aws/aws-sdk-go-v2/service/iam"
+	kinesissvc "github.com/aws/aws-sdk-go-v2/service/kinesis"
 	kmssvc "github.com/aws/aws-sdk-go-v2/service/kms"
 	lambdasvc "github.com/aws/aws-sdk-go-v2/service/lambda"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
@@ -23,6 +29,7 @@ import (
 	s3svc "github.com/aws/aws-sdk-go-v2/service/s3"
 	secretssvc "github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	sessvc "github.com/aws/aws-sdk-go-v2/service/ses"
+	sfnsvc "github.com/aws/aws-sdk-go-v2/service/sfn"
 	snssvc "github.com/aws/aws-sdk-go-v2/service/sns"
 	sqssvc "github.com/aws/aws-sdk-go-v2/service/sqs"
 	ssmsvc "github.com/aws/aws-sdk-go-v2/service/ssm"
@@ -636,6 +643,7 @@ resource "aws_route53_record" "this" {
 	for _, zone := range out.HostedZones {
 		if aws.ToString(zone.Name) == zoneName+"." || aws.ToString(zone.Name) == zoneName {
 			found = true
+
 			break
 		}
 	}
@@ -675,6 +683,7 @@ resource "aws_cloudwatch_log_group" "this" {
 	for _, lg := range out.LogGroups {
 		if aws.ToString(lg.LogGroupName) == logGroupName {
 			found = true
+
 			break
 		}
 	}
@@ -707,13 +716,7 @@ resource "aws_ses_email_identity" "this" {
 	out, err := client.ListIdentities(ctx, &sessvc.ListIdentitiesInput{})
 	require.NoError(t, err, "ListIdentities should succeed after terraform apply")
 
-	found := false
-	for _, identity := range out.Identities {
-		if identity == email {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(out.Identities, email)
 	assert.True(t, found, "email identity %q should be listed after terraform apply", email)
 }
 
@@ -765,4 +768,199 @@ output "policy_json" {
 `, bucketName)
 
 	applyTerraform(t, tfBin, t.TempDir(), hcl)
+}
+
+// TestTerraform_StepFunctions provisions an aws_sfn_state_machine via Terraform
+// and verifies it exists through the AWS Step Functions SDK.
+func TestTerraform_StepFunctions(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	tfBin := ensureTerraformBinary(t)
+	ctx := context.Background()
+
+	id := uuid.NewString()[:8]
+	smName := "tf-sfn-" + id
+
+	hcl := providerBlock(endpoint) + fmt.Sprintf(`
+resource "aws_sfn_state_machine" "this" {
+  name     = %q
+  role_arn = "arn:aws:iam::000000000000:role/test-role"
+  definition = jsonencode({
+    Comment = "test"
+    StartAt = "Pass"
+    States  = {
+      Pass = { Type = "Pass", End = true }
+    }
+  })
+}
+`, smName)
+
+	applyTerraform(t, tfBin, t.TempDir(), hcl)
+
+	client := createSFNClient(t)
+
+	out, err := client.ListStateMachines(ctx, &sfnsvc.ListStateMachinesInput{})
+	require.NoError(t, err, "ListStateMachines should succeed after terraform apply")
+
+	found := false
+
+	for _, sm := range out.StateMachines {
+		if aws.ToString(sm.Name) == smName {
+			found = true
+
+			break
+		}
+	}
+
+	assert.True(t, found, "state machine %q should exist after terraform apply", smName)
+}
+
+// TestTerraform_EventBridge provisions an aws_cloudwatch_event_bus and
+// aws_cloudwatch_event_rule via Terraform and verifies both exist.
+func TestTerraform_EventBridge(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	tfBin := ensureTerraformBinary(t)
+	ctx := context.Background()
+
+	id := uuid.NewString()[:8]
+	busName := "tf-bus-" + id
+	ruleName := "tf-rule-" + id
+
+	hcl := providerBlock(endpoint) + fmt.Sprintf(`
+resource "aws_cloudwatch_event_bus" "this" {
+  name = %q
+}
+
+resource "aws_cloudwatch_event_rule" "this" {
+  name           = %q
+  event_bus_name = aws_cloudwatch_event_bus.this.name
+  schedule_expression = "rate(5 minutes)"
+}
+`, busName, ruleName)
+
+	applyTerraform(t, tfBin, t.TempDir(), hcl)
+
+	client := createEventBridgeClient(t)
+
+	out, err := client.DescribeRule(ctx, &ebsvc.DescribeRuleInput{
+		Name:         aws.String(ruleName),
+		EventBusName: aws.String(busName),
+	})
+	require.NoError(t, err, "DescribeRule should succeed after terraform apply")
+	assert.Equal(t, ruleName, aws.ToString(out.Name))
+}
+
+// TestTerraform_CloudWatchAlarm provisions an aws_cloudwatch_metric_alarm via
+// Terraform and verifies it exists through the AWS CloudWatch SDK.
+func TestTerraform_CloudWatchAlarm(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	tfBin := ensureTerraformBinary(t)
+	ctx := context.Background()
+
+	id := uuid.NewString()[:8]
+	alarmName := "tf-alarm-" + id
+
+	hcl := providerBlock(endpoint) + fmt.Sprintf(`
+resource "aws_cloudwatch_metric_alarm" "this" {
+  alarm_name          = %q
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 1
+  metric_name         = "CPUUtilization"
+  namespace           = "AWS/EC2"
+  period              = 60
+  statistic           = "Average"
+  threshold           = 80
+}
+`, alarmName)
+
+	applyTerraform(t, tfBin, t.TempDir(), hcl)
+
+	client := createCloudWatchClient(t)
+
+	out, err := client.DescribeAlarms(ctx, &cwsvc.DescribeAlarmsInput{
+		AlarmNames: []string{alarmName},
+	})
+	require.NoError(t, err, "DescribeAlarms should succeed after terraform apply")
+	require.Len(t, out.MetricAlarms, 1)
+	assert.Equal(t, alarmName, aws.ToString(out.MetricAlarms[0].AlarmName))
+	assert.Equal(t, cwtypes.ComparisonOperatorGreaterThanThreshold, out.MetricAlarms[0].ComparisonOperator)
+}
+
+// TestTerraform_Kinesis provisions an aws_kinesis_stream via Terraform
+// and verifies it exists through the AWS Kinesis SDK.
+func TestTerraform_Kinesis(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	tfBin := ensureTerraformBinary(t)
+	ctx := context.Background()
+
+	id := uuid.NewString()[:8]
+	streamName := "tf-kinesis-" + id
+
+	hcl := providerBlock(endpoint) + fmt.Sprintf(`
+resource "aws_kinesis_stream" "this" {
+  name        = %q
+  shard_count = 1
+}
+`, streamName)
+
+	applyTerraform(t, tfBin, t.TempDir(), hcl)
+
+	client := createKinesisClient(t)
+
+	out, err := client.DescribeStreamSummary(ctx, &kinesissvc.DescribeStreamSummaryInput{
+		StreamName: aws.String(streamName),
+	})
+	require.NoError(t, err, "DescribeStreamSummary should succeed after terraform apply")
+	require.NotNil(t, out.StreamDescriptionSummary)
+	assert.Equal(t, streamName, aws.ToString(out.StreamDescriptionSummary.StreamName))
+}
+
+// TestTerraform_ACM provisions an aws_acm_certificate via Terraform
+// and verifies it exists through the AWS ACM SDK.
+func TestTerraform_ACM(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	tfBin := ensureTerraformBinary(t)
+	ctx := context.Background()
+
+	id := uuid.NewString()[:8]
+	domain := "tf-acm-" + id + ".example.com"
+
+	hcl := providerBlock(endpoint) + fmt.Sprintf(`
+resource "aws_acm_certificate" "this" {
+  domain_name       = %q
+  validation_method = "DNS"
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+`, domain)
+
+	applyTerraform(t, tfBin, t.TempDir(), hcl)
+
+	client := createACMClient(t)
+
+	out, err := client.ListCertificates(ctx, &acmsvc.ListCertificatesInput{})
+	require.NoError(t, err, "ListCertificates should succeed after terraform apply")
+
+	found := false
+
+	for _, cert := range out.CertificateSummaryList {
+		if aws.ToString(cert.DomainName) == domain {
+			found = true
+
+			break
+		}
+	}
+
+	assert.True(t, found, "certificate for %q should exist after terraform apply", domain)
 }

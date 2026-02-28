@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"maps"
 	"net/http"
 	"strings"
 	"sync"
@@ -21,10 +22,10 @@ import (
 type Handler struct {
 	Backend       StorageBackend
 	Logger        *slog.Logger
+	tags          map[string]map[string]string
 	DefaultRegion string
 	AccountID     string
 	tagsMu        sync.RWMutex
-	tags          map[string]map[string]string
 }
 
 // NewHandler creates a new Kinesis Handler.
@@ -38,9 +39,7 @@ func (h *Handler) setTags(resourceID string, kv map[string]string) {
 	if h.tags[resourceID] == nil {
 		h.tags[resourceID] = make(map[string]string)
 	}
-	for k, v := range kv {
-		h.tags[resourceID][k] = v
-	}
+	maps.Copy(h.tags[resourceID], kv)
 }
 
 func (h *Handler) removeTags(resourceID string, keys []string) {
@@ -55,9 +54,8 @@ func (h *Handler) getTags(resourceID string) map[string]string {
 	h.tagsMu.RLock()
 	defer h.tagsMu.RUnlock()
 	result := make(map[string]string)
-	for k, v := range h.tags[resourceID] {
-		result[k] = v
-	}
+	maps.Copy(result, h.tags[resourceID])
+
 	return result
 }
 
@@ -755,8 +753,8 @@ func (h *Handler) handleAddTagsToStream(
 	requestID string,
 ) {
 	var req struct {
-		StreamName string            `json:"StreamName"`
 		Tags       map[string]string `json:"Tags"`
+		StreamName string            `json:"StreamName"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		h.writeError(w, ErrInvalidArgument, requestID)

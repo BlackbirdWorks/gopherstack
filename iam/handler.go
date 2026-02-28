@@ -29,10 +29,9 @@ const (
 type Handler struct {
 	Backend StorageBackend
 	Logger  *slog.Logger
-	// actions is the pre-built dispatch table, initialized once at construction.
 	actions map[string]iamActionFn
-	tagsMu  sync.RWMutex
 	tags    map[string]map[string]string
+	tagsMu  sync.RWMutex
 }
 
 // NewHandler creates a new IAM handler with the given storage backend.
@@ -53,9 +52,7 @@ func (h *Handler) setTags(resourceID string, kv map[string]string) {
 	if h.tags[resourceID] == nil {
 		h.tags[resourceID] = make(map[string]string)
 	}
-	for k, v := range kv {
-		h.tags[resourceID][k] = v
-	}
+	maps.Copy(h.tags[resourceID], kv)
 }
 
 func (h *Handler) removeTags(resourceID string, keys []string) {
@@ -70,9 +67,8 @@ func (h *Handler) getTags(resourceID string) map[string]string {
 	h.tagsMu.RLock()
 	defer h.tagsMu.RUnlock()
 	result := make(map[string]string)
-	for k, v := range h.tags[resourceID] {
-		result[k] = v
-	}
+	maps.Copy(result, h.tags[resourceID])
+
 	return result
 }
 
@@ -607,6 +603,15 @@ func (h *Handler) iamInstanceProfileDispatchTable() map[string]iamActionFn {
 }
 
 func (h *Handler) iamTagDispatchTable() map[string]iamActionFn {
+	table := make(map[string]iamActionFn)
+	maps.Copy(table, h.iamListTagActions())
+	maps.Copy(table, h.iamMutateTagActions())
+
+	return table
+}
+
+// iamListTagActions returns the List*Tags dispatch entries.
+func (h *Handler) iamListTagActions() map[string]iamActionFn {
 	return map[string]iamActionFn{
 		"ListRoleTags": func(vals url.Values, reqID string) (any, error) {
 			roleName := vals.Get("RoleName")
@@ -619,21 +624,22 @@ func (h *Handler) iamTagDispatchTable() map[string]iamActionFn {
 			for k, v := range tags {
 				members = append(members, member{Key: k, Value: v})
 			}
+
 			return &struct {
-				XMLName xml.Name `xml:"ListRoleTagsResponse"`
-				Xmlns   string   `xml:"xmlns,attr"`
-				Result  struct {
-					XMLName     xml.Name `xml:"ListRoleTagsResult"`
-					IsTruncated bool     `xml:"IsTruncated"`
-					Tags        []member `xml:"Tags>member"`
-				} `xml:"ListRoleTagsResult"`
+				XMLName          xml.Name         `xml:"ListRoleTagsResponse"`
+				Xmlns            string           `xml:"xmlns,attr"`
 				ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
-			}{
-				Xmlns:            iamXMLNS,
-				Result:           struct {
+				Result           struct {
 					XMLName     xml.Name `xml:"ListRoleTagsResult"`
-					IsTruncated bool     `xml:"IsTruncated"`
 					Tags        []member `xml:"Tags>member"`
+					IsTruncated bool     `xml:"IsTruncated"`
+				} `xml:"ListRoleTagsResult"`
+			}{
+				Xmlns: iamXMLNS,
+				Result: struct {
+					XMLName     xml.Name `xml:"ListRoleTagsResult"`
+					Tags        []member `xml:"Tags>member"`
+					IsTruncated bool     `xml:"IsTruncated"`
 				}{Tags: members},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
@@ -649,21 +655,22 @@ func (h *Handler) iamTagDispatchTable() map[string]iamActionFn {
 			for k, v := range tags {
 				members = append(members, member{Key: k, Value: v})
 			}
+
 			return &struct {
-				XMLName xml.Name `xml:"ListPolicyTagsResponse"`
-				Xmlns   string   `xml:"xmlns,attr"`
-				Result  struct {
-					XMLName     xml.Name `xml:"ListPolicyTagsResult"`
-					IsTruncated bool     `xml:"IsTruncated"`
-					Tags        []member `xml:"Tags>member"`
-				} `xml:"ListPolicyTagsResult"`
+				XMLName          xml.Name         `xml:"ListPolicyTagsResponse"`
+				Xmlns            string           `xml:"xmlns,attr"`
 				ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
-			}{
-				Xmlns:            iamXMLNS,
-				Result:           struct {
+				Result           struct {
 					XMLName     xml.Name `xml:"ListPolicyTagsResult"`
-					IsTruncated bool     `xml:"IsTruncated"`
 					Tags        []member `xml:"Tags>member"`
+					IsTruncated bool     `xml:"IsTruncated"`
+				} `xml:"ListPolicyTagsResult"`
+			}{
+				Xmlns: iamXMLNS,
+				Result: struct {
+					XMLName     xml.Name `xml:"ListPolicyTagsResult"`
+					Tags        []member `xml:"Tags>member"`
+					IsTruncated bool     `xml:"IsTruncated"`
 				}{Tags: members},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
@@ -679,27 +686,35 @@ func (h *Handler) iamTagDispatchTable() map[string]iamActionFn {
 			for k, v := range tags {
 				members = append(members, member{Key: k, Value: v})
 			}
+
 			return &struct {
-				XMLName xml.Name `xml:"ListUserTagsResponse"`
-				Xmlns   string   `xml:"xmlns,attr"`
-				Result  struct {
-					XMLName     xml.Name `xml:"ListUserTagsResult"`
-					IsTruncated bool     `xml:"IsTruncated"`
-					Tags        []member `xml:"Tags>member"`
-				} `xml:"ListUserTagsResult"`
+				XMLName          xml.Name         `xml:"ListUserTagsResponse"`
+				Xmlns            string           `xml:"xmlns,attr"`
 				ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
-			}{
-				Xmlns:            iamXMLNS,
-				Result:           struct {
+				Result           struct {
 					XMLName     xml.Name `xml:"ListUserTagsResult"`
-					IsTruncated bool     `xml:"IsTruncated"`
 					Tags        []member `xml:"Tags>member"`
+					IsTruncated bool     `xml:"IsTruncated"`
+				} `xml:"ListUserTagsResult"`
+			}{
+				Xmlns: iamXMLNS,
+				Result: struct {
+					XMLName     xml.Name `xml:"ListUserTagsResult"`
+					Tags        []member `xml:"Tags>member"`
+					IsTruncated bool     `xml:"IsTruncated"`
 				}{Tags: members},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
+	}
+}
+
+// iamMutateTagActions returns the Tag*/Untag* dispatch entries.
+func (h *Handler) iamMutateTagActions() map[string]iamActionFn {
+	return map[string]iamActionFn{
 		"TagRole": func(vals url.Values, reqID string) (any, error) {
 			h.setTags(vals.Get("RoleName"), parseIAMTags(vals))
+
 			return &struct {
 				XMLName          xml.Name         `xml:"TagRoleResponse"`
 				Xmlns            string           `xml:"xmlns,attr"`
@@ -708,6 +723,7 @@ func (h *Handler) iamTagDispatchTable() map[string]iamActionFn {
 		},
 		"UntagRole": func(vals url.Values, reqID string) (any, error) {
 			h.removeTags(vals.Get("RoleName"), parseIAMTagKeys(vals))
+
 			return &struct {
 				XMLName          xml.Name         `xml:"UntagRoleResponse"`
 				Xmlns            string           `xml:"xmlns,attr"`
@@ -716,6 +732,7 @@ func (h *Handler) iamTagDispatchTable() map[string]iamActionFn {
 		},
 		"TagPolicy": func(vals url.Values, reqID string) (any, error) {
 			h.setTags(vals.Get("PolicyArn"), parseIAMTags(vals))
+
 			return &struct {
 				XMLName          xml.Name         `xml:"TagPolicyResponse"`
 				Xmlns            string           `xml:"xmlns,attr"`
@@ -724,6 +741,7 @@ func (h *Handler) iamTagDispatchTable() map[string]iamActionFn {
 		},
 		"UntagPolicy": func(vals url.Values, reqID string) (any, error) {
 			h.removeTags(vals.Get("PolicyArn"), parseIAMTagKeys(vals))
+
 			return &struct {
 				XMLName          xml.Name         `xml:"UntagPolicyResponse"`
 				Xmlns            string           `xml:"xmlns,attr"`
@@ -732,6 +750,7 @@ func (h *Handler) iamTagDispatchTable() map[string]iamActionFn {
 		},
 		"TagUser": func(vals url.Values, reqID string) (any, error) {
 			h.setTags(vals.Get("UserName"), parseIAMTags(vals))
+
 			return &struct {
 				XMLName          xml.Name         `xml:"TagUserResponse"`
 				Xmlns            string           `xml:"xmlns,attr"`
@@ -740,6 +759,7 @@ func (h *Handler) iamTagDispatchTable() map[string]iamActionFn {
 		},
 		"UntagUser": func(vals url.Values, reqID string) (any, error) {
 			h.removeTags(vals.Get("UserName"), parseIAMTagKeys(vals))
+
 			return &struct {
 				XMLName          xml.Name         `xml:"UntagUserResponse"`
 				Xmlns            string           `xml:"xmlns,attr"`
@@ -759,6 +779,7 @@ func parseIAMTags(vals url.Values) map[string]string {
 		}
 		tags[k] = vals.Get(fmt.Sprintf("Tags.member.%d.Value", i))
 	}
+
 	return tags
 }
 
@@ -772,6 +793,7 @@ func parseIAMTagKeys(vals url.Values) []string {
 		}
 		keys = append(keys, k)
 	}
+
 	return keys
 }
 

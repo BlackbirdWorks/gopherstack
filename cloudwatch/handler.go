@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/url"
 	"slices"
@@ -25,8 +26,8 @@ const cloudwatchNS = "http://monitoring.amazonaws.com/doc/2010-08-01/"
 type Handler struct {
 	Backend StorageBackend
 	Logger  *slog.Logger
-	tagsMu  sync.RWMutex
 	tags    map[string]map[string]string
+	tagsMu  sync.RWMutex
 }
 
 // NewHandler creates a new CloudWatch handler.
@@ -40,9 +41,7 @@ func (h *Handler) setTags(resourceID string, kv map[string]string) {
 	if h.tags[resourceID] == nil {
 		h.tags[resourceID] = make(map[string]string)
 	}
-	for k, v := range kv {
-		h.tags[resourceID][k] = v
-	}
+	maps.Copy(h.tags[resourceID], kv)
 }
 
 func (h *Handler) removeTags(resourceID string, keys []string) {
@@ -57,9 +56,8 @@ func (h *Handler) getTags(resourceID string) map[string]string {
 	h.tagsMu.RLock()
 	defer h.tagsMu.RUnlock()
 	result := make(map[string]string)
-	for k, v := range h.tags[resourceID] {
-		result[k] = v
-	}
+	maps.Copy(result, h.tags[resourceID])
+
 	return result
 }
 
@@ -158,79 +156,106 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.handleCBOR(c)
 		}
 
-		// ParseForm is idempotent; RouteMatcher may have already called it.
-		if err := r.ParseForm(); err != nil {
-			return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "cannot parse form body")
-		}
-		action := r.Form.Get("Action")
-		c.Response().Header().Set("Content-Type", "text/xml")
-
-		switch action {
-		case "PutMetricData":
-			return h.handlePutMetricData(r.Form, c)
-		case "GetMetricStatistics":
-			return h.handleGetMetricStatistics(r.Form, c)
-		case "GetMetricData":
-			return h.handleGetMetricData(r.Form, c)
-		case "ListMetrics":
-			return h.handleListMetrics(r.Form, c)
-		case "PutMetricAlarm":
-			return h.handlePutMetricAlarm(r.Form, c)
-		case "DescribeAlarms":
-			return h.handleDescribeAlarms(r.Form, c)
-		case "DeleteAlarms":
-			return h.handleDeleteAlarms(r.Form, c)
-		case "ListTagsForResource":
-			arn := r.Form.Get("ResourceARN")
-			tags := h.getTags(arn)
-			type xmlCWTag struct {
-				Key   string `xml:"Key"`
-				Value string `xml:"Value"`
-			}
-			type listTagsForResourceResp struct {
-				XMLName xml.Name   `xml:"ListTagsForResourceResponse"`
-				Result  struct {
-					XMLName xml.Name   `xml:"ListTagsForResourceResult"`
-					Tags    []xmlCWTag `xml:"Tags>member"`
-				} `xml:"ListTagsForResourceResult"`
-			}
-			var resp listTagsForResourceResp
-			for k, v := range tags {
-				resp.Result.Tags = append(resp.Result.Tags, xmlCWTag{Key: k, Value: v})
-			}
-			return writeXML(c, resp)
-		case "TagResource":
-			arn := r.Form.Get("ResourceARN")
-			newTags := make(map[string]string)
-			for i := 1; ; i++ {
-				k := r.Form.Get(fmt.Sprintf("Tags.member.%d.Key", i))
-				if k == "" {
-					break
-				}
-				newTags[k] = r.Form.Get(fmt.Sprintf("Tags.member.%d.Value", i))
-			}
-			h.setTags(arn, newTags)
-			return writeXML(c, struct {
-				XMLName xml.Name `xml:"TagResourceResponse"`
-			}{})
-		case "UntagResource":
-			arn := r.Form.Get("ResourceARN")
-			var keys []string
-			for i := 1; ; i++ {
-				k := r.Form.Get(fmt.Sprintf("TagKeys.member.%d", i))
-				if k == "" {
-					break
-				}
-				keys = append(keys, k)
-			}
-			h.removeTags(arn, keys)
-			return writeXML(c, struct {
-				XMLName xml.Name `xml:"UntagResourceResponse"`
-			}{})
-		default:
-			return h.xmlError(c, http.StatusBadRequest, "InvalidAction", "unknown action: "+action)
-		}
+		return h.handleFormRequest(c, r)
 	}
+}
+
+// handleFormRequest handles the query-protocol (form-encoded) path for CloudWatch requests.
+func (h *Handler) handleFormRequest(c *echo.Context, r *http.Request) error {
+	// ParseForm is idempotent; RouteMatcher may have already called it.
+	if err := r.ParseForm(); err != nil {
+		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "cannot parse form body")
+	}
+	action := r.Form.Get("Action")
+	c.Response().Header().Set("Content-Type", "text/xml")
+
+	switch action {
+	case "PutMetricData":
+		return h.handlePutMetricData(r.Form, c)
+	case "GetMetricStatistics":
+		return h.handleGetMetricStatistics(r.Form, c)
+	case "GetMetricData":
+		return h.handleGetMetricData(r.Form, c)
+	case "ListMetrics":
+		return h.handleListMetrics(r.Form, c)
+	case "PutMetricAlarm":
+		return h.handlePutMetricAlarm(r.Form, c)
+	case "DescribeAlarms":
+		return h.handleDescribeAlarms(r.Form, c)
+	case "DeleteAlarms":
+		return h.handleDeleteAlarms(r.Form, c)
+	case "ListTagsForResource":
+		return h.handleListTagsForResource(r.Form, c)
+	case "TagResource":
+		return h.handleTagResource(r.Form, c)
+	case "UntagResource":
+		return h.handleUntagResource(r.Form, c)
+	default:
+		return h.xmlError(c, http.StatusBadRequest, "InvalidAction", "unknown action: "+action)
+	}
+}
+
+func (h *Handler) handleListTagsForResource(form url.Values, c *echo.Context) error {
+	arn := form.Get("ResourceARN")
+	tags := h.getTags(arn)
+	type xmlCWTag struct {
+		Key   string `xml:"Key"`
+		Value string `xml:"Value"`
+	}
+	type listTagsForResourceResp struct {
+		XMLName xml.Name `xml:"ListTagsForResourceResponse"`
+		Result  struct {
+			XMLName xml.Name   `xml:"ListTagsForResourceResult"`
+			Tags    []xmlCWTag `xml:"Tags>member"`
+		} `xml:"ListTagsForResourceResult"`
+	}
+	var resp listTagsForResourceResp
+	for k, v := range tags {
+		resp.Result.Tags = append(resp.Result.Tags, xmlCWTag{Key: k, Value: v})
+	}
+
+	return writeXML(c, resp)
+}
+
+func (h *Handler) handleTagResource(form url.Values, c *echo.Context) error {
+	arn := form.Get("ResourceARN")
+	newTags := make(map[string]string)
+
+	for i := 1; ; i++ {
+		k := form.Get(fmt.Sprintf("Tags.member.%d.Key", i))
+		if k == "" {
+			break
+		}
+
+		newTags[k] = form.Get(fmt.Sprintf("Tags.member.%d.Value", i))
+	}
+
+	h.setTags(arn, newTags)
+
+	return writeXML(c, struct {
+		XMLName xml.Name `xml:"TagResourceResponse"`
+	}{})
+}
+
+func (h *Handler) handleUntagResource(form url.Values, c *echo.Context) error {
+	arn := form.Get("ResourceARN")
+
+	var keys []string
+
+	for i := 1; ; i++ {
+		k := form.Get(fmt.Sprintf("TagKeys.member.%d", i))
+		if k == "" {
+			break
+		}
+
+		keys = append(keys, k)
+	}
+
+	h.removeTags(arn, keys)
+
+	return writeXML(c, struct {
+		XMLName xml.Name `xml:"UntagResourceResponse"`
+	}{})
 }
 
 // xmlError writes an XML error response.

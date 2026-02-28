@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"strings"
 	"sync"
@@ -35,8 +36,8 @@ const (
 type Handler struct {
 	Backend *InMemoryBackend
 	Logger  *slog.Logger
-	tagsMu  sync.RWMutex
 	tags    map[string]map[string]string
+	tagsMu  sync.RWMutex
 }
 
 // NewHandler creates a new Route 53 Handler.
@@ -54,9 +55,7 @@ func (h *Handler) setTags(resourceID string, kv map[string]string) {
 	if h.tags[resourceID] == nil {
 		h.tags[resourceID] = make(map[string]string)
 	}
-	for k, v := range kv {
-		h.tags[resourceID][k] = v
-	}
+	maps.Copy(h.tags[resourceID], kv)
 }
 
 func (h *Handler) removeTags(resourceID string, keys []string) {
@@ -71,9 +70,8 @@ func (h *Handler) getTags(resourceID string) map[string]string {
 	h.tagsMu.RLock()
 	defer h.tagsMu.RUnlock()
 	result := make(map[string]string)
-	for k, v := range h.tags[resourceID] {
-		result[k] = v
-	}
+	maps.Copy(result, h.tags[resourceID])
+
 	return result
 }
 
@@ -528,7 +526,7 @@ func (h *Handler) listTagsForResource(c *echo.Context, path string) error {
 		resourceType = parts[0]
 	}
 
-	if len(parts) >= 2 { //nolint:mnd
+	if len(parts) >= 2 { //nolint:mnd // path has two segments: type + id
 		resourceID = parts[1]
 	}
 
@@ -564,34 +562,14 @@ func (h *Handler) listTagsForResource(c *echo.Context, path string) error {
 func (h *Handler) changeTagsForResource(c *echo.Context) error {
 	path := c.Request().URL.Path
 	rest := strings.TrimPrefix(path, route53TagsPrefix)
-	parts := strings.SplitN(rest, "/", 2) //nolint:mnd
+	parts := strings.SplitN(rest, "/", 2) //nolint:mnd // path has two segments: type + id
 	resourceID := ""
-	if len(parts) >= 2 { //nolint:mnd
+
+	if len(parts) >= 2 { //nolint:mnd // path has two segments: type + id
 		resourceID = parts[1]
 	}
 
-	body, err := httputil.ReadBody(c.Request())
-	if err == nil && len(body) > 0 {
-		var req struct {
-			AddTags []struct {
-				Key   string `xml:"Key"`
-				Value string `xml:"Value"`
-			} `xml:"AddTags>Tag"`
-			RemoveTagKeys []string `xml:"RemoveTagKeys>Key"`
-		}
-		if xmlErr := xml.Unmarshal(body, &req); xmlErr == nil {
-			if len(req.AddTags) > 0 {
-				kv := make(map[string]string)
-				for _, t := range req.AddTags {
-					kv[t.Key] = t.Value
-				}
-				h.setTags(resourceID, kv)
-			}
-			if len(req.RemoveTagKeys) > 0 {
-				h.removeTags(resourceID, req.RemoveTagKeys)
-			}
-		}
-	}
+	h.applyTagChanges(resourceID, c.Request())
 
 	type changeTagsResp struct {
 		XMLName xml.Name `xml:"ChangeTagsForResourceResponse"`
@@ -599,6 +577,39 @@ func (h *Handler) changeTagsForResource(c *echo.Context) error {
 	}
 
 	return writeXML(c, http.StatusOK, changeTagsResp{Xmlns: route53Namespace})
+}
+
+// applyTagChanges reads a ChangeTagsForResource XML body and applies the add/remove operations.
+func (h *Handler) applyTagChanges(resourceID string, r *http.Request) {
+	body, err := httputil.ReadBody(r)
+	if err != nil || len(body) == 0 {
+		return
+	}
+
+	var req struct {
+		AddTags []struct {
+			Key   string `xml:"Key"`
+			Value string `xml:"Value"`
+		} `xml:"AddTags>Tag"`
+		RemoveTagKeys []string `xml:"RemoveTagKeys>Key"`
+	}
+
+	if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+		return
+	}
+
+	if len(req.AddTags) > 0 {
+		kv := make(map[string]string, len(req.AddTags))
+		for _, t := range req.AddTags {
+			kv[t.Key] = t.Value
+		}
+
+		h.setTags(resourceID, kv)
+	}
+
+	if len(req.RemoveTagKeys) > 0 {
+		h.removeTags(resourceID, req.RemoveTagKeys)
+	}
 }
 
 // writeXML marshals v to XML and writes it to the response.

@@ -596,32 +596,29 @@ func paginate[T any](items []T, offset, size int) ([]T, string) {
 
 // GetTopicTags returns tags for the given topic ARN.
 func (b *InMemoryBackend) GetTopicTags(arn string) map[string]string {
-b.mu.RLock()
-defer b.mu.RUnlock()
-result := make(map[string]string)
-for k, v := range b.topicTags[arn] {
-result[k] = v
-}
-return result
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	result := make(map[string]string)
+	maps.Copy(result, b.topicTags[arn])
+
+	return result
 }
 
 // SetTopicTags stores tags for the given topic ARN.
 func (b *InMemoryBackend) SetTopicTags(arn string, tags map[string]string) {
-b.mu.Lock()
-defer b.mu.Unlock()
-if b.topicTags[arn] == nil {
-b.topicTags[arn] = make(map[string]string)
-}
-for k, v := range tags {
-b.topicTags[arn][k] = v
-}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.topicTags[arn] == nil {
+		b.topicTags[arn] = make(map[string]string)
+	}
+	maps.Copy(b.topicTags[arn], tags)
 }
 
 // RemoveTopicTags removes specified tag keys for the given topic ARN.
 func (b *InMemoryBackend) RemoveTopicTags(arn string, keys []string) {
-b.mu.Lock()
-defer b.mu.Unlock()
-for _, k := range keys {
-delete(b.topicTags[arn], k)
-}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, k := range keys {
+		delete(b.topicTags[arn], k)
+	}
 }

@@ -224,7 +224,7 @@ type GetSubscriptionAttributesResult struct {
 
 // GetSubscriptionAttributesResponse is the XML response for GetSubscriptionAttributes.
 type GetSubscriptionAttributesResponse struct {
-	XMLName                         xml.Name                        `xml:"https://sns.amazonaws.com/doc/2010-03-31/ GetSubscriptionAttributesResponse"` //nolint:lll // XML namespace makes this line long.
-	GetSubscriptionAttributesResult GetSubscriptionAttributesResult `xml:"GetSubscriptionAttributesResult"`
+	XMLName                         xml.Name                        `xml:"https://sns.amazonaws.com/doc/2010-03-31/ GetSubscriptionAttributesResponse"` //nolint:lll // XML namespace
 	ResponseMetadata                ResponseMetadata                `xml:"ResponseMetadata"`
+	GetSubscriptionAttributesResult GetSubscriptionAttributesResult `xml:"GetSubscriptionAttributesResult"`
 }

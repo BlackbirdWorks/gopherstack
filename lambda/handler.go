@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"strings"
 	"sync"
@@ -71,10 +72,10 @@ func hasSuffixAliasPath(rest string) bool {
 type Handler struct {
 	Backend       StorageBackend
 	Logger        *slog.Logger
+	tags          map[string]map[string]string
 	DefaultRegion string
 	AccountID     string
 	tagsMu        sync.RWMutex
-	tags          map[string]map[string]string
 }
 
 // NewHandler creates a new Lambda handler with the given backend and logger.
@@ -92,9 +93,7 @@ func (h *Handler) setTags(resourceID string, kv map[string]string) {
 	if h.tags[resourceID] == nil {
 		h.tags[resourceID] = make(map[string]string)
 	}
-	for k, v := range kv {
-		h.tags[resourceID][k] = v
-	}
+	maps.Copy(h.tags[resourceID], kv)
 }
 
 func (h *Handler) removeTags(resourceID string, keys []string) {
@@ -109,9 +108,8 @@ func (h *Handler) getTags(resourceID string) map[string]string {
 	h.tagsMu.RLock()
 	defer h.tagsMu.RUnlock()
 	result := make(map[string]string)
-	for k, v := range h.tags[resourceID] {
-		result[k] = v
-	}
+	maps.Copy(result, h.tags[resourceID])
+
 	return result
 }
 
@@ -405,16 +403,18 @@ func (h *Handler) handleTagsRoute(c *echo.Context, method string) error {
 		var input struct {
 			Tags map[string]string `json:"Tags"`
 		}
-		if err := json.Unmarshal(body, &input); err != nil {
+		if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
 			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid body")
 		}
 		h.setTags(arn, input.Tags)
 		c.Response().WriteHeader(http.StatusNoContent)
+
 		return nil
 	case http.MethodDelete:
 		keys := c.Request().URL.Query()["tagKeys"]
 		h.removeTags(arn, keys)
 		c.Response().WriteHeader(http.StatusNoContent)
+
 		return nil
 	default:
 		return h.writeError(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")

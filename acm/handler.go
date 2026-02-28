@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/url"
 	"strings"
@@ -26,8 +27,8 @@ const (
 type Handler struct {
 	Backend *InMemoryBackend
 	Logger  *slog.Logger
-	tagsMu  sync.RWMutex
 	tags    map[string]map[string]string
+	tagsMu  sync.RWMutex
 }
 
 // NewHandler creates a new ACM handler.
@@ -41,9 +42,7 @@ func (h *Handler) setTags(resourceID string, kv map[string]string) {
 	if h.tags[resourceID] == nil {
 		h.tags[resourceID] = make(map[string]string)
 	}
-	for k, v := range kv {
-		h.tags[resourceID][k] = v
-	}
+	maps.Copy(h.tags[resourceID], kv)
 }
 
 func (h *Handler) removeTags(resourceID string, keys []string) {
@@ -58,9 +57,8 @@ func (h *Handler) getTags(resourceID string) map[string]string {
 	h.tagsMu.RLock()
 	defer h.tagsMu.RUnlock()
 	result := make(map[string]string)
-	for k, v := range h.tags[resourceID] {
-		result[k] = v
-	}
+	maps.Copy(result, h.tags[resourceID])
+
 	return result
 }
 
@@ -148,72 +146,8 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.writeError(c, http.StatusBadRequest, "MissingAction", "missing Action parameter")
 		}
 
-		var (
-			resp  any
-			opErr error
-		)
-
-		switch action {
-		case "RequestCertificate":
-			resp, opErr = h.handleRequestCertificate(vals)
-		case "DescribeCertificate":
-			resp, opErr = h.handleDescribeCertificate(vals)
-		case "ListCertificates":
-			resp = h.handleListCertificates()
-		case "DeleteCertificate":
-			resp, opErr = h.handleDeleteCertificate(vals)
-		case "ListTagsForCertificate":
-			arn := vals.Get("CertificateArn")
-			tags := h.getTags(arn)
-			type tagEntry struct {
-				Key   string `xml:"Key"`
-				Value string `xml:"Value"`
-			}
-			type listTagsResp struct {
-				XMLName xml.Name   `xml:"ListTagsForCertificateResponse"`
-				Xmlns   string     `xml:"xmlns,attr"`
-				Result  struct {
-					XMLName xml.Name   `xml:"ListTagsForCertificateResult"`
-					Tags    []tagEntry `xml:"Tags>member"`
-				} `xml:"ListTagsForCertificateResult"`
-			}
-			tagList := make([]tagEntry, 0, len(tags))
-			for k, v := range tags {
-				tagList = append(tagList, tagEntry{Key: k, Value: v})
-			}
-			r := listTagsResp{Xmlns: acmXMLNS}
-			r.Result.Tags = tagList
-			resp = r
-		case "AddTagsToCertificate":
-			arn := vals.Get("CertificateArn")
-			newTags := make(map[string]string)
-			for i := 1; ; i++ {
-				k := vals.Get(fmt.Sprintf("Tags.member.%d.Key", i))
-				if k == "" {
-					break
-				}
-				v := vals.Get(fmt.Sprintf("Tags.member.%d.Value", i))
-				newTags[k] = v
-			}
-			h.setTags(arn, newTags)
-			resp = struct {
-				XMLName xml.Name `xml:"AddTagsToCertificateResponse"`
-			}{}
-		case "RemoveTagsFromCertificate":
-			arn := vals.Get("CertificateArn")
-			var keys []string
-			for i := 1; ; i++ {
-				k := vals.Get(fmt.Sprintf("Tags.member.%d.Key", i))
-				if k == "" {
-					break
-				}
-				keys = append(keys, k)
-			}
-			h.removeTags(arn, keys)
-			resp = struct {
-				XMLName xml.Name `xml:"RemoveTagsFromCertificateResponse"`
-			}{}
-		default:
+		resp, opErr := h.dispatchAction(action, vals)
+		if errors.Is(opErr, errUnknownACMAction) {
 			return h.writeError(c, http.StatusBadRequest, "InvalidAction",
 				fmt.Sprintf("%s is not a valid ACM action", action))
 		}
@@ -229,6 +163,98 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		return c.Blob(http.StatusOK, "text/xml", xmlBytes)
 	}
+}
+
+// errUnknownACMAction is returned by dispatchAction for unrecognised action names.
+var errUnknownACMAction = errors.New("unknown ACM action")
+
+// dispatchAction routes an ACM action to the appropriate handler and returns the XML response value.
+// Returns errUnknownACMAction for unknown actions so Handler can write an InvalidAction response.
+func (h *Handler) dispatchAction(action string, vals url.Values) (any, error) {
+	switch action {
+	case "RequestCertificate":
+		return h.handleRequestCertificate(vals)
+	case "DescribeCertificate":
+		return h.handleDescribeCertificate(vals)
+	case "ListCertificates":
+		return h.handleListCertificates(), nil
+	case "DeleteCertificate":
+		return h.handleDeleteCertificate(vals)
+	case "ListTagsForCertificate":
+		return h.handleListTagsForCertificate(vals), nil
+	case "AddTagsToCertificate":
+		h.applyAddTagsToCertificate(vals)
+
+		return struct {
+			XMLName xml.Name `xml:"AddTagsToCertificateResponse"`
+		}{}, nil
+	case "RemoveTagsFromCertificate":
+		h.applyRemoveTagsFromCertificate(vals)
+
+		return struct {
+			XMLName xml.Name `xml:"RemoveTagsFromCertificateResponse"`
+		}{}, nil
+	default:
+		return nil, errUnknownACMAction
+	}
+}
+
+func (h *Handler) handleListTagsForCertificate(vals url.Values) any {
+	arn := vals.Get("CertificateArn")
+	tags := h.getTags(arn)
+	type tagEntry struct {
+		Key   string `xml:"Key"`
+		Value string `xml:"Value"`
+	}
+	type listTagsResp struct {
+		XMLName xml.Name `xml:"ListTagsForCertificateResponse"`
+		Xmlns   string   `xml:"xmlns,attr"`
+		Result  struct {
+			XMLName xml.Name   `xml:"ListTagsForCertificateResult"`
+			Tags    []tagEntry `xml:"Tags>member"`
+		} `xml:"ListTagsForCertificateResult"`
+	}
+	tagList := make([]tagEntry, 0, len(tags))
+	for k, v := range tags {
+		tagList = append(tagList, tagEntry{Key: k, Value: v})
+	}
+	resp := listTagsResp{Xmlns: acmXMLNS}
+	resp.Result.Tags = tagList
+
+	return resp
+}
+
+func (h *Handler) applyAddTagsToCertificate(vals url.Values) {
+	arn := vals.Get("CertificateArn")
+	newTags := make(map[string]string)
+
+	for i := 1; ; i++ {
+		k := vals.Get(fmt.Sprintf("Tags.member.%d.Key", i))
+		if k == "" {
+			break
+		}
+
+		newTags[k] = vals.Get(fmt.Sprintf("Tags.member.%d.Value", i))
+	}
+
+	h.setTags(arn, newTags)
+}
+
+func (h *Handler) applyRemoveTagsFromCertificate(vals url.Values) {
+	arn := vals.Get("CertificateArn")
+
+	var keys []string
+
+	for i := 1; ; i++ {
+		k := vals.Get(fmt.Sprintf("Tags.member.%d.Key", i))
+		if k == "" {
+			break
+		}
+
+		keys = append(keys, k)
+	}
+
+	h.removeTags(arn, keys)
 }
 
 func (h *Handler) handleRequestCertificate(vals url.Values) (any, error) {
