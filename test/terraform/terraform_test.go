@@ -75,15 +75,20 @@ provider "aws" {
 
   # Endpoints are listed alphabetically — keep them sorted when adding new ones.
   endpoints {
+    acm            = %[1]q
+    cloudwatch     = %[1]q
     cloudwatchlogs = %[1]q
     dynamodb       = %[1]q
+    events         = %[1]q
     iam            = %[1]q
+    kinesis        = %[1]q
     kms            = %[1]q
     lambda         = %[1]q
     route53        = %[1]q
     s3             = %[1]q
     secretsmanager = %[1]q
     ses            = %[1]q
+    sfn            = %[1]q
     sns            = %[1]q
     sqs            = %[1]q
     ssm            = %[1]q

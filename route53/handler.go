@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -34,6 +35,8 @@ const (
 type Handler struct {
 	Backend *InMemoryBackend
 	Logger  *slog.Logger
+	tagsMu  sync.RWMutex
+	tags    map[string]map[string]string
 }
 
 // NewHandler creates a new Route 53 Handler.
@@ -42,7 +45,36 @@ func NewHandler(backend *InMemoryBackend, log *slog.Logger) *Handler {
 		log = slog.Default()
 	}
 
-	return &Handler{Backend: backend, Logger: log}
+	return &Handler{Backend: backend, Logger: log, tags: make(map[string]map[string]string)}
+}
+
+func (h *Handler) setTags(resourceID string, kv map[string]string) {
+	h.tagsMu.Lock()
+	defer h.tagsMu.Unlock()
+	if h.tags[resourceID] == nil {
+		h.tags[resourceID] = make(map[string]string)
+	}
+	for k, v := range kv {
+		h.tags[resourceID][k] = v
+	}
+}
+
+func (h *Handler) removeTags(resourceID string, keys []string) {
+	h.tagsMu.Lock()
+	defer h.tagsMu.Unlock()
+	for _, k := range keys {
+		delete(h.tags[resourceID], k)
+	}
+}
+
+func (h *Handler) getTags(resourceID string) map[string]string {
+	h.tagsMu.RLock()
+	defer h.tagsMu.RUnlock()
+	result := make(map[string]string)
+	for k, v := range h.tags[resourceID] {
+		result[k] = v
+	}
+	return result
 }
 
 // Name returns the service name.
@@ -500,24 +532,67 @@ func (h *Handler) listTagsForResource(c *echo.Context, path string) error {
 		resourceID = parts[1]
 	}
 
+	tags := h.getTags(resourceID)
+	type r53Tag struct {
+		Key   string `xml:"Key"`
+		Value string `xml:"Value"`
+	}
+	tagList := make([]r53Tag, 0, len(tags))
+	for k, v := range tags {
+		tagList = append(tagList, r53Tag{Key: k, Value: v})
+	}
+
+	type resourceTagSet struct {
+		ResourceType string   `xml:"ResourceType"`
+		ResourceID   string   `xml:"ResourceId"`
+		Tags         []r53Tag `xml:"Tags>Tag"`
+	}
 	type tagsResp struct {
-		XMLName        xml.Name `xml:"ListTagsForResourceResponse"`
-		Xmlns          string   `xml:"xmlns,attr"`
-		ResourceTagSet struct {
-			ResourceType string   `xml:"ResourceType"`
-			ResourceID   string   `xml:"ResourceId"`
-			Tags         struct{} `xml:"Tags"`
-		} `xml:"ResourceTagSet"`
+		XMLName        xml.Name       `xml:"ListTagsForResourceResponse"`
+		Xmlns          string         `xml:"xmlns,attr"`
+		ResourceTagSet resourceTagSet `xml:"ResourceTagSet"`
 	}
 
 	resp := tagsResp{Xmlns: route53Namespace}
 	resp.ResourceTagSet.ResourceType = resourceType
 	resp.ResourceTagSet.ResourceID = resourceID
+	resp.ResourceTagSet.Tags = tagList
 
 	return writeXML(c, http.StatusOK, resp)
 }
 
 func (h *Handler) changeTagsForResource(c *echo.Context) error {
+	path := c.Request().URL.Path
+	rest := strings.TrimPrefix(path, route53TagsPrefix)
+	parts := strings.SplitN(rest, "/", 2) //nolint:mnd
+	resourceID := ""
+	if len(parts) >= 2 { //nolint:mnd
+		resourceID = parts[1]
+	}
+
+	body, err := httputil.ReadBody(c.Request())
+	if err == nil && len(body) > 0 {
+		var req struct {
+			AddTags []struct {
+				Key   string `xml:"Key"`
+				Value string `xml:"Value"`
+			} `xml:"AddTags>Tag"`
+			RemoveTagKeys []string `xml:"RemoveTagKeys>Key"`
+		}
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr == nil {
+			if len(req.AddTags) > 0 {
+				kv := make(map[string]string)
+				for _, t := range req.AddTags {
+					kv[t.Key] = t.Value
+				}
+				h.setTags(resourceID, kv)
+			}
+			if len(req.RemoveTagKeys) > 0 {
+				h.removeTags(resourceID, req.RemoveTagKeys)
+			}
+		}
+	}
+
 	type changeTagsResp struct {
 		XMLName xml.Name `xml:"ChangeTagsForResourceResponse"`
 		Xmlns   string   `xml:"xmlns,attr"`

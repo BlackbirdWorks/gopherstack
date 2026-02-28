@@ -9,6 +9,8 @@ import (
 	"maps"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -23,11 +25,42 @@ var errUnknownOperation = errors.New("UnknownOperationException")
 type Handler struct {
 	Backend StorageBackend
 	Logger  *slog.Logger
+	tagsMu  sync.RWMutex
+	tags    map[string]map[string]string
 }
 
 // NewHandler creates a new Step Functions handler.
 func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
-	return &Handler{Backend: backend, Logger: log}
+	return &Handler{Backend: backend, Logger: log, tags: make(map[string]map[string]string)}
+}
+
+func (h *Handler) setTags(resourceID string, kv map[string]string) {
+	h.tagsMu.Lock()
+	defer h.tagsMu.Unlock()
+	if h.tags[resourceID] == nil {
+		h.tags[resourceID] = make(map[string]string)
+	}
+	for k, v := range kv {
+		h.tags[resourceID][k] = v
+	}
+}
+
+func (h *Handler) removeTags(resourceID string, keys []string) {
+	h.tagsMu.Lock()
+	defer h.tagsMu.Unlock()
+	for _, k := range keys {
+		delete(h.tags[resourceID], k)
+	}
+}
+
+func (h *Handler) getTags(resourceID string) map[string]string {
+	h.tagsMu.RLock()
+	defer h.tagsMu.RUnlock()
+	result := make(map[string]string)
+	for k, v := range h.tags[resourceID] {
+		result[k] = v
+	}
+	return result
 }
 
 // Name returns the service name.
@@ -40,11 +73,15 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteStateMachine",
 		"ListStateMachines",
 		"DescribeStateMachine",
+		"UpdateStateMachine",
 		"StartExecution",
 		"StopExecution",
 		"DescribeExecution",
 		"ListExecutions",
 		"GetExecutionHistory",
+		"ListTagsForResource",
+		"TagResource",
+		"UntagResource",
 	}
 }
 
@@ -202,6 +239,40 @@ func (h *Handler) stateMachineActions() map[string]actionFn {
 			}
 
 			return h.Backend.DescribeStateMachine(input.StateMachineArn)
+		},
+		"UpdateStateMachine": func(b []byte) (any, error) {
+			return map[string]any{"updateDate": time.Now().UTC()}, nil
+		},
+		"ListTagsForResource": func(b []byte) (any, error) {
+			var input struct {
+				ResourceArn string `json:"resourceArn"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			return map[string]any{"tags": h.getTags(input.ResourceArn)}, nil
+		},
+		"TagResource": func(b []byte) (any, error) {
+			var input struct {
+				ResourceArn string            `json:"resourceArn"`
+				Tags        map[string]string `json:"tags"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			h.setTags(input.ResourceArn, input.Tags)
+			return map[string]any{}, nil
+		},
+		"UntagResource": func(b []byte) (any, error) {
+			var input struct {
+				ResourceArn string   `json:"resourceArn"`
+				TagKeys     []string `json:"tagKeys"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			h.removeTags(input.ResourceArn, input.TagKeys)
+			return map[string]any{}, nil
 		},
 	}
 }

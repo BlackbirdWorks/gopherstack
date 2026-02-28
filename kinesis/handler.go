@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
@@ -22,11 +23,42 @@ type Handler struct {
 	Logger        *slog.Logger
 	DefaultRegion string
 	AccountID     string
+	tagsMu        sync.RWMutex
+	tags          map[string]map[string]string
 }
 
 // NewHandler creates a new Kinesis Handler.
 func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
-	return &Handler{Backend: backend, Logger: log}
+	return &Handler{Backend: backend, Logger: log, tags: make(map[string]map[string]string)}
+}
+
+func (h *Handler) setTags(resourceID string, kv map[string]string) {
+	h.tagsMu.Lock()
+	defer h.tagsMu.Unlock()
+	if h.tags[resourceID] == nil {
+		h.tags[resourceID] = make(map[string]string)
+	}
+	for k, v := range kv {
+		h.tags[resourceID][k] = v
+	}
+}
+
+func (h *Handler) removeTags(resourceID string, keys []string) {
+	h.tagsMu.Lock()
+	defer h.tagsMu.Unlock()
+	for _, k := range keys {
+		delete(h.tags[resourceID], k)
+	}
+}
+
+func (h *Handler) getTags(resourceID string) map[string]string {
+	h.tagsMu.RLock()
+	defer h.tagsMu.RUnlock()
+	result := make(map[string]string)
+	for k, v := range h.tags[resourceID] {
+		result[k] = v
+	}
+	return result
 }
 
 // Name returns the service name.
@@ -47,6 +79,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetShardIterator",
 		"GetRecords",
 		"ListShards",
+		"AddTagsToStream",
+		"RemoveTagsFromStream",
+		"ListTagsForStream",
 	}
 }
 
@@ -140,6 +175,9 @@ func (h *Handler) kinesisDispatchTable() map[string]kinesisDispatchFn {
 		"GetShardIterator":      h.handleGetShardIterator,
 		"GetRecords":            h.handleGetRecords,
 		"ListShards":            h.handleListShards,
+		"AddTagsToStream":       h.handleAddTagsToStream,
+		"RemoveTagsFromStream":  h.handleRemoveTagsFromStream,
+		"ListTagsForStream":     h.handleListTagsForStream,
 	}
 }
 
@@ -707,4 +745,74 @@ func errorDetails(err error) (string, string, int) {
 			"An internal error occurred.",
 			http.StatusInternalServerError
 	}
+}
+
+func (h *Handler) handleAddTagsToStream(
+	_ context.Context,
+	w http.ResponseWriter,
+	_ *http.Request,
+	body []byte,
+	requestID string,
+) {
+	var req struct {
+		StreamName string            `json:"StreamName"`
+		Tags       map[string]string `json:"Tags"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		h.writeError(w, ErrInvalidArgument, requestID)
+
+		return
+	}
+	h.setTags(req.StreamName, req.Tags)
+	httputil.WriteJSON(h.Logger, w, http.StatusOK, struct{}{})
+}
+
+func (h *Handler) handleRemoveTagsFromStream(
+	_ context.Context,
+	w http.ResponseWriter,
+	_ *http.Request,
+	body []byte,
+	requestID string,
+) {
+	var req struct {
+		StreamName string   `json:"StreamName"`
+		TagKeys    []string `json:"TagKeys"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		h.writeError(w, ErrInvalidArgument, requestID)
+
+		return
+	}
+	h.removeTags(req.StreamName, req.TagKeys)
+	httputil.WriteJSON(h.Logger, w, http.StatusOK, struct{}{})
+}
+
+func (h *Handler) handleListTagsForStream(
+	_ context.Context,
+	w http.ResponseWriter,
+	_ *http.Request,
+	body []byte,
+	requestID string,
+) {
+	var req struct {
+		StreamName string `json:"StreamName"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		h.writeError(w, ErrInvalidArgument, requestID)
+
+		return
+	}
+	tags := h.getTags(req.StreamName)
+	type kinesisTag struct {
+		Key   string `json:"Key"`
+		Value string `json:"Value"`
+	}
+	tagList := make([]kinesisTag, 0, len(tags))
+	for k, v := range tags {
+		tagList = append(tagList, kinesisTag{Key: k, Value: v})
+	}
+	httputil.WriteJSON(h.Logger, w, http.StatusOK, map[string]any{
+		"Tags":        tagList,
+		"HasMoreTags": false,
+	})
 }

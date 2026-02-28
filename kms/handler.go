@@ -9,6 +9,7 @@ import (
 	"maps"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/labstack/echo/v5"
 
@@ -30,6 +31,8 @@ type Handler struct {
 	actions map[string]kmsActionFn
 	// DefaultRegion is the fallback region used when region cannot be extracted from the request.
 	DefaultRegion string
+	tagsMu        sync.RWMutex
+	tags          map[string]map[string]string
 }
 
 // NewHandler creates a new KMS handler with the given storage backend and logger.
@@ -37,10 +40,40 @@ func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
 	h := &Handler{
 		Backend: backend,
 		Logger:  log,
+		tags:    make(map[string]map[string]string),
 	}
 	h.actions = h.buildDispatchTable()
 
 	return h
+}
+
+func (h *Handler) setTags(resourceID string, kv map[string]string) {
+	h.tagsMu.Lock()
+	defer h.tagsMu.Unlock()
+	if h.tags[resourceID] == nil {
+		h.tags[resourceID] = make(map[string]string)
+	}
+	for k, v := range kv {
+		h.tags[resourceID][k] = v
+	}
+}
+
+func (h *Handler) removeTags(resourceID string, keys []string) {
+	h.tagsMu.Lock()
+	defer h.tagsMu.Unlock()
+	for _, k := range keys {
+		delete(h.tags[resourceID], k)
+	}
+}
+
+func (h *Handler) getTags(resourceID string) map[string]string {
+	h.tagsMu.RLock()
+	defer h.tagsMu.RUnlock()
+	result := make(map[string]string)
+	for k, v := range h.tags[resourceID] {
+		result[k] = v
+	}
+	return result
 }
 
 // Name returns the service name.
@@ -420,13 +453,44 @@ func (h *Handler) buildGrantPolicyActions() map[string]kmsActionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-
-			return map[string]any{"Tags": []any{}, "Truncated": false}, nil
+			tags := h.getTags(input.KeyId)
+			type kmsTag struct {
+				TagKey   string `json:"TagKey"`
+				TagValue string `json:"TagValue"`
+			}
+			tagList := make([]kmsTag, 0, len(tags))
+			for k, v := range tags {
+				tagList = append(tagList, kmsTag{TagKey: k, TagValue: v})
+			}
+			return map[string]any{"Tags": tagList, "Truncated": false}, nil
 		},
-		"TagResource": func(_ string, _ []byte) (any, error) {
+		"TagResource": func(_ string, b []byte) (any, error) {
+			var input struct {
+				KeyId string `json:"KeyId"`
+				Tags  []struct {
+					TagKey   string `json:"TagKey"`
+					TagValue string `json:"TagValue"`
+				} `json:"Tags"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			kv := make(map[string]string, len(input.Tags))
+			for _, t := range input.Tags {
+				kv[t.TagKey] = t.TagValue
+			}
+			h.setTags(input.KeyId, kv)
 			return struct{}{}, nil
 		},
-		"UntagResource": func(_ string, _ []byte) (any, error) {
+		"UntagResource": func(_ string, b []byte) (any, error) {
+			var input struct {
+				KeyId   string   `json:"KeyId"`
+				TagKeys []string `json:"TagKeys"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			h.removeTags(input.KeyId, input.TagKeys)
 			return struct{}{}, nil
 		},
 	}

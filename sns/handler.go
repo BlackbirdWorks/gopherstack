@@ -175,13 +175,9 @@ func (h *Handler) dispatch(c *echo.Context, action string) error {
 	case "ListTagsForResource":
 		return h.handleListTagsForResource(c)
 	case "TagResource":
-		return h.writeXML(c, struct {
-			XMLName xml.Name `xml:"https://sns.amazonaws.com/doc/2010-03-31/ TagResourceResponse"`
-		}{})
+		return h.handleTagResource(c)
 	case "UntagResource":
-		return h.writeXML(c, struct {
-			XMLName xml.Name `xml:"https://sns.amazonaws.com/doc/2010-03-31/ UntagResourceResponse"`
-		}{})
+		return h.handleUntagResource(c)
 	default:
 		return h.writeError(c, http.StatusBadRequest, "InvalidAction",
 			fmt.Sprintf("Action %s is not valid for this endpoint", action))
@@ -472,16 +468,62 @@ func (h *Handler) handleGetSubscriptionAttributes(c *echo.Context) error {
 }
 
 func (h *Handler) handleListTagsForResource(c *echo.Context) error {
+	resourceArn := c.Request().FormValue("ResourceArn")
+	tags := h.Backend.GetTopicTags(resourceArn)
+	type snsTag struct {
+		Key   string `xml:"Key"`
+		Value string `xml:"Value"`
+	}
+	tagList := make([]snsTag, 0, len(tags))
+	for k, v := range tags {
+		tagList = append(tagList, snsTag{Key: k, Value: v})
+	}
 	return h.writeXML(c, struct {
 		XMLName xml.Name `xml:"https://sns.amazonaws.com/doc/2010-03-31/ ListTagsForResourceResponse"`
 		Result  struct {
-			XMLName xml.Name `xml:"ListTagsForResourceResult"`
-			Tags    struct{} `xml:"Tags"`
+			XMLName xml.Name  `xml:"ListTagsForResourceResult"`
+			Tags    []snsTag `xml:"Tags>Tag"`
 		}
 		ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
 	}{
+		Result: struct {
+			XMLName xml.Name  `xml:"ListTagsForResourceResult"`
+			Tags    []snsTag `xml:"Tags>Tag"`
+		}{Tags: tagList},
 		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
 	})
+}
+
+func (h *Handler) handleTagResource(c *echo.Context) error {
+	resourceArn := c.Request().FormValue("ResourceArn")
+	tags := make(map[string]string)
+	for i := 1; ; i++ {
+		k := c.Request().FormValue(fmt.Sprintf("Tags.member.%d.Key", i))
+		if k == "" {
+			break
+		}
+		tags[k] = c.Request().FormValue(fmt.Sprintf("Tags.member.%d.Value", i))
+	}
+	h.Backend.SetTopicTags(resourceArn, tags)
+	return h.writeXML(c, struct {
+		XMLName xml.Name `xml:"https://sns.amazonaws.com/doc/2010-03-31/ TagResourceResponse"`
+	}{})
+}
+
+func (h *Handler) handleUntagResource(c *echo.Context) error {
+	resourceArn := c.Request().FormValue("ResourceArn")
+	var keys []string
+	for i := 1; ; i++ {
+		k := c.Request().FormValue(fmt.Sprintf("TagKeys.member.%d", i))
+		if k == "" {
+			break
+		}
+		keys = append(keys, k)
+	}
+	h.Backend.RemoveTopicTags(resourceArn, keys)
+	return h.writeXML(c, struct {
+		XMLName xml.Name `xml:"https://sns.amazonaws.com/doc/2010-03-31/ UntagResourceResponse"`
+	}{})
 }
 
 // writeXML marshals v to XML and writes an HTTP 200 OK response.

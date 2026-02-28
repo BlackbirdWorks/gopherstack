@@ -49,12 +49,16 @@ type StorageBackend interface {
 	Publish(topicArn, message, subject, messageStructure string, attrs map[string]MessageAttribute) (string, error)
 	ListAllTopics() []Topic
 	ListAllSubscriptions() []Subscription
+	GetTopicTags(arn string) map[string]string
+	SetTopicTags(arn string, tags map[string]string)
+	RemoveTopicTags(arn string, keys []string)
 }
 
 // InMemoryBackend implements StorageBackend using an in-memory concurrency-safe store.
 type InMemoryBackend struct {
 	topics        map[string]*Topic
 	subscriptions map[string]*Subscription
+	topicTags     map[string]map[string]string
 	emitter       events.EventEmitter[*events.SNSPublishedEvent]
 	accountID     string
 	region        string
@@ -71,6 +75,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		topics:        make(map[string]*Topic),
 		subscriptions: make(map[string]*Subscription),
+		topicTags:     make(map[string]map[string]string),
 		accountID:     accountID,
 		region:        region,
 	}
@@ -587,4 +592,36 @@ func paginate[T any](items []T, offset, size int) ([]T, string) {
 	}
 
 	return items[offset:end], nextToken
+}
+
+// GetTopicTags returns tags for the given topic ARN.
+func (b *InMemoryBackend) GetTopicTags(arn string) map[string]string {
+b.mu.RLock()
+defer b.mu.RUnlock()
+result := make(map[string]string)
+for k, v := range b.topicTags[arn] {
+result[k] = v
+}
+return result
+}
+
+// SetTopicTags stores tags for the given topic ARN.
+func (b *InMemoryBackend) SetTopicTags(arn string, tags map[string]string) {
+b.mu.Lock()
+defer b.mu.Unlock()
+if b.topicTags[arn] == nil {
+b.topicTags[arn] = make(map[string]string)
+}
+for k, v := range tags {
+b.topicTags[arn][k] = v
+}
+}
+
+// RemoveTopicTags removes specified tag keys for the given topic ARN.
+func (b *InMemoryBackend) RemoveTopicTags(arn string, keys []string) {
+b.mu.Lock()
+defer b.mu.Unlock()
+for _, k := range keys {
+delete(b.topicTags[arn], k)
+}
 }

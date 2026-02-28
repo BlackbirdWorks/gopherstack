@@ -68,6 +68,8 @@ func (h *Handler) handleCBOR(c *echo.Context) error {
 		return h.cborDescribeAlarms(input, c)
 	case "DeleteAlarms":
 		return h.cborDeleteAlarms(input, c)
+	case "ListTagsForResource", "TagResource", "UntagResource":
+		return writeCBOR(c, cbor.Map{})
 	default:
 		return h.cborError(c, http.StatusBadRequest, "InvalidAction", "unknown operation: "+op)
 	}

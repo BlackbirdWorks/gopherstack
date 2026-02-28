@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -72,6 +73,8 @@ type Handler struct {
 	Logger        *slog.Logger
 	DefaultRegion string
 	AccountID     string
+	tagsMu        sync.RWMutex
+	tags          map[string]map[string]string
 }
 
 // NewHandler creates a new Lambda handler with the given backend and logger.
@@ -79,7 +82,37 @@ func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
 	return &Handler{
 		Backend: backend,
 		Logger:  log,
+		tags:    make(map[string]map[string]string),
 	}
+}
+
+func (h *Handler) setTags(resourceID string, kv map[string]string) {
+	h.tagsMu.Lock()
+	defer h.tagsMu.Unlock()
+	if h.tags[resourceID] == nil {
+		h.tags[resourceID] = make(map[string]string)
+	}
+	for k, v := range kv {
+		h.tags[resourceID][k] = v
+	}
+}
+
+func (h *Handler) removeTags(resourceID string, keys []string) {
+	h.tagsMu.Lock()
+	defer h.tagsMu.Unlock()
+	for _, k := range keys {
+		delete(h.tags[resourceID], k)
+	}
+}
+
+func (h *Handler) getTags(resourceID string) map[string]string {
+	h.tagsMu.RLock()
+	defer h.tagsMu.RUnlock()
+	result := make(map[string]string)
+	for k, v := range h.tags[resourceID] {
+		result[k] = v
+	}
+	return result
 }
 
 // Name returns the service name.
@@ -359,12 +392,29 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 // handleTagsRoute handles GET/POST/DELETE /2015-03-31/tags/{arn}.
 func (h *Handler) handleTagsRoute(c *echo.Context, method string) error {
+	arn := strings.TrimPrefix(c.Request().URL.Path, lambdaTagsPathPrefix+"/")
+
 	switch method {
 	case http.MethodGet:
-		return c.JSON(http.StatusOK, map[string]any{"Tags": map[string]string{}})
-	case http.MethodPost, http.MethodDelete:
+		return c.JSON(http.StatusOK, map[string]any{"Tags": h.getTags(arn)})
+	case http.MethodPost:
+		body, err := httputil.ReadBody(c.Request())
+		if err != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
+		}
+		var input struct {
+			Tags map[string]string `json:"Tags"`
+		}
+		if err := json.Unmarshal(body, &input); err != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid body")
+		}
+		h.setTags(arn, input.Tags)
 		c.Response().WriteHeader(http.StatusNoContent)
-
+		return nil
+	case http.MethodDelete:
+		keys := c.Request().URL.Query()["tagKeys"]
+		h.removeTags(arn, keys)
+		c.Response().WriteHeader(http.StatusNoContent)
 		return nil
 	default:
 		return h.writeError(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")

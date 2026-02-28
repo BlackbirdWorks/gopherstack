@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,11 +25,42 @@ const cloudwatchNS = "http://monitoring.amazonaws.com/doc/2010-08-01/"
 type Handler struct {
 	Backend StorageBackend
 	Logger  *slog.Logger
+	tagsMu  sync.RWMutex
+	tags    map[string]map[string]string
 }
 
 // NewHandler creates a new CloudWatch handler.
 func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
-	return &Handler{Backend: backend, Logger: log}
+	return &Handler{Backend: backend, Logger: log, tags: make(map[string]map[string]string)}
+}
+
+func (h *Handler) setTags(resourceID string, kv map[string]string) {
+	h.tagsMu.Lock()
+	defer h.tagsMu.Unlock()
+	if h.tags[resourceID] == nil {
+		h.tags[resourceID] = make(map[string]string)
+	}
+	for k, v := range kv {
+		h.tags[resourceID][k] = v
+	}
+}
+
+func (h *Handler) removeTags(resourceID string, keys []string) {
+	h.tagsMu.Lock()
+	defer h.tagsMu.Unlock()
+	for _, k := range keys {
+		delete(h.tags[resourceID], k)
+	}
+}
+
+func (h *Handler) getTags(resourceID string) map[string]string {
+	h.tagsMu.RLock()
+	defer h.tagsMu.RUnlock()
+	result := make(map[string]string)
+	for k, v := range h.tags[resourceID] {
+		result[k] = v
+	}
+	return result
 }
 
 // Name returns the service name.
@@ -44,6 +76,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		"PutMetricAlarm",
 		"DescribeAlarms",
 		"DeleteAlarms",
+		"ListTagsForResource",
+		"TagResource",
+		"UntagResource",
 	}
 }
 
@@ -145,6 +180,53 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.handleDescribeAlarms(r.Form, c)
 		case "DeleteAlarms":
 			return h.handleDeleteAlarms(r.Form, c)
+		case "ListTagsForResource":
+			arn := r.Form.Get("ResourceARN")
+			tags := h.getTags(arn)
+			type xmlCWTag struct {
+				Key   string `xml:"Key"`
+				Value string `xml:"Value"`
+			}
+			type listTagsForResourceResp struct {
+				XMLName xml.Name   `xml:"ListTagsForResourceResponse"`
+				Result  struct {
+					XMLName xml.Name   `xml:"ListTagsForResourceResult"`
+					Tags    []xmlCWTag `xml:"Tags>member"`
+				} `xml:"ListTagsForResourceResult"`
+			}
+			var resp listTagsForResourceResp
+			for k, v := range tags {
+				resp.Result.Tags = append(resp.Result.Tags, xmlCWTag{Key: k, Value: v})
+			}
+			return writeXML(c, resp)
+		case "TagResource":
+			arn := r.Form.Get("ResourceARN")
+			newTags := make(map[string]string)
+			for i := 1; ; i++ {
+				k := r.Form.Get(fmt.Sprintf("Tags.member.%d.Key", i))
+				if k == "" {
+					break
+				}
+				newTags[k] = r.Form.Get(fmt.Sprintf("Tags.member.%d.Value", i))
+			}
+			h.setTags(arn, newTags)
+			return writeXML(c, struct {
+				XMLName xml.Name `xml:"TagResourceResponse"`
+			}{})
+		case "UntagResource":
+			arn := r.Form.Get("ResourceARN")
+			var keys []string
+			for i := 1; ; i++ {
+				k := r.Form.Get(fmt.Sprintf("TagKeys.member.%d", i))
+				if k == "" {
+					break
+				}
+				keys = append(keys, k)
+			}
+			h.removeTags(arn, keys)
+			return writeXML(c, struct {
+				XMLName xml.Name `xml:"UntagResourceResponse"`
+			}{})
 		default:
 			return h.xmlError(c, http.StatusBadRequest, "InvalidAction", "unknown action: "+action)
 		}

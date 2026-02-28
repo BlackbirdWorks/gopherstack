@@ -9,6 +9,7 @@ import (
 	"maps"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/labstack/echo/v5"
 
@@ -23,11 +24,42 @@ var errUnknownOperation = errors.New("UnknownOperationException")
 type Handler struct {
 	Backend StorageBackend
 	Logger  *slog.Logger
+	tagsMu  sync.RWMutex
+	tags    map[string]map[string]string
 }
 
 // NewHandler creates a new CloudWatch Logs handler.
 func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
-	return &Handler{Backend: backend, Logger: log}
+	return &Handler{Backend: backend, Logger: log, tags: make(map[string]map[string]string)}
+}
+
+func (h *Handler) setTags(resourceID string, kv map[string]string) {
+	h.tagsMu.Lock()
+	defer h.tagsMu.Unlock()
+	if h.tags[resourceID] == nil {
+		h.tags[resourceID] = make(map[string]string)
+	}
+	for k, v := range kv {
+		h.tags[resourceID][k] = v
+	}
+}
+
+func (h *Handler) removeTags(resourceID string, keys []string) {
+	h.tagsMu.Lock()
+	defer h.tagsMu.Unlock()
+	for _, k := range keys {
+		delete(h.tags[resourceID], k)
+	}
+}
+
+func (h *Handler) getTags(resourceID string) map[string]string {
+	h.tagsMu.RLock()
+	defer h.tagsMu.RUnlock()
+	result := make(map[string]string)
+	for k, v := range h.tags[resourceID] {
+		result[k] = v
+	}
+	return result
 }
 
 // Name returns the service name.
@@ -312,16 +344,44 @@ func (h *Handler) logEventActions() map[string]actionFn {
 
 func (h *Handler) logTagActions() map[string]actionFn {
 	return map[string]actionFn{
-		"ListTagsLogGroup": func(_ []byte) (any, error) {
-			return map[string]any{"tags": map[string]string{}}, nil
+		"ListTagsLogGroup": func(b []byte) (any, error) {
+			var input struct {
+				LogGroupName string `json:"logGroupName"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			return map[string]any{"tags": h.getTags(input.LogGroupName)}, nil
 		},
-		"ListTagsForResource": func(_ []byte) (any, error) {
-			return map[string]any{"tags": map[string]string{}}, nil
+		"ListTagsForResource": func(b []byte) (any, error) {
+			var input struct {
+				ResourceArn string `json:"resourceArn"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			return map[string]any{"tags": h.getTags(input.ResourceArn)}, nil
 		},
-		"TagLogGroup": func(_ []byte) (any, error) {
+		"TagLogGroup": func(b []byte) (any, error) {
+			var input struct {
+				LogGroupName string            `json:"logGroupName"`
+				Tags         map[string]string `json:"tags"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			h.setTags(input.LogGroupName, input.Tags)
 			return struct{}{}, nil
 		},
-		"UntagLogGroup": func(_ []byte) (any, error) {
+		"UntagLogGroup": func(b []byte) (any, error) {
+			var input struct {
+				LogGroupName string   `json:"logGroupName"`
+				Tags         []string `json:"tags"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			h.removeTags(input.LogGroupName, input.Tags)
 			return struct{}{}, nil
 		},
 	}

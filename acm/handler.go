@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 
 	"github.com/labstack/echo/v5"
 
@@ -25,11 +26,42 @@ const (
 type Handler struct {
 	Backend *InMemoryBackend
 	Logger  *slog.Logger
+	tagsMu  sync.RWMutex
+	tags    map[string]map[string]string
 }
 
 // NewHandler creates a new ACM handler.
 func NewHandler(backend *InMemoryBackend, log *slog.Logger) *Handler {
-	return &Handler{Backend: backend, Logger: log}
+	return &Handler{Backend: backend, Logger: log, tags: make(map[string]map[string]string)}
+}
+
+func (h *Handler) setTags(resourceID string, kv map[string]string) {
+	h.tagsMu.Lock()
+	defer h.tagsMu.Unlock()
+	if h.tags[resourceID] == nil {
+		h.tags[resourceID] = make(map[string]string)
+	}
+	for k, v := range kv {
+		h.tags[resourceID][k] = v
+	}
+}
+
+func (h *Handler) removeTags(resourceID string, keys []string) {
+	h.tagsMu.Lock()
+	defer h.tagsMu.Unlock()
+	for _, k := range keys {
+		delete(h.tags[resourceID], k)
+	}
+}
+
+func (h *Handler) getTags(resourceID string) map[string]string {
+	h.tagsMu.RLock()
+	defer h.tagsMu.RUnlock()
+	result := make(map[string]string)
+	for k, v := range h.tags[resourceID] {
+		result[k] = v
+	}
+	return result
 }
 
 // Name returns the service name.
@@ -42,6 +74,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeCertificate",
 		"ListCertificates",
 		"DeleteCertificate",
+		"ListTagsForCertificate",
+		"AddTagsToCertificate",
+		"RemoveTagsFromCertificate",
 	}
 }
 
@@ -127,6 +162,57 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			resp = h.handleListCertificates()
 		case "DeleteCertificate":
 			resp, opErr = h.handleDeleteCertificate(vals)
+		case "ListTagsForCertificate":
+			arn := vals.Get("CertificateArn")
+			tags := h.getTags(arn)
+			type tagEntry struct {
+				Key   string `xml:"Key"`
+				Value string `xml:"Value"`
+			}
+			type listTagsResp struct {
+				XMLName xml.Name   `xml:"ListTagsForCertificateResponse"`
+				Xmlns   string     `xml:"xmlns,attr"`
+				Result  struct {
+					XMLName xml.Name   `xml:"ListTagsForCertificateResult"`
+					Tags    []tagEntry `xml:"Tags>member"`
+				} `xml:"ListTagsForCertificateResult"`
+			}
+			tagList := make([]tagEntry, 0, len(tags))
+			for k, v := range tags {
+				tagList = append(tagList, tagEntry{Key: k, Value: v})
+			}
+			r := listTagsResp{Xmlns: acmXMLNS}
+			r.Result.Tags = tagList
+			resp = r
+		case "AddTagsToCertificate":
+			arn := vals.Get("CertificateArn")
+			newTags := make(map[string]string)
+			for i := 1; ; i++ {
+				k := vals.Get(fmt.Sprintf("Tags.member.%d.Key", i))
+				if k == "" {
+					break
+				}
+				v := vals.Get(fmt.Sprintf("Tags.member.%d.Value", i))
+				newTags[k] = v
+			}
+			h.setTags(arn, newTags)
+			resp = struct {
+				XMLName xml.Name `xml:"AddTagsToCertificateResponse"`
+			}{}
+		case "RemoveTagsFromCertificate":
+			arn := vals.Get("CertificateArn")
+			var keys []string
+			for i := 1; ; i++ {
+				k := vals.Get(fmt.Sprintf("Tags.member.%d.Key", i))
+				if k == "" {
+					break
+				}
+				keys = append(keys, k)
+			}
+			h.removeTags(arn, keys)
+			resp = struct {
+				XMLName xml.Name `xml:"RemoveTagsFromCertificateResponse"`
+			}{}
 		default:
 			return h.writeError(c, http.StatusBadRequest, "InvalidAction",
 				fmt.Sprintf("%s is not a valid ACM action", action))
