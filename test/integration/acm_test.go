@@ -1,26 +1,28 @@
 package integration_test
 
 import (
+	"bytes"
+	"encoding/json"
 	"io"
 	"net/http"
-	"net/url"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func acmPost(t *testing.T, form url.Values) *http.Response {
+func acmPost(t *testing.T, action string, body any) *http.Response {
 	t.Helper()
 
-	form.Set("Version", "2015-12-08")
-
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, endpoint,
-		strings.NewReader(form.Encode()))
+	bodyBytes, err := json.Marshal(body)
 	require.NoError(t, err)
 
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, endpoint,
+		bytes.NewReader(bodyBytes))
+	require.NoError(t, err)
+
+	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+	req.Header.Set("X-Amz-Target", "CertificateManager."+action)
 
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
@@ -38,65 +40,65 @@ func acmReadBody(t *testing.T, resp *http.Response) string {
 	return string(data)
 }
 
+func acmReadJSON(t *testing.T, resp *http.Response) map[string]any {
+	t.Helper()
+	defer resp.Body.Close()
+
+	var m map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&m))
+
+	return m
+}
+
 func TestIntegration_ACM_RequestCertificate(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	resp := acmPost(t, url.Values{
-		"Action":     {"RequestCertificate"},
-		"DomainName": {"integ-acm.example.com"},
+	resp := acmPost(t, "RequestCertificate", map[string]any{
+		"DomainName":       "integ-acm.example.com",
+		"ValidationMethod": "DNS",
 	})
 	body := acmReadBody(t, resp)
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "body: %s", body)
-	assert.Contains(t, body, "RequestCertificateResponse")
 	assert.Contains(t, body, "arn:aws:acm:")
+	assert.Contains(t, body, "CertificateArn")
 }
 
 func TestIntegration_ACM_ListCertificates(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	acmPost(t, url.Values{
-		"Action":     {"RequestCertificate"},
-		"DomainName": {"list-acm.example.com"},
-	})
+	acmPost(t, "RequestCertificate", map[string]any{
+		"DomainName":       "list-acm.example.com",
+		"ValidationMethod": "DNS",
+	}).Body.Close()
 
-	resp := acmPost(t, url.Values{
-		"Action": {"ListCertificates"},
-	})
-	body := acmReadBody(t, resp)
+	resp := acmPost(t, "ListCertificates", map[string]any{})
+	m := acmReadJSON(t, resp)
 
-	assert.Equal(t, http.StatusOK, resp.StatusCode, "body: %s", body)
-	assert.Contains(t, body, "ListCertificatesResponse")
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Contains(t, m, "CertificateSummaryList")
 }
 
 func TestIntegration_ACM_DescribeCertificate(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	resp := acmPost(t, url.Values{
-		"Action":     {"RequestCertificate"},
-		"DomainName": {"describe-acm.example.com"},
+	resp := acmPost(t, "RequestCertificate", map[string]any{
+		"DomainName":       "describe-acm.example.com",
+		"ValidationMethod": "DNS",
 	})
-	body := acmReadBody(t, resp)
+	m := acmReadJSON(t, resp)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
-	// Extract ARN from response body
-	start := strings.Index(body, "<CertificateArn>")
-	end := strings.Index(body, "</CertificateArn>")
-	require.True(t, start >= 0 && end > start, "could not find CertificateArn in: %s", body)
-	arn := body[start+len("<CertificateArn>") : end]
+	arn, _ := m["CertificateArn"].(string)
+	require.NotEmpty(t, arn, "CertificateArn should be present")
 
-	// Describe the certificate
-	descResp := acmPost(t, url.Values{
-		"Action":         {"DescribeCertificate"},
-		"CertificateArn": {arn},
-	})
+	descResp := acmPost(t, "DescribeCertificate", map[string]any{"CertificateArn": arn})
 	descBody := acmReadBody(t, descResp)
 
 	assert.Equal(t, http.StatusOK, descResp.StatusCode, "body: %s", descBody)
-	assert.Contains(t, descBody, "DescribeCertificateResponse")
 	assert.Contains(t, descBody, "describe-acm.example.com")
 }
 
@@ -104,23 +106,17 @@ func TestIntegration_ACM_DeleteCertificate(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	reqResp := acmPost(t, url.Values{
-		"Action":     {"RequestCertificate"},
-		"DomainName": {"delete-acm.example.com"},
+	resp := acmPost(t, "RequestCertificate", map[string]any{
+		"DomainName":       "delete-acm.example.com",
+		"ValidationMethod": "DNS",
 	})
-	body := acmReadBody(t, reqResp)
-	require.Equal(t, http.StatusOK, reqResp.StatusCode)
+	m := acmReadJSON(t, resp)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
 
-	start := strings.Index(body, "<CertificateArn>")
-	end := strings.Index(body, "</CertificateArn>")
-	require.True(t, start >= 0 && end > start, "could not find CertificateArn in: %s", body)
-	arn := body[start+len("<CertificateArn>") : end]
+	arn, _ := m["CertificateArn"].(string)
+	require.NotEmpty(t, arn, "CertificateArn should be present")
 
-	delResp := acmPost(t, url.Values{
-		"Action":         {"DeleteCertificate"},
-		"CertificateArn": {arn},
-	})
+	delResp := acmPost(t, "DeleteCertificate", map[string]any{"CertificateArn": arn})
 	delBody := acmReadBody(t, delResp)
 	assert.Equal(t, http.StatusOK, delResp.StatusCode, "body: %s", delBody)
-	assert.Contains(t, delBody, "DeleteCertificateResponse")
 }

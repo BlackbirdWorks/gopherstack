@@ -111,12 +111,13 @@ type domainJSON struct {
 
 // domainStatusJSON is the JSON response for domain operations.
 type domainStatusJSON struct {
-	DomainName    string            `json:"DomainName"`
-	ARN           string            `json:"ARN"`
-	EngineVersion string            `json:"EngineVersion"`
-	Endpoint      string            `json:"Endpoint"`
-	ClusterConfig clusterConfigJSON `json:"ClusterConfig"`
-	Processing    bool              `json:"Processing"`
+	DomainName             string            `json:"DomainName"`
+	ARN                    string            `json:"ARN"`
+	EngineVersion          string            `json:"EngineVersion"`
+	Endpoint               string            `json:"Endpoint"`
+	DomainProcessingStatus string            `json:"DomainProcessingStatus"`
+	ClusterConfig          clusterConfigJSON `json:"ClusterConfig"`
+	Processing             bool              `json:"Processing"`
 }
 
 // clusterConfigJSON is the JSON representation of cluster config.
@@ -302,11 +303,12 @@ func (h *Handler) handleListDomainNames(w http.ResponseWriter, _ *http.Request) 
 
 func toDomainStatusJSON(d *Domain) domainStatusJSON {
 	return domainStatusJSON{
-		DomainName:    d.Name,
-		ARN:           d.ARN,
-		EngineVersion: d.EngineVersion,
-		Endpoint:      d.Endpoint,
-		Processing:    false,
+		DomainName:             d.Name,
+		ARN:                    d.ARN,
+		EngineVersion:          d.EngineVersion,
+		Endpoint:               d.Endpoint,
+		Processing:             false,
+		DomainProcessingStatus: "Active",
 		ClusterConfig: clusterConfigJSON{
 			InstanceType:  d.ClusterConfig.InstanceType,
 			InstanceCount: d.ClusterConfig.InstanceCount,

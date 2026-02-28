@@ -1015,6 +1015,11 @@ func TestTerraform_CloudFormation(t *testing.T) {
 resource "aws_cloudformation_stack" "this" {
   name = %q
 
+  timeouts {
+    create = "2m"
+    delete = "2m"
+  }
+
   template_body = <<TEMPLATE
 {
   "AWSTemplateFormatVersion": "2010-09-09",
@@ -1060,6 +1065,11 @@ resource "aws_elasticache_cluster" "this" {
   node_type            = "cache.t3.micro"
   num_cache_nodes      = 1
   parameter_group_name = "default.memcached1.6"
+
+  timeouts {
+    create = "2m"
+    delete = "2m"
+  }
 }
 `, clusterID)
 
@@ -1091,6 +1101,12 @@ func TestTerraform_OpenSearch(t *testing.T) {
 resource "aws_opensearch_domain" "this" {
   domain_name    = %q
   engine_version = "OpenSearch_2.3"
+
+  timeouts {
+    create = "2m"
+    delete = "2m"
+    update = "2m"
+  }
 }
 `, domainName)
 
@@ -1127,6 +1143,12 @@ resource "aws_redshift_cluster" "this" {
   node_type           = "dc2.large"
   cluster_type        = "single-node"
   skip_final_snapshot = true
+
+  timeouts {
+    create = "2m"
+    delete = "2m"
+    update = "2m"
+  }
 }
 `, clusterID)
 
@@ -1176,6 +1198,12 @@ resource "aws_s3_bucket" "firehose" {
 resource "aws_kinesis_firehose_delivery_stream" "this" {
   name        = %q
   destination = "extended_s3"
+
+  timeouts {
+    create = "2m"
+    delete = "2m"
+    update = "2m"
+  }
 
   extended_s3_configuration {
     role_arn   = aws_iam_role.firehose.arn

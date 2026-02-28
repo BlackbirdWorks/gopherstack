@@ -202,12 +202,13 @@ func (h *Handler) handleDescribeClusters(vals url.Values) (any, error) {
 
 func toXMLCluster(c *Cluster) xmlCluster {
 	return xmlCluster{
-		ClusterIdentifier: c.ClusterIdentifier,
-		NodeType:          c.NodeType,
-		Endpoint:          c.Endpoint,
-		ClusterStatus:     c.Status,
-		DBName:            c.DBName,
-		MasterUsername:    c.MasterUsername,
+		ClusterIdentifier:         c.ClusterIdentifier,
+		NodeType:                  c.NodeType,
+		Endpoint:                  c.Endpoint,
+		ClusterStatus:             c.Status,
+		ClusterAvailabilityStatus: "Available",
+		DBName:                    c.DBName,
+		MasterUsername:            c.MasterUsername,
 	}
 }
 
@@ -267,12 +268,13 @@ type redshiftErrorResponse struct {
 }
 
 type xmlCluster struct {
-	ClusterIdentifier string `xml:"ClusterIdentifier"`
-	NodeType          string `xml:"NodeType"`
-	Endpoint          string `xml:"Endpoint>Address"`
-	ClusterStatus     string `xml:"ClusterStatus"`
-	DBName            string `xml:"DBName"`
-	MasterUsername    string `xml:"MasterUsername"`
+	ClusterIdentifier         string `xml:"ClusterIdentifier"`
+	NodeType                  string `xml:"NodeType"`
+	Endpoint                  string `xml:"Endpoint>Address"`
+	ClusterStatus             string `xml:"ClusterStatus"`
+	ClusterAvailabilityStatus string `xml:"ClusterAvailabilityStatus"`
+	DBName                    string `xml:"DBName"`
+	MasterUsername            string `xml:"MasterUsername"`
 }
 
 type createClusterResponse struct {
