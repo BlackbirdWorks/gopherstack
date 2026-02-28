@@ -910,8 +910,9 @@ func (b *InMemoryBackend) GetKeyPolicy(input *GetKeyPolicyInput) (*GetKeyPolicyO
 	policy, ok := b.policies[keyID]
 	if !ok {
 		// Return default policy
+		rootARN := arn.Build("iam", "", b.accountID, "root")
 		policy = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
-			`"Principal":{"AWS":"arn:aws:iam::000000000000:root"},"Action":"kms:*","Resource":"*"}]}`
+			`"Principal":{"AWS":"` + rootARN + `"},"Action":"kms:*","Resource":"*"}]}`
 	}
 
 	policyName := input.PolicyName

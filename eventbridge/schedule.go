@@ -170,8 +170,6 @@ func (c *cronExpression) NextAfter(t time.Time) time.Time {
 }
 
 // matches checks whether a time matches all cron fields.
-//
-//nolint:cyclop // inherently complex cron field matching
 func (c *cronExpression) matches(t time.Time) bool {
 	if !matchCronField(c.minute, t.Minute(), cronMinuteMin, cronMinuteMax) {
 		return false
@@ -189,84 +187,85 @@ func (c *cronExpression) matches(t time.Time) bool {
 		return false
 	}
 
-	// dayOfMonth and dayOfWeek: if one is ?, only check the other.
+	return c.matchDayFields(t)
+}
+
+// matchDayFields evaluates the dayOfMonth and dayOfWeek cron fields.
+// If one is a wildcard (? or *), only the other is checked.
+// If both are specified, either must match (AWS behavior).
+func (c *cronExpression) matchDayFields(t time.Time) bool {
 	domWild := c.dayOfMonth == "?" || c.dayOfMonth == "*"
 	dowWild := c.dayOfWeek == "?" || c.dayOfWeek == "*"
 
 	switch {
 	case domWild && dowWild:
-		// both wildcards: always match
+		return true
 	case domWild:
-		if !matchCronField(c.dayOfWeek, int(t.Weekday()), cronDayOfWeekMin, cronDayOfWeekMax) {
-			return false
-		}
+		return matchCronField(c.dayOfWeek, int(t.Weekday()), cronDayOfWeekMin, cronDayOfWeekMax)
 	case dowWild:
-		if !matchCronField(c.dayOfMonth, t.Day(), cronDayOfMonthMin, cronDayOfMonthMax) {
-			return false
-		}
+		return matchCronField(c.dayOfMonth, t.Day(), cronDayOfMonthMin, cronDayOfMonthMax)
 	default:
-		// Both specified: either must match (AWS behavior).
 		domMatch := matchCronField(c.dayOfMonth, t.Day(), cronDayOfMonthMin, cronDayOfMonthMax)
 		dowMatch := matchCronField(c.dayOfWeek, int(t.Weekday()), cronDayOfWeekMin, cronDayOfWeekMax)
-		if !domMatch && !dowMatch {
-			return false
-		}
-	}
 
-	return true
+		return domMatch || dowMatch
+	}
 }
 
 // matchCronField checks if val matches a cron field (numeric, *, ?, or comma-list).
-//
-//nolint:gocognit,cyclop // inherently complex cron field tokenization
 func matchCronField(field string, val, fieldMin, fieldMax int) bool {
 	if field == "*" || field == "?" {
 		return true
 	}
 
-	// Comma-separated list.
 	for part := range strings.SplitSeq(field, ",") {
-		part = strings.TrimSpace(part)
-
-		// Range a-b.
-		if strings.Contains(part, "-") {
-			rangeParts := strings.SplitN(part, "-", rateExpressionFields)
-			lo, err1 := strconv.Atoi(rangeParts[0])
-			hi, err2 := strconv.Atoi(rangeParts[1])
-
-			if err1 == nil && err2 == nil && val >= lo && val <= hi {
-				return true
-			}
-
-			continue
+		if matchCronToken(strings.TrimSpace(part), val, fieldMin, fieldMax) {
+			return true
 		}
+	}
 
-		// Step */step or a/step.
-		if strings.Contains(part, "/") {
-			stepParts := strings.SplitN(part, "/", rateExpressionFields)
-			step, err := strconv.Atoi(stepParts[1])
+	return false
+}
 
-			if err != nil || step <= 0 {
-				continue
-			}
+// matchCronToken checks whether a single cron token (range, step, or exact) matches val.
+func matchCronToken(token string, val, fieldMin, fieldMax int) bool {
+	switch {
+	case strings.Contains(token, "-"):
+		return matchCronRange(token, val)
+	case strings.Contains(token, "/"):
+		return matchCronStep(token, val, fieldMin, fieldMax)
+	default:
+		n, err := strconv.Atoi(token)
 
-			start := fieldMin
-			if stepParts[0] != "*" {
-				start, _ = strconv.Atoi(stepParts[0])
-			}
+		return err == nil && n == val
+	}
+}
 
-			for v := start; v <= fieldMax; v += step {
-				if v == val {
-					return true
-				}
-			}
+// matchCronRange returns true if val falls within the range "lo-hi".
+func matchCronRange(token string, val int) bool {
+	parts := strings.SplitN(token, "-", rateExpressionFields)
+	lo, err1 := strconv.Atoi(parts[0])
+	hi, err2 := strconv.Atoi(parts[1])
 
-			continue
-		}
+	return err1 == nil && err2 == nil && val >= lo && val <= hi
+}
 
-		// Exact value.
-		n, err := strconv.Atoi(part)
-		if err == nil && n == val {
+// matchCronStep returns true if val matches a step pattern like "*/step" or "start/step".
+func matchCronStep(token string, val, fieldMin, fieldMax int) bool {
+	parts := strings.SplitN(token, "/", rateExpressionFields)
+	step, err := strconv.Atoi(parts[1])
+
+	if err != nil || step <= 0 {
+		return false
+	}
+
+	start := fieldMin
+	if parts[0] != "*" {
+		start, _ = strconv.Atoi(parts[0])
+	}
+
+	for v := start; v <= fieldMax; v += step {
+		if v == val {
 			return true
 		}
 	}

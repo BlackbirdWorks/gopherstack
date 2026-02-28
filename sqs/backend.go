@@ -73,6 +73,12 @@ func queueNameFromInput(queueURL string) string {
 	return parts[len(parts)-1]
 }
 
+// redrivePolicy represents the JSON structure of an SQS RedrivePolicy attribute.
+type redrivePolicy struct {
+	DeadLetterTargetArn string      `json:"deadLetterTargetArn"`
+	MaxReceiveCount     json.Number `json:"maxReceiveCount"`
+}
+
 // applyRedrivePolicy parses the RedrivePolicy attribute and wires up DLQ fields on q.
 func applyRedrivePolicy(q *Queue, attrs map[string]string, backend *InMemoryBackend) {
 	raw, ok := attrs[attrRedrivePolicy]
@@ -80,21 +86,18 @@ func applyRedrivePolicy(q *Queue, attrs map[string]string, backend *InMemoryBack
 		return
 	}
 
-	var policy struct {
-		DeadLetterTargetArn string      `json:"deadLetterTargetArn"`
-		MaxReceiveCount     json.Number `json:"maxReceiveCount"`
-	}
+	var pol redrivePolicy
 
-	if err := json.Unmarshal([]byte(raw), &policy); err != nil {
+	if err := json.Unmarshal([]byte(raw), &pol); err != nil {
 		return
 	}
 
-	count, err := policy.MaxReceiveCount.Int64()
+	count, err := pol.MaxReceiveCount.Int64()
 	if err != nil || count <= 0 {
 		return
 	}
 
-	dlqName := queueNameFromARN(policy.DeadLetterTargetArn)
+	dlqName := queueNameFromARN(pol.DeadLetterTargetArn)
 
 	dlq, exists := backend.queues[dlqName]
 	if !exists {

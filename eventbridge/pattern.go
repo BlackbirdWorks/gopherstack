@@ -126,8 +126,6 @@ func matchSpecialMatcher(m map[string]any, eventVal any, exists bool) bool {
 
 // matchNumeric applies numeric comparison rules like [">", 5, "<", 10].
 // Rules come in pairs: [op, val, op, val, ...].
-//
-//nolint:gocognit,cyclop // numeric comparison logic is inherently branchy
 func matchNumeric(rules any, eventVal any) bool {
 	ruleList, ok := rules.([]any)
 	if !ok {
@@ -144,37 +142,30 @@ func matchNumeric(rules any, eventVal any) bool {
 		op, opOk := ruleList[i].(string)
 		val, valOk := toFloat64(ruleList[i+1])
 
-		if !opOk || !valOk {
-			return false
-		}
-
-		switch op {
-		case ">":
-			if !(num > val) {
-				return false
-			}
-		case ">=":
-			if !(num >= val) {
-				return false
-			}
-		case "<":
-			if !(num < val) {
-				return false
-			}
-		case "<=":
-			if !(num <= val) {
-				return false
-			}
-		case "=":
-			if num != val {
-				return false
-			}
-		default:
+		if !opOk || !valOk || !compareNumeric(op, num, val) {
 			return false
 		}
 	}
 
 	return true
+}
+
+// compareNumeric returns true if the comparison "num op val" holds.
+func compareNumeric(op string, num, val float64) bool {
+	switch op {
+	case ">":
+		return num > val
+	case ">=":
+		return num >= val
+	case "<":
+		return num < val
+	case "<=":
+		return num <= val
+	case "=":
+		return num == val
+	default:
+		return false
+	}
 }
 
 // matchAnythingBut matches when the event value is NOT in the provided set.

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"strings"
 
@@ -116,7 +117,14 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 type ssmActionFn func([]byte) (any, error)
 
-func (h *Handler) ssmDispatchTable() map[string]ssmActionFn { //nolint:gocognit
+func (h *Handler) ssmDispatchTable() map[string]ssmActionFn {
+	ops := h.ssmParameterOps()
+	maps.Copy(ops, h.ssmTagOps())
+
+	return ops
+}
+
+func (h *Handler) ssmParameterOps() map[string]ssmActionFn {
 	return map[string]ssmActionFn{
 		"PutParameter": func(b []byte) (any, error) {
 			var input PutParameterInput
@@ -182,6 +190,11 @@ func (h *Handler) ssmDispatchTable() map[string]ssmActionFn { //nolint:gocognit
 
 			return h.Backend.DescribeParameters(&input)
 		},
+	}
+}
+
+func (h *Handler) ssmTagOps() map[string]ssmActionFn {
+	return map[string]ssmActionFn{
 		"AddTagsToResource": func(b []byte) (any, error) {
 			var input AddTagsToResourceInput
 			if err := json.Unmarshal(b, &input); err != nil {

@@ -14,6 +14,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 )
 
 // ErrInvocationTimeout is returned when a Lambda invocation exceeds its deadline.
@@ -141,7 +144,8 @@ func (s *runtimeServer) handleNext(w http.ResponseWriter, r *http.Request) {
 		s.pending.Store(inv.requestID, inv)
 		w.Header().Set("Lambda-Runtime-Aws-Request-Id", inv.requestID)
 		w.Header().Set("Lambda-Runtime-Deadline-Ms", strconv.FormatInt(inv.deadline.UnixMilli(), 10))
-		w.Header().Set("Lambda-Runtime-Invoked-Function-Arn", "arn:aws:lambda:us-east-1:000000000000:function:unknown")
+		w.Header().Set("Lambda-Runtime-Invoked-Function-Arn",
+			arn.Build("lambda", config.DefaultRegion, config.DefaultAccountID, "function:unknown"))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(inv.payload)

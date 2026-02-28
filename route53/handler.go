@@ -137,36 +137,77 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 }
 
 // routeRequest dispatches Route 53 requests to the appropriate handler.
-//
-//nolint:cyclop // routing switch inherently requires multiple cases
 func (h *Handler) routeRequest(c *echo.Context, path, method string) error {
-	isHZPath := strings.HasPrefix(path, route53HZPrefix)
-	isTagsPath := strings.HasPrefix(path, route53TagsPrefix)
-	isChangePath := strings.HasPrefix(path, route53ChangePrefix)
-
 	switch {
-	case path == route53HostedZone && method == http.MethodPost:
-		return h.createHostedZone(c)
-	case path == route53HostedZone && method == http.MethodGet:
-		return h.listHostedZones(c)
-	case isHZPath && strings.HasSuffix(path, route53RRSetSuffix) && method == http.MethodPost:
-		return h.changeResourceRecordSets(c)
-	case isHZPath && strings.HasSuffix(path, route53RRSetSuffix) && method == http.MethodGet:
-		return h.listResourceRecordSets(c)
-	case isHZPath && method == http.MethodDelete:
-		return h.deleteHostedZone(c)
-	case isHZPath && method == http.MethodGet:
-		return h.getHostedZone(c)
-	case isTagsPath && method == http.MethodGet:
-		return h.listTagsForResource(c, path)
-	case isTagsPath && method == http.MethodPost:
-		return h.changeTagsForResource(c)
-	case isChangePath && method == http.MethodGet:
-		return h.getChange(c, path)
+	case path == route53HostedZone:
+		return h.routeHostedZoneRoot(c, method)
+	case strings.HasPrefix(path, route53HZPrefix):
+		return h.routeHostedZone(c, path, method)
+	case strings.HasPrefix(path, route53TagsPrefix):
+		return h.routeTags(c, path, method)
+	case strings.HasPrefix(path, route53ChangePrefix):
+		return h.routeChange(c, path, method)
 	default:
 		return xmlError(c, http.StatusNotFound, "NoSuchOperation",
 			fmt.Sprintf("unknown Route53 endpoint: %s %s", method, path))
 	}
+}
+
+func (h *Handler) routeHostedZoneRoot(c *echo.Context, method string) error {
+	switch method {
+	case http.MethodPost:
+		return h.createHostedZone(c)
+	case http.MethodGet:
+		return h.listHostedZones(c)
+	default:
+		return xmlError(c, http.StatusNotFound, "NoSuchOperation",
+			"unsupported method on /hostedzone")
+	}
+}
+
+func (h *Handler) routeHostedZone(c *echo.Context, path, method string) error {
+	if strings.HasSuffix(path, route53RRSetSuffix) {
+		switch method {
+		case http.MethodPost:
+			return h.changeResourceRecordSets(c)
+		case http.MethodGet:
+			return h.listResourceRecordSets(c)
+		default:
+			return xmlError(c, http.StatusNotFound, "NoSuchOperation",
+				"unsupported method on rrset")
+		}
+	}
+
+	switch method {
+	case http.MethodDelete:
+		return h.deleteHostedZone(c)
+	case http.MethodGet:
+		return h.getHostedZone(c)
+	default:
+		return xmlError(c, http.StatusNotFound, "NoSuchOperation",
+			"unsupported method on hosted zone")
+	}
+}
+
+func (h *Handler) routeTags(c *echo.Context, path, method string) error {
+	switch method {
+	case http.MethodGet:
+		return h.listTagsForResource(c, path)
+	case http.MethodPost:
+		return h.changeTagsForResource(c)
+	default:
+		return xmlError(c, http.StatusNotFound, "NoSuchOperation",
+			"unsupported method on tags")
+	}
+}
+
+func (h *Handler) routeChange(c *echo.Context, path, method string) error {
+	if method == http.MethodGet {
+		return h.getChange(c, path)
+	}
+
+	return xmlError(c, http.StatusNotFound, "NoSuchOperation",
+		"unsupported method on change")
 }
 
 // Handler returns the Echo handler function for Route 53 requests.

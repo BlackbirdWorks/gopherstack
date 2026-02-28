@@ -519,42 +519,52 @@ func jsonPathGet(path string, value any) (any, error) {
 }
 
 // evaluateChoiceRule checks whether a ChoiceRule matches the given input.
-//
-//nolint:gocognit,cyclop // choice rule evaluation requires checking many condition types
 func evaluateChoiceRule(rule *ChoiceRule, input any) bool {
-	// Logical operators.
+	if result, handled := evaluateLogicalOp(rule, input); handled {
+		return result
+	}
+
+	if rule.Variable == "" {
+		return false
+	}
+
+	return evaluateVariableComparison(rule, input)
+}
+
+// evaluateLogicalOp handles And/Or/Not logical operators.
+// Returns (result, true) if a logical operator was found, or (false, false) otherwise.
+func evaluateLogicalOp(rule *ChoiceRule, input any) (bool, bool) {
 	if len(rule.And) > 0 {
 		for i := range rule.And {
 			if !evaluateChoiceRule(&rule.And[i], input) {
-				return false
+				return false, true
 			}
 		}
 
-		return true
+		return true, true
 	}
 
 	if len(rule.Or) > 0 {
 		for i := range rule.Or {
 			if evaluateChoiceRule(&rule.Or[i], input) {
-				return true
+				return true, true
 			}
 		}
 
-		return false
+		return false, true
 	}
 
 	if rule.Not != nil {
-		return !evaluateChoiceRule(rule.Not, input)
+		return !evaluateChoiceRule(rule.Not, input), true
 	}
 
-	// Variable-based comparison.
-	if rule.Variable == "" {
-		return false
-	}
+	return false, false
+}
 
+// evaluateVariableComparison resolves the variable and checks condition comparisons.
+func evaluateVariableComparison(rule *ChoiceRule, input any) bool {
 	varVal, err := applyPath(rule.Variable, input)
 	if err != nil {
-		// Variable not found.
 		if rule.IsPresent != nil {
 			return !*rule.IsPresent
 		}
@@ -570,6 +580,11 @@ func evaluateChoiceRule(rule *ChoiceRule, input any) bool {
 		return (varVal == nil) == *rule.IsNull
 	}
 
+	return matchVariableCondition(rule, varVal)
+}
+
+// matchVariableCondition checks string, numeric, and boolean conditions on the resolved variable.
+func matchVariableCondition(rule *ChoiceRule, varVal any) bool {
 	if rule.StringEquals != nil {
 		s, ok := varVal.(string)
 

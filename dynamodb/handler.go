@@ -15,6 +15,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/dynamodb/models"
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -705,7 +706,8 @@ func (h *DynamoDBHandler) exportTableToPointInTime(_ context.Context, body []byt
 		return nil, err
 	}
 
-	exportArn := "arn:aws:dynamodb:us-east-1:000000000000:table/table/export/01000000-0000-0000-0000-000000000000"
+	exportArn := arn.Build("dynamodb", config.DefaultRegion, config.DefaultAccountID,
+		"table/table/export/01000000-0000-0000-0000-000000000000")
 
 	return map[string]any{
 		"ExportDescription": map[string]any{
