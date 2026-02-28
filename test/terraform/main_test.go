@@ -15,10 +15,19 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	cwlogssvc "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	iamsvc "github.com/aws/aws-sdk-go-v2/service/iam"
+	kmssvc "github.com/aws/aws-sdk-go-v2/service/kms"
+	lambdasvc "github.com/aws/aws-sdk-go-v2/service/lambda"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
+	route53svc "github.com/aws/aws-sdk-go-v2/service/route53"
 	s3svc "github.com/aws/aws-sdk-go-v2/service/s3"
+	secretssvc "github.com/aws/aws-sdk-go-v2/service/secretsmanager"
+	sessvc "github.com/aws/aws-sdk-go-v2/service/ses"
+	snssvc "github.com/aws/aws-sdk-go-v2/service/sns"
 	sqssvc "github.com/aws/aws-sdk-go-v2/service/sqs"
+	ssmsvc "github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/docker/docker/api/types/build"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -191,6 +200,186 @@ func createRDSClient(t *testing.T) *rdssvc.Client {
 	}
 
 	return rdssvc.NewFromConfig(cfg, func(o *rdssvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createIAMClient returns an IAM client pointed at the shared test container.
+func createIAMClient(t *testing.T) *iamsvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		t.Fatalf("unable to load SDK config: %v", err)
+	}
+
+	return iamsvc.NewFromConfig(cfg, func(o *iamsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createKMSClient returns a KMS client pointed at the shared test container.
+func createKMSClient(t *testing.T) *kmssvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		t.Fatalf("unable to load SDK config: %v", err)
+	}
+
+	return kmssvc.NewFromConfig(cfg, func(o *kmssvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createSNSClient returns an SNS client pointed at the shared test container.
+func createSNSClient(t *testing.T) *snssvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		t.Fatalf("unable to load SDK config: %v", err)
+	}
+
+	return snssvc.NewFromConfig(cfg, func(o *snssvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createSecretsManagerClient returns a SecretsManager client pointed at the shared test container.
+func createSecretsManagerClient(t *testing.T) *secretssvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		t.Fatalf("unable to load SDK config: %v", err)
+	}
+
+	return secretssvc.NewFromConfig(cfg, func(o *secretssvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createSSMClient returns an SSM client pointed at the shared test container.
+func createSSMClient(t *testing.T) *ssmsvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		t.Fatalf("unable to load SDK config: %v", err)
+	}
+
+	return ssmsvc.NewFromConfig(cfg, func(o *ssmsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createCloudWatchLogsClient returns a CloudWatchLogs client pointed at the shared test container.
+func createCloudWatchLogsClient(t *testing.T) *cwlogssvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		t.Fatalf("unable to load SDK config: %v", err)
+	}
+
+	return cwlogssvc.NewFromConfig(cfg, func(o *cwlogssvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createRoute53Client returns a Route53 client pointed at the shared test container.
+func createRoute53Client(t *testing.T) *route53svc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		t.Fatalf("unable to load SDK config: %v", err)
+	}
+
+	return route53svc.NewFromConfig(cfg, func(o *route53svc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createLambdaClient returns a Lambda client pointed at the shared test container.
+func createLambdaClient(t *testing.T) *lambdasvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		t.Fatalf("unable to load SDK config: %v", err)
+	}
+
+	return lambdasvc.NewFromConfig(cfg, func(o *lambdasvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createSESClient returns an SES client pointed at the shared test container.
+func createSESClient(t *testing.T) *sessvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		t.Fatalf("unable to load SDK config: %v", err)
+	}
+
+	return sessvc.NewFromConfig(cfg, func(o *sessvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

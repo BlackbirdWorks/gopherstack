@@ -1,6 +1,8 @@
 package terraform_test
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -10,11 +12,20 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	cwlogssvc "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	iamsvc "github.com/aws/aws-sdk-go-v2/service/iam"
+	kmssvc "github.com/aws/aws-sdk-go-v2/service/kms"
+	lambdasvc "github.com/aws/aws-sdk-go-v2/service/lambda"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
+	route53svc "github.com/aws/aws-sdk-go-v2/service/route53"
 	s3svc "github.com/aws/aws-sdk-go-v2/service/s3"
+	secretssvc "github.com/aws/aws-sdk-go-v2/service/secretsmanager"
+	sessvc "github.com/aws/aws-sdk-go-v2/service/ses"
+	snssvc "github.com/aws/aws-sdk-go-v2/service/sns"
 	sqssvc "github.com/aws/aws-sdk-go-v2/service/sqs"
+	ssmsvc "github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/google/uuid"
 	install "github.com/hashicorp/hc-install"
 	"github.com/hashicorp/hc-install/fs"
@@ -63,13 +74,18 @@ provider "aws" {
   s3_use_path_style           = true
 
   endpoints {
+    cloudwatchlogs = %[1]q
     dynamodb       = %[1]q
-    s3             = %[1]q
-    sqs            = %[1]q
-    sns            = %[1]q
-    ssm            = %[1]q
+    iam            = %[1]q
     kms            = %[1]q
+    lambda         = %[1]q
+    route53        = %[1]q
+    s3             = %[1]q
     secretsmanager = %[1]q
+    ses            = %[1]q
+    sns            = %[1]q
+    sqs            = %[1]q
+    ssm            = %[1]q
     sts            = %[1]q
   }
 }
@@ -322,4 +338,425 @@ resource "aws_db_instance" "this" {
 	assert.Equal(t, id, aws.ToString(descOut.DBInstances[0].DBInstanceIdentifier))
 	assert.Equal(t, "postgres", aws.ToString(descOut.DBInstances[0].Engine))
 	assert.Equal(t, "available", aws.ToString(descOut.DBInstances[0].DBInstanceStatus))
+}
+
+// TestTerraform_Lambda provisions an aws_lambda_function via Terraform and
+// verifies it exists through the AWS Lambda SDK.
+func TestTerraform_Lambda(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	tfBin := ensureTerraformBinary(t)
+	ctx := context.Background()
+
+	id := uuid.NewString()[:8]
+	funcName := "tf-lambda-" + id
+
+	// Create a minimal zip file containing a Python handler.
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	f, err := zw.Create("index.py")
+	require.NoError(t, err)
+	_, err = f.Write([]byte("def handler(event, context):\n    return {}\n"))
+	require.NoError(t, err)
+	require.NoError(t, zw.Close())
+
+	dir := t.TempDir()
+	zipPath := filepath.Join(dir, "function.zip")
+	require.NoError(t, os.WriteFile(zipPath, buf.Bytes(), 0o644))
+
+	hcl := providerBlock(endpoint) + fmt.Sprintf(`
+resource "aws_lambda_function" "this" {
+  filename      = %q
+  function_name = %q
+  role          = "arn:aws:iam::000000000000:role/test-role"
+  handler       = "index.handler"
+  runtime       = "python3.12"
+  source_code_hash = filebase64sha256(%q)
+}
+`, zipPath, funcName, zipPath)
+
+	applyTerraform(t, tfBin, dir, hcl)
+
+	// Verify the function exists via Lambda SDK.
+	client := createLambdaClient(t)
+
+	out, err := client.GetFunction(ctx, &lambdasvc.GetFunctionInput{
+		FunctionName: aws.String(funcName),
+	})
+	require.NoError(t, err, "GetFunction should succeed after terraform apply")
+	require.NotNil(t, out.Configuration)
+	assert.Equal(t, funcName, aws.ToString(out.Configuration.FunctionName))
+}
+
+// TestTerraform_IAM provisions an aws_iam_role, aws_iam_policy, and
+// aws_iam_role_policy_attachment via Terraform and verifies the role exists.
+func TestTerraform_IAM(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	tfBin := ensureTerraformBinary(t)
+	ctx := context.Background()
+
+	id := uuid.NewString()[:8]
+	roleName := "tf-role-" + id
+	policyName := "tf-policy-" + id
+
+	hcl := providerBlock(endpoint) + fmt.Sprintf(`
+resource "aws_iam_role" "this" {
+  name = %q
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "lambda.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_policy" "this" {
+  name   = %q
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["s3:GetObject"]
+      Resource = "*"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "this" {
+  role       = aws_iam_role.this.name
+  policy_arn = aws_iam_policy.this.arn
+}
+`, roleName, policyName)
+
+	applyTerraform(t, tfBin, t.TempDir(), hcl)
+
+	// Verify the role exists via IAM SDK.
+	client := createIAMClient(t)
+
+	out, err := client.GetRole(ctx, &iamsvc.GetRoleInput{
+		RoleName: aws.String(roleName),
+	})
+	require.NoError(t, err, "GetRole should succeed after terraform apply")
+	require.NotNil(t, out.Role)
+	assert.Equal(t, roleName, aws.ToString(out.Role.RoleName))
+}
+
+// TestTerraform_SNSSQSSubscription provisions an aws_sns_topic, aws_sqs_queue,
+// and aws_sns_topic_subscription via Terraform and verifies the topic exists.
+func TestTerraform_SNSSQSSubscription(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	tfBin := ensureTerraformBinary(t)
+	ctx := context.Background()
+
+	id := uuid.NewString()[:8]
+	topicName := "tf-topic-" + id
+	queueName := "tf-queue-" + id
+
+	hcl := providerBlock(endpoint) + fmt.Sprintf(`
+resource "aws_sns_topic" "this" {
+  name = %q
+}
+
+resource "aws_sqs_queue" "this" {
+  name = %q
+}
+
+resource "aws_sns_topic_subscription" "this" {
+  topic_arn = aws_sns_topic.this.arn
+  protocol  = "sqs"
+  endpoint  = "arn:aws:sqs:us-east-1:000000000000:${aws_sqs_queue.this.name}"
+}
+`, topicName, queueName)
+
+	applyTerraform(t, tfBin, t.TempDir(), hcl)
+
+	// Verify the SNS topic exists via SNS SDK.
+	client := createSNSClient(t)
+
+	out, err := client.GetTopicAttributes(ctx, &snssvc.GetTopicAttributesInput{
+		TopicArn: aws.String("arn:aws:sns:us-east-1:000000000000:" + topicName),
+	})
+	require.NoError(t, err, "GetTopicAttributes should succeed after terraform apply")
+	assert.NotEmpty(t, out.Attributes)
+}
+
+// TestTerraform_KMS provisions an aws_kms_key and aws_kms_alias via Terraform
+// and verifies the key exists through the AWS KMS SDK.
+func TestTerraform_KMS(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	tfBin := ensureTerraformBinary(t)
+	ctx := context.Background()
+
+	id := uuid.NewString()[:8]
+	aliasName := "alias/tf-test-" + id
+
+	hcl := providerBlock(endpoint) + fmt.Sprintf(`
+resource "aws_kms_key" "this" {
+  description             = "tf-test-key-%s"
+  deletion_window_in_days = 7
+}
+
+resource "aws_kms_alias" "this" {
+  name          = %q
+  target_key_id = aws_kms_key.this.key_id
+}
+`, id, aliasName)
+
+	applyTerraform(t, tfBin, t.TempDir(), hcl)
+
+	// Verify the key alias exists via KMS SDK.
+	client := createKMSClient(t)
+
+	out, err := client.DescribeKey(ctx, &kmssvc.DescribeKeyInput{
+		KeyId: aws.String(aliasName),
+	})
+	require.NoError(t, err, "DescribeKey should succeed after terraform apply")
+	require.NotNil(t, out.KeyMetadata)
+}
+
+// TestTerraform_SecretsManager provisions an aws_secretsmanager_secret and
+// aws_secretsmanager_secret_version via Terraform and verifies the secret exists.
+func TestTerraform_SecretsManager(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	tfBin := ensureTerraformBinary(t)
+	ctx := context.Background()
+
+	id := uuid.NewString()[:8]
+	secretName := "tf-secret-" + id
+
+	hcl := providerBlock(endpoint) + fmt.Sprintf(`
+resource "aws_secretsmanager_secret" "this" {
+  name                    = %q
+  recovery_window_in_days = 0
+}
+
+resource "aws_secretsmanager_secret_version" "this" {
+  secret_id     = aws_secretsmanager_secret.this.id
+  secret_string = "my-test-secret-value"
+}
+`, secretName)
+
+	applyTerraform(t, tfBin, t.TempDir(), hcl)
+
+	// Verify the secret exists via SecretsManager SDK.
+	client := createSecretsManagerClient(t)
+
+	out, err := client.DescribeSecret(ctx, &secretssvc.DescribeSecretInput{
+		SecretId: aws.String(secretName),
+	})
+	require.NoError(t, err, "DescribeSecret should succeed after terraform apply")
+	assert.Equal(t, secretName, aws.ToString(out.Name))
+}
+
+// TestTerraform_SSMParameter provisions an aws_ssm_parameter via Terraform
+// and verifies it exists through the AWS SSM SDK.
+func TestTerraform_SSMParameter(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	tfBin := ensureTerraformBinary(t)
+	ctx := context.Background()
+
+	id := uuid.NewString()[:8]
+	paramName := "/tf/test/" + id
+
+	hcl := providerBlock(endpoint) + fmt.Sprintf(`
+resource "aws_ssm_parameter" "this" {
+  name  = %q
+  type  = "String"
+  value = "test-value"
+}
+`, paramName)
+
+	applyTerraform(t, tfBin, t.TempDir(), hcl)
+
+	// Verify the parameter exists via SSM SDK.
+	client := createSSMClient(t)
+
+	out, err := client.GetParameter(ctx, &ssmsvc.GetParameterInput{
+		Name: aws.String(paramName),
+	})
+	require.NoError(t, err, "GetParameter should succeed after terraform apply")
+	require.NotNil(t, out.Parameter)
+	assert.Equal(t, paramName, aws.ToString(out.Parameter.Name))
+}
+
+// TestTerraform_Route53 provisions an aws_route53_zone and aws_route53_record
+// via Terraform and verifies the hosted zone exists through the AWS Route53 SDK.
+func TestTerraform_Route53(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	tfBin := ensureTerraformBinary(t)
+	ctx := context.Background()
+
+	id := uuid.NewString()[:8]
+	zoneName := "tf-test-" + id + ".example.com"
+
+	hcl := providerBlock(endpoint) + fmt.Sprintf(`
+resource "aws_route53_zone" "this" {
+  name = %q
+}
+
+resource "aws_route53_record" "this" {
+  zone_id = aws_route53_zone.this.zone_id
+  name    = "www.%s"
+  type    = "A"
+  ttl     = 300
+  records = ["1.2.3.4"]
+}
+`, zoneName, zoneName)
+
+	applyTerraform(t, tfBin, t.TempDir(), hcl)
+
+	// Verify the hosted zone exists via Route53 SDK.
+	client := createRoute53Client(t)
+
+	out, err := client.ListHostedZones(ctx, &route53svc.ListHostedZonesInput{})
+	require.NoError(t, err, "ListHostedZones should succeed after terraform apply")
+
+	found := false
+	for _, zone := range out.HostedZones {
+		if aws.ToString(zone.Name) == zoneName+"." || aws.ToString(zone.Name) == zoneName {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "hosted zone %q should exist after terraform apply", zoneName)
+}
+
+// TestTerraform_CloudWatchLogGroup provisions an aws_cloudwatch_log_group via
+// Terraform and verifies it exists through the AWS CloudWatchLogs SDK.
+func TestTerraform_CloudWatchLogGroup(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	tfBin := ensureTerraformBinary(t)
+	ctx := context.Background()
+
+	id := uuid.NewString()[:8]
+	logGroupName := "/tf/test/" + id
+
+	hcl := providerBlock(endpoint) + fmt.Sprintf(`
+resource "aws_cloudwatch_log_group" "this" {
+  name              = %q
+  retention_in_days = 7
+}
+`, logGroupName)
+
+	applyTerraform(t, tfBin, t.TempDir(), hcl)
+
+	// Verify the log group exists via CloudWatchLogs SDK.
+	client := createCloudWatchLogsClient(t)
+
+	out, err := client.DescribeLogGroups(ctx, &cwlogssvc.DescribeLogGroupsInput{
+		LogGroupNamePrefix: aws.String(logGroupName),
+	})
+	require.NoError(t, err, "DescribeLogGroups should succeed after terraform apply")
+
+	found := false
+	for _, lg := range out.LogGroups {
+		if aws.ToString(lg.LogGroupName) == logGroupName {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "log group %q should exist after terraform apply", logGroupName)
+}
+
+// TestTerraform_SESEmailIdentity provisions an aws_ses_email_identity via
+// Terraform and verifies it is listed through the AWS SES SDK.
+func TestTerraform_SESEmailIdentity(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	tfBin := ensureTerraformBinary(t)
+	ctx := context.Background()
+
+	id := uuid.NewString()[:8]
+	email := "tf-test-" + id + "@example.com"
+
+	hcl := providerBlock(endpoint) + fmt.Sprintf(`
+resource "aws_ses_email_identity" "this" {
+  email = %q
+}
+`, email)
+
+	applyTerraform(t, tfBin, t.TempDir(), hcl)
+
+	// Verify the email identity is listed via SES SDK.
+	client := createSESClient(t)
+
+	out, err := client.ListIdentities(ctx, &sessvc.ListIdentitiesInput{})
+	require.NoError(t, err, "ListIdentities should succeed after terraform apply")
+
+	found := false
+	for _, identity := range out.Identities {
+		if identity == email {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "email identity %q should be listed after terraform apply", email)
+}
+
+// TestTerraform_DataSources provisions an S3 bucket and various data sources
+// via Terraform and verifies the apply succeeds.
+func TestTerraform_DataSources(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	tfBin := ensureTerraformBinary(t)
+
+	id := uuid.NewString()[:8]
+	bucketName := "tf-ds-test-" + id
+
+	hcl := providerBlock(endpoint) + fmt.Sprintf(`
+data "aws_caller_identity" "current" {}
+
+data "aws_region" "current" {}
+
+data "aws_iam_policy_document" "example" {
+  statement {
+    effect    = "Allow"
+    actions   = ["s3:GetObject"]
+    resources = ["*"]
+  }
+}
+
+resource "aws_s3_bucket" "this" {
+  bucket        = %q
+  force_destroy = true
+}
+
+data "aws_s3_bucket" "this" {
+  bucket     = aws_s3_bucket.this.bucket
+  depends_on = [aws_s3_bucket.this]
+}
+
+output "account_id" {
+  value = data.aws_caller_identity.current.account_id
+}
+
+output "region" {
+  value = data.aws_region.current.name
+}
+
+output "policy_json" {
+  value = data.aws_iam_policy_document.example.json
+}
+`, bucketName)
+
+	applyTerraform(t, tfBin, t.TempDir(), hcl)
 }
