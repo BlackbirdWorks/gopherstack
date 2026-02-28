@@ -1,6 +1,6 @@
 // Package awserr provides shared sentinel errors for AWS service stubs.
-// Service packages wrap these sentinels so callers can use errors.Is across
-// any service: errors.Is(err, awserr.ErrNotFound).
+// Service packages wrap these sentinels so callers can use [errors.Is] across
+// any service: [errors.Is](err, awserr.ErrNotFound).
 package awserr
 
 import "errors"
@@ -18,15 +18,15 @@ var ErrInvalidParameter = errors.New("invalid parameter")
 var ErrConflict = errors.New("conflict")
 
 // New creates an error with the given message that wraps the given sentinel.
-// This preserves the service-specific error message while enabling errors.Is
+// This preserves the service-specific error message while enabling [errors.Is]
 // to match the shared sentinel.
 func New(msg string, sentinel error) error {
 	return &wrappedError{msg: msg, cause: sentinel}
 }
 
 type wrappedError struct {
-	msg   string
 	cause error
+	msg   string
 }
 
 func (e *wrappedError) Error() string { return e.msg }

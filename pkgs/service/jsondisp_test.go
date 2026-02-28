@@ -10,22 +10,32 @@ import (
 	"testing"
 
 	"github.com/labstack/echo/v5"
+	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
-func newEchoContext(t *testing.T, method, path string, header http.Header, body string) (*echo.Context, *httptest.ResponseRecorder) {
+// errDispatchTest is the sentinel returned by the error-path dispatch stub.
+var errDispatchTest = errors.New("dispatch error")
+
+func newEchoContext(
+	t *testing.T,
+	method, path string,
+	header http.Header,
+	body string,
+) (*echo.Context, *httptest.ResponseRecorder) {
 	t.Helper()
 
 	e := echo.New()
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
+
 	if header != nil {
 		req.Header = header
 	}
-	rec := httptest.NewRecorder()
-	ctx := e.NewContext(req, rec)
 
-	return ctx, rec
+	rec := httptest.NewRecorder()
+
+	return e.NewContext(req, rec), rec
 }
 
 func noopHandleErr(_ context.Context, c *echo.Context, _ string, reqErr error) error {
@@ -37,23 +47,25 @@ func TestHandleTarget(t *testing.T) {
 
 	log := slog.Default()
 	supportedOps := []string{"GetFoo", "PutFoo"}
+
 	successDispatch := service.DispatchFunc(func(_ context.Context, _ string, _ []byte) ([]byte, error) {
-		return []byte(`{"ok":true}`), nil
+		return []byte("{\\ok\\:true}"), nil
 	})
+
 	errDispatch := service.DispatchFunc(func(_ context.Context, _ string, _ []byte) ([]byte, error) {
-		return nil, errors.New("dispatch error")
+		return nil, errDispatchTest
 	})
 
 	tests := []struct {
+		header          http.Header
+		dispatch        service.DispatchFunc
 		name            string
 		method          string
 		path            string
-		header          http.Header
 		body            string
-		dispatch        service.DispatchFunc
-		wantStatus      int
 		wantBodyContain string
 		wantContentType string
+		wantStatus      int
 	}{
 		{
 			name:            "GET / returns supported ops",
@@ -78,11 +90,11 @@ func TestHandleTarget(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:   "invalid X-Amz-Target returns 400",
-			method: http.MethodPost,
-			path:   "/",
-			header: http.Header{"X-Amz-Target": []string{"NoDotsHere"}},
-			dispatch: successDispatch,
+			name:       "invalid X-Amz-Target returns 400",
+			method:     http.MethodPost,
+			path:       "/",
+			header:     http.Header{"X-Amz-Target": []string{"NoDotsHere"}},
+			dispatch:   successDispatch,
 			wantStatus: http.StatusBadRequest,
 		},
 		{
@@ -90,10 +102,10 @@ func TestHandleTarget(t *testing.T) {
 			method:          http.MethodPost,
 			path:            "/",
 			header:          http.Header{"X-Amz-Target": []string{"TestService.GetFoo"}},
-			body:            `{}`,
+			body:            "{}",
 			dispatch:        successDispatch,
 			wantStatus:      http.StatusOK,
-			wantBodyContain: `"ok":true`,
+			wantBodyContain: "ok",
 			wantContentType: "application/x-amz-json-1.1",
 		},
 		{
@@ -101,7 +113,7 @@ func TestHandleTarget(t *testing.T) {
 			method:          http.MethodPost,
 			path:            "/",
 			header:          http.Header{"X-Amz-Target": []string{"TestService.GetFoo"}},
-			body:            `{}`,
+			body:            "{}",
 			dispatch:        errDispatch,
 			wantStatus:      http.StatusBadRequest,
 			wantBodyContain: "dispatch error",
@@ -121,21 +133,15 @@ func TestHandleTarget(t *testing.T) {
 				tc.dispatch,
 				noopHandleErr,
 			)
-			if err != nil {
-				t.Fatalf("HandleTarget returned unexpected error: %v", err)
+			require.NoError(t, err)
+			require.Equal(t, tc.wantStatus, rec.Code)
+
+			if tc.wantBodyContain != "" {
+				require.Contains(t, rec.Body.String(), tc.wantBodyContain)
 			}
 
-			if rec.Code != tc.wantStatus {
-				t.Errorf("status = %d, want %d", rec.Code, tc.wantStatus)
-			}
-			if tc.wantBodyContain != "" && !strings.Contains(rec.Body.String(), tc.wantBodyContain) {
-				t.Errorf("body %q does not contain %q", rec.Body.String(), tc.wantBodyContain)
-			}
 			if tc.wantContentType != "" {
-				ct := rec.Header().Get("Content-Type")
-				if !strings.Contains(ct, tc.wantContentType) {
-					t.Errorf("Content-Type = %q, want to contain %q", ct, tc.wantContentType)
-				}
+				require.Contains(t, rec.Header().Get("Content-Type"), tc.wantContentType)
 			}
 		})
 	}

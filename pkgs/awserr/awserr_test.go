@@ -12,13 +12,13 @@ func TestSentinelsAreDistinct(t *testing.T) {
 	t.Parallel()
 
 	sentinels := []struct {
-		name string
 		err  error
+		name string
 	}{
-		{"ErrNotFound", awserr.ErrNotFound},
-		{"ErrAlreadyExists", awserr.ErrAlreadyExists},
-		{"ErrInvalidParameter", awserr.ErrInvalidParameter},
-		{"ErrConflict", awserr.ErrConflict},
+		{awserr.ErrNotFound, "ErrNotFound"},
+		{awserr.ErrAlreadyExists, "ErrAlreadyExists"},
+		{awserr.ErrInvalidParameter, "ErrInvalidParameter"},
+		{awserr.ErrConflict, "ErrConflict"},
 	}
 
 	for i, a := range sentinels {
@@ -37,51 +37,50 @@ func TestWrappedErrorsIs(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
 		err      error
 		sentinel error
+		name     string
 		want     bool
 	}{
 		{
+			err:      awserr.New("ResourceNotFoundException", awserr.ErrNotFound),
+			sentinel: awserr.ErrNotFound,
 			name:     "wrapped ErrNotFound matches ErrNotFound",
-			err:      awserr.New("ResourceNotFoundException", awserr.ErrNotFound),
-			sentinel: awserr.ErrNotFound,
 			want:     true,
 		},
 		{
+			err:      awserr.New("ResourceInUseException", awserr.ErrAlreadyExists),
+			sentinel: awserr.ErrAlreadyExists,
 			name:     "wrapped ErrAlreadyExists matches ErrAlreadyExists",
-			err:      awserr.New("ResourceInUseException", awserr.ErrAlreadyExists),
-			sentinel: awserr.ErrAlreadyExists,
 			want:     true,
 		},
 		{
-			name:     "wrapped ErrNotFound does not match ErrAlreadyExists",
 			err:      awserr.New("ResourceNotFoundException", awserr.ErrNotFound),
 			sentinel: awserr.ErrAlreadyExists,
+			name:     "wrapped ErrNotFound does not match ErrAlreadyExists",
 			want:     false,
 		},
 		{
-			name:     "wrapped ErrAlreadyExists does not match ErrNotFound",
 			err:      awserr.New("ResourceInUseException", awserr.ErrAlreadyExists),
 			sentinel: awserr.ErrNotFound,
+			name:     "wrapped ErrAlreadyExists does not match ErrNotFound",
 			want:     false,
 		},
 		{
-			name:     "fmt.Errorf wrapped ErrNotFound matches via chain",
 			err:      fmt.Errorf("outer: %w", awserr.New("ResourceNotFoundException", awserr.ErrNotFound)),
 			sentinel: awserr.ErrNotFound,
+			name:     "fmt.Errorf wrapped ErrNotFound matches via chain",
 			want:     true,
 		},
 		{
-			name:     "wrapped error preserves message",
 			err:      awserr.New("ResourceNotFoundException", awserr.ErrNotFound),
 			sentinel: awserr.ErrNotFound,
+			name:     "wrapped error preserves message",
 			want:     true,
 		},
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := errors.Is(tc.err, tc.sentinel)
