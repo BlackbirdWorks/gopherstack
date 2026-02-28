@@ -2,7 +2,7 @@ package lambda
 
 import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
-	"github.com/blackbirdworks/gopherstack/pkgs/docker"
+	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -30,21 +30,22 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		settings = sp.GetLambdaSettings()
 	}
 
-	var dockerClient *docker.Client
+	var runtime container.Runtime
 
-	dc, err := docker.NewClient(docker.Config{
+	rt, err := container.NewRuntime(container.Config{
 		Logger:      ctx.Logger,
 		PoolSize:    settings.PoolSize,
 		IdleTimeout: settings.IdleTimeout,
+		Runtime:     container.RuntimeName(settings.ContainerRuntime),
 	})
 	if err != nil {
-		ctx.Logger.Warn("Lambda: Docker unavailable; Invoke will not work", "error", err)
+		ctx.Logger.Warn("Lambda: container runtime unavailable; Invoke will not work", "error", err)
 	} else {
-		dockerClient = dc
+		runtime = rt
 	}
 
 	backend := NewInMemoryBackend(
-		dockerClient,
+		runtime,
 		ctx.PortAlloc,
 		settings,
 		accountID,

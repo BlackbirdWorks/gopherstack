@@ -25,6 +25,7 @@ import (
 	opensearchbackend "github.com/blackbirdworks/gopherstack/opensearch"
 	globalcfg "github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	rdsbackend "github.com/blackbirdworks/gopherstack/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/redshift"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/resourcegroups"
 	route53backend "github.com/blackbirdworks/gopherstack/route53"
@@ -70,6 +71,7 @@ type AWSSDKProvider interface {
 	GetOpenSearchHandler() service.Registerable
 	GetACMHandler() service.Registerable
 	GetRedshiftHandler() service.Registerable
+	GetRDSHandler() service.Registerable
 	GetAWSConfigHandler() service.Registerable
 	GetS3ControlHandler() service.Registerable
 	GetResourceGroupsHandler() service.Registerable
@@ -117,6 +119,7 @@ type extractedConfig struct {
 	opensearchOps     *opensearchbackend.Handler
 	acmOps            *acmbackend.Handler
 	redshiftOps       *redshiftbackend.Handler
+	rdsOps            *rdsbackend.Handler
 	awsconfigOps      *awsconfigbackend.Handler
 	s3controlOps      *s3controlbackend.Handler
 	resourcegroupsOps *resourcegroupsbackend.Handler
@@ -189,6 +192,8 @@ func extractIntegrationHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 }
 
 // extractMonitoringHandlers populates integration/monitoring service handlers on ec.
+//
+//nolint:dupl // structurally similar to extractLongTailHandlers by necessity; both extract service handlers
 func extractMonitoringHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetEventBridgeHandler(); h != nil {
 		ec.eventBridgeOps, _ = h.(*ebbackend.Handler)
@@ -228,6 +233,8 @@ func extractMonitoringHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 }
 
 // extractLongTailHandlers populates long-tail service handlers on ec.
+//
+//nolint:dupl // structurally similar to extractMonitoringHandlers by necessity; both extract service handlers
 func extractLongTailHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetOpenSearchHandler(); h != nil {
 		ec.opensearchOps, _ = h.(*opensearchbackend.Handler)
@@ -239,6 +246,10 @@ func extractLongTailHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 
 	if h := ap.GetRedshiftHandler(); h != nil {
 		ec.redshiftOps, _ = h.(*redshiftbackend.Handler)
+	}
+
+	if h := ap.GetRDSHandler(); h != nil {
+		ec.rdsOps, _ = h.(*rdsbackend.Handler)
 	}
 
 	if h := ap.GetAWSConfigHandler(); h != nil {
@@ -294,6 +305,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		OpenSearchOps:     ec.opensearchOps,
 		ACMOps:            ec.acmOps,
 		RedshiftOps:       ec.redshiftOps,
+		RDSOps:            ec.rdsOps,
 		AWSConfigOps:      ec.awsconfigOps,
 		S3ControlOps:      ec.s3controlOps,
 		ResourceGroupsOps: ec.resourcegroupsOps,

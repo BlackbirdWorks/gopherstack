@@ -30,6 +30,7 @@ import (
 	kinesissdk "github.com/aws/aws-sdk-go-v2/service/kinesis"
 	kmssdk "github.com/aws/aws-sdk-go-v2/service/kms"
 	lambdaclientsdk "github.com/aws/aws-sdk-go-v2/service/lambda"
+	rdssdk "github.com/aws/aws-sdk-go-v2/service/rds"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	secretsmanagersdk "github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	sfnsdk "github.com/aws/aws-sdk-go-v2/service/sfn"
@@ -494,6 +495,26 @@ func createElastiCacheClient(t *testing.T) *elasticachesdk.Client {
 	}
 
 	return elasticachesdk.NewFromConfig(cfg, func(o *elasticachesdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createRDSClient returns an RDS client pointed at the shared test container.
+func createRDSClient(t *testing.T) *rdssdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		t.Fatalf("unable to load SDK config: %v", err)
+	}
+
+	return rdssdk.NewFromConfig(cfg, func(o *rdssdk.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
