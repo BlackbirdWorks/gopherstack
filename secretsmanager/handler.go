@@ -20,6 +20,10 @@ import (
 // ErrUnknownOperation is returned when an unsupported operation is requested.
 var ErrUnknownOperation = errors.New("UnknownOperationException")
 
+type getResourcePolicyInput struct {
+	SecretID string `json:"SecretId"`
+}
+
 // LambdaInvoker can invoke a Lambda function synchronously.
 type LambdaInvoker interface {
 	InvokeFunction(ctx context.Context, name, invocationType string, payload []byte) ([]byte, int, error)
@@ -279,9 +283,7 @@ func (h *Handler) smTagActions() map[string]smActionFn {
 func (h *Handler) smPolicyActions() map[string]smActionFn {
 	return map[string]smActionFn{
 		"GetResourcePolicy": func(_ context.Context, _ string, b []byte) (any, error) {
-			var input struct {
-				SecretID string `json:"SecretId"`
-			}
+			var input getResourcePolicyInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}

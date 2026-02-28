@@ -33,6 +33,14 @@ const esmPathPrefix = "/2015-03-31/event-source-mappings"
 // lambdaTagsPathPrefix is the path prefix for Lambda resource tag endpoints.
 const lambdaTagsPathPrefix = "/2015-03-31/tags"
 
+type lambdaTagsInput struct {
+	Tags map[string]string `json:"Tags"`
+}
+
+type publishVersionInput struct {
+	Description string `json:"Description"`
+}
+
 // routeSpec binds an HTTP method and path predicate to an operation name or handler.
 type routeSpec struct {
 	method string
@@ -422,9 +430,7 @@ func (h *Handler) handleTagsRoute(c *echo.Context, method string) error {
 		if err != nil {
 			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
 		}
-		var input struct {
-			Tags map[string]string `json:"Tags"`
-		}
+		var input lambdaTagsInput
 		if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
 			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid body")
 		}
@@ -1034,9 +1040,7 @@ func (h *Handler) handlePublishVersion(c *echo.Context, name string) error {
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
 	}
 
-	var input struct {
-		Description string `json:"Description"`
-	}
+	var input publishVersionInput
 
 	if len(body) > 0 {
 		if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {

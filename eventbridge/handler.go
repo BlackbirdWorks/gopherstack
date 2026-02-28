@@ -20,6 +20,94 @@ import (
 
 var errUnknownOperation = errors.New("UnknownOperationException")
 
+type createEventBusInput struct {
+	Name        string `json:"Name"`
+	Description string `json:"Description"`
+}
+
+type deleteEventBusInput struct {
+	Name string `json:"Name"`
+}
+
+type listEventBusesInput struct {
+	NamePrefix string `json:"NamePrefix"`
+	NextToken  string `json:"NextToken"`
+	Limit      int    `json:"Limit"`
+}
+
+type describeEventBusInput struct {
+	Name string `json:"Name"`
+}
+
+type deleteRuleInput struct {
+	Name         string `json:"Name"`
+	EventBusName string `json:"EventBusName"`
+}
+
+type listRulesInput struct {
+	EventBusName string `json:"EventBusName"`
+	NamePrefix   string `json:"NamePrefix"`
+	NextToken    string `json:"NextToken"`
+	Limit        int    `json:"Limit"`
+}
+
+type describeRuleInput struct {
+	Name         string `json:"Name"`
+	EventBusName string `json:"EventBusName"`
+}
+
+type enableRuleInput struct {
+	Name         string `json:"Name"`
+	EventBusName string `json:"EventBusName"`
+}
+
+type disableRuleInput struct {
+	Name         string `json:"Name"`
+	EventBusName string `json:"EventBusName"`
+}
+
+type putTargetsInput struct {
+	Rule         string   `json:"Rule"`
+	EventBusName string   `json:"EventBusName"`
+	Targets      []Target `json:"Targets"`
+}
+
+type removeTargetsInput struct {
+	Rule         string   `json:"Rule"`
+	EventBusName string   `json:"EventBusName"`
+	IDs          []string `json:"Ids"`
+}
+
+type listTargetsByRuleInput struct {
+	Rule         string `json:"Rule"`
+	EventBusName string `json:"EventBusName"`
+	NextToken    string `json:"NextToken"`
+	Limit        int    `json:"Limit"`
+}
+
+type putEventsInput struct {
+	Entries []EventEntry `json:"Entries"`
+}
+
+type listTagsForResourceInput struct {
+	ResourceARN string `json:"ResourceARN"`
+}
+
+type ebTag struct {
+	Key   string `json:"Key"`
+	Value string `json:"Value"`
+}
+
+type tagResourceInput struct {
+	ResourceARN string  `json:"ResourceARN"`
+	Tags        []ebTag `json:"Tags"`
+}
+
+type untagResourceInput struct {
+	ResourceARN string   `json:"ResourceARN"`
+	TagKeys     []string `json:"TagKeys"`
+}
+
 // Handler is the Echo HTTP service handler for EventBridge operations.
 type Handler struct {
 	Backend   StorageBackend
@@ -168,10 +256,7 @@ type actionFn func([]byte) (any, error)
 func (h *Handler) eventBusActions() map[string]actionFn {
 	return map[string]actionFn{
 		"CreateEventBus": func(b []byte) (any, error) {
-			var input struct {
-				Name        string `json:"Name"`
-				Description string `json:"Description"`
-			}
+			var input createEventBusInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
@@ -183,9 +268,7 @@ func (h *Handler) eventBusActions() map[string]actionFn {
 			return map[string]string{"EventBusArn": bus.Arn}, nil
 		},
 		"DeleteEventBus": func(b []byte) (any, error) {
-			var input struct {
-				Name string `json:"Name"`
-			}
+			var input deleteEventBusInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
@@ -196,11 +279,7 @@ func (h *Handler) eventBusActions() map[string]actionFn {
 			return map[string]any{}, nil
 		},
 		"ListEventBuses": func(b []byte) (any, error) {
-			var input struct {
-				NamePrefix string `json:"NamePrefix"`
-				NextToken  string `json:"NextToken"`
-				Limit      int    `json:"Limit"`
-			}
+			var input listEventBusesInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
@@ -212,9 +291,7 @@ func (h *Handler) eventBusActions() map[string]actionFn {
 			return map[string]any{"EventBuses": buses, "NextToken": next}, nil
 		},
 		"DescribeEventBus": func(b []byte) (any, error) {
-			var input struct {
-				Name string `json:"Name"`
-			}
+			var input describeEventBusInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
@@ -243,10 +320,7 @@ func (h *Handler) ruleActions() map[string]actionFn {
 			return map[string]string{"RuleArn": rule.Arn}, nil
 		},
 		"DeleteRule": func(b []byte) (any, error) {
-			var input struct {
-				Name         string `json:"Name"`
-				EventBusName string `json:"EventBusName"`
-			}
+			var input deleteRuleInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
@@ -257,12 +331,7 @@ func (h *Handler) ruleActions() map[string]actionFn {
 			return map[string]any{}, nil
 		},
 		"ListRules": func(b []byte) (any, error) {
-			var input struct {
-				EventBusName string `json:"EventBusName"`
-				NamePrefix   string `json:"NamePrefix"`
-				NextToken    string `json:"NextToken"`
-				Limit        int    `json:"Limit"`
-			}
+			var input listRulesInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
@@ -274,10 +343,7 @@ func (h *Handler) ruleActions() map[string]actionFn {
 			return map[string]any{"Rules": rules, "NextToken": next}, nil
 		},
 		"DescribeRule": func(b []byte) (any, error) {
-			var input struct {
-				Name         string `json:"Name"`
-				EventBusName string `json:"EventBusName"`
-			}
+			var input describeRuleInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
@@ -290,10 +356,7 @@ func (h *Handler) ruleActions() map[string]actionFn {
 func (h *Handler) ruleStateActions() map[string]actionFn {
 	return map[string]actionFn{
 		"EnableRule": func(b []byte) (any, error) {
-			var input struct {
-				Name         string `json:"Name"`
-				EventBusName string `json:"EventBusName"`
-			}
+			var input enableRuleInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
@@ -304,10 +367,7 @@ func (h *Handler) ruleStateActions() map[string]actionFn {
 			return map[string]any{}, nil
 		},
 		"DisableRule": func(b []byte) (any, error) {
-			var input struct {
-				Name         string `json:"Name"`
-				EventBusName string `json:"EventBusName"`
-			}
+			var input disableRuleInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
@@ -323,11 +383,7 @@ func (h *Handler) ruleStateActions() map[string]actionFn {
 func (h *Handler) targetActions() map[string]actionFn {
 	return map[string]actionFn{
 		"PutTargets": func(b []byte) (any, error) {
-			var input struct {
-				Rule         string   `json:"Rule"`
-				EventBusName string   `json:"EventBusName"`
-				Targets      []Target `json:"Targets"`
-			}
+			var input putTargetsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
@@ -345,11 +401,7 @@ func (h *Handler) targetActions() map[string]actionFn {
 			}, nil
 		},
 		"RemoveTargets": func(b []byte) (any, error) {
-			var input struct {
-				Rule         string   `json:"Rule"`
-				EventBusName string   `json:"EventBusName"`
-				IDs          []string `json:"Ids"`
-			}
+			var input removeTargetsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
@@ -367,12 +419,7 @@ func (h *Handler) targetActions() map[string]actionFn {
 			}, nil
 		},
 		"ListTargetsByRule": func(b []byte) (any, error) {
-			var input struct {
-				Rule         string `json:"Rule"`
-				EventBusName string `json:"EventBusName"`
-				NextToken    string `json:"NextToken"`
-				Limit        int    `json:"Limit"`
-			}
+			var input listTargetsByRuleInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
@@ -389,9 +436,7 @@ func (h *Handler) targetActions() map[string]actionFn {
 func (h *Handler) eventsActions() map[string]actionFn {
 	return map[string]actionFn{
 		"PutEvents": func(b []byte) (any, error) {
-			var input struct {
-				Entries []EventEntry `json:"Entries"`
-			}
+			var input putEventsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
@@ -408,9 +453,7 @@ func (h *Handler) eventsActions() map[string]actionFn {
 func (h *Handler) tagActions() map[string]actionFn {
 	return map[string]actionFn{
 		"ListTagsForResource": func(b []byte) (any, error) {
-			var input struct {
-				ResourceARN string `json:"ResourceARN"`
-			}
+			var input listTagsForResourceInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
@@ -423,13 +466,7 @@ func (h *Handler) tagActions() map[string]actionFn {
 			return map[string]any{"Tags": tagList}, nil
 		},
 		"TagResource": func(b []byte) (any, error) {
-			var input struct {
-				ResourceARN string `json:"ResourceARN"`
-				Tags        []struct {
-					Key   string `json:"Key"`
-					Value string `json:"Value"`
-				} `json:"Tags"`
-			}
+			var input tagResourceInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
@@ -442,10 +479,7 @@ func (h *Handler) tagActions() map[string]actionFn {
 			return map[string]any{}, nil
 		},
 		"UntagResource": func(b []byte) (any, error) {
-			var input struct {
-				ResourceARN string   `json:"ResourceARN"`
-				TagKeys     []string `json:"TagKeys"`
-			}
+			var input untagResourceInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}

@@ -19,6 +19,111 @@ import (
 
 var errUnknownOperation = errors.New("UnknownOperationException")
 
+type createRestAPIInput struct {
+	Tags        map[string]string `json:"tags"`
+	Name        string            `json:"name"`
+	Description string            `json:"description"`
+}
+
+type deleteRestAPIInput struct {
+	RestAPIID string `json:"restApiId"`
+}
+
+type getRestAPIInput struct {
+	RestAPIID string `json:"restApiId"`
+}
+
+type getRestApisInput struct {
+	Position string `json:"position"`
+	Limit    int    `json:"limit"`
+}
+
+type getResourcesInput struct {
+	RestAPIID string `json:"restApiId"`
+	Position  string `json:"position"`
+	Limit     int    `json:"limit"`
+}
+
+type getResourceInput struct {
+	RestAPIID  string `json:"restApiId"`
+	ResourceID string `json:"resourceId"`
+}
+
+type createResourceInput struct {
+	RestAPIID string `json:"restApiId"`
+	ParentID  string `json:"parentId"`
+	PathPart  string `json:"pathPart"`
+}
+
+type deleteResourceInput struct {
+	RestAPIID  string `json:"restApiId"`
+	ResourceID string `json:"resourceId"`
+}
+
+type putMethodInput struct {
+	RestAPIID         string `json:"restApiId"`
+	ResourceID        string `json:"resourceId"`
+	HTTPMethod        string `json:"httpMethod"`
+	AuthorizationType string `json:"authorizationType"`
+	APIKeyRequired    bool   `json:"apiKeyRequired"`
+}
+
+type getMethodInput struct {
+	RestAPIID  string `json:"restApiId"`
+	ResourceID string `json:"resourceId"`
+	HTTPMethod string `json:"httpMethod"`
+}
+
+type deleteMethodInput struct {
+	RestAPIID  string `json:"restApiId"`
+	ResourceID string `json:"resourceId"`
+	HTTPMethod string `json:"httpMethod"`
+}
+
+type putIntegrationInput struct {
+	PutIntegrationInput
+
+	RestAPIID  string `json:"restApiId"`
+	ResourceID string `json:"resourceId"`
+	HTTPMethod string `json:"httpMethod"`
+}
+
+type getIntegrationInput struct {
+	RestAPIID  string `json:"restApiId"`
+	ResourceID string `json:"resourceId"`
+	HTTPMethod string `json:"httpMethod"`
+}
+
+type deleteIntegrationInput struct {
+	RestAPIID  string `json:"restApiId"`
+	ResourceID string `json:"resourceId"`
+	HTTPMethod string `json:"httpMethod"`
+}
+
+type createDeploymentInput struct {
+	RestAPIID   string `json:"restApiId"`
+	StageName   string `json:"stageName"`
+	Description string `json:"description"`
+}
+
+type getDeploymentsInput struct {
+	RestAPIID string `json:"restApiId"`
+}
+
+type getStagesInput struct {
+	RestAPIID string `json:"restApiId"`
+}
+
+type getStageInput struct {
+	RestAPIID string `json:"restApiId"`
+	StageName string `json:"stageName"`
+}
+
+type deleteStageInput struct {
+	RestAPIID string `json:"restApiId"`
+	StageName string `json:"stageName"`
+}
+
 // Handler is the Echo HTTP service handler for API Gateway operations.
 type Handler struct {
 	Backend StorageBackend
@@ -197,11 +302,7 @@ func (h *Handler) handleStageProxyEcho(c *echo.Context) error {
 func (h *Handler) restAPIActions() map[string]actionFn {
 	return map[string]actionFn{
 		"CreateRestApi": func(b []byte) (int, any, error) {
-			var input struct {
-				Tags        map[string]string `json:"tags"`
-				Name        string            `json:"name"`
-				Description string            `json:"description"`
-			}
+			var input createRestAPIInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return 0, nil, err
 			}
@@ -213,9 +314,7 @@ func (h *Handler) restAPIActions() map[string]actionFn {
 			return http.StatusCreated, api, nil
 		},
 		"DeleteRestApi": func(b []byte) (int, any, error) {
-			var input struct {
-				RestAPIID string `json:"restApiId"`
-			}
+			var input deleteRestAPIInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return 0, nil, err
 			}
@@ -226,9 +325,7 @@ func (h *Handler) restAPIActions() map[string]actionFn {
 			return http.StatusAccepted, map[string]any{}, nil
 		},
 		"GetRestApi": func(b []byte) (int, any, error) {
-			var input struct {
-				RestAPIID string `json:"restApiId"`
-			}
+			var input getRestAPIInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return 0, nil, err
 			}
@@ -240,10 +337,7 @@ func (h *Handler) restAPIActions() map[string]actionFn {
 			return http.StatusOK, api, nil
 		},
 		"GetRestApis": func(b []byte) (int, any, error) {
-			var input struct {
-				Position string `json:"position"`
-				Limit    int    `json:"limit"`
-			}
+			var input getRestApisInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return 0, nil, err
 			}
@@ -260,11 +354,7 @@ func (h *Handler) restAPIActions() map[string]actionFn {
 func (h *Handler) resourceActions() map[string]actionFn {
 	return map[string]actionFn{
 		"GetResources": func(b []byte) (int, any, error) {
-			var input struct {
-				RestAPIID string `json:"restApiId"`
-				Position  string `json:"position"`
-				Limit     int    `json:"limit"`
-			}
+			var input getResourcesInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return 0, nil, err
 			}
@@ -276,10 +366,7 @@ func (h *Handler) resourceActions() map[string]actionFn {
 			return http.StatusOK, map[string]any{"item": resources, "position": position}, nil
 		},
 		"GetResource": func(b []byte) (int, any, error) {
-			var input struct {
-				RestAPIID  string `json:"restApiId"`
-				ResourceID string `json:"resourceId"`
-			}
+			var input getResourceInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return 0, nil, err
 			}
@@ -291,11 +378,7 @@ func (h *Handler) resourceActions() map[string]actionFn {
 			return http.StatusOK, r, nil
 		},
 		"CreateResource": func(b []byte) (int, any, error) {
-			var input struct {
-				RestAPIID string `json:"restApiId"`
-				ParentID  string `json:"parentId"`
-				PathPart  string `json:"pathPart"`
-			}
+			var input createResourceInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return 0, nil, err
 			}
@@ -307,10 +390,7 @@ func (h *Handler) resourceActions() map[string]actionFn {
 			return http.StatusCreated, r, nil
 		},
 		"DeleteResource": func(b []byte) (int, any, error) {
-			var input struct {
-				RestAPIID  string `json:"restApiId"`
-				ResourceID string `json:"resourceId"`
-			}
+			var input deleteResourceInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return 0, nil, err
 			}
@@ -326,13 +406,7 @@ func (h *Handler) resourceActions() map[string]actionFn {
 func (h *Handler) methodActions() map[string]actionFn {
 	return map[string]actionFn{
 		"PutMethod": func(b []byte) (int, any, error) {
-			var input struct {
-				RestAPIID         string `json:"restApiId"`
-				ResourceID        string `json:"resourceId"`
-				HTTPMethod        string `json:"httpMethod"`
-				AuthorizationType string `json:"authorizationType"`
-				APIKeyRequired    bool   `json:"apiKeyRequired"`
-			}
+			var input putMethodInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return 0, nil, err
 			}
@@ -350,11 +424,7 @@ func (h *Handler) methodActions() map[string]actionFn {
 			return http.StatusCreated, m, nil
 		},
 		"GetMethod": func(b []byte) (int, any, error) {
-			var input struct {
-				RestAPIID  string `json:"restApiId"`
-				ResourceID string `json:"resourceId"`
-				HTTPMethod string `json:"httpMethod"`
-			}
+			var input getMethodInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return 0, nil, err
 			}
@@ -366,11 +436,7 @@ func (h *Handler) methodActions() map[string]actionFn {
 			return http.StatusOK, m, nil
 		},
 		"DeleteMethod": func(b []byte) (int, any, error) {
-			var input struct {
-				RestAPIID  string `json:"restApiId"`
-				ResourceID string `json:"resourceId"`
-				HTTPMethod string `json:"httpMethod"`
-			}
+			var input deleteMethodInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return 0, nil, err
 			}
@@ -386,13 +452,7 @@ func (h *Handler) methodActions() map[string]actionFn {
 func (h *Handler) integrationActions() map[string]actionFn {
 	return map[string]actionFn{
 		"PutIntegration": func(b []byte) (int, any, error) {
-			var input struct {
-				PutIntegrationInput
-
-				RestAPIID  string `json:"restApiId"`
-				ResourceID string `json:"resourceId"`
-				HTTPMethod string `json:"httpMethod"`
-			}
+			var input putIntegrationInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return 0, nil, err
 			}
@@ -409,11 +469,7 @@ func (h *Handler) integrationActions() map[string]actionFn {
 			return http.StatusCreated, integ, nil
 		},
 		"GetIntegration": func(b []byte) (int, any, error) {
-			var input struct {
-				RestAPIID  string `json:"restApiId"`
-				ResourceID string `json:"resourceId"`
-				HTTPMethod string `json:"httpMethod"`
-			}
+			var input getIntegrationInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return 0, nil, err
 			}
@@ -425,11 +481,7 @@ func (h *Handler) integrationActions() map[string]actionFn {
 			return http.StatusOK, integ, nil
 		},
 		"DeleteIntegration": func(b []byte) (int, any, error) {
-			var input struct {
-				RestAPIID  string `json:"restApiId"`
-				ResourceID string `json:"resourceId"`
-				HTTPMethod string `json:"httpMethod"`
-			}
+			var input deleteIntegrationInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return 0, nil, err
 			}
@@ -445,11 +497,7 @@ func (h *Handler) integrationActions() map[string]actionFn {
 func (h *Handler) deploymentActions() map[string]actionFn {
 	return map[string]actionFn{
 		"CreateDeployment": func(b []byte) (int, any, error) {
-			var input struct {
-				RestAPIID   string `json:"restApiId"`
-				StageName   string `json:"stageName"`
-				Description string `json:"description"`
-			}
+			var input createDeploymentInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return 0, nil, err
 			}
@@ -461,9 +509,7 @@ func (h *Handler) deploymentActions() map[string]actionFn {
 			return http.StatusCreated, depl, nil
 		},
 		"GetDeployments": func(b []byte) (int, any, error) {
-			var input struct {
-				RestAPIID string `json:"restApiId"`
-			}
+			var input getDeploymentsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return 0, nil, err
 			}
@@ -475,9 +521,7 @@ func (h *Handler) deploymentActions() map[string]actionFn {
 			return http.StatusOK, map[string]any{"item": depls}, nil
 		},
 		"GetStages": func(b []byte) (int, any, error) {
-			var input struct {
-				RestAPIID string `json:"restApiId"`
-			}
+			var input getStagesInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return 0, nil, err
 			}
@@ -489,10 +533,7 @@ func (h *Handler) deploymentActions() map[string]actionFn {
 			return http.StatusOK, map[string]any{"item": stages}, nil
 		},
 		"GetStage": func(b []byte) (int, any, error) {
-			var input struct {
-				RestAPIID string `json:"restApiId"`
-				StageName string `json:"stageName"`
-			}
+			var input getStageInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return 0, nil, err
 			}
@@ -504,10 +545,7 @@ func (h *Handler) deploymentActions() map[string]actionFn {
 			return http.StatusOK, stage, nil
 		},
 		"DeleteStage": func(b []byte) (int, any, error) {
-			var input struct {
-				RestAPIID string `json:"restApiId"`
-				StageName string `json:"stageName"`
-			}
+			var input deleteStageInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return 0, nil, err
 			}
