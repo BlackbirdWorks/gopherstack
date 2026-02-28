@@ -27,6 +27,9 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
 
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
   unit:
     runs-on: ubuntu-latest
     steps:
@@ -83,10 +86,6 @@ jobs:
 
   terraform:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [0, 1, 2]
     steps:
       - uses: actions/checkout@v6
 
@@ -97,31 +96,11 @@ jobs:
           check-latest: true
           cache: true
 
-      - name: Run Terraform Tests (shard ${{ matrix.shard }}/3)
+      - name: Run Terraform Tests
         run: |
-          COVERPKGS=$(go list ./... | grep -v -E '(test/|/demo$|/modules/|/teststack$)' | tr '\n' ',' | sed 's/,$//')
-          # List all test names, pick every 3rd starting at this shard's offset
-          ALL_TESTS=$(go test -list 'TestTerraform_' ./test/terraform/... 2>/dev/null | grep '^TestTerraform_')
-          SHARD_TESTS=$(echo "$ALL_TESTS" | awk "NR % 3 == ${{ matrix.shard }}")
-          if [ -z "$SHARD_TESTS" ]; then
-            echo "No tests in this shard, skipping."
-            exit 0
-          fi
-          PATTERN=$(echo "$SHARD_TESTS" | tr '\n' '|' | sed 's/|$//')
-          echo "Running tests: $PATTERN"
           go tool gotestsum --format pkgname -- \
-            -race -timeout 10m \
-            -run "^($PATTERN)$" \
-            -coverpkg="$COVERPKGS" -coverprofile=terraform-coverage-${{ matrix.shard }}.out -covermode=atomic \
+            -race -timeout 15m \
             ./test/terraform/...
-
-      - name: Upload Coverage
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: terraform-coverage-${{ matrix.shard }}
-          path: terraform-coverage-${{ matrix.shard }}.out
-          retention-days: 1
 
   e2e:
     runs-on: ubuntu-latest
@@ -156,7 +135,7 @@ jobs:
 
   coverage:
     runs-on: ubuntu-latest
-    needs: [unit, integration, terraform, e2e]
+    needs: [unit, integration, e2e]
     permissions:
       contents: write
       checks: write
@@ -183,7 +162,7 @@ jobs:
         run: |
           # Merge all coverage files into one
           echo "mode: atomic" > coverage.out
-          for f in unit-coverage.out integration-coverage.out terraform-coverage-*.out e2e-coverage.out; do
+          for f in unit-coverage.out integration-coverage.out e2e-coverage.out; do
             if [ -f "$f" ]; then
               tail -n +2 "$f" >> coverage.out
             fi

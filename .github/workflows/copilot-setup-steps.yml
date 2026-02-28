@@ -26,6 +26,9 @@ jobs:
       - name: Install Playwright Browsers
         run: go run github.com/playwright-community/playwright-go/cmd/playwright@latest install --with-deps chromium
 
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
       - name: Download Go modules
         run: go mod download
 

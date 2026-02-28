@@ -36,6 +36,7 @@ install-deps:
 
 lint: install-deps
 	golangci-lint run ./...
+	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
 lint-fix: install-deps
 	@echo "Running fieldalignment..."
