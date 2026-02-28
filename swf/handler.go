@@ -174,6 +174,7 @@ type handleListDomainsInput struct {
 	RegistrationStatus string `json:"registrationStatus"`
 }
 
+//nolint:unparam // error returned for consistent dispatch signature
 func (h *Handler) handleListDomains(body []byte) (any, error) {
 	var req handleListDomainsInput
 	_ = json.Unmarshal(body, &req)
@@ -225,6 +226,7 @@ type handleListWorkflowTypesInput struct {
 	Domain string `json:"domain"`
 }
 
+//nolint:unparam // error returned for consistent dispatch signature
 func (h *Handler) handleListWorkflowTypes(body []byte) (any, error) {
 	var req handleListWorkflowTypesInput
 	_ = json.Unmarshal(body, &req)

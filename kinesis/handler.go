@@ -183,7 +183,7 @@ func (h *Handler) kinesisRoute(ctx context.Context, r *http.Request, action stri
 }
 
 // handleError writes a Kinesis error response using the standard error details mapping.
-func (h *Handler) handleError(_ context.Context, c *echo.Context, action string, err error) error {
+func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
 	errType, message, status := errorDetails(err)
 
 	return c.JSON(status, jsonKinesisError{Type: errType, Message: message})

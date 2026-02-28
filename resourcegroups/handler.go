@@ -182,6 +182,7 @@ func (h *Handler) handleDeleteGroup(body []byte) (any, error) {
 	return map[string]string{}, nil
 }
 
+//nolint:unparam // error returned for consistent dispatch signature
 func (h *Handler) handleListGroups() (any, error) {
 	groups := h.Backend.ListGroups()
 
