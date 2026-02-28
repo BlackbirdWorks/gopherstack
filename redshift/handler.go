@@ -207,6 +207,7 @@ func toXMLCluster(c *Cluster) xmlCluster {
 		Endpoint:                  c.Endpoint,
 		ClusterStatus:             c.Status,
 		ClusterAvailabilityStatus: "Available",
+		RelocationStatus:          "disabled",
 		DBName:                    c.DBName,
 		MasterUsername:            c.MasterUsername,
 	}
@@ -273,6 +274,7 @@ type xmlCluster struct {
 	Endpoint                  string `xml:"Endpoint>Address"`
 	ClusterStatus             string `xml:"ClusterStatus"`
 	ClusterAvailabilityStatus string `xml:"ClusterAvailabilityStatus"`
+	RelocationStatus          string `xml:"RelocationStatus"`
 	DBName                    string `xml:"DBName"`
 	MasterUsername            string `xml:"MasterUsername"`
 }

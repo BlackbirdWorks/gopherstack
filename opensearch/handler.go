@@ -3,6 +3,7 @@ package opensearch
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -156,7 +157,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case (rest == "" || rest == "/") && r.Method == http.MethodGet:
 		h.handleListDomainNames(w, r)
 	case strings.HasPrefix(rest, "/") && r.Method == http.MethodGet:
-		h.handleDescribeDomain(w, r, domainNameFromRest(rest))
+		trimmed := domainNameFromRest(rest)
+		if before, ok := strings.CutSuffix(trimmed, "/config"); ok {
+			h.handleDescribeDomainConfig(w, r, before)
+		} else {
+			h.handleDescribeDomain(w, r, trimmed)
+		}
 	case strings.HasPrefix(rest, "/") && r.Method == http.MethodDelete:
 		h.handleDeleteDomain(w, r, domainNameFromRest(rest))
 	default:
@@ -332,4 +338,31 @@ func (h *Handler) writeJSON(w http.ResponseWriter, v any) {
 
 func (h *Handler) handleListTags(w http.ResponseWriter, _ *http.Request) {
 	h.writeJSON(w, map[string]any{"TagList": []any{}})
+}
+
+func (h *Handler) handleDescribeDomainConfig(w http.ResponseWriter, _ *http.Request, name string) {
+	_, err := h.Backend.DescribeDomain(name)
+	if err != nil {
+		if errors.Is(err, ErrDomainNotFound) {
+			h.writeError(w, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("domain %s/config not found", name))
+		} else {
+			h.writeError(w, http.StatusInternalServerError, "InternalException", err.Error())
+		}
+
+		return
+	}
+
+	h.writeJSON(w, map[string]any{
+		"DomainConfig": map[string]any{
+			"EngineVersion":  map[string]any{"Options": "", "Status": map[string]any{"State": "Active"}},
+			"ClusterConfig":  map[string]any{"Options": map[string]any{}, "Status": map[string]any{"State": "Active"}},
+			"EBSOptions":     map[string]any{"Options": map[string]any{}, "Status": map[string]any{"State": "Active"}},
+			"AccessPolicies": map[string]any{"Options": "", "Status": map[string]any{"State": "Active"}},
+			"AdvancedOptions": map[string]any{
+				"Options": map[string]any{},
+				"Status":  map[string]any{"State": "Active"},
+			},
+		},
+	})
 }

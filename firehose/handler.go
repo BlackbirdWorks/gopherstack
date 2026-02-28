@@ -146,7 +146,10 @@ func (h *Handler) handleDeleteDeliveryStream(c *echo.Context, body []byte) error
 
 	if err := h.Backend.DeleteDeliveryStream(req.DeliveryStreamName); err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]string{"message": err.Error()})
+			return c.JSON(
+				http.StatusNotFound,
+				map[string]any{"__type": "ResourceNotFoundException", "message": err.Error()},
+			)
 		}
 
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
@@ -166,7 +169,10 @@ func (h *Handler) handleDescribeDeliveryStream(c *echo.Context, body []byte) err
 	s, err := h.Backend.DescribeDeliveryStream(req.DeliveryStreamName)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]string{"message": err.Error()})
+			return c.JSON(
+				http.StatusNotFound,
+				map[string]any{"__type": "ResourceNotFoundException", "message": err.Error()},
+			)
 		}
 
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
@@ -208,7 +214,10 @@ func (h *Handler) handlePutRecord(c *echo.Context, body []byte) error {
 
 	if putErr := h.Backend.PutRecord(req.DeliveryStreamName, data); putErr != nil {
 		if errors.Is(putErr, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]string{"message": putErr.Error()})
+			return c.JSON(
+				http.StatusNotFound,
+				map[string]any{"__type": "ResourceNotFoundException", "message": putErr.Error()},
+			)
 		}
 
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": putErr.Error()})
@@ -243,7 +252,10 @@ func (h *Handler) handlePutRecordBatch(c *echo.Context, body []byte) error {
 	failedCount, err := h.Backend.PutRecordBatch(req.DeliveryStreamName, records)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]string{"message": err.Error()})
+			return c.JSON(
+				http.StatusNotFound,
+				map[string]any{"__type": "ResourceNotFoundException", "message": err.Error()},
+			)
 		}
 
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
