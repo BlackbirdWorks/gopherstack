@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/apigateway"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 func TestBackend_CreateAndGetRestApi(t *testing.T) {
@@ -14,7 +15,7 @@ func TestBackend_CreateAndGetRestApi(t *testing.T) {
 
 	b := apigateway.NewInMemoryBackend()
 
-	api, err := b.CreateRestAPI("my-api", "desc", map[string]string{"env": "test"})
+	api, err := b.CreateRestAPI("my-api", "desc", tags.FromMap("test.apigw", map[string]string{"env": "test"}))
 	require.NoError(t, err)
 	assert.NotEmpty(t, api.ID)
 	assert.Equal(t, "my-api", api.Name)
