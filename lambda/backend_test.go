@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -72,534 +73,515 @@ func newSimpleBackend() *lambda.InMemoryBackend {
 	)
 }
 
-func TestInMemoryBackend(t *testing.T) {
+func TestInMemoryBackend_SetS3CodeFetcher(t *testing.T) {
+	t.Parallel()
+
+	backend := newSimpleBackend()
+	fetcher := &mockS3Fetcher{data: []byte("zip-data")}
+	// SetS3CodeFetcher should not panic
+	backend.SetS3CodeFetcher(fetcher)
+}
+
+func TestInMemoryBackend_InvokeFunction(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		run  func(t *testing.T)
+		name           string
+		fn             *lambda.FunctionConfiguration
+		invokeName     string
+		invocationType lambda.InvocationType
+		wantErr        bool
+		wantStatus     int
+		wantNilResult  bool
 	}{
 		{
-			name: "SetS3CodeFetcher",
-			run: func(t *testing.T) {
-				backend := newSimpleBackend()
-				fetcher := &mockS3Fetcher{data: []byte("zip-data")}
-				// SetS3CodeFetcher should not panic
-				backend.SetS3CodeFetcher(fetcher)
-			},
+			name:           "NoPortAlloc",
+			fn:             &lambda.FunctionConfiguration{FunctionName: "no-port-fn", PackageType: lambda.PackageTypeImage, ImageURI: "test:latest"},
+			invokeName:     "no-port-fn",
+			invocationType: lambda.InvocationTypeRequestResponse,
+			wantErr:        true,
 		},
 		{
-			name: "InvokeFunction_NoPortAlloc",
-			run: func(t *testing.T) {
-				ctx := t.Context()
-				backend := newSimpleBackend()
-
-				fn := &lambda.FunctionConfiguration{
-					FunctionName: "no-port-fn",
-					PackageType:  lambda.PackageTypeImage,
-					ImageURI:     "test:latest",
-				}
-				require.NoError(t, backend.CreateFunction(fn))
-
-				_, _, err := backend.InvokeFunction(ctx, "no-port-fn", lambda.InvocationTypeRequestResponse, []byte("{}"))
-				require.Error(t, err)
-			},
+			name:           "NotFound",
+			invokeName:     "nonexistent",
+			invocationType: lambda.InvocationTypeRequestResponse,
+			wantErr:        true,
+			wantStatus:     http.StatusNotFound,
 		},
 		{
-			name: "InvokeFunction_NotFound",
-			run: func(t *testing.T) {
-				ctx := t.Context()
-				backend := newSimpleBackend()
-
-				_, statusCode, err := backend.InvokeFunction(ctx, "nonexistent", lambda.InvocationTypeRequestResponse, []byte("{}"))
-				require.Error(t, err)
-				assert.Equal(t, http.StatusNotFound, statusCode)
-			},
+			name:           "DryRun",
+			fn:             &lambda.FunctionConfiguration{FunctionName: "dry-run-fn", PackageType: lambda.PackageTypeImage, ImageURI: "test:latest"},
+			invokeName:     "dry-run-fn",
+			invocationType: lambda.InvocationTypeDryRun,
+			wantStatus:     http.StatusNoContent,
+			wantNilResult:  true,
 		},
 		{
-			name: "InvokeFunction_DryRun",
-			run: func(t *testing.T) {
-				ctx := t.Context()
-				backend := newSimpleBackend()
-
-				fn := &lambda.FunctionConfiguration{
-					FunctionName: "dry-run-fn",
-					PackageType:  lambda.PackageTypeImage,
-					ImageURI:     "test:latest",
-				}
-				require.NoError(t, backend.CreateFunction(fn))
-
-				result, statusCode, err := backend.InvokeFunction(ctx, "dry-run-fn", lambda.InvocationTypeDryRun, []byte("{}"))
-				require.NoError(t, err)
-				assert.Equal(t, http.StatusNoContent, statusCode)
-				assert.Nil(t, result)
-			},
-		},
-		{
-			name: "InvokeFunction_EventType_NoDocker",
-			run: func(t *testing.T) {
-				ctx := t.Context()
-				backend := newSimpleBackend()
-
-				fn := &lambda.FunctionConfiguration{
-					FunctionName: "event-fn",
-					PackageType:  lambda.PackageTypeImage,
-					ImageURI:     "test:latest",
-				}
-				require.NoError(t, backend.CreateFunction(fn))
-
-				_, _, err := backend.InvokeFunction(ctx, "event-fn", lambda.InvocationTypeEvent, []byte("{}"))
-				require.Error(t, err) // Fails because no portAlloc
-			},
-		},
-		{
-			name: "CreateAndGet",
-			run: func(t *testing.T) {
-				backend := newSimpleBackend()
-
-				fn := &lambda.FunctionConfiguration{
-					FunctionName: "test-create-get",
-					PackageType:  lambda.PackageTypeZip,
-					Runtime:      "python3.12",
-				}
-				require.NoError(t, backend.CreateFunction(fn))
-
-				got, err := backend.GetFunction("test-create-get")
-				require.NoError(t, err)
-				assert.Equal(t, "test-create-get", got.FunctionName)
-				assert.Equal(t, "python3.12", got.Runtime)
-			},
-		},
-		{
-			name: "CreateDuplicate",
-			run: func(t *testing.T) {
-				backend := newSimpleBackend()
-
-				fn := &lambda.FunctionConfiguration{FunctionName: "dup-fn"}
-				require.NoError(t, backend.CreateFunction(fn))
-
-				err := backend.CreateFunction(fn)
-				require.ErrorIs(t, err, lambda.ErrFunctionAlreadyExists)
-			},
-		},
-		{
-			name: "ListFunctions",
-			run: func(t *testing.T) {
-				backend := newSimpleBackend()
-
-				for _, name := range []string{"fn-b", "fn-a", "fn-c"} {
-					require.NoError(t, backend.CreateFunction(&lambda.FunctionConfiguration{FunctionName: name}))
-				}
-
-				fns := backend.ListFunctions()
-				require.Len(t, fns, 3)
-				// Should be sorted alphabetically
-				assert.Equal(t, "fn-a", fns[0].FunctionName)
-				assert.Equal(t, "fn-b", fns[1].FunctionName)
-				assert.Equal(t, "fn-c", fns[2].FunctionName)
-			},
-		},
-		{
-			name: "UpdateFunction_NotFound",
-			run: func(t *testing.T) {
-				backend := newSimpleBackend()
-
-				err := backend.UpdateFunction(&lambda.FunctionConfiguration{FunctionName: "nonexistent"})
-				require.ErrorIs(t, err, lambda.ErrFunctionNotFound)
-			},
-		},
-		{
-			name: "DeleteFunction_NotFound",
-			run: func(t *testing.T) {
-				backend := newSimpleBackend()
-
-				err := backend.DeleteFunction("nonexistent")
-				require.ErrorIs(t, err, lambda.ErrFunctionNotFound)
-			},
-		},
-		{
-			name: "DeleteFunction_WithRuntime",
-			run: func(t *testing.T) {
-				backend := newSimpleBackend()
-
-				fn := &lambda.FunctionConfiguration{
-					FunctionName: "delete-with-rt",
-					PackageType:  lambda.PackageTypeImage,
-				}
-				require.NoError(t, backend.CreateFunction(fn))
-				require.NoError(t, backend.DeleteFunction("delete-with-rt"))
-
-				_, err := backend.GetFunction("delete-with-rt")
-				require.ErrorIs(t, err, lambda.ErrFunctionNotFound)
-			},
-		},
-		{
-			name: "Zip_InvokeWithMockDocker",
-			run: func(t *testing.T) {
-				pa, paErr := portalloc.New(19600, 19650)
-				require.NoError(t, paErr)
-
-				dc := newMockDockerClient()
-				backend := lambda.NewInMemoryBackend(dc, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default())
-
-				zipBytes := makeTestZip(t, `def handler(event, context): return "hello"`)
-				fn := &lambda.FunctionConfiguration{
-					FunctionName: "zip-invoke-fn",
-					PackageType:  lambda.PackageTypeZip,
-					Runtime:      "python3.12",
-					Handler:      "index.handler",
-					Timeout:      3,
-					ZipData:      zipBytes,
-				}
-				require.NoError(t, backend.CreateFunction(fn))
-
-				// Event invocation (fire-and-forget) — should start container with Zip mount
-				_, statusCode, err := backend.InvokeFunction(
-					t.Context(),
-					"zip-invoke-fn",
-					lambda.InvocationTypeEvent,
-					[]byte(`{}`),
-				)
-				require.NoError(t, err)
-				assert.Equal(t, http.StatusAccepted, statusCode)
-			},
-		},
-		{
-			name: "Zip_UnknownRuntime",
-			run: func(t *testing.T) {
-				pa, paErr := portalloc.New(19700, 19750)
-				require.NoError(t, paErr)
-
-				dc := newMockDockerClient()
-				backend := lambda.NewInMemoryBackend(dc, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default())
-
-				zipBytes := makeTestZip(t, `def handler(e, c): return "hi"`)
-				fn := &lambda.FunctionConfiguration{
-					FunctionName: "unknown-runtime-fn",
-					PackageType:  lambda.PackageTypeZip,
-					Runtime:      "cobol99",
-					Timeout:      3,
-					ZipData:      zipBytes,
-				}
-				require.NoError(t, backend.CreateFunction(fn))
-
-				// Should fail: unknown runtime has no base image
-				_, _, err := backend.InvokeFunction(
-					t.Context(),
-					"unknown-runtime-fn",
-					lambda.InvocationTypeEvent,
-					[]byte(`{}`),
-				)
-				require.NoError(t, err) // Event invocations log errors but don't return them
-			},
-		},
-		{
-			name: "Zip_S3Fetcher",
-			run: func(t *testing.T) {
-				pa, paErr := portalloc.New(19800, 19850)
-				require.NoError(t, paErr)
-
-				dc := newMockDockerClient()
-				backend := lambda.NewInMemoryBackend(dc, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default())
-
-				zipBytes := makeTestZip(t, `def handler(e, c): return "hello"`)
-				fetcher := &mockS3Fetcher{data: zipBytes}
-				backend.SetS3CodeFetcher(fetcher)
-
-				fn := &lambda.FunctionConfiguration{
-					FunctionName: "s3-zip-fn",
-					PackageType:  lambda.PackageTypeZip,
-					Runtime:      "python3.12",
-					Handler:      "index.handler",
-					Timeout:      3,
-					S3BucketCode: "my-bucket",
-					S3KeyCode:    "my-key.zip",
-				}
-				require.NoError(t, backend.CreateFunction(fn))
-
-				// Event invocation - should fetch from S3
-				_, statusCode, err := backend.InvokeFunction(
-					t.Context(),
-					"s3-zip-fn",
-					lambda.InvocationTypeEvent,
-					[]byte(`{}`),
-				)
-				require.NoError(t, err)
-				assert.Equal(t, http.StatusAccepted, statusCode)
-			},
-		},
-		{
-			name: "Zip_S3FetcherNoFetcher",
-			run: func(t *testing.T) {
-				pa, paErr := portalloc.New(19900, 19950)
-				require.NoError(t, paErr)
-
-				dc := newMockDockerClient()
-				backend := lambda.NewInMemoryBackend(dc, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default())
-				// No S3 fetcher set
-
-				fn := &lambda.FunctionConfiguration{
-					FunctionName: "s3-no-fetcher",
-					PackageType:  lambda.PackageTypeZip,
-					Runtime:      "python3.12",
-					Timeout:      3,
-					S3BucketCode: "my-bucket",
-					S3KeyCode:    "my-key.zip",
-				}
-				require.NoError(t, backend.CreateFunction(fn))
-
-				// Event invocation - should fail gracefully (logs error, returns 202 for fire-and-forget)
-				_, _, _ = backend.InvokeFunction(t.Context(), "s3-no-fetcher", lambda.InvocationTypeEvent, []byte(`{}`))
-				// Just verify no panic
-			},
-		},
-		{
-			name: "DeleteZipFunction_CleansUpDir",
-			run: func(t *testing.T) {
-				pa, paErr := portalloc.New(20000, 20050)
-				require.NoError(t, paErr)
-
-				dc := newMockDockerClient()
-				backend := lambda.NewInMemoryBackend(dc, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default())
-
-				zipBytes := makeTestZip(t, `def handler(e, c): return "hello"`)
-				fn := &lambda.FunctionConfiguration{
-					FunctionName: "zip-cleanup",
-					PackageType:  lambda.PackageTypeZip,
-					Runtime:      "python3.12",
-					Timeout:      3,
-					ZipData:      zipBytes,
-				}
-				require.NoError(t, backend.CreateFunction(fn))
-
-				// Trigger zip extraction by invoking
-				_, _, _ = backend.InvokeFunction(t.Context(), "zip-cleanup", lambda.InvocationTypeEvent, []byte(`{}`))
-
-				// Delete should clean up temp dir without error
-				require.NoError(t, backend.DeleteFunction("zip-cleanup"))
-			},
-		},
-		{
-			name: "SetDNSRegistrar",
-			run: func(t *testing.T) {
-				pa, paErr := portalloc.New(20300, 20350)
-				require.NoError(t, paErr)
-
-				backend := lambda.NewInMemoryBackend(
-					nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default(),
-				)
-
-				dns := &mockDNSRegistrar{}
-				lambda.SetDNSRegistrarExported(backend, dns)
-
-				fn := &lambda.FunctionConfiguration{
-					FunctionName: "dns-test-fn",
-					PackageType:  lambda.PackageTypeImage,
-					ImageURI:     "test:latest",
-				}
-				require.NoError(t, backend.CreateFunction(fn))
-
-				cfg, err := backend.CreateFunctionURLConfig("dns-test-fn", "NONE")
-				require.NoError(t, err)
-				assert.NotEmpty(t, cfg.FunctionURL)
-
-				// DNS should have been registered
-				dns.mu.Lock()
-				assert.NotEmpty(t, dns.registered)
-				dns.mu.Unlock()
-
-				// Delete should deregister
-				require.NoError(t, backend.DeleteFunctionURLConfig("dns-test-fn"))
-
-				dns.mu.Lock()
-				assert.NotEmpty(t, dns.deregistered)
-				dns.mu.Unlock()
-			},
-		},
-		{
-			name: "SetCWLogsBackend",
-			run: func(t *testing.T) {
-				backend := lambda.NewInMemoryBackend(
-					nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default(),
-				)
-
-				mock := &mockCWLogsBackend{}
-				backend.SetCWLogsBackend(mock) // should not panic
-			},
-		},
-		{
-			name: "GetVersion",
-			run: func(t *testing.T) {
-				pa, paErr := portalloc.New(19680, 19700)
-				require.NoError(t, paErr)
-
-				backend := lambda.NewInMemoryBackend(
-					nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default(),
-				)
-
-				fn := &lambda.FunctionConfiguration{
-					FunctionName: "get-ver-fn",
-					PackageType:  lambda.PackageTypeImage,
-					ImageURI:     "test:latest",
-					State:        lambda.FunctionStateActive,
-				}
-				require.NoError(t, backend.CreateFunction(fn))
-
-				// $LATEST version
-				v, err := backend.GetVersion("get-ver-fn", "$LATEST")
-				require.NoError(t, err)
-				assert.Equal(t, "$LATEST", v.Version)
-				assert.Equal(t, "get-ver-fn", v.FunctionName)
-
-				// Publish version 1
-				_, err = backend.PublishVersion("get-ver-fn", "desc")
-				require.NoError(t, err)
-
-				v1, err := backend.GetVersion("get-ver-fn", "1")
-				require.NoError(t, err)
-				assert.Equal(t, "1", v1.Version)
-
-				// Non-existent version
-				_, err = backend.GetVersion("get-ver-fn", "999")
-				require.ErrorIs(t, err, lambda.ErrVersionNotFound)
-
-				// Non-existent function with $LATEST
-				_, err = backend.GetVersion("no-fn", "$LATEST")
-				require.ErrorIs(t, err, lambda.ErrFunctionNotFound)
-			},
-		},
-		{
-			name: "ResolveQualifier",
-			run: func(t *testing.T) {
-				pa, paErr := portalloc.New(19700, 19720)
-				require.NoError(t, paErr)
-
-				backend := lambda.NewInMemoryBackend(
-					nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default(),
-				)
-
-				fn := &lambda.FunctionConfiguration{
-					FunctionName: "resolve-fn",
-					PackageType:  lambda.PackageTypeImage,
-					ImageURI:     "test:latest",
-					State:        lambda.FunctionStateActive,
-				}
-				require.NoError(t, backend.CreateFunction(fn))
-
-				// Publish two versions
-				_, err := backend.PublishVersion("resolve-fn", "v1")
-				require.NoError(t, err)
-				_, err = backend.PublishVersion("resolve-fn", "v2")
-				require.NoError(t, err)
-
-				// Create alias pointing to v1
-				_, err = backend.CreateAlias("resolve-fn", &lambda.CreateAliasInput{
-					Name:            "stable",
-					FunctionVersion: "1",
-				})
-				require.NoError(t, err)
-
-				// Invoke with no qualifier should succeed (resolves to ErrLambdaUnavailable, not ErrFunctionNotFound)
-				_, _, invokeErr := backend.InvokeFunctionWithQualifier(
-					t.Context(), "resolve-fn", "", lambda.InvocationTypeRequestResponse, []byte("{}"),
-				)
-				require.ErrorIs(t, invokeErr, lambda.ErrLambdaUnavailable)
-
-				// Invoke with alias qualifier (resolves alias → version → config)
-				_, _, invokeErr = backend.InvokeFunctionWithQualifier(
-					t.Context(), "resolve-fn", "stable", lambda.InvocationTypeRequestResponse, []byte("{}"),
-				)
-				require.ErrorIs(t, invokeErr, lambda.ErrLambdaUnavailable)
-
-				// Invoke with version qualifier
-				_, _, invokeErr = backend.InvokeFunctionWithQualifier(
-					t.Context(), "resolve-fn", "1", lambda.InvocationTypeRequestResponse, []byte("{}"),
-				)
-				require.ErrorIs(t, invokeErr, lambda.ErrLambdaUnavailable)
-
-				// Invoke with non-existent version should return ErrVersionNotFound
-				_, _, invokeErr = backend.InvokeFunctionWithQualifier(
-					t.Context(), "resolve-fn", "999", lambda.InvocationTypeRequestResponse, []byte("{}"),
-				)
-				require.ErrorIs(t, invokeErr, lambda.ErrVersionNotFound)
-			},
+			name:           "EventType_NoDocker",
+			fn:             &lambda.FunctionConfiguration{FunctionName: "event-fn", PackageType: lambda.PackageTypeImage, ImageURI: "test:latest"},
+			invokeName:     "event-fn",
+			invocationType: lambda.InvocationTypeEvent,
+			wantErr:        true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			tt.run(t)
+
+			backend := newSimpleBackend()
+			if tt.fn != nil {
+				require.NoError(t, backend.CreateFunction(tt.fn))
+			}
+
+			result, statusCode, err := backend.InvokeFunction(
+				t.Context(), tt.invokeName, tt.invocationType, []byte("{}"),
+			)
+
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			if tt.wantStatus != 0 {
+				assert.Equal(t, tt.wantStatus, statusCode)
+			}
+			if tt.wantNilResult {
+				assert.Nil(t, result)
+			}
 		})
 	}
+}
+
+func TestInMemoryBackend_CreateAndGet(t *testing.T) {
+	t.Parallel()
+
+	backend := newSimpleBackend()
+
+	fn := &lambda.FunctionConfiguration{
+		FunctionName: "test-create-get",
+		PackageType:  lambda.PackageTypeZip,
+		Runtime:      "python3.12",
+	}
+	require.NoError(t, backend.CreateFunction(fn))
+
+	got, err := backend.GetFunction("test-create-get")
+	require.NoError(t, err)
+	assert.Equal(t, "test-create-get", got.FunctionName)
+	assert.Equal(t, "python3.12", got.Runtime)
+}
+
+func TestInMemoryBackend_CreateDuplicate(t *testing.T) {
+	t.Parallel()
+
+	backend := newSimpleBackend()
+
+	fn := &lambda.FunctionConfiguration{FunctionName: "dup-fn"}
+	require.NoError(t, backend.CreateFunction(fn))
+
+	err := backend.CreateFunction(fn)
+	require.ErrorIs(t, err, lambda.ErrFunctionAlreadyExists)
+}
+
+func TestInMemoryBackend_ListFunctions(t *testing.T) {
+	t.Parallel()
+
+	backend := newSimpleBackend()
+
+	for _, name := range []string{"fn-b", "fn-a", "fn-c"} {
+		require.NoError(t, backend.CreateFunction(&lambda.FunctionConfiguration{FunctionName: name}))
+	}
+
+	fns := backend.ListFunctions()
+	require.Len(t, fns, 3)
+	// Should be sorted alphabetically
+	assert.Equal(t, "fn-a", fns[0].FunctionName)
+	assert.Equal(t, "fn-b", fns[1].FunctionName)
+	assert.Equal(t, "fn-c", fns[2].FunctionName)
+}
+
+func TestInMemoryBackend_UpdateFunctionNotFound(t *testing.T) {
+	t.Parallel()
+
+	backend := newSimpleBackend()
+
+	err := backend.UpdateFunction(&lambda.FunctionConfiguration{FunctionName: "nonexistent"})
+	require.ErrorIs(t, err, lambda.ErrFunctionNotFound)
+}
+
+func TestInMemoryBackend_DeleteFunctionNotFound(t *testing.T) {
+	t.Parallel()
+
+	backend := newSimpleBackend()
+
+	err := backend.DeleteFunction("nonexistent")
+	require.ErrorIs(t, err, lambda.ErrFunctionNotFound)
+}
+
+func TestInMemoryBackend_DeleteFunctionWithRuntime(t *testing.T) {
+	t.Parallel()
+
+	backend := newSimpleBackend()
+
+	fn := &lambda.FunctionConfiguration{
+		FunctionName: "delete-with-rt",
+		PackageType:  lambda.PackageTypeImage,
+	}
+	require.NoError(t, backend.CreateFunction(fn))
+	require.NoError(t, backend.DeleteFunction("delete-with-rt"))
+
+	_, err := backend.GetFunction("delete-with-rt")
+	require.ErrorIs(t, err, lambda.ErrFunctionNotFound)
+}
+
+func TestInMemoryBackend_ZipInvoke(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		portStart    int
+		portEnd      int
+		runtime      string
+		handler      string
+		s3Bucket     string
+		s3Key        string
+		setS3Fetcher bool
+		wantStatus   int
+		skipErrCheck bool
+	}{
+		{
+			name:       "WithMockDocker",
+			portStart:  19600,
+			portEnd:    19650,
+			runtime:    "python3.12",
+			handler:    "index.handler",
+			wantStatus: http.StatusAccepted,
+		},
+		{
+			name:      "UnknownRuntime",
+			portStart: 19700,
+			portEnd:   19750,
+			runtime:   "cobol99",
+		},
+		{
+			name:         "S3Fetcher",
+			portStart:    19800,
+			portEnd:      19850,
+			runtime:      "python3.12",
+			handler:      "index.handler",
+			s3Bucket:     "my-bucket",
+			s3Key:        "my-key.zip",
+			setS3Fetcher: true,
+			wantStatus:   http.StatusAccepted,
+		},
+		{
+			name:         "S3FetcherNoFetcher",
+			portStart:    19900,
+			portEnd:      19950,
+			runtime:      "python3.12",
+			s3Bucket:     "my-bucket",
+			s3Key:        "my-key.zip",
+			skipErrCheck: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			pa, paErr := portalloc.New(tt.portStart, tt.portEnd)
+			require.NoError(t, paErr)
+
+			dc := newMockDockerClient()
+			backend := lambda.NewInMemoryBackend(dc, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default())
+
+			zipBytes := makeTestZip(t, `def handler(e, c): return "hello"`)
+
+			if tt.setS3Fetcher {
+				backend.SetS3CodeFetcher(&mockS3Fetcher{data: zipBytes})
+			}
+
+			fn := &lambda.FunctionConfiguration{
+				FunctionName: tt.name + "-fn",
+				PackageType:  lambda.PackageTypeZip,
+				Runtime:      tt.runtime,
+				Handler:      tt.handler,
+				Timeout:      3,
+			}
+			if tt.s3Bucket != "" {
+				fn.S3BucketCode = tt.s3Bucket
+				fn.S3KeyCode = tt.s3Key
+			} else {
+				fn.ZipData = zipBytes
+			}
+
+			require.NoError(t, backend.CreateFunction(fn))
+
+			_, statusCode, err := backend.InvokeFunction(
+				t.Context(), fn.FunctionName, lambda.InvocationTypeEvent, []byte(`{}`),
+			)
+			if !tt.skipErrCheck {
+				require.NoError(t, err)
+			}
+			if tt.wantStatus != 0 {
+				assert.Equal(t, tt.wantStatus, statusCode)
+			}
+		})
+	}
+}
+
+func TestInMemoryBackend_DeleteZipFunction(t *testing.T) {
+	t.Parallel()
+
+	pa, paErr := portalloc.New(20000, 20050)
+	require.NoError(t, paErr)
+
+	dc := newMockDockerClient()
+	backend := lambda.NewInMemoryBackend(dc, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default())
+
+	zipBytes := makeTestZip(t, `def handler(e, c): return "hello"`)
+	fn := &lambda.FunctionConfiguration{
+		FunctionName: "zip-cleanup",
+		PackageType:  lambda.PackageTypeZip,
+		Runtime:      "python3.12",
+		Timeout:      3,
+		ZipData:      zipBytes,
+	}
+	require.NoError(t, backend.CreateFunction(fn))
+
+	// Trigger zip extraction by invoking
+	_, _, _ = backend.InvokeFunction(t.Context(), "zip-cleanup", lambda.InvocationTypeEvent, []byte(`{}`))
+
+	// Delete should clean up temp dir without error
+	require.NoError(t, backend.DeleteFunction("zip-cleanup"))
+}
+
+func TestInMemoryBackend_SetDNSRegistrar(t *testing.T) {
+	t.Parallel()
+
+	pa, paErr := portalloc.New(20300, 20350)
+	require.NoError(t, paErr)
+
+	backend := lambda.NewInMemoryBackend(
+		nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default(),
+	)
+
+	dns := &mockDNSRegistrar{}
+	lambda.SetDNSRegistrarExported(backend, dns)
+
+	fn := &lambda.FunctionConfiguration{
+		FunctionName: "dns-test-fn",
+		PackageType:  lambda.PackageTypeImage,
+		ImageURI:     "test:latest",
+	}
+	require.NoError(t, backend.CreateFunction(fn))
+
+	cfg, err := backend.CreateFunctionURLConfig("dns-test-fn", "NONE")
+	require.NoError(t, err)
+	assert.NotEmpty(t, cfg.FunctionURL)
+
+	// DNS should have been registered
+	dns.mu.Lock()
+	assert.NotEmpty(t, dns.registered)
+	dns.mu.Unlock()
+
+	// Delete should deregister
+	require.NoError(t, backend.DeleteFunctionURLConfig("dns-test-fn"))
+
+	dns.mu.Lock()
+	assert.NotEmpty(t, dns.deregistered)
+	dns.mu.Unlock()
+}
+
+func TestInMemoryBackend_SetCWLogsBackend(t *testing.T) {
+	t.Parallel()
+
+	backend := lambda.NewInMemoryBackend(
+		nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default(),
+	)
+
+	mock := &mockCWLogsBackend{}
+	backend.SetCWLogsBackend(mock) // should not panic
+}
+
+func TestInMemoryBackend_GetVersion(t *testing.T) {
+	t.Parallel()
+
+	pa, paErr := portalloc.New(19680, 19700)
+	require.NoError(t, paErr)
+
+	backend := lambda.NewInMemoryBackend(
+		nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default(),
+	)
+
+	fn := &lambda.FunctionConfiguration{
+		FunctionName: "get-ver-fn",
+		PackageType:  lambda.PackageTypeImage,
+		ImageURI:     "test:latest",
+		State:        lambda.FunctionStateActive,
+	}
+	require.NoError(t, backend.CreateFunction(fn))
+
+	// $LATEST version
+	v, err := backend.GetVersion("get-ver-fn", "$LATEST")
+	require.NoError(t, err)
+	assert.Equal(t, "$LATEST", v.Version)
+	assert.Equal(t, "get-ver-fn", v.FunctionName)
+
+	// Publish version 1
+	_, err = backend.PublishVersion("get-ver-fn", "desc")
+	require.NoError(t, err)
+
+	v1, err := backend.GetVersion("get-ver-fn", "1")
+	require.NoError(t, err)
+	assert.Equal(t, "1", v1.Version)
+
+	// Non-existent version
+	_, err = backend.GetVersion("get-ver-fn", "999")
+	require.ErrorIs(t, err, lambda.ErrVersionNotFound)
+
+	// Non-existent function with $LATEST
+	_, err = backend.GetVersion("no-fn", "$LATEST")
+	require.ErrorIs(t, err, lambda.ErrFunctionNotFound)
+}
+
+func TestInMemoryBackend_ResolveQualifier(t *testing.T) {
+	t.Parallel()
+
+	pa, paErr := portalloc.New(19700, 19720)
+	require.NoError(t, paErr)
+
+	backend := lambda.NewInMemoryBackend(
+		nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default(),
+	)
+
+	fn := &lambda.FunctionConfiguration{
+		FunctionName: "resolve-fn",
+		PackageType:  lambda.PackageTypeImage,
+		ImageURI:     "test:latest",
+		State:        lambda.FunctionStateActive,
+	}
+	require.NoError(t, backend.CreateFunction(fn))
+
+	// Publish two versions
+	_, err := backend.PublishVersion("resolve-fn", "v1")
+	require.NoError(t, err)
+	_, err = backend.PublishVersion("resolve-fn", "v2")
+	require.NoError(t, err)
+
+	// Create alias pointing to v1
+	_, err = backend.CreateAlias("resolve-fn", &lambda.CreateAliasInput{
+		Name:            "stable",
+		FunctionVersion: "1",
+	})
+	require.NoError(t, err)
+
+	// Invoke with no qualifier should succeed (resolves to ErrLambdaUnavailable, not ErrFunctionNotFound)
+	_, _, invokeErr := backend.InvokeFunctionWithQualifier(
+		t.Context(), "resolve-fn", "", lambda.InvocationTypeRequestResponse, []byte("{}"),
+	)
+	require.ErrorIs(t, invokeErr, lambda.ErrLambdaUnavailable)
+
+	// Invoke with alias qualifier (resolves alias → version → config)
+	_, _, invokeErr = backend.InvokeFunctionWithQualifier(
+		t.Context(), "resolve-fn", "stable", lambda.InvocationTypeRequestResponse, []byte("{}"),
+	)
+	require.ErrorIs(t, invokeErr, lambda.ErrLambdaUnavailable)
+
+	// Invoke with version qualifier
+	_, _, invokeErr = backend.InvokeFunctionWithQualifier(
+		t.Context(), "resolve-fn", "1", lambda.InvocationTypeRequestResponse, []byte("{}"),
+	)
+	require.ErrorIs(t, invokeErr, lambda.ErrLambdaUnavailable)
+
+	// Invoke with non-existent version should return ErrVersionNotFound
+	_, _, invokeErr = backend.InvokeFunctionWithQualifier(
+		t.Context(), "resolve-fn", "999", lambda.InvocationTypeRequestResponse, []byte("{}"),
+	)
+	require.ErrorIs(t, invokeErr, lambda.ErrVersionNotFound)
 }
 
 func TestBuildURLEventPayload(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		run  func(t *testing.T)
+		name               string
+		method             string
+		url                string
+		body               string
+		contentType        string
+		wantVersion        string
+		wantRouteKey       string
+		wantRawPath        string
+		wantRawQueryString string
+		wantBase64Encoded  bool
+		wantNoBody         bool
 	}{
 		{
-			name: "WithBody",
-			run: func(t *testing.T) {
-				backend := lambda.NewInMemoryBackend(
-					nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default(),
-				)
-
-				req, err := http.NewRequestWithContext(
-					t.Context(),
-					http.MethodPost,
-					"http://example.com/my/path?foo=bar",
-					strings.NewReader("hello world"),
-				)
-				require.NoError(t, err)
-				req.Header.Set("Content-Type", "text/plain")
-
-				payload, err := lambda.BuildURLEventPayload(backend, req)
-				require.NoError(t, err)
-
-				var event map[string]any
-				require.NoError(t, json.Unmarshal(payload, &event))
-
-				assert.Equal(t, "2.0", event["version"])
-				assert.Equal(t, "$default", event["routeKey"])
-				assert.Equal(t, "/my/path", event["rawPath"])
-				assert.Equal(t, "foo=bar", event["rawQueryString"])
-				assert.True(t, event["isBase64Encoded"].(bool), "body should be base64-encoded")
-			},
+			name:               "WithBody",
+			method:             http.MethodPost,
+			url:                "http://example.com/my/path?foo=bar",
+			body:               "hello world",
+			contentType:        "text/plain",
+			wantVersion:        "2.0",
+			wantRouteKey:       "$default",
+			wantRawPath:        "/my/path",
+			wantRawQueryString: "foo=bar",
+			wantBase64Encoded:  true,
 		},
 		{
-			name: "EmptyBody",
-			run: func(t *testing.T) {
-				backend := lambda.NewInMemoryBackend(
-					nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default(),
-				)
-
-				req, err := http.NewRequestWithContext(
-					t.Context(),
-					http.MethodGet,
-					"http://example.com/",
-					nil,
-				)
-				require.NoError(t, err)
-
-				payload, err := lambda.BuildURLEventPayload(backend, req)
-				require.NoError(t, err)
-
-				var event map[string]any
-				require.NoError(t, json.Unmarshal(payload, &event))
-				_, hasBody := event["body"]
-				assert.False(t, hasBody, "empty body should not include body field")
-			},
+			name:       "EmptyBody",
+			method:     http.MethodGet,
+			url:        "http://example.com/",
+			wantNoBody: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			tt.run(t)
+
+			backend := lambda.NewInMemoryBackend(
+				nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default(),
+			)
+
+			var bodyReader io.Reader
+			if tt.body != "" {
+				bodyReader = strings.NewReader(tt.body)
+			}
+
+			req, err := http.NewRequestWithContext(t.Context(), tt.method, tt.url, bodyReader)
+			require.NoError(t, err)
+
+			if tt.contentType != "" {
+				req.Header.Set("Content-Type", tt.contentType)
+			}
+
+			payload, err := lambda.BuildURLEventPayload(backend, req)
+			require.NoError(t, err)
+
+			var event map[string]any
+			require.NoError(t, json.Unmarshal(payload, &event))
+
+			if tt.wantVersion != "" {
+				assert.Equal(t, tt.wantVersion, event["version"])
+			}
+			if tt.wantRouteKey != "" {
+				assert.Equal(t, tt.wantRouteKey, event["routeKey"])
+			}
+			if tt.wantRawPath != "" {
+				assert.Equal(t, tt.wantRawPath, event["rawPath"])
+			}
+			if tt.wantRawQueryString != "" {
+				assert.Equal(t, tt.wantRawQueryString, event["rawQueryString"])
+			}
+			if tt.wantBase64Encoded {
+				assert.True(t, event["isBase64Encoded"].(bool), "body should be base64-encoded")
+			}
+			if tt.wantNoBody {
+				_, hasBody := event["body"]
+				assert.False(t, hasBody, "empty body should not include body field")
+			}
 		})
 	}
 }
@@ -608,51 +590,51 @@ func TestWriteFunctionURLResponse(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		run  func(t *testing.T)
+		name            string
+		result          []byte
+		wantCode        int
+		wantContentType string
+		wantBody        string
+		wantBodyJSON    string
 	}{
 		{
-			name: "StructuredResponse",
-			run: func(t *testing.T) {
-				result := []byte(`{"statusCode":200,"headers":{"content-type":"application/json"},"body":"{\"ok\":true}"}`)
-				rec := httptest.NewRecorder()
-				lambda.WriteFunctionURLResponse(rec, result)
-
-				assert.Equal(t, http.StatusOK, rec.Code)
-				assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
-				assert.Equal(t, `{"ok":true}`, rec.Body.String())
-			},
+			name:            "StructuredResponse",
+			result:          []byte(`{"statusCode":200,"headers":{"content-type":"application/json"},"body":"{\"ok\":true}"}`),
+			wantCode:        http.StatusOK,
+			wantContentType: "application/json",
+			wantBody:        `{"ok":true}`,
 		},
 		{
-			name: "Base64Body",
-			run: func(t *testing.T) {
-				encoded := base64.StdEncoding.EncodeToString([]byte("binary data"))
-				result := []byte(`{"statusCode":200,"body":"` + encoded + `","isBase64Encoded":true}`)
-				rec := httptest.NewRecorder()
-				lambda.WriteFunctionURLResponse(rec, result)
-
-				assert.Equal(t, http.StatusOK, rec.Code)
-				assert.Equal(t, "binary data", rec.Body.String())
-			},
+			name:     "Base64Body",
+			result:   []byte(`{"statusCode":200,"body":"` + base64.StdEncoding.EncodeToString([]byte("binary data")) + `","isBase64Encoded":true}`),
+			wantCode: http.StatusOK,
+			wantBody: "binary data",
 		},
 		{
-			name: "RawFallback",
-			run: func(t *testing.T) {
-				result := []byte(`{"result":"plain"}`)
-				rec := httptest.NewRecorder()
-				lambda.WriteFunctionURLResponse(rec, result)
-
-				assert.Equal(t, http.StatusOK, rec.Code)
-				assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
-				assert.JSONEq(t, `{"result":"plain"}`, rec.Body.String())
-			},
+			name:            "RawFallback",
+			result:          []byte(`{"result":"plain"}`),
+			wantCode:        http.StatusOK,
+			wantContentType: "application/json",
+			wantBodyJSON:    `{"result":"plain"}`,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			tt.run(t)
+
+			rec := httptest.NewRecorder()
+			lambda.WriteFunctionURLResponse(rec, tt.result)
+
+			assert.Equal(t, tt.wantCode, rec.Code)
+			if tt.wantContentType != "" {
+				assert.Equal(t, tt.wantContentType, rec.Header().Get("Content-Type"))
+			}
+			if tt.wantBodyJSON != "" {
+				assert.JSONEq(t, tt.wantBodyJSON, rec.Body.String())
+			} else if tt.wantBody != "" {
+				assert.Equal(t, tt.wantBody, rec.Body.String())
+			}
 		})
 	}
 }
