@@ -56,14 +56,92 @@ require.NoError(t, err)
 return rec
 }
 
-func TestKinesisHandler(t *testing.T) {
+func TestKinesisHandler_ErrorResponses(t *testing.T) {
 t.Parallel()
 
 tests := []struct {
-name string
-run  func(t *testing.T)
+name        string
+action      string
+body        any
+wantCode    int
+wantErrType string
 }{
-{name: "StreamLifecycle", run: func(t *testing.T) {
+{
+name:        "StreamNotFound",
+action:      "DescribeStream",
+body:        map[string]any{"StreamName": "nonexistent"},
+wantCode:    http.StatusBadRequest,
+wantErrType: "ResourceNotFoundException",
+},
+{
+name:        "UnknownAction",
+action:      "BogusAction",
+body:        nil,
+wantCode:    http.StatusBadRequest,
+wantErrType: "UnknownOperationException",
+},
+{
+name:        "DeleteStreamNotFound",
+action:      "DeleteStream",
+body:        map[string]any{"StreamName": "does-not-exist"},
+wantCode:    http.StatusBadRequest,
+wantErrType: "ResourceNotFoundException",
+},
+{
+name:        "GetRecordsExpiredIterator",
+action:      "GetRecords",
+body:        map[string]any{"ShardIterator": "definitely-not-base64!!"},
+wantCode:    http.StatusBadRequest,
+wantErrType: "ExpiredIteratorException",
+},
+{
+name:     "ListShardsNotFound",
+action:   "ListShards",
+body:     map[string]any{"StreamName": "nonexistent"},
+wantCode: http.StatusBadRequest,
+},
+{
+name:     "DescribeStreamSummaryNotFound",
+action:   "DescribeStreamSummary",
+body:     map[string]any{"StreamName": "nonexistent"},
+wantCode: http.StatusBadRequest,
+},
+{
+name:     "PutRecordNotFound",
+action:   "PutRecord",
+body:     map[string]any{"StreamName": "nonexistent", "PartitionKey": "pk", "Data": []byte("data")},
+wantCode: http.StatusBadRequest,
+},
+{
+name:     "HandlerNoTarget",
+action:   "",
+body:     nil,
+wantCode: http.StatusBadRequest,
+},
+}
+
+for _, tt := range tests {
+t.Run(tt.name, func(t *testing.T) {
+t.Parallel()
+
+h := newTestHandler(t)
+rec := doRequest(t, h, tt.action, tt.body)
+assert.Equal(t, tt.wantCode, rec.Code)
+
+if tt.wantErrType != "" {
+var errResp struct {
+Type string `json:"__type"`
+}
+require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+assert.Equal(t, tt.wantErrType, errResp.Type)
+}
+})
+}
+}
+
+func TestStreamLifecycle(t *testing.T) {
+t.Parallel()
+
 h := newTestHandler(t)
 
 // CreateStream
@@ -130,8 +208,11 @@ rec = doRequest(t, h, "DescribeStream", map[string]any{
 "StreamName": "my-stream",
 })
 assert.Equal(t, http.StatusBadRequest, rec.Code)
-}},
-{name: "PutAndGetRecords", run: func(t *testing.T) {
+}
+
+func TestPutAndGetRecords(t *testing.T) {
+t.Parallel()
+
 h := newTestHandler(t)
 
 // Create stream with 1 shard
@@ -311,8 +392,11 @@ Records []any `json:"Records"`
 }
 require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &latestResp))
 assert.Empty(t, latestResp.Records) // No new records since iterator was created
-}},
-{name: "ListShards", run: func(t *testing.T) {
+}
+
+func TestListShards(t *testing.T) {
+t.Parallel()
+
 h := newTestHandler(t)
 
 // CreateStream with 3 shards
@@ -335,8 +419,11 @@ ShardID string `json:"ShardId"`
 }
 require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listShardsResp))
 assert.Len(t, listShardsResp.Shards, 3)
-}},
-{name: "CreateStreamAlreadyExists", run: func(t *testing.T) {
+}
+
+func TestCreateStreamAlreadyExists(t *testing.T) {
+t.Parallel()
+
 h := newTestHandler(t)
 
 rec := doRequest(t, h, "CreateStream", map[string]any{
@@ -354,22 +441,11 @@ Type string `json:"__type"`
 }
 require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
 assert.Equal(t, "ResourceInUseException", errResp.Type)
-}},
-{name: "StreamNotFound", run: func(t *testing.T) {
-h := newTestHandler(t)
-
-rec := doRequest(t, h, "DescribeStream", map[string]any{
-"StreamName": "nonexistent",
-})
-assert.Equal(t, http.StatusBadRequest, rec.Code)
-
-var errResp struct {
-Type string `json:"__type"`
 }
-require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
-assert.Equal(t, "ResourceNotFoundException", errResp.Type)
-}},
-{name: "RouteMatcher", run: func(t *testing.T) {
+
+func TestRouteMatcher(t *testing.T) {
+t.Parallel()
+
 h := newTestHandler(t)
 
 assert.Equal(t, "Kinesis", h.Name())
@@ -388,20 +464,11 @@ req2 := httptest.NewRequest(http.MethodPost, "/", nil)
 req2.Header.Set("X-Amz-Target", "AmazonSQS.SendMessage")
 c2 := e.NewContext(req2, httptest.NewRecorder())
 assert.False(t, h.RouteMatcher()(c2))
-}},
-{name: "UnknownAction", run: func(t *testing.T) {
-h := newTestHandler(t)
-
-rec := doRequest(t, h, "BogusAction", nil)
-assert.Equal(t, http.StatusBadRequest, rec.Code)
-
-var errResp struct {
-Type string `json:"__type"`
 }
-require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
-assert.Equal(t, "UnknownOperationException", errResp.Type)
-}},
-{name: "MatchPriority", run: func(t *testing.T) {
+
+func TestMatchPriority(t *testing.T) {
+t.Parallel()
+
 h := newTestHandler(t)
 assert.Equal(t, 75, h.MatchPriority())
 
@@ -417,8 +484,11 @@ assert.Equal(t, "ListStreams", h.ExtractOperation(c))
 req2 := httptest.NewRequest(http.MethodPost, "/", nil)
 c2 := e.NewContext(req2, httptest.NewRecorder())
 assert.Equal(t, "Unknown", h.ExtractOperation(c2))
-}},
-{name: "ExtractResource", run: func(t *testing.T) {
+}
+
+func TestExtractResource(t *testing.T) {
+t.Parallel()
+
 h := newTestHandler(t)
 e := echo.New()
 
@@ -433,8 +503,11 @@ assert.Equal(t, "my-stream", h.ExtractResource(c))
 req2 := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte("not-json")))
 c2 := e.NewContext(req2, httptest.NewRecorder())
 assert.Empty(t, h.ExtractResource(c2))
-}},
-{name: "ListAll", run: func(t *testing.T) {
+}
+
+func TestListAll(t *testing.T) {
+t.Parallel()
+
 bk := kinesis.NewInMemoryBackend()
 
 // Empty
@@ -455,8 +528,11 @@ assert.NotEmpty(t, s.Status)
 }
 
 assert.ElementsMatch(t, []string{"s1", "s2"}, names)
-}},
-{name: "BackendWithConfig", run: func(t *testing.T) {
+}
+
+func TestBackendWithConfig(t *testing.T) {
+t.Parallel()
+
 bk := kinesis.NewInMemoryBackendWithConfig("123456789012", "eu-west-1")
 require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "regional-stream"}))
 
@@ -464,8 +540,11 @@ all := bk.ListAll()
 require.Len(t, all, 1)
 assert.Contains(t, all[0].ARN, "eu-west-1")
 assert.Contains(t, all[0].ARN, "123456789012")
-}},
-{name: "CreateStreamRegionOverride", run: func(t *testing.T) {
+}
+
+func TestCreateStreamRegionOverride(t *testing.T) {
+t.Parallel()
+
 h := newTestHandler(t)
 
 rec := doRequest(t, h, "CreateStream", map[string]any{
@@ -473,32 +552,11 @@ rec := doRequest(t, h, "CreateStream", map[string]any{
 "ShardCount": 1,
 })
 require.Equal(t, http.StatusOK, rec.Code)
-}},
-{name: "DeleteStreamNotFound", run: func(t *testing.T) {
-h := newTestHandler(t)
-
-rec := doRequest(t, h, "DeleteStream", map[string]any{
-"StreamName": "does-not-exist",
-})
-assert.Equal(t, http.StatusBadRequest, rec.Code)
-
-var errResp struct {
-Type string `json:"__type"`
 }
-require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
-assert.Equal(t, "ResourceNotFoundException", errResp.Type)
-}},
-{name: "PutRecordNotFound", run: func(t *testing.T) {
-h := newTestHandler(t)
 
-rec := doRequest(t, h, "PutRecord", map[string]any{
-"StreamName":   "nonexistent",
-"PartitionKey": "pk",
-"Data":         []byte("data"),
-})
-assert.Equal(t, http.StatusBadRequest, rec.Code)
-}},
-{name: "PutRecordsNotFound", run: func(t *testing.T) {
+func TestPutRecordsNotFound(t *testing.T) {
+t.Parallel()
+
 h := newTestHandler(t)
 
 rec := doRequest(t, h, "PutRecords", map[string]any{
@@ -514,8 +572,11 @@ FailedRecordCount int `json:"FailedRecordCount"`
 }
 require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 assert.Equal(t, 1, resp.FailedRecordCount)
-}},
-{name: "GetShardIteratorBadIteratorType", run: func(t *testing.T) {
+}
+
+func TestGetShardIteratorBadIteratorType(t *testing.T) {
+t.Parallel()
+
 h := newTestHandler(t)
 
 // Create stream
@@ -528,6 +589,7 @@ require.Equal(t, http.StatusOK, rec.Code)
 // Get shard ID
 rec = doRequest(t, h, "DescribeStream", map[string]any{"StreamName": "bad-iter-stream"})
 require.Equal(t, http.StatusOK, rec.Code)
+
 var descResp struct {
 StreamDescription struct {
 Shards []struct {
@@ -544,8 +606,11 @@ rec = doRequest(t, h, "GetShardIterator", map[string]any{
 "ShardIteratorType": "INVALID_TYPE",
 })
 assert.Equal(t, http.StatusBadRequest, rec.Code)
-}},
-{name: "GetShardIteratorNonExistentShard", run: func(t *testing.T) {
+}
+
+func TestGetShardIteratorNonExistentShard(t *testing.T) {
+t.Parallel()
+
 h := newTestHandler(t)
 
 rec := doRequest(t, h, "CreateStream", map[string]any{
@@ -560,52 +625,11 @@ rec = doRequest(t, h, "GetShardIterator", map[string]any{
 "ShardIteratorType": "TRIM_HORIZON",
 })
 assert.Equal(t, http.StatusBadRequest, rec.Code)
-}},
-{name: "GetRecordsExpiredIterator", run: func(t *testing.T) {
-h := newTestHandler(t)
-
-rec := doRequest(t, h, "GetRecords", map[string]any{
-"ShardIterator": "definitely-not-base64!!",
-})
-assert.Equal(t, http.StatusBadRequest, rec.Code)
-
-var errResp struct {
-Type string `json:"__type"`
 }
-require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
-assert.Equal(t, "ExpiredIteratorException", errResp.Type)
-}},
-{name: "ListShardsNotFound", run: func(t *testing.T) {
-h := newTestHandler(t)
 
-rec := doRequest(t, h, "ListShards", map[string]any{
-"StreamName": "nonexistent",
-})
-assert.Equal(t, http.StatusBadRequest, rec.Code)
-}},
-{name: "DescribeStreamSummaryNotFound", run: func(t *testing.T) {
-h := newTestHandler(t)
+func TestMultipleShardRouting(t *testing.T) {
+t.Parallel()
 
-rec := doRequest(t, h, "DescribeStreamSummary", map[string]any{
-"StreamName": "nonexistent",
-})
-assert.Equal(t, http.StatusBadRequest, rec.Code)
-}},
-{name: "HandlerNoTarget", run: func(t *testing.T) {
-h := newTestHandler(t)
-
-e := echo.New()
-req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte("{}")))
-req.Header.Set("Content-Type", "application/x-amz-json-1.1")
-// No X-Amz-Target header
-rec := httptest.NewRecorder()
-c := e.NewContext(req, rec)
-
-err := h.Handler()(c)
-require.NoError(t, err)
-assert.Equal(t, http.StatusBadRequest, rec.Code)
-}},
-{name: "MultipleShardRouting", run: func(t *testing.T) {
 h := newTestHandler(t)
 
 // Create stream with 4 shards
@@ -634,8 +658,11 @@ shardIDs[putResp.ShardID] = true
 
 // With 10 records and 4 shards, we should get records on more than 1 shard
 assert.GreaterOrEqual(t, len(shardIDs), 1)
-}},
-{name: "SequenceNumberOrdering", run: func(t *testing.T) {
+}
+
+func TestSequenceNumberOrdering(t *testing.T) {
+t.Parallel()
+
 h := newTestHandler(t)
 
 // Create stream
@@ -714,8 +741,11 @@ require.Len(t, getResp.Records, 5)
 for i, r := range getResp.Records {
 assert.Equal(t, seqNums[i], r.SequenceNumber)
 }
-}},
-{name: "PutRecordMaxRecords", run: func(t *testing.T) {
+}
+
+func TestPutRecordMaxRecords(t *testing.T) {
+t.Parallel()
+
 h := newTestHandler(t)
 
 rec := doRequest(t, h, "CreateStream", map[string]any{
@@ -723,8 +753,11 @@ rec := doRequest(t, h, "CreateStream", map[string]any{
 "ShardCount": 1,
 })
 require.Equal(t, http.StatusOK, rec.Code)
-}},
-{name: "HandleListStreamsEmpty", run: func(t *testing.T) {
+}
+
+func TestHandleListStreamsEmpty(t *testing.T) {
+t.Parallel()
+
 h := newTestHandler(t)
 
 // Fresh handler has no streams; JSON result should have empty array, not nil
@@ -737,8 +770,11 @@ StreamNames []string `json:"StreamNames"`
 require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 assert.NotNil(t, resp.StreamNames)
 assert.Empty(t, resp.StreamNames)
-}},
-{name: "HandleInvalidJSONRequests", run: func(t *testing.T) {
+}
+
+func TestHandleInvalidJSONRequests(t *testing.T) {
+t.Parallel()
+
 h := newTestHandler(t)
 e := echo.New()
 
@@ -759,13 +795,5 @@ require.NoError(t, err, "op=%s", op)
 // All should return 4xx
 assert.GreaterOrEqual(t, rec.Code, 400, "op=%s should return error", op)
 }
-}},
 }
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
-tt.run(t)
-})
-}
-}
