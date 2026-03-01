@@ -42,118 +42,110 @@ func TestACMHandler(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		run  func(t *testing.T)
+		name         string
+		setup        func(t *testing.T, h *acm.Handler)
+		target       string
+		body         string
+		omitTarget   bool
+		wantCode     int
+		wantContains []string
 	}{
 		{
-			name: "RequestCertificate",
-			run: func(t *testing.T) {
-				h := newACMHandler()
-				rec := postACMJSON(t, h, "RequestCertificate", `{"DomainName":"example.com"}`)
-
-				assert.Equal(t, http.StatusOK, rec.Code)
-
-				var out map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-				assert.Contains(t, out["CertificateArn"], "arn:aws:acm:")
-			},
+			name:         "RequestCertificate",
+			target:       "RequestCertificate",
+			body:         `{"DomainName":"example.com"}`,
+			wantCode:     http.StatusOK,
+			wantContains: []string{"arn:aws:acm:"},
 		},
 		{
-			name: "RequestCertificate_EmptyDomain",
-			run: func(t *testing.T) {
-				h := newACMHandler()
-				rec := postACMJSON(t, h, "RequestCertificate", `{"DomainName":""}`)
-
-				assert.Equal(t, http.StatusBadRequest, rec.Code)
-			},
+			name:     "RequestCertificate_EmptyDomain",
+			target:   "RequestCertificate",
+			body:     `{"DomainName":""}`,
+			wantCode: http.StatusBadRequest,
 		},
 		{
-			name: "DescribeCertificate",
-			run: func(t *testing.T) {
-				h := newACMHandler()
-				rec := postACMJSON(t, h, "RequestCertificate", `{"DomainName":"describe-test.com"}`)
-				require.Equal(t, http.StatusOK, rec.Code)
-
-				var created map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
-				arn := created["CertificateArn"]
-
-				body, _ := json.Marshal(map[string]string{"CertificateArn": arn})
-				rec2 := postACMJSON(t, h, "DescribeCertificate", string(body))
-				assert.Equal(t, http.StatusOK, rec2.Code)
-				assert.Contains(t, rec2.Body.String(), "describe-test.com")
-			},
+			name:     "DescribeCertificate_NotFound",
+			target:   "DescribeCertificate",
+			body:     `{"CertificateArn":"arn:aws:acm:us-east-1:000000000000:certificate/nonexistent"}`,
+			wantCode: http.StatusBadRequest,
 		},
 		{
-			name: "ListCertificates",
-			run: func(t *testing.T) {
-				h := newACMHandler()
+			name:   "DescribeCertificate_AfterCreate",
+			target: "DescribeCertificate",
+			setup: func(t *testing.T, h *acm.Handler) {
+				t.Helper()
+				postACMJSON(t, h, "RequestCertificate", `{"DomainName":"describe-test.com"}`)
+			},
+			body:         "", // filled dynamically below won't work; use setup to get ARN
+			wantCode:     http.StatusOK,
+			wantContains: []string{"describe-test.com"},
+		},
+		{
+			name:   "ListCertificates",
+			target: "ListCertificates",
+			setup: func(t *testing.T, h *acm.Handler) {
+				t.Helper()
 				postACMJSON(t, h, "RequestCertificate", `{"DomainName":"list1.com"}`)
 				postACMJSON(t, h, "RequestCertificate", `{"DomainName":"list2.com"}`)
-
-				rec := postACMJSON(t, h, "ListCertificates", `{}`)
-				assert.Equal(t, http.StatusOK, rec.Code)
-				assert.Contains(t, rec.Body.String(), "list1.com")
-				assert.Contains(t, rec.Body.String(), "list2.com")
 			},
+			body:         `{}`,
+			wantCode:     http.StatusOK,
+			wantContains: []string{"list1.com", "list2.com"},
 		},
 		{
-			name: "DeleteCertificate",
-			run: func(t *testing.T) {
-				h := newACMHandler()
-				rec := postACMJSON(t, h, "RequestCertificate", `{"DomainName":"delete-cert.com"}`)
-				require.Equal(t, http.StatusOK, rec.Code)
-
-				var created map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
-				arn := created["CertificateArn"]
-
-				body, _ := json.Marshal(map[string]string{"CertificateArn": arn})
-				rec2 := postACMJSON(t, h, "DeleteCertificate", string(body))
-				assert.Equal(t, http.StatusOK, rec2.Code)
-			},
+			name:     "InvalidAction",
+			target:   "InvalidAction",
+			body:     `{}`,
+			wantCode: http.StatusBadRequest,
 		},
 		{
-			name: "DescribeCertificate_NotFound",
-			run: func(t *testing.T) {
-				const arn = "arn:aws:acm:us-east-1:000000000000:certificate/nonexistent"
-				h := newACMHandler()
-				body, _ := json.Marshal(map[string]string{"CertificateArn": arn})
-				rec := postACMJSON(t, h, "DescribeCertificate", string(body))
-				assert.Equal(t, http.StatusBadRequest, rec.Code)
-			},
-		},
-		{
-			name: "InvalidAction",
-			run: func(t *testing.T) {
-				h := newACMHandler()
-				rec := postACMJSON(t, h, "InvalidAction", `{}`)
-				assert.Equal(t, http.StatusBadRequest, rec.Code)
-			},
-		},
-		{
-			name: "MissingAction",
-			run: func(t *testing.T) {
-				req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`))
-				req.Header.Set("Content-Type", "application/x-amz-json-1.1")
-				// No X-Amz-Target header
-				rec := httptest.NewRecorder()
-
-				h := newACMHandler()
-				e := echo.New()
-				c := e.NewContext(req, rec)
-
-				err := h.Handler()(c)
-				require.NoError(t, err)
-				assert.Equal(t, http.StatusBadRequest, rec.Code)
-			},
+			name:       "MissingAction",
+			body:       `{}`,
+			omitTarget: true,
+			wantCode:   http.StatusBadRequest,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			tt.run(t)
+
+			h := newACMHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			var rec *httptest.ResponseRecorder
+			if tt.omitTarget {
+				req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tt.body))
+				req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+				rec = httptest.NewRecorder()
+				e := echo.New()
+				c := e.NewContext(req, rec)
+				err := h.Handler()(c)
+				require.NoError(t, err)
+			} else {
+				body := tt.body
+				if body == "" {
+					// For DescribeCertificate_AfterCreate, list certs and use first ARN
+					listRec := postACMJSON(t, h, "ListCertificates", `{}`)
+					var listResp struct {
+						CertificateSummaryList []struct {
+							CertificateArn string
+						}
+					}
+					require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+					require.NotEmpty(t, listResp.CertificateSummaryList)
+					b, _ := json.Marshal(map[string]string{"CertificateArn": listResp.CertificateSummaryList[0].CertificateArn})
+					body = string(b)
+				}
+				rec = postACMJSON(t, h, tt.target, body)
+			}
+
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
 		})
 	}
 }

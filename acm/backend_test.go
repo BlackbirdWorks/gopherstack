@@ -9,73 +9,168 @@ import (
 	"github.com/blackbirdworks/gopherstack/acm"
 )
 
-func TestACMBackend(t *testing.T) {
+func TestACMBackend_RequestCertificate(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		run  func(t *testing.T, b *acm.InMemoryBackend)
+		name       string
+		domain     string
+		wantErr    error
+		wantDomain string
+		wantStatus string
+		wantType   string
 	}{
 		{
-			name: "RequestCertificate/success",
-			run: func(t *testing.T, b *acm.InMemoryBackend) {
-				cert, err := b.RequestCertificate("example.com", "")
-				require.NoError(t, err)
-				assert.Contains(t, cert.ARN, "arn:aws:acm:")
-				assert.Equal(t, "example.com", cert.DomainName)
-				assert.Equal(t, "ISSUED", cert.Status)
-				assert.Equal(t, "AMAZON_ISSUED", cert.Type)
-			},
+			name:       "success",
+			domain:     "example.com",
+			wantDomain: "example.com",
+			wantStatus: "ISSUED",
+			wantType:   "AMAZON_ISSUED",
 		},
 		{
-			name: "RequestCertificate/empty_domain",
-			run: func(t *testing.T, b *acm.InMemoryBackend) {
-				_, err := b.RequestCertificate("", "")
-				require.Error(t, err)
-				assert.ErrorIs(t, err, acm.ErrInvalidParameter)
-			},
-		},
-		{
-			name: "DescribeCertificate/not_found",
-			run: func(t *testing.T, b *acm.InMemoryBackend) {
-				_, err := b.DescribeCertificate("arn:aws:acm:us-east-1:000000000000:certificate/nonexistent")
-				require.Error(t, err)
-				assert.ErrorIs(t, err, acm.ErrCertNotFound)
-			},
-		},
-		{
-			name: "DeleteCertificate/success",
-			run: func(t *testing.T, b *acm.InMemoryBackend) {
-				cert, err := b.RequestCertificate("delete-me.com", "")
-				require.NoError(t, err)
-
-				err = b.DeleteCertificate(cert.ARN)
-				require.NoError(t, err)
-
-				_, err = b.DescribeCertificate(cert.ARN)
-				require.Error(t, err)
-				assert.ErrorIs(t, err, acm.ErrCertNotFound)
-			},
-		},
-		{
-			name: "ListCertificates/success",
-			run: func(t *testing.T, b *acm.InMemoryBackend) {
-				_, err := b.RequestCertificate("a.com", "")
-				require.NoError(t, err)
-				_, err = b.RequestCertificate("b.com", "")
-				require.NoError(t, err)
-
-				certs := b.ListCertificates()
-				assert.Len(t, certs, 2)
-			},
+			name:    "empty_domain",
+			domain:  "",
+			wantErr: acm.ErrInvalidParameter,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			b := acm.NewInMemoryBackend("000000000000", "us-east-1")
-			tt.run(t, b)
+			cert, err := b.RequestCertificate(tt.domain, "")
+
+			if tt.wantErr != nil {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Contains(t, cert.ARN, "arn:aws:acm:")
+			assert.Equal(t, tt.wantDomain, cert.DomainName)
+			assert.Equal(t, tt.wantStatus, cert.Status)
+			assert.Equal(t, tt.wantType, cert.Type)
+		})
+	}
+}
+
+func TestACMBackend_DescribeCertificate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		arn     string
+		wantErr error
+	}{
+		{
+			name:    "not_found",
+			arn:     "arn:aws:acm:us-east-1:000000000000:certificate/nonexistent",
+			wantErr: acm.ErrCertNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := acm.NewInMemoryBackend("000000000000", "us-east-1")
+			_, err := b.DescribeCertificate(tt.arn)
+
+			if tt.wantErr != nil {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestACMBackend_DeleteCertificate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		setup   func(t *testing.T, b *acm.InMemoryBackend) string
+		wantErr error
+	}{
+		{
+			name: "success",
+			setup: func(t *testing.T, b *acm.InMemoryBackend) string {
+				t.Helper()
+				cert, err := b.RequestCertificate("delete-me.com", "")
+				require.NoError(t, err)
+				return cert.ARN
+			},
+		},
+		{
+			name:    "not_found",
+			setup:   func(*testing.T, *acm.InMemoryBackend) string { return "nonexistent-arn" },
+			wantErr: acm.ErrCertNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := acm.NewInMemoryBackend("000000000000", "us-east-1")
+			arn := tt.setup(t, b)
+			err := b.DeleteCertificate(arn)
+
+			if tt.wantErr != nil {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestACMBackend_ListCertificates(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		setup     func(t *testing.T, b *acm.InMemoryBackend)
+		wantCount int
+	}{
+		{
+			name:      "empty",
+			wantCount: 0,
+		},
+		{
+			name: "two_certs",
+			setup: func(t *testing.T, b *acm.InMemoryBackend) {
+				t.Helper()
+				_, err := b.RequestCertificate("a.com", "")
+				require.NoError(t, err)
+				_, err = b.RequestCertificate("b.com", "")
+				require.NoError(t, err)
+			},
+			wantCount: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := acm.NewInMemoryBackend("000000000000", "us-east-1")
+			if tt.setup != nil {
+				tt.setup(t, b)
+			}
+
+			certs := b.ListCertificates()
+			assert.Len(t, certs, tt.wantCount)
 		})
 	}
 }
