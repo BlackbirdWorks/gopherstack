@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 var (
@@ -137,7 +139,7 @@ type StorageBackend interface {
 type InMemoryBackend struct {
 	parameters map[string]Parameter
 	history    map[string][]ParameterHistory // Stores all versions of each parameter
-	tags       map[string]map[string]string  // paramName -> tags
+	tags       map[string]*tags.Tags         // paramName -> tags
 	mu         sync.RWMutex
 }
 
@@ -146,7 +148,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
 		parameters: make(map[string]Parameter),
 		history:    make(map[string][]ParameterHistory),
-		tags:       make(map[string]map[string]string),
+		tags:       make(map[string]*tags.Tags),
 	}
 }
 
@@ -559,10 +561,10 @@ func (b *InMemoryBackend) AddTagsToResource(input *AddTagsToResourceInput) error
 		return ErrParameterNotFound
 	}
 	if b.tags[name] == nil {
-		b.tags[name] = make(map[string]string)
+		b.tags[name] = tags.New("ssm." + name + ".tags")
 	}
 	for _, t := range input.Tags {
-		b.tags[name][t.Key] = t.Value
+		b.tags[name].Set(t.Key, t.Value)
 	}
 
 	return nil
@@ -577,8 +579,8 @@ func (b *InMemoryBackend) RemoveTagsFromResource(input *RemoveTagsFromResourceIn
 	if _, ok := b.parameters[name]; !ok {
 		return ErrParameterNotFound
 	}
-	for _, k := range input.TagKeys {
-		delete(b.tags[name], k)
+	if b.tags[name] != nil {
+		b.tags[name].DeleteKeys(input.TagKeys)
 	}
 
 	return nil
@@ -594,8 +596,10 @@ func (b *InMemoryBackend) ListTagsForResource(input *ListTagsForResourceInput) (
 		return nil, ErrParameterNotFound
 	}
 	var tagList []Tag
-	for k, v := range b.tags[name] {
-		tagList = append(tagList, Tag{Key: k, Value: v})
+	if b.tags[name] != nil {
+		for k, v := range b.tags[name].Clone() {
+			tagList = append(tagList, Tag{Key: k, Value: v})
+		}
 	}
 	sort.Slice(tagList, func(i, j int) bool { return tagList[i].Key < tagList[j].Key })
 

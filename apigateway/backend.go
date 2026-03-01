@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 var (
@@ -99,7 +100,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 }
 
 // CreateRestAPI creates a new REST API and its root resource.
-func (b *InMemoryBackend) CreateRestAPI(name, description string, tags map[string]string) (*RestAPI, error) {
+func (b *InMemoryBackend) CreateRestAPI(name, description string, inputTags map[string]string) (*RestAPI, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrInvalidParameter)
 	}
@@ -113,7 +114,7 @@ func (b *InMemoryBackend) CreateRestAPI(name, description string, tags map[strin
 		Name:        name,
 		Description: description,
 		CreatedDate: time.Now(),
-		Tags:        tags,
+		Tags:        tags.FromMap("apigw.api."+id+".tags", inputTags),
 	}
 
 	rootID := randomID(resourceIDLength)

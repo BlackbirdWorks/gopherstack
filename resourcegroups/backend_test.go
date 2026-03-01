@@ -143,7 +143,8 @@ func TestResourceGroupsGetGroup(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tt.groupName, g.Name)
 			if tt.wantTag != "" {
-				assert.Equal(t, tt.wantTag, g.Tags["env"])
+				v, _ := g.Tags.Get("env")
+				assert.Equal(t, tt.wantTag, v)
 			}
 		})
 	}

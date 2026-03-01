@@ -5,6 +5,8 @@
 package tags
 
 import (
+	"encoding/json"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/safemap"
 )
 
@@ -99,4 +101,10 @@ func (t *Tags) Range(f func(key, value string) bool) {
 	t.m.Range(func(k, v string) bool {
 		return f(k, v)
 	})
+}
+
+// MarshalJSON implements [json.Marshaler].
+// Tags serialises as a plain JSON object (e.g. {"env":"prod","team":"platform"}).
+func (t *Tags) MarshalJSON() ([]byte, error) {
+	return json.Marshal(t.Clone()) //nolint:wrapcheck // thin delegation
 }

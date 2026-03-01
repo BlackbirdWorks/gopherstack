@@ -8,6 +8,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/dynamoattr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // InMemoryDB stores tables and items organized by region.
@@ -56,7 +57,7 @@ type Table struct {
 	pkIndex   map[string]int
 	pkskIndex map[string]map[string]int
 	mu        *lockmetrics.RWMutex
-	Tags      map[string]string
+	Tags      *tags.Tags
 	Name      string
 	// Status is the current table status: "CREATING", "ACTIVE", "DELETING", etc.
 	Status                 string

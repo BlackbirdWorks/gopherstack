@@ -6,17 +6,17 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"maps"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 const (
@@ -35,8 +35,8 @@ const (
 type Handler struct {
 	Backend *InMemoryBackend
 	Logger  *slog.Logger
-	tags    map[string]map[string]string
-	tagsMu  sync.RWMutex
+	tags    map[string]*tags.Tags
+	tagsMu  *lockmetrics.RWMutex
 }
 
 // NewHandler creates a new Route 53 Handler.
@@ -45,33 +45,41 @@ func NewHandler(backend *InMemoryBackend, log *slog.Logger) *Handler {
 		log = slog.Default()
 	}
 
-	return &Handler{Backend: backend, Logger: log, tags: make(map[string]map[string]string)}
+	return &Handler{
+		Backend: backend,
+		Logger:  log,
+		tags:    make(map[string]*tags.Tags),
+		tagsMu:  lockmetrics.New("route53.tags"),
+	}
 }
 
 func (h *Handler) setTags(resourceID string, kv map[string]string) {
-	h.tagsMu.Lock()
+	h.tagsMu.Lock("setTags")
 	defer h.tagsMu.Unlock()
 	if h.tags[resourceID] == nil {
-		h.tags[resourceID] = make(map[string]string)
+		h.tags[resourceID] = tags.New("route53." + resourceID + ".tags")
 	}
-	maps.Copy(h.tags[resourceID], kv)
+	h.tags[resourceID].Merge(kv)
 }
 
 func (h *Handler) removeTags(resourceID string, keys []string) {
-	h.tagsMu.Lock()
-	defer h.tagsMu.Unlock()
-	for _, k := range keys {
-		delete(h.tags[resourceID], k)
+	h.tagsMu.RLock("removeTags")
+	t := h.tags[resourceID]
+	h.tagsMu.RUnlock()
+	if t != nil {
+		t.DeleteKeys(keys)
 	}
 }
 
 func (h *Handler) getTags(resourceID string) map[string]string {
-	h.tagsMu.RLock()
-	defer h.tagsMu.RUnlock()
-	result := make(map[string]string)
-	maps.Copy(result, h.tags[resourceID])
+	h.tagsMu.RLock("getTags")
+	t := h.tags[resourceID]
+	h.tagsMu.RUnlock()
+	if t == nil {
+		return map[string]string{}
+	}
 
-	return result
+	return t.Clone()
 }
 
 // Name returns the service name.

@@ -3,8 +3,9 @@ package redshift
 import (
 	"errors"
 	"fmt"
-	"maps"
 	"sync"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 var (
@@ -15,7 +16,7 @@ var (
 
 // Cluster represents a Redshift cluster.
 type Cluster struct {
-	Tags              map[string]string
+	Tags              *tags.Tags
 	ClusterIdentifier string
 	NodeType          string
 	Endpoint          string
@@ -72,7 +73,7 @@ func (b *InMemoryBackend) CreateCluster(id, nodeType, dbName, masterUser string)
 		Status:            "available",
 		DBName:            dbName,
 		MasterUsername:    masterUser,
-		Tags:              make(map[string]string),
+		Tags:              tags.New("redshift.cluster." + id + ".tags"),
 	}
 	b.clusters[id] = cluster
 
@@ -126,16 +127,14 @@ func (b *InMemoryBackend) DescribeTags() map[string]map[string]string {
 
 	result := make(map[string]map[string]string, len(b.clusters))
 	for id, c := range b.clusters {
-		tags := make(map[string]string, len(c.Tags))
-		maps.Copy(tags, c.Tags)
-		result[id] = tags
+		result[id] = c.Tags.Clone()
 	}
 
 	return result
 }
 
 // CreateTags adds or updates tags on the specified cluster.
-func (b *InMemoryBackend) CreateTags(clusterID string, tags map[string]string) error {
+func (b *InMemoryBackend) CreateTags(clusterID string, kv map[string]string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -144,7 +143,7 @@ func (b *InMemoryBackend) CreateTags(clusterID string, tags map[string]string) e
 		return fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
 
-	maps.Copy(c.Tags, tags)
+	c.Tags.Merge(kv)
 
 	return nil
 }
@@ -159,9 +158,7 @@ func (b *InMemoryBackend) DeleteTags(clusterID string, keys []string) error {
 		return fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
 
-	for _, k := range keys {
-		delete(c.Tags, k)
-	}
+	c.Tags.DeleteKeys(keys)
 
 	return nil
 }

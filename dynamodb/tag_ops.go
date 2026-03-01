@@ -8,6 +8,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // tableNameFromARN extracts the table name from a DynamoDB table ARN.
@@ -42,11 +44,11 @@ func (db *InMemoryDB) TagResource(
 	defer table.mu.Unlock()
 
 	if table.Tags == nil {
-		table.Tags = make(map[string]string)
+		table.Tags = tags.New("dynamodb.table." + tableName + ".tags")
 	}
 
 	for _, tag := range input.Tags {
-		table.Tags[aws.ToString(tag.Key)] = aws.ToString(tag.Value)
+		table.Tags.Set(aws.ToString(tag.Key), aws.ToString(tag.Value))
 	}
 
 	return &dynamodb.TagResourceOutput{}, nil
@@ -70,8 +72,8 @@ func (db *InMemoryDB) UntagResource(
 	table.mu.Lock("UntagResource")
 	defer table.mu.Unlock()
 
-	for _, key := range input.TagKeys {
-		delete(table.Tags, key)
+	if table.Tags != nil {
+		table.Tags.DeleteKeys(input.TagKeys)
 	}
 
 	return &dynamodb.UntagResourceOutput{}, nil
@@ -94,20 +96,25 @@ func (db *InMemoryDB) ListTagsOfResource(
 
 	table.mu.RLock("ListTagsOfResource")
 
-	keys := make([]string, 0, len(table.Tags))
-	for k := range table.Tags {
+	var tagMap map[string]string
+	if table.Tags != nil {
+		tagMap = table.Tags.Clone()
+	}
+
+	table.mu.RUnlock()
+
+	keys := make([]string, 0, len(tagMap))
+	for k := range tagMap {
 		keys = append(keys, k)
 	}
 
 	sort.Strings(keys)
 
-	sdkTags := make([]types.Tag, 0, len(table.Tags))
+	sdkTags := make([]types.Tag, 0, len(tagMap))
 	for _, k := range keys {
-		key, val := k, table.Tags[k]
+		key, val := k, tagMap[k]
 		sdkTags = append(sdkTags, types.Tag{Key: &key, Value: &val})
 	}
-
-	table.mu.RUnlock()
 
 	return &dynamodb.ListTagsOfResourceOutput{Tags: sdkTags}, nil
 }

@@ -13,6 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // StorageBackend defines the interface for a Kinesis backend.
@@ -140,7 +141,7 @@ func (b *InMemoryBackend) CreateStream(input *CreateStreamInput) error {
 		ARN:             streamARN,
 		Status:          streamStatusActive,
 		Shards:          shards,
-		Tags:            make(map[string]string),
+		Tags:            tags.New("kinesis.stream." + input.StreamName + ".tags"),
 		CreatedAt:       time.Now(),
 		RetentionPeriod: defaultRetentionHours,
 	}

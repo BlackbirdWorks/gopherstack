@@ -18,6 +18,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/events"
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 var (
@@ -57,7 +58,7 @@ type StorageBackend interface {
 type InMemoryBackend struct {
 	topics        map[string]*Topic
 	subscriptions map[string]*Subscription
-	topicTags     map[string]map[string]string
+	topicTags     map[string]*svcTags.Tags
 	emitter       events.EventEmitter[*events.SNSPublishedEvent]
 	accountID     string
 	region        string
@@ -74,7 +75,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		topics:        make(map[string]*Topic),
 		subscriptions: make(map[string]*Subscription),
-		topicTags:     make(map[string]map[string]string),
+		topicTags:     make(map[string]*svcTags.Tags),
 		accountID:     accountID,
 		region:        region,
 	}
@@ -604,27 +605,28 @@ func paginate[T any](items []T, offset, size int) ([]T, string) {
 func (b *InMemoryBackend) GetTopicTags(arn string) map[string]string {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	result := make(map[string]string)
-	maps.Copy(result, b.topicTags[arn])
+	if b.topicTags[arn] == nil {
+		return map[string]string{}
+	}
 
-	return result
+	return b.topicTags[arn].Clone()
 }
 
 // SetTopicTags stores tags for the given topic ARN.
-func (b *InMemoryBackend) SetTopicTags(arn string, tags map[string]string) {
+func (b *InMemoryBackend) SetTopicTags(arn string, kv map[string]string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.topicTags[arn] == nil {
-		b.topicTags[arn] = make(map[string]string)
+		b.topicTags[arn] = svcTags.New("sns." + arn + ".tags")
 	}
-	maps.Copy(b.topicTags[arn], tags)
+	b.topicTags[arn].Merge(kv)
 }
 
 // RemoveTopicTags removes specified tag keys for the given topic ARN.
 func (b *InMemoryBackend) RemoveTopicTags(arn string, keys []string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	for _, k := range keys {
-		delete(b.topicTags[arn], k)
+	if b.topicTags[arn] != nil {
+		b.topicTags[arn].DeleteKeys(keys)
 	}
 }

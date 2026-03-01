@@ -2,11 +2,11 @@ package resourcegroups
 
 import (
 	"fmt"
-	"maps"
 	"sync"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 var (
@@ -18,7 +18,7 @@ var (
 
 // Group represents a Resource Group.
 type Group struct {
-	Tags        map[string]string
+	Tags        *tags.Tags
 	Name        string
 	ARN         string
 	Description string
@@ -42,7 +42,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 }
 
 // CreateGroup creates a new resource group.
-func (b *InMemoryBackend) CreateGroup(name, description string, tags map[string]string) (*Group, error) {
+func (b *InMemoryBackend) CreateGroup(name, description string, inputTags map[string]string) (*Group, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -51,15 +51,12 @@ func (b *InMemoryBackend) CreateGroup(name, description string, tags map[string]
 	}
 
 	groupARN := arn.Build("resource-groups", b.region, b.accountID, "group/"+name)
-	t := make(map[string]string)
-	maps.Copy(t, tags)
 
-	g := &Group{Name: name, ARN: groupARN, Description: description, Tags: t}
+	g := &Group{Name: name, ARN: groupARN, Description: description, Tags: tags.FromMap("rg."+name+".tags", inputTags)}
 	b.groups[name] = g
 
 	cp := *g
-	cp.Tags = make(map[string]string, len(g.Tags))
-	maps.Copy(cp.Tags, g.Tags)
+	cp.Tags = tags.FromMap("rg."+name+".tags.copy", g.Tags.Clone())
 
 	return &cp, nil
 }
@@ -86,8 +83,7 @@ func (b *InMemoryBackend) ListGroups() []Group {
 	out := make([]Group, 0, len(b.groups))
 	for _, g := range b.groups {
 		cp := *g
-		cp.Tags = make(map[string]string, len(g.Tags))
-		maps.Copy(cp.Tags, g.Tags)
+		cp.Tags = tags.FromMap("rg."+g.Name+".tags.copy", g.Tags.Clone())
 		out = append(out, cp)
 	}
 
@@ -105,8 +101,7 @@ func (b *InMemoryBackend) GetGroup(name string) (*Group, error) {
 	}
 
 	cp := *g
-	cp.Tags = make(map[string]string, len(g.Tags))
-	maps.Copy(cp.Tags, g.Tags)
+	cp.Tags = tags.FromMap("rg."+g.Name+".tags.copy", g.Tags.Clone())
 
 	return &cp, nil
 }

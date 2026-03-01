@@ -1,6 +1,10 @@
 package kinesis
 
-import "time"
+import (
+	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
+)
 
 const (
 	// streamStatusActive is the status when a stream is ready for use.
@@ -39,7 +43,7 @@ const (
 // Stream represents an in-memory Kinesis stream.
 type Stream struct {
 	CreatedAt       time.Time
-	Tags            map[string]string
+	Tags            *tags.Tags
 	Name            string
 	ARN             string
 	Status          string

@@ -2,11 +2,11 @@ package scheduler
 
 import (
 	"fmt"
-	"maps"
 	"sync"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 var (
@@ -25,7 +25,7 @@ type Target struct {
 }
 
 type Schedule struct {
-	Tags               map[string]string
+	Tags               *tags.Tags
 	Target             Target
 	Name               string
 	ARN                string
@@ -74,12 +74,11 @@ func (b *InMemoryBackend) CreateSchedule(
 		FlexibleTimeWindow: ftw,
 		AccountID:          b.accountID,
 		Region:             b.region,
-		Tags:               make(map[string]string),
+		Tags:               tags.New("scheduler.group." + name + ".tags"),
 	}
 	b.schedules[name] = s
 	cp := *s
-	cp.Tags = make(map[string]string)
-	maps.Copy(cp.Tags, s.Tags)
+	cp.Tags = tags.FromMap("scheduler.group."+name+".tags.copy", s.Tags.Clone())
 
 	return &cp, nil
 }
@@ -93,8 +92,7 @@ func (b *InMemoryBackend) GetSchedule(name string) (*Schedule, error) {
 		return nil, fmt.Errorf("%w: schedule %s not found", ErrNotFound, name)
 	}
 	cp := *s
-	cp.Tags = make(map[string]string)
-	maps.Copy(cp.Tags, s.Tags)
+	cp.Tags = tags.FromMap("scheduler.group."+name+".tags.copy", s.Tags.Clone())
 
 	return &cp, nil
 }
@@ -106,8 +104,7 @@ func (b *InMemoryBackend) ListSchedules() []*Schedule {
 	list := make([]*Schedule, 0, len(b.schedules))
 	for _, s := range b.schedules {
 		cp := *s
-		cp.Tags = make(map[string]string)
-		maps.Copy(cp.Tags, s.Tags)
+		cp.Tags = tags.FromMap("scheduler.group."+s.Name+".tags.copy", s.Tags.Clone())
 		list = append(list, &cp)
 	}
 
@@ -144,19 +141,18 @@ func (b *InMemoryBackend) UpdateSchedule(
 	s.State = state
 	s.FlexibleTimeWindow = ftw
 	cp := *s
-	cp.Tags = make(map[string]string)
-	maps.Copy(cp.Tags, s.Tags)
+	cp.Tags = tags.FromMap("scheduler.group."+name+".tags.copy", s.Tags.Clone())
 
 	return &cp, nil
 }
 
-func (b *InMemoryBackend) TagResource(arn string, tags map[string]string) error {
+func (b *InMemoryBackend) TagResource(arn string, kv map[string]string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	for _, s := range b.schedules {
 		if s.ARN == arn {
-			maps.Copy(s.Tags, tags)
+			s.Tags.Merge(kv)
 
 			return nil
 		}
@@ -171,10 +167,7 @@ func (b *InMemoryBackend) ListTagsForResource(arn string) (map[string]string, er
 
 	for _, s := range b.schedules {
 		if s.ARN == arn {
-			tags := make(map[string]string, len(s.Tags))
-			maps.Copy(tags, s.Tags)
-
-			return tags, nil
+			return s.Tags.Clone(), nil
 		}
 	}
 

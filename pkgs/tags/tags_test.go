@@ -1,6 +1,7 @@
 package tags_test
 
 import (
+	"encoding/json"
 	"sort"
 	"sync"
 	"testing"
@@ -304,4 +305,53 @@ func TestTags_Concurrent(t *testing.T) {
 	wg.Wait()
 
 	assert.True(t, tg.HasTag("key"))
+}
+
+func TestTags_MarshalJSON(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup func(*tags.Tags)
+		name  string
+		want  string
+	}{
+		{name: "empty", want: "{}"},
+		{
+			name:  "single",
+			setup: func(tg *tags.Tags) { tg.Set("env", "prod") },
+			want:  `{"env":"prod"}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tg := tags.New("test.marshal." + tt.name)
+			if tt.setup != nil {
+				tt.setup(tg)
+			}
+
+			data, err := json.Marshal(tg)
+			require.NoError(t, err)
+			assert.JSONEq(t, tt.want, string(data))
+		})
+	}
+}
+
+func TestTags_MarshalJSON_InStruct(t *testing.T) {
+	t.Parallel()
+
+	type resource struct {
+		Name string      `json:"name"`
+		Tags *tags.Tags  `json:"tags,omitempty"`
+	}
+
+	tg := tags.New("test.marshal.struct")
+	tg.Set("team", "platform")
+
+	r := resource{Name: "bucket", Tags: tg}
+	data, err := json.Marshal(r)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"name":"bucket","tags":{"team":"platform"}}`, string(data))
 }
