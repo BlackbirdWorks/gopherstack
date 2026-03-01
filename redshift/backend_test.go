@@ -1,129 +1,260 @@
 package redshift_test
 
 import (
-	"testing"
+"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+"github.com/stretchr/testify/assert"
+"github.com/stretchr/testify/require"
 
-	"github.com/blackbirdworks/gopherstack/redshift"
+"github.com/blackbirdworks/gopherstack/redshift"
 )
 
-func TestRedshiftBackend(t *testing.T) {
-	t.Parallel()
+func TestRedshiftCreateCluster(t *testing.T) {
+t.Parallel()
 
-	tests := []struct {
-		name string
-		run  func(t *testing.T, b *redshift.InMemoryBackend)
-	}{
-		{name: "CreateCluster/success", run: func(t *testing.T, b *redshift.InMemoryBackend) {
-			c, err := b.CreateCluster("my-cluster", "dc2.large", "mydb", "admin")
-			require.NoError(t, err)
-			assert.Equal(t, "my-cluster", c.ClusterIdentifier)
-			assert.Equal(t, "dc2.large", c.NodeType)
-			assert.Equal(t, "mydb", c.DBName)
-			assert.Equal(t, "admin", c.MasterUsername)
-			assert.Equal(t, "available", c.Status)
-			assert.Contains(t, c.Endpoint, "my-cluster")
-		}},
-		{name: "CreateCluster/empty_id", run: func(t *testing.T, b *redshift.InMemoryBackend) {
-			_, err := b.CreateCluster("", "", "", "")
-			require.Error(t, err)
-			assert.ErrorIs(t, err, redshift.ErrInvalidParameter)
-		}},
-		{name: "CreateCluster/already_exists", run: func(t *testing.T, b *redshift.InMemoryBackend) {
-			_, err := b.CreateCluster("dup-cluster", "", "", "")
-			require.NoError(t, err)
+tests := []struct {
+name      string
+setup     func(b *redshift.InMemoryBackend)
+clusterID string
+nodeType  string
+dbName    string
+masterUser string
+wantErr   error
+}{
+{
+name:       "success",
+clusterID:  "my-cluster",
+nodeType:   "dc2.large",
+dbName:     "mydb",
+masterUser: "admin",
+},
+{
+name:      "empty_id",
+clusterID: "",
+wantErr:   redshift.ErrInvalidParameter,
+},
+{
+name:      "already_exists",
+clusterID: "dup-cluster",
+setup: func(b *redshift.InMemoryBackend) {
+_, _ = b.CreateCluster("dup-cluster", "", "", "")
+},
+wantErr: redshift.ErrClusterAlreadyExists,
+},
+}
 
-			_, err = b.CreateCluster("dup-cluster", "", "", "")
-			require.Error(t, err)
-			assert.ErrorIs(t, err, redshift.ErrClusterAlreadyExists)
-		}},
-		{name: "DeleteCluster/success", run: func(t *testing.T, b *redshift.InMemoryBackend) {
-			_, err := b.CreateCluster("del-cluster", "", "", "")
-			require.NoError(t, err)
+for _, tt := range tests {
+t.Run(tt.name, func(t *testing.T) {
+t.Parallel()
+b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+if tt.setup != nil {
+tt.setup(b)
+}
+c, err := b.CreateCluster(tt.clusterID, tt.nodeType, tt.dbName, tt.masterUser)
+if tt.wantErr != nil {
+require.Error(t, err)
+assert.ErrorIs(t, err, tt.wantErr)
+return
+}
+require.NoError(t, err)
+assert.Equal(t, tt.clusterID, c.ClusterIdentifier)
+assert.Equal(t, tt.nodeType, c.NodeType)
+assert.Equal(t, tt.dbName, c.DBName)
+assert.Equal(t, tt.masterUser, c.MasterUsername)
+assert.Equal(t, "available", c.Status)
+assert.Contains(t, c.Endpoint, tt.clusterID)
+})
+}
+}
 
-			deleted, err := b.DeleteCluster("del-cluster")
-			require.NoError(t, err)
-			assert.Equal(t, "del-cluster", deleted.ClusterIdentifier)
+func TestRedshiftDeleteCluster(t *testing.T) {
+t.Parallel()
 
-			_, err = b.DescribeClusters("del-cluster")
-			require.Error(t, err)
-			assert.ErrorIs(t, err, redshift.ErrClusterNotFound)
-		}},
-		{name: "DescribeClusters/multiple", run: func(t *testing.T, b *redshift.InMemoryBackend) {
-			_, err := b.CreateCluster("cluster-1", "", "", "")
-			require.NoError(t, err)
-			_, err = b.CreateCluster("cluster-2", "", "", "")
-			require.NoError(t, err)
+b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+_, err := b.CreateCluster("del-cluster", "", "", "")
+require.NoError(t, err)
 
-			clusters, err := b.DescribeClusters("")
-			require.NoError(t, err)
-			assert.Len(t, clusters, 2)
-		}},
-		{name: "DescribeClusters/not_found", run: func(t *testing.T, b *redshift.InMemoryBackend) {
-			_, err := b.DescribeClusters("nonexistent")
-			require.Error(t, err)
-			assert.ErrorIs(t, err, redshift.ErrClusterNotFound)
-		}},
-		{name: "CreateTags/success", run: func(t *testing.T, b *redshift.InMemoryBackend) {
-			_, err := b.CreateCluster("tagged-cluster", "dc2.large", "mydb", "admin")
-			require.NoError(t, err)
+deleted, err := b.DeleteCluster("del-cluster")
+require.NoError(t, err)
+assert.Equal(t, "del-cluster", deleted.ClusterIdentifier)
 
-			err = b.CreateTags("tagged-cluster", map[string]string{"env": "prod", "team": "platform"})
-			require.NoError(t, err)
+_, err = b.DescribeClusters("del-cluster")
+require.Error(t, err)
+assert.ErrorIs(t, err, redshift.ErrClusterNotFound)
+}
 
-			allTags := b.DescribeTags()
-			tags, ok := allTags["tagged-cluster"]
-			require.True(t, ok)
-			assert.Equal(t, "prod", tags["env"])
-			assert.Equal(t, "platform", tags["team"])
-		}},
-		{name: "CreateTags/overwrite", run: func(t *testing.T, b *redshift.InMemoryBackend) {
-			_, _ = b.CreateCluster("overwrite-cluster", "", "", "")
-			_ = b.CreateTags("overwrite-cluster", map[string]string{"env": "dev"})
-			_ = b.CreateTags("overwrite-cluster", map[string]string{"env": "prod"})
+func TestRedshiftDescribeClusters(t *testing.T) {
+t.Parallel()
 
-			allTags := b.DescribeTags()
-			assert.Equal(t, "prod", allTags["overwrite-cluster"]["env"])
-		}},
-		{name: "CreateTags/not_found", run: func(t *testing.T, b *redshift.InMemoryBackend) {
-			err := b.CreateTags("nonexistent", map[string]string{"k": "v"})
-			require.Error(t, err)
-			assert.ErrorIs(t, err, redshift.ErrClusterNotFound)
-		}},
-		{name: "DeleteTags/success", run: func(t *testing.T, b *redshift.InMemoryBackend) {
-			_, _ = b.CreateCluster("del-tags-cluster", "", "", "")
-			_ = b.CreateTags("del-tags-cluster", map[string]string{"env": "prod", "team": "platform"})
+tests := []struct {
+name      string
+setup     func(b *redshift.InMemoryBackend)
+clusterID string
+wantCount int
+wantErr   error
+}{
+{
+name: "multiple",
+setup: func(b *redshift.InMemoryBackend) {
+_, _ = b.CreateCluster("cluster-1", "", "", "")
+_, _ = b.CreateCluster("cluster-2", "", "", "")
+},
+clusterID: "",
+wantCount: 2,
+},
+{
+name:      "not_found",
+clusterID: "nonexistent",
+wantErr:   redshift.ErrClusterNotFound,
+},
+}
 
-			err := b.DeleteTags("del-tags-cluster", []string{"env"})
-			require.NoError(t, err)
+for _, tt := range tests {
+t.Run(tt.name, func(t *testing.T) {
+t.Parallel()
+b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+if tt.setup != nil {
+tt.setup(b)
+}
+clusters, err := b.DescribeClusters(tt.clusterID)
+if tt.wantErr != nil {
+require.Error(t, err)
+assert.ErrorIs(t, err, tt.wantErr)
+return
+}
+require.NoError(t, err)
+assert.Len(t, clusters, tt.wantCount)
+})
+}
+}
 
-			allTags := b.DescribeTags()
-			tags := allTags["del-tags-cluster"]
-			assert.NotContains(t, tags, "env")
-			assert.Equal(t, "platform", tags["team"])
-		}},
-		{name: "DeleteTags/not_found", run: func(t *testing.T, b *redshift.InMemoryBackend) {
-			err := b.DeleteTags("nonexistent", []string{"k"})
-			require.Error(t, err)
-			assert.ErrorIs(t, err, redshift.ErrClusterNotFound)
-		}},
-		{name: "DescribeTags/empty", run: func(t *testing.T, b *redshift.InMemoryBackend) {
-			_, _ = b.CreateCluster("empty-tags-cluster", "", "", "")
+func TestRedshiftCreateTags(t *testing.T) {
+t.Parallel()
 
-			allTags := b.DescribeTags()
-			tags, ok := allTags["empty-tags-cluster"]
-			require.True(t, ok)
-			assert.Empty(t, tags)
-		}},
-	}
+tests := []struct {
+name      string
+setup     func(b *redshift.InMemoryBackend)
+clusterID string
+tags      map[string]string
+wantErr   error
+wantTags  map[string]string
+}{
+{
+name:      "success",
+clusterID: "tagged-cluster",
+setup: func(b *redshift.InMemoryBackend) {
+_, _ = b.CreateCluster("tagged-cluster", "dc2.large", "mydb", "admin")
+},
+tags:     map[string]string{"env": "prod", "team": "platform"},
+wantTags: map[string]string{"env": "prod", "team": "platform"},
+},
+{
+name:      "overwrite",
+clusterID: "overwrite-cluster",
+setup: func(b *redshift.InMemoryBackend) {
+_, _ = b.CreateCluster("overwrite-cluster", "", "", "")
+_ = b.CreateTags("overwrite-cluster", map[string]string{"env": "dev"})
+},
+tags:     map[string]string{"env": "prod"},
+wantTags: map[string]string{"env": "prod"},
+},
+{
+name:      "not_found",
+clusterID: "nonexistent",
+tags:      map[string]string{"k": "v"},
+wantErr:   redshift.ErrClusterNotFound,
+},
+}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
-			tt.run(t, b)
-		})
-	}
+for _, tt := range tests {
+t.Run(tt.name, func(t *testing.T) {
+t.Parallel()
+b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+if tt.setup != nil {
+tt.setup(b)
+}
+err := b.CreateTags(tt.clusterID, tt.tags)
+if tt.wantErr != nil {
+require.Error(t, err)
+assert.ErrorIs(t, err, tt.wantErr)
+return
+}
+require.NoError(t, err)
+allTags := b.DescribeTags()
+tags, ok := allTags[tt.clusterID]
+require.True(t, ok)
+for k, v := range tt.wantTags {
+assert.Equal(t, v, tags[k])
+}
+})
+}
+}
+
+func TestRedshiftDeleteTags(t *testing.T) {
+t.Parallel()
+
+tests := []struct {
+name           string
+setup          func(b *redshift.InMemoryBackend)
+clusterID      string
+keysToRemove   []string
+wantErr        error
+wantAbsentKeys []string
+wantTags       map[string]string
+}{
+{
+name:      "success",
+clusterID: "del-tags-cluster",
+setup: func(b *redshift.InMemoryBackend) {
+_, _ = b.CreateCluster("del-tags-cluster", "", "", "")
+_ = b.CreateTags("del-tags-cluster", map[string]string{"env": "prod", "team": "platform"})
+},
+keysToRemove:   []string{"env"},
+wantAbsentKeys: []string{"env"},
+wantTags:       map[string]string{"team": "platform"},
+},
+{
+name:         "not_found",
+clusterID:    "nonexistent",
+keysToRemove: []string{"k"},
+wantErr:      redshift.ErrClusterNotFound,
+},
+}
+
+for _, tt := range tests {
+t.Run(tt.name, func(t *testing.T) {
+t.Parallel()
+b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+if tt.setup != nil {
+tt.setup(b)
+}
+err := b.DeleteTags(tt.clusterID, tt.keysToRemove)
+if tt.wantErr != nil {
+require.Error(t, err)
+assert.ErrorIs(t, err, tt.wantErr)
+return
+}
+require.NoError(t, err)
+allTags := b.DescribeTags()
+tags := allTags[tt.clusterID]
+for _, k := range tt.wantAbsentKeys {
+assert.NotContains(t, tags, k)
+}
+for k, v := range tt.wantTags {
+assert.Equal(t, v, tags[k])
+}
+})
+}
+}
+
+func TestRedshiftDescribeTags(t *testing.T) {
+t.Parallel()
+
+b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+_, _ = b.CreateCluster("empty-tags-cluster", "", "", "")
+
+allTags := b.DescribeTags()
+tags, ok := allTags["empty-tags-cluster"]
+require.True(t, ok)
+assert.Empty(t, tags)
 }
