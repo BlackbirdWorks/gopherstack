@@ -13,80 +13,62 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestLoggerMiddleware(t *testing.T) {
+func TestEchoMiddleware(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name string
-		run  func(t *testing.T)
-	}{
-		{name: "EchoMiddleware", run: func(t *testing.T) {
-			// Create a buffer to capture log output
-			var logBuffer bytes.Buffer
-			testLogger := slog.New(slog.NewTextHandler(&logBuffer, &slog.HandlerOptions{
-				Level: slog.LevelDebug,
-			}))
+	var logBuffer bytes.Buffer
+	testLogger := slog.New(slog.NewTextHandler(&logBuffer, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	}))
 
-			// Create Echo instance with logger middleware
-			e := echo.New()
-			e.Use(logger.EchoMiddleware(testLogger))
+	e := echo.New()
+	e.Use(logger.EchoMiddleware(testLogger))
 
-			// Add a test handler that uses logger from context
-			e.GET("/test", func(c *echo.Context) error {
-				ctx := c.Request().Context()
-				log := logger.Load(ctx)
-				log.DebugContext(ctx, "test message", "key", "value")
+	e.GET("/test", func(c *echo.Context) error {
+		ctx := c.Request().Context()
+		log := logger.Load(ctx)
+		log.DebugContext(ctx, "test message", "key", "value")
 
-				return c.String(http.StatusOK, "OK")
-			})
+		return c.String(http.StatusOK, "OK")
+	})
 
-			// Create test request
-			req := httptest.NewRequest(http.MethodGet, "/test", nil)
-			rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	rec := httptest.NewRecorder()
 
-			// Serve request
-			e.ServeHTTP(rec, req)
+	e.ServeHTTP(rec, req)
 
-			// Verify response
-			assert.Equal(t, http.StatusOK, rec.Code)
-			assert.Equal(t, "OK", rec.Body.String())
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "OK", rec.Body.String())
 
-			// Verify logger was injected and used
-			logOutput := logBuffer.String()
-			assert.Contains(t, logOutput, "test message")
-			assert.Contains(t, logOutput, "key")
-			assert.Contains(t, logOutput, "value")
-			assert.Contains(t, logOutput, "level=DEBUG")
-		}},
-		{name: "Middleware", run: func(t *testing.T) {
-			var logBuffer bytes.Buffer
-			testLogger := slog.New(slog.NewTextHandler(&logBuffer, &slog.HandlerOptions{
-				Level: slog.LevelDebug,
-			}))
+	logOutput := logBuffer.String()
+	assert.Contains(t, logOutput, "test message")
+	assert.Contains(t, logOutput, "key")
+	assert.Contains(t, logOutput, "value")
+	assert.Contains(t, logOutput, "level=DEBUG")
+}
 
-			mux := http.NewServeMux()
-			mux.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
-				log := logger.Load(r.Context())
-				log.DebugContext(r.Context(), "net/http handler called")
-				w.WriteHeader(http.StatusOK)
-				_, _ = w.Write([]byte("OK"))
-			})
+func TestMiddleware(t *testing.T) {
+	t.Parallel()
 
-			handler := logger.Middleware(testLogger)(mux)
+	var logBuffer bytes.Buffer
+	testLogger := slog.New(slog.NewTextHandler(&logBuffer, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	}))
 
-			req := httptest.NewRequest(http.MethodGet, "/test", nil)
-			rec := httptest.NewRecorder()
-			handler.ServeHTTP(rec, req)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
+		log := logger.Load(r.Context())
+		log.DebugContext(r.Context(), "net/http handler called")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("OK"))
+	})
 
-			assert.Equal(t, http.StatusOK, rec.Code)
-			assert.Contains(t, logBuffer.String(), "net/http handler called")
-		}},
-	}
+	handler := logger.Middleware(testLogger)(mux)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			tt.run(t)
-		})
-	}
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, logBuffer.String(), "net/http handler called")
 }
