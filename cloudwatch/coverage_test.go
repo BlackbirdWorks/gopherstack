@@ -62,60 +62,75 @@ func cwPost(t *testing.T, ts *httptest.Server, body string) *http.Response {
 	return resp
 }
 
-func TestProvider(t *testing.T) {
+func TestProvider_Name(t *testing.T) {
 	t.Parallel()
+
+	p := &cloudwatch.Provider{}
+	assert.Equal(t, "CloudWatch", p.Name())
+}
+
+func TestProvider_Init(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
-		name string
-		run  func(t *testing.T)
+		name     string
+		config   config.Provider
+		wantName string
 	}{
 		{
-			name: "Name",
-			run: func(t *testing.T) {
-				p := &cloudwatch.Provider{}
-				assert.Equal(t, "CloudWatch", p.Name())
-			},
+			name:     "with_config",
+			config:   &mockCWConfigProvider{},
+			wantName: "CloudWatch",
 		},
 		{
-			name: "Init/with config",
-			run: func(t *testing.T) {
-				p := &cloudwatch.Provider{}
-				ctx := &service.AppContext{
-					Logger: slog.Default(),
-					Config: &mockCWConfigProvider{},
-				}
-				svc, err := p.Init(ctx)
-				require.NoError(t, err)
-				require.NotNil(t, svc)
-				assert.Equal(t, "CloudWatch", svc.Name())
-			},
-		},
-		{
-			name: "Init/without config",
-			run: func(t *testing.T) {
-				p := &cloudwatch.Provider{}
-				ctx := &service.AppContext{Logger: slog.Default()}
-				svc, err := p.Init(ctx)
-				require.NoError(t, err)
-				require.NotNil(t, svc)
-			},
+			name: "without_config",
 		},
 	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			tt.run(t)
+
+			p := &cloudwatch.Provider{}
+			ctx := &service.AppContext{Logger: slog.Default(), Config: tt.config}
+			svc, err := p.Init(ctx)
+			require.NoError(t, err)
+			require.NotNil(t, svc)
+			if tt.wantName != "" {
+				assert.Equal(t, tt.wantName, svc.Name())
+			}
 		})
 	}
 }
 
+func TestCoverage_PutAndDescribeAlarms(t *testing.T) {
+	t.Parallel()
+
+	ts := cwServer(t)
+	resp := cwPost(t, ts,
+		"Action=PutMetricAlarm&AlarmName=cov-alarm&Namespace=NS&MetricName=M"+
+			"&ComparisonOperator=GreaterThanThreshold&Threshold=90&EvaluationPeriods=2&Period=300&Statistic=Average"+
+			"&AlarmDescription=Test+alarm")
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	resp.Body.Close()
+
+	resp = cwPost(t, ts, "Action=DescribeAlarms&AlarmNames.member.1=cov-alarm")
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	resp.Body.Close()
+
+	resp = cwPost(t, ts, "Action=DescribeAlarms&StateValue=INSUFFICIENT_DATA")
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	resp.Body.Close()
+}
+
 func TestCoverage(t *testing.T) {
 	t.Parallel()
+
 	tests := []struct {
 		name     string
 		setup    func(t *testing.T, ts *httptest.Server)
 		body     string
 		wantCode int
-		run      func(t *testing.T)
 	}{
 		{
 			name:     "PutMetricData",
@@ -125,6 +140,7 @@ func TestCoverage(t *testing.T) {
 		{
 			name: "ListMetrics",
 			setup: func(t *testing.T, ts *httptest.Server) {
+				t.Helper()
 				cwPost(t, ts,
 					"Action=PutMetricData&Namespace=Coverage&MetricData.member.1.MetricName=Hits&MetricData.member.1.Value=1",
 				).Body.Close()
@@ -135,6 +151,7 @@ func TestCoverage(t *testing.T) {
 		{
 			name: "GetMetricStatistics",
 			setup: func(t *testing.T, ts *httptest.Server) {
+				t.Helper()
 				cwPost(t, ts,
 					"Action=PutMetricData&Namespace=Coverage&MetricData.member.1.MetricName=Hits&MetricData.member.1.Value=5"+
 						"&MetricData.member.1.Timestamp=2024-06-01T12:00:00Z",
@@ -147,62 +164,41 @@ func TestCoverage(t *testing.T) {
 			wantCode: http.StatusOK,
 		},
 		{
-			name: "PutAndDescribeAlarms",
-			run: func(t *testing.T) {
-				ts := cwServer(t)
-				resp := cwPost(t, ts,
-					"Action=PutMetricAlarm&AlarmName=cov-alarm&Namespace=NS&MetricName=M"+
-						"&ComparisonOperator=GreaterThanThreshold&Threshold=90&EvaluationPeriods=2&Period=300&Statistic=Average"+
-						"&AlarmDescription=Test+alarm")
-				assert.Equal(t, http.StatusOK, resp.StatusCode)
-				resp.Body.Close()
-
-				resp = cwPost(t, ts, "Action=DescribeAlarms&AlarmNames.member.1=cov-alarm")
-				assert.Equal(t, http.StatusOK, resp.StatusCode)
-				resp.Body.Close()
-
-				resp = cwPost(t, ts, "Action=DescribeAlarms&StateValue=INSUFFICIENT_DATA")
-				assert.Equal(t, http.StatusOK, resp.StatusCode)
-				resp.Body.Close()
-			},
-		},
-		{
 			name: "DeleteAlarms",
 			setup: func(t *testing.T, ts *httptest.Server) {
+				t.Helper()
 				cwPost(t, ts, "Action=PutMetricAlarm&AlarmName=del-me&Namespace=NS&MetricName=M").Body.Close()
 			},
 			body:     "Action=DeleteAlarms&AlarmNames.member.1=del-me",
 			wantCode: http.StatusOK,
 		},
 		{
-			name:     "ErrorPaths/missing namespace",
+			name:     "ErrorPaths/missing_namespace",
 			body:     "Action=PutMetricData&MetricData.member.1.MetricName=M&MetricData.member.1.Value=1",
 			wantCode: http.StatusBadRequest,
 		},
 		{
-			name:     "ErrorPaths/bad start time",
+			name:     "ErrorPaths/bad_start_time",
 			body:     "Action=GetMetricStatistics&Namespace=NS&MetricName=M&StartTime=bad&EndTime=bad&Period=60",
 			wantCode: http.StatusBadRequest,
 		},
 		{
-			name: "ErrorPaths/bad period",
+			name: "ErrorPaths/bad_period",
 			body: "Action=GetMetricStatistics&Namespace=NS&MetricName=M" +
 				"&StartTime=2024-01-01T00:00:00Z&EndTime=2024-01-01T01:00:00Z&Period=0",
 			wantCode: http.StatusBadRequest,
 		},
 		{
-			name:     "ErrorPaths/missing alarm name",
+			name:     "ErrorPaths/missing_alarm_name",
 			body:     "Action=PutMetricAlarm&Namespace=NS",
 			wantCode: http.StatusBadRequest,
 		},
 	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if tt.run != nil {
-				tt.run(t)
-				return
-			}
+
 			ts := cwServer(t)
 			if tt.setup != nil {
 				tt.setup(t, ts)
