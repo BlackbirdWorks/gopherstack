@@ -17,48 +17,31 @@ func TestConfirmSubscription(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		run  func(t *testing.T, b *sns.InMemoryBackend)
+		name      string
+		topicName string
+		subscribe bool
+		token     string
+		wantErr   error
 	}{
 		{
-			name: "Success",
-			run: func(t *testing.T, b *sns.InMemoryBackend) {
-				topic, err := b.CreateTopic("my-topic", nil)
-				require.NoError(t, err)
-
-				sub, err := b.Subscribe(topic.TopicArn, "https", "https://example.com/notify", "")
-				require.NoError(t, err)
-				assert.NotEmpty(t, sub.SubscriptionArn)
-
-				// ConfirmSubscription with any non-empty token should succeed.
-				confirmed, err := b.ConfirmSubscription(topic.TopicArn, "anytoken123")
-				require.NoError(t, err)
-				assert.Equal(t, sub.SubscriptionArn, confirmed.SubscriptionArn)
-				assert.False(t, confirmed.PendingConfirmation)
-			},
+			name:      "Success",
+			topicName: "my-topic",
+			subscribe: true,
+			token:     "anytoken123",
 		},
 		{
-			name: "EmptyToken",
-			run: func(t *testing.T, b *sns.InMemoryBackend) {
-				topic, err := b.CreateTopic("tok-topic", nil)
-				require.NoError(t, err)
-
-				_, err = b.Subscribe(topic.TopicArn, "https", "https://example.com/notify", "")
-				require.NoError(t, err)
-
-				_, err = b.ConfirmSubscription(topic.TopicArn, "")
-				require.ErrorIs(t, err, sns.ErrInvalidParameter)
-			},
+			name:      "EmptyToken",
+			topicName: "tok-topic",
+			subscribe: true,
+			token:     "",
+			wantErr:   sns.ErrInvalidParameter,
 		},
 		{
-			name: "NoSubscription",
-			run: func(t *testing.T, b *sns.InMemoryBackend) {
-				topic, err := b.CreateTopic("no-sub-topic", nil)
-				require.NoError(t, err)
-
-				_, err = b.ConfirmSubscription(topic.TopicArn, "token123")
-				require.ErrorIs(t, err, sns.ErrSubscriptionNotFound)
-			},
+			name:      "NoSubscription",
+			topicName: "no-sub-topic",
+			subscribe: false,
+			token:     "token123",
+			wantErr:   sns.ErrSubscriptionNotFound,
 		},
 	}
 
@@ -66,7 +49,26 @@ func TestConfirmSubscription(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			b := newSNSBackend()
-			tt.run(t, b)
+
+			topic, err := b.CreateTopic(tt.topicName, nil)
+			require.NoError(t, err)
+
+			var sub *sns.Subscription
+			if tt.subscribe {
+				sub, err = b.Subscribe(topic.TopicArn, "https", "https://example.com/notify", "")
+				require.NoError(t, err)
+				assert.NotEmpty(t, sub.SubscriptionArn)
+			}
+
+			confirmed, err := b.ConfirmSubscription(topic.TopicArn, tt.token)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, sub)
+			assert.Equal(t, sub.SubscriptionArn, confirmed.SubscriptionArn)
+			assert.False(t, confirmed.PendingConfirmation)
 		})
 	}
 }
