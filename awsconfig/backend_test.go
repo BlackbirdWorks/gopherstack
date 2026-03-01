@@ -9,79 +9,205 @@ import (
 	"github.com/blackbirdworks/gopherstack/awsconfig"
 )
 
-func TestAWSConfigBackend(t *testing.T) {
+func TestAWSConfigBackend_PutConfigurationRecorder(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		run  func(t *testing.T, b *awsconfig.InMemoryBackend)
+		name       string
+		recName    string
+		roleARN    string
+		wantLen    int
+		wantName   string
+		wantStatus string
 	}{
 		{
-			name: "PutConfigurationRecorder",
-			run: func(t *testing.T, b *awsconfig.InMemoryBackend) {
-				err := b.PutConfigurationRecorder("default", "arn:aws:iam::000000000000:role/config")
-				require.NoError(t, err)
-
-				recorders := b.DescribeConfigurationRecorders()
-				require.Len(t, recorders, 1)
-				assert.Equal(t, "default", recorders[0].Name)
-				assert.Equal(t, "PENDING", recorders[0].Status)
-			},
-		},
-		{
-			name: "StartConfigurationRecorder",
-			run: func(t *testing.T, b *awsconfig.InMemoryBackend) {
-				require.NoError(t, b.PutConfigurationRecorder("default", "arn:aws:iam::000000000000:role/config"))
-
-				err := b.StartConfigurationRecorder("default")
-				require.NoError(t, err)
-
-				recorders := b.DescribeConfigurationRecorders()
-				require.Len(t, recorders, 1)
-				assert.Equal(t, "ACTIVE", recorders[0].Status)
-			},
-		},
-		{
-			name: "StartConfigurationRecorder/NotFound",
-			run: func(t *testing.T, b *awsconfig.InMemoryBackend) {
-				err := b.StartConfigurationRecorder("nonexistent")
-				require.Error(t, err)
-				assert.ErrorIs(t, err, awsconfig.ErrNotFound)
-			},
-		},
-		{
-			name: "PutDeliveryChannel",
-			run: func(t *testing.T, b *awsconfig.InMemoryBackend) {
-				err := b.PutDeliveryChannel("default", "my-bucket", "arn:aws:sns:us-east-1:000000000000:my-topic")
-				require.NoError(t, err)
-
-				channels := b.DescribeDeliveryChannels()
-				require.Len(t, channels, 1)
-				assert.Equal(t, "default", channels[0].Name)
-				assert.Equal(t, "my-bucket", channels[0].S3Bucket)
-			},
-		},
-		{
-			name: "DescribeDeliveryChannels/Empty",
-			run: func(t *testing.T, b *awsconfig.InMemoryBackend) {
-				channels := b.DescribeDeliveryChannels()
-				assert.Empty(t, channels)
-			},
-		},
-		{
-			name: "DescribeConfigurationRecorders/Empty",
-			run: func(t *testing.T, b *awsconfig.InMemoryBackend) {
-				recorders := b.DescribeConfigurationRecorders()
-				assert.Empty(t, recorders)
-			},
+			name:       "success",
+			recName:    "default",
+			roleARN:    "arn:aws:iam::000000000000:role/config",
+			wantLen:    1,
+			wantName:   "default",
+			wantStatus: "PENDING",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			b := awsconfig.NewInMemoryBackend()
-			tt.run(t, b)
+			err := b.PutConfigurationRecorder(tt.recName, tt.roleARN)
+			require.NoError(t, err)
+
+			recorders := b.DescribeConfigurationRecorders()
+			require.Len(t, recorders, tt.wantLen)
+			assert.Equal(t, tt.wantName, recorders[0].Name)
+			assert.Equal(t, tt.wantStatus, recorders[0].Status)
+		})
+	}
+}
+
+func TestAWSConfigBackend_StartConfigurationRecorder(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		recName    string
+		setup      func(t *testing.T, b *awsconfig.InMemoryBackend)
+		wantErr    error
+		wantStatus string
+	}{
+		{
+			name:    "success",
+			recName: "default",
+			setup: func(t *testing.T, b *awsconfig.InMemoryBackend) {
+				t.Helper()
+				require.NoError(t, b.PutConfigurationRecorder("default", "arn:aws:iam::000000000000:role/config"))
+			},
+			wantStatus: "ACTIVE",
+		},
+		{
+			name:    "not_found",
+			recName: "nonexistent",
+			wantErr: awsconfig.ErrNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := awsconfig.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(t, b)
+			}
+
+			err := b.StartConfigurationRecorder(tt.recName)
+
+			if tt.wantErr != nil {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			recorders := b.DescribeConfigurationRecorders()
+			require.Len(t, recorders, 1)
+			assert.Equal(t, tt.wantStatus, recorders[0].Status)
+		})
+	}
+}
+
+func TestAWSConfigBackend_PutDeliveryChannel(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		chanName   string
+		bucket     string
+		topic      string
+		wantLen    int
+		wantName   string
+		wantBucket string
+	}{
+		{
+			name:       "success",
+			chanName:   "default",
+			bucket:     "my-bucket",
+			topic:      "arn:aws:sns:us-east-1:000000000000:my-topic",
+			wantLen:    1,
+			wantName:   "default",
+			wantBucket: "my-bucket",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := awsconfig.NewInMemoryBackend()
+			err := b.PutDeliveryChannel(tt.chanName, tt.bucket, tt.topic)
+			require.NoError(t, err)
+
+			channels := b.DescribeDeliveryChannels()
+			require.Len(t, channels, tt.wantLen)
+			assert.Equal(t, tt.wantName, channels[0].Name)
+			assert.Equal(t, tt.wantBucket, channels[0].S3Bucket)
+		})
+	}
+}
+
+func TestAWSConfigBackend_DescribeDeliveryChannels(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		setup     func(t *testing.T, b *awsconfig.InMemoryBackend)
+		wantCount int
+	}{
+		{
+			name:      "empty",
+			wantCount: 0,
+		},
+		{
+			name: "one_channel",
+			setup: func(t *testing.T, b *awsconfig.InMemoryBackend) {
+				t.Helper()
+				require.NoError(t, b.PutDeliveryChannel("default", "my-bucket", "arn:aws:sns:us-east-1:000000000000:my-topic"))
+			},
+			wantCount: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := awsconfig.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(t, b)
+			}
+
+			channels := b.DescribeDeliveryChannels()
+			assert.Len(t, channels, tt.wantCount)
+		})
+	}
+}
+
+func TestAWSConfigBackend_DescribeConfigurationRecorders(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		setup     func(t *testing.T, b *awsconfig.InMemoryBackend)
+		wantCount int
+	}{
+		{
+			name:      "empty",
+			wantCount: 0,
+		},
+		{
+			name: "one_recorder",
+			setup: func(t *testing.T, b *awsconfig.InMemoryBackend) {
+				t.Helper()
+				require.NoError(t, b.PutConfigurationRecorder("default", "arn:aws:iam::000000000000:role/config"))
+			},
+			wantCount: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := awsconfig.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(t, b)
+			}
+
+			recorders := b.DescribeConfigurationRecorders()
+			assert.Len(t, recorders, tt.wantCount)
 		})
 	}
 }
