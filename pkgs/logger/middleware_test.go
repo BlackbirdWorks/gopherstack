@@ -13,69 +13,80 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestEchoMiddleware(t *testing.T) {
+func TestLoggerMiddleware(t *testing.T) {
 	t.Parallel()
 
-	// Create a buffer to capture log output
-	var logBuffer bytes.Buffer
-	testLogger := slog.New(slog.NewTextHandler(&logBuffer, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
-	}))
+	tests := []struct {
+		name string
+		run  func(t *testing.T)
+	}{
+		{name: "EchoMiddleware", run: func(t *testing.T) {
+			// Create a buffer to capture log output
+			var logBuffer bytes.Buffer
+			testLogger := slog.New(slog.NewTextHandler(&logBuffer, &slog.HandlerOptions{
+				Level: slog.LevelDebug,
+			}))
 
-	// Create Echo instance with logger middleware
-	e := echo.New()
-	e.Use(logger.EchoMiddleware(testLogger))
+			// Create Echo instance with logger middleware
+			e := echo.New()
+			e.Use(logger.EchoMiddleware(testLogger))
 
-	// Add a test handler that uses logger from context
-	e.GET("/test", func(c *echo.Context) error {
-		ctx := c.Request().Context()
-		log := logger.Load(ctx)
-		log.DebugContext(ctx, "test message", "key", "value")
+			// Add a test handler that uses logger from context
+			e.GET("/test", func(c *echo.Context) error {
+				ctx := c.Request().Context()
+				log := logger.Load(ctx)
+				log.DebugContext(ctx, "test message", "key", "value")
 
-		return c.String(http.StatusOK, "OK")
-	})
+				return c.String(http.StatusOK, "OK")
+			})
 
-	// Create test request
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
-	rec := httptest.NewRecorder()
+			// Create test request
+			req := httptest.NewRequest(http.MethodGet, "/test", nil)
+			rec := httptest.NewRecorder()
 
-	// Serve request
-	e.ServeHTTP(rec, req)
+			// Serve request
+			e.ServeHTTP(rec, req)
 
-	// Verify response
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, "OK", rec.Body.String())
+			// Verify response
+			assert.Equal(t, http.StatusOK, rec.Code)
+			assert.Equal(t, "OK", rec.Body.String())
 
-	// Verify logger was injected and used
-	logOutput := logBuffer.String()
-	assert.Contains(t, logOutput, "test message")
-	assert.Contains(t, logOutput, "key")
-	assert.Contains(t, logOutput, "value")
-	assert.Contains(t, logOutput, "level=DEBUG")
-}
+			// Verify logger was injected and used
+			logOutput := logBuffer.String()
+			assert.Contains(t, logOutput, "test message")
+			assert.Contains(t, logOutput, "key")
+			assert.Contains(t, logOutput, "value")
+			assert.Contains(t, logOutput, "level=DEBUG")
+		}},
+		{name: "Middleware", run: func(t *testing.T) {
+			var logBuffer bytes.Buffer
+			testLogger := slog.New(slog.NewTextHandler(&logBuffer, &slog.HandlerOptions{
+				Level: slog.LevelDebug,
+			}))
 
-func TestMiddleware(t *testing.T) {
-	t.Parallel()
+			mux := http.NewServeMux()
+			mux.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
+				log := logger.Load(r.Context())
+				log.DebugContext(r.Context(), "net/http handler called")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte("OK"))
+			})
 
-	var logBuffer bytes.Buffer
-	testLogger := slog.New(slog.NewTextHandler(&logBuffer, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
-	}))
+			handler := logger.Middleware(testLogger)(mux)
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
-		log := logger.Load(r.Context())
-		log.DebugContext(r.Context(), "net/http handler called")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("OK"))
-	})
+			req := httptest.NewRequest(http.MethodGet, "/test", nil)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
 
-	handler := logger.Middleware(testLogger)(mux)
+			assert.Equal(t, http.StatusOK, rec.Code)
+			assert.Contains(t, logBuffer.String(), "net/http handler called")
+		}},
+	}
 
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, logBuffer.String(), "net/http handler called")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			tt.run(t)
+		})
+	}
 }
