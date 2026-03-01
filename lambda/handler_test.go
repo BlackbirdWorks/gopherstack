@@ -1830,3 +1830,75 @@ func TestDeleteAlias_MockBackend_ServiceError(t *testing.T) {
 	rec := callHandler(t, h, http.MethodDelete, "/2015-03-31/functions/fn/aliases/v1", "", nil)
 	require.Equal(t, http.StatusInternalServerError, rec.Code)
 }
+
+func TestHandler_TagsRoute_GetEmpty(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newHandler(t)
+	arn := "arn:aws:lambda:us-east-1:000000000000:function:my-fn"
+
+	rec := callHandler(t, h, http.MethodGet, "/2015-03-31/tags/"+arn, "", nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.NotNil(t, resp["Tags"])
+}
+
+func TestHandler_TagsRoute_PostAndGet(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newHandler(t)
+	arn := "arn:aws:lambda:us-east-1:000000000000:function:my-fn"
+	tagsPath := "/2015-03-31/tags/" + arn
+
+	// Add tags.
+	rec := callHandler(t, h, http.MethodPost, tagsPath,
+		`{"Tags":{"env":"prod","team":"infra"}}`, nil)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+
+	// List tags.
+	getRec := callHandler(t, h, http.MethodGet, tagsPath, "", nil)
+	assert.Equal(t, http.StatusOK, getRec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+	tags := resp["Tags"].(map[string]any)
+	assert.Equal(t, "prod", tags["env"])
+	assert.Equal(t, "infra", tags["team"])
+}
+
+func TestHandler_TagsRoute_Delete(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newHandler(t)
+	arn := "arn:aws:lambda:us-east-1:000000000000:function:my-fn"
+	tagsPath := "/2015-03-31/tags/" + arn
+
+	// Add tags first.
+	callHandler(t, h, http.MethodPost, tagsPath,
+		`{"Tags":{"env":"prod","team":"infra"}}`, nil)
+
+	// Delete one tag.
+	rec := callHandler(t, h, http.MethodDelete, tagsPath+"?tagKeys=team", "", nil)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+
+	// Verify only "env" remains.
+	getRec := callHandler(t, h, http.MethodGet, tagsPath, "", nil)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+	tags := resp["Tags"].(map[string]any)
+	assert.Equal(t, "prod", tags["env"])
+	_, hasTeam := tags["team"]
+	assert.False(t, hasTeam)
+}
+
+func TestHandler_TagsRoute_MethodNotAllowed(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newHandler(t)
+	arn := "arn:aws:lambda:us-east-1:000000000000:function:my-fn"
+
+	rec := callHandler(t, h, http.MethodPut, "/2015-03-31/tags/"+arn, "", nil)
+	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
+}

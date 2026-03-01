@@ -499,6 +499,112 @@ func TestRoute53Handler_DNSRegistrar_DeregisterOnDelete(t *testing.T) {
 	assert.False(t, registrar.registered["www.example.com."], "expected www.example.com. to be deregistered")
 }
 
+func TestRoute53Handler_Tags(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		method       string
+		path         string
+		body         string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name:   "AddTags",
+			method: http.MethodPost,
+			path:   "/2013-04-01/tags/hostedzone/{zoneID}",
+			body: `<?xml version="1.0" encoding="UTF-8"?>
+<ChangeTagsForResourceRequest>
+  <AddTags>
+    <Tag><Key>env</Key><Value>prod</Value></Tag>
+    <Tag><Key>team</Key><Value>infra</Value></Tag>
+  </AddTags>
+</ChangeTagsForResourceRequest>`,
+			wantCode:     http.StatusOK,
+			wantContains: []string{"ChangeTagsForResourceResponse"},
+		},
+		{
+			name:         "ListTags_Empty",
+			method:       http.MethodGet,
+			path:         "/2013-04-01/tags/hostedzone/{zoneID}",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"ListTagsForResourceResponse", "hostedzone"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler(t)
+			rec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", createZoneXML)
+			require.Equal(t, http.StatusCreated, rec.Code)
+
+			zoneID := extractZoneID(t, rec.Body.String())
+			path := strings.Replace(tt.path, "{zoneID}", zoneID, 1)
+			got := send(t, h, tt.method, path, tt.body)
+			assert.Equal(t, tt.wantCode, got.Code)
+
+			for _, s := range tt.wantContains {
+				assert.Contains(t, got.Body.String(), s)
+			}
+		})
+	}
+}
+
+func TestRoute53Handler_TagRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler(t)
+	rec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", createZoneXML)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	zoneID := extractZoneID(t, rec.Body.String())
+	tagsPath := "/2013-04-01/tags/hostedzone/" + zoneID
+
+	// Add tags.
+	addBody := `<?xml version="1.0" encoding="UTF-8"?>
+<ChangeTagsForResourceRequest>
+  <AddTags>
+    <Tag><Key>env</Key><Value>prod</Value></Tag>
+    <Tag><Key>team</Key><Value>infra</Value></Tag>
+  </AddTags>
+</ChangeTagsForResourceRequest>`
+	addRec := send(t, h, http.MethodPost, tagsPath, addBody)
+	require.Equal(t, http.StatusOK, addRec.Code)
+
+	// List and verify tags exist.
+	listRec := send(t, h, http.MethodGet, tagsPath, "")
+	assert.Equal(t, http.StatusOK, listRec.Code)
+	assert.Contains(t, listRec.Body.String(), "env")
+	assert.Contains(t, listRec.Body.String(), "prod")
+	assert.Contains(t, listRec.Body.String(), "team")
+
+	// Remove one tag.
+	removeBody := `<?xml version="1.0" encoding="UTF-8"?>
+<ChangeTagsForResourceRequest>
+  <RemoveTagKeys>
+    <Key>team</Key>
+  </RemoveTagKeys>
+</ChangeTagsForResourceRequest>`
+	removeRec := send(t, h, http.MethodPost, tagsPath, removeBody)
+	require.Equal(t, http.StatusOK, removeRec.Code)
+
+	// Verify only the remaining tag is listed.
+	listRec2 := send(t, h, http.MethodGet, tagsPath, "")
+	assert.Contains(t, listRec2.Body.String(), "env")
+	assert.NotContains(t, listRec2.Body.String(), "team")
+}
+
+func TestRoute53Handler_Tags_UnsupportedMethod(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler(t)
+	rec := send(t, h, http.MethodDelete, "/2013-04-01/tags/hostedzone/ZFAKE", "")
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
 // mockDNSRegistrar is a test double for route53.DNSRegistrar.
 type mockDNSRegistrar struct {
 	registered map[string]bool

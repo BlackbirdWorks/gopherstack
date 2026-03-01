@@ -1989,6 +1989,160 @@ func TestCreateTopic_RegionExtraction(t *testing.T) {
 	})
 }
 
+func TestSNSHandler_TagResource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		form             url.Values
+		name             string
+		wantBodyContains []string
+		wantStatus       int
+	}{
+		{
+			name: "tag_resource",
+			form: url.Values{
+				"Action":              {"TagResource"},
+				"ResourceArn":         {"arn:aws:sns:us-east-1:000000000000:tag-topic"},
+				"Tags.member.1.Key":   {"env"},
+				"Tags.member.1.Value": {"prod"},
+				"Tags.member.2.Key":   {"team"},
+				"Tags.member.2.Value": {"infra"},
+			},
+			wantStatus:       http.StatusOK,
+			wantBodyContains: []string{"TagResourceResponse"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			b := sns.NewInMemoryBackend()
+			b.CreateTopic("tag-topic", nil)
+			h := sns.NewHandler(b, logger.NewLogger(slog.LevelDebug))
+			rec := snsPost(t, h, tt.form)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			for _, want := range tt.wantBodyContains {
+				assert.Contains(t, rec.Body.String(), want)
+			}
+		})
+	}
+}
+
+func TestSNSHandler_UntagResource(t *testing.T) {
+	t.Parallel()
+
+	b := sns.NewInMemoryBackend()
+	b.CreateTopic("untag-topic", nil)
+	topicArn := "arn:aws:sns:us-east-1:000000000000:untag-topic"
+	b.SetTopicTags(topicArn, map[string]string{"env": "prod", "team": "infra"})
+
+	h := sns.NewHandler(b, logger.NewLogger(slog.LevelDebug))
+
+	rec := snsPost(t, h, url.Values{
+		"Action":           {"UntagResource"},
+		"ResourceArn":      {topicArn},
+		"TagKeys.member.1": {"team"},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "UntagResourceResponse")
+
+	// Verify only "env" remains.
+	remaining := b.GetTopicTags(topicArn)
+	assert.Len(t, remaining, 1)
+	assert.Equal(t, "prod", remaining["env"])
+}
+
+func TestSNSHandler_ListTagsForResource(t *testing.T) {
+	t.Parallel()
+
+	b := sns.NewInMemoryBackend()
+	b.CreateTopic("listtag-topic", nil)
+	topicArn := "arn:aws:sns:us-east-1:000000000000:listtag-topic"
+	b.SetTopicTags(topicArn, map[string]string{"env": "staging"})
+
+	h := sns.NewHandler(b, logger.NewLogger(slog.LevelDebug))
+
+	rec := snsPost(t, h, url.Values{
+		"Action":      {"ListTagsForResource"},
+		"ResourceArn": {topicArn},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "ListTagsForResourceResponse")
+	assert.Contains(t, rec.Body.String(), "env")
+	assert.Contains(t, rec.Body.String(), "staging")
+}
+
+func TestSNSHandler_GetSubscriptionAttributes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup            func(b *sns.InMemoryBackend)
+		form             url.Values
+		name             string
+		wantBodyContains []string
+		wantStatus       int
+	}{
+		{
+			name: "missing_arn",
+			form: url.Values{
+				"Action": {"GetSubscriptionAttributes"},
+			},
+			wantStatus:       http.StatusBadRequest,
+			wantBodyContains: []string{"InvalidParameter"},
+		},
+		{
+			name: "not_found",
+			form: url.Values{
+				"Action":          {"GetSubscriptionAttributes"},
+				"SubscriptionArn": {"arn:aws:sns:us-east-1:000000000000:t:nonexistent"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "success",
+			setup: func(b *sns.InMemoryBackend) {
+				b.CreateTopic("sub-topic", nil)
+				b.Subscribe(
+					"arn:aws:sns:us-east-1:000000000000:sub-topic",
+					"sqs",
+					"arn:aws:sqs:us-east-1:000000000000:q",
+					"",
+				)
+			},
+			form: url.Values{
+				"Action": {"GetSubscriptionAttributes"},
+			},
+			wantStatus:       http.StatusOK,
+			wantBodyContains: []string{"GetSubscriptionAttributesResult", "SubscriptionArn"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			b := sns.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+			h := sns.NewHandler(b, logger.NewLogger(slog.LevelDebug))
+
+			form := tt.form
+			// For the success case, look up the subscription ARN dynamically.
+			if tt.name == "success" {
+				subs, _, _ := b.ListSubscriptions("")
+				require.NotEmpty(t, subs)
+				form.Set("SubscriptionArn", subs[0].SubscriptionArn)
+			}
+
+			rec := snsPost(t, h, form)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			for _, want := range tt.wantBodyContains {
+				assert.Contains(t, rec.Body.String(), want)
+			}
+		})
+	}
+}
+
 // TestCreateTopicInRegion_Backend tests the CreateTopicInRegion backend method directly.
 func TestCreateTopicInRegion_Backend(t *testing.T) {
 	t.Parallel()
