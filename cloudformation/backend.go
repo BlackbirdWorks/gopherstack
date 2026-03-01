@@ -430,10 +430,7 @@ func (b *InMemoryBackend) CreateChangeSet(
 	}
 
 	cs := &ChangeSet{
-		ChangeSetID: fmt.Sprintf(
-			"arn:aws:cloudformation:%s:%s:changeSet/%s/%s",
-			b.region, b.accountID, changeSetName, csID,
-		),
+		ChangeSetID:   arn.Build("cloudformation", b.region, b.accountID, "changeSet/"+changeSetName+"/"+csID),
 		ChangeSetName: changeSetName,
 		StackID:       stackID,
 		StackName:     stackName,

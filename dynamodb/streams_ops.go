@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodbstreams"
 	streamstypes "github.com/aws/aws-sdk-go-v2/service/dynamodbstreams/types"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 )
 
@@ -275,10 +276,7 @@ func (db *InMemoryDB) ListStreams(
 
 // buildStreamARN generates a stream ARN for the given table using the backend's account and region.
 func (db *InMemoryDB) buildStreamARN(tableName string) string {
-	return fmt.Sprintf(
-		"arn:aws:dynamodb:%s:%s:table/%s/stream/2024-01-01T00:00:00.000",
-		db.defaultRegion, db.accountID, tableName,
-	)
+	return arn.Build("dynamodb", db.defaultRegion, db.accountID, "table/"+tableName+"/stream/2024-01-01T00:00:00.000")
 }
 
 // buildSDKRecord converts an internal StreamRecord to the AWS SDK type.

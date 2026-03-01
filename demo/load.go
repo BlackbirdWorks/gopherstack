@@ -19,6 +19,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 )
 
 const (
@@ -239,7 +242,7 @@ func loadSNS(ctx context.Context, logger *slog.Logger, snsClient *sns.Client, _ 
 	_, err = snsClient.Subscribe(ctx, &sns.SubscribeInput{
 		TopicArn: topic.TopicArn,
 		Protocol: aws.String("sqs"),
-		Endpoint: aws.String("arn:aws:sqs:us-east-1:123456789012:" + queueName),
+		Endpoint: aws.String(arn.Build("sqs", config.DefaultRegion, config.DefaultAccountID, queueName)),
 	})
 	if err != nil {
 		logger.WarnContext(ctx, "Failed to subscribe queue to topic", "error", err)

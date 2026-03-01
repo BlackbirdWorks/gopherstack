@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"maps"
 	"net/http"
@@ -16,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/events"
 )
@@ -89,11 +89,6 @@ func (b *InMemoryBackend) SetPublishEmitter(emitter events.EventEmitter[*events.
 	b.emitter = emitter
 }
 
-// arnPrefix returns the SNS ARN prefix for this backend's account and region.
-func (b *InMemoryBackend) arnPrefix() string {
-	return "arn:aws:sns:" + b.region + ":" + b.accountID + ":"
-}
-
 // CreateTopic creates a new SNS topic using the backend's default region.
 func (b *InMemoryBackend) CreateTopic(name string, attributes map[string]string) (*Topic, error) {
 	return b.CreateTopicInRegion(name, b.region, attributes)
@@ -109,7 +104,7 @@ func (b *InMemoryBackend) CreateTopicInRegion(name, region string, attributes ma
 		region = b.region
 	}
 
-	topicArn := "arn:aws:sns:" + region + ":" + b.accountID + ":" + name
+	topicArn := arn.Build("sns", region, b.accountID, name)
 	if _, exists := b.topics[topicArn]; exists {
 		return nil, ErrTopicAlreadyExists
 	}
@@ -210,7 +205,7 @@ func (b *InMemoryBackend) Subscribe(topicArn, protocol, endpoint, filterPolicy s
 	parts := strings.Split(topic.TopicArn, ":")
 	topicName := parts[len(parts)-1]
 
-	subArn := fmt.Sprintf("%s%s:%s", b.arnPrefix(), topicName, uuid.New().String())
+	subArn := arn.Build("sns", b.region, b.accountID, topicName+":"+uuid.New().String())
 	pending := protocol == "http" || protocol == "https"
 	sub := &Subscription{
 		SubscriptionArn:     subArn,
