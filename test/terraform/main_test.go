@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -121,6 +123,10 @@ func TestMain(m *testing.M) {
 
 	endpoint = fmt.Sprintf("http://localhost:%s", mappedPort.Port())
 	logger.Info("Gopherstack running", "endpoint", endpoint)
+
+	// Warm the shared provider cache with a single tofu init so that parallel
+	// tests don't all race to download the ~300 MB hashicorp/aws provider.
+	warmProviderCache(logger)
 
 	code := m.Run()
 
@@ -604,6 +610,61 @@ func createFirehoseClient(t *testing.T) *firehosesvc.Client {
 	return firehosesvc.NewFromConfig(cfg, func(o *firehosesvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
+}
+
+// warmProviderCache runs a single tofu init to ensure the shared provider cache
+// is populated before parallel tests start. This avoids 8+ concurrent tests all
+// racing to download the ~300 MB hashicorp/aws provider simultaneously.
+func warmProviderCache(logger *slog.Logger) {
+	tofuBin, err := exec.LookPath("tofu")
+	if err != nil {
+		logger.Warn("skipping provider cache warm-up: tofu not in PATH", "error", err)
+		return
+	}
+
+	dir, err := os.MkdirTemp("", "tofu-warmup-*")
+	if err != nil {
+		logger.Warn("skipping provider cache warm-up", "error", err)
+		return
+	}
+	defer os.RemoveAll(dir)
+
+	// Minimal HCL that declares the AWS provider so tofu downloads it.
+	hcl := []byte(`terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+}
+`)
+	if err := os.WriteFile(filepath.Join(dir, "main.tf"), hcl, 0o644); err != nil {
+		logger.Warn("skipping provider cache warm-up", "error", err)
+		return
+	}
+
+	cacheDir := filepath.Join(os.TempDir(), "gopherstack-tofu-provider-cache")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		logger.Warn("skipping provider cache warm-up", "error", err)
+		return
+	}
+
+	cmd := exec.Command(tofuBin, "init", "-backend=false", "-no-color")
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(),
+		"TF_IN_AUTOMATION=1",
+		"TF_PLUGIN_CACHE_DIR="+cacheDir,
+		"TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE=true",
+	)
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		logger.Warn("provider cache warm-up failed", "error", err, "output", string(out))
+		return
+	}
+
+	logger.Info("provider cache warmed successfully")
 }
 
 // dumpContainerLogsOnFailure dumps the container logs to stdout if the test failed.

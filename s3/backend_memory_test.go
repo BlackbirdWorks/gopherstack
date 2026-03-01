@@ -20,7 +20,7 @@ import (
 func newTestBackend(t *testing.T) *s3.InMemoryBackend {
 	t.Helper()
 
-	return s3.NewInMemoryBackend(&s3.GzipCompressor{})
+	return s3.NewInMemoryBackend(&s3.GzipCompressor{}, nil)
 }
 
 func TestCreateBucket(t *testing.T) {

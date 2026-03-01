@@ -23,7 +23,7 @@ func newFastJanitor(b *s3.InMemoryBackend) *s3.Janitor {
 func TestS3Janitor_EmptyBucketRemovedImmediately(t *testing.T) {
 	t.Parallel()
 
-	b := s3.NewInMemoryBackend(nil)
+	b := s3.NewInMemoryBackend(nil, nil)
 	mustCreateBucket(t, b, "bucket-a")
 
 	// Delete marks as pending.
@@ -51,7 +51,7 @@ func TestS3Janitor_EmptyBucketRemovedImmediately(t *testing.T) {
 func TestS3Janitor_BucketWithObjectsRemovedAfterDrain(t *testing.T) {
 	t.Parallel()
 
-	b := s3.NewInMemoryBackend(nil)
+	b := s3.NewInMemoryBackend(nil, nil)
 	mustCreateBucket(t, b, "full-bucket")
 
 	for i := range 5 {
@@ -86,7 +86,7 @@ func TestS3Janitor_BucketWithObjectsRemovedAfterDrain(t *testing.T) {
 func TestS3Janitor_DeleteIsIdempotent(t *testing.T) {
 	t.Parallel()
 
-	b := s3.NewInMemoryBackend(nil)
+	b := s3.NewInMemoryBackend(nil, nil)
 	mustCreateBucket(t, b, "idem-bucket")
 
 	_, err := b.DeleteBucket(t.Context(), &sdk_s3.DeleteBucketInput{Bucket: aws.String("idem-bucket")})
@@ -100,7 +100,7 @@ func TestS3Janitor_DeleteIsIdempotent(t *testing.T) {
 func TestS3Janitor_ListBucketsExcludesPending(t *testing.T) {
 	t.Parallel()
 
-	b := s3.NewInMemoryBackend(nil)
+	b := s3.NewInMemoryBackend(nil, nil)
 	mustCreateBucket(t, b, "keep")
 	mustCreateBucket(t, b, "gone")
 
@@ -116,7 +116,7 @@ func TestS3Janitor_ListBucketsExcludesPending(t *testing.T) {
 func TestS3Janitor_LifecycleExpiry_ZeroDays(t *testing.T) {
 	t.Parallel()
 
-	b := s3.NewInMemoryBackend(nil)
+	b := s3.NewInMemoryBackend(nil, nil)
 	mustCreateBucket(t, b, "lc-bucket")
 	mustPutObject(t, b, "lc-bucket", "logs/old.txt", []byte("data"))
 	mustPutObject(t, b, "lc-bucket", "logs/old2.txt", []byte("data"))
@@ -151,7 +151,7 @@ func TestS3Janitor_LifecycleExpiry_ZeroDays(t *testing.T) {
 func TestS3Janitor_LifecycleExpiry_PrefixFilter(t *testing.T) {
 	t.Parallel()
 
-	b := s3.NewInMemoryBackend(nil)
+	b := s3.NewInMemoryBackend(nil, nil)
 	mustCreateBucket(t, b, "prefix-bucket")
 	mustPutObject(t, b, "prefix-bucket", "logs/old.txt", []byte("data"))
 	mustPutObject(t, b, "prefix-bucket", "data/keep.txt", []byte("keep"))

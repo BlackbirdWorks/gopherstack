@@ -11,6 +11,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -408,11 +409,21 @@ func (h *S3Handler) copyObject(
 	userMeta := srcVer.Metadata
 	contentType := srcVer.ContentType
 
+	log.DebugContext(ctx, "CopyObject source info", "srcBucket", srcBucket, "srcKey", srcKey, "srcContentType", aws.ToString(contentType))
+
 	if r.Header.Get("X-Amz-Metadata-Directive") == "REPLACE" {
-		if ct := r.Header.Get("Content-Type"); ct != "" {
+		ct := r.Header.Get("Content-Type")
+		// Some SDKs might send x-amz-copy-source-content-type or similar if they are wrapping.
+		// But standard S3 CopyObject uses Content-Type header when REPLACE is specified.
+		log.DebugContext(ctx, "Metadata directive REPLACE detected", "headerContentType", ct)
+		if ct != "" && !strings.Contains(ct, "form-urlencoded") {
 			contentType = aws.String(ct)
+		} else {
+			// S3 spec: If REPLACE is specified but no Content-Type is provided, it defaults to a generic one
+			contentType = aws.String("application/octet-stream")
 		}
 		userMeta = parseUserMetadata(r.Header)
+		log.DebugContext(ctx, "Metadata directive REPLACE applied", "newContentType", aws.ToString(contentType), "newUserMeta", userMeta)
 	}
 
 	putInput := &s3.PutObjectInput{
@@ -883,9 +894,9 @@ func extractChecksumPointers(h http.Header, algo string) (*string, *string, *str
 
 func parseCopySource(src string) (string, string, string, bool) {
 	src = strings.TrimPrefix(src, "/")
-	parts := strings.SplitN(src, "/", pathSplitParts)
+	parts := strings.SplitN(src, "/", 2)
 
-	if len(parts) != pathSplitParts {
+	if len(parts) != 2 {
 		return "", "", "", false
 	}
 
@@ -896,6 +907,12 @@ func parseCopySource(src string) (string, string, string, bool) {
 	if idx := strings.Index(key, "?versionId="); idx != -1 {
 		versionID = key[idx+11:]
 		key = key[:idx]
+	}
+
+	// Unescape the key since it may be URL-encoded from the client.
+	unescapedKey, err := url.PathUnescape(key)
+	if err == nil {
+		key = unescapedKey
 	}
 
 	return bucket, key, versionID, true

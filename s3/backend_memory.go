@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/url"
 	"slices"
 	"sort"
@@ -44,14 +45,20 @@ type InMemoryBackend struct {
 	uploads       map[string]*StoredMultipartUpload
 	mu            *lockmetrics.RWMutex
 	defaultRegion string
+	Logger        *slog.Logger
 }
 
-func NewInMemoryBackend(compressor Compressor) *InMemoryBackend {
+func NewInMemoryBackend(compressor Compressor, logger *slog.Logger) *InMemoryBackend {
+	if logger == nil {
+		logger = slog.Default()
+	}
+
 	return &InMemoryBackend{
 		buckets:       make(map[string]map[string]*StoredBucket),
 		compressor:    compressor,
 		defaultRegion: defaultRegionName,
 		mu:            lockmetrics.New("s3"),
+		Logger:        logger,
 	}
 }
 
@@ -298,6 +305,8 @@ func (b *InMemoryBackend) PutObject(
 
 	b.storeObjectTags(input.Tagging, bucketName, key, newVersionID)
 
+	slog.Debug("S3 Backend PutObject", "bucket", bucketName, "key", key, "contentType", aws.ToString(input.ContentType), "versionId", newVersionID)
+
 	return &s3.PutObjectOutput{
 		ETag:           aws.String(finalQuotedETag),
 		VersionId:      aws.String(newVersionID),
@@ -505,6 +514,8 @@ func (b *InMemoryBackend) HeadObject(
 	if ver == nil || ver.Deleted {
 		return nil, ErrNoSuchKey
 	}
+
+	slog.Debug("S3 Backend HeadObject", "bucket", bucketName, "key", key, "versionId", aws.ToString(versionID), "foundContentType", ver.ContentType)
 
 	return &s3.HeadObjectOutput{
 		ContentLength:      aws.Int64(ver.Size),

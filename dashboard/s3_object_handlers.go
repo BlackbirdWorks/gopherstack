@@ -457,6 +457,8 @@ func (h *DashboardHandler) s3UpdateMetadata(w http.ResponseWriter, r *http.Reque
 
 	ctx := r.Context()
 	contentType := r.FormValue("contentType")
+	log := logger.Load(ctx)
+	log.DebugContext(ctx, "s3UpdateMetadata", "bucket", bucketName, "key", key, "newContentType", contentType)
 
 	_, err := h.S3.CopyObject(ctx, &s3.CopyObjectInput{
 		Bucket:            &bucketName,
@@ -466,6 +468,7 @@ func (h *DashboardHandler) s3UpdateMetadata(w http.ResponseWriter, r *http.Reque
 		MetadataDirective: types.MetadataDirectiveReplace,
 	})
 	if err != nil {
+		log.ErrorContext(ctx, "Failed to update metadata", "error", err)
 		http.Error(w, "Failed to update metadata: "+err.Error(), http.StatusInternalServerError)
 
 		return

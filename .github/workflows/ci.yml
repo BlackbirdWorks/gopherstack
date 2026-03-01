@@ -121,6 +121,12 @@ jobs:
         with:
           tofu_wrapper: false
 
+      - name: Cache OpenTofu providers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/gopherstack-tofu-provider-cache
+          key: tofu-providers-${{ runner.os }}-aws5
+
       - name: Run OpenTofu Tests
         run: |
           echo "tofu version: $(tofu version)"
