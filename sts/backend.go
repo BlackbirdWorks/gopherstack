@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 var (
@@ -113,13 +115,13 @@ func (b *InMemoryBackend) AssumeRole(input *AssumeRoleInput) (*AssumeRoleRespons
 
 // GetCallerIdentity returns the mock caller identity using the configured account ID.
 func (b *InMemoryBackend) GetCallerIdentity() (*GetCallerIdentityResponse, error) {
-	arn := "arn:aws:iam::" + b.accountID + ":root"
+	callerArn := arn.Build("iam", "", b.accountID, "root")
 
 	return &GetCallerIdentityResponse{
 		Xmlns: STSNamespace,
 		GetCallerIdentityResult: GetCallerIdentityResult{
 			Account: b.accountID,
-			Arn:     arn,
+			Arn:     callerArn,
 			UserID:  MockUserID,
 		},
 		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
@@ -223,5 +225,5 @@ func buildAssumedRoleArn(roleArn, sessionName string) string {
 	account := parts[4]
 	rolePath := strings.TrimPrefix(parts[5], "role/")
 
-	return "arn:aws:sts::" + account + ":assumed-role/" + rolePath + "/" + sessionName
+	return arn.Build("sts", "", account, "assumed-role/"+rolePath+"/"+sessionName)
 }

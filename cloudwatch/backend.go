@@ -2,12 +2,12 @@ package cloudwatch
 
 import (
 	"errors"
-	"fmt"
 	"math"
 	"sort"
 	"sync"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 )
 
@@ -312,10 +312,7 @@ func (b *InMemoryBackend) PutMetricAlarm(alarm *MetricAlarm) error {
 	defer b.mu.Unlock()
 
 	if alarm.AlarmArn == "" {
-		alarm.AlarmArn = fmt.Sprintf(
-			"arn:aws:cloudwatch:%s:%s:alarm:%s",
-			b.region, b.accountID, alarm.AlarmName,
-		)
+		alarm.AlarmArn = arn.Build("cloudwatch", b.region, b.accountID, "alarm:"+alarm.AlarmName)
 	}
 	if alarm.StateValue == "" {
 		alarm.StateValue = "INSUFFICIENT_DATA"

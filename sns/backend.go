@@ -16,6 +16,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/events"
 )
@@ -91,7 +92,7 @@ func (b *InMemoryBackend) SetPublishEmitter(emitter events.EventEmitter[*events.
 
 // arnPrefix returns the SNS ARN prefix for this backend's account and region.
 func (b *InMemoryBackend) arnPrefix() string {
-	return "arn:aws:sns:" + b.region + ":" + b.accountID + ":"
+	return arn.Build("sns", b.region, b.accountID, "")
 }
 
 // CreateTopic creates a new SNS topic using the backend's default region.
@@ -109,7 +110,7 @@ func (b *InMemoryBackend) CreateTopicInRegion(name, region string, attributes ma
 		region = b.region
 	}
 
-	topicArn := "arn:aws:sns:" + region + ":" + b.accountID + ":" + name
+	topicArn := arn.Build("sns", region, b.accountID, name)
 	if _, exists := b.topics[topicArn]; exists {
 		return nil, ErrTopicAlreadyExists
 	}
