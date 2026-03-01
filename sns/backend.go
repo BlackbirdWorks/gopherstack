@@ -50,7 +50,7 @@ type StorageBackend interface {
 	ListAllTopics() []Topic
 	ListAllSubscriptions() []Subscription
 	GetTopicTags(arn string) map[string]string
-	SetTopicTags(arn string, tags map[string]string)
+	SetTopicTags(arn string, kv *svcTags.Tags)
 	RemoveTopicTags(arn string, keys []string)
 }
 
@@ -613,13 +613,16 @@ func (b *InMemoryBackend) GetTopicTags(arn string) map[string]string {
 }
 
 // SetTopicTags stores tags for the given topic ARN.
-func (b *InMemoryBackend) SetTopicTags(arn string, kv map[string]string) {
+func (b *InMemoryBackend) SetTopicTags(arn string, kv *svcTags.Tags) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if kv == nil {
+		return
+	}
 	if b.topicTags[arn] == nil {
 		b.topicTags[arn] = svcTags.New("sns." + arn + ".tags")
 	}
-	b.topicTags[arn].Merge(kv)
+	b.topicTags[arn].Merge(kv.Clone())
 }
 
 // RemoveTopicTags removes specified tag keys for the given topic ARN.

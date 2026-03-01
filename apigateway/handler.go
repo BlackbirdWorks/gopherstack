@@ -307,11 +307,7 @@ func (h *Handler) restAPIActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return 0, nil, err
 			}
-			var kv map[string]string
-			if input.Tags != nil {
-				kv = input.Tags.Clone()
-			}
-			api, err := h.Backend.CreateRestAPI(input.Name, input.Description, kv)
+			api, err := h.Backend.CreateRestAPI(input.Name, input.Description, input.Tags)
 			if err != nil {
 				return 0, nil, err
 			}

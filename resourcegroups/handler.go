@@ -160,12 +160,7 @@ func (h *Handler) handleCreateGroup(body []byte) (any, error) {
 		return nil, errInvalidRequest
 	}
 
-	var kv map[string]string
-	if req.Tags != nil {
-		kv = req.Tags.Clone()
-	}
-
-	g, err := h.Backend.CreateGroup(req.Name, req.Description, kv)
+	g, err := h.Backend.CreateGroup(req.Name, req.Description, req.Tags)
 	if err != nil {
 		return nil, err
 	}

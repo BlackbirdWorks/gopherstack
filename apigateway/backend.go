@@ -26,7 +26,7 @@ var (
 // StorageBackend is the interface for the API Gateway in-memory store.
 type StorageBackend interface {
 	// REST APIs
-	CreateRestAPI(name, description string, tags map[string]string) (*RestAPI, error)
+	CreateRestAPI(name, description string, inputTags *tags.Tags) (*RestAPI, error)
 	DeleteRestAPI(restAPIID string) error
 	GetRestAPI(restAPIID string) (*RestAPI, error)
 	GetRestAPIs(limit int, position string) ([]RestAPI, string, error)
@@ -100,7 +100,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 }
 
 // CreateRestAPI creates a new REST API and its root resource.
-func (b *InMemoryBackend) CreateRestAPI(name, description string, inputTags map[string]string) (*RestAPI, error) {
+func (b *InMemoryBackend) CreateRestAPI(name, description string, inputTags *tags.Tags) (*RestAPI, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrInvalidParameter)
 	}
@@ -109,12 +109,15 @@ func (b *InMemoryBackend) CreateRestAPI(name, description string, inputTags map[
 	defer b.mu.Unlock()
 
 	id := randomID(apiIDLength)
+	if inputTags == nil {
+		inputTags = tags.New("apigw.api." + id + ".tags")
+	}
 	api := RestAPI{
 		ID:          id,
 		Name:        name,
 		Description: description,
 		CreatedDate: time.Now(),
-		Tags:        tags.FromMap("apigw.api."+id+".tags", inputTags),
+		Tags:        inputTags,
 	}
 
 	rootID := randomID(resourceIDLength)

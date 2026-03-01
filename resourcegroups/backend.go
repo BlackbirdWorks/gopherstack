@@ -42,7 +42,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 }
 
 // CreateGroup creates a new resource group.
-func (b *InMemoryBackend) CreateGroup(name, description string, inputTags map[string]string) (*Group, error) {
+func (b *InMemoryBackend) CreateGroup(name, description string, inputTags *tags.Tags) (*Group, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -52,7 +52,11 @@ func (b *InMemoryBackend) CreateGroup(name, description string, inputTags map[st
 
 	groupARN := arn.Build("resource-groups", b.region, b.accountID, "group/"+name)
 
-	g := &Group{Name: name, ARN: groupARN, Description: description, Tags: tags.FromMap("rg."+name+".tags", inputTags)}
+	if inputTags == nil {
+		inputTags = tags.New("rg." + name + ".tags")
+	}
+
+	g := &Group{Name: name, ARN: groupARN, Description: description, Tags: inputTags}
 	b.groups[name] = g
 
 	cp := *g
