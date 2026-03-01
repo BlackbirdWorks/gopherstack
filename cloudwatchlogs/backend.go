@@ -6,8 +6,9 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -46,7 +47,7 @@ type InMemoryBackend struct {
 	events    map[string]map[string][]*OutputLogEvent
 	accountID string
 	region    string
-	mu        sync.RWMutex
+	mu        *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with default configuration.
@@ -62,6 +63,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		groups:    make(map[string]*LogGroup),
 		streams:   make(map[string]map[string]*LogStream),
 		events:    make(map[string]map[string][]*OutputLogEvent),
+		mu: lockmetrics.New("cloudwatchlogs"),
 	}
 }
 
@@ -75,7 +77,7 @@ func (b *InMemoryBackend) streamARN(groupName, streamName string) string {
 
 // CreateLogGroup creates a new log group.
 func (b *InMemoryBackend) CreateLogGroup(name string) (*LogGroup, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateLogGroup")
 	defer b.mu.Unlock()
 
 	if _, exists := b.groups[name]; exists {
@@ -96,7 +98,7 @@ func (b *InMemoryBackend) CreateLogGroup(name string) (*LogGroup, error) {
 
 // DeleteLogGroup deletes a log group and all its streams/events.
 func (b *InMemoryBackend) DeleteLogGroup(name string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteLogGroup")
 	defer b.mu.Unlock()
 
 	if _, exists := b.groups[name]; !exists {
@@ -112,7 +114,7 @@ func (b *InMemoryBackend) DeleteLogGroup(name string) error {
 
 // DescribeLogGroups returns log groups optionally filtered by prefix, with pagination.
 func (b *InMemoryBackend) DescribeLogGroups(prefix, nextToken string, limit int) ([]LogGroup, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeLogGroups")
 	defer b.mu.RUnlock()
 
 	all := make([]LogGroup, 0, len(b.groups))
@@ -131,7 +133,7 @@ func (b *InMemoryBackend) DescribeLogGroups(prefix, nextToken string, limit int)
 
 // CreateLogStream creates a new log stream within a log group.
 func (b *InMemoryBackend) CreateLogStream(groupName, streamName string) (*LogStream, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateLogStream")
 	defer b.mu.Unlock()
 
 	if _, exists := b.groups[groupName]; !exists {
@@ -157,7 +159,7 @@ func (b *InMemoryBackend) CreateLogStream(groupName, streamName string) (*LogStr
 func (b *InMemoryBackend) DescribeLogStreams(groupName, prefix, nextToken string, limit int) (
 	[]LogStream, string, error,
 ) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeLogStreams")
 	defer b.mu.RUnlock()
 
 	if _, exists := b.groups[groupName]; !exists {
@@ -180,7 +182,7 @@ func (b *InMemoryBackend) DescribeLogStreams(groupName, prefix, nextToken string
 
 // PutLogEvents appends log events to a stream and returns the next sequence token.
 func (b *InMemoryBackend) PutLogEvents(groupName, streamName string, events []InputLogEvent) (string, error) {
-	b.mu.Lock()
+	b.mu.Lock("PutLogEvents")
 	defer b.mu.Unlock()
 
 	if _, exists := b.groups[groupName]; !exists {
@@ -222,7 +224,7 @@ func (b *InMemoryBackend) PutLogEvents(groupName, streamName string, events []In
 func (b *InMemoryBackend) GetLogEvents(groupName, streamName string, startTime, endTime *int64,
 	limit int, nextToken string,
 ) ([]OutputLogEvent, string, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetLogEvents")
 	defer b.mu.RUnlock()
 
 	if _, exists := b.groups[groupName]; !exists {
@@ -260,7 +262,7 @@ func (b *InMemoryBackend) GetLogEvents(groupName, streamName string, startTime, 
 func (b *InMemoryBackend) FilterLogEvents(groupName string, streamNames []string, filterPattern string,
 	startTime, endTime *int64, limit int, nextToken string,
 ) ([]OutputLogEvent, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("FilterLogEvents")
 	defer b.mu.RUnlock()
 
 	if _, exists := b.groups[groupName]; !exists {

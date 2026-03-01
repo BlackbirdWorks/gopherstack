@@ -2,8 +2,10 @@ package dynamodb
 
 import (
 	"container/list"
+	"fmt"
 	"hash/fnv"
-	"sync"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
 // ExpressionCache is a sharded LRU cache for parsed expressions.
@@ -15,7 +17,7 @@ type ExpressionCache struct {
 type cacheShard struct {
 	lru      *list.List
 	cache    map[string]*list.Element
-	mu       sync.RWMutex
+	mu       *lockmetrics.RWMutex
 	capacity int
 }
 
@@ -37,6 +39,7 @@ func NewExpressionCache(capacity int) *ExpressionCache {
 			capacity: shardSize,
 			cache:    make(map[string]*list.Element),
 			lru:      list.New(),
+			mu:       lockmetrics.New(fmt.Sprintf("dynamodb.expr_cache.%d", i)),
 		}
 	}
 
@@ -58,7 +61,7 @@ func (c *ExpressionCache) getShard(key string) *cacheShard {
 // Get retrieves a value from the cache.
 func (c *ExpressionCache) Get(key string) (any, bool) {
 	shard := c.getShard(key)
-	shard.mu.Lock()
+	shard.mu.Lock("Get")
 	defer shard.mu.Unlock()
 
 	if elem, elemOk := shard.cache[key]; elemOk {
@@ -75,7 +78,7 @@ func (c *ExpressionCache) Get(key string) (any, bool) {
 // Put adds a value to the cache.
 func (c *ExpressionCache) Put(key string, value any) {
 	shard := c.getShard(key)
-	shard.mu.Lock()
+	shard.mu.Lock("Put")
 	defer shard.mu.Unlock()
 
 	if elem, elemOk := shard.cache[key]; elemOk {

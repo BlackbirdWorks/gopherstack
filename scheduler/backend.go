@@ -2,7 +2,8 @@ package scheduler
 
 import (
 	"fmt"
-	"sync"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -40,7 +41,7 @@ type InMemoryBackend struct {
 	schedules map[string]*Schedule
 	accountID string
 	region    string
-	mu        sync.RWMutex
+	mu        *lockmetrics.RWMutex
 }
 
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
@@ -48,6 +49,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		schedules: make(map[string]*Schedule),
 		accountID: accountID,
 		region:    region,
+		mu: lockmetrics.New("scheduler"),
 	}
 }
 
@@ -60,7 +62,7 @@ func (b *InMemoryBackend) CreateSchedule(
 	state string,
 	ftw FlexibleTimeWindow,
 ) (*Schedule, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateSchedule")
 	defer b.mu.Unlock()
 
 	if _, ok := b.schedules[name]; ok {
@@ -89,7 +91,7 @@ func (b *InMemoryBackend) CreateSchedule(
 // The Tags field in the returned Schedule points to the backend-owned Tags
 // collection; callers should treat it as read-only.
 func (b *InMemoryBackend) GetSchedule(name string) (*Schedule, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetSchedule")
 	defer b.mu.RUnlock()
 
 	s, ok := b.schedules[name]
@@ -105,7 +107,7 @@ func (b *InMemoryBackend) GetSchedule(name string) (*Schedule, error) {
 // The Tags field in each returned Schedule points to the backend-owned Tags
 // collection; callers should treat it as read-only.
 func (b *InMemoryBackend) ListSchedules() []*Schedule {
-	b.mu.RLock()
+	b.mu.RLock("ListSchedules")
 	defer b.mu.RUnlock()
 
 	list := make([]*Schedule, 0, len(b.schedules))
@@ -118,7 +120,7 @@ func (b *InMemoryBackend) ListSchedules() []*Schedule {
 }
 
 func (b *InMemoryBackend) DeleteSchedule(name string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteSchedule")
 	defer b.mu.Unlock()
 
 	if _, ok := b.schedules[name]; !ok {
@@ -138,7 +140,7 @@ func (b *InMemoryBackend) UpdateSchedule(
 	state string,
 	ftw FlexibleTimeWindow,
 ) (*Schedule, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateSchedule")
 	defer b.mu.Unlock()
 
 	s, ok := b.schedules[name]
@@ -155,7 +157,7 @@ func (b *InMemoryBackend) UpdateSchedule(
 }
 
 func (b *InMemoryBackend) TagResource(arn string, kv map[string]string) error {
-	b.mu.Lock()
+	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
 	for _, s := range b.schedules {
@@ -170,7 +172,7 @@ func (b *InMemoryBackend) TagResource(arn string, kv map[string]string) error {
 }
 
 func (b *InMemoryBackend) ListTagsForResource(arn string) (map[string]string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
 	for _, s := range b.schedules {

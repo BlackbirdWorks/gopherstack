@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	
 
 	"github.com/blackbirdworks/gopherstack/dynamodb/models"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -30,7 +32,8 @@ func (db *InMemoryDB) BatchGetItem(
 	}
 
 	responses := make(map[string][]map[string]types.AttributeValue)
-	var mu sync.Mutex
+	mu := lockmetrics.New("dynamodb.batch.get")
+	defer mu.Close()
 	var wg sync.WaitGroup
 
 	for tableName, keysAndAttrs := range input.RequestItems {
@@ -48,7 +51,7 @@ func (db *InMemoryDB) BatchGetItem(
 			table.mu.RUnlock()
 
 			if len(results) > 0 {
-				mu.Lock()
+				mu.Lock("BatchGetItem")
 				responses[tblName] = results
 				mu.Unlock()
 			}
@@ -184,7 +187,8 @@ func (db *InMemoryDB) BatchWriteItem(
 
 	// Parallelize table processing with error collection
 	var wg sync.WaitGroup
-	var mu sync.Mutex
+	mu := lockmetrics.New("dynamodb.batch.write")
+	defer mu.Close()
 	var firstErr error
 
 	for _, tableName := range tableNames {
@@ -192,7 +196,7 @@ func (db *InMemoryDB) BatchWriteItem(
 		go func(tblName string) {
 			defer wg.Done()
 			if e := db.processTableWriteRequests(tables[tblName], toProcess[tblName]); e != nil {
-				mu.Lock()
+				mu.Lock("BatchWriteItem")
 				if firstErr == nil {
 					firstErr = e
 				}

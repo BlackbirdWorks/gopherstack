@@ -3,8 +3,9 @@ package support
 import (
 	"errors"
 	"fmt"
-	"sync"
 	"time"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/google/uuid"
@@ -33,19 +34,20 @@ type Case struct {
 // InMemoryBackend is the in-memory store for Support cases.
 type InMemoryBackend struct {
 	cases map[string]*Case
-	mu    sync.RWMutex
+	mu    *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
 		cases: make(map[string]*Case),
+		mu: lockmetrics.New("support"),
 	}
 }
 
 // CreateCase creates a new support case.
 func (b *InMemoryBackend) CreateCase(subject, serviceCode, categoryCode, severityCode, body string) (*Case, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateCase")
 	defer b.mu.Unlock()
 
 	caseID := "case-" + uuid.New().String()[:8]
@@ -68,7 +70,7 @@ func (b *InMemoryBackend) CreateCase(subject, serviceCode, categoryCode, severit
 
 // DescribeCases returns all support cases, optionally filtered by caseIds.
 func (b *InMemoryBackend) DescribeCases(caseIDs []string) []Case {
-	b.mu.RLock()
+	b.mu.RLock("DescribeCases")
 	defer b.mu.RUnlock()
 
 	out := make([]Case, 0, len(b.cases))
@@ -96,7 +98,7 @@ func (b *InMemoryBackend) DescribeCases(caseIDs []string) []Case {
 
 // ResolveCase resolves a support case by caseId.
 func (b *InMemoryBackend) ResolveCase(caseID string) (*Case, error) {
-	b.mu.Lock()
+	b.mu.Lock("ResolveCase")
 	defer b.mu.Unlock()
 
 	c, ok := b.cases[caseID]

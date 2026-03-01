@@ -2,7 +2,8 @@ package awsconfig
 
 import (
 	"fmt"
-	"sync"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
@@ -32,7 +33,7 @@ type DeliveryChannel struct {
 type InMemoryBackend struct {
 	recorders map[string]*ConfigurationRecorder
 	channels  map[string]*DeliveryChannel
-	mu        sync.RWMutex
+	mu        *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -40,12 +41,13 @@ func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
 		recorders: make(map[string]*ConfigurationRecorder),
 		channels:  make(map[string]*DeliveryChannel),
+		mu: lockmetrics.New("awsconfig"),
 	}
 }
 
 // PutConfigurationRecorder creates or updates a configuration recorder.
 func (b *InMemoryBackend) PutConfigurationRecorder(name, roleARN string) error {
-	b.mu.Lock()
+	b.mu.Lock("PutConfigurationRecorder")
 	defer b.mu.Unlock()
 
 	b.recorders[name] = &ConfigurationRecorder{Name: name, RoleARN: roleARN, Status: "PENDING"}
@@ -55,7 +57,7 @@ func (b *InMemoryBackend) PutConfigurationRecorder(name, roleARN string) error {
 
 // DescribeConfigurationRecorders returns all configuration recorders.
 func (b *InMemoryBackend) DescribeConfigurationRecorders() []ConfigurationRecorder {
-	b.mu.RLock()
+	b.mu.RLock("DescribeConfigurationRecorders")
 	defer b.mu.RUnlock()
 
 	out := make([]ConfigurationRecorder, 0, len(b.recorders))
@@ -68,7 +70,7 @@ func (b *InMemoryBackend) DescribeConfigurationRecorders() []ConfigurationRecord
 
 // StartConfigurationRecorder starts a configuration recorder.
 func (b *InMemoryBackend) StartConfigurationRecorder(name string) error {
-	b.mu.Lock()
+	b.mu.Lock("StartConfigurationRecorder")
 	defer b.mu.Unlock()
 
 	r, ok := b.recorders[name]
@@ -83,7 +85,7 @@ func (b *InMemoryBackend) StartConfigurationRecorder(name string) error {
 
 // PutDeliveryChannel creates or updates a delivery channel.
 func (b *InMemoryBackend) PutDeliveryChannel(name, s3Bucket, snsArn string) error {
-	b.mu.Lock()
+	b.mu.Lock("PutDeliveryChannel")
 	defer b.mu.Unlock()
 
 	b.channels[name] = &DeliveryChannel{Name: name, S3Bucket: s3Bucket, SNSArn: snsArn}
@@ -93,7 +95,7 @@ func (b *InMemoryBackend) PutDeliveryChannel(name, s3Bucket, snsArn string) erro
 
 // DescribeDeliveryChannels returns all delivery channels.
 func (b *InMemoryBackend) DescribeDeliveryChannels() []DeliveryChannel {
-	b.mu.RLock()
+	b.mu.RLock("DescribeDeliveryChannels")
 	defer b.mu.RUnlock()
 
 	out := make([]DeliveryChannel, 0, len(b.channels))

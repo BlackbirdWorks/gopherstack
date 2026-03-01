@@ -58,7 +58,7 @@ func (s *Scheduler) Run(ctx context.Context) {
 
 // initLastFired seeds the lastFired map with the current time for all scheduled rules.
 func (s *Scheduler) initLastFired(lastFired map[string]time.Time, now time.Time) {
-	s.backend.mu.RLock()
+	s.backend.mu.RLock("initLastFired")
 	defer s.backend.mu.RUnlock()
 
 	for _, busRules := range s.backend.rules {
@@ -72,7 +72,7 @@ func (s *Scheduler) initLastFired(lastFired map[string]time.Time, now time.Time)
 
 // processTick evaluates all scheduled rules and fires any that are due.
 func (s *Scheduler) processTick(ctx context.Context, tick time.Time, lastFired map[string]time.Time) {
-	s.backend.mu.RLock()
+	s.backend.mu.RLock("processTick")
 	type ruleInfo struct {
 		rule    Rule
 		busName string

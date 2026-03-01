@@ -3,10 +3,11 @@ package ec2
 import (
 	"errors"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
 // Errors returned by the EC2 backend.
@@ -96,7 +97,7 @@ type InMemoryBackend struct {
 	subnets        map[string]*Subnet
 	AccountID      string
 	Region         string
-	mu             sync.RWMutex
+	mu             *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with a default VPC and subnet.
@@ -108,6 +109,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		subnets:        make(map[string]*Subnet),
 		AccountID:      accountID,
 		Region:         region,
+		mu:             lockmetrics.New("ec2"),
 	}
 
 	b.initDefaults()
@@ -152,7 +154,7 @@ func (b *InMemoryBackend) RunInstances(imageID, instanceType, subnetID string, c
 		count = 1
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("RunInstances")
 	defer b.mu.Unlock()
 
 	if subnetID == "" {
@@ -201,7 +203,7 @@ func (b *InMemoryBackend) findDefaultSubnetID() string {
 
 // DescribeInstances returns instances, optionally filtered by IDs or state.
 func (b *InMemoryBackend) DescribeInstances(ids []string, state string) []*Instance {
-	b.mu.RLock()
+	b.mu.RLock("DescribeInstances")
 	defer b.mu.RUnlock()
 
 	idSet := make(map[string]bool, len(ids))
@@ -229,7 +231,7 @@ func (b *InMemoryBackend) DescribeInstances(ids []string, state string) []*Insta
 
 // TerminateInstances sets the state of each instance to terminated.
 func (b *InMemoryBackend) TerminateInstances(ids []string) ([]*Instance, error) {
-	b.mu.Lock()
+	b.mu.Lock("TerminateInstances")
 	defer b.mu.Unlock()
 
 	var result []*Instance
@@ -250,7 +252,7 @@ func (b *InMemoryBackend) TerminateInstances(ids []string) ([]*Instance, error) 
 
 // DescribeSecurityGroups returns security groups, optionally filtered by IDs.
 func (b *InMemoryBackend) DescribeSecurityGroups(ids []string) []*SecurityGroup {
-	b.mu.RLock()
+	b.mu.RLock("DescribeSecurityGroups")
 	defer b.mu.RUnlock()
 
 	idSet := make(map[string]bool, len(ids))
@@ -278,7 +280,7 @@ func (b *InMemoryBackend) CreateSecurityGroup(name, description, vpcID string) (
 		return nil, fmt.Errorf("%w: GroupName is required", ErrInvalidParameter)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("CreateSecurityGroup")
 	defer b.mu.Unlock()
 
 	if vpcID != "" {
@@ -307,7 +309,7 @@ func (b *InMemoryBackend) CreateSecurityGroup(name, description, vpcID string) (
 
 // DeleteSecurityGroup removes a security group by ID.
 func (b *InMemoryBackend) DeleteSecurityGroup(id string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteSecurityGroup")
 	defer b.mu.Unlock()
 
 	if _, ok := b.securityGroups[id]; !ok {
@@ -321,7 +323,7 @@ func (b *InMemoryBackend) DeleteSecurityGroup(id string) error {
 
 // DescribeVpcs returns VPCs, optionally filtered by IDs.
 func (b *InMemoryBackend) DescribeVpcs(ids []string) []*VPC {
-	b.mu.RLock()
+	b.mu.RLock("DescribeVpcs")
 	defer b.mu.RUnlock()
 
 	idSet := make(map[string]bool, len(ids))
@@ -349,7 +351,7 @@ func (b *InMemoryBackend) CreateVpc(cidr string) (*VPC, error) {
 		return nil, fmt.Errorf("%w: CidrBlock is required", ErrInvalidParameter)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("CreateVpc")
 	defer b.mu.Unlock()
 
 	id := "vpc-" + uuid.New().String()[:17]
@@ -364,7 +366,7 @@ func (b *InMemoryBackend) CreateVpc(cidr string) (*VPC, error) {
 
 // DescribeSubnets returns subnets, optionally filtered by IDs.
 func (b *InMemoryBackend) DescribeSubnets(ids []string) []*Subnet {
-	b.mu.RLock()
+	b.mu.RLock("DescribeSubnets")
 	defer b.mu.RUnlock()
 
 	idSet := make(map[string]bool, len(ids))
@@ -396,7 +398,7 @@ func (b *InMemoryBackend) CreateSubnet(vpcID, cidr, az string) (*Subnet, error) 
 		return nil, fmt.Errorf("%w: CidrBlock is required", ErrInvalidParameter)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("CreateSubnet")
 	defer b.mu.Unlock()
 
 	if _, ok := b.vpcs[vpcID]; !ok {

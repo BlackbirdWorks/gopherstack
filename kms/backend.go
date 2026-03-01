@@ -10,10 +10,11 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
@@ -94,7 +95,7 @@ type InMemoryBackend struct {
 	policies  map[string]string // keyId -> policy JSON
 	accountID string
 	region    string
-	mu        sync.RWMutex
+	mu        *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates and returns a new empty KMS backend with default account/region.
@@ -111,6 +112,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		policies:  make(map[string]string),
 		accountID: accountID,
 		region:    region,
+		mu: lockmetrics.New("kms"),
 	}
 }
 
@@ -209,7 +211,7 @@ func decryptData(blob []byte) ([]byte, string, error) {
 
 // CreateKey creates a new KMS key and stores it in the backend.
 func (b *InMemoryBackend) CreateKey(input *CreateKeyInput) (*CreateKeyOutput, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateKey")
 	defer b.mu.Unlock()
 
 	keyID := uuid.New().String()
@@ -248,7 +250,7 @@ func (b *InMemoryBackend) CreateKey(input *CreateKeyInput) (*CreateKeyOutput, er
 
 // DescribeKey returns metadata for the specified key.
 func (b *InMemoryBackend) DescribeKey(input *DescribeKeyInput) (*DescribeKeyOutput, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeKey")
 	defer b.mu.RUnlock()
 
 	key, err := b.lookupKey(input.KeyID)
@@ -263,7 +265,7 @@ func (b *InMemoryBackend) DescribeKey(input *DescribeKeyInput) (*DescribeKeyOutp
 
 // ListKeys returns a paginated list of all keys.
 func (b *InMemoryBackend) ListKeys(input *ListKeysInput) (*ListKeysOutput, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListKeys")
 	defer b.mu.RUnlock()
 
 	entries := make([]KeyListEntry, 0, len(b.keys))
@@ -306,7 +308,7 @@ func (b *InMemoryBackend) ListKeys(input *ListKeysInput) (*ListKeysOutput, error
 
 // Encrypt encrypts the given plaintext using the specified key.
 func (b *InMemoryBackend) Encrypt(input *EncryptInput) (*EncryptOutput, error) {
-	b.mu.RLock()
+	b.mu.RLock("Encrypt")
 	defer b.mu.RUnlock()
 
 	key, err := b.lookupKey(input.KeyID)
@@ -331,7 +333,7 @@ func (b *InMemoryBackend) Encrypt(input *EncryptInput) (*EncryptOutput, error) {
 
 // Decrypt decrypts the given ciphertext blob.
 func (b *InMemoryBackend) Decrypt(input *DecryptInput) (*DecryptOutput, error) {
-	b.mu.RLock()
+	b.mu.RLock("Decrypt")
 	defer b.mu.RUnlock()
 
 	plaintext, keyID, err := decryptData(input.CiphertextBlob)
@@ -356,7 +358,7 @@ func (b *InMemoryBackend) Decrypt(input *DecryptInput) (*DecryptOutput, error) {
 
 // GenerateDataKey generates a random data key, returning both plaintext and encrypted forms.
 func (b *InMemoryBackend) GenerateDataKey(input *GenerateDataKeyInput) (*GenerateDataKeyOutput, error) {
-	b.mu.RLock()
+	b.mu.RLock("GenerateDataKey")
 	defer b.mu.RUnlock()
 
 	key, err := b.lookupKey(input.KeyID)
@@ -396,7 +398,7 @@ func (b *InMemoryBackend) GenerateDataKey(input *GenerateDataKeyInput) (*Generat
 
 // ReEncrypt decrypts a ciphertext and re-encrypts it under a different key.
 func (b *InMemoryBackend) ReEncrypt(input *ReEncryptInput) (*ReEncryptOutput, error) {
-	b.mu.RLock()
+	b.mu.RLock("ReEncrypt")
 	defer b.mu.RUnlock()
 
 	plaintext, sourceKeyID, err := decryptData(input.CiphertextBlob)
@@ -427,7 +429,7 @@ func (b *InMemoryBackend) ReEncrypt(input *ReEncryptInput) (*ReEncryptOutput, er
 
 // CreateAlias creates an alias pointing to a key.
 func (b *InMemoryBackend) CreateAlias(input *CreateAliasInput) error {
-	b.mu.Lock()
+	b.mu.Lock("CreateAlias")
 	defer b.mu.Unlock()
 
 	if _, exists := b.aliases[input.AliasName]; exists {
@@ -455,7 +457,7 @@ func (b *InMemoryBackend) CreateAlias(input *CreateAliasInput) error {
 
 // DeleteAlias removes an alias.
 func (b *InMemoryBackend) DeleteAlias(input *DeleteAliasInput) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteAlias")
 	defer b.mu.Unlock()
 
 	if _, exists := b.aliases[input.AliasName]; !exists {
@@ -469,7 +471,7 @@ func (b *InMemoryBackend) DeleteAlias(input *DeleteAliasInput) error {
 
 // ListAliases returns a paginated list of aliases, optionally filtered by key.
 func (b *InMemoryBackend) ListAliases(input *ListAliasesInput) (*ListAliasesOutput, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListAliases")
 	defer b.mu.RUnlock()
 
 	var resolvedKeyID string
@@ -527,7 +529,7 @@ func (b *InMemoryBackend) ListAliases(input *ListAliasesInput) (*ListAliasesOutp
 
 // EnableKeyRotation enables automatic key rotation for the specified key.
 func (b *InMemoryBackend) EnableKeyRotation(input *EnableKeyRotationInput) error {
-	b.mu.Lock()
+	b.mu.Lock("EnableKeyRotation")
 	defer b.mu.Unlock()
 
 	key, err := b.lookupKeyWrite(input.KeyID)
@@ -542,7 +544,7 @@ func (b *InMemoryBackend) EnableKeyRotation(input *EnableKeyRotationInput) error
 
 // DisableKeyRotation disables automatic key rotation for the specified key.
 func (b *InMemoryBackend) DisableKeyRotation(input *DisableKeyRotationInput) error {
-	b.mu.Lock()
+	b.mu.Lock("DisableKeyRotation")
 	defer b.mu.Unlock()
 
 	key, err := b.lookupKeyWrite(input.KeyID)
@@ -557,7 +559,7 @@ func (b *InMemoryBackend) DisableKeyRotation(input *DisableKeyRotationInput) err
 
 // GetKeyRotationStatus returns whether rotation is enabled for the specified key.
 func (b *InMemoryBackend) GetKeyRotationStatus(input *GetKeyRotationStatusInput) (*GetKeyRotationStatusOutput, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetKeyRotationStatus")
 	defer b.mu.RUnlock()
 
 	key, err := b.lookupKey(input.KeyID)
@@ -573,7 +575,7 @@ func (b *InMemoryBackend) GetKeyRotationStatus(input *GetKeyRotationStatusInput)
 
 // DisableKey disables the specified key.
 func (b *InMemoryBackend) DisableKey(input *DisableKeyInput) error {
-	b.mu.Lock()
+	b.mu.Lock("DisableKey")
 	defer b.mu.Unlock()
 
 	key, err := b.lookupKeyWrite(input.KeyID)
@@ -589,7 +591,7 @@ func (b *InMemoryBackend) DisableKey(input *DisableKeyInput) error {
 
 // EnableKey enables the specified key.
 func (b *InMemoryBackend) EnableKey(input *EnableKeyInput) error {
-	b.mu.Lock()
+	b.mu.Lock("EnableKey")
 	defer b.mu.Unlock()
 
 	key, err := b.lookupKeyWrite(input.KeyID)
@@ -607,7 +609,7 @@ const defaultPendingWindowDays = 30
 
 // ScheduleKeyDeletion schedules a key for deletion.
 func (b *InMemoryBackend) ScheduleKeyDeletion(input *ScheduleKeyDeletionInput) (*ScheduleKeyDeletionOutput, error) {
-	b.mu.Lock()
+	b.mu.Lock("ScheduleKeyDeletion")
 	defer b.mu.Unlock()
 
 	key, err := b.lookupKeyWrite(input.KeyID)
@@ -634,7 +636,7 @@ func (b *InMemoryBackend) ScheduleKeyDeletion(input *ScheduleKeyDeletionInput) (
 
 // CancelKeyDeletion cancels a pending key deletion and sets the key to Disabled.
 func (b *InMemoryBackend) CancelKeyDeletion(input *CancelKeyDeletionInput) error {
-	b.mu.Lock()
+	b.mu.Lock("CancelKeyDeletion")
 	defer b.mu.Unlock()
 
 	key, err := b.lookupKeyWrite(input.KeyID)
@@ -720,7 +722,7 @@ func parseMarker(marker string) int {
 
 // CreateGrant creates a new grant on the specified key.
 func (b *InMemoryBackend) CreateGrant(input *CreateGrantInput) (*CreateGrantOutput, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateGrant")
 	defer b.mu.Unlock()
 
 	keyID, err := b.resolveKeyID(input.KeyID)
@@ -750,7 +752,7 @@ func (b *InMemoryBackend) CreateGrant(input *CreateGrantInput) (*CreateGrantOutp
 
 // ListGrants returns the grants for a specified key.
 func (b *InMemoryBackend) ListGrants(input *ListGrantsInput) (*ListGrantsOutput, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListGrants")
 	defer b.mu.RUnlock()
 
 	keyID, err := b.resolveKeyID(input.KeyID)
@@ -776,7 +778,7 @@ func (b *InMemoryBackend) ListGrants(input *ListGrantsInput) (*ListGrantsOutput,
 
 // RevokeGrant revokes a grant by ID.
 func (b *InMemoryBackend) RevokeGrant(input *RevokeGrantInput) error {
-	b.mu.Lock()
+	b.mu.Lock("RevokeGrant")
 	defer b.mu.Unlock()
 
 	keyID, err := b.resolveKeyID(input.KeyID)
@@ -800,7 +802,7 @@ func (b *InMemoryBackend) RevokeGrant(input *RevokeGrantInput) error {
 
 // RetireGrant retires a grant by grant token or grant ID + key ID.
 func (b *InMemoryBackend) RetireGrant(input *RetireGrantInput) error {
-	b.mu.Lock()
+	b.mu.Lock("RetireGrant")
 	defer b.mu.Unlock()
 
 	if input.GrantToken != "" {
@@ -842,7 +844,7 @@ func (b *InMemoryBackend) RetireGrant(input *RetireGrantInput) error {
 
 // ListRetirableGrants returns all grants for which the given principal is the retiring principal.
 func (b *InMemoryBackend) ListRetirableGrants(_ *ListRetirableGrantsInput) (*ListGrantsOutput, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListRetirableGrants")
 	defer b.mu.RUnlock()
 
 	grants := make([]Grant, 0, len(b.grants))
@@ -876,7 +878,7 @@ func (b *InMemoryBackend) GenerateDataKeyWithoutPlaintext(
 
 // PutKeyPolicy stores a key policy for a KMS key.
 func (b *InMemoryBackend) PutKeyPolicy(input *PutKeyPolicyInput) error {
-	b.mu.Lock()
+	b.mu.Lock("PutKeyPolicy")
 	defer b.mu.Unlock()
 
 	keyID, err := b.resolveKeyID(input.KeyID)
@@ -895,7 +897,7 @@ func (b *InMemoryBackend) PutKeyPolicy(input *PutKeyPolicyInput) error {
 
 // GetKeyPolicy retrieves the key policy for a KMS key.
 func (b *InMemoryBackend) GetKeyPolicy(input *GetKeyPolicyInput) (*GetKeyPolicyOutput, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetKeyPolicy")
 	defer b.mu.RUnlock()
 
 	keyID, err := b.resolveKeyID(input.KeyID)

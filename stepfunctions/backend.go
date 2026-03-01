@@ -8,8 +8,9 @@ import (
 	"log/slog"
 	"sort"
 	"strconv"
-	"sync"
 	"time"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -54,7 +55,7 @@ type InMemoryBackend struct {
 	logger        *slog.Logger
 	accountID     string
 	region        string
-	mu            sync.RWMutex
+	mu            *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with default configuration.
@@ -71,19 +72,20 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		executions:    make(map[string]*Execution),
 		history:       make(map[string][]*HistoryEvent),
 		logger:        slog.Default(),
+		mu: lockmetrics.New("stepfunctions"),
 	}
 }
 
 // SetLambdaInvoker configures the Lambda invoker for Task states.
 func (b *InMemoryBackend) SetLambdaInvoker(invoker asl.LambdaInvoker) {
-	b.mu.Lock()
+	b.mu.Lock("SetLambdaInvoker")
 	defer b.mu.Unlock()
 	b.lambdaInvoker = invoker
 }
 
 // SetLogger sets the logger for the backend.
 func (b *InMemoryBackend) SetLogger(log *slog.Logger) {
-	b.mu.Lock()
+	b.mu.Lock("SetLogger")
 	defer b.mu.Unlock()
 	b.logger = log
 }
@@ -104,7 +106,7 @@ func (b *InMemoryBackend) CreateStateMachine(name, definition, roleArn, smType s
 
 	arn := b.smARN(name)
 
-	b.mu.Lock()
+	b.mu.Lock("CreateStateMachine")
 	defer b.mu.Unlock()
 
 	for _, sm := range b.stateMachines {
@@ -129,7 +131,7 @@ func (b *InMemoryBackend) CreateStateMachine(name, definition, roleArn, smType s
 
 // DeleteStateMachine marks a state machine as DELETING then removes it.
 func (b *InMemoryBackend) DeleteStateMachine(arn string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteStateMachine")
 	defer b.mu.Unlock()
 
 	sm, exists := b.stateMachines[arn]
@@ -145,7 +147,7 @@ func (b *InMemoryBackend) DeleteStateMachine(arn string) error {
 
 // ListStateMachines returns state machines with optional pagination.
 func (b *InMemoryBackend) ListStateMachines(nextToken string, maxResults int) ([]StateMachine, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListStateMachines")
 	defer b.mu.RUnlock()
 
 	all := make([]StateMachine, 0, len(b.stateMachines))
@@ -162,7 +164,7 @@ func (b *InMemoryBackend) ListStateMachines(nextToken string, maxResults int) ([
 
 // DescribeStateMachine returns details for a single state machine.
 func (b *InMemoryBackend) DescribeStateMachine(arn string) (*StateMachine, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeStateMachine")
 	defer b.mu.RUnlock()
 
 	sm, exists := b.stateMachines[arn]
@@ -179,7 +181,7 @@ func (b *InMemoryBackend) DescribeStateMachine(arn string) (*StateMachine, error
 // If the state machine definition is a valid ASL, the interpreter runs asynchronously.
 // If the definition cannot be parsed, execution completes synchronously with pass-through output.
 func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*Execution, error) {
-	b.mu.Lock()
+	b.mu.Lock("StartExecution")
 
 	sm, exists := b.stateMachines[stateMachineArn]
 	if !exists {
@@ -247,7 +249,7 @@ type historyRecorder struct {
 }
 
 func (r *historyRecorder) RecordStateEntered(execARN, stateName, stateType string, _ any) {
-	r.backend.mu.Lock()
+	r.backend.mu.Lock("RecordStateEntered")
 	defer r.backend.mu.Unlock()
 
 	events := r.backend.history[execARN]
@@ -264,7 +266,7 @@ func (r *historyRecorder) RecordStateEntered(execARN, stateName, stateType strin
 }
 
 func (r *historyRecorder) RecordStateExited(execARN, stateName, stateType string, _ any) {
-	r.backend.mu.Lock()
+	r.backend.mu.Lock("RecordStateExited")
 	defer r.backend.mu.Unlock()
 
 	events := r.backend.history[execARN]
@@ -281,7 +283,7 @@ func (r *historyRecorder) RecordStateExited(execARN, stateName, stateType string
 }
 
 func (r *historyRecorder) RecordTaskScheduled(execARN, _ /* stateName */, _ /* resource */ string) {
-	r.backend.mu.Lock()
+	r.backend.mu.Lock("RecordTaskScheduled")
 	defer r.backend.mu.Unlock()
 
 	events := r.backend.history[execARN]
@@ -295,7 +297,7 @@ func (r *historyRecorder) RecordTaskScheduled(execARN, _ /* stateName */, _ /* r
 }
 
 func (r *historyRecorder) RecordTaskSucceeded(execARN, _ /* stateName */ string, _ any) {
-	r.backend.mu.Lock()
+	r.backend.mu.Lock("RecordTaskSucceeded")
 	defer r.backend.mu.Unlock()
 
 	events := r.backend.history[execARN]
@@ -309,7 +311,7 @@ func (r *historyRecorder) RecordTaskSucceeded(execARN, _ /* stateName */ string,
 }
 
 func (r *historyRecorder) RecordTaskFailed(execARN, _ /* stateName */, _ /* errCode */, _ /* cause */ string) {
-	r.backend.mu.Lock()
+	r.backend.mu.Lock("RecordTaskFailed")
 	defer r.backend.mu.Unlock()
 
 	events := r.backend.history[execARN]
@@ -334,7 +336,7 @@ func (b *InMemoryBackend) runParsedExecution(
 	executor := asl.NewExecutor(sm, lambdaInvoker, rec)
 	result, execErr := executor.Execute(ctx, execARN, input)
 
-	b.mu.Lock()
+	b.mu.Lock("runParsedExecution")
 	defer b.mu.Unlock()
 
 	exec := b.executions[execARN]
@@ -378,7 +380,7 @@ func (b *InMemoryBackend) runParsedExecution(
 
 // StopExecution marks an execution as ABORTED.
 func (b *InMemoryBackend) StopExecution(executionArn, errCode, cause string) error {
-	b.mu.Lock()
+	b.mu.Lock("StopExecution")
 	defer b.mu.Unlock()
 
 	exec, exists := b.executions[executionArn]
@@ -402,7 +404,7 @@ func (b *InMemoryBackend) StopExecution(executionArn, errCode, cause string) err
 
 // DescribeExecution returns details for a single execution.
 func (b *InMemoryBackend) DescribeExecution(executionArn string) (*Execution, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeExecution")
 	defer b.mu.RUnlock()
 
 	exec, exists := b.executions[executionArn]
@@ -419,7 +421,7 @@ func (b *InMemoryBackend) DescribeExecution(executionArn string) (*Execution, er
 func (b *InMemoryBackend) ListExecutions(
 	stateMachineArn, statusFilter, nextToken string, maxResults int,
 ) ([]Execution, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListExecutions")
 	defer b.mu.RUnlock()
 
 	all := make([]Execution, 0)
@@ -444,7 +446,7 @@ func (b *InMemoryBackend) ListExecutions(
 func (b *InMemoryBackend) GetExecutionHistory(
 	executionArn, nextToken string, maxResults int, reverseOrder bool,
 ) ([]HistoryEvent, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetExecutionHistory")
 	defer b.mu.RUnlock()
 
 	if _, exists := b.executions[executionArn]; !exists {

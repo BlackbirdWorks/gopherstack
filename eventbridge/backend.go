@@ -8,10 +8,11 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -61,7 +62,7 @@ type InMemoryBackend struct {
 	accountID       string
 	region          string
 	eventLog        []EventLogEntry
-	mu              sync.RWMutex
+	mu              *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with default configuration.
@@ -79,6 +80,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		targets:         make(map[string]map[string]*Target),
 		logger:          slog.Default(),
 		deliveryTargets: &DeliveryTargets{},
+		mu:              lockmetrics.New("eventbridge"),
 	}
 	// Create the default event bus.
 	b.buses[defaultEventBusName] = &EventBus{
@@ -92,14 +94,14 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 
 // SetLogger sets the logger for the backend.
 func (b *InMemoryBackend) SetLogger(log *slog.Logger) {
-	b.mu.Lock()
+	b.mu.Lock("SetLogger")
 	defer b.mu.Unlock()
 	b.logger = log
 }
 
 // SetDeliveryTargets configures the service references used for fan-out delivery.
 func (b *InMemoryBackend) SetDeliveryTargets(dt *DeliveryTargets) {
-	b.mu.Lock()
+	b.mu.Lock("SetDeliveryTargets")
 	defer b.mu.Unlock()
 	b.deliveryTargets = dt
 }
@@ -122,7 +124,7 @@ func (b *InMemoryBackend) CreateEventBus(name, description string) (*EventBus, e
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("CreateEventBus")
 	defer b.mu.Unlock()
 
 	if _, exists := b.buses[name]; exists {
@@ -147,7 +149,7 @@ func (b *InMemoryBackend) DeleteEventBus(name string) error {
 		return fmt.Errorf("%w: cannot delete the default event bus", ErrCannotDeleteDefaultBus)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("DeleteEventBus")
 	defer b.mu.Unlock()
 
 	if _, exists := b.buses[name]; !exists {
@@ -170,7 +172,7 @@ func (b *InMemoryBackend) DeleteEventBus(name string) error {
 
 // ListEventBuses returns event buses optionally filtered by name prefix, with pagination.
 func (b *InMemoryBackend) ListEventBuses(namePrefix, nextToken string) ([]EventBus, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListEventBuses")
 	defer b.mu.RUnlock()
 
 	all := make([]EventBus, 0, len(b.buses))
@@ -205,7 +207,7 @@ func (b *InMemoryBackend) DescribeEventBus(name string) (*EventBus, error) {
 		name = defaultEventBusName
 	}
 
-	b.mu.RLock()
+	b.mu.RLock("DescribeEventBus")
 	defer b.mu.RUnlock()
 
 	bus, exists := b.buses[name]
@@ -229,7 +231,7 @@ func (b *InMemoryBackend) PutRule(input PutRuleInput) (*Rule, error) {
 		busName = defaultEventBusName
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("PutRule")
 	defer b.mu.Unlock()
 
 	if _, exists := b.buses[busName]; !exists {
@@ -266,7 +268,7 @@ func (b *InMemoryBackend) DeleteRule(name, eventBusName string) error {
 		eventBusName = defaultEventBusName
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("DeleteRule")
 	defer b.mu.Unlock()
 
 	busRules, exists := b.rules[eventBusName]
@@ -291,7 +293,7 @@ func (b *InMemoryBackend) ListRules(eventBusName, namePrefix, nextToken string) 
 		eventBusName = defaultEventBusName
 	}
 
-	b.mu.RLock()
+	b.mu.RLock("ListRules")
 	defer b.mu.RUnlock()
 
 	busRules := b.rules[eventBusName]
@@ -327,7 +329,7 @@ func (b *InMemoryBackend) DescribeRule(name, eventBusName string) (*Rule, error)
 		eventBusName = defaultEventBusName
 	}
 
-	b.mu.RLock()
+	b.mu.RLock("DescribeRule")
 	defer b.mu.RUnlock()
 
 	busRules, exists := b.rules[eventBusName]
@@ -360,7 +362,7 @@ func (b *InMemoryBackend) setRuleState(name, eventBusName, state string) error {
 		eventBusName = defaultEventBusName
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("setRuleState")
 	defer b.mu.Unlock()
 
 	busRules, exists := b.rules[eventBusName]
@@ -384,7 +386,7 @@ func (b *InMemoryBackend) PutTargets(ruleName, eventBusName string, targets []Ta
 		eventBusName = defaultEventBusName
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("PutTargets")
 	defer b.mu.Unlock()
 
 	busRules, exists := b.rules[eventBusName]
@@ -425,7 +427,7 @@ func (b *InMemoryBackend) RemoveTargets(ruleName, eventBusName string, ids []str
 		eventBusName = defaultEventBusName
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("RemoveTargets")
 	defer b.mu.Unlock()
 
 	key := b.targetKey(eventBusName, ruleName)
@@ -454,7 +456,7 @@ func (b *InMemoryBackend) ListTargetsByRule(ruleName, eventBusName, nextToken st
 		eventBusName = defaultEventBusName
 	}
 
-	b.mu.RLock()
+	b.mu.RLock("ListTargetsByRule")
 	defer b.mu.RUnlock()
 
 	key := b.targetKey(eventBusName, ruleName)
@@ -485,7 +487,7 @@ func (b *InMemoryBackend) ListTargetsByRule(ruleName, eventBusName, nextToken st
 
 // PutEvents records events in the event log and returns result entries.
 func (b *InMemoryBackend) PutEvents(entries []EventEntry) []EventResultEntry {
-	b.mu.Lock()
+	b.mu.Lock("PutEvents")
 
 	results := make([]EventResultEntry, 0, len(entries))
 	for _, entry := range entries {
@@ -529,7 +531,7 @@ func (b *InMemoryBackend) PutEvents(entries []EventEntry) []EventResultEntry {
 
 // GetEventLog returns a copy of the current event log.
 func (b *InMemoryBackend) GetEventLog() []EventLogEntry {
-	b.mu.RLock()
+	b.mu.RLock("GetEventLog")
 	defer b.mu.RUnlock()
 
 	log := make([]EventLogEntry, len(b.eventLog))

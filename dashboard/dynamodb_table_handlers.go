@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 
@@ -162,7 +164,8 @@ func (h *DashboardHandler) fetchTableInfos(ctx context.Context, tableNames []str
 
 	tableInfos := make([]TableInfo, len(tableNames))
 	var wg sync.WaitGroup
-	var mu sync.Mutex
+	mu := lockmetrics.New("dashboard.tables")
+	defer mu.Close()
 
 	for i, tableName := range tableNames {
 		wg.Add(1)
@@ -191,7 +194,7 @@ func (h *DashboardHandler) fetchTableInfos(ctx context.Context, tableNames []str
 				return
 			}
 
-			mu.Lock()
+			mu.Lock("fetchTableInfos")
 			tableInfos[idx] = buildTableListInfo(desc.Table)
 			mu.Unlock()
 		}(i, tableName)

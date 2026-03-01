@@ -3,7 +3,8 @@ package redshift
 import (
 	"errors"
 	"fmt"
-	"sync"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	
 
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -30,7 +31,7 @@ type InMemoryBackend struct {
 	clusters  map[string]*Cluster
 	accountID string
 	region    string
-	mu        sync.RWMutex
+	mu        *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -39,6 +40,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		clusters:  make(map[string]*Cluster),
 		accountID: accountID,
 		region:    region,
+		mu: lockmetrics.New("redshift"),
 	}
 }
 
@@ -48,7 +50,7 @@ func (b *InMemoryBackend) CreateCluster(id, nodeType, dbName, masterUser string)
 		return nil, fmt.Errorf("%w: ClusterIdentifier is required", ErrInvalidParameter)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("CreateCluster")
 	defer b.mu.Unlock()
 
 	if _, exists := b.clusters[id]; exists {
@@ -84,7 +86,7 @@ func (b *InMemoryBackend) CreateCluster(id, nodeType, dbName, masterUser string)
 
 // DeleteCluster removes the cluster with the given identifier.
 func (b *InMemoryBackend) DeleteCluster(id string) (*Cluster, error) {
-	b.mu.Lock()
+	b.mu.Lock("DeleteCluster")
 	defer b.mu.Unlock()
 
 	cluster, exists := b.clusters[id]
@@ -100,7 +102,7 @@ func (b *InMemoryBackend) DeleteCluster(id string) (*Cluster, error) {
 
 // DescribeClusters returns clusters. If id is non-empty, returns only that cluster.
 func (b *InMemoryBackend) DescribeClusters(id string) ([]Cluster, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeClusters")
 	defer b.mu.RUnlock()
 
 	if id != "" {
@@ -122,7 +124,7 @@ func (b *InMemoryBackend) DescribeClusters(id string) ([]Cluster, error) {
 
 // DescribeTags returns all tags across all clusters.
 func (b *InMemoryBackend) DescribeTags() map[string]map[string]string {
-	b.mu.RLock()
+	b.mu.RLock("DescribeTags")
 	defer b.mu.RUnlock()
 
 	result := make(map[string]map[string]string, len(b.clusters))
@@ -135,7 +137,7 @@ func (b *InMemoryBackend) DescribeTags() map[string]map[string]string {
 
 // CreateTags adds or updates tags on the specified cluster.
 func (b *InMemoryBackend) CreateTags(clusterID string, kv map[string]string) error {
-	b.mu.Lock()
+	b.mu.Lock("CreateTags")
 	defer b.mu.Unlock()
 
 	c, exists := b.clusters[clusterID]
@@ -150,7 +152,7 @@ func (b *InMemoryBackend) CreateTags(clusterID string, kv map[string]string) err
 
 // DeleteTags removes tag keys from the specified cluster.
 func (b *InMemoryBackend) DeleteTags(clusterID string, keys []string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteTags")
 	defer b.mu.Unlock()
 
 	c, exists := b.clusters[clusterID]

@@ -3,10 +3,11 @@ package elasticache
 import (
 	"errors"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -71,7 +72,7 @@ type InMemoryBackend struct {
 	engineMode        string
 	accountID         string
 	region            string
-	mu                sync.RWMutex
+	mu                *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new backend with the given engine mode.
@@ -86,6 +87,7 @@ func NewInMemoryBackend(engineMode, accountID, region string) *InMemoryBackend {
 		engineMode:        engineMode,
 		accountID:         accountID,
 		region:            region,
+		mu: lockmetrics.New("elasticache"),
 	}
 }
 
@@ -99,7 +101,7 @@ func (b *InMemoryBackend) replicationGroupARN(id string) string {
 
 // CreateCluster creates a new cache cluster.
 func (b *InMemoryBackend) CreateCluster(id, engine, nodeType string, port int) (*Cluster, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateCluster")
 	defer b.mu.Unlock()
 
 	if _, exists := b.clusters[id]; exists {
@@ -151,7 +153,7 @@ func (b *InMemoryBackend) CreateCluster(id, engine, nodeType string, port int) (
 
 // DeleteCluster stops and removes a cluster.
 func (b *InMemoryBackend) DeleteCluster(id string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteCluster")
 	defer b.mu.Unlock()
 
 	c, exists := b.clusters[id]
@@ -169,7 +171,7 @@ func (b *InMemoryBackend) DeleteCluster(id string) error {
 
 // DescribeClusters returns one or all clusters.
 func (b *InMemoryBackend) DescribeClusters(id string) ([]Cluster, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeClusters")
 	defer b.mu.RUnlock()
 
 	if id != "" {
@@ -193,7 +195,7 @@ func (b *InMemoryBackend) DescribeClusters(id string) ([]Cluster, error) {
 
 // ListTagsForResource returns tags for the given ARN.
 func (b *InMemoryBackend) ListTagsForResource(arn string) (map[string]string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
 	for _, c := range b.clusters {
@@ -212,7 +214,7 @@ func (b *InMemoryBackend) ListTagsForResource(arn string) (map[string]string, er
 
 // CreateReplicationGroup creates a replication group.
 func (b *InMemoryBackend) CreateReplicationGroup(id, description string) (*ReplicationGroup, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateReplicationGroup")
 	defer b.mu.Unlock()
 
 	if _, exists := b.replicationGroups[id]; exists {
@@ -234,7 +236,7 @@ func (b *InMemoryBackend) CreateReplicationGroup(id, description string) (*Repli
 
 // DeleteReplicationGroup removes a replication group.
 func (b *InMemoryBackend) DeleteReplicationGroup(id string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteReplicationGroup")
 	defer b.mu.Unlock()
 
 	if _, exists := b.replicationGroups[id]; !exists {
@@ -247,7 +249,7 @@ func (b *InMemoryBackend) DeleteReplicationGroup(id string) error {
 
 // DescribeReplicationGroups returns one or all replication groups.
 func (b *InMemoryBackend) DescribeReplicationGroups(id string) ([]ReplicationGroup, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeReplicationGroups")
 	defer b.mu.RUnlock()
 
 	if id != "" {
@@ -271,7 +273,7 @@ func (b *InMemoryBackend) DescribeReplicationGroups(id string) ([]ReplicationGro
 
 // ListAll returns all clusters (used by dashboard).
 func (b *InMemoryBackend) ListAll() []Cluster {
-	b.mu.RLock()
+	b.mu.RLock("ListAll")
 	defer b.mu.RUnlock()
 	out := make([]Cluster, 0, len(b.clusters))
 	for _, c := range b.clusters {

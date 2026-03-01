@@ -9,8 +9,9 @@ import (
 	"fmt"
 	"maps"
 	"net"
-	"sync"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
 // ErrNoPortsAvailable is returned when the pool has no free ports.
@@ -28,7 +29,7 @@ type Allocator struct {
 	used  map[int]string
 	start int
 	end   int
-	mu    sync.Mutex
+	mu    *lockmetrics.RWMutex
 }
 
 // New creates a new Allocator for the half-open range [start, end).
@@ -42,13 +43,14 @@ func New(start, end int) (*Allocator, error) {
 		start: start,
 		end:   end,
 		used:  make(map[int]string),
+		mu: lockmetrics.New("portalloc"),
 	}, nil
 }
 
 // Acquire returns the next free port in the range and associates it with label.
 // Returns ErrNoPortsAvailable when the pool is exhausted.
 func (a *Allocator) Acquire(label string) (int, error) {
-	a.mu.Lock()
+	a.mu.Lock("Acquire")
 	defer a.mu.Unlock()
 
 	for port := a.start; port < a.end; port++ {
@@ -65,7 +67,7 @@ func (a *Allocator) Acquire(label string) (int, error) {
 // Release returns a previously allocated port back to the pool.
 // Returns ErrPortNotAllocated if the port was not allocated.
 func (a *Allocator) Release(port int) error {
-	a.mu.Lock()
+	a.mu.Lock("Release")
 	defer a.mu.Unlock()
 
 	if _, ok := a.used[port]; !ok {
@@ -79,7 +81,7 @@ func (a *Allocator) Release(port int) error {
 
 // IsAllocated reports whether port is currently allocated.
 func (a *Allocator) IsAllocated(port int) bool {
-	a.mu.Lock()
+	a.mu.Lock("IsAllocated")
 	defer a.mu.Unlock()
 
 	_, ok := a.used[port]
@@ -89,7 +91,7 @@ func (a *Allocator) IsAllocated(port int) bool {
 
 // Allocated returns a snapshot of all currently allocated ports and their labels.
 func (a *Allocator) Allocated() map[int]string {
-	a.mu.Lock()
+	a.mu.Lock("Allocated")
 	defer a.mu.Unlock()
 
 	out := make(map[int]string, len(a.used))
@@ -100,7 +102,7 @@ func (a *Allocator) Allocated() map[int]string {
 
 // Available returns the number of unallocated ports in the range.
 func (a *Allocator) Available() int {
-	a.mu.Lock()
+	a.mu.Lock("Available")
 	defer a.mu.Unlock()
 
 	return (a.end - a.start) - len(a.used)

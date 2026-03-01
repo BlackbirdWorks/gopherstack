@@ -2,9 +2,10 @@ package route53resolver
 
 import (
 	"fmt"
-	"sync"
 
 	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -49,7 +50,7 @@ type InMemoryBackend struct {
 	rules     map[string]*ResolverRule
 	accountID string
 	region    string
-	mu        sync.RWMutex
+	mu        *lockmetrics.RWMutex
 }
 
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
@@ -58,6 +59,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		rules:     make(map[string]*ResolverRule),
 		accountID: accountID,
 		region:    region,
+		mu: lockmetrics.New("route53resolver"),
 	}
 }
 
@@ -67,7 +69,7 @@ func (b *InMemoryBackend) CreateResolverEndpoint(
 	name, direction, vpcID string,
 	ips []IPAddress,
 ) (*ResolverEndpoint, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateResolverEndpoint")
 	defer b.mu.Unlock()
 
 	dirPrefix := direction
@@ -96,7 +98,7 @@ func (b *InMemoryBackend) CreateResolverEndpoint(
 }
 
 func (b *InMemoryBackend) GetResolverEndpoint(id string) (*ResolverEndpoint, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetResolverEndpoint")
 	defer b.mu.RUnlock()
 
 	ep, ok := b.endpoints[id]
@@ -111,7 +113,7 @@ func (b *InMemoryBackend) GetResolverEndpoint(id string) (*ResolverEndpoint, err
 }
 
 func (b *InMemoryBackend) ListResolverEndpoints() []*ResolverEndpoint {
-	b.mu.RLock()
+	b.mu.RLock("ListResolverEndpoints")
 	defer b.mu.RUnlock()
 
 	list := make([]*ResolverEndpoint, 0, len(b.endpoints))
@@ -126,7 +128,7 @@ func (b *InMemoryBackend) ListResolverEndpoints() []*ResolverEndpoint {
 }
 
 func (b *InMemoryBackend) DeleteResolverEndpoint(id string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteResolverEndpoint")
 	defer b.mu.Unlock()
 
 	if _, ok := b.endpoints[id]; !ok {
@@ -138,7 +140,7 @@ func (b *InMemoryBackend) DeleteResolverEndpoint(id string) error {
 }
 
 func (b *InMemoryBackend) CreateResolverRule(name, domainName, ruleType, endpointID string) (*ResolverRule, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateResolverRule")
 	defer b.mu.Unlock()
 
 	id := "rslvr-rr-" + uuid.New().String()[:8]
@@ -161,7 +163,7 @@ func (b *InMemoryBackend) CreateResolverRule(name, domainName, ruleType, endpoin
 }
 
 func (b *InMemoryBackend) GetResolverRule(id string) (*ResolverRule, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetResolverRule")
 	defer b.mu.RUnlock()
 
 	r, ok := b.rules[id]
@@ -174,7 +176,7 @@ func (b *InMemoryBackend) GetResolverRule(id string) (*ResolverRule, error) {
 }
 
 func (b *InMemoryBackend) ListResolverRules() []*ResolverRule {
-	b.mu.RLock()
+	b.mu.RLock("ListResolverRules")
 	defer b.mu.RUnlock()
 
 	list := make([]*ResolverRule, 0, len(b.rules))
@@ -187,7 +189,7 @@ func (b *InMemoryBackend) ListResolverRules() []*ResolverRule {
 }
 
 func (b *InMemoryBackend) DeleteResolverRule(id string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteResolverRule")
 	defer b.mu.Unlock()
 
 	if _, ok := b.rules[id]; !ok {

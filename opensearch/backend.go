@@ -3,7 +3,8 @@ package opensearch
 import (
 	"errors"
 	"fmt"
-	"sync"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -38,7 +39,7 @@ type InMemoryBackend struct {
 	domains   map[string]*Domain
 	accountID string
 	region    string
-	mu        sync.RWMutex
+	mu        *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -47,6 +48,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		domains:   make(map[string]*Domain),
 		accountID: accountID,
 		region:    region,
+		mu: lockmetrics.New("opensearch"),
 	}
 }
 
@@ -56,7 +58,7 @@ func (b *InMemoryBackend) CreateDomain(name, engineVersion string, clusterConfig
 		return nil, fmt.Errorf("%w: DomainName is required", ErrInvalidParameter)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("CreateDomain")
 	defer b.mu.Unlock()
 
 	if _, exists := b.domains[name]; exists {
@@ -96,7 +98,7 @@ func (b *InMemoryBackend) CreateDomain(name, engineVersion string, clusterConfig
 
 // DeleteDomain removes a domain by name.
 func (b *InMemoryBackend) DeleteDomain(name string) (*Domain, error) {
-	b.mu.Lock()
+	b.mu.Lock("DeleteDomain")
 	defer b.mu.Unlock()
 
 	d, exists := b.domains[name]
@@ -112,7 +114,7 @@ func (b *InMemoryBackend) DeleteDomain(name string) (*Domain, error) {
 
 // DescribeDomain returns details about a domain.
 func (b *InMemoryBackend) DescribeDomain(name string) (*Domain, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeDomain")
 	defer b.mu.RUnlock()
 
 	d, exists := b.domains[name]
@@ -127,7 +129,7 @@ func (b *InMemoryBackend) DescribeDomain(name string) (*Domain, error) {
 
 // ListDomainNames returns the names of all domains.
 func (b *InMemoryBackend) ListDomainNames() []string {
-	b.mu.RLock()
+	b.mu.RLock("ListDomainNames")
 	defer b.mu.RUnlock()
 
 	names := make([]string, 0, len(b.domains))
@@ -151,7 +153,7 @@ func (b *InMemoryBackend) findDomainByARN(domainARN string) *Domain {
 
 // ListTags returns tags for the domain identified by ARN.
 func (b *InMemoryBackend) ListTags(domainARN string) (map[string]string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListTags")
 	defer b.mu.RUnlock()
 
 	d := b.findDomainByARN(domainARN)
@@ -164,7 +166,7 @@ func (b *InMemoryBackend) ListTags(domainARN string) (map[string]string, error) 
 
 // AddTags adds or updates tags on the domain identified by ARN.
 func (b *InMemoryBackend) AddTags(domainARN string, kv map[string]string) error {
-	b.mu.Lock()
+	b.mu.Lock("AddTags")
 	defer b.mu.Unlock()
 
 	d := b.findDomainByARN(domainARN)
@@ -179,7 +181,7 @@ func (b *InMemoryBackend) AddTags(domainARN string, kv map[string]string) error 
 
 // RemoveTags removes tag keys from the domain identified by ARN.
 func (b *InMemoryBackend) RemoveTags(domainARN string, keys []string) error {
-	b.mu.Lock()
+	b.mu.Lock("RemoveTags")
 	defer b.mu.Unlock()
 
 	d := b.findDomainByARN(domainARN)

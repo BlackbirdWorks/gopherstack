@@ -4,10 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -50,7 +51,7 @@ type InMemoryBackend struct {
 	creator    *ResourceCreator
 	accountID  string
 	region     string
-	mu         sync.RWMutex
+	mu         *lockmetrics.RWMutex
 }
 
 const (
@@ -86,6 +87,7 @@ func NewInMemoryBackendWithConfig(accountID, region string, creator *ResourceCre
 		creator:    creator,
 		accountID:  accountID,
 		region:     region,
+		mu: lockmetrics.New("cloudformation"),
 	}
 }
 
@@ -129,7 +131,7 @@ func (b *InMemoryBackend) CreateStack(
 	params []Parameter,
 	tags []Tag,
 ) (*Stack, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateStack")
 	defer b.mu.Unlock()
 
 	if existing, ok := b.stacks[name]; ok {
@@ -211,7 +213,7 @@ func (b *InMemoryBackend) UpdateStack(
 	nameOrID, templateBody string,
 	params []Parameter,
 ) (*Stack, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateStack")
 	defer b.mu.Unlock()
 
 	stack, ok := b.resolveStack(nameOrID)
@@ -313,7 +315,7 @@ func (b *InMemoryBackend) applyTemplateToStack(ctx context.Context, stack *Stack
 
 // DeleteStack marks a stack as deleted and deletes its resources.
 func (b *InMemoryBackend) DeleteStack(ctx context.Context, nameOrID string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteStack")
 	defer b.mu.Unlock()
 
 	stack, ok := b.resolveStack(nameOrID)
@@ -346,7 +348,7 @@ func (b *InMemoryBackend) DeleteStack(ctx context.Context, nameOrID string) erro
 
 // DescribeStack returns details for a single stack.
 func (b *InMemoryBackend) DescribeStack(nameOrID string) (*Stack, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeStack")
 	defer b.mu.RUnlock()
 
 	stack, ok := b.resolveStack(nameOrID)
@@ -359,7 +361,7 @@ func (b *InMemoryBackend) DescribeStack(nameOrID string) (*Stack, error) {
 
 // ListStacks returns stack summaries, optionally filtered by status.
 func (b *InMemoryBackend) ListStacks(statusFilter []string) []StackSummary {
-	b.mu.RLock()
+	b.mu.RLock("ListStacks")
 	defer b.mu.RUnlock()
 
 	filter := make(map[string]bool, len(statusFilter))
@@ -386,7 +388,7 @@ func (b *InMemoryBackend) ListStacks(statusFilter []string) []StackSummary {
 
 // DescribeStackEvents returns events for a stack.
 func (b *InMemoryBackend) DescribeStackEvents(nameOrID string) ([]StackEvent, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeStackEvents")
 	defer b.mu.RUnlock()
 
 	stack, ok := b.resolveStack(nameOrID)
@@ -410,7 +412,7 @@ func (b *InMemoryBackend) CreateChangeSet(
 	stackName, changeSetName, templateBody, description string,
 	params []Parameter,
 ) (*ChangeSet, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateChangeSet")
 	defer b.mu.Unlock()
 
 	if b.changeSets[stackName] == nil {
@@ -484,7 +486,7 @@ func (b *InMemoryBackend) computeChanges(templateBody string, stack *Stack) []Ch
 
 // DescribeChangeSet returns details for a change set.
 func (b *InMemoryBackend) DescribeChangeSet(stackName, changeSetName string) (*ChangeSet, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeChangeSet")
 	defer b.mu.RUnlock()
 
 	csMap, ok := b.changeSets[stackName]
@@ -501,7 +503,7 @@ func (b *InMemoryBackend) DescribeChangeSet(stackName, changeSetName string) (*C
 
 // ExecuteChangeSet applies a change set to a stack.
 func (b *InMemoryBackend) ExecuteChangeSet(ctx context.Context, stackName, changeSetName string) error {
-	b.mu.Lock()
+	b.mu.Lock("ExecuteChangeSet")
 	cs, ok := b.changeSets[stackName][changeSetName]
 	b.mu.Unlock()
 
@@ -518,7 +520,7 @@ func (b *InMemoryBackend) ExecuteChangeSet(ctx context.Context, stackName, chang
 		}
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("ExecuteChangeSet")
 	delete(b.changeSets[stackName], changeSetName)
 	b.mu.Unlock()
 
@@ -527,7 +529,7 @@ func (b *InMemoryBackend) ExecuteChangeSet(ctx context.Context, stackName, chang
 
 // DeleteChangeSet removes a change set.
 func (b *InMemoryBackend) DeleteChangeSet(stackName, changeSetName string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteChangeSet")
 	defer b.mu.Unlock()
 
 	if b.changeSets[stackName] == nil {
@@ -543,7 +545,7 @@ func (b *InMemoryBackend) DeleteChangeSet(stackName, changeSetName string) error
 
 // ListChangeSets returns summaries of change sets for a stack.
 func (b *InMemoryBackend) ListChangeSets(stackName string) ([]ChangeSetSummary, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListChangeSets")
 	defer b.mu.RUnlock()
 
 	csMap := b.changeSets[stackName]
@@ -565,7 +567,7 @@ func (b *InMemoryBackend) ListChangeSets(stackName string) ([]ChangeSetSummary, 
 
 // GetTemplate returns the template body for a stack.
 func (b *InMemoryBackend) GetTemplate(nameOrID string) (string, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetTemplate")
 	defer b.mu.RUnlock()
 
 	stack, ok := b.resolveStack(nameOrID)
@@ -578,7 +580,7 @@ func (b *InMemoryBackend) GetTemplate(nameOrID string) (string, error) {
 
 // ListAll returns all stacks (for dashboard).
 func (b *InMemoryBackend) ListAll() []*Stack {
-	b.mu.RLock()
+	b.mu.RLock("ListAll")
 	defer b.mu.RUnlock()
 
 	stacks := make([]*Stack, 0, len(b.stacks))
