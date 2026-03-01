@@ -1,7 +1,6 @@
 package logger_test
 
 import (
-	"context"
 	"log/slog"
 	"testing"
 
@@ -18,7 +17,7 @@ func TestLogger(t *testing.T) {
 		run  func(t *testing.T)
 	}{
 		{name: "SaveLoad", run: func(t *testing.T) {
-			ctx := context.Background()
+			ctx := t.Context()
 			testLogger := logger.NewTestLogger()
 
 			// Save logger to context
@@ -30,7 +29,7 @@ func TestLogger(t *testing.T) {
 			assert.Equal(t, testLogger, retrieved)
 		}},
 		{name: "LoadDefault", run: func(t *testing.T) {
-			ctx := context.Background()
+			ctx := t.Context()
 
 			// Load without saving should return default
 			retrieved := logger.Load(ctx)
@@ -42,14 +41,14 @@ func TestLogger(t *testing.T) {
 			testLogger := logger.NewTestLogger()
 
 			assert.NotNil(t, testLogger)
-			assert.True(t, testLogger.Enabled(context.Background(), slog.LevelDebug))
+			assert.True(t, testLogger.Enabled(t.Context(), slog.LevelDebug))
 		}},
 		{name: "NewLogger", run: func(t *testing.T) {
 			infoLogger := logger.NewLogger(slog.LevelInfo)
 
 			assert.NotNil(t, infoLogger)
-			assert.False(t, infoLogger.Enabled(context.Background(), slog.LevelDebug))
-			assert.True(t, infoLogger.Enabled(context.Background(), slog.LevelInfo))
+			assert.False(t, infoLogger.Enabled(t.Context(), slog.LevelDebug))
+			assert.True(t, infoLogger.Enabled(t.Context(), slog.LevelInfo))
 		}},
 	}
 

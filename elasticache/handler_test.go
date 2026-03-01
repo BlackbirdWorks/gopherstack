@@ -1,7 +1,6 @@
 package elasticache_test
 
 import (
-	"context"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -35,7 +34,7 @@ func newTestStack(t *testing.T) *elasticachesdk.Client {
 	srv := httptest.NewServer(e)
 	t.Cleanup(srv.Close)
 
-	cfg, err := awscfg.LoadDefaultConfig(context.Background(),
+	cfg, err := awscfg.LoadDefaultConfig(t.Context(),
 		awscfg.WithRegion("us-east-1"),
 		awscfg.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("test", "test", "")),
 	)
@@ -53,7 +52,7 @@ func TestCreateDescribeDeleteCacheCluster(t *testing.T) {
 	client := newTestStack(t)
 
 	// Create cluster
-	out, err := client.CreateCacheCluster(context.Background(), &elasticachesdk.CreateCacheClusterInput{
+	out, err := client.CreateCacheCluster(t.Context(), &elasticachesdk.CreateCacheClusterInput{
 		CacheClusterId: aws.String("my-cluster"),
 		Engine:         aws.String("redis"),
 		CacheNodeType:  aws.String("cache.t3.micro"),
@@ -72,7 +71,7 @@ func TestCreateDescribeDeleteCacheCluster(t *testing.T) {
 	assert.Positive(t, aws.ToInt32(ep.Port))
 
 	// Describe cluster
-	descOut, err := client.DescribeCacheClusters(context.Background(), &elasticachesdk.DescribeCacheClustersInput{
+	descOut, err := client.DescribeCacheClusters(t.Context(), &elasticachesdk.DescribeCacheClustersInput{
 		CacheClusterId: aws.String("my-cluster"),
 	})
 	require.NoError(t, err)
@@ -80,7 +79,7 @@ func TestCreateDescribeDeleteCacheCluster(t *testing.T) {
 	assert.Equal(t, "my-cluster", aws.ToString(descOut.CacheClusters[0].CacheClusterId))
 
 	// Delete cluster
-	delOut, err := client.DeleteCacheCluster(context.Background(), &elasticachesdk.DeleteCacheClusterInput{
+	delOut, err := client.DeleteCacheCluster(t.Context(), &elasticachesdk.DeleteCacheClusterInput{
 		CacheClusterId: aws.String("my-cluster"),
 	})
 	require.NoError(t, err)
@@ -88,7 +87,7 @@ func TestCreateDescribeDeleteCacheCluster(t *testing.T) {
 	assert.Equal(t, "deleting", aws.ToString(delOut.CacheCluster.CacheClusterStatus))
 
 	// Describe after delete → not found
-	_, err = client.DescribeCacheClusters(context.Background(), &elasticachesdk.DescribeCacheClustersInput{
+	_, err = client.DescribeCacheClusters(t.Context(), &elasticachesdk.DescribeCacheClustersInput{
 		CacheClusterId: aws.String("my-cluster"),
 	})
 	assert.Error(t, err)
@@ -98,19 +97,19 @@ func TestDescribeAllClusters(t *testing.T) {
 	t.Parallel()
 	client := newTestStack(t)
 
-	_, err := client.CreateCacheCluster(context.Background(), &elasticachesdk.CreateCacheClusterInput{
+	_, err := client.CreateCacheCluster(t.Context(), &elasticachesdk.CreateCacheClusterInput{
 		CacheClusterId: aws.String("cluster-a"),
 		Engine:         aws.String("redis"),
 	})
 	require.NoError(t, err)
 
-	_, err = client.CreateCacheCluster(context.Background(), &elasticachesdk.CreateCacheClusterInput{
+	_, err = client.CreateCacheCluster(t.Context(), &elasticachesdk.CreateCacheClusterInput{
 		CacheClusterId: aws.String("cluster-b"),
 		Engine:         aws.String("redis"),
 	})
 	require.NoError(t, err)
 
-	out, err := client.DescribeCacheClusters(context.Background(), &elasticachesdk.DescribeCacheClustersInput{})
+	out, err := client.DescribeCacheClusters(t.Context(), &elasticachesdk.DescribeCacheClustersInput{})
 	require.NoError(t, err)
 	assert.Len(t, out.CacheClusters, 2)
 }
@@ -119,13 +118,13 @@ func TestCreateClusterAlreadyExists(t *testing.T) {
 	t.Parallel()
 	client := newTestStack(t)
 
-	_, err := client.CreateCacheCluster(context.Background(), &elasticachesdk.CreateCacheClusterInput{
+	_, err := client.CreateCacheCluster(t.Context(), &elasticachesdk.CreateCacheClusterInput{
 		CacheClusterId: aws.String("dup"),
 		Engine:         aws.String("redis"),
 	})
 	require.NoError(t, err)
 
-	_, err = client.CreateCacheCluster(context.Background(), &elasticachesdk.CreateCacheClusterInput{
+	_, err = client.CreateCacheCluster(t.Context(), &elasticachesdk.CreateCacheClusterInput{
 		CacheClusterId: aws.String("dup"),
 		Engine:         aws.String("redis"),
 	})
@@ -137,7 +136,7 @@ func TestReplicationGroupCRUD(t *testing.T) {
 	client := newTestStack(t)
 
 	// Create replication group
-	createOut, err := client.CreateReplicationGroup(context.Background(), &elasticachesdk.CreateReplicationGroupInput{
+	createOut, err := client.CreateReplicationGroup(t.Context(), &elasticachesdk.CreateReplicationGroupInput{
 		ReplicationGroupId:          aws.String("my-rg"),
 		ReplicationGroupDescription: aws.String("test replication group"),
 	})
@@ -148,7 +147,7 @@ func TestReplicationGroupCRUD(t *testing.T) {
 
 	// Describe replication group
 	descOut, err := client.DescribeReplicationGroups(
-		context.Background(),
+		t.Context(),
 		&elasticachesdk.DescribeReplicationGroupsInput{
 			ReplicationGroupId: aws.String("my-rg"),
 		},
@@ -158,7 +157,7 @@ func TestReplicationGroupCRUD(t *testing.T) {
 	assert.Equal(t, "my-rg", aws.ToString(descOut.ReplicationGroups[0].ReplicationGroupId))
 
 	// Delete replication group
-	delOut, err := client.DeleteReplicationGroup(context.Background(), &elasticachesdk.DeleteReplicationGroupInput{
+	delOut, err := client.DeleteReplicationGroup(t.Context(), &elasticachesdk.DeleteReplicationGroupInput{
 		ReplicationGroupId: aws.String("my-rg"),
 	})
 	require.NoError(t, err)
@@ -180,14 +179,14 @@ func TestListTagsForResource(t *testing.T) {
 	t.Parallel()
 	client := newTestStack(t)
 
-	createOut, err := client.CreateCacheCluster(context.Background(), &elasticachesdk.CreateCacheClusterInput{
+	createOut, err := client.CreateCacheCluster(t.Context(), &elasticachesdk.CreateCacheClusterInput{
 		CacheClusterId: aws.String("tag-cluster"),
 		Engine:         aws.String("redis"),
 	})
 	require.NoError(t, err)
 
 	arn := aws.ToString(createOut.CacheCluster.ARN)
-	out, err := client.ListTagsForResource(context.Background(), &elasticachesdk.ListTagsForResourceInput{
+	out, err := client.ListTagsForResource(t.Context(), &elasticachesdk.ListTagsForResourceInput{
 		ResourceName: aws.String(arn),
 	})
 	require.NoError(t, err)
@@ -251,7 +250,7 @@ func TestDeleteClusterNotFound(t *testing.T) {
 	t.Parallel()
 	client := newTestStack(t)
 
-	_, err := client.DeleteCacheCluster(context.Background(), &elasticachesdk.DeleteCacheClusterInput{
+	_, err := client.DeleteCacheCluster(t.Context(), &elasticachesdk.DeleteCacheClusterInput{
 		CacheClusterId: aws.String("does-not-exist"),
 	})
 	assert.Error(t, err)
@@ -261,7 +260,7 @@ func TestDeleteReplicationGroupNotFound(t *testing.T) {
 	t.Parallel()
 	client := newTestStack(t)
 
-	_, err := client.DeleteReplicationGroup(context.Background(), &elasticachesdk.DeleteReplicationGroupInput{
+	_, err := client.DeleteReplicationGroup(t.Context(), &elasticachesdk.DeleteReplicationGroupInput{
 		ReplicationGroupId: aws.String("does-not-exist"),
 	})
 	assert.Error(t, err)
@@ -271,7 +270,7 @@ func TestDescribeReplicationGroupNotFound(t *testing.T) {
 	t.Parallel()
 	client := newTestStack(t)
 
-	_, err := client.DescribeReplicationGroups(context.Background(), &elasticachesdk.DescribeReplicationGroupsInput{
+	_, err := client.DescribeReplicationGroups(t.Context(), &elasticachesdk.DescribeReplicationGroupsInput{
 		ReplicationGroupId: aws.String("does-not-exist"),
 	})
 	assert.Error(t, err)
@@ -281,19 +280,19 @@ func TestDescribeAllReplicationGroups(t *testing.T) {
 	t.Parallel()
 	client := newTestStack(t)
 
-	_, err := client.CreateReplicationGroup(context.Background(), &elasticachesdk.CreateReplicationGroupInput{
+	_, err := client.CreateReplicationGroup(t.Context(), &elasticachesdk.CreateReplicationGroupInput{
 		ReplicationGroupId:          aws.String("rg-one"),
 		ReplicationGroupDescription: aws.String("first"),
 	})
 	require.NoError(t, err)
 
-	_, err = client.CreateReplicationGroup(context.Background(), &elasticachesdk.CreateReplicationGroupInput{
+	_, err = client.CreateReplicationGroup(t.Context(), &elasticachesdk.CreateReplicationGroupInput{
 		ReplicationGroupId:          aws.String("rg-two"),
 		ReplicationGroupDescription: aws.String("second"),
 	})
 	require.NoError(t, err)
 
-	out, err := client.DescribeReplicationGroups(context.Background(), &elasticachesdk.DescribeReplicationGroupsInput{})
+	out, err := client.DescribeReplicationGroups(t.Context(), &elasticachesdk.DescribeReplicationGroupsInput{})
 	require.NoError(t, err)
 	assert.Len(t, out.ReplicationGroups, 2)
 }
@@ -302,13 +301,13 @@ func TestCreateReplicationGroupAlreadyExists(t *testing.T) {
 	t.Parallel()
 	client := newTestStack(t)
 
-	_, err := client.CreateReplicationGroup(context.Background(), &elasticachesdk.CreateReplicationGroupInput{
+	_, err := client.CreateReplicationGroup(t.Context(), &elasticachesdk.CreateReplicationGroupInput{
 		ReplicationGroupId:          aws.String("dup-rg"),
 		ReplicationGroupDescription: aws.String("first"),
 	})
 	require.NoError(t, err)
 
-	_, err = client.CreateReplicationGroup(context.Background(), &elasticachesdk.CreateReplicationGroupInput{
+	_, err = client.CreateReplicationGroup(t.Context(), &elasticachesdk.CreateReplicationGroupInput{
 		ReplicationGroupId:          aws.String("dup-rg"),
 		ReplicationGroupDescription: aws.String("duplicate"),
 	})
@@ -319,14 +318,14 @@ func TestListTagsForResourceReplicationGroup(t *testing.T) {
 	t.Parallel()
 	client := newTestStack(t)
 
-	createOut, err := client.CreateReplicationGroup(context.Background(), &elasticachesdk.CreateReplicationGroupInput{
+	createOut, err := client.CreateReplicationGroup(t.Context(), &elasticachesdk.CreateReplicationGroupInput{
 		ReplicationGroupId:          aws.String("rg-tags"),
 		ReplicationGroupDescription: aws.String("test"),
 	})
 	require.NoError(t, err)
 
 	arn := aws.ToString(createOut.ReplicationGroup.ARN)
-	out, err := client.ListTagsForResource(context.Background(), &elasticachesdk.ListTagsForResourceInput{
+	out, err := client.ListTagsForResource(t.Context(), &elasticachesdk.ListTagsForResourceInput{
 		ResourceName: aws.String(arn),
 	})
 	require.NoError(t, err)
@@ -338,7 +337,7 @@ func TestListTagsForResourceNotFound(t *testing.T) {
 	t.Parallel()
 	client := newTestStack(t)
 
-	_, err := client.ListTagsForResource(context.Background(), &elasticachesdk.ListTagsForResourceInput{
+	_, err := client.ListTagsForResource(t.Context(), &elasticachesdk.ListTagsForResourceInput{
 		ResourceName: aws.String("arn:aws:elasticache:us-east-1:000000000000:cluster:does-not-exist"),
 	})
 	assert.Error(t, err)

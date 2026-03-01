@@ -1,7 +1,6 @@
 package demo_test
 
 import (
-	"context"
 	"log/slog"
 	"testing"
 
@@ -66,7 +65,7 @@ func TestLoadData(t *testing.T) {
 
 	// Setup AWS Config
 	cfg, err := config.LoadDefaultConfig(
-		context.TODO(),
+		t.Context(),
 		config.WithRegion("us-east-1"),
 		config.WithCredentialsProvider(
 			credentials.NewStaticCredentialsProvider("dummy", "dummy", ""),
@@ -96,19 +95,19 @@ func TestLoadData(t *testing.T) {
 			o.BaseEndpoint = aws.String("http://local")
 		}),
 	}
-	err = demo.LoadData(context.Background(), slog.Default(), loadClients)
+	err = demo.LoadData(t.Context(), slog.Default(), loadClients)
 	require.NoError(t, err)
 
 	// Verify DynamoDB
 	tableName := "Movies"
-	items, err := ddbClient.Scan(context.Background(), &dynamodb.ScanInput{TableName: &tableName})
+	items, err := ddbClient.Scan(t.Context(), &dynamodb.ScanInput{TableName: &tableName})
 	require.NoError(t, err)
 	assert.Equal(t, int32(2), items.Count)
 
 	// Verify S3
 	bucketName := "demo-bucket"
 	objects, err := s3Client.ListObjectsV2(
-		context.Background(),
+		t.Context(),
 		&s3.ListObjectsV2Input{Bucket: &bucketName},
 	)
 	require.NoError(t, err)

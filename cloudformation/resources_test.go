@@ -1,7 +1,6 @@
 package cloudformation_test
 
 import (
-	"context"
 	"log/slog"
 	"testing"
 
@@ -53,7 +52,7 @@ func TestNewInMemoryBackend(t *testing.T) {
 func TestResourceCreator_NilBackends_Create(t *testing.T) {
 	t.Parallel()
 	rc := cloudformation.NewResourceCreator(nil)
-	physID, err := rc.Create(context.Background(), "MyBucket", "AWS::S3::Bucket", nil, nil, nil)
+	physID, err := rc.Create(t.Context(), "MyBucket", "AWS::S3::Bucket", nil, nil, nil)
 	require.NoError(t, err)
 	assert.Contains(t, physID, "MyBucket")
 }
@@ -61,14 +60,14 @@ func TestResourceCreator_NilBackends_Create(t *testing.T) {
 func TestResourceCreator_NilBackends_Delete(t *testing.T) {
 	t.Parallel()
 	rc := cloudformation.NewResourceCreator(nil)
-	err := rc.Delete(context.Background(), "AWS::S3::Bucket", "my-bucket", nil)
+	err := rc.Delete(t.Context(), "AWS::S3::Bucket", "my-bucket", nil)
 	require.NoError(t, err)
 }
 
 func TestResourceCreator_NilBackends_DefaultResource(t *testing.T) {
 	t.Parallel()
 	rc := cloudformation.NewResourceCreator(nil)
-	physID, err := rc.Create(context.Background(), "MyRole", "AWS::IAM::Role", nil, nil, nil)
+	physID, err := rc.Create(t.Context(), "MyRole", "AWS::IAM::Role", nil, nil, nil)
 	require.NoError(t, err)
 	// nil backends path: returns logicalID + "-" + uuid[:8]
 	assert.Contains(t, physID, "MyRole-")
@@ -83,11 +82,11 @@ func TestResourceCreator_S3Bucket(t *testing.T) {
 	rc := cloudformation.NewResourceCreator(backends)
 
 	props := map[string]any{"BucketName": "test-cfn-bucket"}
-	physID, err := rc.Create(context.Background(), "MyBucket", "AWS::S3::Bucket", props, nil, nil)
+	physID, err := rc.Create(t.Context(), "MyBucket", "AWS::S3::Bucket", props, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "test-cfn-bucket", physID)
 
-	err = rc.Delete(context.Background(), "AWS::S3::Bucket", physID, props)
+	err = rc.Delete(t.Context(), "AWS::S3::Bucket", physID, props)
 	require.NoError(t, err)
 }
 
@@ -96,7 +95,7 @@ func TestResourceCreator_S3Bucket_AutoName(t *testing.T) {
 	backends := newServiceBackends()
 	rc := cloudformation.NewResourceCreator(backends)
 
-	physID, err := rc.Create(context.Background(), "MyBucket", "AWS::S3::Bucket", map[string]any{}, nil, nil)
+	physID, err := rc.Create(t.Context(), "MyBucket", "AWS::S3::Bucket", map[string]any{}, nil, nil)
 	require.NoError(t, err)
 	assert.Contains(t, physID, "mybucket")
 }
@@ -119,11 +118,11 @@ func TestResourceCreator_DynamoDBTable(t *testing.T) {
 			"WriteCapacityUnits": float64(5),
 		},
 	}
-	physID, err := rc.Create(context.Background(), "MyTable", "AWS::DynamoDB::Table", props, nil, nil)
+	physID, err := rc.Create(t.Context(), "MyTable", "AWS::DynamoDB::Table", props, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "cfn-test-table", physID)
 
-	err = rc.Delete(context.Background(), "AWS::DynamoDB::Table", physID, props)
+	err = rc.Delete(t.Context(), "AWS::DynamoDB::Table", physID, props)
 	require.NoError(t, err)
 }
 
@@ -142,7 +141,7 @@ func TestResourceCreator_DynamoDBTable_PAYPerRequest(t *testing.T) {
 			map[string]any{"AttributeName": "pk", "KeyType": "HASH"},
 		},
 	}
-	physID, err := rc.Create(context.Background(), "OnDemandTable", "AWS::DynamoDB::Table", props, nil, nil)
+	physID, err := rc.Create(t.Context(), "OnDemandTable", "AWS::DynamoDB::Table", props, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "cfn-ondemand-table", physID)
 }
@@ -160,7 +159,7 @@ func TestResourceCreator_DynamoDBTable_DefaultName(t *testing.T) {
 			map[string]any{"AttributeName": "id", "KeyType": "HASH"},
 		},
 	}
-	physID, err := rc.Create(context.Background(), "MyTable", "AWS::DynamoDB::Table", props, nil, nil)
+	physID, err := rc.Create(t.Context(), "MyTable", "AWS::DynamoDB::Table", props, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "MyTable", physID)
 }
@@ -171,11 +170,11 @@ func TestResourceCreator_SQSQueue(t *testing.T) {
 	rc := cloudformation.NewResourceCreator(backends)
 
 	props := map[string]any{"QueueName": "cfn-test-queue"}
-	physID, err := rc.Create(context.Background(), "MyQueue", "AWS::SQS::Queue", props, nil, nil)
+	physID, err := rc.Create(t.Context(), "MyQueue", "AWS::SQS::Queue", props, nil, nil)
 	require.NoError(t, err)
 	assert.NotEmpty(t, physID)
 
-	err = rc.Delete(context.Background(), "AWS::SQS::Queue", physID, props)
+	err = rc.Delete(t.Context(), "AWS::SQS::Queue", physID, props)
 	require.NoError(t, err)
 }
 
@@ -187,7 +186,7 @@ func TestResourceCreator_SQSQueue_DefaultName(t *testing.T) {
 	props := map[string]any{
 		"VisibilityTimeout": "30",
 	}
-	physID, err := rc.Create(context.Background(), "MyDefaultQueue", "AWS::SQS::Queue", props, nil, nil)
+	physID, err := rc.Create(t.Context(), "MyDefaultQueue", "AWS::SQS::Queue", props, nil, nil)
 	require.NoError(t, err)
 	assert.NotEmpty(t, physID)
 }
@@ -201,7 +200,7 @@ func TestResourceCreator_SQSQueue_FIFO(t *testing.T) {
 		"QueueName": "cfn-fifo-queue",
 		"FifoQueue": true,
 	}
-	physID, err := rc.Create(context.Background(), "MyFIFOQueue", "AWS::SQS::Queue", props, nil, nil)
+	physID, err := rc.Create(t.Context(), "MyFIFOQueue", "AWS::SQS::Queue", props, nil, nil)
 	require.NoError(t, err)
 	assert.Contains(t, physID, ".fifo")
 }
@@ -212,11 +211,11 @@ func TestResourceCreator_SNSTopic(t *testing.T) {
 	rc := cloudformation.NewResourceCreator(backends)
 
 	props := map[string]any{"TopicName": "cfn-test-topic"}
-	physID, err := rc.Create(context.Background(), "MyTopic", "AWS::SNS::Topic", props, nil, nil)
+	physID, err := rc.Create(t.Context(), "MyTopic", "AWS::SNS::Topic", props, nil, nil)
 	require.NoError(t, err)
 	assert.Contains(t, physID, "cfn-test-topic")
 
-	err = rc.Delete(context.Background(), "AWS::SNS::Topic", physID, props)
+	err = rc.Delete(t.Context(), "AWS::SNS::Topic", physID, props)
 	require.NoError(t, err)
 }
 
@@ -226,7 +225,7 @@ func TestResourceCreator_SNSTopic_DefaultName(t *testing.T) {
 	rc := cloudformation.NewResourceCreator(backends)
 
 	props := map[string]any{}
-	physID, err := rc.Create(context.Background(), "MyDefaultTopic", "AWS::SNS::Topic", props, nil, nil)
+	physID, err := rc.Create(t.Context(), "MyDefaultTopic", "AWS::SNS::Topic", props, nil, nil)
 	require.NoError(t, err)
 	assert.Contains(t, physID, "MyDefaultTopic")
 }
@@ -241,11 +240,11 @@ func TestResourceCreator_SSMParameter(t *testing.T) {
 		"Type":  "String",
 		"Value": "hello",
 	}
-	physID, err := rc.Create(context.Background(), "MyParam", "AWS::SSM::Parameter", props, nil, nil)
+	physID, err := rc.Create(t.Context(), "MyParam", "AWS::SSM::Parameter", props, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "/cfn/test-param", physID)
 
-	err = rc.Delete(context.Background(), "AWS::SSM::Parameter", physID, props)
+	err = rc.Delete(t.Context(), "AWS::SSM::Parameter", physID, props)
 	require.NoError(t, err)
 }
 
@@ -255,7 +254,7 @@ func TestResourceCreator_SSMParameter_DefaultName(t *testing.T) {
 	rc := cloudformation.NewResourceCreator(backends)
 
 	props := map[string]any{"Value": "val"}
-	physID, err := rc.Create(context.Background(), "MySSMParam", "AWS::SSM::Parameter", props, nil, nil)
+	physID, err := rc.Create(t.Context(), "MySSMParam", "AWS::SSM::Parameter", props, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "/MySSMParam", physID)
 }
@@ -266,11 +265,11 @@ func TestResourceCreator_KMSKey(t *testing.T) {
 	rc := cloudformation.NewResourceCreator(backends)
 
 	props := map[string]any{"Description": "cfn test key"}
-	physID, err := rc.Create(context.Background(), "MyKey", "AWS::KMS::Key", props, nil, nil)
+	physID, err := rc.Create(t.Context(), "MyKey", "AWS::KMS::Key", props, nil, nil)
 	require.NoError(t, err)
 	assert.NotEmpty(t, physID)
 
-	err = rc.Delete(context.Background(), "AWS::KMS::Key", physID, props)
+	err = rc.Delete(t.Context(), "AWS::KMS::Key", physID, props)
 	require.NoError(t, err)
 }
 
@@ -283,11 +282,11 @@ func TestResourceCreator_SecretsManagerSecret(t *testing.T) {
 		"Name":         "cfn-test-secret",
 		"SecretString": `{"key":"value"}`,
 	}
-	physID, err := rc.Create(context.Background(), "MySecret", "AWS::SecretsManager::Secret", props, nil, nil)
+	physID, err := rc.Create(t.Context(), "MySecret", "AWS::SecretsManager::Secret", props, nil, nil)
 	require.NoError(t, err)
 	assert.Contains(t, physID, "cfn-test-secret")
 
-	err = rc.Delete(context.Background(), "AWS::SecretsManager::Secret", physID, props)
+	err = rc.Delete(t.Context(), "AWS::SecretsManager::Secret", physID, props)
 	require.NoError(t, err)
 }
 
@@ -297,7 +296,7 @@ func TestResourceCreator_SecretsManagerSecret_DefaultName(t *testing.T) {
 	rc := cloudformation.NewResourceCreator(backends)
 
 	props := map[string]any{"SecretString": "secret"}
-	physID, err := rc.Create(context.Background(), "MyDefaultSecret", "AWS::SecretsManager::Secret", props, nil, nil)
+	physID, err := rc.Create(t.Context(), "MyDefaultSecret", "AWS::SecretsManager::Secret", props, nil, nil)
 	require.NoError(t, err)
 	assert.Contains(t, physID, "MyDefaultSecret")
 }
@@ -307,7 +306,7 @@ func TestResourceCreator_UnknownType_Create(t *testing.T) {
 	backends := newServiceBackends()
 	rc := cloudformation.NewResourceCreator(backends)
 
-	physID, err := rc.Create(context.Background(), "MyRole", "AWS::IAM::Role", map[string]any{}, nil, nil)
+	physID, err := rc.Create(t.Context(), "MyRole", "AWS::IAM::Role", map[string]any{}, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "MyRole-stub", physID)
 }
@@ -317,7 +316,7 @@ func TestResourceCreator_UnknownType_Delete(t *testing.T) {
 	backends := newServiceBackends()
 	rc := cloudformation.NewResourceCreator(backends)
 
-	err := rc.Delete(context.Background(), "AWS::IAM::Role", "some-role", map[string]any{})
+	err := rc.Delete(t.Context(), "AWS::IAM::Role", "some-role", map[string]any{})
 	require.NoError(t, err)
 }
 
@@ -337,7 +336,7 @@ func TestResourceCreator_DynamoDBTable_BinaryAttributeType(t *testing.T) {
 			map[string]any{"AttributeName": "id", "KeyType": "HASH"},
 		},
 	}
-	physID, err := rc.Create(context.Background(), "BinaryTable", "AWS::DynamoDB::Table", props, nil, nil)
+	physID, err := rc.Create(t.Context(), "BinaryTable", "AWS::DynamoDB::Table", props, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "cfn-binary-table", physID)
 }
@@ -358,7 +357,7 @@ func TestResourceCreator_DynamoDBTable_RangeKey(t *testing.T) {
 			map[string]any{"AttributeName": "sk", "KeyType": "RANGE"},
 		},
 	}
-	physID, err := rc.Create(context.Background(), "RangeTable", "AWS::DynamoDB::Table", props, nil, nil)
+	physID, err := rc.Create(t.Context(), "RangeTable", "AWS::DynamoDB::Table", props, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "cfn-range-table", physID)
 }
@@ -454,11 +453,11 @@ func TestBackend_CreateStack_WithRealResources(t *testing.T) {
 			}
 		}
 	}`
-	stack, err := backend.CreateStack(context.Background(), "real-stack", tmpl, nil, nil)
+	stack, err := backend.CreateStack(t.Context(), "real-stack", tmpl, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "CREATE_COMPLETE", stack.StackStatus)
 
-	err = backend.DeleteStack(context.Background(), "real-stack")
+	err = backend.DeleteStack(t.Context(), "real-stack")
 	require.NoError(t, err)
 }
 
@@ -485,7 +484,7 @@ func TestBackend_CreateStack_WithSSMAndSNS(t *testing.T) {
 			}
 		}
 	}`
-	stack, err := backend.CreateStack(context.Background(), "ssm-sns-stack", tmpl, nil, nil)
+	stack, err := backend.CreateStack(t.Context(), "ssm-sns-stack", tmpl, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "CREATE_COMPLETE", stack.StackStatus)
 }
@@ -505,7 +504,7 @@ func TestBackend_UpdateStack_WithNewResource(t *testing.T) {
 			}
 		}
 	}`
-	_, err := backend.CreateStack(context.Background(), "upd-real-stack", tmpl1, nil, nil)
+	_, err := backend.CreateStack(t.Context(), "upd-real-stack", tmpl1, nil, nil)
 	require.NoError(t, err)
 
 	// Update with an additional resource
@@ -522,7 +521,7 @@ func TestBackend_UpdateStack_WithNewResource(t *testing.T) {
 			}
 		}
 	}`
-	updated, err := backend.UpdateStack(context.Background(), "upd-real-stack", tmpl2, nil)
+	updated, err := backend.UpdateStack(t.Context(), "upd-real-stack", tmpl2, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "UPDATE_COMPLETE", updated.StackStatus)
 }
@@ -539,7 +538,7 @@ func TestResourceCreator_SQSQueue_WithAttributes(t *testing.T) {
 		"VisibilityTimeout":      "45",
 		"MessageRetentionPeriod": "86400",
 	}
-	physID, err := rc.Create(context.Background(), "AttrQueue", "AWS::SQS::Queue", props, nil, nil)
+	physID, err := rc.Create(t.Context(), "AttrQueue", "AWS::SQS::Queue", props, nil, nil)
 	require.NoError(t, err)
 	assert.NotEmpty(t, physID)
 }
@@ -566,14 +565,14 @@ func TestResourceCreator_Lambda_NilBackend_Stub(t *testing.T) {
 	backends := newServiceBackends()
 	rc := cloudformation.NewResourceCreator(backends)
 
-	physID, err := rc.Create(context.Background(), "MyFunction", "AWS::Lambda::Function",
+	physID, err := rc.Create(t.Context(), "MyFunction", "AWS::Lambda::Function",
 		map[string]any{"FunctionName": "my-fn", "Runtime": "python3.12", "Handler": "index.handler"},
 		nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "MyFunction-stub", physID)
 
 	// delete also goes through the nil path
-	err = rc.Delete(context.Background(), "AWS::Lambda::Function", "my-fn", nil)
+	err = rc.Delete(t.Context(), "AWS::Lambda::Function", "my-fn", nil)
 	require.NoError(t, err)
 }
 
@@ -584,7 +583,7 @@ func TestResourceCreator_EventBridgeRule_RealBackend(t *testing.T) {
 	backends := newExtendedServiceBackends()
 	rc := cloudformation.NewResourceCreator(backends)
 
-	physID, err := rc.Create(context.Background(), "MyRule", "AWS::Events::Rule",
+	physID, err := rc.Create(t.Context(), "MyRule", "AWS::Events::Rule",
 		map[string]any{
 			"Name":         "my-cfn-rule",
 			"EventPattern": `{"source":["aws.s3"]}`,
@@ -593,7 +592,7 @@ func TestResourceCreator_EventBridgeRule_RealBackend(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, physID, "my-cfn-rule")
 
-	err = rc.Delete(context.Background(), "AWS::Events::Rule", physID, nil)
+	err = rc.Delete(t.Context(), "AWS::Events::Rule", physID, nil)
 	require.NoError(t, err)
 }
 
@@ -603,7 +602,7 @@ func TestResourceCreator_StepFunctionsStateMachine_RealBackend(t *testing.T) {
 	rc := cloudformation.NewResourceCreator(backends)
 
 	definition := `{"Comment":"test","StartAt":"Done","States":{"Done":{"Type":"Succeed"}}}`
-	physID, err := rc.Create(context.Background(), "MyStateMachine", "AWS::StepFunctions::StateMachine",
+	physID, err := rc.Create(t.Context(), "MyStateMachine", "AWS::StepFunctions::StateMachine",
 		map[string]any{
 			"StateMachineName": "cfn-sm",
 			"DefinitionString": definition,
@@ -612,7 +611,7 @@ func TestResourceCreator_StepFunctionsStateMachine_RealBackend(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, physID, "cfn-sm")
 
-	err = rc.Delete(context.Background(), "AWS::StepFunctions::StateMachine", physID, nil)
+	err = rc.Delete(t.Context(), "AWS::StepFunctions::StateMachine", physID, nil)
 	require.NoError(t, err)
 }
 
@@ -621,13 +620,13 @@ func TestResourceCreator_CloudWatchLogGroup_RealBackend(t *testing.T) {
 	backends := newExtendedServiceBackends()
 	rc := cloudformation.NewResourceCreator(backends)
 
-	physID, err := rc.Create(context.Background(), "MyLogGroup", "AWS::Logs::LogGroup",
+	physID, err := rc.Create(t.Context(), "MyLogGroup", "AWS::Logs::LogGroup",
 		map[string]any{"LogGroupName": "/cfn/my-log-group"},
 		nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "/cfn/my-log-group", physID)
 
-	err = rc.Delete(context.Background(), "AWS::Logs::LogGroup", physID, nil)
+	err = rc.Delete(t.Context(), "AWS::Logs::LogGroup", physID, nil)
 	require.NoError(t, err)
 }
 
@@ -636,13 +635,13 @@ func TestResourceCreator_APIGatewayRestAPI_RealBackend(t *testing.T) {
 	backends := newExtendedServiceBackends()
 	rc := cloudformation.NewResourceCreator(backends)
 
-	physID, err := rc.Create(context.Background(), "MyAPI", "AWS::ApiGateway::RestApi",
+	physID, err := rc.Create(t.Context(), "MyAPI", "AWS::ApiGateway::RestApi",
 		map[string]any{"Name": "cfn-rest-api", "Description": "created by cfn"},
 		nil, nil)
 	require.NoError(t, err)
 	assert.NotEmpty(t, physID)
 
-	err = rc.Delete(context.Background(), "AWS::ApiGateway::RestApi", physID, nil)
+	err = rc.Delete(t.Context(), "AWS::ApiGateway::RestApi", physID, nil)
 	require.NoError(t, err)
 }
 
@@ -652,10 +651,10 @@ func TestResourceCreator_ExtendedResource_DefaultStub(t *testing.T) {
 	rc := cloudformation.NewResourceCreator(backends)
 
 	// Unknown extended resource type → returns logicalID + "-stub"
-	physID, err := rc.Create(context.Background(), "MyWhatever", "AWS::Whatever::Thing", nil, nil, nil)
+	physID, err := rc.Create(t.Context(), "MyWhatever", "AWS::Whatever::Thing", nil, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "MyWhatever-stub", physID)
 
-	err = rc.Delete(context.Background(), "AWS::Whatever::Thing", "whatever-id", nil)
+	err = rc.Delete(t.Context(), "AWS::Whatever::Thing", "whatever-id", nil)
 	require.NoError(t, err)
 }

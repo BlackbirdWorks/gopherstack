@@ -1,7 +1,6 @@
 package gopherstack_test
 
 import (
-	"context"
 	"net/http"
 	"os"
 	"testing"
@@ -26,7 +25,7 @@ func TestRun(t *testing.T) {
 
 	testcontainers.SkipIfProviderIsNotHealthy(t)
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	container, err := gopherstackmodule.Run(ctx, gopherstackmodule.DefaultImage)
 	require.NoError(t, err)

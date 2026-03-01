@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"net/http"
 	"testing"
 	"time"
@@ -36,7 +35,7 @@ func TestMultipleServersStartupAndShutdown(t *testing.T) {
 			stopChan := make(chan struct{})
 
 			go func() {
-				_ = startServerOnPort(tt.port, tt.demo, stopChan)
+				_ = startServerOnPort(t, tt.port, tt.demo, stopChan)
 			}()
 
 			// Give the server time to start.
@@ -62,7 +61,7 @@ func TestMultipleServersStartupAndShutdown(t *testing.T) {
 
 // startServerOnPort starts Gopherstack on the given port using the CLI run path.
 // It returns when the stopChan is closed.
-func startServerOnPort(port string, demo bool, stopChan chan struct{}) error {
+func startServerOnPort(t *testing.T, port string, demo bool, stopChan chan struct{}) error {
 	cli := CLI{
 		LogLevel: "info",
 		Port:     port,
@@ -73,7 +72,7 @@ func startServerOnPort(port string, demo bool, stopChan chan struct{}) error {
 	errChan := make(chan error, 1)
 
 	go func() {
-		errChan <- run(context.Background(), cli)
+		errChan <- run(t.Context(), cli)
 	}()
 
 	select {

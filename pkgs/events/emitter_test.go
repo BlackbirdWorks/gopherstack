@@ -53,7 +53,7 @@ func TestInMemoryEmitter_Emit(t *testing.T) {
 
 	emitter := events.NewInMemoryEmitter[*events.ItemCreatedEvent]()
 	event := &events.ItemCreatedEvent{Table: "users", Key: map[string]any{"id": "123"}}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	var received []*events.ItemCreatedEvent
 	emitter.Subscribe(func(_ context.Context, e *events.ItemCreatedEvent) error {
@@ -75,7 +75,7 @@ func TestInMemoryEmitter_MultipleListeners(t *testing.T) {
 
 	emitter := events.NewInMemoryEmitter[*events.TableCreatedEvent]()
 	event := &events.TableCreatedEvent{Table: "orders"}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	var count int
 	emitter.Subscribe(func(_ context.Context, _ *events.TableCreatedEvent) error {
@@ -119,7 +119,7 @@ func TestInMemoryEmitter_Unsubscribe(t *testing.T) {
 
 	emitter := events.NewInMemoryEmitter[*events.TableCreatedEvent]()
 	event := &events.TableCreatedEvent{Table: "products"}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	var count int
 
@@ -144,7 +144,7 @@ func TestInMemoryEmitter_ErrorHandling(t *testing.T) {
 
 	emitter := events.NewInMemoryEmitter[*events.TableCreatedEvent]()
 	event := &events.TableCreatedEvent{Table: "failed"}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	emitter.Subscribe(func(_ context.Context, _ *events.TableCreatedEvent) error {
 		return errListenerTest

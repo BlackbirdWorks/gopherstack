@@ -2,7 +2,6 @@ package s3_test
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"testing"
 
@@ -17,14 +16,14 @@ func BenchmarkPutObject(b *testing.B) {
 	backend := s3.NewInMemoryBackend(&s3.GzipCompressor{})
 	bucketName := "bench-bucket"
 	_, _ = backend.CreateBucket(
-		context.Background(),
+		b.Context(),
 		&sdk_s3.CreateBucketInput{Bucket: aws.String(bucketName)},
 	)
 	data := []byte("benchmarking data")
 
 	b.ResetTimer()
 	for i := range b.N {
-		_, _ = backend.PutObject(context.Background(), &sdk_s3.PutObjectInput{
+		_, _ = backend.PutObject(b.Context(), &sdk_s3.PutObjectInput{
 			Bucket:   aws.String(bucketName),
 			Key:      aws.String(fmt.Sprintf("key-%d", i)),
 			Body:     bytes.NewReader(data),
@@ -37,13 +36,13 @@ func BenchmarkGetObject(b *testing.B) {
 	backend := s3.NewInMemoryBackend(&s3.GzipCompressor{})
 	bucketName := "bench-bucket"
 	_, _ = backend.CreateBucket(
-		context.Background(),
+		b.Context(),
 		&sdk_s3.CreateBucketInput{Bucket: aws.String(bucketName)},
 	)
 	data := []byte("benchmarking data")
 
 	for i := range 1000 {
-		_, _ = backend.PutObject(context.Background(), &sdk_s3.PutObjectInput{
+		_, _ = backend.PutObject(b.Context(), &sdk_s3.PutObjectInput{
 			Bucket:   aws.String(bucketName),
 			Key:      aws.String(fmt.Sprintf("key-%d", i)),
 			Body:     bytes.NewReader(data),
@@ -53,7 +52,7 @@ func BenchmarkGetObject(b *testing.B) {
 
 	b.ResetTimer()
 	for i := range b.N {
-		_, _ = backend.GetObject(context.Background(), &sdk_s3.GetObjectInput{
+		_, _ = backend.GetObject(b.Context(), &sdk_s3.GetObjectInput{
 			Bucket: aws.String(bucketName),
 			Key:    aws.String(fmt.Sprintf("key-%d", i%1000)),
 		})
@@ -86,13 +85,13 @@ func BenchmarkDeleteObjects(b *testing.B) {
 			backend := s3.NewInMemoryBackend(nil)
 			bucketName := "bench-delete-bucket"
 			_, _ = backend.CreateBucket(
-				context.Background(),
+				b.Context(),
 				&sdk_s3.CreateBucketInput{Bucket: aws.String(bucketName)},
 			)
 			objects := make([]sdk_s3_types.ObjectIdentifier, count)
 			for i := range count {
 				key := aws.String(fmt.Sprintf("key-%d", i))
-				_, _ = backend.PutObject(context.Background(), &sdk_s3.PutObjectInput{
+				_, _ = backend.PutObject(b.Context(), &sdk_s3.PutObjectInput{
 					Bucket: aws.String(bucketName),
 					Key:    key,
 					Body:   bytes.NewReader([]byte("data")),
@@ -102,7 +101,7 @@ func BenchmarkDeleteObjects(b *testing.B) {
 			b.StartTimer()
 
 			for range b.N {
-				_, _ = backend.DeleteObjects(context.Background(), &sdk_s3.DeleteObjectsInput{
+				_, _ = backend.DeleteObjects(b.Context(), &sdk_s3.DeleteObjectsInput{
 					Bucket: aws.String(bucketName),
 					Delete: &sdk_s3_types.Delete{Objects: objects},
 				})

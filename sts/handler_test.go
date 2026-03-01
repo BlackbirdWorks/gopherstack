@@ -1,7 +1,6 @@
 package sts_test
 
 import (
-	"context"
 	"encoding/base64"
 	"encoding/xml"
 	"errors"
@@ -524,7 +523,7 @@ func buildSTSClient(t *testing.T, endpoint string) *stssdk.Client {
 	t.Helper()
 
 	cfg, err := awscfg.LoadDefaultConfig(
-		context.Background(),
+		t.Context(),
 		awscfg.WithRegion("us-east-1"),
 		awscfg.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("dummy", "dummy", "")),
 	)

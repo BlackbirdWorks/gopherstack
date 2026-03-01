@@ -2,7 +2,6 @@ package httputil_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/xml"
 	"errors"
 	"io"
@@ -115,7 +114,7 @@ func TestHTTPUtil(t *testing.T) {
 			assert.Equal(t, "foo", inner.Body.String())
 		}},
 		{name: "ContextOperations", run: func(t *testing.T) {
-			ctx := context.Background()
+			ctx := t.Context()
 
 			assert.Equal(t, "Unknown", httputil.GetOperation(ctx))
 			assert.Empty(t, httputil.GetResource(ctx))
@@ -127,7 +126,7 @@ func TestHTTPUtil(t *testing.T) {
 			assert.Equal(t, "GetItem", httputil.GetOperation(ctx))
 			assert.Equal(t, "MyTable", httputil.GetResource(ctx))
 
-			ctx = httputil.SetOperationAndResource(context.Background(), "PutItem", "AnotherTable")
+			ctx = httputil.SetOperationAndResource(t.Context(), "PutItem", "AnotherTable")
 			assert.Equal(t, "PutItem", httputil.GetOperation(ctx))
 			assert.Equal(t, "AnotherTable", httputil.GetResource(ctx))
 		}},

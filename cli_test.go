@@ -103,7 +103,7 @@ func TestServerStartupAndShutdown(t *testing.T) {
 		"PORT": "8123", // use an alternate port to avoid conflicts
 	})
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -181,7 +181,7 @@ func TestServerStartup_WithInitScript(t *testing.T) {
 	cli.InitScripts = []string{"echo ran > " + marker}
 	cli.InitScriptTimeout = 5 * time.Second
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -220,7 +220,7 @@ func TestServerStartup_WithDNS(t *testing.T) {
 	cli.DNSListenAddr = fmt.Sprintf("127.0.0.1:%d", dnsPort)
 	cli.DNSResolveIP = "127.0.0.1"
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -246,7 +246,7 @@ func TestServerStartup_InvalidDNSConfig(t *testing.T) {
 	cli.DNSListenAddr = ":18553"
 	cli.DNSResolveIP = "not-an-ip" // invalid — server logs a warning and continues
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -272,7 +272,7 @@ func TestServerStartup_InvalidPortRange(t *testing.T) {
 	cli.PortRangeStart = 0 // invalid range — logs a warning and continues
 	cli.PortRangeEnd = 0
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 
 	errCh := make(chan error, 1)
 	go func() {

@@ -73,7 +73,7 @@ func TestOperationContext(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			ctx := tt.setup(context.Background())
+			ctx := tt.setup(t.Context())
 			assert.Equal(t, tt.expectedOp, handler.GetOperation(ctx))
 			assert.Equal(t, tt.expectedRes, handler.GetResource(ctx))
 		})

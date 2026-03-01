@@ -1,7 +1,6 @@
 package inithooks_test
 
 import (
-	"context"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -29,7 +28,7 @@ func TestInithooks(t *testing.T) {
 			script := "echo hello > " + out
 
 			r := inithooks.New([]string{script}, 0, nil)
-			r.Run(context.Background())
+			r.Run(t.Context())
 
 			data, err := os.ReadFile(out)
 			require.NoError(t, err)
@@ -45,7 +44,7 @@ func TestInithooks(t *testing.T) {
 			}
 
 			r := inithooks.New(scripts, 0, nil)
-			r.Run(context.Background())
+			r.Run(t.Context())
 
 			data, err := os.ReadFile(out)
 			require.NoError(t, err)
@@ -55,27 +54,27 @@ func TestInithooks(t *testing.T) {
 			log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 			r := inithooks.New([]string{"echo hi"}, 5*time.Second, log)
 
-			r.Run(context.Background())
+			r.Run(t.Context())
 		}},
 		{name: "Run_WithLogger_FailingScript", run: func(t *testing.T) {
 			log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 			r := inithooks.New([]string{"exit 42"}, 5*time.Second, log)
 
 			// Should not panic or block.
-			r.Run(context.Background())
+			r.Run(t.Context())
 		}},
 		{name: "Run_EmptyScripts", run: func(t *testing.T) {
 			r := inithooks.New(nil, 0, nil)
 
 			// Should complete immediately without error.
-			r.Run(context.Background())
+			r.Run(t.Context())
 		}},
 		{name: "Run_Timeout", run: func(t *testing.T) {
 			// Script sleeps much longer than the timeout.
 			r := inithooks.New([]string{"sleep 10"}, 50*time.Millisecond, nil)
 
 			start := time.Now()
-			r.Run(context.Background())
+			r.Run(t.Context())
 			elapsed := time.Since(start)
 
 			// Should complete well within a second (timeout + some overhead).
@@ -90,7 +89,7 @@ func TestInithooks(t *testing.T) {
 				"echo first > " + out1,
 				"echo second > " + out2,
 			}, 0, nil)
-			r.Run(context.Background())
+			r.Run(t.Context())
 
 			data1, err := os.ReadFile(out1)
 			require.NoError(t, err)

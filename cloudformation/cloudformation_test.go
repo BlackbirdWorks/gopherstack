@@ -1,7 +1,6 @@
 package cloudformation_test
 
 import (
-	"context"
 	"encoding/xml"
 	"log/slog"
 	"net/http"
@@ -170,7 +169,7 @@ func TestResolveValue(t *testing.T) {
 func TestBackend_CreateStack(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
-	stack, err := b.CreateStack(context.Background(), "my-stack", simpleTemplate, nil, nil)
+	stack, err := b.CreateStack(t.Context(), "my-stack", simpleTemplate, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "my-stack", stack.StackName)
 	assert.Equal(t, "CREATE_COMPLETE", stack.StackStatus)
@@ -180,16 +179,16 @@ func TestBackend_CreateStack(t *testing.T) {
 func TestBackend_CreateStack_AlreadyExists(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
-	_, err := b.CreateStack(context.Background(), "dup-stack", simpleTemplate, nil, nil)
+	_, err := b.CreateStack(t.Context(), "dup-stack", simpleTemplate, nil, nil)
 	require.NoError(t, err)
-	_, err = b.CreateStack(context.Background(), "dup-stack", simpleTemplate, nil, nil)
+	_, err = b.CreateStack(t.Context(), "dup-stack", simpleTemplate, nil, nil)
 	require.ErrorIs(t, err, cloudformation.ErrStackAlreadyExists)
 }
 
 func TestBackend_CreateStack_InvalidTemplate(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
-	stack, err := b.CreateStack(context.Background(), "bad-stack", "{bad}", nil, nil)
+	stack, err := b.CreateStack(t.Context(), "bad-stack", "{bad}", nil, nil)
 	require.NoError(t, err) // does not return error; sets status
 	assert.Equal(t, "CREATE_FAILED", stack.StackStatus)
 }
@@ -198,7 +197,7 @@ func TestBackend_CreateStack_WithParams(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 	params := []cloudformation.Parameter{{ParameterKey: "BucketName", ParameterValue: "test-bucket"}}
-	stack, err := b.CreateStack(context.Background(), "param-stack", templateWithParams, params, nil)
+	stack, err := b.CreateStack(t.Context(), "param-stack", templateWithParams, params, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "CREATE_COMPLETE", stack.StackStatus)
 	require.Len(t, stack.Outputs, 1)
@@ -209,7 +208,7 @@ func TestBackend_CreateStack_WithTags(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 	tags := []cloudformation.Tag{{Key: "env", Value: "test"}}
-	stack, err := b.CreateStack(context.Background(), "tagged-stack", simpleTemplate, nil, tags)
+	stack, err := b.CreateStack(t.Context(), "tagged-stack", simpleTemplate, nil, tags)
 	require.NoError(t, err)
 	require.Len(t, stack.Tags, 1)
 	assert.Equal(t, "env", stack.Tags[0].Key)
@@ -218,7 +217,7 @@ func TestBackend_CreateStack_WithTags(t *testing.T) {
 func TestBackend_CreateStack_YAML(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
-	stack, err := b.CreateStack(context.Background(), "yaml-stack", yamlTemplate, nil, nil)
+	stack, err := b.CreateStack(t.Context(), "yaml-stack", yamlTemplate, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "YAML template", stack.Description)
 	assert.Equal(t, "CREATE_COMPLETE", stack.StackStatus)
@@ -227,7 +226,7 @@ func TestBackend_CreateStack_YAML(t *testing.T) {
 func TestBackend_DescribeStack(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
-	_, err := b.CreateStack(context.Background(), "desc-stack", simpleTemplate, nil, nil)
+	_, err := b.CreateStack(t.Context(), "desc-stack", simpleTemplate, nil, nil)
 	require.NoError(t, err)
 
 	stack, err := b.DescribeStack("desc-stack")
@@ -245,10 +244,10 @@ func TestBackend_DescribeStack_NotFound(t *testing.T) {
 func TestBackend_UpdateStack(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
-	_, err := b.CreateStack(context.Background(), "upd-stack", simpleTemplate, nil, nil)
+	_, err := b.CreateStack(t.Context(), "upd-stack", simpleTemplate, nil, nil)
 	require.NoError(t, err)
 
-	updated, err := b.UpdateStack(context.Background(), "upd-stack", simpleTemplate, nil)
+	updated, err := b.UpdateStack(t.Context(), "upd-stack", simpleTemplate, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "UPDATE_COMPLETE", updated.StackStatus)
 }
@@ -256,17 +255,17 @@ func TestBackend_UpdateStack(t *testing.T) {
 func TestBackend_UpdateStack_NotFound(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
-	_, err := b.UpdateStack(context.Background(), "no-stack", simpleTemplate, nil)
+	_, err := b.UpdateStack(t.Context(), "no-stack", simpleTemplate, nil)
 	require.ErrorIs(t, err, cloudformation.ErrStackNotFound)
 }
 
 func TestBackend_DeleteStack(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
-	_, err := b.CreateStack(context.Background(), "del-stack", simpleTemplate, nil, nil)
+	_, err := b.CreateStack(t.Context(), "del-stack", simpleTemplate, nil, nil)
 	require.NoError(t, err)
 
-	err = b.DeleteStack(context.Background(), "del-stack")
+	err = b.DeleteStack(t.Context(), "del-stack")
 	require.NoError(t, err)
 
 	stack, err := b.DescribeStack("del-stack")
@@ -277,16 +276,16 @@ func TestBackend_DeleteStack(t *testing.T) {
 func TestBackend_DeleteStack_NotFound(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
-	err := b.DeleteStack(context.Background(), "missing")
+	err := b.DeleteStack(t.Context(), "missing")
 	require.ErrorIs(t, err, cloudformation.ErrStackNotFound)
 }
 
 func TestBackend_ListStacks(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
-	_, err := b.CreateStack(context.Background(), "list-s1", simpleTemplate, nil, nil)
+	_, err := b.CreateStack(t.Context(), "list-s1", simpleTemplate, nil, nil)
 	require.NoError(t, err)
-	_, err = b.CreateStack(context.Background(), "list-s2", simpleTemplate, nil, nil)
+	_, err = b.CreateStack(t.Context(), "list-s2", simpleTemplate, nil, nil)
 	require.NoError(t, err)
 
 	all := b.ListStacks(nil)
@@ -302,7 +301,7 @@ func TestBackend_ListStacks(t *testing.T) {
 func TestBackend_DescribeStackEvents(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
-	_, err := b.CreateStack(context.Background(), "evt-stack", simpleTemplate, nil, nil)
+	_, err := b.CreateStack(t.Context(), "evt-stack", simpleTemplate, nil, nil)
 	require.NoError(t, err)
 
 	events, err := b.DescribeStackEvents("evt-stack")
@@ -320,7 +319,7 @@ func TestBackend_DescribeStackEvents_NotFound(t *testing.T) {
 func TestBackend_GetTemplate(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
-	_, err := b.CreateStack(context.Background(), "tmpl-stack", simpleTemplate, nil, nil)
+	_, err := b.CreateStack(t.Context(), "tmpl-stack", simpleTemplate, nil, nil)
 	require.NoError(t, err)
 
 	body, err := b.GetTemplate("tmpl-stack")
@@ -338,9 +337,9 @@ func TestBackend_GetTemplate_NotFound(t *testing.T) {
 func TestBackend_ListAll(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
-	_, err := b.CreateStack(context.Background(), "a", simpleTemplate, nil, nil)
+	_, err := b.CreateStack(t.Context(), "a", simpleTemplate, nil, nil)
 	require.NoError(t, err)
-	_, err = b.CreateStack(context.Background(), "b", simpleTemplate, nil, nil)
+	_, err = b.CreateStack(t.Context(), "b", simpleTemplate, nil, nil)
 	require.NoError(t, err)
 
 	all := b.ListAll()
@@ -350,10 +349,10 @@ func TestBackend_ListAll(t *testing.T) {
 func TestBackend_ChangeSet_CreateDescribeDelete(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
-	_, err := b.CreateStack(context.Background(), "cs-stack", simpleTemplate, nil, nil)
+	_, err := b.CreateStack(t.Context(), "cs-stack", simpleTemplate, nil, nil)
 	require.NoError(t, err)
 
-	cs, err := b.CreateChangeSet(context.Background(), "cs-stack", "my-cs", simpleTemplate, "desc", nil)
+	cs, err := b.CreateChangeSet(t.Context(), "cs-stack", "my-cs", simpleTemplate, "desc", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "my-cs", cs.ChangeSetName)
 	assert.Equal(t, "CREATE_COMPLETE", cs.Status)
@@ -372,19 +371,19 @@ func TestBackend_ChangeSet_CreateDescribeDelete(t *testing.T) {
 func TestBackend_ChangeSet_AlreadyExists(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
-	_, err := b.CreateChangeSet(context.Background(), "cs-stack", "dup-cs", simpleTemplate, "", nil)
+	_, err := b.CreateChangeSet(t.Context(), "cs-stack", "dup-cs", simpleTemplate, "", nil)
 	require.NoError(t, err)
-	_, err = b.CreateChangeSet(context.Background(), "cs-stack", "dup-cs", simpleTemplate, "", nil)
+	_, err = b.CreateChangeSet(t.Context(), "cs-stack", "dup-cs", simpleTemplate, "", nil)
 	require.ErrorIs(t, err, cloudformation.ErrChangeSetExists)
 }
 
 func TestBackend_ExecuteChangeSet_NewStack(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
-	_, err := b.CreateChangeSet(context.Background(), "new-cs-stack", "exec-cs", simpleTemplate, "", nil)
+	_, err := b.CreateChangeSet(t.Context(), "new-cs-stack", "exec-cs", simpleTemplate, "", nil)
 	require.NoError(t, err)
 
-	err = b.ExecuteChangeSet(context.Background(), "new-cs-stack", "exec-cs")
+	err = b.ExecuteChangeSet(t.Context(), "new-cs-stack", "exec-cs")
 	require.NoError(t, err)
 
 	stack, err := b.DescribeStack("new-cs-stack")
@@ -395,29 +394,29 @@ func TestBackend_ExecuteChangeSet_NewStack(t *testing.T) {
 func TestBackend_ExecuteChangeSet_ExistingStack(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
-	_, err := b.CreateStack(context.Background(), "existing-stack", simpleTemplate, nil, nil)
+	_, err := b.CreateStack(t.Context(), "existing-stack", simpleTemplate, nil, nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateChangeSet(context.Background(), "existing-stack", "upd-cs", simpleTemplate, "", nil)
+	_, err = b.CreateChangeSet(t.Context(), "existing-stack", "upd-cs", simpleTemplate, "", nil)
 	require.NoError(t, err)
 
-	err = b.ExecuteChangeSet(context.Background(), "existing-stack", "upd-cs")
+	err = b.ExecuteChangeSet(t.Context(), "existing-stack", "upd-cs")
 	require.NoError(t, err)
 }
 
 func TestBackend_ExecuteChangeSet_NotFound(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
-	err := b.ExecuteChangeSet(context.Background(), "s", "missing-cs")
+	err := b.ExecuteChangeSet(t.Context(), "s", "missing-cs")
 	require.ErrorIs(t, err, cloudformation.ErrChangeSetNotFound)
 }
 
 func TestBackend_ListChangeSets(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
-	_, err := b.CreateChangeSet(context.Background(), "list-cs-stack", "cs1", simpleTemplate, "", nil)
+	_, err := b.CreateChangeSet(t.Context(), "list-cs-stack", "cs1", simpleTemplate, "", nil)
 	require.NoError(t, err)
-	_, err = b.CreateChangeSet(context.Background(), "list-cs-stack", "cs2", simpleTemplate, "", nil)
+	_, err = b.CreateChangeSet(t.Context(), "list-cs-stack", "cs2", simpleTemplate, "", nil)
 	require.NoError(t, err)
 
 	summaries, err := b.ListChangeSets("list-cs-stack")

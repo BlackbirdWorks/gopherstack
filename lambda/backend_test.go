@@ -91,7 +91,7 @@ func TestInMemoryBackend(t *testing.T) {
 		{
 			name: "InvokeFunction_NoPortAlloc",
 			run: func(t *testing.T) {
-				ctx := context.Background()
+				ctx := t.Context()
 				backend := newSimpleBackend()
 
 				fn := &lambda.FunctionConfiguration{
@@ -108,7 +108,7 @@ func TestInMemoryBackend(t *testing.T) {
 		{
 			name: "InvokeFunction_NotFound",
 			run: func(t *testing.T) {
-				ctx := context.Background()
+				ctx := t.Context()
 				backend := newSimpleBackend()
 
 				_, statusCode, err := backend.InvokeFunction(ctx, "nonexistent", lambda.InvocationTypeRequestResponse, []byte("{}"))
@@ -119,7 +119,7 @@ func TestInMemoryBackend(t *testing.T) {
 		{
 			name: "InvokeFunction_DryRun",
 			run: func(t *testing.T) {
-				ctx := context.Background()
+				ctx := t.Context()
 				backend := newSimpleBackend()
 
 				fn := &lambda.FunctionConfiguration{
@@ -138,7 +138,7 @@ func TestInMemoryBackend(t *testing.T) {
 		{
 			name: "InvokeFunction_EventType_NoDocker",
 			run: func(t *testing.T) {
-				ctx := context.Background()
+				ctx := t.Context()
 				backend := newSimpleBackend()
 
 				fn := &lambda.FunctionConfiguration{
@@ -255,7 +255,7 @@ func TestInMemoryBackend(t *testing.T) {
 
 				// Event invocation (fire-and-forget) — should start container with Zip mount
 				_, statusCode, err := backend.InvokeFunction(
-					context.Background(),
+					t.Context(),
 					"zip-invoke-fn",
 					lambda.InvocationTypeEvent,
 					[]byte(`{}`),
@@ -285,7 +285,7 @@ func TestInMemoryBackend(t *testing.T) {
 
 				// Should fail: unknown runtime has no base image
 				_, _, err := backend.InvokeFunction(
-					context.Background(),
+					t.Context(),
 					"unknown-runtime-fn",
 					lambda.InvocationTypeEvent,
 					[]byte(`{}`),
@@ -319,7 +319,7 @@ func TestInMemoryBackend(t *testing.T) {
 
 				// Event invocation - should fetch from S3
 				_, statusCode, err := backend.InvokeFunction(
-					context.Background(),
+					t.Context(),
 					"s3-zip-fn",
 					lambda.InvocationTypeEvent,
 					[]byte(`{}`),
@@ -349,7 +349,7 @@ func TestInMemoryBackend(t *testing.T) {
 				require.NoError(t, backend.CreateFunction(fn))
 
 				// Event invocation - should fail gracefully (logs error, returns 202 for fire-and-forget)
-				_, _, _ = backend.InvokeFunction(context.Background(), "s3-no-fetcher", lambda.InvocationTypeEvent, []byte(`{}`))
+				_, _, _ = backend.InvokeFunction(t.Context(), "s3-no-fetcher", lambda.InvocationTypeEvent, []byte(`{}`))
 				// Just verify no panic
 			},
 		},
@@ -373,7 +373,7 @@ func TestInMemoryBackend(t *testing.T) {
 				require.NoError(t, backend.CreateFunction(fn))
 
 				// Trigger zip extraction by invoking
-				_, _, _ = backend.InvokeFunction(context.Background(), "zip-cleanup", lambda.InvocationTypeEvent, []byte(`{}`))
+				_, _, _ = backend.InvokeFunction(t.Context(), "zip-cleanup", lambda.InvocationTypeEvent, []byte(`{}`))
 
 				// Delete should clean up temp dir without error
 				require.NoError(t, backend.DeleteFunction("zip-cleanup"))
@@ -501,25 +501,25 @@ func TestInMemoryBackend(t *testing.T) {
 
 				// Invoke with no qualifier should succeed (resolves to ErrLambdaUnavailable, not ErrFunctionNotFound)
 				_, _, invokeErr := backend.InvokeFunctionWithQualifier(
-					context.Background(), "resolve-fn", "", lambda.InvocationTypeRequestResponse, []byte("{}"),
+					t.Context(), "resolve-fn", "", lambda.InvocationTypeRequestResponse, []byte("{}"),
 				)
 				require.ErrorIs(t, invokeErr, lambda.ErrLambdaUnavailable)
 
 				// Invoke with alias qualifier (resolves alias → version → config)
 				_, _, invokeErr = backend.InvokeFunctionWithQualifier(
-					context.Background(), "resolve-fn", "stable", lambda.InvocationTypeRequestResponse, []byte("{}"),
+					t.Context(), "resolve-fn", "stable", lambda.InvocationTypeRequestResponse, []byte("{}"),
 				)
 				require.ErrorIs(t, invokeErr, lambda.ErrLambdaUnavailable)
 
 				// Invoke with version qualifier
 				_, _, invokeErr = backend.InvokeFunctionWithQualifier(
-					context.Background(), "resolve-fn", "1", lambda.InvocationTypeRequestResponse, []byte("{}"),
+					t.Context(), "resolve-fn", "1", lambda.InvocationTypeRequestResponse, []byte("{}"),
 				)
 				require.ErrorIs(t, invokeErr, lambda.ErrLambdaUnavailable)
 
 				// Invoke with non-existent version should return ErrVersionNotFound
 				_, _, invokeErr = backend.InvokeFunctionWithQualifier(
-					context.Background(), "resolve-fn", "999", lambda.InvocationTypeRequestResponse, []byte("{}"),
+					t.Context(), "resolve-fn", "999", lambda.InvocationTypeRequestResponse, []byte("{}"),
 				)
 				require.ErrorIs(t, invokeErr, lambda.ErrVersionNotFound)
 			},
@@ -549,7 +549,7 @@ func TestBuildURLEventPayload(t *testing.T) {
 				)
 
 				req, err := http.NewRequestWithContext(
-					context.Background(),
+					t.Context(),
 					http.MethodPost,
 					"http://example.com/my/path?foo=bar",
 					strings.NewReader("hello world"),
@@ -578,7 +578,7 @@ func TestBuildURLEventPayload(t *testing.T) {
 				)
 
 				req, err := http.NewRequestWithContext(
-					context.Background(),
+					t.Context(),
 					http.MethodGet,
 					"http://example.com/",
 					nil,
@@ -681,7 +681,7 @@ func TestFunctionURLConfig_HTTPEndpoint(t *testing.T) {
 	// The listener is running — make an HTTP request to it.
 	client := &http.Client{Timeout: 5 * time.Second}
 	req, err := http.NewRequestWithContext(
-		context.Background(), http.MethodGet, cfg.FunctionURL, nil,
+		t.Context(), http.MethodGet, cfg.FunctionURL, nil,
 	)
 	require.NoError(t, err)
 
