@@ -42,13 +42,13 @@ func TestACMHandler(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
 		setup        func(t *testing.T, h *acm.Handler)
+		name         string
 		target       string
 		body         string
-		omitTarget   bool
-		wantCode     int
 		wantContains []string
+		wantCode     int
+		omitTarget   bool
 	}{
 		{
 			name:         "RequestCertificate",
@@ -131,12 +131,14 @@ func TestACMHandler(t *testing.T) {
 					listRec := postACMJSON(t, h, "ListCertificates", `{}`)
 					var listResp struct {
 						CertificateSummaryList []struct {
-							CertificateArn string
-						}
+							CertificateArn string `json:"CertificateArn"`
+						} `json:"CertificateSummaryList"`
 					}
 					require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
 					require.NotEmpty(t, listResp.CertificateSummaryList)
-					b, _ := json.Marshal(map[string]string{"CertificateArn": listResp.CertificateSummaryList[0].CertificateArn})
+					b, _ := json.Marshal(
+						map[string]string{"CertificateArn": listResp.CertificateSummaryList[0].CertificateArn},
+					)
 					body = string(b)
 				}
 				rec = postACMJSON(t, h, tt.target, body)

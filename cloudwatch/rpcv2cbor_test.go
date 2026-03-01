@@ -161,18 +161,18 @@ func TestCBOR(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
 		setup            func(t *testing.T, h *cloudwatch.Handler)
-		op               string
 		body             cbor.Map
-		wantCode         int
-		wantProtocol     bool
+		name             string
+		op               string
 		wantStringField  string
 		wantStringValue  string
 		wantListField    string
+		wantCode         int
+		wantListLen      int
+		wantProtocol     bool
 		wantListNotEmpty bool
 		wantListEmpty    bool
-		wantListLen      int
 	}{
 		{
 			name: "PutMetricData",
@@ -200,6 +200,7 @@ func TestCBOR(t *testing.T) {
 		{
 			name: "PutAndGetMetricStatistics",
 			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
 				putRec := postCBOR(t, h, "PutMetricData", cbor.Map{
 					"Namespace": cbor.String("StatNS"),
 					"MetricData": cbor.List{
@@ -245,6 +246,7 @@ func TestCBOR(t *testing.T) {
 		{
 			name: "DescribeAlarms",
 			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
 				postCBOR(t, h, "PutMetricAlarm", cbor.Map{
 					"AlarmName":          cbor.String("my-alarm"),
 					"Namespace":          cbor.String("NS"),
@@ -266,6 +268,7 @@ func TestCBOR(t *testing.T) {
 		{
 			name: "ListMetrics",
 			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
 				postCBOR(t, h, "PutMetricData", cbor.Map{
 					"Namespace": cbor.String("ListNS"),
 					"MetricData": cbor.List{
@@ -295,6 +298,7 @@ func TestCBOR(t *testing.T) {
 		{
 			name: "GetMetricData",
 			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
 				postCBOR(t, h, "PutMetricData", cbor.Map{
 					"Namespace": cbor.String("MDataNS"),
 					"MetricData": cbor.List{
@@ -371,28 +375,26 @@ func TestCBOR(t *testing.T) {
 				assert.Equal(t, "rpc-v2-cbor", rec.Header().Get("Smithy-Protocol"))
 			}
 
-			if tt.wantStringField != "" || tt.wantListField != "" {
+			if tt.wantStringField != "" {
 				m := decodeCBORResponse(t, rec)
+				assert.Equal(t, tt.wantStringValue, string(m[tt.wantStringField].(cbor.String)))
+			}
 
-				if tt.wantStringField != "" {
-					assert.Equal(t, tt.wantStringValue, string(m[tt.wantStringField].(cbor.String)))
+			if tt.wantListField != "" {
+				m := decodeCBORResponse(t, rec)
+				list, ok := m[tt.wantListField].(cbor.List)
+				require.True(t, ok)
+
+				if tt.wantListNotEmpty {
+					assert.NotEmpty(t, list)
 				}
 
-				if tt.wantListField != "" {
-					list, ok := m[tt.wantListField].(cbor.List)
-					require.True(t, ok)
+				if tt.wantListEmpty {
+					assert.Empty(t, list)
+				}
 
-					if tt.wantListNotEmpty {
-						assert.NotEmpty(t, list)
-					}
-
-					if tt.wantListEmpty {
-						assert.Empty(t, list)
-					}
-
-					if tt.wantListLen > 0 {
-						assert.Len(t, list, tt.wantListLen)
-					}
+				if tt.wantListLen > 0 {
+					assert.Len(t, list, tt.wantListLen)
 				}
 			}
 		})

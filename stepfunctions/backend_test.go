@@ -29,16 +29,16 @@ func TestCreateStateMachine(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErr    error
 		name       string
 		smName     string
 		definition string
 		roleArn    string
 		smType     string
-		preCreate  bool
 		wantName   string
 		wantStatus string
 		wantType   string
-		wantErr    error
+		preCreate  bool
 	}{
 		{
 			name:       "basic",
@@ -82,6 +82,7 @@ func TestCreateStateMachine(t *testing.T) {
 			sm, err := b.CreateStateMachine(tt.smName, tt.definition, tt.roleArn, tt.smType)
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 			require.NoError(t, err)
@@ -104,6 +105,7 @@ func TestDescribeStateMachine(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErr    error
 		name       string
 		createName string
 		createDef  string
@@ -112,7 +114,6 @@ func TestDescribeStateMachine(t *testing.T) {
 		wantName   string
 		wantType   string
 		wantDef    string
-		wantErr    error
 	}{
 		{
 			name:       "success",
@@ -145,6 +146,7 @@ func TestDescribeStateMachine(t *testing.T) {
 			got, err := b.DescribeStateMachine(arn)
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 			require.NoError(t, err)
@@ -160,8 +162,8 @@ func TestListStateMachines(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		setupNames []string
 		token      string
+		setupNames []string
 		maxResults int
 		wantCount  int
 		wantNext   bool
@@ -230,10 +232,10 @@ func TestDeleteStateMachine(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		createSM  bool
-		deleteArn string
 		wantErr   error
+		name      string
+		deleteArn string
+		createSM  bool
 	}{
 		{
 			name:     "success",
@@ -261,6 +263,7 @@ func TestDeleteStateMachine(t *testing.T) {
 			err := b.DeleteStateMachine(arn)
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 			require.NoError(t, err)
@@ -275,17 +278,17 @@ func TestStartExecution(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErr         error
 		name            string
-		createSM        bool
 		smArn           string
 		execName        string
 		input           string
-		preCreateExec   bool
 		wantArnContains string
 		wantStatus      string
 		wantOutput      string
+		createSM        bool
+		preCreateExec   bool
 		wantStopDate    bool
-		wantErr         error
 	}{
 		{
 			name:            "basic",
@@ -331,6 +334,7 @@ func TestStartExecution(t *testing.T) {
 			exec, err := b.StartExecution(smArn, tt.execName, tt.input)
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 			require.NoError(t, err)
@@ -355,13 +359,13 @@ func TestDescribeExecution(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErr      error
 		name         string
-		createExec   bool
 		input        string
 		executionArn string
 		wantStatus   string
 		wantInput    string
-		wantErr      error
+		createExec   bool
 	}{
 		{
 			name:       "success",
@@ -392,6 +396,7 @@ func TestDescribeExecution(t *testing.T) {
 			got, err := b.DescribeExecution(arn)
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 			require.NoError(t, err)
@@ -406,8 +411,8 @@ func TestListExecutions(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		execNames    []string
 		statusFilter string
+		execNames    []string
 		wantCount    int
 	}{
 		{
@@ -453,14 +458,14 @@ func TestGetExecutionHistory(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErr      error
 		name         string
-		createExec   bool
 		executionArn string
-		reverse      bool
-		wantLen      int
 		wantFirst    string
 		wantSecond   string
-		wantErr      error
+		wantLen      int
+		createExec   bool
+		reverse      bool
 	}{
 		{
 			name:       "forward",
@@ -499,6 +504,7 @@ func TestGetExecutionHistory(t *testing.T) {
 			events, next, err := b.GetExecutionHistory(arn, "", 0, tt.reverse)
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 			require.NoError(t, err)
@@ -514,15 +520,15 @@ func TestStopExecution(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErr      error
 		name         string
-		createExec   bool
 		executionArn string
 		stopError    string
 		stopCause    string
 		wantStatus   string
 		wantError    string
 		wantCause    string
-		wantErr      error
+		createExec   bool
 	}{
 		{
 			name:       "success",
@@ -555,6 +561,7 @@ func TestStopExecution(t *testing.T) {
 			err := b.StopExecution(arn, tt.stopError, tt.stopCause)
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 			require.NoError(t, err)
@@ -590,10 +597,10 @@ func TestStartExecutionASL(t *testing.T) {
 		name            string
 		definition      string
 		input           string
-		checkInitStatus bool
 		wantStatus      string
 		wantOutputKey   string
 		wantError       string
+		checkInitStatus bool
 	}{
 		{
 			name:            "Pass",

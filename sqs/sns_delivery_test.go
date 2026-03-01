@@ -28,19 +28,19 @@ func TestSNSToSQSDelivery(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
-		topicName        string
-		queues           []string
-		subscribe        bool
+		publishAttrs     map[string]snsbackend.MessageAttribute
+		wantBodyContains string
 		filterPolicy     string
 		publishMessage   string
 		publishSubject   string
-		publishAttrs     map[string]snsbackend.MessageAttribute
-		wantMsgCount     int
-		wantBodyContains string
+		topicName        string
+		name             string
 		wantEnvType      string
 		wantEnvMessage   string
 		wantEnvSubject   string
+		queues           []string
+		wantMsgCount     int
+		subscribe        bool
 	}{
 		{
 			name:           "BasicDelivery",
@@ -132,6 +132,7 @@ func TestSNSToSQSDelivery(t *testing.T) {
 
 				if tt.wantMsgCount == 0 {
 					assert.Empty(t, out.Messages)
+
 					continue
 				}
 

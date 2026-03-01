@@ -52,8 +52,8 @@ func TestRecordOperation(t *testing.T) {
 	type recordOp struct {
 		operation string
 		resource  string
-		latency   float64
 		status    string
+		latency   float64
 	}
 
 	tests := []struct {
@@ -62,22 +62,22 @@ func TestRecordOperation(t *testing.T) {
 	}{
 		{
 			name: "success",
-			ops:  []recordOp{{"TestPutItem", "TestUserTable", 0.123, "success"}},
+			ops:  []recordOp{{operation: "TestPutItem", resource: "TestUserTable", latency: 0.123, status: "success"}},
 		},
 		{
 			name: "error",
 			ops: []recordOp{
-				{"TestDeleteItem", "TestTable1", 0.050, "success"},
-				{"TestDeleteItem", "TestTable1", 0.075, "error"},
+				{operation: "TestDeleteItem", resource: "TestTable1", latency: 0.050, status: "success"},
+				{operation: "TestDeleteItem", resource: "TestTable1", latency: 0.075, status: "error"},
 			},
 		},
 		{
 			name: "multiple_operations",
 			ops: []recordOp{
-				{"TestGetItem", "TestUsers", 0.010, "success"},
-				{"TestGetItem", "TestUsers", 0.015, "success"},
-				{"TestPutItem2", "TestUsers", 0.020, "success"},
-				{"TestQuery", "TestOrders", 0.050, "success"},
+				{operation: "TestGetItem", resource: "TestUsers", latency: 0.010, status: "success"},
+				{operation: "TestGetItem", resource: "TestUsers", latency: 0.015, status: "success"},
+				{operation: "TestPutItem2", resource: "TestUsers", latency: 0.020, status: "success"},
+				{operation: "TestQuery", resource: "TestOrders", latency: 0.050, status: "success"},
 			},
 		},
 	}
@@ -241,12 +241,12 @@ func TestWrapEchoHandler(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		observer telemetry.ObservabilityObserver
+		wantErr  error
+		handler  func(*echo.Context) error
 		name     string
 		service  string
-		handler  func(*echo.Context) error
-		observer telemetry.ObservabilityObserver
 		method   string
-		wantErr  error
 		wantCode int
 	}{
 		{

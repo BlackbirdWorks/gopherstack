@@ -17,11 +17,11 @@ func TestConfirmSubscription(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErr   error
 		name      string
 		topicName string
-		subscribe bool
 		token     string
-		wantErr   error
+		subscribe bool
 	}{
 		{
 			name:      "Success",
@@ -63,6 +63,7 @@ func TestConfirmSubscription(t *testing.T) {
 			confirmed, err := b.ConfirmSubscription(topic.TopicArn, tt.token)
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 			require.NoError(t, err)

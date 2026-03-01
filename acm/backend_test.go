@@ -61,9 +61,9 @@ func TestACMBackend_DescribeCertificate(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErr error
 		name    string
 		arn     string
-		wantErr error
 	}{
 		{
 			name:    "not_found",
@@ -95,9 +95,9 @@ func TestACMBackend_DeleteCertificate(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		setup   func(t *testing.T, b *acm.InMemoryBackend) string
 		wantErr error
+		setup   func(t *testing.T, b *acm.InMemoryBackend) string
+		name    string
 	}{
 		{
 			name: "success",
@@ -105,6 +105,7 @@ func TestACMBackend_DeleteCertificate(t *testing.T) {
 				t.Helper()
 				cert, err := b.RequestCertificate("delete-me.com", "")
 				require.NoError(t, err)
+
 				return cert.ARN
 			},
 		},
@@ -139,8 +140,8 @@ func TestACMBackend_ListCertificates(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
 		setup     func(t *testing.T, b *acm.InMemoryBackend)
+		name      string
 		wantCount int
 	}{
 		{

@@ -124,20 +124,20 @@ func TestTranscribe_ExtractResource(t *testing.T) {
 }
 
 type transcribeSetupAction struct {
-	action string
 	body   map[string]any
+	action string
 }
 
 func TestTranscribe_HandlerActions(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		setupActions []transcribeSetupAction
-		action       string
 		body         map[string]any
-		wantCode     int
+		name         string
+		action       string
+		setupActions []transcribeSetupAction
 		wantContains []string
+		wantCode     int
 	}{
 		{
 			name:   "StartTranscriptionJob",

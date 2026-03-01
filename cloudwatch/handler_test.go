@@ -104,12 +104,12 @@ func TestCloudWatchHandler(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name            string
 		setup           func(t *testing.T, h *cloudwatch.Handler)
+		name            string
 		body            string
-		wantCode        int
 		wantContains    []string
 		wantNotContains []string
+		wantCode        int
 	}{
 		{
 			name: "PutMetricData/success",

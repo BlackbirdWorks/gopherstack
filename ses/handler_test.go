@@ -53,8 +53,8 @@ func TestSESHandler(t *testing.T) {
 	tests := []struct {
 		name         string
 		body         string
-		wantCode     int
 		wantContains string
+		wantCode     int
 	}{
 		{
 			name:         "VerifyEmailIdentity",

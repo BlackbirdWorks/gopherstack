@@ -47,10 +47,10 @@ func TestRun_WithVariousConfigs(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
 	tests := []struct {
+		logger  *slog.Logger
 		name    string
 		scripts []string
 		timeout time.Duration
-		logger  *slog.Logger
 	}{
 		{name: "with_logger", scripts: []string{"echo hi"}, timeout: 5 * time.Second, logger: log},
 		{name: "with_logger_failing_script", scripts: []string{"exit 42"}, timeout: 5 * time.Second, logger: log},

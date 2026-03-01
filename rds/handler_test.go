@@ -154,11 +154,11 @@ func TestRDSHandler_FormActions(t *testing.T) {
 
 	tests := []struct {
 		name            string
-		setupBodies     []string
 		body            string
-		wantCode        int
+		setupBodies     []string
 		wantContains    []string
 		wantNotContains []string
+		wantCode        int
 	}{
 		{
 			name: "CreateDBInstance",
@@ -188,9 +188,10 @@ func TestRDSHandler_FormActions(t *testing.T) {
 			wantContains: []string{"InvalidParameterValue"},
 		},
 		{
-			name:         "ModifyDBInstance_InvalidAllocatedStorage",
-			setupBodies:  []string{"Action=CreateDBInstance&Version=2014-10-31&DBInstanceIdentifier=mod-bad-db"},
-			body:         "Action=ModifyDBInstance&Version=2014-10-31&DBInstanceIdentifier=mod-bad-db&AllocatedStorage=notanumber",
+			name:        "ModifyDBInstance_InvalidAllocatedStorage",
+			setupBodies: []string{"Action=CreateDBInstance&Version=2014-10-31&DBInstanceIdentifier=mod-bad-db"},
+			body: "Action=ModifyDBInstance&Version=2014-10-31&DBInstanceIdentifier=mod-bad-db&" +
+				"AllocatedStorage=notanumber",
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"InvalidParameterValue"},
 		},
@@ -288,8 +289,9 @@ func TestRDSHandler_FormActions(t *testing.T) {
 			wantContains: []string{"CreateDBSnapshotResponse", "snap-1"},
 		},
 		{
-			name:         "CreateDBSnapshot_InstanceNotFound",
-			body:         "Action=CreateDBSnapshot&Version=2014-10-31&DBSnapshotIdentifier=snap-1&DBInstanceIdentifier=nonexistent",
+			name: "CreateDBSnapshot_InstanceNotFound",
+			body: "Action=CreateDBSnapshot&Version=2014-10-31&DBSnapshotIdentifier=snap-1&" +
+				"DBInstanceIdentifier=nonexistent",
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"DBInstanceNotFound"},
 		},
@@ -299,7 +301,8 @@ func TestRDSHandler_FormActions(t *testing.T) {
 				"Action=CreateDBInstance&Version=2014-10-31&DBInstanceIdentifier=snap-db2",
 				"Action=CreateDBSnapshot&Version=2014-10-31&DBSnapshotIdentifier=dup-snap&DBInstanceIdentifier=snap-db2",
 			},
-			body:         "Action=CreateDBSnapshot&Version=2014-10-31&DBSnapshotIdentifier=dup-snap&DBInstanceIdentifier=snap-db2",
+			body: "Action=CreateDBSnapshot&Version=2014-10-31&DBSnapshotIdentifier=dup-snap&" +
+				"DBInstanceIdentifier=snap-db2",
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"DBSnapshotAlreadyExists"},
 		},
@@ -389,8 +392,9 @@ func TestRDSHandler_FormActions(t *testing.T) {
 			wantContains: []string{"DBSubnetGroupNotFound"},
 		},
 		{
-			name:            "ListTagsForResource",
-			body:            "Action=ListTagsForResource&Version=2014-10-31&ResourceName=arn:aws:rds:us-east-1:000000000000:db:test-db",
+			name: "ListTagsForResource",
+			body: "Action=ListTagsForResource&Version=2014-10-31&" +
+				"ResourceName=arn:aws:rds:us-east-1:000000000000:db:test-db",
 			wantCode:        http.StatusOK,
 			wantContains:    []string{"ListTagsForResourceResponse"},
 			wantNotContains: []string{"<Tag>"},
@@ -405,7 +409,8 @@ func TestRDSHandler_FormActions(t *testing.T) {
 					"&ResourceName=arn:aws:rds:us-east-1:000000000000:db:tag-db" +
 					"&Tags.Tag.1.Key=Env&Tags.Tag.1.Value=prod",
 			},
-			body:            "Action=ListTagsForResource&Version=2014-10-31&ResourceName=arn:aws:rds:us-east-1:000000000000:db:tag-db",
+			body: "Action=ListTagsForResource&Version=2014-10-31&" +
+				"ResourceName=arn:aws:rds:us-east-1:000000000000:db:tag-db",
 			wantCode:        http.StatusOK,
 			wantContains:    []string{"<Value>prod</Value>"},
 			wantNotContains: []string{"<Value>staging</Value>"},

@@ -5,20 +5,21 @@ import (
 	"testing"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/sts"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/blackbirdworks/gopherstack/sts"
 )
 
 func TestGetSessionToken(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name            string
-		duration        int32
-		wantErr         bool
+		wantErrContains string
 		wantDuration    time.Duration
 		tolerance       time.Duration
-		wantErrContains string
+		duration        int32
+		wantErr         bool
 	}{
 		{
 			name:         "DefaultDuration",
@@ -57,13 +58,19 @@ func TestGetSessionToken(t *testing.T) {
 			if tt.wantErr {
 				require.Error(t, err, "expected error")
 				assert.Contains(t, err.Error(), tt.wantErrContains)
+
 				return
 			}
 
 			require.NoError(t, err)
 
 			creds := resp.GetSessionTokenResult.Credentials
-			assert.True(t, strings.HasPrefix(creds.AccessKeyID, "ASIA"), "expected ASIA prefix, got %q", creds.AccessKeyID)
+			assert.True(
+				t,
+				strings.HasPrefix(creds.AccessKeyID, "ASIA"),
+				"expected ASIA prefix, got %q",
+				creds.AccessKeyID,
+			)
 			assert.NotEmpty(t, creds.SecretAccessKey, "expected non-empty SecretAccessKey")
 			assert.NotEmpty(t, creds.SessionToken, "expected non-empty SessionToken")
 

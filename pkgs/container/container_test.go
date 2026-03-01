@@ -126,9 +126,9 @@ func TestDockerRuntime_Ping(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		pingErr error
 		wantErr error
+		name    string
 	}{
 		{name: "success"},
 		{name: "daemon_down", pingErr: errDaemonDown, wantErr: container.ErrUnavailable},
@@ -157,8 +157,8 @@ func TestDockerRuntime_PullImage(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		pullErr error
+		name    string
 		wantErr bool
 	}{
 		{name: "success"},
@@ -187,10 +187,10 @@ func TestDockerRuntime_HasImage(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		listErr error
 		name    string
 		ref     string
 		images  []image.Summary
-		listErr error
 		wantOK  bool
 		wantErr bool
 	}{
@@ -256,11 +256,11 @@ func TestDockerRuntime_StopAndRemove(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
 		stopErr      error
 		removeErr    error
-		wantErr      bool
+		name         string
 		wantContains string
+		wantErr      bool
 	}{
 		{name: "success"},
 		{name: "stop_error", stopErr: errStopFailed, wantErr: true},
@@ -437,12 +437,16 @@ func TestNewRuntime(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErr error
 		name    string
 		config  container.Config
-		wantErr error
 	}{
 		{name: "default_is_docker", config: container.Config{}},
-		{name: "unknown_runtime", config: container.Config{Runtime: "invalid-runtime"}, wantErr: container.ErrUnknownRuntime},
+		{
+			name:    "unknown_runtime",
+			config:  container.Config{Runtime: "invalid-runtime"},
+			wantErr: container.ErrUnknownRuntime,
+		},
 		{name: "docker", config: container.Config{Runtime: container.RuntimeDocker}},
 		{name: "podman", config: container.Config{Runtime: container.RuntimePodman}},
 		{name: "auto", config: container.Config{Runtime: container.RuntimeAuto}},

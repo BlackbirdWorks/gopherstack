@@ -13,12 +13,12 @@ func TestResourceGroupsCreateGroup(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
+		wantErr     error
 		setup       func(b *resourcegroups.InMemoryBackend)
+		tags        map[string]string
+		name        string
 		groupName   string
 		description string
-		tags        map[string]string
-		wantErr     error
 	}{
 		{
 			name:        "success",
@@ -46,6 +46,7 @@ func TestResourceGroupsCreateGroup(t *testing.T) {
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 			require.NoError(t, err)
@@ -60,10 +61,10 @@ func TestResourceGroupsDeleteGroup(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		setup     func(b *resourcegroups.InMemoryBackend)
-		groupName string
 		wantErr   error
+		setup     func(b *resourcegroups.InMemoryBackend)
+		name      string
+		groupName string
 	}{
 		{
 			name:      "success",
@@ -90,6 +91,7 @@ func TestResourceGroupsDeleteGroup(t *testing.T) {
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 			require.NoError(t, err)
@@ -135,6 +137,7 @@ func TestResourceGroupsGetGroup(t *testing.T) {
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 			require.NoError(t, err)

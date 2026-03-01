@@ -49,12 +49,12 @@ func TestOpenSearchHandler_CreateDomain(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
 		setup         func(t *testing.T, h *opensearch.Handler)
+		name          string
 		domainName    string
 		engineVersion string
-		wantCode      int
 		wantContains  []string
+		wantCode      int
 	}{
 		{
 			name:          "success",
@@ -67,7 +67,14 @@ func TestOpenSearchHandler_CreateDomain(t *testing.T) {
 			name:       "already_exists",
 			domainName: "my-domain",
 			setup: func(t *testing.T, h *opensearch.Handler) {
-				resp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain", map[string]any{"DomainName": "my-domain"})
+				t.Helper()
+				resp := doRequest(
+					t,
+					h,
+					http.MethodPost,
+					"/2021-01-01/opensearch/domain",
+					map[string]any{"DomainName": "my-domain"},
+				)
 				resp.Body.Close()
 			},
 			wantCode: http.StatusConflict,
@@ -110,17 +117,24 @@ func TestOpenSearchHandler_DescribeDomain(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
 		setup        func(t *testing.T, h *opensearch.Handler)
+		name         string
 		domainName   string
-		wantCode     int
 		wantContains []string
+		wantCode     int
 	}{
 		{
 			name:       "success",
 			domainName: "my-domain",
 			setup: func(t *testing.T, h *opensearch.Handler) {
-				resp := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain", map[string]any{"DomainName": "my-domain"})
+				t.Helper()
+				resp := doRequest(
+					t,
+					h,
+					http.MethodPost,
+					"/2021-01-01/opensearch/domain",
+					map[string]any{"DomainName": "my-domain"},
+				)
 				resp.Body.Close()
 			},
 			wantCode:     http.StatusOK,
@@ -191,7 +205,14 @@ func TestOpenSearchHandler_DeleteDomain(t *testing.T) {
 			name:       "success",
 			domainName: "to-delete",
 			setup: func(t *testing.T, h *opensearch.Handler) {
-				r := doRequest(t, h, http.MethodPost, "/2021-01-01/opensearch/domain", map[string]any{"DomainName": "to-delete"})
+				t.Helper()
+				r := doRequest(
+					t,
+					h,
+					http.MethodPost,
+					"/2021-01-01/opensearch/domain",
+					map[string]any{"DomainName": "to-delete"},
+				)
 				r.Body.Close()
 			},
 			wantCode: http.StatusOK,

@@ -81,8 +81,8 @@ func TestRoute53Handler(t *testing.T) {
 		method       string
 		path         string
 		body         string
-		wantCode     int
 		wantContains []string
+		wantCode     int
 	}{
 		{
 			name:         "CreateHostedZone",
@@ -161,12 +161,12 @@ func TestRoute53Handler_WithZone(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		setupBody    string // optional: XML body to POST to rrset endpoint after creating zone
+		setupBody    string
 		method       string
-		path         string // may contain {zoneID} placeholder
+		path         string
 		body         string
-		wantCode     int
 		wantContains []string
+		wantCode     int
 	}{
 		{
 			name:         "ListHostedZones_AfterCreate",

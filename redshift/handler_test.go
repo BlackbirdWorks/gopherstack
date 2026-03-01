@@ -41,12 +41,13 @@ func TestRedshiftHandler_CreateCluster(t *testing.T) {
 	tests := []struct {
 		name         string
 		body         string
-		wantCode     int
 		wantContains []string
+		wantCode     int
 	}{
 		{
-			name:         "success",
-			body:         "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=test-cluster&NodeType=dc2.large&DBName=mydb&MasterUsername=admin",
+			name: "success",
+			body: "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=test-cluster&" +
+				"NodeType=dc2.large&DBName=mydb&MasterUsername=admin",
 			wantCode:     http.StatusOK,
 			wantContains: []string{"CreateClusterResponse", "test-cluster"},
 		},
@@ -85,15 +86,16 @@ func TestRedshiftHandler_DescribeClusters(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
 		setup        func(t *testing.T, h *redshift.Handler)
+		name         string
 		body         string
-		wantCode     int
 		wantContains []string
+		wantCode     int
 	}{
 		{
 			name: "list_all",
 			setup: func(t *testing.T, h *redshift.Handler) {
+				t.Helper()
 				postRedshiftForm(t, h, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=desc-cluster")
 			},
 			body:         "Action=DescribeClusters&Version=2012-12-01",

@@ -13,14 +13,14 @@ func TestRegisterDomain(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErr     error
 		name        string
-		preRegister []string
 		domain      string
 		description string
-		wantErr     error
-		wantCount   int
 		wantName    string
 		wantStatus  string
+		preRegister []string
+		wantCount   int
 	}{
 		{
 			name:        "success",
@@ -50,6 +50,7 @@ func TestRegisterDomain(t *testing.T) {
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 			require.NoError(t, err)
@@ -66,11 +67,11 @@ func TestDeprecateDomain(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		preRegister bool
-		domain      string
 		wantErr     error
+		name        string
+		domain      string
 		wantCount   int
+		preRegister bool
 	}{
 		{
 			name:        "success",
@@ -97,6 +98,7 @@ func TestDeprecateDomain(t *testing.T) {
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 			require.NoError(t, err)
@@ -125,14 +127,14 @@ func TestWorkflowExecution(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErr    error
 		name       string
-		startFirst bool
 		domain     string
 		workflowID string
 		runID      string
-		wantErr    error
 		wantStatus string
 		wantRunID  string
+		startFirst bool
 	}{
 		{
 			name:       "StartAndDescribe",
@@ -166,6 +168,7 @@ func TestWorkflowExecution(t *testing.T) {
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 			require.NoError(t, err)

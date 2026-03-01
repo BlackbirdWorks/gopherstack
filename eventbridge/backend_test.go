@@ -62,10 +62,10 @@ func TestListEventBuses(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		setupBuses    []string
 		prefix        string
-		wantCount     int
 		wantFirstName string
+		setupBuses    []string
+		wantCount     int
 	}{
 		{
 			name:       "All",
@@ -281,10 +281,10 @@ func TestPutRule(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		input     eventbridge.PutRuleInput
-		wantState string
 		wantErr   error
+		input     eventbridge.PutRuleInput
+		name      string
+		wantState string
 	}{
 		{
 			name:      "DefaultState",
@@ -306,6 +306,7 @@ func TestPutRule(t *testing.T) {
 			rule, err := b.PutRule(tt.input)
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 			require.NoError(t, err)

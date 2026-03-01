@@ -13,13 +13,13 @@ func TestRedshiftCreateCluster(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
+		wantErr    error
 		setup      func(b *redshift.InMemoryBackend)
+		name       string
 		clusterID  string
 		nodeType   string
 		dbName     string
 		masterUser string
-		wantErr    error
 	}{
 		{
 			name:       "success",
@@ -54,6 +54,7 @@ func TestRedshiftCreateCluster(t *testing.T) {
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 			require.NoError(t, err)
@@ -87,11 +88,11 @@ func TestRedshiftDescribeClusters(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
+		wantErr   error
 		setup     func(b *redshift.InMemoryBackend)
+		name      string
 		clusterID string
 		wantCount int
-		wantErr   error
 	}{
 		{
 			name: "multiple",
@@ -120,6 +121,7 @@ func TestRedshiftDescribeClusters(t *testing.T) {
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 			require.NoError(t, err)
@@ -132,12 +134,12 @@ func TestRedshiftCreateTags(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		setup     func(b *redshift.InMemoryBackend)
-		clusterID string
-		tags      map[string]string
 		wantErr   error
+		setup     func(b *redshift.InMemoryBackend)
+		tags      map[string]string
 		wantTags  map[string]string
+		name      string
+		clusterID string
 	}{
 		{
 			name:      "success",
@@ -177,6 +179,7 @@ func TestRedshiftCreateTags(t *testing.T) {
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 			require.NoError(t, err)
@@ -194,13 +197,13 @@ func TestRedshiftDeleteTags(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
+		wantErr        error
 		setup          func(b *redshift.InMemoryBackend)
+		wantTags       map[string]string
+		name           string
 		clusterID      string
 		keysToRemove   []string
-		wantErr        error
 		wantAbsentKeys []string
-		wantTags       map[string]string
 	}{
 		{
 			name:      "success",
@@ -232,6 +235,7 @@ func TestRedshiftDeleteTags(t *testing.T) {
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 			require.NoError(t, err)

@@ -273,8 +273,8 @@ func TestRWMutex_Close(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name  string
 		setup func(t *testing.T, m *lockmetrics.RWMutex)
+		name  string
 	}{
 		{name: "new"},
 		{

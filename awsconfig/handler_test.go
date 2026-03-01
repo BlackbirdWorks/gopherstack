@@ -53,8 +53,8 @@ func TestAWSConfigHandler_PutConfigurationRecorder(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
 		body     any
+		name     string
 		wantCode int
 	}{
 		{
@@ -84,17 +84,20 @@ func TestAWSConfigHandler_DescribeConfigurationRecorders(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
 		setup        func(t *testing.T, h *awsconfig.Handler)
-		wantCode     int
+		name         string
 		wantContains []string
+		wantCode     int
 	}{
 		{
 			name: "with_recorder",
 			setup: func(t *testing.T, h *awsconfig.Handler) {
 				t.Helper()
 				doAWSConfigRequest(t, h, "PutConfigurationRecorder", map[string]any{
-					"ConfigurationRecorder": map[string]any{"name": "default", "roleARN": "arn:aws:iam::000000000000:role/config"},
+					"ConfigurationRecorder": map[string]any{
+						"name":    "default",
+						"roleARN": "arn:aws:iam::000000000000:role/config",
+					},
 				})
 			},
 			wantCode:     http.StatusOK,
@@ -125,9 +128,9 @@ func TestAWSConfigHandler_StartConfigurationRecorder(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		setup    func(t *testing.T, h *awsconfig.Handler)
 		body     any
+		setup    func(t *testing.T, h *awsconfig.Handler)
+		name     string
 		wantCode int
 	}{
 		{
@@ -135,7 +138,10 @@ func TestAWSConfigHandler_StartConfigurationRecorder(t *testing.T) {
 			setup: func(t *testing.T, h *awsconfig.Handler) {
 				t.Helper()
 				doAWSConfigRequest(t, h, "PutConfigurationRecorder", map[string]any{
-					"ConfigurationRecorder": map[string]any{"name": "default", "roleARN": "arn:aws:iam::000000000000:role/config"},
+					"ConfigurationRecorder": map[string]any{
+						"name":    "default",
+						"roleARN": "arn:aws:iam::000000000000:role/config",
+					},
 				})
 			},
 			body:     map[string]any{"ConfigurationRecorderName": "default"},
@@ -167,8 +173,8 @@ func TestAWSConfigHandler_PutDeliveryChannel(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
 		body     any
+		name     string
 		wantCode int
 	}{
 		{
@@ -199,17 +205,21 @@ func TestAWSConfigHandler_DescribeDeliveryChannels(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
 		setup        func(t *testing.T, h *awsconfig.Handler)
-		wantCode     int
+		name         string
 		wantContains []string
+		wantCode     int
 	}{
 		{
 			name: "with_channel",
 			setup: func(t *testing.T, h *awsconfig.Handler) {
 				t.Helper()
 				doAWSConfigRequest(t, h, "PutDeliveryChannel", map[string]any{
-					"DeliveryChannel": map[string]any{"name": "default", "s3BucketName": "my-bucket", "snsTopicARN": ""},
+					"DeliveryChannel": map[string]any{
+						"name":         "default",
+						"s3BucketName": "my-bucket",
+						"snsTopicARN":  "",
+					},
 				})
 			},
 			wantCode:     http.StatusOK,

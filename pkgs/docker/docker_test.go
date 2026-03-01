@@ -143,9 +143,9 @@ func TestClient_Ping(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		pingErr error
 		wantErr error
+		name    string
 	}{
 		{name: "success"},
 		{name: "failure", pingErr: errDaemonNotRunning, wantErr: docker.ErrDockerUnavailable},
@@ -177,8 +177,8 @@ func TestClient_PullImage(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		pullErr error
+		name    string
 		wantErr bool
 	}{
 		{name: "success"},
@@ -210,10 +210,10 @@ func TestClient_HasImage(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		listErr error
 		name    string
 		ref     string
 		images  []image.Summary
-		listErr error
 		wantOK  bool
 		wantErr bool
 	}{
@@ -254,10 +254,10 @@ func TestClient_CreateAndStart(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		spec      docker.ContainerSpec
 		createErr error
 		startErr  error
+		name      string
+		spec      docker.ContainerSpec
 		wantErr   bool
 	}{
 		{
@@ -282,10 +282,10 @@ func TestClient_CreateAndStart(t *testing.T) {
 			wantErr:   true,
 		},
 		{
-			name:    "start_error",
-			spec:    docker.ContainerSpec{Image: "alpine:latest"},
+			name:     "start_error",
+			spec:     docker.ContainerSpec{Image: "alpine:latest"},
 			startErr: errFailedToStart,
-			wantErr: true,
+			wantErr:  true,
 		},
 	}
 
@@ -316,8 +316,8 @@ func TestClient_StopAndRemove(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		setup   func(t *testing.T, api *mockDockerAPI, c *docker.Client) string
+		name    string
 		wantErr bool
 	}{
 		{
@@ -485,8 +485,8 @@ func TestClient_ReapIdleContainers_WithLogger(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		stopErr error
+		name    string
 	}{
 		{name: "success"},
 		{name: "error", stopErr: errFailedToStop},

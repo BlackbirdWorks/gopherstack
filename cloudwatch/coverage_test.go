@@ -141,7 +141,9 @@ func TestCoverage(t *testing.T) {
 			name: "ListMetrics",
 			setup: func(t *testing.T, ts *httptest.Server) {
 				t.Helper()
-				cwPost(t, ts,
+				cwPost(
+					t,
+					ts,
 					"Action=PutMetricData&Namespace=Coverage&MetricData.member.1.MetricName=Hits&MetricData.member.1.Value=1",
 				).Body.Close()
 			},
@@ -152,7 +154,9 @@ func TestCoverage(t *testing.T) {
 			name: "GetMetricStatistics",
 			setup: func(t *testing.T, ts *httptest.Server) {
 				t.Helper()
-				cwPost(t, ts,
+				cwPost(
+					t,
+					ts,
 					"Action=PutMetricData&Namespace=Coverage&MetricData.member.1.MetricName=Hits&MetricData.member.1.Value=5"+
 						"&MetricData.member.1.Timestamp=2024-06-01T12:00:00Z",
 				).Body.Close()

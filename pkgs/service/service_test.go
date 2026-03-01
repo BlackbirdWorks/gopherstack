@@ -38,10 +38,11 @@ func TestService(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		run  func(t *testing.T)
+		name string
 	}{
 		{name: "Registry", run: func(t *testing.T) {
+			t.Helper()
 			logger := slog.Default()
 			reg := service.NewRegistry(logger)
 
@@ -57,6 +58,7 @@ func TestService(t *testing.T) {
 			assert.ErrorIs(t, err, service.ErrServiceAlreadyRegistered)
 		}},
 		{name: "RegistryMiddleware", run: func(t *testing.T) {
+			t.Helper()
 			reg := service.NewRegistry(slog.Default())
 
 			var called bool
@@ -83,6 +85,7 @@ func TestService(t *testing.T) {
 			assert.True(t, called)
 		}},
 		{name: "Router", run: func(t *testing.T) {
+			t.Helper()
 			reg := service.NewRegistry(slog.Default())
 
 			s1 := &MockService{name: "S1", priority: 10, matched: false}
@@ -110,6 +113,7 @@ func TestService(t *testing.T) {
 			assert.Equal(t, "S2", rec.Body.String()) // S2 matched first by priority
 		}},
 		{name: "RouterFallback", run: func(t *testing.T) {
+			t.Helper()
 			reg := service.NewRegistry(slog.Default())
 			s1 := &MockService{name: "S1", matched: false}
 			_ = reg.Register(s1)

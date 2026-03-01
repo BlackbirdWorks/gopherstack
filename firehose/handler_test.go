@@ -54,11 +54,11 @@ func TestFirehoseHandler_CreateDeliveryStream(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
 		setup        func(t *testing.T, h *firehose.Handler)
+		name         string
 		streamName   string
-		wantCode     int
 		wantContains []string
+		wantCode     int
 	}{
 		{
 			name:         "success",
@@ -70,6 +70,7 @@ func TestFirehoseHandler_CreateDeliveryStream(t *testing.T) {
 			name:       "already_exists",
 			streamName: "my-stream",
 			setup: func(t *testing.T, h *firehose.Handler) {
+				t.Helper()
 				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
 			},
 			wantCode: http.StatusBadRequest,
@@ -107,6 +108,7 @@ func TestFirehoseHandler_DeleteDeliveryStream(t *testing.T) {
 			name:       "success",
 			streamName: "my-stream",
 			setup: func(t *testing.T, h *firehose.Handler) {
+				t.Helper()
 				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
 			},
 			wantCode: http.StatusOK,
@@ -137,16 +139,17 @@ func TestFirehoseHandler_DescribeDeliveryStream(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
 		setup        func(t *testing.T, h *firehose.Handler)
+		name         string
 		streamName   string
-		wantCode     int
 		wantContains []string
+		wantCode     int
 	}{
 		{
 			name:       "success",
 			streamName: "my-stream",
 			setup: func(t *testing.T, h *firehose.Handler) {
+				t.Helper()
 				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
 			},
 			wantCode:     http.StatusOK,
@@ -204,6 +207,7 @@ func TestFirehoseHandler_PutRecord(t *testing.T) {
 			streamName: "my-stream",
 			data:       base64.StdEncoding.EncodeToString([]byte("hello world")),
 			setup: func(t *testing.T, h *firehose.Handler) {
+				t.Helper()
 				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
 			},
 			wantCode: http.StatusOK,
@@ -219,6 +223,7 @@ func TestFirehoseHandler_PutRecord(t *testing.T) {
 			streamName: "my-stream",
 			data:       "not-base64!@#",
 			setup: func(t *testing.T, h *firehose.Handler) {
+				t.Helper()
 				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
 			},
 			wantCode: http.StatusOK,
@@ -256,6 +261,7 @@ func TestFirehoseHandler_PutRecordBatch(t *testing.T) {
 			streamName: "my-stream",
 			data:       base64.StdEncoding.EncodeToString([]byte("rec1")),
 			setup: func(t *testing.T, h *firehose.Handler) {
+				t.Helper()
 				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
 			},
 			wantCode: http.StatusOK,
@@ -271,6 +277,7 @@ func TestFirehoseHandler_PutRecordBatch(t *testing.T) {
 			streamName: "my-stream",
 			data:       "not-base64!@#",
 			setup: func(t *testing.T, h *firehose.Handler) {
+				t.Helper()
 				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
 			},
 			wantCode: http.StatusOK,

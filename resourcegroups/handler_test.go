@@ -58,12 +58,12 @@ func TestResourceGroupsHandler_CreateGroup(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
 		setup        func(t *testing.T, h *resourcegroups.Handler)
+		name         string
 		groupName    string
 		description  string
-		wantCode     int
 		wantContains []string
+		wantCode     int
 	}{
 		{
 			name:         "success",
@@ -76,6 +76,7 @@ func TestResourceGroupsHandler_CreateGroup(t *testing.T) {
 			name:      "duplicate",
 			groupName: "my-group",
 			setup: func(t *testing.T, h *resourcegroups.Handler) {
+				t.Helper()
 				doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{"Name": "my-group"})
 			},
 			wantCode: http.StatusBadRequest,
@@ -118,16 +119,17 @@ func TestResourceGroupsHandler_GetGroup(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
 		setup        func(t *testing.T, h *resourcegroups.Handler)
+		name         string
 		groupName    string
-		wantCode     int
 		wantContains []string
+		wantCode     int
 	}{
 		{
 			name:      "success",
 			groupName: "my-group",
 			setup: func(t *testing.T, h *resourcegroups.Handler) {
+				t.Helper()
 				doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{"Name": "my-group"})
 			},
 			wantCode:     http.StatusOK,
@@ -169,6 +171,7 @@ func TestResourceGroupsHandler_DeleteGroup(t *testing.T) {
 			name:      "success",
 			groupName: "my-group",
 			setup: func(t *testing.T, h *resourcegroups.Handler) {
+				t.Helper()
 				doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{"Name": "my-group"})
 			},
 			wantCode: http.StatusOK,

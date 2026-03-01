@@ -118,14 +118,14 @@ func TestHandler(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name              string
 		setup             func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo)
-		action            string
 		body              map[string]any
-		wantCode          int
+		name              string
+		action            string
 		wantListField     string
-		wantListLen       int
 		wantNotEmptyField string
+		wantCode          int
+		wantListLen       int
 	}{
 		{
 			name:     "UnknownOperation",
@@ -291,8 +291,13 @@ func TestHandler(t *testing.T) {
 				t.Helper()
 				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"grp"}`)
 				doLogsRequest(t, h, e, "CreateLogStream", `{"logGroupName":"grp","logStreamName":"s"}`)
-				doLogsRequest(t, h, e, "PutLogEvents",
-					`{"logGroupName":"grp","logStreamName":"s","logEvents":[{"message":"ERROR: bad","timestamp":1000}]}`)
+				doLogsRequest(
+					t,
+					h,
+					e,
+					"PutLogEvents",
+					`{"logGroupName":"grp","logStreamName":"s","logEvents":[{"message":"ERROR: bad","timestamp":1000}]}`,
+				)
 			},
 			action:        "FilterLogEvents",
 			body:          map[string]any{"logGroupName": "grp", "filterPattern": "ERROR"},

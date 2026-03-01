@@ -24,9 +24,9 @@ func TestListAttachedUserPolicies(t *testing.T) {
 		setupPolicy    string
 		policyDoc      string
 		userName       string
-		wantErr        bool
-		wantCount      int
 		wantPolicyName string
+		wantCount      int
+		wantErr        bool
 	}{
 		{
 			name:           "success",
@@ -38,9 +38,9 @@ func TestListAttachedUserPolicies(t *testing.T) {
 			wantPolicyName: "MyPolicy",
 		},
 		{
-			name:    "user_not_found",
+			name:     "user_not_found",
 			userName: "nobody",
-			wantErr: true,
+			wantErr:  true,
 		},
 	}
 
@@ -64,6 +64,7 @@ func TestListAttachedUserPolicies(t *testing.T) {
 			policies, err := b.ListAttachedUserPolicies(tt.userName)
 			if tt.wantErr {
 				require.Error(t, err)
+
 				return
 			}
 			require.NoError(t, err)
@@ -85,9 +86,9 @@ func TestListAttachedRolePolicies(t *testing.T) {
 		setupPolicy    string
 		policyDoc      string
 		roleName       string
-		wantErr        bool
-		wantCount      int
 		wantPolicyName string
+		wantCount      int
+		wantErr        bool
 	}{
 		{
 			name:           "success",
@@ -99,9 +100,9 @@ func TestListAttachedRolePolicies(t *testing.T) {
 			wantPolicyName: "RolePolicy",
 		},
 		{
-			name:    "role_not_found",
+			name:     "role_not_found",
 			roleName: "NoRole",
-			wantErr: true,
+			wantErr:  true,
 		},
 	}
 
@@ -125,6 +126,7 @@ func TestListAttachedRolePolicies(t *testing.T) {
 			policies, err := b.ListAttachedRolePolicies(tt.roleName)
 			if tt.wantErr {
 				require.Error(t, err)
+
 				return
 			}
 			require.NoError(t, err)
@@ -164,8 +166,8 @@ func TestGetPolicy(t *testing.T) {
 		name           string
 		setupPolicy    string
 		queryArn       string
-		wantErr        bool
 		wantPolicyName string
+		wantErr        bool
 	}{
 		{
 			name:           "success",
@@ -173,9 +175,9 @@ func TestGetPolicy(t *testing.T) {
 			wantPolicyName: "GetMe",
 		},
 		{
-			name:    "not_found",
+			name:     "not_found",
 			queryArn: "arn:aws:iam::000000000000:policy/nosuchpolicy",
-			wantErr: true,
+			wantErr:  true,
 		},
 	}
 
@@ -199,6 +201,7 @@ func TestGetPolicy(t *testing.T) {
 			got, err := b.GetPolicy(queryArn)
 			if tt.wantErr {
 				require.Error(t, err)
+
 				return
 			}
 			require.NoError(t, err)

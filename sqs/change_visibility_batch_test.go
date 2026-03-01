@@ -28,25 +28,25 @@ func TestChangeMessageVisibilityBatch(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
-		initLogger     bool
-		queueName      string   // empty = don't create a queue
-		queueURL       string   // override URL when queueName is empty
-		messageBodies  []string // messages to send before the batch call
-		recvMax        int      // MaxNumberOfMessages for initial receive
-		recvVisTimeout int      // VisibilityTimeout for initial receive
-		entryIDs       []string // IDs for entries built from received messages
+		wantErr         error
+		name            string
+		queueName       string
+		queueURL        string
+		wantFailIDs     []string
+		wantFailFaults  []bool
+		wantFailCodes   []string
+		entryIDs        []string
+		wantSuccessIDs  []string
+		extraEntries    []sqs.ChangeMessageVisibilityBatchRequestEntry
+		messageBodies   []string
 		batchVisTimeout int
-		extraEntries   []sqs.ChangeMessageVisibilityBatchRequestEntry
-		wantErr        error
-		wantSuccessIDs []string
-		wantFailIDs    []string
-		wantFailCodes  []string
-		wantFailFaults []bool
-		checkReReceive bool
-		reReceiveMax   int
-		reReceiveVis   int
-		wantReReceive  int
+		recvVisTimeout  int
+		recvMax         int
+		reReceiveMax    int
+		reReceiveVis    int
+		wantReReceive   int
+		initLogger      bool
+		checkReReceive  bool
 	}{
 		{
 			name:            "Success",
@@ -145,6 +145,7 @@ func TestChangeMessageVisibilityBatch(t *testing.T) {
 
 			if tt.wantErr != nil {
 				assert.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 
@@ -172,12 +173,12 @@ func TestChangeMessageVisibilityBatch(t *testing.T) {
 
 			// Optionally verify messages are receivable again.
 			if tt.checkReReceive {
-				rcv2, err := backend.ReceiveMessage(&sqs.ReceiveMessageInput{
+				rcv2, rerr := backend.ReceiveMessage(&sqs.ReceiveMessageInput{
 					QueueURL:            queueURL,
 					MaxNumberOfMessages: tt.reReceiveMax,
 					VisibilityTimeout:   tt.reReceiveVis,
 				})
-				require.NoError(t, err)
+				require.NoError(t, rerr)
 				assert.Len(t, rcv2.Messages, tt.wantReReceive)
 			}
 		})

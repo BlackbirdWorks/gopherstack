@@ -59,12 +59,12 @@ func TestWriteJSON(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		status   int
 		payload  any
-		wantCode int
+		name     string
 		wantCT   string
 		wantBody string
+		status   int
+		wantCode int
 	}{
 		{
 			name:     "success",
@@ -104,12 +104,12 @@ func TestWriteXML(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		status   int
 		payload  any
-		wantCode int
+		name     string
 		wantCT   string
 		wantBody string
+		status   int
+		wantCode int
 	}{
 		{
 			name:   "success",
@@ -155,12 +155,12 @@ func TestWriteDynamoDBResponse(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		status   int
 		payload  any
-		wantCode int
+		name     string
 		wantCT   string
 		wantBody string
+		status   int
+		wantCode int
 		wantCRC  bool
 	}{
 		{
@@ -252,12 +252,12 @@ func TestEchoError(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		code     int
-		message  string
 		err      error
-		wantCode int
+		name     string
+		message  string
 		wantBody string
+		code     int
+		wantCode int
 	}{
 		{
 			name:     "with_error",
@@ -316,11 +316,11 @@ func TestExtractRegionFromRequest(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
-		authorization  string
-		xAmzRegion     string
-		defaultRegion  string
-		wantRegion     string
+		name          string
+		authorization string
+		xAmzRegion    string
+		defaultRegion string
+		wantRegion    string
 	}{
 		{
 			name: "sigv4",

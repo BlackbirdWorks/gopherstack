@@ -38,13 +38,13 @@ func TestZipHandler_CreateFunction(t *testing.T) {
 	zipBytes := makeTestZip(t, `def handler(event, context): return "hello"`)
 
 	tests := []struct {
-		name                 string
 		input                map[string]any
-		wantStatus           int
+		name                 string
 		wantFnName           string
 		wantPackageType      string
 		wantRuntime          string
 		wantHandler          string
+		wantStatus           int
 		wantPositiveCodeSize bool
 	}{
 		{
@@ -189,8 +189,8 @@ func TestZipHandler_UpdateFunctionCode(t *testing.T) {
 	tests := []struct {
 		name           string
 		fnName         string
-		seedFn         lambda.FunctionConfiguration
 		body           string
+		seedFn         lambda.FunctionConfiguration
 		wantStatus     int
 		wantRevisionID bool
 	}{
@@ -245,11 +245,11 @@ func TestZipHandler_UpdateFunctionConfiguration(t *testing.T) {
 	tests := []struct {
 		name        string
 		fnName      string
-		seedFn      lambda.FunctionConfiguration
 		body        string
-		wantStatus  int
 		wantRuntime string
 		wantHandler string
+		seedFn      lambda.FunctionConfiguration
+		wantStatus  int
 	}{
 		{
 			name:   "RuntimeAndHandler",
@@ -293,10 +293,10 @@ func TestZipHandler_BuildCodeLocation(t *testing.T) {
 	tests := []struct {
 		name               string
 		fnName             string
-		seedFn             lambda.FunctionConfiguration
-		wantStatus         int
 		wantImageURI       string
 		wantRepositoryType string
+		seedFn             lambda.FunctionConfiguration
+		wantStatus         int
 	}{
 		{
 			name:   "Image",

@@ -412,9 +412,9 @@ func TestSchedulerHandler_ErrorStatus(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body     any
 		name     string
 		action   string
-		body     any
 		wantCode int
 	}{
 		{

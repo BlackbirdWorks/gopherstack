@@ -21,12 +21,13 @@ func TestSSM(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		run  func(t *testing.T)
+		name string
 	}{
 		{
 			name: "InMemoryBackend",
 			run: func(t *testing.T) {
+				t.Helper()
 				tests := []struct {
 					run  func(*testing.T, ssm.StorageBackend)
 					name string
@@ -101,8 +102,12 @@ func TestSSM(t *testing.T) {
 					{
 						run: func(t *testing.T, backend ssm.StorageBackend) {
 							t.Helper()
-							_, _ = backend.PutParameter(&ssm.PutParameterInput{Name: "db-password", Type: "String", Value: "pwd"})
-							_, _ = backend.PutParameter(&ssm.PutParameterInput{Name: "api-key", Type: "String", Value: "123"})
+							_, _ = backend.PutParameter(
+								&ssm.PutParameterInput{Name: "db-password", Type: "String", Value: "pwd"},
+							)
+							_, _ = backend.PutParameter(
+								&ssm.PutParameterInput{Name: "api-key", Type: "String", Value: "123"},
+							)
 
 							getParamsOut, err := backend.GetParameters(&ssm.GetParametersInput{
 								Names: []string{"db-password", "api-key", "missing-key"},
@@ -117,8 +122,12 @@ func TestSSM(t *testing.T) {
 					{
 						run: func(t *testing.T, backend ssm.StorageBackend) {
 							t.Helper()
-							_, _ = backend.PutParameter(&ssm.PutParameterInput{Name: "api-key", Type: "String", Value: "123"})
-							_, _ = backend.PutParameter(&ssm.PutParameterInput{Name: "db-password", Type: "String", Value: "pwd"})
+							_, _ = backend.PutParameter(
+								&ssm.PutParameterInput{Name: "api-key", Type: "String", Value: "123"},
+							)
+							_, _ = backend.PutParameter(
+								&ssm.PutParameterInput{Name: "db-password", Type: "String", Value: "pwd"},
+							)
 
 							all := backend.ListAll()
 							assert.Len(t, all, 2)
@@ -130,8 +139,12 @@ func TestSSM(t *testing.T) {
 					{
 						run: func(t *testing.T, backend ssm.StorageBackend) {
 							t.Helper()
-							_, _ = backend.PutParameter(&ssm.PutParameterInput{Name: "api-key", Type: "String", Value: "123"})
-							_, _ = backend.PutParameter(&ssm.PutParameterInput{Name: "db-password", Type: "String", Value: "pwd"})
+							_, _ = backend.PutParameter(
+								&ssm.PutParameterInput{Name: "api-key", Type: "String", Value: "123"},
+							)
+							_, _ = backend.PutParameter(
+								&ssm.PutParameterInput{Name: "db-password", Type: "String", Value: "pwd"},
+							)
 
 							backend.DeleteParameter(&ssm.DeleteParameterInput{Name: "api-key"})
 							backend.DeleteParameter(&ssm.DeleteParameterInput{Name: "db-password"})
@@ -142,7 +155,9 @@ func TestSSM(t *testing.T) {
 					{
 						run: func(t *testing.T, backend ssm.StorageBackend) {
 							t.Helper()
-							_, _ = backend.PutParameter(&ssm.PutParameterInput{Name: "key1", Type: "String", Value: "v1"})
+							_, _ = backend.PutParameter(
+								&ssm.PutParameterInput{Name: "key1", Type: "String", Value: "v1"},
+							)
 
 							delOut, err := backend.DeleteParameters(
 								&ssm.DeleteParametersInput{
@@ -170,6 +185,7 @@ func TestSSM(t *testing.T) {
 		{
 			name: "Handler",
 			run: func(t *testing.T) {
+				t.Helper()
 				tests := []struct {
 					expectedCheck  func(*testing.T, *httptest.ResponseRecorder)
 					method         string
@@ -274,6 +290,7 @@ func TestSSM(t *testing.T) {
 		{
 			name: "ParameterHistory",
 			run: func(t *testing.T) {
+				t.Helper()
 				t.Run("GetHistoryInitialVersion", func(t *testing.T) {
 					t.Parallel()
 					backend := ssm.NewInMemoryBackend()
@@ -417,6 +434,7 @@ func TestSSM(t *testing.T) {
 		{
 			name: "SecureString",
 			run: func(t *testing.T) {
+				t.Helper()
 				t.Run("PutSecureStringEncryption", func(t *testing.T) {
 					t.Parallel()
 					backend := ssm.NewInMemoryBackend()
@@ -558,6 +576,7 @@ func TestSSM(t *testing.T) {
 		{
 			name: "GetParametersByPath",
 			run: func(t *testing.T) {
+				t.Helper()
 				t.Run("DirectChildrenOnly", func(t *testing.T) {
 					t.Parallel()
 
@@ -655,6 +674,7 @@ func TestSSM(t *testing.T) {
 		{
 			name: "DescribeParameters",
 			run: func(t *testing.T) {
+				t.Helper()
 				t.Run("AllParameters", func(t *testing.T) {
 					t.Parallel()
 
@@ -749,6 +769,7 @@ func TestSSM(t *testing.T) {
 		{
 			name: "HandlerNewOps",
 			run: func(t *testing.T) {
+				t.Helper()
 				e := echo.New()
 				log := logger.NewLogger(slog.LevelDebug)
 				backend := ssm.NewInMemoryBackend()
@@ -798,6 +819,7 @@ func TestSSM(t *testing.T) {
 		{
 			name: "HandlerInterface",
 			run: func(t *testing.T) {
+				t.Helper()
 				log := logger.NewLogger(slog.LevelDebug)
 				backend := ssm.NewInMemoryBackend()
 				h := ssm.NewHandler(backend, log)
@@ -834,6 +856,7 @@ func TestSSM(t *testing.T) {
 		{
 			name: "Provider",
 			run: func(t *testing.T) {
+				t.Helper()
 				p := &ssm.Provider{}
 				assert.Equal(t, "SSM", p.Name())
 
@@ -847,6 +870,7 @@ func TestSSM(t *testing.T) {
 		{
 			name: "HandlerErrorCases",
 			run: func(t *testing.T) {
+				t.Helper()
 				tests := []struct {
 					target         string
 					body           string
@@ -886,7 +910,9 @@ func TestSSM(t *testing.T) {
 						h := ssm.NewHandler(backend, log)
 
 						if tt.name == "ParameterAlreadyExists" {
-							_, _ = backend.PutParameter(&ssm.PutParameterInput{Name: "/existing", Type: "String", Value: "v1"})
+							_, _ = backend.PutParameter(
+								&ssm.PutParameterInput{Name: "/existing", Type: "String", Value: "v1"},
+							)
 						}
 
 						req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tt.body))
@@ -908,9 +934,14 @@ func TestSSM(t *testing.T) {
 		{
 			name: "ParamMatchesFilterOptions",
 			run: func(t *testing.T) {
+				t.Helper()
 				backend := ssm.NewInMemoryBackend()
-				_, _ = backend.PutParameter(&ssm.PutParameterInput{Name: "/app/db/host", Type: "String", Value: "localhost"})
-				_, _ = backend.PutParameter(&ssm.PutParameterInput{Name: "/app/cache/host", Type: "SecureString", Value: "cache"})
+				_, _ = backend.PutParameter(
+					&ssm.PutParameterInput{Name: "/app/db/host", Type: "String", Value: "localhost"},
+				)
+				_, _ = backend.PutParameter(
+					&ssm.PutParameterInput{Name: "/app/cache/host", Type: "SecureString", Value: "cache"},
+				)
 				_, _ = backend.PutParameter(&ssm.PutParameterInput{Name: "/other/key", Type: "String", Value: "v"})
 
 				t.Run("Contains", func(t *testing.T) {
@@ -955,6 +986,7 @@ func TestSSM(t *testing.T) {
 		{
 			name: "ParseNextTokenBadToken",
 			run: func(t *testing.T) {
+				t.Helper()
 				backend := ssm.NewInMemoryBackend()
 				for i := range 3 {
 					_, _ = backend.PutParameter(&ssm.PutParameterInput{
@@ -973,6 +1005,7 @@ func TestSSM(t *testing.T) {
 		{
 			name: "HandlerGetParametersByPathViaHTTP",
 			run: func(t *testing.T) {
+				t.Helper()
 				e := echo.New()
 				log := logger.NewLogger(slog.LevelDebug)
 				backend := ssm.NewInMemoryBackend()
@@ -997,6 +1030,7 @@ func TestSSM(t *testing.T) {
 		{
 			name: "HandlerDescribeParametersViaHTTP",
 			run: func(t *testing.T) {
+				t.Helper()
 				e := echo.New()
 				log := logger.NewLogger(slog.LevelDebug)
 				backend := ssm.NewInMemoryBackend()
@@ -1019,6 +1053,7 @@ func TestSSM(t *testing.T) {
 		{
 			name: "HandlerMethodNotAllowed",
 			run: func(t *testing.T) {
+				t.Helper()
 				e := echo.New()
 				log := logger.NewLogger(slog.LevelDebug)
 				backend := ssm.NewInMemoryBackend()
@@ -1033,6 +1068,7 @@ func TestSSM(t *testing.T) {
 		{
 			name: "ValidateParameterName",
 			run: func(t *testing.T) {
+				t.Helper()
 				backend := ssm.NewInMemoryBackend()
 
 				tests := []struct {
@@ -1070,6 +1106,7 @@ func TestSSM(t *testing.T) {
 		{
 			name: "TagOperations",
 			run: func(t *testing.T) {
+				t.Helper()
 				e := echo.New()
 				log := logger.NewLogger(slog.LevelDebug)
 				backend := ssm.NewInMemoryBackend()

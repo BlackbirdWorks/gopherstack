@@ -62,6 +62,7 @@ func TestMultipleServersStartupAndShutdown(t *testing.T) {
 // startServerOnPort starts Gopherstack on the given port using the CLI run path.
 // It returns when the stopChan is closed.
 func startServerOnPort(t *testing.T, port string, demo bool, stopChan chan struct{}) error {
+	t.Helper()
 	cli := CLI{
 		LogLevel: "info",
 		Port:     port,

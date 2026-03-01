@@ -72,10 +72,10 @@ func TestCloudWatchLogsBackend_DeleteLogGroup(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		setup   func(t *testing.T, b *cloudwatchlogs.InMemoryBackend)
-		group   string
 		wantErr error
+		setup   func(t *testing.T, b *cloudwatchlogs.InMemoryBackend)
+		name    string
+		group   string
 	}{
 		{
 			name: "success",
@@ -123,13 +123,13 @@ func TestCloudWatchLogsBackend_DescribeLogGroups(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
 		setup         func(t *testing.T, b *cloudwatchlogs.InMemoryBackend)
+		name          string
 		prefix        string
 		token         string
+		wantFirstName string
 		limit         int
 		wantCount     int
-		wantFirstName string
 	}{
 		{
 			name: "prefix",
@@ -276,13 +276,13 @@ func TestCloudWatchLogsBackend_DescribeLogStreams(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
+		wantErr       error
 		setup         func(t *testing.T, b *cloudwatchlogs.InMemoryBackend)
+		name          string
 		group         string
 		prefix        string
-		wantErr       error
-		wantCount     int
 		wantFirstName string
+		wantCount     int
 	}{
 		{
 			name: "all_streams",
@@ -347,12 +347,12 @@ func TestCloudWatchLogsBackend_PutLogEvents(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
+		wantErr error
 		setup   func(t *testing.T, b *cloudwatchlogs.InMemoryBackend)
+		name    string
 		group   string
 		stream  string
 		events  []cloudwatchlogs.InputLogEvent
-		wantErr error
 	}{
 		{
 			name: "success",
@@ -413,18 +413,18 @@ func TestCloudWatchLogsBackend_GetLogEvents(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name              string
+		wantErr           error
 		setup             func(t *testing.T, b *cloudwatchlogs.InMemoryBackend)
-		group             string
-		stream            string
 		startTime         *int64
 		endTime           *int64
-		limit             int
+		name              string
+		group             string
+		stream            string
 		nextToken         string
-		wantErr           error
+		wantFirstMessage  string
+		limit             int
 		wantCount         int
 		wantNonEmptyFwBwd bool
-		wantFirstMessage  string
 	}{
 		{
 			name: "all_events",
@@ -536,18 +536,18 @@ func TestCloudWatchLogsBackend_FilterLogEvents(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
+		wantErr          error
 		setup            func(t *testing.T, b *cloudwatchlogs.InMemoryBackend)
-		group            string
-		streams          []string
-		pattern          string
 		startTime        *int64
 		endTime          *int64
-		limit            int
+		name             string
+		group            string
+		pattern          string
 		nextToken        string
-		wantErr          error
-		wantCount        int
 		wantFirstMessage string
+		streams          []string
+		limit            int
+		wantCount        int
 	}{
 		{
 			name: "pattern_filter",
@@ -620,7 +620,15 @@ func TestCloudWatchLogsBackend_FilterLogEvents(t *testing.T) {
 				tt.setup(t, b)
 			}
 
-			evts, _, err := b.FilterLogEvents(tt.group, tt.streams, tt.pattern, tt.startTime, tt.endTime, tt.limit, tt.nextToken)
+			evts, _, err := b.FilterLogEvents(
+				tt.group,
+				tt.streams,
+				tt.pattern,
+				tt.startTime,
+				tt.endTime,
+				tt.limit,
+				tt.nextToken,
+			)
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -684,4 +692,4 @@ func TestCloudWatchLogsBackend_PutLogEvents_UpdatesTimestamps(t *testing.T) {
 	assert.Equal(t, int64(1500), *streams[0].LastEventTimestamp)
 }
 
-func int64Ptr(v int64) *int64 { return &v }
+func int64Ptr(v int64) *int64 { return new(v) }

@@ -16,9 +16,9 @@ func TestAWSConfigBackend_PutConfigurationRecorder(t *testing.T) {
 		name       string
 		recName    string
 		roleARN    string
-		wantLen    int
 		wantName   string
 		wantStatus string
+		wantLen    int
 	}{
 		{
 			name:       "success",
@@ -107,9 +107,9 @@ func TestAWSConfigBackend_PutDeliveryChannel(t *testing.T) {
 		chanName   string
 		bucket     string
 		topic      string
-		wantLen    int
 		wantName   string
 		wantBucket string
+		wantLen    int
 	}{
 		{
 			name:       "success",
@@ -142,8 +142,8 @@ func TestAWSConfigBackend_DescribeDeliveryChannels(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
 		setup     func(t *testing.T, b *awsconfig.InMemoryBackend)
+		name      string
 		wantCount int
 	}{
 		{
@@ -154,7 +154,10 @@ func TestAWSConfigBackend_DescribeDeliveryChannels(t *testing.T) {
 			name: "one_channel",
 			setup: func(t *testing.T, b *awsconfig.InMemoryBackend) {
 				t.Helper()
-				require.NoError(t, b.PutDeliveryChannel("default", "my-bucket", "arn:aws:sns:us-east-1:000000000000:my-topic"))
+				require.NoError(
+					t,
+					b.PutDeliveryChannel("default", "my-bucket", "arn:aws:sns:us-east-1:000000000000:my-topic"),
+				)
 			},
 			wantCount: 1,
 		},
@@ -179,8 +182,8 @@ func TestAWSConfigBackend_DescribeConfigurationRecorders(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
 		setup     func(t *testing.T, b *awsconfig.InMemoryBackend)
+		name      string
 		wantCount int
 	}{
 		{

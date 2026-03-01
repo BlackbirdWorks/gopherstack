@@ -13,10 +13,10 @@ func TestCreateDeliveryStream(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		setup      func(b *firehose.InMemoryBackend)
-		streamName string
 		wantErr    error
+		setup      func(b *firehose.InMemoryBackend)
+		name       string
+		streamName string
 	}{
 		{
 			name:       "success",
@@ -43,6 +43,7 @@ func TestCreateDeliveryStream(t *testing.T) {
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 			require.NoError(t, err)
@@ -57,10 +58,10 @@ func TestDeleteDeliveryStream(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		setup      func(b *firehose.InMemoryBackend)
-		streamName string
 		wantErr    error
+		setup      func(b *firehose.InMemoryBackend)
+		name       string
+		streamName string
 	}{
 		{
 			name:       "success",
@@ -87,6 +88,7 @@ func TestDeleteDeliveryStream(t *testing.T) {
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 			require.NoError(t, err)
@@ -100,10 +102,10 @@ func TestDescribeDeliveryStream(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		setup      func(b *firehose.InMemoryBackend)
-		streamName string
 		wantErr    error
+		setup      func(b *firehose.InMemoryBackend)
+		name       string
+		streamName string
 	}{
 		{
 			name:       "success",
@@ -130,6 +132,7 @@ func TestDescribeDeliveryStream(t *testing.T) {
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 			require.NoError(t, err)
@@ -174,12 +177,12 @@ func TestTagDeliveryStream(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		setup      func(b *firehose.InMemoryBackend)
-		streamName string
-		tags       map[string]string
 		wantErr    error
+		setup      func(b *firehose.InMemoryBackend)
+		tags       map[string]string
 		wantTags   map[string]string
+		name       string
+		streamName string
 	}{
 		{
 			name:       "success",
@@ -219,6 +222,7 @@ func TestTagDeliveryStream(t *testing.T) {
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 			require.NoError(t, err)
@@ -235,13 +239,13 @@ func TestUntagDeliveryStream(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
+		wantErr        error
 		setup          func(b *firehose.InMemoryBackend)
+		wantTags       map[string]string
+		name           string
 		streamName     string
 		keysToRemove   []string
-		wantErr        error
 		wantAbsentKeys []string
-		wantTags       map[string]string
 	}{
 		{
 			name:       "success",
@@ -273,6 +277,7 @@ func TestUntagDeliveryStream(t *testing.T) {
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 			require.NoError(t, err)
@@ -292,10 +297,10 @@ func TestListTagsForDeliveryStream(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		setup      func(b *firehose.InMemoryBackend)
-		streamName string
 		wantErr    error
+		setup      func(b *firehose.InMemoryBackend)
+		name       string
+		streamName string
 		wantEmpty  bool
 	}{
 		{
@@ -324,6 +329,7 @@ func TestListTagsForDeliveryStream(t *testing.T) {
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 			require.NoError(t, err)

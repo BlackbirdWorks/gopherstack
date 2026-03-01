@@ -13,13 +13,13 @@ func TestGetPublicAccessBlock(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name                   string
-		seed                   *s3control.PublicAccessBlock
-		accountID              string
-		wantErr                error
-		wantBlockPublicAcls    bool
-		wantIgnorePublicAcls   bool
-		wantBlockPublicPolicy  bool
+		wantErr               error
+		seed                  *s3control.PublicAccessBlock
+		name                  string
+		accountID             string
+		wantBlockPublicAcls   bool
+		wantIgnorePublicAcls  bool
+		wantBlockPublicPolicy bool
 	}{
 		{
 			name: "PutThenGet",
@@ -55,6 +55,7 @@ func TestGetPublicAccessBlock(t *testing.T) {
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 
@@ -70,10 +71,10 @@ func TestDeletePublicAccessBlock(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		seed      *s3control.PublicAccessBlock
-		accountID string
 		wantErr   error
+		seed      *s3control.PublicAccessBlock
+		name      string
+		accountID string
 	}{
 		{
 			name:      "Success",
@@ -100,6 +101,7 @@ func TestDeletePublicAccessBlock(t *testing.T) {
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 

@@ -130,15 +130,15 @@ func TestSupport_Handler(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body             map[string]any
 		name             string
 		action           string
-		body             map[string]any
-		wantCode         int
 		wantContains     []string
 		wantNonEmptyKeys []string
+		wantCode         int
 	}{
 		{
-			name: "CreateCase",
+			name:   "CreateCase",
 			action: "CreateCase",
 			body: map[string]any{
 				"subject":           "My issue",

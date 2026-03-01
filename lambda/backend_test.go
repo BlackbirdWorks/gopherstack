@@ -86,17 +86,21 @@ func TestInMemoryBackend_InvokeFunction(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
 		fn             *lambda.FunctionConfiguration
+		name           string
 		invokeName     string
 		invocationType lambda.InvocationType
-		wantErr        bool
 		wantStatus     int
+		wantErr        bool
 		wantNilResult  bool
 	}{
 		{
-			name:           "NoPortAlloc",
-			fn:             &lambda.FunctionConfiguration{FunctionName: "no-port-fn", PackageType: lambda.PackageTypeImage, ImageURI: "test:latest"},
+			name: "NoPortAlloc",
+			fn: &lambda.FunctionConfiguration{
+				FunctionName: "no-port-fn",
+				PackageType:  lambda.PackageTypeImage,
+				ImageURI:     "test:latest",
+			},
 			invokeName:     "no-port-fn",
 			invocationType: lambda.InvocationTypeRequestResponse,
 			wantErr:        true,
@@ -109,16 +113,24 @@ func TestInMemoryBackend_InvokeFunction(t *testing.T) {
 			wantStatus:     http.StatusNotFound,
 		},
 		{
-			name:           "DryRun",
-			fn:             &lambda.FunctionConfiguration{FunctionName: "dry-run-fn", PackageType: lambda.PackageTypeImage, ImageURI: "test:latest"},
+			name: "DryRun",
+			fn: &lambda.FunctionConfiguration{
+				FunctionName: "dry-run-fn",
+				PackageType:  lambda.PackageTypeImage,
+				ImageURI:     "test:latest",
+			},
 			invokeName:     "dry-run-fn",
 			invocationType: lambda.InvocationTypeDryRun,
 			wantStatus:     http.StatusNoContent,
 			wantNilResult:  true,
 		},
 		{
-			name:           "EventType_NoDocker",
-			fn:             &lambda.FunctionConfiguration{FunctionName: "event-fn", PackageType: lambda.PackageTypeImage, ImageURI: "test:latest"},
+			name: "EventType_NoDocker",
+			fn: &lambda.FunctionConfiguration{
+				FunctionName: "event-fn",
+				PackageType:  lambda.PackageTypeImage,
+				ImageURI:     "test:latest",
+			},
 			invokeName:     "event-fn",
 			invocationType: lambda.InvocationTypeEvent,
 			wantErr:        true,
@@ -239,14 +251,14 @@ func TestInMemoryBackend_ZipInvoke(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		portStart    int
-		portEnd      int
 		runtime      string
 		handler      string
 		s3Bucket     string
 		s3Key        string
-		setS3Fetcher bool
+		portStart    int
+		portEnd      int
 		wantStatus   int
+		setS3Fetcher bool
 		skipErrCheck bool
 	}{
 		{
@@ -293,7 +305,14 @@ func TestInMemoryBackend_ZipInvoke(t *testing.T) {
 			require.NoError(t, paErr)
 
 			dc := newMockDockerClient()
-			backend := lambda.NewInMemoryBackend(dc, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default())
+			backend := lambda.NewInMemoryBackend(
+				dc,
+				pa,
+				lambda.DefaultSettings(),
+				"000000000000",
+				"us-east-1",
+				slog.Default(),
+			)
 
 			zipBytes := makeTestZip(t, `def handler(e, c): return "hello"`)
 
@@ -591,22 +610,28 @@ func TestWriteFunctionURLResponse(t *testing.T) {
 
 	tests := []struct {
 		name            string
-		result          []byte
-		wantCode        int
 		wantContentType string
 		wantBody        string
 		wantBodyJSON    string
+		result          []byte
+		wantCode        int
 	}{
 		{
-			name:            "StructuredResponse",
-			result:          []byte(`{"statusCode":200,"headers":{"content-type":"application/json"},"body":"{\"ok\":true}"}`),
+			name: "StructuredResponse",
+			result: []byte(
+				`{"statusCode":200,"headers":{"content-type":"application/json"},"body":"{\"ok\":true}"}`,
+			),
 			wantCode:        http.StatusOK,
 			wantContentType: "application/json",
 			wantBody:        `{"ok":true}`,
 		},
 		{
-			name:     "Base64Body",
-			result:   []byte(`{"statusCode":200,"body":"` + base64.StdEncoding.EncodeToString([]byte("binary data")) + `","isBase64Encoded":true}`),
+			name: "Base64Body",
+			result: []byte(
+				`{"statusCode":200,"body":"` + base64.StdEncoding.EncodeToString(
+					[]byte("binary data"),
+				) + `","isBase64Encoded":true}`,
+			),
 			wantCode: http.StatusOK,
 			wantBody: "binary data",
 		},

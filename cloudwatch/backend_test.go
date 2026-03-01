@@ -10,8 +10,6 @@ import (
 	"github.com/blackbirdworks/gopherstack/cloudwatch"
 )
 
-func float64Ptr(f float64) *float64 { return &f }
-
 func TestCloudWatchBackend_PutMetricData(t *testing.T) {
 	t.Parallel()
 
@@ -67,20 +65,20 @@ func TestCloudWatchBackend_GetMetricStatistics(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Minute)
 
 	tests := []struct {
-		name            string
-		setup           func(t *testing.T, b *cloudwatch.InMemoryBackend)
-		namespace       string
-		metricName      string
 		start           time.Time
 		end             time.Time
-		period          int32
-		statistics      []string
-		wantEmpty       bool
 		wantAverage     *float64
-		wantSum         *float64
-		wantMinimum     *float64
-		wantMaximum     *float64
+		setup           func(t *testing.T, b *cloudwatch.InMemoryBackend)
 		wantSampleCount *float64
+		wantMaximum     *float64
+		wantMinimum     *float64
+		wantSum         *float64
+		metricName      string
+		name            string
+		namespace       string
+		statistics      []string
+		period          int32
+		wantEmpty       bool
 	}{
 		{
 			name: "average",
@@ -88,7 +86,15 @@ func TestCloudWatchBackend_GetMetricStatistics(t *testing.T) {
 				t.Helper()
 				data := []cloudwatch.MetricDatum{
 					{MetricName: "CPU", Value: 10, Count: 1, Sum: 10, Min: 10, Max: 10, Timestamp: now},
-					{MetricName: "CPU", Value: 20, Count: 1, Sum: 20, Min: 20, Max: 20, Timestamp: now.Add(5 * time.Second)},
+					{
+						MetricName: "CPU",
+						Value:      20,
+						Count:      1,
+						Sum:        20,
+						Min:        20,
+						Max:        20,
+						Timestamp:  now.Add(5 * time.Second),
+					},
 				}
 				require.NoError(t, b.PutMetricData("AWS/EC2", data))
 			},
@@ -99,11 +105,11 @@ func TestCloudWatchBackend_GetMetricStatistics(t *testing.T) {
 			period:          60,
 			statistics:      []string{"Average", "Sum", "Minimum", "Maximum", "SampleCount"},
 			wantEmpty:       false,
-			wantAverage:     float64Ptr(15.0),
-			wantSum:         float64Ptr(30.0),
-			wantMinimum:     float64Ptr(10.0),
-			wantMaximum:     float64Ptr(20.0),
-			wantSampleCount: float64Ptr(2.0),
+			wantAverage:     new(15.0),
+			wantSum:         new(30.0),
+			wantMinimum:     new(10.0),
+			wantMaximum:     new(20.0),
+			wantSampleCount: new(2.0),
 		},
 		{
 			name: "outside_range",
@@ -211,10 +217,10 @@ func TestCloudWatchBackend_DescribeAlarms(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		setup      func(t *testing.T, b *cloudwatch.InMemoryBackend)
-		alarmNames []string
+		name       string
 		stateValue string
+		alarmNames []string
 		wantCount  int
 	}{
 		{

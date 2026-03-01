@@ -50,21 +50,21 @@ func doSWFRequest(t *testing.T, h *swf.Handler, action string, body any) *httpte
 }
 
 type setupAction struct {
-	action string
 	body   any
+	action string
 }
 
 func TestSWFHandler_Actions(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name              string
-		setup             []setupAction
-		action            string
 		body              any
-		wantCode          int
+		name              string
+		action            string
 		wantRespContains  string
 		wantNotEmptyField string
+		setup             []setupAction
+		wantCode          int
 	}{
 		{
 			name:     "RegisterDomain",
@@ -75,8 +75,8 @@ func TestSWFHandler_Actions(t *testing.T) {
 		{
 			name: "ListDomains",
 			setup: []setupAction{
-				{"RegisterDomain", map[string]any{"name": "d1"}},
-				{"RegisterDomain", map[string]any{"name": "d2"}},
+				{action: "RegisterDomain", body: map[string]any{"name": "d1"}},
+				{action: "RegisterDomain", body: map[string]any{"name": "d2"}},
 			},
 			action:           "ListDomains",
 			body:             map[string]any{"registrationStatus": "REGISTERED"},
@@ -85,7 +85,7 @@ func TestSWFHandler_Actions(t *testing.T) {
 		},
 		{
 			name:     "DeprecateDomain",
-			setup:    []setupAction{{"RegisterDomain", map[string]any{"name": "my-domain"}}},
+			setup:    []setupAction{{action: "RegisterDomain", body: map[string]any{"name": "my-domain"}}},
 			action:   "DeprecateDomain",
 			body:     map[string]any{"name": "my-domain"},
 			wantCode: http.StatusOK,
@@ -103,8 +103,10 @@ func TestSWFHandler_Actions(t *testing.T) {
 			wantCode: http.StatusOK,
 		},
 		{
-			name:             "ListWorkflowTypes",
-			setup:            []setupAction{{"RegisterWorkflowType", map[string]any{"domain": "d1", "name": "wf1", "version": "1.0"}}},
+			name: "ListWorkflowTypes",
+			setup: []setupAction{
+				{action: "RegisterWorkflowType", body: map[string]any{"domain": "d1", "name": "wf1", "version": "1.0"}},
+			},
 			action:           "ListWorkflowTypes",
 			body:             map[string]any{"domain": "d1"},
 			wantCode:         http.StatusOK,
@@ -118,8 +120,10 @@ func TestSWFHandler_Actions(t *testing.T) {
 			wantNotEmptyField: "runId",
 		},
 		{
-			name:             "DescribeWorkflowExecution",
-			setup:            []setupAction{{"StartWorkflowExecution", map[string]any{"domain": "d1", "workflowId": "wf-001"}}},
+			name: "DescribeWorkflowExecution",
+			setup: []setupAction{
+				{action: "StartWorkflowExecution", body: map[string]any{"domain": "d1", "workflowId": "wf-001"}},
+			},
 			action:           "DescribeWorkflowExecution",
 			body:             map[string]any{"domain": "d1", "execution": map[string]any{"workflowId": "wf-001"}},
 			wantCode:         http.StatusOK,
@@ -133,7 +137,7 @@ func TestSWFHandler_Actions(t *testing.T) {
 		},
 		{
 			name:     "RegisterDomain_AlreadyExists",
-			setup:    []setupAction{{"RegisterDomain", map[string]any{"name": "my-domain"}}},
+			setup:    []setupAction{{action: "RegisterDomain", body: map[string]any{"name": "my-domain"}}},
 			action:   "RegisterDomain",
 			body:     map[string]any{"name": "my-domain"},
 			wantCode: http.StatusBadRequest,
@@ -141,8 +145,8 @@ func TestSWFHandler_Actions(t *testing.T) {
 		{
 			name: "RegisterDomain_Deprecated",
 			setup: []setupAction{
-				{"RegisterDomain", map[string]any{"name": "my-domain"}},
-				{"DeprecateDomain", map[string]any{"name": "my-domain"}},
+				{action: "RegisterDomain", body: map[string]any{"name": "my-domain"}},
+				{action: "DeprecateDomain", body: map[string]any{"name": "my-domain"}},
 			},
 			action:   "RegisterDomain",
 			body:     map[string]any{"name": "my-domain"},
@@ -150,7 +154,7 @@ func TestSWFHandler_Actions(t *testing.T) {
 		},
 		{
 			name: "RegisterWorkflowType_AlreadyExists",
-			setup: []setupAction{{"RegisterWorkflowType", map[string]any{
+			setup: []setupAction{{action: "RegisterWorkflowType", body: map[string]any{
 				"domain": "my-domain", "name": "my-wf", "version": "1.0",
 			}}},
 			action:   "RegisterWorkflowType",

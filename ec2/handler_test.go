@@ -51,8 +51,8 @@ func TestEC2Handler_PostForm(t *testing.T) {
 	tests := []struct {
 		name         string
 		body         string
-		wantCode     int
 		wantContains []string
+		wantCode     int
 	}{
 		{
 			name:     "RunInstances",
@@ -117,8 +117,9 @@ func TestEC2Handler_PostForm(t *testing.T) {
 			},
 		},
 		{
-			name:     "CreateSubnet",
-			body:     "Action=CreateSubnet&Version=2016-11-15&VpcId=vpc-default&CidrBlock=10.0.1.0/24&AvailabilityZone=us-east-1b",
+			name: "CreateSubnet",
+			body: "Action=CreateSubnet&Version=2016-11-15&VpcId=vpc-default&" +
+				"CidrBlock=10.0.1.0/24&AvailabilityZone=us-east-1b",
 			wantCode: http.StatusOK,
 			wantContains: []string{
 				"CreateSubnetResponse",
@@ -175,8 +176,9 @@ func TestEC2Handler_PostForm(t *testing.T) {
 			wantContains: []string{"InvalidParameterValue"},
 		},
 		{
-			name:         "CreateSecurityGroup_InvalidVPC_Handler",
-			body:         "Action=CreateSecurityGroup&Version=2016-11-15&GroupName=sg-name&GroupDescription=test&VpcId=vpc-nonexistent",
+			name: "CreateSecurityGroup_InvalidVPC_Handler",
+			body: "Action=CreateSecurityGroup&Version=2016-11-15&GroupName=sg-name&" +
+				"GroupDescription=test&VpcId=vpc-nonexistent",
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"InvalidVpcID.NotFound"},
 		},
@@ -187,9 +189,9 @@ func TestEC2Handler_PostForm(t *testing.T) {
 			wantContains: []string{"InvalidSubnetID.NotFound"},
 		},
 		{
-			name:     "URLEncodedCIDR",
-			body:     "Action=CreateVpc&Version=2016-11-15&CidrBlock=10.0.0.0%2F16",
-			wantCode: http.StatusOK,
+			name:         "URLEncodedCIDR",
+			body:         "Action=CreateVpc&Version=2016-11-15&CidrBlock=10.0.0.0%2F16",
+			wantCode:     http.StatusOK,
 			wantContains: []string{"10.0.0.0/16"},
 		},
 	}
