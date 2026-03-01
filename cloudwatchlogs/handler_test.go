@@ -57,75 +57,76 @@ func doLogsRequest(
 	return rec
 }
 
+func TestHandler_GetSupportedOperations(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), slog.Default())
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	require.NoError(t, h.Handler()(e.NewContext(req, rec)))
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var ops []string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ops))
+	assert.Contains(t, ops, "CreateLogGroup")
+	assert.Contains(t, ops, "PutLogEvents")
+}
+
+func TestHandler_MethodNotAllowed(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), slog.Default())
+	req := httptest.NewRequest(http.MethodGet, "/notroot", nil)
+	rec := httptest.NewRecorder()
+	require.NoError(t, h.Handler()(e.NewContext(req, rec)))
+	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
+}
+
+func TestHandler_MissingTarget(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), slog.Default())
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("{}"))
+	rec := httptest.NewRecorder()
+	require.NoError(t, h.Handler()(e.NewContext(req, rec)))
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_InvalidTarget(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), slog.Default())
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("{}"))
+	req.Header.Set("X-Amz-Target", "InvalidTarget")
+	rec := httptest.NewRecorder()
+	require.NoError(t, h.Handler()(e.NewContext(req, rec)))
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_InvalidJSON(t *testing.T) {
+	t.Parallel()
+
+	rec := makeLogsRequest(t, "CreateLogGroup", "not-json")
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+}
+
 func TestHandler(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		setup    func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo)
-		action   string
-		body     map[string]any
-		wantCode int
-		want     func(t *testing.T, body []byte)
-		run      func(t *testing.T)
+		name              string
+		setup             func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo)
+		action            string
+		body              map[string]any
+		wantCode          int
+		wantListField     string
+		wantListLen       int
+		wantNotEmptyField string
 	}{
-		{
-			name: "GetSupportedOperations",
-			run: func(t *testing.T) {
-				e := echo.New()
-				h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), slog.Default())
-				req := httptest.NewRequest(http.MethodGet, "/", nil)
-				rec := httptest.NewRecorder()
-				require.NoError(t, h.Handler()(e.NewContext(req, rec)))
-				assert.Equal(t, http.StatusOK, rec.Code)
-
-				var ops []string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ops))
-				assert.Contains(t, ops, "CreateLogGroup")
-				assert.Contains(t, ops, "PutLogEvents")
-			},
-		},
-		{
-			name: "MethodNotAllowed",
-			run: func(t *testing.T) {
-				e := echo.New()
-				h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), slog.Default())
-				req := httptest.NewRequest(http.MethodGet, "/notroot", nil)
-				rec := httptest.NewRecorder()
-				require.NoError(t, h.Handler()(e.NewContext(req, rec)))
-				assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
-			},
-		},
-		{
-			name: "MissingTarget",
-			run: func(t *testing.T) {
-				e := echo.New()
-				h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), slog.Default())
-				req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("{}"))
-				rec := httptest.NewRecorder()
-				require.NoError(t, h.Handler()(e.NewContext(req, rec)))
-				assert.Equal(t, http.StatusBadRequest, rec.Code)
-			},
-		},
-		{
-			name: "InvalidTarget",
-			run: func(t *testing.T) {
-				e := echo.New()
-				h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), slog.Default())
-				req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("{}"))
-				req.Header.Set("X-Amz-Target", "InvalidTarget")
-				rec := httptest.NewRecorder()
-				require.NoError(t, h.Handler()(e.NewContext(req, rec)))
-				assert.Equal(t, http.StatusBadRequest, rec.Code)
-			},
-		},
-		{
-			name: "InvalidJSON",
-			run: func(t *testing.T) {
-				rec := makeLogsRequest(t, "CreateLogGroup", "not-json")
-				assert.Equal(t, http.StatusInternalServerError, rec.Code)
-			},
-		},
 		{
 			name:     "UnknownOperation",
 			action:   "UnknownOp",
@@ -171,15 +172,11 @@ func TestHandler(t *testing.T) {
 				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"/prod/app"}`)
 				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"/dev/app"}`)
 			},
-			action:   "DescribeLogGroups",
-			body:     map[string]any{},
-			wantCode: http.StatusOK,
-			want: func(t *testing.T, body []byte) {
-				t.Helper()
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
-				assert.Len(t, resp["logGroups"].([]any), 2)
-			},
+			action:        "DescribeLogGroups",
+			body:          map[string]any{},
+			wantCode:      http.StatusOK,
+			wantListField: "logGroups",
+			wantListLen:   2,
 		},
 		{
 			name: "DescribeLogGroups/WithPrefix",
@@ -188,15 +185,11 @@ func TestHandler(t *testing.T) {
 				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"/prod/app"}`)
 				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"/dev/app"}`)
 			},
-			action:   "DescribeLogGroups",
-			body:     map[string]any{"logGroupNamePrefix": "/prod"},
-			wantCode: http.StatusOK,
-			want: func(t *testing.T, body []byte) {
-				t.Helper()
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
-				assert.Len(t, resp["logGroups"].([]any), 1)
-			},
+			action:        "DescribeLogGroups",
+			body:          map[string]any{"logGroupNamePrefix": "/prod"},
+			wantCode:      http.StatusOK,
+			wantListField: "logGroups",
+			wantListLen:   1,
 		},
 		{
 			name: "CreateLogStream",
@@ -233,15 +226,11 @@ func TestHandler(t *testing.T) {
 				doLogsRequest(t, h, e, "CreateLogStream", `{"logGroupName":"grp","logStreamName":"s1"}`)
 				doLogsRequest(t, h, e, "CreateLogStream", `{"logGroupName":"grp","logStreamName":"s2"}`)
 			},
-			action:   "DescribeLogStreams",
-			body:     map[string]any{"logGroupName": "grp"},
-			wantCode: http.StatusOK,
-			want: func(t *testing.T, body []byte) {
-				t.Helper()
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
-				assert.Len(t, resp["logStreams"].([]any), 2)
-			},
+			action:        "DescribeLogStreams",
+			body:          map[string]any{"logGroupName": "grp"},
+			wantCode:      http.StatusOK,
+			wantListField: "logStreams",
+			wantListLen:   2,
 		},
 		{
 			name:     "DescribeLogStreams/GroupNotFound",
@@ -262,13 +251,8 @@ func TestHandler(t *testing.T) {
 				"logStreamName": "s",
 				"logEvents":     []any{map[string]any{"message": "hello", "timestamp": 1000}},
 			},
-			wantCode: http.StatusOK,
-			want: func(t *testing.T, body []byte) {
-				t.Helper()
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
-				assert.NotEmpty(t, resp["nextSequenceToken"])
-			},
+			wantCode:          http.StatusOK,
+			wantNotEmptyField: "nextSequenceToken",
 		},
 		{
 			name:   "PutLogEvents/GroupNotFound",
@@ -289,15 +273,11 @@ func TestHandler(t *testing.T) {
 				doLogsRequest(t, h, e, "PutLogEvents",
 					`{"logGroupName":"grp","logStreamName":"s","logEvents":[{"message":"m1","timestamp":1000}]}`)
 			},
-			action:   "GetLogEvents",
-			body:     map[string]any{"logGroupName": "grp", "logStreamName": "s"},
-			wantCode: http.StatusOK,
-			want: func(t *testing.T, body []byte) {
-				t.Helper()
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
-				assert.Len(t, resp["events"].([]any), 1)
-			},
+			action:        "GetLogEvents",
+			body:          map[string]any{"logGroupName": "grp", "logStreamName": "s"},
+			wantCode:      http.StatusOK,
+			wantListField: "events",
+			wantListLen:   1,
 		},
 		{
 			name:     "GetLogEvents/NotFound",
@@ -314,15 +294,11 @@ func TestHandler(t *testing.T) {
 				doLogsRequest(t, h, e, "PutLogEvents",
 					`{"logGroupName":"grp","logStreamName":"s","logEvents":[{"message":"ERROR: bad","timestamp":1000}]}`)
 			},
-			action:   "FilterLogEvents",
-			body:     map[string]any{"logGroupName": "grp", "filterPattern": "ERROR"},
-			wantCode: http.StatusOK,
-			want: func(t *testing.T, body []byte) {
-				t.Helper()
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
-				assert.Len(t, resp["events"].([]any), 1)
-			},
+			action:        "FilterLogEvents",
+			body:          map[string]any{"logGroupName": "grp", "filterPattern": "ERROR"},
+			wantCode:      http.StatusOK,
+			wantListField: "events",
+			wantListLen:   1,
 		},
 		{
 			name:     "FilterLogEvents/GroupNotFound",
@@ -335,11 +311,6 @@ func TestHandler(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-
-			if tt.run != nil {
-				tt.run(t)
-				return
-			}
 
 			e := echo.New()
 			h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), slog.Default())
@@ -354,8 +325,16 @@ func TestHandler(t *testing.T) {
 			rec := doLogsRequest(t, h, e, tt.action, string(bodyBytes))
 			assert.Equal(t, tt.wantCode, rec.Code)
 
-			if tt.want != nil {
-				tt.want(t, rec.Body.Bytes())
+			if tt.wantListField != "" {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Len(t, resp[tt.wantListField].([]any), tt.wantListLen)
+			}
+
+			if tt.wantNotEmptyField != "" {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.NotEmpty(t, resp[tt.wantNotEmptyField])
 			}
 		})
 	}
