@@ -93,10 +93,62 @@ func TestACMHandler(t *testing.T) {
 			wantContains: []string{"list1.com", "list2.com"},
 		},
 		{
-			name:     "InvalidAction",
-			target:   "InvalidAction",
-			body:     `{}`,
-			wantCode: http.StatusBadRequest,
+			name:   "DeleteCertificate",
+			target: "DeleteCertificate",
+			setup: func(t *testing.T, h *acm.Handler) {
+				t.Helper()
+				postACMJSON(t, h, "RequestCertificate", `{"DomainName":"delete-test.com"}`)
+			},
+			body:     "",
+			wantCode: http.StatusOK,
+		},
+		{
+			name:         "DeleteCertificate_NotFound",
+			target:       "DeleteCertificate",
+			body:         `{"CertificateArn":"arn:aws:acm:us-east-1:000000000000:certificate/nonexistent"}`,
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"ResourceNotFoundException"},
+		},
+		{
+			name:   "AddTagsToCertificate",
+			target: "AddTagsToCertificate",
+			body: `{"CertificateArn":"arn:aws:acm:us-east-1:000000000000:certificate/t1",` +
+				`"Tags":[{"Key":"Env","Value":"prod"}]}`,
+			wantCode: http.StatusOK,
+		},
+		{
+			name:   "ListTagsForCertificate",
+			target: "ListTagsForCertificate",
+			setup: func(t *testing.T, h *acm.Handler) {
+				t.Helper()
+				addBody := `{"CertificateArn":"arn:aws:acm:us-east-1:000000000000:certificate/t2",` +
+					`"Tags":[{"Key":"Env","Value":"staging"}]}`
+				postACMJSON(t, h, "AddTagsToCertificate", addBody)
+			},
+			body: `{"CertificateArn":` +
+				`"arn:aws:acm:us-east-1:000000000000:certificate/t2"}`,
+			wantCode:     http.StatusOK,
+			wantContains: []string{"Env", "staging"},
+		},
+		{
+			name:   "RemoveTagsFromCertificate",
+			target: "RemoveTagsFromCertificate",
+			setup: func(t *testing.T, h *acm.Handler) {
+				t.Helper()
+				addBody := `{"CertificateArn":"arn:aws:acm:us-east-1:000000000000:certificate/t3",` +
+					`"Tags":[{"Key":"Env","Value":"dev"}]}`
+				postACMJSON(t, h, "AddTagsToCertificate", addBody)
+			},
+			body: `{"CertificateArn":"arn:aws:acm:us-east-1:000000000000:certificate/t3",` +
+				`"Tags":[{"Key":"Env"}]}`,
+			wantCode: http.StatusOK,
+		},
+		{
+			name:         "UnknownAction",
+			target:       "BogusAction",
+			body:         `{}`,
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidAction"},
 		},
 		{
 			name:       "MissingAction",
