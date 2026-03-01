@@ -270,7 +270,7 @@ func (j *Janitor) evictExpiredObjects(bucket *StoredBucket, prefix string, expir
 // latestVersion returns the LastModified timestamp of the latest non-deleted
 // object version, or the zero time if none exists.
 func latestVersion(obj *StoredObject) time.Time {
-	obj.mu.RLock()
+	obj.mu.RLock("latestVersion")
 	defer obj.mu.RUnlock()
 
 	for _, ver := range obj.Versions {

@@ -1082,7 +1082,7 @@ func (b *InMemoryBackend) getOrCreateRuntime(ctx context.Context, fn *FunctionCo
 	rt, ok := b.runtimes[fn.FunctionName]
 
 	if !ok {
-		rt = &functionRuntime{mu: lockmetrics.New("lambda.esm")}
+		rt = &functionRuntime{mu: lockmetrics.New("lambda.runtime")}
 		b.runtimes[fn.FunctionName] = rt
 	}
 

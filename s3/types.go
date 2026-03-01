@@ -1,7 +1,6 @@
 package s3
 
 import (
-	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -38,7 +37,7 @@ type StoredObject struct {
 	Versions        map[string]*StoredObjectVersion
 	Key             string
 	LatestVersionID string // Cache of the latest version ID to avoid scanning all versions
-	mu              sync.RWMutex
+	mu              *lockmetrics.RWMutex
 }
 
 // StoredObjectVersion represents a specific version of an S3 object.
