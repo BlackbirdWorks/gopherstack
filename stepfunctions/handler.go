@@ -47,8 +47,8 @@ type sfnListTagsForResourceInput struct {
 }
 
 type sfnTagResourceInput struct {
-	Tags        map[string]string `json:"tags"`
-	ResourceArn string            `json:"resourceArn"`
+	Tags        *tags.Tags `json:"tags"`
+	ResourceArn string     `json:"resourceArn"`
 }
 
 type sfnUntagResourceInput struct {
@@ -296,7 +296,11 @@ func (h *Handler) stateMachineTagActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			h.setTags(input.ResourceArn, input.Tags)
+			var kv map[string]string
+			if input.Tags != nil {
+				kv = input.Tags.Clone()
+			}
+			h.setTags(input.ResourceArn, kv)
 
 			return map[string]any{}, nil
 		},

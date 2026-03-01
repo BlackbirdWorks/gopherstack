@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 var (
@@ -137,10 +138,10 @@ func (b *InMemoryBackend) CreateSecret(input *CreateSecretInput) (*CreateSecretO
 	}
 
 	if len(input.Tags) > 0 {
-		secret.Tags = make(map[string]string, len(input.Tags))
+		secret.Tags = tags.New(secret.Name + ".tags")
 
 		for _, t := range input.Tags {
-			secret.Tags[t.Key] = t.Value
+			secret.Tags.Set(t.Key, t.Value)
 		}
 	}
 
@@ -511,10 +512,10 @@ func (b *InMemoryBackend) TagResource(input *TagResourceInput) error {
 		return ErrSecretDeleted
 	}
 	if secret.Tags == nil {
-		secret.Tags = make(map[string]string)
+		secret.Tags = tags.New(id + ".tags")
 	}
 	for _, t := range input.Tags {
-		secret.Tags[t.Key] = t.Value
+		secret.Tags.Set(t.Key, t.Value)
 	}
 
 	return nil
@@ -533,8 +534,8 @@ func (b *InMemoryBackend) UntagResource(input *UntagResourceInput) error {
 	if secret.DeletedDate != nil {
 		return ErrSecretDeleted
 	}
-	for _, k := range input.TagKeys {
-		delete(secret.Tags, k)
+	if secret.Tags != nil {
+		secret.Tags.DeleteKeys(input.TagKeys)
 	}
 
 	return nil

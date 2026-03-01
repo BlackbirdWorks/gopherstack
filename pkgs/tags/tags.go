@@ -108,3 +108,24 @@ func (t *Tags) Range(f func(key, value string) bool) {
 func (t *Tags) MarshalJSON() ([]byte, error) {
 	return json.Marshal(t.Clone()) //nolint:wrapcheck // thin delegation
 }
+
+// UnmarshalJSON implements [json.Unmarshaler].
+// Tags deserialises from a plain JSON object (e.g. {"env":"prod","team":"platform"}).
+// An empty or null JSON value produces an empty Tags with the zero-value name; callers
+// that care about the Prometheus lock name should prefer [FromMap] for static data.
+func (t *Tags) UnmarshalJSON(data []byte) error {
+	var m map[string]string
+	if err := json.Unmarshal(data, &m); err != nil {
+		return err //nolint:wrapcheck // thin delegation
+	}
+
+	if t.m == nil {
+		t.m = safemap.New[string, string]("json.tags")
+	}
+
+	for k, v := range m {
+		t.m.Set(k, v)
+	}
+
+	return nil
+}

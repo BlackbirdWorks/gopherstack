@@ -81,8 +81,8 @@ type listTagsForResourceInput struct {
 }
 
 type tagLogGroupInput struct {
-	Tags         map[string]string `json:"tags"`
-	LogGroupName string            `json:"logGroupName"`
+	Tags         *tags.Tags `json:"tags"`
+	LogGroupName string     `json:"logGroupName"`
 }
 
 type untagLogGroupInput struct {
@@ -374,7 +374,11 @@ func (h *Handler) logTagActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			h.setTags(input.LogGroupName, input.Tags)
+			var kv map[string]string
+			if input.Tags != nil {
+				kv = input.Tags.Clone()
+			}
+			h.setTags(input.LogGroupName, kv)
 
 			return struct{}{}, nil
 		},

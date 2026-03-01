@@ -34,7 +34,7 @@ const esmPathPrefix = "/2015-03-31/event-source-mappings"
 const lambdaTagsPathPrefix = "/2015-03-31/tags"
 
 type lambdaTagsInput struct {
-	Tags map[string]string `json:"Tags"`
+	Tags *tags.Tags `json:"Tags"`
 }
 
 type publishVersionInput struct {
@@ -438,7 +438,11 @@ func (h *Handler) handleTagsRoute(c *echo.Context, method string) error {
 		if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
 			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid body")
 		}
-		h.setTags(arn, input.Tags)
+		var kv map[string]string
+		if input.Tags != nil {
+			kv = input.Tags.Clone()
+		}
+		h.setTags(arn, kv)
 		c.Response().WriteHeader(http.StatusNoContent)
 
 		return nil

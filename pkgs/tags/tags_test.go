@@ -343,8 +343,8 @@ func TestTags_MarshalJSON_InStruct(t *testing.T) {
 	t.Parallel()
 
 	type resource struct {
-		Name string      `json:"name"`
-		Tags *tags.Tags  `json:"tags,omitempty"`
+		Tags *tags.Tags `json:"tags,omitempty"`
+		Name string     `json:"name"`
 	}
 
 	tg := tags.New("test.marshal.struct")
@@ -354,4 +354,71 @@ func TestTags_MarshalJSON_InStruct(t *testing.T) {
 	data, err := json.Marshal(r)
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"name":"bucket","tags":{"team":"platform"}}`, string(data))
+}
+
+func TestTags_UnmarshalJSON(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		want    map[string]string
+		name    string
+		input   string
+		wantErr bool
+	}{
+		{name: "empty_object", input: `{}`, want: map[string]string{}},
+		{name: "single", input: `{"env":"prod"}`, want: map[string]string{"env": "prod"}},
+		{name: "multi", input: `{"env":"prod","team":"platform"}`, want: map[string]string{
+			"env": "prod", "team": "platform",
+		}},
+		{name: "invalid_json", input: `not-json`, wantErr: true},
+		{name: "array_is_invalid", input: `[{"Key":"env","Value":"prod"}]`, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tg := tags.New("test.unmarshal." + tt.name)
+			err := json.Unmarshal([]byte(tt.input), tg)
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, tg.Clone())
+		})
+	}
+}
+
+func TestTags_UnmarshalJSON_InStruct(t *testing.T) {
+	t.Parallel()
+
+	type resource struct {
+		Tags *tags.Tags `json:"tags"`
+		Name string     `json:"name"`
+	}
+
+	r := resource{Tags: tags.New("test.unmarshal.struct")}
+	err := json.Unmarshal([]byte(`{"name":"bucket","tags":{"env":"staging"}}`), &r)
+	require.NoError(t, err)
+	assert.Equal(t, "bucket", r.Name)
+	assert.Equal(t, map[string]string{"env": "staging"}, r.Tags.Clone())
+}
+
+func TestTags_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	tg := tags.New("test.roundtrip")
+	tg.Set("env", "prod")
+	tg.Set("team", "platform")
+
+	data, err := json.Marshal(tg)
+	require.NoError(t, err)
+
+	tg2 := tags.New("test.roundtrip2")
+	require.NoError(t, json.Unmarshal(data, tg2))
+	assert.Equal(t, tg.Clone(), tg2.Clone())
 }

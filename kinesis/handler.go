@@ -675,8 +675,8 @@ func errorDetails(err error) (string, string, int) {
 }
 
 type handleAddTagsToStreamInput struct {
-	Tags       map[string]string `json:"Tags"`
-	StreamName string            `json:"StreamName"`
+	Tags       *tags.Tags `json:"Tags"`
+	StreamName string     `json:"StreamName"`
 }
 
 func (h *Handler) handleAddTagsToStream(
@@ -688,7 +688,11 @@ func (h *Handler) handleAddTagsToStream(
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, ErrInvalidArgument
 	}
-	h.setTags(req.StreamName, req.Tags)
+	var kv map[string]string
+	if req.Tags != nil {
+		kv = req.Tags.Clone()
+	}
+	h.setTags(req.StreamName, kv)
 
 	return struct{}{}, nil
 }

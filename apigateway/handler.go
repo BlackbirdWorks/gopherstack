@@ -15,14 +15,15 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 var errUnknownOperation = errors.New("UnknownOperationException")
 
 type createRestAPIInput struct {
-	Tags        map[string]string `json:"tags"`
-	Name        string            `json:"name"`
-	Description string            `json:"description"`
+	Tags        *tags.Tags `json:"tags"`
+	Name        string     `json:"name"`
+	Description string     `json:"description"`
 }
 
 type deleteRestAPIInput struct {
@@ -306,7 +307,11 @@ func (h *Handler) restAPIActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return 0, nil, err
 			}
-			api, err := h.Backend.CreateRestAPI(input.Name, input.Description, input.Tags)
+			var kv map[string]string
+			if input.Tags != nil {
+				kv = input.Tags.Clone()
+			}
+			api, err := h.Backend.CreateRestAPI(input.Name, input.Description, kv)
 			if err != nil {
 				return 0, nil, err
 			}

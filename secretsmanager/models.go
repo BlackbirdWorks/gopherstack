@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 const (
@@ -43,7 +44,7 @@ type Secret struct {
 	// Description is an optional human-readable description.
 	Description string `json:"Description,omitempty"`
 	// Tags is a map of key/value tag pairs.
-	Tags map[string]string `json:"Tags,omitempty"`
+	Tags *tags.Tags `json:"Tags,omitempty"`
 	// DeletedDate is set when the secret is deleted; nil means active.
 	DeletedDate *float64 `json:"DeletedDate,omitempty"`
 	// Versions holds all versions keyed by VersionId.
@@ -148,11 +149,11 @@ type DeleteSecretOutput struct {
 
 // SecretListEntry is a brief secret descriptor used in ListSecrets.
 type SecretListEntry struct {
-	DeletedDate *float64          `json:"DeletedDate,omitempty"`
-	Tags        map[string]string `json:"Tags,omitempty"`
-	ARN         string            `json:"ARN"`
-	Name        string            `json:"Name"`
-	Description string            `json:"Description,omitempty"`
+	DeletedDate *float64   `json:"DeletedDate,omitempty"`
+	Tags        *tags.Tags `json:"Tags,omitempty"`
+	ARN         string     `json:"ARN"`
+	Name        string     `json:"Name"`
+	Description string     `json:"Description,omitempty"`
 }
 
 // ListSecretsInput is the request payload for ListSecrets.
@@ -179,7 +180,7 @@ type DescribeSecretInput struct {
 
 // DescribeSecretOutput is the response payload for DescribeSecret.
 type DescribeSecretOutput struct {
-	Tags               map[string]string   `json:"Tags,omitempty"`
+	Tags               *tags.Tags          `json:"Tags,omitempty"`
 	DeletedDate        *float64            `json:"DeletedDate,omitempty"`
 	VersionIDsToStages map[string][]string `json:"VersionIdsToStages,omitempty"`
 	ARN                string              `json:"ARN"`

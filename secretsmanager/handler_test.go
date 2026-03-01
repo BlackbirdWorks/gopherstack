@@ -916,8 +916,10 @@ func TestSecretsManagerTagResource(t *testing.T) {
 	// DescribeSecret should show tags
 	desc, err := backend.DescribeSecret(&secretsmanager.DescribeSecretInput{SecretID: "tag-secret"})
 	require.NoError(t, err)
-	assert.Equal(t, "test", desc.Tags["env"])
-	assert.Equal(t, "platform", desc.Tags["team"])
+	envVal, _ := desc.Tags.Get("env")
+	assert.Equal(t, "test", envVal)
+	teamVal, _ := desc.Tags.Get("team")
+	assert.Equal(t, "platform", teamVal)
 
 	// UntagResource via HTTP
 	untagBody := `{"SecretId":"tag-secret","TagKeys":["env"]}`
@@ -929,8 +931,9 @@ func TestSecretsManagerTagResource(t *testing.T) {
 
 	desc2, err := backend.DescribeSecret(&secretsmanager.DescribeSecretInput{SecretID: "tag-secret"})
 	require.NoError(t, err)
-	assert.NotContains(t, desc2.Tags, "env")
-	assert.Equal(t, "platform", desc2.Tags["team"])
+	assert.False(t, desc2.Tags.HasTag("env"))
+	team2Val, _ := desc2.Tags.Get("team")
+	assert.Equal(t, "platform", team2Val)
 }
 
 // TestSecretsManagerRotateSecret tests the rotation stub.
