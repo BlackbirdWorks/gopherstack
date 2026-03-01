@@ -15,9 +15,9 @@ type listenerEntry[T Event] struct {
 // InMemoryEmitter is a simple in-memory implementation of the EventEmitter interface.
 // It stores listeners and emits events synchronously to all subscribers.
 type InMemoryEmitter[T Event] struct {
+	mu        *lockmetrics.RWMutex
 	listeners []listenerEntry[T]
 	nextID    uint64
-	mu        *lockmetrics.RWMutex
 }
 
 // NewInMemoryEmitter creates a new in-memory event emitter.

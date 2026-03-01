@@ -12,9 +12,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/google/uuid"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-	
+	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -57,13 +56,13 @@ type StorageBackend interface {
 
 // InMemoryBackend implements StorageBackend using an in-memory concurrency-safe store.
 type InMemoryBackend struct {
+	emitter       events.EventEmitter[*events.SNSPublishedEvent]
 	topics        map[string]*Topic
 	subscriptions map[string]*Subscription
 	topicTags     map[string]*svcTags.Tags
-	emitter       events.EventEmitter[*events.SNSPublishedEvent]
+	mu            *lockmetrics.RWMutex
 	accountID     string
 	region        string
-	mu            *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new empty InMemoryBackend with default account/region.
@@ -79,7 +78,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		topicTags:     make(map[string]*svcTags.Tags),
 		accountID:     accountID,
 		region:        region,
-		mu: lockmetrics.New("sns"),
+		mu:            lockmetrics.New("sns"),
 	}
 }
 

@@ -20,9 +20,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-	
+	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
@@ -89,10 +88,10 @@ type DNSRegistrar interface {
 
 // functionRuntime holds the runtime server and startup state for a single Lambda function.
 type functionRuntime struct {
-	srv      *runtimeServer
 	startErr error
-	zipDir   string // temp directory for extracted Zip Lambda code; cleaned up on delete
+	srv      *runtimeServer
 	mu       *lockmetrics.RWMutex
+	zipDir   string
 	port     int
 	started  bool
 }
@@ -106,28 +105,25 @@ type functionURLServer struct {
 
 // InMemoryBackend is a concurrency-safe in-memory Lambda backend.
 type InMemoryBackend struct {
-	functions           map[string]*FunctionConfiguration
-	runtimes            map[string]*functionRuntime
+	cwLogs              CWLogsBackend
+	s3Fetcher           S3CodeFetcher
+	docker              container.Runtime
+	dnsRegistrar        DNSRegistrar
+	kinesisPoller       *EventSourcePoller
 	eventSourceMappings map[string]*EventSourceMapping
-	functionURLConfigs  map[string]*FunctionURLConfig
+	aliases             map[string]map[string]*FunctionAlias
+	versionCounters     map[string]int
+	functions           map[string]*FunctionConfiguration
 	functionURLServers  map[string]*functionURLServer
-	// versions stores immutable version snapshots: functionName → []FunctionVersion (sorted by number)
-	versions map[string][]*FunctionVersion
-	// aliases stores alias configs: functionName → aliasName → FunctionAlias
-	aliases map[string]map[string]*FunctionAlias
-	// versionCounters tracks the next version number per function
-	versionCounters map[string]int
-	kinesisPoller   *EventSourcePoller
-	cwLogs          CWLogsBackend
-	dnsRegistrar    DNSRegistrar
-	docker          container.Runtime
-	portAlloc       *portalloc.Allocator
-	s3Fetcher       S3CodeFetcher
-	logger          *slog.Logger
-	accountID       string
-	region          string
-	settings        Settings
-	mu              *lockmetrics.RWMutex
+	functionURLConfigs  map[string]*FunctionURLConfig
+	versions            map[string][]*FunctionVersion
+	portAlloc           *portalloc.Allocator
+	runtimes            map[string]*functionRuntime
+	logger              *slog.Logger
+	mu                  *lockmetrics.RWMutex
+	region              string
+	accountID           string
+	settings            Settings
 }
 
 // NewInMemoryBackend creates a new Lambda in-memory backend.
@@ -153,7 +149,7 @@ func NewInMemoryBackend(
 		accountID:           accountID,
 		region:              region,
 		logger:              log,
-		mu: lockmetrics.New("lambda"),
+		mu:                  lockmetrics.New("lambda"),
 	}
 }
 
@@ -619,6 +615,8 @@ func (b *InMemoryBackend) DeleteFunction(name string) error {
 		if rt.zipDir != "" {
 			_ = os.RemoveAll(rt.zipDir)
 		}
+
+		rt.mu.Close()
 	}
 
 	return nil

@@ -2,7 +2,6 @@ package s3control
 
 import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-	
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
@@ -31,7 +30,7 @@ type InMemoryBackend struct {
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
 		configs: make(map[string]*PublicAccessBlock),
-		mu: lockmetrics.New("s3control"),
+		mu:      lockmetrics.New("s3control"),
 	}
 }
 

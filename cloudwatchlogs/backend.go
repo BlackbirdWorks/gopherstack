@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-	
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -45,9 +45,9 @@ type InMemoryBackend struct {
 	groups    map[string]*LogGroup
 	streams   map[string]map[string]*LogStream
 	events    map[string]map[string][]*OutputLogEvent
+	mu        *lockmetrics.RWMutex
 	accountID string
 	region    string
-	mu        *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with default configuration.
@@ -63,7 +63,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		groups:    make(map[string]*LogGroup),
 		streams:   make(map[string]map[string]*LogStream),
 		events:    make(map[string]map[string][]*OutputLogEvent),
-		mu: lockmetrics.New("cloudwatchlogs"),
+		mu:        lockmetrics.New("cloudwatchlogs"),
 	}
 }
 

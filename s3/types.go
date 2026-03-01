@@ -35,9 +35,9 @@ type StoredBucket struct {
 // StoredObject represents an S3 object with its version history.
 type StoredObject struct {
 	Versions        map[string]*StoredObjectVersion
-	Key             string
-	LatestVersionID string // Cache of the latest version ID to avoid scanning all versions
 	mu              *lockmetrics.RWMutex
+	Key             string
+	LatestVersionID string
 }
 
 // StoredObjectVersion represents a specific version of an S3 object.

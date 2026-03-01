@@ -3,8 +3,8 @@ package swf
 import (
 	"errors"
 	"fmt"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-	
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
@@ -57,7 +57,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		domains:    make(map[string]*Domain),
 		workflows:  make(map[string]*WorkflowType),
 		executions: make(map[string]*WorkflowExecution),
-		mu: lockmetrics.New("swf"),
+		mu:         lockmetrics.New("swf"),
 	}
 }
 

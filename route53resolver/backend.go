@@ -3,9 +3,8 @@ package route53resolver
 import (
 	"fmt"
 
-	"github.com/google/uuid"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-	
+	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -48,9 +47,9 @@ type ResolverRule struct {
 type InMemoryBackend struct {
 	endpoints map[string]*ResolverEndpoint
 	rules     map[string]*ResolverRule
+	mu        *lockmetrics.RWMutex
 	accountID string
 	region    string
-	mu        *lockmetrics.RWMutex
 }
 
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
@@ -59,7 +58,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		rules:     make(map[string]*ResolverRule),
 		accountID: accountID,
 		region:    region,
-		mu: lockmetrics.New("route53resolver"),
+		mu:        lockmetrics.New("route53resolver"),
 	}
 }
 

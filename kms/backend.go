@@ -12,9 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-	
+	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
@@ -89,13 +88,13 @@ type StorageBackend interface {
 
 // InMemoryBackend is a concurrency-safe in-memory KMS backend.
 type InMemoryBackend struct {
-	keys      map[string]*Key   // keyed by KeyId
-	aliases   map[string]*Alias // keyed by AliasName
-	grants    map[string]*Grant // keyed by GrantId
-	policies  map[string]string // keyId -> policy JSON
+	keys      map[string]*Key
+	aliases   map[string]*Alias
+	grants    map[string]*Grant
+	policies  map[string]string
+	mu        *lockmetrics.RWMutex
 	accountID string
 	region    string
-	mu        *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates and returns a new empty KMS backend with default account/region.
@@ -112,7 +111,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		policies:  make(map[string]string),
 		accountID: accountID,
 		region:    region,
-		mu: lockmetrics.New("kms"),
+		mu:        lockmetrics.New("kms"),
 	}
 }
 

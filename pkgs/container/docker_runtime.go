@@ -115,8 +115,8 @@ func (r *realDockerClient) Close() error {
 type DockerRuntime struct {
 	docker APIClient
 	pools  map[string][]*PooledContainer
-	cfg    Config
 	mu     *lockmetrics.RWMutex
+	cfg    Config
 }
 
 // newDockerRuntime creates a DockerRuntime connected to the Docker daemon.
@@ -150,7 +150,7 @@ func newDockerRuntimeWithAPI(api APIClient, cfg Config) *DockerRuntime {
 		pools:  make(map[string][]*PooledContainer),
 		cfg:    cfg,
 		docker: api,
-		mu: lockmetrics.New("container.runtime"),
+		mu:     lockmetrics.New("container.runtime"),
 	}
 }
 

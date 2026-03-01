@@ -2,8 +2,8 @@ package resourcegroups
 
 import (
 	"fmt"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-	
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -28,9 +28,9 @@ type Group struct {
 // InMemoryBackend is the in-memory store for Resource Groups.
 type InMemoryBackend struct {
 	groups    map[string]*Group
+	mu        *lockmetrics.RWMutex
 	accountID string
 	region    string
-	mu        *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -39,7 +39,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		groups:    make(map[string]*Group),
 		accountID: accountID,
 		region:    region,
-		mu: lockmetrics.New("resourcegroups"),
+		mu:        lockmetrics.New("resourcegroups"),
 	}
 }
 

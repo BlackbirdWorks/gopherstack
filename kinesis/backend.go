@@ -8,9 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-	
+	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -34,9 +33,9 @@ type StorageBackend interface {
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
 	streams   map[string]*Stream
+	mu        *lockmetrics.RWMutex
 	accountID string
 	region    string
-	mu        *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new empty InMemoryBackend with default account/region.
@@ -50,7 +49,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		streams:   make(map[string]*Stream),
 		accountID: accountID,
 		region:    region,
-		mu: lockmetrics.New("kinesis"),
+		mu:        lockmetrics.New("kinesis"),
 	}
 }
 

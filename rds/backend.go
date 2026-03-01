@@ -77,11 +77,10 @@ type InMemoryBackend struct {
 	instances    map[string]*DBInstance
 	snapshots    map[string]*DBSnapshot
 	subnetGroups map[string]*DBSubnetGroup
-	// tags maps resource ARN → ordered slice of tags.
-	tags      map[string][]Tag
-	accountID string
-	region    string
-	mu        *lockmetrics.RWMutex
+	tags         map[string][]Tag
+	mu           *lockmetrics.RWMutex
+	accountID    string
+	region       string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -93,7 +92,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		tags:         make(map[string][]Tag),
 		accountID:    accountID,
 		region:       region,
-		mu: lockmetrics.New("rds"),
+		mu:           lockmetrics.New("rds"),
 	}
 }
 

@@ -636,6 +636,7 @@ func deleteSpecificVersion(
 		delete(obj.Versions, *versionID)
 		if len(obj.Versions) == 0 {
 			delete(bucket.Objects, key)
+			obj.mu.Close()
 		}
 
 		return &s3.DeleteObjectOutput{VersionId: versionID}
@@ -672,6 +673,7 @@ func deleteLatestVersion(bucket *StoredBucket, obj *StoredObject, key string) *s
 
 	// Suspended or null: Delete object (or null version)
 	delete(bucket.Objects, key)
+	obj.mu.Close()
 
 	return &s3.DeleteObjectOutput{}
 }

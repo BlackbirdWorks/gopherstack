@@ -58,13 +58,13 @@ type Config struct {
 // Server is an embedded DNS server that answers A queries for registered
 // synthetic hostnames with a fixed IP address.
 type Server struct {
-	cfg        Config
 	names      map[string]struct{}
 	udpServer  *dns.Server
 	tcpServer  *dns.Server
+	mu         *lockmetrics.RWMutex
+	cfg        Config
 	listenAddr string
 	resolveIP  net.IP
-	mu         *lockmetrics.RWMutex
 }
 
 // New creates a new Server with the given config.
@@ -93,7 +93,7 @@ func New(cfg Config) (*Server, error) {
 		cfg:        cfg,
 		resolveIP:  ip,
 		listenAddr: cfg.ListenAddr,
-		mu: lockmetrics.New("dns"),
+		mu:         lockmetrics.New("dns"),
 	}, nil
 }
 

@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-	
 
 	"github.com/blackbirdworks/gopherstack/dynamodb/models"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"

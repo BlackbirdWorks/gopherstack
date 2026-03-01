@@ -4,8 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-	
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
@@ -27,9 +27,9 @@ type Certificate struct {
 // InMemoryBackend is the in-memory store for ACM certificates.
 type InMemoryBackend struct {
 	certs     map[string]*Certificate
+	mu        *lockmetrics.RWMutex
 	accountID string
 	region    string
-	mu        *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -38,7 +38,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		certs:     make(map[string]*Certificate),
 		accountID: accountID,
 		region:    region,
-		mu: lockmetrics.New("acm"),
+		mu:        lockmetrics.New("acm"),
 	}
 }
 

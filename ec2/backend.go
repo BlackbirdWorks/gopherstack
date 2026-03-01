@@ -95,9 +95,9 @@ type InMemoryBackend struct {
 	securityGroups map[string]*SecurityGroup
 	vpcs           map[string]*VPC
 	subnets        map[string]*Subnet
+	mu             *lockmetrics.RWMutex
 	AccountID      string
 	Region         string
-	mu             *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with a default VPC and subnet.

@@ -13,8 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-	
 
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -150,7 +150,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		parameters: make(map[string]Parameter),
 		history:    make(map[string][]ParameterHistory),
 		tags:       make(map[string]*tags.Tags),
-		mu: lockmetrics.New("ssm"),
+		mu:         lockmetrics.New("ssm"),
 	}
 }
 

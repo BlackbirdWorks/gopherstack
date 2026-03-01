@@ -5,8 +5,8 @@ import (
 	"math"
 	"sort"
 	"time"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-	
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -39,9 +39,9 @@ type StorageBackend interface {
 type InMemoryBackend struct {
 	metrics   map[string]map[string][]MetricDatum
 	alarms    map[string]*MetricAlarm
+	mu        *lockmetrics.RWMutex
 	accountID string
 	region    string
-	mu        *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with default configuration.
@@ -56,7 +56,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		region:    region,
 		metrics:   make(map[string]map[string][]MetricDatum),
 		alarms:    make(map[string]*MetricAlarm),
-		mu: lockmetrics.New("cloudwatch"),
+		mu:        lockmetrics.New("cloudwatch"),
 	}
 }
 

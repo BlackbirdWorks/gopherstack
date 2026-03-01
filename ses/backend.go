@@ -33,15 +33,15 @@ type Email struct {
 // InMemoryBackend is an in-memory store for SES emails and verified identities.
 type InMemoryBackend struct {
 	identities map[string]bool
-	emails     []Email
 	mu         *lockmetrics.RWMutex
+	emails     []Email
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
 		identities: make(map[string]bool),
-		mu: lockmetrics.New("ses"),
+		mu:         lockmetrics.New("ses"),
 	}
 }
 

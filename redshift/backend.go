@@ -3,8 +3,8 @@ package redshift
 import (
 	"errors"
 	"fmt"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-	
 
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -29,9 +29,9 @@ type Cluster struct {
 // InMemoryBackend is the in-memory store for Redshift clusters.
 type InMemoryBackend struct {
 	clusters  map[string]*Cluster
+	mu        *lockmetrics.RWMutex
 	accountID string
 	region    string
-	mu        *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -40,7 +40,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		clusters:  make(map[string]*Cluster),
 		accountID: accountID,
 		region:    region,
-		mu: lockmetrics.New("redshift"),
+		mu:        lockmetrics.New("redshift"),
 	}
 }
 

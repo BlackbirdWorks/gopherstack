@@ -27,9 +27,9 @@ var ErrInvalidRange = errors.New("invalid port range: start must be ≥ 1 and en
 // It is safe for concurrent use.
 type Allocator struct {
 	used  map[int]string
+	mu    *lockmetrics.RWMutex
 	start int
 	end   int
-	mu    *lockmetrics.RWMutex
 }
 
 // New creates a new Allocator for the half-open range [start, end).
@@ -43,7 +43,7 @@ func New(start, end int) (*Allocator, error) {
 		start: start,
 		end:   end,
 		used:  make(map[int]string),
-		mu: lockmetrics.New("portalloc"),
+		mu:    lockmetrics.New("portalloc"),
 	}, nil
 }
 

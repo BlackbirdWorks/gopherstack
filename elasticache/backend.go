@@ -7,7 +7,6 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-	
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -69,10 +68,10 @@ type StorageBackend interface {
 type InMemoryBackend struct {
 	clusters          map[string]*Cluster
 	replicationGroups map[string]*ReplicationGroup
+	mu                *lockmetrics.RWMutex
 	engineMode        string
 	accountID         string
 	region            string
-	mu                *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new backend with the given engine mode.
@@ -87,7 +86,7 @@ func NewInMemoryBackend(engineMode, accountID, region string) *InMemoryBackend {
 		engineMode:        engineMode,
 		accountID:         accountID,
 		region:            region,
-		mu: lockmetrics.New("elasticache"),
+		mu:                lockmetrics.New("elasticache"),
 	}
 }
 

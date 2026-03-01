@@ -9,8 +9,8 @@ import (
 	"sort"
 	"strconv"
 	"time"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-	
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -48,14 +48,14 @@ type StorageBackend interface {
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	stateMachines map[string]*StateMachine   // key = stateMachineArn
-	executions    map[string]*Execution      // key = executionArn
-	history       map[string][]*HistoryEvent // key = executionArn
 	lambdaInvoker asl.LambdaInvoker
+	stateMachines map[string]*StateMachine
+	executions    map[string]*Execution
+	history       map[string][]*HistoryEvent
 	logger        *slog.Logger
+	mu            *lockmetrics.RWMutex
 	accountID     string
 	region        string
-	mu            *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with default configuration.
@@ -72,7 +72,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		executions:    make(map[string]*Execution),
 		history:       make(map[string][]*HistoryEvent),
 		logger:        slog.Default(),
-		mu: lockmetrics.New("stepfunctions"),
+		mu:            lockmetrics.New("stepfunctions"),
 	}
 }
 

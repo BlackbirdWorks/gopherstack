@@ -2,8 +2,8 @@ package firehose
 
 import (
 	"fmt"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-	
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -31,9 +31,9 @@ type DeliveryStream struct {
 // InMemoryBackend is the in-memory store for Firehose resources.
 type InMemoryBackend struct {
 	streams   map[string]*DeliveryStream
+	mu        *lockmetrics.RWMutex
 	accountID string
 	region    string
-	mu        *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -42,7 +42,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		streams:   make(map[string]*DeliveryStream),
 		accountID: accountID,
 		region:    region,
-		mu: lockmetrics.New("firehose"),
+		mu:        lockmetrics.New("firehose"),
 	}
 }
 

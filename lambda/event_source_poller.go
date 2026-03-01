@@ -60,7 +60,7 @@ func NewEventSourcePoller(
 		kinesisReader:  kinesisReader,
 		logger:         log,
 		shardIterators: make(map[string]string),
-		mu: lockmetrics.New("lambda.esm"),
+		mu:             lockmetrics.New("lambda.esm"),
 	}
 }
 

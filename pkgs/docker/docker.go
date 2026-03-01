@@ -75,8 +75,8 @@ type PooledContainer struct {
 type Client struct {
 	docker APIClient
 	pools  map[string][]*PooledContainer
-	cfg    Config
 	mu     *lockmetrics.RWMutex
+	cfg    Config
 }
 
 // APIClient is a subset of the Docker SDK client interface used by this package.
@@ -181,7 +181,7 @@ func NewClientWithAPI(api APIClient, cfg Config) *Client {
 		pools:  make(map[string][]*PooledContainer),
 		cfg:    cfg,
 		docker: api,
-		mu: lockmetrics.New("docker"),
+		mu:     lockmetrics.New("docker"),
 	}
 }
 

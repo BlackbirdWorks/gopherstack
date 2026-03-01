@@ -11,9 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-	
+	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -61,10 +60,10 @@ type StorageBackend interface {
 
 // InMemoryBackend is a concurrency-safe in-memory Secrets Manager backend.
 type InMemoryBackend struct {
-	secrets   map[string]*Secret // keyed by Name
+	secrets   map[string]*Secret
+	mu        *lockmetrics.RWMutex
 	accountID string
 	region    string
-	mu        *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates and returns a new empty Secrets Manager backend with default account/region.
@@ -78,7 +77,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		secrets:   make(map[string]*Secret),
 		accountID: accountID,
 		region:    region,
-		mu: lockmetrics.New("secretsmanager"),
+		mu:        lockmetrics.New("secretsmanager"),
 	}
 }
 

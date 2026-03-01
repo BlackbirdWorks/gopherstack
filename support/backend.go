@@ -4,8 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-	
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/google/uuid"
@@ -41,7 +41,7 @@ type InMemoryBackend struct {
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
 		cases: make(map[string]*Case),
-		mu: lockmetrics.New("support"),
+		mu:    lockmetrics.New("support"),
 	}
 }
 

@@ -3,8 +3,8 @@ package transcribe
 import (
 	"fmt"
 	"time"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-	
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
@@ -37,7 +37,7 @@ type InMemoryBackend struct {
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
 		jobs: make(map[string]*TranscriptionJob),
-		mu: lockmetrics.New("transcribe"),
+		mu:   lockmetrics.New("transcribe"),
 	}
 }
 

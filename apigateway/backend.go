@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-	
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -97,7 +97,7 @@ type InMemoryBackend struct {
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
 		apis: make(map[string]*apiData),
-		mu: lockmetrics.New("apigateway"),
+		mu:   lockmetrics.New("apigateway"),
 	}
 }
 

@@ -10,9 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-	
+	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -59,10 +58,10 @@ type InMemoryBackend struct {
 	buses           map[string]*EventBus
 	rules           map[string]map[string]*Rule
 	targets         map[string]map[string]*Target
+	mu              *lockmetrics.RWMutex
 	accountID       string
 	region          string
 	eventLog        []EventLogEntry
-	mu              *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with default configuration.

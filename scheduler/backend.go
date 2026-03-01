@@ -2,8 +2,8 @@ package scheduler
 
 import (
 	"fmt"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-	
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -39,9 +39,9 @@ type Schedule struct {
 
 type InMemoryBackend struct {
 	schedules map[string]*Schedule
+	mu        *lockmetrics.RWMutex
 	accountID string
 	region    string
-	mu        *lockmetrics.RWMutex
 }
 
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
@@ -49,7 +49,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		schedules: make(map[string]*Schedule),
 		accountID: accountID,
 		region:    region,
-		mu: lockmetrics.New("scheduler"),
+		mu:        lockmetrics.New("scheduler"),
 	}
 }
 

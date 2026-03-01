@@ -2,8 +2,8 @@ package awsconfig
 
 import (
 	"fmt"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-	
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
@@ -41,7 +41,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
 		recorders: make(map[string]*ConfigurationRecorder),
 		channels:  make(map[string]*DeliveryChannel),
-		mu: lockmetrics.New("awsconfig"),
+		mu:        lockmetrics.New("awsconfig"),
 	}
 }
 

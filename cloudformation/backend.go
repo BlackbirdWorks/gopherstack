@@ -6,9 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-	
+	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -44,14 +43,14 @@ type StorageBackend interface {
 
 // InMemoryBackend is a concurrency-safe in-memory CloudFormation backend.
 type InMemoryBackend struct {
-	stacks     map[string]*Stack                    // key = stackName
-	events     map[string][]StackEvent              // key = stackID
-	resources  map[string]map[string]*StackResource // key = stackID, logicalID
-	changeSets map[string]map[string]*ChangeSet     // key = stackName, changeSetName
+	stacks     map[string]*Stack
+	events     map[string][]StackEvent
+	resources  map[string]map[string]*StackResource
+	changeSets map[string]map[string]*ChangeSet
 	creator    *ResourceCreator
+	mu         *lockmetrics.RWMutex
 	accountID  string
 	region     string
-	mu         *lockmetrics.RWMutex
 }
 
 const (
@@ -87,7 +86,7 @@ func NewInMemoryBackendWithConfig(accountID, region string, creator *ResourceCre
 		creator:    creator,
 		accountID:  accountID,
 		region:     region,
-		mu: lockmetrics.New("cloudformation"),
+		mu:         lockmetrics.New("cloudformation"),
 	}
 }
 

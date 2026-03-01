@@ -3,8 +3,8 @@ package opensearch
 import (
 	"errors"
 	"fmt"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-	
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -37,9 +37,9 @@ type Domain struct {
 // InMemoryBackend is the in-memory store for OpenSearch domains.
 type InMemoryBackend struct {
 	domains   map[string]*Domain
+	mu        *lockmetrics.RWMutex
 	accountID string
 	region    string
-	mu        *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -48,7 +48,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		domains:   make(map[string]*Domain),
 		accountID: accountID,
 		region:    region,
-		mu: lockmetrics.New("opensearch"),
+		mu:        lockmetrics.New("opensearch"),
 	}
 }
 
