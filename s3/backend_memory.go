@@ -39,13 +39,13 @@ func getRegionFromS3Context(ctx context.Context, defaultRegion string) string {
 }
 
 type InMemoryBackend struct {
-	compressor    Compressor
 	buckets       map[string]map[string]*StoredBucket
 	tags          map[string][]types.Tag
 	uploads       map[string]*StoredMultipartUpload
 	mu            *lockmetrics.RWMutex
-	defaultRegion string
 	Logger        *slog.Logger
+	compressor    Compressor
+	defaultRegion string
 }
 
 func NewInMemoryBackend(compressor Compressor, logger *slog.Logger) *InMemoryBackend {
@@ -221,7 +221,7 @@ func (b *InMemoryBackend) ListBuckets(
 }
 
 func (b *InMemoryBackend) PutObject(
-	_ context.Context,
+	ctx context.Context,
 	input *s3.PutObjectInput,
 ) (*s3.PutObjectOutput, error) {
 	bucketName := *input.Bucket
@@ -305,7 +305,10 @@ func (b *InMemoryBackend) PutObject(
 
 	b.storeObjectTags(input.Tagging, bucketName, key, newVersionID)
 
-	slog.Debug("S3 Backend PutObject", "bucket", bucketName, "key", key, "contentType", aws.ToString(input.ContentType), "versionId", newVersionID)
+	b.Logger.DebugContext(ctx, "S3 Backend PutObject",
+		"bucket", bucketName, "key", key,
+		"contentType", aws.ToString(input.ContentType),
+		"versionId", newVersionID)
 
 	return &s3.PutObjectOutput{
 		ETag:           aws.String(finalQuotedETag),
@@ -469,7 +472,7 @@ func (b *InMemoryBackend) GetObject(
 }
 
 func (b *InMemoryBackend) HeadObject(
-	_ context.Context,
+	ctx context.Context,
 	input *s3.HeadObjectInput,
 ) (*s3.HeadObjectOutput, error) {
 	bucketName := *input.Bucket
@@ -515,7 +518,10 @@ func (b *InMemoryBackend) HeadObject(
 		return nil, ErrNoSuchKey
 	}
 
-	slog.Debug("S3 Backend HeadObject", "bucket", bucketName, "key", key, "versionId", aws.ToString(versionID), "foundContentType", ver.ContentType)
+	b.Logger.DebugContext(ctx, "S3 Backend HeadObject",
+		"bucket", bucketName, "key", key,
+		"versionId", aws.ToString(versionID),
+		"foundContentType", ver.ContentType)
 
 	return &s3.HeadObjectOutput{
 		ContentLength:      aws.Int64(ver.Size),

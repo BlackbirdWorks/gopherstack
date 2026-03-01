@@ -490,11 +490,13 @@ func TestE2E_S3_MetadataTagging(t *testing.T) {
 	require.NoError(t, page.Fill("input[name='contentType']", "text/markdown"))
 	require.NoError(t, page.Click("button:has-text('Update Content-Type')"))
 
-	// 5. Verify update (page refreshes)
-	// 5. Verify update (page refreshes) - check for content instead of timing out on URL
-	require.NoError(t, page.Locator("#tags-list").GetByText("Project: Gopherstack").First().WaitFor())
-	content, _ := page.Locator("body").TextContent()
-	assert.Contains(t, content, "text/markdown")
+	// 5. Verify update — wait for full page refresh triggered by Hx-Refresh header
+	mdLocator := page.Locator("body").GetByText("text/markdown")
+	err = mdLocator.First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: aws.Float64(5000),
+	})
+	require.NoError(t, err)
 }
 
 func TestE2E_GlobalSearch(t *testing.T) {

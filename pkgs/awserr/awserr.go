@@ -3,19 +3,23 @@
 // to match any service error against a shared sentinel.
 package awserr
 
-import "errors"
+// sentinelError is an unexported type used for constant sentinel errors.
+// Using a distinct type prevents reassignment and enables reliable [errors.Is] matching.
+type sentinelError string
+
+func (e sentinelError) Error() string { return string(e) }
 
 // ErrNotFound is a sentinel indicating a requested resource does not exist.
-var ErrNotFound = errors.New("resource not found")
+const ErrNotFound sentinelError = "resource not found"
 
 // ErrAlreadyExists is a sentinel indicating a resource already exists.
-var ErrAlreadyExists = errors.New("resource already exists")
+const ErrAlreadyExists sentinelError = "resource already exists"
 
 // ErrInvalidParameter is a sentinel indicating an invalid or missing parameter.
-var ErrInvalidParameter = errors.New("invalid parameter")
+const ErrInvalidParameter sentinelError = "invalid parameter"
 
 // ErrConflict is a sentinel indicating a conflicting state or concurrent operation.
-var ErrConflict = errors.New("conflict")
+const ErrConflict sentinelError = "conflict"
 
 // New creates an error with the given message that wraps the given sentinel.
 // This preserves the service-specific error message while enabling [errors.Is]

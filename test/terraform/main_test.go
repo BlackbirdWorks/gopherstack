@@ -619,12 +619,14 @@ func warmProviderCache(logger *slog.Logger) {
 	tofuBin, err := exec.LookPath("tofu")
 	if err != nil {
 		logger.Warn("skipping provider cache warm-up: tofu not in PATH", "error", err)
+
 		return
 	}
 
 	dir, err := os.MkdirTemp("", "tofu-warmup-*")
 	if err != nil {
 		logger.Warn("skipping provider cache warm-up", "error", err)
+
 		return
 	}
 	defer os.RemoveAll(dir)
@@ -639,14 +641,16 @@ func warmProviderCache(logger *slog.Logger) {
   }
 }
 `)
-	if err := os.WriteFile(filepath.Join(dir, "main.tf"), hcl, 0o644); err != nil {
-		logger.Warn("skipping provider cache warm-up", "error", err)
+	if writeErr := os.WriteFile(filepath.Join(dir, "main.tf"), hcl, 0o644); writeErr != nil {
+		logger.Warn("skipping provider cache warm-up", "error", writeErr)
+
 		return
 	}
 
 	cacheDir := filepath.Join(os.TempDir(), "gopherstack-tofu-provider-cache")
-	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
-		logger.Warn("skipping provider cache warm-up", "error", err)
+	if mkdirErr := os.MkdirAll(cacheDir, 0o755); mkdirErr != nil {
+		logger.Warn("skipping provider cache warm-up", "error", mkdirErr)
+
 		return
 	}
 
@@ -661,6 +665,7 @@ func warmProviderCache(logger *slog.Logger) {
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		logger.Warn("provider cache warm-up failed", "error", err, "output", string(out))
+
 		return
 	}
 

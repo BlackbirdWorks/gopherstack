@@ -49,7 +49,7 @@ func TestHandleTarget(t *testing.T) {
 	supportedOps := []string{"GetFoo", "PutFoo"}
 
 	successDispatch := service.DispatchFunc(func(_ context.Context, _ string, _ []byte) ([]byte, error) {
-		return []byte("{\\ok\\:true}"), nil
+		return []byte("{\"ok\":true}"), nil
 	})
 
 	errDispatch := service.DispatchFunc(func(_ context.Context, _ string, _ []byte) ([]byte, error) {

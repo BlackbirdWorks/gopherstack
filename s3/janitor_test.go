@@ -202,7 +202,7 @@ func TestS3Janitor_LifecycleExpiry_PrefixFilter(t *testing.T) {
 func TestS3Janitor_LifecycleExpiry_DisabledRuleIgnored(t *testing.T) {
 	t.Parallel()
 
-	b := s3.NewInMemoryBackend(nil)
+	b := s3.NewInMemoryBackend(nil, nil)
 	mustCreateBucket(t, b, "disabled-bucket")
 	mustPutObject(t, b, "disabled-bucket", "key.txt", []byte("data"))
 

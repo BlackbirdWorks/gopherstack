@@ -34,110 +34,100 @@ func (m *MockService) ExtractOperation(_ *echo.Context) string { return "op" }
 func (m *MockService) ExtractResource(_ *echo.Context) string  { return "res" }
 func (m *MockService) MatchPriority() int                      { return m.priority }
 
-func TestService(t *testing.T) {
+func TestRegistry(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		run  func(t *testing.T)
-		name string
-	}{
-		{name: "Registry", run: func(t *testing.T) {
-			t.Helper()
-			logger := slog.Default()
-			reg := service.NewRegistry(logger)
+	logger := slog.Default()
+	reg := service.NewRegistry(logger)
 
-			svc := &MockService{name: "S1", priority: 10}
-			err := reg.Register(svc)
-			require.NoError(t, err)
+	svc := &MockService{name: "S1", priority: 10}
+	err := reg.Register(svc)
+	require.NoError(t, err)
 
-			assert.Equal(t, 1, reg.Count())
-			assert.NotNil(t, reg.GetByName("S1"))
+	assert.Equal(t, 1, reg.Count())
+	assert.NotNil(t, reg.GetByName("S1"))
 
-			// Duplicate registration
-			err = reg.Register(svc)
-			assert.ErrorIs(t, err, service.ErrServiceAlreadyRegistered)
-		}},
-		{name: "RegistryMiddleware", run: func(t *testing.T) {
-			t.Helper()
-			reg := service.NewRegistry(slog.Default())
+	// Duplicate registration
+	err = reg.Register(svc)
+	assert.ErrorIs(t, err, service.ErrServiceAlreadyRegistered)
+}
 
-			var called bool
-			mw := func(next echo.HandlerFunc) echo.HandlerFunc {
-				return func(c *echo.Context) error {
-					called = true
+func TestRegistryMiddleware(t *testing.T) {
+	t.Parallel()
 
-					return next(c)
-				}
-			}
+	reg := service.NewRegistry(slog.Default())
 
-			reg.Use(mw)
-			svc := &MockService{name: "S1", matched: true}
-			_ = reg.Register(svc)
+	var called bool
+	mw := func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			called = true
 
-			entry := reg.GetByName("S1")
-			e := echo.New()
-			req := httptest.NewRequest(http.MethodGet, "/", nil)
-			rec := httptest.NewRecorder()
-			c := e.NewContext(req, rec)
-
-			err := entry.WrappedHandler(c)
-			require.NoError(t, err)
-			assert.True(t, called)
-		}},
-		{name: "Router", run: func(t *testing.T) {
-			t.Helper()
-			reg := service.NewRegistry(slog.Default())
-
-			s1 := &MockService{name: "S1", priority: 10, matched: false}
-			s2 := &MockService{name: "S2", priority: 20, matched: true}
-			s3 := &MockService{name: "S3", priority: 5, matched: true}
-
-			_ = reg.Register(s1)
-			_ = reg.Register(s2)
-			_ = reg.Register(s3)
-
-			router := service.NewServiceRouter(reg)
-
-			// Verify routing
-			e := echo.New()
-			req := httptest.NewRequest(http.MethodGet, "/", nil)
-			rec := httptest.NewRecorder()
-			c := e.NewContext(req, rec)
-
-			handler := router.RouteHandler()(func(c *echo.Context) error {
-				return c.String(http.StatusOK, "fallback")
-			})
-
-			err := handler(c)
-			require.NoError(t, err)
-			assert.Equal(t, "S2", rec.Body.String()) // S2 matched first by priority
-		}},
-		{name: "RouterFallback", run: func(t *testing.T) {
-			t.Helper()
-			reg := service.NewRegistry(slog.Default())
-			s1 := &MockService{name: "S1", matched: false}
-			_ = reg.Register(s1)
-
-			router := service.NewServiceRouter(reg)
-
-			e := echo.New()
-			req := httptest.NewRequest(http.MethodGet, "/", nil)
-			rec := httptest.NewRecorder()
-			c := e.NewContext(req, rec)
-
-			handler := router.RouteHandler()(func(c *echo.Context) error {
-				return c.String(http.StatusOK, "fallback")
-			})
-
-			_ = handler(c)
-			assert.Equal(t, "fallback", rec.Body.String())
-		}},
+			return next(c)
+		}
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			tt.run(t)
-		})
-	}
+	reg.Use(mw)
+	svc := &MockService{name: "S1", matched: true}
+	_ = reg.Register(svc)
+
+	entry := reg.GetByName("S1")
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := entry.WrappedHandler(c)
+	require.NoError(t, err)
+	assert.True(t, called)
+}
+
+func TestRouter(t *testing.T) {
+	t.Parallel()
+
+	reg := service.NewRegistry(slog.Default())
+
+	s1 := &MockService{name: "S1", priority: 10, matched: false}
+	s2 := &MockService{name: "S2", priority: 20, matched: true}
+	s3 := &MockService{name: "S3", priority: 5, matched: true}
+
+	_ = reg.Register(s1)
+	_ = reg.Register(s2)
+	_ = reg.Register(s3)
+
+	router := service.NewServiceRouter(reg)
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	handler := router.RouteHandler()(func(c *echo.Context) error {
+		return c.String(http.StatusOK, "fallback")
+	})
+
+	err := handler(c)
+	require.NoError(t, err)
+	assert.Equal(t, "S2", rec.Body.String()) // S2 matched first by priority
+}
+
+func TestRouterFallback(t *testing.T) {
+	t.Parallel()
+
+	reg := service.NewRegistry(slog.Default())
+	s1 := &MockService{name: "S1", matched: false}
+	_ = reg.Register(s1)
+
+	router := service.NewServiceRouter(reg)
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	handler := router.RouteHandler()(func(c *echo.Context) error {
+		return c.String(http.StatusOK, "fallback")
+	})
+
+	_ = handler(c)
+	assert.Equal(t, "fallback", rec.Body.String())
 }

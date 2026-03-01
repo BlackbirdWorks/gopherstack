@@ -39,7 +39,7 @@ func TestLoadData(t *testing.T) {
 	// Setup Backends
 	ddbBackend := ddbbackend.NewInMemoryDB()
 	ddbHandler := ddbbackend.NewHandler(ddbBackend, slog.Default())
-	s3Backend := s3backend.NewInMemoryBackend(&s3backend.GzipCompressor{})
+	s3Backend := s3backend.NewInMemoryBackend(&s3backend.GzipCompressor{}, slog.Default())
 	s3Handler := s3backend.NewHandler(s3Backend, slog.Default())
 
 	// Setup Echo server with service registry

@@ -28,7 +28,7 @@ import (
 func newServiceBackends() *cloudformation.ServiceBackends {
 	return &cloudformation.ServiceBackends{
 		DynamoDB:       ddbbackend.NewHandler(ddbbackend.NewInMemoryDB(), slog.Default()),
-		S3:             s3backend.NewHandler(s3backend.NewInMemoryBackend(nil), slog.Default()),
+		S3:             s3backend.NewHandler(s3backend.NewInMemoryBackend(nil, nil), slog.Default()),
 		SQS:            sqsbackend.NewHandler(sqsbackend.NewInMemoryBackend(), slog.Default()),
 		SNS:            snsbackend.NewHandler(snsbackend.NewInMemoryBackend(), slog.Default()),
 		SSM:            ssmbackend.NewHandler(ssmbackend.NewInMemoryBackend(), slog.Default()),
@@ -378,7 +378,7 @@ type mockBackendsProvider struct {
 func newMockBackendsProvider() *mockBackendsProvider {
 	return &mockBackendsProvider{
 		ddb: ddbbackend.NewHandler(ddbbackend.NewInMemoryDB(), slog.Default()),
-		s3h: s3backend.NewHandler(s3backend.NewInMemoryBackend(nil), slog.Default()),
+		s3h: s3backend.NewHandler(s3backend.NewInMemoryBackend(nil, nil), slog.Default()),
 		sqs: sqsbackend.NewHandler(sqsbackend.NewInMemoryBackend(), slog.Default()),
 		sns: snsbackend.NewHandler(snsbackend.NewInMemoryBackend(), slog.Default()),
 		ssm: ssmbackend.NewHandler(ssmbackend.NewInMemoryBackend(), slog.Default()),
