@@ -25,62 +25,62 @@ type fakeContextConfig struct {
 fakeConfigProvider
 }
 
-func TestKinesisProvider(t *testing.T) {
+func TestKinesisProvider_Name(t *testing.T) {
+t.Parallel()
+
+p := &kinesis.Provider{}
+assert.Equal(t, "Kinesis", p.Name())
+}
+
+func TestKinesisProvider_Init(t *testing.T) {
 t.Parallel()
 
 tests := []struct {
-name string
-run  func(t *testing.T)
+name          string
+config        any
+wantRegion    string
+wantAccountID string
 }{
-{name: "Name", run: func(t *testing.T) {
-p := &kinesis.Provider{}
-assert.Equal(t, "Kinesis", p.Name())
-}},
-{name: "InitWithConfig", run: func(t *testing.T) {
-p := &kinesis.Provider{}
-ctx := &service.AppContext{
-Config: fakeContextConfig{},
-Logger: slog.Default(),
-}
-
-svc, err := p.Init(ctx)
-require.NoError(t, err)
-assert.NotNil(t, svc)
-
-h, ok := svc.(*kinesis.Handler)
-require.True(t, ok)
-assert.Equal(t, "ap-southeast-2", h.DefaultRegion)
-assert.Equal(t, "111111111111", h.AccountID)
-}},
-{name: "InitNoConfig", run: func(t *testing.T) {
-p := &kinesis.Provider{}
-ctx := &service.AppContext{
-Config: nil,
-Logger: slog.Default(),
-}
-
-svc, err := p.Init(ctx)
-require.NoError(t, err)
-assert.NotNil(t, svc)
-}},
+{
+name:          "WithConfig",
+config:        fakeContextConfig{},
+wantRegion:    "ap-southeast-2",
+wantAccountID: "111111111111",
+},
+{
+name:   "NoConfig",
+config: nil,
+},
 }
 
 for _, tt := range tests {
 t.Run(tt.name, func(t *testing.T) {
 t.Parallel()
-tt.run(t)
+
+p := &kinesis.Provider{}
+ctx := &service.AppContext{
+Config: tt.config,
+Logger: slog.Default(),
+}
+
+svc, err := p.Init(ctx)
+require.NoError(t, err)
+assert.NotNil(t, svc)
+
+if tt.wantRegion != "" {
+h, ok := svc.(*kinesis.Handler)
+require.True(t, ok)
+assert.Equal(t, tt.wantRegion, h.DefaultRegion)
+assert.Equal(t, tt.wantAccountID, h.AccountID)
+}
 })
 }
 }
 
-func TestKinesisBackend(t *testing.T) {
+func TestKinesisBackend_FindSequencePositionGaps(t *testing.T) {
 t.Parallel()
 
-tests := []struct {
-name string
-run  func(t *testing.T, bk *kinesis.InMemoryBackend)
-}{
-{name: "FindSequencePositionGaps", run: func(t *testing.T, bk *kinesis.InMemoryBackend) {
+bk := kinesis.NewInMemoryBackend()
 require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "gap-stream"}))
 
 desc, err := bk.DescribeStream(&kinesis.DescribeStreamInput{StreamName: "gap-stream"})
@@ -153,8 +153,12 @@ Limit:         10,
 })
 require.NoError(t, err)
 assert.Empty(t, records3.Records)
-}},
-{name: "GetRecordsDeletedStream", run: func(t *testing.T, bk *kinesis.InMemoryBackend) {
+}
+
+func TestKinesisBackend_GetRecordsDeletedStream(t *testing.T) {
+t.Parallel()
+
+bk := kinesis.NewInMemoryBackend()
 require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "deleted-stream"}))
 
 desc, err := bk.DescribeStream(&kinesis.DescribeStreamInput{StreamName: "deleted-stream"})
@@ -174,8 +178,12 @@ require.NoError(t, bk.DeleteStream(&kinesis.DeleteStreamInput{StreamName: "delet
 // GetRecords should return stream not found
 _, err = bk.GetRecords(&kinesis.GetRecordsInput{ShardIterator: iterOut.ShardIterator})
 assert.ErrorIs(t, err, kinesis.ErrStreamNotFound)
-}},
-{name: "GetRecordsInvalidShard", run: func(t *testing.T, bk *kinesis.InMemoryBackend) {
+}
+
+func TestKinesisBackend_GetRecordsInvalidShard(t *testing.T) {
+t.Parallel()
+
+bk := kinesis.NewInMemoryBackend()
 require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "shard-gone-stream"}))
 
 desc, err := bk.DescribeStream(&kinesis.DescribeStreamInput{StreamName: "shard-gone-stream"})
@@ -196,8 +204,12 @@ require.NoError(t, bk.DeleteStream(&kinesis.DeleteStreamInput{StreamName: "shard
 // Recreate stream (iterator now points to deleted stream)
 _, err = bk.GetRecords(&kinesis.GetRecordsInput{ShardIterator: iterOut.ShardIterator})
 assert.Error(t, err)
-}},
-{name: "ListStreamsLimit", run: func(t *testing.T, bk *kinesis.InMemoryBackend) {
+}
+
+func TestKinesisBackend_ListStreamsLimit(t *testing.T) {
+t.Parallel()
+
+bk := kinesis.NewInMemoryBackend()
 for i := range 5 {
 require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{
 StreamName: fmt.Sprintf("limit-stream-%d", i),
@@ -208,14 +220,4 @@ out, err := bk.ListStreams(&kinesis.ListStreamsInput{Limit: 3})
 require.NoError(t, err)
 assert.Len(t, out.StreamNames, 3)
 assert.True(t, out.HasMoreStreams)
-}},
-}
-
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
-bk := kinesis.NewInMemoryBackend()
-tt.run(t, bk)
-})
-}
 }
