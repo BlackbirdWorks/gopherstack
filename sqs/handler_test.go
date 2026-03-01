@@ -191,11 +191,11 @@ func TestHandlerActions_Routing(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body            map[string]any
 		name            string
 		action          string
-		body            map[string]any
-		wantCode        int
 		wantBodyContain string
+		wantCode        int
 	}{
 		{
 			name:            "missing action",
@@ -242,11 +242,11 @@ func TestHandlerActions_CreateQueue(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name            string
 		setup           func(t *testing.T, h *sqs.Handler)
 		body            map[string]any
-		wantCode        int
+		name            string
 		wantBodyContain string
+		wantCode        int
 	}{
 		{
 			name:            "success",
@@ -289,9 +289,9 @@ func TestHandlerActions_ListQueues(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
 		setup        func(t *testing.T, h *sqs.Handler)
 		body         map[string]any
+		name         string
 		wantCode     int
 		wantURLCount int
 	}{
@@ -344,11 +344,11 @@ func TestHandlerActions_GetQueueUrl(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name            string
 		setup           func(t *testing.T, h *sqs.Handler)
 		body            map[string]any
-		wantCode        int
+		name            string
 		wantBodyContain string
+		wantCode        int
 	}{
 		{
 			name: "found",
@@ -390,9 +390,9 @@ func TestHandlerActions_NotFoundErrors(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body   map[string]any
 		name   string
 		action string
-		body   map[string]any
 	}{
 		{
 			name:   "DeleteQueue",
@@ -1001,12 +1001,12 @@ func TestHandlerActions_ErrorBackend(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name            string
 		backendErr      error
-		action          string
 		body            map[string]any
-		wantCode        int
+		name            string
+		action          string
 		wantBodyContain string
+		wantCode        int
 	}{
 		{
 			name:       "queue name from URL edge cases",

@@ -63,6 +63,7 @@ func mustSubscribe(t *testing.T, b *sns.InMemoryBackend, topicArn, protocol, end
 func newTestHandler(t *testing.T) (*sns.Handler, *sns.InMemoryBackend) {
 	t.Helper()
 	b := sns.NewInMemoryBackend()
+
 	return sns.NewHandler(b, logger.NewLogger(slog.LevelDebug)), b
 }
 
@@ -74,13 +75,13 @@ func TestInMemoryBackend_CreateTopic(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		setup     func(b *sns.InMemoryBackend)
-		topicName string
-		attrs     map[string]string
-		wantArn   string
-		wantAttr  map[string]string
 		wantErr   error
+		setup     func(b *sns.InMemoryBackend)
+		attrs     map[string]string
+		wantAttr  map[string]string
+		name      string
+		topicName string
+		wantArn   string
 	}{
 		{
 			name:      "success",
@@ -109,6 +110,7 @@ func TestInMemoryBackend_CreateTopic(t *testing.T) {
 			topic, err := b.CreateTopic(tt.topicName, tt.attrs)
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 			require.NoError(t, err)
@@ -124,10 +126,10 @@ func TestInMemoryBackend_DeleteTopic(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		setup    func(b *sns.InMemoryBackend)
-		topicArn string
 		wantErr  error
+		setup    func(b *sns.InMemoryBackend)
+		name     string
+		topicArn string
 	}{
 		{
 			name: "success",
@@ -153,6 +155,7 @@ func TestInMemoryBackend_DeleteTopic(t *testing.T) {
 			err := b.DeleteTopic(tt.topicArn)
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 			require.NoError(t, err)
@@ -165,12 +168,12 @@ func TestInMemoryBackend_ListTopics(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
+		wantErr   error
 		setup     func(b *sns.InMemoryBackend)
+		name      string
 		token     string
 		wantCount int
 		wantNext  bool
-		wantErr   error
 	}{
 		{
 			name:      "empty",
@@ -205,6 +208,7 @@ func TestInMemoryBackend_ListTopics(t *testing.T) {
 			topics, next, err := b.ListTopics(tt.token)
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 			require.NoError(t, err)
@@ -222,10 +226,10 @@ func TestInMemoryBackend_GetTopicAttributes(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		setup    func(b *sns.InMemoryBackend)
-		topicArn string
 		wantErr  error
+		setup    func(b *sns.InMemoryBackend)
+		name     string
+		topicArn string
 	}{
 		{
 			name: "success",
@@ -251,6 +255,7 @@ func TestInMemoryBackend_GetTopicAttributes(t *testing.T) {
 			attrs, err := b.GetTopicAttributes(tt.topicArn)
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 			require.NoError(t, err)
@@ -263,12 +268,12 @@ func TestInMemoryBackend_SetTopicAttributes(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
+		wantErr   error
 		setup     func(b *sns.InMemoryBackend)
+		name      string
 		topicArn  string
 		attrName  string
 		attrValue string
-		wantErr   error
 	}{
 		{
 			name: "success",
@@ -298,6 +303,7 @@ func TestInMemoryBackend_SetTopicAttributes(t *testing.T) {
 			err := b.SetTopicAttributes(tt.topicArn, tt.attrName, tt.attrValue)
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 			require.NoError(t, err)
@@ -312,12 +318,12 @@ func TestInMemoryBackend_Subscribe(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
+		wantErr  error
 		setup    func(b *sns.InMemoryBackend)
+		name     string
 		topicArn string
 		protocol string
 		endpoint string
-		wantErr  error
 	}{
 		{
 			name: "success",
@@ -347,6 +353,7 @@ func TestInMemoryBackend_Subscribe(t *testing.T) {
 			sub, err := b.Subscribe(tt.topicArn, tt.protocol, tt.endpoint, "")
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 			require.NoError(t, err)
@@ -360,16 +367,17 @@ func TestInMemoryBackend_Unsubscribe(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		setup   func(b *sns.InMemoryBackend) string
-		subArn  string
 		wantErr error
+		setup   func(b *sns.InMemoryBackend) string
+		name    string
+		subArn  string
 	}{
 		{
 			name: "success",
 			setup: func(b *sns.InMemoryBackend) string {
 				tp, _ := b.CreateTopic("unsub-topic", nil)
 				sub, _ := b.Subscribe(tp.TopicArn, "sqs", "x", "")
+
 				return sub.SubscriptionArn
 			},
 		},
@@ -391,6 +399,7 @@ func TestInMemoryBackend_Unsubscribe(t *testing.T) {
 			err := b.Unsubscribe(arn)
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 			require.NoError(t, err)
@@ -403,8 +412,8 @@ func TestInMemoryBackend_ListSubscriptions(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
 		setup     func(b *sns.InMemoryBackend)
+		name      string
 		wantCount int
 	}{
 		{
@@ -441,11 +450,11 @@ func TestInMemoryBackend_ListSubscriptionsByTopic(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
+		wantErr   error
 		setup     func(b *sns.InMemoryBackend)
+		name      string
 		topicArn  string
 		wantCount int
-		wantErr   error
 	}{
 		{
 			name: "success",
@@ -475,6 +484,7 @@ func TestInMemoryBackend_ListSubscriptionsByTopic(t *testing.T) {
 			subs, _, err := b.ListSubscriptionsByTopic(tt.topicArn, "")
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 			require.NoError(t, err)
@@ -488,12 +498,12 @@ func TestInMemoryBackend_Publish(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
+		wantErr  error
 		setup    func(b *sns.InMemoryBackend)
+		name     string
 		topicArn string
 		message  string
 		subject  string
-		wantErr  error
 	}{
 		{
 			name: "success",
@@ -522,6 +532,7 @@ func TestInMemoryBackend_Publish(t *testing.T) {
 			msgID, err := b.Publish(tt.topicArn, tt.message, tt.subject, "", nil)
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 			require.NoError(t, err)
@@ -563,11 +574,11 @@ func TestSNSHandler_CreateTopic(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
 		setup            func(b *sns.InMemoryBackend)
 		form             url.Values
-		wantStatus       int
+		name             string
 		wantBodyContains []string
+		wantStatus       int
 	}{
 		{
 			name: "success",
@@ -636,11 +647,11 @@ func TestSNSHandler_DeleteTopic(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
 		setup            func(b *sns.InMemoryBackend)
 		form             url.Values
-		wantStatus       int
+		name             string
 		wantBodyContains []string
+		wantStatus       int
 	}{
 		{
 			name: "success",
@@ -694,11 +705,11 @@ func TestSNSHandler_ListTopics(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
 		setup            func(b *sns.InMemoryBackend)
 		form             url.Values
-		wantStatus       int
+		name             string
 		wantBodyContains []string
+		wantStatus       int
 	}{
 		{
 			name: "empty",
@@ -752,11 +763,11 @@ func TestSNSHandler_GetTopicAttributes(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
 		setup            func(b *sns.InMemoryBackend)
 		form             url.Values
-		wantStatus       int
+		name             string
 		wantBodyContains []string
+		wantStatus       int
 	}{
 		{
 			name: "success",
@@ -811,11 +822,11 @@ func TestSNSHandler_SetTopicAttributes(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
 		setup            func(b *sns.InMemoryBackend)
 		form             url.Values
-		wantStatus       int
+		name             string
 		wantBodyContains []string
+		wantStatus       int
 	}{
 		{
 			name: "success",
@@ -872,11 +883,11 @@ func TestSNSHandler_Subscribe(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
 		setup            func(b *sns.InMemoryBackend)
 		form             url.Values
-		wantStatus       int
+		name             string
 		wantBodyContains []string
+		wantStatus       int
 	}{
 		{
 			name: "success",
@@ -1009,10 +1020,10 @@ func TestSNSHandler_Unsubscribe(t *testing.T) {
 	})
 
 	tests := []struct {
-		name             string
 		form             url.Values
-		wantStatus       int
+		name             string
 		wantBodyContains []string
+		wantStatus       int
 	}{
 		{
 			name: "not found",
@@ -1050,11 +1061,11 @@ func TestSNSHandler_ListSubscriptions(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
 		setup            func(b *sns.InMemoryBackend)
 		form             url.Values
-		wantStatus       int
+		name             string
 		wantBodyContains []string
+		wantStatus       int
 	}{
 		{
 			name: "empty",
@@ -1109,11 +1120,11 @@ func TestSNSHandler_ListSubscriptionsByTopic(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
 		setup            func(b *sns.InMemoryBackend)
 		form             url.Values
-		wantStatus       int
+		name             string
 		wantBodyContains []string
+		wantStatus       int
 	}{
 		{
 			name: "success",
@@ -1182,11 +1193,11 @@ func TestSNSHandler_Publish(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
 		setup            func(b *sns.InMemoryBackend)
 		form             url.Values
-		wantStatus       int
+		name             string
 		wantBodyContains []string
+		wantStatus       int
 	}{
 		{
 			name: "success",
@@ -1208,12 +1219,12 @@ func TestSNSHandler_Publish(t *testing.T) {
 				b.CreateTopic("pub-attr-topic", nil)
 			},
 			form: url.Values{
-				"Action":                                      {"Publish"},
-				"Version":                                     {"2010-03-31"},
-				"TopicArn":                                    {"arn:aws:sns:us-east-1:000000000000:pub-attr-topic"},
-				"Message":                                     {"hello"},
-				"Subject":                                     {"test"},
-				"MessageAttributes.entry.1.Name":              {"attr1"},
+				"Action":                         {"Publish"},
+				"Version":                        {"2010-03-31"},
+				"TopicArn":                       {"arn:aws:sns:us-east-1:000000000000:pub-attr-topic"},
+				"Message":                        {"hello"},
+				"Subject":                        {"test"},
+				"MessageAttributes.entry.1.Name": {"attr1"},
 				"MessageAttributes.entry.1.Value.DataType":    {"String"},
 				"MessageAttributes.entry.1.Value.StringValue": {"val1"},
 			},
@@ -1275,11 +1286,11 @@ func TestSNSHandler_PublishBatch(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
 		setup            func(b *sns.InMemoryBackend)
 		form             url.Values
-		wantStatus       int
+		name             string
 		wantBodyContains []string
+		wantStatus       int
 	}{
 		{
 			name: "success",
@@ -1287,13 +1298,13 @@ func TestSNSHandler_PublishBatch(t *testing.T) {
 				b.CreateTopic("batch-topic", nil)
 			},
 			form: url.Values{
-				"Action":                                          {"PublishBatch"},
-				"Version":                                         {"2010-03-31"},
-				"TopicArn":                                        {"arn:aws:sns:us-east-1:000000000000:batch-topic"},
-				"PublishBatchRequestEntries.member.1.Id":          {"msg1"},
-				"PublishBatchRequestEntries.member.1.Message":     {"hello"},
-				"PublishBatchRequestEntries.member.2.Id":          {"msg2"},
-				"PublishBatchRequestEntries.member.2.Message":     {"world"},
+				"Action":                                 {"PublishBatch"},
+				"Version":                                {"2010-03-31"},
+				"TopicArn":                               {"arn:aws:sns:us-east-1:000000000000:batch-topic"},
+				"PublishBatchRequestEntries.member.1.Id": {"msg1"},
+				"PublishBatchRequestEntries.member.1.Message": {"hello"},
+				"PublishBatchRequestEntries.member.2.Id":      {"msg2"},
+				"PublishBatchRequestEntries.member.2.Message": {"world"},
 			},
 			wantStatus:       http.StatusOK,
 			wantBodyContains: []string{"msg1", "msg2"},
@@ -1324,10 +1335,10 @@ func TestSNSHandler_PublishBatch(t *testing.T) {
 				b.CreateTopic("pf-topic", nil)
 			},
 			form: url.Values{
-				"Action":                                      {"PublishBatch"},
-				"Version":                                     {"2010-03-31"},
-				"TopicArn":                                    {"arn:aws:sns:us-east-1:000000000000:pf-topic"},
-				"PublishBatchRequestEntries.member.1.Id":      {"ok"},
+				"Action":                                 {"PublishBatch"},
+				"Version":                                {"2010-03-31"},
+				"TopicArn":                               {"arn:aws:sns:us-east-1:000000000000:pf-topic"},
+				"PublishBatchRequestEntries.member.1.Id": {"ok"},
 				"PublishBatchRequestEntries.member.1.Message": {"hello"},
 			},
 			wantStatus:       http.StatusOK,
@@ -1340,11 +1351,11 @@ func TestSNSHandler_PublishBatch(t *testing.T) {
 				b.DeleteTopic(tp.TopicArn)
 			},
 			form: url.Values{
-				"Action":                                          {"PublishBatch"},
-				"Version":                                         {"2010-03-31"},
-				"TopicArn":                                        {"arn:aws:sns:us-east-1:000000000000:pfail-topic"},
-				"PublishBatchRequestEntries.member.1.Id":          {"fail1"},
-				"PublishBatchRequestEntries.member.1.Message":     {"msg"},
+				"Action":                                 {"PublishBatch"},
+				"Version":                                {"2010-03-31"},
+				"TopicArn":                               {"arn:aws:sns:us-east-1:000000000000:pfail-topic"},
+				"PublishBatchRequestEntries.member.1.Id": {"fail1"},
+				"PublishBatchRequestEntries.member.1.Message": {"msg"},
 			},
 			wantStatus:       http.StatusOK,
 			wantBodyContains: []string{"NotFound"},

@@ -198,13 +198,13 @@ func TestHandler_Routing(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup          func(b *ssm.InMemoryBackend)
-		name           string
-		method         string
-		target         string
-		body           string
-		wantStatus     int
+		setup           func(b *ssm.InMemoryBackend)
+		name            string
+		method          string
+		target          string
+		body            string
 		wantBodyContain string
+		wantStatus      int
 	}{
 		{
 			name:   "GetParameter",
