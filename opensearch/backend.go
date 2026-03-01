@@ -3,10 +3,10 @@ package opensearch
 import (
 	"errors"
 	"fmt"
-	"maps"
 	"sync"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // Errors returned by the OpenSearch backend.
@@ -24,7 +24,7 @@ type ClusterConfig struct {
 
 // Domain represents an OpenSearch domain.
 type Domain struct {
-	Tags          map[string]string
+	Tags          *tags.Tags
 	Name          string
 	ARN           string
 	EngineVersion string
@@ -85,7 +85,7 @@ func (b *InMemoryBackend) CreateDomain(name, engineVersion string, clusterConfig
 		Endpoint:      endpoint,
 		Status:        "Active",
 		ClusterConfig: clusterConfig,
-		Tags:          make(map[string]string),
+		Tags:          tags.New("opensearch." + name + ".tags"),
 	}
 	b.domains[name] = d
 
@@ -159,14 +159,11 @@ func (b *InMemoryBackend) ListTags(domainARN string) (map[string]string, error) 
 		return nil, fmt.Errorf("%w: domain not found for ARN %s", ErrDomainNotFound, domainARN)
 	}
 
-	result := make(map[string]string, len(d.Tags))
-	maps.Copy(result, d.Tags)
-
-	return result, nil
+	return d.Tags.Clone(), nil
 }
 
 // AddTags adds or updates tags on the domain identified by ARN.
-func (b *InMemoryBackend) AddTags(domainARN string, tags map[string]string) error {
+func (b *InMemoryBackend) AddTags(domainARN string, kv map[string]string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -175,7 +172,7 @@ func (b *InMemoryBackend) AddTags(domainARN string, tags map[string]string) erro
 		return fmt.Errorf("%w: domain not found for ARN %s", ErrDomainNotFound, domainARN)
 	}
 
-	maps.Copy(d.Tags, tags)
+	d.Tags.Merge(kv)
 
 	return nil
 }
@@ -190,9 +187,7 @@ func (b *InMemoryBackend) RemoveTags(domainARN string, keys []string) error {
 		return fmt.Errorf("%w: domain not found for ARN %s", ErrDomainNotFound, domainARN)
 	}
 
-	for _, k := range keys {
-		delete(d.Tags, k)
-	}
+	d.Tags.DeleteKeys(keys)
 
 	return nil
 }

@@ -6,10 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"maps"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -17,8 +15,10 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // lambdaPathPrefix is the path prefix for Lambda REST API v1 endpoints.
@@ -34,7 +34,7 @@ const esmPathPrefix = "/2015-03-31/event-source-mappings"
 const lambdaTagsPathPrefix = "/2015-03-31/tags"
 
 type lambdaTagsInput struct {
-	Tags map[string]string `json:"Tags"`
+	Tags *tags.Tags `json:"Tags"`
 }
 
 type publishVersionInput struct {
@@ -84,10 +84,10 @@ func hasSuffixAliasPath(rest string) bool {
 type Handler struct {
 	Backend       StorageBackend
 	Logger        *slog.Logger
-	tags          map[string]map[string]string
+	tags          map[string]*tags.Tags
+	tagsMu        *lockmetrics.RWMutex
 	DefaultRegion string
 	AccountID     string
-	tagsMu        sync.RWMutex
 }
 
 // NewHandler creates a new Lambda handler with the given backend and logger.
@@ -95,34 +95,38 @@ func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
 	return &Handler{
 		Backend: backend,
 		Logger:  log,
-		tags:    make(map[string]map[string]string),
+		tags:    make(map[string]*tags.Tags),
+		tagsMu:  lockmetrics.New("lambda.tags"),
 	}
 }
 
 func (h *Handler) setTags(resourceID string, kv map[string]string) {
-	h.tagsMu.Lock()
+	h.tagsMu.Lock("setTags")
 	defer h.tagsMu.Unlock()
 	if h.tags[resourceID] == nil {
-		h.tags[resourceID] = make(map[string]string)
+		h.tags[resourceID] = tags.New("lambda." + resourceID + ".tags")
 	}
-	maps.Copy(h.tags[resourceID], kv)
+	h.tags[resourceID].Merge(kv)
 }
 
 func (h *Handler) removeTags(resourceID string, keys []string) {
-	h.tagsMu.Lock()
-	defer h.tagsMu.Unlock()
-	for _, k := range keys {
-		delete(h.tags[resourceID], k)
+	h.tagsMu.RLock("removeTags")
+	t := h.tags[resourceID]
+	h.tagsMu.RUnlock()
+	if t != nil {
+		t.DeleteKeys(keys)
 	}
 }
 
 func (h *Handler) getTags(resourceID string) map[string]string {
-	h.tagsMu.RLock()
-	defer h.tagsMu.RUnlock()
-	result := make(map[string]string)
-	maps.Copy(result, h.tags[resourceID])
+	h.tagsMu.RLock("getTags")
+	t := h.tags[resourceID]
+	h.tagsMu.RUnlock()
+	if t == nil {
+		return map[string]string{}
+	}
 
-	return result
+	return t.Clone()
 }
 
 // Name returns the service name.
@@ -434,7 +438,11 @@ func (h *Handler) handleTagsRoute(c *echo.Context, method string) error {
 		if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
 			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid body")
 		}
-		h.setTags(arn, input.Tags)
+		var kv map[string]string
+		if input.Tags != nil {
+			kv = input.Tags.Clone()
+		}
+		h.setTags(arn, kv)
 		c.Response().WriteHeader(http.StatusNoContent)
 
 		return nil

@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 	"github.com/blackbirdworks/gopherstack/resourcegroups"
 )
 
@@ -15,7 +16,7 @@ func TestResourceGroupsCreateGroup(t *testing.T) {
 	tests := []struct {
 		wantErr     error
 		setup       func(b *resourcegroups.InMemoryBackend)
-		tags        map[string]string
+		tags        *tags.Tags
 		name        string
 		groupName   string
 		description string
@@ -115,7 +116,7 @@ func TestResourceGroupsGetGroup(t *testing.T) {
 			name:      "success",
 			groupName: "my-group",
 			setup: func(b *resourcegroups.InMemoryBackend) {
-				_, _ = b.CreateGroup("my-group", "desc", map[string]string{"env": "test"})
+				_, _ = b.CreateGroup("my-group", "desc", tags.FromMap("test.rg", map[string]string{"env": "test"}))
 			},
 			wantTag: "test",
 		},
@@ -143,7 +144,8 @@ func TestResourceGroupsGetGroup(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tt.groupName, g.Name)
 			if tt.wantTag != "" {
-				assert.Equal(t, tt.wantTag, g.Tags["env"])
+				v, _ := g.Tags.Get("env")
+				assert.Equal(t, tt.wantTag, v)
 			}
 		})
 	}

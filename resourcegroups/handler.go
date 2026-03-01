@@ -13,6 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 var (
@@ -148,9 +149,9 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 }
 
 type handleCreateGroupInput struct {
-	Tags        map[string]string `json:"Tags"`
-	Name        string            `json:"Name"`
-	Description string            `json:"Description"`
+	Tags        *tags.Tags `json:"Tags"`
+	Name        string     `json:"Name"`
+	Description string     `json:"Description"`
 }
 
 func (h *Handler) handleCreateGroup(body []byte) (any, error) {

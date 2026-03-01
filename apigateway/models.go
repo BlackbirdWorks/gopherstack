@@ -1,14 +1,18 @@
 package apigateway
 
-import "time"
+import (
+	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
+)
 
 // RestAPI represents an API Gateway REST API.
 type RestAPI struct {
-	CreatedDate time.Time         `json:"createdDate"`
-	Tags        map[string]string `json:"tags,omitempty"`
-	ID          string            `json:"id"`
-	Name        string            `json:"name"`
-	Description string            `json:"description,omitempty"`
+	CreatedDate time.Time  `json:"createdDate"`
+	Tags        *tags.Tags `json:"tags,omitempty"`
+	ID          string     `json:"id"`
+	Name        string     `json:"name"`
+	Description string     `json:"description,omitempty"`
 }
 
 // Resource represents an API Gateway resource.

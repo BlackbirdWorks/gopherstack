@@ -15,14 +15,15 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 var errUnknownOperation = errors.New("UnknownOperationException")
 
 type createRestAPIInput struct {
-	Tags        map[string]string `json:"tags"`
-	Name        string            `json:"name"`
-	Description string            `json:"description"`
+	Tags        *tags.Tags `json:"tags"`
+	Name        string     `json:"name"`
+	Description string     `json:"description"`
 }
 
 type deleteRestAPIInput struct {

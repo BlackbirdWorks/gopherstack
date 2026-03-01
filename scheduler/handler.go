@@ -14,6 +14,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 const schedulerTargetPrefix = "AWSScheduler."
@@ -267,8 +268,8 @@ func (h *Handler) handleUpdateSchedule(body []byte) (any, error) {
 }
 
 type handleTagResourceInput struct {
-	Tags        map[string]string `json:"Tags"`
-	ResourceArn string            `json:"ResourceArn"`
+	Tags        *tags.Tags `json:"Tags"`
+	ResourceArn string     `json:"ResourceArn"`
 }
 
 func (h *Handler) handleTagResource(body []byte) (any, error) {
@@ -277,7 +278,12 @@ func (h *Handler) handleTagResource(body []byte) (any, error) {
 		return nil, errInvalidRequest
 	}
 
-	if err := h.Backend.TagResource(req.ResourceArn, req.Tags); err != nil {
+	var kv map[string]string
+	if req.Tags != nil {
+		kv = req.Tags.Clone()
+	}
+
+	if err := h.Backend.TagResource(req.ResourceArn, kv); err != nil {
 		return nil, err
 	}
 

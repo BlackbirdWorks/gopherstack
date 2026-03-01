@@ -17,6 +17,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // StorageBackend defines the interface for an SQS backend.
@@ -785,10 +786,12 @@ func (b *InMemoryBackend) TagQueue(input *TagQueueInput) error {
 	}
 
 	if q.Tags == nil {
-		q.Tags = make(map[string]string)
+		q.Tags = tags.New("sqs.queue." + q.Name + ".tags")
 	}
 
-	maps.Copy(q.Tags, input.Tags)
+	if input.Tags != nil {
+		q.Tags.Merge(input.Tags.Clone())
+	}
 
 	return nil
 }
@@ -805,8 +808,8 @@ func (b *InMemoryBackend) UntagQueue(input *UntagQueueInput) error {
 		return ErrQueueNotFound
 	}
 
-	for _, k := range input.TagKeys {
-		delete(q.Tags, k)
+	if q.Tags != nil {
+		q.Tags.DeleteKeys(input.TagKeys)
 	}
 
 	return nil
@@ -824,8 +827,9 @@ func (b *InMemoryBackend) ListQueueTags(input *ListQueueTagsInput) (*ListQueueTa
 		return nil, ErrQueueNotFound
 	}
 
-	tags := make(map[string]string, len(q.Tags))
-	maps.Copy(tags, q.Tags)
+	if q.Tags == nil {
+		return &ListQueueTagsOutput{Tags: tags.New("sqs.queue." + q.Name + ".tags")}, nil
+	}
 
-	return &ListQueueTagsOutput{Tags: tags}, nil
+	return &ListQueueTagsOutput{Tags: q.Tags}, nil
 }

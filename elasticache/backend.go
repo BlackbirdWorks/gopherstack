@@ -3,13 +3,13 @@ package elasticache
 import (
 	"errors"
 	"fmt"
-	"maps"
 	"sync"
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // Engine mode constants.
@@ -30,7 +30,7 @@ var (
 // Cluster represents an ElastiCache cluster.
 type Cluster struct {
 	CreatedAt     time.Time
-	Tags          map[string]string
+	Tags          *tags.Tags
 	mini          *miniredis.Miniredis
 	ClusterID     string
 	Engine        string
@@ -46,7 +46,7 @@ type Cluster struct {
 // ReplicationGroup represents an ElastiCache replication group.
 type ReplicationGroup struct {
 	CreatedAt          time.Time
-	Tags               map[string]string
+	Tags               *tags.Tags
 	ReplicationGroupID string
 	Description        string
 	Status             string
@@ -121,7 +121,7 @@ func (b *InMemoryBackend) CreateCluster(id, engine, nodeType string, port int) (
 		NodeType:      nodeType,
 		NumCacheNodes: 1,
 		ARN:           b.clusterARN(id),
-		Tags:          make(map[string]string),
+		Tags:          tags.New("elasticache.cluster." + id + ".tags"),
 		CreatedAt:     time.Now(),
 	}
 
@@ -198,18 +198,12 @@ func (b *InMemoryBackend) ListTagsForResource(arn string) (map[string]string, er
 
 	for _, c := range b.clusters {
 		if c.ARN == arn {
-			tags := make(map[string]string, len(c.Tags))
-			maps.Copy(tags, c.Tags)
-
-			return tags, nil
+			return c.Tags.Clone(), nil
 		}
 	}
 	for _, rg := range b.replicationGroups {
 		if rg.ARN == arn {
-			tags := make(map[string]string, len(rg.Tags))
-			maps.Copy(tags, rg.Tags)
-
-			return tags, nil
+			return rg.Tags.Clone(), nil
 		}
 	}
 
@@ -230,7 +224,7 @@ func (b *InMemoryBackend) CreateReplicationGroup(id, description string) (*Repli
 		Description:        description,
 		Status:             "available",
 		ARN:                b.replicationGroupARN(id),
-		Tags:               make(map[string]string),
+		Tags:               tags.New("elasticache.rg." + id + ".tags"),
 		CreatedAt:          time.Now(),
 	}
 	b.replicationGroups[id] = rg

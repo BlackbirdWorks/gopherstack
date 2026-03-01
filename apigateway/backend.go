@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 var (
@@ -25,7 +26,7 @@ var (
 // StorageBackend is the interface for the API Gateway in-memory store.
 type StorageBackend interface {
 	// REST APIs
-	CreateRestAPI(name, description string, tags map[string]string) (*RestAPI, error)
+	CreateRestAPI(name, description string, inputTags *tags.Tags) (*RestAPI, error)
 	DeleteRestAPI(restAPIID string) error
 	GetRestAPI(restAPIID string) (*RestAPI, error)
 	GetRestAPIs(limit int, position string) ([]RestAPI, string, error)
@@ -99,7 +100,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 }
 
 // CreateRestAPI creates a new REST API and its root resource.
-func (b *InMemoryBackend) CreateRestAPI(name, description string, tags map[string]string) (*RestAPI, error) {
+func (b *InMemoryBackend) CreateRestAPI(name, description string, inputTags *tags.Tags) (*RestAPI, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: name is required", ErrInvalidParameter)
 	}
@@ -108,12 +109,20 @@ func (b *InMemoryBackend) CreateRestAPI(name, description string, tags map[strin
 	defer b.mu.Unlock()
 
 	id := randomID(apiIDLength)
+
+	var backendTags *tags.Tags
+	if inputTags == nil {
+		backendTags = tags.New("apigw.api." + id + ".tags")
+	} else {
+		backendTags = tags.FromMap("apigw.api."+id+".tags", inputTags.Clone())
+	}
+
 	api := RestAPI{
 		ID:          id,
 		Name:        name,
 		Description: description,
 		CreatedDate: time.Now(),
-		Tags:        tags,
+		Tags:        backendTags,
 	}
 
 	rootID := randomID(resourceIDLength)

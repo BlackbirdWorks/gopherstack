@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
@@ -85,7 +86,7 @@ type StoredPart struct {
 // ObjectMetadata holds internal metadata for storage operations.
 // (Keeping this compatibility type if needed, though mostly replaced by SDK types usage).
 type ObjectMetadata struct {
-	Tags              map[string]string
+	Tags              *tags.Tags
 	UserMetadata      map[string]string
 	ContentType       string
 	ChecksumAlgorithm string
