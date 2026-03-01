@@ -772,6 +772,149 @@ func TestHandleListStreamsEmpty(t *testing.T) {
 	assert.Empty(t, resp.StreamNames)
 }
 
+func TestHandleAddTagsToStream(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create a stream first
+	rec := doRequest(t, h, "CreateStream", map[string]any{
+		"StreamName": "tag-stream",
+		"ShardCount": 1,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Add tags
+	rec = doRequest(t, h, "AddTagsToStream", map[string]any{
+		"StreamName": "tag-stream",
+		"Tags":       map[string]string{"env": "prod", "team": "platform"},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// List tags
+	rec = doRequest(t, h, "ListTagsForStream", map[string]any{
+		"StreamName": "tag-stream",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var listResp struct {
+		Tags []struct {
+			Key   string `json:"Key"`
+			Value string `json:"Value"`
+		} `json:"Tags"`
+		HasMoreTags bool `json:"HasMoreTags"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	assert.False(t, listResp.HasMoreTags)
+	assert.Len(t, listResp.Tags, 2)
+
+	tagMap := make(map[string]string)
+	for _, tag := range listResp.Tags {
+		tagMap[tag.Key] = tag.Value
+	}
+	assert.Equal(t, "prod", tagMap["env"])
+	assert.Equal(t, "platform", tagMap["team"])
+}
+
+func TestHandleRemoveTagsFromStream(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Add tags
+	rec := doRequest(t, h, "AddTagsToStream", map[string]any{
+		"StreamName": "rm-tag-stream",
+		"Tags":       map[string]string{"env": "prod", "team": "platform"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Remove one tag
+	rec = doRequest(t, h, "RemoveTagsFromStream", map[string]any{
+		"StreamName": "rm-tag-stream",
+		"TagKeys":    []string{"env"},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// Verify remaining tags
+	rec = doRequest(t, h, "ListTagsForStream", map[string]any{
+		"StreamName": "rm-tag-stream",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var listResp struct {
+		Tags []struct {
+			Key   string `json:"Key"`
+			Value string `json:"Value"`
+		} `json:"Tags"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	assert.Len(t, listResp.Tags, 1)
+	assert.Equal(t, "team", listResp.Tags[0].Key)
+}
+
+func TestHandleListTagsForStreamEmpty(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "ListTagsForStream", map[string]any{
+		"StreamName": "no-tags-stream",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var listResp struct {
+		Tags []struct {
+			Key   string `json:"Key"`
+			Value string `json:"Value"`
+		} `json:"Tags"`
+		HasMoreTags bool `json:"HasMoreTags"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	assert.Empty(t, listResp.Tags)
+	assert.False(t, listResp.HasMoreTags)
+}
+
+func TestHandleIncreaseStreamRetentionPeriod(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "IncreaseStreamRetentionPeriod", map[string]any{
+		"StreamName":           "retention-stream",
+		"RetentionPeriodHours": 48,
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestHandleDecreaseStreamRetentionPeriod(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "DecreaseStreamRetentionPeriod", map[string]any{
+		"StreamName":           "retention-stream",
+		"RetentionPeriodHours": 24,
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestHandleDescribeLimits(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "DescribeLimits", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		OpenShardCount int `json:"OpenShardCount"`
+		ShardLimit     int `json:"ShardLimit"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, 0, resp.OpenShardCount)
+	assert.Equal(t, 500, resp.ShardLimit)
+}
+
 func TestHandleInvalidJSONRequests(t *testing.T) {
 	t.Parallel()
 
