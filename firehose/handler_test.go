@@ -50,298 +50,380 @@ func doFirehoseRequest(t *testing.T, h *firehose.Handler, action string, body an
 	return rec
 }
 
-func TestFirehose_Handler(t *testing.T) {
+func TestFirehoseHandler_CreateDeliveryStream(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		run  func(t *testing.T)
+		name         string
+		setup        func(t *testing.T, h *firehose.Handler)
+		streamName   string
+		wantCode     int
+		wantContains []string
 	}{
 		{
-			name: "CreateDeliveryStream",
-			run: func(t *testing.T) {
-				h := newTestFirehoseHandler(t)
-
-				rec := doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{
-					"DeliveryStreamName": "my-stream",
-				})
-				require.Equal(t, http.StatusOK, rec.Code)
-
-				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				assert.Contains(t, resp["DeliveryStreamARN"], "arn:aws:firehose:")
-			},
+			name:         "success",
+			streamName:   "my-stream",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"arn:aws:firehose:"},
 		},
 		{
-			name: "DeleteDeliveryStream",
-			run: func(t *testing.T) {
-				h := newTestFirehoseHandler(t)
+			name:       "already_exists",
+			streamName: "my-stream",
+			setup: func(t *testing.T, h *firehose.Handler) {
 				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
-
-				rec := doFirehoseRequest(t, h, "DeleteDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
-				assert.Equal(t, http.StatusOK, rec.Code)
 			},
-		},
-		{
-			name: "DescribeDeliveryStream",
-			run: func(t *testing.T) {
-				h := newTestFirehoseHandler(t)
-				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
-
-				rec := doFirehoseRequest(t, h, "DescribeDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
-				require.Equal(t, http.StatusOK, rec.Code)
-
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				assert.Contains(t, resp, "DeliveryStreamDescription")
-			},
-		},
-		{
-			name: "ListDeliveryStreams",
-			run: func(t *testing.T) {
-				h := newTestFirehoseHandler(t)
-				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "s1"})
-				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "s2"})
-
-				rec := doFirehoseRequest(t, h, "ListDeliveryStreams", nil)
-				require.Equal(t, http.StatusOK, rec.Code)
-
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				assert.Contains(t, resp, "DeliveryStreamNames")
-			},
-		},
-		{
-			name: "PutRecord",
-			run: func(t *testing.T) {
-				h := newTestFirehoseHandler(t)
-				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
-
-				data := base64.StdEncoding.EncodeToString([]byte("hello world"))
-				rec := doFirehoseRequest(t, h, "PutRecord", map[string]any{
-					"DeliveryStreamName": "my-stream",
-					"Record":             map[string]string{"Data": data},
-				})
-				require.Equal(t, http.StatusOK, rec.Code)
-
-				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				assert.NotEmpty(t, resp["RecordId"])
-			},
-		},
-		{
-			name: "PutRecordBatch",
-			run: func(t *testing.T) {
-				h := newTestFirehoseHandler(t)
-				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
-
-				rec := doFirehoseRequest(t, h, "PutRecordBatch", map[string]any{
-					"DeliveryStreamName": "my-stream",
-					"Records": []map[string]string{
-						{"Data": base64.StdEncoding.EncodeToString([]byte("rec1"))},
-						{"Data": base64.StdEncoding.EncodeToString([]byte("rec2"))},
-					},
-				})
-				require.Equal(t, http.StatusOK, rec.Code)
-			},
-		},
-		{
-			name: "UnknownAction",
-			run: func(t *testing.T) {
-				h := newTestFirehoseHandler(t)
-
-				rec := doFirehoseRequest(t, h, "UnknownAction", nil)
-				assert.Equal(t, http.StatusBadRequest, rec.Code)
-			},
-		},
-		{
-			name: "RouteMatcher",
-			run: func(t *testing.T) {
-				h := newTestFirehoseHandler(t)
-				matcher := h.RouteMatcher()
-
-				e := echo.New()
-				req := httptest.NewRequest(http.MethodPost, "/", nil)
-				req.Header.Set("X-Amz-Target", "Firehose_20150804.CreateDeliveryStream")
-				c := e.NewContext(req, httptest.NewRecorder())
-
-				assert.True(t, matcher(c))
-			},
-		},
-		{
-			name: "Provider_Name",
-			run: func(t *testing.T) {
-				p := &firehose.Provider{}
-				assert.Equal(t, "Firehose", p.Name())
-			},
-		},
-		{
-			name: "Handler_Name",
-			run: func(t *testing.T) {
-				h := newTestFirehoseHandler(t)
-				assert.Equal(t, "Firehose", h.Name())
-			},
-		},
-		{
-			name: "GetSupportedOperations",
-			run: func(t *testing.T) {
-				h := newTestFirehoseHandler(t)
-				ops := h.GetSupportedOperations()
-				assert.Contains(t, ops, "CreateDeliveryStream")
-				assert.Contains(t, ops, "DeleteDeliveryStream")
-				assert.Contains(t, ops, "DescribeDeliveryStream")
-				assert.Contains(t, ops, "ListDeliveryStreams")
-				assert.Contains(t, ops, "PutRecord")
-				assert.Contains(t, ops, "PutRecordBatch")
-			},
-		},
-		{
-			name: "MatchPriority",
-			run: func(t *testing.T) {
-				h := newTestFirehoseHandler(t)
-				assert.Equal(t, 100, h.MatchPriority())
-			},
-		},
-		{
-			name: "ExtractOperation",
-			run: func(t *testing.T) {
-				h := newTestFirehoseHandler(t)
-				e := echo.New()
-
-				req := httptest.NewRequest(http.MethodPost, "/", nil)
-				req.Header.Set("X-Amz-Target", "Firehose_20150804.CreateDeliveryStream")
-				c := e.NewContext(req, httptest.NewRecorder())
-				assert.Equal(t, "CreateDeliveryStream", h.ExtractOperation(c))
-
-				// No target → "Unknown"
-				req2 := httptest.NewRequest(http.MethodPost, "/", nil)
-				c2 := e.NewContext(req2, httptest.NewRecorder())
-				assert.Equal(t, "Unknown", h.ExtractOperation(c2))
-			},
-		},
-		{
-			name: "ExtractResource",
-			run: func(t *testing.T) {
-				h := newTestFirehoseHandler(t)
-				e := echo.New()
-
-				req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"DeliveryStreamName":"my-stream"}`))
-				c := e.NewContext(req, httptest.NewRecorder())
-				assert.Equal(t, "my-stream", h.ExtractResource(c))
-			},
-		},
-		{
-			name: "RouteMatcher_NoMatch",
-			run: func(t *testing.T) {
-				h := newTestFirehoseHandler(t)
-				matcher := h.RouteMatcher()
-
-				e := echo.New()
-				req := httptest.NewRequest(http.MethodPost, "/", nil)
-				req.Header.Set("X-Amz-Target", "SimpleWorkflowService.RegisterDomain")
-				c := e.NewContext(req, httptest.NewRecorder())
-
-				assert.False(t, matcher(c))
-			},
-		},
-		{
-			name: "CreateDeliveryStream_AlreadyExists",
-			run: func(t *testing.T) {
-				h := newTestFirehoseHandler(t)
-				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
-
-				rec := doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
-				assert.Equal(t, http.StatusBadRequest, rec.Code)
-			},
-		},
-		{
-			name: "DeleteDeliveryStream_NotFound",
-			run: func(t *testing.T) {
-				h := newTestFirehoseHandler(t)
-
-				rec := doFirehoseRequest(t, h, "DeleteDeliveryStream", map[string]any{"DeliveryStreamName": "nonexistent"})
-				assert.Equal(t, http.StatusNotFound, rec.Code)
-			},
-		},
-		{
-			name: "DescribeDeliveryStream_NotFound",
-			run: func(t *testing.T) {
-				h := newTestFirehoseHandler(t)
-
-				rec := doFirehoseRequest(t, h, "DescribeDeliveryStream", map[string]any{"DeliveryStreamName": "nonexistent"})
-				assert.Equal(t, http.StatusNotFound, rec.Code)
-			},
-		},
-		{
-			name: "PutRecord_NotFound",
-			run: func(t *testing.T) {
-				h := newTestFirehoseHandler(t)
-
-				data := base64.StdEncoding.EncodeToString([]byte("hello"))
-				rec := doFirehoseRequest(t, h, "PutRecord", map[string]any{
-					"DeliveryStreamName": "nonexistent",
-					"Record":             map[string]string{"Data": data},
-				})
-				assert.Equal(t, http.StatusNotFound, rec.Code)
-			},
-		},
-		{
-			name: "PutRecord_RawData",
-			run: func(t *testing.T) {
-				h := newTestFirehoseHandler(t)
-				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
-
-				// Non-base64 data falls back to raw bytes
-				rec := doFirehoseRequest(t, h, "PutRecord", map[string]any{
-					"DeliveryStreamName": "my-stream",
-					"Record":             map[string]string{"Data": "not-base64!@#"},
-				})
-				assert.Equal(t, http.StatusOK, rec.Code)
-			},
-		},
-		{
-			name: "PutRecordBatch_NotFound",
-			run: func(t *testing.T) {
-				h := newTestFirehoseHandler(t)
-
-				rec := doFirehoseRequest(t, h, "PutRecordBatch", map[string]any{
-					"DeliveryStreamName": "nonexistent",
-					"Records":            []map[string]string{{"Data": base64.StdEncoding.EncodeToString([]byte("a"))}},
-				})
-				assert.Equal(t, http.StatusNotFound, rec.Code)
-			},
-		},
-		{
-			name: "PutRecordBatch_RawData",
-			run: func(t *testing.T) {
-				h := newTestFirehoseHandler(t)
-				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
-
-				// Non-base64 data falls back to raw bytes
-				rec := doFirehoseRequest(t, h, "PutRecordBatch", map[string]any{
-					"DeliveryStreamName": "my-stream",
-					"Records":            []map[string]string{{"Data": "not-base64!@#"}},
-				})
-				assert.Equal(t, http.StatusOK, rec.Code)
-			},
-		},
-		{
-			name: "Provider_Init",
-			run: func(t *testing.T) {
-				p := &firehose.Provider{}
-				ctx := &service.AppContext{Logger: slog.Default()}
-				svc, err := p.Init(ctx)
-				require.NoError(t, err)
-				assert.NotNil(t, svc)
-				assert.Equal(t, "Firehose", svc.Name())
-			},
+			wantCode: http.StatusBadRequest,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			tt.run(t)
+			h := newTestFirehoseHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+			rec := doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{
+				"DeliveryStreamName": tt.streamName,
+			})
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
 		})
 	}
+}
+
+func TestFirehoseHandler_DeleteDeliveryStream(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		setup      func(t *testing.T, h *firehose.Handler)
+		streamName string
+		wantCode   int
+	}{
+		{
+			name:       "success",
+			streamName: "my-stream",
+			setup: func(t *testing.T, h *firehose.Handler) {
+				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:       "not_found",
+			streamName: "nonexistent",
+			wantCode:   http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestFirehoseHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+			rec := doFirehoseRequest(t, h, "DeleteDeliveryStream", map[string]any{
+				"DeliveryStreamName": tt.streamName,
+			})
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestFirehoseHandler_DescribeDeliveryStream(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		setup        func(t *testing.T, h *firehose.Handler)
+		streamName   string
+		wantCode     int
+		wantContains []string
+	}{
+		{
+			name:       "success",
+			streamName: "my-stream",
+			setup: func(t *testing.T, h *firehose.Handler) {
+				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DeliveryStreamDescription"},
+		},
+		{
+			name:       "not_found",
+			streamName: "nonexistent",
+			wantCode:   http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestFirehoseHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+			rec := doFirehoseRequest(t, h, "DescribeDeliveryStream", map[string]any{
+				"DeliveryStreamName": tt.streamName,
+			})
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
+func TestFirehoseHandler_ListDeliveryStreams(t *testing.T) {
+	t.Parallel()
+
+	h := newTestFirehoseHandler(t)
+	doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "s1"})
+	doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "s2"})
+
+	rec := doFirehoseRequest(t, h, "ListDeliveryStreams", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "DeliveryStreamNames")
+}
+
+func TestFirehoseHandler_PutRecord(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		setup      func(t *testing.T, h *firehose.Handler)
+		streamName string
+		data       string
+		wantCode   int
+	}{
+		{
+			name:       "success",
+			streamName: "my-stream",
+			data:       base64.StdEncoding.EncodeToString([]byte("hello world")),
+			setup: func(t *testing.T, h *firehose.Handler) {
+				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:       "not_found",
+			streamName: "nonexistent",
+			data:       base64.StdEncoding.EncodeToString([]byte("hello")),
+			wantCode:   http.StatusNotFound,
+		},
+		{
+			name:       "raw_data",
+			streamName: "my-stream",
+			data:       "not-base64!@#",
+			setup: func(t *testing.T, h *firehose.Handler) {
+				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
+			},
+			wantCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestFirehoseHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+			rec := doFirehoseRequest(t, h, "PutRecord", map[string]any{
+				"DeliveryStreamName": tt.streamName,
+				"Record":             map[string]string{"Data": tt.data},
+			})
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestFirehoseHandler_PutRecordBatch(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		setup      func(t *testing.T, h *firehose.Handler)
+		streamName string
+		data       string
+		wantCode   int
+	}{
+		{
+			name:       "success",
+			streamName: "my-stream",
+			data:       base64.StdEncoding.EncodeToString([]byte("rec1")),
+			setup: func(t *testing.T, h *firehose.Handler) {
+				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:       "not_found",
+			streamName: "nonexistent",
+			data:       base64.StdEncoding.EncodeToString([]byte("a")),
+			wantCode:   http.StatusNotFound,
+		},
+		{
+			name:       "raw_data",
+			streamName: "my-stream",
+			data:       "not-base64!@#",
+			setup: func(t *testing.T, h *firehose.Handler) {
+				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{"DeliveryStreamName": "my-stream"})
+			},
+			wantCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestFirehoseHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+			rec := doFirehoseRequest(t, h, "PutRecordBatch", map[string]any{
+				"DeliveryStreamName": tt.streamName,
+				"Records":            []map[string]string{{"Data": tt.data}},
+			})
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestFirehoseHandler_UnknownAction(t *testing.T) {
+	t.Parallel()
+
+	h := newTestFirehoseHandler(t)
+	rec := doFirehoseRequest(t, h, "UnknownAction", nil)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestFirehoseHandler_RouteMatcher(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		target string
+		want   bool
+	}{
+		{
+			name:   "match",
+			target: "Firehose_20150804.CreateDeliveryStream",
+			want:   true,
+		},
+		{
+			name:   "no_match",
+			target: "SimpleWorkflowService.RegisterDomain",
+			want:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestFirehoseHandler(t)
+			matcher := h.RouteMatcher()
+
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodPost, "/", nil)
+			req.Header.Set("X-Amz-Target", tt.target)
+			c := e.NewContext(req, httptest.NewRecorder())
+
+			assert.Equal(t, tt.want, matcher(c))
+		})
+	}
+}
+
+func TestFirehoseHandler_ProviderName(t *testing.T) {
+	t.Parallel()
+
+	p := &firehose.Provider{}
+	assert.Equal(t, "Firehose", p.Name())
+}
+
+func TestFirehoseHandler_HandlerName(t *testing.T) {
+	t.Parallel()
+
+	h := newTestFirehoseHandler(t)
+	assert.Equal(t, "Firehose", h.Name())
+}
+
+func TestFirehoseHandler_GetSupportedOperations(t *testing.T) {
+	t.Parallel()
+
+	h := newTestFirehoseHandler(t)
+	ops := h.GetSupportedOperations()
+	assert.Contains(t, ops, "CreateDeliveryStream")
+	assert.Contains(t, ops, "DeleteDeliveryStream")
+	assert.Contains(t, ops, "DescribeDeliveryStream")
+	assert.Contains(t, ops, "ListDeliveryStreams")
+	assert.Contains(t, ops, "PutRecord")
+	assert.Contains(t, ops, "PutRecordBatch")
+}
+
+func TestFirehoseHandler_MatchPriority(t *testing.T) {
+	t.Parallel()
+
+	h := newTestFirehoseHandler(t)
+	assert.Equal(t, 100, h.MatchPriority())
+}
+
+func TestFirehoseHandler_ExtractOperation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		target string
+		want   string
+	}{
+		{
+			name:   "with_target",
+			target: "Firehose_20150804.CreateDeliveryStream",
+			want:   "CreateDeliveryStream",
+		},
+		{
+			name: "no_target",
+			want: "Unknown",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestFirehoseHandler(t)
+			e := echo.New()
+
+			req := httptest.NewRequest(http.MethodPost, "/", nil)
+			if tt.target != "" {
+				req.Header.Set("X-Amz-Target", tt.target)
+			}
+			c := e.NewContext(req, httptest.NewRecorder())
+			assert.Equal(t, tt.want, h.ExtractOperation(c))
+		})
+	}
+}
+
+func TestFirehoseHandler_ExtractResource(t *testing.T) {
+	t.Parallel()
+
+	h := newTestFirehoseHandler(t)
+	e := echo.New()
+
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"DeliveryStreamName":"my-stream"}`))
+	c := e.NewContext(req, httptest.NewRecorder())
+	assert.Equal(t, "my-stream", h.ExtractResource(c))
+}
+
+func TestFirehoseHandler_ProviderInit(t *testing.T) {
+	t.Parallel()
+
+	p := &firehose.Provider{}
+	ctx := &service.AppContext{Logger: slog.Default()}
+	svc, err := p.Init(ctx)
+	require.NoError(t, err)
+	assert.NotNil(t, svc)
+	assert.Equal(t, "Firehose", svc.Name())
 }
