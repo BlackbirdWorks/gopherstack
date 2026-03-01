@@ -9,82 +9,65 @@ import (
 	"github.com/blackbirdworks/gopherstack/sqs"
 )
 
-func TestQueueTags(t *testing.T) {
+func TestTagQueue_Basic(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name string
-		run  func(t *testing.T)
-	}{
-		{
-			name: "TagQueue_Basic",
-			run: func(t *testing.T) {
-				b := newBackend()
-				url := createTestQueue(t, b, "tag-test-queue")
+	b := newBackend()
+	url := createTestQueue(t, b, "tag-test-queue")
 
-				err := b.TagQueue(&sqs.TagQueueInput{
-					QueueURL: url,
-					Tags:     map[string]string{"env": "test", "team": "platform"},
-				})
-				require.NoError(t, err)
+	err := b.TagQueue(&sqs.TagQueueInput{
+		QueueURL: url,
+		Tags:     map[string]string{"env": "test", "team": "platform"},
+	})
+	require.NoError(t, err)
 
-				out, err := b.ListQueueTags(&sqs.ListQueueTagsInput{QueueURL: url})
-				require.NoError(t, err)
-				assert.Equal(t, map[string]string{"env": "test", "team": "platform"}, out.Tags)
-			},
-		},
-		{
-			name: "UntagQueue_Basic",
-			run: func(t *testing.T) {
-				b := newBackend()
-				url := createTestQueue(t, b, "untag-test-queue")
+	out, err := b.ListQueueTags(&sqs.ListQueueTagsInput{QueueURL: url})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"env": "test", "team": "platform"}, out.Tags)
+}
 
-				err := b.TagQueue(&sqs.TagQueueInput{
-					QueueURL: url,
-					Tags:     map[string]string{"env": "test", "team": "platform"},
-				})
-				require.NoError(t, err)
+func TestUntagQueue_Basic(t *testing.T) {
+	t.Parallel()
 
-				err = b.UntagQueue(&sqs.UntagQueueInput{
-					QueueURL: url,
-					TagKeys:  []string{"team"},
-				})
-				require.NoError(t, err)
+	b := newBackend()
+	url := createTestQueue(t, b, "untag-test-queue")
 
-				out, err := b.ListQueueTags(&sqs.ListQueueTagsInput{QueueURL: url})
-				require.NoError(t, err)
-				assert.Equal(t, map[string]string{"env": "test"}, out.Tags)
-			},
-		},
-		{
-			name: "ListQueueTags_Empty",
-			run: func(t *testing.T) {
-				b := newBackend()
-				url := createTestQueue(t, b, "empty-tags-queue")
+	err := b.TagQueue(&sqs.TagQueueInput{
+		QueueURL: url,
+		Tags:     map[string]string{"env": "test", "team": "platform"},
+	})
+	require.NoError(t, err)
 
-				out, err := b.ListQueueTags(&sqs.ListQueueTagsInput{QueueURL: url})
-				require.NoError(t, err)
-				assert.Empty(t, out.Tags)
-			},
-		},
-		{
-			name: "TagQueue_QueueNotFound",
-			run: func(t *testing.T) {
-				b := newBackend()
+	err = b.UntagQueue(&sqs.UntagQueueInput{
+		QueueURL: url,
+		TagKeys:  []string{"team"},
+	})
+	require.NoError(t, err)
 
-				err := b.TagQueue(&sqs.TagQueueInput{
-					QueueURL: "http://localhost:4566/000000000000/nonexistent",
-					Tags:     map[string]string{"key": "value"},
-				})
-				assert.ErrorIs(t, err, sqs.ErrQueueNotFound)
-			},
-		},
-	}
+	out, err := b.ListQueueTags(&sqs.ListQueueTagsInput{QueueURL: url})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"env": "test"}, out.Tags)
+}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			tt.run(t)
-		})
-	}
+func TestListQueueTags_Empty(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend()
+	url := createTestQueue(t, b, "empty-tags-queue")
+
+	out, err := b.ListQueueTags(&sqs.ListQueueTagsInput{QueueURL: url})
+	require.NoError(t, err)
+	assert.Empty(t, out.Tags)
+}
+
+func TestTagQueue_QueueNotFound(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend()
+
+	err := b.TagQueue(&sqs.TagQueueInput{
+		QueueURL: "http://localhost:4566/000000000000/nonexistent",
+		Tags:     map[string]string{"key": "value"},
+	})
+	assert.ErrorIs(t, err, sqs.ErrQueueNotFound)
 }
