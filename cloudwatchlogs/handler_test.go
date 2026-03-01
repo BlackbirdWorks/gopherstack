@@ -212,7 +212,13 @@ func TestHandler(t *testing.T) {
 			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
 				t.Helper()
 				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"grp"}`)
-				doLogsRequest(t, h, e, "CreateLogStream", `{"logGroupName":"grp","logStreamName":"dup"}`)
+				doLogsRequest(
+					t,
+					h,
+					e,
+					"CreateLogStream",
+					`{"logGroupName":"grp","logStreamName":"dup"}`,
+				)
 			},
 			action:   "CreateLogStream",
 			body:     map[string]any{"logGroupName": "grp", "logStreamName": "dup"},
@@ -223,8 +229,20 @@ func TestHandler(t *testing.T) {
 			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
 				t.Helper()
 				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"grp"}`)
-				doLogsRequest(t, h, e, "CreateLogStream", `{"logGroupName":"grp","logStreamName":"s1"}`)
-				doLogsRequest(t, h, e, "CreateLogStream", `{"logGroupName":"grp","logStreamName":"s2"}`)
+				doLogsRequest(
+					t,
+					h,
+					e,
+					"CreateLogStream",
+					`{"logGroupName":"grp","logStreamName":"s1"}`,
+				)
+				doLogsRequest(
+					t,
+					h,
+					e,
+					"CreateLogStream",
+					`{"logGroupName":"grp","logStreamName":"s2"}`,
+				)
 			},
 			action:        "DescribeLogStreams",
 			body:          map[string]any{"logGroupName": "grp"},
@@ -243,7 +261,13 @@ func TestHandler(t *testing.T) {
 			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
 				t.Helper()
 				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"grp"}`)
-				doLogsRequest(t, h, e, "CreateLogStream", `{"logGroupName":"grp","logStreamName":"s"}`)
+				doLogsRequest(
+					t,
+					h,
+					e,
+					"CreateLogStream",
+					`{"logGroupName":"grp","logStreamName":"s"}`,
+				)
 			},
 			action: "PutLogEvents",
 			body: map[string]any{
@@ -269,9 +293,20 @@ func TestHandler(t *testing.T) {
 			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
 				t.Helper()
 				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"grp"}`)
-				doLogsRequest(t, h, e, "CreateLogStream", `{"logGroupName":"grp","logStreamName":"s"}`)
-				doLogsRequest(t, h, e, "PutLogEvents",
-					`{"logGroupName":"grp","logStreamName":"s","logEvents":[{"message":"m1","timestamp":1000}]}`)
+				doLogsRequest(
+					t,
+					h,
+					e,
+					"CreateLogStream",
+					`{"logGroupName":"grp","logStreamName":"s"}`,
+				)
+				doLogsRequest(
+					t,
+					h,
+					e,
+					"PutLogEvents",
+					`{"logGroupName":"grp","logStreamName":"s","logEvents":[{"message":"m1","timestamp":1000}]}`,
+				)
 			},
 			action:        "GetLogEvents",
 			body:          map[string]any{"logGroupName": "grp", "logStreamName": "s"},
@@ -290,7 +325,13 @@ func TestHandler(t *testing.T) {
 			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
 				t.Helper()
 				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"grp"}`)
-				doLogsRequest(t, h, e, "CreateLogStream", `{"logGroupName":"grp","logStreamName":"s"}`)
+				doLogsRequest(
+					t,
+					h,
+					e,
+					"CreateLogStream",
+					`{"logGroupName":"grp","logStreamName":"s"}`,
+				)
 				doLogsRequest(
 					t,
 					h,
@@ -310,6 +351,82 @@ func TestHandler(t *testing.T) {
 			action:   "FilterLogEvents",
 			body:     map[string]any{"logGroupName": "nonexistent"},
 			wantCode: http.StatusNotFound,
+		},
+		{
+			name: "TagLogGroup",
+			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
+				t.Helper()
+				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"tag-grp"}`)
+			},
+			action: "TagLogGroup",
+			body: map[string]any{
+				"logGroupName": "tag-grp",
+				"tags":         map[string]string{"env": "prod", "team": "ops"},
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "ListTagsLogGroup",
+			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
+				t.Helper()
+				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"tag-grp"}`)
+				doLogsRequest(
+					t,
+					h,
+					e,
+					"TagLogGroup",
+					`{"logGroupName":"tag-grp","tags":{"env":"prod","team":"ops"}}`,
+				)
+			},
+			action:   "ListTagsLogGroup",
+			body:     map[string]any{"logGroupName": "tag-grp"},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "ListTagsForResource",
+			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
+				t.Helper()
+				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"tag-grp"}`)
+				doLogsRequest(
+					t,
+					h,
+					e,
+					"TagLogGroup",
+					`{"logGroupName":"tag-grp","tags":{"env":"prod"}}`,
+				)
+			},
+			action:   "ListTagsForResource",
+			body:     map[string]any{"resourceArn": "tag-grp"},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "UntagLogGroup",
+			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
+				t.Helper()
+				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"tag-grp"}`)
+				doLogsRequest(
+					t,
+					h,
+					e,
+					"TagLogGroup",
+					`{"logGroupName":"tag-grp","tags":{"env":"prod","team":"ops"}}`,
+				)
+			},
+			action:   "UntagLogGroup",
+			body:     map[string]any{"logGroupName": "tag-grp", "tags": []string{"env"}},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "PutRetentionPolicy",
+			action:   "PutRetentionPolicy",
+			body:     map[string]any{"logGroupName": "grp", "retentionInDays": 30},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "DeleteRetentionPolicy",
+			action:   "DeleteRetentionPolicy",
+			body:     map[string]any{"logGroupName": "grp"},
+			wantCode: http.StatusOK,
 		},
 	}
 
@@ -343,4 +460,50 @@ func TestHandler(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHandler_TagRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), slog.Default())
+
+	// Create a log group and tag it.
+	doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"grp"}`)
+	doLogsRequest(
+		t,
+		h,
+		e,
+		"TagLogGroup",
+		`{"logGroupName":"grp","tags":{"env":"prod","team":"ops"}}`,
+	)
+
+	// ListTagsLogGroup returns both tags.
+	rec := doLogsRequest(t, h, e, "ListTagsLogGroup", `{"logGroupName":"grp"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var listResp map[string]map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	assert.Equal(t, "prod", listResp["tags"]["env"])
+	assert.Equal(t, "ops", listResp["tags"]["team"])
+
+	// ListTagsForResource also works.
+	rec2 := doLogsRequest(t, h, e, "ListTagsForResource", `{"resourceArn":"grp"}`)
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var listResp2 map[string]map[string]string
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &listResp2))
+	assert.Len(t, listResp2["tags"], 2)
+
+	// Remove one tag.
+	doLogsRequest(t, h, e, "UntagLogGroup", `{"logGroupName":"grp","tags":["env"]}`)
+
+	// Verify only "team" remains.
+	rec3 := doLogsRequest(t, h, e, "ListTagsLogGroup", `{"logGroupName":"grp"}`)
+	require.Equal(t, http.StatusOK, rec3.Code)
+
+	var listResp3 map[string]map[string]string
+	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &listResp3))
+	assert.Len(t, listResp3["tags"], 1)
+	assert.Equal(t, "ops", listResp3["tags"]["team"])
 }

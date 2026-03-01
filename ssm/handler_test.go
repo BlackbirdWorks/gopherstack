@@ -26,7 +26,12 @@ func newTestHandler(t *testing.T) (*ssm.Handler, *ssm.InMemoryBackend) {
 	return ssm.NewHandler(backend, log), backend
 }
 
-func doRequest(t *testing.T, h *ssm.Handler, action string, body string) *httptest.ResponseRecorder {
+func doRequest(
+	t *testing.T,
+	h *ssm.Handler,
+	action string,
+	body string,
+) *httptest.ResponseRecorder {
 	t.Helper()
 
 	e := echo.New()
@@ -212,7 +217,9 @@ func TestHandler_Routing(t *testing.T) {
 			target: "AmazonSSM.GetParameter",
 			body:   `{"Name":"test-param"}`,
 			setup: func(b *ssm.InMemoryBackend) {
-				b.PutParameter(&ssm.PutParameterInput{Name: "test-param", Type: "String", Value: "test-value"})
+				b.PutParameter(
+					&ssm.PutParameterInput{Name: "test-param", Type: "String", Value: "test-value"},
+				)
 			},
 			wantStatus:      http.StatusOK,
 			wantBodyContain: "test-value",
@@ -815,7 +822,9 @@ func TestHandler_ErrorCases(t *testing.T) {
 			target: "AmazonSSM.PutParameter",
 			body:   `{"Name":"/existing","Type":"String","Value":"v2","Overwrite":false}`,
 			setup: func(b *ssm.InMemoryBackend) {
-				b.PutParameter(&ssm.PutParameterInput{Name: "/existing", Type: "String", Value: "v1"})
+				b.PutParameter(
+					&ssm.PutParameterInput{Name: "/existing", Type: "String", Value: "v1"},
+				)
 			},
 			wantStatus: http.StatusBadRequest,
 			wantErrTyp: "ParameterAlreadyExists",
@@ -899,9 +908,15 @@ func TestParamMatchesFilter_Options(t *testing.T) {
 				&ssm.PutParameterInput{Name: "/app/db/host", Type: "String", Value: "localhost"},
 			)
 			_, _ = backend.PutParameter(
-				&ssm.PutParameterInput{Name: "/app/cache/host", Type: "SecureString", Value: "cache"},
+				&ssm.PutParameterInput{
+					Name:  "/app/cache/host",
+					Type:  "SecureString",
+					Value: "cache",
+				},
 			)
-			_, _ = backend.PutParameter(&ssm.PutParameterInput{Name: "/other/key", Type: "String", Value: "v"})
+			_, _ = backend.PutParameter(
+				&ssm.PutParameterInput{Name: "/other/key", Type: "String", Value: "v"},
+			)
 
 			out, err := backend.DescribeParameters(&ssm.DescribeParametersInput{
 				ParameterFilters: tt.filters,
@@ -940,7 +955,9 @@ func TestHandler_GetParametersByPathViaHTTP(t *testing.T) {
 
 	_, _ = backend.PutParameter(&ssm.PutParameterInput{Name: "/svc/a", Type: "String", Value: "1"})
 	_, _ = backend.PutParameter(&ssm.PutParameterInput{Name: "/svc/b", Type: "String", Value: "2"})
-	_, _ = backend.PutParameter(&ssm.PutParameterInput{Name: "/other/c", Type: "String", Value: "3"})
+	_, _ = backend.PutParameter(
+		&ssm.PutParameterInput{Name: "/other/c", Type: "String", Value: "3"},
+	)
 
 	rec := doRequest(t, h, "GetParametersByPath", `{"Path":"/svc","Recursive":true}`)
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -956,7 +973,9 @@ func TestHandler_DescribeParametersViaHTTP(t *testing.T) {
 	h, backend := newTestHandler(t)
 
 	_, _ = backend.PutParameter(&ssm.PutParameterInput{Name: "/a", Type: "String", Value: "1"})
-	_, _ = backend.PutParameter(&ssm.PutParameterInput{Name: "/b", Type: "SecureString", Value: "2"})
+	_, _ = backend.PutParameter(
+		&ssm.PutParameterInput{Name: "/b", Type: "SecureString", Value: "2"},
+	)
 
 	rec := doRequest(t, h, "DescribeParameters", `{}`)
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -976,6 +995,167 @@ func TestHandler_MethodNotAllowed(t *testing.T) {
 	rec := httptest.NewRecorder()
 	require.NoError(t, h.Handler()(e.NewContext(req, rec)))
 	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
+}
+
+func TestHandler_ParameterOpsViaHTTP(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup           func(b *ssm.InMemoryBackend)
+		name            string
+		action          string
+		body            string
+		wantBodyContain string
+		wantStatus      int
+	}{
+		{
+			name:            "PutParameter",
+			action:          "PutParameter",
+			body:            `{"Name":"/http/put","Type":"String","Value":"v1"}`,
+			wantStatus:      http.StatusOK,
+			wantBodyContain: "Version",
+		},
+		{
+			name:   "GetParameter",
+			action: "GetParameter",
+			body:   `{"Name":"/http/get"}`,
+			setup: func(b *ssm.InMemoryBackend) {
+				b.PutParameter(
+					&ssm.PutParameterInput{Name: "/http/get", Type: "String", Value: "val"},
+				)
+			},
+			wantStatus:      http.StatusOK,
+			wantBodyContain: "val",
+		},
+		{
+			name:   "GetParameters",
+			action: "GetParameters",
+			body:   `{"Names":["/http/a","/http/b","missing"]}`,
+			setup: func(b *ssm.InMemoryBackend) {
+				b.PutParameter(&ssm.PutParameterInput{Name: "/http/a", Type: "String", Value: "a"})
+				b.PutParameter(&ssm.PutParameterInput{Name: "/http/b", Type: "String", Value: "b"})
+			},
+			wantStatus:      http.StatusOK,
+			wantBodyContain: "InvalidParameters",
+		},
+		{
+			name:   "GetParameterHistory",
+			action: "GetParameterHistory",
+			body:   `{"Name":"/http/hist"}`,
+			setup: func(b *ssm.InMemoryBackend) {
+				b.PutParameter(
+					&ssm.PutParameterInput{Name: "/http/hist", Type: "String", Value: "v1"},
+				)
+				b.PutParameter(
+					&ssm.PutParameterInput{
+						Name:      "/http/hist",
+						Type:      "String",
+						Value:     "v2",
+						Overwrite: true,
+					},
+				)
+			},
+			wantStatus:      http.StatusOK,
+			wantBodyContain: "v2",
+		},
+		{
+			name:   "DeleteParameter",
+			action: "DeleteParameter",
+			body:   `{"Name":"/http/del"}`,
+			setup: func(b *ssm.InMemoryBackend) {
+				b.PutParameter(
+					&ssm.PutParameterInput{Name: "/http/del", Type: "String", Value: "v"},
+				)
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:   "DeleteParameters",
+			action: "DeleteParameters",
+			body:   `{"Names":["/http/d1","missing"]}`,
+			setup: func(b *ssm.InMemoryBackend) {
+				b.PutParameter(&ssm.PutParameterInput{Name: "/http/d1", Type: "String", Value: "v"})
+			},
+			wantStatus:      http.StatusOK,
+			wantBodyContain: "DeletedParameters",
+		},
+		{
+			name:   "AddTagsToResource",
+			action: "AddTagsToResource",
+			body:   `{"ResourceType":"Parameter","ResourceId":"/http/tag","Tags":[{"Key":"k","Value":"v"}]}`,
+			setup: func(b *ssm.InMemoryBackend) {
+				b.PutParameter(
+					&ssm.PutParameterInput{Name: "/http/tag", Type: "String", Value: "v"},
+				)
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:   "RemoveTagsFromResource",
+			action: "RemoveTagsFromResource",
+			body:   `{"ResourceType":"Parameter","ResourceId":"/http/tag","TagKeys":["k"]}`,
+			setup: func(b *ssm.InMemoryBackend) {
+				b.PutParameter(
+					&ssm.PutParameterInput{Name: "/http/tag", Type: "String", Value: "v"},
+				)
+				b.AddTagsToResource(&ssm.AddTagsToResourceInput{
+					ResourceID: "/http/tag", Tags: []ssm.Tag{{Key: "k", Value: "v"}},
+				})
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:   "ListTagsForResource",
+			action: "ListTagsForResource",
+			body:   `{"ResourceType":"Parameter","ResourceId":"/http/tag"}`,
+			setup: func(b *ssm.InMemoryBackend) {
+				b.PutParameter(
+					&ssm.PutParameterInput{Name: "/http/tag", Type: "String", Value: "v"},
+				)
+				b.AddTagsToResource(&ssm.AddTagsToResourceInput{
+					ResourceID: "/http/tag", Tags: []ssm.Tag{{Key: "k", Value: "v"}},
+				})
+			},
+			wantStatus:      http.StatusOK,
+			wantBodyContain: "TagList",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, backend := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(backend)
+			}
+
+			rec := doRequest(t, h, tt.action, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantBodyContain != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBodyContain)
+			}
+		})
+	}
+}
+
+func TestHandler_RouteMatcher(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler(t)
+	matcher := h.RouteMatcher()
+	e := echo.New()
+
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	req.Header.Set("X-Amz-Target", "AmazonSSM.GetParameter")
+	c := e.NewContext(req, httptest.NewRecorder())
+	assert.True(t, matcher(c))
+
+	req2 := httptest.NewRequest(http.MethodPost, "/", nil)
+	req2.Header.Set("X-Amz-Target", "Other.Action")
+	c2 := e.NewContext(req2, httptest.NewRecorder())
+	assert.False(t, matcher(c2))
 }
 
 // --- ValidateParameterName tests ---
@@ -1062,7 +1242,9 @@ func TestTagOperations(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec3.Code)
 
 	// Verify only team tag remains
-	listOut2, err := backend.ListTagsForResource(&ssm.ListTagsForResourceInput{ResourceID: "my-param"})
+	listOut2, err := backend.ListTagsForResource(
+		&ssm.ListTagsForResourceInput{ResourceID: "my-param"},
+	)
 	require.NoError(t, err)
 	require.Len(t, listOut2.TagList, 1)
 	assert.Equal(t, "team", listOut2.TagList[0].Key)
