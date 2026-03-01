@@ -34,98 +34,117 @@ func newCWHandler() *cloudwatch.Handler {
 	return cloudwatch.NewHandler(cloudwatch.NewInMemoryBackend(), slog.Default())
 }
 
+func TestCloudWatchHandler_Name(t *testing.T) {
+	t.Parallel()
+	h := newCWHandler()
+	assert.Equal(t, "CloudWatch", h.Name())
+}
+
+func TestCloudWatchHandler_MatchPriority(t *testing.T) {
+	t.Parallel()
+	h := newCWHandler()
+	assert.Equal(t, 80, h.MatchPriority())
+}
+
+func TestCloudWatchHandler_GetSupportedOperations(t *testing.T) {
+	t.Parallel()
+	h := newCWHandler()
+	ops := h.GetSupportedOperations()
+	assert.Contains(t, ops, "PutMetricData")
+	assert.Contains(t, ops, "GetMetricStatistics")
+	assert.Contains(t, ops, "ListMetrics")
+	assert.Contains(t, ops, "PutMetricAlarm")
+	assert.Contains(t, ops, "DescribeAlarms")
+	assert.Contains(t, ops, "DeleteAlarms")
+}
+
+func TestCloudWatchHandler_ExtractOperation(t *testing.T) {
+	t.Parallel()
+	h := newCWHandler()
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("Action=ListMetrics"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	assert.Equal(t, "ListMetrics", h.ExtractOperation(e.NewContext(req, httptest.NewRecorder())))
+}
+
+func TestCloudWatchHandler_ExtractResource(t *testing.T) {
+	t.Parallel()
+	h := newCWHandler()
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("Action=ListMetrics&Namespace=AWS/EC2"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	assert.Equal(t, "AWS/EC2", h.ExtractResource(e.NewContext(req, httptest.NewRecorder())))
+}
+
+func TestCloudWatchHandler_DeleteAlarms(t *testing.T) {
+	t.Parallel()
+	h := newCWHandler()
+	postForm(t, h, "Action=PutMetricAlarm&AlarmName=to-del&Namespace=NS&MetricName=M")
+	rec := postForm(t, h, "Action=DeleteAlarms&AlarmNames.member.1=to-del")
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "DeleteAlarmsResponse")
+
+	rec2 := postForm(t, h, "Action=DescribeAlarms")
+	assert.Equal(t, http.StatusOK, rec2.Code)
+
+	type descResp struct {
+		XMLName xml.Name `xml:"DescribeAlarmsResponse"`
+		Result  struct {
+			MetricAlarms []struct {
+				AlarmName string `xml:"AlarmName"`
+			} `xml:"MetricAlarms>member"`
+		} `xml:"DescribeAlarmsResult"`
+	}
+	var resp descResp
+	require.NoError(t, xml.Unmarshal(rec2.Body.Bytes(), &resp))
+	assert.Empty(t, resp.Result.MetricAlarms)
+}
+
 func TestCloudWatchHandler(t *testing.T) {
 	t.Parallel()
+
 	tests := []struct {
-		name  string
-		setup func(t *testing.T, h *cloudwatch.Handler)
-		body  string
-		want  func(t *testing.T, rec *httptest.ResponseRecorder)
-		run   func(t *testing.T)
+		name            string
+		setup           func(t *testing.T, h *cloudwatch.Handler)
+		body            string
+		wantCode        int
+		wantContains    []string
+		wantNotContains []string
 	}{
-		{
-			name: "Name",
-			setup: func(t *testing.T, h *cloudwatch.Handler) {
-				assert.Equal(t, "CloudWatch", h.Name())
-			},
-		},
-		{
-			name: "MatchPriority",
-			setup: func(t *testing.T, h *cloudwatch.Handler) {
-				assert.Equal(t, 80, h.MatchPriority())
-			},
-		},
-		{
-			name: "GetSupportedOperations",
-			setup: func(t *testing.T, h *cloudwatch.Handler) {
-				ops := h.GetSupportedOperations()
-				assert.Contains(t, ops, "PutMetricData")
-				assert.Contains(t, ops, "GetMetricStatistics")
-				assert.Contains(t, ops, "ListMetrics")
-				assert.Contains(t, ops, "PutMetricAlarm")
-				assert.Contains(t, ops, "DescribeAlarms")
-				assert.Contains(t, ops, "DeleteAlarms")
-			},
-		},
-		{
-			name: "ExtractOperation",
-			setup: func(t *testing.T, h *cloudwatch.Handler) {
-				e := echo.New()
-				req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("Action=ListMetrics"))
-				req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-				assert.Equal(t, "ListMetrics", h.ExtractOperation(e.NewContext(req, httptest.NewRecorder())))
-			},
-		},
-		{
-			name: "ExtractResource",
-			setup: func(t *testing.T, h *cloudwatch.Handler) {
-				e := echo.New()
-				req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("Action=ListMetrics&Namespace=AWS/EC2"))
-				req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-				assert.Equal(t, "AWS/EC2", h.ExtractResource(e.NewContext(req, httptest.NewRecorder())))
-			},
-		},
 		{
 			name: "PutMetricData/success",
 			body: "Action=PutMetricData&Version=2010-08-01&Namespace=Test" +
 				"&MetricData.member.1.MetricName=Requests" +
 				"&MetricData.member.1.Value=42" +
 				"&MetricData.member.1.Unit=Count",
-			want: func(t *testing.T, rec *httptest.ResponseRecorder) {
-				assert.Equal(t, http.StatusOK, rec.Code)
-				assert.Contains(t, rec.Body.String(), "PutMetricDataResponse")
-			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"PutMetricDataResponse"},
 		},
 		{
-			name: "PutMetricData/missing namespace",
-			body: "Action=PutMetricData&MetricData.member.1.MetricName=CPU&MetricData.member.1.Value=10",
-			want: func(t *testing.T, rec *httptest.ResponseRecorder) {
-				assert.Equal(t, http.StatusBadRequest, rec.Code)
-			},
+			name:     "PutMetricData/missing namespace",
+			body:     "Action=PutMetricData&MetricData.member.1.MetricName=CPU&MetricData.member.1.Value=10",
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			name: "ListMetrics",
 			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
 				postForm(t, h,
 					"Action=PutMetricData&Namespace=MyNS&MetricData.member.1.MetricName=M1&MetricData.member.1.Value=1")
 			},
-			body: "Action=ListMetrics&Namespace=MyNS",
-			want: func(t *testing.T, rec *httptest.ResponseRecorder) {
-				assert.Equal(t, http.StatusOK, rec.Code)
-				assert.Contains(t, rec.Body.String(), "ListMetricsResponse")
-				assert.Contains(t, rec.Body.String(), "M1")
-			},
+			body:         "Action=ListMetrics&Namespace=MyNS",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"ListMetricsResponse", "M1"},
 		},
 		{
-			name: "ListMetrics/empty",
-			body: "Action=ListMetrics",
-			want: func(t *testing.T, rec *httptest.ResponseRecorder) {
-				assert.Equal(t, http.StatusOK, rec.Code)
-			},
+			name:     "ListMetrics/empty",
+			body:     "Action=ListMetrics",
+			wantCode: http.StatusOK,
 		},
 		{
 			name: "GetMetricStatistics/success",
 			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
 				postForm(t, h,
 					"Action=PutMetricData&Namespace=NS"+
 						"&MetricData.member.1.MetricName=CPU&MetricData.member.1.Value=50"+
@@ -137,111 +156,70 @@ func TestCloudWatchHandler(t *testing.T) {
 				"&Period=60" +
 				"&Statistics.member.1=Average" +
 				"&Statistics.member.2=Sum",
-			want: func(t *testing.T, rec *httptest.ResponseRecorder) {
-				assert.Equal(t, http.StatusOK, rec.Code)
-				assert.Contains(t, rec.Body.String(), "GetMetricStatisticsResponse")
-			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"GetMetricStatisticsResponse"},
 		},
 		{
-			name: "GetMetricStatistics/bad start time",
-			body: "Action=GetMetricStatistics&Namespace=NS&MetricName=CPU&StartTime=bad&EndTime=bad&Period=60",
-			want: func(t *testing.T, rec *httptest.ResponseRecorder) {
-				assert.Equal(t, http.StatusBadRequest, rec.Code)
-			},
+			name:     "GetMetricStatistics/bad start time",
+			body:     "Action=GetMetricStatistics&Namespace=NS&MetricName=CPU&StartTime=bad&EndTime=bad&Period=60",
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			name: "GetMetricStatistics/bad end time",
 			body: "Action=GetMetricStatistics&Namespace=NS&MetricName=CPU" +
 				"&StartTime=2024-01-01T00:00:00Z&EndTime=bad&Period=60",
-			want: func(t *testing.T, rec *httptest.ResponseRecorder) {
-				assert.Equal(t, http.StatusBadRequest, rec.Code)
-			},
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			name: "GetMetricStatistics/bad period",
 			body: "Action=GetMetricStatistics&Namespace=NS&MetricName=CPU" +
 				"&StartTime=2024-01-01T00:00:00Z&EndTime=2024-01-01T01:00:00Z&Period=0",
-			want: func(t *testing.T, rec *httptest.ResponseRecorder) {
-				assert.Equal(t, http.StatusBadRequest, rec.Code)
-			},
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			name: "PutMetricAlarm/success",
 			body: "Action=PutMetricAlarm&AlarmName=high-cpu&Namespace=AWS/EC2&MetricName=CPUUtilization" +
 				"&ComparisonOperator=GreaterThanThreshold&Threshold=80&EvaluationPeriods=1&Period=60&Statistic=Average",
-			want: func(t *testing.T, rec *httptest.ResponseRecorder) {
-				assert.Equal(t, http.StatusOK, rec.Code)
-				assert.Contains(t, rec.Body.String(), "PutMetricAlarmResponse")
-			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"PutMetricAlarmResponse"},
 		},
 		{
-			name: "PutMetricAlarm/missing name",
-			body: "Action=PutMetricAlarm&Namespace=NS",
-			want: func(t *testing.T, rec *httptest.ResponseRecorder) {
-				assert.Equal(t, http.StatusBadRequest, rec.Code)
-			},
+			name:     "PutMetricAlarm/missing name",
+			body:     "Action=PutMetricAlarm&Namespace=NS",
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			name: "DescribeAlarms/all",
 			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
 				postForm(t, h, "Action=PutMetricAlarm&AlarmName=a1&Namespace=NS&MetricName=M")
 				postForm(t, h, "Action=PutMetricAlarm&AlarmName=a2&Namespace=NS&MetricName=M")
 			},
-			body: "Action=DescribeAlarms",
-			want: func(t *testing.T, rec *httptest.ResponseRecorder) {
-				assert.Equal(t, http.StatusOK, rec.Code)
-				assert.Contains(t, rec.Body.String(), "DescribeAlarmsResponse")
-				assert.Contains(t, rec.Body.String(), "a1")
-			},
+			body:         "Action=DescribeAlarms",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeAlarmsResponse", "a1"},
 		},
 		{
 			name: "DescribeAlarms/by name",
 			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
 				postForm(t, h, "Action=PutMetricAlarm&AlarmName=alpha&Namespace=NS&MetricName=M")
 				postForm(t, h, "Action=PutMetricAlarm&AlarmName=beta&Namespace=NS&MetricName=M")
 			},
-			body: "Action=DescribeAlarms&AlarmNames.member.1=alpha",
-			want: func(t *testing.T, rec *httptest.ResponseRecorder) {
-				assert.Equal(t, http.StatusOK, rec.Code)
-				assert.Contains(t, rec.Body.String(), "alpha")
-				assert.NotContains(t, rec.Body.String(), "beta")
-			},
+			body:            "Action=DescribeAlarms&AlarmNames.member.1=alpha",
+			wantCode:        http.StatusOK,
+			wantContains:    []string{"alpha"},
+			wantNotContains: []string{"beta"},
 		},
 		{
-			name: "DeleteAlarms",
-			run: func(t *testing.T) {
-				h := newCWHandler()
-				postForm(t, h, "Action=PutMetricAlarm&AlarmName=to-del&Namespace=NS&MetricName=M")
-				rec := postForm(t, h, "Action=DeleteAlarms&AlarmNames.member.1=to-del")
-				assert.Equal(t, http.StatusOK, rec.Code)
-				assert.Contains(t, rec.Body.String(), "DeleteAlarmsResponse")
-
-				rec2 := postForm(t, h, "Action=DescribeAlarms")
-				assert.Equal(t, http.StatusOK, rec2.Code)
-
-				type descResp struct {
-					XMLName xml.Name `xml:"DescribeAlarmsResponse"`
-					Result  struct {
-						MetricAlarms []struct {
-							AlarmName string `xml:"AlarmName"`
-						} `xml:"MetricAlarms>member"`
-					} `xml:"DescribeAlarmsResult"`
-				}
-				var resp descResp
-				require.NoError(t, xml.Unmarshal(rec2.Body.Bytes(), &resp))
-				assert.Empty(t, resp.Result.MetricAlarms)
-			},
-		},
-		{
-			name: "UnknownAction",
-			body: "Action=UnknownOp",
-			want: func(t *testing.T, rec *httptest.ResponseRecorder) {
-				assert.Equal(t, http.StatusBadRequest, rec.Code)
-			},
+			name:     "UnknownAction",
+			body:     "Action=UnknownOp",
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			name: "GetMetricData",
 			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
 				postForm(t, h,
 					"Action=PutMetricData&Namespace=MyNS&MetricData.member.1.MetricName=Latency"+
 						"&MetricData.member.1.Value=100&MetricData.member.1.Timestamp=2024-01-01T00:00:00Z")
@@ -257,29 +235,28 @@ func TestCloudWatchHandler(t *testing.T) {
 				"&MetricDataQueries.member.1.MetricStat.Metric.MetricName=Latency" +
 				"&MetricDataQueries.member.1.MetricStat.Stat=Sum" +
 				"&MetricDataQueries.member.1.MetricStat.Period=60",
-			want: func(t *testing.T, rec *httptest.ResponseRecorder) {
-				assert.Equal(t, http.StatusOK, rec.Code)
-				assert.Contains(t, rec.Body.String(), "GetMetricDataResponse")
-				assert.Contains(t, rec.Body.String(), "latency1")
-			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"GetMetricDataResponse", "latency1"},
 		},
 	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if tt.run != nil {
-				tt.run(t)
-				return
-			}
+
 			h := newCWHandler()
 			if tt.setup != nil {
 				tt.setup(t, h)
 			}
-			if tt.body != "" {
-				rec := postForm(t, h, tt.body)
-				if tt.want != nil {
-					tt.want(t, rec)
-				}
+
+			rec := postForm(t, h, tt.body)
+
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+			for _, s := range tt.wantNotContains {
+				assert.NotContains(t, rec.Body.String(), s)
 			}
 		})
 	}
