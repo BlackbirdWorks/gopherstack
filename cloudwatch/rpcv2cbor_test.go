@@ -357,6 +357,74 @@ func TestCBOR(t *testing.T) {
 			wantListField: "MetricAlarms",
 			wantListEmpty: true,
 		},
+		{
+			name: "TagResource",
+			op:   "TagResource",
+			body: cbor.Map{
+				"ResourceARN": cbor.String("arn:aws:cloudwatch:us-east-1:123456789:alarm:test"),
+				"Tags": cbor.List{
+					cbor.Map{
+						"Key":   cbor.String("env"),
+						"Value": cbor.String("prod"),
+					},
+				},
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "ListTagsForResource/empty",
+			op:   "ListTagsForResource",
+			body: cbor.Map{
+				"ResourceARN": cbor.String("arn:aws:cloudwatch:us-east-1:123456789:alarm:none"),
+			},
+			wantCode:      http.StatusOK,
+			wantListField: "Tags",
+			wantListEmpty: true,
+		},
+		{
+			name: "ListTagsForResource/with tags",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postCBOR(t, h, "TagResource", cbor.Map{
+					"ResourceARN": cbor.String("arn:aws:cloudwatch:us-east-1:123456789:alarm:tagged"),
+					"Tags": cbor.List{
+						cbor.Map{
+							"Key":   cbor.String("env"),
+							"Value": cbor.String("prod"),
+						},
+					},
+				})
+			},
+			op: "ListTagsForResource",
+			body: cbor.Map{
+				"ResourceARN": cbor.String("arn:aws:cloudwatch:us-east-1:123456789:alarm:tagged"),
+			},
+			wantCode:         http.StatusOK,
+			wantListField:    "Tags",
+			wantListNotEmpty: true,
+			wantListLen:      1,
+		},
+		{
+			name: "UntagResource",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postCBOR(t, h, "TagResource", cbor.Map{
+					"ResourceARN": cbor.String("arn:aws:cloudwatch:us-east-1:123456789:alarm:untag"),
+					"Tags": cbor.List{
+						cbor.Map{
+							"Key":   cbor.String("env"),
+							"Value": cbor.String("prod"),
+						},
+					},
+				})
+			},
+			op: "UntagResource",
+			body: cbor.Map{
+				"ResourceARN": cbor.String("arn:aws:cloudwatch:us-east-1:123456789:alarm:untag"),
+				"TagKeys":     cbor.List{cbor.String("env")},
+			},
+			wantCode: http.StatusOK,
+		},
 	}
 
 	for _, tt := range tests {

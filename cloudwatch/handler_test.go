@@ -212,6 +212,43 @@ func TestCloudWatchHandler(t *testing.T) {
 			wantNotContains: []string{"beta"},
 		},
 		{
+			name: "TagResource/success",
+			body: "Action=TagResource&ResourceARN=arn:aws:cloudwatch:us-east-1:123456789:alarm:test" +
+				"&Tags.member.1.Key=env&Tags.member.1.Value=prod" +
+				"&Tags.member.2.Key=team&Tags.member.2.Value=backend",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"TagResourceResponse"},
+		},
+		{
+			name:         "ListTagsForResource/empty",
+			body:         "Action=ListTagsForResource&ResourceARN=arn:aws:cloudwatch:us-east-1:123456789:alarm:none",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"ListTagsForResourceResponse"},
+		},
+		{
+			name: "ListTagsForResource/with tags",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postForm(t, h, "Action=TagResource&ResourceARN=arn:aws:cloudwatch:us-east-1:123456789:alarm:tagged"+
+					"&Tags.member.1.Key=env&Tags.member.1.Value=prod")
+			},
+			body:         "Action=ListTagsForResource&ResourceARN=arn:aws:cloudwatch:us-east-1:123456789:alarm:tagged",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"ListTagsForResourceResponse", "env", "prod"},
+		},
+		{
+			name: "UntagResource/success",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postForm(t, h, "Action=TagResource&ResourceARN=arn:aws:cloudwatch:us-east-1:123456789:alarm:untag"+
+					"&Tags.member.1.Key=env&Tags.member.1.Value=prod")
+			},
+			body: "Action=UntagResource&ResourceARN=arn:aws:cloudwatch:us-east-1:123456789:alarm:untag" +
+				"&TagKeys.member.1=env",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"UntagResourceResponse"},
+		},
+		{
 			name:     "UnknownAction",
 			body:     "Action=UnknownOp",
 			wantCode: http.StatusBadRequest,
@@ -260,6 +297,48 @@ func TestCloudWatchHandler(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCloudWatchHandler_TagLifecycle(t *testing.T) {
+	t.Parallel()
+	h := newCWHandler()
+	arn := "arn:aws:cloudwatch:us-east-1:123456789:alarm:lifecycle"
+
+	// Tag the resource with two tags.
+	rec := postForm(t, h, "Action=TagResource&ResourceARN="+arn+
+		"&Tags.member.1.Key=env&Tags.member.1.Value=prod"+
+		"&Tags.member.2.Key=team&Tags.member.2.Value=backend")
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// List tags and verify both are present.
+	rec = postForm(t, h, "Action=ListTagsForResource&ResourceARN="+arn)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	assert.Contains(t, body, "env")
+	assert.Contains(t, body, "prod")
+	assert.Contains(t, body, "team")
+	assert.Contains(t, body, "backend")
+
+	// Untag one key.
+	rec = postForm(t, h, "Action=UntagResource&ResourceARN="+arn+"&TagKeys.member.1=env")
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// Verify only the untagged key was removed.
+	rec = postForm(t, h, "Action=ListTagsForResource&ResourceARN="+arn)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	type listResp struct {
+		XMLName xml.Name `xml:"ListTagsForResourceResponse"`
+		Tags    []struct {
+			Key   string `xml:"Key"`
+			Value string `xml:"Value"`
+		} `xml:"ListTagsForResourceResult>Tags>member"`
+	}
+	var resp listResp
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Len(t, resp.Tags, 1)
+	assert.Equal(t, "team", resp.Tags[0].Key)
+	assert.Equal(t, "backend", resp.Tags[0].Value)
 }
 
 func TestCloudWatchHandler_RouteMatcher(t *testing.T) {
