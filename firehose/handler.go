@@ -1,9 +1,11 @@
 package firehose
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -11,12 +13,15 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
-const (
-	firehoseTargetPrefix  = "Firehose_20150804."
-	firehoseMatchPriority = 100
+const firehoseTargetPrefix = "Firehose_20150804."
+
+var (
+	errUnknownAction  = errors.New("unknown action")
+	errInvalidRequest = errors.New("invalid request")
 )
 
 // Handler is the Echo HTTP handler for Kinesis Firehose operations.
@@ -56,7 +61,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 }
 
 // MatchPriority returns the routing priority.
-func (h *Handler) MatchPriority() int { return firehoseMatchPriority }
+func (h *Handler) MatchPriority() int { return service.PriorityHeaderExact }
 
 // ExtractOperation extracts the Firehose action from the X-Amz-Target header.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
@@ -69,6 +74,10 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	return action
 }
 
+type deliveryStreamNameInput struct {
+	DeliveryStreamName string `json:"DeliveryStreamName"`
+}
+
 // ExtractResource extracts the delivery stream name from the request body.
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	body, err := httputil.ReadBody(c.Request())
@@ -76,9 +85,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return ""
 	}
 
-	var req struct {
-		DeliveryStreamName string `json:"DeliveryStreamName"`
-	}
+	var req deliveryStreamNameInput
 	_ = json.Unmarshal(body, &req)
 
 	return req.DeliveryStreamName
@@ -87,124 +94,132 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		body, err := httputil.ReadBody(c.Request())
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"message": "failed to read body"})
-		}
-
-		action := strings.TrimPrefix(c.Request().Header.Get("X-Amz-Target"), firehoseTargetPrefix)
-		switch action {
-		case "CreateDeliveryStream":
-			return h.handleCreateDeliveryStream(c, body)
-		case "DeleteDeliveryStream":
-			return h.handleDeleteDeliveryStream(c, body)
-		case "DescribeDeliveryStream":
-			return h.handleDescribeDeliveryStream(c, body)
-		case "ListDeliveryStreams":
-			return h.handleListDeliveryStreams(c)
-		case "PutRecord":
-			return h.handlePutRecord(c, body)
-		case "PutRecordBatch":
-			return h.handlePutRecordBatch(c, body)
-		case "ListTagsForDeliveryStream", "TagDeliveryStream", "UntagDeliveryStream":
-			return h.handleTagOperation(c, action, body)
-		default:
-			return c.JSON(http.StatusBadRequest, map[string]string{"message": "unknown action: " + action})
-		}
+		return service.HandleTarget(
+			c, logger.Load(c.Request().Context()),
+			"Firehose", "application/x-amz-json-1.1",
+			h.GetSupportedOperations(),
+			h.dispatch,
+			h.handleError,
+		)
 	}
 }
 
-func (h *Handler) handleCreateDeliveryStream(c *echo.Context, body []byte) error {
-	var req struct {
-		DeliveryStreamName string `json:"DeliveryStreamName"`
+func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byte, error) {
+	var result any
+	var err error
+
+	switch action {
+	case "CreateDeliveryStream":
+		result, err = h.handleCreateDeliveryStream(body)
+	case "DeleteDeliveryStream":
+		result, err = h.handleDeleteDeliveryStream(body)
+	case "DescribeDeliveryStream":
+		result, err = h.handleDescribeDeliveryStream(body)
+	case "ListDeliveryStreams":
+		result, err = h.handleListDeliveryStreams()
+	case "PutRecord":
+		result, err = h.handlePutRecord(body)
+	case "PutRecordBatch":
+		result, err = h.handlePutRecordBatch(body)
+	case "ListTagsForDeliveryStream":
+		result, err = h.handleListTagsForDeliveryStream(body)
+	case "TagDeliveryStream":
+		result, err = h.handleTagDeliveryStream(body)
+	case "UntagDeliveryStream":
+		result, err = h.handleUntagDeliveryStream(body)
+	default:
+		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(result)
+}
+
+func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
+	switch {
+	case errors.Is(err, ErrNotFound):
+		return c.JSON(http.StatusNotFound,
+			map[string]any{"__type": "ResourceNotFoundException", "message": err.Error()})
+	case errors.Is(err, ErrAlreadyExists), errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction):
+		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
+	default:
+		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+	}
+}
+
+func (h *Handler) handleCreateDeliveryStream(body []byte) (any, error) {
+	var req deliveryStreamNameInput
 	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
+		return nil, errInvalidRequest
 	}
 
 	s, err := h.Backend.CreateDeliveryStream(req.DeliveryStreamName)
 	if err != nil {
-		if errors.Is(err, ErrAlreadyExists) {
-			return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
-		}
-
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return nil, err
 	}
 
-	return c.JSON(http.StatusOK, map[string]string{
+	return map[string]string{
 		"DeliveryStreamARN": s.ARN,
-	})
+	}, nil
 }
 
-func (h *Handler) handleDeleteDeliveryStream(c *echo.Context, body []byte) error {
-	var req struct {
-		DeliveryStreamName string `json:"DeliveryStreamName"`
-	}
+func (h *Handler) handleDeleteDeliveryStream(body []byte) (any, error) {
+	var req deliveryStreamNameInput
 	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
+		return nil, errInvalidRequest
 	}
 
 	if err := h.Backend.DeleteDeliveryStream(req.DeliveryStreamName); err != nil {
-		if errors.Is(err, ErrNotFound) {
-			return c.JSON(
-				http.StatusNotFound,
-				map[string]any{"__type": "ResourceNotFoundException", "message": err.Error()},
-			)
-		}
-
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return nil, err
 	}
 
-	return c.JSON(http.StatusOK, map[string]string{})
+	return map[string]string{}, nil
 }
 
-func (h *Handler) handleDescribeDeliveryStream(c *echo.Context, body []byte) error {
-	var req struct {
-		DeliveryStreamName string `json:"DeliveryStreamName"`
-	}
+func (h *Handler) handleDescribeDeliveryStream(body []byte) (any, error) {
+	var req deliveryStreamNameInput
 	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
+		return nil, errInvalidRequest
 	}
 
 	s, err := h.Backend.DescribeDeliveryStream(req.DeliveryStreamName)
 	if err != nil {
-		if errors.Is(err, ErrNotFound) {
-			return c.JSON(
-				http.StatusNotFound,
-				map[string]any{"__type": "ResourceNotFoundException", "message": err.Error()},
-			)
-		}
-
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return nil, err
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
+	return map[string]any{
 		"DeliveryStreamDescription": map[string]any{
 			"DeliveryStreamName":   s.Name,
 			"DeliveryStreamARN":    s.ARN,
 			"DeliveryStreamStatus": s.Status,
 		},
-	})
+	}, nil
 }
 
-func (h *Handler) handleListDeliveryStreams(c *echo.Context) error {
+//nolint:unparam // error returned for consistent dispatch signature
+func (h *Handler) handleListDeliveryStreams() (any, error) {
 	names := h.Backend.ListDeliveryStreams()
 
-	return c.JSON(http.StatusOK, map[string]any{
+	return map[string]any{
 		"DeliveryStreamNames":    names,
 		"HasMoreDeliveryStreams": false,
-	})
+	}, nil
 }
 
-func (h *Handler) handlePutRecord(c *echo.Context, body []byte) error {
-	var req struct {
-		DeliveryStreamName string `json:"DeliveryStreamName"`
-		Record             struct {
-			Data string `json:"Data"`
-		} `json:"Record"`
-	}
+type handlePutRecordInput struct {
+	DeliveryStreamName string `json:"DeliveryStreamName"`
+	Record             struct {
+		Data string `json:"Data"`
+	} `json:"Record"`
+}
+
+func (h *Handler) handlePutRecord(body []byte) (any, error) {
+	var req handlePutRecordInput
 	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
+		return nil, errInvalidRequest
 	}
 
 	data, err := base64.StdEncoding.DecodeString(req.Record.Data)
@@ -213,30 +228,25 @@ func (h *Handler) handlePutRecord(c *echo.Context, body []byte) error {
 	}
 
 	if putErr := h.Backend.PutRecord(req.DeliveryStreamName, data); putErr != nil {
-		if errors.Is(putErr, ErrNotFound) {
-			return c.JSON(
-				http.StatusNotFound,
-				map[string]any{"__type": "ResourceNotFoundException", "message": putErr.Error()},
-			)
-		}
-
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": putErr.Error()})
+		return nil, putErr
 	}
 
-	return c.JSON(http.StatusOK, map[string]string{
+	return map[string]string{
 		"RecordId": "stub-record-id",
-	})
+	}, nil
 }
 
-func (h *Handler) handlePutRecordBatch(c *echo.Context, body []byte) error {
-	var req struct {
-		DeliveryStreamName string `json:"DeliveryStreamName"`
-		Records            []struct {
-			Data string `json:"Data"`
-		} `json:"Records"`
-	}
+type handlePutRecordBatchInput struct {
+	DeliveryStreamName string `json:"DeliveryStreamName"`
+	Records            []struct {
+		Data string `json:"Data"`
+	} `json:"Records"`
+}
+
+func (h *Handler) handlePutRecordBatch(body []byte) (any, error) {
+	var req handlePutRecordBatchInput
 	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
+		return nil, errInvalidRequest
 	}
 
 	records := make([][]byte, 0, len(req.Records))
@@ -251,29 +261,83 @@ func (h *Handler) handlePutRecordBatch(c *echo.Context, body []byte) error {
 
 	failedCount, err := h.Backend.PutRecordBatch(req.DeliveryStreamName, records)
 	if err != nil {
-		if errors.Is(err, ErrNotFound) {
-			return c.JSON(
-				http.StatusNotFound,
-				map[string]any{"__type": "ResourceNotFoundException", "message": err.Error()},
-			)
-		}
-
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return nil, err
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
+	return map[string]any{
 		"FailedPutCount":   failedCount,
 		"RequestResponses": []map[string]string{},
-	})
+	}, nil
 }
 
-func (h *Handler) handleTagOperation(c *echo.Context, action string, _ []byte) error {
-	if action == "ListTagsForDeliveryStream" {
-		return c.JSON(http.StatusOK, map[string]any{
-			"Tags":        []any{},
-			"HasMoreTags": false,
-		})
+type firehoseTag struct {
+	Key   string `json:"Key"`
+	Value string `json:"Value"`
+}
+
+type listTagsInput struct {
+	DeliveryStreamName string `json:"DeliveryStreamName"`
+}
+
+func (h *Handler) handleListTagsForDeliveryStream(body []byte) (any, error) {
+	var req listTagsInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, errInvalidRequest
 	}
-	// TagDeliveryStream and UntagDeliveryStream: no-op stubs.
-	return c.JSON(http.StatusOK, map[string]any{})
+
+	tags, err := h.Backend.ListTagsForDeliveryStream(req.DeliveryStreamName)
+	if err != nil {
+		return nil, err
+	}
+
+	tagList := make([]firehoseTag, 0, len(tags))
+	for k, v := range tags {
+		tagList = append(tagList, firehoseTag{Key: k, Value: v})
+	}
+
+	return map[string]any{
+		"Tags":        tagList,
+		"HasMoreTags": false,
+	}, nil
+}
+
+type tagDeliveryStreamInput struct {
+	DeliveryStreamName string        `json:"DeliveryStreamName"`
+	Tags               []firehoseTag `json:"Tags"`
+}
+
+func (h *Handler) handleTagDeliveryStream(body []byte) (any, error) {
+	var req tagDeliveryStreamInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, errInvalidRequest
+	}
+
+	tagMap := make(map[string]string, len(req.Tags))
+	for _, t := range req.Tags {
+		tagMap[t.Key] = t.Value
+	}
+
+	if err := h.Backend.TagDeliveryStream(req.DeliveryStreamName, tagMap); err != nil {
+		return nil, err
+	}
+
+	return map[string]any{}, nil
+}
+
+type untagDeliveryStreamInput struct {
+	DeliveryStreamName string   `json:"DeliveryStreamName"`
+	TagKeys            []string `json:"TagKeys"`
+}
+
+func (h *Handler) handleUntagDeliveryStream(body []byte) (any, error) {
+	var req untagDeliveryStreamInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, errInvalidRequest
+	}
+
+	if err := h.Backend.UntagDeliveryStream(req.DeliveryStreamName, req.TagKeys); err != nil {
+		return nil, err
+	}
+
+	return map[string]any{}, nil
 }

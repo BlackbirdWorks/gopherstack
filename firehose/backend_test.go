@@ -9,72 +9,139 @@ import (
 	"github.com/blackbirdworks/gopherstack/firehose"
 )
 
-func TestFirehose_CreateDeliveryStream(t *testing.T) {
+func TestCreateDeliveryStream(t *testing.T) {
 	t.Parallel()
 
-	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
-	s, err := b.CreateDeliveryStream("my-stream")
-	require.NoError(t, err)
-	assert.Equal(t, "my-stream", s.Name)
-	assert.Equal(t, "ACTIVE", s.Status)
-	assert.Contains(t, s.ARN, "arn:aws:firehose:")
+	tests := []struct {
+		wantErr    error
+		setup      func(b *firehose.InMemoryBackend)
+		name       string
+		streamName string
+	}{
+		{
+			name:       "success",
+			streamName: "my-stream",
+		},
+		{
+			name:       "already_exists",
+			streamName: "my-stream",
+			setup: func(b *firehose.InMemoryBackend) {
+				_, _ = b.CreateDeliveryStream("my-stream")
+			},
+			wantErr: firehose.ErrAlreadyExists,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+			s, err := b.CreateDeliveryStream(tt.streamName)
+			if tt.wantErr != nil {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.streamName, s.Name)
+			assert.Equal(t, "ACTIVE", s.Status)
+			assert.Contains(t, s.ARN, "arn:aws:firehose:")
+		})
+	}
 }
 
-func TestFirehose_CreateDeliveryStream_AlreadyExists(t *testing.T) {
+func TestDeleteDeliveryStream(t *testing.T) {
 	t.Parallel()
 
-	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateDeliveryStream("my-stream")
-	require.NoError(t, err)
+	tests := []struct {
+		wantErr    error
+		setup      func(b *firehose.InMemoryBackend)
+		name       string
+		streamName string
+	}{
+		{
+			name:       "success",
+			streamName: "my-stream",
+			setup: func(b *firehose.InMemoryBackend) {
+				_, _ = b.CreateDeliveryStream("my-stream")
+			},
+		},
+		{
+			name:       "not_found",
+			streamName: "nonexistent",
+			wantErr:    firehose.ErrNotFound,
+		},
+	}
 
-	_, err = b.CreateDeliveryStream("my-stream")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, firehose.ErrAlreadyExists)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+			err := b.DeleteDeliveryStream(tt.streamName)
+			if tt.wantErr != nil {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+			require.NoError(t, err)
+			names := b.ListDeliveryStreams()
+			assert.Empty(t, names)
+		})
+	}
 }
 
-func TestFirehose_DeleteDeliveryStream(t *testing.T) {
+func TestDescribeDeliveryStream(t *testing.T) {
 	t.Parallel()
 
-	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
-	_, _ = b.CreateDeliveryStream("my-stream")
+	tests := []struct {
+		wantErr    error
+		setup      func(b *firehose.InMemoryBackend)
+		name       string
+		streamName string
+	}{
+		{
+			name:       "success",
+			streamName: "my-stream",
+			setup: func(b *firehose.InMemoryBackend) {
+				_, _ = b.CreateDeliveryStream("my-stream")
+			},
+		},
+		{
+			name:       "not_found",
+			streamName: "nonexistent",
+			wantErr:    firehose.ErrNotFound,
+		},
+	}
 
-	err := b.DeleteDeliveryStream("my-stream")
-	require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+			s, err := b.DescribeDeliveryStream(tt.streamName)
+			if tt.wantErr != nil {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.wantErr)
 
-	names := b.ListDeliveryStreams()
-	assert.Empty(t, names)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.streamName, s.Name)
+		})
+	}
 }
 
-func TestFirehose_DeleteDeliveryStream_NotFound(t *testing.T) {
-	t.Parallel()
-
-	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
-	err := b.DeleteDeliveryStream("nonexistent")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, firehose.ErrNotFound)
-}
-
-func TestFirehose_DescribeDeliveryStream(t *testing.T) {
-	t.Parallel()
-
-	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
-	_, _ = b.CreateDeliveryStream("my-stream")
-
-	s, err := b.DescribeDeliveryStream("my-stream")
-	require.NoError(t, err)
-	assert.Equal(t, "my-stream", s.Name)
-}
-
-func TestFirehose_DescribeDeliveryStream_NotFound(t *testing.T) {
-	t.Parallel()
-
-	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.DescribeDeliveryStream("nonexistent")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, firehose.ErrNotFound)
-}
-
-func TestFirehose_PutRecord(t *testing.T) {
+func TestPutRecord(t *testing.T) {
 	t.Parallel()
 
 	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
@@ -84,7 +151,7 @@ func TestFirehose_PutRecord(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestFirehose_PutRecordBatch(t *testing.T) {
+func TestPutRecordBatch(t *testing.T) {
 	t.Parallel()
 
 	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
@@ -95,7 +162,7 @@ func TestFirehose_PutRecordBatch(t *testing.T) {
 	assert.Equal(t, 0, failed)
 }
 
-func TestFirehose_ListDeliveryStreams(t *testing.T) {
+func TestListDeliveryStreams(t *testing.T) {
 	t.Parallel()
 
 	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
@@ -104,4 +171,171 @@ func TestFirehose_ListDeliveryStreams(t *testing.T) {
 
 	names := b.ListDeliveryStreams()
 	assert.Len(t, names, 2)
+}
+
+func TestTagDeliveryStream(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr    error
+		setup      func(b *firehose.InMemoryBackend)
+		tags       map[string]string
+		wantTags   map[string]string
+		name       string
+		streamName string
+	}{
+		{
+			name:       "success",
+			streamName: "tagged-stream",
+			setup: func(b *firehose.InMemoryBackend) {
+				_, _ = b.CreateDeliveryStream("tagged-stream")
+			},
+			tags:     map[string]string{"env": "prod", "team": "platform"},
+			wantTags: map[string]string{"env": "prod", "team": "platform"},
+		},
+		{
+			name:       "overwrite",
+			streamName: "overwrite-stream",
+			setup: func(b *firehose.InMemoryBackend) {
+				_, _ = b.CreateDeliveryStream("overwrite-stream")
+				_ = b.TagDeliveryStream("overwrite-stream", map[string]string{"env": "dev"})
+			},
+			tags:     map[string]string{"env": "prod"},
+			wantTags: map[string]string{"env": "prod"},
+		},
+		{
+			name:       "not_found",
+			streamName: "nonexistent",
+			tags:       map[string]string{"k": "v"},
+			wantErr:    firehose.ErrNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+			err := b.TagDeliveryStream(tt.streamName, tt.tags)
+			if tt.wantErr != nil {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+			require.NoError(t, err)
+			tags, err := b.ListTagsForDeliveryStream(tt.streamName)
+			require.NoError(t, err)
+			for k, v := range tt.wantTags {
+				assert.Equal(t, v, tags[k])
+			}
+		})
+	}
+}
+
+func TestUntagDeliveryStream(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr        error
+		setup          func(b *firehose.InMemoryBackend)
+		wantTags       map[string]string
+		name           string
+		streamName     string
+		keysToRemove   []string
+		wantAbsentKeys []string
+	}{
+		{
+			name:       "success",
+			streamName: "untag-stream",
+			setup: func(b *firehose.InMemoryBackend) {
+				_, _ = b.CreateDeliveryStream("untag-stream")
+				_ = b.TagDeliveryStream("untag-stream", map[string]string{"env": "prod", "team": "platform"})
+			},
+			keysToRemove:   []string{"env"},
+			wantAbsentKeys: []string{"env"},
+			wantTags:       map[string]string{"team": "platform"},
+		},
+		{
+			name:         "not_found",
+			streamName:   "nonexistent",
+			keysToRemove: []string{"k"},
+			wantErr:      firehose.ErrNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+			err := b.UntagDeliveryStream(tt.streamName, tt.keysToRemove)
+			if tt.wantErr != nil {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+			require.NoError(t, err)
+			tags, err := b.ListTagsForDeliveryStream(tt.streamName)
+			require.NoError(t, err)
+			for _, k := range tt.wantAbsentKeys {
+				assert.NotContains(t, tags, k)
+			}
+			for k, v := range tt.wantTags {
+				assert.Equal(t, v, tags[k])
+			}
+		})
+	}
+}
+
+func TestListTagsForDeliveryStream(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr    error
+		setup      func(b *firehose.InMemoryBackend)
+		name       string
+		streamName string
+		wantEmpty  bool
+	}{
+		{
+			name:       "not_found",
+			streamName: "nonexistent",
+			wantErr:    firehose.ErrNotFound,
+		},
+		{
+			name:       "empty",
+			streamName: "empty-tags",
+			setup: func(b *firehose.InMemoryBackend) {
+				_, _ = b.CreateDeliveryStream("empty-tags")
+			},
+			wantEmpty: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+			tags, err := b.ListTagsForDeliveryStream(tt.streamName)
+			if tt.wantErr != nil {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+			require.NoError(t, err)
+			if tt.wantEmpty {
+				assert.Empty(t, tags)
+			}
+		})
+	}
 }

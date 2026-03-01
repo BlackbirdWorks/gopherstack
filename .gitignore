@@ -14,8 +14,6 @@ coverage.html
 *.txt
 **/*.log
 *.log
-*.md
-**/*.md
 *.pdf
 test/e2e/failures/go.mod.bak
 /go.mod.bak

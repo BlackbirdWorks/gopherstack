@@ -29,7 +29,7 @@ import (
 func newTestHandler(t *testing.T) (*s3.S3Handler, *s3.InMemoryBackend) {
 	t.Helper()
 
-	backend := s3.NewInMemoryBackend(&s3.GzipCompressor{})
+	backend := s3.NewInMemoryBackend(&s3.GzipCompressor{}, nil)
 	handler := s3.NewHandler(backend, slog.Default())
 
 	return handler, backend
@@ -597,7 +597,7 @@ func TestHandler_BucketVersioning(t *testing.T) {
 					*tt.wantConf, got,
 					cmpopts.IgnoreFields(s3.VersioningConfiguration{}, "XMLName"),
 				); diff != "" {
-					t.Errorf("VersioningConfiguration mismatch (-want +got):\n%s", diff)
+					assert.Empty(t, diff, "VersioningConfiguration mismatch")
 				}
 			}
 		})
@@ -1135,13 +1135,12 @@ func TestHandler_MultipartUpload(t *testing.T) {
 			var initResp s3.InitiateMultipartUploadResult
 			require.NoError(t, xml.NewDecoder(rec.Body).Decode(&initResp))
 
-			if diff := cmp.Diff(
-				s3.InitiateMultipartUploadResult{Bucket: "bkt", Key: "mp", UploadID: initResp.UploadID},
-				initResp,
+			wantInit := s3.InitiateMultipartUploadResult{Bucket: "bkt", Key: "mp", UploadID: initResp.UploadID}
+			initDiff := cmp.Diff(
+				wantInit, initResp,
 				cmpopts.IgnoreFields(s3.InitiateMultipartUploadResult{}, "UploadID", "XMLName"),
-			); diff != "" {
-				t.Errorf("InitiateMultipartUploadResult mismatch (-want +got):\n%s", diff)
-			}
+			)
+			assert.Empty(t, initDiff, "InitiateMultipartUploadResult mismatch")
 			assert.NotEmpty(t, initResp.UploadID)
 
 			uploadID := initResp.UploadID

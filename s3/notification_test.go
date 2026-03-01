@@ -56,7 +56,7 @@ func TestNotificationDispatcher_DispatchObjectCreated_SQS(t *testing.T) {
 </QueueConfiguration>
 </NotificationConfiguration>`
 
-	d.DispatchObjectCreated(context.Background(), "my-bucket", "my-key", "abc123", 42, notifXML)
+	d.DispatchObjectCreated(t.Context(), "my-bucket", "my-key", "abc123", 42, notifXML)
 
 	queue.mu.Lock()
 	defer queue.mu.Unlock()
@@ -83,7 +83,7 @@ func TestNotificationDispatcher_DispatchObjectDeleted_SQS(t *testing.T) {
 </QueueConfiguration>
 </NotificationConfiguration>`
 
-	d.DispatchObjectDeleted(context.Background(), "my-bucket", "my-key", notifXML)
+	d.DispatchObjectDeleted(t.Context(), "my-bucket", "my-key", notifXML)
 
 	queue.mu.Lock()
 	defer queue.mu.Unlock()
@@ -106,7 +106,7 @@ func TestNotificationDispatcher_DispatchObjectCreated_SNS(t *testing.T) {
 </TopicConfiguration>
 </NotificationConfiguration>`
 
-	d.DispatchObjectCreated(context.Background(), "my-bucket", "my-key", "", 0, notifXML)
+	d.DispatchObjectCreated(t.Context(), "my-bucket", "my-key", "", 0, notifXML)
 
 	topic.mu.Lock()
 	defer topic.mu.Unlock()
@@ -130,7 +130,7 @@ func TestNotificationDispatcher_EventFilterMismatch(t *testing.T) {
 </QueueConfiguration>
 </NotificationConfiguration>`
 
-	d.DispatchObjectDeleted(context.Background(), "my-bucket", "my-key", notifXML)
+	d.DispatchObjectDeleted(t.Context(), "my-bucket", "my-key", notifXML)
 
 	queue.mu.Lock()
 	defer queue.mu.Unlock()
@@ -145,7 +145,7 @@ func TestNotificationDispatcher_EmptyConfig(t *testing.T) {
 	d := s3.NewNotificationDispatcher(targets, "us-east-1")
 
 	// Empty notifXML — nothing should be dispatched.
-	d.DispatchObjectCreated(context.Background(), "my-bucket", "my-key", "", 0, "")
+	d.DispatchObjectCreated(t.Context(), "my-bucket", "my-key", "", 0, "")
 
 	queue.mu.Lock()
 	defer queue.mu.Unlock()
@@ -160,7 +160,7 @@ func TestNotificationDispatcher_InvalidXML(t *testing.T) {
 	d := s3.NewNotificationDispatcher(targets, "us-east-1")
 
 	// Malformed XML — should be handled gracefully.
-	d.DispatchObjectCreated(context.Background(), "my-bucket", "my-key", "", 0, "<bad>xml")
+	d.DispatchObjectCreated(t.Context(), "my-bucket", "my-key", "", 0, "<bad>xml")
 
 	queue.mu.Lock()
 	defer queue.mu.Unlock()
@@ -183,7 +183,7 @@ func TestNotificationDispatcher_ExactEventMatch(t *testing.T) {
 </QueueConfiguration>
 </NotificationConfiguration>`
 
-	d.DispatchObjectCreated(context.Background(), "my-bucket", "my-key", "", 0, notifXML)
+	d.DispatchObjectCreated(t.Context(), "my-bucket", "my-key", "", 0, notifXML)
 
 	queue.mu.Lock()
 	defer queue.mu.Unlock()

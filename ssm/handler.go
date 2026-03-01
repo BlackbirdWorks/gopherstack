@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"strings"
 
@@ -64,10 +65,8 @@ func (h *Handler) RouteMatcher() service.Matcher {
 }
 
 // MatchPriority returns the routing priority for the SSM handler.
-const ssmMatchPriority = 100
-
 func (h *Handler) MatchPriority() int {
-	return ssmMatchPriority // Same header-based priority as DynamoDB
+	return service.PriorityHeaderExact // Same header-based priority as DynamoDB
 }
 
 // ExtractOperation attempts to extract the specific SSM operation from the request.
@@ -106,52 +105,26 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler is the Echo HTTP handler for SSM operations.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		ctx := c.Request().Context()
-		log := logger.Load(ctx)
-
-		if c.Request().Method == http.MethodGet && c.Request().URL.Path == "/" {
-			return c.JSON(http.StatusOK, h.GetSupportedOperations())
-		}
-
-		if c.Request().Method != http.MethodPost {
-			return c.String(http.StatusMethodNotAllowed, "Method not allowed")
-		}
-
-		target := c.Request().Header.Get("X-Amz-Target")
-		if target == "" {
-			return c.String(http.StatusBadRequest, "Missing X-Amz-Target")
-		}
-
-		parts := strings.Split(target, ".")
-		const targetParts = 2
-		if len(parts) != targetParts {
-			return c.String(http.StatusBadRequest, "Invalid X-Amz-Target")
-		}
-		action := parts[1]
-
-		body, err := httputil.ReadBody(c.Request())
-		if err != nil {
-			log.ErrorContext(ctx, "failed to read request body", "error", err)
-
-			return c.String(http.StatusInternalServerError, "internal server error")
-		}
-
-		log.DebugContext(ctx, "SSM request", "action", action)
-
-		response, reqErr := h.dispatch(ctx, action, body)
-		if reqErr != nil {
-			return h.handleError(ctx, c, action, reqErr)
-		}
-
-		c.Response().Header().Set("Content-Type", "application/x-amz-json-1.1")
-
-		return c.JSONBlob(http.StatusOK, response)
+		return service.HandleTarget(
+			c, logger.Load(c.Request().Context()),
+			"SSM", "application/x-amz-json-1.1",
+			h.GetSupportedOperations(),
+			h.dispatch,
+			h.handleError,
+		)
 	}
 }
 
 type ssmActionFn func([]byte) (any, error)
 
-func (h *Handler) ssmDispatchTable() map[string]ssmActionFn { //nolint:gocognit
+func (h *Handler) ssmDispatchTable() map[string]ssmActionFn {
+	ops := h.ssmParameterOps()
+	maps.Copy(ops, h.ssmTagOps())
+
+	return ops
+}
+
+func (h *Handler) ssmParameterOps() map[string]ssmActionFn {
 	return map[string]ssmActionFn{
 		"PutParameter": func(b []byte) (any, error) {
 			var input PutParameterInput
@@ -217,6 +190,11 @@ func (h *Handler) ssmDispatchTable() map[string]ssmActionFn { //nolint:gocognit
 
 			return h.Backend.DescribeParameters(&input)
 		},
+	}
+}
+
+func (h *Handler) ssmTagOps() map[string]ssmActionFn {
+	return map[string]ssmActionFn{
 		"AddTagsToResource": func(b []byte) (any, error) {
 			var input AddTagsToResourceInput
 			if err := json.Unmarshal(b, &input); err != nil {
@@ -285,7 +263,7 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		log.WarnContext(ctx, "SSM request error", "error", reqErr, "action", action)
 	}
 
-	errResp := ErrorResponse{
+	errResp := service.JSONErrorResponse{
 		Type:    errorType,
 		Message: reqErr.Error(),
 	}

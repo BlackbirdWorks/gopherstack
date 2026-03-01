@@ -1,17 +1,18 @@
 package transcribe
 
 import (
-	"errors"
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
 var (
 	// ErrNotFound is returned when a transcription job is not found.
-	ErrNotFound = errors.New("NotFoundException")
+	ErrNotFound = awserr.New("NotFoundException", awserr.ErrNotFound)
 	// ErrAlreadyExists is returned when a transcription job already exists.
-	ErrAlreadyExists = errors.New("ConflictException")
+	ErrAlreadyExists = awserr.New("ConflictException", awserr.ErrAlreadyExists)
 )
 
 // TranscriptionJob represents an Amazon Transcribe transcription job.

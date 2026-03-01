@@ -1,13 +1,11 @@
 package cloudwatch_test
 
 import (
-	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
@@ -23,34 +21,6 @@ type mockCWConfigProvider struct{}
 
 func (m *mockCWConfigProvider) GetGlobalConfig() config.GlobalConfig {
 	return config.GlobalConfig{AccountID: "111111111111", Region: "eu-west-1"}
-}
-
-func TestProvider_Name(t *testing.T) {
-	t.Parallel()
-	p := &cloudwatch.Provider{}
-	assert.Equal(t, "CloudWatch", p.Name())
-}
-
-func TestProvider_Init_WithConfig(t *testing.T) {
-	t.Parallel()
-	p := &cloudwatch.Provider{}
-	ctx := &service.AppContext{
-		Logger: slog.Default(),
-		Config: &mockCWConfigProvider{},
-	}
-	svc, err := p.Init(ctx)
-	require.NoError(t, err)
-	require.NotNil(t, svc)
-	assert.Equal(t, "CloudWatch", svc.Name())
-}
-
-func TestProvider_Init_WithoutConfig(t *testing.T) {
-	t.Parallel()
-	p := &cloudwatch.Provider{}
-	ctx := &service.AppContext{Logger: slog.Default()}
-	svc, err := p.Init(ctx)
-	require.NoError(t, err)
-	require.NotNil(t, svc)
 }
 
 // cwServer creates a test HTTP server backed by a real CloudWatch handler.
@@ -92,52 +62,50 @@ func cwPost(t *testing.T, ts *httptest.Server, body string) *http.Response {
 	return resp
 }
 
-func TestCoverage_PutMetricData(t *testing.T) {
+func TestProvider_Name(t *testing.T) {
 	t.Parallel()
-	ts := cwServer(t)
-	resp := cwPost(t, ts,
-		"Action=PutMetricData&Namespace=Coverage&MetricData.member.1.MetricName=Hits&MetricData.member.1.Value=1")
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-	resp.Body.Close()
+
+	p := &cloudwatch.Provider{}
+	assert.Equal(t, "CloudWatch", p.Name())
 }
 
-func TestCoverage_ListMetrics(t *testing.T) {
+func TestProvider_Init(t *testing.T) {
 	t.Parallel()
-	ts := cwServer(t)
-	cwPost(
-		t,
-		ts,
-		"Action=PutMetricData&Namespace=Coverage&MetricData.member.1.MetricName=Hits&MetricData.member.1.Value=1",
-	).Body.Close()
-	resp := cwPost(t, ts, "Action=ListMetrics&Namespace=Coverage")
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-	resp.Body.Close()
-}
 
-func TestCoverage_GetMetricStatistics(t *testing.T) {
-	t.Parallel()
-	ts := cwServer(t)
-	cwPost(
-		t,
-		ts,
-		"Action=PutMetricData&Namespace=Coverage&MetricData.member.1.MetricName=Hits&MetricData.member.1.Value=5",
-	).Body.Close()
+	tests := []struct {
+		name     string
+		config   config.Provider
+		wantName string
+	}{
+		{
+			name:     "with_config",
+			config:   &mockCWConfigProvider{},
+			wantName: "CloudWatch",
+		},
+		{
+			name: "without_config",
+		},
+	}
 
-	start := time.Now().Add(-time.Minute).UTC().Format(time.RFC3339)
-	end := time.Now().Add(time.Minute).UTC().Format(time.RFC3339)
-	body := fmt.Sprintf(
-		"Action=GetMetricStatistics&Namespace=Coverage&MetricName=Hits&StartTime=%s&EndTime=%s&Period=60"+
-			"&Statistics.member.1=Average&Statistics.member.2=Sum&Statistics.member.3=Minimum"+
-			"&Statistics.member.4=Maximum&Statistics.member.5=SampleCount",
-		start, end,
-	)
-	resp := cwPost(t, ts, body)
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-	resp.Body.Close()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := &cloudwatch.Provider{}
+			ctx := &service.AppContext{Logger: slog.Default(), Config: tt.config}
+			svc, err := p.Init(ctx)
+			require.NoError(t, err)
+			require.NotNil(t, svc)
+			if tt.wantName != "" {
+				assert.Equal(t, tt.wantName, svc.Name())
+			}
+		})
+	}
 }
 
 func TestCoverage_PutAndDescribeAlarms(t *testing.T) {
 	t.Parallel()
+
 	ts := cwServer(t)
 	resp := cwPost(t, ts,
 		"Action=PutMetricAlarm&AlarmName=cov-alarm&Namespace=NS&MetricName=M"+
@@ -155,39 +123,93 @@ func TestCoverage_PutAndDescribeAlarms(t *testing.T) {
 	resp.Body.Close()
 }
 
-func TestCoverage_DeleteAlarms(t *testing.T) {
+func TestCoverage(t *testing.T) {
 	t.Parallel()
-	ts := cwServer(t)
-	cwPost(t, ts, "Action=PutMetricAlarm&AlarmName=del-me&Namespace=NS&MetricName=M").Body.Close()
-	resp := cwPost(t, ts, "Action=DeleteAlarms&AlarmNames.member.1=del-me")
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-	resp.Body.Close()
-}
 
-func TestCoverage_ErrorPaths(t *testing.T) {
-	t.Parallel()
-	ts := cwServer(t)
+	tests := []struct {
+		name     string
+		setup    func(t *testing.T, ts *httptest.Server)
+		body     string
+		wantCode int
+	}{
+		{
+			name:     "PutMetricData",
+			body:     "Action=PutMetricData&Namespace=Coverage&MetricData.member.1.MetricName=Hits&MetricData.member.1.Value=1",
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "ListMetrics",
+			setup: func(t *testing.T, ts *httptest.Server) {
+				t.Helper()
+				cwPost(
+					t,
+					ts,
+					"Action=PutMetricData&Namespace=Coverage&MetricData.member.1.MetricName=Hits&MetricData.member.1.Value=1",
+				).Body.Close()
+			},
+			body:     "Action=ListMetrics&Namespace=Coverage",
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "GetMetricStatistics",
+			setup: func(t *testing.T, ts *httptest.Server) {
+				t.Helper()
+				cwPost(
+					t,
+					ts,
+					"Action=PutMetricData&Namespace=Coverage&MetricData.member.1.MetricName=Hits&MetricData.member.1.Value=5"+
+						"&MetricData.member.1.Timestamp=2024-06-01T12:00:00Z",
+				).Body.Close()
+			},
+			body: "Action=GetMetricStatistics&Namespace=Coverage&MetricName=Hits" +
+				"&StartTime=2024-06-01T11:00:00Z&EndTime=2024-06-01T13:00:00Z&Period=60" +
+				"&Statistics.member.1=Average&Statistics.member.2=Sum&Statistics.member.3=Minimum" +
+				"&Statistics.member.4=Maximum&Statistics.member.5=SampleCount",
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "DeleteAlarms",
+			setup: func(t *testing.T, ts *httptest.Server) {
+				t.Helper()
+				cwPost(t, ts, "Action=PutMetricAlarm&AlarmName=del-me&Namespace=NS&MetricName=M").Body.Close()
+			},
+			body:     "Action=DeleteAlarms&AlarmNames.member.1=del-me",
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "ErrorPaths/missing_namespace",
+			body:     "Action=PutMetricData&MetricData.member.1.MetricName=M&MetricData.member.1.Value=1",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "ErrorPaths/bad_start_time",
+			body:     "Action=GetMetricStatistics&Namespace=NS&MetricName=M&StartTime=bad&EndTime=bad&Period=60",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "ErrorPaths/bad_period",
+			body: "Action=GetMetricStatistics&Namespace=NS&MetricName=M" +
+				"&StartTime=2024-01-01T00:00:00Z&EndTime=2024-01-01T01:00:00Z&Period=0",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "ErrorPaths/missing_alarm_name",
+			body:     "Action=PutMetricAlarm&Namespace=NS",
+			wantCode: http.StatusBadRequest,
+		},
+	}
 
-	// Missing namespace for PutMetricData
-	resp := cwPost(t, ts, "Action=PutMetricData&MetricData.member.1.MetricName=M&MetricData.member.1.Value=1")
-	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
-	resp.Body.Close()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	// Bad StartTime for GetMetricStatistics
-	resp = cwPost(t, ts, "Action=GetMetricStatistics&Namespace=NS&MetricName=M&StartTime=bad&EndTime=bad&Period=60")
-	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
-	resp.Body.Close()
-
-	// Bad Period (zero)
-	start := time.Now().Add(-time.Minute).UTC().Format(time.RFC3339)
-	end := time.Now().UTC().Format(time.RFC3339)
-	resp = cwPost(t, ts,
-		"Action=GetMetricStatistics&Namespace=NS&MetricName=M&StartTime="+start+"&EndTime="+end+"&Period=0")
-	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
-	resp.Body.Close()
-
-	// Missing AlarmName
-	resp = cwPost(t, ts, "Action=PutMetricAlarm&Namespace=NS")
-	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
-	resp.Body.Close()
+			ts := cwServer(t)
+			if tt.setup != nil {
+				tt.setup(t, ts)
+			}
+			resp := cwPost(t, ts, tt.body)
+			defer resp.Body.Close()
+			assert.Equal(t, tt.wantCode, resp.StatusCode)
+		})
+	}
 }

@@ -17,9 +17,8 @@ import (
 )
 
 const (
-	rdsVersion       = "2014-10-31"
-	rdsXMLNS         = "http://rds.amazonaws.com/doc/2014-10-31/"
-	rdsMatchPriority = 84
+	rdsVersion = "2014-10-31"
+	rdsXMLNS   = "http://rds.amazonaws.com/doc/2014-10-31/"
 )
 
 // Handler is the Echo HTTP handler for RDS operations.
@@ -86,7 +85,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 }
 
 // MatchPriority returns the routing priority.
-func (h *Handler) MatchPriority() int { return rdsMatchPriority }
+func (h *Handler) MatchPriority() int { return service.PriorityFormRDS }
 
 // ExtractOperation extracts the RDS action from the request.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
@@ -319,16 +318,7 @@ func (h *Handler) handleCreateDBSubnetGroup(vals url.Values) (any, error) {
 	name := vals.Get("DBSubnetGroupName")
 	description := vals.Get("DBSubnetGroupDescription")
 	vpcID := vals.Get("VpcId")
-
-	var subnetIDs []string
-
-	for i := 1; ; i++ {
-		sid := vals.Get(fmt.Sprintf("SubnetIds.member.%d", i))
-		if sid == "" {
-			break
-		}
-		subnetIDs = append(subnetIDs, sid)
-	}
+	subnetIDs := parseSubnetIDMembers(vals)
 
 	sg, err := h.Backend.CreateDBSubnetGroup(name, description, vpcID, subnetIDs)
 	if err != nil {
@@ -390,19 +380,7 @@ func (h *Handler) handleListTagsForResource(vals url.Values) (any, error) {
 
 func (h *Handler) handleAddTagsToResource(vals url.Values) (any, error) {
 	arn := vals.Get("ResourceName")
-
-	var tags []Tag
-
-	for i := 1; ; i++ {
-		key := vals.Get(fmt.Sprintf("Tags.Tag.%d.Key", i))
-		if key == "" {
-			break
-		}
-
-		value := vals.Get(fmt.Sprintf("Tags.Tag.%d.Value", i))
-		tags = append(tags, Tag{Key: key, Value: value})
-	}
-
+	tags := parseTagEntries(vals)
 	h.Backend.AddTagsToResource(arn, tags)
 
 	return &addTagsToResourceResponse{Xmlns: rdsXMLNS}, nil
@@ -410,18 +388,7 @@ func (h *Handler) handleAddTagsToResource(vals url.Values) (any, error) {
 
 func (h *Handler) handleRemoveTagsFromResource(vals url.Values) (any, error) {
 	arn := vals.Get("ResourceName")
-
-	var keys []string
-
-	for i := 1; ; i++ {
-		k := vals.Get(fmt.Sprintf("TagKeys.member.%d", i))
-		if k == "" {
-			break
-		}
-
-		keys = append(keys, k)
-	}
-
+	keys := parseTagKeyMembers(vals)
 	h.Backend.RemoveTagsFromResource(arn, keys)
 
 	return &removeTagsFromResourceResponse{Xmlns: rdsXMLNS}, nil
@@ -668,4 +635,40 @@ type addTagsToResourceResponse struct {
 type removeTagsFromResourceResponse struct {
 	XMLName xml.Name `xml:"RemoveTagsFromResourceResponse"`
 	Xmlns   string   `xml:"xmlns,attr"`
+}
+
+// parseSubnetIDMembers parses SubnetIds.member.N form values.
+func parseSubnetIDMembers(vals url.Values) []string {
+	var ids []string
+	for i := 1; ; i++ {
+		sid := vals.Get(fmt.Sprintf("SubnetIds.member.%d", i))
+		if sid == "" {
+			return ids
+		}
+		ids = append(ids, sid)
+	}
+}
+
+// parseTagEntries parses Tags.Tag.N.Key/Value form values.
+func parseTagEntries(vals url.Values) []Tag {
+	var tags []Tag
+	for i := 1; ; i++ {
+		key := vals.Get(fmt.Sprintf("Tags.Tag.%d.Key", i))
+		if key == "" {
+			return tags
+		}
+		tags = append(tags, Tag{Key: key, Value: vals.Get(fmt.Sprintf("Tags.Tag.%d.Value", i))})
+	}
+}
+
+// parseTagKeyMembers parses TagKeys.member.N form values.
+func parseTagKeyMembers(vals url.Values) []string {
+	var keys []string
+	for i := 1; ; i++ {
+		k := vals.Get(fmt.Sprintf("TagKeys.member.%d", i))
+		if k == "" {
+			return keys
+		}
+		keys = append(keys, k)
+	}
 }

@@ -31,16 +31,7 @@ func (db *InMemoryDB) TagResource(
 	tableName := tableNameFromARN(aws.ToString(input.ResourceArn))
 
 	db.mu.RLock("TagResource")
-	var table *Table
-
-	for _, regionTables := range db.Tables {
-		if t, ok := regionTables[tableName]; ok {
-			table = t
-
-			break
-		}
-	}
-
+	table := findTableByName(db.Tables, tableName)
 	db.mu.RUnlock()
 
 	if table == nil {
@@ -69,16 +60,7 @@ func (db *InMemoryDB) UntagResource(
 	tableName := tableNameFromARN(aws.ToString(input.ResourceArn))
 
 	db.mu.RLock("UntagResource")
-	var table *Table
-
-	for _, regionTables := range db.Tables {
-		if t, ok := regionTables[tableName]; ok {
-			table = t
-
-			break
-		}
-	}
-
+	table := findTableByName(db.Tables, tableName)
 	db.mu.RUnlock()
 
 	if table == nil {
@@ -103,16 +85,7 @@ func (db *InMemoryDB) ListTagsOfResource(
 	tableName := tableNameFromARN(aws.ToString(input.ResourceArn))
 
 	db.mu.RLock("ListTagsOfResource")
-	var table *Table
-
-	for _, regionTables := range db.Tables {
-		if t, ok := regionTables[tableName]; ok {
-			table = t
-
-			break
-		}
-	}
-
+	table := findTableByName(db.Tables, tableName)
 	db.mu.RUnlock()
 
 	if table == nil {
@@ -137,4 +110,16 @@ func (db *InMemoryDB) ListTagsOfResource(
 	table.mu.RUnlock()
 
 	return &dynamodb.ListTagsOfResourceOutput{Tags: sdkTags}, nil
+}
+
+// findTableByName searches all region-keyed table maps for a table with the given name.
+// Returns nil if not found. Must be called with db.mu held.
+func findTableByName(tables map[string]map[string]*Table, name string) *Table {
+	for _, regionTables := range tables {
+		if t, ok := regionTables[name]; ok {
+			return t
+		}
+	}
+
+	return nil
 }

@@ -226,7 +226,7 @@ func TestLambda_StartWorker(t *testing.T) {
 
 	h, _ := newRealHandler(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 	defer cancel()
 
 	err := h.StartWorker(ctx)
@@ -239,7 +239,7 @@ func TestLambda_SetKinesisPoller(t *testing.T) {
 
 	h, backend := newRealHandler(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
 	defer cancel()
 
 	// Set up a fake KinesisReader
@@ -472,7 +472,7 @@ func TestLambda_Poller_PollWithRecords(t *testing.T) {
 
 	poller := lambda.NewEventSourcePoller(backend, reader, slog.Default())
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Call poll directly instead of running the goroutine
 	lambda.PollOnce(ctx, poller)
@@ -504,7 +504,7 @@ func TestLambda_Poller_PollWithDisabledMapping(t *testing.T) {
 	}
 
 	poller := lambda.NewEventSourcePoller(backend, reader, slog.Default())
-	ctx := context.Background()
+	ctx := t.Context()
 
 	lambda.PollOnce(ctx, poller)
 
@@ -538,7 +538,7 @@ func TestLambda_Poller_PollStreamNotFound(t *testing.T) {
 	}}
 
 	poller := lambda.NewEventSourcePoller(backend, errReader, slog.Default())
-	ctx := context.Background()
+	ctx := t.Context()
 
 	lambda.PollOnce(ctx, poller)
 
@@ -555,7 +555,7 @@ func TestLambda_Poller_StartAndStop(t *testing.T) {
 	reader := &pollingKinesisReader{}
 	poller := lambda.NewEventSourcePoller(backend, reader, slog.Default())
 
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 	defer cancel()
 
 	poller.Start(ctx)

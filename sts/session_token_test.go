@@ -6,65 +6,79 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/sts"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestGetSessionToken_DefaultDuration(t *testing.T) {
+func TestGetSessionToken(t *testing.T) {
 	t.Parallel()
-	backend := sts.NewInMemoryBackend()
-	resp, err := backend.GetSessionToken(&sts.GetSessionTokenInput{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+
+	tests := []struct {
+		name            string
+		wantErrContains string
+		wantDuration    time.Duration
+		tolerance       time.Duration
+		duration        int32
+		wantErr         bool
+	}{
+		{
+			name:         "DefaultDuration",
+			duration:     0,
+			wantErr:      false,
+			wantDuration: 12 * time.Hour,
+			tolerance:    time.Hour,
+		},
+		{
+			name:         "CustomDuration",
+			duration:     3600,
+			wantErr:      false,
+			wantDuration: time.Hour,
+			tolerance:    time.Minute,
+		},
+		{
+			name:            "InvalidDuration",
+			duration:        100,
+			wantErr:         true,
+			wantErrContains: "DurationSeconds",
+		},
 	}
 
-	creds := resp.GetSessionTokenResult.Credentials
-	if !strings.HasPrefix(creds.AccessKeyID, "ASIA") {
-		t.Errorf("expected ASIA prefix, got %q", creds.AccessKeyID)
-	}
-	if creds.SecretAccessKey == "" {
-		t.Error("expected non-empty SecretAccessKey")
-	}
-	if creds.SessionToken == "" {
-		t.Error("expected non-empty SessionToken")
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			backend := sts.NewInMemoryBackend()
 
-	exp, err := time.Parse(time.RFC3339, creds.Expiration)
-	if err != nil {
-		t.Fatalf("parse expiration: %v", err)
-	}
+			input := &sts.GetSessionTokenInput{}
+			if tt.duration != 0 {
+				input.DurationSeconds = tt.duration
+			}
 
-	diff := time.Until(exp)
-	if diff < 11*time.Hour || diff > 13*time.Hour {
-		t.Errorf("expected ~12h expiration, got %v", diff)
-	}
-}
+			resp, err := backend.GetSessionToken(input)
 
-func TestGetSessionToken_CustomDuration(t *testing.T) {
-	t.Parallel()
-	backend := sts.NewInMemoryBackend()
-	resp, err := backend.GetSessionToken(&sts.GetSessionTokenInput{DurationSeconds: 3600})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+			if tt.wantErr {
+				require.Error(t, err, "expected error")
+				assert.Contains(t, err.Error(), tt.wantErrContains)
 
-	exp, err := time.Parse(time.RFC3339, resp.GetSessionTokenResult.Credentials.Expiration)
-	if err != nil {
-		t.Fatalf("parse expiration: %v", err)
-	}
+				return
+			}
 
-	diff := time.Until(exp)
-	if diff < 59*time.Minute || diff > 61*time.Minute {
-		t.Errorf("expected ~1h expiration, got %v", diff)
-	}
-}
+			require.NoError(t, err)
 
-func TestGetSessionToken_InvalidDuration(t *testing.T) {
-	t.Parallel()
-	backend := sts.NewInMemoryBackend()
-	_, err := backend.GetSessionToken(&sts.GetSessionTokenInput{DurationSeconds: 100})
-	if err == nil {
-		t.Fatal("expected error for duration=100, got nil")
-	}
-	if !strings.Contains(err.Error(), "DurationSeconds") {
-		t.Errorf("expected ErrInvalidDuration, got %v", err)
+			creds := resp.GetSessionTokenResult.Credentials
+			assert.True(
+				t,
+				strings.HasPrefix(creds.AccessKeyID, "ASIA"),
+				"expected ASIA prefix, got %q",
+				creds.AccessKeyID,
+			)
+			assert.NotEmpty(t, creds.SecretAccessKey, "expected non-empty SecretAccessKey")
+			assert.NotEmpty(t, creds.SessionToken, "expected non-empty SessionToken")
+
+			exp, err := time.Parse(time.RFC3339, creds.Expiration)
+			require.NoError(t, err, "parse expiration")
+
+			diff := time.Until(exp)
+			assert.InDelta(t, tt.wantDuration, diff, float64(tt.tolerance), "expected ~%v expiration", tt.wantDuration)
+		})
 	}
 }

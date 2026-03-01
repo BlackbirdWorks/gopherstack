@@ -1,7 +1,6 @@
 package logger_test
 
 import (
-	"context"
 	"log/slog"
 	"testing"
 
@@ -10,48 +9,45 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestSaveLoad(t *testing.T) {
+func TestLogger_SaveLoad(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	testLogger := logger.NewTestLogger()
 
-	// Save logger to context
 	ctx = logger.Save(ctx, testLogger)
 
-	// Load logger from context
 	retrieved := logger.Load(ctx)
 
 	assert.Equal(t, testLogger, retrieved)
 }
 
-func TestLoadDefault(t *testing.T) {
+func TestLogger_LoadDefault(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 
-	// Load without saving should return default
 	retrieved := logger.Load(ctx)
 
 	assert.NotNil(t, retrieved)
 	assert.Equal(t, slog.Default(), retrieved)
 }
 
-func TestNewTestLogger(t *testing.T) {
+func TestLogger_NewTestLogger(t *testing.T) {
 	t.Parallel()
 
 	testLogger := logger.NewTestLogger()
 
 	assert.NotNil(t, testLogger)
-	assert.True(t, testLogger.Enabled(context.Background(), slog.LevelDebug))
+	assert.True(t, testLogger.Enabled(t.Context(), slog.LevelDebug))
 }
 
-func TestNewLogger(t *testing.T) {
+func TestLogger_NewLogger(t *testing.T) {
 	t.Parallel()
 
 	infoLogger := logger.NewLogger(slog.LevelInfo)
 
 	assert.NotNil(t, infoLogger)
-	assert.False(t, infoLogger.Enabled(context.Background(), slog.LevelDebug))
-	assert.True(t, infoLogger.Enabled(context.Background(), slog.LevelInfo))
+	assert.False(t, infoLogger.Enabled(t.Context(), slog.LevelDebug))
+	assert.True(t, infoLogger.Enabled(t.Context(), slog.LevelInfo))
 }

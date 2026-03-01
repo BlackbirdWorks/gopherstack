@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
@@ -97,6 +96,10 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	return action
 }
 
+type extractQueueURLInput struct {
+	QueueURL string `json:"QueueUrl"`
+}
+
 // ExtractResource extracts the queue name from the JSON request body's QueueUrl field.
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	body, err := httputil.ReadBody(c.Request())
@@ -104,9 +107,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return ""
 	}
 
-	var req struct {
-		QueueURL string `json:"QueueUrl"`
-	}
+	var req extractQueueURLInput
 
 	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
 		return ""
@@ -118,33 +119,19 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function for SQS operations.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		ctx := c.Request().Context()
-		log := logger.Load(ctx)
-
-		body, err := httputil.ReadBody(c.Request())
-		if err != nil {
-			log.ErrorContext(ctx, "failed to read SQS request body", "error", err)
-
-			return c.String(http.StatusInternalServerError, "internal server error")
-		}
-
-		action := strings.TrimPrefix(c.Request().Header.Get("X-Amz-Target"), "AmazonSQS.")
-		requestID := uuid.New().String()
-
-		if action == "" {
-			h.writeError(c.Response(), ErrUnknownAction, requestID)
-
-			return nil
-		}
-
-		log.DebugContext(ctx, "SQS request", "action", action)
-		h.dispatch(ctx, c.Response(), c.Request(), body, action, requestID)
-
-		return nil
+		return service.HandleTarget(
+			c, logger.Load(c.Request().Context()),
+			"SQS", "application/x-amz-json-1.1",
+			h.GetSupportedOperations(),
+			func(ctx context.Context, action string, body []byte) ([]byte, error) {
+				return h.sqsRoute(ctx, c.Request(), action, body)
+			},
+			h.handleError,
+		)
 	}
 }
 
-type sqsDispatchFn func(ctx context.Context, w http.ResponseWriter, r *http.Request, body []byte, requestID string)
+type sqsDispatchFn func(ctx context.Context, r *http.Request, body []byte) (any, error)
 
 func (h *Handler) sqsDispatchTable() map[string]sqsDispatchFn {
 	return map[string]sqsDispatchFn{
@@ -168,22 +155,26 @@ func (h *Handler) sqsDispatchTable() map[string]sqsDispatchFn {
 	}
 }
 
-// dispatch routes the action to the appropriate handler method.
-func (h *Handler) dispatch(
-	ctx context.Context,
-	w http.ResponseWriter,
-	r *http.Request,
-	body []byte,
-	action, requestID string,
-) {
+// sqsRoute dispatches an SQS action to the appropriate handler method.
+func (h *Handler) sqsRoute(ctx context.Context, r *http.Request, action string, body []byte) ([]byte, error) {
 	fn, ok := h.sqsDispatchTable()[action]
 	if !ok {
-		h.writeError(w, ErrUnknownAction, requestID)
-
-		return
+		return nil, ErrUnknownAction
 	}
 
-	fn(ctx, w, r, body, requestID)
+	result, err := fn(ctx, r, body)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(result)
+}
+
+// handleError writes an SQS error response using the standard error details mapping.
+func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
+	errType, message, status := errorDetails(err)
+
+	return c.JSON(status, jsonSQSError{Type: errType, Message: message})
 }
 
 // --- JSON request types ---
@@ -364,16 +355,12 @@ type jsonSQSError struct {
 
 func (h *Handler) handleCreateQueue(
 	ctx context.Context,
-	w http.ResponseWriter,
 	r *http.Request,
 	body []byte,
-	requestID string,
-) {
+) (any, error) {
 	var req jsonCreateQueueReq
 	if err := json.Unmarshal(body, &req); err != nil {
-		h.writeError(w, ErrUnknownAction, requestID)
-
-		return
+		return nil, ErrUnknownAction
 	}
 
 	endpoint := h.Endpoint
@@ -394,44 +381,34 @@ func (h *Handler) handleCreateQueue(
 			logger.Load(ctx).WarnContext(ctx, "CreateQueue failed", "error", err)
 		}
 
-		h.writeError(w, err, requestID)
-
-		return
+		return nil, err
 	}
 
-	httputil.WriteJSON(h.Logger, w, http.StatusOK, jsonQueueURLResp{QueueURL: out.QueueURL})
+	return jsonQueueURLResp{QueueURL: out.QueueURL}, nil
 }
 
 func (h *Handler) handleDeleteQueue(
 	_ context.Context,
-	w http.ResponseWriter,
 	_ *http.Request,
 	body []byte,
-	requestID string,
-) {
+) (any, error) {
 	var req jsonQueueURLReq
 	if err := json.Unmarshal(body, &req); err != nil {
-		h.writeError(w, ErrUnknownAction, requestID)
-
-		return
+		return nil, ErrUnknownAction
 	}
 
 	if err := h.Backend.DeleteQueue(&DeleteQueueInput{QueueURL: req.QueueURL}); err != nil {
-		h.writeError(w, err, requestID)
-
-		return
+		return nil, err
 	}
 
-	httputil.WriteJSON(h.Logger, w, http.StatusOK, struct{}{})
+	return struct{}{}, nil
 }
 
 func (h *Handler) handleListQueues(
 	_ context.Context,
-	w http.ResponseWriter,
 	_ *http.Request,
 	body []byte,
-	requestID string,
-) {
+) (any, error) {
 	var req jsonListQueuesReq
 	// ListQueues body may be empty; ignore unmarshal errors
 	_ = json.Unmarshal(body, &req)
@@ -440,9 +417,7 @@ func (h *Handler) handleListQueues(
 		QueueNamePrefix: req.QueueNamePrefix,
 	})
 	if err != nil {
-		h.writeError(w, err, requestID)
-
-		return
+		return nil, err
 	}
 
 	queueURLs := out.QueueURLs
@@ -450,45 +425,35 @@ func (h *Handler) handleListQueues(
 		queueURLs = []string{}
 	}
 
-	httputil.WriteJSON(h.Logger, w, http.StatusOK, jsonListQueuesResp{QueueURLs: queueURLs})
+	return jsonListQueuesResp{QueueURLs: queueURLs}, nil
 }
 
 func (h *Handler) handleGetQueueURL(
 	_ context.Context,
-	w http.ResponseWriter,
 	_ *http.Request,
 	body []byte,
-	requestID string,
-) {
+) (any, error) {
 	var req jsonGetQueueURLReq
 	if err := json.Unmarshal(body, &req); err != nil {
-		h.writeError(w, ErrUnknownAction, requestID)
-
-		return
+		return nil, ErrUnknownAction
 	}
 
 	out, err := h.Backend.GetQueueURL(&GetQueueURLInput{QueueName: req.QueueName})
 	if err != nil {
-		h.writeError(w, err, requestID)
-
-		return
+		return nil, err
 	}
 
-	httputil.WriteJSON(h.Logger, w, http.StatusOK, jsonQueueURLResp{QueueURL: out.QueueURL})
+	return jsonQueueURLResp{QueueURL: out.QueueURL}, nil
 }
 
 func (h *Handler) handleGetQueueAttributes(
 	_ context.Context,
-	w http.ResponseWriter,
 	_ *http.Request,
 	body []byte,
-	requestID string,
-) {
+) (any, error) {
 	var req jsonGetQueueAttributesReq
 	if err := json.Unmarshal(body, &req); err != nil {
-		h.writeError(w, ErrUnknownAction, requestID)
-
-		return
+		return nil, ErrUnknownAction
 	}
 
 	out, err := h.Backend.GetQueueAttributes(&GetQueueAttributesInput{
@@ -496,9 +461,7 @@ func (h *Handler) handleGetQueueAttributes(
 		AttributeNames: req.AttributeNames,
 	})
 	if err != nil {
-		h.writeError(w, err, requestID)
-
-		return
+		return nil, err
 	}
 
 	attrs := out.Attributes
@@ -506,47 +469,37 @@ func (h *Handler) handleGetQueueAttributes(
 		attrs = map[string]string{}
 	}
 
-	httputil.WriteJSON(h.Logger, w, http.StatusOK, jsonGetQueueAttributesResp{Attributes: attrs})
+	return jsonGetQueueAttributesResp{Attributes: attrs}, nil
 }
 
 func (h *Handler) handleSetQueueAttributes(
 	_ context.Context,
-	w http.ResponseWriter,
 	_ *http.Request,
 	body []byte,
-	requestID string,
-) {
+) (any, error) {
 	var req jsonSetQueueAttributesReq
 	if err := json.Unmarshal(body, &req); err != nil {
-		h.writeError(w, ErrUnknownAction, requestID)
-
-		return
+		return nil, ErrUnknownAction
 	}
 
 	if err := h.Backend.SetQueueAttributes(&SetQueueAttributesInput{
 		QueueURL:   req.QueueURL,
 		Attributes: req.Attributes,
 	}); err != nil {
-		h.writeError(w, err, requestID)
-
-		return
+		return nil, err
 	}
 
-	httputil.WriteJSON(h.Logger, w, http.StatusOK, struct{}{})
+	return struct{}{}, nil
 }
 
 func (h *Handler) handleSendMessage(
 	_ context.Context,
-	w http.ResponseWriter,
 	_ *http.Request,
 	body []byte,
-	requestID string,
-) {
+) (any, error) {
 	var req jsonSendMessageReq
 	if err := json.Unmarshal(body, &req); err != nil {
-		h.writeError(w, ErrUnknownAction, requestID)
-
-		return
+		return nil, ErrUnknownAction
 	}
 
 	out, err := h.Backend.SendMessage(&SendMessageInput{
@@ -558,31 +511,25 @@ func (h *Handler) handleSendMessage(
 		MessageAttributes:      toMessageAttributeValues(req.MessageAttributes),
 	})
 	if err != nil {
-		h.writeError(w, err, requestID)
-
-		return
+		return nil, err
 	}
 
-	httputil.WriteJSON(h.Logger, w, http.StatusOK, jsonSendMessageResp{
+	return jsonSendMessageResp{
 		MessageID:              out.MessageID,
 		MD5OfMessageBody:       out.MD5OfBody,
 		MD5OfMessageAttributes: out.MD5OfMessageAttributes,
 		SequenceNumber:         "",
-	})
+	}, nil
 }
 
 func (h *Handler) handleReceiveMessage(
 	_ context.Context,
-	w http.ResponseWriter,
 	_ *http.Request,
 	body []byte,
-	requestID string,
-) {
+) (any, error) {
 	var req jsonReceiveMessageReq
 	if err := json.Unmarshal(body, &req); err != nil {
-		h.writeError(w, ErrUnknownAction, requestID)
-
-		return
+		return nil, ErrUnknownAction
 	}
 
 	vt := noVisibilitySet
@@ -598,9 +545,7 @@ func (h *Handler) handleReceiveMessage(
 		AttributeNames:      req.AttributeNames,
 	})
 	if err != nil {
-		h.writeError(w, err, requestID)
-
-		return
+		return nil, err
 	}
 
 	msgs := make([]jsonReceivedMessage, 0, len(out.Messages))
@@ -621,47 +566,37 @@ func (h *Handler) handleReceiveMessage(
 		})
 	}
 
-	httputil.WriteJSON(h.Logger, w, http.StatusOK, jsonReceiveMessageResp{Messages: msgs})
+	return jsonReceiveMessageResp{Messages: msgs}, nil
 }
 
 func (h *Handler) handleDeleteMessage(
 	_ context.Context,
-	w http.ResponseWriter,
 	_ *http.Request,
 	body []byte,
-	requestID string,
-) {
+) (any, error) {
 	var req jsonDeleteMessageReq
 	if err := json.Unmarshal(body, &req); err != nil {
-		h.writeError(w, ErrUnknownAction, requestID)
-
-		return
+		return nil, ErrUnknownAction
 	}
 
 	if err := h.Backend.DeleteMessage(&DeleteMessageInput{
 		QueueURL:      req.QueueURL,
 		ReceiptHandle: req.ReceiptHandle,
 	}); err != nil {
-		h.writeError(w, err, requestID)
-
-		return
+		return nil, err
 	}
 
-	httputil.WriteJSON(h.Logger, w, http.StatusOK, struct{}{})
+	return struct{}{}, nil
 }
 
 func (h *Handler) handleChangeMessageVisibility(
 	_ context.Context,
-	w http.ResponseWriter,
 	_ *http.Request,
 	body []byte,
-	requestID string,
-) {
+) (any, error) {
 	var req jsonChangeVisibilityReq
 	if err := json.Unmarshal(body, &req); err != nil {
-		h.writeError(w, ErrUnknownAction, requestID)
-
-		return
+		return nil, ErrUnknownAction
 	}
 
 	if err := h.Backend.ChangeMessageVisibility(&ChangeMessageVisibilityInput{
@@ -669,26 +604,20 @@ func (h *Handler) handleChangeMessageVisibility(
 		ReceiptHandle:     req.ReceiptHandle,
 		VisibilityTimeout: req.VisibilityTimeout,
 	}); err != nil {
-		h.writeError(w, err, requestID)
-
-		return
+		return nil, err
 	}
 
-	httputil.WriteJSON(h.Logger, w, http.StatusOK, struct{}{})
+	return struct{}{}, nil
 }
 
 func (h *Handler) handleSendMessageBatch(
 	_ context.Context,
-	w http.ResponseWriter,
 	_ *http.Request,
 	body []byte,
-	requestID string,
-) {
+) (any, error) {
 	var req jsonSendMessageBatchReq
 	if err := json.Unmarshal(body, &req); err != nil {
-		h.writeError(w, ErrUnknownAction, requestID)
-
-		return
+		return nil, ErrUnknownAction
 	}
 
 	entries := make([]SendMessageBatchEntry, 0, len(req.Entries))
@@ -708,9 +637,7 @@ func (h *Handler) handleSendMessageBatch(
 		Entries:  entries,
 	})
 	if err != nil {
-		h.writeError(w, err, requestID)
-
-		return
+		return nil, err
 	}
 
 	result := jsonBatchResult{
@@ -737,21 +664,17 @@ func (h *Handler) handleSendMessageBatch(
 		})
 	}
 
-	httputil.WriteJSON(h.Logger, w, http.StatusOK, result)
+	return result, nil
 }
 
 func (h *Handler) handleDeleteMessageBatch(
 	_ context.Context,
-	w http.ResponseWriter,
 	_ *http.Request,
 	body []byte,
-	requestID string,
-) {
+) (any, error) {
 	var req jsonDeleteMessageBatchReq
 	if err := json.Unmarshal(body, &req); err != nil {
-		h.writeError(w, ErrUnknownAction, requestID)
-
-		return
+		return nil, ErrUnknownAction
 	}
 
 	entries := make([]DeleteMessageBatchEntry, 0, len(req.Entries))
@@ -768,9 +691,7 @@ func (h *Handler) handleDeleteMessageBatch(
 		Entries:  entries,
 	})
 	if err != nil {
-		h.writeError(w, err, requestID)
-
-		return
+		return nil, err
 	}
 
 	result := jsonBatchResult{
@@ -792,21 +713,17 @@ func (h *Handler) handleDeleteMessageBatch(
 		})
 	}
 
-	httputil.WriteJSON(h.Logger, w, http.StatusOK, result)
+	return result, nil
 }
 
 func (h *Handler) handleChangeMessageVisibilityBatch(
 	_ context.Context,
-	w http.ResponseWriter,
 	_ *http.Request,
 	body []byte,
-	requestID string,
-) {
+) (any, error) {
 	var req jsonChangeVisibilityBatchReq
 	if err := json.Unmarshal(body, &req); err != nil {
-		h.writeError(w, ErrUnknownAction, requestID)
-
-		return
+		return nil, ErrUnknownAction
 	}
 
 	entries := make([]ChangeMessageVisibilityBatchRequestEntry, 0, len(req.Entries))
@@ -824,9 +741,7 @@ func (h *Handler) handleChangeMessageVisibilityBatch(
 		Entries:  entries,
 	})
 	if err != nil {
-		h.writeError(w, err, requestID)
-
-		return
+		return nil, err
 	}
 
 	result := jsonBatchResult{
@@ -848,103 +763,79 @@ func (h *Handler) handleChangeMessageVisibilityBatch(
 		})
 	}
 
-	httputil.WriteJSON(h.Logger, w, http.StatusOK, result)
+	return result, nil
 }
 
 func (h *Handler) handlePurgeQueue(
 	_ context.Context,
-	w http.ResponseWriter,
 	_ *http.Request,
 	body []byte,
-	requestID string,
-) {
+) (any, error) {
 	var req jsonQueueURLReq
 	if err := json.Unmarshal(body, &req); err != nil {
-		h.writeError(w, ErrUnknownAction, requestID)
-
-		return
+		return nil, ErrUnknownAction
 	}
 
 	if err := h.Backend.PurgeQueue(&PurgeQueueInput{QueueURL: req.QueueURL}); err != nil {
-		h.writeError(w, err, requestID)
-
-		return
+		return nil, err
 	}
 
-	httputil.WriteJSON(h.Logger, w, http.StatusOK, struct{}{})
+	return struct{}{}, nil
 }
 
 func (h *Handler) handleTagQueue(
 	_ context.Context,
-	w http.ResponseWriter,
 	_ *http.Request,
 	body []byte,
-	requestID string,
-) {
+) (any, error) {
 	var req jsonTagQueueReq
 	if err := json.Unmarshal(body, &req); err != nil {
-		h.writeError(w, ErrUnknownAction, requestID)
-
-		return
+		return nil, ErrUnknownAction
 	}
 
 	if err := h.Backend.TagQueue(&TagQueueInput{
 		QueueURL: req.QueueURL,
 		Tags:     req.Tags,
 	}); err != nil {
-		h.writeError(w, err, requestID)
-
-		return
+		return nil, err
 	}
 
-	httputil.WriteJSON(h.Logger, w, http.StatusOK, struct{}{})
+	return struct{}{}, nil
 }
 
 func (h *Handler) handleUntagQueue(
 	_ context.Context,
-	w http.ResponseWriter,
 	_ *http.Request,
 	body []byte,
-	requestID string,
-) {
+) (any, error) {
 	var req jsonUntagQueueReq
 	if err := json.Unmarshal(body, &req); err != nil {
-		h.writeError(w, ErrUnknownAction, requestID)
-
-		return
+		return nil, ErrUnknownAction
 	}
 
 	if err := h.Backend.UntagQueue(&UntagQueueInput{
 		QueueURL: req.QueueURL,
 		TagKeys:  req.TagKeys,
 	}); err != nil {
-		h.writeError(w, err, requestID)
-
-		return
+		return nil, err
 	}
 
-	httputil.WriteJSON(h.Logger, w, http.StatusOK, struct{}{})
+	return struct{}{}, nil
 }
 
 func (h *Handler) handleListQueueTags(
 	_ context.Context,
-	w http.ResponseWriter,
 	_ *http.Request,
 	body []byte,
-	requestID string,
-) {
+) (any, error) {
 	var req jsonQueueURLReq
 	if err := json.Unmarshal(body, &req); err != nil {
-		h.writeError(w, ErrUnknownAction, requestID)
-
-		return
+		return nil, ErrUnknownAction
 	}
 
 	out, err := h.Backend.ListQueueTags(&ListQueueTagsInput{QueueURL: req.QueueURL})
 	if err != nil {
-		h.writeError(w, err, requestID)
-
-		return
+		return nil, err
 	}
 
 	tags := out.Tags
@@ -952,16 +843,7 @@ func (h *Handler) handleListQueueTags(
 		tags = map[string]string{}
 	}
 
-	httputil.WriteJSON(h.Logger, w, http.StatusOK, jsonListQueueTagsResp{Tags: tags})
-}
-
-// writeError writes a JSON SQS error response.
-func (h *Handler) writeError(w http.ResponseWriter, err error, _ string) {
-	errType, message, status := errorDetails(err)
-	httputil.WriteJSON(h.Logger, w, status, jsonSQSError{
-		Type:    errType,
-		Message: message,
-	})
+	return jsonListQueueTagsResp{Tags: tags}, nil
 }
 
 // errorDetails maps an error to its SQS JSON error type, message, and HTTP status.

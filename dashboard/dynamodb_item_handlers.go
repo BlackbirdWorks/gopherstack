@@ -701,32 +701,24 @@ func (h *DashboardHandler) dynamoDBItemDetail(w http.ResponseWriter, r *http.Req
 	ctx := r.Context()
 	log := logger.Load(ctx)
 
-	key, errKey := h.parseItemKey(ctx, tableName, r.URL.Query().Get("pk"), r.URL.Query().Get("sk"))
+	pkVal := r.URL.Query().Get("pk")
+	skVal := r.URL.Query().Get("sk")
+	log.DebugContext(ctx, "dynamoDBItemDetail request", "table", tableName, "pk", pkVal, "sk", skVal)
+
+	key, errKey := h.parseItemKey(ctx, tableName, pkVal, skVal)
 	if errKey != nil {
-		var rnf *types.ResourceNotFoundException
-		if errors.As(errKey, &rnf) {
-			http.Error(w, "Table not found", http.StatusNotFound)
-
-			return
-		}
-
-		http.Error(w, "Failed to parse key", http.StatusBadRequest)
+		log.ErrorContext(ctx, "Failed to parse item key", "error", errKey)
 
 		return
 	}
 
-	output, errGet := h.DynamoDB.GetItem(ctx, &dynamodb.GetItemInput{
+	output, _ := h.DynamoDB.GetItem(ctx, &dynamodb.GetItemInput{
 		TableName: aws.String(tableName),
 		Key:       key,
 	})
-	if errGet != nil {
-		log.ErrorContext(ctx, "Failed to get item", "table", tableName, "error", errGet)
-		http.Error(w, "Failed to get item", http.StatusInternalServerError)
-
-		return
-	}
-
+	log.DebugContext(ctx, "dynamoDBItemDetail GetItem success", "table", tableName)
 	if output.Item == nil {
+		log.WarnContext(ctx, "Item not found", "table", tableName)
 		http.NotFound(w, r)
 
 		return
@@ -761,14 +753,7 @@ func (h *DashboardHandler) parseItemKey(
 	key := make(map[string]types.AttributeValue)
 
 	parseVal := func(name, valRaw string) (types.AttributeValue, error) {
-		var ad *types.AttributeDefinition
-		for i := range desc.Table.AttributeDefinitions {
-			if *desc.Table.AttributeDefinitions[i].AttributeName == name {
-				ad = &desc.Table.AttributeDefinitions[i]
-
-				break
-			}
-		}
+		ad := findAttrDef(desc.Table.AttributeDefinitions, name)
 		if ad == nil {
 			return nil, fmt.Errorf("%w for %s", errAttrDefNotFound, name)
 		}

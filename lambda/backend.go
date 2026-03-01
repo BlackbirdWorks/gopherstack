@@ -23,6 +23,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 )
@@ -214,7 +215,7 @@ func (b *InMemoryBackend) CreateEventSourceMapping(input *CreateEventSourceMappi
 		startingPosition = "TRIM_HORIZON"
 	}
 
-	fnARN := fmt.Sprintf("arn:aws:lambda:%s:%s:function:%s", b.region, b.accountID, input.FunctionName)
+	fnARN := arn.Build("lambda", b.region, b.accountID, "function:"+input.FunctionName)
 
 	m := &EventSourceMapping{
 		UUID:             id,
@@ -538,7 +539,7 @@ func writeFunctionURLBody(w http.ResponseWriter, resp lambdaURLResponse) {
 
 // buildURLARN constructs an ARN for a Lambda function URL.
 func buildURLARN(region, accountID, functionName string) string {
-	return fmt.Sprintf("arn:aws:lambda:%s:%s:function:%s", region, accountID, functionName)
+	return arn.Build("lambda", region, accountID, "function:"+functionName)
 }
 
 // CreateFunction stores a new Lambda function configuration.
@@ -715,6 +716,17 @@ func (b *InMemoryBackend) ListVersionsByFunction(name string) ([]*FunctionVersio
 	return result, nil
 }
 
+// versionInList reports whether target matches any version in the list.
+func versionInList(versions []*FunctionVersion, target string) bool {
+	for _, v := range versions {
+		if v.Version == target {
+			return true
+		}
+	}
+
+	return false
+}
+
 // CreateAlias creates a new alias for a Lambda function pointing to a version.
 func (b *InMemoryBackend) CreateAlias(name string, input *CreateAliasInput) (*FunctionAlias, error) {
 	b.mu.Lock()
@@ -726,17 +738,7 @@ func (b *InMemoryBackend) CreateAlias(name string, input *CreateAliasInput) (*Fu
 
 	// Validate the target version: must be "$LATEST" or an existing published version.
 	if input.FunctionVersion != versionLatest {
-		found := false
-
-		for _, v := range b.versions[name] {
-			if v.Version == input.FunctionVersion {
-				found = true
-
-				break
-			}
-		}
-
-		if !found {
+		if !versionInList(b.versions[name], input.FunctionVersion) {
 			return nil, ErrVersionNotFound
 		}
 	}
@@ -951,12 +953,12 @@ func versionToFn(v *FunctionVersion) *FunctionConfiguration {
 
 // buildVersionARN constructs a Lambda function version ARN.
 func buildVersionARN(region, accountID, functionName, version string) string {
-	return fmt.Sprintf("arn:aws:lambda:%s:%s:function:%s:%s", region, accountID, functionName, version)
+	return arn.Build("lambda", region, accountID, "function:"+functionName+":"+version)
 }
 
 // buildAliasARN constructs a Lambda function alias ARN.
 func buildAliasARN(region, accountID, functionName, aliasName string) string {
-	return fmt.Sprintf("arn:aws:lambda:%s:%s:function:%s:%s", region, accountID, functionName, aliasName)
+	return arn.Build("lambda", region, accountID, "function:"+functionName+":"+aliasName)
 }
 
 // InvokeFunction invokes a Lambda function without a qualifier (equivalent to "$LATEST").

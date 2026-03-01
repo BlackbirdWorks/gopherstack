@@ -65,7 +65,6 @@ import (
 	sqsbackend "github.com/blackbirdworks/gopherstack/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/ssm"
 	sfnbackend "github.com/blackbirdworks/gopherstack/stepfunctions"
-	sfnasl "github.com/blackbirdworks/gopherstack/stepfunctions/asl"
 	stsbackend "github.com/blackbirdworks/gopherstack/sts"
 	supportbackend "github.com/blackbirdworks/gopherstack/support"
 	swfbackend "github.com/blackbirdworks/gopherstack/swf"
@@ -74,7 +73,7 @@ import (
 
 const (
 	defaultPort     = "8000"
-	defaultRegion   = "us-east-1"
+	defaultRegion   = config.DefaultRegion
 	defaultTimeout  = 30 * time.Second
 	shutdownTimeout = 5 * time.Second
 )
@@ -547,41 +546,53 @@ func initializeClients(cli *CLI, awsCfg aws.Config) {
 	)
 }
 
-// storeCLIHandlers assigns initialized service handlers to the CLI fields.
+// serviceByName builds a lookup map from service Name() to the service instance.
+func serviceByName(services []service.Registerable) map[string]service.Registerable {
+	m := make(map[string]service.Registerable, len(services))
+	for _, svc := range services {
+		m[svc.Name()] = svc
+	}
+
+	return m
+}
+
+// storeCLIHandlers assigns initialized service handlers to the CLI fields using name-based lookup.
 func storeCLIHandlers(cli *CLI, services []service.Registerable) {
-	cli.ddbHandler = services[0]
-	cli.s3Handler = services[1]
-	cli.ssmHandler = services[2]
-	cli.iamHandler = services[3]
-	cli.stsHandler = services[4]
-	cli.snsHandler = services[5]
-	cli.sqsHandler = services[6]
-	cli.kmsHandler = services[7]
-	cli.secretsManagerHandler = services[8]
-	cli.lambdaHandler = services[9]
-	cli.eventBridgeHandler = services[10]
-	cli.apiGatewayHandler = services[11]
-	cli.cloudWatchLogsHandler = services[12]
-	cli.stepFunctionsHandler = services[13]
-	cli.cloudWatchHandler = services[14]
-	cli.kinesisHandler = services[15]
-	cli.elasticacheHandler = services[16]
-	cli.route53Handler = services[17]
-	cli.sesHandler = services[18]
-	cli.ec2Handler = services[19]
-	cli.openSearchHandler = services[20]
-	cli.acmHandler = services[21]
-	cli.redshiftHandler = services[22]
-	cli.awsconfigHandler = services[23]
-	cli.s3controlHandler = services[24]
-	cli.resourcegroupsHandler = services[25]
-	cli.swfHandler = services[26]
-	cli.firehoseHandler = services[27]
-	cli.schedulerHandler = services[28]
-	cli.route53resolverHandler = services[29]
-	cli.rdsHandler = services[30]
-	cli.transcribeHandler = services[31]
-	cli.supportHandler = services[32]
+	byName := serviceByName(services)
+
+	cli.ddbHandler = byName["DynamoDB"]
+	cli.s3Handler = byName["S3"]
+	cli.ssmHandler = byName["SSM"]
+	cli.iamHandler = byName["IAM"]
+	cli.stsHandler = byName["STS"]
+	cli.snsHandler = byName["SNS"]
+	cli.sqsHandler = byName["SQS"]
+	cli.kmsHandler = byName["KMS"]
+	cli.secretsManagerHandler = byName["SecretsManager"]
+	cli.lambdaHandler = byName["Lambda"]
+	cli.eventBridgeHandler = byName["EventBridge"]
+	cli.apiGatewayHandler = byName["APIGateway"]
+	cli.cloudWatchLogsHandler = byName["CloudWatchLogs"]
+	cli.stepFunctionsHandler = byName["StepFunctions"]
+	cli.cloudWatchHandler = byName["CloudWatch"]
+	cli.kinesisHandler = byName["Kinesis"]
+	cli.elasticacheHandler = byName["ElastiCache"]
+	cli.route53Handler = byName["Route53"]
+	cli.sesHandler = byName["SES"]
+	cli.ec2Handler = byName["EC2"]
+	cli.openSearchHandler = byName["OpenSearch"]
+	cli.acmHandler = byName["ACM"]
+	cli.redshiftHandler = byName["Redshift"]
+	cli.awsconfigHandler = byName["AWSConfig"]
+	cli.s3controlHandler = byName["S3Control"]
+	cli.resourcegroupsHandler = byName["ResourceGroups"]
+	cli.swfHandler = byName["SWF"]
+	cli.firehoseHandler = byName["Firehose"]
+	cli.schedulerHandler = byName["Scheduler"]
+	cli.route53resolverHandler = byName["Route53Resolver"]
+	cli.rdsHandler = byName["RDS"]
+	cli.transcribeHandler = byName["Transcribe"]
+	cli.supportHandler = byName["Support"]
 }
 
 // initializeServices initializes all service providers.
@@ -637,29 +648,32 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		storeCLIHandlers(cli, services)
 	}
 
+	// Build name-based lookup for cross-service wiring.
+	byName := serviceByName(services)
+
 	// Wire SNS→SQS delivery: when SNS publishes a message, deliver it to SQS queues.
-	wireSNSToSQS(services[5], services[6])
+	wireSNSToSQS(byName["SNS"], byName["SQS"])
 
 	// Wire EventBridge target fan-out: deliver events to Lambda, SQS, SNS targets.
-	wireEventBridgeDelivery(services[10], services[9], services[6], services[5])
+	wireEventBridgeDelivery(byName["EventBridge"], byName["Lambda"], byName["SQS"], byName["SNS"])
 
 	// Wire S3 bucket notification delivery to SQS/SNS targets.
-	wireS3Notifications(services[1], services[6], services[5])
+	wireS3Notifications(byName["S3"], byName["SQS"], byName["SNS"])
 
 	// Wire Step Functions → Lambda Task integration.
-	wireStepFunctionsLambda(services[13], services[9])
+	wireStepFunctionsLambda(byName["StepFunctions"], byName["Lambda"])
 
 	// Wire API Gateway → Lambda proxy integration.
-	wireAPIGatewayLambda(services[11], services[9])
+	wireAPIGatewayLambda(byName["APIGateway"], byName["Lambda"])
 
 	// Wire Kinesis → Lambda event source mapping poller.
-	wireKinesisLambda(services[15], services[9])
+	wireKinesisLambda(byName["Kinesis"], byName["Lambda"])
 
 	// Wire CloudWatch Logs → Lambda log delivery.
-	wireLambdaCWLogs(services[9], services[12])
+	wireLambdaCWLogs(byName["Lambda"], byName["CloudWatchLogs"])
 
 	// Wire Lambda invoker → SecretsManager rotation.
-	wireSecretsManagerLambda(services[8], services[9])
+	wireSecretsManagerLambda(byName["SecretsManager"], byName["Lambda"])
 
 	// Init CloudFormation after core handlers are stored so it can access their backends.
 	cfnSvc, err := (&cfnbackend.Provider{}).Init(appCtx)
@@ -738,7 +752,7 @@ func wireEventBridgeDelivery(ebReg, lambdaReg, sqsReg, snsReg service.Registerab
 
 	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
 		if lambdaBk, bk2Ok := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bk2Ok {
-			dt.Lambda = &lambdaInvokerAdapter{backend: lambdaBk}
+			dt.Lambda = lambdaBk
 		}
 	}
 
@@ -755,19 +769,6 @@ func wireEventBridgeDelivery(ebReg, lambdaReg, sqsReg, snsReg service.Registerab
 	}
 
 	ebBk.SetDeliveryTargets(dt)
-}
-
-// lambdaInvokerAdapter adapts the Lambda backend to the eventbridge.LambdaInvoker interface.
-type lambdaInvokerAdapter struct {
-	backend *lambdabackend.InMemoryBackend
-}
-
-func (a *lambdaInvokerAdapter) InvokeFunction(
-	ctx context.Context, name, invocationType string, payload []byte,
-) ([]byte, int, error) {
-	it := lambdabackend.InvocationType(invocationType)
-
-	return a.backend.InvokeFunction(ctx, name, it, payload)
 }
 
 // sqsSenderAdapter adapts the SQS backend to the eventbridge.SQSSender interface.
@@ -799,7 +800,6 @@ func (a *snsPublisherAdapter) PublishToTopic(_ context.Context, topicARN, messag
 
 // wireS3Notifications connects the S3 handler to SQS and SNS backends so that
 // bucket notification configurations are honoured on PutObject and DeleteObject.
-// s3Reg, sqsReg, snsReg must be services[1], services[6], services[5].
 func wireS3Notifications(s3Reg, sqsReg, snsReg service.Registerable) {
 	s3H, ok := s3Reg.(*s3backend.S3Handler)
 	if !ok {
@@ -820,7 +820,7 @@ func wireS3Notifications(s3Reg, sqsReg, snsReg service.Registerable) {
 		}
 	}
 
-	s3H.SetNotificationDispatcher(s3backend.NewNotificationDispatcher(targets, "us-east-1"))
+	s3H.SetNotificationDispatcher(s3backend.NewNotificationDispatcher(targets, config.DefaultRegion))
 }
 
 // s3SNSPublisherAdapter adapts the SNS backend to the s3.SNSPublisher interface.
@@ -844,22 +844,9 @@ func wireAPIGatewayLambda(apigwReg, lambdaReg service.Registerable) {
 
 	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
 		if lambdaBk, bkOk := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bkOk {
-			apigwH.SetLambdaInvoker(&apigwLambdaInvokerAdapter{backend: lambdaBk})
+			apigwH.SetLambdaInvoker(lambdaBk)
 		}
 	}
-}
-
-// apigwLambdaInvokerAdapter adapts the Lambda backend to the apigateway.LambdaInvoker interface.
-type apigwLambdaInvokerAdapter struct {
-	backend *lambdabackend.InMemoryBackend
-}
-
-func (a *apigwLambdaInvokerAdapter) InvokeFunction(
-	ctx context.Context, name, invocationType string, payload []byte,
-) ([]byte, int, error) {
-	it := lambdabackend.InvocationType(invocationType)
-
-	return a.backend.InvokeFunction(ctx, name, it, payload)
 }
 
 // so that Task states with Lambda resources can invoke functions.
@@ -876,26 +863,10 @@ func wireStepFunctionsLambda(sfnReg, lambdaReg service.Registerable) {
 
 	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
 		if lambdaBk, bk2Ok := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bk2Ok {
-			sfnBk.SetLambdaInvoker(&sfnLambdaInvokerAdapter{backend: lambdaBk})
+			sfnBk.SetLambdaInvoker(lambdaBk)
 		}
 	}
 }
-
-// sfnLambdaInvokerAdapter adapts the Lambda backend to the asl.LambdaInvoker interface.
-type sfnLambdaInvokerAdapter struct {
-	backend *lambdabackend.InMemoryBackend
-}
-
-func (a *sfnLambdaInvokerAdapter) InvokeFunction(
-	ctx context.Context, name, invocationType string, payload []byte,
-) ([]byte, int, error) {
-	it := lambdabackend.InvocationType(invocationType)
-
-	return a.backend.InvokeFunction(ctx, name, it, payload)
-}
-
-// Ensure sfnLambdaInvokerAdapter implements sfnasl.LambdaInvoker.
-var _ sfnasl.LambdaInvoker = (*sfnLambdaInvokerAdapter)(nil)
 
 // wireKinesisLambda connects the Kinesis backend to the Lambda event source poller
 // so that records written to Kinesis streams trigger Lambda functions with active
@@ -1057,7 +1028,7 @@ func wireSecretsManagerLambda(smReg, lambdaReg service.Registerable) {
 
 	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
 		if lambdaBk, bkOk := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bkOk {
-			smH.SetLambdaInvoker(&lambdaInvokerAdapter{backend: lambdaBk})
+			smH.SetLambdaInvoker(lambdaBk)
 		}
 	}
 }

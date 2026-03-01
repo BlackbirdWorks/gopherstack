@@ -15,6 +15,8 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/dynamodb/models"
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -68,7 +70,7 @@ func NewHandler(backend StorageBackend, logger *slog.Logger) *DynamoDBHandler {
 	h := &DynamoDBHandler{
 		Backend:       backend,
 		Logger:        logger,
-		DefaultRegion: "us-east-1",
+		DefaultRegion: config.DefaultRegion,
 	}
 
 	if sb, ok := backend.(StreamsBackend); ok {
@@ -82,7 +84,7 @@ func NewHandler(backend StorageBackend, logger *slog.Logger) *DynamoDBHandler {
 func (h *DynamoDBHandler) WithJanitor(settings Settings) *DynamoDBHandler {
 	h.DefaultRegion = settings.DefaultRegion
 	if h.DefaultRegion == "" {
-		h.DefaultRegion = "us-east-1"
+		h.DefaultRegion = config.DefaultRegion
 	}
 	if memBackend, ok := h.Backend.(*InMemoryDB); ok {
 		memBackend.SetDefaultRegion(h.DefaultRegion)
@@ -217,9 +219,7 @@ func (h *DynamoDBHandler) RouteMatcher() service.Matcher {
 // MatchPriority returns the priority for the DynamoDB matcher.
 // Header-based matchers have high priority (100).
 func (h *DynamoDBHandler) MatchPriority() int {
-	const priority = 100
-
-	return priority
+	return service.PriorityHeaderExact
 }
 
 // ExtractOperation extracts the DynamoDB operation from the X-Amz-Target header.
@@ -647,10 +647,12 @@ func (h *DynamoDBHandler) classifyError(reqErr error) (int, *Error) {
 	}
 }
 
+type describeContinuousBackupsInput struct {
+	TableName string `json:"TableName"`
+}
+
 func (h *DynamoDBHandler) describeContinuousBackups(_ context.Context, body []byte) (any, error) {
-	var req struct {
-		TableName string `json:"TableName"`
-	}
+	var req describeContinuousBackupsInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
 	}
@@ -665,13 +667,15 @@ func (h *DynamoDBHandler) describeContinuousBackups(_ context.Context, body []by
 	}, nil
 }
 
+type updateContinuousBackupsInput struct {
+	TableName                        string `json:"TableName"`
+	PointInTimeRecoverySpecification struct {
+		PointInTimeRecoveryEnabled bool `json:"PointInTimeRecoveryEnabled"`
+	} `json:"PointInTimeRecoverySpecification"`
+}
+
 func (h *DynamoDBHandler) updateContinuousBackups(_ context.Context, body []byte) (any, error) {
-	var req struct {
-		TableName                        string `json:"TableName"`
-		PointInTimeRecoverySpecification struct {
-			PointInTimeRecoveryEnabled bool `json:"PointInTimeRecoveryEnabled"`
-		} `json:"PointInTimeRecoverySpecification"`
-	}
+	var req updateContinuousBackupsInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
 	}
@@ -691,16 +695,19 @@ func (h *DynamoDBHandler) updateContinuousBackups(_ context.Context, body []byte
 	}, nil
 }
 
+type exportTableToPointInTimeInput struct {
+	TableArn string `json:"TableArn"`
+	S3Bucket string `json:"S3Bucket"`
+}
+
 func (h *DynamoDBHandler) exportTableToPointInTime(_ context.Context, body []byte) (any, error) {
-	var req struct {
-		TableArn string `json:"TableArn"`
-		S3Bucket string `json:"S3Bucket"`
-	}
+	var req exportTableToPointInTimeInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
 	}
 
-	exportArn := "arn:aws:dynamodb:us-east-1:000000000000:table/table/export/01000000-0000-0000-0000-000000000000"
+	exportArn := arn.Build("dynamodb", config.DefaultRegion, config.DefaultAccountID,
+		"table/table/export/01000000-0000-0000-0000-000000000000")
 
 	return map[string]any{
 		"ExportDescription": map[string]any{
@@ -712,10 +719,12 @@ func (h *DynamoDBHandler) exportTableToPointInTime(_ context.Context, body []byt
 	}, nil
 }
 
+type describeExportInput struct {
+	ExportArn string `json:"ExportArn"`
+}
+
 func (h *DynamoDBHandler) describeExport(_ context.Context, body []byte) (any, error) {
-	var req struct {
-		ExportArn string `json:"ExportArn"`
-	}
+	var req describeExportInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
 	}

@@ -2,7 +2,6 @@ package httputil_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/xml"
 	"errors"
 	"io"
@@ -16,8 +15,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var errSomethingWentWrong = errors.New("something went wrong")
+
+var errOops = errors.New("oops")
+
 func TestReadBody(t *testing.T) {
 	t.Parallel()
+
 	content := []byte("hello world")
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(content))
 
@@ -41,62 +45,165 @@ func TestReadBody(t *testing.T) {
 
 func TestDrainBody(t *testing.T) {
 	t.Parallel()
+
 	content := []byte("some body")
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(content))
 
 	httputil.DrainBody(req)
 
-	// Try to read again, it should be empty/closed
 	body, _ := io.ReadAll(req.Body)
 	assert.Empty(t, body)
 }
 
 func TestWriteJSON(t *testing.T) {
 	t.Parallel()
-	w := httptest.NewRecorder()
-	payload := map[string]string{"foo": "bar"}
 
-	httputil.WriteJSON(nil, w, http.StatusCreated, payload)
+	tests := []struct {
+		payload  any
+		name     string
+		wantCT   string
+		wantBody string
+		status   int
+		wantCode int
+	}{
+		{
+			name:     "success",
+			status:   http.StatusCreated,
+			payload:  map[string]string{"foo": "bar"},
+			wantCode: http.StatusCreated,
+			wantCT:   "application/json",
+			wantBody: `{"foo":"bar"}`,
+		},
+		{
+			name:     "marshal_error",
+			status:   http.StatusOK,
+			payload:  make(chan int),
+			wantCode: http.StatusInternalServerError,
+		},
+	}
 
-	assert.Equal(t, http.StatusCreated, w.Code)
-	assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
-	assert.JSONEq(t, `{"foo":"bar"}`, w.Body.String())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			w := httptest.NewRecorder()
+			httputil.WriteJSON(nil, w, tt.status, tt.payload)
+
+			assert.Equal(t, tt.wantCode, w.Code)
+			if tt.wantCT != "" {
+				assert.Equal(t, tt.wantCT, w.Header().Get("Content-Type"))
+			}
+			if tt.wantBody != "" {
+				assert.JSONEq(t, tt.wantBody, w.Body.String())
+			}
+		})
+	}
 }
 
 func TestWriteXML(t *testing.T) {
 	t.Parallel()
-	w := httptest.NewRecorder()
-	type Payload struct {
-		XMLName xml.Name `xml:"root"`
-		Foo     string   `xml:"foo"`
+
+	tests := []struct {
+		payload  any
+		name     string
+		wantCT   string
+		wantBody string
+		status   int
+		wantCode int
+	}{
+		{
+			name:   "success",
+			status: http.StatusOK,
+			payload: struct {
+				XMLName xml.Name `xml:"root"`
+				Foo     string   `xml:"foo"`
+			}{Foo: "bar"},
+			wantCode: http.StatusOK,
+			wantCT:   "application/xml",
+			wantBody: "<root><foo>bar</foo></root>",
+		},
+		{
+			name:   "marshal_error",
+			status: http.StatusOK,
+			payload: struct {
+				F func() `xml:"f"`
+			}{F: func() {}},
+			wantCode: http.StatusInternalServerError,
+		},
 	}
-	payload := Payload{Foo: "bar"}
 
-	httputil.WriteXML(nil, w, http.StatusOK, payload)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, "application/xml", w.Header().Get("Content-Type"))
-	assert.Contains(t, w.Body.String(), xml.Header)
-	assert.Contains(t, w.Body.String(), "<root><foo>bar</foo></root>")
+			w := httptest.NewRecorder()
+			httputil.WriteXML(nil, w, tt.status, tt.payload)
+
+			assert.Equal(t, tt.wantCode, w.Code)
+			if tt.wantCT != "" {
+				assert.Equal(t, tt.wantCT, w.Header().Get("Content-Type"))
+				assert.Contains(t, w.Body.String(), xml.Header)
+			}
+			if tt.wantBody != "" {
+				assert.Contains(t, w.Body.String(), tt.wantBody)
+			}
+		})
+	}
 }
 
 func TestWriteDynamoDBResponse(t *testing.T) {
 	t.Parallel()
-	w := httptest.NewRecorder()
-	payload := map[string]string{"result": "ok"}
 
-	httputil.WriteDynamoDBResponse(nil, w, http.StatusOK, payload)
+	tests := []struct {
+		payload  any
+		name     string
+		wantCT   string
+		wantBody string
+		status   int
+		wantCode int
+		wantCRC  bool
+	}{
+		{
+			name:     "success",
+			status:   http.StatusOK,
+			payload:  map[string]string{"result": "ok"},
+			wantCode: http.StatusOK,
+			wantCT:   "application/x-amz-json-1.0",
+			wantBody: `{"result":"ok"}`,
+			wantCRC:  true,
+		},
+		{
+			name:     "marshal_error",
+			status:   http.StatusOK,
+			payload:  make(chan int),
+			wantCode: http.StatusInternalServerError,
+		},
+	}
 
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, "application/x-amz-json-1.0", w.Header().Get("Content-Type"))
-	assert.NotEmpty(t, w.Header().Get("X-Amz-Crc32"))
-	assert.JSONEq(t, `{"result":"ok"}`, w.Body.String())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			w := httptest.NewRecorder()
+			httputil.WriteDynamoDBResponse(nil, w, tt.status, tt.payload)
+
+			assert.Equal(t, tt.wantCode, w.Code)
+			if tt.wantCT != "" {
+				assert.Equal(t, tt.wantCT, w.Header().Get("Content-Type"))
+			}
+			if tt.wantCRC {
+				assert.NotEmpty(t, w.Header().Get("X-Amz-Crc32"))
+			}
+			if tt.wantBody != "" {
+				assert.JSONEq(t, tt.wantBody, w.Body.String())
+			}
+		})
+	}
 }
-
-var errSomethingWentWrong = errors.New("something went wrong")
 
 func TestWriteError(t *testing.T) {
 	t.Parallel()
+
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 
@@ -108,6 +215,7 @@ func TestWriteError(t *testing.T) {
 
 func TestResponseWriter(t *testing.T) {
 	t.Parallel()
+
 	inner := httptest.NewRecorder()
 	w := httputil.NewResponseWriter(inner)
 
@@ -122,7 +230,8 @@ func TestResponseWriter(t *testing.T) {
 
 func TestContextOperations(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+
+	ctx := t.Context()
 
 	assert.Equal(t, "Unknown", httputil.GetOperation(ctx))
 	assert.Empty(t, httputil.GetResource(ctx))
@@ -134,29 +243,60 @@ func TestContextOperations(t *testing.T) {
 	assert.Equal(t, "GetItem", httputil.GetOperation(ctx))
 	assert.Equal(t, "MyTable", httputil.GetResource(ctx))
 
-	ctx = httputil.SetOperationAndResource(context.Background(), "PutItem", "AnotherTable")
+	ctx = httputil.SetOperationAndResource(t.Context(), "PutItem", "AnotherTable")
 	assert.Equal(t, "PutItem", httputil.GetOperation(ctx))
 	assert.Equal(t, "AnotherTable", httputil.GetResource(ctx))
 }
 
-var errOops = errors.New("oops")
-
 func TestEchoError(t *testing.T) {
 	t.Parallel()
-	e := echo.New()
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	rec := httptest.NewRecorder()
-	c := e.NewContext(req, rec)
 
-	res := httputil.EchoError(nil, c, http.StatusForbidden, "denied", errOops)
+	tests := []struct {
+		err      error
+		name     string
+		message  string
+		wantBody string
+		code     int
+		wantCode int
+	}{
+		{
+			name:     "with_error",
+			code:     http.StatusForbidden,
+			message:  "denied",
+			err:      errOops,
+			wantCode: http.StatusForbidden,
+			wantBody: "denied",
+		},
+		{
+			name:     "nil_error",
+			code:     http.StatusOK,
+			message:  "ok",
+			wantCode: http.StatusOK,
+			wantBody: "ok",
+		},
+	}
 
-	require.NoError(t, res)
-	assert.Equal(t, http.StatusForbidden, rec.Code)
-	assert.Equal(t, "denied", rec.Body.String())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			res := httputil.EchoError(nil, c, tt.code, tt.message, tt.err)
+
+			require.NoError(t, res)
+			assert.Equal(t, tt.wantCode, rec.Code)
+			assert.Equal(t, tt.wantBody, rec.Body.String())
+		})
+	}
 }
 
 func TestRequestIDMiddleware(t *testing.T) {
 	t.Parallel()
+
 	e := echo.New()
 	e.Use(httputil.RequestIDMiddleware())
 	e.GET("/", func(c *echo.Context) error {
@@ -169,40 +309,55 @@ func TestRequestIDMiddleware(t *testing.T) {
 
 	requestID := rec.Header().Get("X-Amz-Request-Id")
 	assert.NotEmpty(t, requestID)
-	// Should be a valid UUID (36 characters with hyphens).
 	assert.Len(t, requestID, 36)
 }
 
 func TestExtractRegionFromRequest(t *testing.T) {
 	t.Parallel()
 
-	t.Run("extracts region from SigV4 Authorization header", func(t *testing.T) {
-		t.Parallel()
-		req := httptest.NewRequest(http.MethodPost, "/", nil)
-		req.Header.Set("Authorization",
-			"AWS4-HMAC-SHA256 Credential=AKID/20240101/eu-west-1/kms/aws4_request, "+
-				"SignedHeaders=host, Signature=abc")
+	tests := []struct {
+		name          string
+		authorization string
+		xAmzRegion    string
+		defaultRegion string
+		wantRegion    string
+	}{
+		{
+			name: "sigv4",
+			authorization: "AWS4-HMAC-SHA256 Credential=AKID/20240101/eu-west-1/kms/aws4_request, " +
+				"SignedHeaders=host, Signature=abc",
+			defaultRegion: "us-east-1",
+			wantRegion:    "eu-west-1",
+		},
+		{
+			name:          "x_amz_region_header",
+			xAmzRegion:    "ap-southeast-1",
+			defaultRegion: "us-east-1",
+			wantRegion:    "ap-southeast-1",
+		},
+		{
+			name:          "default",
+			defaultRegion: "us-west-2",
+			wantRegion:    "us-west-2",
+		},
+	}
 
-		region := httputil.ExtractRegionFromRequest(req, "us-east-1")
-		assert.Equal(t, "eu-west-1", region)
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	t.Run("falls back to X-Amz-Region header", func(t *testing.T) {
-		t.Parallel()
-		req := httptest.NewRequest(http.MethodPost, "/", nil)
-		req.Header.Set("X-Amz-Region", "ap-southeast-1")
+			req := httptest.NewRequest(http.MethodPost, "/", nil)
+			if tt.authorization != "" {
+				req.Header.Set("Authorization", tt.authorization)
+			}
+			if tt.xAmzRegion != "" {
+				req.Header.Set("X-Amz-Region", tt.xAmzRegion)
+			}
 
-		region := httputil.ExtractRegionFromRequest(req, "us-east-1")
-		assert.Equal(t, "ap-southeast-1", region)
-	})
-
-	t.Run("falls back to defaultRegion when no headers", func(t *testing.T) {
-		t.Parallel()
-		req := httptest.NewRequest(http.MethodPost, "/", nil)
-
-		region := httputil.ExtractRegionFromRequest(req, "us-west-2")
-		assert.Equal(t, "us-west-2", region)
-	})
+			region := httputil.ExtractRegionFromRequest(req, tt.defaultRegion)
+			assert.Equal(t, tt.wantRegion, region)
+		})
+	}
 }
 
 func TestWriteS3ErrorResponse(t *testing.T) {
@@ -221,44 +376,4 @@ func TestWriteS3ErrorResponse(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, w.Code)
 	assert.Equal(t, "application/xml", w.Header().Get("Content-Type"))
 	assert.Contains(t, w.Body.String(), "NoSuchKey")
-}
-
-func TestWriteJSON_MarshalError(t *testing.T) {
-	t.Parallel()
-	// An un-marshallable value (channel) should cause a 500 response.
-	w := httptest.NewRecorder()
-	ch := make(chan int)
-	httputil.WriteJSON(nil, w, http.StatusOK, ch)
-	assert.Equal(t, http.StatusInternalServerError, w.Code)
-}
-
-func TestWriteXML_MarshalError(t *testing.T) {
-	t.Parallel()
-	// A function value cannot be marshalled to XML.
-	w := httptest.NewRecorder()
-	type bad struct {
-		F func() `xml:"f"`
-	}
-	httputil.WriteXML(nil, w, http.StatusOK, bad{F: func() {}})
-	assert.Equal(t, http.StatusInternalServerError, w.Code)
-}
-
-func TestWriteDynamoDBResponse_MarshalError(t *testing.T) {
-	t.Parallel()
-	w := httptest.NewRecorder()
-	ch := make(chan int)
-	httputil.WriteDynamoDBResponse(nil, w, http.StatusOK, ch)
-	assert.Equal(t, http.StatusInternalServerError, w.Code)
-}
-
-func TestEchoError_NilError(t *testing.T) {
-	t.Parallel()
-	e := echo.New()
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	rec := httptest.NewRecorder()
-	c := e.NewContext(req, rec)
-
-	res := httputil.EchoError(nil, c, http.StatusOK, "ok", nil)
-	require.NoError(t, res)
-	assert.Equal(t, http.StatusOK, rec.Code)
 }

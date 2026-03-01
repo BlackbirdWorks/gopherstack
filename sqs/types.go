@@ -7,8 +7,6 @@ import (
 
 const (
 	sqsNamespace = "http://queue.amazonaws.com/doc/2012-11-05/"
-	accountID    = "000000000000"
-	sqsRegion    = "us-east-1"
 	fifoSuffix   = ".fifo"
 
 	defaultVisibilityTimeout      = 30

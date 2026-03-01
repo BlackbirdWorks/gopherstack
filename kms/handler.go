@@ -21,6 +21,25 @@ import (
 // ErrUnknownOperation is returned when the requested KMS operation is not supported.
 var ErrUnknownOperation = errors.New("UnknownOperationException")
 
+type listResourceTagsInput struct {
+	KeyID string `json:"KeyId"` //nolint:tagliatelle // AWS API uses KeyId
+}
+
+type kmsTagEntry struct {
+	TagKey   string `json:"TagKey"`
+	TagValue string `json:"TagValue"`
+}
+
+type tagResourceInput struct {
+	KeyID string        `json:"KeyId"` //nolint:tagliatelle // AWS API uses KeyId
+	Tags  []kmsTagEntry `json:"Tags"`
+}
+
+type untagResourceInput struct {
+	KeyID   string   `json:"KeyId"` //nolint:tagliatelle // AWS API uses KeyId
+	TagKeys []string `json:"TagKeys"`
+}
+
 // Handler is the Echo HTTP handler for KMS operations.
 type Handler struct {
 	Backend       StorageBackend
@@ -117,12 +136,9 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	}
 }
 
-// kmsMatchPriority is the routing priority for the KMS handler.
-const kmsMatchPriority = 95
-
 // MatchPriority returns the routing priority for the KMS handler.
 func (h *Handler) MatchPriority() int {
-	return kmsMatchPriority
+	return service.PriorityHeaderPartial
 }
 
 // ExtractOperation extracts the KMS operation name from the X-Amz-Target header.
@@ -160,48 +176,15 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function for KMS operations.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		ctx := c.Request().Context()
-		log := logger.Load(ctx)
-
-		if c.Request().Method == http.MethodGet && c.Request().URL.Path == "/" {
-			return c.JSON(http.StatusOK, h.GetSupportedOperations())
-		}
-
-		if c.Request().Method != http.MethodPost {
-			return c.String(http.StatusMethodNotAllowed, "Method not allowed")
-		}
-
-		target := c.Request().Header.Get("X-Amz-Target")
-		if target == "" {
-			return c.String(http.StatusBadRequest, "Missing X-Amz-Target")
-		}
-
-		parts := strings.Split(target, ".")
-
-		const targetParts = 2
-		if len(parts) != targetParts {
-			return c.String(http.StatusBadRequest, "Invalid X-Amz-Target")
-		}
-
-		action := parts[1]
-
-		body, err := httputil.ReadBody(c.Request())
-		if err != nil {
-			log.ErrorContext(ctx, "failed to read request body", "error", err)
-
-			return c.String(http.StatusInternalServerError, "internal server error")
-		}
-
-		log.DebugContext(ctx, "KMS request", "action", action)
-
-		response, reqErr := h.dispatch(ctx, c.Request(), action, body)
-		if reqErr != nil {
-			return h.handleError(ctx, c, action, reqErr)
-		}
-
-		c.Response().Header().Set("Content-Type", "application/x-amz-json-1.1")
-
-		return c.JSONBlob(http.StatusOK, response)
+		return service.HandleTarget(
+			c, logger.Load(c.Request().Context()),
+			"KMS", "application/x-amz-json-1.1",
+			h.GetSupportedOperations(),
+			func(ctx context.Context, action string, body []byte) ([]byte, error) {
+				return h.dispatch(ctx, c.Request(), action, body)
+			},
+			h.handleError,
+		)
 	}
 }
 
@@ -447,32 +430,20 @@ func (h *Handler) buildGrantPolicyActions() map[string]kmsActionFn {
 func (h *Handler) buildTagActions() map[string]kmsActionFn {
 	return map[string]kmsActionFn{
 		"ListResourceTags": func(_ string, b []byte) (any, error) {
-			var input struct {
-				KeyID string `json:"KeyId"` //nolint:tagliatelle // AWS API uses KeyId
-			}
+			var input listResourceTagsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
 			tags := h.getTags(input.KeyID)
-			type kmsTag struct {
-				TagKey   string `json:"TagKey"`
-				TagValue string `json:"TagValue"`
-			}
-			tagList := make([]kmsTag, 0, len(tags))
+			tagList := make([]kmsTagEntry, 0, len(tags))
 			for k, v := range tags {
-				tagList = append(tagList, kmsTag{TagKey: k, TagValue: v})
+				tagList = append(tagList, kmsTagEntry{TagKey: k, TagValue: v})
 			}
 
 			return map[string]any{"Tags": tagList, "Truncated": false}, nil
 		},
 		"TagResource": func(_ string, b []byte) (any, error) {
-			var input struct {
-				KeyID string `json:"KeyId"` //nolint:tagliatelle // AWS API uses KeyId
-				Tags  []struct {
-					TagKey   string `json:"TagKey"`
-					TagValue string `json:"TagValue"`
-				} `json:"Tags"`
-			}
+			var input tagResourceInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
@@ -485,10 +456,7 @@ func (h *Handler) buildTagActions() map[string]kmsActionFn {
 			return struct{}{}, nil
 		},
 		"UntagResource": func(_ string, b []byte) (any, error) {
-			var input struct {
-				KeyID   string   `json:"KeyId"` //nolint:tagliatelle // AWS API uses KeyId
-				TagKeys []string `json:"TagKeys"`
-			}
+			var input untagResourceInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}

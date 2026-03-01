@@ -1304,3 +1304,86 @@ func TestKMSRetireGrant(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut))
 	assert.Empty(t, listOut.Grants)
 }
+
+// TestKMSTagOperations verifies TagResource, ListResourceTags, and UntagResource via HTTP.
+func TestKMSTagOperations(t *testing.T) {
+	t.Parallel()
+
+	backend := kms.NewInMemoryBackend()
+	h := kms.NewHandler(backend, slog.Default())
+
+	keyOut, err := backend.CreateKey(&kms.CreateKeyInput{Description: "tag-test"})
+	require.NoError(t, err)
+	keyID := keyOut.KeyMetadata.KeyID
+
+	// ListResourceTags on a key with no tags
+	listBody, _ := json.Marshal(map[string]string{"KeyId": keyID})
+	rec := doKMSHTTPRequest(t, h, "ListResourceTags", string(listBody))
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var listOut map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut))
+	assert.Empty(t, listOut["Tags"])
+	assert.Equal(t, false, listOut["Truncated"])
+
+	// TagResource — add two tags
+	tagBody, _ := json.Marshal(map[string]any{
+		"KeyId": keyID,
+		"Tags": []map[string]string{
+			{"TagKey": "env", "TagValue": "prod"},
+			{"TagKey": "team", "TagValue": "backend"},
+		},
+	})
+	rec = doKMSHTTPRequest(t, h, "TagResource", string(tagBody))
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// ListResourceTags should now return 2 tags
+	rec = doKMSHTTPRequest(t, h, "ListResourceTags", string(listBody))
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut))
+	tags, ok := listOut["Tags"].([]any)
+	require.True(t, ok)
+	assert.Len(t, tags, 2)
+
+	// UntagResource — remove one tag
+	untagBody, _ := json.Marshal(map[string]any{
+		"KeyId":   keyID,
+		"TagKeys": []string{"team"},
+	})
+	rec = doKMSHTTPRequest(t, h, "UntagResource", string(untagBody))
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// ListResourceTags should now return 1 tag
+	rec = doKMSHTTPRequest(t, h, "ListResourceTags", string(listBody))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut))
+	tags, ok = listOut["Tags"].([]any)
+	require.True(t, ok)
+	assert.Len(t, tags, 1)
+}
+
+// TestKMSSetRemoveGetTags verifies the low-level setTags, removeTags, and getTags helpers.
+func TestKMSSetRemoveGetTags(t *testing.T) {
+	t.Parallel()
+
+	h := kms.NewHandler(kms.NewInMemoryBackend(), slog.Default())
+
+	// getTags on unknown resource returns empty map
+	got := h.GetTags("no-such-key")
+	assert.Empty(t, got)
+
+	// setTags then getTags
+	h.SetTags("key-1", map[string]string{"a": "1", "b": "2"})
+	got = h.GetTags("key-1")
+	assert.Equal(t, map[string]string{"a": "1", "b": "2"}, got)
+
+	// setTags merges into existing tags
+	h.SetTags("key-1", map[string]string{"b": "updated", "c": "3"})
+	got = h.GetTags("key-1")
+	assert.Equal(t, map[string]string{"a": "1", "b": "updated", "c": "3"}, got)
+
+	// removeTags
+	h.RemoveTags("key-1", []string{"a", "c"})
+	got = h.GetTags("key-1")
+	assert.Equal(t, map[string]string{"b": "updated"}, got)
+}

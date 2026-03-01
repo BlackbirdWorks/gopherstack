@@ -18,10 +18,9 @@ import (
 )
 
 const (
-	sesVersion       = "2010-12-01"
-	sesXMLNS         = "http://ses.amazonaws.com/doc/2010-12-01/"
-	sesMatchPriority = 80
-	unknownAction    = "Unknown"
+	sesVersion    = "2010-12-01"
+	sesXMLNS      = "http://ses.amazonaws.com/doc/2010-12-01/"
+	unknownAction = "Unknown"
 )
 
 // Handler is the Echo HTTP handler for SES operations.
@@ -86,7 +85,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 // MatchPriority returns the routing priority for the SES handler.
 func (h *Handler) MatchPriority() int {
-	return sesMatchPriority
+	return service.PriorityFormStandard
 }
 
 // ExtractOperation extracts the SES action from the request body.
@@ -239,19 +238,7 @@ func (h *Handler) handleListIdentities(vals url.Values, reqID string) any {
 }
 
 func (h *Handler) handleGetIdentityVerificationAttributes(vals url.Values, reqID string) any {
-	var identities []string
-
-	// AWS SDK sends Identities.member.1, Identities.member.2, ...
-	for i := 1; ; i++ {
-		key := fmt.Sprintf("Identities.member.%d", i)
-		v := vals.Get(key)
-
-		if v == "" {
-			break
-		}
-
-		identities = append(identities, v)
-	}
+	identities := parseSESMemberList(vals, "Identities")
 
 	attrs := h.Backend.GetIdentityVerificationAttributes(identities)
 	entries := make([]xmlVerificationEntry, 0, len(attrs))
@@ -279,17 +266,7 @@ func (h *Handler) handleSendEmail(vals url.Values, reqID string) (any, error) {
 	subject := vals.Get("Message.Subject.Data")
 	bodyHTML := vals.Get("Message.Body.Html.Data")
 	bodyText := vals.Get("Message.Body.Text.Data")
-
-	var toAddrs []string
-
-	for i := 1; ; i++ {
-		v := vals.Get(fmt.Sprintf("Destination.ToAddresses.member.%d", i))
-		if v == "" {
-			break
-		}
-
-		toAddrs = append(toAddrs, v)
-	}
+	toAddrs := parseSESMemberList(vals, "Destination.ToAddresses")
 
 	msgID, err := h.Backend.SendEmail(source, toAddrs, subject, bodyHTML, bodyText)
 	if err != nil {
@@ -466,4 +443,16 @@ type sendRawEmailResponse struct {
 	Xmlns     string          `xml:"xmlns,attr"`
 	Result    sendEmailResult `xml:"SendRawEmailResult"`
 	RequestID string          `xml:"ResponseMetadata>RequestId"`
+}
+
+// parseSESMemberList parses form values like "Prefix.member.1", "Prefix.member.2".
+func parseSESMemberList(vals url.Values, prefix string) []string {
+	var result []string
+	for i := 1; ; i++ {
+		v := vals.Get(fmt.Sprintf("%s.member.%d", prefix, i))
+		if v == "" {
+			return result
+		}
+		result = append(result, v)
+	}
 }

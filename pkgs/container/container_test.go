@@ -113,120 +113,187 @@ func newRuntime(api container.APIClient) *container.DockerRuntime {
 	})
 }
 
-// ---- Ping ----
-
-func TestDockerRuntime_Ping_OK(t *testing.T) {
-	t.Parallel()
-
-	rt := newRuntime(&mockAPI{})
-	require.NoError(t, rt.Ping(t.Context()))
+func TestNewRuntime_FromEnvVar(t *testing.T) {
+	// Cannot use t.Parallel() with t.Setenv.
+	t.Setenv("CONTAINER_RUNTIME", "podman")
+	_, err := container.NewRuntime(container.Config{})
+	if err != nil {
+		assert.ErrorIs(t, err, container.ErrUnavailable)
+	}
 }
 
-func TestDockerRuntime_Ping_Err(t *testing.T) {
+func TestDockerRuntime_Ping(t *testing.T) {
 	t.Parallel()
 
-	rt := newRuntime(&mockAPI{pingErr: errDaemonDown})
-	err := rt.Ping(t.Context())
-	require.Error(t, err)
-	assert.ErrorIs(t, err, container.ErrUnavailable)
+	tests := []struct {
+		pingErr error
+		wantErr error
+		name    string
+	}{
+		{name: "success"},
+		{name: "daemon_down", pingErr: errDaemonDown, wantErr: container.ErrUnavailable},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rt := newRuntime(&mockAPI{pingErr: tt.pingErr})
+			err := rt.Ping(t.Context())
+
+			if tt.wantErr != nil {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
 }
 
-// ---- PullImage ----
-
-func TestDockerRuntime_PullImage_OK(t *testing.T) {
+func TestDockerRuntime_PullImage(t *testing.T) {
 	t.Parallel()
 
-	rt := newRuntime(&mockAPI{})
-	require.NoError(t, rt.PullImage(t.Context(), "alpine:latest"))
+	tests := []struct {
+		pullErr error
+		name    string
+		wantErr bool
+	}{
+		{name: "success"},
+		{name: "registry_unreachable", pullErr: errRegistryUnreach, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rt := newRuntime(&mockAPI{pullErr: tt.pullErr})
+			err := rt.PullImage(t.Context(), "alpine:latest")
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
 }
 
-func TestDockerRuntime_PullImage_Err(t *testing.T) {
+func TestDockerRuntime_HasImage(t *testing.T) {
 	t.Parallel()
 
-	rt := newRuntime(&mockAPI{pullErr: errRegistryUnreach})
-	err := rt.PullImage(t.Context(), "alpine:latest")
-	require.Error(t, err)
+	tests := []struct {
+		listErr error
+		name    string
+		ref     string
+		images  []image.Summary
+		wantOK  bool
+		wantErr bool
+	}{
+		{name: "present", ref: "alpine:latest", images: []image.Summary{{ID: "sha256:abc"}}, wantOK: true},
+		{name: "absent", ref: "nonexistent:image"},
+		{name: "error", ref: "alpine:latest", listErr: errDaemonError, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rt := newRuntime(&mockAPI{images: tt.images, listErr: tt.listErr})
+			ok, err := rt.HasImage(t.Context(), tt.ref)
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantOK, ok)
+		})
+	}
 }
 
-// ---- HasImage ----
-
-func TestDockerRuntime_HasImage_True(t *testing.T) {
+func TestDockerRuntime_CreateAndStart(t *testing.T) {
 	t.Parallel()
 
-	rt := newRuntime(&mockAPI{images: []image.Summary{{ID: "sha256:abc"}}})
-	ok, err := rt.HasImage(t.Context(), "alpine:latest")
-	require.NoError(t, err)
-	assert.True(t, ok)
+	tests := []struct {
+		name      string
+		createErr error
+		startErr  error
+		wantID    string
+		wantErr   bool
+	}{
+		{name: "success", wantID: "ctr-1"},
+		{name: "create_error", createErr: errCreateFailed, wantErr: true},
+		{name: "start_error", startErr: errStartFailed, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rt := newRuntime(&mockAPI{createErr: tt.createErr, startErr: tt.startErr})
+			id, err := rt.CreateAndStart(t.Context(), container.Spec{Image: "alpine"})
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantID, id)
+		})
+	}
 }
 
-func TestDockerRuntime_HasImage_False(t *testing.T) {
+func TestDockerRuntime_StopAndRemove(t *testing.T) {
 	t.Parallel()
 
-	rt := newRuntime(&mockAPI{})
-	ok, err := rt.HasImage(t.Context(), "nonexistent:image")
-	require.NoError(t, err)
-	assert.False(t, ok)
+	tests := []struct {
+		stopErr      error
+		removeErr    error
+		name         string
+		wantContains string
+		wantErr      bool
+	}{
+		{name: "success"},
+		{name: "stop_error", stopErr: errStopFailed, wantErr: true},
+		{name: "remove_error", removeErr: errRemoveFailed, wantErr: true, wantContains: "container remove"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rt := newRuntime(&mockAPI{stopErr: tt.stopErr, removeErr: tt.removeErr})
+			err := rt.StopAndRemove(t.Context(), "ctr-1")
+
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.wantContains != "" {
+					assert.Contains(t, err.Error(), tt.wantContains)
+				}
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
 }
-
-func TestDockerRuntime_HasImage_Err(t *testing.T) {
-	t.Parallel()
-
-	rt := newRuntime(&mockAPI{listErr: errDaemonError})
-	_, err := rt.HasImage(t.Context(), "alpine:latest")
-	require.Error(t, err)
-}
-
-// ---- CreateAndStart ----
-
-func TestDockerRuntime_CreateAndStart_OK(t *testing.T) {
-	t.Parallel()
-
-	rt := newRuntime(&mockAPI{})
-	id, err := rt.CreateAndStart(t.Context(), container.Spec{Image: "alpine"})
-	require.NoError(t, err)
-	assert.Equal(t, "ctr-1", id)
-}
-
-func TestDockerRuntime_CreateAndStart_CreateErr(t *testing.T) {
-	t.Parallel()
-
-	rt := newRuntime(&mockAPI{createErr: errCreateFailed})
-	_, err := rt.CreateAndStart(t.Context(), container.Spec{Image: "alpine"})
-	require.Error(t, err)
-}
-
-func TestDockerRuntime_CreateAndStart_StartErr(t *testing.T) {
-	t.Parallel()
-
-	rt := newRuntime(&mockAPI{startErr: errStartFailed})
-	_, err := rt.CreateAndStart(t.Context(), container.Spec{Image: "alpine"})
-	require.Error(t, err)
-}
-
-// ---- StopAndRemove ----
-
-func TestDockerRuntime_StopAndRemove_OK(t *testing.T) {
-	t.Parallel()
-
-	rt := newRuntime(&mockAPI{})
-	require.NoError(t, rt.StopAndRemove(t.Context(), "ctr-1"))
-}
-
-func TestDockerRuntime_StopAndRemove_StopErr(t *testing.T) {
-	t.Parallel()
-
-	rt := newRuntime(&mockAPI{stopErr: errStopFailed})
-	err := rt.StopAndRemove(t.Context(), "ctr-1")
-	require.Error(t, err)
-}
-
-// ---- AcquireWarm / ReleaseContainer ----
 
 func TestDockerRuntime_AcquireWarm_CreatesNew(t *testing.T) {
 	t.Parallel()
 
 	rt := newRuntime(&mockAPI{})
 	pc, err := rt.AcquireWarm(t.Context(), container.Spec{Image: "myimage"})
+
 	require.NoError(t, err)
 	assert.True(t, pc.InUse)
 	assert.Equal(t, "myimage", pc.Image)
@@ -260,22 +327,30 @@ func TestDockerRuntime_AcquireWarm_PoolExhausted(t *testing.T) {
 	require.ErrorIs(t, err, container.ErrPoolExhausted)
 }
 
+func TestDockerRuntime_AcquireWarm_CreateErr(t *testing.T) {
+	t.Parallel()
+
+	rt := newRuntime(&mockAPI{createErr: errCreateFailed})
+	_, err := rt.AcquireWarm(t.Context(), container.Spec{Image: "err-image"})
+
+	require.Error(t, err)
+}
+
 func TestDockerRuntime_ReleaseContainer_NotFound(t *testing.T) {
 	t.Parallel()
 
 	rt := newRuntime(&mockAPI{})
 	err := rt.ReleaseContainer("nonexistent-id")
+
 	require.ErrorIs(t, err, container.ErrContainerNotFound)
 }
-
-// ---- ReapIdleContainers ----
 
 func TestDockerRuntime_ReapIdleContainers(t *testing.T) {
 	t.Parallel()
 
 	rt := container.NewDockerRuntimeWithAPI(&mockAPI{}, container.Config{
 		PoolSize:    2,
-		IdleTimeout: time.Nanosecond, // immediately expired
+		IdleTimeout: time.Nanosecond,
 	})
 
 	spec := container.Spec{Image: "reap-image"}
@@ -283,45 +358,17 @@ func TestDockerRuntime_ReapIdleContainers(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, rt.ReleaseContainer(pc.ID))
 
-	// Wait long enough for the idle timeout to pass.
 	time.Sleep(10 * time.Millisecond)
 	rt.ReapIdleContainers(t.Context())
 
-	// After reaping, the pool is empty; AcquireWarm creates a new one.
 	pc2, err := rt.AcquireWarm(t.Context(), spec)
 	require.NoError(t, err)
 	assert.NotEqual(t, pc.ID, pc2.ID, "reaped container should not be reused")
 }
 
-// ---- StartReaper ----
-
-func TestDockerRuntime_StartReaper_StopsOnCancel(t *testing.T) {
-	t.Parallel()
-
-	rt := container.NewDockerRuntimeWithAPI(&mockAPI{}, container.Config{
-		PoolSize:    1,
-		IdleTimeout: time.Hour,
-	})
-	ctx, cancel := context.WithCancel(t.Context())
-	rt.StartReaper(ctx, 10*time.Millisecond)
-	cancel() // should not block or panic
-}
-
-// ---- Close ----
-
-func TestDockerRuntime_Close(t *testing.T) {
-	t.Parallel()
-
-	api := &mockAPI{}
-	rt := newRuntime(api)
-	require.NoError(t, rt.Close())
-	assert.True(t, api.closeCalled)
-}
-
 func TestDockerRuntime_ReapIdleContainers_WithLogger(t *testing.T) {
 	t.Parallel()
 
-	// Use a stop error so the reaper logs a warning.
 	rt := container.NewDockerRuntimeWithAPI(&mockAPI{stopErr: errStopFailed}, container.Config{
 		PoolSize:    2,
 		IdleTimeout: time.Nanosecond,
@@ -334,48 +381,19 @@ func TestDockerRuntime_ReapIdleContainers_WithLogger(t *testing.T) {
 	require.NoError(t, rt.ReleaseContainer(pc.ID))
 
 	time.Sleep(10 * time.Millisecond)
-	// Should log a warning but not panic.
 	rt.ReapIdleContainers(t.Context())
 }
 
-func TestDockerRuntime_StopAndRemove_RemoveErr(t *testing.T) {
+func TestDockerRuntime_StartReaper_StopsOnCancel(t *testing.T) {
 	t.Parallel()
 
-	rt := newRuntime(&mockAPI{removeErr: errRemoveFailed})
-	err := rt.StopAndRemove(t.Context(), "ctr-1")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "container remove")
-}
-
-func TestDockerRuntime_AcquireWarm_CreateErr(t *testing.T) {
-	t.Parallel()
-
-	rt := newRuntime(&mockAPI{createErr: errCreateFailed})
-	_, err := rt.AcquireWarm(t.Context(), container.Spec{Image: "err-image"})
-	require.Error(t, err)
-}
-
-func TestNewRuntime_FromEnvVar(t *testing.T) {
-	// Cannot use t.Parallel() with t.Setenv.
-	t.Setenv("CONTAINER_RUNTIME", "podman")
-	// Podman socket not available in CI → expect ErrUnavailable.
-	_, err := container.NewRuntime(container.Config{})
-	if err != nil {
-		assert.ErrorIs(t, err, container.ErrUnavailable)
-	}
-}
-
-func TestNewRuntime_DefaultIsDocker(t *testing.T) {
-	t.Parallel()
-
-	// With no env var and no Runtime field, it should try Docker.
-	// Either succeeds or returns ErrUnavailable — never panics.
-	rt, err := container.NewRuntime(container.Config{})
-	if err != nil {
-		assert.ErrorIs(t, err, container.ErrUnavailable)
-	} else {
-		require.NoError(t, rt.Close())
-	}
+	rt := container.NewDockerRuntimeWithAPI(&mockAPI{}, container.Config{
+		PoolSize:    1,
+		IdleTimeout: time.Hour,
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	rt.StartReaper(ctx, 10*time.Millisecond)
+	cancel()
 }
 
 func TestDockerRuntime_StartReaper_ReapsAfterInterval(t *testing.T) {
@@ -392,10 +410,19 @@ func TestDockerRuntime_StartReaper_ReapsAfterInterval(t *testing.T) {
 	require.NoError(t, rt.ReleaseContainer(pc.ID))
 
 	ctx, cancel := context.WithCancel(t.Context())
-	// Use a very short interval so the ticker fires quickly.
 	rt.StartReaper(ctx, 5*time.Millisecond)
 	time.Sleep(50 * time.Millisecond)
 	cancel()
+}
+
+func TestDockerRuntime_Close(t *testing.T) {
+	t.Parallel()
+
+	api := &mockAPI{}
+	rt := newRuntime(api)
+
+	require.NoError(t, rt.Close())
+	assert.True(t, api.closeCalled)
 }
 
 func TestRuntimeName_Constants(t *testing.T) {
@@ -406,47 +433,45 @@ func TestRuntimeName_Constants(t *testing.T) {
 	assert.Equal(t, container.RuntimeAuto, container.RuntimeName("auto"))
 }
 
-// ---- NewRuntime factory / auto-detection ----
-
-func TestNewRuntime_UnknownRuntimeName(t *testing.T) {
+func TestNewRuntime(t *testing.T) {
 	t.Parallel()
 
-	_, err := container.NewRuntime(container.Config{Runtime: "invalid-runtime"})
-	require.Error(t, err)
-	assert.ErrorIs(t, err, container.ErrUnknownRuntime)
-}
-
-func TestNewRuntime_DockerUnavailable(t *testing.T) {
-	t.Parallel()
-
-	// Docker is unlikely to be available in the test sandbox, but even if it is we
-	// expect either success or ErrUnavailable — never a panic.
-	rt, err := container.NewRuntime(container.Config{Runtime: container.RuntimeDocker})
-	if err != nil {
-		assert.ErrorIs(t, err, container.ErrUnavailable)
-	} else {
-		require.NoError(t, rt.Close())
+	tests := []struct {
+		wantErr error
+		name    string
+		config  container.Config
+	}{
+		{name: "default_is_docker", config: container.Config{}},
+		{
+			name:    "unknown_runtime",
+			config:  container.Config{Runtime: "invalid-runtime"},
+			wantErr: container.ErrUnknownRuntime,
+		},
+		{name: "docker", config: container.Config{Runtime: container.RuntimeDocker}},
+		{name: "podman", config: container.Config{Runtime: container.RuntimePodman}},
+		{name: "auto", config: container.Config{Runtime: container.RuntimeAuto}},
 	}
-}
 
-func TestNewRuntime_PodmanUnavailable(t *testing.T) {
-	t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	// Podman socket is almost certainly not present in CI.
-	_, err := container.NewRuntime(container.Config{Runtime: container.RuntimePodman})
-	if err != nil {
-		assert.ErrorIs(t, err, container.ErrUnavailable)
-	}
-}
+			rt, err := container.NewRuntime(tt.config)
 
-func TestNewRuntime_Auto(t *testing.T) {
-	t.Parallel()
+			if tt.wantErr != nil {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.wantErr)
 
-	// Auto should return either a runtime or ErrUnavailable — never a panic.
-	rt, err := container.NewRuntime(container.Config{Runtime: container.RuntimeAuto})
-	if err != nil {
-		assert.ErrorIs(t, err, container.ErrUnavailable)
-	} else {
-		require.NoError(t, rt.Close())
+				return
+			}
+
+			if err != nil {
+				assert.ErrorIs(t, err, container.ErrUnavailable)
+
+				return
+			}
+
+			require.NoError(t, rt.Close())
+		})
 	}
 }

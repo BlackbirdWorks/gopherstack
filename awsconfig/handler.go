@@ -1,7 +1,10 @@
 package awsconfig
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -9,13 +12,20 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
-const (
-	awsConfigTargetPrefix  = "StarlingDoveService."
-	awsConfigMatchPriority = 100
+const awsConfigTargetPrefix = "StarlingDoveService."
+
+var (
+	errUnknownAction  = errors.New("unknown action")
+	errInvalidRequest = errors.New("invalid request")
 )
+
+type configurationRecorderNameInput struct {
+	ConfigurationRecorderName string `json:"ConfigurationRecorderName"`
+}
 
 // Handler is the Echo HTTP handler for AWS Config operations.
 type Handler struct {
@@ -50,7 +60,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 }
 
 // MatchPriority returns the routing priority.
-func (h *Handler) MatchPriority() int { return awsConfigMatchPriority }
+func (h *Handler) MatchPriority() int { return service.PriorityHeaderExact }
 
 // ExtractOperation extracts the AWS Config action from the X-Amz-Target header.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
@@ -86,12 +96,14 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	}
 }
 
+type extractConfigRecorderNameInput struct {
+	ConfigurationRecorder struct {
+		Name string `json:"name"`
+	} `json:"ConfigurationRecorder"`
+}
+
 func extractConfigRecorderName(body []byte) string {
-	var req struct {
-		ConfigurationRecorder struct {
-			Name string `json:"name"`
-		} `json:"ConfigurationRecorder"`
-	}
+	var req extractConfigRecorderNameInput
 	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
 		return ""
 	}
@@ -100,9 +112,7 @@ func extractConfigRecorderName(body []byte) string {
 }
 
 func extractTopLevelRecorderName(body []byte) string {
-	var req struct {
-		ConfigurationRecorderName string `json:"ConfigurationRecorderName"`
-	}
+	var req configurationRecorderNameInput
 	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
 		return ""
 	}
@@ -110,10 +120,12 @@ func extractTopLevelRecorderName(body []byte) string {
 	return req.ConfigurationRecorderName
 }
 
+type extractFirstRecorderNameInput struct {
+	ConfigurationRecorderNames []string `json:"ConfigurationRecorderNames"`
+}
+
 func extractFirstRecorderName(body []byte) string {
-	var req struct {
-		ConfigurationRecorderNames []string `json:"ConfigurationRecorderNames"`
-	}
+	var req extractFirstRecorderNameInput
 	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
 		return ""
 	}
@@ -124,12 +136,14 @@ func extractFirstRecorderName(body []byte) string {
 	return ""
 }
 
+type extractDeliveryChannelNameInput struct {
+	DeliveryChannel struct {
+		Name string `json:"name"`
+	} `json:"DeliveryChannel"`
+}
+
 func extractDeliveryChannelName(body []byte) string {
-	var req struct {
-		DeliveryChannel struct {
-			Name string `json:"name"`
-		} `json:"DeliveryChannel"`
-	}
+	var req extractDeliveryChannelNameInput
 	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
 		return ""
 	}
@@ -137,10 +151,12 @@ func extractDeliveryChannelName(body []byte) string {
 	return req.DeliveryChannel.Name
 }
 
+type extractFirstDeliveryChannelNameInput struct {
+	DeliveryChannelNames []string `json:"DeliveryChannelNames"`
+}
+
 func extractFirstDeliveryChannelName(body []byte) string {
-	var req struct {
-		DeliveryChannelNames []string `json:"DeliveryChannelNames"`
-	}
+	var req extractFirstDeliveryChannelNameInput
 	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
 		return ""
 	}
@@ -154,27 +170,50 @@ func extractFirstDeliveryChannelName(body []byte) string {
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		body, err := httputil.ReadBody(c.Request())
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"message": "failed to read body"})
-		}
-
-		action := strings.TrimPrefix(c.Request().Header.Get("X-Amz-Target"), awsConfigTargetPrefix)
-		switch action {
-		case "PutConfigurationRecorder":
-			return h.handlePutConfigurationRecorder(c, body)
-		case "DescribeConfigurationRecorders":
-			return h.handleDescribeConfigurationRecorders(c)
-		case "StartConfigurationRecorder":
-			return h.handleStartConfigurationRecorder(c, body)
-		case "PutDeliveryChannel":
-			return h.handlePutDeliveryChannel(c, body)
-		case "DescribeDeliveryChannels":
-			return h.handleDescribeDeliveryChannels(c)
-		default:
-			return c.JSON(http.StatusBadRequest, map[string]string{"message": "unknown action: " + action})
-		}
+		return service.HandleTarget(
+			c, logger.Load(c.Request().Context()),
+			"AWSConfig", "application/x-amz-json-1.1",
+			h.GetSupportedOperations(),
+			h.dispatch,
+			h.handleError,
+		)
 	}
+}
+
+func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byte, error) {
+	var result any
+	var err error
+
+	switch action {
+	case "PutConfigurationRecorder":
+		result, err = h.handlePutConfigurationRecorder(body)
+	case "DescribeConfigurationRecorders":
+		result, err = h.handleDescribeConfigurationRecorders()
+	case "StartConfigurationRecorder":
+		result, err = h.handleStartConfigurationRecorder(body)
+	case "PutDeliveryChannel":
+		result, err = h.handlePutDeliveryChannel(body)
+	case "DescribeDeliveryChannels":
+		result, err = h.handleDescribeDeliveryChannels()
+	default:
+		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(result)
+}
+
+func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
+	code := http.StatusBadRequest
+
+	if errors.Is(err, ErrNotFound) {
+		code = http.StatusNotFound
+	}
+
+	return c.JSON(code, map[string]string{"message": err.Error()})
 }
 
 type putConfigurationRecorderRequest struct {
@@ -184,55 +223,56 @@ type putConfigurationRecorderRequest struct {
 	} `json:"ConfigurationRecorder"`
 }
 
-func (h *Handler) handlePutConfigurationRecorder(c *echo.Context, body []byte) error {
+func (h *Handler) handlePutConfigurationRecorder(body []byte) (any, error) {
 	var req putConfigurationRecorderRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
+		return nil, errInvalidRequest
 	}
 
 	if err := h.Backend.PutConfigurationRecorder(
 		req.ConfigurationRecorder.Name,
 		req.ConfigurationRecorder.RoleARN,
 	); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
+		return nil, err
 	}
 
-	return c.JSON(http.StatusOK, map[string]string{})
+	return map[string]string{}, nil
 }
 
-func (h *Handler) handleDescribeConfigurationRecorders(c *echo.Context) error {
+//nolint:unparam // error returned for consistent dispatch signature
+func (h *Handler) handleDescribeConfigurationRecorders() (any, error) {
 	recorders := h.Backend.DescribeConfigurationRecorders()
 
-	return c.JSON(http.StatusOK, map[string]any{
+	return map[string]any{
 		"ConfigurationRecorders": recorders,
-	})
+	}, nil
 }
 
-func (h *Handler) handleStartConfigurationRecorder(c *echo.Context, body []byte) error {
-	var req struct {
-		ConfigurationRecorderName string `json:"ConfigurationRecorderName"`
-	}
+func (h *Handler) handleStartConfigurationRecorder(body []byte) (any, error) {
+	var req configurationRecorderNameInput
 	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
+		return nil, errInvalidRequest
 	}
 
 	if err := h.Backend.StartConfigurationRecorder(req.ConfigurationRecorderName); err != nil {
-		return c.JSON(http.StatusNotFound, map[string]string{"message": err.Error()})
+		return nil, err
 	}
 
-	return c.JSON(http.StatusOK, map[string]string{})
+	return map[string]string{}, nil
 }
 
-func (h *Handler) handlePutDeliveryChannel(c *echo.Context, body []byte) error {
-	var req struct {
-		DeliveryChannel struct {
-			Name         string `json:"name"`
-			S3BucketName string `json:"s3BucketName"`
-			SnsTopicARN  string `json:"snsTopicARN"`
-		} `json:"DeliveryChannel"`
-	}
+type handlePutDeliveryChannelInput struct {
+	DeliveryChannel struct {
+		Name         string `json:"name"`
+		S3BucketName string `json:"s3BucketName"`
+		SnsTopicARN  string `json:"snsTopicARN"`
+	} `json:"DeliveryChannel"`
+}
+
+func (h *Handler) handlePutDeliveryChannel(body []byte) (any, error) {
+	var req handlePutDeliveryChannelInput
 	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
+		return nil, errInvalidRequest
 	}
 
 	if err := h.Backend.PutDeliveryChannel(
@@ -240,16 +280,17 @@ func (h *Handler) handlePutDeliveryChannel(c *echo.Context, body []byte) error {
 		req.DeliveryChannel.S3BucketName,
 		req.DeliveryChannel.SnsTopicARN,
 	); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
+		return nil, err
 	}
 
-	return c.JSON(http.StatusOK, map[string]string{})
+	return map[string]string{}, nil
 }
 
-func (h *Handler) handleDescribeDeliveryChannels(c *echo.Context) error {
+//nolint:unparam // error returned for consistent dispatch signature
+func (h *Handler) handleDescribeDeliveryChannels() (any, error) {
 	channels := h.Backend.DescribeDeliveryChannels()
 
-	return c.JSON(http.StatusOK, map[string]any{
+	return map[string]any{
 		"DeliveryChannels": channels,
-	})
+	}, nil
 }

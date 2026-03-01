@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // Engine mode constants.
@@ -88,11 +90,11 @@ func NewInMemoryBackend(engineMode, accountID, region string) *InMemoryBackend {
 }
 
 func (b *InMemoryBackend) clusterARN(id string) string {
-	return fmt.Sprintf("arn:aws:elasticache:%s:%s:cluster:%s", b.region, b.accountID, id)
+	return arn.Build("elasticache", b.region, b.accountID, "cluster:"+id)
 }
 
 func (b *InMemoryBackend) replicationGroupARN(id string) string {
-	return fmt.Sprintf("arn:aws:elasticache:%s:%s:replicationgroup:%s", b.region, b.accountID, id)
+	return arn.Build("elasticache", b.region, b.accountID, "replicationgroup:"+id)
 }
 
 // CreateCluster creates a new cache cluster.

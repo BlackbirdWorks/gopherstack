@@ -232,17 +232,7 @@ func (db *InMemoryDB) filterUsingIndices(
 	candidates := make([]map[string]any, 0, len(indices))
 	for _, idx := range indices {
 		item := table.Items[idx]
-		match := true
-		for _, part := range exprParts {
-			m, err := evaluateExpression(part, item, eav, input.ExpressionAttributeNames)
-			if err != nil || !m {
-				match = false
-
-				break
-			}
-		}
-
-		if match {
+		if allExprPartsMatch(exprParts, item, eav, input.ExpressionAttributeNames) {
 			candidates = append(candidates, item)
 		}
 	}
@@ -306,25 +296,17 @@ func (db *InMemoryDB) filterCandidatesScan(
 	idxName := aws.ToString(input.IndexName)
 
 	for _, item := range table.Items {
-		match := true
-		for _, part := range exprParts {
-			m, err := evaluateExpression(part, item, eav, input.ExpressionAttributeNames)
-			if err != nil || !m {
-				match = false
-
-				break
-			}
+		if !allExprPartsMatch(exprParts, item, eav, input.ExpressionAttributeNames) {
+			continue
 		}
 
-		if match {
-			if idxName != "" {
-				candidates = append(
-					candidates,
-					applyGSIProjection(item, *projection, table.KeySchema, keySchema),
-				)
-			} else {
-				candidates = append(candidates, item)
-			}
+		if idxName != "" {
+			candidates = append(
+				candidates,
+				applyGSIProjection(item, *projection, table.KeySchema, keySchema),
+			)
+		} else {
+			candidates = append(candidates, item)
 		}
 	}
 
@@ -369,39 +351,8 @@ func (db *InMemoryDB) processQueryResults(
 
 	startIndex := findExclusiveStartIndex(candidates, exclusiveStartKey, keySchema)
 
-	capacity := int(aws.ToInt32(input.Limit))
-	if capacity == 0 || capacity > 100 {
-		capacity = 100 // default or max page size for safety
-	}
-	items := make([]map[string]any, 0, capacity)
+	items, lastEvaluatedKey := db.collectQueryPage(ctx, candidates, input, keySchema, ttlAttr, startIndex, eav)
 
-	var lastEvaluatedKey map[string]any
-	limit := int(aws.ToInt32(input.Limit))
-	count := 0
-
-	for i := startIndex; i < len(candidates); i++ {
-		if limit > 0 && count >= limit {
-			lastEvaluatedKey = extractKey(items[len(items)-1], keySchema)
-
-			break
-		}
-
-		item := candidates[i]
-		if isItemExpired(item, ttlAttr) || !db.shouldIncludeInQuery(ctx, item, input, eav) {
-			continue
-		}
-
-		processedItem := item
-		proj := aws.ToString(input.ProjectionExpression)
-		if proj != "" {
-			processedItem = projectItem(item, proj, input.ExpressionAttributeNames)
-		}
-
-		items = append(items, processedItem)
-		count++
-	}
-
-	// Prepare output
 	outItems := make([]map[string]types.AttributeValue, len(items))
 	for i, it := range items {
 		sdkIt, _ := models.ToSDKItem(it)
@@ -419,6 +370,49 @@ func (db *InMemoryDB) processQueryResults(
 	}
 
 	return out
+}
+
+// collectQueryPage iterates candidates from startIndex, collecting items up to
+// the input's Limit. Returns the collected items and the last-evaluated key for
+// pagination if the limit was reached.
+func (db *InMemoryDB) collectQueryPage(
+	ctx context.Context,
+	candidates []map[string]any,
+	input *dynamodb.QueryInput,
+	keySchema []models.KeySchemaElement,
+	ttlAttr string,
+	startIndex int,
+	eav map[string]any,
+) ([]map[string]any, map[string]any) {
+	limit := int(aws.ToInt32(input.Limit))
+	capacity := limit
+	if capacity == 0 || capacity > 100 {
+		capacity = 100 // default or max page size for safety
+	}
+	items := make([]map[string]any, 0, capacity)
+	count := 0
+
+	for i := startIndex; i < len(candidates); i++ {
+		if limit > 0 && count >= limit {
+			return items, extractKey(items[len(items)-1], keySchema)
+		}
+
+		item := candidates[i]
+		if isItemExpired(item, ttlAttr) || !db.shouldIncludeInQuery(ctx, item, input, eav) {
+			continue
+		}
+
+		processedItem := item
+		proj := aws.ToString(input.ProjectionExpression)
+		if proj != "" {
+			processedItem = projectItem(item, proj, input.ExpressionAttributeNames)
+		}
+
+		items = append(items, processedItem)
+		count++
+	}
+
+	return items, nil
 }
 
 func (db *InMemoryDB) shouldIncludeInQuery(
@@ -446,6 +440,18 @@ func (db *InMemoryDB) shouldIncludeInQuery(
 	)
 
 	return err == nil && match
+}
+
+// allExprPartsMatch reports whether all expression parts evaluate to true for the given item.
+func allExprPartsMatch(exprParts []string, item, eav map[string]any, exprAttrNames map[string]string) bool {
+	for _, part := range exprParts {
+		m, err := evaluateExpression(part, item, eav, exprAttrNames)
+		if err != nil || !m {
+			return false
+		}
+	}
+
+	return true
 }
 
 func inferSKType(candidates []map[string]any, skName string) string {

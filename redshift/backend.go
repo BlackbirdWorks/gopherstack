@@ -3,6 +3,7 @@ package redshift
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"sync"
 )
 
@@ -14,6 +15,7 @@ var (
 
 // Cluster represents a Redshift cluster.
 type Cluster struct {
+	Tags              map[string]string
 	ClusterIdentifier string
 	NodeType          string
 	Endpoint          string
@@ -70,6 +72,7 @@ func (b *InMemoryBackend) CreateCluster(id, nodeType, dbName, masterUser string)
 		Status:            "available",
 		DBName:            dbName,
 		MasterUsername:    masterUser,
+		Tags:              make(map[string]string),
 	}
 	b.clusters[id] = cluster
 
@@ -114,4 +117,51 @@ func (b *InMemoryBackend) DescribeClusters(id string) ([]Cluster, error) {
 	}
 
 	return clusters, nil
+}
+
+// DescribeTags returns all tags across all clusters.
+func (b *InMemoryBackend) DescribeTags() map[string]map[string]string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	result := make(map[string]map[string]string, len(b.clusters))
+	for id, c := range b.clusters {
+		tags := make(map[string]string, len(c.Tags))
+		maps.Copy(tags, c.Tags)
+		result[id] = tags
+	}
+
+	return result
+}
+
+// CreateTags adds or updates tags on the specified cluster.
+func (b *InMemoryBackend) CreateTags(clusterID string, tags map[string]string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	c, exists := b.clusters[clusterID]
+	if !exists {
+		return fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
+	}
+
+	maps.Copy(c.Tags, tags)
+
+	return nil
+}
+
+// DeleteTags removes tag keys from the specified cluster.
+func (b *InMemoryBackend) DeleteTags(clusterID string, keys []string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	c, exists := b.clusters[clusterID]
+	if !exists {
+		return fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
+	}
+
+	for _, k := range keys {
+		delete(c.Tags, k)
+	}
+
+	return nil
 }

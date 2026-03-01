@@ -139,214 +139,294 @@ func (m *mockDockerAPI) Close() error {
 	return nil
 }
 
-func TestPing_Success(t *testing.T) {
+func TestClient_Ping(t *testing.T) {
 	t.Parallel()
 
-	api := newMockAPI()
-	c := docker.NewClientWithAPI(api, docker.Config{})
-
-	err := c.Ping(context.Background())
-	assert.NoError(t, err)
-}
-
-func TestPing_Failure(t *testing.T) {
-	t.Parallel()
-
-	api := newMockAPI()
-	api.pingError = errDaemonNotRunning
-	c := docker.NewClientWithAPI(api, docker.Config{})
-
-	err := c.Ping(context.Background())
-	assert.ErrorIs(t, err, docker.ErrDockerUnavailable)
-}
-
-func TestPullImage_Success(t *testing.T) {
-	t.Parallel()
-
-	api := newMockAPI()
-	c := docker.NewClientWithAPI(api, docker.Config{})
-
-	err := c.PullImage(context.Background(), "alpine:latest")
-	assert.NoError(t, err)
-}
-
-func TestPullImage_Error(t *testing.T) {
-	t.Parallel()
-
-	api := newMockAPI()
-	api.pullError = errNetworkError
-	c := docker.NewClientWithAPI(api, docker.Config{})
-
-	err := c.PullImage(context.Background(), "alpine:latest")
-	assert.Error(t, err)
-}
-
-func TestHasImage_Present(t *testing.T) {
-	t.Parallel()
-
-	api := newMockAPI()
-	api.images = []image.Summary{
-		{RepoTags: []string{"alpine:latest"}},
+	tests := []struct {
+		pingErr error
+		wantErr error
+		name    string
+	}{
+		{name: "success"},
+		{name: "failure", pingErr: errDaemonNotRunning, wantErr: docker.ErrDockerUnavailable},
 	}
-	c := docker.NewClientWithAPI(api, docker.Config{})
 
-	ok, err := c.HasImage(context.Background(), "alpine:latest")
-	require.NoError(t, err)
-	assert.True(t, ok)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			api := newMockAPI()
+			api.pingError = tt.pingErr
+			c := docker.NewClientWithAPI(api, docker.Config{})
+
+			err := c.Ping(t.Context())
+
+			if tt.wantErr != nil {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
 }
 
-func TestHasImage_Absent(t *testing.T) {
+func TestClient_PullImage(t *testing.T) {
 	t.Parallel()
 
-	api := newMockAPI()
-	c := docker.NewClientWithAPI(api, docker.Config{})
+	tests := []struct {
+		pullErr error
+		name    string
+		wantErr bool
+	}{
+		{name: "success"},
+		{name: "error", pullErr: errNetworkError, wantErr: true},
+	}
 
-	ok, err := c.HasImage(context.Background(), "nonexistent:latest")
-	require.NoError(t, err)
-	assert.False(t, ok)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			api := newMockAPI()
+			api.pullError = tt.pullErr
+			c := docker.NewClientWithAPI(api, docker.Config{})
+
+			err := c.PullImage(t.Context(), "alpine:latest")
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
 }
 
-func TestCreateAndStart(t *testing.T) {
+func TestClient_HasImage(t *testing.T) {
 	t.Parallel()
 
-	api := newMockAPI()
-	c := docker.NewClientWithAPI(api, docker.Config{})
+	tests := []struct {
+		listErr error
+		name    string
+		ref     string
+		images  []image.Summary
+		wantOK  bool
+		wantErr bool
+	}{
+		{
+			name:   "present",
+			ref:    "alpine:latest",
+			images: []image.Summary{{RepoTags: []string{"alpine:latest"}}},
+			wantOK: true,
+		},
+		{name: "absent", ref: "nonexistent:latest"},
+		{name: "list_error", ref: "alpine:latest", listErr: errDockerDaemon, wantErr: true},
+	}
 
-	id, err := c.CreateAndStart(context.Background(), docker.ContainerSpec{
-		Image: "alpine:latest",
-		Env:   []string{"FOO=bar"},
-		Cmd:   []string{"sh", "-c", "echo hello"},
-	})
-	require.NoError(t, err)
-	assert.NotEmpty(t, id)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			api := newMockAPI()
+			api.images = tt.images
+			api.listError = tt.listErr
+			c := docker.NewClientWithAPI(api, docker.Config{})
+
+			ok, err := c.HasImage(t.Context(), tt.ref)
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantOK, ok)
+		})
+	}
 }
 
-func TestCreateAndStart_WithMounts(t *testing.T) {
+func TestClient_CreateAndStart(t *testing.T) {
 	t.Parallel()
 
-	api := newMockAPI()
-	c := docker.NewClientWithAPI(api, docker.Config{})
+	tests := []struct {
+		createErr error
+		startErr  error
+		name      string
+		spec      docker.ContainerSpec
+		wantErr   bool
+	}{
+		{
+			name: "basic",
+			spec: docker.ContainerSpec{
+				Image: "alpine:latest",
+				Env:   []string{"FOO=bar"},
+				Cmd:   []string{"sh", "-c", "echo hello"},
+			},
+		},
+		{
+			name: "with_mounts",
+			spec: docker.ContainerSpec{
+				Image:  "alpine:latest",
+				Mounts: []string{"/tmp:/tmp:ro"},
+			},
+		},
+		{
+			name:      "create_error",
+			spec:      docker.ContainerSpec{Image: "bad:image"},
+			createErr: errImageNotFound,
+			wantErr:   true,
+		},
+		{
+			name:     "start_error",
+			spec:     docker.ContainerSpec{Image: "alpine:latest"},
+			startErr: errFailedToStart,
+			wantErr:  true,
+		},
+	}
 
-	id, err := c.CreateAndStart(context.Background(), docker.ContainerSpec{
-		Image:  "alpine:latest",
-		Mounts: []string{"/tmp:/tmp:ro"},
-	})
-	require.NoError(t, err)
-	assert.NotEmpty(t, id)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			api := newMockAPI()
+			api.createError = tt.createErr
+			api.startError = tt.startErr
+			c := docker.NewClientWithAPI(api, docker.Config{})
+
+			id, err := c.CreateAndStart(t.Context(), tt.spec)
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.NotEmpty(t, id)
+		})
+	}
 }
 
-func TestCreateAndStart_CreateError(t *testing.T) {
+func TestClient_StopAndRemove(t *testing.T) {
 	t.Parallel()
 
-	api := newMockAPI()
-	api.createError = errImageNotFound
-	c := docker.NewClientWithAPI(api, docker.Config{})
+	tests := []struct {
+		setup   func(t *testing.T, api *mockDockerAPI, c *docker.Client) string
+		name    string
+		wantErr bool
+	}{
+		{
+			name: "success",
+			setup: func(t *testing.T, _ *mockDockerAPI, c *docker.Client) string {
+				t.Helper()
+				id, err := c.CreateAndStart(t.Context(), docker.ContainerSpec{Image: "alpine:latest"})
+				require.NoError(t, err)
 
-	_, err := c.CreateAndStart(context.Background(), docker.ContainerSpec{Image: "bad:image"})
-	assert.Error(t, err)
+				return id
+			},
+		},
+		{
+			name: "stop_error",
+			setup: func(_ *testing.T, api *mockDockerAPI, _ *docker.Client) string {
+				api.stopError = errFailedToStop
+
+				return "some-id"
+			},
+			wantErr: true,
+		},
+		{
+			name: "remove_error",
+			setup: func(_ *testing.T, api *mockDockerAPI, _ *docker.Client) string {
+				api.removeError = errFailedToRemove
+
+				return "some-id"
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			api := newMockAPI()
+			c := docker.NewClientWithAPI(api, docker.Config{})
+			id := tt.setup(t, api, c)
+
+			err := c.StopAndRemove(t.Context(), id)
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
 }
 
-func TestCreateAndStart_StartError(t *testing.T) {
-	t.Parallel()
-
-	api := newMockAPI()
-	api.startError = errFailedToStart
-	c := docker.NewClientWithAPI(api, docker.Config{})
-
-	_, err := c.CreateAndStart(context.Background(), docker.ContainerSpec{Image: "alpine:latest"})
-	assert.Error(t, err)
-}
-
-func TestStopAndRemove(t *testing.T) {
-	t.Parallel()
-
-	api := newMockAPI()
-	c := docker.NewClientWithAPI(api, docker.Config{})
-
-	id, err := c.CreateAndStart(context.Background(), docker.ContainerSpec{Image: "alpine:latest"})
-	require.NoError(t, err)
-
-	err = c.StopAndRemove(context.Background(), id)
-	assert.NoError(t, err)
-}
-
-func TestStopAndRemove_StopError(t *testing.T) {
-	t.Parallel()
-
-	api := newMockAPI()
-	api.stopError = errFailedToStop
-	c := docker.NewClientWithAPI(api, docker.Config{})
-
-	err := c.StopAndRemove(context.Background(), "some-id")
-	assert.Error(t, err)
-}
-
-func TestStopAndRemove_RemoveError(t *testing.T) {
-	t.Parallel()
-
-	api := newMockAPI()
-	api.removeError = errFailedToRemove
-	c := docker.NewClientWithAPI(api, docker.Config{})
-
-	err := c.StopAndRemove(context.Background(), "some-id")
-	assert.Error(t, err)
-}
-
-func TestAcquireWarm_NewContainer(t *testing.T) {
+func TestClient_AcquireWarm_NewContainer(t *testing.T) {
 	t.Parallel()
 
 	api := newMockAPI()
 	c := docker.NewClientWithAPI(api, docker.Config{PoolSize: 2})
 
-	pc, err := c.AcquireWarm(context.Background(), docker.ContainerSpec{Image: "alpine:latest"})
+	pc, err := c.AcquireWarm(t.Context(), docker.ContainerSpec{Image: "alpine:latest"})
+
 	require.NoError(t, err)
 	assert.True(t, pc.InUse)
 	assert.Equal(t, "alpine:latest", pc.Image)
 }
 
-func TestAcquireWarm_ReusesIdle(t *testing.T) {
+func TestClient_AcquireWarm_ReusesIdle(t *testing.T) {
 	t.Parallel()
 
 	api := newMockAPI()
 	c := docker.NewClientWithAPI(api, docker.Config{PoolSize: 2})
 
-	pc1, err := c.AcquireWarm(context.Background(), docker.ContainerSpec{Image: "alpine:latest"})
+	pc1, err := c.AcquireWarm(t.Context(), docker.ContainerSpec{Image: "alpine:latest"})
 	require.NoError(t, err)
 
 	err = c.ReleaseContainer(pc1.ID)
 	require.NoError(t, err)
 
-	pc2, err := c.AcquireWarm(context.Background(), docker.ContainerSpec{Image: "alpine:latest"})
+	pc2, err := c.AcquireWarm(t.Context(), docker.ContainerSpec{Image: "alpine:latest"})
 	require.NoError(t, err)
 
 	assert.Equal(t, pc1.ID, pc2.ID, "should reuse the idle container")
 }
 
-func TestAcquireWarm_Exhausted(t *testing.T) {
+func TestClient_AcquireWarm_Exhausted(t *testing.T) {
 	t.Parallel()
 
 	api := newMockAPI()
 	c := docker.NewClientWithAPI(api, docker.Config{PoolSize: 1})
 
-	_, err := c.AcquireWarm(context.Background(), docker.ContainerSpec{Image: "alpine:latest"})
+	_, err := c.AcquireWarm(t.Context(), docker.ContainerSpec{Image: "alpine:latest"})
 	require.NoError(t, err)
 
-	_, err = c.AcquireWarm(context.Background(), docker.ContainerSpec{Image: "alpine:latest"})
+	_, err = c.AcquireWarm(t.Context(), docker.ContainerSpec{Image: "alpine:latest"})
 	assert.ErrorIs(t, err, docker.ErrPoolExhausted)
 }
 
-func TestAcquireWarm_CreateError(t *testing.T) {
+func TestClient_AcquireWarm_CreateError(t *testing.T) {
 	t.Parallel()
 
 	api := newMockAPI()
 	api.createError = errImageNotFound
 	c := docker.NewClientWithAPI(api, docker.Config{PoolSize: 2})
 
-	_, err := c.AcquireWarm(context.Background(), docker.ContainerSpec{Image: "bad:image"})
+	_, err := c.AcquireWarm(t.Context(), docker.ContainerSpec{Image: "bad:image"})
 	assert.Error(t, err)
 }
 
-func TestReleaseContainer_NotFound(t *testing.T) {
+func TestClient_ReleaseContainer_NotFound(t *testing.T) {
 	t.Parallel()
 
 	api := newMockAPI()
@@ -356,7 +436,7 @@ func TestReleaseContainer_NotFound(t *testing.T) {
 	assert.ErrorIs(t, err, docker.ErrContainerNotFound)
 }
 
-func TestReapIdleContainers(t *testing.T) {
+func TestClient_ReapIdleContainers(t *testing.T) {
 	t.Parallel()
 
 	api := newMockAPI()
@@ -365,24 +445,22 @@ func TestReapIdleContainers(t *testing.T) {
 		IdleTimeout: 1 * time.Millisecond,
 	})
 
-	pc, err := c.AcquireWarm(context.Background(), docker.ContainerSpec{Image: "alpine:latest"})
+	pc, err := c.AcquireWarm(t.Context(), docker.ContainerSpec{Image: "alpine:latest"})
 	require.NoError(t, err)
 
 	err = c.ReleaseContainer(pc.ID)
 	require.NoError(t, err)
 
-	// Wait for idle timeout to expire.
 	time.Sleep(10 * time.Millisecond)
 
-	c.ReapIdleContainers(context.Background())
+	c.ReapIdleContainers(t.Context())
 
-	// Container should have been reaped; acquiring again creates a new one.
-	pc2, err := c.AcquireWarm(context.Background(), docker.ContainerSpec{Image: "alpine:latest"})
+	pc2, err := c.AcquireWarm(t.Context(), docker.ContainerSpec{Image: "alpine:latest"})
 	require.NoError(t, err)
 	assert.NotEqual(t, pc.ID, pc2.ID, "old container should have been reaped")
 }
 
-func TestReapIdleContainers_ReapError(t *testing.T) {
+func TestClient_ReapIdleContainers_ReapError(t *testing.T) {
 	t.Parallel()
 
 	api := newMockAPI()
@@ -392,7 +470,7 @@ func TestReapIdleContainers_ReapError(t *testing.T) {
 		IdleTimeout: 1 * time.Millisecond,
 	})
 
-	pc, err := c.AcquireWarm(context.Background(), docker.ContainerSpec{Image: "alpine:latest"})
+	pc, err := c.AcquireWarm(t.Context(), docker.ContainerSpec{Image: "alpine:latest"})
 	require.NoError(t, err)
 
 	err = c.ReleaseContainer(pc.ID)
@@ -400,11 +478,47 @@ func TestReapIdleContainers_ReapError(t *testing.T) {
 
 	time.Sleep(10 * time.Millisecond)
 
-	// Should not panic even if reap fails.
-	c.ReapIdleContainers(context.Background())
+	c.ReapIdleContainers(t.Context())
 }
 
-func TestStartReaper(t *testing.T) {
+func TestClient_ReapIdleContainers_WithLogger(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		stopErr error
+		name    string
+	}{
+		{name: "success"},
+		{name: "error", stopErr: errFailedToStop},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			log := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelDebug}))
+			api := newMockAPI()
+			api.stopError = tt.stopErr
+			c := docker.NewClientWithAPI(api, docker.Config{
+				PoolSize:    2,
+				IdleTimeout: 1 * time.Millisecond,
+				Logger:      log,
+			})
+
+			pc, err := c.AcquireWarm(t.Context(), docker.ContainerSpec{Image: "alpine:latest"})
+			require.NoError(t, err)
+
+			err = c.ReleaseContainer(pc.ID)
+			require.NoError(t, err)
+
+			time.Sleep(10 * time.Millisecond)
+
+			c.ReapIdleContainers(t.Context())
+		})
+	}
+}
+
+func TestClient_StartReaper(t *testing.T) {
 	t.Parallel()
 
 	api := newMockAPI()
@@ -413,11 +527,11 @@ func TestStartReaper(t *testing.T) {
 		IdleTimeout: 5 * time.Millisecond,
 	})
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 
 	c.StartReaper(ctx, 1*time.Millisecond)
 
-	pc, err := c.AcquireWarm(context.Background(), docker.ContainerSpec{Image: "alpine:latest"})
+	pc, err := c.AcquireWarm(t.Context(), docker.ContainerSpec{Image: "alpine:latest"})
 	require.NoError(t, err)
 
 	err = c.ReleaseContainer(pc.ID)
@@ -425,78 +539,10 @@ func TestStartReaper(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
-	cancel() // stop the reaper
+	cancel()
 }
 
-func TestClose(t *testing.T) {
-	t.Parallel()
-
-	api := newMockAPI()
-	c := docker.NewClientWithAPI(api, docker.Config{})
-
-	err := c.Close()
-	assert.NoError(t, err)
-}
-
-func TestHasImage_ListError(t *testing.T) {
-	t.Parallel()
-
-	api := newMockAPI()
-	api.listError = errDockerDaemon
-	c := docker.NewClientWithAPI(api, docker.Config{})
-
-	_, err := c.HasImage(context.Background(), "alpine:latest")
-	assert.Error(t, err)
-}
-
-func TestReapIdleContainers_WithLogger_Success(t *testing.T) {
-	t.Parallel()
-
-	log := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	api := newMockAPI()
-	c := docker.NewClientWithAPI(api, docker.Config{
-		PoolSize:    2,
-		IdleTimeout: 1 * time.Millisecond,
-		Logger:      log,
-	})
-
-	pc, err := c.AcquireWarm(context.Background(), docker.ContainerSpec{Image: "alpine:latest"})
-	require.NoError(t, err)
-
-	err = c.ReleaseContainer(pc.ID)
-	require.NoError(t, err)
-
-	time.Sleep(10 * time.Millisecond)
-
-	// Should log "reaped idle container" at debug level.
-	c.ReapIdleContainers(context.Background())
-}
-
-func TestReapIdleContainers_WithLogger_Error(t *testing.T) {
-	t.Parallel()
-
-	log := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	api := newMockAPI()
-	api.stopError = errFailedToStop
-	c := docker.NewClientWithAPI(api, docker.Config{
-		PoolSize:    2,
-		IdleTimeout: 1 * time.Millisecond,
-		Logger:      log,
-	})
-
-	pc, err := c.AcquireWarm(context.Background(), docker.ContainerSpec{Image: "alpine:latest"})
-	require.NoError(t, err)
-
-	err = c.ReleaseContainer(pc.ID)
-	require.NoError(t, err)
-
-	time.Sleep(10 * time.Millisecond)
-
-	// Should log "failed to reap idle container" at warn level.
-	c.ReapIdleContainers(context.Background())
-}
-
-func TestStartReaper_DefaultInterval(t *testing.T) {
+func TestClient_StartReaper_DefaultInterval(t *testing.T) {
 	t.Parallel()
 
 	api := newMockAPI()
@@ -505,9 +551,18 @@ func TestStartReaper_DefaultInterval(t *testing.T) {
 		IdleTimeout: 5 * time.Millisecond,
 	})
 
-	ctx, cancel := context.WithCancel(context.Background())
-	// Pass 0 interval to use default (half of IdleTimeout).
+	ctx, cancel := context.WithCancel(t.Context())
 	c.StartReaper(ctx, 0)
 
 	cancel()
+}
+
+func TestClient_Close(t *testing.T) {
+	t.Parallel()
+
+	api := newMockAPI()
+	c := docker.NewClientWithAPI(api, docker.Config{})
+
+	err := c.Close()
+	assert.NoError(t, err)
 }

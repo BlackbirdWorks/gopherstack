@@ -12,6 +12,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 )
 
 var (
@@ -63,7 +66,7 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new InMemoryBackend with default configuration.
 func NewInMemoryBackend() *InMemoryBackend {
-	return NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+	return NewInMemoryBackendWithConfig(config.DefaultAccountID, config.DefaultRegion)
 }
 
 // NewInMemoryBackendWithConfig creates a new InMemoryBackend with given account and region.
@@ -102,11 +105,11 @@ func (b *InMemoryBackend) SetDeliveryTargets(dt *DeliveryTargets) {
 }
 
 func (b *InMemoryBackend) busARN(name string) string {
-	return fmt.Sprintf("arn:aws:events:%s:%s:event-bus/%s", b.region, b.accountID, name)
+	return arn.Build("events", b.region, b.accountID, "event-bus/"+name)
 }
 
 func (b *InMemoryBackend) ruleARN(busName, ruleName string) string {
-	return fmt.Sprintf("arn:aws:events:%s:%s:rule/%s/%s", b.region, b.accountID, busName, ruleName)
+	return arn.Build("events", b.region, b.accountID, "rule/"+busName+"/"+ruleName)
 }
 
 func (b *InMemoryBackend) targetKey(busName, ruleName string) string {

@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sdk_dynamodb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -86,7 +87,5 @@ func TestBatchDeletePerformance(t *testing.T) {
 	// If it takes more than 15 seconds, it's definitely too slow (e.g. O(N^2) behavior).
 	// We use 15s instead of 5s to account for race detector overhead and slow CI runners.
 	const maxDuration = 15 * time.Second
-	if duration > maxDuration {
-		t.Errorf("Batch delete is too slow! Took %v, expected less than %v", duration, maxDuration)
-	}
+	assert.LessOrEqual(t, duration, maxDuration, "Batch delete is too slow!")
 }

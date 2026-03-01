@@ -14,6 +14,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/eventbridge"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
 // makeRequest is a helper to send a POST request to the EventBridge handler.
@@ -135,7 +136,7 @@ func TestHandler_UnknownAction(t *testing.T) {
 	rec := makeRequest(t, "NonExistentAction", `{}`)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
-	var errResp eventbridge.ErrorResponse
+	var errResp service.JSONErrorResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
 	assert.Equal(t, "UnknownOperationException", errResp.Type)
 }
@@ -378,4 +379,97 @@ func TestHandler_ExtractOperation(t *testing.T) {
 	req.Header.Set("X-Amz-Target", "AmazonEventBridge.PutRule")
 	c := e.NewContext(req, httptest.NewRecorder())
 	assert.Equal(t, "PutRule", handler.ExtractOperation(c))
+}
+
+func TestHandler_TagResource(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	log := logger.NewLogger(slog.LevelDebug)
+	backend := eventbridge.NewInMemoryBackend()
+	handler := eventbridge.NewHandler(backend, log)
+
+	// Tag a resource
+	rec := makeRequestWithHandler(t, handler, e, "TagResource",
+		`{"ResourceARN":"arn:aws:events:us-east-1:123456789012:rule/my-rule",`+
+			`"Tags":[{"Key":"env","Value":"prod"},{"Key":"team","Value":"platform"}]}`)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// List tags
+	rec = makeRequestWithHandler(t, handler, e, "ListTagsForResource",
+		`{"ResourceARN":"arn:aws:events:us-east-1:123456789012:rule/my-rule"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var listResp struct {
+		Tags []struct {
+			Key   string `json:"Key"`
+			Value string `json:"Value"`
+		} `json:"Tags"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	assert.Len(t, listResp.Tags, 2)
+
+	tagMap := make(map[string]string)
+	for _, tag := range listResp.Tags {
+		tagMap[tag.Key] = tag.Value
+	}
+	assert.Equal(t, "prod", tagMap["env"])
+	assert.Equal(t, "platform", tagMap["team"])
+}
+
+func TestHandler_UntagResource(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	log := logger.NewLogger(slog.LevelDebug)
+	backend := eventbridge.NewInMemoryBackend()
+	handler := eventbridge.NewHandler(backend, log)
+
+	// Tag a resource first
+	makeRequestWithHandler(t, handler, e, "TagResource",
+		`{"ResourceARN":"arn:aws:events:us-east-1:123456789012:rule/my-rule",`+
+			`"Tags":[{"Key":"env","Value":"prod"},{"Key":"team","Value":"platform"}]}`)
+
+	// Untag one key
+	rec := makeRequestWithHandler(t, handler, e, "UntagResource",
+		`{"ResourceARN":"arn:aws:events:us-east-1:123456789012:rule/my-rule","TagKeys":["env"]}`)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// Verify remaining tags
+	rec = makeRequestWithHandler(t, handler, e, "ListTagsForResource",
+		`{"ResourceARN":"arn:aws:events:us-east-1:123456789012:rule/my-rule"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var listResp struct {
+		Tags []struct {
+			Key   string `json:"Key"`
+			Value string `json:"Value"`
+		} `json:"Tags"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	assert.Len(t, listResp.Tags, 1)
+	assert.Equal(t, "team", listResp.Tags[0].Key)
+	assert.Equal(t, "platform", listResp.Tags[0].Value)
+}
+
+func TestHandler_ListTagsForResourceEmpty(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	log := logger.NewLogger(slog.LevelDebug)
+	backend := eventbridge.NewInMemoryBackend()
+	handler := eventbridge.NewHandler(backend, log)
+
+	rec := makeRequestWithHandler(t, handler, e, "ListTagsForResource",
+		`{"ResourceARN":"arn:aws:events:us-east-1:123456789012:rule/nonexistent"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var listResp struct {
+		Tags []struct {
+			Key   string `json:"Key"`
+			Value string `json:"Value"`
+		} `json:"Tags"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	assert.Empty(t, listResp.Tags)
 }

@@ -49,14 +49,32 @@ func doSchedulerRequest(t *testing.T, h *scheduler.Handler, action string, body 
 	return rec
 }
 
-func TestScheduler_Handler_Name(t *testing.T) {
+// doInvalidSchedulerRequest sends a request with invalid JSON body.
+func doInvalidSchedulerRequest(t *testing.T, h *scheduler.Handler, action string) *httptest.ResponseRecorder {
+	t.Helper()
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("not-json"))
+	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+	req.Header.Set("X-Amz-Target", "AWSScheduler."+action)
+
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := h.Handler()(c)
+	require.NoError(t, err)
+
+	return rec
+}
+
+func TestSchedulerHandler_Name(t *testing.T) {
 	t.Parallel()
 
 	h := newTestSchedulerHandler(t)
 	assert.Equal(t, "Scheduler", h.Name())
 }
 
-func TestScheduler_Handler_GetSupportedOperations(t *testing.T) {
+func TestSchedulerHandler_GetSupportedOperations(t *testing.T) {
 	t.Parallel()
 
 	h := newTestSchedulerHandler(t)
@@ -70,42 +88,43 @@ func TestScheduler_Handler_GetSupportedOperations(t *testing.T) {
 	assert.Contains(t, ops, "ListTagsForResource")
 }
 
-func TestScheduler_Handler_MatchPriority(t *testing.T) {
+func TestSchedulerHandler_MatchPriority(t *testing.T) {
 	t.Parallel()
 
 	h := newTestSchedulerHandler(t)
 	assert.Equal(t, 100, h.MatchPriority())
 }
 
-func TestScheduler_Handler_RouteMatcher(t *testing.T) {
+func TestSchedulerHandler_RouteMatcher(t *testing.T) {
 	t.Parallel()
 
-	h := newTestSchedulerHandler(t)
-	matcher := h.RouteMatcher()
+	tests := []struct {
+		name      string
+		target    string
+		wantMatch bool
+	}{
+		{name: "Match", target: "AWSScheduler.CreateSchedule", wantMatch: true},
+		{name: "NoMatch", target: "Firehose_20150804.CreateDeliveryStream", wantMatch: false},
+	}
 
-	e := echo.New()
-	req := httptest.NewRequest(http.MethodPost, "/", nil)
-	req.Header.Set("X-Amz-Target", "AWSScheduler.CreateSchedule")
-	c := e.NewContext(req, httptest.NewRecorder())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	assert.True(t, matcher(c))
+			h := newTestSchedulerHandler(t)
+			matcher := h.RouteMatcher()
+
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodPost, "/", nil)
+			req.Header.Set("X-Amz-Target", tt.target)
+			c := e.NewContext(req, httptest.NewRecorder())
+
+			assert.Equal(t, tt.wantMatch, matcher(c))
+		})
+	}
 }
 
-func TestScheduler_Handler_RouteMatcher_NoMatch(t *testing.T) {
-	t.Parallel()
-
-	h := newTestSchedulerHandler(t)
-	matcher := h.RouteMatcher()
-
-	e := echo.New()
-	req := httptest.NewRequest(http.MethodPost, "/", nil)
-	req.Header.Set("X-Amz-Target", "Firehose_20150804.CreateDeliveryStream")
-	c := e.NewContext(req, httptest.NewRecorder())
-
-	assert.False(t, matcher(c))
-}
-
-func TestScheduler_Handler_ExtractOperation(t *testing.T) {
+func TestSchedulerHandler_ExtractOperation(t *testing.T) {
 	t.Parallel()
 
 	h := newTestSchedulerHandler(t)
@@ -122,7 +141,7 @@ func TestScheduler_Handler_ExtractOperation(t *testing.T) {
 	assert.Equal(t, "Unknown", h.ExtractOperation(c2))
 }
 
-func TestScheduler_Handler_ExtractResource(t *testing.T) {
+func TestSchedulerHandler_ExtractResource(t *testing.T) {
 	t.Parallel()
 
 	h := newTestSchedulerHandler(t)
@@ -133,7 +152,7 @@ func TestScheduler_Handler_ExtractResource(t *testing.T) {
 	assert.Equal(t, "my-schedule", h.ExtractResource(c))
 }
 
-func TestScheduler_Handler_CreateSchedule(t *testing.T) {
+func TestSchedulerHandler_CreateSchedule(t *testing.T) {
 	t.Parallel()
 
 	h := newTestSchedulerHandler(t)
@@ -156,27 +175,66 @@ func TestScheduler_Handler_CreateSchedule(t *testing.T) {
 	assert.Contains(t, resp["ScheduleArn"], "arn:aws:scheduler:")
 }
 
-func TestScheduler_Handler_CreateSchedule_AlreadyExists(t *testing.T) {
+func TestSchedulerHandler_CreateScheduleAlreadyExists(t *testing.T) {
 	t.Parallel()
 
 	h := newTestSchedulerHandler(t)
-	doSchedulerRequest(t, h, "CreateSchedule", map[string]any{
+	body := map[string]any{
 		"Name":               "my-schedule",
 		"ScheduleExpression": "rate(5 minutes)",
 		"Target":             map[string]string{"Arn": "arn:aws:lambda:::fn", "RoleArn": "arn:aws:iam:::role"},
 		"FlexibleTimeWindow": map[string]any{"Mode": "OFF"},
-	})
+	}
+	doSchedulerRequest(t, h, "CreateSchedule", body)
 
-	rec := doSchedulerRequest(t, h, "CreateSchedule", map[string]any{
-		"Name":               "my-schedule",
-		"ScheduleExpression": "rate(5 minutes)",
-		"Target":             map[string]string{"Arn": "arn:aws:lambda:::fn", "RoleArn": "arn:aws:iam:::role"},
-		"FlexibleTimeWindow": map[string]any{"Mode": "OFF"},
-	})
+	rec := doSchedulerRequest(t, h, "CreateSchedule", body)
 	assert.Equal(t, http.StatusConflict, rec.Code)
 }
 
-func TestScheduler_Handler_GetSchedule(t *testing.T) {
+func TestSchedulerHandler_CreateScheduleDefaultState(t *testing.T) {
+	t.Parallel()
+
+	// When State is omitted, it should default to ENABLED.
+	h := newTestSchedulerHandler(t)
+
+	rec := doSchedulerRequest(t, h, "CreateSchedule", map[string]any{
+		"Name":               "no-state-schedule",
+		"ScheduleExpression": "rate(1 hour)",
+		"Target": map[string]string{
+			"Arn":     "arn:aws:lambda:us-east-1:0:function:f",
+			"RoleArn": "arn:aws:iam::0:role/r",
+		},
+		"FlexibleTimeWindow": map[string]string{"Mode": "OFF"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	getRec := doSchedulerRequest(t, h, "GetSchedule", map[string]any{"Name": "no-state-schedule"})
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+	assert.Equal(t, "ENABLED", resp["State"])
+}
+
+func TestSchedulerHandler_CreateScheduleCronExpression(t *testing.T) {
+	t.Parallel()
+
+	h := newTestSchedulerHandler(t)
+
+	rec := doSchedulerRequest(t, h, "CreateSchedule", map[string]any{
+		"Name":               "cron-schedule",
+		"ScheduleExpression": "cron(0 12 * * ? *)",
+		"Target": map[string]string{
+			"Arn":     "arn:aws:lambda:us-east-1:0:function:f",
+			"RoleArn": "arn:aws:iam::0:role/r",
+		},
+		"FlexibleTimeWindow": map[string]string{"Mode": "OFF"},
+		"State":              "ENABLED",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestSchedulerHandler_GetSchedule(t *testing.T) {
 	t.Parallel()
 
 	h := newTestSchedulerHandler(t)
@@ -198,16 +256,7 @@ func TestScheduler_Handler_GetSchedule(t *testing.T) {
 	assert.Contains(t, resp, "FlexibleTimeWindow")
 }
 
-func TestScheduler_Handler_GetSchedule_NotFound(t *testing.T) {
-	t.Parallel()
-
-	h := newTestSchedulerHandler(t)
-
-	rec := doSchedulerRequest(t, h, "GetSchedule", map[string]any{"Name": "nonexistent"})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestScheduler_Handler_ListSchedules(t *testing.T) {
+func TestSchedulerHandler_ListSchedules(t *testing.T) {
 	t.Parallel()
 
 	h := newTestSchedulerHandler(t)
@@ -241,7 +290,7 @@ func TestScheduler_Handler_ListSchedules(t *testing.T) {
 	assert.Len(t, schedules, 2)
 }
 
-func TestScheduler_Handler_DeleteSchedule(t *testing.T) {
+func TestSchedulerHandler_DeleteSchedule(t *testing.T) {
 	t.Parallel()
 
 	h := newTestSchedulerHandler(t)
@@ -263,16 +312,7 @@ func TestScheduler_Handler_DeleteSchedule(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec2.Code)
 }
 
-func TestScheduler_Handler_DeleteSchedule_NotFound(t *testing.T) {
-	t.Parallel()
-
-	h := newTestSchedulerHandler(t)
-
-	rec := doSchedulerRequest(t, h, "DeleteSchedule", map[string]any{"Name": "nonexistent"})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestScheduler_Handler_UpdateSchedule(t *testing.T) {
+func TestSchedulerHandler_UpdateSchedule(t *testing.T) {
 	t.Parallel()
 
 	h := newTestSchedulerHandler(t)
@@ -307,21 +347,7 @@ func TestScheduler_Handler_UpdateSchedule(t *testing.T) {
 	assert.Equal(t, "DISABLED", getResp["State"])
 }
 
-func TestScheduler_Handler_UpdateSchedule_NotFound(t *testing.T) {
-	t.Parallel()
-
-	h := newTestSchedulerHandler(t)
-
-	rec := doSchedulerRequest(t, h, "UpdateSchedule", map[string]any{
-		"Name":               "nonexistent",
-		"ScheduleExpression": "rate(1 minute)",
-		"Target":             map[string]string{"Arn": "arn:a", "RoleArn": "arn:r"},
-		"FlexibleTimeWindow": map[string]any{"Mode": "OFF"},
-	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestScheduler_Handler_TagResource(t *testing.T) {
+func TestSchedulerHandler_TagResource(t *testing.T) {
 	t.Parallel()
 
 	h := newTestSchedulerHandler(t)
@@ -347,19 +373,7 @@ func TestScheduler_Handler_TagResource(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-func TestScheduler_Handler_TagResource_NotFound(t *testing.T) {
-	t.Parallel()
-
-	h := newTestSchedulerHandler(t)
-
-	rec := doSchedulerRequest(t, h, "TagResource", map[string]any{
-		"ResourceArn": "arn:aws:scheduler:us-east-1:000000000000:schedule/default/nonexistent",
-		"Tags":        map[string]string{"env": "test"},
-	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestScheduler_Handler_ListTagsForResource(t *testing.T) {
+func TestSchedulerHandler_ListTagsForResource(t *testing.T) {
 	t.Parallel()
 
 	h := newTestSchedulerHandler(t)
@@ -394,34 +408,109 @@ func TestScheduler_Handler_ListTagsForResource(t *testing.T) {
 	assert.Equal(t, "prod", tags["env"])
 }
 
-func TestScheduler_Handler_ListTagsForResource_NotFound(t *testing.T) {
+func TestSchedulerHandler_ErrorStatus(t *testing.T) {
 	t.Parallel()
 
-	h := newTestSchedulerHandler(t)
+	tests := []struct {
+		body     any
+		name     string
+		action   string
+		wantCode int
+	}{
+		{
+			name:     "GetSchedule_NotFound",
+			action:   "GetSchedule",
+			body:     map[string]any{"Name": "nonexistent"},
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "DeleteSchedule_NotFound",
+			action:   "DeleteSchedule",
+			body:     map[string]any{"Name": "nonexistent"},
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:   "UpdateSchedule_NotFound",
+			action: "UpdateSchedule",
+			body: map[string]any{
+				"Name":               "nonexistent",
+				"ScheduleExpression": "rate(1 minute)",
+				"Target":             map[string]string{"Arn": "arn:a", "RoleArn": "arn:r"},
+				"FlexibleTimeWindow": map[string]any{"Mode": "OFF"},
+			},
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:   "TagResource_NotFound",
+			action: "TagResource",
+			body: map[string]any{
+				"ResourceArn": "arn:aws:scheduler:us-east-1:000000000000:schedule/default/nonexistent",
+				"Tags":        map[string]string{"env": "test"},
+			},
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:   "ListTagsForResource_NotFound",
+			action: "ListTagsForResource",
+			body: map[string]any{
+				"ResourceArn": "arn:aws:scheduler:us-east-1:000000000000:schedule/default/nonexistent",
+			},
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "UnknownAction",
+			action:   "UnknownAction",
+			body:     nil,
+			wantCode: http.StatusBadRequest,
+		},
+	}
 
-	rec := doSchedulerRequest(t, h, "ListTagsForResource", map[string]any{
-		"ResourceArn": "arn:aws:scheduler:us-east-1:000000000000:schedule/default/nonexistent",
-	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestSchedulerHandler(t)
+			rec := doSchedulerRequest(t, h, tt.action, tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
 }
 
-func TestScheduler_Handler_UnknownAction(t *testing.T) {
+func TestSchedulerHandler_InvalidJSON(t *testing.T) {
 	t.Parallel()
 
-	h := newTestSchedulerHandler(t)
+	tests := []struct {
+		name     string
+		action   string
+		wantCode int
+	}{
+		{name: "CreateSchedule", action: "CreateSchedule", wantCode: http.StatusBadRequest},
+		{name: "GetSchedule", action: "GetSchedule", wantCode: http.StatusBadRequest},
+		{name: "DeleteSchedule", action: "DeleteSchedule", wantCode: http.StatusBadRequest},
+		{name: "UpdateSchedule", action: "UpdateSchedule", wantCode: http.StatusBadRequest},
+		{name: "TagResource", action: "TagResource", wantCode: http.StatusBadRequest},
+		{name: "ListTagsForResource", action: "ListTagsForResource", wantCode: http.StatusBadRequest},
+	}
 
-	rec := doSchedulerRequest(t, h, "UnknownAction", nil)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestSchedulerHandler(t)
+			rec := doInvalidSchedulerRequest(t, h, tt.action)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
 }
 
-func TestScheduler_Provider(t *testing.T) {
+func TestSchedulerProvider(t *testing.T) {
 	t.Parallel()
 
 	p := &scheduler.Provider{}
 	assert.Equal(t, "Scheduler", p.Name())
 }
 
-func TestScheduler_Provider_Init(t *testing.T) {
+func TestSchedulerProviderInit(t *testing.T) {
 	t.Parallel()
 
 	p := &scheduler.Provider{}
@@ -430,114 +519,4 @@ func TestScheduler_Provider_Init(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, svc)
 	assert.Equal(t, "Scheduler", svc.Name())
-}
-
-// doInvalidSchedulerRequest sends a request with invalid JSON body.
-func doInvalidSchedulerRequest(t *testing.T, h *scheduler.Handler, action string) *httptest.ResponseRecorder {
-	t.Helper()
-
-	e := echo.New()
-	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("not-json"))
-	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
-	req.Header.Set("X-Amz-Target", "AWSScheduler."+action)
-
-	rec := httptest.NewRecorder()
-	c := e.NewContext(req, rec)
-
-	err := h.Handler()(c)
-	require.NoError(t, err)
-
-	return rec
-}
-
-func TestScheduler_Handler_CreateSchedule_InvalidJSON(t *testing.T) {
-	t.Parallel()
-
-	h := newTestSchedulerHandler(t)
-	rec := doInvalidSchedulerRequest(t, h, "CreateSchedule")
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestScheduler_Handler_GetSchedule_InvalidJSON(t *testing.T) {
-	t.Parallel()
-
-	h := newTestSchedulerHandler(t)
-	rec := doInvalidSchedulerRequest(t, h, "GetSchedule")
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestScheduler_Handler_DeleteSchedule_InvalidJSON(t *testing.T) {
-	t.Parallel()
-
-	h := newTestSchedulerHandler(t)
-	rec := doInvalidSchedulerRequest(t, h, "DeleteSchedule")
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestScheduler_Handler_UpdateSchedule_InvalidJSON(t *testing.T) {
-	t.Parallel()
-
-	h := newTestSchedulerHandler(t)
-	rec := doInvalidSchedulerRequest(t, h, "UpdateSchedule")
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestScheduler_Handler_TagResource_InvalidJSON(t *testing.T) {
-	t.Parallel()
-
-	h := newTestSchedulerHandler(t)
-	rec := doInvalidSchedulerRequest(t, h, "TagResource")
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestScheduler_Handler_ListTagsForResource_InvalidJSON(t *testing.T) {
-	t.Parallel()
-
-	h := newTestSchedulerHandler(t)
-	rec := doInvalidSchedulerRequest(t, h, "ListTagsForResource")
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestScheduler_Handler_CreateSchedule_DefaultState(t *testing.T) {
-	t.Parallel()
-
-	// When State is omitted, it should default to ENABLED.
-	h := newTestSchedulerHandler(t)
-
-	rec := doSchedulerRequest(t, h, "CreateSchedule", map[string]any{
-		"Name":               "no-state-schedule",
-		"ScheduleExpression": "rate(1 hour)",
-		"Target": map[string]string{
-			"Arn":     "arn:aws:lambda:us-east-1:0:function:f",
-			"RoleArn": "arn:aws:iam::0:role/r",
-		},
-		"FlexibleTimeWindow": map[string]string{"Mode": "OFF"},
-		// State intentionally omitted
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	getRec := doSchedulerRequest(t, h, "GetSchedule", map[string]any{"Name": "no-state-schedule"})
-	require.Equal(t, http.StatusOK, getRec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
-	assert.Equal(t, "ENABLED", resp["State"])
-}
-
-func TestScheduler_Handler_CreateSchedule_CronExpression(t *testing.T) {
-	t.Parallel()
-
-	h := newTestSchedulerHandler(t)
-
-	rec := doSchedulerRequest(t, h, "CreateSchedule", map[string]any{
-		"Name":               "cron-schedule",
-		"ScheduleExpression": "cron(0 12 * * ? *)",
-		"Target": map[string]string{
-			"Arn":     "arn:aws:lambda:us-east-1:0:function:f",
-			"RoleArn": "arn:aws:iam::0:role/r",
-		},
-		"FlexibleTimeWindow": map[string]string{"Mode": "OFF"},
-		"State":              "ENABLED",
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
 }

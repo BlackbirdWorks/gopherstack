@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 var (
@@ -48,20 +50,20 @@ func (b *InMemoryBackend) RequestCertificate(domainName, certType string) (*Cert
 	defer b.mu.Unlock()
 
 	id := fmt.Sprintf("%x", time.Now().UnixNano())
-	arn := fmt.Sprintf("arn:aws:acm:%s:%s:certificate/%s", b.region, b.accountID, id)
+	certARN := arn.Build("acm", b.region, b.accountID, "certificate/"+id)
 
 	if certType == "" {
 		certType = "AMAZON_ISSUED"
 	}
 
 	cert := &Certificate{
-		ARN:        arn,
+		ARN:        certARN,
 		DomainName: domainName,
 		Status:     "ISSUED",
 		Type:       certType,
 		CreatedAt:  time.Now().UTC(),
 	}
-	b.certs[arn] = cert
+	b.certs[certARN] = cert
 
 	cp := *cert
 

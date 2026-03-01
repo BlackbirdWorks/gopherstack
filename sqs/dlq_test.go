@@ -19,10 +19,9 @@ func makeRedrivePolicy(dlqARN string, maxReceiveCount int) string {
 	return string(b)
 }
 
-// TestRedrivePolicy_MessageMovedToDLQ verifies that after maxReceiveCount receives
-// without deletion the message is moved to the DLQ on the next receive attempt.
 func TestRedrivePolicy_MessageMovedToDLQ(t *testing.T) {
 	t.Parallel()
+
 	b := sqs.NewInMemoryBackend()
 
 	// Create DLQ first.
@@ -90,9 +89,9 @@ func TestRedrivePolicy_MessageMovedToDLQ(t *testing.T) {
 	assert.Equal(t, "hello", dlqOut.Messages[0].Body)
 }
 
-// TestRedrivePolicy_NoMovement_WithoutDLQ verifies a queue without redrive policy keeps its messages.
-func TestRedrivePolicy_NoMovement_WithoutDLQ(t *testing.T) {
+func TestRedrivePolicy_NoMovementWithoutDLQ(t *testing.T) {
 	t.Parallel()
+
 	b := sqs.NewInMemoryBackend()
 
 	_, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: "plain-queue", Endpoint: "localhost"})
@@ -118,10 +117,9 @@ func TestRedrivePolicy_NoMovement_WithoutDLQ(t *testing.T) {
 	}
 }
 
-// TestRedrivePolicy_SetViaSetQueueAttributes verifies that a redrive policy applied via
-// SetQueueAttributes is honoured on subsequent receives.
 func TestRedrivePolicy_SetViaSetQueueAttributes(t *testing.T) {
 	t.Parallel()
+
 	b := sqs.NewInMemoryBackend()
 
 	_, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: "dlq2", Endpoint: "localhost"})
@@ -169,9 +167,9 @@ func TestRedrivePolicy_SetViaSetQueueAttributes(t *testing.T) {
 	assert.Equal(t, "test", dlqOut.Messages[0].Body)
 }
 
-// TestRedrivePolicy_InvalidJSON_Ignored verifies that invalid RedrivePolicy JSON does not crash.
-func TestRedrivePolicy_InvalidJSON_Ignored(t *testing.T) {
+func TestRedrivePolicy_InvalidJSONIgnored(t *testing.T) {
 	t.Parallel()
+
 	b := sqs.NewInMemoryBackend()
 
 	require.NotPanics(t, func() {

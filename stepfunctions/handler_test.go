@@ -400,3 +400,92 @@ func TestHandler_GetExecutionHistory_NotFound(t *testing.T) {
 	rec := sfnRequest(t, "GetExecutionHistory", `{"executionArn":"arn:nonexistent"}`)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
+
+func TestHandler_TagResource(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	log := logger.NewLogger(slog.LevelDebug)
+	bk := stepfunctions.NewInMemoryBackend()
+	h := stepfunctions.NewHandler(bk, log)
+
+	cr := sfnRequestWithHandler(t, h, e, "CreateStateMachine",
+		`{"name":"tag-sm","definition":"{}","roleArn":"arn:role"}`)
+	require.Equal(t, http.StatusOK, cr.Code)
+
+	var created map[string]any
+	require.NoError(t, json.Unmarshal(cr.Body.Bytes(), &created))
+	arn := created["stateMachineArn"].(string)
+
+	rec := sfnRequestWithHandler(t, h, e, "TagResource",
+		`{"resourceArn":"`+arn+`","tags":{"env":"prod","team":"infra"}}`)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestHandler_ListTagsForResource(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	log := logger.NewLogger(slog.LevelDebug)
+	bk := stepfunctions.NewInMemoryBackend()
+	h := stepfunctions.NewHandler(bk, log)
+
+	cr := sfnRequestWithHandler(t, h, e, "CreateStateMachine",
+		`{"name":"list-tag-sm","definition":"{}","roleArn":"arn:role"}`)
+	require.Equal(t, http.StatusOK, cr.Code)
+
+	var created map[string]any
+	require.NoError(t, json.Unmarshal(cr.Body.Bytes(), &created))
+	arn := created["stateMachineArn"].(string)
+
+	// Tag the resource.
+	sfnRequestWithHandler(t, h, e, "TagResource",
+		`{"resourceArn":"`+arn+`","tags":{"env":"prod"}}`)
+
+	// List and verify.
+	rec := sfnRequestWithHandler(t, h, e, "ListTagsForResource",
+		`{"resourceArn":"`+arn+`"}`)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	tags := resp["tags"].([]any)
+	assert.NotEmpty(t, tags)
+}
+
+func TestHandler_UntagResource(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	log := logger.NewLogger(slog.LevelDebug)
+	bk := stepfunctions.NewInMemoryBackend()
+	h := stepfunctions.NewHandler(bk, log)
+
+	cr := sfnRequestWithHandler(t, h, e, "CreateStateMachine",
+		`{"name":"untag-sm","definition":"{}","roleArn":"arn:role"}`)
+	require.Equal(t, http.StatusOK, cr.Code)
+
+	var created map[string]any
+	require.NoError(t, json.Unmarshal(cr.Body.Bytes(), &created))
+	arn := created["stateMachineArn"].(string)
+
+	// Tag then untag.
+	sfnRequestWithHandler(t, h, e, "TagResource",
+		`{"resourceArn":"`+arn+`","tags":{"env":"prod","team":"infra"}}`)
+	rec := sfnRequestWithHandler(t, h, e, "UntagResource",
+		`{"resourceArn":"`+arn+`","tagKeys":["team"]}`)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// Verify only "env" remains.
+	listRec := sfnRequestWithHandler(t, h, e, "ListTagsForResource",
+		`{"resourceArn":"`+arn+`"}`)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+
+	tags := resp["tags"].([]any)
+	assert.Len(t, tags, 1)
+
+	tag := tags[0].(map[string]any)
+	assert.Equal(t, "env", tag["key"])
+	assert.Equal(t, "prod", tag["value"])
+}

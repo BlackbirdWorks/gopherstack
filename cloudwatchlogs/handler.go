@@ -20,6 +20,75 @@ import (
 
 var errUnknownOperation = errors.New("UnknownOperationException")
 
+type createLogGroupInput struct {
+	LogGroupName string `json:"logGroupName"`
+}
+
+type deleteLogGroupInput struct {
+	LogGroupName string `json:"logGroupName"`
+}
+
+type describeLogGroupsInput struct {
+	LogGroupNamePrefix string `json:"logGroupNamePrefix"`
+	NextToken          string `json:"nextToken"`
+	Limit              int    `json:"limit"`
+}
+
+type createLogStreamInput struct {
+	LogGroupName  string `json:"logGroupName"`
+	LogStreamName string `json:"logStreamName"`
+}
+
+type describeLogStreamsInput struct {
+	LogGroupName        string `json:"logGroupName"`
+	LogStreamNamePrefix string `json:"logStreamNamePrefix"`
+	NextToken           string `json:"nextToken"`
+	Limit               int    `json:"limit"`
+}
+
+type putLogEventsInput struct {
+	LogGroupName  string          `json:"logGroupName"`
+	LogStreamName string          `json:"logStreamName"`
+	LogEvents     []InputLogEvent `json:"logEvents"`
+}
+
+type getLogEventsInput struct {
+	StartTime     *int64 `json:"startTime"`
+	EndTime       *int64 `json:"endTime"`
+	LogGroupName  string `json:"logGroupName"`
+	LogStreamName string `json:"logStreamName"`
+	NextToken     string `json:"nextToken"`
+	Limit         int    `json:"limit"`
+}
+
+type filterLogEventsInput struct {
+	StartTime      *int64   `json:"startTime"`
+	EndTime        *int64   `json:"endTime"`
+	LogGroupName   string   `json:"logGroupName"`
+	FilterPattern  string   `json:"filterPattern"`
+	NextToken      string   `json:"nextToken"`
+	LogStreamNames []string `json:"logStreamNames"`
+	Limit          int      `json:"limit"`
+}
+
+type listTagsLogGroupInput struct {
+	LogGroupName string `json:"logGroupName"`
+}
+
+type listTagsForResourceInput struct {
+	ResourceArn string `json:"resourceArn"`
+}
+
+type tagLogGroupInput struct {
+	Tags         map[string]string `json:"tags"`
+	LogGroupName string            `json:"logGroupName"`
+}
+
+type untagLogGroupInput struct {
+	LogGroupName string   `json:"logGroupName"`
+	Tags         []string `json:"tags"`
+}
+
 // Handler is the Echo HTTP service handler for CloudWatch Logs operations.
 type Handler struct {
 	Backend StorageBackend
@@ -132,46 +201,13 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function for CloudWatch Logs requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		ctx := c.Request().Context()
-		log := logger.Load(ctx)
-
-		if c.Request().Method == http.MethodGet && c.Request().URL.Path == "/" {
-			return c.JSON(http.StatusOK, h.GetSupportedOperations())
-		}
-
-		if c.Request().Method != http.MethodPost {
-			return c.String(http.StatusMethodNotAllowed, "Method not allowed")
-		}
-
-		target := c.Request().Header.Get("X-Amz-Target")
-		if target == "" {
-			return c.String(http.StatusBadRequest, "Missing X-Amz-Target")
-		}
-
-		parts := strings.Split(target, ".")
-		const targetParts = 2
-		if len(parts) != targetParts {
-			return c.String(http.StatusBadRequest, "Invalid X-Amz-Target")
-		}
-		action := parts[1]
-
-		body, err := httputil.ReadBody(c.Request())
-		if err != nil {
-			log.ErrorContext(ctx, "failed to read request body", "error", err)
-
-			return c.String(http.StatusInternalServerError, "internal server error")
-		}
-
-		log.DebugContext(ctx, "CloudWatchLogs request", "action", action)
-
-		response, reqErr := h.dispatch(ctx, action, body)
-		if reqErr != nil {
-			return h.handleError(ctx, c, action, reqErr)
-		}
-
-		c.Response().Header().Set("Content-Type", "application/x-amz-json-1.1")
-
-		return c.JSONBlob(http.StatusOK, response)
+		return service.HandleTarget(
+			c, logger.Load(c.Request().Context()),
+			"CloudWatchLogs", "application/x-amz-json-1.1",
+			h.GetSupportedOperations(),
+			h.dispatch,
+			h.handleError,
+		)
 	}
 }
 
@@ -180,9 +216,7 @@ type actionFn func([]byte) (any, error)
 func (h *Handler) logGroupActions() map[string]actionFn {
 	return map[string]actionFn{
 		"CreateLogGroup": func(b []byte) (any, error) {
-			var input struct {
-				LogGroupName string `json:"logGroupName"`
-			}
+			var input createLogGroupInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
@@ -193,9 +227,7 @@ func (h *Handler) logGroupActions() map[string]actionFn {
 			return map[string]any{}, nil
 		},
 		"DeleteLogGroup": func(b []byte) (any, error) {
-			var input struct {
-				LogGroupName string `json:"logGroupName"`
-			}
+			var input deleteLogGroupInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
@@ -206,11 +238,7 @@ func (h *Handler) logGroupActions() map[string]actionFn {
 			return map[string]any{}, nil
 		},
 		"DescribeLogGroups": func(b []byte) (any, error) {
-			var input struct {
-				LogGroupNamePrefix string `json:"logGroupNamePrefix"`
-				NextToken          string `json:"nextToken"`
-				Limit              int    `json:"limit"`
-			}
+			var input describeLogGroupsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
@@ -231,10 +259,7 @@ func (h *Handler) logGroupActions() map[string]actionFn {
 func (h *Handler) logStreamActions() map[string]actionFn {
 	return map[string]actionFn{
 		"CreateLogStream": func(b []byte) (any, error) {
-			var input struct {
-				LogGroupName  string `json:"logGroupName"`
-				LogStreamName string `json:"logStreamName"`
-			}
+			var input createLogStreamInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
@@ -245,12 +270,7 @@ func (h *Handler) logStreamActions() map[string]actionFn {
 			return map[string]any{}, nil
 		},
 		"DescribeLogStreams": func(b []byte) (any, error) {
-			var input struct {
-				LogGroupName        string `json:"logGroupName"`
-				LogStreamNamePrefix string `json:"logStreamNamePrefix"`
-				NextToken           string `json:"nextToken"`
-				Limit               int    `json:"limit"`
-			}
+			var input describeLogStreamsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
@@ -272,11 +292,7 @@ func (h *Handler) logStreamActions() map[string]actionFn {
 func (h *Handler) logEventActions() map[string]actionFn {
 	return map[string]actionFn{
 		"PutLogEvents": func(b []byte) (any, error) {
-			var input struct {
-				LogGroupName  string          `json:"logGroupName"`
-				LogStreamName string          `json:"logStreamName"`
-				LogEvents     []InputLogEvent `json:"logEvents"`
-			}
+			var input putLogEventsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
@@ -288,14 +304,7 @@ func (h *Handler) logEventActions() map[string]actionFn {
 			return map[string]any{"nextSequenceToken": next}, nil
 		},
 		"GetLogEvents": func(b []byte) (any, error) {
-			var input struct {
-				StartTime     *int64 `json:"startTime"`
-				EndTime       *int64 `json:"endTime"`
-				LogGroupName  string `json:"logGroupName"`
-				LogStreamName string `json:"logStreamName"`
-				NextToken     string `json:"nextToken"`
-				Limit         int    `json:"limit"`
-			}
+			var input getLogEventsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
@@ -313,15 +322,7 @@ func (h *Handler) logEventActions() map[string]actionFn {
 			}, nil
 		},
 		"FilterLogEvents": func(b []byte) (any, error) {
-			var input struct {
-				StartTime      *int64   `json:"startTime"`
-				EndTime        *int64   `json:"endTime"`
-				LogGroupName   string   `json:"logGroupName"`
-				FilterPattern  string   `json:"filterPattern"`
-				NextToken      string   `json:"nextToken"`
-				LogStreamNames []string `json:"logStreamNames"`
-				Limit          int      `json:"limit"`
-			}
+			var input filterLogEventsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
@@ -344,9 +345,7 @@ func (h *Handler) logEventActions() map[string]actionFn {
 func (h *Handler) logTagActions() map[string]actionFn {
 	return map[string]actionFn{
 		"ListTagsLogGroup": func(b []byte) (any, error) {
-			var input struct {
-				LogGroupName string `json:"logGroupName"`
-			}
+			var input listTagsLogGroupInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
@@ -354,9 +353,7 @@ func (h *Handler) logTagActions() map[string]actionFn {
 			return map[string]any{"tags": h.getTags(input.LogGroupName)}, nil
 		},
 		"ListTagsForResource": func(b []byte) (any, error) {
-			var input struct {
-				ResourceArn string `json:"resourceArn"`
-			}
+			var input listTagsForResourceInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
@@ -364,10 +361,7 @@ func (h *Handler) logTagActions() map[string]actionFn {
 			return map[string]any{"tags": h.getTags(input.ResourceArn)}, nil
 		},
 		"TagLogGroup": func(b []byte) (any, error) {
-			var input struct {
-				Tags         map[string]string `json:"tags"`
-				LogGroupName string            `json:"logGroupName"`
-			}
+			var input tagLogGroupInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
@@ -376,10 +370,7 @@ func (h *Handler) logTagActions() map[string]actionFn {
 			return struct{}{}, nil
 		},
 		"UntagLogGroup": func(b []byte) (any, error) {
-			var input struct {
-				LogGroupName string   `json:"logGroupName"`
-				Tags         []string `json:"tags"`
-			}
+			var input untagLogGroupInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
@@ -451,7 +442,7 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		log.WarnContext(ctx, "CloudWatchLogs request error", "error", reqErr, "action", action)
 	}
 
-	errResp := ErrorResponse{
+	errResp := service.JSONErrorResponse{
 		Type:    errType,
 		Message: reqErr.Error(),
 	}

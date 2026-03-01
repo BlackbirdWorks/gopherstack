@@ -126,10 +126,8 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 // MatchPriority returns the routing priority for the IAM handler.
 // Higher than Dashboard (50) but lower than DynamoDB/SSM (100).
-const iamMatchPriority = 80
-
 func (h *Handler) MatchPriority() int {
-	return iamMatchPriority
+	return service.PriorityFormStandard
 }
 
 // ExtractOperation extracts the IAM action from the request body.
@@ -839,12 +837,10 @@ func parseIAMTags(vals url.Values) map[string]string {
 	for i := 1; ; i++ {
 		k := vals.Get(fmt.Sprintf("Tags.member.%d.Key", i))
 		if k == "" {
-			break
+			return tags
 		}
 		tags[k] = vals.Get(fmt.Sprintf("Tags.member.%d.Value", i))
 	}
-
-	return tags
 }
 
 // parseIAMTagKeys parses TagKeys.member.N form values.
@@ -853,12 +849,10 @@ func parseIAMTagKeys(vals url.Values) []string {
 	for i := 1; ; i++ {
 		k := vals.Get(fmt.Sprintf("TagKeys.member.%d", i))
 		if k == "" {
-			break
+			return keys
 		}
 		keys = append(keys, k)
 	}
-
-	return keys
 }
 
 // dispatch routes the IAM action to the appropriate handler.

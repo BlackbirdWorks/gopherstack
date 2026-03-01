@@ -1224,6 +1224,206 @@ func TestIAMHandler_SortCoverage(t *testing.T) {
 	})
 }
 
+func TestInMemoryBackend_DetachRolePolicy(t *testing.T) {
+	t.Parallel()
+
+	t.Run("DetachExistingPolicy", func(t *testing.T) {
+		t.Parallel()
+		b := iam.NewInMemoryBackend()
+		_, _ = b.CreateRole("MyRole", "/", "")
+		_ = b.AttachRolePolicy("MyRole", "arn:aws:iam::000000000000:policy/SomePolicy")
+		err := b.DetachRolePolicy("MyRole", "arn:aws:iam::000000000000:policy/SomePolicy")
+		require.NoError(t, err)
+
+		policies, err := b.ListAttachedRolePolicies("MyRole")
+		require.NoError(t, err)
+		assert.Empty(t, policies)
+	})
+
+	t.Run("DetachNonExistentPolicy", func(t *testing.T) {
+		t.Parallel()
+		b := iam.NewInMemoryBackend()
+		_, _ = b.CreateRole("MyRole", "/", "")
+		err := b.DetachRolePolicy("MyRole", "arn:aws:iam::000000000000:policy/NoSuchPolicy")
+		require.NoError(t, err)
+	})
+
+	t.Run("DetachRolePolicyRoleNotFound", func(t *testing.T) {
+		t.Parallel()
+		b := iam.NewInMemoryBackend()
+		err := b.DetachRolePolicy("nonexistent", "arn:aws:iam::000000000000:policy/P")
+		require.ErrorIs(t, err, iam.ErrRoleNotFound)
+	})
+}
+
+func TestIAMHandler_DetachRolePolicy(t *testing.T) {
+	t.Parallel()
+
+	t.Run("DetachRolePolicy", func(t *testing.T) {
+		t.Parallel()
+		e := echo.New()
+		h, b := newTestHandler(t)
+		_, _ = b.CreateRole("MyRole", "/", "")
+		_ = b.AttachRolePolicy("MyRole", "arn:aws:iam::000000000000:policy/SomePolicy")
+
+		req := iamRequest("DetachRolePolicy", map[string]string{
+			"RoleName":  "MyRole",
+			"PolicyArn": "arn:aws:iam::000000000000:policy/SomePolicy",
+		})
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := h.Handler()(c)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, rec.Code)
+	})
+
+	t.Run("DetachRolePolicyRoleNotFound", func(t *testing.T) {
+		t.Parallel()
+		e := echo.New()
+		h, _ := newTestHandler(t)
+
+		req := iamRequest("DetachRolePolicy", map[string]string{
+			"RoleName":  "nonexistent",
+			"PolicyArn": "arn:aws:iam::000000000000:policy/P",
+		})
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := h.Handler()(c)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+		var errResp iam.ErrorResponse
+		require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
+		assert.Equal(t, "NoSuchEntity", errResp.Error.Code)
+	})
+}
+
+func TestIAMHandler_TagOperations(t *testing.T) {
+	t.Parallel()
+
+	t.Run("TagRoleAndListRoleTags", func(t *testing.T) {
+		t.Parallel()
+		e := echo.New()
+		h, _ := newTestHandler(t)
+
+		req := iamRequest("TagRole", map[string]string{
+			"RoleName":            "MyRole",
+			"Tags.member.1.Key":   "env",
+			"Tags.member.1.Value": "prod",
+			"Tags.member.2.Key":   "team",
+			"Tags.member.2.Value": "platform",
+		})
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := h.Handler()(c)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, rec.Code)
+
+		// List tags
+		req = iamRequest("ListRoleTags", map[string]string{"RoleName": "MyRole"})
+		rec = httptest.NewRecorder()
+		c = e.NewContext(req, rec)
+
+		err = h.Handler()(c)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Contains(t, rec.Body.String(), "env")
+		assert.Contains(t, rec.Body.String(), "prod")
+	})
+
+	t.Run("UntagRole", func(t *testing.T) {
+		t.Parallel()
+		e := echo.New()
+		h, _ := newTestHandler(t)
+
+		// Tag first
+		req := iamRequest("TagRole", map[string]string{
+			"RoleName":            "MyRole",
+			"Tags.member.1.Key":   "env",
+			"Tags.member.1.Value": "prod",
+		})
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+		err := h.Handler()(c)
+		require.NoError(t, err)
+
+		// Untag
+		req = iamRequest("UntagRole", map[string]string{
+			"RoleName":         "MyRole",
+			"TagKeys.member.1": "env",
+		})
+		rec = httptest.NewRecorder()
+		c = e.NewContext(req, rec)
+		err = h.Handler()(c)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, rec.Code)
+
+		// Verify empty
+		req = iamRequest("ListRoleTags", map[string]string{"RoleName": "MyRole"})
+		rec = httptest.NewRecorder()
+		c = e.NewContext(req, rec)
+		err = h.Handler()(c)
+		require.NoError(t, err)
+		assert.NotContains(t, rec.Body.String(), "env")
+	})
+
+	t.Run("TagUserAndListUserTags", func(t *testing.T) {
+		t.Parallel()
+		e := echo.New()
+		h, _ := newTestHandler(t)
+
+		req := iamRequest("TagUser", map[string]string{
+			"UserName":            "alice",
+			"Tags.member.1.Key":   "dept",
+			"Tags.member.1.Value": "engineering",
+		})
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := h.Handler()(c)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, rec.Code)
+
+		req = iamRequest("ListUserTags", map[string]string{"UserName": "alice"})
+		rec = httptest.NewRecorder()
+		c = e.NewContext(req, rec)
+
+		err = h.Handler()(c)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Contains(t, rec.Body.String(), "dept")
+	})
+
+	t.Run("UntagUser", func(t *testing.T) {
+		t.Parallel()
+		e := echo.New()
+		h, _ := newTestHandler(t)
+
+		req := iamRequest("TagUser", map[string]string{
+			"UserName":            "alice",
+			"Tags.member.1.Key":   "dept",
+			"Tags.member.1.Value": "engineering",
+		})
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+		err := h.Handler()(c)
+		require.NoError(t, err)
+
+		req = iamRequest("UntagUser", map[string]string{
+			"UserName":         "alice",
+			"TagKeys.member.1": "dept",
+		})
+		rec = httptest.NewRecorder()
+		c = e.NewContext(req, rec)
+		err = h.Handler()(c)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, rec.Code)
+	})
+}
+
 // TestIAMHandler_InternalFailure tests the InternalFailure error code path
 // by injecting a backend that returns a raw (non-sentinel) error.
 func TestIAMHandler_InternalFailure(t *testing.T) {

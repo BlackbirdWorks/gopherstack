@@ -31,7 +31,7 @@ func TestScheduler_FiresRateRule(t *testing.T) {
 	tickInterval := 50 * time.Millisecond
 	scheduler := eventbridge.NewScheduler(backend, log, tickInterval)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
 	go scheduler.Run(ctx)
@@ -68,7 +68,7 @@ func TestScheduler_SkipsDisabledRule(t *testing.T) {
 	tickInterval := 50 * time.Millisecond
 	scheduler := eventbridge.NewScheduler(backend, log, tickInterval)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
 	defer cancel()
 
 	go scheduler.Run(ctx)
@@ -99,7 +99,7 @@ func TestScheduler_InvalidExpression(t *testing.T) {
 	tickInterval := 50 * time.Millisecond
 	scheduler := eventbridge.NewScheduler(backend, log, tickInterval)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
 	defer cancel()
 
 	// Should not panic; invalid expressions are logged and skipped.
@@ -122,7 +122,7 @@ func TestScheduler_CronRule(t *testing.T) {
 
 	// A 1-second tick interval - cron fires once per day, so no event in short test window.
 	scheduler := eventbridge.NewScheduler(backend, log, 50*time.Millisecond)
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 	defer cancel()
 
 	// Just verify it doesn't panic.

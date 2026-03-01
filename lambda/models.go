@@ -20,8 +20,11 @@ const (
 	FunctionStateFailed FunctionState = "Failed"
 )
 
-// InvocationType for Lambda invocations.
-type InvocationType string
+// InvocationType for Lambda invocations. Must remain a type alias (= string) because
+// multiple packages (apigateway, eventbridge, secretsmanager, stepfunctions) define
+// LambdaInvoker interfaces with InvokeFunction(... invocationType string ...).
+// A defined type would prevent *InMemoryBackend from satisfying those interfaces.
+type InvocationType = string
 
 const (
 	// InvocationTypeRequestResponse waits for the function to return.

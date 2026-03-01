@@ -11,6 +11,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -356,19 +357,13 @@ func (h *S3Handler) putObject(
 	w.WriteHeader(http.StatusOK)
 }
 
-func (h *S3Handler) copyObject(
-	ctx context.Context,
-	w http.ResponseWriter,
-	r *http.Request,
-	destBucket, destKey string,
-) {
-	h.setOperation(ctx, "CopyObject")
-	log := logger.Load(ctx)
+// copySourceData reads source object data for CopyObject.
+func (h *S3Handler) copySourceData(
+	ctx context.Context, r *http.Request,
+) ([]byte, *s3.GetObjectOutput, error) {
 	srcBucket, srcKey, srcVersionID, ok := parseCopySource(r.Header.Get("X-Amz-Copy-Source"))
 	if !ok {
-		WriteError(log, w, r, ErrInvalidArgument)
-
-		return
+		return nil, nil, ErrInvalidArgument
 	}
 
 	if hID := r.Header.Get("X-Amz-Copy-Source-Version-Id"); hID != "" {
@@ -385,20 +380,29 @@ func (h *S3Handler) copyObject(
 		Key:       aws.String(srcKey),
 		VersionId: vid,
 	})
-	if errors.Is(err, ErrNoSuchBucket) || errors.Is(err, ErrNoSuchKey) {
-		WriteError(log, w, r, err)
-
-		return
+	if err != nil {
+		return nil, nil, err
 	}
 	defer srcVer.Body.Close()
 
+	data, err := io.ReadAll(srcVer.Body)
 	if err != nil {
-		WriteError(log, w, r, err)
-
-		return
+		return nil, nil, err
 	}
 
-	data, err := io.ReadAll(srcVer.Body)
+	return data, srcVer, nil
+}
+
+func (h *S3Handler) copyObject(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	destBucket, destKey string,
+) {
+	h.setOperation(ctx, "CopyObject")
+	log := logger.Load(ctx)
+
+	data, srcVer, err := h.copySourceData(ctx, r)
 	if err != nil {
 		WriteError(log, w, r, err)
 
@@ -408,11 +412,19 @@ func (h *S3Handler) copyObject(
 	userMeta := srcVer.Metadata
 	contentType := srcVer.ContentType
 
+	log.DebugContext(ctx, "CopyObject source info",
+		"srcBucket", aws.ToString(srcVer.ContentType),
+		"srcContentType", aws.ToString(contentType))
+
 	if r.Header.Get("X-Amz-Metadata-Directive") == "REPLACE" {
-		if ct := r.Header.Get("Content-Type"); ct != "" {
+		ct := r.Header.Get("Content-Type")
+		log.DebugContext(ctx, "Metadata directive REPLACE detected", "headerContentType", ct)
+		if ct != "" && !strings.Contains(ct, "form-urlencoded") {
 			contentType = aws.String(ct)
 		}
 		userMeta = parseUserMetadata(r.Header)
+		log.DebugContext(ctx, "Metadata directive REPLACE applied",
+			"newContentType", aws.ToString(contentType), "newUserMeta", userMeta)
 	}
 
 	putInput := &s3.PutObjectInput{
@@ -424,12 +436,6 @@ func (h *S3Handler) copyObject(
 	}
 
 	destVer, err := h.Backend.PutObject(ctx, putInput)
-	if errors.Is(err, ErrNoSuchBucket) {
-		WriteError(log, w, r, err)
-
-		return
-	}
-
 	if err != nil {
 		WriteError(log, w, r, err)
 
@@ -881,11 +887,13 @@ func extractChecksumPointers(h http.Header, algo string) (*string, *string, *str
 	}
 }
 
+const copySourceMinParts = 2
+
 func parseCopySource(src string) (string, string, string, bool) {
 	src = strings.TrimPrefix(src, "/")
-	parts := strings.SplitN(src, "/", pathSplitParts)
+	parts := strings.SplitN(src, "/", copySourceMinParts)
 
-	if len(parts) != pathSplitParts {
+	if len(parts) != copySourceMinParts {
 		return "", "", "", false
 	}
 
@@ -896,6 +904,12 @@ func parseCopySource(src string) (string, string, string, bool) {
 	if idx := strings.Index(key, "?versionId="); idx != -1 {
 		versionID = key[idx+11:]
 		key = key[:idx]
+	}
+
+	// Unescape the key since it may be URL-encoded from the client.
+	unescapedKey, err := url.PathUnescape(key)
+	if err == nil {
+		key = unescapedKey
 	}
 
 	return bucket, key, versionID, true

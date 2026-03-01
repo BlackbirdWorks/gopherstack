@@ -241,11 +241,9 @@ func TestBatchGetItem(t *testing.T) {
 			}
 
 			// Sort slices for comparison if necessary, or use cmpopts.SortSlices
-			if diff := cmp.Diff(tt.want, got, cmpopts.SortSlices(func(a, b map[string]any) bool {
+			assert.Empty(t, cmp.Diff(tt.want, got, cmpopts.SortSlices(func(a, b map[string]any) bool {
 				return a["pk"].(map[string]any)["S"].(string) < b["pk"].(map[string]any)["S"].(string)
-			})); diff != "" {
-				t.Errorf("BatchGetItem responses mismatch (-want +got):\n%s", diff)
-			}
+			})), "BatchGetItem responses mismatch")
 		})
 	}
 }

@@ -1,7 +1,6 @@
 package dashboard
 
 import (
-	"context"
 	"html/template"
 	"log/slog"
 	"net/http"
@@ -67,7 +66,7 @@ func TestInternal_ToAttributeValue(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			ctx := context.Background()
+			ctx := t.Context()
 			_ = ctx
 			h := &DashboardHandler{}
 
@@ -112,7 +111,7 @@ func TestInternal_RenderTemplate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			ctx := context.Background()
+			ctx := t.Context()
 			_ = ctx
 			h := &DashboardHandler{
 				layout: tt.setupLayout(),
@@ -146,7 +145,7 @@ func TestInternal_RenderFragment(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			ctx := context.Background()
+			ctx := t.Context()
 			_ = ctx
 			h := &DashboardHandler{
 				layout: tt.setupLayout(),
@@ -189,7 +188,7 @@ func TestInternal_ExtractKeys(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			ctx := context.Background()
+			ctx := t.Context()
 			_ = ctx
 			h := &DashboardHandler{}
 			pk, sk := h.extractKeys(tt.schema)
@@ -255,7 +254,7 @@ func TestInternal_ResolveKeySchema(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			ctx := context.Background()
+			ctx := t.Context()
 			_ = ctx
 			h := &DashboardHandler{}
 			pk, sk, pkt, skt := h.resolveKeySchema(tt.desc, tt.indexName)
@@ -319,7 +318,7 @@ func TestInternal_ExtractIndexInfo(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			ctx := context.Background()
+			ctx := t.Context()
 			_ = ctx
 			h := &DashboardHandler{}
 			info := h.extractIndexInfo(tt.indexName, tt.schema, tt.proj, tt.attrs)
@@ -413,7 +412,7 @@ func TestInternal_ExtractTableInfo(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			ctx := context.Background()
+			ctx := t.Context()
 			_ = ctx
 			h := &DashboardHandler{}
 			info := h.extractTableInfo(tt.desc)
@@ -462,7 +461,7 @@ func TestInternal_ResolveIndexKeys(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			ctx := context.Background()
+			ctx := t.Context()
 			_ = ctx
 			h := &DashboardHandler{}
 			pk, sk := h.resolveIndexKeys(tt.desc, tt.indexName)
@@ -517,7 +516,7 @@ func TestInternal_RenderQueryResults(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			ctx := context.Background()
+			ctx := t.Context()
 			_ = ctx
 			h := &DashboardHandler{Logger: slog.Default()}
 			w := httptest.NewRecorder()
@@ -569,7 +568,7 @@ func TestInternal_ParseQueryRequest(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			ctx := context.Background()
+			ctx := t.Context()
 			_ = ctx
 			h := &DashboardHandler{Logger: slog.Default()}
 			req := httptest.NewRequest(
@@ -609,7 +608,7 @@ func TestInMemClient_RoundTrip(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			ctx := context.Background()
+			ctx := t.Context()
 			_ = ctx
 			mux := http.NewServeMux()
 			mux.HandleFunc("/test", func(w http.ResponseWriter, _ *http.Request) {

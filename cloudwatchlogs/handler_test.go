@@ -107,13 +107,6 @@ func TestHandler_InvalidTarget(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-func TestHandler_UnknownOperation(t *testing.T) {
-	t.Parallel()
-
-	rec := makeLogsRequest(t, "UnknownOp", "{}")
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
 func TestHandler_InvalidJSON(t *testing.T) {
 	t.Parallel()
 
@@ -121,213 +114,396 @@ func TestHandler_InvalidJSON(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
-func TestHandler_CreateLogGroup(t *testing.T) {
+func TestHandler(t *testing.T) {
 	t.Parallel()
 
-	rec := makeLogsRequest(t, "CreateLogGroup", `{"logGroupName":"/my/group"}`)
-	assert.Equal(t, http.StatusOK, rec.Code)
+	tests := []struct {
+		setup             func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo)
+		body              map[string]any
+		name              string
+		action            string
+		wantListField     string
+		wantNotEmptyField string
+		wantCode          int
+		wantListLen       int
+	}{
+		{
+			name:     "UnknownOperation",
+			action:   "UnknownOp",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "CreateLogGroup",
+			action:   "CreateLogGroup",
+			body:     map[string]any{"logGroupName": "/my/group"},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "CreateLogGroup/AlreadyExists",
+			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
+				t.Helper()
+				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"dup"}`)
+			},
+			action:   "CreateLogGroup",
+			body:     map[string]any{"logGroupName": "dup"},
+			wantCode: http.StatusConflict,
+		},
+		{
+			name: "DeleteLogGroup",
+			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
+				t.Helper()
+				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"to-delete"}`)
+			},
+			action:   "DeleteLogGroup",
+			body:     map[string]any{"logGroupName": "to-delete"},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "DeleteLogGroup/NotFound",
+			action:   "DeleteLogGroup",
+			body:     map[string]any{"logGroupName": "nonexistent"},
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name: "DescribeLogGroups",
+			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
+				t.Helper()
+				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"/prod/app"}`)
+				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"/dev/app"}`)
+			},
+			action:        "DescribeLogGroups",
+			body:          map[string]any{},
+			wantCode:      http.StatusOK,
+			wantListField: "logGroups",
+			wantListLen:   2,
+		},
+		{
+			name: "DescribeLogGroups/WithPrefix",
+			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
+				t.Helper()
+				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"/prod/app"}`)
+				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"/dev/app"}`)
+			},
+			action:        "DescribeLogGroups",
+			body:          map[string]any{"logGroupNamePrefix": "/prod"},
+			wantCode:      http.StatusOK,
+			wantListField: "logGroups",
+			wantListLen:   1,
+		},
+		{
+			name: "CreateLogStream",
+			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
+				t.Helper()
+				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"grp"}`)
+			},
+			action:   "CreateLogStream",
+			body:     map[string]any{"logGroupName": "grp", "logStreamName": "stream"},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "CreateLogStream/GroupNotFound",
+			action:   "CreateLogStream",
+			body:     map[string]any{"logGroupName": "nonexistent", "logStreamName": "stream"},
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name: "CreateLogStream/AlreadyExists",
+			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
+				t.Helper()
+				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"grp"}`)
+				doLogsRequest(
+					t,
+					h,
+					e,
+					"CreateLogStream",
+					`{"logGroupName":"grp","logStreamName":"dup"}`,
+				)
+			},
+			action:   "CreateLogStream",
+			body:     map[string]any{"logGroupName": "grp", "logStreamName": "dup"},
+			wantCode: http.StatusConflict,
+		},
+		{
+			name: "DescribeLogStreams",
+			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
+				t.Helper()
+				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"grp"}`)
+				doLogsRequest(
+					t,
+					h,
+					e,
+					"CreateLogStream",
+					`{"logGroupName":"grp","logStreamName":"s1"}`,
+				)
+				doLogsRequest(
+					t,
+					h,
+					e,
+					"CreateLogStream",
+					`{"logGroupName":"grp","logStreamName":"s2"}`,
+				)
+			},
+			action:        "DescribeLogStreams",
+			body:          map[string]any{"logGroupName": "grp"},
+			wantCode:      http.StatusOK,
+			wantListField: "logStreams",
+			wantListLen:   2,
+		},
+		{
+			name:     "DescribeLogStreams/GroupNotFound",
+			action:   "DescribeLogStreams",
+			body:     map[string]any{"logGroupName": "nonexistent"},
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name: "PutLogEvents",
+			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
+				t.Helper()
+				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"grp"}`)
+				doLogsRequest(
+					t,
+					h,
+					e,
+					"CreateLogStream",
+					`{"logGroupName":"grp","logStreamName":"s"}`,
+				)
+			},
+			action: "PutLogEvents",
+			body: map[string]any{
+				"logGroupName":  "grp",
+				"logStreamName": "s",
+				"logEvents":     []any{map[string]any{"message": "hello", "timestamp": 1000}},
+			},
+			wantCode:          http.StatusOK,
+			wantNotEmptyField: "nextSequenceToken",
+		},
+		{
+			name:   "PutLogEvents/GroupNotFound",
+			action: "PutLogEvents",
+			body: map[string]any{
+				"logGroupName":  "nonexistent",
+				"logStreamName": "s",
+				"logEvents":     []any{},
+			},
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name: "GetLogEvents",
+			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
+				t.Helper()
+				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"grp"}`)
+				doLogsRequest(
+					t,
+					h,
+					e,
+					"CreateLogStream",
+					`{"logGroupName":"grp","logStreamName":"s"}`,
+				)
+				doLogsRequest(
+					t,
+					h,
+					e,
+					"PutLogEvents",
+					`{"logGroupName":"grp","logStreamName":"s","logEvents":[{"message":"m1","timestamp":1000}]}`,
+				)
+			},
+			action:        "GetLogEvents",
+			body:          map[string]any{"logGroupName": "grp", "logStreamName": "s"},
+			wantCode:      http.StatusOK,
+			wantListField: "events",
+			wantListLen:   1,
+		},
+		{
+			name:     "GetLogEvents/NotFound",
+			action:   "GetLogEvents",
+			body:     map[string]any{"logGroupName": "nonexistent", "logStreamName": "s"},
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name: "FilterLogEvents",
+			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
+				t.Helper()
+				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"grp"}`)
+				doLogsRequest(
+					t,
+					h,
+					e,
+					"CreateLogStream",
+					`{"logGroupName":"grp","logStreamName":"s"}`,
+				)
+				doLogsRequest(
+					t,
+					h,
+					e,
+					"PutLogEvents",
+					`{"logGroupName":"grp","logStreamName":"s","logEvents":[{"message":"ERROR: bad","timestamp":1000}]}`,
+				)
+			},
+			action:        "FilterLogEvents",
+			body:          map[string]any{"logGroupName": "grp", "filterPattern": "ERROR"},
+			wantCode:      http.StatusOK,
+			wantListField: "events",
+			wantListLen:   1,
+		},
+		{
+			name:     "FilterLogEvents/GroupNotFound",
+			action:   "FilterLogEvents",
+			body:     map[string]any{"logGroupName": "nonexistent"},
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name: "TagLogGroup",
+			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
+				t.Helper()
+				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"tag-grp"}`)
+			},
+			action: "TagLogGroup",
+			body: map[string]any{
+				"logGroupName": "tag-grp",
+				"tags":         map[string]string{"env": "prod", "team": "ops"},
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "ListTagsLogGroup",
+			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
+				t.Helper()
+				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"tag-grp"}`)
+				doLogsRequest(
+					t,
+					h,
+					e,
+					"TagLogGroup",
+					`{"logGroupName":"tag-grp","tags":{"env":"prod","team":"ops"}}`,
+				)
+			},
+			action:   "ListTagsLogGroup",
+			body:     map[string]any{"logGroupName": "tag-grp"},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "ListTagsForResource",
+			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
+				t.Helper()
+				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"tag-grp"}`)
+				doLogsRequest(
+					t,
+					h,
+					e,
+					"TagLogGroup",
+					`{"logGroupName":"tag-grp","tags":{"env":"prod"}}`,
+				)
+			},
+			action:   "ListTagsForResource",
+			body:     map[string]any{"resourceArn": "tag-grp"},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "UntagLogGroup",
+			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
+				t.Helper()
+				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"tag-grp"}`)
+				doLogsRequest(
+					t,
+					h,
+					e,
+					"TagLogGroup",
+					`{"logGroupName":"tag-grp","tags":{"env":"prod","team":"ops"}}`,
+				)
+			},
+			action:   "UntagLogGroup",
+			body:     map[string]any{"logGroupName": "tag-grp", "tags": []string{"env"}},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "PutRetentionPolicy",
+			action:   "PutRetentionPolicy",
+			body:     map[string]any{"logGroupName": "grp", "retentionInDays": 30},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "DeleteRetentionPolicy",
+			action:   "DeleteRetentionPolicy",
+			body:     map[string]any{"logGroupName": "grp"},
+			wantCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := echo.New()
+			h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), slog.Default())
+
+			if tt.setup != nil {
+				tt.setup(t, h, e)
+			}
+
+			bodyBytes, err := json.Marshal(tt.body)
+			require.NoError(t, err)
+
+			rec := doLogsRequest(t, h, e, tt.action, string(bodyBytes))
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantListField != "" {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Len(t, resp[tt.wantListField].([]any), tt.wantListLen)
+			}
+
+			if tt.wantNotEmptyField != "" {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.NotEmpty(t, resp[tt.wantNotEmptyField])
+			}
+		})
+	}
 }
 
-func TestHandler_CreateLogGroup_AlreadyExists(t *testing.T) {
+func TestHandler_TagRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	e := echo.New()
 	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), slog.Default())
 
-	rec := doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"dup"}`)
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	rec = doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"dup"}`)
-	assert.Equal(t, http.StatusConflict, rec.Code)
-}
-
-func TestHandler_DeleteLogGroup(t *testing.T) {
-	t.Parallel()
-
-	e := echo.New()
-	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), slog.Default())
-
-	doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"to-delete"}`)
-	rec := doLogsRequest(t, h, e, "DeleteLogGroup", `{"logGroupName":"to-delete"}`)
-	assert.Equal(t, http.StatusOK, rec.Code)
-}
-
-func TestHandler_DeleteLogGroup_NotFound(t *testing.T) {
-	t.Parallel()
-
-	rec := makeLogsRequest(t, "DeleteLogGroup", `{"logGroupName":"nonexistent"}`)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestHandler_DescribeLogGroups(t *testing.T) {
-	t.Parallel()
-
-	e := echo.New()
-	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), slog.Default())
-
-	doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"/prod/app"}`)
-	doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"/dev/app"}`)
-
-	rec := doLogsRequest(t, h, e, "DescribeLogGroups", `{}`)
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	groups := resp["logGroups"].([]any)
-	assert.Len(t, groups, 2)
-}
-
-func TestHandler_DescribeLogGroups_WithPrefix(t *testing.T) {
-	t.Parallel()
-
-	e := echo.New()
-	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), slog.Default())
-
-	doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"/prod/app"}`)
-	doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"/dev/app"}`)
-
-	rec := doLogsRequest(t, h, e, "DescribeLogGroups", `{"logGroupNamePrefix":"/prod"}`)
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Len(t, resp["logGroups"].([]any), 1)
-}
-
-func TestHandler_CreateLogStream(t *testing.T) {
-	t.Parallel()
-
-	e := echo.New()
-	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), slog.Default())
-
+	// Create a log group and tag it.
 	doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"grp"}`)
-	rec := doLogsRequest(t, h, e, "CreateLogStream",
-		`{"logGroupName":"grp","logStreamName":"stream"}`)
-	assert.Equal(t, http.StatusOK, rec.Code)
-}
+	doLogsRequest(
+		t,
+		h,
+		e,
+		"TagLogGroup",
+		`{"logGroupName":"grp","tags":{"env":"prod","team":"ops"}}`,
+	)
 
-func TestHandler_CreateLogStream_GroupNotFound(t *testing.T) {
-	t.Parallel()
+	// ListTagsLogGroup returns both tags.
+	rec := doLogsRequest(t, h, e, "ListTagsLogGroup", `{"logGroupName":"grp"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
 
-	rec := makeLogsRequest(t, "CreateLogStream",
-		`{"logGroupName":"nonexistent","logStreamName":"stream"}`)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
+	var listResp map[string]map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	assert.Equal(t, "prod", listResp["tags"]["env"])
+	assert.Equal(t, "ops", listResp["tags"]["team"])
 
-func TestHandler_CreateLogStream_AlreadyExists(t *testing.T) {
-	t.Parallel()
+	// ListTagsForResource also works.
+	rec2 := doLogsRequest(t, h, e, "ListTagsForResource", `{"resourceArn":"grp"}`)
+	require.Equal(t, http.StatusOK, rec2.Code)
 
-	e := echo.New()
-	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), slog.Default())
+	var listResp2 map[string]map[string]string
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &listResp2))
+	assert.Len(t, listResp2["tags"], 2)
 
-	doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"grp"}`)
-	doLogsRequest(t, h, e, "CreateLogStream", `{"logGroupName":"grp","logStreamName":"dup"}`)
-	rec := doLogsRequest(t, h, e, "CreateLogStream", `{"logGroupName":"grp","logStreamName":"dup"}`)
-	assert.Equal(t, http.StatusConflict, rec.Code)
-}
+	// Remove one tag.
+	doLogsRequest(t, h, e, "UntagLogGroup", `{"logGroupName":"grp","tags":["env"]}`)
 
-func TestHandler_DescribeLogStreams(t *testing.T) {
-	t.Parallel()
+	// Verify only "team" remains.
+	rec3 := doLogsRequest(t, h, e, "ListTagsLogGroup", `{"logGroupName":"grp"}`)
+	require.Equal(t, http.StatusOK, rec3.Code)
 
-	e := echo.New()
-	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), slog.Default())
-
-	doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"grp"}`)
-	doLogsRequest(t, h, e, "CreateLogStream", `{"logGroupName":"grp","logStreamName":"s1"}`)
-	doLogsRequest(t, h, e, "CreateLogStream", `{"logGroupName":"grp","logStreamName":"s2"}`)
-
-	rec := doLogsRequest(t, h, e, "DescribeLogStreams", `{"logGroupName":"grp"}`)
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Len(t, resp["logStreams"].([]any), 2)
-}
-
-func TestHandler_DescribeLogStreams_GroupNotFound(t *testing.T) {
-	t.Parallel()
-
-	rec := makeLogsRequest(t, "DescribeLogStreams", `{"logGroupName":"nonexistent"}`)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestHandler_PutLogEvents(t *testing.T) {
-	t.Parallel()
-
-	e := echo.New()
-	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), slog.Default())
-
-	doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"grp"}`)
-	doLogsRequest(t, h, e, "CreateLogStream", `{"logGroupName":"grp","logStreamName":"s"}`)
-
-	rec := doLogsRequest(t, h, e, "PutLogEvents",
-		`{"logGroupName":"grp","logStreamName":"s","logEvents":[{"message":"hello","timestamp":1000}]}`)
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.NotEmpty(t, resp["nextSequenceToken"])
-}
-
-func TestHandler_PutLogEvents_GroupNotFound(t *testing.T) {
-	t.Parallel()
-
-	rec := makeLogsRequest(t, "PutLogEvents",
-		`{"logGroupName":"nonexistent","logStreamName":"s","logEvents":[]}`)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestHandler_GetLogEvents(t *testing.T) {
-	t.Parallel()
-
-	e := echo.New()
-	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), slog.Default())
-
-	doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"grp"}`)
-	doLogsRequest(t, h, e, "CreateLogStream", `{"logGroupName":"grp","logStreamName":"s"}`)
-	doLogsRequest(t, h, e, "PutLogEvents",
-		`{"logGroupName":"grp","logStreamName":"s","logEvents":[{"message":"m1","timestamp":1000}]}`)
-
-	rec := doLogsRequest(t, h, e, "GetLogEvents",
-		`{"logGroupName":"grp","logStreamName":"s"}`)
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Len(t, resp["events"].([]any), 1)
-}
-
-func TestHandler_GetLogEvents_NotFound(t *testing.T) {
-	t.Parallel()
-
-	rec := makeLogsRequest(t, "GetLogEvents",
-		`{"logGroupName":"nonexistent","logStreamName":"s"}`)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestHandler_FilterLogEvents(t *testing.T) {
-	t.Parallel()
-
-	e := echo.New()
-	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), slog.Default())
-
-	doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"grp"}`)
-	doLogsRequest(t, h, e, "CreateLogStream", `{"logGroupName":"grp","logStreamName":"s"}`)
-	doLogsRequest(t, h, e, "PutLogEvents",
-		`{"logGroupName":"grp","logStreamName":"s","logEvents":[{"message":"ERROR: bad","timestamp":1000}]}`)
-
-	rec := doLogsRequest(t, h, e, "FilterLogEvents",
-		`{"logGroupName":"grp","filterPattern":"ERROR"}`)
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Len(t, resp["events"].([]any), 1)
-}
-
-func TestHandler_FilterLogEvents_GroupNotFound(t *testing.T) {
-	t.Parallel()
-
-	rec := makeLogsRequest(t, "FilterLogEvents", `{"logGroupName":"nonexistent"}`)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	var listResp3 map[string]map[string]string
+	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &listResp3))
+	assert.Len(t, listResp3["tags"], 1)
+	assert.Equal(t, "ops", listResp3["tags"]["team"])
 }

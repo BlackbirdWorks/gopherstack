@@ -20,6 +20,10 @@ import (
 // ErrUnknownOperation is returned when an unsupported operation is requested.
 var ErrUnknownOperation = errors.New("UnknownOperationException")
 
+type getResourcePolicyInput struct {
+	SecretID string `json:"SecretId"`
+}
+
 // LambdaInvoker can invoke a Lambda function synchronously.
 type LambdaInvoker interface {
 	InvokeFunction(ctx context.Context, name, invocationType string, payload []byte) ([]byte, int, error)
@@ -77,12 +81,9 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	}
 }
 
-// smMatchPriority is the routing priority for the Secrets Manager handler.
-const smMatchPriority = 95
-
 // MatchPriority returns the routing priority for the Secrets Manager handler.
 func (h *Handler) MatchPriority() int {
-	return smMatchPriority
+	return service.PriorityHeaderPartial
 }
 
 // ExtractOperation extracts the Secrets Manager operation name from the X-Amz-Target header.
@@ -124,48 +125,15 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function for Secrets Manager operations.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		ctx := c.Request().Context()
-		log := logger.Load(ctx)
-
-		if c.Request().Method == http.MethodGet && c.Request().URL.Path == "/" {
-			return c.JSON(http.StatusOK, h.GetSupportedOperations())
-		}
-
-		if c.Request().Method != http.MethodPost {
-			return c.String(http.StatusMethodNotAllowed, "Method not allowed")
-		}
-
-		target := c.Request().Header.Get("X-Amz-Target")
-		if target == "" {
-			return c.String(http.StatusBadRequest, "Missing X-Amz-Target")
-		}
-
-		parts := strings.Split(target, ".")
-
-		const targetParts = 2
-		if len(parts) != targetParts {
-			return c.String(http.StatusBadRequest, "Invalid X-Amz-Target")
-		}
-
-		action := parts[1]
-
-		body, err := httputil.ReadBody(c.Request())
-		if err != nil {
-			log.ErrorContext(ctx, "failed to read request body", "error", err)
-
-			return c.String(http.StatusInternalServerError, "internal server error")
-		}
-
-		log.DebugContext(ctx, "SecretsManager request", "action", action)
-
-		response, reqErr := h.dispatch(ctx, c.Request(), action, body)
-		if reqErr != nil {
-			return h.handleError(ctx, c, action, reqErr)
-		}
-
-		c.Response().Header().Set("Content-Type", "application/x-amz-json-1.1")
-
-		return c.JSONBlob(http.StatusOK, response)
+		return service.HandleTarget(
+			c, logger.Load(c.Request().Context()),
+			"SecretsManager", "application/x-amz-json-1.1",
+			h.GetSupportedOperations(),
+			func(ctx context.Context, action string, body []byte) ([]byte, error) {
+				return h.dispatch(ctx, c.Request(), action, body)
+			},
+			h.handleError,
+		)
 	}
 }
 
@@ -282,9 +250,7 @@ func (h *Handler) smTagActions() map[string]smActionFn {
 func (h *Handler) smPolicyActions() map[string]smActionFn {
 	return map[string]smActionFn{
 		"GetResourcePolicy": func(_ context.Context, _ string, b []byte) (any, error) {
-			var input struct {
-				SecretID string `json:"SecretId"`
-			}
+			var input getResourcePolicyInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}

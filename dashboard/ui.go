@@ -628,9 +628,7 @@ func (h *DashboardHandler) RouteMatcher() service.Matcher {
 // MatchPriority returns the priority for the Dashboard matcher.
 // Path-based matchers have medium priority (50).
 func (h *DashboardHandler) MatchPriority() int {
-	const priority = 50
-
-	return priority
+	return service.PriorityPathUI
 }
 
 // dashboardPathPrefixes maps URL path prefixes to operation names.

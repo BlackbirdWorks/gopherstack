@@ -1,19 +1,23 @@
 package sts
 
-import "encoding/xml"
+import (
+	"encoding/xml"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
+)
 
 const (
 	// STSNamespace is the XML namespace for STS wire responses.
 	STSNamespace = "https://sts.amazonaws.com/doc/2011-06-15/"
 
 	// MockAccountID is the default mock AWS account ID returned by GetCallerIdentity.
-	MockAccountID = "000000000000"
+	MockAccountID = config.DefaultAccountID
 
 	// MockUserID is the fixed user ID returned by GetCallerIdentity.
 	MockUserID = "AKIAIOSFODNN7EXAMPLE" //nolint:gosec // well-known AWS example key, not real credentials
 
 	// MockUserArn is the default ARN returned by GetCallerIdentity.
-	MockUserArn = "arn:aws:iam::000000000000:root"
+	MockUserArn = "arn:aws:iam::" + config.DefaultAccountID + ":root"
 
 	// DefaultDurationSeconds is the default credential lifetime (1 hour).
 	DefaultDurationSeconds = 3600

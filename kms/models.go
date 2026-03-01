@@ -1,15 +1,19 @@
 // Package kms provides a mock AWS Key Management Service (KMS) implementation.
 package kms
 
-import "time"
+import (
+	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
+)
 
 const (
 	// nanoToSeconds converts nanoseconds to seconds.
 	nanoToSeconds = 1e9
 	// MockAccountID is the mock AWS account ID.
-	MockAccountID = "000000000000"
+	MockAccountID = config.DefaultAccountID
 	// MockRegion is the mock AWS region.
-	MockRegion = "us-east-1"
+	MockRegion = config.DefaultRegion
 )
 
 // KeyStateEnabled is the string constant for an enabled key.

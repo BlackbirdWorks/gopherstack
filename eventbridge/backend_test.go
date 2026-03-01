@@ -9,13 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newBackend() *eventbridge.InMemoryBackend {
-	return eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
-}
-
 func TestCreateAndDescribeEventBus(t *testing.T) {
 	t.Parallel()
-	b := newBackend()
+	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
 	bus, err := b.CreateEventBus("my-bus", "a test bus")
 	require.NoError(t, err)
@@ -28,9 +24,9 @@ func TestCreateAndDescribeEventBus(t *testing.T) {
 	assert.Equal(t, "a test bus", got.Description)
 }
 
-func TestCreateEventBus_AlreadyExists(t *testing.T) {
+func TestCreateEventBusAlreadyExists(t *testing.T) {
 	t.Parallel()
-	b := newBackend()
+	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
 	_, err := b.CreateEventBus("dup-bus", "")
 	require.NoError(t, err)
@@ -41,7 +37,7 @@ func TestCreateEventBus_AlreadyExists(t *testing.T) {
 
 func TestDeleteEventBus(t *testing.T) {
 	t.Parallel()
-	b := newBackend()
+	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
 	_, err := b.CreateEventBus("to-delete", "")
 	require.NoError(t, err)
@@ -53,9 +49,9 @@ func TestDeleteEventBus(t *testing.T) {
 	require.ErrorIs(t, err, eventbridge.ErrEventBusNotFound)
 }
 
-func TestDeleteDefaultEventBus_Fails(t *testing.T) {
+func TestDeleteDefaultEventBusFails(t *testing.T) {
 	t.Parallel()
-	b := newBackend()
+	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
 	err := b.DeleteEventBus("default")
 	require.ErrorIs(t, err, eventbridge.ErrCannotDeleteDefaultBus)
@@ -63,53 +59,77 @@ func TestDeleteDefaultEventBus_Fails(t *testing.T) {
 
 func TestListEventBuses(t *testing.T) {
 	t.Parallel()
-	b := newBackend()
 
-	_, _ = b.CreateEventBus("alpha", "")
-	_, _ = b.CreateEventBus("beta", "")
+	tests := []struct {
+		name          string
+		prefix        string
+		wantFirstName string
+		setupBuses    []string
+		wantCount     int
+	}{
+		{
+			name:       "All",
+			setupBuses: []string{"alpha", "beta"},
+			prefix:     "",
+			// default + alpha + beta
+			wantCount: 3,
+		},
+		{
+			name:          "Prefix",
+			setupBuses:    []string{"prod-bus", "dev-bus"},
+			prefix:        "prod",
+			wantCount:     1,
+			wantFirstName: "prod-bus",
+		},
+	}
 
-	buses, next, err := b.ListEventBuses("", "")
-	require.NoError(t, err)
-	assert.Empty(t, next)
-	// default + alpha + beta
-	assert.Len(t, buses, 3)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+			for _, name := range tt.setupBuses {
+				_, _ = b.CreateEventBus(name, "")
+			}
+
+			buses, next, err := b.ListEventBuses(tt.prefix, "")
+			require.NoError(t, err)
+			assert.Empty(t, next)
+			assert.Len(t, buses, tt.wantCount)
+			if tt.wantFirstName != "" {
+				assert.Equal(t, tt.wantFirstName, buses[0].Name)
+			}
+		})
+	}
 }
 
-func TestListEventBuses_Prefix(t *testing.T) {
+func TestDescribeEventBus(t *testing.T) {
 	t.Parallel()
-	b := newBackend()
 
-	_, _ = b.CreateEventBus("prod-bus", "")
-	_, _ = b.CreateEventBus("dev-bus", "")
+	tests := []struct {
+		name     string
+		busName  string
+		wantName string
+	}{
+		{name: "Default", busName: "default", wantName: "default"},
+		// empty name should resolve to default
+		{name: "EmptyName", busName: "", wantName: "default"},
+	}
 
-	buses, _, err := b.ListEventBuses("prod", "")
-	require.NoError(t, err)
-	assert.Len(t, buses, 1)
-	assert.Equal(t, "prod-bus", buses[0].Name)
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-func TestDescribeDefaultEventBus(t *testing.T) {
-	t.Parallel()
-	b := newBackend()
-
-	bus, err := b.DescribeEventBus("default")
-	require.NoError(t, err)
-	assert.Equal(t, "default", bus.Name)
-}
-
-func TestDescribeEventBus_EmptyName(t *testing.T) {
-	t.Parallel()
-	b := newBackend()
-
-	// empty name should resolve to default
-	bus, err := b.DescribeEventBus("")
-	require.NoError(t, err)
-	assert.Equal(t, "default", bus.Name)
+			bus, err := b.DescribeEventBus(tt.busName)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantName, bus.Name)
+		})
+	}
 }
 
 func TestPutAndListRules(t *testing.T) {
 	t.Parallel()
-	b := newBackend()
+	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
 	input := eventbridge.PutRuleInput{
 		Name:         "my-rule",
@@ -131,7 +151,7 @@ func TestPutAndListRules(t *testing.T) {
 
 func TestDescribeRule(t *testing.T) {
 	t.Parallel()
-	b := newBackend()
+	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
 	_, err := b.PutRule(eventbridge.PutRuleInput{Name: "r1", Description: "desc"})
 	require.NoError(t, err)
@@ -144,7 +164,7 @@ func TestDescribeRule(t *testing.T) {
 
 func TestDeleteRule(t *testing.T) {
 	t.Parallel()
-	b := newBackend()
+	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
 	_, err := b.PutRule(eventbridge.PutRuleInput{Name: "del-rule"})
 	require.NoError(t, err)
@@ -158,7 +178,7 @@ func TestDeleteRule(t *testing.T) {
 
 func TestEnableDisableRule(t *testing.T) {
 	t.Parallel()
-	b := newBackend()
+	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
 	_, err := b.PutRule(eventbridge.PutRuleInput{Name: "toggle-rule", State: "ENABLED"})
 	require.NoError(t, err)
@@ -180,7 +200,7 @@ func TestEnableDisableRule(t *testing.T) {
 
 func TestPutAndListTargets(t *testing.T) {
 	t.Parallel()
-	b := newBackend()
+	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
 	_, err := b.PutRule(eventbridge.PutRuleInput{Name: "rule-with-targets"})
 	require.NoError(t, err)
@@ -202,7 +222,7 @@ func TestPutAndListTargets(t *testing.T) {
 
 func TestRemoveTargets(t *testing.T) {
 	t.Parallel()
-	b := newBackend()
+	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
 	_, err := b.PutRule(eventbridge.PutRuleInput{Name: "rule-remove"})
 	require.NoError(t, err)
@@ -223,7 +243,7 @@ func TestRemoveTargets(t *testing.T) {
 
 func TestPutEvents(t *testing.T) {
 	t.Parallel()
-	b := newBackend()
+	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
 	now := time.Now()
 	entries := []eventbridge.EventEntry{
@@ -242,9 +262,9 @@ func TestPutEvents(t *testing.T) {
 	assert.Len(t, log, 2)
 }
 
-func TestEventLog_MaxSize(t *testing.T) {
+func TestEventLogMaxSize(t *testing.T) {
 	t.Parallel()
-	b := newBackend()
+	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
 	// Put 1100 events; log should cap at 1000.
 	batch := make([]eventbridge.EventEntry, 1100)
@@ -257,19 +277,40 @@ func TestEventLog_MaxSize(t *testing.T) {
 	assert.Len(t, log, 1000)
 }
 
-func TestPutRule_DefaultState(t *testing.T) {
+func TestPutRule(t *testing.T) {
 	t.Parallel()
-	b := newBackend()
 
-	rule, err := b.PutRule(eventbridge.PutRuleInput{Name: "no-state-rule"})
-	require.NoError(t, err)
-	assert.Equal(t, "ENABLED", rule.State)
-}
+	tests := []struct {
+		wantErr   error
+		input     eventbridge.PutRuleInput
+		name      string
+		wantState string
+	}{
+		{
+			name:      "DefaultState",
+			input:     eventbridge.PutRuleInput{Name: "no-state-rule"},
+			wantState: "ENABLED",
+		},
+		{
+			name:    "UnknownBus",
+			input:   eventbridge.PutRuleInput{Name: "r", EventBusName: "nonexistent"},
+			wantErr: eventbridge.ErrEventBusNotFound,
+		},
+	}
 
-func TestPutRule_UnknownBus(t *testing.T) {
-	t.Parallel()
-	b := newBackend()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-	_, err := b.PutRule(eventbridge.PutRuleInput{Name: "r", EventBusName: "nonexistent"})
-	require.ErrorIs(t, err, eventbridge.ErrEventBusNotFound)
+			rule, err := b.PutRule(tt.input)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantState, rule.State)
+		})
+	}
 }

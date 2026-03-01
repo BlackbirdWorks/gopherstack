@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
@@ -35,19 +34,19 @@ func newCWHandler() *cloudwatch.Handler {
 	return cloudwatch.NewHandler(cloudwatch.NewInMemoryBackend(), slog.Default())
 }
 
-func TestHandler_Name(t *testing.T) {
+func TestCloudWatchHandler_Name(t *testing.T) {
 	t.Parallel()
 	h := newCWHandler()
 	assert.Equal(t, "CloudWatch", h.Name())
 }
 
-func TestHandler_MatchPriority(t *testing.T) {
+func TestCloudWatchHandler_MatchPriority(t *testing.T) {
 	t.Parallel()
 	h := newCWHandler()
 	assert.Equal(t, 80, h.MatchPriority())
 }
 
-func TestHandler_GetSupportedOperations(t *testing.T) {
+func TestCloudWatchHandler_GetSupportedOperations(t *testing.T) {
 	t.Parallel()
 	h := newCWHandler()
 	ops := h.GetSupportedOperations()
@@ -59,35 +58,7 @@ func TestHandler_GetSupportedOperations(t *testing.T) {
 	assert.Contains(t, ops, "DeleteAlarms")
 }
 
-func TestHandler_RouteMatcher(t *testing.T) {
-	t.Parallel()
-	h := newCWHandler()
-	e := echo.New()
-	matcher := h.RouteMatcher()
-
-	// Match: correct method, content-type, action
-	body := strings.NewReader("Action=PutMetricData")
-	req := httptest.NewRequest(http.MethodPost, "/", body)
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	assert.True(t, matcher(e.NewContext(req, httptest.NewRecorder())))
-
-	// No match: wrong method
-	req2 := httptest.NewRequest(http.MethodGet, "/", nil)
-	req2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	assert.False(t, matcher(e.NewContext(req2, httptest.NewRecorder())))
-
-	// No match: wrong content-type
-	req3 := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("Action=PutMetricData"))
-	req3.Header.Set("Content-Type", "application/json")
-	assert.False(t, matcher(e.NewContext(req3, httptest.NewRecorder())))
-
-	// No match: unknown action
-	req4 := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("Action=UnknownAction"))
-	req4.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	assert.False(t, matcher(e.NewContext(req4, httptest.NewRecorder())))
-}
-
-func TestHandler_ExtractOperation(t *testing.T) {
+func TestCloudWatchHandler_ExtractOperation(t *testing.T) {
 	t.Parallel()
 	h := newCWHandler()
 	e := echo.New()
@@ -96,7 +67,7 @@ func TestHandler_ExtractOperation(t *testing.T) {
 	assert.Equal(t, "ListMetrics", h.ExtractOperation(e.NewContext(req, httptest.NewRecorder())))
 }
 
-func TestHandler_ExtractResource(t *testing.T) {
+func TestCloudWatchHandler_ExtractResource(t *testing.T) {
 	t.Parallel()
 	h := newCWHandler()
 	e := echo.New()
@@ -105,135 +76,7 @@ func TestHandler_ExtractResource(t *testing.T) {
 	assert.Equal(t, "AWS/EC2", h.ExtractResource(e.NewContext(req, httptest.NewRecorder())))
 }
 
-func TestHandler_PutMetricData_Success(t *testing.T) {
-	t.Parallel()
-	h := newCWHandler()
-	body := "Action=PutMetricData&Version=2010-08-01&Namespace=Test" +
-		"&MetricData.member.1.MetricName=Requests" +
-		"&MetricData.member.1.Value=42" +
-		"&MetricData.member.1.Unit=Count"
-	rec := postForm(t, h, body)
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "PutMetricDataResponse")
-}
-
-func TestHandler_PutMetricData_MissingNamespace(t *testing.T) {
-	t.Parallel()
-	h := newCWHandler()
-	rec := postForm(t, h, "Action=PutMetricData&MetricData.member.1.MetricName=CPU&MetricData.member.1.Value=10")
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestHandler_ListMetrics(t *testing.T) {
-	t.Parallel()
-	h := newCWHandler()
-	// First put some data
-	postForm(t, h,
-		"Action=PutMetricData&Namespace=MyNS&MetricData.member.1.MetricName=M1&MetricData.member.1.Value=1")
-
-	rec := postForm(t, h, "Action=ListMetrics&Namespace=MyNS")
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "ListMetricsResponse")
-	assert.Contains(t, rec.Body.String(), "M1")
-}
-
-func TestHandler_ListMetrics_Empty(t *testing.T) {
-	t.Parallel()
-	h := newCWHandler()
-	rec := postForm(t, h, "Action=ListMetrics")
-	assert.Equal(t, http.StatusOK, rec.Code)
-}
-
-func TestHandler_GetMetricStatistics(t *testing.T) {
-	t.Parallel()
-	h := cloudwatch.NewHandler(cloudwatch.NewInMemoryBackend(), slog.Default())
-
-	// Seed data
-	now := time.Now().UTC()
-	postForm(t, h,
-		"Action=PutMetricData&Namespace=NS&MetricData.member.1.MetricName=CPU&MetricData.member.1.Value=50")
-
-	startStr := now.Add(-time.Minute).Format(time.RFC3339)
-	endStr := now.Add(time.Minute).Format(time.RFC3339)
-	body := "Action=GetMetricStatistics&Namespace=NS&MetricName=CPU" +
-		"&StartTime=" + startStr +
-		"&EndTime=" + endStr +
-		"&Period=60" +
-		"&Statistics.member.1=Average" +
-		"&Statistics.member.2=Sum"
-
-	rec := postForm(t, h, body)
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "GetMetricStatisticsResponse")
-}
-
-func TestHandler_GetMetricStatistics_BadStartTime(t *testing.T) {
-	t.Parallel()
-	h := newCWHandler()
-	rec := postForm(t, h,
-		"Action=GetMetricStatistics&Namespace=NS&MetricName=CPU&StartTime=bad&EndTime=bad&Period=60")
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestHandler_GetMetricStatistics_BadEndTime(t *testing.T) {
-	t.Parallel()
-	h := newCWHandler()
-	start := time.Now().Add(-time.Minute).UTC().Format(time.RFC3339)
-	rec := postForm(t, h,
-		"Action=GetMetricStatistics&Namespace=NS&MetricName=CPU&StartTime="+start+"&EndTime=bad&Period=60")
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestHandler_GetMetricStatistics_BadPeriod(t *testing.T) {
-	t.Parallel()
-	h := newCWHandler()
-	start := time.Now().Add(-time.Minute).UTC().Format(time.RFC3339)
-	end := time.Now().UTC().Format(time.RFC3339)
-	rec := postForm(t, h,
-		"Action=GetMetricStatistics&Namespace=NS&MetricName=CPU&StartTime="+start+"&EndTime="+end+"&Period=0")
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestHandler_PutMetricAlarm_Success(t *testing.T) {
-	t.Parallel()
-	h := newCWHandler()
-	body := "Action=PutMetricAlarm&AlarmName=high-cpu&Namespace=AWS/EC2&MetricName=CPUUtilization" +
-		"&ComparisonOperator=GreaterThanThreshold&Threshold=80&EvaluationPeriods=1&Period=60&Statistic=Average"
-	rec := postForm(t, h, body)
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "PutMetricAlarmResponse")
-}
-
-func TestHandler_PutMetricAlarm_MissingName(t *testing.T) {
-	t.Parallel()
-	h := newCWHandler()
-	rec := postForm(t, h, "Action=PutMetricAlarm&Namespace=NS")
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestHandler_DescribeAlarms_All(t *testing.T) {
-	t.Parallel()
-	h := newCWHandler()
-	postForm(t, h, "Action=PutMetricAlarm&AlarmName=a1&Namespace=NS&MetricName=M")
-	postForm(t, h, "Action=PutMetricAlarm&AlarmName=a2&Namespace=NS&MetricName=M")
-	rec := postForm(t, h, "Action=DescribeAlarms")
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "DescribeAlarmsResponse")
-	assert.Contains(t, rec.Body.String(), "a1")
-}
-
-func TestHandler_DescribeAlarms_ByName(t *testing.T) {
-	t.Parallel()
-	h := newCWHandler()
-	postForm(t, h, "Action=PutMetricAlarm&AlarmName=alpha&Namespace=NS&MetricName=M")
-	postForm(t, h, "Action=PutMetricAlarm&AlarmName=beta&Namespace=NS&MetricName=M")
-	rec := postForm(t, h, "Action=DescribeAlarms&AlarmNames.member.1=alpha")
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "alpha")
-	assert.NotContains(t, rec.Body.String(), "beta")
-}
-
-func TestHandler_DeleteAlarms(t *testing.T) {
+func TestCloudWatchHandler_DeleteAlarms(t *testing.T) {
 	t.Parallel()
 	h := newCWHandler()
 	postForm(t, h, "Action=PutMetricAlarm&AlarmName=to-del&Namespace=NS&MetricName=M")
@@ -241,7 +84,6 @@ func TestHandler_DeleteAlarms(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "DeleteAlarmsResponse")
 
-	// Verify deleted
 	rec2 := postForm(t, h, "Action=DescribeAlarms")
 	assert.Equal(t, http.StatusOK, rec2.Code)
 
@@ -258,42 +100,297 @@ func TestHandler_DeleteAlarms(t *testing.T) {
 	assert.Empty(t, resp.Result.MetricAlarms)
 }
 
-func TestHandler_UnknownAction(t *testing.T) {
+func TestCloudWatchHandler(t *testing.T) {
 	t.Parallel()
-	h := newCWHandler()
-	rec := postForm(t, h, "Action=UnknownOp")
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	tests := []struct {
+		setup           func(t *testing.T, h *cloudwatch.Handler)
+		name            string
+		body            string
+		wantContains    []string
+		wantNotContains []string
+		wantCode        int
+	}{
+		{
+			name: "PutMetricData/success",
+			body: "Action=PutMetricData&Version=2010-08-01&Namespace=Test" +
+				"&MetricData.member.1.MetricName=Requests" +
+				"&MetricData.member.1.Value=42" +
+				"&MetricData.member.1.Unit=Count",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"PutMetricDataResponse"},
+		},
+		{
+			name:     "PutMetricData/missing namespace",
+			body:     "Action=PutMetricData&MetricData.member.1.MetricName=CPU&MetricData.member.1.Value=10",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "ListMetrics",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postForm(t, h,
+					"Action=PutMetricData&Namespace=MyNS&MetricData.member.1.MetricName=M1&MetricData.member.1.Value=1")
+			},
+			body:         "Action=ListMetrics&Namespace=MyNS",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"ListMetricsResponse", "M1"},
+		},
+		{
+			name:     "ListMetrics/empty",
+			body:     "Action=ListMetrics",
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "GetMetricStatistics/success",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postForm(t, h,
+					"Action=PutMetricData&Namespace=NS"+
+						"&MetricData.member.1.MetricName=CPU&MetricData.member.1.Value=50"+
+						"&MetricData.member.1.Timestamp=2024-06-01T12:00:00Z")
+			},
+			body: "Action=GetMetricStatistics&Namespace=NS&MetricName=CPU" +
+				"&StartTime=2024-06-01T11:00:00Z" +
+				"&EndTime=2024-06-01T13:00:00Z" +
+				"&Period=60" +
+				"&Statistics.member.1=Average" +
+				"&Statistics.member.2=Sum",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"GetMetricStatisticsResponse"},
+		},
+		{
+			name:     "GetMetricStatistics/bad start time",
+			body:     "Action=GetMetricStatistics&Namespace=NS&MetricName=CPU&StartTime=bad&EndTime=bad&Period=60",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "GetMetricStatistics/bad end time",
+			body: "Action=GetMetricStatistics&Namespace=NS&MetricName=CPU" +
+				"&StartTime=2024-01-01T00:00:00Z&EndTime=bad&Period=60",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "GetMetricStatistics/bad period",
+			body: "Action=GetMetricStatistics&Namespace=NS&MetricName=CPU" +
+				"&StartTime=2024-01-01T00:00:00Z&EndTime=2024-01-01T01:00:00Z&Period=0",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "PutMetricAlarm/success",
+			body: "Action=PutMetricAlarm&AlarmName=high-cpu&Namespace=AWS/EC2&MetricName=CPUUtilization" +
+				"&ComparisonOperator=GreaterThanThreshold&Threshold=80&EvaluationPeriods=1&Period=60&Statistic=Average",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"PutMetricAlarmResponse"},
+		},
+		{
+			name:     "PutMetricAlarm/missing name",
+			body:     "Action=PutMetricAlarm&Namespace=NS",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "DescribeAlarms/all",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postForm(t, h, "Action=PutMetricAlarm&AlarmName=a1&Namespace=NS&MetricName=M")
+				postForm(t, h, "Action=PutMetricAlarm&AlarmName=a2&Namespace=NS&MetricName=M")
+			},
+			body:         "Action=DescribeAlarms",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeAlarmsResponse", "a1"},
+		},
+		{
+			name: "DescribeAlarms/by name",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postForm(t, h, "Action=PutMetricAlarm&AlarmName=alpha&Namespace=NS&MetricName=M")
+				postForm(t, h, "Action=PutMetricAlarm&AlarmName=beta&Namespace=NS&MetricName=M")
+			},
+			body:            "Action=DescribeAlarms&AlarmNames.member.1=alpha",
+			wantCode:        http.StatusOK,
+			wantContains:    []string{"alpha"},
+			wantNotContains: []string{"beta"},
+		},
+		{
+			name: "TagResource/success",
+			body: "Action=TagResource&ResourceARN=arn:aws:cloudwatch:us-east-1:123456789:alarm:test" +
+				"&Tags.member.1.Key=env&Tags.member.1.Value=prod" +
+				"&Tags.member.2.Key=team&Tags.member.2.Value=backend",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"TagResourceResponse"},
+		},
+		{
+			name:         "ListTagsForResource/empty",
+			body:         "Action=ListTagsForResource&ResourceARN=arn:aws:cloudwatch:us-east-1:123456789:alarm:none",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"ListTagsForResourceResponse"},
+		},
+		{
+			name: "ListTagsForResource/with tags",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postForm(t, h, "Action=TagResource&ResourceARN=arn:aws:cloudwatch:us-east-1:123456789:alarm:tagged"+
+					"&Tags.member.1.Key=env&Tags.member.1.Value=prod")
+			},
+			body:         "Action=ListTagsForResource&ResourceARN=arn:aws:cloudwatch:us-east-1:123456789:alarm:tagged",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"ListTagsForResourceResponse", "env", "prod"},
+		},
+		{
+			name: "UntagResource/success",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postForm(t, h, "Action=TagResource&ResourceARN=arn:aws:cloudwatch:us-east-1:123456789:alarm:untag"+
+					"&Tags.member.1.Key=env&Tags.member.1.Value=prod")
+			},
+			body: "Action=UntagResource&ResourceARN=arn:aws:cloudwatch:us-east-1:123456789:alarm:untag" +
+				"&TagKeys.member.1=env",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"UntagResourceResponse"},
+		},
+		{
+			name:     "UnknownAction",
+			body:     "Action=UnknownOp",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "GetMetricData",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postForm(t, h,
+					"Action=PutMetricData&Namespace=MyNS&MetricData.member.1.MetricName=Latency"+
+						"&MetricData.member.1.Value=100&MetricData.member.1.Timestamp=2024-01-01T00:00:00Z")
+				postForm(t, h,
+					"Action=PutMetricData&Namespace=MyNS&MetricData.member.1.MetricName=Latency"+
+						"&MetricData.member.1.Value=200&MetricData.member.1.Timestamp=2024-01-01T00:01:00Z")
+			},
+			body: "Action=GetMetricData" +
+				"&StartTime=2024-01-01T00:00:00Z" +
+				"&EndTime=2024-01-01T00:10:00Z" +
+				"&MetricDataQueries.member.1.Id=latency1" +
+				"&MetricDataQueries.member.1.MetricStat.Metric.Namespace=MyNS" +
+				"&MetricDataQueries.member.1.MetricStat.Metric.MetricName=Latency" +
+				"&MetricDataQueries.member.1.MetricStat.Stat=Sum" +
+				"&MetricDataQueries.member.1.MetricStat.Period=60",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"GetMetricDataResponse", "latency1"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newCWHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := postForm(t, h, tt.body)
+
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+			for _, s := range tt.wantNotContains {
+				assert.NotContains(t, rec.Body.String(), s)
+			}
+		})
+	}
 }
 
-func TestHandler_GetMetricData(t *testing.T) {
+func TestCloudWatchHandler_TagLifecycle(t *testing.T) {
 	t.Parallel()
 	h := newCWHandler()
+	arn := "arn:aws:cloudwatch:us-east-1:123456789:alarm:lifecycle"
 
-	// Put some metric data
-	postForm(
-		t,
-		h,
-		"Action=PutMetricData&Namespace=MyNS&MetricData.member.1.MetricName=Latency"+
-			"&MetricData.member.1.Value=100&MetricData.member.1.Timestamp=2024-01-01T00:00:00Z",
-	)
-	postForm(
-		t,
-		h,
-		"Action=PutMetricData&Namespace=MyNS&MetricData.member.1.MetricName=Latency"+
-			"&MetricData.member.1.Value=200&MetricData.member.1.Timestamp=2024-01-01T00:01:00Z",
-	)
-
-	// GetMetricData
-	rec := postForm(t, h, "Action=GetMetricData"+
-		"&StartTime=2024-01-01T00:00:00Z"+
-		"&EndTime=2024-01-01T00:10:00Z"+
-		"&MetricDataQueries.member.1.Id=latency1"+
-		"&MetricDataQueries.member.1.MetricStat.Metric.Namespace=MyNS"+
-		"&MetricDataQueries.member.1.MetricStat.Metric.MetricName=Latency"+
-		"&MetricDataQueries.member.1.MetricStat.Stat=Sum"+
-		"&MetricDataQueries.member.1.MetricStat.Period=60")
-
+	// Tag the resource with two tags.
+	rec := postForm(t, h, "Action=TagResource&ResourceARN="+arn+
+		"&Tags.member.1.Key=env&Tags.member.1.Value=prod"+
+		"&Tags.member.2.Key=team&Tags.member.2.Value=backend")
 	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "GetMetricDataResponse")
-	assert.Contains(t, rec.Body.String(), "latency1")
+
+	// List tags and verify both are present.
+	rec = postForm(t, h, "Action=ListTagsForResource&ResourceARN="+arn)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	assert.Contains(t, body, "env")
+	assert.Contains(t, body, "prod")
+	assert.Contains(t, body, "team")
+	assert.Contains(t, body, "backend")
+
+	// Untag one key.
+	rec = postForm(t, h, "Action=UntagResource&ResourceARN="+arn+"&TagKeys.member.1=env")
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// Verify only the untagged key was removed.
+	rec = postForm(t, h, "Action=ListTagsForResource&ResourceARN="+arn)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	type listResp struct {
+		XMLName xml.Name `xml:"ListTagsForResourceResponse"`
+		Tags    []struct {
+			Key   string `xml:"Key"`
+			Value string `xml:"Value"`
+		} `xml:"ListTagsForResourceResult>Tags>member"`
+	}
+	var resp listResp
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Len(t, resp.Tags, 1)
+	assert.Equal(t, "team", resp.Tags[0].Key)
+	assert.Equal(t, "backend", resp.Tags[0].Value)
+}
+
+func TestCloudWatchHandler_RouteMatcher(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		method string
+		body   string
+		ctype  string
+		want   bool
+	}{
+		{
+			name:   "match/correct request",
+			method: http.MethodPost,
+			body:   "Action=PutMetricData",
+			ctype:  "application/x-www-form-urlencoded",
+			want:   true,
+		},
+		{
+			name:   "no match/wrong method",
+			method: http.MethodGet,
+			ctype:  "application/x-www-form-urlencoded",
+			want:   false,
+		},
+		{
+			name:   "no match/wrong content-type",
+			method: http.MethodPost,
+			body:   "Action=PutMetricData",
+			ctype:  "application/json",
+			want:   false,
+		},
+		{
+			name:   "no match/unknown action",
+			method: http.MethodPost,
+			body:   "Action=UnknownAction",
+			ctype:  "application/x-www-form-urlencoded",
+			want:   false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newCWHandler()
+			e := echo.New()
+			var req *http.Request
+			if tt.body != "" {
+				req = httptest.NewRequest(tt.method, "/", strings.NewReader(tt.body))
+			} else {
+				req = httptest.NewRequest(tt.method, "/", nil)
+			}
+			req.Header.Set("Content-Type", tt.ctype)
+			assert.Equal(t, tt.want, h.RouteMatcher()(e.NewContext(req, httptest.NewRecorder())))
+		})
+	}
 }

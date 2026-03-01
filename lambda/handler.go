@@ -15,13 +15,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
-
-// lambdaMatchPriority is the routing priority for the Lambda handler.
-const lambdaMatchPriority = 95
 
 // lambdaPathPrefix is the path prefix for Lambda REST API v1 endpoints.
 const lambdaPathPrefix = "/2015-03-31/functions"
@@ -34,6 +32,14 @@ const esmPathPrefix = "/2015-03-31/event-source-mappings"
 
 // lambdaTagsPathPrefix is the path prefix for Lambda resource tag endpoints.
 const lambdaTagsPathPrefix = "/2015-03-31/tags"
+
+type lambdaTagsInput struct {
+	Tags map[string]string `json:"Tags"`
+}
+
+type publishVersionInput struct {
+	Description string `json:"Description"`
+}
 
 // routeSpec binds an HTTP method and path predicate to an operation name or handler.
 type routeSpec struct {
@@ -177,7 +183,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 }
 
 // MatchPriority returns the routing priority for the Lambda handler.
-func (h *Handler) MatchPriority() int { return lambdaMatchPriority }
+func (h *Handler) MatchPriority() int { return service.PriorityHeaderPartial }
 
 // ExtractOperation returns the Lambda operation name derived from the request method and path.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
@@ -424,9 +430,7 @@ func (h *Handler) handleTagsRoute(c *echo.Context, method string) error {
 		if err != nil {
 			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
 		}
-		var input struct {
-			Tags map[string]string `json:"Tags"`
-		}
+		var input lambdaTagsInput
 		if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
 			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid body")
 		}
@@ -465,6 +469,14 @@ func (h *Handler) handleESMRoute(c *echo.Context, path, method string) error {
 	}
 }
 
+type handleCreateESMInput struct {
+	Enabled          *bool  `json:"Enabled"`
+	EventSourceARN   string `json:"EventSourceArn"`
+	FunctionName     string `json:"FunctionName"`
+	StartingPosition string `json:"StartingPosition"`
+	BatchSize        int    `json:"BatchSize"`
+}
+
 // handleCreateESM handles POST /2015-03-31/event-source-mappings/.
 func (h *Handler) handleCreateESM(c *echo.Context) error {
 	if lambdaBk, ok := h.Backend.(*InMemoryBackend); ok {
@@ -473,13 +485,7 @@ func (h *Handler) handleCreateESM(c *echo.Context) error {
 			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
 		}
 
-		var req struct {
-			Enabled          *bool  `json:"Enabled"`
-			EventSourceARN   string `json:"EventSourceArn"`
-			FunctionName     string `json:"FunctionName"`
-			StartingPosition string `json:"StartingPosition"`
-			BatchSize        int    `json:"BatchSize"`
-		}
+		var req handleCreateESMInput
 
 		if err = json.Unmarshal(body, &req); err != nil {
 			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
@@ -817,7 +823,7 @@ func (h *Handler) handleUpdateFunctionConfiguration(c *echo.Context, name string
 func (h *Handler) handleInvoke(c *echo.Context, name string) error {
 	ctx := c.Request().Context()
 
-	invType := InvocationType(c.Request().Header.Get("X-Amz-Invocation-Type"))
+	invType := c.Request().Header.Get("X-Amz-Invocation-Type")
 	if invType == "" {
 		invType = InvocationTypeRequestResponse
 	}
@@ -983,7 +989,7 @@ func buildCodeLocation(fn *FunctionConfiguration) *FunctionCodeLocation {
 
 // buildARN constructs a Lambda function ARN.
 func buildARN(region, accountID, functionName string) string {
-	return fmt.Sprintf("arn:aws:lambda:%s:%s:function:%s", region, accountID, functionName)
+	return arn.Build("lambda", region, accountID, "function:"+functionName)
 }
 
 // defaultMemorySize is the default Lambda function memory in MB.
@@ -1034,9 +1040,7 @@ func (h *Handler) handlePublishVersion(c *echo.Context, name string) error {
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
 	}
 
-	var input struct {
-		Description string `json:"Description"`
-	}
+	var input publishVersionInput
 
 	if len(body) > 0 {
 		if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {

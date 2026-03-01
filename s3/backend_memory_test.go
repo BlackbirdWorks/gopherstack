@@ -20,7 +20,7 @@ import (
 func newTestBackend(t *testing.T) *s3.InMemoryBackend {
 	t.Helper()
 
-	return s3.NewInMemoryBackend(&s3.GzipCompressor{})
+	return s3.NewInMemoryBackend(&s3.GzipCompressor{}, nil)
 }
 
 func TestCreateBucket(t *testing.T) {
@@ -227,9 +227,7 @@ func TestListBuckets(t *testing.T) {
 				gotNames[i] = aws.ToString(b.Name)
 			}
 
-			if diff := cmp.Diff(tt.wantBuckets, gotNames, cmpopts.EquateEmpty()); diff != "" {
-				t.Errorf("bucket names mismatch (-want +got):\n%s", diff)
-			}
+			assert.Empty(t, cmp.Diff(tt.wantBuckets, gotNames, cmpopts.EquateEmpty()), "bucket names mismatch")
 		})
 	}
 }
@@ -733,9 +731,7 @@ func TestObjectTagging(t *testing.T) {
 				func(i, j int) bool { return *wantSorted[i].Key < *wantSorted[j].Key },
 			)
 
-			if diff := cmp.Diff(wantSorted, gotTags, cmpopts.IgnoreUnexported(types.Tag{})); diff != "" {
-				t.Errorf("tag set mismatch (-want +got):\n%s", diff)
-			}
+			assert.Empty(t, cmp.Diff(wantSorted, gotTags, cmpopts.IgnoreUnexported(types.Tag{})), "tag set mismatch")
 		})
 	}
 }
@@ -788,9 +784,9 @@ func TestDeleteObjectTagging(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			if diff := cmp.Diff([]types.Tag(nil), out.TagSet, cmpopts.IgnoreUnexported(types.Tag{})); diff != "" {
-				t.Errorf("expected empty tag set (-want +got):\n%s", diff)
-			}
+			assert.Empty(t,
+				cmp.Diff([]types.Tag(nil), out.TagSet, cmpopts.IgnoreUnexported(types.Tag{})),
+				"expected empty tag set")
 		})
 	}
 }

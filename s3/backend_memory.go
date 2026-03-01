@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/url"
 	"slices"
 	"sort"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -22,7 +24,7 @@ import (
 )
 
 const maxInt32 = 2147483647
-const defaultRegionName = "us-east-1"
+const defaultRegionName = config.DefaultRegion
 
 var _ StorageBackend = (*InMemoryBackend)(nil)
 
@@ -37,20 +39,26 @@ func getRegionFromS3Context(ctx context.Context, defaultRegion string) string {
 }
 
 type InMemoryBackend struct {
-	compressor    Compressor
 	buckets       map[string]map[string]*StoredBucket
 	tags          map[string][]types.Tag
 	uploads       map[string]*StoredMultipartUpload
 	mu            *lockmetrics.RWMutex
+	Logger        *slog.Logger
+	compressor    Compressor
 	defaultRegion string
 }
 
-func NewInMemoryBackend(compressor Compressor) *InMemoryBackend {
+func NewInMemoryBackend(compressor Compressor, logger *slog.Logger) *InMemoryBackend {
+	if logger == nil {
+		logger = slog.Default()
+	}
+
 	return &InMemoryBackend{
 		buckets:       make(map[string]map[string]*StoredBucket),
 		compressor:    compressor,
 		defaultRegion: defaultRegionName,
 		mu:            lockmetrics.New("s3"),
+		Logger:        logger,
 	}
 }
 
@@ -213,7 +221,7 @@ func (b *InMemoryBackend) ListBuckets(
 }
 
 func (b *InMemoryBackend) PutObject(
-	_ context.Context,
+	ctx context.Context,
 	input *s3.PutObjectInput,
 ) (*s3.PutObjectOutput, error) {
 	bucketName := *input.Bucket
@@ -296,6 +304,11 @@ func (b *InMemoryBackend) PutObject(
 	obj.LatestVersionID = newVersionID // Update the cached latest version ID
 
 	b.storeObjectTags(input.Tagging, bucketName, key, newVersionID)
+
+	b.Logger.DebugContext(ctx, "S3 Backend PutObject",
+		"bucket", bucketName, "key", key,
+		"contentType", aws.ToString(input.ContentType),
+		"versionId", newVersionID)
 
 	return &s3.PutObjectOutput{
 		ETag:           aws.String(finalQuotedETag),
@@ -406,13 +419,7 @@ func (b *InMemoryBackend) GetObject(
 		}
 		ver = v
 	} else {
-		for _, v := range obj.Versions {
-			if v.IsLatest {
-				ver = v
-
-				break
-			}
-		}
+		ver = findLatestVersion(obj.Versions)
 	}
 
 	if ver == nil || ver.Deleted {
@@ -465,7 +472,7 @@ func (b *InMemoryBackend) GetObject(
 }
 
 func (b *InMemoryBackend) HeadObject(
-	_ context.Context,
+	ctx context.Context,
 	input *s3.HeadObjectInput,
 ) (*s3.HeadObjectOutput, error) {
 	bucketName := *input.Bucket
@@ -504,18 +511,17 @@ func (b *InMemoryBackend) HeadObject(
 		ver = obj.Versions[latestID]
 	} else {
 		// Fallback: scan for latest (shouldn't happen in normal operation)
-		for _, v := range obj.Versions {
-			if v.IsLatest {
-				ver = v
-
-				break
-			}
-		}
+		ver = findLatestVersion(obj.Versions)
 	}
 
 	if ver == nil || ver.Deleted {
 		return nil, ErrNoSuchKey
 	}
+
+	b.Logger.DebugContext(ctx, "S3 Backend HeadObject",
+		"bucket", bucketName, "key", key,
+		"versionId", aws.ToString(versionID),
+		"foundContentType", ver.ContentType)
 
 	return &s3.HeadObjectOutput{
 		ContentLength:      aws.Int64(ver.Size),
@@ -578,6 +584,17 @@ func (b *InMemoryBackend) deleteObjectLocked(
 	return deleteLatestVersion(bucket, obj, key), nil
 }
 
+// findLatestVersion returns the version with IsLatest set, or nil if none exists.
+func findLatestVersion(versions map[string]*StoredObjectVersion) *StoredObjectVersion {
+	for _, v := range versions {
+		if v.IsLatest {
+			return v
+		}
+	}
+
+	return nil
+}
+
 // checkObjectLockForDelete returns ErrObjectLocked if the target version is under
 // a legal hold or an active retention policy. Must be called with bucket.mu held.
 func checkObjectLockForDelete(obj *StoredObject, versionID *string) error {
@@ -589,13 +606,7 @@ func checkObjectLockForDelete(obj *StoredObject, versionID *string) error {
 	case obj.LatestVersionID != "":
 		ver = obj.Versions[obj.LatestVersionID]
 	default:
-		for _, v := range obj.Versions {
-			if v.IsLatest {
-				ver = v
-
-				break
-			}
-		}
+		ver = findLatestVersion(obj.Versions)
 	}
 
 	if ver == nil || ver.Deleted {
@@ -788,13 +799,7 @@ func (b *InMemoryBackend) ListObjects(
 			latest = obj.Versions[latestID]
 		} else {
 			// Fallback: scan for latest if not cached
-			for _, v := range obj.Versions {
-				if v.IsLatest {
-					latest = v
-
-					break
-				}
-			}
+			latest = findLatestVersion(obj.Versions)
 		}
 		obj.mu.RUnlock()
 
@@ -1007,13 +1012,7 @@ func (b *InMemoryBackend) PutObjectTagging(
 			}
 			ver = v
 		} else {
-			for _, v := range obj.Versions {
-				if v.IsLatest {
-					ver = v
-
-					break
-				}
-			}
+			ver = findLatestVersion(obj.Versions)
 		}
 
 		if ver == nil || ver.Deleted {

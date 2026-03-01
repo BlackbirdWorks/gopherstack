@@ -76,7 +76,7 @@ func execute(t *testing.T, def, input string) *asl.ExecutionResult {
 	sm, err := asl.Parse(def)
 	require.NoError(t, err)
 	exec := asl.NewExecutor(sm, nil, nil)
-	result, err := exec.Execute(context.Background(), "test-exec", input)
+	result, err := exec.Execute(t.Context(), "test-exec", input)
 	require.NoError(t, err)
 
 	return result
@@ -141,7 +141,7 @@ func TestExecutor_FailState(t *testing.T) {
 	sm, err := asl.Parse(def)
 	require.NoError(t, err)
 	exec := asl.NewExecutor(sm, nil, nil)
-	result, err := exec.Execute(context.Background(), "test-exec", `{}`)
+	result, err := exec.Execute(t.Context(), "test-exec", `{}`)
 	require.NoError(t, err) // Fail state is NOT a Go error; it's captured in result
 	assert.Equal(t, "MyError", result.Error)
 	assert.Equal(t, "something bad", result.Cause)
@@ -406,7 +406,7 @@ func TestExecutor_TaskState_Lambda(t *testing.T) {
 	sm, err := asl.Parse(def)
 	require.NoError(t, err)
 	exec := asl.NewExecutor(sm, mockLambda, nil)
-	result, err := exec.Execute(context.Background(), "test-exec", `{"input": "data"}`)
+	result, err := exec.Execute(t.Context(), "test-exec", `{"input": "data"}`)
 	require.NoError(t, err)
 	assert.Empty(t, result.Error)
 
@@ -442,7 +442,7 @@ func TestExecutor_TaskState_LambdaError_Catch(t *testing.T) {
 	sm, err := asl.Parse(def)
 	require.NoError(t, err)
 	exec := asl.NewExecutor(sm, mockLambda, nil)
-	result, err := exec.Execute(context.Background(), "test-exec", `{}`)
+	result, err := exec.Execute(t.Context(), "test-exec", `{}`)
 	require.NoError(t, err)
 	assert.Empty(t, result.Error)
 	assert.Equal(t, "caught", result.Output)
@@ -523,7 +523,7 @@ func TestExecutor_ChoiceState_NoMatchNoDefault(t *testing.T) {
 	sm, err := asl.Parse(def)
 	require.NoError(t, err)
 	exec := asl.NewExecutor(sm, nil, nil)
-	result, err := exec.Execute(context.Background(), "test", `{"x": "no"}`)
+	result, err := exec.Execute(t.Context(), "test", `{"x": "no"}`)
 	require.NoError(t, err)
 	// No match and no default → FailError with States.NoChoiceMatched
 	assert.NotEmpty(t, result.Error)
@@ -786,7 +786,7 @@ func TestExecutor_LambdaTask_StatusError(t *testing.T) {
 	sm, err := asl.Parse(def)
 	require.NoError(t, err)
 	exec := asl.NewExecutor(sm, lam, nil)
-	result, err := exec.Execute(context.Background(), "test", `{}`)
+	result, err := exec.Execute(t.Context(), "test", `{}`)
 	require.NoError(t, err)
 	// Error should be caught and execution succeeds via Fallback.
 	assert.Empty(t, result.Error)
@@ -827,7 +827,7 @@ func TestExecutor_ContextCancellation(t *testing.T) {
 	sm, err := asl.Parse(def)
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel() // Cancel immediately.
 
 	exec := asl.NewExecutor(sm, nil, nil)
@@ -856,7 +856,7 @@ func TestExecutor_TaskState_CatchWithResultPath(t *testing.T) {
 	sm, err := asl.Parse(def)
 	require.NoError(t, err)
 	exec := asl.NewExecutor(sm, lam, nil)
-	result, err := exec.Execute(context.Background(), "test", `{"original": "data"}`)
+	result, err := exec.Execute(t.Context(), "test", `{"original": "data"}`)
 	require.NoError(t, err)
 	assert.Empty(t, result.Error)
 }
@@ -883,7 +883,7 @@ func TestExecutor_catchesError_SpecificError(t *testing.T) {
 	sm, err := asl.Parse(def)
 	require.NoError(t, err)
 	exec := asl.NewExecutor(sm, lam, nil)
-	result, err := exec.Execute(context.Background(), "test", `{}`)
+	result, err := exec.Execute(t.Context(), "test", `{}`)
 	require.NoError(t, err)
 	assert.Equal(t, "caught", result.Output)
 }
@@ -907,7 +907,7 @@ func TestExecutor_TaskState_FailWithNoCatch(t *testing.T) {
 	sm, err := asl.Parse(def)
 	require.NoError(t, err)
 	exec := asl.NewExecutor(sm, lam, nil)
-	result, err := exec.Execute(context.Background(), "test", `{}`)
+	result, err := exec.Execute(t.Context(), "test", `{}`)
 	require.NoError(t, err)
 	assert.Equal(t, "TaskFailed", result.Error)
 }
@@ -954,7 +954,7 @@ func TestExecutor_LambdaTask_NonJSONResponse(t *testing.T) {
 	sm, err := asl.Parse(def)
 	require.NoError(t, err)
 	exec := asl.NewExecutor(sm, lam, nil)
-	result, err := exec.Execute(context.Background(), "test", `{}`)
+	result, err := exec.Execute(t.Context(), "test", `{}`)
 	require.NoError(t, err)
 	assert.Empty(t, result.Error)
 }
@@ -975,7 +975,7 @@ func TestExecutor_InputPath_Invalid(t *testing.T) {
 	sm, err := asl.Parse(def)
 	require.NoError(t, err)
 	exec := asl.NewExecutor(sm, nil, nil)
-	_, err = exec.Execute(context.Background(), "test", `{"x": 1}`)
+	_, err = exec.Execute(t.Context(), "test", `{"x": 1}`)
 	require.Error(t, err)
 }
 
@@ -999,7 +999,7 @@ func TestExecutor_MapState_NotArray(t *testing.T) {
 	sm, err := asl.Parse(def)
 	require.NoError(t, err)
 	exec := asl.NewExecutor(sm, nil, nil)
-	_, err = exec.Execute(context.Background(), "test", `{"not": "array"}`)
+	_, err = exec.Execute(t.Context(), "test", `{"not": "array"}`)
 	require.Error(t, err)
 }
 
@@ -1024,7 +1024,7 @@ func TestExecutor_MapState_ItemsPath_NotArray(t *testing.T) {
 	sm, err := asl.Parse(def)
 	require.NoError(t, err)
 	exec := asl.NewExecutor(sm, nil, nil)
-	_, err = exec.Execute(context.Background(), "test", `{"count": 5}`)
+	_, err = exec.Execute(t.Context(), "test", `{"count": 5}`)
 	require.Error(t, err)
 }
 
@@ -1062,7 +1062,7 @@ func TestExecutor_UnknownStateType(t *testing.T) {
 	var sm asl.StateMachine
 	require.NoError(t, json.Unmarshal([]byte(def), &sm))
 	exec := asl.NewExecutor(&sm, nil, nil)
-	_, err := exec.Execute(context.Background(), "test", `{}`)
+	_, err := exec.Execute(t.Context(), "test", `{}`)
 	require.Error(t, err)
 }
 
@@ -1084,7 +1084,7 @@ func TestExecutor_TaskNoLambdaInvoker(t *testing.T) {
 	require.NoError(t, err)
 	// No lambda invoker - should fail
 	exec := asl.NewExecutor(sm, nil, nil)
-	result, err := exec.Execute(context.Background(), "test", `{}`)
+	result, err := exec.Execute(t.Context(), "test", `{}`)
 	require.NoError(t, err)
 	assert.NotEmpty(t, result.Error)
 }

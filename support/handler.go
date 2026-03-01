@@ -1,8 +1,10 @@
 package support
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -10,12 +12,15 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
-const (
-	supportTargetPrefix  = "AmazonSupport."
-	supportMatchPriority = 100
+const supportTargetPrefix = "AmazonSupport."
+
+var (
+	errUnknownAction  = errors.New("unknown action")
+	errInvalidRequest = errors.New("invalid request")
 )
 
 // Handler is the Echo HTTP handler for AWS Support operations.
@@ -49,7 +54,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 }
 
 // MatchPriority returns the routing priority.
-func (h *Handler) MatchPriority() int { return supportMatchPriority }
+func (h *Handler) MatchPriority() int { return service.PriorityHeaderExact }
 
 // ExtractOperation extracts the Support action from the X-Amz-Target header.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
@@ -62,6 +67,11 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	return action
 }
 
+type extractSupportResourceInput struct {
+	CaseID  string `json:"caseId"`
+	Subject string `json:"subject"`
+}
+
 // ExtractResource extracts the case ID from the request body.
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	body, err := httputil.ReadBody(c.Request())
@@ -69,10 +79,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return ""
 	}
 
-	var req struct {
-		CaseID  string `json:"caseId"`
-		Subject string `json:"subject"`
-	}
+	var req extractSupportResourceInput
 	_ = json.Unmarshal(body, &req)
 
 	if req.CaseID != "" {
@@ -85,39 +92,65 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		body, err := httputil.ReadBody(c.Request())
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"message": "failed to read body"})
-		}
-
-		action := strings.TrimPrefix(c.Request().Header.Get("X-Amz-Target"), supportTargetPrefix)
-		switch action {
-		case "CreateCase":
-			return h.handleCreateCase(c, body)
-		case "DescribeCases":
-			return h.handleDescribeCases(c, body)
-		case "ResolveCase":
-			return h.handleResolveCase(c, body)
-		default:
-			return c.JSON(http.StatusBadRequest, map[string]string{"message": "unknown action: " + action})
-		}
+		return service.HandleTarget(
+			c, logger.Load(c.Request().Context()),
+			"Support", "application/x-amz-json-1.1",
+			h.GetSupportedOperations(),
+			h.dispatch,
+			h.handleError,
+		)
 	}
 }
 
-func (h *Handler) handleCreateCase(c *echo.Context, body []byte) error {
-	var req struct {
-		Subject           string `json:"subject"`
-		ServiceCode       string `json:"serviceCode"`
-		CategoryCode      string `json:"categoryCode"`
-		SeverityCode      string `json:"severityCode"`
-		CommunicationBody string `json:"communicationBody"`
+func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byte, error) {
+	var result any
+	var err error
+
+	switch action {
+	case "CreateCase":
+		result, err = h.handleCreateCase(body)
+	case "DescribeCases":
+		result, err = h.handleDescribeCases(body)
+	case "ResolveCase":
+		result, err = h.handleResolveCase(body)
+	default:
+		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(result)
+}
+
+func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
+	switch {
+	case errors.Is(err, ErrNotFound):
+		return c.JSON(http.StatusNotFound, map[string]string{"message": err.Error()})
+	case errors.Is(err, ErrAlreadyResolved), errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction):
+		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
+	default:
+		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+	}
+}
+
+type handleCreateCaseInput struct {
+	Subject           string `json:"subject"`
+	ServiceCode       string `json:"serviceCode"`
+	CategoryCode      string `json:"categoryCode"`
+	SeverityCode      string `json:"severityCode"`
+	CommunicationBody string `json:"communicationBody"`
+}
+
+func (h *Handler) handleCreateCase(body []byte) (any, error) {
+	var req handleCreateCaseInput
 	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
+		return nil, errInvalidRequest
 	}
 
 	if req.Subject == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": "subject is required"})
+		return nil, fmt.Errorf("%w: subject is required", errInvalidRequest)
 	}
 
 	c2, err := h.Backend.CreateCase(
@@ -128,18 +161,21 @@ func (h *Handler) handleCreateCase(c *echo.Context, body []byte) error {
 		req.CommunicationBody,
 	)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return nil, err
 	}
 
-	return c.JSON(http.StatusOK, map[string]string{
+	return map[string]string{
 		"caseId": c2.CaseID,
-	})
+	}, nil
 }
 
-func (h *Handler) handleDescribeCases(c *echo.Context, body []byte) error {
-	var req struct {
-		CaseIDList []string `json:"caseIdList"`
-	}
+type handleDescribeCasesInput struct {
+	CaseIDList []string `json:"caseIdList"`
+}
+
+//nolint:unparam // error returned for consistent dispatch signature
+func (h *Handler) handleDescribeCases(body []byte) (any, error) {
+	var req handleDescribeCasesInput
 	_ = json.Unmarshal(body, &req)
 
 	cases := h.Backend.DescribeCases(req.CaseIDList)
@@ -157,34 +193,28 @@ func (h *Handler) handleDescribeCases(c *echo.Context, body []byte) error {
 		views = append(views, v)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
+	return map[string]any{
 		"cases": views,
-	})
+	}, nil
 }
 
-func (h *Handler) handleResolveCase(c *echo.Context, body []byte) error {
-	var req struct {
-		CaseID string `json:"caseId"`
-	}
+type handleResolveCaseInput struct {
+	CaseID string `json:"caseId"`
+}
+
+func (h *Handler) handleResolveCase(body []byte) (any, error) {
+	var req handleResolveCaseInput
 	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
+		return nil, errInvalidRequest
 	}
 
 	cs, err := h.Backend.ResolveCase(req.CaseID)
 	if err != nil {
-		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]string{"message": err.Error()})
-		}
-
-		if errors.Is(err, ErrAlreadyResolved) {
-			return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
-		}
-
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return nil, err
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
+	return map[string]any{
 		"initialCaseStatus": "opened",
 		"finalCaseStatus":   cs.Status,
-	})
+	}, nil
 }

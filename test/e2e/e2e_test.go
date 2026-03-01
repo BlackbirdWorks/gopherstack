@@ -302,11 +302,20 @@ func TestE2E_DynamoDB_ItemCRUD(t *testing.T) {
 	require.NoError(t, err)
 
 	// 4. Edit item
+	// Click Edit and wait for modal content
 	err = itemRow.Locator("button:has-text('Edit')").Click()
 	require.NoError(t, err)
 
+	// Explicitly wait for the modal to be visible first
+	modal := page.Locator("#edit_item_modal")
+	err = modal.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible, Timeout: aws.Float64(5000)})
+	require.NoError(t, err)
+
 	err = page.Locator("#edit_item_modal textarea[name='itemJson']").WaitFor(
-		playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible},
+		playwright.LocatorWaitForOptions{
+			State:   playwright.WaitForSelectorStateVisible,
+			Timeout: aws.Float64(15000), // High timeout for slow HTMX calls during diagnostics
+		},
 	)
 	require.NoError(t, err)
 
@@ -327,7 +336,7 @@ func TestE2E_DynamoDB_ItemCRUD(t *testing.T) {
 	// In this build, Delete Table has hx-confirm, but Item Delete has hx-confirm
 	// THE BUTTON CLICK TRIGGERS THE BROWSER CONFIRM DIALOG OR THE HTMX ONE
 	// Let's assume it's the global confirmation modal based on the screenshot
-	modal := page.Locator("#global_confirm_modal")
+	modal = page.Locator("#global_confirm_modal")
 	err = modal.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible, Timeout: aws.Float64(500)})
 	if err == nil {
 		err = page.Click("#global_confirm_proceed")
@@ -481,11 +490,13 @@ func TestE2E_S3_MetadataTagging(t *testing.T) {
 	require.NoError(t, page.Fill("input[name='contentType']", "text/markdown"))
 	require.NoError(t, page.Click("button:has-text('Update Content-Type')"))
 
-	// 5. Verify update (page refreshes)
-	// 5. Verify update (page refreshes) - check for content instead of timing out on URL
-	require.NoError(t, page.Locator("#tags-list").GetByText("Project: Gopherstack").First().WaitFor())
-	content, _ := page.Locator("body").TextContent()
-	assert.Contains(t, content, "text/markdown")
+	// 5. Verify update — wait for full page refresh triggered by Hx-Refresh header
+	mdLocator := page.Locator("body").GetByText("text/markdown")
+	err = mdLocator.First().WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: aws.Float64(5000),
+	})
+	require.NoError(t, err)
 }
 
 func TestE2E_GlobalSearch(t *testing.T) {
@@ -888,91 +899,91 @@ func TestE2E_S3_Pagination_And_Search(t *testing.T) {
 }
 
 func TestE2E_DynamoDB_PurgeAll(t *testing.T) {
-stack := newStack(t)
-stack.CreateDDBTable(t, "purge-e2e-table-one")
-stack.CreateDDBTable(t, "purge-e2e-table-two")
+	stack := newStack(t)
+	stack.CreateDDBTable(t, "purge-e2e-table-one")
+	stack.CreateDDBTable(t, "purge-e2e-table-two")
 
-server := httptest.NewServer(stack.Echo)
-defer server.Close()
+	server := httptest.NewServer(stack.Echo)
+	defer server.Close()
 
-ctx, err := browser.NewContext()
-require.NoError(t, err)
-defer ctx.Close()
+	ctx, err := browser.NewContext()
+	require.NoError(t, err)
+	defer ctx.Close()
 
-page, err := ctx.NewPage()
-require.NoError(t, err)
-defer page.Close()
+	page, err := ctx.NewPage()
+	require.NoError(t, err)
+	defer page.Close()
 
-_, err = page.Goto(server.URL + "/dashboard/dynamodb")
-require.NoError(t, err)
+	_, err = page.Goto(server.URL + "/dashboard/dynamodb")
+	require.NoError(t, err)
 
-// Wait for tables to appear in the list.
-tableCard := page.Locator("#table-list div.p-6:has-text('purge-e2e-table-one')")
-err = tableCard.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible})
-require.NoError(t, err)
+	// Wait for tables to appear in the list.
+	tableCard := page.Locator("#table-list div.p-6:has-text('purge-e2e-table-one')")
+	err = tableCard.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible})
+	require.NoError(t, err)
 
-// Click Purge All — this triggers hx-confirm which app.js routes through the global modal.
-err = page.Click("button:has-text('Purge All')")
-require.NoError(t, err)
+	// Click Purge All — this triggers hx-confirm which app.js routes through the global modal.
+	err = page.Click("button:has-text('Purge All')")
+	require.NoError(t, err)
 
-modal := page.Locator("#global_confirm_modal")
-err = modal.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible})
-require.NoError(t, err, "confirm modal should appear after clicking Purge All")
+	modal := page.Locator("#global_confirm_modal")
+	err = modal.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible})
+	require.NoError(t, err, "confirm modal should appear after clicking Purge All")
 
-err = page.Click("#global_confirm_proceed")
-require.NoError(t, err)
+	err = page.Click("#global_confirm_proceed")
+	require.NoError(t, err)
 
-// After purge, the table list should refresh and show no tables.
-err = tableCard.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateHidden})
-require.NoError(t, err, "purged table should disappear from the list")
+	// After purge, the table list should refresh and show no tables.
+	err = tableCard.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateHidden})
+	require.NoError(t, err, "purged table should disappear from the list")
 
-// Verify the backend is truly empty.
-tables, err := stack.DDBHandler.Backend.ListTables(t.Context(), &dynamodb.ListTablesInput{})
-require.NoError(t, err)
-assert.Empty(t, tables.TableNames, "all tables should be deleted after purge")
+	// Verify the backend is truly empty.
+	tables, err := stack.DDBHandler.Backend.ListTables(t.Context(), &dynamodb.ListTablesInput{})
+	require.NoError(t, err)
+	assert.Empty(t, tables.TableNames, "all tables should be deleted after purge")
 }
 
 func TestE2E_S3_PurgeAll(t *testing.T) {
-stack := newStack(t)
-stack.CreateS3Bucket(t, "purge-e2e-bucket-one")
-stack.CreateS3Bucket(t, "purge-e2e-bucket-two")
+	stack := newStack(t)
+	stack.CreateS3Bucket(t, "purge-e2e-bucket-one")
+	stack.CreateS3Bucket(t, "purge-e2e-bucket-two")
 
-server := httptest.NewServer(stack.Echo)
-defer server.Close()
+	server := httptest.NewServer(stack.Echo)
+	defer server.Close()
 
-ctx, err := browser.NewContext()
-require.NoError(t, err)
-defer ctx.Close()
+	ctx, err := browser.NewContext()
+	require.NoError(t, err)
+	defer ctx.Close()
 
-page, err := ctx.NewPage()
-require.NoError(t, err)
-defer page.Close()
+	page, err := ctx.NewPage()
+	require.NoError(t, err)
+	defer page.Close()
 
-_, err = page.Goto(server.URL + "/dashboard/s3")
-require.NoError(t, err)
+	_, err = page.Goto(server.URL + "/dashboard/s3")
+	require.NoError(t, err)
 
-// Wait for buckets to appear in the list.
-bucketCard := page.Locator("#bucket-list div.p-6:has-text('purge-e2e-bucket-one')")
-err = bucketCard.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible})
-require.NoError(t, err)
+	// Wait for buckets to appear in the list.
+	bucketCard := page.Locator("#bucket-list div.p-6:has-text('purge-e2e-bucket-one')")
+	err = bucketCard.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible})
+	require.NoError(t, err)
 
-// Click Purge All — this triggers hx-confirm which app.js routes through the global modal.
-err = page.Click("button:has-text('Purge All')")
-require.NoError(t, err)
+	// Click Purge All — this triggers hx-confirm which app.js routes through the global modal.
+	err = page.Click("button:has-text('Purge All')")
+	require.NoError(t, err)
 
-modal := page.Locator("#global_confirm_modal")
-err = modal.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible})
-require.NoError(t, err, "confirm modal should appear after clicking Purge All")
+	modal := page.Locator("#global_confirm_modal")
+	err = modal.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible})
+	require.NoError(t, err, "confirm modal should appear after clicking Purge All")
 
-err = page.Click("#global_confirm_proceed")
-require.NoError(t, err)
+	err = page.Click("#global_confirm_proceed")
+	require.NoError(t, err)
 
-// After purge, the bucket list should refresh and show no buckets.
-err = bucketCard.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateHidden})
-require.NoError(t, err, "purged bucket should disappear from the list")
+	// After purge, the bucket list should refresh and show no buckets.
+	err = bucketCard.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateHidden})
+	require.NoError(t, err, "purged bucket should disappear from the list")
 
-// Verify the backend is truly empty.
-output, err := stack.S3Backend.ListBuckets(t.Context(), &s3.ListBucketsInput{})
-require.NoError(t, err)
-assert.Empty(t, output.Buckets, "all buckets should be deleted after purge")
+	// Verify the backend is truly empty.
+	output, err := stack.S3Backend.ListBuckets(t.Context(), &s3.ListBucketsInput{})
+	require.NoError(t, err)
+	assert.Empty(t, output.Buckets, "all buckets should be deleted after purge")
 }

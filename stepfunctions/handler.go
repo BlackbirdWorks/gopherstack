@@ -21,6 +21,70 @@ import (
 
 var errUnknownOperation = errors.New("UnknownOperationException")
 
+type createStateMachineInput struct {
+	Name       string `json:"name"`
+	Definition string `json:"definition"`
+	RoleArn    string `json:"roleArn"`
+	Type       string `json:"type"`
+}
+
+type deleteStateMachineInput struct {
+	StateMachineArn string `json:"stateMachineArn"`
+}
+
+type listStateMachinesInput struct {
+	NextToken  string `json:"nextToken"`
+	MaxResults int    `json:"maxResults"`
+}
+
+type describeStateMachineInput struct {
+	StateMachineArn string `json:"stateMachineArn"`
+}
+
+type sfnListTagsForResourceInput struct {
+	ResourceArn string `json:"resourceArn"`
+}
+
+type sfnTagResourceInput struct {
+	Tags        map[string]string `json:"tags"`
+	ResourceArn string            `json:"resourceArn"`
+}
+
+type sfnUntagResourceInput struct {
+	ResourceArn string   `json:"resourceArn"`
+	TagKeys     []string `json:"tagKeys"`
+}
+
+type startExecutionInput struct {
+	StateMachineArn string `json:"stateMachineArn"`
+	Name            string `json:"name"`
+	Input           string `json:"input"`
+}
+
+type stopExecutionInput struct {
+	ExecutionArn string `json:"executionArn"`
+	Error        string `json:"error"`
+	Cause        string `json:"cause"`
+}
+
+type describeExecutionInput struct {
+	ExecutionArn string `json:"executionArn"`
+}
+
+type listExecutionsInput struct {
+	StateMachineArn string `json:"stateMachineArn"`
+	StatusFilter    string `json:"statusFilter"`
+	NextToken       string `json:"nextToken"`
+	MaxResults      int    `json:"maxResults"`
+}
+
+type getExecutionHistoryInput struct {
+	ExecutionArn string `json:"executionArn"`
+	NextToken    string `json:"nextToken"`
+	MaxResults   int    `json:"maxResults"`
+	ReverseOrder bool   `json:"reverseOrder"`
+}
+
 // Handler is the Echo HTTP service handler for Step Functions operations.
 type Handler struct {
 	Backend StorageBackend
@@ -132,46 +196,13 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function for Step Functions requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		ctx := c.Request().Context()
-		log := logger.Load(ctx)
-
-		if c.Request().Method == http.MethodGet && c.Request().URL.Path == "/" {
-			return c.JSON(http.StatusOK, h.GetSupportedOperations())
-		}
-
-		if c.Request().Method != http.MethodPost {
-			return c.String(http.StatusMethodNotAllowed, "Method not allowed")
-		}
-
-		target := c.Request().Header.Get("X-Amz-Target")
-		if target == "" {
-			return c.String(http.StatusBadRequest, "Missing X-Amz-Target")
-		}
-
-		parts := strings.Split(target, ".")
-		const targetParts = 2
-		if len(parts) != targetParts {
-			return c.String(http.StatusBadRequest, "Invalid X-Amz-Target")
-		}
-		action := parts[1]
-
-		body, err := httputil.ReadBody(c.Request())
-		if err != nil {
-			log.ErrorContext(ctx, "failed to read request body", "error", err)
-
-			return c.String(http.StatusInternalServerError, "internal server error")
-		}
-
-		log.DebugContext(ctx, "StepFunctions request", "action", action)
-
-		response, reqErr := h.dispatch(ctx, action, body)
-		if reqErr != nil {
-			return h.handleError(ctx, c, action, reqErr)
-		}
-
-		c.Response().Header().Set("Content-Type", "application/x-amz-json-1.0")
-
-		return c.JSONBlob(http.StatusOK, response)
+		return service.HandleTarget(
+			c, logger.Load(c.Request().Context()),
+			"StepFunctions", "application/x-amz-json-1.0",
+			h.GetSupportedOperations(),
+			h.dispatch,
+			h.handleError,
+		)
 	}
 }
 
@@ -180,12 +211,7 @@ type actionFn func([]byte) (any, error)
 func (h *Handler) stateMachineActions() map[string]actionFn {
 	m := map[string]actionFn{
 		"CreateStateMachine": func(b []byte) (any, error) {
-			var input struct {
-				Name       string `json:"name"`
-				Definition string `json:"definition"`
-				RoleArn    string `json:"roleArn"`
-				Type       string `json:"type"`
-			}
+			var input createStateMachineInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
@@ -200,9 +226,7 @@ func (h *Handler) stateMachineActions() map[string]actionFn {
 			}, nil
 		},
 		"DeleteStateMachine": func(b []byte) (any, error) {
-			var input struct {
-				StateMachineArn string `json:"stateMachineArn"`
-			}
+			var input deleteStateMachineInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
@@ -213,10 +237,7 @@ func (h *Handler) stateMachineActions() map[string]actionFn {
 			return map[string]any{}, nil
 		},
 		"ListStateMachines": func(b []byte) (any, error) {
-			var input struct {
-				NextToken  string `json:"nextToken"`
-				MaxResults int    `json:"maxResults"`
-			}
+			var input listStateMachinesInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
@@ -228,9 +249,7 @@ func (h *Handler) stateMachineActions() map[string]actionFn {
 			return map[string]any{"stateMachines": sms, "nextToken": next}, nil
 		},
 		"DescribeStateMachine": func(b []byte) (any, error) {
-			var input struct {
-				StateMachineArn string `json:"stateMachineArn"`
-			}
+			var input describeStateMachineInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
@@ -250,9 +269,7 @@ func (h *Handler) stateMachineActions() map[string]actionFn {
 func (h *Handler) stateMachineTagActions() map[string]actionFn {
 	return map[string]actionFn{
 		"ListTagsForResource": func(b []byte) (any, error) {
-			var input struct {
-				ResourceArn string `json:"resourceArn"`
-			}
+			var input sfnListTagsForResourceInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
@@ -266,10 +283,7 @@ func (h *Handler) stateMachineTagActions() map[string]actionFn {
 			return map[string]any{"tags": tagList}, nil
 		},
 		"TagResource": func(b []byte) (any, error) {
-			var input struct {
-				Tags        map[string]string `json:"tags"`
-				ResourceArn string            `json:"resourceArn"`
-			}
+			var input sfnTagResourceInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
@@ -278,10 +292,7 @@ func (h *Handler) stateMachineTagActions() map[string]actionFn {
 			return map[string]any{}, nil
 		},
 		"UntagResource": func(b []byte) (any, error) {
-			var input struct {
-				ResourceArn string   `json:"resourceArn"`
-				TagKeys     []string `json:"tagKeys"`
-			}
+			var input sfnUntagResourceInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
@@ -295,11 +306,7 @@ func (h *Handler) stateMachineTagActions() map[string]actionFn {
 func (h *Handler) executionActions() map[string]actionFn {
 	return map[string]actionFn{
 		"StartExecution": func(b []byte) (any, error) {
-			var input struct {
-				StateMachineArn string `json:"stateMachineArn"`
-				Name            string `json:"name"`
-				Input           string `json:"input"`
-			}
+			var input startExecutionInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
@@ -314,11 +321,7 @@ func (h *Handler) executionActions() map[string]actionFn {
 			}, nil
 		},
 		"StopExecution": func(b []byte) (any, error) {
-			var input struct {
-				ExecutionArn string `json:"executionArn"`
-				Error        string `json:"error"`
-				Cause        string `json:"cause"`
-			}
+			var input stopExecutionInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
@@ -333,9 +336,7 @@ func (h *Handler) executionActions() map[string]actionFn {
 			return map[string]any{"stopDate": exec.StopDate}, nil
 		},
 		"DescribeExecution": func(b []byte) (any, error) {
-			var input struct {
-				ExecutionArn string `json:"executionArn"`
-			}
+			var input describeExecutionInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
@@ -343,12 +344,7 @@ func (h *Handler) executionActions() map[string]actionFn {
 			return h.Backend.DescribeExecution(input.ExecutionArn)
 		},
 		"ListExecutions": func(b []byte) (any, error) {
-			var input struct {
-				StateMachineArn string `json:"stateMachineArn"`
-				StatusFilter    string `json:"statusFilter"`
-				NextToken       string `json:"nextToken"`
-				MaxResults      int    `json:"maxResults"`
-			}
+			var input listExecutionsInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
@@ -362,12 +358,7 @@ func (h *Handler) executionActions() map[string]actionFn {
 			return map[string]any{"executions": execs, "nextToken": next}, nil
 		},
 		"GetExecutionHistory": func(b []byte) (any, error) {
-			var input struct {
-				ExecutionArn string `json:"executionArn"`
-				NextToken    string `json:"nextToken"`
-				MaxResults   int    `json:"maxResults"`
-				ReverseOrder bool   `json:"reverseOrder"`
-			}
+			var input getExecutionHistoryInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
@@ -432,7 +423,7 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		log.WarnContext(ctx, "StepFunctions request error", "error", reqErr, "action", action)
 	}
 
-	errResp := ErrorResponse{
+	errResp := service.JSONErrorResponse{
 		Type:    errType,
 		Message: reqErr.Error(),
 	}

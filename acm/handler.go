@@ -1,6 +1,7 @@
 package acm
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -12,6 +13,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -19,6 +21,42 @@ const (
 	acmMatchPriority = 81
 	acmTargetPrefix  = "CertificateManager."
 )
+
+type requestCertificateInput struct {
+	DomainName              string `json:"DomainName"`
+	CertificateAuthorityArn string `json:"CertificateAuthorityArn"`
+}
+
+type describeCertificateInput struct {
+	CertificateArn string `json:"CertificateArn"`
+}
+
+type deleteCertificateInput struct {
+	CertificateArn string `json:"CertificateArn"`
+}
+
+type listTagsForCertificateInput struct {
+	CertificateArn string `json:"CertificateArn"`
+}
+
+type acmTag struct {
+	Key   string `json:"Key"`
+	Value string `json:"Value"`
+}
+
+type addTagsToCertificateInput struct {
+	CertificateArn string   `json:"CertificateArn"`
+	Tags           []acmTag `json:"Tags"`
+}
+
+type acmTagKey struct {
+	Key string `json:"Key"`
+}
+
+type removeTagsFromCertificateInput struct {
+	CertificateArn string      `json:"CertificateArn"`
+	Tags           []acmTagKey `json:"Tags"`
+}
 
 // Handler is the Echo HTTP handler for ACM operations.
 type Handler struct {
@@ -125,28 +163,34 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		action := h.ExtractOperation(c)
-		if action == "" {
-			return h.writeJSONError(c, http.StatusBadRequest, "MissingAction", "missing X-Amz-Target")
-		}
-
-		body, err := httputil.ReadBody(c.Request())
-		if err != nil {
-			return h.writeJSONError(c, http.StatusBadRequest, "InvalidParameterValue", "cannot read body")
-		}
-
-		resp, opErr := h.dispatchJSON(action, body)
-		if errors.Is(opErr, errUnknownACMAction) {
-			return h.writeJSONError(c, http.StatusBadRequest, "InvalidAction",
-				action+" is not a valid ACM action")
-		}
-
-		if opErr != nil {
-			return h.handleOpError(c, action, opErr)
-		}
-
-		return c.JSON(http.StatusOK, resp)
+		return service.HandleTarget(
+			c, logger.Load(c.Request().Context()),
+			"ACM", "application/x-amz-json-1.1",
+			h.GetSupportedOperations(),
+			h.dispatch,
+			h.handleError,
+		)
 	}
+}
+
+// dispatch routes the operation to the appropriate handler and marshals the response.
+func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byte, error) {
+	resp, err := h.dispatchJSON(action, body)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(resp)
+}
+
+// handleError writes a standardized error response back to the client.
+func (h *Handler) handleError(_ context.Context, c *echo.Context, action string, reqErr error) error {
+	if errors.Is(reqErr, errUnknownACMAction) {
+		return h.writeJSONError(c, http.StatusBadRequest, "InvalidAction",
+			action+" is not a valid ACM action")
+	}
+
+	return h.handleOpError(c, action, reqErr)
 }
 
 // errUnknownACMAction is returned by dispatchJSON for unrecognised action names.
@@ -175,10 +219,7 @@ func (h *Handler) dispatchJSON(action string, body []byte) (any, error) {
 }
 
 func (h *Handler) jsonRequestCertificate(body []byte) (any, error) {
-	var input struct {
-		DomainName              string `json:"DomainName"`
-		CertificateAuthorityArn string `json:"CertificateAuthorityArn"`
-	}
+	var input requestCertificateInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}
@@ -195,9 +236,7 @@ func (h *Handler) jsonRequestCertificate(body []byte) (any, error) {
 }
 
 func (h *Handler) jsonDescribeCertificate(body []byte) (any, error) {
-	var input struct {
-		CertificateArn string `json:"CertificateArn"`
-	}
+	var input describeCertificateInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}
@@ -239,9 +278,7 @@ func (h *Handler) jsonListCertificates() (any, error) {
 }
 
 func (h *Handler) jsonDeleteCertificate(body []byte) (any, error) {
-	var input struct {
-		CertificateArn string `json:"CertificateArn"`
-	}
+	var input deleteCertificateInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}
@@ -253,9 +290,7 @@ func (h *Handler) jsonDeleteCertificate(body []byte) (any, error) {
 }
 
 func (h *Handler) jsonListTagsForCertificate(body []byte) (any, error) {
-	var input struct {
-		CertificateArn string `json:"CertificateArn"`
-	}
+	var input listTagsForCertificateInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}
@@ -264,13 +299,7 @@ func (h *Handler) jsonListTagsForCertificate(body []byte) (any, error) {
 }
 
 func (h *Handler) jsonAddTagsToCertificate(body []byte) (any, error) {
-	var input struct {
-		CertificateArn string `json:"CertificateArn"`
-		Tags           []struct {
-			Key   string `json:"Key"`
-			Value string `json:"Value"`
-		} `json:"Tags"`
-	}
+	var input addTagsToCertificateInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}
@@ -284,12 +313,7 @@ func (h *Handler) jsonAddTagsToCertificate(body []byte) (any, error) {
 }
 
 func (h *Handler) jsonRemoveTagsFromCertificate(body []byte) (any, error) {
-	var input struct {
-		CertificateArn string `json:"CertificateArn"`
-		Tags           []struct {
-			Key string `json:"Key"`
-		} `json:"Tags"`
-	}
+	var input removeTagsFromCertificateInput
 	if err := json.Unmarshal(body, &input); err != nil {
 		return nil, ErrInvalidParameter
 	}

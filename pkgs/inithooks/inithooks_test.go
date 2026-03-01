@@ -1,7 +1,6 @@
 package inithooks_test
 
 import (
-	"context"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -20,11 +19,8 @@ func TestRun_SuccessfulScript(t *testing.T) {
 	dir := t.TempDir()
 	out := filepath.Join(dir, "output.txt")
 
-	// Script writes a marker file.
-	script := "echo hello > " + out
-
-	r := inithooks.New([]string{script}, 0, nil)
-	r.Run(context.Background())
+	r := inithooks.New([]string{"echo hello > " + out}, 0, nil)
+	r.Run(t.Context())
 
 	data, err := os.ReadFile(out)
 	require.NoError(t, err)
@@ -37,58 +33,49 @@ func TestRun_FailingScript_ContinuesNext(t *testing.T) {
 	dir := t.TempDir()
 	out := filepath.Join(dir, "output.txt")
 
-	scripts := []string{
-		"exit 1",
-		"echo second > " + out,
-	}
-
-	r := inithooks.New(scripts, 0, nil)
-	r.Run(context.Background())
+	r := inithooks.New([]string{"exit 1", "echo second > " + out}, 0, nil)
+	r.Run(t.Context())
 
 	data, err := os.ReadFile(out)
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "second")
 }
 
-func TestRun_WithLogger(t *testing.T) {
+func TestRun_WithVariousConfigs(t *testing.T) {
 	t.Parallel()
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	r := inithooks.New([]string{"echo hi"}, 5*time.Second, log)
 
-	r.Run(context.Background())
-}
+	tests := []struct {
+		logger  *slog.Logger
+		name    string
+		scripts []string
+		timeout time.Duration
+	}{
+		{name: "with_logger", scripts: []string{"echo hi"}, timeout: 5 * time.Second, logger: log},
+		{name: "with_logger_failing_script", scripts: []string{"exit 42"}, timeout: 5 * time.Second, logger: log},
+		{name: "empty_scripts"},
+	}
 
-func TestRun_WithLogger_FailingScript(t *testing.T) {
-	t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	r := inithooks.New([]string{"exit 42"}, 5*time.Second, log)
-
-	// Should not panic or block.
-	r.Run(context.Background())
-}
-
-func TestRun_EmptyScripts(t *testing.T) {
-	t.Parallel()
-
-	r := inithooks.New(nil, 0, nil)
-
-	// Should complete immediately without error.
-	r.Run(context.Background())
+			r := inithooks.New(tt.scripts, tt.timeout, tt.logger)
+			r.Run(t.Context())
+		})
+	}
 }
 
 func TestRun_Timeout(t *testing.T) {
 	t.Parallel()
 
-	// Script sleeps much longer than the timeout.
 	r := inithooks.New([]string{"sleep 10"}, 50*time.Millisecond, nil)
 
 	start := time.Now()
-	r.Run(context.Background())
+	r.Run(t.Context())
 	elapsed := time.Since(start)
 
-	// Should complete well within a second (timeout + some overhead).
 	assert.Less(t, elapsed, 3*time.Second)
 }
 
@@ -103,7 +90,7 @@ func TestRun_MultipleScripts(t *testing.T) {
 		"echo first > " + out1,
 		"echo second > " + out2,
 	}, 0, nil)
-	r.Run(context.Background())
+	r.Run(t.Context())
 
 	data1, err := os.ReadFile(out1)
 	require.NoError(t, err)

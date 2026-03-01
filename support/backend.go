@@ -6,12 +6,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/google/uuid"
 )
 
 var (
 	// ErrNotFound is returned when a support case is not found.
-	ErrNotFound = errors.New("CaseIdNotFound")
+	ErrNotFound = awserr.New("CaseIdNotFound", awserr.ErrNotFound)
 	// ErrAlreadyResolved is returned when trying to resolve an already-resolved case.
 	ErrAlreadyResolved = errors.New("CaseAlreadyResolved")
 )

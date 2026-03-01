@@ -49,144 +49,281 @@ func doAWSConfigRequest(t *testing.T, h *awsconfig.Handler, action string, body 
 	return rec
 }
 
-func TestAWSConfig_Handler_PutConfigurationRecorder(t *testing.T) {
+func TestAWSConfigHandler_PutConfigurationRecorder(t *testing.T) {
 	t.Parallel()
 
-	h := newTestAWSConfigHandler(t)
-
-	rec := doAWSConfigRequest(t, h, "PutConfigurationRecorder", map[string]any{
-		"ConfigurationRecorder": map[string]any{
-			"name":    "default",
-			"roleARN": "arn:aws:iam::000000000000:role/config",
+	tests := []struct {
+		body     any
+		name     string
+		wantCode int
+	}{
+		{
+			name: "success",
+			body: map[string]any{
+				"ConfigurationRecorder": map[string]any{
+					"name":    "default",
+					"roleARN": "arn:aws:iam::000000000000:role/config",
+				},
+			},
+			wantCode: http.StatusOK,
 		},
-	})
-	assert.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestAWSConfigHandler(t)
+			rec := doAWSConfigRequest(t, h, "PutConfigurationRecorder", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
 }
 
-func TestAWSConfig_Handler_DescribeConfigurationRecorders(t *testing.T) {
+func TestAWSConfigHandler_DescribeConfigurationRecorders(t *testing.T) {
 	t.Parallel()
 
-	h := newTestAWSConfigHandler(t)
-	doAWSConfigRequest(t, h, "PutConfigurationRecorder", map[string]any{
-		"ConfigurationRecorder": map[string]any{"name": "default", "roleARN": "arn:aws:iam::000000000000:role/config"},
-	})
-
-	rec := doAWSConfigRequest(t, h, "DescribeConfigurationRecorders", nil)
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Contains(t, resp, "ConfigurationRecorders")
-}
-
-func TestAWSConfig_Handler_StartConfigurationRecorder(t *testing.T) {
-	t.Parallel()
-
-	h := newTestAWSConfigHandler(t)
-	doAWSConfigRequest(t, h, "PutConfigurationRecorder", map[string]any{
-		"ConfigurationRecorder": map[string]any{"name": "default", "roleARN": "arn:aws:iam::000000000000:role/config"},
-	})
-
-	rec := doAWSConfigRequest(t, h, "StartConfigurationRecorder", map[string]any{
-		"ConfigurationRecorderName": "default",
-	})
-	assert.Equal(t, http.StatusOK, rec.Code)
-}
-
-func TestAWSConfig_Handler_StartConfigurationRecorder_NotFound(t *testing.T) {
-	t.Parallel()
-
-	h := newTestAWSConfigHandler(t)
-
-	rec := doAWSConfigRequest(t, h, "StartConfigurationRecorder", map[string]any{
-		"ConfigurationRecorderName": "nonexistent",
-	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestAWSConfig_Handler_PutDeliveryChannel(t *testing.T) {
-	t.Parallel()
-
-	h := newTestAWSConfigHandler(t)
-
-	rec := doAWSConfigRequest(t, h, "PutDeliveryChannel", map[string]any{
-		"DeliveryChannel": map[string]any{
-			"name":         "default",
-			"s3BucketName": "my-bucket",
-			"snsTopicARN":  "arn:aws:sns:us-east-1:000000000000:my-topic",
+	tests := []struct {
+		setup        func(t *testing.T, h *awsconfig.Handler)
+		name         string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name: "with_recorder",
+			setup: func(t *testing.T, h *awsconfig.Handler) {
+				t.Helper()
+				doAWSConfigRequest(t, h, "PutConfigurationRecorder", map[string]any{
+					"ConfigurationRecorder": map[string]any{
+						"name":    "default",
+						"roleARN": "arn:aws:iam::000000000000:role/config",
+					},
+				})
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"ConfigurationRecorders"},
 		},
-	})
-	assert.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestAWSConfigHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := doAWSConfigRequest(t, h, "DescribeConfigurationRecorders", nil)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+		})
+	}
 }
 
-func TestAWSConfig_Handler_DescribeDeliveryChannels(t *testing.T) {
+func TestAWSConfigHandler_StartConfigurationRecorder(t *testing.T) {
 	t.Parallel()
 
-	h := newTestAWSConfigHandler(t)
-	doAWSConfigRequest(t, h, "PutDeliveryChannel", map[string]any{
-		"DeliveryChannel": map[string]any{"name": "default", "s3BucketName": "my-bucket", "snsTopicARN": ""},
-	})
+	tests := []struct {
+		body     any
+		setup    func(t *testing.T, h *awsconfig.Handler)
+		name     string
+		wantCode int
+	}{
+		{
+			name: "success",
+			setup: func(t *testing.T, h *awsconfig.Handler) {
+				t.Helper()
+				doAWSConfigRequest(t, h, "PutConfigurationRecorder", map[string]any{
+					"ConfigurationRecorder": map[string]any{
+						"name":    "default",
+						"roleARN": "arn:aws:iam::000000000000:role/config",
+					},
+				})
+			},
+			body:     map[string]any{"ConfigurationRecorderName": "default"},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "not_found",
+			body:     map[string]any{"ConfigurationRecorderName": "nonexistent"},
+			wantCode: http.StatusNotFound,
+		},
+	}
 
-	rec := doAWSConfigRequest(t, h, "DescribeDeliveryChannels", nil)
-	require.Equal(t, http.StatusOK, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Contains(t, resp, "DeliveryChannels")
+			h := newTestAWSConfigHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := doAWSConfigRequest(t, h, "StartConfigurationRecorder", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
 }
 
-func TestAWSConfig_Handler_UnknownAction(t *testing.T) {
+func TestAWSConfigHandler_PutDeliveryChannel(t *testing.T) {
 	t.Parallel()
 
-	h := newTestAWSConfigHandler(t)
+	tests := []struct {
+		body     any
+		name     string
+		wantCode int
+	}{
+		{
+			name: "success",
+			body: map[string]any{
+				"DeliveryChannel": map[string]any{
+					"name":         "default",
+					"s3BucketName": "my-bucket",
+					"snsTopicARN":  "arn:aws:sns:us-east-1:000000000000:my-topic",
+				},
+			},
+			wantCode: http.StatusOK,
+		},
+	}
 
-	rec := doAWSConfigRequest(t, h, "UnknownAction", nil)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestAWSConfigHandler(t)
+			rec := doAWSConfigRequest(t, h, "PutDeliveryChannel", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
 }
 
-func TestAWSConfig_Handler_RouteMatcher(t *testing.T) {
+func TestAWSConfigHandler_DescribeDeliveryChannels(t *testing.T) {
 	t.Parallel()
 
-	h := newTestAWSConfigHandler(t)
-	matcher := h.RouteMatcher()
+	tests := []struct {
+		setup        func(t *testing.T, h *awsconfig.Handler)
+		name         string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name: "with_channel",
+			setup: func(t *testing.T, h *awsconfig.Handler) {
+				t.Helper()
+				doAWSConfigRequest(t, h, "PutDeliveryChannel", map[string]any{
+					"DeliveryChannel": map[string]any{
+						"name":         "default",
+						"s3BucketName": "my-bucket",
+						"snsTopicARN":  "",
+					},
+				})
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DeliveryChannels"},
+		},
+	}
 
-	e := echo.New()
-	req := httptest.NewRequest(http.MethodPost, "/", nil)
-	req.Header.Set("X-Amz-Target", "StarlingDoveService.PutConfigurationRecorder")
-	c := e.NewContext(req, httptest.NewRecorder())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	assert.True(t, matcher(c))
+			h := newTestAWSConfigHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := doAWSConfigRequest(t, h, "DescribeDeliveryChannels", nil)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+		})
+	}
 }
 
-func TestAWSConfig_Handler_RouteMatcher_NoMatch(t *testing.T) {
+func TestAWSConfigHandler_UnknownAction(t *testing.T) {
 	t.Parallel()
 
-	h := newTestAWSConfigHandler(t)
-	matcher := h.RouteMatcher()
+	tests := []struct {
+		name     string
+		action   string
+		wantCode int
+	}{
+		{
+			name:     "unknown_action",
+			action:   "UnknownAction",
+			wantCode: http.StatusBadRequest,
+		},
+	}
 
-	e := echo.New()
-	req := httptest.NewRequest(http.MethodPost, "/", nil)
-	req.Header.Set("X-Amz-Target", "Kinesis_20131202.CreateStream")
-	c := e.NewContext(req, httptest.NewRecorder())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	assert.False(t, matcher(c))
+			h := newTestAWSConfigHandler(t)
+			rec := doAWSConfigRequest(t, h, tt.action, nil)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
 }
 
-func TestAWSConfig_Provider(t *testing.T) {
+func TestAWSConfigHandler_RouteMatcher(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		target    string
+		wantMatch bool
+	}{
+		{
+			name:      "match",
+			target:    "StarlingDoveService.PutConfigurationRecorder",
+			wantMatch: true,
+		},
+		{
+			name:      "no_match",
+			target:    "Kinesis_20131202.CreateStream",
+			wantMatch: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestAWSConfigHandler(t)
+			matcher := h.RouteMatcher()
+
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodPost, "/", nil)
+			req.Header.Set("X-Amz-Target", tt.target)
+			c := e.NewContext(req, httptest.NewRecorder())
+
+			assert.Equal(t, tt.wantMatch, matcher(c))
+		})
+	}
+}
+
+func TestAWSConfigProvider_Name(t *testing.T) {
 	t.Parallel()
 
 	p := &awsconfig.Provider{}
 	assert.Equal(t, "AWSConfig", p.Name())
 }
 
-func TestAWSConfig_Handler_Name(t *testing.T) {
+func TestAWSConfigHandler_Name(t *testing.T) {
 	t.Parallel()
 
 	h := newTestAWSConfigHandler(t)
 	assert.Equal(t, "AWSConfig", h.Name())
 }
 
-func TestAWSConfig_Handler_GetSupportedOperations(t *testing.T) {
+func TestAWSConfigHandler_GetSupportedOperations(t *testing.T) {
 	t.Parallel()
 
 	h := newTestAWSConfigHandler(t)
@@ -198,77 +335,127 @@ func TestAWSConfig_Handler_GetSupportedOperations(t *testing.T) {
 	assert.Contains(t, ops, "DescribeDeliveryChannels")
 }
 
-func TestAWSConfig_Handler_MatchPriority(t *testing.T) {
+func TestAWSConfigHandler_MatchPriority(t *testing.T) {
 	t.Parallel()
 
 	h := newTestAWSConfigHandler(t)
 	assert.Equal(t, 100, h.MatchPriority())
 }
 
-func TestAWSConfig_Handler_ExtractOperation(t *testing.T) {
+func TestAWSConfigHandler_ExtractOperation(t *testing.T) {
 	t.Parallel()
 
-	h := newTestAWSConfigHandler(t)
-	e := echo.New()
-
-	req := httptest.NewRequest(http.MethodPost, "/", nil)
-	req.Header.Set("X-Amz-Target", "StarlingDoveService.PutConfigurationRecorder")
-	c := e.NewContext(req, httptest.NewRecorder())
-	assert.Equal(t, "PutConfigurationRecorder", h.ExtractOperation(c))
-
-	// No target → "Unknown"
-	req2 := httptest.NewRequest(http.MethodPost, "/", nil)
-	c2 := e.NewContext(req2, httptest.NewRecorder())
-	assert.Equal(t, "Unknown", h.ExtractOperation(c2))
-}
-
-func TestAWSConfig_Handler_ExtractResource(t *testing.T) {
-	t.Parallel()
-
-	h := newTestAWSConfigHandler(t)
-	e := echo.New()
-
-	newCtx := func(target, body string) *echo.Context {
-		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
-		req.Header.Set("X-Amz-Target", "StarlingDoveService."+target)
-
-		return e.NewContext(req, httptest.NewRecorder())
+	tests := []struct {
+		name   string
+		target string
+		want   string
+	}{
+		{
+			name:   "with_target",
+			target: "StarlingDoveService.PutConfigurationRecorder",
+			want:   "PutConfigurationRecorder",
+		},
+		{
+			name:   "no_target",
+			target: "",
+			want:   "Unknown",
+		},
 	}
 
-	// PutConfigurationRecorder
-	c := newCtx("PutConfigurationRecorder", `{"ConfigurationRecorder":{"name":"my-recorder"}}`)
-	assert.Equal(t, "my-recorder", h.ExtractResource(c))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	// StartConfigurationRecorder
-	c = newCtx("StartConfigurationRecorder", `{"ConfigurationRecorderName":"my-recorder"}`)
-	assert.Equal(t, "my-recorder", h.ExtractResource(c))
+			h := newTestAWSConfigHandler(t)
+			e := echo.New()
 
-	// DescribeConfigurationRecorders with names
-	c = newCtx("DescribeConfigurationRecorders", `{"ConfigurationRecorderNames":["r1"]}`)
-	assert.Equal(t, "r1", h.ExtractResource(c))
+			req := httptest.NewRequest(http.MethodPost, "/", nil)
+			if tt.target != "" {
+				req.Header.Set("X-Amz-Target", tt.target)
+			}
 
-	// DescribeConfigurationRecorders without names
-	c = newCtx("DescribeConfigurationRecorders", `{}`)
-	assert.Empty(t, h.ExtractResource(c))
-
-	// PutDeliveryChannel
-	c = newCtx("PutDeliveryChannel", `{"DeliveryChannel":{"name":"my-channel"}}`)
-	assert.Equal(t, "my-channel", h.ExtractResource(c))
-
-	// DescribeDeliveryChannels with names
-	c = newCtx("DescribeDeliveryChannels", `{"DeliveryChannelNames":["ch1"]}`)
-	assert.Equal(t, "ch1", h.ExtractResource(c))
-
-	// DescribeDeliveryChannels without names
-	c = newCtx("DescribeDeliveryChannels", `{}`)
-	assert.Empty(t, h.ExtractResource(c))
-
-	// Default fallback
-	c = newCtx("UnknownOp", `{"ConfigurationRecorderName":"fallback"}`)
-	assert.Equal(t, "fallback", h.ExtractResource(c))
+			c := e.NewContext(req, httptest.NewRecorder())
+			assert.Equal(t, tt.want, h.ExtractOperation(c))
+		})
+	}
 }
 
-func TestAWSConfig_Provider_Init(t *testing.T) {
+func TestAWSConfigHandler_ExtractResource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		action string
+		body   string
+		want   string
+	}{
+		{
+			name:   "PutConfigurationRecorder",
+			action: "PutConfigurationRecorder",
+			body:   `{"ConfigurationRecorder":{"name":"my-recorder"}}`,
+			want:   "my-recorder",
+		},
+		{
+			name:   "StartConfigurationRecorder",
+			action: "StartConfigurationRecorder",
+			body:   `{"ConfigurationRecorderName":"my-recorder"}`,
+			want:   "my-recorder",
+		},
+		{
+			name:   "DescribeConfigurationRecorders_with_names",
+			action: "DescribeConfigurationRecorders",
+			body:   `{"ConfigurationRecorderNames":["r1"]}`,
+			want:   "r1",
+		},
+		{
+			name:   "DescribeConfigurationRecorders_without_names",
+			action: "DescribeConfigurationRecorders",
+			body:   `{}`,
+			want:   "",
+		},
+		{
+			name:   "PutDeliveryChannel",
+			action: "PutDeliveryChannel",
+			body:   `{"DeliveryChannel":{"name":"my-channel"}}`,
+			want:   "my-channel",
+		},
+		{
+			name:   "DescribeDeliveryChannels_with_names",
+			action: "DescribeDeliveryChannels",
+			body:   `{"DeliveryChannelNames":["ch1"]}`,
+			want:   "ch1",
+		},
+		{
+			name:   "DescribeDeliveryChannels_without_names",
+			action: "DescribeDeliveryChannels",
+			body:   `{}`,
+			want:   "",
+		},
+		{
+			name:   "default_fallback",
+			action: "UnknownOp",
+			body:   `{"ConfigurationRecorderName":"fallback"}`,
+			want:   "fallback",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestAWSConfigHandler(t)
+			e := echo.New()
+
+			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tt.body))
+			req.Header.Set("X-Amz-Target", "StarlingDoveService."+tt.action)
+			c := e.NewContext(req, httptest.NewRecorder())
+
+			assert.Equal(t, tt.want, h.ExtractResource(c))
+		})
+	}
+}
+
+func TestAWSConfigProvider_Init(t *testing.T) {
 	t.Parallel()
 
 	p := &awsconfig.Provider{}

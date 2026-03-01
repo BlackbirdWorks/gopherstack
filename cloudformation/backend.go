@@ -8,6 +8,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 )
 
 var (
@@ -51,8 +54,8 @@ type InMemoryBackend struct {
 }
 
 const (
-	MockAccountID = "000000000000"
-	MockRegion    = "us-east-1"
+	MockAccountID = config.DefaultAccountID
+	MockRegion    = config.DefaultRegion
 
 	cfnStackType             = "AWS::CloudFormation::Stack"
 	statusCreateInProgress   = "CREATE_IN_PROGRESS"
@@ -87,8 +90,7 @@ func NewInMemoryBackendWithConfig(accountID, region string, creator *ResourceCre
 }
 
 func (b *InMemoryBackend) buildStackARN(stackName, stackID string) string {
-	return fmt.Sprintf("arn:aws:cloudformation:%s:%s:stack/%s/%s",
-		b.region, b.accountID, stackName, stackID)
+	return arn.Build("cloudformation", b.region, b.accountID, "stack/"+stackName+"/"+stackID)
 }
 
 func (b *InMemoryBackend) resolveStack(nameOrID string) (*Stack, bool) {

@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -156,7 +157,7 @@ func (b *InMemoryBackend) CreateUser(userName, path string) (*User, error) {
 	u := User{
 		UserName:   userName,
 		UserID:     newID("AIDA"),
-		Arn:        fmt.Sprintf("arn:aws:iam::%s:user%s%s", b.accountID, p, userName),
+		Arn:        arn.Build("iam", "", b.accountID, "user"+p+userName),
 		Path:       p,
 		CreateDate: time.Now().UTC(),
 	}
@@ -215,7 +216,7 @@ func (b *InMemoryBackend) CreateRole(roleName, path, assumeRolePolicyDocument st
 	r := Role{
 		RoleName:                 roleName,
 		RoleID:                   newID("AROA"),
-		Arn:                      fmt.Sprintf("arn:aws:iam::%s:role%s%s", b.accountID, p, roleName),
+		Arn:                      arn.Build("iam", "", b.accountID, "role"+p+roleName),
 		Path:                     p,
 		AssumeRolePolicyDocument: assumeRolePolicyDocument,
 		CreateDate:               time.Now().UTC(),
@@ -282,7 +283,7 @@ func (b *InMemoryBackend) CreatePolicy(policyName, path, policyDocument string) 
 	pol := Policy{
 		PolicyName:     policyName,
 		PolicyID:       newID("ANPA"),
-		Arn:            fmt.Sprintf("arn:aws:iam::%s:policy%s%s", b.accountID, p, policyName),
+		Arn:            arn.Build("iam", "", b.accountID, "policy"+p+policyName),
 		Path:           p,
 		PolicyDocument: policyDocument,
 		CreateDate:     time.Now().UTC(),
@@ -395,7 +396,7 @@ func (b *InMemoryBackend) CreateGroup(groupName, path string) (*Group, error) {
 	g := Group{
 		GroupName:  groupName,
 		GroupID:    newID("AGPA"),
-		Arn:        fmt.Sprintf("arn:aws:iam::%s:group%s%s", b.accountID, p, groupName),
+		Arn:        arn.Build("iam", "", b.accountID, "group"+p+groupName),
 		Path:       p,
 		CreateDate: time.Now().UTC(),
 	}
@@ -508,7 +509,7 @@ func (b *InMemoryBackend) CreateInstanceProfile(name, path string) (*InstancePro
 	ip := InstanceProfile{
 		InstanceProfileName: name,
 		InstanceProfileID:   newID("AIPA"),
-		Arn:                 fmt.Sprintf("arn:aws:iam::%s:instance-profile%s%s", b.accountID, p, name),
+		Arn:                 arn.Build("iam", "", b.accountID, "instance-profile"+p+name),
 		Path:                p,
 		Roles:               []string{},
 		CreateDate:          time.Now().UTC(),

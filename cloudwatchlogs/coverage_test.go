@@ -24,101 +24,154 @@ func (m *mockLogsConfigProvider) GetGlobalConfig() config.GlobalConfig {
 	return config.GlobalConfig{AccountID: "111111111111", Region: "eu-west-1"}
 }
 
-func TestProvider_Name_CloudWatchLogs(t *testing.T) {
+func TestProvider_Name(t *testing.T) {
 	t.Parallel()
+
 	p := &cloudwatchlogs.Provider{}
 	assert.Equal(t, "CloudWatchLogs", p.Name())
 }
 
-func TestProvider_Init_WithConfig_CloudWatchLogs(t *testing.T) {
+func TestProvider_Init(t *testing.T) {
 	t.Parallel()
-	p := &cloudwatchlogs.Provider{}
-	ctx := &service.AppContext{
-		Logger: slog.Default(),
-		Config: &mockLogsConfigProvider{},
+
+	tests := []struct {
+		name     string
+		config   config.Provider
+		wantName string
+	}{
+		{
+			name:     "WithConfig",
+			config:   &mockLogsConfigProvider{},
+			wantName: "CloudWatchLogs",
+		},
+		{
+			name: "WithoutConfig",
+		},
 	}
-	svc, err := p.Init(ctx)
-	require.NoError(t, err)
-	require.NotNil(t, svc)
-	assert.Equal(t, "CloudWatchLogs", svc.Name())
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := &cloudwatchlogs.Provider{}
+			ctx := &service.AppContext{
+				Logger: slog.Default(),
+				Config: tt.config,
+			}
+
+			svc, err := p.Init(ctx)
+			require.NoError(t, err)
+			require.NotNil(t, svc)
+
+			if tt.wantName != "" {
+				assert.Equal(t, tt.wantName, svc.Name())
+			}
+		})
+	}
 }
 
-func TestProvider_Init_WithoutConfig_CloudWatchLogs(t *testing.T) {
+func TestHandler_RouteMatcher(t *testing.T) {
 	t.Parallel()
-	p := &cloudwatchlogs.Provider{}
-	ctx := &service.AppContext{Logger: slog.Default()}
-	svc, err := p.Init(ctx)
-	require.NoError(t, err)
-	require.NotNil(t, svc)
+
+	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), slog.Default())
+	e := echo.New()
+
+	tests := []struct {
+		name   string
+		target string
+		want   bool
+	}{
+		{"Match", "Logs_20140328.CreateLogGroup", true},
+		{"NoMatch", "AmazonSQS.CreateQueue", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			req := httptest.NewRequest(http.MethodPost, "/", nil)
+			req.Header.Set("X-Amz-Target", tt.target)
+			assert.Equal(t, tt.want, h.RouteMatcher()(e.NewContext(req, httptest.NewRecorder())))
+		})
+	}
 }
 
-func TestHandler_Name_CloudWatchLogs(t *testing.T) {
+func TestHandler_ExtractOperation(t *testing.T) {
 	t.Parallel()
+
+	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), slog.Default())
+	e := echo.New()
+
+	tests := []struct {
+		name   string
+		target string
+		want   string
+	}{
+		{"WithTarget", "Logs_20140328.PutLogEvents", "PutLogEvents"},
+		{"NoTarget", "", "Unknown"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			req := httptest.NewRequest(http.MethodPost, "/", nil)
+			if tt.target != "" {
+				req.Header.Set("X-Amz-Target", tt.target)
+			}
+			assert.Equal(t, tt.want, h.ExtractOperation(e.NewContext(req, httptest.NewRecorder())))
+		})
+	}
+}
+
+func TestHandler_ExtractResource(t *testing.T) {
+	t.Parallel()
+
+	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), slog.Default())
+	e := echo.New()
+
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{"LogGroupName", `{"logGroupName":"my-group"}`, "my-group"},
+		{"LogStreamName", `{"logStreamName":"my-stream"}`, "my-stream"},
+		{"Empty", `{}`, ""},
+		{"BadJSON", `not-json`, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tt.body))
+			assert.Equal(t, tt.want, h.ExtractResource(e.NewContext(req, httptest.NewRecorder())))
+		})
+	}
+}
+
+func TestHandler_Coverage_Name(t *testing.T) {
+	t.Parallel()
+
 	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), slog.Default())
 	assert.Equal(t, "CloudWatchLogs", h.Name())
 }
 
-func TestHandler_MatchPriority_CloudWatchLogs(t *testing.T) {
+func TestHandler_Coverage_MatchPriority(t *testing.T) {
 	t.Parallel()
+
 	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), slog.Default())
 	assert.Equal(t, 100, h.MatchPriority())
 }
 
-func TestHandler_RouteMatcher_CloudWatchLogs(t *testing.T) {
+func TestHandler_Coverage_GetSupportedOperations(t *testing.T) {
 	t.Parallel()
-	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), slog.Default())
-	matcher := h.RouteMatcher()
-	e := echo.New()
 
-	reqMatch := httptest.NewRequest(http.MethodPost, "/", nil)
-	reqMatch.Header.Set("X-Amz-Target", "Logs_20140328.CreateLogGroup")
-	assert.True(t, matcher(e.NewContext(reqMatch, httptest.NewRecorder())))
-
-	reqNoMatch := httptest.NewRequest(http.MethodPost, "/", nil)
-	reqNoMatch.Header.Set("X-Amz-Target", "AmazonSQS.CreateQueue")
-	assert.False(t, matcher(e.NewContext(reqNoMatch, httptest.NewRecorder())))
-}
-
-func TestHandler_ExtractOperation_CloudWatchLogs(t *testing.T) {
-	t.Parallel()
-	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), slog.Default())
-	e := echo.New()
-
-	req := httptest.NewRequest(http.MethodPost, "/", nil)
-	req.Header.Set("X-Amz-Target", "Logs_20140328.PutLogEvents")
-	assert.Equal(t, "PutLogEvents", h.ExtractOperation(e.NewContext(req, httptest.NewRecorder())))
-
-	reqUnknown := httptest.NewRequest(http.MethodPost, "/", nil)
-	assert.Equal(t, "Unknown", h.ExtractOperation(e.NewContext(reqUnknown, httptest.NewRecorder())))
-}
-
-func TestHandler_ExtractResource_CloudWatchLogs(t *testing.T) {
-	t.Parallel()
-	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), slog.Default())
-	e := echo.New()
-
-	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"logGroupName":"my-group"}`))
-	assert.Equal(t, "my-group", h.ExtractResource(e.NewContext(req, httptest.NewRecorder())))
-
-	reqStream := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"logStreamName":"my-stream"}`))
-	assert.Equal(t, "my-stream", h.ExtractResource(e.NewContext(reqStream, httptest.NewRecorder())))
-
-	reqEmpty := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`))
-	assert.Empty(t, h.ExtractResource(e.NewContext(reqEmpty, httptest.NewRecorder())))
-
-	reqBadJSON := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`not-json`))
-	assert.Empty(t, h.ExtractResource(e.NewContext(reqBadJSON, httptest.NewRecorder())))
-}
-
-func TestHandler_GetSupportedOperations_Coverage(t *testing.T) {
-	t.Parallel()
 	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), slog.Default())
 	ops := h.GetSupportedOperations()
 	assert.Contains(t, ops, "CreateLogGroup")
 	assert.Contains(t, ops, "FilterLogEvents")
 }
 
-func TestHandler_DescribeLogGroups_Pagination_Coverage(t *testing.T) {
+func TestHandler_Coverage_DescribeLogGroups_Pagination(t *testing.T) {
 	t.Parallel()
 
 	e := echo.New()

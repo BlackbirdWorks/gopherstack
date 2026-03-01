@@ -8,6 +8,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 )
 
 var (
@@ -48,7 +51,7 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new InMemoryBackend with default configuration.
 func NewInMemoryBackend() *InMemoryBackend {
-	return NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+	return NewInMemoryBackendWithConfig(config.DefaultAccountID, config.DefaultRegion)
 }
 
 // NewInMemoryBackendWithConfig creates a new InMemoryBackend with given account and region.
@@ -63,12 +66,11 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 }
 
 func (b *InMemoryBackend) groupARN(name string) string {
-	return fmt.Sprintf("arn:aws:logs:%s:%s:log-group:%s", b.region, b.accountID, name)
+	return arn.Build("logs", b.region, b.accountID, "log-group:"+name)
 }
 
 func (b *InMemoryBackend) streamARN(groupName, streamName string) string {
-	return fmt.Sprintf("arn:aws:logs:%s:%s:log-group:%s:log-stream:%s",
-		b.region, b.accountID, groupName, streamName)
+	return arn.Build("logs", b.region, b.accountID, "log-group:"+groupName+":log-stream:"+streamName)
 }
 
 // CreateLogGroup creates a new log group.

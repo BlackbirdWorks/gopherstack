@@ -74,7 +74,7 @@ func TestDashboardProvider_Init_WithSTSHandler(t *testing.T) {
 	// Build all real in-memory backends and handlers so the cast succeeds.
 	ddbBk := ddbbackend.NewInMemoryDB()
 	ddbHndlr := ddbbackend.NewHandler(ddbBk, slog.Default())
-	s3Bk := s3backend.NewInMemoryBackend(nil)
+	s3Bk := s3backend.NewInMemoryBackend(nil, nil)
 	s3Hndlr := s3backend.NewHandler(s3Bk, slog.Default())
 	ssmBk := ssmbackend.NewInMemoryBackend()
 	ssmHndlr := ssmbackend.NewHandler(ssmBk, slog.Default())

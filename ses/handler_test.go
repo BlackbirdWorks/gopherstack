@@ -40,35 +40,93 @@ func postForm(t *testing.T, h *ses.Handler, body string) *httptest.ResponseRecor
 	return rec
 }
 
-func TestSES_VerifyEmailIdentity(t *testing.T) {
+func TestSESHandler(t *testing.T) {
 	t.Parallel()
 
-	h := newHandler()
-	rec := postForm(t, h, "Action=VerifyEmailIdentity&Version=2010-12-01&EmailAddress=test@example.com")
+	sendRawEmailBody := url.Values{
+		"Action":          {"SendRawEmail"},
+		"Version":         {"2010-12-01"},
+		"Source":          {"raw@example.com"},
+		"RawMessage.Data": {"From: raw@example.com\r\nTo: dest@example.com\r\nSubject: raw\r\n\r\nBody"},
+	}.Encode()
 
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "VerifyEmailIdentityResponse")
+	tests := []struct {
+		name         string
+		body         string
+		wantContains string
+		wantCode     int
+	}{
+		{
+			name:         "VerifyEmailIdentity",
+			body:         "Action=VerifyEmailIdentity&Version=2010-12-01&EmailAddress=test@example.com",
+			wantCode:     http.StatusOK,
+			wantContains: "VerifyEmailIdentityResponse",
+		},
+		{
+			name:         "SendRawEmail",
+			body:         sendRawEmailBody,
+			wantCode:     http.StatusOK,
+			wantContains: "SendRawEmailResponse",
+		},
+		{
+			name:         "UnknownAction",
+			body:         "Action=UnknownAction&Version=2010-12-01",
+			wantCode:     http.StatusBadRequest,
+			wantContains: "InvalidAction",
+		},
+		{
+			name:         "MissingAction",
+			body:         "Version=2010-12-01",
+			wantCode:     http.StatusBadRequest,
+			wantContains: "MissingAction",
+		},
+		{
+			name:         "DeleteIdentityNotFound",
+			body:         "Action=DeleteIdentity&Version=2010-12-01&Identity=nonexistent@example.com",
+			wantCode:     http.StatusBadRequest,
+			wantContains: "NoSuchEntity",
+		},
+		{
+			name:         "VerifyEmailIdentityEmptyIdentity",
+			body:         "Action=VerifyEmailIdentity&Version=2010-12-01&EmailAddress=",
+			wantCode:     http.StatusBadRequest,
+			wantContains: "InvalidParameterValue",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler()
+			rec := postForm(t, h, tt.body)
+
+			assert.Equal(t, tt.wantCode, rec.Code)
+			assert.Contains(t, rec.Body.String(), tt.wantContains)
+		})
+	}
 }
 
-func TestSES_ListIdentities(t *testing.T) {
+func TestSESHandler_ListIdentities(t *testing.T) {
 	t.Parallel()
 
 	h := newHandler()
 
-	// Verify an identity first.
+	// Verify identities first.
 	postForm(t, h, "Action=VerifyEmailIdentity&Version=2010-12-01&EmailAddress=alice@example.com")
 	postForm(t, h, "Action=VerifyEmailIdentity&Version=2010-12-01&EmailAddress=bob@example.com")
 
 	rec := postForm(t, h, "Action=ListIdentities&Version=2010-12-01")
 
 	assert.Equal(t, http.StatusOK, rec.Code)
+
 	body := rec.Body.String()
 	assert.Contains(t, body, "ListIdentitiesResponse")
 	assert.Contains(t, body, "alice@example.com")
 	assert.Contains(t, body, "bob@example.com")
 }
 
-func TestSES_DeleteIdentity(t *testing.T) {
+func TestSESHandler_DeleteIdentity(t *testing.T) {
 	t.Parallel()
 
 	h := newHandler()
@@ -87,7 +145,7 @@ func TestSES_DeleteIdentity(t *testing.T) {
 	assert.NotContains(t, listRec.Body.String(), "del@example.com")
 }
 
-func TestSES_GetIdentityVerificationAttributes(t *testing.T) {
+func TestSESHandler_GetIdentityVerificationAttributes(t *testing.T) {
 	t.Parallel()
 
 	h := newHandler()
@@ -131,7 +189,7 @@ func TestSES_GetIdentityVerificationAttributes(t *testing.T) {
 	assert.Equal(t, "NotStarted", statusByID["unknown@example.com"])
 }
 
-func TestSES_SendEmail(t *testing.T) {
+func TestSESHandler_SendEmail(t *testing.T) {
 	t.Parallel()
 
 	h := newHandler()
@@ -168,96 +226,69 @@ func TestSES_SendEmail(t *testing.T) {
 	assert.Equal(t, "Hello World", emails[0].Subject)
 }
 
-func TestSES_SendRawEmail(t *testing.T) {
+func TestSESHandler_RouteMatcher(t *testing.T) {
 	t.Parallel()
 
 	h := newHandler()
+	e := echo.New()
 
-	body := url.Values{
-		"Action":          {"SendRawEmail"},
-		"Version":         {"2010-12-01"},
-		"Source":          {"raw@example.com"},
-		"RawMessage.Data": {"From: raw@example.com\r\nTo: dest@example.com\r\nSubject: raw\r\n\r\nBody"},
+	tests := []struct {
+		name      string
+		method    string
+		path      string
+		body      string
+		wantMatch bool
+	}{
+		{
+			name:      "matches SES request",
+			method:    http.MethodPost,
+			path:      "/",
+			body:      "Action=ListIdentities&Version=2010-12-01",
+			wantMatch: true,
+		},
+		{
+			name:      "rejects dashboard path",
+			method:    http.MethodPost,
+			path:      "/dashboard/ses",
+			body:      "Action=ListIdentities&Version=2010-12-01",
+			wantMatch: false,
+		},
+		{
+			name:      "rejects GET",
+			method:    http.MethodGet,
+			path:      "/",
+			wantMatch: false,
+		},
+		{
+			name:      "rejects non-SES version",
+			method:    http.MethodPost,
+			path:      "/",
+			body:      "Action=ListUsers&Version=2010-05-08",
+			wantMatch: false,
+		},
 	}
 
-	rec := postForm(t, h, body.Encode())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "SendRawEmailResponse")
+			var req *http.Request
+			if tt.body != "" {
+				req = httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
+				req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			} else {
+				req = httptest.NewRequest(tt.method, tt.path, nil)
+			}
+
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			assert.Equal(t, tt.wantMatch, h.RouteMatcher()(c))
+		})
+	}
 }
 
-func TestSES_UnknownAction(t *testing.T) {
-	t.Parallel()
-
-	h := newHandler()
-	rec := postForm(t, h, "Action=UnknownAction&Version=2010-12-01")
-
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "InvalidAction")
-}
-
-func TestSES_MissingAction(t *testing.T) {
-	t.Parallel()
-
-	h := newHandler()
-	rec := postForm(t, h, "Version=2010-12-01")
-
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "MissingAction")
-}
-
-func TestSES_DeleteIdentity_NotFound(t *testing.T) {
-	t.Parallel()
-
-	h := newHandler()
-	rec := postForm(t, h, "Action=DeleteIdentity&Version=2010-12-01&Identity=nonexistent@example.com")
-
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "NoSuchEntity")
-}
-
-func TestSES_VerifyEmailIdentity_EmptyIdentity(t *testing.T) {
-	t.Parallel()
-
-	h := newHandler()
-	rec := postForm(t, h, "Action=VerifyEmailIdentity&Version=2010-12-01&EmailAddress=")
-
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "InvalidParameterValue")
-}
-
-func TestSES_Provider_Init(t *testing.T) {
-	t.Parallel()
-
-	p := &ses.Provider{}
-	assert.Equal(t, "SES", p.Name())
-}
-
-func TestSES_Handler_Name(t *testing.T) {
-	t.Parallel()
-
-	h := newHandler()
-	assert.Equal(t, "SES", h.Name())
-}
-
-func TestSES_Handler_GetSupportedOperations(t *testing.T) {
-	t.Parallel()
-
-	h := newHandler()
-	ops := h.GetSupportedOperations()
-	assert.Contains(t, ops, "SendEmail")
-	assert.Contains(t, ops, "VerifyEmailIdentity")
-	assert.Contains(t, ops, "ListIdentities")
-}
-
-func TestSES_Handler_MatchPriority(t *testing.T) {
-	t.Parallel()
-
-	h := newHandler()
-	assert.Equal(t, 80, h.MatchPriority())
-}
-
-func TestSES_Handler_ExtractOperation(t *testing.T) {
+func TestSESHandler_ExtractOperation(t *testing.T) {
 	t.Parallel()
 
 	h := newHandler()
@@ -273,7 +304,7 @@ func TestSES_Handler_ExtractOperation(t *testing.T) {
 	assert.Equal(t, "SendEmail", h.ExtractOperation(c))
 }
 
-func TestSES_Handler_ExtractResource(t *testing.T) {
+func TestSESHandler_ExtractResource(t *testing.T) {
 	t.Parallel()
 
 	h := newHandler()
@@ -289,64 +320,38 @@ func TestSES_Handler_ExtractResource(t *testing.T) {
 	assert.Equal(t, "from@example.com", h.ExtractResource(c))
 }
 
-func TestSES_Handler_RouteMatcher(t *testing.T) {
+func TestSESHandler_ProviderInit(t *testing.T) {
+	t.Parallel()
+
+	p := &ses.Provider{}
+	assert.Equal(t, "SES", p.Name())
+}
+
+func TestSESHandler_HandlerName(t *testing.T) {
 	t.Parallel()
 
 	h := newHandler()
-
-	e := echo.New()
-
-	t.Run("matches SES request", func(t *testing.T) {
-		t.Parallel()
-
-		req := httptest.NewRequest(http.MethodPost, "/",
-			strings.NewReader("Action=ListIdentities&Version=2010-12-01"))
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		assert.True(t, h.RouteMatcher()(c))
-	})
-
-	t.Run("rejects dashboard path", func(t *testing.T) {
-		t.Parallel()
-
-		req := httptest.NewRequest(http.MethodPost, "/dashboard/ses",
-			strings.NewReader("Action=ListIdentities&Version=2010-12-01"))
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		assert.False(t, h.RouteMatcher()(c))
-	})
-
-	t.Run("rejects GET", func(t *testing.T) {
-		t.Parallel()
-
-		req := httptest.NewRequest(http.MethodGet, "/", nil)
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		assert.False(t, h.RouteMatcher()(c))
-	})
-
-	t.Run("rejects non-SES version", func(t *testing.T) {
-		t.Parallel()
-
-		req := httptest.NewRequest(http.MethodPost, "/",
-			strings.NewReader("Action=ListUsers&Version=2010-05-08"))
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		assert.False(t, h.RouteMatcher()(c))
-	})
+	assert.Equal(t, "SES", h.Name())
 }
 
-func TestSES_Provider_Init_WithAppCtx(t *testing.T) {
+func TestSESHandler_GetSupportedOperations(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+	ops := h.GetSupportedOperations()
+	assert.Contains(t, ops, "SendEmail")
+	assert.Contains(t, ops, "VerifyEmailIdentity")
+	assert.Contains(t, ops, "ListIdentities")
+}
+
+func TestSESHandler_MatchPriority(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+	assert.Equal(t, 80, h.MatchPriority())
+}
+
+func TestSESHandler_ProviderInitWithAppCtx(t *testing.T) {
 	t.Parallel()
 
 	p := &ses.Provider{}

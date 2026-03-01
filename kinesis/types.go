@@ -3,9 +3,6 @@ package kinesis
 import "time"
 
 const (
-	kinesisRegion    = "us-east-1"
-	kinesisAccountID = "000000000000"
-
 	// streamStatusActive is the status when a stream is ready for use.
 	streamStatusActive = "ACTIVE"
 

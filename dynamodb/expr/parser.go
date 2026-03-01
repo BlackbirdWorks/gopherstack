@@ -329,6 +329,18 @@ func (p *Parser) parseInInfix(left Node) (Node, error) {
 		return nil, ErrExpectedLParenAfterIN
 	}
 	p.nextToken()
+	candidates, err := p.parseInCandidates()
+	if err != nil {
+		return nil, err
+	}
+	if !p.expectPeek(TokenRParen) {
+		return nil, ErrExpectedRParenAfterIN
+	}
+
+	return &InExpr{Value: left, Candidates: candidates}, nil
+}
+
+func (p *Parser) parseInCandidates() ([]Node, error) {
 	var candidates []Node
 	for !p.curTokenIs(TokenRParen) {
 		cand, err := p.parseExpression(0)
@@ -336,18 +348,14 @@ func (p *Parser) parseInInfix(left Node) (Node, error) {
 			return nil, err
 		}
 		candidates = append(candidates, cand)
-		if p.peekTokenIs(TokenComma) {
-			p.nextToken()
-			p.nextToken()
-		} else {
-			break
+		if !p.peekTokenIs(TokenComma) {
+			return candidates, nil
 		}
-	}
-	if !p.expectPeek(TokenRParen) {
-		return nil, ErrExpectedRParenAfterIN
+		p.nextToken()
+		p.nextToken()
 	}
 
-	return &InExpr{Value: left, Candidates: candidates}, nil
+	return candidates, nil
 }
 
 // ParseUpdate parses an UpdateExpression.
@@ -359,19 +367,11 @@ func (p *Parser) ParseUpdate() (*UpdateExpr, error) {
 		switch p.curToken.Type {
 		case TokenSET, TokenREMOVE, TokenADD, TokenDELETE:
 			p.nextToken()
-			for {
-				item, err := p.parseUpdateItem(action.Type)
-				if err != nil {
-					return nil, err
-				}
-				action.Items = append(action.Items, item)
-				if p.peekTokenIs(TokenComma) {
-					p.nextToken()
-					p.nextToken()
-				} else {
-					break
-				}
+			items, err := p.parseUpdateItems(action.Type)
+			if err != nil {
+				return nil, err
 			}
+			action.Items = items
 			expr.Actions = append(expr.Actions, action)
 		default:
 			return nil, fmt.Errorf("%w %v in update expression", ErrUnexpectedToken, p.curToken)
@@ -421,20 +421,42 @@ func (p *Parser) parseUpdateItem(actionType TokenType) (UpdateItem, error) {
 
 // ParseProjection parses a ProjectionExpression.
 func (p *Parser) ParseProjection() (*ProjectionExpr, error) {
-	expr := &ProjectionExpr{}
+	paths, err := p.parseProjectionPaths()
+	if err != nil {
+		return nil, err
+	}
+
+	return &ProjectionExpr{Paths: paths}, nil
+}
+
+func (p *Parser) parseProjectionPaths() ([]Node, error) {
+	var paths []Node
 	for {
 		path, err := p.parsePathExpr()
 		if err != nil {
 			return nil, err
 		}
-		expr.Paths = append(expr.Paths, path)
-		if p.peekTokenIs(TokenComma) {
-			p.nextToken()
-			p.nextToken()
-		} else {
-			break
+		paths = append(paths, path)
+		if !p.peekTokenIs(TokenComma) {
+			return paths, nil
 		}
+		p.nextToken()
+		p.nextToken()
 	}
+}
 
-	return expr, nil
+func (p *Parser) parseUpdateItems(actionType TokenType) ([]UpdateItem, error) {
+	var items []UpdateItem
+	for {
+		item, err := p.parseUpdateItem(actionType)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+		if !p.peekTokenIs(TokenComma) {
+			return items, nil
+		}
+		p.nextToken()
+		p.nextToken()
+	}
 }

@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 var (
@@ -222,10 +224,10 @@ func (b *InMemoryBackend) CreateKey(input *CreateKeyInput) (*CreateKeyOutput, er
 		region = input.Region
 	}
 
-	arn := fmt.Sprintf("arn:aws:kms:%s:%s:key/%s", region, b.accountID, keyID)
+	keyARN := arn.Build("kms", region, b.accountID, "key/"+keyID)
 	key := &Key{
 		KeyID:        keyID,
-		Arn:          arn,
+		Arn:          keyARN,
 		Description:  input.Description,
 		KeyState:     KeyStateEnabled,
 		KeyUsage:     keyUsage,
@@ -441,7 +443,7 @@ func (b *InMemoryBackend) CreateAlias(input *CreateAliasInput) error {
 		return ErrKeyNotFound
 	}
 
-	aliasArn := fmt.Sprintf("arn:aws:kms:%s:%s:%s", b.region, b.accountID, input.AliasName)
+	aliasArn := arn.Build("kms", b.region, b.accountID, input.AliasName)
 	b.aliases[input.AliasName] = &Alias{
 		AliasName:   input.AliasName,
 		AliasArn:    aliasArn,
@@ -908,8 +910,9 @@ func (b *InMemoryBackend) GetKeyPolicy(input *GetKeyPolicyInput) (*GetKeyPolicyO
 	policy, ok := b.policies[keyID]
 	if !ok {
 		// Return default policy
+		rootARN := arn.Build("iam", "", b.accountID, "root")
 		policy = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
-			`"Principal":{"AWS":"arn:aws:iam::000000000000:root"},"Action":"kms:*","Resource":"*"}]}`
+			`"Principal":{"AWS":"` + rootARN + `"},"Action":"kms:*","Resource":"*"}]}`
 	}
 
 	policyName := input.PolicyName

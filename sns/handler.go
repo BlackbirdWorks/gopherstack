@@ -493,16 +493,33 @@ func (h *Handler) handleListTagsForResource(c *echo.Context) error {
 	})
 }
 
-func (h *Handler) handleTagResource(c *echo.Context) error {
-	resourceArn := c.Request().FormValue("ResourceArn")
+// parseSNSTagsFromForm reads Tags.member.N.Key/Value pairs from the form.
+func parseSNSTagsFromForm(c *echo.Context) map[string]string {
 	tags := make(map[string]string)
 	for i := 1; ; i++ {
 		k := c.Request().FormValue(fmt.Sprintf("Tags.member.%d.Key", i))
 		if k == "" {
-			break
+			return tags
 		}
 		tags[k] = c.Request().FormValue(fmt.Sprintf("Tags.member.%d.Value", i))
 	}
+}
+
+// parseSNSTagKeysFromForm reads TagKeys.member.N values from the form.
+func parseSNSTagKeysFromForm(c *echo.Context) []string {
+	var keys []string
+	for i := 1; ; i++ {
+		k := c.Request().FormValue(fmt.Sprintf("TagKeys.member.%d", i))
+		if k == "" {
+			return keys
+		}
+		keys = append(keys, k)
+	}
+}
+
+func (h *Handler) handleTagResource(c *echo.Context) error {
+	resourceArn := c.Request().FormValue("ResourceArn")
+	tags := parseSNSTagsFromForm(c)
 	h.Backend.SetTopicTags(resourceArn, tags)
 
 	return h.writeXML(c, struct {
@@ -512,14 +529,7 @@ func (h *Handler) handleTagResource(c *echo.Context) error {
 
 func (h *Handler) handleUntagResource(c *echo.Context) error {
 	resourceArn := c.Request().FormValue("ResourceArn")
-	var keys []string
-	for i := 1; ; i++ {
-		k := c.Request().FormValue(fmt.Sprintf("TagKeys.member.%d", i))
-		if k == "" {
-			break
-		}
-		keys = append(keys, k)
-	}
+	keys := parseSNSTagKeysFromForm(c)
 	h.Backend.RemoveTopicTags(resourceArn, keys)
 
 	return h.writeXML(c, struct {
@@ -623,14 +633,12 @@ func extractFormAttributes(c *echo.Context) map[string]string {
 	for i := 1; ; i++ {
 		key := c.Request().FormValue(fmt.Sprintf("Attributes.entry.%d.key", i))
 		if key == "" {
-			break
+			return attrs
 		}
 
 		val := c.Request().FormValue(fmt.Sprintf("Attributes.entry.%d.value", i))
 		attrs[key] = val
 	}
-
-	return attrs
 }
 
 // extractFilterPolicy reads the FilterPolicy attribute from form Attributes entries.
@@ -638,15 +646,13 @@ func extractFilterPolicy(form url.Values) string {
 	for i := 1; ; i++ {
 		key := form.Get(fmt.Sprintf("Attributes.entry.%d.key", i))
 		if key == "" {
-			break
+			return ""
 		}
 
 		if key == "FilterPolicy" {
 			return form.Get(fmt.Sprintf("Attributes.entry.%d.value", i))
 		}
 	}
-
-	return ""
 }
 
 // extractMessageAttributes reads MessageAttributes.entry.N.Name/Value pairs from the form.
@@ -656,7 +662,7 @@ func extractMessageAttributes(form url.Values) map[string]MessageAttribute {
 	for i := 1; ; i++ {
 		name := form.Get(fmt.Sprintf("MessageAttributes.entry.%d.Name", i))
 		if name == "" {
-			break
+			return attrs
 		}
 
 		attrs[name] = MessageAttribute{
@@ -664,8 +670,6 @@ func extractMessageAttributes(form url.Values) map[string]MessageAttribute {
 			StringValue: form.Get(fmt.Sprintf("MessageAttributes.entry.%d.Value.StringValue", i)),
 		}
 	}
-
-	return attrs
 }
 
 // batchEntry holds a single parsed PublishBatch entry.
@@ -682,7 +686,7 @@ func extractBatchEntries(form url.Values) []batchEntry {
 	for i := 1; ; i++ {
 		id := form.Get(fmt.Sprintf("PublishBatchRequestEntries.member.%d.Id", i))
 		if id == "" {
-			break
+			return entries
 		}
 
 		entries = append(entries, batchEntry{
@@ -691,6 +695,4 @@ func extractBatchEntries(form url.Values) []batchEntry {
 			subject: form.Get(fmt.Sprintf("PublishBatchRequestEntries.member.%d.Subject", i)),
 		})
 	}
-
-	return entries
 }

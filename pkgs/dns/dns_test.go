@@ -123,7 +123,7 @@ func startTestServer(t *testing.T) (*gopherDNS.Server, string) {
 	})
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 
 	err = srv.Start(ctx)
 	require.NoError(t, err)
@@ -241,7 +241,7 @@ func TestServer_Stop(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	err = srv.Start(ctx)
 	require.NoError(t, err)
@@ -300,7 +300,7 @@ func TestServer_ContextCancellation(t *testing.T) {
 	})
 	require.NoError(t, startErr)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 
 	err = srv.Start(ctx)
 	require.NoError(t, err)

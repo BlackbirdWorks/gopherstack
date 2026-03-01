@@ -1,8 +1,9 @@
 package expr_test
 
 import (
-	"context"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/dynamodb/expr"
 )
@@ -59,15 +60,7 @@ func TestASTNodes_ImplementNode(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			ctx := context.Background()
-			_ = ctx
-			// Verify node is not nil and is of correct type
-			if tt.node == nil {
-				t.Fatal("node should not be nil")
-			}
-			// Accessing any Node interface method would work here
-			// This test serves as compile-time verification that all types implement expr.Node
-			_ = tt.node
+			require.NotNil(t, tt.node, "node should not be nil")
 		})
 	}
 }

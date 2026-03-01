@@ -42,14 +42,14 @@ func doTranscribeRequest(t *testing.T, h *transcribe.Handler, action string, bod
 	return rec
 }
 
-func TestTranscribe_Handler_Name(t *testing.T) {
+func TestTranscribe_Name(t *testing.T) {
 	t.Parallel()
 
 	h := newTestTranscribeHandler(t)
 	assert.Equal(t, "Transcribe", h.Name())
 }
 
-func TestTranscribe_Handler_GetSupportedOperations(t *testing.T) {
+func TestTranscribe_GetSupportedOperations(t *testing.T) {
 	t.Parallel()
 
 	h := newTestTranscribeHandler(t)
@@ -59,50 +59,63 @@ func TestTranscribe_Handler_GetSupportedOperations(t *testing.T) {
 	assert.Contains(t, ops, "ListTranscriptionJobs")
 }
 
-func TestTranscribe_Handler_MatchPriority(t *testing.T) {
+func TestTranscribe_MatchPriority(t *testing.T) {
 	t.Parallel()
 
 	h := newTestTranscribeHandler(t)
 	assert.Equal(t, 100, h.MatchPriority())
 }
 
-func TestTranscribe_Handler_RouteMatcher(t *testing.T) {
+func TestTranscribe_RouteMatcher(t *testing.T) {
 	t.Parallel()
 
-	h := newTestTranscribeHandler(t)
-	e := echo.New()
+	tests := []struct {
+		name   string
+		target string
+		want   bool
+	}{
+		{
+			name:   "matching_request",
+			target: "Transcribe.StartTranscriptionJob",
+			want:   true,
+		},
+		{
+			name:   "non_matching_request",
+			target: "OtherService.Action",
+			want:   false,
+		},
+	}
 
-	// Matching request
-	req := httptest.NewRequest(http.MethodPost, "/", nil)
-	req.Header.Set("X-Amz-Target", "Transcribe.StartTranscriptionJob")
-	c := e.NewContext(req, httptest.NewRecorder())
-	assert.True(t, h.RouteMatcher()(c))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	// Non-matching request
-	req2 := httptest.NewRequest(http.MethodPost, "/", nil)
-	req2.Header.Set("X-Amz-Target", "OtherService.Action")
-	c2 := e.NewContext(req2, httptest.NewRecorder())
-	assert.False(t, h.RouteMatcher()(c2))
+			h := newTestTranscribeHandler(t)
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodPost, "/", nil)
+			req.Header.Set("X-Amz-Target", tt.target)
+			c := e.NewContext(req, httptest.NewRecorder())
+			assert.Equal(t, tt.want, h.RouteMatcher()(c))
+		})
+	}
 }
 
-func TestTranscribe_Handler_ExtractOperation(t *testing.T) {
+func TestTranscribe_ExtractOperation(t *testing.T) {
 	t.Parallel()
 
 	h := newTestTranscribeHandler(t)
 	e := echo.New()
-
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
 	req.Header.Set("X-Amz-Target", "Transcribe.StartTranscriptionJob")
 	c := e.NewContext(req, httptest.NewRecorder())
 	assert.Equal(t, "StartTranscriptionJob", h.ExtractOperation(c))
 }
 
-func TestTranscribe_Handler_ExtractResource(t *testing.T) {
+func TestTranscribe_ExtractResource(t *testing.T) {
 	t.Parallel()
 
 	h := newTestTranscribeHandler(t)
 	e := echo.New()
-
 	body := `{"TranscriptionJobName":"my-job"}`
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte(body)))
 	req.Header.Set("X-Amz-Target", "Transcribe.GetTranscriptionJob")
@@ -110,109 +123,116 @@ func TestTranscribe_Handler_ExtractResource(t *testing.T) {
 	assert.Equal(t, "my-job", h.ExtractResource(c))
 }
 
-func TestTranscribe_Handler_StartTranscriptionJob(t *testing.T) {
+type transcribeSetupAction struct {
+	body   map[string]any
+	action string
+}
+
+func TestTranscribe_HandlerActions(t *testing.T) {
 	t.Parallel()
 
-	h := newTestTranscribeHandler(t)
-
-	rec := doTranscribeRequest(t, h, "StartTranscriptionJob", map[string]any{
-		"TranscriptionJobName": "test-job",
-		"LanguageCode":         "en-US",
-		"Media": map[string]any{
-			"MediaFileUri": "s3://my-bucket/audio.mp3",
+	tests := []struct {
+		body         map[string]any
+		name         string
+		action       string
+		setupActions []transcribeSetupAction
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name:   "StartTranscriptionJob",
+			action: "StartTranscriptionJob",
+			body: map[string]any{
+				"TranscriptionJobName": "test-job",
+				"LanguageCode":         "en-US",
+				"Media": map[string]any{
+					"MediaFileUri": "s3://my-bucket/audio.mp3",
+				},
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"test-job", "COMPLETED"},
 		},
-	})
-	assert.Equal(t, http.StatusOK, rec.Code)
+		{
+			name: "StartTranscriptionJob_AlreadyExists",
+			setupActions: []transcribeSetupAction{
+				{action: "StartTranscriptionJob", body: map[string]any{
+					"TranscriptionJobName": "dup-job",
+					"LanguageCode":         "en-US",
+				}},
+			},
+			action: "StartTranscriptionJob",
+			body: map[string]any{
+				"TranscriptionJobName": "dup-job",
+				"LanguageCode":         "en-US",
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "GetTranscriptionJob",
+			setupActions: []transcribeSetupAction{
+				{action: "StartTranscriptionJob", body: map[string]any{
+					"TranscriptionJobName": "get-job",
+					"LanguageCode":         "en-US",
+				}},
+			},
+			action: "GetTranscriptionJob",
+			body: map[string]any{
+				"TranscriptionJobName": "get-job",
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"get-job"},
+		},
+		{
+			name:   "GetTranscriptionJob_NotFound",
+			action: "GetTranscriptionJob",
+			body: map[string]any{
+				"TranscriptionJobName": "no-such-job",
+			},
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name: "ListTranscriptionJobs",
+			setupActions: []transcribeSetupAction{
+				{action: "StartTranscriptionJob", body: map[string]any{
+					"TranscriptionJobName": "list-job-1",
+					"LanguageCode":         "en-US",
+				}},
+				{action: "StartTranscriptionJob", body: map[string]any{
+					"TranscriptionJobName": "list-job-2",
+					"LanguageCode":         "en-US",
+				}},
+			},
+			action:       "ListTranscriptionJobs",
+			body:         map[string]any{},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"list-job-1", "list-job-2"},
+		},
+		{
+			name:     "UnknownAction",
+			action:   "UnknownAction",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+	}
 
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	job, ok := resp["TranscriptionJob"].(map[string]any)
-	require.True(t, ok)
-	assert.Equal(t, "test-job", job["TranscriptionJobName"])
-	assert.Equal(t, "COMPLETED", job["TranscriptionJobStatus"])
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-func TestTranscribe_Handler_StartTranscriptionJob_AlreadyExists(t *testing.T) {
-	t.Parallel()
+			h := newTestTranscribeHandler(t)
 
-	h := newTestTranscribeHandler(t)
+			for _, sa := range tt.setupActions {
+				doTranscribeRequest(t, h, sa.action, sa.body)
+			}
 
-	doTranscribeRequest(t, h, "StartTranscriptionJob", map[string]any{
-		"TranscriptionJobName": "dup-job",
-		"LanguageCode":         "en-US",
-	})
+			rec := doTranscribeRequest(t, h, tt.action, tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
 
-	rec := doTranscribeRequest(t, h, "StartTranscriptionJob", map[string]any{
-		"TranscriptionJobName": "dup-job",
-		"LanguageCode":         "en-US",
-	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestTranscribe_Handler_GetTranscriptionJob(t *testing.T) {
-	t.Parallel()
-
-	h := newTestTranscribeHandler(t)
-
-	doTranscribeRequest(t, h, "StartTranscriptionJob", map[string]any{
-		"TranscriptionJobName": "get-job",
-		"LanguageCode":         "en-US",
-	})
-
-	rec := doTranscribeRequest(t, h, "GetTranscriptionJob", map[string]any{
-		"TranscriptionJobName": "get-job",
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	job, ok := resp["TranscriptionJob"].(map[string]any)
-	require.True(t, ok)
-	assert.Equal(t, "get-job", job["TranscriptionJobName"])
-}
-
-func TestTranscribe_Handler_GetTranscriptionJob_NotFound(t *testing.T) {
-	t.Parallel()
-
-	h := newTestTranscribeHandler(t)
-
-	rec := doTranscribeRequest(t, h, "GetTranscriptionJob", map[string]any{
-		"TranscriptionJobName": "no-such-job",
-	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestTranscribe_Handler_ListTranscriptionJobs(t *testing.T) {
-	t.Parallel()
-
-	h := newTestTranscribeHandler(t)
-
-	doTranscribeRequest(t, h, "StartTranscriptionJob", map[string]any{
-		"TranscriptionJobName": "list-job-1",
-		"LanguageCode":         "en-US",
-	})
-	doTranscribeRequest(t, h, "StartTranscriptionJob", map[string]any{
-		"TranscriptionJobName": "list-job-2",
-		"LanguageCode":         "en-US",
-	})
-
-	rec := doTranscribeRequest(t, h, "ListTranscriptionJobs", map[string]any{})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	summaries, ok := resp["TranscriptionJobSummaries"].([]any)
-	require.True(t, ok)
-	assert.GreaterOrEqual(t, len(summaries), 2)
-}
-
-func TestTranscribe_Handler_UnknownAction(t *testing.T) {
-	t.Parallel()
-
-	h := newTestTranscribeHandler(t)
-
-	rec := doTranscribeRequest(t, h, "UnknownAction", map[string]any{})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+			for _, want := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), want)
+			}
+		})
+	}
 }
 
 func TestTranscribe_Provider_Init(t *testing.T) {

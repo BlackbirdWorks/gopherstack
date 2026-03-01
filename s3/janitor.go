@@ -125,16 +125,7 @@ func (j *Janitor) processBucket(ctx context.Context, name string) {
 
 	// Search for the bucket across all regions
 	b.mu.RLock("S3Janitor.processBucket")
-	var bucket *StoredBucket
-	var foundRegion string
-	for region, regionBuckets := range b.buckets {
-		if bkt, exists := regionBuckets[name]; exists {
-			bucket = bkt
-			foundRegion = region
-
-			break
-		}
-	}
+	bucket, foundRegion := findBucketAcrossRegions(b.buckets, name)
 	b.mu.RUnlock()
 
 	if bucket == nil {
@@ -143,16 +134,7 @@ func (j *Janitor) processBucket(ctx context.Context, name string) {
 
 	// Delete a batch of objects under the bucket lock.
 	bucket.mu.Lock("S3Janitor.processBucket")
-	count := 0
-
-	for key := range bucket.Objects {
-		delete(bucket.Objects, key)
-		count++
-
-		if count >= janitorBatchSize {
-			break
-		}
-	}
+	count := deleteBatch(bucket.Objects, janitorBatchSize)
 
 	telemetry.RecordWorkerItems("s3", "BucketCleaner", count)
 
@@ -298,4 +280,31 @@ func latestVersion(obj *StoredObject) time.Time {
 	}
 
 	return time.Time{}
+}
+
+// findBucketAcrossRegions returns the bucket and its region for the given bucket name,
+// or nil and an empty string if not found. Must be called with b.mu held.
+func findBucketAcrossRegions(buckets map[string]map[string]*StoredBucket, name string) (*StoredBucket, string) {
+	for region, regionBuckets := range buckets {
+		if bkt, exists := regionBuckets[name]; exists {
+			return bkt, region
+		}
+	}
+
+	return nil, ""
+}
+
+// deleteBatch deletes up to maxCount objects from the map, returning the number deleted.
+func deleteBatch(objects map[string]*StoredObject, maxCount int) int {
+	count := 0
+	for key := range objects {
+		delete(objects, key)
+		count++
+
+		if count >= maxCount {
+			return count
+		}
+	}
+
+	return count
 }

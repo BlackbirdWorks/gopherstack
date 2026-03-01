@@ -93,3 +93,14 @@ type QueryParams struct {
 	LimitStr          string
 	ExclusiveStartKey string
 }
+
+// findAttrDef returns the AttributeDefinition for the given attribute name, or nil if not found.
+func findAttrDef(defs []types.AttributeDefinition, attrName string) *types.AttributeDefinition {
+	for i := range defs {
+		if *defs[i].AttributeName == attrName {
+			return &defs[i]
+		}
+	}
+
+	return nil
+}

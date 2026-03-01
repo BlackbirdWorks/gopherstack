@@ -9,54 +9,105 @@ import (
 	"github.com/blackbirdworks/gopherstack/s3control"
 )
 
-func TestS3Control_PutGetPublicAccessBlock(t *testing.T) {
+func TestGetPublicAccessBlock(t *testing.T) {
 	t.Parallel()
 
-	b := s3control.NewInMemoryBackend()
-	cfg := s3control.PublicAccessBlock{
-		AccountID:             "000000000000",
-		BlockPublicAcls:       true,
-		IgnorePublicAcls:      true,
-		BlockPublicPolicy:     false,
-		RestrictPublicBuckets: false,
+	tests := []struct {
+		wantErr               error
+		seed                  *s3control.PublicAccessBlock
+		name                  string
+		accountID             string
+		wantBlockPublicAcls   bool
+		wantIgnorePublicAcls  bool
+		wantBlockPublicPolicy bool
+	}{
+		{
+			name: "PutThenGet",
+			seed: &s3control.PublicAccessBlock{
+				AccountID:             "000000000000",
+				BlockPublicAcls:       true,
+				IgnorePublicAcls:      true,
+				BlockPublicPolicy:     false,
+				RestrictPublicBuckets: false,
+			},
+			accountID:             "000000000000",
+			wantBlockPublicAcls:   true,
+			wantIgnorePublicAcls:  true,
+			wantBlockPublicPolicy: false,
+		},
+		{
+			name:      "NotFound",
+			accountID: "000000000000",
+			wantErr:   s3control.ErrNotFound,
+		},
 	}
 
-	b.PutPublicAccessBlock(cfg)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	got, err := b.GetPublicAccessBlock("000000000000")
-	require.NoError(t, err)
-	assert.True(t, got.BlockPublicAcls)
-	assert.True(t, got.IgnorePublicAcls)
-	assert.False(t, got.BlockPublicPolicy)
+			b := s3control.NewInMemoryBackend()
+			if tt.seed != nil {
+				b.PutPublicAccessBlock(*tt.seed)
+			}
+
+			got, err := b.GetPublicAccessBlock(tt.accountID)
+			if tt.wantErr != nil {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantBlockPublicAcls, got.BlockPublicAcls)
+			assert.Equal(t, tt.wantIgnorePublicAcls, got.IgnorePublicAcls)
+			assert.Equal(t, tt.wantBlockPublicPolicy, got.BlockPublicPolicy)
+		})
+	}
 }
 
-func TestS3Control_GetPublicAccessBlock_NotFound(t *testing.T) {
+func TestDeletePublicAccessBlock(t *testing.T) {
 	t.Parallel()
 
-	b := s3control.NewInMemoryBackend()
-	_, err := b.GetPublicAccessBlock("000000000000")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, s3control.ErrNotFound)
-}
+	tests := []struct {
+		wantErr   error
+		seed      *s3control.PublicAccessBlock
+		name      string
+		accountID string
+	}{
+		{
+			name:      "Success",
+			seed:      &s3control.PublicAccessBlock{AccountID: "000000000000"},
+			accountID: "000000000000",
+		},
+		{
+			name:      "NotFound",
+			accountID: "000000000000",
+			wantErr:   s3control.ErrNotFound,
+		},
+	}
 
-func TestS3Control_DeletePublicAccessBlock(t *testing.T) {
-	t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	b := s3control.NewInMemoryBackend()
-	b.PutPublicAccessBlock(s3control.PublicAccessBlock{AccountID: "000000000000"})
+			b := s3control.NewInMemoryBackend()
+			if tt.seed != nil {
+				b.PutPublicAccessBlock(*tt.seed)
+			}
 
-	err := b.DeletePublicAccessBlock("000000000000")
-	require.NoError(t, err)
+			err := b.DeletePublicAccessBlock(tt.accountID)
+			if tt.wantErr != nil {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.wantErr)
 
-	_, err = b.GetPublicAccessBlock("000000000000")
-	assert.ErrorIs(t, err, s3control.ErrNotFound)
-}
+				return
+			}
 
-func TestS3Control_DeletePublicAccessBlock_NotFound(t *testing.T) {
-	t.Parallel()
-
-	b := s3control.NewInMemoryBackend()
-	err := b.DeletePublicAccessBlock("000000000000")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, s3control.ErrNotFound)
+			require.NoError(t, err)
+			_, err = b.GetPublicAccessBlock(tt.accountID)
+			assert.ErrorIs(t, err, s3control.ErrNotFound)
+		})
+	}
 }

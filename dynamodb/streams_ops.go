@@ -100,20 +100,7 @@ func (db *InMemoryDB) DescribeStream(
 	streamARN := aws.ToString(input.StreamArn)
 
 	db.mu.RLock("DescribeStream")
-	var found *Table
-
-	for _, regionTables := range db.Tables {
-		for _, t := range regionTables {
-			if t.StreamARN == streamARN {
-				found = t
-
-				break
-			}
-		}
-		if found != nil {
-			break
-		}
-	}
+	found := db.findTableByStreamARN(streamARN)
 	db.mu.RUnlock()
 
 	if found == nil {
@@ -168,20 +155,7 @@ func (db *InMemoryDB) GetShardIterator(
 	streamARN := aws.ToString(input.StreamArn)
 
 	db.mu.RLock("GetShardIterator")
-	var found *Table
-
-	for _, regionTables := range db.Tables {
-		for _, t := range regionTables {
-			if t.StreamARN == streamARN {
-				found = t
-
-				break
-			}
-		}
-		if found != nil {
-			break
-		}
-	}
+	found := db.findTableByStreamARN(streamARN)
 	db.mu.RUnlock()
 
 	if found == nil {
@@ -252,28 +226,7 @@ func (db *InMemoryDB) GetRecords(
 	table.mu.RLock("GetRecords")
 	defer table.mu.RUnlock()
 
-	var records []streamstypes.Record
-
-	nextSeq := table.streamSeq
-
-	for _, r := range table.StreamRecords {
-		seq, parseErr := strconv.ParseInt(strings.TrimLeft(r.SequenceNumber, "0"), 10, 64)
-		if parseErr != nil {
-			seq = 0
-		}
-
-		if seq < startSeq {
-			continue
-		}
-
-		if int64(len(records)) >= limit {
-			break
-		}
-
-		sdkRec := buildSDKRecord(r)
-		records = append(records, sdkRec)
-		nextSeq = seq + 1
-	}
+	records, nextSeq := collectStreamRecords(table.StreamRecords, startSeq, limit, table.streamSeq)
 
 	telemetry.RecordStreamEvents("dynamodb", len(records))
 
@@ -481,4 +434,48 @@ func toStringSliceFrom(v any) []string {
 	default:
 		return nil
 	}
+}
+
+// findTableByStreamARN searches all regions for a table with the given stream ARN.
+// Must be called with db.mu held.
+func (db *InMemoryDB) findTableByStreamARN(streamARN string) *Table {
+	for _, regionTables := range db.Tables {
+		for _, t := range regionTables {
+			if t.StreamARN == streamARN {
+				return t
+			}
+		}
+	}
+
+	return nil
+}
+
+// collectStreamRecords collects up to limit records starting at startSeq.
+func collectStreamRecords(
+	streamRecords []StreamRecord,
+	startSeq, limit, initialNextSeq int64,
+) ([]streamstypes.Record, int64) {
+	var records []streamstypes.Record
+
+	nextSeq := initialNextSeq
+
+	for _, r := range streamRecords {
+		seq, parseErr := strconv.ParseInt(strings.TrimLeft(r.SequenceNumber, "0"), 10, 64)
+		if parseErr != nil {
+			seq = 0
+		}
+
+		if seq < startSeq {
+			continue
+		}
+
+		if int64(len(records)) >= limit {
+			return records, nextSeq
+		}
+
+		records = append(records, buildSDKRecord(r))
+		nextSeq = seq + 1
+	}
+
+	return records, nextSeq
 }

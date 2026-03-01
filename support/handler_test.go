@@ -42,14 +42,14 @@ func doSupportRequest(t *testing.T, h *support.Handler, action string, body any)
 	return rec
 }
 
-func TestSupport_Handler_Name(t *testing.T) {
+func TestSupport_Name(t *testing.T) {
 	t.Parallel()
 
 	h := newTestSupportHandler(t)
 	assert.Equal(t, "Support", h.Name())
 }
 
-func TestSupport_Handler_GetSupportedOperations(t *testing.T) {
+func TestSupport_GetSupportedOperations(t *testing.T) {
 	t.Parallel()
 
 	h := newTestSupportHandler(t)
@@ -59,31 +59,49 @@ func TestSupport_Handler_GetSupportedOperations(t *testing.T) {
 	assert.Contains(t, ops, "ResolveCase")
 }
 
-func TestSupport_Handler_MatchPriority(t *testing.T) {
+func TestSupport_MatchPriority(t *testing.T) {
 	t.Parallel()
 
 	h := newTestSupportHandler(t)
 	assert.Equal(t, 100, h.MatchPriority())
 }
 
-func TestSupport_Handler_RouteMatcher(t *testing.T) {
+func TestSupport_RouteMatcher(t *testing.T) {
 	t.Parallel()
 
-	h := newTestSupportHandler(t)
-	e := echo.New()
+	tests := []struct {
+		name      string
+		target    string
+		wantMatch bool
+	}{
+		{
+			name:      "matching target",
+			target:    "AmazonSupport.CreateCase",
+			wantMatch: true,
+		},
+		{
+			name:      "non-matching target",
+			target:    "OtherService.Action",
+			wantMatch: false,
+		},
+	}
 
-	req := httptest.NewRequest(http.MethodPost, "/", nil)
-	req.Header.Set("X-Amz-Target", "AmazonSupport.CreateCase")
-	c := e.NewContext(req, httptest.NewRecorder())
-	assert.True(t, h.RouteMatcher()(c))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	req2 := httptest.NewRequest(http.MethodPost, "/", nil)
-	req2.Header.Set("X-Amz-Target", "OtherService.Action")
-	c2 := e.NewContext(req2, httptest.NewRecorder())
-	assert.False(t, h.RouteMatcher()(c2))
+			h := newTestSupportHandler(t)
+			e := echo.New()
+
+			req := httptest.NewRequest(http.MethodPost, "/", nil)
+			req.Header.Set("X-Amz-Target", tt.target)
+			c := e.NewContext(req, httptest.NewRecorder())
+			assert.Equal(t, tt.wantMatch, h.RouteMatcher()(c))
+		})
+	}
 }
 
-func TestSupport_Handler_ExtractOperation(t *testing.T) {
+func TestSupport_ExtractOperation(t *testing.T) {
 	t.Parallel()
 
 	h := newTestSupportHandler(t)
@@ -95,7 +113,7 @@ func TestSupport_Handler_ExtractOperation(t *testing.T) {
 	assert.Equal(t, "CreateCase", h.ExtractOperation(c))
 }
 
-func TestSupport_Handler_ExtractResource(t *testing.T) {
+func TestSupport_ExtractResource(t *testing.T) {
 	t.Parallel()
 
 	h := newTestSupportHandler(t)
@@ -108,37 +126,76 @@ func TestSupport_Handler_ExtractResource(t *testing.T) {
 	assert.Equal(t, "my ticket", h.ExtractResource(c))
 }
 
-func TestSupport_Handler_CreateCase(t *testing.T) {
+func TestSupport_Handler(t *testing.T) {
 	t.Parallel()
 
-	h := newTestSupportHandler(t)
+	tests := []struct {
+		body             map[string]any
+		name             string
+		action           string
+		wantContains     []string
+		wantNonEmptyKeys []string
+		wantCode         int
+	}{
+		{
+			name:   "CreateCase",
+			action: "CreateCase",
+			body: map[string]any{
+				"subject":           "My issue",
+				"serviceCode":       "amazon-s3",
+				"categoryCode":      "data-management",
+				"severityCode":      "low",
+				"communicationBody": "I have a question about S3.",
+			},
+			wantCode:         http.StatusOK,
+			wantNonEmptyKeys: []string{"caseId"},
+		},
+		{
+			name:     "CreateCase_MissingSubject",
+			action:   "CreateCase",
+			body:     map[string]any{"serviceCode": "amazon-s3"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "ResolveCase_NotFound",
+			action:   "ResolveCase",
+			body:     map[string]any{"caseId": "case-does-not-exist"},
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "UnknownAction",
+			action:   "UnknownAction",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+	}
 
-	rec := doSupportRequest(t, h, "CreateCase", map[string]any{
-		"subject":           "My issue",
-		"serviceCode":       "amazon-s3",
-		"categoryCode":      "data-management",
-		"severityCode":      "low",
-		"communicationBody": "I have a question about S3.",
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.NotEmpty(t, resp["caseId"])
+			h := newTestSupportHandler(t)
+			rec := doSupportRequest(t, h, tt.action, tt.body)
+
+			require.Equal(t, tt.wantCode, rec.Code)
+
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+
+			if len(tt.wantNonEmptyKeys) > 0 {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+				for _, key := range tt.wantNonEmptyKeys {
+					assert.NotEmpty(t, resp[key])
+				}
+			}
+		})
+	}
 }
 
-func TestSupport_Handler_CreateCase_MissingSubject(t *testing.T) {
-	t.Parallel()
-
-	h := newTestSupportHandler(t)
-
-	rec := doSupportRequest(t, h, "CreateCase", map[string]any{
-		"serviceCode": "amazon-s3",
-	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestSupport_Handler_DescribeCases(t *testing.T) {
+func TestSupport_DescribeCases(t *testing.T) {
 	t.Parallel()
 
 	h := newTestSupportHandler(t)
@@ -174,7 +231,7 @@ func TestSupport_Handler_DescribeCases(t *testing.T) {
 	assert.Len(t, cases2, 1)
 }
 
-func TestSupport_Handler_ResolveCase(t *testing.T) {
+func TestSupport_ResolveCase(t *testing.T) {
 	t.Parallel()
 
 	h := newTestSupportHandler(t)
@@ -197,26 +254,6 @@ func TestSupport_Handler_ResolveCase(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, "opened", resp["initialCaseStatus"])
 	assert.Equal(t, "resolved", resp["finalCaseStatus"])
-}
-
-func TestSupport_Handler_ResolveCase_NotFound(t *testing.T) {
-	t.Parallel()
-
-	h := newTestSupportHandler(t)
-
-	rec := doSupportRequest(t, h, "ResolveCase", map[string]any{
-		"caseId": "case-does-not-exist",
-	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestSupport_Handler_UnknownAction(t *testing.T) {
-	t.Parallel()
-
-	h := newTestSupportHandler(t)
-
-	rec := doSupportRequest(t, h, "UnknownAction", map[string]any{})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestSupport_Provider_Init(t *testing.T) {

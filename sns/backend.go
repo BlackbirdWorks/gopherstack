@@ -16,6 +16,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/events"
 )
 
@@ -27,9 +28,7 @@ var (
 )
 
 const (
-	defaultAccountID = "000000000000"
-	defaultRegion    = "us-east-1"
-	pageSize         = 25
+	pageSize = 25
 )
 
 // StorageBackend defines the interface for an SNS storage backend.
@@ -67,7 +66,7 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new empty InMemoryBackend with default account/region.
 func NewInMemoryBackend() *InMemoryBackend {
-	return NewInMemoryBackendWithConfig(defaultAccountID, defaultRegion)
+	return NewInMemoryBackendWithConfig(config.DefaultAccountID, config.DefaultRegion)
 }
 
 // NewInMemoryBackendWithConfig creates a new InMemoryBackend with the given account ID and region.

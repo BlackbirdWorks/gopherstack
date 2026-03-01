@@ -1,6 +1,7 @@
 package resourcegroups
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -10,13 +11,21 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
-const (
-	resourceGroupsTargetPrefix  = "ResourceGroups."
-	resourceGroupsMatchPriority = 100
+var (
+	// ErrUnknownOperation is returned when the requested Resource Groups operation is not supported.
+	ErrUnknownOperation = errors.New("UnknownOperationException")
+	errInvalidRequest   = errors.New("invalid request")
 )
+
+const resourceGroupsTargetPrefix = "ResourceGroups."
+
+type groupNameInput struct {
+	GroupName string `json:"GroupName"`
+}
 
 // Handler is the Echo HTTP handler for Resource Groups operations.
 type Handler struct {
@@ -50,7 +59,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 }
 
 // MatchPriority returns the routing priority.
-func (h *Handler) MatchPriority() int { return resourceGroupsMatchPriority }
+func (h *Handler) MatchPriority() int { return service.PriorityHeaderExact }
 
 // ExtractOperation extracts the Resource Groups action from the X-Amz-Target header.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
@@ -63,6 +72,11 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	return action
 }
 
+type extractResourceGroupInput struct {
+	Name      string `json:"Name"`
+	GroupName string `json:"GroupName"`
+}
+
 // ExtractResource extracts the group name from the request body, checking both
 // the Name (CreateGroup) and GroupName (GetGroup/DeleteGroup) fields.
 func (h *Handler) ExtractResource(c *echo.Context) string {
@@ -71,10 +85,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return ""
 	}
 
-	var req struct {
-		Name      string `json:"Name"`
-		GroupName string `json:"GroupName"`
-	}
+	var req extractResourceGroupInput
 	_ = json.Unmarshal(body, &req)
 
 	if req.Name != "" {
@@ -87,96 +98,111 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		body, err := httputil.ReadBody(c.Request())
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"message": "failed to read body"})
-		}
-
-		action := strings.TrimPrefix(c.Request().Header.Get("X-Amz-Target"), resourceGroupsTargetPrefix)
-		switch action {
-		case "CreateGroup":
-			return h.handleCreateGroup(c, body)
-		case "DeleteGroup":
-			return h.handleDeleteGroup(c, body)
-		case "ListGroups":
-			return h.handleListGroups(c)
-		case "GetGroup":
-			return h.handleGetGroup(c, body)
-		default:
-			return c.JSON(http.StatusBadRequest, map[string]string{"message": "unknown action: " + action})
-		}
+		return service.HandleTarget(
+			c, logger.Load(c.Request().Context()),
+			"ResourceGroups", "application/x-amz-json-1.1",
+			h.GetSupportedOperations(),
+			h.dispatch,
+			h.handleError,
+		)
 	}
 }
 
-func (h *Handler) handleCreateGroup(c *echo.Context, body []byte) error {
-	var req struct {
-		Tags        map[string]string `json:"Tags"`
-		Name        string            `json:"Name"`
-		Description string            `json:"Description"`
+func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byte, error) {
+	var result any
+	var err error
+
+	switch action {
+	case "CreateGroup":
+		result, err = h.handleCreateGroup(body)
+	case "DeleteGroup":
+		result, err = h.handleDeleteGroup(body)
+	case "ListGroups":
+		result, err = h.handleListGroups()
+	case "GetGroup":
+		result, err = h.handleGetGroup(body)
+	default:
+		return nil, ErrUnknownOperation
 	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(result)
+}
+
+func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
+	code := http.StatusInternalServerError
+
+	switch {
+	case errors.Is(err, errInvalidRequest), errors.Is(err, ErrUnknownOperation):
+		code = http.StatusBadRequest
+	case errors.Is(err, ErrAlreadyExists):
+		code = http.StatusBadRequest
+	case errors.Is(err, ErrNotFound):
+		code = http.StatusNotFound
+	}
+
+	return c.JSON(code, map[string]string{"message": err.Error()})
+}
+
+type handleCreateGroupInput struct {
+	Tags        map[string]string `json:"Tags"`
+	Name        string            `json:"Name"`
+	Description string            `json:"Description"`
+}
+
+func (h *Handler) handleCreateGroup(body []byte) (any, error) {
+	var req handleCreateGroupInput
 	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
+		return nil, errInvalidRequest
 	}
 
 	g, err := h.Backend.CreateGroup(req.Name, req.Description, req.Tags)
 	if err != nil {
-		if errors.Is(err, ErrAlreadyExists) {
-			return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
-		}
-
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return nil, err
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
+	return map[string]any{
 		"Group": g,
-	})
+	}, nil
 }
 
-func (h *Handler) handleDeleteGroup(c *echo.Context, body []byte) error {
-	var req struct {
-		GroupName string `json:"GroupName"`
-	}
+func (h *Handler) handleDeleteGroup(body []byte) (any, error) {
+	var req groupNameInput
 	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
+		return nil, errInvalidRequest
 	}
 
 	if err := h.Backend.DeleteGroup(req.GroupName); err != nil {
-		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]string{"message": err.Error()})
-		}
-
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return nil, err
 	}
 
-	return c.JSON(http.StatusOK, map[string]string{})
+	return map[string]string{}, nil
 }
 
-func (h *Handler) handleListGroups(c *echo.Context) error {
+//nolint:unparam // error returned for consistent dispatch signature
+func (h *Handler) handleListGroups() (any, error) {
 	groups := h.Backend.ListGroups()
 
-	return c.JSON(http.StatusOK, map[string]any{
+	return map[string]any{
 		"GroupIdentifiers": groups,
-	})
+	}, nil
 }
 
-func (h *Handler) handleGetGroup(c *echo.Context, body []byte) error {
-	var req struct {
-		GroupName string `json:"GroupName"`
-	}
+func (h *Handler) handleGetGroup(body []byte) (any, error) {
+	var req groupNameInput
 	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request"})
+		return nil, errInvalidRequest
 	}
 
 	g, err := h.Backend.GetGroup(req.GroupName)
 	if err != nil {
-		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]string{"message": err.Error()})
-		}
-
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return nil, err
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
+	return map[string]any{
 		"Group": g,
-	})
+	}, nil
 }

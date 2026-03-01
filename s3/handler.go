@@ -9,6 +9,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -78,7 +79,7 @@ func NewHandler(backend StorageBackend, logger *slog.Logger) *S3Handler {
 	return &S3Handler{
 		Backend:       backend,
 		Logger:        logger,
-		DefaultRegion: "us-east-1",
+		DefaultRegion: config.DefaultRegion,
 	}
 }
 
@@ -86,7 +87,7 @@ func NewHandler(backend StorageBackend, logger *slog.Logger) *S3Handler {
 func (h *S3Handler) WithJanitor(settings Settings) *S3Handler {
 	h.DefaultRegion = settings.DefaultRegion
 	if h.DefaultRegion == "" {
-		h.DefaultRegion = "us-east-1"
+		h.DefaultRegion = config.DefaultRegion
 	}
 	if memBackend, ok := h.Backend.(*InMemoryBackend); ok {
 		memBackend.SetDefaultRegion(h.DefaultRegion)
@@ -253,7 +254,7 @@ func (h *S3Handler) RouteMatcher() service.Matcher {
 // MatchPriority returns the priority for the S3 matcher.
 // Catch-all matchers have the lowest priority (0), ensuring other services match first.
 func (h *S3Handler) MatchPriority() int {
-	return 0
+	return service.PriorityCatchAll
 }
 
 // ExtractOperation returns the current S3 operation from context.
@@ -360,22 +361,31 @@ func (h *S3Handler) extractVirtualHostedBucketName(r *http.Request) string {
 	// We want to extract just <bucket>.
 	parts := strings.Split(candidate, ".")
 	if len(parts) > 1 {
-		// Check for s3. or s3-<region>. parts
-		for i, p := range parts {
-			if p == "s3" || strings.HasPrefix(p, "s3-") {
-				// The bucket is everything before the first 's3' part.
-				bucket := strings.Join(parts[:i], ".")
-				if IsValidBucketName(bucket) {
-					return bucket
-				}
-
-				break
-			}
+		if bucket := findBucketInParts(parts); bucket != "" {
+			return bucket
 		}
 	}
 
 	if IsValidBucketName(candidate) {
 		return candidate
+	}
+
+	return ""
+}
+
+// findBucketInParts scans parts for an "s3" or "s3-*" segment and returns the
+// bucket name formed by joining everything before that segment. Returns an
+// empty string if no s3 segment is found or the resulting name is invalid.
+func findBucketInParts(parts []string) string {
+	for i, p := range parts {
+		if p == "s3" || strings.HasPrefix(p, "s3-") {
+			bucket := strings.Join(parts[:i], ".")
+			if IsValidBucketName(bucket) {
+				return bucket
+			}
+
+			return ""
+		}
 	}
 
 	return ""

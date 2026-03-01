@@ -48,9 +48,3 @@ type StateExitedEventDetails struct {
 	Name   string `json:"name"`
 	Output string `json:"output,omitempty"`
 }
-
-// ErrorResponse is the standard error format.
-type ErrorResponse struct {
-	Type    string `json:"__type"`
-	Message string `json:"message"`
-}

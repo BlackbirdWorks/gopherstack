@@ -171,12 +171,6 @@ type ListTagsForResourceOutput struct {
 	TagList []Tag `json:"TagList"`
 }
 
-// ErrorResponse represents an SSM wire error.
-type ErrorResponse struct {
-	Type    string `json:"__type"`
-	Message string `json:"message"`
-}
-
 // UnixTimeFloat returns a unix timestamp float required by some AWS SDKs.
 const nanoToSeconds = 1e9
 

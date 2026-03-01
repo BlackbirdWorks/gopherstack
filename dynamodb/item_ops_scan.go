@@ -302,8 +302,6 @@ func applyExclusiveStartKey(
 		startSK = fmt.Sprintf("%v", dynamoattr.UnwrapAttributeValue(startKey[skName]))
 	}
 
-	skipUntil := -1
-
 	for i, item := range candidate {
 		itemPK := fmt.Sprintf("%v", dynamoattr.UnwrapAttributeValue(item[pkName]))
 		if itemPK != startPK {
@@ -311,21 +309,13 @@ func applyExclusiveStartKey(
 		}
 
 		if skName == "" {
-			skipUntil = i
-
-			break
+			return candidate[i+1:]
 		}
 
 		itemSK := fmt.Sprintf("%v", dynamoattr.UnwrapAttributeValue(item[skName]))
 		if itemSK == startSK {
-			skipUntil = i
-
-			break
+			return candidate[i+1:]
 		}
-	}
-
-	if skipUntil >= 0 {
-		return candidate[skipUntil+1:]
 	}
 
 	return candidate

@@ -144,7 +144,7 @@ func ensureTofuBinary(t *testing.T) string {
 	})
 
 	if errTofuBinary != nil {
-		t.Fatalf("could not obtain tofu binary: %v", errTofuBinary)
+		require.NoError(t, errTofuBinary, "could not obtain tofu binary")
 	}
 
 	return tofuBinaryPath
@@ -302,7 +302,7 @@ func applyTofu(t *testing.T, tofuBin, dir, hcl string) {
 
 		if err != nil {
 			if failFatal {
-				t.Fatalf("tofu %v failed: %v", args, err)
+				require.NoError(t, err, "tofu %v failed", args)
 			}
 
 			t.Logf("tofu %v failed (non-fatal): %v", args, err)

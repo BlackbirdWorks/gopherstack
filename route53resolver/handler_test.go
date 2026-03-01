@@ -49,95 +49,155 @@ func doRequest(t *testing.T, h *route53resolver.Handler, action string, body any
 	return rec
 }
 
-func TestRoute53Resolver_Handler_Name(t *testing.T) {
+// doInvalidJSONRequest sends a request with invalid JSON body to test parse errors.
+func doInvalidJSONRequest(t *testing.T, h *route53resolver.Handler, action string) *httptest.ResponseRecorder {
+	t.Helper()
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("not-json"))
+	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+	req.Header.Set("X-Amz-Target", "Route53Resolver."+action)
+
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := h.Handler()(c)
+	require.NoError(t, err)
+
+	return rec
+}
+
+func TestHandlerName(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 	assert.Equal(t, "Route53Resolver", h.Name())
 }
 
-func TestRoute53Resolver_Handler_GetSupportedOperations(t *testing.T) {
+func TestHandlerGetSupportedOperations(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 	ops := h.GetSupportedOperations()
-	assert.Contains(t, ops, "CreateResolverEndpoint")
-	assert.Contains(t, ops, "DeleteResolverEndpoint")
-	assert.Contains(t, ops, "ListResolverEndpoints")
-	assert.Contains(t, ops, "GetResolverEndpoint")
-	assert.Contains(t, ops, "CreateResolverRule")
-	assert.Contains(t, ops, "DeleteResolverRule")
-	assert.Contains(t, ops, "ListResolverRules")
+
+	tests := []struct {
+		name   string
+		wantOp string
+	}{
+		{name: "CreateResolverEndpoint", wantOp: "CreateResolverEndpoint"},
+		{name: "DeleteResolverEndpoint", wantOp: "DeleteResolverEndpoint"},
+		{name: "ListResolverEndpoints", wantOp: "ListResolverEndpoints"},
+		{name: "GetResolverEndpoint", wantOp: "GetResolverEndpoint"},
+		{name: "CreateResolverRule", wantOp: "CreateResolverRule"},
+		{name: "DeleteResolverRule", wantOp: "DeleteResolverRule"},
+		{name: "ListResolverRules", wantOp: "ListResolverRules"},
+		{name: "GetResolverRule", wantOp: "GetResolverRule"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Contains(t, ops, tt.wantOp)
+		})
+	}
 }
 
-func TestRoute53Resolver_Handler_MatchPriority(t *testing.T) {
+func TestHandlerMatchPriority(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 	assert.Equal(t, 100, h.MatchPriority())
 }
 
-func TestRoute53Resolver_Handler_RouteMatcher(t *testing.T) {
+func TestHandlerRouteMatcher(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	matcher := h.RouteMatcher()
+	tests := []struct {
+		name      string
+		target    string
+		wantMatch bool
+	}{
+		{
+			name:      "Match",
+			target:    "Route53Resolver.CreateResolverEndpoint",
+			wantMatch: true,
+		},
+		{
+			name:      "NoMatch",
+			target:    "Firehose_20150804.CreateDeliveryStream",
+			wantMatch: false,
+		},
+	}
 
-	e := echo.New()
-	req := httptest.NewRequest(http.MethodPost, "/", nil)
-	req.Header.Set("X-Amz-Target", "Route53Resolver.CreateResolverEndpoint")
-	c := e.NewContext(req, httptest.NewRecorder())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	assert.True(t, matcher(c))
+			h := newTestHandler(t)
+			matcher := h.RouteMatcher()
+
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodPost, "/", nil)
+			req.Header.Set("X-Amz-Target", tt.target)
+			c := e.NewContext(req, httptest.NewRecorder())
+
+			assert.Equal(t, tt.wantMatch, matcher(c))
+		})
+	}
 }
 
-func TestRoute53Resolver_Handler_RouteMatcher_NoMatch(t *testing.T) {
+func TestHandlerExtractOperation(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	matcher := h.RouteMatcher()
+	tests := []struct {
+		name   string
+		target string
+		wantOp string
+	}{
+		{
+			name:   "WithTarget",
+			target: "Route53Resolver.CreateResolverEndpoint",
+			wantOp: "CreateResolverEndpoint",
+		},
+		{
+			name:   "NoTarget",
+			target: "",
+			wantOp: "Unknown",
+		},
+	}
 
-	e := echo.New()
-	req := httptest.NewRequest(http.MethodPost, "/", nil)
-	req.Header.Set("X-Amz-Target", "Firehose_20150804.CreateDeliveryStream")
-	c := e.NewContext(req, httptest.NewRecorder())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	assert.False(t, matcher(c))
+			h := newTestHandler(t)
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodPost, "/", nil)
+			if tt.target != "" {
+				req.Header.Set("X-Amz-Target", tt.target)
+			}
+			c := e.NewContext(req, httptest.NewRecorder())
+
+			assert.Equal(t, tt.wantOp, h.ExtractOperation(c))
+		})
+	}
 }
 
-func TestRoute53Resolver_Handler_ExtractOperation(t *testing.T) {
+func TestHandlerExtractResource(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 	e := echo.New()
-
-	req := httptest.NewRequest(http.MethodPost, "/", nil)
-	req.Header.Set("X-Amz-Target", "Route53Resolver.CreateResolverEndpoint")
-	c := e.NewContext(req, httptest.NewRecorder())
-	assert.Equal(t, "CreateResolverEndpoint", h.ExtractOperation(c))
-
-	// No target → "Unknown"
-	req2 := httptest.NewRequest(http.MethodPost, "/", nil)
-	c2 := e.NewContext(req2, httptest.NewRecorder())
-	assert.Equal(t, "Unknown", h.ExtractOperation(c2))
-}
-
-func TestRoute53Resolver_Handler_ExtractResource(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	e := echo.New()
-
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"Name":"my-endpoint"}`))
 	c := e.NewContext(req, httptest.NewRecorder())
+
 	assert.Equal(t, "my-endpoint", h.ExtractResource(c))
 }
 
-func TestRoute53Resolver_Handler_CreateResolverEndpoint(t *testing.T) {
+func TestCreateResolverEndpoint(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-
 	rec := doRequest(t, h, "CreateResolverEndpoint", map[string]any{
 		"Name":      "my-endpoint",
 		"Direction": "INBOUND",
@@ -157,11 +217,10 @@ func TestRoute53Resolver_Handler_CreateResolverEndpoint(t *testing.T) {
 	assert.Equal(t, "OPERATIONAL", ep["Status"])
 }
 
-func TestRoute53Resolver_Handler_GetResolverEndpoint(t *testing.T) {
+func TestGetResolverEndpoint(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-
 	createRec := doRequest(t, h, "CreateResolverEndpoint", map[string]any{
 		"Name":      "ep1",
 		"Direction": "OUTBOUND",
@@ -182,18 +241,7 @@ func TestRoute53Resolver_Handler_GetResolverEndpoint(t *testing.T) {
 	assert.Equal(t, id, got["Id"])
 }
 
-func TestRoute53Resolver_Handler_GetResolverEndpoint_NotFound(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	rec := doRequest(t, h, "GetResolverEndpoint", map[string]any{
-		"ResolverEndpointId": "nonexistent",
-	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestRoute53Resolver_Handler_ListResolverEndpoints(t *testing.T) {
+func TestListResolverEndpoints(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -210,11 +258,10 @@ func TestRoute53Resolver_Handler_ListResolverEndpoints(t *testing.T) {
 	assert.Len(t, endpoints, 2)
 }
 
-func TestRoute53Resolver_Handler_DeleteResolverEndpoint(t *testing.T) {
+func TestDeleteResolverEndpoint(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-
 	createRec := doRequest(t, h, "CreateResolverEndpoint", map[string]any{
 		"Name":      "ep-to-delete",
 		"Direction": "INBOUND",
@@ -234,22 +281,10 @@ func TestRoute53Resolver_Handler_DeleteResolverEndpoint(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, getRec.Code)
 }
 
-func TestRoute53Resolver_Handler_DeleteResolverEndpoint_NotFound(t *testing.T) {
+func TestCreateResolverRule(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-
-	rec := doRequest(t, h, "DeleteResolverEndpoint", map[string]any{
-		"ResolverEndpointId": "nonexistent",
-	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestRoute53Resolver_Handler_CreateResolverRule(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
 	rec := doRequest(t, h, "CreateResolverRule", map[string]any{
 		"Name":       "my-rule",
 		"DomainName": "example.com",
@@ -268,7 +303,7 @@ func TestRoute53Resolver_Handler_CreateResolverRule(t *testing.T) {
 	assert.Equal(t, "COMPLETE", rule["Status"])
 }
 
-func TestRoute53Resolver_Handler_ListResolverRules(t *testing.T) {
+func TestListResolverRules(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -285,11 +320,10 @@ func TestRoute53Resolver_Handler_ListResolverRules(t *testing.T) {
 	assert.Len(t, rules, 2)
 }
 
-func TestRoute53Resolver_Handler_DeleteResolverRule(t *testing.T) {
+func TestDeleteResolverRule(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-
 	createRec := doRequest(t, h, "CreateResolverRule", map[string]any{
 		"Name":       "rule-to-delete",
 		"DomainName": "test.com",
@@ -306,22 +340,10 @@ func TestRoute53Resolver_Handler_DeleteResolverRule(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-func TestRoute53Resolver_Handler_DeleteResolverRule_NotFound(t *testing.T) {
+func TestGetResolverRule(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-
-	rec := doRequest(t, h, "DeleteResolverRule", map[string]any{
-		"ResolverRuleId": "nonexistent",
-	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestRoute53Resolver_Handler_GetResolverRule(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
 	createRec := doRequest(t, h, "CreateResolverRule", map[string]any{
 		"Name":       "get-rule",
 		"DomainName": "get.example.com",
@@ -345,34 +367,93 @@ func TestRoute53Resolver_Handler_GetResolverRule(t *testing.T) {
 	assert.Equal(t, "get-rule", got["Name"])
 }
 
-func TestRoute53Resolver_Handler_GetResolverRule_NotFound(t *testing.T) {
+func TestHandlerRequestErrors(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	tests := []struct {
+		body     any
+		name     string
+		action   string
+		wantCode int
+	}{
+		{
+			name:     "GetResolverEndpoint_NotFound",
+			action:   "GetResolverEndpoint",
+			body:     map[string]any{"ResolverEndpointId": "nonexistent"},
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "DeleteResolverEndpoint_NotFound",
+			action:   "DeleteResolverEndpoint",
+			body:     map[string]any{"ResolverEndpointId": "nonexistent"},
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "DeleteResolverRule_NotFound",
+			action:   "DeleteResolverRule",
+			body:     map[string]any{"ResolverRuleId": "nonexistent"},
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "GetResolverRule_NotFound",
+			action:   "GetResolverRule",
+			body:     map[string]any{"ResolverRuleId": "nonexistent"},
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "UnknownAction",
+			action:   "UnknownAction",
+			body:     nil,
+			wantCode: http.StatusBadRequest,
+		},
+	}
 
-	rec := doRequest(t, h, "GetResolverRule", map[string]any{
-		"ResolverRuleId": "nonexistent",
-	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, tt.action, tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
 }
 
-func TestRoute53Resolver_Handler_UnknownAction(t *testing.T) {
+func TestHandlerInvalidJSON(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	tests := []struct {
+		name     string
+		action   string
+		wantCode int
+	}{
+		{name: "CreateResolverEndpoint", action: "CreateResolverEndpoint", wantCode: http.StatusBadRequest},
+		{name: "DeleteResolverEndpoint", action: "DeleteResolverEndpoint", wantCode: http.StatusBadRequest},
+		{name: "GetResolverEndpoint", action: "GetResolverEndpoint", wantCode: http.StatusBadRequest},
+		{name: "CreateResolverRule", action: "CreateResolverRule", wantCode: http.StatusBadRequest},
+		{name: "GetResolverRule", action: "GetResolverRule", wantCode: http.StatusBadRequest},
+		{name: "DeleteResolverRule", action: "DeleteResolverRule", wantCode: http.StatusBadRequest},
+	}
 
-	rec := doRequest(t, h, "UnknownAction", nil)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doInvalidJSONRequest(t, h, tt.action)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
 }
 
-func TestRoute53Resolver_Provider(t *testing.T) {
+func TestProviderName(t *testing.T) {
 	t.Parallel()
 
 	p := &route53resolver.Provider{}
 	assert.Equal(t, "Route53Resolver", p.Name())
 }
 
-func TestRoute53Resolver_Provider_Init(t *testing.T) {
+func TestProviderInit(t *testing.T) {
 	t.Parallel()
 
 	p := &route53resolver.Provider{}
@@ -381,78 +462,4 @@ func TestRoute53Resolver_Provider_Init(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, svc)
 	assert.Equal(t, "Route53Resolver", svc.Name())
-}
-
-// doInvalidJSONRequest sends a request with invalid JSON body to test parse errors.
-func doInvalidJSONRequest(t *testing.T, h *route53resolver.Handler, action string) *httptest.ResponseRecorder {
-	t.Helper()
-
-	e := echo.New()
-	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("not-json"))
-	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
-	req.Header.Set("X-Amz-Target", "Route53Resolver."+action)
-
-	rec := httptest.NewRecorder()
-	c := e.NewContext(req, rec)
-
-	err := h.Handler()(c)
-	require.NoError(t, err)
-
-	return rec
-}
-
-func TestRoute53Resolver_Handler_CreateResolverEndpoint_InvalidJSON(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	rec := doInvalidJSONRequest(t, h, "CreateResolverEndpoint")
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestRoute53Resolver_Handler_DeleteResolverEndpoint_InvalidJSON(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	rec := doInvalidJSONRequest(t, h, "DeleteResolverEndpoint")
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestRoute53Resolver_Handler_GetResolverEndpoint_InvalidJSON(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	rec := doInvalidJSONRequest(t, h, "GetResolverEndpoint")
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestRoute53Resolver_Handler_CreateResolverRule_InvalidJSON(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	rec := doInvalidJSONRequest(t, h, "CreateResolverRule")
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestRoute53Resolver_Handler_GetResolverRule_InvalidJSON(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	rec := doInvalidJSONRequest(t, h, "GetResolverRule")
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestRoute53Resolver_Handler_DeleteResolverRule_InvalidJSON(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	rec := doInvalidJSONRequest(t, h, "DeleteResolverRule")
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestRoute53Resolver_Handler_GetSupportedOperations_ContainsGetResolverRule(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	ops := h.GetSupportedOperations()
-	assert.Contains(t, ops, "GetResolverRule")
 }

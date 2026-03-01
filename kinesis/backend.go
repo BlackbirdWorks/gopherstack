@@ -10,6 +10,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 )
 
 // StorageBackend defines the interface for a Kinesis backend.
@@ -36,7 +39,7 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new empty InMemoryBackend with default account/region.
 func NewInMemoryBackend() *InMemoryBackend {
-	return NewInMemoryBackendWithConfig(kinesisAccountID, kinesisRegion)
+	return NewInMemoryBackendWithConfig(config.DefaultAccountID, config.DefaultRegion)
 }
 
 // NewInMemoryBackendWithConfig creates a new InMemoryBackend with the given account ID and region.
@@ -130,11 +133,11 @@ func (b *InMemoryBackend) CreateStream(input *CreateStreamInput) error {
 		region = input.Region
 	}
 
-	arn := fmt.Sprintf("arn:aws:kinesis:%s:%s:stream/%s", region, accountID, input.StreamName)
+	streamARN := arn.Build("kinesis", region, accountID, "stream/"+input.StreamName)
 
 	b.streams[input.StreamName] = &Stream{
 		Name:            input.StreamName,
-		ARN:             arn,
+		ARN:             streamARN,
 		Status:          streamStatusActive,
 		Shards:          shards,
 		Tags:            make(map[string]string),
@@ -329,14 +332,7 @@ func (b *InMemoryBackend) GetShardIterator(input *GetShardIteratorInput) (*GetSh
 	}
 
 	// Find the shard
-	var shard *Shard
-	for _, s := range stream.Shards {
-		if s.ID == input.ShardID {
-			shard = s
-
-			break
-		}
-	}
+	shard := findShard(stream.Shards, input.ShardID)
 
 	if shard == nil {
 		return nil, ErrInvalidArgument
@@ -393,6 +389,17 @@ func findSequencePosition(records []*Record, seqNum string, after bool) int {
 	return len(records)
 }
 
+// findShard returns the shard with the given ID from a slice, or nil if not found.
+func findShard(shards []*Shard, shardID string) *Shard {
+	for _, s := range shards {
+		if s.ID == shardID {
+			return s
+		}
+	}
+
+	return nil
+}
+
 // GetRecords retrieves records starting at the given shard iterator position.
 func (b *InMemoryBackend) GetRecords(input *GetRecordsInput) (*GetRecordsOutput, error) {
 	it, err := decodeIterator(input.ShardIterator)
@@ -408,14 +415,7 @@ func (b *InMemoryBackend) GetRecords(input *GetRecordsInput) (*GetRecordsOutput,
 		return nil, ErrStreamNotFound
 	}
 
-	var shard *Shard
-	for _, s := range stream.Shards {
-		if s.ID == it.ShardID {
-			shard = s
-
-			break
-		}
-	}
+	shard := findShard(stream.Shards, it.ShardID)
 
 	if shard == nil {
 		return nil, ErrInvalidArgument

@@ -739,7 +739,7 @@ func TestBackend_InvokeFunction_NoPortAlloc(t *testing.T) {
 	require.NoError(t, bk.CreateFunction(fn))
 
 	_, _, err := bk.InvokeFunction(
-		context.Background(), "invoke-func", lambda.InvocationTypeRequestResponse, []byte("{}"),
+		t.Context(), "invoke-func", lambda.InvocationTypeRequestResponse, []byte("{}"),
 	)
 	assert.ErrorIs(t, err, lambda.ErrLambdaUnavailable)
 }
@@ -760,7 +760,7 @@ func TestBackend_InvokeFunction_NoDocker(t *testing.T) {
 	require.NoError(t, bk.CreateFunction(fn))
 
 	_, _, err = bk.InvokeFunction(
-		context.Background(), "invoke-func", lambda.InvocationTypeRequestResponse, []byte("{}"),
+		t.Context(), "invoke-func", lambda.InvocationTypeRequestResponse, []byte("{}"),
 	)
 	assert.ErrorIs(t, err, lambda.ErrLambdaUnavailable)
 }
@@ -771,7 +771,7 @@ func TestBackend_InvokeFunction_NotFound(t *testing.T) {
 	bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1", nil)
 
 	_, statusCode, err := bk.InvokeFunction(
-		context.Background(), "nonexistent", lambda.InvocationTypeRequestResponse, []byte("{}"),
+		t.Context(), "nonexistent", lambda.InvocationTypeRequestResponse, []byte("{}"),
 	)
 	require.ErrorIs(t, err, lambda.ErrFunctionNotFound)
 	assert.Equal(t, http.StatusNotFound, statusCode)
@@ -784,7 +784,7 @@ func TestBackend_InvokeFunction_DryRun(t *testing.T) {
 	fn := &lambda.FunctionConfiguration{FunctionName: "fn", ImageURI: "img:latest", Timeout: 3}
 	require.NoError(t, bk.CreateFunction(fn))
 
-	_, statusCode, err := bk.InvokeFunction(context.Background(), "fn", lambda.InvocationTypeDryRun, []byte("{}"))
+	_, statusCode, err := bk.InvokeFunction(t.Context(), "fn", lambda.InvocationTypeDryRun, []byte("{}"))
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusNoContent, statusCode)
 }
@@ -797,7 +797,7 @@ func TestRuntimeServer_NextAndResponse(t *testing.T) {
 	port := 18101
 	srv := newTestRuntimeServer(t, port)
 
-	ctx := context.Background()
+	ctx := t.Context()
 	payload := []byte(`{"key":"value"}`)
 
 	// Start an invoke in a goroutine — it will block until the container responds.
@@ -823,9 +823,9 @@ func TestRuntimeServer_NextAndResponse(t *testing.T) {
 	case result := <-resultCh:
 		assert.JSONEq(t, `{"answer":42}`, string(result))
 	case err := <-errCh:
-		t.Fatalf("invoke error: %v", err)
+		require.NoError(t, err, "invoke error")
 	case <-time.After(5 * time.Second):
-		t.Fatal("test timed out")
+		require.FailNow(t, "test timed out")
 	}
 }
 
@@ -835,7 +835,7 @@ func TestRuntimeServer_NextAndError(t *testing.T) {
 	port := 18102
 	srv := newTestRuntimeServer(t, port)
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	resultCh := make(chan []byte, 1)
 	errCh := make(chan error, 1)
@@ -862,9 +862,9 @@ func TestRuntimeServer_NextAndError(t *testing.T) {
 		assert.True(t, isError, "expected isError=true")
 		assert.Contains(t, string(result), "panicked")
 	case err := <-errCh:
-		t.Fatalf("invoke error: %v", err)
+		require.NoError(t, err, "invoke error")
 	case <-time.After(5 * time.Second):
-		t.Fatal("test timed out")
+		require.FailNow(t, "test timed out")
 	}
 }
 
@@ -876,7 +876,7 @@ func TestRuntimeServer_InitError(t *testing.T) {
 
 	// POST /2018-06-01/runtime/init/error should return 202.
 	body := bytes.NewBufferString(`{"errorMessage":"init failed","errorType":"Runtime.ExitError"}`)
-	req, err := http.NewRequestWithContext(context.Background(),
+	req, err := http.NewRequestWithContext(t.Context(),
 		http.MethodPost,
 		fmt.Sprintf("http://127.0.0.1:%d/2018-06-01/runtime/init/error", port),
 		body,
@@ -897,7 +897,7 @@ func TestRuntimeServer_MethodNotAllowed(t *testing.T) {
 	_ = newTestRuntimeServer(t, port)
 
 	// /next only allows GET
-	req, err := http.NewRequestWithContext(context.Background(),
+	req, err := http.NewRequestWithContext(t.Context(),
 		http.MethodPost,
 		fmt.Sprintf("http://127.0.0.1:%d/2018-06-01/runtime/invocation/next", port),
 		nil,
@@ -918,7 +918,7 @@ func TestRuntimeServer_ResponseUnknownRequestID(t *testing.T) {
 	_ = newTestRuntimeServer(t, port)
 
 	body := bytes.NewBufferString(`{"result":"ok"}`)
-	req, err := http.NewRequestWithContext(context.Background(),
+	req, err := http.NewRequestWithContext(t.Context(),
 		http.MethodPost,
 		fmt.Sprintf("http://127.0.0.1:%d/2018-06-01/runtime/invocation/unknown-id/response", port),
 		body,
@@ -938,7 +938,7 @@ func TestRuntimeServer_InvokeTimeout(t *testing.T) {
 	port := 18106
 	srv := newTestRuntimeServer(t, port)
 
-	ctx := context.Background()
+	ctx := t.Context()
 	// Use a very short timeout — no container will call /next.
 	_, _, err := srv.Invoke(ctx, []byte(`{}`), 100*time.Millisecond)
 	require.Error(t, err)
@@ -951,7 +951,7 @@ func TestRuntimeServer_InvokeContextCancelled(t *testing.T) {
 	port := 18107
 	srv := newTestRuntimeServer(t, port)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 
 	errCh := make(chan error, 1)
 
@@ -967,7 +967,7 @@ func TestRuntimeServer_InvokeContextCancelled(t *testing.T) {
 	case err := <-errCh:
 		require.Error(t, err)
 	case <-time.After(2 * time.Second):
-		t.Fatal("expected context cancellation error")
+		require.FailNow(t, "expected context cancellation error")
 	}
 }
 
@@ -995,7 +995,7 @@ func newTestRuntimeServer(t *testing.T, port int) testRuntimeServerIface {
 
 	srv := newPublicRuntimeServer(t, port)
 	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 		defer cancel()
 		srv.Stop(ctx)
 	})
@@ -1018,7 +1018,7 @@ func newPublicRuntimeServer(t *testing.T, port int) *publicRuntimeServer {
 	t.Helper()
 
 	srv := lambda.NewExportedRuntimeServer(port)
-	require.NoError(t, srv.Start(context.Background()))
+	require.NoError(t, srv.Start(t.Context()))
 
 	return &publicRuntimeServer{inner: srv}
 }
@@ -1038,7 +1038,7 @@ func simulateContainerNext(t *testing.T, port int) string {
 	var resp *http.Response
 
 	for range 20 {
-		req, err := http.NewRequestWithContext(context.Background(),
+		req, err := http.NewRequestWithContext(t.Context(),
 			http.MethodGet,
 			fmt.Sprintf("http://127.0.0.1:%d/2018-06-01/runtime/invocation/next", port),
 			nil,
@@ -1073,7 +1073,7 @@ func simulateContainerNext(t *testing.T, port int) string {
 func simulateContainerResponse(t *testing.T, port int, requestID, responseBody string) {
 	t.Helper()
 
-	req, err := http.NewRequestWithContext(context.Background(),
+	req, err := http.NewRequestWithContext(t.Context(),
 		http.MethodPost,
 		fmt.Sprintf("http://127.0.0.1:%d/2018-06-01/runtime/invocation/%s/response", port, requestID),
 		strings.NewReader(responseBody),
@@ -1090,7 +1090,7 @@ func simulateContainerResponse(t *testing.T, port int, requestID, responseBody s
 func simulateContainerError(t *testing.T, port int, requestID, errorBody string) {
 	t.Helper()
 
-	req, err := http.NewRequestWithContext(context.Background(),
+	req, err := http.NewRequestWithContext(t.Context(),
 		http.MethodPost,
 		fmt.Sprintf("http://127.0.0.1:%d/2018-06-01/runtime/invocation/%s/error", port, requestID),
 		strings.NewReader(errorBody),
@@ -1199,7 +1199,7 @@ func TestBackend_InvokeFunction_Event_WithMockDocker(t *testing.T) {
 
 	// Event invocation: fire and forget — no container response needed.
 	_, statusCode, invokeErr := bk.InvokeFunction(
-		context.Background(), "event-fn", lambda.InvocationTypeEvent, []byte(`{}`),
+		t.Context(), "event-fn", lambda.InvocationTypeEvent, []byte(`{}`),
 	)
 	require.NoError(t, invokeErr)
 	assert.Equal(t, http.StatusAccepted, statusCode)
@@ -1222,11 +1222,11 @@ func TestBackend_InvokeFunction_Event_SecondCall_ReuseRuntime(t *testing.T) {
 	require.NoError(t, bk.CreateFunction(fn))
 
 	// Two event invocations — second call reuses the already-started runtime.
-	_, sc1, err1 := bk.InvokeFunction(context.Background(), "reuse-fn", lambda.InvocationTypeEvent, []byte(`{}`))
+	_, sc1, err1 := bk.InvokeFunction(t.Context(), "reuse-fn", lambda.InvocationTypeEvent, []byte(`{}`))
 	require.NoError(t, err1)
 	assert.Equal(t, http.StatusAccepted, sc1)
 
-	_, sc2, err2 := bk.InvokeFunction(context.Background(), "reuse-fn", lambda.InvocationTypeEvent, []byte(`{}`))
+	_, sc2, err2 := bk.InvokeFunction(t.Context(), "reuse-fn", lambda.InvocationTypeEvent, []byte(`{}`))
 	require.NoError(t, err2)
 	assert.Equal(t, http.StatusAccepted, sc2)
 }
@@ -1248,7 +1248,7 @@ func TestBackend_DeleteFunction_WithRuntime(t *testing.T) {
 	require.NoError(t, bk.CreateFunction(fn))
 
 	// Start the runtime first via Event invocation.
-	_, _, _ = bk.InvokeFunction(context.Background(), "delete-with-rt", lambda.InvocationTypeEvent, []byte(`{}`))
+	_, _, _ = bk.InvokeFunction(t.Context(), "delete-with-rt", lambda.InvocationTypeEvent, []byte(`{}`))
 
 	// Delete should clean up the runtime server and release the port.
 	require.NoError(t, bk.DeleteFunction("delete-with-rt"))
@@ -1274,7 +1274,7 @@ func TestBackend_InvokeFunction_RequestResponse_WithMockDocker(t *testing.T) {
 	}
 	require.NoError(t, bk.CreateFunction(fn))
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
 	resultCh := make(chan error, 1)
@@ -1291,7 +1291,7 @@ func TestBackend_InvokeFunction_RequestResponse_WithMockDocker(t *testing.T) {
 	var runtimePort int
 
 	for p := 19500; p < 19550; p++ {
-		req, reqErr := http.NewRequestWithContext(context.Background(),
+		req, reqErr := http.NewRequestWithContext(t.Context(),
 			http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/2018-06-01/runtime/invocation/next", p), nil,
 		)
 		if reqErr != nil {
@@ -1829,4 +1829,76 @@ func TestDeleteAlias_MockBackend_ServiceError(t *testing.T) {
 
 	rec := callHandler(t, h, http.MethodDelete, "/2015-03-31/functions/fn/aliases/v1", "", nil)
 	require.Equal(t, http.StatusInternalServerError, rec.Code)
+}
+
+func TestHandler_TagsRoute_GetEmpty(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newHandler(t)
+	arn := "arn:aws:lambda:us-east-1:000000000000:function:my-fn"
+
+	rec := callHandler(t, h, http.MethodGet, "/2015-03-31/tags/"+arn, "", nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.NotNil(t, resp["Tags"])
+}
+
+func TestHandler_TagsRoute_PostAndGet(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newHandler(t)
+	arn := "arn:aws:lambda:us-east-1:000000000000:function:my-fn"
+	tagsPath := "/2015-03-31/tags/" + arn
+
+	// Add tags.
+	rec := callHandler(t, h, http.MethodPost, tagsPath,
+		`{"Tags":{"env":"prod","team":"infra"}}`, nil)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+
+	// List tags.
+	getRec := callHandler(t, h, http.MethodGet, tagsPath, "", nil)
+	assert.Equal(t, http.StatusOK, getRec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+	tags := resp["Tags"].(map[string]any)
+	assert.Equal(t, "prod", tags["env"])
+	assert.Equal(t, "infra", tags["team"])
+}
+
+func TestHandler_TagsRoute_Delete(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newHandler(t)
+	arn := "arn:aws:lambda:us-east-1:000000000000:function:my-fn"
+	tagsPath := "/2015-03-31/tags/" + arn
+
+	// Add tags first.
+	callHandler(t, h, http.MethodPost, tagsPath,
+		`{"Tags":{"env":"prod","team":"infra"}}`, nil)
+
+	// Delete one tag.
+	rec := callHandler(t, h, http.MethodDelete, tagsPath+"?tagKeys=team", "", nil)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+
+	// Verify only "env" remains.
+	getRec := callHandler(t, h, http.MethodGet, tagsPath, "", nil)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+	tags := resp["Tags"].(map[string]any)
+	assert.Equal(t, "prod", tags["env"])
+	_, hasTeam := tags["team"]
+	assert.False(t, hasTeam)
+}
+
+func TestHandler_TagsRoute_MethodNotAllowed(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newHandler(t)
+	arn := "arn:aws:lambda:us-east-1:000000000000:function:my-fn"
+
+	rec := callHandler(t, h, http.MethodPut, "/2015-03-31/tags/"+arn, "", nil)
+	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
 }

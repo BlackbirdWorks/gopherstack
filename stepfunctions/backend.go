@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/stepfunctions/asl"
 )
 
@@ -57,7 +59,7 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new InMemoryBackend with default configuration.
 func NewInMemoryBackend() *InMemoryBackend {
-	return NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+	return NewInMemoryBackendWithConfig(config.DefaultAccountID, config.DefaultRegion)
 }
 
 // NewInMemoryBackendWithConfig creates a new InMemoryBackend with given account and region.
@@ -87,11 +89,11 @@ func (b *InMemoryBackend) SetLogger(log *slog.Logger) {
 }
 
 func (b *InMemoryBackend) smARN(name string) string {
-	return fmt.Sprintf("arn:aws:states:%s:%s:stateMachine:%s", b.region, b.accountID, name)
+	return arn.Build("states", b.region, b.accountID, "stateMachine:"+name)
 }
 
 func (b *InMemoryBackend) execARN(smName, execName string) string {
-	return fmt.Sprintf("arn:aws:states:%s:%s:execution:%s:%s", b.region, b.accountID, smName, execName)
+	return arn.Build("states", b.region, b.accountID, "execution:"+smName+":"+execName)
 }
 
 // CreateStateMachine creates and stores a new state machine.

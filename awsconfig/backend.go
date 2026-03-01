@@ -1,16 +1,17 @@
 package awsconfig
 
 import (
-	"errors"
 	"fmt"
 	"sync"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
 var (
 	// ErrNotFound is returned when a resource is not found.
-	ErrNotFound = errors.New("NoSuchConfigurationRecorder")
+	ErrNotFound = awserr.New("NoSuchConfigurationRecorder", awserr.ErrNotFound)
 	// ErrAlreadyExists is returned when a resource already exists.
-	ErrAlreadyExists = errors.New("MaxNumberOfConfigurationRecordersExceededException")
+	ErrAlreadyExists = awserr.New("MaxNumberOfConfigurationRecordersExceededException", awserr.ErrAlreadyExists)
 )
 
 // ConfigurationRecorder represents an AWS Config configuration recorder.

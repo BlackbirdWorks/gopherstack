@@ -10,6 +10,7 @@ import (
 	sdk "github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/google/go-cmp/cmp"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -320,9 +321,7 @@ func TestTransactGetItems(t *testing.T) {
 			for i := range out.Responses {
 				actualItem := models.FromSDKItem(out.Responses[i].Item)
 				expectedItem := models.FromSDKItem(tt.expected[i].Item)
-				if diff := cmp.Diff(expectedItem, actualItem); diff != "" {
-					t.Errorf("Response %d mismatch (-want +got):\n%s", i, diff)
-				}
+				assert.Empty(t, cmp.Diff(expectedItem, actualItem), "Response %d mismatch", i)
 			}
 		})
 	}

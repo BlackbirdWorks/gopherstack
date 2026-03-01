@@ -36,6 +36,7 @@ func (m *MockService) MatchPriority() int                      { return m.priori
 
 func TestRegistry(t *testing.T) {
 	t.Parallel()
+
 	logger := slog.Default()
 	reg := service.NewRegistry(logger)
 
@@ -53,6 +54,7 @@ func TestRegistry(t *testing.T) {
 
 func TestRegistryMiddleware(t *testing.T) {
 	t.Parallel()
+
 	reg := service.NewRegistry(slog.Default())
 
 	var called bool
@@ -81,6 +83,7 @@ func TestRegistryMiddleware(t *testing.T) {
 
 func TestRouter(t *testing.T) {
 	t.Parallel()
+
 	reg := service.NewRegistry(slog.Default())
 
 	s1 := &MockService{name: "S1", priority: 10, matched: false}
@@ -93,7 +96,6 @@ func TestRouter(t *testing.T) {
 
 	router := service.NewServiceRouter(reg)
 
-	// Verify routing
 	e := echo.New()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
@@ -110,6 +112,7 @@ func TestRouter(t *testing.T) {
 
 func TestRouterFallback(t *testing.T) {
 	t.Parallel()
+
 	reg := service.NewRegistry(slog.Default())
 	s1 := &MockService{name: "S1", matched: false}
 	_ = reg.Register(s1)

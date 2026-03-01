@@ -17,6 +17,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
+// createBucketConfiguration is the XML body of a CreateBucket request.
+type createBucketConfiguration struct {
+	LocationConstraint string `xml:"LocationConstraint"`
+}
+
 func (h *S3Handler) handleBucketOperation(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -271,11 +276,9 @@ func (h *S3Handler) createBucket(
 	}
 
 	if len(body) > 0 {
-		var config struct {
-			LocationConstraint string `xml:"LocationConstraint"`
-		}
-		if xmlErr := xml.Unmarshal(body, &config); xmlErr == nil {
-			region = config.LocationConstraint
+		var bucketConfig createBucketConfiguration
+		if xmlErr := xml.Unmarshal(body, &bucketConfig); xmlErr == nil {
+			region = bucketConfig.LocationConstraint
 		} else {
 			log.WarnContext(ctx, "failed to parse CreateBucketConfiguration", "error", xmlErr)
 		}
@@ -421,15 +424,7 @@ func (h *S3Handler) listObjects(
 
 	// Apply marker: skip all keys <= marker
 	if marker != "" {
-		start := len(objects)
-		for i, obj := range objects {
-			if *obj.Key > marker {
-				start = i
-
-				break
-			}
-		}
-		objects = objects[start:]
+		objects = objects[findFirstIndexAfterMarker(objects, marker):]
 	}
 
 	isTruncated := false
@@ -1044,4 +1039,16 @@ func (h *S3Handler) getObjectLockConfiguration(
 	w.Header().Set("Content-Type", "application/xml")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(configXML)) //nolint:gosec // G705: writing HTTP response is intentional
+}
+
+// findFirstIndexAfterMarker returns the index of the first object whose key
+// is strictly greater than marker. Returns len(objects) if no such object exists.
+func findFirstIndexAfterMarker(objects []types.Object, marker string) int {
+	for i, obj := range objects {
+		if *obj.Key > marker {
+			return i
+		}
+	}
+
+	return len(objects)
 }

@@ -13,7 +13,6 @@ import (
 )
 
 const (
-	s3ControlMatchPriority = 85
 	// defaultAccountID is used when no account ID is provided in the request header.
 	defaultAccountID = "default"
 )
@@ -49,7 +48,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 }
 
 // MatchPriority returns the routing priority.
-func (h *Handler) MatchPriority() int { return s3ControlMatchPriority }
+func (h *Handler) MatchPriority() int { return service.PriorityPathVersioned }
 
 // ExtractOperation extracts the S3 Control operation from the request.
 func (h *Handler) ExtractOperation(c *echo.Context) string {

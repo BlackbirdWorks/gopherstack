@@ -9,75 +9,147 @@ import (
 	"github.com/blackbirdworks/gopherstack/resourcegroups"
 )
 
-func TestResourceGroups_CreateGroup(t *testing.T) {
+func TestResourceGroupsCreateGroup(t *testing.T) {
 	t.Parallel()
 
-	b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
-	g, err := b.CreateGroup("my-group", "test description", nil)
-	require.NoError(t, err)
-	assert.Equal(t, "my-group", g.Name)
-	assert.Contains(t, g.ARN, "arn:aws:resource-groups:")
-	assert.Equal(t, "test description", g.Description)
+	tests := []struct {
+		wantErr     error
+		setup       func(b *resourcegroups.InMemoryBackend)
+		tags        map[string]string
+		name        string
+		groupName   string
+		description string
+	}{
+		{
+			name:        "success",
+			groupName:   "my-group",
+			description: "test description",
+		},
+		{
+			name:      "already_exists",
+			groupName: "my-group",
+			setup: func(b *resourcegroups.InMemoryBackend) {
+				_, _ = b.CreateGroup("my-group", "", nil)
+			},
+			wantErr: resourcegroups.ErrAlreadyExists,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+			g, err := b.CreateGroup(tt.groupName, tt.description, tt.tags)
+			if tt.wantErr != nil {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.groupName, g.Name)
+			assert.Contains(t, g.ARN, "arn:aws:resource-groups:")
+			assert.Equal(t, tt.description, g.Description)
+		})
+	}
 }
 
-func TestResourceGroups_CreateGroup_AlreadyExists(t *testing.T) {
+func TestResourceGroupsDeleteGroup(t *testing.T) {
 	t.Parallel()
 
-	b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateGroup("my-group", "", nil)
-	require.NoError(t, err)
+	tests := []struct {
+		wantErr   error
+		setup     func(b *resourcegroups.InMemoryBackend)
+		name      string
+		groupName string
+	}{
+		{
+			name:      "success",
+			groupName: "my-group",
+			setup: func(b *resourcegroups.InMemoryBackend) {
+				_, _ = b.CreateGroup("my-group", "", nil)
+			},
+		},
+		{
+			name:      "not_found",
+			groupName: "nonexistent",
+			wantErr:   resourcegroups.ErrNotFound,
+		},
+	}
 
-	_, err = b.CreateGroup("my-group", "", nil)
-	require.Error(t, err)
-	assert.ErrorIs(t, err, resourcegroups.ErrAlreadyExists)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+			err := b.DeleteGroup(tt.groupName)
+			if tt.wantErr != nil {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+			require.NoError(t, err)
+			groups := b.ListGroups()
+			assert.Empty(t, groups)
+		})
+	}
 }
 
-func TestResourceGroups_DeleteGroup(t *testing.T) {
+func TestResourceGroupsGetGroup(t *testing.T) {
 	t.Parallel()
 
-	b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateGroup("my-group", "", nil)
-	require.NoError(t, err)
+	tests := []struct {
+		name      string
+		setup     func(b *resourcegroups.InMemoryBackend)
+		groupName string
+		wantErr   error
+		wantTag   string
+	}{
+		{
+			name:      "success",
+			groupName: "my-group",
+			setup: func(b *resourcegroups.InMemoryBackend) {
+				_, _ = b.CreateGroup("my-group", "desc", map[string]string{"env": "test"})
+			},
+			wantTag: "test",
+		},
+		{
+			name:      "not_found",
+			groupName: "nonexistent",
+			wantErr:   resourcegroups.ErrNotFound,
+		},
+	}
 
-	err = b.DeleteGroup("my-group")
-	require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+			g, err := b.GetGroup(tt.groupName)
+			if tt.wantErr != nil {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.wantErr)
 
-	groups := b.ListGroups()
-	assert.Empty(t, groups)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.groupName, g.Name)
+			if tt.wantTag != "" {
+				assert.Equal(t, tt.wantTag, g.Tags["env"])
+			}
+		})
+	}
 }
 
-func TestResourceGroups_DeleteGroup_NotFound(t *testing.T) {
-	t.Parallel()
-
-	b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
-	err := b.DeleteGroup("nonexistent")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, resourcegroups.ErrNotFound)
-}
-
-func TestResourceGroups_GetGroup(t *testing.T) {
-	t.Parallel()
-
-	b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateGroup("my-group", "desc", map[string]string{"env": "test"})
-	require.NoError(t, err)
-
-	g, err := b.GetGroup("my-group")
-	require.NoError(t, err)
-	assert.Equal(t, "my-group", g.Name)
-	assert.Equal(t, "test", g.Tags["env"])
-}
-
-func TestResourceGroups_GetGroup_NotFound(t *testing.T) {
-	t.Parallel()
-
-	b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.GetGroup("nonexistent")
-	require.Error(t, err)
-	assert.ErrorIs(t, err, resourcegroups.ErrNotFound)
-}
-
-func TestResourceGroups_ListGroups(t *testing.T) {
+func TestResourceGroupsListGroups(t *testing.T) {
 	t.Parallel()
 
 	b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")

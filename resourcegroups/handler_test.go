@@ -54,23 +54,56 @@ func doResourceGroupsRequest(
 	return rec
 }
 
-func TestResourceGroups_Handler_CreateGroup(t *testing.T) {
+func TestResourceGroupsHandler_CreateGroup(t *testing.T) {
 	t.Parallel()
 
-	h := newTestResourceGroupsHandler(t)
+	tests := []struct {
+		setup        func(t *testing.T, h *resourcegroups.Handler)
+		name         string
+		groupName    string
+		description  string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name:         "success",
+			groupName:    "my-group",
+			description:  "test group",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"Group"},
+		},
+		{
+			name:      "duplicate",
+			groupName: "my-group",
+			setup: func(t *testing.T, h *resourcegroups.Handler) {
+				t.Helper()
+				doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{"Name": "my-group"})
+			},
+			wantCode: http.StatusBadRequest,
+		},
+	}
 
-	rec := doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{
-		"Name":        "my-group",
-		"Description": "test group",
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Contains(t, resp, "Group")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestResourceGroupsHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+			body := map[string]any{"Name": tt.groupName}
+			if tt.description != "" {
+				body["Description"] = tt.description
+			}
+			rec := doResourceGroupsRequest(t, h, "CreateGroup", body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+		})
+	}
 }
 
-func TestResourceGroups_Handler_ListGroups(t *testing.T) {
+func TestResourceGroupsHandler_ListGroups(t *testing.T) {
 	t.Parallel()
 
 	h := newTestResourceGroupsHandler(t)
@@ -79,83 +112,149 @@ func TestResourceGroups_Handler_ListGroups(t *testing.T) {
 
 	rec := doResourceGroupsRequest(t, h, "ListGroups", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Contains(t, resp, "GroupIdentifiers")
+	assert.Contains(t, rec.Body.String(), "GroupIdentifiers")
 }
 
-func TestResourceGroups_Handler_GetGroup(t *testing.T) {
+func TestResourceGroupsHandler_GetGroup(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(t *testing.T, h *resourcegroups.Handler)
+		name         string
+		groupName    string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name:      "success",
+			groupName: "my-group",
+			setup: func(t *testing.T, h *resourcegroups.Handler) {
+				t.Helper()
+				doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{"Name": "my-group"})
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"Group"},
+		},
+		{
+			name:      "not_found",
+			groupName: "nonexistent",
+			wantCode:  http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestResourceGroupsHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+			rec := doResourceGroupsRequest(t, h, "GetGroup", map[string]any{"GroupName": tt.groupName})
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
+func TestResourceGroupsHandler_DeleteGroup(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		setup     func(t *testing.T, h *resourcegroups.Handler)
+		groupName string
+		wantCode  int
+	}{
+		{
+			name:      "success",
+			groupName: "my-group",
+			setup: func(t *testing.T, h *resourcegroups.Handler) {
+				t.Helper()
+				doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{"Name": "my-group"})
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:      "not_found",
+			groupName: "nonexistent",
+			wantCode:  http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestResourceGroupsHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+			rec := doResourceGroupsRequest(t, h, "DeleteGroup", map[string]any{"GroupName": tt.groupName})
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestResourceGroupsHandler_UnknownAction(t *testing.T) {
 	t.Parallel()
 
 	h := newTestResourceGroupsHandler(t)
-	doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{"Name": "my-group"})
-
-	rec := doResourceGroupsRequest(t, h, "GetGroup", map[string]any{"GroupName": "my-group"})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Contains(t, resp, "Group")
-}
-
-func TestResourceGroups_Handler_GetGroup_NotFound(t *testing.T) {
-	t.Parallel()
-
-	h := newTestResourceGroupsHandler(t)
-
-	rec := doResourceGroupsRequest(t, h, "GetGroup", map[string]any{"GroupName": "nonexistent"})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestResourceGroups_Handler_DeleteGroup(t *testing.T) {
-	t.Parallel()
-
-	h := newTestResourceGroupsHandler(t)
-	doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{"Name": "my-group"})
-
-	rec := doResourceGroupsRequest(t, h, "DeleteGroup", map[string]any{"GroupName": "my-group"})
-	assert.Equal(t, http.StatusOK, rec.Code)
-}
-
-func TestResourceGroups_Handler_UnknownAction(t *testing.T) {
-	t.Parallel()
-
-	h := newTestResourceGroupsHandler(t)
-
 	rec := doResourceGroupsRequest(t, h, "UnknownAction", nil)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-func TestResourceGroups_Handler_RouteMatcher(t *testing.T) {
+func TestResourceGroupsHandler_RouteMatcher(t *testing.T) {
 	t.Parallel()
 
-	h := newTestResourceGroupsHandler(t)
-	matcher := h.RouteMatcher()
+	tests := []struct {
+		name   string
+		target string
+		want   bool
+	}{
+		{
+			name:   "match",
+			target: "ResourceGroups.ListGroups",
+			want:   true,
+		},
+		{
+			name:   "no_match",
+			target: "Kinesis_20131202.CreateStream",
+			want:   false,
+		},
+	}
 
-	e := echo.New()
-	req := httptest.NewRequest(http.MethodPost, "/", nil)
-	req.Header.Set("X-Amz-Target", "ResourceGroups.ListGroups")
-	c := e.NewContext(req, httptest.NewRecorder())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestResourceGroupsHandler(t)
+			matcher := h.RouteMatcher()
 
-	assert.True(t, matcher(c))
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodPost, "/", nil)
+			req.Header.Set("X-Amz-Target", tt.target)
+			c := e.NewContext(req, httptest.NewRecorder())
+
+			assert.Equal(t, tt.want, matcher(c))
+		})
+	}
 }
 
-func TestResourceGroups_Provider(t *testing.T) {
+func TestResourceGroupsHandler_ProviderName(t *testing.T) {
 	t.Parallel()
 
 	p := &resourcegroups.Provider{}
 	assert.Equal(t, "ResourceGroups", p.Name())
 }
 
-func TestResourceGroups_Handler_Name(t *testing.T) {
+func TestResourceGroupsHandler_HandlerName(t *testing.T) {
 	t.Parallel()
 
 	h := newTestResourceGroupsHandler(t)
 	assert.Equal(t, "ResourceGroups", h.Name())
 }
 
-func TestResourceGroups_Handler_GetSupportedOperations(t *testing.T) {
+func TestResourceGroupsHandler_GetSupportedOperations(t *testing.T) {
 	t.Parallel()
 
 	h := newTestResourceGroupsHandler(t)
@@ -166,81 +265,82 @@ func TestResourceGroups_Handler_GetSupportedOperations(t *testing.T) {
 	assert.Contains(t, ops, "GetGroup")
 }
 
-func TestResourceGroups_Handler_MatchPriority(t *testing.T) {
+func TestResourceGroupsHandler_MatchPriority(t *testing.T) {
 	t.Parallel()
 
 	h := newTestResourceGroupsHandler(t)
 	assert.Equal(t, 100, h.MatchPriority())
 }
 
-func TestResourceGroups_Handler_ExtractOperation(t *testing.T) {
+func TestResourceGroupsHandler_ExtractOperation(t *testing.T) {
 	t.Parallel()
 
-	h := newTestResourceGroupsHandler(t)
-	e := echo.New()
+	tests := []struct {
+		name   string
+		target string
+		want   string
+	}{
+		{
+			name:   "with_target",
+			target: "ResourceGroups.CreateGroup",
+			want:   "CreateGroup",
+		},
+		{
+			name: "no_target",
+			want: "Unknown",
+		},
+	}
 
-	req := httptest.NewRequest(http.MethodPost, "/", nil)
-	req.Header.Set("X-Amz-Target", "ResourceGroups.CreateGroup")
-	c := e.NewContext(req, httptest.NewRecorder())
-	assert.Equal(t, "CreateGroup", h.ExtractOperation(c))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestResourceGroupsHandler(t)
+			e := echo.New()
 
-	// No target → "Unknown"
-	req2 := httptest.NewRequest(http.MethodPost, "/", nil)
-	c2 := e.NewContext(req2, httptest.NewRecorder())
-	assert.Equal(t, "Unknown", h.ExtractOperation(c2))
+			req := httptest.NewRequest(http.MethodPost, "/", nil)
+			if tt.target != "" {
+				req.Header.Set("X-Amz-Target", tt.target)
+			}
+			c := e.NewContext(req, httptest.NewRecorder())
+			assert.Equal(t, tt.want, h.ExtractOperation(c))
+		})
+	}
 }
 
-func TestResourceGroups_Handler_ExtractResource(t *testing.T) {
+func TestResourceGroupsHandler_ExtractResource(t *testing.T) {
 	t.Parallel()
 
-	h := newTestResourceGroupsHandler(t)
-	e := echo.New()
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "name_field",
+			body: `{"Name":"my-group"}`,
+			want: "my-group",
+		},
+		{
+			name: "group_name_field",
+			body: `{"GroupName":"other-group"}`,
+			want: "other-group",
+		},
+	}
 
-	// Name field (CreateGroup)
-	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"Name":"my-group"}`))
-	c := e.NewContext(req, httptest.NewRecorder())
-	assert.Equal(t, "my-group", h.ExtractResource(c))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestResourceGroupsHandler(t)
+			e := echo.New()
 
-	// GroupName field (GetGroup/DeleteGroup)
-	req2 := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"GroupName":"other-group"}`))
-	c2 := e.NewContext(req2, httptest.NewRecorder())
-	assert.Equal(t, "other-group", h.ExtractResource(c2))
+			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tt.body))
+			c := e.NewContext(req, httptest.NewRecorder())
+			assert.Equal(t, tt.want, h.ExtractResource(c))
+		})
+	}
 }
 
-func TestResourceGroups_Handler_CreateGroup_Duplicate(t *testing.T) {
-	t.Parallel()
-
-	h := newTestResourceGroupsHandler(t)
-	doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{"Name": "my-group"})
-
-	rec := doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{"Name": "my-group"})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestResourceGroups_Handler_DeleteGroup_NotFound(t *testing.T) {
-	t.Parallel()
-
-	h := newTestResourceGroupsHandler(t)
-
-	rec := doResourceGroupsRequest(t, h, "DeleteGroup", map[string]any{"GroupName": "nonexistent"})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestResourceGroups_Handler_RouteMatcher_NoMatch(t *testing.T) {
-	t.Parallel()
-
-	h := newTestResourceGroupsHandler(t)
-	matcher := h.RouteMatcher()
-
-	e := echo.New()
-	req := httptest.NewRequest(http.MethodPost, "/", nil)
-	req.Header.Set("X-Amz-Target", "Kinesis_20131202.CreateStream")
-	c := e.NewContext(req, httptest.NewRecorder())
-
-	assert.False(t, matcher(c))
-}
-
-func TestResourceGroups_Provider_Init(t *testing.T) {
+func TestResourceGroupsHandler_ProviderInit(t *testing.T) {
 	t.Parallel()
 
 	p := &resourcegroups.Provider{}

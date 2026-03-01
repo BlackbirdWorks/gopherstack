@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/dynamodb/models"
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/google/uuid"
 
@@ -50,7 +51,7 @@ func (db *InMemoryDB) CreateTable(
 	newTable := newTableFromCreateInput(tableName, input)
 	newTable.TableID = uuid.New().String()
 	newTable.CreationDateTime = time.Now()
-	newTable.TableArn = fmt.Sprintf("arn:aws:dynamodb:%s:%s:table/%s", region, db.accountID, tableName)
+	newTable.TableArn = arn.Build("dynamodb", region, db.accountID, "table/"+tableName)
 
 	if input.StreamSpecification != nil && aws.ToBool(input.StreamSpecification.StreamEnabled) {
 		newTable.StreamsEnabled = true
@@ -467,7 +468,7 @@ func applyGSIUpdate(table *Table, u *types.UpdateGlobalSecondaryIndexAction) {
 				WriteCapacityUnits: u.ProvisionedThroughput.WriteCapacityUnits,
 			}
 
-			break
+			return
 		}
 	}
 }
@@ -631,20 +632,14 @@ func (db *InMemoryDB) ListTables(
 	startName := aws.ToString(input.ExclusiveStartTableName)
 	startIndex := 0
 	if startName != "" {
-		found := false
-		for i, name := range names {
-			if name > startName {
-				startIndex = i
-				found = true
-
-				break
-			}
-		}
+		idx, found := findStartIndex(names, startName)
 		if !found {
 			return &dynamodb.ListTablesOutput{
 				TableNames: []string{},
 			}, nil
 		}
+
+		startIndex = idx
 	}
 
 	names = names[startIndex:]
@@ -669,4 +664,16 @@ func (db *InMemoryDB) ListTables(
 	}
 
 	return out, nil
+}
+
+// findStartIndex returns the index of the first name strictly greater than after,
+// and whether such a name exists.
+func findStartIndex(names []string, after string) (int, bool) {
+	for i, name := range names {
+		if name > after {
+			return i, true
+		}
+	}
+
+	return 0, false
 }
