@@ -77,119 +77,116 @@ func TestRoute53Handler(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		run  func(t *testing.T)
+		name         string
+		method       string
+		path         string
+		body         string
+		wantCode     int
+		wantContains []string
 	}{
 		{
-			name: "CreateHostedZone",
-			run: func(t *testing.T) {
-				h := newHandler(t)
-				rec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", createZoneXML)
-				assert.Equal(t, http.StatusCreated, rec.Code)
-				assert.Contains(t, rec.Body.String(), "example.com")
-				assert.Contains(t, rec.Body.String(), "INSYNC")
-			},
+			name:         "CreateHostedZone",
+			method:       http.MethodPost,
+			path:         "/2013-04-01/hostedzone",
+			body:         createZoneXML,
+			wantCode:     http.StatusCreated,
+			wantContains: []string{"example.com", "INSYNC"},
 		},
 		{
-			name: "CreateHostedZone_MissingName",
-			run: func(t *testing.T) {
-				h := newHandler(t)
-				body := `<?xml version="1.0"?>
+			name:   "CreateHostedZone_MissingName",
+			method: http.MethodPost,
+			path:   "/2013-04-01/hostedzone",
+			body: `<?xml version="1.0"?>
 <CreateHostedZoneRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
   <Name></Name>
   <CallerReference>ref-1</CallerReference>
-</CreateHostedZoneRequest>`
-				rec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", body)
-				assert.Equal(t, http.StatusBadRequest, rec.Code)
-			},
+</CreateHostedZoneRequest>`,
+			wantCode: http.StatusBadRequest,
 		},
 		{
-			name: "CreateHostedZone_MissingCallerRef",
-			run: func(t *testing.T) {
-				h := newHandler(t)
-				body := `<?xml version="1.0"?>
+			name:   "CreateHostedZone_MissingCallerRef",
+			method: http.MethodPost,
+			path:   "/2013-04-01/hostedzone",
+			body: `<?xml version="1.0"?>
 <CreateHostedZoneRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
   <Name>example.com</Name>
   <CallerReference></CallerReference>
-</CreateHostedZoneRequest>`
-				rec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", body)
-				assert.Equal(t, http.StatusBadRequest, rec.Code)
-			},
+</CreateHostedZoneRequest>`,
+			wantCode: http.StatusBadRequest,
 		},
 		{
-			name: "ListHostedZones_Empty",
-			run: func(t *testing.T) {
-				h := newHandler(t)
-				rec := send(t, h, http.MethodGet, "/2013-04-01/hostedzone", "")
-				assert.Equal(t, http.StatusOK, rec.Code)
-				assert.Contains(t, rec.Body.String(), "ListHostedZonesResponse")
-			},
+			name:         "ListHostedZones_Empty",
+			method:       http.MethodGet,
+			path:         "/2013-04-01/hostedzone",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"ListHostedZonesResponse"},
 		},
 		{
-			name: "ListHostedZones_AfterCreate",
-			run: func(t *testing.T) {
-				h := newHandler(t)
-				send(t, h, http.MethodPost, "/2013-04-01/hostedzone", createZoneXML)
-				rec := send(t, h, http.MethodGet, "/2013-04-01/hostedzone", "")
-				assert.Equal(t, http.StatusOK, rec.Code)
-				assert.Contains(t, rec.Body.String(), "example.com")
-			},
+			name:     "GetHostedZone_NotFound",
+			method:   http.MethodGet,
+			path:     "/2013-04-01/hostedzone/ZNONEXISTENT",
+			wantCode: http.StatusNotFound,
 		},
 		{
-			name: "GetHostedZone",
-			run: func(t *testing.T) {
-				h := newHandler(t)
-				rec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", createZoneXML)
-				require.Equal(t, http.StatusCreated, rec.Code)
+			name:     "DeleteHostedZone_NotFound",
+			method:   http.MethodDelete,
+			path:     "/2013-04-01/hostedzone/ZNONEXISTENT",
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "ListResourceRecordSets_NotFound",
+			method:   http.MethodGet,
+			path:     "/2013-04-01/hostedzone/ZNONEXISTENT/rrset",
+			wantCode: http.StatusNotFound,
+		},
+	}
 
-				zoneID := extractZoneID(t, rec.Body.String())
-				getRec := send(t, h, http.MethodGet, "/2013-04-01/hostedzone/"+zoneID, "")
-				assert.Equal(t, http.StatusOK, getRec.Code)
-				assert.Contains(t, getRec.Body.String(), "example.com")
-			},
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler(t)
+			rec := send(t, h, tt.method, tt.path, tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
+func TestRoute53Handler_WithZone(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		setupBody    string // optional: XML body to POST to rrset endpoint after creating zone
+		method       string
+		path         string // may contain {zoneID} placeholder
+		body         string
+		wantCode     int
+		wantContains []string
+	}{
+		{
+			name:         "ListHostedZones_AfterCreate",
+			method:       http.MethodGet,
+			path:         "/2013-04-01/hostedzone",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"example.com"},
 		},
 		{
-			name: "GetHostedZone_NotFound",
-			run: func(t *testing.T) {
-				h := newHandler(t)
-				rec := send(t, h, http.MethodGet, "/2013-04-01/hostedzone/ZNONEXISTENT", "")
-				assert.Equal(t, http.StatusNotFound, rec.Code)
-			},
+			name:         "GetHostedZone",
+			method:       http.MethodGet,
+			path:         "/2013-04-01/hostedzone/{zoneID}",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"example.com"},
 		},
 		{
-			name: "DeleteHostedZone",
-			run: func(t *testing.T) {
-				h := newHandler(t)
-				rec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", createZoneXML)
-				require.Equal(t, http.StatusCreated, rec.Code)
-
-				zoneID := extractZoneID(t, rec.Body.String())
-				delRec := send(t, h, http.MethodDelete, "/2013-04-01/hostedzone/"+zoneID, "")
-				assert.Equal(t, http.StatusOK, delRec.Code)
-
-				// Zone should no longer be found.
-				getRec := send(t, h, http.MethodGet, "/2013-04-01/hostedzone/"+zoneID, "")
-				assert.Equal(t, http.StatusNotFound, getRec.Code)
-			},
-		},
-		{
-			name: "DeleteHostedZone_NotFound",
-			run: func(t *testing.T) {
-				h := newHandler(t)
-				rec := send(t, h, http.MethodDelete, "/2013-04-01/hostedzone/ZNONEXISTENT", "")
-				assert.Equal(t, http.StatusNotFound, rec.Code)
-			},
-		},
-		{
-			name: "ChangeResourceRecordSets_CreateA",
-			run: func(t *testing.T) {
-				h := newHandler(t)
-				rec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", createZoneXML)
-				require.Equal(t, http.StatusCreated, rec.Code)
-
-				zoneID := extractZoneID(t, rec.Body.String())
-
-				changeXML := `<?xml version="1.0" encoding="UTF-8"?>
+			name:   "ChangeResourceRecordSets_CreateA",
+			method: http.MethodPost,
+			path:   "/2013-04-01/hostedzone/{zoneID}/rrset",
+			body: `<?xml version="1.0" encoding="UTF-8"?>
 <ChangeResourceRecordSetsRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
   <ChangeBatch>
     <Changes>
@@ -206,23 +203,15 @@ func TestRoute53Handler(t *testing.T) {
       </Change>
     </Changes>
   </ChangeBatch>
-</ChangeResourceRecordSetsRequest>`
-
-				changeRec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone/"+zoneID+"/rrset", changeXML)
-				assert.Equal(t, http.StatusOK, changeRec.Code)
-				assert.Contains(t, changeRec.Body.String(), "INSYNC")
-			},
+</ChangeResourceRecordSetsRequest>`,
+			wantCode:     http.StatusOK,
+			wantContains: []string{"INSYNC"},
 		},
 		{
-			name: "ChangeResourceRecordSets_CreateCNAME",
-			run: func(t *testing.T) {
-				h := newHandler(t)
-				rec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", createZoneXML)
-				require.Equal(t, http.StatusCreated, rec.Code)
-
-				zoneID := extractZoneID(t, rec.Body.String())
-
-				changeXML := `<?xml version="1.0" encoding="UTF-8"?>
+			name:   "ChangeResourceRecordSets_CreateCNAME",
+			method: http.MethodPost,
+			path:   "/2013-04-01/hostedzone/{zoneID}/rrset",
+			body: `<?xml version="1.0" encoding="UTF-8"?>
 <ChangeResourceRecordSetsRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
   <ChangeBatch>
     <Changes>
@@ -239,23 +228,89 @@ func TestRoute53Handler(t *testing.T) {
       </Change>
     </Changes>
   </ChangeBatch>
-</ChangeResourceRecordSetsRequest>`
-
-				changeRec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone/"+zoneID+"/rrset", changeXML)
-				assert.Equal(t, http.StatusOK, changeRec.Code)
-			},
+</ChangeResourceRecordSetsRequest>`,
+			wantCode: http.StatusOK,
 		},
 		{
-			name: "ChangeResourceRecordSets_Upsert",
-			run: func(t *testing.T) {
-				h := newHandler(t)
-				rec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", createZoneXML)
-				require.Equal(t, http.StatusCreated, rec.Code)
+			name: "ListResourceRecordSets",
+			setupBody: `<?xml version="1.0" encoding="UTF-8"?>
+<ChangeResourceRecordSetsRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <ChangeBatch>
+    <Changes>
+      <Change>
+        <Action>CREATE</Action>
+        <ResourceRecordSet>
+          <Name>api.example.com</Name>
+          <Type>A</Type>
+          <TTL>300</TTL>
+          <ResourceRecords>
+            <ResourceRecord><Value>10.0.0.1</Value></ResourceRecord>
+          </ResourceRecords>
+        </ResourceRecordSet>
+      </Change>
+    </Changes>
+  </ChangeBatch>
+</ChangeResourceRecordSetsRequest>`,
+			method:       http.MethodGet,
+			path:         "/2013-04-01/hostedzone/{zoneID}/rrset",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"api.example.com", "10.0.0.1"},
+		},
+	}
 
-				zoneID := extractZoneID(t, rec.Body.String())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-				makeChange := func(action, ip string) string {
-					return `<?xml version="1.0" encoding="UTF-8"?>
+			h := newHandler(t)
+			rec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", createZoneXML)
+			require.Equal(t, http.StatusCreated, rec.Code)
+
+			zoneID := extractZoneID(t, rec.Body.String())
+
+			if tt.setupBody != "" {
+				setupRec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone/"+zoneID+"/rrset", tt.setupBody)
+				require.Equal(t, http.StatusOK, setupRec.Code)
+			}
+
+			path := strings.Replace(tt.path, "{zoneID}", zoneID, 1)
+			got := send(t, h, tt.method, path, tt.body)
+			assert.Equal(t, tt.wantCode, got.Code)
+
+			for _, s := range tt.wantContains {
+				assert.Contains(t, got.Body.String(), s)
+			}
+		})
+	}
+}
+
+func TestRoute53Handler_DeleteHostedZone(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler(t)
+	rec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", createZoneXML)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	zoneID := extractZoneID(t, rec.Body.String())
+	delRec := send(t, h, http.MethodDelete, "/2013-04-01/hostedzone/"+zoneID, "")
+	assert.Equal(t, http.StatusOK, delRec.Code)
+
+	// Zone should no longer be found.
+	getRec := send(t, h, http.MethodGet, "/2013-04-01/hostedzone/"+zoneID, "")
+	assert.Equal(t, http.StatusNotFound, getRec.Code)
+}
+
+func TestRoute53Handler_ChangeResourceRecordSets_Upsert(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler(t)
+	rec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", createZoneXML)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	zoneID := extractZoneID(t, rec.Body.String())
+
+	makeChange := func(action, ip string) string {
+		return `<?xml version="1.0" encoding="UTF-8"?>
 <ChangeResourceRecordSetsRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
   <ChangeBatch>
     <Changes>
@@ -273,31 +328,31 @@ func TestRoute53Handler(t *testing.T) {
     </Changes>
   </ChangeBatch>
 </ChangeResourceRecordSetsRequest>`
-				}
+	}
 
-				// Create initial record.
-				r1 := send(t, h, http.MethodPost, "/2013-04-01/hostedzone/"+zoneID+"/rrset", makeChange("CREATE", "1.2.3.4"))
-				require.Equal(t, http.StatusOK, r1.Code)
+	// Create initial record.
+	r1 := send(t, h, http.MethodPost, "/2013-04-01/hostedzone/"+zoneID+"/rrset", makeChange("CREATE", "1.2.3.4"))
+	require.Equal(t, http.StatusOK, r1.Code)
 
-				// Upsert (update) the record.
-				r2 := send(t, h, http.MethodPost, "/2013-04-01/hostedzone/"+zoneID+"/rrset", makeChange("UPSERT", "5.6.7.8"))
-				require.Equal(t, http.StatusOK, r2.Code)
+	// Upsert (update) the record.
+	r2 := send(t, h, http.MethodPost, "/2013-04-01/hostedzone/"+zoneID+"/rrset", makeChange("UPSERT", "5.6.7.8"))
+	require.Equal(t, http.StatusOK, r2.Code)
 
-				// Verify list shows updated IP.
-				listRec := send(t, h, http.MethodGet, "/2013-04-01/hostedzone/"+zoneID+"/rrset", "")
-				assert.Contains(t, listRec.Body.String(), "5.6.7.8")
-			},
-		},
-		{
-			name: "ChangeResourceRecordSets_Delete",
-			run: func(t *testing.T) {
-				h := newHandler(t)
-				rec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", createZoneXML)
-				require.Equal(t, http.StatusCreated, rec.Code)
+	// Verify list shows updated IP.
+	listRec := send(t, h, http.MethodGet, "/2013-04-01/hostedzone/"+zoneID+"/rrset", "")
+	assert.Contains(t, listRec.Body.String(), "5.6.7.8")
+}
 
-				zoneID := extractZoneID(t, rec.Body.String())
+func TestRoute53Handler_ChangeResourceRecordSets_Delete(t *testing.T) {
+	t.Parallel()
 
-				createXML := `<?xml version="1.0" encoding="UTF-8"?>
+	h := newHandler(t)
+	rec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", createZoneXML)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	zoneID := extractZoneID(t, rec.Body.String())
+
+	createXML := `<?xml version="1.0" encoding="UTF-8"?>
 <ChangeResourceRecordSetsRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
   <ChangeBatch>
     <Changes>
@@ -316,9 +371,9 @@ func TestRoute53Handler(t *testing.T) {
   </ChangeBatch>
 </ChangeResourceRecordSetsRequest>`
 
-				send(t, h, http.MethodPost, "/2013-04-01/hostedzone/"+zoneID+"/rrset", createXML)
+	send(t, h, http.MethodPost, "/2013-04-01/hostedzone/"+zoneID+"/rrset", createXML)
 
-				deleteXML := `<?xml version="1.0" encoding="UTF-8"?>
+	deleteXML := `<?xml version="1.0" encoding="UTF-8"?>
 <ChangeResourceRecordSetsRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
   <ChangeBatch>
     <Changes>
@@ -337,74 +392,30 @@ func TestRoute53Handler(t *testing.T) {
   </ChangeBatch>
 </ChangeResourceRecordSetsRequest>`
 
-				delRec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone/"+zoneID+"/rrset", deleteXML)
-				assert.Equal(t, http.StatusOK, delRec.Code)
+	delRec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone/"+zoneID+"/rrset", deleteXML)
+	assert.Equal(t, http.StatusOK, delRec.Code)
 
-				// Record should be gone.
-				listRec := send(t, h, http.MethodGet, "/2013-04-01/hostedzone/"+zoneID+"/rrset", "")
-				assert.NotContains(t, listRec.Body.String(), "192.0.2.1")
-			},
-		},
-		{
-			name: "ListResourceRecordSets",
-			run: func(t *testing.T) {
-				h := newHandler(t)
-				rec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", createZoneXML)
-				require.Equal(t, http.StatusCreated, rec.Code)
+	// Record should be gone.
+	listRec := send(t, h, http.MethodGet, "/2013-04-01/hostedzone/"+zoneID+"/rrset", "")
+	assert.NotContains(t, listRec.Body.String(), "192.0.2.1")
+}
 
-				zoneID := extractZoneID(t, rec.Body.String())
+func TestRoute53Handler_DNSRegistrar_RegisterOnCreate(t *testing.T) {
+	t.Parallel()
 
-				changeXML := `<?xml version="1.0" encoding="UTF-8"?>
-<ChangeResourceRecordSetsRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
-  <ChangeBatch>
-    <Changes>
-      <Change>
-        <Action>CREATE</Action>
-        <ResourceRecordSet>
-          <Name>api.example.com</Name>
-          <Type>A</Type>
-          <TTL>300</TTL>
-          <ResourceRecords>
-            <ResourceRecord><Value>10.0.0.1</Value></ResourceRecord>
-          </ResourceRecords>
-        </ResourceRecordSet>
-      </Change>
-    </Changes>
-  </ChangeBatch>
-</ChangeResourceRecordSetsRequest>`
+	registered := make(map[string]bool)
+	registrar := &mockDNSRegistrar{registered: registered}
 
-				send(t, h, http.MethodPost, "/2013-04-01/hostedzone/"+zoneID+"/rrset", changeXML)
+	backend := route53.NewInMemoryBackend()
+	backend.SetDNSRegistrar(registrar)
+	h := route53.NewHandler(backend, slog.Default())
 
-				listRec := send(t, h, http.MethodGet, "/2013-04-01/hostedzone/"+zoneID+"/rrset", "")
-				assert.Equal(t, http.StatusOK, listRec.Code)
-				assert.Contains(t, listRec.Body.String(), "api.example.com")
-				assert.Contains(t, listRec.Body.String(), "10.0.0.1")
-			},
-		},
-		{
-			name: "ListResourceRecordSets_NotFound",
-			run: func(t *testing.T) {
-				h := newHandler(t)
-				rec := send(t, h, http.MethodGet, "/2013-04-01/hostedzone/ZNONEXISTENT/rrset", "")
-				assert.Equal(t, http.StatusNotFound, rec.Code)
-			},
-		},
-		{
-			name: "DNSRegistrar_RegisterOnCreate",
-			run: func(t *testing.T) {
-				registered := make(map[string]bool)
-				registrar := &mockDNSRegistrar{registered: registered}
+	rec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", createZoneXML)
+	require.Equal(t, http.StatusCreated, rec.Code)
 
-				backend := route53.NewInMemoryBackend()
-				backend.SetDNSRegistrar(registrar)
-				h := route53.NewHandler(backend, slog.Default())
+	zoneID := extractZoneID(t, rec.Body.String())
 
-				rec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", createZoneXML)
-				require.Equal(t, http.StatusCreated, rec.Code)
-
-				zoneID := extractZoneID(t, rec.Body.String())
-
-				changeXML := `<?xml version="1.0" encoding="UTF-8"?>
+	changeXML := `<?xml version="1.0" encoding="UTF-8"?>
 <ChangeResourceRecordSetsRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
   <ChangeBatch>
     <Changes>
@@ -423,27 +434,27 @@ func TestRoute53Handler(t *testing.T) {
   </ChangeBatch>
 </ChangeResourceRecordSetsRequest>`
 
-				send(t, h, http.MethodPost, "/2013-04-01/hostedzone/"+zoneID+"/rrset", changeXML)
+	send(t, h, http.MethodPost, "/2013-04-01/hostedzone/"+zoneID+"/rrset", changeXML)
 
-				assert.True(t, registrar.registered["www.example.com."], "expected www.example.com. to be registered")
-			},
-		},
-		{
-			name: "DNSRegistrar_DeregisterOnDelete",
-			run: func(t *testing.T) {
-				registered := make(map[string]bool)
-				registrar := &mockDNSRegistrar{registered: registered}
+	assert.True(t, registrar.registered["www.example.com."], "expected www.example.com. to be registered")
+}
 
-				backend := route53.NewInMemoryBackend()
-				backend.SetDNSRegistrar(registrar)
-				h := route53.NewHandler(backend, slog.Default())
+func TestRoute53Handler_DNSRegistrar_DeregisterOnDelete(t *testing.T) {
+	t.Parallel()
 
-				rec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", createZoneXML)
-				require.Equal(t, http.StatusCreated, rec.Code)
+	registered := make(map[string]bool)
+	registrar := &mockDNSRegistrar{registered: registered}
 
-				zoneID := extractZoneID(t, rec.Body.String())
+	backend := route53.NewInMemoryBackend()
+	backend.SetDNSRegistrar(registrar)
+	h := route53.NewHandler(backend, slog.Default())
 
-				createXML := `<?xml version="1.0" encoding="UTF-8"?>
+	rec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", createZoneXML)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	zoneID := extractZoneID(t, rec.Body.String())
+
+	createXML := `<?xml version="1.0" encoding="UTF-8"?>
 <ChangeResourceRecordSetsRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
   <ChangeBatch>
     <Changes>
@@ -462,10 +473,10 @@ func TestRoute53Handler(t *testing.T) {
   </ChangeBatch>
 </ChangeResourceRecordSetsRequest>`
 
-				send(t, h, http.MethodPost, "/2013-04-01/hostedzone/"+zoneID+"/rrset", createXML)
-				require.True(t, registrar.registered["www.example.com."])
+	send(t, h, http.MethodPost, "/2013-04-01/hostedzone/"+zoneID+"/rrset", createXML)
+	require.True(t, registrar.registered["www.example.com."])
 
-				deleteXML := `<?xml version="1.0" encoding="UTF-8"?>
+	deleteXML := `<?xml version="1.0" encoding="UTF-8"?>
 <ChangeResourceRecordSetsRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
   <ChangeBatch>
     <Changes>
@@ -484,18 +495,8 @@ func TestRoute53Handler(t *testing.T) {
   </ChangeBatch>
 </ChangeResourceRecordSetsRequest>`
 
-				send(t, h, http.MethodPost, "/2013-04-01/hostedzone/"+zoneID+"/rrset", deleteXML)
-				assert.False(t, registrar.registered["www.example.com."], "expected www.example.com. to be deregistered")
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			tt.run(t)
-		})
-	}
+	send(t, h, http.MethodPost, "/2013-04-01/hostedzone/"+zoneID+"/rrset", deleteXML)
+	assert.False(t, registrar.registered["www.example.com."], "expected www.example.com. to be deregistered")
 }
 
 // mockDNSRegistrar is a test double for route53.DNSRegistrar.
