@@ -109,15 +109,20 @@ func (b *InMemoryBackend) CreateRestAPI(name, description string, inputTags *tag
 	defer b.mu.Unlock()
 
 	id := randomID(apiIDLength)
+
+	var backendTags *tags.Tags
 	if inputTags == nil {
-		inputTags = tags.New("apigw.api." + id + ".tags")
+		backendTags = tags.New("apigw.api." + id + ".tags")
+	} else {
+		backendTags = tags.FromMap("apigw.api."+id+".tags", inputTags.Clone())
 	}
+
 	api := RestAPI{
 		ID:          id,
 		Name:        name,
 		Description: description,
 		CreatedDate: time.Now(),
-		Tags:        inputTags,
+		Tags:        backendTags,
 	}
 
 	rootID := randomID(resourceIDLength)

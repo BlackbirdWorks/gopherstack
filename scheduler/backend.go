@@ -51,6 +51,9 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	}
 }
 
+// CreateSchedule creates a new schedule.
+// The Tags field in the returned Schedule points to the backend-owned Tags
+// collection; callers should treat it as read-only.
 func (b *InMemoryBackend) CreateSchedule(
 	name, expr string,
 	target Target,
@@ -78,11 +81,13 @@ func (b *InMemoryBackend) CreateSchedule(
 	}
 	b.schedules[name] = s
 	cp := *s
-	cp.Tags = tags.FromMap("scheduler.group."+name+".tags.copy", s.Tags.Clone())
 
 	return &cp, nil
 }
 
+// GetSchedule returns a schedule by name.
+// The Tags field in the returned Schedule points to the backend-owned Tags
+// collection; callers should treat it as read-only.
 func (b *InMemoryBackend) GetSchedule(name string) (*Schedule, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -92,11 +97,13 @@ func (b *InMemoryBackend) GetSchedule(name string) (*Schedule, error) {
 		return nil, fmt.Errorf("%w: schedule %s not found", ErrNotFound, name)
 	}
 	cp := *s
-	cp.Tags = tags.FromMap("scheduler.group."+name+".tags.copy", s.Tags.Clone())
 
 	return &cp, nil
 }
 
+// ListSchedules returns all schedules.
+// The Tags field in each returned Schedule points to the backend-owned Tags
+// collection; callers should treat it as read-only.
 func (b *InMemoryBackend) ListSchedules() []*Schedule {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -104,7 +111,6 @@ func (b *InMemoryBackend) ListSchedules() []*Schedule {
 	list := make([]*Schedule, 0, len(b.schedules))
 	for _, s := range b.schedules {
 		cp := *s
-		cp.Tags = tags.FromMap("scheduler.group."+s.Name+".tags.copy", s.Tags.Clone())
 		list = append(list, &cp)
 	}
 
@@ -123,6 +129,9 @@ func (b *InMemoryBackend) DeleteSchedule(name string) error {
 	return nil
 }
 
+// UpdateSchedule updates an existing schedule.
+// The Tags field in the returned Schedule points to the backend-owned Tags
+// collection; callers should treat it as read-only.
 func (b *InMemoryBackend) UpdateSchedule(
 	name, expr string,
 	target Target,
@@ -141,7 +150,6 @@ func (b *InMemoryBackend) UpdateSchedule(
 	s.State = state
 	s.FlexibleTimeWindow = ftw
 	cp := *s
-	cp.Tags = tags.FromMap("scheduler.group."+name+".tags.copy", s.Tags.Clone())
 
 	return &cp, nil
 }

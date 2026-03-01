@@ -110,3 +110,23 @@ func (m *Map[K, V]) Clone() map[K]V {
 
 	return maps.Clone(m.data)
 }
+
+// Clear removes all entries from the map.
+func (m *Map[K, V]) Clear() {
+	m.mu.Lock("Clear")
+	defer m.mu.Unlock()
+
+	clear(m.data)
+}
+
+// Close removes the Map's underlying lockmetrics.RWMutex from the global
+// metrics registry. It should be called when the Map is no longer needed to
+// prevent unbounded growth of the Prometheus collector.
+// After Close is called, the Map must not be used.
+func (m *Map[K, V]) Close() {
+	if m == nil || m.mu == nil {
+		return
+	}
+
+	m.mu.Close()
+}

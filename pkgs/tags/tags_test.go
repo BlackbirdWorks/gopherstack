@@ -422,3 +422,36 @@ func TestTags_RoundTrip(t *testing.T) {
 	require.NoError(t, json.Unmarshal(data, tg2))
 	assert.Equal(t, tg.Clone(), tg2.Clone())
 }
+
+func TestTags_UnmarshalJSON_ClearsStaleKeys(t *testing.T) {
+	t.Parallel()
+
+	tg := tags.New("test.unmarshal.stale")
+	tg.Set("old-key", "old-value")
+	require.True(t, tg.HasTag("old-key"))
+
+	// Second unmarshal with a different payload must not leave "old-key" behind.
+	require.NoError(t, json.Unmarshal([]byte(`{"new-key":"new-value"}`), tg))
+
+	assert.False(t, tg.HasTag("old-key"), "stale key must be removed on unmarshal")
+	v, ok := tg.Get("new-key")
+	assert.True(t, ok)
+	assert.Equal(t, "new-value", v)
+	assert.Equal(t, 1, tg.Len())
+}
+
+func TestTags_Close(t *testing.T) {
+	t.Parallel()
+
+	tg := tags.New("test.close")
+	tg.Set("k", "v")
+	// Close must not panic.
+	assert.NotPanics(t, func() { tg.Close() })
+}
+
+func TestTags_Close_Nil(t *testing.T) {
+	t.Parallel()
+
+	var tg *tags.Tags
+	assert.NotPanics(t, func() { tg.Close() })
+}

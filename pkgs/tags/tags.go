@@ -66,6 +66,19 @@ func (t *Tags) Clone() map[string]string {
 	return t.m.Clone()
 }
 
+// Close releases resources associated with this Tags collection, removing the
+// underlying lockmetrics.RWMutex from the global Prometheus registry.
+// It should be called when the Tags instance is no longer needed to prevent
+// unbounded growth of the global collector.
+// After Close is called, the Tags must not be used.
+func (t *Tags) Close() {
+	if t == nil || t.m == nil {
+		return
+	}
+
+	t.m.Close()
+}
+
 // Merge adds all entries from src into t, overwriting existing keys.
 func (t *Tags) Merge(src map[string]string) {
 	for k, v := range src {
@@ -113,6 +126,8 @@ func (t *Tags) MarshalJSON() ([]byte, error) {
 // Tags deserialises from a plain JSON object (e.g. {"env":"prod","team":"platform"}).
 // An empty or null JSON value produces an empty Tags with the zero-value name; callers
 // that care about the Prometheus lock name should prefer [FromMap] for static data.
+// Any keys previously present in t that are absent from the JSON payload are removed,
+// so the result matches the JSON payload exactly.
 func (t *Tags) UnmarshalJSON(data []byte) error {
 	var m map[string]string
 	if err := json.Unmarshal(data, &m); err != nil {
@@ -122,6 +137,9 @@ func (t *Tags) UnmarshalJSON(data []byte) error {
 	if t.m == nil {
 		t.m = safemap.New[string, string]("json.tags")
 	}
+
+	// Clear any stale keys so the result matches the JSON payload exactly.
+	t.m.Clear()
 
 	for k, v := range m {
 		t.m.Set(k, v)

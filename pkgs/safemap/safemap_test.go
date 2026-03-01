@@ -157,6 +157,45 @@ func TestMap_Clone_Empty(t *testing.T) {
 	assert.Empty(t, cp)
 }
 
+func TestMap_Clear(t *testing.T) {
+	t.Parallel()
+
+	m := safemap.New[string, int]("test.clear")
+	m.Set("a", 1)
+	m.Set("b", 2)
+	require.Equal(t, 2, m.Len())
+
+	m.Clear()
+	assert.Equal(t, 0, m.Len())
+
+	_, ok := m.Get("a")
+	assert.False(t, ok)
+}
+
+func TestMap_Clear_Empty(t *testing.T) {
+	t.Parallel()
+
+	m := safemap.New[string, int]("test.clear.empty")
+	assert.NotPanics(t, func() { m.Clear() })
+	assert.Equal(t, 0, m.Len())
+}
+
+func TestMap_Close(t *testing.T) {
+	t.Parallel()
+
+	m := safemap.New[string, int]("test.close")
+	m.Set("k", 1)
+	// Close must not panic and must be safe to call on a non-nil map.
+	assert.NotPanics(t, func() { m.Close() })
+}
+
+func TestMap_Close_Nil(t *testing.T) {
+	t.Parallel()
+
+	var m *safemap.Map[string, int]
+	assert.NotPanics(t, func() { m.Close() })
+}
+
 func TestMap_Range(t *testing.T) {
 	t.Parallel()
 

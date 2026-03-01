@@ -828,8 +828,8 @@ func (b *InMemoryBackend) ListQueueTags(input *ListQueueTagsInput) (*ListQueueTa
 	}
 
 	if q.Tags == nil {
-		return &ListQueueTagsOutput{Tags: tags.New("sqs.queue." + q.Name + ".tags.empty")}, nil
+		return &ListQueueTagsOutput{Tags: tags.New("sqs.queue." + q.Name + ".tags")}, nil
 	}
 
-	return &ListQueueTagsOutput{Tags: tags.FromMap("sqs.queue."+q.Name+".tags.copy", q.Tags.Clone())}, nil
+	return &ListQueueTagsOutput{Tags: q.Tags}, nil
 }

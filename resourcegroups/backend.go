@@ -42,6 +42,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 }
 
 // CreateGroup creates a new resource group.
+// The Tags field in the returned Group points to the backend-owned Tags
+// collection; callers should treat it as read-only.
 func (b *InMemoryBackend) CreateGroup(name, description string, inputTags *tags.Tags) (*Group, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -52,15 +54,19 @@ func (b *InMemoryBackend) CreateGroup(name, description string, inputTags *tags.
 
 	groupARN := arn.Build("resource-groups", b.region, b.accountID, "group/"+name)
 
+	// Clone caller-provided tags into a backend-owned collection so that the
+	// caller cannot mutate backend state by keeping a reference to inputTags.
+	var backendTags *tags.Tags
 	if inputTags == nil {
-		inputTags = tags.New("rg." + name + ".tags")
+		backendTags = tags.New("rg." + name + ".tags")
+	} else {
+		backendTags = tags.FromMap("rg."+name+".tags", inputTags.Clone())
 	}
 
-	g := &Group{Name: name, ARN: groupARN, Description: description, Tags: inputTags}
+	g := &Group{Name: name, ARN: groupARN, Description: description, Tags: backendTags}
 	b.groups[name] = g
 
 	cp := *g
-	cp.Tags = tags.FromMap("rg."+name+".tags.copy", g.Tags.Clone())
 
 	return &cp, nil
 }
@@ -80,21 +86,23 @@ func (b *InMemoryBackend) DeleteGroup(name string) error {
 }
 
 // ListGroups returns all resource groups.
+// The Tags field in each returned Group points to the backend-owned Tags
+// collection; callers should treat it as read-only.
 func (b *InMemoryBackend) ListGroups() []Group {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
 	out := make([]Group, 0, len(b.groups))
 	for _, g := range b.groups {
-		cp := *g
-		cp.Tags = tags.FromMap("rg."+g.Name+".tags.copy", g.Tags.Clone())
-		out = append(out, cp)
+		out = append(out, *g)
 	}
 
 	return out
 }
 
 // GetGroup returns a resource group by name.
+// The Tags field in the returned Group points to the backend-owned Tags
+// collection; callers should treat it as read-only.
 func (b *InMemoryBackend) GetGroup(name string) (*Group, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -105,7 +113,6 @@ func (b *InMemoryBackend) GetGroup(name string) (*Group, error) {
 	}
 
 	cp := *g
-	cp.Tags = tags.FromMap("rg."+g.Name+".tags.copy", g.Tags.Clone())
 
 	return &cp, nil
 }
