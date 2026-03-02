@@ -104,29 +104,29 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byte, error) {
+func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
 	var result any
 	var err error
 
 	switch action {
 	case "CreateDeliveryStream":
-		result, err = h.handleCreateDeliveryStream(body)
+		result, err = service.HandleJSON(ctx, body, h.handleCreateDeliveryStream)
 	case "DeleteDeliveryStream":
-		result, err = h.handleDeleteDeliveryStream(body)
+		result, err = service.HandleJSON(ctx, body, h.handleDeleteDeliveryStream)
 	case "DescribeDeliveryStream":
-		result, err = h.handleDescribeDeliveryStream(body)
+		result, err = service.HandleJSON(ctx, body, h.handleDescribeDeliveryStream)
 	case "ListDeliveryStreams":
-		result, err = h.handleListDeliveryStreams()
+		result, err = service.HandleJSON(ctx, body, h.handleListDeliveryStreams)
 	case "PutRecord":
-		result, err = h.handlePutRecord(body)
+		result, err = service.HandleJSON(ctx, body, h.handlePutRecord)
 	case "PutRecordBatch":
-		result, err = h.handlePutRecordBatch(body)
+		result, err = service.HandleJSON(ctx, body, h.handlePutRecordBatch)
 	case "ListTagsForDeliveryStream":
-		result, err = h.handleListTagsForDeliveryStream(body)
+		result, err = service.HandleJSON(ctx, body, h.handleListTagsForDeliveryStream)
 	case "TagDeliveryStream":
-		result, err = h.handleTagDeliveryStream(body)
+		result, err = service.HandleJSON(ctx, body, h.handleTagDeliveryStream)
 	case "UntagDeliveryStream":
-		result, err = h.handleUntagDeliveryStream(body)
+		result, err = service.HandleJSON(ctx, body, h.handleUntagDeliveryStream)
 	default:
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
@@ -150,62 +150,67 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	}
 }
 
-func (h *Handler) handleCreateDeliveryStream(body []byte) (any, error) {
-	var req deliveryStreamNameInput
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, errInvalidRequest
-	}
+type createDeliveryStreamOutput struct {
+	DeliveryStreamARN string `json:"DeliveryStreamARN"`
+}
 
-	s, err := h.Backend.CreateDeliveryStream(req.DeliveryStreamName)
+func (h *Handler) handleCreateDeliveryStream(_ context.Context, in *deliveryStreamNameInput) (*createDeliveryStreamOutput, error) {
+	s, err := h.Backend.CreateDeliveryStream(in.DeliveryStreamName)
 	if err != nil {
 		return nil, err
 	}
 
-	return map[string]string{
-		"DeliveryStreamARN": s.ARN,
-	}, nil
+	return &createDeliveryStreamOutput{DeliveryStreamARN: s.ARN}, nil
 }
 
-func (h *Handler) handleDeleteDeliveryStream(body []byte) (any, error) {
-	var req deliveryStreamNameInput
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, errInvalidRequest
-	}
+type deleteDeliveryStreamOutput struct{}
 
-	if err := h.Backend.DeleteDeliveryStream(req.DeliveryStreamName); err != nil {
+func (h *Handler) handleDeleteDeliveryStream(_ context.Context, in *deliveryStreamNameInput) (*deleteDeliveryStreamOutput, error) {
+	if err := h.Backend.DeleteDeliveryStream(in.DeliveryStreamName); err != nil {
 		return nil, err
 	}
 
-	return map[string]string{}, nil
+	return &deleteDeliveryStreamOutput{}, nil
 }
 
-func (h *Handler) handleDescribeDeliveryStream(body []byte) (any, error) {
-	var req deliveryStreamNameInput
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, errInvalidRequest
-	}
+type deliveryStreamDescriptionFields struct {
+	DeliveryStreamName   string `json:"DeliveryStreamName"`
+	DeliveryStreamARN    string `json:"DeliveryStreamARN"`
+	DeliveryStreamStatus string `json:"DeliveryStreamStatus"`
+}
 
-	s, err := h.Backend.DescribeDeliveryStream(req.DeliveryStreamName)
+type describeDeliveryStreamOutput struct {
+	DeliveryStreamDescription deliveryStreamDescriptionFields `json:"DeliveryStreamDescription"`
+}
+
+func (h *Handler) handleDescribeDeliveryStream(_ context.Context, in *deliveryStreamNameInput) (*describeDeliveryStreamOutput, error) {
+	s, err := h.Backend.DescribeDeliveryStream(in.DeliveryStreamName)
 	if err != nil {
 		return nil, err
 	}
 
-	return map[string]any{
-		"DeliveryStreamDescription": map[string]any{
-			"DeliveryStreamName":   s.Name,
-			"DeliveryStreamARN":    s.ARN,
-			"DeliveryStreamStatus": s.Status,
+	return &describeDeliveryStreamOutput{
+		DeliveryStreamDescription: deliveryStreamDescriptionFields{
+			DeliveryStreamName:   s.Name,
+			DeliveryStreamARN:    s.ARN,
+			DeliveryStreamStatus: s.Status,
 		},
 	}, nil
 }
 
-//nolint:unparam // error returned for consistent dispatch signature
-func (h *Handler) handleListDeliveryStreams() (any, error) {
+type listDeliveryStreamsInput struct{}
+
+type listDeliveryStreamsOutput struct {
+	DeliveryStreamNames   []string `json:"DeliveryStreamNames"`
+	HasMoreDeliveryStreams bool     `json:"HasMoreDeliveryStreams"`
+}
+
+func (h *Handler) handleListDeliveryStreams(_ context.Context, _ *listDeliveryStreamsInput) (*listDeliveryStreamsOutput, error) {
 	names := h.Backend.ListDeliveryStreams()
 
-	return map[string]any{
-		"DeliveryStreamNames":    names,
-		"HasMoreDeliveryStreams": false,
+	return &listDeliveryStreamsOutput{
+		DeliveryStreamNames:   names,
+		HasMoreDeliveryStreams: false,
 	}, nil
 }
 
@@ -216,24 +221,21 @@ type handlePutRecordInput struct {
 	} `json:"Record"`
 }
 
-func (h *Handler) handlePutRecord(body []byte) (any, error) {
-	var req handlePutRecordInput
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, errInvalidRequest
-	}
+type putRecordOutput struct {
+	RecordId string `json:"RecordId"`
+}
 
-	data, err := base64.StdEncoding.DecodeString(req.Record.Data)
+func (h *Handler) handlePutRecord(_ context.Context, in *handlePutRecordInput) (*putRecordOutput, error) {
+	data, err := base64.StdEncoding.DecodeString(in.Record.Data)
 	if err != nil {
-		data = []byte(req.Record.Data)
+		data = []byte(in.Record.Data)
 	}
 
-	if putErr := h.Backend.PutRecord(req.DeliveryStreamName, data); putErr != nil {
+	if putErr := h.Backend.PutRecord(in.DeliveryStreamName, data); putErr != nil {
 		return nil, putErr
 	}
 
-	return map[string]string{
-		"RecordId": "stub-record-id",
-	}, nil
+	return &putRecordOutput{RecordId: "stub-record-id"}, nil
 }
 
 type handlePutRecordBatchInput struct {
@@ -243,14 +245,14 @@ type handlePutRecordBatchInput struct {
 	} `json:"Records"`
 }
 
-func (h *Handler) handlePutRecordBatch(body []byte) (any, error) {
-	var req handlePutRecordBatchInput
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, errInvalidRequest
-	}
+type putRecordBatchOutput struct {
+	FailedPutCount   int      `json:"FailedPutCount"`
+	RequestResponses []struct{} `json:"RequestResponses"`
+}
 
-	records := make([][]byte, 0, len(req.Records))
-	for _, r := range req.Records {
+func (h *Handler) handlePutRecordBatch(_ context.Context, in *handlePutRecordBatchInput) (*putRecordBatchOutput, error) {
+	records := make([][]byte, 0, len(in.Records))
+	for _, r := range in.Records {
 		data, err := base64.StdEncoding.DecodeString(r.Data)
 		if err != nil {
 			data = []byte(r.Data)
@@ -259,14 +261,14 @@ func (h *Handler) handlePutRecordBatch(body []byte) (any, error) {
 		records = append(records, data)
 	}
 
-	failedCount, err := h.Backend.PutRecordBatch(req.DeliveryStreamName, records)
+	failedCount, err := h.Backend.PutRecordBatch(in.DeliveryStreamName, records)
 	if err != nil {
 		return nil, err
 	}
 
-	return map[string]any{
-		"FailedPutCount":   failedCount,
-		"RequestResponses": []map[string]string{},
+	return &putRecordBatchOutput{
+		FailedPutCount:   failedCount,
+		RequestResponses: []struct{}{},
 	}, nil
 }
 
@@ -279,13 +281,13 @@ type listTagsInput struct {
 	DeliveryStreamName string `json:"DeliveryStreamName"`
 }
 
-func (h *Handler) handleListTagsForDeliveryStream(body []byte) (any, error) {
-	var req listTagsInput
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, errInvalidRequest
-	}
+type listTagsForDeliveryStreamOutput struct {
+	Tags        []firehoseTag `json:"Tags"`
+	HasMoreTags bool          `json:"HasMoreTags"`
+}
 
-	tags, err := h.Backend.ListTagsForDeliveryStream(req.DeliveryStreamName)
+func (h *Handler) handleListTagsForDeliveryStream(_ context.Context, in *listTagsInput) (*listTagsForDeliveryStreamOutput, error) {
+	tags, err := h.Backend.ListTagsForDeliveryStream(in.DeliveryStreamName)
 	if err != nil {
 		return nil, err
 	}
@@ -295,9 +297,9 @@ func (h *Handler) handleListTagsForDeliveryStream(body []byte) (any, error) {
 		tagList = append(tagList, firehoseTag{Key: k, Value: v})
 	}
 
-	return map[string]any{
-		"Tags":        tagList,
-		"HasMoreTags": false,
+	return &listTagsForDeliveryStreamOutput{
+		Tags:        tagList,
+		HasMoreTags: false,
 	}, nil
 }
 
@@ -306,22 +308,19 @@ type tagDeliveryStreamInput struct {
 	Tags               []firehoseTag `json:"Tags"`
 }
 
-func (h *Handler) handleTagDeliveryStream(body []byte) (any, error) {
-	var req tagDeliveryStreamInput
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, errInvalidRequest
-	}
+type tagDeliveryStreamOutput struct{}
 
-	tagMap := make(map[string]string, len(req.Tags))
-	for _, t := range req.Tags {
+func (h *Handler) handleTagDeliveryStream(_ context.Context, in *tagDeliveryStreamInput) (*tagDeliveryStreamOutput, error) {
+	tagMap := make(map[string]string, len(in.Tags))
+	for _, t := range in.Tags {
 		tagMap[t.Key] = t.Value
 	}
 
-	if err := h.Backend.TagDeliveryStream(req.DeliveryStreamName, tagMap); err != nil {
+	if err := h.Backend.TagDeliveryStream(in.DeliveryStreamName, tagMap); err != nil {
 		return nil, err
 	}
 
-	return map[string]any{}, nil
+	return &tagDeliveryStreamOutput{}, nil
 }
 
 type untagDeliveryStreamInput struct {
@@ -329,15 +328,12 @@ type untagDeliveryStreamInput struct {
 	TagKeys            []string `json:"TagKeys"`
 }
 
-func (h *Handler) handleUntagDeliveryStream(body []byte) (any, error) {
-	var req untagDeliveryStreamInput
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, errInvalidRequest
-	}
+type untagDeliveryStreamOutput struct{}
 
-	if err := h.Backend.UntagDeliveryStream(req.DeliveryStreamName, req.TagKeys); err != nil {
+func (h *Handler) handleUntagDeliveryStream(_ context.Context, in *untagDeliveryStreamInput) (*untagDeliveryStreamOutput, error) {
+	if err := h.Backend.UntagDeliveryStream(in.DeliveryStreamName, in.TagKeys); err != nil {
 		return nil, err
 	}
 
-	return map[string]any{}, nil
+	return &untagDeliveryStreamOutput{}, nil
 }

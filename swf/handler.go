@@ -107,25 +107,25 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byte, error) {
+func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
 	var result any
 	var err error
 
 	switch action {
 	case "RegisterDomain":
-		result, err = h.handleRegisterDomain(body)
+		result, err = service.HandleJSON(ctx, body, h.handleRegisterDomain)
 	case "ListDomains":
-		result, err = h.handleListDomains(body)
+		result, err = service.HandleJSON(ctx, body, h.handleListDomains)
 	case "DeprecateDomain":
-		result, err = h.handleDeprecateDomain(body)
+		result, err = service.HandleJSON(ctx, body, h.handleDeprecateDomain)
 	case "RegisterWorkflowType":
-		result, err = h.handleRegisterWorkflowType(body)
+		result, err = service.HandleJSON(ctx, body, h.handleRegisterWorkflowType)
 	case "ListWorkflowTypes":
-		result, err = h.handleListWorkflowTypes(body)
+		result, err = service.HandleJSON(ctx, body, h.handleListWorkflowTypes)
 	case "StartWorkflowExecution":
-		result, err = h.handleStartWorkflowExecution(body)
+		result, err = service.HandleJSON(ctx, body, h.handleStartWorkflowExecution)
 	case "DescribeWorkflowExecution":
-		result, err = h.handleDescribeWorkflowExecution(body)
+		result, err = service.HandleJSON(ctx, body, h.handleDescribeWorkflowExecution)
 	default:
 		return nil, ErrUnknownOperation
 	}
@@ -152,55 +152,61 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	return c.JSON(code, map[string]string{"message": err.Error()})
 }
 
+type registerDomainOutput struct{}
+
+type listDomainsOutput struct {
+	DomainInfos []Domain `json:"domainInfos"`
+}
+
+type deprecateDomainOutput struct{}
+
+type registerWorkflowTypeOutput struct{}
+
+type listWorkflowTypesOutput struct {
+	TypeInfos []WorkflowType `json:"typeInfos"`
+}
+
+type startWorkflowExecutionOutput struct {
+	RunId string `json:"runId"`
+}
+
+type describeWorkflowExecutionOutput struct {
+	ExecutionInfo *WorkflowExecution `json:"executionInfo"`
+}
+
 type handleRegisterDomainInput struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 }
 
-func (h *Handler) handleRegisterDomain(body []byte) (any, error) {
-	var req handleRegisterDomainInput
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, errInvalidRequest
-	}
-
-	if err := h.Backend.RegisterDomain(req.Name, req.Description); err != nil {
+func (h *Handler) handleRegisterDomain(_ context.Context, in *handleRegisterDomainInput) (*registerDomainOutput, error) {
+	if err := h.Backend.RegisterDomain(in.Name, in.Description); err != nil {
 		return nil, err
 	}
 
-	return map[string]string{}, nil
+	return &registerDomainOutput{}, nil
 }
 
 type handleListDomainsInput struct {
 	RegistrationStatus string `json:"registrationStatus"`
 }
 
-//nolint:unparam // error returned for consistent dispatch signature
-func (h *Handler) handleListDomains(body []byte) (any, error) {
-	var req handleListDomainsInput
-	_ = json.Unmarshal(body, &req)
+func (h *Handler) handleListDomains(_ context.Context, in *handleListDomainsInput) (*listDomainsOutput, error) {
+	domains := h.Backend.ListDomains(in.RegistrationStatus)
 
-	domains := h.Backend.ListDomains(req.RegistrationStatus)
-
-	return map[string]any{
-		"domainInfos": domains,
-	}, nil
+	return &listDomainsOutput{DomainInfos: domains}, nil
 }
 
 type handleDeprecateDomainInput struct {
 	Name string `json:"name"`
 }
 
-func (h *Handler) handleDeprecateDomain(body []byte) (any, error) {
-	var req handleDeprecateDomainInput
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, errInvalidRequest
-	}
-
-	if err := h.Backend.DeprecateDomain(req.Name); err != nil {
+func (h *Handler) handleDeprecateDomain(_ context.Context, in *handleDeprecateDomainInput) (*deprecateDomainOutput, error) {
+	if err := h.Backend.DeprecateDomain(in.Name); err != nil {
 		return nil, err
 	}
 
-	return map[string]string{}, nil
+	return &deprecateDomainOutput{}, nil
 }
 
 type handleRegisterWorkflowTypeInput struct {
@@ -209,33 +215,22 @@ type handleRegisterWorkflowTypeInput struct {
 	Version string `json:"version"`
 }
 
-func (h *Handler) handleRegisterWorkflowType(body []byte) (any, error) {
-	var req handleRegisterWorkflowTypeInput
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, errInvalidRequest
-	}
-
-	if err := h.Backend.RegisterWorkflowType(req.Domain, req.Name, req.Version); err != nil {
+func (h *Handler) handleRegisterWorkflowType(_ context.Context, in *handleRegisterWorkflowTypeInput) (*registerWorkflowTypeOutput, error) {
+	if err := h.Backend.RegisterWorkflowType(in.Domain, in.Name, in.Version); err != nil {
 		return nil, err
 	}
 
-	return map[string]string{}, nil
+	return &registerWorkflowTypeOutput{}, nil
 }
 
 type handleListWorkflowTypesInput struct {
 	Domain string `json:"domain"`
 }
 
-//nolint:unparam // error returned for consistent dispatch signature
-func (h *Handler) handleListWorkflowTypes(body []byte) (any, error) {
-	var req handleListWorkflowTypesInput
-	_ = json.Unmarshal(body, &req)
+func (h *Handler) handleListWorkflowTypes(_ context.Context, in *handleListWorkflowTypesInput) (*listWorkflowTypesOutput, error) {
+	wts := h.Backend.ListWorkflowTypes(in.Domain)
 
-	wts := h.Backend.ListWorkflowTypes(req.Domain)
-
-	return map[string]any{
-		"typeInfos": wts,
-	}, nil
+	return &listWorkflowTypesOutput{TypeInfos: wts}, nil
 }
 
 type handleStartWorkflowExecutionInput struct {
@@ -243,22 +238,15 @@ type handleStartWorkflowExecutionInput struct {
 	WorkflowID string `json:"workflowId"`
 }
 
-func (h *Handler) handleStartWorkflowExecution(body []byte) (any, error) {
-	var req handleStartWorkflowExecutionInput
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, errInvalidRequest
-	}
-
+func (h *Handler) handleStartWorkflowExecution(_ context.Context, in *handleStartWorkflowExecutionInput) (*startWorkflowExecutionOutput, error) {
 	runID := uuid.New().String()
 
-	exec, err := h.Backend.StartWorkflowExecution(req.Domain, req.WorkflowID, runID)
+	exec, err := h.Backend.StartWorkflowExecution(in.Domain, in.WorkflowID, runID)
 	if err != nil {
 		return nil, err
 	}
 
-	return map[string]string{
-		"runId": exec.RunID,
-	}, nil
+	return &startWorkflowExecutionOutput{RunId: exec.RunID}, nil
 }
 
 type handleDescribeWorkflowExecutionInput struct {
@@ -269,18 +257,11 @@ type handleDescribeWorkflowExecutionInput struct {
 	} `json:"execution"`
 }
 
-func (h *Handler) handleDescribeWorkflowExecution(body []byte) (any, error) {
-	var req handleDescribeWorkflowExecutionInput
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, errInvalidRequest
-	}
-
-	exec, err := h.Backend.DescribeWorkflowExecution(req.Domain, req.Execution.WorkflowID)
+func (h *Handler) handleDescribeWorkflowExecution(_ context.Context, in *handleDescribeWorkflowExecutionInput) (*describeWorkflowExecutionOutput, error) {
+	exec, err := h.Backend.DescribeWorkflowExecution(in.Domain, in.Execution.WorkflowID)
 	if err != nil {
 		return nil, err
 	}
 
-	return map[string]any{
-		"executionInfo": exec,
-	}, nil
+	return &describeWorkflowExecutionOutput{ExecutionInfo: exec}, nil
 }

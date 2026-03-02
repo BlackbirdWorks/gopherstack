@@ -97,17 +97,17 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byte, error) {
+func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
 	var result any
 	var err error
 
 	switch action {
 	case "StartTranscriptionJob":
-		result, err = h.handleStartTranscriptionJob(body)
+		result, err = service.HandleJSON(ctx, body, h.handleStartTranscriptionJob)
 	case "GetTranscriptionJob":
-		result, err = h.handleGetTranscriptionJob(body)
+		result, err = service.HandleJSON(ctx, body, h.handleGetTranscriptionJob)
 	case "ListTranscriptionJobs":
-		result, err = h.handleListTranscriptionJobs(body)
+		result, err = service.HandleJSON(ctx, body, h.handleListTranscriptionJobs)
 	default:
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
@@ -130,6 +130,26 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	}
 }
 
+type transcriptOutput struct {
+	TranscriptFileUri         string  `json:"TranscriptFileUri"`
+	RedactedTranscriptFileUri *string `json:"RedactedTranscriptFileUri"`
+}
+
+type transcriptionJobOutput struct {
+	TranscriptionJobName   string          `json:"TranscriptionJobName"`
+	TranscriptionJobStatus string          `json:"TranscriptionJobStatus"`
+	LanguageCode           string          `json:"LanguageCode"`
+	Transcript             transcriptOutput `json:"Transcript"`
+}
+
+type startTranscriptionJobOutput struct {
+	TranscriptionJob transcriptionJobOutput `json:"TranscriptionJob"`
+}
+
+type getTranscriptionJobOutput struct {
+	TranscriptionJob transcriptionJobOutput `json:"TranscriptionJob"`
+}
+
 type handleStartTranscriptionJobInput struct {
 	TranscriptionJobName string `json:"TranscriptionJobName"`
 	LanguageCode         string `json:"LanguageCode"`
@@ -138,78 +158,74 @@ type handleStartTranscriptionJobInput struct {
 	} `json:"Media"`
 }
 
-func (h *Handler) handleStartTranscriptionJob(body []byte) (any, error) {
-	var req handleStartTranscriptionJobInput
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, errInvalidRequest
-	}
-
-	if req.TranscriptionJobName == "" {
+func (h *Handler) handleStartTranscriptionJob(_ context.Context, in *handleStartTranscriptionJobInput) (*startTranscriptionJobOutput, error) {
+	if in.TranscriptionJobName == "" {
 		return nil, fmt.Errorf("%w: TranscriptionJobName is required", errInvalidRequest)
 	}
 
-	job, err := h.Backend.StartTranscriptionJob(req.TranscriptionJobName, req.LanguageCode, req.Media.MediaFileURI)
+	job, err := h.Backend.StartTranscriptionJob(in.TranscriptionJobName, in.LanguageCode, in.Media.MediaFileURI)
 	if err != nil {
 		return nil, err
 	}
 
-	return map[string]any{
-		"TranscriptionJob": map[string]any{
-			"TranscriptionJobName":   job.JobName,
-			"TranscriptionJobStatus": job.JobStatus,
-			"LanguageCode":           job.LanguageCode,
-			"Transcript": map[string]string{
-				"TranscriptFileUri": "s3://synthetic-transcripts/" + job.JobName + ".json",
+	return &startTranscriptionJobOutput{
+		TranscriptionJob: transcriptionJobOutput{
+			TranscriptionJobName:   job.JobName,
+			TranscriptionJobStatus: job.JobStatus,
+			LanguageCode:           job.LanguageCode,
+			Transcript: transcriptOutput{
+				TranscriptFileUri: "s3://synthetic-transcripts/" + job.JobName + ".json",
 			},
 		},
 	}, nil
 }
 
-func (h *Handler) handleGetTranscriptionJob(body []byte) (any, error) {
-	var req transcriptionJobNameInput
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, errInvalidRequest
-	}
-
-	job, err := h.Backend.GetTranscriptionJob(req.TranscriptionJobName)
+func (h *Handler) handleGetTranscriptionJob(_ context.Context, in *transcriptionJobNameInput) (*getTranscriptionJobOutput, error) {
+	job, err := h.Backend.GetTranscriptionJob(in.TranscriptionJobName)
 	if err != nil {
 		return nil, err
 	}
 
-	return map[string]any{
-		"TranscriptionJob": map[string]any{
-			"TranscriptionJobName":   job.JobName,
-			"TranscriptionJobStatus": job.JobStatus,
-			"LanguageCode":           job.LanguageCode,
-			"Transcript": map[string]any{
-				"TranscriptFileUri":         "s3://synthetic-transcripts/" + job.JobName + ".json",
-				"RedactedTranscriptFileUri": nil,
+	return &getTranscriptionJobOutput{
+		TranscriptionJob: transcriptionJobOutput{
+			TranscriptionJobName:   job.JobName,
+			TranscriptionJobStatus: job.JobStatus,
+			LanguageCode:           job.LanguageCode,
+			Transcript: transcriptOutput{
+				TranscriptFileUri:         "s3://synthetic-transcripts/" + job.JobName + ".json",
+				RedactedTranscriptFileUri: nil,
 			},
 		},
 	}, nil
+}
+
+type transcriptionJobSummary struct {
+	TranscriptionJobName   string `json:"TranscriptionJobName"`
+	TranscriptionJobStatus string `json:"TranscriptionJobStatus"`
+	LanguageCode           string `json:"LanguageCode"`
+}
+
+type listTranscriptionJobsOutput struct {
+	TranscriptionJobSummaries []transcriptionJobSummary `json:"TranscriptionJobSummaries"`
 }
 
 type handleListTranscriptionJobsInput struct {
 	Status string `json:"Status"`
 }
 
-//nolint:unparam // error returned for consistent dispatch signature
-func (h *Handler) handleListTranscriptionJobs(body []byte) (any, error) {
-	var req handleListTranscriptionJobsInput
-	_ = json.Unmarshal(body, &req)
+func (h *Handler) handleListTranscriptionJobs(_ context.Context, in *handleListTranscriptionJobsInput) (*listTranscriptionJobsOutput, error) {
+	jobs := h.Backend.ListTranscriptionJobs(in.Status)
 
-	jobs := h.Backend.ListTranscriptionJobs(req.Status)
-
-	summaries := make([]map[string]any, 0, len(jobs))
+	summaries := make([]transcriptionJobSummary, 0, len(jobs))
 	for _, j := range jobs {
-		summaries = append(summaries, map[string]any{
-			"TranscriptionJobName":   j.JobName,
-			"TranscriptionJobStatus": j.JobStatus,
-			"LanguageCode":           j.LanguageCode,
+		summaries = append(summaries, transcriptionJobSummary{
+			TranscriptionJobName:   j.JobName,
+			TranscriptionJobStatus: j.JobStatus,
+			LanguageCode:           j.LanguageCode,
 		})
 	}
 
-	return map[string]any{
-		"TranscriptionJobSummaries": summaries,
+	return &listTranscriptionJobsOutput{
+		TranscriptionJobSummaries: summaries,
 	}, nil
 }

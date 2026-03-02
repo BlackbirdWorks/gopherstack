@@ -102,17 +102,17 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byte, error) {
+func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
 	var result any
 	var err error
 
 	switch action {
 	case "CreateCase":
-		result, err = h.handleCreateCase(body)
+		result, err = service.HandleJSON(ctx, body, h.handleCreateCase)
 	case "DescribeCases":
-		result, err = h.handleDescribeCases(body)
+		result, err = service.HandleJSON(ctx, body, h.handleDescribeCases)
 	case "ResolveCase":
-		result, err = h.handleResolveCase(body)
+		result, err = service.HandleJSON(ctx, body, h.handleResolveCase)
 	default:
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
@@ -135,6 +135,28 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	}
 }
 
+type caseView struct {
+	CaseId       string `json:"caseId"`
+	Subject      string `json:"subject"`
+	Status       string `json:"status"`
+	ServiceCode  string `json:"serviceCode"`
+	CategoryCode string `json:"categoryCode"`
+	SeverityCode string `json:"severityCode"`
+}
+
+type createCaseOutput struct {
+	CaseId string `json:"caseId"`
+}
+
+type describeCasesOutput struct {
+	Cases []caseView `json:"cases"`
+}
+
+type resolveCaseOutput struct {
+	InitialCaseStatus string `json:"initialCaseStatus"`
+	FinalCaseStatus   string `json:"finalCaseStatus"`
+}
+
 type handleCreateCaseInput struct {
 	Subject           string `json:"subject"`
 	ServiceCode       string `json:"serviceCode"`
@@ -143,78 +165,59 @@ type handleCreateCaseInput struct {
 	CommunicationBody string `json:"communicationBody"`
 }
 
-func (h *Handler) handleCreateCase(body []byte) (any, error) {
-	var req handleCreateCaseInput
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, errInvalidRequest
-	}
-
-	if req.Subject == "" {
+func (h *Handler) handleCreateCase(_ context.Context, in *handleCreateCaseInput) (*createCaseOutput, error) {
+	if in.Subject == "" {
 		return nil, fmt.Errorf("%w: subject is required", errInvalidRequest)
 	}
 
 	c2, err := h.Backend.CreateCase(
-		req.Subject,
-		req.ServiceCode,
-		req.CategoryCode,
-		req.SeverityCode,
-		req.CommunicationBody,
+		in.Subject,
+		in.ServiceCode,
+		in.CategoryCode,
+		in.SeverityCode,
+		in.CommunicationBody,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	return map[string]string{
-		"caseId": c2.CaseID,
-	}, nil
+	return &createCaseOutput{CaseId: c2.CaseID}, nil
 }
 
 type handleDescribeCasesInput struct {
 	CaseIDList []string `json:"caseIdList"`
 }
 
-//nolint:unparam // error returned for consistent dispatch signature
-func (h *Handler) handleDescribeCases(body []byte) (any, error) {
-	var req handleDescribeCasesInput
-	_ = json.Unmarshal(body, &req)
+func (h *Handler) handleDescribeCases(_ context.Context, in *handleDescribeCasesInput) (*describeCasesOutput, error) {
+	cases := h.Backend.DescribeCases(in.CaseIDList)
 
-	cases := h.Backend.DescribeCases(req.CaseIDList)
-
-	views := make([]map[string]any, 0, len(cases))
+	views := make([]caseView, 0, len(cases))
 	for _, cs := range cases {
-		v := map[string]any{
-			"caseId":       cs.CaseID,
-			"subject":      cs.Subject,
-			"status":       cs.Status,
-			"serviceCode":  cs.ServiceCode,
-			"categoryCode": cs.CategoryCode,
-			"severityCode": cs.SeverityCode,
-		}
-		views = append(views, v)
+		views = append(views, caseView{
+			CaseId:       cs.CaseID,
+			Subject:      cs.Subject,
+			Status:       cs.Status,
+			ServiceCode:  cs.ServiceCode,
+			CategoryCode: cs.CategoryCode,
+			SeverityCode: cs.SeverityCode,
+		})
 	}
 
-	return map[string]any{
-		"cases": views,
-	}, nil
+	return &describeCasesOutput{Cases: views}, nil
 }
 
 type handleResolveCaseInput struct {
 	CaseID string `json:"caseId"`
 }
 
-func (h *Handler) handleResolveCase(body []byte) (any, error) {
-	var req handleResolveCaseInput
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, errInvalidRequest
-	}
-
-	cs, err := h.Backend.ResolveCase(req.CaseID)
+func (h *Handler) handleResolveCase(_ context.Context, in *handleResolveCaseInput) (*resolveCaseOutput, error) {
+	cs, err := h.Backend.ResolveCase(in.CaseID)
 	if err != nil {
 		return nil, err
 	}
 
-	return map[string]any{
-		"initialCaseStatus": "opened",
-		"finalCaseStatus":   cs.Status,
+	return &resolveCaseOutput{
+		InitialCaseStatus: "opened",
+		FinalCaseStatus:   cs.Status,
 	}, nil
 }
