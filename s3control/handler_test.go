@@ -145,15 +145,13 @@ func TestS3Control_Handler_XMLResponse(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out struct {
-		XMLName xml.Name `xml:"GetPublicAccessBlockOutput"`
-		Config  struct {
-			BlockPublicAcls   bool `xml:"BlockPublicAcls"`
-			BlockPublicPolicy bool `xml:"BlockPublicPolicy"`
-		} `xml:"PublicAccessBlockConfiguration"`
+		XMLName           xml.Name `xml:"PublicAccessBlockConfiguration"`
+		BlockPublicAcls   bool     `xml:"BlockPublicAcls"`
+		BlockPublicPolicy bool     `xml:"BlockPublicPolicy"`
 	}
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes()[len(xml.Header):], &out))
-	assert.True(t, out.Config.BlockPublicAcls)
-	assert.True(t, out.Config.BlockPublicPolicy)
+	assert.True(t, out.BlockPublicAcls)
+	assert.True(t, out.BlockPublicPolicy)
 }
 
 func TestS3Control_Provider(t *testing.T) {

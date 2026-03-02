@@ -135,7 +135,8 @@ func parseSchedulerRESTPath(method, path string) (string, string) {
 	segments := strings.Split(strings.TrimPrefix(path, "/"), "/")
 	switch {
 	// GET /schedules or GET /schedules/ → ListSchedules
-	case method == http.MethodGet && len(segments) == 1 && segments[0] == schedulerPathSegment:
+	case method == http.MethodGet && len(segments) >= 1 && segments[0] == schedulerPathSegment &&
+		(len(segments) == 1 || (len(segments) == 2 && segments[1] == "")):
 		return "ListSchedules", ""
 	// POST /schedules/{name} → CreateSchedule
 	case method == http.MethodPost && len(segments) == schedulesPathMinSegments && segments[0] == schedulerPathSegment:

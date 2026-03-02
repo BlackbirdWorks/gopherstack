@@ -1638,9 +1638,25 @@ func TestTerraform_EC2(t *testing.T) {
 					"SGName": "tf-ec2-sg-" + id,
 				}
 			},
-			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
 				t.Helper()
 				client := createEC2Client(t)
+
+				// Verify the security group with the unique name was created.
+				sgOut, err := client.DescribeSecurityGroups(ctx, &ec2svc.DescribeSecurityGroupsInput{})
+				require.NoError(t, err, "DescribeSecurityGroups should succeed after terraform apply")
+				sgName := vars["SGName"].(string)
+				var found bool
+				for _, sg := range sgOut.SecurityGroups {
+					if aws.ToString(sg.GroupName) == sgName {
+						found = true
+
+						break
+					}
+				}
+				require.True(t, found, "security group %q should exist", sgName)
+
+				// Verify an instance was created.
 				out, err := client.DescribeInstances(ctx, &ec2svc.DescribeInstancesInput{})
 				require.NoError(t, err, "DescribeInstances should succeed after terraform apply")
 				require.NotEmpty(t, out.Reservations, "at least one reservation should exist")

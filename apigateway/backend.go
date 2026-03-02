@@ -17,11 +17,12 @@ import (
 )
 
 var (
-	ErrRestAPINotFound  = errors.New("NotFoundException")
-	ErrResourceNotFound = errors.New("NotFoundException")
-	ErrMethodNotFound   = errors.New("NotFoundException")
-	ErrAlreadyExists    = awserr.New("ConflictException", awserr.ErrAlreadyExists)
-	ErrInvalidParameter = errors.New("BadRequestException")
+	ErrRestAPINotFound    = errors.New("NotFoundException")
+	ErrResourceNotFound   = errors.New("NotFoundException")
+	ErrMethodNotFound     = errors.New("NotFoundException")
+	ErrDeploymentNotFound = errors.New("NotFoundException")
+	ErrAlreadyExists      = awserr.New("ConflictException", awserr.ErrAlreadyExists)
+	ErrInvalidParameter   = errors.New("BadRequestException")
 )
 
 // StorageBackend is the interface for the API Gateway in-memory store.
@@ -544,7 +545,7 @@ func (b *InMemoryBackend) GetDeployment(restAPIID, deploymentID string) (*Deploy
 
 	dep, ok := d.deployments[deploymentID]
 	if !ok {
-		return nil, fmt.Errorf("%w: deployment %s not found", ErrRestAPINotFound, deploymentID)
+		return nil, fmt.Errorf("%w: deployment %s not found", ErrDeploymentNotFound, deploymentID)
 	}
 
 	cp := *dep
@@ -564,7 +565,7 @@ func (b *InMemoryBackend) DeleteDeployment(restAPIID, deploymentID string) error
 
 	_, exists := d.deployments[deploymentID]
 	if !exists {
-		return fmt.Errorf("%w: deployment %s not found", ErrRestAPINotFound, deploymentID)
+		return fmt.Errorf("%w: deployment %s not found", ErrDeploymentNotFound, deploymentID)
 	}
 
 	delete(d.deployments, deploymentID)

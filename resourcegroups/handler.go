@@ -24,17 +24,14 @@ var (
 
 const resourceGroupsTargetPrefix = "ResourceGroups."
 
-// rgRESTPathOp returns a map of REST API path to Resource Groups operation name.
-// It is called at dispatch time to look up the operation for a REST request.
-func rgRESTPathOp() map[string]string {
-	return map[string]string{
-		"/groups":                  "CreateGroup",
-		"/get-group":               "GetGroup",
-		"/delete-group":            "DeleteGroup",
-		"/groups-list":             "ListGroups",
-		"/get-group-query":         "GetGroupQuery",
-		"/get-group-configuration": "GetGroupConfiguration",
-	}
+// rgRESTPathOps is the static mapping of REST API paths to Resource Groups operation names.
+var rgRESTPathOps = map[string]string{ //nolint:gochecknoglobals // lookup table for REST path routing
+	"/groups":                  "CreateGroup",
+	"/get-group":               "GetGroup",
+	"/delete-group":            "DeleteGroup",
+	"/groups-list":             "ListGroups",
+	"/get-group-query":         "GetGroupQuery",
+	"/get-group-configuration": "GetGroupConfiguration",
 }
 
 type groupNameInput struct {
@@ -88,7 +85,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return true
 		}
 
-		_, isREST := rgRESTPathOp()[c.Request().URL.Path]
+		_, isREST := rgRESTPathOps[c.Request().URL.Path]
 
 		return isREST
 	}
@@ -105,7 +102,7 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 		return action
 	}
 
-	if op, ok := rgRESTPathOp()[c.Request().URL.Path]; ok {
+	if op, ok := rgRESTPathOps[c.Request().URL.Path]; ok {
 		return op
 	}
 
@@ -141,8 +138,13 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		// REST API paths: POST /groups, /get-group, /delete-group, /groups-list
-		if op, ok := rgRESTPathOp()[c.Request().URL.Path]; ok {
+		// REST API paths: POST /groups, /get-group, /delete-group, /groups-list, etc.
+		// Only POST is accepted; other methods get 405 to avoid misrouting.
+		if op, ok := rgRESTPathOps[c.Request().URL.Path]; ok {
+			if c.Request().Method != http.MethodPost {
+				return c.NoContent(http.StatusMethodNotAllowed)
+			}
+
 			return h.handleREST(c, op)
 		}
 
