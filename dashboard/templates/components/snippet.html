@@ -13,14 +13,7 @@
 <!-- Main modal -->
 <div id="snippetModal-{{.ID}}" tabindex="-1" aria-hidden="true" onclick="window.closeSnippetModal('{{.ID}}')"
     class="hidden overflow-y-auto overflow-x-hidden fixed top-0 right-0 left-0 z-[100] justify-center items-center w-full h-full bg-slate-900/50 backdrop-blur-sm">
-    <script>
-        (function () {
-            const modal = document.getElementById("snippetModal-{{.ID}}");
-            if (modal && modal.parentElement !== document.body) {
-                document.body.appendChild(modal);
-            }
-        })();
-    </script>
+
     <div class="relative p-4 w-full max-w-4xl max-h-full" onclick="event.stopPropagation()">
         <!-- Modal content -->
         <div
@@ -100,95 +93,4 @@
     </div>
 </div>
 
-<script>
-    if (typeof window.switchSnippet !== 'function') {
-        window.switchSnippet = function (btn, targetId) {
-            const container = btn.closest('.code-snippet-generator');
-
-            // Update tabs
-            const tabs = container.querySelectorAll('.snippet-tab');
-            tabs.forEach(t => {
-                t.classList.remove('active', 'bg-emerald-600', 'text-white', 'shadow-sm', 'hover:bg-emerald-700');
-                t.classList.add('text-slate-600', 'hover:text-slate-900', 'dark:text-slate-400', 'dark:hover:text-white', 'hover:bg-slate-200', 'dark:hover:bg-slate-800');
-            });
-            btn.classList.add('active', 'bg-emerald-600', 'text-white', 'shadow-sm', 'hover:bg-emerald-700');
-            btn.classList.remove('text-slate-600', 'hover:text-slate-900', 'dark:text-slate-400', 'dark:hover:text-white', 'hover:bg-slate-200', 'dark:hover:bg-slate-800');
-
-            // Update content
-            container.querySelectorAll('.snippet-content').forEach(s => s.classList.add('hidden'));
-            const target = document.getElementById(targetId);
-            if (target) target.classList.remove('hidden');
-
-            // Re-highlight if visible
-            if (window.Prism && target) {
-                const codeBlock = target.querySelector('code');
-                if (codeBlock) window.Prism.highlightElement(codeBlock);
-            }
-        };
-
-        window.copyActiveSnippet = function (btn) {
-            const container = btn.closest('.relative');
-            const activeContent = Array.from(container.querySelectorAll('.snippet-content')).find(el => !el.classList.contains('hidden'));
-
-            if (activeContent) {
-                const textToCopy = activeContent.innerText.replace("Copied", "").trim();
-
-                navigator.clipboard.writeText(textToCopy).then(() => {
-                    const copyIcon = btn.querySelector('.copy-icon');
-                    const checkIcon = btn.querySelector('.check-icon');
-                    const feedback = container.querySelector('.copy-feedback');
-
-                    if (copyIcon) copyIcon.classList.add('hidden');
-                    if (checkIcon) checkIcon.classList.remove('hidden', 'opacity-0');
-                    if (feedback) feedback.classList.remove('hidden');
-
-                    btn.classList.add('!bg-emerald-600/90', '!border-emerald-500');
-
-                    setTimeout(() => {
-                        if (copyIcon) copyIcon.classList.remove('hidden');
-                        if (checkIcon) checkIcon.classList.add('hidden', 'opacity-0');
-                        if (feedback) feedback.classList.add('hidden');
-                        btn.classList.remove('!bg-emerald-600/90', '!border-emerald-500');
-                    }, 2000);
-                });
-            }
-        };
-
-        // Setup observer to highlight code when modal is opened since Prism might skip hidden elements
-        const observer = new MutationObserver((mutations) => {
-            mutations.forEach((mutation) => {
-                if (mutation.attributeName === 'aria-hidden' && mutation.target.getAttribute('aria-hidden') === 'false') {
-                    if (window.Prism) {
-                        const codeBlocks = mutation.target.querySelectorAll('code[class*="language-"]');
-                        codeBlocks.forEach(block => window.Prism.highlightElement(block));
-                    }
-                }
-            });
-        });
-
-        document.querySelectorAll('[id^="snippetModal-"]').forEach(modal => {
-            observer.observe(modal, { attributes: true });
-        });
-
-        window.openSnippetModal = function (id) {
-            const modal = document.getElementById("snippetModal-" + id);
-            if (modal) {
-                modal.classList.remove('hidden');
-                modal.classList.add('flex');
-                modal.setAttribute('aria-hidden', 'false');
-                document.body.style.overflow = 'hidden';
-            }
-        };
-
-        window.closeSnippetModal = function (id) {
-            const modal = document.getElementById("snippetModal-" + id);
-            if (modal) {
-                modal.classList.add('hidden');
-                modal.classList.remove('flex');
-                modal.setAttribute('aria-hidden', 'true');
-                document.body.style.overflow = '';
-            }
-        };
-    }
-</script>
 {{end}}

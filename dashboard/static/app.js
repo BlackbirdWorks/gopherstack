@@ -183,6 +183,14 @@ document.addEventListener('htmx:afterSwap', function () {
     }
     setupGlobalSearch();
 
+    if (window.ThemeManager) {
+        window.ThemeManager.init();
+    }
+
+    if (typeof window.initSnippets === 'function') {
+        window.initSnippets();
+    }
+
     // Re-initialize all Flowbite components (modals, dropdowns) after DOM replaces
     if (typeof window.initFlowbite === 'function') {
         window.initFlowbite();
@@ -190,6 +198,97 @@ document.addEventListener('htmx:afterSwap', function () {
         window.initModals();
     }
 });
+
+// ── Snippet Modal Functions ───────────────────────────────────
+window.initSnippets = function () {
+    // Setup observer to highlight code when modal is opened since Prism might skip hidden elements
+    const observer = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+            if (mutation.attributeName === 'aria-hidden' && mutation.target.getAttribute('aria-hidden') === 'false') {
+                if (window.Prism) {
+                    const codeBlocks = mutation.target.querySelectorAll('code[class*="language-"]');
+                    codeBlocks.forEach(block => window.Prism.highlightElement(block));
+                }
+            }
+        });
+    });
+
+    document.querySelectorAll('[id^="snippetModal-"]').forEach(modal => {
+        observer.observe(modal, { attributes: true });
+    });
+};
+
+window.switchSnippet = function (btn, targetId) {
+    const container = btn.closest('.code-snippet-generator');
+
+    // Update tabs
+    const tabs = container.querySelectorAll('.snippet-tab');
+    tabs.forEach(t => {
+        t.classList.remove('active', 'bg-emerald-600', 'text-white', 'shadow-sm', 'hover:bg-emerald-700');
+        t.classList.add('text-slate-600', 'hover:text-slate-900', 'dark:text-slate-400', 'dark:hover:text-white', 'hover:bg-slate-200', 'dark:hover:bg-slate-800');
+    });
+    btn.classList.add('active', 'bg-emerald-600', 'text-white', 'shadow-sm', 'hover:bg-emerald-700');
+    btn.classList.remove('text-slate-600', 'hover:text-slate-900', 'dark:text-slate-400', 'dark:hover:text-white', 'hover:bg-slate-200', 'dark:hover:bg-slate-800');
+
+    // Update content
+    container.querySelectorAll('.snippet-content').forEach(s => s.classList.add('hidden'));
+    const target = document.getElementById(targetId);
+    if (target) target.classList.remove('hidden');
+
+    // Re-highlight if visible
+    if (window.Prism && target) {
+        const codeBlock = target.querySelector('code');
+        if (codeBlock) window.Prism.highlightElement(codeBlock);
+    }
+};
+
+window.copyActiveSnippet = function (btn) {
+    const container = btn.closest('.relative');
+    const activeContent = Array.from(container.querySelectorAll('.snippet-content')).find(el => !el.classList.contains('hidden'));
+
+    if (activeContent) {
+        const textToCopy = activeContent.innerText.replace("Copied", "").trim();
+
+        navigator.clipboard.writeText(textToCopy).then(() => {
+            const copyIcon = btn.querySelector('.copy-icon');
+            const checkIcon = btn.querySelector('.check-icon');
+            const feedback = container.querySelector('.copy-feedback');
+
+            if (copyIcon) copyIcon.classList.add('hidden');
+            if (checkIcon) checkIcon.classList.remove('hidden', 'opacity-0');
+            if (feedback) feedback.classList.remove('hidden');
+
+            btn.classList.add('!bg-emerald-600/90', '!border-emerald-500');
+
+            setTimeout(() => {
+                if (copyIcon) copyIcon.classList.remove('hidden');
+                if (checkIcon) checkIcon.classList.add('hidden', 'opacity-0');
+                if (feedback) feedback.classList.add('hidden');
+                btn.classList.remove('!bg-emerald-600/90', '!border-emerald-500');
+            }, 2000);
+        });
+    }
+};
+
+window.openSnippetModal = function (id) {
+    const modal = document.getElementById("snippetModal-" + id);
+    if (modal) {
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        modal.setAttribute('aria-hidden', 'false');
+        document.body.style.overflow = 'hidden';
+    }
+};
+
+window.closeSnippetModal = function (id) {
+    const modal = document.getElementById("snippetModal-" + id);
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+        modal.setAttribute('aria-hidden', 'true');
+        document.body.style.overflow = '';
+    }
+};
 
 // ── Global Search ─────────────────────────────────────────────
 function setupGlobalSearch() {
@@ -246,7 +345,8 @@ document.addEventListener('keydown', function (e) {
 });
 
 document.addEventListener('DOMContentLoaded', function () {
-    ThemeManager.init();
+    if (window.ThemeManager) window.ThemeManager.init();
+    if (window.initSnippets) window.initSnippets();
     setupGlobalSearch();
     console.log('Gopherstack UI loaded');
 });
