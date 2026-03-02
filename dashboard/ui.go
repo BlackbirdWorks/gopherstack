@@ -219,6 +219,9 @@ func parseDashboardTemplates() *template.Template {
 
 			return s
 		},
+		"unescapeHTML": func(s string) template.HTML {
+			return template.HTML(s)
+		},
 	}
 
 	return template.Must(template.New("layout").Funcs(funcMap).ParseFS(templateFS,
@@ -261,6 +264,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/metrics.html",
 		"templates/doc.html",
 		"templates/settings.html",
+		"templates/apiconsole.html",
 	))
 }
 
@@ -335,12 +339,10 @@ func (h *DashboardHandler) setupStaticAndRootRoutes() {
 
 		return nil
 	})
-	h.SubRouter.GET("/dashboard", func(c *echo.Context) error {
-		return c.Redirect(http.StatusFound, "/dashboard/dynamodb")
-	})
-	h.SubRouter.GET("/dashboard/", func(c *echo.Context) error {
-		return c.Redirect(http.StatusFound, "/dashboard/dynamodb")
-	})
+	h.SubRouter.GET("/dashboard", h.dashboardIndex)
+	h.SubRouter.GET("/dashboard/", h.dashboardIndex)
+	h.SubRouter.GET("/dashboard/console", h.consoleIndex)
+	h.SubRouter.GET("/dashboard/api/console", h.consoleAPI)
 }
 
 func (h *DashboardHandler) setupProviderRoutes() {
