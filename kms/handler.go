@@ -36,6 +36,11 @@ type tagResourceInput struct {
 	Tags  []kmsTagEntry `json:"Tags"`
 }
 
+type listResourceTagsOutput struct {
+	Tags      []kmsTagEntry `json:"Tags"`
+	Truncated bool          `json:"Truncated"`
+}
+
 type untagResourceInput struct {
 	KeyID   string   `json:"KeyId"` //nolint:tagliatelle // AWS API uses KeyId
 	TagKeys []string `json:"TagKeys"`
@@ -445,7 +450,7 @@ func (h *Handler) buildTagActions() map[string]kmsActionFn {
 				tagList = append(tagList, kmsTagEntry{TagKey: k, TagValue: v})
 			}
 
-			return map[string]any{"Tags": tagList, "Truncated": false}, nil
+			return &listResourceTagsOutput{Tags: tagList, Truncated: false}, nil
 		},
 		"TagResource": func(_ string, b []byte) (any, error) {
 			var input tagResourceInput

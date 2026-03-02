@@ -262,6 +262,65 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 type actionFn func([]byte) (any, error)
 
+type createEventBusOutput struct {
+	EventBusArn string `json:"EventBusArn"`
+}
+
+type deleteEventBusOutput struct{}
+
+type listEventBusesOutput struct {
+	NextToken  string     `json:"NextToken"`
+	EventBuses []EventBus `json:"EventBuses"`
+}
+
+type putRuleOutput struct {
+	RuleArn string `json:"RuleArn"`
+}
+
+type deleteRuleOutput struct{}
+
+type listRulesOutput struct {
+	NextToken string `json:"NextToken"`
+	Rules     []Rule `json:"Rules"`
+}
+
+type enableRuleOutput struct{}
+
+type disableRuleOutput struct{}
+
+type putTargetsOutput struct {
+	FailedEntries    []FailedEntry `json:"FailedEntries"`
+	FailedEntryCount int           `json:"FailedEntryCount"`
+}
+
+type removeTargetsOutput struct {
+	FailedEntries    []FailedEntry `json:"FailedEntries"`
+	FailedEntryCount int           `json:"FailedEntryCount"`
+}
+
+type listTargetsByRuleOutput struct {
+	NextToken string   `json:"NextToken"`
+	Targets   []Target `json:"Targets"`
+}
+
+type putEventsOutput struct {
+	Entries          []EventResultEntry `json:"Entries"`
+	FailedEntryCount int                `json:"FailedEntryCount"`
+}
+
+type ebTagEntry struct {
+	Key   string `json:"Key"`
+	Value string `json:"Value"`
+}
+
+type listTagsForResourceOutput struct {
+	Tags []ebTagEntry `json:"Tags"`
+}
+
+type tagResourceOutput struct{}
+
+type untagResourceOutput struct{}
+
 func (h *Handler) eventBusActions() map[string]actionFn {
 	return map[string]actionFn{
 		"CreateEventBus": func(b []byte) (any, error) {
@@ -274,7 +333,7 @@ func (h *Handler) eventBusActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return map[string]string{"EventBusArn": bus.Arn}, nil
+			return &createEventBusOutput{EventBusArn: bus.Arn}, nil
 		},
 		"DeleteEventBus": func(b []byte) (any, error) {
 			var input deleteEventBusInput
@@ -285,7 +344,7 @@ func (h *Handler) eventBusActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return map[string]any{}, nil
+			return &deleteEventBusOutput{}, nil
 		},
 		"ListEventBuses": func(b []byte) (any, error) {
 			var input listEventBusesInput
@@ -297,7 +356,7 @@ func (h *Handler) eventBusActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return map[string]any{"EventBuses": buses, "NextToken": next}, nil
+			return &listEventBusesOutput{EventBuses: buses, NextToken: next}, nil
 		},
 		"DescribeEventBus": func(b []byte) (any, error) {
 			var input describeEventBusInput
@@ -326,7 +385,7 @@ func (h *Handler) ruleActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return map[string]string{"RuleArn": rule.Arn}, nil
+			return &putRuleOutput{RuleArn: rule.Arn}, nil
 		},
 		"DeleteRule": func(b []byte) (any, error) {
 			var input deleteRuleInput
@@ -337,7 +396,7 @@ func (h *Handler) ruleActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return map[string]any{}, nil
+			return &deleteRuleOutput{}, nil
 		},
 		"ListRules": func(b []byte) (any, error) {
 			var input listRulesInput
@@ -349,7 +408,7 @@ func (h *Handler) ruleActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return map[string]any{"Rules": rules, "NextToken": next}, nil
+			return &listRulesOutput{Rules: rules, NextToken: next}, nil
 		},
 		"DescribeRule": func(b []byte) (any, error) {
 			var input describeRuleInput
@@ -373,7 +432,7 @@ func (h *Handler) ruleStateActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return map[string]any{}, nil
+			return &enableRuleOutput{}, nil
 		},
 		"DisableRule": func(b []byte) (any, error) {
 			var input disableRuleInput
@@ -384,7 +443,7 @@ func (h *Handler) ruleStateActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return map[string]any{}, nil
+			return &disableRuleOutput{}, nil
 		},
 	}
 }
@@ -404,9 +463,9 @@ func (h *Handler) targetActions() map[string]actionFn {
 				failed = []FailedEntry{}
 			}
 
-			return map[string]any{
-				"FailedEntryCount": len(failed),
-				"FailedEntries":    failed,
+			return &putTargetsOutput{
+				FailedEntryCount: len(failed),
+				FailedEntries:    failed,
 			}, nil
 		},
 		"RemoveTargets": func(b []byte) (any, error) {
@@ -422,9 +481,9 @@ func (h *Handler) targetActions() map[string]actionFn {
 				failed = []FailedEntry{}
 			}
 
-			return map[string]any{
-				"FailedEntryCount": len(failed),
-				"FailedEntries":    failed,
+			return &removeTargetsOutput{
+				FailedEntryCount: len(failed),
+				FailedEntries:    failed,
 			}, nil
 		},
 		"ListTargetsByRule": func(b []byte) (any, error) {
@@ -437,7 +496,7 @@ func (h *Handler) targetActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return map[string]any{"Targets": targets, "NextToken": next}, nil
+			return &listTargetsByRuleOutput{Targets: targets, NextToken: next}, nil
 		},
 	}
 }
@@ -451,9 +510,9 @@ func (h *Handler) eventsActions() map[string]actionFn {
 			}
 			entries := h.Backend.PutEvents(input.Entries)
 
-			return map[string]any{
-				"FailedEntryCount": 0,
-				"Entries":          entries,
+			return &putEventsOutput{
+				FailedEntryCount: 0,
+				Entries:          entries,
 			}, nil
 		},
 	}
@@ -467,12 +526,12 @@ func (h *Handler) tagActions() map[string]actionFn {
 				return nil, err
 			}
 			tagMap := h.getTags(input.ResourceARN)
-			tagList := make([]map[string]string, 0, len(tagMap))
+			tagList := make([]ebTagEntry, 0, len(tagMap))
 			for k, v := range tagMap {
-				tagList = append(tagList, map[string]string{"Key": k, "Value": v})
+				tagList = append(tagList, ebTagEntry{Key: k, Value: v})
 			}
 
-			return map[string]any{"Tags": tagList}, nil
+			return &listTagsForResourceOutput{Tags: tagList}, nil
 		},
 		"TagResource": func(b []byte) (any, error) {
 			var input tagResourceInput
@@ -485,7 +544,7 @@ func (h *Handler) tagActions() map[string]actionFn {
 			}
 			h.setTags(input.ResourceARN, kv)
 
-			return map[string]any{}, nil
+			return &tagResourceOutput{}, nil
 		},
 		"UntagResource": func(b []byte) (any, error) {
 			var input untagResourceInput
@@ -494,7 +553,7 @@ func (h *Handler) tagActions() map[string]actionFn {
 			}
 			h.removeTags(input.ResourceARN, input.TagKeys)
 
-			return map[string]any{}, nil
+			return &untagResourceOutput{}, nil
 		},
 	}
 }

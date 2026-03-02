@@ -109,23 +109,22 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byte, error) {
-	var result any
-	var err error
+func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
+	return map[string]service.JSONOpFunc{
+		"CreateGroup": service.WrapOp(h.handleCreateGroup),
+		"DeleteGroup": service.WrapOp(h.handleDeleteGroup),
+		"ListGroups":  service.WrapOp(h.handleListGroups),
+		"GetGroup":    service.WrapOp(h.handleGetGroup),
+	}
+}
 
-	switch action {
-	case "CreateGroup":
-		result, err = h.handleCreateGroup(body)
-	case "DeleteGroup":
-		result, err = h.handleDeleteGroup(body)
-	case "ListGroups":
-		result, err = h.handleListGroups()
-	case "GetGroup":
-		result, err = h.handleGetGroup(body)
-	default:
+func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
+	fn, ok := h.dispatchTable()[action]
+	if !ok {
 		return nil, ErrUnknownOperation
 	}
 
+	result, err := fn(ctx, body)
 	if err != nil {
 		return nil, err
 	}
@@ -134,10 +133,14 @@ func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byt
 }
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
+	var syntaxErr *json.SyntaxError
+	var typeErr *json.UnmarshalTypeError
+
 	code := http.StatusInternalServerError
 
 	switch {
-	case errors.Is(err, errInvalidRequest), errors.Is(err, ErrUnknownOperation):
+	case errors.Is(err, errInvalidRequest), errors.Is(err, ErrUnknownOperation),
+		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		code = http.StatusBadRequest
 	case errors.Is(err, ErrAlreadyExists):
 		code = http.StatusBadRequest
@@ -154,56 +157,50 @@ type handleCreateGroupInput struct {
 	Description string     `json:"Description"`
 }
 
-func (h *Handler) handleCreateGroup(body []byte) (any, error) {
-	var req handleCreateGroupInput
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, errInvalidRequest
-	}
+type createGroupOutput struct {
+	Group *Group `json:"Group"`
+}
 
-	g, err := h.Backend.CreateGroup(req.Name, req.Description, req.Tags)
+func (h *Handler) handleCreateGroup(_ context.Context, in *handleCreateGroupInput) (*createGroupOutput, error) {
+	g, err := h.Backend.CreateGroup(in.Name, in.Description, in.Tags)
 	if err != nil {
 		return nil, err
 	}
 
-	return map[string]any{
-		"Group": g,
-	}, nil
+	return &createGroupOutput{Group: g}, nil
 }
 
-func (h *Handler) handleDeleteGroup(body []byte) (any, error) {
-	var req groupNameInput
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, errInvalidRequest
-	}
+type deleteGroupOutput struct{}
 
-	if err := h.Backend.DeleteGroup(req.GroupName); err != nil {
+func (h *Handler) handleDeleteGroup(_ context.Context, in *groupNameInput) (*deleteGroupOutput, error) {
+	if err := h.Backend.DeleteGroup(in.GroupName); err != nil {
 		return nil, err
 	}
 
-	return map[string]string{}, nil
+	return &deleteGroupOutput{}, nil
 }
 
-//nolint:unparam // error returned for consistent dispatch signature
-func (h *Handler) handleListGroups() (any, error) {
+type listGroupsInput struct{}
+
+type listGroupsOutput struct {
+	GroupIdentifiers []Group `json:"GroupIdentifiers"`
+}
+
+func (h *Handler) handleListGroups(_ context.Context, _ *listGroupsInput) (*listGroupsOutput, error) {
 	groups := h.Backend.ListGroups()
 
-	return map[string]any{
-		"GroupIdentifiers": groups,
-	}, nil
+	return &listGroupsOutput{GroupIdentifiers: groups}, nil
 }
 
-func (h *Handler) handleGetGroup(body []byte) (any, error) {
-	var req groupNameInput
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, errInvalidRequest
-	}
+type getGroupOutput struct {
+	Group *Group `json:"Group"`
+}
 
-	g, err := h.Backend.GetGroup(req.GroupName)
+func (h *Handler) handleGetGroup(_ context.Context, in *groupNameInput) (*getGroupOutput, error) {
+	g, err := h.Backend.GetGroup(in.GroupName)
 	if err != nil {
 		return nil, err
 	}
 
-	return map[string]any{
-		"Group": g,
-	}, nil
+	return &getGroupOutput{Group: g}, nil
 }

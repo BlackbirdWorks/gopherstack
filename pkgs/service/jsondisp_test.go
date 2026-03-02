@@ -146,3 +146,94 @@ func TestHandleTarget(t *testing.T) {
 		})
 	}
 }
+
+// errHandleJSONFn is the sentinel returned by the error-path fn stub.
+var errHandleJSONFn = errors.New("fn error")
+
+type handleJSONTestInput struct {
+	Name string `json:"name"`
+}
+
+type handleJSONTestOutput struct {
+	Greeting string `json:"greeting"`
+}
+
+func TestHandleJSON(t *testing.T) {
+	t.Parallel()
+
+	greetFn := func(_ context.Context, in *handleJSONTestInput) (*handleJSONTestOutput, error) {
+		return &handleJSONTestOutput{Greeting: "hello " + in.Name}, nil
+	}
+
+	errFn := func(_ context.Context, _ *handleJSONTestInput) (*handleJSONTestOutput, error) {
+		return nil, errHandleJSONFn
+	}
+
+	tests := []struct {
+		fn        func(context.Context, *handleJSONTestInput) (*handleJSONTestOutput, error)
+		name      string
+		body      string
+		wantGreet string
+		wantErr   bool
+	}{
+		{
+			name:      "decodes body and calls fn",
+			body:      `{"name":"world"}`,
+			fn:        greetFn,
+			wantGreet: "hello world",
+		},
+		{
+			name:      "empty body uses zero-value input",
+			body:      "",
+			fn:        greetFn,
+			wantGreet: "hello ",
+		},
+		{
+			name:    "malformed JSON returns error",
+			body:    `{bad json}`,
+			fn:      greetFn,
+			wantErr: true,
+		},
+		{
+			name:    "fn error is propagated",
+			body:    `{"name":"world"}`,
+			fn:      errFn,
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			result, err := service.HandleJSON(context.Background(), []byte(tc.body), tc.fn)
+			if tc.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			out, ok := result.(*handleJSONTestOutput)
+			require.True(t, ok)
+			require.Equal(t, tc.wantGreet, out.Greeting)
+		})
+	}
+}
+
+func TestWrapOp(t *testing.T) {
+	t.Parallel()
+
+	greetFn := func(_ context.Context, in *handleJSONTestInput) (*handleJSONTestOutput, error) {
+		return &handleJSONTestOutput{Greeting: "hi " + in.Name}, nil
+	}
+
+	op := service.WrapOp(greetFn)
+
+	result, err := op(context.Background(), []byte(`{"name":"there"}`))
+	require.NoError(t, err)
+
+	out, ok := result.(*handleJSONTestOutput)
+	require.True(t, ok)
+	require.Equal(t, "hi there", out.Greeting)
+}

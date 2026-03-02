@@ -37,6 +37,12 @@ type lambdaTagsInput struct {
 	Tags *tags.Tags `json:"Tags"`
 }
 
+type lambdaEmptyOutput struct{}
+
+type getTagsOutput struct {
+	Tags map[string]string `json:"Tags"`
+}
+
 type publishVersionInput struct {
 	Description string `json:"Description"`
 }
@@ -308,7 +314,7 @@ func (h *Handler) buildCoreRoutes() []handlerEntry {
 			match:  hasSuffixCodeSigningConfig,
 			execute: func(c *echo.Context, _ string) error {
 				// Stub: no code signing config → empty 200 response.
-				return c.JSON(http.StatusOK, map[string]any{})
+				return c.JSON(http.StatusOK, &lambdaEmptyOutput{})
 			},
 		},
 	}
@@ -402,7 +408,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		// Handle 2020-06-30 API routes (e.g. GetFunctionCodeSigningConfig)
 		if rest2020, ok := strings.CutPrefix(path, lambda2020PathPrefix); ok {
 			if method == http.MethodGet && hasSuffixCodeSigningConfig(rest2020) {
-				return c.JSON(http.StatusOK, map[string]any{})
+				return c.JSON(http.StatusOK, &lambdaEmptyOutput{})
 			}
 
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "route not found")
@@ -428,7 +434,7 @@ func (h *Handler) handleTagsRoute(c *echo.Context, method string) error {
 
 	switch method {
 	case http.MethodGet:
-		return c.JSON(http.StatusOK, map[string]any{"Tags": h.getTags(arn)})
+		return c.JSON(http.StatusOK, &getTagsOutput{Tags: h.getTags(arn)})
 	case http.MethodPost:
 		body, err := httputil.ReadBody(c.Request())
 		if err != nil {

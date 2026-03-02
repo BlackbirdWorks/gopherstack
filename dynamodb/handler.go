@@ -294,7 +294,7 @@ func (h *DynamoDBHandler) dispatch(ctx context.Context, action string, body []by
 	case "DescribeExport":
 		return h.describeExport(ctx, body)
 	case "ListExports":
-		return map[string]any{"ExportSummaries": []any{}}, nil
+		return &listExportsOutput{ExportSummaries: []exportDescriptionFields{}}, nil
 	default:
 		return nil, fmt.Errorf("%w:%s", ErrUnknownOperation, action)
 	}
@@ -647,6 +647,19 @@ func (h *DynamoDBHandler) classifyError(reqErr error) (int, *Error) {
 	}
 }
 
+type pointInTimeRecoveryDescription struct {
+	PointInTimeRecoveryStatus string `json:"PointInTimeRecoveryStatus"`
+}
+
+type continuousBackupsDescriptionFields struct {
+	ContinuousBackupsStatus        string                         `json:"ContinuousBackupsStatus"`
+	PointInTimeRecoveryDescription pointInTimeRecoveryDescription `json:"PointInTimeRecoveryDescription"`
+}
+
+type describeContinuousBackupsOutput struct {
+	ContinuousBackupsDescription continuousBackupsDescriptionFields `json:"ContinuousBackupsDescription"`
+}
+
 type describeContinuousBackupsInput struct {
 	TableName string `json:"TableName"`
 }
@@ -657,12 +670,10 @@ func (h *DynamoDBHandler) describeContinuousBackups(_ context.Context, body []by
 		return nil, err
 	}
 
-	return map[string]any{
-		"ContinuousBackupsDescription": map[string]any{
-			"ContinuousBackupsStatus": "ENABLED",
-			"PointInTimeRecoveryDescription": map[string]any{
-				"PointInTimeRecoveryStatus": "DISABLED",
-			},
+	return &describeContinuousBackupsOutput{
+		ContinuousBackupsDescription: continuousBackupsDescriptionFields{
+			ContinuousBackupsStatus:        "ENABLED",
+			PointInTimeRecoveryDescription: pointInTimeRecoveryDescription{PointInTimeRecoveryStatus: "DISABLED"},
 		},
 	}, nil
 }
@@ -685,12 +696,10 @@ func (h *DynamoDBHandler) updateContinuousBackups(_ context.Context, body []byte
 		status = "ENABLED"
 	}
 
-	return map[string]any{
-		"ContinuousBackupsDescription": map[string]any{
-			"ContinuousBackupsStatus": "ENABLED",
-			"PointInTimeRecoveryDescription": map[string]any{
-				"PointInTimeRecoveryStatus": status,
-			},
+	return &describeContinuousBackupsOutput{
+		ContinuousBackupsDescription: continuousBackupsDescriptionFields{
+			ContinuousBackupsStatus:        "ENABLED",
+			PointInTimeRecoveryDescription: pointInTimeRecoveryDescription{PointInTimeRecoveryStatus: status},
 		},
 	}, nil
 }
@@ -698,6 +707,21 @@ func (h *DynamoDBHandler) updateContinuousBackups(_ context.Context, body []byte
 type exportTableToPointInTimeInput struct {
 	TableArn string `json:"TableArn"`
 	S3Bucket string `json:"S3Bucket"`
+}
+
+type exportDescriptionFields struct {
+	ExportArn    string `json:"ExportArn"`
+	ExportStatus string `json:"ExportStatus"`
+	TableArn     string `json:"TableArn,omitempty"`
+	S3Bucket     string `json:"S3Bucket,omitempty"`
+}
+
+type exportTableToPointInTimeOutput struct {
+	ExportDescription exportDescriptionFields `json:"ExportDescription"`
+}
+
+type listExportsOutput struct {
+	ExportSummaries []exportDescriptionFields `json:"ExportSummaries"`
 }
 
 func (h *DynamoDBHandler) exportTableToPointInTime(_ context.Context, body []byte) (any, error) {
@@ -709,12 +733,12 @@ func (h *DynamoDBHandler) exportTableToPointInTime(_ context.Context, body []byt
 	exportArn := arn.Build("dynamodb", config.DefaultRegion, config.DefaultAccountID,
 		"table/table/export/01000000-0000-0000-0000-000000000000")
 
-	return map[string]any{
-		"ExportDescription": map[string]any{
-			"ExportArn":    exportArn,
-			"ExportStatus": "COMPLETED",
-			"TableArn":     req.TableArn,
-			"S3Bucket":     req.S3Bucket,
+	return &exportTableToPointInTimeOutput{
+		ExportDescription: exportDescriptionFields{
+			ExportArn:    exportArn,
+			ExportStatus: "COMPLETED",
+			TableArn:     req.TableArn,
+			S3Bucket:     req.S3Bucket,
 		},
 	}, nil
 }
@@ -729,10 +753,10 @@ func (h *DynamoDBHandler) describeExport(_ context.Context, body []byte) (any, e
 		return nil, err
 	}
 
-	return map[string]any{
-		"ExportDescription": map[string]any{
-			"ExportArn":    req.ExportArn,
-			"ExportStatus": "COMPLETED",
+	return &exportTableToPointInTimeOutput{
+		ExportDescription: exportDescriptionFields{
+			ExportArn:    req.ExportArn,
+			ExportStatus: "COMPLETED",
 		},
 	}, nil
 }

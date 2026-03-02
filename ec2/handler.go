@@ -169,32 +169,31 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
+type ec2ActionFn func(vals url.Values, reqID string) (any, error)
+
+func (h *Handler) dispatchTable() map[string]ec2ActionFn {
+	return map[string]ec2ActionFn{
+		"RunInstances":           h.handleRunInstances,
+		"DescribeInstances":      h.handleDescribeInstances,
+		"TerminateInstances":     h.handleTerminateInstances,
+		"DescribeSecurityGroups": h.handleDescribeSecurityGroups,
+		"CreateSecurityGroup":    h.handleCreateSecurityGroup,
+		"DeleteSecurityGroup":    h.handleDeleteSecurityGroup,
+		"DescribeVpcs":           h.handleDescribeVpcs,
+		"DescribeSubnets":        h.handleDescribeSubnets,
+		"CreateVpc":              h.handleCreateVpc,
+		"CreateSubnet":           h.handleCreateSubnet,
+	}
+}
+
 // dispatch routes the EC2 action to the appropriate handler function.
 func (h *Handler) dispatch(action string, vals url.Values, reqID string) (any, error) {
-	switch action {
-	case "RunInstances":
-		return h.handleRunInstances(vals, reqID)
-	case "DescribeInstances":
-		return h.handleDescribeInstances(vals, reqID)
-	case "TerminateInstances":
-		return h.handleTerminateInstances(vals, reqID)
-	case "DescribeSecurityGroups":
-		return h.handleDescribeSecurityGroups(vals, reqID)
-	case "CreateSecurityGroup":
-		return h.handleCreateSecurityGroup(vals, reqID)
-	case "DeleteSecurityGroup":
-		return h.handleDeleteSecurityGroup(vals, reqID)
-	case "DescribeVpcs":
-		return h.handleDescribeVpcs(vals, reqID)
-	case "DescribeSubnets":
-		return h.handleDescribeSubnets(vals, reqID)
-	case "CreateVpc":
-		return h.handleCreateVpc(vals, reqID)
-	case "CreateSubnet":
-		return h.handleCreateSubnet(vals, reqID)
-	default:
+	fn, ok := h.dispatchTable()[action]
+	if !ok {
 		return nil, fmt.Errorf("%w: %s is not a supported EC2 action", ErrInvalidParameter, action)
 	}
+
+	return fn(vals, reqID)
 }
 
 // ---- action handlers ----

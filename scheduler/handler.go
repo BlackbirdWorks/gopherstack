@@ -115,29 +115,25 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byte, error) {
-	var result any
-	var err error
+func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
+	return map[string]service.JSONOpFunc{
+		"CreateSchedule":      service.WrapOp(h.handleCreateSchedule),
+		"GetSchedule":         service.WrapOp(h.handleGetSchedule),
+		"ListSchedules":       service.WrapOp(h.handleListSchedules),
+		"DeleteSchedule":      service.WrapOp(h.handleDeleteSchedule),
+		"UpdateSchedule":      service.WrapOp(h.handleUpdateSchedule),
+		"TagResource":         service.WrapOp(h.handleTagResource),
+		"ListTagsForResource": service.WrapOp(h.handleListTagsForResource),
+	}
+}
 
-	switch action {
-	case "CreateSchedule":
-		result, err = h.handleCreateSchedule(body)
-	case "GetSchedule":
-		result, err = h.handleGetSchedule(body)
-	case "ListSchedules":
-		result, err = h.handleListSchedules()
-	case "DeleteSchedule":
-		result, err = h.handleDeleteSchedule(body)
-	case "UpdateSchedule":
-		result, err = h.handleUpdateSchedule(body)
-	case "TagResource":
-		result, err = h.handleTagResource(body)
-	case "ListTagsForResource":
-		result, err = h.handleListTagsForResource(body)
-	default:
+func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
+	fn, ok := h.dispatchTable()[action]
+	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
 
+	result, err := fn(ctx, body)
 	if err != nil {
 		return nil, err
 	}
@@ -146,125 +142,145 @@ func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byt
 }
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
+	var syntaxErr *json.SyntaxError
+	var typeErr *json.UnmarshalTypeError
+
 	switch {
 	case errors.Is(err, ErrNotFound):
 		return c.JSON(http.StatusNotFound, map[string]string{"message": err.Error()})
 	case errors.Is(err, ErrAlreadyExists):
 		return c.JSON(http.StatusConflict, map[string]string{"message": err.Error()})
-	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction):
+	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
+		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
 	default:
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
 	}
 }
 
-func (h *Handler) handleCreateSchedule(body []byte) (any, error) {
-	var req scheduleInput
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, errInvalidRequest
-	}
+type createScheduleOutput struct {
+	ScheduleArn string `json:"ScheduleArn"`
+}
 
-	state := req.State
+func (h *Handler) handleCreateSchedule(_ context.Context, in *scheduleInput) (*createScheduleOutput, error) {
+	state := in.State
 	if state == "" {
 		state = "ENABLED"
 	}
 
 	s, err := h.Backend.CreateSchedule(
-		req.Name,
-		req.ScheduleExpression,
-		Target{ARN: req.Target.Arn, RoleARN: req.Target.RoleArn},
+		in.Name,
+		in.ScheduleExpression,
+		Target{ARN: in.Target.Arn, RoleARN: in.Target.RoleArn},
 		state,
 		FlexibleTimeWindow{
-			Mode:                   req.FlexibleTimeWindow.Mode,
-			MaximumWindowInMinutes: req.FlexibleTimeWindow.MaximumWindowInMinutes,
+			Mode:                   in.FlexibleTimeWindow.Mode,
+			MaximumWindowInMinutes: in.FlexibleTimeWindow.MaximumWindowInMinutes,
 		},
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	return map[string]string{"ScheduleArn": s.ARN}, nil
+	return &createScheduleOutput{ScheduleArn: s.ARN}, nil
 }
 
-func (h *Handler) handleGetSchedule(body []byte) (any, error) {
-	var req scheduleNameInput
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, errInvalidRequest
-	}
+type scheduleTargetOutput struct {
+	Arn     string `json:"Arn"`
+	RoleArn string `json:"RoleArn"`
+}
 
-	s, err := h.Backend.GetSchedule(req.Name)
+type flexibleTimeWindowOutput struct {
+	Mode                   string `json:"Mode"`
+	MaximumWindowInMinutes int    `json:"MaximumWindowInMinutes"`
+}
+
+type getScheduleOutput struct {
+	Name               string                   `json:"Name"`
+	Arn                string                   `json:"Arn"`
+	ScheduleExpression string                   `json:"ScheduleExpression"`
+	State              string                   `json:"State"`
+	Target             scheduleTargetOutput     `json:"Target"`
+	FlexibleTimeWindow flexibleTimeWindowOutput `json:"FlexibleTimeWindow"`
+}
+
+func (h *Handler) handleGetSchedule(_ context.Context, in *scheduleNameInput) (*getScheduleOutput, error) {
+	s, err := h.Backend.GetSchedule(in.Name)
 	if err != nil {
 		return nil, err
 	}
 
-	return map[string]any{
-		"Name":               s.Name,
-		"Arn":                s.ARN,
-		"ScheduleExpression": s.ScheduleExpression,
-		"State":              s.State,
-		"Target": map[string]string{
-			"Arn":     s.Target.ARN,
-			"RoleArn": s.Target.RoleARN,
-		},
-		"FlexibleTimeWindow": map[string]any{
-			"Mode":                   s.FlexibleTimeWindow.Mode,
-			"MaximumWindowInMinutes": s.FlexibleTimeWindow.MaximumWindowInMinutes,
+	return &getScheduleOutput{
+		Name:               s.Name,
+		Arn:                s.ARN,
+		ScheduleExpression: s.ScheduleExpression,
+		State:              s.State,
+		Target:             scheduleTargetOutput{Arn: s.Target.ARN, RoleArn: s.Target.RoleARN},
+		FlexibleTimeWindow: flexibleTimeWindowOutput{
+			Mode:                   s.FlexibleTimeWindow.Mode,
+			MaximumWindowInMinutes: s.FlexibleTimeWindow.MaximumWindowInMinutes,
 		},
 	}, nil
 }
 
-//nolint:unparam // error returned for consistent dispatch signature
-func (h *Handler) handleListSchedules() (any, error) {
+type listSchedulesInput struct{}
+
+type scheduleSummary struct {
+	Name               string `json:"Name"`
+	Arn                string `json:"Arn"`
+	ScheduleExpression string `json:"ScheduleExpression"`
+	State              string `json:"State"`
+}
+
+type listSchedulesOutput struct {
+	Schedules []scheduleSummary `json:"Schedules"`
+}
+
+func (h *Handler) handleListSchedules(_ context.Context, _ *listSchedulesInput) (*listSchedulesOutput, error) {
 	schedules := h.Backend.ListSchedules()
-	items := make([]map[string]any, 0, len(schedules))
+	items := make([]scheduleSummary, 0, len(schedules))
 	for _, s := range schedules {
-		items = append(items, map[string]any{
-			"Name":               s.Name,
-			"Arn":                s.ARN,
-			"ScheduleExpression": s.ScheduleExpression,
-			"State":              s.State,
+		items = append(items, scheduleSummary{
+			Name:               s.Name,
+			Arn:                s.ARN,
+			ScheduleExpression: s.ScheduleExpression,
+			State:              s.State,
 		})
 	}
 
-	return map[string]any{
-		"Schedules": items,
-	}, nil
+	return &listSchedulesOutput{Schedules: items}, nil
 }
 
-func (h *Handler) handleDeleteSchedule(body []byte) (any, error) {
-	var req scheduleNameInput
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, errInvalidRequest
-	}
+type deleteScheduleOutput struct{}
 
-	if err := h.Backend.DeleteSchedule(req.Name); err != nil {
+func (h *Handler) handleDeleteSchedule(_ context.Context, in *scheduleNameInput) (*deleteScheduleOutput, error) {
+	if err := h.Backend.DeleteSchedule(in.Name); err != nil {
 		return nil, err
 	}
 
-	return map[string]string{}, nil
+	return &deleteScheduleOutput{}, nil
 }
 
-func (h *Handler) handleUpdateSchedule(body []byte) (any, error) {
-	var req scheduleInput
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, errInvalidRequest
-	}
+type updateScheduleOutput struct {
+	ScheduleArn string `json:"ScheduleArn"`
+}
 
+func (h *Handler) handleUpdateSchedule(_ context.Context, in *scheduleInput) (*updateScheduleOutput, error) {
 	s, err := h.Backend.UpdateSchedule(
-		req.Name,
-		req.ScheduleExpression,
-		Target{ARN: req.Target.Arn, RoleARN: req.Target.RoleArn},
-		req.State,
+		in.Name,
+		in.ScheduleExpression,
+		Target{ARN: in.Target.Arn, RoleARN: in.Target.RoleArn},
+		in.State,
 		FlexibleTimeWindow{
-			Mode:                   req.FlexibleTimeWindow.Mode,
-			MaximumWindowInMinutes: req.FlexibleTimeWindow.MaximumWindowInMinutes,
+			Mode:                   in.FlexibleTimeWindow.Mode,
+			MaximumWindowInMinutes: in.FlexibleTimeWindow.MaximumWindowInMinutes,
 		},
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	return map[string]string{"ScheduleArn": s.ARN}, nil
+	return &updateScheduleOutput{ScheduleArn: s.ARN}, nil
 }
 
 type handleTagResourceInput struct {
@@ -272,38 +288,37 @@ type handleTagResourceInput struct {
 	ResourceArn string     `json:"ResourceArn"`
 }
 
-func (h *Handler) handleTagResource(body []byte) (any, error) {
-	var req handleTagResourceInput
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, errInvalidRequest
-	}
+type tagResourceOutput struct{}
 
+func (h *Handler) handleTagResource(_ context.Context, in *handleTagResourceInput) (*tagResourceOutput, error) {
 	var kv map[string]string
-	if req.Tags != nil {
-		kv = req.Tags.Clone()
+	if in.Tags != nil {
+		kv = in.Tags.Clone()
 	}
 
-	if err := h.Backend.TagResource(req.ResourceArn, kv); err != nil {
+	if err := h.Backend.TagResource(in.ResourceArn, kv); err != nil {
 		return nil, err
 	}
 
-	return map[string]string{}, nil
+	return &tagResourceOutput{}, nil
 }
 
 type handleListTagsForResourceInput struct {
 	ResourceArn string `json:"ResourceArn"`
 }
 
-func (h *Handler) handleListTagsForResource(body []byte) (any, error) {
-	var req handleListTagsForResourceInput
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, errInvalidRequest
-	}
+type listTagsForResourceOutput struct {
+	Tags map[string]string `json:"Tags"`
+}
 
-	tags, err := h.Backend.ListTagsForResource(req.ResourceArn)
+func (h *Handler) handleListTagsForResource(
+	_ context.Context,
+	in *handleListTagsForResourceInput,
+) (*listTagsForResourceOutput, error) {
+	tags, err := h.Backend.ListTagsForResource(in.ResourceArn)
 	if err != nil {
 		return nil, err
 	}
 
-	return map[string]any{"Tags": tags}, nil
+	return &listTagsForResourceOutput{Tags: tags}, nil
 }
