@@ -109,7 +109,7 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 		"CreateDeliveryStream":      service.WrapOp(h.handleCreateDeliveryStream),
 		"DeleteDeliveryStream":      service.WrapOp(h.handleDeleteDeliveryStream),
 		"DescribeDeliveryStream":    service.WrapOp(h.handleDescribeDeliveryStream),
-		"ListDeliveryStreams":        service.WrapOp(h.handleListDeliveryStreams),
+		"ListDeliveryStreams":       service.WrapOp(h.handleListDeliveryStreams),
 		"PutRecord":                 service.WrapOp(h.handlePutRecord),
 		"PutRecordBatch":            service.WrapOp(h.handlePutRecordBatch),
 		"ListTagsForDeliveryStream": service.WrapOp(h.handleListTagsForDeliveryStream),

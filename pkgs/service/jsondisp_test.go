@@ -220,3 +220,20 @@ func TestHandleJSON(t *testing.T) {
 		})
 	}
 }
+
+func TestWrapOp(t *testing.T) {
+	t.Parallel()
+
+	greetFn := func(_ context.Context, in *handleJSONTestInput) (*handleJSONTestOutput, error) {
+		return &handleJSONTestOutput{Greeting: "hi " + in.Name}, nil
+	}
+
+	op := service.WrapOp(greetFn)
+
+	result, err := op(context.Background(), []byte(`{"name":"there"}`))
+	require.NoError(t, err)
+
+	out, ok := result.(*handleJSONTestOutput)
+	require.True(t, ok)
+	require.Equal(t, "hi there", out.Greeting)
+}
