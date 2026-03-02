@@ -177,25 +177,23 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
-	var result any
-	var err error
+func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
+	return map[string]service.JSONOpFunc{
+		"PutConfigurationRecorder":       service.WrapOp(h.handlePutConfigurationRecorder),
+		"DescribeConfigurationRecorders": service.WrapOp(h.handleDescribeConfigurationRecorders),
+		"StartConfigurationRecorder":     service.WrapOp(h.handleStartConfigurationRecorder),
+		"PutDeliveryChannel":             service.WrapOp(h.handlePutDeliveryChannel),
+		"DescribeDeliveryChannels":       service.WrapOp(h.handleDescribeDeliveryChannels),
+	}
+}
 
-	switch action {
-	case "PutConfigurationRecorder":
-		result, err = service.HandleJSON(ctx, body, h.handlePutConfigurationRecorder)
-	case "DescribeConfigurationRecorders":
-		result, err = service.HandleJSON(ctx, body, h.handleDescribeConfigurationRecorders)
-	case "StartConfigurationRecorder":
-		result, err = service.HandleJSON(ctx, body, h.handleStartConfigurationRecorder)
-	case "PutDeliveryChannel":
-		result, err = service.HandleJSON(ctx, body, h.handlePutDeliveryChannel)
-	case "DescribeDeliveryChannels":
-		result, err = service.HandleJSON(ctx, body, h.handleDescribeDeliveryChannels)
-	default:
+func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
+	fn, ok := h.dispatchTable()[action]
+	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
 
+	result, err := fn(ctx, body)
 	if err != nil {
 		return nil, err
 	}

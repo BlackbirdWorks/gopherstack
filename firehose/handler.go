@@ -104,33 +104,27 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
-	var result any
-	var err error
+func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
+	return map[string]service.JSONOpFunc{
+		"CreateDeliveryStream":      service.WrapOp(h.handleCreateDeliveryStream),
+		"DeleteDeliveryStream":      service.WrapOp(h.handleDeleteDeliveryStream),
+		"DescribeDeliveryStream":    service.WrapOp(h.handleDescribeDeliveryStream),
+		"ListDeliveryStreams":        service.WrapOp(h.handleListDeliveryStreams),
+		"PutRecord":                 service.WrapOp(h.handlePutRecord),
+		"PutRecordBatch":            service.WrapOp(h.handlePutRecordBatch),
+		"ListTagsForDeliveryStream": service.WrapOp(h.handleListTagsForDeliveryStream),
+		"TagDeliveryStream":         service.WrapOp(h.handleTagDeliveryStream),
+		"UntagDeliveryStream":       service.WrapOp(h.handleUntagDeliveryStream),
+	}
+}
 
-	switch action {
-	case "CreateDeliveryStream":
-		result, err = service.HandleJSON(ctx, body, h.handleCreateDeliveryStream)
-	case "DeleteDeliveryStream":
-		result, err = service.HandleJSON(ctx, body, h.handleDeleteDeliveryStream)
-	case "DescribeDeliveryStream":
-		result, err = service.HandleJSON(ctx, body, h.handleDescribeDeliveryStream)
-	case "ListDeliveryStreams":
-		result, err = service.HandleJSON(ctx, body, h.handleListDeliveryStreams)
-	case "PutRecord":
-		result, err = service.HandleJSON(ctx, body, h.handlePutRecord)
-	case "PutRecordBatch":
-		result, err = service.HandleJSON(ctx, body, h.handlePutRecordBatch)
-	case "ListTagsForDeliveryStream":
-		result, err = service.HandleJSON(ctx, body, h.handleListTagsForDeliveryStream)
-	case "TagDeliveryStream":
-		result, err = service.HandleJSON(ctx, body, h.handleTagDeliveryStream)
-	case "UntagDeliveryStream":
-		result, err = service.HandleJSON(ctx, body, h.handleUntagDeliveryStream)
-	default:
+func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
+	fn, ok := h.dispatchTable()[action]
+	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
 
+	result, err := fn(ctx, body)
 	if err != nil {
 		return nil, err
 	}

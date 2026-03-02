@@ -109,23 +109,22 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
-	var result any
-	var err error
+func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
+	return map[string]service.JSONOpFunc{
+		"CreateGroup": service.WrapOp(h.handleCreateGroup),
+		"DeleteGroup": service.WrapOp(h.handleDeleteGroup),
+		"ListGroups":  service.WrapOp(h.handleListGroups),
+		"GetGroup":    service.WrapOp(h.handleGetGroup),
+	}
+}
 
-	switch action {
-	case "CreateGroup":
-		result, err = service.HandleJSON(ctx, body, h.handleCreateGroup)
-	case "DeleteGroup":
-		result, err = service.HandleJSON(ctx, body, h.handleDeleteGroup)
-	case "ListGroups":
-		result, err = service.HandleJSON(ctx, body, h.handleListGroups)
-	case "GetGroup":
-		result, err = service.HandleJSON(ctx, body, h.handleGetGroup)
-	default:
+func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
+	fn, ok := h.dispatchTable()[action]
+	if !ok {
 		return nil, ErrUnknownOperation
 	}
 
+	result, err := fn(ctx, body)
 	if err != nil {
 		return nil, err
 	}

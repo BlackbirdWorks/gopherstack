@@ -107,29 +107,25 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
-	var result any
-	var err error
+func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
+	return map[string]service.JSONOpFunc{
+		"RegisterDomain":            service.WrapOp(h.handleRegisterDomain),
+		"ListDomains":               service.WrapOp(h.handleListDomains),
+		"DeprecateDomain":           service.WrapOp(h.handleDeprecateDomain),
+		"RegisterWorkflowType":      service.WrapOp(h.handleRegisterWorkflowType),
+		"ListWorkflowTypes":         service.WrapOp(h.handleListWorkflowTypes),
+		"StartWorkflowExecution":    service.WrapOp(h.handleStartWorkflowExecution),
+		"DescribeWorkflowExecution": service.WrapOp(h.handleDescribeWorkflowExecution),
+	}
+}
 
-	switch action {
-	case "RegisterDomain":
-		result, err = service.HandleJSON(ctx, body, h.handleRegisterDomain)
-	case "ListDomains":
-		result, err = service.HandleJSON(ctx, body, h.handleListDomains)
-	case "DeprecateDomain":
-		result, err = service.HandleJSON(ctx, body, h.handleDeprecateDomain)
-	case "RegisterWorkflowType":
-		result, err = service.HandleJSON(ctx, body, h.handleRegisterWorkflowType)
-	case "ListWorkflowTypes":
-		result, err = service.HandleJSON(ctx, body, h.handleListWorkflowTypes)
-	case "StartWorkflowExecution":
-		result, err = service.HandleJSON(ctx, body, h.handleStartWorkflowExecution)
-	case "DescribeWorkflowExecution":
-		result, err = service.HandleJSON(ctx, body, h.handleDescribeWorkflowExecution)
-	default:
+func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
+	fn, ok := h.dispatchTable()[action]
+	if !ok {
 		return nil, ErrUnknownOperation
 	}
 
+	result, err := fn(ctx, body)
 	if err != nil {
 		return nil, err
 	}

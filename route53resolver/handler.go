@@ -100,31 +100,26 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
-	var result any
-	var err error
+func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
+	return map[string]service.JSONOpFunc{
+		"CreateResolverEndpoint": service.WrapOp(h.handleCreateResolverEndpoint),
+		"DeleteResolverEndpoint": service.WrapOp(h.handleDeleteResolverEndpoint),
+		"ListResolverEndpoints":  service.WrapOp(h.handleListResolverEndpoints),
+		"GetResolverEndpoint":    service.WrapOp(h.handleGetResolverEndpoint),
+		"CreateResolverRule":     service.WrapOp(h.handleCreateResolverRule),
+		"GetResolverRule":        service.WrapOp(h.handleGetResolverRule),
+		"DeleteResolverRule":     service.WrapOp(h.handleDeleteResolverRule),
+		"ListResolverRules":      service.WrapOp(h.handleListResolverRules),
+	}
+}
 
-	switch action {
-	case "CreateResolverEndpoint":
-		result, err = service.HandleJSON(ctx, body, h.handleCreateResolverEndpoint)
-	case "DeleteResolverEndpoint":
-		result, err = service.HandleJSON(ctx, body, h.handleDeleteResolverEndpoint)
-	case "ListResolverEndpoints":
-		result, err = service.HandleJSON(ctx, body, h.handleListResolverEndpoints)
-	case "GetResolverEndpoint":
-		result, err = service.HandleJSON(ctx, body, h.handleGetResolverEndpoint)
-	case "CreateResolverRule":
-		result, err = service.HandleJSON(ctx, body, h.handleCreateResolverRule)
-	case "GetResolverRule":
-		result, err = service.HandleJSON(ctx, body, h.handleGetResolverRule)
-	case "DeleteResolverRule":
-		result, err = service.HandleJSON(ctx, body, h.handleDeleteResolverRule)
-	case "ListResolverRules":
-		result, err = service.HandleJSON(ctx, body, h.handleListResolverRules)
-	default:
+func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
+	fn, ok := h.dispatchTable()[action]
+	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
 
+	result, err := fn(ctx, body)
 	if err != nil {
 		return nil, err
 	}

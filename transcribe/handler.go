@@ -97,21 +97,21 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
-	var result any
-	var err error
+func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
+	return map[string]service.JSONOpFunc{
+		"StartTranscriptionJob": service.WrapOp(h.handleStartTranscriptionJob),
+		"GetTranscriptionJob":   service.WrapOp(h.handleGetTranscriptionJob),
+		"ListTranscriptionJobs": service.WrapOp(h.handleListTranscriptionJobs),
+	}
+}
 
-	switch action {
-	case "StartTranscriptionJob":
-		result, err = service.HandleJSON(ctx, body, h.handleStartTranscriptionJob)
-	case "GetTranscriptionJob":
-		result, err = service.HandleJSON(ctx, body, h.handleGetTranscriptionJob)
-	case "ListTranscriptionJobs":
-		result, err = service.HandleJSON(ctx, body, h.handleListTranscriptionJobs)
-	default:
+func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
+	fn, ok := h.dispatchTable()[action]
+	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
 
+	result, err := fn(ctx, body)
 	if err != nil {
 		return nil, err
 	}

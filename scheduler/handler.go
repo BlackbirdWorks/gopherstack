@@ -115,29 +115,25 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
-	var result any
-	var err error
+func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
+	return map[string]service.JSONOpFunc{
+		"CreateSchedule":      service.WrapOp(h.handleCreateSchedule),
+		"GetSchedule":         service.WrapOp(h.handleGetSchedule),
+		"ListSchedules":       service.WrapOp(h.handleListSchedules),
+		"DeleteSchedule":      service.WrapOp(h.handleDeleteSchedule),
+		"UpdateSchedule":      service.WrapOp(h.handleUpdateSchedule),
+		"TagResource":         service.WrapOp(h.handleTagResource),
+		"ListTagsForResource": service.WrapOp(h.handleListTagsForResource),
+	}
+}
 
-	switch action {
-	case "CreateSchedule":
-		result, err = service.HandleJSON(ctx, body, h.handleCreateSchedule)
-	case "GetSchedule":
-		result, err = service.HandleJSON(ctx, body, h.handleGetSchedule)
-	case "ListSchedules":
-		result, err = service.HandleJSON(ctx, body, h.handleListSchedules)
-	case "DeleteSchedule":
-		result, err = service.HandleJSON(ctx, body, h.handleDeleteSchedule)
-	case "UpdateSchedule":
-		result, err = service.HandleJSON(ctx, body, h.handleUpdateSchedule)
-	case "TagResource":
-		result, err = service.HandleJSON(ctx, body, h.handleTagResource)
-	case "ListTagsForResource":
-		result, err = service.HandleJSON(ctx, body, h.handleListTagsForResource)
-	default:
+func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
+	fn, ok := h.dispatchTable()[action]
+	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
 
+	result, err := fn(ctx, body)
 	if err != nil {
 		return nil, err
 	}

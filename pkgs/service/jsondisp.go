@@ -47,6 +47,20 @@ func HandleJSON[In, Out any](
 	return fn(ctx, &input)
 }
 
+// JSONOpFunc is the function type for a dispatched JSON-protocol operation.
+// Implementations are produced by WrapOp and collected in a dispatchTable map.
+type JSONOpFunc func(ctx context.Context, body []byte) (any, error)
+
+// WrapOp adapts a typed HandleJSON handler into a JSONOpFunc for use in dispatch tables.
+// It is the canonical way to register a typed operation handler:
+//
+//	"CreateFoo": service.WrapOp(h.handleCreateFoo),
+func WrapOp[In, Out any](fn func(context.Context, *In) (*Out, error)) JSONOpFunc {
+	return func(ctx context.Context, body []byte) (any, error) {
+		return HandleJSON(ctx, body, fn)
+	}
+}
+
 // HandleTarget implements the X-Amz-Target JSON protocol dispatch pattern
 // shared by many AWS JSON-protocol services (SSM, EventBridge, StepFunctions, CloudWatchLogs, etc.).
 //
