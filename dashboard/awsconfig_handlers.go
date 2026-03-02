@@ -26,14 +26,15 @@ func (h *DashboardHandler) awsconfigIndex(c *echo.Context) error {
 
 	if h.AWSConfigOps == nil {
 		h.renderTemplate(w, "awsconfig/index.html", awsconfigIndexData{
-			PageData:  PageData{Title: "AWS Config", ActiveTab: "awsconfig",
-		Snippet: &SnippetData{
-			ID:    "awsconfig-operations",
-			Title: "Using Awsconfig",
-			Cli:   "aws awsconfig help --endpoint-url http://localhost:8000",
-			Go: "/* Write AWS SDK v2 Code for Awsconfig */",
-			Python: "# Write boto3 code for Awsconfig\nimport boto3\nclient = boto3.client('awsconfig', endpoint_url='http://localhost:8000')",
-		},},
+			PageData: PageData{Title: "AWS Config", ActiveTab: "awsconfig",
+				Snippet: &SnippetData{
+					ID:    "awsconfig-operations",
+					Title: "Using Awsconfig",
+					Cli:   "aws awsconfig help --endpoint-url http://localhost:8000",
+					Go:    "/* Write AWS SDK v2 Code for Awsconfig */",
+					Python: "# Write boto3 code for Config\nimport boto3\n" +
+						"client = boto3.client('config', endpoint_url='http://localhost:8000')",
+				}},
 			Recorders: []awsconfigRecorderView{},
 		})
 
@@ -52,16 +53,16 @@ func (h *DashboardHandler) awsconfigIndex(c *echo.Context) error {
 	}
 
 	h.renderTemplate(w, "awsconfig/index.html", awsconfigIndexData{
-		PageData:  PageData{Title: "AWS Config", ActiveTab: "awsconfig",
-		Snippet: &SnippetData{
-			ID:    "awsconfig-operations",
-			Title: "Using Awsconfig",
-			Cli:   "aws awsconfig help --endpoint-url http://localhost:8000",
-			Go: "/* Write AWS SDK v2 Code for Awsconfig */",
-			Python: `# Write boto3 code for Awsconfig
+		PageData: PageData{Title: "AWS Config", ActiveTab: "awsconfig",
+			Snippet: &SnippetData{
+				ID:    "awsconfig-operations",
+				Title: "Using Awsconfig",
+				Cli:   "aws awsconfig help --endpoint-url http://localhost:8000",
+				Go:    "/* Write AWS SDK v2 Code for Awsconfig */",
+				Python: `# Write boto3 code for Awsconfig
 import boto3
 client = boto3.client('awsconfig', endpoint_url='http://localhost:8000')`,
-		},},
+			}},
 		Recorders: views,
 	})
 

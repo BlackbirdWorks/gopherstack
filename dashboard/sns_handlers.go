@@ -118,13 +118,14 @@ func (h *DashboardHandler) snsIndex(c *echo.Context) error {
 		PageData: PageData{
 			Title:     "SNS Topics",
 			ActiveTab: "sns",
-		Snippet: &SnippetData{
-			ID:    "sns-operations",
-			Title: "Using Sns",
-			Cli:   "aws sns help --endpoint-url http://localhost:8000",
-			Go: "/* Write AWS SDK v2 Code for Sns */",
-			Python: "# Write boto3 code for Sns\nimport boto3\nclient = boto3.client('sns', endpoint_url='http://localhost:8000')",
-		},
+			Snippet: &SnippetData{
+				ID:    "sns-operations",
+				Title: "Using Sns",
+				Cli:   "aws sns help --endpoint-url http://localhost:8000",
+				Go:    "/* Write AWS SDK v2 Code for Sns */",
+				Python: "# Write boto3 code for Sns\nimport boto3\n" +
+					"client = boto3.client('sns', endpoint_url='http://localhost:8000')",
+			},
 		},
 		Topics: make([]any, 0),
 	}
@@ -235,15 +236,15 @@ func (h *DashboardHandler) snsTopicDetail(c *echo.Context) error {
 		PageData: PageData{
 			Title:     "SNS Topic",
 			ActiveTab: "sns",
-		Snippet: &SnippetData{
-			ID:    "sns-operations",
-			Title: "Using Sns",
-			Cli:   "aws sns help --endpoint-url http://localhost:8000",
-			Go: "/* Write AWS SDK v2 Code for Sns */",
-			Python: `# Write boto3 code for Sns
+			Snippet: &SnippetData{
+				ID:    "sns-operations",
+				Title: "Using Sns",
+				Cli:   "aws sns help --endpoint-url http://localhost:8000",
+				Go:    "/* Write AWS SDK v2 Code for Sns */",
+				Python: `# Write boto3 code for Sns
 import boto3
 client = boto3.client('sns', endpoint_url='http://localhost:8000')`,
-		},
+			},
 		},
 		TopicArn:      arn,
 		Attributes:    attrs,

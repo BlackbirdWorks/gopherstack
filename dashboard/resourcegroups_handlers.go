@@ -27,14 +27,15 @@ func (h *DashboardHandler) resourcegroupsIndex(c *echo.Context) error {
 	if h.ResourceGroupsOps == nil {
 		h.renderTemplate(w, "resourcegroups/index.html", resourcegroupsIndexData{
 			PageData: PageData{Title: "Resource Groups", ActiveTab: "resourcegroups",
-		Snippet: &SnippetData{
-			ID:    "resourcegroups-operations",
-			Title: "Using Resourcegroups",
-			Cli:   "aws resourcegroups help --endpoint-url http://localhost:8000",
-			Go: "/* Write AWS SDK v2 Code for Resourcegroups */",
-			Python: "# Write boto3 code for Resourcegroups\nimport boto3\nclient = boto3.client('resourcegroups', endpoint_url='http://localhost:8000')",
-		},},
-			Groups:   []resourceGroupView{},
+				Snippet: &SnippetData{
+					ID:    "resourcegroups-operations",
+					Title: "Using Resourcegroups",
+					Cli:   "aws resourcegroups help --endpoint-url http://localhost:8000",
+					Go:    "/* Write AWS SDK v2 Code for Resourcegroups */",
+					Python: "# Write boto3 code for Resource Groups\nimport boto3\n" +
+						"client = boto3.client('resource-groups', endpoint_url='http://localhost:8000')",
+				}},
+			Groups: []resourceGroupView{},
 		})
 
 		return nil
@@ -53,16 +54,16 @@ func (h *DashboardHandler) resourcegroupsIndex(c *echo.Context) error {
 
 	h.renderTemplate(w, "resourcegroups/index.html", resourcegroupsIndexData{
 		PageData: PageData{Title: "Resource Groups", ActiveTab: "resourcegroups",
-		Snippet: &SnippetData{
-			ID:    "resourcegroups-operations",
-			Title: "Using Resourcegroups",
-			Cli:   "aws resourcegroups help --endpoint-url http://localhost:8000",
-			Go: "/* Write AWS SDK v2 Code for Resourcegroups */",
-			Python: `# Write boto3 code for Resourcegroups
+			Snippet: &SnippetData{
+				ID:    "resourcegroups-operations",
+				Title: "Using Resourcegroups",
+				Cli:   "aws resourcegroups help --endpoint-url http://localhost:8000",
+				Go:    "/* Write AWS SDK v2 Code for Resourcegroups */",
+				Python: `# Write boto3 code for Resourcegroups
 import boto3
 client = boto3.client('resourcegroups', endpoint_url='http://localhost:8000')`,
-		},},
-		Groups:   views,
+			}},
+		Groups: views,
 	})
 
 	return nil

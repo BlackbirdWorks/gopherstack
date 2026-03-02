@@ -24,8 +24,9 @@ func (h *DashboardHandler) s3Index(w http.ResponseWriter, _ *http.Request) {
 			ID:    "s3-operations",
 			Title: "Using S3",
 			Cli:   "aws s3 help --endpoint-url http://localhost:8000",
-			Go: "/* Write AWS SDK v2 Code for S3 */",
-			Python: "# Write boto3 code for S3\nimport boto3\nclient = boto3.client('s3', endpoint_url='http://localhost:8000')",
+			Go:    "/* Write AWS SDK v2 Code for S3 */",
+			Python: "# Write boto3 code for S3\nimport boto3\n" +
+				"client = boto3.client('s3', endpoint_url='http://localhost:8000')",
 		},
 	}
 	h.renderTemplate(w, "s3/s3_index.html", data)
@@ -155,15 +156,15 @@ func (h *DashboardHandler) s3BucketDetail(w http.ResponseWriter, r *http.Request
 		PageData: PageData{
 			Title:     "Bucket: " + bucketName,
 			ActiveTab: "s3",
-		Snippet: &SnippetData{
-			ID:    "s3-operations",
-			Title: "Using S3",
-			Cli:   "aws s3 help --endpoint-url http://localhost:8000",
-			Go: "/* Write AWS SDK v2 Code for S3 */",
-			Python: `# Write boto3 code for S3
+			Snippet: &SnippetData{
+				ID:    "s3-operations",
+				Title: "Using S3",
+				Cli:   "aws s3 help --endpoint-url http://localhost:8000",
+				Go:    "/* Write AWS SDK v2 Code for S3 */",
+				Python: `# Write boto3 code for S3
 import boto3
 client = boto3.client('s3', endpoint_url='http://localhost:8000')`,
-		},
+			},
 		},
 		Name:              bucketName,
 		VersioningEnabled: versioning,

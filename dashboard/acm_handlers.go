@@ -32,14 +32,15 @@ func (h *DashboardHandler) acmIndex(c *echo.Context) error {
 
 	if h.ACMOps == nil {
 		h.renderTemplate(w, "acm/index.html", acmIndexData{
-			PageData:     PageData{Title: "ACM Certificates", ActiveTab: "acm",
-		Snippet: &SnippetData{
-			ID:    "acm-operations",
-			Title: "Using Acm",
-			Cli:   "aws acm help --endpoint-url http://localhost:8000",
-			Go: "/* Write AWS SDK v2 Code for Acm */",
-			Python: "# Write boto3 code for Acm\nimport boto3\nclient = boto3.client('acm', endpoint_url='http://localhost:8000')",
-		},},
+			PageData: PageData{Title: "ACM Certificates", ActiveTab: "acm",
+				Snippet: &SnippetData{
+					ID:    "acm-operations",
+					Title: "Using Acm",
+					Cli:   "aws acm help --endpoint-url http://localhost:8000",
+					Go:    "/* Write AWS SDK v2 Code for Acm */",
+					Python: "# Write boto3 code for Acm\nimport boto3\n" +
+						"client = boto3.client('acm', endpoint_url='http://localhost:8000')",
+				}},
 			Certificates: []acmCertView{},
 		})
 
@@ -66,16 +67,16 @@ func (h *DashboardHandler) acmIndex(c *echo.Context) error {
 	}
 
 	h.renderTemplate(w, "acm/index.html", acmIndexData{
-		PageData:     PageData{Title: "ACM Certificates", ActiveTab: "acm",
-		Snippet: &SnippetData{
-			ID:    "acm-operations",
-			Title: "Using Acm",
-			Cli:   "aws acm help --endpoint-url http://localhost:8000",
-			Go: "/* Write AWS SDK v2 Code for Acm */",
-			Python: `# Write boto3 code for Acm
+		PageData: PageData{Title: "ACM Certificates", ActiveTab: "acm",
+			Snippet: &SnippetData{
+				ID:    "acm-operations",
+				Title: "Using Acm",
+				Cli:   "aws acm help --endpoint-url http://localhost:8000",
+				Go:    "/* Write AWS SDK v2 Code for Acm */",
+				Python: `# Write boto3 code for Acm
 import boto3
 client = boto3.client('acm', endpoint_url='http://localhost:8000')`,
-		},},
+			}},
 		Certificates: views,
 	})
 

@@ -24,8 +24,9 @@ func (h *DashboardHandler) dynamoDBIndex(w http.ResponseWriter, _ *http.Request)
 			ID:    "dynamodb-operations",
 			Title: "Using Dynamodb",
 			Cli:   "aws dynamodb help --endpoint-url http://localhost:8000",
-			Go: "/* Write AWS SDK v2 Code for Dynamodb */",
-			Python: "# Write boto3 code for Dynamodb\nimport boto3\nclient = boto3.client('dynamodb', endpoint_url='http://localhost:8000')",
+			Go:    "/* Write AWS SDK v2 Code for Dynamodb */",
+			Python: "# Write boto3 code for Dynamodb\nimport boto3\n" +
+				"client = boto3.client('dynamodb', endpoint_url='http://localhost:8000')",
 		},
 	}
 	h.renderTemplate(w, "dynamodb/dynamodb_index.html", data)
@@ -283,15 +284,15 @@ func (h *DashboardHandler) dynamoDBTableDetail(w http.ResponseWriter, r *http.Re
 		PageData: PageData{
 			Title:     tableName,
 			ActiveTab: "dynamodb",
-		Snippet: &SnippetData{
-			ID:    "dynamodb-operations",
-			Title: "Using Dynamodb",
-			Cli:   "aws dynamodb help --endpoint-url http://localhost:8000",
-			Go: "/* Write AWS SDK v2 Code for Dynamodb */",
-			Python: `# Write boto3 code for Dynamodb
+			Snippet: &SnippetData{
+				ID:    "dynamodb-operations",
+				Title: "Using Dynamodb",
+				Cli:   "aws dynamodb help --endpoint-url http://localhost:8000",
+				Go:    "/* Write AWS SDK v2 Code for Dynamodb */",
+				Python: `# Write boto3 code for Dynamodb
 import boto3
 client = boto3.client('dynamodb', endpoint_url='http://localhost:8000')`,
-		},
+			},
 		},
 		TableInfo: info,
 	}

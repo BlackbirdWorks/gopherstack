@@ -19,14 +19,15 @@ func (h *DashboardHandler) cloudWatchLogsIndex(c *echo.Context) error {
 
 		LogGroups []cwlogsbackend.LogGroup
 	}{
-		PageData:  PageData{Title: "CloudWatch Logs", ActiveTab: "cloudwatchlogs",
-		Snippet: &SnippetData{
-			ID:    "cloudwatchlogs-operations",
-			Title: "Using Cloudwatchlogs",
-			Cli:   "aws cloudwatchlogs help --endpoint-url http://localhost:8000",
-			Go: "/* Write AWS SDK v2 Code for Cloudwatchlogs */",
-			Python: "# Write boto3 code for Cloudwatchlogs\nimport boto3\nclient = boto3.client('cloudwatchlogs', endpoint_url='http://localhost:8000')",
-		},},
+		PageData: PageData{Title: "CloudWatch Logs", ActiveTab: "cloudwatchlogs",
+			Snippet: &SnippetData{
+				ID:    "cloudwatchlogs-operations",
+				Title: "Using Cloudwatchlogs",
+				Cli:   "aws cloudwatchlogs help --endpoint-url http://localhost:8000",
+				Go:    "/* Write AWS SDK v2 Code for Cloudwatchlogs */",
+				Python: "# Write boto3 code for CloudWatch Logs\nimport boto3\n" +
+					"client = boto3.client('logs', endpoint_url='http://localhost:8000')",
+			}},
 		LogGroups: groups,
 	}
 
@@ -49,16 +50,16 @@ func (h *DashboardHandler) cloudWatchLogsGroupDetail(c *echo.Context) error {
 		GroupName string
 		Streams   []cwlogsbackend.LogStream
 	}{
-		PageData:  PageData{Title: "Log Group: " + groupName, ActiveTab: "cloudwatchlogs",
-		Snippet: &SnippetData{
-			ID:    "cloudwatchlogs-operations",
-			Title: "Using Cloudwatchlogs",
-			Cli:   "aws cloudwatchlogs help --endpoint-url http://localhost:8000",
-			Go: "/* Write AWS SDK v2 Code for Cloudwatchlogs */",
-			Python: `# Write boto3 code for Cloudwatchlogs
+		PageData: PageData{Title: "Log Group: " + groupName, ActiveTab: "cloudwatchlogs",
+			Snippet: &SnippetData{
+				ID:    "cloudwatchlogs-operations",
+				Title: "Using Cloudwatchlogs",
+				Cli:   "aws cloudwatchlogs help --endpoint-url http://localhost:8000",
+				Go:    "/* Write AWS SDK v2 Code for Cloudwatchlogs */",
+				Python: `# Write boto3 code for Cloudwatchlogs
 import boto3
 client = boto3.client('cloudwatchlogs', endpoint_url='http://localhost:8000')`,
-		},},
+			}},
 		GroupName: groupName,
 		Streams:   streams,
 	}
@@ -110,16 +111,16 @@ func (h *DashboardHandler) cloudWatchLogsStreamDetail(c *echo.Context) error {
 		Filter     string
 		Events     []cwlogsbackend.OutputLogEvent
 	}{
-		PageData:   PageData{Title: "Stream: " + streamName, ActiveTab: "cloudwatchlogs",
-		Snippet: &SnippetData{
-			ID:    "cloudwatchlogs-operations",
-			Title: "Using Cloudwatchlogs",
-			Cli:   "aws cloudwatchlogs help --endpoint-url http://localhost:8000",
-			Go: "/* Write AWS SDK v2 Code for Cloudwatchlogs */",
-			Python: `# Write boto3 code for Cloudwatchlogs
+		PageData: PageData{Title: "Stream: " + streamName, ActiveTab: "cloudwatchlogs",
+			Snippet: &SnippetData{
+				ID:    "cloudwatchlogs-operations",
+				Title: "Using Cloudwatchlogs",
+				Cli:   "aws cloudwatchlogs help --endpoint-url http://localhost:8000",
+				Go:    "/* Write AWS SDK v2 Code for Cloudwatchlogs */",
+				Python: `# Write boto3 code for Cloudwatchlogs
 import boto3
 client = boto3.client('cloudwatchlogs', endpoint_url='http://localhost:8000')`,
-		},},
+			}},
 		GroupName:  groupName,
 		StreamName: streamName,
 		Filter:     filter,

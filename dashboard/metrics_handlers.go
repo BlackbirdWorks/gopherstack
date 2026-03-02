@@ -51,8 +51,9 @@ func (h *DashboardHandler) metricsIndex(w http.ResponseWriter, _ *http.Request) 
 			ID:    "metrics-operations",
 			Title: "Using Metrics",
 			Cli:   "aws metrics help --endpoint-url http://localhost:8000",
-			Go: "/* Write AWS SDK v2 Code for Metrics */",
-			Python: "# Write boto3 code for Metrics\nimport boto3\nclient = boto3.client('metrics', endpoint_url='http://localhost:8000')",
+			Go:    "/* Write AWS SDK v2 Code for Metrics */",
+			Python: "# Write boto3 code for Metrics\nimport boto3\n" +
+				"client = boto3.client('metrics', endpoint_url='http://localhost:8000')",
 		},
 	}
 	h.renderTemplate(w, "metrics.html", data)

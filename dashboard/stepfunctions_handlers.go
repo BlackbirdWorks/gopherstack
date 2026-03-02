@@ -19,14 +19,15 @@ func (h *DashboardHandler) stepFunctionsIndex(c *echo.Context) error {
 
 		StateMachines []sfnbackend.StateMachine
 	}{
-		PageData:      PageData{Title: "Step Functions", ActiveTab: "stepfunctions",
-		Snippet: &SnippetData{
-			ID:    "stepfunctions-operations",
-			Title: "Using Stepfunctions",
-			Cli:   "aws stepfunctions help --endpoint-url http://localhost:8000",
-			Go: "/* Write AWS SDK v2 Code for Stepfunctions */",
-			Python: "# Write boto3 code for Stepfunctions\nimport boto3\nclient = boto3.client('stepfunctions', endpoint_url='http://localhost:8000')",
-		},},
+		PageData: PageData{Title: "Step Functions", ActiveTab: "stepfunctions",
+			Snippet: &SnippetData{
+				ID:    "stepfunctions-operations",
+				Title: "Using Stepfunctions",
+				Cli:   "aws stepfunctions help --endpoint-url http://localhost:8000",
+				Go:    "/* Write AWS SDK v2 Code for Stepfunctions */",
+				Python: "# Write boto3 code for Stepfunctions\nimport boto3\n" +
+					"client = boto3.client('stepfunctions', endpoint_url='http://localhost:8000')",
+			}},
 		StateMachines: machines,
 	}
 
@@ -54,16 +55,16 @@ func (h *DashboardHandler) stepFunctionsStateMachineDetail(c *echo.Context) erro
 		StateMachine *sfnbackend.StateMachine
 		Executions   []sfnbackend.Execution
 	}{
-		PageData:     PageData{Title: "State Machine: " + sm.Name, ActiveTab: "stepfunctions",
-		Snippet: &SnippetData{
-			ID:    "stepfunctions-operations",
-			Title: "Using Stepfunctions",
-			Cli:   "aws stepfunctions help --endpoint-url http://localhost:8000",
-			Go: "/* Write AWS SDK v2 Code for Stepfunctions */",
-			Python: `# Write boto3 code for Stepfunctions
+		PageData: PageData{Title: "State Machine: " + sm.Name, ActiveTab: "stepfunctions",
+			Snippet: &SnippetData{
+				ID:    "stepfunctions-operations",
+				Title: "Using Stepfunctions",
+				Cli:   "aws stepfunctions help --endpoint-url http://localhost:8000",
+				Go:    "/* Write AWS SDK v2 Code for Stepfunctions */",
+				Python: `# Write boto3 code for Stepfunctions
 import boto3
 client = boto3.client('stepfunctions', endpoint_url='http://localhost:8000')`,
-		},},
+			}},
 		StateMachine: sm,
 		Executions:   executions,
 	}
@@ -96,16 +97,16 @@ func (h *DashboardHandler) stepFunctionsExecutionDetail(c *echo.Context) error {
 		Execution *sfnbackend.Execution
 		Events    []sfnbackend.HistoryEvent
 	}{
-		PageData:  PageData{Title: "Execution: " + exec.Name, ActiveTab: "stepfunctions",
-		Snippet: &SnippetData{
-			ID:    "stepfunctions-operations",
-			Title: "Using Stepfunctions",
-			Cli:   "aws stepfunctions help --endpoint-url http://localhost:8000",
-			Go: "/* Write AWS SDK v2 Code for Stepfunctions */",
-			Python: `# Write boto3 code for Stepfunctions
+		PageData: PageData{Title: "Execution: " + exec.Name, ActiveTab: "stepfunctions",
+			Snippet: &SnippetData{
+				ID:    "stepfunctions-operations",
+				Title: "Using Stepfunctions",
+				Cli:   "aws stepfunctions help --endpoint-url http://localhost:8000",
+				Go:    "/* Write AWS SDK v2 Code for Stepfunctions */",
+				Python: `# Write boto3 code for Stepfunctions
 import boto3
 client = boto3.client('stepfunctions', endpoint_url='http://localhost:8000')`,
-		},},
+			}},
 		Execution: exec,
 		Events:    events,
 	}

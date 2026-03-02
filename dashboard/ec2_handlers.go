@@ -52,14 +52,15 @@ func (h *DashboardHandler) ec2Index(c *echo.Context) error {
 
 	if h.EC2Ops == nil {
 		h.renderTemplate(w, "ec2/index.html", ec2IndexData{
-			PageData:       PageData{Title: "EC2", ActiveTab: "ec2",
-		Snippet: &SnippetData{
-			ID:    "ec2-operations",
-			Title: "Using Ec2",
-			Cli:   "aws ec2 help --endpoint-url http://localhost:8000",
-			Go: "/* Write AWS SDK v2 Code for Ec2 */",
-			Python: "# Write boto3 code for Ec2\nimport boto3\nclient = boto3.client('ec2', endpoint_url='http://localhost:8000')",
-		},},
+			PageData: PageData{Title: "EC2", ActiveTab: "ec2",
+				Snippet: &SnippetData{
+					ID:    "ec2-operations",
+					Title: "Using Ec2",
+					Cli:   "aws ec2 help --endpoint-url http://localhost:8000",
+					Go:    "/* Write AWS SDK v2 Code for Ec2 */",
+					Python: "# Write boto3 code for Ec2\nimport boto3\n" +
+						"client = boto3.client('ec2', endpoint_url='http://localhost:8000')",
+				}},
 			Instances:      []ec2InstanceView{},
 			SecurityGroups: []ec2SecurityGroupView{},
 			VPCs:           []ec2VPCView{},
@@ -118,16 +119,16 @@ func (h *DashboardHandler) ec2Index(c *echo.Context) error {
 	}
 
 	h.renderTemplate(w, "ec2/index.html", ec2IndexData{
-		PageData:       PageData{Title: "EC2", ActiveTab: "ec2",
-		Snippet: &SnippetData{
-			ID:    "ec2-operations",
-			Title: "Using Ec2",
-			Cli:   "aws ec2 help --endpoint-url http://localhost:8000",
-			Go: "/* Write AWS SDK v2 Code for Ec2 */",
-			Python: `# Write boto3 code for Ec2
+		PageData: PageData{Title: "EC2", ActiveTab: "ec2",
+			Snippet: &SnippetData{
+				ID:    "ec2-operations",
+				Title: "Using Ec2",
+				Cli:   "aws ec2 help --endpoint-url http://localhost:8000",
+				Go:    "/* Write AWS SDK v2 Code for Ec2 */",
+				Python: `# Write boto3 code for Ec2
 import boto3
 client = boto3.client('ec2', endpoint_url='http://localhost:8000')`,
-		},},
+			}},
 		Instances:      instanceViews,
 		SecurityGroups: sgViews,
 		VPCs:           vpcViews,

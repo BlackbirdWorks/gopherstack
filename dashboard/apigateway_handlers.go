@@ -20,14 +20,15 @@ func (h *DashboardHandler) apiGatewayIndex(c *echo.Context) error {
 		APIs []apigwbackend.RestAPI
 	}{
 		PageData: PageData{Title: "API Gateway", ActiveTab: "apigateway",
-		Snippet: &SnippetData{
-			ID:    "apigateway-operations",
-			Title: "Using Apigateway",
-			Cli:   "aws apigateway help --endpoint-url http://localhost:8000",
-			Go: "/* Write AWS SDK v2 Code for Apigateway */",
-			Python: "# Write boto3 code for Apigateway\nimport boto3\nclient = boto3.client('apigateway', endpoint_url='http://localhost:8000')",
-		},},
-		APIs:     apis,
+			Snippet: &SnippetData{
+				ID:    "apigateway-operations",
+				Title: "Using Apigateway",
+				Cli:   "aws apigateway help --endpoint-url http://localhost:8000",
+				Go:    "/* Write AWS SDK v2 Code for Apigateway */",
+				Python: "# Write boto3 code for ApiGateway\nimport boto3\n" +
+					"client = boto3.client('apigateway', endpoint_url='http://localhost:8000')",
+			}},
+		APIs: apis,
 	}
 
 	h.renderTemplate(c.Response(), "apigateway/index.html", data)
@@ -59,16 +60,16 @@ func (h *DashboardHandler) apiGatewayDetail(c *echo.Context) error {
 		Resources []apigwbackend.Resource
 		Stages    []apigwbackend.Stage
 	}{
-		PageData:  PageData{Title: "API Gateway — " + api.Name, ActiveTab: "apigateway",
-		Snippet: &SnippetData{
-			ID:    "apigateway-operations",
-			Title: "Using Apigateway",
-			Cli:   "aws apigateway help --endpoint-url http://localhost:8000",
-			Go: "/* Write AWS SDK v2 Code for Apigateway */",
-			Python: `# Write boto3 code for Apigateway
+		PageData: PageData{Title: "API Gateway — " + api.Name, ActiveTab: "apigateway",
+			Snippet: &SnippetData{
+				ID:    "apigateway-operations",
+				Title: "Using Apigateway",
+				Cli:   "aws apigateway help --endpoint-url http://localhost:8000",
+				Go:    "/* Write AWS SDK v2 Code for Apigateway */",
+				Python: `# Write boto3 code for Apigateway
 import boto3
 client = boto3.client('apigateway', endpoint_url='http://localhost:8000')`,
-		},},
+			}},
 		API:       api,
 		Resources: resources,
 		Stages:    stages,

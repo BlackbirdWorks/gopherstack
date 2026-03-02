@@ -42,14 +42,15 @@ func (h *DashboardHandler) opensearchIndex(c *echo.Context) error {
 	if h.OpenSearchOps == nil {
 		h.renderTemplate(w, "opensearch/index.html", opensearchIndexData{
 			PageData: PageData{Title: "OpenSearch", ActiveTab: "opensearch",
-		Snippet: &SnippetData{
-			ID:    "opensearch-operations",
-			Title: "Using Opensearch",
-			Cli:   "aws opensearch help --endpoint-url http://localhost:8000",
-			Go: "/* Write AWS SDK v2 Code for Opensearch */",
-			Python: "# Write boto3 code for Opensearch\nimport boto3\nclient = boto3.client('opensearch', endpoint_url='http://localhost:8000')",
-		},},
-			Domains:  []opensearchDomainView{},
+				Snippet: &SnippetData{
+					ID:    "opensearch-operations",
+					Title: "Using Opensearch",
+					Cli:   "aws opensearch help --endpoint-url http://localhost:8000",
+					Go:    "/* Write AWS SDK v2 Code for Opensearch */",
+					Python: "# Write boto3 code for OpenSearch\nimport boto3\n" +
+						"client = boto3.client('opensearch', endpoint_url='http://localhost:8000')",
+				}},
+			Domains: []opensearchDomainView{},
 		})
 
 		return nil
@@ -74,16 +75,16 @@ func (h *DashboardHandler) opensearchIndex(c *echo.Context) error {
 
 	h.renderTemplate(w, "opensearch/index.html", opensearchIndexData{
 		PageData: PageData{Title: "OpenSearch", ActiveTab: "opensearch",
-		Snippet: &SnippetData{
-			ID:    "opensearch-operations",
-			Title: "Using Opensearch",
-			Cli:   "aws opensearch help --endpoint-url http://localhost:8000",
-			Go: "/* Write AWS SDK v2 Code for Opensearch */",
-			Python: `# Write boto3 code for Opensearch
+			Snippet: &SnippetData{
+				ID:    "opensearch-operations",
+				Title: "Using Opensearch",
+				Cli:   "aws opensearch help --endpoint-url http://localhost:8000",
+				Go:    "/* Write AWS SDK v2 Code for Opensearch */",
+				Python: `# Write boto3 code for Opensearch
 import boto3
 client = boto3.client('opensearch', endpoint_url='http://localhost:8000')`,
-		},},
-		Domains:  views,
+			}},
+		Domains: views,
 	})
 
 	return nil
@@ -108,16 +109,16 @@ func (h *DashboardHandler) opensearchDomainDetail(c *echo.Context) error {
 	}
 
 	h.renderTemplate(w, "opensearch/domain_detail.html", opensearchDomainDetailData{
-		PageData:      PageData{Title: d.Name, ActiveTab: "opensearch",
-		Snippet: &SnippetData{
-			ID:    "opensearch-operations",
-			Title: "Using Opensearch",
-			Cli:   "aws opensearch help --endpoint-url http://localhost:8000",
-			Go: "/* Write AWS SDK v2 Code for Opensearch */",
-			Python: `# Write boto3 code for Opensearch
+		PageData: PageData{Title: d.Name, ActiveTab: "opensearch",
+			Snippet: &SnippetData{
+				ID:    "opensearch-operations",
+				Title: "Using Opensearch",
+				Cli:   "aws opensearch help --endpoint-url http://localhost:8000",
+				Go:    "/* Write AWS SDK v2 Code for Opensearch */",
+				Python: `# Write boto3 code for Opensearch
 import boto3
 client = boto3.client('opensearch', endpoint_url='http://localhost:8000')`,
-		},},
+			}},
 		DomainName:    d.Name,
 		EngineVersion: d.EngineVersion,
 		Endpoint:      d.Endpoint,

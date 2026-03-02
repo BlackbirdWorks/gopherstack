@@ -27,14 +27,15 @@ func (h *DashboardHandler) route53resolverIndex(c *echo.Context) error {
 
 	if h.Route53ResolverOps == nil {
 		h.renderTemplate(w, "route53resolver/index.html", route53resolverIndexData{
-			PageData:  PageData{Title: "Route53 Resolver Endpoints", ActiveTab: "route53resolver",
-		Snippet: &SnippetData{
-			ID:    "route53resolver-operations",
-			Title: "Using Route53resolver",
-			Cli:   "aws route53resolver help --endpoint-url http://localhost:8000",
-			Go: "/* Write AWS SDK v2 Code for Route53resolver */",
-			Python: "# Write boto3 code for Route53resolver\nimport boto3\nclient = boto3.client('route53resolver', endpoint_url='http://localhost:8000')",
-		},},
+			PageData: PageData{Title: "Route53 Resolver Endpoints", ActiveTab: "route53resolver",
+				Snippet: &SnippetData{
+					ID:    "route53resolver-operations",
+					Title: "Using Route53resolver",
+					Cli:   "aws route53resolver help --endpoint-url http://localhost:8000",
+					Go:    "/* Write AWS SDK v2 Code for Route53resolver */",
+					Python: "# Write boto3 code for Route53 Resolver\nimport boto3\n" +
+						"client = boto3.client('route53resolver', endpoint_url='http://localhost:8000')",
+				}},
 			Endpoints: []route53resolverEndpointView{},
 		})
 
@@ -54,16 +55,16 @@ func (h *DashboardHandler) route53resolverIndex(c *echo.Context) error {
 	}
 
 	h.renderTemplate(w, "route53resolver/index.html", route53resolverIndexData{
-		PageData:  PageData{Title: "Route53 Resolver Endpoints", ActiveTab: "route53resolver",
-		Snippet: &SnippetData{
-			ID:    "route53resolver-operations",
-			Title: "Using Route53resolver",
-			Cli:   "aws route53resolver help --endpoint-url http://localhost:8000",
-			Go: "/* Write AWS SDK v2 Code for Route53resolver */",
-			Python: `# Write boto3 code for Route53resolver
+		PageData: PageData{Title: "Route53 Resolver Endpoints", ActiveTab: "route53resolver",
+			Snippet: &SnippetData{
+				ID:    "route53resolver-operations",
+				Title: "Using Route53resolver",
+				Cli:   "aws route53resolver help --endpoint-url http://localhost:8000",
+				Go:    "/* Write AWS SDK v2 Code for Route53resolver */",
+				Python: `# Write boto3 code for Route53resolver
 import boto3
 client = boto3.client('route53resolver', endpoint_url='http://localhost:8000')`,
-		},},
+			}},
 		Endpoints: views,
 	})
 

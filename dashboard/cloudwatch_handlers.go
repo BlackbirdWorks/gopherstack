@@ -22,15 +22,16 @@ func (h *DashboardHandler) cloudWatchIndex(c *echo.Context) error {
 		Alarms  []cwbackend.MetricAlarm
 	}{
 		PageData: PageData{Title: "CloudWatch", ActiveTab: "cloudwatch",
-		Snippet: &SnippetData{
-			ID:    "cloudwatch-operations",
-			Title: "Using Cloudwatch",
-			Cli:   "aws cloudwatch help --endpoint-url http://localhost:8000",
-			Go: "/* Write AWS SDK v2 Code for Cloudwatch */",
-			Python: "# Write boto3 code for Cloudwatch\nimport boto3\nclient = boto3.client('cloudwatch', endpoint_url='http://localhost:8000')",
-		},},
-		Metrics:  metrics,
-		Alarms:   alarms,
+			Snippet: &SnippetData{
+				ID:    "cloudwatch-operations",
+				Title: "Using Cloudwatch",
+				Cli:   "aws cloudwatch help --endpoint-url http://localhost:8000",
+				Go:    "/* Write AWS SDK v2 Code for Cloudwatch */",
+				Python: "# Write boto3 code for CloudWatch\nimport boto3\n" +
+					"client = boto3.client('cloudwatch', endpoint_url='http://localhost:8000')",
+			}},
+		Metrics: metrics,
+		Alarms:  alarms,
 	}
 
 	h.renderTemplate(c.Response(), "cloudwatch/index.html", data)

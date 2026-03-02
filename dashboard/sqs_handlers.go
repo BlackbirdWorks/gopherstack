@@ -43,14 +43,15 @@ func (h *DashboardHandler) sqsIndex(c *echo.Context) error {
 	if h.SQSOps == nil {
 		h.renderTemplate(w, "sqs/index.html", sqsIndexData{
 			PageData: PageData{Title: "SQS Queues", ActiveTab: "sqs",
-		Snippet: &SnippetData{
-			ID:    "sqs-operations",
-			Title: "Using Sqs",
-			Cli:   "aws sqs help --endpoint-url http://localhost:8000",
-			Go: "/* Write AWS SDK v2 Code for Sqs */",
-			Python: "# Write boto3 code for Sqs\nimport boto3\nclient = boto3.client('sqs', endpoint_url='http://localhost:8000')",
-		},},
-			Queues:   []sqsQueueView{},
+				Snippet: &SnippetData{
+					ID:    "sqs-operations",
+					Title: "Using Sqs",
+					Cli:   "aws sqs help --endpoint-url http://localhost:8000",
+					Go:    "/* Write AWS SDK v2 Code for Sqs */",
+					Python: "# Write boto3 code for Sqs\nimport boto3\n" +
+						"client = boto3.client('sqs', endpoint_url='http://localhost:8000')",
+				}},
+			Queues: []sqsQueueView{},
 		})
 
 		return nil
@@ -85,16 +86,16 @@ func (h *DashboardHandler) sqsIndex(c *echo.Context) error {
 
 	h.renderTemplate(w, "sqs/index.html", sqsIndexData{
 		PageData: PageData{Title: "SQS Queues", ActiveTab: "sqs",
-		Snippet: &SnippetData{
-			ID:    "sqs-operations",
-			Title: "Using Sqs",
-			Cli:   "aws sqs help --endpoint-url http://localhost:8000",
-			Go: "/* Write AWS SDK v2 Code for Sqs */",
-			Python: `# Write boto3 code for Sqs
+			Snippet: &SnippetData{
+				ID:    "sqs-operations",
+				Title: "Using Sqs",
+				Cli:   "aws sqs help --endpoint-url http://localhost:8000",
+				Go:    "/* Write AWS SDK v2 Code for Sqs */",
+				Python: `# Write boto3 code for Sqs
 import boto3
 client = boto3.client('sqs', endpoint_url='http://localhost:8000')`,
-		},},
-		Queues:   views,
+			}},
+		Queues: views,
 	})
 
 	return nil
@@ -107,15 +108,15 @@ func (h *DashboardHandler) sqsCreateQueueModal(c *echo.Context) error {
 		PageData
 	}{
 		PageData: PageData{Title: "Create Queue", ActiveTab: "sqs",
-		Snippet: &SnippetData{
-			ID:    "sqs-operations",
-			Title: "Using Sqs",
-			Cli:   "aws sqs help --endpoint-url http://localhost:8000",
-			Go: "/* Write AWS SDK v2 Code for Sqs */",
-			Python: `# Write boto3 code for Sqs
+			Snippet: &SnippetData{
+				ID:    "sqs-operations",
+				Title: "Using Sqs",
+				Cli:   "aws sqs help --endpoint-url http://localhost:8000",
+				Go:    "/* Write AWS SDK v2 Code for Sqs */",
+				Python: `# Write boto3 code for Sqs
 import boto3
 client = boto3.client('sqs', endpoint_url='http://localhost:8000')`,
-		},},
+			}},
 	})
 
 	return nil
@@ -309,15 +310,15 @@ func (h *DashboardHandler) sqsQueueDetail(c *echo.Context) error {
 		PageData: PageData{
 			Title:     "Queue Detail",
 			ActiveTab: "sqs",
-		Snippet: &SnippetData{
-			ID:    "sqs-operations",
-			Title: "Using Sqs",
-			Cli:   "aws sqs help --endpoint-url http://localhost:8000",
-			Go: "/* Write AWS SDK v2 Code for Sqs */",
-			Python: `# Write boto3 code for Sqs
+			Snippet: &SnippetData{
+				ID:    "sqs-operations",
+				Title: "Using Sqs",
+				Cli:   "aws sqs help --endpoint-url http://localhost:8000",
+				Go:    "/* Write AWS SDK v2 Code for Sqs */",
+				Python: `# Write boto3 code for Sqs
 import boto3
 client = boto3.client('sqs', endpoint_url='http://localhost:8000')`,
-		},
+			},
 		},
 		QueueURL:   queueURL,
 		Attributes: out.Attributes,

@@ -53,14 +53,15 @@ func (h *DashboardHandler) route53Index(c *echo.Context) error {
 	if h.Route53Ops == nil {
 		h.renderTemplate(w, "route53/index.html", route53IndexData{
 			PageData: PageData{Title: "Route 53 Hosted Zones", ActiveTab: "route53",
-		Snippet: &SnippetData{
-			ID:    "route53-operations",
-			Title: "Using Route53",
-			Cli:   "aws route53 help --endpoint-url http://localhost:8000",
-			Go: "/* Write AWS SDK v2 Code for Route53 */",
-			Python: "# Write boto3 code for Route53\nimport boto3\nclient = boto3.client('route53', endpoint_url='http://localhost:8000')",
-		},},
-			Zones:    []route53ZoneView{},
+				Snippet: &SnippetData{
+					ID:    "route53-operations",
+					Title: "Using Route53",
+					Cli:   "aws route53 help --endpoint-url http://localhost:8000",
+					Go:    "/* Write AWS SDK v2 Code for Route53 */",
+					Python: "# Write boto3 code for Route53\nimport boto3\n" +
+						"client = boto3.client('route53', endpoint_url='http://localhost:8000')",
+				}},
+			Zones: []route53ZoneView{},
 		})
 
 		return nil
@@ -83,16 +84,16 @@ func (h *DashboardHandler) route53Index(c *echo.Context) error {
 
 	h.renderTemplate(w, "route53/index.html", route53IndexData{
 		PageData: PageData{Title: "Route 53 Hosted Zones", ActiveTab: "route53",
-		Snippet: &SnippetData{
-			ID:    "route53-operations",
-			Title: "Using Route53",
-			Cli:   "aws route53 help --endpoint-url http://localhost:8000",
-			Go: "/* Write AWS SDK v2 Code for Route53 */",
-			Python: `# Write boto3 code for Route53
+			Snippet: &SnippetData{
+				ID:    "route53-operations",
+				Title: "Using Route53",
+				Cli:   "aws route53 help --endpoint-url http://localhost:8000",
+				Go:    "/* Write AWS SDK v2 Code for Route53 */",
+				Python: `# Write boto3 code for Route53
 import boto3
 client = boto3.client('route53', endpoint_url='http://localhost:8000')`,
-		},},
-		Zones:    views,
+			}},
+		Zones: views,
 	})
 
 	return nil
@@ -136,15 +137,15 @@ func (h *DashboardHandler) route53ZoneDetail(c *echo.Context) error {
 
 	h.renderTemplate(w, "route53/zone_detail.html", route53ZoneDetailData{
 		PageData: PageData{Title: "Zone: " + hz.Name, ActiveTab: "route53",
-		Snippet: &SnippetData{
-			ID:    "route53-operations",
-			Title: "Using Route53",
-			Cli:   "aws route53 help --endpoint-url http://localhost:8000",
-			Go: "/* Write AWS SDK v2 Code for Route53 */",
-			Python: `# Write boto3 code for Route53
+			Snippet: &SnippetData{
+				ID:    "route53-operations",
+				Title: "Using Route53",
+				Cli:   "aws route53 help --endpoint-url http://localhost:8000",
+				Go:    "/* Write AWS SDK v2 Code for Route53 */",
+				Python: `# Write boto3 code for Route53
 import boto3
 client = boto3.client('route53', endpoint_url='http://localhost:8000')`,
-		},},
+			}},
 		ZoneID:   zoneID,
 		ZoneName: hz.Name,
 		Records:  records,

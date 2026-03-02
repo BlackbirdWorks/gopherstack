@@ -12,22 +12,22 @@ import (
 
 // CapturedRequest represents a single HTTP request captured by the console middleware.
 type CapturedRequest struct {
+	Timestamp time.Time         `json:"timestamp"`
+	Headers   map[string]string `json:"headers"`
 	ID        string            `json:"id"`
 	Method    string            `json:"method"`
 	Path      string            `json:"path"`
-	Headers   map[string]string `json:"headers"`
 	Body      string            `json:"body,omitempty"`
 	Status    int               `json:"status"`
 	Duration  time.Duration     `json:"duration_ms"`
-	Timestamp time.Time         `json:"timestamp"`
 }
 
 // RequestRingBuffer holds the last N captured requests.
 type RequestRingBuffer struct {
-	mu       sync.RWMutex
 	requests []*CapturedRequest
 	maxSize  int
 	cursor   int
+	mu       sync.RWMutex
 }
 
 // NewRequestRingBuffer creates a new ring buffer for captured requests.
@@ -68,9 +68,11 @@ func (r *RequestRingBuffer) GetAll() []*CapturedRequest {
 	return result
 }
 
+const defaultBufferSize = 100
+
 // GlobalRingBuffer is the global buffer for the Live API Console.
 // It stores the last 100 requests.
-var GlobalRingBuffer = NewRequestRingBuffer(100) //nolint:gochecknoglobals // Needed for the global dashboard console
+var GlobalRingBuffer = NewRequestRingBuffer(defaultBufferSize)
 
 // APIConsoleMiddleware captures incoming API requests and stores them in the ring buffer.
 // It should be injected after standard loggers but before request processing.

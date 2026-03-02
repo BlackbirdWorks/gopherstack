@@ -77,9 +77,9 @@ type SnippetData struct {
 
 // PageData represents common page data.
 type PageData struct {
+	Snippet   *SnippetData
 	Title     string
 	ActiveTab string
-	Snippet   *SnippetData
 }
 
 // DashboardHandler handles HTTP requests for the Dashboard web interface.

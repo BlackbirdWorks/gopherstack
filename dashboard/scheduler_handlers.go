@@ -29,14 +29,15 @@ func (h *DashboardHandler) schedulerIndex(c *echo.Context) error {
 
 	if h.SchedulerOps == nil {
 		h.renderTemplate(w, "scheduler/index.html", schedulerIndexData{
-			PageData:  PageData{Title: "Scheduler Schedules", ActiveTab: "scheduler",
-		Snippet: &SnippetData{
-			ID:    "scheduler-operations",
-			Title: "Using Scheduler",
-			Cli:   "aws scheduler help --endpoint-url http://localhost:8000",
-			Go: "/* Write AWS SDK v2 Code for Scheduler */",
-			Python: "# Write boto3 code for Scheduler\nimport boto3\nclient = boto3.client('scheduler', endpoint_url='http://localhost:8000')",
-		},},
+			PageData: PageData{Title: "Scheduler Schedules", ActiveTab: "scheduler",
+				Snippet: &SnippetData{
+					ID:    "scheduler-operations",
+					Title: "Using Scheduler",
+					Cli:   "aws scheduler help --endpoint-url http://localhost:8000",
+					Go:    "/* Write AWS SDK v2 Code for Scheduler */",
+					Python: "# Write boto3 code for Scheduler\nimport boto3\n" +
+						"client = boto3.client('scheduler', endpoint_url='http://localhost:8000')",
+				}},
 			Schedules: []schedulerView{},
 		})
 
@@ -56,16 +57,16 @@ func (h *DashboardHandler) schedulerIndex(c *echo.Context) error {
 	}
 
 	h.renderTemplate(w, "scheduler/index.html", schedulerIndexData{
-		PageData:  PageData{Title: "Scheduler Schedules", ActiveTab: "scheduler",
-		Snippet: &SnippetData{
-			ID:    "scheduler-operations",
-			Title: "Using Scheduler",
-			Cli:   "aws scheduler help --endpoint-url http://localhost:8000",
-			Go: "/* Write AWS SDK v2 Code for Scheduler */",
-			Python: `# Write boto3 code for Scheduler
+		PageData: PageData{Title: "Scheduler Schedules", ActiveTab: "scheduler",
+			Snippet: &SnippetData{
+				ID:    "scheduler-operations",
+				Title: "Using Scheduler",
+				Cli:   "aws scheduler help --endpoint-url http://localhost:8000",
+				Go:    "/* Write AWS SDK v2 Code for Scheduler */",
+				Python: `# Write boto3 code for Scheduler
 import boto3
 client = boto3.client('scheduler', endpoint_url='http://localhost:8000')`,
-		},},
+			}},
 		Schedules: views,
 	})
 

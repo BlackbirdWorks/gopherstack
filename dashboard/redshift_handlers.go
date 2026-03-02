@@ -29,13 +29,14 @@ func (h *DashboardHandler) redshiftIndex(c *echo.Context) error {
 	if h.RedshiftOps == nil {
 		h.renderTemplate(w, "redshift/index.html", redshiftIndexData{
 			PageData: PageData{Title: "Redshift Clusters", ActiveTab: "redshift",
-		Snippet: &SnippetData{
-			ID:    "redshift-operations",
-			Title: "Using Redshift",
-			Cli:   "aws redshift help --endpoint-url http://localhost:8000",
-			Go: "/* Write AWS SDK v2 Code for Redshift */",
-			Python: "# Write boto3 code for Redshift\nimport boto3\nclient = boto3.client('redshift', endpoint_url='http://localhost:8000')",
-		},},
+				Snippet: &SnippetData{
+					ID:    "redshift-operations",
+					Title: "Using Redshift",
+					Cli:   "aws redshift help --endpoint-url http://localhost:8000",
+					Go:    "/* Write AWS SDK v2 Code for Redshift */",
+					Python: "# Write boto3 code for Redshift\nimport boto3\n" +
+						"client = boto3.client('redshift', endpoint_url='http://localhost:8000')",
+				}},
 			Clusters: []redshiftClusterView{},
 		})
 
@@ -61,15 +62,15 @@ func (h *DashboardHandler) redshiftIndex(c *echo.Context) error {
 
 	h.renderTemplate(w, "redshift/index.html", redshiftIndexData{
 		PageData: PageData{Title: "Redshift Clusters", ActiveTab: "redshift",
-		Snippet: &SnippetData{
-			ID:    "redshift-operations",
-			Title: "Using Redshift",
-			Cli:   "aws redshift help --endpoint-url http://localhost:8000",
-			Go: "/* Write AWS SDK v2 Code for Redshift */",
-			Python: `# Write boto3 code for Redshift
+			Snippet: &SnippetData{
+				ID:    "redshift-operations",
+				Title: "Using Redshift",
+				Cli:   "aws redshift help --endpoint-url http://localhost:8000",
+				Go:    "/* Write AWS SDK v2 Code for Redshift */",
+				Python: `# Write boto3 code for Redshift
 import boto3
 client = boto3.client('redshift', endpoint_url='http://localhost:8000')`,
-		},},
+			}},
 		Clusters: views,
 	})
 
