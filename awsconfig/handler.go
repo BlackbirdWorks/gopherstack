@@ -180,21 +180,21 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byte, error) {
+func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
 	var result any
 	var err error
 
 	switch action {
 	case "PutConfigurationRecorder":
-		result, err = h.handlePutConfigurationRecorder(body)
+		result, err = service.HandleJSON(ctx, body, h.handlePutConfigurationRecorder)
 	case "DescribeConfigurationRecorders":
-		result, err = h.handleDescribeConfigurationRecorders()
+		result, err = service.HandleJSON(ctx, body, h.handleDescribeConfigurationRecorders)
 	case "StartConfigurationRecorder":
-		result, err = h.handleStartConfigurationRecorder(body)
+		result, err = service.HandleJSON(ctx, body, h.handleStartConfigurationRecorder)
 	case "PutDeliveryChannel":
-		result, err = h.handlePutDeliveryChannel(body)
+		result, err = service.HandleJSON(ctx, body, h.handlePutDeliveryChannel)
 	case "DescribeDeliveryChannels":
-		result, err = h.handleDescribeDeliveryChannels()
+		result, err = service.HandleJSON(ctx, body, h.handleDescribeDeliveryChannels)
 	default:
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
 	}
@@ -223,42 +223,39 @@ type putConfigurationRecorderRequest struct {
 	} `json:"ConfigurationRecorder"`
 }
 
-func (h *Handler) handlePutConfigurationRecorder(body []byte) (any, error) {
-	var req putConfigurationRecorderRequest
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, errInvalidRequest
-	}
+type putConfigurationRecorderOutput struct{}
 
+func (h *Handler) handlePutConfigurationRecorder(_ context.Context, in *putConfigurationRecorderRequest) (*putConfigurationRecorderOutput, error) {
 	if err := h.Backend.PutConfigurationRecorder(
-		req.ConfigurationRecorder.Name,
-		req.ConfigurationRecorder.RoleARN,
+		in.ConfigurationRecorder.Name,
+		in.ConfigurationRecorder.RoleARN,
 	); err != nil {
 		return nil, err
 	}
 
-	return map[string]string{}, nil
+	return &putConfigurationRecorderOutput{}, nil
 }
 
-//nolint:unparam // error returned for consistent dispatch signature
-func (h *Handler) handleDescribeConfigurationRecorders() (any, error) {
+type describeConfigurationRecordersInput struct{}
+
+type describeConfigurationRecordersOutput struct {
+	ConfigurationRecorders []ConfigurationRecorder `json:"ConfigurationRecorders"`
+}
+
+func (h *Handler) handleDescribeConfigurationRecorders(_ context.Context, _ *describeConfigurationRecordersInput) (*describeConfigurationRecordersOutput, error) {
 	recorders := h.Backend.DescribeConfigurationRecorders()
 
-	return map[string]any{
-		"ConfigurationRecorders": recorders,
-	}, nil
+	return &describeConfigurationRecordersOutput{ConfigurationRecorders: recorders}, nil
 }
 
-func (h *Handler) handleStartConfigurationRecorder(body []byte) (any, error) {
-	var req configurationRecorderNameInput
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, errInvalidRequest
-	}
+type startConfigurationRecorderOutput struct{}
 
-	if err := h.Backend.StartConfigurationRecorder(req.ConfigurationRecorderName); err != nil {
+func (h *Handler) handleStartConfigurationRecorder(_ context.Context, in *configurationRecorderNameInput) (*startConfigurationRecorderOutput, error) {
+	if err := h.Backend.StartConfigurationRecorder(in.ConfigurationRecorderName); err != nil {
 		return nil, err
 	}
 
-	return map[string]string{}, nil
+	return &startConfigurationRecorderOutput{}, nil
 }
 
 type handlePutDeliveryChannelInput struct {
@@ -269,28 +266,28 @@ type handlePutDeliveryChannelInput struct {
 	} `json:"DeliveryChannel"`
 }
 
-func (h *Handler) handlePutDeliveryChannel(body []byte) (any, error) {
-	var req handlePutDeliveryChannelInput
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, errInvalidRequest
-	}
+type putDeliveryChannelOutput struct{}
 
+func (h *Handler) handlePutDeliveryChannel(_ context.Context, in *handlePutDeliveryChannelInput) (*putDeliveryChannelOutput, error) {
 	if err := h.Backend.PutDeliveryChannel(
-		req.DeliveryChannel.Name,
-		req.DeliveryChannel.S3BucketName,
-		req.DeliveryChannel.SnsTopicARN,
+		in.DeliveryChannel.Name,
+		in.DeliveryChannel.S3BucketName,
+		in.DeliveryChannel.SnsTopicARN,
 	); err != nil {
 		return nil, err
 	}
 
-	return map[string]string{}, nil
+	return &putDeliveryChannelOutput{}, nil
 }
 
-//nolint:unparam // error returned for consistent dispatch signature
-func (h *Handler) handleDescribeDeliveryChannels() (any, error) {
+type describeDeliveryChannelsInput struct{}
+
+type describeDeliveryChannelsOutput struct {
+	DeliveryChannels []DeliveryChannel `json:"DeliveryChannels"`
+}
+
+func (h *Handler) handleDescribeDeliveryChannels(_ context.Context, _ *describeDeliveryChannelsInput) (*describeDeliveryChannelsOutput, error) {
 	channels := h.Backend.DescribeDeliveryChannels()
 
-	return map[string]any{
-		"DeliveryChannels": channels,
-	}, nil
+	return &describeDeliveryChannelsOutput{DeliveryChannels: channels}, nil
 }
