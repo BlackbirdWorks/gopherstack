@@ -57,8 +57,10 @@ import (
 var tofuProviderCacheDir = filepath.Join(os.TempDir(), "gopherstack-tofu-provider-cache")
 
 // preInitDirMain and preInitDirRDS are directories initialized by warmProviderCache
-// in TestMain. applyTofu symlinks .terraform/ from these into each test's temp dir
-// instead of running tofu init, eliminating plugin-cache file-lock serialization.
+// in TestMain. applyTofu hard-links .terraform/ from these into each test's temp dir
+// instead of running tofu init, giving each test its own independent .terraform/
+// subtree (no file-lock contention on terraform.tfstate) while sharing the large
+// provider binary via hard links.
 //
 //nolint:gochecknoglobals // set once in TestMain, read-only during parallel tests
 var (
@@ -275,6 +277,32 @@ func latestStableTofuVersion(versions []struct {
 	return ""
 }
 
+// hardLinkDir recreates the directory tree rooted at src inside dst, creating
+// hard links for all regular files. Hard-linking the provider binary (~200 MB)
+// is near-instant and gives each test its own independent .terraform/ subtree
+// without the disk I/O cost of a full copy. Each test's directory entries are
+// independent, so writes (e.g. .terraform/terraform.tfstate) do not contend
+// with other parallel tests.
+func hardLinkDir(src, dst string) error {
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		rel, relErr := filepath.Rel(src, path)
+		if relErr != nil {
+			return relErr
+		}
+
+		target := filepath.Join(dst, rel)
+		if info.IsDir() {
+			return os.MkdirAll(target, info.Mode())
+		}
+
+		return os.Link(path, target)
+	})
+}
+
 // selectPreInitDir returns the pre-initialized directory whose .terraform/ subtree
 // can be reused for the given HCL configuration, or an empty string if none matches.
 func selectPreInitDir(hcl string) string {
@@ -333,12 +361,14 @@ func applyTofu(t *testing.T, tofuBin, dir, hcl string) {
 	}
 
 	// Reuse a pre-initialized .terraform directory when available.
-	// This avoids acquiring the plugin-cache file lock during parallel tests,
-	// which would otherwise serialize every tofu init call.
+	// hardLinkDir copies the directory tree with hard links so the large
+	// provider binary is shared (no extra disk use) while each test keeps
+	// its own independent directory entries — eliminating the file-lock
+	// contention on .terraform/terraform.tfstate that serialised parallel runs.
 	if initSrc := selectPreInitDir(hcl); initSrc != "" {
 		dotTerraform := filepath.Join(dir, ".terraform")
-		if err := os.Symlink(filepath.Join(initSrc, ".terraform"), dotTerraform); err != nil {
-			t.Logf("could not symlink .terraform from pre-init dir: %v; falling back to init", err)
+		if err := hardLinkDir(filepath.Join(initSrc, ".terraform"), dotTerraform); err != nil {
+			t.Logf("could not hard-link .terraform from pre-init dir: %v; falling back to init", err)
 			run(true, "init", "-no-color")
 		} else {
 			// Copy the lock file (small, ~1 KB) so tofu can verify provider checksums.

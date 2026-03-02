@@ -671,9 +671,11 @@ func warmProviderCache(logger *slog.Logger) {
 }
 
 // warmWithHCL runs `tofu init` in a temporary directory with the given HCL to
-// populate the shared provider cache. It returns the directory path so callers
-// can reuse the initialized .terraform/ subtree; the caller is responsible for
-// cleanup (os.RemoveAll). Returns an empty string on failure.
+// populate the shared provider cache and produce a fully initialized .terraform/
+// subtree (including .terraform/terraform.tfstate). It returns the directory path
+// so callers can reuse the initialized .terraform/ subtree via hardLinkDir; the
+// caller is responsible for cleanup (os.RemoveAll). Returns an empty string on
+// failure.
 func warmWithHCL(tofuBin, cacheDir, hcl string, logger *slog.Logger) string {
 	dir, err := os.MkdirTemp("", "tofu-warmup-*")
 	if err != nil {
@@ -691,7 +693,7 @@ func warmWithHCL(tofuBin, cacheDir, hcl string, logger *slog.Logger) string {
 		return ""
 	}
 
-	cmd := exec.Command(tofuBin, "init", "-backend=false", "-no-color")
+	cmd := exec.Command(tofuBin, "init", "-no-color")
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(),
 		"TF_IN_AUTOMATION=1",
