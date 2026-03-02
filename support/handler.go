@@ -136,7 +136,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 }
 
 type caseView struct {
-	CaseId       string `json:"caseId"`
+	CaseID       string `json:"caseId"`
 	Subject      string `json:"subject"`
 	Status       string `json:"status"`
 	ServiceCode  string `json:"serviceCode"`
@@ -145,7 +145,7 @@ type caseView struct {
 }
 
 type createCaseOutput struct {
-	CaseId string `json:"caseId"`
+	CaseID string `json:"caseId"`
 }
 
 type describeCasesOutput struct {
@@ -181,7 +181,7 @@ func (h *Handler) handleCreateCase(_ context.Context, in *handleCreateCaseInput)
 		return nil, err
 	}
 
-	return &createCaseOutput{CaseId: c2.CaseID}, nil
+	return &createCaseOutput{CaseID: c2.CaseID}, nil
 }
 
 type handleDescribeCasesInput struct {
@@ -194,7 +194,7 @@ func (h *Handler) handleDescribeCases(_ context.Context, in *handleDescribeCases
 	views := make([]caseView, 0, len(cases))
 	for _, cs := range cases {
 		views = append(views, caseView{
-			CaseId:       cs.CaseID,
+			CaseID:       cs.CaseID,
 			Subject:      cs.Subject,
 			Status:       cs.Status,
 			ServiceCode:  cs.ServiceCode,

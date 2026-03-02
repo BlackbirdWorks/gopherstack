@@ -315,7 +315,10 @@ type listTagsForResourceOutput struct {
 	Tags map[string]string `json:"Tags"`
 }
 
-func (h *Handler) handleListTagsForResource(_ context.Context, in *handleListTagsForResourceInput) (*listTagsForResourceOutput, error) {
+func (h *Handler) handleListTagsForResource(
+	_ context.Context,
+	in *handleListTagsForResourceInput,
+) (*listTagsForResourceOutput, error) {
 	tags, err := h.Backend.ListTagsForResource(in.ResourceArn)
 	if err != nil {
 		return nil, err

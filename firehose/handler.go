@@ -154,7 +154,10 @@ type createDeliveryStreamOutput struct {
 	DeliveryStreamARN string `json:"DeliveryStreamARN"`
 }
 
-func (h *Handler) handleCreateDeliveryStream(_ context.Context, in *deliveryStreamNameInput) (*createDeliveryStreamOutput, error) {
+func (h *Handler) handleCreateDeliveryStream(
+	_ context.Context,
+	in *deliveryStreamNameInput,
+) (*createDeliveryStreamOutput, error) {
 	s, err := h.Backend.CreateDeliveryStream(in.DeliveryStreamName)
 	if err != nil {
 		return nil, err
@@ -165,7 +168,10 @@ func (h *Handler) handleCreateDeliveryStream(_ context.Context, in *deliveryStre
 
 type deleteDeliveryStreamOutput struct{}
 
-func (h *Handler) handleDeleteDeliveryStream(_ context.Context, in *deliveryStreamNameInput) (*deleteDeliveryStreamOutput, error) {
+func (h *Handler) handleDeleteDeliveryStream(
+	_ context.Context,
+	in *deliveryStreamNameInput,
+) (*deleteDeliveryStreamOutput, error) {
 	if err := h.Backend.DeleteDeliveryStream(in.DeliveryStreamName); err != nil {
 		return nil, err
 	}
@@ -183,7 +189,10 @@ type describeDeliveryStreamOutput struct {
 	DeliveryStreamDescription deliveryStreamDescriptionFields `json:"DeliveryStreamDescription"`
 }
 
-func (h *Handler) handleDescribeDeliveryStream(_ context.Context, in *deliveryStreamNameInput) (*describeDeliveryStreamOutput, error) {
+func (h *Handler) handleDescribeDeliveryStream(
+	_ context.Context,
+	in *deliveryStreamNameInput,
+) (*describeDeliveryStreamOutput, error) {
 	s, err := h.Backend.DescribeDeliveryStream(in.DeliveryStreamName)
 	if err != nil {
 		return nil, err
@@ -201,15 +210,18 @@ func (h *Handler) handleDescribeDeliveryStream(_ context.Context, in *deliverySt
 type listDeliveryStreamsInput struct{}
 
 type listDeliveryStreamsOutput struct {
-	DeliveryStreamNames   []string `json:"DeliveryStreamNames"`
+	DeliveryStreamNames    []string `json:"DeliveryStreamNames"`
 	HasMoreDeliveryStreams bool     `json:"HasMoreDeliveryStreams"`
 }
 
-func (h *Handler) handleListDeliveryStreams(_ context.Context, _ *listDeliveryStreamsInput) (*listDeliveryStreamsOutput, error) {
+func (h *Handler) handleListDeliveryStreams(
+	_ context.Context,
+	_ *listDeliveryStreamsInput,
+) (*listDeliveryStreamsOutput, error) {
 	names := h.Backend.ListDeliveryStreams()
 
 	return &listDeliveryStreamsOutput{
-		DeliveryStreamNames:   names,
+		DeliveryStreamNames:    names,
 		HasMoreDeliveryStreams: false,
 	}, nil
 }
@@ -222,7 +234,7 @@ type handlePutRecordInput struct {
 }
 
 type putRecordOutput struct {
-	RecordId string `json:"RecordId"`
+	RecordID string `json:"RecordID"`
 }
 
 func (h *Handler) handlePutRecord(_ context.Context, in *handlePutRecordInput) (*putRecordOutput, error) {
@@ -235,7 +247,7 @@ func (h *Handler) handlePutRecord(_ context.Context, in *handlePutRecordInput) (
 		return nil, putErr
 	}
 
-	return &putRecordOutput{RecordId: "stub-record-id"}, nil
+	return &putRecordOutput{RecordID: "stub-record-id"}, nil
 }
 
 type handlePutRecordBatchInput struct {
@@ -246,11 +258,14 @@ type handlePutRecordBatchInput struct {
 }
 
 type putRecordBatchOutput struct {
-	FailedPutCount   int      `json:"FailedPutCount"`
 	RequestResponses []struct{} `json:"RequestResponses"`
+	FailedPutCount   int        `json:"FailedPutCount"`
 }
 
-func (h *Handler) handlePutRecordBatch(_ context.Context, in *handlePutRecordBatchInput) (*putRecordBatchOutput, error) {
+func (h *Handler) handlePutRecordBatch(
+	_ context.Context,
+	in *handlePutRecordBatchInput,
+) (*putRecordBatchOutput, error) {
 	records := make([][]byte, 0, len(in.Records))
 	for _, r := range in.Records {
 		data, err := base64.StdEncoding.DecodeString(r.Data)
@@ -286,7 +301,10 @@ type listTagsForDeliveryStreamOutput struct {
 	HasMoreTags bool          `json:"HasMoreTags"`
 }
 
-func (h *Handler) handleListTagsForDeliveryStream(_ context.Context, in *listTagsInput) (*listTagsForDeliveryStreamOutput, error) {
+func (h *Handler) handleListTagsForDeliveryStream(
+	_ context.Context,
+	in *listTagsInput,
+) (*listTagsForDeliveryStreamOutput, error) {
 	tags, err := h.Backend.ListTagsForDeliveryStream(in.DeliveryStreamName)
 	if err != nil {
 		return nil, err
@@ -310,7 +328,10 @@ type tagDeliveryStreamInput struct {
 
 type tagDeliveryStreamOutput struct{}
 
-func (h *Handler) handleTagDeliveryStream(_ context.Context, in *tagDeliveryStreamInput) (*tagDeliveryStreamOutput, error) {
+func (h *Handler) handleTagDeliveryStream(
+	_ context.Context,
+	in *tagDeliveryStreamInput,
+) (*tagDeliveryStreamOutput, error) {
 	tagMap := make(map[string]string, len(in.Tags))
 	for _, t := range in.Tags {
 		tagMap[t.Key] = t.Value
@@ -330,7 +351,10 @@ type untagDeliveryStreamInput struct {
 
 type untagDeliveryStreamOutput struct{}
 
-func (h *Handler) handleUntagDeliveryStream(_ context.Context, in *untagDeliveryStreamInput) (*untagDeliveryStreamOutput, error) {
+func (h *Handler) handleUntagDeliveryStream(
+	_ context.Context,
+	in *untagDeliveryStreamInput,
+) (*untagDeliveryStreamOutput, error) {
 	if err := h.Backend.UntagDeliveryStream(in.DeliveryStreamName, in.TagKeys); err != nil {
 		return nil, err
 	}

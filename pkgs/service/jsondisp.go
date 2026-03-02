@@ -31,7 +31,11 @@ type ErrorHandlerFunc func(ctx context.Context, c *echo.Context, action string, 
 // HandleJSON is a generic dispatcher that decodes the JSON body into a typed input,
 // calls fn, and returns the typed output as any.
 // If body is non-empty and cannot be decoded, HandleJSON returns the decode error directly.
-func HandleJSON[In, Out any](ctx context.Context, body []byte, fn func(context.Context, *In) (*Out, error)) (any, error) {
+func HandleJSON[In, Out any](
+	ctx context.Context,
+	body []byte,
+	fn func(context.Context, *In) (*Out, error),
+) (any, error) {
 	var input In
 
 	if len(body) > 0 {

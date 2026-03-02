@@ -43,8 +43,8 @@ type certificateDetail struct {
 	DomainName              string                   `json:"DomainName"`
 	Status                  string                   `json:"Status"`
 	Type                    string                   `json:"Type"`
-	CreatedAt               int64                    `json:"CreatedAt"`
 	DomainValidationOptions []domainValidationOption `json:"DomainValidationOptions"`
+	CreatedAt               int64                    `json:"CreatedAt"`
 }
 
 type describeCertificateOutput struct {

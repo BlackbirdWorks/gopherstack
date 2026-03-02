@@ -167,7 +167,7 @@ type listWorkflowTypesOutput struct {
 }
 
 type startWorkflowExecutionOutput struct {
-	RunId string `json:"runId"`
+	RunID string `json:"runId"`
 }
 
 type describeWorkflowExecutionOutput struct {
@@ -179,7 +179,10 @@ type handleRegisterDomainInput struct {
 	Description string `json:"description"`
 }
 
-func (h *Handler) handleRegisterDomain(_ context.Context, in *handleRegisterDomainInput) (*registerDomainOutput, error) {
+func (h *Handler) handleRegisterDomain(
+	_ context.Context,
+	in *handleRegisterDomainInput,
+) (*registerDomainOutput, error) {
 	if err := h.Backend.RegisterDomain(in.Name, in.Description); err != nil {
 		return nil, err
 	}
@@ -201,7 +204,10 @@ type handleDeprecateDomainInput struct {
 	Name string `json:"name"`
 }
 
-func (h *Handler) handleDeprecateDomain(_ context.Context, in *handleDeprecateDomainInput) (*deprecateDomainOutput, error) {
+func (h *Handler) handleDeprecateDomain(
+	_ context.Context,
+	in *handleDeprecateDomainInput,
+) (*deprecateDomainOutput, error) {
 	if err := h.Backend.DeprecateDomain(in.Name); err != nil {
 		return nil, err
 	}
@@ -215,7 +221,10 @@ type handleRegisterWorkflowTypeInput struct {
 	Version string `json:"version"`
 }
 
-func (h *Handler) handleRegisterWorkflowType(_ context.Context, in *handleRegisterWorkflowTypeInput) (*registerWorkflowTypeOutput, error) {
+func (h *Handler) handleRegisterWorkflowType(
+	_ context.Context,
+	in *handleRegisterWorkflowTypeInput,
+) (*registerWorkflowTypeOutput, error) {
 	if err := h.Backend.RegisterWorkflowType(in.Domain, in.Name, in.Version); err != nil {
 		return nil, err
 	}
@@ -227,7 +236,10 @@ type handleListWorkflowTypesInput struct {
 	Domain string `json:"domain"`
 }
 
-func (h *Handler) handleListWorkflowTypes(_ context.Context, in *handleListWorkflowTypesInput) (*listWorkflowTypesOutput, error) {
+func (h *Handler) handleListWorkflowTypes(
+	_ context.Context,
+	in *handleListWorkflowTypesInput,
+) (*listWorkflowTypesOutput, error) {
 	wts := h.Backend.ListWorkflowTypes(in.Domain)
 
 	return &listWorkflowTypesOutput{TypeInfos: wts}, nil
@@ -238,7 +250,10 @@ type handleStartWorkflowExecutionInput struct {
 	WorkflowID string `json:"workflowId"`
 }
 
-func (h *Handler) handleStartWorkflowExecution(_ context.Context, in *handleStartWorkflowExecutionInput) (*startWorkflowExecutionOutput, error) {
+func (h *Handler) handleStartWorkflowExecution(
+	_ context.Context,
+	in *handleStartWorkflowExecutionInput,
+) (*startWorkflowExecutionOutput, error) {
 	runID := uuid.New().String()
 
 	exec, err := h.Backend.StartWorkflowExecution(in.Domain, in.WorkflowID, runID)
@@ -246,7 +261,7 @@ func (h *Handler) handleStartWorkflowExecution(_ context.Context, in *handleStar
 		return nil, err
 	}
 
-	return &startWorkflowExecutionOutput{RunId: exec.RunID}, nil
+	return &startWorkflowExecutionOutput{RunID: exec.RunID}, nil
 }
 
 type handleDescribeWorkflowExecutionInput struct {
@@ -257,7 +272,10 @@ type handleDescribeWorkflowExecutionInput struct {
 	} `json:"execution"`
 }
 
-func (h *Handler) handleDescribeWorkflowExecution(_ context.Context, in *handleDescribeWorkflowExecutionInput) (*describeWorkflowExecutionOutput, error) {
+func (h *Handler) handleDescribeWorkflowExecution(
+	_ context.Context,
+	in *handleDescribeWorkflowExecutionInput,
+) (*describeWorkflowExecutionOutput, error) {
 	exec, err := h.Backend.DescribeWorkflowExecution(in.Domain, in.Execution.WorkflowID)
 	if err != nil {
 		return nil, err

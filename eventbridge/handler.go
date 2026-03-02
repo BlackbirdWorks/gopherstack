@@ -269,8 +269,8 @@ type createEventBusOutput struct {
 type deleteEventBusOutput struct{}
 
 type listEventBusesOutput struct {
-	EventBuses []EventBus `json:"EventBuses"`
 	NextToken  string     `json:"NextToken"`
+	EventBuses []EventBus `json:"EventBuses"`
 }
 
 type putRuleOutput struct {
@@ -280,8 +280,8 @@ type putRuleOutput struct {
 type deleteRuleOutput struct{}
 
 type listRulesOutput struct {
-	Rules     []Rule `json:"Rules"`
 	NextToken string `json:"NextToken"`
+	Rules     []Rule `json:"Rules"`
 }
 
 type enableRuleOutput struct{}
@@ -289,23 +289,23 @@ type enableRuleOutput struct{}
 type disableRuleOutput struct{}
 
 type putTargetsOutput struct {
-	FailedEntryCount int           `json:"FailedEntryCount"`
 	FailedEntries    []FailedEntry `json:"FailedEntries"`
+	FailedEntryCount int           `json:"FailedEntryCount"`
 }
 
 type removeTargetsOutput struct {
-	FailedEntryCount int           `json:"FailedEntryCount"`
 	FailedEntries    []FailedEntry `json:"FailedEntries"`
+	FailedEntryCount int           `json:"FailedEntryCount"`
 }
 
 type listTargetsByRuleOutput struct {
-	Targets   []Target `json:"Targets"`
 	NextToken string   `json:"NextToken"`
+	Targets   []Target `json:"Targets"`
 }
 
 type putEventsOutput struct {
-	FailedEntryCount int               `json:"FailedEntryCount"`
 	Entries          []EventResultEntry `json:"Entries"`
+	FailedEntryCount int                `json:"FailedEntryCount"`
 }
 
 type ebTagEntry struct {

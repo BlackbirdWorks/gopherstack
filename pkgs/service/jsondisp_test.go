@@ -147,6 +147,9 @@ func TestHandleTarget(t *testing.T) {
 	}
 }
 
+// errHandleJSONFn is the sentinel returned by the error-path fn stub.
+var errHandleJSONFn = errors.New("fn error")
+
 type handleJSONTestInput struct {
 	Name string `json:"name"`
 }
@@ -163,15 +166,15 @@ func TestHandleJSON(t *testing.T) {
 	}
 
 	errFn := func(_ context.Context, _ *handleJSONTestInput) (*handleJSONTestOutput, error) {
-		return nil, errors.New("fn error")
+		return nil, errHandleJSONFn
 	}
 
 	tests := []struct {
-		fn          func(context.Context, *handleJSONTestInput) (*handleJSONTestOutput, error)
-		name        string
-		body        string
-		wantErr     bool
-		wantGreet   string
+		fn        func(context.Context, *handleJSONTestInput) (*handleJSONTestOutput, error)
+		name      string
+		body      string
+		wantGreet string
+		wantErr   bool
 	}{
 		{
 			name:      "decodes body and calls fn",
@@ -206,6 +209,7 @@ func TestHandleJSON(t *testing.T) {
 			result, err := service.HandleJSON(context.Background(), []byte(tc.body), tc.fn)
 			if tc.wantErr {
 				require.Error(t, err)
+
 				return
 			}
 

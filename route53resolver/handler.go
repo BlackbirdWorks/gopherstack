@@ -165,27 +165,27 @@ type handleCreateResolverRuleInput struct {
 }
 
 type resolverEndpointIPOutput struct {
-	SubnetId string `json:"SubnetId"`
-	Ip       string `json:"Ip"`
+	SubnetID string `json:"SubnetId"`
+	IP       string `json:"Ip"`
 }
 
 type resolverEndpointOutput struct {
-	Id          string                    `json:"Id"`
-	Arn         string                    `json:"Arn"`
-	Name        string                    `json:"Name"`
-	Direction   string                    `json:"Direction"`
-	Status      string                    `json:"Status"`
-	IpAddresses []resolverEndpointIPOutput `json:"IpAddresses"`
+	ID          string                     `json:"Id"`
+	Arn         string                     `json:"Arn"`
+	Name        string                     `json:"Name"`
+	Direction   string                     `json:"Direction"`
+	Status      string                     `json:"Status"`
+	IPAddresses []resolverEndpointIPOutput `json:"IpAddresses"`
 }
 
 type resolverRuleOutput struct {
-	Id                 string `json:"Id"`
+	ID                 string `json:"Id"`
 	Arn                string `json:"Arn"`
 	Name               string `json:"Name"`
 	DomainName         string `json:"DomainName"`
 	RuleType           string `json:"RuleType"`
 	Status             string `json:"Status"`
-	ResolverEndpointId string `json:"ResolverEndpointId"`
+	ResolverEndpointID string `json:"ResolverEndpointId"`
 }
 
 type createResolverEndpointOutput struct {
@@ -223,28 +223,31 @@ type listResolverRulesOutput struct {
 func endpointToOutput(ep *ResolverEndpoint) resolverEndpointOutput {
 	ips := make([]resolverEndpointIPOutput, 0, len(ep.IPAddresses))
 	for _, ip := range ep.IPAddresses {
-		ips = append(ips, resolverEndpointIPOutput{SubnetId: ip.SubnetID, Ip: ip.IP})
+		ips = append(ips, resolverEndpointIPOutput(ip))
 	}
 
 	return resolverEndpointOutput{
-		Id: ep.ID, Arn: ep.ARN, Name: ep.Name,
-		Direction: ep.Direction, Status: ep.Status, IpAddresses: ips,
+		ID: ep.ID, Arn: ep.ARN, Name: ep.Name,
+		Direction: ep.Direction, Status: ep.Status, IPAddresses: ips,
 	}
 }
 
 func ruleToOutput(r *ResolverRule) resolverRuleOutput {
 	return resolverRuleOutput{
-		Id:                 r.ID,
+		ID:                 r.ID,
 		Arn:                r.ARN,
 		Name:               r.Name,
 		DomainName:         r.DomainName,
 		RuleType:           r.RuleType,
 		Status:             r.Status,
-		ResolverEndpointId: r.ResolverEndpointID,
+		ResolverEndpointID: r.ResolverEndpointID,
 	}
 }
 
-func (h *Handler) handleCreateResolverEndpoint(_ context.Context, in *handleCreateResolverEndpointInput) (*createResolverEndpointOutput, error) {
+func (h *Handler) handleCreateResolverEndpoint(
+	_ context.Context,
+	in *handleCreateResolverEndpointInput,
+) (*createResolverEndpointOutput, error) {
 	ips := make([]IPAddress, 0, len(in.IPAddresses))
 	for _, ip := range in.IPAddresses {
 		ips = append(ips, IPAddress{SubnetID: ip.SubnetID, IP: ip.IP})
@@ -258,7 +261,10 @@ func (h *Handler) handleCreateResolverEndpoint(_ context.Context, in *handleCrea
 	return &createResolverEndpointOutput{ResolverEndpoint: endpointToOutput(ep)}, nil
 }
 
-func (h *Handler) handleDeleteResolverEndpoint(_ context.Context, in *resolverEndpointIDInput) (*deleteResolverEndpointOutput, error) {
+func (h *Handler) handleDeleteResolverEndpoint(
+	_ context.Context,
+	in *resolverEndpointIDInput,
+) (*deleteResolverEndpointOutput, error) {
 	if err := h.Backend.DeleteResolverEndpoint(in.ResolverEndpointID); err != nil {
 		return nil, err
 	}
@@ -266,7 +272,10 @@ func (h *Handler) handleDeleteResolverEndpoint(_ context.Context, in *resolverEn
 	return &deleteResolverEndpointOutput{}, nil
 }
 
-func (h *Handler) handleListResolverEndpoints(_ context.Context, _ *listResolverEndpointsInput) (*listResolverEndpointsOutput, error) {
+func (h *Handler) handleListResolverEndpoints(
+	_ context.Context,
+	_ *listResolverEndpointsInput,
+) (*listResolverEndpointsOutput, error) {
 	eps := h.Backend.ListResolverEndpoints()
 	items := make([]resolverEndpointOutput, 0, len(eps))
 	for _, ep := range eps {
@@ -276,7 +285,10 @@ func (h *Handler) handleListResolverEndpoints(_ context.Context, _ *listResolver
 	return &listResolverEndpointsOutput{ResolverEndpoints: items}, nil
 }
 
-func (h *Handler) handleGetResolverEndpoint(_ context.Context, in *resolverEndpointIDInput) (*getResolverEndpointOutput, error) {
+func (h *Handler) handleGetResolverEndpoint(
+	_ context.Context,
+	in *resolverEndpointIDInput,
+) (*getResolverEndpointOutput, error) {
 	ep, err := h.Backend.GetResolverEndpoint(in.ResolverEndpointID)
 	if err != nil {
 		return nil, err
@@ -285,7 +297,10 @@ func (h *Handler) handleGetResolverEndpoint(_ context.Context, in *resolverEndpo
 	return &getResolverEndpointOutput{ResolverEndpoint: endpointToOutput(ep)}, nil
 }
 
-func (h *Handler) handleCreateResolverRule(_ context.Context, in *handleCreateResolverRuleInput) (*createResolverRuleOutput, error) {
+func (h *Handler) handleCreateResolverRule(
+	_ context.Context,
+	in *handleCreateResolverRuleInput,
+) (*createResolverRuleOutput, error) {
 	r, err := h.Backend.CreateResolverRule(in.Name, in.DomainName, in.RuleType, in.ResolverEndpointID)
 	if err != nil {
 		return nil, err
@@ -303,7 +318,10 @@ func (h *Handler) handleGetResolverRule(_ context.Context, in *resolverRuleIDInp
 	return &getResolverRuleOutput{ResolverRule: ruleToOutput(r)}, nil
 }
 
-func (h *Handler) handleDeleteResolverRule(_ context.Context, in *resolverRuleIDInput) (*deleteResolverRuleOutput, error) {
+func (h *Handler) handleDeleteResolverRule(
+	_ context.Context,
+	in *resolverRuleIDInput,
+) (*deleteResolverRuleOutput, error) {
 	if err := h.Backend.DeleteResolverRule(in.ResolverRuleID); err != nil {
 		return nil, err
 	}
@@ -311,7 +329,10 @@ func (h *Handler) handleDeleteResolverRule(_ context.Context, in *resolverRuleID
 	return &deleteResolverRuleOutput{}, nil
 }
 
-func (h *Handler) handleListResolverRules(_ context.Context, _ *listResolverRulesInput) (*listResolverRulesOutput, error) {
+func (h *Handler) handleListResolverRules(
+	_ context.Context,
+	_ *listResolverRulesInput,
+) (*listResolverRulesOutput, error) {
 	rules := h.Backend.ListResolverRules()
 	items := make([]resolverRuleOutput, 0, len(rules))
 	for _, r := range rules {

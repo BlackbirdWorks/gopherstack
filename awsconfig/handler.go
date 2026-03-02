@@ -18,10 +18,7 @@ import (
 
 const awsConfigTargetPrefix = "StarlingDoveService."
 
-var (
-	errUnknownAction  = errors.New("unknown action")
-	errInvalidRequest = errors.New("invalid request")
-)
+var errUnknownAction = errors.New("unknown action")
 
 type configurationRecorderNameInput struct {
 	ConfigurationRecorderName string `json:"ConfigurationRecorderName"`
@@ -225,7 +222,10 @@ type putConfigurationRecorderRequest struct {
 
 type putConfigurationRecorderOutput struct{}
 
-func (h *Handler) handlePutConfigurationRecorder(_ context.Context, in *putConfigurationRecorderRequest) (*putConfigurationRecorderOutput, error) {
+func (h *Handler) handlePutConfigurationRecorder(
+	_ context.Context,
+	in *putConfigurationRecorderRequest,
+) (*putConfigurationRecorderOutput, error) {
 	if err := h.Backend.PutConfigurationRecorder(
 		in.ConfigurationRecorder.Name,
 		in.ConfigurationRecorder.RoleARN,
@@ -242,7 +242,10 @@ type describeConfigurationRecordersOutput struct {
 	ConfigurationRecorders []ConfigurationRecorder `json:"ConfigurationRecorders"`
 }
 
-func (h *Handler) handleDescribeConfigurationRecorders(_ context.Context, _ *describeConfigurationRecordersInput) (*describeConfigurationRecordersOutput, error) {
+func (h *Handler) handleDescribeConfigurationRecorders(
+	_ context.Context,
+	_ *describeConfigurationRecordersInput,
+) (*describeConfigurationRecordersOutput, error) {
 	recorders := h.Backend.DescribeConfigurationRecorders()
 
 	return &describeConfigurationRecordersOutput{ConfigurationRecorders: recorders}, nil
@@ -250,7 +253,10 @@ func (h *Handler) handleDescribeConfigurationRecorders(_ context.Context, _ *des
 
 type startConfigurationRecorderOutput struct{}
 
-func (h *Handler) handleStartConfigurationRecorder(_ context.Context, in *configurationRecorderNameInput) (*startConfigurationRecorderOutput, error) {
+func (h *Handler) handleStartConfigurationRecorder(
+	_ context.Context,
+	in *configurationRecorderNameInput,
+) (*startConfigurationRecorderOutput, error) {
 	if err := h.Backend.StartConfigurationRecorder(in.ConfigurationRecorderName); err != nil {
 		return nil, err
 	}
@@ -268,7 +274,10 @@ type handlePutDeliveryChannelInput struct {
 
 type putDeliveryChannelOutput struct{}
 
-func (h *Handler) handlePutDeliveryChannel(_ context.Context, in *handlePutDeliveryChannelInput) (*putDeliveryChannelOutput, error) {
+func (h *Handler) handlePutDeliveryChannel(
+	_ context.Context,
+	in *handlePutDeliveryChannelInput,
+) (*putDeliveryChannelOutput, error) {
 	if err := h.Backend.PutDeliveryChannel(
 		in.DeliveryChannel.Name,
 		in.DeliveryChannel.S3BucketName,
@@ -286,7 +295,10 @@ type describeDeliveryChannelsOutput struct {
 	DeliveryChannels []DeliveryChannel `json:"DeliveryChannels"`
 }
 
-func (h *Handler) handleDescribeDeliveryChannels(_ context.Context, _ *describeDeliveryChannelsInput) (*describeDeliveryChannelsOutput, error) {
+func (h *Handler) handleDescribeDeliveryChannels(
+	_ context.Context,
+	_ *describeDeliveryChannelsInput,
+) (*describeDeliveryChannelsOutput, error) {
 	channels := h.Backend.DescribeDeliveryChannels()
 
 	return &describeDeliveryChannelsOutput{DeliveryChannels: channels}, nil

@@ -131,15 +131,15 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 }
 
 type transcriptOutput struct {
-	TranscriptFileUri         string  `json:"TranscriptFileUri"`
-	RedactedTranscriptFileUri *string `json:"RedactedTranscriptFileUri"`
+	RedactedTranscriptFileURI *string `json:"RedactedTranscriptFileURI"`
+	TranscriptFileURI         string  `json:"TranscriptFileURI"`
 }
 
 type transcriptionJobOutput struct {
-	TranscriptionJobName   string          `json:"TranscriptionJobName"`
-	TranscriptionJobStatus string          `json:"TranscriptionJobStatus"`
-	LanguageCode           string          `json:"LanguageCode"`
 	Transcript             transcriptOutput `json:"Transcript"`
+	TranscriptionJobName   string           `json:"TranscriptionJobName"`
+	TranscriptionJobStatus string           `json:"TranscriptionJobStatus"`
+	LanguageCode           string           `json:"LanguageCode"`
 }
 
 type startTranscriptionJobOutput struct {
@@ -158,7 +158,10 @@ type handleStartTranscriptionJobInput struct {
 	} `json:"Media"`
 }
 
-func (h *Handler) handleStartTranscriptionJob(_ context.Context, in *handleStartTranscriptionJobInput) (*startTranscriptionJobOutput, error) {
+func (h *Handler) handleStartTranscriptionJob(
+	_ context.Context,
+	in *handleStartTranscriptionJobInput,
+) (*startTranscriptionJobOutput, error) {
 	if in.TranscriptionJobName == "" {
 		return nil, fmt.Errorf("%w: TranscriptionJobName is required", errInvalidRequest)
 	}
@@ -174,13 +177,16 @@ func (h *Handler) handleStartTranscriptionJob(_ context.Context, in *handleStart
 			TranscriptionJobStatus: job.JobStatus,
 			LanguageCode:           job.LanguageCode,
 			Transcript: transcriptOutput{
-				TranscriptFileUri: "s3://synthetic-transcripts/" + job.JobName + ".json",
+				TranscriptFileURI: "s3://synthetic-transcripts/" + job.JobName + ".json",
 			},
 		},
 	}, nil
 }
 
-func (h *Handler) handleGetTranscriptionJob(_ context.Context, in *transcriptionJobNameInput) (*getTranscriptionJobOutput, error) {
+func (h *Handler) handleGetTranscriptionJob(
+	_ context.Context,
+	in *transcriptionJobNameInput,
+) (*getTranscriptionJobOutput, error) {
 	job, err := h.Backend.GetTranscriptionJob(in.TranscriptionJobName)
 	if err != nil {
 		return nil, err
@@ -192,8 +198,8 @@ func (h *Handler) handleGetTranscriptionJob(_ context.Context, in *transcription
 			TranscriptionJobStatus: job.JobStatus,
 			LanguageCode:           job.LanguageCode,
 			Transcript: transcriptOutput{
-				TranscriptFileUri:         "s3://synthetic-transcripts/" + job.JobName + ".json",
-				RedactedTranscriptFileUri: nil,
+				TranscriptFileURI:         "s3://synthetic-transcripts/" + job.JobName + ".json",
+				RedactedTranscriptFileURI: nil,
 			},
 		},
 	}, nil
@@ -213,7 +219,10 @@ type handleListTranscriptionJobsInput struct {
 	Status string `json:"Status"`
 }
 
-func (h *Handler) handleListTranscriptionJobs(_ context.Context, in *handleListTranscriptionJobsInput) (*listTranscriptionJobsOutput, error) {
+func (h *Handler) handleListTranscriptionJobs(
+	_ context.Context,
+	in *handleListTranscriptionJobsInput,
+) (*listTranscriptionJobsOutput, error) {
 	jobs := h.Backend.ListTranscriptionJobs(in.Status)
 
 	summaries := make([]transcriptionJobSummary, 0, len(jobs))

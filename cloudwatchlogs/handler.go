@@ -227,15 +227,15 @@ type createLogGroupOutput struct{}
 type deleteLogGroupOutput struct{}
 
 type describeLogGroupsOutput struct {
-	LogGroups []LogGroup `json:"logGroups"`
 	NextToken string     `json:"nextToken,omitempty"`
+	LogGroups []LogGroup `json:"logGroups"`
 }
 
 type createLogStreamOutput struct{}
 
 type describeLogStreamsOutput struct {
-	LogStreams []LogStream `json:"logStreams"`
 	NextToken  string      `json:"nextToken,omitempty"`
+	LogStreams []LogStream `json:"logStreams"`
 }
 
 type putLogEventsOutput struct {
@@ -243,14 +243,14 @@ type putLogEventsOutput struct {
 }
 
 type getLogEventsOutput struct {
-	Events            []OutputLogEvent `json:"events"`
 	NextForwardToken  string           `json:"nextForwardToken"`
 	NextBackwardToken string           `json:"nextBackwardToken"`
+	Events            []OutputLogEvent `json:"events"`
 }
 
 type filterLogEventsOutput struct {
-	Events    []OutputLogEvent `json:"events"`
 	NextToken string           `json:"nextToken,omitempty"`
+	Events    []OutputLogEvent `json:"events"`
 }
 
 type listTagsLogGroupOutput struct {
@@ -302,6 +302,7 @@ func (h *Handler) logGroupActions() map[string]actionFn {
 			if err != nil {
 				return nil, err
 			}
+
 			return &describeLogGroupsOutput{LogGroups: groups, NextToken: next}, nil
 		},
 	}
@@ -330,6 +331,7 @@ func (h *Handler) logStreamActions() map[string]actionFn {
 			if err != nil {
 				return nil, err
 			}
+
 			return &describeLogStreamsOutput{LogStreams: streams, NextToken: next}, nil
 		},
 	}
@@ -378,6 +380,7 @@ func (h *Handler) logEventActions() map[string]actionFn {
 			if err != nil {
 				return nil, err
 			}
+
 			return &filterLogEventsOutput{Events: evts, NextToken: next}, nil
 		},
 	}
