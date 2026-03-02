@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
-	"sync"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -33,9 +33,9 @@ type StorageBackend interface {
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
 	streams   map[string]*Stream
+	mu        *lockmetrics.RWMutex
 	accountID string
 	region    string
-	mu        sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new empty InMemoryBackend with default account/region.
@@ -49,6 +49,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		streams:   make(map[string]*Stream),
 		accountID: accountID,
 		region:    region,
+		mu:        lockmetrics.New("kinesis"),
 	}
 }
 
@@ -82,7 +83,7 @@ func (s *Shard) nextSequenceNumber() string {
 
 // CreateStream creates a new Kinesis stream.
 func (b *InMemoryBackend) CreateStream(input *CreateStreamInput) error {
-	b.mu.Lock()
+	b.mu.Lock("CreateStream")
 	defer b.mu.Unlock()
 
 	if _, exists := b.streams[input.StreamName]; exists {
@@ -151,7 +152,7 @@ func (b *InMemoryBackend) CreateStream(input *CreateStreamInput) error {
 
 // DeleteStream removes a stream.
 func (b *InMemoryBackend) DeleteStream(input *DeleteStreamInput) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteStream")
 	defer b.mu.Unlock()
 
 	if _, exists := b.streams[input.StreamName]; !exists {
@@ -165,7 +166,7 @@ func (b *InMemoryBackend) DeleteStream(input *DeleteStreamInput) error {
 
 // DescribeStream returns full stream details including shards.
 func (b *InMemoryBackend) DescribeStream(input *DescribeStreamInput) (*DescribeStreamOutput, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeStream")
 	defer b.mu.RUnlock()
 
 	stream, exists := b.streams[input.StreamName]
@@ -205,7 +206,7 @@ func (b *InMemoryBackend) DescribeStream(input *DescribeStreamInput) (*DescribeS
 
 // ListStreams returns stream names with optional pagination.
 func (b *InMemoryBackend) ListStreams(input *ListStreamsInput) (*ListStreamsOutput, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListStreams")
 	defer b.mu.RUnlock()
 
 	names := make([]string, 0, len(b.streams))
@@ -230,7 +231,7 @@ func (b *InMemoryBackend) ListStreams(input *ListStreamsInput) (*ListStreamsOutp
 
 // PutRecord writes a single record to a stream shard.
 func (b *InMemoryBackend) PutRecord(input *PutRecordInput) (*PutRecordOutput, error) {
-	b.mu.Lock()
+	b.mu.Lock("PutRecord")
 	defer b.mu.Unlock()
 
 	stream, exists := b.streams[input.StreamName]
@@ -324,7 +325,7 @@ func decodeIterator(token string) (*ShardIterator, error) {
 
 // GetShardIterator returns an iterator for reading records from a shard.
 func (b *InMemoryBackend) GetShardIterator(input *GetShardIteratorInput) (*GetShardIteratorOutput, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetShardIterator")
 	defer b.mu.RUnlock()
 
 	stream, exists := b.streams[input.StreamName]
@@ -408,7 +409,7 @@ func (b *InMemoryBackend) GetRecords(input *GetRecordsInput) (*GetRecordsOutput,
 		return nil, err
 	}
 
-	b.mu.RLock()
+	b.mu.RLock("GetRecords")
 	defer b.mu.RUnlock()
 
 	stream, exists := b.streams[it.StreamName]
@@ -471,7 +472,7 @@ func (b *InMemoryBackend) GetRecords(input *GetRecordsInput) (*GetRecordsOutput,
 
 // ListShards returns the shards for a stream.
 func (b *InMemoryBackend) ListShards(input *ListShardsInput) (*ListShardsOutput, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListShards")
 	defer b.mu.RUnlock()
 
 	stream, exists := b.streams[input.StreamName]
@@ -505,7 +506,7 @@ func (b *InMemoryBackend) ListShards(input *ListShardsInput) (*ListShardsOutput,
 
 // ListAll returns a snapshot of all streams as StreamInfo values.
 func (b *InMemoryBackend) ListAll() []StreamInfo {
-	b.mu.RLock()
+	b.mu.RLock("ListAll")
 	defer b.mu.RUnlock()
 
 	result := make([]StreamInfo, 0, len(b.streams))

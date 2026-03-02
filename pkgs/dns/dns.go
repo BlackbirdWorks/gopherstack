@@ -17,10 +17,11 @@ import (
 	"log/slog"
 	"net"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/miekg/dns"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
 // DefaultListenAddr is the default UDP/TCP address the DNS server binds to.
@@ -57,13 +58,13 @@ type Config struct {
 // Server is an embedded DNS server that answers A queries for registered
 // synthetic hostnames with a fixed IP address.
 type Server struct {
-	cfg        Config
 	names      map[string]struct{}
 	udpServer  *dns.Server
 	tcpServer  *dns.Server
+	mu         *lockmetrics.RWMutex
+	cfg        Config
 	listenAddr string
 	resolveIP  net.IP
-	mu         sync.RWMutex
 }
 
 // New creates a new Server with the given config.
@@ -92,6 +93,7 @@ func New(cfg Config) (*Server, error) {
 		cfg:        cfg,
 		resolveIP:  ip,
 		listenAddr: cfg.ListenAddr,
+		mu:         lockmetrics.New("dns"),
 	}, nil
 }
 
@@ -102,7 +104,7 @@ func New(cfg Config) (*Server, error) {
 func (s *Server) Register(hostname string) {
 	fqdn := strings.ToLower(dns.Fqdn(hostname))
 
-	s.mu.Lock()
+	s.mu.Lock("Register")
 	s.names[fqdn] = struct{}{}
 	s.mu.Unlock()
 
@@ -116,7 +118,7 @@ func (s *Server) Register(hostname string) {
 func (s *Server) Deregister(hostname string) {
 	fqdn := strings.ToLower(dns.Fqdn(hostname))
 
-	s.mu.Lock()
+	s.mu.Lock("Deregister")
 	delete(s.names, fqdn)
 	s.mu.Unlock()
 }
@@ -125,7 +127,7 @@ func (s *Server) Deregister(hostname string) {
 func (s *Server) IsRegistered(hostname string) bool {
 	fqdn := strings.ToLower(dns.Fqdn(hostname))
 
-	s.mu.RLock()
+	s.mu.RLock("IsRegistered")
 	_, ok := s.names[fqdn]
 	s.mu.RUnlock()
 
@@ -240,7 +242,7 @@ func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
 		case dns.TypeA:
 			name := strings.ToLower(q.Name)
 
-			s.mu.RLock()
+			s.mu.RLock("handleQuery")
 			_, registered := s.names[name]
 			s.mu.RUnlock()
 

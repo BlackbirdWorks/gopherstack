@@ -3,8 +3,9 @@ package acm
 import (
 	"errors"
 	"fmt"
-	"sync"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
@@ -26,9 +27,9 @@ type Certificate struct {
 // InMemoryBackend is the in-memory store for ACM certificates.
 type InMemoryBackend struct {
 	certs     map[string]*Certificate
+	mu        *lockmetrics.RWMutex
 	accountID string
 	region    string
-	mu        sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -37,6 +38,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		certs:     make(map[string]*Certificate),
 		accountID: accountID,
 		region:    region,
+		mu:        lockmetrics.New("acm"),
 	}
 }
 
@@ -46,7 +48,7 @@ func (b *InMemoryBackend) RequestCertificate(domainName, certType string) (*Cert
 		return nil, fmt.Errorf("%w: DomainName is required", ErrInvalidParameter)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("RequestCertificate")
 	defer b.mu.Unlock()
 
 	id := fmt.Sprintf("%x", time.Now().UnixNano())
@@ -72,7 +74,7 @@ func (b *InMemoryBackend) RequestCertificate(domainName, certType string) (*Cert
 
 // DescribeCertificate returns the certificate with the given ARN.
 func (b *InMemoryBackend) DescribeCertificate(arn string) (*Certificate, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeCertificate")
 	defer b.mu.RUnlock()
 
 	cert, exists := b.certs[arn]
@@ -87,7 +89,7 @@ func (b *InMemoryBackend) DescribeCertificate(arn string) (*Certificate, error) 
 
 // ListCertificates returns all certificates.
 func (b *InMemoryBackend) ListCertificates() []Certificate {
-	b.mu.RLock()
+	b.mu.RLock("ListCertificates")
 	defer b.mu.RUnlock()
 
 	certs := make([]Certificate, 0, len(b.certs))
@@ -100,7 +102,7 @@ func (b *InMemoryBackend) ListCertificates() []Certificate {
 
 // DeleteCertificate removes the certificate with the given ARN.
 func (b *InMemoryBackend) DeleteCertificate(arn string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteCertificate")
 	defer b.mu.Unlock()
 
 	if _, exists := b.certs[arn]; !exists {

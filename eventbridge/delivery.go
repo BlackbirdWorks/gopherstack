@@ -33,7 +33,7 @@ type DeliveryTargets struct {
 // deliverEvents fan-outs events to matching rule targets.
 // It runs asynchronously and does not block PutEvents.
 func (b *InMemoryBackend) deliverEvents(ctx context.Context, entries []EventEntry, targets DeliveryTargets) {
-	b.mu.RLock()
+	b.mu.RLock("deliverEvents")
 	busRules := make(map[string]map[string]*Rule)
 	busTargets := make(map[string]map[string]*Target)
 	maps.Copy(busRules, b.rules)

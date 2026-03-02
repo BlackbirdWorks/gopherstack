@@ -13,13 +13,14 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"sync"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
 // ErrDockerUnavailable is returned when Docker is not available on the host.
@@ -74,8 +75,8 @@ type PooledContainer struct {
 type Client struct {
 	docker APIClient
 	pools  map[string][]*PooledContainer
+	mu     *lockmetrics.RWMutex
 	cfg    Config
-	mu     sync.Mutex
 }
 
 // APIClient is a subset of the Docker SDK client interface used by this package.
@@ -180,6 +181,7 @@ func NewClientWithAPI(api APIClient, cfg Config) *Client {
 		pools:  make(map[string][]*PooledContainer),
 		cfg:    cfg,
 		docker: api,
+		mu:     lockmetrics.New("docker"),
 	}
 }
 
@@ -287,7 +289,7 @@ func (c *Client) StopAndRemove(ctx context.Context, containerID string) error {
 // concurrent callers that see no idle container and concurrently create new ones.
 func (c *Client) AcquireWarm(ctx context.Context, spec ContainerSpec) (*PooledContainer, error) {
 	// Check for an idle container first (fast path, lock held briefly).
-	c.mu.Lock()
+	c.mu.Lock("AcquireWarm")
 
 	pool := c.pools[spec.Image]
 	for _, pc := range pool {
@@ -322,7 +324,7 @@ func (c *Client) AcquireWarm(ctx context.Context, spec ContainerSpec) (*PooledCo
 		InUse:    true,
 	}
 
-	c.mu.Lock()
+	c.mu.Lock("AcquireWarm")
 	c.pools[spec.Image] = append(c.pools[spec.Image], pc)
 	c.mu.Unlock()
 
@@ -332,7 +334,7 @@ func (c *Client) AcquireWarm(ctx context.Context, spec ContainerSpec) (*PooledCo
 // ReleaseContainer marks a pooled container as idle.
 // If the container is not in the pool, ErrContainerNotFound is returned.
 func (c *Client) ReleaseContainer(containerID string) error {
-	c.mu.Lock()
+	c.mu.Lock("ReleaseContainer")
 	defer c.mu.Unlock()
 
 	for _, pool := range c.pools {
@@ -352,7 +354,7 @@ func (c *Client) ReleaseContainer(containerID string) error {
 // ReapIdleContainers stops and removes containers that have been idle longer than IdleTimeout.
 // It is intended to be called periodically by a background goroutine.
 func (c *Client) ReapIdleContainers(ctx context.Context) {
-	c.mu.Lock()
+	c.mu.Lock("ReapIdleContainers")
 	toReap := c.collectIdleLocked()
 	c.mu.Unlock()
 

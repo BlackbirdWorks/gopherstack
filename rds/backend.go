@@ -3,7 +3,8 @@ package rds
 import (
 	"errors"
 	"fmt"
-	"sync"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
 var (
@@ -76,11 +77,10 @@ type InMemoryBackend struct {
 	instances    map[string]*DBInstance
 	snapshots    map[string]*DBSnapshot
 	subnetGroups map[string]*DBSubnetGroup
-	// tags maps resource ARN → ordered slice of tags.
-	tags      map[string][]Tag
-	accountID string
-	region    string
-	mu        sync.RWMutex
+	tags         map[string][]Tag
+	mu           *lockmetrics.RWMutex
+	accountID    string
+	region       string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -92,6 +92,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		tags:         make(map[string][]Tag),
 		accountID:    accountID,
 		region:       region,
+		mu:           lockmetrics.New("rds"),
 	}
 }
 
@@ -114,7 +115,7 @@ func (b *InMemoryBackend) CreateDBInstance(
 		return nil, fmt.Errorf("%w: DBInstanceIdentifier is required", ErrInvalidParameter)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("CreateDBInstance")
 	defer b.mu.Unlock()
 
 	if _, exists := b.instances[id]; exists {
@@ -158,7 +159,7 @@ func (b *InMemoryBackend) CreateDBInstance(
 
 // DeleteDBInstance removes the DB instance with the given identifier.
 func (b *InMemoryBackend) DeleteDBInstance(id string) (*DBInstance, error) {
-	b.mu.Lock()
+	b.mu.Lock("DeleteDBInstance")
 	defer b.mu.Unlock()
 
 	inst, exists := b.instances[id]
@@ -174,7 +175,7 @@ func (b *InMemoryBackend) DeleteDBInstance(id string) (*DBInstance, error) {
 
 // DescribeDBInstances returns instances. If id is non-empty, returns only that instance.
 func (b *InMemoryBackend) DescribeDBInstances(id string) ([]DBInstance, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeDBInstances")
 	defer b.mu.RUnlock()
 
 	if id != "" {
@@ -196,7 +197,7 @@ func (b *InMemoryBackend) DescribeDBInstances(id string) ([]DBInstance, error) {
 
 // ModifyDBInstance modifies properties of an existing DB instance.
 func (b *InMemoryBackend) ModifyDBInstance(id, instanceClass string, allocatedStorage int) (*DBInstance, error) {
-	b.mu.Lock()
+	b.mu.Lock("ModifyDBInstance")
 	defer b.mu.Unlock()
 
 	inst, exists := b.instances[id]
@@ -226,7 +227,7 @@ func (b *InMemoryBackend) CreateDBSnapshot(snapshotID, instanceID string) (*DBSn
 		return nil, fmt.Errorf("%w: DBInstanceIdentifier is required", ErrInvalidParameter)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("CreateDBSnapshot")
 	defer b.mu.Unlock()
 
 	if _, exists := b.snapshots[snapshotID]; exists {
@@ -253,7 +254,7 @@ func (b *InMemoryBackend) CreateDBSnapshot(snapshotID, instanceID string) (*DBSn
 
 // DescribeDBSnapshots returns snapshots. If snapshotID is non-empty, returns only that snapshot.
 func (b *InMemoryBackend) DescribeDBSnapshots(snapshotID string) ([]DBSnapshot, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeDBSnapshots")
 	defer b.mu.RUnlock()
 
 	if snapshotID != "" {
@@ -275,7 +276,7 @@ func (b *InMemoryBackend) DescribeDBSnapshots(snapshotID string) ([]DBSnapshot, 
 
 // DeleteDBSnapshot removes the given snapshot.
 func (b *InMemoryBackend) DeleteDBSnapshot(snapshotID string) (*DBSnapshot, error) {
-	b.mu.Lock()
+	b.mu.Lock("DeleteDBSnapshot")
 	defer b.mu.Unlock()
 
 	snap, exists := b.snapshots[snapshotID]
@@ -298,7 +299,7 @@ func (b *InMemoryBackend) CreateDBSubnetGroup(
 		return nil, fmt.Errorf("%w: DBSubnetGroupName must not be empty", ErrInvalidParameter)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("CreateDBSubnetGroup")
 	defer b.mu.Unlock()
 
 	if _, exists := b.subnetGroups[name]; exists {
@@ -326,7 +327,7 @@ func (b *InMemoryBackend) CreateDBSubnetGroup(
 
 // DescribeDBSubnetGroups returns subnet groups. If name is non-empty, returns only that group.
 func (b *InMemoryBackend) DescribeDBSubnetGroups(name string) ([]DBSubnetGroup, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeDBSubnetGroups")
 	defer b.mu.RUnlock()
 
 	if name != "" {
@@ -356,7 +357,7 @@ func (b *InMemoryBackend) DescribeDBSubnetGroups(name string) ([]DBSubnetGroup, 
 
 // DeleteDBSubnetGroup removes the given subnet group.
 func (b *InMemoryBackend) DeleteDBSubnetGroup(name string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteDBSubnetGroup")
 	defer b.mu.Unlock()
 
 	if _, exists := b.subnetGroups[name]; !exists {
@@ -370,7 +371,7 @@ func (b *InMemoryBackend) DeleteDBSubnetGroup(name string) error {
 
 // AddTagsToResource adds or overwrites tags on the resource identified by arn.
 func (b *InMemoryBackend) AddTagsToResource(arn string, tags []Tag) {
-	b.mu.Lock()
+	b.mu.Lock("AddTagsToResource")
 	defer b.mu.Unlock()
 
 	current := b.tags[arn]
@@ -394,7 +395,7 @@ func (b *InMemoryBackend) AddTagsToResource(arn string, tags []Tag) {
 
 // RemoveTagsFromResource removes the named tags from the resource identified by arn.
 func (b *InMemoryBackend) RemoveTagsFromResource(arn string, keys []string) {
-	b.mu.Lock()
+	b.mu.Lock("RemoveTagsFromResource")
 	defer b.mu.Unlock()
 
 	remove := make(map[string]bool, len(keys))
@@ -416,7 +417,7 @@ func (b *InMemoryBackend) RemoveTagsFromResource(arn string, keys []string) {
 
 // ListTagsForResource returns the tags for the resource identified by arn.
 func (b *InMemoryBackend) ListTagsForResource(arn string) []Tag {
-	b.mu.RLock()
+	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
 	src := b.tags[arn]

@@ -7,8 +7,9 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"sync"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
 // Errors returned by the backend.
@@ -78,17 +79,20 @@ type zoneData struct {
 type InMemoryBackend struct {
 	dns   DNSRegistrar
 	zones map[string]*zoneData // key: zone ID
-	mu    sync.RWMutex
+	mu    *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
-	return &InMemoryBackend{zones: make(map[string]*zoneData)}
+	return &InMemoryBackend{
+		zones: make(map[string]*zoneData),
+		mu:    lockmetrics.New("route53"),
+	}
 }
 
 // SetDNSRegistrar wires a DNS server so A/CNAME records are auto-registered.
 func (b *InMemoryBackend) SetDNSRegistrar(dns DNSRegistrar) {
-	b.mu.Lock()
+	b.mu.Lock("SetDNSRegistrar")
 	b.dns = dns
 	b.mu.Unlock()
 }
@@ -132,7 +136,7 @@ func (b *InMemoryBackend) CreateHostedZone(name, callerRef, comment string, priv
 
 	name = normaliseName(name)
 
-	b.mu.Lock()
+	b.mu.Lock("CreateHostedZone")
 	defer b.mu.Unlock()
 
 	id := "Z" + randomZoneID()
@@ -157,7 +161,7 @@ func (b *InMemoryBackend) CreateHostedZone(name, callerRef, comment string, priv
 
 // DeleteHostedZone removes a hosted zone and all its record sets.
 func (b *InMemoryBackend) DeleteHostedZone(zoneID string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteHostedZone")
 	defer b.mu.Unlock()
 
 	zd, ok := b.zones[zoneID]
@@ -181,7 +185,7 @@ func (b *InMemoryBackend) DeleteHostedZone(zoneID string) error {
 
 // GetHostedZone returns a single hosted zone.
 func (b *InMemoryBackend) GetHostedZone(zoneID string) (*HostedZone, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetHostedZone")
 	defer b.mu.RUnlock()
 
 	zd, ok := b.zones[zoneID]
@@ -197,7 +201,7 @@ func (b *InMemoryBackend) GetHostedZone(zoneID string) (*HostedZone, error) {
 
 // ListHostedZones returns all hosted zones sorted by name.
 func (b *InMemoryBackend) ListHostedZones() ([]HostedZone, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListHostedZones")
 	defer b.mu.RUnlock()
 
 	result := make([]HostedZone, 0, len(b.zones))
@@ -229,7 +233,7 @@ type Change struct {
 
 // ChangeResourceRecordSets applies a batch of record set changes to a hosted zone.
 func (b *InMemoryBackend) ChangeResourceRecordSets(zoneID string, changes []Change) error {
-	b.mu.Lock()
+	b.mu.Lock("ChangeResourceRecordSets")
 	defer b.mu.Unlock()
 
 	zd, ok := b.zones[zoneID]
@@ -274,7 +278,7 @@ func (b *InMemoryBackend) ChangeResourceRecordSets(zoneID string, changes []Chan
 
 // ListResourceRecordSets returns all resource record sets for a hosted zone.
 func (b *InMemoryBackend) ListResourceRecordSets(zoneID string) ([]ResourceRecordSet, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListResourceRecordSets")
 	defer b.mu.RUnlock()
 
 	zd, ok := b.zones[zoneID]

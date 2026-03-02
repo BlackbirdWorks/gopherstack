@@ -2,8 +2,9 @@ package transcribe
 
 import (
 	"fmt"
-	"sync"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
@@ -29,19 +30,20 @@ type TranscriptionJob struct {
 // InMemoryBackend is the in-memory store for Transcribe jobs.
 type InMemoryBackend struct {
 	jobs map[string]*TranscriptionJob
-	mu   sync.RWMutex
+	mu   *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
 		jobs: make(map[string]*TranscriptionJob),
+		mu:   lockmetrics.New("transcribe"),
 	}
 }
 
 // StartTranscriptionJob creates a new transcription job with synthetic results.
 func (b *InMemoryBackend) StartTranscriptionJob(jobName, languageCode, mediaFileURI string) (*TranscriptionJob, error) {
-	b.mu.Lock()
+	b.mu.Lock("StartTranscriptionJob")
 	defer b.mu.Unlock()
 
 	if _, ok := b.jobs[jobName]; ok {
@@ -67,7 +69,7 @@ func (b *InMemoryBackend) StartTranscriptionJob(jobName, languageCode, mediaFile
 
 // GetTranscriptionJob returns a transcription job by name.
 func (b *InMemoryBackend) GetTranscriptionJob(jobName string) (*TranscriptionJob, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetTranscriptionJob")
 	defer b.mu.RUnlock()
 
 	job, ok := b.jobs[jobName]
@@ -82,7 +84,7 @@ func (b *InMemoryBackend) GetTranscriptionJob(jobName string) (*TranscriptionJob
 
 // ListTranscriptionJobs returns all transcription jobs, optionally filtered by status.
 func (b *InMemoryBackend) ListTranscriptionJobs(statusFilter string) []TranscriptionJob {
-	b.mu.RLock()
+	b.mu.RLock("ListTranscriptionJobs")
 	defer b.mu.RUnlock()
 
 	out := make([]TranscriptionJob, 0, len(b.jobs))

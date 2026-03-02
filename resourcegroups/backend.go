@@ -2,7 +2,8 @@ package resourcegroups
 
 import (
 	"fmt"
-	"sync"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -27,9 +28,9 @@ type Group struct {
 // InMemoryBackend is the in-memory store for Resource Groups.
 type InMemoryBackend struct {
 	groups    map[string]*Group
+	mu        *lockmetrics.RWMutex
 	accountID string
 	region    string
-	mu        sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -38,6 +39,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		groups:    make(map[string]*Group),
 		accountID: accountID,
 		region:    region,
+		mu:        lockmetrics.New("resourcegroups"),
 	}
 }
 
@@ -45,7 +47,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 // The Tags field in the returned Group points to the backend-owned Tags
 // collection; callers should treat it as read-only.
 func (b *InMemoryBackend) CreateGroup(name, description string, inputTags *tags.Tags) (*Group, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateGroup")
 	defer b.mu.Unlock()
 
 	if _, ok := b.groups[name]; ok {
@@ -73,7 +75,7 @@ func (b *InMemoryBackend) CreateGroup(name, description string, inputTags *tags.
 
 // DeleteGroup deletes a resource group by name.
 func (b *InMemoryBackend) DeleteGroup(name string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteGroup")
 	defer b.mu.Unlock()
 
 	if _, ok := b.groups[name]; !ok {
@@ -89,7 +91,7 @@ func (b *InMemoryBackend) DeleteGroup(name string) error {
 // The Tags field in each returned Group points to the backend-owned Tags
 // collection; callers should treat it as read-only.
 func (b *InMemoryBackend) ListGroups() []Group {
-	b.mu.RLock()
+	b.mu.RLock("ListGroups")
 	defer b.mu.RUnlock()
 
 	out := make([]Group, 0, len(b.groups))
@@ -104,7 +106,7 @@ func (b *InMemoryBackend) ListGroups() []Group {
 // The Tags field in the returned Group points to the backend-owned Tags
 // collection; callers should treat it as read-only.
 func (b *InMemoryBackend) GetGroup(name string) (*Group, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetGroup")
 	defer b.mu.RUnlock()
 
 	g, ok := b.groups[name]

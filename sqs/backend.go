@@ -10,9 +10,9 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -45,9 +45,9 @@ type StorageBackend interface {
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
 	queues    map[string]*Queue
+	mu        *lockmetrics.RWMutex
 	accountID string
 	region    string
-	mu        sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new empty InMemoryBackend with default account/region.
@@ -61,6 +61,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		queues:    make(map[string]*Queue),
 		accountID: accountID,
 		region:    region,
+		mu:        lockmetrics.New("sqs"),
 	}
 }
 
@@ -194,7 +195,7 @@ func buildDefaultAttributes(queueName, accountID, region string, isFIFO bool) ma
 
 // CreateQueue creates a new SQS queue.
 func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutput, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateQueue")
 	defer b.mu.Unlock()
 
 	if _, exists := b.queues[input.QueueName]; exists {
@@ -230,7 +231,7 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 
 // DeleteQueue removes a queue by its URL.
 func (b *InMemoryBackend) DeleteQueue(input *DeleteQueueInput) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteQueue")
 	defer b.mu.Unlock()
 
 	name := queueNameFromInput(input.QueueURL)
@@ -246,7 +247,7 @@ func (b *InMemoryBackend) DeleteQueue(input *DeleteQueueInput) error {
 
 // ListQueues returns all queue URLs, optionally filtered by prefix.
 func (b *InMemoryBackend) ListQueues(input *ListQueuesInput) (*ListQueuesOutput, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListQueues")
 	defer b.mu.RUnlock()
 
 	var urls []string
@@ -262,7 +263,7 @@ func (b *InMemoryBackend) ListQueues(input *ListQueuesInput) (*ListQueuesOutput,
 
 // GetQueueURL returns the URL for a queue by name.
 func (b *InMemoryBackend) GetQueueURL(input *GetQueueURLInput) (*GetQueueURLOutput, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetQueueURL")
 	defer b.mu.RUnlock()
 
 	q, ok := b.queues[input.QueueName]
@@ -275,7 +276,7 @@ func (b *InMemoryBackend) GetQueueURL(input *GetQueueURLInput) (*GetQueueURLOutp
 
 // GetQueueAttributes returns queue attributes, computing dynamic ones on the fly.
 func (b *InMemoryBackend) GetQueueAttributes(input *GetQueueAttributesInput) (*GetQueueAttributesOutput, error) {
-	b.mu.Lock()
+	b.mu.Lock("GetQueueAttributes")
 	defer b.mu.Unlock()
 
 	name := queueNameFromInput(input.QueueURL)
@@ -325,7 +326,7 @@ func containsStr(slice []string, s string) bool {
 
 // SetQueueAttributes updates attributes on an existing queue.
 func (b *InMemoryBackend) SetQueueAttributes(input *SetQueueAttributesInput) error {
-	b.mu.Lock()
+	b.mu.Lock("SetQueueAttributes")
 	defer b.mu.Unlock()
 
 	name := queueNameFromInput(input.QueueURL)
@@ -348,7 +349,7 @@ func (b *InMemoryBackend) SetQueueAttributes(input *SetQueueAttributesInput) err
 
 // SendMessage adds a message to the specified queue.
 func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutput, error) {
-	b.mu.Lock()
+	b.mu.Lock("SendMessage")
 	defer b.mu.Unlock()
 
 	name := queueNameFromInput(input.QueueURL)
@@ -487,7 +488,7 @@ func drainToDLQ(q *Queue) {
 
 // receiveOnce performs a single receive attempt under the backend lock.
 func (b *InMemoryBackend) receiveOnce(name string, input *ReceiveMessageInput) ([]*Message, error) {
-	b.mu.Lock()
+	b.mu.Lock("receiveOnce")
 	defer b.mu.Unlock()
 
 	q, ok := b.queues[name]
@@ -585,7 +586,7 @@ func pickMessages(q *Queue, maxMessages, vt int, now time.Time) []*Message {
 
 // DeleteMessage removes an in-flight message by its receipt handle.
 func (b *InMemoryBackend) DeleteMessage(input *DeleteMessageInput) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteMessage")
 	defer b.mu.Unlock()
 
 	name := queueNameFromInput(input.QueueURL)
@@ -608,7 +609,7 @@ func (b *InMemoryBackend) DeleteMessage(input *DeleteMessageInput) error {
 
 // ChangeMessageVisibility updates the visibility timeout for an in-flight message.
 func (b *InMemoryBackend) ChangeMessageVisibility(input *ChangeMessageVisibilityInput) error {
-	b.mu.Lock()
+	b.mu.Lock("ChangeMessageVisibility")
 	defer b.mu.Unlock()
 
 	name := queueNameFromInput(input.QueueURL)
@@ -638,7 +639,7 @@ func changeVisibility(q *Queue, receiptHandle string, visibilityTimeout int) err
 func (b *InMemoryBackend) ChangeMessageVisibilityBatch(
 	input *ChangeMessageVisibilityBatchInput,
 ) (*ChangeMessageVisibilityBatchOutput, error) {
-	b.mu.Lock()
+	b.mu.Lock("ChangeMessageVisibilityBatch")
 	defer b.mu.Unlock()
 
 	name := queueNameFromInput(input.QueueURL)
@@ -741,7 +742,7 @@ func (b *InMemoryBackend) DeleteMessageBatch(input *DeleteMessageBatchInput) (*D
 
 // PurgeQueue removes all messages from a queue without deleting it.
 func (b *InMemoryBackend) PurgeQueue(input *PurgeQueueInput) error {
-	b.mu.Lock()
+	b.mu.Lock("PurgeQueue")
 	defer b.mu.Unlock()
 
 	name := queueNameFromInput(input.QueueURL)
@@ -761,7 +762,7 @@ func (b *InMemoryBackend) PurgeQueue(input *PurgeQueueInput) error {
 // The returned slice contains value copies of the immutable queue metadata, safe for
 // concurrent use after the lock is released.
 func (b *InMemoryBackend) ListAll() []QueueInfo {
-	b.mu.RLock()
+	b.mu.RLock("ListAll")
 	defer b.mu.RUnlock()
 
 	result := make([]QueueInfo, 0, len(b.queues))
@@ -775,7 +776,7 @@ func (b *InMemoryBackend) ListAll() []QueueInfo {
 
 // TagQueue adds or updates tags on a queue.
 func (b *InMemoryBackend) TagQueue(input *TagQueueInput) error {
-	b.mu.Lock()
+	b.mu.Lock("TagQueue")
 	defer b.mu.Unlock()
 
 	name := queueNameFromInput(input.QueueURL)
@@ -798,7 +799,7 @@ func (b *InMemoryBackend) TagQueue(input *TagQueueInput) error {
 
 // UntagQueue removes tags from a queue.
 func (b *InMemoryBackend) UntagQueue(input *UntagQueueInput) error {
-	b.mu.Lock()
+	b.mu.Lock("UntagQueue")
 	defer b.mu.Unlock()
 
 	name := queueNameFromInput(input.QueueURL)
@@ -817,7 +818,7 @@ func (b *InMemoryBackend) UntagQueue(input *UntagQueueInput) error {
 
 // ListQueueTags returns the tags for a queue.
 func (b *InMemoryBackend) ListQueueTags(input *ListQueueTagsInput) (*ListQueueTagsOutput, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListQueueTags")
 	defer b.mu.RUnlock()
 
 	name := queueNameFromInput(input.QueueURL)

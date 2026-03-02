@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
 // Errors returned by the SES backend.
@@ -32,14 +33,15 @@ type Email struct {
 // InMemoryBackend is an in-memory store for SES emails and verified identities.
 type InMemoryBackend struct {
 	identities map[string]bool
+	mu         *lockmetrics.RWMutex
 	emails     []Email
-	mu         sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
 		identities: make(map[string]bool),
+		mu:         lockmetrics.New("ses"),
 	}
 }
 
@@ -49,7 +51,7 @@ func (b *InMemoryBackend) VerifyEmailIdentity(identity string) error {
 		return fmt.Errorf("%w: identity is required", ErrInvalidParameter)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("VerifyEmailIdentity")
 	b.identities[identity] = true
 	b.mu.Unlock()
 
@@ -58,7 +60,7 @@ func (b *InMemoryBackend) VerifyEmailIdentity(identity string) error {
 
 // DeleteIdentity removes a verified identity.
 func (b *InMemoryBackend) DeleteIdentity(identity string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteIdentity")
 	defer b.mu.Unlock()
 
 	if _, ok := b.identities[identity]; !ok {
@@ -72,7 +74,7 @@ func (b *InMemoryBackend) DeleteIdentity(identity string) error {
 
 // ListIdentities returns all registered identities sorted alphabetically.
 func (b *InMemoryBackend) ListIdentities() []string {
-	b.mu.RLock()
+	b.mu.RLock("ListIdentities")
 	defer b.mu.RUnlock()
 
 	out := make([]string, 0, len(b.identities))
@@ -88,7 +90,7 @@ func (b *InMemoryBackend) ListIdentities() []string {
 // GetIdentityVerificationAttributes returns verification status for each requested identity.
 // All registered identities are auto-verified.
 func (b *InMemoryBackend) GetIdentityVerificationAttributes(identities []string) map[string]string {
-	b.mu.RLock()
+	b.mu.RLock("GetIdentityVerificationAttributes")
 	defer b.mu.RUnlock()
 
 	result := make(map[string]string, len(identities))
@@ -122,7 +124,7 @@ func (b *InMemoryBackend) SendEmail(from string, to []string, subject, bodyHTML,
 		Timestamp: time.Now(),
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("SendEmail")
 	b.emails = append(b.emails, email)
 	b.mu.Unlock()
 
@@ -131,7 +133,7 @@ func (b *InMemoryBackend) SendEmail(from string, to []string, subject, bodyHTML,
 
 // ListEmails returns a copy of all captured emails.
 func (b *InMemoryBackend) ListEmails() []Email {
-	b.mu.RLock()
+	b.mu.RLock("ListEmails")
 	defer b.mu.RUnlock()
 
 	out := make([]Email, len(b.emails))
@@ -142,7 +144,7 @@ func (b *InMemoryBackend) ListEmails() []Email {
 
 // GetEmailByID returns the email with the given MessageID, or an error if not found.
 func (b *InMemoryBackend) GetEmailByID(messageID string) (Email, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetEmailByID")
 	defer b.mu.RUnlock()
 
 	for _, e := range b.emails {

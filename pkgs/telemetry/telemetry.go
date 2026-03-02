@@ -1,11 +1,11 @@
 package telemetry
 
 import (
-	"sync"
-
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	io_prometheus_client "github.com/prometheus/client_model/go"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
 //nolint:gochecknoglobals // Prometheus collectors are global for registration.
@@ -107,7 +107,7 @@ var (
 	)
 
 	// mu protects access to metrics data structures.
-	mu sync.RWMutex
+	mu = lockmetrics.New("telemetry")
 )
 
 // RecordOperation records an operation latency and status.
@@ -180,7 +180,7 @@ func RecordWorkerQueueDepth(service, worker string, depth int) {
 
 // GetMetrics returns a snapshot of metrics for dashboard consumption.
 func GetMetrics() map[string]any {
-	mu.RLock()
+	mu.RLock("GetMetrics")
 	defer mu.RUnlock()
 
 	// This will be populated by gathering metrics from prometheus

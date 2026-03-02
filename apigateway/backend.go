@@ -8,8 +8,9 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -89,13 +90,14 @@ type apiData struct {
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
 	apis map[string]*apiData
-	mu   sync.RWMutex
+	mu   *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
 		apis: make(map[string]*apiData),
+		mu:   lockmetrics.New("apigateway"),
 	}
 }
 
@@ -105,7 +107,7 @@ func (b *InMemoryBackend) CreateRestAPI(name, description string, inputTags *tag
 		return nil, fmt.Errorf("%w: name is required", ErrInvalidParameter)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("CreateRestAPI")
 	defer b.mu.Unlock()
 
 	id := randomID(apiIDLength)
@@ -147,7 +149,7 @@ func (b *InMemoryBackend) CreateRestAPI(name, description string, inputTags *tag
 
 // DeleteRestAPI removes a REST API and all its resources.
 func (b *InMemoryBackend) DeleteRestAPI(restAPIID string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteRestAPI")
 	defer b.mu.Unlock()
 
 	if _, ok := b.apis[restAPIID]; !ok {
@@ -160,7 +162,7 @@ func (b *InMemoryBackend) DeleteRestAPI(restAPIID string) error {
 
 // GetRestAPI returns a single REST API.
 func (b *InMemoryBackend) GetRestAPI(restAPIID string) (*RestAPI, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetRestAPI")
 	defer b.mu.RUnlock()
 
 	d, ok := b.apis[restAPIID]
@@ -174,7 +176,7 @@ func (b *InMemoryBackend) GetRestAPI(restAPIID string) (*RestAPI, error) {
 
 // GetRestAPIs returns all REST APIs with pagination.
 func (b *InMemoryBackend) GetRestAPIs(limit int, position string) ([]RestAPI, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetRestAPIs")
 	defer b.mu.RUnlock()
 
 	all := make([]RestAPI, 0, len(b.apis))
@@ -204,7 +206,7 @@ func (b *InMemoryBackend) GetRestAPIs(limit int, position string) ([]RestAPI, st
 
 // GetResources returns all resources for a REST API with pagination.
 func (b *InMemoryBackend) GetResources(restAPIID, position string, limit int) ([]Resource, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetResources")
 	defer b.mu.RUnlock()
 
 	d, ok := b.apis[restAPIID]
@@ -239,7 +241,7 @@ func (b *InMemoryBackend) GetResources(restAPIID, position string, limit int) ([
 
 // GetResource returns a single resource.
 func (b *InMemoryBackend) GetResource(restAPIID, resourceID string) (*Resource, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetResource")
 	defer b.mu.RUnlock()
 
 	d, ok := b.apis[restAPIID]
@@ -261,7 +263,7 @@ func (b *InMemoryBackend) CreateResource(restAPIID, parentID, pathPart string) (
 		return nil, fmt.Errorf("%w: pathPart is required", ErrInvalidParameter)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("CreateResource")
 	defer b.mu.Unlock()
 
 	d, ok := b.apis[restAPIID]
@@ -294,7 +296,7 @@ func (b *InMemoryBackend) CreateResource(restAPIID, parentID, pathPart string) (
 
 // DeleteResource removes a resource.
 func (b *InMemoryBackend) DeleteResource(restAPIID, resourceID string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteResource")
 	defer b.mu.Unlock()
 
 	d, ok := b.apis[restAPIID]
@@ -314,7 +316,7 @@ func (b *InMemoryBackend) PutMethod(
 	restAPIID, resourceID, httpMethod, authType string,
 	apiKeyRequired bool,
 ) (*Method, error) {
-	b.mu.Lock()
+	b.mu.Lock("PutMethod")
 	defer b.mu.Unlock()
 
 	d, ok := b.apis[restAPIID]
@@ -342,7 +344,7 @@ func (b *InMemoryBackend) PutMethod(
 
 // GetMethod retrieves a method on a resource.
 func (b *InMemoryBackend) GetMethod(restAPIID, resourceID, httpMethod string) (*Method, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetMethod")
 	defer b.mu.RUnlock()
 
 	d, ok := b.apis[restAPIID]
@@ -364,7 +366,7 @@ func (b *InMemoryBackend) GetMethod(restAPIID, resourceID, httpMethod string) (*
 
 // DeleteMethod removes a method from a resource.
 func (b *InMemoryBackend) DeleteMethod(restAPIID, resourceID, httpMethod string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteMethod")
 	defer b.mu.Unlock()
 
 	d, ok := b.apis[restAPIID]
@@ -388,7 +390,7 @@ func (b *InMemoryBackend) PutIntegration(
 	restAPIID, resourceID, httpMethod string,
 	input PutIntegrationInput,
 ) (*Integration, error) {
-	b.mu.Lock()
+	b.mu.Lock("PutIntegration")
 	defer b.mu.Unlock()
 
 	d, ok := b.apis[restAPIID]
@@ -421,7 +423,7 @@ func (b *InMemoryBackend) PutIntegration(
 
 // GetIntegration retrieves the integration for a method.
 func (b *InMemoryBackend) GetIntegration(restAPIID, resourceID, httpMethod string) (*Integration, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetIntegration")
 	defer b.mu.RUnlock()
 
 	d, ok := b.apis[restAPIID]
@@ -446,7 +448,7 @@ func (b *InMemoryBackend) GetIntegration(restAPIID, resourceID, httpMethod strin
 
 // DeleteIntegration removes the integration from a method.
 func (b *InMemoryBackend) DeleteIntegration(restAPIID, resourceID, httpMethod string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteIntegration")
 	defer b.mu.Unlock()
 
 	d, ok := b.apis[restAPIID]
@@ -471,7 +473,7 @@ func (b *InMemoryBackend) DeleteIntegration(restAPIID, resourceID, httpMethod st
 
 // CreateDeployment creates a deployment and associated stage.
 func (b *InMemoryBackend) CreateDeployment(restAPIID, stageName, description string) (*Deployment, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateDeployment")
 	defer b.mu.Unlock()
 
 	d, ok := b.apis[restAPIID]
@@ -509,7 +511,7 @@ func (b *InMemoryBackend) CreateDeployment(restAPIID, stageName, description str
 
 // GetDeployments returns all deployments for a REST API.
 func (b *InMemoryBackend) GetDeployments(restAPIID string) ([]Deployment, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetDeployments")
 	defer b.mu.RUnlock()
 
 	d, ok := b.apis[restAPIID]
@@ -528,7 +530,7 @@ func (b *InMemoryBackend) GetDeployments(restAPIID string) ([]Deployment, error)
 
 // GetStages returns all stages for a REST API.
 func (b *InMemoryBackend) GetStages(restAPIID string) ([]Stage, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetStages")
 	defer b.mu.RUnlock()
 
 	d, ok := b.apis[restAPIID]
@@ -547,7 +549,7 @@ func (b *InMemoryBackend) GetStages(restAPIID string) ([]Stage, error) {
 
 // GetStage returns a single stage.
 func (b *InMemoryBackend) GetStage(restAPIID, stageName string) (*Stage, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetStage")
 	defer b.mu.RUnlock()
 
 	d, ok := b.apis[restAPIID]
@@ -565,7 +567,7 @@ func (b *InMemoryBackend) GetStage(restAPIID, stageName string) (*Stage, error) 
 
 // DeleteStage removes a stage.
 func (b *InMemoryBackend) DeleteStage(restAPIID, stageName string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteStage")
 	defer b.mu.Unlock()
 
 	d, ok := b.apis[restAPIID]

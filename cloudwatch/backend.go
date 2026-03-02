@@ -4,8 +4,9 @@ import (
 	"errors"
 	"math"
 	"sort"
-	"sync"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -38,9 +39,9 @@ type StorageBackend interface {
 type InMemoryBackend struct {
 	metrics   map[string]map[string][]MetricDatum
 	alarms    map[string]*MetricAlarm
+	mu        *lockmetrics.RWMutex
 	accountID string
 	region    string
-	mu        sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with default configuration.
@@ -55,12 +56,13 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		region:    region,
 		metrics:   make(map[string]map[string][]MetricDatum),
 		alarms:    make(map[string]*MetricAlarm),
+		mu:        lockmetrics.New("cloudwatch"),
 	}
 }
 
 // PutMetricData stores metric data points for the given namespace.
 func (b *InMemoryBackend) PutMetricData(namespace string, data []MetricDatum) error {
-	b.mu.Lock()
+	b.mu.Lock("PutMetricData")
 	defer b.mu.Unlock()
 
 	if b.metrics[namespace] == nil {
@@ -158,7 +160,7 @@ func (b *InMemoryBackend) GetMetricStatistics(
 	period int32,
 	statistics []string,
 ) ([]Datapoint, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetMetricStatistics")
 	defer b.mu.RUnlock()
 
 	var all []MetricDatum
@@ -195,7 +197,7 @@ func (b *InMemoryBackend) GetMetricData(
 	queries []MetricDataQuery,
 	startTime, endTime time.Time,
 ) ([]MetricDataResult, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetMetricData")
 	defer b.mu.RUnlock()
 
 	results := make([]MetricDataResult, 0, len(queries))
@@ -275,7 +277,7 @@ func statValue(dp Datapoint, stat string) float64 {
 
 // ListMetrics returns unique metrics matching optional namespace and metricName filters.
 func (b *InMemoryBackend) ListMetrics(namespace, metricName string) ([]Metric, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListMetrics")
 	defer b.mu.RUnlock()
 
 	var result []Metric
@@ -308,7 +310,7 @@ func (b *InMemoryBackend) PutMetricAlarm(alarm *MetricAlarm) error {
 		return ErrAlarmNameRequired
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("PutMetricAlarm")
 	defer b.mu.Unlock()
 
 	if alarm.AlarmArn == "" {
@@ -329,7 +331,7 @@ func (b *InMemoryBackend) PutMetricAlarm(alarm *MetricAlarm) error {
 
 // DescribeAlarms lists alarms, optionally filtered by name and/or state.
 func (b *InMemoryBackend) DescribeAlarms(alarmNames []string, stateValue string) ([]MetricAlarm, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeAlarms")
 	defer b.mu.RUnlock()
 
 	nameSet := make(map[string]bool, len(alarmNames))
@@ -357,7 +359,7 @@ func (b *InMemoryBackend) DescribeAlarms(alarmNames []string, stateValue string)
 
 // DeleteAlarms removes alarms by name.
 func (b *InMemoryBackend) DeleteAlarms(alarmNames []string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteAlarms")
 	defer b.mu.Unlock()
 
 	for _, name := range alarmNames {
