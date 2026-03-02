@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -122,25 +123,22 @@ provider "aws" {
 `, addr)
 }
 
-// ensureTofuBinary returns the path to the tofu binary, downloading it
-// automatically from the OpenTofu GitHub releases if it is not already present
-// in PATH. The download happens at most once per test run (guarded by a
-// [sync.Once]).
+// ensureTofuBinary returns the path to the tofu binary. It delegates to
+// [initTofuBinary] which pre-populates the binary path before the parallel
+// tests start. The download happens at most once per test run.
 func ensureTofuBinary(t *testing.T) string {
 	t.Helper()
 
+	// tofuBinaryOnce may already be done if TestMain called initTofuBinary
+	// first; in that case this Do is a no-op and we return the cached path.
 	tofuBinaryOnce.Do(func() {
-		// First, check if tofu is already in PATH.
 		if path, err := exec.LookPath("tofu"); err == nil {
 			tofuBinaryPath = path
 
 			return
 		}
 
-		// Not found in PATH — download from OpenTofu releases.
-		t.Log("tofu not found in PATH; downloading from OpenTofu releases...")
-
-		tofuBinaryPath, errTofuBinary = downloadTofuBinary(t)
+		tofuBinaryPath, errTofuBinary = downloadTofuBinary(slog.Default())
 	})
 
 	if errTofuBinary != nil {
@@ -152,9 +150,7 @@ func ensureTofuBinary(t *testing.T) string {
 
 // downloadTofuBinary fetches the latest stable OpenTofu release for the current
 // platform, extracts the binary to [os.TempDir], and returns its path.
-func downloadTofuBinary(t *testing.T) (string, error) {
-	t.Helper()
-
+func downloadTofuBinary(logger *slog.Logger) (string, error) {
 	ctx := context.Background()
 
 	versionReq, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://get.opentofu.org/tofu/api.json", nil)
@@ -191,7 +187,7 @@ func downloadTofuBinary(t *testing.T) (string, error) {
 		"https://github.com/opentofu/opentofu/releases/download/v%s/tofu_%s_%s_%s.zip",
 		version, version, goos, goarch,
 	)
-	t.Logf("downloading OpenTofu %s from %s", version, downloadURL)
+	logger.Info("downloading OpenTofu", "version", version, "url", downloadURL)
 
 	zipReq, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
 	if err != nil {

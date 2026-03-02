@@ -124,6 +124,10 @@ func TestMain(m *testing.M) {
 	endpoint = fmt.Sprintf("http://localhost:%s", mappedPort.Port())
 	logger.Info("Gopherstack running", "endpoint", endpoint)
 
+	// Pre-download the tofu binary once in single-threaded setup so that no
+	// parallel test pays the download cost.
+	initTofuBinary(logger)
+
 	// Warm the shared provider cache with a single tofu init so that parallel
 	// tests don't all race to download the ~300 MB hashicorp/aws provider.
 	warmProviderCache(logger)
@@ -612,6 +616,28 @@ func createFirehoseClient(t *testing.T) *firehosesvc.Client {
 	})
 }
 
+// initTofuBinary eagerly resolves the tofu binary path (downloading it if
+// necessary) during single-threaded TestMain setup. This ensures that no
+// parallel test blocks waiting for the [sync.Once]-guarded download.
+func initTofuBinary(logger *slog.Logger) {
+	tofuBinaryOnce.Do(func() {
+		if path, err := exec.LookPath("tofu"); err == nil {
+			tofuBinaryPath = path
+
+			return
+		}
+
+		logger.Info("tofu not found in PATH; downloading from OpenTofu releases...")
+
+		tofuBinaryPath, errTofuBinary = downloadTofuBinary(logger)
+	})
+
+	if errTofuBinary != nil {
+		logger.Error("could not obtain tofu binary", "error", errTofuBinary)
+		os.Exit(1)
+	}
+}
+
 // warmProviderCache runs a single tofu init to ensure the shared provider cache
 // is populated before parallel tests start. This avoids 8+ concurrent tests all
 // racing to download the ~300 MB hashicorp/aws provider simultaneously.
@@ -623,6 +649,26 @@ func warmProviderCache(logger *slog.Logger) {
 		return
 	}
 
+	cacheDir := filepath.Join(os.TempDir(), "gopherstack-tofu-provider-cache")
+	if mkdirErr := os.MkdirAll(cacheDir, 0o755); mkdirErr != nil {
+		logger.Warn("skipping provider cache warm-up", "error", mkdirErr)
+
+		return
+	}
+
+	// Warm all provider block variants used by tests so no test pays the
+	// first-access initialization cost.
+	for _, hcl := range []string{
+		providerBlock(endpoint),
+		rdsProviderBlock(endpoint),
+	} {
+		warmWithHCL(tofuBin, cacheDir, hcl, logger)
+	}
+}
+
+// warmWithHCL runs `tofu init` in a temporary directory with the given HCL to
+// populate the shared provider cache.
+func warmWithHCL(tofuBin, cacheDir, hcl string, logger *slog.Logger) {
 	dir, err := os.MkdirTemp("", "tofu-warmup-*")
 	if err != nil {
 		logger.Warn("skipping provider cache warm-up", "error", err)
@@ -631,25 +677,8 @@ func warmProviderCache(logger *slog.Logger) {
 	}
 	defer os.RemoveAll(dir)
 
-	// Minimal HCL that declares the AWS provider so tofu downloads it.
-	hcl := []byte(`terraform {
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.0"
-    }
-  }
-}
-`)
-	if writeErr := os.WriteFile(filepath.Join(dir, "main.tf"), hcl, 0o644); writeErr != nil {
-		logger.Warn("skipping provider cache warm-up", "error", writeErr)
-
-		return
-	}
-
-	cacheDir := filepath.Join(os.TempDir(), "gopherstack-tofu-provider-cache")
-	if mkdirErr := os.MkdirAll(cacheDir, 0o755); mkdirErr != nil {
-		logger.Warn("skipping provider cache warm-up", "error", mkdirErr)
+	if err := os.WriteFile(filepath.Join(dir, "main.tf"), []byte(hcl), 0o644); err != nil {
+		logger.Warn("skipping provider cache warm-up", "error", err)
 
 		return
 	}
