@@ -305,11 +305,11 @@ func latestStableTofuVersion(versions []struct {
 }
 
 // hardLinkDir recreates the directory tree rooted at src inside dst, creating
-// hard links for all regular files. Hard-linking the provider binary (~200 MB)
-// is near-instant and gives each test its own independent .terraform/ subtree
-// without the disk I/O cost of a full copy. Each test's directory entries are
-// independent, so writes (e.g. .terraform/terraform.tfstate) do not contend
-// with other parallel tests.
+// hard links for immutable files (provider binaries) and copies for mutable
+// metadata files (*.tfstate). Hard-linking the provider binary (~200 MB) is
+// near-instant and gives each test its own independent .terraform/ subtree.
+// Mutable .tfstate files are copied so each test has a separate inode and
+// writes (e.g. .terraform/terraform.tfstate) never contend across tests.
 func hardLinkDir(src, dst string) error {
 	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -326,8 +326,41 @@ func hardLinkDir(src, dst string) error {
 			return os.MkdirAll(target, info.Mode())
 		}
 
+		// Copy mutable state files so each test has an independent inode.
+		if strings.HasSuffix(path, ".tfstate") {
+			return copyFile(path, target, info.Mode())
+		}
+
 		return os.Link(path, target)
 	})
+}
+
+// copyFile copies the content of src to dst with the given file mode.
+func copyFile(src, dst string, mode os.FileMode) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+	if err != nil {
+		return err
+	}
+
+	if _, err = io.Copy(out, in); err != nil {
+		out.Close()
+
+		return err
+	}
+
+	if err = out.Sync(); err != nil {
+		out.Close()
+
+		return err
+	}
+
+	return out.Close()
 }
 
 // selectPreInitDir returns the pre-initialised directory whose .terraform/ subtree
@@ -358,15 +391,39 @@ func reuseOrInit(t *testing.T, dir, hcl string, run func(bool, ...string) bool) 
 
 	dotTerraform := filepath.Join(dir, ".terraform")
 	if err := hardLinkDir(filepath.Join(initSrc, ".terraform"), dotTerraform); err != nil {
-		t.Logf("could not hard-link .terraform from pre-init dir: %v; falling back to init", err)
+		t.Logf("could not hard-link .terraform from pre-init dir: %v; cleaning up and falling back to init", err)
+		// Remove any partially-created tree so tofu init starts from a clean slate.
+		if rmErr := os.RemoveAll(dotTerraform); rmErr != nil {
+			t.Logf("failed to remove partial .terraform dir: %v", rmErr)
+		}
+
 		run(true, "init", "-no-color")
 
 		return
 	}
 
 	// Copy the lock file (small, ~1 KB) so tofu can verify provider checksums.
-	if lockData, readErr := os.ReadFile(filepath.Join(initSrc, ".terraform.lock.hcl")); readErr == nil {
-		_ = os.WriteFile(filepath.Join(dir, ".terraform.lock.hcl"), lockData, 0o644)
+	// Treat a missing or unreadable lock file as a hard error: without it tofu
+	// may re-resolve providers in a non-deterministic way.
+	lockData, readErr := os.ReadFile(filepath.Join(initSrc, ".terraform.lock.hcl"))
+	if readErr != nil {
+		t.Logf("failed to read .terraform.lock.hcl from pre-init dir: %v; falling back to init", readErr)
+		if rmErr := os.RemoveAll(dotTerraform); rmErr != nil {
+			t.Logf("failed to remove .terraform dir before fallback: %v", rmErr)
+		}
+
+		run(true, "init", "-no-color")
+
+		return
+	}
+
+	if writeErr := os.WriteFile(filepath.Join(dir, ".terraform.lock.hcl"), lockData, 0o644); writeErr != nil {
+		t.Logf("failed to write .terraform.lock.hcl: %v; falling back to init", writeErr)
+		if rmErr := os.RemoveAll(dotTerraform); rmErr != nil {
+			t.Logf("failed to remove .terraform dir before fallback: %v", rmErr)
+		}
+
+		run(true, "init", "-no-color")
 	}
 }
 
@@ -437,7 +494,7 @@ func renderFixture(t *testing.T, name string, vars map[string]any) string {
 	content, err := fixtureFS.ReadFile(path)
 	require.NoError(t, err, "reading fixture %s", path)
 
-	tmpl, err := template.New(name).Parse(string(content))
+	tmpl, err := template.New(name).Option("missingkey=error").Parse(string(content))
 	require.NoError(t, err, "parsing fixture %s", path)
 
 	var buf strings.Builder

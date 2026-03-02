@@ -648,8 +648,9 @@ func initTofuBinary(logger *slog.Logger) {
 // warmProviderCache runs a single tofu init to ensure the shared provider cache
 // is populated before parallel tests start. This avoids 8+ concurrent tests all
 // racing to download the ~300 MB hashicorp/aws provider simultaneously.
-// It also keeps the initialized directories so applyTofu can symlink .terraform/
-// instead of re-running init (which serializes on the plugin-cache file lock).
+// It also keeps the initialized directories so applyTofu can hard-link the
+// .terraform/ directory tree instead of re-running init (which serializes on
+// the plugin-cache file lock).
 func warmProviderCache(logger *slog.Logger) {
 	if tofuBinaryPath == "" {
 		logger.Warn("skipping provider cache warm-up: tofu binary not available")
@@ -657,8 +658,7 @@ func warmProviderCache(logger *slog.Logger) {
 		return
 	}
 
-	cacheDir := filepath.Join(os.TempDir(), "gopherstack-tofu-provider-cache")
-	if mkdirErr := os.MkdirAll(cacheDir, 0o755); mkdirErr != nil {
+	if mkdirErr := os.MkdirAll(tofuProviderCacheDir, 0o755); mkdirErr != nil {
 		logger.Warn("skipping provider cache warm-up", "error", mkdirErr)
 
 		return
@@ -666,8 +666,8 @@ func warmProviderCache(logger *slog.Logger) {
 
 	// Warm all provider block variants used by tests so no test pays the
 	// first-access initialization cost.
-	preInitDirMain = warmWithHCL(tofuBinaryPath, cacheDir, providerBlock(endpoint), logger)
-	preInitDirRDS = warmWithHCL(tofuBinaryPath, cacheDir, rdsProviderBlock(endpoint), logger)
+	preInitDirMain = warmWithHCL(tofuBinaryPath, tofuProviderCacheDir, providerBlock(endpoint), logger)
+	preInitDirRDS = warmWithHCL(tofuBinaryPath, tofuProviderCacheDir, rdsProviderBlock(endpoint), logger)
 }
 
 // warmWithHCL runs `tofu init` in a temporary directory with the given HCL to
