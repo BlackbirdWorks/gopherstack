@@ -175,6 +175,15 @@ document.addEventListener('htmx:beforeRequest', function () {
     }
 });
 
+// ── HTMX Lifecycle Hooks ─────────────────────────────────────────────
+document.addEventListener('htmx:beforeSwap', function (e) {
+    // Clean up any modals that were moved to the body to prevent duplicates
+    document.querySelectorAll('body > div[id^="snippetModal-"]').forEach(modal => {
+        modal.remove();
+    });
+    document.body.style.overflow = '';
+});
+
 document.addEventListener('htmx:afterSwap', function () {
     console.log('HTMX swap completed');
     const sidebarList = document.querySelector('#sidebar .overflow-y-auto');
@@ -273,6 +282,9 @@ window.copyActiveSnippet = function (btn) {
 window.openSnippetModal = function (id) {
     const modal = document.getElementById("snippetModal-" + id);
     if (modal) {
+        if (modal.parentElement !== document.body) {
+            document.body.appendChild(modal);
+        }
         modal.classList.remove('hidden');
         modal.classList.add('flex');
         modal.setAttribute('aria-hidden', 'false');
