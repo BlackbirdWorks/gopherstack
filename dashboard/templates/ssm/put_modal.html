@@ -6,7 +6,7 @@
         <div class="relative bg-white rounded-lg shadow dark:bg-gray-700">
             <!-- Modal header -->
             <div class="flex items-center justify-between p-4 md:p-5 border-b rounded-t dark:border-gray-600">
-                <h3 class="text-xl font-semibold text-gray-900 dark:text-white">
+                <h3 class="text-xl font-semibold text-slate-900 dark:text-white">
                     {{if .IsEdit}}Update{{else}}Create{{end}} Parameter
                 </h3>
                 <button type="button"
@@ -24,7 +24,7 @@
             <div class="p-4 md:p-5">
                 <form class="space-y-4" hx-post="/dashboard/ssm/put" hx-target="body">
                     <div>
-                        <label for="name" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Parameter
+                        <label for="name" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Parameter
                             name</label>
                         <input type="text" name="name" id="name" required value="{{.Name}}" {{if
                             .IsEdit}}readonly{{end}}
@@ -32,7 +32,7 @@
                     </div>
                     <div>
                         <label for="type"
-                            class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Type</label>
+                            class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Type</label>
                         <select id="type" name="type"
                             class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-600 dark:border-gray-500 dark:placeholder-gray-400 dark:text-white">
                             <option value="String" {{if eq .Type "String" }}selected{{end}}>String</option>
@@ -43,12 +43,12 @@
                     </div>
                     <div>
                         <label for="value"
-                            class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Value</label>
+                            class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Value</label>
                         <textarea id="value" name="value" rows="3" required
                             class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-600 dark:border-gray-500 dark:placeholder-gray-400 dark:text-white">{{.Value}}</textarea>
                     </div>
                     <div>
-                        <label for="description" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">
+                        <label for="description" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">
                             Description <span class="text-gray-400 font-normal">(Optional)</span>
                         </label>
                         <input type="text" name="description" id="description" value="{{.Description}}"

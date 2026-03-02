@@ -27,28 +27,28 @@
     </nav>
 
     <div class="mb-8">
-        <h1 class="text-3xl font-bold text-gray-900 dark:text-white mb-2">KMS Key Detail</h1>
-        <p class="text-sm font-mono text-gray-500 dark:text-gray-400 break-all">{{.KeyID}}</p>
+        <h1 class="text-3xl font-bold text-slate-900 dark:text-white mb-2">KMS Key Detail</h1>
+        <p class="text-sm font-mono text-slate-500 dark:text-slate-400 break-all">{{.KeyID}}</p>
     </div>
 
     <!-- Key Metadata -->
-    <div class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700 mb-8">
-        <h2 class="mb-4 text-xl font-bold tracking-tight text-gray-900 dark:text-white">Key Metadata</h2>
+    <div class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel mb-8">
+        <h2 class="mb-4 text-xl font-bold tracking-tight text-slate-900 dark:text-white">Key Metadata</h2>
         <dl class="grid grid-cols-1 gap-x-4 gap-y-4 sm:grid-cols-2">
             <div class="border-b border-gray-100 dark:border-gray-700 pb-2">
-                <dt class="text-sm font-semibold text-gray-500 dark:text-gray-400">Key ID</dt>
-                <dd class="mt-1 text-sm text-gray-900 dark:text-white font-mono break-all">{{.KeyID}}</dd>
+                <dt class="text-sm font-semibold text-slate-500 dark:text-slate-400">Key ID</dt>
+                <dd class="mt-1 text-sm text-slate-900 dark:text-white font-mono break-all">{{.KeyID}}</dd>
             </div>
             <div class="border-b border-gray-100 dark:border-gray-700 pb-2">
-                <dt class="text-sm font-semibold text-gray-500 dark:text-gray-400">ARN</dt>
-                <dd class="mt-1 text-sm text-gray-900 dark:text-white font-mono break-all">{{.Arn}}</dd>
+                <dt class="text-sm font-semibold text-slate-500 dark:text-slate-400">ARN</dt>
+                <dd class="mt-1 text-sm text-slate-900 dark:text-white font-mono break-all">{{.Arn}}</dd>
             </div>
             <div class="border-b border-gray-100 dark:border-gray-700 pb-2">
-                <dt class="text-sm font-semibold text-gray-500 dark:text-gray-400">Description</dt>
-                <dd class="mt-1 text-sm text-gray-900 dark:text-white">{{if .Description}}{{.Description}}{{else}}<span class="italic text-gray-400">—</span>{{end}}</dd>
+                <dt class="text-sm font-semibold text-slate-500 dark:text-slate-400">Description</dt>
+                <dd class="mt-1 text-sm text-slate-900 dark:text-white">{{if .Description}}{{.Description}}{{else}}<span class="italic text-gray-400">—</span>{{end}}</dd>
             </div>
             <div class="border-b border-gray-100 dark:border-gray-700 pb-2">
-                <dt class="text-sm font-semibold text-gray-500 dark:text-gray-400">State</dt>
+                <dt class="text-sm font-semibold text-slate-500 dark:text-slate-400">State</dt>
                 <dd class="mt-1">
                     {{if eq .KeyState "Enabled"}}
                     <span class="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-green-900 dark:text-green-300">{{.KeyState}}</span>
@@ -58,23 +58,23 @@
                 </dd>
             </div>
             <div class="border-b border-gray-100 dark:border-gray-700 pb-2">
-                <dt class="text-sm font-semibold text-gray-500 dark:text-gray-400">Key Usage</dt>
-                <dd class="mt-1 text-sm text-gray-900 dark:text-white">{{.KeyUsage}}</dd>
+                <dt class="text-sm font-semibold text-slate-500 dark:text-slate-400">Key Usage</dt>
+                <dd class="mt-1 text-sm text-slate-900 dark:text-white">{{.KeyUsage}}</dd>
             </div>
             <div class="border-b border-gray-100 dark:border-gray-700 pb-2">
-                <dt class="text-sm font-semibold text-gray-500 dark:text-gray-400">Rotation Enabled</dt>
-                <dd class="mt-1 text-sm text-gray-900 dark:text-white">{{if .Rotation}}Yes{{else}}No{{end}}</dd>
+                <dt class="text-sm font-semibold text-slate-500 dark:text-slate-400">Rotation Enabled</dt>
+                <dd class="mt-1 text-sm text-slate-900 dark:text-white">{{if .Rotation}}Yes{{else}}No{{end}}</dd>
             </div>
         </dl>
     </div>
 
     <!-- Aliases -->
     <div class="mb-8">
-        <h2 class="text-xl font-bold text-gray-900 dark:text-white mb-4">Aliases</h2>
+        <h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Aliases</h2>
         {{if .Aliases}}
-        <div class="relative overflow-x-auto shadow-md sm:rounded-lg">
-            <table class="w-full text-sm text-left text-gray-500 dark:text-gray-400">
-                <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+        <div class="relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
+            <table class="w-full text-sm text-left text-slate-500 dark:text-slate-400">
+                <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
                     <tr>
                         <th scope="col" class="px-6 py-3">Alias Name</th>
                         <th scope="col" class="px-6 py-3">Alias ARN</th>
@@ -82,7 +82,7 @@
                 </thead>
                 <tbody>
                     {{range .Aliases}}
-                    <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
+                    <tr class="bg-white border-b border-slate-200 dark:border-slate-700 dark:bg-slate-800/50 hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
                         <td class="px-6 py-4 font-mono text-sm">{{.AliasName}}</td>
                         <td class="px-6 py-4 font-mono text-xs break-all">{{.AliasArn}}</td>
                     </tr>
@@ -91,16 +91,16 @@
             </table>
         </div>
         {{else}}
-        <p class="text-sm text-gray-500 dark:text-gray-400">No aliases for this key.</p>
+        <p class="text-sm text-slate-500 dark:text-slate-400">No aliases for this key.</p>
         {{end}}
     </div>
 
     <!-- Encrypt -->
-    <div class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700 mb-8">
-        <h2 class="mb-4 text-xl font-bold tracking-tight text-gray-900 dark:text-white">Encrypt</h2>
+    <div class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel mb-8">
+        <h2 class="mb-4 text-xl font-bold tracking-tight text-slate-900 dark:text-white">Encrypt</h2>
         <form hx-post="/dashboard/kms/encrypt?id={{.KeyID}}" hx-target="#encrypt-result" hx-swap="innerHTML" class="space-y-3">
             <div>
-                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Plaintext</label>
+                <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Plaintext</label>
                 <input type="text" name="plaintext" placeholder="Enter plaintext to encrypt" required
                     class="bg-white border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
             </div>
@@ -113,12 +113,12 @@
     </div>
 
     <!-- Decrypt -->
-    <div class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
-        <h2 class="mb-4 text-xl font-bold tracking-tight text-gray-900 dark:text-white">Decrypt</h2>
+    <div class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+        <h2 class="mb-4 text-xl font-bold tracking-tight text-slate-900 dark:text-white">Decrypt</h2>
         <form hx-post="/dashboard/kms/decrypt" hx-target="#decrypt-result" hx-swap="innerHTML" class="space-y-3">
             <input type="hidden" name="key_id" value="{{.KeyID}}" />
             <div>
-                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Ciphertext (base64)</label>
+                <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Ciphertext (base64)</label>
                 <input type="text" name="ciphertext" placeholder="Enter base64-encoded ciphertext" required
                     class="bg-white border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
             </div>
@@ -132,12 +132,12 @@
 </div>
 {{end}}
 
-{{define "kms_encrypt_result"}}<code class="block mt-2 px-3 py-2 bg-gray-50 dark:bg-gray-700 rounded-lg border text-xs font-mono text-gray-900 dark:text-white break-all">{{.Ciphertext}}</code>{{end}}
+{{define "kms_encrypt_result"}}<code class="block mt-2 px-3 py-2 bg-gray-50 dark:bg-gray-700 rounded-lg border text-xs font-mono text-slate-900 dark:text-white break-all">{{.Ciphertext}}</code>{{end}}
 
 {{define "kms_decrypt_result"}}
 <div class="mt-2 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg border">
     <p class="text-xs text-gray-500 mb-1">Key ID: {{.KeyID}}</p>
-    <p class="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">Plaintext:</p>
-    <p class="text-sm font-mono text-gray-900 dark:text-white break-all">{{.Plaintext}}</p>
+    <p class="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Plaintext:</p>
+    <p class="text-sm font-mono text-slate-900 dark:text-white break-all">{{.Plaintext}}</p>
 </div>
 {{end}}

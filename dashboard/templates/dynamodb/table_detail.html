@@ -30,7 +30,7 @@
 
     <!-- Header -->
     <div class="flex justify-between items-center flex-wrap gap-4">
-        <h1 class="text-3xl font-bold text-gray-900 dark:text-white">{{.TableName}}</h1>
+        <h1 class="text-3xl font-bold text-slate-900 dark:text-white">{{.TableName}}</h1>
         <div class="flex gap-2 flex-wrap">
             <button
                 class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-4 py-2 dark:bg-blue-600 dark:hover:bg-blue-700 focus:outline-none dark:focus:ring-blue-800"
@@ -62,7 +62,7 @@
         <div class="relative p-4 w-full max-w-2xl max-h-full">
             <div class="relative bg-white rounded-lg shadow dark:bg-gray-700">
                 <div class="flex items-center justify-between p-4 md:p-5 border-b rounded-t dark:border-gray-600">
-                    <h3 class="text-xl font-semibold text-gray-900 dark:text-white">Create New Item</h3>
+                    <h3 class="text-xl font-semibold text-slate-900 dark:text-white">Create New Item</h3>
                     <button type="button"
                         class="text-gray-400 bg-transparent hover:bg-gray-200 hover:text-gray-900 rounded-lg text-sm w-8 h-8 ms-auto inline-flex justify-center items-center dark:hover:bg-gray-600 dark:hover:text-white"
                         data-modal-hide="new_item_modal">
@@ -80,7 +80,7 @@
                         hx-target="#scan-results" class="space-y-4">
                         <div>
                             <label for="itemJson"
-                                class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Item JSON <span
+                                class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Item JSON <span
                                     class="text-red-600">*</span></label>
                             <textarea id="itemJson" name="itemJson" rows="12"
                                 class="block p-2.5 w-full text-sm text-gray-900 bg-gray-50 rounded-lg border border-gray-300 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-600 dark:border-gray-500 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500 font-mono"
@@ -109,7 +109,7 @@
         <div class="relative p-4 w-full max-w-2xl max-h-full">
             <div class="relative bg-white rounded-lg shadow dark:bg-gray-700">
                 <div class="flex items-center justify-between p-4 md:p-5 border-b rounded-t dark:border-gray-600">
-                    <h3 class="text-xl font-semibold text-gray-900 dark:text-white">Edit Item</h3>
+                    <h3 class="text-xl font-semibold text-slate-900 dark:text-white">Edit Item</h3>
                     <button type="button"
                         class="text-gray-400 bg-transparent hover:bg-gray-200 hover:text-gray-900 rounded-lg text-sm w-8 h-8 ms-auto inline-flex justify-center items-center dark:hover:bg-gray-600 dark:hover:text-white"
                         data-modal-hide="edit_item_modal"
@@ -149,7 +149,7 @@
         <div class="relative p-4 w-full max-w-2xl max-h-full">
             <div class="relative bg-white rounded-lg shadow dark:bg-gray-700">
                 <div class="flex items-center justify-between p-4 md:p-5 border-b rounded-t dark:border-gray-600">
-                    <h3 class="text-xl font-semibold text-gray-900 dark:text-white">Import Items (JSON Array)</h3>
+                    <h3 class="text-xl font-semibold text-slate-900 dark:text-white">Import Items (JSON Array)</h3>
                     <button type="button"
                         class="text-gray-400 bg-transparent hover:bg-gray-200 hover:text-gray-900 rounded-lg text-sm w-8 h-8 ms-auto inline-flex justify-center items-center dark:hover:bg-gray-600 dark:hover:text-white"
                         data-modal-hide="import_modal">
@@ -167,7 +167,7 @@
                         hx-target="#scan-results" class="space-y-4">
                         <div>
                             <label for="importData"
-                                class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">JSON Array <span
+                                class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">JSON Array <span
                                     class="text-red-600">*</span></label>
                             <textarea id="importData" name="importData" rows="12"
                                 class="block p-2.5 w-full text-sm text-gray-900 bg-gray-50 rounded-lg border border-gray-300 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-600 dark:border-gray-500 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500 font-mono"
@@ -265,7 +265,7 @@
                 hx-trigger="click from:#partiql-tab"
                 hx-swap="innerHTML">
                 <div class="flex items-center justify-center p-8">
-                    <span class="text-gray-500 dark:text-gray-400 text-sm">Loading PartiQL editor...</span>
+                    <span class="text-slate-500 dark:text-slate-400 text-sm">Loading PartiQL editor...</span>
                 </div>
             </div>
         </div>
@@ -276,11 +276,11 @@
 {{define "table-overview"}}
 <div class="space-y-6">
     <!-- Key Schema -->
-    <div class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
-        <h2 class="mb-4 text-xl font-bold tracking-tight text-gray-900 dark:text-white">Key Schema</h2>
+    <div class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+        <h2 class="mb-4 text-xl font-bold tracking-tight text-slate-900 dark:text-white">Key Schema</h2>
         <div class="relative overflow-x-auto">
-            <table class="w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
-                <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+            <table class="w-full text-sm text-left rtl:text-right text-slate-500 dark:text-slate-400">
+                <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
                     <tr>
                         <th scope="col" class="px-6 py-3">Attribute Name</th>
                         <th scope="col" class="px-6 py-3">Key Type</th>
@@ -288,7 +288,7 @@
                     </tr>
                 </thead>
                 <tbody>
-                    <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
+                    <tr class="bg-transparent border-b border-slate-200 dark:border-slate-700 dark:bg-transparent">
                         <td class="px-6 py-4 font-mono">{{.PartitionKey}}</td>
                         <td class="px-6 py-4"><span
                                 class="bg-blue-100 text-blue-800 text-xs font-medium me-2 px-2.5 py-0.5 rounded dark:bg-blue-900 dark:text-blue-300">HASH</span>
@@ -298,7 +298,7 @@
                         </td>
                     </tr>
                     {{if .SortKey}}
-                    <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
+                    <tr class="bg-transparent border-b border-slate-200 dark:border-slate-700 dark:bg-transparent">
                         <td class="px-6 py-4 font-mono">{{.SortKey}}</td>
                         <td class="px-6 py-4"><span
                                 class="bg-purple-100 text-purple-800 text-xs font-medium me-2 px-2.5 py-0.5 rounded dark:bg-purple-900 dark:text-purple-300">RANGE</span>
@@ -315,20 +315,20 @@
 
     <!-- Table Info Grid -->
     <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
-        <div class="p-4 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
-            <div class="text-sm font-medium text-gray-500 dark:text-gray-400">Item Count</div>
+        <div class="p-4 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <div class="text-sm font-medium text-slate-500 dark:text-slate-400">Item Count</div>
             <div class="text-2xl font-bold text-blue-600 dark:text-blue-400">{{.ItemCount}}</div>
         </div>
-        <div class="p-4 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
-            <div class="text-sm font-medium text-gray-500 dark:text-gray-400">GSIs</div>
+        <div class="p-4 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <div class="text-sm font-medium text-slate-500 dark:text-slate-400">GSIs</div>
             <div class="text-2xl font-bold text-purple-600 dark:text-purple-400">{{.GSICount}}</div>
         </div>
-        <div class="p-4 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
-            <div class="text-sm font-medium text-gray-500 dark:text-gray-400">LSIs</div>
+        <div class="p-4 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <div class="text-sm font-medium text-slate-500 dark:text-slate-400">LSIs</div>
             <div class="text-2xl font-bold text-yellow-600 dark:text-yellow-400">{{.LSICount}}</div>
         </div>
-        <div class="p-4 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
-            <div class="text-sm font-medium text-gray-500 dark:text-gray-400">TTL Status</div>
+        <div class="p-4 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <div class="text-sm font-medium text-slate-500 dark:text-slate-400">TTL Status</div>
             <div class="mt-1">
                 {{if eq .TTLStatus "ENABLED"}}
                 <span
@@ -340,14 +340,14 @@
                 {{end}}
             </div>
         </div>
-        <div class="p-4 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
-            <div class="text-sm font-medium text-gray-500 dark:text-gray-400">Streams</div>
+        <div class="p-4 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <div class="text-sm font-medium text-slate-500 dark:text-slate-400">Streams</div>
             <div class="mt-1">
                 {{if .StreamsEnabled}}
                 <span
                     class="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-blue-900 dark:text-blue-300">ENABLED</span>
                 <span
-                    class="text-[10px] text-gray-500 dark:text-gray-400 block mt-1 truncate">{{.StreamViewType}}</span>
+                    class="text-[10px] text-slate-500 dark:text-slate-400 block mt-1 truncate">{{.StreamViewType}}</span>
                 {{else}}
                 <span
                     class="bg-gray-100 text-gray-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-gray-700 dark:text-gray-300">DISABLED</span>
@@ -357,13 +357,13 @@
     </div>
 
     <!-- TTL Configuration -->
-    <div class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
-        <h2 class="mb-4 text-sm font-bold tracking-tight text-gray-900 dark:text-white uppercase">Time To Live (TTL)
+    <div class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+        <h2 class="mb-4 text-sm font-bold tracking-tight text-slate-900 dark:text-white uppercase">Time To Live (TTL)
             Configuration</h2>
         <form hx-post="/dashboard/dynamodb/table/{{.TableName}}/ttl" hx-target="#overview"
             class="flex items-end gap-4 flex-wrap">
             <div class="flex-1 min-w-[200px]">
-                <label for="attributeName" class="block mb-2 text-xs font-medium text-gray-900 dark:text-white">TTL
+                <label for="attributeName" class="block mb-2 text-xs font-medium text-slate-900 dark:text-white">TTL
                     Attribute Name</label>
                 <input type="text" name="attributeName" id="attributeName"
                     class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500"
@@ -382,13 +382,13 @@
     </div>
 
     <!-- Streams Configuration -->
-    <div class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
-        <h2 class="mb-4 text-sm font-bold tracking-tight text-gray-900 dark:text-white uppercase">DynamoDB Streams
+    <div class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+        <h2 class="mb-4 text-sm font-bold tracking-tight text-slate-900 dark:text-white uppercase">DynamoDB Streams
             Configuration</h2>
         <form hx-post="/dashboard/dynamodb/table/{{.TableName}}/streams" hx-target="#overview"
             class="flex items-end gap-4 flex-wrap">
             <div class="flex-1 min-w-[200px]">
-                <label for="viewType" class="block mb-2 text-xs font-medium text-gray-900 dark:text-white">View
+                <label for="viewType" class="block mb-2 text-xs font-medium text-slate-900 dark:text-white">View
                     Type</label>
                 <select name="viewType" id="viewType"
                     class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500">
@@ -411,7 +411,7 @@
         </form>
         {{if .StreamARN}}
         <div class="mt-4 p-2 bg-gray-50 dark:bg-gray-700 rounded border border-gray-200 dark:border-gray-600">
-            <div class="text-[10px] text-gray-500 dark:text-gray-400 font-mono break-all" title="{{.StreamARN}}">
+            <div class="text-[10px] text-slate-500 dark:text-slate-400 font-mono break-all" title="{{.StreamARN}}">
                 ARN: {{.StreamARN}}
             </div>
         </div>
@@ -420,11 +420,11 @@
 
     <!-- GSI List -->
     {{if .GlobalSecondaryIndexes}}
-    <div class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
-        <h2 class="mb-4 text-xl font-bold tracking-tight text-gray-900 dark:text-white">Global Secondary Indexes</h2>
+    <div class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+        <h2 class="mb-4 text-xl font-bold tracking-tight text-slate-900 dark:text-white">Global Secondary Indexes</h2>
         <div class="relative overflow-x-auto">
-            <table class="w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
-                <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+            <table class="w-full text-sm text-left rtl:text-right text-slate-500 dark:text-slate-400">
+                <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
                     <tr>
                         <th scope="col" class="px-6 py-3">Index Name</th>
                         <th scope="col" class="px-6 py-3">Partition Key</th>
@@ -434,7 +434,7 @@
                 </thead>
                 <tbody>
                     {{range .GlobalSecondaryIndexes}}
-                    <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
+                    <tr class="bg-transparent border-b border-slate-200 dark:border-slate-700 dark:bg-transparent">
                         <td class="px-6 py-4 font-mono">{{.IndexName}}</td>
                         <td class="px-6 py-4 font-mono">{{.PartitionKey}} ({{.PartitionKeyType}})</td>
                         <td class="px-6 py-4 font-mono">{{if .SortKey}}{{.SortKey}} ({{.SortKeyType}}){{else}}-{{end}}
@@ -452,11 +452,11 @@
 
     <!-- LSI List -->
     {{if .LocalSecondaryIndexes}}
-    <div class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
-        <h2 class="mb-4 text-xl font-bold tracking-tight text-gray-900 dark:text-white">Local Secondary Indexes</h2>
+    <div class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+        <h2 class="mb-4 text-xl font-bold tracking-tight text-slate-900 dark:text-white">Local Secondary Indexes</h2>
         <div class="relative overflow-x-auto">
-            <table class="w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
-                <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+            <table class="w-full text-sm text-left rtl:text-right text-slate-500 dark:text-slate-400">
+                <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
                     <tr>
                         <th scope="col" class="px-6 py-3">Index Name</th>
                         <th scope="col" class="px-6 py-3">Sort Key</th>
@@ -465,7 +465,7 @@
                 </thead>
                 <tbody>
                     {{range .LocalSecondaryIndexes}}
-                    <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
+                    <tr class="bg-transparent border-b border-slate-200 dark:border-slate-700 dark:bg-transparent">
                         <td class="px-6 py-4 font-mono">{{.IndexName}}</td>
                         <td class="px-6 py-4 font-mono">{{.SortKey}} ({{.SortKeyType}})</td>
                         <td class="px-6 py-4"><span
@@ -503,8 +503,8 @@
     </div>
     {{else}}
     <div class="relative overflow-x-auto">
-        <table class="w-full text-xs text-left rtl:text-right text-gray-500 dark:text-gray-400">
-            <thead class="text-[10px] text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+        <table class="w-full text-xs text-left rtl:text-right text-slate-500 dark:text-slate-400">
+            <thead class="text-[10px] text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
                 <tr>
                     <th scope="col" class="px-4 py-2">Event</th>
                     <th scope="col" class="px-4 py-2">Event ID</th>
@@ -513,7 +513,7 @@
             </thead>
             <tbody>
                 {{range .StreamEvents}}
-                <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
+                <tr class="bg-transparent border-b border-slate-200 dark:border-slate-700 dark:bg-transparent">
                     <td class="px-4 py-2">
                         {{if eq .EventName "INSERT"}}
                         <span
@@ -556,7 +556,7 @@
         hx-indicator=".query-indicator" class="space-y-4">
 
         <div>
-            <label for="indexName" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Index
+            <label for="indexName" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Index
                 (Optional)</label>
             <select name="indexName" id="indexName"
                 class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500">
@@ -572,7 +572,7 @@
 
         <div>
             <label for="partitionKeyValue"
-                class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Partition Key Value
+                class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Partition Key Value
                 ({{.PartitionKey}})</label>
             <input type="text" name="partitionKeyValue" id="partitionKeyValue"
                 class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500"
@@ -581,7 +581,7 @@
 
         {{if .SortKey}}
         <div>
-            <label for="sortKeyOperator" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Sort Key
+            <label for="sortKeyOperator" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Sort Key
                 Condition ({{.SortKey}})</label>
             <div class="flex gap-2">
                 <select name="sortKeyOperator" id="sortKeyOperator"
@@ -606,7 +606,7 @@
         {{end}}
 
         <div>
-            <label for="filterExpression" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Filter
+            <label for="filterExpression" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Filter
                 Expression (Optional)</label>
             <textarea name="filterExpression" id="filterExpression" rows="2"
                 class="block p-2.5 w-full text-sm text-gray-900 bg-gray-50 rounded-lg border border-gray-300 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500"
@@ -614,7 +614,7 @@
         </div>
 
         <div>
-            <label for="query-limit" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Limit</label>
+            <label for="query-limit" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Limit</label>
             <input type="number" name="limit" id="query-limit"
                 class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500"
                 value="100" min="1">
@@ -660,7 +660,7 @@
 
         <div>
             <label for="scanFilterExpression"
-                class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Filter Expression
+                class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Filter Expression
                 (Optional)</label>
             <textarea name="filterExpression" id="scanFilterExpression" rows="2"
                 class="block p-2.5 w-full text-sm text-gray-900 bg-gray-50 rounded-lg border border-gray-300 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500"
@@ -669,7 +669,7 @@
 
         <div>
             <label for="projectionExpression"
-                class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Projection Expression
+                class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Projection Expression
                 (Optional)</label>
             <input type="text" name="projectionExpression" id="projectionExpression"
                 class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500"
@@ -677,7 +677,7 @@
         </div>
 
         <div>
-            <label for="scan-limit" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Limit</label>
+            <label for="scan-limit" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Limit</label>
             <input type="number" name="limit" id="scan-limit"
                 class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500"
                 value="100" min="1">
@@ -705,12 +705,12 @@
 {{define "partiql-form"}}
 <div class="space-y-4">
     <div>
-        <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-1">PartiQL Editor</h3>
-        <p class="text-sm text-gray-500 dark:text-gray-400 mb-2">
+        <h3 class="text-lg font-semibold text-slate-900 dark:text-white mb-1">PartiQL Editor</h3>
+        <p class="text-sm text-slate-500 dark:text-slate-400 mb-2">
             Run SQL-style queries against DynamoDB using PartiQL syntax.
         </p>
         <div class="flex flex-wrap gap-2 text-xs">
-            <span class="text-gray-500 dark:text-gray-400 self-center">Examples:</span>
+            <span class="text-slate-500 dark:text-slate-400 self-center">Examples:</span>
             <code class="font-mono bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900"
                 data-query='SELECT * FROM "{{.TableName}}"'
                 onclick="document.getElementById('partiql-statement').value=this.dataset.query"
@@ -738,9 +738,9 @@
           hx-target="#partiql-output"
           hx-swap="innerHTML">
         <div class="mb-3">
-            <label for="partiql-statement" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Statement</label>
+            <label for="partiql-statement" class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Statement</label>
             <textarea id="partiql-statement" name="statement" rows="4"
-                class="w-full font-mono text-sm p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                class="w-full font-mono text-sm p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500"
                 placeholder='SELECT * FROM "{{.TableName}}"'></textarea>
         </div>
         <button id="partiql-execute" type="submit"
@@ -755,10 +755,10 @@
 {{define "partiql-results"}}
 <div class="mt-4">
     <div class="flex items-center justify-between mb-2">
-        <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Results ({{.ItemCount}} item{{if ne .ItemCount 1}}s{{end}})</span>
+        <span class="text-sm font-medium text-slate-600 dark:text-slate-300">Results ({{.ItemCount}} item{{if ne .ItemCount 1}}s{{end}})</span>
     </div>
     {{if eq .ItemCount 0}}
-    <p class="text-sm text-gray-500 dark:text-gray-400">No items returned.</p>
+    <p class="text-sm text-slate-500 dark:text-slate-400">No items returned.</p>
     {{else}}
     <pre class="overflow-auto text-xs font-mono p-4 bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200 rounded-lg max-h-96">{{.ResultJSON}}</pre>
     {{end}}

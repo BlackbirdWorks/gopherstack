@@ -27,9 +27,9 @@
         </div>
     </div>
 
-    <div class="mt-8 relative overflow-x-auto shadow-md sm:rounded-lg">
-        <table class="w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
-            <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+    <div class="mt-8 relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
+        <table class="w-full text-sm text-left rtl:text-right text-slate-500 dark:text-slate-400">
+            <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
                 <tr>
                     <th scope="col" class="px-6 py-3">ARN</th>
                     <th scope="col" class="px-6 py-3">Domain Name</th>
@@ -41,14 +41,14 @@
             </thead>
             <tbody>
                 {{range .Certificates}}
-                <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
-                    <td class="px-6 py-4 font-mono text-xs text-gray-900 dark:text-white truncate max-w-xs" title="{{.ARN}}">{{.ARNShort}}</td>
-                    <td class="px-6 py-4 font-medium text-gray-900 dark:text-white">{{.DomainName}}</td>
+                <tr class="bg-white border-b border-slate-200 dark:border-slate-700 dark:bg-slate-800/50 hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
+                    <td class="px-6 py-4 font-mono text-xs text-slate-900 dark:text-white truncate max-w-xs" title="{{.ARN}}">{{.ARNShort}}</td>
+                    <td class="px-6 py-4 font-medium text-slate-900 dark:text-white">{{.DomainName}}</td>
                     <td class="px-6 py-4">
                         <span class="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-green-900 dark:text-green-300">{{.Status}}</span>
                     </td>
                     <td class="px-6 py-4 text-xs">{{.Type}}</td>
-                    <td class="px-6 py-4 text-xs text-gray-500 dark:text-gray-400">{{.CreatedAt}}</td>
+                    <td class="px-6 py-4 text-xs text-slate-500 dark:text-slate-400">{{.CreatedAt}}</td>
                     <td class="px-6 py-4 text-right">
                         <form method="POST" action="/dashboard/acm/delete" style="display:inline">
                             <input type="hidden" name="arn" value="{{.ARN}}">
@@ -57,8 +57,8 @@
                     </td>
                 </tr>
                 {{else}}
-                <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
-                    <td colspan="6" class="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                <tr class="bg-transparent border-b border-slate-200 dark:border-slate-700 dark:bg-transparent">
+                    <td colspan="6" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
                         No certificates. Request one to get started.
                     </td>
                 </tr>
@@ -71,10 +71,10 @@
 <!-- Request Certificate Modal -->
 <div id="request-cert-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
     <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white dark:bg-gray-800">
-        <h3 class="text-lg font-medium leading-6 text-gray-900 dark:text-white mb-4">Request Certificate</h3>
+        <h3 class="text-lg font-medium leading-6 text-slate-900 dark:text-white mb-4">Request Certificate</h3>
         <form method="POST" action="/dashboard/acm/request">
             <div class="mb-4">
-                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="domain_name">Domain Name</label>
+                <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1" for="domain_name">Domain Name</label>
                 <input id="domain_name" name="domain_name" type="text" required
                     class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                     placeholder="example.com">

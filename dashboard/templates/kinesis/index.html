@@ -23,9 +23,9 @@
         </div>
     </div>
 
-    <div class="mt-8 relative overflow-x-auto shadow-md sm:rounded-lg">
-        <table class="w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
-            <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+    <div class="mt-8 relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
+        <table class="w-full text-sm text-left rtl:text-right text-slate-500 dark:text-slate-400">
+            <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
                 <tr>
                     <th scope="col" class="px-6 py-3">Name</th>
                     <th scope="col" class="px-6 py-3">Shards</th>
@@ -36,8 +36,8 @@
             </thead>
             <tbody>
                 {{range .Streams}}
-                <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
-                    <td class="px-6 py-4 font-medium text-gray-900 dark:text-white whitespace-nowrap">
+                <tr class="bg-white border-b border-slate-200 dark:border-slate-700 dark:bg-slate-800/50 hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
+                    <td class="px-6 py-4 font-medium text-slate-900 dark:text-white whitespace-nowrap">
                         <a href="/dashboard/kinesis/stream?name={{.Name}}"
                             class="text-blue-600 hover:underline dark:text-blue-400">{{.Name}}</a>
                     </td>
@@ -45,7 +45,7 @@
                     <td class="px-6 py-4">
                         <span class="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-green-900 dark:text-green-300">{{.Status}}</span>
                     </td>
-                    <td class="px-6 py-4 text-xs text-gray-500 dark:text-gray-400 font-mono truncate max-w-xs">{{.ARN}}</td>
+                    <td class="px-6 py-4 text-xs text-slate-500 dark:text-slate-400 font-mono truncate max-w-xs">{{.ARN}}</td>
                     <td class="px-6 py-4 text-right whitespace-nowrap">
                         <form method="DELETE" action="/dashboard/kinesis/delete?name={{.Name}}" style="display:inline">
                             <button type="submit" hx-delete="/dashboard/kinesis/delete?name={{.Name}}"
@@ -55,8 +55,8 @@
                     </td>
                 </tr>
                 {{else}}
-                <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
-                    <td colspan="5" class="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                <tr class="bg-transparent border-b border-slate-200 dark:border-slate-700 dark:bg-transparent">
+                    <td colspan="5" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
                         No streams found. Create one to get started.
                     </td>
                 </tr>
@@ -69,10 +69,10 @@
 <!-- Create Stream Modal -->
 <div id="create-stream-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
     <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white dark:bg-gray-800">
-        <h3 class="text-lg font-medium leading-6 text-gray-900 dark:text-white mb-4">Create Kinesis Stream</h3>
+        <h3 class="text-lg font-medium leading-6 text-slate-900 dark:text-white mb-4">Create Kinesis Stream</h3>
         <form method="POST" action="/dashboard/kinesis/create">
             <div class="mb-4">
-                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="stream_name">Stream Name</label>
+                <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1" for="stream_name">Stream Name</label>
                 <input id="stream_name" name="stream_name" type="text" required
                     class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                     placeholder="my-stream">

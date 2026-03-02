@@ -2,38 +2,38 @@
 <div class="px-4 sm:px-6 lg:px-8">
     <div class="sm:flex sm:items-center justify-between mb-6">
         <div class="sm:flex-auto">
-            <nav class="text-sm text-gray-500 dark:text-gray-400 mb-2">
+            <nav class="text-sm text-slate-500 dark:text-slate-400 mb-2">
                 <a href="/dashboard/ses" class="hover:underline text-blue-600 dark:text-blue-400">SES Inbox</a>
                 <span class="mx-2">›</span>
                 <span class="font-mono text-xs">{{.MessageID}}</span>
             </nav>
-            <h1 class="text-3xl font-bold text-gray-900 dark:text-white truncate">{{.Subject}}</h1>
+            <h1 class="text-3xl font-bold text-slate-900 dark:text-white truncate">{{.Subject}}</h1>
         </div>
     </div>
 
     <!-- Headers -->
     <div class="bg-white dark:bg-gray-800 shadow-md rounded-lg p-6 mb-6">
-        <h2 class="text-sm font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-4">Headers</h2>
+        <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-4">Headers</h2>
         <dl class="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
-                <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">Message ID</dt>
-                <dd class="mt-1 text-xs font-mono text-gray-900 dark:text-white break-all">{{.MessageID}}</dd>
+                <dt class="text-xs font-medium text-slate-500 dark:text-slate-400">Message ID</dt>
+                <dd class="mt-1 text-xs font-mono text-slate-900 dark:text-white break-all">{{.MessageID}}</dd>
             </div>
             <div>
-                <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">Timestamp</dt>
-                <dd class="mt-1 text-xs text-gray-900 dark:text-white">{{.TimestampStr}}</dd>
+                <dt class="text-xs font-medium text-slate-500 dark:text-slate-400">Timestamp</dt>
+                <dd class="mt-1 text-xs text-slate-900 dark:text-white">{{.TimestampStr}}</dd>
             </div>
             <div>
-                <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">From</dt>
-                <dd class="mt-1 text-xs font-mono text-gray-900 dark:text-white">{{.From}}</dd>
+                <dt class="text-xs font-medium text-slate-500 dark:text-slate-400">From</dt>
+                <dd class="mt-1 text-xs font-mono text-slate-900 dark:text-white">{{.From}}</dd>
             </div>
             <div>
-                <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">To</dt>
-                <dd class="mt-1 text-xs font-mono text-gray-900 dark:text-white">{{.ToStr}}</dd>
+                <dt class="text-xs font-medium text-slate-500 dark:text-slate-400">To</dt>
+                <dd class="mt-1 text-xs font-mono text-slate-900 dark:text-white">{{.ToStr}}</dd>
             </div>
             <div class="sm:col-span-2">
-                <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">Subject</dt>
-                <dd class="mt-1 text-sm text-gray-900 dark:text-white">{{.Subject}}</dd>
+                <dt class="text-xs font-medium text-slate-500 dark:text-slate-400">Subject</dt>
+                <dd class="mt-1 text-sm text-slate-900 dark:text-white">{{.Subject}}</dd>
             </div>
         </dl>
     </div>
@@ -75,7 +75,7 @@
         {{end}}
 
         <div id="raw-body" class="tab-panel {{if ne .DefaultTab "raw-body"}}hidden{{end}} p-4">
-            <pre class="whitespace-pre-wrap text-xs font-mono text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-900 p-4 rounded overflow-auto max-h-96">{{.RawMessage}}</pre>
+            <pre class="whitespace-pre-wrap text-xs font-mono text-slate-600 dark:text-slate-300 bg-gray-50 dark:bg-gray-900 p-4 rounded overflow-auto max-h-96">{{.RawMessage}}</pre>
         </div>
     </div>
 </div>

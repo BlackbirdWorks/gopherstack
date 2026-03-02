@@ -1,12 +1,12 @@
 {{define "content"}}
 <div class="px-4 sm:px-6 lg:px-8">
-    <h1 class="text-3xl font-bold text-gray-900 dark:text-white">CloudWatch</h1>
-    <p class="mt-2 text-sm text-gray-700 dark:text-gray-300">Metrics and alarms in your in-memory CloudWatch environment.</p>
+    <h1 class="text-3xl font-bold text-slate-900 dark:text-white">CloudWatch</h1>
+    <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Metrics and alarms in your in-memory CloudWatch environment.</p>
 
-    <h2 class="mt-8 text-xl font-semibold text-gray-900 dark:text-white">Metrics</h2>
-    <div class="mt-4 relative overflow-x-auto shadow-md sm:rounded-lg">
-        <table class="w-full text-sm text-left text-gray-500 dark:text-gray-400">
-            <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+    <h2 class="mt-8 text-xl font-semibold text-slate-900 dark:text-white">Metrics</h2>
+    <div class="mt-4 relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
+        <table class="w-full text-sm text-left text-slate-500 dark:text-slate-400">
+            <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
                 <tr>
                     <th class="px-6 py-3">Namespace</th>
                     <th class="px-6 py-3">Metric Name</th>
@@ -14,21 +14,21 @@
             </thead>
             <tbody>
                 {{range .Metrics}}
-                <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
-                    <td class="px-6 py-4 font-mono text-gray-900 dark:text-white">{{.Namespace}}</td>
-                    <td class="px-6 py-4 font-mono text-gray-500 dark:text-gray-400">{{.MetricName}}</td>
+                <tr class="bg-transparent border-b border-slate-200 dark:border-slate-700 dark:bg-transparent">
+                    <td class="px-6 py-4 font-mono text-slate-900 dark:text-white">{{.Namespace}}</td>
+                    <td class="px-6 py-4 font-mono text-slate-500 dark:text-slate-400">{{.MetricName}}</td>
                 </tr>
                 {{else}}
-                <tr><td colspan="2" class="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">No metrics found.</td></tr>
+                <tr><td colspan="2" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">No metrics found.</td></tr>
                 {{end}}
             </tbody>
         </table>
     </div>
 
-    <h2 class="mt-8 text-xl font-semibold text-gray-900 dark:text-white">Alarms</h2>
-    <div class="mt-4 relative overflow-x-auto shadow-md sm:rounded-lg">
-        <table class="w-full text-sm text-left text-gray-500 dark:text-gray-400">
-            <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+    <h2 class="mt-8 text-xl font-semibold text-slate-900 dark:text-white">Alarms</h2>
+    <div class="mt-4 relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
+        <table class="w-full text-sm text-left text-slate-500 dark:text-slate-400">
+            <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
                 <tr>
                     <th class="px-6 py-3">Alarm Name</th>
                     <th class="px-6 py-3">Namespace</th>
@@ -38,14 +38,14 @@
             </thead>
             <tbody>
                 {{range .Alarms}}
-                <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
-                    <td class="px-6 py-4 font-mono text-gray-900 dark:text-white">{{.AlarmName}}</td>
-                    <td class="px-6 py-4 font-mono text-gray-500 dark:text-gray-400">{{.Namespace}}</td>
-                    <td class="px-6 py-4 font-mono text-gray-500 dark:text-gray-400">{{.MetricName}}</td>
-                    <td class="px-6 py-4 font-mono text-gray-500 dark:text-gray-400">{{.StateValue}}</td>
+                <tr class="bg-transparent border-b border-slate-200 dark:border-slate-700 dark:bg-transparent">
+                    <td class="px-6 py-4 font-mono text-slate-900 dark:text-white">{{.AlarmName}}</td>
+                    <td class="px-6 py-4 font-mono text-slate-500 dark:text-slate-400">{{.Namespace}}</td>
+                    <td class="px-6 py-4 font-mono text-slate-500 dark:text-slate-400">{{.MetricName}}</td>
+                    <td class="px-6 py-4 font-mono text-slate-500 dark:text-slate-400">{{.StateValue}}</td>
                 </tr>
                 {{else}}
-                <tr><td colspan="4" class="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">No alarms found.</td></tr>
+                <tr><td colspan="4" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">No alarms found.</td></tr>
                 {{end}}
             </tbody>
         </table>

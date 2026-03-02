@@ -1,10 +1,10 @@
 {{define "content"}}
 <div class="px-4 sm:px-6 lg:px-8">
-    <h1 class="text-3xl font-bold text-gray-900 dark:text-white">CloudFormation</h1>
-    <p class="mt-2 text-sm text-gray-700 dark:text-gray-300">Stacks in your in-memory CloudFormation environment.</p>
-    <div class="mt-8 relative overflow-x-auto shadow-md sm:rounded-lg">
-        <table class="w-full text-sm text-left text-gray-500 dark:text-gray-400">
-            <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+    <h1 class="text-3xl font-bold text-slate-900 dark:text-white">CloudFormation</h1>
+    <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Stacks in your in-memory CloudFormation environment.</p>
+    <div class="mt-8 relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
+        <table class="w-full text-sm text-left text-slate-500 dark:text-slate-400">
+            <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
                 <tr>
                     <th class="px-6 py-3">Name</th>
                     <th class="px-6 py-3">Status</th>
@@ -14,16 +14,16 @@
             </thead>
             <tbody>
                 {{range .Stacks}}
-                <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
-                    <td class="px-6 py-4 font-mono text-gray-900 dark:text-white">
+                <tr class="bg-transparent border-b border-slate-200 dark:border-slate-700 dark:bg-transparent">
+                    <td class="px-6 py-4 font-mono text-slate-900 dark:text-white">
                         <a href="/dashboard/cloudformation/stack?name={{.StackName}}" class="text-blue-600 hover:underline dark:text-blue-400">{{.StackName}}</a>
                     </td>
-                    <td class="px-6 py-4 font-mono text-gray-500 dark:text-gray-400">{{.StackStatus}}</td>
-                    <td class="px-6 py-4 font-mono text-gray-500 dark:text-gray-400">{{.CreationTime.Format "2006-01-02 15:04:05"}}</td>
-                    <td class="px-6 py-4 font-mono text-xs text-gray-500 dark:text-gray-400">{{.StackID}}</td>
+                    <td class="px-6 py-4 font-mono text-slate-500 dark:text-slate-400">{{.StackStatus}}</td>
+                    <td class="px-6 py-4 font-mono text-slate-500 dark:text-slate-400">{{.CreationTime.Format "2006-01-02 15:04:05"}}</td>
+                    <td class="px-6 py-4 font-mono text-xs text-slate-500 dark:text-slate-400">{{.StackID}}</td>
                 </tr>
                 {{else}}
-                <tr><td colspan="4" class="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">No stacks found.</td></tr>
+                <tr><td colspan="4" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">No stacks found.</td></tr>
                 {{end}}
             </tbody>
         </table>

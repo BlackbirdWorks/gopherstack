@@ -6,7 +6,7 @@
         <div class="relative bg-white rounded-lg shadow dark:bg-gray-700">
             <!-- Modal header -->
             <div class="flex items-center justify-between p-4 md:p-5 border-b rounded-t dark:border-gray-600">
-                <h3 class="text-xl font-semibold text-gray-900 dark:text-white">
+                <h3 class="text-xl font-semibold text-slate-900 dark:text-white">
                     Create Queue
                 </h3>
                 <button type="button"
@@ -25,16 +25,16 @@
                 <form class="space-y-4" hx-post="/dashboard/sqs/create" hx-target="body">
                     <div>
                         <label for="queue_name"
-                            class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Queue name</label>
+                            class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Queue name</label>
                         <input type="text" name="queue_name" id="queue_name"
                             class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-600 dark:border-gray-500 dark:placeholder-gray-400 dark:text-white"
                             placeholder="my-queue or my-queue.fifo" required>
-                        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Use <code>.fifo</code> suffix for FIFO
+                        <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Use <code>.fifo</code> suffix for FIFO
                             queues.</p>
                     </div>
                     <div>
                         <label for="visibility_timeout"
-                            class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Visibility Timeout
+                            class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Visibility Timeout
                             (seconds)</label>
                         <input type="number" name="visibility_timeout" id="visibility_timeout" value="30" min="0"
                             max="43200"

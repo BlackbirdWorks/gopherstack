@@ -41,7 +41,7 @@
 
     <!-- Header -->
     <div class="flex justify-between items-center">
-        <h1 class="text-3xl font-bold text-gray-900 dark:text-white">{{.Name}}</h1>
+        <h1 class="text-3xl font-bold text-slate-900 dark:text-white">{{.Name}}</h1>
         <button
             class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-blue-600 dark:hover:bg-blue-700 focus:outline-none dark:focus:ring-blue-800"
             data-modal-target="upload_modal" data-modal-toggle="upload_modal">
@@ -50,7 +50,7 @@
     </div>
 
     <!-- File tree -->
-    <div class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
+    <div class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
         <div id="file-tree" hx-get="/dashboard/s3/bucket/{{.Name}}/tree{{if .Prefix}}?prefix={{.Prefix}}{{end}}"
             hx-trigger="load" hx-indicator=".htmx-indicator">
         </div>
@@ -81,7 +81,7 @@
     <div class="relative p-4 w-full max-w-2xl max-h-full">
         <div class="relative bg-white rounded-lg shadow dark:bg-gray-700">
             <div class="flex items-center justify-between p-4 md:p-5 border-b rounded-t dark:border-gray-600">
-                <h3 class="text-xl font-semibold text-gray-900 dark:text-white">
+                <h3 class="text-xl font-semibold text-slate-900 dark:text-white">
                     Upload File
                 </h3>
                 <button type="button"
@@ -101,21 +101,21 @@
                     hx-encoding="multipart/form-data" hx-target="#file-tree"
                     hx-on::after-request="if(event.detail.successful) { const m = FlowbiteInstances.getInstance('Modal', 'upload_modal'); if(m) m.hide(); }">
                     <div>
-                        <label class="block mb-2 text-sm font-medium text-gray-900 dark:text-white"
+                        <label class="block mb-2 text-sm font-medium text-slate-900 dark:text-white"
                             for="file_input">File</label>
                         <input name="file"
                             class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg cursor-pointer bg-gray-50 dark:text-gray-400 focus:outline-none dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400"
                             id="file_input" type="file" required>
                     </div>
                     <div>
-                        <label for="key" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Key
+                        <label for="key" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Key
                             (Optional - defaults to filename)</label>
                         <input type="text" name="key" id="key"
                             class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500"
                             placeholder="path/to/file.txt">
                     </div>
                     <div>
-                        <label for="tags" class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Tags
+                        <label for="tags" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Tags
                             (Optional - comma separated Key=Value)</label>
                         <input type="text" name="tags" id="tags"
                             class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500"

@@ -1,10 +1,26 @@
 {{define "content"}}
 <div class="px-4 sm:px-6 lg:px-8">
-    <h1 class="text-3xl font-bold text-gray-900 dark:text-white">Step Functions</h1>
-    <p class="mt-2 text-sm text-gray-700 dark:text-gray-300">State machines in your in-memory Step Functions environment.</p>
-    <div class="mt-8 relative overflow-x-auto shadow-md sm:rounded-lg">
-        <table class="w-full text-sm text-left text-gray-500 dark:text-gray-400">
-            <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+    <div
+        class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm glass-panel flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+        <div>
+            <h1 class="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
+                <svg class="w-8 h-8 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10">
+                    </path>
+                </svg>
+                Step Functions
+                {{if .Snippet}}
+                {{template "components/snippet" .Snippet}}
+                {{end}}
+            </h1>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-400">State machines in your in-memory Step Functions
+                environment.</p>
+        </div>
+    </div>
+    <div class="mt-8 relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
+        <table class="w-full text-sm text-left text-slate-500 dark:text-slate-400">
+            <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
                 <tr>
                     <th class="px-6 py-3">Name</th>
                     <th class="px-6 py-3">Type</th>
@@ -14,16 +30,20 @@
             </thead>
             <tbody>
                 {{range .StateMachines}}
-                <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
-                    <td class="px-6 py-4 font-mono text-gray-900 dark:text-white">
-                        <a href="/dashboard/stepfunctions/statemachine?arn={{.StateMachineArn}}" class="text-blue-600 hover:underline dark:text-blue-400">{{.Name}}</a>
+                <tr class="bg-transparent border-b border-slate-200 dark:border-slate-700 dark:bg-transparent">
+                    <td class="px-6 py-4 font-mono text-slate-900 dark:text-white">
+                        <a href="/dashboard/stepfunctions/statemachine?arn={{.StateMachineArn}}"
+                            class="text-blue-600 hover:underline dark:text-blue-400">{{.Name}}</a>
                     </td>
-                    <td class="px-6 py-4 font-mono text-gray-500 dark:text-gray-400">{{.Type}}</td>
-                    <td class="px-6 py-4 font-mono text-gray-500 dark:text-gray-400">{{.Status}}</td>
-                    <td class="px-6 py-4 font-mono text-xs text-gray-500 dark:text-gray-400">{{.StateMachineArn}}</td>
+                    <td class="px-6 py-4 font-mono text-slate-500 dark:text-slate-400">{{.Type}}</td>
+                    <td class="px-6 py-4 font-mono text-slate-500 dark:text-slate-400">{{.Status}}</td>
+                    <td class="px-6 py-4 font-mono text-xs text-slate-500 dark:text-slate-400">{{.StateMachineArn}}</td>
                 </tr>
                 {{else}}
-                <tr><td colspan="4" class="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">No state machines found.</td></tr>
+                <tr>
+                    <td colspan="4" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">No state
+                        machines found.</td>
+                </tr>
                 {{end}}
             </tbody>
         </table>
