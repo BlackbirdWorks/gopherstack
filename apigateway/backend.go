@@ -128,7 +128,7 @@ func (b *InMemoryBackend) CreateRestAPI(name, description string, inputTags *tag
 		ID:             id,
 		Name:           name,
 		Description:    description,
-		CreatedDate:    time.Now(),
+		CreatedDate:    unixEpochTime{time.Now()},
 		Tags:           backendTags,
 		RootResourceID: rootID,
 	}
@@ -486,7 +486,7 @@ func (b *InMemoryBackend) CreateDeployment(restAPIID, stageName, description str
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
 
-	now := time.Now()
+	now := unixEpochTime{time.Now()}
 	deplID := randomID(apiIDLength)
 	depl := &Deployment{
 		ID:          deplID,

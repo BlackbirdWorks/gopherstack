@@ -174,17 +174,19 @@ type ec2ActionFn func(vals url.Values, reqID string) (any, error)
 
 func (h *Handler) dispatchTable() map[string]ec2ActionFn {
 	return map[string]ec2ActionFn{
-		"RunInstances":           h.handleRunInstances,
-		"DescribeInstances":      h.handleDescribeInstances,
-		"TerminateInstances":     h.handleTerminateInstances,
-		"DescribeSecurityGroups": h.handleDescribeSecurityGroups,
-		"CreateSecurityGroup":    h.handleCreateSecurityGroup,
-		"DeleteSecurityGroup":    h.handleDeleteSecurityGroup,
-		"DescribeVpcs":           h.handleDescribeVpcs,
-		"DescribeVpcAttribute":   h.handleDescribeVpcAttribute,
-		"DescribeSubnets":        h.handleDescribeSubnets,
-		"CreateVpc":              h.handleCreateVpc,
-		"CreateSubnet":           h.handleCreateSubnet,
+		"RunInstances":              h.handleRunInstances,
+		"DescribeInstances":         h.handleDescribeInstances,
+		"TerminateInstances":        h.handleTerminateInstances,
+		"DescribeSecurityGroups":    h.handleDescribeSecurityGroups,
+		"CreateSecurityGroup":       h.handleCreateSecurityGroup,
+		"DeleteSecurityGroup":       h.handleDeleteSecurityGroup,
+		"RevokeSecurityGroupEgress": h.handleRevokeSecurityGroupEgress,
+		"DescribeVpcs":              h.handleDescribeVpcs,
+		"DescribeVpcAttribute":      h.handleDescribeVpcAttribute,
+		"DescribeSubnets":           h.handleDescribeSubnets,
+		"CreateVpc":                 h.handleCreateVpc,
+		"CreateSubnet":              h.handleCreateSubnet,
+		"DescribeInstanceTypes":     h.handleDescribeInstanceTypes,
 	}
 }
 
@@ -423,6 +425,37 @@ func (h *Handler) handleCreateSubnet(vals url.Values, reqID string) (any, error)
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
 		Subnet:    toSubnetItem(s),
+	}, nil
+}
+
+// handleRevokeSecurityGroupEgress is a no-op stub.
+// Terraform calls this to revoke the default egress rule when creating a security group.
+func (h *Handler) handleRevokeSecurityGroupEgress(_ url.Values, reqID string) (any, error) {
+	return &revokeSecurityGroupEgressResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Return:    "true",
+	}, nil
+}
+
+// handleDescribeInstanceTypes returns a minimal stub for the requested instance types.
+// Terraform calls this to validate the instance type before launching an instance.
+func (h *Handler) handleDescribeInstanceTypes(vals url.Values, reqID string) (any, error) {
+	// Return a stub for whatever instance type was requested (e.g., t2.micro).
+	instanceType := vals.Get("Filter.1.Value.1")
+	if instanceType == "" {
+		instanceType = vals.Get("InstanceType.1")
+	}
+	if instanceType == "" {
+		instanceType = "t2.micro"
+	}
+
+	return &describeInstanceTypesResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		InstanceTypes: instanceTypeSet{Items: []instanceTypeItem{
+			{InstanceType: instanceType},
+		}},
 	}, nil
 }
 
@@ -708,4 +741,26 @@ type createSubnetResponse struct {
 	Xmlns     string     `xml:"xmlns,attr"`
 	RequestID string     `xml:"requestId"`
 	Subnet    subnetItem `xml:"subnet"`
+}
+
+type revokeSecurityGroupEgressResponse struct {
+	XMLName   xml.Name `xml:"RevokeSecurityGroupEgressResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Return    string   `xml:"return"`
+}
+
+type instanceTypeItem struct {
+	InstanceType string `xml:"instanceType"`
+}
+
+type instanceTypeSet struct {
+	Items []instanceTypeItem `xml:"item"`
+}
+
+type describeInstanceTypesResponse struct {
+	XMLName       xml.Name        `xml:"DescribeInstanceTypesResponse"`
+	Xmlns         string          `xml:"xmlns,attr"`
+	RequestID     string          `xml:"requestId"`
+	InstanceTypes instanceTypeSet `xml:"instanceTypeSet"`
 }
