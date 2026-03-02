@@ -228,7 +228,7 @@ type handlePutRecordInput struct {
 }
 
 type putRecordOutput struct {
-	RecordID string `json:"RecordID"`
+	RecordID string `json:"RecordId"`
 }
 
 func (h *Handler) handlePutRecord(_ context.Context, in *handlePutRecordInput) (*putRecordOutput, error) {
