@@ -187,6 +187,7 @@ func (h *Handler) dispatchTable() map[string]ec2ActionFn {
 		"CreateVpc":                 h.handleCreateVpc,
 		"CreateSubnet":              h.handleCreateSubnet,
 		"DescribeInstanceTypes":     h.handleDescribeInstanceTypes,
+		"DescribeTags":              h.handleDescribeTags,
 	}
 }
 
@@ -456,6 +457,16 @@ func (h *Handler) handleDescribeInstanceTypes(vals url.Values, reqID string) (an
 		InstanceTypes: instanceTypeSet{Items: []instanceTypeItem{
 			{InstanceType: instanceType},
 		}},
+	}, nil
+}
+
+// handleDescribeTags returns an empty tag list.
+// Terraform calls this after RunInstances to read the launch template ID tag.
+func (h *Handler) handleDescribeTags(_ url.Values, reqID string) (any, error) {
+	return &describeTagsResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		TagSet:    tagItemSet{},
 	}, nil
 }
 
@@ -763,4 +774,22 @@ type describeInstanceTypesResponse struct {
 	Xmlns         string          `xml:"xmlns,attr"`
 	RequestID     string          `xml:"requestId"`
 	InstanceTypes instanceTypeSet `xml:"instanceTypeSet"`
+}
+
+type tagItem struct {
+	ResourceID   string `xml:"resourceId"`
+	ResourceType string `xml:"resourceType"`
+	Key          string `xml:"key"`
+	Value        string `xml:"value"`
+}
+
+type tagItemSet struct {
+	Items []tagItem `xml:"item"`
+}
+
+type describeTagsResponse struct {
+	XMLName   xml.Name   `xml:"DescribeTagsResponse"`
+	Xmlns     string     `xml:"xmlns,attr"`
+	RequestID string     `xml:"requestId"`
+	TagSet    tagItemSet `xml:"tagSet"`
 }

@@ -321,6 +321,13 @@ func (h *Handler) handleRESTAPI(c *echo.Context) error {
 		return c.String(http.StatusInternalServerError, "internal server error")
 	}
 
+	// GET requests have no body; normalise to an empty JSON object so that
+	// json.Unmarshal calls in the action handlers don't fail with
+	// "unexpected end of JSON input".
+	if len(body) == 0 {
+		body = []byte("{}")
+	}
+
 	// Merge path parameters into the JSON body so existing handlers can read them.
 	for k, v := range pathParams {
 		body = injectJSONFieldAPIGW(body, k, v)
