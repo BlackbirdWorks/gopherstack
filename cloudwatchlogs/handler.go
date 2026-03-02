@@ -222,6 +222,53 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 type actionFn func([]byte) (any, error)
 
+type createLogGroupOutput struct{}
+
+type deleteLogGroupOutput struct{}
+
+type describeLogGroupsOutput struct {
+	LogGroups []LogGroup `json:"logGroups"`
+	NextToken string     `json:"nextToken,omitempty"`
+}
+
+type createLogStreamOutput struct{}
+
+type describeLogStreamsOutput struct {
+	LogStreams []LogStream `json:"logStreams"`
+	NextToken  string      `json:"nextToken,omitempty"`
+}
+
+type putLogEventsOutput struct {
+	NextSequenceToken string `json:"nextSequenceToken"`
+}
+
+type getLogEventsOutput struct {
+	Events            []OutputLogEvent `json:"events"`
+	NextForwardToken  string           `json:"nextForwardToken"`
+	NextBackwardToken string           `json:"nextBackwardToken"`
+}
+
+type filterLogEventsOutput struct {
+	Events    []OutputLogEvent `json:"events"`
+	NextToken string           `json:"nextToken,omitempty"`
+}
+
+type listTagsLogGroupOutput struct {
+	Tags map[string]string `json:"tags"`
+}
+
+type listTagsForResourceOutput struct {
+	Tags map[string]string `json:"tags"`
+}
+
+type tagLogGroupOutput struct{}
+
+type untagLogGroupOutput struct{}
+
+type putRetentionPolicyOutput struct{}
+
+type deleteRetentionPolicyOutput struct{}
+
 func (h *Handler) logGroupActions() map[string]actionFn {
 	return map[string]actionFn{
 		"CreateLogGroup": func(b []byte) (any, error) {
@@ -233,7 +280,7 @@ func (h *Handler) logGroupActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return map[string]any{}, nil
+			return &createLogGroupOutput{}, nil
 		},
 		"DeleteLogGroup": func(b []byte) (any, error) {
 			var input deleteLogGroupInput
@@ -244,7 +291,7 @@ func (h *Handler) logGroupActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return map[string]any{}, nil
+			return &deleteLogGroupOutput{}, nil
 		},
 		"DescribeLogGroups": func(b []byte) (any, error) {
 			var input describeLogGroupsInput
@@ -255,12 +302,7 @@ func (h *Handler) logGroupActions() map[string]actionFn {
 			if err != nil {
 				return nil, err
 			}
-			resp := map[string]any{"logGroups": groups}
-			if next != "" {
-				resp["nextToken"] = next
-			}
-
-			return resp, nil
+			return &describeLogGroupsOutput{LogGroups: groups, NextToken: next}, nil
 		},
 	}
 }
@@ -276,7 +318,7 @@ func (h *Handler) logStreamActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return map[string]any{}, nil
+			return &createLogStreamOutput{}, nil
 		},
 		"DescribeLogStreams": func(b []byte) (any, error) {
 			var input describeLogStreamsInput
@@ -288,12 +330,7 @@ func (h *Handler) logStreamActions() map[string]actionFn {
 			if err != nil {
 				return nil, err
 			}
-			resp := map[string]any{"logStreams": streams}
-			if next != "" {
-				resp["nextToken"] = next
-			}
-
-			return resp, nil
+			return &describeLogStreamsOutput{LogStreams: streams, NextToken: next}, nil
 		},
 	}
 }
@@ -310,7 +347,7 @@ func (h *Handler) logEventActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return map[string]any{"nextSequenceToken": next}, nil
+			return &putLogEventsOutput{NextSequenceToken: next}, nil
 		},
 		"GetLogEvents": func(b []byte) (any, error) {
 			var input getLogEventsInput
@@ -324,10 +361,10 @@ func (h *Handler) logEventActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return map[string]any{
-				"events":            evts,
-				"nextForwardToken":  fwd,
-				"nextBackwardToken": bwd,
+			return &getLogEventsOutput{
+				Events:            evts,
+				NextForwardToken:  fwd,
+				NextBackwardToken: bwd,
 			}, nil
 		},
 		"FilterLogEvents": func(b []byte) (any, error) {
@@ -341,12 +378,7 @@ func (h *Handler) logEventActions() map[string]actionFn {
 			if err != nil {
 				return nil, err
 			}
-			resp := map[string]any{"events": evts}
-			if next != "" {
-				resp["nextToken"] = next
-			}
-
-			return resp, nil
+			return &filterLogEventsOutput{Events: evts, NextToken: next}, nil
 		},
 	}
 }
@@ -359,7 +391,7 @@ func (h *Handler) logTagActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return map[string]any{"tags": h.getTags(input.LogGroupName)}, nil
+			return &listTagsLogGroupOutput{Tags: h.getTags(input.LogGroupName)}, nil
 		},
 		"ListTagsForResource": func(b []byte) (any, error) {
 			var input listTagsForResourceInput
@@ -367,7 +399,7 @@ func (h *Handler) logTagActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return map[string]any{"tags": h.getTags(input.ResourceArn)}, nil
+			return &listTagsForResourceOutput{Tags: h.getTags(input.ResourceArn)}, nil
 		},
 		"TagLogGroup": func(b []byte) (any, error) {
 			var input tagLogGroupInput
@@ -380,7 +412,7 @@ func (h *Handler) logTagActions() map[string]actionFn {
 			}
 			h.setTags(input.LogGroupName, kv)
 
-			return struct{}{}, nil
+			return &tagLogGroupOutput{}, nil
 		},
 		"UntagLogGroup": func(b []byte) (any, error) {
 			var input untagLogGroupInput
@@ -389,14 +421,14 @@ func (h *Handler) logTagActions() map[string]actionFn {
 			}
 			h.removeTags(input.LogGroupName, input.Tags)
 
-			return struct{}{}, nil
+			return &untagLogGroupOutput{}, nil
 		},
 		"PutRetentionPolicy": func(_ []byte) (any, error) {
 			// Stub: accept any retention days, return success.
-			return struct{}{}, nil
+			return &putRetentionPolicyOutput{}, nil
 		},
 		"DeleteRetentionPolicy": func(_ []byte) (any, error) {
-			return struct{}{}, nil
+			return &deleteRetentionPolicyOutput{}, nil
 		},
 	}
 }
