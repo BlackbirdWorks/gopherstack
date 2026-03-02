@@ -133,10 +133,14 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 }
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
+	var syntaxErr *json.SyntaxError
+	var typeErr *json.UnmarshalTypeError
+
 	code := http.StatusInternalServerError
 
 	switch {
-	case errors.Is(err, errInvalidRequest), errors.Is(err, ErrUnknownOperation):
+	case errors.Is(err, errInvalidRequest), errors.Is(err, ErrUnknownOperation),
+		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		code = http.StatusBadRequest
 	case errors.Is(err, ErrAlreadyExists):
 		code = http.StatusBadRequest
