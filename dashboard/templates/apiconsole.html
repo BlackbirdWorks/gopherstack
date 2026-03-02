@@ -108,8 +108,11 @@
 </div>
 
 <script>
-    let currentLogs = [];
-    let refreshInterval = null;
+    var currentLogs = [];
+    if (window.consoleRefreshInterval) {
+        clearInterval(window.consoleRefreshInterval);
+    }
+    window.consoleRefreshInterval = null;
 
     function init() {
         fetchLogs();
@@ -125,15 +128,15 @@
     }
 
     function startAutoRefresh() {
-        if (!refreshInterval) {
-            refreshInterval = setInterval(fetchLogs, 2000);
+        if (!window.consoleRefreshInterval) {
+            window.consoleRefreshInterval = setInterval(fetchLogs, 2000);
         }
     }
 
     function stopAutoRefresh() {
-        if (refreshInterval) {
-            clearInterval(refreshInterval);
-            refreshInterval = null;
+        if (window.consoleRefreshInterval) {
+            clearInterval(window.consoleRefreshInterval);
+            window.consoleRefreshInterval = null;
         }
     }
 

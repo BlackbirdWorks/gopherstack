@@ -120,91 +120,81 @@ document.addEventListener('htmx:confirm', function (event) {
     show();
 });
 
-// ── HTMX events ───────────────────────────────────────────────
+// ── Sidebar Scroll Preservation ───────────────────────────────
+let lastSidebarScroll = 0;
+
+document.addEventListener('htmx:beforeRequest', function () {
+    const sidebarList = document.querySelector('#sidebar .overflow-y-auto');
+    if (sidebarList) {
+        lastSidebarScroll = sidebarList.scrollTop;
+    }
+});
+
 document.addEventListener('htmx:afterSwap', function () {
     console.log('HTMX swap completed');
-});
-
-document.addEventListener('htmx:responseError', function (event) {
-    var xhr = event.detail.xhr;
-    var trigger = xhr.getResponseHeader('HX-Trigger');
-    if (trigger && trigger.includes('showToast')) return;
-    showToast('Request failed. Please try again.', 'error');
-    console.error('HTMX error:', event.detail);
-});
-
-document.addEventListener('htmx:sendError', function () {
-    showToast('Network error. Please check your connection.', 'error');
-});
-
-document.body.addEventListener('showToast', function (event) {
-    var detail = event.detail;
-    if (detail && detail.message) showToast(detail.message, detail.type || 'info');
-});
-
-// ── S3 file-tree folder toggle ────────────────────────────────
-function toggleFolder(element) {
-    var children = element.nextElementSibling;
-    if (children && children.classList.contains('folder-children')) {
-        children.classList.toggle('hidden');
-        var icon = element.querySelector('.folder-icon');
-        if (icon) icon.textContent = children.classList.contains('hidden') ? '📁' : '📂';
+    const sidebarList = document.querySelector('#sidebar .overflow-y-auto');
+    if (sidebarList) {
+        sidebarList.scrollTop = lastSidebarScroll;
     }
+    setupGlobalSearch();
+});
+
+// ── Global Search ─────────────────────────────────────────────
+function setupGlobalSearch() {
+    const searchInput = document.getElementById('global-search');
+    if (!searchInput) return;
+
+    // Remove existing listener to avoid duplicates on htmx swaps
+    searchInput.replaceWith(searchInput.cloneNode(true));
+    const newSearchInput = document.getElementById('global-search');
+
+    newSearchInput.addEventListener('input', function (e) {
+        const query = e.target.value.toLowerCase();
+        const sidebarItems = document.querySelectorAll('#sidebar li');
+
+        let currentHeader = null;
+        let anyVisibleInSection = false;
+
+        sidebarItems.forEach(item => {
+            if (item.classList.contains('text-xs')) { // This is a section header
+                if (currentHeader) {
+                    currentHeader.style.display = anyVisibleInSection ? '' : 'none';
+                }
+                currentHeader = item;
+                anyVisibleInSection = false;
+            } else {
+                const a = item.querySelector('a');
+                if (a) {
+                    const text = a.textContent.toLowerCase();
+                    if (text.includes(query)) {
+                        item.style.display = '';
+                        anyVisibleInSection = true;
+                    } else {
+                        item.style.display = 'none';
+                    }
+                }
+            }
+        });
+
+        // Handle the last section
+        if (currentHeader) {
+            currentHeader.style.display = anyVisibleInSection ? '' : 'none';
+        }
+    });
 }
 
-// ── Dark mode theme manager ───────────────────────────────────
-var ThemeManager = {
-    STORAGE_KEY: 'gopherstack-theme',
-
-    getCurrentTheme: function () {
-        var stored = localStorage.getItem(this.STORAGE_KEY);
-        if (stored) return stored;
-        return (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
-    },
-
-    setTheme: function (theme) {
-        var html = document.documentElement;
-        if (theme === 'dark') {
-            html.classList.add('dark');
-        } else {
-            html.classList.remove('dark');
-        }
-        localStorage.setItem(this.STORAGE_KEY, theme);
-        this.updateIcons(theme);
-    },
-
-    updateIcons: function (theme) {
-        var dark = document.getElementById('theme-icon-dark');
-        var light = document.getElementById('theme-icon-light');
-        if (theme === 'dark') {
-            dark && dark.classList.remove('hidden');
-            light && light.classList.add('hidden');
-        } else {
-            dark && dark.classList.add('hidden');
-            light && light.classList.remove('hidden');
-        }
-    },
-
-    toggleTheme: function () {
-        var current = document.documentElement.classList.contains('dark') ? 'dark' : 'light';
-        this.setTheme(current === 'dark' ? 'light' : 'dark');
-    },
-
-    init: function () {
-        this.setTheme(this.getCurrentTheme());
-        var btn = document.getElementById('theme-toggle');
-        if (btn) btn.addEventListener('click', this.toggleTheme.bind(this));
-        if (window.matchMedia) {
-            window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function (e) {
-                if (!localStorage.getItem(ThemeManager.STORAGE_KEY)) {
-                    ThemeManager.setTheme(e.matches ? 'dark' : 'light');
-                }
-            });
+document.addEventListener('keydown', function (e) {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        const searchInput = document.getElementById('global-search');
+        if (searchInput) {
+            e.preventDefault();
+            searchInput.focus();
         }
     }
-};
+});
 
 document.addEventListener('DOMContentLoaded', function () {
     ThemeManager.init();
+    setupGlobalSearch();
     console.log('Gopherstack UI loaded');
 });
