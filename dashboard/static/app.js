@@ -120,13 +120,58 @@ document.addEventListener('htmx:confirm', function (event) {
     show();
 });
 
+// ── Theme Manager ─────────────────────────────────────────────
+window.ThemeManager = {
+    init: function () {
+        const themeToggleBtn = document.getElementById('theme-toggle');
+        const darkIcon = document.getElementById('theme-icon-dark');
+        const lightIcon = document.getElementById('theme-icon-light');
+
+        if (!themeToggleBtn || !darkIcon || !lightIcon) return;
+
+        // Change the icons inside the button based on previous settings
+        if (document.documentElement.classList.contains('dark')) {
+            lightIcon.classList.add('hidden');
+            darkIcon.classList.remove('hidden');
+        } else {
+            darkIcon.classList.add('hidden');
+            lightIcon.classList.remove('hidden');
+        }
+
+        themeToggleBtn.addEventListener('click', function () {
+            // toggle icons
+            darkIcon.classList.toggle('hidden');
+            lightIcon.classList.toggle('hidden');
+
+            // if set via local storage previously
+            if (localStorage.getItem('gopherstack-theme')) {
+                if (localStorage.getItem('gopherstack-theme') === 'light') {
+                    document.documentElement.classList.add('dark');
+                    localStorage.setItem('gopherstack-theme', 'dark');
+                } else {
+                    document.documentElement.classList.remove('dark');
+                    localStorage.setItem('gopherstack-theme', 'light');
+                }
+            } else {
+                if (document.documentElement.classList.contains('dark')) {
+                    document.documentElement.classList.remove('dark');
+                    localStorage.setItem('gopherstack-theme', 'light');
+                } else {
+                    document.documentElement.classList.add('dark');
+                    localStorage.setItem('gopherstack-theme', 'dark');
+                }
+            }
+        });
+    }
+};
+
 // ── Sidebar Scroll Preservation ───────────────────────────────
-let lastSidebarScroll = 0;
+window.lastSidebarScroll = window.lastSidebarScroll || 0;
 
 document.addEventListener('htmx:beforeRequest', function () {
     const sidebarList = document.querySelector('#sidebar .overflow-y-auto');
     if (sidebarList) {
-        lastSidebarScroll = sidebarList.scrollTop;
+        window.lastSidebarScroll = sidebarList.scrollTop;
     }
 });
 
@@ -134,9 +179,16 @@ document.addEventListener('htmx:afterSwap', function () {
     console.log('HTMX swap completed');
     const sidebarList = document.querySelector('#sidebar .overflow-y-auto');
     if (sidebarList) {
-        sidebarList.scrollTop = lastSidebarScroll;
+        sidebarList.scrollTop = window.lastSidebarScroll || 0;
     }
     setupGlobalSearch();
+
+    // Re-initialize all Flowbite components (modals, dropdowns) after DOM replaces
+    if (typeof window.initFlowbite === 'function') {
+        window.initFlowbite();
+    } else if (typeof window.initModals === 'function') {
+        window.initModals();
+    }
 });
 
 // ── Global Search ─────────────────────────────────────────────

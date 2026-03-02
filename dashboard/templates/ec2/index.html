@@ -1,9 +1,22 @@
 {{define "content"}}
-<div class="px-4 sm:px-6 lg:px-8">
-    <div class="sm:flex sm:items-center justify-between">
-        <div class="sm:flex-auto">
-            <h1 class="text-3xl font-bold text-slate-900 dark:text-white">EC2</h1>
-            <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">In-memory EC2 instances, security groups, and VPCs.</p>
+<div class="space-y-6">
+    <!-- Header -->
+    <div
+        class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm glass-panel flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+        <div>
+            <h1 class="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
+                <svg class="w-8 h-8 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M5.25 14.25h13.5m-13.5 0a3 3 0 01-3-3m3 3a3 3 0 100 6h13.5a3 3 0 100-6m-16.5-3a3 3 0 013-3h13.5a3 3 0 013 3m-19.5 0a4.5 4.5 0 01.9-2.7L5.737 5.1a3.375 3.375 0 012.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 01.9 2.7m0 0a3 3 0 01-3 3m0 3h.008v.008h-.008v-.008zm0-6h.008v.008h-.008v-.008zm-3 6h.008v.008h-.008v-.008zm0-6h.008v.008h-.008v-.008z">
+                    </path>
+                </svg>
+                EC2
+                {{if .Snippet}}
+                {{template "components/snippet" .Snippet}}
+                {{end}}
+            </h1>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-400">In-memory EC2 instances, security groups, and
+                VPCs.</p>
         </div>
     </div>
 
@@ -11,18 +24,32 @@
     <div class="mt-6 border-b border-gray-200 dark:border-gray-700">
         <ul class="flex flex-wrap -mb-px text-sm font-medium text-center" id="ec2-tabs" role="tablist">
             <li class="mr-2" role="presentation">
-                <button class="inline-block p-4 border-b-2 rounded-t-lg" id="instances-tab" data-tabs-target="#instances" type="button" role="tab" aria-controls="instances" aria-selected="true">
-                    Instances <span class="ml-1 bg-blue-100 text-blue-800 text-xs font-medium px-2 py-0.5 rounded dark:bg-blue-900 dark:text-blue-300">{{len .Instances}}</span>
+                <button class="inline-block p-4 border-b-2 rounded-t-lg" id="instances-tab"
+                    data-tabs-target="#instances" type="button" role="tab" aria-controls="instances"
+                    aria-selected="true">
+                    Instances <span
+                        class="ml-1 bg-blue-100 text-blue-800 text-xs font-medium px-2 py-0.5 rounded dark:bg-blue-900 dark:text-blue-300">{{len
+                        .Instances}}</span>
                 </button>
             </li>
             <li class="mr-2" role="presentation">
-                <button class="inline-block p-4 border-b-2 border-transparent rounded-t-lg hover:text-gray-600 hover:border-gray-300 dark:hover:text-gray-300" id="security-groups-tab" data-tabs-target="#security-groups" type="button" role="tab" aria-controls="security-groups" aria-selected="false">
-                    Security Groups <span class="ml-1 bg-gray-100 text-gray-800 text-xs font-medium px-2 py-0.5 rounded dark:bg-gray-700 dark:text-gray-300">{{len .SecurityGroups}}</span>
+                <button
+                    class="inline-block p-4 border-b-2 border-transparent rounded-t-lg hover:text-gray-600 hover:border-gray-300 dark:hover:text-gray-300"
+                    id="security-groups-tab" data-tabs-target="#security-groups" type="button" role="tab"
+                    aria-controls="security-groups" aria-selected="false">
+                    Security Groups <span
+                        class="ml-1 bg-gray-100 text-gray-800 text-xs font-medium px-2 py-0.5 rounded dark:bg-gray-700 dark:text-gray-300">{{len
+                        .SecurityGroups}}</span>
                 </button>
             </li>
             <li class="mr-2" role="presentation">
-                <button class="inline-block p-4 border-b-2 border-transparent rounded-t-lg hover:text-gray-600 hover:border-gray-300 dark:hover:text-gray-300" id="vpc-tab" data-tabs-target="#vpc-subnet" type="button" role="tab" aria-controls="vpc-subnet" aria-selected="false">
-                    VPCs &amp; Subnets <span class="ml-1 bg-gray-100 text-gray-800 text-xs font-medium px-2 py-0.5 rounded dark:bg-gray-700 dark:text-gray-300">{{len .VPCs}}</span>
+                <button
+                    class="inline-block p-4 border-b-2 border-transparent rounded-t-lg hover:text-gray-600 hover:border-gray-300 dark:hover:text-gray-300"
+                    id="vpc-tab" data-tabs-target="#vpc-subnet" type="button" role="tab" aria-controls="vpc-subnet"
+                    aria-selected="false">
+                    VPCs &amp; Subnets <span
+                        class="ml-1 bg-gray-100 text-gray-800 text-xs font-medium px-2 py-0.5 rounded dark:bg-gray-700 dark:text-gray-300">{{len
+                        .VPCs}}</span>
                 </button>
             </li>
         </ul>
@@ -30,7 +57,8 @@
 
     <!-- Instances Tab -->
     <div id="instances" role="tabpanel" aria-labelledby="instances-tab">
-        <div class="mt-4 relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
+        <div
+            class="mt-4 relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
             <table class="w-full text-sm text-left rtl:text-right text-slate-500 dark:text-slate-400">
                 <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
                     <tr>
@@ -43,21 +71,27 @@
                 </thead>
                 <tbody>
                     {{range .Instances}}
-                    <tr class="bg-white border-b border-slate-200 dark:border-slate-700 dark:bg-slate-800/50 hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
+                    <tr
+                        class="bg-white border-b border-slate-200 dark:border-slate-700 dark:bg-slate-800/50 hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
                         <td class="px-6 py-4 font-mono text-xs text-slate-900 dark:text-white">{{.ID}}</td>
                         <td class="px-6 py-4">
                             {{if eq .State "running"}}
-                            <span class="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-green-900 dark:text-green-300">running</span>
+                            <span
+                                class="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-green-900 dark:text-green-300">running</span>
                             {{else if eq .State "terminated"}}
-                            <span class="bg-red-100 text-red-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-red-900 dark:text-red-300">terminated</span>
+                            <span
+                                class="bg-red-100 text-red-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-red-900 dark:text-red-300">terminated</span>
                             {{else if eq .State "stopped"}}
-                            <span class="bg-yellow-100 text-yellow-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-yellow-900 dark:text-yellow-300">stopped</span>
+                            <span
+                                class="bg-yellow-100 text-yellow-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-yellow-900 dark:text-yellow-300">stopped</span>
                             {{else}}
-                            <span class="bg-gray-100 text-gray-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-gray-700 dark:text-gray-300">{{.State}}</span>
+                            <span
+                                class="bg-gray-100 text-gray-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-gray-700 dark:text-gray-300">{{.State}}</span>
                             {{end}}
                         </td>
                         <td class="px-6 py-4 text-xs">{{.InstanceType}}</td>
-                        <td class="px-6 py-4 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{{.LaunchTime}}</td>
+                        <td class="px-6 py-4 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                            {{.LaunchTime}}</td>
                         <td class="px-6 py-4 font-mono text-xs text-slate-500 dark:text-slate-400">{{.VPCID}}</td>
                     </tr>
                     {{else}}
@@ -74,7 +108,8 @@
 
     <!-- Security Groups Tab -->
     <div id="security-groups" class="hidden" role="tabpanel" aria-labelledby="security-groups-tab">
-        <div class="mt-4 relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
+        <div
+            class="mt-4 relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
             <table class="w-full text-sm text-left rtl:text-right text-slate-500 dark:text-slate-400">
                 <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
                     <tr>
@@ -86,7 +121,8 @@
                 </thead>
                 <tbody>
                     {{range .SecurityGroups}}
-                    <tr class="bg-white border-b border-slate-200 dark:border-slate-700 dark:bg-slate-800/50 hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
+                    <tr
+                        class="bg-white border-b border-slate-200 dark:border-slate-700 dark:bg-slate-800/50 hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
                         <td class="px-6 py-4 font-mono text-xs text-slate-900 dark:text-white">{{.ID}}</td>
                         <td class="px-6 py-4 font-medium text-slate-900 dark:text-white">{{.Name}}</td>
                         <td class="px-6 py-4 font-mono text-xs text-slate-500 dark:text-slate-400">{{.VPCID}}</td>
@@ -108,19 +144,23 @@
     <div id="vpc-subnet" class="hidden" role="tabpanel" aria-labelledby="vpc-tab">
         <div class="mt-4 space-y-4">
             {{range .VPCs}}
-            <div class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <div
+                class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
                 <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center gap-2">
                     <span class="font-mono text-sm text-slate-900 dark:text-white font-medium">{{.ID}}</span>
                     <span class="text-xs text-slate-500 dark:text-slate-400">{{.CIDRBlock}}</span>
-                    {{if .IsDefault}}<span class="bg-blue-100 text-blue-800 text-xs font-medium px-2 py-0.5 rounded dark:bg-blue-900 dark:text-blue-300">default</span>{{end}}
+                    {{if .IsDefault}}<span
+                        class="bg-blue-100 text-blue-800 text-xs font-medium px-2 py-0.5 rounded dark:bg-blue-900 dark:text-blue-300">default</span>{{end}}
                 </div>
                 {{range .Subnets}}
-                <div class="px-6 py-2 flex items-center gap-3 text-sm border-b border-gray-100 dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700">
+                <div
+                    class="px-6 py-2 flex items-center gap-3 text-sm border-b border-gray-100 dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700">
                     <span class="text-gray-400 dark:text-gray-500">└</span>
                     <span class="font-mono text-xs text-slate-900 dark:text-white">{{.ID}}</span>
                     <span class="text-xs text-slate-500 dark:text-slate-400">{{.CIDRBlock}}</span>
                     <span class="text-xs text-gray-400 dark:text-gray-500">{{.AvailabilityZone}}</span>
-                    {{if .IsDefault}}<span class="bg-gray-100 text-gray-700 text-xs font-medium px-1.5 py-0.5 rounded dark:bg-gray-700 dark:text-gray-300">default</span>{{end}}
+                    {{if .IsDefault}}<span
+                        class="bg-gray-100 text-gray-700 text-xs font-medium px-1.5 py-0.5 rounded dark:bg-gray-700 dark:text-gray-300">default</span>{{end}}
                 </div>
                 {{else}}
                 <div class="px-6 py-2 text-xs text-gray-400 dark:text-gray-500">No subnets</div>
@@ -134,28 +174,28 @@
 </div>
 
 <script>
-// Simple tab switcher
-document.querySelectorAll('[data-tabs-target]').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-        var target = document.querySelector(this.dataset.tabsTarget);
-        // hide all panels and reset all tabs
-        document.querySelectorAll('[role="tabpanel"]').forEach(function(p) { p.classList.add('hidden'); });
-        document.querySelectorAll('[data-tabs-target]').forEach(function(b) {
-            b.classList.remove('border-blue-600', 'text-blue-600', 'dark:text-blue-500', 'dark:border-blue-500');
-            b.classList.add('border-transparent');
-            b.setAttribute('aria-selected', 'false');
-            b.setAttribute('tabindex', '-1');
+    // Simple tab switcher
+    document.querySelectorAll('[data-tabs-target]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var target = document.querySelector(this.dataset.tabsTarget);
+            // hide all panels and reset all tabs
+            document.querySelectorAll('[role="tabpanel"]').forEach(function (p) { p.classList.add('hidden'); });
+            document.querySelectorAll('[data-tabs-target]').forEach(function (b) {
+                b.classList.remove('border-blue-600', 'text-blue-600', 'dark:text-blue-500', 'dark:border-blue-500');
+                b.classList.add('border-transparent');
+                b.setAttribute('aria-selected', 'false');
+                b.setAttribute('tabindex', '-1');
+            });
+            // show target and mark this tab as active
+            target.classList.remove('hidden');
+            this.classList.add('border-blue-600', 'text-blue-600', 'dark:text-blue-500', 'dark:border-blue-500');
+            this.classList.remove('border-transparent');
+            this.setAttribute('aria-selected', 'true');
+            this.setAttribute('tabindex', '0');
         });
-        // show target and mark this tab as active
-        target.classList.remove('hidden');
-        this.classList.add('border-blue-600', 'text-blue-600', 'dark:text-blue-500', 'dark:border-blue-500');
-        this.classList.remove('border-transparent');
-        this.setAttribute('aria-selected', 'true');
-        this.setAttribute('tabindex', '0');
     });
-});
-// init first tab
-var first = document.querySelector('[data-tabs-target]');
-if (first) { first.click(); }
+    // init first tab
+    var first = document.querySelector('[data-tabs-target]');
+    if (first) { first.click(); }
 </script>
 {{end}}
