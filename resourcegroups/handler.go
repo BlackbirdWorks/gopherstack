@@ -24,22 +24,26 @@ var (
 
 const resourceGroupsTargetPrefix = "ResourceGroups."
 
-// restPathOp maps REST API path to operation name for Resource Groups.
-var restPathOp = map[string]string{
-	"/groups":      "CreateGroup",
-	"/get-group":   "GetGroup",
-	"/delete-group": "DeleteGroup",
-	"/groups-list": "ListGroups",
+// rgRESTPathOp returns a map of REST API path to Resource Groups operation name.
+// It is called at dispatch time to look up the operation for a REST request.
+func rgRESTPathOp() map[string]string {
+	return map[string]string{
+		"/groups":       "CreateGroup",
+		"/get-group":    "GetGroup",
+		"/delete-group": "DeleteGroup",
+		"/groups-list":  "ListGroups",
+	}
 }
 
 type groupNameInput struct {
-	// Group accepts the REST API "Group" field (name or ARN). When set and GroupName is empty,
-	// its value is used as the group name to look up.
+	// Group accepts the REST API "Group" field. The value is used as-is as the group
+	// name. When set and GroupName is empty, its value is used to look up the group.
 	Group     string `json:"Group"`
 	GroupName string `json:"GroupName"`
 }
 
-// resolvedName returns the group name from either the Group or GroupName field.
+// resolvedName returns the group name to use for backend operations.
+// GroupName takes precedence over Group to match the preferred lookup field.
 func (g *groupNameInput) resolvedName() string {
 	if g.GroupName != "" {
 		return g.GroupName
@@ -80,7 +84,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return true
 		}
 
-		_, isREST := restPathOp[c.Request().URL.Path]
+		_, isREST := rgRESTPathOp()[c.Request().URL.Path]
 
 		return isREST
 	}
@@ -97,7 +101,7 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 		return action
 	}
 
-	if op, ok := restPathOp[c.Request().URL.Path]; ok {
+	if op, ok := rgRESTPathOp()[c.Request().URL.Path]; ok {
 		return op
 	}
 
@@ -134,7 +138,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		// REST API paths: POST /groups, /get-group, /delete-group, /groups-list
-		if op, ok := restPathOp[c.Request().URL.Path]; ok {
+		if op, ok := rgRESTPathOp()[c.Request().URL.Path]; ok {
 			return h.handleREST(c, op)
 		}
 

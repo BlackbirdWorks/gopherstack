@@ -562,7 +562,8 @@ func (b *InMemoryBackend) DeleteDeployment(restAPIID, deploymentID string) error
 		return fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
 
-	if _, ok := d.deployments[deploymentID]; !ok {
+	_, exists := d.deployments[deploymentID]
+	if !exists {
 		return fmt.Errorf("%w: deployment %s not found", ErrRestAPINotFound, deploymentID)
 	}
 

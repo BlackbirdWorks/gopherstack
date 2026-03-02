@@ -17,7 +17,13 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
-const schedulerTargetPrefix = "AWSScheduler."
+const (
+	schedulerTargetPrefix = "AWSScheduler."
+	schedulerPathSegment  = "schedules"
+	// schedulesPathMinSegments is the minimum number of URL path segments in a
+	// /schedules/{name} REST path: ["schedules", "{name}"].
+	schedulesPathMinSegments = 2
+)
 
 var (
 	errUnknownAction  = errors.New("unknown action")
@@ -79,7 +85,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 		path := c.Request().URL.Path
 
-		return strings.HasPrefix(path, "/schedules")
+		return strings.HasPrefix(path, "/"+schedulerPathSegment)
 	}
 }
 
@@ -104,7 +110,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	// For REST paths extract name from the URL path segment.
 	if !strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), schedulerTargetPrefix) {
 		parts := strings.Split(strings.TrimPrefix(c.Request().URL.Path, "/"), "/")
-		if len(parts) >= 2 { //nolint:mnd // schedules/{name}
+		if len(parts) >= schedulesPathMinSegments {
 			return parts[1]
 		}
 	}
@@ -122,24 +128,26 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // parseSchedulerRESTPath maps an HTTP method + path to a Scheduler operation name and
 // extracts the schedule name (if present in the path).
 // Returns ("Unknown", "") when no pattern matches.
-func parseSchedulerRESTPath(method, path string) (op, name string) {
+//
+//nolint:cyclop // path routing table has necessary branches for each HTTP method + resource combination
+func parseSchedulerRESTPath(method, path string) (string, string) {
 	// Strip leading slash and split into segments.
 	segments := strings.Split(strings.TrimPrefix(path, "/"), "/")
 	switch {
 	// GET /schedules or GET /schedules/ → ListSchedules
-	case method == http.MethodGet && len(segments) == 1 && segments[0] == "schedules":
+	case method == http.MethodGet && len(segments) == 1 && segments[0] == schedulerPathSegment:
 		return "ListSchedules", ""
 	// POST /schedules/{name} → CreateSchedule
-	case method == http.MethodPost && len(segments) == 2 && segments[0] == "schedules": //nolint:mnd
+	case method == http.MethodPost && len(segments) == schedulesPathMinSegments && segments[0] == schedulerPathSegment:
 		return "CreateSchedule", segments[1]
 	// GET /schedules/{name} → GetSchedule
-	case method == http.MethodGet && len(segments) == 2 && segments[0] == "schedules": //nolint:mnd
+	case method == http.MethodGet && len(segments) == schedulesPathMinSegments && segments[0] == schedulerPathSegment:
 		return "GetSchedule", segments[1]
 	// DELETE /schedules/{name} → DeleteSchedule
-	case method == http.MethodDelete && len(segments) == 2 && segments[0] == "schedules": //nolint:mnd
+	case method == http.MethodDelete && len(segments) == schedulesPathMinSegments && segments[0] == schedulerPathSegment:
 		return "DeleteSchedule", segments[1]
 	// PUT /schedules/{name} → UpdateSchedule
-	case method == http.MethodPut && len(segments) == 2 && segments[0] == "schedules": //nolint:mnd
+	case method == http.MethodPut && len(segments) == schedulesPathMinSegments && segments[0] == schedulerPathSegment:
 		return "UpdateSchedule", segments[1]
 	}
 
@@ -150,7 +158,7 @@ func parseSchedulerRESTPath(method, path string) (op, name string) {
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		// REST API path: /schedules or /schedules/{name}
-		if strings.HasPrefix(c.Request().URL.Path, "/schedules") &&
+		if strings.HasPrefix(c.Request().URL.Path, "/"+schedulerPathSegment) &&
 			!strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), schedulerTargetPrefix) {
 			return h.handleREST(c)
 		}

@@ -20,6 +20,16 @@ import (
 
 var errUnknownOperation = errors.New("UnknownOperationException")
 
+// path segment constants used in REST route matching.
+const (
+	apiGWUnknownOp     = "Unknown"
+	apiGWSegResources  = "resources"
+	apiGWSegDeployment = "deployments"
+	apiGWSegStages     = "stages"
+	apiGWSegMethods    = "methods"
+	apiGWSegInteg      = "integration"
+)
+
 type createRestAPIInput struct {
 	Tags        *tags.Tags `json:"tags"`
 	Name        string     `json:"name"`
@@ -351,15 +361,15 @@ func injectJSONFieldAPIGW(body []byte, key, value string) []byte {
 // parseAPIGWRESTPath maps an HTTP method + URL path to an API Gateway operation name
 // and extracts path parameters. Returns ("Unknown", nil, false) when no pattern matches.
 //
-//nolint:cyclop,gocognit // path routing table is inherently a multi-branch switch
-func parseAPIGWRESTPath(method, path string) (op string, params map[string]string, ok bool) {
+//nolint:cyclop,gocyclo // path routing table is inherently a multi-branch switch
+func parseAPIGWRESTPath(method, path string) (string, map[string]string, bool) {
 	// Strip leading "/" and split into path segments.
 	segs := strings.Split(strings.TrimPrefix(path, "/"), "/")
 	n := len(segs)
 
 	// All API Gateway REST paths start with "restapis".
 	if n == 0 || segs[0] != "restapis" {
-		return "Unknown", nil, false
+		return apiGWUnknownOp, nil, false
 	}
 
 	switch {
@@ -370,65 +380,64 @@ func parseAPIGWRESTPath(method, path string) (op string, params map[string]strin
 	case n == 1 && method == http.MethodGet:
 		return "GetRestApis", nil, true
 	// GET /restapis/{id} → GetRestApi
-	case n == 2 && method == http.MethodGet: //nolint:mnd
+	case n == 2 && method == http.MethodGet:
 		return "GetRestApi", map[string]string{"restApiId": segs[1]}, true
 	// DELETE /restapis/{id} → DeleteRestApi
-	case n == 2 && method == http.MethodDelete: //nolint:mnd
+	case n == 2 && method == http.MethodDelete:
 		return "DeleteRestApi", map[string]string{"restApiId": segs[1]}, true
 	// GET /restapis/{id}/resources → GetResources
-	case n == 3 && segs[2] == "resources" && method == http.MethodGet: //nolint:mnd
+	case n == 3 && segs[2] == apiGWSegResources && method == http.MethodGet:
 		return "GetResources", map[string]string{"restApiId": segs[1]}, true
 	// GET /restapis/{id}/resources/{resId} → GetResource
-	case n == 4 && segs[2] == "resources" && method == http.MethodGet: //nolint:mnd
+	case n == 4 && segs[2] == apiGWSegResources && method == http.MethodGet:
 		return "GetResource", map[string]string{"restApiId": segs[1], "resourceId": segs[3]}, true
 	// POST /restapis/{id}/resources/{parentId} → CreateResource
-	case n == 4 && segs[2] == "resources" && method == http.MethodPost: //nolint:mnd
+	case n == 4 && segs[2] == apiGWSegResources && method == http.MethodPost:
 		return "CreateResource", map[string]string{"restApiId": segs[1], "parentId": segs[3]}, true
 	// DELETE /restapis/{id}/resources/{resId} → DeleteResource
-	case n == 4 && segs[2] == "resources" && method == http.MethodDelete: //nolint:mnd
+	case n == 4 && segs[2] == apiGWSegResources && method == http.MethodDelete:
 		return "DeleteResource", map[string]string{"restApiId": segs[1], "resourceId": segs[3]}, true
 	// /restapis/{id}/resources/{resId}/methods/{httpMethod}[/integration]
-	case n >= 5 && segs[2] == "resources" && segs[4] == "methods": //nolint:mnd
+	case n >= 5 && segs[2] == apiGWSegResources && segs[4] == apiGWSegMethods:
 		return parseAPIGWMethodPath(method, segs)
 	// POST /restapis/{id}/deployments → CreateDeployment
-	case n == 3 && segs[2] == "deployments" && method == http.MethodPost: //nolint:mnd
+	case n == 3 && segs[2] == apiGWSegDeployment && method == http.MethodPost:
 		return "CreateDeployment", map[string]string{"restApiId": segs[1]}, true
 	// GET /restapis/{id}/deployments → GetDeployments
-	case n == 3 && segs[2] == "deployments" && method == http.MethodGet: //nolint:mnd
+	case n == 3 && segs[2] == apiGWSegDeployment && method == http.MethodGet:
 		return "GetDeployments", map[string]string{"restApiId": segs[1]}, true
 	// GET /restapis/{id}/deployments/{deplId} → GetDeployment
-	case n == 4 && segs[2] == "deployments" && method == http.MethodGet: //nolint:mnd
+	case n == 4 && segs[2] == apiGWSegDeployment && method == http.MethodGet:
 		return "GetDeployment", map[string]string{"restApiId": segs[1], "deploymentId": segs[3]}, true
 	// DELETE /restapis/{id}/deployments/{deplId} → DeleteDeployment
-	case n == 4 && segs[2] == "deployments" && method == http.MethodDelete: //nolint:mnd
+	case n == 4 && segs[2] == apiGWSegDeployment && method == http.MethodDelete:
 		return "DeleteDeployment", map[string]string{"restApiId": segs[1], "deploymentId": segs[3]}, true
 	// GET /restapis/{id}/stages → GetStages
-	case n == 3 && segs[2] == "stages" && method == http.MethodGet: //nolint:mnd
+	case n == 3 && segs[2] == apiGWSegStages && method == http.MethodGet:
 		return "GetStages", map[string]string{"restApiId": segs[1]}, true
 	// GET /restapis/{id}/stages/{stageName} → GetStage
-	case n == 4 && segs[2] == "stages" && method == http.MethodGet: //nolint:mnd
+	case n == 4 && segs[2] == apiGWSegStages && method == http.MethodGet:
 		return "GetStage", map[string]string{"restApiId": segs[1], "stageName": segs[3]}, true
 	// DELETE /restapis/{id}/stages/{stageName} → DeleteStage
-	case n == 4 && segs[2] == "stages" && method == http.MethodDelete: //nolint:mnd
+	case n == 4 && segs[2] == apiGWSegStages && method == http.MethodDelete:
 		return "DeleteStage", map[string]string{"restApiId": segs[1], "stageName": segs[3]}, true
 	}
 
-	return "Unknown", nil, false
+	return apiGWUnknownOp, nil, false
 }
 
 // parseAPIGWMethodPath handles paths under /restapis/{id}/resources/{resId}/methods/{httpMethod}.
-func parseAPIGWMethodPath(method string, segs []string) (op string, params map[string]string, ok bool) {
+func parseAPIGWMethodPath(method string, segs []string) (string, map[string]string, bool) {
 	// segs: [restapis, {id}, resources, {resId}, methods, {httpMethod}, ...]
 	const (
 		idxID         = 1
 		idxResourceID = 3
-		idxMethodSeg  = 4
 		idxHTTPMethod = 5
 		idxIntegSeg   = 6
 	)
 
 	if len(segs) <= idxHTTPMethod {
-		return "Unknown", nil, false
+		return apiGWUnknownOp, nil, false
 	}
 
 	apiID := segs[idxID]
@@ -441,7 +450,7 @@ func parseAPIGWMethodPath(method string, segs []string) (op string, params map[s
 	}
 
 	// /restapis/{id}/resources/{resId}/methods/{httpMethod}/integration
-	if len(segs) > idxIntegSeg && segs[idxIntegSeg] == "integration" {
+	if len(segs) > idxIntegSeg && segs[idxIntegSeg] == apiGWSegInteg {
 		switch method {
 		case http.MethodPut:
 			return "PutIntegration", baseParams, true
@@ -451,7 +460,7 @@ func parseAPIGWMethodPath(method string, segs []string) (op string, params map[s
 			return "DeleteIntegration", baseParams, true
 		}
 
-		return "Unknown", nil, false
+		return apiGWUnknownOp, nil, false
 	}
 
 	// /restapis/{id}/resources/{resId}/methods/{httpMethod}
@@ -464,7 +473,7 @@ func parseAPIGWMethodPath(method string, segs []string) (op string, params map[s
 		return "DeleteMethod", baseParams, true
 	}
 
-	return "Unknown", nil, false
+	return apiGWUnknownOp, nil, false
 }
 
 type actionFn func([]byte) (int, any, error)
@@ -692,6 +701,7 @@ func (h *Handler) integrationActions() map[string]actionFn {
 	}
 }
 
+//nolint:gocognit // deployment action table requires multiple closure branches
 func (h *Handler) deploymentActions() map[string]actionFn {
 	return map[string]actionFn{
 		"CreateDeployment": func(b []byte) (int, any, error) {
