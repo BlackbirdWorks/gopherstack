@@ -56,6 +56,16 @@ import (
 //nolint:gochecknoglobals // shared provider cache path, read-only after init
 var tofuProviderCacheDir = filepath.Join(os.TempDir(), "gopherstack-tofu-provider-cache")
 
+// preInitDirMain and preInitDirRDS are directories initialized by warmProviderCache
+// in TestMain. applyTofu symlinks .terraform/ from these into each test's temp dir
+// instead of running tofu init, eliminating plugin-cache file-lock serialization.
+//
+//nolint:gochecknoglobals // set once in TestMain, read-only during parallel tests
+var (
+	preInitDirMain string
+	preInitDirRDS  string
+)
+
 // tofuBinaryOnce ensures tofu is only downloaded once per test run.
 //
 //nolint:gochecknoglobals // lazy-init singleton for the tofu binary path
@@ -265,6 +275,19 @@ func latestStableTofuVersion(versions []struct {
 	return ""
 }
 
+// selectPreInitDir returns the pre-initialized directory whose .terraform/ subtree
+// can be reused for the given HCL configuration, or an empty string if none matches.
+func selectPreInitDir(hcl string) string {
+	switch {
+	case strings.HasPrefix(hcl, rdsProviderBlock(endpoint)):
+		return preInitDirRDS
+	case strings.HasPrefix(hcl, providerBlock(endpoint)):
+		return preInitDirMain
+	default:
+		return ""
+	}
+}
+
 // applyTofu writes hcl to a main.tf in dir, runs tofu init and
 // tofu apply -auto-approve, then registers a cleanup that destroys
 // all created resources.
@@ -309,7 +332,24 @@ func applyTofu(t *testing.T, tofuBin, dir, hcl string) {
 		return true
 	}
 
-	run(true, "init", "-no-color")
+	// Reuse a pre-initialized .terraform directory when available.
+	// This avoids acquiring the plugin-cache file lock during parallel tests,
+	// which would otherwise serialize every tofu init call.
+	if initSrc := selectPreInitDir(hcl); initSrc != "" {
+		dotTerraform := filepath.Join(dir, ".terraform")
+		if err := os.Symlink(filepath.Join(initSrc, ".terraform"), dotTerraform); err != nil {
+			t.Logf("could not symlink .terraform from pre-init dir: %v; falling back to init", err)
+			run(true, "init", "-no-color")
+		} else {
+			// Copy the lock file (small, ~1 KB) so tofu can verify provider checksums.
+			if lockData, err := os.ReadFile(filepath.Join(initSrc, ".terraform.lock.hcl")); err == nil {
+				_ = os.WriteFile(filepath.Join(dir, ".terraform.lock.hcl"), lockData, 0o644)
+			}
+		}
+	} else {
+		run(true, "init", "-no-color")
+	}
+
 	run(true, "apply", "-auto-approve", "-no-color")
 
 	t.Cleanup(func() {

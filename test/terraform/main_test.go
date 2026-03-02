@@ -134,6 +134,13 @@ func TestMain(m *testing.M) {
 
 	code := m.Run()
 
+	// Clean up pre-initialized directories kept open for parallel tests.
+	for _, d := range []string{preInitDirMain, preInitDirRDS} {
+		if d != "" {
+			os.RemoveAll(d)
+		}
+	}
+
 	if tErr := container.Terminate(ctx); tErr != nil {
 		logger.Error("failed to terminate container", "error", tErr)
 	}
@@ -641,10 +648,11 @@ func initTofuBinary(logger *slog.Logger) {
 // warmProviderCache runs a single tofu init to ensure the shared provider cache
 // is populated before parallel tests start. This avoids 8+ concurrent tests all
 // racing to download the ~300 MB hashicorp/aws provider simultaneously.
+// It also keeps the initialized directories so applyTofu can symlink .terraform/
+// instead of re-running init (which serializes on the plugin-cache file lock).
 func warmProviderCache(logger *slog.Logger) {
-	tofuBin, err := exec.LookPath("tofu")
-	if err != nil {
-		logger.Warn("skipping provider cache warm-up: tofu not in PATH", "error", err)
+	if tofuBinaryPath == "" {
+		logger.Warn("skipping provider cache warm-up: tofu binary not available")
 
 		return
 	}
@@ -658,29 +666,29 @@ func warmProviderCache(logger *slog.Logger) {
 
 	// Warm all provider block variants used by tests so no test pays the
 	// first-access initialization cost.
-	for _, hcl := range []string{
-		providerBlock(endpoint),
-		rdsProviderBlock(endpoint),
-	} {
-		warmWithHCL(tofuBin, cacheDir, hcl, logger)
-	}
+	preInitDirMain = warmWithHCL(tofuBinaryPath, cacheDir, providerBlock(endpoint), logger)
+	preInitDirRDS = warmWithHCL(tofuBinaryPath, cacheDir, rdsProviderBlock(endpoint), logger)
 }
 
 // warmWithHCL runs `tofu init` in a temporary directory with the given HCL to
-// populate the shared provider cache.
-func warmWithHCL(tofuBin, cacheDir, hcl string, logger *slog.Logger) {
+// populate the shared provider cache. It returns the directory path so callers
+// can reuse the initialized .terraform/ subtree; the caller is responsible for
+// cleanup (os.RemoveAll). Returns an empty string on failure.
+func warmWithHCL(tofuBin, cacheDir, hcl string, logger *slog.Logger) string {
 	dir, err := os.MkdirTemp("", "tofu-warmup-*")
 	if err != nil {
 		logger.Warn("skipping provider cache warm-up", "error", err)
 
-		return
+		return ""
 	}
-	defer os.RemoveAll(dir)
 
 	if err := os.WriteFile(filepath.Join(dir, "main.tf"), []byte(hcl), 0o644); err != nil {
 		logger.Warn("skipping provider cache warm-up", "error", err)
+		if rmErr := os.RemoveAll(dir); rmErr != nil {
+			logger.Warn("failed to remove warm-up temp dir", "dir", dir, "error", rmErr)
+		}
 
-		return
+		return ""
 	}
 
 	cmd := exec.Command(tofuBin, "init", "-backend=false", "-no-color")
@@ -694,11 +702,16 @@ func warmWithHCL(tofuBin, cacheDir, hcl string, logger *slog.Logger) {
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		logger.Warn("provider cache warm-up failed", "error", err, "output", string(out))
+		if rmErr := os.RemoveAll(dir); rmErr != nil {
+			logger.Warn("failed to remove warm-up temp dir", "dir", dir, "error", rmErr)
+		}
 
-		return
+		return ""
 	}
 
 	logger.Info("provider cache warmed successfully")
+
+	return dir
 }
 
 // dumpContainerLogsOnFailure dumps the container logs to stdout if the test failed.
