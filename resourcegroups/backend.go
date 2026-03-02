@@ -17,12 +17,19 @@ var (
 	ErrAlreadyExists = awserr.New("BadRequestException", awserr.ErrAlreadyExists)
 )
 
+// ResourceQuery represents a tag-based resource query for a group.
+type ResourceQuery struct {
+	Type  string `json:"type"`
+	Query string `json:"query"`
+}
+
 // Group represents a Resource Group.
 type Group struct {
-	Tags        *tags.Tags
-	Name        string
-	ARN         string
-	Description string
+	Tags          *tags.Tags
+	ResourceQuery *ResourceQuery
+	Name          string
+	ARN           string
+	Description   string
 }
 
 // InMemoryBackend is the in-memory store for Resource Groups.
@@ -46,7 +53,11 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 // CreateGroup creates a new resource group.
 // The Tags field in the returned Group points to the backend-owned Tags
 // collection; callers should treat it as read-only.
-func (b *InMemoryBackend) CreateGroup(name, description string, inputTags *tags.Tags) (*Group, error) {
+func (b *InMemoryBackend) CreateGroup(
+	name, description string,
+	resourceQuery *ResourceQuery,
+	inputTags *tags.Tags,
+) (*Group, error) {
 	b.mu.Lock("CreateGroup")
 	defer b.mu.Unlock()
 
@@ -65,7 +76,7 @@ func (b *InMemoryBackend) CreateGroup(name, description string, inputTags *tags.
 		backendTags = tags.FromMap("rg."+name+".tags", inputTags.Clone())
 	}
 
-	g := &Group{Name: name, ARN: groupARN, Description: description, Tags: backendTags}
+	g := &Group{Name: name, ARN: groupARN, Description: description, Tags: backendTags, ResourceQuery: resourceQuery}
 	b.groups[name] = g
 
 	cp := *g

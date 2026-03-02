@@ -51,6 +51,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateSecurityGroup",
 		"DeleteSecurityGroup",
 		"DescribeVpcs",
+		"DescribeVpcAttribute",
 		"DescribeSubnets",
 		"CreateVpc",
 		"CreateSubnet",
@@ -180,6 +181,7 @@ func (h *Handler) dispatchTable() map[string]ec2ActionFn {
 		"CreateSecurityGroup":    h.handleCreateSecurityGroup,
 		"DeleteSecurityGroup":    h.handleDeleteSecurityGroup,
 		"DescribeVpcs":           h.handleDescribeVpcs,
+		"DescribeVpcAttribute":   h.handleDescribeVpcAttribute,
 		"DescribeSubnets":        h.handleDescribeSubnets,
 		"CreateVpc":              h.handleCreateVpc,
 		"CreateSubnet":           h.handleCreateSubnet,
@@ -345,6 +347,34 @@ func (h *Handler) handleDescribeVpcs(vals url.Values, reqID string) (any, error)
 	}, nil
 }
 
+type describeVpcAttributeResponse struct {
+	XMLName   xml.Name        `xml:"DescribeVpcAttributeResponse"`
+	Xmlns     string          `xml:"xmlns,attr"`
+	RequestID string          `xml:"requestId"`
+	VpcID     string          `xml:"vpcId"`
+	Attribute booleanAttrItem `xml:"attribute"`
+}
+
+type booleanAttrItem struct {
+	Value string `xml:"value"`
+}
+
+func (h *Handler) handleDescribeVpcAttribute(vals url.Values, reqID string) (any, error) {
+	vpcID := vals.Get("VpcId")
+	attr := vals.Get("Attribute")
+
+	// Return false for all VPC attributes (DNS hostnames, DNS support, etc.)
+	// Terraform reads these to set up VPC configuration.
+	_ = attr
+
+	return &describeVpcAttributeResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		VpcID:     vpcID,
+		Attribute: booleanAttrItem{Value: "false"},
+	}, nil
+}
+
 func (h *Handler) handleCreateVpc(vals url.Values, reqID string) (any, error) {
 	cidr := vals.Get("CidrBlock")
 
@@ -500,6 +530,7 @@ func toVPCItem(v *VPC) vpcItem {
 		VpcID:     v.ID,
 		CIDRBlock: v.CIDRBlock,
 		IsDefault: isDefault,
+		State:     "available",
 	}
 }
 
@@ -509,6 +540,7 @@ func toSubnetItem(s *Subnet) subnetItem {
 		VPCID:            s.VPCID,
 		CIDRBlock:        s.CIDRBlock,
 		AvailabilityZone: s.AvailabilityZone,
+		State:            "available",
 	}
 }
 
@@ -628,6 +660,7 @@ type vpcItem struct {
 	VpcID     string `xml:"vpcId"`
 	CIDRBlock string `xml:"cidrBlock"`
 	IsDefault string `xml:"isDefault"`
+	State     string `xml:"state"`
 }
 
 type vpcItemSet struct {
@@ -653,6 +686,7 @@ type subnetItem struct {
 	VPCID            string `xml:"vpcId"`
 	CIDRBlock        string `xml:"cidrBlock"`
 	AvailabilityZone string `xml:"availabilityZone"`
+	State            string `xml:"state"`
 }
 
 type subnetItemSet struct {

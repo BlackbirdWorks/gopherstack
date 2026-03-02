@@ -69,7 +69,7 @@ func (h *DashboardHandler) resourcegroupsCreate(c *echo.Context) error {
 		return c.NoContent(http.StatusBadRequest)
 	}
 
-	if _, err := h.ResourceGroupsOps.Backend.CreateGroup(name, description, nil); err != nil {
+	if _, err := h.ResourceGroupsOps.Backend.CreateGroup(name, description, nil, nil); err != nil {
 		h.Logger.Error("failed to create resource group", "name", name, "error", err)
 
 		return c.NoContent(http.StatusBadRequest)

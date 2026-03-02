@@ -28,10 +28,12 @@ const resourceGroupsTargetPrefix = "ResourceGroups."
 // It is called at dispatch time to look up the operation for a REST request.
 func rgRESTPathOp() map[string]string {
 	return map[string]string{
-		"/groups":       "CreateGroup",
-		"/get-group":    "GetGroup",
-		"/delete-group": "DeleteGroup",
-		"/groups-list":  "ListGroups",
+		"/groups":                  "CreateGroup",
+		"/get-group":               "GetGroup",
+		"/delete-group":            "DeleteGroup",
+		"/groups-list":             "ListGroups",
+		"/get-group-query":         "GetGroupQuery",
+		"/get-group-configuration": "GetGroupConfiguration",
 	}
 }
 
@@ -73,6 +75,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteGroup",
 		"ListGroups",
 		"GetGroup",
+		"GetGroupQuery",
+		"GetGroupConfiguration",
 	}
 }
 
@@ -173,10 +177,12 @@ func (h *Handler) handleREST(c *echo.Context, action string) error {
 
 func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"CreateGroup": service.WrapOp(h.handleCreateGroup),
-		"DeleteGroup": service.WrapOp(h.handleDeleteGroup),
-		"ListGroups":  service.WrapOp(h.handleListGroups),
-		"GetGroup":    service.WrapOp(h.handleGetGroup),
+		"CreateGroup":           service.WrapOp(h.handleCreateGroup),
+		"DeleteGroup":           service.WrapOp(h.handleDeleteGroup),
+		"ListGroups":            service.WrapOp(h.handleListGroups),
+		"GetGroup":              service.WrapOp(h.handleGetGroup),
+		"GetGroupQuery":         service.WrapOp(h.handleGetGroupQuery),
+		"GetGroupConfiguration": service.WrapOp(h.handleGetGroupConfiguration),
 	}
 }
 
@@ -214,22 +220,24 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 }
 
 type handleCreateGroupInput struct {
-	Tags        *tags.Tags `json:"Tags"`
-	Name        string     `json:"Name"`
-	Description string     `json:"Description"`
+	Tags          *tags.Tags     `json:"Tags"`
+	ResourceQuery *ResourceQuery `json:"ResourceQuery"`
+	Name          string         `json:"Name"`
+	Description   string         `json:"Description"`
 }
 
 type createGroupOutput struct {
-	Group *Group `json:"Group"`
+	Group         *Group         `json:"Group"`
+	ResourceQuery *ResourceQuery `json:"ResourceQuery,omitempty"`
 }
 
 func (h *Handler) handleCreateGroup(_ context.Context, in *handleCreateGroupInput) (*createGroupOutput, error) {
-	g, err := h.Backend.CreateGroup(in.Name, in.Description, in.Tags)
+	g, err := h.Backend.CreateGroup(in.Name, in.Description, in.ResourceQuery, in.Tags)
 	if err != nil {
 		return nil, err
 	}
 
-	return &createGroupOutput{Group: g}, nil
+	return &createGroupOutput{Group: g, ResourceQuery: g.ResourceQuery}, nil
 }
 
 type deleteGroupOutput struct{}
@@ -265,4 +273,49 @@ func (h *Handler) handleGetGroup(_ context.Context, in *groupNameInput) (*getGro
 	}
 
 	return &getGroupOutput{Group: g}, nil
+}
+
+type getGroupQueryOutput struct {
+	GroupQuery *groupQueryOutput `json:"GroupQuery"`
+}
+
+type groupQueryOutput struct {
+	ResourceQuery *ResourceQuery `json:"ResourceQuery"`
+	GroupName     string         `json:"GroupName"`
+}
+
+func (h *Handler) handleGetGroupQuery(_ context.Context, in *groupNameInput) (*getGroupQueryOutput, error) {
+	g, err := h.Backend.GetGroup(in.resolvedName())
+	if err != nil {
+		return nil, err
+	}
+
+	return &getGroupQueryOutput{GroupQuery: &groupQueryOutput{
+		GroupName:     g.Name,
+		ResourceQuery: g.ResourceQuery,
+	}}, nil
+}
+
+type getGroupConfigurationOutput struct {
+	GroupConfiguration *groupConfigurationOutput `json:"GroupConfiguration"`
+}
+
+type groupConfigurationOutput struct {
+	GroupName     string            `json:"GroupName"`
+	Configuration []json.RawMessage `json:"Configuration"`
+}
+
+func (h *Handler) handleGetGroupConfiguration(
+	_ context.Context,
+	in *groupNameInput,
+) (*getGroupConfigurationOutput, error) {
+	g, err := h.Backend.GetGroup(in.resolvedName())
+	if err != nil {
+		return nil, err
+	}
+
+	return &getGroupConfigurationOutput{GroupConfiguration: &groupConfigurationOutput{
+		GroupName:     g.Name,
+		Configuration: []json.RawMessage{},
+	}}, nil
 }

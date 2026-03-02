@@ -764,160 +764,160 @@ func dumpContainerLogsOnFailure(t *testing.T) {
 
 // createEC2Client returns an EC2 client pointed at the shared test container.
 func createEC2Client(t *testing.T) *ec2svc.Client {
-t.Helper()
+	t.Helper()
 
-cfg, err := config.LoadDefaultConfig(
-t.Context(),
-config.WithRegion("us-east-1"),
-config.WithCredentialsProvider(
-credentials.NewStaticCredentialsProvider("test", "test", ""),
-),
-)
-if err != nil {
-require.NoError(t, err, "unable to load SDK config")
-}
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
 
-return ec2svc.NewFromConfig(cfg, func(o *ec2svc.Options) {
-o.BaseEndpoint = aws.String(endpoint)
-})
+	return ec2svc.NewFromConfig(cfg, func(o *ec2svc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
 }
 
 // createAPIGatewayClient returns an API Gateway client pointed at the shared test container.
 func createAPIGatewayClient(t *testing.T) *apigwsvc.Client {
-t.Helper()
+	t.Helper()
 
-cfg, err := config.LoadDefaultConfig(
-t.Context(),
-config.WithRegion("us-east-1"),
-config.WithCredentialsProvider(
-credentials.NewStaticCredentialsProvider("test", "test", ""),
-),
-)
-if err != nil {
-require.NoError(t, err, "unable to load SDK config")
-}
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
 
-return apigwsvc.NewFromConfig(cfg, func(o *apigwsvc.Options) {
-o.BaseEndpoint = aws.String(endpoint)
-})
+	return apigwsvc.NewFromConfig(cfg, func(o *apigwsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
 }
 
 // createSchedulerClient returns a Scheduler client pointed at the shared test container.
 func createSchedulerClient(t *testing.T) *schedulersvc.Client {
-t.Helper()
+	t.Helper()
 
-cfg, err := config.LoadDefaultConfig(
-t.Context(),
-config.WithRegion("us-east-1"),
-config.WithCredentialsProvider(
-credentials.NewStaticCredentialsProvider("test", "test", ""),
-),
-)
-if err != nil {
-require.NoError(t, err, "unable to load SDK config")
-}
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
 
-return schedulersvc.NewFromConfig(cfg, func(o *schedulersvc.Options) {
-o.BaseEndpoint = aws.String(endpoint)
-})
+	return schedulersvc.NewFromConfig(cfg, func(o *schedulersvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
 }
 
 // createRoute53ResolverClient returns a Route53 Resolver client pointed at the shared test container.
 func createRoute53ResolverClient(t *testing.T) *route53resolversvc.Client {
-t.Helper()
+	t.Helper()
 
-cfg, err := config.LoadDefaultConfig(
-t.Context(),
-config.WithRegion("us-east-1"),
-config.WithCredentialsProvider(
-credentials.NewStaticCredentialsProvider("test", "test", ""),
-),
-)
-if err != nil {
-require.NoError(t, err, "unable to load SDK config")
-}
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
 
-return route53resolversvc.NewFromConfig(cfg, func(o *route53resolversvc.Options) {
-o.BaseEndpoint = aws.String(endpoint)
-})
+	return route53resolversvc.NewFromConfig(cfg, func(o *route53resolversvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
 }
 
 // createS3ControlClient returns an S3 Control client pointed at the shared test container.
 func createS3ControlClient(t *testing.T) *s3controlsvc.Client {
-t.Helper()
+	t.Helper()
 
-cfg, err := config.LoadDefaultConfig(
-t.Context(),
-config.WithRegion("us-east-1"),
-config.WithCredentialsProvider(
-credentials.NewStaticCredentialsProvider("test", "test", ""),
-),
-)
-if err != nil {
-require.NoError(t, err, "unable to load SDK config")
-}
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
 
-return s3controlsvc.NewFromConfig(cfg, func(o *s3controlsvc.Options) {
-o.BaseEndpoint = aws.String(endpoint)
-})
+	return s3controlsvc.NewFromConfig(cfg, func(o *s3controlsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
 }
 
 // createAWSConfigClient returns an AWS Config client pointed at the shared test container.
 func createAWSConfigClient(t *testing.T) *configsvc.Client {
-t.Helper()
+	t.Helper()
 
-cfg, err := config.LoadDefaultConfig(
-t.Context(),
-config.WithRegion("us-east-1"),
-config.WithCredentialsProvider(
-credentials.NewStaticCredentialsProvider("test", "test", ""),
-),
-)
-if err != nil {
-require.NoError(t, err, "unable to load SDK config")
-}
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
 
-return configsvc.NewFromConfig(cfg, func(o *configsvc.Options) {
-o.BaseEndpoint = aws.String(endpoint)
-})
+	return configsvc.NewFromConfig(cfg, func(o *configsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
 }
 
 // createResourceGroupsClient returns a Resource Groups client pointed at the shared test container.
 func createResourceGroupsClient(t *testing.T) *resourcegroupssvc.Client {
-t.Helper()
+	t.Helper()
 
-cfg, err := config.LoadDefaultConfig(
-t.Context(),
-config.WithRegion("us-east-1"),
-config.WithCredentialsProvider(
-credentials.NewStaticCredentialsProvider("test", "test", ""),
-),
-)
-if err != nil {
-require.NoError(t, err, "unable to load SDK config")
-}
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
 
-return resourcegroupssvc.NewFromConfig(cfg, func(o *resourcegroupssvc.Options) {
-o.BaseEndpoint = aws.String(endpoint)
-})
+	return resourcegroupssvc.NewFromConfig(cfg, func(o *resourcegroupssvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
 }
 
 // createSWFClient returns an SWF client pointed at the shared test container.
 func createSWFClient(t *testing.T) *swfsvc.Client {
-t.Helper()
+	t.Helper()
 
-cfg, err := config.LoadDefaultConfig(
-t.Context(),
-config.WithRegion("us-east-1"),
-config.WithCredentialsProvider(
-credentials.NewStaticCredentialsProvider("test", "test", ""),
-),
-)
-if err != nil {
-require.NoError(t, err, "unable to load SDK config")
-}
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
 
-return swfsvc.NewFromConfig(cfg, func(o *swfsvc.Options) {
-o.BaseEndpoint = aws.String(endpoint)
-})
+	return swfsvc.NewFromConfig(cfg, func(o *swfsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
 }

@@ -42,6 +42,7 @@ func (h *Handler) Name() string { return "SWF" }
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"RegisterDomain",
+		"DescribeDomain",
 		"ListDomains",
 		"DeprecateDomain",
 		"RegisterWorkflowType",
@@ -110,6 +111,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
 		"RegisterDomain":            service.WrapOp(h.handleRegisterDomain),
+		"DescribeDomain":            service.WrapOp(h.handleDescribeDomain),
 		"ListDomains":               service.WrapOp(h.handleListDomains),
 		"DeprecateDomain":           service.WrapOp(h.handleDeprecateDomain),
 		"RegisterWorkflowType":      service.WrapOp(h.handleRegisterWorkflowType),
@@ -154,6 +156,15 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 
 type registerDomainOutput struct{}
 
+type describeDomainOutput struct {
+	DomainInfo    *Domain            `json:"domainInfo"`
+	Configuration domainConfigOutput `json:"configuration"`
+}
+
+type domainConfigOutput struct {
+	WorkflowExecutionRetentionPeriodInDays string `json:"workflowExecutionRetentionPeriodInDays"`
+}
+
 type listDomainsOutput struct {
 	DomainInfos []Domain `json:"domainInfos"`
 }
@@ -188,6 +199,25 @@ func (h *Handler) handleRegisterDomain(
 	}
 
 	return &registerDomainOutput{}, nil
+}
+
+type handleDescribeDomainInput struct {
+	Name string `json:"name"`
+}
+
+func (h *Handler) handleDescribeDomain(
+	_ context.Context,
+	in *handleDescribeDomainInput,
+) (*describeDomainOutput, error) {
+	d, err := h.Backend.DescribeDomain(in.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeDomainOutput{
+		DomainInfo:    d,
+		Configuration: domainConfigOutput{WorkflowExecutionRetentionPeriodInDays: "NONE"},
+	}, nil
 }
 
 type handleListDomainsInput struct {

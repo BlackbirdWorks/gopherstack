@@ -99,11 +99,6 @@ type publicAccessBlockConfigurationXML struct {
 	RestrictPublicBuckets bool     `xml:"RestrictPublicBuckets"`
 }
 
-type getPublicAccessBlockOutputXML struct {
-	XMLName                        xml.Name                          `xml:"GetPublicAccessBlockOutput"`
-	PublicAccessBlockConfiguration publicAccessBlockConfigurationXML `xml:"PublicAccessBlockConfiguration"`
-}
-
 func (h *Handler) handleGetPublicAccessBlock(c *echo.Context) error {
 	accountID := c.Request().Header.Get("X-Amz-Account-Id")
 	if accountID == "" {
@@ -119,13 +114,11 @@ func (h *Handler) handleGetPublicAccessBlock(c *echo.Context) error {
 		return c.String(http.StatusInternalServerError, err.Error())
 	}
 
-	out := getPublicAccessBlockOutputXML{
-		PublicAccessBlockConfiguration: publicAccessBlockConfigurationXML{
-			BlockPublicAcls:       cfg.BlockPublicAcls,
-			IgnorePublicAcls:      cfg.IgnorePublicAcls,
-			BlockPublicPolicy:     cfg.BlockPublicPolicy,
-			RestrictPublicBuckets: cfg.RestrictPublicBuckets,
-		},
+	out := publicAccessBlockConfigurationXML{
+		BlockPublicAcls:       cfg.BlockPublicAcls,
+		IgnorePublicAcls:      cfg.IgnorePublicAcls,
+		BlockPublicPolicy:     cfg.BlockPublicPolicy,
+		RestrictPublicBuckets: cfg.RestrictPublicBuckets,
 	}
 
 	xmlBytes, err := xml.Marshal(out)

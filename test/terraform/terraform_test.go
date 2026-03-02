@@ -1426,312 +1426,312 @@ func TestTerraform_Firehose(t *testing.T) {
 
 // TestTerraform_SWF provisions an SWF domain and verifies it is listed.
 func TestTerraform_SWF(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []tfTestCase{
-{
-name:    "success",
-fixture: "swf/success",
-setup: func(t *testing.T, _ string) map[string]any {
-t.Helper()
-id := uuid.NewString()[:8]
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "swf/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
 
-return map[string]any{
-"DomainName": "tf-swf-" + id,
-}
-},
-verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
-t.Helper()
-client := createSWFClient(t)
-out, err := client.ListDomains(ctx, &swfsvc.ListDomainsInput{
-RegistrationStatus: swftypes.RegistrationStatusRegistered,
-})
-require.NoError(t, err, "ListDomains should succeed after terraform apply")
-found := false
-for _, d := range out.DomainInfos {
-if aws.ToString(d.Name) == vars["DomainName"].(string) {
-found = true
+				return map[string]any{
+					"DomainName": "tf-swf-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createSWFClient(t)
+				out, err := client.ListDomains(ctx, &swfsvc.ListDomainsInput{
+					RegistrationStatus: swftypes.RegistrationStatusRegistered,
+				})
+				require.NoError(t, err, "ListDomains should succeed after terraform apply")
+				found := false
+				for _, d := range out.DomainInfos {
+					if aws.ToString(d.Name) == vars["DomainName"].(string) {
+						found = true
 
-break
-}
-}
-assert.True(t, found, "SWF domain %q should be listed", vars["DomainName"].(string))
-},
-},
-}
+						break
+					}
+				}
+				assert.True(t, found, "SWF domain %q should be listed", vars["DomainName"].(string))
+			},
+		},
+	}
 
-for _, tc := range tests {
-t.Run(tc.name, func(t *testing.T) {
-t.Parallel()
-runTFTest(t, tc)
-})
-}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
 }
 
 // TestTerraform_ResourceGroups provisions a resource group and verifies it exists.
 func TestTerraform_ResourceGroups(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []tfTestCase{
-{
-name:    "success",
-fixture: "resourcegroups/success",
-setup: func(t *testing.T, _ string) map[string]any {
-t.Helper()
-id := uuid.NewString()[:8]
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "resourcegroups/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
 
-return map[string]any{
-"GroupName": "tf-rg-" + id,
-}
-},
-verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
-t.Helper()
-client := createResourceGroupsClient(t)
-out, err := client.GetGroup(ctx, &resourcegroupssvc.GetGroupInput{
-GroupName: aws.String(vars["GroupName"].(string)),
-})
-require.NoError(t, err, "GetGroup should succeed after terraform apply")
-require.NotNil(t, out.Group)
-assert.Equal(t, vars["GroupName"].(string), aws.ToString(out.Group.Name))
-},
-},
-}
+				return map[string]any{
+					"GroupName": "tf-rg-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createResourceGroupsClient(t)
+				out, err := client.GetGroup(ctx, &resourcegroupssvc.GetGroupInput{
+					GroupName: aws.String(vars["GroupName"].(string)),
+				})
+				require.NoError(t, err, "GetGroup should succeed after terraform apply")
+				require.NotNil(t, out.Group)
+				assert.Equal(t, vars["GroupName"].(string), aws.ToString(out.Group.Name))
+			},
+		},
+	}
 
-for _, tc := range tests {
-t.Run(tc.name, func(t *testing.T) {
-t.Parallel()
-runTFTest(t, tc)
-})
-}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
 }
 
 // TestTerraform_S3Control provisions an S3 account public access block and verifies it.
 func TestTerraform_S3Control(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []tfTestCase{
-{
-name:    "success",
-fixture: "s3control/success",
-setup: func(t *testing.T, _ string) map[string]any {
-t.Helper()
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "s3control/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
 
-return map[string]any{}
-},
-verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
-t.Helper()
-client := createS3ControlClient(t)
-out, err := client.GetPublicAccessBlock(ctx, &s3controlsvc.GetPublicAccessBlockInput{
-AccountId: aws.String("000000000000"),
-})
-require.NoError(t, err, "GetPublicAccessBlock should succeed after terraform apply")
-require.NotNil(t, out.PublicAccessBlockConfiguration)
-assert.True(t, aws.ToBool(out.PublicAccessBlockConfiguration.BlockPublicAcls))
-},
-},
-}
+				return map[string]any{}
+			},
+			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
+				t.Helper()
+				client := createS3ControlClient(t)
+				out, err := client.GetPublicAccessBlock(ctx, &s3controlsvc.GetPublicAccessBlockInput{
+					AccountId: aws.String("000000000000"),
+				})
+				require.NoError(t, err, "GetPublicAccessBlock should succeed after terraform apply")
+				require.NotNil(t, out.PublicAccessBlockConfiguration)
+				assert.True(t, aws.ToBool(out.PublicAccessBlockConfiguration.BlockPublicAcls))
+			},
+		},
+	}
 
-for _, tc := range tests {
-t.Run(tc.name, func(t *testing.T) {
-t.Parallel()
-runTFTest(t, tc)
-})
-}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
 }
 
 // TestTerraform_AWSConfig provisions a config recorder and delivery channel and verifies them.
 func TestTerraform_AWSConfig(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []tfTestCase{
-{
-name:    "success",
-fixture: "awsconfig/success",
-setup: func(t *testing.T, _ string) map[string]any {
-t.Helper()
-id := uuid.NewString()[:8]
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "awsconfig/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
 
-return map[string]any{
-"RoleName":     "tf-cfg-role-" + id,
-"BucketName":   "tf-cfg-bucket-" + id,
-"RecorderName": "tf-cfg-recorder-" + id,
-"ChannelName":  "tf-cfg-channel-" + id,
-}
-},
-verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
-t.Helper()
-client := createAWSConfigClient(t)
-out, err := client.DescribeConfigurationRecorders(ctx, &configsvc.DescribeConfigurationRecordersInput{
-ConfigurationRecorderNames: []string{vars["RecorderName"].(string)},
-})
-require.NoError(t, err, "DescribeConfigurationRecorders should succeed after terraform apply")
-require.Len(t, out.ConfigurationRecorders, 1)
-assert.Equal(t, vars["RecorderName"].(string), aws.ToString(out.ConfigurationRecorders[0].Name))
-},
-},
-}
+				return map[string]any{
+					"RoleName":     "tf-cfg-role-" + id,
+					"BucketName":   "tf-cfg-bucket-" + id,
+					"RecorderName": "tf-cfg-recorder-" + id,
+					"ChannelName":  "tf-cfg-channel-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createAWSConfigClient(t)
+				out, err := client.DescribeConfigurationRecorders(ctx, &configsvc.DescribeConfigurationRecordersInput{
+					ConfigurationRecorderNames: []string{vars["RecorderName"].(string)},
+				})
+				require.NoError(t, err, "DescribeConfigurationRecorders should succeed after terraform apply")
+				require.Len(t, out.ConfigurationRecorders, 1)
+				assert.Equal(t, vars["RecorderName"].(string), aws.ToString(out.ConfigurationRecorders[0].Name))
+			},
+		},
+	}
 
-for _, tc := range tests {
-t.Run(tc.name, func(t *testing.T) {
-t.Parallel()
-runTFTest(t, tc)
-})
-}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
 }
 
 // TestTerraform_Route53Resolver provisions a resolver rule and verifies it exists.
 func TestTerraform_Route53Resolver(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []tfTestCase{
-{
-name:    "success",
-fixture: "route53resolver/success",
-setup: func(t *testing.T, _ string) map[string]any {
-t.Helper()
-id := uuid.NewString()[:8]
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "route53resolver/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
 
-return map[string]any{
-"RuleName":   "tf-r53r-" + id,
-"EndpointID": id,
-}
-},
-verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
-t.Helper()
-client := createRoute53ResolverClient(t)
-out, err := client.ListResolverRules(ctx, &route53resolversvc.ListResolverRulesInput{})
-require.NoError(t, err, "ListResolverRules should succeed after terraform apply")
-found := false
-for _, r := range out.ResolverRules {
-if aws.ToString(r.Name) == vars["RuleName"].(string) {
-found = true
+				return map[string]any{
+					"RuleName":   "tf-r53r-" + id,
+					"EndpointID": id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createRoute53ResolverClient(t)
+				out, err := client.ListResolverRules(ctx, &route53resolversvc.ListResolverRulesInput{})
+				require.NoError(t, err, "ListResolverRules should succeed after terraform apply")
+				found := false
+				for _, r := range out.ResolverRules {
+					if aws.ToString(r.Name) == vars["RuleName"].(string) {
+						found = true
 
-break
-}
-}
-assert.True(t, found, "resolver rule %q should be listed", vars["RuleName"].(string))
-},
-},
-}
+						break
+					}
+				}
+				assert.True(t, found, "resolver rule %q should be listed", vars["RuleName"].(string))
+			},
+		},
+	}
 
-for _, tc := range tests {
-t.Run(tc.name, func(t *testing.T) {
-t.Parallel()
-runTFTest(t, tc)
-})
-}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
 }
 
 // TestTerraform_EC2 provisions a VPC, subnet, security group, and instance, then verifies the instance.
 func TestTerraform_EC2(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []tfTestCase{
-{
-name:    "success",
-fixture: "ec2/success",
-setup: func(t *testing.T, _ string) map[string]any {
-t.Helper()
-id := uuid.NewString()[:8]
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "ec2/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
 
-return map[string]any{
-"SGName": "tf-ec2-sg-" + id,
-}
-},
-verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
-t.Helper()
-client := createEC2Client(t)
-out, err := client.DescribeInstances(ctx, &ec2svc.DescribeInstancesInput{})
-require.NoError(t, err, "DescribeInstances should succeed after terraform apply")
-require.NotEmpty(t, out.Reservations, "at least one reservation should exist")
-require.NotEmpty(t, out.Reservations[0].Instances, "at least one instance should exist")
-},
-},
-}
+				return map[string]any{
+					"SGName": "tf-ec2-sg-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
+				t.Helper()
+				client := createEC2Client(t)
+				out, err := client.DescribeInstances(ctx, &ec2svc.DescribeInstancesInput{})
+				require.NoError(t, err, "DescribeInstances should succeed after terraform apply")
+				require.NotEmpty(t, out.Reservations, "at least one reservation should exist")
+				require.NotEmpty(t, out.Reservations[0].Instances, "at least one instance should exist")
+			},
+		},
+	}
 
-for _, tc := range tests {
-t.Run(tc.name, func(t *testing.T) {
-t.Parallel()
-runTFTest(t, tc)
-})
-}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
 }
 
 // TestTerraform_APIGateway provisions a REST API, resource, method, integration, and deployment.
 func TestTerraform_APIGateway(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []tfTestCase{
-{
-name:    "success",
-fixture: "apigateway/success",
-setup: func(t *testing.T, _ string) map[string]any {
-t.Helper()
-id := uuid.NewString()[:8]
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "apigateway/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
 
-return map[string]any{
-"APIName": "tf-apigw-" + id,
-}
-},
-verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
-t.Helper()
-client := createAPIGatewayClient(t)
-out, err := client.GetRestApis(ctx, &apigwsvc.GetRestApisInput{})
-require.NoError(t, err, "GetRestApis should succeed after terraform apply")
-found := false
-for _, api := range out.Items {
-if aws.ToString(api.Name) == vars["APIName"].(string) {
-found = true
+				return map[string]any{
+					"APIName": "tf-apigw-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createAPIGatewayClient(t)
+				out, err := client.GetRestApis(ctx, &apigwsvc.GetRestApisInput{})
+				require.NoError(t, err, "GetRestApis should succeed after terraform apply")
+				found := false
+				for _, api := range out.Items {
+					if aws.ToString(api.Name) == vars["APIName"].(string) {
+						found = true
 
-break
-}
-}
-assert.True(t, found, "REST API %q should be listed", vars["APIName"].(string))
-},
-},
-}
+						break
+					}
+				}
+				assert.True(t, found, "REST API %q should be listed", vars["APIName"].(string))
+			},
+		},
+	}
 
-for _, tc := range tests {
-t.Run(tc.name, func(t *testing.T) {
-t.Parallel()
-runTFTest(t, tc)
-})
-}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
 }
 
 // TestTerraform_Scheduler provisions an EventBridge Scheduler schedule and verifies it exists.
 func TestTerraform_Scheduler(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []tfTestCase{
-{
-name:    "success",
-fixture: "scheduler/success",
-setup: func(t *testing.T, _ string) map[string]any {
-t.Helper()
-id := uuid.NewString()[:8]
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "scheduler/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
 
-return map[string]any{
-"RoleName":     "tf-sched-role-" + id,
-"ScheduleName": "tf-sched-" + id,
-}
-},
-verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
-t.Helper()
-client := createSchedulerClient(t)
-out, err := client.GetSchedule(ctx, &schedulersvc.GetScheduleInput{
-Name: aws.String(vars["ScheduleName"].(string)),
-})
-require.NoError(t, err, "GetSchedule should succeed after terraform apply")
-assert.Equal(t, vars["ScheduleName"].(string), aws.ToString(out.Name))
-},
-},
-}
+				return map[string]any{
+					"RoleName":     "tf-sched-role-" + id,
+					"ScheduleName": "tf-sched-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createSchedulerClient(t)
+				out, err := client.GetSchedule(ctx, &schedulersvc.GetScheduleInput{
+					Name: aws.String(vars["ScheduleName"].(string)),
+				})
+				require.NoError(t, err, "GetSchedule should succeed after terraform apply")
+				assert.Equal(t, vars["ScheduleName"].(string), aws.ToString(out.Name))
+			},
+		},
+	}
 
-for _, tc := range tests {
-t.Run(tc.name, func(t *testing.T) {
-t.Parallel()
-runTFTest(t, tc)
-})
-}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
 }

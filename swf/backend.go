@@ -22,9 +22,9 @@ var (
 
 // Domain represents an SWF domain.
 type Domain struct {
-	Name        string
-	Description string
-	Status      string // REGISTERED or DEPRECATED
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Status      string `json:"status"` // REGISTERED or DEPRECATED
 }
 
 // WorkflowType represents an SWF workflow type.
@@ -92,6 +92,21 @@ func (b *InMemoryBackend) ListDomains(registrationStatus string) []Domain {
 	}
 
 	return out
+}
+
+// DescribeDomain returns the details of a registered SWF domain.
+func (b *InMemoryBackend) DescribeDomain(name string) (*Domain, error) {
+	b.mu.RLock("DescribeDomain")
+	defer b.mu.RUnlock()
+
+	d, ok := b.domains[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrNotFound, name)
+	}
+
+	cp := *d
+
+	return &cp, nil
 }
 
 // DeprecateDomain marks a domain as deprecated.
