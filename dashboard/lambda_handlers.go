@@ -28,6 +28,13 @@ func (h *DashboardHandler) lambdaIndex(c *echo.Context) error {
 		PageData: PageData{
 			Title:     "Lambda Functions",
 			ActiveTab: "lambda",
+		Snippet: &SnippetData{
+			ID:    "lambda-operations",
+			Title: "Using Lambda",
+			Cli:   "aws lambda help --endpoint-url http://localhost:8000",
+			Go: "/* Write AWS SDK v2 Code for Lambda */",
+			Python: "# Write boto3 code for Lambda\nimport boto3\nclient = boto3.client('lambda', endpoint_url='http://localhost:8000')",
+		},
 		},
 		Functions: fns,
 	}
@@ -60,6 +67,15 @@ func (h *DashboardHandler) lambdaFunctionDetail(c *echo.Context) error {
 		PageData: PageData{
 			Title:     "Lambda Function",
 			ActiveTab: "lambda",
+		Snippet: &SnippetData{
+			ID:    "lambda-operations",
+			Title: "Using Lambda",
+			Cli:   "aws lambda help --endpoint-url http://localhost:8000",
+			Go: "/* Write AWS SDK v2 Code for Lambda */",
+			Python: `# Write boto3 code for Lambda
+import boto3
+client = boto3.client('lambda', endpoint_url='http://localhost:8000')`,
+		},
 		},
 		Function: fn,
 	}

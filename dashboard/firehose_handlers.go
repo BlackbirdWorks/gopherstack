@@ -26,7 +26,14 @@ func (h *DashboardHandler) firehoseIndex(c *echo.Context) error {
 
 	if h.FirehoseOps == nil {
 		h.renderTemplate(w, "firehose/index.html", firehoseIndexData{
-			PageData: PageData{Title: "Firehose Delivery Streams", ActiveTab: "firehose"},
+			PageData: PageData{Title: "Firehose Delivery Streams", ActiveTab: "firehose",
+		Snippet: &SnippetData{
+			ID:    "firehose-operations",
+			Title: "Using Firehose",
+			Cli:   "aws firehose help --endpoint-url http://localhost:8000",
+			Go: "/* Write AWS SDK v2 Code for Firehose */",
+			Python: "# Write boto3 code for Firehose\nimport boto3\nclient = boto3.client('firehose', endpoint_url='http://localhost:8000')",
+		},},
 			Streams:  []firehoseStreamView{},
 		})
 
@@ -50,7 +57,16 @@ func (h *DashboardHandler) firehoseIndex(c *echo.Context) error {
 	}
 
 	h.renderTemplate(w, "firehose/index.html", firehoseIndexData{
-		PageData: PageData{Title: "Firehose Delivery Streams", ActiveTab: "firehose"},
+		PageData: PageData{Title: "Firehose Delivery Streams", ActiveTab: "firehose",
+		Snippet: &SnippetData{
+			ID:    "firehose-operations",
+			Title: "Using Firehose",
+			Cli:   "aws firehose help --endpoint-url http://localhost:8000",
+			Go: "/* Write AWS SDK v2 Code for Firehose */",
+			Python: `# Write boto3 code for Firehose
+import boto3
+client = boto3.client('firehose', endpoint_url='http://localhost:8000')`,
+		},},
 		Streams:  views,
 	})
 

@@ -29,7 +29,14 @@ func (h *DashboardHandler) s3controlIndex(c *echo.Context) error {
 
 	if h.S3ControlOps == nil {
 		h.renderTemplate(w, "s3control/index.html", s3controlIndexData{
-			PageData: PageData{Title: "S3 Control", ActiveTab: "s3control"},
+			PageData: PageData{Title: "S3 Control", ActiveTab: "s3control",
+		Snippet: &SnippetData{
+			ID:    "s3control-operations",
+			Title: "Using S3control",
+			Cli:   "aws s3control help --endpoint-url http://localhost:8000",
+			Go: "/* Write AWS SDK v2 Code for S3control */",
+			Python: "# Write boto3 code for S3control\nimport boto3\nclient = boto3.client('s3control', endpoint_url='http://localhost:8000')",
+		},},
 			Configs:  []s3controlConfigView{},
 		})
 
@@ -50,7 +57,16 @@ func (h *DashboardHandler) s3controlIndex(c *echo.Context) error {
 	}
 
 	h.renderTemplate(w, "s3control/index.html", s3controlIndexData{
-		PageData: PageData{Title: "S3 Control", ActiveTab: "s3control"},
+		PageData: PageData{Title: "S3 Control", ActiveTab: "s3control",
+		Snippet: &SnippetData{
+			ID:    "s3control-operations",
+			Title: "Using S3control",
+			Cli:   "aws s3control help --endpoint-url http://localhost:8000",
+			Go: "/* Write AWS SDK v2 Code for S3control */",
+			Python: `# Write boto3 code for S3control
+import boto3
+client = boto3.client('s3control', endpoint_url='http://localhost:8000')`,
+		},},
 		Configs:  views,
 	})
 

@@ -39,7 +39,14 @@ func (h *DashboardHandler) kinesisIndex(c *echo.Context) error {
 
 	if h.KinesisOps == nil {
 		h.renderTemplate(w, "kinesis/index.html", kinesisIndexData{
-			PageData: PageData{Title: "Kinesis Streams", ActiveTab: "kinesis"},
+			PageData: PageData{Title: "Kinesis Streams", ActiveTab: "kinesis",
+		Snippet: &SnippetData{
+			ID:    "kinesis-operations",
+			Title: "Using Kinesis",
+			Cli:   "aws kinesis help --endpoint-url http://localhost:8000",
+			Go: "/* Write AWS SDK v2 Code for Kinesis */",
+			Python: "# Write boto3 code for Kinesis\nimport boto3\nclient = boto3.client('kinesis', endpoint_url='http://localhost:8000')",
+		},},
 			Streams:  []kinesisStreamView{},
 		})
 
@@ -59,7 +66,16 @@ func (h *DashboardHandler) kinesisIndex(c *echo.Context) error {
 	}
 
 	h.renderTemplate(w, "kinesis/index.html", kinesisIndexData{
-		PageData: PageData{Title: "Kinesis Streams", ActiveTab: "kinesis"},
+		PageData: PageData{Title: "Kinesis Streams", ActiveTab: "kinesis",
+		Snippet: &SnippetData{
+			ID:    "kinesis-operations",
+			Title: "Using Kinesis",
+			Cli:   "aws kinesis help --endpoint-url http://localhost:8000",
+			Go: "/* Write AWS SDK v2 Code for Kinesis */",
+			Python: `# Write boto3 code for Kinesis
+import boto3
+client = boto3.client('kinesis', endpoint_url='http://localhost:8000')`,
+		},},
 		Streams:  views,
 	})
 
@@ -82,7 +98,16 @@ func (h *DashboardHandler) kinesisStreamDetail(c *echo.Context) error {
 	}
 
 	h.renderTemplate(w, "kinesis/stream_detail.html", kinesisStreamDetailData{
-		PageData:   PageData{Title: "Stream: " + name, ActiveTab: "kinesis"},
+		PageData:   PageData{Title: "Stream: " + name, ActiveTab: "kinesis",
+		Snippet: &SnippetData{
+			ID:    "kinesis-operations",
+			Title: "Using Kinesis",
+			Cli:   "aws kinesis help --endpoint-url http://localhost:8000",
+			Go: "/* Write AWS SDK v2 Code for Kinesis */",
+			Python: `# Write boto3 code for Kinesis
+import boto3
+client = boto3.client('kinesis', endpoint_url='http://localhost:8000')`,
+		},},
 		StreamName: desc.StreamName,
 		StreamARN:  desc.StreamARN,
 		Status:     desc.StreamStatus,

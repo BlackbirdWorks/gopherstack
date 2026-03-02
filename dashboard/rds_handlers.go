@@ -57,7 +57,14 @@ func (h *DashboardHandler) rdsIndex(c *echo.Context) error {
 
 	if h.RDSOps == nil {
 		h.renderTemplate(w, "rds/index.html", rdsIndexData{
-			PageData:     PageData{Title: "RDS Instances", ActiveTab: "rds"},
+			PageData:     PageData{Title: "RDS Instances", ActiveTab: "rds",
+		Snippet: &SnippetData{
+			ID:    "rds-operations",
+			Title: "Using Rds",
+			Cli:   "aws rds help --endpoint-url http://localhost:8000",
+			Go: "/* Write AWS SDK v2 Code for Rds */",
+			Python: "# Write boto3 code for Rds\nimport boto3\nclient = boto3.client('rds', endpoint_url='http://localhost:8000')",
+		},},
 			Instances:    []rdsInstanceView{},
 			Snapshots:    []rdsSnapshotView{},
 			SubnetGroups: []rdsSubnetGroupView{},
@@ -117,7 +124,16 @@ func (h *DashboardHandler) rdsIndex(c *echo.Context) error {
 	}
 
 	h.renderTemplate(w, "rds/index.html", rdsIndexData{
-		PageData:     PageData{Title: "RDS Instances", ActiveTab: "rds"},
+		PageData:     PageData{Title: "RDS Instances", ActiveTab: "rds",
+		Snippet: &SnippetData{
+			ID:    "rds-operations",
+			Title: "Using Rds",
+			Cli:   "aws rds help --endpoint-url http://localhost:8000",
+			Go: "/* Write AWS SDK v2 Code for Rds */",
+			Python: `# Write boto3 code for Rds
+import boto3
+client = boto3.client('rds', endpoint_url='http://localhost:8000')`,
+		},},
 		Instances:    instViews,
 		Snapshots:    snapViews,
 		SubnetGroups: sgViews,
@@ -146,7 +162,16 @@ func (h *DashboardHandler) rdsInstanceDetail(c *echo.Context) error {
 
 	inst := instances[0]
 	h.renderTemplate(w, "rds/instance_detail.html", rdsInstanceDetailData{
-		PageData: PageData{Title: "RDS Instance: " + id, ActiveTab: "rds"},
+		PageData: PageData{Title: "RDS Instance: " + id, ActiveTab: "rds",
+		Snippet: &SnippetData{
+			ID:    "rds-operations",
+			Title: "Using Rds",
+			Cli:   "aws rds help --endpoint-url http://localhost:8000",
+			Go: "/* Write AWS SDK v2 Code for Rds */",
+			Python: `# Write boto3 code for Rds
+import boto3
+client = boto3.client('rds', endpoint_url='http://localhost:8000')`,
+		},},
 		Instance: rdsInstanceView{
 			DBInstanceIdentifier: inst.DBInstanceIdentifier,
 			Engine:               inst.Engine,

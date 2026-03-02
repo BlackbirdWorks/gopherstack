@@ -20,6 +20,13 @@ func (h *DashboardHandler) stsIndex(c *echo.Context) error {
 		PageData: PageData{
 			Title:     "STS Security Token Service",
 			ActiveTab: "sts",
+		Snippet: &SnippetData{
+			ID:    "sts-operations",
+			Title: "Using Sts",
+			Cli:   "aws sts help --endpoint-url http://localhost:8000",
+			Go: "/* Write AWS SDK v2 Code for Sts */",
+			Python: "# Write boto3 code for Sts\nimport boto3\nclient = boto3.client('sts', endpoint_url='http://localhost:8000')",
+		},
 		},
 		Account: stsbackend.MockAccountID,
 		Arn:     stsbackend.MockUserArn,

@@ -66,10 +66,20 @@ var staticFS embed.FS
 //go:embed templates/*
 var templateFS embed.FS
 
+// SnippetData holds the code snippets for a specific AWS resource interaction.
+type SnippetData struct {
+	ID     string
+	Title  string
+	Cli    string
+	Go     string
+	Python string
+}
+
 // PageData represents common page data.
 type PageData struct {
 	Title     string
 	ActiveTab string
+	Snippet   *SnippetData
 }
 
 // DashboardHandler handles HTTP requests for the Dashboard web interface.

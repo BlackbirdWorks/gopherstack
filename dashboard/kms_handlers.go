@@ -46,6 +46,13 @@ func (h *DashboardHandler) kmsIndex(c *echo.Context) error {
 		PageData: PageData{
 			Title:     "KMS Keys",
 			ActiveTab: "kms",
+		Snippet: &SnippetData{
+			ID:    "kms-operations",
+			Title: "Using Kms",
+			Cli:   "aws kms help --endpoint-url http://localhost:8000",
+			Go: "/* Write AWS SDK v2 Code for Kms */",
+			Python: "# Write boto3 code for Kms\nimport boto3\nclient = boto3.client('kms', endpoint_url='http://localhost:8000')",
+		},
 		},
 		Keys: make([]any, 0),
 	}
@@ -129,6 +136,15 @@ func (h *DashboardHandler) kmsKeyDetail(c *echo.Context) error {
 		PageData: PageData{
 			Title:     "KMS Key Detail",
 			ActiveTab: "kms",
+		Snippet: &SnippetData{
+			ID:    "kms-operations",
+			Title: "Using Kms",
+			Cli:   "aws kms help --endpoint-url http://localhost:8000",
+			Go: "/* Write AWS SDK v2 Code for Kms */",
+			Python: `# Write boto3 code for Kms
+import boto3
+client = boto3.client('kms', endpoint_url='http://localhost:8000')`,
+		},
 		},
 		KeyID:       descOut.KeyMetadata.KeyID,
 		Arn:         descOut.KeyMetadata.Arn,

@@ -40,6 +40,13 @@ func (h *DashboardHandler) secretsManagerIndex(c *echo.Context) error {
 		PageData: PageData{
 			Title:     "Secrets Manager",
 			ActiveTab: "secretsmanager",
+		Snippet: &SnippetData{
+			ID:    "secretsmanager-operations",
+			Title: "Using Secretsmanager",
+			Cli:   "aws secretsmanager help --endpoint-url http://localhost:8000",
+			Go: "/* Write AWS SDK v2 Code for Secretsmanager */",
+			Python: "# Write boto3 code for Secretsmanager\nimport boto3\nclient = boto3.client('secretsmanager', endpoint_url='http://localhost:8000')",
+		},
 		},
 		Secrets: make([]secretsManagerView, 0),
 	}
@@ -203,6 +210,15 @@ func (h *DashboardHandler) secretsManagerDetail(c *echo.Context) error {
 		PageData: PageData{
 			Title:     "Secret Detail",
 			ActiveTab: "secretsmanager",
+		Snippet: &SnippetData{
+			ID:    "secretsmanager-operations",
+			Title: "Using Secretsmanager",
+			Cli:   "aws secretsmanager help --endpoint-url http://localhost:8000",
+			Go: "/* Write AWS SDK v2 Code for Secretsmanager */",
+			Python: `# Write boto3 code for Secretsmanager
+import boto3
+client = boto3.client('secretsmanager', endpoint_url='http://localhost:8000')`,
+		},
 		},
 		Name:               descOut.Name,
 		ARN:                descOut.ARN,

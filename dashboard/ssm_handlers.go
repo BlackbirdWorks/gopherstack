@@ -33,6 +33,13 @@ func (h *DashboardHandler) ssmIndex(c *echo.Context) error {
 		PageData: PageData{
 			Title:     "SSM Parameter Store",
 			ActiveTab: "ssm",
+		Snippet: &SnippetData{
+			ID:    "ssm-operations",
+			Title: "Using Ssm",
+			Cli:   "aws ssm help --endpoint-url http://localhost:8000",
+			Go: "/* Write AWS SDK v2 Code for Ssm */",
+			Python: "# Write boto3 code for Ssm\nimport boto3\nclient = boto3.client('ssm', endpoint_url='http://localhost:8000')",
+		},
 		},
 		Parameters: make([]any, 0),
 	}
@@ -202,6 +209,15 @@ func (h *DashboardHandler) ssmParameterHistory(c *echo.Context) error {
 		PageData: PageData{
 			Title:     "Parameter History: " + name,
 			ActiveTab: "ssm",
+		Snippet: &SnippetData{
+			ID:    "ssm-operations",
+			Title: "Using Ssm",
+			Cli:   "aws ssm help --endpoint-url http://localhost:8000",
+			Go: "/* Write AWS SDK v2 Code for Ssm */",
+			Python: `# Write boto3 code for Ssm
+import boto3
+client = boto3.client('ssm', endpoint_url='http://localhost:8000')`,
+		},
 		},
 		Name:    name,
 		History: entries,

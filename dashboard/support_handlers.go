@@ -29,7 +29,14 @@ func (h *DashboardHandler) supportIndex(c *echo.Context) error {
 
 	if h.SupportOps == nil {
 		h.renderTemplate(w, "support/index.html", supportIndexData{
-			PageData: PageData{Title: "Support Cases", ActiveTab: "support"},
+			PageData: PageData{Title: "Support Cases", ActiveTab: "support",
+		Snippet: &SnippetData{
+			ID:    "support-operations",
+			Title: "Using Support",
+			Cli:   "aws support help --endpoint-url http://localhost:8000",
+			Go: "/* Write AWS SDK v2 Code for Support */",
+			Python: "# Write boto3 code for Support\nimport boto3\nclient = boto3.client('support', endpoint_url='http://localhost:8000')",
+		},},
 			Cases:    []supportCaseView{},
 		})
 
@@ -51,7 +58,16 @@ func (h *DashboardHandler) supportIndex(c *echo.Context) error {
 	}
 
 	h.renderTemplate(w, "support/index.html", supportIndexData{
-		PageData: PageData{Title: "Support Cases", ActiveTab: "support"},
+		PageData: PageData{Title: "Support Cases", ActiveTab: "support",
+		Snippet: &SnippetData{
+			ID:    "support-operations",
+			Title: "Using Support",
+			Cli:   "aws support help --endpoint-url http://localhost:8000",
+			Go: "/* Write AWS SDK v2 Code for Support */",
+			Python: `# Write boto3 code for Support
+import boto3
+client = boto3.client('support', endpoint_url='http://localhost:8000')`,
+		},},
 		Cases:    views,
 	})
 

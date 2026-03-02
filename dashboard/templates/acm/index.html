@@ -1,14 +1,23 @@
 {{define "content"}}
 <div class="px-4 sm:px-6 lg:px-8">
-    <div class="sm:flex sm:items-center justify-between">
-        <div class="sm:flex-auto">
-            <h1 class="text-3xl font-bold text-gray-900 dark:text-white">
+        <div class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm glass-panel flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+        <div>
+            <h1 class="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
+                <svg class="w-8 h-8 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path>
+                </svg>
+                
                 ACM Certificates
                 <span class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300">
                     {{len .Certificates}}
                 </span>
+            
+            
+                {{if .Snippet}}
+                {{template "components/snippet" .Snippet}}
+                {{end}}
             </h1>
-            <p class="mt-2 text-sm text-gray-700 dark:text-gray-300">In-memory ACM certificates.</p>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-400">In-memory ACM certificates.</p>
         </div>
         <div class="mt-4 sm:ml-16 sm:mt-0 sm:flex-none">
             <button type="button" onclick="document.getElementById('request-cert-modal').classList.remove('hidden')"

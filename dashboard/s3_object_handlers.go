@@ -177,6 +177,13 @@ func (h *DashboardHandler) prepareS3FileDetailData(
 		PageData: PageData{
 			Title:     "File: " + path.Base(key),
 			ActiveTab: "s3",
+		Snippet: &SnippetData{
+			ID:    "s3-operations",
+			Title: "Using S3",
+			Cli:   "aws s3 help --endpoint-url http://localhost:8000",
+			Go: "/* Write AWS SDK v2 Code for S3 */",
+			Python: "# Write boto3 code for S3\nimport boto3\nclient = boto3.client('s3', endpoint_url='http://localhost:8000')",
+		},
 		},
 		BucketName:        bucketName,
 		Key:               key,

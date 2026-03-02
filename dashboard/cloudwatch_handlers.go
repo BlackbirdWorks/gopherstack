@@ -21,7 +21,14 @@ func (h *DashboardHandler) cloudWatchIndex(c *echo.Context) error {
 		Metrics []cwbackend.Metric
 		Alarms  []cwbackend.MetricAlarm
 	}{
-		PageData: PageData{Title: "CloudWatch", ActiveTab: "cloudwatch"},
+		PageData: PageData{Title: "CloudWatch", ActiveTab: "cloudwatch",
+		Snippet: &SnippetData{
+			ID:    "cloudwatch-operations",
+			Title: "Using Cloudwatch",
+			Cli:   "aws cloudwatch help --endpoint-url http://localhost:8000",
+			Go: "/* Write AWS SDK v2 Code for Cloudwatch */",
+			Python: "# Write boto3 code for Cloudwatch\nimport boto3\nclient = boto3.client('cloudwatch', endpoint_url='http://localhost:8000')",
+		},},
 		Metrics:  metrics,
 		Alarms:   alarms,
 	}

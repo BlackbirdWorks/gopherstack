@@ -26,7 +26,14 @@ func (h *DashboardHandler) swfIndex(c *echo.Context) error {
 
 	if h.SWFOps == nil {
 		h.renderTemplate(w, "swf/index.html", swfIndexData{
-			PageData: PageData{Title: "SWF Domains", ActiveTab: "swf"},
+			PageData: PageData{Title: "SWF Domains", ActiveTab: "swf",
+		Snippet: &SnippetData{
+			ID:    "swf-operations",
+			Title: "Using Swf",
+			Cli:   "aws swf help --endpoint-url http://localhost:8000",
+			Go: "/* Write AWS SDK v2 Code for Swf */",
+			Python: "# Write boto3 code for Swf\nimport boto3\nclient = boto3.client('swf', endpoint_url='http://localhost:8000')",
+		},},
 			Domains:  []swfDomainView{},
 		})
 
@@ -45,7 +52,16 @@ func (h *DashboardHandler) swfIndex(c *echo.Context) error {
 	}
 
 	h.renderTemplate(w, "swf/index.html", swfIndexData{
-		PageData: PageData{Title: "SWF Domains", ActiveTab: "swf"},
+		PageData: PageData{Title: "SWF Domains", ActiveTab: "swf",
+		Snippet: &SnippetData{
+			ID:    "swf-operations",
+			Title: "Using Swf",
+			Cli:   "aws swf help --endpoint-url http://localhost:8000",
+			Go: "/* Write AWS SDK v2 Code for Swf */",
+			Python: `# Write boto3 code for Swf
+import boto3
+client = boto3.client('swf', endpoint_url='http://localhost:8000')`,
+		},},
 		Domains:  views,
 	})
 

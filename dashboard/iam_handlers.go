@@ -22,6 +22,13 @@ func (h *DashboardHandler) iamIndex(c *echo.Context) error {
 		PageData: PageData{
 			Title:     "IAM",
 			ActiveTab: "iam",
+		Snippet: &SnippetData{
+			ID:    "iam-operations",
+			Title: "Using Iam",
+			Cli:   "aws iam help --endpoint-url http://localhost:8000",
+			Go: "/* Write AWS SDK v2 Code for Iam */",
+			Python: "# Write boto3 code for Iam\nimport boto3\nclient = boto3.client('iam', endpoint_url='http://localhost:8000')",
+		},
 		},
 	}
 

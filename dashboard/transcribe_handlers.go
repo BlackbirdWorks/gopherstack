@@ -27,7 +27,14 @@ func (h *DashboardHandler) transcribeIndex(c *echo.Context) error {
 
 	if h.TranscribeOps == nil {
 		h.renderTemplate(w, "transcribe/index.html", transcribeIndexData{
-			PageData: PageData{Title: "Transcribe Jobs", ActiveTab: "transcribe"},
+			PageData: PageData{Title: "Transcribe Jobs", ActiveTab: "transcribe",
+		Snippet: &SnippetData{
+			ID:    "transcribe-operations",
+			Title: "Using Transcribe",
+			Cli:   "aws transcribe help --endpoint-url http://localhost:8000",
+			Go: "/* Write AWS SDK v2 Code for Transcribe */",
+			Python: "# Write boto3 code for Transcribe\nimport boto3\nclient = boto3.client('transcribe', endpoint_url='http://localhost:8000')",
+		},},
 			Jobs:     []transcribeJobView{},
 		})
 
@@ -47,7 +54,16 @@ func (h *DashboardHandler) transcribeIndex(c *echo.Context) error {
 	}
 
 	h.renderTemplate(w, "transcribe/index.html", transcribeIndexData{
-		PageData: PageData{Title: "Transcribe Jobs", ActiveTab: "transcribe"},
+		PageData: PageData{Title: "Transcribe Jobs", ActiveTab: "transcribe",
+		Snippet: &SnippetData{
+			ID:    "transcribe-operations",
+			Title: "Using Transcribe",
+			Cli:   "aws transcribe help --endpoint-url http://localhost:8000",
+			Go: "/* Write AWS SDK v2 Code for Transcribe */",
+			Python: `# Write boto3 code for Transcribe
+import boto3
+client = boto3.client('transcribe', endpoint_url='http://localhost:8000')`,
+		},},
 		Jobs:     views,
 	})
 

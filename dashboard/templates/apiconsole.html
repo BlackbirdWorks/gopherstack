@@ -1,0 +1,321 @@
+{{define "content"}}
+<div class="px-4 mx-auto max-w-7xl h-full flex flex-col">
+
+    <div class="mb-6 flex justify-between items-center">
+        <div>
+            <h1 class="text-3xl font-bold text-slate-900 dark:text-white mb-1">Live API Console</h1>
+            <p class="text-slate-500 dark:text-slate-400">View real-time AWS API requests hitting Gopherstack</p>
+        </div>
+        <div class="flex items-center gap-3">
+            <div
+                class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 text-sm font-bold border border-emerald-200 dark:border-emerald-800 shadow-sm">
+                <span class="relative flex h-2.5 w-2.5">
+                    <span
+                        class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                </span>
+                Recording
+            </div>
+            <!-- Toggle Auto Refresh -->
+            <label class="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" id="auto-refresh-toggle" class="sr-only peer" checked
+                    onchange="toggleAutoRefresh(this.checked)">
+                <div
+                    class="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 dark:peer-focus:ring-indigo-800 rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-indigo-600">
+                </div>
+                <span class="ml-3 text-sm font-medium text-slate-700 dark:text-slate-300">Auto</span>
+            </label>
+        </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="glass-panel p-4 rounded-xl mb-6 shadow-sm flex gap-4 items-center">
+        <div class="relative flex-grow">
+            <div class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                <svg class="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                </svg>
+            </div>
+            <input type="text" id="log-search"
+                class="bg-white/50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block w-full pl-10 p-2.5 dark:bg-slate-800 dark:border-slate-600 dark:text-white"
+                placeholder="Filter logs (e.g. s3, POST, 404)..." oninput="filterLogs()">
+        </div>
+        <button onclick="fetchLogs()"
+            class="text-indigo-600 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 focus:ring-4 focus:outline-none focus:ring-indigo-300 font-medium rounded-lg text-sm px-4 py-2.5 text-center inline-flex items-center dark:bg-indigo-900/30 dark:border-indigo-800 dark:text-indigo-400 dark:hover:bg-indigo-900/50">
+            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15">
+                </path>
+            </svg>
+            Refresh
+        </button>
+    </div>
+
+    <!-- Logs Container -->
+    <div
+        class="flex-grow glass-panel rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden flex flex-col min-h-[500px]">
+
+        <!-- Header Row -->
+        <div
+            class="grid grid-cols-12 gap-4 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 p-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+            <div class="col-span-1">Status</div>
+            <div class="col-span-1">Method</div>
+            <div class="col-span-4 pl-4">Path</div>
+            <div class="col-span-2">Service</div>
+            <div class="col-span-2">Time</div>
+            <div class="col-span-2 text-right">Duration</div>
+        </div>
+
+        <!-- Log List -->
+        <div id="log-list" class="flex-grow overflow-y-auto w-full bg-white dark:bg-slate-900">
+            <div class="flex flex-col items-center justify-center h-full text-slate-400 py-12">
+                <svg class="w-12 h-12 mb-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                    </path>
+                </svg>
+                <p>Waiting for requests...</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Drawer for selected request details -->
+<div id="request-drawer"
+    class="fixed top-0 right-0 z-50 h-screen p-4 overflow-y-auto transition-transform translate-x-full bg-white w-[500px] sm:w-[600px] border-l border-slate-200 dark:bg-slate-800 dark:border-slate-700 shadow-2xl"
+    tabindex="-1">
+    <div class="flex justify-between items-center mb-6">
+        <h5 class="inline-flex items-center text-lg font-semibold text-slate-800 dark:text-white">
+            <svg class="w-5 h-5 mr-2 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+            </svg>
+            Request Details
+        </h5>
+        <button type="button" onclick="closeDrawer()"
+            class="text-slate-400 bg-transparent hover:bg-slate-200 hover:text-slate-900 rounded-lg text-sm p-1.5 inline-flex dark:hover:bg-slate-600 dark:hover:text-white">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+            </svg>
+            <span class="sr-only">Close menu</span>
+        </button>
+    </div>
+    <div id="drawer-content" class="text-sm space-y-4">
+        <!-- Content injected by JS -->
+    </div>
+</div>
+
+<script>
+    let currentLogs = [];
+    let refreshInterval = null;
+
+    function init() {
+        fetchLogs();
+        startAutoRefresh();
+    }
+
+    function toggleAutoRefresh(enabled) {
+        if (enabled) {
+            startAutoRefresh();
+        } else {
+            stopAutoRefresh();
+        }
+    }
+
+    function startAutoRefresh() {
+        if (!refreshInterval) {
+            refreshInterval = setInterval(fetchLogs, 2000);
+        }
+    }
+
+    function stopAutoRefresh() {
+        if (refreshInterval) {
+            clearInterval(refreshInterval);
+            refreshInterval = null;
+        }
+    }
+
+    async function fetchLogs() {
+        try {
+            const res = await fetch('/dashboard/api/console');
+            const data = await res.json();
+            currentLogs = data.requests || [];
+            renderLogs();
+        } catch (e) {
+            console.error('Failed to fetch logs', e);
+        }
+    }
+
+    function renderLogs() {
+        const query = document.getElementById('log-search').value.toLowerCase();
+        const list = document.getElementById('log-list');
+
+        if (currentLogs.length === 0) {
+            list.innerHTML = `<div class="flex flex-col items-center justify-center h-full text-slate-400 py-12">
+                <p>No API requests recorded yet.</p>
+                <p class="text-xs mt-2">Try running a command via AWS CLI targeting http://localhost:8000</p>
+            </div>`;
+            return;
+        }
+
+        let filtered = currentLogs;
+        if (query) {
+            filtered = currentLogs.filter(log =>
+                log.method.toLowerCase().includes(query) ||
+                log.path.toLowerCase().includes(query) ||
+                log.status.toString().includes(query)
+            );
+        }
+
+        let html = '';
+        for (const log of filtered) {
+            const statusColor = getStatusColor(log.status);
+            const methodColor = getMethodColor(log.method);
+            const time = new Date(log.timestamp).toLocaleTimeString();
+
+            // Extract a pseudo-service name from path
+            let ds = log.path.split('/')[1] || '';
+            if (log.path.startsWith('/')) {
+                // If the path is / then it's root
+            }
+
+            html += `
+            <div class="grid grid-cols-12 gap-4 p-3 border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/[0.4] cursor-pointer transition-colors" onclick='showDetails(${JSON.stringify(log).replace(/'/g, "&apos;")})'>
+                <div class="col-span-1 flex items-center">
+                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${statusColor}">${log.status}</span>
+                </div>
+                <div class="col-span-1 flex items-center">
+                    <span class="font-mono text-xs font-bold ${methodColor}">${log.method}</span>
+                </div>
+                <div class="col-span-4 pl-4 flex items-center overflow-hidden">
+                    <span class="truncate font-mono text-xs text-slate-700 dark:text-slate-300" title="${log.path}">${log.path}</span>
+                </div>
+                <div class="col-span-2 flex items-center">
+                    <span class="text-xs text-slate-500 uppercase font-semibold">${guessService(log)}</span>
+                </div>
+                <div class="col-span-2 flex items-center text-xs text-slate-500">
+                    ${time}
+                </div>
+                <div class="col-span-2 flex items-center justify-end text-xs font-mono text-slate-600 dark:text-slate-400">
+                    ${(log.duration_ms / 1000000).toFixed(2)}ms
+                </div>
+            </div>`;
+        }
+
+        if (html === '') {
+            html = `<div class="p-8 text-center text-slate-500">No logs match your filter.</div>`;
+        }
+        list.innerHTML = html;
+    }
+
+    function filterLogs() {
+        renderLogs();
+    }
+
+    function guessService(log) {
+        if (log.headers && log.headers['X-Amz-Target']) {
+            return log.headers['X-Amz-Target'].split('_')[0];
+        }
+        if (log.path.startsWith('/latest/meta-data') || log.path.startsWith('/latest/api/token')) return "IMDS (EC2)";
+        if (log.headers && log.headers['Authorization'] && log.headers['Authorization'].includes('Credential=')) {
+            const parts = log.headers['Authorization'].split('Credential=')[1].split('/');
+            if (parts.length > 3) return parts[3].toUpperCase();
+        }
+        return "HTTP";
+    }
+
+    function getStatusColor(status) {
+        if (status >= 200 && status < 300) return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-300';
+        if (status >= 400 && status < 500) return 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300';
+        if (status >= 500) return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300';
+        return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300';
+    }
+
+    function getMethodColor(method) {
+        switch (method.toUpperCase()) {
+            case 'GET': return 'text-blue-600 dark:text-blue-400';
+            case 'POST': return 'text-emerald-600 dark:text-emerald-400';
+            case 'PUT': return 'text-amber-600 dark:text-amber-400';
+            case 'DELETE': return 'text-red-600 dark:text-red-400';
+            default: return 'text-slate-600 dark:text-slate-400';
+        }
+    }
+
+    function showDetails(log) {
+        const drawer = document.getElementById('request-drawer');
+        const content = document.getElementById('drawer-content');
+
+        let headersHtml = '<div class="grid grid-cols-12 gap-2 text-xs font-mono">';
+        for (const [k, v] of Object.entries(log.headers || {})) {
+            headersHtml += `<div class="col-span-4 text-slate-500 break-words">${escapeHTML(k)}</div><div class="col-span-8 text-slate-800 dark:text-slate-200 break-words">${escapeHTML(v)}</div>`;
+        }
+        headersHtml += '</div>';
+
+        let bodyHtml = '<div class="text-slate-500 italic">No Body</div>';
+        if (log.body) {
+            let formattedBody = log.body;
+            try {
+                // Formatting payload logic
+                if (log.headers['Content-Type'] && log.headers['Content-Type'].includes('json')) {
+                    formattedBody = JSON.stringify(JSON.parse(log.body), null, 2);
+                } else if (log.headers['Content-Type'] && log.headers['Content-Type'].includes('x-www-form-urlencoded')) {
+                    // split params
+                    formattedBody = log.body.split('&').join('\n');
+                }
+            } catch (e) { }
+
+            bodyHtml = `<div class="code-block bg-slate-900 text-slate-200 p-4 rounded-lg overflow-x-auto font-mono text-xs whitespace-pre-wrap">${escapeHTML(formattedBody)}</div>`;
+        }
+
+        content.innerHTML = `
+            <div class="mb-4">
+                <div class="text-xs text-slate-500 uppercase tracking-wider mb-1">Overview</div>
+                <div class="glass-panel p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div><span class="text-xs text-slate-500">Method</span><p class="font-bold font-mono ${getMethodColor(log.method)}">${log.method}</p></div>
+                        <div><span class="text-xs text-slate-500">Status</span><p class="font-bold font-mono text-slate-900 dark:text-slate-100">${log.status}</p></div>
+                        <div class="col-span-2"><span class="text-xs text-slate-500">Path</span><p class="font-mono text-xs break-all text-slate-800 dark:text-slate-200">${log.path}</p></div>
+                        <div><span class="text-xs text-slate-500">Time</span><p class="font-mono text-xs text-slate-700 dark:text-slate-300">${new Date(log.timestamp).toISOString()}</p></div>
+                        <div><span class="text-xs text-slate-500">Duration</span><p class="font-mono text-xs text-slate-700 dark:text-slate-300">${(log.duration_ms / 1000000).toFixed(2)}ms</p></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mb-4">
+                <div class="text-xs text-slate-500 uppercase tracking-wider mb-1">Headers</div>
+                <div class="p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50">
+                    ${headersHtml}
+                </div>
+            </div>
+
+            <div class="mb-4">
+                <div class="text-xs text-slate-500 uppercase tracking-wider mb-1">Request Payload</div>
+                ${bodyHtml}
+            </div>
+        `;
+
+        drawer.classList.remove('translate-x-full');
+    }
+
+    function closeDrawer() {
+        document.getElementById('request-drawer').classList.add('translate-x-full');
+    }
+
+    function escapeHTML(str) {
+        if (!str) return '';
+        return str.replace(/[&<>'"]/g,
+            tag => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                "'": '&#39;',
+                '"': '&quot;'
+            }[tag])
+        );
+    }
+
+    document.addEventListener('DOMContentLoaded', init);
+</script>
+{{end}}
