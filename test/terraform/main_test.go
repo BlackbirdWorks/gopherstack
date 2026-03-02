@@ -684,8 +684,8 @@ func warmWithHCL(tofuBin, cacheDir, hcl string, logger *slog.Logger) string {
 		return ""
 	}
 
-	if err := os.WriteFile(filepath.Join(dir, "main.tf"), []byte(hcl), 0o644); err != nil {
-		logger.Warn("skipping provider cache warm-up", "error", err)
+	if writeErr := os.WriteFile(filepath.Join(dir, "main.tf"), []byte(hcl), 0o644); writeErr != nil {
+		logger.Warn("skipping provider cache warm-up", "error", writeErr)
 		if rmErr := os.RemoveAll(dir); rmErr != nil {
 			logger.Warn("failed to remove warm-up temp dir", "dir", dir, "error", rmErr)
 		}
