@@ -24,6 +24,11 @@ type getResourcePolicyInput struct {
 	SecretID string `json:"SecretId"`
 }
 
+type getResourcePolicyOutput struct {
+	ARN  string `json:"ARN"`
+	Name string `json:"Name"`
+}
+
 // LambdaInvoker can invoke a Lambda function synchronously.
 type LambdaInvoker interface {
 	InvokeFunction(ctx context.Context, name, invocationType string, payload []byte) ([]byte, int, error)
@@ -255,7 +260,7 @@ func (h *Handler) smPolicyActions() map[string]smActionFn {
 				return nil, err
 			}
 
-			return map[string]string{"ARN": input.SecretID, "Name": input.SecretID}, nil
+			return &getResourcePolicyOutput{ARN: input.SecretID, Name: input.SecretID}, nil
 		},
 		"PutResourcePolicy": func(_ context.Context, _ string, _ []byte) (any, error) {
 			return struct{}{}, nil

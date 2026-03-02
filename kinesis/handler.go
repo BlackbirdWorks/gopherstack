@@ -342,6 +342,21 @@ type jsonKinesisError struct {
 	Message string `json:"message"`
 }
 
+type kinesisTag struct {
+	Key   string `json:"Key"`
+	Value string `json:"Value"`
+}
+
+type listTagsForStreamOutput struct {
+	Tags        []kinesisTag `json:"Tags"`
+	HasMoreTags bool         `json:"HasMoreTags"`
+}
+
+type describeLimitsOutput struct {
+	ShardLimit     int `json:"ShardLimit"`
+	OpenShardCount int `json:"OpenShardCount"`
+}
+
 // --- handler methods ---
 
 func (h *Handler) handleCreateStream(
@@ -726,18 +741,14 @@ func (h *Handler) handleListTagsForStream(
 		return nil, ErrInvalidArgument
 	}
 	tags := h.getTags(req.StreamName)
-	type kinesisTag struct {
-		Key   string `json:"Key"`
-		Value string `json:"Value"`
-	}
 	tagList := make([]kinesisTag, 0, len(tags))
 	for k, v := range tags {
 		tagList = append(tagList, kinesisTag{Key: k, Value: v})
 	}
 
-	return map[string]any{
-		"Tags":        tagList,
-		"HasMoreTags": false,
+	return &listTagsForStreamOutput{
+		Tags:        tagList,
+		HasMoreTags: false,
 	}, nil
 }
 
@@ -764,8 +775,8 @@ func (h *Handler) handleDescribeLimits(
 	_ *http.Request,
 	_ []byte,
 ) (any, error) {
-	return map[string]any{
-		"OpenShardCount": 0,
-		"ShardLimit":     kinesisDefaultShardLimit,
+	return &describeLimitsOutput{
+		OpenShardCount: 0,
+		ShardLimit:     kinesisDefaultShardLimit,
 	}, nil
 }
