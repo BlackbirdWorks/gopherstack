@@ -70,28 +70,45 @@ func (h *Handler) GetSupportedOperations() []string {
 }
 
 // RouteMatcher returns a function that matches Scheduler requests.
+// Matches both X-Amz-Target (JSON protocol) and REST API paths (/schedules/...).
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		return strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), schedulerTargetPrefix)
+		if strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), schedulerTargetPrefix) {
+			return true
+		}
+
+		path := c.Request().URL.Path
+
+		return strings.HasPrefix(path, "/schedules")
 	}
 }
 
 // MatchPriority returns the routing priority.
 func (h *Handler) MatchPriority() int { return service.PriorityHeaderExact }
 
-// ExtractOperation extracts the Scheduler action from the X-Amz-Target header.
+// ExtractOperation extracts the Scheduler action from the X-Amz-Target header or REST path.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
 	target := c.Request().Header.Get("X-Amz-Target")
 	action := strings.TrimPrefix(target, schedulerTargetPrefix)
-	if action == "" || action == target {
-		return "Unknown"
+	if action != "" && action != target {
+		return action
 	}
 
-	return action
+	op, _ := parseSchedulerRESTPath(c.Request().Method, c.Request().URL.Path)
+
+	return op
 }
 
-// ExtractResource extracts the schedule name from the request body.
+// ExtractResource extracts the schedule name from the request body or REST path.
 func (h *Handler) ExtractResource(c *echo.Context) string {
+	// For REST paths extract name from the URL path segment.
+	if !strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), schedulerTargetPrefix) {
+		parts := strings.Split(strings.TrimPrefix(c.Request().URL.Path, "/"), "/")
+		if len(parts) >= 2 { //nolint:mnd // schedules/{name}
+			return parts[1]
+		}
+	}
+
 	body, err := httputil.ReadBody(c.Request())
 	if err != nil {
 		return ""
@@ -102,9 +119,42 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	return req.Name
 }
 
+// parseSchedulerRESTPath maps an HTTP method + path to a Scheduler operation name and
+// extracts the schedule name (if present in the path).
+// Returns ("Unknown", "") when no pattern matches.
+func parseSchedulerRESTPath(method, path string) (op, name string) {
+	// Strip leading slash and split into segments.
+	segments := strings.Split(strings.TrimPrefix(path, "/"), "/")
+	switch {
+	// GET /schedules or GET /schedules/ → ListSchedules
+	case method == http.MethodGet && len(segments) == 1 && segments[0] == "schedules":
+		return "ListSchedules", ""
+	// POST /schedules/{name} → CreateSchedule
+	case method == http.MethodPost && len(segments) == 2 && segments[0] == "schedules": //nolint:mnd
+		return "CreateSchedule", segments[1]
+	// GET /schedules/{name} → GetSchedule
+	case method == http.MethodGet && len(segments) == 2 && segments[0] == "schedules": //nolint:mnd
+		return "GetSchedule", segments[1]
+	// DELETE /schedules/{name} → DeleteSchedule
+	case method == http.MethodDelete && len(segments) == 2 && segments[0] == "schedules": //nolint:mnd
+		return "DeleteSchedule", segments[1]
+	// PUT /schedules/{name} → UpdateSchedule
+	case method == http.MethodPut && len(segments) == 2 && segments[0] == "schedules": //nolint:mnd
+		return "UpdateSchedule", segments[1]
+	}
+
+	return "Unknown", ""
+}
+
 // Handler returns the Echo handler function for Scheduler requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		// REST API path: /schedules or /schedules/{name}
+		if strings.HasPrefix(c.Request().URL.Path, "/schedules") &&
+			!strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), schedulerTargetPrefix) {
+			return h.handleREST(c)
+		}
+
 		return service.HandleTarget(
 			c, logger.Load(c.Request().Context()),
 			"Scheduler", "application/x-amz-json-1.1",
@@ -113,6 +163,58 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			h.handleError,
 		)
 	}
+}
+
+// handleREST handles Scheduler REST API calls (/schedules/{name}).
+// It extracts the schedule name from the URL path, injects it into the request body,
+// and dispatches to the existing handler logic.
+func (h *Handler) handleREST(c *echo.Context) error {
+	ctx := c.Request().Context()
+
+	action, name := parseSchedulerRESTPath(c.Request().Method, c.Request().URL.Path)
+	if action == "Unknown" {
+		return c.String(http.StatusNotFound, "not found")
+	}
+
+	body, err := httputil.ReadBody(c.Request())
+	if err != nil {
+		logger.Load(ctx).ErrorContext(ctx, "failed to read request body", "error", err)
+
+		return c.String(http.StatusInternalServerError, "internal server error")
+	}
+
+	// For operations that identify a schedule by URL path (not request body),
+	// inject the name into the JSON body so existing handlers can read it.
+	if name != "" {
+		body = injectJSONField(body, "Name", name)
+	}
+
+	response, dispErr := h.dispatch(ctx, action, body)
+	if dispErr != nil {
+		return h.handleError(ctx, c, action, dispErr)
+	}
+
+	return c.JSONBlob(http.StatusOK, response)
+}
+
+// injectJSONField merges a key/value string pair into a JSON object body.
+// If body is empty or not a valid JSON object, it returns {"key":"value"}.
+func injectJSONField(body []byte, key, value string) []byte {
+	var m map[string]json.RawMessage
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &m); err != nil {
+			m = make(map[string]json.RawMessage)
+		}
+	} else {
+		m = make(map[string]json.RawMessage)
+	}
+
+	quoted, _ := json.Marshal(value)
+	m[key] = json.RawMessage(quoted)
+
+	result, _ := json.Marshal(m)
+
+	return result
 }
 
 func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {

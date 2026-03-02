@@ -24,8 +24,28 @@ var (
 
 const resourceGroupsTargetPrefix = "ResourceGroups."
 
+// restPathOp maps REST API path to operation name for Resource Groups.
+var restPathOp = map[string]string{
+	"/groups":      "CreateGroup",
+	"/get-group":   "GetGroup",
+	"/delete-group": "DeleteGroup",
+	"/groups-list": "ListGroups",
+}
+
 type groupNameInput struct {
+	// Group accepts the REST API "Group" field (name or ARN). When set and GroupName is empty,
+	// its value is used as the group name to look up.
+	Group     string `json:"Group"`
 	GroupName string `json:"GroupName"`
+}
+
+// resolvedName returns the group name from either the Group or GroupName field.
+func (g *groupNameInput) resolvedName() string {
+	if g.GroupName != "" {
+		return g.GroupName
+	}
+
+	return g.Group
 }
 
 // Handler is the Echo HTTP handler for Resource Groups operations.
@@ -53,52 +73,71 @@ func (h *Handler) GetSupportedOperations() []string {
 }
 
 // RouteMatcher returns a function that matches Resource Groups requests.
+// It matches both X-Amz-Target (JSON protocol) and REST API paths used by the AWS SDK.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		return strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), resourceGroupsTargetPrefix)
+		if strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), resourceGroupsTargetPrefix) {
+			return true
+		}
+
+		_, isREST := restPathOp[c.Request().URL.Path]
+
+		return isREST
 	}
 }
 
 // MatchPriority returns the routing priority.
 func (h *Handler) MatchPriority() int { return service.PriorityHeaderExact }
 
-// ExtractOperation extracts the Resource Groups action from the X-Amz-Target header.
+// ExtractOperation extracts the Resource Groups action from the X-Amz-Target header or REST path.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
 	target := c.Request().Header.Get("X-Amz-Target")
 	action := strings.TrimPrefix(target, resourceGroupsTargetPrefix)
-	if action == "" || action == target {
-		return "Unknown"
+	if action != "" && action != target {
+		return action
 	}
 
-	return action
+	if op, ok := restPathOp[c.Request().URL.Path]; ok {
+		return op
+	}
+
+	return "Unknown"
 }
 
-type extractResourceGroupInput struct {
-	Name      string `json:"Name"`
-	GroupName string `json:"GroupName"`
-}
-
-// ExtractResource extracts the group name from the request body, checking both
-// the Name (CreateGroup) and GroupName (GetGroup/DeleteGroup) fields.
+// ExtractResource extracts the group name from the request body, checking
+// Name (CreateGroup), GroupName, and Group (REST API) fields.
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	body, err := httputil.ReadBody(c.Request())
 	if err != nil {
 		return ""
 	}
 
-	var req extractResourceGroupInput
+	var req struct {
+		Name      string `json:"Name"`
+		GroupName string `json:"GroupName"`
+		Group     string `json:"Group"`
+	}
 	_ = json.Unmarshal(body, &req)
 
 	if req.Name != "" {
 		return req.Name
 	}
 
-	return req.GroupName
+	if req.GroupName != "" {
+		return req.GroupName
+	}
+
+	return req.Group
 }
 
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		// REST API paths: POST /groups, /get-group, /delete-group, /groups-list
+		if op, ok := restPathOp[c.Request().URL.Path]; ok {
+			return h.handleREST(c, op)
+		}
+
 		return service.HandleTarget(
 			c, logger.Load(c.Request().Context()),
 			"ResourceGroups", "application/x-amz-json-1.1",
@@ -107,6 +146,25 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			h.handleError,
 		)
 	}
+}
+
+// handleREST handles Resource Groups REST API calls routed by path.
+func (h *Handler) handleREST(c *echo.Context, action string) error {
+	ctx := c.Request().Context()
+
+	body, err := httputil.ReadBody(c.Request())
+	if err != nil {
+		logger.Load(ctx).ErrorContext(ctx, "failed to read request body", "error", err)
+
+		return c.String(http.StatusInternalServerError, "internal server error")
+	}
+
+	response, dispErr := h.dispatch(ctx, action, body)
+	if dispErr != nil {
+		return h.handleError(ctx, c, action, dispErr)
+	}
+
+	return c.JSONBlob(http.StatusOK, response)
 }
 
 func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
@@ -173,7 +231,7 @@ func (h *Handler) handleCreateGroup(_ context.Context, in *handleCreateGroupInpu
 type deleteGroupOutput struct{}
 
 func (h *Handler) handleDeleteGroup(_ context.Context, in *groupNameInput) (*deleteGroupOutput, error) {
-	if err := h.Backend.DeleteGroup(in.GroupName); err != nil {
+	if err := h.Backend.DeleteGroup(in.resolvedName()); err != nil {
 		return nil, err
 	}
 
@@ -197,7 +255,7 @@ type getGroupOutput struct {
 }
 
 func (h *Handler) handleGetGroup(_ context.Context, in *groupNameInput) (*getGroupOutput, error) {
-	g, err := h.Backend.GetGroup(in.GroupName)
+	g, err := h.Backend.GetGroup(in.resolvedName())
 	if err != nil {
 		return nil, err
 	}
