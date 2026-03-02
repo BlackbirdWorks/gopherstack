@@ -348,30 +348,33 @@ func (h *Handler) handleDescribeVpcs(vals url.Values, reqID string) (any, error)
 }
 
 type describeVpcAttributeResponse struct {
-	XMLName   xml.Name        `xml:"DescribeVpcAttributeResponse"`
-	Xmlns     string          `xml:"xmlns,attr"`
-	RequestID string          `xml:"requestId"`
-	VpcID     string          `xml:"vpcId"`
-	Attribute booleanAttrItem `xml:"attribute"`
+	XMLName   xml.Name `xml:"DescribeVpcAttributeResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	VpcID     string   `xml:"vpcId"`
+	// Attribute has no XML tag; encoding/xml uses the namedBoolAttr.XMLName field (set at runtime)
+	// to produce a dynamic element name such as <enableDnsHostnames> or <enableDnsSupport>.
+	Attribute namedBoolAttr
 }
 
-type booleanAttrItem struct {
-	Value string `xml:"value"`
+// namedBoolAttr is a boolean attribute element whose XML element name is set dynamically.
+type namedBoolAttr struct {
+	XMLName xml.Name
+	Value   string `xml:"value"`
 }
 
 func (h *Handler) handleDescribeVpcAttribute(vals url.Values, reqID string) (any, error) {
 	vpcID := vals.Get("VpcId")
 	attr := vals.Get("Attribute")
 
-	// Return false for all VPC attributes (DNS hostnames, DNS support, etc.)
-	// Terraform reads these to set up VPC configuration.
-	_ = attr
-
+	// Return false for all VPC boolean attributes (enableDnsHostnames, enableDnsSupport, etc.).
+	// Terraform reads these to set up VPC configuration. The attribute name is used as the
+	// XML element name to match the AWS EC2 API response format.
 	return &describeVpcAttributeResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
 		VpcID:     vpcID,
-		Attribute: booleanAttrItem{Value: "false"},
+		Attribute: namedBoolAttr{XMLName: xml.Name{Local: attr}, Value: "false"},
 	}, nil
 }
 
