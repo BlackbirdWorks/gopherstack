@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
+	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
 	"github.com/blackbirdworks/gopherstack/internal/teststack"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
@@ -2663,4 +2664,179 @@ func TestDashboard_SNS_TopicDetail_WithSubscription(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, w2.Code)
 	assert.Contains(t, w2.Body.String(), "https")
+}
+
+func TestDashboard_APIRegions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		wantContains  string
+		wantDefaultIn string
+		setupBuckets  []string
+		setupTables   []string
+		wantStatus    int
+	}{
+		{
+			name:          "returns default region when no resources",
+			wantStatus:    http.StatusOK,
+			wantDefaultIn: "us-east-1",
+			wantContains:  "us-east-1",
+		},
+		{
+			name:          "includes region from S3 bucket",
+			wantStatus:    http.StatusOK,
+			setupBuckets:  []string{"test-bucket"},
+			wantDefaultIn: "us-east-1",
+			wantContains:  "us-east-1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			stack := newStack(t)
+			for _, b := range tt.setupBuckets {
+				stack.CreateS3Bucket(t, b)
+			}
+
+			for _, tbl := range tt.setupTables {
+				stack.CreateDDBTable(t, tbl)
+			}
+
+			req := httptest.NewRequest(http.MethodGet, "/dashboard/api/regions", nil)
+			w := httptest.NewRecorder()
+			serveHandler(stack.Dashboard, w, req)
+
+			assert.Equal(t, tt.wantStatus, w.Code)
+			assert.Contains(t, w.Body.String(), tt.wantContains)
+			assert.Contains(t, w.Body.String(), tt.wantDefaultIn)
+		})
+	}
+}
+
+func TestDashboard_S3_BucketList_RegionFilter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		region       string
+		wantContains string
+		wantAbsent   string
+		wantStatus   int
+	}{
+		{
+			name:         "us-east-1 shows default bucket",
+			region:       "us-east-1",
+			wantContains: "east-bucket",
+			wantAbsent:   "west-bucket",
+			wantStatus:   http.StatusOK,
+		},
+		{
+			name:         "us-west-2 shows only west bucket",
+			region:       "us-west-2",
+			wantContains: "west-bucket",
+			wantAbsent:   "east-bucket",
+			wantStatus:   http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			stack := newStack(t)
+
+			// Create bucket in default region (us-east-1)
+			stack.CreateS3Bucket(t, "east-bucket")
+
+			// Create bucket in us-west-2
+			_, err := stack.S3Backend.CreateBucket(t.Context(), &s3.CreateBucketInput{
+				Bucket: aws.String("west-bucket"),
+				CreateBucketConfiguration: &s3types.CreateBucketConfiguration{
+					LocationConstraint: s3types.BucketLocationConstraintUsWest2,
+				},
+			})
+			require.NoError(t, err)
+
+			req := httptest.NewRequest(http.MethodGet, "/dashboard/s3/buckets?region="+tt.region, nil)
+			w := httptest.NewRecorder()
+			serveHandler(stack.Dashboard, w, req)
+
+			assert.Equal(t, tt.wantStatus, w.Code)
+			if tt.wantContains != "" {
+				assert.Contains(t, w.Body.String(), tt.wantContains)
+			}
+
+			if tt.wantAbsent != "" {
+				assert.NotContains(t, w.Body.String(), tt.wantAbsent)
+			}
+		})
+	}
+}
+
+func TestDashboard_DDB_TableList_RegionFilter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		region       string
+		wantContains string
+		wantAbsent   string
+		wantStatus   int
+	}{
+		{
+			name:         "default region shows default table",
+			region:       "us-east-1",
+			wantContains: "east-table",
+			wantAbsent:   "west-table",
+			wantStatus:   http.StatusOK,
+		},
+		{
+			name:         "us-west-2 shows only west table",
+			region:       "us-west-2",
+			wantContains: "west-table",
+			wantAbsent:   "east-table",
+			wantStatus:   http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			stack := newStack(t)
+
+			// Create table in default region via stack helper
+			stack.CreateDDBTable(t, "east-table")
+
+			// Create west-table directly in us-west-2 by inserting into the Tables map
+			db, ok := stack.DDBHandler.Backend.(*ddbbackend.InMemoryDB)
+			require.True(t, ok)
+
+			westTable := &ddbbackend.Table{
+				Name:   "west-table",
+				Status: "ACTIVE",
+			}
+
+			if db.Tables["us-west-2"] == nil {
+				db.Tables["us-west-2"] = make(map[string]*ddbbackend.Table)
+			}
+
+			db.Tables["us-west-2"]["west-table"] = westTable
+
+			req := httptest.NewRequest(http.MethodGet, "/dashboard/dynamodb/tables?region="+tt.region, nil)
+			w := httptest.NewRecorder()
+			serveHandler(stack.Dashboard, w, req)
+
+			assert.Equal(t, tt.wantStatus, w.Code)
+			if tt.wantContains != "" {
+				assert.Contains(t, w.Body.String(), tt.wantContains)
+			}
+			if tt.wantAbsent != "" {
+				assert.NotContains(t, w.Body.String(), tt.wantAbsent)
+			}
+		})
+	}
 }

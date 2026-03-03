@@ -52,6 +52,11 @@ func (h *DashboardHandler) dynamoDBTableList(w http.ResponseWriter, r *http.Requ
 	ctx := r.Context()
 	log := logger.Load(ctx)
 
+	region := r.URL.Query().Get("region")
+	if region == "" {
+		region = h.GlobalConfig.Region
+	}
+
 	search := strings.ToLower(r.URL.Query().Get("search"))
 	if search == "" {
 		// Try 'q' as used in the template
@@ -73,15 +78,20 @@ func (h *DashboardHandler) dynamoDBTableList(w http.ResponseWriter, r *http.Requ
 		limit = 12
 	}
 
-	log.DebugContext(ctx, "DynamoDB table list", "search", search, "offset", offset, "limit", limit)
+	log.DebugContext(ctx, "DynamoDB table list", "search", search, "offset", offset, "limit", limit, "region", region)
 
-	// In Gopherstack (local dev), we probably have few enough tables to fetch all and filter/paginate in memory
-	// This ensures "search searches all tables" as requested.
-	allNames, err := h.fetchAllTableNames(ctx)
-	if err != nil {
-		h.handleListTablesError(w, r, err)
+	var allNames []string
+	var err error
 
-		return
+	if h.DDBOps != nil {
+		allNames = h.DDBOps.TableNamesByRegion(region)
+	} else {
+		allNames, err = h.fetchAllTableNames(ctx)
+		if err != nil {
+			h.handleListTablesError(w, r, err)
+
+			return
+		}
 	}
 
 	filteredNames := filterTableNames(search, allNames)
@@ -94,7 +104,12 @@ func (h *DashboardHandler) dynamoDBTableList(w http.ResponseWriter, r *http.Requ
 		tableNames = filteredNames[offset:end]
 	}
 
-	tableInfos := h.fetchTableInfos(ctx, tableNames)
+	var tableInfos []TableInfo
+	if h.DDBOps != nil {
+		tableInfos = h.fetchTableInfosByRegion(tableNames, region)
+	} else {
+		tableInfos = h.fetchTableInfos(ctx, tableNames)
+	}
 
 	// Render table cards
 	for _, tableInfo := range tableInfos {
@@ -262,6 +277,39 @@ func buildTableListInfo(table *types.TableDescription) TableInfo {
 	}
 
 	return info
+}
+
+// fetchTableInfosByRegion builds TableInfo entries directly from the DDBOps backend for a given region.
+// It falls back gracefully if a table is not found.
+func (h *DashboardHandler) fetchTableInfosByRegion(tableNames []string, region string) []TableInfo {
+	result := make([]TableInfo, 0, len(tableNames))
+
+	for _, name := range tableNames {
+		table := h.DDBOps.DescribeTableInRegion(region, name)
+		if table == nil {
+			continue
+		}
+
+		info := TableInfo{
+			TableName: table.Name,
+			ItemCount: int64(len(table.Items)),
+			GSICount:  len(table.GlobalSecondaryIndexes),
+			LSICount:  len(table.LocalSecondaryIndexes),
+		}
+
+		for _, key := range table.KeySchema {
+			switch key.KeyType {
+			case "HASH":
+				info.PartitionKey = key.AttributeName
+			case "RANGE":
+				info.SortKey = key.AttributeName
+			}
+		}
+
+		result = append(result, info)
+	}
+
+	return result
 }
 
 // dynamoDBSearch searches tables by name.

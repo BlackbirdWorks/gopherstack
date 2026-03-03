@@ -48,12 +48,25 @@ client = boto3.client('s3', endpoint_url='http://localhost:8000')`,
 // s3BucketList returns the list of buckets as HTML fragment.
 func (h *DashboardHandler) s3BucketList(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	output, err := h.S3.ListBuckets(ctx, &s3.ListBucketsInput{})
-	if err != nil {
-		h.Logger.Error("Failed to list buckets", "error", err)
-		http.Error(w, "Failed to list buckets", http.StatusInternalServerError)
 
-		return
+	region := r.URL.Query().Get("region")
+	if region == "" {
+		region = h.GlobalConfig.Region
+	}
+
+	var buckets []types.Bucket
+	if h.S3Ops != nil {
+		buckets = h.S3Ops.BucketsByRegion(region)
+	} else {
+		output, err := h.S3.ListBuckets(ctx, &s3.ListBucketsInput{})
+		if err != nil {
+			h.Logger.Error("Failed to list buckets", "error", err)
+			http.Error(w, "Failed to list buckets", http.StatusInternalServerError)
+
+			return
+		}
+
+		buckets = output.Buckets
 	}
 
 	search := strings.ToLower(r.URL.Query().Get("search"))
@@ -69,7 +82,6 @@ func (h *DashboardHandler) s3BucketList(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	buckets := output.Buckets
 	if search != "" {
 		filtered := make([]types.Bucket, 0)
 		for _, b := range buckets {

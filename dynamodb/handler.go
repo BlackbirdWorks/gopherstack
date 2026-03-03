@@ -140,6 +140,40 @@ func (h *DynamoDBHandler) GetSupportedOperations() []string {
 	}
 }
 
+// Regions returns all regions with tables in the backend.
+func (h *DynamoDBHandler) Regions() []string {
+	if b, ok := h.Backend.(*InMemoryDB); ok {
+		return b.Regions()
+	}
+
+	return nil
+}
+
+// TableNamesByRegion returns table names in the given region (all if empty).
+func (h *DynamoDBHandler) TableNamesByRegion(region string) []string {
+	if b, ok := h.Backend.(*InMemoryDB); ok {
+		return b.TableNamesByRegion(region)
+	}
+
+	return nil
+}
+
+// DescribeTableInRegion returns a table from the backend for a specific region.
+// Returns nil when not using the in-memory backend or when the table is not found.
+func (h *DynamoDBHandler) DescribeTableInRegion(region, tableName string) *Table {
+	b, ok := h.Backend.(*InMemoryDB)
+	if !ok {
+		return nil
+	}
+
+	table, exists := b.GetTableInRegion(tableName, region)
+	if !exists {
+		return nil
+	}
+
+	return table
+}
+
 // Handler is the Echo HTTP handler for DynamoDB operations.
 func (h *DynamoDBHandler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
