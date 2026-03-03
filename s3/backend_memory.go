@@ -164,23 +164,14 @@ func (b *InMemoryBackend) DeleteBucket(
 }
 
 func (b *InMemoryBackend) HeadBucket(
-	ctx context.Context,
+	_ context.Context,
 	input *s3.HeadBucketInput,
 ) (*s3.HeadBucketOutput, error) {
-	region := getRegionFromS3Context(ctx, b.defaultRegion)
-
 	b.mu.RLock("HeadBucket")
 	defer b.mu.RUnlock()
 
-	bucketName := *input.Bucket
-
-	if _, exists := b.buckets[region]; !exists {
-		return nil, ErrNoSuchBucket
-	}
-
-	bucket, exists := b.buckets[region][bucketName]
-	if !exists || bucket.DeletePending {
-		return nil, ErrNoSuchBucket
+	if _, err := b.getBucket(*input.Bucket); err != nil {
+		return nil, err
 	}
 
 	return &s3.HeadBucketOutput{}, nil

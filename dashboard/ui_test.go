@@ -17,6 +17,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -678,6 +679,7 @@ func TestDashboard_S3_BucketDetail(t *testing.T) {
 	t.Parallel()
 
 	type testCase struct {
+		setup        func(t *testing.T, stack *teststack.Stack)
 		name         string
 		bucketName   string
 		wantContains string
@@ -696,6 +698,25 @@ func TestDashboard_S3_BucketDetail(t *testing.T) {
 			bucketName: "ghost-bucket",
 			wantStatus: http.StatusNotFound,
 		},
+		{
+			// Regression: bucket created with a non-default region LocationConstraint must
+			// still be accessible via the dashboard detail page. Previously HeadBucket used
+			// a region-specific lookup and missed buckets stored under a different region key.
+			name:         "bucket created with non-default region renders detail page",
+			bucketName:   "region-bucket",
+			wantStatus:   http.StatusOK,
+			wantContains: "region-bucket",
+			setup: func(t *testing.T, stack *teststack.Stack) {
+				t.Helper()
+				_, err := stack.S3Backend.CreateBucket(t.Context(), &s3.CreateBucketInput{
+					Bucket: aws.String("region-bucket"),
+					CreateBucketConfiguration: &s3types.CreateBucketConfiguration{
+						LocationConstraint: s3types.BucketLocationConstraintUsWest2,
+					},
+				})
+				require.NoError(t, err)
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -704,6 +725,9 @@ func TestDashboard_S3_BucketDetail(t *testing.T) {
 
 			stack := newStack(t)
 			stack.CreateS3Bucket(t, "detail-bucket")
+			if tt.setup != nil {
+				tt.setup(t, stack)
+			}
 
 			req := httptest.NewRequest(
 				http.MethodGet, "/dashboard/s3/bucket/"+tt.bucketName, nil,
