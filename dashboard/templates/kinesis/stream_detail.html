@@ -2,8 +2,8 @@
 <div class="px-4 sm:px-6 lg:px-8">
     <div class="sm:flex sm:items-center justify-between">
         <div class="sm:flex-auto">
-            <h1 class="text-3xl font-bold text-gray-900 dark:text-white">Stream: {{.StreamName}}</h1>
-            <p class="mt-2 text-sm text-gray-500 dark:text-gray-400 font-mono">{{.StreamARN}}</p>
+            <h1 class="text-3xl font-bold text-slate-900 dark:text-white">Stream: {{.StreamName}}</h1>
+            <p class="mt-2 text-sm text-slate-500 dark:text-slate-400 font-mono">{{.StreamARN}}</p>
         </div>
         <div class="mt-4 sm:ml-16 sm:mt-0">
             <a href="/dashboard/kinesis"
@@ -17,18 +17,18 @@
 
     <!-- Put Record Form -->
     <div class="mt-8 bg-white dark:bg-gray-800 shadow sm:rounded-lg p-6">
-        <h2 class="text-lg font-medium text-gray-900 dark:text-white mb-4">Put Record</h2>
+        <h2 class="text-lg font-medium text-slate-900 dark:text-white mb-4">Put Record</h2>
         <form method="POST" action="/dashboard/kinesis/record">
             <input type="hidden" name="stream_name" value="{{.StreamName}}">
             <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="partition_key">Partition Key</label>
+                    <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1" for="partition_key">Partition Key</label>
                     <input id="partition_key" name="partition_key" type="text"
                         class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                         placeholder="my-partition-key">
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="data">Data</label>
+                    <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1" for="data">Data</label>
                     <input id="data" name="data" type="text"
                         class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                         placeholder="record payload">
@@ -45,10 +45,10 @@
 
     <!-- Shards Table -->
     <div class="mt-8">
-        <h2 class="text-xl font-semibold text-gray-900 dark:text-white mb-4">Shards ({{len .Shards}})</h2>
-        <div class="relative overflow-x-auto shadow-md sm:rounded-lg">
-            <table class="w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
-                <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+        <h2 class="text-xl font-semibold text-slate-900 dark:text-white mb-4">Shards ({{len .Shards}})</h2>
+        <div class="relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
+            <table class="w-full text-sm text-left rtl:text-right text-slate-500 dark:text-slate-400">
+                <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
                     <tr>
                         <th scope="col" class="px-6 py-3">Shard ID</th>
                         <th scope="col" class="px-6 py-3">Hash Key Range</th>
@@ -57,8 +57,8 @@
                 </thead>
                 <tbody>
                     {{range .Shards}}
-                    <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
-                        <td class="px-6 py-4 font-medium text-gray-900 dark:text-white font-mono">{{.ShardID}}</td>
+                    <tr class="bg-transparent border-b border-slate-200 dark:border-slate-700 dark:bg-transparent">
+                        <td class="px-6 py-4 font-medium text-slate-900 dark:text-white font-mono">{{.ShardID}}</td>
                         <td class="px-6 py-4 text-xs font-mono">{{.HashKeyRangeStart}} — {{.HashKeyRangeEnd}}</td>
                         <td class="px-6 py-4 text-xs font-mono">
                             {{if .SequenceNumberRangeEnd}}
@@ -69,8 +69,8 @@
                         </td>
                     </tr>
                     {{else}}
-                    <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
-                        <td colspan="3" class="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                    <tr class="bg-transparent border-b border-slate-200 dark:border-slate-700 dark:bg-transparent">
+                        <td colspan="3" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
                             No shards found.
                         </td>
                     </tr>

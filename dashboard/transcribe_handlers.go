@@ -27,8 +27,29 @@ func (h *DashboardHandler) transcribeIndex(c *echo.Context) error {
 
 	if h.TranscribeOps == nil {
 		h.renderTemplate(w, "transcribe/index.html", transcribeIndexData{
-			PageData: PageData{Title: "Transcribe Jobs", ActiveTab: "transcribe"},
-			Jobs:     []transcribeJobView{},
+			PageData: PageData{Title: "Transcribe Jobs", ActiveTab: "transcribe",
+				Snippet: &SnippetData{
+					ID:    "transcribe-operations",
+					Title: "Using Transcribe",
+					Cli:   `aws transcribe help --endpoint-url http://localhost:8000`,
+					Go: `// Initialize AWS SDK v2 for Using Transcribe
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := transcribe.NewFromConfig(cfg)`,
+					Python: `# Initialize boto3 client for Using Transcribe
+import boto3
+
+client = boto3.client('transcribe', endpoint_url='http://localhost:8000')`,
+				}},
+			Jobs: []transcribeJobView{},
 		})
 
 		return nil
@@ -47,8 +68,29 @@ func (h *DashboardHandler) transcribeIndex(c *echo.Context) error {
 	}
 
 	h.renderTemplate(w, "transcribe/index.html", transcribeIndexData{
-		PageData: PageData{Title: "Transcribe Jobs", ActiveTab: "transcribe"},
-		Jobs:     views,
+		PageData: PageData{Title: "Transcribe Jobs", ActiveTab: "transcribe",
+			Snippet: &SnippetData{
+				ID:    "transcribe-operations",
+				Title: "Using Transcribe",
+				Cli:   `aws transcribe help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Transcribe
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := transcribe.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Transcribe
+import boto3
+
+client = boto3.client('transcribe', endpoint_url='http://localhost:8000')`,
+			}},
+		Jobs: views,
 	})
 
 	return nil

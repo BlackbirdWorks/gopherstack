@@ -28,7 +28,28 @@ func (h *DashboardHandler) redshiftIndex(c *echo.Context) error {
 
 	if h.RedshiftOps == nil {
 		h.renderTemplate(w, "redshift/index.html", redshiftIndexData{
-			PageData: PageData{Title: "Redshift Clusters", ActiveTab: "redshift"},
+			PageData: PageData{Title: "Redshift Clusters", ActiveTab: "redshift",
+				Snippet: &SnippetData{
+					ID:    "redshift-operations",
+					Title: "Using Redshift",
+					Cli:   `aws redshift help --endpoint-url http://localhost:8000`,
+					Go: `// Initialize AWS SDK v2 for Using Redshift
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := redshift.NewFromConfig(cfg)`,
+					Python: `# Initialize boto3 client for Using Redshift
+import boto3
+
+client = boto3.client('redshift', endpoint_url='http://localhost:8000')`,
+				}},
 			Clusters: []redshiftClusterView{},
 		})
 
@@ -53,7 +74,28 @@ func (h *DashboardHandler) redshiftIndex(c *echo.Context) error {
 	}
 
 	h.renderTemplate(w, "redshift/index.html", redshiftIndexData{
-		PageData: PageData{Title: "Redshift Clusters", ActiveTab: "redshift"},
+		PageData: PageData{Title: "Redshift Clusters", ActiveTab: "redshift",
+			Snippet: &SnippetData{
+				ID:    "redshift-operations",
+				Title: "Using Redshift",
+				Cli:   `aws redshift help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Redshift
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := redshift.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Redshift
+import boto3
+
+client = boto3.client('redshift', endpoint_url='http://localhost:8000')`,
+			}},
 		Clusters: views,
 	})
 

@@ -19,8 +19,29 @@ func (h *DashboardHandler) eventBridgeIndex(c *echo.Context) error {
 
 		Buses []ebbackend.EventBus
 	}{
-		PageData: PageData{Title: "EventBridge", ActiveTab: "eventbridge"},
-		Buses:    buses,
+		PageData: PageData{Title: "EventBridge", ActiveTab: "eventbridge",
+			Snippet: &SnippetData{
+				ID:    "eventbridge-operations",
+				Title: "Using Eventbridge",
+				Cli:   `aws eventbridge help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Eventbridge
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := eventbridge.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Eventbridge
+import boto3
+
+client = boto3.client('eventbridge', endpoint_url='http://localhost:8000')`,
+			}},
+		Buses: buses,
 	}
 
 	h.renderTemplate(c.Response(), "eventbridge/index.html", data)
@@ -45,9 +66,30 @@ func (h *DashboardHandler) eventBridgeRules(c *echo.Context) error {
 		BusName string
 		Rules   []ebbackend.Rule
 	}{
-		PageData: PageData{Title: "EventBridge Rules", ActiveTab: "eventbridge"},
-		BusName:  busName,
-		Rules:    rules,
+		PageData: PageData{Title: "EventBridge Rules", ActiveTab: "eventbridge",
+			Snippet: &SnippetData{
+				ID:    "eventbridge-operations",
+				Title: "Using Eventbridge",
+				Cli:   `aws eventbridge help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Eventbridge
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := eventbridge.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Eventbridge
+import boto3
+
+client = boto3.client('eventbridge', endpoint_url='http://localhost:8000')`,
+			}},
+		BusName: busName,
+		Rules:   rules,
 	}
 
 	h.renderTemplate(c.Response(), "eventbridge/rules.html", data)
@@ -66,8 +108,29 @@ func (h *DashboardHandler) eventBridgeEventLog(c *echo.Context) error {
 
 		Events []ebbackend.EventLogEntry
 	}{
-		PageData: PageData{Title: "EventBridge Event Log", ActiveTab: "eventbridge"},
-		Events:   log,
+		PageData: PageData{Title: "EventBridge Event Log", ActiveTab: "eventbridge",
+			Snippet: &SnippetData{
+				ID:    "eventbridge-operations",
+				Title: "Using Eventbridge",
+				Cli:   `aws eventbridge help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Eventbridge
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := eventbridge.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Eventbridge
+import boto3
+
+client = boto3.client('eventbridge', endpoint_url='http://localhost:8000')`,
+			}},
+		Events: log,
 	}
 
 	h.renderTemplate(c.Response(), "eventbridge/event_log.html", data)

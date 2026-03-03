@@ -21,13 +21,36 @@ type resourcegroupsIndexData struct {
 }
 
 // resourcegroupsIndex renders the Resource Groups dashboard index.
+//
+//nolint:dupl // intentional: each handler has unique snippet/service data despite similar structure
 func (h *DashboardHandler) resourcegroupsIndex(c *echo.Context) error {
 	w := c.Response()
 
 	if h.ResourceGroupsOps == nil {
 		h.renderTemplate(w, "resourcegroups/index.html", resourcegroupsIndexData{
-			PageData: PageData{Title: "Resource Groups", ActiveTab: "resourcegroups"},
-			Groups:   []resourceGroupView{},
+			PageData: PageData{Title: "Resource Groups", ActiveTab: "resourcegroups",
+				Snippet: &SnippetData{
+					ID:    "resourcegroups-operations",
+					Title: "Using Resourcegroups",
+					Cli:   `aws resourcegroups help --endpoint-url http://localhost:8000`,
+					Go: `// Initialize AWS SDK v2 for Using Resourcegroups
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := resourcegroups.NewFromConfig(cfg)`,
+					Python: `# Initialize boto3 client for Using Resourcegroups
+import boto3
+
+client = boto3.client('resourcegroups', endpoint_url='http://localhost:8000')`,
+				}},
+			Groups: []resourceGroupView{},
 		})
 
 		return nil
@@ -45,8 +68,29 @@ func (h *DashboardHandler) resourcegroupsIndex(c *echo.Context) error {
 	}
 
 	h.renderTemplate(w, "resourcegroups/index.html", resourcegroupsIndexData{
-		PageData: PageData{Title: "Resource Groups", ActiveTab: "resourcegroups"},
-		Groups:   views,
+		PageData: PageData{Title: "Resource Groups", ActiveTab: "resourcegroups",
+			Snippet: &SnippetData{
+				ID:    "resourcegroups-operations",
+				Title: "Using Resourcegroups",
+				Cli:   `aws resourcegroups help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Resourcegroups
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := resourcegroups.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Resourcegroups
+import boto3
+
+client = boto3.client('resourcegroups', endpoint_url='http://localhost:8000')`,
+			}},
+		Groups: views,
 	})
 
 	return nil

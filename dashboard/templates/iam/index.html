@@ -1,9 +1,19 @@
 {{define "content"}}
 <div class="px-4 sm:px-6 lg:px-8">
-    <div class="sm:flex sm:items-center justify-between mb-8">
-        <div class="sm:flex-auto">
-            <h1 class="text-3xl font-bold text-gray-900 dark:text-white">IAM — Identity & Access Management</h1>
-            <p class="mt-2 text-sm text-gray-700 dark:text-gray-300">Resource stubs — policy enforcement is not active
+    <div
+        class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm glass-panel flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+        <div>
+            <h1 class="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
+                <svg class="w-8 h-8 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path>
+                </svg>
+                IAM — Identity & Access Management
+                {{if .Snippet}}
+                {{template "components/snippet" .Snippet}}
+                {{end}}
+            </h1>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-400">Resource stubs — policy enforcement is not active
                 (v0.5).</p>
         </div>
     </div>
@@ -39,18 +49,18 @@
 
     <div id="iam-tabs-content">
         <!-- Users Tab -->
-        <div class="hidden p-4 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm"
+        <div class="hidden p-6 rounded-xl bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm glass-panel"
             id="users" role="tabpanel" aria-labelledby="users-tab">
             <div class="flex justify-between items-center mb-6">
-                <h2 class="text-xl font-bold text-gray-900 dark:text-white">Users</h2>
+                <h2 class="text-xl font-bold text-slate-900 dark:text-white">Users</h2>
                 <button data-modal-target="create-user-modal" data-modal-toggle="create-user-modal"
                     class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-4 py-2 dark:bg-blue-600 dark:hover:bg-blue-700 focus:outline-none dark:focus:ring-blue-800">
                     + Create User
                 </button>
             </div>
             <div class="relative overflow-x-auto">
-                <table class="w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
-                    <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                <table class="w-full text-sm text-left rtl:text-right text-slate-500 dark:text-slate-400">
+                    <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
                         <tr>
                             <th scope="col" class="px-6 py-3">UserName</th>
                             <th scope="col" class="px-6 py-3">UserId</th>
@@ -62,8 +72,8 @@
                     <tbody>
                         {{range .Users}}
                         <tr
-                            class="bg-white border-b dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
-                            <td class="px-6 py-4 font-medium text-gray-900 dark:text-white whitespace-nowrap">
+                            class="bg-white border-b border-slate-200 dark:border-slate-700 dark:bg-slate-800/50 hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
+                            <td class="px-6 py-4 font-medium text-slate-900 dark:text-white whitespace-nowrap">
                                 {{.UserName}}</td>
                             <td class="px-6 py-4 font-mono text-xs">{{.UserID}}</td>
                             <td class="px-6 py-4 font-mono text-xs max-w-xs truncate" title="{{.Arn}}">{{.Arn}}</td>
@@ -75,8 +85,8 @@
                             </td>
                         </tr>
                         {{else}}
-                        <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
-                            <td colspan="5" class="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">No users found. Create one to get started.</td>
+                        <tr class="bg-transparent border-b border-slate-200 dark:border-slate-700 dark:bg-transparent">
+                            <td colspan="5" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">No users found. Create one to get started.</td>
                         </tr>
                         {{end}}
                     </tbody>
@@ -85,18 +95,18 @@
         </div>
 
         <!-- Roles Tab -->
-        <div class="hidden p-4 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm"
+        <div class="hidden p-6 rounded-xl bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm glass-panel"
             id="roles" role="tabpanel" aria-labelledby="roles-tab">
             <div class="flex justify-between items-center mb-6">
-                <h2 class="text-xl font-bold text-gray-900 dark:text-white">Roles</h2>
+                <h2 class="text-xl font-bold text-slate-900 dark:text-white">Roles</h2>
                 <button data-modal-target="create-role-modal" data-modal-toggle="create-role-modal"
                     class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-4 py-2 dark:bg-blue-600 dark:hover:bg-blue-700 focus:outline-none dark:focus:ring-blue-800">
                     + Create Role
                 </button>
             </div>
             <div class="relative overflow-x-auto">
-                <table class="w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
-                    <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                <table class="w-full text-sm text-left rtl:text-right text-slate-500 dark:text-slate-400">
+                    <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
                         <tr>
                             <th scope="col" class="px-6 py-3">RoleName</th>
                             <th scope="col" class="px-6 py-3">RoleId</th>
@@ -107,8 +117,8 @@
                     <tbody>
                         {{range .Roles}}
                         <tr
-                            class="bg-white border-b dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
-                            <td class="px-6 py-4 font-medium text-gray-900 dark:text-white whitespace-nowrap">
+                            class="bg-white border-b border-slate-200 dark:border-slate-700 dark:bg-slate-800/50 hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
+                            <td class="px-6 py-4 font-medium text-slate-900 dark:text-white whitespace-nowrap">
                                 {{.RoleName}}</td>
                             <td class="px-6 py-4 font-mono text-xs">{{.RoleID}}</td>
                             <td class="px-6 py-4 font-mono text-xs max-w-xs truncate" title="{{.Arn}}">{{.Arn}}</td>
@@ -119,8 +129,9 @@
                             </td>
                         </tr>
                         {{else}}
-                        <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
-                            <td colspan="4" class="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">No roles found. Create one to get started.</td>
+                        <tr class="bg-transparent border-b border-slate-200 dark:border-slate-700 dark:bg-transparent">
+                            <td colspan="4" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">No
+                                roles found. Create one to get started.</td>
                         </tr>
                         {{end}}
                     </tbody>
@@ -129,18 +140,18 @@
         </div>
 
         <!-- Policies Tab -->
-        <div class="hidden p-4 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm"
+        <div class="hidden p-6 rounded-xl bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm glass-panel"
             id="policies" role="tabpanel" aria-labelledby="policies-tab">
             <div class="flex justify-between items-center mb-6">
-                <h2 class="text-xl font-bold text-gray-900 dark:text-white">Policies</h2>
+                <h2 class="text-xl font-bold text-slate-900 dark:text-white">Policies</h2>
                 <button data-modal-target="create-policy-modal" data-modal-toggle="create-policy-modal"
                     class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-4 py-2 dark:bg-blue-600 dark:hover:bg-blue-700 focus:outline-none dark:focus:ring-blue-800">
                     + Create Policy
                 </button>
             </div>
             <div class="relative overflow-x-auto">
-                <table class="w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
-                    <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                <table class="w-full text-sm text-left rtl:text-right text-slate-500 dark:text-slate-400">
+                    <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
                         <tr>
                             <th scope="col" class="px-6 py-3">PolicyName</th>
                             <th scope="col" class="px-6 py-3">ARN</th>
@@ -150,8 +161,8 @@
                     <tbody>
                         {{range .Policies}}
                         <tr
-                            class="bg-white border-b dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
-                            <td class="px-6 py-4 font-medium text-gray-900 dark:text-white whitespace-nowrap">
+                            class="bg-white border-b border-slate-200 dark:border-slate-700 dark:bg-slate-800/50 hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
+                            <td class="px-6 py-4 font-medium text-slate-900 dark:text-white whitespace-nowrap">
                                 {{.PolicyName}}</td>
                             <td class="px-6 py-4 font-mono text-xs max-w-xs truncate" title="{{.Arn}}">{{.Arn}}</td>
                             <td class="px-6 py-4 text-right whitespace-nowrap">
@@ -161,8 +172,9 @@
                             </td>
                         </tr>
                         {{else}}
-                        <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
-                            <td colspan="3" class="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">No policies found. Create one to get started.</td>
+                        <tr class="bg-transparent border-b border-slate-200 dark:border-slate-700 dark:bg-transparent">
+                            <td colspan="3" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">No
+                                policies found. Create one to get started.</td>
                         </tr>
                         {{end}}
                     </tbody>
@@ -171,18 +183,18 @@
         </div>
 
         <!-- Groups Tab -->
-        <div class="hidden p-4 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm"
+        <div class="hidden p-6 rounded-xl bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm glass-panel"
             id="groups" role="tabpanel" aria-labelledby="groups-tab">
             <div class="flex justify-between items-center mb-6">
-                <h2 class="text-xl font-bold text-gray-900 dark:text-white">Groups</h2>
+                <h2 class="text-xl font-bold text-slate-900 dark:text-white">Groups</h2>
                 <button data-modal-target="create-group-modal" data-modal-toggle="create-group-modal"
                     class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-4 py-2 dark:bg-blue-600 dark:hover:bg-blue-700 focus:outline-none dark:focus:ring-blue-800">
                     + Create Group
                 </button>
             </div>
             <div class="relative overflow-x-auto">
-                <table class="w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
-                    <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                <table class="w-full text-sm text-left rtl:text-right text-slate-500 dark:text-slate-400">
+                    <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
                         <tr>
                             <th scope="col" class="px-6 py-3">GroupName</th>
                             <th scope="col" class="px-6 py-3">GroupId</th>
@@ -193,8 +205,8 @@
                     <tbody>
                         {{range .Groups}}
                         <tr
-                            class="bg-white border-b dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
-                            <td class="px-6 py-4 font-medium text-gray-900 dark:text-white whitespace-nowrap">
+                            class="bg-white border-b border-slate-200 dark:border-slate-700 dark:bg-slate-800/50 hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
+                            <td class="px-6 py-4 font-medium text-slate-900 dark:text-white whitespace-nowrap">
                                 {{.GroupName}}</td>
                             <td class="px-6 py-4 font-mono text-xs">{{.GroupID}}</td>
                             <td class="px-6 py-4 font-mono text-xs max-w-xs truncate" title="{{.Arn}}">{{.Arn}}</td>
@@ -205,8 +217,9 @@
                             </td>
                         </tr>
                         {{else}}
-                        <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
-                            <td colspan="4" class="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">No groups found. Create one to get started.</td>
+                        <tr class="bg-transparent border-b border-slate-200 dark:border-slate-700 dark:bg-transparent">
+                            <td colspan="4" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">No
+                                groups found. Create one to get started.</td>
                         </tr>
                         {{end}}
                     </tbody>
@@ -222,7 +235,7 @@
     <div class="relative p-4 w-full max-w-md max-h-full">
         <div class="relative bg-white rounded-lg shadow dark:bg-gray-700">
             <div class="flex items-center justify-between p-4 md:p-5 border-b rounded-t dark:border-gray-600">
-                <h3 class="text-xl font-semibold text-gray-900 dark:text-white">Create IAM User</h3>
+                <h3 class="text-xl font-semibold text-slate-900 dark:text-white">Create IAM User</h3>
                 <button type="button"
                     class="end-2.5 text-gray-400 bg-transparent hover:bg-gray-200 hover:text-gray-900 rounded-lg text-sm w-8 h-8 ms-auto inline-flex justify-center items-center dark:hover:bg-gray-600 dark:hover:text-white"
                     data-modal-hide="create-user-modal">
@@ -238,14 +251,14 @@
                 <form class="space-y-4" hx-post="/dashboard/iam/user" hx-target="body">
                     <div>
                         <label for="iam_userName"
-                            class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">UserName</label>
+                            class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">UserName</label>
                         <input id="iam_userName" name="userName" type="text"
                             class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-600 dark:border-gray-500 dark:placeholder-gray-400 dark:text-white"
                             placeholder="alice" required />
                     </div>
                     <div>
                         <label for="iam_userPath"
-                            class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Path (optional)</label>
+                            class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Path (optional)</label>
                         <input id="iam_userPath" name="path" type="text"
                             class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-600 dark:border-gray-500 dark:placeholder-gray-400 dark:text-white"
                             placeholder="/" />
@@ -269,7 +282,7 @@
     <div class="relative p-4 w-full max-w-md max-h-full">
         <div class="relative bg-white rounded-lg shadow dark:bg-gray-700">
             <div class="flex items-center justify-between p-4 md:p-5 border-b rounded-t dark:border-gray-600">
-                <h3 class="text-xl font-semibold text-gray-900 dark:text-white">Create IAM Role</h3>
+                <h3 class="text-xl font-semibold text-slate-900 dark:text-white">Create IAM Role</h3>
                 <button type="button"
                     class="end-2.5 text-gray-400 bg-transparent hover:bg-gray-200 hover:text-gray-900 rounded-lg text-sm w-8 h-8 ms-auto inline-flex justify-center items-center dark:hover:bg-gray-600 dark:hover:text-white"
                     data-modal-hide="create-role-modal">
@@ -285,21 +298,21 @@
                 <form class="space-y-4" hx-post="/dashboard/iam/role" hx-target="body">
                     <div>
                         <label for="iam_roleName"
-                            class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">RoleName</label>
+                            class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">RoleName</label>
                         <input id="iam_roleName" name="roleName" type="text"
                             class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-600 dark:border-gray-500 dark:placeholder-gray-400 dark:text-white"
                             placeholder="MyRole" required />
                     </div>
                     <div>
                         <label for="iam_rolePath"
-                            class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Path (optional)</label>
+                            class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Path (optional)</label>
                         <input id="iam_rolePath" name="path" type="text"
                             class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-600 dark:border-gray-500 dark:placeholder-gray-400 dark:text-white"
                             placeholder="/" />
                     </div>
                     <div>
                         <label for="iam_roleDoc"
-                            class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Assume Role Policy
+                            class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Assume Role Policy
                             Document (optional)</label>
                         <textarea id="iam_roleDoc" name="assumeRolePolicyDocument"
                             class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-600 dark:border-gray-500 dark:placeholder-gray-400 dark:text-white"
@@ -324,7 +337,7 @@
     <div class="relative p-4 w-full max-w-md max-h-full">
         <div class="relative bg-white rounded-lg shadow dark:bg-gray-700">
             <div class="flex items-center justify-between p-4 md:p-5 border-b rounded-t dark:border-gray-600">
-                <h3 class="text-xl font-semibold text-gray-900 dark:text-white">Create IAM Policy</h3>
+                <h3 class="text-xl font-semibold text-slate-900 dark:text-white">Create IAM Policy</h3>
                 <button type="button"
                     class="end-2.5 text-gray-400 bg-transparent hover:bg-gray-200 hover:text-gray-900 rounded-lg text-sm w-8 h-8 ms-auto inline-flex justify-center items-center dark:hover:bg-gray-600 dark:hover:text-white"
                     data-modal-hide="create-policy-modal">
@@ -340,21 +353,21 @@
                 <form class="space-y-4" hx-post="/dashboard/iam/policy" hx-target="body">
                     <div>
                         <label for="iam_policyName"
-                            class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">PolicyName</label>
+                            class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">PolicyName</label>
                         <input id="iam_policyName" name="policyName" type="text"
                             class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-600 dark:border-gray-500 dark:placeholder-gray-400 dark:text-white"
                             placeholder="MyPolicy" required />
                     </div>
                     <div>
                         <label for="iam_policyPath"
-                            class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Path (optional)</label>
+                            class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Path (optional)</label>
                         <input id="iam_policyPath" name="path" type="text"
                             class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-600 dark:border-gray-500 dark:placeholder-gray-400 dark:text-white"
                             placeholder="/" />
                     </div>
                     <div>
                         <label for="iam_policyDoc"
-                            class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Policy Document
+                            class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Policy Document
                             (optional)</label>
                         <textarea id="iam_policyDoc" name="policyDocument"
                             class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-600 dark:border-gray-500 dark:placeholder-gray-400 dark:text-white"
@@ -379,7 +392,7 @@
     <div class="relative p-4 w-full max-w-md max-h-full">
         <div class="relative bg-white rounded-lg shadow dark:bg-gray-700">
             <div class="flex items-center justify-between p-4 md:p-5 border-b rounded-t dark:border-gray-600">
-                <h3 class="text-xl font-semibold text-gray-900 dark:text-white">Create IAM Group</h3>
+                <h3 class="text-xl font-semibold text-slate-900 dark:text-white">Create IAM Group</h3>
                 <button type="button"
                     class="end-2.5 text-gray-400 bg-transparent hover:bg-gray-200 hover:text-gray-900 rounded-lg text-sm w-8 h-8 ms-auto inline-flex justify-center items-center dark:hover:bg-gray-600 dark:hover:text-white"
                     data-modal-hide="create-group-modal">
@@ -395,14 +408,14 @@
                 <form class="space-y-4" hx-post="/dashboard/iam/group" hx-target="body">
                     <div>
                         <label for="iam_groupName"
-                            class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">GroupName</label>
+                            class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">GroupName</label>
                         <input id="iam_groupName" name="groupName" type="text"
                             class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-600 dark:border-gray-500 dark:placeholder-gray-400 dark:text-white"
                             placeholder="Admins" required />
                     </div>
                     <div>
                         <label for="iam_groupPath"
-                            class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Path (optional)</label>
+                            class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Path (optional)</label>
                         <input id="iam_groupPath" name="path" type="text"
                             class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-600 dark:border-gray-500 dark:placeholder-gray-400 dark:text-white"
                             placeholder="/" />

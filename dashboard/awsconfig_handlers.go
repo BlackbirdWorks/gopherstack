@@ -21,12 +21,35 @@ type awsconfigIndexData struct {
 }
 
 // awsconfigIndex renders the AWS Config dashboard index.
+//
+//nolint:dupl // intentional: each handler has unique snippet/service data despite similar structure
 func (h *DashboardHandler) awsconfigIndex(c *echo.Context) error {
 	w := c.Response()
 
 	if h.AWSConfigOps == nil {
 		h.renderTemplate(w, "awsconfig/index.html", awsconfigIndexData{
-			PageData:  PageData{Title: "AWS Config", ActiveTab: "awsconfig"},
+			PageData: PageData{Title: "AWS Config", ActiveTab: "awsconfig",
+				Snippet: &SnippetData{
+					ID:    "awsconfig-operations",
+					Title: "Using Awsconfig",
+					Cli:   `aws awsconfig help --endpoint-url http://localhost:8000`,
+					Go: `// Initialize AWS SDK v2 for Using Awsconfig
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := awsconfig.NewFromConfig(cfg)`,
+					Python: `# Initialize boto3 client for Using Awsconfig
+import boto3
+
+client = boto3.client('awsconfig', endpoint_url='http://localhost:8000')`,
+				}},
 			Recorders: []awsconfigRecorderView{},
 		})
 
@@ -45,7 +68,28 @@ func (h *DashboardHandler) awsconfigIndex(c *echo.Context) error {
 	}
 
 	h.renderTemplate(w, "awsconfig/index.html", awsconfigIndexData{
-		PageData:  PageData{Title: "AWS Config", ActiveTab: "awsconfig"},
+		PageData: PageData{Title: "AWS Config", ActiveTab: "awsconfig",
+			Snippet: &SnippetData{
+				ID:    "awsconfig-operations",
+				Title: "Using Awsconfig",
+				Cli:   `aws awsconfig help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Awsconfig
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := awsconfig.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Awsconfig
+import boto3
+
+client = boto3.client('awsconfig', endpoint_url='http://localhost:8000')`,
+			}},
 		Recorders: views,
 	})
 

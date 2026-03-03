@@ -42,8 +42,29 @@ func (h *DashboardHandler) sqsIndex(c *echo.Context) error {
 
 	if h.SQSOps == nil {
 		h.renderTemplate(w, "sqs/index.html", sqsIndexData{
-			PageData: PageData{Title: "SQS Queues", ActiveTab: "sqs"},
-			Queues:   []sqsQueueView{},
+			PageData: PageData{Title: "SQS Queues", ActiveTab: "sqs",
+				Snippet: &SnippetData{
+					ID:    "sqs-operations",
+					Title: "Using Sqs",
+					Cli:   `aws sqs help --endpoint-url http://localhost:8000`,
+					Go: `// Initialize AWS SDK v2 for Using Sqs
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := sqs.NewFromConfig(cfg)`,
+					Python: `# Initialize boto3 client for Using Sqs
+import boto3
+
+client = boto3.client('sqs', endpoint_url='http://localhost:8000')`,
+				}},
+			Queues: []sqsQueueView{},
 		})
 
 		return nil
@@ -77,8 +98,29 @@ func (h *DashboardHandler) sqsIndex(c *echo.Context) error {
 	}
 
 	h.renderTemplate(w, "sqs/index.html", sqsIndexData{
-		PageData: PageData{Title: "SQS Queues", ActiveTab: "sqs"},
-		Queues:   views,
+		PageData: PageData{Title: "SQS Queues", ActiveTab: "sqs",
+			Snippet: &SnippetData{
+				ID:    "sqs-operations",
+				Title: "Using Sqs",
+				Cli:   `aws sqs help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Sqs
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := sqs.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Sqs
+import boto3
+
+client = boto3.client('sqs', endpoint_url='http://localhost:8000')`,
+			}},
+		Queues: views,
 	})
 
 	return nil
@@ -90,7 +132,28 @@ func (h *DashboardHandler) sqsCreateQueueModal(c *echo.Context) error {
 	h.renderFragment(w, "sqs/create_modal.html", struct {
 		PageData
 	}{
-		PageData: PageData{Title: "Create Queue", ActiveTab: "sqs"},
+		PageData: PageData{Title: "Create Queue", ActiveTab: "sqs",
+			Snippet: &SnippetData{
+				ID:    "sqs-operations",
+				Title: "Using Sqs",
+				Cli:   `aws sqs help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Sqs
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := sqs.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Sqs
+import boto3
+
+client = boto3.client('sqs', endpoint_url='http://localhost:8000')`,
+			}},
 	})
 
 	return nil
@@ -284,6 +347,27 @@ func (h *DashboardHandler) sqsQueueDetail(c *echo.Context) error {
 		PageData: PageData{
 			Title:     "Queue Detail",
 			ActiveTab: "sqs",
+			Snippet: &SnippetData{
+				ID:    "sqs-operations",
+				Title: "Using Sqs",
+				Cli:   `aws sqs help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Sqs
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := sqs.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Sqs
+import boto3
+
+client = boto3.client('sqs', endpoint_url='http://localhost:8000')`,
+			},
 		},
 		QueueURL:   queueURL,
 		Attributes: out.Attributes,

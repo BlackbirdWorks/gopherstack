@@ -5,10 +5,15 @@
         class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-gray-200 dark:border-gray-700 pb-6">
         <div>
             <h1 class="text-4xl font-extrabold tracking-tight text-blue-600 dark:text-blue-400">Performance Metrics</h1>
-            <p class="text-gray-500 dark:text-gray-400 mt-2">Real-time health and performance statistics for
+            <p class="text-slate-500 dark:text-slate-400 mt-2">Real-time health and performance statistics for
                 Gopherstack.</p>
         </div>
         <div class="flex items-center gap-3">
+            <!-- Activity Sparkline Heatmap -->
+            <div class="hidden sm:flex items-end h-9 gap-[3px] px-3 py-1.5 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-white/5 shadow-inner"
+                id="activity-sparkline" title="Live Traffic Heatmap">
+                <!-- Bars injected via JS -->
+            </div>
             <div id="live-indicator"
                 class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 text-xs font-bold border border-green-200 dark:border-green-800">
                 <span class="relative flex h-2 w-2">
@@ -19,7 +24,7 @@
                 LIVE
             </div>
             <button
-                class="text-gray-900 bg-white border border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-100 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-gray-800 dark:text-white dark:border-gray-600 dark:hover:bg-gray-700 dark:hover:border-gray-600 dark:focus:ring-gray-700 inline-flex items-center gap-2"
+                class="text-gray-900 bg-white border border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-100 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-white/5 dark:text-white dark:border-white/10 dark:hover:bg-white/10 dark:focus:ring-gray-700 inline-flex items-center gap-2 transition-colors shadow-sm"
                 hx-get="/dashboard/api/metrics" hx-target="#metrics-content" hx-swap="none"
                 hx-on::after-request="window.dispatchEvent(new CustomEvent('metrics-updated', {detail: JSON.parse(event.detail.xhr.responseText)}))">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
@@ -46,7 +51,7 @@
                     d="M93.9676 39.0409C96.393 38.4038 97.8624 35.9116 97.0079 33.5539C95.2932 28.8227 92.871 24.3692 89.8167 20.348C85.8452 15.1192 80.8826 10.7238 75.2124 7.41289C69.5422 4.10194 63.2754 1.94025 56.7698 1.05124C51.7666 0.367541 46.6976 0.446843 41.7345 1.27873C39.2613 1.69328 37.813 4.19778 38.4501 6.62326C39.0873 9.04874 41.5694 10.4717 44.0505 10.1071C47.8511 9.54855 51.7191 9.52689 55.5402 10.0491C60.8642 10.7766 65.9928 12.5457 70.6331 15.2552C75.2735 17.9648 79.3347 21.5619 82.5849 25.841C84.9175 28.9121 86.7997 32.2913 88.1811 35.8758C89.083 38.2158 91.5421 39.6781 93.9676 39.0409Z"
                     fill="currentFill" />
             </svg>
-            <p class="mt-4 font-medium text-gray-700 dark:text-gray-300">Gathering insights...</p>
+            <p class="mt-4 font-medium text-slate-600 dark:text-slate-300">Gathering insights...</p>
         </div>
 
         <div id="dashboard-view" class="hidden space-y-8">
@@ -76,7 +81,7 @@
 
             <!-- Runtime Section -->
             <section>
-                <h2 class="text-xl font-bold mb-4 flex items-center gap-2 text-gray-900 dark:text-white">
+                <h2 class="text-xl font-bold mb-4 flex items-center gap-2 text-slate-900 dark:text-white">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-purple-500" fill="none"
                         viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -86,33 +91,33 @@
                 </h2>
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     <div
-                        class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
-                        <div class="text-sm font-medium text-gray-500 dark:text-gray-400">Goroutines</div>
+                        class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+                        <div class="text-sm font-medium text-slate-500 dark:text-slate-400">Goroutines</div>
                         <div id="runtime-goroutines" class="text-3xl font-bold py-1 text-blue-600 dark:text-blue-400">0
                         </div>
-                        <div class="text-xs text-gray-500 dark:text-gray-400">Active routines</div>
+                        <div class="text-xs text-slate-500 dark:text-slate-400">Active routines</div>
                     </div>
                     <div
-                        class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
-                        <div class="text-sm font-medium text-gray-500 dark:text-gray-400">Heap Memory</div>
+                        class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+                        <div class="text-sm font-medium text-slate-500 dark:text-slate-400">Heap Memory</div>
                         <div id="runtime-heap" class="text-3xl font-bold py-1 text-purple-600 dark:text-purple-400">0MB
                         </div>
-                        <div id="runtime-heap-pct" class="text-xs text-gray-500 dark:text-gray-400">0% of total</div>
+                        <div id="runtime-heap-pct" class="text-xs text-slate-500 dark:text-slate-400">0% of total</div>
                     </div>
                     <div
-                        class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
-                        <div class="text-sm font-medium text-gray-500 dark:text-gray-400">GC Cycles</div>
+                        class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+                        <div class="text-sm font-medium text-slate-500 dark:text-slate-400">GC Cycles</div>
                         <div id="runtime-gc" class="text-3xl font-bold py-1 text-yellow-600 dark:text-yellow-400">0
                         </div>
-                        <div id="runtime-gc-pause" class="text-xs text-gray-500 dark:text-gray-400">Last pause: 0ms
+                        <div id="runtime-gc-pause" class="text-xs text-slate-500 dark:text-slate-400">Last pause: 0ms
                         </div>
                     </div>
                     <div
-                        class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
-                        <div class="text-sm font-medium text-gray-500 dark:text-gray-400">Total Allocated</div>
-                        <div id="runtime-total" class="text-3xl font-bold py-1 text-gray-700 dark:text-gray-300">0MB
+                        class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+                        <div class="text-sm font-medium text-slate-500 dark:text-slate-400">Total Allocated</div>
+                        <div id="runtime-total" class="text-3xl font-bold py-1 text-slate-600 dark:text-slate-300">0MB
                         </div>
-                        <div class="text-xs text-gray-500 dark:text-gray-400">Lifetime total</div>
+                        <div class="text-xs text-slate-500 dark:text-slate-400">Lifetime total</div>
                     </div>
                 </div>
             </section>
@@ -121,7 +126,7 @@
             <section>
                 <div class="flex flex-col md:flex-row justify-between items-start md:items-end mb-6 gap-4">
                     <div class="flex items-center gap-2">
-                        <h2 class="text-xl font-bold flex items-center gap-2 text-gray-900 dark:text-white">
+                        <h2 class="text-xl font-bold flex items-center gap-2 text-slate-900 dark:text-white">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-blue-500" fill="none"
                                 viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -156,7 +161,7 @@
                                     <input type="checkbox" id="select-all-services" checked class="sr-only peer"
                                         onchange="toggleAllServices(this.checked)">
                                     <div
-                                        class="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-600 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600">
+                                        class="shrink-0 w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-600 peer-checked:after:translate-x-4 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600">
                                     </div>
                                     <span class="ml-3 text-sm font-medium text-gray-900 dark:text-gray-300">All
                                         Services</span>
@@ -251,9 +256,11 @@
                     </div>
                 </div>
 
-                <div class="relative overflow-x-auto shadow-md sm:rounded-lg">
-                    <table class="w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
-                        <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                <div
+                    class="relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
+                    <table class="w-full text-sm text-left rtl:text-right text-slate-500 dark:text-slate-400">
+                        <thead
+                            class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
                             <tr>
                                 <th scope="col" class="px-6 py-3">Operation</th>
                                 <th scope="col" class="px-6 py-3 text-center">Requests</th>
@@ -273,7 +280,7 @@
 
             <!-- Service Worker Section -->
             <section id="worker-section">
-                <h2 class="text-xl font-bold mb-4 flex items-center gap-2 text-gray-900 dark:text-white">
+                <h2 class="text-xl font-bold mb-4 flex items-center gap-2 text-slate-900 dark:text-white">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-orange-500" fill="none"
                         viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -295,8 +302,8 @@
                         d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
             </div>
-            <h3 class="text-xl font-bold text-gray-900 dark:text-white">No Data Available</h3>
-            <p class="text-gray-500 dark:text-gray-400 mt-2">Perform some requests to generate performance data.</p>
+            <h3 class="text-xl font-bold text-slate-900 dark:text-white">No Data Available</h3>
+            <p class="text-slate-500 dark:text-slate-400 mt-2">Perform some requests to generate performance data.</p>
         </div>
     </div>
 </div>
@@ -353,7 +360,7 @@
         const body = document.getElementById('worker-body');
         if (!body) return;
         if (!data || !data.workers || data.workers.length === 0) {
-            body.innerHTML = '<div class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700 col-span-full text-center text-gray-500">No active background workers detected.</div>';
+            body.innerHTML = '<div class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel col-span-full text-center text-gray-500">No active background workers detected.</div>';
             return;
         }
         let cards = '';
@@ -372,7 +379,7 @@
                 <div class="flex justify-between items-start mb-4">
                     <div class="flex flex-col gap-1">
                         <span class="text-[10px] font-bold px-1.5 py-0.5 rounded ${svcColor} uppercase w-fit">${svc}</span>
-                        <h4 class="text-sm font-bold text-gray-900 dark:text-white truncate">${escapeHtml(worker)}</h4>
+                        <h4 class="text-sm font-bold text-slate-900 dark:text-white truncate">${escapeHtml(worker)}</h4>
                     </div>
                     <div class="flex flex-col items-end">
                         <span class="text-2xl font-black ${colorClass}">${w.queue_depth}</span>
@@ -381,11 +388,11 @@
                 </div>
                 <div class="space-y-3 pt-3 border-t border-gray-100 dark:border-gray-700">
                    <div class="flex justify-between text-xs">
-                       <span class="text-gray-500 dark:text-gray-400">Tasks Processed</span>
-                       <span class="font-mono font-bold text-gray-700 dark:text-gray-300">${w.tasks_total.toLocaleString()}</span>
+                       <span class="text-slate-500 dark:text-slate-400">Tasks Processed</span>
+                       <span class="font-mono font-bold text-slate-600 dark:text-slate-300">${w.tasks_total.toLocaleString()}</span>
                    </div>
                    <div class="flex justify-between text-xs">
-                       <span class="text-gray-500 dark:text-gray-400">Items Handled</span>
+                       <span class="text-slate-500 dark:text-slate-400">Items Handled</span>
                        <span class="font-mono font-bold text-blue-600 dark:text-blue-400">${w.items_processed_total.toLocaleString()}</span>
                    </div>
                    ${w.errors_total > 0 ? `
@@ -432,14 +439,14 @@
                 service === 'S3' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300' :
                     service === 'SSM' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300' :
                         'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300';
-            rows += `<tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
+            rows += `<tr class="bg-white border-b border-slate-200 dark:border-slate-700 dark:bg-slate-800/50 hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
                 <td class="px-6 py-4 font-medium"><div class="flex items-center gap-2"><span class="text-[10px] font-bold px-1.5 py-0.5 rounded ${svcColor} uppercase">${service}</span><code class="text-blue-600 dark:text-blue-400 font-bold text-xs">${escapeHtml(action)}</code></div></td>
-                <td class="px-6 py-4 text-center"><div><span class="font-bold text-gray-900 dark:text-white">${op.count}</span></div><div class="text-[10px] text-gray-400 uppercase tracking-tighter">requests</div></td>
+                <td class="px-6 py-4 text-center"><div><span class="font-bold text-slate-900 dark:text-white">${op.count}</span></div><div class="text-[10px] text-gray-400 uppercase tracking-tighter">requests</div></td>
                 <td class="px-6 py-4 text-right font-mono text-blue-600 dark:text-blue-500 font-semibold">${op.p50_ms.toFixed(2)}<span class="text-xs opacity-40 ml-0.5">ms</span></td>
                 <td class="px-6 py-4 text-right font-mono text-purple-600 dark:text-purple-500 font-semibold">${op.p95_ms.toFixed(2)}<span class="text-xs opacity-40 ml-0.5">ms</span></td>
                 <td class="px-6 py-4 text-right font-mono text-yellow-600 dark:text-yellow-500 font-semibold">${op.p99_ms.toFixed(2)}<span class="text-xs opacity-40 ml-0.5">ms</span></td>
                 <td class="px-6 py-4 text-right font-mono text-gray-600 dark:text-gray-400">${op.avg_ms.toFixed(2)}<span class="text-xs opacity-40 ml-0.5">ms</span></td>
-                <td class="px-6 py-4 text-right font-mono text-gray-900 dark:text-white font-bold">${op.max_ms.toFixed(2)}<span class="text-xs opacity-40 ml-0.5">ms</span></td>
+                <td class="px-6 py-4 text-right font-mono text-slate-900 dark:text-white font-bold">${op.max_ms.toFixed(2)}<span class="text-xs opacity-40 ml-0.5">ms</span></td>
             </tr>`;
         }
         body.innerHTML = rows || '<tr><td colspan="7" class="text-center py-8 text-gray-400 italic">No matching operations found</td></tr>';

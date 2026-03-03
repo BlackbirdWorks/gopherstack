@@ -18,8 +18,29 @@ func (h *DashboardHandler) cloudFormationIndex(c *echo.Context) error {
 
 		Stacks []*cfnbackend.Stack
 	}{
-		PageData: PageData{Title: "CloudFormation", ActiveTab: "cloudformation"},
-		Stacks:   stacks,
+		PageData: PageData{Title: "CloudFormation", ActiveTab: "cloudformation",
+			Snippet: &SnippetData{
+				ID:    "cloudformation-operations",
+				Title: "Using Cloudformation",
+				Cli:   `aws cloudformation help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Cloudformation
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := cloudformation.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Cloudformation
+import boto3
+
+client = boto3.client('cloudformation', endpoint_url='http://localhost:8000')`,
+			}},
+		Stacks: stacks,
 	}
 	h.renderTemplate(c.Response(), "cloudformation/index.html", data)
 
@@ -42,9 +63,30 @@ func (h *DashboardHandler) cloudFormationStackDetail(c *echo.Context) error {
 		Stack  *cfnbackend.Stack
 		Events []cfnbackend.StackEvent
 	}{
-		PageData: PageData{Title: "Stack: " + stack.StackName, ActiveTab: "cloudformation"},
-		Stack:    stack,
-		Events:   events,
+		PageData: PageData{Title: "Stack: " + stack.StackName, ActiveTab: "cloudformation",
+			Snippet: &SnippetData{
+				ID:    "cloudformation-operations",
+				Title: "Using Cloudformation",
+				Cli:   `aws cloudformation help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Cloudformation
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := cloudformation.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Cloudformation
+import boto3
+
+client = boto3.client('cloudformation', endpoint_url='http://localhost:8000')`,
+			}},
+		Stack:  stack,
+		Events: events,
 	}
 	h.renderTemplate(c.Response(), "cloudformation/stack_detail.html", data)
 

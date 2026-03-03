@@ -19,8 +19,29 @@ func (h *DashboardHandler) apiGatewayIndex(c *echo.Context) error {
 
 		APIs []apigwbackend.RestAPI
 	}{
-		PageData: PageData{Title: "API Gateway", ActiveTab: "apigateway"},
-		APIs:     apis,
+		PageData: PageData{Title: "API Gateway", ActiveTab: "apigateway",
+			Snippet: &SnippetData{
+				ID:    "apigateway-operations",
+				Title: "Using Apigateway",
+				Cli:   `aws apigateway help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Apigateway
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := apigateway.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Apigateway
+import boto3
+
+client = boto3.client('apigateway', endpoint_url='http://localhost:8000')`,
+			}},
+		APIs: apis,
 	}
 
 	h.renderTemplate(c.Response(), "apigateway/index.html", data)
@@ -52,7 +73,28 @@ func (h *DashboardHandler) apiGatewayDetail(c *echo.Context) error {
 		Resources []apigwbackend.Resource
 		Stages    []apigwbackend.Stage
 	}{
-		PageData:  PageData{Title: "API Gateway — " + api.Name, ActiveTab: "apigateway"},
+		PageData: PageData{Title: "API Gateway — " + api.Name, ActiveTab: "apigateway",
+			Snippet: &SnippetData{
+				ID:    "apigateway-operations",
+				Title: "Using Apigateway",
+				Cli:   `aws apigateway help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Apigateway
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := apigateway.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Apigateway
+import boto3
+
+client = boto3.client('apigateway', endpoint_url='http://localhost:8000')`,
+			}},
 		API:       api,
 		Resources: resources,
 		Stages:    stages,

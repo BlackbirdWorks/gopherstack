@@ -42,12 +42,35 @@ type elastiCacheClusterDetailData struct {
 }
 
 // elastiCacheIndex renders the list of all ElastiCache clusters.
+//
+//nolint:funlen // long due to ElastiCache node type list
 func (h *DashboardHandler) elastiCacheIndex(c *echo.Context) error {
 	w := c.Response()
 
 	if h.ElastiCacheOps == nil {
 		h.renderTemplate(w, "elasticache/index.html", elastiCacheIndexData{
-			PageData: PageData{Title: "ElastiCache Clusters", ActiveTab: "elasticache"},
+			PageData: PageData{Title: "ElastiCache Clusters", ActiveTab: "elasticache",
+				Snippet: &SnippetData{
+					ID:    "elasticache-operations",
+					Title: "Using Elasticache",
+					Cli:   `aws elasticache help --endpoint-url http://localhost:8000`,
+					Go: `// Initialize AWS SDK v2 for Using Elasticache
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := elasticache.NewFromConfig(cfg)`,
+					Python: `# Initialize boto3 client for Using Elasticache
+import boto3
+
+client = boto3.client('elasticache', endpoint_url='http://localhost:8000')`,
+				}},
 			Clusters: []elastiCacheClusterView{},
 		})
 
@@ -57,7 +80,28 @@ func (h *DashboardHandler) elastiCacheIndex(c *echo.Context) error {
 	bk, ok := h.ElastiCacheOps.Backend.(*elasticachebackend.InMemoryBackend)
 	if !ok {
 		h.renderTemplate(w, "elasticache/index.html", elastiCacheIndexData{
-			PageData: PageData{Title: "ElastiCache Clusters", ActiveTab: "elasticache"},
+			PageData: PageData{Title: "ElastiCache Clusters", ActiveTab: "elasticache",
+				Snippet: &SnippetData{
+					ID:    "elasticache-operations",
+					Title: "Using Elasticache",
+					Cli:   `aws elasticache help --endpoint-url http://localhost:8000`,
+					Go: `// Initialize AWS SDK v2 for Using Elasticache
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := elasticache.NewFromConfig(cfg)`,
+					Python: `# Initialize boto3 client for Using Elasticache
+import boto3
+
+client = boto3.client('elasticache', endpoint_url='http://localhost:8000')`,
+				}},
 			Clusters: []elastiCacheClusterView{},
 		})
 
@@ -80,7 +124,28 @@ func (h *DashboardHandler) elastiCacheIndex(c *echo.Context) error {
 	}
 
 	h.renderTemplate(w, "elasticache/index.html", elastiCacheIndexData{
-		PageData: PageData{Title: "ElastiCache Clusters", ActiveTab: "elasticache"},
+		PageData: PageData{Title: "ElastiCache Clusters", ActiveTab: "elasticache",
+			Snippet: &SnippetData{
+				ID:    "elasticache-operations",
+				Title: "Using Elasticache",
+				Cli:   `aws elasticache help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Elasticache
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := elasticache.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Elasticache
+import boto3
+
+client = boto3.client('elasticache', endpoint_url='http://localhost:8000')`,
+			}},
 		Clusters: views,
 	})
 
@@ -105,7 +170,28 @@ func (h *DashboardHandler) elastiCacheClusterDetail(c *echo.Context) error {
 	cl := clusters[0]
 
 	h.renderTemplate(w, "elasticache/cluster_detail.html", elastiCacheClusterDetailData{
-		PageData:      PageData{Title: "Cluster: " + cl.ClusterID, ActiveTab: "elasticache"},
+		PageData: PageData{Title: "Cluster: " + cl.ClusterID, ActiveTab: "elasticache",
+			Snippet: &SnippetData{
+				ID:    "elasticache-operations",
+				Title: "Using Elasticache",
+				Cli:   `aws elasticache help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Elasticache
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := elasticache.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Elasticache
+import boto3
+
+client = boto3.client('elasticache', endpoint_url='http://localhost:8000')`,
+			}},
 		ClusterID:     cl.ClusterID,
 		Engine:        cl.Engine,
 		EngineVersion: cl.EngineVersion,

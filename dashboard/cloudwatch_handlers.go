@@ -21,9 +21,30 @@ func (h *DashboardHandler) cloudWatchIndex(c *echo.Context) error {
 		Metrics []cwbackend.Metric
 		Alarms  []cwbackend.MetricAlarm
 	}{
-		PageData: PageData{Title: "CloudWatch", ActiveTab: "cloudwatch"},
-		Metrics:  metrics,
-		Alarms:   alarms,
+		PageData: PageData{Title: "CloudWatch", ActiveTab: "cloudwatch",
+			Snippet: &SnippetData{
+				ID:    "cloudwatch-operations",
+				Title: "Using Cloudwatch",
+				Cli:   `aws cloudwatch help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Cloudwatch
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := cloudwatch.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Cloudwatch
+import boto3
+
+client = boto3.client('cloudwatch', endpoint_url='http://localhost:8000')`,
+			}},
+		Metrics: metrics,
+		Alarms:  alarms,
 	}
 
 	h.renderTemplate(c.Response(), "cloudwatch/index.html", data)

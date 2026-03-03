@@ -1,13 +1,13 @@
 {{define "content"}}
 <div class="px-4 sm:px-6 lg:px-8">
-    <h1 class="text-3xl font-bold text-gray-900 dark:text-white">Rules — {{.BusName}}</h1>
-    <p class="mt-2 text-sm text-gray-700 dark:text-gray-300">Rules for event bus "{{.BusName}}".</p>
+    <h1 class="text-3xl font-bold text-slate-900 dark:text-white">Rules — {{.BusName}}</h1>
+    <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Rules for event bus "{{.BusName}}".</p>
     <div class="mt-4">
         <a href="/dashboard/eventbridge" class="text-blue-600 hover:underline">← Back to Event Buses</a>
     </div>
-    <div class="mt-8 relative overflow-x-auto shadow-md sm:rounded-lg">
-        <table class="w-full text-sm text-left text-gray-500 dark:text-gray-400">
-            <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+    <div class="mt-8 relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
+        <table class="w-full text-sm text-left text-slate-500 dark:text-slate-400">
+            <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
                 <tr>
                     <th class="px-6 py-3">Name</th>
                     <th class="px-6 py-3">State</th>
@@ -17,8 +17,8 @@
             </thead>
             <tbody>
                 {{range .Rules}}
-                <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
-                    <td class="px-6 py-4 font-mono text-gray-900 dark:text-white">{{.Name}}</td>
+                <tr class="bg-transparent border-b border-slate-200 dark:border-slate-700 dark:bg-transparent">
+                    <td class="px-6 py-4 font-mono text-slate-900 dark:text-white">{{.Name}}</td>
                     <td class="px-6 py-4">
                         {{if eq .State "ENABLED"}}<span class="text-green-600 dark:text-green-400">Enabled</span>
                         {{else}}<span class="text-gray-500">Disabled</span>{{end}}
@@ -29,7 +29,7 @@
                     <td class="px-6 py-4 text-gray-500">{{.Description}}</td>
                 </tr>
                 {{else}}
-                <tr><td colspan="4" class="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">No rules found.</td></tr>
+                <tr><td colspan="4" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">No rules found.</td></tr>
                 {{end}}
             </tbody>
         </table>

@@ -26,8 +26,29 @@ func (h *DashboardHandler) swfIndex(c *echo.Context) error {
 
 	if h.SWFOps == nil {
 		h.renderTemplate(w, "swf/index.html", swfIndexData{
-			PageData: PageData{Title: "SWF Domains", ActiveTab: "swf"},
-			Domains:  []swfDomainView{},
+			PageData: PageData{Title: "SWF Domains", ActiveTab: "swf",
+				Snippet: &SnippetData{
+					ID:    "swf-operations",
+					Title: "Using Swf",
+					Cli:   `aws swf help --endpoint-url http://localhost:8000`,
+					Go: `// Initialize AWS SDK v2 for Using Swf
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := swf.NewFromConfig(cfg)`,
+					Python: `# Initialize boto3 client for Using Swf
+import boto3
+
+client = boto3.client('swf', endpoint_url='http://localhost:8000')`,
+				}},
+			Domains: []swfDomainView{},
 		})
 
 		return nil
@@ -45,8 +66,29 @@ func (h *DashboardHandler) swfIndex(c *echo.Context) error {
 	}
 
 	h.renderTemplate(w, "swf/index.html", swfIndexData{
-		PageData: PageData{Title: "SWF Domains", ActiveTab: "swf"},
-		Domains:  views,
+		PageData: PageData{Title: "SWF Domains", ActiveTab: "swf",
+			Snippet: &SnippetData{
+				ID:    "swf-operations",
+				Title: "Using Swf",
+				Cli:   `aws swf help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Swf
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := swf.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Swf
+import boto3
+
+client = boto3.client('swf', endpoint_url='http://localhost:8000')`,
+			}},
+		Domains: views,
 	})
 
 	return nil

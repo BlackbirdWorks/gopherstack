@@ -1,14 +1,43 @@
 {{define "content"}}
-<div class="px-4 sm:px-6 lg:px-8">
-    <h1 class="text-3xl font-bold text-gray-900 dark:text-white">EventBridge</h1>
-    <p class="mt-2 text-sm text-gray-700 dark:text-gray-300">Event buses in your in-memory EventBridge environment.</p>
-    <div class="mt-4 flex gap-4">
-        <a href="/dashboard/eventbridge/rules?bus=default" class="text-blue-600 hover:underline">View Default Bus Rules</a>
-        <a href="/dashboard/eventbridge/events" class="text-blue-600 hover:underline">Event Log</a>
+<div class="space-y-6">
+    <!-- Header -->
+    <div
+        class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm glass-panel flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+        <div>
+            <h1 class="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
+                <svg class="w-8 h-8 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z">
+                    </path>
+                </svg>
+                EventBridge
+                {{if .Snippet}}
+                {{template "components/snippet" .Snippet}}
+                {{end}}
+            </h1>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-400 mb-4">Event buses in your in-memory EventBridge
+                environment.</p>
+            <div class="flex gap-4 border-t border-slate-200 dark:border-slate-700 pt-4">
+                <a href="/dashboard/eventbridge/rules?bus=default"
+                    class="text-sm font-medium text-indigo-600 hover:text-indigo-800 flex items-center gap-1"><svg
+                        class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
+                    </svg>View Default Bus Rules</a>
+                <a href="/dashboard/eventbridge/events"
+                    class="text-sm font-medium text-indigo-600 hover:text-indigo-800 flex items-center gap-1"><svg
+                        class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z">
+                        </path>
+                    </svg>Event Log</a>
+            </div>
+        </div>
     </div>
-    <div class="mt-8 relative overflow-x-auto shadow-md sm:rounded-lg">
-        <table class="w-full text-sm text-left text-gray-500 dark:text-gray-400">
-            <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+    <div
+        class="mt-8 relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
+        <table class="w-full text-sm text-left text-slate-500 dark:text-slate-400">
+            <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
                 <tr>
                     <th class="px-6 py-3">Name</th>
                     <th class="px-6 py-3">ARN</th>
@@ -16,14 +45,18 @@
             </thead>
             <tbody>
                 {{range .Buses}}
-                <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
-                    <td class="px-6 py-4 font-mono text-gray-900 dark:text-white">
-                        <a href="/dashboard/eventbridge/rules?bus={{.Name}}" class="text-blue-600 hover:underline dark:text-blue-400">{{.Name}}</a>
+                <tr class="bg-transparent border-b border-slate-200 dark:border-slate-700 dark:bg-transparent">
+                    <td class="px-6 py-4 font-mono text-slate-900 dark:text-white">
+                        <a href="/dashboard/eventbridge/rules?bus={{.Name}}"
+                            class="text-blue-600 hover:underline dark:text-blue-400">{{.Name}}</a>
                     </td>
-                    <td class="px-6 py-4 font-mono text-gray-500 dark:text-gray-400">{{.Arn}}</td>
+                    <td class="px-6 py-4 font-mono text-slate-500 dark:text-slate-400">{{.Arn}}</td>
                 </tr>
                 {{else}}
-                <tr><td colspan="2" class="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">No event buses found.</td></tr>
+                <tr>
+                    <td colspan="2" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">No event
+                        buses found.</td>
+                </tr>
                 {{end}}
             </tbody>
         </table>

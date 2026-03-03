@@ -41,8 +41,29 @@ func (h *DashboardHandler) opensearchIndex(c *echo.Context) error {
 
 	if h.OpenSearchOps == nil {
 		h.renderTemplate(w, "opensearch/index.html", opensearchIndexData{
-			PageData: PageData{Title: "OpenSearch", ActiveTab: "opensearch"},
-			Domains:  []opensearchDomainView{},
+			PageData: PageData{Title: "OpenSearch", ActiveTab: "opensearch",
+				Snippet: &SnippetData{
+					ID:    "opensearch-operations",
+					Title: "Using Opensearch",
+					Cli:   `aws opensearch help --endpoint-url http://localhost:8000`,
+					Go: `// Initialize AWS SDK v2 for Using Opensearch
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := opensearch.NewFromConfig(cfg)`,
+					Python: `# Initialize boto3 client for Using Opensearch
+import boto3
+
+client = boto3.client('opensearch', endpoint_url='http://localhost:8000')`,
+				}},
+			Domains: []opensearchDomainView{},
 		})
 
 		return nil
@@ -66,8 +87,29 @@ func (h *DashboardHandler) opensearchIndex(c *echo.Context) error {
 	}
 
 	h.renderTemplate(w, "opensearch/index.html", opensearchIndexData{
-		PageData: PageData{Title: "OpenSearch", ActiveTab: "opensearch"},
-		Domains:  views,
+		PageData: PageData{Title: "OpenSearch", ActiveTab: "opensearch",
+			Snippet: &SnippetData{
+				ID:    "opensearch-operations",
+				Title: "Using Opensearch",
+				Cli:   `aws opensearch help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Opensearch
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := opensearch.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Opensearch
+import boto3
+
+client = boto3.client('opensearch', endpoint_url='http://localhost:8000')`,
+			}},
+		Domains: views,
 	})
 
 	return nil
@@ -92,7 +134,28 @@ func (h *DashboardHandler) opensearchDomainDetail(c *echo.Context) error {
 	}
 
 	h.renderTemplate(w, "opensearch/domain_detail.html", opensearchDomainDetailData{
-		PageData:      PageData{Title: d.Name, ActiveTab: "opensearch"},
+		PageData: PageData{Title: d.Name, ActiveTab: "opensearch",
+			Snippet: &SnippetData{
+				ID:    "opensearch-operations",
+				Title: "Using Opensearch",
+				Cli:   `aws opensearch help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Opensearch
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := opensearch.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Opensearch
+import boto3
+
+client = boto3.client('opensearch', endpoint_url='http://localhost:8000')`,
+			}},
 		DomainName:    d.Name,
 		EngineVersion: d.EngineVersion,
 		Endpoint:      d.Endpoint,

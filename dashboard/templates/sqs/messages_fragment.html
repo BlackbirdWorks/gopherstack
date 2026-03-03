@@ -6,12 +6,26 @@
     {{range .Messages}}
     <div class="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg border">
       <p class="text-xs text-gray-500 font-mono mb-1">ID: {{.MessageID}}</p>
-      <p class="text-sm text-gray-900 dark:text-white break-all">{{.Body}}</p>
+      <p class="text-sm text-slate-900 dark:text-white break-all">{{.Body}}</p>
     </div>
     {{end}}
   </div>
   {{else}}
-  <p class="text-sm text-gray-500">No messages available.</p>
+  <div
+    class="flex flex-col items-center justify-center p-8 bg-gray-50 dark:bg-gray-800 rounded-lg border border-dashed border-gray-300 dark:border-gray-600">
+    <svg class="w-16 h-16 text-gray-400 dark:text-gray-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+        d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4">
+      </path>
+    </svg>
+    <p class="text-sm font-medium text-gray-900 dark:text-gray-200">No messages available</p>
+    <p class="text-xs text-gray-500 mt-1 mb-4 text-center max-w-sm">The queue is currently empty. Send a message to see
+      it appear here.</p>
+    <button onclick="document.querySelector('form[hx-post]').querySelector('textarea').focus()"
+      class="text-xs font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300">
+      Send a message
+    </button>
+  </div>
   {{end}}
 </div>
 {{end}}

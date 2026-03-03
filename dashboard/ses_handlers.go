@@ -50,7 +50,28 @@ func (h *DashboardHandler) sesIndex(c *echo.Context) error {
 
 	if h.SESOps == nil {
 		h.renderTemplate(w, "ses/index.html", sesIndexData{
-			PageData:   PageData{Title: "SES Inbox", ActiveTab: "ses"},
+			PageData: PageData{Title: "SES Inbox", ActiveTab: "ses",
+				Snippet: &SnippetData{
+					ID:    "ses-operations",
+					Title: "Using Ses",
+					Cli:   `aws ses help --endpoint-url http://localhost:8000`,
+					Go: `// Initialize AWS SDK v2 for Using Ses
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := ses.NewFromConfig(cfg)`,
+					Python: `# Initialize boto3 client for Using Ses
+import boto3
+
+client = boto3.client('ses', endpoint_url='http://localhost:8000')`,
+				}},
 			Emails:     []sesEmailView{},
 			Identities: []string{},
 		})
@@ -75,7 +96,28 @@ func (h *DashboardHandler) sesIndex(c *echo.Context) error {
 	identities := h.SESOps.Backend.ListIdentities()
 
 	h.renderTemplate(w, "ses/index.html", sesIndexData{
-		PageData:   PageData{Title: "SES Inbox", ActiveTab: "ses"},
+		PageData: PageData{Title: "SES Inbox", ActiveTab: "ses",
+			Snippet: &SnippetData{
+				ID:    "ses-operations",
+				Title: "Using Ses",
+				Cli:   `aws ses help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Ses
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := ses.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Ses
+import boto3
+
+client = boto3.client('ses', endpoint_url='http://localhost:8000')`,
+			}},
 		Emails:     emailViews,
 		Identities: identities,
 	})
@@ -118,7 +160,28 @@ func (h *DashboardHandler) sesEmailDetail(c *echo.Context) error {
 	}
 
 	h.renderTemplate(w, "ses/email_detail.html", sesEmailDetailView{
-		PageData:     PageData{Title: email.Subject, ActiveTab: "ses"},
+		PageData: PageData{Title: email.Subject, ActiveTab: "ses",
+			Snippet: &SnippetData{
+				ID:    "ses-operations",
+				Title: "Using Ses",
+				Cli:   `aws ses help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Ses
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := ses.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Ses
+import boto3
+
+client = boto3.client('ses', endpoint_url='http://localhost:8000')`,
+			}},
 		MessageID:    email.MessageID,
 		From:         email.From,
 		ToStr:        strings.Join(email.To, ", "),
