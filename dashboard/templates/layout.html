@@ -172,17 +172,21 @@
                 <div class="relative" id="region-selector-container">
                     <button id="region-selector-btn" type="button"
                         class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono font-medium text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
-                        title="Switch region">
+                        title="Switch region"
+                        aria-haspopup="listbox"
+                        aria-expanded="false">
                         <svg class="w-3.5 h-3.5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064" />
                         </svg>
                         <span id="region-selector-label">us-east-1</span>
-                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg id="region-chevron" class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
                         </svg>
                     </button>
                     <div id="region-dropdown"
+                        role="listbox"
+                        aria-label="AWS Region"
                         class="hidden absolute right-0 mt-1 w-48 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg z-50">
                         <div id="region-list" class="py-1 text-sm"></div>
                     </div>
@@ -829,15 +833,42 @@
         (function () {
             const STORAGE_KEY = 'gopherstack-region';
 
+            // Services that are global (not region-specific) — region selector is greyed out for these.
+            const GLOBAL_SERVICE_PATHS = [
+                '/dashboard/iam',
+                '/dashboard/sts',
+                '/dashboard/route53',
+                '/dashboard/support',
+            ];
+
+            function isGlobalService(path) {
+                return GLOBAL_SERVICE_PATHS.some(function (p) {
+                    return path === p || path.startsWith(p + '/');
+                });
+            }
+
             function getCurrentRegion(defaultRegion) {
                 return localStorage.getItem(STORAGE_KEY) || defaultRegion;
+            }
+
+            function setDropdownOpen(open) {
+                const btn = document.getElementById('region-selector-btn');
+                const dropdown = document.getElementById('region-dropdown');
+                if (!btn || !dropdown) return;
+                if (open) {
+                    dropdown.classList.remove('hidden');
+                    btn.setAttribute('aria-expanded', 'true');
+                } else {
+                    dropdown.classList.add('hidden');
+                    btn.setAttribute('aria-expanded', 'false');
+                }
             }
 
             function setRegion(region) {
                 localStorage.setItem(STORAGE_KEY, region);
                 document.getElementById('region-selector-label').textContent = region;
                 renderRegionList(window._gopherstackRegions || [], region);
-                document.getElementById('region-dropdown').classList.add('hidden');
+                setDropdownOpen(false);
 
                 if (document.getElementById('bucket-list')) {
                     htmx.ajax('GET', '/dashboard/s3/buckets?region=' + encodeURIComponent(region), '#bucket-list');
@@ -855,6 +886,8 @@
                 regions.forEach(function (r) {
                     const btn = document.createElement('button');
                     btn.type = 'button';
+                    btn.role = 'option';
+                    btn.setAttribute('aria-selected', r === active ? 'true' : 'false');
                     btn.className = 'flex items-center gap-2 w-full px-3 py-1.5 text-xs font-mono text-left text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors';
                     const icon = document.createElement('span');
                     if (r === active) {
@@ -872,16 +905,44 @@
                 });
             }
 
+            function updateRegionSelectorForPath(path) {
+                const btn = document.getElementById('region-selector-btn');
+                const label = document.getElementById('region-selector-label');
+                const chevron = document.getElementById('region-chevron');
+                if (!btn || !label) return;
+
+                if (isGlobalService(path)) {
+                    btn.disabled = true;
+                    btn.title = 'This service is global — not region-specific';
+                    btn.classList.add('opacity-50', 'cursor-not-allowed');
+                    btn.classList.remove('hover:bg-slate-200', 'dark:hover:bg-slate-700');
+                    label.textContent = 'Global';
+                    if (chevron) chevron.classList.add('hidden');
+                    setDropdownOpen(false);
+                } else {
+                    btn.disabled = false;
+                    btn.title = 'Switch region';
+                    btn.classList.remove('opacity-50', 'cursor-not-allowed');
+                    btn.classList.add('hover:bg-slate-200', 'dark:hover:bg-slate-700');
+                    label.textContent = getCurrentRegion(window._gopherstackDefaultRegion || 'us-east-1');
+                    if (chevron) chevron.classList.remove('hidden');
+                }
+            }
+
             document.addEventListener('DOMContentLoaded', function () {
                 fetch('/dashboard/api/regions')
                     .then(function (res) { return res.json(); })
                     .then(function (data) {
                         window._gopherstackRegions = data.regions || [];
+                        window._gopherstackDefaultRegion = data.default;
                         const current = getCurrentRegion(data.default);
-                        document.getElementById('region-selector-label').textContent = current;
-                        renderRegionList(data.regions || [], current);
+                        // Determine label/state first; only populate the dropdown for regional services.
+                        updateRegionSelectorForPath(window.location.pathname);
+                        if (!isGlobalService(window.location.pathname)) {
+                            renderRegionList(data.regions || [], current);
+                        }
 
-                        if (current !== data.default) {
+                        if (current !== data.default && !isGlobalService(window.location.pathname)) {
                             if (document.getElementById('bucket-list')) {
                                 htmx.ajax('GET', '/dashboard/s3/buckets?region=' + encodeURIComponent(current), '#bucket-list');
                             }
@@ -896,14 +957,30 @@
                 const dropdown = document.getElementById('region-dropdown');
                 if (btn && dropdown) {
                     btn.addEventListener('click', function (e) {
+                        if (btn.disabled) return;
                         e.stopPropagation();
-                        dropdown.classList.toggle('hidden');
+                        const opening = dropdown.classList.contains('hidden');
+                        setDropdownOpen(opening);
+                    });
+                    document.addEventListener('keydown', function (e) {
+                        if (e.key === 'Escape') {
+                            setDropdownOpen(false);
+                        }
                     });
                     document.addEventListener('click', function (e) {
                         if (!document.getElementById('region-selector-container').contains(e.target)) {
-                            dropdown.classList.add('hidden');
+                            setDropdownOpen(false);
                         }
                     });
+                }
+            });
+
+            // Update region selector state whenever HTMX navigates to a new page.
+            document.addEventListener('htmx:afterSettle', function () {
+                updateRegionSelectorForPath(window.location.pathname);
+                if (!isGlobalService(window.location.pathname)) {
+                    const current = getCurrentRegion(window._gopherstackDefaultRegion || 'us-east-1');
+                    renderRegionList(window._gopherstackRegions || [], current);
                 }
             });
         }());

@@ -2,6 +2,7 @@ package dashboard_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,7 +15,7 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	awsdynamodb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
@@ -423,7 +424,7 @@ func TestDashboard_DDB_Query(t *testing.T) {
 			stack := newStack(t)
 			stack.CreateDDBTable(t, "query-table")
 
-			_, err := stack.DDBHandler.Backend.PutItem(t.Context(), &dynamodb.PutItemInput{
+			_, err := stack.DDBHandler.Backend.PutItem(t.Context(), &awsdynamodb.PutItemInput{
 				TableName: aws.String("query-table"),
 				Item: map[string]ddbtypes.AttributeValue{
 					"id": &ddbtypes.AttributeValueMemberS{Value: "item-1"},
@@ -497,7 +498,7 @@ func TestDashboard_DDB_Scan(t *testing.T) {
 			stack.CreateDDBTable(t, "scan-table")
 
 			if tt.preInsert {
-				_, err := stack.DDBHandler.Backend.PutItem(t.Context(), &dynamodb.PutItemInput{
+				_, err := stack.DDBHandler.Backend.PutItem(t.Context(), &awsdynamodb.PutItemInput{
 					TableName: aws.String("scan-table"),
 					Item: map[string]ddbtypes.AttributeValue{
 						"id": &ddbtypes.AttributeValueMemberS{Value: "scan-item"},
@@ -1296,7 +1297,7 @@ func TestDashboard_DDB_Indexes(t *testing.T) {
 	tableName := "IndexTable"
 
 	// Create table with GSI and LSI
-	_, err := stack.DDBHandler.Backend.CreateTable(t.Context(), &dynamodb.CreateTableInput{
+	_, err := stack.DDBHandler.Backend.CreateTable(t.Context(), &awsdynamodb.CreateTableInput{
 		TableName: aws.String(tableName),
 		KeySchema: []ddbtypes.KeySchemaElement{
 			{AttributeName: aws.String("pk"), KeyType: ddbtypes.KeyTypeHash},
@@ -1338,7 +1339,7 @@ func TestDashboard_DDB_Indexes(t *testing.T) {
 	assert.Contains(t, w.Body.String(), "LSI1")
 
 	// Put an item
-	_, err = stack.DDBHandler.Backend.PutItem(t.Context(), &dynamodb.PutItemInput{
+	_, err = stack.DDBHandler.Backend.PutItem(t.Context(), &awsdynamodb.PutItemInput{
 		TableName: aws.String(tableName),
 		Item: map[string]ddbtypes.AttributeValue{
 			"pk":     &ddbtypes.AttributeValueMemberS{Value: "user1"},
@@ -1378,7 +1379,7 @@ func TestDashboard_DDB_Indexes(t *testing.T) {
 	assert.Contains(t, w.Body.String(), "user1")
 
 	// 3. GSI with Sort Key
-	_, err = stack.DDBHandler.Backend.CreateTable(t.Context(), &dynamodb.CreateTableInput{
+	_, err = stack.DDBHandler.Backend.CreateTable(t.Context(), &awsdynamodb.CreateTableInput{
 		TableName: aws.String("GSISKTable"),
 		KeySchema: []ddbtypes.KeySchemaElement{
 			{AttributeName: aws.String("pk"), KeyType: ddbtypes.KeyTypeHash},
@@ -1402,7 +1403,7 @@ func TestDashboard_DDB_Indexes(t *testing.T) {
 	require.NoError(t, err)
 
 	// Put item with N type for SK
-	_, err = stack.DDBHandler.Backend.PutItem(t.Context(), &dynamodb.PutItemInput{
+	_, err = stack.DDBHandler.Backend.PutItem(t.Context(), &awsdynamodb.PutItemInput{
 		TableName: aws.String("GSISKTable"),
 		Item: map[string]ddbtypes.AttributeValue{
 			"pk":     &ddbtypes.AttributeValueMemberS{Value: "u1"},
@@ -1431,7 +1432,7 @@ func TestDashboard_DDB_Indexes(t *testing.T) {
 
 	// 4. LSI with Binary Sort Key (wait, LSI must have same PK)
 	// Let's use IndexTable which has LSI1 on pk (HASH) and gsi_pk (RANGE)
-	_, err = stack.DDBHandler.Backend.PutItem(t.Context(), &dynamodb.PutItemInput{
+	_, err = stack.DDBHandler.Backend.PutItem(t.Context(), &awsdynamodb.PutItemInput{
 		TableName: aws.String("IndexTable"),
 		Item: map[string]ddbtypes.AttributeValue{
 			"pk":     &ddbtypes.AttributeValueMemberS{Value: "user2"},
@@ -1576,7 +1577,7 @@ func TestDashboard_DDB_Scan_Detailed(t *testing.T) {
 	tableName := "ScanDetailedTable"
 
 	// Create table
-	_, err := stack.DDBHandler.Backend.CreateTable(t.Context(), &dynamodb.CreateTableInput{
+	_, err := stack.DDBHandler.Backend.CreateTable(t.Context(), &awsdynamodb.CreateTableInput{
 		TableName: aws.String(tableName),
 		KeySchema: []ddbtypes.KeySchemaElement{
 			{AttributeName: aws.String("pk"), KeyType: ddbtypes.KeyTypeHash},
@@ -1621,7 +1622,7 @@ func TestDashboard_DDB_Query_Pagination(t *testing.T) {
 	tableName := "PaginationTable"
 
 	// Create table
-	_, err := stack.DDBHandler.Backend.CreateTable(t.Context(), &dynamodb.CreateTableInput{
+	_, err := stack.DDBHandler.Backend.CreateTable(t.Context(), &awsdynamodb.CreateTableInput{
 		TableName: aws.String(tableName),
 		KeySchema: []ddbtypes.KeySchemaElement{
 			{AttributeName: aws.String("pk"), KeyType: ddbtypes.KeyTypeHash},
@@ -1636,7 +1637,7 @@ func TestDashboard_DDB_Query_Pagination(t *testing.T) {
 
 	// Put multiple items
 	for i := range 5 {
-		_, err = stack.DDBHandler.Backend.PutItem(t.Context(), &dynamodb.PutItemInput{
+		_, err = stack.DDBHandler.Backend.PutItem(t.Context(), &awsdynamodb.PutItemInput{
 			TableName: aws.String(tableName),
 			Item: map[string]ddbtypes.AttributeValue{
 				"pk": &ddbtypes.AttributeValueMemberS{Value: "user1"},
@@ -2670,25 +2671,62 @@ func TestDashboard_APIRegions(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
-		wantContains  string
-		wantDefaultIn string
-		setupBuckets  []string
-		setupTables   []string
-		wantStatus    int
+		setup       func(t *testing.T, stack *teststack.Stack)
+		name        string
+		wantDefault string
+		wantRegions []string
+		wantStatus  int
 	}{
 		{
-			name:          "returns default region when no resources",
-			wantStatus:    http.StatusOK,
-			wantDefaultIn: "us-east-1",
-			wantContains:  "us-east-1",
+			name:        "returns default region when no resources",
+			wantStatus:  http.StatusOK,
+			wantDefault: "us-east-1",
+			wantRegions: []string{"us-east-1"},
 		},
 		{
-			name:          "includes region from S3 bucket",
-			wantStatus:    http.StatusOK,
-			setupBuckets:  []string{"test-bucket"},
-			wantDefaultIn: "us-east-1",
-			wantContains:  "us-east-1",
+			name:        "includes non-default region from S3 bucket",
+			wantStatus:  http.StatusOK,
+			wantDefault: "us-east-1",
+			wantRegions: []string{"us-east-1", "us-west-2"},
+			setup: func(t *testing.T, stack *teststack.Stack) {
+				t.Helper()
+				// Bucket in the default region
+				stack.CreateS3Bucket(t, "east-bucket")
+				// Bucket in a non-default region — must appear in the regions list
+				_, err := stack.S3Backend.CreateBucket(t.Context(), &s3.CreateBucketInput{
+					Bucket: aws.String("west-bucket"),
+					CreateBucketConfiguration: &s3types.CreateBucketConfiguration{
+						LocationConstraint: s3types.BucketLocationConstraintUsWest2,
+					},
+				})
+				require.NoError(t, err)
+			},
+		},
+		{
+			name:        "includes non-default region from DynamoDB table",
+			wantStatus:  http.StatusOK,
+			wantDefault: "us-east-1",
+			wantRegions: []string{"us-east-1", "us-west-2"},
+			setup: func(t *testing.T, stack *teststack.Stack) {
+				t.Helper()
+				stack.CreateDDBTable(t, "east-table")
+				db, ok := stack.DDBHandler.Backend.(*ddbbackend.InMemoryDB)
+				require.True(t, ok)
+				_, err := db.CreateTableInRegion(t.Context(), &awsdynamodb.CreateTableInput{
+					TableName: aws.String("west-table"),
+					KeySchema: []ddbtypes.KeySchemaElement{
+						{AttributeName: aws.String("id"), KeyType: ddbtypes.KeyTypeHash},
+					},
+					AttributeDefinitions: []ddbtypes.AttributeDefinition{
+						{AttributeName: aws.String("id"), AttributeType: ddbtypes.ScalarAttributeTypeS},
+					},
+					ProvisionedThroughput: &ddbtypes.ProvisionedThroughput{
+						ReadCapacityUnits:  aws.Int64(1),
+						WriteCapacityUnits: aws.Int64(1),
+					},
+				}, "us-west-2")
+				require.NoError(t, err)
+			},
 		},
 	}
 
@@ -2697,12 +2735,8 @@ func TestDashboard_APIRegions(t *testing.T) {
 			t.Parallel()
 
 			stack := newStack(t)
-			for _, b := range tt.setupBuckets {
-				stack.CreateS3Bucket(t, b)
-			}
-
-			for _, tbl := range tt.setupTables {
-				stack.CreateDDBTable(t, tbl)
+			if tt.setup != nil {
+				tt.setup(t, stack)
 			}
 
 			req := httptest.NewRequest(http.MethodGet, "/dashboard/api/regions", nil)
@@ -2710,8 +2744,16 @@ func TestDashboard_APIRegions(t *testing.T) {
 			serveHandler(stack.Dashboard, w, req)
 
 			assert.Equal(t, tt.wantStatus, w.Code)
-			assert.Contains(t, w.Body.String(), tt.wantContains)
-			assert.Contains(t, w.Body.String(), tt.wantDefaultIn)
+
+			var resp struct {
+				Default string   `json:"default"`
+				Regions []string `json:"regions"`
+			}
+			require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+			assert.Equal(t, tt.wantDefault, resp.Default)
+			for _, r := range tt.wantRegions {
+				assert.Contains(t, resp.Regions, r)
+			}
 		})
 	}
 }
@@ -2811,20 +2853,24 @@ func TestDashboard_DDB_TableList_RegionFilter(t *testing.T) {
 			// Create table in default region via stack helper
 			stack.CreateDDBTable(t, "east-table")
 
-			// Create west-table directly in us-west-2 by inserting into the Tables map
+			// Create west-table via the backend API in us-west-2 so the table is fully initialised
 			db, ok := stack.DDBHandler.Backend.(*ddbbackend.InMemoryDB)
 			require.True(t, ok)
 
-			westTable := &ddbbackend.Table{
-				Name:   "west-table",
-				Status: "ACTIVE",
-			}
-
-			if db.Tables["us-west-2"] == nil {
-				db.Tables["us-west-2"] = make(map[string]*ddbbackend.Table)
-			}
-
-			db.Tables["us-west-2"]["west-table"] = westTable
+			_, err := db.CreateTableInRegion(t.Context(), &awsdynamodb.CreateTableInput{
+				TableName: aws.String("west-table"),
+				KeySchema: []ddbtypes.KeySchemaElement{
+					{AttributeName: aws.String("id"), KeyType: ddbtypes.KeyTypeHash},
+				},
+				AttributeDefinitions: []ddbtypes.AttributeDefinition{
+					{AttributeName: aws.String("id"), AttributeType: ddbtypes.ScalarAttributeTypeS},
+				},
+				ProvisionedThroughput: &ddbtypes.ProvisionedThroughput{
+					ReadCapacityUnits:  aws.Int64(1),
+					WriteCapacityUnits: aws.Int64(1),
+				},
+			}, "us-west-2")
+			require.NoError(t, err)
 
 			req := httptest.NewRequest(http.MethodGet, "/dashboard/dynamodb/tables?region="+tt.region, nil)
 			w := httptest.NewRecorder()
