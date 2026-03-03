@@ -94,11 +94,11 @@ func TestDashboard_Routing(t *testing.T) {
 			wantStatus: http.StatusNotFound,
 		},
 		{
-			name:         "root redirects to dynamodb",
+			name:         "root renders overview",
 			method:       http.MethodGet,
 			path:         "/dashboard/",
-			wantStatus:   http.StatusFound,
-			wantLocation: "/dashboard/dynamodb",
+			wantStatus:   http.StatusOK,
+			wantContains: "Gopherstack",
 		},
 		{
 			name:         "dynamodb index renders page",
@@ -1700,13 +1700,11 @@ func TestDashboard_EdgeCases(t *testing.T) {
 	t.Parallel()
 	stack := newStack(t)
 
-	// 1. Root redirect
+	// 1. Root renders overview (previously redirected to dynamodb)
 	req := httptest.NewRequest(http.MethodGet, "/dashboard", nil)
 	w := httptest.NewRecorder()
 	serveHandler(stack.Dashboard, w, req)
-	// Some environments might use 302 for Redirect if not specified but we used 301.
-	// We'll allow both just in case of middleware interference.
-	assert.True(t, w.Code == http.StatusMovedPermanently || w.Code == http.StatusFound)
+	assert.Equal(t, http.StatusOK, w.Code)
 
 	// 2. dynamoDBCreateTable missing TableName
 	form := url.Values{}

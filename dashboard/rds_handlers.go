@@ -52,6 +52,8 @@ type rdsInstanceDetailData struct {
 }
 
 // rdsIndex renders the list of all RDS instances, snapshots, and subnet groups.
+//
+//nolint:funlen // long due to RDS instance class list
 func (h *DashboardHandler) rdsIndex(c *echo.Context) error {
 	w := c.Response()
 

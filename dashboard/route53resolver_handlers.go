@@ -22,6 +22,8 @@ type route53resolverIndexData struct {
 }
 
 // route53resolverIndex renders the Route53Resolver dashboard index.
+//
+//nolint:dupl // intentional: each handler has unique snippet/service data despite similar structure
 func (h *DashboardHandler) route53resolverIndex(c *echo.Context) error {
 	w := c.Response()
 
