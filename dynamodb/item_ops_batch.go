@@ -20,6 +20,9 @@ import (
 // batchWriteResponseLimit is the simulated 16 MB response size limit for BatchWriteItem.
 const batchWriteResponseLimit = 16 * 1024 * 1024
 
+// eventuallyConsistentRCU is the RCU cost per read for eventually-consistent reads (0.5 per 4KB).
+const eventuallyConsistentRCU = 0.5
+
 func (db *InMemoryDB) BatchGetItem(
 	ctx context.Context,
 	input *dynamodb.BatchGetItemInput,
@@ -60,10 +63,38 @@ func (db *InMemoryDB) BatchGetItem(
 
 	wg.Wait()
 
-	return &dynamodb.BatchGetItemOutput{
-		Responses:       responses,
-		UnprocessedKeys: make(map[string]types.KeysAndAttributes),
-	}, nil
+	out := &dynamodb.BatchGetItemOutput{
+		Responses:        responses,
+		UnprocessedKeys:  make(map[string]types.KeysAndAttributes),
+		ConsumedCapacity: batchGetConsumedCapacity(input.ReturnConsumedCapacity, input.RequestItems),
+	}
+
+	return out, nil
+}
+
+func batchGetConsumedCapacity(
+	req types.ReturnConsumedCapacity,
+	requestItems map[string]types.KeysAndAttributes,
+) []types.ConsumedCapacity {
+	if req == "" || req == types.ReturnConsumedCapacityNone {
+		return nil
+	}
+
+	// Capacity is charged per requested key, not per returned item (missing items still consume RCU).
+	caps := make([]types.ConsumedCapacity, 0, len(requestItems))
+	for tableName, keysAndAttrs := range requestItems {
+		cu := float64(len(keysAndAttrs.Keys)) * eventuallyConsistentRCU
+		if cu < eventuallyConsistentRCU {
+			cu = eventuallyConsistentRCU
+		}
+		caps = append(caps, types.ConsumedCapacity{
+			TableName:         aws.String(tableName),
+			CapacityUnits:     aws.Float64(cu),
+			ReadCapacityUnits: aws.Float64(cu),
+		})
+	}
+
+	return caps
 }
 
 func (db *InMemoryDB) validateBatchGetInput(ctx context.Context, input *dynamodb.BatchGetItemInput) error {
@@ -211,9 +242,33 @@ func (db *InMemoryDB) BatchWriteItem(
 		return nil, firstErr
 	}
 
-	return &dynamodb.BatchWriteItemOutput{
+	out := &dynamodb.BatchWriteItemOutput{
 		UnprocessedItems: unprocessedItems,
-	}, nil
+		ConsumedCapacity: batchWriteConsumedCapacity(input.ReturnConsumedCapacity, toProcess),
+	}
+
+	return out, nil
+}
+
+func batchWriteConsumedCapacity(
+	req types.ReturnConsumedCapacity,
+	processed map[string][]types.WriteRequest,
+) []types.ConsumedCapacity {
+	if req == "" || req == types.ReturnConsumedCapacityNone {
+		return nil
+	}
+
+	caps := make([]types.ConsumedCapacity, 0, len(processed))
+	for tableName, reqs := range processed {
+		cu := float64(len(reqs))
+		caps = append(caps, types.ConsumedCapacity{
+			TableName:          aws.String(tableName),
+			CapacityUnits:      aws.Float64(cu),
+			WriteCapacityUnits: aws.Float64(cu),
+		})
+	}
+
+	return caps
 }
 
 // splitWriteRequestsBySize splits write requests into those whose cumulative estimated JSON size

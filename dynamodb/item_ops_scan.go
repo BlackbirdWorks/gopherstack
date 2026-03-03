@@ -15,6 +15,25 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
 
+// consumedCapacityForScan returns a populated ConsumedCapacity when the caller
+// has requested capacity reporting. Returns nil when reporting is disabled.
+func consumedCapacityForScan(tableName string, req types.ReturnConsumedCapacity, n int) *types.ConsumedCapacity {
+	if req == "" || req == types.ReturnConsumedCapacityNone {
+		return nil
+	}
+	const halfRCU = 0.5 // each 4 KB read costs 0.5 RCU for eventually-consistent reads
+	cu := float64(n) * halfRCU
+	if cu < halfRCU {
+		cu = halfRCU
+	}
+
+	return &types.ConsumedCapacity{
+		TableName:         aws.String(tableName),
+		CapacityUnits:     aws.Float64(cu),
+		ReadCapacityUnits: aws.Float64(cu),
+	}
+}
+
 func (db *InMemoryDB) Scan(
 	ctx context.Context,
 	input *dynamodb.ScanInput,
@@ -54,7 +73,6 @@ func (db *InMemoryDB) ScanWithContext(
 	copy(lsiList, table.LocalSecondaryIndexes)
 	attrDefs := make([]models.AttributeDefinition, len(table.AttributeDefinitions))
 	copy(attrDefs, table.AttributeDefinitions)
-	scannedCount := int32(len(table.Items)) // #nosec G115
 	table.mu.RUnlock()
 
 	// Get key schema definitions (reconstruct the table temporarily for getScanKeySchema)
@@ -71,7 +89,7 @@ func (db *InMemoryDB) ScanWithContext(
 	}
 
 	// Process scan outside the lock
-	items, lastKey := db.doScan(ctx, itemsCopy, ttlAttr, snapshotTable, input, pkDef, skDef)
+	items, lastKey, scannedCount := db.doScan(ctx, itemsCopy, ttlAttr, snapshotTable, input, pkDef, skDef)
 
 	outItems := make([]map[string]types.AttributeValue, len(items))
 	for i, it := range items {
@@ -80,9 +98,10 @@ func (db *InMemoryDB) ScanWithContext(
 	}
 
 	out := &dynamodb.ScanOutput{
-		Items:        outItems,
-		Count:        int32(len(items)), // #nosec G115
-		ScannedCount: scannedCount,
+		Items:            outItems,
+		Count:            int32(len(items)), // #nosec G115
+		ScannedCount:     scannedCount,
+		ConsumedCapacity: consumedCapacityForScan(tableName, input.ReturnConsumedCapacity, int(scannedCount)),
 	}
 
 	if lastKey != nil {
@@ -132,12 +151,12 @@ func (db *InMemoryDB) doScan(
 	table *Table,
 	input *dynamodb.ScanInput,
 	pkDef, skDef models.KeySchemaElement,
-) ([]map[string]any, map[string]any) {
+) ([]map[string]any, map[string]any, int32) {
 	eav := models.FromSDKItem(input.ExpressionAttributeValues)
 	limit := int(aws.ToInt32(input.Limit))
 	proj := aws.ToString(input.ProjectionExpression)
 
-	// Collect all matching, non-expired items.
+	// Collect all non-expired items that are in the target index (ignore FilterExpression here).
 	candidate := make([]map[string]any, 0, minScanAllocationSize)
 
 	for _, item := range items {
@@ -145,7 +164,7 @@ func (db *InMemoryDB) doScan(
 			continue
 		}
 
-		if db.shouldIncludeInScan(ctx, item, input, pkDef, skDef, eav) {
+		if isItemInIndex(item, input, pkDef, skDef) {
 			candidate = append(candidate, item)
 		}
 	}
@@ -154,50 +173,102 @@ func (db *InMemoryDB) doScan(
 	sortScanResults(candidate, pkDef, skDef, table)
 
 	// Apply parallel-scan segment filter (Segment / TotalSegments).
-	// Assign each item to a segment by hashing its PK string representation.
-	totalSegments := int(aws.ToInt32(input.TotalSegments))
-	segment := int(aws.ToInt32(input.Segment))
-
-	if totalSegments > 1 {
-		filtered := candidate[:0]
-		for _, item := range candidate {
-			pkVal := fmt.Sprintf("%v", dynamoattr.UnwrapAttributeValue(item[pkDef.AttributeName]))
-			h := fnv.New32a()
-			_, _ = h.Write([]byte(pkVal))
-			if int(h.Sum32())%totalSegments == segment {
-				filtered = append(filtered, item)
-			}
-		}
-		candidate = filtered
-	}
+	candidate = applySegmentFilter(candidate, input, pkDef)
 
 	// Apply ExclusiveStartKey: skip items up to and including the start-key item.
 	candidate = applyExclusiveStartKey(candidate, input.ExclusiveStartKey, pkDef, skDef)
 
-	// Apply limit and track LastEvaluatedKey.
-	var lastKey map[string]any
+	// Apply limit before FilterExpression (matches real DynamoDB semantics).
+	// ScannedCount = items examined in this page; Count = items passing FilterExpression.
+	candidate, lastKey := applyScanLimit(candidate, limit, pkDef, skDef)
+	scannedCount := int32(len(candidate)) // #nosec G115
 
-	if limit > 0 && len(candidate) > limit {
-		lastItem := candidate[limit-1]
-		// Build LastEvaluatedKey from the last returned item's primary key attributes.
-		lastKey = map[string]any{
-			pkDef.AttributeName: lastItem[pkDef.AttributeName],
-		}
-		if skDef.AttributeName != "" {
-			lastKey[skDef.AttributeName] = lastItem[skDef.AttributeName]
-		}
+	// Apply FilterExpression to the scanned set.
+	candidate = applyScanFilter(ctx, candidate, input, eav)
 
-		candidate = candidate[:limit]
-	}
-
-	// Apply projection after limit so we still have key attrs for LastEvaluatedKey.
+	// Apply projection after filtering so we still have key attrs for LastEvaluatedKey.
 	if proj != "" {
 		for i, item := range candidate {
 			candidate[i] = projectItem(item, proj, input.ExpressionAttributeNames)
 		}
 	}
 
-	return candidate, lastKey
+	return candidate, lastKey, scannedCount
+}
+
+// applySegmentFilter partitions items by parallel scan segment using FNV hash on PK.
+func applySegmentFilter(
+	candidate []map[string]any,
+	input *dynamodb.ScanInput,
+	pkDef models.KeySchemaElement,
+) []map[string]any {
+	totalSegments := int(aws.ToInt32(input.TotalSegments))
+	if totalSegments <= 1 {
+		return candidate
+	}
+
+	segment := int(aws.ToInt32(input.Segment))
+	filtered := candidate[:0]
+
+	for _, item := range candidate {
+		pkVal := fmt.Sprintf("%v", dynamoattr.UnwrapAttributeValue(item[pkDef.AttributeName]))
+		h := fnv.New32a()
+		_, _ = h.Write([]byte(pkVal))
+		if int(h.Sum32())%totalSegments == segment {
+			filtered = append(filtered, item)
+		}
+	}
+
+	return filtered
+}
+
+// applyScanLimit truncates the candidate set to limit items and returns the
+// last-evaluated key if more items exist beyond the page boundary.
+func applyScanLimit(
+	candidate []map[string]any,
+	limit int,
+	pkDef, skDef models.KeySchemaElement,
+) ([]map[string]any, map[string]any) {
+	if limit <= 0 || len(candidate) <= limit {
+		return candidate, nil
+	}
+
+	lastItem := candidate[limit-1]
+	lastKey := map[string]any{pkDef.AttributeName: lastItem[pkDef.AttributeName]}
+	if skDef.AttributeName != "" {
+		lastKey[skDef.AttributeName] = lastItem[skDef.AttributeName]
+	}
+
+	return candidate[:limit], lastKey
+}
+
+// applyScanFilter applies the FilterExpression to the candidate set and returns only matching items.
+func applyScanFilter(
+	ctx context.Context,
+	candidate []map[string]any,
+	input *dynamodb.ScanInput,
+	eav map[string]any,
+) []map[string]any {
+	filter := aws.ToString(input.FilterExpression)
+	if filter == "" {
+		return candidate
+	}
+
+	log := logger.Load(ctx)
+	log.DebugContext(ctx, "Evaluating Scan FilterExpression",
+		"expression", filter,
+		"attributeNames", input.ExpressionAttributeNames,
+		"attributeValues", input.ExpressionAttributeValues)
+
+	retained := candidate[:0]
+	for _, item := range candidate {
+		match, err := evaluateExpression(filter, item, eav, input.ExpressionAttributeNames)
+		if err == nil && match {
+			retained = append(retained, item)
+		}
+	}
+
+	return retained
 }
 
 func sortScanResults(
@@ -231,24 +302,18 @@ func sortScanResults(
 	})
 }
 
-func (db *InMemoryDB) shouldIncludeInScan(
-	ctx context.Context,
+// isItemInIndex reports whether item should be included in the scan based solely
+// on index membership (i.e. whether the item has the required index keys).
+// FilterExpression is intentionally NOT evaluated here so that Limit applies
+// before filtering, matching real DynamoDB semantics.
+func isItemInIndex(
 	item map[string]any,
 	input *dynamodb.ScanInput,
 	pkDef, skDef models.KeySchemaElement,
-	eav map[string]any,
 ) bool {
 	indexName := aws.ToString(input.IndexName)
 
 	// If it's a GSI scan, item MUST have the GSI's PK (and SK if defined)
-	// Actually, doScan iterates table.Items (all items).
-	// If scanning a GSI, effectively we are filtering for items that have the GSI keys.
-	// But local GSI implementation might store GSI data differently?
-	// The current InMemoryDB implementation seems to store "Items" as the main table items.
-	// Index lookups use `pkIndex` / `pkskIndex`.
-	// For Scan, if we scan a GSI, we should ideally scan the GSI index or filter main items.
-	// The existing logic checks if item has the keys.
-
 	if indexName != "" {
 		if _, ok := item[pkDef.AttributeName]; !ok {
 			return false
@@ -257,25 +322,6 @@ func (db *InMemoryDB) shouldIncludeInScan(
 			if _, ok := item[skDef.AttributeName]; !ok {
 				return false
 			}
-		}
-	}
-
-	filter := aws.ToString(input.FilterExpression)
-	if filter != "" {
-		log := logger.Load(ctx)
-		log.DebugContext(ctx, "Evaluating Scan FilterExpression",
-			"expression", filter,
-			"attributeNames", input.ExpressionAttributeNames,
-			"attributeValues", input.ExpressionAttributeValues)
-
-		match, err := evaluateExpression(
-			filter,
-			item,
-			eav,
-			input.ExpressionAttributeNames,
-		)
-		if err != nil || !match {
-			return false
 		}
 	}
 
@@ -295,16 +341,8 @@ func applyExclusiveStartKey(
 	pkName := pkDef.AttributeName
 	skName := skDef.AttributeName
 
-	startPK := fmt.Sprintf("%v", dynamoattr.UnwrapAttributeValue(startKey[pkName]))
-
-	var startSK string
-	if skName != "" {
-		startSK = fmt.Sprintf("%v", dynamoattr.UnwrapAttributeValue(startKey[skName]))
-	}
-
 	for i, item := range candidate {
-		itemPK := fmt.Sprintf("%v", dynamoattr.UnwrapAttributeValue(item[pkName]))
-		if itemPK != startPK {
+		if !compareAttributeValues(item[pkName], startKey[pkName]) {
 			continue
 		}
 
@@ -312,8 +350,7 @@ func applyExclusiveStartKey(
 			return candidate[i+1:]
 		}
 
-		itemSK := fmt.Sprintf("%v", dynamoattr.UnwrapAttributeValue(item[skName]))
-		if itemSK == startSK {
+		if compareAttributeValues(item[skName], startKey[skName]) {
 			return candidate[i+1:]
 		}
 	}

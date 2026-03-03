@@ -15,6 +15,8 @@ import (
 type InMemoryDB struct {
 	Tables         map[string]map[string]*Table
 	deletingTables map[string]map[string]*Table
+	txnTokens      map[string]struct{} // committed idempotency tokens
+	txnPending     map[string]struct{} // in-progress idempotency tokens
 	exprCache      *ExpressionCache
 	mu             *lockmetrics.RWMutex
 	defaultRegion  string
@@ -84,6 +86,8 @@ func NewInMemoryDB() *InMemoryDB {
 	return &InMemoryDB{
 		Tables:         make(map[string]map[string]*Table),
 		deletingTables: make(map[string]map[string]*Table),
+		txnTokens:      make(map[string]struct{}),
+		txnPending:     make(map[string]struct{}),
 		exprCache:      NewExpressionCache(exprCacheSize),
 		defaultRegion:  config.DefaultRegion,
 		accountID:      config.DefaultAccountID,
