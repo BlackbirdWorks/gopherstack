@@ -29,18 +29,18 @@ type Domain struct {
 
 // WorkflowType represents an SWF workflow type.
 type WorkflowType struct {
-	Domain  string
-	Name    string
-	Version string
-	Status  string // REGISTERED
+	Domain  string `json:"domain"`
+	Name    string `json:"name"`
+	Version string `json:"version"`
+	Status  string `json:"status"`
 }
 
 // WorkflowExecution represents an SWF workflow execution.
 type WorkflowExecution struct {
-	Domain     string
-	WorkflowID string
-	RunID      string
-	Status     string // RUNNING
+	Domain     string `json:"domain"`
+	WorkflowID string `json:"workflowID"`
+	RunID      string `json:"runID"`
+	Status     string `json:"status"`
 }
 
 // InMemoryBackend is the in-memory store for SWF resources.

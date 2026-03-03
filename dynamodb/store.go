@@ -28,12 +28,12 @@ type InMemoryDB struct {
 
 // StreamRecord captures a single item-level change event for DynamoDB Streams.
 type StreamRecord struct {
-	OldImage                    map[string]any
-	NewImage                    map[string]any
-	EventID                     string
-	EventName                   string
-	SequenceNumber              string
-	ApproximateCreationDateTime int64
+	OldImage                    map[string]any `json:"oldImage,omitempty"`
+	NewImage                    map[string]any `json:"newImage,omitempty"`
+	EventID                     string         `json:"eventID"`
+	EventName                   string         `json:"eventName"`
+	SequenceNumber              string         `json:"sequenceNumber"`
+	ApproximateCreationDateTime int64          `json:"approximateCreationDateTime"`
 }
 
 const (
@@ -59,25 +59,25 @@ type Table struct {
 	pkIndex   map[string]int
 	pkskIndex map[string]map[string]int
 	mu        *lockmetrics.RWMutex
-	Tags      *tags.Tags
-	Name      string
+	Tags      *tags.Tags `json:"Tags,omitempty"`
+	Name      string     `json:"Name"`
 	// Status is the current table status: "CREATING", "ACTIVE", "DELETING", etc.
-	Status                 string
-	TTLAttribute           string
-	StreamViewType         string
-	StreamARN              string
-	TableArn               string
-	TableID                string
-	CreationDateTime       time.Time
-	AttributeDefinitions   []models.AttributeDefinition
-	GlobalSecondaryIndexes []models.GlobalSecondaryIndex
-	LocalSecondaryIndexes  []models.LocalSecondaryIndex
-	Items                  []map[string]any
-	StreamRecords          []StreamRecord
-	KeySchema              []models.KeySchemaElement
-	ProvisionedThroughput  models.ProvisionedThroughputDescription
+	Status                 string                                  `json:"Status"`
+	TTLAttribute           string                                  `json:"TTLAttribute,omitempty"`
+	StreamViewType         string                                  `json:"StreamViewType,omitempty"`
+	StreamARN              string                                  `json:"StreamARN,omitempty"`
+	TableArn               string                                  `json:"TableArn"`
+	TableID                string                                  `json:"TableID"`
+	CreationDateTime       time.Time                               `json:"CreationDateTime"`
+	AttributeDefinitions   []models.AttributeDefinition            `json:"AttributeDefinitions"`
+	GlobalSecondaryIndexes []models.GlobalSecondaryIndex           `json:"GlobalSecondaryIndexes,omitempty"`
+	LocalSecondaryIndexes  []models.LocalSecondaryIndex            `json:"LocalSecondaryIndexes,omitempty"`
+	Items                  []map[string]any                        `json:"Items"`
+	StreamRecords          []StreamRecord                          `json:"StreamRecords,omitempty"`
+	KeySchema              []models.KeySchemaElement               `json:"KeySchema"`
+	ProvisionedThroughput  models.ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
 	streamSeq              int64
-	StreamsEnabled         bool
+	StreamsEnabled         bool `json:"StreamsEnabled"`
 }
 
 func NewInMemoryDB() *InMemoryDB {

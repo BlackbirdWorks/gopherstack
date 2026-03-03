@@ -29,8 +29,8 @@ const (
 
 // InstanceState represents the state of an EC2 instance.
 type InstanceState struct {
-	Name string
-	Code int
+	Name string `json:"name"`
+	Code int    `json:"code"`
 }
 
 // Well-known instance states.
@@ -44,49 +44,49 @@ var (
 
 // Instance represents an EC2 instance (metadata only, no actual compute).
 type Instance struct {
-	LaunchTime     time.Time
-	State          InstanceState
-	ID             string
-	InstanceType   string
-	ImageID        string
-	VPCID          string
-	SubnetID       string
-	PrivateIP      string
-	SecurityGroups []string
+	LaunchTime     time.Time     `json:"launchTime"`
+	State          InstanceState `json:"state"`
+	ID             string        `json:"id"`
+	InstanceType   string        `json:"instanceType"`
+	ImageID        string        `json:"imageID"`
+	VPCID          string        `json:"vpcID"`
+	SubnetID       string        `json:"subnetID"`
+	PrivateIP      string        `json:"privateIP"`
+	SecurityGroups []string      `json:"securityGroups"`
 }
 
 // SecurityGroupRule represents an inbound or outbound rule.
 type SecurityGroupRule struct {
-	Protocol string
-	IPRange  string
-	FromPort int
-	ToPort   int
+	Protocol string `json:"protocol"`
+	IPRange  string `json:"ipRange"`
+	FromPort int    `json:"fromPort"`
+	ToPort   int    `json:"toPort"`
 }
 
 // SecurityGroup represents an EC2 security group.
 type SecurityGroup struct {
-	ID           string
-	Name         string
-	Description  string
-	VPCID        string
-	IngressRules []SecurityGroupRule
-	EgressRules  []SecurityGroupRule
+	ID           string              `json:"id"`
+	Name         string              `json:"name"`
+	Description  string              `json:"description"`
+	VPCID        string              `json:"vpcID"`
+	IngressRules []SecurityGroupRule `json:"ingressRules"`
+	EgressRules  []SecurityGroupRule `json:"egressRules"`
 }
 
 // VPC represents an EC2 VPC.
 type VPC struct {
-	ID        string
-	CIDRBlock string
-	IsDefault bool
+	ID        string `json:"id"`
+	CIDRBlock string `json:"cidrBlock"`
+	IsDefault bool   `json:"isDefault"`
 }
 
 // Subnet represents an EC2 Subnet.
 type Subnet struct {
-	ID               string
-	VPCID            string
-	CIDRBlock        string
-	AvailabilityZone string
-	IsDefault        bool
+	ID               string `json:"id"`
+	VPCID            string `json:"vpcID"`
+	CIDRBlock        string `json:"cidrBlock"`
+	AvailabilityZone string `json:"availabilityZone"`
+	IsDefault        bool   `json:"isDefault"`
 }
 
 // InMemoryBackend is the in-memory store for EC2 resources.

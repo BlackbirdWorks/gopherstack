@@ -25,11 +25,11 @@ type ResourceQuery struct {
 
 // Group represents a Resource Group.
 type Group struct {
-	Tags          *tags.Tags
-	ResourceQuery *ResourceQuery
-	Name          string
-	ARN           string
-	Description   string
+	Tags          *tags.Tags     `json:"tags,omitempty"`
+	ResourceQuery *ResourceQuery `json:"resourceQuery,omitempty"`
+	Name          string         `json:"name"`
+	ARN           string         `json:"arn"`
+	Description   string         `json:"description"`
 }
 
 // InMemoryBackend is the in-memory store for Resource Groups.

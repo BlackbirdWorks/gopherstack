@@ -45,12 +45,12 @@ type Cluster struct {
 
 // ReplicationGroup represents an ElastiCache replication group.
 type ReplicationGroup struct {
-	CreatedAt          time.Time
-	Tags               *tags.Tags
-	ReplicationGroupID string
-	Description        string
-	Status             string
-	ARN                string
+	CreatedAt          time.Time  `json:"createdAt"`
+	Tags               *tags.Tags `json:"tags,omitempty"`
+	ReplicationGroupID string     `json:"replicationGroupID"`
+	Description        string     `json:"description"`
+	Status             string     `json:"status"`
+	ARN                string     `json:"arn"`
 }
 
 // StorageBackend defines the interface for the ElastiCache in-memory store.
