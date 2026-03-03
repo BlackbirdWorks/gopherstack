@@ -29,8 +29,29 @@ func (h *DashboardHandler) supportIndex(c *echo.Context) error {
 
 	if h.SupportOps == nil {
 		h.renderTemplate(w, "support/index.html", supportIndexData{
-			PageData: PageData{Title: "Support Cases", ActiveTab: "support"},
-			Cases:    []supportCaseView{},
+			PageData: PageData{Title: "Support Cases", ActiveTab: "support",
+				Snippet: &SnippetData{
+					ID:    "support-operations",
+					Title: "Using Support",
+					Cli:   `aws support help --endpoint-url http://localhost:8000`,
+					Go: `// Initialize AWS SDK v2 for Using Support
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := support.NewFromConfig(cfg)`,
+					Python: `# Initialize boto3 client for Using Support
+import boto3
+
+client = boto3.client('support', endpoint_url='http://localhost:8000')`,
+				}},
+			Cases: []supportCaseView{},
 		})
 
 		return nil
@@ -51,8 +72,29 @@ func (h *DashboardHandler) supportIndex(c *echo.Context) error {
 	}
 
 	h.renderTemplate(w, "support/index.html", supportIndexData{
-		PageData: PageData{Title: "Support Cases", ActiveTab: "support"},
-		Cases:    views,
+		PageData: PageData{Title: "Support Cases", ActiveTab: "support",
+			Snippet: &SnippetData{
+				ID:    "support-operations",
+				Title: "Using Support",
+				Cli:   `aws support help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Support
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := support.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Support
+import boto3
+
+client = boto3.client('support', endpoint_url='http://localhost:8000')`,
+			}},
+		Cases: views,
 	})
 
 	return nil

@@ -2,26 +2,26 @@
 <div class="px-4 sm:px-6 lg:px-8">
     <div class="sm:flex sm:items-center justify-between mb-6">
         <div class="sm:flex-auto">
-            <nav class="text-sm text-gray-500 dark:text-gray-400 mb-2">
+            <nav class="text-sm text-slate-500 dark:text-slate-400 mb-2">
                 <a href="/dashboard/opensearch" class="hover:underline text-blue-600 dark:text-blue-400">OpenSearch Domains</a>
                 <span class="mx-2">›</span>
                 <span>{{.DomainName}}</span>
             </nav>
-            <h1 class="text-3xl font-bold text-gray-900 dark:text-white">{{.DomainName}}</h1>
+            <h1 class="text-3xl font-bold text-slate-900 dark:text-white">{{.DomainName}}</h1>
         </div>
     </div>
 
     <div class="grid grid-cols-1 gap-4 md:grid-cols-2 mt-4">
         <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-            <h2 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Domain Info</h2>
+            <h2 class="text-sm font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3">Domain Info</h2>
             <dl class="space-y-2">
                 <div class="flex justify-between">
                     <dt class="text-sm text-gray-600 dark:text-gray-400">Name</dt>
-                    <dd class="text-sm font-medium text-gray-900 dark:text-white">{{.DomainName}}</dd>
+                    <dd class="text-sm font-medium text-slate-900 dark:text-white">{{.DomainName}}</dd>
                 </div>
                 <div class="flex justify-between">
                     <dt class="text-sm text-gray-600 dark:text-gray-400">Engine Version</dt>
-                    <dd class="text-sm font-medium text-gray-900 dark:text-white">{{.EngineVersion}}</dd>
+                    <dd class="text-sm font-medium text-slate-900 dark:text-white">{{.EngineVersion}}</dd>
                 </div>
                 <div class="flex justify-between">
                     <dt class="text-sm text-gray-600 dark:text-gray-400">Status</dt>
@@ -29,20 +29,20 @@
                 </div>
                 <div class="flex justify-between">
                     <dt class="text-sm text-gray-600 dark:text-gray-400">Endpoint</dt>
-                    <dd class="text-sm font-mono text-gray-900 dark:text-white truncate max-w-xs">{{.Endpoint}}</dd>
+                    <dd class="text-sm font-mono text-slate-900 dark:text-white truncate max-w-xs">{{.Endpoint}}</dd>
                 </div>
             </dl>
         </div>
         <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-            <h2 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Cluster Config</h2>
+            <h2 class="text-sm font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3">Cluster Config</h2>
             <dl class="space-y-2">
                 <div class="flex justify-between">
                     <dt class="text-sm text-gray-600 dark:text-gray-400">Instance Type</dt>
-                    <dd class="text-sm font-medium text-gray-900 dark:text-white">{{.InstanceType}}</dd>
+                    <dd class="text-sm font-medium text-slate-900 dark:text-white">{{.InstanceType}}</dd>
                 </div>
                 <div class="flex justify-between">
                     <dt class="text-sm text-gray-600 dark:text-gray-400">Instance Count</dt>
-                    <dd class="text-sm font-medium text-gray-900 dark:text-white">{{.InstanceCount}}</dd>
+                    <dd class="text-sm font-medium text-slate-900 dark:text-white">{{.InstanceCount}}</dd>
                 </div>
             </dl>
         </div>

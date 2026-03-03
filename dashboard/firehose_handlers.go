@@ -26,8 +26,29 @@ func (h *DashboardHandler) firehoseIndex(c *echo.Context) error {
 
 	if h.FirehoseOps == nil {
 		h.renderTemplate(w, "firehose/index.html", firehoseIndexData{
-			PageData: PageData{Title: "Firehose Delivery Streams", ActiveTab: "firehose"},
-			Streams:  []firehoseStreamView{},
+			PageData: PageData{Title: "Firehose Delivery Streams", ActiveTab: "firehose",
+				Snippet: &SnippetData{
+					ID:    "firehose-operations",
+					Title: "Using Firehose",
+					Cli:   `aws firehose help --endpoint-url http://localhost:8000`,
+					Go: `// Initialize AWS SDK v2 for Using Firehose
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := firehose.NewFromConfig(cfg)`,
+					Python: `# Initialize boto3 client for Using Firehose
+import boto3
+
+client = boto3.client('firehose', endpoint_url='http://localhost:8000')`,
+				}},
+			Streams: []firehoseStreamView{},
 		})
 
 		return nil
@@ -50,8 +71,29 @@ func (h *DashboardHandler) firehoseIndex(c *echo.Context) error {
 	}
 
 	h.renderTemplate(w, "firehose/index.html", firehoseIndexData{
-		PageData: PageData{Title: "Firehose Delivery Streams", ActiveTab: "firehose"},
-		Streams:  views,
+		PageData: PageData{Title: "Firehose Delivery Streams", ActiveTab: "firehose",
+			Snippet: &SnippetData{
+				ID:    "firehose-operations",
+				Title: "Using Firehose",
+				Cli:   `aws firehose help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Firehose
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := firehose.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Firehose
+import boto3
+
+client = boto3.client('firehose', endpoint_url='http://localhost:8000')`,
+			}},
+		Streams: views,
 	})
 
 	return nil

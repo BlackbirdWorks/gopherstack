@@ -20,6 +20,14 @@ func (h *DashboardHandler) docIndex(w http.ResponseWriter, _ *http.Request) {
 		PageData: PageData{
 			Title:     "API Documentation",
 			ActiveTab: "docs",
+			Snippet: &SnippetData{
+				ID:    "docs-operations",
+				Title: "Using Docs",
+				Cli:   "aws docs help --endpoint-url http://localhost:8000",
+				Go:    "/* Write AWS SDK v2 Code for Docs */",
+				Python: "# Write boto3 code for Docs\nimport boto3\n" +
+					"client = boto3.client('docs', endpoint_url='http://localhost:8000')",
+			},
 		},
 		DynamoDBOps:       h.DDBOps.GetSupportedOperations(),
 		S3Ops:             h.S3Ops.GetSupportedOperations(),

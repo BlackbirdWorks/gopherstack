@@ -43,10 +43,10 @@
     <div
         class="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-white dark:bg-gray-800 p-6 rounded-lg shadow border border-gray-200 dark:border-gray-700 gap-4">
         <div>
-            <h1 class="text-2xl font-bold flex items-center gap-2 text-gray-900 dark:text-white break-all">
+            <h1 class="text-2xl font-bold flex items-center gap-2 text-slate-900 dark:text-white break-all">
                 <span>📄</span> {{.Key}}
             </h1>
-            <p class="text-gray-500 dark:text-gray-400 mt-1">Bucket: {{.BucketName}}</p>
+            <p class="text-slate-500 dark:text-slate-400 mt-1">Bucket: {{.BucketName}}</p>
         </div>
         <div class="flex gap-2 flex-wrap">
             <a href="/dashboard/s3/bucket/{{.BucketName}}/download/{{.Key}}"
@@ -93,28 +93,28 @@
 
     <!-- File Details -->
     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
-            <h2 class="mb-4 text-sm font-bold tracking-tight text-gray-500 dark:text-gray-400 uppercase">Metadata</h2>
+        <div class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h2 class="mb-4 text-sm font-bold tracking-tight text-slate-500 dark:text-slate-400 uppercase">Metadata</h2>
             <div class="relative overflow-x-auto">
-                <table class="w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
+                <table class="w-full text-sm text-left rtl:text-right text-slate-500 dark:text-slate-400">
                     <tbody>
-                        <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
-                            <td class="px-2 py-3 font-medium text-gray-900 dark:text-white">Size</td>
+                        <tr class="bg-transparent border-b border-slate-200 dark:border-slate-700 dark:bg-transparent">
+                            <td class="px-2 py-3 font-medium text-slate-900 dark:text-white">Size</td>
                             <td class="px-2 py-3">{{.Size}}</td>
                         </tr>
-                        <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
-                            <td class="px-2 py-3 font-medium text-gray-900 dark:text-white">Last Modified</td>
+                        <tr class="bg-transparent border-b border-slate-200 dark:border-slate-700 dark:bg-transparent">
+                            <td class="px-2 py-3 font-medium text-slate-900 dark:text-white">Last Modified</td>
                             <td class="px-2 py-3">{{.LastModified}}</td>
                         </tr>
-                        <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
-                            <td class="px-2 py-3 font-medium text-gray-900 dark:text-white">Content Type</td>
+                        <tr class="bg-transparent border-b border-slate-200 dark:border-slate-700 dark:bg-transparent">
+                            <td class="px-2 py-3 font-medium text-slate-900 dark:text-white">Content Type</td>
                             <td class="px-2 py-3">
                                 <span
                                     class="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-blue-900 dark:text-blue-300">{{.ContentType}}</span>
                             </td>
                         </tr>
                         <tr class="bg-white dark:bg-gray-800">
-                            <td class="px-2 py-3 font-medium text-gray-900 dark:text-white">ETag</td>
+                            <td class="px-2 py-3 font-medium text-slate-900 dark:text-white">ETag</td>
                             <td class="px-2 py-3 font-mono text-xs break-all">{{.ETag}}</td>
                         </tr>
                     </tbody>
@@ -122,7 +122,7 @@
             </div>
             {{if .Tags}}
             <hr class="my-4 border-gray-200 dark:border-gray-700">
-            <h3 class="font-bold text-sm mb-2 text-gray-900 dark:text-white">Tags</h3>
+            <h3 class="font-bold text-sm mb-2 text-slate-900 dark:text-white">Tags</h3>
             <div class="flex flex-wrap gap-2">
                 {{range $key, $value := .Tags}}
                 <span
@@ -134,12 +134,12 @@
         </div>
 
         {{if .VersioningEnabled}}
-        <div class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
-            <h2 class="mb-4 text-sm font-bold tracking-tight text-gray-500 dark:text-gray-400 uppercase">Versions</h2>
+        <div class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h2 class="mb-4 text-sm font-bold tracking-tight text-slate-500 dark:text-slate-400 uppercase">Versions</h2>
             {{if .Versions}}
             <div class="relative overflow-x-auto">
-                <table class="w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
-                    <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+                <table class="w-full text-sm text-left rtl:text-right text-slate-500 dark:text-slate-400">
+                    <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
                         <tr>
                             <th scope="col" class="px-4 py-2">Version ID</th>
                             <th scope="col" class="px-4 py-2">Last Modified</th>
@@ -148,7 +148,7 @@
                     </thead>
                     <tbody>
                         {{range .Versions}}
-                        <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
+                        <tr class="bg-transparent border-b border-slate-200 dark:border-slate-700 dark:bg-transparent">
                             <td class="px-4 py-2 font-mono text-xs">{{.VersionID}}</td>
                             <td class="px-4 py-2">{{.LastModified}}</td>
                             <td class="px-4 py-2 text-right">
@@ -172,7 +172,7 @@
                 </table>
             </div>
             {{else}}
-            <p class="text-gray-500 dark:text-gray-400 italic">No previous versions found.</p>
+            <p class="text-slate-500 dark:text-slate-400 italic">No previous versions found.</p>
             {{end}}
         </div>
         {{end}}
@@ -182,8 +182,8 @@
     <div class="grid grid-cols-1 gap-6">
         {{if or .IsImage .IsPDF .IsText}}
         <div
-            class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700 overflow-hidden">
-            <h2 class="mb-4 text-sm font-bold tracking-tight text-gray-500 dark:text-gray-400 uppercase">Preview</h2>
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel overflow-hidden">
+            <h2 class="mb-4 text-sm font-bold tracking-tight text-slate-500 dark:text-slate-400 uppercase">Preview</h2>
             <div
                 class="bg-gray-50 dark:bg-gray-900 rounded-lg flex justify-center items-center min-h-[200px] overflow-auto p-4 border border-gray-100 dark:border-gray-700">
                 {{if .IsImage}}
@@ -216,14 +216,14 @@
 
         <!-- Metadata & Tagging Editor -->
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
-                <h2 class="mb-4 text-sm font-bold tracking-tight text-gray-500 dark:text-gray-400 uppercase">Edit
+            <div class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+                <h2 class="mb-4 text-sm font-bold tracking-tight text-slate-500 dark:text-slate-400 uppercase">Edit
                     Metadata</h2>
                 <form hx-post="/dashboard/s3/bucket/{{.BucketName}}/file/{{.Key}}/metadata" hx-target="body"
                     class="space-y-4">
                     <div>
                         <label for="contentType"
-                            class="block mb-2 text-sm font-medium text-gray-900 dark:text-white">Content-Type</label>
+                            class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Content-Type</label>
                         <input type="text" name="contentType" id="contentType" value="{{.ContentType}}"
                             class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500">
                     </div>
@@ -233,8 +233,8 @@
                 </form>
             </div>
 
-            <div class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700">
-                <h2 class="mb-4 text-sm font-bold tracking-tight text-gray-500 dark:text-gray-400 uppercase">Manage Tags
+            <div class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+                <h2 class="mb-4 text-sm font-bold tracking-tight text-slate-500 dark:text-slate-400 uppercase">Manage Tags
                 </h2>
                 <form hx-post="/dashboard/s3/bucket/{{.BucketName}}/file/{{.Key}}/tag" hx-target="#tags-list"
                     class="space-y-4">

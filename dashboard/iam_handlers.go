@@ -22,6 +22,27 @@ func (h *DashboardHandler) iamIndex(c *echo.Context) error {
 		PageData: PageData{
 			Title:     "IAM",
 			ActiveTab: "iam",
+			Snippet: &SnippetData{
+				ID:    "iam-operations",
+				Title: "Using Iam",
+				Cli:   `aws iam help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Iam
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := iam.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Iam
+import boto3
+
+client = boto3.client('iam', endpoint_url='http://localhost:8000')`,
+			},
 		},
 	}
 

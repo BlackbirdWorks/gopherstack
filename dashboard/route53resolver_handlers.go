@@ -22,12 +22,35 @@ type route53resolverIndexData struct {
 }
 
 // route53resolverIndex renders the Route53Resolver dashboard index.
+//
+//nolint:dupl // intentional: each handler has unique snippet/service data despite similar structure
 func (h *DashboardHandler) route53resolverIndex(c *echo.Context) error {
 	w := c.Response()
 
 	if h.Route53ResolverOps == nil {
 		h.renderTemplate(w, "route53resolver/index.html", route53resolverIndexData{
-			PageData:  PageData{Title: "Route53 Resolver Endpoints", ActiveTab: "route53resolver"},
+			PageData: PageData{Title: "Route53 Resolver Endpoints", ActiveTab: "route53resolver",
+				Snippet: &SnippetData{
+					ID:    "route53resolver-operations",
+					Title: "Using Route53resolver",
+					Cli:   `aws route53resolver help --endpoint-url http://localhost:8000`,
+					Go: `// Initialize AWS SDK v2 for Using Route53resolver
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := route53resolver.NewFromConfig(cfg)`,
+					Python: `# Initialize boto3 client for Using Route53resolver
+import boto3
+
+client = boto3.client('route53resolver', endpoint_url='http://localhost:8000')`,
+				}},
 			Endpoints: []route53resolverEndpointView{},
 		})
 
@@ -47,7 +70,28 @@ func (h *DashboardHandler) route53resolverIndex(c *echo.Context) error {
 	}
 
 	h.renderTemplate(w, "route53resolver/index.html", route53resolverIndexData{
-		PageData:  PageData{Title: "Route53 Resolver Endpoints", ActiveTab: "route53resolver"},
+		PageData: PageData{Title: "Route53 Resolver Endpoints", ActiveTab: "route53resolver",
+			Snippet: &SnippetData{
+				ID:    "route53resolver-operations",
+				Title: "Using Route53resolver",
+				Cli:   `aws route53resolver help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Route53resolver
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := route53resolver.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Route53resolver
+import boto3
+
+client = boto3.client('route53resolver', endpoint_url='http://localhost:8000')`,
+			}},
 		Endpoints: views,
 	})
 

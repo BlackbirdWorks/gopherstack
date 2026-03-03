@@ -19,7 +19,28 @@ func (h *DashboardHandler) stepFunctionsIndex(c *echo.Context) error {
 
 		StateMachines []sfnbackend.StateMachine
 	}{
-		PageData:      PageData{Title: "Step Functions", ActiveTab: "stepfunctions"},
+		PageData: PageData{Title: "Step Functions", ActiveTab: "stepfunctions",
+			Snippet: &SnippetData{
+				ID:    "stepfunctions-operations",
+				Title: "Using Stepfunctions",
+				Cli:   `aws stepfunctions help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Stepfunctions
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := sfn.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Stepfunctions
+import boto3
+
+client = boto3.client('stepfunctions', endpoint_url='http://localhost:8000')`,
+			}},
 		StateMachines: machines,
 	}
 
@@ -47,7 +68,28 @@ func (h *DashboardHandler) stepFunctionsStateMachineDetail(c *echo.Context) erro
 		StateMachine *sfnbackend.StateMachine
 		Executions   []sfnbackend.Execution
 	}{
-		PageData:     PageData{Title: "State Machine: " + sm.Name, ActiveTab: "stepfunctions"},
+		PageData: PageData{Title: "State Machine: " + sm.Name, ActiveTab: "stepfunctions",
+			Snippet: &SnippetData{
+				ID:    "stepfunctions-operations",
+				Title: "Using Stepfunctions",
+				Cli:   `aws stepfunctions help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Stepfunctions
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := sfn.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Stepfunctions
+import boto3
+
+client = boto3.client('stepfunctions', endpoint_url='http://localhost:8000')`,
+			}},
 		StateMachine: sm,
 		Executions:   executions,
 	}
@@ -80,7 +122,28 @@ func (h *DashboardHandler) stepFunctionsExecutionDetail(c *echo.Context) error {
 		Execution *sfnbackend.Execution
 		Events    []sfnbackend.HistoryEvent
 	}{
-		PageData:  PageData{Title: "Execution: " + exec.Name, ActiveTab: "stepfunctions"},
+		PageData: PageData{Title: "Execution: " + exec.Name, ActiveTab: "stepfunctions",
+			Snippet: &SnippetData{
+				ID:    "stepfunctions-operations",
+				Title: "Using Stepfunctions",
+				Cli:   `aws stepfunctions help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Stepfunctions
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := sfn.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Stepfunctions
+import boto3
+
+client = boto3.client('stepfunctions', endpoint_url='http://localhost:8000')`,
+			}},
 		Execution: exec,
 		Events:    events,
 	}

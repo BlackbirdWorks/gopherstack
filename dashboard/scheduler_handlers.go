@@ -24,12 +24,35 @@ type schedulerIndexData struct {
 }
 
 // schedulerIndex renders the Scheduler dashboard index.
+//
+//nolint:dupl // intentional: each handler has unique snippet/service data despite similar structure
 func (h *DashboardHandler) schedulerIndex(c *echo.Context) error {
 	w := c.Response()
 
 	if h.SchedulerOps == nil {
 		h.renderTemplate(w, "scheduler/index.html", schedulerIndexData{
-			PageData:  PageData{Title: "Scheduler Schedules", ActiveTab: "scheduler"},
+			PageData: PageData{Title: "Scheduler Schedules", ActiveTab: "scheduler",
+				Snippet: &SnippetData{
+					ID:    "scheduler-operations",
+					Title: "Using Scheduler",
+					Cli:   `aws scheduler help --endpoint-url http://localhost:8000`,
+					Go: `// Initialize AWS SDK v2 for Using Scheduler
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := scheduler.NewFromConfig(cfg)`,
+					Python: `# Initialize boto3 client for Using Scheduler
+import boto3
+
+client = boto3.client('scheduler', endpoint_url='http://localhost:8000')`,
+				}},
 			Schedules: []schedulerView{},
 		})
 
@@ -49,7 +72,28 @@ func (h *DashboardHandler) schedulerIndex(c *echo.Context) error {
 	}
 
 	h.renderTemplate(w, "scheduler/index.html", schedulerIndexData{
-		PageData:  PageData{Title: "Scheduler Schedules", ActiveTab: "scheduler"},
+		PageData: PageData{Title: "Scheduler Schedules", ActiveTab: "scheduler",
+			Snippet: &SnippetData{
+				ID:    "scheduler-operations",
+				Title: "Using Scheduler",
+				Cli:   `aws scheduler help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Scheduler
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := scheduler.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Scheduler
+import boto3
+
+client = boto3.client('scheduler', endpoint_url='http://localhost:8000')`,
+			}},
 		Schedules: views,
 	})
 

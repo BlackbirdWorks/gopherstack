@@ -66,8 +66,18 @@ var staticFS embed.FS
 //go:embed templates/*
 var templateFS embed.FS
 
+// SnippetData holds the code snippets for a specific AWS resource interaction.
+type SnippetData struct {
+	ID     string
+	Title  string
+	Cli    string
+	Go     string
+	Python string
+}
+
 // PageData represents common page data.
 type PageData struct {
+	Snippet   *SnippetData
 	Title     string
 	ActiveTab string
 }
@@ -209,6 +219,9 @@ func parseDashboardTemplates() *template.Template {
 
 			return s
 		},
+		"unescapeHTML": func(s string) template.HTML {
+			return template.HTML(s) //nolint:gosec // G203: input is trusted template data, not user-controlled
+		},
 	}
 
 	return template.Must(template.New("layout").Funcs(funcMap).ParseFS(templateFS,
@@ -251,6 +264,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/metrics.html",
 		"templates/doc.html",
 		"templates/settings.html",
+		"templates/apiconsole.html",
 	))
 }
 
@@ -325,12 +339,10 @@ func (h *DashboardHandler) setupStaticAndRootRoutes() {
 
 		return nil
 	})
-	h.SubRouter.GET("/dashboard", func(c *echo.Context) error {
-		return c.Redirect(http.StatusFound, "/dashboard/dynamodb")
-	})
-	h.SubRouter.GET("/dashboard/", func(c *echo.Context) error {
-		return c.Redirect(http.StatusFound, "/dashboard/dynamodb")
-	})
+	h.SubRouter.GET("/dashboard", h.dashboardIndex)
+	h.SubRouter.GET("/dashboard/", h.dashboardIndex)
+	h.SubRouter.GET("/dashboard/console", h.consoleIndex)
+	h.SubRouter.GET("/dashboard/api/console", h.consoleAPI)
 }
 
 func (h *DashboardHandler) setupProviderRoutes() {

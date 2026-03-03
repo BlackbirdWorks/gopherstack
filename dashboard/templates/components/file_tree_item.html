@@ -38,12 +38,12 @@
         <a href="/dashboard/s3/bucket/{{.BucketName}}/file/{{.FullPath}}"
             class="text-blue-600 hover:underline dark:text-blue-400 font-medium">{{.Name}}</a>
     </div>
-    <div class="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400">
+    <div class="flex items-center gap-4 text-sm text-slate-500 dark:text-slate-400">
         <span>{{.Size}}</span>
         <span class="hidden md:inline">{{.LastModified}}</span>
 
         <button id="dropdown-{{.FullPath | safeID}}-btn" data-dropdown-toggle="dropdown-{{.FullPath | safeID}}"
-            class="text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 focus:ring-4 focus:outline-none focus:ring-gray-200 dark:focus:ring-gray-700 rounded-lg text-sm p-1.5 inline-flex items-center"
+            class="text-slate-500 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-gray-700 focus:ring-4 focus:outline-none focus:ring-gray-200 dark:focus:ring-gray-700 rounded-lg text-sm p-1.5 inline-flex items-center"
             type="button">
             <svg class="w-4 h-4" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="currentColor"
                 viewBox="0 0 4 15">

@@ -1,37 +1,37 @@
 {{define "table-card"}}
 <div
-    class="p-6 bg-white border border-gray-200 rounded-lg shadow dark:bg-gray-800 dark:border-gray-700 hover:shadow-lg transition-shadow">
-    <h2 class="mb-4 text-xl font-bold tracking-tight text-gray-900 dark:text-white">
+    class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel hover:shadow-lg transition-shadow">
+    <h2 class="mb-4 text-xl font-bold tracking-tight text-slate-900 dark:text-white">
         <a href="/dashboard/dynamodb/table/{{.TableName}}"
             class="text-blue-600 hover:underline dark:text-blue-400">{{.TableName}}</a>
     </h2>
     <div class="space-y-3 text-sm">
         <div class="flex justify-between items-center">
-            <span class="text-gray-500 dark:text-gray-400">Partition Key:</span>
-            <span class="font-mono text-gray-900 dark:text-white font-medium">{{.PartitionKey}}
+            <span class="text-slate-500 dark:text-slate-400">Partition Key:</span>
+            <span class="font-mono text-slate-900 dark:text-white font-medium">{{.PartitionKey}}
                 ({{.PartitionKeyType}})</span>
         </div>
         {{if .SortKey}}
         <div class="flex justify-between items-center">
-            <span class="text-gray-500 dark:text-gray-400">Sort Key:</span>
-            <span class="font-mono text-gray-900 dark:text-white font-medium">{{.SortKey}} ({{.SortKeyType}})</span>
+            <span class="text-slate-500 dark:text-slate-400">Sort Key:</span>
+            <span class="font-mono text-slate-900 dark:text-white font-medium">{{.SortKey}} ({{.SortKeyType}})</span>
         </div>
         {{end}}
         <div class="flex justify-between items-center">
-            <span class="text-gray-500 dark:text-gray-400">Item Count:</span>
+            <span class="text-slate-500 dark:text-slate-400">Item Count:</span>
             <span
                 class="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-blue-900 dark:text-blue-300">{{.ItemCount}}</span>
         </div>
         {{if .GSICount}}
         <div class="flex justify-between items-center">
-            <span class="text-gray-500 dark:text-gray-400">GSI:</span>
+            <span class="text-slate-500 dark:text-slate-400">GSI:</span>
             <span
                 class="bg-purple-100 text-purple-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-purple-900 dark:text-purple-300">{{.GSICount}}</span>
         </div>
         {{end}}
         {{if .LSICount}}
         <div class="flex justify-between items-center">
-            <span class="text-gray-500 dark:text-gray-400">LSI:</span>
+            <span class="text-slate-500 dark:text-slate-400">LSI:</span>
             <span
                 class="bg-indigo-100 text-indigo-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-indigo-900 dark:text-indigo-300">{{.LSICount}}</span>
         </div>

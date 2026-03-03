@@ -1,14 +1,26 @@
 {{define "content"}}
 <div class="px-4 sm:px-6 lg:px-8">
-    <div class="sm:flex sm:items-center justify-between">
-        <div class="sm:flex-auto">
-            <h1 class="text-3xl font-bold text-gray-900 dark:text-white">
+    <div
+        class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm glass-panel flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+        <div>
+            <h1 class="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
+                <svg class="w-8 h-8 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path>
+                </svg>
+
                 Scheduler Schedules
-                <span class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300">
+                <span
+                    class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300">
                     {{len .Schedules}}
                 </span>
+
+
+                {{if .Snippet}}
+                {{template "components/snippet" .Snippet}}
+                {{end}}
             </h1>
-            <p class="mt-2 text-sm text-gray-700 dark:text-gray-300">In-memory EventBridge Scheduler schedules.</p>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-400">In-memory EventBridge Scheduler schedules.</p>
         </div>
         <div class="mt-4 sm:ml-16 sm:mt-0 sm:flex-none">
             <button type="button" onclick="document.getElementById('create-schedule-modal').classList.remove('hidden')"
@@ -18,9 +30,10 @@
         </div>
     </div>
 
-    <div class="mt-8 relative overflow-x-auto shadow-md sm:rounded-lg">
-        <table class="w-full text-sm text-left rtl:text-right text-gray-500 dark:text-gray-400">
-            <thead class="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+    <div
+        class="mt-8 relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
+        <table class="w-full text-sm text-left rtl:text-right text-slate-500 dark:text-slate-400">
+            <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
                 <tr>
                     <th scope="col" class="px-6 py-3">Name</th>
                     <th scope="col" class="px-6 py-3">ARN</th>
@@ -31,23 +44,27 @@
             </thead>
             <tbody>
                 {{range .Schedules}}
-                <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
-                    <td class="px-6 py-4 font-medium text-gray-900 dark:text-white">{{.Name}}</td>
+                <tr
+                    class="bg-white border-b border-slate-200 dark:border-slate-700 dark:bg-slate-800/50 hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
+                    <td class="px-6 py-4 font-medium text-slate-900 dark:text-white">{{.Name}}</td>
                     <td class="px-6 py-4 font-mono text-xs truncate max-w-xs" title="{{.ARN}}">{{.ARN}}</td>
                     <td class="px-6 py-4">{{.Expression}}</td>
                     <td class="px-6 py-4">
-                        <span class="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-green-900 dark:text-green-300">{{.State}}</span>
+                        <span
+                            class="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-green-900 dark:text-green-300">{{.State}}</span>
                     </td>
                     <td class="px-6 py-4 text-right">
-                        <form method="POST" action="/dashboard/scheduler/delete" style="display:inline">
+                        <form method="POST" action="/dashboard/scheduler/delete" style="display:inline"
+                            hx-boost="false">
                             <input type="hidden" name="name" value="{{.Name}}">
-                            <button type="submit" class="font-medium text-red-600 dark:text-red-500 hover:underline text-xs">Delete</button>
+                            <button type="submit"
+                                class="font-medium text-red-600 dark:text-red-500 hover:underline text-xs">Delete</button>
                         </form>
                     </td>
                 </tr>
                 {{else}}
-                <tr class="bg-white border-b dark:bg-gray-800 dark:border-gray-700">
-                    <td colspan="5" class="px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                <tr class="bg-transparent border-b border-slate-200 dark:border-slate-700 dark:bg-transparent">
+                    <td colspan="5" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
                         No schedules. Create one to get started.
                     </td>
                 </tr>
@@ -58,30 +75,34 @@
 </div>
 
 <!-- Create Schedule Modal -->
-<div id="create-schedule-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+<div id="create-schedule-modal"
+    class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
     <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white dark:bg-gray-800">
-        <h3 class="text-lg font-medium leading-6 text-gray-900 dark:text-white mb-4">Create Schedule</h3>
-        <form method="POST" action="/dashboard/scheduler/create">
+        <h3 class="text-lg font-medium leading-6 text-slate-900 dark:text-white mb-4">Create Schedule</h3>
+        <form method="POST" action="/dashboard/scheduler/create" hx-boost="false">
             <div class="mb-4">
-                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="name">Name</label>
+                <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1" for="name">Name</label>
                 <input id="name" name="name" type="text" required
                     class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                     placeholder="my-schedule">
             </div>
             <div class="mb-4">
-                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="expression">Expression</label>
+                <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
+                    for="expression">Expression</label>
                 <input id="expression" name="expression" type="text" required
                     class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                     placeholder="rate(5 minutes)">
             </div>
             <div class="mb-4">
-                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="target_arn">Target ARN</label>
+                <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1" for="target_arn">Target
+                    ARN</label>
                 <input id="target_arn" name="target_arn" type="text"
                     class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                     placeholder="arn:aws:lambda:us-east-1:000000000000:function:my-fn">
             </div>
             <div class="mb-4">
-                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="role_arn">Role ARN</label>
+                <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1" for="role_arn">Role
+                    ARN</label>
                 <input id="role_arn" name="role_arn" type="text"
                     class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                     placeholder="arn:aws:iam::000000000000:role/scheduler-role">

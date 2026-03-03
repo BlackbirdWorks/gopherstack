@@ -34,13 +34,36 @@ type kinesisStreamDetailData struct {
 }
 
 // kinesisIndex renders the list of all Kinesis streams.
+//
+//nolint:dupl // intentional: each handler has unique snippet/service data despite similar structure
 func (h *DashboardHandler) kinesisIndex(c *echo.Context) error {
 	w := c.Response()
 
 	if h.KinesisOps == nil {
 		h.renderTemplate(w, "kinesis/index.html", kinesisIndexData{
-			PageData: PageData{Title: "Kinesis Streams", ActiveTab: "kinesis"},
-			Streams:  []kinesisStreamView{},
+			PageData: PageData{Title: "Kinesis Streams", ActiveTab: "kinesis",
+				Snippet: &SnippetData{
+					ID:    "kinesis-operations",
+					Title: "Using Kinesis",
+					Cli:   `aws kinesis help --endpoint-url http://localhost:8000`,
+					Go: `// Initialize AWS SDK v2 for Using Kinesis
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := kinesis.NewFromConfig(cfg)`,
+					Python: `# Initialize boto3 client for Using Kinesis
+import boto3
+
+client = boto3.client('kinesis', endpoint_url='http://localhost:8000')`,
+				}},
+			Streams: []kinesisStreamView{},
 		})
 
 		return nil
@@ -59,8 +82,29 @@ func (h *DashboardHandler) kinesisIndex(c *echo.Context) error {
 	}
 
 	h.renderTemplate(w, "kinesis/index.html", kinesisIndexData{
-		PageData: PageData{Title: "Kinesis Streams", ActiveTab: "kinesis"},
-		Streams:  views,
+		PageData: PageData{Title: "Kinesis Streams", ActiveTab: "kinesis",
+			Snippet: &SnippetData{
+				ID:    "kinesis-operations",
+				Title: "Using Kinesis",
+				Cli:   `aws kinesis help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Kinesis
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := kinesis.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Kinesis
+import boto3
+
+client = boto3.client('kinesis', endpoint_url='http://localhost:8000')`,
+			}},
+		Streams: views,
 	})
 
 	return nil
@@ -82,7 +126,28 @@ func (h *DashboardHandler) kinesisStreamDetail(c *echo.Context) error {
 	}
 
 	h.renderTemplate(w, "kinesis/stream_detail.html", kinesisStreamDetailData{
-		PageData:   PageData{Title: "Stream: " + name, ActiveTab: "kinesis"},
+		PageData: PageData{Title: "Stream: " + name, ActiveTab: "kinesis",
+			Snippet: &SnippetData{
+				ID:    "kinesis-operations",
+				Title: "Using Kinesis",
+				Cli:   `aws kinesis help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Kinesis
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := kinesis.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Kinesis
+import boto3
+
+client = boto3.client('kinesis', endpoint_url='http://localhost:8000')`,
+			}},
 		StreamName: desc.StreamName,
 		StreamARN:  desc.StreamARN,
 		Status:     desc.StreamStatus,

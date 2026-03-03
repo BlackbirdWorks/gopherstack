@@ -52,12 +52,35 @@ type rdsInstanceDetailData struct {
 }
 
 // rdsIndex renders the list of all RDS instances, snapshots, and subnet groups.
+//
+//nolint:funlen // long due to RDS instance class list
 func (h *DashboardHandler) rdsIndex(c *echo.Context) error {
 	w := c.Response()
 
 	if h.RDSOps == nil {
 		h.renderTemplate(w, "rds/index.html", rdsIndexData{
-			PageData:     PageData{Title: "RDS Instances", ActiveTab: "rds"},
+			PageData: PageData{Title: "RDS Instances", ActiveTab: "rds",
+				Snippet: &SnippetData{
+					ID:    "rds-operations",
+					Title: "Using Rds",
+					Cli:   `aws rds help --endpoint-url http://localhost:8000`,
+					Go: `// Initialize AWS SDK v2 for Using Rds
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := rds.NewFromConfig(cfg)`,
+					Python: `# Initialize boto3 client for Using Rds
+import boto3
+
+client = boto3.client('rds', endpoint_url='http://localhost:8000')`,
+				}},
 			Instances:    []rdsInstanceView{},
 			Snapshots:    []rdsSnapshotView{},
 			SubnetGroups: []rdsSubnetGroupView{},
@@ -117,7 +140,28 @@ func (h *DashboardHandler) rdsIndex(c *echo.Context) error {
 	}
 
 	h.renderTemplate(w, "rds/index.html", rdsIndexData{
-		PageData:     PageData{Title: "RDS Instances", ActiveTab: "rds"},
+		PageData: PageData{Title: "RDS Instances", ActiveTab: "rds",
+			Snippet: &SnippetData{
+				ID:    "rds-operations",
+				Title: "Using Rds",
+				Cli:   `aws rds help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Rds
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := rds.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Rds
+import boto3
+
+client = boto3.client('rds', endpoint_url='http://localhost:8000')`,
+			}},
 		Instances:    instViews,
 		Snapshots:    snapViews,
 		SubnetGroups: sgViews,
@@ -146,7 +190,28 @@ func (h *DashboardHandler) rdsInstanceDetail(c *echo.Context) error {
 
 	inst := instances[0]
 	h.renderTemplate(w, "rds/instance_detail.html", rdsInstanceDetailData{
-		PageData: PageData{Title: "RDS Instance: " + id, ActiveTab: "rds"},
+		PageData: PageData{Title: "RDS Instance: " + id, ActiveTab: "rds",
+			Snippet: &SnippetData{
+				ID:    "rds-operations",
+				Title: "Using Rds",
+				Cli:   `aws rds help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Rds
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := rds.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Rds
+import boto3
+
+client = boto3.client('rds', endpoint_url='http://localhost:8000')`,
+			}},
 		Instance: rdsInstanceView{
 			DBInstanceIdentifier: inst.DBInstanceIdentifier,
 			Engine:               inst.Engine,

@@ -40,6 +40,27 @@ func (h *DashboardHandler) secretsManagerIndex(c *echo.Context) error {
 		PageData: PageData{
 			Title:     "Secrets Manager",
 			ActiveTab: "secretsmanager",
+			Snippet: &SnippetData{
+				ID:    "secretsmanager-operations",
+				Title: "Using Secretsmanager",
+				Cli:   `aws secretsmanager help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Secretsmanager
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := secretsmanager.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Secretsmanager
+import boto3
+
+client = boto3.client('secretsmanager', endpoint_url='http://localhost:8000')`,
+			},
 		},
 		Secrets: make([]secretsManagerView, 0),
 	}
@@ -203,6 +224,27 @@ func (h *DashboardHandler) secretsManagerDetail(c *echo.Context) error {
 		PageData: PageData{
 			Title:     "Secret Detail",
 			ActiveTab: "secretsmanager",
+			Snippet: &SnippetData{
+				ID:    "secretsmanager-operations",
+				Title: "Using Secretsmanager",
+				Cli:   `aws secretsmanager help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Secretsmanager
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := secretsmanager.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Secretsmanager
+import boto3
+
+client = boto3.client('secretsmanager', endpoint_url='http://localhost:8000')`,
+			},
 		},
 		Name:               descOut.Name,
 		ARN:                descOut.ARN,

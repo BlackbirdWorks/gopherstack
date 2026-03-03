@@ -32,7 +32,28 @@ func (h *DashboardHandler) acmIndex(c *echo.Context) error {
 
 	if h.ACMOps == nil {
 		h.renderTemplate(w, "acm/index.html", acmIndexData{
-			PageData:     PageData{Title: "ACM Certificates", ActiveTab: "acm"},
+			PageData: PageData{Title: "ACM Certificates", ActiveTab: "acm",
+				Snippet: &SnippetData{
+					ID:    "acm-operations",
+					Title: "Using Acm",
+					Cli:   `aws acm help --endpoint-url http://localhost:8000`,
+					Go: `// Initialize AWS SDK v2 for Using Acm
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := acm.NewFromConfig(cfg)`,
+					Python: `# Initialize boto3 client for Using Acm
+import boto3
+
+client = boto3.client('acm', endpoint_url='http://localhost:8000')`,
+				}},
 			Certificates: []acmCertView{},
 		})
 
@@ -59,7 +80,28 @@ func (h *DashboardHandler) acmIndex(c *echo.Context) error {
 	}
 
 	h.renderTemplate(w, "acm/index.html", acmIndexData{
-		PageData:     PageData{Title: "ACM Certificates", ActiveTab: "acm"},
+		PageData: PageData{Title: "ACM Certificates", ActiveTab: "acm",
+			Snippet: &SnippetData{
+				ID:    "acm-operations",
+				Title: "Using Acm",
+				Cli:   `aws acm help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Acm
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := acm.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Acm
+import boto3
+
+client = boto3.client('acm', endpoint_url='http://localhost:8000')`,
+			}},
 		Certificates: views,
 	})
 

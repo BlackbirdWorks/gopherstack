@@ -450,6 +450,7 @@ func run(ctx context.Context, cli CLI) error {
 
 	e := echo.New()
 	e.Use(httputil.RequestIDMiddleware())
+	e.Use(logger.APIConsoleMiddleware())
 	e.Pre(logger.EchoMiddleware(log))
 	e.GET("/_gopherstack/health", healthHandler)
 

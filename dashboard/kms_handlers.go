@@ -46,6 +46,27 @@ func (h *DashboardHandler) kmsIndex(c *echo.Context) error {
 		PageData: PageData{
 			Title:     "KMS Keys",
 			ActiveTab: "kms",
+			Snippet: &SnippetData{
+				ID:    "kms-operations",
+				Title: "Using Kms",
+				Cli:   `aws kms help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Kms
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := kms.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Kms
+import boto3
+
+client = boto3.client('kms', endpoint_url='http://localhost:8000')`,
+			},
 		},
 		Keys: make([]any, 0),
 	}
@@ -129,6 +150,27 @@ func (h *DashboardHandler) kmsKeyDetail(c *echo.Context) error {
 		PageData: PageData{
 			Title:     "KMS Key Detail",
 			ActiveTab: "kms",
+			Snippet: &SnippetData{
+				ID:    "kms-operations",
+				Title: "Using Kms",
+				Cli:   `aws kms help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Kms
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := kms.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Kms
+import boto3
+
+client = boto3.client('kms', endpoint_url='http://localhost:8000')`,
+			},
 		},
 		KeyID:       descOut.KeyMetadata.KeyID,
 		Arn:         descOut.KeyMetadata.Arn,

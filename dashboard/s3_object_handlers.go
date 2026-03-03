@@ -75,6 +75,10 @@ func (h *DashboardHandler) s3FileTree(w http.ResponseWriter, r *http.Request, bu
 		return items[i].Name < items[j].Name
 	})
 
+	if len(items) == 0 {
+		h.renderFragment(w, "s3-empty", bucketName)
+	}
+
 	for _, item := range items {
 		h.renderFragment(w, "file-tree-item", item)
 	}
@@ -177,6 +181,27 @@ func (h *DashboardHandler) prepareS3FileDetailData(
 		PageData: PageData{
 			Title:     "File: " + path.Base(key),
 			ActiveTab: "s3",
+			Snippet: &SnippetData{
+				ID:    "s3-operations",
+				Title: "Using S3",
+				Cli:   `aws s3 help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using S3
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := s3.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using S3
+import boto3
+
+client = boto3.client('s3', endpoint_url='http://localhost:8000')`,
+			},
 		},
 		BucketName:        bucketName,
 		Key:               key,

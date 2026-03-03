@@ -29,8 +29,29 @@ func (h *DashboardHandler) s3controlIndex(c *echo.Context) error {
 
 	if h.S3ControlOps == nil {
 		h.renderTemplate(w, "s3control/index.html", s3controlIndexData{
-			PageData: PageData{Title: "S3 Control", ActiveTab: "s3control"},
-			Configs:  []s3controlConfigView{},
+			PageData: PageData{Title: "S3 Control", ActiveTab: "s3control",
+				Snippet: &SnippetData{
+					ID:    "s3control-operations",
+					Title: "Using S3control",
+					Cli:   `aws s3control help --endpoint-url http://localhost:8000`,
+					Go: `// Initialize AWS SDK v2 for Using S3control
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := s3control.NewFromConfig(cfg)`,
+					Python: `# Initialize boto3 client for Using S3control
+import boto3
+
+client = boto3.client('s3control', endpoint_url='http://localhost:8000')`,
+				}},
+			Configs: []s3controlConfigView{},
 		})
 
 		return nil
@@ -50,8 +71,29 @@ func (h *DashboardHandler) s3controlIndex(c *echo.Context) error {
 	}
 
 	h.renderTemplate(w, "s3control/index.html", s3controlIndexData{
-		PageData: PageData{Title: "S3 Control", ActiveTab: "s3control"},
-		Configs:  views,
+		PageData: PageData{Title: "S3 Control", ActiveTab: "s3control",
+			Snippet: &SnippetData{
+				ID:    "s3control-operations",
+				Title: "Using S3control",
+				Cli:   `aws s3control help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using S3control
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := s3control.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using S3control
+import boto3
+
+client = boto3.client('s3control', endpoint_url='http://localhost:8000')`,
+			}},
+		Configs: views,
 	})
 
 	return nil
