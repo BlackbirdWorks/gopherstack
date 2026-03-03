@@ -16,6 +16,25 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
 
+// consumedCapacityForQuery returns a populated ConsumedCapacity when the caller
+// has requested capacity reporting. Returns nil when reporting is disabled.
+func consumedCapacityForQuery(tableName string, req types.ReturnConsumedCapacity, scanned int) *types.ConsumedCapacity {
+	if req == "" || req == types.ReturnConsumedCapacityNone {
+		return nil
+	}
+	const halfRCU = 0.5
+	cu := float64(scanned) * halfRCU
+	if cu < halfRCU {
+		cu = halfRCU
+	}
+
+	return &types.ConsumedCapacity{
+		TableName:         aws.String(tableName),
+		CapacityUnits:     aws.Float64(cu),
+		ReadCapacityUnits: aws.Float64(cu),
+	}
+}
+
 func (db *InMemoryDB) Query(
 	ctx context.Context,
 	input *dynamodb.QueryInput,
@@ -363,6 +382,9 @@ func (db *InMemoryDB) processQueryResults(
 		Items:        outItems,
 		Count:        int32(len(items)),      // #nosec G115
 		ScannedCount: int32(len(candidates)), // #nosec G115
+		ConsumedCapacity: consumedCapacityForQuery(
+			aws.ToString(input.TableName), input.ReturnConsumedCapacity, len(candidates),
+		),
 	}
 
 	if lastEvaluatedKey != nil {
