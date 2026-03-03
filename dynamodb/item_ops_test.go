@@ -397,7 +397,10 @@ func TestScan_TTLFilter(t *testing.T) {
 			name:      "ExpiredItemExcluded",
 			enableTTL: true,
 			items: []map[string]types.AttributeValue{
-				{"pk": &types.AttributeValueMemberS{Value: "expired-item"}, "ttl": &types.AttributeValueMemberN{Value: "1"}},
+				{
+					"pk":  &types.AttributeValueMemberS{Value: "expired-item"},
+					"ttl": &types.AttributeValueMemberN{Value: "1"},
+				},
 				{"pk": &types.AttributeValueMemberS{Value: "active-item-no-ttl"}},
 			},
 			wantPKs: []string{"active-item-no-ttl"},
@@ -406,9 +409,15 @@ func TestScan_TTLFilter(t *testing.T) {
 			name:      "FutureTTLIncluded",
 			enableTTL: true,
 			items: []map[string]types.AttributeValue{
-				{"pk": &types.AttributeValueMemberS{Value: "expired-item"}, "ttl": &types.AttributeValueMemberN{Value: "1"}},
+				{
+					"pk":  &types.AttributeValueMemberS{Value: "expired-item"},
+					"ttl": &types.AttributeValueMemberN{Value: "1"},
+				},
 				{"pk": &types.AttributeValueMemberS{Value: "active-item-no-ttl"}},
-				{"pk": &types.AttributeValueMemberS{Value: "active-item-future-ttl"}, "ttl": &types.AttributeValueMemberN{Value: "10000000000"}},
+				{
+					"pk":  &types.AttributeValueMemberS{Value: "active-item-future-ttl"},
+					"ttl": &types.AttributeValueMemberN{Value: "10000000000"},
+				},
 			},
 			wantPKs: []string{"active-item-future-ttl", "active-item-no-ttl"},
 		},
@@ -416,7 +425,10 @@ func TestScan_TTLFilter(t *testing.T) {
 			name:      "TTLDisabledAllItemsVisible",
 			enableTTL: false,
 			items: []map[string]types.AttributeValue{
-				{"pk": &types.AttributeValueMemberS{Value: "item1"}, "ttl": &types.AttributeValueMemberN{Value: "1"}},
+				{
+					"pk":  &types.AttributeValueMemberS{Value: "item1"},
+					"ttl": &types.AttributeValueMemberN{Value: "1"},
+				},
 				{"pk": &types.AttributeValueMemberS{Value: "item2"}},
 			},
 			wantPKs: []string{"item1", "item2"},
@@ -481,8 +493,15 @@ func TestQuery_TTLFilter(t *testing.T) {
 			name:      "ExpiredItemExcluded",
 			enableTTL: true,
 			items: []map[string]types.AttributeValue{
-				{"pk": &types.AttributeValueMemberS{Value: "user1"}, "sk": &types.AttributeValueMemberS{Value: "expired-item"}, "ttl": &types.AttributeValueMemberN{Value: "1"}},
-				{"pk": &types.AttributeValueMemberS{Value: "user1"}, "sk": &types.AttributeValueMemberS{Value: "active-item-no-ttl"}},
+				{
+					"pk":  &types.AttributeValueMemberS{Value: "user1"},
+					"sk":  &types.AttributeValueMemberS{Value: "expired-item"},
+					"ttl": &types.AttributeValueMemberN{Value: "1"},
+				},
+				{
+					"pk": &types.AttributeValueMemberS{Value: "user1"},
+					"sk": &types.AttributeValueMemberS{Value: "active-item-no-ttl"},
+				},
 			},
 			wantSKs: []string{"active-item-no-ttl"},
 		},
@@ -490,9 +509,20 @@ func TestQuery_TTLFilter(t *testing.T) {
 			name:      "FutureTTLIncluded",
 			enableTTL: true,
 			items: []map[string]types.AttributeValue{
-				{"pk": &types.AttributeValueMemberS{Value: "user1"}, "sk": &types.AttributeValueMemberS{Value: "expired-item"}, "ttl": &types.AttributeValueMemberN{Value: "1"}},
-				{"pk": &types.AttributeValueMemberS{Value: "user1"}, "sk": &types.AttributeValueMemberS{Value: "active-item-no-ttl"}},
-				{"pk": &types.AttributeValueMemberS{Value: "user1"}, "sk": &types.AttributeValueMemberS{Value: "active-item-future-ttl"}, "ttl": &types.AttributeValueMemberN{Value: "10000000000"}},
+				{
+					"pk":  &types.AttributeValueMemberS{Value: "user1"},
+					"sk":  &types.AttributeValueMemberS{Value: "expired-item"},
+					"ttl": &types.AttributeValueMemberN{Value: "1"},
+				},
+				{
+					"pk": &types.AttributeValueMemberS{Value: "user1"},
+					"sk": &types.AttributeValueMemberS{Value: "active-item-no-ttl"},
+				},
+				{
+					"pk":  &types.AttributeValueMemberS{Value: "user1"},
+					"sk":  &types.AttributeValueMemberS{Value: "active-item-future-ttl"},
+					"ttl": &types.AttributeValueMemberN{Value: "10000000000"},
+				},
 			},
 			wantSKs: []string{"active-item-future-ttl", "active-item-no-ttl"},
 		},
@@ -500,8 +530,15 @@ func TestQuery_TTLFilter(t *testing.T) {
 			name:      "TTLDisabledAllItemsVisible",
 			enableTTL: false,
 			items: []map[string]types.AttributeValue{
-				{"pk": &types.AttributeValueMemberS{Value: "user1"}, "sk": &types.AttributeValueMemberS{Value: "item1"}, "ttl": &types.AttributeValueMemberN{Value: "1"}},
-				{"pk": &types.AttributeValueMemberS{Value: "user1"}, "sk": &types.AttributeValueMemberS{Value: "item2"}},
+				{
+					"pk":  &types.AttributeValueMemberS{Value: "user1"},
+					"sk":  &types.AttributeValueMemberS{Value: "item1"},
+					"ttl": &types.AttributeValueMemberN{Value: "1"},
+				},
+				{
+					"pk": &types.AttributeValueMemberS{Value: "user1"},
+					"sk": &types.AttributeValueMemberS{Value: "item2"},
+				},
 			},
 			wantSKs: []string{"item1", "item2"},
 		},
