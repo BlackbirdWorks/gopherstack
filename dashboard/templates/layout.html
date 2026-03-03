@@ -856,11 +856,17 @@
                     const btn = document.createElement('button');
                     btn.type = 'button';
                     btn.className = 'flex items-center gap-2 w-full px-3 py-1.5 text-xs font-mono text-left text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors';
+                    const icon = document.createElement('span');
                     if (r === active) {
-                        btn.innerHTML = '<span class="text-indigo-500">✓</span>' + r;
+                        icon.className = 'text-indigo-500';
+                        icon.textContent = '✓';
                     } else {
-                        btn.innerHTML = '<span class="w-3.5"></span>' + r;
+                        icon.className = 'w-3.5';
                     }
+                    const label = document.createElement('span');
+                    label.textContent = r;
+                    btn.appendChild(icon);
+                    btn.appendChild(label);
                     btn.addEventListener('click', function () { setRegion(r); });
                     list.appendChild(btn);
                 });

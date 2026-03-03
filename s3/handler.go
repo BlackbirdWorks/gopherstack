@@ -173,21 +173,23 @@ func (h *S3Handler) GetSupportedOperations() []string {
 }
 
 // Regions returns all regions with buckets in the backend.
+// Returns an empty slice when not using the in-memory backend.
 func (h *S3Handler) Regions() []string {
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
 		return b.Regions()
 	}
 
-	return nil
+	return []string{}
 }
 
 // BucketsByRegion returns buckets in the given region (all if empty).
+// Returns an empty slice when not using the in-memory backend.
 func (h *S3Handler) BucketsByRegion(region string) []types.Bucket {
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
 		return b.BucketsByRegion(region)
 	}
 
-	return nil
+	return []types.Bucket{}
 }
 
 // Handler returns the Echo handler function for S3 requests.
