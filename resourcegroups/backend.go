@@ -120,6 +120,62 @@ func (b *InMemoryBackend) ListGroups() []Group {
 	return out
 }
 
+// GetTagsByARN returns the tags for the resource group identified by ARN.
+func (b *InMemoryBackend) GetTagsByARN(resourceARN string) (map[string]string, error) {
+	b.mu.RLock("GetTagsByARN")
+	defer b.mu.RUnlock()
+
+	g := b.findByARN(resourceARN)
+	if g == nil {
+		return nil, fmt.Errorf("%w: group with ARN %s not found", ErrNotFound, resourceARN)
+	}
+
+	return g.Tags.Clone(), nil
+}
+
+// AddTagsByARN merges newTags into the resource group identified by ARN and
+// returns the resulting tag set.
+func (b *InMemoryBackend) AddTagsByARN(resourceARN string, newTags map[string]string) (map[string]string, error) {
+	b.mu.Lock("AddTagsByARN")
+	defer b.mu.Unlock()
+
+	g := b.findByARN(resourceARN)
+	if g == nil {
+		return nil, fmt.Errorf("%w: group with ARN %s not found", ErrNotFound, resourceARN)
+	}
+
+	g.Tags.Merge(newTags)
+
+	return g.Tags.Clone(), nil
+}
+
+// RemoveTagsByARN removes the specified tag keys from the resource group
+// identified by ARN.
+func (b *InMemoryBackend) RemoveTagsByARN(resourceARN string, keys []string) error {
+	b.mu.Lock("RemoveTagsByARN")
+	defer b.mu.Unlock()
+
+	g := b.findByARN(resourceARN)
+	if g == nil {
+		return fmt.Errorf("%w: group with ARN %s not found", ErrNotFound, resourceARN)
+	}
+
+	g.Tags.DeleteKeys(keys)
+
+	return nil
+}
+
+// findByARN looks up a group by its ARN (must be called under a lock).
+func (b *InMemoryBackend) findByARN(resourceARN string) *Group {
+	for _, g := range b.groups {
+		if g.ARN == resourceARN {
+			return g
+		}
+	}
+
+	return nil
+}
+
 // GetGroup returns a resource group by name or ARN.
 // The Tags field in the returned Group points to the backend-owned Tags
 // collection; callers should treat it as read-only.

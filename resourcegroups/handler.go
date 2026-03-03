@@ -74,7 +74,20 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetGroup",
 		"GetGroupQuery",
 		"GetGroupConfiguration",
+		"GetTags",
+		"Tag",
+		"Untag",
 	}
+}
+
+// isResourceTagsPath reports whether path matches the pattern /resources/{Arn}/tags.
+func isResourceTagsPath(path string) bool {
+	return strings.HasPrefix(path, "/resources/") && strings.HasSuffix(path, "/tags")
+}
+
+// arnFromResourceTagsPath extracts the ARN from a /resources/{Arn}/tags path.
+func arnFromResourceTagsPath(path string) string {
+	return path[len("/resources/") : len(path)-len("/tags")]
 }
 
 // RouteMatcher returns a function that matches Resource Groups requests.
@@ -87,7 +100,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 		_, isREST := rgRESTPathOps[c.Request().URL.Path]
 
-		return isREST
+		return isREST || isResourceTagsPath(c.Request().URL.Path)
 	}
 }
 
@@ -104,6 +117,17 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 
 	if op, ok := rgRESTPathOps[c.Request().URL.Path]; ok {
 		return op
+	}
+
+	if isResourceTagsPath(c.Request().URL.Path) {
+		switch c.Request().Method {
+		case http.MethodGet:
+			return "GetTags"
+		case http.MethodPut:
+			return "Tag"
+		case http.MethodPatch:
+			return "Untag"
+		}
 	}
 
 	return "Unknown"
@@ -138,7 +162,12 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		// REST API paths: POST /groups, /get-group, /delete-group, /groups-list, etc.
+		// Dynamic REST paths: GET|PUT|PATCH /resources/{Arn}/tags
+		if isResourceTagsPath(c.Request().URL.Path) {
+			return h.handleResourceTags(c)
+		}
+
+		// Static REST API paths: POST /groups, /get-group, /delete-group, etc.
 		// Only POST is accepted; other methods get 405 to avoid misrouting.
 		if op, ok := rgRESTPathOps[c.Request().URL.Path]; ok {
 			if c.Request().Method != http.MethodPost {
@@ -320,4 +349,79 @@ func (h *Handler) handleGetGroupConfiguration(
 		GroupName:     g.Name,
 		Configuration: []json.RawMessage{},
 	}}, nil
+}
+
+// handleResourceTags routes GET/PUT/PATCH /resources/{Arn}/tags to the
+// GetTags, Tag, and Untag operations respectively.
+func (h *Handler) handleResourceTags(c *echo.Context) error {
+	ctx := c.Request().Context()
+	resourceARN := arnFromResourceTagsPath(c.Request().URL.Path)
+	log := logger.Load(ctx)
+
+	switch c.Request().Method {
+	case http.MethodGet:
+		tagMap, err := h.Backend.GetTagsByARN(resourceARN)
+		if err != nil {
+			return h.handleError(ctx, c, "GetTags", err)
+		}
+
+		return c.JSON(http.StatusOK, map[string]any{
+			"Arn":  resourceARN,
+			"Tags": tagMap,
+		})
+
+	case http.MethodPut:
+		body, err := httputil.ReadBody(c.Request())
+		if err != nil {
+			log.ErrorContext(ctx, "failed to read Tag request body", "error", err)
+
+			return c.String(http.StatusInternalServerError, "internal server error")
+		}
+
+		var in struct {
+			Tags map[string]string `json:"Tags"`
+		}
+
+		if err = json.Unmarshal(body, &in); err != nil {
+			return h.handleError(ctx, c, "Tag", errInvalidRequest)
+		}
+
+		tagMap, err := h.Backend.AddTagsByARN(resourceARN, in.Tags)
+		if err != nil {
+			return h.handleError(ctx, c, "Tag", err)
+		}
+
+		return c.JSON(http.StatusOK, map[string]any{
+			"Arn":  resourceARN,
+			"Tags": tagMap,
+		})
+
+	case http.MethodPatch:
+		body, err := httputil.ReadBody(c.Request())
+		if err != nil {
+			log.ErrorContext(ctx, "failed to read Untag request body", "error", err)
+
+			return c.String(http.StatusInternalServerError, "internal server error")
+		}
+
+		var in struct {
+			Keys []string `json:"Keys"`
+		}
+
+		if err = json.Unmarshal(body, &in); err != nil {
+			return h.handleError(ctx, c, "Untag", errInvalidRequest)
+		}
+
+		if err = h.Backend.RemoveTagsByARN(resourceARN, in.Keys); err != nil {
+			return h.handleError(ctx, c, "Untag", err)
+		}
+
+		return c.JSON(http.StatusOK, map[string]any{
+			"Arn":  resourceARN,
+			"Keys": in.Keys,
+		})
+
+	default:
+		return c.NoContent(http.StatusMethodNotAllowed)
+	}
 }
