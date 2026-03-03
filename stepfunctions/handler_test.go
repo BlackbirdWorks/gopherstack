@@ -489,3 +489,38 @@ func TestHandler_UntagResource(t *testing.T) {
 	assert.Equal(t, "env", tag["key"])
 	assert.Equal(t, "prod", tag["value"])
 }
+
+func TestHandler_ValidateStateMachineDefinition_OK(t *testing.T) {
+t.Parallel()
+
+validDef := `{
+"StartAt": "S",
+"States": {"S": {"Type": "Pass", "End": true}}
+}`
+body, _ := json.Marshal(map[string]string{"definition": validDef})
+rec := sfnRequest(t, "ValidateStateMachineDefinition", string(body))
+assert.Equal(t, http.StatusOK, rec.Code)
+
+var resp map[string]any
+require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+assert.Equal(t, "OK", resp["result"])
+diag, ok := resp["diagnostics"].([]any)
+require.True(t, ok)
+assert.Empty(t, diag)
+}
+
+func TestHandler_ValidateStateMachineDefinition_Invalid(t *testing.T) {
+t.Parallel()
+
+invalidDef := `{"StartAt": "Missing", "States": {"S": {"Type": "Pass", "End": true}}}`
+body, _ := json.Marshal(map[string]string{"definition": invalidDef})
+rec := sfnRequest(t, "ValidateStateMachineDefinition", string(body))
+assert.Equal(t, http.StatusOK, rec.Code)
+
+var resp map[string]any
+require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+assert.Equal(t, "FAIL", resp["result"])
+diag, ok := resp["diagnostics"].([]any)
+require.True(t, ok)
+assert.NotEmpty(t, diag)
+}

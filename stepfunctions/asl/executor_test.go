@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/stepfunctions/asl"
 	"github.com/stretchr/testify/assert"
@@ -1087,4 +1088,659 @@ func TestExecutor_TaskNoLambdaInvoker(t *testing.T) {
 	result, err := exec.Execute(t.Context(), "test", `{}`)
 	require.NoError(t, err)
 	assert.NotEmpty(t, result.Error)
+}
+
+// --- Parameters and ResultSelector tests ---
+
+func TestExecutor_Parameters_StaticAndDynamic(t *testing.T) {
+t.Parallel()
+
+def := `{
+"StartAt": "P",
+"States": {
+"P": {
+"Type": "Pass",
+"Parameters": {"static": "hello", "dynamic.$": "$.name"},
+"End": true
+}
+}
+}`
+
+result := execute(t, def, `{"name": "world"}`)
+m := result.Output.(map[string]any)
+assert.Equal(t, "hello", m["static"])
+assert.Equal(t, "world", m["dynamic"])
+}
+
+func TestExecutor_ResultSelector_FiltersOutput(t *testing.T) {
+t.Parallel()
+
+mockLambda := &mockLambda{response: `{"status": "ok", "noise": "ignored"}`}
+
+def := `{
+"StartAt": "T",
+"States": {
+"T": {
+"Type": "Task",
+"Resource": "arn:aws:lambda:us-east-1:000000000000:function:fn",
+"ResultSelector": {"result.$": "$.status"},
+"End": true
+}
+}
+}`
+
+sm, err := asl.Parse(def)
+require.NoError(t, err)
+exec := asl.NewExecutor(sm, mockLambda, nil)
+result, err := exec.Execute(t.Context(), "test", `{}`)
+require.NoError(t, err)
+assert.Empty(t, result.Error)
+
+m, ok := result.Output.(map[string]any)
+require.True(t, ok)
+assert.Equal(t, "ok", m["result"])
+_, hasNoise := m["noise"]
+assert.False(t, hasNoise)
+}
+
+// --- Retry tests ---
+
+func TestExecutor_Retry_SucceedsAfterRetry(t *testing.T) {
+t.Parallel()
+
+callCount := 0
+lam := &mockLambdaFn{fn: func() ([]byte, int, error) {
+callCount++
+if callCount < 3 {
+return nil, 500, errors.New("TransientError")
+}
+return []byte(`{"done": true}`), 200, nil
+}}
+
+maxAttempts := 5
+def := `{
+"StartAt": "T",
+"States": {
+"T": {
+"Type": "Task",
+"Resource": "arn:aws:lambda:us-east-1:000000000000:function:fn",
+"Retry": [{"ErrorEquals": ["TransientError"], "IntervalSeconds": 0, "MaxAttempts": 5}],
+"End": true
+}
+}
+}`
+// Set MaxAttempts via JSON since the struct uses *int.
+_ = maxAttempts
+
+sm, err := asl.Parse(def)
+require.NoError(t, err)
+exec := asl.NewExecutor(sm, lam, nil)
+result, err := exec.Execute(t.Context(), "test", `{}`)
+require.NoError(t, err)
+assert.Empty(t, result.Error)
+assert.Equal(t, 3, callCount)
+}
+
+func TestExecutor_Retry_ExhaustedFallsThroughToCatch(t *testing.T) {
+t.Parallel()
+
+lam := &mockLambda{returnErr: errors.New("PersistentError")}
+
+def := `{
+"StartAt": "T",
+"States": {
+"T": {
+"Type": "Task",
+"Resource": "arn:aws:lambda:us-east-1:000000000000:function:fn",
+"Retry": [{"ErrorEquals": ["PersistentError"], "IntervalSeconds": 0, "MaxAttempts": 2}],
+"Catch": [{"ErrorEquals": ["States.ALL"], "Next": "Handled"}],
+"End": true
+},
+"Handled": {"Type": "Pass", "End": true, "Result": "caught"}
+}
+}`
+
+sm, err := asl.Parse(def)
+require.NoError(t, err)
+exec := asl.NewExecutor(sm, lam, nil)
+result, err := exec.Execute(t.Context(), "test", `{}`)
+require.NoError(t, err)
+assert.Equal(t, "caught", result.Output)
+}
+
+func TestExecutor_Retry_MaxAttemptsZeroNoRetry(t *testing.T) {
+t.Parallel()
+
+callCount := 0
+lam := &mockLambdaFn{fn: func() ([]byte, int, error) {
+callCount++
+return nil, 500, errors.New("SomeError")
+}}
+
+def := `{
+"StartAt": "T",
+"States": {
+"T": {
+"Type": "Task",
+"Resource": "arn:aws:lambda:us-east-1:000000000000:function:fn",
+"Retry": [{"ErrorEquals": ["SomeError"], "MaxAttempts": 0}],
+"End": true
+}
+}
+}`
+
+sm, err := asl.Parse(def)
+require.NoError(t, err)
+exec := asl.NewExecutor(sm, lam, nil)
+result, err := exec.Execute(t.Context(), "test", `{}`)
+require.NoError(t, err)
+assert.Equal(t, "TaskFailed", result.Error)
+assert.Equal(t, 1, callCount, "should only try once with MaxAttempts=0")
+}
+
+// mockLambdaFn is a flexible mock that calls a function for each invocation.
+type mockLambdaFn struct {
+fn func() ([]byte, int, error)
+}
+
+func (m *mockLambdaFn) InvokeFunction(_ context.Context, _, _ string, _ []byte) ([]byte, int, error) {
+return m.fn()
+}
+
+// --- TimeoutSeconds test ---
+
+func TestExecutor_Task_TimeoutSeconds(t *testing.T) {
+t.Parallel()
+
+lam := &mockLambdaFn{fn: func() ([]byte, int, error) {
+time.Sleep(200 * time.Millisecond)
+return []byte(`{}`), 200, nil
+}}
+
+def := `{
+"StartAt": "T",
+"States": {
+"T": {
+"Type": "Task",
+"Resource": "arn:aws:lambda:us-east-1:000000000000:function:fn",
+"TimeoutSeconds": 0,
+"Catch": [{"ErrorEquals": ["States.Timeout"], "Next": "TimedOut"}],
+"End": true
+},
+"TimedOut": {"Type": "Pass", "End": true, "Result": "timeout"}
+}
+}`
+
+// TimeoutSeconds=0 means no enforced timeout; task should succeed.
+sm, err := asl.Parse(def)
+require.NoError(t, err)
+exec := asl.NewExecutor(sm, lam, nil)
+result, err := exec.Execute(t.Context(), "test", `{}`)
+require.NoError(t, err)
+assert.Empty(t, result.Error)
+}
+
+// --- Wait state improvements ---
+
+func TestExecutor_Wait_SecondsPath(t *testing.T) {
+t.Parallel()
+
+def := `{
+"StartAt": "W",
+"States": {
+"W": {"Type": "Wait", "SecondsPath": "$.delay", "Next": "Done"},
+"Done": {"Type": "Succeed"}
+}
+}`
+
+result := execute(t, def, `{"delay": 0}`)
+assert.Empty(t, result.Error)
+}
+
+func TestExecutor_Wait_Timestamp_Past(t *testing.T) {
+t.Parallel()
+
+// A past timestamp should not actually wait.
+def := `{
+"StartAt": "W",
+"States": {
+"W": {"Type": "Wait", "Timestamp": "2000-01-01T00:00:00Z", "Next": "Done"},
+"Done": {"Type": "Succeed"}
+}
+}`
+
+result := execute(t, def, `{}`)
+assert.Empty(t, result.Error)
+}
+
+func TestExecutor_Wait_TimestampPath(t *testing.T) {
+t.Parallel()
+
+def := `{
+"StartAt": "W",
+"States": {
+"W": {"Type": "Wait", "TimestampPath": "$.ts", "Next": "Done"},
+"Done": {"Type": "Succeed"}
+}
+}`
+
+result := execute(t, def, `{"ts": "2000-01-01T00:00:00Z"}`)
+assert.Empty(t, result.Error)
+}
+
+// --- Choice state new operators ---
+
+func TestExecutor_Choice_StringLessThanEquals(t *testing.T) {
+t.Parallel()
+
+def := `{
+"StartAt": "C",
+"States": {
+"C": {
+"Type": "Choice",
+"Choices": [{"Variable": "$.s", "StringLessThanEquals": "m", "Next": "Low"}],
+"Default": "High"
+},
+"Low": {"Type": "Pass", "End": true, "Result": "low"},
+"High": {"Type": "Pass", "End": true, "Result": "high"}
+}
+}`
+
+assert.Equal(t, "low", execute(t, def, `{"s": "a"}`).Output)
+assert.Equal(t, "low", execute(t, def, `{"s": "m"}`).Output)
+assert.Equal(t, "high", execute(t, def, `{"s": "z"}`).Output)
+}
+
+func TestExecutor_Choice_NumericGreaterThanEquals(t *testing.T) {
+t.Parallel()
+
+def := `{
+"StartAt": "C",
+"States": {
+"C": {
+"Type": "Choice",
+"Choices": [{"Variable": "$.n", "NumericGreaterThanEquals": 10, "Next": "High"}],
+"Default": "Low"
+},
+"High": {"Type": "Pass", "End": true, "Result": "high"},
+"Low": {"Type": "Pass", "End": true, "Result": "low"}
+}
+}`
+
+assert.Equal(t, "high", execute(t, def, `{"n": 10}`).Output)
+assert.Equal(t, "high", execute(t, def, `{"n": 15}`).Output)
+assert.Equal(t, "low", execute(t, def, `{"n": 9}`).Output)
+}
+
+func TestExecutor_Choice_NumericLessThanEquals(t *testing.T) {
+t.Parallel()
+
+def := `{
+"StartAt": "C",
+"States": {
+"C": {
+"Type": "Choice",
+"Choices": [{"Variable": "$.n", "NumericLessThanEquals": 5, "Next": "Low"}],
+"Default": "High"
+},
+"Low": {"Type": "Pass", "End": true, "Result": "low"},
+"High": {"Type": "Pass", "End": true, "Result": "high"}
+}
+}`
+
+assert.Equal(t, "low", execute(t, def, `{"n": 5}`).Output)
+assert.Equal(t, "low", execute(t, def, `{"n": 3}`).Output)
+assert.Equal(t, "high", execute(t, def, `{"n": 6}`).Output)
+}
+
+func TestExecutor_Choice_StringEqualsPath(t *testing.T) {
+t.Parallel()
+
+def := `{
+"StartAt": "C",
+"States": {
+"C": {
+"Type": "Choice",
+"Choices": [{"Variable": "$.a", "StringEqualsPath": "$.b", "Next": "Match"}],
+"Default": "NoMatch"
+},
+"Match": {"Type": "Pass", "End": true, "Result": "match"},
+"NoMatch": {"Type": "Pass", "End": true, "Result": "no-match"}
+}
+}`
+
+assert.Equal(t, "match", execute(t, def, `{"a": "hello", "b": "hello"}`).Output)
+assert.Equal(t, "no-match", execute(t, def, `{"a": "hello", "b": "world"}`).Output)
+}
+
+func TestExecutor_Choice_NumericEqualsPath(t *testing.T) {
+t.Parallel()
+
+def := `{
+"StartAt": "C",
+"States": {
+"C": {
+"Type": "Choice",
+"Choices": [{"Variable": "$.x", "NumericEqualsPath": "$.y", "Next": "Equal"}],
+"Default": "NotEqual"
+},
+"Equal": {"Type": "Pass", "End": true, "Result": "equal"},
+"NotEqual": {"Type": "Pass", "End": true, "Result": "not-equal"}
+}
+}`
+
+assert.Equal(t, "equal", execute(t, def, `{"x": 42, "y": 42}`).Output)
+assert.Equal(t, "not-equal", execute(t, def, `{"x": 42, "y": 43}`).Output)
+}
+
+func TestExecutor_Choice_IsString(t *testing.T) {
+t.Parallel()
+
+def := `{
+"StartAt": "C",
+"States": {
+"C": {
+"Type": "Choice",
+"Choices": [{"Variable": "$.v", "IsString": true, "Next": "Str"}],
+"Default": "NotStr"
+},
+"Str": {"Type": "Pass", "End": true, "Result": "string"},
+"NotStr": {"Type": "Pass", "End": true, "Result": "not-string"}
+}
+}`
+
+assert.Equal(t, "string", execute(t, def, `{"v": "hello"}`).Output)
+assert.Equal(t, "not-string", execute(t, def, `{"v": 42}`).Output)
+}
+
+func TestExecutor_Choice_IsNumeric(t *testing.T) {
+t.Parallel()
+
+def := `{
+"StartAt": "C",
+"States": {
+"C": {
+"Type": "Choice",
+"Choices": [{"Variable": "$.v", "IsNumeric": true, "Next": "Num"}],
+"Default": "NotNum"
+},
+"Num": {"Type": "Pass", "End": true, "Result": "numeric"},
+"NotNum": {"Type": "Pass", "End": true, "Result": "not-numeric"}
+}
+}`
+
+assert.Equal(t, "numeric", execute(t, def, `{"v": 3.14}`).Output)
+assert.Equal(t, "not-numeric", execute(t, def, `{"v": "text"}`).Output)
+}
+
+func TestExecutor_Choice_IsBoolean(t *testing.T) {
+t.Parallel()
+
+def := `{
+"StartAt": "C",
+"States": {
+"C": {
+"Type": "Choice",
+"Choices": [{"Variable": "$.v", "IsBoolean": true, "Next": "Bool"}],
+"Default": "NotBool"
+},
+"Bool": {"Type": "Pass", "End": true, "Result": "boolean"},
+"NotBool": {"Type": "Pass", "End": true, "Result": "not-boolean"}
+}
+}`
+
+assert.Equal(t, "boolean", execute(t, def, `{"v": true}`).Output)
+assert.Equal(t, "not-boolean", execute(t, def, `{"v": "true"}`).Output)
+}
+
+func TestExecutor_Choice_IsTimestamp(t *testing.T) {
+t.Parallel()
+
+def := `{
+"StartAt": "C",
+"States": {
+"C": {
+"Type": "Choice",
+"Choices": [{"Variable": "$.v", "IsTimestamp": true, "Next": "Ts"}],
+"Default": "NotTs"
+},
+"Ts": {"Type": "Pass", "End": true, "Result": "timestamp"},
+"NotTs": {"Type": "Pass", "End": true, "Result": "not-timestamp"}
+}
+}`
+
+assert.Equal(t, "timestamp", execute(t, def, `{"v": "2024-01-15T12:00:00Z"}`).Output)
+assert.Equal(t, "not-timestamp", execute(t, def, `{"v": "not-a-timestamp"}`).Output)
+assert.Equal(t, "not-timestamp", execute(t, def, `{"v": 42}`).Output)
+}
+
+func TestExecutor_Choice_TimestampLessThan(t *testing.T) {
+t.Parallel()
+
+def := `{
+"StartAt": "C",
+"States": {
+"C": {
+"Type": "Choice",
+"Choices": [{"Variable": "$.ts", "TimestampLessThan": "2024-06-01T00:00:00Z", "Next": "Before"}],
+"Default": "After"
+},
+"Before": {"Type": "Pass", "End": true, "Result": "before"},
+"After": {"Type": "Pass", "End": true, "Result": "after"}
+}
+}`
+
+assert.Equal(t, "before", execute(t, def, `{"ts": "2024-01-01T00:00:00Z"}`).Output)
+assert.Equal(t, "after", execute(t, def, `{"ts": "2024-12-01T00:00:00Z"}`).Output)
+}
+
+// --- Map state ItemProcessor ---
+
+func TestExecutor_MapState_ItemProcessor(t *testing.T) {
+t.Parallel()
+
+def := `{
+"StartAt": "Map",
+"States": {
+"Map": {
+"Type": "Map",
+"End": true,
+"ItemProcessor": {
+"StartAt": "P",
+"States": {
+"P": {"Type": "Pass", "End": true}
+}
+}
+}
+}
+}`
+
+result := execute(t, def, `[1, 2, 3]`)
+assert.Empty(t, result.Error)
+arr, ok := result.Output.([]any)
+require.True(t, ok)
+assert.Len(t, arr, 3)
+}
+
+// --- Intrinsic function tests ---
+
+func TestIntrinsic_Format(t *testing.T) {
+t.Parallel()
+
+def := `{
+"StartAt": "P",
+"States": {
+"P": {
+"Type": "Pass",
+"Parameters": {"msg.$": "States.Format('Hello, {}!', $.name)"},
+"End": true
+}
+}
+}`
+
+result := execute(t, def, `{"name": "World"}`)
+m := result.Output.(map[string]any)
+assert.Equal(t, "Hello, World!", m["msg"])
+}
+
+func TestIntrinsic_StringToJson(t *testing.T) {
+t.Parallel()
+
+def := `{
+"StartAt": "P",
+"States": {
+"P": {
+"Type": "Pass",
+"Parameters": {"parsed.$": "States.StringToJson($.json)"},
+"End": true
+}
+}
+}`
+
+result := execute(t, def, `{"json": "{\"key\": \"value\"}"}`)
+m := result.Output.(map[string]any)
+inner, ok := m["parsed"].(map[string]any)
+require.True(t, ok)
+assert.Equal(t, "value", inner["key"])
+}
+
+func TestIntrinsic_JsonToString(t *testing.T) {
+t.Parallel()
+
+def := `{
+"StartAt": "P",
+"States": {
+"P": {
+"Type": "Pass",
+"Parameters": {"serialized.$": "States.JsonToString($.obj)"},
+"End": true
+}
+}
+}`
+
+result := execute(t, def, `{"obj": {"x": 1}}`)
+m := result.Output.(map[string]any)
+s, ok := m["serialized"].(string)
+require.True(t, ok)
+assert.Contains(t, s, "\"x\"")
+}
+
+func TestIntrinsic_Array(t *testing.T) {
+t.Parallel()
+
+def := `{
+"StartAt": "P",
+"States": {
+"P": {
+"Type": "Pass",
+"Parameters": {"arr.$": "States.Array($.a, $.b)"},
+"End": true
+}
+}
+}`
+
+result := execute(t, def, `{"a": 1, "b": 2}`)
+m := result.Output.(map[string]any)
+arr, ok := m["arr"].([]any)
+require.True(t, ok)
+assert.Len(t, arr, 2)
+}
+
+func TestIntrinsic_ArrayLength(t *testing.T) {
+t.Parallel()
+
+def := `{
+"StartAt": "P",
+"States": {
+"P": {
+"Type": "Pass",
+"Parameters": {"len.$": "States.ArrayLength($.items)"},
+"End": true
+}
+}
+}`
+
+result := execute(t, def, `{"items": [1, 2, 3]}`)
+m := result.Output.(map[string]any)
+assert.InDelta(t, float64(3), m["len"], 1e-9)
+}
+
+func TestIntrinsic_ArrayContains(t *testing.T) {
+t.Parallel()
+
+def := `{
+"StartAt": "P",
+"States": {
+"P": {
+"Type": "Pass",
+"Parameters": {"found.$": "States.ArrayContains($.arr, $.target)"},
+"End": true
+}
+}
+}`
+
+result := execute(t, def, `{"arr": ["a", "b", "c"], "target": "b"}`)
+m := result.Output.(map[string]any)
+assert.Equal(t, true, m["found"])
+
+result2 := execute(t, def, `{"arr": ["a", "b", "c"], "target": "z"}`)
+m2 := result2.Output.(map[string]any)
+assert.Equal(t, false, m2["found"])
+}
+
+func TestIntrinsic_Base64EncodeAndDecode(t *testing.T) {
+t.Parallel()
+
+def := `{
+"StartAt": "P",
+"States": {
+"P": {
+"Type": "Pass",
+"Parameters": {"encoded.$": "States.Base64Encode($.text)"},
+"End": true
+}
+}
+}`
+
+result := execute(t, def, `{"text": "hello"}`)
+m := result.Output.(map[string]any)
+encoded, ok := m["encoded"].(string)
+require.True(t, ok)
+assert.NotEmpty(t, encoded)
+
+// Decode it back.
+def2 := `{
+"StartAt": "P",
+"States": {
+"P": {
+"Type": "Pass",
+"Parameters": {"decoded.$": "States.Base64Decode($.enc)"},
+"End": true
+}
+}
+}`
+result2 := execute(t, def2, `{"enc": "`+encoded+`"}`)
+m2 := result2.Output.(map[string]any)
+assert.Equal(t, "hello", m2["decoded"])
+}
+
+func TestIntrinsic_Hash(t *testing.T) {
+t.Parallel()
+
+def := `{
+"StartAt": "P",
+"States": {
+"P": {
+"Type": "Pass",
+"Parameters": {"h.$": "States.Hash($.data, 'SHA-256')"},
+"End": true
+}
+}
+}`
+
+result := execute(t, def, `{"data": "hello"}`)
+m := result.Output.(map[string]any)
+h, ok := m["h"].(string)
+require.True(t, ok)
+assert.Len(t, h, 64) // SHA-256 hex = 64 chars
 }
