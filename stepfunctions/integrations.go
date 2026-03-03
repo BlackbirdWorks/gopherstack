@@ -67,7 +67,8 @@ func NewDynamoDBIntegration(backend dynamodbpkg.StorageBackend) asl.DynamoDBInte
 	return &dynamoDBAdapter{backend: backend}
 }
 
-func marshalUnmarshal(input, target any) error {
+// convertViaJSON converts a value to a target type by marshaling to JSON and back.
+func convertViaJSON(input, target any) error {
 	b, err := json.Marshal(input)
 	if err != nil {
 		return err
@@ -79,7 +80,7 @@ func marshalUnmarshal(input, target any) error {
 // SFNPutItem implements asl.DynamoDBIntegration.
 func (a *dynamoDBAdapter) SFNPutItem(ctx context.Context, input any) (any, error) {
 	var req awsdynamodb.PutItemInput
-	if err := marshalUnmarshal(input, &req); err != nil {
+	if err := convertViaJSON(input, &req); err != nil {
 		return nil, err
 	}
 
@@ -94,7 +95,7 @@ func (a *dynamoDBAdapter) SFNPutItem(ctx context.Context, input any) (any, error
 // SFNGetItem implements asl.DynamoDBIntegration.
 func (a *dynamoDBAdapter) SFNGetItem(ctx context.Context, input any) (any, error) {
 	var req awsdynamodb.GetItemInput
-	if err := marshalUnmarshal(input, &req); err != nil {
+	if err := convertViaJSON(input, &req); err != nil {
 		return nil, err
 	}
 
@@ -104,7 +105,7 @@ func (a *dynamoDBAdapter) SFNGetItem(ctx context.Context, input any) (any, error
 	}
 
 	var result any
-	if unmarshalErr := marshalUnmarshal(out, &result); unmarshalErr != nil {
+	if unmarshalErr := convertViaJSON(out, &result); unmarshalErr != nil {
 		return nil, unmarshalErr
 	}
 
@@ -114,7 +115,7 @@ func (a *dynamoDBAdapter) SFNGetItem(ctx context.Context, input any) (any, error
 // SFNDeleteItem implements asl.DynamoDBIntegration.
 func (a *dynamoDBAdapter) SFNDeleteItem(ctx context.Context, input any) (any, error) {
 	var req awsdynamodb.DeleteItemInput
-	if err := marshalUnmarshal(input, &req); err != nil {
+	if err := convertViaJSON(input, &req); err != nil {
 		return nil, err
 	}
 
@@ -129,7 +130,7 @@ func (a *dynamoDBAdapter) SFNDeleteItem(ctx context.Context, input any) (any, er
 // SFNUpdateItem implements asl.DynamoDBIntegration.
 func (a *dynamoDBAdapter) SFNUpdateItem(ctx context.Context, input any) (any, error) {
 	var req awsdynamodb.UpdateItemInput
-	if err := marshalUnmarshal(input, &req); err != nil {
+	if err := convertViaJSON(input, &req); err != nil {
 		return nil, err
 	}
 
@@ -139,7 +140,7 @@ func (a *dynamoDBAdapter) SFNUpdateItem(ctx context.Context, input any) (any, er
 	}
 
 	var result any
-	if unmarshalErr := marshalUnmarshal(out, &result); unmarshalErr != nil {
+	if unmarshalErr := convertViaJSON(out, &result); unmarshalErr != nil {
 		return nil, unmarshalErr
 	}
 

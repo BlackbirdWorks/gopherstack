@@ -665,10 +665,6 @@ func (e *Executor) invokeDynamoDBTask(ctx context.Context, state *State, input a
 // Example: "arn:aws:states:::sqs:sendMessage.sync" → "sendMessage".
 func serviceAction(resource string) string {
 	parts := strings.Split(resource, ":")
-	if len(parts) == 0 {
-		return ""
-	}
-
 	action := parts[len(parts)-1]
 	if i := strings.IndexByte(action, '.'); i >= 0 {
 		action = action[:i]
