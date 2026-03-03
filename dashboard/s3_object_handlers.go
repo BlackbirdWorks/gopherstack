@@ -75,6 +75,10 @@ func (h *DashboardHandler) s3FileTree(w http.ResponseWriter, r *http.Request, bu
 		return items[i].Name < items[j].Name
 	})
 
+	if len(items) == 0 {
+		h.renderFragment(w, "s3-empty", bucketName)
+	}
+
 	for _, item := range items {
 		h.renderFragment(w, "file-tree-item", item)
 	}
