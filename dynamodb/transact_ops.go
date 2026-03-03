@@ -24,20 +24,36 @@ func (db *InMemoryDB) TransactWriteItems(
 		return nil, NewValidationException("TransactItems must not be empty")
 	}
 
-	// Idempotency: if this ClientRequestToken was already committed, return success.
-	// Use a write lock so check-and-record is atomic, preventing concurrent duplicates.
+	// Idempotency: enforce ClientRequestToken semantics.
+	// - committed token  → return success immediately (no re-apply)
+	// - in-progress token → return TransactionInProgressException
+	// - new token        → mark pending; clear on failure, commit on success
 	token := aws.ToString(input.ClientRequestToken)
 	if token != "" {
+		var committed, inProgress bool
 		db.mu.Lock("TransactWriteItems.tokenCheck")
-		_, seen := db.txnTokens[token]
-		if !seen {
-			// Pre-register the token so that a concurrent duplicate request returns early.
-			db.txnTokens[token] = struct{}{}
+		_, committed = db.txnTokens[token]
+		_, inProgress = db.txnPending[token]
+		if !committed && !inProgress {
+			db.txnPending[token] = struct{}{}
 		}
 		db.mu.Unlock()
-		if seen {
+
+		switch {
+		case committed:
 			return &dynamodb.TransactWriteItemsOutput{}, nil
+		case inProgress:
+			return nil, NewTransactionInProgressException(
+				"A transaction with the given request token is currently in progress",
+			)
 		}
+
+		// Ensure the pending entry is cleaned up on any exit path.
+		defer func() {
+			db.mu.Lock("TransactWriteItems.tokenCleanup")
+			delete(db.txnPending, token)
+			db.mu.Unlock()
+		}()
 	}
 
 	tableNames := db.transactTableNames(input.TransactItems)
@@ -65,8 +81,15 @@ func (db *InMemoryDB) TransactWriteItems(
 		}
 	}
 
+	// Record token as committed only after all writes have been applied.
+	if token != "" {
+		db.mu.Lock("TransactWriteItems.tokenCommit")
+		db.txnTokens[token] = struct{}{}
+		db.mu.Unlock()
+	}
+
 	out := &dynamodb.TransactWriteItemsOutput{
-		ConsumedCapacity: transactWriteConsumedCapacity(input.ReturnConsumedCapacity, tableNames),
+		ConsumedCapacity: transactWriteConsumedCapacity(input.ReturnConsumedCapacity, input.TransactItems),
 	}
 
 	return out, nil
@@ -74,16 +97,30 @@ func (db *InMemoryDB) TransactWriteItems(
 
 func transactWriteConsumedCapacity(
 	req types.ReturnConsumedCapacity,
-	tableNames []string,
+	items []types.TransactWriteItem,
 ) []types.ConsumedCapacity {
 	if req == "" || req == types.ReturnConsumedCapacityNone {
 		return nil
 	}
 
-	const cu = 1.0
-	caps := make([]types.ConsumedCapacity, 0, len(tableNames))
+	// Count write operations per table for accurate WCU reporting.
+	perTable := make(map[string]int)
+	for _, ti := range items {
+		switch {
+		case ti.Put != nil:
+			perTable[aws.ToString(ti.Put.TableName)]++
+		case ti.Delete != nil:
+			perTable[aws.ToString(ti.Delete.TableName)]++
+		case ti.Update != nil:
+			perTable[aws.ToString(ti.Update.TableName)]++
+		case ti.ConditionCheck != nil:
+			perTable[aws.ToString(ti.ConditionCheck.TableName)]++
+		}
+	}
 
-	for _, name := range tableNames {
+	caps := make([]types.ConsumedCapacity, 0, len(perTable))
+	for name, n := range perTable {
+		cu := float64(n)
 		caps = append(caps, types.ConsumedCapacity{
 			TableName:          aws.String(name),
 			CapacityUnits:      aws.Float64(cu),
@@ -140,7 +177,7 @@ func (db *InMemoryDB) TransactGetItems(
 
 	out := &dynamodb.TransactGetItemsOutput{
 		Responses:        responses,
-		ConsumedCapacity: transactReadConsumedCapacity(input.ReturnConsumedCapacity, tableNames),
+		ConsumedCapacity: transactReadConsumedCapacity(input.ReturnConsumedCapacity, input.TransactItems),
 	}
 
 	return out, nil
@@ -181,16 +218,25 @@ func (db *InMemoryDB) transactGetResponseItem(
 
 func transactReadConsumedCapacity(
 	req types.ReturnConsumedCapacity,
-	tableNames []string,
+	items []types.TransactGetItem,
 ) []types.ConsumedCapacity {
 	if req == "" || req == types.ReturnConsumedCapacityNone {
 		return nil
 	}
 
-	const cu = 0.5
-	caps := make([]types.ConsumedCapacity, 0, len(tableNames))
+	// Count read operations per table for accurate RCU reporting.
+	perTable := make(map[string]int)
+	for _, ti := range items {
+		if ti.Get != nil {
+			perTable[aws.ToString(ti.Get.TableName)]++
+		}
+	}
 
-	for _, name := range tableNames {
+	const rcuPerRead = 0.5 // eventually-consistent
+	caps := make([]types.ConsumedCapacity, 0, len(perTable))
+
+	for name, n := range perTable {
+		cu := float64(n) * rcuPerRead
 		caps = append(caps, types.ConsumedCapacity{
 			TableName:         aws.String(name),
 			CapacityUnits:     aws.Float64(cu),

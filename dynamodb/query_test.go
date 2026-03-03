@@ -8,6 +8,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/dynamodb"
 
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -305,7 +306,7 @@ func TestQuery_ConsumedCapacity(t *testing.T) {
 		"ExpressionAttributeValues": {":pk": {"S": "key"}}
 	}`)
 	sdkQuery, _ := models.ToSDKQueryInput(&queryInput)
-	sdkQuery.ReturnConsumedCapacity = "TOTAL"
+	sdkQuery.ReturnConsumedCapacity = types.ReturnConsumedCapacityTotal
 
 	out, err := db.Query(t.Context(), sdkQuery)
 	require.NoError(t, err)

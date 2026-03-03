@@ -66,7 +66,7 @@ func (db *InMemoryDB) BatchGetItem(
 	out := &dynamodb.BatchGetItemOutput{
 		Responses:        responses,
 		UnprocessedKeys:  make(map[string]types.KeysAndAttributes),
-		ConsumedCapacity: batchGetConsumedCapacity(input.ReturnConsumedCapacity, responses),
+		ConsumedCapacity: batchGetConsumedCapacity(input.ReturnConsumedCapacity, input.RequestItems),
 	}
 
 	return out, nil
@@ -74,15 +74,16 @@ func (db *InMemoryDB) BatchGetItem(
 
 func batchGetConsumedCapacity(
 	req types.ReturnConsumedCapacity,
-	responses map[string][]map[string]types.AttributeValue,
+	requestItems map[string]types.KeysAndAttributes,
 ) []types.ConsumedCapacity {
 	if req == "" || req == types.ReturnConsumedCapacityNone {
 		return nil
 	}
 
-	caps := make([]types.ConsumedCapacity, 0, len(responses))
-	for tableName, items := range responses {
-		cu := float64(len(items)) * eventuallyConsistentRCU
+	// Capacity is charged per requested key, not per returned item (missing items still consume RCU).
+	caps := make([]types.ConsumedCapacity, 0, len(requestItems))
+	for tableName, keysAndAttrs := range requestItems {
+		cu := float64(len(keysAndAttrs.Keys)) * eventuallyConsistentRCU
 		if cu < eventuallyConsistentRCU {
 			cu = eventuallyConsistentRCU
 		}

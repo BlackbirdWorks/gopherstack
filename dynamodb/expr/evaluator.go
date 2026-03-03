@@ -41,6 +41,7 @@ var (
 	ErrCurrentNSValueMustBeSlice   = errors.New("current NS value must be []string")
 	ErrBSValueMustBeSlice          = errors.New("BS value must be [][]byte")
 	ErrCurrentBSValueMustBeSlice   = errors.New("current BS value must be [][]byte")
+	ErrSetTypeMismatch             = errors.New("ADD: existing set type does not match the type being added")
 )
 
 // twoArgs is the expected argument count for two-argument functions.
@@ -837,6 +838,18 @@ func (e *Evaluator) addToStringSet(path []PathElement, curMap map[string]any, se
 		return nil
 	}
 
+	// Reject the operation if the existing attribute is a different set type.
+	// SS and NS are mutually exclusive; both are incompatible with BS.
+	otherKeys := map[string][]string{
+		"SS": {"NS", "BS"},
+		"NS": {"SS", "BS"},
+	}
+	for _, other := range otherKeys[setKey] {
+		if _, hasOther := curMap[other]; hasOther {
+			return ErrSetTypeMismatch
+		}
+	}
+
 	existing, _ := curMap[setKey].([]string)
 	merged := make([]string, len(existing)+len(addSlice))
 	copy(merged, existing)
@@ -859,6 +872,15 @@ func (e *Evaluator) addToBinarySet(path []PathElement, curMap map[string]any, to
 	if !ok {
 		return nil
 	}
+
+	// Reject if the existing attribute is a different set type.
+	if _, hasSS := curMap["SS"]; hasSS {
+		return ErrSetTypeMismatch
+	}
+	if _, hasNS := curMap["NS"]; hasNS {
+		return ErrSetTypeMismatch
+	}
+
 	existing, _ := curMap["BS"].([][]byte)
 	merged := make([][]byte, len(existing)+len(addSlice))
 	copy(merged, existing)

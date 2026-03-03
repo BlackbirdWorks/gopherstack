@@ -411,22 +411,27 @@ func TestScan_ScannedCount(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Scan with Limit=5 and FilterExpression matching only even values.
-	// ScannedCount should be 5 (items examined before filter); Count should be ≤ 5.
+	// Scan with Limit=5 and a FilterExpression that matches only even val (2,4,6,8,10).
+	// ScannedCount should be 5 (items examined before filter);
+	// Count should be < 5 since the filter excludes odd items in the page.
 	limit := int32(5)
-	filterExpr := "val > :zero"
+	filterExpr := "val IN (:v2, :v4, :v6, :v8, :v10)"
 	out, err := db.Scan(t.Context(), &dynamodb_sdk.ScanInput{
 		TableName:        &tableName,
 		Limit:            &limit,
 		FilterExpression: aws.String(filterExpr),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":zero": &types.AttributeValueMemberN{Value: "0"},
+			":v2":  &types.AttributeValueMemberN{Value: "2"},
+			":v4":  &types.AttributeValueMemberN{Value: "4"},
+			":v6":  &types.AttributeValueMemberN{Value: "6"},
+			":v8":  &types.AttributeValueMemberN{Value: "8"},
+			":v10": &types.AttributeValueMemberN{Value: "10"},
 		},
 	})
 	require.NoError(t, err)
 
 	assert.Equal(t, int32(5), out.ScannedCount, "ScannedCount must equal Limit (items examined before filter)")
-	assert.LessOrEqual(t, out.Count, out.ScannedCount, "Count must not exceed ScannedCount")
+	assert.Less(t, out.Count, out.ScannedCount, "Count must be less than ScannedCount when filter excludes some items")
 }
 
 func TestScan_ConsumedCapacity(t *testing.T) {
