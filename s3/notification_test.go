@@ -190,3 +190,251 @@ func TestNotificationDispatcher_ExactEventMatch(t *testing.T) {
 	require.Len(t, queue.messages, 1)
 	assert.Contains(t, queue.messages[0], `"s3:ObjectCreated:Put"`)
 }
+
+func TestNotificationDispatcher_PrefixFilter_Match(t *testing.T) {
+	t.Parallel()
+
+	queue := &captureQueue{}
+	targets := &s3.NotificationTargets{SQSSender: queue}
+	d := s3.NewNotificationDispatcher(targets, "us-east-1")
+
+	notifXML := `<NotificationConfiguration>
+<QueueConfiguration>
+  <Id>q1</Id>
+  <Queue>arn:aws:sqs:us-east-1:000000000000:my-queue</Queue>
+  <Event>s3:ObjectCreated:*</Event>
+  <Filter>
+    <S3Key>
+      <FilterRule><Name>prefix</Name><Value>images/</Value></FilterRule>
+    </S3Key>
+  </Filter>
+</QueueConfiguration>
+</NotificationConfiguration>`
+
+	d.DispatchObjectCreated(t.Context(), "my-bucket", "images/photo.jpg", "abc", 10, notifXML)
+
+	queue.mu.Lock()
+	defer queue.mu.Unlock()
+	require.Len(t, queue.messages, 1)
+	assert.Contains(t, queue.messages[0], `"images/photo.jpg"`)
+}
+
+func TestNotificationDispatcher_PrefixFilter_NoMatch(t *testing.T) {
+	t.Parallel()
+
+	queue := &captureQueue{}
+	targets := &s3.NotificationTargets{SQSSender: queue}
+	d := s3.NewNotificationDispatcher(targets, "us-east-1")
+
+	notifXML := `<NotificationConfiguration>
+<QueueConfiguration>
+  <Id>q1</Id>
+  <Queue>arn:aws:sqs:us-east-1:000000000000:my-queue</Queue>
+  <Event>s3:ObjectCreated:*</Event>
+  <Filter>
+    <S3Key>
+      <FilterRule><Name>prefix</Name><Value>images/</Value></FilterRule>
+    </S3Key>
+  </Filter>
+</QueueConfiguration>
+</NotificationConfiguration>`
+
+	d.DispatchObjectCreated(t.Context(), "my-bucket", "docs/readme.txt", "abc", 10, notifXML)
+
+	queue.mu.Lock()
+	defer queue.mu.Unlock()
+	assert.Empty(t, queue.messages)
+}
+
+func TestNotificationDispatcher_SuffixFilter_Match(t *testing.T) {
+	t.Parallel()
+
+	queue := &captureQueue{}
+	targets := &s3.NotificationTargets{SQSSender: queue}
+	d := s3.NewNotificationDispatcher(targets, "us-east-1")
+
+	notifXML := `<NotificationConfiguration>
+<QueueConfiguration>
+  <Id>q1</Id>
+  <Queue>arn:aws:sqs:us-east-1:000000000000:my-queue</Queue>
+  <Event>s3:ObjectCreated:*</Event>
+  <Filter>
+    <S3Key>
+      <FilterRule><Name>suffix</Name><Value>.jpg</Value></FilterRule>
+    </S3Key>
+  </Filter>
+</QueueConfiguration>
+</NotificationConfiguration>`
+
+	d.DispatchObjectCreated(t.Context(), "my-bucket", "images/photo.jpg", "abc", 10, notifXML)
+
+	queue.mu.Lock()
+	defer queue.mu.Unlock()
+	require.Len(t, queue.messages, 1)
+}
+
+func TestNotificationDispatcher_SuffixFilter_NoMatch(t *testing.T) {
+	t.Parallel()
+
+	queue := &captureQueue{}
+	targets := &s3.NotificationTargets{SQSSender: queue}
+	d := s3.NewNotificationDispatcher(targets, "us-east-1")
+
+	notifXML := `<NotificationConfiguration>
+<QueueConfiguration>
+  <Id>q1</Id>
+  <Queue>arn:aws:sqs:us-east-1:000000000000:my-queue</Queue>
+  <Event>s3:ObjectCreated:*</Event>
+  <Filter>
+    <S3Key>
+      <FilterRule><Name>suffix</Name><Value>.jpg</Value></FilterRule>
+    </S3Key>
+  </Filter>
+</QueueConfiguration>
+</NotificationConfiguration>`
+
+	d.DispatchObjectCreated(t.Context(), "my-bucket", "images/photo.png", "abc", 10, notifXML)
+
+	queue.mu.Lock()
+	defer queue.mu.Unlock()
+	assert.Empty(t, queue.messages)
+}
+
+func TestNotificationDispatcher_PrefixAndSuffixFilter_Match(t *testing.T) {
+	t.Parallel()
+
+	queue := &captureQueue{}
+	targets := &s3.NotificationTargets{SQSSender: queue}
+	d := s3.NewNotificationDispatcher(targets, "us-east-1")
+
+	notifXML := `<NotificationConfiguration>
+<QueueConfiguration>
+  <Id>q1</Id>
+  <Queue>arn:aws:sqs:us-east-1:000000000000:my-queue</Queue>
+  <Event>s3:ObjectCreated:*</Event>
+  <Filter>
+    <S3Key>
+      <FilterRule><Name>prefix</Name><Value>images/</Value></FilterRule>
+      <FilterRule><Name>suffix</Name><Value>.jpg</Value></FilterRule>
+    </S3Key>
+  </Filter>
+</QueueConfiguration>
+</NotificationConfiguration>`
+
+	d.DispatchObjectCreated(t.Context(), "my-bucket", "images/photo.jpg", "abc", 10, notifXML)
+
+	queue.mu.Lock()
+	defer queue.mu.Unlock()
+	require.Len(t, queue.messages, 1)
+}
+
+func TestNotificationDispatcher_PrefixAndSuffixFilter_PrefixNoMatch(t *testing.T) {
+	t.Parallel()
+
+	queue := &captureQueue{}
+	targets := &s3.NotificationTargets{SQSSender: queue}
+	d := s3.NewNotificationDispatcher(targets, "us-east-1")
+
+	notifXML := `<NotificationConfiguration>
+<QueueConfiguration>
+  <Id>q1</Id>
+  <Queue>arn:aws:sqs:us-east-1:000000000000:my-queue</Queue>
+  <Event>s3:ObjectCreated:*</Event>
+  <Filter>
+    <S3Key>
+      <FilterRule><Name>prefix</Name><Value>images/</Value></FilterRule>
+      <FilterRule><Name>suffix</Name><Value>.jpg</Value></FilterRule>
+    </S3Key>
+  </Filter>
+</QueueConfiguration>
+</NotificationConfiguration>`
+
+	// suffix matches but prefix does not
+	d.DispatchObjectCreated(t.Context(), "my-bucket", "docs/photo.jpg", "abc", 10, notifXML)
+
+	queue.mu.Lock()
+	defer queue.mu.Unlock()
+	assert.Empty(t, queue.messages)
+}
+
+func TestNotificationDispatcher_SNS_PrefixFilter_Match(t *testing.T) {
+	t.Parallel()
+
+	topic := &captureTopic{}
+	targets := &s3.NotificationTargets{SNSPublisher: topic}
+	d := s3.NewNotificationDispatcher(targets, "us-east-1")
+
+	notifXML := `<NotificationConfiguration>
+<TopicConfiguration>
+  <Id>t1</Id>
+  <Topic>arn:aws:sns:us-east-1:000000000000:my-topic</Topic>
+  <Event>s3:ObjectCreated:*</Event>
+  <Filter>
+    <S3Key>
+      <FilterRule><Name>prefix</Name><Value>images/</Value></FilterRule>
+    </S3Key>
+  </Filter>
+</TopicConfiguration>
+</NotificationConfiguration>`
+
+	d.DispatchObjectCreated(t.Context(), "my-bucket", "images/photo.jpg", "", 0, notifXML)
+
+	topic.mu.Lock()
+	defer topic.mu.Unlock()
+	require.Len(t, topic.messages, 1)
+}
+
+func TestNotificationDispatcher_SNS_PrefixFilter_NoMatch(t *testing.T) {
+	t.Parallel()
+
+	topic := &captureTopic{}
+	targets := &s3.NotificationTargets{SNSPublisher: topic}
+	d := s3.NewNotificationDispatcher(targets, "us-east-1")
+
+	notifXML := `<NotificationConfiguration>
+<TopicConfiguration>
+  <Id>t1</Id>
+  <Topic>arn:aws:sns:us-east-1:000000000000:my-topic</Topic>
+  <Event>s3:ObjectCreated:*</Event>
+  <Filter>
+    <S3Key>
+      <FilterRule><Name>prefix</Name><Value>images/</Value></FilterRule>
+    </S3Key>
+  </Filter>
+</TopicConfiguration>
+</NotificationConfiguration>`
+
+	d.DispatchObjectCreated(t.Context(), "my-bucket", "docs/readme.txt", "", 0, notifXML)
+
+	topic.mu.Lock()
+	defer topic.mu.Unlock()
+	assert.Empty(t, topic.messages)
+}
+
+func TestNotificationDispatcher_UnknownFilterRule_NoMatch(t *testing.T) {
+	t.Parallel()
+
+	queue := &captureQueue{}
+	targets := &s3.NotificationTargets{SQSSender: queue}
+	d := s3.NewNotificationDispatcher(targets, "us-east-1")
+
+	// An unknown rule name should fail closed: no notification delivered.
+	notifXML := `<NotificationConfiguration>
+<QueueConfiguration>
+  <Id>q1</Id>
+  <Queue>arn:aws:sqs:us-east-1:000000000000:my-queue</Queue>
+  <Event>s3:ObjectCreated:*</Event>
+  <Filter>
+    <S3Key>
+      <FilterRule><Name>unknown</Name><Value>anything</Value></FilterRule>
+    </S3Key>
+  </Filter>
+</QueueConfiguration>
+</NotificationConfiguration>`
+
+	d.DispatchObjectCreated(t.Context(), "my-bucket", "any-key", "abc", 10, notifXML)
+
+	queue.mu.Lock()
+	defer queue.mu.Unlock()
+	assert.Empty(t, queue.messages)
+}
