@@ -18,6 +18,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
+	"github.com/blackbirdworks/gopherstack/stepfunctions/asl"
 )
 
 var errUnknownOperation = errors.New("UnknownOperationException")
@@ -453,10 +454,30 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 	return table
 }
 
+type validateStateMachineDefinitionInput struct {
+	Definition string `json:"definition"`
+}
+
 // utilActions returns stubs for utility operations like definition validation.
 func (h *Handler) utilActions() map[string]actionFn {
 	return map[string]actionFn{
-		"ValidateStateMachineDefinition": func(_ []byte) (any, error) {
+		"ValidateStateMachineDefinition": func(b []byte) (any, error) {
+			var input validateStateMachineDefinitionInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			if _, err := asl.Parse(input.Definition); err != nil {
+				//nolint:nilerr // parse error is returned as Result:FAIL in the response body
+				return &validateStateMachineDefinitionOutput{
+					Result: "FAIL",
+					Diagnostics: []any{map[string]string{
+						"message": err.Error(),
+						"code":    "SCHEMA_VALIDATION_FAILED",
+					}},
+				}, nil
+			}
+
 			return &validateStateMachineDefinitionOutput{Result: "OK", Diagnostics: []any{}}, nil
 		},
 		"ListStateMachineVersions": func(_ []byte) (any, error) {

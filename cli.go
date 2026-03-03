@@ -664,6 +664,9 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	// Wire Step Functions → Lambda Task integration.
 	wireStepFunctionsLambda(byName["StepFunctions"], byName["Lambda"])
 
+	// Wire Step Functions → SQS/SNS/DynamoDB service integrations.
+	wireStepFunctionsServiceIntegrations(byName["StepFunctions"], byName["SQS"], byName["SNS"], byName["DynamoDB"])
+
 	// Wire API Gateway → Lambda proxy integration.
 	wireAPIGatewayLambda(byName["APIGateway"], byName["Lambda"])
 
@@ -866,6 +869,32 @@ func wireStepFunctionsLambda(sfnReg, lambdaReg service.Registerable) {
 		if lambdaBk, bk2Ok := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bk2Ok {
 			sfnBk.SetLambdaInvoker(lambdaBk)
 		}
+	}
+}
+
+// wireStepFunctionsServiceIntegrations connects the Step Functions backend to SQS, SNS, and DynamoDB backends
+// so that Task states with service integration resources can invoke those services.
+func wireStepFunctionsServiceIntegrations(sfnReg, sqsReg, snsReg, ddbReg service.Registerable) {
+	sfnH, ok := sfnReg.(*sfnbackend.Handler)
+	if !ok {
+		return
+	}
+
+	sfnBk, bkOk := sfnH.Backend.(*sfnbackend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	if sqsH, sqsOk := sqsReg.(*sqsbackend.Handler); sqsOk {
+		sfnBk.SetSQSIntegration(sfnbackend.NewSQSIntegration(sqsH.Backend))
+	}
+
+	if snsH, snsOk := snsReg.(*snsbackend.Handler); snsOk {
+		sfnBk.SetSNSIntegration(sfnbackend.NewSNSIntegration(snsH.Backend))
+	}
+
+	if ddbH, ddbOk := ddbReg.(*ddbbackend.DynamoDBHandler); ddbOk {
+		sfnBk.SetDynamoDBIntegration(sfnbackend.NewDynamoDBIntegration(ddbH.Backend))
 	}
 }
 

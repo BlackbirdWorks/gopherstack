@@ -48,14 +48,17 @@ type StorageBackend interface {
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	lambdaInvoker asl.LambdaInvoker
-	stateMachines map[string]*StateMachine
-	executions    map[string]*Execution
-	history       map[string][]*HistoryEvent
-	logger        *slog.Logger
-	mu            *lockmetrics.RWMutex
-	accountID     string
-	region        string
+	lambdaInvoker  asl.LambdaInvoker
+	sqsIntegration asl.SQSIntegration
+	snsIntegration asl.SNSIntegration
+	ddbIntegration asl.DynamoDBIntegration
+	stateMachines  map[string]*StateMachine
+	executions     map[string]*Execution
+	history        map[string][]*HistoryEvent
+	logger         *slog.Logger
+	mu             *lockmetrics.RWMutex
+	accountID      string
+	region         string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with default configuration.
@@ -81,6 +84,27 @@ func (b *InMemoryBackend) SetLambdaInvoker(invoker asl.LambdaInvoker) {
 	b.mu.Lock("SetLambdaInvoker")
 	defer b.mu.Unlock()
 	b.lambdaInvoker = invoker
+}
+
+// SetSQSIntegration configures the SQS integration for Task states.
+func (b *InMemoryBackend) SetSQSIntegration(sqs asl.SQSIntegration) {
+	b.mu.Lock("SetSQSIntegration")
+	defer b.mu.Unlock()
+	b.sqsIntegration = sqs
+}
+
+// SetSNSIntegration configures the SNS integration for Task states.
+func (b *InMemoryBackend) SetSNSIntegration(sns asl.SNSIntegration) {
+	b.mu.Lock("SetSNSIntegration")
+	defer b.mu.Unlock()
+	b.snsIntegration = sns
+}
+
+// SetDynamoDBIntegration configures the DynamoDB integration for Task states.
+func (b *InMemoryBackend) SetDynamoDBIntegration(ddb asl.DynamoDBIntegration) {
+	b.mu.Lock("SetDynamoDBIntegration")
+	defer b.mu.Unlock()
+	b.ddbIntegration = ddb
 }
 
 // SetLogger sets the logger for the backend.
@@ -214,6 +238,9 @@ func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*
 
 	definition := sm.Definition
 	lambdaInvoker := b.lambdaInvoker
+	sqsIntegration := b.sqsIntegration
+	snsIntegration := b.snsIntegration
+	ddbIntegration := b.ddbIntegration
 
 	// Try to parse the definition to decide whether to run async.
 	parsedSM, parseErr := asl.Parse(definition)
@@ -238,7 +265,10 @@ func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*
 	b.mu.Unlock()
 
 	// Run the ASL interpreter asynchronously for valid state machine definitions.
-	go b.runParsedExecution(context.Background(), execArn, parsedSM, input, lambdaInvoker)
+	go b.runParsedExecution(
+		context.Background(), execArn, parsedSM, input,
+		lambdaInvoker, sqsIntegration, snsIntegration, ddbIntegration,
+	)
 
 	return exec, nil
 }
@@ -331,9 +361,15 @@ func (b *InMemoryBackend) runParsedExecution(
 	sm *asl.StateMachine,
 	input string,
 	lambdaInvoker asl.LambdaInvoker,
+	sqsIntegration asl.SQSIntegration,
+	snsIntegration asl.SNSIntegration,
+	ddbIntegration asl.DynamoDBIntegration,
 ) {
 	rec := &historyRecorder{backend: b}
 	executor := asl.NewExecutor(sm, lambdaInvoker, rec)
+	executor.SetSQSIntegration(sqsIntegration)
+	executor.SetSNSIntegration(snsIntegration)
+	executor.SetDynamoDBIntegration(ddbIntegration)
 	result, execErr := executor.Execute(ctx, execARN, input)
 
 	b.mu.Lock("runParsedExecution")

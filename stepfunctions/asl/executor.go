@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"reflect"
 	"strings"
 	"sync"
@@ -20,24 +21,57 @@ var ErrChoiceNoMatch = errors.New("States.NoChoiceMatched")
 
 // Sentinel errors for executor internals.
 var (
-	ErrStateNotFound         = errors.New("state not found")
-	ErrMaxTransitions        = errors.New("state machine exceeded maximum transitions")
-	ErrUnsupportedStateType  = errors.New("unsupported state type")
-	ErrChoiceNoNext          = errors.New("choice rule has no Next")
-	ErrLambdaNotConfigured   = errors.New("lambda invoker not configured")
-	ErrLambdaStatusError     = errors.New("lambda returned non-2xx status")
-	ErrMapRequiresIterator   = errors.New("map state requires Iterator")
-	ErrUnsupportedPathExpr   = errors.New("unsupported path expression")
-	ErrUnsupportedResultPath = errors.New("unsupported ResultPath")
-	ErrCannotIndexNonObject  = errors.New("cannot index non-object with path")
-	ErrFieldNotFound         = errors.New("field not found")
-	ErrMapInputNotArray      = errors.New("input is not an array for Map state")
-	ErrItemsPathNotArray     = errors.New("ItemsPath does not point to an array")
+	ErrStateNotFound                    = errors.New("state not found")
+	ErrMaxTransitions                   = errors.New("state machine exceeded maximum transitions")
+	ErrUnsupportedStateType             = errors.New("unsupported state type")
+	ErrChoiceNoNext                     = errors.New("choice rule has no Next")
+	ErrLambdaNotConfigured              = errors.New("lambda invoker not configured")
+	ErrLambdaStatusError                = errors.New("lambda returned non-2xx status")
+	ErrMapRequiresIterator              = errors.New("map state requires Iterator")
+	ErrUnsupportedPathExpr              = errors.New("unsupported path expression")
+	ErrUnsupportedResultPath            = errors.New("unsupported ResultPath")
+	ErrCannotIndexNonObject             = errors.New("cannot index non-object with path")
+	ErrFieldNotFound                    = errors.New("field not found")
+	ErrMapInputNotArray                 = errors.New("input is not an array for Map state")
+	ErrItemsPathNotArray                = errors.New("ItemsPath does not point to an array")
+	ErrStatesTimeout                    = errors.New("States.Timeout")
+	ErrSecondsPathNotNumber             = errors.New("SecondsPath did not resolve to a number")
+	ErrTimestampPathNotString           = errors.New("TimestampPath did not resolve to a string")
+	ErrNotAString                       = errors.New("not a string")
+	ErrReferenceKeyNotString            = errors.New("value for reference key must be a string")
+	ErrSQSIntegrationNotConfigured      = errors.New("SQS integration not configured")
+	ErrSNSIntegrationNotConfigured      = errors.New("SNS integration not configured")
+	ErrDynamoDBIntegrationNotConfigured = errors.New("DynamoDB integration not configured")
+	ErrUnsupportedSQSAction             = errors.New("unsupported SQS action")
+	ErrUnsupportedSNSAction             = errors.New("unsupported SNS action")
+	ErrUnsupportedDynamoDBAction        = errors.New("unsupported DynamoDB action")
 )
 
 // LambdaInvoker can invoke a Lambda function.
 type LambdaInvoker interface {
 	InvokeFunction(ctx context.Context, name, invocationType string, payload []byte) ([]byte, int, error)
+}
+
+// SQSIntegration handles Step Functions SQS service integration.
+type SQSIntegration interface {
+	SFNSendMessage(
+		ctx context.Context,
+		queueURL, messageBody, groupID, deduplicationID string,
+		delaySeconds int,
+	) (messageID string, md5 string, err error)
+}
+
+// SNSIntegration handles Step Functions SNS service integration.
+type SNSIntegration interface {
+	SFNPublish(ctx context.Context, topicARN, message, subject string) (messageID string, err error)
+}
+
+// DynamoDBIntegration handles Step Functions DynamoDB service integration.
+type DynamoDBIntegration interface {
+	SFNPutItem(ctx context.Context, input any) (any, error)
+	SFNGetItem(ctx context.Context, input any) (any, error)
+	SFNDeleteItem(ctx context.Context, input any) (any, error)
+	SFNUpdateItem(ctx context.Context, input any) (any, error)
 }
 
 // HistoryRecorder is called during execution to record state transition events.
@@ -58,15 +92,27 @@ type ExecutionResult struct {
 
 // Executor runs an ASL state machine.
 type Executor struct {
-	sm      *StateMachine
-	lambda  LambdaInvoker
-	history HistoryRecorder
+	sm       *StateMachine
+	lambda   LambdaInvoker
+	sqs      SQSIntegration
+	sns      SNSIntegration
+	dynamodb DynamoDBIntegration
+	history  HistoryRecorder
 }
 
 // NewExecutor creates an Executor for the given state machine.
 func NewExecutor(sm *StateMachine, lambda LambdaInvoker, history HistoryRecorder) *Executor {
 	return &Executor{sm: sm, lambda: lambda, history: history}
 }
+
+// SetSQSIntegration configures the SQS integration for Task states.
+func (e *Executor) SetSQSIntegration(sqs SQSIntegration) { e.sqs = sqs }
+
+// SetSNSIntegration configures the SNS integration for Task states.
+func (e *Executor) SetSNSIntegration(sns SNSIntegration) { e.sns = sns }
+
+// SetDynamoDBIntegration configures the DynamoDB integration for Task states.
+func (e *Executor) SetDynamoDBIntegration(ddb DynamoDBIntegration) { e.dynamodb = ddb }
 
 // Execute runs the state machine with the given input JSON and returns the result.
 func (e *Executor) Execute(ctx context.Context, executionARN, inputJSON string) (*ExecutionResult, error) {
@@ -119,24 +165,26 @@ func (e *Executor) runStates(
 			return nil, fmt.Errorf("InputPath error in state %q: %w", current, err)
 		}
 
+		// Apply Parameters to transform the effective input for this state.
+		taskInput := effectiveInput
+		if len(state.Parameters) > 0 {
+			taskInput, err = applyParametersTemplate(state.Parameters, effectiveInput)
+			if err != nil {
+				return nil, fmt.Errorf("parameters error in state %q: %w", current, err)
+			}
+		}
+
 		var result any
 		var nextState string
 
-		nextState, result, err = e.executeState(ctx, executionARN, current, state, effectiveInput)
+		nextState, result, err = e.executeState(ctx, executionARN, current, state, taskInput)
 		if err != nil {
 			return nil, err
 		}
 
-		// Apply ResultPath: merge result into original input.
-		finalOutput, err := applyResultPath(state.ResultPath, value, result)
+		finalOutput, err := applyStateOutputTransforms(state, value, result, current)
 		if err != nil {
-			return nil, fmt.Errorf("ResultPath error in state %q: %w", current, err)
-		}
-
-		// Apply OutputPath.
-		finalOutput, err = applyPath(state.OutputPath, finalOutput)
-		if err != nil {
-			return nil, fmt.Errorf("OutputPath error in state %q: %w", current, err)
+			return nil, err
 		}
 
 		if e.history != nil {
@@ -152,6 +200,33 @@ func (e *Executor) runStates(
 	}
 
 	return nil, ErrMaxTransitions
+}
+
+// applyStateOutputTransforms applies ResultSelector, ResultPath, and OutputPath to produce the final state output.
+func applyStateOutputTransforms(state *State, input, result any, stateName string) (any, error) {
+	// Apply ResultSelector to filter the state output before ResultPath merge.
+	if len(state.ResultSelector) > 0 {
+		var err error
+
+		result, err = applyParametersTemplate(state.ResultSelector, result)
+		if err != nil {
+			return nil, fmt.Errorf("ResultSelector error in state %q: %w", stateName, err)
+		}
+	}
+
+	// Apply ResultPath: merge result into original input.
+	finalOutput, err := applyResultPath(state.ResultPath, input, result)
+	if err != nil {
+		return nil, fmt.Errorf("ResultPath error in state %q: %w", stateName, err)
+	}
+
+	// Apply OutputPath.
+	finalOutput, err = applyPath(state.OutputPath, finalOutput)
+	if err != nil {
+		return nil, fmt.Errorf("OutputPath error in state %q: %w", stateName, err)
+	}
+
+	return finalOutput, nil
 }
 
 // executeState executes a single state and returns (nextStateName, output, error).
@@ -198,17 +273,68 @@ func (e *Executor) executePass(state *State, input any) (string, any, error) {
 }
 
 // executeWait handles Wait state.
+//
+//nolint:gocognit,cyclop // inherently complex due to multiple wait modes
 func (e *Executor) executeWait(ctx context.Context, state *State, input any) (string, any, error) {
-	if state.Seconds > 0 {
+	var waitDuration time.Duration
+
+	switch {
+	case state.Seconds > 0:
+		waitDuration = time.Duration(state.Seconds) * time.Second
+
+	case state.SecondsPath != "":
+		val, err := applyPath(state.SecondsPath, input)
+		if err != nil {
+			return "", nil, fmt.Errorf("SecondsPath error: %w", err)
+		}
+
+		secs, ok := toFloat(val)
+		if !ok {
+			return "", nil, ErrSecondsPathNotNumber
+		}
+
+		if secs > 0 {
+			waitDuration = time.Duration(secs * float64(time.Second))
+		}
+
+	case state.Timestamp != "":
+		t, err := time.Parse(time.RFC3339, state.Timestamp)
+		if err != nil {
+			return "", nil, fmt.Errorf("timestamp parse error: %w", err)
+		}
+
+		if d := time.Until(t); d > 0 {
+			waitDuration = d
+		}
+
+	case state.TimestampPath != "":
+		val, err := applyPath(state.TimestampPath, input)
+		if err != nil {
+			return "", nil, fmt.Errorf("TimestampPath error: %w", err)
+		}
+
+		tsStr, ok := val.(string)
+		if !ok {
+			return "", nil, ErrTimestampPathNotString
+		}
+
+		t, err := time.Parse(time.RFC3339, tsStr)
+		if err != nil {
+			return "", nil, fmt.Errorf("TimestampPath value parse error: %w", err)
+		}
+
+		if d := time.Until(t); d > 0 {
+			waitDuration = d
+		}
+	}
+
+	if waitDuration > 0 {
 		select {
-		case <-time.After(time.Duration(state.Seconds) * time.Second):
+		case <-time.After(waitDuration):
 		case <-ctx.Done():
 			return "", nil, ctx.Err()
 		}
 	}
-
-	// Timestamp and SecondsPath/TimestampPath are not fully implemented here.
-	// For test purposes, we skip the actual wait.
 
 	return state.Next, input, nil
 }
@@ -242,46 +368,182 @@ func (e *Executor) executeTask(
 	state *State,
 	input any,
 ) (string, any, error) {
+	// Enforce TimeoutSeconds by wrapping the context.
+	if state.TimeoutSeconds > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(state.TimeoutSeconds)*time.Second)
+		defer cancel()
+	}
+
 	if e.history != nil {
 		e.history.RecordTaskScheduled(executionARN, stateName, state.Resource)
 	}
 
-	result, taskErr := e.invokeTask(ctx, state, input)
-	if taskErr != nil {
-		// Check Catch clauses.
-		for _, catcher := range state.Catch {
-			if catchesError(catcher.ErrorEquals, taskErr) {
-				errorResult := map[string]any{
-					"Error": taskErr.Error(),
-				}
-				out, _ := applyResultPath(catcher.ResultPath, input, errorResult)
+	// retryAttempts tracks how many times each retrier entry has been used.
+	retryAttempts := make([]int, len(state.Retry))
 
-				if e.history != nil {
-					e.history.RecordTaskFailed(executionARN, stateName, taskErr.Error(), "")
-				}
+	for {
+		result, taskErr := e.invokeTask(ctx, state, input)
+		if taskErr == nil {
+			e.recordTaskSucceeded(executionARN, stateName, result)
 
-				return catcher.Next, out, nil
+			return state.Next, result, nil
+		}
+
+		if errors.Is(taskErr, context.DeadlineExceeded) {
+			taskErr = ErrStatesTimeout
+		} else if errors.Is(taskErr, context.Canceled) {
+			// External cancellation: propagate immediately without retrying.
+			return "", nil, taskErr
+		}
+
+		retried, retryErr := tryRetry(ctx, state, retryAttempts, taskErr)
+		if retryErr != nil {
+			if !errors.Is(retryErr, ErrStatesTimeout) {
+				return "", nil, retryErr
 			}
+
+			taskErr = ErrStatesTimeout
+		} else if retried {
+			continue
 		}
 
-		if e.history != nil {
-			e.history.RecordTaskFailed(executionARN, stateName, taskErr.Error(), "")
+		if next, out, matched := e.checkCatchers(executionARN, stateName, state, input, taskErr); matched {
+			return next, out, nil
 		}
+
+		e.recordTaskFailed(executionARN, stateName, taskErr.Error())
 
 		return "", nil, &FailError{ErrCode: "TaskFailed", Cause: taskErr.Error()}
 	}
+}
 
+// waitForRetry waits for the retry delay, or returns ctx.Err() if the context is done.
+// It checks for immediate cancellation first to avoid non-deterministic select behavior.
+func waitForRetry(ctx context.Context, delay time.Duration) error {
+	// Fail fast if context is already done.
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	select {
+	case <-time.After(delay):
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// tryRetry attempts to schedule a retry for the failed task.
+// Returns (scheduled=true, nil) if a retry delay was served; the caller should retry the task.
+// Returns (false, ErrStatesTimeout) if the context deadline fired during the delay.
+// Returns (false, ctx.Err()) for other context cancellations.
+// Returns (false, nil) if no matching, non-exhausted retrier was found.
+func tryRetry(ctx context.Context, state *State, retryAttempts []int, taskErr error) (bool, error) {
+	const defaultMaxAttempts = 3
+	const defaultIntervalSeconds = 1
+	const defaultBackoffRate = 2.0
+
+	for i := range state.Retry {
+		retrier := &state.Retry[i]
+
+		if !catchesError(retrier.ErrorEquals, taskErr) {
+			continue
+		}
+
+		maxAttempts := defaultMaxAttempts
+		if retrier.MaxAttempts != nil {
+			maxAttempts = *retrier.MaxAttempts
+		}
+
+		if retryAttempts[i] >= maxAttempts {
+			continue
+		}
+
+		intervalSeconds := defaultIntervalSeconds
+		if retrier.IntervalSeconds != nil {
+			intervalSeconds = *retrier.IntervalSeconds
+		}
+
+		backoffRate := retrier.BackoffRate
+		if backoffRate <= 0 {
+			backoffRate = defaultBackoffRate
+		}
+
+		delay := time.Duration(
+			float64(intervalSeconds) *
+				math.Pow(backoffRate, float64(retryAttempts[i])) *
+				float64(time.Second),
+		)
+		retryAttempts[i]++
+
+		if err := waitForRetry(ctx, delay); err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				return false, ErrStatesTimeout
+			}
+
+			return false, err
+		}
+
+		return true, nil
+	}
+
+	return false, nil
+}
+
+// checkCatchers checks Catch clauses and returns (nextState, output, matched).
+// If a catcher matches, the task failure is recorded in the history.
+func (e *Executor) checkCatchers(
+	executionARN, stateName string,
+	state *State,
+	input any,
+	taskErr error,
+) (string, any, bool) {
+	for _, catcher := range state.Catch {
+		if catchesError(catcher.ErrorEquals, taskErr) {
+			errorResult := map[string]any{
+				"Error": taskErr.Error(),
+			}
+			out, _ := applyResultPath(catcher.ResultPath, input, errorResult)
+
+			e.recordTaskFailed(executionARN, stateName, taskErr.Error())
+
+			return catcher.Next, out, true
+		}
+	}
+
+	return "", nil, false
+}
+
+// recordTaskSucceeded records a task success event if a history recorder is configured.
+func (e *Executor) recordTaskSucceeded(executionARN, stateName string, result any) {
 	if e.history != nil {
 		e.history.RecordTaskSucceeded(executionARN, stateName, result)
 	}
+}
 
-	return state.Next, result, nil
+// recordTaskFailed records a task failure event if a history recorder is configured.
+func (e *Executor) recordTaskFailed(executionARN, stateName, errCode string) {
+	if e.history != nil {
+		e.history.RecordTaskFailed(executionARN, stateName, errCode, "")
+	}
 }
 
 // invokeTask performs the actual task invocation.
 func (e *Executor) invokeTask(ctx context.Context, state *State, input any) (any, error) {
 	if isLambdaResource(state.Resource) {
 		return e.invokeLambdaTask(ctx, state, input)
+	}
+	if isSQSResource(state.Resource) {
+		return e.invokeSQSTask(ctx, state, input)
+	}
+	if isSNSResource(state.Resource) {
+		return e.invokeSNSTask(ctx, state, input)
+	}
+	if isDynamoDBResource(state.Resource) {
+		return e.invokeDynamoDBTask(ctx, state, input)
 	}
 
 	// For unsupported resource types, pass input through (permissive stub).
@@ -318,7 +580,99 @@ func (e *Executor) invokeLambdaTask(ctx context.Context, state *State, input any
 	return result, nil
 }
 
-// executeParallel handles Parallel state: runs all branches concurrently.
+// invokeSQSTask invokes an SQS action as a Task state.
+func (e *Executor) invokeSQSTask(ctx context.Context, state *State, input any) (any, error) {
+	if e.sqs == nil {
+		return nil, ErrSQSIntegrationNotConfigured
+	}
+
+	action := serviceAction(state.Resource)
+	m, _ := input.(map[string]any)
+
+	switch action {
+	case "sendMessage":
+		queueURL, _ := m["QueueUrl"].(string)
+		messageBody, _ := m["MessageBody"].(string)
+		groupID, _ := m["MessageGroupId"].(string)
+		dedupID, _ := m["MessageDeduplicationId"].(string)
+		var delaySeconds int
+		if d, ok := toFloat(m["DelaySeconds"]); ok {
+			delaySeconds = int(d)
+		}
+		msgID, md5, err := e.sqs.SFNSendMessage(ctx, queueURL, messageBody, groupID, dedupID, delaySeconds)
+		if err != nil {
+			return nil, err
+		}
+
+		return map[string]any{
+			"MD5OfMessageBody": md5,
+			"MessageId":        msgID,
+		}, nil
+	default:
+		return nil, fmt.Errorf("%w: %q", ErrUnsupportedSQSAction, action)
+	}
+}
+
+// invokeSNSTask invokes an SNS action as a Task state.
+func (e *Executor) invokeSNSTask(ctx context.Context, state *State, input any) (any, error) {
+	if e.sns == nil {
+		return nil, ErrSNSIntegrationNotConfigured
+	}
+
+	action := serviceAction(state.Resource)
+	m, _ := input.(map[string]any)
+
+	switch action {
+	case "publish":
+		topicARN, _ := m["TopicArn"].(string)
+		message, _ := m["Message"].(string)
+		subject, _ := m["Subject"].(string)
+		msgID, err := e.sns.SFNPublish(ctx, topicARN, message, subject)
+		if err != nil {
+			return nil, err
+		}
+
+		return map[string]any{"MessageId": msgID}, nil
+	default:
+		return nil, fmt.Errorf("%w: %q", ErrUnsupportedSNSAction, action)
+	}
+}
+
+// invokeDynamoDBTask invokes a DynamoDB action as a Task state.
+func (e *Executor) invokeDynamoDBTask(ctx context.Context, state *State, input any) (any, error) {
+	if e.dynamodb == nil {
+		return nil, ErrDynamoDBIntegrationNotConfigured
+	}
+
+	action := serviceAction(state.Resource)
+
+	switch action {
+	case "putItem":
+		return e.dynamodb.SFNPutItem(ctx, input)
+	case "getItem":
+		return e.dynamodb.SFNGetItem(ctx, input)
+	case "deleteItem":
+		return e.dynamodb.SFNDeleteItem(ctx, input)
+	case "updateItem":
+		return e.dynamodb.SFNUpdateItem(ctx, input)
+	default:
+		return nil, fmt.Errorf("%w: %q", ErrUnsupportedDynamoDBAction, action)
+	}
+}
+
+// serviceAction extracts the action name from a States service integration ARN,
+// stripping any .sync or .waitForTaskToken suffix.
+// Example: "arn:aws:states:::sqs:sendMessage.sync" → "sendMessage".
+func serviceAction(resource string) string {
+	parts := strings.Split(resource, ":")
+	action := parts[len(parts)-1]
+	if i := strings.IndexByte(action, '.'); i >= 0 {
+		action = action[:i]
+	}
+
+	return action
+}
+
 func (e *Executor) executeParallel(
 	ctx context.Context,
 	executionARN string,
@@ -362,7 +716,13 @@ func (e *Executor) executeParallel(
 
 // executeMap handles Map state: iterates over an array.
 func (e *Executor) executeMap(ctx context.Context, executionARN string, state *State, input any) (string, any, error) {
-	if state.Iterator == nil {
+	// Support both Iterator (legacy) and ItemProcessor (current ASL spec).
+	iterator := state.Iterator
+	if iterator == nil {
+		iterator = state.ItemProcessor
+	}
+
+	if iterator == nil {
 		return "", nil, ErrMapRequiresIterator
 	}
 
@@ -391,7 +751,7 @@ func (e *Executor) executeMap(ctx context.Context, executionARN string, state *S
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			exec := NewExecutor(state.Iterator, e.lambda, e.history)
+			exec := NewExecutor(iterator, e.lambda, e.history)
 			res, execErr := exec.Execute(ctx, executionARN, marshalInput(it))
 			if execErr != nil {
 				errs[idx] = execErr
@@ -580,54 +940,377 @@ func evaluateVariableComparison(rule *ChoiceRule, input any) bool {
 		return (varVal == nil) == *rule.IsNull
 	}
 
-	return matchVariableCondition(rule, varVal)
+	// Type checks do not require IsNull handling above.
+	if rule.IsString != nil {
+		_, ok := varVal.(string)
+
+		return ok == *rule.IsString
+	}
+
+	if rule.IsNumeric != nil {
+		_, ok := toFloat(varVal)
+
+		return ok == *rule.IsNumeric
+	}
+
+	if rule.IsBoolean != nil {
+		_, ok := varVal.(bool)
+
+		return ok == *rule.IsBoolean
+	}
+
+	if rule.IsTimestamp != nil {
+		s, ok := varVal.(string)
+		if !ok {
+			return !*rule.IsTimestamp
+		}
+		_, parseErr := time.Parse(time.RFC3339, s)
+
+		return (parseErr == nil) == *rule.IsTimestamp
+	}
+
+	return matchVariableCondition(rule, varVal, input)
 }
 
-// matchVariableCondition checks string, numeric, and boolean conditions on the resolved variable.
-func matchVariableCondition(rule *ChoiceRule, varVal any) bool {
+// matchVariableCondition checks all value-comparison conditions by delegating to
+// type-specific sub-functions.
+func matchVariableCondition(rule *ChoiceRule, varVal, input any) bool {
+	if result, matched := matchStringCondition(rule, varVal, input); matched {
+		return result
+	}
+
+	if result, matched := matchNumericCondition(rule, varVal, input); matched {
+		return result
+	}
+
+	if result, matched := matchBooleanCondition(rule, varVal, input); matched {
+		return result
+	}
+
+	if result, matched := matchTimestampCondition(rule, varVal, input); matched {
+		return result
+	}
+
+	return false
+}
+
+// matchStringCondition checks string comparison conditions.
+//
+//nolint:gocognit,gocyclo,cyclop,funlen // many string comparison operators
+func matchStringCondition(rule *ChoiceRule, varVal, input any) (bool, bool) {
 	if rule.StringEquals != nil {
 		s, ok := varVal.(string)
 
-		return ok && s == *rule.StringEquals
+		return ok && s == *rule.StringEquals, true
 	}
 
 	if rule.StringLessThan != nil {
 		s, ok := varVal.(string)
 
-		return ok && s < *rule.StringLessThan
+		return ok && s < *rule.StringLessThan, true
 	}
 
 	if rule.StringGreaterThan != nil {
 		s, ok := varVal.(string)
 
-		return ok && s > *rule.StringGreaterThan
+		return ok && s > *rule.StringGreaterThan, true
 	}
 
+	if rule.StringLessThanEquals != nil {
+		s, ok := varVal.(string)
+
+		return ok && s <= *rule.StringLessThanEquals, true
+	}
+
+	if rule.StringGreaterThanEquals != nil {
+		s, ok := varVal.(string)
+
+		return ok && s >= *rule.StringGreaterThanEquals, true
+	}
+
+	if rule.StringEqualsPath != nil {
+		ref, err := applyPath(*rule.StringEqualsPath, input)
+		if err != nil {
+			return false, true
+		}
+
+		s1, ok1 := varVal.(string)
+		s2, ok2 := ref.(string)
+
+		return ok1 && ok2 && s1 == s2, true
+	}
+
+	if rule.StringLessThanPath != nil {
+		ref, err := applyPath(*rule.StringLessThanPath, input)
+		if err != nil {
+			return false, true
+		}
+
+		s1, ok1 := varVal.(string)
+		s2, ok2 := ref.(string)
+
+		return ok1 && ok2 && s1 < s2, true
+	}
+
+	if rule.StringGreaterThanPath != nil {
+		ref, err := applyPath(*rule.StringGreaterThanPath, input)
+		if err != nil {
+			return false, true
+		}
+
+		s1, ok1 := varVal.(string)
+		s2, ok2 := ref.(string)
+
+		return ok1 && ok2 && s1 > s2, true
+	}
+
+	if rule.StringLessThanEqualsPath != nil {
+		ref, err := applyPath(*rule.StringLessThanEqualsPath, input)
+		if err != nil {
+			return false, true
+		}
+
+		s1, ok1 := varVal.(string)
+		s2, ok2 := ref.(string)
+
+		return ok1 && ok2 && s1 <= s2, true
+	}
+
+	if rule.StringGreaterThanEqualsPath != nil {
+		ref, err := applyPath(*rule.StringGreaterThanEqualsPath, input)
+		if err != nil {
+			return false, true
+		}
+
+		s1, ok1 := varVal.(string)
+		s2, ok2 := ref.(string)
+
+		return ok1 && ok2 && s1 >= s2, true
+	}
+
+	return false, false
+}
+
+// matchNumericCondition checks numeric comparison conditions.
+//
+//nolint:gocognit,gocyclo,cyclop,funlen // many numeric comparison operators
+func matchNumericCondition(rule *ChoiceRule, varVal, input any) (bool, bool) {
 	if rule.NumericEquals != nil {
 		n, ok := toFloat(varVal)
 
-		return ok && n == *rule.NumericEquals
+		return ok && n == *rule.NumericEquals, true
 	}
 
 	if rule.NumericLessThan != nil {
 		n, ok := toFloat(varVal)
 
-		return ok && n < *rule.NumericLessThan
+		return ok && n < *rule.NumericLessThan, true
 	}
 
 	if rule.NumericGreaterThan != nil {
 		n, ok := toFloat(varVal)
 
-		return ok && n > *rule.NumericGreaterThan
+		return ok && n > *rule.NumericGreaterThan, true
 	}
 
+	if rule.NumericLessThanEquals != nil {
+		n, ok := toFloat(varVal)
+
+		return ok && n <= *rule.NumericLessThanEquals, true
+	}
+
+	if rule.NumericGreaterThanEquals != nil {
+		n, ok := toFloat(varVal)
+
+		return ok && n >= *rule.NumericGreaterThanEquals, true
+	}
+
+	if rule.NumericEqualsPath != nil {
+		ref, err := applyPath(*rule.NumericEqualsPath, input)
+		if err != nil {
+			return false, true
+		}
+
+		n1, ok1 := toFloat(varVal)
+		n2, ok2 := toFloat(ref)
+
+		return ok1 && ok2 && n1 == n2, true
+	}
+
+	if rule.NumericLessThanPath != nil {
+		ref, err := applyPath(*rule.NumericLessThanPath, input)
+		if err != nil {
+			return false, true
+		}
+
+		n1, ok1 := toFloat(varVal)
+		n2, ok2 := toFloat(ref)
+
+		return ok1 && ok2 && n1 < n2, true
+	}
+
+	if rule.NumericGreaterThanPath != nil {
+		ref, err := applyPath(*rule.NumericGreaterThanPath, input)
+		if err != nil {
+			return false, true
+		}
+
+		n1, ok1 := toFloat(varVal)
+		n2, ok2 := toFloat(ref)
+
+		return ok1 && ok2 && n1 > n2, true
+	}
+
+	if rule.NumericLessThanEqualsPath != nil {
+		ref, err := applyPath(*rule.NumericLessThanEqualsPath, input)
+		if err != nil {
+			return false, true
+		}
+
+		n1, ok1 := toFloat(varVal)
+		n2, ok2 := toFloat(ref)
+
+		return ok1 && ok2 && n1 <= n2, true
+	}
+
+	if rule.NumericGreaterThanEqualsPath != nil {
+		ref, err := applyPath(*rule.NumericGreaterThanEqualsPath, input)
+		if err != nil {
+			return false, true
+		}
+
+		n1, ok1 := toFloat(varVal)
+		n2, ok2 := toFloat(ref)
+
+		return ok1 && ok2 && n1 >= n2, true
+	}
+
+	return false, false
+}
+
+// matchBooleanCondition checks boolean comparison conditions.
+func matchBooleanCondition(rule *ChoiceRule, varVal, input any) (bool, bool) {
 	if rule.BooleanEquals != nil {
 		b, ok := varVal.(bool)
 
-		return ok && b == *rule.BooleanEquals
+		return ok && b == *rule.BooleanEquals, true
 	}
 
-	return false
+	if rule.BooleanEqualsPath != nil {
+		ref, err := applyPath(*rule.BooleanEqualsPath, input)
+		if err != nil {
+			return false, true
+		}
+
+		b1, ok1 := varVal.(bool)
+		b2, ok2 := ref.(bool)
+
+		return ok1 && ok2 && b1 == b2, true
+	}
+
+	return false, false
+}
+
+// matchTimestampCondition checks timestamp comparison conditions.
+//
+//nolint:cyclop // many timestamp comparison operators
+func matchTimestampCondition(rule *ChoiceRule, varVal, input any) (bool, bool) {
+	if rule.TimestampEquals != nil {
+		t1, err1 := parseTimestamp(varVal)
+		t2, err2 := time.Parse(time.RFC3339, *rule.TimestampEquals)
+
+		return err1 == nil && err2 == nil && t1.Equal(t2), true
+	}
+
+	if rule.TimestampLessThan != nil {
+		t1, err1 := parseTimestamp(varVal)
+		t2, err2 := time.Parse(time.RFC3339, *rule.TimestampLessThan)
+
+		return err1 == nil && err2 == nil && t1.Before(t2), true
+	}
+
+	if rule.TimestampGreaterThan != nil {
+		t1, err1 := parseTimestamp(varVal)
+		t2, err2 := time.Parse(time.RFC3339, *rule.TimestampGreaterThan)
+
+		return err1 == nil && err2 == nil && t1.After(t2), true
+	}
+
+	if rule.TimestampLessThanEquals != nil {
+		t1, err1 := parseTimestamp(varVal)
+		t2, err2 := time.Parse(time.RFC3339, *rule.TimestampLessThanEquals)
+
+		return err1 == nil && err2 == nil && !t1.After(t2), true
+	}
+
+	if rule.TimestampGreaterThanEquals != nil {
+		t1, err1 := parseTimestamp(varVal)
+		t2, err2 := time.Parse(time.RFC3339, *rule.TimestampGreaterThanEquals)
+
+		return err1 == nil && err2 == nil && !t1.Before(t2), true
+	}
+
+	if rule.TimestampEqualsPath != nil {
+		t1, t2, err := resolveTimestampPath(varVal, *rule.TimestampEqualsPath, input)
+
+		return err == nil && t1.Equal(t2), true
+	}
+
+	if rule.TimestampLessThanPath != nil {
+		t1, t2, err := resolveTimestampPath(varVal, *rule.TimestampLessThanPath, input)
+
+		return err == nil && t1.Before(t2), true
+	}
+
+	if rule.TimestampGreaterThanPath != nil {
+		t1, t2, err := resolveTimestampPath(varVal, *rule.TimestampGreaterThanPath, input)
+
+		return err == nil && t1.After(t2), true
+	}
+
+	if rule.TimestampLessThanEqualsPath != nil {
+		t1, t2, err := resolveTimestampPath(varVal, *rule.TimestampLessThanEqualsPath, input)
+
+		return err == nil && !t1.After(t2), true
+	}
+
+	if rule.TimestampGreaterThanEqualsPath != nil {
+		t1, t2, err := resolveTimestampPath(varVal, *rule.TimestampGreaterThanEqualsPath, input)
+
+		return err == nil && !t1.Before(t2), true
+	}
+
+	return false, false
+}
+
+// parseTimestamp converts any value to a [time.Time] by expecting a RFC3339 string.
+func parseTimestamp(v any) (time.Time, error) {
+	s, ok := v.(string)
+	if !ok {
+		return time.Time{}, ErrNotAString
+	}
+
+	return time.Parse(time.RFC3339, s)
+}
+
+// resolveTimestampPath resolves a path reference and returns both timestamps.
+func resolveTimestampPath(varVal any, path string, input any) (time.Time, time.Time, error) {
+	t1, err := parseTimestamp(varVal)
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+
+	ref, err := applyPath(path, input)
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+
+	t2, err := parseTimestamp(ref)
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+
+	return t1, t2, nil
 }
 
 // toFloat converts a numeric value to float64.
@@ -666,6 +1349,18 @@ func isLambdaResource(resource string) bool {
 		strings.HasPrefix(resource, "arn:aws:lambda:")
 }
 
+func isSQSResource(resource string) bool {
+	return strings.HasPrefix(resource, "arn:aws:states:::sqs:")
+}
+
+func isSNSResource(resource string) bool {
+	return strings.HasPrefix(resource, "arn:aws:states:::sns:")
+}
+
+func isDynamoDBResource(resource string) bool {
+	return strings.HasPrefix(resource, "arn:aws:states:::dynamodb:")
+}
+
 // resolveItems returns the array of items for a Map state.
 func resolveItems(itemsPath string, input any) ([]any, error) {
 	if itemsPath == "" || itemsPath == "$" {
@@ -702,4 +1397,79 @@ func marshalInput(v any) string {
 	}
 
 	return string(b)
+}
+
+// applyParametersTemplate evaluates a Parameters or ResultSelector template
+// (json.RawMessage) against the given input context.
+// Keys ending in ".$" are evaluated as JSONPath or intrinsic function references.
+func applyParametersTemplate(template json.RawMessage, input any) (any, error) {
+	var tmpl any
+	if err := json.Unmarshal(template, &tmpl); err != nil {
+		return nil, fmt.Errorf("invalid template: %w", err)
+	}
+
+	return evalTemplate(tmpl, input)
+}
+
+// evalTemplate recursively evaluates a template structure against the input context.
+//
+//nolint:gocognit // inherently complex due to multiple template types
+func evalTemplate(tmpl, input any) (any, error) {
+	switch v := tmpl.(type) {
+	case map[string]any:
+		result := make(map[string]any, len(v))
+
+		for key, val := range v {
+			if strings.HasSuffix(key, ".$") {
+				actualKey := key[:len(key)-2]
+
+				strVal, ok := val.(string)
+				if !ok {
+					return nil, fmt.Errorf("%w: %q", ErrReferenceKeyNotString, key)
+				}
+
+				evaluated, err := evaluateReference(strVal, input)
+				if err != nil {
+					return nil, fmt.Errorf("evaluating reference %q: %w", key, err)
+				}
+
+				result[actualKey] = evaluated
+			} else {
+				sub, err := evalTemplate(val, input)
+				if err != nil {
+					return nil, err
+				}
+
+				result[key] = sub
+			}
+		}
+
+		return result, nil
+
+	case []any:
+		result := make([]any, len(v))
+
+		for i, item := range v {
+			sub, err := evalTemplate(item, input)
+			if err != nil {
+				return nil, err
+			}
+
+			result[i] = sub
+		}
+
+		return result, nil
+
+	default:
+		return tmpl, nil
+	}
+}
+
+// evaluateReference resolves a JSONPath expression or intrinsic function call.
+func evaluateReference(ref string, input any) (any, error) {
+	if strings.HasPrefix(ref, "States.") {
+		return evaluateIntrinsicFunction(ref, input)
+	}
+
+	return applyPath(ref, input)
 }
