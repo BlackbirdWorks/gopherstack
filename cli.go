@@ -470,7 +470,9 @@ func run(ctx context.Context, cli CLI) error {
 		return err
 	}
 
-	defer persistManager.SaveAll(ctx)
+	if cli.Persist {
+		defer persistManager.SaveAll(ctx)
+	}
 
 	appCtx := &service.AppContext{
 		Logger:     log,

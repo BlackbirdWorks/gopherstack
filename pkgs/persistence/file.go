@@ -24,33 +24,67 @@ func NewFileStore(baseDir string) (*FileStore, error) {
 	return &FileStore{baseDir: baseDir}, nil
 }
 
+// sanitizeSegment makes a service or key name safe to use as a single path
+// component. Both forward- and back-slashes are replaced, and any segment
+// that is "." or ".." is rewritten to "_" to prevent directory traversal.
+func sanitizeSegment(s string) string {
+	s = strings.ReplaceAll(s, "/", "_")
+	s = strings.ReplaceAll(s, "\\", "_")
+
+	if s == "." || s == ".." {
+		return "_"
+	}
+
+	return s
+}
+
 // path returns the file path for the given service and key.
 func (f *FileStore) path(service, key string) string {
-	// Sanitise: replace path separators so callers cannot traverse directories.
-	svc := strings.ReplaceAll(service, string(os.PathSeparator), "_")
-	k := strings.ReplaceAll(key, string(os.PathSeparator), "_")
-
-	return filepath.Join(f.baseDir, svc, k+".json")
+	return filepath.Join(f.baseDir, sanitizeSegment(service), sanitizeSegment(key)+".json")
 }
 
 // Save writes data to {baseDir}/{service}/{key}.json.
 func (f *FileStore) Save(service, key string, data []byte) error {
 	p := f.path(service, key)
+	dir := filepath.Dir(p)
 
-	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
-		return fmt.Errorf("persistence: mkdir %s: %w", filepath.Dir(p), err)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("persistence: mkdir %s: %w", dir, err)
 	}
 
-	// Write to a temp file first to ensure atomicity.
-	tmp := p + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return fmt.Errorf("persistence: write %s: %w", tmp, err)
+	// Write to a unique temp file in the same directory to ensure atomicity.
+	// Using a unique name avoids clobbering concurrent writes for the same key.
+	tmp, err := os.CreateTemp(dir, ".tmp-*")
+	if err != nil {
+		return fmt.Errorf("persistence: create temp file: %w", err)
 	}
 
-	if err := os.Rename(tmp, p); err != nil {
-		_ = os.Remove(tmp)
+	// os.CreateTemp always returns an absolute path; Clean normalises it.
+	// The nolint directives below suppress G703 (path traversal via taint
+	// analysis): tmpName is derived from os.CreateTemp with a controlled dir
+	// and is not user-supplied.
+	tmpName := filepath.Clean(tmp.Name())
 
-		return fmt.Errorf("persistence: rename %s -> %s: %w", tmp, p, err)
+	if _, writeErr := tmp.Write(data); writeErr != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName) //nolint:gosec // G703: path from CreateTemp within sanitized dir
+
+		return fmt.Errorf("persistence: write %s: %w", tmpName, writeErr)
+	}
+
+	if closeErr := tmp.Close(); closeErr != nil {
+		_ = os.Remove(tmpName) //nolint:gosec // G703: path from CreateTemp within sanitized dir
+
+		return fmt.Errorf("persistence: close %s: %w", tmpName, closeErr)
+	}
+
+	if renameErr := os.Rename( //nolint:gosec // G703: path from CreateTemp within sanitized dir
+		tmpName,
+		p,
+	); renameErr != nil {
+		_ = os.Remove(tmpName) //nolint:gosec // G703: path from CreateTemp within sanitized dir
+
+		return fmt.Errorf("persistence: rename %s -> %s: %w", tmpName, p, renameErr)
 	}
 
 	return nil
@@ -86,9 +120,9 @@ func (f *FileStore) Delete(service, key string) error {
 }
 
 // ListKeys returns the base names (without .json extension) of all files
-// under {baseDir}/{service}/.
+// under {baseDir}/{service}/. Temp files created during atomic saves are excluded.
 func (f *FileStore) ListKeys(service string) ([]string, error) {
-	dir := filepath.Join(f.baseDir, strings.ReplaceAll(service, string(os.PathSeparator), "_"))
+	dir := filepath.Join(f.baseDir, sanitizeSegment(service))
 
 	entries, err := os.ReadDir(dir)
 	if err != nil {

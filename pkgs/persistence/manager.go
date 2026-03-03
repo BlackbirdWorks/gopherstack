@@ -22,6 +22,7 @@ type entry struct {
 	persistable Persistable
 	timer       *time.Timer
 	name        string
+	generation  uint64 // incremented on each Notify; callback checks it hasn't changed
 	mu          sync.Mutex
 }
 
@@ -80,6 +81,9 @@ func (m *Manager) RestoreAll(ctx context.Context) {
 
 // Notify schedules a debounced save for the named service.
 // If no service with that name is registered the call is a no-op.
+// A generation counter ensures that only the most-recent callback fires a save;
+// any earlier callback that was still running is skipped, preventing concurrent
+// writes to the same snapshot file.
 func (m *Manager) Notify(name string) {
 	m.mu.RLock()
 	e, ok := m.entries[name]
@@ -90,35 +94,58 @@ func (m *Manager) Notify(name string) {
 	}
 
 	e.mu.Lock()
-	defer e.mu.Unlock()
+	e.generation++
+	gen := e.generation
 
 	if e.timer != nil {
 		e.timer.Reset(debounceDuration)
+		e.mu.Unlock()
 
 		return
 	}
 
 	e.timer = time.AfterFunc(debounceDuration, func() {
-		m.saveOne(e)
+		m.saveIfCurrent(e, gen)
 	})
+	e.mu.Unlock()
 }
 
 // SaveAll immediately persists all registered backends.
+// Pending debounce timers are stopped to prevent concurrent writes on shutdown.
 // It is intended for graceful shutdown.
 func (m *Manager) SaveAll(ctx context.Context) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	for _, e := range m.entries {
+		// Stop any pending debounce timer so it doesn't fire concurrently.
+		e.mu.Lock()
+		if e.timer != nil {
+			e.timer.Stop()
+			e.timer = nil
+		}
+		e.mu.Unlock()
+
 		if saveErr := m.save(e); saveErr != nil {
 			m.log.WarnContext(ctx, "persistence: save failed on shutdown", "service", e.name, "error", saveErr)
 		}
 	}
 }
 
-// saveOne cancels the outstanding timer and persists the entry.
-func (m *Manager) saveOne(e *entry) {
+// saveIfCurrent fires a save only if the generation still matches the one
+// captured at Notify time. This check is performed after acquiring the entry
+// lock, which prevents a stale callback (from a superseded Notify call) from
+// running concurrently with the save that was already dispatched by a newer
+// Notify.
+func (m *Manager) saveIfCurrent(e *entry, gen uint64) {
 	e.mu.Lock()
+	if e.generation != gen {
+		// A newer Notify arrived; skip this stale callback.
+		e.mu.Unlock()
+
+		return
+	}
+
 	e.timer = nil
 	e.mu.Unlock()
 

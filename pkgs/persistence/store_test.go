@@ -212,6 +212,8 @@ func TestFileStore_ConcurrentAccess(t *testing.T) {
 
 	var wg sync.WaitGroup
 
+	errs := make(chan error, n)
+
 	for i := range n {
 		wg.Add(1)
 
@@ -219,11 +221,18 @@ func TestFileStore_ConcurrentAccess(t *testing.T) {
 			defer wg.Done()
 
 			data, _ := json.Marshal(map[string]int{"i": i})
-			_ = s.Save("concurrent", "snap", data)
+			if err := s.Save("concurrent", "snap", data); err != nil {
+				errs <- err
+			}
 		}(i)
 	}
 
 	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		require.NoError(t, err)
+	}
 
 	// Must be able to load the final value without error.
 	data, err := s.Load("concurrent", "snap")

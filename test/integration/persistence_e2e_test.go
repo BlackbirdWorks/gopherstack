@@ -47,8 +47,8 @@ func startPersistenceContainer(t *testing.T, dataDir string) (testcontainers.Con
 			hc.Binds = append(hc.Binds, dataDir+":/data")
 		},
 		ExposedPorts: []string{"8000/tcp"},
-		WaitingFor: wait.ForHTTP("/").
-			WithStatusCodeMatcher(func(_ int) bool { return true }).
+		WaitingFor: wait.ForHTTP("/_gopherstack/health").
+			WithStatusCodeMatcher(func(status int) bool { return status == 200 }).
 			WithStartupTimeout(60 * time.Second),
 	}
 
@@ -138,6 +138,8 @@ func TestPersistence_E2E_ContainerRestart(t *testing.T) {
 	// Stop the container gracefully (SIGTERM → SaveAll → flush snapshots).
 	gracePeriod := 10 * time.Second
 	require.NoError(t, container1.Stop(ctx, &gracePeriod))
+	// Terminate (remove) the stopped container so it doesn't accumulate in CI.
+	_ = container1.Terminate(ctx)
 
 	// --- Phase 2: restart container with same data dir, verify state ---
 	container2, ep2 := startPersistenceContainer(t, dataDir)
