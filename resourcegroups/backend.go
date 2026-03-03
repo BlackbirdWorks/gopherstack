@@ -2,6 +2,7 @@ package resourcegroups
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 
@@ -19,17 +20,18 @@ var (
 
 // ResourceQuery represents a tag-based resource query for a group.
 type ResourceQuery struct {
-	Type  string `json:"type"`
-	Query string `json:"query"`
+	Type  string `json:"Type"`
+	Query string `json:"Query"`
 }
 
 // Group represents a Resource Group.
+// Field names use PascalCase JSON tags to match what the AWS SDK expects in responses.
 type Group struct {
-	Tags          *tags.Tags     `json:"tags,omitempty"`
-	ResourceQuery *ResourceQuery `json:"resourceQuery,omitempty"`
-	Name          string         `json:"name"`
-	ARN           string         `json:"arn"`
-	Description   string         `json:"description"`
+	Tags          *tags.Tags     `json:"Tags,omitempty"`
+	ResourceQuery *ResourceQuery `json:"ResourceQuery,omitempty"`
+	Name          string         `json:"Name"`
+	ARN           string         `json:"GroupArn"`
+	Description   string         `json:"Description"`
 }
 
 // InMemoryBackend is the in-memory store for Resource Groups.
@@ -84,10 +86,15 @@ func (b *InMemoryBackend) CreateGroup(
 	return &cp, nil
 }
 
-// DeleteGroup deletes a resource group by name.
-func (b *InMemoryBackend) DeleteGroup(name string) error {
+// DeleteGroup deletes a resource group by name or ARN.
+func (b *InMemoryBackend) DeleteGroup(nameOrARN string) error {
 	b.mu.Lock("DeleteGroup")
 	defer b.mu.Unlock()
+
+	name := nameOrARN
+	if idx := strings.LastIndex(nameOrARN, "group/"); idx >= 0 {
+		name = nameOrARN[idx+len("group/"):]
+	}
 
 	if _, ok := b.groups[name]; !ok {
 		return fmt.Errorf("%w: group %s not found", ErrNotFound, name)
@@ -113,12 +120,19 @@ func (b *InMemoryBackend) ListGroups() []Group {
 	return out
 }
 
-// GetGroup returns a resource group by name.
+// GetGroup returns a resource group by name or ARN.
 // The Tags field in the returned Group points to the backend-owned Tags
 // collection; callers should treat it as read-only.
-func (b *InMemoryBackend) GetGroup(name string) (*Group, error) {
+func (b *InMemoryBackend) GetGroup(nameOrARN string) (*Group, error) {
 	b.mu.RLock("GetGroup")
 	defer b.mu.RUnlock()
+
+	// Support ARN-based lookup: extract the group name from the ARN suffix.
+	// e.g. "arn:aws:resource-groups:us-east-1:123:group/my-group" → "my-group"
+	name := nameOrARN
+	if idx := strings.LastIndex(nameOrARN, "group/"); idx >= 0 {
+		name = nameOrARN[idx+len("group/"):]
+	}
 
 	g, ok := b.groups[name]
 	if !ok {

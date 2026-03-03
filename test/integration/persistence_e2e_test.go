@@ -3,7 +3,9 @@ package integration_test
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 	"time"
@@ -108,7 +110,23 @@ func makeSSMClient(t *testing.T, ep string) *ssmsdk.Client {
 //
 //nolint:paralleltest // intentionally sequential — manages its own container lifecycle
 func TestPersistence_E2E_ContainerRestart(t *testing.T) {
-	dataDir := t.TempDir()
+	// The container runs as root and writes snapshot files into the data directory.
+	// t.TempDir() registers cleanup via os.RemoveAll which fails on root-owned files,
+	// so we manage the directory manually with a recursive chmod before removal.
+	dataDir, err := os.MkdirTemp("", "gopherstack-e2e-*") //nolint:usetesting // root container ownership
+	require.NoError(t, err, "failed to create temp data dir")
+	t.Cleanup(func() {
+		// chmod all files/dirs to 0o777 before removal so root-created files can be deleted.
+		_ = filepath.WalkDir(dataDir, func(path string, _ fs.DirEntry, walkErr error) error {
+			if walkErr == nil {
+				_ = os.Chmod(path, 0o777)
+			}
+
+			return nil
+		})
+		_ = os.RemoveAll(dataDir)
+	})
+
 	ctx := context.Background()
 
 	// --- Phase 1: start container, create resources ---

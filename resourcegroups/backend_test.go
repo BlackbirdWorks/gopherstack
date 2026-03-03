@@ -109,6 +109,7 @@ func TestResourceGroupsGetGroup(t *testing.T) {
 		name      string
 		setup     func(b *resourcegroups.InMemoryBackend)
 		groupName string
+		wantName  string // expected g.Name; defaults to groupName when empty
 		wantErr   error
 		wantTag   string
 	}{
@@ -124,6 +125,14 @@ func TestResourceGroupsGetGroup(t *testing.T) {
 			name:      "not_found",
 			groupName: "nonexistent",
 			wantErr:   resourcegroups.ErrNotFound,
+		},
+		{
+			name:      "arn_lookup",
+			groupName: "arn:aws:resource-groups:us-east-1:000000000000:group/my-group",
+			wantName:  "my-group",
+			setup: func(b *resourcegroups.InMemoryBackend) {
+				_, _ = b.CreateGroup("my-group", "desc", nil, nil)
+			},
 		},
 	}
 
@@ -142,7 +151,11 @@ func TestResourceGroupsGetGroup(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, tt.groupName, g.Name)
+			wantName := tt.groupName
+			if tt.wantName != "" {
+				wantName = tt.wantName
+			}
+			assert.Equal(t, wantName, g.Name)
 			if tt.wantTag != "" {
 				v, _ := g.Tags.Get("env")
 				assert.Equal(t, tt.wantTag, v)
