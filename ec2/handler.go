@@ -188,6 +188,7 @@ func (h *Handler) dispatchTable() map[string]ec2ActionFn {
 		"CreateSubnet":              h.handleCreateSubnet,
 		"DescribeInstanceTypes":     h.handleDescribeInstanceTypes,
 		"DescribeTags":              h.handleDescribeTags,
+		"DescribeInstanceAttribute": h.handleDescribeInstanceAttribute,
 	}
 }
 
@@ -467,6 +468,26 @@ func (h *Handler) handleDescribeTags(_ url.Values, reqID string) (any, error) {
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
 		TagSet:    tagItemSet{},
+	}, nil
+}
+
+// handleDescribeInstanceAttribute returns a default value for the requested instance attribute.
+// Terraform calls this after RunInstances to read instanceInitiatedShutdownBehavior.
+func (h *Handler) handleDescribeInstanceAttribute(vals url.Values, reqID string) (any, error) {
+	instanceID := vals.Get("InstanceId")
+	attr := vals.Get("Attribute")
+
+	// Default values match common AWS defaults; the attribute name is the XML element name.
+	attrValue := "stop"
+	if attr == "disableApiTermination" || attr == "sourceDestCheck" || attr == "ebsOptimized" {
+		attrValue = "false"
+	}
+
+	return &describeInstanceAttributeResponse{
+		Xmlns:      ec2XMLNS,
+		RequestID:  reqID,
+		InstanceID: instanceID,
+		Attribute:  namedStringAttr{XMLName: xml.Name{Local: attr}, Value: attrValue},
 	}, nil
 }
 
@@ -792,4 +813,19 @@ type describeTagsResponse struct {
 	Xmlns     string     `xml:"xmlns,attr"`
 	RequestID string     `xml:"requestId"`
 	TagSet    tagItemSet `xml:"tagSet"`
+}
+
+// namedStringAttr is a string attribute element whose XML element name is set dynamically.
+// Used for DescribeInstanceAttribute where the attribute name becomes the element name.
+type namedStringAttr struct {
+	XMLName xml.Name
+	Value   string `xml:"value"`
+}
+
+type describeInstanceAttributeResponse struct {
+	XMLName    xml.Name `xml:"DescribeInstanceAttributeResponse"`
+	Xmlns      string   `xml:"xmlns,attr"`
+	RequestID  string   `xml:"requestId"`
+	InstanceID string   `xml:"instanceId"`
+	Attribute  namedStringAttr
 }
