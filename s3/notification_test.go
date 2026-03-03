@@ -410,3 +410,31 @@ func TestNotificationDispatcher_SNS_PrefixFilter_NoMatch(t *testing.T) {
 	defer topic.mu.Unlock()
 	assert.Empty(t, topic.messages)
 }
+
+func TestNotificationDispatcher_UnknownFilterRule_NoMatch(t *testing.T) {
+	t.Parallel()
+
+	queue := &captureQueue{}
+	targets := &s3.NotificationTargets{SQSSender: queue}
+	d := s3.NewNotificationDispatcher(targets, "us-east-1")
+
+	// An unknown rule name should fail closed: no notification delivered.
+	notifXML := `<NotificationConfiguration>
+<QueueConfiguration>
+  <Id>q1</Id>
+  <Queue>arn:aws:sqs:us-east-1:000000000000:my-queue</Queue>
+  <Event>s3:ObjectCreated:*</Event>
+  <Filter>
+    <S3Key>
+      <FilterRule><Name>unknown</Name><Value>anything</Value></FilterRule>
+    </S3Key>
+  </Filter>
+</QueueConfiguration>
+</NotificationConfiguration>`
+
+	d.DispatchObjectCreated(t.Context(), "my-bucket", "any-key", "abc", 10, notifXML)
+
+	queue.mu.Lock()
+	defer queue.mu.Unlock()
+	assert.Empty(t, queue.messages)
+}

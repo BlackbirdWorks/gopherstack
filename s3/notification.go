@@ -20,24 +20,23 @@ type notificationConfiguration struct {
 }
 
 type queueConfiguration struct {
-	QueueID string               `xml:"Id"`
-	Queue   string               `xml:"Queue"`
-	Events  []string             `xml:"Event"`
-	Filter  notificationFilter   `xml:"Filter"`
+	QueueID string             `xml:"Id"`
+	Queue   string             `xml:"Queue"`
+	Events  []string           `xml:"Event"`
+	Filter  notificationFilter `xml:"Filter"`
 }
 
 type topicConfiguration struct {
-	TopicID string               `xml:"Id"`
-	Topic   string               `xml:"Topic"`
-	Events  []string             `xml:"Event"`
-	Filter  notificationFilter   `xml:"Filter"`
+	TopicID string             `xml:"Id"`
+	Topic   string             `xml:"Topic"`
+	Events  []string           `xml:"Event"`
+	Filter  notificationFilter `xml:"Filter"`
 }
 
 type lambdaConfiguration struct {
-	LambdaID  string             `xml:"Id"`
-	CloudFunc string             `xml:"CloudFunction"`
-	Events    []string           `xml:"Event"`
-	Filter    notificationFilter `xml:"Filter"`
+	LambdaID  string   `xml:"Id"`
+	CloudFunc string   `xml:"CloudFunction"`
+	Events    []string `xml:"Event"`
 }
 
 // notificationFilter mirrors the S3 <Filter> element in a notification configuration.
@@ -57,7 +56,7 @@ type filterRule struct {
 }
 
 // keyMatchesFilter returns true when the object key satisfies all filter rules.
-// An empty rule set matches every key.
+// An empty rule set matches every key. Unknown rule names fail closed.
 func keyMatchesFilter(key string, filter notificationFilter) bool {
 	for _, rule := range filter.S3Key.Rules {
 		switch strings.ToLower(rule.Name) {
@@ -69,6 +68,9 @@ func keyMatchesFilter(key string, filter notificationFilter) bool {
 			if !strings.HasSuffix(key, rule.Value) {
 				return false
 			}
+		default:
+			// Unknown rule name; fail closed to avoid unintentionally broadening delivery.
+			return false
 		}
 	}
 
@@ -219,39 +221,51 @@ func (d *inMemoryNotificationDispatcher) dispatch(
 	}
 
 	for _, qc := range cfg.QueueConfigurations {
-		if !matchesAnyEvent(qc.Events, eventName) {
-			continue
-		}
-		if !keyMatchesFilter(key, qc.Filter) {
-			continue
-		}
-
-		payload, err := buildS3EventPayload(eventName, qc.QueueID, d.region, bucket, key, etag, size)
-		if err != nil {
-			continue
-		}
-
-		if d.targets != nil && d.targets.SQSSender != nil {
-			_ = d.targets.SQSSender.SendMessageToQueue(ctx, qc.Queue, payload)
-		}
+		d.dispatchToQueue(ctx, qc, eventName, bucket, key, etag, size)
 	}
 
 	for _, tc := range cfg.TopicConfigurations {
-		if !matchesAnyEvent(tc.Events, eventName) {
-			continue
-		}
-		if !keyMatchesFilter(key, tc.Filter) {
-			continue
-		}
+		d.dispatchToTopic(ctx, tc, eventName, bucket, key, etag, size)
+	}
+}
 
-		payload, err := buildS3EventPayload(eventName, tc.TopicID, d.region, bucket, key, etag, size)
-		if err != nil {
-			continue
-		}
+func (d *inMemoryNotificationDispatcher) dispatchToQueue(
+	ctx context.Context,
+	qc queueConfiguration,
+	eventName, bucket, key, etag string,
+	size int64,
+) {
+	if !matchesAnyEvent(qc.Events, eventName) || !keyMatchesFilter(key, qc.Filter) {
+		return
+	}
 
-		if d.targets != nil && d.targets.SNSPublisher != nil {
-			_ = d.targets.SNSPublisher.PublishToTopic(ctx, tc.Topic, payload, "S3Notification")
-		}
+	payload, err := buildS3EventPayload(eventName, qc.QueueID, d.region, bucket, key, etag, size)
+	if err != nil {
+		return
+	}
+
+	if d.targets != nil && d.targets.SQSSender != nil {
+		_ = d.targets.SQSSender.SendMessageToQueue(ctx, qc.Queue, payload)
+	}
+}
+
+func (d *inMemoryNotificationDispatcher) dispatchToTopic(
+	ctx context.Context,
+	tc topicConfiguration,
+	eventName, bucket, key, etag string,
+	size int64,
+) {
+	if !matchesAnyEvent(tc.Events, eventName) || !keyMatchesFilter(key, tc.Filter) {
+		return
+	}
+
+	payload, err := buildS3EventPayload(eventName, tc.TopicID, d.region, bucket, key, etag, size)
+	if err != nil {
+		return
+	}
+
+	if d.targets != nil && d.targets.SNSPublisher != nil {
+		_ = d.targets.SNSPublisher.PublishToTopic(ctx, tc.Topic, payload, "S3Notification")
 	}
 }
 
