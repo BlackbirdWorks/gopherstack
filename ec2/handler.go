@@ -478,8 +478,11 @@ func (h *Handler) handleDescribeInstanceAttribute(vals url.Values, reqID string)
 	attr := vals.Get("Attribute")
 
 	// Default values match common AWS defaults; the attribute name is the XML element name.
+	// Boolean attributes (AttributeBooleanValue) must return "true" or "false" so that
+	// strconv.ParseBool succeeds in the SDK deserializer.
 	attrValue := "stop"
-	if attr == "disableApiTermination" || attr == "sourceDestCheck" || attr == "ebsOptimized" {
+	switch attr {
+	case "disableApiStop", "disableApiTermination", "sourceDestCheck", "ebsOptimized", "enaSupport":
 		attrValue = "false"
 	}
 
