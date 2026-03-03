@@ -1,6 +1,7 @@
 package dynamodb
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"strconv"
@@ -193,8 +194,15 @@ func compareAttributeValues(v1, v2 any) bool {
 			return s1 == s2
 		}
 
+		// Binary attribute (B type) — use bytes.Equal for correct comparison.
+		b1, isByte1 := val1.([]byte)
+		b2, isByte2 := val2.([]byte)
+		if isByte1 && isByte2 {
+			return bytes.Equal(b1, b2)
+		}
+
 		// Nested map (e.g. M, L types) — fall back to string representation.
-		return fmt.Sprintf("%v", val1) == fmt.Sprintf("%v", v2)
+		return fmt.Sprintf("%v", val1) == fmt.Sprintf("%v", val2)
 	}
 
 	return len(m2) == 0

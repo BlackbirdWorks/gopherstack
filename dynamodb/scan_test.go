@@ -381,3 +381,91 @@ func TestScan_ParallelSegments(t *testing.T) {
 	}
 	assert.Equal(t, n, totalItems, "all items should be returned across all segments exactly once")
 }
+
+func TestScan_ScannedCount(t *testing.T) {
+	t.Parallel()
+
+	db := dynamodb.NewInMemoryDB()
+	tableName := "ScannedCountTable"
+	_, err := db.CreateTable(t.Context(), &dynamodb_sdk.CreateTableInput{
+		TableName: &tableName,
+		AttributeDefinitions: []types.AttributeDefinition{
+			{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
+		},
+		KeySchema: []types.KeySchemaElement{
+			{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
+		},
+		BillingMode: types.BillingModePayPerRequest,
+	})
+	require.NoError(t, err)
+
+	// Insert 10 items with val 1..10
+	for i := 1; i <= 10; i++ {
+		_, err = db.PutItem(t.Context(), &dynamodb_sdk.PutItemInput{
+			TableName: &tableName,
+			Item: map[string]types.AttributeValue{
+				"pk":  &types.AttributeValueMemberS{Value: "item-" + strconv.Itoa(i)},
+				"val": &types.AttributeValueMemberN{Value: strconv.Itoa(i)},
+			},
+		})
+		require.NoError(t, err)
+	}
+
+	// Scan with Limit=5 and a FilterExpression that matches only even val (2,4,6,8,10).
+	// ScannedCount should be 5 (items examined before filter);
+	// Count should be < 5 since the filter excludes odd items in the page.
+	limit := int32(5)
+	filterExpr := "val IN (:v2, :v4, :v6, :v8, :v10)"
+	out, err := db.Scan(t.Context(), &dynamodb_sdk.ScanInput{
+		TableName:        &tableName,
+		Limit:            &limit,
+		FilterExpression: aws.String(filterExpr),
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":v2":  &types.AttributeValueMemberN{Value: "2"},
+			":v4":  &types.AttributeValueMemberN{Value: "4"},
+			":v6":  &types.AttributeValueMemberN{Value: "6"},
+			":v8":  &types.AttributeValueMemberN{Value: "8"},
+			":v10": &types.AttributeValueMemberN{Value: "10"},
+		},
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, int32(5), out.ScannedCount, "ScannedCount must equal Limit (items examined before filter)")
+	assert.Less(t, out.Count, out.ScannedCount, "Count must be less than ScannedCount when filter excludes some items")
+}
+
+func TestScan_ConsumedCapacity(t *testing.T) {
+	t.Parallel()
+
+	db := dynamodb.NewInMemoryDB()
+	tableName := "ScanCapTable"
+	_, err := db.CreateTable(t.Context(), &dynamodb_sdk.CreateTableInput{
+		TableName: &tableName,
+		AttributeDefinitions: []types.AttributeDefinition{
+			{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
+		},
+		KeySchema: []types.KeySchemaElement{
+			{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
+		},
+		BillingMode: types.BillingModePayPerRequest,
+	})
+	require.NoError(t, err)
+
+	for i := range 3 {
+		_, err = db.PutItem(t.Context(), &dynamodb_sdk.PutItemInput{
+			TableName: &tableName,
+			Item: map[string]types.AttributeValue{
+				"pk": &types.AttributeValueMemberS{Value: "item-" + strconv.Itoa(i)},
+			},
+		})
+		require.NoError(t, err)
+	}
+
+	out, err := db.Scan(t.Context(), &dynamodb_sdk.ScanInput{
+		TableName:              &tableName,
+		ReturnConsumedCapacity: types.ReturnConsumedCapacityTotal,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.ConsumedCapacity, "ConsumedCapacity should be populated when requested")
+	assert.Greater(t, *out.ConsumedCapacity.CapacityUnits, 0.0)
+}
