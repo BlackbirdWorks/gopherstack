@@ -466,12 +466,13 @@ func partiqlExtractLimit(stmt string) int {
 		return 0
 	}
 
-	n, err := strconv.Atoi(m[1])
+	// Parse as a 32-bit integer to ensure the result safely fits into int32 when used in ScanInput.Limit.
+	parsed, err := strconv.ParseInt(m[1], 10, 32)
 	if err != nil {
 		return 0
 	}
 
-	return n
+	return int(parsed)
 }
 
 // partiqlExtractColumns returns the projection column list (e.g. "col1, col2") from a
