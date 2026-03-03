@@ -19,6 +19,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 	"github.com/blackbirdworks/gopherstack/sns"
 )
 
@@ -2034,7 +2035,7 @@ func TestSNSHandler_UntagResource(t *testing.T) {
 	b := sns.NewInMemoryBackend()
 	b.CreateTopic("untag-topic", nil)
 	topicArn := "arn:aws:sns:us-east-1:000000000000:untag-topic"
-	b.SetTopicTags(topicArn, map[string]string{"env": "prod", "team": "infra"})
+	b.SetTopicTags(topicArn, svcTags.FromMap("test.sns.untag", map[string]string{"env": "prod", "team": "infra"}))
 
 	h := sns.NewHandler(b, logger.NewLogger(slog.LevelDebug))
 
@@ -2058,7 +2059,7 @@ func TestSNSHandler_ListTagsForResource(t *testing.T) {
 	b := sns.NewInMemoryBackend()
 	b.CreateTopic("listtag-topic", nil)
 	topicArn := "arn:aws:sns:us-east-1:000000000000:listtag-topic"
-	b.SetTopicTags(topicArn, map[string]string{"env": "staging"})
+	b.SetTopicTags(topicArn, svcTags.FromMap("test.sns.list", map[string]string{"env": "staging"}))
 
 	h := sns.NewHandler(b, logger.NewLogger(slog.LevelDebug))
 

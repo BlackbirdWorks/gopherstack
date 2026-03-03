@@ -18,9 +18,9 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -88,10 +88,10 @@ type DNSRegistrar interface {
 
 // functionRuntime holds the runtime server and startup state for a single Lambda function.
 type functionRuntime struct {
-	srv      *runtimeServer
 	startErr error
-	zipDir   string // temp directory for extracted Zip Lambda code; cleaned up on delete
-	mu       sync.Mutex
+	srv      *runtimeServer
+	mu       *lockmetrics.RWMutex
+	zipDir   string
 	port     int
 	started  bool
 }
@@ -105,28 +105,25 @@ type functionURLServer struct {
 
 // InMemoryBackend is a concurrency-safe in-memory Lambda backend.
 type InMemoryBackend struct {
-	functions           map[string]*FunctionConfiguration
-	runtimes            map[string]*functionRuntime
+	cwLogs              CWLogsBackend
+	s3Fetcher           S3CodeFetcher
+	docker              container.Runtime
+	dnsRegistrar        DNSRegistrar
+	kinesisPoller       *EventSourcePoller
 	eventSourceMappings map[string]*EventSourceMapping
-	functionURLConfigs  map[string]*FunctionURLConfig
+	aliases             map[string]map[string]*FunctionAlias
+	versionCounters     map[string]int
+	functions           map[string]*FunctionConfiguration
 	functionURLServers  map[string]*functionURLServer
-	// versions stores immutable version snapshots: functionName → []FunctionVersion (sorted by number)
-	versions map[string][]*FunctionVersion
-	// aliases stores alias configs: functionName → aliasName → FunctionAlias
-	aliases map[string]map[string]*FunctionAlias
-	// versionCounters tracks the next version number per function
-	versionCounters map[string]int
-	kinesisPoller   *EventSourcePoller
-	cwLogs          CWLogsBackend
-	dnsRegistrar    DNSRegistrar
-	docker          container.Runtime
-	portAlloc       *portalloc.Allocator
-	s3Fetcher       S3CodeFetcher
-	logger          *slog.Logger
-	accountID       string
-	region          string
-	settings        Settings
-	mu              sync.RWMutex
+	functionURLConfigs  map[string]*FunctionURLConfig
+	versions            map[string][]*FunctionVersion
+	portAlloc           *portalloc.Allocator
+	runtimes            map[string]*functionRuntime
+	logger              *slog.Logger
+	mu                  *lockmetrics.RWMutex
+	region              string
+	accountID           string
+	settings            Settings
 }
 
 // NewInMemoryBackend creates a new Lambda in-memory backend.
@@ -152,40 +149,41 @@ func NewInMemoryBackend(
 		accountID:           accountID,
 		region:              region,
 		logger:              log,
+		mu:                  lockmetrics.New("lambda"),
 	}
 }
 
 // SetDNSRegistrar sets the optional DNS registrar used to register function URL hostnames.
 func (b *InMemoryBackend) SetDNSRegistrar(r DNSRegistrar) {
-	b.mu.Lock()
+	b.mu.Lock("SetDNSRegistrar")
 	defer b.mu.Unlock()
 	b.dnsRegistrar = r
 }
 
 // SetS3CodeFetcher sets the S3CodeFetcher for fetching Zip Lambda code from S3.
 func (b *InMemoryBackend) SetS3CodeFetcher(f S3CodeFetcher) {
-	b.mu.Lock()
+	b.mu.Lock("SetS3CodeFetcher")
 	defer b.mu.Unlock()
 	b.s3Fetcher = f
 }
 
 // SetCWLogsBackend sets the CloudWatch Logs backend for Lambda log delivery.
 func (b *InMemoryBackend) SetCWLogsBackend(cwl CWLogsBackend) {
-	b.mu.Lock()
+	b.mu.Lock("SetCWLogsBackend")
 	defer b.mu.Unlock()
 	b.cwLogs = cwl
 }
 
 // SetKinesisPoller sets the event source poller for Kinesis stream polling.
 func (b *InMemoryBackend) SetKinesisPoller(p *EventSourcePoller) {
-	b.mu.Lock()
+	b.mu.Lock("SetKinesisPoller")
 	defer b.mu.Unlock()
 	b.kinesisPoller = p
 }
 
 // StartKinesisPoller starts the Kinesis event source poller if one has been set.
 func (b *InMemoryBackend) StartKinesisPoller(ctx context.Context) {
-	b.mu.RLock()
+	b.mu.RLock("StartKinesisPoller")
 	p := b.kinesisPoller
 	b.mu.RUnlock()
 
@@ -196,7 +194,7 @@ func (b *InMemoryBackend) StartKinesisPoller(ctx context.Context) {
 
 // CreateEventSourceMapping creates a new event source mapping.
 func (b *InMemoryBackend) CreateEventSourceMapping(input *CreateEventSourceMappingInput) (*EventSourceMapping, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateEventSourceMapping")
 	defer b.mu.Unlock()
 
 	id := uuid.New().String()
@@ -234,7 +232,7 @@ func (b *InMemoryBackend) CreateEventSourceMapping(input *CreateEventSourceMappi
 
 // GetEventSourceMapping retrieves an event source mapping by UUID.
 func (b *InMemoryBackend) GetEventSourceMapping(uuid string) (*EventSourceMapping, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetEventSourceMapping")
 	defer b.mu.RUnlock()
 
 	m, ok := b.eventSourceMappings[uuid]
@@ -247,7 +245,7 @@ func (b *InMemoryBackend) GetEventSourceMapping(uuid string) (*EventSourceMappin
 
 // ListEventSourceMappings returns all event source mappings, optionally filtered by function name.
 func (b *InMemoryBackend) ListEventSourceMappings(functionName string) []*EventSourceMapping {
-	b.mu.RLock()
+	b.mu.RLock("ListEventSourceMappings")
 	defer b.mu.RUnlock()
 
 	result := make([]*EventSourceMapping, 0, len(b.eventSourceMappings))
@@ -264,7 +262,7 @@ func (b *InMemoryBackend) ListEventSourceMappings(functionName string) []*EventS
 
 // DeleteEventSourceMapping removes an event source mapping by UUID.
 func (b *InMemoryBackend) DeleteEventSourceMapping(id string) (*EventSourceMapping, error) {
-	b.mu.Lock()
+	b.mu.Lock("DeleteEventSourceMapping")
 	defer b.mu.Unlock()
 
 	m, ok := b.eventSourceMappings[id]
@@ -285,7 +283,7 @@ func (b *InMemoryBackend) functionURLHostname(functionName string) string {
 // CreateFunctionURLConfig creates a function URL endpoint for the given function.
 // It allocates a port, starts an HTTP listener, registers DNS, and returns the config.
 func (b *InMemoryBackend) CreateFunctionURLConfig(functionName, authType string) (*FunctionURLConfig, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateFunctionURLConfig")
 	defer b.mu.Unlock()
 
 	if _, ok := b.functions[functionName]; !ok {
@@ -350,7 +348,7 @@ func (b *InMemoryBackend) allocateAndStartURLServer(functionName string) (string
 
 // GetFunctionURLConfig returns the function URL config for a function.
 func (b *InMemoryBackend) GetFunctionURLConfig(functionName string) (*FunctionURLConfig, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetFunctionURLConfig")
 	defer b.mu.RUnlock()
 
 	cfg, ok := b.functionURLConfigs[functionName]
@@ -363,7 +361,7 @@ func (b *InMemoryBackend) GetFunctionURLConfig(functionName string) (*FunctionUR
 
 // DeleteFunctionURLConfig removes the function URL config, stops the listener, and deregisters DNS.
 func (b *InMemoryBackend) DeleteFunctionURLConfig(functionName string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteFunctionURLConfig")
 
 	if _, ok := b.functionURLConfigs[functionName]; !ok {
 		b.mu.Unlock()
@@ -544,7 +542,7 @@ func buildURLARN(region, accountID, functionName string) string {
 
 // CreateFunction stores a new Lambda function configuration.
 func (b *InMemoryBackend) CreateFunction(fn *FunctionConfiguration) error {
-	b.mu.Lock()
+	b.mu.Lock("CreateFunction")
 	defer b.mu.Unlock()
 
 	if _, exists := b.functions[fn.FunctionName]; exists {
@@ -558,7 +556,7 @@ func (b *InMemoryBackend) CreateFunction(fn *FunctionConfiguration) error {
 
 // GetFunction retrieves a Lambda function configuration by name.
 func (b *InMemoryBackend) GetFunction(name string) (*FunctionConfiguration, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetFunction")
 	defer b.mu.RUnlock()
 
 	fn, ok := b.functions[name]
@@ -571,7 +569,7 @@ func (b *InMemoryBackend) GetFunction(name string) (*FunctionConfiguration, erro
 
 // ListFunctions returns all Lambda function configurations sorted by name.
 func (b *InMemoryBackend) ListFunctions() []*FunctionConfiguration {
-	b.mu.RLock()
+	b.mu.RLock("ListFunctions")
 	defer b.mu.RUnlock()
 
 	fns := make([]*FunctionConfiguration, 0, len(b.functions))
@@ -588,7 +586,7 @@ func (b *InMemoryBackend) ListFunctions() []*FunctionConfiguration {
 
 // DeleteFunction removes a Lambda function and cleans up its runtime server.
 func (b *InMemoryBackend) DeleteFunction(name string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteFunction")
 
 	if _, ok := b.functions[name]; !ok {
 		b.mu.Unlock()
@@ -617,6 +615,8 @@ func (b *InMemoryBackend) DeleteFunction(name string) error {
 		if rt.zipDir != "" {
 			_ = os.RemoveAll(rt.zipDir)
 		}
+
+		rt.mu.Close()
 	}
 
 	return nil
@@ -624,7 +624,7 @@ func (b *InMemoryBackend) DeleteFunction(name string) error {
 
 // UpdateFunction replaces a Lambda function's configuration.
 func (b *InMemoryBackend) UpdateFunction(fn *FunctionConfiguration) error {
-	b.mu.Lock()
+	b.mu.Lock("UpdateFunction")
 	defer b.mu.Unlock()
 
 	if _, ok := b.functions[fn.FunctionName]; !ok {
@@ -638,7 +638,7 @@ func (b *InMemoryBackend) UpdateFunction(fn *FunctionConfiguration) error {
 
 // PublishVersion creates an immutable version snapshot of the current $LATEST function config.
 func (b *InMemoryBackend) PublishVersion(name, description string) (*FunctionVersion, error) {
-	b.mu.Lock()
+	b.mu.Lock("PublishVersion")
 	defer b.mu.Unlock()
 
 	fn, ok := b.functions[name]
@@ -676,7 +676,7 @@ func (b *InMemoryBackend) PublishVersion(name, description string) (*FunctionVer
 // GetVersion returns a specific version snapshot of a function.
 // Pass "$LATEST" to get the live function config as a FunctionVersion.
 func (b *InMemoryBackend) GetVersion(name, version string) (*FunctionVersion, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetVersion")
 	defer b.mu.RUnlock()
 
 	if version == versionLatest {
@@ -699,7 +699,7 @@ func (b *InMemoryBackend) GetVersion(name, version string) (*FunctionVersion, er
 
 // ListVersionsByFunction returns all published versions for a function (including $LATEST).
 func (b *InMemoryBackend) ListVersionsByFunction(name string) ([]*FunctionVersion, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListVersionsByFunction")
 	defer b.mu.RUnlock()
 
 	fn, ok := b.functions[name]
@@ -729,7 +729,7 @@ func versionInList(versions []*FunctionVersion, target string) bool {
 
 // CreateAlias creates a new alias for a Lambda function pointing to a version.
 func (b *InMemoryBackend) CreateAlias(name string, input *CreateAliasInput) (*FunctionAlias, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateAlias")
 	defer b.mu.Unlock()
 
 	if _, ok := b.functions[name]; !ok {
@@ -766,7 +766,7 @@ func (b *InMemoryBackend) CreateAlias(name string, input *CreateAliasInput) (*Fu
 
 // GetAlias returns a named alias for a function.
 func (b *InMemoryBackend) GetAlias(name, aliasName string) (*FunctionAlias, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetAlias")
 	defer b.mu.RUnlock()
 
 	if _, ok := b.functions[name]; !ok {
@@ -788,7 +788,7 @@ func (b *InMemoryBackend) GetAlias(name, aliasName string) (*FunctionAlias, erro
 
 // ListAliases returns all aliases for a function sorted by name.
 func (b *InMemoryBackend) ListAliases(name string) ([]*FunctionAlias, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListAliases")
 	defer b.mu.RUnlock()
 
 	if _, ok := b.functions[name]; !ok {
@@ -811,7 +811,7 @@ func (b *InMemoryBackend) ListAliases(name string) ([]*FunctionAlias, error) {
 
 // UpdateAlias updates an existing alias.
 func (b *InMemoryBackend) UpdateAlias(name, aliasName string, input *UpdateAliasInput) (*FunctionAlias, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateAlias")
 	defer b.mu.Unlock()
 
 	aliasMap, ok := b.aliases[name]
@@ -839,7 +839,7 @@ func (b *InMemoryBackend) UpdateAlias(name, aliasName string, input *UpdateAlias
 
 // DeleteAlias removes a named alias from a function.
 func (b *InMemoryBackend) DeleteAlias(name, aliasName string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteAlias")
 	defer b.mu.Unlock()
 
 	aliasMap, hasMap := b.aliases[name]
@@ -867,7 +867,7 @@ func (b *InMemoryBackend) resolveQualifier(name, qualifier string) (*FunctionCon
 	// Check if qualifier is an alias; if so, resolve to the target version string.
 	// Hold a single RLock for both the alias lookup and the version search to avoid
 	// TOCTOU races with concurrent alias/version updates.
-	b.mu.RLock()
+	b.mu.RLock("resolveQualifier")
 
 	if aliasMap := b.aliases[name]; aliasMap != nil {
 		if alias, ok := aliasMap[qualifier]; ok {
@@ -1030,7 +1030,7 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 
 // pushInvocationLog writes a minimal invocation log entry to CloudWatch Logs when a backend is set.
 func (b *InMemoryBackend) pushInvocationLog(functionName string, _ []byte, result []byte) {
-	b.mu.RLock()
+	b.mu.RLock("pushInvocationLog")
 	cwl := b.cwLogs
 	b.mu.RUnlock()
 
@@ -1076,17 +1076,17 @@ func (b *InMemoryBackend) getOrCreateRuntime(ctx context.Context, fn *FunctionCo
 		return nil, fmt.Errorf("%w: container runtime unavailable", ErrLambdaUnavailable)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("getOrCreateRuntime")
 	rt, ok := b.runtimes[fn.FunctionName]
 
 	if !ok {
-		rt = &functionRuntime{}
+		rt = &functionRuntime{mu: lockmetrics.New("lambda.runtime")}
 		b.runtimes[fn.FunctionName] = rt
 	}
 
 	b.mu.Unlock()
 
-	rt.mu.Lock()
+	rt.mu.Lock("getOrCreateRuntime")
 	defer rt.mu.Unlock()
 
 	if rt.started {

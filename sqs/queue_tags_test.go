@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 	"github.com/blackbirdworks/gopherstack/sqs"
 )
 
@@ -17,13 +18,13 @@ func TestTagQueue_Basic(t *testing.T) {
 
 	err := b.TagQueue(&sqs.TagQueueInput{
 		QueueURL: url,
-		Tags:     map[string]string{"env": "test", "team": "platform"},
+		Tags:     tags.FromMap("test", map[string]string{"env": "test", "team": "platform"}),
 	})
 	require.NoError(t, err)
 
 	out, err := b.ListQueueTags(&sqs.ListQueueTagsInput{QueueURL: url})
 	require.NoError(t, err)
-	assert.Equal(t, map[string]string{"env": "test", "team": "platform"}, out.Tags)
+	assert.Equal(t, map[string]string{"env": "test", "team": "platform"}, out.Tags.Clone())
 }
 
 func TestUntagQueue_Basic(t *testing.T) {
@@ -34,7 +35,7 @@ func TestUntagQueue_Basic(t *testing.T) {
 
 	err := b.TagQueue(&sqs.TagQueueInput{
 		QueueURL: url,
-		Tags:     map[string]string{"env": "test", "team": "platform"},
+		Tags:     tags.FromMap("test", map[string]string{"env": "test", "team": "platform"}),
 	})
 	require.NoError(t, err)
 
@@ -46,7 +47,7 @@ func TestUntagQueue_Basic(t *testing.T) {
 
 	out, err := b.ListQueueTags(&sqs.ListQueueTagsInput{QueueURL: url})
 	require.NoError(t, err)
-	assert.Equal(t, map[string]string{"env": "test"}, out.Tags)
+	assert.Equal(t, map[string]string{"env": "test"}, out.Tags.Clone())
 }
 
 func TestListQueueTags_Empty(t *testing.T) {
@@ -57,7 +58,7 @@ func TestListQueueTags_Empty(t *testing.T) {
 
 	out, err := b.ListQueueTags(&sqs.ListQueueTagsInput{QueueURL: url})
 	require.NoError(t, err)
-	assert.Empty(t, out.Tags)
+	assert.Empty(t, out.Tags.Clone())
 }
 
 func TestTagQueue_QueueNotFound(t *testing.T) {
@@ -67,7 +68,7 @@ func TestTagQueue_QueueNotFound(t *testing.T) {
 
 	err := b.TagQueue(&sqs.TagQueueInput{
 		QueueURL: "http://localhost:4566/000000000000/nonexistent",
-		Tags:     map[string]string{"key": "value"},
+		Tags:     tags.FromMap("test", map[string]string{"key": "value"}),
 	})
 	assert.ErrorIs(t, err, sqs.ErrQueueNotFound)
 }

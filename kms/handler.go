@@ -9,13 +9,14 @@ import (
 	"maps"
 	"net/http"
 	"strings"
-	"sync"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // ErrUnknownOperation is returned when the requested KMS operation is not supported.
@@ -35,6 +36,11 @@ type tagResourceInput struct {
 	Tags  []kmsTagEntry `json:"Tags"`
 }
 
+type listResourceTagsOutput struct {
+	Tags      []kmsTagEntry `json:"Tags"`
+	Truncated bool          `json:"Truncated"`
+}
+
 type untagResourceInput struct {
 	KeyID   string   `json:"KeyId"` //nolint:tagliatelle // AWS API uses KeyId
 	TagKeys []string `json:"TagKeys"`
@@ -45,9 +51,9 @@ type Handler struct {
 	Backend       StorageBackend
 	Logger        *slog.Logger
 	actions       map[string]kmsActionFn
-	tags          map[string]map[string]string
+	tags          map[string]*tags.Tags
+	tagsMu        *lockmetrics.RWMutex
 	DefaultRegion string
-	tagsMu        sync.RWMutex
 }
 
 // NewHandler creates a new KMS handler with the given storage backend and logger.
@@ -55,7 +61,8 @@ func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
 	h := &Handler{
 		Backend: backend,
 		Logger:  log,
-		tags:    make(map[string]map[string]string),
+		tags:    make(map[string]*tags.Tags),
+		tagsMu:  lockmetrics.New("kms.tags"),
 	}
 	h.actions = h.buildDispatchTable()
 
@@ -63,29 +70,32 @@ func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
 }
 
 func (h *Handler) setTags(resourceID string, kv map[string]string) {
-	h.tagsMu.Lock()
+	h.tagsMu.Lock("setTags")
 	defer h.tagsMu.Unlock()
 	if h.tags[resourceID] == nil {
-		h.tags[resourceID] = make(map[string]string)
+		h.tags[resourceID] = tags.New("kms." + resourceID + ".tags")
 	}
-	maps.Copy(h.tags[resourceID], kv)
+	h.tags[resourceID].Merge(kv)
 }
 
 func (h *Handler) removeTags(resourceID string, keys []string) {
-	h.tagsMu.Lock()
-	defer h.tagsMu.Unlock()
-	for _, k := range keys {
-		delete(h.tags[resourceID], k)
+	h.tagsMu.RLock("removeTags")
+	t := h.tags[resourceID]
+	h.tagsMu.RUnlock()
+	if t != nil {
+		t.DeleteKeys(keys)
 	}
 }
 
 func (h *Handler) getTags(resourceID string) map[string]string {
-	h.tagsMu.RLock()
-	defer h.tagsMu.RUnlock()
-	result := make(map[string]string)
-	maps.Copy(result, h.tags[resourceID])
+	h.tagsMu.RLock("getTags")
+	t := h.tags[resourceID]
+	h.tagsMu.RUnlock()
+	if t == nil {
+		return map[string]string{}
+	}
 
-	return result
+	return t.Clone()
 }
 
 // Name returns the service name.
@@ -440,7 +450,7 @@ func (h *Handler) buildTagActions() map[string]kmsActionFn {
 				tagList = append(tagList, kmsTagEntry{TagKey: k, TagValue: v})
 			}
 
-			return map[string]any{"Tags": tagList, "Truncated": false}, nil
+			return &listResourceTagsOutput{Tags: tagList, Truncated: false}, nil
 		},
 		"TagResource": func(_ string, b []byte) (any, error) {
 			var input tagResourceInput

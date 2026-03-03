@@ -9,12 +9,13 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 var (
@@ -59,10 +60,10 @@ type StorageBackend interface {
 
 // InMemoryBackend is a concurrency-safe in-memory Secrets Manager backend.
 type InMemoryBackend struct {
-	secrets   map[string]*Secret // keyed by Name
+	secrets   map[string]*Secret
+	mu        *lockmetrics.RWMutex
 	accountID string
 	region    string
-	mu        sync.RWMutex
 }
 
 // NewInMemoryBackend creates and returns a new empty Secrets Manager backend with default account/region.
@@ -76,6 +77,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		secrets:   make(map[string]*Secret),
 		accountID: accountID,
 		region:    region,
+		mu:        lockmetrics.New("secretsmanager"),
 	}
 }
 
@@ -115,7 +117,7 @@ func (b *InMemoryBackend) buildARNWithRegion(region, name, suffix string) string
 
 // CreateSecret creates a new secret with an optional initial value.
 func (b *InMemoryBackend) CreateSecret(input *CreateSecretInput) (*CreateSecretOutput, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateSecret")
 	defer b.mu.Unlock()
 
 	if _, exists := b.secrets[input.Name]; exists {
@@ -137,10 +139,10 @@ func (b *InMemoryBackend) CreateSecret(input *CreateSecretInput) (*CreateSecretO
 	}
 
 	if len(input.Tags) > 0 {
-		secret.Tags = make(map[string]string, len(input.Tags))
+		secret.Tags = tags.New(secret.Name + ".tags")
 
 		for _, t := range input.Tags {
-			secret.Tags[t.Key] = t.Value
+			secret.Tags.Set(t.Key, t.Value)
 		}
 	}
 
@@ -170,7 +172,7 @@ func (b *InMemoryBackend) CreateSecret(input *CreateSecretInput) (*CreateSecretO
 
 // GetSecretValue retrieves the value of a secret version.
 func (b *InMemoryBackend) GetSecretValue(input *GetSecretValueInput) (*GetSecretValueOutput, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetSecretValue")
 	defer b.mu.RUnlock()
 
 	name := resolveSecretID(input.SecretID)
@@ -223,7 +225,7 @@ func (b *InMemoryBackend) findVersion(secret *Secret, versionID, versionStage st
 
 // PutSecretValue adds a new version to an existing secret.
 func (b *InMemoryBackend) PutSecretValue(input *PutSecretValueInput) (*PutSecretValueOutput, error) {
-	b.mu.Lock()
+	b.mu.Lock("PutSecretValue")
 	defer b.mu.Unlock()
 
 	name := resolveSecretID(input.SecretID)
@@ -289,7 +291,7 @@ func (b *InMemoryBackend) rotateStagingLabels(secret *Secret, newVersionID strin
 
 // DeleteSecret marks a secret as deleted.
 func (b *InMemoryBackend) DeleteSecret(input *DeleteSecretInput) (*DeleteSecretOutput, error) {
-	b.mu.Lock()
+	b.mu.Lock("DeleteSecret")
 	defer b.mu.Unlock()
 
 	name := resolveSecretID(input.SecretID)
@@ -311,7 +313,7 @@ func (b *InMemoryBackend) DeleteSecret(input *DeleteSecretInput) (*DeleteSecretO
 
 // ListSecrets returns a paginated list of secrets.
 func (b *InMemoryBackend) ListSecrets(input *ListSecretsInput) (*ListSecretsOutput, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListSecrets")
 	defer b.mu.RUnlock()
 
 	entries := make([]SecretListEntry, 0, len(b.secrets))
@@ -357,7 +359,7 @@ func (b *InMemoryBackend) ListSecrets(input *ListSecretsInput) (*ListSecretsOutp
 
 // DescribeSecret returns metadata about a secret.
 func (b *InMemoryBackend) DescribeSecret(input *DescribeSecretInput) (*DescribeSecretOutput, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeSecret")
 	defer b.mu.RUnlock()
 
 	name := resolveSecretID(input.SecretID)
@@ -385,7 +387,7 @@ func (b *InMemoryBackend) DescribeSecret(input *DescribeSecretInput) (*DescribeS
 
 // UpdateSecret updates the description of a secret and optionally creates a new version.
 func (b *InMemoryBackend) UpdateSecret(input *UpdateSecretInput) (*UpdateSecretOutput, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateSecret")
 	defer b.mu.Unlock()
 
 	name := resolveSecretID(input.SecretID)
@@ -431,7 +433,7 @@ func (b *InMemoryBackend) UpdateSecret(input *UpdateSecretInput) (*UpdateSecretO
 
 // RestoreSecret clears the deletion mark from a secret.
 func (b *InMemoryBackend) RestoreSecret(input *RestoreSecretInput) (*RestoreSecretOutput, error) {
-	b.mu.Lock()
+	b.mu.Lock("RestoreSecret")
 	defer b.mu.Unlock()
 
 	name := resolveSecretID(input.SecretID)
@@ -451,7 +453,7 @@ func (b *InMemoryBackend) RestoreSecret(input *RestoreSecretInput) (*RestoreSecr
 
 // ListAll returns all secrets as list entries, sorted by name (for dashboard use).
 func (b *InMemoryBackend) ListAll() []SecretListEntry {
-	b.mu.RLock()
+	b.mu.RLock("ListAll")
 	defer b.mu.RUnlock()
 
 	entries := make([]SecretListEntry, 0, len(b.secrets))
@@ -499,7 +501,7 @@ func generateVersionID() string {
 
 // TagResource adds or updates tags on a secret.
 func (b *InMemoryBackend) TagResource(input *TagResourceInput) error {
-	b.mu.Lock()
+	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
 	id := resolveSecretID(input.SecretID)
@@ -511,10 +513,10 @@ func (b *InMemoryBackend) TagResource(input *TagResourceInput) error {
 		return ErrSecretDeleted
 	}
 	if secret.Tags == nil {
-		secret.Tags = make(map[string]string)
+		secret.Tags = tags.New(id + ".tags")
 	}
 	for _, t := range input.Tags {
-		secret.Tags[t.Key] = t.Value
+		secret.Tags.Set(t.Key, t.Value)
 	}
 
 	return nil
@@ -522,7 +524,7 @@ func (b *InMemoryBackend) TagResource(input *TagResourceInput) error {
 
 // UntagResource removes tags from a secret.
 func (b *InMemoryBackend) UntagResource(input *UntagResourceInput) error {
-	b.mu.Lock()
+	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
 	id := resolveSecretID(input.SecretID)
@@ -533,8 +535,8 @@ func (b *InMemoryBackend) UntagResource(input *UntagResourceInput) error {
 	if secret.DeletedDate != nil {
 		return ErrSecretDeleted
 	}
-	for _, k := range input.TagKeys {
-		delete(secret.Tags, k)
+	if secret.Tags != nil {
+		secret.Tags.DeleteKeys(input.TagKeys)
 	}
 
 	return nil
@@ -542,7 +544,7 @@ func (b *InMemoryBackend) UntagResource(input *UntagResourceInput) error {
 
 // RotateSecret creates a new version of the secret (rotation stub).
 func (b *InMemoryBackend) RotateSecret(input *RotateSecretInput) (*RotateSecretOutput, error) {
-	b.mu.Lock()
+	b.mu.Lock("RotateSecret")
 	defer b.mu.Unlock()
 
 	id := resolveSecretID(input.SecretID)

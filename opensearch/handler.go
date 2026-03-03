@@ -376,12 +376,35 @@ type opensearchTag struct {
 	Value string `json:"Value"`
 }
 
+type listTagsOutput struct {
+	TagList []opensearchTag `json:"TagList"`
+}
+
+type opensearchConfigStatus struct {
+	State string `json:"State"`
+}
+
+type opensearchConfigValue struct {
+	Options any                    `json:"Options"`
+	Status  opensearchConfigStatus `json:"Status"`
+}
+
+type describeDomainConfigOutput struct {
+	DomainConfig struct {
+		EngineVersion   opensearchConfigValue `json:"EngineVersion"`
+		ClusterConfig   opensearchConfigValue `json:"ClusterConfig"`
+		EBSOptions      opensearchConfigValue `json:"EBSOptions"`
+		AccessPolicies  opensearchConfigValue `json:"AccessPolicies"`
+		AdvancedOptions opensearchConfigValue `json:"AdvancedOptions"`
+	} `json:"DomainConfig"`
+}
+
 func (h *Handler) handleListTags(w http.ResponseWriter, r *http.Request) {
 	domainARN := r.URL.Query().Get("arn")
 
 	tags, err := h.Backend.ListTags(domainARN)
 	if err != nil {
-		h.writeJSON(w, map[string]any{"TagList": []any{}})
+		h.writeJSON(w, &listTagsOutput{TagList: []opensearchTag{}})
 
 		return
 	}
@@ -391,7 +414,7 @@ func (h *Handler) handleListTags(w http.ResponseWriter, r *http.Request) {
 		tagList = append(tagList, opensearchTag{Key: k, Value: v})
 	}
 
-	h.writeJSON(w, map[string]any{"TagList": tagList})
+	h.writeJSON(w, &listTagsOutput{TagList: tagList})
 }
 
 type addTagsInput struct {
@@ -460,16 +483,12 @@ func (h *Handler) handleDescribeDomainConfig(w http.ResponseWriter, _ *http.Requ
 		return
 	}
 
-	h.writeJSON(w, map[string]any{
-		"DomainConfig": map[string]any{
-			"EngineVersion":  map[string]any{"Options": "", "Status": map[string]any{"State": "Active"}},
-			"ClusterConfig":  map[string]any{"Options": map[string]any{}, "Status": map[string]any{"State": "Active"}},
-			"EBSOptions":     map[string]any{"Options": map[string]any{}, "Status": map[string]any{"State": "Active"}},
-			"AccessPolicies": map[string]any{"Options": "", "Status": map[string]any{"State": "Active"}},
-			"AdvancedOptions": map[string]any{
-				"Options": map[string]any{},
-				"Status":  map[string]any{"State": "Active"},
-			},
-		},
-	})
+	activeStatus := opensearchConfigStatus{State: "Active"}
+	out := describeDomainConfigOutput{}
+	out.DomainConfig.EngineVersion = opensearchConfigValue{Options: "", Status: activeStatus}
+	out.DomainConfig.ClusterConfig = opensearchConfigValue{Options: map[string]any{}, Status: activeStatus}
+	out.DomainConfig.EBSOptions = opensearchConfigValue{Options: map[string]any{}, Status: activeStatus}
+	out.DomainConfig.AccessPolicies = opensearchConfigValue{Options: "", Status: activeStatus}
+	out.DomainConfig.AdvancedOptions = opensearchConfigValue{Options: map[string]any{}, Status: activeStatus}
+	h.writeJSON(w, &out)
 }

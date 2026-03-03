@@ -1,14 +1,41 @@
 package apigateway
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
+)
+
+// unixEpochTime wraps [time.Time] and marshals to/from a JSON number (Unix seconds),
+// which is the format expected by the AWS SDK v2 API Gateway client.
+type unixEpochTime struct {
+	time.Time
+}
+
+func (t unixEpochTime) MarshalJSON() ([]byte, error) {
+	return json.Marshal(t.Unix())
+}
+
+func (t *unixEpochTime) UnmarshalJSON(b []byte) error {
+	var epoch int64
+	if err := json.Unmarshal(b, &epoch); err != nil {
+		return err
+	}
+
+	t.Time = time.Unix(epoch, 0)
+
+	return nil
+}
 
 // RestAPI represents an API Gateway REST API.
 type RestAPI struct {
-	CreatedDate time.Time         `json:"createdDate"`
-	Tags        map[string]string `json:"tags,omitempty"`
-	ID          string            `json:"id"`
-	Name        string            `json:"name"`
-	Description string            `json:"description,omitempty"`
+	CreatedDate    unixEpochTime `json:"createdDate"`
+	Tags           *tags.Tags    `json:"tags,omitempty"`
+	ID             string        `json:"id"`
+	Name           string        `json:"name"`
+	Description    string        `json:"description,omitempty"`
+	RootResourceID string        `json:"rootResourceId,omitempty"`
 }
 
 // Resource represents an API Gateway resource.
@@ -57,8 +84,8 @@ type MethodResponse struct {
 
 // Stage represents a deployment stage.
 type Stage struct {
-	CreatedDate     time.Time         `json:"createdDate"`
-	LastUpdatedDate time.Time         `json:"lastUpdatedDate"`
+	CreatedDate     unixEpochTime     `json:"createdDate"`
+	LastUpdatedDate unixEpochTime     `json:"lastUpdatedDate"`
 	Variables       map[string]string `json:"variables,omitempty"`
 	StageName       string            `json:"stageName"`
 	RestAPIID       string            `json:"-"`
@@ -68,10 +95,10 @@ type Stage struct {
 
 // Deployment represents a REST API deployment.
 type Deployment struct {
-	CreatedDate time.Time `json:"createdDate"`
-	ID          string    `json:"id"`
-	RestAPIID   string    `json:"-"`
-	Description string    `json:"description,omitempty"`
+	CreatedDate unixEpochTime `json:"createdDate"`
+	ID          string        `json:"id"`
+	RestAPIID   string        `json:"-"`
+	Description string        `json:"description,omitempty"`
 }
 
 // PutIntegrationInput is the input for PutIntegration.

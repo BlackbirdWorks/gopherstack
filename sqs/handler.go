@@ -13,6 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // Handler is the Echo HTTP handler for SQS operations.
@@ -181,7 +182,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 
 type jsonCreateQueueReq struct {
 	Attributes map[string]string `json:"Attributes"`
-	Tags       map[string]string `json:"tags"`
+	Tags       *tags.Tags        `json:"tags"`
 	QueueName  string            `json:"QueueName"`
 }
 
@@ -278,8 +279,8 @@ type jsonChangeVisibilityBatchReq struct {
 }
 
 type jsonTagQueueReq struct {
-	Tags     map[string]string `json:"Tags"`
-	QueueURL string            `json:"QueueUrl"`
+	Tags     *tags.Tags `json:"Tags"`
+	QueueURL string     `json:"QueueUrl"`
 }
 
 type jsonUntagQueueReq struct {
@@ -343,7 +344,7 @@ type jsonBatchResult struct {
 }
 
 type jsonListQueueTagsResp struct {
-	Tags map[string]string `json:"Tags"`
+	Tags *tags.Tags `json:"Tags"`
 }
 
 type jsonSQSError struct {
@@ -838,12 +839,7 @@ func (h *Handler) handleListQueueTags(
 		return nil, err
 	}
 
-	tags := out.Tags
-	if tags == nil {
-		tags = map[string]string{}
-	}
-
-	return jsonListQueueTagsResp{Tags: tags}, nil
+	return jsonListQueueTagsResp{Tags: out.Tags}, nil
 }
 
 // errorDetails maps an error to its SQS JSON error type, message, and HTTP status.

@@ -11,13 +11,14 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/events"
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 var (
@@ -49,19 +50,19 @@ type StorageBackend interface {
 	ListAllTopics() []Topic
 	ListAllSubscriptions() []Subscription
 	GetTopicTags(arn string) map[string]string
-	SetTopicTags(arn string, tags map[string]string)
+	SetTopicTags(arn string, kv *svcTags.Tags)
 	RemoveTopicTags(arn string, keys []string)
 }
 
 // InMemoryBackend implements StorageBackend using an in-memory concurrency-safe store.
 type InMemoryBackend struct {
+	emitter       events.EventEmitter[*events.SNSPublishedEvent]
 	topics        map[string]*Topic
 	subscriptions map[string]*Subscription
-	topicTags     map[string]map[string]string
-	emitter       events.EventEmitter[*events.SNSPublishedEvent]
+	topicTags     map[string]*svcTags.Tags
+	mu            *lockmetrics.RWMutex
 	accountID     string
 	region        string
-	mu            sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new empty InMemoryBackend with default account/region.
@@ -74,16 +75,17 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		topics:        make(map[string]*Topic),
 		subscriptions: make(map[string]*Subscription),
-		topicTags:     make(map[string]map[string]string),
+		topicTags:     make(map[string]*svcTags.Tags),
 		accountID:     accountID,
 		region:        region,
+		mu:            lockmetrics.New("sns"),
 	}
 }
 
 // SetPublishEmitter registers an event emitter that fires when a message is published.
 // This is used to wire SNS→SQS delivery at startup.
 func (b *InMemoryBackend) SetPublishEmitter(emitter events.EventEmitter[*events.SNSPublishedEvent]) {
-	b.mu.Lock()
+	b.mu.Lock("SetPublishEmitter")
 	defer b.mu.Unlock()
 
 	b.emitter = emitter
@@ -97,7 +99,7 @@ func (b *InMemoryBackend) CreateTopic(name string, attributes map[string]string)
 // CreateTopicInRegion creates a new SNS topic in the specified region.
 // If region is empty, the backend's default region is used.
 func (b *InMemoryBackend) CreateTopicInRegion(name, region string, attributes map[string]string) (*Topic, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateTopicInRegion")
 	defer b.mu.Unlock()
 
 	if region == "" {
@@ -126,7 +128,7 @@ func (b *InMemoryBackend) CreateTopicInRegion(name, region string, attributes ma
 
 // DeleteTopic removes a topic by ARN.
 func (b *InMemoryBackend) DeleteTopic(topicArn string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteTopic")
 	defer b.mu.Unlock()
 
 	if _, exists := b.topics[topicArn]; !exists {
@@ -140,7 +142,7 @@ func (b *InMemoryBackend) DeleteTopic(topicArn string) error {
 
 // ListTopics returns a page of topics and the next pagination token.
 func (b *InMemoryBackend) ListTopics(nextToken string) ([]Topic, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListTopics")
 	defer b.mu.RUnlock()
 
 	all := b.sortedTopics()
@@ -157,7 +159,7 @@ func (b *InMemoryBackend) ListTopics(nextToken string) ([]Topic, string, error) 
 
 // GetTopicAttributes returns the attributes of a topic.
 func (b *InMemoryBackend) GetTopicAttributes(topicArn string) (map[string]string, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetTopicAttributes")
 	defer b.mu.RUnlock()
 
 	topic, exists := b.topics[topicArn]
@@ -179,7 +181,7 @@ func (b *InMemoryBackend) GetTopicAttributes(topicArn string) (map[string]string
 
 // SetTopicAttributes sets a single attribute on a topic.
 func (b *InMemoryBackend) SetTopicAttributes(topicArn, attrName, attrValue string) error {
-	b.mu.Lock()
+	b.mu.Lock("SetTopicAttributes")
 	defer b.mu.Unlock()
 
 	topic, exists := b.topics[topicArn]
@@ -194,7 +196,7 @@ func (b *InMemoryBackend) SetTopicAttributes(topicArn, attrName, attrValue strin
 
 // Subscribe creates a new subscription for the given topic, protocol, and endpoint.
 func (b *InMemoryBackend) Subscribe(topicArn, protocol, endpoint, filterPolicy string) (*Subscription, error) {
-	b.mu.Lock()
+	b.mu.Lock("Subscribe")
 	defer b.mu.Unlock()
 
 	topic, exists := b.topics[topicArn]
@@ -224,7 +226,7 @@ func (b *InMemoryBackend) Subscribe(topicArn, protocol, endpoint, filterPolicy s
 
 // Unsubscribe removes a subscription by ARN.
 func (b *InMemoryBackend) Unsubscribe(subscriptionArn string) error {
-	b.mu.Lock()
+	b.mu.Lock("Unsubscribe")
 	defer b.mu.Unlock()
 
 	if _, exists := b.subscriptions[subscriptionArn]; !exists {
@@ -245,7 +247,7 @@ func (b *InMemoryBackend) ConfirmSubscription(topicArn, token string) (*Subscrip
 		return nil, ErrInvalidParameter
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("ConfirmSubscription")
 	defer b.mu.Unlock()
 
 	for _, sub := range b.subscriptions {
@@ -261,7 +263,7 @@ func (b *InMemoryBackend) ConfirmSubscription(topicArn, token string) (*Subscrip
 
 // GetSubscriptionAttributes returns the attributes of a subscription.
 func (b *InMemoryBackend) GetSubscriptionAttributes(subscriptionArn string) (map[string]string, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetSubscriptionAttributes")
 	defer b.mu.RUnlock()
 
 	sub, exists := b.subscriptions[subscriptionArn]
@@ -281,7 +283,7 @@ func (b *InMemoryBackend) GetSubscriptionAttributes(subscriptionArn string) (map
 
 // ListSubscriptions returns a page of subscriptions and the next pagination token.
 func (b *InMemoryBackend) ListSubscriptions(nextToken string) ([]Subscription, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListSubscriptions")
 	defer b.mu.RUnlock()
 
 	all := b.sortedSubscriptions()
@@ -298,7 +300,7 @@ func (b *InMemoryBackend) ListSubscriptions(nextToken string) ([]Subscription, s
 
 // ListSubscriptionsByTopic returns a page of subscriptions for a topic and the next pagination token.
 func (b *InMemoryBackend) ListSubscriptionsByTopic(topicArn, nextToken string) ([]Subscription, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListSubscriptionsByTopic")
 	defer b.mu.RUnlock()
 
 	if _, exists := b.topics[topicArn]; !exists {
@@ -330,7 +332,7 @@ func (b *InMemoryBackend) ListSubscriptionsByTopic(topicArn, nextToken string) (
 func (b *InMemoryBackend) Publish(
 	topicArn, message, subject, messageStructure string, attrs map[string]MessageAttribute,
 ) (string, error) {
-	b.mu.RLock()
+	b.mu.RLock("Publish")
 	defer b.mu.RUnlock()
 
 	if _, exists := b.topics[topicArn]; !exists {
@@ -492,7 +494,7 @@ func matchesConditions(
 
 // ListAllTopics returns all topics sorted by ARN.
 func (b *InMemoryBackend) ListAllTopics() []Topic {
-	b.mu.RLock()
+	b.mu.RLock("ListAllTopics")
 	defer b.mu.RUnlock()
 
 	return b.sortedTopics()
@@ -500,7 +502,7 @@ func (b *InMemoryBackend) ListAllTopics() []Topic {
 
 // ListAllSubscriptions returns all subscriptions sorted by ARN.
 func (b *InMemoryBackend) ListAllSubscriptions() []Subscription {
-	b.mu.RLock()
+	b.mu.RLock("ListAllSubscriptions")
 	defer b.mu.RUnlock()
 
 	return b.sortedSubscriptions()
@@ -602,29 +604,33 @@ func paginate[T any](items []T, offset, size int) ([]T, string) {
 
 // GetTopicTags returns tags for the given topic ARN.
 func (b *InMemoryBackend) GetTopicTags(arn string) map[string]string {
-	b.mu.RLock()
+	b.mu.RLock("GetTopicTags")
 	defer b.mu.RUnlock()
-	result := make(map[string]string)
-	maps.Copy(result, b.topicTags[arn])
+	if b.topicTags[arn] == nil {
+		return map[string]string{}
+	}
 
-	return result
+	return b.topicTags[arn].Clone()
 }
 
 // SetTopicTags stores tags for the given topic ARN.
-func (b *InMemoryBackend) SetTopicTags(arn string, tags map[string]string) {
-	b.mu.Lock()
+func (b *InMemoryBackend) SetTopicTags(arn string, kv *svcTags.Tags) {
+	b.mu.Lock("SetTopicTags")
 	defer b.mu.Unlock()
-	if b.topicTags[arn] == nil {
-		b.topicTags[arn] = make(map[string]string)
+	if kv == nil {
+		return
 	}
-	maps.Copy(b.topicTags[arn], tags)
+	if b.topicTags[arn] == nil {
+		b.topicTags[arn] = svcTags.New("sns." + arn + ".tags")
+	}
+	b.topicTags[arn].Merge(kv.Clone())
 }
 
 // RemoveTopicTags removes specified tag keys for the given topic ARN.
 func (b *InMemoryBackend) RemoveTopicTags(arn string, keys []string) {
-	b.mu.Lock()
+	b.mu.Lock("RemoveTopicTags")
 	defer b.mu.Unlock()
-	for _, k := range keys {
-		delete(b.topicTags[arn], k)
+	if b.topicTags[arn] != nil {
+		b.topicTags[arn].DeleteKeys(keys)
 	}
 }

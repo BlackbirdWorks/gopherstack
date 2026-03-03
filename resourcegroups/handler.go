@@ -13,6 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 var (
@@ -23,8 +24,31 @@ var (
 
 const resourceGroupsTargetPrefix = "ResourceGroups."
 
+// rgRESTPathOps is the static mapping of REST API paths to Resource Groups operation names.
+var rgRESTPathOps = map[string]string{ //nolint:gochecknoglobals // lookup table for REST path routing
+	"/groups":                  "CreateGroup",
+	"/get-group":               "GetGroup",
+	"/delete-group":            "DeleteGroup",
+	"/groups-list":             "ListGroups",
+	"/get-group-query":         "GetGroupQuery",
+	"/get-group-configuration": "GetGroupConfiguration",
+}
+
 type groupNameInput struct {
+	// Group accepts the REST API "Group" field. The value is used as-is as the group
+	// name. When set and GroupName is empty, its value is used to look up the group.
+	Group     string `json:"Group"`
 	GroupName string `json:"GroupName"`
+}
+
+// resolvedName returns the group name to use for backend operations.
+// GroupName takes precedence over Group to match the preferred lookup field.
+func (g *groupNameInput) resolvedName() string {
+	if g.GroupName != "" {
+		return g.GroupName
+	}
+
+	return g.Group
 }
 
 // Handler is the Echo HTTP handler for Resource Groups operations.
@@ -48,56 +72,82 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteGroup",
 		"ListGroups",
 		"GetGroup",
+		"GetGroupQuery",
+		"GetGroupConfiguration",
 	}
 }
 
 // RouteMatcher returns a function that matches Resource Groups requests.
+// It matches both X-Amz-Target (JSON protocol) and REST API paths used by the AWS SDK.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		return strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), resourceGroupsTargetPrefix)
+		if strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), resourceGroupsTargetPrefix) {
+			return true
+		}
+
+		_, isREST := rgRESTPathOps[c.Request().URL.Path]
+
+		return isREST
 	}
 }
 
 // MatchPriority returns the routing priority.
 func (h *Handler) MatchPriority() int { return service.PriorityHeaderExact }
 
-// ExtractOperation extracts the Resource Groups action from the X-Amz-Target header.
+// ExtractOperation extracts the Resource Groups action from the X-Amz-Target header or REST path.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
 	target := c.Request().Header.Get("X-Amz-Target")
 	action := strings.TrimPrefix(target, resourceGroupsTargetPrefix)
-	if action == "" || action == target {
-		return "Unknown"
+	if action != "" && action != target {
+		return action
 	}
 
-	return action
+	if op, ok := rgRESTPathOps[c.Request().URL.Path]; ok {
+		return op
+	}
+
+	return "Unknown"
 }
 
-type extractResourceGroupInput struct {
-	Name      string `json:"Name"`
-	GroupName string `json:"GroupName"`
-}
-
-// ExtractResource extracts the group name from the request body, checking both
-// the Name (CreateGroup) and GroupName (GetGroup/DeleteGroup) fields.
+// ExtractResource extracts the group name from the request body, checking
+// Name (CreateGroup), GroupName, and Group (REST API) fields.
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	body, err := httputil.ReadBody(c.Request())
 	if err != nil {
 		return ""
 	}
 
-	var req extractResourceGroupInput
+	var req struct {
+		Name      string `json:"Name"`
+		GroupName string `json:"GroupName"`
+		Group     string `json:"Group"`
+	}
 	_ = json.Unmarshal(body, &req)
 
 	if req.Name != "" {
 		return req.Name
 	}
 
-	return req.GroupName
+	if req.GroupName != "" {
+		return req.GroupName
+	}
+
+	return req.Group
 }
 
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		// REST API paths: POST /groups, /get-group, /delete-group, /groups-list, etc.
+		// Only POST is accepted; other methods get 405 to avoid misrouting.
+		if op, ok := rgRESTPathOps[c.Request().URL.Path]; ok {
+			if c.Request().Method != http.MethodPost {
+				return c.NoContent(http.StatusMethodNotAllowed)
+			}
+
+			return h.handleREST(c, op)
+		}
+
 		return service.HandleTarget(
 			c, logger.Load(c.Request().Context()),
 			"ResourceGroups", "application/x-amz-json-1.1",
@@ -108,23 +158,43 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byte, error) {
-	var result any
-	var err error
+// handleREST handles Resource Groups REST API calls routed by path.
+func (h *Handler) handleREST(c *echo.Context, action string) error {
+	ctx := c.Request().Context()
 
-	switch action {
-	case "CreateGroup":
-		result, err = h.handleCreateGroup(body)
-	case "DeleteGroup":
-		result, err = h.handleDeleteGroup(body)
-	case "ListGroups":
-		result, err = h.handleListGroups()
-	case "GetGroup":
-		result, err = h.handleGetGroup(body)
-	default:
+	body, err := httputil.ReadBody(c.Request())
+	if err != nil {
+		logger.Load(ctx).ErrorContext(ctx, "failed to read request body", "error", err)
+
+		return c.String(http.StatusInternalServerError, "internal server error")
+	}
+
+	response, dispErr := h.dispatch(ctx, action, body)
+	if dispErr != nil {
+		return h.handleError(ctx, c, action, dispErr)
+	}
+
+	return c.JSONBlob(http.StatusOK, response)
+}
+
+func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
+	return map[string]service.JSONOpFunc{
+		"CreateGroup":           service.WrapOp(h.handleCreateGroup),
+		"DeleteGroup":           service.WrapOp(h.handleDeleteGroup),
+		"ListGroups":            service.WrapOp(h.handleListGroups),
+		"GetGroup":              service.WrapOp(h.handleGetGroup),
+		"GetGroupQuery":         service.WrapOp(h.handleGetGroupQuery),
+		"GetGroupConfiguration": service.WrapOp(h.handleGetGroupConfiguration),
+	}
+}
+
+func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
+	fn, ok := h.dispatchTable()[action]
+	if !ok {
 		return nil, ErrUnknownOperation
 	}
 
+	result, err := fn(ctx, body)
 	if err != nil {
 		return nil, err
 	}
@@ -133,10 +203,14 @@ func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byt
 }
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
+	var syntaxErr *json.SyntaxError
+	var typeErr *json.UnmarshalTypeError
+
 	code := http.StatusInternalServerError
 
 	switch {
-	case errors.Is(err, errInvalidRequest), errors.Is(err, ErrUnknownOperation):
+	case errors.Is(err, errInvalidRequest), errors.Is(err, ErrUnknownOperation),
+		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		code = http.StatusBadRequest
 	case errors.Is(err, ErrAlreadyExists):
 		code = http.StatusBadRequest
@@ -148,61 +222,102 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 }
 
 type handleCreateGroupInput struct {
-	Tags        map[string]string `json:"Tags"`
-	Name        string            `json:"Name"`
-	Description string            `json:"Description"`
+	Tags          *tags.Tags     `json:"Tags"`
+	ResourceQuery *ResourceQuery `json:"ResourceQuery"`
+	Name          string         `json:"Name"`
+	Description   string         `json:"Description"`
 }
 
-func (h *Handler) handleCreateGroup(body []byte) (any, error) {
-	var req handleCreateGroupInput
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, errInvalidRequest
-	}
+type createGroupOutput struct {
+	Group         *Group         `json:"Group"`
+	ResourceQuery *ResourceQuery `json:"ResourceQuery,omitempty"`
+}
 
-	g, err := h.Backend.CreateGroup(req.Name, req.Description, req.Tags)
+func (h *Handler) handleCreateGroup(_ context.Context, in *handleCreateGroupInput) (*createGroupOutput, error) {
+	g, err := h.Backend.CreateGroup(in.Name, in.Description, in.ResourceQuery, in.Tags)
 	if err != nil {
 		return nil, err
 	}
 
-	return map[string]any{
-		"Group": g,
-	}, nil
+	return &createGroupOutput{Group: g, ResourceQuery: g.ResourceQuery}, nil
 }
 
-func (h *Handler) handleDeleteGroup(body []byte) (any, error) {
-	var req groupNameInput
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, errInvalidRequest
-	}
+type deleteGroupOutput struct{}
 
-	if err := h.Backend.DeleteGroup(req.GroupName); err != nil {
+func (h *Handler) handleDeleteGroup(_ context.Context, in *groupNameInput) (*deleteGroupOutput, error) {
+	if err := h.Backend.DeleteGroup(in.resolvedName()); err != nil {
 		return nil, err
 	}
 
-	return map[string]string{}, nil
+	return &deleteGroupOutput{}, nil
 }
 
-//nolint:unparam // error returned for consistent dispatch signature
-func (h *Handler) handleListGroups() (any, error) {
+type listGroupsInput struct{}
+
+type listGroupsOutput struct {
+	GroupIdentifiers []Group `json:"GroupIdentifiers"`
+}
+
+func (h *Handler) handleListGroups(_ context.Context, _ *listGroupsInput) (*listGroupsOutput, error) {
 	groups := h.Backend.ListGroups()
 
-	return map[string]any{
-		"GroupIdentifiers": groups,
-	}, nil
+	return &listGroupsOutput{GroupIdentifiers: groups}, nil
 }
 
-func (h *Handler) handleGetGroup(body []byte) (any, error) {
-	var req groupNameInput
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, errInvalidRequest
-	}
+type getGroupOutput struct {
+	Group *Group `json:"Group"`
+}
 
-	g, err := h.Backend.GetGroup(req.GroupName)
+func (h *Handler) handleGetGroup(_ context.Context, in *groupNameInput) (*getGroupOutput, error) {
+	g, err := h.Backend.GetGroup(in.resolvedName())
 	if err != nil {
 		return nil, err
 	}
 
-	return map[string]any{
-		"Group": g,
-	}, nil
+	return &getGroupOutput{Group: g}, nil
+}
+
+type getGroupQueryOutput struct {
+	GroupQuery *groupQueryOutput `json:"GroupQuery"`
+}
+
+type groupQueryOutput struct {
+	ResourceQuery *ResourceQuery `json:"ResourceQuery"`
+	GroupName     string         `json:"GroupName"`
+}
+
+func (h *Handler) handleGetGroupQuery(_ context.Context, in *groupNameInput) (*getGroupQueryOutput, error) {
+	g, err := h.Backend.GetGroup(in.resolvedName())
+	if err != nil {
+		return nil, err
+	}
+
+	return &getGroupQueryOutput{GroupQuery: &groupQueryOutput{
+		GroupName:     g.Name,
+		ResourceQuery: g.ResourceQuery,
+	}}, nil
+}
+
+type getGroupConfigurationOutput struct {
+	GroupConfiguration *groupConfigurationOutput `json:"GroupConfiguration"`
+}
+
+type groupConfigurationOutput struct {
+	GroupName     string            `json:"GroupName"`
+	Configuration []json.RawMessage `json:"Configuration"`
+}
+
+func (h *Handler) handleGetGroupConfiguration(
+	_ context.Context,
+	in *groupNameInput,
+) (*getGroupConfigurationOutput, error) {
+	g, err := h.Backend.GetGroup(in.resolvedName())
+	if err != nil {
+		return nil, err
+	}
+
+	return &getGroupConfigurationOutput{GroupConfiguration: &groupConfigurationOutput{
+		GroupName:     g.Name,
+		Configuration: []json.RawMessage{},
+	}}, nil
 }

@@ -264,13 +264,14 @@ func (b *InMemoryBackend) PutObject(
 		obj = &StoredObject{
 			Key:      key,
 			Versions: make(map[string]*StoredObjectVersion),
+			mu:       lockmetrics.New("s3.object"),
 		}
 		bucket.Objects[key] = obj
 	}
 	bucket.mu.Unlock()
 
 	// Now update the object versions under object lock (reduces contention on bucket)
-	obj.mu.Lock()
+	obj.mu.Lock("PutObject")
 	defer obj.mu.Unlock()
 
 	finalQuotedETag := "\"" + etag + "\""
@@ -408,7 +409,7 @@ func (b *InMemoryBackend) GetObject(
 	bucket.mu.RUnlock()
 
 	// Use per-object lock for version operations instead of holding bucket lock
-	obj.mu.RLock()
+	obj.mu.RLock("GetObject")
 	defer obj.mu.RUnlock()
 
 	var ver *StoredObjectVersion
@@ -495,7 +496,7 @@ func (b *InMemoryBackend) HeadObject(
 		return nil, ErrNoSuchKey
 	}
 
-	obj.mu.RLock()
+	obj.mu.RLock("HeadObject")
 	defer obj.mu.RUnlock()
 
 	var ver *StoredObjectVersion
@@ -635,6 +636,7 @@ func deleteSpecificVersion(
 		delete(obj.Versions, *versionID)
 		if len(obj.Versions) == 0 {
 			delete(bucket.Objects, key)
+			obj.mu.Close()
 		}
 
 		return &s3.DeleteObjectOutput{VersionId: versionID}
@@ -671,6 +673,7 @@ func deleteLatestVersion(bucket *StoredBucket, obj *StoredObject, key string) *s
 
 	// Suspended or null: Delete object (or null version)
 	delete(bucket.Objects, key)
+	obj.mu.Close()
 
 	return &s3.DeleteObjectOutput{}
 }
@@ -792,7 +795,7 @@ func (b *InMemoryBackend) ListObjects(
 	// Process objects outside the bucket lock
 	var contents []types.Object
 	for _, obj := range objectSnapshots {
-		obj.mu.RLock()
+		obj.mu.RLock("ListObjects")
 		latestID := obj.LatestVersionID
 		var latest *StoredObjectVersion
 		if latestID != "" {
@@ -1293,7 +1296,7 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 
 	obj, exists := bucket.Objects[key]
 	if !exists {
-		obj = &StoredObject{Key: key, Versions: make(map[string]*StoredObjectVersion)}
+		obj = &StoredObject{Key: key, Versions: make(map[string]*StoredObjectVersion), mu: lockmetrics.New("s3.object")}
 		bucket.Objects[key] = obj
 	}
 

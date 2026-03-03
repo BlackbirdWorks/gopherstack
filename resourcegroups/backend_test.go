@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 	"github.com/blackbirdworks/gopherstack/resourcegroups"
 )
 
@@ -15,7 +16,7 @@ func TestResourceGroupsCreateGroup(t *testing.T) {
 	tests := []struct {
 		wantErr     error
 		setup       func(b *resourcegroups.InMemoryBackend)
-		tags        map[string]string
+		tags        *tags.Tags
 		name        string
 		groupName   string
 		description string
@@ -29,7 +30,7 @@ func TestResourceGroupsCreateGroup(t *testing.T) {
 			name:      "already_exists",
 			groupName: "my-group",
 			setup: func(b *resourcegroups.InMemoryBackend) {
-				_, _ = b.CreateGroup("my-group", "", nil)
+				_, _ = b.CreateGroup("my-group", "", nil, nil)
 			},
 			wantErr: resourcegroups.ErrAlreadyExists,
 		},
@@ -42,7 +43,7 @@ func TestResourceGroupsCreateGroup(t *testing.T) {
 			if tt.setup != nil {
 				tt.setup(b)
 			}
-			g, err := b.CreateGroup(tt.groupName, tt.description, tt.tags)
+			g, err := b.CreateGroup(tt.groupName, tt.description, nil, tt.tags)
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -70,7 +71,7 @@ func TestResourceGroupsDeleteGroup(t *testing.T) {
 			name:      "success",
 			groupName: "my-group",
 			setup: func(b *resourcegroups.InMemoryBackend) {
-				_, _ = b.CreateGroup("my-group", "", nil)
+				_, _ = b.CreateGroup("my-group", "", nil, nil)
 			},
 		},
 		{
@@ -115,7 +116,7 @@ func TestResourceGroupsGetGroup(t *testing.T) {
 			name:      "success",
 			groupName: "my-group",
 			setup: func(b *resourcegroups.InMemoryBackend) {
-				_, _ = b.CreateGroup("my-group", "desc", map[string]string{"env": "test"})
+				_, _ = b.CreateGroup("my-group", "desc", nil, tags.FromMap("test.rg", map[string]string{"env": "test"}))
 			},
 			wantTag: "test",
 		},
@@ -143,7 +144,8 @@ func TestResourceGroupsGetGroup(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tt.groupName, g.Name)
 			if tt.wantTag != "" {
-				assert.Equal(t, tt.wantTag, g.Tags["env"])
+				v, _ := g.Tags.Get("env")
+				assert.Equal(t, tt.wantTag, v)
 			}
 		})
 	}
@@ -153,8 +155,8 @@ func TestResourceGroupsListGroups(t *testing.T) {
 	t.Parallel()
 
 	b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
-	_, _ = b.CreateGroup("group-a", "", nil)
-	_, _ = b.CreateGroup("group-b", "", nil)
+	_, _ = b.CreateGroup("group-a", "", nil, nil)
+	_, _ = b.CreateGroup("group-b", "", nil, nil)
 
 	groups := b.ListGroups()
 	assert.Len(t, groups, 2)

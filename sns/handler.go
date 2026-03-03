@@ -16,6 +16,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 const (
@@ -519,8 +520,8 @@ func parseSNSTagKeysFromForm(c *echo.Context) []string {
 
 func (h *Handler) handleTagResource(c *echo.Context) error {
 	resourceArn := c.Request().FormValue("ResourceArn")
-	tags := parseSNSTagsFromForm(c)
-	h.Backend.SetTopicTags(resourceArn, tags)
+	kv := parseSNSTagsFromForm(c)
+	h.Backend.SetTopicTags(resourceArn, svcTags.FromMap("sns."+resourceArn+".tags.input", kv))
 
 	return h.writeXML(c, struct {
 		XMLName xml.Name `xml:"https://sns.amazonaws.com/doc/2010-03-31/ TagResourceResponse"`

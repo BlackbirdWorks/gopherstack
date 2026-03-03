@@ -149,6 +149,20 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	return ""
 }
 
+type elasticacheActionFn func(c *echo.Context, form url.Values) error
+
+func (h *Handler) dispatchTable() map[string]elasticacheActionFn {
+	return map[string]elasticacheActionFn{
+		"CreateCacheCluster":        h.createCacheCluster,
+		"DeleteCacheCluster":        h.deleteCacheCluster,
+		"DescribeCacheClusters":     h.describeCacheClusters,
+		"ListTagsForResource":       h.listTagsForResource,
+		"CreateReplicationGroup":    h.createReplicationGroup,
+		"DeleteReplicationGroup":    h.deleteReplicationGroup,
+		"DescribeReplicationGroups": h.describeReplicationGroups,
+	}
+}
+
 // Handler returns the Echo handler function for ElastiCache requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
@@ -161,24 +175,12 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return c.String(http.StatusBadRequest, "cannot parse form")
 		}
 		action := vals.Get("Action")
-		switch action {
-		case "CreateCacheCluster":
-			return h.createCacheCluster(c, vals)
-		case "DeleteCacheCluster":
-			return h.deleteCacheCluster(c, vals)
-		case "DescribeCacheClusters":
-			return h.describeCacheClusters(c, vals)
-		case "ListTagsForResource":
-			return h.listTagsForResource(c, vals)
-		case "CreateReplicationGroup":
-			return h.createReplicationGroup(c, vals)
-		case "DeleteReplicationGroup":
-			return h.deleteReplicationGroup(c, vals)
-		case "DescribeReplicationGroups":
-			return h.describeReplicationGroups(c, vals)
-		default:
+		fn, ok := h.dispatchTable()[action]
+		if !ok {
 			return c.String(http.StatusBadRequest, fmt.Sprintf("unknown action: %s", action))
 		}
+
+		return fn(c, vals)
 	}
 }
 

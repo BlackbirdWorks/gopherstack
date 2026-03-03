@@ -152,6 +152,7 @@ func (j *Janitor) processBucket(ctx context.Context, name string) {
 		delete(regionBuckets, name)
 	}
 	b.mu.Unlock()
+	bucket.mu.Close()
 
 	j.Log.InfoContext(ctx, "S3 janitor: bucket deleted", "bucket", name)
 }
@@ -260,6 +261,7 @@ func (j *Janitor) evictExpiredObjects(bucket *StoredBucket, prefix string, expir
 
 		if !latestMod.After(expireBefore) {
 			delete(bucket.Objects, key)
+			obj.mu.Close()
 			evicted++
 		}
 	}
@@ -270,7 +272,7 @@ func (j *Janitor) evictExpiredObjects(bucket *StoredBucket, prefix string, expir
 // latestVersion returns the LastModified timestamp of the latest non-deleted
 // object version, or the zero time if none exists.
 func latestVersion(obj *StoredObject) time.Time {
-	obj.mu.RLock()
+	obj.mu.RLock("latestVersion")
 	defer obj.mu.RUnlock()
 
 	for _, ver := range obj.Versions {
@@ -297,8 +299,9 @@ func findBucketAcrossRegions(buckets map[string]map[string]*StoredBucket, name s
 // deleteBatch deletes up to maxCount objects from the map, returning the number deleted.
 func deleteBatch(objects map[string]*StoredObject, maxCount int) int {
 	count := 0
-	for key := range objects {
+	for key, obj := range objects {
 		delete(objects, key)
+		obj.mu.Close()
 		count++
 
 		if count >= maxCount {

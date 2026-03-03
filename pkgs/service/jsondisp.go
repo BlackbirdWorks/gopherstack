@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -26,6 +27,39 @@ type DispatchFunc func(ctx context.Context, action string, body []byte) ([]byte,
 // ErrorHandlerFunc is the signature for service-specific error handlers.
 // It translates a dispatch error into an HTTP response.
 type ErrorHandlerFunc func(ctx context.Context, c *echo.Context, action string, err error) error
+
+// HandleJSON is a generic dispatcher that decodes the JSON body into a typed input,
+// calls fn, and returns the typed output as any.
+// If body is non-empty and cannot be decoded, HandleJSON returns the decode error directly.
+func HandleJSON[In, Out any](
+	ctx context.Context,
+	body []byte,
+	fn func(context.Context, *In) (*Out, error),
+) (any, error) {
+	var input In
+
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &input); err != nil {
+			return nil, err
+		}
+	}
+
+	return fn(ctx, &input)
+}
+
+// JSONOpFunc is the function type for a dispatched JSON-protocol operation.
+// Implementations are produced by WrapOp and collected in a dispatchTable map.
+type JSONOpFunc func(ctx context.Context, body []byte) (any, error)
+
+// WrapOp adapts a typed HandleJSON handler into a JSONOpFunc for use in dispatch tables.
+// It is the canonical way to register a typed operation handler:
+//
+//	"CreateFoo": service.WrapOp(h.handleCreateFoo),
+func WrapOp[In, Out any](fn func(context.Context, *In) (*Out, error)) JSONOpFunc {
+	return func(ctx context.Context, body []byte) (any, error) {
+		return HandleJSON(ctx, body, fn)
+	}
+}
 
 // HandleTarget implements the X-Amz-Target JSON protocol dispatch pattern
 // shared by many AWS JSON-protocol services (SSM, EventBridge, StepFunctions, CloudWatchLogs, etc.).

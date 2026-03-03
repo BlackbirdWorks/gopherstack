@@ -2,11 +2,12 @@ package firehose
 
 import (
 	"fmt"
-	"maps"
-	"sync"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 var (
@@ -18,7 +19,7 @@ var (
 
 // DeliveryStream represents a Kinesis Firehose delivery stream.
 type DeliveryStream struct {
-	Tags      map[string]string
+	Tags      *tags.Tags
 	Name      string
 	ARN       string
 	Status    string
@@ -30,9 +31,9 @@ type DeliveryStream struct {
 // InMemoryBackend is the in-memory store for Firehose resources.
 type InMemoryBackend struct {
 	streams   map[string]*DeliveryStream
+	mu        *lockmetrics.RWMutex
 	accountID string
 	region    string
-	mu        sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -41,12 +42,13 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		streams:   make(map[string]*DeliveryStream),
 		accountID: accountID,
 		region:    region,
+		mu:        lockmetrics.New("firehose"),
 	}
 }
 
 // CreateDeliveryStream creates a new delivery stream.
 func (b *InMemoryBackend) CreateDeliveryStream(name string) (*DeliveryStream, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateDeliveryStream")
 	defer b.mu.Unlock()
 
 	if _, ok := b.streams[name]; ok {
@@ -59,7 +61,7 @@ func (b *InMemoryBackend) CreateDeliveryStream(name string) (*DeliveryStream, er
 		ARN:       streamARN,
 		Status:    "ACTIVE",
 		Records:   [][]byte{},
-		Tags:      make(map[string]string),
+		Tags:      tags.New("firehose." + name + ".tags"),
 		AccountID: b.accountID,
 		Region:    b.region,
 	}
@@ -72,7 +74,7 @@ func (b *InMemoryBackend) CreateDeliveryStream(name string) (*DeliveryStream, er
 
 // DeleteDeliveryStream deletes a delivery stream.
 func (b *InMemoryBackend) DeleteDeliveryStream(name string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteDeliveryStream")
 	defer b.mu.Unlock()
 
 	if _, ok := b.streams[name]; !ok {
@@ -86,7 +88,7 @@ func (b *InMemoryBackend) DeleteDeliveryStream(name string) error {
 
 // DescribeDeliveryStream returns a delivery stream by name.
 func (b *InMemoryBackend) DescribeDeliveryStream(name string) (*DeliveryStream, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeDeliveryStream")
 	defer b.mu.RUnlock()
 
 	s, ok := b.streams[name]
@@ -101,7 +103,7 @@ func (b *InMemoryBackend) DescribeDeliveryStream(name string) (*DeliveryStream, 
 
 // ListDeliveryStreams returns all delivery stream names.
 func (b *InMemoryBackend) ListDeliveryStreams() []string {
-	b.mu.RLock()
+	b.mu.RLock("ListDeliveryStreams")
 	defer b.mu.RUnlock()
 
 	names := make([]string, 0, len(b.streams))
@@ -114,7 +116,7 @@ func (b *InMemoryBackend) ListDeliveryStreams() []string {
 
 // PutRecord appends a record to the delivery stream.
 func (b *InMemoryBackend) PutRecord(streamName string, data []byte) error {
-	b.mu.Lock()
+	b.mu.Lock("PutRecord")
 	defer b.mu.Unlock()
 
 	s, ok := b.streams[streamName]
@@ -129,7 +131,7 @@ func (b *InMemoryBackend) PutRecord(streamName string, data []byte) error {
 
 // PutRecordBatch appends multiple records to the delivery stream.
 func (b *InMemoryBackend) PutRecordBatch(streamName string, records [][]byte) (int, error) {
-	b.mu.Lock()
+	b.mu.Lock("PutRecordBatch")
 	defer b.mu.Unlock()
 
 	s, ok := b.streams[streamName]
@@ -144,7 +146,7 @@ func (b *InMemoryBackend) PutRecordBatch(streamName string, records [][]byte) (i
 
 // ListTagsForDeliveryStream returns tags for a delivery stream.
 func (b *InMemoryBackend) ListTagsForDeliveryStream(name string) (map[string]string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListTagsForDeliveryStream")
 	defer b.mu.RUnlock()
 
 	s, ok := b.streams[name]
@@ -152,15 +154,12 @@ func (b *InMemoryBackend) ListTagsForDeliveryStream(name string) (map[string]str
 		return nil, fmt.Errorf("%w: stream %s not found", ErrNotFound, name)
 	}
 
-	result := make(map[string]string, len(s.Tags))
-	maps.Copy(result, s.Tags)
-
-	return result, nil
+	return s.Tags.Clone(), nil
 }
 
 // TagDeliveryStream adds or updates tags on a delivery stream.
-func (b *InMemoryBackend) TagDeliveryStream(name string, tags map[string]string) error {
-	b.mu.Lock()
+func (b *InMemoryBackend) TagDeliveryStream(name string, kv map[string]string) error {
+	b.mu.Lock("TagDeliveryStream")
 	defer b.mu.Unlock()
 
 	s, ok := b.streams[name]
@@ -168,14 +167,14 @@ func (b *InMemoryBackend) TagDeliveryStream(name string, tags map[string]string)
 		return fmt.Errorf("%w: stream %s not found", ErrNotFound, name)
 	}
 
-	maps.Copy(s.Tags, tags)
+	s.Tags.Merge(kv)
 
 	return nil
 }
 
 // UntagDeliveryStream removes tag keys from a delivery stream.
 func (b *InMemoryBackend) UntagDeliveryStream(name string, keys []string) error {
-	b.mu.Lock()
+	b.mu.Lock("UntagDeliveryStream")
 	defer b.mu.Unlock()
 
 	s, ok := b.streams[name]
@@ -183,9 +182,7 @@ func (b *InMemoryBackend) UntagDeliveryStream(name string, keys []string) error 
 		return fmt.Errorf("%w: stream %s not found", ErrNotFound, name)
 	}
 
-	for _, k := range keys {
-		delete(s.Tags, k)
-	}
+	s.Tags.DeleteKeys(keys)
 
 	return nil
 }

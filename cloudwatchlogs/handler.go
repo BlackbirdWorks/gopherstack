@@ -9,13 +9,14 @@ import (
 	"maps"
 	"net/http"
 	"strings"
-	"sync"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 var errUnknownOperation = errors.New("UnknownOperationException")
@@ -80,8 +81,8 @@ type listTagsForResourceInput struct {
 }
 
 type tagLogGroupInput struct {
-	Tags         map[string]string `json:"tags"`
-	LogGroupName string            `json:"logGroupName"`
+	Tags         *tags.Tags `json:"tags"`
+	LogGroupName string     `json:"logGroupName"`
 }
 
 type untagLogGroupInput struct {
@@ -93,39 +94,47 @@ type untagLogGroupInput struct {
 type Handler struct {
 	Backend StorageBackend
 	Logger  *slog.Logger
-	tags    map[string]map[string]string
-	tagsMu  sync.RWMutex
+	tags    map[string]*tags.Tags
+	tagsMu  *lockmetrics.RWMutex
 }
 
 // NewHandler creates a new CloudWatch Logs handler.
 func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
-	return &Handler{Backend: backend, Logger: log, tags: make(map[string]map[string]string)}
+	return &Handler{
+		Backend: backend,
+		Logger:  log,
+		tags:    make(map[string]*tags.Tags),
+		tagsMu:  lockmetrics.New("cwl.tags"),
+	}
 }
 
 func (h *Handler) setTags(resourceID string, kv map[string]string) {
-	h.tagsMu.Lock()
+	h.tagsMu.Lock("setTags")
 	defer h.tagsMu.Unlock()
 	if h.tags[resourceID] == nil {
-		h.tags[resourceID] = make(map[string]string)
+		h.tags[resourceID] = tags.New("cwl." + resourceID + ".tags")
 	}
-	maps.Copy(h.tags[resourceID], kv)
+	h.tags[resourceID].Merge(kv)
 }
 
 func (h *Handler) removeTags(resourceID string, keys []string) {
-	h.tagsMu.Lock()
-	defer h.tagsMu.Unlock()
-	for _, k := range keys {
-		delete(h.tags[resourceID], k)
+	h.tagsMu.RLock("removeTags")
+	t := h.tags[resourceID]
+	h.tagsMu.RUnlock()
+	if t != nil {
+		t.DeleteKeys(keys)
 	}
 }
 
 func (h *Handler) getTags(resourceID string) map[string]string {
-	h.tagsMu.RLock()
-	defer h.tagsMu.RUnlock()
-	result := make(map[string]string)
-	maps.Copy(result, h.tags[resourceID])
+	h.tagsMu.RLock("getTags")
+	t := h.tags[resourceID]
+	h.tagsMu.RUnlock()
+	if t == nil {
+		return map[string]string{}
+	}
 
-	return result
+	return t.Clone()
 }
 
 // Name returns the service name.
@@ -213,6 +222,53 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 type actionFn func([]byte) (any, error)
 
+type createLogGroupOutput struct{}
+
+type deleteLogGroupOutput struct{}
+
+type describeLogGroupsOutput struct {
+	NextToken string     `json:"nextToken,omitempty"`
+	LogGroups []LogGroup `json:"logGroups"`
+}
+
+type createLogStreamOutput struct{}
+
+type describeLogStreamsOutput struct {
+	NextToken  string      `json:"nextToken,omitempty"`
+	LogStreams []LogStream `json:"logStreams"`
+}
+
+type putLogEventsOutput struct {
+	NextSequenceToken string `json:"nextSequenceToken"`
+}
+
+type getLogEventsOutput struct {
+	NextForwardToken  string           `json:"nextForwardToken"`
+	NextBackwardToken string           `json:"nextBackwardToken"`
+	Events            []OutputLogEvent `json:"events"`
+}
+
+type filterLogEventsOutput struct {
+	NextToken string           `json:"nextToken,omitempty"`
+	Events    []OutputLogEvent `json:"events"`
+}
+
+type listTagsLogGroupOutput struct {
+	Tags map[string]string `json:"tags"`
+}
+
+type listTagsForResourceOutput struct {
+	Tags map[string]string `json:"tags"`
+}
+
+type tagLogGroupOutput struct{}
+
+type untagLogGroupOutput struct{}
+
+type putRetentionPolicyOutput struct{}
+
+type deleteRetentionPolicyOutput struct{}
+
 func (h *Handler) logGroupActions() map[string]actionFn {
 	return map[string]actionFn{
 		"CreateLogGroup": func(b []byte) (any, error) {
@@ -224,7 +280,7 @@ func (h *Handler) logGroupActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return map[string]any{}, nil
+			return &createLogGroupOutput{}, nil
 		},
 		"DeleteLogGroup": func(b []byte) (any, error) {
 			var input deleteLogGroupInput
@@ -235,7 +291,7 @@ func (h *Handler) logGroupActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return map[string]any{}, nil
+			return &deleteLogGroupOutput{}, nil
 		},
 		"DescribeLogGroups": func(b []byte) (any, error) {
 			var input describeLogGroupsInput
@@ -246,12 +302,8 @@ func (h *Handler) logGroupActions() map[string]actionFn {
 			if err != nil {
 				return nil, err
 			}
-			resp := map[string]any{"logGroups": groups}
-			if next != "" {
-				resp["nextToken"] = next
-			}
 
-			return resp, nil
+			return &describeLogGroupsOutput{LogGroups: groups, NextToken: next}, nil
 		},
 	}
 }
@@ -267,7 +319,7 @@ func (h *Handler) logStreamActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return map[string]any{}, nil
+			return &createLogStreamOutput{}, nil
 		},
 		"DescribeLogStreams": func(b []byte) (any, error) {
 			var input describeLogStreamsInput
@@ -279,12 +331,8 @@ func (h *Handler) logStreamActions() map[string]actionFn {
 			if err != nil {
 				return nil, err
 			}
-			resp := map[string]any{"logStreams": streams}
-			if next != "" {
-				resp["nextToken"] = next
-			}
 
-			return resp, nil
+			return &describeLogStreamsOutput{LogStreams: streams, NextToken: next}, nil
 		},
 	}
 }
@@ -301,7 +349,7 @@ func (h *Handler) logEventActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return map[string]any{"nextSequenceToken": next}, nil
+			return &putLogEventsOutput{NextSequenceToken: next}, nil
 		},
 		"GetLogEvents": func(b []byte) (any, error) {
 			var input getLogEventsInput
@@ -315,10 +363,10 @@ func (h *Handler) logEventActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return map[string]any{
-				"events":            evts,
-				"nextForwardToken":  fwd,
-				"nextBackwardToken": bwd,
+			return &getLogEventsOutput{
+				Events:            evts,
+				NextForwardToken:  fwd,
+				NextBackwardToken: bwd,
 			}, nil
 		},
 		"FilterLogEvents": func(b []byte) (any, error) {
@@ -332,12 +380,8 @@ func (h *Handler) logEventActions() map[string]actionFn {
 			if err != nil {
 				return nil, err
 			}
-			resp := map[string]any{"events": evts}
-			if next != "" {
-				resp["nextToken"] = next
-			}
 
-			return resp, nil
+			return &filterLogEventsOutput{Events: evts, NextToken: next}, nil
 		},
 	}
 }
@@ -350,7 +394,7 @@ func (h *Handler) logTagActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return map[string]any{"tags": h.getTags(input.LogGroupName)}, nil
+			return &listTagsLogGroupOutput{Tags: h.getTags(input.LogGroupName)}, nil
 		},
 		"ListTagsForResource": func(b []byte) (any, error) {
 			var input listTagsForResourceInput
@@ -358,16 +402,20 @@ func (h *Handler) logTagActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return map[string]any{"tags": h.getTags(input.ResourceArn)}, nil
+			return &listTagsForResourceOutput{Tags: h.getTags(input.ResourceArn)}, nil
 		},
 		"TagLogGroup": func(b []byte) (any, error) {
 			var input tagLogGroupInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			h.setTags(input.LogGroupName, input.Tags)
+			var kv map[string]string
+			if input.Tags != nil {
+				kv = input.Tags.Clone()
+			}
+			h.setTags(input.LogGroupName, kv)
 
-			return struct{}{}, nil
+			return &tagLogGroupOutput{}, nil
 		},
 		"UntagLogGroup": func(b []byte) (any, error) {
 			var input untagLogGroupInput
@@ -376,14 +424,14 @@ func (h *Handler) logTagActions() map[string]actionFn {
 			}
 			h.removeTags(input.LogGroupName, input.Tags)
 
-			return struct{}{}, nil
+			return &untagLogGroupOutput{}, nil
 		},
 		"PutRetentionPolicy": func(_ []byte) (any, error) {
 			// Stub: accept any retention days, return success.
-			return struct{}{}, nil
+			return &putRetentionPolicyOutput{}, nil
 		},
 		"DeleteRetentionPolicy": func(_ []byte) (any, error) {
-			return struct{}{}, nil
+			return &deleteRetentionPolicyOutput{}, nil
 		},
 	}
 }

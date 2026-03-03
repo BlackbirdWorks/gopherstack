@@ -12,8 +12,11 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 var (
@@ -137,8 +140,8 @@ type StorageBackend interface {
 type InMemoryBackend struct {
 	parameters map[string]Parameter
 	history    map[string][]ParameterHistory // Stores all versions of each parameter
-	tags       map[string]map[string]string  // paramName -> tags
-	mu         sync.RWMutex
+	tags       map[string]*tags.Tags         // paramName -> tags
+	mu         *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new empty InMemoryBackend.
@@ -146,7 +149,8 @@ func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
 		parameters: make(map[string]Parameter),
 		history:    make(map[string][]ParameterHistory),
-		tags:       make(map[string]map[string]string),
+		tags:       make(map[string]*tags.Tags),
+		mu:         lockmetrics.New("ssm"),
 	}
 }
 
@@ -156,7 +160,7 @@ func (b *InMemoryBackend) PutParameter(input *PutParameterInput) (*PutParameterO
 		return nil, err
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("PutParameter")
 	defer b.mu.Unlock()
 
 	existing, exists := b.parameters[input.Name]
@@ -206,7 +210,7 @@ func (b *InMemoryBackend) PutParameter(input *PutParameterInput) (*PutParameterO
 
 // GetParameter retrieves a single parameter.
 func (b *InMemoryBackend) GetParameter(input *GetParameterInput) (*GetParameterOutput, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetParameter")
 	defer b.mu.RUnlock()
 
 	param, exists := b.parameters[input.Name]
@@ -229,7 +233,7 @@ func (b *InMemoryBackend) GetParameter(input *GetParameterInput) (*GetParameterO
 
 // GetParameters retrieves multiple parameters. Missing names are returned as InvalidParameters.
 func (b *InMemoryBackend) GetParameters(input *GetParametersInput) (*GetParametersOutput, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetParameters")
 	defer b.mu.RUnlock()
 
 	output := &GetParametersOutput{
@@ -261,7 +265,7 @@ func (b *InMemoryBackend) GetParameters(input *GetParametersInput) (*GetParamete
 
 // DeleteParameter deletes a single parameter.
 func (b *InMemoryBackend) DeleteParameter(input *DeleteParameterInput) (*DeleteParameterOutput, error) {
-	b.mu.Lock()
+	b.mu.Lock("DeleteParameter")
 	defer b.mu.Unlock()
 
 	if _, exists := b.parameters[input.Name]; !exists {
@@ -275,7 +279,7 @@ func (b *InMemoryBackend) DeleteParameter(input *DeleteParameterInput) (*DeleteP
 
 // DeleteParameters deletes multiple parameters.
 func (b *InMemoryBackend) DeleteParameters(input *DeleteParametersInput) (*DeleteParametersOutput, error) {
-	b.mu.Lock()
+	b.mu.Lock("DeleteParameters")
 	defer b.mu.Unlock()
 
 	output := &DeleteParametersOutput{
@@ -297,7 +301,7 @@ func (b *InMemoryBackend) DeleteParameters(input *DeleteParametersInput) (*Delet
 
 // GetParameterHistory retrieves all versions of a parameter.
 func (b *InMemoryBackend) GetParameterHistory(input *GetParameterHistoryInput) (*GetParameterHistoryOutput, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetParameterHistory")
 	defer b.mu.RUnlock()
 
 	historyList, exists := b.history[input.Name]
@@ -327,7 +331,7 @@ func (b *InMemoryBackend) GetParameterHistory(input *GetParameterHistoryInput) (
 
 // ListAll returns all parameters sorted by name (useful for Dashboard UI).
 func (b *InMemoryBackend) ListAll() []Parameter {
-	b.mu.RLock()
+	b.mu.RLock("ListAll")
 	defer b.mu.RUnlock()
 
 	params := make([]Parameter, 0, len(b.parameters))
@@ -363,7 +367,7 @@ func paramMatchesPath(name, path string, recursive bool) bool {
 
 // GetParametersByPath returns parameters whose names begin with the given path.
 func (b *InMemoryBackend) GetParametersByPath(input *GetParametersByPathInput) (*GetParametersByPathOutput, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetParametersByPath")
 	defer b.mu.RUnlock()
 
 	// Normalize path to end with /
@@ -426,7 +430,7 @@ func (b *InMemoryBackend) GetParametersByPath(input *GetParametersByPathInput) (
 
 // DescribeParameters returns metadata for all parameters (no values).
 func (b *InMemoryBackend) DescribeParameters(input *DescribeParametersInput) (*DescribeParametersOutput, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeParameters")
 	defer b.mu.RUnlock()
 
 	all := make([]ParameterMetadata, 0, len(b.parameters))
@@ -551,7 +555,7 @@ func paramMatchesFilter(meta ParameterMetadata, f ParameterFilter) bool {
 
 // AddTagsToResource adds or updates tags for a parameter.
 func (b *InMemoryBackend) AddTagsToResource(input *AddTagsToResourceInput) error {
-	b.mu.Lock()
+	b.mu.Lock("AddTagsToResource")
 	defer b.mu.Unlock()
 
 	name := input.ResourceID
@@ -559,10 +563,10 @@ func (b *InMemoryBackend) AddTagsToResource(input *AddTagsToResourceInput) error
 		return ErrParameterNotFound
 	}
 	if b.tags[name] == nil {
-		b.tags[name] = make(map[string]string)
+		b.tags[name] = tags.New("ssm." + name + ".tags")
 	}
 	for _, t := range input.Tags {
-		b.tags[name][t.Key] = t.Value
+		b.tags[name].Set(t.Key, t.Value)
 	}
 
 	return nil
@@ -570,15 +574,15 @@ func (b *InMemoryBackend) AddTagsToResource(input *AddTagsToResourceInput) error
 
 // RemoveTagsFromResource removes tags from a parameter.
 func (b *InMemoryBackend) RemoveTagsFromResource(input *RemoveTagsFromResourceInput) error {
-	b.mu.Lock()
+	b.mu.Lock("RemoveTagsFromResource")
 	defer b.mu.Unlock()
 
 	name := input.ResourceID
 	if _, ok := b.parameters[name]; !ok {
 		return ErrParameterNotFound
 	}
-	for _, k := range input.TagKeys {
-		delete(b.tags[name], k)
+	if b.tags[name] != nil {
+		b.tags[name].DeleteKeys(input.TagKeys)
 	}
 
 	return nil
@@ -586,7 +590,7 @@ func (b *InMemoryBackend) RemoveTagsFromResource(input *RemoveTagsFromResourceIn
 
 // ListTagsForResource returns all tags for a parameter.
 func (b *InMemoryBackend) ListTagsForResource(input *ListTagsForResourceInput) (*ListTagsForResourceOutput, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
 	name := input.ResourceID
@@ -594,8 +598,10 @@ func (b *InMemoryBackend) ListTagsForResource(input *ListTagsForResourceInput) (
 		return nil, ErrParameterNotFound
 	}
 	var tagList []Tag
-	for k, v := range b.tags[name] {
-		tagList = append(tagList, Tag{Key: k, Value: v})
+	if b.tags[name] != nil {
+		for k, v := range b.tags[name].Clone() {
+			tagList = append(tagList, Tag{Key: k, Value: v})
+		}
 	}
 	sort.Slice(tagList, func(i, j int) bool { return tagList[i].Key < tagList[j].Key })
 

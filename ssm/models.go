@@ -1,16 +1,20 @@
 package ssm
 
-import "time"
+import (
+	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
+)
 
 // Parameter represents a single SSM Parameter.
 type Parameter struct {
-	Name             string            `json:"Name"`
-	Type             string            `json:"Type"`
-	Value            string            `json:"Value"`
-	Tags             map[string]string `json:"Tags,omitempty"`
-	Description      string            `json:"Description,omitempty"`
-	Version          int64             `json:"Version"`
-	LastModifiedDate float64           `json:"LastModifiedDate"`
+	Name             string     `json:"Name"`
+	Type             string     `json:"Type"`
+	Value            string     `json:"Value"`
+	Tags             *tags.Tags `json:"Tags,omitempty"`
+	Description      string     `json:"Description,omitempty"`
+	Version          int64      `json:"Version"`
+	LastModifiedDate float64    `json:"LastModifiedDate"`
 }
 
 // PutParameterInput represents the request payload for PutParameter.

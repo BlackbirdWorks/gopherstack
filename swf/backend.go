@@ -3,7 +3,8 @@ package swf
 import (
 	"errors"
 	"fmt"
-	"sync"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
@@ -21,9 +22,9 @@ var (
 
 // Domain represents an SWF domain.
 type Domain struct {
-	Name        string
-	Description string
-	Status      string // REGISTERED or DEPRECATED
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Status      string `json:"status"` // REGISTERED or DEPRECATED
 }
 
 // WorkflowType represents an SWF workflow type.
@@ -47,7 +48,7 @@ type InMemoryBackend struct {
 	domains    map[string]*Domain
 	workflows  map[string]*WorkflowType      // key: domain+":"+name+":"+version
 	executions map[string]*WorkflowExecution // key: domain+":"+workflowID
-	mu         sync.RWMutex
+	mu         *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -56,12 +57,13 @@ func NewInMemoryBackend() *InMemoryBackend {
 		domains:    make(map[string]*Domain),
 		workflows:  make(map[string]*WorkflowType),
 		executions: make(map[string]*WorkflowExecution),
+		mu:         lockmetrics.New("swf"),
 	}
 }
 
 // RegisterDomain registers a new SWF domain.
 func (b *InMemoryBackend) RegisterDomain(name, description string) error {
-	b.mu.Lock()
+	b.mu.Lock("RegisterDomain")
 	defer b.mu.Unlock()
 
 	if d, ok := b.domains[name]; ok {
@@ -79,7 +81,7 @@ func (b *InMemoryBackend) RegisterDomain(name, description string) error {
 
 // ListDomains returns all domains with the given status.
 func (b *InMemoryBackend) ListDomains(registrationStatus string) []Domain {
-	b.mu.RLock()
+	b.mu.RLock("ListDomains")
 	defer b.mu.RUnlock()
 
 	out := make([]Domain, 0, len(b.domains))
@@ -92,9 +94,24 @@ func (b *InMemoryBackend) ListDomains(registrationStatus string) []Domain {
 	return out
 }
 
+// DescribeDomain returns the details of a registered SWF domain.
+func (b *InMemoryBackend) DescribeDomain(name string) (*Domain, error) {
+	b.mu.RLock("DescribeDomain")
+	defer b.mu.RUnlock()
+
+	d, ok := b.domains[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrNotFound, name)
+	}
+
+	cp := *d
+
+	return &cp, nil
+}
+
 // DeprecateDomain marks a domain as deprecated.
 func (b *InMemoryBackend) DeprecateDomain(name string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeprecateDomain")
 	defer b.mu.Unlock()
 
 	d, ok := b.domains[name]
@@ -109,7 +126,7 @@ func (b *InMemoryBackend) DeprecateDomain(name string) error {
 
 // RegisterWorkflowType registers a new workflow type.
 func (b *InMemoryBackend) RegisterWorkflowType(domain, name, version string) error {
-	b.mu.Lock()
+	b.mu.Lock("RegisterWorkflowType")
 	defer b.mu.Unlock()
 
 	key := domain + ":" + name + ":" + version
@@ -124,7 +141,7 @@ func (b *InMemoryBackend) RegisterWorkflowType(domain, name, version string) err
 
 // ListWorkflowTypes returns all workflow types for a domain.
 func (b *InMemoryBackend) ListWorkflowTypes(domain string) []WorkflowType {
-	b.mu.RLock()
+	b.mu.RLock("ListWorkflowTypes")
 	defer b.mu.RUnlock()
 
 	out := make([]WorkflowType, 0)
@@ -139,7 +156,7 @@ func (b *InMemoryBackend) ListWorkflowTypes(domain string) []WorkflowType {
 
 // StartWorkflowExecution starts a new workflow execution.
 func (b *InMemoryBackend) StartWorkflowExecution(domain, workflowID, runID string) (*WorkflowExecution, error) {
-	b.mu.Lock()
+	b.mu.Lock("StartWorkflowExecution")
 	defer b.mu.Unlock()
 
 	key := domain + ":" + workflowID
@@ -153,7 +170,7 @@ func (b *InMemoryBackend) StartWorkflowExecution(domain, workflowID, runID strin
 
 // DescribeWorkflowExecution returns a workflow execution.
 func (b *InMemoryBackend) DescribeWorkflowExecution(domain, workflowID string) (*WorkflowExecution, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeWorkflowExecution")
 	defer b.mu.RUnlock()
 
 	key := domain + ":" + workflowID

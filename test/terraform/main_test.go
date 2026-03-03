@@ -18,10 +18,13 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	acmsvc "github.com/aws/aws-sdk-go-v2/service/acm"
+	apigwsvc "github.com/aws/aws-sdk-go-v2/service/apigateway"
 	cfnsvc "github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	cwsvc "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cwlogssvc "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	configsvc "github.com/aws/aws-sdk-go-v2/service/configservice"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	ec2svc "github.com/aws/aws-sdk-go-v2/service/ec2"
 	elasticachesvc "github.com/aws/aws-sdk-go-v2/service/elasticache"
 	ebsvc "github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	firehosesvc "github.com/aws/aws-sdk-go-v2/service/firehose"
@@ -32,14 +35,19 @@ import (
 	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
 	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
+	resourcegroupssvc "github.com/aws/aws-sdk-go-v2/service/resourcegroups"
 	route53svc "github.com/aws/aws-sdk-go-v2/service/route53"
+	route53resolversvc "github.com/aws/aws-sdk-go-v2/service/route53resolver"
 	s3svc "github.com/aws/aws-sdk-go-v2/service/s3"
+	s3controlsvc "github.com/aws/aws-sdk-go-v2/service/s3control"
+	schedulersvc "github.com/aws/aws-sdk-go-v2/service/scheduler"
 	secretssvc "github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	sessvc "github.com/aws/aws-sdk-go-v2/service/ses"
 	sfnsvc "github.com/aws/aws-sdk-go-v2/service/sfn"
 	snssvc "github.com/aws/aws-sdk-go-v2/service/sns"
 	sqssvc "github.com/aws/aws-sdk-go-v2/service/sqs"
 	ssmsvc "github.com/aws/aws-sdk-go-v2/service/ssm"
+	swfsvc "github.com/aws/aws-sdk-go-v2/service/swf"
 	"github.com/docker/docker/api/types/build"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -124,11 +132,22 @@ func TestMain(m *testing.M) {
 	endpoint = fmt.Sprintf("http://localhost:%s", mappedPort.Port())
 	logger.Info("Gopherstack running", "endpoint", endpoint)
 
+	// Pre-download the tofu binary once in single-threaded setup so that no
+	// parallel test pays the download cost.
+	initTofuBinary(logger)
+
 	// Warm the shared provider cache with a single tofu init so that parallel
 	// tests don't all race to download the ~300 MB hashicorp/aws provider.
 	warmProviderCache(logger)
 
 	code := m.Run()
+
+	// Clean up pre-initialized directories kept open for parallel tests.
+	for _, d := range []string{preInitDirMain, preInitDirRDS} {
+		if d != "" {
+			os.RemoveAll(d)
+		}
+	}
 
 	if tErr := container.Terminate(ctx); tErr != nil {
 		logger.Error("failed to terminate container", "error", tErr)
@@ -612,49 +631,77 @@ func createFirehoseClient(t *testing.T) *firehosesvc.Client {
 	})
 }
 
+// initTofuBinary eagerly resolves the tofu binary path (downloading it if
+// necessary) during single-threaded TestMain setup. This ensures that no
+// parallel test blocks waiting for the [sync.Once]-guarded download.
+func initTofuBinary(logger *slog.Logger) {
+	tofuBinaryOnce.Do(func() {
+		if path, err := exec.LookPath("tofu"); err == nil {
+			tofuBinaryPath = path
+
+			return
+		}
+
+		logger.Info("tofu not found in PATH; downloading from OpenTofu releases...")
+
+		tofuBinaryPath, errTofuBinary = downloadTofuBinary(logger)
+	})
+
+	if errTofuBinary != nil {
+		logger.Error("could not obtain tofu binary", "error", errTofuBinary)
+		os.Exit(1)
+	}
+}
+
 // warmProviderCache runs a single tofu init to ensure the shared provider cache
 // is populated before parallel tests start. This avoids 8+ concurrent tests all
 // racing to download the ~300 MB hashicorp/aws provider simultaneously.
+// It also keeps the initialized directories so applyTofu can hard-link the
+// .terraform/ directory tree instead of re-running init (which serializes on
+// the plugin-cache file lock).
 func warmProviderCache(logger *slog.Logger) {
-	tofuBin, err := exec.LookPath("tofu")
-	if err != nil {
-		logger.Warn("skipping provider cache warm-up: tofu not in PATH", "error", err)
+	if tofuBinaryPath == "" {
+		logger.Warn("skipping provider cache warm-up: tofu binary not available")
 
 		return
 	}
 
-	dir, err := os.MkdirTemp("", "tofu-warmup-*")
-	if err != nil {
-		logger.Warn("skipping provider cache warm-up", "error", err)
-
-		return
-	}
-	defer os.RemoveAll(dir)
-
-	// Minimal HCL that declares the AWS provider so tofu downloads it.
-	hcl := []byte(`terraform {
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.0"
-    }
-  }
-}
-`)
-	if writeErr := os.WriteFile(filepath.Join(dir, "main.tf"), hcl, 0o644); writeErr != nil {
-		logger.Warn("skipping provider cache warm-up", "error", writeErr)
-
-		return
-	}
-
-	cacheDir := filepath.Join(os.TempDir(), "gopherstack-tofu-provider-cache")
-	if mkdirErr := os.MkdirAll(cacheDir, 0o755); mkdirErr != nil {
+	if mkdirErr := os.MkdirAll(tofuProviderCacheDir, 0o755); mkdirErr != nil {
 		logger.Warn("skipping provider cache warm-up", "error", mkdirErr)
 
 		return
 	}
 
-	cmd := exec.Command(tofuBin, "init", "-backend=false", "-no-color")
+	// Warm all provider block variants used by tests so no test pays the
+	// first-access initialization cost.
+	preInitDirMain = warmWithHCL(tofuBinaryPath, tofuProviderCacheDir, providerBlock(endpoint), logger)
+	preInitDirRDS = warmWithHCL(tofuBinaryPath, tofuProviderCacheDir, rdsProviderBlock(endpoint), logger)
+}
+
+// warmWithHCL runs `tofu init` in a temporary directory with the given HCL to
+// populate the shared provider cache and produce a fully initialized .terraform/
+// subtree (including .terraform/terraform.tfstate). It returns the directory path
+// so callers can reuse the initialized .terraform/ subtree via hardLinkDir; the
+// caller is responsible for cleanup (os.RemoveAll). Returns an empty string on
+// failure.
+func warmWithHCL(tofuBin, cacheDir, hcl string, logger *slog.Logger) string {
+	dir, err := os.MkdirTemp("", "tofu-warmup-*")
+	if err != nil {
+		logger.Warn("skipping provider cache warm-up", "error", err)
+
+		return ""
+	}
+
+	if writeErr := os.WriteFile(filepath.Join(dir, "main.tf"), []byte(hcl), 0o644); writeErr != nil {
+		logger.Warn("skipping provider cache warm-up", "error", writeErr)
+		if rmErr := os.RemoveAll(dir); rmErr != nil {
+			logger.Warn("failed to remove warm-up temp dir", "dir", dir, "error", rmErr)
+		}
+
+		return ""
+	}
+
+	cmd := exec.Command(tofuBin, "init", "-no-color")
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(),
 		"TF_IN_AUTOMATION=1",
@@ -665,11 +712,16 @@ func warmProviderCache(logger *slog.Logger) {
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		logger.Warn("provider cache warm-up failed", "error", err, "output", string(out))
+		if rmErr := os.RemoveAll(dir); rmErr != nil {
+			logger.Warn("failed to remove warm-up temp dir", "dir", dir, "error", rmErr)
+		}
 
-		return
+		return ""
 	}
 
 	logger.Info("provider cache warmed successfully")
+
+	return dir
 }
 
 // dumpContainerLogsOnFailure dumps the container logs to stdout if the test failed.
@@ -707,5 +759,165 @@ func dumpContainerLogsOnFailure(t *testing.T) {
 
 		t.Logf("%s", string(logBytes))
 		t.Log("\n========== END CONTAINER LOGS ==========\n")
+	})
+}
+
+// createEC2Client returns an EC2 client pointed at the shared test container.
+func createEC2Client(t *testing.T) *ec2svc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return ec2svc.NewFromConfig(cfg, func(o *ec2svc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createAPIGatewayClient returns an API Gateway client pointed at the shared test container.
+func createAPIGatewayClient(t *testing.T) *apigwsvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return apigwsvc.NewFromConfig(cfg, func(o *apigwsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createSchedulerClient returns a Scheduler client pointed at the shared test container.
+func createSchedulerClient(t *testing.T) *schedulersvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return schedulersvc.NewFromConfig(cfg, func(o *schedulersvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createRoute53ResolverClient returns a Route53 Resolver client pointed at the shared test container.
+func createRoute53ResolverClient(t *testing.T) *route53resolversvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return route53resolversvc.NewFromConfig(cfg, func(o *route53resolversvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createS3ControlClient returns an S3 Control client pointed at the shared test container.
+func createS3ControlClient(t *testing.T) *s3controlsvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return s3controlsvc.NewFromConfig(cfg, func(o *s3controlsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createAWSConfigClient returns an AWS Config client pointed at the shared test container.
+func createAWSConfigClient(t *testing.T) *configsvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return configsvc.NewFromConfig(cfg, func(o *configsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createResourceGroupsClient returns a Resource Groups client pointed at the shared test container.
+func createResourceGroupsClient(t *testing.T) *resourcegroupssvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return resourcegroupssvc.NewFromConfig(cfg, func(o *resourcegroupssvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createSWFClient returns an SWF client pointed at the shared test container.
+func createSWFClient(t *testing.T) *swfsvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return swfsvc.NewFromConfig(cfg, func(o *swfsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

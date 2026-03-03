@@ -1,10 +1,10 @@
 package s3
 
 import (
-	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
@@ -35,9 +35,9 @@ type StoredBucket struct {
 // StoredObject represents an S3 object with its version history.
 type StoredObject struct {
 	Versions        map[string]*StoredObjectVersion
+	mu              *lockmetrics.RWMutex
 	Key             string
-	LatestVersionID string // Cache of the latest version ID to avoid scanning all versions
-	mu              sync.RWMutex
+	LatestVersionID string
 }
 
 // StoredObjectVersion represents a specific version of an S3 object.
@@ -85,7 +85,7 @@ type StoredPart struct {
 // ObjectMetadata holds internal metadata for storage operations.
 // (Keeping this compatibility type if needed, though mostly replaced by SDK types usage).
 type ObjectMetadata struct {
-	Tags              map[string]string
+	Tags              *tags.Tags
 	UserMetadata      map[string]string
 	ContentType       string
 	ChecksumAlgorithm string

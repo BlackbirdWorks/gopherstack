@@ -115,42 +115,38 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.writeError(c, http.StatusBadRequest, "MissingAction", "missing Action parameter")
 		}
 
-		var (
-			resp  any
-			opErr error
-		)
-
-		switch action {
-		case "CreateCluster":
-			resp, opErr = h.handleCreateCluster(vals)
-		case "DeleteCluster":
-			resp, opErr = h.handleDeleteCluster(vals)
-		case "DescribeClusters":
-			resp, opErr = h.handleDescribeClusters(vals)
-		case "DescribeLoggingStatus":
-			return h.writeXMLResponse(c, http.StatusOK, h.loggingStatusResponse())
-		case "DescribeTags":
-			return h.writeXMLResponse(c, http.StatusOK, h.describeTagsResponse())
-		case "CreateTags":
-			resp, opErr = h.handleCreateTags(vals)
-		case "DeleteTags":
-			resp, opErr = h.handleDeleteTags(vals)
-		default:
-			return h.writeError(c, http.StatusBadRequest, "InvalidAction",
-				fmt.Sprintf("%s is not a valid Redshift action", action))
-		}
-
-		if opErr != nil {
-			return h.handleOpError(c, action, opErr)
-		}
-
-		xmlBytes, err := marshalXML(resp)
-		if err != nil {
-			return h.writeError(c, http.StatusInternalServerError, "InternalFailure", "internal server error")
-		}
-
-		return c.Blob(http.StatusOK, "text/xml", xmlBytes)
+		return h.dispatch(c, action, vals)
 	}
+}
+
+type redshiftActionFn func(vals url.Values) (any, error)
+
+func (h *Handler) dispatchTable() map[string]redshiftActionFn {
+	return map[string]redshiftActionFn{
+		"CreateCluster":         h.handleCreateCluster,
+		"DeleteCluster":         h.handleDeleteCluster,
+		"DescribeClusters":      h.handleDescribeClusters,
+		"DescribeLoggingStatus": func(_ url.Values) (any, error) { return h.loggingStatusResponse(), nil },
+		"DescribeTags":          func(_ url.Values) (any, error) { return h.describeTagsResponse(), nil },
+		"CreateTags":            h.handleCreateTags,
+		"DeleteTags":            h.handleDeleteTags,
+	}
+}
+
+// dispatch routes the Redshift action to the appropriate handler function.
+func (h *Handler) dispatch(c *echo.Context, action string, vals url.Values) error {
+	fn, ok := h.dispatchTable()[action]
+	if !ok {
+		return h.writeError(c, http.StatusBadRequest, "InvalidAction",
+			fmt.Sprintf("%s is not a valid Redshift action", action))
+	}
+
+	resp, opErr := fn(vals)
+	if opErr != nil {
+		return h.handleOpError(c, action, opErr)
+	}
+
+	return h.writeXMLResponse(c, http.StatusOK, resp)
 }
 
 func (h *Handler) handleCreateCluster(vals url.Values) (any, error) {

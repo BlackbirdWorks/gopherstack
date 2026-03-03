@@ -9,14 +9,15 @@ import (
 	"maps"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 var errUnknownOperation = errors.New("UnknownOperationException")
@@ -46,8 +47,8 @@ type sfnListTagsForResourceInput struct {
 }
 
 type sfnTagResourceInput struct {
-	Tags        map[string]string `json:"tags"`
-	ResourceArn string            `json:"resourceArn"`
+	Tags        *tags.Tags `json:"tags"`
+	ResourceArn string     `json:"resourceArn"`
 }
 
 type sfnUntagResourceInput struct {
@@ -89,39 +90,47 @@ type getExecutionHistoryInput struct {
 type Handler struct {
 	Backend StorageBackend
 	Logger  *slog.Logger
-	tags    map[string]map[string]string
-	tagsMu  sync.RWMutex
+	tags    map[string]*tags.Tags
+	tagsMu  *lockmetrics.RWMutex
 }
 
 // NewHandler creates a new Step Functions handler.
 func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
-	return &Handler{Backend: backend, Logger: log, tags: make(map[string]map[string]string)}
+	return &Handler{
+		Backend: backend,
+		Logger:  log,
+		tags:    make(map[string]*tags.Tags),
+		tagsMu:  lockmetrics.New("sfn.tags"),
+	}
 }
 
 func (h *Handler) setTags(resourceID string, kv map[string]string) {
-	h.tagsMu.Lock()
+	h.tagsMu.Lock("setTags")
 	defer h.tagsMu.Unlock()
 	if h.tags[resourceID] == nil {
-		h.tags[resourceID] = make(map[string]string)
+		h.tags[resourceID] = tags.New("sfn." + resourceID + ".tags")
 	}
-	maps.Copy(h.tags[resourceID], kv)
+	h.tags[resourceID].Merge(kv)
 }
 
 func (h *Handler) removeTags(resourceID string, keys []string) {
-	h.tagsMu.Lock()
-	defer h.tagsMu.Unlock()
-	for _, k := range keys {
-		delete(h.tags[resourceID], k)
+	h.tagsMu.RLock("removeTags")
+	t := h.tags[resourceID]
+	h.tagsMu.RUnlock()
+	if t != nil {
+		t.DeleteKeys(keys)
 	}
 }
 
 func (h *Handler) getTags(resourceID string) map[string]string {
-	h.tagsMu.RLock()
-	defer h.tagsMu.RUnlock()
-	result := make(map[string]string)
-	maps.Copy(result, h.tags[resourceID])
+	h.tagsMu.RLock("getTags")
+	t := h.tags[resourceID]
+	h.tagsMu.RUnlock()
+	if t == nil {
+		return map[string]string{}
+	}
 
-	return result
+	return t.Clone()
 }
 
 // Name returns the service name.
@@ -208,6 +217,63 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 type actionFn func([]byte) (any, error)
 
+type createStateMachineOutput struct {
+	StateMachineArn string  `json:"stateMachineArn"`
+	CreationDate    float64 `json:"creationDate"`
+}
+
+type deleteStateMachineOutput struct{}
+
+type sfnTagEntry struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+type listTagsForResourceOutput struct {
+	Tags []sfnTagEntry `json:"tags"`
+}
+
+type tagResourceOutput struct{}
+
+type untagResourceOutput struct{}
+
+type listStateMachinesOutput struct {
+	NextToken     string         `json:"nextToken"`
+	StateMachines []StateMachine `json:"stateMachines"`
+}
+
+type updateStateMachineOutput struct {
+	UpdateDate time.Time `json:"updateDate"`
+}
+
+type startExecutionOutput struct {
+	ExecutionArn string  `json:"executionArn"`
+	StartDate    float64 `json:"startDate"`
+}
+
+type stopExecutionOutput struct {
+	StopDate *float64 `json:"stopDate"`
+}
+
+type listExecutionsOutput struct {
+	NextToken  string      `json:"nextToken"`
+	Executions []Execution `json:"executions"`
+}
+
+type getExecutionHistoryOutput struct {
+	NextToken string         `json:"nextToken"`
+	Events    []HistoryEvent `json:"events"`
+}
+
+type validateStateMachineDefinitionOutput struct {
+	Result      string `json:"result"`
+	Diagnostics []any  `json:"diagnostics"`
+}
+
+type listStateMachineVersionsOutput struct {
+	StateMachineVersions []any `json:"stateMachineVersions"`
+}
+
 func (h *Handler) stateMachineActions() map[string]actionFn {
 	m := map[string]actionFn{
 		"CreateStateMachine": func(b []byte) (any, error) {
@@ -220,9 +286,9 @@ func (h *Handler) stateMachineActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return map[string]any{
-				"stateMachineArn": sm.StateMachineArn,
-				"creationDate":    sm.CreationDate,
+			return &createStateMachineOutput{
+				StateMachineArn: sm.StateMachineArn,
+				CreationDate:    sm.CreationDate,
 			}, nil
 		},
 		"DeleteStateMachine": func(b []byte) (any, error) {
@@ -234,7 +300,7 @@ func (h *Handler) stateMachineActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return map[string]any{}, nil
+			return &deleteStateMachineOutput{}, nil
 		},
 		"ListStateMachines": func(b []byte) (any, error) {
 			var input listStateMachinesInput
@@ -246,7 +312,7 @@ func (h *Handler) stateMachineActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return map[string]any{"stateMachines": sms, "nextToken": next}, nil
+			return &listStateMachinesOutput{StateMachines: sms, NextToken: next}, nil
 		},
 		"DescribeStateMachine": func(b []byte) (any, error) {
 			var input describeStateMachineInput
@@ -257,7 +323,7 @@ func (h *Handler) stateMachineActions() map[string]actionFn {
 			return h.Backend.DescribeStateMachine(input.StateMachineArn)
 		},
 		"UpdateStateMachine": func(_ []byte) (any, error) {
-			return map[string]any{"updateDate": time.Now().UTC()}, nil
+			return &updateStateMachineOutput{UpdateDate: time.Now().UTC()}, nil
 		},
 	}
 	maps.Copy(m, h.stateMachineTagActions())
@@ -275,21 +341,25 @@ func (h *Handler) stateMachineTagActions() map[string]actionFn {
 			}
 
 			tagMap := h.getTags(input.ResourceArn)
-			tagList := make([]map[string]string, 0, len(tagMap))
+			tagList := make([]sfnTagEntry, 0, len(tagMap))
 			for k, v := range tagMap {
-				tagList = append(tagList, map[string]string{"key": k, "value": v})
+				tagList = append(tagList, sfnTagEntry{Key: k, Value: v})
 			}
 
-			return map[string]any{"tags": tagList}, nil
+			return &listTagsForResourceOutput{Tags: tagList}, nil
 		},
 		"TagResource": func(b []byte) (any, error) {
 			var input sfnTagResourceInput
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			h.setTags(input.ResourceArn, input.Tags)
+			var kv map[string]string
+			if input.Tags != nil {
+				kv = input.Tags.Clone()
+			}
+			h.setTags(input.ResourceArn, kv)
 
-			return map[string]any{}, nil
+			return &tagResourceOutput{}, nil
 		},
 		"UntagResource": func(b []byte) (any, error) {
 			var input sfnUntagResourceInput
@@ -298,7 +368,7 @@ func (h *Handler) stateMachineTagActions() map[string]actionFn {
 			}
 			h.removeTags(input.ResourceArn, input.TagKeys)
 
-			return map[string]any{}, nil
+			return &untagResourceOutput{}, nil
 		},
 	}
 }
@@ -315,9 +385,9 @@ func (h *Handler) executionActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return map[string]any{
-				"executionArn": exec.ExecutionArn,
-				"startDate":    exec.StartDate,
+			return &startExecutionOutput{
+				ExecutionArn: exec.ExecutionArn,
+				StartDate:    exec.StartDate,
 			}, nil
 		},
 		"StopExecution": func(b []byte) (any, error) {
@@ -333,7 +403,7 @@ func (h *Handler) executionActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return map[string]any{"stopDate": exec.StopDate}, nil
+			return &stopExecutionOutput{StopDate: exec.StopDate}, nil
 		},
 		"DescribeExecution": func(b []byte) (any, error) {
 			var input describeExecutionInput
@@ -355,7 +425,7 @@ func (h *Handler) executionActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return map[string]any{"executions": execs, "nextToken": next}, nil
+			return &listExecutionsOutput{Executions: execs, NextToken: next}, nil
 		},
 		"GetExecutionHistory": func(b []byte) (any, error) {
 			var input getExecutionHistoryInput
@@ -369,7 +439,7 @@ func (h *Handler) executionActions() map[string]actionFn {
 				return nil, err
 			}
 
-			return map[string]any{"events": events, "nextToken": next}, nil
+			return &getExecutionHistoryOutput{Events: events, NextToken: next}, nil
 		},
 	}
 }
@@ -387,10 +457,10 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 func (h *Handler) utilActions() map[string]actionFn {
 	return map[string]actionFn{
 		"ValidateStateMachineDefinition": func(_ []byte) (any, error) {
-			return map[string]any{"result": "OK", "diagnostics": []any{}}, nil
+			return &validateStateMachineDefinitionOutput{Result: "OK", Diagnostics: []any{}}, nil
 		},
 		"ListStateMachineVersions": func(_ []byte) (any, error) {
-			return map[string]any{"stateMachineVersions": []any{}}, nil
+			return &listStateMachineVersionsOutput{StateMachineVersions: []any{}}, nil
 		},
 	}
 }

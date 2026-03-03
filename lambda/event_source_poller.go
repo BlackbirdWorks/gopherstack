@@ -7,8 +7,9 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"sync"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
 const (
@@ -45,7 +46,7 @@ type EventSourcePoller struct {
 	lambdaBackend  *InMemoryBackend
 	logger         *slog.Logger
 	shardIterators map[string]string
-	mu             sync.Mutex
+	mu             *lockmetrics.RWMutex
 }
 
 // NewEventSourcePoller creates a new EventSourcePoller.
@@ -59,6 +60,7 @@ func NewEventSourcePoller(
 		kinesisReader:  kinesisReader,
 		logger:         log,
 		shardIterators: make(map[string]string),
+		mu:             lockmetrics.New("lambda.esm"),
 	}
 }
 
@@ -117,7 +119,7 @@ func (p *EventSourcePoller) processMapping(ctx context.Context, m *EventSourceMa
 	for _, shardID := range shardIDs {
 		iterKey := m.UUID + ":" + shardID
 
-		p.mu.Lock()
+		p.mu.Lock("processMapping")
 		it, exists := p.shardIterators[iterKey]
 		p.mu.Unlock()
 
@@ -131,7 +133,7 @@ func (p *EventSourcePoller) processMapping(ctx context.Context, m *EventSourceMa
 				continue
 			}
 
-			p.mu.Lock()
+			p.mu.Lock("processMapping")
 			p.shardIterators[iterKey] = it
 			p.mu.Unlock()
 		}
@@ -139,7 +141,7 @@ func (p *EventSourcePoller) processMapping(ctx context.Context, m *EventSourceMa
 		records, nextIt, readErr := p.kinesisReader.GetRecords(it, m.BatchSize)
 		if readErr != nil {
 			// Iterator may have expired; reset it
-			p.mu.Lock()
+			p.mu.Lock("processMapping")
 			delete(p.shardIterators, iterKey)
 			p.mu.Unlock()
 			p.logger.WarnContext(ctx, "event source poller: GetRecords failed, resetting iterator",
@@ -148,7 +150,7 @@ func (p *EventSourcePoller) processMapping(ctx context.Context, m *EventSourceMa
 			continue
 		}
 
-		p.mu.Lock()
+		p.mu.Lock("processMapping")
 		p.shardIterators[iterKey] = nextIt
 		p.mu.Unlock()
 

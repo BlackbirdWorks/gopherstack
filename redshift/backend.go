@@ -3,8 +3,10 @@ package redshift
 import (
 	"errors"
 	"fmt"
-	"maps"
-	"sync"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 var (
@@ -15,7 +17,7 @@ var (
 
 // Cluster represents a Redshift cluster.
 type Cluster struct {
-	Tags              map[string]string
+	Tags              *tags.Tags
 	ClusterIdentifier string
 	NodeType          string
 	Endpoint          string
@@ -27,9 +29,9 @@ type Cluster struct {
 // InMemoryBackend is the in-memory store for Redshift clusters.
 type InMemoryBackend struct {
 	clusters  map[string]*Cluster
+	mu        *lockmetrics.RWMutex
 	accountID string
 	region    string
-	mu        sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -38,6 +40,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		clusters:  make(map[string]*Cluster),
 		accountID: accountID,
 		region:    region,
+		mu:        lockmetrics.New("redshift"),
 	}
 }
 
@@ -47,7 +50,7 @@ func (b *InMemoryBackend) CreateCluster(id, nodeType, dbName, masterUser string)
 		return nil, fmt.Errorf("%w: ClusterIdentifier is required", ErrInvalidParameter)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("CreateCluster")
 	defer b.mu.Unlock()
 
 	if _, exists := b.clusters[id]; exists {
@@ -72,7 +75,7 @@ func (b *InMemoryBackend) CreateCluster(id, nodeType, dbName, masterUser string)
 		Status:            "available",
 		DBName:            dbName,
 		MasterUsername:    masterUser,
-		Tags:              make(map[string]string),
+		Tags:              tags.New("redshift.cluster." + id + ".tags"),
 	}
 	b.clusters[id] = cluster
 
@@ -83,7 +86,7 @@ func (b *InMemoryBackend) CreateCluster(id, nodeType, dbName, masterUser string)
 
 // DeleteCluster removes the cluster with the given identifier.
 func (b *InMemoryBackend) DeleteCluster(id string) (*Cluster, error) {
-	b.mu.Lock()
+	b.mu.Lock("DeleteCluster")
 	defer b.mu.Unlock()
 
 	cluster, exists := b.clusters[id]
@@ -99,7 +102,7 @@ func (b *InMemoryBackend) DeleteCluster(id string) (*Cluster, error) {
 
 // DescribeClusters returns clusters. If id is non-empty, returns only that cluster.
 func (b *InMemoryBackend) DescribeClusters(id string) ([]Cluster, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeClusters")
 	defer b.mu.RUnlock()
 
 	if id != "" {
@@ -121,22 +124,20 @@ func (b *InMemoryBackend) DescribeClusters(id string) ([]Cluster, error) {
 
 // DescribeTags returns all tags across all clusters.
 func (b *InMemoryBackend) DescribeTags() map[string]map[string]string {
-	b.mu.RLock()
+	b.mu.RLock("DescribeTags")
 	defer b.mu.RUnlock()
 
 	result := make(map[string]map[string]string, len(b.clusters))
 	for id, c := range b.clusters {
-		tags := make(map[string]string, len(c.Tags))
-		maps.Copy(tags, c.Tags)
-		result[id] = tags
+		result[id] = c.Tags.Clone()
 	}
 
 	return result
 }
 
 // CreateTags adds or updates tags on the specified cluster.
-func (b *InMemoryBackend) CreateTags(clusterID string, tags map[string]string) error {
-	b.mu.Lock()
+func (b *InMemoryBackend) CreateTags(clusterID string, kv map[string]string) error {
+	b.mu.Lock("CreateTags")
 	defer b.mu.Unlock()
 
 	c, exists := b.clusters[clusterID]
@@ -144,14 +145,14 @@ func (b *InMemoryBackend) CreateTags(clusterID string, tags map[string]string) e
 		return fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
 
-	maps.Copy(c.Tags, tags)
+	c.Tags.Merge(kv)
 
 	return nil
 }
 
 // DeleteTags removes tag keys from the specified cluster.
 func (b *InMemoryBackend) DeleteTags(clusterID string, keys []string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteTags")
 	defer b.mu.Unlock()
 
 	c, exists := b.clusters[clusterID]
@@ -159,9 +160,7 @@ func (b *InMemoryBackend) DeleteTags(clusterID string, keys []string) error {
 		return fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
 
-	for _, k := range keys {
-		delete(c.Tags, k)
-	}
+	c.Tags.DeleteKeys(keys)
 
 	return nil
 }

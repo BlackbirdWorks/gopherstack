@@ -5,16 +5,16 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
-	"maps"
 	"net/http"
 	"strings"
-	"sync"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 const (
@@ -26,6 +26,49 @@ type requestCertificateInput struct {
 	DomainName              string `json:"DomainName"`
 	CertificateAuthorityArn string `json:"CertificateAuthorityArn"`
 }
+
+type requestCertificateOutput struct {
+	CertificateArn string `json:"CertificateArn"`
+}
+
+type domainValidationOption struct {
+	DomainName       string `json:"DomainName"`
+	ValidationDomain string `json:"ValidationDomain"`
+	ValidationStatus string `json:"ValidationStatus"`
+	ValidationMethod string `json:"ValidationMethod"`
+}
+
+type certificateDetail struct {
+	CertificateArn          string                   `json:"CertificateArn"`
+	DomainName              string                   `json:"DomainName"`
+	Status                  string                   `json:"Status"`
+	Type                    string                   `json:"Type"`
+	DomainValidationOptions []domainValidationOption `json:"DomainValidationOptions"`
+	CreatedAt               int64                    `json:"CreatedAt"`
+}
+
+type describeCertificateOutput struct {
+	Certificate certificateDetail `json:"Certificate"`
+}
+
+type certificateSummary struct {
+	CertificateArn string `json:"CertificateArn"`
+	DomainName     string `json:"DomainName"`
+}
+
+type listCertificatesOutput struct {
+	CertificateSummaryList []certificateSummary `json:"CertificateSummaryList"`
+}
+
+type deleteCertificateOutput struct{}
+
+type listTagsForCertificateOutput struct {
+	Tags []map[string]string `json:"Tags"`
+}
+
+type addTagsToCertificateOutput struct{}
+
+type removeTagsFromCertificateOutput struct{}
 
 type describeCertificateInput struct {
 	CertificateArn string `json:"CertificateArn"`
@@ -62,38 +105,48 @@ type removeTagsFromCertificateInput struct {
 type Handler struct {
 	Backend *InMemoryBackend
 	Logger  *slog.Logger
-	tags    map[string]map[string]string
-	tagsMu  sync.RWMutex
+	tags    map[string]*tags.Tags
+	tagsMu  *lockmetrics.RWMutex
 }
 
 // NewHandler creates a new ACM handler.
 func NewHandler(backend *InMemoryBackend, log *slog.Logger) *Handler {
-	return &Handler{Backend: backend, Logger: log, tags: make(map[string]map[string]string)}
+	return &Handler{
+		Backend: backend,
+		Logger:  log,
+		tags:    make(map[string]*tags.Tags),
+		tagsMu:  lockmetrics.New("acm.tags"),
+	}
 }
 
 func (h *Handler) setTags(resourceID string, kv map[string]string) {
-	h.tagsMu.Lock()
+	h.tagsMu.Lock("setTags")
 	defer h.tagsMu.Unlock()
 	if h.tags[resourceID] == nil {
-		h.tags[resourceID] = make(map[string]string)
+		h.tags[resourceID] = tags.New("acm." + resourceID + ".tags")
 	}
-	maps.Copy(h.tags[resourceID], kv)
+	h.tags[resourceID].Merge(kv)
 }
 
 func (h *Handler) removeTags(resourceID string, keys []string) {
-	h.tagsMu.Lock()
-	defer h.tagsMu.Unlock()
-	for _, k := range keys {
-		delete(h.tags[resourceID], k)
+	h.tagsMu.RLock("removeTags")
+	t := h.tags[resourceID]
+	h.tagsMu.RUnlock()
+	if t != nil {
+		t.DeleteKeys(keys)
 	}
 }
 
 func (h *Handler) getTags(resourceID string) []map[string]string {
-	h.tagsMu.RLock()
-	defer h.tagsMu.RUnlock()
-	tags := h.tags[resourceID]
-	result := make([]map[string]string, 0, len(tags))
-	for k, v := range tags {
+	h.tagsMu.RLock("getTags")
+	t := h.tags[resourceID]
+	h.tagsMu.RUnlock()
+	if t == nil {
+		return []map[string]string{}
+	}
+	tagMap := t.Clone()
+	result := make([]map[string]string, 0, len(tagMap))
+	for k, v := range tagMap {
 		result = append(result, map[string]string{"Key": k, "Value": v})
 	}
 
@@ -232,7 +285,7 @@ func (h *Handler) jsonRequestCertificate(body []byte) (any, error) {
 		return nil, err
 	}
 
-	return map[string]string{"CertificateArn": cert.ARN}, nil
+	return &requestCertificateOutput{CertificateArn: cert.ARN}, nil
 }
 
 func (h *Handler) jsonDescribeCertificate(body []byte) (any, error) {
@@ -245,19 +298,19 @@ func (h *Handler) jsonDescribeCertificate(body []byte) (any, error) {
 		return nil, err
 	}
 
-	return map[string]any{
-		"Certificate": map[string]any{
-			"CertificateArn": cert.ARN,
-			"DomainName":     cert.DomainName,
-			"Status":         cert.Status,
-			"Type":           cert.Type,
-			"CreatedAt":      cert.CreatedAt.Unix(),
-			"DomainValidationOptions": []map[string]any{
+	return &describeCertificateOutput{
+		Certificate: certificateDetail{
+			CertificateArn: cert.ARN,
+			DomainName:     cert.DomainName,
+			Status:         cert.Status,
+			Type:           cert.Type,
+			CreatedAt:      cert.CreatedAt.Unix(),
+			DomainValidationOptions: []domainValidationOption{
 				{
-					"DomainName":       cert.DomainName,
-					"ValidationDomain": cert.DomainName,
-					"ValidationStatus": "SUCCESS",
-					"ValidationMethod": "DNS",
+					DomainName:       cert.DomainName,
+					ValidationDomain: cert.DomainName,
+					ValidationStatus: "SUCCESS",
+					ValidationMethod: "DNS",
 				},
 			},
 		},
@@ -266,15 +319,15 @@ func (h *Handler) jsonDescribeCertificate(body []byte) (any, error) {
 
 func (h *Handler) jsonListCertificates() (any, error) {
 	certs := h.Backend.ListCertificates()
-	summaries := make([]map[string]string, 0, len(certs))
+	summaries := make([]certificateSummary, 0, len(certs))
 	for _, c := range certs {
-		summaries = append(summaries, map[string]string{
-			"CertificateArn": c.ARN,
-			"DomainName":     c.DomainName,
+		summaries = append(summaries, certificateSummary{
+			CertificateArn: c.ARN,
+			DomainName:     c.DomainName,
 		})
 	}
 
-	return map[string]any{"CertificateSummaryList": summaries}, nil
+	return &listCertificatesOutput{CertificateSummaryList: summaries}, nil
 }
 
 func (h *Handler) jsonDeleteCertificate(body []byte) (any, error) {
@@ -286,7 +339,7 @@ func (h *Handler) jsonDeleteCertificate(body []byte) (any, error) {
 		return nil, err
 	}
 
-	return map[string]any{}, nil
+	return &deleteCertificateOutput{}, nil
 }
 
 func (h *Handler) jsonListTagsForCertificate(body []byte) (any, error) {
@@ -295,7 +348,7 @@ func (h *Handler) jsonListTagsForCertificate(body []byte) (any, error) {
 		return nil, ErrInvalidParameter
 	}
 
-	return map[string]any{"Tags": h.getTags(input.CertificateArn)}, nil
+	return &listTagsForCertificateOutput{Tags: h.getTags(input.CertificateArn)}, nil
 }
 
 func (h *Handler) jsonAddTagsToCertificate(body []byte) (any, error) {
@@ -309,7 +362,7 @@ func (h *Handler) jsonAddTagsToCertificate(body []byte) (any, error) {
 	}
 	h.setTags(input.CertificateArn, kv)
 
-	return map[string]any{}, nil
+	return &addTagsToCertificateOutput{}, nil
 }
 
 func (h *Handler) jsonRemoveTagsFromCertificate(body []byte) (any, error) {
@@ -323,7 +376,7 @@ func (h *Handler) jsonRemoveTagsFromCertificate(body []byte) (any, error) {
 	}
 	h.removeTags(input.CertificateArn, keys)
 
-	return map[string]any{}, nil
+	return &removeTagsFromCertificateOutput{}, nil
 }
 
 func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) error {

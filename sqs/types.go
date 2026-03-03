@@ -3,6 +3,8 @@ package sqs
 import (
 	"encoding/xml"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 const (
@@ -88,7 +90,7 @@ type Queue struct {
 	deduplicationMsgIDs map[string]string
 	DeduplicationIDs    map[string]time.Time
 	Attributes          map[string]string
-	Tags                map[string]string
+	Tags                *tags.Tags
 	dlq                 *Queue // resolved DLQ queue pointer; nil = no DLQ
 	Name                string
 	URL                 string
@@ -484,7 +486,7 @@ type PurgeQueueResponse struct {
 
 // TagQueueInput holds the input for TagQueue.
 type TagQueueInput struct {
-	Tags     map[string]string
+	Tags     *tags.Tags
 	QueueURL string
 }
 
@@ -501,7 +503,7 @@ type ListQueueTagsInput struct {
 
 // ListQueueTagsOutput holds the result of ListQueueTags.
 type ListQueueTagsOutput struct {
-	Tags map[string]string
+	Tags *tags.Tags
 }
 
 // TagEntry is a single key/value tag pair in an XML response.

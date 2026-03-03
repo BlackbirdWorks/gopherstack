@@ -4,13 +4,14 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"sync"
 	"time"
 
 	dockercontainer "github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
 // defaultIdleTimeout is the duration after which an idle container is reaped.
@@ -114,8 +115,8 @@ func (r *realDockerClient) Close() error {
 type DockerRuntime struct {
 	docker APIClient
 	pools  map[string][]*PooledContainer
+	mu     *lockmetrics.RWMutex
 	cfg    Config
-	mu     sync.Mutex
 }
 
 // newDockerRuntime creates a DockerRuntime connected to the Docker daemon.
@@ -149,6 +150,7 @@ func newDockerRuntimeWithAPI(api APIClient, cfg Config) *DockerRuntime {
 		pools:  make(map[string][]*PooledContainer),
 		cfg:    cfg,
 		docker: api,
+		mu:     lockmetrics.New("container.runtime"),
 	}
 }
 
@@ -238,7 +240,7 @@ func (r *DockerRuntime) StopAndRemove(ctx context.Context, containerID string) e
 // the pool may temporarily exceed PoolSize by the number of concurrent callers that see no
 // idle container and concurrently create new ones.
 func (r *DockerRuntime) AcquireWarm(ctx context.Context, spec Spec) (*PooledContainer, error) {
-	r.mu.Lock()
+	r.mu.Lock("AcquireWarm")
 
 	pool := r.pools[spec.Image]
 	for _, pc := range pool {
@@ -271,7 +273,7 @@ func (r *DockerRuntime) AcquireWarm(ctx context.Context, spec Spec) (*PooledCont
 		InUse:    true,
 	}
 
-	r.mu.Lock()
+	r.mu.Lock("AcquireWarm")
 	r.pools[spec.Image] = append(r.pools[spec.Image], pc)
 	r.mu.Unlock()
 
@@ -281,7 +283,7 @@ func (r *DockerRuntime) AcquireWarm(ctx context.Context, spec Spec) (*PooledCont
 // ReleaseContainer marks a pooled container as idle.
 // If the container is not in the pool, ErrContainerNotFound is returned.
 func (r *DockerRuntime) ReleaseContainer(containerID string) error {
-	r.mu.Lock()
+	r.mu.Lock("ReleaseContainer")
 	defer r.mu.Unlock()
 
 	for _, pool := range r.pools {
@@ -300,7 +302,7 @@ func (r *DockerRuntime) ReleaseContainer(containerID string) error {
 
 // ReapIdleContainers stops and removes containers that have been idle longer than IdleTimeout.
 func (r *DockerRuntime) ReapIdleContainers(ctx context.Context) {
-	r.mu.Lock()
+	r.mu.Lock("ReapIdleContainers")
 	toReap := r.collectIdleLocked()
 	r.mu.Unlock()
 
