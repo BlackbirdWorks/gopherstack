@@ -387,99 +387,173 @@ func TestItem_Expiration(t *testing.T) {
 func TestScan_TTLFilter(t *testing.T) {
 	t.Parallel()
 
-	db := dynamodb.NewInMemoryDB()
-	tableName := "ScanTTLTable"
-
-	createTableHelper(t, db, tableName, "pk")
-
-	// Enable TTL on the "ttl" attribute.
-	_, err := db.UpdateTimeToLive(t.Context(), &dynamodb_sdk.UpdateTimeToLiveInput{
-		TableName: aws.String(tableName),
-		TimeToLiveSpecification: &types.TimeToLiveSpecification{
-			AttributeName: aws.String("ttl"),
-			Enabled:       aws.Bool(true),
+	tests := []struct {
+		name      string
+		items     []map[string]types.AttributeValue
+		wantPKs   []string
+		enableTTL bool
+	}{
+		{
+			name:      "ExpiredItemExcluded",
+			enableTTL: true,
+			items: []map[string]types.AttributeValue{
+				{"pk": &types.AttributeValueMemberS{Value: "expired-item"}, "ttl": &types.AttributeValueMemberN{Value: "1"}},
+				{"pk": &types.AttributeValueMemberS{Value: "active-item-no-ttl"}},
+			},
+			wantPKs: []string{"active-item-no-ttl"},
 		},
-	})
-	require.NoError(t, err)
-
-	// Put an item whose TTL is in the past (Unix epoch second 1).
-	_, err = db.PutItem(t.Context(), &dynamodb_sdk.PutItemInput{
-		TableName: aws.String(tableName),
-		Item: map[string]types.AttributeValue{
-			"pk":  &types.AttributeValueMemberS{Value: "expired-item"},
-			"ttl": &types.AttributeValueMemberN{Value: "1"},
+		{
+			name:      "FutureTTLIncluded",
+			enableTTL: true,
+			items: []map[string]types.AttributeValue{
+				{"pk": &types.AttributeValueMemberS{Value: "expired-item"}, "ttl": &types.AttributeValueMemberN{Value: "1"}},
+				{"pk": &types.AttributeValueMemberS{Value: "active-item-no-ttl"}},
+				{"pk": &types.AttributeValueMemberS{Value: "active-item-future-ttl"}, "ttl": &types.AttributeValueMemberN{Value: "10000000000"}},
+			},
+			wantPKs: []string{"active-item-future-ttl", "active-item-no-ttl"},
 		},
-	})
-	require.NoError(t, err)
-
-	// Put an item with no TTL attribute — never expires.
-	_, err = db.PutItem(t.Context(), &dynamodb_sdk.PutItemInput{
-		TableName: aws.String(tableName),
-		Item: map[string]types.AttributeValue{
-			"pk": &types.AttributeValueMemberS{Value: "active-item"},
+		{
+			name:      "TTLDisabledAllItemsVisible",
+			enableTTL: false,
+			items: []map[string]types.AttributeValue{
+				{"pk": &types.AttributeValueMemberS{Value: "item1"}, "ttl": &types.AttributeValueMemberN{Value: "1"}},
+				{"pk": &types.AttributeValueMemberS{Value: "item2"}},
+			},
+			wantPKs: []string{"item1", "item2"},
 		},
-	})
-	require.NoError(t, err)
+	}
 
-	// Scan must exclude the expired item without waiting for the janitor.
-	out, err := db.Scan(t.Context(), &dynamodb_sdk.ScanInput{
-		TableName: aws.String(tableName),
-	})
-	require.NoError(t, err)
-	require.Len(t, out.Items, 1)
-	assert.Equal(t, "active-item", out.Items[0]["pk"].(*types.AttributeValueMemberS).Value)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			db := dynamodb.NewInMemoryDB()
+			tableName := "ScanTTLTable_" + tt.name
+
+			createTableHelper(t, db, tableName, "pk")
+
+			if tt.enableTTL {
+				_, err := db.UpdateTimeToLive(t.Context(), &dynamodb_sdk.UpdateTimeToLiveInput{
+					TableName: aws.String(tableName),
+					TimeToLiveSpecification: &types.TimeToLiveSpecification{
+						AttributeName: aws.String("ttl"),
+						Enabled:       aws.Bool(true),
+					},
+				})
+				require.NoError(t, err)
+			}
+
+			for _, item := range tt.items {
+				_, err := db.PutItem(t.Context(), &dynamodb_sdk.PutItemInput{
+					TableName: aws.String(tableName),
+					Item:      item,
+				})
+				require.NoError(t, err)
+			}
+
+			out, err := db.Scan(t.Context(), &dynamodb_sdk.ScanInput{
+				TableName: aws.String(tableName),
+			})
+			require.NoError(t, err)
+			require.Len(t, out.Items, len(tt.wantPKs))
+
+			seen := map[string]bool{}
+			for _, item := range out.Items {
+				pk := item["pk"].(*types.AttributeValueMemberS).Value
+				seen[pk] = true
+			}
+			for _, wantPK := range tt.wantPKs {
+				assert.True(t, seen[wantPK], "expected pk %q in scan results", wantPK)
+			}
+		})
+	}
 }
 
 func TestQuery_TTLFilter(t *testing.T) {
 	t.Parallel()
 
-	db := dynamodb.NewInMemoryDB()
-	tableName := "QueryTTLTable"
-
-	createTableHelper(t, db, tableName, "pk", "sk")
-
-	// Enable TTL on the "ttl" attribute.
-	_, err := db.UpdateTimeToLive(t.Context(), &dynamodb_sdk.UpdateTimeToLiveInput{
-		TableName: aws.String(tableName),
-		TimeToLiveSpecification: &types.TimeToLiveSpecification{
-			AttributeName: aws.String("ttl"),
-			Enabled:       aws.Bool(true),
+	tests := []struct {
+		name      string
+		items     []map[string]types.AttributeValue
+		wantSKs   []string
+		enableTTL bool
+	}{
+		{
+			name:      "ExpiredItemExcluded",
+			enableTTL: true,
+			items: []map[string]types.AttributeValue{
+				{"pk": &types.AttributeValueMemberS{Value: "user1"}, "sk": &types.AttributeValueMemberS{Value: "expired-item"}, "ttl": &types.AttributeValueMemberN{Value: "1"}},
+				{"pk": &types.AttributeValueMemberS{Value: "user1"}, "sk": &types.AttributeValueMemberS{Value: "active-item-no-ttl"}},
+			},
+			wantSKs: []string{"active-item-no-ttl"},
 		},
-	})
-	require.NoError(t, err)
-
-	// Put an item whose TTL is in the past (Unix epoch second 1).
-	_, err = db.PutItem(t.Context(), &dynamodb_sdk.PutItemInput{
-		TableName: aws.String(tableName),
-		Item: map[string]types.AttributeValue{
-			"pk":  &types.AttributeValueMemberS{Value: "user1"},
-			"sk":  &types.AttributeValueMemberS{Value: "expired-item"},
-			"ttl": &types.AttributeValueMemberN{Value: "1"},
+		{
+			name:      "FutureTTLIncluded",
+			enableTTL: true,
+			items: []map[string]types.AttributeValue{
+				{"pk": &types.AttributeValueMemberS{Value: "user1"}, "sk": &types.AttributeValueMemberS{Value: "expired-item"}, "ttl": &types.AttributeValueMemberN{Value: "1"}},
+				{"pk": &types.AttributeValueMemberS{Value: "user1"}, "sk": &types.AttributeValueMemberS{Value: "active-item-no-ttl"}},
+				{"pk": &types.AttributeValueMemberS{Value: "user1"}, "sk": &types.AttributeValueMemberS{Value: "active-item-future-ttl"}, "ttl": &types.AttributeValueMemberN{Value: "10000000000"}},
+			},
+			wantSKs: []string{"active-item-future-ttl", "active-item-no-ttl"},
 		},
-	})
-	require.NoError(t, err)
-
-	// Put an item with no TTL attribute — never expires.
-	_, err = db.PutItem(t.Context(), &dynamodb_sdk.PutItemInput{
-		TableName: aws.String(tableName),
-		Item: map[string]types.AttributeValue{
-			"pk": &types.AttributeValueMemberS{Value: "user1"},
-			"sk": &types.AttributeValueMemberS{Value: "active-item"},
+		{
+			name:      "TTLDisabledAllItemsVisible",
+			enableTTL: false,
+			items: []map[string]types.AttributeValue{
+				{"pk": &types.AttributeValueMemberS{Value: "user1"}, "sk": &types.AttributeValueMemberS{Value: "item1"}, "ttl": &types.AttributeValueMemberN{Value: "1"}},
+				{"pk": &types.AttributeValueMemberS{Value: "user1"}, "sk": &types.AttributeValueMemberS{Value: "item2"}},
+			},
+			wantSKs: []string{"item1", "item2"},
 		},
-	})
-	require.NoError(t, err)
+	}
 
-	// Query must exclude the expired item without waiting for the janitor.
-	out, err := db.Query(t.Context(), &dynamodb_sdk.QueryInput{
-		TableName:              aws.String(tableName),
-		KeyConditionExpression: aws.String("pk = :pk"),
-		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":pk": &types.AttributeValueMemberS{Value: "user1"},
-		},
-	})
-	require.NoError(t, err)
-	require.Len(t, out.Items, 1)
-	assert.Equal(t, "active-item", out.Items[0]["sk"].(*types.AttributeValueMemberS).Value)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			db := dynamodb.NewInMemoryDB()
+			tableName := "QueryTTLTable_" + tt.name
+
+			createTableHelper(t, db, tableName, "pk", "sk")
+
+			if tt.enableTTL {
+				_, err := db.UpdateTimeToLive(t.Context(), &dynamodb_sdk.UpdateTimeToLiveInput{
+					TableName: aws.String(tableName),
+					TimeToLiveSpecification: &types.TimeToLiveSpecification{
+						AttributeName: aws.String("ttl"),
+						Enabled:       aws.Bool(true),
+					},
+				})
+				require.NoError(t, err)
+			}
+
+			for _, item := range tt.items {
+				_, err := db.PutItem(t.Context(), &dynamodb_sdk.PutItemInput{
+					TableName: aws.String(tableName),
+					Item:      item,
+				})
+				require.NoError(t, err)
+			}
+
+			out, err := db.Query(t.Context(), &dynamodb_sdk.QueryInput{
+				TableName:              aws.String(tableName),
+				KeyConditionExpression: aws.String("pk = :pk"),
+				ExpressionAttributeValues: map[string]types.AttributeValue{
+					":pk": &types.AttributeValueMemberS{Value: "user1"},
+				},
+			})
+			require.NoError(t, err)
+			require.Len(t, out.Items, len(tt.wantSKs))
+
+			seen := map[string]bool{}
+			for _, item := range out.Items {
+				sk := item["sk"].(*types.AttributeValueMemberS).Value
+				seen[sk] = true
+			}
+			for _, wantSK := range tt.wantSKs {
+				assert.True(t, seen[wantSK], "expected sk %q in query results", wantSK)
+			}
+		})
+	}
 }
 
 func TestPutItem_ConditionExpression(t *testing.T) {
