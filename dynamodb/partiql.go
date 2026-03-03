@@ -14,7 +14,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
 	"github.com/blackbirdworks/gopherstack/dynamodb/models"
-	"github.com/blackbirdworks/gopherstack/pkgs/dynamoattr"
 )
 
 // ErrInvalidStatement is returned when a PartiQL statement cannot be parsed.
@@ -50,8 +49,10 @@ var (
 	partiqlSelectColsRe = regexp.MustCompile(`(?i)^\s*SELECT\s+(.+?)\s+FROM\s+"`)
 	// partiqlValueRe extracts the VALUE tuple body in an INSERT statement.
 	partiqlValueRe = regexp.MustCompile(`(?is)\bVALUE\s+(\{.+\})\s*$`)
-	// partiqlStringLiteralRe matches single-quoted string literals.
-	partiqlStringLiteralRe = regexp.MustCompile(`'([^']*)'`)
+	// partiqlStringLiteralRe matches single-quoted string literals, including SQL-style '' escapes.
+	partiqlStringLiteralRe = regexp.MustCompile(`'((?:''|[^'])*)'`)
+	// partiqlANDSplitRe splits on AND (case-insensitive) with surrounding whitespace.
+	partiqlANDSplitRe = regexp.MustCompile(`(?i)\s+AND\s+`)
 )
 
 // minRegexMatch is the minimum number of submatches expected from a regex with one capture group.
@@ -191,8 +192,13 @@ func (h *DynamoDBHandler) executePartiQLSelect(
 	}
 
 	if filterExpr != "" {
+		sdkEAV, eavErr := partiqlBuildSDKEAV(eav)
+		if eavErr != nil {
+			return nil, eavErr
+		}
+
 		scanInput.FilterExpression = aws.String(filterExpr)
-		scanInput.ExpressionAttributeValues = partiqlBuildSDKEAV(eav)
+		scanInput.ExpressionAttributeValues = sdkEAV
 	}
 
 	if limit > 0 {
@@ -314,11 +320,16 @@ func (h *DynamoDBHandler) executePartiQLUpdate(
 		return nil, err
 	}
 
+	sdkEAV, err := partiqlBuildSDKEAV(eav)
+	if err != nil {
+		return nil, err
+	}
+
 	if _, updateErr := h.Backend.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 		TableName:                 aws.String(tableName),
 		Key:                       sdkKey,
 		UpdateExpression:          aws.String("SET " + setClause),
-		ExpressionAttributeValues: partiqlBuildSDKEAV(eav),
+		ExpressionAttributeValues: sdkEAV,
 	}); updateErr != nil {
 		return nil, updateErr
 	}
@@ -393,17 +404,52 @@ func extractTableNameFromStatement(statement string) (string, error) {
 	return matches[1], nil
 }
 
+// advancePastStringLiteral advances index i (which must point to an opening single-quote)
+// past the matching closing single-quote, handling SQL-style ” escaped quotes.
+// Returns the index of the character immediately after the closing quote.
+func advancePastStringLiteral(s string, i int) int {
+	i++ // skip opening quote
+
+	for i < len(s) {
+		c := s[i]
+		i++
+
+		if c == '\'' {
+			// SQL-style escaped quote: '' — skip the second ' and continue inside the literal.
+			if i < len(s) && s[i] == '\'' {
+				i++
+			} else {
+				break // end of string literal
+			}
+		}
+	}
+
+	return i
+}
+
 // partiqlSubstituteParams replaces every '?' placeholder in stmt with ':p0', ':p1', …
-// and returns the modified statement together with the ExpressionAttributeValues map
-// (wire format: map[":pN"]map[string]any{"S": …}).
+// skipping '?' characters that appear inside single-quoted string literals.
+// It returns the modified statement and the ExpressionAttributeValues map.
 func partiqlSubstituteParams(stmt string, params []map[string]any) (string, map[string]any, error) {
 	eav := make(map[string]any)
 	paramIdx := 0
 
 	var result strings.Builder
 
-	for i := range len(stmt) {
-		if stmt[i] == '?' {
+	i := 0
+	for i < len(stmt) {
+		ch := stmt[i]
+
+		// Pass string literals through verbatim so '?' inside them is not consumed as a parameter.
+		if ch == '\'' {
+			end := advancePastStringLiteral(stmt, i)
+			result.WriteString(stmt[i:end])
+			i = end
+
+			continue
+		}
+
+		if ch == '?' {
 			if paramIdx >= len(params) {
 				return "", nil, fmt.Errorf(
 					"%w: not enough parameters — need index %d but only %d provided",
@@ -416,8 +462,10 @@ func partiqlSubstituteParams(stmt string, params []map[string]any) (string, map[
 			result.WriteString(key)
 			paramIdx++
 		} else {
-			result.WriteByte(stmt[i])
+			result.WriteByte(ch)
 		}
+
+		i++
 	}
 
 	return result.String(), eav, nil
@@ -425,6 +473,7 @@ func partiqlSubstituteParams(stmt string, params []map[string]any) (string, map[
 
 // partiqlSubstituteLiterals replaces single-quoted string literals ('…') in expr with
 // named :_lN placeholders and adds them to eav as DynamoDB S-type wire values.
+// SQL-style escaped quotes (”) inside literals are unescaped to a single quote.
 func partiqlSubstituteLiterals(expr string, eav map[string]any) (string, map[string]any) {
 	if expr == "" {
 		return "", eav
@@ -437,10 +486,11 @@ func partiqlSubstituteLiterals(expr string, eav map[string]any) (string, map[str
 	litIdx := len(eav) // start after any existing entries to avoid collisions
 
 	result := partiqlStringLiteralRe.ReplaceAllStringFunc(expr, func(match string) string {
-		val := match[1 : len(match)-1] // strip surrounding single quotes
+		// Strip surrounding single quotes and unescape SQL-style '' to '
+		inner := strings.ReplaceAll(match[1:len(match)-1], "''", "'")
 		key := fmt.Sprintf(":_l%d", litIdx)
 		litIdx++
-		eav[key] = map[string]any{"S": val}
+		eav[key] = map[string]any{"S": inner}
 
 		return key
 	})
@@ -460,6 +510,7 @@ func partiqlExtractWhere(stmt string) string {
 }
 
 // partiqlExtractLimit returns the LIMIT value from a PartiQL statement, or 0 if absent.
+// It parses the value as a 32-bit integer so the result safely fits into int32.
 func partiqlExtractLimit(stmt string) int {
 	m := partiqlLimitRe.FindStringSubmatch(stmt)
 	if len(m) < minRegexMatch {
@@ -486,17 +537,36 @@ func partiqlExtractColumns(stmt string) string {
 	return strings.TrimSpace(m[1])
 }
 
-// partiqlExtractKeyFromWhere parses a WHERE expression that has already had its
-// positional parameters replaced with :pN placeholders.  It extracts equality
-// conditions whose left-hand side is a key attribute and returns a wire-format
-// item containing only those key attributes.
+// partiqlSplitANDConditions splits a WHERE expression on "AND" (case-insensitive)
+// while preserving BETWEEN … AND … clauses as a single condition.
+func partiqlSplitANDConditions(expr string) []string {
+	rawParts := partiqlANDSplitRe.Split(expr, -1)
+	conditions := make([]string, 0, len(rawParts))
+
+	for i := 0; i < len(rawParts); i++ {
+		part := rawParts[i]
+		// Re-join BETWEEN ... AND ... pairs that were incorrectly split.
+		if strings.Contains(strings.ToUpper(part), " BETWEEN ") && i+1 < len(rawParts) {
+			part = part + " AND " + rawParts[i+1]
+			i++
+		}
+
+		conditions = append(conditions, part)
+	}
+
+	return conditions
+}
+
+// partiqlExtractKeyFromWhere parses a WHERE expression (with positional parameters already
+// substituted as :pN) and extracts equality conditions on key attributes, returning a
+// wire-format item containing only the key attributes.
+// AND is matched case-insensitively.
 func partiqlExtractKeyFromWhere(
 	whereExpr string,
 	eav map[string]any,
 	keyAttrs map[string]bool,
 ) (map[string]any, error) {
-	// Split on AND, preserving BETWEEN … AND … (via the shared helper).
-	conditions := dynamoattr.SplitANDConditions(whereExpr)
+	conditions := partiqlSplitANDConditions(whereExpr)
 	key := make(map[string]any, len(keyAttrs))
 
 	for _, cond := range conditions {
@@ -552,7 +622,7 @@ func partiqlParseValueClause(
 	body = body[1 : len(body)-1]
 	item := make(map[string]any)
 
-	// Split on commas that are not inside nested structures.
+	// Split on commas that are not inside nested structures or string literals.
 	pairs := splitTopLevelCommas(body)
 
 	for _, pair := range pairs {
@@ -582,7 +652,7 @@ func partiqlParseValueClause(
 }
 
 // partiqlParseScalar converts a single PartiQL scalar token to DynamoDB wire format.
-// Supported forms: ? (parameter), 'string', bare integer/decimal, TRUE/FALSE, NULL.
+// Supported forms: ? (parameter), 'string' (with ” escape), bare integer/decimal, TRUE/FALSE, NULL.
 func partiqlParseScalar(token string, params []map[string]any, paramIdx *int) (map[string]any, error) {
 	token = strings.TrimSpace(token)
 
@@ -601,9 +671,11 @@ func partiqlParseScalar(token string, params []map[string]any, paramIdx *int) (m
 		return v, nil
 	}
 
-	// 'string literal'
+	// 'string literal' — supports SQL-style '' escaped quotes
 	if len(token) >= minRegexMatch && token[0] == '\'' && token[len(token)-1] == '\'' {
-		return map[string]any{"S": token[1 : len(token)-1]}, nil
+		inner := strings.ReplaceAll(token[1:len(token)-1], "''", "'")
+
+		return map[string]any{"S": inner}, nil
 	}
 
 	// TRUE / FALSE
@@ -630,31 +702,42 @@ func partiqlParseScalar(token string, params []map[string]any, paramIdx *int) (m
 }
 
 // partiqlBuildSDKEAV converts a wire-format EAV map to the SDK AttributeValue map.
-func partiqlBuildSDKEAV(eav map[string]any) map[string]types.AttributeValue {
-	if len(eav) == 0 {
-		return nil
-	}
-
+// It returns an error if any value fails conversion, surfacing issues rather than silently dropping entries.
+func partiqlBuildSDKEAV(eav map[string]any) (map[string]types.AttributeValue, error) {
 	out := make(map[string]types.AttributeValue, len(eav))
 
 	for k, v := range eav {
-		if av, err := models.ToSDKAttributeValue(v); err == nil {
-			out[k] = av
+		av, err := models.ToSDKAttributeValue(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid expression attribute value for %q: %w", k, err)
 		}
+
+		out[k] = av
 	}
 
-	return out
+	return out, nil
 }
 
-// splitTopLevelCommas splits s on commas that are not inside {} or [] nesting.
+// splitTopLevelCommas splits s on commas that are not inside {} or [] nesting,
+// or inside single-quoted string literals (including ” escaped quotes).
 func splitTopLevelCommas(s string) []string {
 	var result []string
 
 	depth := 0
 	start := 0
 
-	for i := range len(s) {
-		switch s[i] {
+	i := 0
+	for i < len(s) {
+		ch := s[i]
+
+		// Skip string literal contents so embedded commas are not treated as separators.
+		if ch == '\'' {
+			i = advancePastStringLiteral(s, i)
+
+			continue
+		}
+
+		switch ch {
 		case '{', '[':
 			depth++
 		case '}', ']':
@@ -665,6 +748,8 @@ func splitTopLevelCommas(s string) []string {
 				start = i + 1
 			}
 		}
+
+		i++
 	}
 
 	result = append(result, s[start:])
