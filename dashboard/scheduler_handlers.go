@@ -24,6 +24,7 @@ type schedulerIndexData struct {
 }
 
 // schedulerIndex renders the Scheduler dashboard index.
+//
 //nolint:dupl // intentional: each handler has unique snippet/service data despite similar structure
 func (h *DashboardHandler) schedulerIndex(c *echo.Context) error {
 	w := c.Response()

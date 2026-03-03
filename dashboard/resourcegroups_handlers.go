@@ -21,6 +21,7 @@ type resourcegroupsIndexData struct {
 }
 
 // resourcegroupsIndex renders the Resource Groups dashboard index.
+//
 //nolint:dupl // intentional: each handler has unique snippet/service data despite similar structure
 func (h *DashboardHandler) resourcegroupsIndex(c *echo.Context) error {
 	w := c.Response()

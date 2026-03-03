@@ -5,6 +5,7 @@ import (
 )
 
 // dashboardIndex renders the main global overview page.
+//
 //nolint:funlen // long due to service icon SVG constants
 func (h *DashboardHandler) dashboardIndex(c *echo.Context) error {
 	w := c.Response()

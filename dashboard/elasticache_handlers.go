@@ -42,6 +42,7 @@ type elastiCacheClusterDetailData struct {
 }
 
 // elastiCacheIndex renders the list of all ElastiCache clusters.
+//
 //nolint:funlen // long due to ElastiCache node type list
 func (h *DashboardHandler) elastiCacheIndex(c *echo.Context) error {
 	w := c.Response()

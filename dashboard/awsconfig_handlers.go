@@ -21,6 +21,7 @@ type awsconfigIndexData struct {
 }
 
 // awsconfigIndex renders the AWS Config dashboard index.
+//
 //nolint:dupl // intentional: each handler has unique snippet/service data despite similar structure
 func (h *DashboardHandler) awsconfigIndex(c *echo.Context) error {
 	w := c.Response()
