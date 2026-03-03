@@ -1043,3 +1043,142 @@ func TestEvaluator_AttrNameResolution(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, true, result)
 }
+
+func TestEvaluator_ApplyAdd_SetUnion(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		item     map[string]any
+		val      any
+		expected map[string]any
+		name     string
+		path     []expr.PathElement
+	}{
+		{
+			name: "SS union adds new elements",
+			item: map[string]any{"tags": map[string]any{"SS": []string{"a", "b"}}},
+			path: []expr.PathElement{{Name: "tags", Type: expr.ElementKey}},
+			val:  map[string]any{"SS": []string{"b", "c"}},
+			expected: map[string]any{
+				"tags": map[string]any{"SS": []string{"a", "b", "c"}},
+			},
+		},
+		{
+			name: "NS union adds new numbers",
+			item: map[string]any{"nums": map[string]any{"NS": []string{"1", "2"}}},
+			path: []expr.PathElement{{Name: "nums", Type: expr.ElementKey}},
+			val:  map[string]any{"NS": []string{"2", "3"}},
+			expected: map[string]any{
+				"nums": map[string]any{"NS": []string{"1", "2", "3"}},
+			},
+		},
+		{
+			name: "BS union adds new bytes",
+			item: map[string]any{"bins": map[string]any{"BS": [][]byte{[]byte("x")}}},
+			path: []expr.PathElement{{Name: "bins", Type: expr.ElementKey}},
+			val:  map[string]any{"BS": [][]byte{[]byte("x"), []byte("y")}},
+			expected: map[string]any{
+				"bins": map[string]any{"BS": [][]byte{[]byte("x"), []byte("y")}},
+			},
+		},
+		{
+			name: "SS add to missing attribute initialises set",
+			item: map[string]any{},
+			path: []expr.PathElement{{Name: "tags", Type: expr.ElementKey}},
+			val:  map[string]any{"SS": []string{"a"}},
+			expected: map[string]any{
+				"tags": map[string]any{"SS": []string{"a"}},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			eval := &expr.Evaluator{Item: tt.item}
+			err := eval.ExportedApplyAdd(tt.path, tt.val)
+			require.NoError(t, err)
+			assert.Empty(t, cmp.Diff(tt.expected, eval.Item), "ApplyAdd set union mismatch")
+		})
+	}
+}
+
+func TestEvaluator_ApplyDelete_BS(t *testing.T) {
+	t.Parallel()
+
+	path := []expr.PathElement{{Name: "bins", Type: expr.ElementKey}}
+	update := &expr.UpdateExpr{
+		Actions: []expr.UpdateAction{
+			{
+				Type: expr.TokenDELETE,
+				Items: []expr.UpdateItem{
+					{
+						Path:  &expr.PathExpr{Elements: path},
+						Value: &expr.ValuePlaceholder{Name: ":toRemove"},
+					},
+				},
+			},
+		},
+	}
+
+	ev := &expr.Evaluator{
+		Item: map[string]any{
+			"bins": map[string]any{"BS": [][]byte{[]byte("a"), []byte("b"), []byte("c")}},
+		},
+		AttrValues: map[string]any{
+			":toRemove": map[string]any{"BS": [][]byte{[]byte("b")}},
+		},
+	}
+	require.NoError(t, ev.ApplyUpdate(update))
+
+	got := ev.Item["bins"].(map[string]any)["BS"].([][]byte)
+	assert.Equal(t, [][]byte{[]byte("a"), []byte("c")}, got)
+}
+
+func TestEvaluator_ApplyDelete_SS_NS(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		item     map[string]any
+		remove   map[string]any
+		expected map[string]any
+		name     string
+	}{
+		{
+			name:     "SS removes element",
+			item:     map[string]any{"s": map[string]any{"SS": []string{"a", "b", "c"}}},
+			remove:   map[string]any{"SS": []string{"b"}},
+			expected: map[string]any{"s": map[string]any{"SS": []string{"a", "c"}}},
+		},
+		{
+			name:     "NS removes element",
+			item:     map[string]any{"n": map[string]any{"NS": []string{"1", "2", "3"}}},
+			remove:   map[string]any{"NS": []string{"2"}},
+			expected: map[string]any{"n": map[string]any{"NS": []string{"1", "3"}}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			update := &expr.UpdateExpr{
+				Actions: []expr.UpdateAction{{
+					Type: expr.TokenDELETE,
+					Items: []expr.UpdateItem{{
+						Path:  &expr.PathExpr{Elements: []expr.PathElement{{Name: "s", Type: expr.ElementKey}}},
+						Value: &expr.ValuePlaceholder{Name: ":v"},
+					}},
+				}},
+			}
+			// Fix the path for NS test
+			if tt.name == "NS removes element" {
+				update.Actions[0].Items[0].Path = &expr.PathExpr{
+					Elements: []expr.PathElement{{Name: "n", Type: expr.ElementKey}},
+				}
+			}
+			ev := &expr.Evaluator{Item: tt.item, AttrValues: map[string]any{":v": tt.remove}}
+			require.NoError(t, ev.ApplyUpdate(update))
+			assert.Empty(t, cmp.Diff(tt.expected, ev.Item))
+		})
+	}
+}

@@ -326,3 +326,103 @@ func TestTransactGetItems(t *testing.T) {
 		})
 	}
 }
+
+func TestTransactWriteItems_Idempotency(t *testing.T) {
+	t.Parallel()
+
+	const tbl = "IdempotencyTable"
+	db := newTransactDB(t, tbl)
+
+	token := "my-idempotency-token"
+	item := map[string]types.AttributeValue{
+		"pk":  &types.AttributeValueMemberS{Value: "item-idem"},
+		"val": &types.AttributeValueMemberS{Value: "original"},
+	}
+
+	input := &sdk.TransactWriteItemsInput{
+		ClientRequestToken: aws.String(token),
+		TransactItems: []types.TransactWriteItem{
+			{Put: &types.Put{TableName: aws.String(tbl), Item: item}},
+		},
+	}
+
+	// First call: writes the item
+	_, err := db.TransactWriteItems(t.Context(), input)
+	require.NoError(t, err)
+
+	// Modify the item externally to detect whether a re-apply would change it
+	_, err = db.PutItem(t.Context(), &sdk.PutItemInput{
+		TableName: aws.String(tbl),
+		Item: map[string]types.AttributeValue{
+			"pk":  &types.AttributeValueMemberS{Value: "item-idem"},
+			"val": &types.AttributeValueMemberS{Value: "modified"},
+		},
+	})
+	require.NoError(t, err)
+
+	// Second call with same token: must not re-apply the write
+	_, err = db.TransactWriteItems(t.Context(), input)
+	require.NoError(t, err)
+
+	got, err := db.GetItem(t.Context(), &sdk.GetItemInput{
+		TableName: aws.String(tbl),
+		Key:       map[string]types.AttributeValue{"pk": &types.AttributeValueMemberS{Value: "item-idem"}},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "modified", got.Item["val"].(*types.AttributeValueMemberS).Value,
+		"idempotent replay must not overwrite the item again")
+}
+
+func TestTransactWriteItems_ConsumedCapacity(t *testing.T) {
+	t.Parallel()
+
+	const tbl = "TxCapTable"
+	db := newTransactDB(t, tbl)
+
+	out, err := db.TransactWriteItems(t.Context(), &sdk.TransactWriteItemsInput{
+		ReturnConsumedCapacity: types.ReturnConsumedCapacityTotal,
+		TransactItems: []types.TransactWriteItem{
+			{Put: &types.Put{
+				TableName: aws.String(tbl),
+				Item:      map[string]types.AttributeValue{"pk": &types.AttributeValueMemberS{Value: "x"}},
+			}},
+		},
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, out.ConsumedCapacity, "ConsumedCapacity should be populated when requested")
+}
+
+func TestTransactWriteItems_TokenNotCommittedOnFailure(t *testing.T) {
+	t.Parallel()
+
+	const tbl = "TokenFailTable"
+	db := newTransactDB(t, tbl)
+
+	// Seed pk="item1" so that attribute_not_exists(pk) fails for that key.
+	seedItem(t, db, tbl, "exists")
+
+	token := "fail-token"
+	input := &sdk.TransactWriteItemsInput{
+		ClientRequestToken: aws.String(token),
+		TransactItems: []types.TransactWriteItem{
+			{
+				Put: &types.Put{
+					TableName:           aws.String(tbl),
+					ConditionExpression: aws.String("attribute_not_exists(pk)"),
+					Item: map[string]types.AttributeValue{
+						"pk": &types.AttributeValueMemberS{Value: "item1"},
+					},
+				},
+			},
+		},
+	}
+
+	// First call: fails because of condition expression (item1 already exists).
+	_, err := db.TransactWriteItems(t.Context(), input)
+	require.Error(t, err, "first call should fail due to condition")
+
+	// Second call with same token must also execute (token was not committed on failure).
+	// It should fail again (same condition), not return success silently.
+	_, err = db.TransactWriteItems(t.Context(), input)
+	require.Error(t, err, "second call with uncommitted token should also fail")
+}

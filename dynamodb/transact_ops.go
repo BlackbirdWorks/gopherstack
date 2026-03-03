@@ -24,6 +24,38 @@ func (db *InMemoryDB) TransactWriteItems(
 		return nil, NewValidationException("TransactItems must not be empty")
 	}
 
+	// Idempotency: enforce ClientRequestToken semantics.
+	// - committed token  → return success immediately (no re-apply)
+	// - in-progress token → return TransactionInProgressException
+	// - new token        → mark pending; clear on failure, commit on success
+	token := aws.ToString(input.ClientRequestToken)
+	if token != "" {
+		var committed, inProgress bool
+		db.mu.Lock("TransactWriteItems.tokenCheck")
+		_, committed = db.txnTokens[token]
+		_, inProgress = db.txnPending[token]
+		if !committed && !inProgress {
+			db.txnPending[token] = struct{}{}
+		}
+		db.mu.Unlock()
+
+		switch {
+		case committed:
+			return &dynamodb.TransactWriteItemsOutput{}, nil
+		case inProgress:
+			return nil, NewTransactionInProgressException(
+				"A transaction with the given request token is currently in progress",
+			)
+		}
+
+		// Ensure the pending entry is cleaned up on any exit path.
+		defer func() {
+			db.mu.Lock("TransactWriteItems.tokenCleanup")
+			delete(db.txnPending, token)
+			db.mu.Unlock()
+		}()
+	}
+
 	tableNames := db.transactTableNames(input.TransactItems)
 	tables, lockErr := db.lockTablesWrite(ctx, tableNames)
 	if lockErr != nil {
@@ -49,7 +81,54 @@ func (db *InMemoryDB) TransactWriteItems(
 		}
 	}
 
-	return &dynamodb.TransactWriteItemsOutput{}, nil
+	// Record token as committed only after all writes have been applied.
+	if token != "" {
+		db.mu.Lock("TransactWriteItems.tokenCommit")
+		db.txnTokens[token] = struct{}{}
+		db.mu.Unlock()
+	}
+
+	out := &dynamodb.TransactWriteItemsOutput{
+		ConsumedCapacity: transactWriteConsumedCapacity(input.ReturnConsumedCapacity, input.TransactItems),
+	}
+
+	return out, nil
+}
+
+func transactWriteConsumedCapacity(
+	req types.ReturnConsumedCapacity,
+	items []types.TransactWriteItem,
+) []types.ConsumedCapacity {
+	if req == "" || req == types.ReturnConsumedCapacityNone {
+		return nil
+	}
+
+	// Count write operations per table for accurate WCU reporting.
+	perTable := make(map[string]int)
+	for _, ti := range items {
+		switch {
+		case ti.Put != nil:
+			perTable[aws.ToString(ti.Put.TableName)]++
+		case ti.Delete != nil:
+			perTable[aws.ToString(ti.Delete.TableName)]++
+		case ti.Update != nil:
+			perTable[aws.ToString(ti.Update.TableName)]++
+		case ti.ConditionCheck != nil:
+			perTable[aws.ToString(ti.ConditionCheck.TableName)]++
+		}
+	}
+
+	caps := make([]types.ConsumedCapacity, 0, len(perTable))
+	for name, n := range perTable {
+		cu := float64(n)
+		caps = append(caps, types.ConsumedCapacity{
+			TableName:          aws.String(name),
+			CapacityUnits:      aws.Float64(cu),
+			WriteCapacityUnits: aws.Float64(cu),
+		})
+	}
+
+	return caps
 }
 
 // TransactGetItems reads up to 100 items atomically.
@@ -88,39 +167,84 @@ func (db *InMemoryDB) TransactGetItems(
 	responses := make([]types.ItemResponse, 0, len(input.TransactItems))
 
 	for _, ti := range input.TransactItems {
-		if ti.Get == nil {
-			responses = append(responses, types.ItemResponse{})
-
-			continue
+		resp, err := db.transactGetResponseItem(ti, tables)
+		if err != nil {
+			return nil, err
 		}
 
-		tableName := aws.ToString(ti.Get.TableName)
-		table, ok := tables[tableName]
-		if !ok {
-			return nil, NewResourceNotFoundException(fmt.Sprintf("Table not found: %s", tableName))
-		}
-
-		pkDef, skDef := getPKAndSK(table.KeySchema)
-		wireKey := models.FromSDKItem(ti.Get.Key)
-		item := db.lookupItem(table, wireKey, pkDef.AttributeName, skDef.AttributeName)
-
-		if item == nil || isItemExpired(item, table.TTLAttribute) {
-			responses = append(responses, types.ItemResponse{})
-
-			continue
-		}
-
-		result := item
-		proj := aws.ToString(ti.Get.ProjectionExpression)
-		if proj != "" {
-			result = projectItem(item, proj, ti.Get.ExpressionAttributeNames)
-		}
-
-		sdkResult, _ := models.ToSDKItem(result)
-		responses = append(responses, types.ItemResponse{Item: sdkResult})
+		responses = append(responses, resp)
 	}
 
-	return &dynamodb.TransactGetItemsOutput{Responses: responses}, nil
+	out := &dynamodb.TransactGetItemsOutput{
+		Responses:        responses,
+		ConsumedCapacity: transactReadConsumedCapacity(input.ReturnConsumedCapacity, input.TransactItems),
+	}
+
+	return out, nil
+}
+
+func (db *InMemoryDB) transactGetResponseItem(
+	ti types.TransactGetItem,
+	tables map[string]*Table,
+) (types.ItemResponse, error) {
+	if ti.Get == nil {
+		return types.ItemResponse{}, nil
+	}
+
+	tableName := aws.ToString(ti.Get.TableName)
+	table, ok := tables[tableName]
+	if !ok {
+		return types.ItemResponse{}, NewResourceNotFoundException(fmt.Sprintf("Table not found: %s", tableName))
+	}
+
+	pkDef, skDef := getPKAndSK(table.KeySchema)
+	wireKey := models.FromSDKItem(ti.Get.Key)
+	item := db.lookupItem(table, wireKey, pkDef.AttributeName, skDef.AttributeName)
+
+	if item == nil || isItemExpired(item, table.TTLAttribute) {
+		return types.ItemResponse{}, nil
+	}
+
+	result := item
+	proj := aws.ToString(ti.Get.ProjectionExpression)
+	if proj != "" {
+		result = projectItem(item, proj, ti.Get.ExpressionAttributeNames)
+	}
+
+	sdkResult, _ := models.ToSDKItem(result)
+
+	return types.ItemResponse{Item: sdkResult}, nil
+}
+
+func transactReadConsumedCapacity(
+	req types.ReturnConsumedCapacity,
+	items []types.TransactGetItem,
+) []types.ConsumedCapacity {
+	if req == "" || req == types.ReturnConsumedCapacityNone {
+		return nil
+	}
+
+	// Count read operations per table for accurate RCU reporting.
+	perTable := make(map[string]int)
+	for _, ti := range items {
+		if ti.Get != nil {
+			perTable[aws.ToString(ti.Get.TableName)]++
+		}
+	}
+
+	const rcuPerRead = 0.5 // eventually-consistent
+	caps := make([]types.ConsumedCapacity, 0, len(perTable))
+
+	for name, n := range perTable {
+		cu := float64(n) * rcuPerRead
+		caps = append(caps, types.ConsumedCapacity{
+			TableName:         aws.String(name),
+			CapacityUnits:     aws.Float64(cu),
+			ReadCapacityUnits: aws.Float64(cu),
+		})
+	}
+
+	return caps
 }
 
 func (db *InMemoryDB) transactTableNames(items []types.TransactWriteItem) []string {
