@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash"
 	"math/rand/v2"
@@ -15,12 +16,50 @@ import (
 	"strings"
 )
 
+// Sentinel errors for intrinsic function evaluation.
+var (
+	ErrInvalidIntrinsicSyntax               = errors.New("invalid intrinsic function syntax")
+	ErrUnknownIntrinsicFunction             = errors.New("unknown intrinsic function")
+	ErrInvalidIntrinsicArg                  = errors.New("invalid intrinsic function argument")
+	ErrStatesFormatRequiresArg              = errors.New("States.Format requires at least one argument")
+	ErrStatesFormatFirstArgNotString        = errors.New("States.Format: first argument must be a string")
+	ErrStatesFormatNotEnoughArgs            = errors.New("States.Format: not enough arguments for placeholders")
+	ErrStatesStringToJSONRequiresArg        = errors.New("States.StringToJson requires exactly one argument")
+	ErrStatesStringToJSONArgNotString       = errors.New("States.StringToJson: argument must be a string")
+	ErrStatesJSONToStringRequiresArg        = errors.New("States.JsonToString requires exactly one argument")
+	ErrStatesArrayLengthRequiresArg         = errors.New("States.ArrayLength requires exactly one argument")
+	ErrStatesArrayLengthArgNotArray         = errors.New("States.ArrayLength: argument must be an array")
+	ErrStatesArrayContainsRequiresTwoArgs   = errors.New("States.ArrayContains requires exactly two arguments")
+	ErrStatesArrayContainsFirstArgNotArray  = errors.New("States.ArrayContains: first argument must be an array")
+	ErrStatesArrayPartitionRequiresTwoArgs  = errors.New("States.ArrayPartition requires exactly two arguments")
+	ErrStatesArrayPartitionFirstArgNotArray = errors.New("States.ArrayPartition: first argument must be an array")
+	ErrStatesArrayPartitionSizeNotPositive  = errors.New(
+		"States.ArrayPartition: second argument must be a positive number",
+	)
+	ErrStatesMathRandomRequiresTwoArgs = errors.New("States.MathRandom requires at least two arguments (start, end)")
+	ErrStatesMathRandomStartNotNumber  = errors.New("States.MathRandom: start must be a number")
+	ErrStatesMathRandomEndNotNumber    = errors.New("States.MathRandom: end must be a number")
+	ErrStatesMathRandomRange           = errors.New("States.MathRandom: end must be greater than start")
+	ErrStatesBase64EncodeRequiresArg   = errors.New("States.Base64Encode requires exactly one argument")
+	ErrStatesBase64EncodeArgNotString  = errors.New("States.Base64Encode: argument must be a string")
+	ErrStatesBase64DecodeRequiresArg   = errors.New("States.Base64Decode requires exactly one argument")
+	ErrStatesBase64DecodeArgNotString  = errors.New("States.Base64Decode: argument must be a string")
+	ErrStatesHashRequiresTwoArgs       = errors.New("States.Hash requires exactly two arguments (data, algorithm)")
+	ErrStatesHashFirstArgNotString     = errors.New("States.Hash: first argument must be a string")
+	ErrStatesHashSecondArgNotString    = errors.New("States.Hash: second argument must be a string")
+	ErrStatesHashUnsupportedAlgorithm  = errors.New("States.Hash: unsupported algorithm")
+)
+
+const intrinsicTwoArgs = 2
+
 // evaluateIntrinsicFunction evaluates an ASL intrinsic function call such as
 // States.Format, States.StringToJson, etc.
+//
+//nolint:cyclop // dispatches to 11 ASL intrinsic functions
 func evaluateIntrinsicFunction(expr string, input any) (any, error) {
 	parenIdx := strings.IndexByte(expr, '(')
 	if parenIdx < 0 || !strings.HasSuffix(strings.TrimSpace(expr), ")") {
-		return nil, fmt.Errorf("invalid intrinsic function syntax: %q", expr)
+		return nil, fmt.Errorf("%w: %q", ErrInvalidIntrinsicSyntax, expr)
 	}
 
 	fnName := strings.TrimSpace(expr[:parenIdx])
@@ -36,9 +75,9 @@ func evaluateIntrinsicFunction(expr string, input any) (any, error) {
 	case "States.Format":
 		return intrinsicFormat(args)
 	case "States.StringToJson":
-		return intrinsicStringToJson(args)
+		return intrinsicStringToJSON(args)
 	case "States.JsonToString":
-		return intrinsicJsonToString(args)
+		return intrinsicJSONToString(args)
 	case "States.Array":
 		return args, nil
 	case "States.ArrayLength":
@@ -56,7 +95,7 @@ func evaluateIntrinsicFunction(expr string, input any) (any, error) {
 	case "States.Hash":
 		return intrinsicHash(args)
 	default:
-		return nil, fmt.Errorf("unknown intrinsic function: %q", fnName)
+		return nil, fmt.Errorf("%w: %q", ErrUnknownIntrinsicFunction, fnName)
 	}
 }
 
@@ -91,29 +130,27 @@ func splitIntrinsicArgs(s string) []string {
 	depth := 0
 	inString := false
 
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-
+	for _, c := range s {
 		switch {
 		case c == '\'' && !inString:
 			inString = true
-			current.WriteByte(c)
+			current.WriteRune(c)
 		case c == '\'' && inString:
 			inString = false
-			current.WriteByte(c)
+			current.WriteRune(c)
 		case inString:
-			current.WriteByte(c)
+			current.WriteRune(c)
 		case c == '(':
 			depth++
-			current.WriteByte(c)
+			current.WriteRune(c)
 		case c == ')':
 			depth--
-			current.WriteByte(c)
+			current.WriteRune(c)
 		case c == ',' && depth == 0:
 			result = append(result, current.String())
 			current.Reset()
 		default:
-			current.WriteByte(c)
+			current.WriteRune(c)
 		}
 	}
 
@@ -142,7 +179,7 @@ func evalIntrinsicArg(arg string, input any) (any, error) {
 
 	// Null literal.
 	if arg == "null" {
-		return nil, nil
+		return nil, nil //nolint:nilnil // null is a valid ASL literal value
 	}
 
 	// Boolean literals.
@@ -159,18 +196,18 @@ func evalIntrinsicArg(arg string, input any) (any, error) {
 		return n, nil
 	}
 
-	return nil, fmt.Errorf("invalid intrinsic function argument: %q", arg)
+	return nil, fmt.Errorf("%w: %q", ErrInvalidIntrinsicArg, arg)
 }
 
 // intrinsicFormat implements States.Format('template {}', $.arg1, ...).
 func intrinsicFormat(args []any) (any, error) {
 	if len(args) < 1 {
-		return nil, fmt.Errorf("States.Format requires at least one argument")
+		return nil, ErrStatesFormatRequiresArg
 	}
 
 	template, ok := args[0].(string)
 	if !ok {
-		return nil, fmt.Errorf("States.Format: first argument must be a string, got %T", args[0])
+		return nil, fmt.Errorf("%w, got %T", ErrStatesFormatFirstArgNotString, args[0])
 	}
 
 	var result strings.Builder
@@ -179,7 +216,7 @@ func intrinsicFormat(args []any) (any, error) {
 	for i := 0; i < len(template); i++ {
 		if template[i] == '{' && i+1 < len(template) && template[i+1] == '}' {
 			if argIdx >= len(args) {
-				return nil, fmt.Errorf("States.Format: not enough arguments for placeholders in %q", template)
+				return nil, fmt.Errorf("%w in %q", ErrStatesFormatNotEnoughArgs, template)
 			}
 
 			val := args[argIdx]
@@ -208,15 +245,15 @@ func intrinsicFormat(args []any) (any, error) {
 	return result.String(), nil
 }
 
-// intrinsicStringToJson implements States.StringToJson($.jsonString).
-func intrinsicStringToJson(args []any) (any, error) {
+// intrinsicStringToJSON implements States.StringToJson($.jsonString).
+func intrinsicStringToJSON(args []any) (any, error) {
 	if len(args) != 1 {
-		return nil, fmt.Errorf("States.StringToJson requires exactly one argument")
+		return nil, ErrStatesStringToJSONRequiresArg
 	}
 
 	s, ok := args[0].(string)
 	if !ok {
-		return nil, fmt.Errorf("States.StringToJson: argument must be a string, got %T", args[0])
+		return nil, fmt.Errorf("%w, got %T", ErrStatesStringToJSONArgNotString, args[0])
 	}
 
 	var result any
@@ -227,10 +264,10 @@ func intrinsicStringToJson(args []any) (any, error) {
 	return result, nil
 }
 
-// intrinsicJsonToString implements States.JsonToString($.value).
-func intrinsicJsonToString(args []any) (any, error) {
+// intrinsicJSONToString implements States.JsonToString($.value).
+func intrinsicJSONToString(args []any) (any, error) {
 	if len(args) != 1 {
-		return nil, fmt.Errorf("States.JsonToString requires exactly one argument")
+		return nil, ErrStatesJSONToStringRequiresArg
 	}
 
 	b, err := json.Marshal(args[0])
@@ -244,12 +281,12 @@ func intrinsicJsonToString(args []any) (any, error) {
 // intrinsicArrayLength implements States.ArrayLength($.arr).
 func intrinsicArrayLength(args []any) (any, error) {
 	if len(args) != 1 {
-		return nil, fmt.Errorf("States.ArrayLength requires exactly one argument")
+		return nil, ErrStatesArrayLengthRequiresArg
 	}
 
 	arr, ok := args[0].([]any)
 	if !ok {
-		return nil, fmt.Errorf("States.ArrayLength: argument must be an array, got %T", args[0])
+		return nil, fmt.Errorf("%w, got %T", ErrStatesArrayLengthArgNotArray, args[0])
 	}
 
 	return float64(len(arr)), nil
@@ -257,13 +294,13 @@ func intrinsicArrayLength(args []any) (any, error) {
 
 // intrinsicArrayContains implements States.ArrayContains($.arr, value).
 func intrinsicArrayContains(args []any) (any, error) {
-	if len(args) != 2 {
-		return nil, fmt.Errorf("States.ArrayContains requires exactly two arguments")
+	if len(args) != intrinsicTwoArgs {
+		return nil, ErrStatesArrayContainsRequiresTwoArgs
 	}
 
 	arr, ok := args[0].([]any)
 	if !ok {
-		return nil, fmt.Errorf("States.ArrayContains: first argument must be an array, got %T", args[0])
+		return nil, fmt.Errorf("%w, got %T", ErrStatesArrayContainsFirstArgNotArray, args[0])
 	}
 
 	target := args[1]
@@ -279,28 +316,25 @@ func intrinsicArrayContains(args []any) (any, error) {
 
 // intrinsicArrayPartition implements States.ArrayPartition($.arr, chunkSize).
 func intrinsicArrayPartition(args []any) (any, error) {
-	if len(args) != 2 {
-		return nil, fmt.Errorf("States.ArrayPartition requires exactly two arguments")
+	if len(args) != intrinsicTwoArgs {
+		return nil, ErrStatesArrayPartitionRequiresTwoArgs
 	}
 
 	arr, ok := args[0].([]any)
 	if !ok {
-		return nil, fmt.Errorf("States.ArrayPartition: first argument must be an array, got %T", args[0])
+		return nil, fmt.Errorf("%w, got %T", ErrStatesArrayPartitionFirstArgNotArray, args[0])
 	}
 
 	sizeF, ok := toFloat(args[1])
 	if !ok || sizeF <= 0 {
-		return nil, fmt.Errorf("States.ArrayPartition: second argument must be a positive number")
+		return nil, ErrStatesArrayPartitionSizeNotPositive
 	}
 
 	size := int(sizeF)
 	chunks := make([]any, 0, (len(arr)+size-1)/size)
 
 	for i := 0; i < len(arr); i += size {
-		end := i + size
-		if end > len(arr) {
-			end = len(arr)
-		}
+		end := min(i+size, len(arr))
 
 		chunk := make([]any, end-i)
 		copy(chunk, arr[i:end])
@@ -312,28 +346,28 @@ func intrinsicArrayPartition(args []any) (any, error) {
 
 // intrinsicMathRandom implements States.MathRandom(start, end).
 func intrinsicMathRandom(args []any) (any, error) {
-	if len(args) < 2 {
-		return nil, fmt.Errorf("States.MathRandom requires at least two arguments (start, end)")
+	if len(args) < intrinsicTwoArgs {
+		return nil, ErrStatesMathRandomRequiresTwoArgs
 	}
 
 	startF, ok := toFloat(args[0])
 	if !ok {
-		return nil, fmt.Errorf("States.MathRandom: start must be a number")
+		return nil, ErrStatesMathRandomStartNotNumber
 	}
 
 	endF, ok := toFloat(args[1])
 	if !ok {
-		return nil, fmt.Errorf("States.MathRandom: end must be a number")
+		return nil, ErrStatesMathRandomEndNotNumber
 	}
 
 	start := int64(startF)
 	end := int64(endF)
 
 	if end <= start {
-		return nil, fmt.Errorf("States.MathRandom: end (%d) must be greater than start (%d)", end, start)
+		return nil, fmt.Errorf("%w: end=%d, start=%d", ErrStatesMathRandomRange, end, start)
 	}
 
-	r := start + rand.Int64N(end-start+1)
+	r := start + rand.Int64N(end-start+1) //nolint:gosec // non-cryptographic per ASL spec
 
 	return float64(r), nil
 }
@@ -341,12 +375,12 @@ func intrinsicMathRandom(args []any) (any, error) {
 // intrinsicBase64Encode implements States.Base64Encode($.str).
 func intrinsicBase64Encode(args []any) (any, error) {
 	if len(args) != 1 {
-		return nil, fmt.Errorf("States.Base64Encode requires exactly one argument")
+		return nil, ErrStatesBase64EncodeRequiresArg
 	}
 
 	s, ok := args[0].(string)
 	if !ok {
-		return nil, fmt.Errorf("States.Base64Encode: argument must be a string, got %T", args[0])
+		return nil, fmt.Errorf("%w, got %T", ErrStatesBase64EncodeArgNotString, args[0])
 	}
 
 	return base64.StdEncoding.EncodeToString([]byte(s)), nil
@@ -355,12 +389,12 @@ func intrinsicBase64Encode(args []any) (any, error) {
 // intrinsicBase64Decode implements States.Base64Decode($.encoded).
 func intrinsicBase64Decode(args []any) (any, error) {
 	if len(args) != 1 {
-		return nil, fmt.Errorf("States.Base64Decode requires exactly one argument")
+		return nil, ErrStatesBase64DecodeRequiresArg
 	}
 
 	s, ok := args[0].(string)
 	if !ok {
-		return nil, fmt.Errorf("States.Base64Decode: argument must be a string, got %T", args[0])
+		return nil, fmt.Errorf("%w, got %T", ErrStatesBase64DecodeArgNotString, args[0])
 	}
 
 	b, err := base64.StdEncoding.DecodeString(s)
@@ -374,31 +408,31 @@ func intrinsicBase64Decode(args []any) (any, error) {
 // intrinsicHash implements States.Hash($.data, 'algorithm').
 // Supported algorithms: MD5, SHA-1, SHA-256.
 func intrinsicHash(args []any) (any, error) {
-	if len(args) != 2 {
-		return nil, fmt.Errorf("States.Hash requires exactly two arguments (data, algorithm)")
+	if len(args) != intrinsicTwoArgs {
+		return nil, ErrStatesHashRequiresTwoArgs
 	}
 
 	data, ok := args[0].(string)
 	if !ok {
-		return nil, fmt.Errorf("States.Hash: first argument must be a string, got %T", args[0])
+		return nil, fmt.Errorf("%w, got %T", ErrStatesHashFirstArgNotString, args[0])
 	}
 
 	algo, ok := args[1].(string)
 	if !ok {
-		return nil, fmt.Errorf("States.Hash: second argument must be a string, got %T", args[1])
+		return nil, fmt.Errorf("%w, got %T", ErrStatesHashSecondArgNotString, args[1])
 	}
 
 	var h hash.Hash
 
 	switch strings.ToUpper(algo) {
 	case "MD5":
-		h = md5.New() //nolint:gosec
+		h = md5.New() //nolint:gosec // MD5 required by AWS States.Hash spec
 	case "SHA-1":
-		h = sha1.New() //nolint:gosec
+		h = sha1.New() //nolint:gosec // SHA-1 required by AWS States.Hash spec
 	case "SHA-256":
 		h = sha256.New()
 	default:
-		return nil, fmt.Errorf("States.Hash: unsupported algorithm %q (supported: MD5, SHA-1, SHA-256)", algo)
+		return nil, fmt.Errorf("%w %q (supported: MD5, SHA-1, SHA-256)", ErrStatesHashUnsupportedAlgorithm, algo)
 	}
 
 	h.Write([]byte(data))

@@ -468,6 +468,7 @@ func (h *Handler) utilActions() map[string]actionFn {
 			}
 
 			if _, err := asl.Parse(input.Definition); err != nil {
+				//nolint:nilerr // parse error is returned as Result:FAIL in the response body
 				return &validateStateMachineDefinitionOutput{
 					Result: "FAIL",
 					Diagnostics: []any{map[string]string{

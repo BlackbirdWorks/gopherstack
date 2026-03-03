@@ -14,10 +14,13 @@ import (
 
 // Test sentinel errors — used as mock return values in Lambda error tests.
 var (
-	errLambdaService = errors.New("Lambda.ServiceException")
-	errMyError       = errors.New("MyError")
-	errMySpecific    = errors.New("MySpecificError")
-	errUnhandled     = errors.New("UnhandledError")
+	errLambdaService   = errors.New("Lambda.ServiceException")
+	errMyError         = errors.New("MyError")
+	errMySpecific      = errors.New("MySpecificError")
+	errUnhandled       = errors.New("UnhandledError")
+	errTransientError  = errors.New("TransientError")
+	errPersistentError = errors.New("PersistentError")
+	errSomeError       = errors.New("SomeError")
 )
 
 func TestParse_Valid(t *testing.T) {
@@ -1093,9 +1096,9 @@ func TestExecutor_TaskNoLambdaInvoker(t *testing.T) {
 // --- Parameters and ResultSelector tests ---
 
 func TestExecutor_Parameters_StaticAndDynamic(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-def := `{
+	def := `{
 "StartAt": "P",
 "States": {
 "P": {
@@ -1106,18 +1109,18 @@ def := `{
 }
 }`
 
-result := execute(t, def, `{"name": "world"}`)
-m := result.Output.(map[string]any)
-assert.Equal(t, "hello", m["static"])
-assert.Equal(t, "world", m["dynamic"])
+	result := execute(t, def, `{"name": "world"}`)
+	m := result.Output.(map[string]any)
+	assert.Equal(t, "hello", m["static"])
+	assert.Equal(t, "world", m["dynamic"])
 }
 
 func TestExecutor_ResultSelector_FiltersOutput(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-mockLambda := &mockLambda{response: `{"status": "ok", "noise": "ignored"}`}
+	mockLambda := &mockLambda{response: `{"status": "ok", "noise": "ignored"}`}
 
-def := `{
+	def := `{
 "StartAt": "T",
 "States": {
 "T": {
@@ -1129,36 +1132,36 @@ def := `{
 }
 }`
 
-sm, err := asl.Parse(def)
-require.NoError(t, err)
-exec := asl.NewExecutor(sm, mockLambda, nil)
-result, err := exec.Execute(t.Context(), "test", `{}`)
-require.NoError(t, err)
-assert.Empty(t, result.Error)
+	sm, err := asl.Parse(def)
+	require.NoError(t, err)
+	exec := asl.NewExecutor(sm, mockLambda, nil)
+	result, err := exec.Execute(t.Context(), "test", `{}`)
+	require.NoError(t, err)
+	assert.Empty(t, result.Error)
 
-m, ok := result.Output.(map[string]any)
-require.True(t, ok)
-assert.Equal(t, "ok", m["result"])
-_, hasNoise := m["noise"]
-assert.False(t, hasNoise)
+	m, ok := result.Output.(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "ok", m["result"])
+	_, hasNoise := m["noise"]
+	assert.False(t, hasNoise)
 }
 
 // --- Retry tests ---
 
 func TestExecutor_Retry_SucceedsAfterRetry(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-callCount := 0
-lam := &mockLambdaFn{fn: func() ([]byte, int, error) {
-callCount++
-if callCount < 3 {
-return nil, 500, errors.New("TransientError")
-}
-return []byte(`{"done": true}`), 200, nil
-}}
+	callCount := 0
+	lam := &mockLambdaFn{fn: func() ([]byte, int, error) {
+		callCount++
+		if callCount < 3 {
+			return nil, 500, errTransientError
+		}
 
-maxAttempts := 5
-def := `{
+		return []byte(`{"done": true}`), 200, nil
+	}}
+
+	def := `{
 "StartAt": "T",
 "States": {
 "T": {
@@ -1169,24 +1172,22 @@ def := `{
 }
 }
 }`
-// Set MaxAttempts via JSON since the struct uses *int.
-_ = maxAttempts
 
-sm, err := asl.Parse(def)
-require.NoError(t, err)
-exec := asl.NewExecutor(sm, lam, nil)
-result, err := exec.Execute(t.Context(), "test", `{}`)
-require.NoError(t, err)
-assert.Empty(t, result.Error)
-assert.Equal(t, 3, callCount)
+	sm, err := asl.Parse(def)
+	require.NoError(t, err)
+	exec := asl.NewExecutor(sm, lam, nil)
+	result, err := exec.Execute(t.Context(), "test", `{}`)
+	require.NoError(t, err)
+	assert.Empty(t, result.Error)
+	assert.Equal(t, 3, callCount)
 }
 
 func TestExecutor_Retry_ExhaustedFallsThroughToCatch(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-lam := &mockLambda{returnErr: errors.New("PersistentError")}
+	lam := &mockLambda{returnErr: errPersistentError}
 
-def := `{
+	def := `{
 "StartAt": "T",
 "States": {
 "T": {
@@ -1200,24 +1201,25 @@ def := `{
 }
 }`
 
-sm, err := asl.Parse(def)
-require.NoError(t, err)
-exec := asl.NewExecutor(sm, lam, nil)
-result, err := exec.Execute(t.Context(), "test", `{}`)
-require.NoError(t, err)
-assert.Equal(t, "caught", result.Output)
+	sm, err := asl.Parse(def)
+	require.NoError(t, err)
+	exec := asl.NewExecutor(sm, lam, nil)
+	result, err := exec.Execute(t.Context(), "test", `{}`)
+	require.NoError(t, err)
+	assert.Equal(t, "caught", result.Output)
 }
 
 func TestExecutor_Retry_MaxAttemptsZeroNoRetry(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-callCount := 0
-lam := &mockLambdaFn{fn: func() ([]byte, int, error) {
-callCount++
-return nil, 500, errors.New("SomeError")
-}}
+	callCount := 0
+	lam := &mockLambdaFn{fn: func() ([]byte, int, error) {
+		callCount++
 
-def := `{
+		return nil, 500, errSomeError
+	}}
+
+	def := `{
 "StartAt": "T",
 "States": {
 "T": {
@@ -1229,41 +1231,54 @@ def := `{
 }
 }`
 
-sm, err := asl.Parse(def)
-require.NoError(t, err)
-exec := asl.NewExecutor(sm, lam, nil)
-result, err := exec.Execute(t.Context(), "test", `{}`)
-require.NoError(t, err)
-assert.Equal(t, "TaskFailed", result.Error)
-assert.Equal(t, 1, callCount, "should only try once with MaxAttempts=0")
+	sm, err := asl.Parse(def)
+	require.NoError(t, err)
+	exec := asl.NewExecutor(sm, lam, nil)
+	result, err := exec.Execute(t.Context(), "test", `{}`)
+	require.NoError(t, err)
+	assert.Equal(t, "TaskFailed", result.Error)
+	assert.Equal(t, 1, callCount, "should only try once with MaxAttempts=0")
 }
 
 // mockLambdaFn is a flexible mock that calls a function for each invocation.
 type mockLambdaFn struct {
-fn func() ([]byte, int, error)
+	fn func() ([]byte, int, error)
 }
 
 func (m *mockLambdaFn) InvokeFunction(_ context.Context, _, _ string, _ []byte) ([]byte, int, error) {
-return m.fn()
+	return m.fn()
+}
+
+// mockLambdaFnCtx is a context-aware mock that passes the context to the function.
+type mockLambdaFnCtx struct {
+	fn func(ctx context.Context) ([]byte, int, error)
+}
+
+func (m *mockLambdaFnCtx) InvokeFunction(ctx context.Context, _, _ string, _ []byte) ([]byte, int, error) {
+	return m.fn(ctx)
 }
 
 // --- TimeoutSeconds test ---
 
 func TestExecutor_Task_TimeoutSeconds(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-lam := &mockLambdaFn{fn: func() ([]byte, int, error) {
-time.Sleep(200 * time.Millisecond)
-return []byte(`{}`), 200, nil
-}}
+	t.Run("timeout is caught by States.Timeout catcher", func(t *testing.T) {
+		t.Parallel()
 
-def := `{
+		lam := &mockLambdaFnCtx{fn: func(ctx context.Context) ([]byte, int, error) {
+			<-ctx.Done()
+
+			return nil, 0, ctx.Err()
+		}}
+
+		def := `{
 "StartAt": "T",
 "States": {
 "T": {
 "Type": "Task",
 "Resource": "arn:aws:lambda:us-east-1:000000000000:function:fn",
-"TimeoutSeconds": 0,
+"TimeoutSeconds": 1,
 "Catch": [{"ErrorEquals": ["States.Timeout"], "Next": "TimedOut"}],
 "End": true
 },
@@ -1271,21 +1286,87 @@ def := `{
 }
 }`
 
-// TimeoutSeconds=0 means no enforced timeout; task should succeed.
-sm, err := asl.Parse(def)
-require.NoError(t, err)
-exec := asl.NewExecutor(sm, lam, nil)
-result, err := exec.Execute(t.Context(), "test", `{}`)
-require.NoError(t, err)
-assert.Empty(t, result.Error)
+		sm, err := asl.Parse(def)
+		require.NoError(t, err)
+		exec := asl.NewExecutor(sm, lam, nil)
+		result, err := exec.Execute(t.Context(), "test", `{}`)
+		require.NoError(t, err)
+		assert.Empty(t, result.Error)
+		assert.Equal(t, "timeout", result.Output)
+	})
+
+	t.Run("timeout is not retried even with States.ALL retry", func(t *testing.T) {
+		t.Parallel()
+
+		callCount := 0
+		lam := &mockLambdaFnCtx{fn: func(ctx context.Context) ([]byte, int, error) {
+			callCount++
+			<-ctx.Done()
+
+			return nil, 0, ctx.Err()
+		}}
+
+		def := `{
+"StartAt": "T",
+"States": {
+"T": {
+"Type": "Task",
+"Resource": "arn:aws:lambda:us-east-1:000000000000:function:fn",
+"TimeoutSeconds": 1,
+"Retry": [{"ErrorEquals": ["States.ALL"], "MaxAttempts": 3, "IntervalSeconds": 0}],
+"Catch": [{"ErrorEquals": ["States.Timeout"], "Next": "TimedOut"}],
+"End": true
+},
+"TimedOut": {"Type": "Pass", "End": true, "Result": "timeout"}
+}
+}`
+
+		sm, err := asl.Parse(def)
+		require.NoError(t, err)
+		exec := asl.NewExecutor(sm, lam, nil)
+		result, err := exec.Execute(t.Context(), "test", `{}`)
+		require.NoError(t, err)
+		assert.Empty(t, result.Error)
+		assert.Equal(t, "timeout", result.Output)
+		assert.Equal(t, 1, callCount, "task should not be retried after timeout")
+	})
+
+	t.Run("zero TimeoutSeconds means no timeout enforcement", func(t *testing.T) {
+		t.Parallel()
+
+		lam := &mockLambdaFn{fn: func() ([]byte, int, error) {
+			time.Sleep(50 * time.Millisecond)
+
+			return []byte(`{}`), 200, nil
+		}}
+
+		def := `{
+"StartAt": "T",
+"States": {
+"T": {
+"Type": "Task",
+"Resource": "arn:aws:lambda:us-east-1:000000000000:function:fn",
+"TimeoutSeconds": 0,
+"End": true
+}
+}
+}`
+
+		sm, err := asl.Parse(def)
+		require.NoError(t, err)
+		exec := asl.NewExecutor(sm, lam, nil)
+		result, err := exec.Execute(t.Context(), "test", `{}`)
+		require.NoError(t, err)
+		assert.Empty(t, result.Error)
+	})
 }
 
 // --- Wait state improvements ---
 
 func TestExecutor_Wait_SecondsPath(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-def := `{
+	def := `{
 "StartAt": "W",
 "States": {
 "W": {"Type": "Wait", "SecondsPath": "$.delay", "Next": "Done"},
@@ -1293,15 +1374,15 @@ def := `{
 }
 }`
 
-result := execute(t, def, `{"delay": 0}`)
-assert.Empty(t, result.Error)
+	result := execute(t, def, `{"delay": 0}`)
+	assert.Empty(t, result.Error)
 }
 
 func TestExecutor_Wait_Timestamp_Past(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-// A past timestamp should not actually wait.
-def := `{
+	// A past timestamp should not actually wait.
+	def := `{
 "StartAt": "W",
 "States": {
 "W": {"Type": "Wait", "Timestamp": "2000-01-01T00:00:00Z", "Next": "Done"},
@@ -1309,14 +1390,14 @@ def := `{
 }
 }`
 
-result := execute(t, def, `{}`)
-assert.Empty(t, result.Error)
+	result := execute(t, def, `{}`)
+	assert.Empty(t, result.Error)
 }
 
 func TestExecutor_Wait_TimestampPath(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-def := `{
+	def := `{
 "StartAt": "W",
 "States": {
 "W": {"Type": "Wait", "TimestampPath": "$.ts", "Next": "Done"},
@@ -1324,16 +1405,16 @@ def := `{
 }
 }`
 
-result := execute(t, def, `{"ts": "2000-01-01T00:00:00Z"}`)
-assert.Empty(t, result.Error)
+	result := execute(t, def, `{"ts": "2000-01-01T00:00:00Z"}`)
+	assert.Empty(t, result.Error)
 }
 
 // --- Choice state new operators ---
 
 func TestExecutor_Choice_StringLessThanEquals(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-def := `{
+	def := `{
 "StartAt": "C",
 "States": {
 "C": {
@@ -1346,15 +1427,15 @@ def := `{
 }
 }`
 
-assert.Equal(t, "low", execute(t, def, `{"s": "a"}`).Output)
-assert.Equal(t, "low", execute(t, def, `{"s": "m"}`).Output)
-assert.Equal(t, "high", execute(t, def, `{"s": "z"}`).Output)
+	assert.Equal(t, "low", execute(t, def, `{"s": "a"}`).Output)
+	assert.Equal(t, "low", execute(t, def, `{"s": "m"}`).Output)
+	assert.Equal(t, "high", execute(t, def, `{"s": "z"}`).Output)
 }
 
 func TestExecutor_Choice_NumericGreaterThanEquals(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-def := `{
+	def := `{
 "StartAt": "C",
 "States": {
 "C": {
@@ -1367,15 +1448,15 @@ def := `{
 }
 }`
 
-assert.Equal(t, "high", execute(t, def, `{"n": 10}`).Output)
-assert.Equal(t, "high", execute(t, def, `{"n": 15}`).Output)
-assert.Equal(t, "low", execute(t, def, `{"n": 9}`).Output)
+	assert.Equal(t, "high", execute(t, def, `{"n": 10}`).Output)
+	assert.Equal(t, "high", execute(t, def, `{"n": 15}`).Output)
+	assert.Equal(t, "low", execute(t, def, `{"n": 9}`).Output)
 }
 
 func TestExecutor_Choice_NumericLessThanEquals(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-def := `{
+	def := `{
 "StartAt": "C",
 "States": {
 "C": {
@@ -1388,15 +1469,15 @@ def := `{
 }
 }`
 
-assert.Equal(t, "low", execute(t, def, `{"n": 5}`).Output)
-assert.Equal(t, "low", execute(t, def, `{"n": 3}`).Output)
-assert.Equal(t, "high", execute(t, def, `{"n": 6}`).Output)
+	assert.Equal(t, "low", execute(t, def, `{"n": 5}`).Output)
+	assert.Equal(t, "low", execute(t, def, `{"n": 3}`).Output)
+	assert.Equal(t, "high", execute(t, def, `{"n": 6}`).Output)
 }
 
 func TestExecutor_Choice_StringEqualsPath(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-def := `{
+	def := `{
 "StartAt": "C",
 "States": {
 "C": {
@@ -1409,14 +1490,14 @@ def := `{
 }
 }`
 
-assert.Equal(t, "match", execute(t, def, `{"a": "hello", "b": "hello"}`).Output)
-assert.Equal(t, "no-match", execute(t, def, `{"a": "hello", "b": "world"}`).Output)
+	assert.Equal(t, "match", execute(t, def, `{"a": "hello", "b": "hello"}`).Output)
+	assert.Equal(t, "no-match", execute(t, def, `{"a": "hello", "b": "world"}`).Output)
 }
 
 func TestExecutor_Choice_NumericEqualsPath(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-def := `{
+	def := `{
 "StartAt": "C",
 "States": {
 "C": {
@@ -1429,14 +1510,14 @@ def := `{
 }
 }`
 
-assert.Equal(t, "equal", execute(t, def, `{"x": 42, "y": 42}`).Output)
-assert.Equal(t, "not-equal", execute(t, def, `{"x": 42, "y": 43}`).Output)
+	assert.Equal(t, "equal", execute(t, def, `{"x": 42, "y": 42}`).Output)
+	assert.Equal(t, "not-equal", execute(t, def, `{"x": 42, "y": 43}`).Output)
 }
 
 func TestExecutor_Choice_IsString(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-def := `{
+	def := `{
 "StartAt": "C",
 "States": {
 "C": {
@@ -1449,14 +1530,14 @@ def := `{
 }
 }`
 
-assert.Equal(t, "string", execute(t, def, `{"v": "hello"}`).Output)
-assert.Equal(t, "not-string", execute(t, def, `{"v": 42}`).Output)
+	assert.Equal(t, "string", execute(t, def, `{"v": "hello"}`).Output)
+	assert.Equal(t, "not-string", execute(t, def, `{"v": 42}`).Output)
 }
 
 func TestExecutor_Choice_IsNumeric(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-def := `{
+	def := `{
 "StartAt": "C",
 "States": {
 "C": {
@@ -1469,14 +1550,14 @@ def := `{
 }
 }`
 
-assert.Equal(t, "numeric", execute(t, def, `{"v": 3.14}`).Output)
-assert.Equal(t, "not-numeric", execute(t, def, `{"v": "text"}`).Output)
+	assert.Equal(t, "numeric", execute(t, def, `{"v": 3.14}`).Output)
+	assert.Equal(t, "not-numeric", execute(t, def, `{"v": "text"}`).Output)
 }
 
 func TestExecutor_Choice_IsBoolean(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-def := `{
+	def := `{
 "StartAt": "C",
 "States": {
 "C": {
@@ -1489,14 +1570,14 @@ def := `{
 }
 }`
 
-assert.Equal(t, "boolean", execute(t, def, `{"v": true}`).Output)
-assert.Equal(t, "not-boolean", execute(t, def, `{"v": "true"}`).Output)
+	assert.Equal(t, "boolean", execute(t, def, `{"v": true}`).Output)
+	assert.Equal(t, "not-boolean", execute(t, def, `{"v": "true"}`).Output)
 }
 
 func TestExecutor_Choice_IsTimestamp(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-def := `{
+	def := `{
 "StartAt": "C",
 "States": {
 "C": {
@@ -1509,15 +1590,15 @@ def := `{
 }
 }`
 
-assert.Equal(t, "timestamp", execute(t, def, `{"v": "2024-01-15T12:00:00Z"}`).Output)
-assert.Equal(t, "not-timestamp", execute(t, def, `{"v": "not-a-timestamp"}`).Output)
-assert.Equal(t, "not-timestamp", execute(t, def, `{"v": 42}`).Output)
+	assert.Equal(t, "timestamp", execute(t, def, `{"v": "2024-01-15T12:00:00Z"}`).Output)
+	assert.Equal(t, "not-timestamp", execute(t, def, `{"v": "not-a-timestamp"}`).Output)
+	assert.Equal(t, "not-timestamp", execute(t, def, `{"v": 42}`).Output)
 }
 
 func TestExecutor_Choice_TimestampLessThan(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-def := `{
+	def := `{
 "StartAt": "C",
 "States": {
 "C": {
@@ -1530,16 +1611,16 @@ def := `{
 }
 }`
 
-assert.Equal(t, "before", execute(t, def, `{"ts": "2024-01-01T00:00:00Z"}`).Output)
-assert.Equal(t, "after", execute(t, def, `{"ts": "2024-12-01T00:00:00Z"}`).Output)
+	assert.Equal(t, "before", execute(t, def, `{"ts": "2024-01-01T00:00:00Z"}`).Output)
+	assert.Equal(t, "after", execute(t, def, `{"ts": "2024-12-01T00:00:00Z"}`).Output)
 }
 
 // --- Map state ItemProcessor ---
 
 func TestExecutor_MapState_ItemProcessor(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-def := `{
+	def := `{
 "StartAt": "Map",
 "States": {
 "Map": {
@@ -1555,19 +1636,19 @@ def := `{
 }
 }`
 
-result := execute(t, def, `[1, 2, 3]`)
-assert.Empty(t, result.Error)
-arr, ok := result.Output.([]any)
-require.True(t, ok)
-assert.Len(t, arr, 3)
+	result := execute(t, def, `[1, 2, 3]`)
+	assert.Empty(t, result.Error)
+	arr, ok := result.Output.([]any)
+	require.True(t, ok)
+	assert.Len(t, arr, 3)
 }
 
 // --- Intrinsic function tests ---
 
 func TestIntrinsic_Format(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-def := `{
+	def := `{
 "StartAt": "P",
 "States": {
 "P": {
@@ -1578,15 +1659,15 @@ def := `{
 }
 }`
 
-result := execute(t, def, `{"name": "World"}`)
-m := result.Output.(map[string]any)
-assert.Equal(t, "Hello, World!", m["msg"])
+	result := execute(t, def, `{"name": "World"}`)
+	m := result.Output.(map[string]any)
+	assert.Equal(t, "Hello, World!", m["msg"])
 }
 
 func TestIntrinsic_StringToJson(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-def := `{
+	def := `{
 "StartAt": "P",
 "States": {
 "P": {
@@ -1597,17 +1678,17 @@ def := `{
 }
 }`
 
-result := execute(t, def, `{"json": "{\"key\": \"value\"}"}`)
-m := result.Output.(map[string]any)
-inner, ok := m["parsed"].(map[string]any)
-require.True(t, ok)
-assert.Equal(t, "value", inner["key"])
+	result := execute(t, def, `{"json": "{\"key\": \"value\"}"}`)
+	m := result.Output.(map[string]any)
+	inner, ok := m["parsed"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "value", inner["key"])
 }
 
 func TestIntrinsic_JsonToString(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-def := `{
+	def := `{
 "StartAt": "P",
 "States": {
 "P": {
@@ -1618,17 +1699,17 @@ def := `{
 }
 }`
 
-result := execute(t, def, `{"obj": {"x": 1}}`)
-m := result.Output.(map[string]any)
-s, ok := m["serialized"].(string)
-require.True(t, ok)
-assert.Contains(t, s, "\"x\"")
+	result := execute(t, def, `{"obj": {"x": 1}}`)
+	m := result.Output.(map[string]any)
+	s, ok := m["serialized"].(string)
+	require.True(t, ok)
+	assert.Contains(t, s, "\"x\"")
 }
 
 func TestIntrinsic_Array(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-def := `{
+	def := `{
 "StartAt": "P",
 "States": {
 "P": {
@@ -1639,17 +1720,17 @@ def := `{
 }
 }`
 
-result := execute(t, def, `{"a": 1, "b": 2}`)
-m := result.Output.(map[string]any)
-arr, ok := m["arr"].([]any)
-require.True(t, ok)
-assert.Len(t, arr, 2)
+	result := execute(t, def, `{"a": 1, "b": 2}`)
+	m := result.Output.(map[string]any)
+	arr, ok := m["arr"].([]any)
+	require.True(t, ok)
+	assert.Len(t, arr, 2)
 }
 
 func TestIntrinsic_ArrayLength(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-def := `{
+	def := `{
 "StartAt": "P",
 "States": {
 "P": {
@@ -1660,15 +1741,15 @@ def := `{
 }
 }`
 
-result := execute(t, def, `{"items": [1, 2, 3]}`)
-m := result.Output.(map[string]any)
-assert.InDelta(t, float64(3), m["len"], 1e-9)
+	result := execute(t, def, `{"items": [1, 2, 3]}`)
+	m := result.Output.(map[string]any)
+	assert.InDelta(t, float64(3), m["len"], 1e-9)
 }
 
 func TestIntrinsic_ArrayContains(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-def := `{
+	def := `{
 "StartAt": "P",
 "States": {
 "P": {
@@ -1679,19 +1760,19 @@ def := `{
 }
 }`
 
-result := execute(t, def, `{"arr": ["a", "b", "c"], "target": "b"}`)
-m := result.Output.(map[string]any)
-assert.Equal(t, true, m["found"])
+	result := execute(t, def, `{"arr": ["a", "b", "c"], "target": "b"}`)
+	m := result.Output.(map[string]any)
+	assert.Equal(t, true, m["found"])
 
-result2 := execute(t, def, `{"arr": ["a", "b", "c"], "target": "z"}`)
-m2 := result2.Output.(map[string]any)
-assert.Equal(t, false, m2["found"])
+	result2 := execute(t, def, `{"arr": ["a", "b", "c"], "target": "z"}`)
+	m2 := result2.Output.(map[string]any)
+	assert.Equal(t, false, m2["found"])
 }
 
 func TestIntrinsic_Base64EncodeAndDecode(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-def := `{
+	def := `{
 "StartAt": "P",
 "States": {
 "P": {
@@ -1702,14 +1783,14 @@ def := `{
 }
 }`
 
-result := execute(t, def, `{"text": "hello"}`)
-m := result.Output.(map[string]any)
-encoded, ok := m["encoded"].(string)
-require.True(t, ok)
-assert.NotEmpty(t, encoded)
+	result := execute(t, def, `{"text": "hello"}`)
+	m := result.Output.(map[string]any)
+	encoded, ok := m["encoded"].(string)
+	require.True(t, ok)
+	assert.NotEmpty(t, encoded)
 
-// Decode it back.
-def2 := `{
+	// Decode it back.
+	def2 := `{
 "StartAt": "P",
 "States": {
 "P": {
@@ -1719,15 +1800,15 @@ def2 := `{
 }
 }
 }`
-result2 := execute(t, def2, `{"enc": "`+encoded+`"}`)
-m2 := result2.Output.(map[string]any)
-assert.Equal(t, "hello", m2["decoded"])
+	result2 := execute(t, def2, `{"enc": "`+encoded+`"}`)
+	m2 := result2.Output.(map[string]any)
+	assert.Equal(t, "hello", m2["decoded"])
 }
 
 func TestIntrinsic_Hash(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-def := `{
+	def := `{
 "StartAt": "P",
 "States": {
 "P": {
@@ -1738,9 +1819,9 @@ def := `{
 }
 }`
 
-result := execute(t, def, `{"data": "hello"}`)
-m := result.Output.(map[string]any)
-h, ok := m["h"].(string)
-require.True(t, ok)
-assert.Len(t, h, 64) // SHA-256 hex = 64 chars
+	result := execute(t, def, `{"data": "hello"}`)
+	m := result.Output.(map[string]any)
+	h, ok := m["h"].(string)
+	require.True(t, ok)
+	assert.Len(t, h, 64) // SHA-256 hex = 64 chars
 }

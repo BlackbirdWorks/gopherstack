@@ -51,9 +51,9 @@ type State struct {
 
 // Retrier defines retry behavior for a Task state on error.
 type Retrier struct {
-	ErrorEquals     []string `json:"ErrorEquals"`
 	IntervalSeconds *int     `json:"IntervalSeconds,omitempty"`
 	MaxAttempts     *int     `json:"MaxAttempts,omitempty"`
+	ErrorEquals     []string `json:"ErrorEquals"`
 	BackoffRate     float64  `json:"BackoffRate,omitempty"`
 }
 
@@ -74,39 +74,39 @@ type Branch struct {
 // ChoiceRule represents a single condition/transition in a Choice state.
 type ChoiceRule struct {
 	// Numeric comparisons
-	NumericEquals              *float64 `json:"NumericEquals,omitempty"`
-	NumericLessThan            *float64 `json:"NumericLessThan,omitempty"`
-	NumericGreaterThan         *float64 `json:"NumericGreaterThan,omitempty"`
-	NumericLessThanEquals      *float64 `json:"NumericLessThanEquals,omitempty"`
-	NumericGreaterThanEquals   *float64 `json:"NumericGreaterThanEquals,omitempty"`
-	NumericEqualsPath          *string  `json:"NumericEqualsPath,omitempty"`
-	NumericLessThanPath        *string  `json:"NumericLessThanPath,omitempty"`
-	NumericGreaterThanPath     *string  `json:"NumericGreaterThanPath,omitempty"`
-	NumericLessThanEqualsPath  *string  `json:"NumericLessThanEqualsPath,omitempty"`
-	NumericGreaterThanEqualsPath *string `json:"NumericGreaterThanEqualsPath,omitempty"`
+	NumericEquals                *float64 `json:"NumericEquals,omitempty"`
+	NumericLessThan              *float64 `json:"NumericLessThan,omitempty"`
+	NumericGreaterThan           *float64 `json:"NumericGreaterThan,omitempty"`
+	NumericLessThanEquals        *float64 `json:"NumericLessThanEquals,omitempty"`
+	NumericGreaterThanEquals     *float64 `json:"NumericGreaterThanEquals,omitempty"`
+	NumericEqualsPath            *string  `json:"NumericEqualsPath,omitempty"`
+	NumericLessThanPath          *string  `json:"NumericLessThanPath,omitempty"`
+	NumericGreaterThanPath       *string  `json:"NumericGreaterThanPath,omitempty"`
+	NumericLessThanEqualsPath    *string  `json:"NumericLessThanEqualsPath,omitempty"`
+	NumericGreaterThanEqualsPath *string  `json:"NumericGreaterThanEqualsPath,omitempty"`
 
 	// String comparisons
-	StringEquals              *string `json:"StringEquals,omitempty"`
-	StringLessThan            *string `json:"StringLessThan,omitempty"`
-	StringGreaterThan         *string `json:"StringGreaterThan,omitempty"`
-	StringLessThanEquals      *string `json:"StringLessThanEquals,omitempty"`
-	StringGreaterThanEquals   *string `json:"StringGreaterThanEquals,omitempty"`
-	StringEqualsPath          *string `json:"StringEqualsPath,omitempty"`
-	StringLessThanPath        *string `json:"StringLessThanPath,omitempty"`
-	StringGreaterThanPath     *string `json:"StringGreaterThanPath,omitempty"`
-	StringLessThanEqualsPath  *string `json:"StringLessThanEqualsPath,omitempty"`
+	StringEquals                *string `json:"StringEquals,omitempty"`
+	StringLessThan              *string `json:"StringLessThan,omitempty"`
+	StringGreaterThan           *string `json:"StringGreaterThan,omitempty"`
+	StringLessThanEquals        *string `json:"StringLessThanEquals,omitempty"`
+	StringGreaterThanEquals     *string `json:"StringGreaterThanEquals,omitempty"`
+	StringEqualsPath            *string `json:"StringEqualsPath,omitempty"`
+	StringLessThanPath          *string `json:"StringLessThanPath,omitempty"`
+	StringGreaterThanPath       *string `json:"StringGreaterThanPath,omitempty"`
+	StringLessThanEqualsPath    *string `json:"StringLessThanEqualsPath,omitempty"`
 	StringGreaterThanEqualsPath *string `json:"StringGreaterThanEqualsPath,omitempty"`
 
 	// Timestamp comparisons (ISO 8601 / RFC3339 strings)
-	TimestampEquals              *string `json:"TimestampEquals,omitempty"`
-	TimestampLessThan            *string `json:"TimestampLessThan,omitempty"`
-	TimestampGreaterThan         *string `json:"TimestampGreaterThan,omitempty"`
-	TimestampLessThanEquals      *string `json:"TimestampLessThanEquals,omitempty"`
-	TimestampGreaterThanEquals   *string `json:"TimestampGreaterThanEquals,omitempty"`
-	TimestampEqualsPath          *string `json:"TimestampEqualsPath,omitempty"`
-	TimestampLessThanPath        *string `json:"TimestampLessThanPath,omitempty"`
-	TimestampGreaterThanPath     *string `json:"TimestampGreaterThanPath,omitempty"`
-	TimestampLessThanEqualsPath  *string `json:"TimestampLessThanEqualsPath,omitempty"`
+	TimestampEquals                *string `json:"TimestampEquals,omitempty"`
+	TimestampLessThan              *string `json:"TimestampLessThan,omitempty"`
+	TimestampGreaterThan           *string `json:"TimestampGreaterThan,omitempty"`
+	TimestampLessThanEquals        *string `json:"TimestampLessThanEquals,omitempty"`
+	TimestampGreaterThanEquals     *string `json:"TimestampGreaterThanEquals,omitempty"`
+	TimestampEqualsPath            *string `json:"TimestampEqualsPath,omitempty"`
+	TimestampLessThanPath          *string `json:"TimestampLessThanPath,omitempty"`
+	TimestampGreaterThanPath       *string `json:"TimestampGreaterThanPath,omitempty"`
+	TimestampLessThanEqualsPath    *string `json:"TimestampLessThanEqualsPath,omitempty"`
 	TimestampGreaterThanEqualsPath *string `json:"TimestampGreaterThanEqualsPath,omitempty"`
 
 	// Boolean comparison
@@ -122,12 +122,11 @@ type ChoiceRule struct {
 	IsTimestamp *bool `json:"IsTimestamp,omitempty"`
 
 	// Logical operators
-	Not *ChoiceRule  `json:"Not,omitempty"`
-	And []ChoiceRule `json:"And,omitempty"`
-	Or  []ChoiceRule `json:"Or,omitempty"`
-
-	Variable string `json:"Variable,omitempty"`
-	Next     string `json:"Next,omitempty"`
+	Not      *ChoiceRule  `json:"Not,omitempty"`
+	Variable string       `json:"Variable,omitempty"`
+	Next     string       `json:"Next,omitempty"`
+	And      []ChoiceRule `json:"And,omitempty"`
+	Or       []ChoiceRule `json:"Or,omitempty"`
 }
 
 // Parse parses an ASL state machine definition from JSON.
