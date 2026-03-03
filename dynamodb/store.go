@@ -2,6 +2,7 @@ package dynamodb
 
 import (
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/dynamodb/models"
@@ -173,6 +174,46 @@ func (t *Table) rebuildIndexes() {
 			t.pkIndex[pkVal] = i
 		}
 	}
+}
+
+// Regions returns all distinct regions that contain at least one table.
+func (db *InMemoryDB) Regions() []string {
+	db.mu.RLock("Regions")
+	defer db.mu.RUnlock()
+
+	var regions []string
+
+	for region, regionTables := range db.Tables {
+		if len(regionTables) > 0 {
+			regions = append(regions, region)
+		}
+	}
+
+	sort.Strings(regions)
+
+	return regions
+}
+
+// TableNamesByRegion returns table names in the given region, or all regions if region is empty.
+func (db *InMemoryDB) TableNamesByRegion(region string) []string {
+	db.mu.RLock("TableNamesByRegion")
+	defer db.mu.RUnlock()
+
+	var names []string
+
+	for r, regionTables := range db.Tables {
+		if region != "" && r != region {
+			continue
+		}
+
+		for name := range regionTables {
+			names = append(names, name)
+		}
+	}
+
+	sort.Strings(names)
+
+	return names
 }
 
 // ListAllTables returns a slice of all tables across all regions (for UI).

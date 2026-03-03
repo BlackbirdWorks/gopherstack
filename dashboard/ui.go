@@ -2,9 +2,11 @@ package dashboard
 
 import (
 	"embed"
+	"encoding/json"
 	"html/template"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -566,6 +568,7 @@ func (h *DashboardHandler) setupMetaRoutes() {
 	dashboardGroup := h.SubRouter.Group("/dashboard")
 	RegisterMetricsHandlers(dashboardGroup, h)
 	h.SubRouter.GET("/dashboard/settings", h.settingsIndex)
+	h.SubRouter.GET("/dashboard/api/regions", h.apiRegions)
 }
 
 func (h *DashboardHandler) setupSubRouter() {
@@ -984,4 +987,46 @@ func (h *DashboardHandler) settingsIndex(c *echo.Context) error {
 	h.renderTemplate(c.Response(), "settings.html", data)
 
 	return nil
+}
+
+// regionsResponse is the JSON shape returned by apiRegions.
+type regionsResponse struct {
+	Default string   `json:"default"`
+	Regions []string `json:"regions"`
+}
+
+// apiRegions returns a JSON list of all regions that have S3 buckets or DynamoDB tables.
+func (h *DashboardHandler) apiRegions(c *echo.Context) error {
+	seen := make(map[string]struct{})
+
+	if h.S3Ops != nil {
+		for _, r := range h.S3Ops.Regions() {
+			seen[r] = struct{}{}
+		}
+	}
+
+	if h.DDBOps != nil {
+		for _, r := range h.DDBOps.Regions() {
+			seen[r] = struct{}{}
+		}
+	}
+
+	defaultRegion := h.GlobalConfig.Region
+	seen[defaultRegion] = struct{}{}
+
+	regions := make([]string, 0, len(seen))
+	for r := range seen {
+		regions = append(regions, r)
+	}
+
+	sort.Strings(regions)
+
+	resp := regionsResponse{
+		Regions: regions,
+		Default: defaultRegion,
+	}
+
+	c.Response().Header().Set("Content-Type", "application/json")
+
+	return json.NewEncoder(c.Response()).Encode(resp)
 }

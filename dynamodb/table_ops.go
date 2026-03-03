@@ -26,6 +26,18 @@ func getRegionFromContext(ctx context.Context, db *InMemoryDB) string {
 	return db.defaultRegion
 }
 
+// CreateTableInRegion creates a DynamoDB table in the specified region, bypassing
+// the HTTP-layer region extraction. The supplied region always takes precedence,
+// even if the context already carries a region value. Useful for tests that need
+// tables in non-default regions.
+func (db *InMemoryDB) CreateTableInRegion(
+	ctx context.Context,
+	input *dynamodb.CreateTableInput,
+	region string,
+) (*dynamodb.CreateTableOutput, error) {
+	return db.CreateTable(context.WithValue(ctx, regionContextKey{}, region), input)
+}
+
 func (db *InMemoryDB) CreateTable(
 	ctx context.Context,
 	input *dynamodb.CreateTableInput,

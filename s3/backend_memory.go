@@ -134,53 +134,40 @@ func (b *InMemoryBackend) CreateBucket(
 }
 
 func (b *InMemoryBackend) DeleteBucket(
-	ctx context.Context,
+	_ context.Context,
 	input *s3.DeleteBucketInput,
 ) (*s3.DeleteBucketOutput, error) {
-	region := getRegionFromS3Context(ctx, b.defaultRegion)
 	bucketName := *input.Bucket
 
 	b.mu.Lock("DeleteBucket")
 	defer b.mu.Unlock()
 
-	if _, exists := b.buckets[region]; !exists {
-		return nil, ErrNoSuchBucket
+	// Search across all regions — bucket names are globally unique.
+	for _, regionBuckets := range b.buckets {
+		if bucket, exists := regionBuckets[bucketName]; exists {
+			// If already pending deletion, return success (idempotent).
+			if bucket.DeletePending {
+				return &s3.DeleteBucketOutput{}, nil
+			}
+			// Mark bucket as pending — the Janitor will drain its objects and remove it.
+			bucket.DeletePending = true
+
+			return &s3.DeleteBucketOutput{}, nil
+		}
 	}
 
-	bucket, exists := b.buckets[region][bucketName]
-	if !exists {
-		return nil, ErrNoSuchBucket
-	}
-
-	// If already pending deletion, return success (idempotent).
-	if bucket.DeletePending {
-		return &s3.DeleteBucketOutput{}, nil
-	}
-
-	// Mark bucket as pending — the Janitor will drain its objects and remove it.
-	bucket.DeletePending = true
-
-	return &s3.DeleteBucketOutput{}, nil
+	return nil, ErrNoSuchBucket
 }
 
 func (b *InMemoryBackend) HeadBucket(
-	ctx context.Context,
+	_ context.Context,
 	input *s3.HeadBucketInput,
 ) (*s3.HeadBucketOutput, error) {
-	region := getRegionFromS3Context(ctx, b.defaultRegion)
-
 	b.mu.RLock("HeadBucket")
 	defer b.mu.RUnlock()
 
-	bucketName := *input.Bucket
-
-	if _, exists := b.buckets[region]; !exists {
-		return nil, ErrNoSuchBucket
-	}
-
-	bucket, exists := b.buckets[region][bucketName]
-	if !exists || bucket.DeletePending {
-		return nil, ErrNoSuchBucket
+	if _, err := b.getBucket(*input.Bucket); err != nil {
+		return nil, err
 	}
 
 	return &s3.HeadBucketOutput{}, nil
@@ -218,6 +205,60 @@ func (b *InMemoryBackend) ListBuckets(
 			ID:          aws.String("placeholder-id"),
 		},
 	}, nil
+}
+
+// Regions returns all distinct regions that contain at least one active bucket.
+func (b *InMemoryBackend) Regions() []string {
+	b.mu.RLock("Regions")
+	defer b.mu.RUnlock()
+
+	var regions []string
+
+	for region, regionBuckets := range b.buckets {
+		for _, bucket := range regionBuckets {
+			if !bucket.DeletePending {
+				regions = append(regions, region)
+
+				break
+			}
+		}
+	}
+
+	sort.Strings(regions)
+
+	return regions
+}
+
+// BucketsByRegion returns a snapshot of all Bucket SDK objects in the given region.
+// Returns all buckets (cross-region) if region is empty.
+func (b *InMemoryBackend) BucketsByRegion(region string) []types.Bucket {
+	b.mu.RLock("BucketsByRegion")
+	defer b.mu.RUnlock()
+
+	var buckets []types.Bucket
+
+	for r, regionBuckets := range b.buckets {
+		if region != "" && r != region {
+			continue
+		}
+
+		for _, bucket := range regionBuckets {
+			if bucket.DeletePending {
+				continue
+			}
+
+			buckets = append(buckets, types.Bucket{
+				Name:         aws.String(bucket.Name),
+				CreationDate: aws.Time(bucket.CreationDate),
+			})
+		}
+	}
+
+	sort.Slice(buckets, func(i, j int) bool {
+		return *buckets[i].Name < *buckets[j].Name
+	})
+
+	return buckets
 }
 
 func (b *InMemoryBackend) PutObject(
