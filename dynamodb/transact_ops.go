@@ -24,6 +24,22 @@ func (db *InMemoryDB) TransactWriteItems(
 		return nil, NewValidationException("TransactItems must not be empty")
 	}
 
+	// Idempotency: if this ClientRequestToken was already committed, return success.
+	// Use a write lock so check-and-record is atomic, preventing concurrent duplicates.
+	token := aws.ToString(input.ClientRequestToken)
+	if token != "" {
+		db.mu.Lock("TransactWriteItems.tokenCheck")
+		_, seen := db.txnTokens[token]
+		if !seen {
+			// Pre-register the token so that a concurrent duplicate request returns early.
+			db.txnTokens[token] = struct{}{}
+		}
+		db.mu.Unlock()
+		if seen {
+			return &dynamodb.TransactWriteItemsOutput{}, nil
+		}
+	}
+
 	tableNames := db.transactTableNames(input.TransactItems)
 	tables, lockErr := db.lockTablesWrite(ctx, tableNames)
 	if lockErr != nil {
@@ -49,7 +65,33 @@ func (db *InMemoryDB) TransactWriteItems(
 		}
 	}
 
-	return &dynamodb.TransactWriteItemsOutput{}, nil
+	out := &dynamodb.TransactWriteItemsOutput{
+		ConsumedCapacity: transactWriteConsumedCapacity(input.ReturnConsumedCapacity, tableNames),
+	}
+
+	return out, nil
+}
+
+func transactWriteConsumedCapacity(
+	req types.ReturnConsumedCapacity,
+	tableNames []string,
+) []types.ConsumedCapacity {
+	if req == "" || req == types.ReturnConsumedCapacityNone {
+		return nil
+	}
+
+	const cu = 1.0
+	caps := make([]types.ConsumedCapacity, 0, len(tableNames))
+
+	for _, name := range tableNames {
+		caps = append(caps, types.ConsumedCapacity{
+			TableName:          aws.String(name),
+			CapacityUnits:      aws.Float64(cu),
+			WriteCapacityUnits: aws.Float64(cu),
+		})
+	}
+
+	return caps
 }
 
 // TransactGetItems reads up to 100 items atomically.
@@ -88,39 +130,75 @@ func (db *InMemoryDB) TransactGetItems(
 	responses := make([]types.ItemResponse, 0, len(input.TransactItems))
 
 	for _, ti := range input.TransactItems {
-		if ti.Get == nil {
-			responses = append(responses, types.ItemResponse{})
-
-			continue
+		resp, err := db.transactGetResponseItem(ti, tables)
+		if err != nil {
+			return nil, err
 		}
 
-		tableName := aws.ToString(ti.Get.TableName)
-		table, ok := tables[tableName]
-		if !ok {
-			return nil, NewResourceNotFoundException(fmt.Sprintf("Table not found: %s", tableName))
-		}
-
-		pkDef, skDef := getPKAndSK(table.KeySchema)
-		wireKey := models.FromSDKItem(ti.Get.Key)
-		item := db.lookupItem(table, wireKey, pkDef.AttributeName, skDef.AttributeName)
-
-		if item == nil || isItemExpired(item, table.TTLAttribute) {
-			responses = append(responses, types.ItemResponse{})
-
-			continue
-		}
-
-		result := item
-		proj := aws.ToString(ti.Get.ProjectionExpression)
-		if proj != "" {
-			result = projectItem(item, proj, ti.Get.ExpressionAttributeNames)
-		}
-
-		sdkResult, _ := models.ToSDKItem(result)
-		responses = append(responses, types.ItemResponse{Item: sdkResult})
+		responses = append(responses, resp)
 	}
 
-	return &dynamodb.TransactGetItemsOutput{Responses: responses}, nil
+	out := &dynamodb.TransactGetItemsOutput{
+		Responses:        responses,
+		ConsumedCapacity: transactReadConsumedCapacity(input.ReturnConsumedCapacity, tableNames),
+	}
+
+	return out, nil
+}
+
+func (db *InMemoryDB) transactGetResponseItem(
+	ti types.TransactGetItem,
+	tables map[string]*Table,
+) (types.ItemResponse, error) {
+	if ti.Get == nil {
+		return types.ItemResponse{}, nil
+	}
+
+	tableName := aws.ToString(ti.Get.TableName)
+	table, ok := tables[tableName]
+	if !ok {
+		return types.ItemResponse{}, NewResourceNotFoundException(fmt.Sprintf("Table not found: %s", tableName))
+	}
+
+	pkDef, skDef := getPKAndSK(table.KeySchema)
+	wireKey := models.FromSDKItem(ti.Get.Key)
+	item := db.lookupItem(table, wireKey, pkDef.AttributeName, skDef.AttributeName)
+
+	if item == nil || isItemExpired(item, table.TTLAttribute) {
+		return types.ItemResponse{}, nil
+	}
+
+	result := item
+	proj := aws.ToString(ti.Get.ProjectionExpression)
+	if proj != "" {
+		result = projectItem(item, proj, ti.Get.ExpressionAttributeNames)
+	}
+
+	sdkResult, _ := models.ToSDKItem(result)
+
+	return types.ItemResponse{Item: sdkResult}, nil
+}
+
+func transactReadConsumedCapacity(
+	req types.ReturnConsumedCapacity,
+	tableNames []string,
+) []types.ConsumedCapacity {
+	if req == "" || req == types.ReturnConsumedCapacityNone {
+		return nil
+	}
+
+	const cu = 0.5
+	caps := make([]types.ConsumedCapacity, 0, len(tableNames))
+
+	for _, name := range tableNames {
+		caps = append(caps, types.ConsumedCapacity{
+			TableName:         aws.String(name),
+			CapacityUnits:     aws.Float64(cu),
+			ReadCapacityUnits: aws.Float64(cu),
+		})
+	}
+
+	return caps
 }
 
 func (db *InMemoryDB) transactTableNames(items []types.TransactWriteItem) []string {

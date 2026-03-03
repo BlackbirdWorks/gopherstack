@@ -1,6 +1,7 @@
 package expr
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -791,7 +792,7 @@ func (e *Evaluator) applyAdd(path []PathElement, val any) error {
 		return nil
 	}
 
-	// Simple addition for numbers
+	// Numeric addition
 	curNum, ok1 := e.parseNumeric(cur)
 	valNum, ok2 := e.parseNumeric(val)
 	if ok1 && ok2 {
@@ -807,8 +808,70 @@ func (e *Evaluator) applyAdd(path []PathElement, val any) error {
 		return nil
 	}
 
-	// Also support list/set append would go here
+	// Set union for SS, NS, BS
+	valMap, ok := val.(map[string]any)
+	if !ok {
+		return nil
+	}
+	curMap, ok := cur.(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	if ssAdd, hasSS := valMap["SS"]; hasSS {
+		return e.addToStringSet(path, curMap, "SS", ssAdd)
+	}
+	if nsAdd, hasNS := valMap["NS"]; hasNS {
+		return e.addToStringSet(path, curMap, "NS", nsAdd)
+	}
+	if bsAdd, hasBS := valMap["BS"]; hasBS {
+		return e.addToBinarySet(path, curMap, bsAdd)
+	}
+
 	return nil
+}
+
+func (e *Evaluator) addToStringSet(path []PathElement, curMap map[string]any, setKey string, toAdd any) error {
+	addSlice, ok := toAdd.([]string)
+	if !ok {
+		return nil
+	}
+
+	existing, _ := curMap[setKey].([]string)
+	merged := make([]string, len(existing)+len(addSlice))
+	copy(merged, existing)
+	copy(merged[len(existing):], addSlice)
+	// Deduplicate while preserving order
+	seen := make(map[string]bool, len(merged))
+	unique := merged[:0]
+	for _, s := range merged {
+		if !seen[s] {
+			seen[s] = true
+			unique = append(unique, s)
+		}
+	}
+
+	return e.updateItemSet(path, setKey, unique)
+}
+
+func (e *Evaluator) addToBinarySet(path []PathElement, curMap map[string]any, toAdd any) error {
+	addSlice, ok := toAdd.([][]byte)
+	if !ok {
+		return nil
+	}
+	existing, _ := curMap["BS"].([][]byte)
+	merged := make([][]byte, len(existing)+len(addSlice))
+	copy(merged, existing)
+	copy(merged[len(existing):], addSlice)
+	// Deduplicate
+	unique := make([][]byte, 0, len(merged))
+	for _, b := range merged {
+		if !containsBytes(unique, b) {
+			unique = append(unique, b)
+		}
+	}
+
+	return e.updateItemSet(path, "BS", unique)
 }
 
 func (e *Evaluator) applyDelete(path []PathElement, val any) error {
@@ -831,6 +894,12 @@ func (e *Evaluator) applyDelete(path []PathElement, val any) error {
 
 	if nsToRemove, okNS := valMap["NS"]; okNS {
 		if err := e.deleteNS(path, cur, nsToRemove); err != nil {
+			return err
+		}
+	}
+
+	if bsToRemove, okBS := valMap["BS"]; okBS {
+		if err := e.deleteBS(path, cur, bsToRemove); err != nil {
 			return err
 		}
 	}
@@ -896,6 +965,47 @@ func (e *Evaluator) deleteNS(path []PathElement, cur any, nsToRemove any) error 
 	}
 
 	return nil
+}
+
+func (e *Evaluator) deleteBS(path []PathElement, cur any, bsToRemove any) error {
+	toRemove, okCast := bsToRemove.([][]byte)
+	if !okCast {
+		return ErrBSValueMustBeSlice
+	}
+
+	curMap, okCur := cur.(map[string]any)
+	if !okCur {
+		return ErrCurrentValueMustBeMap
+	}
+
+	if bsCurrent, okBSCur := curMap["BS"]; okBSCur {
+		currentSet, okSet := bsCurrent.([][]byte)
+		if !okSet {
+			return ErrCurrentBSValueMustBeSlice
+		}
+
+		newSet := make([][]byte, 0, len(currentSet))
+		for _, item := range currentSet {
+			if !containsBytes(toRemove, item) {
+				newSet = append(newSet, item)
+			}
+		}
+
+		return e.updateItemSet(path, "BS", newSet)
+	}
+
+	return nil
+}
+
+// containsBytes reports whether the slice contains a value equal to b.
+func containsBytes(slice [][]byte, b []byte) bool {
+	for _, v := range slice {
+		if bytes.Equal(v, b) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (e *Evaluator) updateItemSet(path []PathElement, key string, val any) error {

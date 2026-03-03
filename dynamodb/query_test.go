@@ -279,3 +279,36 @@ func TestQuery_BlankSKValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestQuery_ConsumedCapacity(t *testing.T) {
+	t.Parallel()
+
+	db := dynamodb.NewInMemoryDB()
+	tableName := "QueryCapTable"
+	createTableHelper(t, db, tableName, "pk", "sk")
+
+	for i := range 3 {
+		putInput := models.PutItemInput{
+			TableName: tableName,
+			Item: map[string]any{
+				"pk": map[string]any{"S": "key"},
+				"sk": map[string]any{"N": strconv.Itoa(i)},
+			},
+		}
+		sdkPut, _ := models.ToSDKPutItemInput(&putInput)
+		_, _ = db.PutItem(t.Context(), sdkPut)
+	}
+
+	queryInput := mustUnmarshal[models.QueryInput](t, `{
+		"TableName": "QueryCapTable",
+		"KeyConditionExpression": "pk = :pk",
+		"ExpressionAttributeValues": {":pk": {"S": "key"}}
+	}`)
+	sdkQuery, _ := models.ToSDKQueryInput(&queryInput)
+	sdkQuery.ReturnConsumedCapacity = "TOTAL"
+
+	out, err := db.Query(t.Context(), sdkQuery)
+	require.NoError(t, err)
+	require.NotNil(t, out.ConsumedCapacity, "ConsumedCapacity should be populated when requested")
+	assert.Greater(t, *out.ConsumedCapacity.CapacityUnits, 0.0)
+}
