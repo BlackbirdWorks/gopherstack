@@ -7,8 +7,10 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/alecthomas/kong"
@@ -408,10 +410,15 @@ func Run() {
 		kong.Description("In-memory AWS DynamoDB + S3 compatible server."),
 	)
 
-	if err := run(context.Background(), cli); err != nil {
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+
+	if err := run(ctx, cli); err != nil {
+		cancel()
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+
+	cancel()
 }
 
 // run starts the server with the given CLI configuration.
