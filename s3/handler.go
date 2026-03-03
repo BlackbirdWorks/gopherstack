@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -169,6 +170,26 @@ func (h *S3Handler) GetSupportedOperations() []string {
 		"PutBucketNotificationConfiguration",
 		"GetBucketNotificationConfiguration",
 	}
+}
+
+// Regions returns all regions with buckets in the backend.
+// Returns an empty slice when not using the in-memory backend.
+func (h *S3Handler) Regions() []string {
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		return b.Regions()
+	}
+
+	return []string{}
+}
+
+// BucketsByRegion returns buckets in the given region (all if empty).
+// Returns an empty slice when not using the in-memory backend.
+func (h *S3Handler) BucketsByRegion(region string) []types.Bucket {
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		return b.BucketsByRegion(region)
+	}
+
+	return []types.Bucket{}
 }
 
 // Handler returns the Echo handler function for S3 requests.
