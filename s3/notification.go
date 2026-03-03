@@ -20,21 +20,59 @@ type notificationConfiguration struct {
 }
 
 type queueConfiguration struct {
-	QueueID string   `xml:"Id"`
-	Queue   string   `xml:"Queue"`
-	Events  []string `xml:"Event"`
+	QueueID string               `xml:"Id"`
+	Queue   string               `xml:"Queue"`
+	Events  []string             `xml:"Event"`
+	Filter  notificationFilter   `xml:"Filter"`
 }
 
 type topicConfiguration struct {
-	TopicID string   `xml:"Id"`
-	Topic   string   `xml:"Topic"`
-	Events  []string `xml:"Event"`
+	TopicID string               `xml:"Id"`
+	Topic   string               `xml:"Topic"`
+	Events  []string             `xml:"Event"`
+	Filter  notificationFilter   `xml:"Filter"`
 }
 
 type lambdaConfiguration struct {
-	LambdaID  string   `xml:"Id"`
-	CloudFunc string   `xml:"CloudFunction"`
-	Events    []string `xml:"Event"`
+	LambdaID  string             `xml:"Id"`
+	CloudFunc string             `xml:"CloudFunction"`
+	Events    []string           `xml:"Event"`
+	Filter    notificationFilter `xml:"Filter"`
+}
+
+// notificationFilter mirrors the S3 <Filter> element in a notification configuration.
+type notificationFilter struct {
+	S3Key s3KeyFilter `xml:"S3Key"`
+}
+
+// s3KeyFilter mirrors the S3 <S3Key> element containing one or more filter rules.
+type s3KeyFilter struct {
+	Rules []filterRule `xml:"FilterRule"`
+}
+
+// filterRule mirrors a single <FilterRule> with a Name (prefix or suffix) and Value.
+type filterRule struct {
+	Name  string `xml:"Name"`
+	Value string `xml:"Value"`
+}
+
+// keyMatchesFilter returns true when the object key satisfies all filter rules.
+// An empty rule set matches every key.
+func keyMatchesFilter(key string, filter notificationFilter) bool {
+	for _, rule := range filter.S3Key.Rules {
+		switch strings.ToLower(rule.Name) {
+		case "prefix":
+			if !strings.HasPrefix(key, rule.Value) {
+				return false
+			}
+		case "suffix":
+			if !strings.HasSuffix(key, rule.Value) {
+				return false
+			}
+		}
+	}
+
+	return true
 }
 
 // NotificationDispatcher delivers S3 event notifications to configured targets.
@@ -184,6 +222,9 @@ func (d *inMemoryNotificationDispatcher) dispatch(
 		if !matchesAnyEvent(qc.Events, eventName) {
 			continue
 		}
+		if !keyMatchesFilter(key, qc.Filter) {
+			continue
+		}
 
 		payload, err := buildS3EventPayload(eventName, qc.QueueID, d.region, bucket, key, etag, size)
 		if err != nil {
@@ -197,6 +238,9 @@ func (d *inMemoryNotificationDispatcher) dispatch(
 
 	for _, tc := range cfg.TopicConfigurations {
 		if !matchesAnyEvent(tc.Events, eventName) {
+			continue
+		}
+		if !keyMatchesFilter(key, tc.Filter) {
 			continue
 		}
 
