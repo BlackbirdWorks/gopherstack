@@ -17,16 +17,16 @@ var (
 
 // ConfigurationRecorder represents an AWS Config configuration recorder.
 type ConfigurationRecorder struct {
-	Name    string
-	RoleARN string
-	Status  string // PENDING or ACTIVE
+	Name    string `json:"name"`
+	RoleARN string `json:"roleARN"`
+	Status  string `json:"status,omitempty"` // PENDING or ACTIVE
 }
 
 // DeliveryChannel represents an AWS Config delivery channel.
 type DeliveryChannel struct {
-	Name     string
-	S3Bucket string
-	SNSArn   string
+	Name     string `json:"name"`
+	S3Bucket string `json:"s3BucketName,omitempty"`
+	SNSArn   string `json:"snsTopicARN,omitempty"`
 }
 
 // InMemoryBackend is the in-memory store for AWS Config resources.
@@ -104,4 +104,32 @@ func (b *InMemoryBackend) DescribeDeliveryChannels() []DeliveryChannel {
 	}
 
 	return out
+}
+
+// DeleteDeliveryChannel removes a delivery channel by name.
+func (b *InMemoryBackend) DeleteDeliveryChannel(name string) error {
+	b.mu.Lock("DeleteDeliveryChannel")
+	defer b.mu.Unlock()
+
+	if _, ok := b.channels[name]; !ok {
+		return fmt.Errorf("%w: delivery channel %s not found", ErrNotFound, name)
+	}
+
+	delete(b.channels, name)
+
+	return nil
+}
+
+// DeleteConfigurationRecorder removes a configuration recorder by name.
+func (b *InMemoryBackend) DeleteConfigurationRecorder(name string) error {
+	b.mu.Lock("DeleteConfigurationRecorder")
+	defer b.mu.Unlock()
+
+	if _, ok := b.recorders[name]; !ok {
+		return fmt.Errorf("%w: configuration recorder %s not found", ErrNotFound, name)
+	}
+
+	delete(b.recorders, name)
+
+	return nil
 }

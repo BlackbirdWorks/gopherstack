@@ -44,8 +44,10 @@ func (h *Handler) GetSupportedOperations() []string {
 		"PutConfigurationRecorder",
 		"DescribeConfigurationRecorders",
 		"StartConfigurationRecorder",
+		"DeleteConfigurationRecorder",
 		"PutDeliveryChannel",
 		"DescribeDeliveryChannels",
+		"DeleteDeliveryChannel",
 	}
 }
 
@@ -182,8 +184,10 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 		"PutConfigurationRecorder":       service.WrapOp(h.handlePutConfigurationRecorder),
 		"DescribeConfigurationRecorders": service.WrapOp(h.handleDescribeConfigurationRecorders),
 		"StartConfigurationRecorder":     service.WrapOp(h.handleStartConfigurationRecorder),
+		"DeleteConfigurationRecorder":    service.WrapOp(h.handleDeleteConfigurationRecorder),
 		"PutDeliveryChannel":             service.WrapOp(h.handlePutDeliveryChannel),
 		"DescribeDeliveryChannels":       service.WrapOp(h.handleDescribeDeliveryChannels),
+		"DeleteDeliveryChannel":          service.WrapOp(h.handleDeleteDeliveryChannel),
 	}
 }
 
@@ -300,4 +304,38 @@ func (h *Handler) handleDescribeDeliveryChannels(
 	channels := h.Backend.DescribeDeliveryChannels()
 
 	return &describeDeliveryChannelsOutput{DeliveryChannels: channels}, nil
+}
+
+type deleteDeliveryChannelInput struct {
+	DeliveryChannelName string `json:"DeliveryChannelName"`
+}
+
+type deleteDeliveryChannelOutput struct{}
+
+func (h *Handler) handleDeleteDeliveryChannel(
+	_ context.Context,
+	in *deleteDeliveryChannelInput,
+) (*deleteDeliveryChannelOutput, error) {
+	if err := h.Backend.DeleteDeliveryChannel(in.DeliveryChannelName); err != nil {
+		return nil, err
+	}
+
+	return &deleteDeliveryChannelOutput{}, nil
+}
+
+type deleteConfigurationRecorderInput struct {
+	ConfigurationRecorderName string `json:"ConfigurationRecorderName"`
+}
+
+type deleteConfigurationRecorderOutput struct{}
+
+func (h *Handler) handleDeleteConfigurationRecorder(
+	_ context.Context,
+	in *deleteConfigurationRecorderInput,
+) (*deleteConfigurationRecorderOutput, error) {
+	if err := h.Backend.DeleteConfigurationRecorder(in.ConfigurationRecorderName); err != nil {
+		return nil, err
+	}
+
+	return &deleteConfigurationRecorderOutput{}, nil
 }

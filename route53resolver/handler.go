@@ -52,6 +52,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetResolverRule",
 		"DeleteResolverRule",
 		"ListResolverRules",
+		"ListTagsForResource",
 	}
 }
 
@@ -110,6 +111,7 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 		"GetResolverRule":        service.WrapOp(h.handleGetResolverRule),
 		"DeleteResolverRule":     service.WrapOp(h.handleDeleteResolverRule),
 		"ListResolverRules":      service.WrapOp(h.handleListResolverRules),
+		"ListTagsForResource":    service.WrapOp(h.handleListTagsForResource),
 	}
 }
 
@@ -335,4 +337,26 @@ func (h *Handler) handleListResolverRules(
 	}
 
 	return &listResolverRulesOutput{ResolverRules: items}, nil
+}
+
+type listTagsForResourceInput struct {
+	ResourceArn string `json:"ResourceArn"`
+}
+
+type listTagsForResourceOutput struct {
+	Tags []resolverTag `json:"Tags"`
+}
+
+type resolverTag struct {
+	Key   string `json:"Key"`
+	Value string `json:"Value"`
+}
+
+// handleListTagsForResource returns an empty tag list.
+// Terraform calls this after creating a Route53 Resolver rule to read tags.
+func (h *Handler) handleListTagsForResource(
+	_ context.Context,
+	_ *listTagsForResourceInput,
+) (*listTagsForResourceOutput, error) {
+	return &listTagsForResourceOutput{Tags: []resolverTag{}}, nil
 }

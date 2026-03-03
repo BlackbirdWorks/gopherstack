@@ -23,12 +23,15 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	acmsvc "github.com/aws/aws-sdk-go-v2/service/acm"
+	apigwsvc "github.com/aws/aws-sdk-go-v2/service/apigateway"
 	cfnsvc "github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	cwsvc "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 	cwlogssvc "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	configsvc "github.com/aws/aws-sdk-go-v2/service/configservice"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	ec2svc "github.com/aws/aws-sdk-go-v2/service/ec2"
 	elasticachesvc "github.com/aws/aws-sdk-go-v2/service/elasticache"
 	ebsvc "github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	firehosesvc "github.com/aws/aws-sdk-go-v2/service/firehose"
@@ -39,14 +42,20 @@ import (
 	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
 	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
+	resourcegroupssvc "github.com/aws/aws-sdk-go-v2/service/resourcegroups"
 	route53svc "github.com/aws/aws-sdk-go-v2/service/route53"
+	route53resolversvc "github.com/aws/aws-sdk-go-v2/service/route53resolver"
 	s3svc "github.com/aws/aws-sdk-go-v2/service/s3"
+	s3controlsvc "github.com/aws/aws-sdk-go-v2/service/s3control"
+	schedulersvc "github.com/aws/aws-sdk-go-v2/service/scheduler"
 	secretssvc "github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	sessvc "github.com/aws/aws-sdk-go-v2/service/ses"
 	sfnsvc "github.com/aws/aws-sdk-go-v2/service/sfn"
 	snssvc "github.com/aws/aws-sdk-go-v2/service/sns"
 	sqssvc "github.com/aws/aws-sdk-go-v2/service/sqs"
 	ssmsvc "github.com/aws/aws-sdk-go-v2/service/ssm"
+	swfsvc "github.com/aws/aws-sdk-go-v2/service/swf"
+	swftypes "github.com/aws/aws-sdk-go-v2/service/swf/types"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -115,10 +124,13 @@ provider "aws" {
   # Endpoints are listed alphabetically — keep them sorted when adding new ones.
   endpoints {
     acm            = %[1]q
+    apigateway     = %[1]q
     cloudformation = %[1]q
     cloudwatch     = %[1]q
     cloudwatchlogs = %[1]q
+    configservice  = %[1]q
     dynamodb       = %[1]q
+    ec2            = %[1]q
     elasticache    = %[1]q
     events         = %[1]q
     firehose       = %[1]q
@@ -128,8 +140,12 @@ provider "aws" {
     lambda         = %[1]q
     opensearch     = %[1]q
     redshift       = %[1]q
+    resourcegroups = %[1]q
     route53        = %[1]q
+    route53resolver = %[1]q
     s3             = %[1]q
+    s3control      = %[1]q
+    scheduler      = %[1]q
     secretsmanager = %[1]q
     ses            = %[1]q
     sfn            = %[1]q
@@ -137,6 +153,7 @@ provider "aws" {
     sqs            = %[1]q
     ssm            = %[1]q
     sts            = %[1]q
+    swf            = %[1]q
   }
 }
 `, addr)
@@ -1395,6 +1412,334 @@ func TestTerraform_Firehose(t *testing.T) {
 					vars["StreamName"].(string),
 					aws.ToString(out.DeliveryStreamDescription.DeliveryStreamName),
 				)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_SWF provisions an SWF domain and verifies it is listed.
+func TestTerraform_SWF(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "swf/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"DomainName": "tf-swf-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createSWFClient(t)
+				out, err := client.ListDomains(ctx, &swfsvc.ListDomainsInput{
+					RegistrationStatus: swftypes.RegistrationStatusRegistered,
+				})
+				require.NoError(t, err, "ListDomains should succeed after terraform apply")
+				found := false
+				for _, d := range out.DomainInfos {
+					if aws.ToString(d.Name) == vars["DomainName"].(string) {
+						found = true
+
+						break
+					}
+				}
+				assert.True(t, found, "SWF domain %q should be listed", vars["DomainName"].(string))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_ResourceGroups provisions a resource group and verifies it exists.
+func TestTerraform_ResourceGroups(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "resourcegroups/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"GroupName": "tf-rg-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createResourceGroupsClient(t)
+				out, err := client.GetGroup(ctx, &resourcegroupssvc.GetGroupInput{
+					GroupName: aws.String(vars["GroupName"].(string)),
+				})
+				require.NoError(t, err, "GetGroup should succeed after terraform apply")
+				require.NotNil(t, out.Group)
+				assert.Equal(t, vars["GroupName"].(string), aws.ToString(out.Group.Name))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_S3Control provisions an S3 account public access block and verifies it.
+func TestTerraform_S3Control(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "s3control/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				return map[string]any{}
+			},
+			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
+				t.Helper()
+				client := createS3ControlClient(t)
+				out, err := client.GetPublicAccessBlock(ctx, &s3controlsvc.GetPublicAccessBlockInput{
+					AccountId: aws.String("000000000000"),
+				})
+				require.NoError(t, err, "GetPublicAccessBlock should succeed after terraform apply")
+				require.NotNil(t, out.PublicAccessBlockConfiguration)
+				assert.True(t, aws.ToBool(out.PublicAccessBlockConfiguration.BlockPublicAcls))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_AWSConfig provisions a config recorder and delivery channel and verifies them.
+func TestTerraform_AWSConfig(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "awsconfig/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"RoleName":     "tf-cfg-role-" + id,
+					"BucketName":   "tf-cfg-bucket-" + id,
+					"RecorderName": "tf-cfg-recorder-" + id,
+					"ChannelName":  "tf-cfg-channel-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createAWSConfigClient(t)
+				out, err := client.DescribeConfigurationRecorders(ctx, &configsvc.DescribeConfigurationRecordersInput{
+					ConfigurationRecorderNames: []string{vars["RecorderName"].(string)},
+				})
+				require.NoError(t, err, "DescribeConfigurationRecorders should succeed after terraform apply")
+				require.Len(t, out.ConfigurationRecorders, 1)
+				assert.Equal(t, vars["RecorderName"].(string), aws.ToString(out.ConfigurationRecorders[0].Name))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_Route53Resolver provisions a resolver rule and verifies it exists.
+func TestTerraform_Route53Resolver(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "route53resolver/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"RuleName":   "tf-r53r-" + id,
+					"EndpointID": id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createRoute53ResolverClient(t)
+				out, err := client.ListResolverRules(ctx, &route53resolversvc.ListResolverRulesInput{})
+				require.NoError(t, err, "ListResolverRules should succeed after terraform apply")
+				found := false
+				for _, r := range out.ResolverRules {
+					if aws.ToString(r.Name) == vars["RuleName"].(string) {
+						found = true
+
+						break
+					}
+				}
+				assert.True(t, found, "resolver rule %q should be listed", vars["RuleName"].(string))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_EC2 provisions a VPC, subnet, security group, and instance, then verifies the instance.
+func TestTerraform_EC2(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "ec2/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"SGName": "tf-ec2-sg-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createEC2Client(t)
+
+				// Verify the security group with the unique name was created.
+				sgOut, err := client.DescribeSecurityGroups(ctx, &ec2svc.DescribeSecurityGroupsInput{})
+				require.NoError(t, err, "DescribeSecurityGroups should succeed after terraform apply")
+				sgName := vars["SGName"].(string)
+				var found bool
+				for _, sg := range sgOut.SecurityGroups {
+					if aws.ToString(sg.GroupName) == sgName {
+						found = true
+
+						break
+					}
+				}
+				require.True(t, found, "security group %q should exist", sgName)
+
+				// Verify an instance was created.
+				out, err := client.DescribeInstances(ctx, &ec2svc.DescribeInstancesInput{})
+				require.NoError(t, err, "DescribeInstances should succeed after terraform apply")
+				require.NotEmpty(t, out.Reservations, "at least one reservation should exist")
+				require.NotEmpty(t, out.Reservations[0].Instances, "at least one instance should exist")
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_APIGateway provisions a REST API, resource, method, integration, and deployment.
+func TestTerraform_APIGateway(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "apigateway/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"APIName": "tf-apigw-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createAPIGatewayClient(t)
+				out, err := client.GetRestApis(ctx, &apigwsvc.GetRestApisInput{})
+				require.NoError(t, err, "GetRestApis should succeed after terraform apply")
+				found := false
+				for _, api := range out.Items {
+					if aws.ToString(api.Name) == vars["APIName"].(string) {
+						found = true
+
+						break
+					}
+				}
+				assert.True(t, found, "REST API %q should be listed", vars["APIName"].(string))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_Scheduler provisions an EventBridge Scheduler schedule and verifies it exists.
+func TestTerraform_Scheduler(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "scheduler/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"RoleName":     "tf-sched-role-" + id,
+					"ScheduleName": "tf-sched-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createSchedulerClient(t)
+				out, err := client.GetSchedule(ctx, &schedulersvc.GetScheduleInput{
+					Name: aws.String(vars["ScheduleName"].(string)),
+				})
+				require.NoError(t, err, "GetSchedule should succeed after terraform apply")
+				assert.Equal(t, vars["ScheduleName"].(string), aws.ToString(out.Name))
 			},
 		},
 	}

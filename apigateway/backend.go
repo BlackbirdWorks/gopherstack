@@ -17,11 +17,12 @@ import (
 )
 
 var (
-	ErrRestAPINotFound  = errors.New("NotFoundException")
-	ErrResourceNotFound = errors.New("NotFoundException")
-	ErrMethodNotFound   = errors.New("NotFoundException")
-	ErrAlreadyExists    = awserr.New("ConflictException", awserr.ErrAlreadyExists)
-	ErrInvalidParameter = errors.New("BadRequestException")
+	ErrRestAPINotFound    = errors.New("NotFoundException")
+	ErrResourceNotFound   = errors.New("NotFoundException")
+	ErrMethodNotFound     = errors.New("NotFoundException")
+	ErrDeploymentNotFound = errors.New("NotFoundException")
+	ErrAlreadyExists      = awserr.New("ConflictException", awserr.ErrAlreadyExists)
+	ErrInvalidParameter   = errors.New("BadRequestException")
 )
 
 // StorageBackend is the interface for the API Gateway in-memory store.
@@ -50,7 +51,9 @@ type StorageBackend interface {
 
 	// Deployments
 	CreateDeployment(restAPIID, stageName, description string) (*Deployment, error)
+	GetDeployment(restAPIID, deploymentID string) (*Deployment, error)
 	GetDeployments(restAPIID string) ([]Deployment, error)
+	DeleteDeployment(restAPIID, deploymentID string) error
 
 	// Stages
 	GetStages(restAPIID string) ([]Stage, error)
@@ -119,15 +122,17 @@ func (b *InMemoryBackend) CreateRestAPI(name, description string, inputTags *tag
 		backendTags = tags.FromMap("apigw.api."+id+".tags", inputTags.Clone())
 	}
 
+	rootID := randomID(resourceIDLength)
+
 	api := RestAPI{
-		ID:          id,
-		Name:        name,
-		Description: description,
-		CreatedDate: time.Now(),
-		Tags:        backendTags,
+		ID:             id,
+		Name:           name,
+		Description:    description,
+		CreatedDate:    unixEpochTime{time.Now()},
+		Tags:           backendTags,
+		RootResourceID: rootID,
 	}
 
-	rootID := randomID(resourceIDLength)
 	root := &Resource{
 		ID:              rootID,
 		ParentID:        "",
@@ -481,7 +486,7 @@ func (b *InMemoryBackend) CreateDeployment(restAPIID, stageName, description str
 		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
 
-	now := time.Now()
+	now := unixEpochTime{time.Now()}
 	deplID := randomID(apiIDLength)
 	depl := &Deployment{
 		ID:          deplID,
@@ -526,6 +531,46 @@ func (b *InMemoryBackend) GetDeployments(restAPIID string) ([]Deployment, error)
 	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
 
 	return all, nil
+}
+
+// GetDeployment returns a single deployment by ID.
+func (b *InMemoryBackend) GetDeployment(restAPIID, deploymentID string) (*Deployment, error) {
+	b.mu.RLock("GetDeployment")
+	defer b.mu.RUnlock()
+
+	d, ok := b.apis[restAPIID]
+	if !ok {
+		return nil, fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
+	}
+
+	dep, ok := d.deployments[deploymentID]
+	if !ok {
+		return nil, fmt.Errorf("%w: deployment %s not found", ErrDeploymentNotFound, deploymentID)
+	}
+
+	cp := *dep
+
+	return &cp, nil
+}
+
+// DeleteDeployment removes a deployment from a REST API.
+func (b *InMemoryBackend) DeleteDeployment(restAPIID, deploymentID string) error {
+	b.mu.Lock("DeleteDeployment")
+	defer b.mu.Unlock()
+
+	d, ok := b.apis[restAPIID]
+	if !ok {
+		return fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
+	}
+
+	_, exists := d.deployments[deploymentID]
+	if !exists {
+		return fmt.Errorf("%w: deployment %s not found", ErrDeploymentNotFound, deploymentID)
+	}
+
+	delete(d.deployments, deploymentID)
+
+	return nil
 }
 
 // GetStages returns all stages for a REST API.

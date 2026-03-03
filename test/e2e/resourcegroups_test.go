@@ -16,7 +16,7 @@ import (
 func TestResourceGroupsDashboard(t *testing.T) {
 	stack := newStack(t)
 
-	_, err := stack.ResourceGroupsHandler.Backend.CreateGroup("test-group", "an e2e test group", nil)
+	_, err := stack.ResourceGroupsHandler.Backend.CreateGroup("test-group", "an e2e test group", nil, nil)
 	require.NoError(t, err)
 
 	server := httptest.NewServer(stack.Echo)
