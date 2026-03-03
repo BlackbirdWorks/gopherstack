@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -69,6 +70,8 @@ import (
 	supportbackend "github.com/blackbirdworks/gopherstack/support"
 	swfbackend "github.com/blackbirdworks/gopherstack/swf"
 	transcribebackend "github.com/blackbirdworks/gopherstack/transcribe"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
 const (
@@ -130,23 +133,24 @@ type CLI struct {
 	stsClient              *stssdk.Client
 	sqsClient              *sqssdk.Client
 	secretsManagerClient   *secretsmanager.Client
-
-	AccountID         string                 `name:"account-id"         env:"ACCOUNT_ID"         default:"000000000000" help:"Mock AWS account ID used in ARNs."`                                                              //nolint:lll // config struct tags are intentionally verbose
-	Port              string                 `name:"port"               env:"PORT"               default:"8000"         help:"HTTP server port."`                                                                              //nolint:lll // config struct tags are intentionally verbose
-	ElastiCacheEngine string                 `name:"elasticache-engine" env:"ELASTICACHE_ENGINE" default:"embedded"     help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`                                //nolint:lll // config struct tags are intentionally verbose
-	OpenSearchEngine  string                 `name:"opensearch-engine"  env:"OPENSEARCH_ENGINE"  default:"stub"         help:"OpenSearch engine mode: stub (API-only) or docker."`                                             //nolint:lll // config struct tags are intentionally verbose
-	Region            string                 `name:"region"             env:"REGION"             default:"us-east-1"    help:"AWS region."`                                                                                    //nolint:lll // config struct tags are intentionally verbose
-	LogLevel          string                 `name:"log-level"          env:"LOG_LEVEL"          default:"info"         help:"Log level (debug|info|warn|error)."`                                                             //nolint:lll // config struct tags are intentionally verbose
-	DNSListenAddr     string                 `name:"dns-addr"           env:"DNS_ADDR"           default:""             help:"Address for embedded DNS server (e.g. :10053). Empty = disabled."`                               //nolint:lll // config struct tags are intentionally verbose
-	DNSResolveIP      string                 `name:"dns-resolve-ip"     env:"DNS_RESOLVE_IP"     default:"127.0.0.1"    help:"IP address synthetic hostnames resolve to."`                                                     //nolint:lll // config struct tags are intentionally verbose
-	S3                s3backend.Settings     `                                                                                                                                                    embed:"" prefix:"s3-"`       //nolint:lll // config struct tags are intentionally verbose
-	InitScripts       []string               `name:"init-script"        env:"INIT_SCRIPTS"                              help:"Shell scripts to run on startup (may be specified multiple times)."`                             //nolint:lll // config struct tags are intentionally verbose
-	DynamoDB          ddbbackend.Settings    `                                                                                                                                                    embed:"" prefix:"dynamodb-"` //nolint:lll // config struct tags are intentionally verbose
-	Lambda            lambdabackend.Settings `                                                                                                                                                    embed:"" prefix:"lambda-"`   //nolint:lll // config struct tags are intentionally verbose
-	PortRangeStart    int                    `name:"port-range-start"   env:"PORT_RANGE_START"   default:"10000"        help:"Start of the port range for resource endpoints."`                                                //nolint:lll // config struct tags are intentionally verbose
-	PortRangeEnd      int                    `name:"port-range-end"     env:"PORT_RANGE_END"     default:"10100"        help:"End (exclusive) of the port range for resource endpoints."`                                      //nolint:lll // config struct tags are intentionally verbose
-	InitScriptTimeout time.Duration          `name:"init-timeout"       env:"INIT_TIMEOUT"       default:"30s"          help:"Per-script timeout for init hooks."`                                                             //nolint:lll // config struct tags are intentionally verbose
-	Demo              bool                   `name:"demo"               env:"DEMO"               default:"false"        help:"Load demo data on startup."`                                                                     //nolint:lll // config struct tags are intentionally verbose
+	AccountID              string                 `                                  name:"account-id"         env:"ACCOUNT_ID"           default:"000000000000" help:"Mock AWS account ID used in ARNs."`                                                            //nolint:lll // config struct tags are intentionally verbose
+	Port                   string                 `                                  name:"port"               env:"PORT"                 default:"8000"         help:"HTTP server port."`                                                                            //nolint:lll // config struct tags are intentionally verbose
+	ElastiCacheEngine      string                 `                                  name:"elasticache-engine" env:"ELASTICACHE_ENGINE"   default:"embedded"     help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`                              //nolint:lll // config struct tags are intentionally verbose
+	OpenSearchEngine       string                 `                                  name:"opensearch-engine"  env:"OPENSEARCH_ENGINE"    default:"stub"         help:"OpenSearch engine mode: stub (API-only) or docker."`                                           //nolint:lll // config struct tags are intentionally verbose
+	Region                 string                 `                                  name:"region"             env:"REGION"               default:"us-east-1"    help:"AWS region."`                                                                                  //nolint:lll // config struct tags are intentionally verbose
+	LogLevel               string                 `                                  name:"log-level"          env:"LOG_LEVEL"            default:"info"         help:"Log level (debug|info|warn|error)."`                                                           //nolint:lll // config struct tags are intentionally verbose
+	DNSListenAddr          string                 `                                  name:"dns-addr"           env:"DNS_ADDR"             default:""             help:"Address for embedded DNS server (e.g. :10053). Empty = disabled."`                             //nolint:lll // config struct tags are intentionally verbose
+	DNSResolveIP           string                 `                                  name:"dns-resolve-ip"     env:"DNS_RESOLVE_IP"       default:"127.0.0.1"    help:"IP address synthetic hostnames resolve to."`                                                   //nolint:lll // config struct tags are intentionally verbose
+	DataDir                string                 `                                  name:"data-dir"           env:"GOPHERSTACK_DATA_DIR" default:""             help:"Directory for persistence data files (default: ~/.gopherstack/data, or /data in containers)."` //nolint:lll // config struct tags are intentionally verbose
+	S3                     s3backend.Settings     `embed:"" prefix:"s3-"`
+	InitScripts            []string               `                                  name:"init-script"        env:"INIT_SCRIPTS"                                help:"Shell scripts to run on startup (may be specified multiple times)."` //nolint:lll // config struct tags are intentionally verbose
+	Lambda                 lambdabackend.Settings `embed:"" prefix:"lambda-"`
+	DynamoDB               ddbbackend.Settings    `embed:"" prefix:"dynamodb-"`
+	PortRangeStart         int                    `                                  name:"port-range-start"   env:"PORT_RANGE_START"     default:"10000"        help:"Start of the port range for resource endpoints."`           //nolint:lll // config struct tags are intentionally verbose
+	PortRangeEnd           int                    `                                  name:"port-range-end"     env:"PORT_RANGE_END"       default:"10100"        help:"End (exclusive) of the port range for resource endpoints."` //nolint:lll // config struct tags are intentionally verbose
+	InitScriptTimeout      time.Duration          `                                  name:"init-timeout"       env:"INIT_TIMEOUT"         default:"30s"          help:"Per-script timeout for init hooks."`                        //nolint:lll // config struct tags are intentionally verbose
+	Demo                   bool                   `                                  name:"demo"               env:"DEMO"                 default:"false"        help:"Load demo data on startup."`                                //nolint:lll // config struct tags are intentionally verbose
+	Persist                bool                   `                                  name:"persist"            env:"PERSIST"              default:"false"        help:"Enable snapshot-based persistence across restarts."`        //nolint:lll // config struct tags are intentionally verbose
 }
 
 // GetGlobalConfig returns the centralised account ID and region (config.Provider).
@@ -155,6 +159,29 @@ func (c *CLI) GetGlobalConfig() config.GlobalConfig {
 		AccountID: c.AccountID,
 		Region:    c.Region,
 	}
+}
+
+// resolvedDataDir returns the effective data directory for persistence.
+func (c *CLI) resolvedDataDir() string {
+	if c.DataDir != "" {
+		return c.DataDir
+	}
+
+	if _, err := os.Stat("/.dockerenv"); err == nil {
+		return "/data"
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return filepath.Join(".", ".gopherstack", "data")
+	}
+
+	return filepath.Join(home, ".gopherstack", "data")
+}
+
+// createPersistenceStore creates a FileStore using the resolved data directory.
+func (c *CLI) createPersistenceStore() (*persistence.FileStore, error) {
+	return persistence.NewFileStore(c.resolvedDataDir())
 }
 
 // GetDynamoDBSettings returns DynamoDB settings (dynamodb.ConfigProvider).
@@ -430,6 +457,14 @@ func run(ctx context.Context, cli CLI) error {
 	janitorCtx, janitorCancel := context.WithCancel(ctx)
 	defer janitorCancel()
 
+	// --- Persistence ---
+	persistManager, err := initPersistenceManager(ctx, log, &cli)
+	if err != nil {
+		return err
+	}
+
+	defer persistManager.SaveAll(ctx)
+
 	appCtx := &service.AppContext{
 		Logger:     log,
 		Config:     &cli,
@@ -441,6 +476,8 @@ func run(ctx context.Context, cli CLI) error {
 	if err != nil {
 		return err
 	}
+
+	setupPersistence(ctx, persistManager, services, cli.Persist)
 
 	// Wire DNS registrar to Lambda backend for function URL hostname registration.
 	if dnsSrv != nil {
@@ -454,6 +491,11 @@ func run(ctx context.Context, cli CLI) error {
 	e.Pre(logger.EchoMiddleware(log))
 	e.GET("/_gopherstack/health", healthHandler)
 
+	// Persist: schedule a debounced snapshot after each mutating request.
+	if cli.Persist {
+		e.Use(persistenceMiddleware(persistManager, services))
+	}
+
 	if setupErr := setupRegistry(e, log, services); setupErr != nil {
 		return setupErr
 	}
@@ -462,21 +504,7 @@ func run(ctx context.Context, cli CLI) error {
 	inMemMux.Handle("/", e)
 
 	if cli.Demo {
-		log.InfoContext(ctx, "Loading demo data...")
-		err = demo.LoadData(ctx, log, &demo.Clients{
-			DynamoDB:       cli.ddbClient,
-			S3:             cli.s3Client,
-			SQS:            cli.sqsClient,
-			SNS:            cli.snsClient,
-			IAM:            cli.iamClient,
-			STS:            cli.stsClient,
-			SSM:            cli.ssmClient,
-			KMS:            cli.kmsClient,
-			SecretsManager: cli.secretsManagerClient,
-		})
-		if err != nil {
-			log.ErrorContext(ctx, "Failed to load demo data", "error", err)
-		}
+		loadDemoData(ctx, log, &cli)
 	}
 
 	// --- Init hooks ---
@@ -1223,4 +1251,96 @@ func wireRoute53DNS(r53Reg service.Registerable, dns route53backend.DNSRegistrar
 	}
 
 	r53H.Backend.SetDNSRegistrar(dns)
+}
+
+// extractServiceName finds the service name for a given Echo context by checking
+// which service's route matcher matches the request.
+func extractServiceName(c *echo.Context, services []service.Registerable) string {
+	for _, svc := range services {
+		if svc.RouteMatcher()(c) {
+			return svc.Name()
+		}
+	}
+
+	return ""
+}
+
+// setupPersistence registers all persistable services with the manager and optionally restores state.
+func setupPersistence(ctx context.Context, m *persistence.Manager, services []service.Registerable, restore bool) {
+	type persistable interface {
+		Snapshot() []byte
+		Restore([]byte) error
+	}
+
+	for _, svc := range services {
+		if p, ok := svc.(persistable); ok {
+			m.Register(svc.Name(), p)
+		}
+	}
+
+	if restore {
+		m.RestoreAll(ctx)
+	}
+}
+
+// initPersistenceManager creates and configures a persistence.Manager from the CLI config.
+// If persistence is disabled it returns a manager backed by a NullStore.
+func initPersistenceManager(ctx context.Context, log *slog.Logger, cli *CLI) (*persistence.Manager, error) {
+	var store persistence.Store = persistence.NullStore{}
+
+	if cli.Persist {
+		fs, err := cli.createPersistenceStore()
+		if err != nil {
+			return nil, fmt.Errorf("persistence: create file store: %w", err)
+		}
+
+		store = fs
+		log.InfoContext(ctx, "Persistence enabled", "data_dir", cli.resolvedDataDir())
+	}
+
+	return persistence.NewManager(store, log), nil
+}
+
+// loadDemoData loads demo data into the services.
+func loadDemoData(ctx context.Context, log *slog.Logger, cli *CLI) {
+	log.InfoContext(ctx, "Loading demo data...")
+
+	err := demo.LoadData(ctx, log, &demo.Clients{
+		DynamoDB:       cli.ddbClient,
+		S3:             cli.s3Client,
+		SQS:            cli.sqsClient,
+		SNS:            cli.snsClient,
+		IAM:            cli.iamClient,
+		STS:            cli.stsClient,
+		SSM:            cli.ssmClient,
+		KMS:            cli.kmsClient,
+		SecretsManager: cli.secretsManagerClient,
+	})
+	if err != nil {
+		log.ErrorContext(ctx, "Failed to load demo data", "error", err)
+	}
+}
+
+// persistenceMiddleware returns an Echo middleware that schedules a debounced snapshot
+// after each mutating request.
+func persistenceMiddleware(m *persistence.Manager, services []service.Registerable) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			handlerErr := next(c)
+
+			if isMutatingMethod(c.Request().Method) {
+				if svcName := extractServiceName(c, services); svcName != "" {
+					m.Notify(svcName)
+				}
+			}
+
+			return handlerErr
+		}
+	}
+}
+
+// isMutatingMethod reports whether the HTTP method is a state-mutating method.
+func isMutatingMethod(method string) bool {
+	return method == http.MethodPost || method == http.MethodPut ||
+		method == http.MethodPatch || method == http.MethodDelete
 }

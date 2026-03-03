@@ -1,28 +1,29 @@
-package kinesis
+package cloudformation
 
-import (
-	"encoding/json"
-)
+import "encoding/json"
 
 type backendSnapshot struct {
-	Streams   map[string]*Stream `json:"streams"`
-	AccountID string             `json:"accountID"`
-	Region    string             `json:"region"`
+	Stacks     map[string]*Stack                    `json:"stacks"`
+	Events     map[string][]StackEvent              `json:"events"`
+	Resources  map[string]map[string]*StackResource `json:"resources"`
+	ChangeSets map[string]map[string]*ChangeSet     `json:"changeSets"`
+	AccountID  string                               `json:"accountID"`
+	Region     string                               `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
 // It implements persistence.Persistable.
-// Note: shard sequence number counters (nextSeq) are not serialised; they
-// restart from 0 after restore. Existing records retain their stored sequence
-// numbers, so no in-flight duplicates occur for already-stored records.
 func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Streams:   b.streams,
-		AccountID: b.accountID,
-		Region:    b.region,
+		Stacks:     b.stacks,
+		Events:     b.events,
+		Resources:  b.resources,
+		ChangeSets: b.changeSets,
+		AccountID:  b.accountID,
+		Region:     b.region,
 	}
 
 	data, err := json.Marshal(snap)
@@ -45,11 +46,26 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	if snap.Streams == nil {
-		snap.Streams = make(map[string]*Stream)
+	if snap.Stacks == nil {
+		snap.Stacks = make(map[string]*Stack)
 	}
 
-	b.streams = snap.Streams
+	if snap.Events == nil {
+		snap.Events = make(map[string][]StackEvent)
+	}
+
+	if snap.Resources == nil {
+		snap.Resources = make(map[string]map[string]*StackResource)
+	}
+
+	if snap.ChangeSets == nil {
+		snap.ChangeSets = make(map[string]map[string]*ChangeSet)
+	}
+
+	b.stacks = snap.Stacks
+	b.events = snap.Events
+	b.resources = snap.Resources
+	b.changeSets = snap.ChangeSets
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
