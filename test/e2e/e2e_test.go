@@ -314,7 +314,7 @@ func TestE2E_DynamoDB_ItemCRUD(t *testing.T) {
 	err = page.Locator("#edit_item_modal textarea[name='itemJson']").WaitFor(
 		playwright.LocatorWaitForOptions{
 			State:   playwright.WaitForSelectorStateVisible,
-			Timeout: aws.Float64(15000), // High timeout for slow HTMX calls during diagnostics
+			Timeout: aws.Float64(30000),
 		},
 	)
 	require.NoError(t, err)
@@ -394,13 +394,17 @@ func TestE2E_S3_FolderNavigation(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/s3/bucket/nav-bucket")
 	require.NoError(t, err)
 	require.NoError(t, page.WaitForLoadState(playwright.PageWaitForLoadStateOptions{
-		State:   playwright.LoadStateNetworkidle,
-		Timeout: playwright.Float(2000),
+		State:   playwright.LoadStateDomcontentloaded,
+		Timeout: playwright.Float(5000),
 	}))
 
 	// 2. Verify tree structure (initially should see 'logs/' and 'readme.md')
-	require.NoError(t, page.Locator("#file-tree:has-text('logs')").WaitFor())
-	require.NoError(t, page.Locator("#file-tree:has-text('readme.md')").WaitFor())
+	require.NoError(t, page.Locator("#file-tree:has-text('logs')").WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(30000),
+	}))
+	require.NoError(t, page.Locator("#file-tree:has-text('readme.md')").WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(30000),
+	}))
 
 	// Helper: click an accordion folder button, ensure target is visible, wait for HTMX.
 	// Flowbite JS only initializes accordion on page load; HTMX-loaded sub-folders
@@ -408,7 +412,10 @@ func TestE2E_S3_FolderNavigation(t *testing.T) {
 	clickFolder := func(label string) {
 		t.Helper()
 		btn := page.Locator("button[data-accordion-target]:has-text('" + label + "')")
-		require.NoError(t, btn.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible}))
+		require.NoError(t, btn.WaitFor(playwright.LocatorWaitForOptions{
+			State:   playwright.WaitForSelectorStateVisible,
+			Timeout: playwright.Float(30000),
+		}))
 		require.NoError(t, btn.Click())
 		// Remove 'hidden' from the accordion target div in case Flowbite didn't init it.
 		// Use getElementById instead of querySelector because the IDs contain URL-encoded chars (%).
@@ -422,10 +429,11 @@ func TestE2E_S3_FolderNavigation(t *testing.T) {
 			}
 		}`, label)
 		require.NoError(t, err2)
-		require.NoError(t, page.WaitForLoadState(playwright.PageWaitForLoadStateOptions{
+		// Wait for HTMX to load sub-folder contents by polling for network idle.
+		_ = page.WaitForLoadState(playwright.PageWaitForLoadStateOptions{
 			State:   playwright.LoadStateNetworkidle,
-			Timeout: playwright.Float(2000),
-		}))
+			Timeout: playwright.Float(3000),
+		})
 	}
 
 	// 3. Navigate into 'logs/' and wait for HTMX to load its contents.

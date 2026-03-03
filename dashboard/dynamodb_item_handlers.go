@@ -525,11 +525,12 @@ func (h *DashboardHandler) renderItemActions(
 	fmt.Fprintf(w, `<td class="px-4 py-2">
             <div class="flex gap-1">
                 <button class="text-blue-600 dark:text-blue-500 hover:underline text-xs font-medium"
-                    hx-get="/dashboard/dynamodb/table/%s/item?pk=%s&sk=%s"
-                    hx-target="#edit_item_modal_content"
-                    data-modal-target="edit_item_modal" data-modal-toggle="edit_item_modal"
-                    onclick="const m=document.getElementById('edit_item_modal');if(m){`+
-		`m.classList.remove('hidden');m.classList.add('flex')}">
+                    onclick="(function(){
+                        var m=document.getElementById('edit_item_modal');
+                        if(m){m.classList.remove('hidden');m.classList.add('flex');}
+                        var u='/dashboard/dynamodb/table/%s/item?pk=%s\u0026sk=%s';
+                        htmx.ajax('GET',u,{target:'#edit_item_modal_content',swap:'innerHTML'});
+                    })()">
                     Edit
                 </button>
                 <button class="text-red-600 dark:text-red-500 hover:underline text-xs font-medium"

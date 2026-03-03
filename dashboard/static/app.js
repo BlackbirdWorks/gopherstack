@@ -154,6 +154,12 @@ document.addEventListener('htmx:confirm', function (event) {
     show();
 });
 
+// ── HTMX: listen for showToast events from Hx-Trigger headers ─
+document.addEventListener('showToast', function (event) {
+    if (!event.detail || !event.detail.message) return;
+    showToast(event.detail.message, event.detail.type || 'info');
+});
+
 // ── Sidebar Manager ───────────────────────────────────────────
 window.SidebarManager = {
     init: function () {
