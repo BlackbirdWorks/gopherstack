@@ -34,6 +34,7 @@ type kinesisStreamDetailData struct {
 }
 
 // kinesisIndex renders the list of all Kinesis streams.
+//nolint:dupl // intentional: each handler has unique snippet/service data despite similar structure
 func (h *DashboardHandler) kinesisIndex(c *echo.Context) error {
 	w := c.Response()
 

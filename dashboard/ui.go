@@ -220,7 +220,7 @@ func parseDashboardTemplates() *template.Template {
 			return s
 		},
 		"unescapeHTML": func(s string) template.HTML {
-			return template.HTML(s)
+			return template.HTML(s) //nolint:gosec // G203: input is trusted template data, not user-controlled
 		},
 	}
 

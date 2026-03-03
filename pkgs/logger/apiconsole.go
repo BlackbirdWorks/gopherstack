@@ -72,10 +72,12 @@ const defaultBufferSize = 100
 
 // GlobalRingBuffer is the global buffer for the Live API Console.
 // It stores the last 100 requests.
+//nolint:gochecknoglobals // required for shared state across middleware and console handlers
 var GlobalRingBuffer = NewRequestRingBuffer(defaultBufferSize)
 
 // APIConsoleMiddleware captures incoming API requests and stores them in the ring buffer.
 // It should be injected after standard loggers but before request processing.
+//nolint:gocognit // inherent complexity: captures headers, body, response status across middlewares
 func APIConsoleMiddleware() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
@@ -117,7 +119,7 @@ func APIConsoleMiddleware() echo.MiddlewareFunc {
 				status = 500
 			} else if rw, ok := c.Response().(interface{ StatusCode() int }); ok {
 				status = rw.StatusCode()
-			} else if rw, ok := c.Response().(interface{ Status() int }); ok {
+			} else if rw, ok2 := c.Response().(interface{ Status() int }); ok2 {
 				status = rw.Status()
 			}
 

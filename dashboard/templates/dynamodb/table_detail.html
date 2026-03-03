@@ -196,7 +196,7 @@
             data-tabs-toggle="#table-detail-content" role="tablist">
             <li class="me-2" role="presentation">
                 <button class="inline-block p-4 border-b-2 rounded-t-lg" id="overview-tab" data-tabs-target="#overview"
-                    type="button" role="tab" aria-controls="overview" aria-selected="false">Overview</button>
+                    type="button" role="tab" aria-controls="overview" aria-selected="true">Overview</button>
             </li>
             <li class="me-2" role="presentation">
                 <button
@@ -225,7 +225,7 @@
         </ul>
     </div>
     <div id="table-detail-content">
-        <div class="hidden p-4 rounded-lg bg-gray-50 dark:bg-gray-800" id="overview" role="tabpanel"
+        <div class="p-4 rounded-lg bg-gray-50 dark:bg-gray-800" id="overview" role="tabpanel"
             aria-labelledby="overview-tab">
             {{template "table-overview" .}}
         </div>

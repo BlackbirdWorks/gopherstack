@@ -47,6 +47,7 @@ type ec2IndexData struct {
 }
 
 // ec2Index renders the EC2 dashboard page.
+//nolint:funlen // long due to EC2 instance type list
 func (h *DashboardHandler) ec2Index(c *echo.Context) error {
 	w := c.Response()
 
