@@ -21,29 +21,57 @@ var ErrChoiceNoMatch = errors.New("States.NoChoiceMatched")
 
 // Sentinel errors for executor internals.
 var (
-	ErrStateNotFound          = errors.New("state not found")
-	ErrMaxTransitions         = errors.New("state machine exceeded maximum transitions")
-	ErrUnsupportedStateType   = errors.New("unsupported state type")
-	ErrChoiceNoNext           = errors.New("choice rule has no Next")
-	ErrLambdaNotConfigured    = errors.New("lambda invoker not configured")
-	ErrLambdaStatusError      = errors.New("lambda returned non-2xx status")
-	ErrMapRequiresIterator    = errors.New("map state requires Iterator")
-	ErrUnsupportedPathExpr    = errors.New("unsupported path expression")
-	ErrUnsupportedResultPath  = errors.New("unsupported ResultPath")
-	ErrCannotIndexNonObject   = errors.New("cannot index non-object with path")
-	ErrFieldNotFound          = errors.New("field not found")
-	ErrMapInputNotArray       = errors.New("input is not an array for Map state")
-	ErrItemsPathNotArray      = errors.New("ItemsPath does not point to an array")
-	ErrStatesTimeout          = errors.New("States.Timeout")
-	ErrSecondsPathNotNumber   = errors.New("SecondsPath did not resolve to a number")
-	ErrTimestampPathNotString = errors.New("TimestampPath did not resolve to a string")
-	ErrNotAString             = errors.New("not a string")
-	ErrReferenceKeyNotString  = errors.New("value for reference key must be a string")
+	ErrStateNotFound                    = errors.New("state not found")
+	ErrMaxTransitions                   = errors.New("state machine exceeded maximum transitions")
+	ErrUnsupportedStateType             = errors.New("unsupported state type")
+	ErrChoiceNoNext                     = errors.New("choice rule has no Next")
+	ErrLambdaNotConfigured              = errors.New("lambda invoker not configured")
+	ErrLambdaStatusError                = errors.New("lambda returned non-2xx status")
+	ErrMapRequiresIterator              = errors.New("map state requires Iterator")
+	ErrUnsupportedPathExpr              = errors.New("unsupported path expression")
+	ErrUnsupportedResultPath            = errors.New("unsupported ResultPath")
+	ErrCannotIndexNonObject             = errors.New("cannot index non-object with path")
+	ErrFieldNotFound                    = errors.New("field not found")
+	ErrMapInputNotArray                 = errors.New("input is not an array for Map state")
+	ErrItemsPathNotArray                = errors.New("ItemsPath does not point to an array")
+	ErrStatesTimeout                    = errors.New("States.Timeout")
+	ErrSecondsPathNotNumber             = errors.New("SecondsPath did not resolve to a number")
+	ErrTimestampPathNotString           = errors.New("TimestampPath did not resolve to a string")
+	ErrNotAString                       = errors.New("not a string")
+	ErrReferenceKeyNotString            = errors.New("value for reference key must be a string")
+	ErrSQSIntegrationNotConfigured      = errors.New("SQS integration not configured")
+	ErrSNSIntegrationNotConfigured      = errors.New("SNS integration not configured")
+	ErrDynamoDBIntegrationNotConfigured = errors.New("DynamoDB integration not configured")
+	ErrUnsupportedSQSAction             = errors.New("unsupported SQS action")
+	ErrUnsupportedSNSAction             = errors.New("unsupported SNS action")
+	ErrUnsupportedDynamoDBAction        = errors.New("unsupported DynamoDB action")
 )
 
 // LambdaInvoker can invoke a Lambda function.
 type LambdaInvoker interface {
 	InvokeFunction(ctx context.Context, name, invocationType string, payload []byte) ([]byte, int, error)
+}
+
+// SQSIntegration handles Step Functions SQS service integration.
+type SQSIntegration interface {
+	SFNSendMessage(
+		ctx context.Context,
+		queueURL, messageBody, groupID, deduplicationID string,
+		delaySeconds int,
+	) (messageID string, md5 string, err error)
+}
+
+// SNSIntegration handles Step Functions SNS service integration.
+type SNSIntegration interface {
+	SFNPublish(ctx context.Context, topicARN, message, subject string) (messageID string, err error)
+}
+
+// DynamoDBIntegration handles Step Functions DynamoDB service integration.
+type DynamoDBIntegration interface {
+	SFNPutItem(ctx context.Context, input any) (any, error)
+	SFNGetItem(ctx context.Context, input any) (any, error)
+	SFNDeleteItem(ctx context.Context, input any) (any, error)
+	SFNUpdateItem(ctx context.Context, input any) (any, error)
 }
 
 // HistoryRecorder is called during execution to record state transition events.
@@ -64,15 +92,27 @@ type ExecutionResult struct {
 
 // Executor runs an ASL state machine.
 type Executor struct {
-	sm      *StateMachine
-	lambda  LambdaInvoker
-	history HistoryRecorder
+	sm       *StateMachine
+	lambda   LambdaInvoker
+	sqs      SQSIntegration
+	sns      SNSIntegration
+	dynamodb DynamoDBIntegration
+	history  HistoryRecorder
 }
 
 // NewExecutor creates an Executor for the given state machine.
 func NewExecutor(sm *StateMachine, lambda LambdaInvoker, history HistoryRecorder) *Executor {
 	return &Executor{sm: sm, lambda: lambda, history: history}
 }
+
+// SetSQSIntegration configures the SQS integration for Task states.
+func (e *Executor) SetSQSIntegration(sqs SQSIntegration) { e.sqs = sqs }
+
+// SetSNSIntegration configures the SNS integration for Task states.
+func (e *Executor) SetSNSIntegration(sns SNSIntegration) { e.sns = sns }
+
+// SetDynamoDBIntegration configures the DynamoDB integration for Task states.
+func (e *Executor) SetDynamoDBIntegration(ddb DynamoDBIntegration) { e.dynamodb = ddb }
 
 // Execute runs the state machine with the given input JSON and returns the result.
 func (e *Executor) Execute(ctx context.Context, executionARN, inputJSON string) (*ExecutionResult, error) {
@@ -496,6 +536,15 @@ func (e *Executor) invokeTask(ctx context.Context, state *State, input any) (any
 	if isLambdaResource(state.Resource) {
 		return e.invokeLambdaTask(ctx, state, input)
 	}
+	if isSQSResource(state.Resource) {
+		return e.invokeSQSTask(ctx, state, input)
+	}
+	if isSNSResource(state.Resource) {
+		return e.invokeSNSTask(ctx, state, input)
+	}
+	if isDynamoDBResource(state.Resource) {
+		return e.invokeDynamoDBTask(ctx, state, input)
+	}
 
 	// For unsupported resource types, pass input through (permissive stub).
 	return input, nil
@@ -531,7 +580,103 @@ func (e *Executor) invokeLambdaTask(ctx context.Context, state *State, input any
 	return result, nil
 }
 
-// executeParallel handles Parallel state: runs all branches concurrently.
+// invokeSQSTask invokes an SQS action as a Task state.
+func (e *Executor) invokeSQSTask(ctx context.Context, state *State, input any) (any, error) {
+	if e.sqs == nil {
+		return nil, ErrSQSIntegrationNotConfigured
+	}
+
+	action := serviceAction(state.Resource)
+	m, _ := input.(map[string]any)
+
+	switch action {
+	case "sendMessage":
+		queueURL, _ := m["QueueUrl"].(string)
+		messageBody, _ := m["MessageBody"].(string)
+		groupID, _ := m["MessageGroupId"].(string)
+		dedupID, _ := m["MessageDeduplicationId"].(string)
+		var delaySeconds int
+		if d, ok := toFloat(m["DelaySeconds"]); ok {
+			delaySeconds = int(d)
+		}
+		msgID, md5, err := e.sqs.SFNSendMessage(ctx, queueURL, messageBody, groupID, dedupID, delaySeconds)
+		if err != nil {
+			return nil, err
+		}
+
+		return map[string]any{
+			"MD5OfMessageBody": md5,
+			"MessageId":        msgID,
+		}, nil
+	default:
+		return nil, fmt.Errorf("%w: %q", ErrUnsupportedSQSAction, action)
+	}
+}
+
+// invokeSNSTask invokes an SNS action as a Task state.
+func (e *Executor) invokeSNSTask(ctx context.Context, state *State, input any) (any, error) {
+	if e.sns == nil {
+		return nil, ErrSNSIntegrationNotConfigured
+	}
+
+	action := serviceAction(state.Resource)
+	m, _ := input.(map[string]any)
+
+	switch action {
+	case "publish":
+		topicARN, _ := m["TopicArn"].(string)
+		message, _ := m["Message"].(string)
+		subject, _ := m["Subject"].(string)
+		msgID, err := e.sns.SFNPublish(ctx, topicARN, message, subject)
+		if err != nil {
+			return nil, err
+		}
+
+		return map[string]any{"MessageId": msgID}, nil
+	default:
+		return nil, fmt.Errorf("%w: %q", ErrUnsupportedSNSAction, action)
+	}
+}
+
+// invokeDynamoDBTask invokes a DynamoDB action as a Task state.
+func (e *Executor) invokeDynamoDBTask(ctx context.Context, state *State, input any) (any, error) {
+	if e.dynamodb == nil {
+		return nil, ErrDynamoDBIntegrationNotConfigured
+	}
+
+	action := serviceAction(state.Resource)
+
+	switch action {
+	case "putItem":
+		return e.dynamodb.SFNPutItem(ctx, input)
+	case "getItem":
+		return e.dynamodb.SFNGetItem(ctx, input)
+	case "deleteItem":
+		return e.dynamodb.SFNDeleteItem(ctx, input)
+	case "updateItem":
+		return e.dynamodb.SFNUpdateItem(ctx, input)
+	default:
+		return nil, fmt.Errorf("%w: %q", ErrUnsupportedDynamoDBAction, action)
+	}
+}
+
+// serviceAction extracts the action name from a States service integration ARN,
+// stripping any .sync or .waitForTaskToken suffix.
+// Example: "arn:aws:states:::sqs:sendMessage.sync" → "sendMessage".
+func serviceAction(resource string) string {
+	parts := strings.Split(resource, ":")
+	if len(parts) == 0 {
+		return ""
+	}
+
+	action := parts[len(parts)-1]
+	if i := strings.IndexByte(action, '.'); i >= 0 {
+		action = action[:i]
+	}
+
+	return action
+}
+
 func (e *Executor) executeParallel(
 	ctx context.Context,
 	executionARN string,
@@ -1206,6 +1351,18 @@ func catchesError(errorEquals []string, err error) bool {
 func isLambdaResource(resource string) bool {
 	return strings.Contains(resource, ":lambda:") ||
 		strings.HasPrefix(resource, "arn:aws:lambda:")
+}
+
+func isSQSResource(resource string) bool {
+	return strings.HasPrefix(resource, "arn:aws:states:::sqs:")
+}
+
+func isSNSResource(resource string) bool {
+	return strings.HasPrefix(resource, "arn:aws:states:::sns:")
+}
+
+func isDynamoDBResource(resource string) bool {
+	return strings.HasPrefix(resource, "arn:aws:states:::dynamodb:")
 }
 
 // resolveItems returns the array of items for a Map state.

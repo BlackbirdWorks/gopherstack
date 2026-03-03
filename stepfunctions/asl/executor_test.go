@@ -374,6 +374,7 @@ func TestExecutor_ChainedStates(t *testing.T) {
 func TestExecutor_TaskState_NoLambda_PassThrough(t *testing.T) {
 	t.Parallel()
 
+	// DynamoDB is now a recognized integration; without a configured backend it fails.
 	def := `{
 		"StartAt": "T",
 		"States": {
@@ -386,7 +387,8 @@ func TestExecutor_TaskState_NoLambda_PassThrough(t *testing.T) {
 	}`
 
 	result := execute(t, def, `{"pk": "123"}`)
-	assert.Empty(t, result.Error)
+	assert.Equal(t, "TaskFailed", result.Error)
+	assert.Contains(t, result.Cause, "DynamoDB integration not configured")
 }
 
 func TestExecutor_TaskState_Lambda(t *testing.T) {
