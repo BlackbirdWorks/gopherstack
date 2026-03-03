@@ -46,6 +46,9 @@
     <!-- Flowbite CSS -->
     <link href="/dashboard/static/vendor/flowbite.min.css" rel="stylesheet" />
 
+    <!-- Prism Highlighting CSS -->
+    <link href="/dashboard/static/vendor/prism-theme.css" rel="stylesheet" />
+
     <!-- Custom styles -->
     <link rel="stylesheet" href="/dashboard/static/styles.css">
 
@@ -57,7 +60,7 @@
 
     <!-- Top Navbar -->
     <nav
-        class="fixed top-0 z-50 w-full bg-white/80 backdrop-blur-md border-b border-slate-200 dark:bg-slate-900/80 dark:border-slate-800 shadow-sm">
+        class="fixed top-0 z-50 w-full bg-white/80 backdrop-blur-md border-b border-slate-200 dark:bg-slate-900/80 dark:border-white/5 shadow-sm">
         <div class="px-3 py-3 lg:px-5 lg:pl-3 flex items-center justify-between">
             <div class="flex items-center">
                 <!-- Mobile sidebar toggle -->
@@ -93,7 +96,7 @@
                     </svg>
                 </div>
                 <input type="text" id="global-search"
-                    class="w-full pl-10 pr-12 py-2 bg-slate-100/50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:text-white transition-all backdrop-blur-sm placeholder-slate-400 shadow-inner group-focus-within:bg-white dark:group-focus-within:bg-slate-900"
+                    class="w-full pl-10 pr-12 py-2 bg-slate-100/50 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:text-white transition-all backdrop-blur-sm placeholder-slate-400 shadow-inner group-focus-within:bg-white dark:group-focus-within:bg-slate-800"
                     placeholder="Search for services, resources, or documentation..." autocomplete="off">
                 <div class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
                     <span
@@ -135,7 +138,7 @@
                     </svg>
                 </a>
                 <!-- Dark mode toggle -->
-                <button id="theme-toggle" type="button"
+                <button id="theme-toggle" type="button" onclick="window.ThemeManager.toggle()"
                     class="inline-flex items-center justify-center w-9 h-9 text-slate-500 rounded-lg hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-200 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-white transition-colors"
                     title="Toggle dark mode">
                     <svg id="theme-icon-dark" class="w-5 h-5 hidden" fill="currentColor" viewBox="0 0 20 20">
@@ -153,9 +156,9 @@
 
     <!-- Sidebar -->
     <aside id="sidebar"
-        class="fixed top-0 left-0 z-40 w-64 h-screen pt-16 transition-transform -translate-x-full bg-white border-r border-slate-200 lg:translate-x-0 dark:bg-slate-900 dark:border-slate-800"
+        class="fixed top-0 left-0 z-40 w-64 h-screen pt-16 transition-transform -translate-x-full bg-white border-r border-slate-200 lg:translate-x-0 dark:bg-slate-900 dark:border-white/5"
         aria-label="Sidebar">
-        <div class="h-full px-3 pb-4 overflow-y-auto bg-white dark:bg-slate-900">
+        <div class="h-full px-3 pb-4 overflow-y-auto bg-white dark:bg-transparent">
             <ul class="space-y-1 font-medium mt-4">
                 <li class="px-3 py-1 text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500">Core
                     Services</li>
@@ -501,7 +504,7 @@
                 </li>
                 <li>
                     <a href="/dashboard/settings"
-                        class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "settings"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'>
+                        class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "settings"}}bg-indigo-50 text-indigo-700 dark:bg-white/10 dark:text-indigo-400 font-semibold{{end}}'>
                         <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                                 d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z">
@@ -529,7 +532,7 @@
 
         <!-- Footer -->
         <footer
-            class="py-4 mt-8 text-center text-sm text-slate-500 dark:text-slate-400 border-t border-gray-200 dark:border-gray-700">
+            class="py-4 mt-8 text-center text-sm text-slate-500 dark:text-slate-400 border-t border-gray-200 dark:border-white/5">
             Gopherstack — In-Memory AWS Stack for Go
         </footer>
     </div>
@@ -565,6 +568,13 @@
 
     <!-- Flowbite JS (for sidebar toggle, etc.) -->
     <script src="/dashboard/static/vendor/flowbite.min.js"></script>
+
+    <!-- Prism Code Highlighting JS -->
+    <script src="/dashboard/static/vendor/prism.min.js"></script>
+    <script src="/dashboard/static/vendor/prism-bash.min.js"></script>
+    <script src="/dashboard/static/vendor/prism-go.min.js"></script>
+    <script src="/dashboard/static/vendor/prism-python.min.js"></script>
+    <script src="/dashboard/static/vendor/prism-json.min.js"></script>
 
     <!-- Custom JS -->
     <script src="/dashboard/static/app.js"></script>

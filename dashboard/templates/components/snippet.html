@@ -54,26 +54,27 @@
                 </div>
             </div>
             <!-- Modal body -->
-            <div class="relative p-0 bg-[#2d2d2d] rounded-b-xl flex-grow">
+            <div class="relative p-0 bg-slate-900 rounded-b-xl flex-grow overflow-hidden shadow-inner">
                 <!-- Content Wrappers -->
-                <div id="cli-{{.ID}}" class="snippet-content text-sm relative group p-6 pr-16 pt-5 overflow-x-auto">
+                <div id="cli-{{.ID}}"
+                    class="snippet-content text-sm relative group p-6 pr-16 pt-5 overflow-x-auto transition-all duration-200">
                     <pre
                         class="!m-0 !bg-transparent !p-0"><code class="language-bash !bg-transparent !shadow-none !m-0 !p-0 !text-[13px] leading-relaxed">{{.Cli}}</code></pre>
                 </div>
                 <div id="go-{{.ID}}"
-                    class="snippet-content hidden text-sm relative group p-6 pr-16 pt-5 overflow-x-auto">
+                    class="snippet-content hidden text-sm relative group p-6 pr-16 pt-5 overflow-x-auto transition-all duration-200">
                     <pre
                         class="!m-0 !bg-transparent !p-0"><code class="language-go !bg-transparent !shadow-none !m-0 !p-0 !text-[13px] leading-relaxed">{{.Go}}</code></pre>
                 </div>
                 <div id="python-{{.ID}}"
-                    class="snippet-content hidden text-sm relative group p-6 pr-16 pt-5 overflow-x-auto">
+                    class="snippet-content hidden text-sm relative group p-6 pr-16 pt-5 overflow-x-auto transition-all duration-200">
                     <pre
                         class="!m-0 !bg-transparent !p-0"><code class="language-python !bg-transparent !shadow-none !m-0 !p-0 !text-[13px] leading-relaxed">{{.Python}}</code></pre>
                 </div>
 
                 <!-- Copy Button -->
                 <button onclick="copyActiveSnippet(this)"
-                    class="absolute top-4 right-6 p-2 rounded-lg bg-slate-700/50 text-slate-300 hover:text-white hover:bg-emerald-600 backdrop-blur-sm transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm border border-slate-600"
+                    class="absolute top-4 right-6 p-2 rounded-lg bg-white/10 text-slate-300 hover:text-white hover:bg-emerald-600 backdrop-blur-sm transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm border border-white/5 hover:border-emerald-500 hover:-translate-y-[1px] hover:shadow-lg"
                     title="Copy to clipboard">
                     <svg class="w-5 h-5 copy-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -85,9 +86,6 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
                     </svg>
                 </button>
-                <div
-                    class="copy-feedback hidden absolute top-5 right-16 px-2 py-1 text-xs font-semibold text-emerald-400 bg-slate-800 rounded animate-fade-in-out border border-slate-700">
-                    Copied</div>
             </div>
         </div>
     </div>

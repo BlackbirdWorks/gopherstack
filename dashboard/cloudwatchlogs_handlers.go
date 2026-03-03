@@ -23,10 +23,23 @@ func (h *DashboardHandler) cloudWatchLogsIndex(c *echo.Context) error {
 			Snippet: &SnippetData{
 				ID:    "cloudwatchlogs-operations",
 				Title: "Using Cloudwatchlogs",
-				Cli:   "aws cloudwatchlogs help --endpoint-url http://localhost:8000",
-				Go:    "/* Write AWS SDK v2 Code for Cloudwatchlogs */",
-				Python: "# Write boto3 code for CloudWatch Logs\nimport boto3\n" +
-					"client = boto3.client('logs', endpoint_url='http://localhost:8000')",
+				Cli:   `aws cloudwatchlogs help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Cloudwatchlogs
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := cloudwatchlogs.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Cloudwatchlogs
+import boto3
+
+client = boto3.client('cloudwatchlogs', endpoint_url='http://localhost:8000')`,
 			}},
 		LogGroups: groups,
 	}
@@ -54,10 +67,22 @@ func (h *DashboardHandler) cloudWatchLogsGroupDetail(c *echo.Context) error {
 			Snippet: &SnippetData{
 				ID:    "cloudwatchlogs-operations",
 				Title: "Using Cloudwatchlogs",
-				Cli:   "aws cloudwatchlogs help --endpoint-url http://localhost:8000",
-				Go:    "/* Write AWS SDK v2 Code for Cloudwatchlogs */",
-				Python: `# Write boto3 code for Cloudwatchlogs
+				Cli:   `aws cloudwatchlogs help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Cloudwatchlogs
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := cloudwatchlogs.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Cloudwatchlogs
 import boto3
+
 client = boto3.client('cloudwatchlogs', endpoint_url='http://localhost:8000')`,
 			}},
 		GroupName: groupName,
@@ -115,10 +140,22 @@ func (h *DashboardHandler) cloudWatchLogsStreamDetail(c *echo.Context) error {
 			Snippet: &SnippetData{
 				ID:    "cloudwatchlogs-operations",
 				Title: "Using Cloudwatchlogs",
-				Cli:   "aws cloudwatchlogs help --endpoint-url http://localhost:8000",
-				Go:    "/* Write AWS SDK v2 Code for Cloudwatchlogs */",
-				Python: `# Write boto3 code for Cloudwatchlogs
+				Cli:   `aws cloudwatchlogs help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Cloudwatchlogs
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := cloudwatchlogs.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Cloudwatchlogs
 import boto3
+
 client = boto3.client('cloudwatchlogs', endpoint_url='http://localhost:8000')`,
 			}},
 		GroupName:  groupName,

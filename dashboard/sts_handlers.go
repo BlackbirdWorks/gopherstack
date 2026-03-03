@@ -23,10 +23,23 @@ func (h *DashboardHandler) stsIndex(c *echo.Context) error {
 			Snippet: &SnippetData{
 				ID:    "sts-operations",
 				Title: "Using Sts",
-				Cli:   "aws sts help --endpoint-url http://localhost:8000",
-				Go:    "/* Write AWS SDK v2 Code for Sts */",
-				Python: "# Write boto3 code for Sts\nimport boto3\n" +
-					"client = boto3.client('sts', endpoint_url='http://localhost:8000')",
+				Cli:   `aws sts help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Sts
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := sts.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Sts
+import boto3
+
+client = boto3.client('sts', endpoint_url='http://localhost:8000')`,
 			},
 		},
 		Account: stsbackend.MockAccountID,

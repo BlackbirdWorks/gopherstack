@@ -61,10 +61,23 @@ func (h *DashboardHandler) rdsIndex(c *echo.Context) error {
 				Snippet: &SnippetData{
 					ID:    "rds-operations",
 					Title: "Using Rds",
-					Cli:   "aws rds help --endpoint-url http://localhost:8000",
-					Go:    "/* Write AWS SDK v2 Code for Rds */",
-					Python: "# Write boto3 code for Rds\nimport boto3\n" +
-						"client = boto3.client('rds', endpoint_url='http://localhost:8000')",
+					Cli:   `aws rds help --endpoint-url http://localhost:8000`,
+					Go: `// Initialize AWS SDK v2 for Using Rds
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := rds.NewFromConfig(cfg)`,
+					Python: `# Initialize boto3 client for Using Rds
+import boto3
+
+client = boto3.client('rds', endpoint_url='http://localhost:8000')`,
 				}},
 			Instances:    []rdsInstanceView{},
 			Snapshots:    []rdsSnapshotView{},
@@ -129,10 +142,22 @@ func (h *DashboardHandler) rdsIndex(c *echo.Context) error {
 			Snippet: &SnippetData{
 				ID:    "rds-operations",
 				Title: "Using Rds",
-				Cli:   "aws rds help --endpoint-url http://localhost:8000",
-				Go:    "/* Write AWS SDK v2 Code for Rds */",
-				Python: `# Write boto3 code for Rds
+				Cli:   `aws rds help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Rds
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := rds.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Rds
 import boto3
+
 client = boto3.client('rds', endpoint_url='http://localhost:8000')`,
 			}},
 		Instances:    instViews,
@@ -167,10 +192,22 @@ func (h *DashboardHandler) rdsInstanceDetail(c *echo.Context) error {
 			Snippet: &SnippetData{
 				ID:    "rds-operations",
 				Title: "Using Rds",
-				Cli:   "aws rds help --endpoint-url http://localhost:8000",
-				Go:    "/* Write AWS SDK v2 Code for Rds */",
-				Python: `# Write boto3 code for Rds
+				Cli:   `aws rds help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Rds
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := rds.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Rds
 import boto3
+
 client = boto3.client('rds', endpoint_url='http://localhost:8000')`,
 			}},
 		Instance: rdsInstanceView{

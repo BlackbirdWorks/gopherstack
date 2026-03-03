@@ -121,10 +121,23 @@ func (h *DashboardHandler) snsIndex(c *echo.Context) error {
 			Snippet: &SnippetData{
 				ID:    "sns-operations",
 				Title: "Using Sns",
-				Cli:   "aws sns help --endpoint-url http://localhost:8000",
-				Go:    "/* Write AWS SDK v2 Code for Sns */",
-				Python: "# Write boto3 code for Sns\nimport boto3\n" +
-					"client = boto3.client('sns', endpoint_url='http://localhost:8000')",
+				Cli:   `aws sns help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Sns
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := sns.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Sns
+import boto3
+
+client = boto3.client('sns', endpoint_url='http://localhost:8000')`,
 			},
 		},
 		Topics: make([]any, 0),
@@ -239,10 +252,22 @@ func (h *DashboardHandler) snsTopicDetail(c *echo.Context) error {
 			Snippet: &SnippetData{
 				ID:    "sns-operations",
 				Title: "Using Sns",
-				Cli:   "aws sns help --endpoint-url http://localhost:8000",
-				Go:    "/* Write AWS SDK v2 Code for Sns */",
-				Python: `# Write boto3 code for Sns
+				Cli:   `aws sns help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Sns
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := sns.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Sns
 import boto3
+
 client = boto3.client('sns', endpoint_url='http://localhost:8000')`,
 			},
 		},

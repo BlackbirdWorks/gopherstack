@@ -54,10 +54,23 @@ func (h *DashboardHandler) sesIndex(c *echo.Context) error {
 				Snippet: &SnippetData{
 					ID:    "ses-operations",
 					Title: "Using Ses",
-					Cli:   "aws ses help --endpoint-url http://localhost:8000",
-					Go:    "/* Write AWS SDK v2 Code for Ses */",
-					Python: "# Write boto3 code for Ses\nimport boto3\n" +
-						"client = boto3.client('ses', endpoint_url='http://localhost:8000')",
+					Cli:   `aws ses help --endpoint-url http://localhost:8000`,
+					Go: `// Initialize AWS SDK v2 for Using Ses
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := ses.NewFromConfig(cfg)`,
+					Python: `# Initialize boto3 client for Using Ses
+import boto3
+
+client = boto3.client('ses', endpoint_url='http://localhost:8000')`,
 				}},
 			Emails:     []sesEmailView{},
 			Identities: []string{},
@@ -87,10 +100,22 @@ func (h *DashboardHandler) sesIndex(c *echo.Context) error {
 			Snippet: &SnippetData{
 				ID:    "ses-operations",
 				Title: "Using Ses",
-				Cli:   "aws ses help --endpoint-url http://localhost:8000",
-				Go:    "/* Write AWS SDK v2 Code for Ses */",
-				Python: `# Write boto3 code for Ses
+				Cli:   `aws ses help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Ses
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := ses.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Ses
 import boto3
+
 client = boto3.client('ses', endpoint_url='http://localhost:8000')`,
 			}},
 		Emails:     emailViews,
@@ -139,10 +164,22 @@ func (h *DashboardHandler) sesEmailDetail(c *echo.Context) error {
 			Snippet: &SnippetData{
 				ID:    "ses-operations",
 				Title: "Using Ses",
-				Cli:   "aws ses help --endpoint-url http://localhost:8000",
-				Go:    "/* Write AWS SDK v2 Code for Ses */",
-				Python: `# Write boto3 code for Ses
+				Cli:   `aws ses help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Ses
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := ses.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Ses
 import boto3
+
 client = boto3.client('ses', endpoint_url='http://localhost:8000')`,
 			}},
 		MessageID:    email.MessageID,

@@ -33,10 +33,23 @@ func (h *DashboardHandler) s3controlIndex(c *echo.Context) error {
 				Snippet: &SnippetData{
 					ID:    "s3control-operations",
 					Title: "Using S3control",
-					Cli:   "aws s3control help --endpoint-url http://localhost:8000",
-					Go:    "/* Write AWS SDK v2 Code for S3control */",
-					Python: "# Write boto3 code for S3control\nimport boto3\n" +
-						"client = boto3.client('s3control', endpoint_url='http://localhost:8000')",
+					Cli:   `aws s3control help --endpoint-url http://localhost:8000`,
+					Go: `// Initialize AWS SDK v2 for Using S3control
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := s3control.NewFromConfig(cfg)`,
+					Python: `# Initialize boto3 client for Using S3control
+import boto3
+
+client = boto3.client('s3control', endpoint_url='http://localhost:8000')`,
 				}},
 			Configs: []s3controlConfigView{},
 		})
@@ -62,10 +75,22 @@ func (h *DashboardHandler) s3controlIndex(c *echo.Context) error {
 			Snippet: &SnippetData{
 				ID:    "s3control-operations",
 				Title: "Using S3control",
-				Cli:   "aws s3control help --endpoint-url http://localhost:8000",
-				Go:    "/* Write AWS SDK v2 Code for S3control */",
-				Python: `# Write boto3 code for S3control
+				Cli:   `aws s3control help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using S3control
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := s3control.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using S3control
 import boto3
+
 client = boto3.client('s3control', endpoint_url='http://localhost:8000')`,
 			}},
 		Configs: views,

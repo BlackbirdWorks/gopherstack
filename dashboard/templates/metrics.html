@@ -9,6 +9,11 @@
                 Gopherstack.</p>
         </div>
         <div class="flex items-center gap-3">
+            <!-- Activity Sparkline Heatmap -->
+            <div class="hidden sm:flex items-end h-9 gap-[3px] px-3 py-1.5 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-white/5 shadow-inner"
+                id="activity-sparkline" title="Live Traffic Heatmap">
+                <!-- Bars injected via JS -->
+            </div>
             <div id="live-indicator"
                 class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 text-xs font-bold border border-green-200 dark:border-green-800">
                 <span class="relative flex h-2 w-2">
@@ -19,7 +24,7 @@
                 LIVE
             </div>
             <button
-                class="text-gray-900 bg-white border border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-100 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-gray-800 dark:text-white dark:border-gray-600 dark:hover:bg-gray-700 dark:hover:border-gray-600 dark:focus:ring-gray-700 inline-flex items-center gap-2"
+                class="text-gray-900 bg-white border border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-100 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-white/5 dark:text-white dark:border-white/10 dark:hover:bg-white/10 dark:focus:ring-gray-700 inline-flex items-center gap-2 transition-colors shadow-sm"
                 hx-get="/dashboard/api/metrics" hx-target="#metrics-content" hx-swap="none"
                 hx-on::after-request="window.dispatchEvent(new CustomEvent('metrics-updated', {detail: JSON.parse(event.detail.xhr.responseText)}))">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"

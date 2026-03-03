@@ -56,10 +56,23 @@ func (h *DashboardHandler) route53Index(c *echo.Context) error {
 				Snippet: &SnippetData{
 					ID:    "route53-operations",
 					Title: "Using Route53",
-					Cli:   "aws route53 help --endpoint-url http://localhost:8000",
-					Go:    "/* Write AWS SDK v2 Code for Route53 */",
-					Python: "# Write boto3 code for Route53\nimport boto3\n" +
-						"client = boto3.client('route53', endpoint_url='http://localhost:8000')",
+					Cli:   `aws route53 help --endpoint-url http://localhost:8000`,
+					Go: `// Initialize AWS SDK v2 for Using Route53
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := route53.NewFromConfig(cfg)`,
+					Python: `# Initialize boto3 client for Using Route53
+import boto3
+
+client = boto3.client('route53', endpoint_url='http://localhost:8000')`,
 				}},
 			Zones: []route53ZoneView{},
 		})
@@ -87,10 +100,22 @@ func (h *DashboardHandler) route53Index(c *echo.Context) error {
 			Snippet: &SnippetData{
 				ID:    "route53-operations",
 				Title: "Using Route53",
-				Cli:   "aws route53 help --endpoint-url http://localhost:8000",
-				Go:    "/* Write AWS SDK v2 Code for Route53 */",
-				Python: `# Write boto3 code for Route53
+				Cli:   `aws route53 help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Route53
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := route53.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Route53
 import boto3
+
 client = boto3.client('route53', endpoint_url='http://localhost:8000')`,
 			}},
 		Zones: views,
@@ -140,10 +165,22 @@ func (h *DashboardHandler) route53ZoneDetail(c *echo.Context) error {
 			Snippet: &SnippetData{
 				ID:    "route53-operations",
 				Title: "Using Route53",
-				Cli:   "aws route53 help --endpoint-url http://localhost:8000",
-				Go:    "/* Write AWS SDK v2 Code for Route53 */",
-				Python: `# Write boto3 code for Route53
+				Cli:   `aws route53 help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Route53
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := route53.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Route53
 import boto3
+
 client = boto3.client('route53', endpoint_url='http://localhost:8000')`,
 			}},
 		ZoneID:   zoneID,

@@ -123,13 +123,11 @@ document.addEventListener('htmx:confirm', function (event) {
 // ── Theme Manager ─────────────────────────────────────────────
 window.ThemeManager = {
     init: function () {
-        const themeToggleBtn = document.getElementById('theme-toggle');
         const darkIcon = document.getElementById('theme-icon-dark');
         const lightIcon = document.getElementById('theme-icon-light');
+        if (!darkIcon || !lightIcon) return;
 
-        if (!themeToggleBtn || !darkIcon || !lightIcon) return;
-
-        // Change the icons inside the button based on previous settings
+        // Change the icons inside the button based on current settings
         if (document.documentElement.classList.contains('dark')) {
             lightIcon.classList.add('hidden');
             darkIcon.classList.remove('hidden');
@@ -137,33 +135,84 @@ window.ThemeManager = {
             darkIcon.classList.add('hidden');
             lightIcon.classList.remove('hidden');
         }
+    },
+    toggle: function () {
+        const darkIcon = document.getElementById('theme-icon-dark');
+        const lightIcon = document.getElementById('theme-icon-light');
 
-        themeToggleBtn.addEventListener('click', function () {
-            // toggle icons
+        if (darkIcon && lightIcon) {
             darkIcon.classList.toggle('hidden');
             lightIcon.classList.toggle('hidden');
+        }
 
-            // if set via local storage previously
-            if (localStorage.getItem('gopherstack-theme')) {
-                if (localStorage.getItem('gopherstack-theme') === 'light') {
-                    document.documentElement.classList.add('dark');
-                    localStorage.setItem('gopherstack-theme', 'dark');
-                } else {
-                    document.documentElement.classList.remove('dark');
-                    localStorage.setItem('gopherstack-theme', 'light');
-                }
+        if (localStorage.getItem('gopherstack-theme')) {
+            if (localStorage.getItem('gopherstack-theme') === 'light') {
+                document.documentElement.classList.add('dark');
+                localStorage.setItem('gopherstack-theme', 'dark');
             } else {
-                if (document.documentElement.classList.contains('dark')) {
-                    document.documentElement.classList.remove('dark');
-                    localStorage.setItem('gopherstack-theme', 'light');
-                } else {
-                    document.documentElement.classList.add('dark');
-                    localStorage.setItem('gopherstack-theme', 'dark');
-                }
+                document.documentElement.classList.remove('dark');
+                localStorage.setItem('gopherstack-theme', 'light');
             }
-        });
+        } else {
+            if (document.documentElement.classList.contains('dark')) {
+                document.documentElement.classList.remove('dark');
+                localStorage.setItem('gopherstack-theme', 'light');
+            } else {
+                document.documentElement.classList.add('dark');
+                localStorage.setItem('gopherstack-theme', 'dark');
+            }
+        }
     }
 };
+
+// ── Sparkline Heatmap ───────────────────────────────────────────
+window.SparklineManager = {
+    intervalId: null,
+    operationSpike: false,
+    init: function () {
+        const container = document.getElementById('activity-sparkline');
+        if (!container) return; // not on metrics page
+
+        // Clear children and existing interval if any
+        container.innerHTML = '';
+        if (this.intervalId) clearInterval(this.intervalId);
+
+        const numBars = 12;
+        for (let i = 0; i < numBars; i++) {
+            const bar = document.createElement('div');
+            bar.className = 'w-1.5 bg-indigo-500/80 dark:bg-indigo-400/80 rounded-t-[1px] transition-all duration-300 ease-out';
+            bar.style.height = (10 + Math.random() * 40) + '%';
+            container.appendChild(bar);
+        }
+
+        this.intervalId = setInterval(() => {
+            const bars = container.children;
+            if (bars.length === 0) return;
+            // Shift values left
+            for (let i = 0; i < bars.length - 1; i++) {
+                bars[i].style.height = bars[i + 1].style.height;
+            }
+            // Generate next height
+            let nextH = 10 + Math.random() * 30; // Baseline noise
+
+            // Random artificial or real spikes
+            if (this.operationSpike || Math.random() > 0.85) {
+                nextH += 40 + Math.random() * 30; // Spike
+                this.operationSpike = false;
+            }
+
+            if (nextH > 100) nextH = 100;
+            bars[bars.length - 1].style.height = nextH + '%';
+        }, 800);
+    },
+    triggerSpike: function () {
+        this.operationSpike = true;
+    }
+};
+
+window.addEventListener('metrics-updated', () => {
+    if (window.SparklineManager) window.SparklineManager.triggerSpike();
+});
 
 // ── Sidebar Scroll Preservation ───────────────────────────────
 window.lastSidebarScroll = window.lastSidebarScroll || 0;
@@ -198,6 +247,10 @@ document.addEventListener('htmx:afterSwap', function () {
 
     if (typeof window.initSnippets === 'function') {
         window.initSnippets();
+    }
+
+    if (window.SparklineManager) {
+        window.SparklineManager.init();
     }
 
     // Re-initialize all Flowbite components (modals, dropdowns) after DOM replaces
@@ -239,15 +292,33 @@ window.switchSnippet = function (btn, targetId) {
     btn.classList.add('active', 'bg-emerald-600', 'text-white', 'shadow-sm', 'hover:bg-emerald-700');
     btn.classList.remove('text-slate-600', 'hover:text-slate-900', 'dark:text-slate-400', 'dark:hover:text-white', 'hover:bg-slate-200', 'dark:hover:bg-slate-800');
 
-    // Update content
-    container.querySelectorAll('.snippet-content').forEach(s => s.classList.add('hidden'));
-    const target = document.getElementById(targetId);
-    if (target) target.classList.remove('hidden');
+    // Update content with fade transition
+    container.querySelectorAll('.snippet-content').forEach(s => {
+        if (!s.classList.contains('hidden')) {
+            s.classList.add('opacity-0', 'scale-95');
+            setTimeout(() => {
+                s.classList.add('hidden');
+                s.classList.remove('opacity-0', 'scale-95');
+            }, 150);
+        }
+    });
 
-    // Re-highlight if visible
-    if (window.Prism && target) {
-        const codeBlock = target.querySelector('code');
-        if (codeBlock) window.Prism.highlightElement(codeBlock);
+    const target = document.getElementById(targetId);
+    if (target) {
+        setTimeout(() => {
+            target.classList.remove('hidden');
+            target.classList.add('opacity-0', 'scale-95');
+            // Trigger reflow
+            void target.offsetWidth;
+            target.classList.remove('opacity-0', 'scale-95');
+            target.classList.add('transition-all', 'duration-200');
+
+            // Re-highlight if visible
+            if (window.Prism) {
+                const codeBlock = target.querySelector('code');
+                if (codeBlock) window.Prism.highlightElement(codeBlock);
+            }
+        }, 150);
     }
 };
 
@@ -259,22 +330,24 @@ window.copyActiveSnippet = function (btn) {
         const textToCopy = activeContent.innerText.replace("Copied", "").trim();
 
         navigator.clipboard.writeText(textToCopy).then(() => {
+            showToast('Code copied to clipboard!', 'success');
+
             const copyIcon = btn.querySelector('.copy-icon');
             const checkIcon = btn.querySelector('.check-icon');
-            const feedback = container.querySelector('.copy-feedback');
 
             if (copyIcon) copyIcon.classList.add('hidden');
             if (checkIcon) checkIcon.classList.remove('hidden', 'opacity-0');
-            if (feedback) feedback.classList.remove('hidden');
 
             btn.classList.add('!bg-emerald-600/90', '!border-emerald-500');
 
             setTimeout(() => {
                 if (copyIcon) copyIcon.classList.remove('hidden');
                 if (checkIcon) checkIcon.classList.add('hidden', 'opacity-0');
-                if (feedback) feedback.classList.add('hidden');
                 btn.classList.remove('!bg-emerald-600/90', '!border-emerald-500');
             }, 2000);
+        }).catch(err => {
+            showToast('Failed to copy', 'error');
+            console.error('Copy failed:', err);
         });
     }
 };
@@ -359,6 +432,7 @@ document.addEventListener('keydown', function (e) {
 document.addEventListener('DOMContentLoaded', function () {
     if (window.ThemeManager) window.ThemeManager.init();
     if (window.initSnippets) window.initSnippets();
+    if (window.SparklineManager) window.SparklineManager.init();
     setupGlobalSearch();
     console.log('Gopherstack UI loaded');
 });

@@ -43,10 +43,23 @@ func (h *DashboardHandler) kinesisIndex(c *echo.Context) error {
 				Snippet: &SnippetData{
 					ID:    "kinesis-operations",
 					Title: "Using Kinesis",
-					Cli:   "aws kinesis help --endpoint-url http://localhost:8000",
-					Go:    "/* Write AWS SDK v2 Code for Kinesis */",
-					Python: "# Write boto3 code for Kinesis\nimport boto3\n" +
-						"client = boto3.client('kinesis', endpoint_url='http://localhost:8000')",
+					Cli:   `aws kinesis help --endpoint-url http://localhost:8000`,
+					Go: `// Initialize AWS SDK v2 for Using Kinesis
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := kinesis.NewFromConfig(cfg)`,
+					Python: `# Initialize boto3 client for Using Kinesis
+import boto3
+
+client = boto3.client('kinesis', endpoint_url='http://localhost:8000')`,
 				}},
 			Streams: []kinesisStreamView{},
 		})
@@ -71,10 +84,22 @@ func (h *DashboardHandler) kinesisIndex(c *echo.Context) error {
 			Snippet: &SnippetData{
 				ID:    "kinesis-operations",
 				Title: "Using Kinesis",
-				Cli:   "aws kinesis help --endpoint-url http://localhost:8000",
-				Go:    "/* Write AWS SDK v2 Code for Kinesis */",
-				Python: `# Write boto3 code for Kinesis
+				Cli:   `aws kinesis help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Kinesis
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := kinesis.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Kinesis
 import boto3
+
 client = boto3.client('kinesis', endpoint_url='http://localhost:8000')`,
 			}},
 		Streams: views,
@@ -103,10 +128,22 @@ func (h *DashboardHandler) kinesisStreamDetail(c *echo.Context) error {
 			Snippet: &SnippetData{
 				ID:    "kinesis-operations",
 				Title: "Using Kinesis",
-				Cli:   "aws kinesis help --endpoint-url http://localhost:8000",
-				Go:    "/* Write AWS SDK v2 Code for Kinesis */",
-				Python: `# Write boto3 code for Kinesis
+				Cli:   `aws kinesis help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Kinesis
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := kinesis.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Kinesis
 import boto3
+
 client = boto3.client('kinesis', endpoint_url='http://localhost:8000')`,
 			}},
 		StreamName: desc.StreamName,

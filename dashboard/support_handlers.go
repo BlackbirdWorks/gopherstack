@@ -33,10 +33,23 @@ func (h *DashboardHandler) supportIndex(c *echo.Context) error {
 				Snippet: &SnippetData{
 					ID:    "support-operations",
 					Title: "Using Support",
-					Cli:   "aws support help --endpoint-url http://localhost:8000",
-					Go:    "/* Write AWS SDK v2 Code for Support */",
-					Python: "# Write boto3 code for Support\nimport boto3\n" +
-						"client = boto3.client('support', endpoint_url='http://localhost:8000')",
+					Cli:   `aws support help --endpoint-url http://localhost:8000`,
+					Go: `// Initialize AWS SDK v2 for Using Support
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := support.NewFromConfig(cfg)`,
+					Python: `# Initialize boto3 client for Using Support
+import boto3
+
+client = boto3.client('support', endpoint_url='http://localhost:8000')`,
 				}},
 			Cases: []supportCaseView{},
 		})
@@ -63,10 +76,22 @@ func (h *DashboardHandler) supportIndex(c *echo.Context) error {
 			Snippet: &SnippetData{
 				ID:    "support-operations",
 				Title: "Using Support",
-				Cli:   "aws support help --endpoint-url http://localhost:8000",
-				Go:    "/* Write AWS SDK v2 Code for Support */",
-				Python: `# Write boto3 code for Support
+				Cli:   `aws support help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Support
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := support.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Support
 import boto3
+
 client = boto3.client('support', endpoint_url='http://localhost:8000')`,
 			}},
 		Cases: views,

@@ -30,10 +30,23 @@ func (h *DashboardHandler) swfIndex(c *echo.Context) error {
 				Snippet: &SnippetData{
 					ID:    "swf-operations",
 					Title: "Using Swf",
-					Cli:   "aws swf help --endpoint-url http://localhost:8000",
-					Go:    "/* Write AWS SDK v2 Code for Swf */",
-					Python: "# Write boto3 code for Swf\nimport boto3\n" +
-						"client = boto3.client('swf', endpoint_url='http://localhost:8000')",
+					Cli:   `aws swf help --endpoint-url http://localhost:8000`,
+					Go: `// Initialize AWS SDK v2 for Using Swf
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := swf.NewFromConfig(cfg)`,
+					Python: `# Initialize boto3 client for Using Swf
+import boto3
+
+client = boto3.client('swf', endpoint_url='http://localhost:8000')`,
 				}},
 			Domains: []swfDomainView{},
 		})
@@ -57,10 +70,22 @@ func (h *DashboardHandler) swfIndex(c *echo.Context) error {
 			Snippet: &SnippetData{
 				ID:    "swf-operations",
 				Title: "Using Swf",
-				Cli:   "aws swf help --endpoint-url http://localhost:8000",
-				Go:    "/* Write AWS SDK v2 Code for Swf */",
-				Python: `# Write boto3 code for Swf
+				Cli:   `aws swf help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Swf
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := swf.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Swf
 import boto3
+
 client = boto3.client('swf', endpoint_url='http://localhost:8000')`,
 			}},
 		Domains: views,

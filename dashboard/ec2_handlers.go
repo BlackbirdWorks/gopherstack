@@ -56,10 +56,23 @@ func (h *DashboardHandler) ec2Index(c *echo.Context) error {
 				Snippet: &SnippetData{
 					ID:    "ec2-operations",
 					Title: "Using Ec2",
-					Cli:   "aws ec2 help --endpoint-url http://localhost:8000",
-					Go:    "/* Write AWS SDK v2 Code for Ec2 */",
-					Python: "# Write boto3 code for Ec2\nimport boto3\n" +
-						"client = boto3.client('ec2', endpoint_url='http://localhost:8000')",
+					Cli:   `aws ec2 help --endpoint-url http://localhost:8000`,
+					Go: `// Initialize AWS SDK v2 for Using Ec2
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := ec2.NewFromConfig(cfg)`,
+					Python: `# Initialize boto3 client for Using Ec2
+import boto3
+
+client = boto3.client('ec2', endpoint_url='http://localhost:8000')`,
 				}},
 			Instances:      []ec2InstanceView{},
 			SecurityGroups: []ec2SecurityGroupView{},
@@ -123,10 +136,22 @@ func (h *DashboardHandler) ec2Index(c *echo.Context) error {
 			Snippet: &SnippetData{
 				ID:    "ec2-operations",
 				Title: "Using Ec2",
-				Cli:   "aws ec2 help --endpoint-url http://localhost:8000",
-				Go:    "/* Write AWS SDK v2 Code for Ec2 */",
-				Python: `# Write boto3 code for Ec2
+				Cli:   `aws ec2 help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Ec2
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := ec2.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Ec2
 import boto3
+
 client = boto3.client('ec2', endpoint_url='http://localhost:8000')`,
 			}},
 		Instances:      instanceViews,

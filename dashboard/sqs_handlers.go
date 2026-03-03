@@ -46,10 +46,23 @@ func (h *DashboardHandler) sqsIndex(c *echo.Context) error {
 				Snippet: &SnippetData{
 					ID:    "sqs-operations",
 					Title: "Using Sqs",
-					Cli:   "aws sqs help --endpoint-url http://localhost:8000",
-					Go:    "/* Write AWS SDK v2 Code for Sqs */",
-					Python: "# Write boto3 code for Sqs\nimport boto3\n" +
-						"client = boto3.client('sqs', endpoint_url='http://localhost:8000')",
+					Cli:   `aws sqs help --endpoint-url http://localhost:8000`,
+					Go: `// Initialize AWS SDK v2 for Using Sqs
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := sqs.NewFromConfig(cfg)`,
+					Python: `# Initialize boto3 client for Using Sqs
+import boto3
+
+client = boto3.client('sqs', endpoint_url='http://localhost:8000')`,
 				}},
 			Queues: []sqsQueueView{},
 		})
@@ -89,10 +102,22 @@ func (h *DashboardHandler) sqsIndex(c *echo.Context) error {
 			Snippet: &SnippetData{
 				ID:    "sqs-operations",
 				Title: "Using Sqs",
-				Cli:   "aws sqs help --endpoint-url http://localhost:8000",
-				Go:    "/* Write AWS SDK v2 Code for Sqs */",
-				Python: `# Write boto3 code for Sqs
+				Cli:   `aws sqs help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Sqs
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := sqs.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Sqs
 import boto3
+
 client = boto3.client('sqs', endpoint_url='http://localhost:8000')`,
 			}},
 		Queues: views,
@@ -111,10 +136,22 @@ func (h *DashboardHandler) sqsCreateQueueModal(c *echo.Context) error {
 			Snippet: &SnippetData{
 				ID:    "sqs-operations",
 				Title: "Using Sqs",
-				Cli:   "aws sqs help --endpoint-url http://localhost:8000",
-				Go:    "/* Write AWS SDK v2 Code for Sqs */",
-				Python: `# Write boto3 code for Sqs
+				Cli:   `aws sqs help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Sqs
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := sqs.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Sqs
 import boto3
+
 client = boto3.client('sqs', endpoint_url='http://localhost:8000')`,
 			}},
 	})
@@ -313,10 +350,22 @@ func (h *DashboardHandler) sqsQueueDetail(c *echo.Context) error {
 			Snippet: &SnippetData{
 				ID:    "sqs-operations",
 				Title: "Using Sqs",
-				Cli:   "aws sqs help --endpoint-url http://localhost:8000",
-				Go:    "/* Write AWS SDK v2 Code for Sqs */",
-				Python: `# Write boto3 code for Sqs
+				Cli:   `aws sqs help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Sqs
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := sqs.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Sqs
 import boto3
+
 client = boto3.client('sqs', endpoint_url='http://localhost:8000')`,
 			},
 		},

@@ -22,10 +22,23 @@ func (h *DashboardHandler) cloudFormationIndex(c *echo.Context) error {
 			Snippet: &SnippetData{
 				ID:    "cloudformation-operations",
 				Title: "Using Cloudformation",
-				Cli:   "aws cloudformation help --endpoint-url http://localhost:8000",
-				Go:    "/* Write AWS SDK v2 Code for Cloudformation */",
-				Python: "# Write boto3 code for CloudFormation\nimport boto3\n" +
-					"client = boto3.client('cloudformation', endpoint_url='http://localhost:8000')",
+				Cli:   `aws cloudformation help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Cloudformation
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := cloudformation.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Cloudformation
+import boto3
+
+client = boto3.client('cloudformation', endpoint_url='http://localhost:8000')`,
 			}},
 		Stacks: stacks,
 	}
@@ -54,10 +67,22 @@ func (h *DashboardHandler) cloudFormationStackDetail(c *echo.Context) error {
 			Snippet: &SnippetData{
 				ID:    "cloudformation-operations",
 				Title: "Using Cloudformation",
-				Cli:   "aws cloudformation help --endpoint-url http://localhost:8000",
-				Go:    "/* Write AWS SDK v2 Code for Cloudformation */",
-				Python: `# Write boto3 code for Cloudformation
+				Cli:   `aws cloudformation help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Cloudformation
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := cloudformation.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Cloudformation
 import boto3
+
 client = boto3.client('cloudformation', endpoint_url='http://localhost:8000')`,
 			}},
 		Stack:  stack,

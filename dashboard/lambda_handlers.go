@@ -31,10 +31,23 @@ func (h *DashboardHandler) lambdaIndex(c *echo.Context) error {
 			Snippet: &SnippetData{
 				ID:    "lambda-operations",
 				Title: "Using Lambda",
-				Cli:   "aws lambda help --endpoint-url http://localhost:8000",
-				Go:    "/* Write AWS SDK v2 Code for Lambda */",
-				Python: "# Write boto3 code for Lambda\nimport boto3\n" +
-					"client = boto3.client('lambda', endpoint_url='http://localhost:8000')",
+				Cli:   `aws lambda help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Lambda
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := lambda.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Lambda
+import boto3
+
+client = boto3.client('lambda', endpoint_url='http://localhost:8000')`,
 			},
 		},
 		Functions: fns,
@@ -71,10 +84,22 @@ func (h *DashboardHandler) lambdaFunctionDetail(c *echo.Context) error {
 			Snippet: &SnippetData{
 				ID:    "lambda-operations",
 				Title: "Using Lambda",
-				Cli:   "aws lambda help --endpoint-url http://localhost:8000",
-				Go:    "/* Write AWS SDK v2 Code for Lambda */",
-				Python: `# Write boto3 code for Lambda
+				Cli:   `aws lambda help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Lambda
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := lambda.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Lambda
 import boto3
+
 client = boto3.client('lambda', endpoint_url='http://localhost:8000')`,
 			},
 		},

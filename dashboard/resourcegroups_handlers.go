@@ -30,10 +30,23 @@ func (h *DashboardHandler) resourcegroupsIndex(c *echo.Context) error {
 				Snippet: &SnippetData{
 					ID:    "resourcegroups-operations",
 					Title: "Using Resourcegroups",
-					Cli:   "aws resourcegroups help --endpoint-url http://localhost:8000",
-					Go:    "/* Write AWS SDK v2 Code for Resourcegroups */",
-					Python: "# Write boto3 code for Resource Groups\nimport boto3\n" +
-						"client = boto3.client('resource-groups', endpoint_url='http://localhost:8000')",
+					Cli:   `aws resourcegroups help --endpoint-url http://localhost:8000`,
+					Go: `// Initialize AWS SDK v2 for Using Resourcegroups
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := resourcegroups.NewFromConfig(cfg)`,
+					Python: `# Initialize boto3 client for Using Resourcegroups
+import boto3
+
+client = boto3.client('resourcegroups', endpoint_url='http://localhost:8000')`,
 				}},
 			Groups: []resourceGroupView{},
 		})
@@ -57,10 +70,22 @@ func (h *DashboardHandler) resourcegroupsIndex(c *echo.Context) error {
 			Snippet: &SnippetData{
 				ID:    "resourcegroups-operations",
 				Title: "Using Resourcegroups",
-				Cli:   "aws resourcegroups help --endpoint-url http://localhost:8000",
-				Go:    "/* Write AWS SDK v2 Code for Resourcegroups */",
-				Python: `# Write boto3 code for Resourcegroups
+				Cli:   `aws resourcegroups help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Resourcegroups
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := resourcegroups.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Resourcegroups
 import boto3
+
 client = boto3.client('resourcegroups', endpoint_url='http://localhost:8000')`,
 			}},
 		Groups: views,

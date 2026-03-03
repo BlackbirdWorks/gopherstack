@@ -51,10 +51,23 @@ func (h *DashboardHandler) elastiCacheIndex(c *echo.Context) error {
 				Snippet: &SnippetData{
 					ID:    "elasticache-operations",
 					Title: "Using Elasticache",
-					Cli:   "aws elasticache help --endpoint-url http://localhost:8000",
-					Go:    "/* Write AWS SDK v2 Code for Elasticache */",
-					Python: "# Write boto3 code for ElastiCache\nimport boto3\n" +
-						"client = boto3.client('elasticache', endpoint_url='http://localhost:8000')",
+					Cli:   `aws elasticache help --endpoint-url http://localhost:8000`,
+					Go: `// Initialize AWS SDK v2 for Using Elasticache
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := elasticache.NewFromConfig(cfg)`,
+					Python: `# Initialize boto3 client for Using Elasticache
+import boto3
+
+client = boto3.client('elasticache', endpoint_url='http://localhost:8000')`,
 				}},
 			Clusters: []elastiCacheClusterView{},
 		})
@@ -69,10 +82,22 @@ func (h *DashboardHandler) elastiCacheIndex(c *echo.Context) error {
 				Snippet: &SnippetData{
 					ID:    "elasticache-operations",
 					Title: "Using Elasticache",
-					Cli:   "aws elasticache help --endpoint-url http://localhost:8000",
-					Go:    "/* Write AWS SDK v2 Code for Elasticache */",
-					Python: `# Write boto3 code for Elasticache
+					Cli:   `aws elasticache help --endpoint-url http://localhost:8000`,
+					Go: `// Initialize AWS SDK v2 for Using Elasticache
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := elasticache.NewFromConfig(cfg)`,
+					Python: `# Initialize boto3 client for Using Elasticache
 import boto3
+
 client = boto3.client('elasticache', endpoint_url='http://localhost:8000')`,
 				}},
 			Clusters: []elastiCacheClusterView{},
@@ -101,10 +126,22 @@ client = boto3.client('elasticache', endpoint_url='http://localhost:8000')`,
 			Snippet: &SnippetData{
 				ID:    "elasticache-operations",
 				Title: "Using Elasticache",
-				Cli:   "aws elasticache help --endpoint-url http://localhost:8000",
-				Go:    "/* Write AWS SDK v2 Code for Elasticache */",
-				Python: `# Write boto3 code for Elasticache
+				Cli:   `aws elasticache help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Elasticache
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := elasticache.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Elasticache
 import boto3
+
 client = boto3.client('elasticache', endpoint_url='http://localhost:8000')`,
 			}},
 		Clusters: views,
@@ -135,10 +172,22 @@ func (h *DashboardHandler) elastiCacheClusterDetail(c *echo.Context) error {
 			Snippet: &SnippetData{
 				ID:    "elasticache-operations",
 				Title: "Using Elasticache",
-				Cli:   "aws elasticache help --endpoint-url http://localhost:8000",
-				Go:    "/* Write AWS SDK v2 Code for Elasticache */",
-				Python: `# Write boto3 code for Elasticache
+				Cli:   `aws elasticache help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Elasticache
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := elasticache.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Elasticache
 import boto3
+
 client = boto3.client('elasticache', endpoint_url='http://localhost:8000')`,
 			}},
 		ClusterID:     cl.ClusterID,

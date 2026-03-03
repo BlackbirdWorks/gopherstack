@@ -23,10 +23,23 @@ func (h *DashboardHandler) stepFunctionsIndex(c *echo.Context) error {
 			Snippet: &SnippetData{
 				ID:    "stepfunctions-operations",
 				Title: "Using Stepfunctions",
-				Cli:   "aws stepfunctions help --endpoint-url http://localhost:8000",
-				Go:    "/* Write AWS SDK v2 Code for Stepfunctions */",
-				Python: "# Write boto3 code for Stepfunctions\nimport boto3\n" +
-					"client = boto3.client('stepfunctions', endpoint_url='http://localhost:8000')",
+				Cli:   `aws stepfunctions help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Stepfunctions
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := sfn.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Stepfunctions
+import boto3
+
+client = boto3.client('stepfunctions', endpoint_url='http://localhost:8000')`,
 			}},
 		StateMachines: machines,
 	}
@@ -59,10 +72,22 @@ func (h *DashboardHandler) stepFunctionsStateMachineDetail(c *echo.Context) erro
 			Snippet: &SnippetData{
 				ID:    "stepfunctions-operations",
 				Title: "Using Stepfunctions",
-				Cli:   "aws stepfunctions help --endpoint-url http://localhost:8000",
-				Go:    "/* Write AWS SDK v2 Code for Stepfunctions */",
-				Python: `# Write boto3 code for Stepfunctions
+				Cli:   `aws stepfunctions help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Stepfunctions
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := sfn.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Stepfunctions
 import boto3
+
 client = boto3.client('stepfunctions', endpoint_url='http://localhost:8000')`,
 			}},
 		StateMachine: sm,
@@ -101,10 +126,22 @@ func (h *DashboardHandler) stepFunctionsExecutionDetail(c *echo.Context) error {
 			Snippet: &SnippetData{
 				ID:    "stepfunctions-operations",
 				Title: "Using Stepfunctions",
-				Cli:   "aws stepfunctions help --endpoint-url http://localhost:8000",
-				Go:    "/* Write AWS SDK v2 Code for Stepfunctions */",
-				Python: `# Write boto3 code for Stepfunctions
+				Cli:   `aws stepfunctions help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Stepfunctions
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := sfn.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Stepfunctions
 import boto3
+
 client = boto3.client('stepfunctions', endpoint_url='http://localhost:8000')`,
 			}},
 		Execution: exec,

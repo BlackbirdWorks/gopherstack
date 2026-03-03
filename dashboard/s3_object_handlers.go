@@ -180,10 +180,23 @@ func (h *DashboardHandler) prepareS3FileDetailData(
 			Snippet: &SnippetData{
 				ID:    "s3-operations",
 				Title: "Using S3",
-				Cli:   "aws s3 help --endpoint-url http://localhost:8000",
-				Go:    "/* Write AWS SDK v2 Code for S3 */",
-				Python: "# Write boto3 code for S3\nimport boto3\n" +
-					"client = boto3.client('s3', endpoint_url='http://localhost:8000')",
+				Cli:   `aws s3 help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using S3
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := s3.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using S3
+import boto3
+
+client = boto3.client('s3', endpoint_url='http://localhost:8000')`,
 			},
 		},
 		BucketName:        bucketName,

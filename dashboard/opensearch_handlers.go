@@ -45,10 +45,23 @@ func (h *DashboardHandler) opensearchIndex(c *echo.Context) error {
 				Snippet: &SnippetData{
 					ID:    "opensearch-operations",
 					Title: "Using Opensearch",
-					Cli:   "aws opensearch help --endpoint-url http://localhost:8000",
-					Go:    "/* Write AWS SDK v2 Code for Opensearch */",
-					Python: "# Write boto3 code for OpenSearch\nimport boto3\n" +
-						"client = boto3.client('opensearch', endpoint_url='http://localhost:8000')",
+					Cli:   `aws opensearch help --endpoint-url http://localhost:8000`,
+					Go: `// Initialize AWS SDK v2 for Using Opensearch
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := opensearch.NewFromConfig(cfg)`,
+					Python: `# Initialize boto3 client for Using Opensearch
+import boto3
+
+client = boto3.client('opensearch', endpoint_url='http://localhost:8000')`,
 				}},
 			Domains: []opensearchDomainView{},
 		})
@@ -78,10 +91,22 @@ func (h *DashboardHandler) opensearchIndex(c *echo.Context) error {
 			Snippet: &SnippetData{
 				ID:    "opensearch-operations",
 				Title: "Using Opensearch",
-				Cli:   "aws opensearch help --endpoint-url http://localhost:8000",
-				Go:    "/* Write AWS SDK v2 Code for Opensearch */",
-				Python: `# Write boto3 code for Opensearch
+				Cli:   `aws opensearch help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Opensearch
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := opensearch.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Opensearch
 import boto3
+
 client = boto3.client('opensearch', endpoint_url='http://localhost:8000')`,
 			}},
 		Domains: views,
@@ -113,10 +138,22 @@ func (h *DashboardHandler) opensearchDomainDetail(c *echo.Context) error {
 			Snippet: &SnippetData{
 				ID:    "opensearch-operations",
 				Title: "Using Opensearch",
-				Cli:   "aws opensearch help --endpoint-url http://localhost:8000",
-				Go:    "/* Write AWS SDK v2 Code for Opensearch */",
-				Python: `# Write boto3 code for Opensearch
+				Cli:   `aws opensearch help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Opensearch
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := opensearch.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Opensearch
 import boto3
+
 client = boto3.client('opensearch', endpoint_url='http://localhost:8000')`,
 			}},
 		DomainName:    d.Name,

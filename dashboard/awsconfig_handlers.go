@@ -30,10 +30,23 @@ func (h *DashboardHandler) awsconfigIndex(c *echo.Context) error {
 				Snippet: &SnippetData{
 					ID:    "awsconfig-operations",
 					Title: "Using Awsconfig",
-					Cli:   "aws awsconfig help --endpoint-url http://localhost:8000",
-					Go:    "/* Write AWS SDK v2 Code for Awsconfig */",
-					Python: "# Write boto3 code for Config\nimport boto3\n" +
-						"client = boto3.client('config', endpoint_url='http://localhost:8000')",
+					Cli:   `aws awsconfig help --endpoint-url http://localhost:8000`,
+					Go: `// Initialize AWS SDK v2 for Using Awsconfig
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := awsconfig.NewFromConfig(cfg)`,
+					Python: `# Initialize boto3 client for Using Awsconfig
+import boto3
+
+client = boto3.client('awsconfig', endpoint_url='http://localhost:8000')`,
 				}},
 			Recorders: []awsconfigRecorderView{},
 		})
@@ -57,10 +70,22 @@ func (h *DashboardHandler) awsconfigIndex(c *echo.Context) error {
 			Snippet: &SnippetData{
 				ID:    "awsconfig-operations",
 				Title: "Using Awsconfig",
-				Cli:   "aws awsconfig help --endpoint-url http://localhost:8000",
-				Go:    "/* Write AWS SDK v2 Code for Awsconfig */",
-				Python: `# Write boto3 code for Awsconfig
+				Cli:   `aws awsconfig help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Awsconfig
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := awsconfig.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Awsconfig
 import boto3
+
 client = boto3.client('awsconfig', endpoint_url='http://localhost:8000')`,
 			}},
 		Recorders: views,

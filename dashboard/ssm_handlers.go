@@ -36,10 +36,23 @@ func (h *DashboardHandler) ssmIndex(c *echo.Context) error {
 			Snippet: &SnippetData{
 				ID:    "ssm-operations",
 				Title: "Using Ssm",
-				Cli:   "aws ssm help --endpoint-url http://localhost:8000",
-				Go:    "/* Write AWS SDK v2 Code for Ssm */",
-				Python: "# Write boto3 code for Ssm\nimport boto3\n" +
-					"client = boto3.client('ssm', endpoint_url='http://localhost:8000')",
+				Cli:   `aws ssm help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Ssm
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := ssm.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Ssm
+import boto3
+
+client = boto3.client('ssm', endpoint_url='http://localhost:8000')`,
 			},
 		},
 		Parameters: make([]any, 0),
@@ -213,10 +226,22 @@ func (h *DashboardHandler) ssmParameterHistory(c *echo.Context) error {
 			Snippet: &SnippetData{
 				ID:    "ssm-operations",
 				Title: "Using Ssm",
-				Cli:   "aws ssm help --endpoint-url http://localhost:8000",
-				Go:    "/* Write AWS SDK v2 Code for Ssm */",
-				Python: `# Write boto3 code for Ssm
+				Cli:   `aws ssm help --endpoint-url http://localhost:8000`,
+				Go: `// Initialize AWS SDK v2 for Using Ssm
+cfg, err := config.LoadDefaultConfig(context.TODO(),
+    config.WithEndpointResolverWithOptions(
+        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+            return aws.Endpoint{URL: "http://localhost:8000"}, nil
+        }),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+client := ssm.NewFromConfig(cfg)`,
+				Python: `# Initialize boto3 client for Using Ssm
 import boto3
+
 client = boto3.client('ssm', endpoint_url='http://localhost:8000')`,
 			},
 		},
