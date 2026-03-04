@@ -3,11 +3,16 @@ package logger
 import (
 	"bytes"
 	"io"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/labstack/echo/v5"
+)
+
+const (
+	defaultChannelSize = 100
 )
 
 // CapturedRequest represents a single HTTP request captured by the console middleware.
@@ -24,10 +29,12 @@ type CapturedRequest struct {
 
 // RequestRingBuffer holds the last N captured requests.
 type RequestRingBuffer struct {
+	subs     map[chan *CapturedRequest]bool
 	requests []*CapturedRequest
 	maxSize  int
 	cursor   int
 	mu       sync.RWMutex
+	subMu    sync.RWMutex
 }
 
 // NewRequestRingBuffer creates a new ring buffer for captured requests.
@@ -36,20 +43,48 @@ func NewRequestRingBuffer(maxSize int) *RequestRingBuffer {
 		requests: make([]*CapturedRequest, 0, maxSize),
 		maxSize:  maxSize,
 		cursor:   0,
+		subs:     make(map[chan *CapturedRequest]bool),
 	}
 }
 
-// Add appends a new request into the ring buffer.
+// Subscribe adds a channel to receive incoming requests.
+func (r *RequestRingBuffer) Subscribe() chan *CapturedRequest {
+	ch := make(chan *CapturedRequest, defaultChannelSize)
+	r.subMu.Lock()
+	r.subs[ch] = true
+	r.subMu.Unlock()
+
+	return ch
+}
+
+// Unsubscribe removes a channel from receiving requests.
+func (r *RequestRingBuffer) Unsubscribe(ch chan *CapturedRequest) {
+	r.subMu.Lock()
+	delete(r.subs, ch)
+	r.subMu.Unlock()
+}
+
+// Add appends a new request into the ring buffer and notifies subscribers.
 func (r *RequestRingBuffer) Add(req *CapturedRequest) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	if len(r.requests) < r.maxSize {
 		r.requests = append(r.requests, req)
 	} else {
 		r.requests[r.cursor] = req
 		r.cursor = (r.cursor + 1) % r.maxSize
 	}
+	r.mu.Unlock()
+
+	r.subMu.RLock()
+	for ch := range r.subs {
+		select {
+		case ch <- req:
+		default:
+			// If a subscriber's channel is full, we drop the message
+			// so that we don't block the API proxying/logging path.
+		}
+	}
+	r.subMu.RUnlock()
 }
 
 // GetAll returns all captured requests in chronological order.
@@ -89,7 +124,7 @@ func APIConsoleMiddleware() echo.MiddlewareFunc {
 			if strings.HasPrefix(req.URL.Path, "/dashboard") {
 				return next(c)
 			}
-			if req.URL.Path == "/_gopherstack/health" || req.URL.Path == "/" {
+			if req.URL.Path == "/_gopherstack/health" || (req.URL.Path == "/" && req.Method == http.MethodGet) {
 				return next(c)
 			}
 

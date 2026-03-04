@@ -5,11 +5,7 @@
         class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm glass-panel flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
         <div>
             <h1 class="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
-                <svg class="w-8 h-8 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z">
-                    </path>
-                </svg>
+                <img src="/dashboard/static/icons/eventbridge.svg" class="w-8 h-8 rounded-md shadow-sm" alt="eventbridge" />
                 EventBridge
                 {{if .Snippet}}
                 {{template "components/snippet" .Snippet}}

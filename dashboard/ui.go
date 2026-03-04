@@ -345,6 +345,7 @@ func (h *DashboardHandler) setupStaticAndRootRoutes() {
 	h.SubRouter.GET("/dashboard/", h.dashboardIndex)
 	h.SubRouter.GET("/dashboard/console", h.consoleIndex)
 	h.SubRouter.GET("/dashboard/api/console", h.consoleAPI)
+	h.SubRouter.GET("/dashboard/api/console/stream", h.consoleAPIStream)
 }
 
 func (h *DashboardHandler) setupProviderRoutes() {

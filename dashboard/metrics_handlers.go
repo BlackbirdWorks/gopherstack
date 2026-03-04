@@ -1,12 +1,19 @@
 package dashboard
 
 import (
+	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 
 	"github.com/labstack/echo/v5"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+)
+
+const (
+	metricsStreamInterval    = 2 * time.Second
+	metricsKeepAliveInterval = 15 * time.Second
 )
 
 // RegisterMetricsHandlers registers metrics endpoints under the dashboard group.
@@ -19,6 +26,7 @@ func RegisterMetricsHandlers(g *echo.Group, h *DashboardHandler) {
 
 	// JSON format for dashboard consumption
 	g.GET("/api/metrics", getMetricsJSON)
+	g.GET("/api/metrics/stream", streamMetricsSSE)
 
 	// UI Routes
 	if h != nil {
@@ -40,6 +48,63 @@ func getMetricsJSON(c *echo.Context) error {
 	result := telemetry.CollectMetrics()
 
 	return c.JSON(http.StatusOK, result)
+}
+
+// streamMetricsSSE pushes metrics securely to the dashboard ui via Server-Sent Events.
+func streamMetricsSSE(c *echo.Context) error {
+	c.Response().Header().Set(echo.HeaderContentType, "text/event-stream")
+	c.Response().Header().Set(echo.HeaderCacheControl, "no-cache")
+	c.Response().Header().Set(echo.HeaderConnection, "keep-alive")
+
+	w := c.Response()
+	w.WriteHeader(http.StatusOK)
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+
+	encoder := json.NewEncoder(w)
+
+	// Stream updates every 2 seconds matching the console Live API rate
+
+	ticker := time.NewTicker(metricsStreamInterval)
+	defer ticker.Stop()
+
+	// Keep alive ping every 15s
+	keepAlive := time.NewTicker(metricsKeepAliveInterval)
+	defer keepAlive.Stop()
+
+	for {
+		select {
+		case <-c.Request().Context().Done():
+			return nil
+		case <-keepAlive.C:
+			if err := sendSSEKeepAlive(w); err != nil {
+				return err
+			}
+		case <-ticker.C:
+			if err := sendSSEMetrics(w, encoder); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+func sendSSEMetrics(w http.ResponseWriter, encoder *json.Encoder) error {
+	result := telemetry.CollectMetrics()
+	if _, err := w.Write([]byte("data: ")); err != nil {
+		return err
+	}
+	if err := encoder.Encode(result); err != nil {
+		return err
+	}
+	if _, err := w.Write([]byte("\n\n")); err != nil {
+		return err
+	}
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+
+	return nil
 }
 
 // metricsIndex renders the metrics dashboard page.

@@ -109,14 +109,16 @@
 
 <script>
     var currentLogs = [];
-    if (window.consoleRefreshInterval) {
-        clearInterval(window.consoleRefreshInterval);
-    }
-    window.consoleRefreshInterval = null;
+    var eventSource = null;
 
     function init() {
+        // Initial bulk fetch to get history
         fetchLogs();
-        startAutoRefresh();
+        // Start streaming if auto is checked
+        const isAuto = document.getElementById('auto-refresh-toggle').checked;
+        if (isAuto) {
+            startAutoRefresh();
+        }
     }
 
     function toggleAutoRefresh(enabled) {
@@ -128,15 +130,32 @@
     }
 
     function startAutoRefresh() {
-        if (!window.consoleRefreshInterval) {
-            window.consoleRefreshInterval = setInterval(fetchLogs, 2000);
+        if (!eventSource) {
+            eventSource = new EventSource('/dashboard/api/console/stream');
+            eventSource.onmessage = function (event) {
+                try {
+                    const req = JSON.parse(event.data);
+                    // Add new request to the top of the array
+                    currentLogs.unshift(req);
+                    // Optionally cap size (e.g. 100)
+                    if (currentLogs.length > 100) {
+                        currentLogs.pop();
+                    }
+                    renderLogs();
+                } catch (e) {
+                    console.error("Error parsing SSE data", e);
+                }
+            };
+            eventSource.onerror = function (err) {
+                console.error("SSE error", err);
+            };
         }
     }
 
     function stopAutoRefresh() {
-        if (window.consoleRefreshInterval) {
-            clearInterval(window.consoleRefreshInterval);
-            window.consoleRefreshInterval = null;
+        if (eventSource) {
+            eventSource.close();
+            eventSource = null;
         }
     }
 
@@ -178,11 +197,23 @@
             const methodColor = getMethodColor(log.method);
             const time = new Date(log.timestamp).toLocaleTimeString();
 
-            // Extract a pseudo-service name from path
-            let ds = log.path.split('/')[1] || '';
-            if (log.path.startsWith('/')) {
-                // If the path is / then it's root
+            // Extract display path (use X-Amz-Target or Action in body if path is root)
+            let displayPath = log.path;
+            if (log.path === '/') {
+                if (log.headers && log.headers['X-Amz-Target']) {
+                    const targetParts = log.headers['X-Amz-Target'].split('.');
+                    if (targetParts.length > 1) {
+                        displayPath = targetParts[1].split('_')[0]; // e.g. CreateSecret
+                    }
+                } else if (log.body && log.body.includes('Action=')) {
+                    const match = log.body.match(/(?:^|&)Action=([^&]+)/);
+                    if (match && match[1]) {
+                        displayPath = match[1];
+                    }
+                }
             }
+
+            const svcName = guessService(log);
 
             html += `
             <div class="grid grid-cols-12 gap-4 p-3 border border-transparent border-b-slate-100 dark:border-b-slate-800 rounded-lg hover:border-indigo-200 dark:hover:border-indigo-500/40 hover:bg-white dark:hover:bg-slate-800 cursor-pointer hover:-translate-y-1 mt-1 hover:shadow-lg dark:hover:shadow-indigo-500/20 transition-all duration-200 z-10 hover:z-20 relative" onclick='showDetails(${JSON.stringify(log).replace(/'/g, "&apos;")})'>
@@ -193,10 +224,10 @@
                     <span class="font-mono text-xs font-bold ${methodColor}">${log.method}</span>
                 </div>
                 <div class="col-span-4 pl-4 flex items-center overflow-hidden">
-                    <span class="truncate font-mono text-xs text-slate-700 dark:text-slate-300" title="${log.path}">${log.path}</span>
+                    <span class="truncate font-mono text-xs text-slate-700 dark:text-slate-300" title="${displayPath}">${displayPath}</span>
                 </div>
-                <div class="col-span-2 flex items-center">
-                    <span class="text-xs text-slate-500 uppercase font-semibold">${guessService(log)}</span>
+                <div class="col-span-2 flex items-center overflow-hidden">
+                    <span class="truncate text-xs text-slate-500 uppercase font-semibold" title="${svcName}">${svcName}</span>
                 </div>
                 <div class="col-span-2 flex items-center text-xs text-slate-500">
                     ${time}
@@ -219,7 +250,7 @@
 
     function guessService(log) {
         if (log.headers && log.headers['X-Amz-Target']) {
-            return log.headers['X-Amz-Target'].split('_')[0];
+            return log.headers['X-Amz-Target'].split('.')[0];
         }
         if (log.path.startsWith('/latest/meta-data') || log.path.startsWith('/latest/api/token')) return "IMDS (EC2)";
         if (log.headers && log.headers['Authorization'] && log.headers['Authorization'].includes('Credential=')) {
@@ -325,6 +356,14 @@
         );
     }
 
-    document.addEventListener('DOMContentLoaded', init);
+    // Run immediately (works for both direct load and HTMX swap)
+    init();
+
+    // Clean up interval when navigating away via HTMX
+    let cleanup = function () {
+        stopAutoRefresh();
+        document.body.removeEventListener('htmx:beforeSwap', cleanup);
+    };
+    document.body.addEventListener('htmx:beforeSwap', cleanup);
 </script>
 {{end}}

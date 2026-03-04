@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -77,10 +78,11 @@ import (
 )
 
 const (
-	defaultPort     = "8000"
-	defaultRegion   = config.DefaultRegion
-	defaultTimeout  = 30 * time.Second
-	shutdownTimeout = 5 * time.Second
+	defaultPort        = "8000"
+	defaultRegion      = config.DefaultRegion
+	defaultTimeout     = 30 * time.Second
+	shutdownTimeout    = 5 * time.Second
+	healthCheckTimeout = 5 * time.Second
 )
 
 // CLI holds all command-line / environment-variable configuration for Gopherstack.
@@ -401,20 +403,76 @@ func (c *CLI) GetTranscribeHandler() service.Registerable { return c.transcribeH
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetSupportHandler() service.Registerable { return c.supportHandler }
 
+// rootCLI is the top-level kong grammar. The server flags live in Serve
+// (the default command); "health" is an explicit subcommand used as a
+// Docker healthcheck from scratch containers.
+type rootCLI struct {
+	Health HealthCmd `cmd:"" help:"Check server health (for Docker healthcheck)."`
+	Serve  CLI       `cmd:"" help:"Start the Gopherstack server."                 default:"withargs"`
+}
+
+// HealthCmd checks a running Gopherstack instance's health endpoint.
+type HealthCmd struct {
+	Port string `name:"port" env:"PORT" default:"8000" help:"Port of the running server to check."` //nolint:lll // config struct tags are intentionally verbose
+}
+
+var ErrHealthCheckFailed = errors.New("health check failed")
+
+// Run executes the health check. Returns nil on success.
+func (h *HealthCmd) Run() error {
+	ctx, cancel := context.WithTimeout(context.Background(), healthCheckTimeout)
+	defer cancel()
+
+	client := &http.Client{}
+
+	targetURL := &url.URL{
+		Scheme: "http",
+		Host:   "localhost:" + h.Port,
+		Path:   "/_gopherstack/health",
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL.String(), nil)
+	if err != nil {
+		return fmt.Errorf("create health check request: %w", err)
+	}
+
+	resp, err := client.Do(req) //nolint:gosec // health check is always against localhost
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrHealthCheckFailed, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("%w: status %d", ErrHealthCheckFailed, resp.StatusCode)
+	}
+
+	fmt.Fprintln(os.Stdout, "ok")
+
+	return nil
+}
+
 // Run parses CLI / environment-variable configuration and starts Gopherstack.
 // It is called from main() and exits on error.
 func Run() {
-	var cli CLI
+	var root rootCLI
 
-	kong.Parse(
-		&cli,
+	kctx := kong.Parse(
+		&root,
 		kong.Name("gopherstack"),
 		kong.Description("In-memory AWS DynamoDB + S3 compatible server."),
 	)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 
-	if err := run(ctx, cli); err != nil {
+	var err error
+	switch kctx.Command() {
+	case "health":
+		err = root.Health.Run()
+	default:
+		err = run(ctx, root.Serve)
+	}
+
+	if err != nil {
 		cancel()
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -490,13 +548,14 @@ func run(ctx context.Context, cli CLI) error {
 
 	setupPersistence(ctx, persistManager, services, cli.Persist)
 
-	// Wire DNS registrar to service backends for hostname registration.
+	// Wire DNS registrar to backends that generate synthetic hostnames.
 	if dnsSrv != nil {
 		wireLambdaDNS(cli.lambdaHandler, dnsSrv)
 		wireRoute53DNS(cli.route53Handler, dnsSrv)
 		wireRDSDNS(cli.rdsHandler, dnsSrv)
 		wireRedshiftDNS(cli.redshiftHandler, dnsSrv)
 		wireOpenSearchDNS(cli.openSearchHandler, dnsSrv)
+		wireElastiCacheDNS(cli.elasticacheHandler, dnsSrv)
 	}
 
 	e := echo.New()
@@ -1315,6 +1374,23 @@ func wireOpenSearchDNS(osReg service.Registerable, dns opensearchbackend.DNSRegi
 	}
 
 	osH.Backend.SetDNSRegistrar(dns)
+}
+
+// wireElastiCacheDNS sets the DNS registrar on the ElastiCache backend so
+// cache cluster endpoints use AWS-style hostnames registered in the embedded DNS.
+func wireElastiCacheDNS(ecReg service.Registerable, dns elasticachebackend.DNSRegistrar) {
+	if ecReg == nil || dns == nil {
+		return
+	}
+
+	ecH, ok := ecReg.(*elasticachebackend.Handler)
+	if !ok {
+		return
+	}
+
+	if ecBk, bkOk := ecH.Backend.(*elasticachebackend.InMemoryBackend); bkOk {
+		ecBk.SetDNSRegistrar(dns)
+	}
 }
 
 // extractServiceName finds the service name for a given Echo context by checking

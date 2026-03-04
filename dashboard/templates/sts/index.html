@@ -4,11 +4,8 @@
         class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm glass-panel flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
         <div>
             <h1 class="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
-                <svg class="w-8 h-8 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z">
-                    </path>
-                </svg>
+                <img src="/dashboard/static/icons/sts.svg" class="w-8 h-8 flex-shrink-0 rounded-md shadow-sm"
+                    alt="STS" />
                 STS Security Token Service
                 {{if .Snippet}}
                 {{template "components/snippet" .Snippet}}
@@ -22,7 +19,8 @@
     <!-- Caller Identity Card -->
     <div class="mt-8">
         <h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">Caller Identity</h2>
-        <div class="relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
+        <div
+            class="relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
             <table class="w-full text-sm text-left rtl:text-right text-slate-500 dark:text-slate-400">
                 <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
                     <tr>
@@ -52,7 +50,8 @@
     </div>
 
     <!-- AssumeRole Info -->
-    <div class="mt-12 p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+    <div
+        class="mt-12 p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
         <h2 class="text-lg font-bold text-slate-900 dark:text-white mb-4">Supported Operations</h2>
         <ul class="space-y-4 text-left text-slate-500 dark:text-slate-400">
             <li class="flex items-center space-x-3 rtl:space-x-reverse">

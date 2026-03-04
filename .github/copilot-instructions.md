@@ -28,7 +28,7 @@ Follow idiomatic Go practices and community standards when writing Go code. Thes
 - Write comments in English by default; translate only upon user request
 - Avoid using emoji in code and comments
 - Avoid `break` statements; any loop break should be factored into a separate function with a fast return
-- Logging MUST always be performed via `log/slog`
+- Logging MUST always be performed via `log/slog` and MUST always be pulled from the context (e.g. `logger.Load(ctx)`)
 - Avoid `nolint` directives; removing rules is forbidden unless no other fix is available
 
 ## Naming Conventions

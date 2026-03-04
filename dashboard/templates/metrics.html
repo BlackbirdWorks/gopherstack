@@ -23,23 +23,11 @@
                 </span>
                 LIVE
             </div>
-            <button
-                class="text-gray-900 bg-white border border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-100 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-white/5 dark:text-white dark:border-white/10 dark:hover:bg-white/10 dark:focus:ring-gray-700 inline-flex items-center gap-2 transition-colors shadow-sm"
-                hx-get="/dashboard/api/metrics" hx-target="#metrics-content" hx-swap="none"
-                hx-on::after-request="window.dispatchEvent(new CustomEvent('metrics-updated', {detail: JSON.parse(event.detail.xhr.responseText)}))">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
-                    stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-                Sync Now
-            </button>
         </div>
     </div>
 
     <!-- Metrics content placeholder -->
-    <div id="metrics-content" hx-get="/dashboard/api/metrics" hx-trigger="load, every 5s" hx-swap="none"
-        hx-on::after-request="window.dispatchEvent(new CustomEvent('metrics-updated', {detail: JSON.parse(event.detail.xhr.responseText)}))">
+    <div id="metrics-content">
 
         <div id="metrics-loading" class="flex flex-col items-center justify-center py-24 opacity-60">
             <svg aria-hidden="true" class="w-12 h-12 text-gray-200 animate-spin dark:text-gray-600 fill-blue-600"
@@ -309,8 +297,8 @@
 </div>
 
 <script>
-    let currentMetrics = null;
-    let currentFilters = ['DynamoDB', 'S3', 'SSM', 'IAM', 'STS', 'SNS', 'SQS', 'KMS', 'SecretsManager'];
+    var currentMetrics = null;
+    var currentFilters = ['DynamoDB', 'S3', 'SSM', 'IAM', 'STS', 'SNS', 'SQS', 'KMS', 'SecretsManager'];
 
     function toggleService(service) {
         const index = currentFilters.indexOf(service);
@@ -497,5 +485,39 @@
             .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
     }
+
+    // Server-Sent Events for live metrics
+    document.addEventListener('DOMContentLoaded', () => {
+        // Initial fetch to paint immediately
+        fetch('/dashboard/api/metrics')
+            .then(res => res.json())
+            .then(data => window.dispatchEvent(new CustomEvent('metrics-updated', { detail: data })))
+            .catch(console.error);
+
+        let eventSource = new EventSource('/dashboard/api/metrics/stream');
+
+        eventSource.onmessage = function (event) {
+            try {
+                const data = JSON.parse(event.data);
+                window.dispatchEvent(new CustomEvent('metrics-updated', { detail: data }));
+            } catch (e) {
+                console.error("Error parsing metrics SSE data:", e);
+            }
+        };
+
+        eventSource.onerror = function (err) {
+            console.error("Metrics SSE error", err);
+        };
+
+        // Clean up SSE connection if HTMX swaps out this content
+        let cleanup = function () {
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+            }
+            document.body.removeEventListener('htmx:beforeSwap', cleanup);
+        };
+        document.body.addEventListener('htmx:beforeSwap', cleanup);
+    });
 </script>
 {{end}}
