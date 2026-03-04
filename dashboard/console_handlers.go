@@ -15,8 +15,9 @@ const (
 	sseKeepAliveInterval = 2 * time.Second
 )
 
-// consoleIndexData is the template data for the Live API Console page.
-type consoleIndexData struct {
+// pageOnlyData is the template data for pages that need only the shared PageData fields
+// (title, active tab, snippet) with no additional service-specific data.
+type pageOnlyData struct {
 	PageData
 }
 
@@ -24,7 +25,7 @@ type consoleIndexData struct {
 func (h *DashboardHandler) consoleIndex(c *echo.Context) error {
 	w := c.Response()
 
-	data := consoleIndexData{
+	data := pageOnlyData{
 		PageData: PageData{
 			Title:     "Live Console",
 			ActiveTab: "console",

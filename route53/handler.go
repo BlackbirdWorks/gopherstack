@@ -337,17 +337,12 @@ type xmlCreateHostedZoneRequest struct {
 	HostedZoneConfig xmlHostedZoneConfig `xml:"HostedZoneConfig"`
 }
 
-// xmlResourceRecordValue is a single DNS resource record value.
-type xmlResourceRecordValue struct {
-	Value string `xml:"Value"`
-}
-
 // xmlResourceRecordSetChange is the ResourceRecordSet element within a change batch entry.
 type xmlResourceRecordSetChange struct {
-	Name            string                   `xml:"Name"`
-	Type            string                   `xml:"Type"`
-	ResourceRecords []xmlResourceRecordValue `xml:"ResourceRecords>ResourceRecord"`
-	TTL             int64                    `xml:"TTL"`
+	Name            string              `xml:"Name"`
+	Type            string              `xml:"Type"`
+	ResourceRecords []xmlResourceRecord `xml:"ResourceRecords>ResourceRecord"`
+	TTL             int64               `xml:"TTL"`
 }
 
 // xmlChange is a single change entry within a ChangeBatch.
@@ -492,7 +487,7 @@ func (h *Handler) changeResourceRecordSets(c *echo.Context) error {
 	for _, ch := range req.ChangeBatch.Changes {
 		records := make([]ResourceRecord, len(ch.ResourceRecordSet.ResourceRecords))
 		for i, rr := range ch.ResourceRecordSet.ResourceRecords {
-			records[i] = ResourceRecord{Value: rr.Value}
+			records[i] = ResourceRecord(rr)
 		}
 
 		changes = append(changes, Change{

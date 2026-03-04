@@ -215,7 +215,12 @@ func (h *S3Handler) routeBucketGetStubs(
 		}, http.StatusNotFound)
 	case q.Has("logging"):
 		h.setOperation(ctx, "GetBucketLogging")
-		httputil.WriteXML(log, w, http.StatusOK, s3BucketLoggingStatus{Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/"})
+		httputil.WriteXML(
+			log,
+			w,
+			http.StatusOK,
+			s3BucketLoggingStatus{Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/"},
+		)
 	case q.Has("replication"):
 		h.setOperation(ctx, "GetBucketReplication")
 		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
@@ -224,7 +229,12 @@ func (h *S3Handler) routeBucketGetStubs(
 		}, http.StatusNotFound)
 	case q.Has("request-payment"):
 		h.setOperation(ctx, "GetBucketRequestPayment")
-		httputil.WriteXML(log, w, http.StatusOK, s3RequestPaymentConfiguration{Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/", Payer: "BucketOwner"})
+		httputil.WriteXML(
+			log,
+			w,
+			http.StatusOK,
+			s3RequestPaymentConfiguration{Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/", Payer: "BucketOwner"},
+		)
 	case q.Has("encryption"):
 		h.setOperation(ctx, "GetBucketEncryption")
 		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
@@ -233,7 +243,12 @@ func (h *S3Handler) routeBucketGetStubs(
 		}, http.StatusNotFound)
 	case q.Has("intelligent-tiering"):
 		h.setOperation(ctx, "ListBucketIntelligentTieringConfigurations")
-		httputil.WriteXML(log, w, http.StatusOK, s3ListIntelligentTieringOutput{Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/"})
+		httputil.WriteXML(
+			log,
+			w,
+			http.StatusOK,
+			s3ListIntelligentTieringOutput{Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/"},
+		)
 	default:
 		return false
 	}

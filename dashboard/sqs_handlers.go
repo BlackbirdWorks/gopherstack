@@ -126,15 +126,10 @@ client = boto3.client('sqs', endpoint_url='http://localhost:8000')`,
 	return nil
 }
 
-// sqsCreateQueueModalData is the template data for the SQS create-queue modal.
-type sqsCreateQueueModalData struct {
-	PageData
-}
-
 // sqsCreateQueueModal renders the create-queue modal form.
 func (h *DashboardHandler) sqsCreateQueueModal(c *echo.Context) error {
 	w := c.Response()
-	h.renderFragment(w, "sqs/create_modal.html", sqsCreateQueueModalData{
+	h.renderFragment(w, "sqs/create_modal.html", pageOnlyData{
 		PageData: PageData{Title: "Create Queue", ActiveTab: "sqs",
 			Snippet: &SnippetData{
 				ID:    "sqs-operations",

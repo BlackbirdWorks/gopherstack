@@ -250,7 +250,7 @@ func (h *Handler) handleCreateResolverEndpoint(
 ) (*createResolverEndpointOutput, error) {
 	ips := make([]IPAddress, 0, len(in.IPAddresses))
 	for _, ip := range in.IPAddresses {
-		ips = append(ips, IPAddress{SubnetID: ip.SubnetID, IP: ip.IP})
+		ips = append(ips, IPAddress(ip))
 	}
 
 	ep, err := h.Backend.CreateResolverEndpoint(in.Name, in.Direction, "", ips)

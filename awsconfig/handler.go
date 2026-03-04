@@ -95,13 +95,14 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	}
 }
 
-// configRecorderNameBody is the nested JSON body carrying a configuration recorder name.
-type configRecorderNameBody struct {
+// configNameBody is a JSON wrapper carrying a single "name" field, used for both
+// configuration recorder and delivery channel name extraction.
+type configNameBody struct {
 	Name string `json:"name"`
 }
 
 type extractConfigRecorderNameInput struct {
-	ConfigurationRecorder configRecorderNameBody `json:"ConfigurationRecorder"`
+	ConfigurationRecorder configNameBody `json:"ConfigurationRecorder"`
 }
 
 func extractConfigRecorderName(body []byte) string {
@@ -138,13 +139,8 @@ func extractFirstRecorderName(body []byte) string {
 	return ""
 }
 
-// deliveryChannelNameBody is the nested JSON body carrying a delivery channel name.
-type deliveryChannelNameBody struct {
-	Name string `json:"name"`
-}
-
 type extractDeliveryChannelNameInput struct {
-	DeliveryChannel deliveryChannelNameBody `json:"DeliveryChannel"`
+	DeliveryChannel configNameBody `json:"DeliveryChannel"`
 }
 
 func extractDeliveryChannelName(body []byte) string {
