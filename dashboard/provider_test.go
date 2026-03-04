@@ -40,38 +40,32 @@ func (m *mockAWSProvider) GetS3Handler() service.Registerable       { return m.s
 func (m *mockAWSProvider) GetSSMHandler() service.Registerable      { return m.ssmHandler }
 func (m *mockAWSProvider) GetSTSHandler() service.Registerable      { return m.stsHandler }
 
-// TestDashboardProvider_Name verifies the provider reports the correct name.
 func TestDashboardProvider_Name(t *testing.T) {
 	t.Parallel()
 
-	p := &dashboard.Provider{}
-	assert.Equal(t, "Dashboard", p.Name())
-}
-
-// TestDashboardProvider_Init_WithNilConfig exercises Init when the config does not
-// implement AWSSDKProvider (all handlers/clients will be nil).
-func TestDashboardProvider_Init_WithNilConfig(t *testing.T) {
-	t.Parallel()
-
-	p := &dashboard.Provider{}
-	appCtx := &service.AppContext{
-		Logger: slog.Default(),
-		Config: nil, // no AWSSDKProvider
+	tests := []struct {
+		name     string
+		wantName string
+	}{
+		{
+			name:     "returns dashboard name",
+			wantName: "Dashboard",
+		},
 	}
 
-	reg, err := p.Init(appCtx)
-	require.NoError(t, err)
-	assert.NotNil(t, reg)
-	assert.Equal(t, "Dashboard", reg.Name())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := &dashboard.Provider{}
+			assert.Equal(t, tt.wantName, p.Name())
+		})
+	}
 }
 
-// TestDashboardProvider_Init_WithSTSHandler exercises the new stsOps code path:
-// when the config provides a non-nil STS handler, it is cast and stored on the
-// DashboardHandler (covering the `if stsHandler != nil { stsOps, _ = ... }` block).
-func TestDashboardProvider_Init_WithSTSHandler(t *testing.T) {
+func TestDashboardProvider_Init(t *testing.T) {
 	t.Parallel()
 
-	// Build all real in-memory backends and handlers so the cast succeeds.
 	ddbBk := ddbbackend.NewInMemoryDB()
 	ddbHndlr := ddbbackend.NewHandler(ddbBk, slog.Default())
 	s3Bk := s3backend.NewInMemoryBackend(nil, nil)
@@ -81,21 +75,42 @@ func TestDashboardProvider_Init_WithSTSHandler(t *testing.T) {
 	stsBk := stsbackend.NewInMemoryBackend()
 	stsHndlr := stsbackend.NewHandler(stsBk, slog.Default())
 
-	provider := &mockAWSProvider{
-		ddbHandler: ddbHndlr,
-		s3Handler:  s3Hndlr,
-		ssmHandler: ssmHndlr,
-		stsHandler: stsHndlr,
+	tests := []struct {
+		name     string
+		config   any
+		wantName string
+	}{
+		{
+			name:     "nil config produces valid registerable",
+			config:   nil,
+			wantName: "Dashboard",
+		},
+		{
+			name: "with sts handler covers stsOps code path",
+			config: &mockAWSProvider{
+				ddbHandler: ddbHndlr,
+				s3Handler:  s3Hndlr,
+				ssmHandler: ssmHndlr,
+				stsHandler: stsHndlr,
+			},
+			wantName: "Dashboard",
+		},
 	}
 
-	p := &dashboard.Provider{}
-	appCtx := &service.AppContext{
-		Logger: slog.Default(),
-		Config: provider,
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	reg, err := p.Init(appCtx)
-	require.NoError(t, err)
-	assert.NotNil(t, reg)
-	assert.Equal(t, "Dashboard", reg.Name())
+			p := &dashboard.Provider{}
+			appCtx := &service.AppContext{
+				Logger: slog.Default(),
+				Config: tt.config,
+			}
+
+			reg, err := p.Init(appCtx)
+			require.NoError(t, err)
+			assert.NotNil(t, reg)
+			assert.Equal(t, tt.wantName, reg.Name())
+		})
+	}
 }
