@@ -528,10 +528,10 @@ func TestRDSBackend_DNSRegistrar(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name            string
-		instanceID      string
-		wantRegistered  bool
-		deleteAfter     bool
+		name           string
+		instanceID     string
+		wantRegistered bool
+		deleteAfter    bool
 	}{
 		{
 			name:           "registers_on_create",
