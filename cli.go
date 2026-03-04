@@ -148,11 +148,12 @@ type CLI struct {
 	InitScripts            []string               `                                  name:"init-script"        env:"INIT_SCRIPTS"                                help:"Shell scripts to run on startup (may be specified multiple times)."` //nolint:lll // config struct tags are intentionally verbose
 	Lambda                 lambdabackend.Settings `embed:"" prefix:"lambda-"`
 	DynamoDB               ddbbackend.Settings    `embed:"" prefix:"dynamodb-"`
-	PortRangeStart         int                    `                                  name:"port-range-start"   env:"PORT_RANGE_START"     default:"10000"        help:"Start of the port range for resource endpoints."`           //nolint:lll // config struct tags are intentionally verbose
-	PortRangeEnd           int                    `                                  name:"port-range-end"     env:"PORT_RANGE_END"       default:"10100"        help:"End (exclusive) of the port range for resource endpoints."` //nolint:lll // config struct tags are intentionally verbose
-	InitScriptTimeout      time.Duration          `                                  name:"init-timeout"       env:"INIT_TIMEOUT"         default:"30s"          help:"Per-script timeout for init hooks."`                        //nolint:lll // config struct tags are intentionally verbose
-	Demo                   bool                   `                                  name:"demo"               env:"DEMO"                 default:"false"        help:"Load demo data on startup."`                                //nolint:lll // config struct tags are intentionally verbose
-	Persist                bool                   `                                  name:"persist"            env:"PERSIST"              default:"false"        help:"Enable snapshot-based persistence across restarts."`        //nolint:lll // config struct tags are intentionally verbose
+	PortRangeStart         int                    `                                  name:"port-range-start"   env:"PORT_RANGE_START"     default:"10000"        help:"Start of the port range for resource endpoints."`                                                                            //nolint:lll // config struct tags are intentionally verbose
+	PortRangeEnd           int                    `                                  name:"port-range-end"     env:"PORT_RANGE_END"       default:"10100"        help:"End (exclusive) of the port range for resource endpoints."`                                                                  //nolint:lll // config struct tags are intentionally verbose
+	InitScriptTimeout      time.Duration          `                                  name:"init-timeout"       env:"INIT_TIMEOUT"         default:"30s"          help:"Per-script timeout for init hooks."`                                                                                         //nolint:lll // config struct tags are intentionally verbose
+	Demo                   bool                   `                                  name:"demo"               env:"DEMO"                 default:"false"        help:"Load demo data on startup."`                                                                                                 //nolint:lll // config struct tags are intentionally verbose
+	Persist                bool                   `                                  name:"persist"            env:"PERSIST"              default:"false"        help:"Enable snapshot-based persistence across restarts."`                                                                         //nolint:lll // config struct tags are intentionally verbose
+	LatencyMs              int                    `                                  name:"latency-ms"         env:"LATENCY_MS"           default:"0"            help:"Inject random latency [0,N) ms per request (0 = disabled). Values near the 30 s write timeout may cause connection errors."` //nolint:lll // config struct tags are intentionally verbose
 }
 
 // GetGlobalConfig returns the centralised account ID and region (config.Provider).
@@ -160,6 +161,7 @@ func (c *CLI) GetGlobalConfig() config.GlobalConfig {
 	return config.GlobalConfig{
 		AccountID: c.AccountID,
 		Region:    c.Region,
+		LatencyMs: c.LatencyMs,
 	}
 }
 
@@ -505,7 +507,7 @@ func run(ctx context.Context, cli CLI) error {
 		e.Use(persistenceMiddleware(persistManager, services))
 	}
 
-	if setupErr := setupRegistry(e, log, services); setupErr != nil {
+	if setupErr := setupRegistry(e, log, services, cli.LatencyMs); setupErr != nil {
 		return setupErr
 	}
 
@@ -1187,8 +1189,13 @@ func setupRegistry(
 	e *echo.Echo,
 	log *slog.Logger,
 	services []service.Registerable,
+	latencyMs int,
 ) error {
 	registry := service.NewRegistry(log)
+
+	if latencyMs > 0 {
+		registry.SetLatencyMs(latencyMs)
+	}
 
 	for _, svc := range services {
 		if err := registry.Register(svc); err != nil {
