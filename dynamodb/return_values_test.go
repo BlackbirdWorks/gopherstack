@@ -1,7 +1,6 @@
 package dynamodb_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/blackbirdworks/gopherstack/dynamodb"
@@ -11,120 +10,102 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestUpdateItem_UPDATED_NEW_OnNewItem(t *testing.T) {
+func TestUpdateItem_UPDATED_NEW(t *testing.T) {
 	t.Parallel()
 
-	db := dynamodb.NewInMemoryDB()
-
-	// Setup table
-	ctInput := models.CreateTableInput{
-		TableName: "TestTable",
-		KeySchema: []models.KeySchemaElement{{AttributeName: "pk", KeyType: "HASH"}},
-		AttributeDefinitions: []models.AttributeDefinition{
-			{AttributeName: "pk", AttributeType: "S"},
+	tests := []struct {
+		name             string
+		setup            func(t *testing.T, db *dynamodb.InMemoryDB)
+		updateInput      models.UpdateItemInput
+		wantAttrPresent  []string
+		wantAttrAbsent   []string
+		wantAttr1Value   string
+	}{
+		{
+			name: "new item returns all updated attributes but not key",
+			updateInput: models.UpdateItemInput{
+				TableName:        "TestTable",
+				Key:              map[string]any{"pk": map[string]any{"S": "newitem"}},
+				UpdateExpression: "SET attr1 = :v1, attr2 = :v2",
+				ExpressionAttributeValues: map[string]any{
+					":v1": map[string]any{"S": "value1"},
+					":v2": map[string]any{"S": "value2"},
+				},
+				ReturnValues: "UPDATED_NEW",
+			},
+			wantAttrPresent: []string{"attr1", "attr2"},
+			wantAttrAbsent:  []string{"pk"},
+		},
+		{
+			name: "existing item returns only the updated attributes",
+			setup: func(t *testing.T, db *dynamodb.InMemoryDB) {
+				t.Helper()
+				putInput := models.PutItemInput{
+					TableName: "TestTable",
+					Item: map[string]any{
+						"pk":    map[string]any{"S": "existingitem"},
+						"attr1": map[string]any{"S": "original1"},
+						"attr2": map[string]any{"S": "original2"},
+						"attr3": map[string]any{"S": "unchanged"},
+					},
+				}
+				sdkPut, _ := models.ToSDKPutItemInput(&putInput)
+				_, err := db.PutItem(t.Context(), sdkPut)
+				require.NoError(t, err)
+			},
+			updateInput: models.UpdateItemInput{
+				TableName:        "TestTable",
+				Key:              map[string]any{"pk": map[string]any{"S": "existingitem"}},
+				UpdateExpression: "SET attr1 = :v1",
+				ExpressionAttributeValues: map[string]any{
+					":v1": map[string]any{"S": "updated1"},
+				},
+				ReturnValues: "UPDATED_NEW",
+			},
+			wantAttrPresent: []string{"attr1"},
+			wantAttrAbsent:  []string{"pk", "attr2", "attr3"},
+			wantAttr1Value:  "updated1",
 		},
 	}
-	_, err := db.CreateTable(context.Background(), models.ToSDKCreateTableInput(&ctInput))
-	require.NoError(t, err)
 
-	// Update a NEW item (doesn't exist yet) with UPDATED_NEW
-	updateInput := models.UpdateItemInput{
-		TableName:        "TestTable",
-		Key:              map[string]any{"pk": map[string]any{"S": "newitem"}},
-		UpdateExpression: "SET attr1 = :v1, attr2 = :v2",
-		ExpressionAttributeValues: map[string]any{
-			":v1": map[string]any{"S": "value1"},
-			":v2": map[string]any{"S": "value2"},
-		},
-		ReturnValues: "UPDATED_NEW",
-	}
-	sdkUpdate, _ := models.ToSDKUpdateItemInput(&updateInput)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	res, err := db.UpdateItem(context.Background(), sdkUpdate)
-	require.NoError(t, err)
+			db := dynamodb.NewInMemoryDB()
 
-	// When updating a NEW item with UPDATED_NEW, should return all attributes
-	// that were updated (including the key)
-	assert.NotNil(t, res.Attributes, "Attributes should not be nil for UPDATED_NEW on new item")
+			ctInput := models.CreateTableInput{
+				TableName: "TestTable",
+				KeySchema: []models.KeySchemaElement{{AttributeName: "pk", KeyType: "HASH"}},
+				AttributeDefinitions: []models.AttributeDefinition{
+					{AttributeName: "pk", AttributeType: "S"},
+				},
+			}
+			_, err := db.CreateTable(t.Context(), models.ToSDKCreateTableInput(&ctInput))
+			require.NoError(t, err)
 
-	if res.Attributes != nil {
-		wireAttrs := models.FromSDKItem(res.Attributes)
-		t.Logf("Returned attributes: %+v", wireAttrs)
+			if tt.setup != nil {
+				tt.setup(t, db)
+			}
 
-		// Should NOT contain pk (key attribute isn't "updated" in DDB sense)
-		assert.NotContains(t, wireAttrs, "pk", "Should NOT contain primary key")
+			sdkUpdate, _ := models.ToSDKUpdateItemInput(&tt.updateInput)
+			res, err := db.UpdateItem(t.Context(), sdkUpdate)
+			require.NoError(t, err)
 
-		// Should contain attr1 and attr2 (updated attributes)
-		assert.Contains(t, wireAttrs, "attr1", "Should contain updated attribute attr1")
-		assert.Contains(t, wireAttrs, "attr2", "Should contain updated attribute attr2")
-	}
-}
+			require.NotNil(t, res.Attributes, "Attributes should not be nil for UPDATED_NEW")
 
-func TestUpdateItem_UPDATED_NEW_OnExistingItem(t *testing.T) {
-	t.Parallel()
+			wireAttrs := models.FromSDKItem(res.Attributes)
+			t.Logf("Returned attributes: %+v", wireAttrs)
 
-	db := dynamodb.NewInMemoryDB()
-
-	// Setup table
-	ctInput := models.CreateTableInput{
-		TableName: "TestTable",
-		KeySchema: []models.KeySchemaElement{{AttributeName: "pk", KeyType: "HASH"}},
-		AttributeDefinitions: []models.AttributeDefinition{
-			{AttributeName: "pk", AttributeType: "S"},
-		},
-	}
-	_, err := db.CreateTable(context.Background(), models.ToSDKCreateTableInput(&ctInput))
-	require.NoError(t, err)
-
-	// Create an initial item
-	putInput := models.PutItemInput{
-		TableName: "TestTable",
-		Item: map[string]any{
-			"pk":    map[string]any{"S": "existingitem"},
-			"attr1": map[string]any{"S": "original1"},
-			"attr2": map[string]any{"S": "original2"},
-			"attr3": map[string]any{"S": "unchanged"},
-		},
-	}
-	sdkPut, _ := models.ToSDKPutItemInput(&putInput)
-	_, err = db.PutItem(context.Background(), sdkPut)
-	require.NoError(t, err)
-
-	// Update ONLY attr1 with UPDATED_NEW
-	updateInput := models.UpdateItemInput{
-		TableName:        "TestTable",
-		Key:              map[string]any{"pk": map[string]any{"S": "existingitem"}},
-		UpdateExpression: "SET attr1 = :v1",
-		ExpressionAttributeValues: map[string]any{
-			":v1": map[string]any{"S": "updated1"},
-		},
-		ReturnValues: "UPDATED_NEW",
-	}
-	sdkUpdate, _ := models.ToSDKUpdateItemInput(&updateInput)
-
-	res, err := db.UpdateItem(context.Background(), sdkUpdate)
-	require.NoError(t, err)
-
-	// When updating an existing item with UPDATED_NEW, should return ONLY
-	// the attributes that were actually updated
-	assert.NotNil(t, res.Attributes, "Attributes should not be nil for UPDATED_NEW")
-
-	if res.Attributes != nil {
-		wireAttrs := models.FromSDKItem(res.Attributes)
-		t.Logf("Returned attributes: %+v", wireAttrs)
-
-		// Should contain ONLY attr1 (the updated attribute)
-		assert.Contains(t, wireAttrs, "attr1", "Should contain updated attribute attr1")
-		assert.Equal(
-			t,
-			"updated1",
-			wireAttrs["attr1"].(map[string]any)["S"],
-			"attr1 should have new value",
-		)
-
-		// Should NOT contain pk, attr2, or attr3 (not updated)
-		assert.NotContains(t, wireAttrs, "pk", "Should NOT contain pk (not updated)")
-		assert.NotContains(t, wireAttrs, "attr2", "Should NOT contain attr2 (not updated)")
-		assert.NotContains(t, wireAttrs, "attr3", "Should NOT contain attr3 (not updated)")
+			for _, key := range tt.wantAttrPresent {
+				assert.Contains(t, wireAttrs, key, "should contain updated attribute %q", key)
+			}
+			for _, key := range tt.wantAttrAbsent {
+				assert.NotContains(t, wireAttrs, key, "should NOT contain attribute %q", key)
+			}
+			if tt.wantAttr1Value != "" {
+				assert.Equal(t, tt.wantAttr1Value, wireAttrs["attr1"].(map[string]any)["S"], "attr1 should have new value")
+			}
+		})
 	}
 }
