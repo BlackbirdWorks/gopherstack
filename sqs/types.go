@@ -18,7 +18,6 @@ const (
 	defaultWaitTimeSeconds        = 0
 	maxBatchSize                  = 10
 	deduplicationWindowSecs       = 300
-	longPollIntervalMs            = 100
 
 	maxParseIterations = 20
 	noVisibilitySet    = -1
@@ -91,7 +90,8 @@ type Queue struct {
 	DeduplicationIDs    map[string]time.Time
 	Attributes          map[string]string
 	Tags                *tags.Tags
-	dlq                 *Queue // resolved DLQ queue pointer; nil = no DLQ
+	dlq                 *Queue        // resolved DLQ queue pointer; nil = no DLQ
+	notify              chan struct{} // buffered(1); signalled when a message is enqueued
 	Name                string
 	URL                 string
 	messages            []*Message

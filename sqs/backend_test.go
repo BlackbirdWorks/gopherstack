@@ -464,6 +464,58 @@ func TestLongPolling(t *testing.T) {
 	assert.Less(t, time.Since(start), 500*time.Millisecond)
 }
 
+func TestLongPollingWakesOnMessageArrival(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend()
+	qURL := createTestQueue(t, b, "wake-queue")
+
+	// Send a message after a short delay while ReceiveMessage is blocking.
+	go func() {
+		time.Sleep(150 * time.Millisecond)
+		_, _ = b.SendMessage(&sqs.SendMessageInput{QueueURL: qURL, MessageBody: "wake"})
+	}()
+
+	start := time.Now()
+
+	out, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
+		QueueURL:            qURL,
+		MaxNumberOfMessages: 1,
+		VisibilityTimeout:   30,
+		WaitTimeSeconds:     5,
+	})
+
+	elapsed := time.Since(start)
+
+	require.NoError(t, err)
+	require.Len(t, out.Messages, 1)
+	// Should wake well before the 5-second deadline.
+	assert.Less(t, elapsed, 2*time.Second)
+}
+
+func TestLongPollingTimesOutWithNoMessages(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend()
+	qURL := createTestQueue(t, b, "timeout-queue")
+
+	start := time.Now()
+
+	out, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
+		QueueURL:            qURL,
+		MaxNumberOfMessages: 1,
+		VisibilityTimeout:   30,
+		WaitTimeSeconds:     1,
+	})
+
+	elapsed := time.Since(start)
+
+	require.NoError(t, err)
+	assert.Empty(t, out.Messages)
+	// Should have waited approximately WaitTimeSeconds.
+	assert.GreaterOrEqual(t, elapsed, 900*time.Millisecond)
+}
+
 func TestReceiveMessageDefaultVisibility(t *testing.T) {
 	t.Parallel()
 

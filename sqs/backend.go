@@ -220,6 +220,7 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 		Attributes:          attrs,
 		DeduplicationIDs:    make(map[string]time.Time),
 		deduplicationMsgIDs: make(map[string]string),
+		notify:              make(chan struct{}, 1),
 	}
 
 	b.queues[input.QueueName] = q
@@ -398,6 +399,11 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 
 	q.messages = append(q.messages, msg)
 
+	select {
+	case q.notify <- struct{}{}:
+	default:
+	}
+
 	return &SendMessageOutput{MessageID: msgID, MD5OfBody: md5Body, MD5OfMessageAttributes: md5Attrs}, nil
 }
 
@@ -448,21 +454,35 @@ func pruneDedup(q *Queue, now time.Time) {
 }
 
 // ReceiveMessage retrieves messages from the queue, with optional long-poll wait.
+//
+// Long polling uses a channel-based mechanism: receiveOnce captures the queue's
+// notify channel (buffered 1) while holding the write lock. Any SendMessage that
+// executes between lock release and the select below will store a token in the
+// buffer, so no notifications are lost. When multiple receivers are waiting, only
+// one is woken per notification; the others wait for the next SendMessage signal.
 func (b *InMemoryBackend) ReceiveMessage(input *ReceiveMessageInput) (*ReceiveMessageOutput, error) {
 	name := queueNameFromInput(input.QueueURL)
 	deadline := time.Now().Add(time.Duration(input.WaitTimeSeconds) * time.Second)
 
 	for {
-		msgs, err := b.receiveOnce(name, input)
+		msgs, notifyCh, err := b.receiveOnce(name, input)
 		if err != nil {
 			return nil, err
 		}
 
-		if len(msgs) > 0 || !time.Now().Before(deadline) {
+		if len(msgs) > 0 {
 			return &ReceiveMessageOutput{Messages: msgs}, nil
 		}
 
-		time.Sleep(longPollIntervalMs * time.Millisecond)
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return &ReceiveMessageOutput{}, nil
+		}
+
+		select {
+		case <-notifyCh:
+		case <-time.After(remaining):
+		}
 	}
 }
 
@@ -487,13 +507,13 @@ func drainToDLQ(q *Queue) {
 }
 
 // receiveOnce performs a single receive attempt under the backend lock.
-func (b *InMemoryBackend) receiveOnce(name string, input *ReceiveMessageInput) ([]*Message, error) {
+func (b *InMemoryBackend) receiveOnce(name string, input *ReceiveMessageInput) ([]*Message, chan struct{}, error) {
 	b.mu.Lock("receiveOnce")
 	defer b.mu.Unlock()
 
 	q, ok := b.queues[name]
 	if !ok {
-		return nil, ErrQueueNotFound
+		return nil, nil, ErrQueueNotFound
 	}
 
 	now := time.Now()
@@ -514,7 +534,7 @@ func (b *InMemoryBackend) receiveOnce(name string, input *ReceiveMessageInput) (
 
 	vt := resolveVisibilityTimeout(input.VisibilityTimeout, q)
 
-	return pickMessages(q, maxMessages, vt, now), nil
+	return pickMessages(q, maxMessages, vt, now), q.notify, nil
 }
 
 // resolveVisibilityTimeout returns the effective visibility timeout for a receive operation.
