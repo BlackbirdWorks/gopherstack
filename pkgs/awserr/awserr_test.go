@@ -91,6 +91,29 @@ func TestWrappedErrorsIs(t *testing.T) {
 	}
 }
 
+func TestSentinelErrorString(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		err  error
+		name string
+		want string
+	}{
+		{awserr.ErrNotFound, "not_found", "resource not found"},
+		{awserr.ErrAlreadyExists, "already_exists", "resource already exists"},
+		{awserr.ErrInvalidParameter, "invalid_parameter", "invalid parameter"},
+		{awserr.ErrConflict, "conflict", "conflict"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, tt.err.Error())
+		})
+	}
+}
+
 func TestWrappedErrorMessage(t *testing.T) {
 	t.Parallel()
 
