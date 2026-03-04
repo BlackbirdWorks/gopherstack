@@ -348,3 +348,59 @@ func TestRedshiftHandler_DescribeLoggingStatus(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "DescribeLoggingStatusResponse")
 	assert.Contains(t, rec.Body.String(), "LoggingEnabled")
 }
+
+// mockDNSRegistrar is a test double for redshift.DNSRegistrar.
+type mockDNSRegistrar struct {
+	registered map[string]bool
+}
+
+func (m *mockDNSRegistrar) Register(hostname string) {
+	m.registered[hostname] = true
+}
+
+func (m *mockDNSRegistrar) Deregister(hostname string) {
+	delete(m.registered, hostname)
+}
+
+func TestRedshiftBackend_DNSRegistrar(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		clusterID      string
+		wantRegistered bool
+		deleteAfter    bool
+	}{
+		{
+			name:           "registers_on_create",
+			clusterID:      "my-cluster",
+			wantRegistered: true,
+		},
+		{
+			name:           "deregisters_on_delete",
+			clusterID:      "del-cluster",
+			deleteAfter:    true,
+			wantRegistered: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			registrar := &mockDNSRegistrar{registered: make(map[string]bool)}
+			b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+			b.SetDNSRegistrar(registrar)
+
+			cluster, err := b.CreateCluster(tt.clusterID, "dc2.large", "dev", "admin")
+			require.NoError(t, err)
+
+			if tt.deleteAfter {
+				_, err = b.DeleteCluster(tt.clusterID)
+				require.NoError(t, err)
+			}
+
+			assert.Equal(t, tt.wantRegistered, registrar.registered[cluster.Endpoint])
+		})
+	}
+}

@@ -17,6 +17,12 @@ var (
 	ErrInvalidParameter    = errors.New("ValidationException")
 )
 
+// DNSRegistrar can register and deregister hostnames with an embedded DNS server.
+type DNSRegistrar interface {
+	Register(hostname string)
+	Deregister(hostname string)
+}
+
 // ClusterConfig represents the cluster configuration for an OpenSearch domain.
 type ClusterConfig struct {
 	InstanceType  string `json:"instanceType"`
@@ -36,10 +42,11 @@ type Domain struct {
 
 // InMemoryBackend is the in-memory store for OpenSearch domains.
 type InMemoryBackend struct {
-	domains   map[string]*Domain
-	mu        *lockmetrics.RWMutex
-	accountID string
-	region    string
+	dnsRegistrar DNSRegistrar
+	domains      map[string]*Domain
+	mu           *lockmetrics.RWMutex
+	accountID    string
+	region       string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -50,6 +57,13 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		region:    region,
 		mu:        lockmetrics.New("opensearch"),
 	}
+}
+
+// SetDNSRegistrar wires a DNS server so OpenSearch domain hostnames are auto-registered.
+func (b *InMemoryBackend) SetDNSRegistrar(dns DNSRegistrar) {
+	b.mu.Lock("SetDNSRegistrar")
+	b.dnsRegistrar = dns
+	b.mu.Unlock()
 }
 
 // CreateDomain creates a new OpenSearch domain.
@@ -91,6 +105,10 @@ func (b *InMemoryBackend) CreateDomain(name, engineVersion string, clusterConfig
 	}
 	b.domains[name] = d
 
+	if b.dnsRegistrar != nil {
+		b.dnsRegistrar.Register(endpoint)
+	}
+
 	cp := *d
 
 	return &cp, nil
@@ -108,6 +126,10 @@ func (b *InMemoryBackend) DeleteDomain(name string) (*Domain, error) {
 
 	cp := *d
 	delete(b.domains, name)
+
+	if b.dnsRegistrar != nil {
+		b.dnsRegistrar.Deregister(cp.Endpoint)
+	}
 
 	return &cp, nil
 }
