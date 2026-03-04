@@ -1,7 +1,6 @@
 package dynamodb_test
 
 import (
-	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -17,75 +16,89 @@ import (
 
 func TestBatchDeletePerformance(t *testing.T) {
 	t.Parallel()
-	db := dynamodb.NewInMemoryDB()
-	ctx := context.Background()
-	tableName := "LargeTable"
 
-	// Setup table
-	_, err := db.CreateTable(ctx, &sdk_dynamodb.CreateTableInput{
-		TableName: aws.String(tableName),
-		KeySchema: []types.KeySchemaElement{
-			{AttributeName: aws.String("id"), KeyType: types.KeyTypeHash},
+	tests := []struct {
+		name          string
+		numItems      int
+		itemsPerBatch int
+		deleteBatches int
+		maxDuration   time.Duration
+	}{
+		{
+			name:          "deletes 2500 items from 10000 within time limit",
+			numItems:      10000,
+			itemsPerBatch: 25,
+			deleteBatches: 100,
+			// 15s instead of 5s to account for race detector overhead and slow CI runners.
+			maxDuration: 15 * time.Second,
 		},
-		AttributeDefinitions: []types.AttributeDefinition{
-			{AttributeName: aws.String("id"), AttributeType: types.ScalarAttributeTypeS},
-		},
-	})
-	require.NoError(t, err)
-
-	// Pre-populate with 10,000 items
-	const numItems = 10000
-	const itemsPerBatch = 25
-	numBatches := numItems / itemsPerBatch
-
-	for b := range numBatches {
-		requests := make([]types.WriteRequest, itemsPerBatch)
-		for j := range itemsPerBatch {
-			requests[j] = types.WriteRequest{
-				PutRequest: &types.PutRequest{
-					Item: map[string]types.AttributeValue{
-						"id":   &types.AttributeValueMemberS{Value: fmt.Sprintf("item-%d", b*itemsPerBatch+j)},
-						"data": &types.AttributeValueMemberS{Value: "some-bloated-data-to-make-it-real"},
-					},
-				},
-			}
-		}
-		var populateErr error
-		_, populateErr = db.BatchWriteItem(ctx, &sdk_dynamodb.BatchWriteItemInput{
-			RequestItems: map[string][]types.WriteRequest{
-				tableName: requests,
-			},
-		})
-		require.NoError(t, populateErr)
 	}
 
-	// Measure time for 100 batch deletes (25 items each = 2500 items)
-	start := time.Now()
-	for i := range 100 {
-		requests := make([]types.WriteRequest, 25)
-		for j := range 25 {
-			requests[j] = types.WriteRequest{
-				DeleteRequest: &types.DeleteRequest{
-					Key: map[string]types.AttributeValue{
-						"id": &types.AttributeValueMemberS{Value: fmt.Sprintf("item-%d", i*25+j)},
-					},
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			db := dynamodb.NewInMemoryDB()
+			tableName := "LargeTable"
+
+			// Setup table
+			_, err := db.CreateTable(t.Context(), &sdk_dynamodb.CreateTableInput{
+				TableName: aws.String(tableName),
+				KeySchema: []types.KeySchemaElement{
+					{AttributeName: aws.String("id"), KeyType: types.KeyTypeHash},
 				},
+				AttributeDefinitions: []types.AttributeDefinition{
+					{AttributeName: aws.String("id"), AttributeType: types.ScalarAttributeTypeS},
+				},
+			})
+			require.NoError(t, err)
+
+			// Pre-populate items
+			numBatches := tt.numItems / tt.itemsPerBatch
+			for b := range numBatches {
+				requests := make([]types.WriteRequest, tt.itemsPerBatch)
+				for j := range tt.itemsPerBatch {
+					requests[j] = types.WriteRequest{
+						PutRequest: &types.PutRequest{
+							Item: map[string]types.AttributeValue{
+								"id":   &types.AttributeValueMemberS{Value: fmt.Sprintf("item-%d", b*tt.itemsPerBatch+j)},
+								"data": &types.AttributeValueMemberS{Value: "some-bloated-data-to-make-it-real"},
+							},
+						},
+					}
+				}
+				_, populateErr := db.BatchWriteItem(t.Context(), &sdk_dynamodb.BatchWriteItemInput{
+					RequestItems: map[string][]types.WriteRequest{
+						tableName: requests,
+					},
+				})
+				require.NoError(t, populateErr)
 			}
-		}
-		var deleteErr error
-		_, deleteErr = db.BatchWriteItem(ctx, &sdk_dynamodb.BatchWriteItemInput{
-			RequestItems: map[string][]types.WriteRequest{
-				tableName: requests,
-			},
+
+			// Measure time for batch deletes
+			start := time.Now()
+			for i := range tt.deleteBatches {
+				requests := make([]types.WriteRequest, tt.itemsPerBatch)
+				for j := range tt.itemsPerBatch {
+					requests[j] = types.WriteRequest{
+						DeleteRequest: &types.DeleteRequest{
+							Key: map[string]types.AttributeValue{
+								"id": &types.AttributeValueMemberS{Value: fmt.Sprintf("item-%d", i*tt.itemsPerBatch+j)},
+							},
+						},
+					}
+				}
+				_, deleteErr := db.BatchWriteItem(t.Context(), &sdk_dynamodb.BatchWriteItemInput{
+					RequestItems: map[string][]types.WriteRequest{
+						tableName: requests,
+					},
+				})
+				require.NoError(t, deleteErr)
+			}
+			duration := time.Since(start)
+
+			t.Logf("Deleted %d items from %d in %v", tt.deleteBatches*tt.itemsPerBatch, tt.numItems, duration)
+			assert.LessOrEqual(t, duration, tt.maxDuration, "Batch delete is too slow!")
 		})
-		require.NoError(t, deleteErr)
 	}
-	duration := time.Since(start)
-
-	t.Logf("Deleted 2500 items from 10000 in %v", duration)
-
-	// If it takes more than 15 seconds, it's definitely too slow (e.g. O(N^2) behavior).
-	// We use 15s instead of 5s to account for race detector overhead and slow CI runners.
-	const maxDuration = 15 * time.Second
-	assert.LessOrEqual(t, duration, maxDuration, "Batch delete is too slow!")
 }
