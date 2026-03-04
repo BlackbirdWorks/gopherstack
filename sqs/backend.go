@@ -220,6 +220,7 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 		Attributes:          attrs,
 		DeduplicationIDs:    make(map[string]time.Time),
 		deduplicationMsgIDs: make(map[string]string),
+		notify:              make(chan struct{}),
 	}
 
 	b.queues[input.QueueName] = q
@@ -398,6 +399,15 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 
 	q.messages = append(q.messages, msg)
 
+	// Close the current notify channel to broadcast to all long-polling receivers,
+	// then replace it with a fresh channel for the next wait cycle.
+	// Only broadcast on empty→non-empty transition; if the queue already had
+	// messages, receivers would not have been waiting.
+	if len(q.messages) == 1 {
+		close(q.notify)
+		q.notify = make(chan struct{})
+	}
+
 	return &SendMessageOutput{MessageID: msgID, MD5OfBody: md5Body, MD5OfMessageAttributes: md5Attrs}, nil
 }
 
@@ -448,21 +458,41 @@ func pruneDedup(q *Queue, now time.Time) {
 }
 
 // ReceiveMessage retrieves messages from the queue, with optional long-poll wait.
+//
+// Long polling uses a close-and-recreate broadcast: receiveOnce captures the
+// queue's notify channel under the write lock. When SendMessage transitions the
+// queue from empty to non-empty it closes the channel, waking all blocked
+// receivers simultaneously, then creates a fresh channel for the next cycle.
+// A 1-second recheck interval is also applied so that messages which reappear
+// due to visibility-timeout expiry (reQueueExpired) are picked up promptly even
+// when no new SendMessage occurs.
 func (b *InMemoryBackend) ReceiveMessage(input *ReceiveMessageInput) (*ReceiveMessageOutput, error) {
 	name := queueNameFromInput(input.QueueURL)
 	deadline := time.Now().Add(time.Duration(input.WaitTimeSeconds) * time.Second)
 
+	const recheckInterval = time.Second
+
 	for {
-		msgs, err := b.receiveOnce(name, input)
+		msgs, notifyCh, err := b.receiveOnce(name, input)
 		if err != nil {
 			return nil, err
 		}
 
-		if len(msgs) > 0 || !time.Now().Before(deadline) {
+		if len(msgs) > 0 {
 			return &ReceiveMessageOutput{Messages: msgs}, nil
 		}
 
-		time.Sleep(longPollIntervalMs * time.Millisecond)
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return &ReceiveMessageOutput{}, nil
+		}
+
+		sleep := min(remaining, recheckInterval)
+
+		select {
+		case <-notifyCh:
+		case <-time.After(sleep):
+		}
 	}
 }
 
@@ -487,13 +517,13 @@ func drainToDLQ(q *Queue) {
 }
 
 // receiveOnce performs a single receive attempt under the backend lock.
-func (b *InMemoryBackend) receiveOnce(name string, input *ReceiveMessageInput) ([]*Message, error) {
+func (b *InMemoryBackend) receiveOnce(name string, input *ReceiveMessageInput) ([]*Message, chan struct{}, error) {
 	b.mu.Lock("receiveOnce")
 	defer b.mu.Unlock()
 
 	q, ok := b.queues[name]
 	if !ok {
-		return nil, ErrQueueNotFound
+		return nil, nil, ErrQueueNotFound
 	}
 
 	now := time.Now()
@@ -514,7 +544,7 @@ func (b *InMemoryBackend) receiveOnce(name string, input *ReceiveMessageInput) (
 
 	vt := resolveVisibilityTimeout(input.VisibilityTimeout, q)
 
-	return pickMessages(q, maxMessages, vt, now), nil
+	return pickMessages(q, maxMessages, vt, now), q.notify, nil
 }
 
 // resolveVisibilityTimeout returns the effective visibility timeout for a receive operation.
