@@ -1,6 +1,7 @@
 package secretsmanager_test
 
 import (
+	"log/slog"
 	"testing"
 
 	"github.com/blackbirdworks/gopherstack/secretsmanager"
@@ -75,4 +76,25 @@ func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	b := secretsmanager.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
 	err := b.Restore([]byte("not-valid-json"))
 	require.Error(t, err)
+}
+
+func TestSecretsManagerHandler_Persistence(t *testing.T) {
+t.Parallel()
+
+backend := secretsmanager.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+h := secretsmanager.NewHandler(backend, slog.Default())
+
+_, err := backend.CreateSecret(&secretsmanager.CreateSecretInput{Name: "snap-secret", SecretString: "snap-value"})
+	require.NoError(t, err)
+
+snap := h.Snapshot()
+require.NotNil(t, snap)
+
+fresh := secretsmanager.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+freshH := secretsmanager.NewHandler(fresh, slog.Default())
+require.NoError(t, freshH.Restore(snap))
+
+out, err := fresh.DescribeSecret(&secretsmanager.DescribeSecretInput{SecretID: "snap-secret"})
+	require.NoError(t, err)
+	assert.Equal(t, "snap-secret", out.Name)
 }

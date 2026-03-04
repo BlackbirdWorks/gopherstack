@@ -2,8 +2,12 @@ package dynamodb_test
 
 import (
 	"context"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/labstack/echo/v5"
 	"github.com/blackbirdworks/gopherstack/dynamodb"
 	"github.com/blackbirdworks/gopherstack/dynamodb/models"
 	"github.com/stretchr/testify/assert"
@@ -81,4 +85,74 @@ func TestInMemoryDB_RestoreInvalidData(t *testing.T) {
 	db := dynamodb.NewInMemoryDB()
 	err := db.Restore([]byte("not-valid-json"))
 	require.Error(t, err)
+}
+
+func TestDynamoDBHandler_Persistence(t *testing.T) {
+t.Parallel()
+
+db := dynamodb.NewInMemoryDB()
+h := dynamodb.NewHandler(db, slog.Default())
+
+// Create a table via the DB
+input := models.ToSDKCreateTableInput(&models.CreateTableInput{
+TableName: "handler-test-table",
+KeySchema: []models.KeySchemaElement{
+{AttributeName: "id", KeyType: models.KeyTypeHash},
+},
+AttributeDefinitions: []models.AttributeDefinition{
+{AttributeName: "id", AttributeType: "S"},
+},
+})
+_, err := db.CreateTable(t.Context(), input)
+require.NoError(t, err)
+
+snap := h.Snapshot()
+require.NotNil(t, snap)
+
+freshDB := dynamodb.NewInMemoryDB()
+freshH := dynamodb.NewHandler(freshDB, slog.Default())
+require.NoError(t, freshH.Restore(snap))
+
+tables := freshDB.ListAllTables()
+require.Len(t, tables, 1)
+	assert.Equal(t, "handler-test-table", tables[0].Name)
+}
+
+func TestDynamoDBHandler_Routing(t *testing.T) {
+t.Parallel()
+
+db := dynamodb.NewInMemoryDB()
+h := dynamodb.NewHandler(db, slog.Default())
+
+assert.Equal(t, "DynamoDB", h.Name())
+assert.Greater(t, h.MatchPriority(), 0)
+
+e := echo.New()
+
+tests := []struct {
+name      string
+target    string
+wantMatch bool
+}{
+{"dynamodb target", "DynamoDB_20120810.ListTables", true},
+{"streams target", "DynamoDBStreams_20120810.ListStreams", true},
+{"no match", "SQS.SendMessage", false},
+}
+
+for _, tt := range tests {
+t.Run(tt.name, func(t *testing.T) {
+t.Parallel()
+
+req := httptest.NewRequest(http.MethodPost, "/", nil)
+req.Header.Set("X-Amz-Target", tt.target)
+c := e.NewContext(req, httptest.NewRecorder())
+assert.Equal(t, tt.wantMatch, h.RouteMatcher()(c))
+})
+}
+
+// Test ExtractOperation
+req := httptest.NewRequest(http.MethodPost, "/", nil)
+req.Header.Set("X-Amz-Target", "DynamoDB_20120810.ListTables")
+c := e.NewContext(req, httptest.NewRecorder())
+assert.Equal(t, "ListTables", h.ExtractOperation(c))
 }

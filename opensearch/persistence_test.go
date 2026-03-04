@@ -1,8 +1,12 @@
 package opensearch_test
 
 import (
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/labstack/echo/v5"
 	"github.com/blackbirdworks/gopherstack/opensearch"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -74,4 +78,57 @@ func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	b := opensearch.NewInMemoryBackend("000000000000", "us-east-1")
 	err := b.Restore([]byte("not-valid-json"))
 	require.Error(t, err)
+}
+
+func TestOpenSearchHandler_Persistence(t *testing.T) {
+t.Parallel()
+
+backend := opensearch.NewInMemoryBackend("000000000000", "us-east-1")
+h := opensearch.NewHandler(backend, slog.Default())
+
+// Create a domain in the backend
+_, err := backend.CreateDomain("snap-domain", "OpenSearch_2.11", opensearch.ClusterConfig{})
+require.NoError(t, err)
+
+snap := h.Snapshot()
+require.NotNil(t, snap)
+
+fresh := opensearch.NewInMemoryBackend("000000000000", "us-east-1")
+freshH := opensearch.NewHandler(fresh, slog.Default())
+require.NoError(t, freshH.Restore(snap))
+
+domain, err := fresh.DescribeDomain("snap-domain")
+require.NoError(t, err)
+assert.Equal(t, "snap-domain", domain.Name)
+}
+
+func TestOpenSearchHandler_Routing(t *testing.T) {
+t.Parallel()
+
+h := opensearch.NewHandler(opensearch.NewInMemoryBackend("000000000000", "us-east-1"), slog.Default())
+
+assert.Equal(t, "OpenSearch", h.Name())
+assert.Greater(t, h.MatchPriority(), 0)
+
+e := echo.New()
+
+tests := []struct {
+name      string
+path      string
+wantMatch bool
+}{
+{"domain path", "/2021-01-01/opensearch/domain", true},
+{"tags path", "/2021-01-01/tags", true},
+{"no match", "/other", false},
+}
+
+for _, tt := range tests {
+t.Run(tt.name, func(t *testing.T) {
+t.Parallel()
+
+req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+c := e.NewContext(req, httptest.NewRecorder())
+assert.Equal(t, tt.wantMatch, h.RouteMatcher()(c))
+})
+}
 }
