@@ -20,14 +20,14 @@ const (
 
 // EventSourceMapping represents a Kinesis → Lambda event source mapping.
 type EventSourceMapping struct {
-	LastModified         time.Time
-	EventSourceARN       string
-	FunctionARN          string
-	UUID                 string
-	State                EventSourceMappingState
-	StartingPosition     string
-	LastProcessingResult string
-	BatchSize            int
+	LastModified         time.Time               `json:"lastModified"`
+	EventSourceARN       string                  `json:"eventSourceARN"`
+	FunctionARN          string                  `json:"functionARN"`
+	UUID                 string                  `json:"uuid"`
+	State                EventSourceMappingState `json:"state"`
+	StartingPosition     string                  `json:"startingPosition"`
+	LastProcessingResult string                  `json:"lastProcessingResult"`
+	BatchSize            int                     `json:"batchSize"`
 }
 
 // CreateEventSourceMappingInput is the input for CreateEventSourceMapping.

@@ -14,72 +14,72 @@ const NullVersion = "null"
 
 // StoredBucket represents an S3 bucket in memory.
 type StoredBucket struct {
-	Objects            map[string]*StoredObject
+	Objects            map[string]*StoredObject `json:"objects,omitempty"`
 	mu                 *lockmetrics.RWMutex
-	Name               string
-	Policy             string // JSON policy document
-	CORSConfig         string // XML CORS configuration
-	LifecycleConfig    string // XML lifecycle configuration
-	NotificationConfig string // XML notification configuration
-	ObjectLockConfig   string // XML object lock configuration
-	CreationDate       time.Time
-	ACL                string
+	Name               string    `json:"name"`
+	Policy             string    `json:"policy,omitempty"`
+	CORSConfig         string    `json:"corsConfig,omitempty"`
+	LifecycleConfig    string    `json:"lifecycleConfig,omitempty"`
+	NotificationConfig string    `json:"notificationConfig,omitempty"`
+	ObjectLockConfig   string    `json:"objectLockConfig,omitempty"`
+	CreationDate       time.Time `json:"creationDate"`
+	ACL                string    `json:"acl,omitempty"`
 	// Versioning must precede non-pointer fields so its trailing len word falls
 	// outside the GC scan range, reducing pointer bytes to 64.
-	Versioning types.BucketVersioningStatus
+	Versioning types.BucketVersioningStatus `json:"versioning,omitempty"`
 	// DeletePending is true when the bucket is queued for async deletion by the Janitor.
 	// Operations on a DeletePending bucket behave as if the bucket does not exist.
-	DeletePending bool
+	DeletePending bool `json:"deletePending,omitempty"`
 }
 
 // StoredObject represents an S3 object with its version history.
 type StoredObject struct {
-	Versions        map[string]*StoredObjectVersion
+	Versions        map[string]*StoredObjectVersion `json:"versions,omitempty"`
 	mu              *lockmetrics.RWMutex
-	Key             string
-	LatestVersionID string
+	Key             string `json:"key"`
+	LatestVersionID string `json:"latestVersionID"`
 }
 
 // StoredObjectVersion represents a specific version of an S3 object.
 type StoredObjectVersion struct {
-	LastModified       time.Time
-	RetainUntil        time.Time
-	ChecksumSHA1       *string
-	Metadata           map[string]string
-	ChecksumSHA256     *string
-	ChecksumCRC32      *string
-	ChecksumCRC32C     *string
-	Key                string
-	ETag               string
-	ContentType        string
-	ContentEncoding    string
-	ContentDisposition string
-	RetentionMode      string
-	ChecksumAlgorithm  types.ChecksumAlgorithm
-	VersionID          string
-	Data               []byte
-	Size               int64
-	IsCompressed       bool
-	IsLatest           bool
-	Deleted            bool
-	LegalHold          bool
+	LastModified       time.Time               `json:"lastModified"`
+	RetainUntil        time.Time               `json:"retainUntil"`
+	ChecksumSHA1       *string                 `json:"checksumSHA1,omitempty"`
+	Metadata           map[string]string       `json:"metadata,omitempty"`
+	ChecksumSHA256     *string                 `json:"checksumSHA256,omitempty"`
+	ChecksumCRC32      *string                 `json:"checksumCRC32,omitempty"`
+	ChecksumCRC32C     *string                 `json:"checksumCRC32C,omitempty"`
+	Key                string                  `json:"key"`
+	ETag               string                  `json:"etag"`
+	ContentType        string                  `json:"contentType"`
+	ContentEncoding    string                  `json:"contentEncoding,omitempty"`
+	ContentDisposition string                  `json:"contentDisposition,omitempty"`
+	RetentionMode      string                  `json:"retentionMode,omitempty"`
+	ChecksumAlgorithm  types.ChecksumAlgorithm `json:"checksumAlgorithm,omitempty"`
+	VersionID          string                  `json:"versionID"`
+	Data               []byte                  `json:"data,omitempty"`
+	Size               int64                   `json:"size"`
+	IsCompressed       bool                    `json:"isCompressed,omitempty"`
+	IsLatest           bool                    `json:"isLatest"`
+	Deleted            bool                    `json:"deleted,omitempty"`
+	LegalHold          bool                    `json:"legalHold,omitempty"`
 }
 
 // StoredMultipartUpload represents an ongoing multipart upload session.
 type StoredMultipartUpload struct {
-	Initiated time.Time
-	Parts     map[int32]*StoredPart
-	UploadID  string
-	Bucket    string
-	Key       string
+	Initiated time.Time             `json:"initiated"`
+	Parts     map[int32]*StoredPart `json:"parts,omitempty"`
+	UploadID  string                `json:"uploadID"`
+	Bucket    string                `json:"bucket"`
+	Key       string                `json:"key"`
 }
 
 // StoredPart represents a single part of a multipart upload.
 type StoredPart struct {
-	ETag       string
-	Data       []byte
-	PartNumber int32
-	Size       int64
+	ETag       string `json:"etag"`
+	Data       []byte `json:"data,omitempty"`
+	PartNumber int32  `json:"partNumber"`
+	Size       int64  `json:"size"`
 }
 
 // ObjectMetadata holds internal metadata for storage operations.

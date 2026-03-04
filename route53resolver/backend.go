@@ -16,32 +16,32 @@ var (
 )
 
 type IPAddress struct {
-	SubnetID string
-	IP       string
+	SubnetID string `json:"subnetID"`
+	IP       string `json:"ip"`
 }
 
 type ResolverEndpoint struct {
-	ID          string
-	ARN         string
-	Direction   string
-	Name        string
-	Status      string
-	VpcID       string
-	AccountID   string
-	Region      string
-	IPAddresses []IPAddress
+	ID          string      `json:"id"`
+	ARN         string      `json:"arn"`
+	Direction   string      `json:"direction"`
+	Name        string      `json:"name"`
+	Status      string      `json:"status"`
+	VpcID       string      `json:"vpcID"`
+	AccountID   string      `json:"accountID"`
+	Region      string      `json:"region"`
+	IPAddresses []IPAddress `json:"ipAddresses"`
 }
 
 type ResolverRule struct {
-	ID                 string
-	ARN                string
-	Name               string
-	DomainName         string
-	RuleType           string
-	Status             string
-	ResolverEndpointID string
-	AccountID          string
-	Region             string
+	ID                 string `json:"id"`
+	ARN                string `json:"arn"`
+	Name               string `json:"name"`
+	DomainName         string `json:"domainName"`
+	RuleType           string `json:"ruleType"`
+	Status             string `json:"status"`
+	ResolverEndpointID string `json:"resolverEndpointID"`
+	AccountID          string `json:"accountID"`
+	Region             string `json:"region"`
 }
 
 type InMemoryBackend struct {

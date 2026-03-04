@@ -18,13 +18,13 @@ var (
 
 // TranscriptionJob represents an Amazon Transcribe transcription job.
 type TranscriptionJob struct {
-	CreationTime   time.Time
-	CompletionTime time.Time
-	JobName        string
-	JobStatus      string
-	LanguageCode   string
-	MediaFileURI   string
-	TranscriptText string
+	CreationTime   time.Time `json:"creationTime"`
+	CompletionTime time.Time `json:"completionTime"`
+	JobName        string    `json:"jobName"`
+	JobStatus      string    `json:"jobStatus"`
+	LanguageCode   string    `json:"languageCode"`
+	MediaFileURI   string    `json:"mediaFileURI"`
+	TranscriptText string    `json:"transcriptText"`
 }
 
 // InMemoryBackend is the in-memory store for Transcribe jobs.

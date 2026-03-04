@@ -16,25 +16,25 @@ var (
 )
 
 type FlexibleTimeWindow struct {
-	Mode                   string
-	MaximumWindowInMinutes int
+	Mode                   string `json:"mode"`
+	MaximumWindowInMinutes int    `json:"maximumWindowInMinutes,omitempty"`
 }
 
 type Target struct {
-	ARN     string
-	RoleARN string
+	ARN     string `json:"arn"`
+	RoleARN string `json:"roleARN"`
 }
 
 type Schedule struct {
-	Tags               *tags.Tags
-	Target             Target
-	Name               string
-	ARN                string
-	ScheduleExpression string
-	State              string
-	AccountID          string
-	Region             string
-	FlexibleTimeWindow FlexibleTimeWindow
+	Tags               *tags.Tags         `json:"tags,omitempty"`
+	Target             Target             `json:"target"`
+	Name               string             `json:"name"`
+	ARN                string             `json:"arn"`
+	ScheduleExpression string             `json:"scheduleExpression"`
+	State              string             `json:"state"`
+	AccountID          string             `json:"accountID"`
+	Region             string             `json:"region"`
+	FlexibleTimeWindow FlexibleTimeWindow `json:"flexibleTimeWindow"`
 }
 
 type InMemoryBackend struct {

@@ -13,11 +13,11 @@ var (
 
 // PublicAccessBlock represents the S3 Control public access block configuration.
 type PublicAccessBlock struct {
-	AccountID             string
-	BlockPublicAcls       bool
-	IgnorePublicAcls      bool
-	BlockPublicPolicy     bool
-	RestrictPublicBuckets bool
+	AccountID             string `json:"accountID"`
+	BlockPublicAcls       bool   `json:"blockPublicAcls"`
+	IgnorePublicAcls      bool   `json:"ignorePublicAcls"`
+	BlockPublicPolicy     bool   `json:"blockPublicPolicy"`
+	RestrictPublicBuckets bool   `json:"restrictPublicBuckets"`
 }
 
 // InMemoryBackend is the in-memory store for S3 Control resources.

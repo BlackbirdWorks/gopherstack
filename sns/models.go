@@ -4,19 +4,19 @@ import "encoding/xml"
 
 // Topic represents an SNS topic.
 type Topic struct {
-	Attributes map[string]string
-	TopicArn   string
+	Attributes map[string]string `json:"attributes,omitempty"`
+	TopicArn   string            `json:"topicArn"`
 }
 
 // Subscription represents an SNS subscription.
 type Subscription struct {
-	SubscriptionArn     string
-	TopicArn            string
-	Protocol            string
-	Endpoint            string
-	Owner               string
-	FilterPolicy        string
-	PendingConfirmation bool
+	SubscriptionArn     string `json:"subscriptionArn"`
+	TopicArn            string `json:"topicArn"`
+	Protocol            string `json:"protocol"`
+	Endpoint            string `json:"endpoint"`
+	Owner               string `json:"owner"`
+	FilterPolicy        string `json:"filterPolicy,omitempty"`
+	PendingConfirmation bool   `json:"pendingConfirmation"`
 }
 
 // Message represents a published SNS message.

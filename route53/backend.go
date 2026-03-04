@@ -34,34 +34,34 @@ type DNSRegistrar interface {
 
 // HostedZone represents a Route 53 hosted zone.
 type HostedZone struct {
-	CreatedAt              time.Time
-	Name                   string
-	ID                     string
-	CallerReference        string
-	Comment                string
-	ResourceRecordSetCount int
-	PrivateZone            bool
+	CreatedAt              time.Time `json:"createdAt"`
+	Name                   string    `json:"name"`
+	ID                     string    `json:"id"`
+	CallerReference        string    `json:"callerReference"`
+	Comment                string    `json:"comment"`
+	ResourceRecordSetCount int       `json:"resourceRecordSetCount"`
+	PrivateZone            bool      `json:"privateZone"`
 }
 
 // ResourceRecord holds a single DNS resource record value.
 type ResourceRecord struct {
-	Value string
+	Value string `json:"value"`
 }
 
 // AliasTarget represents an alias resource record set target.
 type AliasTarget struct {
-	HostedZoneID         string
-	DNSName              string
-	EvaluateTargetHealth bool
+	HostedZoneID         string `json:"hostedZoneID"`
+	DNSName              string `json:"dnsName"`
+	EvaluateTargetHealth bool   `json:"evaluateTargetHealth"`
 }
 
 // ResourceRecordSet represents a DNS resource record set.
 type ResourceRecordSet struct {
-	AliasTarget *AliasTarget
-	Name        string
-	Type        string
-	Records     []ResourceRecord
-	TTL         int64
+	AliasTarget *AliasTarget     `json:"aliasTarget,omitempty"`
+	Name        string           `json:"name"`
+	Type        string           `json:"type"`
+	Records     []ResourceRecord `json:"records"`
+	TTL         int64            `json:"ttl"`
 }
 
 // recordSetKey builds the map key for a resource record set.

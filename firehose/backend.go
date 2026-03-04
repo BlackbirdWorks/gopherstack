@@ -19,13 +19,13 @@ var (
 
 // DeliveryStream represents a Kinesis Firehose delivery stream.
 type DeliveryStream struct {
-	Tags      *tags.Tags
-	Name      string
-	ARN       string
-	Status    string
-	AccountID string
-	Region    string
-	Records   [][]byte
+	Tags      *tags.Tags `json:"tags,omitempty"`
+	Name      string     `json:"name"`
+	ARN       string     `json:"arn"`
+	Status    string     `json:"status"`
+	AccountID string     `json:"accountID"`
+	Region    string     `json:"region"`
+	Records   [][]byte   `json:"records,omitempty"`
 }
 
 // InMemoryBackend is the in-memory store for Firehose resources.

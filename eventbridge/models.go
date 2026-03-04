@@ -75,12 +75,12 @@ type FailedEntry struct {
 
 // EventLogEntry is an entry in the internal event log.
 type EventLogEntry struct {
-	Time         time.Time
-	ID           string
-	Source       string
-	DetailType   string
-	Detail       string
-	EventBusName string
+	Time         time.Time `json:"time"`
+	ID           string    `json:"id"`
+	Source       string    `json:"source"`
+	DetailType   string    `json:"detailType"`
+	Detail       string    `json:"detail"`
+	EventBusName string    `json:"eventBusName"`
 }
 
 // FailedEntry describes a target or event that failed to process.

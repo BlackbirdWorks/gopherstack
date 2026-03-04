@@ -20,15 +20,15 @@ var (
 
 // Case represents an AWS Support case.
 type Case struct {
-	CreatedTime  time.Time
-	ResolvedTime *time.Time
-	CaseID       string
-	Subject      string
-	Status       string
-	ServiceCode  string
-	CategoryCode string
-	SeverityCode string
-	Body         string
+	CreatedTime  time.Time  `json:"createdTime"`
+	ResolvedTime *time.Time `json:"resolvedTime,omitempty"`
+	CaseID       string     `json:"caseID"`
+	Subject      string     `json:"subject"`
+	Status       string     `json:"status"`
+	ServiceCode  string     `json:"serviceCode"`
+	CategoryCode string     `json:"categoryCode"`
+	SeverityCode string     `json:"severityCode"`
+	Body         string     `json:"body"`
 }
 
 // InMemoryBackend is the in-memory store for Support cases.

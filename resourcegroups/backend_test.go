@@ -109,6 +109,7 @@ func TestResourceGroupsGetGroup(t *testing.T) {
 		name      string
 		setup     func(b *resourcegroups.InMemoryBackend)
 		groupName string
+		wantName  string // expected g.Name; defaults to groupName when empty
 		wantErr   error
 		wantTag   string
 	}{
@@ -124,6 +125,14 @@ func TestResourceGroupsGetGroup(t *testing.T) {
 			name:      "not_found",
 			groupName: "nonexistent",
 			wantErr:   resourcegroups.ErrNotFound,
+		},
+		{
+			name:      "arn_lookup",
+			groupName: "arn:aws:resource-groups:us-east-1:000000000000:group/my-group",
+			wantName:  "my-group",
+			setup: func(b *resourcegroups.InMemoryBackend) {
+				_, _ = b.CreateGroup("my-group", "desc", nil, nil)
+			},
 		},
 	}
 
@@ -142,7 +151,11 @@ func TestResourceGroupsGetGroup(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, tt.groupName, g.Name)
+			wantName := tt.groupName
+			if tt.wantName != "" {
+				wantName = tt.wantName
+			}
+			assert.Equal(t, wantName, g.Name)
 			if tt.wantTag != "" {
 				v, _ := g.Tags.Get("env")
 				assert.Equal(t, tt.wantTag, v)
@@ -160,4 +173,171 @@ func TestResourceGroupsListGroups(t *testing.T) {
 
 	groups := b.ListGroups()
 	assert.Len(t, groups, 2)
+}
+
+func TestResourceGroupsGetTagsByARN(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr  error
+		setup    func(b *resourcegroups.InMemoryBackend) string
+		wantTags map[string]string
+		name     string
+	}{
+		{
+			name: "success",
+			setup: func(b *resourcegroups.InMemoryBackend) string {
+				g, _ := b.CreateGroup("my-group", "", nil, tags.FromMap("test.rg", map[string]string{"env": "prod"}))
+
+				return g.ARN
+			},
+			wantTags: map[string]string{"env": "prod"},
+		},
+		{
+			name: "not_found",
+			setup: func(_ *resourcegroups.InMemoryBackend) string {
+				return "arn:aws:resource-groups:us-east-1:000000000000:group/nonexistent"
+			},
+			wantErr: resourcegroups.ErrNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
+			arn := tt.setup(b)
+			got, err := b.GetTagsByARN(arn)
+			if tt.wantErr != nil {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantTags, got)
+		})
+	}
+}
+
+func TestResourceGroupsAddTagsByARN(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr  error
+		addTags  map[string]string
+		wantTags map[string]string
+		name     string
+	}{
+		{
+			name:     "success",
+			addTags:  map[string]string{"team": "platform"},
+			wantTags: map[string]string{"env": "prod", "team": "platform"},
+		},
+		{
+			name:    "not_found",
+			addTags: map[string]string{"k": "v"},
+			wantErr: resourcegroups.ErrNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
+			var groupARN string
+			if tt.wantErr == nil {
+				g, _ := b.CreateGroup("my-group", "", nil, tags.FromMap("test.rg", map[string]string{"env": "prod"}))
+				groupARN = g.ARN
+			} else {
+				groupARN = "arn:aws:resource-groups:us-east-1:000000000000:group/nonexistent"
+			}
+			got, err := b.AddTagsByARN(groupARN, tt.addTags)
+			if tt.wantErr != nil {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantTags, got)
+		})
+	}
+}
+
+func TestResourceGroupsRemoveTagsByARN(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr    error
+		name       string
+		removeKeys []string
+	}{
+		{
+			name:       "success",
+			removeKeys: []string{"env"},
+		},
+		{
+			name:       "not_found",
+			removeKeys: []string{"env"},
+			wantErr:    resourcegroups.ErrNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
+			var groupARN string
+			if tt.wantErr == nil {
+				g, _ := b.CreateGroup("my-group", "", nil, tags.FromMap("test.rg", map[string]string{"env": "prod"}))
+				groupARN = g.ARN
+			} else {
+				groupARN = "arn:aws:resource-groups:us-east-1:000000000000:group/nonexistent"
+			}
+			err := b.RemoveTagsByARN(groupARN, tt.removeKeys)
+			if tt.wantErr != nil {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+			require.NoError(t, err)
+			got, _ := b.GetTagsByARN(groupARN)
+			assert.NotContains(t, got, "env")
+		})
+	}
+}
+
+func TestResourceGroupsSnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
+	_, err := b.CreateGroup("snap-group", "desc", &resourcegroups.ResourceQuery{
+		Type:  "TAG_FILTERS_1_0",
+		Query: `{}`,
+	}, tags.FromMap("test.rg", map[string]string{"env": "test"}))
+	require.NoError(t, err)
+
+	snap := b.Snapshot()
+	require.NotNil(t, snap)
+
+	b2 := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, b2.Restore(snap))
+
+	g, err := b2.GetGroup("snap-group")
+	require.NoError(t, err)
+	assert.Equal(t, "snap-group", g.Name)
+	assert.Equal(t, "desc", g.Description)
+	v, ok := g.Tags.Get("env")
+	assert.True(t, ok)
+	assert.Equal(t, "test", v)
+}
+
+func TestResourceGroupsRestoreInvalidJSON(t *testing.T) {
+	t.Parallel()
+
+	b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
+	err := b.Restore([]byte("not-json"))
+	require.Error(t, err)
 }

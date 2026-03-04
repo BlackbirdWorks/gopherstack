@@ -21,13 +21,13 @@ var (
 
 // Email captures a sent email for local inspection.
 type Email struct {
-	Timestamp time.Time
-	From      string
-	Subject   string
-	BodyHTML  string
-	BodyText  string
-	MessageID string
-	To        []string
+	Timestamp time.Time `json:"timestamp"`
+	From      string    `json:"from"`
+	Subject   string    `json:"subject"`
+	BodyHTML  string    `json:"bodyHTML"`
+	BodyText  string    `json:"bodyText"`
+	MessageID string    `json:"messageID"`
+	To        []string  `json:"to"`
 }
 
 // InMemoryBackend is an in-memory store for SES emails and verified identities.
