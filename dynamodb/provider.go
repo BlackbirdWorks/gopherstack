@@ -40,6 +40,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	}
 
 	backend.createDelay = settings.CreateDelay
+	backend.SetEnforceThroughput(settings.EnforceThroughput)
 
 	handler := NewHandler(backend, ctx.Logger).WithJanitor(settings)
 

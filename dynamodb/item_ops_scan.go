@@ -91,6 +91,13 @@ func (db *InMemoryDB) ScanWithContext(
 	// Process scan outside the lock
 	items, lastKey, scannedCount := db.doScan(ctx, itemsCopy, ttlAttr, snapshotTable, input, pkDef, skDef)
 
+	// Enforce throughput: charge 0.5 RCU per scanned item (eventually-consistent).
+	n := int(scannedCount) // #nosec G115 -- scannedCount is bounded by len(table.Items) which fits in int
+	region := getRegionFromContext(ctx, db)
+	if err = db.throttler.ConsumeRead(throttleKey(region, tableName), rcuForCount(n)); err != nil {
+		return nil, err
+	}
+
 	outItems := make([]map[string]types.AttributeValue, len(items))
 	for i, it := range items {
 		sdkIt, _ := models.ToSDKItem(it)
