@@ -141,92 +141,103 @@ func proxyReq(
 	return rec
 }
 
-func TestHandleAWSProxy_Success(t *testing.T) {
+func TestHandleAWSProxy(t *testing.T) {
 	t.Parallel()
 
-	h, e, apiID := setupProxyAPIViaHandler(t, "AWS_PROXY", "arn:aws:lambda:us-east-1:123:function:myFn")
-
-	mock := &proxyMockInvoker{}
-	h.SetLambdaInvoker(mock)
-
-	rec := proxyReq(t, h, e, apiID, "/items", `{"key":"val"}`)
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, "ok", rec.Body.String())
-}
-
-func TestHandleAWSProxy_LambdaError(t *testing.T) {
-	t.Parallel()
-
-	h, e, apiID := setupProxyAPIViaHandler(t, "AWS_PROXY", "arn:aws:lambda:us-east-1:123:function:errFn")
-
-	mock := &proxyMockInvoker{returnError: errFunctionError}
-	h.SetLambdaInvoker(mock)
-
-	rec := proxyReq(t, h, e, apiID, "/items", `{}`)
-	assert.Equal(t, http.StatusInternalServerError, rec.Code)
-}
-
-func TestHandleAWSProxy_NoLambda(t *testing.T) {
-	t.Parallel()
-
-	h, e, apiID := setupProxyAPIViaHandler(t, "AWS_PROXY", "arn:aws:lambda:us-east-1:123:function:fn")
-	// No lambda invoker set.
-
-	rec := proxyReq(t, h, e, apiID, "/items", `{}`)
-	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
-}
-
-func TestHandleAWSProxy_NotFound(t *testing.T) {
-	t.Parallel()
-
-	h, e, apiID := setupProxyAPIViaHandler(t, "AWS_PROXY", "arn:aws:lambda:us-east-1:123:function:fn")
-	mock := &proxyMockInvoker{}
-	h.SetLambdaInvoker(mock)
-
-	// Request a path that doesn't match any resource.
-	rec := proxyReq(t, h, e, apiID, "/unknown/path", `{}`)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestHandleAWSProxy_Base64Response(t *testing.T) {
-	t.Parallel()
-
-	h, e, apiID := setupProxyAPIViaHandler(t, "AWS_PROXY", "arn:aws:lambda:us-east-1:123:function:fn")
-
-	b64Body := "aGVsbG8=" // base64 of "hello"
-	mock := &proxyMockInvoker{
-		response: []byte(`{"statusCode":200,"body":"` + b64Body + `","isBase64Encoded":true}`),
+	tests := []struct {
+		name         string
+		path         string
+		body         string
+		setupInvoker func(*apigateway.Handler)
+		wantStatus   int
+		wantBody     string
+	}{
+		{
+			name: "success",
+			path: "/items",
+			body: `{"key":"val"}`,
+			setupInvoker: func(h *apigateway.Handler) {
+				h.SetLambdaInvoker(&proxyMockInvoker{})
+			},
+			wantStatus: http.StatusOK,
+			wantBody:   "ok",
+		},
+		{
+			name: "lambda_error",
+			path: "/items",
+			body: `{}`,
+			setupInvoker: func(h *apigateway.Handler) {
+				h.SetLambdaInvoker(&proxyMockInvoker{returnError: errFunctionError})
+			},
+			wantStatus: http.StatusInternalServerError,
+		},
+		{
+			name:         "no_lambda_invoker",
+			path:         "/items",
+			body:         `{}`,
+			setupInvoker: nil,
+			wantStatus:   http.StatusServiceUnavailable,
+		},
+		{
+			name: "not_found",
+			path: "/unknown/path",
+			body: `{}`,
+			setupInvoker: func(h *apigateway.Handler) {
+				h.SetLambdaInvoker(&proxyMockInvoker{})
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "base64_response",
+			path: "/items",
+			body: `{}`,
+			setupInvoker: func(h *apigateway.Handler) {
+				h.SetLambdaInvoker(&proxyMockInvoker{
+					response: []byte(`{"statusCode":200,"body":"aGVsbG8=","isBase64Encoded":true}`),
+				})
+			},
+			wantStatus: http.StatusOK,
+			wantBody:   "hello",
+		},
+		{
+			name: "non_proxy_response",
+			path: "/items",
+			body: `{}`,
+			setupInvoker: func(h *apigateway.Handler) {
+				h.SetLambdaInvoker(&proxyMockInvoker{response: []byte(`not json`)})
+			},
+			wantStatus: http.StatusOK,
+			wantBody:   "not json",
+		},
 	}
-	h.SetLambdaInvoker(mock)
 
-	rec := proxyReq(t, h, e, apiID, "/items", `{}`)
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, "hello", rec.Body.String())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, e, apiID := setupProxyAPIViaHandler(t, "AWS_PROXY", "arn:aws:lambda:us-east-1:123:function:myFn")
+			if tt.setupInvoker != nil {
+				tt.setupInvoker(h)
+			}
+
+			rec := proxyReq(t, h, e, apiID, tt.path, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			if tt.wantBody != "" {
+				assert.Equal(t, tt.wantBody, rec.Body.String())
+			}
+		})
+	}
 }
 
-func TestHandleAWSProxy_NonProxyResponse(t *testing.T) {
-	t.Parallel()
-
-	h, e, apiID := setupProxyAPIViaHandler(t, "AWS_PROXY", "arn:aws:lambda:us-east-1:123:function:fn")
-
-	// Non-JSON response should be returned as-is.
-	mock := &proxyMockInvoker{response: []byte(`not json`)}
-	h.SetLambdaInvoker(mock)
-
-	rec := proxyReq(t, h, e, apiID, "/items", `{}`)
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, "not json", rec.Body.String())
-}
-
-func TestHandleAWSIntegration_WithRequestTemplate(t *testing.T) {
-	t.Parallel()
+// setupVTLAPI creates an API with a /transform resource that has a requestTemplates integration.
+func setupVTLAPI(t *testing.T) (*apigateway.Handler, *echo.Echo, string) {
+	t.Helper()
 
 	log := logger.NewLogger(slog.LevelDebug)
 	backend := apigateway.NewInMemoryBackend()
 	h := apigateway.NewHandler(backend, log)
 	e := echo.New()
 
-	// Create REST API.
 	createRec := postWithHandler(t, h, e, "CreateRestApi", `{"name":"vtl-api","description":"test"}`)
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
@@ -234,13 +245,11 @@ func TestHandleAWSIntegration_WithRequestTemplate(t *testing.T) {
 	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
 	apiID := createResp["id"].(string)
 
-	// Get root resource.
 	listRec := postWithHandler(t, h, e, "GetResources", `{"restApiId":"`+apiID+`"}`)
 	var listResp map[string]any
 	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
 	rootID := listResp["item"].([]any)[0].(map[string]any)["id"].(string)
 
-	// Create child resource.
 	childRec := postWithHandler(t, h, e, "CreateResource",
 		`{"restApiId":"`+apiID+`","parentId":"`+rootID+`","pathPart":"transform"}`)
 	var childResp map[string]any
@@ -250,7 +259,6 @@ func TestHandleAWSIntegration_WithRequestTemplate(t *testing.T) {
 	postWithHandler(t, h, e, "PutMethod",
 		`{"restApiId":"`+apiID+`","resourceId":"`+childID+`","httpMethod":"POST","authorizationType":"NONE"}`)
 
-	// PutIntegration with requestTemplates.
 	integBody := `{
 		"restApiId":"` + apiID + `",
 		"resourceId":"` + childID + `",
@@ -265,69 +273,151 @@ func TestHandleAWSIntegration_WithRequestTemplate(t *testing.T) {
 	postWithHandler(t, h, e, "CreateDeployment",
 		`{"restApiId":"`+apiID+`","stageName":"prod","description":"v1"}`)
 
-	var capturedPayload []byte
-	mock := &captureInvoker{capture: &capturedPayload}
-	h.SetLambdaInvoker(mock)
-
-	rec := proxyReq(t, h, e, apiID, "/transform", `{"user":"alice"}`)
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	var got map[string]any
-	require.NoError(t, json.Unmarshal(capturedPayload, &got))
-	assert.Equal(t, "alice", got["name"])
+	return h, e, apiID
 }
 
-func TestHandleAWSIntegration_LambdaError(t *testing.T) {
+func TestHandleAWSIntegration(t *testing.T) {
 	t.Parallel()
 
-	h, e, apiID := setupProxyAPIViaHandler(t, "AWS", "arn:aws:lambda:us-east-1:123:function:fn")
+	tests := []struct {
+		name         string
+		setupFn      func(t *testing.T) (*apigateway.Handler, *echo.Echo, string)
+		invokerFn    func(capture *[]byte) apigateway.LambdaInvoker
+		path         string
+		body         string
+		wantStatus   int
+		checkCapture func(t *testing.T, captured []byte)
+	}{
+		{
+			name: "with_request_template",
+			setupFn: func(t *testing.T) (*apigateway.Handler, *echo.Echo, string) {
+				t.Helper()
+				return setupVTLAPI(t)
+			},
+			invokerFn: func(capture *[]byte) apigateway.LambdaInvoker {
+				return &captureInvoker{capture: capture}
+			},
+			path:       "/transform",
+			body:       `{"user":"alice"}`,
+			wantStatus: http.StatusOK,
+			checkCapture: func(t *testing.T, captured []byte) {
+				t.Helper()
+				var got map[string]any
+				require.NoError(t, json.Unmarshal(captured, &got))
+				assert.Equal(t, "alice", got["name"])
+			},
+		},
+		{
+			name: "lambda_error",
+			setupFn: func(t *testing.T) (*apigateway.Handler, *echo.Echo, string) {
+				t.Helper()
+				return setupProxyAPIViaHandler(t, "AWS", "arn:aws:lambda:us-east-1:123:function:fn")
+			},
+			invokerFn: func(_ *[]byte) apigateway.LambdaInvoker {
+				return &proxyMockInvoker{returnError: errLambdaError}
+			},
+			path:       "/items",
+			body:       `{}`,
+			wantStatus: http.StatusInternalServerError,
+		},
+		{
+			name: "no_request_template",
+			setupFn: func(t *testing.T) (*apigateway.Handler, *echo.Echo, string) {
+				t.Helper()
+				return setupProxyAPIViaHandler(t, "AWS", "arn:aws:lambda:us-east-1:123:function:fn")
+			},
+			invokerFn: func(capture *[]byte) apigateway.LambdaInvoker {
+				return &captureInvoker{capture: capture}
+			},
+			path:       "/items",
+			body:       `{"data":"test"}`,
+			wantStatus: http.StatusOK,
+			checkCapture: func(t *testing.T, captured []byte) {
+				t.Helper()
+				assert.Equal(t, `{"data":"test"}`, string(captured))
+			},
+		},
+	}
 
-	mock := &proxyMockInvoker{returnError: errLambdaError}
-	h.SetLambdaInvoker(mock)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	rec := proxyReq(t, h, e, apiID, "/items", `{}`)
-	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+			h, e, apiID := tt.setupFn(t)
+
+			var capturedPayload []byte
+			h.SetLambdaInvoker(tt.invokerFn(&capturedPayload))
+
+			rec := proxyReq(t, h, e, apiID, tt.path, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.checkCapture != nil {
+				tt.checkCapture(t, capturedPayload)
+			}
+		})
+	}
 }
 
 func TestHandleProxy_UnsupportedIntegrationType(t *testing.T) {
 	t.Parallel()
 
-	h, e, apiID := setupProxyAPIViaHandler(t, "MOCK", "")
-	mock := &proxyMockInvoker{}
-	h.SetLambdaInvoker(mock)
+	tests := []struct {
+		name       string
+		intType    string
+		uri        string
+		wantStatus int
+	}{
+		{
+			name:       "mock_type_not_implemented",
+			intType:    "MOCK",
+			uri:        "",
+			wantStatus: http.StatusNotImplemented,
+		},
+	}
 
-	rec := proxyReq(t, h, e, apiID, "/items", `{}`)
-	assert.Equal(t, http.StatusNotImplemented, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, e, apiID := setupProxyAPIViaHandler(t, tt.intType, tt.uri)
+			h.SetLambdaInvoker(&proxyMockInvoker{})
+
+			rec := proxyReq(t, h, e, apiID, "/items", `{}`)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
 }
 
 func TestHandleStageProxy_InvalidPath(t *testing.T) {
 	t.Parallel()
 
-	log := logger.NewLogger(slog.LevelDebug)
-	backend := apigateway.NewInMemoryBackend()
-	h := apigateway.NewHandler(backend, log)
-	e := echo.New()
+	tests := []struct {
+		name       string
+		url        string
+		wantStatus int
+	}{
+		{
+			name:       "single_path_segment",
+			url:        "/proxy/onlyonepart",
+			wantStatus: http.StatusNotFound,
+		},
+	}
 
-	req := httptest.NewRequest(http.MethodGet, "/proxy/onlyonepart", nil)
-	rec := httptest.NewRecorder()
-	c := e.NewContext(req, rec)
-	err := h.Handler()(c)
-	require.NoError(t, err)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-func TestHandleAWSIntegration_NoRequestTemplate(t *testing.T) {
-	t.Parallel()
+			log := logger.NewLogger(slog.LevelDebug)
+			backend := apigateway.NewInMemoryBackend()
+			h := apigateway.NewHandler(backend, log)
+			e := echo.New()
 
-	h, e, apiID := setupProxyAPIViaHandler(t, "AWS", "arn:aws:lambda:us-east-1:123:function:fn")
-
-	var capturedPayload []byte
-	mock := &captureInvoker{capture: &capturedPayload}
-	h.SetLambdaInvoker(mock)
-
-	body := `{"data":"test"}`
-	rec := proxyReq(t, h, e, apiID, "/items", body)
-	assert.Equal(t, http.StatusOK, rec.Code)
-	// Without a template, raw body is forwarded.
-	assert.Equal(t, body, string(capturedPayload))
+			req := httptest.NewRequest(http.MethodGet, tt.url, nil)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+			err := h.Handler()(c)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
 }
