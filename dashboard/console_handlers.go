@@ -1,7 +1,9 @@
 package dashboard
 
 import (
+	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -48,4 +50,49 @@ func (h *DashboardHandler) consoleAPI(c *echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{
 		"requests": requests,
 	})
+}
+
+// consoleAPIStream creates a Server-Sent Events (SSE) stream for new console requests.
+func (h *DashboardHandler) consoleAPIStream(c *echo.Context) error {
+	c.Response().Header().Set(echo.HeaderContentType, "text/event-stream")
+	c.Response().Header().Set(echo.HeaderCacheControl, "no-cache")
+	c.Response().Header().Set(echo.HeaderConnection, "keep-alive")
+
+	w := c.Response()
+	w.WriteHeader(http.StatusOK)
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+
+	ch := logger.GlobalRingBuffer.Subscribe()
+
+	defer logger.GlobalRingBuffer.Unsubscribe(ch)
+
+	encoder := json.NewEncoder(w)
+
+	// Send a keep-alive ping every 2 seconds to prevent browser/proxy timeouts.
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-c.Request().Context().Done():
+			return nil
+		case <-ticker.C:
+			w.Write([]byte(":\n\n"))
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+		case req := <-ch:
+			w.Write([]byte("data: "))
+			if err := encoder.Encode(req); err != nil {
+				h.Logger.Error("failed to encode event stream data", "err", err)
+				return err
+			}
+			w.Write([]byte("\n\n"))
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+		}
+	}
 }

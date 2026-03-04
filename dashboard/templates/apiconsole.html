@@ -109,14 +109,16 @@
 
 <script>
     var currentLogs = [];
-    if (window.consoleRefreshInterval) {
-        clearInterval(window.consoleRefreshInterval);
-    }
-    window.consoleRefreshInterval = null;
+    var eventSource = null;
 
     function init() {
+        // Initial bulk fetch to get history
         fetchLogs();
-        startAutoRefresh();
+        // Start streaming if auto is checked
+        const isAuto = document.getElementById('auto-refresh-toggle').checked;
+        if (isAuto) {
+            startAutoRefresh();
+        }
     }
 
     function toggleAutoRefresh(enabled) {
@@ -128,15 +130,32 @@
     }
 
     function startAutoRefresh() {
-        if (!window.consoleRefreshInterval) {
-            window.consoleRefreshInterval = setInterval(fetchLogs, 2000);
+        if (!eventSource) {
+            eventSource = new EventSource('/dashboard/api/console/stream');
+            eventSource.onmessage = function (event) {
+                try {
+                    const req = JSON.parse(event.data);
+                    // Add new request to the top of the array
+                    currentLogs.unshift(req);
+                    // Optionally cap size (e.g. 100)
+                    if (currentLogs.length > 100) {
+                        currentLogs.pop();
+                    }
+                    renderLogs();
+                } catch (e) {
+                    console.error("Error parsing SSE data", e);
+                }
+            };
+            eventSource.onerror = function (err) {
+                console.error("SSE error", err);
+            };
         }
     }
 
     function stopAutoRefresh() {
-        if (window.consoleRefreshInterval) {
-            clearInterval(window.consoleRefreshInterval);
-            window.consoleRefreshInterval = null;
+        if (eventSource) {
+            eventSource.close();
+            eventSource = null;
         }
     }
 

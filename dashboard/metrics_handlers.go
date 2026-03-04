@@ -1,7 +1,9 @@
 package dashboard
 
 import (
+	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 
@@ -19,6 +21,7 @@ func RegisterMetricsHandlers(g *echo.Group, h *DashboardHandler) {
 
 	// JSON format for dashboard consumption
 	g.GET("/api/metrics", getMetricsJSON)
+	g.GET("/api/metrics/stream", streamMetricsSSE)
 
 	// UI Routes
 	if h != nil {
@@ -40,6 +43,52 @@ func getMetricsJSON(c *echo.Context) error {
 	result := telemetry.CollectMetrics()
 
 	return c.JSON(http.StatusOK, result)
+}
+
+// streamMetricsSSE pushes metrics securely to the dashboard ui via Server-Sent Events.
+func streamMetricsSSE(c *echo.Context) error {
+	c.Response().Header().Set(echo.HeaderContentType, "text/event-stream")
+	c.Response().Header().Set(echo.HeaderCacheControl, "no-cache")
+	c.Response().Header().Set(echo.HeaderConnection, "keep-alive")
+
+	w := c.Response()
+	w.WriteHeader(http.StatusOK)
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+
+	encoder := json.NewEncoder(w)
+
+	// Stream updates every 2 seconds matching the console Live API rate
+
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	// Keep alive ping every 15s
+	keepAlive := time.NewTicker(15 * time.Second)
+	defer keepAlive.Stop()
+
+	for {
+		select {
+		case <-c.Request().Context().Done():
+			return nil
+		case <-keepAlive.C:
+			w.Write([]byte(":\n\n"))
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+		case <-ticker.C:
+			result := telemetry.CollectMetrics()
+			w.Write([]byte("data: "))
+			if err := encoder.Encode(result); err != nil {
+				return err
+			}
+			w.Write([]byte("\n\n"))
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+		}
+	}
 }
 
 // metricsIndex renders the metrics dashboard page.
