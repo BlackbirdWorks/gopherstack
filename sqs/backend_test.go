@@ -471,9 +471,11 @@ func TestLongPollingWakesOnMessageArrival(t *testing.T) {
 	qURL := createTestQueue(t, b, "wake-queue")
 
 	// Send a message after a short delay while ReceiveMessage is blocking.
+	sendErr := make(chan error, 1)
 	go func() {
 		time.Sleep(150 * time.Millisecond)
-		_, _ = b.SendMessage(&sqs.SendMessageInput{QueueURL: qURL, MessageBody: "wake"})
+		_, err := b.SendMessage(&sqs.SendMessageInput{QueueURL: qURL, MessageBody: "wake"})
+		sendErr <- err
 	}()
 
 	start := time.Now()
@@ -487,6 +489,7 @@ func TestLongPollingWakesOnMessageArrival(t *testing.T) {
 
 	elapsed := time.Since(start)
 
+	require.NoError(t, <-sendErr)
 	require.NoError(t, err)
 	require.Len(t, out.Messages, 1)
 	// Should wake well before the 5-second deadline.
