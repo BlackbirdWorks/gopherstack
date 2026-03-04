@@ -1300,128 +1300,212 @@ func TestIAMHandler_DetachRolePolicy(t *testing.T) {
 	})
 }
 
-func TestIAMHandler_TagOperations(t *testing.T) {
+func TestIAMHandler_TagAndList(t *testing.T) {
 	t.Parallel()
 
-	t.Run("TagRoleAndListRoleTags", func(t *testing.T) {
-		t.Parallel()
-		e := echo.New()
-		h, _ := newTestHandler(t)
+	tests := []struct {
+		name             string
+		setup            func(*iam.InMemoryBackend) string
+		tagAction        string
+		tagParams        func(id string) map[string]string
+		wantTagResp      string
+		listAction       string
+		listParams       func(id string) map[string]string
+		wantListContains []string
+	}{
+		{
+			name:      "role",
+			setup:     func(_ *iam.InMemoryBackend) string { return "MyRole" },
+			tagAction: "TagRole",
+			tagParams: func(id string) map[string]string {
+				return map[string]string{
+					"RoleName":            id,
+					"Tags.member.1.Key":   "env",
+					"Tags.member.1.Value": "prod",
+					"Tags.member.2.Key":   "team",
+					"Tags.member.2.Value": "platform",
+				}
+			},
+			wantTagResp:      "TagRoleResponse",
+			listAction:       "ListRoleTags",
+			listParams:       func(id string) map[string]string { return map[string]string{"RoleName": id} },
+			wantListContains: []string{"env", "prod"},
+		},
+		{
+			name:      "user",
+			setup:     func(_ *iam.InMemoryBackend) string { return "alice" },
+			tagAction: "TagUser",
+			tagParams: func(id string) map[string]string {
+				return map[string]string{
+					"UserName":            id,
+					"Tags.member.1.Key":   "dept",
+					"Tags.member.1.Value": "engineering",
+				}
+			},
+			wantTagResp:      "TagUserResponse",
+			listAction:       "ListUserTags",
+			listParams:       func(id string) map[string]string { return map[string]string{"UserName": id} },
+			wantListContains: []string{"dept", "engineering"},
+		},
+		{
+			name: "policy",
+			setup: func(b *iam.InMemoryBackend) string {
+				pol, _ := b.CreatePolicy("MyPolicy", "/", `{"Version":"2012-10-17"}`)
 
-		req := iamRequest("TagRole", map[string]string{
-			"RoleName":            "MyRole",
-			"Tags.member.1.Key":   "env",
-			"Tags.member.1.Value": "prod",
-			"Tags.member.2.Key":   "team",
-			"Tags.member.2.Value": "platform",
+				return pol.Arn
+			},
+			tagAction: "TagPolicy",
+			tagParams: func(id string) map[string]string {
+				return map[string]string{
+					"PolicyArn":           id,
+					"Tags.member.1.Key":   "env",
+					"Tags.member.1.Value": "staging",
+					"Tags.member.2.Key":   "owner",
+					"Tags.member.2.Value": "platform",
+				}
+			},
+			wantTagResp:      "TagPolicyResponse",
+			listAction:       "ListPolicyTags",
+			listParams:       func(id string) map[string]string { return map[string]string{"PolicyArn": id} },
+			wantListContains: []string{"ListPolicyTagsResponse", "env", "staging"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			e := echo.New()
+			h, b := newTestHandler(t)
+			id := tt.setup(b)
+
+			req := iamRequest(tt.tagAction, tt.tagParams(id))
+			rec := httptest.NewRecorder()
+			err := h.Handler()(e.NewContext(req, rec))
+			require.NoError(t, err)
+			assert.Equal(t, http.StatusOK, rec.Code)
+			assert.Contains(t, rec.Body.String(), tt.wantTagResp)
+
+			req = iamRequest(tt.listAction, tt.listParams(id))
+			rec = httptest.NewRecorder()
+			err = h.Handler()(e.NewContext(req, rec))
+			require.NoError(t, err)
+			assert.Equal(t, http.StatusOK, rec.Code)
+			for _, want := range tt.wantListContains {
+				assert.Contains(t, rec.Body.String(), want)
+			}
 		})
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
+	}
+}
 
-		err := h.Handler()(c)
-		require.NoError(t, err)
-		assert.Equal(t, http.StatusOK, rec.Code)
+func TestIAMHandler_UntagAndVerify(t *testing.T) {
+	t.Parallel()
 
-		// List tags
-		req = iamRequest("ListRoleTags", map[string]string{"RoleName": "MyRole"})
-		rec = httptest.NewRecorder()
-		c = e.NewContext(req, rec)
+	tests := []struct {
+		name           string
+		setup          func(*iam.InMemoryBackend) string
+		tagAction      string
+		tagParams      func(id string) map[string]string
+		untagAction    string
+		untagParams    func(id string) map[string]string
+		wantUntagResp  string
+		listAction     string
+		listParams     func(id string) map[string]string
+		wantListAbsent []string
+	}{
+		{
+			name:      "role",
+			setup:     func(_ *iam.InMemoryBackend) string { return "MyRole" },
+			tagAction: "TagRole",
+			tagParams: func(id string) map[string]string {
+				return map[string]string{
+					"RoleName":            id,
+					"Tags.member.1.Key":   "env",
+					"Tags.member.1.Value": "prod",
+				}
+			},
+			untagAction: "UntagRole",
+			untagParams: func(id string) map[string]string {
+				return map[string]string{"RoleName": id, "TagKeys.member.1": "env"}
+			},
+			wantUntagResp:  "UntagRoleResponse",
+			listAction:     "ListRoleTags",
+			listParams:     func(id string) map[string]string { return map[string]string{"RoleName": id} },
+			wantListAbsent: []string{"env"},
+		},
+		{
+			name:      "user",
+			setup:     func(_ *iam.InMemoryBackend) string { return "alice" },
+			tagAction: "TagUser",
+			tagParams: func(id string) map[string]string {
+				return map[string]string{
+					"UserName":            id,
+					"Tags.member.1.Key":   "dept",
+					"Tags.member.1.Value": "engineering",
+				}
+			},
+			untagAction: "UntagUser",
+			untagParams: func(id string) map[string]string {
+				return map[string]string{"UserName": id, "TagKeys.member.1": "dept"}
+			},
+			wantUntagResp:  "UntagUserResponse",
+			listAction:     "ListUserTags",
+			listParams:     func(id string) map[string]string { return map[string]string{"UserName": id} },
+			wantListAbsent: []string{"dept"},
+		},
+		{
+			name: "policy",
+			setup: func(b *iam.InMemoryBackend) string {
+				pol, _ := b.CreatePolicy("MyPolicy", "/", `{"Version":"2012-10-17"}`)
 
-		err = h.Handler()(c)
-		require.NoError(t, err)
-		assert.Equal(t, http.StatusOK, rec.Code)
-		assert.Contains(t, rec.Body.String(), "env")
-		assert.Contains(t, rec.Body.String(), "prod")
-	})
+				return pol.Arn
+			},
+			tagAction: "TagPolicy",
+			tagParams: func(id string) map[string]string {
+				return map[string]string{
+					"PolicyArn":           id,
+					"Tags.member.1.Key":   "env",
+					"Tags.member.1.Value": "prod",
+				}
+			},
+			untagAction: "UntagPolicy",
+			untagParams: func(id string) map[string]string {
+				return map[string]string{"PolicyArn": id, "TagKeys.member.1": "env"}
+			},
+			wantUntagResp:  "UntagPolicyResponse",
+			listAction:     "ListPolicyTags",
+			listParams:     func(id string) map[string]string { return map[string]string{"PolicyArn": id} },
+			wantListAbsent: []string{"env"},
+		},
+	}
 
-	t.Run("UntagRole", func(t *testing.T) {
-		t.Parallel()
-		e := echo.New()
-		h, _ := newTestHandler(t)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			e := echo.New()
+			h, b := newTestHandler(t)
+			id := tt.setup(b)
 
-		// Tag first
-		req := iamRequest("TagRole", map[string]string{
-			"RoleName":            "MyRole",
-			"Tags.member.1.Key":   "env",
-			"Tags.member.1.Value": "prod",
+			req := iamRequest(tt.tagAction, tt.tagParams(id))
+			rec := httptest.NewRecorder()
+			err := h.Handler()(e.NewContext(req, rec))
+			require.NoError(t, err)
+
+			req = iamRequest(tt.untagAction, tt.untagParams(id))
+			rec = httptest.NewRecorder()
+			err = h.Handler()(e.NewContext(req, rec))
+			require.NoError(t, err)
+			assert.Equal(t, http.StatusOK, rec.Code)
+			assert.Contains(t, rec.Body.String(), tt.wantUntagResp)
+
+			req = iamRequest(tt.listAction, tt.listParams(id))
+			rec = httptest.NewRecorder()
+			err = h.Handler()(e.NewContext(req, rec))
+			require.NoError(t, err)
+			for _, absent := range tt.wantListAbsent {
+				assert.NotContains(t, rec.Body.String(), absent)
+			}
 		})
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-		err := h.Handler()(c)
-		require.NoError(t, err)
-
-		// Untag
-		req = iamRequest("UntagRole", map[string]string{
-			"RoleName":         "MyRole",
-			"TagKeys.member.1": "env",
-		})
-		rec = httptest.NewRecorder()
-		c = e.NewContext(req, rec)
-		err = h.Handler()(c)
-		require.NoError(t, err)
-		assert.Equal(t, http.StatusOK, rec.Code)
-
-		// Verify empty
-		req = iamRequest("ListRoleTags", map[string]string{"RoleName": "MyRole"})
-		rec = httptest.NewRecorder()
-		c = e.NewContext(req, rec)
-		err = h.Handler()(c)
-		require.NoError(t, err)
-		assert.NotContains(t, rec.Body.String(), "env")
-	})
-
-	t.Run("TagUserAndListUserTags", func(t *testing.T) {
-		t.Parallel()
-		e := echo.New()
-		h, _ := newTestHandler(t)
-
-		req := iamRequest("TagUser", map[string]string{
-			"UserName":            "alice",
-			"Tags.member.1.Key":   "dept",
-			"Tags.member.1.Value": "engineering",
-		})
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		err := h.Handler()(c)
-		require.NoError(t, err)
-		assert.Equal(t, http.StatusOK, rec.Code)
-
-		req = iamRequest("ListUserTags", map[string]string{"UserName": "alice"})
-		rec = httptest.NewRecorder()
-		c = e.NewContext(req, rec)
-
-		err = h.Handler()(c)
-		require.NoError(t, err)
-		assert.Equal(t, http.StatusOK, rec.Code)
-		assert.Contains(t, rec.Body.String(), "dept")
-	})
-
-	t.Run("UntagUser", func(t *testing.T) {
-		t.Parallel()
-		e := echo.New()
-		h, _ := newTestHandler(t)
-
-		req := iamRequest("TagUser", map[string]string{
-			"UserName":            "alice",
-			"Tags.member.1.Key":   "dept",
-			"Tags.member.1.Value": "engineering",
-		})
-		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-		err := h.Handler()(c)
-		require.NoError(t, err)
-
-		req = iamRequest("UntagUser", map[string]string{
-			"UserName":         "alice",
-			"TagKeys.member.1": "dept",
-		})
-		rec = httptest.NewRecorder()
-		c = e.NewContext(req, rec)
-		err = h.Handler()(c)
-		require.NoError(t, err)
-		assert.Equal(t, http.StatusOK, rec.Code)
-	})
+	}
 }
 
 // TestIAMHandler_InternalFailure tests the InternalFailure error code path

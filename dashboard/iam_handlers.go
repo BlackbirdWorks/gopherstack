@@ -6,19 +6,22 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+// iamPageData is the template data for the IAM overview page.
+type iamPageData struct {
+	Users            any
+	Roles            any
+	Policies         any
+	Groups           any
+	AccessKeys       any
+	InstanceProfiles any
+	PageData         //nolint:embeddedstructfieldcheck // must be last for backward compatibility
+}
+
 // iamIndex renders the IAM resource overview page.
 func (h *DashboardHandler) iamIndex(c *echo.Context) error {
 	w := c.Response()
 
-	data := struct {
-		Users            any
-		Roles            any
-		Policies         any
-		Groups           any
-		AccessKeys       any
-		InstanceProfiles any
-		PageData         //nolint:embeddedstructfieldcheck // must be last for backward compatibility
-	}{
+	data := iamPageData{
 		PageData: PageData{
 			Title:     "IAM",
 			ActiveTab: "iam",

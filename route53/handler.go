@@ -16,7 +16,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
-	"github.com/blackbirdworks/gopherstack/pkgs/tags"
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 const (
@@ -35,7 +35,7 @@ const (
 type Handler struct {
 	Backend *InMemoryBackend
 	Logger  *slog.Logger
-	tags    map[string]*tags.Tags
+	tags    map[string]*svcTags.Tags
 	tagsMu  *lockmetrics.RWMutex
 }
 
@@ -48,7 +48,7 @@ func NewHandler(backend *InMemoryBackend, log *slog.Logger) *Handler {
 	return &Handler{
 		Backend: backend,
 		Logger:  log,
-		tags:    make(map[string]*tags.Tags),
+		tags:    make(map[string]*svcTags.Tags),
 		tagsMu:  lockmetrics.New("route53.tags"),
 	}
 }
@@ -57,7 +57,7 @@ func (h *Handler) setTags(resourceID string, kv map[string]string) {
 	h.tagsMu.Lock("setTags")
 	defer h.tagsMu.Unlock()
 	if h.tags[resourceID] == nil {
-		h.tags[resourceID] = tags.New("route53." + resourceID + ".tags")
+		h.tags[resourceID] = svcTags.New("route53." + resourceID + ".tags")
 	}
 	h.tags[resourceID].Merge(kv)
 }
@@ -302,6 +302,12 @@ type xmlChangeResourceRecordSetsResponse struct {
 	ChangeInfo xmlChangeInfo `xml:"ChangeInfo"`
 }
 
+type xmlDeleteHostedZoneResponse struct {
+	XMLName    xml.Name      `xml:"DeleteHostedZoneResponse"`
+	Xmlns      string        `xml:"xmlns,attr"`
+	ChangeInfo xmlChangeInfo `xml:"ChangeInfo"`
+}
+
 type xmlResourceRecord struct {
 	Value string `xml:"Value"`
 }
@@ -325,28 +331,29 @@ type xmlListResourceRecordSetsResponse struct {
 // ---- XML request types ----
 
 type xmlCreateHostedZoneRequest struct {
-	XMLName          xml.Name `xml:"CreateHostedZoneRequest"`
-	Name             string   `xml:"Name"`
-	CallerReference  string   `xml:"CallerReference"`
-	HostedZoneConfig struct {
-		Comment     string `xml:"Comment"`
-		PrivateZone bool   `xml:"PrivateZone"`
-	} `xml:"HostedZoneConfig"`
+	XMLName          xml.Name            `xml:"CreateHostedZoneRequest"`
+	Name             string              `xml:"Name"`
+	CallerReference  string              `xml:"CallerReference"`
+	HostedZoneConfig xmlHostedZoneConfig `xml:"HostedZoneConfig"`
+}
+
+// xmlResourceRecordSetChange is the ResourceRecordSet element within a change batch entry.
+type xmlResourceRecordSetChange struct {
+	Name            string              `xml:"Name"`
+	Type            string              `xml:"Type"`
+	ResourceRecords []xmlResourceRecord `xml:"ResourceRecords>ResourceRecord"`
+	TTL             int64               `xml:"TTL"`
+}
+
+// xmlChange is a single change entry within a ChangeBatch.
+type xmlChange struct {
+	Action            string                     `xml:"Action"`
+	ResourceRecordSet xmlResourceRecordSetChange `xml:"ResourceRecordSet"`
 }
 
 type xmlChangeBatch struct {
-	XMLName xml.Name `xml:"ChangeBatch"`
-	Changes []struct {
-		Action            string `xml:"Action"`
-		ResourceRecordSet struct {
-			Name            string `xml:"Name"`
-			Type            string `xml:"Type"`
-			ResourceRecords []struct {
-				Value string `xml:"Value"`
-			} `xml:"ResourceRecords>ResourceRecord"`
-			TTL int64 `xml:"TTL"`
-		} `xml:"ResourceRecordSet"`
-	} `xml:"Changes>Change"`
+	XMLName xml.Name    `xml:"ChangeBatch"`
+	Changes []xmlChange `xml:"Changes>Change"`
 }
 
 type xmlChangeResourceRecordSetsRequest struct {
@@ -429,11 +436,7 @@ func (h *Handler) deleteHostedZone(c *echo.Context) error {
 
 	h.Logger.DebugContext(ctx, "Route53 DeleteHostedZone", "id", zoneID)
 
-	resp := struct {
-		XMLName    xml.Name      `xml:"DeleteHostedZoneResponse"`
-		Xmlns      string        `xml:"xmlns,attr"`
-		ChangeInfo xmlChangeInfo `xml:"ChangeInfo"`
-	}{
+	resp := xmlDeleteHostedZoneResponse{
 		Xmlns: route53Namespace,
 		ChangeInfo: xmlChangeInfo{
 			SubmittedAt: time.Now(),
@@ -484,7 +487,7 @@ func (h *Handler) changeResourceRecordSets(c *echo.Context) error {
 	for _, ch := range req.ChangeBatch.Changes {
 		records := make([]ResourceRecord, len(ch.ResourceRecordSet.ResourceRecords))
 		for i, rr := range ch.ResourceRecordSet.ResourceRecords {
-			records[i] = ResourceRecord{Value: rr.Value}
+			records[i] = ResourceRecord(rr)
 		}
 
 		changes = append(changes, Change{
@@ -651,11 +654,8 @@ func (h *Handler) changeTagsForResource(c *echo.Context) error {
 }
 
 type applyTagChangesInput struct {
-	AddTags []struct {
-		Key   string `xml:"Key"`
-		Value string `xml:"Value"`
-	} `xml:"AddTags>Tag"`
-	RemoveTagKeys []string `xml:"RemoveTagKeys>Key"`
+	AddTags       []svcTags.KV `xml:"AddTags>Tag"`
+	RemoveTagKeys []string     `xml:"RemoveTagKeys>Key"`
 }
 
 // applyTagChanges reads a ChangeTagsForResource XML body and applies the add/remove operations.
@@ -709,18 +709,22 @@ func writeXML(c *echo.Context, statusCode int, v any) error {
 	return nil
 }
 
+// xmlErrDetail is the nested error detail element in a Route53 error response.
+type xmlErrDetail struct {
+	Type    string `xml:"Type"`
+	Code    string `xml:"Code"`
+	Message string `xml:"Message"`
+}
+
+// xmlErrResp is the XML error response body for Route53.
+type xmlErrResp struct {
+	XMLName xml.Name     `xml:"ErrorResponse"`
+	Xmlns   string       `xml:"xmlns,attr"`
+	Error   xmlErrDetail `xml:"Error"`
+}
+
 // xmlError writes a Route 53-style XML error response.
 func xmlError(c *echo.Context, statusCode int, code, message string) error {
-	type xmlErrResp struct {
-		XMLName xml.Name `xml:"ErrorResponse"`
-		Xmlns   string   `xml:"xmlns,attr"`
-		Error   struct {
-			Type    string `xml:"Type"`
-			Code    string `xml:"Code"`
-			Message string `xml:"Message"`
-		} `xml:"Error"`
-	}
-
 	resp := xmlErrResp{Xmlns: route53Namespace}
 	resp.Error.Type = "Sender"
 	resp.Error.Code = code

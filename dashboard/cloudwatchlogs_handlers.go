@@ -8,17 +8,38 @@ import (
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/cloudwatchlogs"
 )
 
+// cloudWatchLogsIndexData is the template data for the CloudWatch Logs list page.
+type cloudWatchLogsIndexData struct {
+	PageData
+
+	LogGroups []cwlogsbackend.LogGroup
+}
+
+// cloudWatchLogsGroupDetailData is the template data for the CloudWatch Logs group detail page.
+type cloudWatchLogsGroupDetailData struct {
+	PageData
+
+	GroupName string
+	Streams   []cwlogsbackend.LogStream
+}
+
+// cloudWatchLogsStreamDetailData is the template data for the CloudWatch Logs stream detail page.
+type cloudWatchLogsStreamDetailData struct {
+	PageData
+
+	GroupName  string
+	StreamName string
+	Filter     string
+	Events     []cwlogsbackend.OutputLogEvent
+}
+
 func (h *DashboardHandler) cloudWatchLogsIndex(c *echo.Context) error {
 	if h.CloudWatchLogsOps == nil {
 		return c.NoContent(http.StatusServiceUnavailable)
 	}
 
 	groups, _, _ := h.CloudWatchLogsOps.Backend.DescribeLogGroups("", "", 0)
-	data := struct {
-		PageData
-
-		LogGroups []cwlogsbackend.LogGroup
-	}{
+	data := cloudWatchLogsIndexData{
 		PageData: PageData{Title: "CloudWatch Logs", ActiveTab: "cloudwatchlogs",
 			Snippet: &SnippetData{
 				ID:    "cloudwatchlogs-operations",
@@ -57,12 +78,7 @@ func (h *DashboardHandler) cloudWatchLogsGroupDetail(c *echo.Context) error {
 	groupName := c.Request().URL.Query().Get("name")
 
 	streams, _, _ := h.CloudWatchLogsOps.Backend.DescribeLogStreams(groupName, "", "", 0)
-	data := struct {
-		PageData
-
-		GroupName string
-		Streams   []cwlogsbackend.LogStream
-	}{
+	data := cloudWatchLogsGroupDetailData{
 		PageData: PageData{Title: "Log Group: " + groupName, ActiveTab: "cloudwatchlogs",
 			Snippet: &SnippetData{
 				ID:    "cloudwatchlogs-operations",
@@ -128,14 +144,7 @@ func (h *DashboardHandler) cloudWatchLogsStreamDetail(c *echo.Context) error {
 		events = evts
 	}
 
-	data := struct {
-		PageData
-
-		GroupName  string
-		StreamName string
-		Filter     string
-		Events     []cwlogsbackend.OutputLogEvent
-	}{
+	data := cloudWatchLogsStreamDetailData{
 		PageData: PageData{Title: "Stream: " + streamName, ActiveTab: "cloudwatchlogs",
 			Snippet: &SnippetData{
 				ID:    "cloudwatchlogs-operations",

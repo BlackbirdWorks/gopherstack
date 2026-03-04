@@ -14,6 +14,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 const (
@@ -367,9 +368,9 @@ func (h *Handler) handleListTagsForResource(vals url.Values) (any, error) {
 	arn := vals.Get("ResourceName")
 	tags := h.Backend.ListTagsForResource(arn)
 
-	members := make([]xmlTag, 0, len(tags))
+	members := make([]svcTags.KV, 0, len(tags))
 	for _, t := range tags {
-		members = append(members, xmlTag(t))
+		members = append(members, svcTags.KV(t))
 	}
 
 	return &listTagsForResourceResponse{
@@ -618,13 +619,8 @@ type listTagsForResourceResponse struct {
 	TagList xmlTagList `xml:"ListTagsForResourceResult>TagList"`
 }
 
-type xmlTag struct {
-	Key   string `xml:"Key"`
-	Value string `xml:"Value"`
-}
-
 type xmlTagList struct {
-	Members []xmlTag `xml:"Tag"`
+	Members []svcTags.KV `xml:"Tag"`
 }
 
 type addTagsToResourceResponse struct {

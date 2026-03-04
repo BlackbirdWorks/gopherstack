@@ -8,17 +8,29 @@ import (
 	apigwbackend "github.com/blackbirdworks/gopherstack/apigateway"
 )
 
+// apiGatewayIndexData is the template data for the API Gateway list page.
+type apiGatewayIndexData struct {
+	PageData
+
+	APIs []apigwbackend.RestAPI
+}
+
+// apiGatewayDetailData is the template data for the API Gateway detail page.
+type apiGatewayDetailData struct {
+	PageData
+
+	API       *apigwbackend.RestAPI
+	Resources []apigwbackend.Resource
+	Stages    []apigwbackend.Stage
+}
+
 func (h *DashboardHandler) apiGatewayIndex(c *echo.Context) error {
 	if h.APIGatewayOps == nil {
 		return c.NoContent(http.StatusServiceUnavailable)
 	}
 
 	apis, _, _ := h.APIGatewayOps.Backend.GetRestAPIs(0, "")
-	data := struct {
-		PageData
-
-		APIs []apigwbackend.RestAPI
-	}{
+	data := apiGatewayIndexData{
 		PageData: PageData{Title: "API Gateway", ActiveTab: "apigateway",
 			Snippet: &SnippetData{
 				ID:    "apigateway-operations",
@@ -66,13 +78,7 @@ func (h *DashboardHandler) apiGatewayDetail(c *echo.Context) error {
 
 	resources, _, _ := h.APIGatewayOps.Backend.GetResources(id, "", 0)
 	stages, _ := h.APIGatewayOps.Backend.GetStages(id)
-	data := struct {
-		PageData
-
-		API       *apigwbackend.RestAPI
-		Resources []apigwbackend.Resource
-		Stages    []apigwbackend.Stage
-	}{
+	data := apiGatewayDetailData{
 		PageData: PageData{Title: "API Gateway — " + api.Name, ActiveTab: "apigateway",
 			Snippet: &SnippetData{
 				ID:    "apigateway-operations",

@@ -714,11 +714,14 @@ func (h *DynamoDBHandler) describeContinuousBackups(_ context.Context, body []by
 	}, nil
 }
 
+// pointInTimeRecoverySpec holds the PITR enable/disable setting.
+type pointInTimeRecoverySpec struct {
+	PointInTimeRecoveryEnabled bool `json:"PointInTimeRecoveryEnabled"`
+}
+
 type updateContinuousBackupsInput struct {
-	TableName                        string `json:"TableName"`
-	PointInTimeRecoverySpecification struct {
-		PointInTimeRecoveryEnabled bool `json:"PointInTimeRecoveryEnabled"`
-	} `json:"PointInTimeRecoverySpecification"`
+	TableName                        string                  `json:"TableName"`
+	PointInTimeRecoverySpecification pointInTimeRecoverySpec `json:"PointInTimeRecoverySpecification"`
 }
 
 func (h *DynamoDBHandler) updateContinuousBackups(_ context.Context, body []byte) (any, error) {

@@ -34,18 +34,24 @@ type scheduleNameInput struct {
 	Name string `json:"Name"`
 }
 
+// scheduleTarget holds the ARN and IAM role for a schedule target.
+type scheduleTarget struct {
+	Arn     string `json:"Arn"`
+	RoleArn string `json:"RoleArn"`
+}
+
+// scheduleFlexibleTimeWindow holds the flexible time window configuration for a schedule.
+type scheduleFlexibleTimeWindow struct {
+	Mode                   string `json:"Mode"`
+	MaximumWindowInMinutes int    `json:"MaximumWindowInMinutes"`
+}
+
 type scheduleInput struct {
-	Name               string `json:"Name"`
-	ScheduleExpression string `json:"ScheduleExpression"`
-	Target             struct {
-		Arn     string `json:"Arn"`
-		RoleArn string `json:"RoleArn"`
-	} `json:"Target"`
-	State              string `json:"State"`
-	FlexibleTimeWindow struct {
-		Mode                   string `json:"Mode"`
-		MaximumWindowInMinutes int    `json:"MaximumWindowInMinutes"`
-	} `json:"FlexibleTimeWindow"`
+	Name               string                     `json:"Name"`
+	ScheduleExpression string                     `json:"ScheduleExpression"`
+	Target             scheduleTarget             `json:"Target"`
+	State              string                     `json:"State"`
+	FlexibleTimeWindow scheduleFlexibleTimeWindow `json:"FlexibleTimeWindow"`
 }
 
 // Handler is the Echo HTTP handler for EventBridge Scheduler operations.

@@ -469,27 +469,13 @@ func (h *Handler) handleGetSubscriptionAttributes(c *echo.Context) error {
 func (h *Handler) handleListTagsForResource(c *echo.Context) error {
 	resourceArn := c.Request().FormValue("ResourceArn")
 	tags := h.Backend.GetTopicTags(resourceArn)
-	type snsTag struct {
-		Key   string `xml:"Key"`
-		Value string `xml:"Value"`
-	}
-	tagList := make([]snsTag, 0, len(tags))
+	tagList := make([]svcTags.KV, 0, len(tags))
 	for k, v := range tags {
-		tagList = append(tagList, snsTag{Key: k, Value: v})
+		tagList = append(tagList, svcTags.KV{Key: k, Value: v})
 	}
 
-	return h.writeXML(c, struct {
-		XMLName          xml.Name         `xml:"https://sns.amazonaws.com/doc/2010-03-31/ ListTagsForResourceResponse"`
-		ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
-		Result           struct {
-			XMLName xml.Name `xml:"ListTagsForResourceResult"`
-			Tags    []snsTag `xml:"Tags>Tag"`
-		}
-	}{
-		Result: struct {
-			XMLName xml.Name `xml:"ListTagsForResourceResult"`
-			Tags    []snsTag `xml:"Tags>Tag"`
-		}{Tags: tagList},
+	return h.writeXML(c, snsListTagsResponse{
+		Result:           snsListTagsResult{Tags: tagList},
 		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
 	})
 }
@@ -523,9 +509,12 @@ func (h *Handler) handleTagResource(c *echo.Context) error {
 	kv := parseSNSTagsFromForm(c)
 	h.Backend.SetTopicTags(resourceArn, svcTags.FromMap("sns."+resourceArn+".tags.input", kv))
 
-	return h.writeXML(c, struct {
-		XMLName xml.Name `xml:"https://sns.amazonaws.com/doc/2010-03-31/ TagResourceResponse"`
-	}{})
+	return h.writeXML(
+		c,
+		snsEmptyResponse{
+			XMLName: xml.Name{Space: "https://sns.amazonaws.com/doc/2010-03-31/", Local: "TagResourceResponse"},
+		},
+	)
 }
 
 func (h *Handler) handleUntagResource(c *echo.Context) error {
@@ -533,9 +522,12 @@ func (h *Handler) handleUntagResource(c *echo.Context) error {
 	keys := parseSNSTagKeysFromForm(c)
 	h.Backend.RemoveTopicTags(resourceArn, keys)
 
-	return h.writeXML(c, struct {
-		XMLName xml.Name `xml:"https://sns.amazonaws.com/doc/2010-03-31/ UntagResourceResponse"`
-	}{})
+	return h.writeXML(
+		c,
+		snsEmptyResponse{
+			XMLName: xml.Name{Space: "https://sns.amazonaws.com/doc/2010-03-31/", Local: "UntagResourceResponse"},
+		},
+	)
 }
 
 // writeXML marshals v to XML and writes an HTTP 200 OK response.
@@ -678,6 +670,25 @@ type batchEntry struct {
 	id      string
 	message string
 	subject string
+}
+
+// snsListTagsResult is the inner result element for ListTagsForResource.
+type snsListTagsResult struct {
+	XMLName xml.Name     `xml:"ListTagsForResourceResult"`
+	Tags    []svcTags.KV `xml:"Tags>Tag"`
+}
+
+// snsListTagsResponse is the XML response for ListTagsForResource.
+type snsListTagsResponse struct {
+	XMLName          xml.Name         `xml:"https://sns.amazonaws.com/doc/2010-03-31/ ListTagsForResourceResponse"`
+	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
+	Result           snsListTagsResult
+}
+
+// snsEmptyResponse is the XML response for tag mutation operations (TagResource, UntagResource).
+// The XMLName field is set dynamically per action.
+type snsEmptyResponse struct {
+	XMLName xml.Name `xml:""`
 }
 
 // extractBatchEntries reads PublishBatchRequestEntries.member.N entries from the form.

@@ -26,6 +26,11 @@ import (
 const maxInt32 = 2147483647
 const defaultRegionName = config.DefaultRegion
 
+// objectChecksums holds the optional checksum values supplied with a PutObject request.
+type objectChecksums struct {
+	crc32, crc32c, sha1, sha256 *string
+}
+
 var _ StorageBackend = (*InMemoryBackend)(nil)
 
 // getRegionFromS3Context extracts the region from S3 request context.
@@ -289,9 +294,7 @@ func (b *InMemoryBackend) PutObject(
 		return nil, err
 	}
 
-	checksums := struct {
-		crc32, crc32c, sha1, sha256 *string
-	}{
+	checksums := objectChecksums{
 		input.ChecksumCRC32, input.ChecksumCRC32C,
 		input.ChecksumSHA1, input.ChecksumSHA256,
 	}

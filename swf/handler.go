@@ -294,12 +294,15 @@ func (h *Handler) handleStartWorkflowExecution(
 	return &startWorkflowExecutionOutput{RunID: exec.RunID}, nil
 }
 
+// workflowExecutionRef identifies a specific workflow execution by ID and run ID.
+type workflowExecutionRef struct {
+	WorkflowID string `json:"workflowId"`
+	RunID      string `json:"runId"`
+}
+
 type handleDescribeWorkflowExecutionInput struct {
-	Domain    string `json:"domain"`
-	Execution struct {
-		WorkflowID string `json:"workflowId"`
-		RunID      string `json:"runId"`
-	} `json:"execution"`
+	Domain    string               `json:"domain"`
+	Execution workflowExecutionRef `json:"execution"`
 }
 
 func (h *Handler) handleDescribeWorkflowExecution(

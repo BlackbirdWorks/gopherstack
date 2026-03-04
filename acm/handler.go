@@ -14,7 +14,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
-	"github.com/blackbirdworks/gopherstack/pkgs/tags"
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 const (
@@ -82,14 +82,9 @@ type listTagsForCertificateInput struct {
 	CertificateArn string `json:"CertificateArn"`
 }
 
-type acmTag struct {
-	Key   string `json:"Key"`
-	Value string `json:"Value"`
-}
-
 type addTagsToCertificateInput struct {
-	CertificateArn string   `json:"CertificateArn"`
-	Tags           []acmTag `json:"Tags"`
+	CertificateArn string       `json:"CertificateArn"`
+	Tags           []svcTags.KV `json:"Tags"`
 }
 
 type acmTagKey struct {
@@ -105,7 +100,7 @@ type removeTagsFromCertificateInput struct {
 type Handler struct {
 	Backend *InMemoryBackend
 	Logger  *slog.Logger
-	tags    map[string]*tags.Tags
+	tags    map[string]*svcTags.Tags
 	tagsMu  *lockmetrics.RWMutex
 }
 
@@ -114,7 +109,7 @@ func NewHandler(backend *InMemoryBackend, log *slog.Logger) *Handler {
 	return &Handler{
 		Backend: backend,
 		Logger:  log,
-		tags:    make(map[string]*tags.Tags),
+		tags:    make(map[string]*svcTags.Tags),
 		tagsMu:  lockmetrics.New("acm.tags"),
 	}
 }
@@ -123,7 +118,7 @@ func (h *Handler) setTags(resourceID string, kv map[string]string) {
 	h.tagsMu.Lock("setTags")
 	defer h.tagsMu.Unlock()
 	if h.tags[resourceID] == nil {
-		h.tags[resourceID] = tags.New("acm." + resourceID + ".tags")
+		h.tags[resourceID] = svcTags.New("acm." + resourceID + ".tags")
 	}
 	h.tags[resourceID].Merge(kv)
 }

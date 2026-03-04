@@ -116,6 +116,14 @@ func (t *Tags) Range(f func(key, value string) bool) {
 	})
 }
 
+// KV is a key-value tag pair for use in JSON and XML serialization.
+// It is the canonical representation of a single AWS resource tag and is
+// used by handler types across service packages.
+type KV struct {
+	Key   string `json:"Key"   xml:"Key"`
+	Value string `json:"Value" xml:"Value"`
+}
+
 // MarshalJSON implements [json.Marshaler].
 // Tags serialises as a plain JSON object (e.g. {"env":"prod","team":"platform"}).
 func (t *Tags) MarshalJSON() ([]byte, error) {

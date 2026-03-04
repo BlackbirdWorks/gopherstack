@@ -14,6 +14,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 const resolverTargetPrefix = "Route53Resolver."
@@ -144,14 +145,17 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	}
 }
 
+// resolverEndpointIPAddress holds the subnet and IP for a resolver endpoint IP address.
+type resolverEndpointIPAddress struct {
+	SubnetID string `json:"SubnetId"`
+	IP       string `json:"Ip"`
+}
+
 type handleCreateResolverEndpointInput struct {
-	Name             string   `json:"Name"`
-	Direction        string   `json:"Direction"`
-	SecurityGroupIDs []string `json:"SecurityGroupIds"`
-	IPAddresses      []struct {
-		SubnetID string `json:"SubnetId"`
-		IP       string `json:"Ip"`
-	} `json:"IpAddresses"`
+	Name             string                      `json:"Name"`
+	Direction        string                      `json:"Direction"`
+	SecurityGroupIDs []string                    `json:"SecurityGroupIds"`
+	IPAddresses      []resolverEndpointIPAddress `json:"IpAddresses"`
 }
 
 type handleCreateResolverRuleInput struct {
@@ -247,7 +251,7 @@ func (h *Handler) handleCreateResolverEndpoint(
 ) (*createResolverEndpointOutput, error) {
 	ips := make([]IPAddress, 0, len(in.IPAddresses))
 	for _, ip := range in.IPAddresses {
-		ips = append(ips, IPAddress{SubnetID: ip.SubnetID, IP: ip.IP})
+		ips = append(ips, IPAddress(ip))
 	}
 
 	ep, err := h.Backend.CreateResolverEndpoint(in.Name, in.Direction, "", ips)
@@ -344,12 +348,7 @@ type listTagsForResourceInput struct {
 }
 
 type listTagsForResourceOutput struct {
-	Tags []resolverTag `json:"Tags"`
-}
-
-type resolverTag struct {
-	Key   string `json:"Key"`
-	Value string `json:"Value"`
+	Tags []svcTags.KV `json:"Tags"`
 }
 
 // handleListTagsForResource returns an empty tag list.
@@ -358,5 +357,5 @@ func (h *Handler) handleListTagsForResource(
 	_ context.Context,
 	_ *listTagsForResourceInput,
 ) (*listTagsForResourceOutput, error) {
-	return &listTagsForResourceOutput{Tags: []resolverTag{}}, nil
+	return &listTagsForResourceOutput{Tags: []svcTags.KV{}}, nil
 }
