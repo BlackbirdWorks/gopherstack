@@ -29,6 +29,7 @@ type Registry struct {
 	logger      *slog.Logger
 	services    []*Entry
 	middlewares []Middleware
+	latencyMs   int
 }
 
 // NewRegistry creates a new service registry.
@@ -39,6 +40,14 @@ func NewRegistry(logger *slog.Logger) *Registry {
 		logger:      logger,
 		middlewares: make([]Middleware, 0),
 	}
+}
+
+// SetLatencyMs configures per-request latency injection for all services registered
+// after this call. A random sleep of [0, ms) milliseconds is inserted inside the
+// telemetry wrapper so that operation duration metrics include the simulated latency.
+// A value <= 0 disables latency injection.
+func (r *Registry) SetLatencyMs(ms int) {
+	r.latencyMs = ms
 }
 
 // Use adds a global middleware to the registry. Global middlewares
@@ -61,6 +70,12 @@ func (r *Registry) Register(svc Registerable, mws ...Middleware) error {
 	matcher := svc.RouteMatcher()
 	handler := svc.Handler()
 	priority := svc.MatchPriority()
+
+	// Apply latency as the innermost wrapper so that the telemetry timer includes
+	// the simulated sleep in its recorded operation duration.
+	if r.latencyMs > 0 {
+		handler = telemetry.LatencyMiddleware(r.latencyMs)(handler)
+	}
 
 	// Pre-wrap handler with telemetry first (special case as it needs observer)
 	h := telemetry.WrapEchoHandler(

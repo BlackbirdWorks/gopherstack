@@ -8,6 +8,9 @@ type GlobalConfig struct {
 	AccountID string
 	// Region is the default AWS region used when none can be extracted from a request.
 	Region string
+	// LatencyMs is the maximum simulated response latency in milliseconds.
+	// Each request sleeps for a random duration in [0, LatencyMs). Zero disables latency simulation.
+	LatencyMs int
 }
 
 // Provider is implemented by the CLI / any runtime configuration object
