@@ -112,6 +112,12 @@ func (db *InMemoryDB) QueryWithContext(
 		return nil, err
 	}
 
+	// Enforce throughput: charge 0.5 RCU per scanned candidate (eventually-consistent).
+	region := getRegionFromContext(ctx, db)
+	if err = db.throttler.ConsumeRead(throttleKey(region, tableName), rcuForCount(len(candidates))); err != nil {
+		return nil, err
+	}
+
 	_, skDef := getPKAndSK(keySchema)
 	sortForward := true
 	if input.ScanIndexForward != nil {

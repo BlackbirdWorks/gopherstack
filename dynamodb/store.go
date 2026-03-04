@@ -19,6 +19,7 @@ type InMemoryDB struct {
 	txnTokens      map[string]struct{} // committed idempotency tokens
 	txnPending     map[string]struct{} // in-progress idempotency tokens
 	exprCache      *ExpressionCache
+	throttler      *Throttler
 	mu             *lockmetrics.RWMutex
 	defaultRegion  string
 	accountID      string
@@ -93,7 +94,14 @@ func NewInMemoryDB() *InMemoryDB {
 		defaultRegion:  config.DefaultRegion,
 		accountID:      config.DefaultAccountID,
 		mu:             lockmetrics.New("ddb"),
+		throttler:      NewThrottler(false),
 	}
+}
+
+// SetEnforceThroughput enables or disables provisioned throughput throttling.
+// Call before CreateTable calls; intended for CLI configuration.
+func (db *InMemoryDB) SetEnforceThroughput(enabled bool) {
+	db.throttler = NewThrottler(enabled)
 }
 
 // appendStreamRecord adds a new record to the table's stream ring buffer.
