@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
-	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/stepfunctions"
 )
@@ -26,100 +25,205 @@ func (m *mockSFNConfig) GetGlobalConfig() config.GlobalConfig {
 
 func TestProvider_Name(t *testing.T) {
 	t.Parallel()
-	p := &stepfunctions.Provider{}
-	assert.Equal(t, "StepFunctions", p.Name())
-}
 
-func TestProvider_Init_WithConfig(t *testing.T) {
-	t.Parallel()
-	p := &stepfunctions.Provider{}
-	ctx := &service.AppContext{
-		Logger: slog.Default(),
-		Config: &mockSFNConfig{},
+	tests := []struct {
+		name     string
+		wantName string
+	}{
+		{
+			name:     "returns_step_functions",
+			wantName: "StepFunctions",
+		},
 	}
-	svc, err := p.Init(ctx)
-	require.NoError(t, err)
-	require.NotNil(t, svc)
-	assert.Equal(t, "StepFunctions", svc.Name())
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := &stepfunctions.Provider{}
+			assert.Equal(t, tt.wantName, p.Name())
+		})
+	}
 }
 
-func TestProvider_Init_WithoutConfig(t *testing.T) {
+func TestProvider_Init(t *testing.T) {
 	t.Parallel()
-	p := &stepfunctions.Provider{}
-	ctx := &service.AppContext{Logger: slog.Default()}
-	svc, err := p.Init(ctx)
-	require.NoError(t, err)
-	require.NotNil(t, svc)
+
+	tests := []struct {
+		name       string
+		config     any
+		wantName   string
+	}{
+		{
+			name:     "with_config",
+			config:   &mockSFNConfig{},
+			wantName: "StepFunctions",
+		},
+		{
+			name:     "without_config",
+			config:   nil,
+			wantName: "StepFunctions",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := &stepfunctions.Provider{}
+			ctx := &service.AppContext{
+				Logger: slog.Default(),
+				Config: tt.config,
+			}
+
+			svc, err := p.Init(ctx)
+			require.NoError(t, err)
+			require.NotNil(t, svc)
+			assert.Equal(t, tt.wantName, svc.Name())
+		})
+	}
 }
 
 func TestHandler_MatchPriority(t *testing.T) {
 	t.Parallel()
-	h := stepfunctions.NewHandler(stepfunctions.NewInMemoryBackend(), slog.Default())
-	assert.Equal(t, 100, h.MatchPriority())
+
+	tests := []struct {
+		name     string
+		wantPrio int
+	}{
+		{
+			name:     "returns_100",
+			wantPrio: 100,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := stepfunctions.NewHandler(stepfunctions.NewInMemoryBackend(), slog.Default())
+			assert.Equal(t, tt.wantPrio, h.MatchPriority())
+		})
+	}
 }
 
-func TestHandler_RouteMatcherCoverage(t *testing.T) {
+func TestHandler_RouteMatcher(t *testing.T) {
 	t.Parallel()
-	h := stepfunctions.NewHandler(stepfunctions.NewInMemoryBackend(), slog.Default())
-	matcher := h.RouteMatcher()
-	e := echo.New()
 
-	reqMatch := httptest.NewRequest(http.MethodPost, "/", nil)
-	reqMatch.Header.Set("X-Amz-Target", "AmazonStates.CreateStateMachine")
-	assert.True(t, matcher(e.NewContext(reqMatch, httptest.NewRecorder())))
+	tests := []struct {
+		name      string
+		target    string
+		wantMatch bool
+	}{
+		{
+			name:      "sfn_target_matches",
+			target:    "AmazonStates.CreateStateMachine",
+			wantMatch: true,
+		},
+		{
+			name:      "sqs_target_no_match",
+			target:    "AmazonSQS.CreateQueue",
+			wantMatch: false,
+		},
+	}
 
-	reqNoMatch := httptest.NewRequest(http.MethodPost, "/", nil)
-	reqNoMatch.Header.Set("X-Amz-Target", "AmazonSQS.CreateQueue")
-	assert.False(t, matcher(e.NewContext(reqNoMatch, httptest.NewRecorder())))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := stepfunctions.NewHandler(stepfunctions.NewInMemoryBackend(), slog.Default())
+			matcher := h.RouteMatcher()
+			e := echo.New()
+
+			req := httptest.NewRequest(http.MethodPost, "/", nil)
+			req.Header.Set("X-Amz-Target", tt.target)
+			assert.Equal(t, tt.wantMatch, matcher(e.NewContext(req, httptest.NewRecorder())))
+		})
+	}
 }
 
-func TestHandler_ExtractOperationCoverage(t *testing.T) {
+func TestHandler_ExtractOperation(t *testing.T) {
 	t.Parallel()
-	h := stepfunctions.NewHandler(stepfunctions.NewInMemoryBackend(), slog.Default())
-	e := echo.New()
 
-	req := httptest.NewRequest(http.MethodPost, "/", nil)
-	req.Header.Set("X-Amz-Target", "AmazonStates.ListStateMachines")
-	assert.Equal(t, "ListStateMachines", h.ExtractOperation(e.NewContext(req, httptest.NewRecorder())))
+	tests := []struct {
+		name      string
+		target    string
+		wantOp    string
+	}{
+		{
+			name:   "known_operation",
+			target: "AmazonStates.ListStateMachines",
+			wantOp: "ListStateMachines",
+		},
+		{
+			name:   "no_target_header",
+			target: "",
+			wantOp: "Unknown",
+		},
+	}
 
-	reqUnknown := httptest.NewRequest(http.MethodPost, "/", nil)
-	assert.Equal(t, "Unknown", h.ExtractOperation(e.NewContext(reqUnknown, httptest.NewRecorder())))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := stepfunctions.NewHandler(stepfunctions.NewInMemoryBackend(), slog.Default())
+			e := echo.New()
+
+			req := httptest.NewRequest(http.MethodPost, "/", nil)
+			if tt.target != "" {
+				req.Header.Set("X-Amz-Target", tt.target)
+			}
+			assert.Equal(t, tt.wantOp, h.ExtractOperation(e.NewContext(req, httptest.NewRecorder())))
+		})
+	}
 }
 
 func TestHandler_ExtractResource(t *testing.T) {
 	t.Parallel()
-	h := stepfunctions.NewHandler(stepfunctions.NewInMemoryBackend(), slog.Default())
-	e := echo.New()
-	log := logger.NewLogger(slog.LevelDebug)
-	_ = log
 
-	req := httptest.NewRequest(http.MethodPost, "/", nil)
-	req.Header.Set("Content-Type", "application/json")
+	tests := []struct {
+		name         string
+		body         string
+		wantResource string
+	}{
+		{
+			name:         "name_field",
+			body:         `{"name":"my-sm"}`,
+			wantResource: "my-sm",
+		},
+		{
+			name:         "state_machine_arn",
+			body:         `{"stateMachineArn":"arn:aws:states:us-east-1:123:stateMachine:test"}`,
+			wantResource: "arn:aws:states:us-east-1:123:stateMachine:test",
+		},
+		{
+			name:         "execution_arn",
+			body:         `{"executionArn":"arn:aws:states:us-east-1:123:execution:test:exec1"}`,
+			wantResource: "arn:aws:states:us-east-1:123:execution:test:exec1",
+		},
+		{
+			name:         "empty_body",
+			body:         `{}`,
+			wantResource: "",
+		},
+		{
+			name:         "bad_json",
+			body:         `not-json`,
+			wantResource: "",
+		},
+	}
 
-	// name field
-	reqName := httptest.NewRequest(http.MethodPost, "/",
-		stringReader(`{"name":"my-sm"}`))
-	assert.Equal(t, "my-sm", h.ExtractResource(e.NewContext(reqName, httptest.NewRecorder())))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	// stateMachineArn field
-	reqArn := httptest.NewRequest(http.MethodPost, "/",
-		stringReader(`{"stateMachineArn":"arn:aws:states:us-east-1:123:stateMachine:test"}`))
-	assert.Equal(t, "arn:aws:states:us-east-1:123:stateMachine:test",
-		h.ExtractResource(e.NewContext(reqArn, httptest.NewRecorder())))
+			h := stepfunctions.NewHandler(stepfunctions.NewInMemoryBackend(), slog.Default())
+			e := echo.New()
 
-	// executionArn field
-	reqExec := httptest.NewRequest(http.MethodPost, "/",
-		stringReader(`{"executionArn":"arn:aws:states:us-east-1:123:execution:test:exec1"}`))
-	assert.Equal(t, "arn:aws:states:us-east-1:123:execution:test:exec1",
-		h.ExtractResource(e.NewContext(reqExec, httptest.NewRecorder())))
-
-	// empty body
-	reqEmpty := httptest.NewRequest(http.MethodPost, "/", stringReader(`{}`))
-	assert.Empty(t, h.ExtractResource(e.NewContext(reqEmpty, httptest.NewRecorder())))
-
-	// bad JSON
-	reqBad := httptest.NewRequest(http.MethodPost, "/", stringReader(`not-json`))
-	assert.Empty(t, h.ExtractResource(e.NewContext(reqBad, httptest.NewRecorder())))
+			req := httptest.NewRequest(http.MethodPost, "/", stringReader(tt.body))
+			assert.Equal(t, tt.wantResource, h.ExtractResource(e.NewContext(req, httptest.NewRecorder())))
+		})
+	}
 }
 
 func stringReader(s string) *strings.Reader {
