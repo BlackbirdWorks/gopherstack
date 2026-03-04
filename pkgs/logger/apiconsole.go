@@ -3,6 +3,7 @@ package logger
 import (
 	"bytes"
 	"io"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -122,7 +123,7 @@ func APIConsoleMiddleware() echo.MiddlewareFunc {
 			if strings.HasPrefix(req.URL.Path, "/dashboard") {
 				return next(c)
 			}
-			if req.URL.Path == "/_gopherstack/health" || req.URL.Path == "/" {
+			if req.URL.Path == "/_gopherstack/health" || (req.URL.Path == "/" && req.Method == http.MethodGet) {
 				return next(c)
 			}
 
