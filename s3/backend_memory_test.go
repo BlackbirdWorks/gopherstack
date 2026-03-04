@@ -1161,3 +1161,188 @@ func TestGetBucketACL_NotFound(t *testing.T) {
 	_, err := backend.GetBucketACL(t.Context(), "nonexistent-bucket")
 	assert.Error(t, err)
 }
+
+func TestCompressionMinBytes_PutObject(t *testing.T) {
+	t.Parallel()
+
+	smallData := bytes.Repeat([]byte("a"), 512)
+	largeData := bytes.Repeat([]byte("a"), 2048)
+
+	tests := []struct {
+		name                string
+		data                []byte
+		compressionMinBytes int
+		wantCompressed      bool
+	}{
+		{
+			name:                "small object below threshold is not compressed",
+			data:                smallData,
+			compressionMinBytes: 1024,
+			wantCompressed:      false,
+		},
+		{
+			name:                "large object at or above threshold is compressed",
+			data:                largeData,
+			compressionMinBytes: 1024,
+			wantCompressed:      true,
+		},
+		{
+			name:                "zero threshold compresses all objects",
+			data:                smallData,
+			compressionMinBytes: 0,
+			wantCompressed:      true,
+		},
+		{
+			name:                "object exactly at threshold is compressed",
+			data:                bytes.Repeat([]byte("b"), 1024),
+			compressionMinBytes: 1024,
+			wantCompressed:      true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rc := &recordingCompressor{delegate: &s3.GzipCompressor{}}
+			backend := s3.NewInMemoryBackend(rc, nil).
+				WithCompressionMinBytes(tt.compressionMinBytes)
+			mustCreateBucket(t, backend, "bkt")
+
+			_, err := backend.PutObject(t.Context(), &sdk_s3.PutObjectInput{
+				Bucket:   aws.String("bkt"),
+				Key:      aws.String("key"),
+				Body:     bytes.NewReader(tt.data),
+				Metadata: map[string]string{},
+			})
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.wantCompressed, rc.compressCalled,
+				"unexpected compression decision for object of size %d with threshold %d",
+				len(tt.data), tt.compressionMinBytes,
+			)
+
+			// Verify the round-trip: GetObject must return the original data.
+			out, err := backend.GetObject(t.Context(), &sdk_s3.GetObjectInput{
+				Bucket: aws.String("bkt"),
+				Key:    aws.String("key"),
+			})
+			require.NoError(t, err)
+
+			body, err := io.ReadAll(out.Body)
+			require.NoError(t, err)
+			assert.Equal(t, tt.data, body)
+		})
+	}
+}
+
+// recordingCompressor wraps a Compressor and records whether Compress was called.
+type recordingCompressor struct {
+	delegate       s3.Compressor
+	compressCalled bool
+}
+
+func (r *recordingCompressor) Compress(data []byte) ([]byte, error) {
+	r.compressCalled = true
+
+	return r.delegate.Compress(data)
+}
+
+func (r *recordingCompressor) Decompress(data []byte) ([]byte, error) {
+	return r.delegate.Decompress(data)
+}
+
+func TestCompressionMinBytes_CompleteMultipartUpload(t *testing.T) {
+	t.Parallel()
+
+	// Each part is 512 bytes; two parts assemble to 1024 bytes total.
+	partData := bytes.Repeat([]byte("x"), 512)
+
+	tests := []struct {
+		name                string
+		compressionMinBytes int
+		wantCompressed      bool
+	}{
+		{
+			name:                "assembled size below threshold is not compressed",
+			compressionMinBytes: 2048,
+			wantCompressed:      false,
+		},
+		{
+			name:                "assembled size at or above threshold is compressed",
+			compressionMinBytes: 1024,
+			wantCompressed:      true,
+		},
+		{
+			name:                "zero threshold compresses all objects",
+			compressionMinBytes: 0,
+			wantCompressed:      true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rc := &recordingCompressor{delegate: &s3.GzipCompressor{}}
+			backend := s3.NewInMemoryBackend(rc, nil).
+				WithCompressionMinBytes(tt.compressionMinBytes)
+			mustCreateBucket(t, backend, "bkt")
+
+			// Start multipart upload
+			createOut, err := backend.CreateMultipartUpload(t.Context(), &sdk_s3.CreateMultipartUploadInput{
+				Bucket: aws.String("bkt"),
+				Key:    aws.String("key"),
+			})
+			require.NoError(t, err)
+			uploadID := createOut.UploadId
+
+			// Upload two parts
+			p1, err := backend.UploadPart(t.Context(), &sdk_s3.UploadPartInput{
+				Bucket:     aws.String("bkt"),
+				Key:        aws.String("key"),
+				UploadId:   uploadID,
+				PartNumber: aws.Int32(1),
+				Body:       bytes.NewReader(partData),
+			})
+			require.NoError(t, err)
+
+			p2, err := backend.UploadPart(t.Context(), &sdk_s3.UploadPartInput{
+				Bucket:     aws.String("bkt"),
+				Key:        aws.String("key"),
+				UploadId:   uploadID,
+				PartNumber: aws.Int32(2),
+				Body:       bytes.NewReader(partData),
+			})
+			require.NoError(t, err)
+
+			// Complete
+			_, err = backend.CompleteMultipartUpload(t.Context(), &sdk_s3.CompleteMultipartUploadInput{
+				Bucket:   aws.String("bkt"),
+				Key:      aws.String("key"),
+				UploadId: uploadID,
+				MultipartUpload: &types.CompletedMultipartUpload{Parts: []types.CompletedPart{
+					{PartNumber: aws.Int32(1), ETag: p1.ETag},
+					{PartNumber: aws.Int32(2), ETag: p2.ETag},
+				}},
+			})
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.wantCompressed, rc.compressCalled,
+				"unexpected compression decision for assembled size %d with threshold %d",
+				len(partData)*2, tt.compressionMinBytes,
+			)
+
+			// Verify round-trip.
+			out, err := backend.GetObject(t.Context(), &sdk_s3.GetObjectInput{
+				Bucket: aws.String("bkt"),
+				Key:    aws.String("key"),
+			})
+			require.NoError(t, err)
+
+			body, err := io.ReadAll(out.Body)
+			require.NoError(t, err)
+			assert.Equal(t, append(partData, partData...), body)
+		})
+	}
+}

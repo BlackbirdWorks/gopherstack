@@ -23,7 +23,7 @@ func (p *Provider) Name() string {
 //
 //nolint:ireturn,nolintlint // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
-	var settings Settings
+	settings := DefaultSettings()
 	var endpoint string
 
 	// Try to extract configuration if the config implements the extractor interface
@@ -32,7 +32,8 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		endpoint = cp.GetS3Endpoint()
 	}
 
-	backend := NewInMemoryBackend(&GzipCompressor{}, ctx.Logger)
+	backend := NewInMemoryBackend(&GzipCompressor{}, ctx.Logger).
+		WithCompressionMinBytes(settings.CompressionMinBytes)
 	handler := NewHandler(backend, ctx.Logger).WithJanitor(settings)
 	handler.Endpoint = endpoint
 
