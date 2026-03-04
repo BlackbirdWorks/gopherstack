@@ -10,201 +10,327 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
-func TestBackend_CreateAndGetRestApi(t *testing.T) {
+func TestBackend_RestAPI(t *testing.T) {
 	t.Parallel()
 
-	b := apigateway.NewInMemoryBackend()
+	tests := []struct {
+		name string
+		run  func(t *testing.T)
+	}{
+		{
+			name: "create_and_get",
+			run: func(t *testing.T) {
+				t.Helper()
 
-	api, err := b.CreateRestAPI("my-api", "desc", tags.FromMap("test.apigw", map[string]string{"env": "test"}))
-	require.NoError(t, err)
-	assert.NotEmpty(t, api.ID)
-	assert.Equal(t, "my-api", api.Name)
+				b := apigateway.NewInMemoryBackend()
+				api, err := b.CreateRestAPI("my-api", "desc", tags.FromMap("test.apigw", map[string]string{"env": "test"}))
+				require.NoError(t, err)
+				assert.NotEmpty(t, api.ID)
+				assert.Equal(t, "my-api", api.Name)
 
-	got, err := b.GetRestAPI(api.ID)
-	require.NoError(t, err)
-	assert.Equal(t, api.ID, got.ID)
+				got, err := b.GetRestAPI(api.ID)
+				require.NoError(t, err)
+				assert.Equal(t, api.ID, got.ID)
+			},
+		},
+		{
+			name: "get_nonexistent_returns_error",
+			run: func(t *testing.T) {
+				t.Helper()
 
-	_, err = b.GetRestAPI("nonexistent")
-	require.Error(t, err)
+				b := apigateway.NewInMemoryBackend()
+				_, err := b.GetRestAPI("nonexistent")
+				require.Error(t, err)
+			},
+		},
+		{
+			name: "list_all",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				b := apigateway.NewInMemoryBackend()
+				_, _ = b.CreateRestAPI("a", "", nil)
+				_, _ = b.CreateRestAPI("b", "", nil)
+
+				apis, pos, err := b.GetRestAPIs(0, "")
+				require.NoError(t, err)
+				assert.Len(t, apis, 2)
+				assert.Empty(t, pos)
+			},
+		},
+		{
+			name: "delete_existing",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				b := apigateway.NewInMemoryBackend()
+				api, _ := b.CreateRestAPI("to-del", "", nil)
+
+				err := b.DeleteRestAPI(api.ID)
+				require.NoError(t, err)
+
+				_, err = b.GetRestAPI(api.ID)
+				require.Error(t, err)
+			},
+		},
+		{
+			name: "delete_nonexistent_returns_error",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				b := apigateway.NewInMemoryBackend()
+				err := b.DeleteRestAPI("nonexistent")
+				require.Error(t, err)
+			},
+		},
+		{
+			name: "create_with_empty_name_returns_error",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				b := apigateway.NewInMemoryBackend()
+				_, err := b.CreateRestAPI("", "", nil)
+				require.Error(t, err)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			tt.run(t)
+		})
+	}
 }
 
-func TestBackend_GetRestApis(t *testing.T) {
+func TestBackend_Resource(t *testing.T) {
 	t.Parallel()
 
-	b := apigateway.NewInMemoryBackend()
-	_, _ = b.CreateRestAPI("a", "", nil)
-	_, _ = b.CreateRestAPI("b", "", nil)
+	tests := []struct {
+		name string
+		run  func(t *testing.T)
+	}{
+		{
+			name: "root_resource_created_on_api_creation",
+			run: func(t *testing.T) {
+				t.Helper()
 
-	apis, pos, err := b.GetRestAPIs(0, "")
-	require.NoError(t, err)
-	assert.Len(t, apis, 2)
-	assert.Empty(t, pos)
+				b := apigateway.NewInMemoryBackend()
+				api, _ := b.CreateRestAPI("api", "", nil)
+
+				resources, _, err := b.GetResources(api.ID, "", 0)
+				require.NoError(t, err)
+				assert.Len(t, resources, 1)
+				assert.Equal(t, "/", resources[0].Path)
+				assert.Empty(t, resources[0].PathPart)
+			},
+		},
+		{
+			name: "create_and_get_child",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				b := apigateway.NewInMemoryBackend()
+				api, _ := b.CreateRestAPI("api", "", nil)
+
+				resources, _, _ := b.GetResources(api.ID, "", 0)
+				rootID := resources[0].ID
+
+				child, err := b.CreateResource(api.ID, rootID, "users")
+				require.NoError(t, err)
+				assert.Equal(t, "/users", child.Path)
+				assert.Equal(t, rootID, child.ParentID)
+
+				got, err := b.GetResource(api.ID, child.ID)
+				require.NoError(t, err)
+				assert.Equal(t, child.ID, got.ID)
+			},
+		},
+		{
+			name: "delete_existing",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				b := apigateway.NewInMemoryBackend()
+				api, _ := b.CreateRestAPI("api", "", nil)
+				resources, _, _ := b.GetResources(api.ID, "", 0)
+				rootID := resources[0].ID
+
+				child, _ := b.CreateResource(api.ID, rootID, "items")
+
+				err := b.DeleteResource(api.ID, child.ID)
+				require.NoError(t, err)
+
+				_, err = b.GetResource(api.ID, child.ID)
+				require.Error(t, err)
+			},
+		},
+		{
+			name: "create_with_empty_path_part_returns_error",
+			run: func(t *testing.T) {
+				t.Helper()
+
+				b := apigateway.NewInMemoryBackend()
+				api, _ := b.CreateRestAPI("api", "", nil)
+				resources, _, _ := b.GetResources(api.ID, "", 0)
+				rootID := resources[0].ID
+
+				_, err := b.CreateResource(api.ID, rootID, "")
+				require.Error(t, err)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			tt.run(t)
+		})
+	}
 }
 
-func TestBackend_DeleteRestApi(t *testing.T) {
+func TestBackend_Method(t *testing.T) {
 	t.Parallel()
 
-	b := apigateway.NewInMemoryBackend()
-	api, _ := b.CreateRestAPI("to-del", "", nil)
+	tests := []struct {
+		name string
+		run  func(t *testing.T)
+	}{
+		{
+			name: "put_get_delete",
+			run: func(t *testing.T) {
+				t.Helper()
 
-	err := b.DeleteRestAPI(api.ID)
-	require.NoError(t, err)
+				b := apigateway.NewInMemoryBackend()
+				api, _ := b.CreateRestAPI("api", "", nil)
+				resources, _, _ := b.GetResources(api.ID, "", 0)
+				rootID := resources[0].ID
 
-	_, err = b.GetRestAPI(api.ID)
-	require.Error(t, err)
+				m, err := b.PutMethod(api.ID, rootID, "GET", "NONE", false)
+				require.NoError(t, err)
+				assert.Equal(t, "GET", m.HTTPMethod)
 
-	err = b.DeleteRestAPI("nonexistent")
-	require.Error(t, err)
+				got, err := b.GetMethod(api.ID, rootID, "GET")
+				require.NoError(t, err)
+				assert.Equal(t, "NONE", got.AuthorizationType)
+
+				err = b.DeleteMethod(api.ID, rootID, "GET")
+				require.NoError(t, err)
+
+				_, err = b.GetMethod(api.ID, rootID, "GET")
+				require.Error(t, err)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			tt.run(t)
+		})
+	}
 }
 
-func TestBackend_RootResourceCreatedOnApiCreate(t *testing.T) {
+func TestBackend_Integration(t *testing.T) {
 	t.Parallel()
 
-	b := apigateway.NewInMemoryBackend()
-	api, _ := b.CreateRestAPI("api", "", nil)
+	tests := []struct {
+		name string
+		run  func(t *testing.T)
+	}{
+		{
+			name: "put_get_delete",
+			run: func(t *testing.T) {
+				t.Helper()
 
-	resources, _, err := b.GetResources(api.ID, "", 0)
-	require.NoError(t, err)
-	assert.Len(t, resources, 1)
-	assert.Equal(t, "/", resources[0].Path)
-	assert.Empty(t, resources[0].PathPart)
+				b := apigateway.NewInMemoryBackend()
+				api, _ := b.CreateRestAPI("api", "", nil)
+				resources, _, _ := b.GetResources(api.ID, "", 0)
+				rootID := resources[0].ID
+
+				_, _ = b.PutMethod(api.ID, rootID, "POST", "NONE", false)
+
+				input := apigateway.PutIntegrationInput{Type: "MOCK"}
+				integ, err := b.PutIntegration(api.ID, rootID, "POST", input)
+				require.NoError(t, err)
+				assert.Equal(t, "MOCK", integ.Type)
+
+				got, err := b.GetIntegration(api.ID, rootID, "POST")
+				require.NoError(t, err)
+				assert.Equal(t, "MOCK", got.Type)
+
+				err = b.DeleteIntegration(api.ID, rootID, "POST")
+				require.NoError(t, err)
+
+				_, err = b.GetIntegration(api.ID, rootID, "POST")
+				require.Error(t, err)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			tt.run(t)
+		})
+	}
 }
 
-func TestBackend_CreateAndGetResource(t *testing.T) {
+func TestBackend_DeploymentAndStage(t *testing.T) {
 	t.Parallel()
 
-	b := apigateway.NewInMemoryBackend()
-	api, _ := b.CreateRestAPI("api", "", nil)
+	tests := []struct {
+		name string
+		run  func(t *testing.T)
+	}{
+		{
+			name: "create_deployment_and_stage",
+			run: func(t *testing.T) {
+				t.Helper()
 
-	resources, _, _ := b.GetResources(api.ID, "", 0)
-	rootID := resources[0].ID
+				b := apigateway.NewInMemoryBackend()
+				api, _ := b.CreateRestAPI("api", "", nil)
 
-	child, err := b.CreateResource(api.ID, rootID, "users")
-	require.NoError(t, err)
-	assert.Equal(t, "/users", child.Path)
-	assert.Equal(t, rootID, child.ParentID)
+				depl, err := b.CreateDeployment(api.ID, "prod", "initial")
+				require.NoError(t, err)
+				assert.NotEmpty(t, depl.ID)
 
-	got, err := b.GetResource(api.ID, child.ID)
-	require.NoError(t, err)
-	assert.Equal(t, child.ID, got.ID)
-}
+				depls, err := b.GetDeployments(api.ID)
+				require.NoError(t, err)
+				assert.Len(t, depls, 1)
 
-func TestBackend_DeleteResource(t *testing.T) {
-	t.Parallel()
+				stages, err := b.GetStages(api.ID)
+				require.NoError(t, err)
+				assert.Len(t, stages, 1)
+				assert.Equal(t, "prod", stages[0].StageName)
+			},
+		},
+		{
+			name: "get_and_delete_stage",
+			run: func(t *testing.T) {
+				t.Helper()
 
-	b := apigateway.NewInMemoryBackend()
-	api, _ := b.CreateRestAPI("api", "", nil)
-	resources, _, _ := b.GetResources(api.ID, "", 0)
-	rootID := resources[0].ID
+				b := apigateway.NewInMemoryBackend()
+				api, _ := b.CreateRestAPI("api", "", nil)
+				_, _ = b.CreateDeployment(api.ID, "v1", "")
 
-	child, _ := b.CreateResource(api.ID, rootID, "items")
+				stage, err := b.GetStage(api.ID, "v1")
+				require.NoError(t, err)
+				assert.Equal(t, "v1", stage.StageName)
 
-	err := b.DeleteResource(api.ID, child.ID)
-	require.NoError(t, err)
+				err = b.DeleteStage(api.ID, "v1")
+				require.NoError(t, err)
 
-	_, err = b.GetResource(api.ID, child.ID)
-	require.Error(t, err)
-}
+				_, err = b.GetStage(api.ID, "v1")
+				require.Error(t, err)
+			},
+		},
+	}
 
-func TestBackend_PutGetDeleteMethod(t *testing.T) {
-	t.Parallel()
-
-	b := apigateway.NewInMemoryBackend()
-	api, _ := b.CreateRestAPI("api", "", nil)
-	resources, _, _ := b.GetResources(api.ID, "", 0)
-	rootID := resources[0].ID
-
-	m, err := b.PutMethod(api.ID, rootID, "GET", "NONE", false)
-	require.NoError(t, err)
-	assert.Equal(t, "GET", m.HTTPMethod)
-
-	got, err := b.GetMethod(api.ID, rootID, "GET")
-	require.NoError(t, err)
-	assert.Equal(t, "NONE", got.AuthorizationType)
-
-	err = b.DeleteMethod(api.ID, rootID, "GET")
-	require.NoError(t, err)
-
-	_, err = b.GetMethod(api.ID, rootID, "GET")
-	require.Error(t, err)
-}
-
-func TestBackend_PutGetDeleteIntegration(t *testing.T) {
-	t.Parallel()
-
-	b := apigateway.NewInMemoryBackend()
-	api, _ := b.CreateRestAPI("api", "", nil)
-	resources, _, _ := b.GetResources(api.ID, "", 0)
-	rootID := resources[0].ID
-
-	b.PutMethod(api.ID, rootID, "POST", "NONE", false)
-
-	input := apigateway.PutIntegrationInput{Type: "MOCK"}
-	integ, err := b.PutIntegration(api.ID, rootID, "POST", input)
-	require.NoError(t, err)
-	assert.Equal(t, "MOCK", integ.Type)
-
-	got, err := b.GetIntegration(api.ID, rootID, "POST")
-	require.NoError(t, err)
-	assert.Equal(t, "MOCK", got.Type)
-
-	err = b.DeleteIntegration(api.ID, rootID, "POST")
-	require.NoError(t, err)
-
-	_, err = b.GetIntegration(api.ID, rootID, "POST")
-	require.Error(t, err)
-}
-
-func TestBackend_CreateDeploymentAndStage(t *testing.T) {
-	t.Parallel()
-
-	b := apigateway.NewInMemoryBackend()
-	api, _ := b.CreateRestAPI("api", "", nil)
-
-	depl, err := b.CreateDeployment(api.ID, "prod", "initial")
-	require.NoError(t, err)
-	assert.NotEmpty(t, depl.ID)
-
-	depls, err := b.GetDeployments(api.ID)
-	require.NoError(t, err)
-	assert.Len(t, depls, 1)
-
-	stages, err := b.GetStages(api.ID)
-	require.NoError(t, err)
-	assert.Len(t, stages, 1)
-	assert.Equal(t, "prod", stages[0].StageName)
-}
-
-func TestBackend_GetAndDeleteStage(t *testing.T) {
-	t.Parallel()
-
-	b := apigateway.NewInMemoryBackend()
-	api, _ := b.CreateRestAPI("api", "", nil)
-	b.CreateDeployment(api.ID, "v1", "")
-
-	stage, err := b.GetStage(api.ID, "v1")
-	require.NoError(t, err)
-	assert.Equal(t, "v1", stage.StageName)
-
-	err = b.DeleteStage(api.ID, "v1")
-	require.NoError(t, err)
-
-	_, err = b.GetStage(api.ID, "v1")
-	require.Error(t, err)
-}
-
-func TestBackend_InvalidParams(t *testing.T) {
-	t.Parallel()
-
-	b := apigateway.NewInMemoryBackend()
-
-	_, err := b.CreateRestAPI("", "", nil)
-	require.Error(t, err)
-
-	api, _ := b.CreateRestAPI("api", "", nil)
-	resources, _, _ := b.GetResources(api.ID, "", 0)
-	rootID := resources[0].ID
-
-	_, err = b.CreateResource(api.ID, rootID, "")
-	require.Error(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			tt.run(t)
+		})
+	}
 }
