@@ -1161,3 +1161,93 @@ func TestGetBucketACL_NotFound(t *testing.T) {
 	_, err := backend.GetBucketACL(t.Context(), "nonexistent-bucket")
 	assert.Error(t, err)
 }
+
+func TestCompressionMinBytes_PutObject(t *testing.T) {
+	t.Parallel()
+
+	smallData := bytes.Repeat([]byte("a"), 512)
+	largeData := bytes.Repeat([]byte("a"), 2048)
+
+	tests := []struct {
+		name                string
+		data                []byte
+		compressionMinBytes int
+		wantCompressed      bool
+	}{
+		{
+			name:                "small object below threshold is not compressed",
+			data:                smallData,
+			compressionMinBytes: 1024,
+			wantCompressed:      false,
+		},
+		{
+			name:                "large object at or above threshold is compressed",
+			data:                largeData,
+			compressionMinBytes: 1024,
+			wantCompressed:      true,
+		},
+		{
+			name:                "zero threshold compresses all objects",
+			data:                smallData,
+			compressionMinBytes: 0,
+			wantCompressed:      true,
+		},
+		{
+			name:                "object exactly at threshold is compressed",
+			data:                bytes.Repeat([]byte("b"), 1024),
+			compressionMinBytes: 1024,
+			wantCompressed:      true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rc := &recordingCompressor{delegate: &s3.GzipCompressor{}}
+			backend := s3.NewInMemoryBackend(rc, nil).
+				WithCompressionMinBytes(tt.compressionMinBytes)
+			mustCreateBucket(t, backend, "bkt")
+
+			_, err := backend.PutObject(t.Context(), &sdk_s3.PutObjectInput{
+				Bucket:   aws.String("bkt"),
+				Key:      aws.String("key"),
+				Body:     bytes.NewReader(tt.data),
+				Metadata: map[string]string{},
+			})
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.wantCompressed, rc.compressCalled,
+				"unexpected compression decision for object of size %d with threshold %d",
+				len(tt.data), tt.compressionMinBytes,
+			)
+
+			// Verify the round-trip: GetObject must return the original data.
+			out, err := backend.GetObject(t.Context(), &sdk_s3.GetObjectInput{
+				Bucket: aws.String("bkt"),
+				Key:    aws.String("key"),
+			})
+			require.NoError(t, err)
+
+			body, err := io.ReadAll(out.Body)
+			require.NoError(t, err)
+			assert.Equal(t, tt.data, body)
+		})
+	}
+}
+
+// recordingCompressor wraps a Compressor and records whether Compress was called.
+type recordingCompressor struct {
+	delegate       s3.Compressor
+	compressCalled bool
+}
+
+func (r *recordingCompressor) Compress(data []byte) ([]byte, error) {
+	r.compressCalled = true
+
+	return r.delegate.Compress(data)
+}
+
+func (r *recordingCompressor) Decompress(data []byte) ([]byte, error) {
+	return r.delegate.Decompress(data)
+}

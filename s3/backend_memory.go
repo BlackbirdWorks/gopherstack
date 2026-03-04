@@ -39,13 +39,14 @@ func getRegionFromS3Context(ctx context.Context, defaultRegion string) string {
 }
 
 type InMemoryBackend struct {
-	buckets       map[string]map[string]*StoredBucket
-	tags          map[string][]types.Tag
-	uploads       map[string]*StoredMultipartUpload
-	mu            *lockmetrics.RWMutex
-	Logger        *slog.Logger
-	compressor    Compressor
-	defaultRegion string
+	buckets             map[string]map[string]*StoredBucket
+	tags                map[string][]types.Tag
+	uploads             map[string]*StoredMultipartUpload
+	mu                  *lockmetrics.RWMutex
+	Logger              *slog.Logger
+	compressor          Compressor
+	defaultRegion       string
+	compressionMinBytes int
 }
 
 func NewInMemoryBackend(compressor Compressor, logger *slog.Logger) *InMemoryBackend {
@@ -60,6 +61,15 @@ func NewInMemoryBackend(compressor Compressor, logger *slog.Logger) *InMemoryBac
 		mu:            lockmetrics.New("s3"),
 		Logger:        logger,
 	}
+}
+
+// WithCompressionMinBytes sets the minimum object size (in bytes) below which
+// gzip compression is skipped. A value of 0 compresses all objects regardless
+// of size (the original behaviour).
+func (b *InMemoryBackend) WithCompressionMinBytes(n int) *InMemoryBackend {
+	b.compressionMinBytes = n
+
+	return b
 }
 
 // getBucket returns the bucket for a given name, returning ErrNoSuchBucket when the
@@ -372,7 +382,7 @@ func (b *InMemoryBackend) prepareObjectData(
 
 	var compressedData []byte
 	var isCompressed bool
-	if b.compressor != nil {
+	if b.compressor != nil && (b.compressionMinBytes == 0 || len(data) >= b.compressionMinBytes) {
 		if cData, cErr := b.compressor.Compress(data); cErr == nil {
 			compressedData = cData
 			isCompressed = true
@@ -1307,7 +1317,7 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 	// Compress
 	var compressedData []byte
 	var isCompressed bool
-	if b.compressor != nil {
+	if b.compressor != nil && (b.compressionMinBytes == 0 || len(data) >= b.compressionMinBytes) {
 		var err error
 		compressedData, err = b.compressor.Compress(data)
 		if err != nil {
