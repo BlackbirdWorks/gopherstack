@@ -27,11 +27,16 @@ func (db *InMemoryDB) PutItem(
 		return nil, err
 	}
 
+	// Enforce throughput before acquiring the table lock.
+	wireItem := models.FromSDKItem(input.Item)
+	wcu := WriteCapacityUnits(wireItem)
+	region := getRegionFromContext(ctx, db)
+	if err = db.throttler.ConsumeWrite(throttleKey(region, tableName), wcu); err != nil {
+		return nil, err
+	}
+
 	table.mu.Lock("PutItem")
 	defer table.mu.Unlock()
-
-	// Convert SDK Item to Wire Item
-	wireItem := models.FromSDKItem(input.Item)
 
 	err = db.validateItem(wireItem, table)
 	if err != nil {
@@ -181,6 +186,12 @@ func (db *InMemoryDB) GetItem(
 		return nil, err
 	}
 
+	// Enforce throughput: charge the minimum RCU for a single eventually-consistent read.
+	region := getRegionFromContext(ctx, db)
+	if err = db.throttler.ConsumeRead(throttleKey(region, tableName), models.ConsumedReadUnit); err != nil {
+		return nil, err
+	}
+
 	table.mu.RLock("GetItem")
 	defer table.mu.RUnlock()
 
@@ -219,6 +230,12 @@ func (db *InMemoryDB) DeleteItem(
 
 	table, err := db.getTable(ctx, tableName)
 	if err != nil {
+		return nil, err
+	}
+
+	// Enforce throughput: charge the minimum WCU for a delete operation.
+	region := getRegionFromContext(ctx, db)
+	if err = db.throttler.ConsumeWrite(throttleKey(region, tableName), 1.0); err != nil {
 		return nil, err
 	}
 
@@ -306,6 +323,12 @@ func (db *InMemoryDB) UpdateItem(
 	tableName := aws.ToString(input.TableName)
 	table, err := db.getTable(ctx, tableName)
 	if err != nil {
+		return nil, err
+	}
+
+	// Enforce throughput: charge minimum 1 WCU for an update operation.
+	region := getRegionFromContext(ctx, db)
+	if err = db.throttler.ConsumeWrite(throttleKey(region, tableName), 1.0); err != nil {
 		return nil, err
 	}
 

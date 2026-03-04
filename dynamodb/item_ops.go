@@ -19,6 +19,22 @@ const (
 	expectedPKParts           = 2
 )
 
+// rcuForCount returns the RCU cost for n eventually-consistent item reads.
+// Each 4 KB unit costs 0.5 RCU; the minimum returned is 0.5.
+func rcuForCount(n int) float64 {
+	const (
+		halfRCU    = 0.5
+		minRCUCost = 0.5
+	)
+
+	cu := float64(n) * halfRCU
+	if cu < minRCUCost {
+		return minRCUCost
+	}
+
+	return cu
+}
+
 // isItemExpired returns true when the table has a TTL attribute configured and
 // the item's TTL value is in the past. Items without the attribute are never expired.
 func isItemExpired(item map[string]any, ttlAttr string) bool {

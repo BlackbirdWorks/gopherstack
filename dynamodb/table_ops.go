@@ -26,6 +26,11 @@ func getRegionFromContext(ctx context.Context, db *InMemoryDB) string {
 	return db.defaultRegion
 }
 
+// throttleKey returns the throttler key for the given region and table.
+func throttleKey(region, tableName string) string {
+	return region + ":" + tableName
+}
+
 // CreateTableInRegion creates a DynamoDB table in the specified region, bypassing
 // the HTTP-layer region extraction. The supplied region always takes precedence,
 // even if the context already carries a region value. Useful for tests that need
@@ -86,6 +91,10 @@ func (db *InMemoryDB) CreateTable(
 	}
 
 	db.Tables[region][tableName] = newTable
+
+	rcu := int64(newTable.ProvisionedThroughput.ReadCapacityUnits)
+	wcu := int64(newTable.ProvisionedThroughput.WriteCapacityUnits)
+	db.throttler.SetTableCapacity(throttleKey(region, tableName), rcu, wcu)
 
 	return buildCreateTableOutput(input, newTable), nil
 }
@@ -201,6 +210,7 @@ func (db *InMemoryDB) DeleteTable(
 		db.deletingTables[region] = make(map[string]*Table)
 	}
 	db.deletingTables[region][tableName] = table
+	db.throttler.DeleteTable(throttleKey(region, tableName))
 
 	// Capture state for return
 	gsiDescs := make([]models.GlobalSecondaryIndexDescription, len(table.GlobalSecondaryIndexes))
@@ -399,6 +409,12 @@ func (db *InMemoryDB) UpdateTable(
 	applyUpdateTableAttrDefs(table, input.AttributeDefinitions)
 	applyGSIUpdates(table, input.GlobalSecondaryIndexUpdates)
 	db.applyStreamSpec(table, tableName, input.StreamSpecification)
+
+	// Update throttler with the (possibly new) throughput values.
+	region := getRegionFromContext(ctx, db)
+	rcu := int64(table.ProvisionedThroughput.ReadCapacityUnits)
+	wcu := int64(table.ProvisionedThroughput.WriteCapacityUnits)
+	db.throttler.SetTableCapacity(throttleKey(region, tableName), rcu, wcu)
 
 	return buildUpdateTableOutput(input, table), nil
 }
