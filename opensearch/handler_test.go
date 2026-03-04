@@ -634,30 +634,45 @@ func (m *mockDNSRegistrar) Deregister(hostname string) {
 	delete(m.registered, hostname)
 }
 
-func TestOpenSearchBackend_DNSRegistrar_RegisterOnCreate(t *testing.T) {
+func TestOpenSearchBackend_DNSRegistrar(t *testing.T) {
 	t.Parallel()
 
-	registrar := &mockDNSRegistrar{registered: make(map[string]bool)}
-	b := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
-	b.SetDNSRegistrar(registrar)
+	tests := []struct {
+		name           string
+		domainName     string
+		wantRegistered bool
+		deleteAfter    bool
+	}{
+		{
+			name:           "registers_on_create",
+			domainName:     "my-domain",
+			wantRegistered: true,
+		},
+		{
+			name:           "deregisters_on_delete",
+			domainName:     "del-domain",
+			deleteAfter:    true,
+			wantRegistered: false,
+		},
+	}
 
-	domain, err := b.CreateDomain("my-domain", "", opensearch.ClusterConfig{})
-	require.NoError(t, err)
-	assert.True(t, registrar.registered[domain.Endpoint])
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-func TestOpenSearchBackend_DNSRegistrar_DeregisterOnDelete(t *testing.T) {
-	t.Parallel()
+			registrar := &mockDNSRegistrar{registered: make(map[string]bool)}
+			b := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
+			b.SetDNSRegistrar(registrar)
 
-	registrar := &mockDNSRegistrar{registered: make(map[string]bool)}
-	b := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
-	b.SetDNSRegistrar(registrar)
+			domain, err := b.CreateDomain(tt.domainName, "", opensearch.ClusterConfig{})
+			require.NoError(t, err)
 
-	domain, err := b.CreateDomain("del-domain", "", opensearch.ClusterConfig{})
-	require.NoError(t, err)
-	require.True(t, registrar.registered[domain.Endpoint])
+			if tt.deleteAfter {
+				_, err = b.DeleteDomain(tt.domainName)
+				require.NoError(t, err)
+			}
 
-	_, err = b.DeleteDomain("del-domain")
-	require.NoError(t, err)
-	assert.False(t, registrar.registered[domain.Endpoint])
+			assert.Equal(t, tt.wantRegistered, registrar.registered[domain.Endpoint])
+		})
+	}
 }

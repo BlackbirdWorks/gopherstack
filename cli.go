@@ -490,7 +490,7 @@ func run(ctx context.Context, cli CLI) error {
 
 	setupPersistence(ctx, persistManager, services, cli.Persist)
 
-	// Wire DNS registrar to Lambda backend for function URL hostname registration.
+	// Wire DNS registrar to service backends for hostname registration.
 	if dnsSrv != nil {
 		wireLambdaDNS(cli.lambdaHandler, dnsSrv)
 		wireRoute53DNS(cli.route53Handler, dnsSrv)

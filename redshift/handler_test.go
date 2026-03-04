@@ -362,30 +362,45 @@ func (m *mockDNSRegistrar) Deregister(hostname string) {
 	delete(m.registered, hostname)
 }
 
-func TestRedshiftBackend_DNSRegistrar_RegisterOnCreate(t *testing.T) {
+func TestRedshiftBackend_DNSRegistrar(t *testing.T) {
 	t.Parallel()
 
-	registrar := &mockDNSRegistrar{registered: make(map[string]bool)}
-	b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
-	b.SetDNSRegistrar(registrar)
+	tests := []struct {
+		name           string
+		clusterID      string
+		wantRegistered bool
+		deleteAfter    bool
+	}{
+		{
+			name:           "registers_on_create",
+			clusterID:      "my-cluster",
+			wantRegistered: true,
+		},
+		{
+			name:           "deregisters_on_delete",
+			clusterID:      "del-cluster",
+			deleteAfter:    true,
+			wantRegistered: false,
+		},
+	}
 
-	cluster, err := b.CreateCluster("my-cluster", "dc2.large", "dev", "admin")
-	require.NoError(t, err)
-	assert.True(t, registrar.registered[cluster.Endpoint])
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-func TestRedshiftBackend_DNSRegistrar_DeregisterOnDelete(t *testing.T) {
-	t.Parallel()
+			registrar := &mockDNSRegistrar{registered: make(map[string]bool)}
+			b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+			b.SetDNSRegistrar(registrar)
 
-	registrar := &mockDNSRegistrar{registered: make(map[string]bool)}
-	b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
-	b.SetDNSRegistrar(registrar)
+			cluster, err := b.CreateCluster(tt.clusterID, "dc2.large", "dev", "admin")
+			require.NoError(t, err)
 
-	cluster, err := b.CreateCluster("del-cluster", "dc2.large", "dev", "admin")
-	require.NoError(t, err)
-	require.True(t, registrar.registered[cluster.Endpoint])
+			if tt.deleteAfter {
+				_, err = b.DeleteCluster(tt.clusterID)
+				require.NoError(t, err)
+			}
 
-	_, err = b.DeleteCluster("del-cluster")
-	require.NoError(t, err)
-	assert.False(t, registrar.registered[cluster.Endpoint])
+			assert.Equal(t, tt.wantRegistered, registrar.registered[cluster.Endpoint])
+		})
+	}
 }

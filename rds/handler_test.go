@@ -524,30 +524,45 @@ func (m *mockDNSRegistrar) Deregister(hostname string) {
 	delete(m.registered, hostname)
 }
 
-func TestRDSBackend_DNSRegistrar_RegisterOnCreate(t *testing.T) {
+func TestRDSBackend_DNSRegistrar(t *testing.T) {
 	t.Parallel()
 
-	registrar := &mockDNSRegistrar{registered: make(map[string]bool)}
-	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
-	b.SetDNSRegistrar(registrar)
+	tests := []struct {
+		name            string
+		instanceID      string
+		wantRegistered  bool
+		deleteAfter     bool
+	}{
+		{
+			name:           "registers_on_create",
+			instanceID:     "my-db",
+			wantRegistered: true,
+		},
+		{
+			name:           "deregisters_on_delete",
+			instanceID:     "del-db",
+			deleteAfter:    true,
+			wantRegistered: false,
+		},
+	}
 
-	inst, err := b.CreateDBInstance("my-db", "postgres", "", "", "", 0)
-	require.NoError(t, err)
-	assert.True(t, registrar.registered[inst.Endpoint])
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-func TestRDSBackend_DNSRegistrar_DeregisterOnDelete(t *testing.T) {
-	t.Parallel()
+			registrar := &mockDNSRegistrar{registered: make(map[string]bool)}
+			b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+			b.SetDNSRegistrar(registrar)
 
-	registrar := &mockDNSRegistrar{registered: make(map[string]bool)}
-	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
-	b.SetDNSRegistrar(registrar)
+			inst, err := b.CreateDBInstance(tt.instanceID, "postgres", "", "", "", 0)
+			require.NoError(t, err)
 
-	inst, err := b.CreateDBInstance("del-db", "postgres", "", "", "", 0)
-	require.NoError(t, err)
-	require.True(t, registrar.registered[inst.Endpoint])
+			if tt.deleteAfter {
+				_, err = b.DeleteDBInstance(tt.instanceID)
+				require.NoError(t, err)
+			}
 
-	_, err = b.DeleteDBInstance("del-db")
-	require.NoError(t, err)
-	assert.False(t, registrar.registered[inst.Endpoint])
+			assert.Equal(t, tt.wantRegistered, registrar.registered[inst.Endpoint])
+		})
+	}
 }
