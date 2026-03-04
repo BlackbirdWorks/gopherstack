@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"testing"
 	"time"
@@ -22,9 +23,9 @@ func parseCLI(t *testing.T, envPairs map[string]string) CLI {
 		t.Setenv(k, v)
 	}
 
-	var cli CLI
+	var root rootCLI
 
-	parser, err := kong.New(&cli,
+	parser, err := kong.New(&root,
 		kong.Name("gopherstack"),
 		kong.Writers(nil, nil), // suppress help/error output
 	)
@@ -33,7 +34,7 @@ func parseCLI(t *testing.T, envPairs map[string]string) CLI {
 	_, err = parser.Parse([]string{})
 	require.NoError(t, err)
 
-	return cli
+	return root.Serve
 }
 
 func TestCLI_Defaults(t *testing.T) {
@@ -288,4 +289,68 @@ func TestServerStartup_InvalidPortRange(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		require.FailNow(t, "server did not shut down within timeout")
 	}
+}
+
+//nolint:paralleltest // uses t.Setenv via parseCLI, which is incompatible with t.Parallel.
+func TestHealthCmd_Success(t *testing.T) {
+	cli := parseCLI(t, map[string]string{
+		"PORT": "8130",
+	})
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- run(ctx, cli)
+	}()
+
+	// Wait for the server to be ready.
+	require.Eventually(t, func() bool {
+		resp, err := http.Get("http://localhost:8130/_gopherstack/health")
+		if err != nil {
+			return false
+		}
+		resp.Body.Close()
+		return resp.StatusCode == http.StatusOK
+	}, 3*time.Second, 50*time.Millisecond, "server did not become ready")
+
+	// Run the health command against the running server.
+	cmd := &HealthCmd{Port: "8130"}
+	assert.NoError(t, cmd.Run())
+
+	cancel()
+
+	select {
+	case err := <-errCh:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "server did not shut down within timeout")
+	}
+}
+
+func TestHealthCmd_NoServer(t *testing.T) {
+	t.Parallel()
+
+	cmd := &HealthCmd{Port: "19999"}
+	err := cmd.Run()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "health check failed")
+}
+
+//nolint:paralleltest // uses t.Setenv which disallows t.Parallel
+func TestHealthCmd_KongParsing(t *testing.T) {
+	var root rootCLI
+
+	parser, err := kong.New(&root,
+		kong.Name("gopherstack"),
+		kong.Writers(nil, nil),
+	)
+	require.NoError(t, err)
+
+	kctx, err := parser.Parse([]string{"health", "--port", "9090"})
+	require.NoError(t, err)
+
+	assert.Equal(t, "health", kctx.Command())
+	assert.Equal(t, "9090", root.Health.Port)
 }

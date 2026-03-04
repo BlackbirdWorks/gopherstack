@@ -1,0 +1,86 @@
+package elasticache_test
+
+import (
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/elasticache"
+)
+
+// mockDNSRegistrar is a simple in-memory DNSRegistrar for testing.
+type mockDNSRegistrar struct {
+	mu           sync.Mutex
+	registered   map[string]bool
+	deregistered map[string]bool
+}
+
+func newMockDNS() *mockDNSRegistrar {
+	return &mockDNSRegistrar{
+		registered:   make(map[string]bool),
+		deregistered: make(map[string]bool),
+	}
+}
+
+func (m *mockDNSRegistrar) Register(hostname string) {
+	m.mu.Lock()
+	m.registered[hostname] = true
+	m.mu.Unlock()
+}
+
+func (m *mockDNSRegistrar) Deregister(hostname string) {
+	m.mu.Lock()
+	m.deregistered[hostname] = true
+	m.mu.Unlock()
+}
+
+func TestCreateCluster_DNSRegistration(t *testing.T) {
+	t.Parallel()
+
+	dns := newMockDNS()
+	backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "123456789012", "us-east-1")
+	backend.SetDNSRegistrar(dns)
+
+	cluster, err := backend.CreateCluster("my-cache", "redis", "cache.t3.micro", 0)
+	require.NoError(t, err)
+
+	// Endpoint should be an AWS-style cache hostname.
+	assert.True(t, strings.HasPrefix(cluster.Endpoint, "my-cache."))
+	assert.True(t, strings.HasSuffix(cluster.Endpoint, ".us-east-1.cache.amazonaws.com"))
+
+	// DNS should have been called with the same hostname.
+	assert.True(t, dns.registered[cluster.Endpoint], "hostname should be registered with DNS")
+}
+
+func TestDeleteCluster_DNSDeregistration(t *testing.T) {
+	t.Parallel()
+
+	dns := newMockDNS()
+	backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "123456789012", "us-east-1")
+	backend.SetDNSRegistrar(dns)
+
+	cluster, err := backend.CreateCluster("my-cache", "redis", "cache.t3.micro", 0)
+	require.NoError(t, err)
+
+	endpoint := cluster.Endpoint
+
+	err = backend.DeleteCluster("my-cache")
+	require.NoError(t, err)
+
+	assert.True(t, dns.deregistered[endpoint], "hostname should be deregistered from DNS on delete")
+}
+
+func TestCreateCluster_NoDNS_StillWorks(t *testing.T) {
+	t.Parallel()
+
+	backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "123456789012", "us-east-1")
+
+	cluster, err := backend.CreateCluster("my-cache", "redis", "cache.t3.micro", 0)
+	require.NoError(t, err)
+
+	// Should still get an AWS-style hostname even without DNS registrar.
+	assert.True(t, strings.Contains(cluster.Endpoint, ".cache.amazonaws.com"))
+}

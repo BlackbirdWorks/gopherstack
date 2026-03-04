@@ -1,0 +1,27 @@
+services:
+  gopherstack:
+    build: ../..
+    environment:
+      - ELASTICACHE_ENGINE=embedded
+      - DNS_ADDR=:53
+      - DNS_RESOLVE_IP=127.0.0.1
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "./gopherstack", "health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 3s
+
+  demo:
+    image: alpine:3.21
+    # Share gopherstack's network namespace so localhost reaches the API,
+    # the embedded DNS server, and the miniredis instances.
+    network_mode: "service:gopherstack"
+    depends_on:
+      gopherstack:
+        condition: service_healthy
+    volumes:
+      - ./demo.sh:/demo.sh:ro
+    entrypoint: ["sh", "/demo.sh"]

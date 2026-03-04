@@ -33,7 +33,9 @@
       "Bash(gh auth status:*)",
       "Bash(gh issue:*)",
       "Bash(go list:*)",
-      "Bash(make:*)"
+      "Bash(make:*)",
+      "Bash(docker compose:*)",
+      "Bash(docker compose up:*)"
     ]
   }
 }

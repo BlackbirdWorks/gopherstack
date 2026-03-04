@@ -67,7 +67,7 @@ func TestCreateDescribeDeleteCacheCluster(t *testing.T) {
 	require.NotEmpty(t, out.CacheCluster.CacheNodes)
 	ep := out.CacheCluster.CacheNodes[0].Endpoint
 	require.NotNil(t, ep)
-	assert.Equal(t, "localhost", aws.ToString(ep.Address))
+	assert.Contains(t, aws.ToString(ep.Address), ".cache.amazonaws.com")
 	assert.Positive(t, aws.ToInt32(ep.Port))
 
 	// Describe cluster
@@ -170,7 +170,7 @@ func TestStubEngineMode(t *testing.T) {
 	backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 	cluster, err := backend.CreateCluster("stub-cluster", "redis", "cache.t3.micro", 0)
 	require.NoError(t, err)
-	assert.Equal(t, "localhost", cluster.Endpoint)
+	assert.Contains(t, cluster.Endpoint, ".cache.amazonaws.com")
 	assert.Equal(t, 6379, cluster.Port)
 	assert.Equal(t, "available", cluster.Status)
 }

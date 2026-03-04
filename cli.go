@@ -370,18 +370,59 @@ func (c *CLI) GetTranscribeHandler() service.Registerable { return c.transcribeH
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetSupportHandler() service.Registerable { return c.supportHandler }
 
+// rootCLI is the top-level kong grammar. The server flags live in Serve
+// (the default command); "health" is an explicit subcommand used as a
+// Docker healthcheck from scratch containers.
+type rootCLI struct {
+	Health HealthCmd `cmd:"" help:"Check server health (for Docker healthcheck)."`
+	Serve  CLI       `cmd:"" default:"withargs" help:"Start the Gopherstack server."`
+}
+
+// HealthCmd checks a running Gopherstack instance's health endpoint.
+type HealthCmd struct {
+	Port string `name:"port" env:"PORT" default:"8000" help:"Port of the running server to check."` //nolint:lll // config struct tags are intentionally verbose
+}
+
+// Run executes the health check. Returns nil on success.
+func (h *HealthCmd) Run() error {
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	resp, err := client.Get("http://localhost:" + h.Port + "/_gopherstack/health")
+	if err != nil {
+		return fmt.Errorf("health check failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("health check failed: status %d", resp.StatusCode)
+	}
+
+	fmt.Println("ok")
+
+	return nil
+}
+
 // Run parses CLI / environment-variable configuration and starts Gopherstack.
 // It is called from main() and exits on error.
 func Run() {
-	var cli CLI
+	var root rootCLI
 
-	kong.Parse(
-		&cli,
+	kctx := kong.Parse(
+		&root,
 		kong.Name("gopherstack"),
 		kong.Description("In-memory AWS DynamoDB + S3 compatible server."),
 	)
 
-	if err := run(context.Background(), cli); err != nil {
+	var err error
+
+	switch kctx.Command() {
+	case "health":
+		err = root.Health.Run()
+	default:
+		err = run(context.Background(), root.Serve)
+	}
+
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -442,10 +483,11 @@ func run(ctx context.Context, cli CLI) error {
 		return err
 	}
 
-	// Wire DNS registrar to Lambda backend for function URL hostname registration.
+	// Wire DNS registrar to backends that generate synthetic hostnames.
 	if dnsSrv != nil {
 		wireLambdaDNS(cli.lambdaHandler, dnsSrv)
 		wireRoute53DNS(cli.route53Handler, dnsSrv)
+		wireElastiCacheDNS(cli.elasticacheHandler, dnsSrv)
 	}
 
 	e := echo.New()
@@ -1223,4 +1265,21 @@ func wireRoute53DNS(r53Reg service.Registerable, dns route53backend.DNSRegistrar
 	}
 
 	r53H.Backend.SetDNSRegistrar(dns)
+}
+
+// wireElastiCacheDNS sets the DNS registrar on the ElastiCache backend so
+// cache cluster endpoints use AWS-style hostnames registered in the embedded DNS.
+func wireElastiCacheDNS(ecReg service.Registerable, dns elasticachebackend.DNSRegistrar) {
+	if ecReg == nil || dns == nil {
+		return
+	}
+
+	ecH, ok := ecReg.(*elasticachebackend.Handler)
+	if !ok {
+		return
+	}
+
+	if ecBk, bkOk := ecH.Backend.(*elasticachebackend.InMemoryBackend); bkOk {
+		ecBk.SetDNSRegistrar(dns)
+	}
 }

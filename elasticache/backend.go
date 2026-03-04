@@ -1,14 +1,17 @@
 package elasticache
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
-	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	gopherDNS "github.com/blackbirdworks/gopherstack/pkgs/dns"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -64,11 +67,18 @@ type StorageBackend interface {
 	DescribeReplicationGroups(id string) ([]ReplicationGroup, error)
 }
 
+// DNSRegistrar can register and deregister hostnames with an embedded DNS server.
+type DNSRegistrar interface {
+	Register(hostname string)
+	Deregister(hostname string)
+}
+
 // InMemoryBackend is an in-memory ElastiCache backend.
 type InMemoryBackend struct {
 	clusters          map[string]*Cluster
 	replicationGroups map[string]*ReplicationGroup
 	mu                *lockmetrics.RWMutex
+	dnsRegistrar      DNSRegistrar
 	engineMode        string
 	accountID         string
 	region            string
@@ -88,6 +98,14 @@ func NewInMemoryBackend(engineMode, accountID, region string) *InMemoryBackend {
 		region:            region,
 		mu:                lockmetrics.New("elasticache"),
 	}
+}
+
+// SetDNSRegistrar wires a DNS server so cache cluster hostnames are
+// automatically registered on create and deregistered on delete.
+func (b *InMemoryBackend) SetDNSRegistrar(r DNSRegistrar) {
+	b.mu.Lock("SetDNSRegistrar")
+	b.dnsRegistrar = r
+	b.mu.Unlock()
 }
 
 func (b *InMemoryBackend) clusterARN(id string) string {
@@ -133,16 +151,19 @@ func (b *InMemoryBackend) CreateCluster(id, engine, nodeType string, port int) (
 			return nil, fmt.Errorf("start miniredis: %w", err)
 		}
 		c.mini = mr
-		c.Endpoint = "localhost"
 		c.Port = mr.Server().Addr().Port
 	default:
-		// stub and docker: synthetic endpoint
-		c.Endpoint = "localhost"
 		if port > 0 {
 			c.Port = port
 		} else {
 			c.Port = 6379
 		}
+	}
+
+	// Generate an AWS-style hostname and register it with DNS if available.
+	c.Endpoint = gopherDNS.SyntheticHostname(id, randomSuffix(), b.region, "cache")
+	if b.dnsRegistrar != nil {
+		b.dnsRegistrar.Register(c.Endpoint)
 	}
 
 	b.clusters[id] = c
@@ -158,6 +179,10 @@ func (b *InMemoryBackend) DeleteCluster(id string) error {
 	c, exists := b.clusters[id]
 	if !exists {
 		return ErrClusterNotFound
+	}
+
+	if b.dnsRegistrar != nil && c.Endpoint != "" {
+		b.dnsRegistrar.Deregister(c.Endpoint)
 	}
 
 	if c.mini != nil {
@@ -268,6 +293,13 @@ func (b *InMemoryBackend) DescribeReplicationGroups(id string) ([]ReplicationGro
 	}
 
 	return out, nil
+}
+
+// randomSuffix generates a short random hex string for synthetic hostnames.
+func randomSuffix() string {
+	b := make([]byte, 3)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 // ListAll returns all clusters (used by dashboard).
