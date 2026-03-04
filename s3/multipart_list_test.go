@@ -13,180 +13,209 @@ import (
 	"github.com/blackbirdworks/gopherstack/s3"
 )
 
-func TestHandler_ListMultipartUploads_Empty(t *testing.T) {
+func TestHandler_ListMultipartUploads(t *testing.T) {
 	t.Parallel()
 
-	handler, backend := newTestHandler(t)
-	mustCreateBucket(t, backend, "mpu-empty")
-
-	req := httptest.NewRequest(http.MethodGet, "/mpu-empty?uploads", nil)
-	rec := httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
-
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var result s3.ListMultipartUploadsResult
-	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &result))
-	assert.Equal(t, "mpu-empty", result.Bucket)
-	assert.Empty(t, result.Uploads)
-}
-
-func TestHandler_ListMultipartUploads_WithUploads(t *testing.T) {
-	t.Parallel()
-
-	handler, backend := newTestHandler(t)
-	mustCreateBucket(t, backend, "mpu-list")
-
-	// Start two multipart uploads
-	req := httptest.NewRequest(http.MethodPost, "/mpu-list/key1?uploads", nil)
-	rec := httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	req = httptest.NewRequest(http.MethodPost, "/mpu-list/key2?uploads", nil)
-	rec = httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	// List uploads
-	req = httptest.NewRequest(http.MethodGet, "/mpu-list?uploads", nil)
-	rec = httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
-
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var result s3.ListMultipartUploadsResult
-	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &result))
-	assert.Equal(t, "mpu-list", result.Bucket)
-	assert.Len(t, result.Uploads, 2)
-}
-
-func TestHandler_ListMultipartUploads_WithPrefix(t *testing.T) {
-	t.Parallel()
-
-	handler, backend := newTestHandler(t)
-	mustCreateBucket(t, backend, "mpu-prefix")
-
-	// Start uploads with different key prefixes
-	for _, key := range []string{"logs/2024/a", "logs/2024/b", "data/x"} {
-		req := httptest.NewRequest(http.MethodPost, "/mpu-prefix/"+key+"?uploads", nil)
-		rec := httptest.NewRecorder()
-		serveS3Handler(handler, rec, req)
-		require.Equal(t, http.StatusOK, rec.Code)
+	tests := []struct {
+		name            string
+		bucket          string
+		createBucket    bool
+		keysToUpload    []string
+		listURL         string
+		wantStatus      int
+		wantBucket      string
+		wantUploadCount int
+		wantKeyPrefix   string
+	}{
+		{
+			name:            "empty bucket returns no uploads",
+			bucket:          "mpu-empty",
+			createBucket:    true,
+			listURL:         "/mpu-empty?uploads",
+			wantStatus:      http.StatusOK,
+			wantBucket:      "mpu-empty",
+			wantUploadCount: 0,
+		},
+		{
+			name:            "bucket with two uploads returns both",
+			bucket:          "mpu-list",
+			createBucket:    true,
+			keysToUpload:    []string{"key1", "key2"},
+			listURL:         "/mpu-list?uploads",
+			wantStatus:      http.StatusOK,
+			wantBucket:      "mpu-list",
+			wantUploadCount: 2,
+		},
+		{
+			name:            "prefix filter returns only matching uploads",
+			bucket:          "mpu-prefix",
+			createBucket:    true,
+			keysToUpload:    []string{"logs/2024/a", "logs/2024/b", "data/x"},
+			listURL:         "/mpu-prefix?uploads&prefix=logs/",
+			wantStatus:      http.StatusOK,
+			wantUploadCount: 2,
+			wantKeyPrefix:   "logs/",
+		},
+		{
+			name:         "nonexistent bucket returns 404",
+			bucket:       "no-such-bucket",
+			createBucket: false,
+			listURL:      "/no-such-bucket?uploads",
+			wantStatus:   http.StatusNotFound,
+		},
 	}
 
-	// List uploads with prefix=logs/
-	req := httptest.NewRequest(http.MethodGet, "/mpu-prefix?uploads&prefix=logs/", nil)
-	rec := httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	require.Equal(t, http.StatusOK, rec.Code)
+			handler, backend := newTestHandler(t)
 
-	var result s3.ListMultipartUploadsResult
-	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &result))
-	assert.Len(t, result.Uploads, 2)
-	for _, u := range result.Uploads {
-		assert.True(t, strings.HasPrefix(u.Key, "logs/"))
+			if tt.createBucket {
+				mustCreateBucket(t, backend, tt.bucket)
+			}
+
+			for _, key := range tt.keysToUpload {
+				req := httptest.NewRequest(http.MethodPost, "/"+tt.bucket+"/"+key+"?uploads", nil)
+				rec := httptest.NewRecorder()
+				serveS3Handler(handler, rec, req)
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			req := httptest.NewRequest(http.MethodGet, tt.listURL, nil)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+
+			require.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus != http.StatusOK {
+				return
+			}
+
+			var result s3.ListMultipartUploadsResult
+			require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &result))
+
+			if tt.wantBucket != "" {
+				assert.Equal(t, tt.wantBucket, result.Bucket)
+			}
+
+			assert.Len(t, result.Uploads, tt.wantUploadCount)
+
+			if tt.wantKeyPrefix != "" {
+				for _, u := range result.Uploads {
+					assert.True(t, strings.HasPrefix(u.Key, tt.wantKeyPrefix))
+				}
+			}
+		})
 	}
 }
 
-func TestHandler_ListMultipartUploads_NoSuchBucket(t *testing.T) {
+func TestHandler_ListParts(t *testing.T) {
 	t.Parallel()
 
-	handler, _ := newTestHandler(t)
-
-	req := httptest.NewRequest(http.MethodGet, "/no-such-bucket?uploads", nil)
-	rec := httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
-
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestHandler_ListParts_WithParts(t *testing.T) {
-	t.Parallel()
-
-	handler, backend := newTestHandler(t)
-	mustCreateBucket(t, backend, "lp-bucket")
-
-	// Create a multipart upload
-	req := httptest.NewRequest(http.MethodPost, "/lp-bucket/myobj?uploads", nil)
-	rec := httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	body := rec.Body.String()
-	start := strings.Index(body, "<UploadId>") + len("<UploadId>")
-	end := strings.Index(body, "</UploadId>")
-	uploadID := body[start:end]
-
-	// Upload two parts
-	for _, partNum := range []string{"1", "2"} {
-		req = httptest.NewRequest(
-			http.MethodPut,
-			"/lp-bucket/myobj?partNumber="+partNum+"&uploadId="+uploadID,
-			strings.NewReader("part-data-"+partNum),
-		)
-		rec = httptest.NewRecorder()
-		serveS3Handler(handler, rec, req)
-		require.Equal(t, http.StatusOK, rec.Code)
+	tests := []struct {
+		name             string
+		bucket           string
+		key              string
+		partsToUpload    []string
+		useNonexistentID bool
+		wantStatus       int
+		wantBucket       string
+		wantKey          string
+		wantPartCount    int
+		checkPartDetails bool
+	}{
+		{
+			name:             "upload with two parts lists both",
+			bucket:           "lp-bucket",
+			key:              "myobj",
+			partsToUpload:    []string{"1", "2"},
+			wantStatus:       http.StatusOK,
+			wantBucket:       "lp-bucket",
+			wantKey:          "myobj",
+			wantPartCount:    2,
+			checkPartDetails: true,
+		},
+		{
+			name:             "nonexistent upload ID returns 404",
+			bucket:           "lp-nosuchupload",
+			key:              "obj",
+			useNonexistentID: true,
+			wantStatus:       http.StatusNotFound,
+		},
+		{
+			name:          "upload with no parts returns empty list",
+			bucket:        "lp-empty",
+			key:           "obj",
+			partsToUpload: []string{},
+			wantStatus:    http.StatusOK,
+			wantPartCount: 0,
+		},
 	}
 
-	// List parts
-	req = httptest.NewRequest(http.MethodGet, "/lp-bucket/myobj?uploadId="+uploadID, nil)
-	rec = httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	require.Equal(t, http.StatusOK, rec.Code)
+			handler, backend := newTestHandler(t)
+			mustCreateBucket(t, backend, tt.bucket)
 
-	var result s3.ListPartsResult
-	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &result))
-	assert.Equal(t, "lp-bucket", result.Bucket)
-	assert.Equal(t, "myobj", result.Key)
-	assert.Equal(t, uploadID, result.UploadID)
-	require.Len(t, result.Parts, 2)
-	assert.Equal(t, 1, result.Parts[0].PartNumber)
-	assert.Equal(t, 2, result.Parts[1].PartNumber)
-	assert.Positive(t, result.Parts[0].Size)
-	assert.NotEmpty(t, result.Parts[0].ETag)
-}
+			uploadID := "nonexistent"
 
-func TestHandler_ListParts_NoSuchUpload(t *testing.T) {
-	t.Parallel()
+			if !tt.useNonexistentID {
+				req := httptest.NewRequest(http.MethodPost, "/"+tt.bucket+"/"+tt.key+"?uploads", nil)
+				rec := httptest.NewRecorder()
+				serveS3Handler(handler, rec, req)
+				require.Equal(t, http.StatusOK, rec.Code)
 
-	handler, backend := newTestHandler(t)
-	mustCreateBucket(t, backend, "lp-nosuchupload")
+				body := rec.Body.String()
+				start := strings.Index(body, "<UploadId>") + len("<UploadId>")
+				end := strings.Index(body, "</UploadId>")
+				uploadID = body[start:end]
 
-	req := httptest.NewRequest(http.MethodGet, "/lp-nosuchupload/obj?uploadId=nonexistent", nil)
-	rec := httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
+				for _, partNum := range tt.partsToUpload {
+					req = httptest.NewRequest(
+						http.MethodPut,
+						"/"+tt.bucket+"/"+tt.key+"?partNumber="+partNum+"&uploadId="+uploadID,
+						strings.NewReader("part-data-"+partNum),
+					)
+					rec = httptest.NewRecorder()
+					serveS3Handler(handler, rec, req)
+					require.Equal(t, http.StatusOK, rec.Code)
+				}
+			}
 
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
+			req := httptest.NewRequest(http.MethodGet, "/"+tt.bucket+"/"+tt.key+"?uploadId="+uploadID, nil)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
 
-func TestHandler_ListParts_Empty(t *testing.T) {
-	t.Parallel()
+			require.Equal(t, tt.wantStatus, rec.Code)
 
-	handler, backend := newTestHandler(t)
-	mustCreateBucket(t, backend, "lp-empty")
+			if tt.wantStatus != http.StatusOK {
+				return
+			}
 
-	// Create upload but don't add any parts
-	req := httptest.NewRequest(http.MethodPost, "/lp-empty/obj?uploads", nil)
-	rec := httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
-	require.Equal(t, http.StatusOK, rec.Code)
+			var result s3.ListPartsResult
+			require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &result))
 
-	body := rec.Body.String()
-	start := strings.Index(body, "<UploadId>") + len("<UploadId>")
-	end := strings.Index(body, "</UploadId>")
-	uploadID := body[start:end]
+			if tt.wantBucket != "" {
+				assert.Equal(t, tt.wantBucket, result.Bucket)
+			}
 
-	req = httptest.NewRequest(http.MethodGet, "/lp-empty/obj?uploadId="+uploadID, nil)
-	rec = httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
+			if tt.wantKey != "" {
+				assert.Equal(t, tt.wantKey, result.Key)
+			}
 
-	require.Equal(t, http.StatusOK, rec.Code)
+			assert.Equal(t, uploadID, result.UploadID)
 
-	var result s3.ListPartsResult
-	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &result))
-	assert.Empty(t, result.Parts)
+			require.Len(t, result.Parts, tt.wantPartCount)
+
+			if tt.checkPartDetails {
+				assert.Equal(t, 1, result.Parts[0].PartNumber)
+				assert.Equal(t, 2, result.Parts[1].PartNumber)
+				assert.Positive(t, result.Parts[0].Size)
+				assert.NotEmpty(t, result.Parts[0].ETag)
+			}
+		})
+	}
 }
