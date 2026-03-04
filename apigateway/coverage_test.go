@@ -29,10 +29,10 @@ func TestProvider_APIGateway(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
 		ctx         *service.AppContext
-		wantName    bool
+		name        string
 		wantSvcName string
+		wantName    bool
 	}{
 		{
 			name:     "name_returns_APIGateway",
@@ -81,9 +81,9 @@ func TestHandler_APIGateway_Metadata(t *testing.T) {
 	tests := []struct {
 		name          string
 		wantName      string
+		wantOps       []string
 		wantPriority  int
 		checkPriority bool
-		wantOps       []string
 	}{
 		{
 			name:     "name",
@@ -162,9 +162,9 @@ func TestHandler_APIGateway_ExtractOperation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		target  string
-		wantOp  string
+		name   string
+		target string
+		wantOp string
 	}{
 		{
 			name:   "known_target_extracts_operation",

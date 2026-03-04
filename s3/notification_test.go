@@ -141,12 +141,12 @@ func TestNotificationDispatcher_DispatchObjectCreated(t *testing.T) {
 		notifXML          string
 		key               string
 		etag              string
+		wantQueueARN      string
+		wantQueueContains []string
+		wantTopicContains []string
 		size              int64
 		wantQueueCount    int
 		wantTopicCount    int
-		wantQueueContains []string
-		wantTopicContains []string
-		wantQueueARN      string
 	}{
 		{
 			name:              "SQS_basic",
@@ -315,8 +315,8 @@ func TestNotificationDispatcher_DispatchObjectDeleted(t *testing.T) {
 		name              string
 		notifXML          string
 		key               string
-		wantQueueCount    int
 		wantQueueContains []string
+		wantQueueCount    int
 	}{
 		{
 			name:              "SQS_basic",

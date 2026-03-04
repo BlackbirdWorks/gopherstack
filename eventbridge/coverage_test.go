@@ -86,9 +86,9 @@ func TestHandler_Metadata(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name  string
-		check func(h *eventbridge.Handler) any
 		want  any
+		check func(h *eventbridge.Handler) any
+		name  string
 	}{
 		{
 			name:  "name is EventBridge",
@@ -317,9 +317,9 @@ func TestHandler_ListWithPrefix(t *testing.T) {
 	tests := []struct {
 		name        string
 		setupAction string
-		setupBodies []string
 		action      string
 		body        string
+		setupBodies []string
 		wantCode    int
 	}{
 		{

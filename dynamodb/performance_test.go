@@ -61,7 +61,9 @@ func TestBatchDeletePerformance(t *testing.T) {
 					requests[j] = types.WriteRequest{
 						PutRequest: &types.PutRequest{
 							Item: map[string]types.AttributeValue{
-								"id":   &types.AttributeValueMemberS{Value: fmt.Sprintf("item-%d", b*tt.itemsPerBatch+j)},
+								"id": &types.AttributeValueMemberS{
+									Value: fmt.Sprintf("item-%d", b*tt.itemsPerBatch+j),
+								},
 								"data": &types.AttributeValueMemberS{Value: "some-bloated-data-to-make-it-real"},
 							},
 						},

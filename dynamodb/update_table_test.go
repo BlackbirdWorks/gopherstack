@@ -41,17 +41,18 @@ func TestUpdateTable(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name            string
 		setup           func(t *testing.T) *ddb.InMemoryDB
 		input           *dynamodb.UpdateTableInput
-		wantErr         bool
-		wantErrContains string
 		verify          func(t *testing.T, db *ddb.InMemoryDB, out *dynamodb.UpdateTableOutput)
+		name            string
+		wantErrContains string
+		wantErr         bool
 	}{
 		{
 			name: "provisioned_throughput_update",
 			setup: func(t *testing.T) *ddb.InMemoryDB {
 				t.Helper()
+
 				return newTestDB(t, "my-table")
 			},
 			input: &dynamodb.UpdateTableInput{
@@ -80,6 +81,7 @@ func TestUpdateTable(t *testing.T) {
 			name: "enable_stream",
 			setup: func(t *testing.T) *ddb.InMemoryDB {
 				t.Helper()
+
 				return newTestDB(t, "stream-table")
 			},
 			input: &dynamodb.UpdateTableInput{
@@ -120,6 +122,7 @@ func TestUpdateTable(t *testing.T) {
 					},
 				})
 				require.NoError(t, err)
+
 				return db
 			},
 			input: &dynamodb.UpdateTableInput{
@@ -185,6 +188,7 @@ func TestUpdateTable(t *testing.T) {
 					},
 				})
 				require.NoError(t, err)
+
 				return db
 			},
 			input: &dynamodb.UpdateTableInput{
@@ -210,6 +214,7 @@ func TestUpdateTable(t *testing.T) {
 			name: "not_found",
 			setup: func(t *testing.T) *ddb.InMemoryDB {
 				t.Helper()
+
 				return ddb.NewInMemoryDB()
 			},
 			input: &dynamodb.UpdateTableInput{
@@ -230,8 +235,9 @@ func TestUpdateTable(t *testing.T) {
 			if tt.wantErr {
 				require.Error(t, err)
 				if tt.wantErrContains != "" {
-					assert.ErrorContains(t, err, tt.wantErrContains)
+					require.ErrorContains(t, err, tt.wantErrContains)
 				}
+
 				return
 			}
 

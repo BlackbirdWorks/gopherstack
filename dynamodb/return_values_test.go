@@ -14,12 +14,12 @@ func TestUpdateItem_UPDATED_NEW(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
-		setup            func(t *testing.T, db *dynamodb.InMemoryDB)
-		updateInput      models.UpdateItemInput
-		wantAttrPresent  []string
-		wantAttrAbsent   []string
-		wantAttr1Value   string
+		setup           func(t *testing.T, db *dynamodb.InMemoryDB)
+		updateInput     models.UpdateItemInput
+		name            string
+		wantAttr1Value  string
+		wantAttrPresent []string
+		wantAttrAbsent  []string
 	}{
 		{
 			name: "new item returns all updated attributes but not key",
@@ -104,7 +104,12 @@ func TestUpdateItem_UPDATED_NEW(t *testing.T) {
 				assert.NotContains(t, wireAttrs, key, "should NOT contain attribute %q", key)
 			}
 			if tt.wantAttr1Value != "" {
-				assert.Equal(t, tt.wantAttr1Value, wireAttrs["attr1"].(map[string]any)["S"], "attr1 should have new value")
+				assert.Equal(
+					t,
+					tt.wantAttr1Value,
+					wireAttrs["attr1"].(map[string]any)["S"],
+					"attr1 should have new value",
+				)
 			}
 		})
 	}

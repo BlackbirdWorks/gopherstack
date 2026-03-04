@@ -24,10 +24,10 @@ func TestDDBJanitor_DeleteTable(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		createTables []string
 		deleteTable  string
 		wantGone     string
 		wantPresent  string
+		createTables []string
 	}{
 		{
 			name:         "deleted_table_moves_to_deleting_queue",

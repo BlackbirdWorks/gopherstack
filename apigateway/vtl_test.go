@@ -129,9 +129,9 @@ func TestRenderTemplate(t *testing.T) {
 		},
 		// combined / edge cases
 		{
-			name: "combined_json_path_context",
-			tmpl: `{"action":$input.json('$.action'),"user":"$input.path('$.user')","reqId":"$context.requestId"}`,
-			ctx:  apigateway.VTLContext{Body: `{"action":"login","user":"dave"}`, RequestID: "abc-999"},
+			name:       "combined_json_path_context",
+			tmpl:       `{"action":$input.json('$.action'),"user":"$input.path('$.user')","reqId":"$context.requestId"}`,
+			ctx:        apigateway.VTLContext{Body: `{"action":"login","user":"dave"}`, RequestID: "abc-999"},
 			wantJSONEq: `{"action":"login","user":"dave","reqId":"abc-999"}`,
 		},
 		{

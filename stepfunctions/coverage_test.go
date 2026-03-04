@@ -50,9 +50,9 @@ func TestProvider_Init(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		config     any
-		wantName   string
+		name     string
+		config   any
+		wantName string
 	}{
 		{
 			name:     "with_config",
@@ -146,9 +146,9 @@ func TestHandler_ExtractOperation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		target    string
-		wantOp    string
+		name   string
+		target string
+		wantOp string
 	}{
 		{
 			name:   "known_operation",

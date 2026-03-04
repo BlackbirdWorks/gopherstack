@@ -38,13 +38,13 @@ func TestRegistry(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		setup       func(*service.Registry)
-		register    *MockService
-		wantCount   int
-		wantByName  string
-		wantErr     error
-		wantNonNil  bool
+		wantErr    error
+		setup      func(*service.Registry)
+		register   *MockService
+		name       string
+		wantByName string
+		wantCount  int
+		wantNonNil bool
 	}{
 		{
 			name:       "register new service",
@@ -58,7 +58,7 @@ func TestRegistry(t *testing.T) {
 			setup: func(reg *service.Registry) {
 				_ = reg.Register(&MockService{name: "S1", priority: 10})
 			},
-			register: &MockService{name: "S1", priority: 10},
+			register:   &MockService{name: "S1", priority: 10},
 			wantCount:  1,
 			wantByName: "S1",
 			wantErr:    service.ErrServiceAlreadyRegistered,
@@ -161,9 +161,9 @@ func TestServiceRouter(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		services     []*MockService
-		wantBody     string
+		name     string
+		wantBody string
+		services []*MockService
 	}{
 		{
 			name: "routes to highest priority matching service",

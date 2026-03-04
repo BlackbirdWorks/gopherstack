@@ -11,11 +11,11 @@ import (
 )
 
 type updateStep struct {
+	wantEqualN     map[string]string
+	wantEqualS     map[string]string
 	input          models.UpdateItemInput
 	wantContain    []string
 	wantNotContain []string
-	wantEqualN     map[string]string
-	wantEqualS     map[string]string
 }
 
 // TestUpdateItem_VersioningPattern tests UpdateItem UPDATED_NEW return value behaviour
@@ -157,11 +157,25 @@ func TestUpdateItem_VersioningPattern(t *testing.T) {
 				}
 				for key, wantVal := range step.wantEqualN {
 					require.Contains(t, attrs, key, "step %d: key %q missing for N assertion", i, key)
-					assert.Equal(t, wantVal, attrs[key].(map[string]any)["N"], "step %d: N value mismatch for %q", i, key)
+					assert.Equal(
+						t,
+						wantVal,
+						attrs[key].(map[string]any)["N"],
+						"step %d: N value mismatch for %q",
+						i,
+						key,
+					)
 				}
 				for key, wantVal := range step.wantEqualS {
 					require.Contains(t, attrs, key, "step %d: key %q missing for S assertion", i, key)
-					assert.Equal(t, wantVal, attrs[key].(map[string]any)["S"], "step %d: S value mismatch for %q", i, key)
+					assert.Equal(
+						t,
+						wantVal,
+						attrs[key].(map[string]any)["S"],
+						"step %d: S value mismatch for %q",
+						i,
+						key,
+					)
 				}
 			}
 		})

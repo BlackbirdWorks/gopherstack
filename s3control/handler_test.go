@@ -50,8 +50,8 @@ func TestS3Control_Handler_PublicAccessBlockFlows(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		run  func(t *testing.T, h *s3control.Handler)
+		name string
 	}{
 		{
 			name: "put_and_get_returns_stored_config",
@@ -78,7 +78,9 @@ func TestS3Control_Handler_PublicAccessBlockFlows(t *testing.T) {
 			run: func(t *testing.T, h *s3control.Handler) {
 				t.Helper()
 
-				putBody := `<PublicAccessBlockConfiguration><BlockPublicAcls>true</BlockPublicAcls></PublicAccessBlockConfiguration>`
+				putBody := `<PublicAccessBlockConfiguration>` +
+					`<BlockPublicAcls>true</BlockPublicAcls>` +
+					`</PublicAccessBlockConfiguration>`
 				doS3ControlRequest(t, h, http.MethodPut, "000000000000", putBody)
 
 				delRec := doS3ControlRequest(t, h, http.MethodDelete, "000000000000", "")
@@ -93,7 +95,9 @@ func TestS3Control_Handler_PublicAccessBlockFlows(t *testing.T) {
 			run: func(t *testing.T, h *s3control.Handler) {
 				t.Helper()
 
-				putBody := `<PublicAccessBlockConfiguration><BlockPublicAcls>true</BlockPublicAcls></PublicAccessBlockConfiguration>`
+				putBody := `<PublicAccessBlockConfiguration>` +
+					`<BlockPublicAcls>true</BlockPublicAcls>` +
+					`</PublicAccessBlockConfiguration>`
 
 				putRec := doS3ControlRequest(t, h, http.MethodPut, "", putBody)
 				assert.Equal(t, http.StatusCreated, putRec.Code)
@@ -233,8 +237,8 @@ func TestS3Control_Handler_Meta(t *testing.T) {
 	h := newTestS3ControlHandler(t)
 
 	tests := []struct {
-		name  string
 		check func(t *testing.T)
+		name  string
 	}{
 		{
 			name: "handler_name",

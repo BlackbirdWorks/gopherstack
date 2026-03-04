@@ -42,9 +42,9 @@ func TestCreateCluster(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		withDNS    bool
 		wantPrefix string
 		wantSuffix string
+		withDNS    bool
 	}{
 		{
 			name:       "dns_registration",

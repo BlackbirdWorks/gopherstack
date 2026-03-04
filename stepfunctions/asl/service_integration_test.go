@@ -88,26 +88,60 @@ func (m *mockDynamoDB) SFNUpdateItem(_ context.Context, _ any) (any, error) {
 	return m.returnOutput, m.returnErr
 }
 
+// --- SQS helpers ---
+
+type sqsCaptureAssertion struct {
+	wantCapturedQueueURL        string
+	wantCapturedMessageBody     string
+	wantCapturedGroupID         string
+	wantCapturedDeduplicationID string
+	wantCapturedDelaySeconds    int
+}
+
+func assertSQSCaptures(t *testing.T, mock *mockSQS, tt sqsCaptureAssertion) {
+	t.Helper()
+
+	if tt.wantCapturedQueueURL != "" {
+		assert.Equal(t, tt.wantCapturedQueueURL, mock.capturedQueueURL)
+	}
+
+	if tt.wantCapturedMessageBody != "" {
+		assert.Equal(t, tt.wantCapturedMessageBody, mock.capturedMessageBody)
+	}
+
+	if tt.wantCapturedGroupID != "" {
+		assert.Equal(t, tt.wantCapturedGroupID, mock.capturedGroupID)
+	}
+
+	if tt.wantCapturedDeduplicationID != "" {
+		assert.Equal(t, tt.wantCapturedDeduplicationID, mock.capturedDeduplicationID)
+	}
+
+	if tt.wantCapturedDelaySeconds != 0 {
+		assert.Equal(t, tt.wantCapturedDelaySeconds, mock.capturedDelaySeconds)
+	}
+}
+
 // --- SQS tests ---
 
 func TestExecutor_SQS(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name                        string
-		def                         string
-		setMock                     bool
+		wantCauseContains           string
+		wantCapturedDeduplicationID string
+		wantOutputMsgID             string
 		mockReturnMsgID             string
 		mockReturnMD5               string
 		wantError                   string
-		wantCauseContains           string
-		wantOutputMsgID             string
 		wantOutputMD5               string
+		name                        string
+		def                         string
 		wantCapturedQueueURL        string
 		wantCapturedMessageBody     string
 		wantCapturedGroupID         string
-		wantCapturedDeduplicationID string
 		wantCapturedDelaySeconds    int
+		setMock                     bool
 	}{
 		{
 			name: "send_message",
@@ -225,21 +259,13 @@ func TestExecutor_SQS(t *testing.T) {
 			}
 
 			if mock != nil {
-				if tt.wantCapturedQueueURL != "" {
-					assert.Equal(t, tt.wantCapturedQueueURL, mock.capturedQueueURL)
-				}
-				if tt.wantCapturedMessageBody != "" {
-					assert.Equal(t, tt.wantCapturedMessageBody, mock.capturedMessageBody)
-				}
-				if tt.wantCapturedGroupID != "" {
-					assert.Equal(t, tt.wantCapturedGroupID, mock.capturedGroupID)
-				}
-				if tt.wantCapturedDeduplicationID != "" {
-					assert.Equal(t, tt.wantCapturedDeduplicationID, mock.capturedDeduplicationID)
-				}
-				if tt.wantCapturedDelaySeconds != 0 {
-					assert.Equal(t, tt.wantCapturedDelaySeconds, mock.capturedDelaySeconds)
-				}
+				assertSQSCaptures(t, mock, sqsCaptureAssertion{
+					wantCapturedQueueURL:        tt.wantCapturedQueueURL,
+					wantCapturedMessageBody:     tt.wantCapturedMessageBody,
+					wantCapturedGroupID:         tt.wantCapturedGroupID,
+					wantCapturedDeduplicationID: tt.wantCapturedDeduplicationID,
+					wantCapturedDelaySeconds:    tt.wantCapturedDelaySeconds,
+				})
 			}
 		})
 	}
@@ -253,7 +279,6 @@ func TestExecutor_SNS(t *testing.T) {
 	tests := []struct {
 		name                 string
 		def                  string
-		setMock              bool
 		mockReturnMsgID      string
 		wantError            string
 		wantCauseContains    string
@@ -261,6 +286,7 @@ func TestExecutor_SNS(t *testing.T) {
 		wantCapturedTopicARN string
 		wantCapturedMessage  string
 		wantCapturedSubject  string
+		setMock              bool
 	}{
 		{
 			name: "publish",

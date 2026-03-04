@@ -19,13 +19,13 @@ func TestHandler_ListMultipartUploads(t *testing.T) {
 	tests := []struct {
 		name            string
 		bucket          string
-		createBucket    bool
-		keysToUpload    []string
 		listURL         string
-		wantStatus      int
 		wantBucket      string
-		wantUploadCount int
 		wantKeyPrefix   string
+		keysToUpload    []string
+		wantStatus      int
+		wantUploadCount int
+		createBucket    bool
 	}{
 		{
 			name:            "empty bucket returns no uploads",
@@ -117,12 +117,12 @@ func TestHandler_ListParts(t *testing.T) {
 		name             string
 		bucket           string
 		key              string
-		partsToUpload    []string
-		useNonexistentID bool
-		wantStatus       int
 		wantBucket       string
 		wantKey          string
+		partsToUpload    []string
+		wantStatus       int
 		wantPartCount    int
+		useNonexistentID bool
 		checkPartDetails bool
 	}{
 		{

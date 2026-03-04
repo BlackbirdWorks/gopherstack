@@ -69,7 +69,9 @@ func TestBatchConcurrency(t *testing.T) {
 									{
 										PutRequest: &types.PutRequest{
 											Item: map[string]types.AttributeValue{
-												"id": &types.AttributeValueMemberS{Value: fmt.Sprintf("item-%d-%d", gid, i)},
+												"id": &types.AttributeValueMemberS{
+													Value: fmt.Sprintf("item-%d-%d", gid, i),
+												},
 											},
 										},
 									},
@@ -92,7 +94,11 @@ func TestBatchConcurrency(t *testing.T) {
 							RequestItems: map[string]types.KeysAndAttributes{
 								tt.tableName: {
 									Keys: []map[string]types.AttributeValue{
-										{"id": &types.AttributeValueMemberS{Value: fmt.Sprintf("item-%d-%d", gid, i/2)}},
+										{
+											"id": &types.AttributeValueMemberS{
+												Value: fmt.Sprintf("item-%d-%d", gid, i/2),
+											},
+										},
 									},
 								},
 							},

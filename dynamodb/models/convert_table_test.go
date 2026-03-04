@@ -16,12 +16,12 @@ func TestToSDKCreateTableInput(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name                string
-		input               *models.CreateTableInput
-		wantTableName       string
-		wantKeySchemaLen    int
-		wantAttrDefsLen     int
-		wantProvThroughput  bool
+		name               string
+		input              *models.CreateTableInput
+		wantTableName      string
+		wantKeySchemaLen   int
+		wantAttrDefsLen    int
+		wantProvThroughput bool
 	}{
 		{
 			name: "valid_create_table_input",
@@ -238,8 +238,8 @@ func TestToSDKListTablesInput(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
 		input     *models.ListTablesInput
+		name      string
 		wantLimit int32
 	}{
 		{
@@ -297,10 +297,10 @@ func TestFromSDKUpdateTimeToLiveOutput(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
-		input         *dynamodb_sdk.UpdateTimeToLiveOutput
-		wantAttrName  string
-		wantEnabled   bool
+		name         string
+		input        *dynamodb_sdk.UpdateTimeToLiveOutput
+		wantAttrName string
+		wantEnabled  bool
 	}{
 		{
 			name: "ttl_enabled",
@@ -358,14 +358,14 @@ func TestFromSDKTableDescription(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name            string
-		input           *types.TableDescription
-		wantEmpty       bool
-		wantTableName   string
-		wantTableStatus string
-		wantItemCount   int
+		input            *types.TableDescription
+		name             string
+		wantTableName    string
+		wantTableStatus  string
+		wantItemCount    int
 		wantKeySchemaLen int
 		wantAttrDefsLen  int
+		wantEmpty        bool
 	}{
 		{
 			name: "active_table_with_schema",
@@ -401,6 +401,7 @@ func TestFromSDKTableDescription(t *testing.T) {
 
 			if tt.wantEmpty {
 				assert.Equal(t, models.TableDescription{}, result)
+
 				return
 			}
 
@@ -417,11 +418,11 @@ func TestFromSDKConsumedCapacity(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name              string
 		input             *types.ConsumedCapacity
-		wantNil           bool
+		name              string
 		wantTableName     string
 		wantCapacityUnits float64
+		wantNil           bool
 	}{
 		{
 			name: "valid_consumed_capacity",
@@ -449,6 +450,7 @@ func TestFromSDKConsumedCapacity(t *testing.T) {
 
 			if tt.wantNil {
 				assert.Nil(t, result)
+
 				return
 			}
 
@@ -463,10 +465,10 @@ func TestFromSDKItemCollectionMetrics(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name                    string
-		input                   *types.ItemCollectionMetrics
-		wantNil                 bool
+		input                    *types.ItemCollectionMetrics
+		name                     string
 		wantSizeEstimateRangeLen int
+		wantNil                  bool
 	}{
 		{
 			name: "valid_item_collection_metrics",
@@ -493,6 +495,7 @@ func TestFromSDKItemCollectionMetrics(t *testing.T) {
 
 			if tt.wantNil {
 				assert.Nil(t, result)
+
 				return
 			}
 
@@ -508,10 +511,10 @@ func TestFromSDKGlobalSecondaryIndexDescriptions(t *testing.T) {
 
 	tests := []struct {
 		name            string
-		input           []types.GlobalSecondaryIndexDescription
-		wantLen         int
 		wantIndexName   string
 		wantIndexStatus string
+		input           []types.GlobalSecondaryIndexDescription
+		wantLen         int
 		wantItemCount   int
 	}{
 		{
@@ -559,9 +562,9 @@ func TestFromSDKLocalSecondaryIndexDescriptions(t *testing.T) {
 
 	tests := []struct {
 		name               string
+		wantIndexName      string
 		input              []types.LocalSecondaryIndexDescription
 		wantLen            int
-		wantIndexName      string
 		wantIndexSizeBytes int64
 		wantItemCount      int
 	}{
@@ -606,11 +609,11 @@ func TestFromSDKProvisionedThroughputDescription(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name                string
-		input               *types.ProvisionedThroughputDescription
-		wantNil             bool
-		wantReadCapacity    int
-		wantWriteCapacity   int
+		input             *types.ProvisionedThroughputDescription
+		name              string
+		wantReadCapacity  int
+		wantWriteCapacity int
+		wantNil           bool
 	}{
 		{
 			name: "valid_throughput_description",
@@ -636,6 +639,7 @@ func TestFromSDKProvisionedThroughputDescription(t *testing.T) {
 
 			if tt.wantNil {
 				assert.Nil(t, result)
+
 				return
 			}
 

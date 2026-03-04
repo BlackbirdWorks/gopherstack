@@ -31,16 +31,17 @@ func TestHandler_PresignedGet(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
 		urlFn       func() string
-		wantCode    int
+		name        string
 		wantBody    string
 		wantContain string
+		wantCode    int
 	}{
 		{
 			name: "valid url still within expiry window",
 			urlFn: func() string {
 				dateStr := time.Now().UTC().Add(-5 * time.Minute).Format("20060102T150405Z")
+
 				return "/my-bucket/file.txt" + presignedQuery(dateStr, 3600)
 			},
 			wantCode: http.StatusOK,
@@ -50,6 +51,7 @@ func TestHandler_PresignedGet(t *testing.T) {
 			name: "expired url",
 			urlFn: func() string {
 				dateStr := time.Now().UTC().Add(-2 * time.Hour).Format("20060102T150405Z")
+
 				return "/my-bucket/file.txt" + presignedQuery(dateStr, 3600)
 			},
 			wantCode:    http.StatusForbidden,
@@ -75,7 +77,11 @@ func TestHandler_PresignedGet(t *testing.T) {
 			name: "non-numeric X-Amz-Expires rejected",
 			urlFn: func() string {
 				dateStr := time.Now().UTC().Format("20060102T150405Z")
-				return fmt.Sprintf("/my-bucket/file.txt?X-Amz-Signature=fakesig&X-Amz-Date=%s&X-Amz-Expires=notanumber", dateStr)
+
+				return fmt.Sprintf(
+					"/my-bucket/file.txt?X-Amz-Signature=fakesig&X-Amz-Date=%s&X-Amz-Expires=notanumber",
+					dateStr,
+				)
 			},
 			wantCode:    http.StatusBadRequest,
 			wantContain: "AuthorizationQueryParametersError",
@@ -113,16 +119,17 @@ func TestHandler_PresignedPut(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
 		urlFn         func() string
+		name          string
+		verifyGetPath string
 		wantPutCode   int
 		wantGetCode   int
-		verifyGetPath string
 	}{
 		{
 			name: "valid url uploads object successfully",
 			urlFn: func() string {
 				dateStr := time.Now().UTC().Add(-1 * time.Minute).Format("20060102T150405Z")
+
 				return "/my-bucket/uploaded.txt" + presignedQuery(dateStr, 3600)
 			},
 			wantPutCode:   http.StatusOK,
@@ -161,9 +168,9 @@ func TestHandler_NonPresigned_Unaffected(t *testing.T) {
 		name     string
 		method   string
 		path     string
+		wantBody string
 		body     []byte
 		wantCode int
-		wantBody string
 	}{
 		{
 			name:     "regular GET bypasses presign checks",

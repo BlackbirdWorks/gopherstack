@@ -21,13 +21,13 @@ func TestDebugLogging(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setupInput      any
+		input           any
 		name            string
 		setupTarget     string
-		setupInput      any
 		target          string
-		input           any
-		wantStatus      int
 		wantLogContains []string
+		wantStatus      int
 	}{
 		{
 			name:   "create_table_logs_debug_info",

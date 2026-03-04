@@ -26,8 +26,8 @@ func TestRedrivePolicy_DLQMovement(t *testing.T) {
 
 	tests := []struct {
 		name              string
-		maxReceiveCount   int
 		msgBody           string
+		maxReceiveCount   int
 		setPolicyAtCreate bool
 	}{
 		{
@@ -170,9 +170,9 @@ func TestRedrivePolicy_InvalidJSONIgnored(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		policy    string
-		msgBody   string
+		name    string
+		policy  string
+		msgBody string
 	}{
 		{
 			name:    "malformed_json",

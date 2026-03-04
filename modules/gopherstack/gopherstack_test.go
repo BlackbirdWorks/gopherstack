@@ -66,11 +66,11 @@ func TestWithEnv(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		initial  map[string]string
-		input    map[string]string
-		wantEnv  map[string]string
-		wantErr  bool
+		initial map[string]string
+		input   map[string]string
+		wantEnv map[string]string
+		name    string
+		wantErr bool
 	}{
 		{
 			name:    "applies multiple env vars to existing map",

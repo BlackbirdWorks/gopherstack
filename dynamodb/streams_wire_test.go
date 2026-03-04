@@ -15,11 +15,11 @@ func TestUnit_StreamsWire_AttributeValueEncoding(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
-		input         *dynamodbstreams.GetRecordsOutput
-		wantRecords   int
-		wantNewImage  map[string]any
-		wantErr       bool
+		input        *dynamodbstreams.GetRecordsOutput
+		wantNewImage map[string]any
+		name         string
+		wantRecords  int
+		wantErr      bool
 	}{
 		{
 			name: "encodes_all_scalar_and_collection_types",
@@ -34,9 +34,11 @@ func TestUnit_StreamsWire_AttributeValueEncoding(t *testing.T) {
 								"count": &streamstypes.AttributeValueMemberN{Value: "2"},
 								"flag":  &streamstypes.AttributeValueMemberBOOL{Value: true},
 								"tags":  &streamstypes.AttributeValueMemberSS{Value: []string{"a", "b"}},
-								"meta": &streamstypes.AttributeValueMemberM{Value: map[string]streamstypes.AttributeValue{
-									"inner": &streamstypes.AttributeValueMemberS{Value: "v"},
-								}},
+								"meta": &streamstypes.AttributeValueMemberM{
+									Value: map[string]streamstypes.AttributeValue{
+										"inner": &streamstypes.AttributeValueMemberS{Value: "v"},
+									},
+								},
 								"list": &streamstypes.AttributeValueMemberL{Value: []streamstypes.AttributeValue{
 									&streamstypes.AttributeValueMemberS{Value: "x"},
 									&streamstypes.AttributeValueMemberN{Value: "3"},

@@ -38,8 +38,8 @@ func TestHandler_MatchPriority(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		wantAbove   int
+		name      string
+		wantAbove int
 	}{
 		{name: "higher_than_dashboard", wantAbove: 50},
 	}
@@ -58,9 +58,9 @@ func TestHandler_RouteMatcher(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		path    string
-		want    bool
+		name string
+		path string
+		want bool
 	}{
 		{name: "route53_path_matches", path: "/2013-04-01/hostedzone", want: true},
 		{name: "non_route53_path_no_match", path: "/bucket/key", want: false},
@@ -122,11 +122,36 @@ func TestHandler_ExtractOperation(t *testing.T) {
 		path   string
 		want   string
 	}{
-		{name: "post_hostedzone_is_create", method: http.MethodPost, path: "/2013-04-01/hostedzone", want: "CreateHostedZone"},
-		{name: "get_hostedzone_is_list", method: http.MethodGet, path: "/2013-04-01/hostedzone", want: "ListHostedZones"},
-		{name: "post_rrset_is_change", method: http.MethodPost, path: "/2013-04-01/hostedzone/Z123/rrset", want: "ChangeResourceRecordSets"},
-		{name: "get_rrset_is_list", method: http.MethodGet, path: "/2013-04-01/hostedzone/Z123/rrset", want: "ListResourceRecordSets"},
-		{name: "delete_zone_is_delete", method: http.MethodDelete, path: "/2013-04-01/hostedzone/Z123", want: "DeleteHostedZone"},
+		{
+			name:   "post_hostedzone_is_create",
+			method: http.MethodPost,
+			path:   "/2013-04-01/hostedzone",
+			want:   "CreateHostedZone",
+		},
+		{
+			name:   "get_hostedzone_is_list",
+			method: http.MethodGet,
+			path:   "/2013-04-01/hostedzone",
+			want:   "ListHostedZones",
+		},
+		{
+			name:   "post_rrset_is_change",
+			method: http.MethodPost,
+			path:   "/2013-04-01/hostedzone/Z123/rrset",
+			want:   "ChangeResourceRecordSets",
+		},
+		{
+			name:   "get_rrset_is_list",
+			method: http.MethodGet,
+			path:   "/2013-04-01/hostedzone/Z123/rrset",
+			want:   "ListResourceRecordSets",
+		},
+		{
+			name:   "delete_zone_is_delete",
+			method: http.MethodDelete,
+			path:   "/2013-04-01/hostedzone/Z123",
+			want:   "DeleteHostedZone",
+		},
 		{name: "get_zone_is_get", method: http.MethodGet, path: "/2013-04-01/hostedzone/Z123", want: "GetHostedZone"},
 		{name: "put_hostedzone_is_unknown", method: http.MethodPut, path: "/2013-04-01/hostedzone", want: "Unknown"},
 	}
@@ -326,9 +351,9 @@ func TestChangeResourceRecordSets_ErrorCases(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		needsZone bool
 		body      string
 		wantCode  int
+		needsZone bool
 	}{
 		{
 			name:      "delete_nonexistent_record_returns_bad_request",

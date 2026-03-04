@@ -14,12 +14,12 @@ func TestHandler_BucketACL(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		bucket     string
-		method     string
-		url        string
-		aclHeader  string
-		wantCode   int
+		name      string
+		bucket    string
+		method    string
+		url       string
+		aclHeader string
+		wantCode  int
 	}{
 		{
 			name:      "put_bucket_acl",
@@ -109,10 +109,10 @@ func TestHandler_DeleteObjects_BulkOps(t *testing.T) {
 	tests := []struct {
 		name         string
 		bucket       string
-		setupObjects []string
 		deleteBody   string
-		wantCode     int
 		wantBody     string
+		setupObjects []string
+		wantCode     int
 	}{
 		{
 			name:         "mixed_objects_including_nonexistent",
@@ -171,10 +171,10 @@ func TestHandler_DeleteObjectTagging(t *testing.T) {
 		wantCode int
 	}{
 		{
-			name:    "delete_object_tagging",
-			bucket:  "dtag-bucket",
-			key:     "tagged-obj",
-			tagsXML: `<Tagging><TagSet><Tag><Key>foo</Key><Value>bar</Value></Tag></TagSet></Tagging>`,
+			name:     "delete_object_tagging",
+			bucket:   "dtag-bucket",
+			key:      "tagged-obj",
+			tagsXML:  `<Tagging><TagSet><Tag><Key>foo</Key><Value>bar</Value></Tag></TagSet></Tagging>`,
 			wantCode: http.StatusNoContent,
 		},
 	}
@@ -191,7 +191,11 @@ func TestHandler_DeleteObjectTagging(t *testing.T) {
 			serveS3Handler(handler, putRec, putReq)
 			require.Equal(t, http.StatusOK, putRec.Code)
 
-			tagReq := httptest.NewRequest(http.MethodPut, "/"+tt.bucket+"/"+tt.key+"?tagging", strings.NewReader(tt.tagsXML))
+			tagReq := httptest.NewRequest(
+				http.MethodPut,
+				"/"+tt.bucket+"/"+tt.key+"?tagging",
+				strings.NewReader(tt.tagsXML),
+			)
 			tagRec := httptest.NewRecorder()
 			serveS3Handler(handler, tagRec, tagReq)
 			require.Equal(t, http.StatusOK, tagRec.Code)
@@ -239,12 +243,12 @@ func TestHandler_GetObject_WithChecksumMode(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		bucket    string
-		key       string
-		body      string
-		wantCode  int
-		wantBody  string
+		name     string
+		bucket   string
+		key      string
+		body     string
+		wantBody string
+		wantCode int
 	}{
 		{
 			name:     "get_with_checksum_mode_enabled",

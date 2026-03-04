@@ -22,9 +22,9 @@ func TestEchoMiddleware(t *testing.T) {
 		method         string
 		path           string
 		logMessage     string
-		wantStatus     int
 		wantBody       string
 		wantLogContain []string
+		wantStatus     int
 	}{
 		{
 			name:       "GET request logs debug message with key-value pair",
@@ -105,8 +105,8 @@ func TestMiddleware(t *testing.T) {
 		method         string
 		path           string
 		logMessage     string
-		wantStatus     int
 		wantLogContain []string
+		wantStatus     int
 	}{
 		{
 			name:       "GET request logger available in handler context",

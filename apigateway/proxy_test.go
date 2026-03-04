@@ -145,12 +145,12 @@ func TestHandleAWSProxy(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setupInvoker func(*apigateway.Handler)
 		name         string
 		path         string
 		body         string
-		setupInvoker func(*apigateway.Handler)
-		wantStatus   int
 		wantBody     string
+		wantStatus   int
 	}{
 		{
 			name: "success",
@@ -280,18 +280,19 @@ func TestHandleAWSIntegration(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
 		setupFn      func(t *testing.T) (*apigateway.Handler, *echo.Echo, string)
 		invokerFn    func(capture *[]byte) apigateway.LambdaInvoker
+		checkCapture func(t *testing.T, captured []byte)
+		name         string
 		path         string
 		body         string
 		wantStatus   int
-		checkCapture func(t *testing.T, captured []byte)
 	}{
 		{
 			name: "with_request_template",
 			setupFn: func(t *testing.T) (*apigateway.Handler, *echo.Echo, string) {
 				t.Helper()
+
 				return setupVTLAPI(t)
 			},
 			invokerFn: func(capture *[]byte) apigateway.LambdaInvoker {
@@ -311,6 +312,7 @@ func TestHandleAWSIntegration(t *testing.T) {
 			name: "lambda_error",
 			setupFn: func(t *testing.T) (*apigateway.Handler, *echo.Echo, string) {
 				t.Helper()
+
 				return setupProxyAPIViaHandler(t, "AWS", "arn:aws:lambda:us-east-1:123:function:fn")
 			},
 			invokerFn: func(_ *[]byte) apigateway.LambdaInvoker {
@@ -324,6 +326,7 @@ func TestHandleAWSIntegration(t *testing.T) {
 			name: "no_request_template",
 			setupFn: func(t *testing.T) (*apigateway.Handler, *echo.Echo, string) {
 				t.Helper()
+
 				return setupProxyAPIViaHandler(t, "AWS", "arn:aws:lambda:us-east-1:123:function:fn")
 			},
 			invokerFn: func(capture *[]byte) apigateway.LambdaInvoker {
@@ -334,7 +337,7 @@ func TestHandleAWSIntegration(t *testing.T) {
 			wantStatus: http.StatusOK,
 			checkCapture: func(t *testing.T, captured []byte) {
 				t.Helper()
-				assert.Equal(t, `{"data":"test"}`, string(captured))
+				assert.JSONEq(t, `{"data":"test"}`, string(captured))
 			},
 		},
 	}

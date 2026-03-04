@@ -14,8 +14,8 @@ func TestBackend_RestAPI(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		run  func(t *testing.T)
+		name string
 	}{
 		{
 			name: "create_and_get",
@@ -23,7 +23,11 @@ func TestBackend_RestAPI(t *testing.T) {
 				t.Helper()
 
 				b := apigateway.NewInMemoryBackend()
-				api, err := b.CreateRestAPI("my-api", "desc", tags.FromMap("test.apigw", map[string]string{"env": "test"}))
+				api, err := b.CreateRestAPI(
+					"my-api",
+					"desc",
+					tags.FromMap("test.apigw", map[string]string{"env": "test"}),
+				)
 				require.NoError(t, err)
 				assert.NotEmpty(t, api.ID)
 				assert.Equal(t, "my-api", api.Name)
@@ -107,8 +111,8 @@ func TestBackend_Resource(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		run  func(t *testing.T)
+		name string
 	}{
 		{
 			name: "root_resource_created_on_api_creation",
@@ -193,8 +197,8 @@ func TestBackend_Method(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		run  func(t *testing.T)
+		name string
 	}{
 		{
 			name: "put_get_delete",
@@ -235,8 +239,8 @@ func TestBackend_Integration(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		run  func(t *testing.T)
+		name string
 	}{
 		{
 			name: "put_get_delete",
@@ -280,8 +284,8 @@ func TestBackend_DeploymentAndStage(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		run  func(t *testing.T)
+		name string
 	}{
 		{
 			name: "create_deployment_and_stage",

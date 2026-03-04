@@ -57,8 +57,8 @@ func TestLogger_New(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
 		setup            func() *slog.Logger
+		name             string
 		wantDebugEnabled bool
 		wantInfoEnabled  bool
 	}{

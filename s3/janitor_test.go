@@ -24,10 +24,10 @@ func TestS3Janitor_BucketDeletion(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name   string
 		setup  func(t *testing.T, b *s3.InMemoryBackend)
 		act    func(t *testing.T, b *s3.InMemoryBackend)
 		verify func(t *testing.T, b *s3.InMemoryBackend)
+		name   string
 	}{
 		{
 			name: "empty bucket removed by janitor",
@@ -52,6 +52,7 @@ func TestS3Janitor_BucketDeletion(t *testing.T) {
 
 				require.Eventually(t, func() bool {
 					listed, listErr := b.ListBuckets(t.Context(), &sdk_s3.ListBucketsInput{})
+
 					return listErr == nil && len(listed.Buckets) == 0
 				}, 500*time.Millisecond, 10*time.Millisecond)
 			},
@@ -85,6 +86,7 @@ func TestS3Janitor_BucketDeletion(t *testing.T) {
 
 				require.Eventually(t, func() bool {
 					listed, listErr := b.ListBuckets(t.Context(), &sdk_s3.ListBucketsInput{})
+
 					return listErr == nil && len(listed.Buckets) == 0
 				}, 500*time.Millisecond, 10*time.Millisecond)
 			},
@@ -103,7 +105,7 @@ func TestS3Janitor_BucketDeletion(t *testing.T) {
 				_, err = b.DeleteBucket(t.Context(), &sdk_s3.DeleteBucketInput{Bucket: aws.String("idem-bucket")})
 				require.NoError(t, err)
 			},
-			verify: func(t *testing.T, b *s3.InMemoryBackend) {},
+			verify: func(_ *testing.T, _ *s3.InMemoryBackend) {},
 		},
 		{
 			name: "list buckets excludes pending-delete bucket",
@@ -143,11 +145,11 @@ func TestS3Janitor_LifecycleExpiry(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup        func(t *testing.T, b *s3.InMemoryBackend)
+		verify       func(t *testing.T, b *s3.InMemoryBackend)
 		name         string
 		bucket       string
-		setup        func(t *testing.T, b *s3.InMemoryBackend)
 		lifecycleXML string
-		verify       func(t *testing.T, b *s3.InMemoryBackend)
 	}{
 		{
 			name:   "zero days expiry removes all matching objects",
@@ -172,6 +174,7 @@ func TestS3Janitor_LifecycleExpiry(t *testing.T) {
 					out, listErr := b.ListObjects(t.Context(), &sdk_s3.ListObjectsInput{
 						Bucket: aws.String("lc-bucket"),
 					})
+
 					return listErr == nil && len(out.Contents) == 0
 				}, 500*time.Millisecond, 10*time.Millisecond)
 			},
@@ -207,6 +210,7 @@ func TestS3Janitor_LifecycleExpiry(t *testing.T) {
 							return false
 						}
 					}
+
 					return true
 				}, 500*time.Millisecond, 10*time.Millisecond)
 

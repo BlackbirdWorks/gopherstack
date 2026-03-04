@@ -179,11 +179,11 @@ func TestHandler_Resources(t *testing.T) {
 	tests := []struct {
 		name               string
 		pathPart           string
-		doDelete           bool
-		wantResourceCount  int
 		wantChildPath      string
+		wantResourceCount  int
 		wantDeleteCode     int
 		wantGetAfterDelete int
+		doDelete           bool
 	}{
 		{
 			name:              "root_resource_on_api_create",
@@ -502,9 +502,9 @@ func TestHandler_Errors(t *testing.T) {
 		name      string
 		action    string
 		body      string
-		hasTarget bool
-		wantCode  int
 		wantType  string
+		wantCode  int
+		hasTarget bool
 	}{
 		{
 			name:      "unknown_operation",

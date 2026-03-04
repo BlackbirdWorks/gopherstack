@@ -14,12 +14,12 @@ func TestTagQueue(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		queueName   string
-		inputTags   map[string]string
-		queueURL    string
-		wantTags    map[string]string
-		wantErr     error
+		wantErr   error
+		inputTags map[string]string
+		wantTags  map[string]string
+		name      string
+		queueName string
+		queueURL  string
 	}{
 		{
 			name:      "tags queue successfully",
@@ -28,10 +28,10 @@ func TestTagQueue(t *testing.T) {
 			wantTags:  map[string]string{"env": "test", "team": "platform"},
 		},
 		{
-			name:     "queue not found",
-			queueURL: "http://localhost:4566/000000000000/nonexistent",
+			name:      "queue not found",
+			queueURL:  "http://localhost:4566/000000000000/nonexistent",
 			inputTags: map[string]string{"key": "value"},
-			wantErr:  sqs.ErrQueueNotFound,
+			wantErr:   sqs.ErrQueueNotFound,
 		},
 	}
 
@@ -53,6 +53,7 @@ func TestTagQueue(t *testing.T) {
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
+
 				return
 			}
 
@@ -69,11 +70,11 @@ func TestUntagQueue(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		queueName    string
-		initialTags  map[string]string
-		removeKeys   []string
-		wantTags     map[string]string
+		initialTags map[string]string
+		wantTags    map[string]string
+		name        string
+		queueName   string
+		removeKeys  []string
 	}{
 		{
 			name:        "removes specified tag",

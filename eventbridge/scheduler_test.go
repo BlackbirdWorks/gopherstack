@@ -16,11 +16,11 @@ func TestScheduler(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
+		check      func(t *testing.T, backend *eventbridge.InMemoryBackend)
 		rule       eventbridge.PutRuleInput
+		name       string
 		ctxTimeout time.Duration
 		runAsync   bool
-		check      func(t *testing.T, backend *eventbridge.InMemoryBackend)
 	}{
 		{
 			name: "fires_rate_rule",
@@ -39,6 +39,7 @@ func TestScheduler(t *testing.T) {
 							return true
 						}
 					}
+
 					return false
 				}, 5*time.Second, 100*time.Millisecond, "expected at least one scheduled event to be fired")
 			},

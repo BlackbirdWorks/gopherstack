@@ -21,14 +21,14 @@ func TestTagResource(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantTagValues   map[string]string
 		name            string
 		tableName       string
-		createTable     bool
-		tagBatches      [][]types.Tag
-		wantErr         bool
 		wantErrContains string
+		tagBatches      [][]types.Tag
 		wantTagCount    int
-		wantTagValues   map[string]string
+		createTable     bool
+		wantErr         bool
 	}{
 		{
 			name:        "add_and_list",
@@ -117,10 +117,10 @@ func TestUntagResource(t *testing.T) {
 	tests := []struct {
 		name         string
 		tableName    string
-		initialTags  []types.Tag
-		keysToRemove []string
 		wantTagKey   string
 		wantTagValue string
+		initialTags  []types.Tag
+		keysToRemove []string
 	}{
 		{
 			name:      "removes_one_tag",

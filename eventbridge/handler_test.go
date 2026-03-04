@@ -122,9 +122,9 @@ func TestHandler_DispatchErrors(t *testing.T) {
 		method        string
 		target        string
 		body          string
-		wantCode      int
 		wantBody      string
 		wantErrorType string
+		wantCode      int
 	}{
 		{
 			name:     "missing X-Amz-Target header returns bad request",
@@ -191,8 +191,8 @@ func TestHandler_CreateEventBus(t *testing.T) {
 	tests := []struct {
 		name        string
 		body        string
-		wantCode    int
 		wantArnPart string
+		wantCode    int
 	}{
 		{
 			name:        "create event bus returns ARN containing bus name",
@@ -448,12 +448,12 @@ func TestHandler_PutTargetsListAndRemove(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name              string
-		ruleName          string
-		targets           string
-		wantInitialCount  int
-		removeIDs         string
-		wantRemainingID   string
+		name               string
+		ruleName           string
+		targets            string
+		removeIDs          string
+		wantRemainingID    string
+		wantInitialCount   int
 		wantRemainingCount int
 	}{
 		{
@@ -515,11 +515,11 @@ func TestHandler_PutEvents(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
-		body             string
-		wantCode         int
-		wantEntryCount   int
-		wantFailedCount  int
+		name            string
+		body            string
+		wantCode        int
+		wantEntryCount  int
+		wantFailedCount int
 	}{
 		{
 			name: "put multiple events returns entries with IDs and no failures",
@@ -632,11 +632,11 @@ func TestHandler_TagOperations(t *testing.T) {
 	const resourceARN = "arn:aws:events:us-east-1:123456789012:rule/my-rule"
 
 	tests := []struct {
-		name         string
-		setupTags    string // JSON array of tag objects, or empty to skip
-		untagKeys    string // JSON array of key strings, or empty to skip
-		wantTagCount int
 		wantTags     map[string]string
+		name         string
+		setupTags    string
+		untagKeys    string
+		wantTagCount int
 	}{
 		{
 			name: "tag resource then list shows all tags",

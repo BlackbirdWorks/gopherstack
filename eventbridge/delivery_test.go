@@ -92,11 +92,11 @@ func TestDelivery_SQS(t *testing.T) {
 		ruleState     string
 		queueARN      string
 		targetInput   string
-		events        []eventbridge.EventEntry
-		wantDelivered bool
-		wantLen       int
 		wantContains  string
 		wantJSONEq    string
+		events        []eventbridge.EventEntry
+		wantLen       int
+		wantDelivered bool
 	}{
 		{
 			name:         "fanout_delivers_to_matching_queue",

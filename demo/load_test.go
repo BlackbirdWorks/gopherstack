@@ -38,9 +38,9 @@ func TestLoadData(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
-		wantDDBCount  int32
-		wantS3Count   int32
+		name         string
+		wantDDBCount int32
+		wantS3Count  int32
 	}{
 		{
 			name:         "loads demo data into all backends successfully",
@@ -72,7 +72,9 @@ func TestLoadData(t *testing.T) {
 			_ = registry.Register(ssmbackend.NewHandler(ssmbackend.NewInMemoryBackend(), slog.Default()))
 			_ = registry.Register(stsbackend.NewHandler(stsbackend.NewInMemoryBackend(), slog.Default()))
 			_ = registry.Register(kmsbackend.NewHandler(kmsbackend.NewInMemoryBackend(), slog.Default()))
-			_ = registry.Register(secretsmanagerbackend.NewHandler(secretsmanagerbackend.NewInMemoryBackend(), slog.Default()))
+			_ = registry.Register(
+				secretsmanagerbackend.NewHandler(secretsmanagerbackend.NewInMemoryBackend(), slog.Default()),
+			)
 
 			router := service.NewServiceRouter(registry)
 			e.Use(router.RouteHandler())

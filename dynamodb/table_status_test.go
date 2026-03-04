@@ -36,9 +36,9 @@ func TestTableStatus(t *testing.T) {
 	tests := []struct {
 		name            string
 		tableName       string
-		createDelay     time.Duration
 		wantInitStatus  types.TableStatus
 		wantFinalStatus types.TableStatus
+		createDelay     time.Duration
 		finalSleep      time.Duration
 	}{
 		{
@@ -78,10 +78,10 @@ func TestTableStatus(t *testing.T) {
 			if tt.finalSleep > 0 {
 				time.Sleep(tt.finalSleep)
 
-				desc2, err := db.DescribeTable(t.Context(), &sdk.DescribeTableInput{
+				desc2, err2 := db.DescribeTable(t.Context(), &sdk.DescribeTableInput{
 					TableName: aws.String(tt.tableName),
 				})
-				require.NoError(t, err)
+				require.NoError(t, err2)
 				assert.Equal(t, tt.wantFinalStatus, desc2.Table.TableStatus,
 					"expected ACTIVE after delay elapsed")
 			}
