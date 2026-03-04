@@ -2,11 +2,14 @@ package integration_test
 
 import (
 	"fmt"
-	"net/http"
 	"os"
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -56,9 +59,28 @@ func startLatencyContainer(t *testing.T, latencyMs string) (testcontainers.Conta
 	return container, ep
 }
 
+// createLatencyDynamoDBClient returns a DynamoDB client pointed at the given endpoint.
+func createLatencyDynamoDBClient(t *testing.T, ep string) *dynamodb.Client {
+	t.Helper()
+
+	cfg, err := awsconfig.LoadDefaultConfig(
+		t.Context(),
+		awsconfig.WithRegion("us-east-1"),
+		awsconfig.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err)
+
+	return dynamodb.NewFromConfig(cfg, func(o *dynamodb.Options) {
+		o.BaseEndpoint = aws.String(ep)
+	})
+}
+
 // TestIntegration_Latency_ResponsesAreSlow verifies that when LATENCY_MS is set,
 // request latency is measurably greater than without it. It sends several requests
-// and asserts the total elapsed time exceeds a conservative minimum threshold.
+// via a real service endpoint (DynamoDB ListTables) that is routed through the
+// service registry so the latency middleware is active.
 func TestIntegration_Latency_ResponsesAreSlow(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
@@ -71,16 +93,14 @@ func TestIntegration_Latency_ResponsesAreSlow(t *testing.T) {
 
 	_, ep := startLatencyContainer(t, latencyMs)
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	url := ep + "/_gopherstack/health"
+	client := createLatencyDynamoDBClient(t, ep)
+	ctx := t.Context()
 
 	start := time.Now()
 
 	for range requests {
-		resp, err := client.Get(url)
+		_, err := client.ListTables(ctx, &dynamodb.ListTablesInput{})
 		require.NoError(t, err)
-		resp.Body.Close()
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
 	}
 
 	elapsed := time.Since(start)
@@ -94,29 +114,27 @@ func TestIntegration_Latency_ResponsesAreSlow(t *testing.T) {
 }
 
 // TestIntegration_Latency_DisabledByDefault verifies that without LATENCY_MS,
-// the health endpoint responds quickly (below 500 ms for 5 requests).
+// service requests complete quickly. Uses the shared container (no latency set).
 func TestIntegration_Latency_DisabledByDefault(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
 	const requests = 5
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	url := endpoint + "/_gopherstack/health"
+	client := createLatencyDynamoDBClient(t, endpoint)
+	ctx := t.Context()
 
 	start := time.Now()
 
 	for range requests {
-		resp, err := client.Get(url)
+		_, err := client.ListTables(ctx, &dynamodb.ListTablesInput{})
 		require.NoError(t, err)
-		resp.Body.Close()
-		assert.Equal(t, http.StatusOK, resp.StatusCode)
 	}
 
 	elapsed := time.Since(start)
 
-	// Without latency injection, 5 health requests against a local container
-	// should complete well under 500ms.
+	// Without latency injection, 5 DynamoDB ListTables requests against a local
+	// container should complete well under 500ms.
 	assert.Less(t, elapsed.Milliseconds(), int64(500),
 		"expected fast responses without latency; got %v", elapsed)
 }
