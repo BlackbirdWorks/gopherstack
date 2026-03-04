@@ -10,280 +10,527 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestHandler_PutBucketACL(t *testing.T) {
+func TestHandler_BucketACL(t *testing.T) {
 	t.Parallel()
 
-	handler, backend := newTestHandler(t)
-	mustCreateBucket(t, backend, "acl-test")
-
-	req := httptest.NewRequest(http.MethodPut, "/acl-test?acl", nil)
-	req.Header.Set("X-Amz-Acl", "public-read")
-	rec := httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
-
-	assert.Equal(t, http.StatusOK, rec.Code)
-}
-
-func TestHandler_GetBucketACL(t *testing.T) {
-	t.Parallel()
-
-	handler, backend := newTestHandler(t)
-	mustCreateBucket(t, backend, "acl-get-test")
-
-	req := httptest.NewRequest(http.MethodGet, "/acl-get-test?acl", nil)
-	rec := httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
-
-	assert.Equal(t, http.StatusOK, rec.Code)
-}
-
-func TestHandler_PutObject_WithContentMD5(t *testing.T) {
-	t.Parallel()
-
-	handler, backend := newTestHandler(t)
-	mustCreateBucket(t, backend, "md5-bucket")
-
-	body := "hello world"
-	req := httptest.NewRequest(http.MethodPut, "/md5-bucket/hello.txt", strings.NewReader(body))
-	// Valid MD5 of "hello world" base64-encoded
-	req.Header.Set("Content-Md5", "XrY7u+Ae7tCTyyK7j1rNww==")
-	rec := httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
-
-	assert.Equal(t, http.StatusOK, rec.Code)
-}
-
-func TestHandler_PutObject_InvalidContentMD5(t *testing.T) {
-	t.Parallel()
-
-	handler, backend := newTestHandler(t)
-	mustCreateBucket(t, backend, "md5-invalid")
-
-	body := "hello world"
-	req := httptest.NewRequest(http.MethodPut, "/md5-invalid/hello.txt", strings.NewReader(body))
-	req.Header.Set("Content-Md5", "AAAAAAAAAAAAAAAAAAAAAA==") // Wrong MD5
-	rec := httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
-
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestHandler_DeleteObjects_Mixed(t *testing.T) {
-	t.Parallel()
-
-	handler, backend := newTestHandler(t)
-	mustCreateBucket(t, backend, "del-objects-bucket")
-
-	// Put two objects
-	for _, key := range []string{"obj1", "obj2"} {
-		req := httptest.NewRequest(http.MethodPut, "/del-objects-bucket/"+key, strings.NewReader("data"))
-		rec := httptest.NewRecorder()
-		serveS3Handler(handler, rec, req)
-		require.Equal(t, http.StatusOK, rec.Code)
+	tests := []struct {
+		name       string
+		bucket     string
+		method     string
+		url        string
+		aclHeader  string
+		wantCode   int
+	}{
+		{
+			name:      "put_bucket_acl",
+			bucket:    "acl-put-test",
+			method:    http.MethodPut,
+			url:       "/acl-put-test?acl",
+			aclHeader: "public-read",
+			wantCode:  http.StatusOK,
+		},
+		{
+			name:     "get_bucket_acl",
+			bucket:   "acl-get-test",
+			method:   http.MethodGet,
+			url:      "/acl-get-test?acl",
+			wantCode: http.StatusOK,
+		},
 	}
 
-	// Delete both + one nonexistent
-	deleteXML := `<Delete>` +
-		`<Object><Key>obj1</Key></Object>` +
-		`<Object><Key>obj2</Key></Object>` +
-		`<Object><Key>nonexistent</Key></Object>` +
-		`</Delete>`
-	req := httptest.NewRequest(http.MethodPost, "/del-objects-bucket?delete", strings.NewReader(deleteXML))
-	rec := httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "DeleteResult")
+			handler, backend := newTestHandler(t)
+			mustCreateBucket(t, backend, tt.bucket)
+
+			req := httptest.NewRequest(tt.method, tt.url, nil)
+			if tt.aclHeader != "" {
+				req.Header.Set("X-Amz-Acl", tt.aclHeader)
+			}
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestHandler_PutObject_ContentMD5(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		bucket    string
+		url       string
+		body      string
+		md5Header string
+		wantCode  int
+	}{
+		{
+			name:      "valid_md5",
+			bucket:    "md5-valid-bucket",
+			url:       "/md5-valid-bucket/hello.txt",
+			body:      "hello world",
+			md5Header: "XrY7u+Ae7tCTyyK7j1rNww==",
+			wantCode:  http.StatusOK,
+		},
+		{
+			name:      "invalid_md5",
+			bucket:    "md5-invalid-bucket",
+			url:       "/md5-invalid-bucket/hello.txt",
+			body:      "hello world",
+			md5Header: "AAAAAAAAAAAAAAAAAAAAAA==",
+			wantCode:  http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, backend := newTestHandler(t)
+			mustCreateBucket(t, backend, tt.bucket)
+
+			req := httptest.NewRequest(http.MethodPut, tt.url, strings.NewReader(tt.body))
+			req.Header.Set("Content-Md5", tt.md5Header)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestHandler_DeleteObjects_BulkOps(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		bucket       string
+		setupObjects []string
+		deleteBody   string
+		wantCode     int
+		wantBody     string
+	}{
+		{
+			name:         "mixed_objects_including_nonexistent",
+			bucket:       "del-objects-bucket",
+			setupObjects: []string{"obj1", "obj2"},
+			deleteBody: `<Delete>` +
+				`<Object><Key>obj1</Key></Object>` +
+				`<Object><Key>obj2</Key></Object>` +
+				`<Object><Key>nonexistent</Key></Object>` +
+				`</Delete>`,
+			wantCode: http.StatusOK,
+			wantBody: "DeleteResult",
+		},
+		{
+			name:       "invalid_xml_body",
+			bucket:     "del-bad-xml",
+			deleteBody: "not-xml",
+			wantCode:   http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, backend := newTestHandler(t)
+			mustCreateBucket(t, backend, tt.bucket)
+
+			for _, key := range tt.setupObjects {
+				putReq := httptest.NewRequest(http.MethodPut, "/"+tt.bucket+"/"+key, strings.NewReader("data"))
+				putRec := httptest.NewRecorder()
+				serveS3Handler(handler, putRec, putReq)
+				require.Equal(t, http.StatusOK, putRec.Code)
+			}
+
+			req := httptest.NewRequest(http.MethodPost, "/"+tt.bucket+"?delete", strings.NewReader(tt.deleteBody))
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+
+			assert.Equal(t, tt.wantCode, rec.Code)
+			if tt.wantBody != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBody)
+			}
+		})
+	}
 }
 
 func TestHandler_DeleteObjectTagging(t *testing.T) {
 	t.Parallel()
 
-	handler, backend := newTestHandler(t)
-	mustCreateBucket(t, backend, "dtag-bucket")
+	tests := []struct {
+		name     string
+		bucket   string
+		key      string
+		tagsXML  string
+		wantCode int
+	}{
+		{
+			name:    "delete_object_tagging",
+			bucket:  "dtag-bucket",
+			key:     "tagged-obj",
+			tagsXML: `<Tagging><TagSet><Tag><Key>foo</Key><Value>bar</Value></Tag></TagSet></Tagging>`,
+			wantCode: http.StatusNoContent,
+		},
+	}
 
-	// Put object with tags
-	req := httptest.NewRequest(http.MethodPut, "/dtag-bucket/tagged-obj", strings.NewReader("data"))
-	rec := httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
-	require.Equal(t, http.StatusOK, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	// Put tags
-	tagsXML := `<Tagging><TagSet><Tag><Key>foo</Key><Value>bar</Value></Tag></TagSet></Tagging>`
-	req = httptest.NewRequest(http.MethodPut, "/dtag-bucket/tagged-obj?tagging", strings.NewReader(tagsXML))
-	rec = httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
-	require.Equal(t, http.StatusOK, rec.Code)
+			handler, backend := newTestHandler(t)
+			mustCreateBucket(t, backend, tt.bucket)
 
-	// Delete tags
-	req = httptest.NewRequest(http.MethodDelete, "/dtag-bucket/tagged-obj?tagging", nil)
-	rec = httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
-	assert.Equal(t, http.StatusNoContent, rec.Code)
+			putReq := httptest.NewRequest(http.MethodPut, "/"+tt.bucket+"/"+tt.key, strings.NewReader("data"))
+			putRec := httptest.NewRecorder()
+			serveS3Handler(handler, putRec, putReq)
+			require.Equal(t, http.StatusOK, putRec.Code)
+
+			tagReq := httptest.NewRequest(http.MethodPut, "/"+tt.bucket+"/"+tt.key+"?tagging", strings.NewReader(tt.tagsXML))
+			tagRec := httptest.NewRecorder()
+			serveS3Handler(handler, tagRec, tagReq)
+			require.Equal(t, http.StatusOK, tagRec.Code)
+
+			delReq := httptest.NewRequest(http.MethodDelete, "/"+tt.bucket+"/"+tt.key+"?tagging", nil)
+			delRec := httptest.NewRecorder()
+			serveS3Handler(handler, delRec, delReq)
+
+			assert.Equal(t, tt.wantCode, delRec.Code)
+		})
+	}
 }
 
 func TestHandler_HeadObject_NoSuchBucket(t *testing.T) {
 	t.Parallel()
 
-	handler, _ := newTestHandler(t)
+	tests := []struct {
+		name     string
+		url      string
+		wantCode int
+	}{
+		{
+			name:     "no_such_bucket",
+			url:      "/no-bucket/obj",
+			wantCode: http.StatusNotFound,
+		},
+	}
 
-	req := httptest.NewRequest(http.MethodHead, "/no-bucket/obj", nil)
-	rec := httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+			handler, _ := newTestHandler(t)
+
+			req := httptest.NewRequest(http.MethodHead, tt.url, nil)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
 }
 
 func TestHandler_GetObject_WithChecksumMode(t *testing.T) {
 	t.Parallel()
 
-	handler, backend := newTestHandler(t)
-	mustCreateBucket(t, backend, "checksum-bucket")
+	tests := []struct {
+		name      string
+		bucket    string
+		key       string
+		body      string
+		wantCode  int
+		wantBody  string
+	}{
+		{
+			name:     "get_with_checksum_mode_enabled",
+			bucket:   "checksum-bucket",
+			key:      "ck-obj",
+			body:     "hello checksum",
+			wantCode: http.StatusOK,
+			wantBody: "hello checksum",
+		},
+	}
 
-	body := "hello checksum"
-	req := httptest.NewRequest(http.MethodPut, "/checksum-bucket/ck-obj", strings.NewReader(body))
-	req.Header.Set("X-Amz-Checksum-Algorithm", "SHA256")
-	rec := httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
-	require.Equal(t, http.StatusOK, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	// Get with checksum mode
-	req = httptest.NewRequest(http.MethodGet, "/checksum-bucket/ck-obj", nil)
-	req.Header.Set("X-Amz-Checksum-Mode", "ENABLED")
-	rec = httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
+			handler, backend := newTestHandler(t)
+			mustCreateBucket(t, backend, tt.bucket)
 
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, body, rec.Body.String())
+			putReq := httptest.NewRequest(http.MethodPut, "/"+tt.bucket+"/"+tt.key, strings.NewReader(tt.body))
+			putReq.Header.Set("X-Amz-Checksum-Algorithm", "SHA256")
+			putRec := httptest.NewRecorder()
+			serveS3Handler(handler, putRec, putReq)
+			require.Equal(t, http.StatusOK, putRec.Code)
+
+			getReq := httptest.NewRequest(http.MethodGet, "/"+tt.bucket+"/"+tt.key, nil)
+			getReq.Header.Set("X-Amz-Checksum-Mode", "ENABLED")
+			getRec := httptest.NewRecorder()
+			serveS3Handler(handler, getRec, getReq)
+
+			assert.Equal(t, tt.wantCode, getRec.Code)
+			assert.Equal(t, tt.wantBody, getRec.Body.String())
+		})
+	}
 }
 
-func TestHandler_GetObjectTagging_NoSuchKey(t *testing.T) {
+func TestHandler_ObjectTagging_NoSuchKey(t *testing.T) {
 	t.Parallel()
 
-	handler, backend := newTestHandler(t)
-	mustCreateBucket(t, backend, "getotag-nokey")
+	tests := []struct {
+		name     string
+		bucket   string
+		method   string
+		url      string
+		body     string
+		wantCode int
+	}{
+		{
+			name:     "get_object_tagging_no_such_key",
+			bucket:   "getotag-nokey",
+			method:   http.MethodGet,
+			url:      "/getotag-nokey/nokey?tagging",
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "put_object_tagging_no_such_key",
+			bucket:   "ptag-nokey",
+			method:   http.MethodPut,
+			url:      "/ptag-nokey/nokey?tagging",
+			body:     `<Tagging><TagSet><Tag><Key>k</Key><Value>v</Value></Tag></TagSet></Tagging>`,
+			wantCode: http.StatusNotFound,
+		},
+	}
 
-	req := httptest.NewRequest(http.MethodGet, "/getotag-nokey/nokey?tagging", nil)
-	rec := httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+			handler, backend := newTestHandler(t)
+			mustCreateBucket(t, backend, tt.bucket)
+
+			var bodyReader *strings.Reader
+			if tt.body != "" {
+				bodyReader = strings.NewReader(tt.body)
+			} else {
+				bodyReader = strings.NewReader("")
+			}
+
+			req := httptest.NewRequest(tt.method, tt.url, bodyReader)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
 }
 
 func TestHandler_DeleteObject_Versioned(t *testing.T) {
 	t.Parallel()
 
-	handler, backend := newTestHandler(t)
-	mustCreateBucket(t, backend, "del-versioned")
+	tests := []struct {
+		name     string
+		bucket   string
+		key      string
+		wantCode int
+	}{
+		{
+			name:     "delete_existing_object",
+			bucket:   "del-versioned",
+			key:      "obj",
+			wantCode: http.StatusNoContent,
+		},
+	}
 
-	// Put object
-	req := httptest.NewRequest(http.MethodPut, "/del-versioned/obj", strings.NewReader("data"))
-	rec := httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
-	require.Equal(t, http.StatusOK, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	// Delete object
-	req = httptest.NewRequest(http.MethodDelete, "/del-versioned/obj", nil)
-	rec = httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
-	assert.Equal(t, http.StatusNoContent, rec.Code)
+			handler, backend := newTestHandler(t)
+			mustCreateBucket(t, backend, tt.bucket)
+
+			putReq := httptest.NewRequest(http.MethodPut, "/"+tt.bucket+"/"+tt.key, strings.NewReader("data"))
+			putRec := httptest.NewRecorder()
+			serveS3Handler(handler, putRec, putReq)
+			require.Equal(t, http.StatusOK, putRec.Code)
+
+			delReq := httptest.NewRequest(http.MethodDelete, "/"+tt.bucket+"/"+tt.key, nil)
+			delRec := httptest.NewRecorder()
+			serveS3Handler(handler, delRec, delReq)
+
+			assert.Equal(t, tt.wantCode, delRec.Code)
+		})
+	}
 }
 
 func TestHandler_CreateBucket_AlreadyExists(t *testing.T) {
 	t.Parallel()
 
-	handler, backend := newTestHandler(t)
-	mustCreateBucket(t, backend, "exists-bucket")
+	tests := []struct {
+		name          string
+		bucket        string
+		wantCodeOneOf []int
+	}{
+		{
+			name:          "bucket_already_exists",
+			bucket:        "exists-bucket",
+			wantCodeOneOf: []int{http.StatusNoContent, http.StatusConflict},
+		},
+	}
 
-	req := httptest.NewRequest(http.MethodPut, "/exists-bucket", nil)
-	rec := httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	assert.True(t, rec.Code == http.StatusNoContent || rec.Code == http.StatusConflict)
+			handler, backend := newTestHandler(t)
+			mustCreateBucket(t, backend, tt.bucket)
+
+			req := httptest.NewRequest(http.MethodPut, "/"+tt.bucket, nil)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+
+			assert.Contains(t, tt.wantCodeOneOf, rec.Code)
+		})
+	}
 }
 
 func TestHandler_DeleteBucket_NotEmpty(t *testing.T) {
 	t.Parallel()
 
-	handler, backend := newTestHandler(t)
-	mustCreateBucket(t, backend, "notempty-bucket")
+	tests := []struct {
+		name          string
+		bucket        string
+		objectKey     string
+		wantCodeOneOf []int
+	}{
+		{
+			name:          "delete_non_empty_bucket",
+			bucket:        "notempty-bucket",
+			objectKey:     "obj",
+			wantCodeOneOf: []int{http.StatusNoContent, http.StatusConflict},
+		},
+	}
 
-	// Put an object
-	req := httptest.NewRequest(http.MethodPut, "/notempty-bucket/obj", strings.NewReader("data"))
-	rec := httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
-	require.Equal(t, http.StatusOK, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	// Try to delete bucket
-	req = httptest.NewRequest(http.MethodDelete, "/notempty-bucket", nil)
-	rec = httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
+			handler, backend := newTestHandler(t)
+			mustCreateBucket(t, backend, tt.bucket)
 
-	assert.True(t, rec.Code == http.StatusNoContent || rec.Code == http.StatusConflict)
+			putReq := httptest.NewRequest(http.MethodPut, "/"+tt.bucket+"/"+tt.objectKey, strings.NewReader("data"))
+			putRec := httptest.NewRecorder()
+			serveS3Handler(handler, putRec, putReq)
+			require.Equal(t, http.StatusOK, putRec.Code)
+
+			delReq := httptest.NewRequest(http.MethodDelete, "/"+tt.bucket, nil)
+			delRec := httptest.NewRecorder()
+			serveS3Handler(handler, delRec, delReq)
+
+			assert.Contains(t, tt.wantCodeOneOf, delRec.Code)
+		})
+	}
 }
 
 func TestHandler_ListBuckets_Empty(t *testing.T) {
 	t.Parallel()
 
-	handler, _ := newTestHandler(t)
+	tests := []struct {
+		name     string
+		wantCode int
+	}{
+		{
+			name:     "list_empty_buckets",
+			wantCode: http.StatusOK,
+		},
+	}
 
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	rec := httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	assert.Equal(t, http.StatusOK, rec.Code)
+			handler, _ := newTestHandler(t)
+
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
 }
 
 func TestHandler_CopyObject_NoSuchSource(t *testing.T) {
 	t.Parallel()
 
-	handler, backend := newTestHandler(t)
-	mustCreateBucket(t, backend, "copy-src")
-	mustCreateBucket(t, backend, "copy-dst")
+	tests := []struct {
+		name       string
+		srcBucket  string
+		dstBucket  string
+		copySource string
+		destURL    string
+		wantCode   int
+	}{
+		{
+			name:       "source_key_does_not_exist",
+			srcBucket:  "copy-src",
+			dstBucket:  "copy-dst",
+			copySource: "copy-src/nonexistent-key",
+			destURL:    "/copy-dst/dest-key",
+			wantCode:   http.StatusNotFound,
+		},
+	}
 
-	req := httptest.NewRequest(http.MethodPut, "/copy-dst/dest-key", nil)
-	req.Header.Set("X-Amz-Copy-Source", "copy-src/nonexistent-key")
-	rec := httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
+			handler, backend := newTestHandler(t)
+			mustCreateBucket(t, backend, tt.srcBucket)
+			mustCreateBucket(t, backend, tt.dstBucket)
 
-func TestHandler_PutObjectTagging_NoSuchKey(t *testing.T) {
-	t.Parallel()
+			req := httptest.NewRequest(http.MethodPut, tt.destURL, nil)
+			req.Header.Set("X-Amz-Copy-Source", tt.copySource)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
 
-	handler, backend := newTestHandler(t)
-	mustCreateBucket(t, backend, "ptag-nokey")
-
-	tagsXML := `<Tagging><TagSet><Tag><Key>k</Key><Value>v</Value></Tag></TagSet></Tagging>`
-	req := httptest.NewRequest(http.MethodPut, "/ptag-nokey/nokey?tagging", strings.NewReader(tagsXML))
-	rec := httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
-
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestHandler_DeleteObjects_InvalidXML(t *testing.T) {
-	t.Parallel()
-
-	handler, backend := newTestHandler(t)
-	mustCreateBucket(t, backend, "del-bad-xml")
-
-	req := httptest.NewRequest(http.MethodPost, "/del-bad-xml?delete", strings.NewReader("not-xml"))
-	rec := httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
-
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
 }
 
 func TestHandler_HeadBucket_NoSuchBucket(t *testing.T) {
 	t.Parallel()
 
-	handler, _ := newTestHandler(t)
+	tests := []struct {
+		name     string
+		url      string
+		wantCode int
+	}{
+		{
+			name:     "no_such_bucket",
+			url:      "/no-such-bucket-head",
+			wantCode: http.StatusNotFound,
+		},
+	}
 
-	req := httptest.NewRequest(http.MethodHead, "/no-such-bucket-head", nil)
-	rec := httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+			handler, _ := newTestHandler(t)
+
+			req := httptest.NewRequest(http.MethodHead, tt.url, nil)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
 }
