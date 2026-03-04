@@ -9,6 +9,22 @@ import (
 	"github.com/blackbirdworks/gopherstack/sns"
 )
 
+// snsIndexData is the template data for the SNS topics list page.
+type snsIndexData struct {
+	PageData
+
+	Topics []any
+}
+
+// snsTopicDetailData is the template data for the SNS topic detail page.
+type snsTopicDetailData struct {
+	PageData
+
+	TopicArn      string
+	Attributes    map[string]string
+	Subscriptions []any
+}
+
 // snsSubscribeToTopic handles subscribing to an SNS topic.
 func (h *DashboardHandler) snsSubscribeToTopic(c *echo.Context) error {
 	r := c.Request()
@@ -110,11 +126,7 @@ func (h *DashboardHandler) snsIndex(c *echo.Context) error {
 
 	topics := h.SNSOps.Backend.ListAllTopics()
 
-	data := struct {
-		PageData
-
-		Topics []any
-	}{
+	data := snsIndexData{
 		PageData: PageData{
 			Title:     "SNS Topics",
 			ActiveTab: "sns",
@@ -239,13 +251,7 @@ func (h *DashboardHandler) snsTopicDetail(c *echo.Context) error {
 		h.Logger.Warn("Failed to list subscriptions for topic", "arn", arn, "error", err)
 	}
 
-	data := struct {
-		PageData
-
-		TopicArn      string
-		Attributes    map[string]string
-		Subscriptions []any
-	}{
+	data := snsTopicDetailData{
 		PageData: PageData{
 			Title:     "SNS Topic",
 			ActiveTab: "sns",

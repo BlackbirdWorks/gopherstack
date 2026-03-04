@@ -24,6 +24,23 @@ var (
 
 const resourceGroupsTargetPrefix = "ResourceGroups."
 
+// extractResourceNameInput is used to parse the group name from various Resource Groups request bodies.
+type extractResourceNameInput struct {
+	Name      string `json:"Name"`
+	GroupName string `json:"GroupName"`
+	Group     string `json:"Group"`
+}
+
+// tagResourceInput is the JSON request body for tagging a resource.
+type tagResourceInput struct {
+	Tags map[string]string `json:"Tags"`
+}
+
+// untagResourceInput is the JSON request body for untagging a resource.
+type untagResourceInput struct {
+	Keys []string `json:"Keys"`
+}
+
 // rgRESTPathOps is the static mapping of REST API paths to Resource Groups operation names.
 var rgRESTPathOps = map[string]string{ //nolint:gochecknoglobals // lookup table for REST path routing
 	"/groups":                  "CreateGroup",
@@ -145,11 +162,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return ""
 	}
 
-	var req struct {
-		Name      string `json:"Name"`
-		GroupName string `json:"GroupName"`
-		Group     string `json:"Group"`
-	}
+	var req extractResourceNameInput
 	_ = json.Unmarshal(body, &req)
 
 	if req.Name != "" {
@@ -382,9 +395,7 @@ func (h *Handler) handleResourceTags(c *echo.Context) error {
 			return c.String(http.StatusInternalServerError, "internal server error")
 		}
 
-		var in struct {
-			Tags map[string]string `json:"Tags"`
-		}
+		var in tagResourceInput
 
 		if err = json.Unmarshal(body, &in); err != nil {
 			return h.handleError(ctx, c, "Tag", errInvalidRequest)
@@ -408,9 +419,7 @@ func (h *Handler) handleResourceTags(c *echo.Context) error {
 			return c.String(http.StatusInternalServerError, "internal server error")
 		}
 
-		var in struct {
-			Keys []string `json:"Keys"`
-		}
+		var in untagResourceInput
 
 		if err = json.Unmarshal(body, &in); err != nil {
 			return h.handleError(ctx, c, "Untag", errInvalidRequest)

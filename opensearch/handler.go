@@ -12,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 const (
@@ -99,14 +100,17 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	return strings.TrimSuffix(rest, "/")
 }
 
+// domainClusterConfig holds the cluster configuration request parameters for a domain.
+type domainClusterConfig struct {
+	InstanceType  string `json:"InstanceType"`
+	InstanceCount int    `json:"InstanceCount"`
+}
+
 // domainJSON is the JSON request body for CreateDomain.
 type domainJSON struct {
-	ClusterConfig *struct {
-		InstanceType  string `json:"InstanceType"`
-		InstanceCount int    `json:"InstanceCount"`
-	} `json:"ClusterConfig"`
-	DomainName    string `json:"DomainName"`
-	EngineVersion string `json:"EngineVersion"`
+	ClusterConfig *domainClusterConfig `json:"ClusterConfig"`
+	DomainName    string               `json:"DomainName"`
+	EngineVersion string               `json:"EngineVersion"`
 }
 
 // domainStatusJSON is the JSON response for domain operations.
@@ -371,13 +375,8 @@ func (h *Handler) writeJSON(w http.ResponseWriter, v any) {
 	httputil.WriteJSON(h.Logger, w, http.StatusOK, v)
 }
 
-type opensearchTag struct {
-	Key   string `json:"Key"`
-	Value string `json:"Value"`
-}
-
 type listTagsOutput struct {
-	TagList []opensearchTag `json:"TagList"`
+	TagList []svcTags.KV `json:"TagList"`
 }
 
 type opensearchConfigStatus struct {
@@ -389,14 +388,17 @@ type opensearchConfigValue struct {
 	Status  opensearchConfigStatus `json:"Status"`
 }
 
+// domainConfigFields holds the per-feature configuration values for a domain.
+type domainConfigFields struct {
+	EngineVersion   opensearchConfigValue `json:"EngineVersion"`
+	ClusterConfig   opensearchConfigValue `json:"ClusterConfig"`
+	EBSOptions      opensearchConfigValue `json:"EBSOptions"`
+	AccessPolicies  opensearchConfigValue `json:"AccessPolicies"`
+	AdvancedOptions opensearchConfigValue `json:"AdvancedOptions"`
+}
+
 type describeDomainConfigOutput struct {
-	DomainConfig struct {
-		EngineVersion   opensearchConfigValue `json:"EngineVersion"`
-		ClusterConfig   opensearchConfigValue `json:"ClusterConfig"`
-		EBSOptions      opensearchConfigValue `json:"EBSOptions"`
-		AccessPolicies  opensearchConfigValue `json:"AccessPolicies"`
-		AdvancedOptions opensearchConfigValue `json:"AdvancedOptions"`
-	} `json:"DomainConfig"`
+	DomainConfig domainConfigFields `json:"DomainConfig"`
 }
 
 func (h *Handler) handleListTags(w http.ResponseWriter, r *http.Request) {
@@ -404,22 +406,22 @@ func (h *Handler) handleListTags(w http.ResponseWriter, r *http.Request) {
 
 	tags, err := h.Backend.ListTags(domainARN)
 	if err != nil {
-		h.writeJSON(w, &listTagsOutput{TagList: []opensearchTag{}})
+		h.writeJSON(w, &listTagsOutput{TagList: []svcTags.KV{}})
 
 		return
 	}
 
-	tagList := make([]opensearchTag, 0, len(tags))
+	tagList := make([]svcTags.KV, 0, len(tags))
 	for k, v := range tags {
-		tagList = append(tagList, opensearchTag{Key: k, Value: v})
+		tagList = append(tagList, svcTags.KV{Key: k, Value: v})
 	}
 
 	h.writeJSON(w, &listTagsOutput{TagList: tagList})
 }
 
 type addTagsInput struct {
-	ARN     string          `json:"ARN"`
-	TagList []opensearchTag `json:"TagList"`
+	ARN     string       `json:"ARN"`
+	TagList []svcTags.KV `json:"TagList"`
 }
 
 func (h *Handler) handleAddTags(w http.ResponseWriter, r *http.Request) {

@@ -9,6 +9,19 @@ import (
 	lambdabackend "github.com/blackbirdworks/gopherstack/lambda"
 )
 
+// lambdaIndexData is the template data for the Lambda functions list page.
+type lambdaIndexData struct {
+	PageData
+
+	Functions []*lambdabackend.FunctionConfiguration
+}
+
+// lambdaFunctionDetailData is the template data for the Lambda function detail page.
+type lambdaFunctionDetailData struct {
+	Function *lambdabackend.FunctionConfiguration
+	PageData //nolint:embeddedstructfieldcheck // fieldalignment places this after pointer fields
+}
+
 // lambdaIndex renders the Lambda function list page.
 func (h *DashboardHandler) lambdaIndex(c *echo.Context) error {
 	w := c.Response()
@@ -20,11 +33,7 @@ func (h *DashboardHandler) lambdaIndex(c *echo.Context) error {
 		fns = []*lambdabackend.FunctionConfiguration{}
 	}
 
-	data := struct {
-		PageData
-
-		Functions []*lambdabackend.FunctionConfiguration
-	}{
+	data := lambdaIndexData{
 		PageData: PageData{
 			Title:     "Lambda Functions",
 			ActiveTab: "lambda",
@@ -74,10 +83,7 @@ func (h *DashboardHandler) lambdaFunctionDetail(c *echo.Context) error {
 		return c.Redirect(http.StatusFound, "/dashboard/lambda")
 	}
 
-	data := struct {
-		Function *lambdabackend.FunctionConfiguration
-		PageData //nolint:embeddedstructfieldcheck // fieldalignment places this after pointer fields
-	}{
+	data := lambdaFunctionDetailData{
 		PageData: PageData{
 			Title:     "Lambda Function",
 			ActiveTab: "lambda",

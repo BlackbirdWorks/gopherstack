@@ -95,10 +95,14 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	}
 }
 
+// configNameBody is a JSON wrapper carrying a single "name" field, used for both
+// configuration recorder and delivery channel name extraction.
+type configNameBody struct {
+	Name string `json:"name"`
+}
+
 type extractConfigRecorderNameInput struct {
-	ConfigurationRecorder struct {
-		Name string `json:"name"`
-	} `json:"ConfigurationRecorder"`
+	ConfigurationRecorder configNameBody `json:"ConfigurationRecorder"`
 }
 
 func extractConfigRecorderName(body []byte) string {
@@ -136,9 +140,7 @@ func extractFirstRecorderName(body []byte) string {
 }
 
 type extractDeliveryChannelNameInput struct {
-	DeliveryChannel struct {
-		Name string `json:"name"`
-	} `json:"DeliveryChannel"`
+	DeliveryChannel configNameBody `json:"DeliveryChannel"`
 }
 
 func extractDeliveryChannelName(body []byte) string {
@@ -215,11 +217,14 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	return c.JSON(code, map[string]string{"message": err.Error()})
 }
 
+// configurationRecorderBody is the nested JSON body for a configuration recorder.
+type configurationRecorderBody struct {
+	Name    string `json:"name"`
+	RoleARN string `json:"roleARN"`
+}
+
 type putConfigurationRecorderRequest struct {
-	ConfigurationRecorder struct {
-		Name    string `json:"name"`
-		RoleARN string `json:"roleARN"`
-	} `json:"ConfigurationRecorder"`
+	ConfigurationRecorder configurationRecorderBody `json:"ConfigurationRecorder"`
 }
 
 type putConfigurationRecorderOutput struct{}
@@ -266,12 +271,15 @@ func (h *Handler) handleStartConfigurationRecorder(
 	return &startConfigurationRecorderOutput{}, nil
 }
 
+// deliveryChannelBody is the nested JSON body for a delivery channel.
+type deliveryChannelBody struct {
+	Name         string `json:"name"`
+	S3BucketName string `json:"s3BucketName"`
+	SnsTopicARN  string `json:"snsTopicARN"`
+}
+
 type handlePutDeliveryChannelInput struct {
-	DeliveryChannel struct {
-		Name         string `json:"name"`
-		S3BucketName string `json:"s3BucketName"`
-		SnsTopicARN  string `json:"snsTopicARN"`
-	} `json:"DeliveryChannel"`
+	DeliveryChannel deliveryChannelBody `json:"DeliveryChannel"`
 }
 
 type putDeliveryChannelOutput struct{}

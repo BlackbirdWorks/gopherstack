@@ -34,15 +34,18 @@ type kmsDecryptResultData struct {
 	Plaintext string
 }
 
+// kmsIndexData is the template data for the KMS keys list page.
+type kmsIndexData struct {
+	PageData
+
+	Keys []any
+}
+
 // kmsIndex renders the list of all KMS keys.
 func (h *DashboardHandler) kmsIndex(c *echo.Context) error {
 	w := c.Response()
 
-	data := struct {
-		PageData
-
-		Keys []any
-	}{
+	data := kmsIndexData{
 		PageData: PageData{
 			Title:     "KMS Keys",
 			ActiveTab: "kms",

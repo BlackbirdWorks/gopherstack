@@ -2,21 +2,24 @@ package dashboard
 
 import "net/http"
 
+// docPageData is the template data for the documentation page.
+type docPageData struct {
+	PageData
+
+	DynamoDBOps       []string
+	S3Ops             []string
+	SSMOps            []string
+	SQSOps            []string
+	SNSOps            []string
+	IAMOps            []string
+	STSOps            []string
+	KMSOps            []string
+	SecretsManagerOps []string
+}
+
 // docIndex renders the documentation page.
 func (h *DashboardHandler) docIndex(w http.ResponseWriter, _ *http.Request) {
-	data := struct {
-		PageData
-
-		DynamoDBOps       []string
-		S3Ops             []string
-		SSMOps            []string
-		SQSOps            []string
-		SNSOps            []string
-		IAMOps            []string
-		STSOps            []string
-		KMSOps            []string
-		SecretsManagerOps []string
-	}{
+	data := docPageData{
 		PageData: PageData{
 			Title:     "API Documentation",
 			ActiveTab: "docs",

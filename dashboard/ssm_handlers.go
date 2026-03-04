@@ -11,6 +11,22 @@ import (
 	ssmbackend "github.com/blackbirdworks/gopherstack/ssm"
 )
 
+// ssmIndexData is the template data for the SSM Parameter Store list page.
+type ssmIndexData struct {
+	PageData
+
+	Parameters []any
+}
+
+// ssmPutModalData is the template data for the SSM parameter create/edit modal.
+type ssmPutModalData struct {
+	Name        string
+	Type        string
+	Value       string
+	Description string
+	IsEdit      bool
+}
+
 // ssmIndex renders the list of all parameters in the Parameter Store.
 func (h *DashboardHandler) ssmIndex(c *echo.Context) error {
 	w := c.Response()
@@ -25,11 +41,7 @@ func (h *DashboardHandler) ssmIndex(c *echo.Context) error {
 
 	params := h.SSMOps.Backend.ListAll()
 
-	data := struct {
-		PageData
-
-		Parameters []any
-	}{
+	data := ssmIndexData{
 		PageData: PageData{
 			Title:     "SSM Parameter Store",
 			ActiveTab: "ssm",
@@ -74,13 +86,7 @@ func (h *DashboardHandler) ssmPutModal(c *echo.Context) error {
 
 	name := r.URL.Query().Get("name")
 
-	data := struct {
-		Name        string
-		Type        string
-		Value       string
-		Description string
-		IsEdit      bool
-	}{
+	data := ssmPutModalData{
 		IsEdit: false,
 		Type:   "String",
 	}

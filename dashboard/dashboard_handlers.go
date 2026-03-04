@@ -4,23 +4,27 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+// serviceStatus holds the display information for a service on the dashboard landing page.
+type serviceStatus struct {
+	Name string
+	Icon string
+	Link string
+}
+
+// dashboardIndexData is the template data for the main dashboard overview page.
+type dashboardIndexData struct {
+	PageData
+
+	Services []serviceStatus
+}
+
 // dashboardIndex renders the main global overview page.
 //
 //nolint:funlen // long due to service icon SVG constants
 func (h *DashboardHandler) dashboardIndex(c *echo.Context) error {
 	w := c.Response()
 
-	type ServiceStatus struct {
-		Name string
-		Icon string
-		Link string
-	}
-
-	data := struct {
-		PageData
-
-		Services []ServiceStatus
-	}{
+	data := dashboardIndexData{
 		PageData: PageData{
 			Title:     "Overview",
 			ActiveTab: "dashboard",
@@ -40,7 +44,7 @@ func (h *DashboardHandler) dashboardIndex(c *echo.Context) error {
 	if h.DDBOps != nil || h.ddbProvider != nil {
 		data.Services = append(
 			data.Services,
-			ServiceStatus{
+			serviceStatus{
 				Name: "DynamoDB",
 				Link: "/dashboard/dynamodb",
 				Icon: `<img src="/dashboard/static/icons/dynamodb.svg" ` +
@@ -52,7 +56,7 @@ func (h *DashboardHandler) dashboardIndex(c *echo.Context) error {
 	if h.S3Ops != nil || h.s3Provider != nil {
 		data.Services = append(
 			data.Services,
-			ServiceStatus{
+			serviceStatus{
 				Name: "S3",
 				Link: "/dashboard/s3",
 				Icon: `<img src="/dashboard/static/icons/s3.svg" class="w-6 h-6 flex-shrink-0 rounded-md shadow-sm" alt="S3" />`,
@@ -62,7 +66,7 @@ func (h *DashboardHandler) dashboardIndex(c *echo.Context) error {
 	if h.IAMOps != nil {
 		data.Services = append(
 			data.Services,
-			ServiceStatus{
+			serviceStatus{
 				Name: "IAM",
 				Link: "/dashboard/iam",
 				Icon: `<img src="/dashboard/static/icons/iam.svg" class="w-6 h-6 flex-shrink-0 rounded-md shadow-sm" alt="IAM" />`,
@@ -72,7 +76,7 @@ func (h *DashboardHandler) dashboardIndex(c *echo.Context) error {
 	if h.SNSOps != nil {
 		data.Services = append(
 			data.Services,
-			ServiceStatus{
+			serviceStatus{
 				Name: "SNS",
 				Link: "/dashboard/sns",
 				Icon: `<img src="/dashboard/static/icons/sns.svg" class="w-6 h-6 flex-shrink-0 rounded-md shadow-sm" alt="SNS" />`,
@@ -82,7 +86,7 @@ func (h *DashboardHandler) dashboardIndex(c *echo.Context) error {
 	if h.SQSOps != nil {
 		data.Services = append(
 			data.Services,
-			ServiceStatus{
+			serviceStatus{
 				Name: "SQS",
 				Link: "/dashboard/sqs",
 				Icon: `<img src="/dashboard/static/icons/sqs.svg" class="w-6 h-6 flex-shrink-0 rounded-md shadow-sm" alt="SQS" />`,
@@ -92,7 +96,7 @@ func (h *DashboardHandler) dashboardIndex(c *echo.Context) error {
 	if h.LambdaOps != nil {
 		data.Services = append(
 			data.Services,
-			ServiceStatus{
+			serviceStatus{
 				Name: "Lambda",
 				Link: "/dashboard/lambda",
 				Icon: `<img src="/dashboard/static/icons/lambda.svg" ` +
@@ -103,7 +107,7 @@ func (h *DashboardHandler) dashboardIndex(c *echo.Context) error {
 	if h.ElastiCacheOps != nil {
 		data.Services = append(
 			data.Services,
-			ServiceStatus{
+			serviceStatus{
 				Name: "ElastiCache",
 				Link: "/dashboard/elasticache",
 				Icon: `<img src="/dashboard/static/icons/elasticache.svg" ` +
@@ -114,7 +118,7 @@ func (h *DashboardHandler) dashboardIndex(c *echo.Context) error {
 	if h.STSOps != nil {
 		data.Services = append(
 			data.Services,
-			ServiceStatus{
+			serviceStatus{
 				Name: "STS",
 				Link: "/dashboard/sts",
 				Icon: `<img src="/dashboard/static/icons/sts.svg" class="w-6 h-6 flex-shrink-0 rounded-md shadow-sm" alt="STS" />`,
@@ -124,7 +128,7 @@ func (h *DashboardHandler) dashboardIndex(c *echo.Context) error {
 	if h.SWFOps != nil {
 		data.Services = append(
 			data.Services,
-			ServiceStatus{
+			serviceStatus{
 				Name: "SWF Domains",
 				Link: "/dashboard/swf",
 				Icon: `<img src="/dashboard/static/icons/swf.svg" class="w-6 h-6 flex-shrink-0 rounded-md shadow-sm" alt="SWF" />`,
@@ -134,7 +138,7 @@ func (h *DashboardHandler) dashboardIndex(c *echo.Context) error {
 	if h.ResourceGroupsOps != nil {
 		data.Services = append(
 			data.Services,
-			ServiceStatus{
+			serviceStatus{
 				Name: "Resource Groups",
 				Link: "/dashboard/resourcegroups",
 				Icon: `<img src="/dashboard/static/icons/resourcegroups.svg" ` +

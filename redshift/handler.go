@@ -13,6 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 const (
@@ -368,14 +369,9 @@ func (h *Handler) loggingStatusResponse() any {
 }
 
 type redshiftTaggedResource struct {
-	Tag          redshiftTag `xml:"Tag"`
-	ResourceName string      `xml:"ResourceName"`
-	ResourceType string      `xml:"ResourceType"`
-}
-
-type redshiftTag struct {
-	Key   string `xml:"Key"`
-	Value string `xml:"Value"`
+	Tag          svcTags.KV `xml:"Tag"`
+	ResourceName string     `xml:"ResourceName"`
+	ResourceType string     `xml:"ResourceType"`
 }
 
 func (h *Handler) describeTagsResponse() any {
@@ -396,7 +392,7 @@ func (h *Handler) describeTagsResponse() any {
 	for clusterID, tags := range allTags {
 		for k, v := range tags {
 			resources = append(resources, redshiftTaggedResource{
-				Tag:          redshiftTag{Key: k, Value: v},
+				Tag:          svcTags.KV{Key: k, Value: v},
 				ResourceName: clusterID,
 				ResourceType: "cluster",
 			})

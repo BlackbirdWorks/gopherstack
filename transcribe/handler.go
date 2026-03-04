@@ -154,12 +154,15 @@ type getTranscriptionJobOutput struct {
 	TranscriptionJob transcriptionJobOutput `json:"TranscriptionJob"`
 }
 
+// transcribeMedia holds the media file URI for a transcription job request.
+type transcribeMedia struct {
+	MediaFileURI string `json:"MediaFileUri"`
+}
+
 type handleStartTranscriptionJobInput struct {
-	TranscriptionJobName string `json:"TranscriptionJobName"`
-	LanguageCode         string `json:"LanguageCode"`
-	Media                struct {
-		MediaFileURI string `json:"MediaFileUri"`
-	} `json:"Media"`
+	TranscriptionJobName string          `json:"TranscriptionJobName"`
+	LanguageCode         string          `json:"LanguageCode"`
+	Media                transcribeMedia `json:"Media"`
 }
 
 func (h *Handler) handleStartTranscriptionJob(
