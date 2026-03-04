@@ -65,8 +65,13 @@ func NewInMemoryBackend(compressor Compressor, logger *slog.Logger) *InMemoryBac
 
 // WithCompressionMinBytes sets the minimum object size (in bytes) below which
 // gzip compression is skipped. A value of 0 compresses all objects regardless
-// of size (the original behaviour).
+// of size (the original behaviour). Negative values are clamped to 0 to
+// prevent misconfiguration (e.g., via env/flags) from silently changing semantics.
 func (b *InMemoryBackend) WithCompressionMinBytes(n int) *InMemoryBackend {
+	if n < 0 {
+		n = 0
+	}
+
 	b.compressionMinBytes = n
 
 	return b

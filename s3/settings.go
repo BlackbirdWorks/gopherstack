@@ -2,6 +2,18 @@ package s3
 
 import "time"
 
+const defaultCompressionMinBytes = 1024
+
+// DefaultSettings returns a Settings struct populated with the documented defaults.
+// This is used when no ConfigProvider is available at init time.
+func DefaultSettings() Settings {
+	return Settings{
+		DefaultRegion:       "us-east-1",
+		JanitorInterval:     defaultJanitorInterval,
+		CompressionMinBytes: defaultCompressionMinBytes,
+	}
+}
+
 // Settings holds service-level configuration for the S3 backend.
 // Fields are picked up by the Kong CLI parser when this struct is embedded
 // in the root CLI command.
