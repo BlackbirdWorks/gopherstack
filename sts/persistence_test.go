@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/labstack/echo/v5"
 	"github.com/blackbirdworks/gopherstack/sts"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -52,48 +52,48 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 }
 
 func TestSTSHandler_Persistence(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-backend := sts.NewInMemoryBackendWithConfig("000000000000")
-h := sts.NewHandler(backend, slog.Default())
+	backend := sts.NewInMemoryBackendWithConfig("000000000000")
+	h := sts.NewHandler(backend, slog.Default())
 
-// STS has no state; just verify delegation doesn't panic
-snap := h.Snapshot()
-assert.Nil(t, snap) // STS returns nil
+	// STS has no state; just verify delegation doesn't panic
+	snap := h.Snapshot()
+	assert.Nil(t, snap) // STS returns nil
 
-fresh := sts.NewInMemoryBackendWithConfig("000000000000")
-freshH := sts.NewHandler(fresh, slog.Default())
-require.NoError(t, freshH.Restore(snap))
+	fresh := sts.NewInMemoryBackendWithConfig("000000000000")
+	freshH := sts.NewHandler(fresh, slog.Default())
+	require.NoError(t, freshH.Restore(snap))
 }
 
 func TestSTSHandler_Routing(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h := sts.NewHandler(sts.NewInMemoryBackendWithConfig("000000000000"), slog.Default())
+	h := sts.NewHandler(sts.NewInMemoryBackendWithConfig("000000000000"), slog.Default())
 
-assert.Equal(t, "STS", h.Name())
-assert.Greater(t, h.MatchPriority(), 0)
+	assert.Equal(t, "STS", h.Name())
+	assert.Positive(t, h.MatchPriority())
 
-e := echo.New()
+	e := echo.New()
 
-tests := []struct {
-name      string
-ct        string
-body      string
-wantMatch bool
-}{
-{"sts form", "application/x-www-form-urlencoded", "Action=GetCallerIdentity&Version=2011-06-15", true},
-{"json ct", "application/json", "", false},
-}
+	tests := []struct {
+		name      string
+		ct        string
+		body      string
+		wantMatch bool
+	}{
+		{"sts form", "application/x-www-form-urlencoded", "Action=GetCallerIdentity&Version=2011-06-15", true},
+		{"json ct", "application/json", "", false},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tt.body))
-req.Header.Set("Content-Type", tt.ct)
-c := e.NewContext(req, httptest.NewRecorder())
-assert.Equal(t, tt.wantMatch, h.RouteMatcher()(c))
-})
-}
+			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", tt.ct)
+			c := e.NewContext(req, httptest.NewRecorder())
+			assert.Equal(t, tt.wantMatch, h.RouteMatcher()(c))
+		})
+	}
 }

@@ -79,22 +79,22 @@ func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 }
 
 func TestSecretsManagerHandler_Persistence(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-backend := secretsmanager.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
-h := secretsmanager.NewHandler(backend, slog.Default())
+	backend := secretsmanager.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+	h := secretsmanager.NewHandler(backend, slog.Default())
 
-_, err := backend.CreateSecret(&secretsmanager.CreateSecretInput{Name: "snap-secret", SecretString: "snap-value"})
+	_, err := backend.CreateSecret(&secretsmanager.CreateSecretInput{Name: "snap-secret", SecretString: "snap-value"})
 	require.NoError(t, err)
 
-snap := h.Snapshot()
-require.NotNil(t, snap)
+	snap := h.Snapshot()
+	require.NotNil(t, snap)
 
-fresh := secretsmanager.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
-freshH := secretsmanager.NewHandler(fresh, slog.Default())
-require.NoError(t, freshH.Restore(snap))
+	fresh := secretsmanager.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+	freshH := secretsmanager.NewHandler(fresh, slog.Default())
+	require.NoError(t, freshH.Restore(snap))
 
-out, err := fresh.DescribeSecret(&secretsmanager.DescribeSecretInput{SecretID: "snap-secret"})
+	out, err := fresh.DescribeSecret(&secretsmanager.DescribeSecretInput{SecretID: "snap-secret"})
 	require.NoError(t, err)
 	assert.Equal(t, "snap-secret", out.Name)
 }

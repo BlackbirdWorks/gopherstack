@@ -81,8 +81,12 @@ func (h *Handler) GetSupportedOperations() []string {
 }
 
 // isResourceTagsPath reports whether path matches the pattern /resources/{Arn}/tags.
+// The ARN segment must be non-empty, so the path must be longer than "/resources/" + "/tags".
 func isResourceTagsPath(path string) bool {
-	return strings.HasPrefix(path, "/resources/") && strings.HasSuffix(path, "/tags")
+	const prefix = "/resources/"
+	const suffix = "/tags"
+
+	return strings.HasPrefix(path, prefix) && strings.HasSuffix(path, suffix) && len(path) > len(prefix)+len(suffix)
 }
 
 // arnFromResourceTagsPath extracts the ARN from a /resources/{Arn}/tags path.
