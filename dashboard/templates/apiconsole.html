@@ -325,6 +325,14 @@
         );
     }
 
-    document.addEventListener('DOMContentLoaded', init);
+    // Run immediately (works for both direct load and HTMX swap)
+    init();
+
+    // Clean up interval when navigating away via HTMX
+    let cleanup = function () {
+        stopAutoRefresh();
+        document.body.removeEventListener('htmx:beforeSwap', cleanup);
+    };
+    document.body.addEventListener('htmx:beforeSwap', cleanup);
 </script>
 {{end}}
