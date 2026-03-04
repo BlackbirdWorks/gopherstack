@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 
 	"github.com/stretchr/testify/assert"
@@ -298,6 +300,52 @@ func TestRWMutex_Close(t *testing.T) {
 			}
 
 			m.Close()
+		})
+	}
+}
+
+func TestRWMutex_CollectMetrics(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup func(*lockmetrics.RWMutex)
+		name  string
+	}{
+		{
+			name:  "unlocked_mutex_collects_without_error",
+			setup: nil,
+		},
+		{
+			name: "locked_mutex_emits_held_gauge",
+			setup: func(m *lockmetrics.RWMutex) {
+				m.Lock("test-op")
+				// unlocked after gather below
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			m := lockmetrics.New("test.collect." + tt.name)
+			defer m.Close()
+
+			if tt.setup != nil {
+				tt.setup(m)
+			}
+
+			// Trigger Collect by gathering from the default registry.
+			// The liveCollector is registered globally and iterates allMutexes.
+			mfs, err := prometheus.DefaultGatherer.Gather()
+			require.NoError(t, err)
+
+			// At minimum the wait/hold histograms and live gauges should appear.
+			assert.NotEmpty(t, mfs)
+
+			if tt.name == "locked_mutex_emits_held_gauge" {
+				m.Unlock()
+			}
 		})
 	}
 }
