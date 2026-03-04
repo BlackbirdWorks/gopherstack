@@ -20,6 +20,17 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
+// s3ObjectExportData is the JSON export structure for S3 object metadata.
+type s3ObjectExportData struct {
+	Tags        map[string]string `json:"tags"`
+	Metadata    map[string]string `json:"metadata"`
+	Bucket      string            `json:"bucket"`
+	Key         string            `json:"key"`
+	ContentType string            `json:"content_type"`
+	ETag        string            `json:"etag"`
+	Size        int64             `json:"size"`
+}
+
 // s3FileTree returns the file tree as HTML fragment.
 func (h *DashboardHandler) s3FileTree(w http.ResponseWriter, r *http.Request, bucketName string) {
 	ctx := r.Context()
@@ -417,15 +428,7 @@ func (h *DashboardHandler) s3ExportJSON(w http.ResponseWriter, r *http.Request, 
 		}
 	}
 
-	export := struct {
-		Tags        map[string]string `json:"tags"`
-		Metadata    map[string]string `json:"metadata"`
-		Bucket      string            `json:"bucket"`
-		Key         string            `json:"key"`
-		ContentType string            `json:"content_type"`
-		ETag        string            `json:"etag"`
-		Size        int64             `json:"size"`
-	}{
+	export := s3ObjectExportData{
 		Bucket:      bucketName,
 		Key:         key,
 		ContentType: aws.ToString(obj.ContentType),

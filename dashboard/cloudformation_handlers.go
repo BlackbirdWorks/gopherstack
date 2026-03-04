@@ -8,16 +8,27 @@ import (
 	cfnbackend "github.com/blackbirdworks/gopherstack/cloudformation"
 )
 
+// cloudFormationIndexData is the template data for the CloudFormation stacks list page.
+type cloudFormationIndexData struct {
+	PageData
+
+	Stacks []*cfnbackend.Stack
+}
+
+// cloudFormationStackDetailData is the template data for the CloudFormation stack detail page.
+type cloudFormationStackDetailData struct {
+	PageData
+
+	Stack  *cfnbackend.Stack
+	Events []cfnbackend.StackEvent
+}
+
 func (h *DashboardHandler) cloudFormationIndex(c *echo.Context) error {
 	if h.CloudFormationOps == nil {
 		return c.NoContent(http.StatusServiceUnavailable)
 	}
 	stacks := h.CloudFormationOps.Backend.ListAll()
-	data := struct {
-		PageData
-
-		Stacks []*cfnbackend.Stack
-	}{
+	data := cloudFormationIndexData{
 		PageData: PageData{Title: "CloudFormation", ActiveTab: "cloudformation",
 			Snippet: &SnippetData{
 				ID:    "cloudformation-operations",
@@ -57,12 +68,7 @@ func (h *DashboardHandler) cloudFormationStackDetail(c *echo.Context) error {
 		return c.NoContent(http.StatusNotFound)
 	}
 	events, _ := h.CloudFormationOps.Backend.DescribeStackEvents(stackName)
-	data := struct {
-		PageData
-
-		Stack  *cfnbackend.Stack
-		Events []cfnbackend.StackEvent
-	}{
+	data := cloudFormationStackDetailData{
 		PageData: PageData{Title: "Stack: " + stack.StackName, ActiveTab: "cloudformation",
 			Snippet: &SnippetData{
 				ID:    "cloudformation-operations",

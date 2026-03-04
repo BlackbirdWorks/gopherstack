@@ -319,6 +319,12 @@ func (h *DashboardHandler) dynamoDBSearch(w http.ResponseWriter, r *http.Request
 	h.dynamoDBTableList(w, r)
 }
 
+// dynamoDBTableDetailData is the template data for the DynamoDB table detail page.
+type dynamoDBTableDetailData struct {
+	PageData
+	TableInfo
+}
+
 // dynamoDBTableDetail renders the table detail page.
 func (h *DashboardHandler) dynamoDBTableDetail(w http.ResponseWriter, r *http.Request, tableName string) {
 	ctx := r.Context()
@@ -341,10 +347,7 @@ func (h *DashboardHandler) dynamoDBTableDetail(w http.ResponseWriter, r *http.Re
 		info.TTLAttribute = aws.ToString(ttlDesc.TimeToLiveDescription.AttributeName)
 	}
 
-	data := struct {
-		PageData
-		TableInfo
-	}{
+	data := dynamoDBTableDetailData{
 		PageData: PageData{
 			Title:     tableName,
 			ActiveTab: "dynamodb",

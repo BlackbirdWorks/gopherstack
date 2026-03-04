@@ -28,15 +28,18 @@ type secretsManagerDetailData struct {
 	SecretString       string
 }
 
+// secretsManagerIndexData is the template data for the Secrets Manager list page.
+type secretsManagerIndexData struct {
+	PageData
+
+	Secrets []secretsManagerView
+}
+
 // secretsManagerIndex renders the list of all Secrets Manager secrets.
 func (h *DashboardHandler) secretsManagerIndex(c *echo.Context) error {
 	w := c.Response()
 
-	data := struct {
-		PageData
-
-		Secrets []secretsManagerView
-	}{
+	data := secretsManagerIndexData{
 		PageData: PageData{
 			Title:     "Secrets Manager",
 			ActiveTab: "secretsmanager",

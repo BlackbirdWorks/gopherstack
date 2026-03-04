@@ -8,17 +8,35 @@ import (
 	ebbackend "github.com/blackbirdworks/gopherstack/eventbridge"
 )
 
+// eventBridgeIndexData is the template data for the EventBridge buses list page.
+type eventBridgeIndexData struct {
+	PageData
+
+	Buses []ebbackend.EventBus
+}
+
+// eventBridgeRulesData is the template data for the EventBridge rules page.
+type eventBridgeRulesData struct {
+	PageData
+
+	BusName string
+	Rules   []ebbackend.Rule
+}
+
+// eventBridgeEventLogData is the template data for the EventBridge event log page.
+type eventBridgeEventLogData struct {
+	PageData
+
+	Events []ebbackend.EventLogEntry
+}
+
 func (h *DashboardHandler) eventBridgeIndex(c *echo.Context) error {
 	if h.EventBridgeOps == nil {
 		return c.NoContent(http.StatusServiceUnavailable)
 	}
 
 	buses, _, _ := h.EventBridgeOps.Backend.ListEventBuses("", "")
-	data := struct {
-		PageData
-
-		Buses []ebbackend.EventBus
-	}{
+	data := eventBridgeIndexData{
 		PageData: PageData{Title: "EventBridge", ActiveTab: "eventbridge",
 			Snippet: &SnippetData{
 				ID:    "eventbridge-operations",
@@ -60,12 +78,7 @@ func (h *DashboardHandler) eventBridgeRules(c *echo.Context) error {
 	}
 
 	rules, _, _ := h.EventBridgeOps.Backend.ListRules(busName, "", "")
-	data := struct {
-		PageData
-
-		BusName string
-		Rules   []ebbackend.Rule
-	}{
+	data := eventBridgeRulesData{
 		PageData: PageData{Title: "EventBridge Rules", ActiveTab: "eventbridge",
 			Snippet: &SnippetData{
 				ID:    "eventbridge-operations",
@@ -103,11 +116,7 @@ func (h *DashboardHandler) eventBridgeEventLog(c *echo.Context) error {
 	}
 
 	log := h.EventBridgeOps.Backend.GetEventLog()
-	data := struct {
-		PageData
-
-		Events []ebbackend.EventLogEntry
-	}{
+	data := eventBridgeEventLogData{
 		PageData: PageData{Title: "EventBridge Event Log", ActiveTab: "eventbridge",
 			Snippet: &SnippetData{
 				ID:    "eventbridge-operations",

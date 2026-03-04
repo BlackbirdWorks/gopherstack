@@ -8,17 +8,36 @@ import (
 	sfnbackend "github.com/blackbirdworks/gopherstack/stepfunctions"
 )
 
+// stepFunctionsIndexData is the template data for the Step Functions list page.
+type stepFunctionsIndexData struct {
+	PageData
+
+	StateMachines []sfnbackend.StateMachine
+}
+
+// stepFunctionsStateMachineDetailData is the template data for the Step Functions state machine detail page.
+type stepFunctionsStateMachineDetailData struct {
+	PageData
+
+	StateMachine *sfnbackend.StateMachine
+	Executions   []sfnbackend.Execution
+}
+
+// stepFunctionsExecutionDetailData is the template data for the Step Functions execution detail page.
+type stepFunctionsExecutionDetailData struct {
+	PageData
+
+	Execution *sfnbackend.Execution
+	Events    []sfnbackend.HistoryEvent
+}
+
 func (h *DashboardHandler) stepFunctionsIndex(c *echo.Context) error {
 	if h.StepFunctionsOps == nil {
 		return c.NoContent(http.StatusServiceUnavailable)
 	}
 
 	machines, _, _ := h.StepFunctionsOps.Backend.ListStateMachines("", 0)
-	data := struct {
-		PageData
-
-		StateMachines []sfnbackend.StateMachine
-	}{
+	data := stepFunctionsIndexData{
 		PageData: PageData{Title: "Step Functions", ActiveTab: "stepfunctions",
 			Snippet: &SnippetData{
 				ID:    "stepfunctions-operations",
@@ -62,12 +81,7 @@ func (h *DashboardHandler) stepFunctionsStateMachineDetail(c *echo.Context) erro
 	}
 
 	executions, _, _ := h.StepFunctionsOps.Backend.ListExecutions(arn, "", "", 0)
-	data := struct {
-		PageData
-
-		StateMachine *sfnbackend.StateMachine
-		Executions   []sfnbackend.Execution
-	}{
+	data := stepFunctionsStateMachineDetailData{
 		PageData: PageData{Title: "State Machine: " + sm.Name, ActiveTab: "stepfunctions",
 			Snippet: &SnippetData{
 				ID:    "stepfunctions-operations",
@@ -116,12 +130,7 @@ func (h *DashboardHandler) stepFunctionsExecutionDetail(c *echo.Context) error {
 		h.Logger.Warn("failed to get execution history", "arn", execArn, "err", err)
 	}
 
-	data := struct {
-		PageData
-
-		Execution *sfnbackend.Execution
-		Events    []sfnbackend.HistoryEvent
-	}{
+	data := stepFunctionsExecutionDetailData{
 		PageData: PageData{Title: "Execution: " + exec.Name, ActiveTab: "stepfunctions",
 			Snippet: &SnippetData{
 				ID:    "stepfunctions-operations",

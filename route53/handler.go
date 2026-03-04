@@ -302,6 +302,12 @@ type xmlChangeResourceRecordSetsResponse struct {
 	ChangeInfo xmlChangeInfo `xml:"ChangeInfo"`
 }
 
+type xmlDeleteHostedZoneResponse struct {
+	XMLName    xml.Name      `xml:"DeleteHostedZoneResponse"`
+	Xmlns      string        `xml:"xmlns,attr"`
+	ChangeInfo xmlChangeInfo `xml:"ChangeInfo"`
+}
+
 type xmlResourceRecord struct {
 	Value string `xml:"Value"`
 }
@@ -429,11 +435,7 @@ func (h *Handler) deleteHostedZone(c *echo.Context) error {
 
 	h.Logger.DebugContext(ctx, "Route53 DeleteHostedZone", "id", zoneID)
 
-	resp := struct {
-		XMLName    xml.Name      `xml:"DeleteHostedZoneResponse"`
-		Xmlns      string        `xml:"xmlns,attr"`
-		ChangeInfo xmlChangeInfo `xml:"ChangeInfo"`
-	}{
+	resp := xmlDeleteHostedZoneResponse{
 		Xmlns: route53Namespace,
 		ChangeInfo: xmlChangeInfo{
 			SubmittedAt: time.Now(),

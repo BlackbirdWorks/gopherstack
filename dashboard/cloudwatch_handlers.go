@@ -8,6 +8,14 @@ import (
 	cwbackend "github.com/blackbirdworks/gopherstack/cloudwatch"
 )
 
+// cloudWatchIndexData is the template data for the CloudWatch overview page.
+type cloudWatchIndexData struct {
+	PageData
+
+	Metrics []cwbackend.Metric
+	Alarms  []cwbackend.MetricAlarm
+}
+
 func (h *DashboardHandler) cloudWatchIndex(c *echo.Context) error {
 	if h.CloudWatchOps == nil {
 		return c.NoContent(http.StatusServiceUnavailable)
@@ -15,12 +23,7 @@ func (h *DashboardHandler) cloudWatchIndex(c *echo.Context) error {
 
 	metrics, _ := h.CloudWatchOps.Backend.ListMetrics("", "")
 	alarms, _ := h.CloudWatchOps.Backend.DescribeAlarms(nil, "")
-	data := struct {
-		PageData
-
-		Metrics []cwbackend.Metric
-		Alarms  []cwbackend.MetricAlarm
-	}{
+	data := cloudWatchIndexData{
 		PageData: PageData{Title: "CloudWatch", ActiveTab: "cloudwatch",
 			Snippet: &SnippetData{
 				ID:    "cloudwatch-operations",

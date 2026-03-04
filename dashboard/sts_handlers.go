@@ -6,17 +6,20 @@ import (
 	stsbackend "github.com/blackbirdworks/gopherstack/sts"
 )
 
+// stsIndexData is the template data for the STS caller-identity overview page.
+type stsIndexData struct {
+	PageData
+
+	Account string
+	Arn     string
+	UserID  string
+}
+
 // stsIndex renders the STS caller-identity overview page.
 func (h *DashboardHandler) stsIndex(c *echo.Context) error {
 	w := c.Response()
 
-	data := struct {
-		PageData
-
-		Account string
-		Arn     string
-		UserID  string
-	}{
+	data := stsIndexData{
 		PageData: PageData{
 			Title:     "STS Security Token Service",
 			ActiveTab: "sts",
