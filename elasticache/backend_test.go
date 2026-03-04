@@ -13,9 +13,9 @@ import (
 
 // mockDNSRegistrar is a simple in-memory DNSRegistrar for testing.
 type mockDNSRegistrar struct {
-	mu           sync.Mutex
 	registered   map[string]bool
 	deregistered map[string]bool
+	mu           sync.Mutex
 }
 
 func newMockDNS() *mockDNSRegistrar {
@@ -82,5 +82,5 @@ func TestCreateCluster_NoDNS_StillWorks(t *testing.T) {
 	require.NoError(t, err)
 
 	// Should still get an AWS-style hostname even without DNS registrar.
-	assert.True(t, strings.Contains(cluster.Endpoint, ".cache.amazonaws.com"))
+	assert.Contains(t, cluster.Endpoint, ".cache.amazonaws.com")
 }

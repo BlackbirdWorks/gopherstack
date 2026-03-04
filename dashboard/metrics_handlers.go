@@ -11,6 +11,11 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
+const (
+	metricsStreamInterval    = 2 * time.Second
+	metricsKeepAliveInterval = 15 * time.Second
+)
+
 // RegisterMetricsHandlers registers metrics endpoints under the dashboard group.
 func RegisterMetricsHandlers(g *echo.Group, h *DashboardHandler) {
 	if g == nil {
@@ -61,11 +66,11 @@ func streamMetricsSSE(c *echo.Context) error {
 
 	// Stream updates every 2 seconds matching the console Live API rate
 
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(metricsStreamInterval)
 	defer ticker.Stop()
 
 	// Keep alive ping every 15s
-	keepAlive := time.NewTicker(15 * time.Second)
+	keepAlive := time.NewTicker(metricsKeepAliveInterval)
 	defer keepAlive.Stop()
 
 	for {
@@ -73,22 +78,33 @@ func streamMetricsSSE(c *echo.Context) error {
 		case <-c.Request().Context().Done():
 			return nil
 		case <-keepAlive.C:
-			w.Write([]byte(":\n\n"))
-			if f, ok := w.(http.Flusher); ok {
-				f.Flush()
-			}
-		case <-ticker.C:
-			result := telemetry.CollectMetrics()
-			w.Write([]byte("data: "))
-			if err := encoder.Encode(result); err != nil {
+			if err := sendSSEKeepAlive(w); err != nil {
 				return err
 			}
-			w.Write([]byte("\n\n"))
-			if f, ok := w.(http.Flusher); ok {
-				f.Flush()
+		case <-ticker.C:
+			if err := sendSSEMetrics(w, encoder); err != nil {
+				return err
 			}
 		}
 	}
+}
+
+func sendSSEMetrics(w http.ResponseWriter, encoder *json.Encoder) error {
+	result := telemetry.CollectMetrics()
+	if _, err := w.Write([]byte("data: ")); err != nil {
+		return err
+	}
+	if err := encoder.Encode(result); err != nil {
+		return err
+	}
+	if _, err := w.Write([]byte("\n\n")); err != nil {
+		return err
+	}
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+
+	return nil
 }
 
 // metricsIndex renders the metrics dashboard page.

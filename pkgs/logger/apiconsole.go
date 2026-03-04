@@ -11,6 +11,10 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+const (
+	defaultChannelSize = 100
+)
+
 // CapturedRequest represents a single HTTP request captured by the console middleware.
 type CapturedRequest struct {
 	Timestamp time.Time         `json:"timestamp"`
@@ -25,13 +29,12 @@ type CapturedRequest struct {
 
 // RequestRingBuffer holds the last N captured requests.
 type RequestRingBuffer struct {
+	subs     map[chan *CapturedRequest]bool
 	requests []*CapturedRequest
 	maxSize  int
 	cursor   int
 	mu       sync.RWMutex
-
-	subMu sync.RWMutex
-	subs  map[chan *CapturedRequest]bool
+	subMu    sync.RWMutex
 }
 
 // NewRequestRingBuffer creates a new ring buffer for captured requests.
@@ -46,20 +49,18 @@ func NewRequestRingBuffer(maxSize int) *RequestRingBuffer {
 
 // Subscribe adds a channel to receive incoming requests.
 func (r *RequestRingBuffer) Subscribe() chan *CapturedRequest {
-	ch := make(chan *CapturedRequest, 100)
+	ch := make(chan *CapturedRequest, defaultChannelSize)
 	r.subMu.Lock()
 	r.subs[ch] = true
 	r.subMu.Unlock()
+
 	return ch
 }
 
 // Unsubscribe removes a channel from receiving requests.
 func (r *RequestRingBuffer) Unsubscribe(ch chan *CapturedRequest) {
 	r.subMu.Lock()
-	if _, ok := r.subs[ch]; ok {
-		delete(r.subs, ch)
-		close(ch)
-	}
+	delete(r.subs, ch)
 	r.subMu.Unlock()
 }
 

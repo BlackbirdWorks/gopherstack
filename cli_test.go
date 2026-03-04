@@ -312,12 +312,13 @@ func TestHealthCmd_Success(t *testing.T) {
 			return false
 		}
 		resp.Body.Close()
+
 		return resp.StatusCode == http.StatusOK
 	}, 3*time.Second, 50*time.Millisecond, "server did not become ready")
 
 	// Run the health command against the running server.
 	cmd := &HealthCmd{Port: "8130"}
-	assert.NoError(t, cmd.Run())
+	require.NoError(t, cmd.Run())
 
 	cancel()
 
@@ -334,7 +335,7 @@ func TestHealthCmd_NoServer(t *testing.T) {
 
 	cmd := &HealthCmd{Port: "19999"}
 	err := cmd.Run()
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "health check failed")
 }
 

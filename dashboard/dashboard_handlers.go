@@ -43,7 +43,8 @@ func (h *DashboardHandler) dashboardIndex(c *echo.Context) error {
 			ServiceStatus{
 				Name: "DynamoDB",
 				Link: "/dashboard/dynamodb",
-				Icon: `<img src="/dashboard/static/icons/dynamodb.svg" class="w-6 h-6 flex-shrink-0 rounded-md shadow-sm" alt="DynamoDB" />`,
+				Icon: `<img src="/dashboard/static/icons/dynamodb.svg" ` +
+					`class="w-6 h-6 flex-shrink-0 rounded-md shadow-sm" alt="DynamoDB" />`,
 			},
 		)
 	}
@@ -94,7 +95,8 @@ func (h *DashboardHandler) dashboardIndex(c *echo.Context) error {
 			ServiceStatus{
 				Name: "Lambda",
 				Link: "/dashboard/lambda",
-				Icon: `<img src="/dashboard/static/icons/lambda.svg" class="w-6 h-6 flex-shrink-0 rounded-md shadow-sm" alt="Lambda" />`,
+				Icon: `<img src="/dashboard/static/icons/lambda.svg" ` +
+					`class="w-6 h-6 flex-shrink-0 rounded-md shadow-sm" alt="Lambda" />`,
 			},
 		)
 	}
@@ -104,7 +106,8 @@ func (h *DashboardHandler) dashboardIndex(c *echo.Context) error {
 			ServiceStatus{
 				Name: "ElastiCache",
 				Link: "/dashboard/elasticache",
-				Icon: `<img src="/dashboard/static/icons/elasticache.svg" class="w-6 h-6 flex-shrink-0 rounded-md shadow-sm" alt="ElastiCache" />`,
+				Icon: `<img src="/dashboard/static/icons/elasticache.svg" ` +
+					`class="w-6 h-6 flex-shrink-0 rounded-md shadow-sm" alt="ElastiCache" />`,
 			},
 		)
 	}
@@ -134,7 +137,8 @@ func (h *DashboardHandler) dashboardIndex(c *echo.Context) error {
 			ServiceStatus{
 				Name: "Resource Groups",
 				Link: "/dashboard/resourcegroups",
-				Icon: `<img src="/dashboard/static/icons/resourcegroups.svg" class="w-6 h-6 flex-shrink-0 rounded-md shadow-sm" alt="Resource Groups" />`,
+				Icon: `<img src="/dashboard/static/icons/resourcegroups.svg" ` +
+					`class="w-6 h-6 flex-shrink-0 rounded-md shadow-sm" alt="Resource Groups" />`,
 			},
 		)
 	}

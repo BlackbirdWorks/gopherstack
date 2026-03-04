@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -72,10 +73,11 @@ import (
 )
 
 const (
-	defaultPort     = "8000"
-	defaultRegion   = config.DefaultRegion
-	defaultTimeout  = 30 * time.Second
-	shutdownTimeout = 5 * time.Second
+	defaultPort        = "8000"
+	defaultRegion      = config.DefaultRegion
+	defaultTimeout     = 30 * time.Second
+	shutdownTimeout    = 5 * time.Second
+	healthCheckTimeout = 5 * time.Second
 )
 
 // CLI holds all command-line / environment-variable configuration for Gopherstack.
@@ -375,7 +377,7 @@ func (c *CLI) GetSupportHandler() service.Registerable { return c.supportHandler
 // Docker healthcheck from scratch containers.
 type rootCLI struct {
 	Health HealthCmd `cmd:"" help:"Check server health (for Docker healthcheck)."`
-	Serve  CLI       `cmd:"" default:"withargs" help:"Start the Gopherstack server."`
+	Serve  CLI       `cmd:"" help:"Start the Gopherstack server."                 default:"withargs"`
 }
 
 // HealthCmd checks a running Gopherstack instance's health endpoint.
@@ -383,21 +385,37 @@ type HealthCmd struct {
 	Port string `name:"port" env:"PORT" default:"8000" help:"Port of the running server to check."` //nolint:lll // config struct tags are intentionally verbose
 }
 
+var ErrHealthCheckFailed = errors.New("health check failed")
+
 // Run executes the health check. Returns nil on success.
 func (h *HealthCmd) Run() error {
-	client := &http.Client{Timeout: 5 * time.Second}
+	ctx, cancel := context.WithTimeout(context.Background(), healthCheckTimeout)
+	defer cancel()
 
-	resp, err := client.Get("http://localhost:" + h.Port + "/_gopherstack/health")
+	client := &http.Client{}
+
+	targetURL := &url.URL{
+		Scheme: "http",
+		Host:   "localhost:" + h.Port,
+		Path:   "/_gopherstack/health",
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL.String(), nil)
 	if err != nil {
-		return fmt.Errorf("health check failed: %w", err)
+		return fmt.Errorf("create health check request: %w", err)
+	}
+
+	resp, err := client.Do(req) //nolint:gosec // health check is always against localhost
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrHealthCheckFailed, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("health check failed: status %d", resp.StatusCode)
+		return fmt.Errorf("%w: status %d", ErrHealthCheckFailed, resp.StatusCode)
 	}
 
-	fmt.Println("ok")
+	fmt.Fprintln(os.Stdout, "ok")
 
 	return nil
 }

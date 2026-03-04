@@ -15,6 +15,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+const (
+	randomSuffixLen = 3
+)
+
 // Engine mode constants.
 const (
 	EngineEmbedded = "embedded"
@@ -297,8 +301,9 @@ func (b *InMemoryBackend) DescribeReplicationGroups(id string) ([]ReplicationGro
 
 // randomSuffix generates a short random hex string for synthetic hostnames.
 func randomSuffix() string {
-	b := make([]byte, 3)
+	b := make([]byte, randomSuffixLen)
 	_, _ = rand.Read(b)
+
 	return hex.EncodeToString(b)
 }
 

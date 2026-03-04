@@ -2,12 +2,17 @@ package dashboard
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+)
+
+const (
+	sseKeepAliveInterval = 2 * time.Second
 )
 
 // consoleIndex renders the Live API Console page.
@@ -71,7 +76,7 @@ func (h *DashboardHandler) consoleAPIStream(c *echo.Context) error {
 	encoder := json.NewEncoder(w)
 
 	// Send a keep-alive ping every 2 seconds to prevent browser/proxy timeouts.
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(sseKeepAliveInterval)
 	defer ticker.Stop()
 
 	for {
@@ -79,20 +84,43 @@ func (h *DashboardHandler) consoleAPIStream(c *echo.Context) error {
 		case <-c.Request().Context().Done():
 			return nil
 		case <-ticker.C:
-			w.Write([]byte(":\n\n"))
-			if f, ok := w.(http.Flusher); ok {
-				f.Flush()
-			}
-		case req := <-ch:
-			w.Write([]byte("data: "))
-			if err := encoder.Encode(req); err != nil {
-				h.Logger.Error("failed to encode event stream data", "err", err)
+			if err := sendSSEKeepAlive(w); err != nil {
 				return err
 			}
-			w.Write([]byte("\n\n"))
-			if f, ok := w.(http.Flusher); ok {
-				f.Flush()
+		case req := <-ch:
+			if err := sendSSERequest(w, encoder, req, h.Logger); err != nil {
+				return err
 			}
 		}
 	}
+}
+
+func sendSSEKeepAlive(w http.ResponseWriter) error {
+	if _, err := w.Write([]byte(":\n\n")); err != nil {
+		return err
+	}
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+
+	return nil
+}
+
+func sendSSERequest(w http.ResponseWriter, encoder *json.Encoder, req *logger.CapturedRequest, log *slog.Logger) error {
+	if _, err := w.Write([]byte("data: ")); err != nil {
+		return err
+	}
+	if err := encoder.Encode(req); err != nil {
+		log.Error("failed to encode event stream data", "err", err)
+
+		return err
+	}
+	if _, err := w.Write([]byte("\n\n")); err != nil {
+		return err
+	}
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+
+	return nil
 }
