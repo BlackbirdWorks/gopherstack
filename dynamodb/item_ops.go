@@ -20,19 +20,11 @@ const (
 )
 
 // rcuForCount returns the RCU cost for n eventually-consistent item reads.
-// Each 4 KB unit costs 0.5 RCU; the minimum returned is 0.5.
+// Each item costs 0.5 RCU; returns 0 when n is 0 (empty scan/query has no cost).
 func rcuForCount(n int) float64 {
-	const (
-		halfRCU    = 0.5
-		minRCUCost = 0.5
-	)
+	const halfRCU = 0.5
 
-	cu := float64(n) * halfRCU
-	if cu < minRCUCost {
-		return minRCUCost
-	}
-
-	return cu
+	return float64(n) * halfRCU
 }
 
 // isItemExpired returns true when the table has a TTL attribute configured and

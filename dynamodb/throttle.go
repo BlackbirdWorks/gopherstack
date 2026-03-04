@@ -34,8 +34,9 @@ func NewThrottler(enabled bool) *Throttler {
 }
 
 // SetTableCapacity registers or updates the provisioned capacity for the given key
-// (typically "region:tableName"). Existing token counts are preserved (capped at the
-// new rate) so that an UpdateTable does not instantly grant a full bucket.
+// (typically "region:tableName"). Existing token counts are preserved on capacity
+// increases so that UpdateTable cannot be used to instantly refill an exhausted
+// bucket. On decreases the existing token count is capped to the new ceiling.
 func (t *Throttler) SetTableCapacity(key string, rcu, wcu int64) {
 	if !t.enabled {
 		return
@@ -63,16 +64,24 @@ func (t *Throttler) SetTableCapacity(key string, rcu, wcu int64) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	// Refill using the existing rates before applying any changes.
 	b.refillLocked(now)
+
+	oldReadRate := b.readRate
+	oldWriteRate := b.writeRate
+
 	b.readRate = float64(rcu)
 	b.writeRate = float64(wcu)
-	// On a capacity increase, fill the bucket up to the new rate so that the
-	// new capacity is immediately available (matches AWS behaviour on scale-up).
-	// On a decrease, cap existing tokens to the new ceiling.
-	if b.readTokens < b.readRate {
+
+	// When capacity decreases, cap existing tokens to the new ceiling so that
+	// a bucket cannot temporarily exceed the new provisioned rate.
+	// When capacity increases, preserve the current token count so that
+	// UpdateTable cannot be used to instantly refill an exhausted bucket.
+	if b.readRate < oldReadRate && b.readTokens > b.readRate {
 		b.readTokens = b.readRate
 	}
-	if b.writeTokens < b.writeRate {
+
+	if b.writeRate < oldWriteRate && b.writeTokens > b.writeRate {
 		b.writeTokens = b.writeRate
 	}
 }

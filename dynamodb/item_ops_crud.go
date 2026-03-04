@@ -27,20 +27,24 @@ func (db *InMemoryDB) PutItem(
 		return nil, err
 	}
 
-	// Enforce throughput before acquiring the table lock.
+	// Convert SDK Item to Wire Item once; reused for validation and WCU calculation.
 	wireItem := models.FromSDKItem(input.Item)
-	wcu := WriteCapacityUnits(wireItem)
-	region := getRegionFromContext(ctx, db)
-	if err = db.throttler.ConsumeWrite(throttleKey(region, tableName), wcu); err != nil {
-		return nil, err
-	}
 
 	table.mu.Lock("PutItem")
 	defer table.mu.Unlock()
 
+	// Validate item before charging capacity so that validation errors do not
+	// consume tokens (matches real DynamoDB behaviour).
 	err = db.validateItem(wireItem, table)
 	if err != nil {
 		return nil, err
+	}
+
+	// Enforce throughput after validation, before mutating state.
+	wcu := WriteCapacityUnits(wireItem)
+	region := getRegionFromContext(ctx, db)
+	if throttleErr := db.throttler.ConsumeWrite(throttleKey(region, tableName), wcu); throttleErr != nil {
+		return nil, throttleErr
 	}
 
 	oldItem, matchIndex := db.findMatchForPut(table, wireItem)
@@ -186,12 +190,6 @@ func (db *InMemoryDB) GetItem(
 		return nil, err
 	}
 
-	// Enforce throughput: charge the minimum RCU for a single eventually-consistent read.
-	region := getRegionFromContext(ctx, db)
-	if err = db.throttler.ConsumeRead(throttleKey(region, tableName), models.ConsumedReadUnit); err != nil {
-		return nil, err
-	}
-
 	table.mu.RLock("GetItem")
 	defer table.mu.RUnlock()
 
@@ -199,6 +197,16 @@ func (db *InMemoryDB) GetItem(
 	err = validateKeySchema(wireKey, table.KeySchema)
 	if err != nil {
 		return nil, err
+	}
+
+	// Enforce throughput after key validation so that invalid requests do not
+	// consume tokens.
+	region := getRegionFromContext(ctx, db)
+	if throttleErr := db.throttler.ConsumeRead(
+		throttleKey(region, tableName),
+		models.ConsumedReadUnit,
+	); throttleErr != nil {
+		return nil, throttleErr
 	}
 
 	pkDef, skDef := getPKAndSK(table.KeySchema)
@@ -233,12 +241,6 @@ func (db *InMemoryDB) DeleteItem(
 		return nil, err
 	}
 
-	// Enforce throughput: charge the minimum WCU for a delete operation.
-	region := getRegionFromContext(ctx, db)
-	if err = db.throttler.ConsumeWrite(throttleKey(region, tableName), 1.0); err != nil {
-		return nil, err
-	}
-
 	table.mu.Lock("DeleteItem")
 	defer table.mu.Unlock()
 
@@ -247,6 +249,14 @@ func (db *InMemoryDB) DeleteItem(
 	if err != nil {
 		return nil, err
 	}
+
+	// Enforce throughput after key validation so that invalid requests do not
+	// consume tokens.
+	region := getRegionFromContext(ctx, db)
+	if throttleErr := db.throttler.ConsumeWrite(throttleKey(region, tableName), 1.0); throttleErr != nil {
+		return nil, throttleErr
+	}
+
 	pkDef, skDef := getPKAndSK(table.KeySchema)
 
 	// Get item and index in one lookup (avoids duplicate index lookup)
@@ -326,12 +336,6 @@ func (db *InMemoryDB) UpdateItem(
 		return nil, err
 	}
 
-	// Enforce throughput: charge minimum 1 WCU for an update operation.
-	region := getRegionFromContext(ctx, db)
-	if err = db.throttler.ConsumeWrite(throttleKey(region, tableName), 1.0); err != nil {
-		return nil, err
-	}
-
 	table.mu.Lock("UpdateItem")
 	defer table.mu.Unlock()
 
@@ -340,6 +344,14 @@ func (db *InMemoryDB) UpdateItem(
 	if err != nil {
 		return nil, err
 	}
+
+	// Enforce throughput after key validation so that invalid requests do not
+	// consume tokens.
+	region := getRegionFromContext(ctx, db)
+	if throttleErr := db.throttler.ConsumeWrite(throttleKey(region, tableName), 1.0); throttleErr != nil {
+		return nil, throttleErr
+	}
+
 	existing, matchIndex := db.findMatchForPut(table, wireKey)
 
 	err = db.checkUpdateCondition(ctx, input, existing)

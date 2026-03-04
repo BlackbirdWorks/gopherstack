@@ -246,17 +246,17 @@ func TestThrottler_TokenBucketRefill(t *testing.T) {
 	})
 	require.Error(t, err)
 
-	// Sleep 1.1 seconds to let the bucket refill to >= 1 WCU.
-	time.Sleep(1100 * time.Millisecond)
+	// Eventually, after the bucket refills to >= 1 WCU, a third put should succeed.
+	require.Eventually(t, func() bool {
+		_, putErr := db.PutItem(t.Context(), &ddbsdk.PutItemInput{
+			TableName: aws.String("tbl"),
+			Item: map[string]types.AttributeValue{
+				"pk": &types.AttributeValueMemberS{Value: "k3"},
+			},
+		})
 
-	// Third put should succeed after refill.
-	_, err = db.PutItem(t.Context(), &ddbsdk.PutItemInput{
-		TableName: aws.String("tbl"),
-		Item: map[string]types.AttributeValue{
-			"pk": &types.AttributeValueMemberS{Value: "k3"},
-		},
-	})
-	require.NoError(t, err)
+		return putErr == nil
+	}, 2*time.Second, 10*time.Millisecond)
 }
 
 func TestThrottler_ScanExceedsCapacity(t *testing.T) {
@@ -265,13 +265,9 @@ func TestThrottler_ScanExceedsCapacity(t *testing.T) {
 	// 1 RCU provisioned. Each scan of 3 items costs 1.5 RCU, exceeding the bucket.
 	db := newThrottledDB(t, 1, 10)
 
-	// Insert 3 items (each write within WCU budget after a 0.3s gap to allow refill).
+	// Insert 3 items; each write is within the WCU budget (10 WCU provisioned).
 	for i := range 3 {
 		key := string(rune('a' + i))
-		// Allow small time for WCU refill between writes.
-		if i > 0 {
-			time.Sleep(200 * time.Millisecond)
-		}
 		_, err := db.PutItem(t.Context(), &ddbsdk.PutItemInput{
 			TableName: aws.String("tbl"),
 			Item: map[string]types.AttributeValue{
@@ -309,7 +305,8 @@ func TestThrottler_UpdateTableCapacity(t *testing.T) {
 	t.Parallel()
 
 	// Start with 1 WCU; immediately a second write should fail.
-	// After UpdateTable to 10 WCU, subsequent writes must succeed.
+	// After UpdateTable to 10 WCU, the bucket refills at 10 WCU/s — writes
+	// should succeed as soon as at least 1 WCU has accumulated.
 	db := newThrottledDB(t, 5, 1)
 
 	_, err := db.PutItem(t.Context(), &ddbsdk.PutItemInput{
@@ -324,7 +321,8 @@ func TestThrottler_UpdateTableCapacity(t *testing.T) {
 	})
 	require.Error(t, err) // Should be throttled.
 
-	// Increase capacity.
+	// Increase capacity — token count is preserved (not instantly refilled),
+	// but the bucket now refills at 10 WCU/s.
 	newRCU := int64(5)
 	newWCU := int64(10)
 	_, err = db.UpdateTable(t.Context(), &ddbsdk.UpdateTableInput{
@@ -336,14 +334,15 @@ func TestThrottler_UpdateTableCapacity(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Bucket is now reset to new capacity; writes should succeed.
-	for range 5 {
+	// Writes should succeed once the bucket has accumulated at least 1 WCU.
+	require.Eventually(t, func() bool {
 		_, putErr := db.PutItem(t.Context(), &ddbsdk.PutItemInput{
 			TableName: aws.String("tbl"),
 			Item:      map[string]types.AttributeValue{"pk": &types.AttributeValueMemberS{Value: "k3"}},
 		})
-		require.NoError(t, putErr)
-	}
+
+		return putErr == nil
+	}, 2*time.Second, 10*time.Millisecond)
 }
 
 func TestThrottler_DeleteItemExceedsCapacity(t *testing.T) {
@@ -449,7 +448,8 @@ func TestThrottler_DeleteTableCleansUpBucket(t *testing.T) {
 func TestThrottler_QueryExceedsCapacity(t *testing.T) {
 	t.Parallel()
 
-	// 1 RCU provisioned, each 0.5-RCU read; two queries of 3 items each should trigger throttle.
+	// 2 RCU provisioned. Query of 3 items costs 1.5 RCU — first query succeeds,
+	// second query exhausts the remaining 0.5 RCU and should be throttled.
 	db := dynamodb.NewInMemoryDB()
 	db.SetEnforceThroughput(true)
 
@@ -464,7 +464,7 @@ func TestThrottler_QueryExceedsCapacity(t *testing.T) {
 			{AttributeName: aws.String("sk"), AttributeType: types.ScalarAttributeTypeS},
 		},
 		ProvisionedThroughput: &types.ProvisionedThroughput{
-			ReadCapacityUnits:  aws.Int64(1),
+			ReadCapacityUnits:  aws.Int64(2),
 			WriteCapacityUnits: aws.Int64(10),
 		},
 	})
@@ -483,7 +483,6 @@ func TestThrottler_QueryExceedsCapacity(t *testing.T) {
 		require.NoError(t, putErr)
 	}
 
-	// Drain the RCU bucket with a first query.
 	q := &ddbsdk.QueryInput{
 		TableName:              aws.String("tbl"),
 		KeyConditionExpression: aws.String("pk = :pk"),
@@ -491,9 +490,12 @@ func TestThrottler_QueryExceedsCapacity(t *testing.T) {
 			":pk": &types.AttributeValueMemberS{Value: "pk1"},
 		},
 	}
-	_, _ = db.Query(t.Context(), q)
 
-	// Second query should be throttled.
+	// First query (3 items × 0.5 RCU = 1.5 RCU) should succeed.
+	_, err = db.Query(t.Context(), q)
+	require.NoError(t, err)
+
+	// Second query should be throttled (only 0.5 RCU remaining, needs 1.5).
 	_, err = db.Query(t.Context(), q)
 	require.Error(t, err)
 
