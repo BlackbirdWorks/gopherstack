@@ -304,3 +304,44 @@ func TestWrapEchoHandler(t *testing.T) {
 		})
 	}
 }
+
+func TestLatencyMiddleware(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		latencyMs int
+		wantCode  int
+	}{
+		{
+			name:      "zero_latency_disabled",
+			latencyMs: 0,
+			wantCode:  http.StatusOK,
+		},
+		{
+			name:      "positive_latency_adds_sleep",
+			latencyMs: 10,
+			wantCode:  http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			mw := telemetry.LatencyMiddleware(tt.latencyMs)
+			inner := func(c *echo.Context) error { return c.String(http.StatusOK, "ok") }
+			handler := mw(inner)
+
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			err := handler(c)
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}

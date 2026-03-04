@@ -54,6 +54,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 	rdsbackend "github.com/blackbirdworks/gopherstack/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/redshift"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/resourcegroups"
@@ -153,6 +154,7 @@ type CLI struct {
 	InitScriptTimeout      time.Duration          `                                  name:"init-timeout"       env:"INIT_TIMEOUT"         default:"30s"          help:"Per-script timeout for init hooks."`                        //nolint:lll // config struct tags are intentionally verbose
 	Demo                   bool                   `                                  name:"demo"               env:"DEMO"                 default:"false"        help:"Load demo data on startup."`                                //nolint:lll // config struct tags are intentionally verbose
 	Persist                bool                   `                                  name:"persist"            env:"PERSIST"              default:"false"        help:"Enable snapshot-based persistence across restarts."`        //nolint:lll // config struct tags are intentionally verbose
+	LatencyMs              int                    `                                  name:"latency-ms"         env:"LATENCY_MS"           default:"0"            help:"Inject random latency [0,N) ms per request. 0 disables."`   //nolint:lll // config struct tags are intentionally verbose
 }
 
 // GetGlobalConfig returns the centralised account ID and region (config.Provider).
@@ -160,6 +162,7 @@ func (c *CLI) GetGlobalConfig() config.GlobalConfig {
 	return config.GlobalConfig{
 		AccountID: c.AccountID,
 		Region:    c.Region,
+		LatencyMs: c.LatencyMs,
 	}
 }
 
@@ -505,7 +508,7 @@ func run(ctx context.Context, cli CLI) error {
 		e.Use(persistenceMiddleware(persistManager, services))
 	}
 
-	if setupErr := setupRegistry(e, log, services); setupErr != nil {
+	if setupErr := setupRegistry(e, log, services, cli.LatencyMs); setupErr != nil {
 		return setupErr
 	}
 
@@ -1187,8 +1190,13 @@ func setupRegistry(
 	e *echo.Echo,
 	log *slog.Logger,
 	services []service.Registerable,
+	latencyMs int,
 ) error {
 	registry := service.NewRegistry(log)
+
+	if latencyMs > 0 {
+		registry.Use(telemetry.LatencyMiddleware(latencyMs))
+	}
 
 	for _, svc := range services {
 		if err := registry.Register(svc); err != nil {

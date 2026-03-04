@@ -974,6 +974,7 @@ type SettingsPageData struct {
 
 	AccountID string
 	Region    string
+	LatencyMs int
 }
 
 // settingsIndex renders the read-only settings/config page.
@@ -982,6 +983,7 @@ func (h *DashboardHandler) settingsIndex(c *echo.Context) error {
 		PageData:  PageData{Title: "Settings", ActiveTab: "settings"},
 		AccountID: h.GlobalConfig.AccountID,
 		Region:    h.GlobalConfig.Region,
+		LatencyMs: h.GlobalConfig.LatencyMs,
 	}
 
 	h.renderTemplate(c.Response(), "settings.html", data)
