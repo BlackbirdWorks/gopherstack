@@ -242,3 +242,159 @@ func TestPattern_AnythingButMatch(t *testing.T) {
 		})
 	}
 }
+
+func TestPattern_CIDRMatch(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		pattern string
+		event   string
+		want    bool
+	}{
+		{
+			name:    "CIDR match - IP inside range",
+			pattern: `{"detail": {"sourceIPAddress": [{"cidr": "10.0.0.0/24"}]}}`,
+			event:   `{"detail": {"sourceIPAddress": "10.0.0.5"}}`,
+			want:    true,
+		},
+		{
+			name:    "CIDR match - IP outside range",
+			pattern: `{"detail": {"sourceIPAddress": [{"cidr": "10.0.0.0/24"}]}}`,
+			event:   `{"detail": {"sourceIPAddress": "10.0.1.1"}}`,
+			want:    false,
+		},
+		{
+			name:    "CIDR match - invalid IP",
+			pattern: `{"detail": {"sourceIPAddress": [{"cidr": "10.0.0.0/24"}]}}`,
+			event:   `{"detail": {"sourceIPAddress": "not-an-ip"}}`,
+			want:    false,
+		},
+		{
+			name:    "CIDR match - exact network boundary (lower)",
+			pattern: `{"detail": {"ip": [{"cidr": "192.168.1.0/24"}]}}`,
+			event:   `{"detail": {"ip": "192.168.1.0"}}`,
+			want:    true,
+		},
+		{
+			name:    "CIDR match - exact network boundary (upper)",
+			pattern: `{"detail": {"ip": [{"cidr": "192.168.1.0/24"}]}}`,
+			event:   `{"detail": {"ip": "192.168.1.255"}}`,
+			want:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := eventbridge.MatchPatternForTest(tt.pattern, tt.event)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestPattern_WildcardMatch(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		pattern string
+		event   string
+		want    bool
+	}{
+		{
+			name:    "wildcard suffix match - positive",
+			pattern: `{"source": [{"wildcard": "com.example.*"}]}`,
+			event:   `{"source": "com.example.service"}`,
+			want:    true,
+		},
+		{
+			name:    "wildcard suffix match - negative",
+			pattern: `{"source": [{"wildcard": "com.example.*"}]}`,
+			event:   `{"source": "org.other.service"}`,
+			want:    false,
+		},
+		{
+			name:    "wildcard exact match via star",
+			pattern: `{"source": [{"wildcard": "*.service"}]}`,
+			event:   `{"source": "com.example.service"}`,
+			want:    true,
+		},
+		{
+			name:    "wildcard single char - positive",
+			pattern: `{"source": [{"wildcard": "com.example.?"}]}`,
+			event:   `{"source": "com.example.a"}`,
+			want:    true,
+		},
+		{
+			name:    "wildcard single char - negative (too long)",
+			pattern: `{"source": [{"wildcard": "com.example.?"}]}`,
+			event:   `{"source": "com.example.ab"}`,
+			want:    false,
+		},
+		{
+			name:    "wildcard star only matches anything",
+			pattern: `{"source": [{"wildcard": "*"}]}`,
+			event:   `{"source": "anything.at.all"}`,
+			want:    true,
+		},
+		{
+			name:    "wildcard empty pattern matches empty string",
+			pattern: `{"source": [{"wildcard": ""}]}`,
+			event:   `{"source": ""}`,
+			want:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := eventbridge.MatchPatternForTest(tt.pattern, tt.event)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestPattern_ArrayEventValue(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		pattern string
+		event   string
+		want    bool
+	}{
+		{
+			name:    "event field is array - any element matches",
+			pattern: `{"resources": ["arn:aws:s3:::bucket1"]}`,
+			event:   `{"resources": ["arn:aws:s3:::bucket1", "arn:aws:s3:::bucket2"]}`,
+			want:    true,
+		},
+		{
+			name:    "event field is array - no element matches",
+			pattern: `{"resources": ["arn:aws:s3:::bucket3"]}`,
+			event:   `{"resources": ["arn:aws:s3:::bucket1", "arn:aws:s3:::bucket2"]}`,
+			want:    false,
+		},
+		{
+			name:    "event array with prefix matcher",
+			pattern: `{"resources": [{"prefix": "arn:aws:s3:::"}]}`,
+			event:   `{"resources": ["arn:aws:s3:::bucket1", "arn:aws:s3:::bucket2"]}`,
+			want:    true,
+		},
+		{
+			name:    "event array with exists matcher",
+			pattern: `{"resources": [{"exists": true}]}`,
+			event:   `{"resources": ["arn:aws:s3:::bucket1"]}`,
+			want:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := eventbridge.MatchPatternForTest(tt.pattern, tt.event)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}

@@ -2,6 +2,7 @@ package eventbridge
 
 import (
 	"encoding/json"
+	"net"
 	"slices"
 	"strings"
 )
@@ -17,7 +18,11 @@ import (
 //	[{"exists": true}]             — field must exist
 //	[{"exists": false}]            — field must not exist
 //	[{"numeric": [">", 5]}]        — numeric comparison
+//	[{"anything-but": ["v1","v2"]}]— negation
+//	[{"cidr": "10.0.0.0/24"}]      — CIDR IP range match
+//	[{"wildcard": "com.example.*"}]— wildcard string match (* and ?)
 //	Nested objects are matched recursively.
+//	If the event field value is an array, any element matching the pattern satisfies it.
 func matchPattern(patternJSON, event string) bool {
 	if patternJSON == "" {
 		return true
@@ -79,7 +84,23 @@ func matchArray(matchers []any, eventVal any, exists bool) bool {
 }
 
 // matchSingle checks whether eventVal satisfies a single matcher.
+// If the event value is a JSON array, the match succeeds if any element satisfies the matcher.
 func matchSingle(matcher, eventVal any, exists bool) bool {
+	if arr, ok := eventVal.([]any); ok {
+		for _, elem := range arr {
+			if matchSingleValue(matcher, elem, exists) {
+				return true
+			}
+		}
+
+		return false
+	}
+
+	return matchSingleValue(matcher, eventVal, exists)
+}
+
+// matchSingleValue checks whether a scalar eventVal satisfies a single matcher.
+func matchSingleValue(matcher, eventVal any, exists bool) bool {
 	switch m := matcher.(type) {
 	case map[string]any:
 		return matchSpecialMatcher(m, eventVal, exists)
@@ -115,10 +136,18 @@ func matchSpecialMatcher(m map[string]any, eventVal any, exists bool) bool {
 		return matchAnythingBut(anythingButVal, eventVal)
 	}
 
-	if _, ok := m["wildcard"]; ok {
-		// Wildcard matching is complex; for now do a simplified prefix check.
-		// Full glob matching not required for basic parity.
-		return eventVal != nil
+	if cidrVal, ok := m["cidr"]; ok {
+		return matchCIDR(cidrVal, eventVal)
+	}
+
+	if wildcardVal, ok := m["wildcard"]; ok {
+		ws, wsOk := wildcardVal.(string)
+		es, esOk := eventVal.(string)
+		if !wsOk || !esOk {
+			return false
+		}
+
+		return matchWildcard(ws, es)
 	}
 
 	return false
@@ -190,4 +219,62 @@ func toFloat64(v any) (float64, bool) {
 	default:
 		return 0, false
 	}
+}
+
+// matchCIDR returns true when the event value is an IP address that falls within the CIDR range.
+func matchCIDR(cidrVal, eventVal any) bool {
+	cidrStr, ok := cidrVal.(string)
+	if !ok {
+		return false
+	}
+
+	ipStr, ok := eventVal.(string)
+	if !ok {
+		return false
+	}
+
+	_, ipNet, err := net.ParseCIDR(cidrStr)
+	if err != nil {
+		return false
+	}
+
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return false
+	}
+
+	return ipNet.Contains(ip)
+}
+
+// matchWildcard returns true when the string s matches the glob pattern.
+// Supported meta-characters: '*' (any sequence) and '?' (any single character).
+// Uses a standard iterative two-pointer algorithm to avoid recursion.
+func matchWildcard(pattern, s string) bool {
+	patternIdx, stringIdx := 0, 0
+	lastStarIdx := -1
+	lastStarMatch := 0
+
+	for stringIdx < len(s) {
+		switch {
+		case patternIdx < len(pattern) && (pattern[patternIdx] == '?' || pattern[patternIdx] == s[stringIdx]):
+			patternIdx++
+			stringIdx++
+		case patternIdx < len(pattern) && pattern[patternIdx] == '*':
+			lastStarIdx = patternIdx
+			lastStarMatch = stringIdx
+			patternIdx++
+		case lastStarIdx != -1:
+			patternIdx = lastStarIdx + 1
+			lastStarMatch++
+			stringIdx = lastStarMatch
+		default:
+			return false
+		}
+	}
+
+	for patternIdx < len(pattern) && pattern[patternIdx] == '*' {
+		patternIdx++
+	}
+
+	return patternIdx == len(pattern)
 }
