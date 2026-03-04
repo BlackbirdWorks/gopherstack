@@ -240,3 +240,75 @@ func TestDelivery_InputOverride(t *testing.T) {
 	assert.Len(t, msgs, 1)
 	assert.JSONEq(t, `{"custom": "payload"}`, msgs[0])
 }
+
+func TestDelivery_ResourcesArrayMatching(t *testing.T) {
+	t.Parallel()
+
+	sqsMock := newMockSQSSender()
+	backend := setupDeliveryBackend(t, sqsMock, nil)
+
+	_, err := backend.PutRule(eventbridge.PutRuleInput{
+		Name:         "resources-rule",
+		EventPattern: `{"resources": [{"prefix": "arn:aws:s3:::"}]}`,
+		State:        "ENABLED",
+	})
+	require.NoError(t, err)
+
+	queueARN := "arn:aws:sqs:us-east-1:000000000000:resources-queue"
+	_, err = backend.PutTargets("resources-rule", "default", []eventbridge.Target{
+		{ID: "t1", Arn: queueARN},
+	})
+	require.NoError(t, err)
+
+	// Event with a resources list that contains an S3 ARN — should match.
+	backend.PutEvents([]eventbridge.EventEntry{
+		{
+			Source:     "aws.s3",
+			DetailType: "Object Created",
+			Detail:     `{}`,
+			Resources:  []string{"arn:aws:s3:::my-bucket", "arn:aws:iam:::role/myrole"},
+		},
+	})
+
+	require.Eventually(t, func() bool {
+		return len(sqsMock.MessagesFor(queueARN)) > 0
+	}, 2*time.Second, 10*time.Millisecond)
+
+	msgs := sqsMock.MessagesFor(queueARN)
+	assert.Len(t, msgs, 1)
+	assert.Contains(t, msgs[0], "aws.s3")
+}
+
+func TestDelivery_ResourcesArrayNoMatch(t *testing.T) {
+	t.Parallel()
+
+	sqsMock := newMockSQSSender()
+	backend := setupDeliveryBackend(t, sqsMock, nil)
+
+	_, err := backend.PutRule(eventbridge.PutRuleInput{
+		Name:         "resources-no-match-rule",
+		EventPattern: `{"resources": ["arn:aws:s3:::specific-bucket"]}`,
+		State:        "ENABLED",
+	})
+	require.NoError(t, err)
+
+	queueARN := "arn:aws:sqs:us-east-1:000000000000:resources-nomatch-queue"
+	_, err = backend.PutTargets("resources-no-match-rule", "default", []eventbridge.Target{
+		{ID: "t1", Arn: queueARN},
+	})
+	require.NoError(t, err)
+
+	// Event with a resources list that does NOT contain the specific bucket — should not match.
+	backend.PutEvents([]eventbridge.EventEntry{
+		{
+			Source:     "aws.s3",
+			DetailType: "Object Created",
+			Detail:     `{}`,
+			Resources:  []string{"arn:aws:s3:::other-bucket"},
+		},
+	})
+
+	time.Sleep(100 * time.Millisecond)
+	msgs := sqsMock.MessagesFor(queueARN)
+	assert.Empty(t, msgs)
+}

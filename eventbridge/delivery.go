@@ -82,6 +82,15 @@ func buildEventEnvelope(entry EventEntry) string {
 		envelope["event-bus-name"] = entry.EventBusName
 	}
 
+	if len(entry.Resources) > 0 {
+		resources := make([]any, len(entry.Resources))
+		for i, r := range entry.Resources {
+			resources[i] = r
+		}
+
+		envelope["resources"] = resources
+	}
+
 	if entry.Detail != "" {
 		var detail map[string]any
 		if err := json.Unmarshal([]byte(entry.Detail), &detail); err == nil {
