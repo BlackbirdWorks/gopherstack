@@ -1,7 +1,6 @@
 package lambda_test
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -181,390 +180,577 @@ func callHandler(
 
 // ---- CreateFunction tests ----
 
-func TestCreateFunction_Success(t *testing.T) {
+func TestCreateFunction(t *testing.T) {
 	t.Parallel()
 
-	h, _ := newHandler(t)
-	body := `{"FunctionName":"my-func","PackageType":"Image",` +
-		`"Code":{"ImageUri":"123456789012.dkr.ecr.us-east-1.amazonaws.com/myimage:latest"},` +
-		`"Role":"arn:aws:iam::000000000000:role/myrole"}`
+	tests := []struct {
+		setup            func(*mockBackend)
+		name             string
+		body             string
+		wantErrType      string
+		wantFunctionName string
+		wantFunctionArn  string
+		wantPackageType  string
+		wantState        lambda.FunctionState
+		wantCode         int
+		wantMemorySize   int
+		wantTimeout      int
+		wantRevisionID   bool
+	}{
+		{
+			name: "success",
+			body: `{"FunctionName":"my-func","PackageType":"Image",` +
+				`"Code":{"ImageUri":"123456789012.dkr.ecr.us-east-1.amazonaws.com/myimage:latest"},` +
+				`"Role":"arn:aws:iam::000000000000:role/myrole"}`,
+			wantCode:         http.StatusCreated,
+			wantFunctionName: "my-func",
+			wantFunctionArn:  "arn:aws:lambda:us-east-1:000000000000:function:my-func",
+			wantPackageType:  lambda.PackageTypeImage,
+			wantState:        lambda.FunctionStateActive,
+			wantMemorySize:   128,
+			wantTimeout:      3,
+			wantRevisionID:   true,
+		},
+		{
+			name: "defaults_applied",
+			body: `{"FunctionName":"defaults-func","PackageType":"Image",` +
+				`"Code":{"ImageUri":"myimage:latest"},"MemorySize":256,"Timeout":60}`,
+			wantCode:         http.StatusCreated,
+			wantFunctionName: "defaults-func",
+			wantMemorySize:   256,
+			wantTimeout:      60,
+		},
+		{
+			name:        "missing_function_name",
+			body:        `{"PackageType":"Image","Code":{"ImageUri":"myimage:latest"}}`,
+			wantCode:    http.StatusBadRequest,
+			wantErrType: "InvalidParameterValueException",
+		},
+		{
+			name:        "invalid_package_type",
+			body:        `{"FunctionName":"zip-func","PackageType":"Zip","Code":{"S3Bucket":"mybucket","S3Key":"code.zip"}}`,
+			wantCode:    http.StatusBadRequest,
+			wantErrType: "InvalidParameterValueException",
+		},
+		{
+			name:        "missing_image_uri",
+			body:        `{"FunctionName":"no-image-func","PackageType":"Image","Code":{}}`,
+			wantCode:    http.StatusBadRequest,
+			wantErrType: "InvalidParameterValueException",
+		},
+		{
+			name:     "invalid_body",
+			body:     "not-json{",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "already_exists",
+			setup: func(bk *mockBackend) {
+				_ = bk.CreateFunction(&lambda.FunctionConfiguration{
+					FunctionName: "dup-func",
+					PackageType:  lambda.PackageTypeImage,
+					ImageURI:     "myimage:latest",
+				})
+			},
+			body:        `{"FunctionName":"dup-func","PackageType":"Image","Code":{"ImageUri":"myimage:latest"}}`,
+			wantCode:    http.StatusConflict,
+			wantErrType: "ResourceConflictException",
+		},
+	}
 
-	rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions", body, nil)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	assert.Equal(t, http.StatusCreated, rec.Code)
+			h, bk := newHandler(t)
+			if tt.setup != nil {
+				tt.setup(bk)
+			}
 
-	var fn lambda.FunctionConfiguration
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &fn))
-	assert.Equal(t, "my-func", fn.FunctionName)
-	assert.Equal(t, "arn:aws:lambda:us-east-1:000000000000:function:my-func", fn.FunctionArn)
-	assert.Equal(t, lambda.PackageTypeImage, fn.PackageType)
-	assert.Equal(t, lambda.FunctionStateActive, fn.State)
-	assert.Equal(t, 128, fn.MemorySize)
-	assert.Equal(t, 3, fn.Timeout)
-	assert.NotEmpty(t, fn.RevisionID)
-}
+			rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions", tt.body, nil)
+			assert.Equal(t, tt.wantCode, rec.Code)
 
-func TestCreateFunction_DefaultsApplied(t *testing.T) {
-	t.Parallel()
+			if tt.wantErrType != "" {
+				assertLambdaError(t, rec, tt.wantErrType)
+			}
 
-	h, _ := newHandler(t)
-	body := `{"FunctionName":"defaults-func","PackageType":"Image",` +
-		`"Code":{"ImageUri":"myimage:latest"},"MemorySize":256,"Timeout":60}`
+			if tt.wantFunctionName == "" {
+				return
+			}
 
-	rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions", body, nil)
-	require.Equal(t, http.StatusCreated, rec.Code)
-
-	var fn lambda.FunctionConfiguration
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &fn))
-	assert.Equal(t, 256, fn.MemorySize)
-	assert.Equal(t, 60, fn.Timeout)
-}
-
-func TestCreateFunction_MissingFunctionName(t *testing.T) {
-	t.Parallel()
-
-	h, _ := newHandler(t)
-	body := `{"PackageType":"Image","Code":{"ImageUri":"myimage:latest"}}`
-
-	rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions", body, nil)
-
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assertLambdaError(t, rec, "InvalidParameterValueException")
-}
-
-func TestCreateFunction_InvalidPackageType(t *testing.T) {
-	t.Parallel()
-
-	h, _ := newHandler(t)
-	body := `{"FunctionName":"zip-func","PackageType":"Zip","Code":{"S3Bucket":"mybucket","S3Key":"code.zip"}}`
-
-	rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions", body, nil)
-
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assertLambdaError(t, rec, "InvalidParameterValueException")
-}
-
-func TestCreateFunction_MissingImageURI(t *testing.T) {
-	t.Parallel()
-
-	h, _ := newHandler(t)
-	body := `{"FunctionName":"no-image-func","PackageType":"Image","Code":{}}`
-
-	rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions", body, nil)
-
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assertLambdaError(t, rec, "InvalidParameterValueException")
-}
-
-func TestCreateFunction_InvalidBody(t *testing.T) {
-	t.Parallel()
-
-	h, _ := newHandler(t)
-
-	rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions", "not-json{", nil)
-
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestCreateFunction_AlreadyExists(t *testing.T) {
-	t.Parallel()
-
-	h, _ := newHandler(t)
-	body := `{"FunctionName":"dup-func","PackageType":"Image","Code":{"ImageUri":"myimage:latest"}}`
-
-	rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions", body, nil)
-	require.Equal(t, http.StatusCreated, rec.Code)
-
-	rec2 := callHandler(t, h, http.MethodPost, "/2015-03-31/functions", body, nil)
-	assert.Equal(t, http.StatusConflict, rec2.Code)
-	assertLambdaError(t, rec2, "ResourceConflictException")
+			var fn lambda.FunctionConfiguration
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &fn))
+			assert.Equal(t, tt.wantFunctionName, fn.FunctionName)
+			if tt.wantFunctionArn != "" {
+				assert.Equal(t, tt.wantFunctionArn, fn.FunctionArn)
+			}
+			if tt.wantPackageType != "" {
+				assert.Equal(t, tt.wantPackageType, fn.PackageType)
+			}
+			if tt.wantState != "" {
+				assert.Equal(t, tt.wantState, fn.State)
+			}
+			if tt.wantMemorySize > 0 {
+				assert.Equal(t, tt.wantMemorySize, fn.MemorySize)
+			}
+			if tt.wantTimeout > 0 {
+				assert.Equal(t, tt.wantTimeout, fn.Timeout)
+			}
+			if tt.wantRevisionID {
+				assert.NotEmpty(t, fn.RevisionID)
+			}
+		})
+	}
 }
 
 // ---- GetFunction tests ----
 
-func TestGetFunction_Success(t *testing.T) {
+func TestGetFunction(t *testing.T) {
 	t.Parallel()
 
-	h, bk := newHandler(t)
-	bk.functions["get-func"] = &lambda.FunctionConfiguration{
-		FunctionName: "get-func",
-		FunctionArn:  "arn:aws:lambda:us-east-1:000000000000:function:get-func",
-		ImageURI:     "myimage:latest",
-		PackageType:  lambda.PackageTypeImage,
-		State:        lambda.FunctionStateActive,
+	tests := []struct {
+		setup        func(*mockBackend)
+		name         string
+		funcName     string
+		wantErrType  string
+		wantImageURI string
+		wantRepoType string
+		wantCode     int
+	}{
+		{
+			name: "success",
+			setup: func(bk *mockBackend) {
+				bk.functions["get-func"] = &lambda.FunctionConfiguration{
+					FunctionName: "get-func",
+					FunctionArn:  "arn:aws:lambda:us-east-1:000000000000:function:get-func",
+					ImageURI:     "myimage:latest",
+					PackageType:  lambda.PackageTypeImage,
+					State:        lambda.FunctionStateActive,
+				}
+			},
+			funcName:     "get-func",
+			wantCode:     http.StatusOK,
+			wantImageURI: "myimage:latest",
+			wantRepoType: "ECR",
+		},
+		{
+			name:        "not_found",
+			funcName:    "nonexistent",
+			wantCode:    http.StatusNotFound,
+			wantErrType: "ResourceNotFoundException",
+		},
 	}
 
-	rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/get-func", "", nil)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	require.Equal(t, http.StatusOK, rec.Code)
+			h, bk := newHandler(t)
+			if tt.setup != nil {
+				tt.setup(bk)
+			}
 
-	var out lambda.GetFunctionOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-	require.NotNil(t, out.Configuration)
-	assert.Equal(t, "get-func", out.Configuration.FunctionName)
-	require.NotNil(t, out.Code)
-	assert.Equal(t, "myimage:latest", out.Code.ImageURI)
-	assert.Equal(t, "ECR", out.Code.RepositoryType)
-}
+			rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/"+tt.funcName, "", nil)
+			assert.Equal(t, tt.wantCode, rec.Code)
 
-func TestGetFunction_NotFound(t *testing.T) {
-	t.Parallel()
+			if tt.wantErrType != "" {
+				assertLambdaError(t, rec, tt.wantErrType)
+			}
 
-	h, _ := newHandler(t)
-
-	rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/nonexistent", "", nil)
-
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-	assertLambdaError(t, rec, "ResourceNotFoundException")
+			if tt.wantCode == http.StatusOK {
+				var out lambda.GetFunctionOutput
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NotNil(t, out.Configuration)
+				assert.Equal(t, tt.funcName, out.Configuration.FunctionName)
+				require.NotNil(t, out.Code)
+				assert.Equal(t, tt.wantImageURI, out.Code.ImageURI)
+				assert.Equal(t, tt.wantRepoType, out.Code.RepositoryType)
+			}
+		})
+	}
 }
 
 // ---- ListFunctions tests ----
 
-func TestListFunctions_Empty(t *testing.T) {
+func TestListFunctions(t *testing.T) {
 	t.Parallel()
 
-	h, _ := newHandler(t)
+	tests := []struct {
+		setup     func(*mockBackend)
+		name      string
+		wantCount int
+	}{
+		{
+			name:      "empty",
+			wantCount: 0,
+		},
+		{
+			name: "multiple",
+			setup: func(bk *mockBackend) {
+				bk.functions["func-a"] = &lambda.FunctionConfiguration{FunctionName: "func-a"}
+				bk.functions["func-b"] = &lambda.FunctionConfiguration{FunctionName: "func-b"}
+			},
+			wantCount: 2,
+		},
+	}
 
-	rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions", "", nil)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	require.Equal(t, http.StatusOK, rec.Code)
+			h, bk := newHandler(t)
+			if tt.setup != nil {
+				tt.setup(bk)
+			}
 
-	var out lambda.ListFunctionsOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-	assert.Empty(t, out.Functions)
-}
+			rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions", "", nil)
+			require.Equal(t, http.StatusOK, rec.Code)
 
-func TestListFunctions_Multiple(t *testing.T) {
-	t.Parallel()
-
-	h, bk := newHandler(t)
-	bk.functions["func-a"] = &lambda.FunctionConfiguration{FunctionName: "func-a"}
-	bk.functions["func-b"] = &lambda.FunctionConfiguration{FunctionName: "func-b"}
-
-	rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions", "", nil)
-
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var out lambda.ListFunctionsOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-	assert.Len(t, out.Functions, 2)
+			var out lambda.ListFunctionsOutput
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			assert.Len(t, out.Functions, tt.wantCount)
+		})
+	}
 }
 
 // ---- DeleteFunction tests ----
 
-func TestDeleteFunction_Success(t *testing.T) {
+func TestDeleteFunction(t *testing.T) {
 	t.Parallel()
 
-	h, bk := newHandler(t)
-	bk.functions["del-func"] = &lambda.FunctionConfiguration{FunctionName: "del-func"}
+	tests := []struct {
+		setup       func(*mockBackend)
+		name        string
+		funcName    string
+		wantErrType string
+		wantCode    int
+		wantEmpty   bool
+	}{
+		{
+			name: "success",
+			setup: func(bk *mockBackend) {
+				bk.functions["del-func"] = &lambda.FunctionConfiguration{FunctionName: "del-func"}
+			},
+			funcName:  "del-func",
+			wantCode:  http.StatusNoContent,
+			wantEmpty: true,
+		},
+		{
+			name:        "not_found",
+			funcName:    "missing",
+			wantCode:    http.StatusNotFound,
+			wantErrType: "ResourceNotFoundException",
+		},
+	}
 
-	rec := callHandler(t, h, http.MethodDelete, "/2015-03-31/functions/del-func", "", nil)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	assert.Equal(t, http.StatusNoContent, rec.Code)
-	assert.Empty(t, bk.functions)
-}
+			h, bk := newHandler(t)
+			if tt.setup != nil {
+				tt.setup(bk)
+			}
 
-func TestDeleteFunction_NotFound(t *testing.T) {
-	t.Parallel()
+			rec := callHandler(t, h, http.MethodDelete, "/2015-03-31/functions/"+tt.funcName, "", nil)
+			assert.Equal(t, tt.wantCode, rec.Code)
 
-	h, _ := newHandler(t)
+			if tt.wantErrType != "" {
+				assertLambdaError(t, rec, tt.wantErrType)
+			}
 
-	rec := callHandler(t, h, http.MethodDelete, "/2015-03-31/functions/missing", "", nil)
-
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-	assertLambdaError(t, rec, "ResourceNotFoundException")
+			if tt.wantEmpty {
+				assert.Empty(t, bk.functions)
+			}
+		})
+	}
 }
 
 // ---- UpdateFunctionCode tests ----
 
-func TestUpdateFunctionCode_Success(t *testing.T) {
+func TestUpdateFunctionCode(t *testing.T) {
 	t.Parallel()
 
-	h, bk := newHandler(t)
-	bk.functions["code-func"] = &lambda.FunctionConfiguration{
-		FunctionName: "code-func",
-		ImageURI:     "old-image:v1",
+	tests := []struct {
+		setup        func(*mockBackend)
+		name         string
+		funcName     string
+		body         string
+		wantImageURI string
+		wantCode     int
+	}{
+		{
+			name: "success",
+			setup: func(bk *mockBackend) {
+				bk.functions["code-func"] = &lambda.FunctionConfiguration{
+					FunctionName: "code-func",
+					ImageURI:     "old-image:v1",
+				}
+			},
+			funcName:     "code-func",
+			body:         `{"ImageUri":"new-image:v2"}`,
+			wantCode:     http.StatusOK,
+			wantImageURI: "new-image:v2",
+		},
+		{
+			name:     "not_found",
+			funcName: "missing",
+			body:     `{"ImageUri":"new-image:v2"}`,
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name: "missing_image_uri",
+			setup: func(bk *mockBackend) {
+				bk.functions["code-func"] = &lambda.FunctionConfiguration{FunctionName: "code-func"}
+			},
+			funcName: "code-func",
+			body:     `{}`,
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "invalid_body",
+			setup: func(bk *mockBackend) {
+				bk.functions["code-func"] = &lambda.FunctionConfiguration{FunctionName: "code-func"}
+			},
+			funcName: "code-func",
+			body:     "bad{json}",
+			wantCode: http.StatusBadRequest,
+		},
 	}
 
-	body := `{"ImageUri":"new-image:v2"}`
-	rec := callHandler(t, h, http.MethodPut, "/2015-03-31/functions/code-func/code", body, nil)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	require.Equal(t, http.StatusOK, rec.Code)
+			h, bk := newHandler(t)
+			if tt.setup != nil {
+				tt.setup(bk)
+			}
 
-	var fn lambda.FunctionConfiguration
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &fn))
-	assert.Equal(t, "new-image:v2", fn.ImageURI)
-	assert.NotEmpty(t, fn.RevisionID)
-}
+			rec := callHandler(t, h, http.MethodPut, "/2015-03-31/functions/"+tt.funcName+"/code", tt.body, nil)
+			assert.Equal(t, tt.wantCode, rec.Code)
 
-func TestUpdateFunctionCode_NotFound(t *testing.T) {
-	t.Parallel()
-
-	h, _ := newHandler(t)
-	body := `{"ImageUri":"new-image:v2"}`
-
-	rec := callHandler(t, h, http.MethodPut, "/2015-03-31/functions/missing/code", body, nil)
-
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestUpdateFunctionCode_MissingImageURI(t *testing.T) {
-	t.Parallel()
-
-	h, bk := newHandler(t)
-	bk.functions["code-func"] = &lambda.FunctionConfiguration{FunctionName: "code-func"}
-
-	rec := callHandler(t, h, http.MethodPut, "/2015-03-31/functions/code-func/code", `{}`, nil)
-
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestUpdateFunctionCode_InvalidBody(t *testing.T) {
-	t.Parallel()
-
-	h, bk := newHandler(t)
-	bk.functions["code-func"] = &lambda.FunctionConfiguration{FunctionName: "code-func"}
-
-	rec := callHandler(t, h, http.MethodPut, "/2015-03-31/functions/code-func/code", "bad{json}", nil)
-
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+			if tt.wantImageURI != "" {
+				var fn lambda.FunctionConfiguration
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &fn))
+				assert.Equal(t, tt.wantImageURI, fn.ImageURI)
+				assert.NotEmpty(t, fn.RevisionID)
+			}
+		})
+	}
 }
 
 // ---- UpdateFunctionConfiguration tests ----
 
-func TestUpdateFunctionConfiguration_Success(t *testing.T) {
+func TestUpdateFunctionConfiguration(t *testing.T) {
 	t.Parallel()
 
-	h, bk := newHandler(t)
-	bk.functions["cfg-func"] = &lambda.FunctionConfiguration{
-		FunctionName: "cfg-func",
-		MemorySize:   128,
-		Timeout:      3,
-		Description:  "old description",
+	tests := []struct {
+		setup           func(*mockBackend)
+		name            string
+		funcName        string
+		body            string
+		wantDescription string
+		wantRole        string
+		wantEnvKey      string
+		wantEnvValue    string
+		wantCode        int
+		wantMemorySize  int
+		wantTimeout     int
+	}{
+		{
+			name: "success",
+			setup: func(bk *mockBackend) {
+				bk.functions["cfg-func"] = &lambda.FunctionConfiguration{
+					FunctionName: "cfg-func",
+					MemorySize:   128,
+					Timeout:      3,
+					Description:  "old description",
+				}
+			},
+			funcName:        "cfg-func",
+			body:            `{"Description":"new description","MemorySize":512,"Timeout":30,"Role":"new-role"}`,
+			wantCode:        http.StatusOK,
+			wantDescription: "new description",
+			wantMemorySize:  512,
+			wantTimeout:     30,
+			wantRole:        "new-role",
+		},
+		{
+			name: "update_environment",
+			setup: func(bk *mockBackend) {
+				bk.functions["env-func"] = &lambda.FunctionConfiguration{FunctionName: "env-func"}
+			},
+			funcName:     "env-func",
+			body:         `{"Environment":{"Variables":{"KEY":"VALUE"}}}`,
+			wantCode:     http.StatusOK,
+			wantEnvKey:   "KEY",
+			wantEnvValue: "VALUE",
+		},
+		{
+			name:     "not_found",
+			funcName: "missing",
+			body:     `{}`,
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name: "invalid_body",
+			setup: func(bk *mockBackend) {
+				bk.functions["cfg-func"] = &lambda.FunctionConfiguration{FunctionName: "cfg-func"}
+			},
+			funcName: "cfg-func",
+			body:     "bad{json}",
+			wantCode: http.StatusBadRequest,
+		},
 	}
 
-	body := `{"Description":"new description","MemorySize":512,"Timeout":30,"Role":"new-role"}`
-	rec := callHandler(t, h, http.MethodPut, "/2015-03-31/functions/cfg-func/configuration", body, nil)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	require.Equal(t, http.StatusOK, rec.Code)
+			h, bk := newHandler(t)
+			if tt.setup != nil {
+				tt.setup(bk)
+			}
 
-	var fn lambda.FunctionConfiguration
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &fn))
-	assert.Equal(t, "new description", fn.Description)
-	assert.Equal(t, 512, fn.MemorySize)
-	assert.Equal(t, 30, fn.Timeout)
-	assert.Equal(t, "new-role", fn.Role)
-}
+			rec := callHandler(
+				t,
+				h,
+				http.MethodPut,
+				"/2015-03-31/functions/"+tt.funcName+"/configuration",
+				tt.body,
+				nil,
+			)
+			assert.Equal(t, tt.wantCode, rec.Code)
 
-func TestUpdateFunctionConfiguration_UpdateEnvironment(t *testing.T) {
-	t.Parallel()
+			if tt.wantCode != http.StatusOK {
+				return
+			}
 
-	h, bk := newHandler(t)
-	bk.functions["env-func"] = &lambda.FunctionConfiguration{FunctionName: "env-func"}
-
-	body := `{"Environment":{"Variables":{"KEY":"VALUE"}}}`
-	rec := callHandler(t, h, http.MethodPut, "/2015-03-31/functions/env-func/configuration", body, nil)
-
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var fn lambda.FunctionConfiguration
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &fn))
-	require.NotNil(t, fn.Environment)
-	assert.Equal(t, "VALUE", fn.Environment.Variables["KEY"])
-}
-
-func TestUpdateFunctionConfiguration_NotFound(t *testing.T) {
-	t.Parallel()
-
-	h, _ := newHandler(t)
-
-	rec := callHandler(t, h, http.MethodPut, "/2015-03-31/functions/missing/configuration", `{}`, nil)
-
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestUpdateFunctionConfiguration_InvalidBody(t *testing.T) {
-	t.Parallel()
-
-	h, bk := newHandler(t)
-	bk.functions["cfg-func"] = &lambda.FunctionConfiguration{FunctionName: "cfg-func"}
-
-	rec := callHandler(t, h, http.MethodPut, "/2015-03-31/functions/cfg-func/configuration", "bad{json}", nil)
-
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+			var fn lambda.FunctionConfiguration
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &fn))
+			if tt.wantDescription != "" {
+				assert.Equal(t, tt.wantDescription, fn.Description)
+			}
+			if tt.wantMemorySize > 0 {
+				assert.Equal(t, tt.wantMemorySize, fn.MemorySize)
+			}
+			if tt.wantTimeout > 0 {
+				assert.Equal(t, tt.wantTimeout, fn.Timeout)
+			}
+			if tt.wantRole != "" {
+				assert.Equal(t, tt.wantRole, fn.Role)
+			}
+			if tt.wantEnvKey != "" {
+				require.NotNil(t, fn.Environment)
+				assert.Equal(t, tt.wantEnvValue, fn.Environment.Variables[tt.wantEnvKey])
+			}
+		})
+	}
 }
 
 // ---- Invoke tests ----
 
-func TestInvoke_RequestResponse(t *testing.T) {
+func TestInvoke(t *testing.T) {
 	t.Parallel()
 
-	h, bk := newHandler(t)
-	bk.functions["invoke-func"] = &lambda.FunctionConfiguration{FunctionName: "invoke-func"}
-	bk.invokeResult = []byte(`{"answer":42}`)
+	tests := []struct {
+		setup        func(*mockBackend)
+		headers      map[string]string
+		name         string
+		funcName     string
+		body         string
+		wantErrType  string
+		wantContains string
+		wantCode     int
+	}{
+		{
+			name: "request_response",
+			setup: func(bk *mockBackend) {
+				bk.functions["invoke-func"] = &lambda.FunctionConfiguration{FunctionName: "invoke-func"}
+				bk.invokeResult = []byte(`{"answer":42}`)
+			},
+			funcName:     "invoke-func",
+			body:         `{"key":"value"}`,
+			wantCode:     http.StatusOK,
+			wantContains: "42",
+		},
+		{
+			name: "event",
+			setup: func(bk *mockBackend) {
+				bk.functions["event-func"] = &lambda.FunctionConfiguration{FunctionName: "event-func"}
+			},
+			funcName: "event-func",
+			body:     `{}`,
+			headers:  map[string]string{"X-Amz-Invocation-Type": "Event"},
+			wantCode: http.StatusAccepted,
+		},
+		{
+			name: "dry_run",
+			setup: func(bk *mockBackend) {
+				bk.functions["dryrun-func"] = &lambda.FunctionConfiguration{FunctionName: "dryrun-func"}
+			},
+			funcName: "dryrun-func",
+			body:     `{}`,
+			headers:  map[string]string{"X-Amz-Invocation-Type": "DryRun"},
+			wantCode: http.StatusNoContent,
+		},
+		{
+			name:        "not_found",
+			funcName:    "missing",
+			body:        `{}`,
+			wantCode:    http.StatusNotFound,
+			wantErrType: "ResourceNotFoundException",
+		},
+		{
+			name: "service_error",
+			setup: func(bk *mockBackend) {
+				bk.functions["err-func"] = &lambda.FunctionConfiguration{FunctionName: "err-func"}
+				bk.invokeErr = fmt.Errorf("%w: Docker unavailable", lambda.ErrLambdaUnavailable)
+			},
+			funcName: "err-func",
+			body:     `{}`,
+			wantCode: http.StatusInternalServerError,
+		},
+		{
+			name: "empty_body",
+			setup: func(bk *mockBackend) {
+				bk.functions["body-func"] = &lambda.FunctionConfiguration{FunctionName: "body-func"}
+			},
+			funcName: "body-func",
+			body:     "",
+			wantCode: http.StatusOK,
+		},
+	}
 
-	rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/invoke-func/invocations", `{"key":"value"}`, nil)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "42")
-}
+			h, bk := newHandler(t)
+			if tt.setup != nil {
+				tt.setup(bk)
+			}
 
-func TestInvoke_Event(t *testing.T) {
-	t.Parallel()
+			rec := callHandler(
+				t,
+				h,
+				http.MethodPost,
+				"/2015-03-31/functions/"+tt.funcName+"/invocations",
+				tt.body,
+				tt.headers,
+			)
+			assert.Equal(t, tt.wantCode, rec.Code)
 
-	h, bk := newHandler(t)
-	bk.functions["event-func"] = &lambda.FunctionConfiguration{FunctionName: "event-func"}
+			if tt.wantErrType != "" {
+				assertLambdaError(t, rec, tt.wantErrType)
+			}
 
-	rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/event-func/invocations", `{}`,
-		map[string]string{"X-Amz-Invocation-Type": "Event"})
-
-	assert.Equal(t, http.StatusAccepted, rec.Code)
-}
-
-func TestInvoke_DryRun(t *testing.T) {
-	t.Parallel()
-
-	h, bk := newHandler(t)
-	bk.functions["dryrun-func"] = &lambda.FunctionConfiguration{FunctionName: "dryrun-func"}
-
-	rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/dryrun-func/invocations", `{}`,
-		map[string]string{"X-Amz-Invocation-Type": "DryRun"})
-
-	assert.Equal(t, http.StatusNoContent, rec.Code)
-}
-
-func TestInvoke_NotFound(t *testing.T) {
-	t.Parallel()
-
-	h, _ := newHandler(t)
-
-	rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/missing/invocations", `{}`, nil)
-
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-	assertLambdaError(t, rec, "ResourceNotFoundException")
-}
-
-func TestInvoke_ServiceError(t *testing.T) {
-	t.Parallel()
-
-	h, bk := newHandler(t)
-	bk.functions["err-func"] = &lambda.FunctionConfiguration{FunctionName: "err-func"}
-	bk.invokeErr = fmt.Errorf("%w: Docker unavailable", lambda.ErrLambdaUnavailable)
-
-	rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/err-func/invocations", `{}`, nil)
-
-	assert.Equal(t, http.StatusInternalServerError, rec.Code)
-}
-
-func TestInvoke_EmptyBody(t *testing.T) {
-	t.Parallel()
-
-	h, bk := newHandler(t)
-	bk.functions["body-func"] = &lambda.FunctionConfiguration{FunctionName: "body-func"}
-
-	rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/body-func/invocations", "", nil)
-
-	assert.Equal(t, http.StatusOK, rec.Code)
+			if tt.wantContains != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantContains)
+			}
+		})
+	}
 }
 
 // ---- Routing tests ----
@@ -572,80 +758,157 @@ func TestInvoke_EmptyBody(t *testing.T) {
 func TestHandler_UnknownRoute(t *testing.T) {
 	t.Parallel()
 
-	h, _ := newHandler(t)
+	tests := []struct {
+		name     string
+		wantCode int
+	}{
+		{name: "unknown_sub_path", wantCode: http.StatusNotFound},
+	}
 
-	rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/foo/unknown-sub", "", nil)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+			h, _ := newHandler(t)
+			rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/foo/unknown-sub", "", nil)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
 }
 
 func TestHandler_RouteMatcher(t *testing.T) {
 	t.Parallel()
 
-	h, _ := newHandler(t)
-	matcher := h.RouteMatcher()
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		target string
+		want   bool
+	}{
+		{name: "lambda_path", method: http.MethodGet, path: "/2015-03-31/functions", want: true},
+		{
+			name:   "amz_target_header",
+			method: http.MethodGet,
+			path:   "/other",
+			target: "AWSLambda.ListFunctions",
+			want:   true,
+		},
+		{name: "no_match", method: http.MethodGet, path: "/other", want: false},
+	}
 
-	e := echo.New()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	req1 := httptest.NewRequest(http.MethodGet, "/2015-03-31/functions", nil)
-	c1 := e.NewContext(req1, httptest.NewRecorder())
-	assert.True(t, matcher(c1))
-
-	req2 := httptest.NewRequest(http.MethodGet, "/other", nil)
-	req2.Header.Set("X-Amz-Target", "AWSLambda.ListFunctions")
-	c2 := e.NewContext(req2, httptest.NewRecorder())
-	assert.True(t, matcher(c2))
-
-	req3 := httptest.NewRequest(http.MethodGet, "/other", nil)
-	c3 := e.NewContext(req3, httptest.NewRecorder())
-	assert.False(t, matcher(c3))
+			h, _ := newHandler(t)
+			matcher := h.RouteMatcher()
+			e := echo.New()
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			if tt.target != "" {
+				req.Header.Set("X-Amz-Target", tt.target)
+			}
+			c := e.NewContext(req, httptest.NewRecorder())
+			assert.Equal(t, tt.want, matcher(c))
+		})
+	}
 }
 
 func TestHandler_GetSupportedOperations(t *testing.T) {
 	t.Parallel()
 
-	h, _ := newHandler(t)
-	ops := h.GetSupportedOperations()
-	assert.NotEmpty(t, ops)
-	assert.Contains(t, ops, "CreateFunction")
-	assert.Contains(t, ops, "InvokeFunction")
+	tests := []struct {
+		name         string
+		wantContains []string
+	}{
+		{
+			name:         "returns_operations",
+			wantContains: []string{"CreateFunction", "InvokeFunction"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newHandler(t)
+			ops := h.GetSupportedOperations()
+			assert.NotEmpty(t, ops)
+			for _, op := range tt.wantContains {
+				assert.Contains(t, ops, op)
+			}
+		})
+	}
 }
 
 func TestHandler_MatchPriority(t *testing.T) {
 	t.Parallel()
 
-	h, _ := newHandler(t)
-	assert.Equal(t, 95, h.MatchPriority())
+	tests := []struct {
+		name string
+		want int
+	}{
+		{name: "returns_95", want: 95},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newHandler(t)
+			assert.Equal(t, tt.want, h.MatchPriority())
+		})
+	}
 }
 
 func TestHandler_ExtractOperation(t *testing.T) {
 	t.Parallel()
 
-	h, _ := newHandler(t)
-	e := echo.New()
-
 	tests := []struct {
-		method   string
-		path     string
-		expected string
+		name   string
+		method string
+		path   string
+		wantOp string
 	}{
-		{http.MethodPost, "/2015-03-31/functions", "CreateFunction"},
-		{http.MethodGet, "/2015-03-31/functions", "ListFunctions"},
-		{http.MethodGet, "/2015-03-31/functions/my-func", "GetFunction"},
-		{http.MethodDelete, "/2015-03-31/functions/my-func", "DeleteFunction"},
-		{http.MethodPut, "/2015-03-31/functions/my-func/code", "UpdateFunctionCode"},
-		{http.MethodPut, "/2015-03-31/functions/my-func/configuration", "UpdateFunctionConfiguration"},
-		{http.MethodPost, "/2015-03-31/functions/my-func/invocations", "InvokeFunction"},
-		{http.MethodGet, "/2015-03-31/functions/my-func/unknown", "Unknown"},
+		{name: "create_function", method: http.MethodPost, path: "/2015-03-31/functions", wantOp: "CreateFunction"},
+		{name: "list_functions", method: http.MethodGet, path: "/2015-03-31/functions", wantOp: "ListFunctions"},
+		{name: "get_function", method: http.MethodGet, path: "/2015-03-31/functions/my-func", wantOp: "GetFunction"},
+		{
+			name:   "delete_function",
+			method: http.MethodDelete,
+			path:   "/2015-03-31/functions/my-func",
+			wantOp: "DeleteFunction",
+		},
+		{
+			name:   "update_code",
+			method: http.MethodPut,
+			path:   "/2015-03-31/functions/my-func/code",
+			wantOp: "UpdateFunctionCode",
+		},
+		{
+			name:   "update_config",
+			method: http.MethodPut,
+			path:   "/2015-03-31/functions/my-func/configuration",
+			wantOp: "UpdateFunctionConfiguration",
+		},
+		{
+			name:   "invoke",
+			method: http.MethodPost,
+			path:   "/2015-03-31/functions/my-func/invocations",
+			wantOp: "InvokeFunction",
+		},
+		{name: "unknown", method: http.MethodGet, path: "/2015-03-31/functions/my-func/unknown", wantOp: "Unknown"},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.expected, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			h, _ := newHandler(t)
+			e := echo.New()
 			req := httptest.NewRequest(tt.method, tt.path, nil)
 			c := e.NewContext(req, httptest.NewRecorder())
-			assert.Equal(t, tt.expected, h.ExtractOperation(c))
+			assert.Equal(t, tt.wantOp, h.ExtractOperation(c))
 		})
 	}
 }
@@ -653,23 +916,57 @@ func TestHandler_ExtractOperation(t *testing.T) {
 func TestHandler_ExtractResource(t *testing.T) {
 	t.Parallel()
 
-	h, _ := newHandler(t)
-	e := echo.New()
+	tests := []struct {
+		name         string
+		method       string
+		path         string
+		wantResource string
+	}{
+		{
+			name:         "with_function_name",
+			method:       http.MethodGet,
+			path:         "/2015-03-31/functions/my-func",
+			wantResource: "my-func",
+		},
+		{
+			name:         "without_function_name",
+			method:       http.MethodGet,
+			path:         "/2015-03-31/functions",
+			wantResource: "",
+		},
+	}
 
-	req := httptest.NewRequest(http.MethodGet, "/2015-03-31/functions/my-func", nil)
-	c := e.NewContext(req, httptest.NewRecorder())
-	assert.Equal(t, "my-func", h.ExtractResource(c))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	req2 := httptest.NewRequest(http.MethodGet, "/2015-03-31/functions", nil)
-	c2 := e.NewContext(req2, httptest.NewRecorder())
-	assert.Empty(t, h.ExtractResource(c2))
+			h, _ := newHandler(t)
+			e := echo.New()
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			c := e.NewContext(req, httptest.NewRecorder())
+			assert.Equal(t, tt.wantResource, h.ExtractResource(c))
+		})
+	}
 }
 
 func TestHandler_Name(t *testing.T) {
 	t.Parallel()
 
-	h, _ := newHandler(t)
-	assert.Equal(t, "Lambda", h.Name())
+	tests := []struct {
+		name string
+		want string
+	}{
+		{name: "returns_lambda", want: "Lambda"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newHandler(t)
+			assert.Equal(t, tt.want, h.Name())
+		})
+	}
 }
 
 // ---- Backend tests ----
@@ -677,297 +974,331 @@ func TestHandler_Name(t *testing.T) {
 func TestBackend_CRUD(t *testing.T) {
 	t.Parallel()
 
-	bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1", nil)
-
-	fn := &lambda.FunctionConfiguration{
-		FunctionName: "test-func",
-		ImageURI:     "myimage:latest",
-		PackageType:  lambda.PackageTypeImage,
-		State:        lambda.FunctionStateActive,
+	tests := []struct {
+		name string
+	}{
+		{name: "full_crud_lifecycle"},
 	}
 
-	// Create
-	require.NoError(t, bk.CreateFunction(fn))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	// Duplicate
-	require.ErrorIs(t, bk.CreateFunction(fn), lambda.ErrFunctionAlreadyExists)
+			bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1", nil)
 
-	// Get
-	got, err := bk.GetFunction("test-func")
-	require.NoError(t, err)
-	assert.Equal(t, "test-func", got.FunctionName)
+			fn := &lambda.FunctionConfiguration{
+				FunctionName: "test-func",
+				ImageURI:     "myimage:latest",
+				PackageType:  lambda.PackageTypeImage,
+				State:        lambda.FunctionStateActive,
+			}
 
-	// Get not found
-	_, err = bk.GetFunction("nonexistent")
-	require.ErrorIs(t, err, lambda.ErrFunctionNotFound)
+			require.NoError(t, bk.CreateFunction(fn))
+			require.ErrorIs(t, bk.CreateFunction(fn), lambda.ErrFunctionAlreadyExists)
 
-	// List
-	list := bk.ListFunctions()
-	assert.Len(t, list, 1)
+			got, err := bk.GetFunction("test-func")
+			require.NoError(t, err)
+			assert.Equal(t, "test-func", got.FunctionName)
 
-	// Update
-	fn2 := *fn
-	fn2.Description = "updated"
-	require.NoError(t, bk.UpdateFunction(&fn2))
+			_, err = bk.GetFunction("nonexistent")
+			require.ErrorIs(t, err, lambda.ErrFunctionNotFound)
 
-	got2, err := bk.GetFunction("test-func")
-	require.NoError(t, err)
-	assert.Equal(t, "updated", got2.Description)
+			list := bk.ListFunctions()
+			assert.Len(t, list, 1)
 
-	// Update not found
-	notExist := &lambda.FunctionConfiguration{FunctionName: "nonexistent"}
-	require.ErrorIs(t, bk.UpdateFunction(notExist), lambda.ErrFunctionNotFound)
+			fn2 := *fn
+			fn2.Description = "updated"
+			require.NoError(t, bk.UpdateFunction(&fn2))
 
-	// Delete
-	require.NoError(t, bk.DeleteFunction("test-func"))
-	assert.Empty(t, bk.ListFunctions())
+			got2, err := bk.GetFunction("test-func")
+			require.NoError(t, err)
+			assert.Equal(t, "updated", got2.Description)
 
-	// Delete not found
-	assert.ErrorIs(t, bk.DeleteFunction("test-func"), lambda.ErrFunctionNotFound)
-}
+			notExist := &lambda.FunctionConfiguration{FunctionName: "nonexistent"}
+			require.ErrorIs(t, bk.UpdateFunction(notExist), lambda.ErrFunctionNotFound)
 
-func TestBackend_InvokeFunction_NoPortAlloc(t *testing.T) {
-	t.Parallel()
+			require.NoError(t, bk.DeleteFunction("test-func"))
+			assert.Empty(t, bk.ListFunctions())
 
-	bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1", nil)
-
-	fn := &lambda.FunctionConfiguration{
-		FunctionName: "invoke-func",
-		ImageURI:     "myimage:latest",
-		Timeout:      3,
+			assert.ErrorIs(t, bk.DeleteFunction("test-func"), lambda.ErrFunctionNotFound)
+		})
 	}
-	require.NoError(t, bk.CreateFunction(fn))
-
-	_, _, err := bk.InvokeFunction(
-		t.Context(), "invoke-func", lambda.InvocationTypeRequestResponse, []byte("{}"),
-	)
-	assert.ErrorIs(t, err, lambda.ErrLambdaUnavailable)
 }
 
-func TestBackend_InvokeFunction_NoDocker(t *testing.T) {
+func TestBackend_InvokeFunction(t *testing.T) {
 	t.Parallel()
 
-	pa, err := portalloc.New(19000, 19100)
-	require.NoError(t, err)
-
-	bk := lambda.NewInMemoryBackend(nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", nil)
-
-	fn := &lambda.FunctionConfiguration{
-		FunctionName: "invoke-func",
-		ImageURI:     "myimage:latest",
-		Timeout:      3,
+	tests := []struct {
+		wantErr        error
+		name           string
+		funcToInvoke   string
+		invocationType lambda.InvocationType
+		portRange      [2]int
+		wantCode       int
+		createFunc     bool
+	}{
+		{
+			name:           "no_port_alloc",
+			createFunc:     true,
+			funcToInvoke:   "invoke-func",
+			invocationType: lambda.InvocationTypeRequestResponse,
+			wantErr:        lambda.ErrLambdaUnavailable,
+		},
+		{
+			name:           "no_docker",
+			portRange:      [2]int{19000, 19100},
+			createFunc:     true,
+			funcToInvoke:   "invoke-func",
+			invocationType: lambda.InvocationTypeRequestResponse,
+			wantErr:        lambda.ErrLambdaUnavailable,
+		},
+		{
+			name:           "not_found",
+			funcToInvoke:   "nonexistent",
+			invocationType: lambda.InvocationTypeRequestResponse,
+			wantErr:        lambda.ErrFunctionNotFound,
+			wantCode:       http.StatusNotFound,
+		},
+		{
+			name:           "dry_run",
+			createFunc:     true,
+			funcToInvoke:   "fn",
+			invocationType: lambda.InvocationTypeDryRun,
+			wantCode:       http.StatusNoContent,
+		},
 	}
-	require.NoError(t, bk.CreateFunction(fn))
 
-	_, _, err = bk.InvokeFunction(
-		t.Context(), "invoke-func", lambda.InvocationTypeRequestResponse, []byte("{}"),
-	)
-	assert.ErrorIs(t, err, lambda.ErrLambdaUnavailable)
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-func TestBackend_InvokeFunction_NotFound(t *testing.T) {
-	t.Parallel()
+			var pa *portalloc.Allocator
+			if tt.portRange[0] > 0 {
+				var err error
+				pa, err = portalloc.New(tt.portRange[0], tt.portRange[1])
+				require.NoError(t, err)
+			}
 
-	bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1", nil)
+			bk := lambda.NewInMemoryBackend(nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", nil)
 
-	_, statusCode, err := bk.InvokeFunction(
-		t.Context(), "nonexistent", lambda.InvocationTypeRequestResponse, []byte("{}"),
-	)
-	require.ErrorIs(t, err, lambda.ErrFunctionNotFound)
-	assert.Equal(t, http.StatusNotFound, statusCode)
-}
+			if tt.createFunc {
+				fn := &lambda.FunctionConfiguration{
+					FunctionName: tt.funcToInvoke,
+					ImageURI:     "myimage:latest",
+					Timeout:      3,
+				}
+				require.NoError(t, bk.CreateFunction(fn))
+			}
 
-func TestBackend_InvokeFunction_DryRun(t *testing.T) {
-	t.Parallel()
+			_, statusCode, err := bk.InvokeFunction(t.Context(), tt.funcToInvoke, tt.invocationType, []byte("{}"))
 
-	bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1", nil)
-	fn := &lambda.FunctionConfiguration{FunctionName: "fn", ImageURI: "img:latest", Timeout: 3}
-	require.NoError(t, bk.CreateFunction(fn))
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
 
-	_, statusCode, err := bk.InvokeFunction(t.Context(), "fn", lambda.InvocationTypeDryRun, []byte("{}"))
-	require.NoError(t, err)
-	assert.Equal(t, http.StatusNoContent, statusCode)
+			if tt.wantCode > 0 {
+				assert.Equal(t, tt.wantCode, statusCode)
+			}
+		})
+	}
 }
 
 // ---- Runtime API server tests ----
 
-func TestRuntimeServer_NextAndResponse(t *testing.T) {
+func TestRuntimeServer_Invoke(t *testing.T) {
 	t.Parallel()
 
-	port := 18101
-	srv := newTestRuntimeServer(t, port)
+	tests := []struct {
+		simulate    func(t *testing.T, port int, requestID string)
+		name        string
+		wantBody    string
+		payload     []byte
+		port        int
+		wantIsError bool
+	}{
+		{
+			name:    "success_response",
+			port:    18101,
+			payload: []byte(`{"key":"value"}`),
+			simulate: func(t *testing.T, port int, requestID string) {
+				t.Helper()
+				simulateContainerResponse(t, port, requestID, `{"answer":42}`)
+			},
+			wantBody:    `{"answer":42}`,
+			wantIsError: false,
+		},
+		{
+			name:    "error_response",
+			port:    18102,
+			payload: []byte(`{}`),
+			simulate: func(t *testing.T, port int, requestID string) {
+				t.Helper()
+				simulateContainerError(t, port, requestID, `{"errorMessage":"function panicked"}`)
+			},
+			wantBody:    "panicked",
+			wantIsError: true,
+		},
+	}
 
-	ctx := t.Context()
-	payload := []byte(`{"key":"value"}`)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	// Start an invoke in a goroutine — it will block until the container responds.
-	resultCh := make(chan []byte, 1)
-	errCh := make(chan error, 1)
+			srv := newTestRuntimeServer(t, tt.port)
+			ctx := t.Context()
 
-	go func() {
-		result, _, invokeErr := srv.Invoke(ctx, payload, 5*time.Second)
-		if invokeErr != nil {
-			errCh <- invokeErr
+			resultCh := make(chan []byte, 1)
+			errCh := make(chan error, 1)
+			isErrCh := make(chan bool, 1)
 
-			return
-		}
+			go func() {
+				result, isErr, invokeErr := srv.Invoke(ctx, tt.payload, 5*time.Second)
+				if invokeErr != nil {
+					errCh <- invokeErr
 
-		resultCh <- result
-	}()
+					return
+				}
+				resultCh <- result
+				isErrCh <- isErr
+			}()
 
-	// Simulate the container: GET /next then POST /response.
-	requestID := simulateContainerNext(t, port)
-	simulateContainerResponse(t, port, requestID, `{"answer":42}`)
+			requestID := simulateContainerNext(t, tt.port)
+			tt.simulate(t, tt.port, requestID)
 
-	select {
-	case result := <-resultCh:
-		assert.JSONEq(t, `{"answer":42}`, string(result))
-	case err := <-errCh:
-		require.NoError(t, err, "invoke error")
-	case <-time.After(5 * time.Second):
-		require.FailNow(t, "test timed out")
+			select {
+			case result := <-resultCh:
+				isErr := <-isErrCh
+				assert.Equal(t, tt.wantIsError, isErr)
+				if tt.wantIsError {
+					assert.Contains(t, string(result), tt.wantBody)
+				} else {
+					assert.JSONEq(t, tt.wantBody, string(result))
+				}
+			case err := <-errCh:
+				require.NoError(t, err, "invoke error")
+			case <-time.After(5 * time.Second):
+				require.FailNow(t, "test timed out")
+			}
+		})
 	}
 }
 
-func TestRuntimeServer_NextAndError(t *testing.T) {
+func TestRuntimeServer_HTTPEndpoints(t *testing.T) {
 	t.Parallel()
 
-	port := 18102
-	srv := newTestRuntimeServer(t, port)
+	tests := []struct {
+		name     string
+		method   string
+		path     string
+		body     string
+		port     int
+		wantCode int
+	}{
+		{
+			name:     "init_error",
+			port:     18103,
+			method:   http.MethodPost,
+			path:     "/2018-06-01/runtime/init/error",
+			body:     `{"errorMessage":"init failed","errorType":"Runtime.ExitError"}`,
+			wantCode: http.StatusAccepted,
+		},
+		{
+			name:     "method_not_allowed",
+			port:     18104,
+			method:   http.MethodPost,
+			path:     "/2018-06-01/runtime/invocation/next",
+			wantCode: http.StatusMethodNotAllowed,
+		},
+		{
+			name:     "response_unknown_request_id",
+			port:     18105,
+			method:   http.MethodPost,
+			path:     "/2018-06-01/runtime/invocation/unknown-id/response",
+			body:     `{"result":"ok"}`,
+			wantCode: http.StatusNotFound,
+		},
+	}
 
-	ctx := t.Context()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	resultCh := make(chan []byte, 1)
-	errCh := make(chan error, 1)
-	isErrorCh := make(chan bool, 1)
+			_ = newTestRuntimeServer(t, tt.port)
 
-	go func() {
-		result, isErr, invokeErr := srv.Invoke(ctx, []byte(`{}`), 5*time.Second)
-		if invokeErr != nil {
-			errCh <- invokeErr
+			req, err := http.NewRequestWithContext(t.Context(),
+				tt.method,
+				fmt.Sprintf("http://127.0.0.1:%d%s", tt.port, tt.path),
+				strings.NewReader(tt.body),
+			)
+			require.NoError(t, err)
 
-			return
-		}
+			resp, err := http.DefaultClient.Do(req)
+			require.NoError(t, err)
+			defer resp.Body.Close()
 
-		resultCh <- result
-		isErrorCh <- isErr
-	}()
-
-	requestID := simulateContainerNext(t, port)
-	simulateContainerError(t, port, requestID, `{"errorMessage":"function panicked"}`)
-
-	select {
-	case result := <-resultCh:
-		isError := <-isErrorCh
-		assert.True(t, isError, "expected isError=true")
-		assert.Contains(t, string(result), "panicked")
-	case err := <-errCh:
-		require.NoError(t, err, "invoke error")
-	case <-time.After(5 * time.Second):
-		require.FailNow(t, "test timed out")
+			assert.Equal(t, tt.wantCode, resp.StatusCode)
+		})
 	}
 }
 
-func TestRuntimeServer_InitError(t *testing.T) {
+func TestRuntimeServer_InvokeStop(t *testing.T) {
 	t.Parallel()
 
-	port := 18103
-	_ = newTestRuntimeServer(t, port)
+	tests := []struct {
+		name            string
+		wantErrContains string
+		port            int
+		timeout         time.Duration
+		cancelCtx       bool
+	}{
+		{
+			name:            "invoke_timeout",
+			port:            18106,
+			timeout:         100 * time.Millisecond,
+			wantErrContains: "timed out",
+		},
+		{
+			name:      "context_cancelled",
+			port:      18107,
+			timeout:   30 * time.Second,
+			cancelCtx: true,
+		},
+	}
 
-	// POST /2018-06-01/runtime/init/error should return 202.
-	body := bytes.NewBufferString(`{"errorMessage":"init failed","errorType":"Runtime.ExitError"}`)
-	req, err := http.NewRequestWithContext(t.Context(),
-		http.MethodPost,
-		fmt.Sprintf("http://127.0.0.1:%d/2018-06-01/runtime/init/error", port),
-		body,
-	)
-	require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer resp.Body.Close()
+			srv := newTestRuntimeServer(t, tt.port)
 
-	assert.Equal(t, http.StatusAccepted, resp.StatusCode)
-}
+			if tt.cancelCtx {
+				ctx, cancel := context.WithCancel(t.Context())
+				errCh := make(chan error, 1)
 
-func TestRuntimeServer_MethodNotAllowed(t *testing.T) {
-	t.Parallel()
+				go func() {
+					_, _, err := srv.Invoke(ctx, []byte(`{}`), tt.timeout)
+					errCh <- err
+				}()
 
-	port := 18104
-	_ = newTestRuntimeServer(t, port)
+				time.Sleep(50 * time.Millisecond)
+				cancel()
 
-	// /next only allows GET
-	req, err := http.NewRequestWithContext(t.Context(),
-		http.MethodPost,
-		fmt.Sprintf("http://127.0.0.1:%d/2018-06-01/runtime/invocation/next", port),
-		nil,
-	)
-	require.NoError(t, err)
-
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer resp.Body.Close()
-
-	assert.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode)
-}
-
-func TestRuntimeServer_ResponseUnknownRequestID(t *testing.T) {
-	t.Parallel()
-
-	port := 18105
-	_ = newTestRuntimeServer(t, port)
-
-	body := bytes.NewBufferString(`{"result":"ok"}`)
-	req, err := http.NewRequestWithContext(t.Context(),
-		http.MethodPost,
-		fmt.Sprintf("http://127.0.0.1:%d/2018-06-01/runtime/invocation/unknown-id/response", port),
-		body,
-	)
-	require.NoError(t, err)
-
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer resp.Body.Close()
-
-	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
-}
-
-func TestRuntimeServer_InvokeTimeout(t *testing.T) {
-	t.Parallel()
-
-	port := 18106
-	srv := newTestRuntimeServer(t, port)
-
-	ctx := t.Context()
-	// Use a very short timeout — no container will call /next.
-	_, _, err := srv.Invoke(ctx, []byte(`{}`), 100*time.Millisecond)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "timed out")
-}
-
-func TestRuntimeServer_InvokeContextCancelled(t *testing.T) {
-	t.Parallel()
-
-	port := 18107
-	srv := newTestRuntimeServer(t, port)
-
-	ctx, cancel := context.WithCancel(t.Context())
-
-	errCh := make(chan error, 1)
-
-	go func() {
-		_, _, err := srv.Invoke(ctx, []byte(`{}`), 30*time.Second)
-		errCh <- err
-	}()
-
-	time.Sleep(50 * time.Millisecond)
-	cancel()
-
-	select {
-	case err := <-errCh:
-		require.Error(t, err)
-	case <-time.After(2 * time.Second):
-		require.FailNow(t, "expected context cancellation error")
+				select {
+				case err := <-errCh:
+					require.Error(t, err)
+				case <-time.After(2 * time.Second):
+					require.FailNow(t, "expected context cancellation error")
+				}
+			} else {
+				_, _, err := srv.Invoke(t.Context(), []byte(`{}`), tt.timeout)
+				require.Error(t, err)
+				if tt.wantErrContains != "" {
+					assert.Contains(t, err.Error(), tt.wantErrContains)
+				}
+			}
+		})
 	}
 }
 
@@ -976,14 +1307,36 @@ func TestRuntimeServer_InvokeContextCancelled(t *testing.T) {
 func TestDefaultSettings(t *testing.T) {
 	t.Parallel()
 
-	s := lambda.DefaultSettings()
-	expectedHost := "172.17.0.1"
-	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
-		expectedHost = "host.docker.internal"
+	tests := []struct {
+		name            string
+		wantDockerHost  string
+		wantPoolSize    int
+		wantIdleTimeout time.Duration
+	}{
+		{
+			name: "platform_defaults",
+			wantDockerHost: func() string {
+				if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
+					return "host.docker.internal"
+				}
+
+				return "172.17.0.1"
+			}(),
+			wantPoolSize:    3,
+			wantIdleTimeout: 10 * time.Minute,
+		},
 	}
-	assert.Equal(t, expectedHost, s.DockerHost)
-	assert.Equal(t, 3, s.PoolSize)
-	assert.Equal(t, 10*time.Minute, s.IdleTimeout)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := lambda.DefaultSettings()
+			assert.Equal(t, tt.wantDockerHost, s.DockerHost)
+			assert.Equal(t, tt.wantPoolSize, s.PoolSize)
+			assert.Equal(t, tt.wantIdleTimeout, s.IdleTimeout)
+		})
+	}
 }
 
 // ---- helper functions ----
@@ -1180,148 +1533,213 @@ func newMockDockerClient() gophercontainer.Runtime {
 
 // ---- Backend tests with mock Docker ----
 
-func TestBackend_InvokeFunction_Event_WithMockDocker(t *testing.T) {
+func TestBackend_InvokeFunction_MockDocker(t *testing.T) {
 	t.Parallel()
 
-	// Use a dedicated port range to avoid conflicts.
-	pa, err := portalloc.New(19200, 19250)
-	require.NoError(t, err)
-
-	dc := newMockDockerClient()
-
-	bk := lambda.NewInMemoryBackend(dc, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default())
-	fn := &lambda.FunctionConfiguration{
-		FunctionName: "event-fn",
-		ImageURI:     "myimage:latest",
-		Timeout:      3,
+	tests := []struct {
+		name      string
+		funcName  string
+		portRange [2]int
+		wantCode  int
+		callTwice bool
+	}{
+		{
+			name:      "event_with_mock_docker",
+			portRange: [2]int{19200, 19250},
+			funcName:  "event-fn",
+			wantCode:  http.StatusAccepted,
+		},
+		{
+			name:      "event_second_call_reuse_runtime",
+			portRange: [2]int{19300, 19350},
+			funcName:  "reuse-fn",
+			wantCode:  http.StatusAccepted,
+			callTwice: true,
+		},
 	}
-	require.NoError(t, bk.CreateFunction(fn))
 
-	// Event invocation: fire and forget — no container response needed.
-	_, statusCode, invokeErr := bk.InvokeFunction(
-		t.Context(), "event-fn", lambda.InvocationTypeEvent, []byte(`{}`),
-	)
-	require.NoError(t, invokeErr)
-	assert.Equal(t, http.StatusAccepted, statusCode)
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-func TestBackend_InvokeFunction_Event_SecondCall_ReuseRuntime(t *testing.T) {
-	t.Parallel()
+			pa, err := portalloc.New(tt.portRange[0], tt.portRange[1])
+			require.NoError(t, err)
 
-	pa, err := portalloc.New(19300, 19350)
-	require.NoError(t, err)
+			dc := newMockDockerClient()
+			bk := lambda.NewInMemoryBackend(
+				dc,
+				pa,
+				lambda.DefaultSettings(),
+				"000000000000",
+				"us-east-1",
+				slog.Default(),
+			)
 
-	dc := newMockDockerClient()
+			fn := &lambda.FunctionConfiguration{
+				FunctionName: tt.funcName,
+				ImageURI:     "myimage:latest",
+				Timeout:      3,
+			}
+			require.NoError(t, bk.CreateFunction(fn))
 
-	bk := lambda.NewInMemoryBackend(dc, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default())
-	fn := &lambda.FunctionConfiguration{
-		FunctionName: "reuse-fn",
-		ImageURI:     "myimage:latest",
-		Timeout:      3,
+			_, statusCode, invokeErr := bk.InvokeFunction(
+				t.Context(),
+				tt.funcName,
+				lambda.InvocationTypeEvent,
+				[]byte(`{}`),
+			)
+			require.NoError(t, invokeErr)
+			assert.Equal(t, tt.wantCode, statusCode)
+
+			if tt.callTwice {
+				_, sc2, err2 := bk.InvokeFunction(t.Context(), tt.funcName, lambda.InvocationTypeEvent, []byte(`{}`))
+				require.NoError(t, err2)
+				assert.Equal(t, tt.wantCode, sc2)
+			}
+		})
 	}
-	require.NoError(t, bk.CreateFunction(fn))
-
-	// Two event invocations — second call reuses the already-started runtime.
-	_, sc1, err1 := bk.InvokeFunction(t.Context(), "reuse-fn", lambda.InvocationTypeEvent, []byte(`{}`))
-	require.NoError(t, err1)
-	assert.Equal(t, http.StatusAccepted, sc1)
-
-	_, sc2, err2 := bk.InvokeFunction(t.Context(), "reuse-fn", lambda.InvocationTypeEvent, []byte(`{}`))
-	require.NoError(t, err2)
-	assert.Equal(t, http.StatusAccepted, sc2)
 }
 
 func TestBackend_DeleteFunction_WithRuntime(t *testing.T) {
 	t.Parallel()
 
-	pa, err := portalloc.New(19400, 19450)
-	require.NoError(t, err)
-
-	dc := newMockDockerClient()
-
-	bk := lambda.NewInMemoryBackend(dc, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default())
-	fn := &lambda.FunctionConfiguration{
-		FunctionName: "delete-with-rt",
-		ImageURI:     "myimage:latest",
-		Timeout:      3,
+	tests := []struct {
+		name      string
+		funcName  string
+		portRange [2]int
+	}{
+		{
+			name:      "deletes_with_runtime",
+			portRange: [2]int{19400, 19450},
+			funcName:  "delete-with-rt",
+		},
 	}
-	require.NoError(t, bk.CreateFunction(fn))
 
-	// Start the runtime first via Event invocation.
-	_, _, _ = bk.InvokeFunction(t.Context(), "delete-with-rt", lambda.InvocationTypeEvent, []byte(`{}`))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	// Delete should clean up the runtime server and release the port.
-	require.NoError(t, bk.DeleteFunction("delete-with-rt"))
+			pa, err := portalloc.New(tt.portRange[0], tt.portRange[1])
+			require.NoError(t, err)
 
-	// Verify the function is gone.
-	_, err = bk.GetFunction("delete-with-rt")
-	assert.ErrorIs(t, err, lambda.ErrFunctionNotFound)
+			dc := newMockDockerClient()
+			bk := lambda.NewInMemoryBackend(
+				dc,
+				pa,
+				lambda.DefaultSettings(),
+				"000000000000",
+				"us-east-1",
+				slog.Default(),
+			)
+
+			fn := &lambda.FunctionConfiguration{
+				FunctionName: tt.funcName,
+				ImageURI:     "myimage:latest",
+				Timeout:      3,
+			}
+			require.NoError(t, bk.CreateFunction(fn))
+
+			_, _, _ = bk.InvokeFunction(t.Context(), tt.funcName, lambda.InvocationTypeEvent, []byte(`{}`))
+
+			require.NoError(t, bk.DeleteFunction(tt.funcName))
+
+			_, err = bk.GetFunction(tt.funcName)
+			assert.ErrorIs(t, err, lambda.ErrFunctionNotFound)
+		})
+	}
 }
 
 func TestBackend_InvokeFunction_RequestResponse_WithMockDocker(t *testing.T) {
 	t.Parallel()
 
-	pa, err := portalloc.New(19500, 19550)
-	require.NoError(t, err)
-
-	dc := newMockDockerClient()
-
-	bk := lambda.NewInMemoryBackend(dc, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default())
-	fn := &lambda.FunctionConfiguration{
-		FunctionName: "rr-fn",
-		ImageURI:     "myimage:latest",
-		Timeout:      3,
+	tests := []struct {
+		name      string
+		funcName  string
+		portRange [2]int
+	}{
+		{
+			name:      "request_response_mock_docker",
+			portRange: [2]int{19500, 19550},
+			funcName:  "rr-fn",
+		},
 	}
-	require.NoError(t, bk.CreateFunction(fn))
 
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-	defer cancel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	resultCh := make(chan error, 1)
+			pa, err := portalloc.New(tt.portRange[0], tt.portRange[1])
+			require.NoError(t, err)
 
-	go func() {
-		_, _, invokeErr := bk.InvokeFunction(ctx, "rr-fn", lambda.InvocationTypeRequestResponse, []byte(`{}`))
-		resultCh <- invokeErr
-	}()
+			dc := newMockDockerClient()
+			bk := lambda.NewInMemoryBackend(
+				dc,
+				pa,
+				lambda.DefaultSettings(),
+				"000000000000",
+				"us-east-1",
+				slog.Default(),
+			)
 
-	// Give the runtime server a moment to start, then simulate the container.
-	time.Sleep(200 * time.Millisecond)
-
-	// Find the allocated port by repeatedly trying to connect to candidate ports.
-	var runtimePort int
-
-	for p := 19500; p < 19550; p++ {
-		req, reqErr := http.NewRequestWithContext(t.Context(),
-			http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/2018-06-01/runtime/invocation/next", p), nil,
-		)
-		if reqErr != nil {
-			continue
-		}
-
-		client := &http.Client{Timeout: 200 * time.Millisecond}
-		resp, doErr := client.Do(req)
-
-		if doErr == nil && resp != nil {
-			requestID := resp.Header.Get("Lambda-Runtime-Aws-Request-Id")
-			resp.Body.Close()
-
-			if requestID != "" {
-				runtimePort = p
-				simulateContainerResponse(t, p, requestID, `{"result":"ok"}`)
-
-				break
+			fn := &lambda.FunctionConfiguration{
+				FunctionName: tt.funcName,
+				ImageURI:     "myimage:latest",
+				Timeout:      3,
 			}
-		}
-	}
+			require.NoError(t, bk.CreateFunction(fn))
 
-	select {
-	case invokeErr := <-resultCh:
-		if runtimePort > 0 {
-			require.NoError(t, invokeErr)
-		}
-		// If no port found (e.g., race), just check we get some result.
-	case <-time.After(4 * time.Second):
-		cancel()
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+
+			resultCh := make(chan error, 1)
+
+			go func() {
+				_, _, invokeErr := bk.InvokeFunction(
+					ctx,
+					tt.funcName,
+					lambda.InvocationTypeRequestResponse,
+					[]byte(`{}`),
+				)
+				resultCh <- invokeErr
+			}()
+
+			time.Sleep(200 * time.Millisecond)
+
+			var runtimePort int
+
+			for p := tt.portRange[0]; p < tt.portRange[1]; p++ {
+				req, reqErr := http.NewRequestWithContext(t.Context(),
+					http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/2018-06-01/runtime/invocation/next", p), nil,
+				)
+				if reqErr != nil {
+					continue
+				}
+
+				client := &http.Client{Timeout: 200 * time.Millisecond}
+				resp, doErr := client.Do(req)
+
+				if doErr == nil && resp != nil {
+					requestID := resp.Header.Get("Lambda-Runtime-Aws-Request-Id")
+					resp.Body.Close()
+
+					if requestID != "" {
+						runtimePort = p
+						simulateContainerResponse(t, p, requestID, `{"result":"ok"}`)
+
+						break
+					}
+				}
+			}
+
+			select {
+			case invokeErr := <-resultCh:
+				if runtimePort > 0 {
+					require.NoError(t, invokeErr)
+				}
+			case <-time.After(4 * time.Second):
+				cancel()
+			}
+		})
 	}
 }
 
@@ -1330,45 +1748,75 @@ func TestBackend_InvokeFunction_RequestResponse_WithMockDocker(t *testing.T) {
 func TestProvider_Name(t *testing.T) {
 	t.Parallel()
 
-	p := &lambda.Provider{}
-	assert.Equal(t, "Lambda", p.Name())
-}
-
-func TestProvider_Init_NoConfig(t *testing.T) {
-	t.Parallel()
-
-	p := &lambda.Provider{}
-	appCtx := &service.AppContext{
-		Logger:    slog.Default(),
-		Config:    nil,
-		PortAlloc: nil,
+	tests := []struct {
+		name string
+		want string
+	}{
+		{name: "returns_lambda", want: "Lambda"},
 	}
 
-	svc, err := p.Init(appCtx)
-	require.NoError(t, err)
-	assert.NotNil(t, svc)
-	assert.Equal(t, "Lambda", svc.Name())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := &lambda.Provider{}
+			assert.Equal(t, tt.want, p.Name())
+		})
+	}
 }
 
-func TestProvider_Init_WithConfig(t *testing.T) {
+func TestProvider_Init(t *testing.T) {
 	t.Parallel()
 
-	p := &lambda.Provider{}
-	appCtx := &service.AppContext{
-		Logger:    slog.Default(),
-		Config:    &mockConfig{accountID: "111111111111", region: "eu-west-1"},
-		PortAlloc: nil,
+	tests := []struct {
+		name   string
+		config interface {
+			GetLambdaSettings() lambda.Settings
+			GetGlobalConfig() config.GlobalConfig
+		}
+		wantAccountID string
+		wantRegion    string
+	}{
+		{
+			name:          "no_config",
+			config:        nil,
+			wantAccountID: "",
+			wantRegion:    "",
+		},
+		{
+			name:          "with_config",
+			config:        &mockConfig{accountID: "111111111111", region: "eu-west-1"},
+			wantAccountID: "111111111111",
+			wantRegion:    "eu-west-1",
+		},
 	}
 
-	svc, err := p.Init(appCtx)
-	require.NoError(t, err)
-	assert.NotNil(t, svc)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	// Verify accountID and region are propagated from config.Provider.
-	h, ok := svc.(*lambda.Handler)
-	require.True(t, ok)
-	assert.Equal(t, "111111111111", h.AccountID)
-	assert.Equal(t, "eu-west-1", h.DefaultRegion)
+			p := &lambda.Provider{}
+			appCtx := &service.AppContext{
+				Logger:    slog.Default(),
+				PortAlloc: nil,
+			}
+			if tt.config != nil {
+				appCtx.Config = tt.config
+			}
+
+			svc, err := p.Init(appCtx)
+			require.NoError(t, err)
+			assert.NotNil(t, svc)
+			assert.Equal(t, "Lambda", svc.Name())
+
+			if tt.wantAccountID != "" || tt.wantRegion != "" {
+				h, ok := svc.(*lambda.Handler)
+				require.True(t, ok)
+				assert.Equal(t, tt.wantAccountID, h.AccountID)
+				assert.Equal(t, tt.wantRegion, h.DefaultRegion)
+			}
+		})
+	}
 }
 
 // mockConfig implements lambda.SettingsProvider and config.Provider for provider tests.
@@ -1413,492 +1861,831 @@ func mustCreateFunctionViaHandler(t *testing.T, h *lambda.Handler, name string) 
 	require.Equal(t, http.StatusCreated, rec.Code)
 }
 
-func TestFunctionUrl_CreateGetDelete(t *testing.T) {
+// ---- Function URL tests ----
+
+func TestFunctionUrl_CRUD(t *testing.T) {
 	t.Parallel()
 
-	h := newInMemHandlerWithPortAlloc(t)
-	mustCreateFunctionViaHandler(t, h, "url-fn")
+	tests := []struct {
+		name     string
+		funcName string
+	}{
+		{name: "create_get_delete", funcName: "url-fn"},
+	}
 
-	// Create function URL config
-	rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/url-fn/url",
-		`{"AuthType":"NONE"}`, nil)
-	require.Equal(t, http.StatusCreated, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	var cfg lambda.FunctionURLConfig
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cfg))
-	assert.NotEmpty(t, cfg.FunctionURL)
-	assert.Equal(t, "NONE", cfg.AuthType)
-	assert.NotEmpty(t, cfg.FunctionArn)
-	assert.NotEmpty(t, cfg.CreationTime)
+			h := newInMemHandlerWithPortAlloc(t)
+			mustCreateFunctionViaHandler(t, h, tt.funcName)
 
-	// Get function URL config
-	rec = callHandler(t, h, http.MethodGet, "/2015-03-31/functions/url-fn/url", "", nil)
-	require.Equal(t, http.StatusOK, rec.Code)
+			rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/"+tt.funcName+"/url",
+				`{"AuthType":"NONE"}`, nil)
+			require.Equal(t, http.StatusCreated, rec.Code)
 
-	var getCfg lambda.FunctionURLConfig
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getCfg))
-	assert.Equal(t, cfg.FunctionURL, getCfg.FunctionURL)
+			var cfg lambda.FunctionURLConfig
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cfg))
+			assert.NotEmpty(t, cfg.FunctionURL)
+			assert.Equal(t, "NONE", cfg.AuthType)
+			assert.NotEmpty(t, cfg.FunctionArn)
+			assert.NotEmpty(t, cfg.CreationTime)
 
-	// Delete function URL config
-	rec = callHandler(t, h, http.MethodDelete, "/2015-03-31/functions/url-fn/url", "", nil)
-	require.Equal(t, http.StatusNoContent, rec.Code)
+			rec = callHandler(t, h, http.MethodGet, "/2015-03-31/functions/"+tt.funcName+"/url", "", nil)
+			require.Equal(t, http.StatusOK, rec.Code)
 
-	// Get after delete — expect 404
-	rec = callHandler(t, h, http.MethodGet, "/2015-03-31/functions/url-fn/url", "", nil)
-	require.Equal(t, http.StatusNotFound, rec.Code)
+			var getCfg lambda.FunctionURLConfig
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getCfg))
+			assert.Equal(t, cfg.FunctionURL, getCfg.FunctionURL)
+
+			rec = callHandler(t, h, http.MethodDelete, "/2015-03-31/functions/"+tt.funcName+"/url", "", nil)
+			require.Equal(t, http.StatusNoContent, rec.Code)
+
+			rec = callHandler(t, h, http.MethodGet, "/2015-03-31/functions/"+tt.funcName+"/url", "", nil)
+			require.Equal(t, http.StatusNotFound, rec.Code)
+		})
+	}
 }
 
-func TestFunctionUrl_Create_FunctionNotFound(t *testing.T) {
+func TestFunctionURL_NotFound(t *testing.T) {
 	t.Parallel()
 
-	h := newInMemHandlerWithPortAlloc(t)
+	tests := []struct {
+		name     string
+		setup    func(*testing.T, *lambda.Handler)
+		method   string
+		funcName string
+		wantCode int
+	}{
+		{
+			name:     "create_function_not_found",
+			method:   http.MethodPost,
+			funcName: "nonexistent",
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name: "get_url_not_found",
+			setup: func(t *testing.T, h *lambda.Handler) {
+				t.Helper()
+				mustCreateFunctionViaHandler(t, h, "no-url-fn")
+			},
+			method:   http.MethodGet,
+			funcName: "no-url-fn",
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name: "delete_url_not_found",
+			setup: func(t *testing.T, h *lambda.Handler) {
+				t.Helper()
+				mustCreateFunctionViaHandler(t, h, "del-url-fn")
+			},
+			method:   http.MethodDelete,
+			funcName: "del-url-fn",
+			wantCode: http.StatusNotFound,
+		},
+	}
 
-	rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/nonexistent/url",
-		`{"AuthType":"NONE"}`, nil)
-	require.Equal(t, http.StatusNotFound, rec.Code)
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-func TestFunctionUrl_Get_NotFound(t *testing.T) {
-	t.Parallel()
+			h := newInMemHandlerWithPortAlloc(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
 
-	h := newInMemHandlerWithPortAlloc(t)
-	mustCreateFunctionViaHandler(t, h, "no-url-fn")
+			body := ""
+			if tt.method == http.MethodPost {
+				body = `{"AuthType":"NONE"}`
+			}
 
-	rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/no-url-fn/url", "", nil)
-	require.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestFunctionUrl_Delete_NotFound(t *testing.T) {
-	t.Parallel()
-
-	h := newInMemHandlerWithPortAlloc(t)
-	mustCreateFunctionViaHandler(t, h, "del-url-fn")
-
-	rec := callHandler(t, h, http.MethodDelete, "/2015-03-31/functions/del-url-fn/url", "", nil)
-	require.Equal(t, http.StatusNotFound, rec.Code)
+			rec := callHandler(t, h, tt.method, "/2015-03-31/functions/"+tt.funcName+"/url", body, nil)
+			require.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
 }
 
 func TestFunctionUrl_HTTP_ForwardsToLambda(t *testing.T) {
 	t.Parallel()
 
-	pa, err := portalloc.New(20100, 20200)
-	require.NoError(t, err)
-
-	bk := lambda.NewInMemoryBackend(nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default())
-
-	// Create function
-	fn := &lambda.FunctionConfiguration{
-		FunctionName: "http-url-fn",
-		PackageType:  lambda.PackageTypeImage,
-		ImageURI:     "test:latest",
+	tests := []struct {
+		name      string
+		funcName  string
+		portRange [2]int
+	}{
+		{
+			name:      "creates_url_with_http",
+			portRange: [2]int{20100, 20200},
+			funcName:  "http-url-fn",
+		},
 	}
-	require.NoError(t, bk.CreateFunction(fn))
 
-	// Create function URL config
-	cfg, createErr := bk.CreateFunctionURLConfig("http-url-fn", "NONE")
-	require.NoError(t, createErr)
-	assert.NotEmpty(t, cfg.FunctionURL)
-	assert.Contains(t, cfg.FunctionURL, "http://")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			pa, err := portalloc.New(tt.portRange[0], tt.portRange[1])
+			require.NoError(t, err)
+
+			bk := lambda.NewInMemoryBackend(
+				nil,
+				pa,
+				lambda.DefaultSettings(),
+				"000000000000",
+				"us-east-1",
+				slog.Default(),
+			)
+
+			fn := &lambda.FunctionConfiguration{
+				FunctionName: tt.funcName,
+				PackageType:  lambda.PackageTypeImage,
+				ImageURI:     "test:latest",
+			}
+			require.NoError(t, bk.CreateFunction(fn))
+
+			cfg, createErr := bk.CreateFunctionURLConfig(tt.funcName, "NONE")
+			require.NoError(t, createErr)
+			assert.NotEmpty(t, cfg.FunctionURL)
+			assert.Contains(t, cfg.FunctionURL, "http://")
+		})
+	}
 }
 
 // ---- Version tests ----
 
-func TestPublishVersion_Success(t *testing.T) {
+func TestPublishVersion(t *testing.T) {
 	t.Parallel()
 
-	h := newInMemHandlerWithPortAlloc(t)
-	mustCreateFunctionViaHandler(t, h, "ver-fn")
+	tests := []struct {
+		setup       func(*testing.T, *lambda.Handler)
+		name        string
+		funcName    string
+		body        string
+		wantVersion string
+		wantDesc    string
+		wantCode    int
+	}{
+		{
+			name: "success",
+			setup: func(t *testing.T, h *lambda.Handler) {
+				t.Helper()
+				mustCreateFunctionViaHandler(t, h, "ver-fn")
+			},
+			funcName:    "ver-fn",
+			body:        `{"Description":"v1"}`,
+			wantCode:    http.StatusCreated,
+			wantVersion: "1",
+			wantDesc:    "v1",
+		},
+		{
+			name:     "function_not_found",
+			funcName: "no-fn",
+			body:     `{}`,
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "mock_backend_service_error",
+			funcName: "fn",
+			body:     `{}`,
+			wantCode: http.StatusInternalServerError,
+		},
+	}
 
-	rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/ver-fn/versions",
-		`{"Description":"v1"}`, nil)
-	require.Equal(t, http.StatusCreated, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	var ver lambda.FunctionVersion
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ver))
-	assert.Equal(t, "1", ver.Version)
-	assert.Equal(t, "v1", ver.Description)
-	assert.Equal(t, "ver-fn", ver.FunctionName)
+			var h *lambda.Handler
+			if tt.name == "mock_backend_service_error" {
+				h, _ = newHandler(t)
+			} else {
+				h = newInMemHandlerWithPortAlloc(t)
+			}
+
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/"+tt.funcName+"/versions", tt.body, nil)
+			require.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantVersion != "" {
+				var ver lambda.FunctionVersion
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ver))
+				assert.Equal(t, tt.wantVersion, ver.Version)
+				assert.Equal(t, tt.wantDesc, ver.Description)
+				assert.Equal(t, tt.funcName, ver.FunctionName)
+			}
+		})
+	}
 }
 
-func TestPublishVersion_FunctionNotFound(t *testing.T) {
+func TestListVersionsByFunction(t *testing.T) {
 	t.Parallel()
 
-	h := newInMemHandlerWithPortAlloc(t)
+	tests := []struct {
+		setup        func(*testing.T, *lambda.Handler)
+		name         string
+		funcName     string
+		wantVersions []string
+		wantCode     int
+		wantCount    int
+	}{
+		{
+			name: "success",
+			setup: func(t *testing.T, h *lambda.Handler) {
+				t.Helper()
+				mustCreateFunctionViaHandler(t, h, "list-ver-fn")
+				callHandler(t, h, http.MethodPost, "/2015-03-31/functions/list-ver-fn/versions", `{}`, nil)
+				callHandler(t, h, http.MethodPost, "/2015-03-31/functions/list-ver-fn/versions", `{}`, nil)
+			},
+			funcName:     "list-ver-fn",
+			wantCode:     http.StatusOK,
+			wantCount:    3,
+			wantVersions: []string{"$LATEST", "1", "2"},
+		},
+		{
+			name:     "function_not_found",
+			funcName: "nofn",
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "mock_backend_service_error",
+			funcName: "fn",
+			wantCode: http.StatusInternalServerError,
+		},
+	}
 
-	rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/no-fn/versions", `{}`, nil)
-	require.Equal(t, http.StatusNotFound, rec.Code)
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-func TestListVersionsByFunction_Success(t *testing.T) {
-	t.Parallel()
+			var h *lambda.Handler
+			if tt.name == "mock_backend_service_error" {
+				h, _ = newHandler(t)
+			} else {
+				h = newInMemHandlerWithPortAlloc(t)
+			}
 
-	h := newInMemHandlerWithPortAlloc(t)
-	mustCreateFunctionViaHandler(t, h, "list-ver-fn")
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
 
-	// Publish two versions
-	callHandler(t, h, http.MethodPost, "/2015-03-31/functions/list-ver-fn/versions", `{}`, nil)
-	callHandler(t, h, http.MethodPost, "/2015-03-31/functions/list-ver-fn/versions", `{}`, nil)
+			rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/"+tt.funcName+"/versions", "", nil)
+			require.Equal(t, tt.wantCode, rec.Code)
 
-	rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/list-ver-fn/versions", "", nil)
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var out lambda.ListVersionsByFunctionOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-	// $LATEST + 2 published versions
-	assert.Len(t, out.Versions, 3)
-	assert.Equal(t, "$LATEST", out.Versions[0].Version)
-	assert.Equal(t, "1", out.Versions[1].Version)
-	assert.Equal(t, "2", out.Versions[2].Version)
+			if tt.wantCount > 0 {
+				var out lambda.ListVersionsByFunctionOutput
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				assert.Len(t, out.Versions, tt.wantCount)
+				for i, v := range tt.wantVersions {
+					assert.Equal(t, v, out.Versions[i].Version)
+				}
+			}
+		})
+	}
 }
 
 // ---- Alias tests ----
 
-func TestCreateAlias_Success(t *testing.T) {
+func TestCreateAlias(t *testing.T) {
 	t.Parallel()
 
-	h := newInMemHandlerWithPortAlloc(t)
-	mustCreateFunctionViaHandler(t, h, "alias-fn")
-	// Publish a version first
-	callHandler(t, h, http.MethodPost, "/2015-03-31/functions/alias-fn/versions", `{}`, nil)
+	tests := []struct {
+		setup       func(*testing.T, *lambda.Handler)
+		name        string
+		funcName    string
+		body        string
+		wantName    string
+		wantVersion string
+		wantCode    int
+		useMock     bool
+	}{
+		{
+			name: "success",
+			setup: func(t *testing.T, h *lambda.Handler) {
+				t.Helper()
+				mustCreateFunctionViaHandler(t, h, "alias-fn")
+				callHandler(t, h, http.MethodPost, "/2015-03-31/functions/alias-fn/versions", `{}`, nil)
+			},
+			funcName:    "alias-fn",
+			body:        `{"Name":"live","FunctionVersion":"1"}`,
+			wantCode:    http.StatusCreated,
+			wantName:    "live",
+			wantVersion: "1",
+		},
+		{
+			name: "missing_name",
+			setup: func(t *testing.T, h *lambda.Handler) {
+				t.Helper()
+				mustCreateFunctionViaHandler(t, h, "alias-missing-name-fn")
+			},
+			funcName: "alias-missing-name-fn",
+			body:     `{"FunctionVersion":"1"}`,
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "missing_version",
+			setup: func(t *testing.T, h *lambda.Handler) {
+				t.Helper()
+				mustCreateFunctionViaHandler(t, h, "alias-missing-ver-fn")
+			},
+			funcName: "alias-missing-ver-fn",
+			body:     `{"Name":"v1"}`,
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "duplicate",
+			setup: func(t *testing.T, h *lambda.Handler) {
+				t.Helper()
+				mustCreateFunctionViaHandler(t, h, "dup-alias-fn")
+				callHandler(t, h, http.MethodPost, "/2015-03-31/functions/dup-alias-fn/versions", `{}`, nil)
+				callHandler(t, h, http.MethodPost, "/2015-03-31/functions/dup-alias-fn/aliases",
+					`{"Name":"dup","FunctionVersion":"1"}`, nil)
+			},
+			funcName: "dup-alias-fn",
+			body:     `{"Name":"dup","FunctionVersion":"1"}`,
+			wantCode: http.StatusConflict,
+		},
+		{
+			name:     "function_not_found",
+			funcName: "nofn",
+			body:     `{"Name":"v1","FunctionVersion":"1"}`,
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "mock_backend_service_error",
+			funcName: "fn",
+			body:     `{"Name":"v1","FunctionVersion":"1"}`,
+			wantCode: http.StatusInternalServerError,
+			useMock:  true,
+		},
+	}
 
-	rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/alias-fn/aliases",
-		`{"Name":"live","FunctionVersion":"1"}`, nil)
-	require.Equal(t, http.StatusCreated, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	var alias lambda.FunctionAlias
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &alias))
-	assert.Equal(t, "live", alias.Name)
-	assert.Equal(t, "1", alias.FunctionVersion)
+			var h *lambda.Handler
+			if tt.useMock {
+				h, _ = newHandler(t)
+			} else {
+				h = newInMemHandlerWithPortAlloc(t)
+			}
+
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/"+tt.funcName+"/aliases", tt.body, nil)
+			require.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantName != "" {
+				var alias lambda.FunctionAlias
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &alias))
+				assert.Equal(t, tt.wantName, alias.Name)
+				assert.Equal(t, tt.wantVersion, alias.FunctionVersion)
+			}
+		})
+	}
 }
 
-func TestGetAlias_Success(t *testing.T) {
+func TestGetAlias(t *testing.T) {
 	t.Parallel()
 
-	h := newInMemHandlerWithPortAlloc(t)
-	mustCreateFunctionViaHandler(t, h, "getalias-fn")
-	callHandler(t, h, http.MethodPost, "/2015-03-31/functions/getalias-fn/versions", `{}`, nil)
-	callHandler(t, h, http.MethodPost, "/2015-03-31/functions/getalias-fn/aliases",
-		`{"Name":"stable","FunctionVersion":"1"}`, nil)
+	tests := []struct {
+		setup     func(*testing.T, *lambda.Handler)
+		name      string
+		funcName  string
+		aliasName string
+		wantName  string
+		wantCode  int
+		useMock   bool
+	}{
+		{
+			name: "success",
+			setup: func(t *testing.T, h *lambda.Handler) {
+				t.Helper()
+				mustCreateFunctionViaHandler(t, h, "getalias-fn")
+				callHandler(t, h, http.MethodPost, "/2015-03-31/functions/getalias-fn/versions", `{}`, nil)
+				callHandler(t, h, http.MethodPost, "/2015-03-31/functions/getalias-fn/aliases",
+					`{"Name":"stable","FunctionVersion":"1"}`, nil)
+			},
+			funcName:  "getalias-fn",
+			aliasName: "stable",
+			wantCode:  http.StatusOK,
+			wantName:  "stable",
+		},
+		{
+			name: "not_found",
+			setup: func(t *testing.T, h *lambda.Handler) {
+				t.Helper()
+				mustCreateFunctionViaHandler(t, h, "noalias-fn")
+			},
+			funcName:  "noalias-fn",
+			aliasName: "missing",
+			wantCode:  http.StatusNotFound,
+		},
+		{
+			name:      "mock_backend_service_error",
+			funcName:  "fn",
+			aliasName: "v1",
+			wantCode:  http.StatusInternalServerError,
+			useMock:   true,
+		},
+	}
 
-	rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/getalias-fn/aliases/stable", "", nil)
-	require.Equal(t, http.StatusOK, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	var alias lambda.FunctionAlias
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &alias))
-	assert.Equal(t, "stable", alias.Name)
+			var h *lambda.Handler
+			if tt.useMock {
+				h, _ = newHandler(t)
+			} else {
+				h = newInMemHandlerWithPortAlloc(t)
+			}
+
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := callHandler(t, h, http.MethodGet,
+				"/2015-03-31/functions/"+tt.funcName+"/aliases/"+tt.aliasName, "", nil)
+			require.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantName != "" {
+				var alias lambda.FunctionAlias
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &alias))
+				assert.Equal(t, tt.wantName, alias.Name)
+			}
+		})
+	}
 }
 
-func TestGetAlias_NotFound(t *testing.T) {
+func TestListAliases(t *testing.T) {
 	t.Parallel()
 
-	h := newInMemHandlerWithPortAlloc(t)
-	mustCreateFunctionViaHandler(t, h, "noalias-fn")
+	tests := []struct {
+		name      string
+		setup     func(*testing.T, *lambda.Handler)
+		funcName  string
+		wantCode  int
+		wantCount int
+		useMock   bool
+	}{
+		{
+			name: "success",
+			setup: func(t *testing.T, h *lambda.Handler) {
+				t.Helper()
+				mustCreateFunctionViaHandler(t, h, "listalias-fn")
+				callHandler(t, h, http.MethodPost, "/2015-03-31/functions/listalias-fn/versions", `{}`, nil)
+				callHandler(t, h, http.MethodPost, "/2015-03-31/functions/listalias-fn/aliases",
+					`{"Name":"v1","FunctionVersion":"1"}`, nil)
+				callHandler(t, h, http.MethodPost, "/2015-03-31/functions/listalias-fn/aliases",
+					`{"Name":"v2","FunctionVersion":"1"}`, nil)
+			},
+			funcName:  "listalias-fn",
+			wantCode:  http.StatusOK,
+			wantCount: 2,
+		},
+		{
+			name:     "function_not_found",
+			funcName: "nofn",
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "mock_backend_service_error",
+			funcName: "fn",
+			wantCode: http.StatusInternalServerError,
+			useMock:  true,
+		},
+	}
 
-	rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/noalias-fn/aliases/missing", "", nil)
-	require.Equal(t, http.StatusNotFound, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var h *lambda.Handler
+			if tt.useMock {
+				h, _ = newHandler(t)
+			} else {
+				h = newInMemHandlerWithPortAlloc(t)
+			}
+
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/"+tt.funcName+"/aliases", "", nil)
+			require.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantCount > 0 {
+				var out lambda.ListAliasesOutput
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				assert.Len(t, out.Aliases, tt.wantCount)
+			}
+		})
+	}
 }
 
-func TestListAliases_Success(t *testing.T) {
+func TestUpdateAlias(t *testing.T) {
 	t.Parallel()
 
-	h := newInMemHandlerWithPortAlloc(t)
-	mustCreateFunctionViaHandler(t, h, "listalias-fn")
-	callHandler(t, h, http.MethodPost, "/2015-03-31/functions/listalias-fn/versions", `{}`, nil)
-	callHandler(t, h, http.MethodPost, "/2015-03-31/functions/listalias-fn/aliases",
-		`{"Name":"v1","FunctionVersion":"1"}`, nil)
-	callHandler(t, h, http.MethodPost, "/2015-03-31/functions/listalias-fn/aliases",
-		`{"Name":"v2","FunctionVersion":"1"}`, nil)
+	tests := []struct {
+		setup       func(*testing.T, *lambda.Handler)
+		name        string
+		funcName    string
+		aliasName   string
+		body        string
+		wantVersion string
+		wantCode    int
+		useMock     bool
+	}{
+		{
+			name: "success",
+			setup: func(t *testing.T, h *lambda.Handler) {
+				t.Helper()
+				mustCreateFunctionViaHandler(t, h, "updalias-fn")
+				callHandler(t, h, http.MethodPost, "/2015-03-31/functions/updalias-fn/versions", `{}`, nil)
+				callHandler(t, h, http.MethodPost, "/2015-03-31/functions/updalias-fn/versions", `{}`, nil)
+				callHandler(t, h, http.MethodPost, "/2015-03-31/functions/updalias-fn/aliases",
+					`{"Name":"prod","FunctionVersion":"1"}`, nil)
+			},
+			funcName:    "updalias-fn",
+			aliasName:   "prod",
+			body:        `{"FunctionVersion":"2"}`,
+			wantCode:    http.StatusOK,
+			wantVersion: "2",
+		},
+		{
+			name: "not_found",
+			setup: func(t *testing.T, h *lambda.Handler) {
+				t.Helper()
+				mustCreateFunctionViaHandler(t, h, "updnotfound-fn")
+			},
+			funcName:  "updnotfound-fn",
+			aliasName: "missing",
+			body:      `{"FunctionVersion":"1"}`,
+			wantCode:  http.StatusNotFound,
+		},
+		{
+			name:      "mock_backend_service_error",
+			funcName:  "fn",
+			aliasName: "v1",
+			body:      `{"FunctionVersion":"2"}`,
+			wantCode:  http.StatusInternalServerError,
+			useMock:   true,
+		},
+	}
 
-	rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/listalias-fn/aliases", "", nil)
-	require.Equal(t, http.StatusOK, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	var out lambda.ListAliasesOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-	assert.Len(t, out.Aliases, 2)
+			var h *lambda.Handler
+			if tt.useMock {
+				h, _ = newHandler(t)
+			} else {
+				h = newInMemHandlerWithPortAlloc(t)
+			}
+
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := callHandler(t, h, http.MethodPut,
+				"/2015-03-31/functions/"+tt.funcName+"/aliases/"+tt.aliasName, tt.body, nil)
+			require.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantVersion != "" {
+				var alias lambda.FunctionAlias
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &alias))
+				assert.Equal(t, tt.wantVersion, alias.FunctionVersion)
+			}
+		})
+	}
 }
 
-func TestUpdateAlias_Success(t *testing.T) {
+func TestDeleteAlias(t *testing.T) {
 	t.Parallel()
 
-	h := newInMemHandlerWithPortAlloc(t)
-	mustCreateFunctionViaHandler(t, h, "updalias-fn")
-	callHandler(t, h, http.MethodPost, "/2015-03-31/functions/updalias-fn/versions", `{}`, nil)
-	callHandler(t, h, http.MethodPost, "/2015-03-31/functions/updalias-fn/versions", `{}`, nil)
-	callHandler(t, h, http.MethodPost, "/2015-03-31/functions/updalias-fn/aliases",
-		`{"Name":"prod","FunctionVersion":"1"}`, nil)
+	tests := []struct {
+		name      string
+		setup     func(*testing.T, *lambda.Handler)
+		funcName  string
+		aliasName string
+		wantCode  int
+		verify    bool
+		useMock   bool
+	}{
+		{
+			name: "success",
+			setup: func(t *testing.T, h *lambda.Handler) {
+				t.Helper()
+				mustCreateFunctionViaHandler(t, h, "delalias-fn")
+				callHandler(t, h, http.MethodPost, "/2015-03-31/functions/delalias-fn/versions", `{}`, nil)
+				callHandler(t, h, http.MethodPost, "/2015-03-31/functions/delalias-fn/aliases",
+					`{"Name":"old","FunctionVersion":"1"}`, nil)
+			},
+			funcName:  "delalias-fn",
+			aliasName: "old",
+			wantCode:  http.StatusNoContent,
+			verify:    true,
+		},
+		{
+			name: "not_found",
+			setup: func(t *testing.T, h *lambda.Handler) {
+				t.Helper()
+				mustCreateFunctionViaHandler(t, h, "delnotfound-fn")
+			},
+			funcName:  "delnotfound-fn",
+			aliasName: "missing",
+			wantCode:  http.StatusNotFound,
+		},
+		{
+			name:      "mock_backend_service_error",
+			funcName:  "fn",
+			aliasName: "v1",
+			wantCode:  http.StatusInternalServerError,
+			useMock:   true,
+		},
+	}
 
-	rec := callHandler(t, h, http.MethodPut, "/2015-03-31/functions/updalias-fn/aliases/prod",
-		`{"FunctionVersion":"2"}`, nil)
-	require.Equal(t, http.StatusOK, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	var alias lambda.FunctionAlias
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &alias))
-	assert.Equal(t, "2", alias.FunctionVersion)
-}
+			var h *lambda.Handler
+			if tt.useMock {
+				h, _ = newHandler(t)
+			} else {
+				h = newInMemHandlerWithPortAlloc(t)
+			}
 
-func TestDeleteAlias_Success(t *testing.T) {
-	t.Parallel()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
 
-	h := newInMemHandlerWithPortAlloc(t)
-	mustCreateFunctionViaHandler(t, h, "delalias-fn")
-	callHandler(t, h, http.MethodPost, "/2015-03-31/functions/delalias-fn/versions", `{}`, nil)
-	callHandler(t, h, http.MethodPost, "/2015-03-31/functions/delalias-fn/aliases",
-		`{"Name":"old","FunctionVersion":"1"}`, nil)
+			rec := callHandler(t, h, http.MethodDelete,
+				"/2015-03-31/functions/"+tt.funcName+"/aliases/"+tt.aliasName, "", nil)
+			require.Equal(t, tt.wantCode, rec.Code)
 
-	rec := callHandler(t, h, http.MethodDelete, "/2015-03-31/functions/delalias-fn/aliases/old", "", nil)
-	require.Equal(t, http.StatusNoContent, rec.Code)
-
-	// Verify deleted
-	rec = callHandler(t, h, http.MethodGet, "/2015-03-31/functions/delalias-fn/aliases/old", "", nil)
-	require.Equal(t, http.StatusNotFound, rec.Code)
+			if tt.verify {
+				verifyRec := callHandler(t, h, http.MethodGet,
+					"/2015-03-31/functions/"+tt.funcName+"/aliases/"+tt.aliasName, "", nil)
+				require.Equal(t, http.StatusNotFound, verifyRec.Code)
+			}
+		})
+	}
 }
 
 func TestInvokeWithQualifier_Alias(t *testing.T) {
 	t.Parallel()
 
-	h, bk := newHandler(t)
-
-	// Create function and add it to backend
-	fn := &lambda.FunctionConfiguration{
-		FunctionName: "qual-fn",
-		PackageType:  lambda.PackageTypeImage,
+	tests := []struct {
+		name      string
+		funcName  string
+		qualifier string
+		wantCode  int
+	}{
+		{
+			name:      "qualifier_accepted",
+			funcName:  "qual-fn",
+			qualifier: "live",
+			wantCode:  http.StatusOK,
+		},
 	}
-	require.NoError(t, bk.CreateFunction(fn))
 
-	// Use the InMemoryBackend route handlers via a real InMemoryBackend
-	// for alias → version resolution test: we test the handler routing only.
-	// A real qualifier invocation test requires Docker, so we just check
-	// that the qualifier query param is accepted and routed correctly.
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	// With mock backend (no InMemoryBackend), qualifier is ignored, uses normal invoke
-	bk.invokeResult = []byte(`{"result":"alias-ok"}`)
+			h, bk := newHandler(t)
+			fn := &lambda.FunctionConfiguration{
+				FunctionName: tt.funcName,
+				PackageType:  lambda.PackageTypeImage,
+			}
+			require.NoError(t, bk.CreateFunction(fn))
+			bk.invokeResult = []byte(`{"result":"alias-ok"}`)
 
-	rec := callHandler(t, h, http.MethodPost,
-		"/2015-03-31/functions/qual-fn/invocations?Qualifier=live",
-		`{"event":"test"}`, nil)
-	// Mock backend doesn't support qualifier resolution, but returns 200 from normal invoke
-	require.Equal(t, http.StatusOK, rec.Code)
+			rec := callHandler(t, h, http.MethodPost,
+				"/2015-03-31/functions/"+tt.funcName+"/invocations?Qualifier="+tt.qualifier,
+				`{"event":"test"}`, nil)
+			require.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
 }
 
-func TestCreateAlias_MissingName(t *testing.T) {
+// ---- Tags tests ----
+
+func TestHandler_TagsRoute(t *testing.T) {
 	t.Parallel()
 
-	h := newInMemHandlerWithPortAlloc(t)
-	mustCreateFunctionViaHandler(t, h, "alias-missing-name-fn")
-
-	rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/alias-missing-name-fn/aliases",
-		`{"FunctionVersion":"1"}`, nil)
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestCreateAlias_MissingVersion(t *testing.T) {
-	t.Parallel()
-
-	h := newInMemHandlerWithPortAlloc(t)
-	mustCreateFunctionViaHandler(t, h, "alias-missing-ver-fn")
-
-	rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/alias-missing-ver-fn/aliases",
-		`{"Name":"v1"}`, nil)
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestCreateAlias_Duplicate(t *testing.T) {
-	t.Parallel()
-
-	h := newInMemHandlerWithPortAlloc(t)
-	mustCreateFunctionViaHandler(t, h, "dup-alias-fn")
-	callHandler(t, h, http.MethodPost, "/2015-03-31/functions/dup-alias-fn/versions", `{}`, nil)
-	callHandler(t, h, http.MethodPost, "/2015-03-31/functions/dup-alias-fn/aliases",
-		`{"Name":"dup","FunctionVersion":"1"}`, nil)
-
-	rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/dup-alias-fn/aliases",
-		`{"Name":"dup","FunctionVersion":"1"}`, nil)
-	require.Equal(t, http.StatusConflict, rec.Code)
-}
-
-func TestCreateAlias_FunctionNotFound(t *testing.T) {
-	t.Parallel()
-
-	h := newInMemHandlerWithPortAlloc(t)
-
-	rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/nofn/aliases",
-		`{"Name":"v1","FunctionVersion":"1"}`, nil)
-	require.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestListVersionsByFunction_FunctionNotFound(t *testing.T) {
-	t.Parallel()
-
-	h := newInMemHandlerWithPortAlloc(t)
-
-	rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/nofn/versions", "", nil)
-	require.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestListAliases_FunctionNotFound(t *testing.T) {
-	t.Parallel()
-
-	h := newInMemHandlerWithPortAlloc(t)
-
-	rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/nofn/aliases", "", nil)
-	require.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestUpdateAlias_NotFound(t *testing.T) {
-	t.Parallel()
-
-	h := newInMemHandlerWithPortAlloc(t)
-	mustCreateFunctionViaHandler(t, h, "updnotfound-fn")
-
-	rec := callHandler(t, h, http.MethodPut, "/2015-03-31/functions/updnotfound-fn/aliases/missing",
-		`{"FunctionVersion":"1"}`, nil)
-	require.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestDeleteAlias_NotFound(t *testing.T) {
-	t.Parallel()
-
-	h := newInMemHandlerWithPortAlloc(t)
-	mustCreateFunctionViaHandler(t, h, "delnotfound-fn")
-
-	rec := callHandler(t, h, http.MethodDelete, "/2015-03-31/functions/delnotfound-fn/aliases/missing", "", nil)
-	require.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestPublishVersion_MockBackend_ServiceError(t *testing.T) {
-	t.Parallel()
-
-	// When using mock backend (not InMemoryBackend), PublishVersion returns 500.
-	h, _ := newHandler(t)
-
-	rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/fn/versions", `{}`, nil)
-	require.Equal(t, http.StatusInternalServerError, rec.Code)
-}
-
-func TestListVersionsByFunction_MockBackend_ServiceError(t *testing.T) {
-	t.Parallel()
-
-	h, _ := newHandler(t)
-
-	rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/fn/versions", "", nil)
-	require.Equal(t, http.StatusInternalServerError, rec.Code)
-}
-
-func TestCreateAlias_MockBackend_ServiceError(t *testing.T) {
-	t.Parallel()
-
-	h, _ := newHandler(t)
-
-	rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions/fn/aliases",
-		`{"Name":"v1","FunctionVersion":"1"}`, nil)
-	require.Equal(t, http.StatusInternalServerError, rec.Code)
-}
-
-func TestGetAlias_MockBackend_ServiceError(t *testing.T) {
-	t.Parallel()
-
-	h, _ := newHandler(t)
-
-	rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/fn/aliases/v1", "", nil)
-	require.Equal(t, http.StatusInternalServerError, rec.Code)
-}
-
-func TestListAliases_MockBackend_ServiceError(t *testing.T) {
-	t.Parallel()
-
-	h, _ := newHandler(t)
-
-	rec := callHandler(t, h, http.MethodGet, "/2015-03-31/functions/fn/aliases", "", nil)
-	require.Equal(t, http.StatusInternalServerError, rec.Code)
-}
-
-func TestUpdateAlias_MockBackend_ServiceError(t *testing.T) {
-	t.Parallel()
-
-	h, _ := newHandler(t)
-
-	rec := callHandler(t, h, http.MethodPut, "/2015-03-31/functions/fn/aliases/v1",
-		`{"FunctionVersion":"2"}`, nil)
-	require.Equal(t, http.StatusInternalServerError, rec.Code)
-}
-
-func TestDeleteAlias_MockBackend_ServiceError(t *testing.T) {
-	t.Parallel()
-
-	h, _ := newHandler(t)
-
-	rec := callHandler(t, h, http.MethodDelete, "/2015-03-31/functions/fn/aliases/v1", "", nil)
-	require.Equal(t, http.StatusInternalServerError, rec.Code)
-}
-
-func TestHandler_TagsRoute_GetEmpty(t *testing.T) {
-	t.Parallel()
-
-	h, _ := newHandler(t)
-	arn := "arn:aws:lambda:us-east-1:000000000000:function:my-fn"
-
-	rec := callHandler(t, h, http.MethodGet, "/2015-03-31/tags/"+arn, "", nil)
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.NotNil(t, resp["Tags"])
-}
-
-func TestHandler_TagsRoute_PostAndGet(t *testing.T) {
-	t.Parallel()
-
-	h, _ := newHandler(t)
 	arn := "arn:aws:lambda:us-east-1:000000000000:function:my-fn"
 	tagsPath := "/2015-03-31/tags/" + arn
 
-	// Add tags.
-	rec := callHandler(t, h, http.MethodPost, tagsPath,
-		`{"Tags":{"env":"prod","team":"infra"}}`, nil)
-	assert.Equal(t, http.StatusNoContent, rec.Code)
+	tests := []struct {
+		wantTagValues   map[string]string
+		setup           func(*testing.T, *lambda.Handler)
+		verifyTagValues map[string]string
+		verifyPath      string
+		body            string
+		path            string
+		name            string
+		method          string
+		wantTagAbsent   []string
+		verifyTagAbsent []string
+		wantCode        int
+		verifyCode      int
+		wantTagsNotNil  bool
+	}{
+		{
+			name:           "get_empty",
+			method:         http.MethodGet,
+			path:           tagsPath,
+			wantCode:       http.StatusOK,
+			wantTagsNotNil: true,
+		},
+		{
+			name: "post_and_get",
+			setup: func(t *testing.T, h *lambda.Handler) {
+				t.Helper()
+				rec := callHandler(t, h, http.MethodPost, tagsPath, `{"Tags":{"env":"prod","team":"infra"}}`, nil)
+				assert.Equal(t, http.StatusNoContent, rec.Code)
+			},
+			method:        http.MethodGet,
+			path:          tagsPath,
+			wantCode:      http.StatusOK,
+			wantTagValues: map[string]string{"env": "prod", "team": "infra"},
+		},
+		{
+			name: "delete_tag",
+			setup: func(t *testing.T, h *lambda.Handler) {
+				t.Helper()
+				callHandler(t, h, http.MethodPost, tagsPath, `{"Tags":{"env":"prod","team":"infra"}}`, nil)
+			},
+			method:          http.MethodDelete,
+			path:            tagsPath + "?tagKeys=team",
+			wantCode:        http.StatusNoContent,
+			verifyPath:      tagsPath,
+			verifyCode:      http.StatusOK,
+			verifyTagValues: map[string]string{"env": "prod"},
+			verifyTagAbsent: []string{"team"},
+		},
+		{
+			name:     "method_not_allowed",
+			method:   http.MethodPut,
+			path:     tagsPath,
+			wantCode: http.StatusMethodNotAllowed,
+		},
+	}
 
-	// List tags.
-	getRec := callHandler(t, h, http.MethodGet, tagsPath, "", nil)
-	assert.Equal(t, http.StatusOK, getRec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
-	tags := resp["Tags"].(map[string]any)
-	assert.Equal(t, "prod", tags["env"])
-	assert.Equal(t, "infra", tags["team"])
-}
+			h, _ := newHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
 
-func TestHandler_TagsRoute_Delete(t *testing.T) {
-	t.Parallel()
+			rec := callHandler(t, h, tt.method, tt.path, tt.body, nil)
+			assert.Equal(t, tt.wantCode, rec.Code)
 
-	h, _ := newHandler(t)
-	arn := "arn:aws:lambda:us-east-1:000000000000:function:my-fn"
-	tagsPath := "/2015-03-31/tags/" + arn
+			if tt.wantTagsNotNil || len(tt.wantTagValues) > 0 {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				if tt.wantTagsNotNil {
+					assert.NotNil(t, resp["Tags"])
+				}
+				if len(tt.wantTagValues) > 0 {
+					tags, ok := resp["Tags"].(map[string]any)
+					require.True(t, ok)
+					for k, v := range tt.wantTagValues {
+						assert.Equal(t, v, tags[k])
+					}
+				}
+			}
 
-	// Add tags first.
-	callHandler(t, h, http.MethodPost, tagsPath,
-		`{"Tags":{"env":"prod","team":"infra"}}`, nil)
+			if tt.verifyPath != "" {
+				verifyRec := callHandler(t, h, http.MethodGet, tt.verifyPath, "", nil)
+				assert.Equal(t, tt.verifyCode, verifyRec.Code)
 
-	// Delete one tag.
-	rec := callHandler(t, h, http.MethodDelete, tagsPath+"?tagKeys=team", "", nil)
-	assert.Equal(t, http.StatusNoContent, rec.Code)
-
-	// Verify only "env" remains.
-	getRec := callHandler(t, h, http.MethodGet, tagsPath, "", nil)
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
-	tags := resp["Tags"].(map[string]any)
-	assert.Equal(t, "prod", tags["env"])
-	_, hasTeam := tags["team"]
-	assert.False(t, hasTeam)
-}
-
-func TestHandler_TagsRoute_MethodNotAllowed(t *testing.T) {
-	t.Parallel()
-
-	h, _ := newHandler(t)
-	arn := "arn:aws:lambda:us-east-1:000000000000:function:my-fn"
-
-	rec := callHandler(t, h, http.MethodPut, "/2015-03-31/tags/"+arn, "", nil)
-	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
+				if len(tt.verifyTagValues) > 0 || len(tt.verifyTagAbsent) > 0 {
+					var resp map[string]any
+					require.NoError(t, json.Unmarshal(verifyRec.Body.Bytes(), &resp))
+					tags, ok := resp["Tags"].(map[string]any)
+					require.True(t, ok)
+					for k, v := range tt.verifyTagValues {
+						assert.Equal(t, v, tags[k])
+					}
+					for _, k := range tt.verifyTagAbsent {
+						_, present := tags[k]
+						assert.False(t, present, "tag %q should be absent", k)
+					}
+				}
+			}
+		})
+	}
 }
