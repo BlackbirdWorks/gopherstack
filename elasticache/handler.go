@@ -465,13 +465,16 @@ func xmlResp(c *echo.Context, status int, v any) error {
 	return nil
 }
 
+// xmlErrorDetail holds the error code and message for an ElastiCache XML error.
+type xmlErrorDetail struct {
+	Code    string `xml:"Code"`
+	Message string `xml:"Message"`
+}
+
 type xmlErrorResp struct {
-	XMLName xml.Name `xml:"ErrorResponse"`
-	Error   struct {
-		Code    string `xml:"Code"`
-		Message string `xml:"Message"`
-	} `xml:"Error"`
-	RequestID string `xml:"RequestId"`
+	XMLName   xml.Name       `xml:"ErrorResponse"`
+	Error     xmlErrorDetail `xml:"Error"`
+	RequestID string         `xml:"RequestId"`
 }
 
 func xmlError(c *echo.Context, status int, code, message string) error {

@@ -469,27 +469,13 @@ func (h *Handler) handleGetSubscriptionAttributes(c *echo.Context) error {
 func (h *Handler) handleListTagsForResource(c *echo.Context) error {
 	resourceArn := c.Request().FormValue("ResourceArn")
 	tags := h.Backend.GetTopicTags(resourceArn)
-	type snsTag struct {
-		Key   string `xml:"Key"`
-		Value string `xml:"Value"`
-	}
 	tagList := make([]snsTag, 0, len(tags))
 	for k, v := range tags {
 		tagList = append(tagList, snsTag{Key: k, Value: v})
 	}
 
-	return h.writeXML(c, struct {
-		XMLName          xml.Name         `xml:"https://sns.amazonaws.com/doc/2010-03-31/ ListTagsForResourceResponse"`
-		ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
-		Result           struct {
-			XMLName xml.Name `xml:"ListTagsForResourceResult"`
-			Tags    []snsTag `xml:"Tags>Tag"`
-		}
-	}{
-		Result: struct {
-			XMLName xml.Name `xml:"ListTagsForResourceResult"`
-			Tags    []snsTag `xml:"Tags>Tag"`
-		}{Tags: tagList},
+	return h.writeXML(c, snsListTagsResponse{
+		Result:           snsListTagsResult{Tags: tagList},
 		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
 	})
 }
@@ -523,9 +509,7 @@ func (h *Handler) handleTagResource(c *echo.Context) error {
 	kv := parseSNSTagsFromForm(c)
 	h.Backend.SetTopicTags(resourceArn, svcTags.FromMap("sns."+resourceArn+".tags.input", kv))
 
-	return h.writeXML(c, struct {
-		XMLName xml.Name `xml:"https://sns.amazonaws.com/doc/2010-03-31/ TagResourceResponse"`
-	}{})
+	return h.writeXML(c, snsTagResourceResponse{})
 }
 
 func (h *Handler) handleUntagResource(c *echo.Context) error {
@@ -533,9 +517,7 @@ func (h *Handler) handleUntagResource(c *echo.Context) error {
 	keys := parseSNSTagKeysFromForm(c)
 	h.Backend.RemoveTopicTags(resourceArn, keys)
 
-	return h.writeXML(c, struct {
-		XMLName xml.Name `xml:"https://sns.amazonaws.com/doc/2010-03-31/ UntagResourceResponse"`
-	}{})
+	return h.writeXML(c, snsUntagResourceResponse{})
 }
 
 // writeXML marshals v to XML and writes an HTTP 200 OK response.
@@ -678,6 +660,35 @@ type batchEntry struct {
 	id      string
 	message string
 	subject string
+}
+
+// snsTag is a key-value pair used in SNS tag XML responses.
+type snsTag struct {
+	Key   string `xml:"Key"`
+	Value string `xml:"Value"`
+}
+
+// snsListTagsResult is the inner result element for ListTagsForResource.
+type snsListTagsResult struct {
+	XMLName xml.Name `xml:"ListTagsForResourceResult"`
+	Tags    []snsTag `xml:"Tags>Tag"`
+}
+
+// snsListTagsResponse is the XML response for ListTagsForResource.
+type snsListTagsResponse struct {
+	XMLName          xml.Name           `xml:"https://sns.amazonaws.com/doc/2010-03-31/ ListTagsForResourceResponse"`
+	ResponseMetadata ResponseMetadata   `xml:"ResponseMetadata"`
+	Result           snsListTagsResult
+}
+
+// snsTagResourceResponse is the XML response for TagResource.
+type snsTagResourceResponse struct {
+	XMLName xml.Name `xml:"https://sns.amazonaws.com/doc/2010-03-31/ TagResourceResponse"`
+}
+
+// snsUntagResourceResponse is the XML response for UntagResource.
+type snsUntagResourceResponse struct {
+	XMLName xml.Name `xml:"https://sns.amazonaws.com/doc/2010-03-31/ UntagResourceResponse"`
 }
 
 // extractBatchEntries reads PublishBatchRequestEntries.member.N entries from the form.

@@ -15,13 +15,16 @@ const (
 	sseKeepAliveInterval = 2 * time.Second
 )
 
+// consoleIndexData is the template data for the Live API Console page.
+type consoleIndexData struct {
+	PageData
+}
+
 // consoleIndex renders the Live API Console page.
 func (h *DashboardHandler) consoleIndex(c *echo.Context) error {
 	w := c.Response()
 
-	data := struct {
-		PageData
-	}{
+	data := consoleIndexData{
 		PageData: PageData{
 			Title:     "Live Console",
 			ActiveTab: "console",

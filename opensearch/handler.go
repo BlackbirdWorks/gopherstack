@@ -99,14 +99,17 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	return strings.TrimSuffix(rest, "/")
 }
 
+// domainClusterConfig holds the cluster configuration request parameters for a domain.
+type domainClusterConfig struct {
+	InstanceType  string `json:"InstanceType"`
+	InstanceCount int    `json:"InstanceCount"`
+}
+
 // domainJSON is the JSON request body for CreateDomain.
 type domainJSON struct {
-	ClusterConfig *struct {
-		InstanceType  string `json:"InstanceType"`
-		InstanceCount int    `json:"InstanceCount"`
-	} `json:"ClusterConfig"`
-	DomainName    string `json:"DomainName"`
-	EngineVersion string `json:"EngineVersion"`
+	ClusterConfig *domainClusterConfig `json:"ClusterConfig"`
+	DomainName    string               `json:"DomainName"`
+	EngineVersion string               `json:"EngineVersion"`
 }
 
 // domainStatusJSON is the JSON response for domain operations.
@@ -389,14 +392,17 @@ type opensearchConfigValue struct {
 	Status  opensearchConfigStatus `json:"Status"`
 }
 
+// domainConfigFields holds the per-feature configuration values for a domain.
+type domainConfigFields struct {
+	EngineVersion   opensearchConfigValue `json:"EngineVersion"`
+	ClusterConfig   opensearchConfigValue `json:"ClusterConfig"`
+	EBSOptions      opensearchConfigValue `json:"EBSOptions"`
+	AccessPolicies  opensearchConfigValue `json:"AccessPolicies"`
+	AdvancedOptions opensearchConfigValue `json:"AdvancedOptions"`
+}
+
 type describeDomainConfigOutput struct {
-	DomainConfig struct {
-		EngineVersion   opensearchConfigValue `json:"EngineVersion"`
-		ClusterConfig   opensearchConfigValue `json:"ClusterConfig"`
-		EBSOptions      opensearchConfigValue `json:"EBSOptions"`
-		AccessPolicies  opensearchConfigValue `json:"AccessPolicies"`
-		AdvancedOptions opensearchConfigValue `json:"AdvancedOptions"`
-	} `json:"DomainConfig"`
+	DomainConfig domainConfigFields `json:"DomainConfig"`
 }
 
 func (h *Handler) handleListTags(w http.ResponseWriter, r *http.Request) {

@@ -144,14 +144,17 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	}
 }
 
+// resolverEndpointIPAddress holds the subnet and IP for a resolver endpoint IP address.
+type resolverEndpointIPAddress struct {
+	SubnetID string `json:"SubnetId"`
+	IP       string `json:"Ip"`
+}
+
 type handleCreateResolverEndpointInput struct {
-	Name             string   `json:"Name"`
-	Direction        string   `json:"Direction"`
-	SecurityGroupIDs []string `json:"SecurityGroupIds"`
-	IPAddresses      []struct {
-		SubnetID string `json:"SubnetId"`
-		IP       string `json:"Ip"`
-	} `json:"IpAddresses"`
+	Name             string                      `json:"Name"`
+	Direction        string                      `json:"Direction"`
+	SecurityGroupIDs []string                    `json:"SecurityGroupIds"`
+	IPAddresses      []resolverEndpointIPAddress `json:"IpAddresses"`
 }
 
 type handleCreateResolverRuleInput struct {

@@ -331,28 +331,34 @@ type xmlListResourceRecordSetsResponse struct {
 // ---- XML request types ----
 
 type xmlCreateHostedZoneRequest struct {
-	XMLName          xml.Name `xml:"CreateHostedZoneRequest"`
-	Name             string   `xml:"Name"`
-	CallerReference  string   `xml:"CallerReference"`
-	HostedZoneConfig struct {
-		Comment     string `xml:"Comment"`
-		PrivateZone bool   `xml:"PrivateZone"`
-	} `xml:"HostedZoneConfig"`
+	XMLName          xml.Name            `xml:"CreateHostedZoneRequest"`
+	Name             string              `xml:"Name"`
+	CallerReference  string              `xml:"CallerReference"`
+	HostedZoneConfig xmlHostedZoneConfig `xml:"HostedZoneConfig"`
+}
+
+// xmlResourceRecordValue is a single DNS resource record value.
+type xmlResourceRecordValue struct {
+	Value string `xml:"Value"`
+}
+
+// xmlResourceRecordSetChange is the ResourceRecordSet element within a change batch entry.
+type xmlResourceRecordSetChange struct {
+	Name            string                   `xml:"Name"`
+	Type            string                   `xml:"Type"`
+	ResourceRecords []xmlResourceRecordValue `xml:"ResourceRecords>ResourceRecord"`
+	TTL             int64                    `xml:"TTL"`
+}
+
+// xmlChange is a single change entry within a ChangeBatch.
+type xmlChange struct {
+	Action            string                     `xml:"Action"`
+	ResourceRecordSet xmlResourceRecordSetChange `xml:"ResourceRecordSet"`
 }
 
 type xmlChangeBatch struct {
-	XMLName xml.Name `xml:"ChangeBatch"`
-	Changes []struct {
-		Action            string `xml:"Action"`
-		ResourceRecordSet struct {
-			Name            string `xml:"Name"`
-			Type            string `xml:"Type"`
-			ResourceRecords []struct {
-				Value string `xml:"Value"`
-			} `xml:"ResourceRecords>ResourceRecord"`
-			TTL int64 `xml:"TTL"`
-		} `xml:"ResourceRecordSet"`
-	} `xml:"Changes>Change"`
+	XMLName xml.Name    `xml:"ChangeBatch"`
+	Changes []xmlChange `xml:"Changes>Change"`
 }
 
 type xmlChangeResourceRecordSetsRequest struct {
@@ -652,12 +658,15 @@ func (h *Handler) changeTagsForResource(c *echo.Context) error {
 	return writeXML(c, http.StatusOK, changeTagsResp{Xmlns: route53Namespace})
 }
 
+// xmlTagKV is a key-value tag pair used in Route53 XML tag requests.
+type xmlTagKV struct {
+	Key   string `xml:"Key"`
+	Value string `xml:"Value"`
+}
+
 type applyTagChangesInput struct {
-	AddTags []struct {
-		Key   string `xml:"Key"`
-		Value string `xml:"Value"`
-	} `xml:"AddTags>Tag"`
-	RemoveTagKeys []string `xml:"RemoveTagKeys>Key"`
+	AddTags       []xmlTagKV `xml:"AddTags>Tag"`
+	RemoveTagKeys []string   `xml:"RemoveTagKeys>Key"`
 }
 
 // applyTagChanges reads a ChangeTagsForResource XML body and applies the add/remove operations.
@@ -711,18 +720,22 @@ func writeXML(c *echo.Context, statusCode int, v any) error {
 	return nil
 }
 
+// xmlErrDetail is the nested error detail element in a Route53 error response.
+type xmlErrDetail struct {
+	Type    string `xml:"Type"`
+	Code    string `xml:"Code"`
+	Message string `xml:"Message"`
+}
+
+// xmlErrResp is the XML error response body for Route53.
+type xmlErrResp struct {
+	XMLName xml.Name     `xml:"ErrorResponse"`
+	Xmlns   string       `xml:"xmlns,attr"`
+	Error   xmlErrDetail `xml:"Error"`
+}
+
 // xmlError writes a Route 53-style XML error response.
 func xmlError(c *echo.Context, statusCode int, code, message string) error {
-	type xmlErrResp struct {
-		XMLName xml.Name `xml:"ErrorResponse"`
-		Xmlns   string   `xml:"xmlns,attr"`
-		Error   struct {
-			Type    string `xml:"Type"`
-			Code    string `xml:"Code"`
-			Message string `xml:"Message"`
-		} `xml:"Error"`
-	}
-
 	resp := xmlErrResp{Xmlns: route53Namespace}
 	resp.Error.Type = "Sender"
 	resp.Error.Code = code

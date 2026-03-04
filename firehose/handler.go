@@ -224,11 +224,14 @@ func (h *Handler) handleListDeliveryStreams(
 	}, nil
 }
 
+// firehoseRecord holds the base64-encoded data for a single Firehose record.
+type firehoseRecord struct {
+	Data string `json:"Data"`
+}
+
 type handlePutRecordInput struct {
-	DeliveryStreamName string `json:"DeliveryStreamName"`
-	Record             struct {
-		Data string `json:"Data"`
-	} `json:"Record"`
+	DeliveryStreamName string         `json:"DeliveryStreamName"`
+	Record             firehoseRecord `json:"Record"`
 }
 
 type putRecordOutput struct {
@@ -249,10 +252,8 @@ func (h *Handler) handlePutRecord(_ context.Context, in *handlePutRecordInput) (
 }
 
 type handlePutRecordBatchInput struct {
-	DeliveryStreamName string `json:"DeliveryStreamName"`
-	Records            []struct {
-		Data string `json:"Data"`
-	} `json:"Records"`
+	DeliveryStreamName string           `json:"DeliveryStreamName"`
+	Records            []firehoseRecord `json:"Records"`
 }
 
 type putRecordBatchOutput struct {

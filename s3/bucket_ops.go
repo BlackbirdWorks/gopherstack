@@ -22,6 +22,32 @@ type createBucketConfiguration struct {
 	LocationConstraint string `xml:"LocationConstraint"`
 }
 
+// s3BucketLoggingStatus is the XML response for GetBucketLogging (empty by default).
+type s3BucketLoggingStatus struct {
+	XMLName xml.Name `xml:"BucketLoggingStatus"`
+	Xmlns   string   `xml:"xmlns,attr"`
+}
+
+// s3RequestPaymentConfiguration is the XML response for GetBucketRequestPayment.
+type s3RequestPaymentConfiguration struct {
+	XMLName xml.Name `xml:"RequestPaymentConfiguration"`
+	Xmlns   string   `xml:"xmlns,attr"`
+	Payer   string   `xml:"Payer"`
+}
+
+// s3ListIntelligentTieringOutput is the XML response for ListBucketIntelligentTieringConfigurations.
+type s3ListIntelligentTieringOutput struct {
+	XMLName                         xml.Name `xml:"ListBucketIntelligentTieringConfigurationsOutput"`
+	Xmlns                           string   `xml:"xmlns,attr"`
+	IntelligentTieringConfiguration []any    `xml:"IntelligentTieringConfiguration"`
+	IsTruncated                     bool     `xml:"IsTruncated"`
+}
+
+// s3NotificationConfiguration is the XML response for GetBucketNotificationConfiguration (empty).
+type s3NotificationConfiguration struct {
+	XMLName xml.Name `xml:"NotificationConfiguration"`
+}
+
 func (h *S3Handler) handleBucketOperation(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -189,10 +215,7 @@ func (h *S3Handler) routeBucketGetStubs(
 		}, http.StatusNotFound)
 	case q.Has("logging"):
 		h.setOperation(ctx, "GetBucketLogging")
-		httputil.WriteXML(log, w, http.StatusOK, struct {
-			XMLName xml.Name `xml:"BucketLoggingStatus"`
-			Xmlns   string   `xml:"xmlns,attr"`
-		}{Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/"})
+		httputil.WriteXML(log, w, http.StatusOK, s3BucketLoggingStatus{Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/"})
 	case q.Has("replication"):
 		h.setOperation(ctx, "GetBucketReplication")
 		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
@@ -201,11 +224,7 @@ func (h *S3Handler) routeBucketGetStubs(
 		}, http.StatusNotFound)
 	case q.Has("request-payment"):
 		h.setOperation(ctx, "GetBucketRequestPayment")
-		httputil.WriteXML(log, w, http.StatusOK, struct {
-			XMLName xml.Name `xml:"RequestPaymentConfiguration"`
-			Xmlns   string   `xml:"xmlns,attr"`
-			Payer   string   `xml:"Payer"`
-		}{Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/", Payer: "BucketOwner"})
+		httputil.WriteXML(log, w, http.StatusOK, s3RequestPaymentConfiguration{Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/", Payer: "BucketOwner"})
 	case q.Has("encryption"):
 		h.setOperation(ctx, "GetBucketEncryption")
 		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
@@ -214,12 +233,7 @@ func (h *S3Handler) routeBucketGetStubs(
 		}, http.StatusNotFound)
 	case q.Has("intelligent-tiering"):
 		h.setOperation(ctx, "ListBucketIntelligentTieringConfigurations")
-		httputil.WriteXML(log, w, http.StatusOK, struct {
-			XMLName                         xml.Name `xml:"ListBucketIntelligentTieringConfigurationsOutput"`
-			Xmlns                           string   `xml:"xmlns,attr"`
-			IntelligentTieringConfiguration []any    `xml:"IntelligentTieringConfiguration"`
-			IsTruncated                     bool     `xml:"IsTruncated"`
-		}{Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/"})
+		httputil.WriteXML(log, w, http.StatusOK, s3ListIntelligentTieringOutput{Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/"})
 	default:
 		return false
 	}
@@ -979,9 +993,7 @@ func (h *S3Handler) getBucketNotificationConfiguration(
 	}
 	if notifXML == "" {
 		// Return empty notification config
-		httputil.WriteXML(log, w, http.StatusOK, struct {
-			XMLName xml.Name `xml:"NotificationConfiguration"`
-		}{})
+		httputil.WriteXML(log, w, http.StatusOK, s3NotificationConfiguration{})
 
 		return
 	}
