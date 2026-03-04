@@ -620,3 +620,44 @@ func TestOpenSearchHandler_CreateDomain_WithClusterConfig(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(bodyBytes), "r5.large.search")
 }
+
+// mockDNSRegistrar is a test double for opensearch.DNSRegistrar.
+type mockDNSRegistrar struct {
+	registered map[string]bool
+}
+
+func (m *mockDNSRegistrar) Register(hostname string) {
+	m.registered[hostname] = true
+}
+
+func (m *mockDNSRegistrar) Deregister(hostname string) {
+	delete(m.registered, hostname)
+}
+
+func TestOpenSearchBackend_DNSRegistrar_RegisterOnCreate(t *testing.T) {
+	t.Parallel()
+
+	registrar := &mockDNSRegistrar{registered: make(map[string]bool)}
+	b := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
+	b.SetDNSRegistrar(registrar)
+
+	domain, err := b.CreateDomain("my-domain", "", opensearch.ClusterConfig{})
+	require.NoError(t, err)
+	assert.True(t, registrar.registered[domain.Endpoint])
+}
+
+func TestOpenSearchBackend_DNSRegistrar_DeregisterOnDelete(t *testing.T) {
+	t.Parallel()
+
+	registrar := &mockDNSRegistrar{registered: make(map[string]bool)}
+	b := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
+	b.SetDNSRegistrar(registrar)
+
+	domain, err := b.CreateDomain("del-domain", "", opensearch.ClusterConfig{})
+	require.NoError(t, err)
+	require.True(t, registrar.registered[domain.Endpoint])
+
+	_, err = b.DeleteDomain("del-domain")
+	require.NoError(t, err)
+	assert.False(t, registrar.registered[domain.Endpoint])
+}

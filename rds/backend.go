@@ -72,8 +72,15 @@ type Tag struct {
 	Value string `json:"value"`
 }
 
+// DNSRegistrar can register and deregister hostnames with an embedded DNS server.
+type DNSRegistrar interface {
+	Register(hostname string)
+	Deregister(hostname string)
+}
+
 // InMemoryBackend is the in-memory store for RDS resources.
 type InMemoryBackend struct {
+	dnsRegistrar DNSRegistrar
 	instances    map[string]*DBInstance
 	snapshots    map[string]*DBSnapshot
 	subnetGroups map[string]*DBSubnetGroup
@@ -94,6 +101,13 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		region:       region,
 		mu:           lockmetrics.New("rds"),
 	}
+}
+
+// SetDNSRegistrar wires a DNS server so RDS instance hostnames are auto-registered.
+func (b *InMemoryBackend) SetDNSRegistrar(dns DNSRegistrar) {
+	b.mu.Lock("SetDNSRegistrar")
+	b.dnsRegistrar = dns
+	b.mu.Unlock()
 }
 
 // enginePort returns the default port for the given database engine.
@@ -152,6 +166,10 @@ func (b *InMemoryBackend) CreateDBInstance(
 	}
 	b.instances[id] = inst
 
+	if b.dnsRegistrar != nil {
+		b.dnsRegistrar.Register(endpoint)
+	}
+
 	cp := *inst
 
 	return &cp, nil
@@ -169,6 +187,10 @@ func (b *InMemoryBackend) DeleteDBInstance(id string) (*DBInstance, error) {
 
 	cp := *inst
 	delete(b.instances, id)
+
+	if b.dnsRegistrar != nil {
+		b.dnsRegistrar.Deregister(cp.Endpoint)
+	}
 
 	return &cp, nil
 }

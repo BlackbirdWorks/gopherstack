@@ -510,3 +510,44 @@ func TestRDSHandler_RemoveTagsFromResource(t *testing.T) {
 	assert.NotContains(t, body, "<Key>Env</Key>")
 	assert.Contains(t, body, "<Key>Team</Key>")
 }
+
+// mockDNSRegistrar is a test double for rds.DNSRegistrar.
+type mockDNSRegistrar struct {
+	registered map[string]bool
+}
+
+func (m *mockDNSRegistrar) Register(hostname string) {
+	m.registered[hostname] = true
+}
+
+func (m *mockDNSRegistrar) Deregister(hostname string) {
+	delete(m.registered, hostname)
+}
+
+func TestRDSBackend_DNSRegistrar_RegisterOnCreate(t *testing.T) {
+	t.Parallel()
+
+	registrar := &mockDNSRegistrar{registered: make(map[string]bool)}
+	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	b.SetDNSRegistrar(registrar)
+
+	inst, err := b.CreateDBInstance("my-db", "postgres", "", "", "", 0)
+	require.NoError(t, err)
+	assert.True(t, registrar.registered[inst.Endpoint])
+}
+
+func TestRDSBackend_DNSRegistrar_DeregisterOnDelete(t *testing.T) {
+	t.Parallel()
+
+	registrar := &mockDNSRegistrar{registered: make(map[string]bool)}
+	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	b.SetDNSRegistrar(registrar)
+
+	inst, err := b.CreateDBInstance("del-db", "postgres", "", "", "", 0)
+	require.NoError(t, err)
+	require.True(t, registrar.registered[inst.Endpoint])
+
+	_, err = b.DeleteDBInstance("del-db")
+	require.NoError(t, err)
+	assert.False(t, registrar.registered[inst.Endpoint])
+}

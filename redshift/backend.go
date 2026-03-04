@@ -15,6 +15,12 @@ var (
 	ErrInvalidParameter     = errors.New("InvalidParameterValue")
 )
 
+// DNSRegistrar can register and deregister hostnames with an embedded DNS server.
+type DNSRegistrar interface {
+	Register(hostname string)
+	Deregister(hostname string)
+}
+
 // Cluster represents a Redshift cluster.
 type Cluster struct {
 	Tags              *tags.Tags `json:"tags,omitempty"`
@@ -28,10 +34,11 @@ type Cluster struct {
 
 // InMemoryBackend is the in-memory store for Redshift clusters.
 type InMemoryBackend struct {
-	clusters  map[string]*Cluster
-	mu        *lockmetrics.RWMutex
-	accountID string
-	region    string
+	dnsRegistrar DNSRegistrar
+	clusters     map[string]*Cluster
+	mu           *lockmetrics.RWMutex
+	accountID    string
+	region       string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -42,6 +49,13 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		region:    region,
 		mu:        lockmetrics.New("redshift"),
 	}
+}
+
+// SetDNSRegistrar wires a DNS server so Redshift cluster hostnames are auto-registered.
+func (b *InMemoryBackend) SetDNSRegistrar(dns DNSRegistrar) {
+	b.mu.Lock("SetDNSRegistrar")
+	b.dnsRegistrar = dns
+	b.mu.Unlock()
 }
 
 // CreateCluster creates a new Redshift cluster.
@@ -79,6 +93,10 @@ func (b *InMemoryBackend) CreateCluster(id, nodeType, dbName, masterUser string)
 	}
 	b.clusters[id] = cluster
 
+	if b.dnsRegistrar != nil {
+		b.dnsRegistrar.Register(endpoint)
+	}
+
 	cp := *cluster
 
 	return &cp, nil
@@ -96,6 +114,10 @@ func (b *InMemoryBackend) DeleteCluster(id string) (*Cluster, error) {
 
 	cp := *cluster
 	delete(b.clusters, id)
+
+	if b.dnsRegistrar != nil {
+		b.dnsRegistrar.Deregister(cp.Endpoint)
+	}
 
 	return &cp, nil
 }

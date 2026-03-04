@@ -492,6 +492,9 @@ func run(ctx context.Context, cli CLI) error {
 	if dnsSrv != nil {
 		wireLambdaDNS(cli.lambdaHandler, dnsSrv)
 		wireRoute53DNS(cli.route53Handler, dnsSrv)
+		wireRDSDNS(cli.rdsHandler, dnsSrv)
+		wireRedshiftDNS(cli.redshiftHandler, dnsSrv)
+		wireOpenSearchDNS(cli.openSearchHandler, dnsSrv)
 	}
 
 	e := echo.New()
@@ -1260,6 +1263,51 @@ func wireRoute53DNS(r53Reg service.Registerable, dns route53backend.DNSRegistrar
 	}
 
 	r53H.Backend.SetDNSRegistrar(dns)
+}
+
+// wireRDSDNS sets the DNS registrar on the RDS backend so that instance hostnames
+// are automatically registered with the embedded DNS server.
+func wireRDSDNS(rdsReg service.Registerable, dns rdsbackend.DNSRegistrar) {
+	if rdsReg == nil || dns == nil {
+		return
+	}
+
+	rdsH, ok := rdsReg.(*rdsbackend.Handler)
+	if !ok {
+		return
+	}
+
+	rdsH.Backend.SetDNSRegistrar(dns)
+}
+
+// wireRedshiftDNS sets the DNS registrar on the Redshift backend so that cluster
+// hostnames are automatically registered with the embedded DNS server.
+func wireRedshiftDNS(redshiftReg service.Registerable, dns redshiftbackend.DNSRegistrar) {
+	if redshiftReg == nil || dns == nil {
+		return
+	}
+
+	redshiftH, ok := redshiftReg.(*redshiftbackend.Handler)
+	if !ok {
+		return
+	}
+
+	redshiftH.Backend.SetDNSRegistrar(dns)
+}
+
+// wireOpenSearchDNS sets the DNS registrar on the OpenSearch backend so that domain
+// hostnames are automatically registered with the embedded DNS server.
+func wireOpenSearchDNS(osReg service.Registerable, dns opensearchbackend.DNSRegistrar) {
+	if osReg == nil || dns == nil {
+		return
+	}
+
+	osH, ok := osReg.(*opensearchbackend.Handler)
+	if !ok {
+		return
+	}
+
+	osH.Backend.SetDNSRegistrar(dns)
 }
 
 // extractServiceName finds the service name for a given Echo context by checking
