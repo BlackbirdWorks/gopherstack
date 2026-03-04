@@ -16,7 +16,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
-	"github.com/blackbirdworks/gopherstack/pkgs/tags"
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 const (
@@ -35,7 +35,7 @@ const (
 type Handler struct {
 	Backend *InMemoryBackend
 	Logger  *slog.Logger
-	tags    map[string]*tags.Tags
+	tags    map[string]*svcTags.Tags
 	tagsMu  *lockmetrics.RWMutex
 }
 
@@ -48,7 +48,7 @@ func NewHandler(backend *InMemoryBackend, log *slog.Logger) *Handler {
 	return &Handler{
 		Backend: backend,
 		Logger:  log,
-		tags:    make(map[string]*tags.Tags),
+		tags:    make(map[string]*svcTags.Tags),
 		tagsMu:  lockmetrics.New("route53.tags"),
 	}
 }
@@ -57,7 +57,7 @@ func (h *Handler) setTags(resourceID string, kv map[string]string) {
 	h.tagsMu.Lock("setTags")
 	defer h.tagsMu.Unlock()
 	if h.tags[resourceID] == nil {
-		h.tags[resourceID] = tags.New("route53." + resourceID + ".tags")
+		h.tags[resourceID] = svcTags.New("route53." + resourceID + ".tags")
 	}
 	h.tags[resourceID].Merge(kv)
 }
@@ -653,15 +653,9 @@ func (h *Handler) changeTagsForResource(c *echo.Context) error {
 	return writeXML(c, http.StatusOK, changeTagsResp{Xmlns: route53Namespace})
 }
 
-// xmlTagKV is a key-value tag pair used in Route53 XML tag requests.
-type xmlTagKV struct {
-	Key   string `xml:"Key"`
-	Value string `xml:"Value"`
-}
-
 type applyTagChangesInput struct {
-	AddTags       []xmlTagKV `xml:"AddTags>Tag"`
-	RemoveTagKeys []string   `xml:"RemoveTagKeys>Key"`
+	AddTags       []svcTags.KV `xml:"AddTags>Tag"`
+	RemoveTagKeys []string     `xml:"RemoveTagKeys>Key"`
 }
 
 // applyTagChanges reads a ChangeTagsForResource XML body and applies the add/remove operations.

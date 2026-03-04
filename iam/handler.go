@@ -17,7 +17,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
-	"github.com/blackbirdworks/gopherstack/pkgs/tags"
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // iamAPIVersion is the IAM query protocol version used to identify IAM requests.
@@ -31,7 +31,7 @@ type Handler struct {
 	Backend StorageBackend
 	Logger  *slog.Logger
 	actions map[string]iamActionFn
-	tags    map[string]*tags.Tags
+	tags    map[string]*svcTags.Tags
 	tagsMu  *lockmetrics.RWMutex
 }
 
@@ -40,7 +40,7 @@ func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
 	h := &Handler{
 		Backend: backend,
 		Logger:  log,
-		tags:    make(map[string]*tags.Tags),
+		tags:    make(map[string]*svcTags.Tags),
 		tagsMu:  lockmetrics.New("iam.tags"),
 	}
 	h.actions = h.buildDispatchTable()
@@ -52,7 +52,7 @@ func (h *Handler) setTags(resourceID string, kv map[string]string) {
 	h.tagsMu.Lock("setTags")
 	defer h.tagsMu.Unlock()
 	if h.tags[resourceID] == nil {
-		h.tags[resourceID] = tags.New("iam." + resourceID + ".tags")
+		h.tags[resourceID] = svcTags.New("iam." + resourceID + ".tags")
 	}
 	h.tags[resourceID].Merge(kv)
 }
@@ -229,18 +229,12 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 type iamActionFn func(vals url.Values, reqID string) (any, error)
 
-// iamTagMember is a key-value tag pair used in IAM list-tags XML responses.
-type iamTagMember struct {
-	Key   string `xml:"Key"`
-	Value string `xml:"Value"`
-}
-
 // iamListTagsResult is the inner result element for ListRoleTags, ListPolicyTags, and ListUserTags.
 // The XMLName field is set dynamically per action to produce the correct element name.
 type iamListTagsResult struct {
-	XMLName     xml.Name       `xml:""`
-	Tags        []iamTagMember `xml:"Tags>member"`
-	IsTruncated bool           `xml:"IsTruncated"`
+	XMLName     xml.Name     `xml:""`
+	Tags        []svcTags.KV `xml:"Tags>member"`
+	IsTruncated bool         `xml:"IsTruncated"`
 }
 
 // iamListTagsResponse is the XML envelope for ListRoleTags, ListPolicyTags, and ListUserTags.
@@ -714,9 +708,9 @@ func (h *Handler) iamListTagActions() map[string]iamActionFn {
 		"ListRoleTags": func(vals url.Values, reqID string) (any, error) {
 			roleName := vals.Get("RoleName")
 			tags := h.getTags(roleName)
-			members := make([]iamTagMember, 0, len(tags))
+			members := make([]svcTags.KV, 0, len(tags))
 			for k, v := range tags {
-				members = append(members, iamTagMember{Key: k, Value: v})
+				members = append(members, svcTags.KV{Key: k, Value: v})
 			}
 
 			return &iamListTagsResponse{
@@ -729,9 +723,9 @@ func (h *Handler) iamListTagActions() map[string]iamActionFn {
 		"ListPolicyTags": func(vals url.Values, reqID string) (any, error) {
 			policyArn := vals.Get("PolicyArn")
 			tags := h.getTags(policyArn)
-			members := make([]iamTagMember, 0, len(tags))
+			members := make([]svcTags.KV, 0, len(tags))
 			for k, v := range tags {
-				members = append(members, iamTagMember{Key: k, Value: v})
+				members = append(members, svcTags.KV{Key: k, Value: v})
 			}
 
 			return &iamListTagsResponse{
@@ -744,9 +738,9 @@ func (h *Handler) iamListTagActions() map[string]iamActionFn {
 		"ListUserTags": func(vals url.Values, reqID string) (any, error) {
 			userName := vals.Get("UserName")
 			tags := h.getTags(userName)
-			members := make([]iamTagMember, 0, len(tags))
+			members := make([]svcTags.KV, 0, len(tags))
 			for k, v := range tags {
-				members = append(members, iamTagMember{Key: k, Value: v})
+				members = append(members, svcTags.KV{Key: k, Value: v})
 			}
 
 			return &iamListTagsResponse{

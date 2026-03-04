@@ -15,6 +15,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 const firehoseTargetPrefix = "Firehose_20150804."
@@ -286,32 +287,23 @@ func (h *Handler) handlePutRecordBatch(
 	}, nil
 }
 
-type firehoseTag struct {
-	Key   string `json:"Key"`
-	Value string `json:"Value"`
-}
-
-type listTagsInput struct {
-	DeliveryStreamName string `json:"DeliveryStreamName"`
-}
-
 type listTagsForDeliveryStreamOutput struct {
-	Tags        []firehoseTag `json:"Tags"`
-	HasMoreTags bool          `json:"HasMoreTags"`
+	Tags        []svcTags.KV `json:"Tags"`
+	HasMoreTags bool         `json:"HasMoreTags"`
 }
 
 func (h *Handler) handleListTagsForDeliveryStream(
 	_ context.Context,
-	in *listTagsInput,
+	in *deliveryStreamNameInput,
 ) (*listTagsForDeliveryStreamOutput, error) {
 	tags, err := h.Backend.ListTagsForDeliveryStream(in.DeliveryStreamName)
 	if err != nil {
 		return nil, err
 	}
 
-	tagList := make([]firehoseTag, 0, len(tags))
+	tagList := make([]svcTags.KV, 0, len(tags))
 	for k, v := range tags {
-		tagList = append(tagList, firehoseTag{Key: k, Value: v})
+		tagList = append(tagList, svcTags.KV{Key: k, Value: v})
 	}
 
 	return &listTagsForDeliveryStreamOutput{
@@ -321,8 +313,8 @@ func (h *Handler) handleListTagsForDeliveryStream(
 }
 
 type tagDeliveryStreamInput struct {
-	DeliveryStreamName string        `json:"DeliveryStreamName"`
-	Tags               []firehoseTag `json:"Tags"`
+	DeliveryStreamName string       `json:"DeliveryStreamName"`
+	Tags               []svcTags.KV `json:"Tags"`
 }
 
 type tagDeliveryStreamOutput struct{}

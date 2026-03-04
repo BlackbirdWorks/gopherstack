@@ -16,7 +16,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
-	"github.com/blackbirdworks/gopherstack/pkgs/tags"
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 var errUnknownOperation = errors.New("UnknownOperationException")
@@ -94,14 +94,9 @@ type listTagsForResourceInput struct {
 	ResourceARN string `json:"ResourceARN"`
 }
 
-type ebTag struct {
-	Key   string `json:"Key"`
-	Value string `json:"Value"`
-}
-
 type tagResourceInput struct {
-	ResourceARN string  `json:"ResourceARN"`
-	Tags        []ebTag `json:"Tags"`
+	ResourceARN string       `json:"ResourceARN"`
+	Tags        []svcTags.KV `json:"Tags"`
 }
 
 type untagResourceInput struct {
@@ -114,7 +109,7 @@ type Handler struct {
 	Backend   StorageBackend
 	Logger    *slog.Logger
 	scheduler *Scheduler
-	tags      map[string]*tags.Tags
+	tags      map[string]*svcTags.Tags
 	tagsMu    *lockmetrics.RWMutex
 }
 
@@ -123,7 +118,7 @@ func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
 	return &Handler{
 		Backend: backend,
 		Logger:  log,
-		tags:    make(map[string]*tags.Tags),
+		tags:    make(map[string]*svcTags.Tags),
 		tagsMu:  lockmetrics.New("eb.tags"),
 	}
 }
@@ -132,7 +127,7 @@ func (h *Handler) setTags(resourceID string, kv map[string]string) {
 	h.tagsMu.Lock("setTags")
 	defer h.tagsMu.Unlock()
 	if h.tags[resourceID] == nil {
-		h.tags[resourceID] = tags.New("eb." + resourceID + ".tags")
+		h.tags[resourceID] = svcTags.New("eb." + resourceID + ".tags")
 	}
 	h.tags[resourceID].Merge(kv)
 }
@@ -308,13 +303,8 @@ type putEventsOutput struct {
 	FailedEntryCount int                `json:"FailedEntryCount"`
 }
 
-type ebTagEntry struct {
-	Key   string `json:"Key"`
-	Value string `json:"Value"`
-}
-
 type listTagsForResourceOutput struct {
-	Tags []ebTagEntry `json:"Tags"`
+	Tags []svcTags.KV `json:"Tags"`
 }
 
 type tagResourceOutput struct{}
@@ -526,9 +516,9 @@ func (h *Handler) tagActions() map[string]actionFn {
 				return nil, err
 			}
 			tagMap := h.getTags(input.ResourceARN)
-			tagList := make([]ebTagEntry, 0, len(tagMap))
+			tagList := make([]svcTags.KV, 0, len(tagMap))
 			for k, v := range tagMap {
-				tagList = append(tagList, ebTagEntry{Key: k, Value: v})
+				tagList = append(tagList, svcTags.KV{Key: k, Value: v})
 			}
 
 			return &listTagsForResourceOutput{Tags: tagList}, nil

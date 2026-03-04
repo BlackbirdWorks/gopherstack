@@ -469,9 +469,9 @@ func (h *Handler) handleGetSubscriptionAttributes(c *echo.Context) error {
 func (h *Handler) handleListTagsForResource(c *echo.Context) error {
 	resourceArn := c.Request().FormValue("ResourceArn")
 	tags := h.Backend.GetTopicTags(resourceArn)
-	tagList := make([]snsTag, 0, len(tags))
+	tagList := make([]svcTags.KV, 0, len(tags))
 	for k, v := range tags {
-		tagList = append(tagList, snsTag{Key: k, Value: v})
+		tagList = append(tagList, svcTags.KV{Key: k, Value: v})
 	}
 
 	return h.writeXML(c, snsListTagsResponse{
@@ -672,16 +672,10 @@ type batchEntry struct {
 	subject string
 }
 
-// snsTag is a key-value pair used in SNS tag XML responses.
-type snsTag struct {
-	Key   string `xml:"Key"`
-	Value string `xml:"Value"`
-}
-
 // snsListTagsResult is the inner result element for ListTagsForResource.
 type snsListTagsResult struct {
-	XMLName xml.Name `xml:"ListTagsForResourceResult"`
-	Tags    []snsTag `xml:"Tags>Tag"`
+	XMLName xml.Name     `xml:"ListTagsForResourceResult"`
+	Tags    []svcTags.KV `xml:"Tags>Tag"`
 }
 
 // snsListTagsResponse is the XML response for ListTagsForResource.

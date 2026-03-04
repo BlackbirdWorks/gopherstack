@@ -14,14 +14,14 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
-	"github.com/blackbirdworks/gopherstack/pkgs/tags"
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // Handler is the Echo HTTP handler for Kinesis operations.
 type Handler struct {
 	Backend       StorageBackend
 	Logger        *slog.Logger
-	tags          map[string]*tags.Tags
+	tags          map[string]*svcTags.Tags
 	tagsMu        *lockmetrics.RWMutex
 	DefaultRegion string
 	AccountID     string
@@ -32,7 +32,7 @@ func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
 	return &Handler{
 		Backend: backend,
 		Logger:  log,
-		tags:    make(map[string]*tags.Tags),
+		tags:    make(map[string]*svcTags.Tags),
 		tagsMu:  lockmetrics.New("kinesis.tags"),
 	}
 }
@@ -41,7 +41,7 @@ func (h *Handler) setTags(resourceID string, kv map[string]string) {
 	h.tagsMu.Lock("setTags")
 	defer h.tagsMu.Unlock()
 	if h.tags[resourceID] == nil {
-		h.tags[resourceID] = tags.New("kinesis." + resourceID + ".tags")
+		h.tags[resourceID] = svcTags.New("kinesis." + resourceID + ".tags")
 	}
 	h.tags[resourceID].Merge(kv)
 }
@@ -342,13 +342,8 @@ type jsonKinesisError struct {
 	Message string `json:"message"`
 }
 
-type kinesisTag struct {
-	Key   string `json:"Key"`
-	Value string `json:"Value"`
-}
-
 type listTagsForStreamOutput struct {
-	Tags        []kinesisTag `json:"Tags"`
+	Tags        []svcTags.KV `json:"Tags"`
 	HasMoreTags bool         `json:"HasMoreTags"`
 }
 
@@ -690,8 +685,8 @@ func errorDetails(err error) (string, string, int) {
 }
 
 type handleAddTagsToStreamInput struct {
-	Tags       *tags.Tags `json:"Tags"`
-	StreamName string     `json:"StreamName"`
+	Tags       *svcTags.Tags `json:"Tags"`
+	StreamName string        `json:"StreamName"`
 }
 
 func (h *Handler) handleAddTagsToStream(
@@ -741,9 +736,9 @@ func (h *Handler) handleListTagsForStream(
 		return nil, ErrInvalidArgument
 	}
 	tags := h.getTags(req.StreamName)
-	tagList := make([]kinesisTag, 0, len(tags))
+	tagList := make([]svcTags.KV, 0, len(tags))
 	for k, v := range tags {
-		tagList = append(tagList, kinesisTag{Key: k, Value: v})
+		tagList = append(tagList, svcTags.KV{Key: k, Value: v})
 	}
 
 	return &listTagsForStreamOutput{

@@ -14,6 +14,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 const resolverTargetPrefix = "Route53Resolver."
@@ -347,12 +348,7 @@ type listTagsForResourceInput struct {
 }
 
 type listTagsForResourceOutput struct {
-	Tags []resolverTag `json:"Tags"`
-}
-
-type resolverTag struct {
-	Key   string `json:"Key"`
-	Value string `json:"Value"`
+	Tags []svcTags.KV `json:"Tags"`
 }
 
 // handleListTagsForResource returns an empty tag list.
@@ -361,5 +357,5 @@ func (h *Handler) handleListTagsForResource(
 	_ context.Context,
 	_ *listTagsForResourceInput,
 ) (*listTagsForResourceOutput, error) {
-	return &listTagsForResourceOutput{Tags: []resolverTag{}}, nil
+	return &listTagsForResourceOutput{Tags: []svcTags.KV{}}, nil
 }
