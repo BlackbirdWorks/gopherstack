@@ -17,13 +17,13 @@ var (
 
 // Cluster represents a Redshift cluster.
 type Cluster struct {
-	Tags              *tags.Tags
-	ClusterIdentifier string
-	NodeType          string
-	Endpoint          string
-	Status            string
-	DBName            string
-	MasterUsername    string
+	Tags              *tags.Tags `json:"tags,omitempty"`
+	ClusterIdentifier string     `json:"clusterIdentifier"`
+	NodeType          string     `json:"nodeType"`
+	Endpoint          string     `json:"endpoint"`
+	Status            string     `json:"status"`
+	DBName            string     `json:"dbName"`
+	MasterUsername    string     `json:"masterUsername"`
 }
 
 // InMemoryBackend is the in-memory store for Redshift clusters.

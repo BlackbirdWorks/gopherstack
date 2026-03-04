@@ -42,30 +42,30 @@ const (
 
 // Stream represents an in-memory Kinesis stream.
 type Stream struct {
-	CreatedAt       time.Time
-	Tags            *tags.Tags
-	Name            string
-	ARN             string
-	Status          string
-	Shards          []*Shard
-	RetentionPeriod int
+	CreatedAt       time.Time  `json:"createdAt"`
+	Tags            *tags.Tags `json:"tags,omitempty"`
+	Name            string     `json:"name"`
+	ARN             string     `json:"arn"`
+	Status          string     `json:"status"`
+	Shards          []*Shard   `json:"shards"`
+	RetentionPeriod int        `json:"retentionPeriod"`
 }
 
 // Shard represents a single Kinesis shard within a stream.
 type Shard struct {
-	ID                string
-	HashKeyRangeStart string
-	HashKeyRangeEnd   string
-	Records           []*Record
+	ID                string    `json:"id"`
+	HashKeyRangeStart string    `json:"hashKeyRangeStart"`
+	HashKeyRangeEnd   string    `json:"hashKeyRangeEnd"`
+	Records           []*Record `json:"records"`
 	nextSeq           uint64
 }
 
 // Record represents a single Kinesis data record.
 type Record struct {
-	ApproximateArrivalTimestamp time.Time
-	PartitionKey                string
-	SequenceNumber              string
-	Data                        []byte
+	ApproximateArrivalTimestamp time.Time `json:"approximateArrivalTimestamp"`
+	PartitionKey                string    `json:"partitionKey"`
+	SequenceNumber              string    `json:"sequenceNumber"`
+	Data                        []byte    `json:"data"`
 }
 
 // StreamInfo holds summary information about a stream, safe to return without lock.

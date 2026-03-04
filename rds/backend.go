@@ -35,41 +35,41 @@ const (
 
 // DBInstance represents an RDS database instance.
 type DBInstance struct {
-	DBInstanceIdentifier string
-	DbiResourceID        string
-	DBInstanceClass      string
-	Engine               string
-	DBInstanceStatus     string
-	MasterUsername       string
-	DBName               string
-	Endpoint             string
-	VpcID                string
-	DBSubnetGroupName    string
-	Port                 int
-	AllocatedStorage     int
+	DBInstanceIdentifier string `json:"dbInstanceIdentifier"`
+	DbiResourceID        string `json:"dbiResourceID"`
+	DBInstanceClass      string `json:"dbInstanceClass"`
+	Engine               string `json:"engine"`
+	DBInstanceStatus     string `json:"dbInstanceStatus"`
+	MasterUsername       string `json:"masterUsername"`
+	DBName               string `json:"dbName"`
+	Endpoint             string `json:"endpoint"`
+	VpcID                string `json:"vpcID"`
+	DBSubnetGroupName    string `json:"dbSubnetGroupName"`
+	Port                 int    `json:"port"`
+	AllocatedStorage     int    `json:"allocatedStorage"`
 }
 
 // DBSnapshot represents an RDS database snapshot.
 type DBSnapshot struct {
-	DBSnapshotIdentifier string
-	DBInstanceIdentifier string
-	Engine               string
-	Status               string
+	DBSnapshotIdentifier string `json:"dbSnapshotIdentifier"`
+	DBInstanceIdentifier string `json:"dbInstanceIdentifier"`
+	Engine               string `json:"engine"`
+	Status               string `json:"status"`
 }
 
 // DBSubnetGroup represents an RDS DB subnet group.
 type DBSubnetGroup struct {
-	DBSubnetGroupName        string
-	DBSubnetGroupDescription string
-	VpcID                    string
-	Status                   string
-	SubnetIDs                []string
+	DBSubnetGroupName        string   `json:"dbSubnetGroupName"`
+	DBSubnetGroupDescription string   `json:"dbSubnetGroupDescription"`
+	VpcID                    string   `json:"vpcID"`
+	Status                   string   `json:"status"`
+	SubnetIDs                []string `json:"subnetIDs"`
 }
 
 // Tag is a key/value tag attached to an RDS resource.
 type Tag struct {
-	Key   string
-	Value string
+	Key   string `json:"key"`
+	Value string `json:"value"`
 }
 
 // InMemoryBackend is the in-memory store for RDS resources.

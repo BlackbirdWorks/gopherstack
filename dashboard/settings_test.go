@@ -68,3 +68,45 @@ func TestSettingsPage_SidebarLink(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "/dashboard/settings",
 		"settings link should appear in the sidebar")
 }
+
+func TestSettingsPage_LatencyMs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		wantText  string
+		latencyMs int
+	}{
+		{
+			name:      "latency_disabled",
+			latencyMs: 0,
+			wantText:  "disabled",
+		},
+		{
+			name:      "latency_enabled",
+			latencyMs: 200,
+			wantText:  "200",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := dashboard.NewHandler(dashboard.Config{
+				GlobalConfig: config.GlobalConfig{
+					AccountID: "000000000000",
+					Region:    "us-east-1",
+					LatencyMs: tt.latencyMs,
+				},
+			})
+
+			req := httptest.NewRequest(http.MethodGet, "/dashboard/settings", nil)
+			rec := httptest.NewRecorder()
+			h.SubRouter.ServeHTTP(rec, req)
+
+			require.Equal(t, http.StatusOK, rec.Code)
+			assert.Contains(t, rec.Body.String(), tt.wantText)
+		})
+	}
+}

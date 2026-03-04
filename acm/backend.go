@@ -17,11 +17,11 @@ var (
 
 // Certificate represents an ACM certificate.
 type Certificate struct {
-	CreatedAt  time.Time
-	ARN        string
-	DomainName string
-	Status     string
-	Type       string
+	CreatedAt  time.Time `json:"createdAt"`
+	ARN        string    `json:"arn"`
+	DomainName string    `json:"domainName"`
+	Status     string    `json:"status"`
+	Type       string    `json:"type"`
 }
 
 // InMemoryBackend is the in-memory store for ACM certificates.

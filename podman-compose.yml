@@ -1,0 +1,14 @@
+services:
+  gopherstack:
+    build: .
+    environment:
+      - DEMO=true
+      - PERSIST=true
+    ports:
+      - "8000:8000"
+    container_name: gopherstack
+    volumes:
+      - gopherstack-data:/data
+
+volumes:
+  gopherstack-data:

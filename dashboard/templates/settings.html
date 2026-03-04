@@ -35,6 +35,20 @@
                             </span>
                         </dd>
                     </div>
+                    <div class="flex justify-between items-center">
+                        <dt class="text-sm font-medium text-slate-500 dark:text-slate-400">Latency Simulation</dt>
+                        <dd>
+                            {{if gt .LatencyMs 0}}
+                            <span class="px-2 py-1 text-xs font-mono bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200 rounded">
+                                [0, {{.LatencyMs}}) ms
+                            </span>
+                            {{else}}
+                            <span class="px-2 py-1 text-xs font-mono bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded">
+                                disabled
+                            </span>
+                            {{end}}
+                        </dd>
+                    </div>
                 </dl>
             </div>
 
@@ -48,6 +62,7 @@
                 <ul class="mt-3 text-xs text-blue-600 dark:text-blue-400 font-mono space-y-1">
                     <li>--account-id / ACCOUNT_ID</li>
                     <li>--region / REGION</li>
+                    <li>--latency-ms / LATENCY_MS</li>
                 </ul>
             </div>
 

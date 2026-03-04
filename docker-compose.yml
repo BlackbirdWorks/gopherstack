@@ -3,12 +3,18 @@ services:
     build: .
     environment:
       - DEMO=true
+      - PERSIST=true
     ports:
       - "8000:8000"
     container_name: gopherstack
     healthcheck:
-      test: ["CMD", "./gopherstack", "health"]
+      test: [ "CMD", "./gopherstack", "health" ]
       interval: 10s
       timeout: 5s
       retries: 3
       start_period: 5s
+    volumes:
+      - gopherstack-data:/data
+
+volumes:
+  gopherstack-data:

@@ -11,4 +11,7 @@ type Settings struct {
 	// CreateDelay is the simulated CREATING → ACTIVE transition time.
 	// Set to 0 (default) for immediate table activation (no lifecycle transition).
 	CreateDelay time.Duration `name:"dynamodb-create-delay" env:"DYNAMODB_CREATE_DELAY" default:"0s" help:"Simulated CREATING→ACTIVE delay. 0 disables lifecycle."` //nolint:lll // Kong struct tag makes this line long
+	// EnforceThroughput enables token-bucket throughput throttling per table.
+	// When true, operations that exceed the provisioned RCU/WCU return ProvisionedThroughputExceededException.
+	EnforceThroughput bool `name:"dynamodb-enforce-throughput" env:"DYNAMODB_ENFORCE_THROUGHPUT" default:"false" help:"Enforce provisioned throughput limits (token bucket per table)."` //nolint:lll // Kong struct tag makes this line long
 }

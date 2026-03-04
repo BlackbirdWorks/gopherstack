@@ -19,19 +19,19 @@ var (
 
 // ClusterConfig represents the cluster configuration for an OpenSearch domain.
 type ClusterConfig struct {
-	InstanceType  string
-	InstanceCount int
+	InstanceType  string `json:"instanceType"`
+	InstanceCount int    `json:"instanceCount"`
 }
 
 // Domain represents an OpenSearch domain.
 type Domain struct {
-	Tags          *tags.Tags
-	Name          string
-	ARN           string
-	EngineVersion string
-	Endpoint      string
-	Status        string
-	ClusterConfig ClusterConfig
+	Tags          *tags.Tags    `json:"tags,omitempty"`
+	Name          string        `json:"name"`
+	ARN           string        `json:"arn"`
+	EngineVersion string        `json:"engineVersion"`
+	Endpoint      string        `json:"endpoint"`
+	Status        string        `json:"status"`
+	ClusterConfig ClusterConfig `json:"clusterConfig"`
 }
 
 // InMemoryBackend is the in-memory store for OpenSearch domains.

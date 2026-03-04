@@ -18,7 +18,6 @@ const (
 	defaultWaitTimeSeconds        = 0
 	maxBatchSize                  = 10
 	deduplicationWindowSecs       = 300
-	longPollIntervalMs            = 100
 
 	maxParseIterations = 20
 	noVisibilitySet    = -1
@@ -57,32 +56,32 @@ const (
 
 // MessageAttributeValue holds a message attribute value.
 type MessageAttributeValue struct {
-	DataType    string
-	StringValue string
-	BinaryValue []byte
+	DataType    string `json:"dataType"`
+	StringValue string `json:"stringValue"`
+	BinaryValue []byte `json:"binaryValue,omitempty"`
 }
 
 // Message represents an SQS message.
 type Message struct {
-	MessageAttributes                map[string]MessageAttributeValue
-	Attributes                       map[string]string
-	Body                             string
-	MessageGroupID                   string
-	MessageDeduplicationID           string
-	MessageID                        string
-	ReceiptHandle                    string
-	MD5OfBody                        string
-	MD5OfMessageAttributes           string
-	SentTimestamp                    int64
-	ApproximateFirstReceiveTimestamp int64 // Unix ms; 0 means never received
-	ApproximateReceiveCount          int
+	MessageAttributes                map[string]MessageAttributeValue `json:"messageAttributes,omitempty"`
+	Attributes                       map[string]string                `json:"attributes,omitempty"`
+	Body                             string                           `json:"body"`
+	MessageGroupID                   string                           `json:"messageGroupID,omitempty"`
+	MessageDeduplicationID           string                           `json:"messageDeduplicationID,omitempty"`
+	MessageID                        string                           `json:"messageID"`
+	ReceiptHandle                    string                           `json:"receiptHandle"`
+	MD5OfBody                        string                           `json:"md5OfBody"`
+	MD5OfMessageAttributes           string                           `json:"md5OfMessageAttributes,omitempty"`
+	SentTimestamp                    int64                            `json:"sentTimestamp"`
+	ApproximateFirstReceiveTimestamp int64                            `json:"approximateFirstReceiveTimestamp"`
+	ApproximateReceiveCount          int                              `json:"approximateReceiveCount"`
 }
 
 // InFlightMessage wraps a message that has been received but not deleted.
 type InFlightMessage struct {
-	VisibleAt     time.Time
-	Msg           *Message
-	ReceiptHandle string
+	VisibleAt     time.Time `json:"visibleAt"`
+	Msg           *Message  `json:"msg"`
+	ReceiptHandle string    `json:"receiptHandle"`
 }
 
 // Queue represents an SQS queue.
@@ -91,7 +90,8 @@ type Queue struct {
 	DeduplicationIDs    map[string]time.Time
 	Attributes          map[string]string
 	Tags                *tags.Tags
-	dlq                 *Queue // resolved DLQ queue pointer; nil = no DLQ
+	dlq                 *Queue        // resolved DLQ queue pointer; nil = no DLQ
+	notify              chan struct{} // buffered(1); signalled when a message is enqueued
 	Name                string
 	URL                 string
 	messages            []*Message

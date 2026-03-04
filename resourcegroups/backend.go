@@ -2,6 +2,7 @@ package resourcegroups
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 
@@ -19,17 +20,18 @@ var (
 
 // ResourceQuery represents a tag-based resource query for a group.
 type ResourceQuery struct {
-	Type  string `json:"type"`
-	Query string `json:"query"`
+	Type  string `json:"Type"`
+	Query string `json:"Query"`
 }
 
 // Group represents a Resource Group.
+// Field names use PascalCase JSON tags to match what the AWS SDK expects in responses.
 type Group struct {
-	Tags          *tags.Tags
-	ResourceQuery *ResourceQuery
-	Name          string
-	ARN           string
-	Description   string
+	Tags          *tags.Tags     `json:"Tags,omitempty"`
+	ResourceQuery *ResourceQuery `json:"ResourceQuery,omitempty"`
+	Name          string         `json:"Name"`
+	ARN           string         `json:"GroupArn"`
+	Description   string         `json:"Description"`
 }
 
 // InMemoryBackend is the in-memory store for Resource Groups.
@@ -84,10 +86,15 @@ func (b *InMemoryBackend) CreateGroup(
 	return &cp, nil
 }
 
-// DeleteGroup deletes a resource group by name.
-func (b *InMemoryBackend) DeleteGroup(name string) error {
+// DeleteGroup deletes a resource group by name or ARN.
+func (b *InMemoryBackend) DeleteGroup(nameOrARN string) error {
 	b.mu.Lock("DeleteGroup")
 	defer b.mu.Unlock()
+
+	name := nameOrARN
+	if idx := strings.LastIndex(nameOrARN, "group/"); idx >= 0 {
+		name = nameOrARN[idx+len("group/"):]
+	}
 
 	if _, ok := b.groups[name]; !ok {
 		return fmt.Errorf("%w: group %s not found", ErrNotFound, name)
@@ -113,12 +120,75 @@ func (b *InMemoryBackend) ListGroups() []Group {
 	return out
 }
 
-// GetGroup returns a resource group by name.
+// GetTagsByARN returns the tags for the resource group identified by ARN.
+func (b *InMemoryBackend) GetTagsByARN(resourceARN string) (map[string]string, error) {
+	b.mu.RLock("GetTagsByARN")
+	defer b.mu.RUnlock()
+
+	g := b.findByARN(resourceARN)
+	if g == nil {
+		return nil, fmt.Errorf("%w: group with ARN %s not found", ErrNotFound, resourceARN)
+	}
+
+	return g.Tags.Clone(), nil
+}
+
+// AddTagsByARN merges newTags into the resource group identified by ARN and
+// returns the resulting tag set.
+func (b *InMemoryBackend) AddTagsByARN(resourceARN string, newTags map[string]string) (map[string]string, error) {
+	b.mu.Lock("AddTagsByARN")
+	defer b.mu.Unlock()
+
+	g := b.findByARN(resourceARN)
+	if g == nil {
+		return nil, fmt.Errorf("%w: group with ARN %s not found", ErrNotFound, resourceARN)
+	}
+
+	g.Tags.Merge(newTags)
+
+	return g.Tags.Clone(), nil
+}
+
+// RemoveTagsByARN removes the specified tag keys from the resource group
+// identified by ARN.
+func (b *InMemoryBackend) RemoveTagsByARN(resourceARN string, keys []string) error {
+	b.mu.Lock("RemoveTagsByARN")
+	defer b.mu.Unlock()
+
+	g := b.findByARN(resourceARN)
+	if g == nil {
+		return fmt.Errorf("%w: group with ARN %s not found", ErrNotFound, resourceARN)
+	}
+
+	g.Tags.DeleteKeys(keys)
+
+	return nil
+}
+
+// findByARN looks up a group by its ARN (must be called under a lock).
+func (b *InMemoryBackend) findByARN(resourceARN string) *Group {
+	for _, g := range b.groups {
+		if g.ARN == resourceARN {
+			return g
+		}
+	}
+
+	return nil
+}
+
+// GetGroup returns a resource group by name or ARN.
 // The Tags field in the returned Group points to the backend-owned Tags
 // collection; callers should treat it as read-only.
-func (b *InMemoryBackend) GetGroup(name string) (*Group, error) {
+func (b *InMemoryBackend) GetGroup(nameOrARN string) (*Group, error) {
 	b.mu.RLock("GetGroup")
 	defer b.mu.RUnlock()
+
+	// Support ARN-based lookup: extract the group name from the ARN suffix.
+	// e.g. "arn:aws:resource-groups:us-east-1:123:group/my-group" → "my-group"
+	name := nameOrARN
+	if idx := strings.LastIndex(nameOrARN, "group/"); idx >= 0 {
+		name = nameOrARN[idx+len("group/"):]
+	}
 
 	g, ok := b.groups[name]
 	if !ok {

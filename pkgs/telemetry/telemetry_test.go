@@ -1,6 +1,7 @@
 package telemetry_test
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -17,6 +18,9 @@ import (
 
 // errBoom is a package-level sentinel used in handler error tests (required by err113).
 var errBoom = errors.New("boom")
+
+// errInner is a package-level sentinel used in LatencyMiddleware error-propagation tests.
+var errInner = errors.New("inner error")
 
 // mockObserver is a simple ObservabilityObserver for testing WrapEchoHandler.
 type mockObserver struct {
@@ -303,4 +307,92 @@ func TestWrapEchoHandler(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 		})
 	}
+}
+
+func TestLatencyMiddleware(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr   error
+		inner     func(*echo.Context) error
+		name      string
+		latencyMs int
+		wantCode  int
+	}{
+		{
+			name:      "zero_latency_disabled",
+			latencyMs: 0,
+			inner:     func(c *echo.Context) error { return c.String(http.StatusOK, "ok") },
+			wantCode:  http.StatusOK,
+		},
+		{
+			name:      "negative_latency_disabled",
+			latencyMs: -1,
+			inner:     func(c *echo.Context) error { return c.String(http.StatusOK, "ok") },
+			wantCode:  http.StatusOK,
+		},
+		{
+			name:      "positive_latency_adds_sleep",
+			latencyMs: 10,
+			inner:     func(c *echo.Context) error { return c.String(http.StatusOK, "ok") },
+			wantCode:  http.StatusOK,
+		},
+		{
+			name:      "error_propagated_from_inner_handler",
+			latencyMs: 0,
+			inner:     func(_ *echo.Context) error { return errInner },
+			wantErr:   errInner,
+		},
+		{
+			name:      "error_propagated_from_inner_handler_with_latency",
+			latencyMs: 1,
+			inner:     func(_ *echo.Context) error { return errInner },
+			wantErr:   errInner,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			mw := telemetry.LatencyMiddleware(tt.latencyMs)
+			handler := mw(tt.inner)
+
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			err := handler(c)
+
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestLatencyMiddleware_ContextCancellation(t *testing.T) {
+	t.Parallel()
+
+	mw := telemetry.LatencyMiddleware(5000) // 5 s max sleep
+	handler := mw(func(c *echo.Context) error { return c.String(http.StatusOK, "ok") })
+
+	e := echo.New()
+	ctx, cancel := context.WithCancel(t.Context())
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(ctx)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	// Cancel before the handler can complete its sleep.
+	cancel()
+
+	err := handler(c)
+	assert.ErrorIs(t, err, context.Canceled)
 }
