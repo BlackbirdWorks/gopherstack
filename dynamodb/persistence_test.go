@@ -2,7 +2,6 @@ package dynamodb_test
 
 import (
 	"context"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"

@@ -1,6 +1,7 @@
 package cloudformation_test
 
 import (
+	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -907,7 +908,7 @@ type mockBackendsProvider struct {
 func newMockBackendsProvider() *mockBackendsProvider {
 	return &mockBackendsProvider{
 		ddb: ddbbackend.NewHandler(ddbbackend.NewInMemoryDB()),
-		s3h: s3backend.NewHandler(s3.NewInMemoryBackend(nil)),
+		s3h: s3backend.NewHandler(s3backend.NewInMemoryBackend(nil)),
 		sqs: sqsbackend.NewHandler(sqsbackend.NewInMemoryBackend()),
 		sns: snsbackend.NewHandler(snsbackend.NewInMemoryBackend()),
 		ssm: ssmbackend.NewHandler(ssmbackend.NewInMemoryBackend()),

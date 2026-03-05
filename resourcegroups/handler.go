@@ -74,7 +74,7 @@ type Handler struct {
 
 // NewHandler creates a new Resource Groups handler.
 func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend, }
+	return &Handler{Backend: backend}
 }
 
 // Name returns the service name.

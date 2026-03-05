@@ -87,7 +87,7 @@ func TestWriteJSON(t *testing.T) {
 			t.Parallel()
 
 			w := httptest.NewRecorder()
-			httputil.WriteJSON(nil, w, tt.status, tt.payload)
+			httputil.WriteJSON(t.Context(), w, tt.status, tt.payload)
 
 			assert.Equal(t, tt.wantCode, w.Code)
 			if tt.wantCT != "" {
@@ -137,7 +137,7 @@ func TestWriteXML(t *testing.T) {
 			t.Parallel()
 
 			w := httptest.NewRecorder()
-			httputil.WriteXML(nil, w, tt.status, tt.payload)
+			httputil.WriteXML(t.Context(), w, tt.status, tt.payload)
 
 			assert.Equal(t, tt.wantCode, w.Code)
 			if tt.wantCT != "" {
@@ -185,7 +185,7 @@ func TestWriteDynamoDBResponse(t *testing.T) {
 			t.Parallel()
 
 			w := httptest.NewRecorder()
-			httputil.WriteDynamoDBResponse(nil, w, tt.status, tt.payload)
+			httputil.WriteDynamoDBResponse(t.Context(), w, tt.status, tt.payload)
 
 			assert.Equal(t, tt.wantCode, w.Code)
 			if tt.wantCT != "" {
@@ -207,7 +207,7 @@ func TestWriteError(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 
-	httputil.WriteError(nil, w, req, errSomethingWentWrong, http.StatusBadRequest)
+	httputil.WriteError(t.Context(), w, req, errSomethingWentWrong, http.StatusBadRequest)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Contains(t, w.Body.String(), "something went wrong")
@@ -285,7 +285,7 @@ func TestEchoError(t *testing.T) {
 			rec := httptest.NewRecorder()
 			c := e.NewContext(req, rec)
 
-			res := httputil.EchoError(nil, c, tt.code, tt.message, tt.err)
+			res := httputil.EchoError(t.Context(), c, tt.code, tt.message, tt.err)
 
 			require.NoError(t, res)
 			assert.Equal(t, tt.wantCode, rec.Code)
@@ -371,7 +371,13 @@ func TestWriteS3ErrorResponse(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/bucket/key", nil)
-	httputil.WriteS3ErrorResponse(nil, w, req, s3Err{Code: "NoSuchKey", Message: "not found"}, http.StatusNotFound)
+	httputil.WriteS3ErrorResponse(
+		t.Context(),
+		w,
+		req,
+		s3Err{Code: "NoSuchKey", Message: "not found"},
+		http.StatusNotFound,
+	)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
 	assert.Equal(t, "application/xml", w.Header().Get("Content-Type"))

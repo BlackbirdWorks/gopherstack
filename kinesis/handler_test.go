@@ -13,12 +13,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/kinesis"
-	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 func newTestHandler(t *testing.T) *kinesis.Handler {
 	t.Helper()
-
 
 	backend := kinesis.NewInMemoryBackend()
 

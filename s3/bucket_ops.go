@@ -170,7 +170,6 @@ func (h *S3Handler) routeBucketGet(
 		return
 	}
 
-
 	switch {
 	case r.URL.Query().Has("acl"):
 		h.getBucketACL(ctx, w, r, bucket)
@@ -329,7 +328,8 @@ func (h *S3Handler) createBucket(
 
 	output, err := h.Backend.CreateBucket(ctx, input)
 	if errors.Is(err, ErrBucketAlreadyOwnedByYou) {
-		logger.Load(ctx).ErrorContext(ctx, "request failed", "error", err, "code", http.StatusConflict, "path", r.URL.Path)
+		logger.Load(ctx).
+			ErrorContext(ctx, "request failed", "error", err, "code", http.StatusConflict, "path", r.URL.Path)
 		httputil.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
 			Code:     "BucketAlreadyOwnedByYou",
 			Message:  "Your previous request to create the named bucket succeeded and you already own it.",
@@ -340,7 +340,8 @@ func (h *S3Handler) createBucket(
 	}
 
 	if errors.Is(err, ErrBucketAlreadyExists) {
-		logger.Load(ctx).ErrorContext(ctx, "request failed", "error", err, "code", http.StatusConflict, "path", r.URL.Path)
+		logger.Load(ctx).
+			ErrorContext(ctx, "request failed", "error", err, "code", http.StatusConflict, "path", r.URL.Path)
 		httputil.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
 			Code: "BucketAlreadyExists",
 			Message: "The requested bucket name is not available. " +

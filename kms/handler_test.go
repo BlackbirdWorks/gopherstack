@@ -707,7 +707,6 @@ func TestKMSHandlerRouteMatcher(t *testing.T) {
 func TestKMSHandlerInterface(t *testing.T) {
 	t.Parallel()
 
-
 	backend := kms.NewInMemoryBackend()
 	h := kms.NewHandler(backend)
 
@@ -748,7 +747,6 @@ func TestKMSProvider(t *testing.T) {
 
 	p := &kms.Provider{}
 	assert.Equal(t, "KMS", p.Name())
-
 
 	ctx := &service.AppContext{Logger: slog.Default()}
 	svc, err := p.Init(ctx)

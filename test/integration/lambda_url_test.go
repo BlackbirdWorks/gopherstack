@@ -45,7 +45,6 @@ func TestLambdaFunctionURL_CreateGetDelete(t *testing.T) {
 		lambdapkg.DefaultSettings(),
 		"000000000000",
 		"us-east-1",
-		
 	)
 	handler := lambdapkg.NewHandler(backend)
 	handler.AccountID = "000000000000"
@@ -144,7 +143,6 @@ func TestLambdaFunctionURL_HTTPEndpoint(t *testing.T) {
 		lambdapkg.DefaultSettings(),
 		"000000000000",
 		"us-east-1",
-		
 	)
 
 	const fnName = "http-endpoint-fn"

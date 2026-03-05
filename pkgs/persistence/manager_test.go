@@ -3,7 +3,6 @@ package persistence_test
 import (
 	"context"
 	"errors"
-	"io"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -131,11 +130,6 @@ func (m *memStore) SaveCount() int {
 	defer m.mu.Unlock()
 
 	return m.saveCount
-}
-
-// discardLogger returns a [slog.Logger] that discards all output.
-func discardLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
 // --- NewManager ---

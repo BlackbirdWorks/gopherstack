@@ -549,26 +549,11 @@ func run(ctx context.Context, cli CLI) error {
 
 	setupPersistence(ctx, persistManager, services, cli.Persist)
 
-	// Wire DNS registrar to backends that generate synthetic hostnames.
 	if dnsSrv != nil {
-		wireLambdaDNS(cli.lambdaHandler, dnsSrv)
-		wireRoute53DNS(cli.route53Handler, dnsSrv)
-		wireRDSDNS(cli.rdsHandler, dnsSrv)
-		wireRedshiftDNS(cli.redshiftHandler, dnsSrv)
-		wireOpenSearchDNS(cli.openSearchHandler, dnsSrv)
-		wireElastiCacheDNS(cli.elasticacheHandler, dnsSrv)
+		wireDNSRegistrars(&cli, dnsSrv)
 	}
 
-	e := echo.New()
-	e.Use(httputil.RequestIDMiddleware())
-	e.Use(logger.APIConsoleMiddleware())
-	e.Pre(logger.EchoMiddleware(log))
-	e.GET("/_gopherstack/health", healthHandler)
-
-	// Persist: schedule a debounced snapshot after each mutating request.
-	if cli.Persist {
-		e.Use(persistenceMiddleware(persistManager, services))
-	}
+	e := buildEchoServer(ctx, log, persistManager, services, cli)
 
 	if setupErr := setupRegistry(e, log, services, cli.LatencyMs); setupErr != nil {
 		return setupErr
@@ -578,7 +563,7 @@ func run(ctx context.Context, cli CLI) error {
 	inMemMux.Handle("/", e)
 
 	if cli.Demo {
-		loadDemoData(ctx, log, &cli)
+		loadDemoData(ctx, &cli)
 	}
 
 	// --- Init hooks ---
@@ -588,6 +573,37 @@ func run(ctx context.Context, cli CLI) error {
 	}
 
 	return startServer(ctx, cli.Port, e)
+}
+
+// wireDNSRegistrars connects DNS-aware backends to the embedded DNS server.
+func wireDNSRegistrars(cli *CLI, dnsSrv *gopherDNS.Server) {
+	wireLambdaDNS(cli.lambdaHandler, dnsSrv)
+	wireRoute53DNS(cli.route53Handler, dnsSrv)
+	wireRDSDNS(cli.rdsHandler, dnsSrv)
+	wireRedshiftDNS(cli.redshiftHandler, dnsSrv)
+	wireOpenSearchDNS(cli.openSearchHandler, dnsSrv)
+	wireElastiCacheDNS(cli.elasticacheHandler, dnsSrv)
+}
+
+// buildEchoServer creates and configures the Echo HTTP server.
+func buildEchoServer(
+	_ context.Context,
+	log *slog.Logger,
+	persistManager *persistence.Manager,
+	services []service.Registerable,
+	cli CLI,
+) *echo.Echo {
+	e := echo.New()
+	e.Use(httputil.RequestIDMiddleware())
+	e.Use(logger.APIConsoleMiddleware())
+	e.Pre(logger.EchoMiddleware(log))
+	e.GET("/_gopherstack/health", healthHandler)
+
+	if cli.Persist {
+		e.Use(persistenceMiddleware(persistManager, services))
+	}
+
+	return e
 }
 
 // initializeClients configures the AWS SDK clients for DynamoDB, S3, SSM, and STS.
@@ -1450,10 +1466,11 @@ func initPersistenceManager(ctx context.Context, cli *CLI) (*persistence.Manager
 }
 
 // loadDemoData loads demo data into the services.
-func loadDemoData(ctx context.Context, log *slog.Logger, cli *CLI) {
+func loadDemoData(ctx context.Context, cli *CLI) {
+	log := logger.Load(ctx)
 	log.InfoContext(ctx, "Loading demo data...")
 
-	err := demo.LoadData(ctx, log, &demo.Clients{
+	err := demo.LoadData(ctx, &demo.Clients{
 		DynamoDB:       cli.ddbClient,
 		S3:             cli.s3Client,
 		SQS:            cli.sqsClient,

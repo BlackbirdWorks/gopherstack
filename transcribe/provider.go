@@ -13,7 +13,7 @@ func (p *Provider) Name() string { return "Transcribe" }
 // Init initializes the Transcribe service backend and handler.
 //
 //nolint:ireturn,nolintlint // architecturally required to return interface
-func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
+func (p *Provider) Init(_ *service.AppContext) (service.Registerable, error) {
 	backend := NewInMemoryBackend()
 	handler := NewHandler(backend)
 

@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/secretsmanager"
 )
@@ -688,7 +687,6 @@ func TestSecretsManagerVersionByID(t *testing.T) {
 func TestSecretsManagerHandlerInterface(t *testing.T) {
 	t.Parallel()
 
-
 	backend := secretsmanager.NewInMemoryBackend()
 	h := secretsmanager.NewHandler(backend)
 
@@ -733,7 +731,6 @@ func TestSecretsManagerProvider(t *testing.T) {
 
 	p := &secretsmanager.Provider{}
 	assert.Equal(t, "SecretsManager", p.Name())
-
 
 	ctx := &service.AppContext{Logger: slog.Default()}
 	svc, err := p.Init(ctx)

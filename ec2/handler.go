@@ -31,7 +31,7 @@ type Handler struct {
 
 // NewHandler creates a new EC2 handler with the given backend and logger.
 func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend, }
+	return &Handler{Backend: backend}
 }
 
 // Name returns the service name.

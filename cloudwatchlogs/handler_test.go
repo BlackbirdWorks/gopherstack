@@ -2,7 +2,6 @@ package cloudwatchlogs_test
 
 import (
 	"encoding/json"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/cloudwatchlogs"
-	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 const logsTarget = "Logs_20140328."

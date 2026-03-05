@@ -3,7 +3,6 @@ package stepfunctions_test
 import (
 	"context"
 	"encoding/json"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,13 +12,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/stepfunctions"
 )
 
 func newSFNHandler(t *testing.T) (*stepfunctions.Handler, *echo.Echo) {
 	t.Helper()
-
 
 	bk := stepfunctions.NewInMemoryBackend()
 

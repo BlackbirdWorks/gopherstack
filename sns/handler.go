@@ -37,7 +37,7 @@ type Handler struct {
 
 // NewHandler creates a new SNS Handler with the given backend and logger.
 func NewHandler(backend StorageBackend) *Handler {
-	h := &Handler{Backend: backend, }
+	h := &Handler{Backend: backend}
 	h.actions = h.buildActions()
 
 	return h

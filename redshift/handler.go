@@ -28,7 +28,7 @@ type Handler struct {
 
 // NewHandler creates a new Redshift handler.
 func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend, }
+	return &Handler{Backend: backend}
 }
 
 // Name returns the service name.

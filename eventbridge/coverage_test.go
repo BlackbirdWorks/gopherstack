@@ -13,7 +13,6 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/eventbridge"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
-	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 

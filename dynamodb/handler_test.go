@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"hash/crc32"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -269,7 +268,6 @@ func TestHandler_Dispatch_Coverage(t *testing.T) {
 			// Create a fresh backend for each subtest to avoid race conditions
 			backend := dynamodb.NewInMemoryDB()
 			handler := dynamodb.NewHandler(backend)
-			handler.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 			createTableHelper(t, backend, "DispatchTable", "pk")
 			var body string
 			switch op {

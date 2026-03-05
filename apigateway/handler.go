@@ -152,7 +152,7 @@ type Handler struct {
 
 // NewHandler creates a new API Gateway handler.
 func NewHandler(backend StorageBackend) *Handler {
-	return &Handler{Backend: backend, }
+	return &Handler{Backend: backend}
 }
 
 // SetLambdaInvoker configures the Lambda invoker for AWS_PROXY integrations.

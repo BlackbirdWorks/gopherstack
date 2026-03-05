@@ -1,8 +1,6 @@
 package s3_test
 
 import (
-	"io"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -104,8 +102,6 @@ func TestWriteError(t *testing.T) {
 				"<Resource></Resource><RequestId></RequestId></Error>",
 		},
 	}
-
-	
 
 	for _, tt := range tests {
 		t.Run(tt.expectedXML, func(t *testing.T) {

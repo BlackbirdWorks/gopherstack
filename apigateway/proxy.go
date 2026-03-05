@@ -5,11 +5,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"io"
 	"net/http"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // LambdaInvoker can invoke a Lambda function by name/ARN.

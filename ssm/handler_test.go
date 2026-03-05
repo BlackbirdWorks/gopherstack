@@ -13,13 +13,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
 func newTestHandler(t *testing.T) (*ssm.Handler, *ssm.InMemoryBackend) {
 	t.Helper()
-
 
 	backend := ssm.NewInMemoryBackend()
 
@@ -789,7 +787,6 @@ func TestProvider(t *testing.T) {
 
 	p := &ssm.Provider{}
 	assert.Equal(t, "SSM", p.Name())
-
 
 	ctx := &service.AppContext{Logger: slog.Default()}
 	svc, err := p.Init(ctx)

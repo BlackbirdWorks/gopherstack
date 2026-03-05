@@ -88,7 +88,6 @@ func TestPersistence_Manager_SaveRestore(t *testing.T) {
 	store, err := persistence.NewFileStore(dir)
 	require.NoError(t, err)
 
-
 	manager := persistence.NewManager(store)
 	ctx := t.Context()
 

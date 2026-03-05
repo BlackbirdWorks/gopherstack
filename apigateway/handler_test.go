@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,7 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/apigateway"
-	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // post sends a POST request to the APIGateway handler.

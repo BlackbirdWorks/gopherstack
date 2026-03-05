@@ -1,7 +1,6 @@
 package secretsmanager_test
 
 import (
-	"log/slog"
 	"testing"
 
 	"github.com/blackbirdworks/gopherstack/secretsmanager"

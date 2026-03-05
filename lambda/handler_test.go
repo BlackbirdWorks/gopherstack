@@ -139,7 +139,7 @@ func newHandler(t *testing.T) (*lambda.Handler, *mockBackend) {
 	t.Helper()
 
 	bk := newMockBackend()
-	h := lambda.NewHandler(bk, nil)
+	h := lambda.NewHandler(bk)
 	h.DefaultRegion = "us-east-1"
 	h.AccountID = "000000000000"
 
@@ -984,7 +984,7 @@ func TestBackend_CRUD(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1", nil)
+			bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
 
 			fn := &lambda.FunctionConfiguration{
 				FunctionName: "test-func",
@@ -1079,7 +1079,7 @@ func TestBackend_InvokeFunction(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			bk := lambda.NewInMemoryBackend(nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", nil)
+			bk := lambda.NewInMemoryBackend(nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1")
 
 			if tt.createFunc {
 				fn := &lambda.FunctionConfiguration{
@@ -1572,7 +1572,6 @@ func TestBackend_InvokeFunction_MockDocker(t *testing.T) {
 				lambda.DefaultSettings(),
 				"000000000000",
 				"us-east-1",
-				slog.Default(),
 			)
 
 			fn := &lambda.FunctionConfiguration{
@@ -1629,7 +1628,6 @@ func TestBackend_DeleteFunction_WithRuntime(t *testing.T) {
 				lambda.DefaultSettings(),
 				"000000000000",
 				"us-east-1",
-				slog.Default(),
 			)
 
 			fn := &lambda.FunctionConfiguration{
@@ -1678,7 +1676,6 @@ func TestBackend_InvokeFunction_RequestResponse_WithMockDocker(t *testing.T) {
 				lambda.DefaultSettings(),
 				"000000000000",
 				"us-east-1",
-				slog.Default(),
 			)
 
 			fn := &lambda.FunctionConfiguration{
@@ -1841,7 +1838,7 @@ func newInMemHandlerWithPortAlloc(t *testing.T) *lambda.Handler {
 	pa, err := portalloc.New(20000, 20050)
 	require.NoError(t, err)
 
-	bk := lambda.NewInMemoryBackend(nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default())
+	bk := lambda.NewInMemoryBackend(nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1")
 	h := lambda.NewHandler(bk)
 	h.DefaultRegion = "us-east-1"
 	h.AccountID = "000000000000"
@@ -1993,7 +1990,6 @@ func TestFunctionUrl_HTTP_ForwardsToLambda(t *testing.T) {
 				lambda.DefaultSettings(),
 				"000000000000",
 				"us-east-1",
-				slog.Default(),
 			)
 
 			fn := &lambda.FunctionConfiguration{

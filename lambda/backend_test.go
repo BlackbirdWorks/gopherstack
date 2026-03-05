@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -309,7 +308,6 @@ func TestInMemoryBackend_ZipInvoke(t *testing.T) {
 				lambda.DefaultSettings(),
 				"000000000000",
 				"us-east-1",
-				slog.Default(),
 			)
 
 			zipBytes := makeTestZip(t, `def handler(e, c): return "hello"`)
@@ -354,7 +352,7 @@ func TestInMemoryBackend_DeleteZipFunction(t *testing.T) {
 	require.NoError(t, paErr)
 
 	dc := newMockDockerClient()
-	backend := lambda.NewInMemoryBackend(dc, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default())
+	backend := lambda.NewInMemoryBackend(dc, pa, lambda.DefaultSettings(), "000000000000", "us-east-1")
 
 	zipBytes := makeTestZip(t, `def handler(e, c): return "hello"`)
 	fn := &lambda.FunctionConfiguration{
@@ -380,7 +378,7 @@ func TestInMemoryBackend_SetDNSRegistrar(t *testing.T) {
 	require.NoError(t, paErr)
 
 	backend := lambda.NewInMemoryBackend(
-		nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default(),
+		nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1",
 	)
 
 	dns := &mockDNSRegistrar{}
@@ -414,7 +412,7 @@ func TestInMemoryBackend_SetCWLogsBackend(t *testing.T) {
 	t.Parallel()
 
 	backend := lambda.NewInMemoryBackend(
-		nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default(),
+		nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1",
 	)
 
 	mock := &mockCWLogsBackend{}
@@ -428,7 +426,7 @@ func TestInMemoryBackend_GetVersion(t *testing.T) {
 	require.NoError(t, paErr)
 
 	backend := lambda.NewInMemoryBackend(
-		nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default(),
+		nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1",
 	)
 
 	fn := &lambda.FunctionConfiguration{
@@ -469,7 +467,7 @@ func TestInMemoryBackend_ResolveQualifier(t *testing.T) {
 	require.NoError(t, paErr)
 
 	backend := lambda.NewInMemoryBackend(
-		nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default(),
+		nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1",
 	)
 
 	fn := &lambda.FunctionConfiguration{
@@ -559,7 +557,7 @@ func TestBuildURLEventPayload(t *testing.T) {
 			t.Parallel()
 
 			backend := lambda.NewInMemoryBackend(
-				nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default(),
+				nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1",
 			)
 
 			var bodyReader io.Reader
@@ -669,7 +667,7 @@ func TestFunctionURLConfig_HTTPEndpoint(t *testing.T) {
 	require.NoError(t, paErr)
 
 	backend := lambda.NewInMemoryBackend(
-		nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default(),
+		nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1",
 	)
 
 	fn := &lambda.FunctionConfiguration{

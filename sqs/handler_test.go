@@ -15,7 +15,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/sqs"
 )
@@ -31,7 +30,6 @@ type jsonErr struct {
 
 func newTestHandler(t *testing.T) *sqs.Handler {
 	t.Helper()
-
 
 	backend := sqs.NewInMemoryBackend()
 
@@ -179,8 +177,6 @@ func (e *errorBackend) ListAll() []sqs.QueueInfo { return nil }
 
 func newErrorHandler(t *testing.T, err error) *sqs.Handler {
 	t.Helper()
-
-
 
 	return sqs.NewHandler(&errorBackend{err: err})
 }
@@ -1201,7 +1197,6 @@ func TestProviderNameAndInit(t *testing.T) {
 
 	p := &sqs.Provider{}
 	assert.Equal(t, "SQS", p.Name())
-
 
 	appCtx := &service.AppContext{Logger: slog.Default()}
 

@@ -520,7 +520,7 @@ func TestSFNHandler_SnapshotRestore_Delegation(t *testing.T) {
 			require.NotNil(t, snap)
 
 			freshBackend := stepfunctions.NewInMemoryBackend()
-			freshH := stepfunctions.NewHandler(freshBackend, nil)
+			freshH := stepfunctions.NewHandler(freshBackend)
 			require.NoError(t, freshH.Restore(snap))
 
 			tt.check(t, freshBackend)

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -24,7 +23,7 @@ func newRealHandler(t *testing.T) (*lambda.Handler, *lambda.InMemoryBackend) {
 
 	backend := lambda.NewInMemoryBackend(
 		nil, nil, lambda.DefaultSettings(),
-		"000000000000", "us-east-1", slog.Default(),
+		"000000000000", "us-east-1",
 	)
 	handler := lambda.NewHandler(backend)
 

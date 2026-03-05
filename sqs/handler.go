@@ -25,7 +25,7 @@ type Handler struct {
 
 // NewHandler creates a new SQS Handler.
 func NewHandler(backend StorageBackend) *Handler {
-	return &Handler{Backend: backend, }
+	return &Handler{Backend: backend}
 }
 
 // Name returns the service name.

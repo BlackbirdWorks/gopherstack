@@ -54,7 +54,7 @@ func WriteJSON(ctx context.Context, w http.ResponseWriter, code int, payload any
 
 	body, err := json.Marshal(payload)
 	if err != nil {
-		log.Error("failed to marshal JSON response", "error", err)
+		log.ErrorContext(ctx, "failed to marshal JSON response", "error", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 
 		return
@@ -66,7 +66,7 @@ func WriteJSON(ctx context.Context, w http.ResponseWriter, code int, payload any
 	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 	w.WriteHeader(code)
 	if _, wErr := w.Write(body); wErr != nil {
-		log.Error("failed to write JSON response", "error", wErr)
+		log.ErrorContext(ctx, "failed to write JSON response", "error", wErr)
 	}
 }
 
@@ -80,7 +80,7 @@ func WriteXML(ctx context.Context, w http.ResponseWriter, code int, payload any)
 
 	encoder := xml.NewEncoder(&buf)
 	if err := encoder.Encode(payload); err != nil {
-		log.Error("failed to marshal XML response", "error", err)
+		log.ErrorContext(ctx, "failed to marshal XML response", "error", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 
 		return
@@ -89,7 +89,7 @@ func WriteXML(ctx context.Context, w http.ResponseWriter, code int, payload any)
 	w.Header().Set("Content-Type", "application/xml")
 	w.WriteHeader(code)
 	if _, err := buf.WriteTo(w); err != nil {
-		log.Error("failed to write XML response", "error", err)
+		log.ErrorContext(ctx, "failed to write XML response", "error", err)
 	}
 }
 
@@ -100,7 +100,7 @@ func WriteDynamoDBResponse(ctx context.Context, w http.ResponseWriter, code int,
 
 	body, err := json.Marshal(payload)
 	if err != nil {
-		log.Error("failed to marshal DynamoDB response", "error", err)
+		log.ErrorContext(ctx, "failed to marshal DynamoDB response", "error", err)
 		http.Error(w,
 			`{"__type":"com.amazonaws.dynamodb.v20120810#InternalServerError","message":"internal server error"}`,
 			http.StatusInternalServerError)
@@ -114,7 +114,7 @@ func WriteDynamoDBResponse(ctx context.Context, w http.ResponseWriter, code int,
 	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 	w.WriteHeader(code)
 	if _, wErr := w.Write(body); wErr != nil {
-		log.Error("failed to write DynamoDB response", "error", wErr)
+		log.ErrorContext(ctx, "failed to write DynamoDB response", "error", wErr)
 	}
 }
 
@@ -124,7 +124,7 @@ func WriteDynamoDBResponse(ctx context.Context, w http.ResponseWriter, code int,
 func WriteError(ctx context.Context, w http.ResponseWriter, r *http.Request, err error, code int) {
 	DrainBody(r)
 	if err != nil {
-		logger.Load(ctx).Error("request failed", "error", err, "code", code, "path", r.URL.Path)
+		logger.Load(ctx).ErrorContext(ctx, "request failed", "error", err, "code", code, "path", r.URL.Path)
 	}
 	http.Error(w, err.Error(), code)
 }

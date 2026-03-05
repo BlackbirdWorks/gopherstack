@@ -114,7 +114,7 @@ func TestLoadData(t *testing.T) {
 					o.BaseEndpoint = aws.String("http://local")
 				}),
 			}
-			err = demo.LoadData(t.Context(), slog.Default(), loadClients)
+			err = demo.LoadData(t.Context(), loadClients)
 			require.NoError(t, err)
 
 			// Verify DynamoDB

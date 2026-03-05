@@ -1,7 +1,6 @@
 package sts_test
 
 import (
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -69,7 +68,7 @@ func TestSTSHandler_Persistence(t *testing.T) {
 func TestSTSHandler_Routing(t *testing.T) {
 	t.Parallel()
 
-	h := sts.NewHandler(sts.NewInMemoryBackendWithConfig("000000000000"), slog.Default())
+	h := sts.NewHandler(sts.NewInMemoryBackendWithConfig("000000000000"))
 
 	assert.Equal(t, "STS", h.Name())
 	assert.Positive(t, h.MatchPriority())

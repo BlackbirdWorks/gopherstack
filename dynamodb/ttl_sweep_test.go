@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/dynamodb"
-	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 func TestJanitor_TTLSweep(t *testing.T) {

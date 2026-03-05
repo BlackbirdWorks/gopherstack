@@ -1,7 +1,6 @@
 package apigateway_test
 
 import (
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"

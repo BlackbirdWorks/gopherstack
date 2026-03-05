@@ -3,10 +3,10 @@ package demo
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
@@ -19,6 +19,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
+	pkgslogger "github.com/blackbirdworks/gopherstack/pkgs/logger"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -44,47 +45,46 @@ type Clients struct {
 // LoadData loads sample data into all supported services.
 func LoadData(
 	ctx context.Context,
-	logger *slog.Logger,
 	clients *Clients,
 ) error {
-	logger.InfoContext(ctx, "Loading demo data...")
+	pkgslogger.Load(ctx).InfoContext(ctx, "Loading demo data...")
 
-	if err := loadDynamoDB(ctx, logger, clients.DynamoDB); err != nil {
+	if err := loadDynamoDB(ctx, clients.DynamoDB); err != nil {
 		return fmt.Errorf("failed to load dynamodb data: %w", err)
 	}
 
-	if err := loadS3(ctx, logger, clients.S3); err != nil {
+	if err := loadS3(ctx, clients.S3); err != nil {
 		return fmt.Errorf("failed to load s3 data: %w", err)
 	}
 
-	loadSQS(ctx, logger, clients.SQS)
+	loadSQS(ctx, clients.SQS)
 
-	if err := loadSNS(ctx, logger, clients.SNS, clients.SQS); err != nil {
+	if err := loadSNS(ctx, clients.SNS, clients.SQS); err != nil {
 		return fmt.Errorf("failed to load sns data: %w", err)
 	}
 
-	loadIAM(ctx, logger, clients.IAM)
+	loadIAM(ctx, clients.IAM)
 
-	if err := loadSSM(ctx, logger, clients.SSM); err != nil {
+	if err := loadSSM(ctx, clients.SSM); err != nil {
 		return fmt.Errorf("failed to load ssm data: %w", err)
 	}
 
-	loadKMS(ctx, logger, clients.KMS)
+	loadKMS(ctx, clients.KMS)
 
-	loadSecretsManager(ctx, logger, clients.SecretsManager)
+	loadSecretsManager(ctx, clients.SecretsManager)
 
-	logger.InfoContext(ctx, "Demo data loaded successfully")
+	pkgslogger.Load(ctx).InfoContext(ctx, "Demo data loaded successfully")
 
 	return nil
 }
 
-func loadDynamoDB(ctx context.Context, logger *slog.Logger, ddb *dynamodb.Client) error {
+func loadDynamoDB(ctx context.Context, ddb *dynamodb.Client) error {
 	tableName := "Movies"
 
 	// Check if table exists
 	_, err := ddb.DescribeTable(ctx, &dynamodb.DescribeTableInput{TableName: &tableName})
 	if err == nil {
-		logger.InfoContext(ctx, "Table already exists, skipping creation", "table", tableName)
+		pkgslogger.Load(ctx).InfoContext(ctx, "Table already exists, skipping creation", "table", tableName)
 	} else {
 		// Create Table
 		_, err = ddb.CreateTable(ctx, &dynamodb.CreateTableInput{
@@ -109,7 +109,7 @@ func loadDynamoDB(ctx context.Context, logger *slog.Logger, ddb *dynamodb.Client
 		if err != nil {
 			return fmt.Errorf("failed to create table: %w", err)
 		}
-		logger.InfoContext(ctx, "Created table", "table", tableName)
+		pkgslogger.Load(ctx).InfoContext(ctx, "Created table", "table", tableName)
 	}
 
 	// Insert Items
@@ -135,12 +135,12 @@ func loadDynamoDB(ctx context.Context, logger *slog.Logger, ddb *dynamodb.Client
 			return fmt.Errorf("failed to put item: %w", err)
 		}
 	}
-	logger.InfoContext(ctx, "Loaded DynamoDB items", "count", len(items))
+	pkgslogger.Load(ctx).InfoContext(ctx, "Loaded DynamoDB items", "count", len(items))
 
 	return nil
 }
 
-func loadS3(ctx context.Context, logger *slog.Logger, s3Client *s3.Client) error {
+func loadS3(ctx context.Context, s3Client *s3.Client) error {
 	bucketName := "demo-bucket"
 
 	// Create Bucket
@@ -156,7 +156,7 @@ func loadS3(ctx context.Context, logger *slog.Logger, s3Client *s3.Client) error
 			!strings.Contains(err.Error(), "BucketAlreadyExists") {
 			// In-memory backend might return generic error or specific.
 			// We'll log and continue if it fails, maybe it already exists.
-			logger.WarnContext(
+			pkgslogger.Load(ctx).WarnContext(
 				ctx,
 				"Failed to create bucket (might exist)",
 				"bucket",
@@ -166,7 +166,7 @@ func loadS3(ctx context.Context, logger *slog.Logger, s3Client *s3.Client) error
 			)
 		}
 	} else {
-		logger.InfoContext(ctx, "Created bucket", "bucket", bucketName)
+		pkgslogger.Load(ctx).InfoContext(ctx, "Created bucket", "bucket", bucketName)
 	}
 
 	_, err = s3Client.PutBucketVersioning(ctx, &s3.PutBucketVersioningInput{
@@ -176,9 +176,9 @@ func loadS3(ctx context.Context, logger *slog.Logger, s3Client *s3.Client) error
 		},
 	})
 	if err != nil {
-		logger.WarnContext(ctx, "Failed to enable versioning", "error", err)
+		pkgslogger.Load(ctx).WarnContext(ctx, "Failed to enable versioning", "error", err)
 	} else {
-		logger.InfoContext(ctx, "Enabled versioning", "bucket", bucketName)
+		pkgslogger.Load(ctx).InfoContext(ctx, "Enabled versioning", "bucket", bucketName)
 	}
 
 	// Upload Files
@@ -210,24 +210,24 @@ func loadS3(ctx context.Context, logger *slog.Logger, s3Client *s3.Client) error
 		return fmt.Errorf("failed to upload hello.txt v2: %w", err)
 	}
 
-	logger.InfoContext(ctx, "Loaded S3 files", "count", len(files)+1)
+	pkgslogger.Load(ctx).InfoContext(ctx, "Loaded S3 files", "count", len(files)+1)
 
 	return nil
 }
 
-func loadSQS(ctx context.Context, logger *slog.Logger, sqsClient *sqs.Client) {
+func loadSQS(ctx context.Context, sqsClient *sqs.Client) {
 	queueName := "demo-queue"
 	_, err := sqsClient.CreateQueue(ctx, &sqs.CreateQueueInput{
 		QueueName: &queueName,
 	})
 	if err != nil {
-		logger.WarnContext(ctx, "Failed to create queue", "error", err)
+		pkgslogger.Load(ctx).WarnContext(ctx, "Failed to create queue", "error", err)
 	} else {
-		logger.InfoContext(ctx, "Created SQS queue", "name", queueName)
+		pkgslogger.Load(ctx).InfoContext(ctx, "Created SQS queue", "name", queueName)
 	}
 }
 
-func loadSNS(ctx context.Context, logger *slog.Logger, snsClient *sns.Client, _ *sqs.Client) error {
+func loadSNS(ctx context.Context, snsClient *sns.Client, _ *sqs.Client) error {
 	topicName := "demo-topic"
 	topic, err := snsClient.CreateTopic(ctx, &sns.CreateTopicInput{
 		Name: &topicName,
@@ -235,7 +235,7 @@ func loadSNS(ctx context.Context, logger *slog.Logger, snsClient *sns.Client, _ 
 	if err != nil {
 		return fmt.Errorf("failed to create topic: %w", err)
 	}
-	logger.InfoContext(ctx, "Created SNS topic", "name", topicName)
+	pkgslogger.Load(ctx).InfoContext(ctx, "Created SNS topic", "name", topicName)
 
 	// Create subscription to the SQS queue
 	queueName := "demo-queue"
@@ -245,23 +245,23 @@ func loadSNS(ctx context.Context, logger *slog.Logger, snsClient *sns.Client, _ 
 		Endpoint: aws.String(arn.Build("sqs", config.DefaultRegion, config.DefaultAccountID, queueName)),
 	})
 	if err != nil {
-		logger.WarnContext(ctx, "Failed to subscribe queue to topic", "error", err)
+		pkgslogger.Load(ctx).WarnContext(ctx, "Failed to subscribe queue to topic", "error", err)
 	} else {
-		logger.InfoContext(ctx, "Subscribed SQS queue to SNS topic")
+		pkgslogger.Load(ctx).InfoContext(ctx, "Subscribed SQS queue to SNS topic")
 	}
 
 	return nil
 }
 
-func loadIAM(ctx context.Context, logger *slog.Logger, iamClient *iam.Client) {
+func loadIAM(ctx context.Context, iamClient *iam.Client) {
 	userName := "demo-user"
 	_, err := iamClient.CreateUser(ctx, &iam.CreateUserInput{
 		UserName: &userName,
 	})
 	if err != nil {
-		logger.WarnContext(ctx, "Failed to create IAM user", "error", err)
+		pkgslogger.Load(ctx).WarnContext(ctx, "Failed to create IAM user", "error", err)
 	} else {
-		logger.InfoContext(ctx, "Created IAM user", "name", userName)
+		pkgslogger.Load(ctx).InfoContext(ctx, "Created IAM user", "name", userName)
 	}
 
 	roleName := "demo-role"
@@ -272,13 +272,13 @@ func loadIAM(ctx context.Context, logger *slog.Logger, iamClient *iam.Client) {
 		AssumeRolePolicyDocument: aws.String(assumePolicyDoc),
 	})
 	if err != nil {
-		logger.WarnContext(ctx, "Failed to create IAM role", "error", err)
+		pkgslogger.Load(ctx).WarnContext(ctx, "Failed to create IAM role", "error", err)
 	} else {
-		logger.InfoContext(ctx, "Created IAM role", "name", roleName)
+		pkgslogger.Load(ctx).InfoContext(ctx, "Created IAM role", "name", roleName)
 	}
 }
 
-func loadSSM(ctx context.Context, logger *slog.Logger, ssmClient *ssm.Client) error {
+func loadSSM(ctx context.Context, ssmClient *ssm.Client) error {
 	params := map[string]string{
 		"/demo/config/api_key": "secret-api-key-123",
 		"/demo/config/env":     "development",
@@ -295,31 +295,31 @@ func loadSSM(ctx context.Context, logger *slog.Logger, ssmClient *ssm.Client) er
 			return fmt.Errorf("failed to put ssm parameter %s: %w", name, err)
 		}
 	}
-	logger.InfoContext(ctx, "Loaded SSM parameters", "count", len(params))
+	pkgslogger.Load(ctx).InfoContext(ctx, "Loaded SSM parameters", "count", len(params))
 
 	return nil
 }
 
-func loadKMS(ctx context.Context, logger *slog.Logger, kmsClient *kms.Client) {
+func loadKMS(ctx context.Context, kmsClient *kms.Client) {
 	_, err := kmsClient.CreateKey(ctx, &kms.CreateKeyInput{
 		Description: aws.String("Demo key for encryption"),
 	})
 	if err != nil {
-		logger.WarnContext(ctx, "Failed to create KMS key", "error", err)
+		pkgslogger.Load(ctx).WarnContext(ctx, "Failed to create KMS key", "error", err)
 	} else {
-		logger.InfoContext(ctx, "Created KMS key")
+		pkgslogger.Load(ctx).InfoContext(ctx, "Created KMS key")
 	}
 }
 
-func loadSecretsManager(ctx context.Context, logger *slog.Logger, smClient *secretsmanager.Client) {
+func loadSecretsManager(ctx context.Context, smClient *secretsmanager.Client) {
 	secretName := "demo/database/password"
 	_, err := smClient.CreateSecret(ctx, &secretsmanager.CreateSecretInput{
 		Name:         &secretName,
 		SecretString: aws.String(`{"username":"admin","password":"password123"}`),
 	})
 	if err != nil {
-		logger.WarnContext(ctx, "Failed to create secret", "error", err)
+		pkgslogger.Load(ctx).WarnContext(ctx, "Failed to create secret", "error", err)
 	} else {
-		logger.InfoContext(ctx, "Created secret", "name", secretName)
+		pkgslogger.Load(ctx).InfoContext(ctx, "Created secret", "name", secretName)
 	}
 }

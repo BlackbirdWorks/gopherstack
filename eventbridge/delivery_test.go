@@ -2,13 +2,11 @@ package eventbridge_test
 
 import (
 	"context"
-	"log/slog"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/eventbridge"
-	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
