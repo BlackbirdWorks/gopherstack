@@ -45,6 +45,10 @@ var (
 	ErrAliasNotFound = errors.New("ResourceNotFoundException")
 	// ErrAliasAlreadyExists is returned when creating an alias that already exists.
 	ErrAliasAlreadyExists = errors.New("ResourceConflictException")
+	// ErrLayerNotFound is returned when the specified layer does not exist.
+	ErrLayerNotFound = errors.New("ResourceNotFoundException")
+	// ErrLayerVersionNotFound is returned when the specified layer version does not exist.
+	ErrLayerVersionNotFound = errors.New("ResourceNotFoundException")
 )
 
 // versionLatest is the sentinel qualifier for the live function configuration.
@@ -117,12 +121,19 @@ type InMemoryBackend struct {
 	functionURLServers  map[string]*functionURLServer
 	functionURLConfigs  map[string]*FunctionURLConfig
 	versions            map[string][]*FunctionVersion
-	portAlloc           *portalloc.Allocator
-	runtimes            map[string]*functionRuntime
-	mu                  *lockmetrics.RWMutex
-	region              string
-	accountID           string
-	settings            Settings
+	// layers stores layer versions keyed by layerName → []LayerVersion (ordered by version).
+	layers map[string][]*LayerVersion
+	// layerVersionCounters tracks the next version number per layer.
+	layerVersionCounters map[string]int64
+	// layerPolicies stores per-version resource policy statements keyed by
+	// layerName → versionNumber → statementID → LayerVersionStatement.
+	layerPolicies map[string]map[int64]map[string]*LayerVersionStatement
+	portAlloc     *portalloc.Allocator
+	runtimes      map[string]*functionRuntime
+	mu            *lockmetrics.RWMutex
+	region        string
+	accountID     string
+	settings      Settings
 }
 
 // NewInMemoryBackend creates a new Lambda in-memory backend.
@@ -133,20 +144,23 @@ func NewInMemoryBackend(
 	accountID, region string,
 ) *InMemoryBackend {
 	return &InMemoryBackend{
-		functions:           make(map[string]*FunctionConfiguration),
-		runtimes:            make(map[string]*functionRuntime),
-		eventSourceMappings: make(map[string]*EventSourceMapping),
-		functionURLConfigs:  make(map[string]*FunctionURLConfig),
-		functionURLServers:  make(map[string]*functionURLServer),
-		versions:            make(map[string][]*FunctionVersion),
-		aliases:             make(map[string]map[string]*FunctionAlias),
-		versionCounters:     make(map[string]int),
-		docker:              dockerClient,
-		portAlloc:           portAlloc,
-		settings:            settings,
-		accountID:           accountID,
-		region:              region,
-		mu:                  lockmetrics.New("lambda"),
+		functions:            make(map[string]*FunctionConfiguration),
+		runtimes:             make(map[string]*functionRuntime),
+		eventSourceMappings:  make(map[string]*EventSourceMapping),
+		functionURLConfigs:   make(map[string]*FunctionURLConfig),
+		functionURLServers:   make(map[string]*functionURLServer),
+		versions:             make(map[string][]*FunctionVersion),
+		aliases:              make(map[string]map[string]*FunctionAlias),
+		versionCounters:      make(map[string]int),
+		layers:               make(map[string][]*LayerVersion),
+		layerVersionCounters: make(map[string]int64),
+		layerPolicies:        make(map[string]map[int64]map[string]*LayerVersionStatement),
+		docker:               dockerClient,
+		portAlloc:            portAlloc,
+		settings:             settings,
+		accountID:            accountID,
+		region:               region,
+		mu:                   lockmetrics.New("lambda"),
 	}
 }
 
@@ -657,6 +671,7 @@ func (b *InMemoryBackend) PublishVersion(name, description string) (*FunctionVer
 		PackageType:  fn.PackageType,
 		ImageURI:     fn.ImageURI,
 		Environment:  deepCopyEnvironment(fn.Environment),
+		Layers:       deepCopyFunctionLayers(fn.Layers),
 		CodeSize:     fn.CodeSize,
 		RevisionID:   uuid.New().String(),
 		CreatedAt:    fn.LastModified,
@@ -902,6 +917,25 @@ func deepCopyEnvironment(src *EnvironmentConfig) *EnvironmentConfig {
 	return &EnvironmentConfig{Variables: vars}
 }
 
+// deepCopyFunctionLayers returns a shallow copy of a FunctionLayer slice.
+func deepCopyFunctionLayers(src []*FunctionLayer) []*FunctionLayer {
+	if len(src) == 0 {
+		return nil
+	}
+
+	dst := make([]*FunctionLayer, len(src))
+	for i, l := range src {
+		if l == nil {
+			continue
+		}
+
+		cp := *l
+		dst[i] = &cp
+	}
+
+	return dst
+}
+
 // fnToVersion converts a live FunctionConfiguration to a $LATEST FunctionVersion.
 func fnToVersion(fn *FunctionConfiguration) *FunctionVersion {
 	return &FunctionVersion{
@@ -917,6 +951,7 @@ func fnToVersion(fn *FunctionConfiguration) *FunctionVersion {
 		PackageType:  fn.PackageType,
 		ImageURI:     fn.ImageURI,
 		Environment:  fn.Environment,
+		Layers:       fn.Layers,
 		CodeSize:     fn.CodeSize,
 		RevisionID:   fn.RevisionID,
 		CreatedAt:    fn.LastModified,
@@ -1310,4 +1345,340 @@ func (b *InMemoryBackend) startZipContainer(
 	}
 
 	return zipDir, nil
+}
+
+// buildLayerARN constructs a Lambda layer ARN.
+func (b *InMemoryBackend) buildLayerARN(layerName string) string {
+	return arn.Build("lambda", b.region, b.accountID, "layer:"+layerName)
+}
+
+// buildLayerVersionARN constructs a Lambda layer version ARN.
+func (b *InMemoryBackend) buildLayerVersionARN(layerName string, version int64) string {
+	return fmt.Sprintf("%s:%d", b.buildLayerARN(layerName), version)
+}
+
+// PublishLayerVersion creates a new immutable version of the named layer.
+func (b *InMemoryBackend) PublishLayerVersion(input *PublishLayerVersionInput) (*PublishLayerVersionOutput, error) {
+	if input == nil || input.Content == nil {
+		return nil, fmt.Errorf("%w: Content is required", ErrLambdaUnavailable)
+	}
+
+	b.mu.Lock("PublishLayerVersion")
+	defer b.mu.Unlock()
+
+	b.layerVersionCounters[input.LayerName]++
+	version := b.layerVersionCounters[input.LayerName]
+
+	zipData := input.Content.ZipFile
+	codeSize := int64(len(zipData))
+
+	lv := &LayerVersion{
+		LayerVersionArn:    b.buildLayerVersionARN(input.LayerName, version),
+		Description:        input.Description,
+		CreatedDate:        time.Now().UTC().Format(time.RFC3339),
+		Version:            version,
+		CompatibleRuntimes: input.CompatibleRuntimes,
+		LicenseInfo:        input.LicenseInfo,
+		ZipData:            zipData,
+		Content: &LayerVersionContent{
+			CodeSize: codeSize,
+		},
+	}
+
+	b.layers[input.LayerName] = append(b.layers[input.LayerName], lv)
+
+	return &PublishLayerVersionOutput{
+		LayerVersionArn:    lv.LayerVersionArn,
+		LayerArn:           b.buildLayerARN(input.LayerName),
+		Description:        lv.Description,
+		CreatedDate:        lv.CreatedDate,
+		Content:            lv.Content,
+		CompatibleRuntimes: lv.CompatibleRuntimes,
+		LicenseInfo:        lv.LicenseInfo,
+		Version:            lv.Version,
+	}, nil
+}
+
+// GetLayerVersion retrieves metadata for a specific layer version.
+func (b *InMemoryBackend) GetLayerVersion(layerName string, version int64) (*GetLayerVersionOutput, error) {
+	b.mu.RLock("GetLayerVersion")
+	defer b.mu.RUnlock()
+
+	versions, ok := b.layers[layerName]
+	if !ok || len(versions) == 0 {
+		return nil, ErrLayerNotFound
+	}
+
+	for _, lv := range versions {
+		if lv.Version == version {
+			return &GetLayerVersionOutput{
+				LayerVersionArn:    lv.LayerVersionArn,
+				LayerArn:           b.buildLayerARN(layerName),
+				Description:        lv.Description,
+				CreatedDate:        lv.CreatedDate,
+				Content:            lv.Content,
+				CompatibleRuntimes: lv.CompatibleRuntimes,
+				LicenseInfo:        lv.LicenseInfo,
+				Version:            lv.Version,
+			}, nil
+		}
+	}
+
+	return nil, ErrLayerVersionNotFound
+}
+
+// ListLayers returns a summary of all layers with their latest version.
+func (b *InMemoryBackend) ListLayers() []*Layer {
+	b.mu.RLock("ListLayers")
+	defer b.mu.RUnlock()
+
+	result := make([]*Layer, 0, len(b.layers))
+
+	names := make([]string, 0, len(b.layers))
+	for name := range b.layers {
+		names = append(names, name)
+	}
+
+	sort.Strings(names)
+
+	for _, name := range names {
+		versions := b.layers[name]
+		if len(versions) == 0 {
+			continue
+		}
+
+		latest := versions[len(versions)-1]
+
+		result = append(result, &Layer{
+			LayerArn:  b.buildLayerARN(name),
+			LayerName: name,
+			LatestMatchingVersion: &LayerVersion{
+				LayerVersionArn:    latest.LayerVersionArn,
+				Description:        latest.Description,
+				CreatedDate:        latest.CreatedDate,
+				Content:            latest.Content,
+				CompatibleRuntimes: latest.CompatibleRuntimes,
+				LicenseInfo:        latest.LicenseInfo,
+				Version:            latest.Version,
+			},
+		})
+	}
+
+	return result
+}
+
+// ListLayerVersions returns all versions of a specific layer in descending order.
+func (b *InMemoryBackend) ListLayerVersions(layerName string) ([]*LayerVersion, error) {
+	b.mu.RLock("ListLayerVersions")
+	defer b.mu.RUnlock()
+
+	versions, ok := b.layers[layerName]
+	if !ok {
+		return nil, ErrLayerNotFound
+	}
+
+	// Return a copy in reverse order (newest first).
+	result := make([]*LayerVersion, len(versions))
+	for i, lv := range versions {
+		result[len(versions)-1-i] = &LayerVersion{
+			LayerVersionArn:    lv.LayerVersionArn,
+			Description:        lv.Description,
+			CreatedDate:        lv.CreatedDate,
+			Content:            lv.Content,
+			CompatibleRuntimes: lv.CompatibleRuntimes,
+			LicenseInfo:        lv.LicenseInfo,
+			Version:            lv.Version,
+		}
+	}
+
+	return result, nil
+}
+
+// DeleteLayerVersion removes an immutable layer version.
+func (b *InMemoryBackend) DeleteLayerVersion(layerName string, version int64) error {
+	b.mu.Lock("DeleteLayerVersion")
+	defer b.mu.Unlock()
+
+	versions, ok := b.layers[layerName]
+	if !ok || len(versions) == 0 {
+		return ErrLayerNotFound
+	}
+
+	for i, lv := range versions {
+		if lv.Version == version {
+			b.layers[layerName] = append(versions[:i], versions[i+1:]...)
+
+			// Clean up policy entries for deleted version.
+			if b.layerPolicies[layerName] != nil {
+				delete(b.layerPolicies[layerName], version)
+			}
+
+			return nil
+		}
+	}
+
+	return ErrLayerVersionNotFound
+}
+
+// GetLayerVersionPolicy returns the resource policy for a layer version.
+func (b *InMemoryBackend) GetLayerVersionPolicy(layerName string, version int64) (*LayerVersionPolicy, error) {
+	b.mu.RLock("GetLayerVersionPolicy")
+	defer b.mu.RUnlock()
+
+	// Verify the version exists.
+	versions, ok := b.layers[layerName]
+	if !ok || len(versions) == 0 {
+		return nil, ErrLayerNotFound
+	}
+
+	found := false
+
+	for _, lv := range versions {
+		if lv.Version == version {
+			found = true
+
+			break
+		}
+	}
+
+	if !found {
+		return nil, ErrLayerVersionNotFound
+	}
+
+	stmts := b.layerPolicies[layerName][version]
+
+	policy, marshalErr := buildLayerPolicy(stmts)
+	if marshalErr != nil {
+		return nil, marshalErr
+	}
+
+	return &LayerVersionPolicy{
+		Policy:     policy,
+		RevisionID: "1",
+	}, nil
+}
+
+// AddLayerVersionPermission adds a permission statement to a layer version's resource policy.
+func (b *InMemoryBackend) AddLayerVersionPermission(
+	layerName string, version int64, input *AddLayerVersionPermissionInput,
+) (*AddLayerVersionPermissionOutput, error) {
+	b.mu.Lock("AddLayerVersionPermission")
+	defer b.mu.Unlock()
+
+	versions, ok := b.layers[layerName]
+	if !ok || len(versions) == 0 {
+		return nil, ErrLayerNotFound
+	}
+
+	found := false
+
+	for _, lv := range versions {
+		if lv.Version == version {
+			found = true
+
+			break
+		}
+	}
+
+	if !found {
+		return nil, ErrLayerVersionNotFound
+	}
+
+	if b.layerPolicies[layerName] == nil {
+		b.layerPolicies[layerName] = make(map[int64]map[string]*LayerVersionStatement)
+	}
+
+	if b.layerPolicies[layerName][version] == nil {
+		b.layerPolicies[layerName][version] = make(map[string]*LayerVersionStatement)
+	}
+
+	stmt := &LayerVersionStatement{
+		StatementID: input.StatementID,
+		Action:      input.Action,
+		Principal:   input.Principal,
+	}
+
+	b.layerPolicies[layerName][version][input.StatementID] = stmt
+
+	stmtJSON, marshalErr := json.Marshal(stmt)
+	if marshalErr != nil {
+		return nil, marshalErr
+	}
+
+	return &AddLayerVersionPermissionOutput{
+		Statement:  string(stmtJSON),
+		RevisionID: "1",
+	}, nil
+}
+
+// RemoveLayerVersionPermission removes a permission statement from a layer version's resource policy.
+func (b *InMemoryBackend) RemoveLayerVersionPermission(layerName string, version int64, statementID string) error {
+	b.mu.Lock("RemoveLayerVersionPermission")
+	defer b.mu.Unlock()
+
+	versions, ok := b.layers[layerName]
+	if !ok || len(versions) == 0 {
+		return ErrLayerNotFound
+	}
+
+	found := false
+
+	for _, lv := range versions {
+		if lv.Version == version {
+			found = true
+
+			break
+		}
+	}
+
+	if !found {
+		return ErrLayerVersionNotFound
+	}
+
+	if b.layerPolicies[layerName] == nil || b.layerPolicies[layerName][version] == nil {
+		return nil
+	}
+
+	delete(b.layerPolicies[layerName][version], statementID)
+
+	return nil
+}
+
+// buildLayerPolicy serialises a map of statements to a JSON IAM policy document string.
+func buildLayerPolicy(stmts map[string]*LayerVersionStatement) (string, error) {
+	type policyDocument struct {
+		Version   string              `json:"Version"`
+		Statement []map[string]string `json:"Statement"`
+	}
+
+	statements := make([]map[string]string, 0, len(stmts))
+
+	stmtIDs := make([]string, 0, len(stmts))
+	for sid := range stmts {
+		stmtIDs = append(stmtIDs, sid)
+	}
+
+	sort.Strings(stmtIDs)
+
+	for _, sid := range stmtIDs {
+		s := stmts[sid]
+		statements = append(statements, map[string]string{
+			"Sid":       s.StatementID,
+			"Effect":    "Allow",
+			"Principal": s.Principal,
+			"Action":    s.Action,
+		})
+	}
+
+	doc := policyDocument{
+		Version:   "2012-10-17",
+		Statement: statements,
+	}
+
+	data, err := json.Marshal(doc)
+	if err != nil {
+		return "", err
+	}
+
+	return string(data), nil
 }
