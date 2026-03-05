@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -53,7 +54,12 @@ type LambdaProxyResponse struct {
 }
 
 // BuildProxyEvent converts an incoming HTTP request to a Lambda proxy event.
-func BuildProxyEvent(r *http.Request, apiID, stageName, resource, path string) (*LambdaProxyEvent, error) {
+// pathParameters are the path variable values extracted by the routing engine (may be nil).
+func BuildProxyEvent(
+	r *http.Request,
+	apiID, stageName, resource, path string,
+	pathParameters map[string]string,
+) (*LambdaProxyEvent, error) {
 	// Read body.
 	var bodyStr string
 	var isBase64 bool
@@ -99,6 +105,7 @@ func BuildProxyEvent(r *http.Request, apiID, stageName, resource, path string) (
 		MultiValueHeaders:     multiValueHeaders,
 		QueryStringParameters: qsp,
 		MultiValueQueryString: mqsp,
+		PathParameters:        pathParameters,
 		Body:                  bodyStr,
 		IsBase64Encoded:       isBase64,
 		RequestContext: LambdaProxyContext{
@@ -115,12 +122,6 @@ func (h *Handler) handleProxyRequest(apiID, stageName string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
-		if h.lambda == nil {
-			http.Error(w, "Lambda integration not configured", http.StatusServiceUnavailable)
-
-			return
-		}
-
 		// Find the resource and integration.
 		resources, _, err := h.Backend.GetResources(apiID, "", 0)
 		if err != nil {
@@ -130,8 +131,8 @@ func (h *Handler) handleProxyRequest(apiID, stageName string) http.HandlerFunc {
 			return
 		}
 
-		// Match request path to resource path.
-		resource := findMatchingResource(resources, r.URL.Path, stageName)
+		// Match request path to resource path, extracting any path parameters.
+		resource, pathParams := findMatchingResource(resources, r.URL.Path, stageName)
 		if resource == nil {
 			http.NotFound(w, r)
 
@@ -152,9 +153,13 @@ func (h *Handler) handleProxyRequest(apiID, stageName string) http.HandlerFunc {
 
 		switch integration.Type {
 		case "AWS_PROXY":
-			h.handleAWSProxy(ctx, w, r, apiID, stageName, resource, integration)
+			h.handleAWSProxy(ctx, w, r, apiID, stageName, resource, integration, pathParams)
 		case "AWS":
 			h.handleAWSIntegration(ctx, w, r, integration)
+		case "HTTP", "HTTP_PROXY":
+			h.handleHTTPProxy(ctx, w, r, integration)
+		case "MOCK":
+			h.handleMockIntegration(w, integration)
 		default:
 			http.Error(w, "Non-proxy integrations not supported on stage URL", http.StatusNotImplemented)
 		}
@@ -169,8 +174,15 @@ func (h *Handler) handleAWSProxy(
 	apiID, stageName string,
 	resource *Resource,
 	integration *Integration,
+	pathParams map[string]string,
 ) {
-	event, buildErr := BuildProxyEvent(r, apiID, stageName, resource.Path, r.URL.Path)
+	if h.lambda == nil {
+		http.Error(w, "Lambda integration not configured", http.StatusServiceUnavailable)
+
+		return
+	}
+
+	event, buildErr := BuildProxyEvent(r, apiID, stageName, resource.Path, r.URL.Path, pathParams)
 	if buildErr != nil {
 		logger.Load(ctx).ErrorContext(ctx, "APIGateway proxy: failed to build event", "error", buildErr)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -229,6 +241,12 @@ func (h *Handler) handleAWSIntegration(
 	r *http.Request,
 	integration *Integration,
 ) {
+	if h.lambda == nil {
+		http.Error(w, "Lambda integration not configured", http.StatusServiceUnavailable)
+
+		return
+	}
+
 	// Read the raw request body.
 	rawBody, readErr := io.ReadAll(r.Body)
 	if readErr != nil {
@@ -292,9 +310,136 @@ func applyResponseTemplate(respBytes []byte, integration *Integration, requestID
 	return []byte(RenderTemplate(tpl, respVTLCtx))
 }
 
-// findMatchingResource finds a resource whose path matches the request path.
+// handleHTTPProxy forwards the request to the target URI specified in the integration.
+// Both HTTP and HTTP_PROXY integration types are handled identically: the request
+// is forwarded as-is and the upstream response is returned directly to the caller.
+func (h *Handler) handleHTTPProxy(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	integration *Integration,
+) {
+	targetReq, err := http.NewRequestWithContext(
+		ctx,
+		r.Method,
+		integration.URI,
+		r.Body,
+	)
+	if err != nil {
+		logger.Load(ctx).WarnContext(ctx, "APIGateway HTTP proxy: bad integration URI",
+			"uri", integration.URI, "error", err)
+		http.Error(w, "Bad integration URI", http.StatusBadGateway)
+
+		return
+	}
+
+	// Forward query string and headers.
+	targetReq.URL.RawQuery = r.URL.RawQuery
+	for k, vs := range r.Header {
+		for _, v := range vs {
+			targetReq.Header.Add(k, v)
+		}
+	}
+
+	client := h.getHTTPClient()
+
+	//nolint:gosec // G704: integration URI is configured via the API definition, not raw user input
+	resp, doErr := client.Do(targetReq)
+	if doErr != nil {
+		logger.Load(ctx).WarnContext(ctx, "APIGateway HTTP proxy: upstream request failed",
+			"uri", integration.URI, "error", doErr)
+		http.Error(w, "Upstream request failed", http.StatusBadGateway)
+
+		return
+	}
+
+	defer resp.Body.Close()
+
+	for k, vs := range resp.Header {
+		for _, v := range vs {
+			w.Header().Add(k, v)
+		}
+	}
+
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, resp.Body)
+}
+
+// handleMockIntegration returns a static response configured on the integration.
+// It evaluates the first integrationResponse entry keyed by its status code.
+// If no integrationResponses are configured, it defaults to HTTP 200 with an empty body.
+func (h *Handler) handleMockIntegration(w http.ResponseWriter, integration *Integration) {
+	statusCode, body := mockResponse(integration)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	_, _ = w.Write([]byte(body))
+}
+
+// mockResponse resolves the status code and body for a MOCK integration.
+func mockResponse(integration *Integration) (int, string) {
+	statusCode := http.StatusOK
+
+	ir := mockIntegrationResponse(integration)
+	if ir == nil {
+		return statusCode, ""
+	}
+
+	if sc := parseStatusCode(ir.StatusCode); sc > 0 {
+		statusCode = sc
+	}
+
+	body := ""
+	if ir.ResponseTemplates != nil {
+		body = ir.ResponseTemplates["application/json"]
+	}
+
+	return statusCode, body
+}
+
+// mockIntegrationResponse returns the "200" integration response, if configured.
+func mockIntegrationResponse(integration *Integration) *IntegrationResponse {
+	if integration.IntegrationResponses == nil {
+		return nil
+	}
+
+	ir, ok := integration.IntegrationResponses["200"]
+	if !ok || ir == nil {
+		return nil
+	}
+
+	return ir
+}
+
+// parseStatusCode converts a status-code string to an int; returns 0 on error.
+func parseStatusCode(s string) int {
+	const (
+		minHTTP = 100
+		maxHTTP = 599
+		decBase = 10
+	)
+
+	n := 0
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return 0
+		}
+		n = n*decBase + int(c-'0')
+	}
+
+	if n < minHTTP || n > maxHTTP {
+		return 0
+	}
+
+	return n
+}
+
+// findMatchingResource finds a resource whose path pattern matches the request path.
+// It supports exact path segments, single-segment path variables ({param}), and
+// greedy path variables ({proxy+} or {param+}).  The most-specific match wins.
+// Returns the matched resource and extracted path parameters, or nil if no match.
 // Stage name prefix is stripped from the request path before matching.
-func findMatchingResource(resources []Resource, requestPath, stageName string) *Resource {
+func findMatchingResource(resources []Resource, requestPath, stageName string) (*Resource, map[string]string) {
 	// Strip stage prefix: /{stageName}/... -> /...
 	stripped := requestPath
 	prefix := "/" + stageName
@@ -306,18 +451,106 @@ func findMatchingResource(resources []Resource, requestPath, stageName string) *
 		stripped = "/"
 	}
 
-	for i := range resources {
-		if resources[i].Path == stripped {
-			return &resources[i]
+	// Sort resources by specificity so the most specific match wins.
+	sorted := make([]Resource, len(resources))
+	copy(sorted, resources)
+	sort.Slice(sorted, func(i, j int) bool {
+		return resourceSpecificity(sorted[i].Path) > resourceSpecificity(sorted[j].Path)
+	})
+
+	for i := range sorted {
+		params, ok := matchResourcePath(sorted[i].Path, stripped)
+		if ok {
+			return &sorted[i], params
 		}
 	}
 
-	// Try root resource.
-	for i := range resources {
-		if resources[i].Path == "/" {
-			return &resources[i]
+	return nil, nil
+}
+
+// resourceSpecificity returns a score for the given resource path pattern.
+// Higher scores indicate more specific patterns.
+// Each exact literal segment contributes 2 points and each non-greedy path variable
+// contributes 1 point.  A greedy variable ({proxy+}) contributes 0.
+// Path length (in segments) is used as a secondary factor to prefer longer matches.
+func resourceSpecificity(pattern string) int {
+	const segLengthFactor = 10 // multiply path length to prioritise longer paths
+
+	segs := splitPathSegs(pattern)
+	score := len(segs) * segLengthFactor
+
+	for _, seg := range segs {
+		switch {
+		case strings.HasPrefix(seg, "{") && strings.HasSuffix(seg, "+}"):
+			// greedy variable — no extra points
+		case strings.HasPrefix(seg, "{") && strings.HasSuffix(seg, "}"):
+			score++ // parameterized variable
+		default:
+			score += 2 // exact literal
 		}
 	}
 
-	return nil
+	return score
+}
+
+// splitPathSegs splits a URL path into non-empty segments, ignoring leading and trailing slashes.
+func splitPathSegs(path string) []string {
+	trimmed := strings.Trim(path, "/")
+	if trimmed == "" {
+		return []string{}
+	}
+
+	return strings.Split(trimmed, "/")
+}
+
+// matchResourcePath tries to match urlPath against a resource path pattern.
+// Returns extracted path parameters and true on a successful match.
+func matchResourcePath(pattern, urlPath string) (map[string]string, bool) {
+	patternSegs := splitPathSegs(pattern)
+	urlSegs := splitPathSegs(urlPath)
+
+	// Root resource matches only the root path.
+	if len(patternSegs) == 0 {
+		if len(urlSegs) == 0 {
+			return map[string]string{}, true
+		}
+
+		return nil, false
+	}
+
+	params := make(map[string]string)
+
+	for i, seg := range patternSegs {
+		// Greedy variable {param+} must be the last pattern segment.
+		if strings.HasPrefix(seg, "{") && strings.HasSuffix(seg, "+}") {
+			if i >= len(urlSegs) {
+				return nil, false
+			}
+
+			paramName := seg[1 : len(seg)-2] // strip '{' and '+}'
+			params[paramName] = "/" + strings.Join(urlSegs[i:], "/")
+
+			return params, true
+		}
+
+		if i >= len(urlSegs) {
+			return nil, false
+		}
+
+		urlSeg := urlSegs[i]
+
+		if strings.HasPrefix(seg, "{") && strings.HasSuffix(seg, "}") {
+			paramName := seg[1 : len(seg)-1] // strip '{' and '}'
+			params[paramName] = urlSeg
+		} else if seg != urlSeg {
+			return nil, false
+		}
+	}
+
+	// All pattern segments consumed — reject if URL has additional segments.
+	if len(urlSegs) != len(patternSegs) {
+		return nil, false
+	}
+
+	return params, true
 }
