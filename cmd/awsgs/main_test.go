@@ -56,7 +56,14 @@ func TestBuildArgs(t *testing.T) {
 			name:     "operation_args_preserved",
 			args:     []string{"sqs", "create-queue", "--queue-name", "my-queue"},
 			endpoint: "http://localhost:8000",
-			want:     []string{"--endpoint-url", "http://localhost:8000", "sqs", "create-queue", "--queue-name", "my-queue"},
+			want: []string{
+				"--endpoint-url",
+				"http://localhost:8000",
+				"sqs",
+				"create-queue",
+				"--queue-name",
+				"my-queue",
+			},
 		},
 		{
 			name:     "only_flags_no_service",
@@ -80,11 +87,11 @@ func TestParseAwsgsFlags(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		args      []string
-		wantHost  string
-		wantPort  string
-		wantRest  []string
+		name     string
+		args     []string
+		wantHost string
+		wantPort string
+		wantRest []string
 	}{
 		{
 			name:     "no_flags",

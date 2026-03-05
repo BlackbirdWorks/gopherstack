@@ -14,8 +14,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"log/slog"
+	"net"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -31,6 +32,10 @@ const (
 
 	flagPort = "--awsgs-port"
 	flagHost = "--awsgs-host"
+
+	// endpointURLArgCount is the number of extra arguments added by buildArgs
+	// when injecting --endpoint-url.
+	endpointURLArgCount = 2
 )
 
 func main() {
@@ -45,16 +50,18 @@ func run() int {
 		switch a {
 		case "--help", "-h":
 			printHelp()
+
 			return 0
 		case "--version":
-			fmt.Printf("awsgs %s\n", version)
+			fmt.Fprintln(os.Stdout, "awsgs", version)
+
 			return 0
 		}
 	}
 
 	host, port, rest := parseAwsgsFlags(args)
 
-	endpoint := fmt.Sprintf("http://%s:%s", host, port)
+	endpoint := "http://" + net.JoinHostPort(host, port)
 	awsArgs := buildArgs(rest, endpoint)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -67,11 +74,12 @@ func run() int {
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Run(); err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
 			return exitErr.ExitCode()
 		}
 
-		slog.Error("awsgs: failed to run aws", "error", err)
+		fmt.Fprintf(os.Stderr, "awsgs: failed to run aws: %v\n", err)
 
 		return 1
 	}
@@ -81,10 +89,10 @@ func run() int {
 
 // parseAwsgsFlags strips --awsgs-port and --awsgs-host flags from args,
 // returning the resolved host, port, and remaining args to forward to aws.
-func parseAwsgsFlags(args []string) (host, port string, rest []string) {
-	host = defaultHost
-	port = resolvePort()
-	rest = make([]string, 0, len(args))
+func parseAwsgsFlags(args []string) (string, string, []string) {
+	host := defaultHost
+	port := resolvePort()
+	rest := make([]string, 0, len(args))
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -118,8 +126,7 @@ func resolvePort() string {
 	for _, env := range []string{"AWSGS_PORT", "GOPHERSTACK_PORT"} {
 		if v := os.Getenv(env); v != "" {
 			if _, err := strconv.Atoi(v); err != nil {
-				slog.Warn("awsgs: invalid port in environment variable, using default",
-					"env", env, "default", defaultPort)
+				fmt.Fprintf(os.Stderr, "awsgs: invalid port in %s, using default %s\n", env, defaultPort)
 
 				return defaultPort
 			}
@@ -141,7 +148,7 @@ func buildArgs(args []string, endpoint string) []string {
 		}
 	}
 
-	result := make([]string, 0, len(args)+2)
+	result := make([]string, 0, len(args)+endpointURLArgCount)
 	result = append(result, "--endpoint-url", endpoint)
 	result = append(result, args...)
 
@@ -149,7 +156,7 @@ func buildArgs(args []string, endpoint string) []string {
 }
 
 func printHelp() {
-	fmt.Print(`awsgs — AWS CLI wrapper for Gopherstack
+	fmt.Fprint(os.Stdout, `awsgs — AWS CLI wrapper for Gopherstack
 
 USAGE
   awsgs [AWSGS-FLAGS] <aws service> <aws operation> [aws flags...]

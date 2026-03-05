@@ -37,8 +37,8 @@ import (
 
 func BenchmarkS3_PutObject(b *testing.B) {
 	backend := s3.NewInMemoryBackend(&s3.GzipCompressor{})
-	_, err := backend.CreateBucket(b.Context(), &sdk_s3.CreateBucketInput{Bucket: aws.String("bench")})
-	require.NoError(b, err)
+	_, setupErr := backend.CreateBucket(b.Context(), &sdk_s3.CreateBucketInput{Bucket: aws.String("bench")})
+	require.NoError(b, setupErr)
 
 	data := bytes.Repeat([]byte("x"), 1024) // 1 KiB payload
 
@@ -58,8 +58,8 @@ func BenchmarkS3_PutObject(b *testing.B) {
 
 func BenchmarkS3_GetObject(b *testing.B) {
 	backend := s3.NewInMemoryBackend(&s3.GzipCompressor{})
-	_, err := backend.CreateBucket(b.Context(), &sdk_s3.CreateBucketInput{Bucket: aws.String("bench")})
-	require.NoError(b, err)
+	_, setupErr := backend.CreateBucket(b.Context(), &sdk_s3.CreateBucketInput{Bucket: aws.String("bench")})
+	require.NoError(b, setupErr)
 
 	data := bytes.Repeat([]byte("x"), 1024)
 
@@ -86,8 +86,8 @@ func BenchmarkS3_GetObject(b *testing.B) {
 
 func BenchmarkS3_ListObjectsV2(b *testing.B) {
 	backend := s3.NewInMemoryBackend(&s3.GzipCompressor{})
-	_, err := backend.CreateBucket(b.Context(), &sdk_s3.CreateBucketInput{Bucket: aws.String("bench")})
-	require.NoError(b, err)
+	_, setupErr := backend.CreateBucket(b.Context(), &sdk_s3.CreateBucketInput{Bucket: aws.String("bench")})
+	require.NoError(b, setupErr)
 
 	data := bytes.Repeat([]byte("x"), 64)
 
@@ -117,8 +117,8 @@ func BenchmarkS3_ListObjectsV2(b *testing.B) {
 
 func BenchmarkSQS_SendMessage(b *testing.B) {
 	backend := sqs.NewInMemoryBackend()
-	out, err := backend.CreateQueue(&sqs.CreateQueueInput{QueueName: "bench-queue"})
-	require.NoError(b, err)
+	out, setupErr := backend.CreateQueue(&sqs.CreateQueueInput{QueueName: "bench-queue"})
+	require.NoError(b, setupErr)
 
 	queueURL := out.QueueURL
 
@@ -136,8 +136,8 @@ func BenchmarkSQS_SendMessage(b *testing.B) {
 
 func BenchmarkSQS_ReceiveMessage(b *testing.B) {
 	backend := sqs.NewInMemoryBackend()
-	out, err := backend.CreateQueue(&sqs.CreateQueueInput{QueueName: "bench-queue"})
-	require.NoError(b, err)
+	out, setupErr := backend.CreateQueue(&sqs.CreateQueueInput{QueueName: "bench-queue"})
+	require.NoError(b, setupErr)
 
 	queueURL := out.QueueURL
 
@@ -238,8 +238,8 @@ func BenchmarkDynamoDB_GetItem(b *testing.B) {
 
 func BenchmarkKMS_Encrypt(b *testing.B) {
 	backend := kms.NewInMemoryBackend()
-	out, err := backend.CreateKey(&kms.CreateKeyInput{Description: "bench"})
-	require.NoError(b, err)
+	out, setupErr := backend.CreateKey(&kms.CreateKeyInput{Description: "bench"})
+	require.NoError(b, setupErr)
 
 	plaintext := bytes.Repeat([]byte("a"), 32)
 
@@ -257,12 +257,12 @@ func BenchmarkKMS_Encrypt(b *testing.B) {
 
 func BenchmarkKMS_Decrypt(b *testing.B) {
 	backend := kms.NewInMemoryBackend()
-	out, err := backend.CreateKey(&kms.CreateKeyInput{Description: "bench"})
-	require.NoError(b, err)
+	out, setupErr := backend.CreateKey(&kms.CreateKeyInput{Description: "bench"})
+	require.NoError(b, setupErr)
 
 	plaintext := bytes.Repeat([]byte("a"), 32)
-	enc, err := backend.Encrypt(&kms.EncryptInput{KeyID: out.KeyMetadata.KeyID, Plaintext: plaintext})
-	require.NoError(b, err)
+	enc, setupErr2 := backend.Encrypt(&kms.EncryptInput{KeyID: out.KeyMetadata.KeyID, Plaintext: plaintext})
+	require.NoError(b, setupErr2)
 
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -294,11 +294,11 @@ func BenchmarkSecretsManager_CreateSecret(b *testing.B) {
 
 func BenchmarkSecretsManager_GetSecretValue(b *testing.B) {
 	backend := secretsmanager.NewInMemoryBackend()
-	_, err := backend.CreateSecret(&secretsmanager.CreateSecretInput{
+	_, setupErr := backend.CreateSecret(&secretsmanager.CreateSecretInput{
 		Name:         "bench-secret",
 		SecretString: `{"key":"value"}`,
 	})
-	require.NoError(b, err)
+	require.NoError(b, setupErr)
 
 	b.ResetTimer()
 	b.ReportAllocs()
