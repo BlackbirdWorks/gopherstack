@@ -34,3 +34,29 @@ type OutputLogEvent struct {
 	IngestionTime int64  `json:"ingestionTime"`
 	Timestamp     int64  `json:"timestamp"`
 }
+
+// SubscriptionFilter represents a CloudWatch Logs subscription filter.
+type SubscriptionFilter struct {
+	FilterPattern  string `json:"filterPattern"`
+	FilterName     string `json:"filterName"`
+	LogGroupName   string `json:"logGroupName"`
+	DestinationArn string `json:"destinationArn"`
+	CreationTime   int64  `json:"creationTime"`
+}
+
+// subscriptionLogEvent is one event in a subscription filter delivery payload.
+type subscriptionLogEvent struct {
+	ID        string `json:"id"`
+	Message   string `json:"message"`
+	Timestamp int64  `json:"timestamp"`
+}
+
+// subscriptionPayload is the CloudWatch Logs subscription filter delivery payload.
+type subscriptionPayload struct {
+	SubscriptionFilters []string               `json:"subscriptionFilters"`
+	MessageType         string                 `json:"messageType"`
+	Owner               string                 `json:"owner"`
+	LogGroup            string                 `json:"logGroup"`
+	LogStream           string                 `json:"logStream"`
+	LogEvents           []subscriptionLogEvent `json:"logEvents"`
+}

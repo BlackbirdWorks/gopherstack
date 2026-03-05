@@ -5,11 +5,12 @@ import (
 )
 
 type backendSnapshot struct {
-	Groups    map[string]*LogGroup                    `json:"groups"`
-	Streams   map[string]map[string]*LogStream        `json:"streams"`
-	Events    map[string]map[string][]*OutputLogEvent `json:"events"`
-	AccountID string                                  `json:"accountID"`
-	Region    string                                  `json:"region"`
+	Groups              map[string]*LogGroup                    `json:"groups"`
+	Streams             map[string]map[string]*LogStream        `json:"streams"`
+	Events              map[string]map[string][]*OutputLogEvent `json:"events"`
+	SubscriptionFilters map[string][]*SubscriptionFilter        `json:"subscriptionFilters"`
+	AccountID           string                                  `json:"accountID"`
+	Region              string                                  `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -19,11 +20,12 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Groups:    b.groups,
-		Streams:   b.streams,
-		Events:    b.events,
-		AccountID: b.accountID,
-		Region:    b.region,
+		Groups:              b.groups,
+		Streams:             b.streams,
+		Events:              b.events,
+		SubscriptionFilters: b.subscriptionFilters,
+		AccountID:           b.accountID,
+		Region:              b.region,
 	}
 
 	data, err := json.Marshal(snap)
@@ -58,9 +60,14 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.Events = make(map[string]map[string][]*OutputLogEvent)
 	}
 
+	if snap.SubscriptionFilters == nil {
+		snap.SubscriptionFilters = make(map[string][]*SubscriptionFilter)
+	}
+
 	b.groups = snap.Groups
 	b.streams = snap.Streams
 	b.events = snap.Events
+	b.subscriptionFilters = snap.SubscriptionFilters
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 

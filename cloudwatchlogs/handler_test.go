@@ -425,6 +425,77 @@ func TestHandler(t *testing.T) {
 			body:     map[string]any{"logGroupName": "grp"},
 			wantCode: http.StatusOK,
 		},
+		{
+			name: "PutSubscriptionFilter",
+			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
+				t.Helper()
+				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"sub-grp"}`)
+			},
+			action: "PutSubscriptionFilter",
+			body: map[string]any{
+				"logGroupName":   "sub-grp",
+				"filterName":     "my-filter",
+				"filterPattern":  "",
+				"destinationArn": "arn:aws:lambda:us-east-1:123456789012:function:target",
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:   "PutSubscriptionFilter/GroupNotFound",
+			action: "PutSubscriptionFilter",
+			body: map[string]any{
+				"logGroupName":   "nonexistent",
+				"filterName":     "f",
+				"destinationArn": "arn:aws:lambda:us-east-1:123456789012:function:target",
+			},
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name: "DescribeSubscriptionFilters",
+			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
+				t.Helper()
+				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"sub-grp"}`)
+				doLogsRequest(t, h, e, "PutSubscriptionFilter",
+					`{"logGroupName":"sub-grp","filterName":"f1","filterPattern":"",`+
+						`"destinationArn":"arn:aws:lambda:us-east-1:123456789012:function:a"}`,
+				)
+			},
+			action:        "DescribeSubscriptionFilters",
+			body:          map[string]any{"logGroupName": "sub-grp"},
+			wantCode:      http.StatusOK,
+			wantListField: "subscriptionFilters",
+			wantListLen:   1,
+		},
+		{
+			name:     "DescribeSubscriptionFilters/GroupNotFound",
+			action:   "DescribeSubscriptionFilters",
+			body:     map[string]any{"logGroupName": "nonexistent"},
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name: "DeleteSubscriptionFilter",
+			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
+				t.Helper()
+				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"sub-grp"}`)
+				doLogsRequest(t, h, e, "PutSubscriptionFilter",
+					`{"logGroupName":"sub-grp","filterName":"f1","filterPattern":"",`+
+						`"destinationArn":"arn:aws:lambda:us-east-1:123456789012:function:a"}`,
+				)
+			},
+			action:   "DeleteSubscriptionFilter",
+			body:     map[string]any{"logGroupName": "sub-grp", "filterName": "f1"},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "DeleteSubscriptionFilter/NotFound",
+			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
+				t.Helper()
+				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"sub-grp"}`)
+			},
+			action:   "DeleteSubscriptionFilter",
+			body:     map[string]any{"logGroupName": "sub-grp", "filterName": "nonexistent"},
+			wantCode: http.StatusNotFound,
+		},
 	}
 
 	for _, tt := range tests {
