@@ -196,8 +196,7 @@ func keyFingerprint(pubKey *rsa.PublicKey) (string, error) {
 	parts := make([]string, len(sum))
 
 	for i, by := range sum {
-		//nolint:gosec // G602: i < len(parts) since parts was allocated with len(sum)
-		parts[i] = fmt.Sprintf("%02x", by)
+		parts[i] = fmt.Sprintf("%02x", by) //nolint:gosec // G602 false positive: parts and sum have identical length
 	}
 
 	return strings.Join(parts, ":"), nil

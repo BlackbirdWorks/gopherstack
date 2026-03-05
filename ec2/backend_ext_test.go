@@ -907,7 +907,7 @@ func TestDescribeImages(t *testing.T) {
 	b := newTestBackend()
 	amis := b.DescribeImages()
 	assert.NotEmpty(t, amis)
-	assert.NotEmpty(t, amis)
+	assert.Equal(t, "ami-0c55b159cbfafe1f0", amis[0].ImageID)
 }
 
 func TestDescribeRegions(t *testing.T) {

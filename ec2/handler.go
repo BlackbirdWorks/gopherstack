@@ -574,10 +574,10 @@ func (h *Handler) handleDescribeInstanceAttribute(vals url.Values, reqID string)
 
 // ---- error handling ----
 
-// errCodeMap maps sentinel errors to their EC2 API error codes.
+// errCodeLookup maps sentinel errors to their EC2 API error codes.
 //
 //nolint:gochecknoglobals // package-level mapping, analogous to a lookup table
-var errCodeMap = []struct {
+var errCodeLookup = []struct {
 	err  error
 	code string
 }{
@@ -602,7 +602,7 @@ var errCodeMap = []struct {
 
 // opErrCode resolves an error to its EC2 API error code and HTTP status code.
 func opErrCode(opErr error) (string, int) {
-	for _, entry := range errCodeMap {
+	for _, entry := range errCodeLookup {
 		if errors.Is(opErr, entry.err) {
 			return entry.code, http.StatusBadRequest
 		}
