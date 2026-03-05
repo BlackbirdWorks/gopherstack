@@ -58,7 +58,7 @@ func TestIntegration_Lambda_Zip_CRUD(t *testing.T) {
 
 	e := echo.New()
 	e.Pre(pkglogger.EchoMiddleware(slog.Default()))
-	registry := service.NewRegistry(slog.Default())
+	registry := service.NewRegistry()
 	require.NoError(t, registry.Register(handler))
 	e.Use(service.NewServiceRouter(registry).RouteHandler())
 	server := httptest.NewServer(e)
@@ -185,7 +185,7 @@ func TestIntegration_Lambda_Zip_ValidationErrors(t *testing.T) {
 	handler.AccountID = "000000000000"
 
 	e := echo.New()
-	registry := service.NewRegistry(slog.Default())
+	registry := service.NewRegistry()
 	require.NoError(t, registry.Register(handler))
 	e.Use(service.NewServiceRouter(registry).RouteHandler())
 	server := httptest.NewServer(e)
@@ -259,7 +259,7 @@ func TestIntegration_Lambda_Zip_S3Code(t *testing.T) {
 	handler.AccountID = "000000000000"
 
 	e := echo.New()
-	registry := service.NewRegistry(slog.Default())
+	registry := service.NewRegistry()
 	require.NoError(t, registry.Register(handler))
 	e.Use(service.NewServiceRouter(registry).RouteHandler())
 	server := httptest.NewServer(e)

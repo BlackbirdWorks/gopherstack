@@ -26,7 +26,7 @@ func newTestStack(t *testing.T) *elasticachesdk.Client {
 	handler := elasticache.NewHandler(backend)
 
 	e := echo.New()
-	registry := service.NewRegistry(slog.Default())
+	registry := service.NewRegistry()
 	_ = registry.Register(handler)
 	router := service.NewServiceRouter(registry)
 	e.Use(router.RouteHandler())

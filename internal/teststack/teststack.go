@@ -420,7 +420,7 @@ func New(t *testing.T) *Stack {
 	e := echo.New()
 	e.Pre(logger.EchoMiddleware(testLogger))
 
-	registry := service.NewRegistry(testLogger)
+	registry := service.NewRegistry()
 	registerServices(
 		registry,
 		h.ddb, h.s3, h.ssm, h.iam, h.sts, h.sns, h.sqs, h.kms, h.sm,

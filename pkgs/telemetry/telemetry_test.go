@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	pkglogger "github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 	"github.com/labstack/echo/v5"
 
@@ -288,7 +289,7 @@ func TestWrapEchoHandler(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			handler := telemetry.WrapEchoHandler(tt.service, tt.handler, tt.observer, slog.Default())
+			handler := telemetry.WrapEchoHandler(tt.service, tt.handler, tt.observer)
 
 			e := echo.New()
 			req := httptest.NewRequest(tt.method, "/", nil)
@@ -307,6 +308,41 @@ func TestWrapEchoHandler(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 		})
 	}
+}
+
+func TestWrapEchoHandler_ServiceAttrInContext(t *testing.T) {
+	t.Parallel()
+
+	const wantService = "TestService"
+
+	ctxCh := make(chan context.Context, 1)
+
+	// inner handler captures the request context so we can inspect the logger.
+	inner := func(c *echo.Context) error {
+		ctxCh <- c.Request().Context()
+
+		return c.String(http.StatusOK, "ok")
+	}
+
+	handler := telemetry.WrapEchoHandler(
+		wantService, inner, &mockObserver{operation: "Op", resource: "Res"},
+	)
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := handler(c)
+	require.NoError(t, err)
+
+	gotCtx := <-ctxCh
+
+	// The logger stored in the request context should be a distinct object
+	// from slog.Default() (the parent), not the same pointer.
+	ctxLogger := pkglogger.Load(gotCtx)
+	require.NotNil(t, ctxLogger)
+	assert.NotSame(t, slog.Default(), ctxLogger, "handler must enrich the ctx logger, not reuse the global one")
 }
 
 func TestLatencyMiddleware(t *testing.T) {

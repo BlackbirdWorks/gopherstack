@@ -1,7 +1,6 @@
 package service_test
 
 import (
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -70,7 +69,7 @@ func TestRegistry(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			reg := service.NewRegistry(slog.Default())
+			reg := service.NewRegistry()
 
 			if tt.setup != nil {
 				tt.setup(reg)
@@ -128,7 +127,7 @@ func TestRegistryMiddleware(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			reg := service.NewRegistry(slog.Default())
+			reg := service.NewRegistry()
 
 			for _, mw := range tt.middlewares {
 				reg.Use(mw)
@@ -187,7 +186,7 @@ func TestServiceRouter(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			reg := service.NewRegistry(slog.Default())
+			reg := service.NewRegistry()
 
 			for _, svc := range tt.services {
 				require.NoError(t, reg.Register(svc))

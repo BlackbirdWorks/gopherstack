@@ -1,12 +1,10 @@
 package service
 
 import (
+	"errors"
 	"fmt"
-	"log/slog"
 
 	"github.com/labstack/echo/v5"
-
-	"errors"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 )
@@ -26,18 +24,16 @@ type Entry struct {
 // observability wrapping and other middleware at registration time.
 type Registry struct {
 	lookup      map[string]*Entry
-	logger      *slog.Logger
 	services    []*Entry
 	middlewares []Middleware
 	latencyMs   int
 }
 
 // NewRegistry creates a new service registry.
-func NewRegistry(logger *slog.Logger) *Registry {
+func NewRegistry() *Registry {
 	return &Registry{
 		services:    make([]*Entry, 0),
 		lookup:      make(map[string]*Entry),
-		logger:      logger,
 		middlewares: make([]Middleware, 0),
 	}
 }
@@ -82,7 +78,6 @@ func (r *Registry) Register(svc Registerable, mws ...Middleware) error {
 		name,
 		handler,
 		svc,
-		r.logger,
 	)
 
 	// Apply global middlewares

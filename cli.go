@@ -462,23 +462,25 @@ func Run() {
 		kong.Description("In-memory AWS DynamoDB + S3 compatible server."),
 	)
 
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	// rootCtx is cancelled when SIGINT/SIGTERM arrives; all subsystems
+	// (HTTP server, background workers, DNS server) derive their context
+	// from this root so a single signal cleanly unwinds everything.
+	rootCtx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 
 	var err error
 	switch kctx.Command() {
 	case "health":
 		err = root.Health.Run()
 	default:
-		err = run(ctx, root.Serve)
+		err = run(rootCtx, root.Serve)
 	}
 
+	cancel() // release signal-handler goroutine resources
+
 	if err != nil {
-		cancel()
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
-
-	cancel()
 }
 
 // run starts the server with the given CLI configuration.
@@ -1274,7 +1276,7 @@ func setupRegistry(
 	services []service.Registerable,
 	latencyMs int,
 ) error {
-	registry := service.NewRegistry(log)
+	registry := service.NewRegistry()
 
 	if latencyMs > 0 {
 		registry.SetLatencyMs(latencyMs)

@@ -52,7 +52,7 @@ func TestLambdaFunctionURL_CreateGetDelete(t *testing.T) {
 
 	e := echo.New()
 	e.Pre(logger.EchoMiddleware(slog.Default()))
-	registry := service.NewRegistry(slog.Default())
+	registry := service.NewRegistry()
 	require.NoError(t, registry.Register(handler))
 	e.Use(service.NewServiceRouter(registry).RouteHandler())
 	server := httptest.NewServer(e)

@@ -63,7 +63,7 @@ func TestLoadData(t *testing.T) {
 			e := echo.New()
 			e.Pre(logger.EchoMiddleware(slog.Default()))
 
-			registry := service.NewRegistry(slog.Default())
+			registry := service.NewRegistry()
 			_ = registry.Register(ddbHandler)
 			_ = registry.Register(s3Handler)
 			_ = registry.Register(sqsbackend.NewHandler(sqsbackend.NewInMemoryBackend()))
