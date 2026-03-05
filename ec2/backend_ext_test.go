@@ -16,6 +16,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/ec2"
 )
 
+// Compile-time assertion: InMemoryBackend must satisfy the Backend interface.
+// Any future backend implementation must satisfy this same interface.
+var _ ec2.Backend = (*ec2.InMemoryBackend)(nil)
+
 // newTestBackend creates a fresh backend for testing.
 func newTestBackend() *ec2.InMemoryBackend {
 	return ec2.NewInMemoryBackend("000000000000", "us-east-1")
@@ -239,6 +243,30 @@ func TestKeyPairOperations(t *testing.T) {
 			keyName: "nonexistent-key",
 			wantErr: true,
 		},
+		{
+			name:    "import_keypair",
+			op:      "import",
+			keyName: "imported-key",
+			wantErr: false,
+		},
+		{
+			name:    "import_keypair_empty_name",
+			op:      "import",
+			keyName: "",
+			wantErr: true,
+		},
+		{
+			name:    "import_keypair_duplicate",
+			op:      "import_duplicate",
+			keyName: "dup-import-key",
+			wantErr: true,
+		},
+		{
+			name:    "import_keypair_retrievable",
+			op:      "import_retrievable",
+			keyName: "retrievable-key",
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -290,6 +318,31 @@ func TestKeyPairOperations(t *testing.T) {
 			case "delete_nonexistent":
 				err := b.DeleteKeyPair(tt.keyName)
 				require.Error(t, err)
+
+			case "import":
+				kp, err := b.ImportKeyPair(tt.keyName)
+				if tt.wantErr {
+					require.Error(t, err)
+				} else {
+					require.NoError(t, err)
+					assert.Equal(t, tt.keyName, kp.Name)
+					assert.NotEmpty(t, kp.Fingerprint)
+					assert.Empty(t, kp.Material, "import should not set private key material")
+				}
+
+			case "import_duplicate":
+				_, err := b.ImportKeyPair(tt.keyName)
+				require.NoError(t, err)
+				_, err = b.ImportKeyPair(tt.keyName)
+				require.ErrorIs(t, err, ec2.ErrDuplicateKeyPairName)
+
+			case "import_retrievable":
+				_, err := b.ImportKeyPair(tt.keyName)
+				require.NoError(t, err)
+				kps := b.DescribeKeyPairs([]string{tt.keyName})
+				require.Len(t, kps, 1)
+				assert.Equal(t, tt.keyName, kps[0].Name)
+				assert.NotEmpty(t, kps[0].Fingerprint)
 			}
 		})
 	}

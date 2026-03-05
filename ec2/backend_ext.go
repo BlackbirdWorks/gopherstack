@@ -163,6 +163,9 @@ const (
 	privateIPOctetRange = 253
 	elasticIPOctetRange = 254
 	rsaKeyBits          = 2048
+	// stubFingerprintUUIDLen is the number of UUID hex characters used to build
+	// a stub fingerprint for ImportKeyPair (no actual public key is parsed).
+	stubFingerprintUUIDLen = 11
 )
 
 // allocPrivateIP returns the next 172.31.x.y private IP. Must be called with mu held.
@@ -333,6 +336,32 @@ func (b *InMemoryBackend) CreateKeyPair(name string) (*KeyPair, error) {
 		Name:        name,
 		Fingerprint: fp,
 		Material:    string(privPEM),
+	}
+	b.keyPairs[name] = kp
+
+	return kp, nil
+}
+
+// ImportKeyPair stores a pre-existing key pair by name without key material.
+// This matches the AWS ImportKeyPair API which accepts only the public key material
+// from the caller. In the mock we simply register the name with a stub fingerprint.
+func (b *InMemoryBackend) ImportKeyPair(name string) (*KeyPair, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: KeyName is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("ImportKeyPair")
+	defer b.mu.Unlock()
+
+	for _, existing := range b.keyPairs {
+		if existing.Name == name {
+			return nil, fmt.Errorf("%w: %s", ErrDuplicateKeyPairName, name)
+		}
+	}
+
+	kp := &KeyPair{
+		Name:        name,
+		Fingerprint: fmt.Sprintf("aa:bb:cc:dd:%s", uuid.New().String()[:stubFingerprintUUIDLen]),
 	}
 	b.keyPairs[name] = kp
 

@@ -130,11 +130,25 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.
+// It type-asserts the backend to check for Snapshot support so that alternative
+// backend implementations that do not persist state still compile.
 func (h *Handler) Snapshot() []byte {
-	return h.Backend.Snapshot()
+	type snapshotter interface{ Snapshot() []byte }
+	if s, ok := h.Backend.(snapshotter); ok {
+		return s.Snapshot()
+	}
+
+	return nil
 }
 
 // Restore implements persistence.Persistable by delegating to the backend.
+// It type-asserts the backend to check for Restore support so that alternative
+// backend implementations that do not persist state still compile.
 func (h *Handler) Restore(data []byte) error {
-	return h.Backend.Restore(data)
+	type restorer interface{ Restore([]byte) error }
+	if r, ok := h.Backend.(restorer); ok {
+		return r.Restore(data)
+	}
+
+	return nil
 }

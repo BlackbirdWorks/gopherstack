@@ -24,13 +24,13 @@ const (
 
 // Handler is the Echo HTTP handler for EC2 operations.
 type Handler struct {
-	Backend   *InMemoryBackend
+	Backend   Backend
 	AccountID string
 	Region    string
 }
 
-// NewHandler creates a new EC2 handler with the given backend and logger.
-func NewHandler(backend *InMemoryBackend) *Handler {
+// NewHandler creates a new EC2 handler with the given backend.
+func NewHandler(backend Backend) *Handler {
 	return &Handler{Backend: backend}
 }
 

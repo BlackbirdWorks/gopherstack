@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
-
-	"github.com/google/uuid"
 )
 
 // ---- XML response types for extended operations ----
@@ -1339,25 +1337,11 @@ func (h *Handler) handleRevokeSecurityGroupIngress(vals url.Values, reqID string
 // handleImportKeyPair is a stub for ImportKeyPair (accepts public key material, stores fingerprint).
 func (h *Handler) handleImportKeyPair(vals url.Values, reqID string) (any, error) {
 	name := vals.Get("KeyName")
-	if name == "" {
-		return nil, fmt.Errorf("%w: KeyName is required", ErrInvalidParameter)
+
+	kp, err := h.Backend.ImportKeyPair(name)
+	if err != nil {
+		return nil, err
 	}
-
-	kp := &KeyPair{
-		Name:        name,
-		Fingerprint: fmt.Sprintf("aa:bb:cc:dd:%s", uuid.New().String()[:11]),
-	}
-
-	h.Backend.mu.Lock("ImportKeyPair")
-	defer h.Backend.mu.Unlock()
-
-	for _, existing := range h.Backend.keyPairs {
-		if existing.Name == name {
-			return nil, fmt.Errorf("%w: %s", ErrDuplicateKeyPairName, name)
-		}
-	}
-
-	h.Backend.keyPairs[name] = kp
 
 	return &createKeyPairResponse{
 		Xmlns:          ec2XMLNS,
