@@ -485,6 +485,7 @@ func Run() {
 // It is separated from Run so it can be exercised in tests without [os.Exit].
 func run(ctx context.Context, cli CLI) error {
 	log := buildLogger(cli.LogLevel)
+	ctx = logger.Save(ctx, log)
 
 	// --- Port allocator ---
 	portAlloc, err := portalloc.New(cli.PortRangeStart, cli.PortRangeEnd)
@@ -501,7 +502,7 @@ func run(ctx context.Context, cli CLI) error {
 	// --- Embedded DNS server ---
 	var dnsSrv *gopherDNS.Server
 	if cli.DNSListenAddr != "" {
-		dnsSrv = startEmbeddedDNS(ctx, log, cli.DNSListenAddr, cli.DNSResolveIP)
+		dnsSrv = startEmbeddedDNS(ctx, cli.DNSListenAddr, cli.DNSResolveIP)
 	}
 
 	inMemMux := http.NewServeMux()
@@ -525,7 +526,7 @@ func run(ctx context.Context, cli CLI) error {
 	defer janitorCancel()
 
 	// --- Persistence ---
-	persistManager, err := initPersistenceManager(ctx, log, &cli)
+	persistManager, err := initPersistenceManager(ctx, &cli)
 	if err != nil {
 		return err
 	}
@@ -573,7 +574,7 @@ func run(ctx context.Context, cli CLI) error {
 		return setupErr
 	}
 
-	startBackgroundWorkers(janitorCtx, log, services)
+	startBackgroundWorkers(janitorCtx, services)
 	inMemMux.Handle("/", e)
 
 	if cli.Demo {
@@ -586,7 +587,7 @@ func run(ctx context.Context, cli CLI) error {
 		runner.Run(ctx)
 	}
 
-	return startServer(ctx, log, cli.Port, e)
+	return startServer(ctx, cli.Port, e)
 }
 
 // initializeClients configures the AWS SDK clients for DynamoDB, S3, SSM, and STS.
@@ -805,7 +806,9 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 }
 
 // startBackgroundWorkers starts all background workers from services.
-func startBackgroundWorkers(ctx context.Context, log *slog.Logger, services []service.Registerable) {
+func startBackgroundWorkers(ctx context.Context, services []service.Registerable) {
+	log := logger.Load(ctx)
+
 	for _, svc := range services {
 		if worker, ok := svc.(service.BackgroundWorker); ok {
 			if workerErr := worker.StartWorker(ctx); workerErr != nil {
@@ -1016,7 +1019,7 @@ func wireKinesisLambda(kinesisReg, lambdaReg service.Registerable) {
 	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
 		if lambdaBk, bk2Ok := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bk2Ok {
 			adapter := &kinesisReaderAdapter{backend: kinesisBk}
-			lambdaBk.SetKinesisPoller(lambdabackend.NewEventSourcePoller(lambdaBk, adapter, lambdaH.Logger))
+			lambdaBk.SetKinesisPoller(lambdabackend.NewEventSourcePoller(lambdaBk, adapter))
 		}
 	}
 }
@@ -1164,7 +1167,9 @@ func wireSecretsManagerLambda(smReg, lambdaReg service.Registerable) {
 	}
 }
 
-func startServer(ctx context.Context, log *slog.Logger, port string, e *echo.Echo) error {
+func startServer(ctx context.Context, port string, e *echo.Echo) error {
+	log := logger.Load(ctx)
+
 	if port[0] != ':' {
 		port = ":" + port
 	}
@@ -1276,7 +1281,9 @@ func setupRegistry(
 // startEmbeddedDNS creates and starts the embedded DNS server.
 // Configuration errors and startup failures are logged as warnings; the server
 // continues to run without DNS in those cases.
-func startEmbeddedDNS(ctx context.Context, log *slog.Logger, addr, resolveIP string) *gopherDNS.Server {
+func startEmbeddedDNS(ctx context.Context, addr, resolveIP string) *gopherDNS.Server {
+	log := logger.Load(ctx)
+
 	dnsSrv, err := gopherDNS.New(gopherDNS.Config{
 		ListenAddr: addr,
 		ResolveIP:  resolveIP,
@@ -1425,7 +1432,8 @@ func setupPersistence(ctx context.Context, m *persistence.Manager, services []se
 
 // initPersistenceManager creates and configures a persistence.Manager from the CLI config.
 // If persistence is disabled it returns a manager backed by a NullStore.
-func initPersistenceManager(ctx context.Context, log *slog.Logger, cli *CLI) (*persistence.Manager, error) {
+func initPersistenceManager(ctx context.Context, cli *CLI) (*persistence.Manager, error) {
+	log := logger.Load(ctx)
 	var store persistence.Store = persistence.NullStore{}
 
 	if cli.Persist {
@@ -1438,7 +1446,7 @@ func initPersistenceManager(ctx context.Context, log *slog.Logger, cli *CLI) (*p
 		log.InfoContext(ctx, "Persistence enabled", "data_dir", cli.resolvedDataDir())
 	}
 
-	return persistence.NewManager(store, log), nil
+	return persistence.NewManager(store), nil
 }
 
 // loadDemoData loads demo data into the services.

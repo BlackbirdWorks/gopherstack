@@ -29,8 +29,8 @@ import (
 func newTestHandler(t *testing.T) (*s3.S3Handler, *s3.InMemoryBackend) {
 	t.Helper()
 
-	backend := s3.NewInMemoryBackend(&s3.GzipCompressor{}, nil)
-	handler := s3.NewHandler(backend, slog.Default())
+	backend := s3.NewInMemoryBackend(&s3.GzipCompressor{})
+	handler := s3.NewHandler(backend)
 
 	return handler, backend
 }

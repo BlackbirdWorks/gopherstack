@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -20,10 +19,10 @@ import (
 func newTestHandler(t *testing.T) *kinesis.Handler {
 	t.Helper()
 
-	log := logger.NewLogger(slog.LevelDebug)
+
 	backend := kinesis.NewInMemoryBackend()
 
-	return kinesis.NewHandler(backend, log)
+	return kinesis.NewHandler(backend)
 }
 
 // doRequest sends a JSON request to the handler with the given X-Amz-Target action.

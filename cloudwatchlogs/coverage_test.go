@@ -73,7 +73,7 @@ func TestProvider_Init(t *testing.T) {
 func TestHandler_RouteMatcher(t *testing.T) {
 	t.Parallel()
 
-	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), slog.Default())
+	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend())
 	e := echo.New()
 
 	tests := []struct {
@@ -98,7 +98,7 @@ func TestHandler_RouteMatcher(t *testing.T) {
 func TestHandler_ExtractOperation(t *testing.T) {
 	t.Parallel()
 
-	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), slog.Default())
+	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend())
 	e := echo.New()
 
 	tests := []struct {
@@ -125,7 +125,7 @@ func TestHandler_ExtractOperation(t *testing.T) {
 func TestHandler_ExtractResource(t *testing.T) {
 	t.Parallel()
 
-	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), slog.Default())
+	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend())
 	e := echo.New()
 
 	tests := []struct {
@@ -151,21 +151,21 @@ func TestHandler_ExtractResource(t *testing.T) {
 func TestHandler_Coverage_Name(t *testing.T) {
 	t.Parallel()
 
-	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), slog.Default())
+	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend())
 	assert.Equal(t, "CloudWatchLogs", h.Name())
 }
 
 func TestHandler_Coverage_MatchPriority(t *testing.T) {
 	t.Parallel()
 
-	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), slog.Default())
+	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend())
 	assert.Equal(t, 100, h.MatchPriority())
 }
 
 func TestHandler_Coverage_GetSupportedOperations(t *testing.T) {
 	t.Parallel()
 
-	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), slog.Default())
+	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend())
 	ops := h.GetSupportedOperations()
 	assert.Contains(t, ops, "CreateLogGroup")
 	assert.Contains(t, ops, "FilterLogEvents")
@@ -175,8 +175,8 @@ func TestHandler_Coverage_DescribeLogGroups_Pagination(t *testing.T) {
 	t.Parallel()
 
 	e := echo.New()
-	log := logger.NewLogger(slog.LevelDebug)
-	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), log)
+
+	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend())
 
 	for i := range 5 {
 		doLogsRequest(t, h, e, "CreateLogGroup",

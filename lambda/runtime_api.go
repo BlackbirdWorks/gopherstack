@@ -43,7 +43,6 @@ type invocationResult struct {
 type runtimeServer struct {
 	srv     *http.Server
 	queue   chan *pendingInvocation
-	logger  *slog.Logger
 	pending sync.Map
 	port    int
 }
@@ -58,11 +57,10 @@ const invocationPathParts = 2
 const runtimeReadHeaderTimeout = 10 * time.Second
 
 // newRuntimeServer creates a runtimeServer for the given port. Call start() to begin listening.
-func newRuntimeServer(port int, log *slog.Logger) *runtimeServer {
+func newRuntimeServer(port int) *runtimeServer {
 	return &runtimeServer{
-		port:   port,
-		queue:  make(chan *pendingInvocation, runtimeQueueSize),
-		logger: log,
+		port:  port,
+		queue: make(chan *pendingInvocation, runtimeQueueSize),
 	}
 }
 
@@ -86,7 +84,7 @@ func (s *runtimeServer) start(ctx context.Context) error {
 
 	go func() {
 		if serveErr := s.srv.Serve(ln); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
-			s.logger.ErrorContext(ctx, "lambda runtime server error", "port", s.port, "error", serveErr)
+			slog.Default().ErrorContext(ctx, "lambda runtime server error", "port", s.port, "error", serveErr)
 		}
 	}()
 
@@ -184,7 +182,7 @@ func (s *runtimeServer) handleInvocationResult(w http.ResponseWriter, r *http.Re
 
 	if readErr != nil {
 		// Log but continue — partial body may still be useful.
-		s.logger.Warn("lambda: error reading invocation result body", "requestID", requestID, "error", readErr)
+		slog.Default().Warn("lambda: error reading invocation result body", "requestID", requestID, "error", readErr)
 	}
 
 	raw, ok := s.pending.LoadAndDelete(requestID)
@@ -196,7 +194,7 @@ func (s *runtimeServer) handleInvocationResult(w http.ResponseWriter, r *http.Re
 
 	inv, isInv := raw.(*pendingInvocation)
 	if !isInv {
-		s.logger.Error("lambda: unexpected type in pending invocations map")
+		slog.Default().Error("lambda: unexpected type in pending invocations map")
 		http.Error(w, "internal error", http.StatusInternalServerError)
 
 		return
@@ -226,9 +224,9 @@ func (s *runtimeServer) handleInitError(w http.ResponseWriter, r *http.Request) 
 
 	if readErr != nil {
 		// Log but continue — partial body may still be useful.
-		s.logger.Warn("lambda: error reading init error body", "error", readErr)
+		slog.Default().Warn("lambda: error reading init error body", "error", readErr)
 	}
 
-	s.logger.Error("lambda runtime init error", "error", string(body))
+	slog.Default().Error("lambda runtime init error", "error", string(body))
 	w.WriteHeader(http.StatusAccepted)
 }

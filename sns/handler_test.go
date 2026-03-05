@@ -65,7 +65,7 @@ func newTestHandler(t *testing.T) (*sns.Handler, *sns.InMemoryBackend) {
 	t.Helper()
 	b := sns.NewInMemoryBackend()
 
-	return sns.NewHandler(b, logger.NewLogger(slog.LevelDebug)), b
+	return sns.NewHandler(b), b
 }
 
 // ---------------------------------------------------------------------------
@@ -634,7 +634,7 @@ func TestSNSHandler_CreateTopic(t *testing.T) {
 			if tt.setup != nil {
 				tt.setup(b)
 			}
-			h := sns.NewHandler(b, logger.NewLogger(slog.LevelDebug))
+			h := sns.NewHandler(b)
 			rec := snsPost(t, h, tt.form)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 			for _, want := range tt.wantBodyContains {
@@ -692,7 +692,7 @@ func TestSNSHandler_DeleteTopic(t *testing.T) {
 			if tt.setup != nil {
 				tt.setup(b)
 			}
-			h := sns.NewHandler(b, logger.NewLogger(slog.LevelDebug))
+			h := sns.NewHandler(b)
 			rec := snsPost(t, h, tt.form)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 			for _, want := range tt.wantBodyContains {
@@ -750,7 +750,7 @@ func TestSNSHandler_ListTopics(t *testing.T) {
 			if tt.setup != nil {
 				tt.setup(b)
 			}
-			h := sns.NewHandler(b, logger.NewLogger(slog.LevelDebug))
+			h := sns.NewHandler(b)
 			rec := snsPost(t, h, tt.form)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 			for _, want := range tt.wantBodyContains {
@@ -809,7 +809,7 @@ func TestSNSHandler_GetTopicAttributes(t *testing.T) {
 			if tt.setup != nil {
 				tt.setup(b)
 			}
-			h := sns.NewHandler(b, logger.NewLogger(slog.LevelDebug))
+			h := sns.NewHandler(b)
 			rec := snsPost(t, h, tt.form)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 			for _, want := range tt.wantBodyContains {
@@ -870,7 +870,7 @@ func TestSNSHandler_SetTopicAttributes(t *testing.T) {
 			if tt.setup != nil {
 				tt.setup(b)
 			}
-			h := sns.NewHandler(b, logger.NewLogger(slog.LevelDebug))
+			h := sns.NewHandler(b)
 			rec := snsPost(t, h, tt.form)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 			for _, want := range tt.wantBodyContains {
@@ -993,7 +993,7 @@ func TestSNSHandler_Subscribe(t *testing.T) {
 			if tt.setup != nil {
 				tt.setup(b)
 			}
-			h := sns.NewHandler(b, logger.NewLogger(slog.LevelDebug))
+			h := sns.NewHandler(b)
 			rec := snsPost(t, h, tt.form)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 			for _, want := range tt.wantBodyContains {
@@ -1107,7 +1107,7 @@ func TestSNSHandler_ListSubscriptions(t *testing.T) {
 			if tt.setup != nil {
 				tt.setup(b)
 			}
-			h := sns.NewHandler(b, logger.NewLogger(slog.LevelDebug))
+			h := sns.NewHandler(b)
 			rec := snsPost(t, h, tt.form)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 			for _, want := range tt.wantBodyContains {
@@ -1180,7 +1180,7 @@ func TestSNSHandler_ListSubscriptionsByTopic(t *testing.T) {
 			if tt.setup != nil {
 				tt.setup(b)
 			}
-			h := sns.NewHandler(b, logger.NewLogger(slog.LevelDebug))
+			h := sns.NewHandler(b)
 			rec := snsPost(t, h, tt.form)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 			for _, want := range tt.wantBodyContains {
@@ -1273,7 +1273,7 @@ func TestSNSHandler_Publish(t *testing.T) {
 			if tt.setup != nil {
 				tt.setup(b)
 			}
-			h := sns.NewHandler(b, logger.NewLogger(slog.LevelDebug))
+			h := sns.NewHandler(b)
 			rec := snsPost(t, h, tt.form)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 			for _, want := range tt.wantBodyContains {
@@ -1370,7 +1370,7 @@ func TestSNSHandler_PublishBatch(t *testing.T) {
 			if tt.setup != nil {
 				tt.setup(b)
 			}
-			h := sns.NewHandler(b, logger.NewLogger(slog.LevelDebug))
+			h := sns.NewHandler(b)
 			rec := snsPost(t, h, tt.form)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 			for _, want := range tt.wantBodyContains {
@@ -1542,7 +1542,7 @@ func TestCreateTopicXMLResponse(t *testing.T) {
 	t.Parallel()
 
 	b := sns.NewInMemoryBackend()
-	h := sns.NewHandler(b, logger.NewLogger(slog.LevelDebug))
+	h := sns.NewHandler(b)
 
 	rec := snsPost(t, h, url.Values{
 		"Action":  {"CreateTopic"},
@@ -1735,7 +1735,7 @@ func TestSNSBodyReadErrors(t *testing.T) {
 	t.Parallel()
 
 	newSNSHandler := func() *sns.Handler {
-		return sns.NewHandler(sns.NewInMemoryBackend(), logger.NewLogger(slog.LevelDebug))
+		return sns.NewHandler(sns.NewInMemoryBackend())
 	}
 
 	t.Run("RouteMatcher_BodyReadError", func(t *testing.T) {
@@ -1759,7 +1759,7 @@ func TestSNSHandlerInternalError(t *testing.T) {
 	t.Parallel()
 
 	b := &errBackend{sns.NewInMemoryBackend()}
-	h := sns.NewHandler(b, logger.NewLogger(slog.LevelDebug))
+	h := sns.NewHandler(b)
 
 	// CreateTopic will call handleBackendError with an unexpected (non-sentinel) error,
 	// exercising the default branch in handleBackendError and errorCode.
@@ -1948,7 +1948,7 @@ func TestCreateTopic_RegionExtraction(t *testing.T) {
 	t.Parallel()
 
 	bk := sns.NewInMemoryBackend()
-	h := sns.NewHandler(bk, logger.NewLogger(slog.LevelDebug))
+	h := sns.NewHandler(bk)
 	h.DefaultRegion = "us-east-1"
 
 	t.Run("default region when no Authorization header", func(t *testing.T) {
@@ -1967,7 +1967,7 @@ func TestCreateTopic_RegionExtraction(t *testing.T) {
 		t.Parallel()
 
 		bk2 := sns.NewInMemoryBackend()
-		h2 := sns.NewHandler(bk2, logger.NewLogger(slog.LevelDebug))
+		h2 := sns.NewHandler(bk2)
 		h2.DefaultRegion = "us-east-1"
 
 		e := echo.New()
@@ -2019,7 +2019,7 @@ func TestSNSHandler_TagResource(t *testing.T) {
 			t.Parallel()
 			b := sns.NewInMemoryBackend()
 			b.CreateTopic("tag-topic", nil)
-			h := sns.NewHandler(b, logger.NewLogger(slog.LevelDebug))
+			h := sns.NewHandler(b)
 			rec := snsPost(t, h, tt.form)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 			for _, want := range tt.wantBodyContains {
@@ -2037,7 +2037,7 @@ func TestSNSHandler_UntagResource(t *testing.T) {
 	topicArn := "arn:aws:sns:us-east-1:000000000000:untag-topic"
 	b.SetTopicTags(topicArn, svcTags.FromMap("test.sns.untag", map[string]string{"env": "prod", "team": "infra"}))
 
-	h := sns.NewHandler(b, logger.NewLogger(slog.LevelDebug))
+	h := sns.NewHandler(b)
 
 	rec := snsPost(t, h, url.Values{
 		"Action":           {"UntagResource"},
@@ -2061,7 +2061,7 @@ func TestSNSHandler_ListTagsForResource(t *testing.T) {
 	topicArn := "arn:aws:sns:us-east-1:000000000000:listtag-topic"
 	b.SetTopicTags(topicArn, svcTags.FromMap("test.sns.list", map[string]string{"env": "staging"}))
 
-	h := sns.NewHandler(b, logger.NewLogger(slog.LevelDebug))
+	h := sns.NewHandler(b)
 
 	rec := snsPost(t, h, url.Values{
 		"Action":      {"ListTagsForResource"},
@@ -2125,7 +2125,7 @@ func TestSNSHandler_GetSubscriptionAttributes(t *testing.T) {
 			if tt.setup != nil {
 				tt.setup(b)
 			}
-			h := sns.NewHandler(b, logger.NewLogger(slog.LevelDebug))
+			h := sns.NewHandler(b)
 
 			form := tt.form
 			// For the success case, look up the subscription ARN dynamically.

@@ -136,11 +136,11 @@ func newSDKClients(t *testing.T, e *echo.Echo) sdkClients {
 
 // newLambdaHandler creates a Lambda handler backed by an in-memory backend with no Docker
 // or portalloc dependency — invocations are disabled; only management-plane CRUD works.
-func newLambdaHandler(log *slog.Logger) *lambdabackend.Handler {
+func newLambdaHandler() *lambdabackend.Handler {
 	bk := lambdabackend.NewInMemoryBackend(
-		nil, nil, lambdabackend.DefaultSettings(), config.DefaultAccountID, config.DefaultRegion, log,
+		nil, nil, lambdabackend.DefaultSettings(), config.DefaultAccountID, config.DefaultRegion,
 	)
-	h := lambdabackend.NewHandler(bk, log)
+	h := lambdabackend.NewHandler(bk)
 	h.AccountID = config.DefaultAccountID
 	h.DefaultRegion = config.DefaultRegion
 
@@ -259,87 +259,78 @@ type handlers struct {
 	support         *supportbackend.Handler
 	iamBk           *iambackend.InMemoryBackend
 	s3Bk            *s3backend.InMemoryBackend
-	log             *slog.Logger
 }
 
 // newHandlers creates in-memory backends and handlers for all services.
-func newHandlers(log *slog.Logger) handlers {
-	s3Bk := s3backend.NewInMemoryBackend(nil, log)
+func newHandlers() handlers {
+	s3Bk := s3backend.NewInMemoryBackend(nil)
 	iamBk := iambackend.NewInMemoryBackend()
-	ddb := ddbbackend.NewHandler(ddbbackend.NewInMemoryDB(), log)
-	sqs := sqsbackend.NewHandler(sqsbackend.NewInMemoryBackend(), log)
-	sns := snsbackend.NewHandler(snsbackend.NewInMemoryBackend(), log)
-	ssm := ssmbackend.NewHandler(ssmbackend.NewInMemoryBackend(), log)
-	kms := kmsbackend.NewHandler(kmsbackend.NewInMemoryBackend(), log)
-	sm := smbackend.NewHandler(smbackend.NewInMemoryBackend(), log)
+	ddb := ddbbackend.NewHandler(ddbbackend.NewInMemoryDB())
+	sqs := sqsbackend.NewHandler(sqsbackend.NewInMemoryBackend())
+	sns := snsbackend.NewHandler(snsbackend.NewInMemoryBackend())
+	ssm := ssmbackend.NewHandler(ssmbackend.NewInMemoryBackend())
+	kms := kmsbackend.NewHandler(kmsbackend.NewInMemoryBackend())
+	sm := smbackend.NewHandler(smbackend.NewInMemoryBackend())
 
 	return handlers{
 		s3Bk:    s3Bk,
 		iamBk:   iamBk,
-		log:     log,
-		s3:      s3backend.NewHandler(s3Bk, log),
+		s3:      s3backend.NewHandler(s3Bk),
 		ddb:     ddb,
 		ssm:     ssm,
-		iam:     iambackend.NewHandler(iamBk, log),
-		sts:     stsbackend.NewHandler(stsbackend.NewInMemoryBackend(), log),
+		iam:     iambackend.NewHandler(iamBk),
+		sts:     stsbackend.NewHandler(stsbackend.NewInMemoryBackend()),
 		sns:     sns,
 		sqs:     sqs,
 		kms:     kms,
 		sm:      sm,
-		lambda:  newLambdaHandler(log),
-		eb:      ebbackend.NewHandler(ebbackend.NewInMemoryBackend(), log),
-		apigw:   apigwbackend.NewHandler(apigwbackend.NewInMemoryBackend(), log),
-		cwlogs:  cwlogsbackend.NewHandler(cwlogsbackend.NewInMemoryBackend(), log),
-		sfn:     sfnbackend.NewHandler(sfnbackend.NewInMemoryBackend(), log),
-		cw:      cwbackend.NewHandler(cwbackend.NewInMemoryBackend(), log),
-		cfn:     newCFNHandler(s3Bk, ddb, sqs, sns, ssm, kms, sm, log),
-		kinesis: kinesisbackend.NewHandler(kinesisbackend.NewInMemoryBackend(), log),
+		lambda:  newLambdaHandler(),
+		eb:      ebbackend.NewHandler(ebbackend.NewInMemoryBackend()),
+		apigw:   apigwbackend.NewHandler(apigwbackend.NewInMemoryBackend()),
+		cwlogs:  cwlogsbackend.NewHandler(cwlogsbackend.NewInMemoryBackend()),
+		sfn:     sfnbackend.NewHandler(sfnbackend.NewInMemoryBackend()),
+		cw:      cwbackend.NewHandler(cwbackend.NewInMemoryBackend()),
+		cfn:     newCFNHandler(s3Bk, ddb, sqs, sns, ssm, kms, sm),
+		kinesis: kinesisbackend.NewHandler(kinesisbackend.NewInMemoryBackend()),
 		elasticache: elasticachebackend.NewHandler(
 			elasticachebackend.NewInMemoryBackend(
 				elasticachebackend.EngineStub, config.DefaultAccountID, config.DefaultRegion,
 			),
-			log,
 		),
-		route53: route53backend.NewHandler(route53backend.NewInMemoryBackend(), log),
-		ses:     sesbackend.NewHandler(sesbackend.NewInMemoryBackend(), log),
+		route53: route53backend.NewHandler(route53backend.NewInMemoryBackend()),
+		ses:     sesbackend.NewHandler(sesbackend.NewInMemoryBackend()),
 		ec2: ec2backend.NewHandler(
-			ec2backend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion), log,
+			ec2backend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 		),
 		opensearch: opensearchbackend.NewHandler(
-			opensearchbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion), log,
+			opensearchbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 		),
 		acm: acmbackend.NewHandler(
-			acmbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion), log,
+			acmbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 		),
 		redshift: redshiftbackend.NewHandler(
 			redshiftbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
-			log,
 		),
 		rds: rdsbackend.NewHandler(
 			rdsbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
-			log,
 		),
-		awsconfig: awsconfigbackend.NewHandler(awsconfigbackend.NewInMemoryBackend(), log),
-		s3control: s3controlbackend.NewHandler(s3controlbackend.NewInMemoryBackend(), log),
+		awsconfig: awsconfigbackend.NewHandler(awsconfigbackend.NewInMemoryBackend()),
+		s3control: s3controlbackend.NewHandler(s3controlbackend.NewInMemoryBackend()),
 		resourcegroups: resourcegroupsbackend.NewHandler(
 			resourcegroupsbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
-			log,
 		),
-		swf: swfbackend.NewHandler(swfbackend.NewInMemoryBackend(), log),
+		swf: swfbackend.NewHandler(swfbackend.NewInMemoryBackend()),
 		firehose: firehosebackend.NewHandler(
 			firehosebackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
-			log,
 		),
 		scheduler: schedulerbackend.NewHandler(
 			schedulerbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
-			log,
 		),
 		route53resolver: route53resolverbackend.NewHandler(
 			route53resolverbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
-			log,
 		),
-		transcribe: transcribebackend.NewHandler(transcribebackend.NewInMemoryBackend(), log),
-		support:    supportbackend.NewHandler(supportbackend.NewInMemoryBackend(), log),
+		transcribe: transcribebackend.NewHandler(transcribebackend.NewInMemoryBackend()),
+		support:    supportbackend.NewHandler(supportbackend.NewInMemoryBackend()),
 	}
 }
 
@@ -353,10 +344,9 @@ func newCFNHandler(
 	ssm *ssmbackend.Handler,
 	kms *kmsbackend.Handler,
 	sm *smbackend.Handler,
-	log *slog.Logger,
 ) *cfnbackend.Handler {
 	backends := &cfnbackend.ServiceBackends{
-		S3:             s3backend.NewHandler(s3Bk, log),
+		S3:             s3backend.NewHandler(s3Bk),
 		DynamoDB:       ddb,
 		SQS:            sqs,
 		SNS:            sns,
@@ -369,7 +359,7 @@ func newCFNHandler(
 	creator := cfnbackend.NewResourceCreator(backends)
 	backend := cfnbackend.NewInMemoryBackendWithConfig(config.DefaultAccountID, config.DefaultRegion, creator)
 
-	return cfnbackend.NewHandler(backend, log)
+	return cfnbackend.NewHandler(backend)
 }
 
 // newDashboardConfig builds the dashboard.Config for the test stack.
@@ -413,7 +403,7 @@ func newDashboardConfig(h handlers, clients sdkClients) dashboard.Config {
 		TranscribeOps:      h.transcribe,
 		SupportOps:         h.support,
 		GlobalConfig:       config.GlobalConfig{AccountID: config.DefaultAccountID, Region: config.DefaultRegion},
-		Logger:             h.log,
+		Logger:             slog.Default(),
 	}
 }
 
@@ -424,7 +414,7 @@ func New(t *testing.T) *Stack {
 	t.Helper()
 
 	testLogger := logger.NewTestLogger()
-	h := newHandlers(testLogger)
+	h := newHandlers()
 
 	// Set up Echo with service registry and router.
 	e := echo.New()

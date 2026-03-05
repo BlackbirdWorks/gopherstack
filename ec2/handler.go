@@ -4,7 +4,6 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -26,14 +25,13 @@ const (
 // Handler is the Echo HTTP handler for EC2 operations.
 type Handler struct {
 	Backend   *InMemoryBackend
-	Logger    *slog.Logger
 	AccountID string
 	Region    string
 }
 
 // NewHandler creates a new EC2 handler with the given backend and logger.
-func NewHandler(backend *InMemoryBackend, log *slog.Logger) *Handler {
-	return &Handler{Backend: backend, Logger: log}
+func NewHandler(backend *InMemoryBackend) *Handler {
+	return &Handler{Backend: backend, }
 }
 
 // Name returns the service name.
@@ -517,7 +515,7 @@ func (h *Handler) handleOpError(c *echo.Context, reqID, action string, opErr err
 	default:
 		code = "InternalFailure"
 		statusCode = http.StatusInternalServerError
-		h.Logger.Error("EC2 internal error", "error", opErr, "action", action)
+		logger.Load(c.Request().Context()).Error("EC2 internal error", "error", opErr, "action", action)
 	}
 
 	return h.writeError(c, reqID, statusCode, code, opErr.Error())

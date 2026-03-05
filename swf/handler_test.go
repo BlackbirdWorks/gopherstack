@@ -20,7 +20,7 @@ import (
 func newTestSWFHandler(t *testing.T) *swf.Handler {
 	t.Helper()
 
-	return swf.NewHandler(swf.NewInMemoryBackend(), slog.Default())
+	return swf.NewHandler(swf.NewInMemoryBackend())
 }
 
 func doSWFRequest(t *testing.T, h *swf.Handler, action string, body any) *httptest.ResponseRecorder {

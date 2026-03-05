@@ -95,7 +95,7 @@ func TestScheduler(t *testing.T) {
 			_, err := backend.PutRule(tt.rule)
 			require.NoError(t, err)
 
-			scheduler := eventbridge.NewScheduler(backend, log, 50*time.Millisecond)
+			scheduler := eventbridge.NewScheduler(backend, 50*time.Millisecond)
 			ctx, cancel := context.WithTimeout(t.Context(), tt.ctxTimeout)
 			defer cancel()
 
@@ -131,7 +131,7 @@ func TestNewScheduler_DefaultTickInterval(t *testing.T) {
 
 			log := logger.NewLogger(slog.LevelDebug)
 			backend := eventbridge.NewInMemoryBackend()
-			scheduler := eventbridge.NewScheduler(backend, log, tt.tickInterval)
+			scheduler := eventbridge.NewScheduler(backend, tt.tickInterval)
 			assert.NotNil(t, scheduler)
 		})
 	}

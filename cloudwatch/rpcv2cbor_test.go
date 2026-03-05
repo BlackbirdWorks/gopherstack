@@ -2,7 +2,6 @@ package cloudwatch_test
 
 import (
 	"bytes"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -38,7 +37,7 @@ func postCBOR(t *testing.T, h *cloudwatch.Handler, op string, body cbor.Map) *ht
 }
 
 func newCBORHandler() *cloudwatch.Handler {
-	return cloudwatch.NewHandler(cloudwatch.NewInMemoryBackend(), slog.Default())
+	return cloudwatch.NewHandler(cloudwatch.NewInMemoryBackend())
 }
 
 // decodeCBORResponse decodes the CBOR response body into a cbor.Map.

@@ -65,7 +65,7 @@ func setupProxyAPIViaHandler(
 
 	log := logger.NewLogger(slog.LevelDebug)
 	backend := apigateway.NewInMemoryBackend()
-	h := apigateway.NewHandler(backend, log)
+	h := apigateway.NewHandler(backend)
 	e := echo.New()
 
 	// Create REST API.
@@ -235,7 +235,7 @@ func setupVTLAPI(t *testing.T) (*apigateway.Handler, *echo.Echo, string) {
 
 	log := logger.NewLogger(slog.LevelDebug)
 	backend := apigateway.NewInMemoryBackend()
-	h := apigateway.NewHandler(backend, log)
+	h := apigateway.NewHandler(backend)
 	e := echo.New()
 
 	createRec := postWithHandler(t, h, e, "CreateRestApi", `{"name":"vtl-api","description":"test"}`)
@@ -412,7 +412,7 @@ func TestHandleStageProxy_InvalidPath(t *testing.T) {
 
 			log := logger.NewLogger(slog.LevelDebug)
 			backend := apigateway.NewInMemoryBackend()
-			h := apigateway.NewHandler(backend, log)
+			h := apigateway.NewHandler(backend)
 			e := echo.New()
 
 			req := httptest.NewRequest(http.MethodGet, tt.url, nil)

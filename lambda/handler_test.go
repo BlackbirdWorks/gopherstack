@@ -1842,7 +1842,7 @@ func newInMemHandlerWithPortAlloc(t *testing.T) *lambda.Handler {
 	require.NoError(t, err)
 
 	bk := lambda.NewInMemoryBackend(nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default())
-	h := lambda.NewHandler(bk, slog.Default())
+	h := lambda.NewHandler(bk)
 	h.DefaultRegion = "us-east-1"
 	h.AccountID = "000000000000"
 

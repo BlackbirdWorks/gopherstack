@@ -68,9 +68,7 @@ func (m *mockCWLogsBackend) PutLogLines(_, _ string, messages []string) error {
 }
 
 func newSimpleBackend() *lambda.InMemoryBackend {
-	return lambda.NewInMemoryBackend(
-		nil, nil, lambda.DefaultSettings(), "123456789012", "us-east-1", slog.Default(),
-	)
+	return lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "123456789012", "us-east-1")
 }
 
 func TestInMemoryBackend_SetS3CodeFetcher(t *testing.T) {

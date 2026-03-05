@@ -93,7 +93,7 @@ func TestDebugLogging(t *testing.T) {
 				Level: slog.LevelDebug,
 			}))
 
-			h := dynamodb.NewHandler(dynamodb.NewInMemoryDB(), testLogger)
+			h := dynamodb.NewHandler(dynamodb.NewInMemoryDB())
 			e := echo.New()
 			echoHandler := h.Handler()
 

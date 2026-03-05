@@ -19,7 +19,7 @@ import (
 func newTestSupportHandler(t *testing.T) *support.Handler {
 	t.Helper()
 
-	return support.NewHandler(support.NewInMemoryBackend(), slog.Default())
+	return support.NewHandler(support.NewInMemoryBackend())
 }
 
 func doSupportRequest(t *testing.T, h *support.Handler, action string, body any) *httptest.ResponseRecorder {

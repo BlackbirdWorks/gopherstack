@@ -23,9 +23,8 @@ func post(t *testing.T, action, body string) *httptest.ResponseRecorder {
 	t.Helper()
 
 	e := echo.New()
-	log := logger.NewLogger(slog.LevelDebug)
 	backend := apigateway.NewInMemoryBackend()
-	handler := apigateway.NewHandler(backend, log)
+	handler := apigateway.NewHandler(backend)
 
 	return postWithHandler(t, handler, e, action, body)
 }
@@ -59,9 +58,8 @@ func postWithHandler(
 
 // sharedSetup creates a handler and Echo instance for multi-step tests.
 func sharedSetup() (*apigateway.Handler, *echo.Echo) {
-	log := logger.NewLogger(slog.LevelDebug)
 	backend := apigateway.NewInMemoryBackend()
-	handler := apigateway.NewHandler(backend, log)
+	handler := apigateway.NewHandler(backend)
 	e := echo.New()
 
 	return handler, e
@@ -527,9 +525,8 @@ func TestHandler_Errors(t *testing.T) {
 			t.Parallel()
 
 			e := echo.New()
-			log := logger.NewLogger(slog.LevelDebug)
 			backend := apigateway.NewInMemoryBackend()
-			handler := apigateway.NewHandler(backend, log)
+			handler := apigateway.NewHandler(backend)
 
 			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tt.body))
 			if tt.hasTarget {
@@ -565,9 +562,8 @@ func TestHandler_SetLambdaInvoker(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			log := logger.NewLogger(slog.LevelDebug)
 			backend := apigateway.NewInMemoryBackend()
-			handler := apigateway.NewHandler(backend, log)
+			handler := apigateway.NewHandler(backend)
 			mock := &mockLambdaInvoker{}
 
 			assert.NotPanics(t, func() {

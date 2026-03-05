@@ -26,7 +26,7 @@ func (m *mockCWConfigProvider) GetGlobalConfig() config.GlobalConfig {
 // cwServer creates a test HTTP server backed by a real CloudWatch handler.
 func cwServer(t *testing.T) *httptest.Server {
 	t.Helper()
-	h := cloudwatch.NewHandler(cloudwatch.NewInMemoryBackend(), slog.Default())
+	h := cloudwatch.NewHandler(cloudwatch.NewInMemoryBackend())
 	e := echo.New()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rec := httptest.NewRecorder()

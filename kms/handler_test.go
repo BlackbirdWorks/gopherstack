@@ -392,14 +392,14 @@ func TestKMSHandler(t *testing.T) {
 			t.Parallel()
 
 			e := echo.New()
-			log := logger.NewLogger(slog.LevelDebug)
+
 			backend := kms.NewInMemoryBackend()
 
 			if tt.setupFn != nil {
 				tt.setupFn(t, backend)
 			}
 
-			h := kms.NewHandler(backend, log)
+			h := kms.NewHandler(backend)
 
 			var req *http.Request
 
@@ -432,9 +432,9 @@ func TestKMSHandlerEncryptDecrypt(t *testing.T) {
 	t.Parallel()
 
 	e := echo.New()
-	log := logger.NewLogger(slog.LevelDebug)
+
 	backend := kms.NewInMemoryBackend()
-	h := kms.NewHandler(backend, log)
+	h := kms.NewHandler(backend)
 
 	// Create key
 	createReq := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"Description":"enc-key"}`))
@@ -479,9 +479,9 @@ func TestKMSHandlerAliasOperations(t *testing.T) {
 	t.Parallel()
 
 	e := echo.New()
-	log := logger.NewLogger(slog.LevelDebug)
+
 	backend := kms.NewInMemoryBackend()
-	h := kms.NewHandler(backend, log)
+	h := kms.NewHandler(backend)
 
 	// Create key first
 	createReq := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`))
@@ -528,9 +528,9 @@ func TestKMSHandlerKeyRotation(t *testing.T) {
 	t.Parallel()
 
 	e := echo.New()
-	log := logger.NewLogger(slog.LevelDebug)
+
 	backend := kms.NewInMemoryBackend()
-	h := kms.NewHandler(backend, log)
+	h := kms.NewHandler(backend)
 
 	// Create key
 	createReq := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`))
@@ -576,9 +576,9 @@ func TestKMSHandlerGenerateDataKey(t *testing.T) {
 	t.Parallel()
 
 	e := echo.New()
-	log := logger.NewLogger(slog.LevelDebug)
+
 	backend := kms.NewInMemoryBackend()
-	h := kms.NewHandler(backend, log)
+	h := kms.NewHandler(backend)
 
 	// Create key
 	createReq := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`))
@@ -608,9 +608,9 @@ func TestKMSHandlerReEncrypt(t *testing.T) {
 	t.Parallel()
 
 	e := echo.New()
-	log := logger.NewLogger(slog.LevelDebug)
+
 	backend := kms.NewInMemoryBackend()
-	h := kms.NewHandler(backend, log)
+	h := kms.NewHandler(backend)
 
 	// Create two keys
 	createReq1 := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`))
@@ -663,9 +663,9 @@ func TestKMSHandlerMethodNotAllowed(t *testing.T) {
 	t.Parallel()
 
 	e := echo.New()
-	log := logger.NewLogger(slog.LevelDebug)
+
 	backend := kms.NewInMemoryBackend()
-	h := kms.NewHandler(backend, log)
+	h := kms.NewHandler(backend)
 
 	req := httptest.NewRequest(http.MethodPut, "/something", nil)
 	rec := httptest.NewRecorder()
@@ -681,7 +681,7 @@ func TestKMSHandlerRouteMatcher(t *testing.T) {
 
 	e := echo.New()
 	backend := kms.NewInMemoryBackend()
-	h := kms.NewHandler(backend, logger.NewLogger(slog.LevelDebug))
+	h := kms.NewHandler(backend)
 	matcher := h.RouteMatcher()
 
 	t.Run("MatchesTrentService", func(t *testing.T) {
@@ -707,9 +707,9 @@ func TestKMSHandlerRouteMatcher(t *testing.T) {
 func TestKMSHandlerInterface(t *testing.T) {
 	t.Parallel()
 
-	log := logger.NewLogger(slog.LevelDebug)
+
 	backend := kms.NewInMemoryBackend()
-	h := kms.NewHandler(backend, log)
+	h := kms.NewHandler(backend)
 
 	assert.Equal(t, "KMS", h.Name())
 	assert.Equal(t, 95, h.MatchPriority())
@@ -749,8 +749,8 @@ func TestKMSProvider(t *testing.T) {
 	p := &kms.Provider{}
 	assert.Equal(t, "KMS", p.Name())
 
-	log := logger.NewLogger(slog.LevelDebug)
-	ctx := &service.AppContext{Logger: log}
+
+	ctx := &service.AppContext{Logger: slog.Default()}
 	svc, err := p.Init(ctx)
 	require.NoError(t, err)
 	assert.NotNil(t, svc)
@@ -802,9 +802,9 @@ func TestKMSHandlerErrorCases(t *testing.T) {
 			t.Parallel()
 
 			e := echo.New()
-			log := logger.NewLogger(slog.LevelDebug)
+
 			backend := kms.NewInMemoryBackend()
-			h := kms.NewHandler(backend, log)
+			h := kms.NewHandler(backend)
 
 			// Create a key to use as placeholder
 			created, err := backend.CreateKey(&kms.CreateKeyInput{})
@@ -841,9 +841,9 @@ func TestKMSListAliasesFiltered(t *testing.T) {
 	t.Parallel()
 
 	e := echo.New()
-	log := logger.NewLogger(slog.LevelDebug)
+
 	backend := kms.NewInMemoryBackend()
-	h := kms.NewHandler(backend, log)
+	h := kms.NewHandler(backend)
 
 	// Create two keys with aliases
 	key1, _ := backend.CreateKey(&kms.CreateKeyInput{})
@@ -924,9 +924,9 @@ func TestKMSHandlerInternalError(t *testing.T) {
 	t.Parallel()
 
 	e := echo.New()
-	log := logger.NewLogger(slog.LevelDebug)
+
 	backend := kms.NewInMemoryBackend()
-	h := kms.NewHandler(backend, log)
+	h := kms.NewHandler(backend)
 
 	// Create a key, then encrypt to get a valid ciphertext, then decrypt
 	// with a tampered ciphertext that triggers decryptData failure but not
@@ -1116,7 +1116,7 @@ func TestKMSHandlerDisableEnableKey(t *testing.T) {
 	t.Parallel()
 
 	backend := kms.NewInMemoryBackend()
-	h := kms.NewHandler(backend, slog.Default())
+	h := kms.NewHandler(backend)
 
 	out, _ := backend.CreateKey(&kms.CreateKeyInput{})
 	keyID := out.KeyMetadata.KeyID
@@ -1176,7 +1176,7 @@ func TestKMSGrantOperations(t *testing.T) {
 	t.Parallel()
 
 	backend := kms.NewInMemoryBackend()
-	h := kms.NewHandler(backend, slog.Default())
+	h := kms.NewHandler(backend)
 
 	keyOut, err := backend.CreateKey(&kms.CreateKeyInput{Description: "grant-test"})
 	require.NoError(t, err)
@@ -1217,7 +1217,7 @@ func TestKMSKeyPolicy(t *testing.T) {
 	t.Parallel()
 
 	backend := kms.NewInMemoryBackend()
-	h := kms.NewHandler(backend, slog.Default())
+	h := kms.NewHandler(backend)
 
 	keyOut, err := backend.CreateKey(&kms.CreateKeyInput{Description: "policy-test"})
 	require.NoError(t, err)
@@ -1245,7 +1245,7 @@ func TestKMSGenerateDataKeyWithoutPlaintext(t *testing.T) {
 	t.Parallel()
 
 	backend := kms.NewInMemoryBackend()
-	h := kms.NewHandler(backend, slog.Default())
+	h := kms.NewHandler(backend)
 
 	keyOut, err := backend.CreateKey(&kms.CreateKeyInput{})
 	require.NoError(t, err)
@@ -1265,7 +1265,7 @@ func TestKMSRetireGrant(t *testing.T) {
 	t.Parallel()
 
 	backend := kms.NewInMemoryBackend()
-	h := kms.NewHandler(backend, slog.Default())
+	h := kms.NewHandler(backend)
 
 	// Create a key and grant
 	keyOut, err := backend.CreateKey(&kms.CreateKeyInput{Description: "retire-grant-test"})
@@ -1310,7 +1310,7 @@ func TestKMSTagOperations(t *testing.T) {
 	t.Parallel()
 
 	backend := kms.NewInMemoryBackend()
-	h := kms.NewHandler(backend, slog.Default())
+	h := kms.NewHandler(backend)
 
 	keyOut, err := backend.CreateKey(&kms.CreateKeyInput{Description: "tag-test"})
 	require.NoError(t, err)
@@ -1366,7 +1366,7 @@ func TestKMSTagOperations(t *testing.T) {
 func TestKMSSetRemoveGetTags(t *testing.T) {
 	t.Parallel()
 
-	h := kms.NewHandler(kms.NewInMemoryBackend(), slog.Default())
+	h := kms.NewHandler(kms.NewInMemoryBackend())
 
 	// getTags on unknown resource returns empty map
 	got := h.GetTags("no-such-key")

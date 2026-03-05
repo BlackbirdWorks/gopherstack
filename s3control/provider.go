@@ -15,7 +15,7 @@ func (p *Provider) Name() string { return "S3Control" }
 //nolint:ireturn,nolintlint // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	backend := NewInMemoryBackend()
-	handler := NewHandler(backend, ctx.Logger)
+	handler := NewHandler(backend)
 
 	return handler, nil
 }

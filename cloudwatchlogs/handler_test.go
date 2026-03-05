@@ -23,9 +23,8 @@ func makeLogsRequest(t *testing.T, action, body string) *httptest.ResponseRecord
 	t.Helper()
 
 	e := echo.New()
-	log := logger.NewLogger(slog.LevelDebug)
 	backend := cloudwatchlogs.NewInMemoryBackend()
-	handler := cloudwatchlogs.NewHandler(backend, log)
+	handler := cloudwatchlogs.NewHandler(backend)
 
 	return doLogsRequest(t, handler, e, action, body)
 }
@@ -61,7 +60,7 @@ func TestHandler_GetSupportedOperations(t *testing.T) {
 	t.Parallel()
 
 	e := echo.New()
-	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), slog.Default())
+	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend())
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
 	require.NoError(t, h.Handler()(e.NewContext(req, rec)))
@@ -77,7 +76,7 @@ func TestHandler_MethodNotAllowed(t *testing.T) {
 	t.Parallel()
 
 	e := echo.New()
-	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), slog.Default())
+	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend())
 	req := httptest.NewRequest(http.MethodGet, "/notroot", nil)
 	rec := httptest.NewRecorder()
 	require.NoError(t, h.Handler()(e.NewContext(req, rec)))
@@ -88,7 +87,7 @@ func TestHandler_MissingTarget(t *testing.T) {
 	t.Parallel()
 
 	e := echo.New()
-	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), slog.Default())
+	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend())
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("{}"))
 	rec := httptest.NewRecorder()
 	require.NoError(t, h.Handler()(e.NewContext(req, rec)))
@@ -99,7 +98,7 @@ func TestHandler_InvalidTarget(t *testing.T) {
 	t.Parallel()
 
 	e := echo.New()
-	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), slog.Default())
+	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend())
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("{}"))
 	req.Header.Set("X-Amz-Target", "InvalidTarget")
 	rec := httptest.NewRecorder()
@@ -435,7 +434,7 @@ func TestHandler(t *testing.T) {
 			t.Parallel()
 
 			e := echo.New()
-			h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), slog.Default())
+			h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend())
 
 			if tt.setup != nil {
 				tt.setup(t, h, e)
@@ -466,7 +465,7 @@ func TestHandler_TagRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	e := echo.New()
-	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend(), slog.Default())
+	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend())
 
 	// Create a log group and tag it.
 	doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"grp"}`)

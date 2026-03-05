@@ -20,7 +20,7 @@ import (
 func newTestAWSConfigHandler(t *testing.T) *awsconfig.Handler {
 	t.Helper()
 
-	return awsconfig.NewHandler(awsconfig.NewInMemoryBackend(), slog.Default())
+	return awsconfig.NewHandler(awsconfig.NewInMemoryBackend())
 }
 
 func doAWSConfigRequest(t *testing.T, h *awsconfig.Handler, action string, body any) *httptest.ResponseRecorder {

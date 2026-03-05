@@ -466,14 +466,14 @@ func TestSecretsManagerHandler(t *testing.T) {
 			t.Parallel()
 
 			e := echo.New()
-			log := logger.NewLogger(slog.LevelDebug)
+
 			backend := secretsmanager.NewInMemoryBackend()
 
 			if tt.setupFn != nil {
 				tt.setupFn(t, backend)
 			}
 
-			h := secretsmanager.NewHandler(backend, log)
+			h := secretsmanager.NewHandler(backend)
 
 			var req *http.Request
 
@@ -506,9 +506,9 @@ func TestSecretsManagerHandlerFullCycle(t *testing.T) {
 	t.Parallel()
 
 	e := echo.New()
-	log := logger.NewLogger(slog.LevelDebug)
+
 	backend := secretsmanager.NewInMemoryBackend()
-	h := secretsmanager.NewHandler(backend, log)
+	h := secretsmanager.NewHandler(backend)
 
 	// CreateSecret
 	createReq := httptest.NewRequest(
@@ -578,9 +578,9 @@ func TestSecretsManagerHandlerMethodNotAllowed(t *testing.T) {
 	t.Parallel()
 
 	e := echo.New()
-	log := logger.NewLogger(slog.LevelDebug)
+
 	backend := secretsmanager.NewInMemoryBackend()
-	h := secretsmanager.NewHandler(backend, log)
+	h := secretsmanager.NewHandler(backend)
 
 	req := httptest.NewRequest(http.MethodPut, "/something", nil)
 	rec := httptest.NewRecorder()
@@ -595,7 +595,7 @@ func TestSecretsManagerHandlerRouteMatcher(t *testing.T) {
 
 	e := echo.New()
 	backend := secretsmanager.NewInMemoryBackend()
-	h := secretsmanager.NewHandler(backend, logger.NewLogger(slog.LevelDebug))
+	h := secretsmanager.NewHandler(backend)
 	matcher := h.RouteMatcher()
 
 	t.Run("MatchesSecretsManager", func(t *testing.T) {
@@ -622,9 +622,9 @@ func TestSecretsManagerHandlerInvalidTarget(t *testing.T) {
 	t.Parallel()
 
 	e := echo.New()
-	log := logger.NewLogger(slog.LevelDebug)
+
 	backend := secretsmanager.NewInMemoryBackend()
-	h := secretsmanager.NewHandler(backend, log)
+	h := secretsmanager.NewHandler(backend)
 
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`))
 	req.Header.Set("X-Amz-Target", "secretsmanagerNoSep")
@@ -688,9 +688,9 @@ func TestSecretsManagerVersionByID(t *testing.T) {
 func TestSecretsManagerHandlerInterface(t *testing.T) {
 	t.Parallel()
 
-	log := logger.NewLogger(slog.LevelDebug)
+
 	backend := secretsmanager.NewInMemoryBackend()
-	h := secretsmanager.NewHandler(backend, log)
+	h := secretsmanager.NewHandler(backend)
 
 	assert.Equal(t, "SecretsManager", h.Name())
 	assert.Equal(t, 95, h.MatchPriority())
@@ -734,8 +734,8 @@ func TestSecretsManagerProvider(t *testing.T) {
 	p := &secretsmanager.Provider{}
 	assert.Equal(t, "SecretsManager", p.Name())
 
-	log := logger.NewLogger(slog.LevelDebug)
-	ctx := &service.AppContext{Logger: log}
+
+	ctx := &service.AppContext{Logger: slog.Default()}
 	svc, err := p.Init(ctx)
 	require.NoError(t, err)
 	assert.NotNil(t, svc)
@@ -780,9 +780,9 @@ func TestSecretsManagerHandlerErrorCases(t *testing.T) {
 			t.Parallel()
 
 			e := echo.New()
-			log := logger.NewLogger(slog.LevelDebug)
+
 			backend := secretsmanager.NewInMemoryBackend()
-			h := secretsmanager.NewHandler(backend, log)
+			h := secretsmanager.NewHandler(backend)
 
 			if tt.name == "SecretAlreadyExists" {
 				_, _ = backend.CreateSecret(&secretsmanager.CreateSecretInput{Name: "dup-secret"})
@@ -859,9 +859,9 @@ func TestSecretsManagerPutSecretValueLabelRotation(t *testing.T) {
 	t.Parallel()
 
 	e := echo.New()
-	log := logger.NewLogger(slog.LevelDebug)
+
 	backend := secretsmanager.NewInMemoryBackend()
-	h := secretsmanager.NewHandler(backend, log)
+	h := secretsmanager.NewHandler(backend)
 
 	// Create initial secret
 	_, _ = backend.CreateSecret(&secretsmanager.CreateSecretInput{
@@ -895,9 +895,9 @@ func TestSecretsManagerTagResource(t *testing.T) {
 	t.Parallel()
 
 	e := echo.New()
-	log := logger.NewLogger(slog.LevelDebug)
+
 	backend := secretsmanager.NewInMemoryBackend()
-	h := secretsmanager.NewHandler(backend, log)
+	h := secretsmanager.NewHandler(backend)
 
 	_, err := backend.CreateSecret(&secretsmanager.CreateSecretInput{
 		Name:         "tag-secret",
@@ -941,9 +941,9 @@ func TestSecretsManagerRotateSecret(t *testing.T) {
 	t.Parallel()
 
 	e := echo.New()
-	log := logger.NewLogger(slog.LevelDebug)
+
 	backend := secretsmanager.NewInMemoryBackend()
-	h := secretsmanager.NewHandler(backend, log)
+	h := secretsmanager.NewHandler(backend)
 
 	_, err := backend.CreateSecret(&secretsmanager.CreateSecretInput{
 		Name:         "rotate-secret",
@@ -1004,9 +1004,9 @@ func TestSecretsManagerRotateSecret_WithLambda(t *testing.T) {
 	t.Parallel()
 
 	e := echo.New()
-	log := logger.NewLogger(slog.LevelDebug)
+
 	backend := secretsmanager.NewInMemoryBackend()
-	h := secretsmanager.NewHandler(backend, log)
+	h := secretsmanager.NewHandler(backend)
 
 	mock := &mockLambdaInvoker{}
 	h.SetLambdaInvoker(mock)
@@ -1048,9 +1048,9 @@ func TestSecretsManagerRotateSecret_NoLambdaInvoker(t *testing.T) {
 	t.Parallel()
 
 	e := echo.New()
-	log := logger.NewLogger(slog.LevelDebug)
+
 	backend := secretsmanager.NewInMemoryBackend()
-	h := secretsmanager.NewHandler(backend, log)
+	h := secretsmanager.NewHandler(backend)
 	// No lambda invoker set
 
 	_, err := backend.CreateSecret(&secretsmanager.CreateSecretInput{

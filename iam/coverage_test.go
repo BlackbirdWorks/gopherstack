@@ -587,14 +587,14 @@ func TestHandler_SnapshotRestore_Delegation(t *testing.T) {
 			t.Parallel()
 
 			b := iam.NewInMemoryBackend()
-			h := iam.NewHandler(b, logger.NewTestLogger())
+			h := iam.NewHandler(b)
 			tt.setup(b)
 
 			snap := h.Snapshot()
 			require.NotNil(t, snap)
 
 			freshB := iam.NewInMemoryBackend()
-			freshH := iam.NewHandler(freshB, logger.NewTestLogger())
+			freshH := iam.NewHandler(freshB)
 			require.NoError(t, freshH.Restore(snap))
 
 			if tt.name == "snapshot_and_restore_via_handler" {

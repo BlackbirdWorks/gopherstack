@@ -2,7 +2,6 @@ package route53_test
 
 import (
 	"encoding/xml"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -41,7 +40,7 @@ func send(t *testing.T, h *route53.Handler, method, path, body string) *httptest
 func newHandler(t *testing.T) *route53.Handler {
 	t.Helper()
 
-	return route53.NewHandler(route53.NewInMemoryBackend(), slog.Default())
+	return route53.NewHandler(route53.NewInMemoryBackend())
 }
 
 const createZoneXML = `<?xml version="1.0" encoding="UTF-8"?>
@@ -408,7 +407,7 @@ func TestRoute53Handler_DNSRegistrar_RegisterOnCreate(t *testing.T) {
 
 	backend := route53.NewInMemoryBackend()
 	backend.SetDNSRegistrar(registrar)
-	h := route53.NewHandler(backend, slog.Default())
+	h := route53.NewHandler(backend)
 
 	rec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", createZoneXML)
 	require.Equal(t, http.StatusCreated, rec.Code)
@@ -447,7 +446,7 @@ func TestRoute53Handler_DNSRegistrar_DeregisterOnDelete(t *testing.T) {
 
 	backend := route53.NewInMemoryBackend()
 	backend.SetDNSRegistrar(registrar)
-	h := route53.NewHandler(backend, slog.Default())
+	h := route53.NewHandler(backend)
 
 	rec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", createZoneXML)
 	require.Equal(t, http.StatusCreated, rec.Code)

@@ -88,11 +88,11 @@ func TestLambdaCWLogs_WiringProducesLogEntries(t *testing.T) {
 		lambdapkg.DefaultSettings(),
 		"000000000000",
 		"us-east-1",
-		slog.Default(),
+		
 	)
 	lambdaBackend.SetCWLogsBackend(cwlogsAdapter)
 
-	handler := lambdapkg.NewHandler(lambdaBackend, slog.Default())
+	handler := lambdapkg.NewHandler(lambdaBackend)
 	handler.AccountID = "000000000000"
 	handler.DefaultRegion = "us-east-1"
 
@@ -155,10 +155,10 @@ func TestLambdaVersionsAndAliases_Integration(t *testing.T) {
 		lambdapkg.DefaultSettings(),
 		"000000000000",
 		"us-east-1",
-		slog.Default(),
+		
 	)
 
-	handler := lambdapkg.NewHandler(lambdaBackend, slog.Default())
+	handler := lambdapkg.NewHandler(lambdaBackend)
 	handler.AccountID = "000000000000"
 	handler.DefaultRegion = "us-east-1"
 

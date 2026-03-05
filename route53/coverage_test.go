@@ -28,7 +28,7 @@ func TestHandler_Name(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := route53.NewHandler(route53.NewInMemoryBackend(), slog.Default())
+			h := route53.NewHandler(route53.NewInMemoryBackend())
 			assert.Equal(t, tt.want, h.Name())
 		})
 	}
@@ -48,7 +48,7 @@ func TestHandler_MatchPriority(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := route53.NewHandler(route53.NewInMemoryBackend(), slog.Default())
+			h := route53.NewHandler(route53.NewInMemoryBackend())
 			assert.Greater(t, h.MatchPriority(), tt.wantAbove)
 		})
 	}
@@ -70,7 +70,7 @@ func TestHandler_RouteMatcher(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := route53.NewHandler(route53.NewInMemoryBackend(), slog.Default())
+			h := route53.NewHandler(route53.NewInMemoryBackend())
 			matcher := h.RouteMatcher()
 			e := echo.New()
 			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
@@ -103,7 +103,7 @@ func TestHandler_GetSupportedOperations(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := route53.NewHandler(route53.NewInMemoryBackend(), slog.Default())
+			h := route53.NewHandler(route53.NewInMemoryBackend())
 			ops := h.GetSupportedOperations()
 
 			for _, op := range tt.wantOps {
@@ -160,7 +160,7 @@ func TestHandler_ExtractOperation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := route53.NewHandler(route53.NewInMemoryBackend(), slog.Default())
+			h := route53.NewHandler(route53.NewInMemoryBackend())
 			e := echo.New()
 			req := httptest.NewRequest(tt.method, tt.path, nil)
 			got := h.ExtractOperation(e.NewContext(req, httptest.NewRecorder()))
@@ -186,7 +186,7 @@ func TestHandler_ExtractResource(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := route53.NewHandler(route53.NewInMemoryBackend(), slog.Default())
+			h := route53.NewHandler(route53.NewInMemoryBackend())
 			e := echo.New()
 			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
 			got := h.ExtractResource(e.NewContext(req, httptest.NewRecorder()))
@@ -297,7 +297,7 @@ func TestNewHandler_NilLogger(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := route53.NewHandler(route53.NewInMemoryBackend(), nil)
+			h := route53.NewHandler(route53.NewInMemoryBackend())
 			require.NotNil(t, h)
 
 			rec := send(t, h, http.MethodGet, "/2013-04-01/hostedzone", "")
@@ -433,7 +433,7 @@ func TestDeleteHostedZone_DeregistersDNS(t *testing.T) {
 			reg := &mockDNSRegistrar{registered: registered}
 			backend := route53.NewInMemoryBackend()
 			backend.SetDNSRegistrar(reg)
-			h := route53.NewHandler(backend, slog.Default())
+			h := route53.NewHandler(backend)
 
 			rec := send(t, h, http.MethodPost, "/2013-04-01/hostedzone", createZoneXML)
 			require.Equal(t, http.StatusCreated, rec.Code)

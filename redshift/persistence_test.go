@@ -1,7 +1,6 @@
 package redshift_test
 
 import (
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -84,7 +83,7 @@ func TestRedshiftHandler_Persistence(t *testing.T) {
 	t.Parallel()
 
 	backend := redshift.NewInMemoryBackend("000000000000", "us-east-1")
-	h := redshift.NewHandler(backend, slog.Default())
+	h := redshift.NewHandler(backend)
 
 	_, err := backend.CreateCluster("snap-cluster", "ra3.xlplus", "admin", "Pass1234!")
 	require.NoError(t, err)
@@ -93,7 +92,7 @@ func TestRedshiftHandler_Persistence(t *testing.T) {
 	require.NotNil(t, snap)
 
 	fresh := redshift.NewInMemoryBackend("000000000000", "us-east-1")
-	freshH := redshift.NewHandler(fresh, slog.Default())
+	freshH := redshift.NewHandler(fresh)
 	require.NoError(t, freshH.Restore(snap))
 
 	clusters, err := fresh.DescribeClusters("")
@@ -104,7 +103,7 @@ func TestRedshiftHandler_Persistence(t *testing.T) {
 func TestRedshiftHandler_Routing(t *testing.T) {
 	t.Parallel()
 
-	h := redshift.NewHandler(redshift.NewInMemoryBackend("000000000000", "us-east-1"), slog.Default())
+	h := redshift.NewHandler(redshift.NewInMemoryBackend("000000000000", "us-east-1"))
 
 	assert.Equal(t, "Redshift", h.Name())
 	assert.Positive(t, h.MatchPriority())

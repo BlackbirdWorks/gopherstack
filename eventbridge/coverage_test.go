@@ -105,7 +105,7 @@ func TestHandler_Metadata(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			h := eventbridge.NewHandler(eventbridge.NewInMemoryBackend(), slog.Default())
+			h := eventbridge.NewHandler(eventbridge.NewInMemoryBackend())
 			assert.Equal(t, tt.want, tt.check(h))
 		})
 	}
@@ -134,7 +134,7 @@ func TestHandler_RouteMatcherCoverage(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			h := eventbridge.NewHandler(eventbridge.NewInMemoryBackend(), slog.Default())
+			h := eventbridge.NewHandler(eventbridge.NewInMemoryBackend())
 			matcher := h.RouteMatcher()
 			e := echo.New()
 			req := httptest.NewRequest(http.MethodPost, "/", nil)
@@ -167,7 +167,7 @@ func TestHandler_ExtractOperationCoverage(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			h := eventbridge.NewHandler(eventbridge.NewInMemoryBackend(), slog.Default())
+			h := eventbridge.NewHandler(eventbridge.NewInMemoryBackend())
 			e := echo.New()
 			req := httptest.NewRequest(http.MethodPost, "/", nil)
 			if tt.target != "" {
@@ -212,7 +212,7 @@ func TestHandler_ExtractResource(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			h := eventbridge.NewHandler(eventbridge.NewInMemoryBackend(), slog.Default())
+			h := eventbridge.NewHandler(eventbridge.NewInMemoryBackend())
 			e := echo.New()
 			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tt.body))
 			got := h.ExtractResource(e.NewContext(req, httptest.NewRecorder()))
@@ -246,8 +246,8 @@ func TestHandler_InvalidTarget(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			e := echo.New()
-			log := logger.NewLogger(slog.LevelDebug)
-			h := eventbridge.NewHandler(eventbridge.NewInMemoryBackend(), log)
+
+			h := eventbridge.NewHandler(eventbridge.NewInMemoryBackend())
 			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tt.body))
 			req.Header.Set("X-Amz-Target", tt.target)
 			rec := httptest.NewRecorder()
@@ -350,9 +350,9 @@ func TestHandler_ListWithPrefix(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			e := echo.New()
-			log := logger.NewLogger(slog.LevelDebug)
+
 			bk := eventbridge.NewInMemoryBackend()
-			h := eventbridge.NewHandler(bk, log)
+			h := eventbridge.NewHandler(bk)
 			for _, setupBody := range tt.setupBodies {
 				makeRequestWithHandler(t, h, e, tt.setupAction, setupBody)
 			}
@@ -456,9 +456,9 @@ func TestHandler_CreateEventBus_AlreadyExists(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			e := echo.New()
-			log := logger.NewLogger(slog.LevelDebug)
+
 			bk := eventbridge.NewInMemoryBackend()
-			h := eventbridge.NewHandler(bk, log)
+			h := eventbridge.NewHandler(bk)
 			makeRequestWithHandler(t, h, e, "CreateEventBus", tt.busBody)
 			rec := makeRequestWithHandler(t, h, e, "CreateEventBus", tt.busBody)
 			assert.Equal(t, tt.wantCode, rec.Code)

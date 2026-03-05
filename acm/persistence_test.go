@@ -1,7 +1,6 @@
 package acm_test
 
 import (
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -83,7 +82,7 @@ func TestACMHandler_Persistence(t *testing.T) {
 	t.Parallel()
 
 	backend := acm.NewInMemoryBackend("000000000000", "us-east-1")
-	h := acm.NewHandler(backend, slog.Default())
+	h := acm.NewHandler(backend)
 
 	// Create a cert
 	_, err := backend.RequestCertificate("example.com", "AMAZON_ISSUED")
@@ -94,7 +93,7 @@ func TestACMHandler_Persistence(t *testing.T) {
 	require.NotNil(t, snap)
 
 	fresh := acm.NewInMemoryBackend("000000000000", "us-east-1")
-	freshH := acm.NewHandler(fresh, slog.Default())
+	freshH := acm.NewHandler(fresh)
 	require.NoError(t, freshH.Restore(snap))
 
 	certs := fresh.ListCertificates()
@@ -104,7 +103,7 @@ func TestACMHandler_Persistence(t *testing.T) {
 func TestACMHandler_Routing(t *testing.T) {
 	t.Parallel()
 
-	h := acm.NewHandler(acm.NewInMemoryBackend("000000000000", "us-east-1"), slog.Default())
+	h := acm.NewHandler(acm.NewInMemoryBackend("000000000000", "us-east-1"))
 
 	assert.Equal(t, "ACM", h.Name())
 	assert.Positive(t, h.MatchPriority())

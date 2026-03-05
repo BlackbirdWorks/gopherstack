@@ -20,10 +20,10 @@ import (
 func newTestHandler(t *testing.T) (*ssm.Handler, *ssm.InMemoryBackend) {
 	t.Helper()
 
-	log := logger.NewLogger(slog.LevelDebug)
+
 	backend := ssm.NewInMemoryBackend()
 
-	return ssm.NewHandler(backend, log), backend
+	return ssm.NewHandler(backend), backend
 }
 
 func doRequest(
@@ -255,9 +255,9 @@ func TestHandler_Routing(t *testing.T) {
 			t.Parallel()
 
 			e := echo.New()
-			log := logger.NewLogger(slog.LevelDebug)
+
 			backend := ssm.NewInMemoryBackend()
-			handler := ssm.NewHandler(backend, log)
+			handler := ssm.NewHandler(backend)
 
 			if tt.setup != nil {
 				tt.setup(backend)
@@ -790,8 +790,8 @@ func TestProvider(t *testing.T) {
 	p := &ssm.Provider{}
 	assert.Equal(t, "SSM", p.Name())
 
-	log := logger.NewLogger(slog.LevelDebug)
-	ctx := &service.AppContext{Logger: log}
+
+	ctx := &service.AppContext{Logger: slog.Default()}
 	svc, err := p.Init(ctx)
 	require.NoError(t, err)
 	assert.NotNil(t, svc)
@@ -842,9 +842,9 @@ func TestHandler_ErrorCases(t *testing.T) {
 			t.Parallel()
 
 			e := echo.New()
-			log := logger.NewLogger(slog.LevelDebug)
+
 			backend := ssm.NewInMemoryBackend()
-			h := ssm.NewHandler(backend, log)
+			h := ssm.NewHandler(backend)
 
 			if tt.setup != nil {
 				tt.setup(backend)

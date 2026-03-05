@@ -20,7 +20,7 @@ import (
 // newHandler creates a new EC2 handler with a fresh backend.
 func newHandler() *ec2.Handler {
 	bk := ec2.NewInMemoryBackend("000000000000", "us-east-1")
-	h := ec2.NewHandler(bk, slog.Default())
+	h := ec2.NewHandler(bk)
 	h.AccountID = "000000000000"
 	h.Region = "us-east-1"
 

@@ -91,7 +91,7 @@ func TestDynamoDBHandler_Persistence(t *testing.T) {
 	t.Parallel()
 
 	db := dynamodb.NewInMemoryDB()
-	h := dynamodb.NewHandler(db, slog.Default())
+	h := dynamodb.NewHandler(db)
 
 	// Create a table via the DB
 	input := models.ToSDKCreateTableInput(&models.CreateTableInput{
@@ -110,7 +110,7 @@ func TestDynamoDBHandler_Persistence(t *testing.T) {
 	require.NotNil(t, snap)
 
 	freshDB := dynamodb.NewInMemoryDB()
-	freshH := dynamodb.NewHandler(freshDB, slog.Default())
+	freshH := dynamodb.NewHandler(freshDB)
 	require.NoError(t, freshH.Restore(snap))
 
 	tables := freshDB.ListAllTables()
@@ -122,7 +122,7 @@ func TestDynamoDBHandler_Routing(t *testing.T) {
 	t.Parallel()
 
 	db := dynamodb.NewInMemoryDB()
-	h := dynamodb.NewHandler(db, slog.Default())
+	h := dynamodb.NewHandler(db)
 
 	assert.Equal(t, "DynamoDB", h.Name())
 	assert.Positive(t, h.MatchPriority())

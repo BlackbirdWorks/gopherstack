@@ -55,14 +55,14 @@ func TestSTSHandler_Persistence(t *testing.T) {
 	t.Parallel()
 
 	backend := sts.NewInMemoryBackendWithConfig("000000000000")
-	h := sts.NewHandler(backend, slog.Default())
+	h := sts.NewHandler(backend)
 
 	// STS has no state; just verify delegation doesn't panic
 	snap := h.Snapshot()
 	assert.Nil(t, snap) // STS returns nil
 
 	fresh := sts.NewInMemoryBackendWithConfig("000000000000")
-	freshH := sts.NewHandler(fresh, slog.Default())
+	freshH := sts.NewHandler(fresh)
 	require.NoError(t, freshH.Restore(snap))
 }
 

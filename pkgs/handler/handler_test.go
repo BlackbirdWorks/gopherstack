@@ -3,7 +3,6 @@ package handler_test
 import (
 	"context"
 	"encoding/json"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -196,9 +195,8 @@ func TestWriteError(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			rec := httptest.NewRecorder()
-			log := slog.Default()
 
-			handler.WriteError(log, rec, tt.status, tt.message, tt.err)
+			handler.WriteError(t.Context(), rec, tt.status, tt.message, tt.err)
 
 			assert.Equal(t, tt.expectedStatus, rec.Code)
 			assert.Contains(t, rec.Body.String(), tt.expectedBody)
@@ -244,9 +242,8 @@ func TestEchoError(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, "/", nil)
 			rec := httptest.NewRecorder()
 			c := e.NewContext(req, rec)
-			log := slog.Default()
 
-			err := handler.EchoError(log, c, tt.status, tt.message, tt.err)
+			err := handler.EchoError(t.Context(), c, tt.status, tt.message, tt.err)
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedStatus, rec.Code)

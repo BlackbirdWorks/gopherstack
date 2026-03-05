@@ -3,7 +3,6 @@ package cloudwatch
 import (
 	"encoding/xml"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"slices"
@@ -25,16 +24,14 @@ const cloudwatchNS = "http://monitoring.amazonaws.com/doc/2010-08-01/"
 // Handler is the Echo HTTP service handler for CloudWatch operations.
 type Handler struct {
 	Backend StorageBackend
-	Logger  *slog.Logger
 	tags    map[string]*tags.Tags
 	tagsMu  *lockmetrics.RWMutex
 }
 
 // NewHandler creates a new CloudWatch handler.
-func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
+func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{
 		Backend: backend,
-		Logger:  log,
 		tags:    make(map[string]*tags.Tags),
 		tagsMu:  lockmetrics.New("cloudwatch.tags"),
 	}

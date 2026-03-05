@@ -42,7 +42,7 @@ func TestWriteJSON_WithLogger(t *testing.T) {
 			t.Parallel()
 
 			w := httptest.NewRecorder()
-			httputil.WriteJSON(slog.Default(), w, http.StatusOK, tt.payload)
+			httputil.WriteJSON(t.Context(), w, http.StatusOK, tt.payload)
 			assert.Equal(t, tt.wantCode, w.Code)
 		})
 	}
@@ -78,7 +78,7 @@ func TestWriteXML_WithLogger(t *testing.T) {
 			t.Parallel()
 
 			w := httptest.NewRecorder()
-			httputil.WriteXML(slog.Default(), w, http.StatusOK, tt.payload)
+			httputil.WriteXML(t.Context(), w, http.StatusOK, tt.payload)
 			assert.Equal(t, tt.wantCode, w.Code)
 		})
 	}
@@ -244,7 +244,7 @@ func TestWriteJSON_PreservesContentType(t *testing.T) {
 				w.Header().Set("Content-Type", tt.contentType)
 			}
 
-			httputil.WriteJSON(nil, w, http.StatusOK, map[string]string{"k": "v"})
+			httputil.WriteJSON(t.Context(), w, http.StatusOK, map[string]string{"k": "v"})
 			assert.Equal(t, tt.wantCT, w.Header().Get("Content-Type"))
 		})
 	}

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -34,20 +33,14 @@ const (
 // Handler is the HTTP service handler for Route 53 operations.
 type Handler struct {
 	Backend *InMemoryBackend
-	Logger  *slog.Logger
 	tags    map[string]*svcTags.Tags
 	tagsMu  *lockmetrics.RWMutex
 }
 
 // NewHandler creates a new Route 53 Handler.
-func NewHandler(backend *InMemoryBackend, log *slog.Logger) *Handler {
-	if log == nil {
-		log = slog.Default()
-	}
-
+func NewHandler(backend *InMemoryBackend) *Handler {
 	return &Handler{
 		Backend: backend,
-		Logger:  log,
 		tags:    make(map[string]*svcTags.Tags),
 		tagsMu:  lockmetrics.New("route53.tags"),
 	}
@@ -384,7 +377,7 @@ func (h *Handler) createHostedZone(c *echo.Context) error {
 		return handleBackendError(c, err)
 	}
 
-	h.Logger.DebugContext(ctx, "Route53 CreateHostedZone", "id", hz.ID, "name", hz.Name)
+	logger.Load(ctx).DebugContext(ctx, "Route53 CreateHostedZone", "id", hz.ID, "name", hz.Name)
 
 	resp := xmlCreateHostedZoneResponse{
 		Xmlns:      route53Namespace,
@@ -413,7 +406,7 @@ func (h *Handler) getHostedZone(c *echo.Context) error {
 		return handleBackendError(c, err)
 	}
 
-	h.Logger.DebugContext(ctx, "Route53 GetHostedZone", "id", hz.ID)
+	logger.Load(ctx).DebugContext(ctx, "Route53 GetHostedZone", "id", hz.ID)
 
 	resp := xmlGetHostedZoneResponse{
 		Xmlns:      route53Namespace,
@@ -434,7 +427,7 @@ func (h *Handler) deleteHostedZone(c *echo.Context) error {
 		return handleBackendError(c, err)
 	}
 
-	h.Logger.DebugContext(ctx, "Route53 DeleteHostedZone", "id", zoneID)
+	logger.Load(ctx).DebugContext(ctx, "Route53 DeleteHostedZone", "id", zoneID)
 
 	resp := xmlDeleteHostedZoneResponse{
 		Xmlns: route53Namespace,
@@ -505,7 +498,7 @@ func (h *Handler) changeResourceRecordSets(c *echo.Context) error {
 		return handleBackendError(c, err)
 	}
 
-	h.Logger.DebugContext(ctx, "Route53 ChangeResourceRecordSets", "zoneID", zoneID, "changes", len(changes))
+	logger.Load(ctx).DebugContext(ctx, "Route53 ChangeResourceRecordSets", "zoneID", zoneID, "changes", len(changes))
 
 	resp := xmlChangeResourceRecordSetsResponse{
 		Xmlns: route53Namespace,
@@ -528,7 +521,7 @@ func (h *Handler) listResourceRecordSets(c *echo.Context) error {
 		return handleBackendError(c, err)
 	}
 
-	h.Logger.DebugContext(ctx, "Route53 ListResourceRecordSets", "zoneID", zoneID, "count", len(records))
+	logger.Load(ctx).DebugContext(ctx, "Route53 ListResourceRecordSets", "zoneID", zoneID, "count", len(records))
 
 	xmlRecords := make([]xmlResourceRecordSet, len(records))
 	for i, rrs := range records {

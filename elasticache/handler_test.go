@@ -23,7 +23,7 @@ func newTestStack(t *testing.T) *elasticachesdk.Client {
 	t.Helper()
 
 	backend := elasticache.NewInMemoryBackend(elasticache.EngineEmbedded, "000000000000", "us-east-1")
-	handler := elasticache.NewHandler(backend, nil)
+	handler := elasticache.NewHandler(backend)
 
 	e := echo.New()
 	registry := service.NewRegistry(slog.Default())
@@ -52,7 +52,7 @@ func newTestHandler(t *testing.T) *elasticache.Handler {
 	t.Helper()
 	backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1")
 
-	return elasticache.NewHandler(backend, nil)
+	return elasticache.NewHandler(backend)
 }
 
 func TestCreateCacheCluster(t *testing.T) {

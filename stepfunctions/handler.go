@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"maps"
 	"net/http"
 	"strings"
@@ -90,16 +89,14 @@ type getExecutionHistoryInput struct {
 // Handler is the Echo HTTP service handler for Step Functions operations.
 type Handler struct {
 	Backend StorageBackend
-	Logger  *slog.Logger
 	tags    map[string]*tags.Tags
 	tagsMu  *lockmetrics.RWMutex
 }
 
 // NewHandler creates a new Step Functions handler.
-func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
+func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{
 		Backend: backend,
-		Logger:  log,
 		tags:    make(map[string]*tags.Tags),
 		tagsMu:  lockmetrics.New("sfn.tags"),
 	}

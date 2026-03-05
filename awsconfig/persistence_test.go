@@ -1,7 +1,6 @@
 package awsconfig_test
 
 import (
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -82,7 +81,7 @@ func TestAWSConfigHandler_Persistence(t *testing.T) {
 	t.Parallel()
 
 	backend := awsconfig.NewInMemoryBackend()
-	h := awsconfig.NewHandler(backend, slog.Default())
+	h := awsconfig.NewHandler(backend)
 
 	err := backend.PutConfigurationRecorder("snap-recorder", "arn:aws:iam::000000000000:role/test")
 	require.NoError(t, err)
@@ -91,7 +90,7 @@ func TestAWSConfigHandler_Persistence(t *testing.T) {
 	require.NotNil(t, snap)
 
 	fresh := awsconfig.NewInMemoryBackend()
-	freshH := awsconfig.NewHandler(fresh, slog.Default())
+	freshH := awsconfig.NewHandler(fresh)
 	require.NoError(t, freshH.Restore(snap))
 
 	recorders := fresh.DescribeConfigurationRecorders()
@@ -128,7 +127,7 @@ func TestAWSConfigBackend_DeleteOperations(t *testing.T) {
 func TestAWSConfigHandler_Routing(t *testing.T) {
 	t.Parallel()
 
-	h := awsconfig.NewHandler(awsconfig.NewInMemoryBackend(), slog.Default())
+	h := awsconfig.NewHandler(awsconfig.NewInMemoryBackend())
 
 	assert.Equal(t, "AWSConfig", h.Name())
 	assert.Positive(t, h.MatchPriority())
@@ -160,7 +159,7 @@ func TestAWSConfigHandler_DeleteOperations(t *testing.T) {
 	t.Parallel()
 
 	backend := awsconfig.NewInMemoryBackend()
-	h := awsconfig.NewHandler(backend, slog.Default())
+	h := awsconfig.NewHandler(backend)
 
 	// Put and then delete delivery channel via handler
 	_ = backend.PutDeliveryChannel("test-channel", "my-bucket", "")

@@ -1,7 +1,6 @@
 package opensearch_test
 
 import (
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -84,7 +83,7 @@ func TestOpenSearchHandler_Persistence(t *testing.T) {
 	t.Parallel()
 
 	backend := opensearch.NewInMemoryBackend("000000000000", "us-east-1")
-	h := opensearch.NewHandler(backend, slog.Default())
+	h := opensearch.NewHandler(backend)
 
 	// Create a domain in the backend
 	_, err := backend.CreateDomain("snap-domain", "OpenSearch_2.11", opensearch.ClusterConfig{})
@@ -94,7 +93,7 @@ func TestOpenSearchHandler_Persistence(t *testing.T) {
 	require.NotNil(t, snap)
 
 	fresh := opensearch.NewInMemoryBackend("000000000000", "us-east-1")
-	freshH := opensearch.NewHandler(fresh, slog.Default())
+	freshH := opensearch.NewHandler(fresh)
 	require.NoError(t, freshH.Restore(snap))
 
 	domain, err := fresh.DescribeDomain("snap-domain")
@@ -105,7 +104,7 @@ func TestOpenSearchHandler_Persistence(t *testing.T) {
 func TestOpenSearchHandler_Routing(t *testing.T) {
 	t.Parallel()
 
-	h := opensearch.NewHandler(opensearch.NewInMemoryBackend("000000000000", "us-east-1"), slog.Default())
+	h := opensearch.NewHandler(opensearch.NewInMemoryBackend("000000000000", "us-east-1"))
 
 	assert.Equal(t, "OpenSearch", h.Name())
 	assert.Positive(t, h.MatchPriority())

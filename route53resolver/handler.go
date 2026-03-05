@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"strings"
 
@@ -34,11 +33,10 @@ type resolverRuleIDInput struct {
 
 type Handler struct {
 	Backend *InMemoryBackend
-	Logger  *slog.Logger
 }
 
-func NewHandler(backend *InMemoryBackend, log *slog.Logger) *Handler {
-	return &Handler{Backend: backend, Logger: log}
+func NewHandler(backend *InMemoryBackend) *Handler {
+	return &Handler{Backend: backend}
 }
 
 func (h *Handler) Name() string { return "Route53Resolver" }

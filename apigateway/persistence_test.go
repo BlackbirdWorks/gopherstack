@@ -84,7 +84,7 @@ func TestAPIGatewayHandler_Persistence(t *testing.T) {
 	t.Parallel()
 
 	backend := apigateway.NewInMemoryBackend()
-	h := apigateway.NewHandler(backend, slog.Default())
+	h := apigateway.NewHandler(backend)
 
 	_, err := backend.CreateRestAPI("snap-api", "test", nil)
 	require.NoError(t, err)
@@ -93,7 +93,7 @@ func TestAPIGatewayHandler_Persistence(t *testing.T) {
 	require.NotNil(t, snap)
 
 	fresh := apigateway.NewInMemoryBackend()
-	freshH := apigateway.NewHandler(fresh, slog.Default())
+	freshH := apigateway.NewHandler(fresh)
 	require.NoError(t, freshH.Restore(snap))
 
 	apis, _, err := fresh.GetRestAPIs(0, "")
@@ -104,7 +104,7 @@ func TestAPIGatewayHandler_Persistence(t *testing.T) {
 func TestAPIGatewayHandler_Routing(t *testing.T) {
 	t.Parallel()
 
-	h := apigateway.NewHandler(apigateway.NewInMemoryBackend(), slog.Default())
+	h := apigateway.NewHandler(apigateway.NewInMemoryBackend())
 
 	assert.Equal(t, "APIGateway", h.Name())
 	assert.Positive(t, h.MatchPriority())
@@ -183,7 +183,7 @@ func TestAPIGatewayHandler_RESTPath(t *testing.T) {
 	t.Parallel()
 
 	backend := apigateway.NewInMemoryBackend()
-	h := apigateway.NewHandler(backend, slog.Default())
+	h := apigateway.NewHandler(backend)
 	e := echo.New()
 
 	// GET /restapis → GetRestApis

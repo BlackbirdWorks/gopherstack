@@ -501,7 +501,7 @@ func TestSSMHandler_InternalServerError(t *testing.T) {
 
 	// Use a backend that returns a non-recognized error
 	errBackend := &testInvalidBackend{InMemoryBackend: ssm.NewInMemoryBackend()}
-	h2 := ssm.NewHandler(errBackend, nil)
+	h2 := ssm.NewHandler(errBackend)
 
 	e := echo.New()
 	req := httptest.NewRequest(http.MethodPost, "/",
@@ -541,13 +541,13 @@ func TestSSMHandler_HandlerSnapshotRestore(t *testing.T) {
 
 			backend := ssm.NewInMemoryBackend()
 			tt.setup(backend)
-			h := ssm.NewHandler(backend, nil)
+			h := ssm.NewHandler(backend)
 
 			snap := h.Snapshot()
 			require.NotNil(t, snap)
 
 			freshBackend := ssm.NewInMemoryBackend()
-			freshH := ssm.NewHandler(freshBackend, nil)
+			freshH := ssm.NewHandler(freshBackend)
 			require.NoError(t, freshH.Restore(snap))
 
 			if tt.name == "with_data" {

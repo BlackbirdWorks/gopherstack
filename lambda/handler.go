@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -89,18 +88,16 @@ func hasSuffixAliasPath(rest string) bool {
 // Handler is the Echo HTTP handler for Lambda operations.
 type Handler struct {
 	Backend       StorageBackend
-	Logger        *slog.Logger
 	tags          map[string]*tags.Tags
 	tagsMu        *lockmetrics.RWMutex
 	DefaultRegion string
 	AccountID     string
 }
 
-// NewHandler creates a new Lambda handler with the given backend and logger.
-func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
+// NewHandler creates a new Lambda handler with the given backend.
+func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{
 		Backend: backend,
-		Logger:  log,
 		tags:    make(map[string]*tags.Tags),
 		tagsMu:  lockmetrics.New("lambda.tags"),
 	}

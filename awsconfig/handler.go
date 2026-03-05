@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"strings"
 
@@ -27,12 +26,11 @@ type configurationRecorderNameInput struct {
 // Handler is the Echo HTTP handler for AWS Config operations.
 type Handler struct {
 	Backend *InMemoryBackend
-	Logger  *slog.Logger
 }
 
 // NewHandler creates a new AWS Config handler.
-func NewHandler(backend *InMemoryBackend, log *slog.Logger) *Handler {
-	return &Handler{Backend: backend, Logger: log}
+func NewHandler(backend *InMemoryBackend) *Handler {
+	return &Handler{Backend: backend}
 }
 
 // Name returns the service name.

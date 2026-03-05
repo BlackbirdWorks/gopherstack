@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"hash/crc32"
-	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -60,16 +59,14 @@ func extractRegionFromAuth(r *http.Request, defaultRegion string) string {
 type DynamoDBHandler struct {
 	Backend       StorageBackend
 	Streams       StreamsBackend
-	Logger        *slog.Logger
 	janitor       *Janitor
 	DefaultRegion string
 }
 
 // NewHandler creates a new DynamoDB handler with the given storage backend.
-func NewHandler(backend StorageBackend, logger *slog.Logger) *DynamoDBHandler {
+func NewHandler(backend StorageBackend) *DynamoDBHandler {
 	h := &DynamoDBHandler{
 		Backend:       backend,
-		Logger:        logger,
 		DefaultRegion: config.DefaultRegion,
 	}
 
@@ -88,7 +85,7 @@ func (h *DynamoDBHandler) WithJanitor(settings Settings) *DynamoDBHandler {
 	}
 	if memBackend, ok := h.Backend.(*InMemoryDB); ok {
 		memBackend.SetDefaultRegion(h.DefaultRegion)
-		h.janitor = NewJanitor(memBackend, h.Logger, settings)
+		h.janitor = NewJanitor(memBackend, settings)
 	}
 
 	return h

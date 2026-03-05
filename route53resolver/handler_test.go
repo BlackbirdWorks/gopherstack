@@ -20,7 +20,7 @@ import (
 func newTestHandler(t *testing.T) *route53resolver.Handler {
 	t.Helper()
 
-	return route53resolver.NewHandler(route53resolver.NewInMemoryBackend("000000000000", "us-east-1"), slog.Default())
+	return route53resolver.NewHandler(route53resolver.NewInMemoryBackend("000000000000", "us-east-1"))
 }
 
 func doRequest(t *testing.T, h *route53resolver.Handler, action string, body any) *httptest.ResponseRecorder {

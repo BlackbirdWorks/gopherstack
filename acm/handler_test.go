@@ -2,7 +2,6 @@ package acm_test
 
 import (
 	"encoding/json"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,7 +15,7 @@ import (
 )
 
 func newACMHandler() *acm.Handler {
-	return acm.NewHandler(acm.NewInMemoryBackend("000000000000", "us-east-1"), slog.Default())
+	return acm.NewHandler(acm.NewInMemoryBackend("000000000000", "us-east-1"))
 }
 
 // postACMJSON sends an ACM JSON-protocol request with the given target and body.

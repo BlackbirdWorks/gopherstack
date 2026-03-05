@@ -17,7 +17,7 @@ import (
 
 // newFastJanitor creates a Janitor with a short interval for deterministic tests.
 func newFastJanitor(b *s3.InMemoryBackend) *s3.Janitor {
-	return s3.NewJanitor(b, logger.NewTestLogger(), s3.Settings{JanitorInterval: 5 * time.Millisecond})
+	return s3.NewJanitor(b, s3.Settings{JanitorInterval: 5 * time.Millisecond})
 }
 
 func TestS3Janitor_BucketDeletion(t *testing.T) {
@@ -133,7 +133,7 @@ func TestS3Janitor_BucketDeletion(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := s3.NewInMemoryBackend(nil, nil)
+			b := s3.NewInMemoryBackend(nil)
 			tt.setup(t, b)
 			tt.act(t, b)
 			tt.verify(t, b)
@@ -256,7 +256,7 @@ func TestS3Janitor_LifecycleExpiry(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := s3.NewInMemoryBackend(nil, nil)
+			b := s3.NewInMemoryBackend(nil)
 			tt.setup(t, b)
 
 			err := b.PutBucketLifecycleConfiguration(t.Context(), tt.bucket, tt.lifecycleXML)

@@ -5,7 +5,6 @@ package lambda
 
 import (
 	"context"
-	"log/slog"
 	"net/http"
 	"time"
 )
@@ -19,7 +18,7 @@ type ExportedRuntimeServer struct {
 // The server is not started until Start is called.
 func NewExportedRuntimeServer(port int) *ExportedRuntimeServer {
 	return &ExportedRuntimeServer{
-		inner: newRuntimeServer(port, slog.Default()),
+		inner: newRuntimeServer(port),
 	}
 }
 

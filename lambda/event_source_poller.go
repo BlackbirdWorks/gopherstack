@@ -5,11 +5,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 const (
@@ -44,7 +44,6 @@ type KinesisRecord struct {
 type EventSourcePoller struct {
 	kinesisReader  KinesisReader
 	lambdaBackend  *InMemoryBackend
-	logger         *slog.Logger
 	shardIterators map[string]string
 	mu             *lockmetrics.RWMutex
 }
@@ -53,12 +52,10 @@ type EventSourcePoller struct {
 func NewEventSourcePoller(
 	lambdaBackend *InMemoryBackend,
 	kinesisReader KinesisReader,
-	log *slog.Logger,
 ) *EventSourcePoller {
 	return &EventSourcePoller{
 		lambdaBackend:  lambdaBackend,
 		kinesisReader:  kinesisReader,
-		logger:         log,
 		shardIterators: make(map[string]string),
 		mu:             lockmetrics.New("lambda.esm"),
 	}
@@ -110,7 +107,7 @@ func (p *EventSourcePoller) poll(ctx context.Context) {
 func (p *EventSourcePoller) processMapping(ctx context.Context, m *EventSourceMapping, streamName string) {
 	shardIDs, err := p.kinesisReader.GetShardIDs(streamName)
 	if err != nil {
-		p.logger.WarnContext(ctx, "event source poller: failed to get shard IDs",
+		logger.Load(ctx).WarnContext(ctx, "event source poller: failed to get shard IDs",
 			"stream", streamName, "error", err)
 
 		return
@@ -127,7 +124,7 @@ func (p *EventSourcePoller) processMapping(ctx context.Context, m *EventSourceMa
 			// Initialize iterator at starting position
 			it, err = p.kinesisReader.GetShardIterator(streamName, shardID, m.StartingPosition, "")
 			if err != nil {
-				p.logger.WarnContext(ctx, "event source poller: failed to get shard iterator",
+				logger.Load(ctx).WarnContext(ctx, "event source poller: failed to get shard iterator",
 					"stream", streamName, "shard", shardID, "error", err)
 
 				continue
@@ -144,7 +141,7 @@ func (p *EventSourcePoller) processMapping(ctx context.Context, m *EventSourceMa
 			p.mu.Lock("processMapping")
 			delete(p.shardIterators, iterKey)
 			p.mu.Unlock()
-			p.logger.WarnContext(ctx, "event source poller: GetRecords failed, resetting iterator",
+			logger.Load(ctx).WarnContext(ctx, "event source poller: GetRecords failed, resetting iterator",
 				"stream", streamName, "shard", shardID, "error", readErr)
 
 			continue
@@ -212,7 +209,7 @@ func (p *EventSourcePoller) invokeLambda(
 
 	payload, err := json.Marshal(lambdaEvent{Records: eventRecords})
 	if err != nil {
-		p.logger.WarnContext(ctx, "event source poller: failed to marshal event", "error", err)
+		logger.Load(ctx).WarnContext(ctx, "event source poller: failed to marshal event", "error", err)
 
 		return
 	}
@@ -225,10 +222,10 @@ func (p *EventSourcePoller) invokeLambda(
 
 	_, _, err = p.lambdaBackend.InvokeFunction(ctx, fnName, InvocationTypeEvent, payload)
 	if err != nil {
-		p.logger.WarnContext(ctx, "event source poller: Lambda invocation failed",
+		logger.Load(ctx).WarnContext(ctx, "event source poller: Lambda invocation failed",
 			"function", fnName, "stream", streamName, "error", err)
 	} else {
-		p.logger.DebugContext(ctx, "event source poller: invoked Lambda",
+		logger.Load(ctx).DebugContext(ctx, "event source poller: invoked Lambda",
 			"function", fnName, "records", len(records))
 	}
 }

@@ -19,7 +19,7 @@ import (
 func newTestS3ControlHandler(t *testing.T) *s3control.Handler {
 	t.Helper()
 
-	return s3control.NewHandler(s3control.NewInMemoryBackend(), slog.Default())
+	return s3control.NewHandler(s3control.NewInMemoryBackend())
 }
 
 const publicAccessBlockPath = "/v20180820/configuration/publicAccessBlock"

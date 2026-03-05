@@ -100,8 +100,8 @@ func TestHandler_VirtualHostedStyle(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			backend := s3.NewInMemoryBackend(&s3.GzipCompressor{}, nil)
-			handler := s3.NewHandler(backend, slog.Default())
+			backend := s3.NewInMemoryBackend(&s3.GzipCompressor{})
+			handler := s3.NewHandler(backend)
 			handler.Endpoint = tt.endpoint
 			mustCreateBucket(t, backend, tt.bucket)
 

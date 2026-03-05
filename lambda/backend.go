@@ -119,7 +119,6 @@ type InMemoryBackend struct {
 	versions            map[string][]*FunctionVersion
 	portAlloc           *portalloc.Allocator
 	runtimes            map[string]*functionRuntime
-	logger              *slog.Logger
 	mu                  *lockmetrics.RWMutex
 	region              string
 	accountID           string
@@ -132,7 +131,6 @@ func NewInMemoryBackend(
 	portAlloc *portalloc.Allocator,
 	settings Settings,
 	accountID, region string,
-	log *slog.Logger,
 ) *InMemoryBackend {
 	return &InMemoryBackend{
 		functions:           make(map[string]*FunctionConfiguration),
@@ -148,7 +146,6 @@ func NewInMemoryBackend(
 		settings:            settings,
 		accountID:           accountID,
 		region:              region,
-		logger:              log,
 		mu:                  lockmetrics.New("lambda"),
 	}
 }
@@ -417,9 +414,7 @@ func (b *InMemoryBackend) startFunctionURLServer(functionName string, port int) 
 
 	go func() {
 		if serveErr := srv.Serve(ln); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
-			if b.logger != nil {
-				b.logger.Warn("lambda: function URL server stopped", "function", functionName, "error", serveErr)
-			}
+			slog.Default().Warn("lambda: function URL server stopped", "function", functionName, "error", serveErr)
 		}
 	}()
 
@@ -1042,7 +1037,7 @@ func (b *InMemoryBackend) pushInvocationLog(functionName string, _ []byte, resul
 	streamName := time.Now().UTC().Format("2006/01/02") + "/[$LATEST]" + uuid.New().String()[:8]
 
 	if err := cwl.EnsureLogGroupAndStream(groupName, streamName); err != nil {
-		b.logger.Warn("pushInvocationLog: failed to ensure log group/stream",
+		slog.Default().Warn("pushInvocationLog: failed to ensure log group/stream",
 			"function", functionName, "error", err)
 
 		return
@@ -1054,7 +1049,7 @@ func (b *InMemoryBackend) pushInvocationLog(functionName string, _ []byte, resul
 	}
 
 	if err := cwl.PutLogLines(groupName, streamName, messages); err != nil {
-		b.logger.Warn("pushInvocationLog: failed to put log lines",
+		slog.Default().Warn("pushInvocationLog: failed to put log lines",
 			"function", functionName, "error", err)
 	}
 }
@@ -1101,7 +1096,7 @@ func (b *InMemoryBackend) getOrCreateRuntime(ctx context.Context, fn *FunctionCo
 		return nil, rt.startErr
 	}
 
-	srv := newRuntimeServer(port, b.logger)
+	srv := newRuntimeServer(port)
 
 	if startErr := srv.start(ctx); startErr != nil {
 		_ = b.portAlloc.Release(port)
@@ -1117,7 +1112,7 @@ func (b *InMemoryBackend) getOrCreateRuntime(ctx context.Context, fn *FunctionCo
 
 	zipDir, containerErr := b.startContainer(ctx, fn, port)
 	if containerErr != nil {
-		b.logger.WarnContext(
+		slog.Default().WarnContext(
 			ctx, "lambda: failed to start container",
 			"function", fn.FunctionName, "error", containerErr,
 		)

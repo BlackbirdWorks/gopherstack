@@ -3,13 +3,11 @@ package s3
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
-	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -23,13 +21,12 @@ func (h *S3Handler) listObjectsV2(
 	bucketName string,
 ) {
 	h.setOperation(ctx, "ListObjectsV2")
-	log := logger.Load(ctx)
 	q := r.URL.Query()
 	input := h.prepareListObjectsV2Input(bucketName, q)
 
 	outV2, err := h.Backend.ListObjectsV2(ctx, input)
 	if err != nil {
-		h.handleListObjectsV2Error(log, w, r, err)
+		h.handleListObjectsV2Error(ctx, w, r, err)
 
 		return
 	}
@@ -58,17 +55,17 @@ func (h *S3Handler) prepareListObjectsV2Input(
 }
 
 func (h *S3Handler) handleListObjectsV2Error(
-	log *slog.Logger,
+	ctx context.Context,
 	w http.ResponseWriter,
 	r *http.Request,
 	err error,
 ) {
 	if errors.Is(err, ErrNoSuchBucket) {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
-	WriteError(log, w, r, err)
+	WriteError(ctx, w, r, err)
 }
 
 func (h *S3Handler) renderListObjectsV2Response(
@@ -79,7 +76,6 @@ func (h *S3Handler) renderListObjectsV2Response(
 	q url.Values,
 	objects []types.Object,
 ) {
-	log := logger.Load(ctx)
 	maxKeys := defaultMaxKeys
 	if mk := q.Get("max-keys"); mk != "" {
 		if n, err := strconv.Atoi(mk); err == nil && n > 0 {
@@ -127,7 +123,7 @@ func (h *S3Handler) renderListObjectsV2Response(
 	)
 	resp.KeyCount = len(resp.Contents) + len(resp.CommonPrefixes)
 
-	httputil.WriteXML(log, w, http.StatusOK, resp)
+	httputil.WriteXML(ctx, w, http.StatusOK, resp)
 }
 
 // applyStartCursor advances objects past all keys that are <= startCursor,

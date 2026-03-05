@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -89,8 +88,8 @@ func TestPersistence_Manager_SaveRestore(t *testing.T) {
 	store, err := persistence.NewFileStore(dir)
 	require.NoError(t, err)
 
-	log := slog.Default()
-	manager := persistence.NewManager(store, log)
+
+	manager := persistence.NewManager(store)
 	ctx := t.Context()
 
 	// Set up SQS backend with a queue.
@@ -115,7 +114,7 @@ func TestPersistence_Manager_SaveRestore(t *testing.T) {
 	freshSQS := sqs.NewInMemoryBackend()
 	freshSSM := ssm.NewInMemoryBackend()
 
-	manager2 := persistence.NewManager(store, log)
+	manager2 := persistence.NewManager(store)
 	manager2.Register("SQS", freshSQS)
 	manager2.Register("SSM", freshSSM)
 	manager2.RestoreAll(ctx)

@@ -20,7 +20,7 @@ import (
 func newTestSchedulerHandler(t *testing.T) *scheduler.Handler {
 	t.Helper()
 
-	return scheduler.NewHandler(scheduler.NewInMemoryBackend("000000000000", "us-east-1"), slog.Default())
+	return scheduler.NewHandler(scheduler.NewInMemoryBackend("000000000000", "us-east-1"))
 }
 
 func doSchedulerRequest(t *testing.T, h *scheduler.Handler, action string, body any) *httptest.ResponseRecorder {

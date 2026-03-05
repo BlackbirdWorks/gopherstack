@@ -1,7 +1,6 @@
 package cloudformation_test
 
 import (
-	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -27,13 +26,13 @@ import (
 // newServiceBackends creates a ServiceBackends with all real in-memory backends.
 func newServiceBackends() *cloudformation.ServiceBackends {
 	return &cloudformation.ServiceBackends{
-		DynamoDB:       ddbbackend.NewHandler(ddbbackend.NewInMemoryDB(), slog.Default()),
-		S3:             s3backend.NewHandler(s3backend.NewInMemoryBackend(nil, nil), slog.Default()),
-		SQS:            sqsbackend.NewHandler(sqsbackend.NewInMemoryBackend(), slog.Default()),
-		SNS:            snsbackend.NewHandler(snsbackend.NewInMemoryBackend(), slog.Default()),
-		SSM:            ssmbackend.NewHandler(ssmbackend.NewInMemoryBackend(), slog.Default()),
-		KMS:            kmsbackend.NewHandler(kmsbackend.NewInMemoryBackend(), slog.Default()),
-		SecretsManager: smbackend.NewHandler(smbackend.NewInMemoryBackend(), slog.Default()),
+		DynamoDB:       ddbbackend.NewHandler(ddbbackend.NewInMemoryDB()),
+		S3:             s3backend.NewHandler(s3backend.NewInMemoryBackend(nil)),
+		SQS:            sqsbackend.NewHandler(sqsbackend.NewInMemoryBackend()),
+		SNS:            snsbackend.NewHandler(snsbackend.NewInMemoryBackend()),
+		SSM:            ssmbackend.NewHandler(ssmbackend.NewInMemoryBackend()),
+		KMS:            kmsbackend.NewHandler(kmsbackend.NewInMemoryBackend()),
+		SecretsManager: smbackend.NewHandler(smbackend.NewInMemoryBackend()),
 		AccountID:      "000000000000",
 		Region:         "us-east-1",
 	}
@@ -735,12 +734,12 @@ func TestBackend_UpdateStack_WithNewResource(t *testing.T) {
 func newExtendedServiceBackends() *cloudformation.ServiceBackends {
 	b := newServiceBackends()
 	b.EventBridge = ebbackend.NewHandler(
-		ebbackend.NewInMemoryBackendWithConfig("000000000000", "us-east-1"), slog.Default())
+		ebbackend.NewInMemoryBackendWithConfig("000000000000", "us-east-1"))
 	b.StepFunctions = sfnbackend.NewHandler(
-		sfnbackend.NewInMemoryBackendWithConfig("000000000000", "us-east-1"), slog.Default())
+		sfnbackend.NewInMemoryBackendWithConfig("000000000000", "us-east-1"))
 	b.CloudWatchLogs = cwlogsbackend.NewHandler(
-		cwlogsbackend.NewInMemoryBackendWithConfig("000000000000", "us-east-1"), slog.Default())
-	b.APIGateway = apigwbackend.NewHandler(apigwbackend.NewInMemoryBackend(), slog.Default())
+		cwlogsbackend.NewInMemoryBackendWithConfig("000000000000", "us-east-1"))
+	b.APIGateway = apigwbackend.NewHandler(apigwbackend.NewInMemoryBackend())
 
 	return b
 }
@@ -907,13 +906,13 @@ type mockBackendsProvider struct {
 
 func newMockBackendsProvider() *mockBackendsProvider {
 	return &mockBackendsProvider{
-		ddb: ddbbackend.NewHandler(ddbbackend.NewInMemoryDB(), slog.Default()),
-		s3h: s3backend.NewHandler(s3backend.NewInMemoryBackend(nil, nil), slog.Default()),
-		sqs: sqsbackend.NewHandler(sqsbackend.NewInMemoryBackend(), slog.Default()),
-		sns: snsbackend.NewHandler(snsbackend.NewInMemoryBackend(), slog.Default()),
-		ssm: ssmbackend.NewHandler(ssmbackend.NewInMemoryBackend(), slog.Default()),
-		kms: kmsbackend.NewHandler(kmsbackend.NewInMemoryBackend(), slog.Default()),
-		sm:  smbackend.NewHandler(smbackend.NewInMemoryBackend(), slog.Default()),
+		ddb: ddbbackend.NewHandler(ddbbackend.NewInMemoryDB()),
+		s3h: s3backend.NewHandler(s3.NewInMemoryBackend(nil)),
+		sqs: sqsbackend.NewHandler(sqsbackend.NewInMemoryBackend()),
+		sns: snsbackend.NewHandler(snsbackend.NewInMemoryBackend()),
+		ssm: ssmbackend.NewHandler(ssmbackend.NewInMemoryBackend()),
+		kms: kmsbackend.NewHandler(kmsbackend.NewInMemoryBackend()),
+		sm:  smbackend.NewHandler(smbackend.NewInMemoryBackend()),
 	}
 }
 

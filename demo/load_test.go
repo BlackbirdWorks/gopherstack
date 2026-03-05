@@ -55,9 +55,9 @@ func TestLoadData(t *testing.T) {
 
 			// Setup Backends
 			ddbBackend := ddbbackend.NewInMemoryDB()
-			ddbHandler := ddbbackend.NewHandler(ddbBackend, slog.Default())
-			s3Backend := s3backend.NewInMemoryBackend(&s3backend.GzipCompressor{}, slog.Default())
-			s3Handler := s3backend.NewHandler(s3Backend, slog.Default())
+			ddbHandler := ddbbackend.NewHandler(ddbBackend)
+			s3Backend := s3backend.NewInMemoryBackend(&s3backend.GzipCompressor{})
+			s3Handler := s3backend.NewHandler(s3Backend)
 
 			// Setup Echo server with service registry
 			e := echo.New()
@@ -66,14 +66,14 @@ func TestLoadData(t *testing.T) {
 			registry := service.NewRegistry(slog.Default())
 			_ = registry.Register(ddbHandler)
 			_ = registry.Register(s3Handler)
-			_ = registry.Register(sqsbackend.NewHandler(sqsbackend.NewInMemoryBackend(), slog.Default()))
-			_ = registry.Register(snsbackend.NewHandler(snsbackend.NewInMemoryBackend(), slog.Default()))
-			_ = registry.Register(iambackend.NewHandler(iambackend.NewInMemoryBackend(), slog.Default()))
-			_ = registry.Register(ssmbackend.NewHandler(ssmbackend.NewInMemoryBackend(), slog.Default()))
-			_ = registry.Register(stsbackend.NewHandler(stsbackend.NewInMemoryBackend(), slog.Default()))
-			_ = registry.Register(kmsbackend.NewHandler(kmsbackend.NewInMemoryBackend(), slog.Default()))
+			_ = registry.Register(sqsbackend.NewHandler(sqsbackend.NewInMemoryBackend()))
+			_ = registry.Register(snsbackend.NewHandler(snsbackend.NewInMemoryBackend()))
+			_ = registry.Register(iambackend.NewHandler(iambackend.NewInMemoryBackend()))
+			_ = registry.Register(ssmbackend.NewHandler(ssmbackend.NewInMemoryBackend()))
+			_ = registry.Register(stsbackend.NewHandler(stsbackend.NewInMemoryBackend()))
+			_ = registry.Register(kmsbackend.NewHandler(kmsbackend.NewInMemoryBackend()))
 			_ = registry.Register(
-				secretsmanagerbackend.NewHandler(secretsmanagerbackend.NewInMemoryBackend(), slog.Default()),
+				secretsmanagerbackend.NewHandler(secretsmanagerbackend.NewInMemoryBackend()),
 			)
 
 			router := service.NewServiceRouter(registry)

@@ -4,11 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"hash/crc32"
-	"log/slog"
 	"net/http"
 	"strconv"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // WriteJSON marshals the payload to JSON, sets standard headers, and writes the response.
@@ -49,10 +50,10 @@ func WriteJSONWithChecksum(w http.ResponseWriter, code int, payload any) error {
 }
 
 // WriteError writes an error response with structured logging.
-// Uses the logger to record the error with context.
-func WriteError(logger *slog.Logger, w http.ResponseWriter, code int, message string, err error) {
+// Uses the logger from ctx to record the error with context.
+func WriteError(ctx context.Context, w http.ResponseWriter, code int, message string, err error) {
 	if err != nil {
-		logger.DebugContext(context.TODO(), message, "error", err)
+		logger.Load(ctx).DebugContext(ctx, message, "error", err)
 	}
 	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(code)
@@ -60,9 +61,9 @@ func WriteError(logger *slog.Logger, w http.ResponseWriter, code int, message st
 }
 
 // EchoError is a helper for Echo handlers to write errors with proper logging.
-func EchoError(logger *slog.Logger, c *echo.Context, code int, message string, err error) error {
+func EchoError(ctx context.Context, c *echo.Context, code int, message string, err error) error {
 	if err != nil {
-		logger.DebugContext(c.Request().Context(), message, "error", err)
+		logger.Load(ctx).DebugContext(ctx, message, "error", err)
 	}
 
 	return c.String(code, message)

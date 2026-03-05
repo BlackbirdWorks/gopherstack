@@ -5,7 +5,6 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
-	"log/slog"
 	"maps"
 	"net/http"
 	"net/url"
@@ -29,17 +28,15 @@ const (
 // Handler is the Echo HTTP handler for IAM operations.
 type Handler struct {
 	Backend StorageBackend
-	Logger  *slog.Logger
 	actions map[string]iamActionFn
 	tags    map[string]*svcTags.Tags
 	tagsMu  *lockmetrics.RWMutex
 }
 
 // NewHandler creates a new IAM handler with the given storage backend.
-func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
+func NewHandler(backend StorageBackend) *Handler {
 	h := &Handler{
 		Backend: backend,
-		Logger:  log,
 		tags:    make(map[string]*svcTags.Tags),
 		tagsMu:  lockmetrics.New("iam.tags"),
 	}

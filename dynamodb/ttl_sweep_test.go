@@ -130,7 +130,7 @@ func TestJanitor_TTLSweep(t *testing.T) {
 			}
 
 			// Trigger sweep via exported helper
-			j := dynamodb.NewJanitor(db, logger.NewTestLogger(), dynamodb.Settings{JanitorInterval: time.Hour})
+			j := dynamodb.NewJanitor(db, dynamodb.Settings{JanitorInterval: time.Hour})
 			j.SweepTTL(ctx)
 
 			// Verify results

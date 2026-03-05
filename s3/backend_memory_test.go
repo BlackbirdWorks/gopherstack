@@ -20,7 +20,7 @@ import (
 func newTestBackend(t *testing.T) *s3.InMemoryBackend {
 	t.Helper()
 
-	return s3.NewInMemoryBackend(&s3.GzipCompressor{}, nil)
+	return s3.NewInMemoryBackend(&s3.GzipCompressor{})
 }
 
 func TestCreateBucket(t *testing.T) {
@@ -1205,7 +1205,7 @@ func TestCompressionMinBytes_PutObject(t *testing.T) {
 			t.Parallel()
 
 			rc := &recordingCompressor{delegate: &s3.GzipCompressor{}}
-			backend := s3.NewInMemoryBackend(rc, nil).
+			backend := s3.NewInMemoryBackend(rc).
 				WithCompressionMinBytes(tt.compressionMinBytes)
 			mustCreateBucket(t, backend, "bkt")
 
@@ -1285,7 +1285,7 @@ func TestCompressionMinBytes_CompleteMultipartUpload(t *testing.T) {
 			t.Parallel()
 
 			rc := &recordingCompressor{delegate: &s3.GzipCompressor{}}
-			backend := s3.NewInMemoryBackend(rc, nil).
+			backend := s3.NewInMemoryBackend(rc).
 				WithCompressionMinBytes(tt.compressionMinBytes)
 			mustCreateBucket(t, backend, "bkt")
 

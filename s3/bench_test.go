@@ -13,7 +13,7 @@ import (
 )
 
 func BenchmarkPutObject(b *testing.B) {
-	backend := s3.NewInMemoryBackend(&s3.GzipCompressor{}, nil)
+	backend := s3.NewInMemoryBackend(&s3.GzipCompressor{})
 	bucketName := "bench-bucket"
 	_, _ = backend.CreateBucket(
 		b.Context(),
@@ -33,7 +33,7 @@ func BenchmarkPutObject(b *testing.B) {
 }
 
 func BenchmarkGetObject(b *testing.B) {
-	backend := s3.NewInMemoryBackend(&s3.GzipCompressor{}, nil)
+	backend := s3.NewInMemoryBackend(&s3.GzipCompressor{})
 	bucketName := "bench-bucket"
 	_, _ = backend.CreateBucket(
 		b.Context(),
@@ -82,7 +82,7 @@ func BenchmarkDeleteObjects(b *testing.B) {
 	for _, count := range []int{100, 1000} {
 		b.Run(fmt.Sprintf("%d_objects", count), func(b *testing.B) {
 			b.StopTimer()
-			backend := s3.NewInMemoryBackend(nil, nil)
+			backend := s3.NewInMemoryBackend(nil)
 			bucketName := "bench-delete-bucket"
 			_, _ = backend.CreateBucket(
 				b.Context(),

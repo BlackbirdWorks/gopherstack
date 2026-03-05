@@ -19,7 +19,7 @@ import (
 func newTestTranscribeHandler(t *testing.T) *transcribe.Handler {
 	t.Helper()
 
-	return transcribe.NewHandler(transcribe.NewInMemoryBackend(), slog.Default())
+	return transcribe.NewHandler(transcribe.NewInMemoryBackend())
 }
 
 func doTranscribeRequest(t *testing.T, h *transcribe.Handler, action string, body any) *httptest.ResponseRecorder {

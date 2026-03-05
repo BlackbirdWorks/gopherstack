@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"net/http"
 	"strings"
 
@@ -20,7 +19,6 @@ import (
 // Handler is the Echo HTTP handler for Kinesis operations.
 type Handler struct {
 	Backend       StorageBackend
-	Logger        *slog.Logger
 	tags          map[string]*svcTags.Tags
 	tagsMu        *lockmetrics.RWMutex
 	DefaultRegion string
@@ -28,10 +26,9 @@ type Handler struct {
 }
 
 // NewHandler creates a new Kinesis Handler.
-func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
+func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{
 		Backend: backend,
-		Logger:  log,
 		tags:    make(map[string]*svcTags.Tags),
 		tagsMu:  lockmetrics.New("kinesis.tags"),
 	}

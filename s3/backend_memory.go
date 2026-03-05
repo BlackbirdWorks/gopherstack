@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/url"
 	"slices"
 	"sort"
@@ -17,6 +16,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -48,23 +48,17 @@ type InMemoryBackend struct {
 	tags                map[string][]types.Tag
 	uploads             map[string]*StoredMultipartUpload
 	mu                  *lockmetrics.RWMutex
-	Logger              *slog.Logger
 	compressor          Compressor
 	defaultRegion       string
 	compressionMinBytes int
 }
 
-func NewInMemoryBackend(compressor Compressor, logger *slog.Logger) *InMemoryBackend {
-	if logger == nil {
-		logger = slog.Default()
-	}
-
+func NewInMemoryBackend(compressor Compressor) *InMemoryBackend {
 	return &InMemoryBackend{
 		buckets:       make(map[string]map[string]*StoredBucket),
 		compressor:    compressor,
 		defaultRegion: defaultRegionName,
 		mu:            lockmetrics.New("s3"),
-		Logger:        logger,
 	}
 }
 
@@ -365,7 +359,7 @@ func (b *InMemoryBackend) PutObject(
 
 	b.storeObjectTags(input.Tagging, bucketName, key, newVersionID)
 
-	b.Logger.DebugContext(ctx, "S3 Backend PutObject",
+	logger.Load(ctx).DebugContext(ctx, "S3 Backend PutObject",
 		"bucket", bucketName, "key", key,
 		"contentType", aws.ToString(input.ContentType),
 		"versionId", newVersionID)
@@ -578,7 +572,7 @@ func (b *InMemoryBackend) HeadObject(
 		return nil, ErrNoSuchKey
 	}
 
-	b.Logger.DebugContext(ctx, "S3 Backend HeadObject",
+	logger.Load(ctx).DebugContext(ctx, "S3 Backend HeadObject",
 		"bucket", bucketName, "key", key,
 		"versionId", aws.ToString(versionID),
 		"foundContentType", ver.ContentType)

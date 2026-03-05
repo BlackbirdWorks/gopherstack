@@ -168,8 +168,8 @@ func newTestHandler(t *testing.T) (*sts.Handler, *echo.Echo) {
 	t.Helper()
 
 	backend := sts.NewInMemoryBackend()
-	log := logger.NewTestLogger()
-	h := sts.NewHandler(backend, log)
+
+	h := sts.NewHandler(backend)
 	e := echo.New()
 
 	return h, e
@@ -481,8 +481,8 @@ func TestSTSHandler_ViaSDK(t *testing.T) {
 
 	// Build an in-process server serving the STS handler.
 	backend := sts.NewInMemoryBackend()
-	log := logger.NewTestLogger()
-	h := sts.NewHandler(backend, log)
+
+	h := sts.NewHandler(backend)
 	e := echo.New()
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
@@ -598,8 +598,8 @@ func (b *errorBackend) GetSessionToken(_ *sts.GetSessionTokenInput) (*sts.GetSes
 func TestHandler_InternalError(t *testing.T) {
 	t.Parallel()
 
-	log := logger.NewTestLogger()
-	h := sts.NewHandler(&errorBackend{}, log)
+
+	h := sts.NewHandler(&errorBackend{})
 	e := echo.New()
 	e.Use(func(_ echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
@@ -685,7 +685,7 @@ func TestExtractResource_ReadBodyError(t *testing.T) {
 func TestDispatch_ParseFormError(t *testing.T) {
 	t.Parallel()
 
-	log := logger.NewTestLogger()
+
 	h := sts.NewHandler(sts.NewInMemoryBackend(), log)
 	e := echo.New()
 	e.Use(func(_ echo.HandlerFunc) echo.HandlerFunc {
