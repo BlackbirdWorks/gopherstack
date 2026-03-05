@@ -30,7 +30,7 @@ func setupPartiQLTable(t *testing.T, rows []map[string]any) *dynamodb.DynamoDBHa
 	t.Helper()
 
 	db := dynamodb.NewInMemoryDB()
-	handler := dynamodb.NewHandler(db, slog.Default())
+	handler := dynamodb.NewHandler(db)
 
 	createBody := mustMarshal(t, map[string]any{
 		"TableName": "T",
@@ -57,7 +57,7 @@ func setupPartiQLCompositeTable(t *testing.T, rows []map[string]any) *dynamodb.D
 	t.Helper()
 
 	db := dynamodb.NewInMemoryDB()
-	handler := dynamodb.NewHandler(db, slog.Default())
+	handler := dynamodb.NewHandler(db)
 
 	createBody := mustMarshal(t, map[string]any{
 		"TableName": "T",

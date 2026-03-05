@@ -3,7 +3,6 @@ package s3control
 import (
 	"encoding/xml"
 	"errors"
-	"log/slog"
 	"net/http"
 	"strings"
 
@@ -20,12 +19,11 @@ const (
 // Handler is the Echo HTTP handler for S3 Control operations.
 type Handler struct {
 	Backend *InMemoryBackend
-	Logger  *slog.Logger
 }
 
 // NewHandler creates a new S3 Control handler.
-func NewHandler(backend *InMemoryBackend, log *slog.Logger) *Handler {
-	return &Handler{Backend: backend, Logger: log}
+func NewHandler(backend *InMemoryBackend) *Handler {
+	return &Handler{Backend: backend}
 }
 
 // Name returns the service name.

@@ -4,157 +4,526 @@
     <p class="mb-8 text-slate-600 dark:text-slate-300">This page lists all AWS operations currently
         supported by the Gopherstack local emulator.</p>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-        <!-- DynamoDB Operations -->
-        <div class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
-            <h2 class="text-xl font-bold text-blue-600 dark:text-blue-400 flex items-center gap-2 mb-4">
+    <!-- Category: Compute -->
+    <h2
+        class="text-2xl font-bold mb-6 text-slate-800 dark:text-slate-200 border-b border-slate-200 dark:border-slate-700 pb-2">
+        Compute</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 mb-12">
+        <!-- Lambda -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-orange-600 dark:text-orange-400 flex items-center gap-2 mb-4">
+                <span>λ</span> Lambda
+            </h3>
+            <ul class="space-y-1">
+                {{range .LambdaOps}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
+
+        <!-- EC2 -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-orange-500 dark:text-orange-300 flex items-center gap-2 mb-4">
+                <span>🖥️</span> EC2
+            </h3>
+            <ul class="space-y-1">
+                {{range .EC2Ops}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
+
+        <!-- Step Functions -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-rose-500 dark:text-rose-300 flex items-center gap-2 mb-4">
+                <span>⛓️</span> Step Functions
+            </h3>
+            <ul class="space-y-1">
+                {{range .StepFunctionsOps}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
+
+        <!-- SWF -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-amber-500 dark:text-amber-300 flex items-center gap-2 mb-4">
+                <span>⚙️</span> SWF
+            </h3>
+            <ul class="space-y-1">
+                {{range .SWFOps}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
+    </div>
+
+    <!-- Category: Database & Analytics -->
+    <h2
+        class="text-2xl font-bold mb-6 text-slate-800 dark:text-slate-200 border-b border-slate-200 dark:border-slate-700 pb-2">
+        Database & Analytics</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 mb-12">
+        <!-- DynamoDB -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-blue-600 dark:text-blue-400 flex items-center gap-2 mb-4">
                 <span>⚡</span> DynamoDB
-            </h2>
-            <hr class="my-4 border-gray-200 dark:border-gray-700">
+            </h3>
             <ul class="space-y-1">
-                {{range .DynamoDBOps}}
-                <li
+                {{range .DynamoDBOps}}<li
                     class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
-                    {{.}}</li>
-                {{else}}
-                <li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found</li>
-                {{end}}
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
             </ul>
         </div>
 
-        <!-- S3 Operations -->
-        <div class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
-            <h2 class="text-xl font-bold text-purple-600 dark:text-purple-400 flex items-center gap-2 mb-4">
+        <!-- RDS -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-indigo-500 dark:text-indigo-300 flex items-center gap-2 mb-4">
+                <span>🗄️</span> RDS
+            </h3>
+            <ul class="space-y-1">
+                {{range .RDSOps}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
+
+        <!-- ElastiCache -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-red-500 dark:text-red-300 flex items-center gap-2 mb-4">
+                <span>🧠</span> ElastiCache
+            </h3>
+            <ul class="space-y-1">
+                {{range .ElastiCacheOps}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
+
+        <!-- Redshift -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-blue-700 dark:text-blue-500 flex items-center gap-2 mb-4">
+                <span>📊</span> Redshift
+            </h3>
+            <ul class="space-y-1">
+                {{range .RedshiftOps}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
+
+        <!-- OpenSearch -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-emerald-500 dark:text-emerald-300 flex items-center gap-2 mb-4">
+                <span>🔍</span> OpenSearch
+            </h3>
+            <ul class="space-y-1">
+                {{range .OpenSearchOps}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
+    </div>
+
+    <!-- Category: Storage -->
+    <h2
+        class="text-2xl font-bold mb-6 text-slate-800 dark:text-slate-200 border-b border-slate-200 dark:border-slate-700 pb-2">
+        Storage</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 mb-12">
+        <!-- S3 -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-purple-600 dark:text-purple-400 flex items-center gap-2 mb-4">
                 <span>🪣</span> S3
-            </h2>
-            <hr class="my-4 border-gray-200 dark:border-gray-700">
+            </h3>
             <ul class="space-y-1">
-                {{range .S3Ops}}
-                <li
+                {{range .S3Ops}}<li
                     class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
-                    {{.}}</li>
-                {{else}}
-                <li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found</li>
-                {{end}}
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
             </ul>
         </div>
 
-        <!-- SSM Operations -->
-        <div class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
-            <h2 class="text-xl font-bold text-yellow-600 dark:text-yellow-400 flex items-center gap-2 mb-4">
-                <span>🔐</span> SSM Parameter Store
-            </h2>
-            <hr class="my-4 border-gray-200 dark:border-gray-700">
+        <!-- S3 Control -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-purple-500 dark:text-purple-300 flex items-center gap-2 mb-4">
+                <span>🎛️</span> S3 Control
+            </h3>
             <ul class="space-y-1">
-                {{range .SSMOps}}
-                <li
+                {{range .S3ControlOps}}<li
                     class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
-                    {{.}}</li>
-                {{else}}
-                <li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found</li>
-                {{end}}
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
+    </div>
+
+    <!-- Category: Networking & Content Delivery -->
+    <h2
+        class="text-2xl font-bold mb-6 text-slate-800 dark:text-slate-200 border-b border-slate-200 dark:border-slate-700 pb-2">
+        Networking & Content Delivery</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 mb-12">
+        <!-- Route53 -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-sky-500 dark:text-sky-300 flex items-center gap-2 mb-4">
+                <span>🌐</span> Route 53
+            </h3>
+            <ul class="space-y-1">
+                {{range .Route53Ops}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
             </ul>
         </div>
 
-        <!-- SQS Operations -->
-        <div class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
-            <h2 class="text-xl font-bold text-orange-600 dark:text-orange-400 flex items-center gap-2 mb-4">
+        <!-- Route53 Resolver -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-sky-600 dark:text-sky-400 flex items-center gap-2 mb-4">
+                <span>📍</span> Route 53 Resolver
+            </h3>
+            <ul class="space-y-1">
+                {{range .Route53ResolverOps}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
+
+        <!-- API Gateway -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-violet-600 dark:text-violet-400 flex items-center gap-2 mb-4">
+                <span>🛣️</span> API Gateway
+            </h3>
+            <ul class="space-y-1">
+                {{range .APIGatewayOps}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
+    </div>
+
+    <!-- Category: Messaging & Integration -->
+    <h2
+        class="text-2xl font-bold mb-6 text-slate-800 dark:text-slate-200 border-b border-slate-200 dark:border-slate-700 pb-2">
+        Messaging & Integration</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 mb-12">
+        <!-- SQS -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-orange-600 dark:text-orange-400 flex items-center gap-2 mb-4">
                 <span>📨</span> SQS
-            </h2>
-            <hr class="my-4 border-gray-200 dark:border-gray-700">
+            </h3>
             <ul class="space-y-1">
-                {{range .SQSOps}}
-                <li
+                {{range .SQSOps}}<li
                     class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
-                    {{.}}</li>
-                {{else}}
-                <li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found</li>
-                {{end}}
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
             </ul>
         </div>
 
-        <!-- SNS Operations -->
-        <div class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
-            <h2 class="text-xl font-bold text-pink-600 dark:text-pink-400 flex items-center gap-2 mb-4">
+        <!-- SNS -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-rose-500 dark:text-rose-400 flex items-center gap-2 mb-4">
                 <span>📣</span> SNS
-            </h2>
-            <hr class="my-4 border-gray-200 dark:border-gray-700">
+            </h3>
             <ul class="space-y-1">
-                {{range .SNSOps}}
-                <li
+                {{range .SNSOps}}<li
                     class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
-                    {{.}}</li>
-                {{else}}
-                <li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found</li>
-                {{end}}
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
             </ul>
         </div>
 
-        <!-- IAM Operations -->
-        <div class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
-            <h2 class="text-xl font-bold text-red-600 dark:text-red-400 flex items-center gap-2 mb-4">
+        <!-- EventBridge -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-teal-600 dark:text-teal-400 flex items-center gap-2 mb-4">
+                <span>📅</span> EventBridge
+            </h3>
+            <ul class="space-y-1">
+                {{range .EventBridgeOps}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
+
+        <!-- Kinesis -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-2 mb-4">
+                <span>🌊</span> Kinesis
+            </h3>
+            <ul class="space-y-1">
+                {{range .KinesisOps}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
+
+        <!-- Firehose -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-orange-400 dark:text-orange-200 flex items-center gap-2 mb-4">
+                <span>🔥</span> Firehose
+            </h3>
+            <ul class="space-y-1">
+                {{range .FirehoseOps}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
+
+        <!-- Scheduler -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-zinc-500 dark:text-zinc-300 flex items-center gap-2 mb-4">
+                <span>⏰</span> Scheduler
+            </h3>
+            <ul class="space-y-1">
+                {{range .SchedulerOps}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
+    </div>
+
+    <!-- Category: Security, Identity & Compliance -->
+    <h2
+        class="text-2xl font-bold mb-6 text-slate-800 dark:text-slate-200 border-b border-slate-200 dark:border-slate-700 pb-2">
+        Security, Identity & Compliance</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 mb-12">
+        <!-- IAM -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-red-600 dark:text-red-400 flex items-center gap-2 mb-4">
                 <span>🛡️</span> IAM
-            </h2>
-            <hr class="my-4 border-gray-200 dark:border-gray-700">
+            </h3>
             <ul class="space-y-1">
-                {{range .IAMOps}}
-                <li
+                {{range .IAMOps}}<li
                     class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
-                    {{.}}</li>
-                {{else}}
-                <li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found</li>
-                {{end}}
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
             </ul>
         </div>
 
-        <!-- STS Operations -->
-        <div class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
-            <h2 class="text-xl font-bold text-teal-600 dark:text-teal-400 flex items-center gap-2 mb-4">
+        <!-- STS -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-teal-600 dark:text-teal-400 flex items-center gap-2 mb-4">
                 <span>🎫</span> STS
-            </h2>
-            <hr class="my-4 border-gray-200 dark:border-gray-700">
+            </h3>
             <ul class="space-y-1">
-                {{range .STSOps}}
-                <li
+                {{range .STSOps}}<li
                     class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
-                    {{.}}</li>
-                {{else}}
-                <li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found</li>
-                {{end}}
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
             </ul>
         </div>
 
-        <!-- KMS Operations -->
-        <div class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
-            <h2 class="text-xl font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-2 mb-4">
+        <!-- KMS -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-2 mb-4">
                 <span>🔑</span> KMS
-            </h2>
-            <hr class="my-4 border-gray-200 dark:border-gray-700">
+            </h3>
             <ul class="space-y-1">
-                {{range .KMSOps}}
-                <li
+                {{range .KMSOps}}<li
                     class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
-                    {{.}}</li>
-                {{else}}
-                <li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found</li>
-                {{end}}
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
             </ul>
         </div>
 
-        <!-- Secrets Manager Operations -->
-        <div class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
-            <h2 class="text-xl font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-2 mb-4">
+        <!-- Secrets Manager -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-2 mb-4">
                 <span>🤫</span> Secrets Manager
-            </h2>
-            <hr class="my-4 border-gray-200 dark:border-gray-700">
+            </h3>
             <ul class="space-y-1">
-                {{range .SecretsManagerOps}}
-                <li
+                {{range .SecretsManagerOps}}<li
                     class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
-                    {{.}}</li>
-                {{else}}
-                <li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found</li>
-                {{end}}
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
+
+        <!-- ACM -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-blue-400 dark:text-blue-200 flex items-center gap-2 mb-4">
+                <span>📜</span> ACM
+            </h3>
+            <ul class="space-y-1">
+                {{range .ACMOps}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
+    </div>
+
+    <!-- Category: Management & Governance -->
+    <h2
+        class="text-2xl font-bold mb-6 text-slate-800 dark:text-slate-200 border-b border-slate-200 dark:border-slate-700 pb-2">
+        Management & Governance</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 mb-12">
+        <!-- SSM -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-yellow-600 dark:text-yellow-400 flex items-center gap-2 mb-4">
+                <span>🔐</span> SSM Parameter Store
+            </h3>
+            <ul class="space-y-1">
+                {{range .SSMOps}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
+
+        <!-- CloudFormation -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-orange-500 dark:text-orange-300 flex items-center gap-2 mb-4">
+                <span>🏗️</span> CloudFormation
+            </h3>
+            <ul class="space-y-1">
+                {{range .CloudFormationOps}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
+
+        <!-- CloudWatch -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-pink-500 dark:text-pink-300 flex items-center gap-2 mb-4">
+                <span>📈</span> CloudWatch
+            </h3>
+            <ul class="space-y-1">
+                {{range .CloudWatchOps}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
+
+        <!-- CloudWatch Logs -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-pink-600 dark:text-pink-400 flex items-center gap-2 mb-4">
+                <span>📜</span> CloudWatch Logs
+            </h3>
+            <ul class="space-y-1">
+                {{range .CloudWatchLogsOps}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
+
+        <!-- AWS Config -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-red-500 dark:text-red-300 flex items-center gap-2 mb-4">
+                <span>🕵️</span> AWS Config
+            </h3>
+            <ul class="space-y-1">
+                {{range .AWSConfigOps}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
+
+        <!-- Resource Groups -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-slate-500 dark:text-slate-300 flex items-center gap-2 mb-4">
+                <span>📦</span> Resource Groups
+            </h3>
+            <ul class="space-y-1">
+                {{range .ResourceGroupsOps}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
+    </div>
+
+    <!-- Category: Specialized Services -->
+    <h2
+        class="text-2xl font-bold mb-6 text-slate-800 dark:text-slate-200 border-b border-slate-200 dark:border-slate-700 pb-2">
+        Specialized Services</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 mb-12">
+        <!-- SES -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-blue-500 dark:text-blue-300 flex items-center gap-2 mb-4">
+                <span>📧</span> SES
+            </h3>
+            <ul class="space-y-1">
+                {{range .SESOps}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
+
+        <!-- Transcribe -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-teal-400 dark:text-teal-200 flex items-center gap-2 mb-4">
+                <span>🎙️</span> Transcribe
+            </h3>
+            <ul class="space-y-1">
+                {{range .TranscribeOps}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
+
+        <!-- Support -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-rose-400 dark:text-rose-200 flex items-center gap-2 mb-4">
+                <span>🆘</span> Support
+            </h3>
+            <ul class="space-y-1">
+                {{range .SupportOps}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
             </ul>
         </div>
     </div>

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"maps"
 	"net/http"
 	"strings"
@@ -38,15 +37,13 @@ type LambdaInvoker interface {
 type Handler struct {
 	Backend       StorageBackend
 	lambdaInvoker LambdaInvoker
-	Logger        *slog.Logger
 	DefaultRegion string
 }
 
 // NewHandler creates a new Secrets Manager handler.
-func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
+func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{
 		Backend: backend,
-		Logger:  log,
 	}
 }
 

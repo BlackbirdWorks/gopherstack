@@ -27,7 +27,7 @@ func newBackend() *cloudformation.InMemoryBackend {
 }
 
 func newHandler() *cloudformation.Handler {
-	return cloudformation.NewHandler(newBackend(), slog.Default())
+	return cloudformation.NewHandler(newBackend())
 }
 
 func postForm(t *testing.T, h *cloudformation.Handler, body string) *httptest.ResponseRecorder {

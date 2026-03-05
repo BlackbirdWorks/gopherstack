@@ -13,9 +13,9 @@ func (p *Provider) Name() string { return "APIGateway" }
 // Init initializes the API Gateway service backend and handler.
 //
 //nolint:ireturn,nolintlint // architecturally required to return interface
-func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
+func (p *Provider) Init(_ *service.AppContext) (service.Registerable, error) {
 	backend := NewInMemoryBackend()
-	handler := NewHandler(backend, ctx.Logger)
+	handler := NewHandler(backend)
 
 	return handler, nil
 }

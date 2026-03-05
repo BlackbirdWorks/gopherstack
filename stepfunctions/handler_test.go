@@ -3,7 +3,6 @@ package stepfunctions_test
 import (
 	"context"
 	"encoding/json"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,17 +12,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/stepfunctions"
 )
 
 func newSFNHandler(t *testing.T) (*stepfunctions.Handler, *echo.Echo) {
 	t.Helper()
 
-	log := logger.NewLogger(slog.LevelDebug)
 	bk := stepfunctions.NewInMemoryBackend()
 
-	return stepfunctions.NewHandler(bk, log), echo.New()
+	return stepfunctions.NewHandler(bk), echo.New()
 }
 
 func sfnPost(
@@ -99,7 +96,7 @@ func TestHandler_Name(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := stepfunctions.NewHandler(stepfunctions.NewInMemoryBackend(), slog.Default())
+			h := stepfunctions.NewHandler(stepfunctions.NewInMemoryBackend())
 			assert.Equal(t, tt.want, h.Name())
 		})
 	}

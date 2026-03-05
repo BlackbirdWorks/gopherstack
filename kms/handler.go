@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"maps"
 	"net/http"
 	"strings"
@@ -49,7 +48,6 @@ type untagResourceInput struct {
 // Handler is the Echo HTTP handler for KMS operations.
 type Handler struct {
 	Backend       StorageBackend
-	Logger        *slog.Logger
 	actions       map[string]kmsActionFn
 	tags          map[string]*tags.Tags
 	tagsMu        *lockmetrics.RWMutex
@@ -57,10 +55,9 @@ type Handler struct {
 }
 
 // NewHandler creates a new KMS handler with the given storage backend and logger.
-func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
+func NewHandler(backend StorageBackend) *Handler {
 	h := &Handler{
 		Backend: backend,
-		Logger:  log,
 		tags:    make(map[string]*tags.Tags),
 		tagsMu:  lockmetrics.New("kms.tags"),
 	}

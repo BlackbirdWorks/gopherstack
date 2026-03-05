@@ -3,7 +3,6 @@ package cloudformation
 import (
 	"encoding/xml"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"slices"
@@ -21,12 +20,11 @@ const cfnNS = "http://cloudformation.amazonaws.com/doc/2010-05-15/"
 // Handler is the Echo HTTP service handler for CloudFormation operations.
 type Handler struct {
 	Backend StorageBackend
-	Logger  *slog.Logger
 }
 
 // NewHandler creates a new CloudFormation handler.
-func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
-	return &Handler{Backend: backend, Logger: log}
+func NewHandler(backend StorageBackend) *Handler {
+	return &Handler{Backend: backend}
 }
 
 // Name returns the service name.

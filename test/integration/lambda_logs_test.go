@@ -88,17 +88,16 @@ func TestLambdaCWLogs_WiringProducesLogEntries(t *testing.T) {
 		lambdapkg.DefaultSettings(),
 		"000000000000",
 		"us-east-1",
-		slog.Default(),
 	)
 	lambdaBackend.SetCWLogsBackend(cwlogsAdapter)
 
-	handler := lambdapkg.NewHandler(lambdaBackend, slog.Default())
+	handler := lambdapkg.NewHandler(lambdaBackend)
 	handler.AccountID = "000000000000"
 	handler.DefaultRegion = "us-east-1"
 
 	e := echo.New()
 	e.Pre(logger.EchoMiddleware(slog.Default()))
-	registry := service.NewRegistry(slog.Default())
+	registry := service.NewRegistry()
 	require.NoError(t, registry.Register(handler))
 	e.Use(service.NewServiceRouter(registry).RouteHandler())
 	server := httptest.NewServer(e)
@@ -155,16 +154,15 @@ func TestLambdaVersionsAndAliases_Integration(t *testing.T) {
 		lambdapkg.DefaultSettings(),
 		"000000000000",
 		"us-east-1",
-		slog.Default(),
 	)
 
-	handler := lambdapkg.NewHandler(lambdaBackend, slog.Default())
+	handler := lambdapkg.NewHandler(lambdaBackend)
 	handler.AccountID = "000000000000"
 	handler.DefaultRegion = "us-east-1"
 
 	e := echo.New()
 	e.Pre(logger.EchoMiddleware(slog.Default()))
-	registry := service.NewRegistry(slog.Default())
+	registry := service.NewRegistry()
 	require.NoError(t, registry.Register(handler))
 	e.Use(service.NewServiceRouter(registry).RouteHandler())
 	server := httptest.NewServer(e)

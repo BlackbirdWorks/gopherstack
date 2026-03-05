@@ -1,8 +1,6 @@
 package s3_test
 
 import (
-	"io"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -105,8 +103,6 @@ func TestWriteError(t *testing.T) {
 		},
 	}
 
-	nopLogger := slog.New(slog.NewTextHandler(io.Discard, nil))
-
 	for _, tt := range tests {
 		t.Run(tt.expectedXML, func(t *testing.T) {
 			t.Parallel()
@@ -114,7 +110,7 @@ func TestWriteError(t *testing.T) {
 			w := httptest.NewRecorder()
 			r := httptest.NewRequest(http.MethodGet, "/test", nil)
 
-			s3.WriteError(nopLogger, w, r, tt.err)
+			s3.WriteError(r.Context(), w, r, tt.err)
 
 			assert.Equal(t, tt.expectedCode, w.Code)
 			assert.Contains(t, w.Body.String(), tt.expectedXML)

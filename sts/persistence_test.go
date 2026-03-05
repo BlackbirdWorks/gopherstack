@@ -1,7 +1,6 @@
 package sts_test
 
 import (
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -55,21 +54,21 @@ func TestSTSHandler_Persistence(t *testing.T) {
 	t.Parallel()
 
 	backend := sts.NewInMemoryBackendWithConfig("000000000000")
-	h := sts.NewHandler(backend, slog.Default())
+	h := sts.NewHandler(backend)
 
 	// STS has no state; just verify delegation doesn't panic
 	snap := h.Snapshot()
 	assert.Nil(t, snap) // STS returns nil
 
 	fresh := sts.NewInMemoryBackendWithConfig("000000000000")
-	freshH := sts.NewHandler(fresh, slog.Default())
+	freshH := sts.NewHandler(fresh)
 	require.NoError(t, freshH.Restore(snap))
 }
 
 func TestSTSHandler_Routing(t *testing.T) {
 	t.Parallel()
 
-	h := sts.NewHandler(sts.NewInMemoryBackendWithConfig("000000000000"), slog.Default())
+	h := sts.NewHandler(sts.NewInMemoryBackendWithConfig("000000000000"))
 
 	assert.Equal(t, "STS", h.Name())
 	assert.Positive(t, h.MatchPriority())

@@ -1,7 +1,6 @@
 package rds_test
 
 import (
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,7 +14,7 @@ import (
 )
 
 func newRDSHandler() *rds.Handler {
-	return rds.NewHandler(rds.NewInMemoryBackend("000000000000", "us-east-1"), slog.Default())
+	return rds.NewHandler(rds.NewInMemoryBackend("000000000000", "us-east-1"))
 }
 
 func postRDSForm(t *testing.T, h *rds.Handler, body string) *httptest.ResponseRecorder {

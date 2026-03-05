@@ -11,12 +11,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/dynamodb"
-	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // newFastDDBJanitor creates a Janitor with a short interval for deterministic tests.
 func newFastDDBJanitor(db *dynamodb.InMemoryDB) *dynamodb.Janitor {
-	return dynamodb.NewJanitor(db, logger.NewTestLogger(), dynamodb.Settings{JanitorInterval: 5 * time.Millisecond})
+	return dynamodb.NewJanitor(db, dynamodb.Settings{JanitorInterval: 5 * time.Millisecond})
 }
 
 func TestDDBJanitor_DeleteTable(t *testing.T) {

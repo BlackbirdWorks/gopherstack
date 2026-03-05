@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"sort"
 	"strconv"
 	"strings"
@@ -53,7 +52,6 @@ type StorageBackend interface {
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	logger          *slog.Logger
 	deliveryTargets *DeliveryTargets
 	buses           map[string]*EventBus
 	rules           map[string]map[string]*Rule
@@ -77,7 +75,6 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		buses:           make(map[string]*EventBus),
 		rules:           make(map[string]map[string]*Rule),
 		targets:         make(map[string]map[string]*Target),
-		logger:          slog.Default(),
 		deliveryTargets: &DeliveryTargets{},
 		mu:              lockmetrics.New("eventbridge"),
 	}
@@ -89,13 +86,6 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	}
 
 	return b
-}
-
-// SetLogger sets the logger for the backend.
-func (b *InMemoryBackend) SetLogger(log *slog.Logger) {
-	b.mu.Lock("SetLogger")
-	defer b.mu.Unlock()
-	b.logger = log
 }
 
 // SetDeliveryTargets configures the service references used for fan-out delivery.

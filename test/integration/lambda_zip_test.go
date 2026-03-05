@@ -51,15 +51,14 @@ func TestIntegration_Lambda_Zip_CRUD(t *testing.T) {
 	// Wire up an in-process server with the Lambda handler only.
 	backend := lambdapkg.NewInMemoryBackend(
 		nil, nil, lambdapkg.DefaultSettings(), "000000000000", "us-east-1",
-		slog.Default(),
 	)
-	handler := lambdapkg.NewHandler(backend, slog.Default())
+	handler := lambdapkg.NewHandler(backend)
 	handler.AccountID = "000000000000"
 	handler.DefaultRegion = "us-east-1"
 
 	e := echo.New()
 	e.Pre(pkglogger.EchoMiddleware(slog.Default()))
-	registry := service.NewRegistry(slog.Default())
+	registry := service.NewRegistry()
 	require.NoError(t, registry.Register(handler))
 	e.Use(service.NewServiceRouter(registry).RouteHandler())
 	server := httptest.NewServer(e)
@@ -181,13 +180,12 @@ func TestIntegration_Lambda_Zip_ValidationErrors(t *testing.T) {
 
 	backend := lambdapkg.NewInMemoryBackend(
 		nil, nil, lambdapkg.DefaultSettings(), "000000000000", "us-east-1",
-		slog.Default(),
 	)
-	handler := lambdapkg.NewHandler(backend, slog.Default())
+	handler := lambdapkg.NewHandler(backend)
 	handler.AccountID = "000000000000"
 
 	e := echo.New()
-	registry := service.NewRegistry(slog.Default())
+	registry := service.NewRegistry()
 	require.NoError(t, registry.Register(handler))
 	e.Use(service.NewServiceRouter(registry).RouteHandler())
 	server := httptest.NewServer(e)
@@ -256,13 +254,12 @@ func TestIntegration_Lambda_Zip_S3Code(t *testing.T) {
 
 	backend := lambdapkg.NewInMemoryBackend(
 		nil, nil, lambdapkg.DefaultSettings(), "000000000000", "us-east-1",
-		slog.Default(),
 	)
-	handler := lambdapkg.NewHandler(backend, slog.Default())
+	handler := lambdapkg.NewHandler(backend)
 	handler.AccountID = "000000000000"
 
 	e := echo.New()
-	registry := service.NewRegistry(slog.Default())
+	registry := service.NewRegistry()
 	require.NoError(t, registry.Register(handler))
 	e.Use(service.NewServiceRouter(registry).RouteHandler())
 	server := httptest.NewServer(e)

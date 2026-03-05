@@ -3,10 +3,10 @@ package s3
 import (
 	"context"
 	"encoding/xml"
-	"log/slog"
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 )
 
@@ -57,14 +57,13 @@ const (
 // deletion and records queue-depth metrics for the live dashboard.
 type Janitor struct {
 	Backend  *InMemoryBackend
-	Log      *slog.Logger
 	Interval time.Duration
 }
 
 // NewJanitor creates a new S3 Janitor for the given backend.
 // The janitor interval is taken from the provided settings;
 // if zero, it falls back to defaultJanitorInterval.
-func NewJanitor(backend *InMemoryBackend, log *slog.Logger, settings Settings) *Janitor {
+func NewJanitor(backend *InMemoryBackend, settings Settings) *Janitor {
 	interval := settings.JanitorInterval
 	if interval == 0 {
 		interval = defaultJanitorInterval
@@ -72,7 +71,6 @@ func NewJanitor(backend *InMemoryBackend, log *slog.Logger, settings Settings) *
 
 	return &Janitor{
 		Backend:  backend,
-		Log:      log,
 		Interval: interval,
 	}
 }
@@ -154,7 +152,7 @@ func (j *Janitor) processBucket(ctx context.Context, name string) {
 	b.mu.Unlock()
 	bucket.mu.Close()
 
-	j.Log.InfoContext(ctx, "S3 janitor: bucket deleted", "bucket", name)
+	logger.Load(ctx).InfoContext(ctx, "S3 janitor: bucket deleted", "bucket", name)
 }
 
 // sweepLifecycle iterates over all active buckets, evaluates lifecycle rules,
@@ -210,7 +208,7 @@ func (j *Janitor) applyLifecycleRules(
 ) int {
 	var cfg lifecycleConfiguration
 	if err := xml.Unmarshal([]byte(lcXML), &cfg); err != nil {
-		j.Log.WarnContext(ctx, "S3 janitor: failed to parse lifecycle config",
+		logger.Load(ctx).WarnContext(ctx, "S3 janitor: failed to parse lifecycle config",
 			"bucket", bucketName, "error", err)
 
 		return 0
@@ -234,7 +232,7 @@ func (j *Janitor) applyLifecycleRules(
 	}
 
 	if evicted > 0 {
-		j.Log.InfoContext(ctx, "S3 janitor: lifecycle objects evicted",
+		logger.Load(ctx).InfoContext(ctx, "S3 janitor: lifecycle objects evicted",
 			"bucket", bucketName, "count", evicted)
 	}
 

@@ -4,7 +4,6 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"sort"
@@ -32,14 +31,13 @@ type snsActionFn func(c *echo.Context) error
 type Handler struct {
 	actions map[string]snsActionFn
 	Backend StorageBackend
-	Logger  *slog.Logger
 	// DefaultRegion is the fallback region used when region cannot be extracted from the request.
 	DefaultRegion string
 }
 
 // NewHandler creates a new SNS Handler with the given backend and logger.
-func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
-	h := &Handler{Backend: backend, Logger: log}
+func NewHandler(backend StorageBackend) *Handler {
+	h := &Handler{Backend: backend}
 	h.actions = h.buildActions()
 
 	return h
@@ -532,7 +530,7 @@ func (h *Handler) handleUntagResource(c *echo.Context) error {
 
 // writeXML marshals v to XML and writes an HTTP 200 OK response.
 func (h *Handler) writeXML(c *echo.Context, v any) error {
-	httputil.WriteXML(h.Logger, c.Response(), http.StatusOK, v)
+	httputil.WriteXML(c.Request().Context(), c.Response(), http.StatusOK, v)
 
 	return nil
 }
@@ -544,7 +542,7 @@ func (h *Handler) writeError(c *echo.Context, status int, code, message string) 
 		RequestID: uuid.New().String(),
 	}
 
-	httputil.WriteXML(h.Logger, c.Response(), status, errResp)
+	httputil.WriteXML(c.Request().Context(), c.Response(), status, errResp)
 
 	return nil
 }

@@ -2,13 +2,11 @@ package eventbridge_test
 
 import (
 	"context"
-	"log/slog"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/eventbridge"
-	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -71,9 +69,7 @@ func (m *mockLambdaInvoker) Invocations() []lambdaInvocation {
 // setupDeliveryBackend creates a backend wired with a mock SQS sender.
 func setupDeliveryBackend(t *testing.T, sqs *mockSQSSender, lam *mockLambdaInvoker) *eventbridge.InMemoryBackend {
 	t.Helper()
-	log := logger.NewLogger(slog.LevelDebug)
 	backend := eventbridge.NewInMemoryBackend()
-	backend.SetLogger(log)
 	backend.SetDeliveryTargets(&eventbridge.DeliveryTargets{
 		SQS:    sqs,
 		Lambda: lam,

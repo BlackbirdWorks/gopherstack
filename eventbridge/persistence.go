@@ -2,6 +2,7 @@ package eventbridge
 
 import (
 	"encoding/json"
+	"log/slog"
 )
 
 type backendSnapshot struct {
@@ -30,7 +31,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 	data, err := json.Marshal(snap)
 	if err != nil {
-		b.logger.Warn("persistence: snapshot marshal failed", "service", "eventbridge", "error", err)
+		slog.Default().Warn("persistence: snapshot marshal failed", "service", "eventbridge", "error", err)
 
 		return nil
 	}

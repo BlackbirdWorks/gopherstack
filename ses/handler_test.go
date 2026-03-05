@@ -19,7 +19,7 @@ import (
 
 // newHandler creates a new SES handler with a fresh backend.
 func newHandler() *ses.Handler {
-	return ses.NewHandler(ses.NewInMemoryBackend(), slog.Default())
+	return ses.NewHandler(ses.NewInMemoryBackend())
 }
 
 // postForm sends a form-encoded POST to the SES handler and returns the recorder.

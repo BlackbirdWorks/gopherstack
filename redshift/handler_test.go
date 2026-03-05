@@ -1,7 +1,6 @@
 package redshift_test
 
 import (
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,7 +14,7 @@ import (
 )
 
 func newRedshiftHandler() *redshift.Handler {
-	return redshift.NewHandler(redshift.NewInMemoryBackend("000000000000", "us-east-1"), slog.Default())
+	return redshift.NewHandler(redshift.NewInMemoryBackend("000000000000", "us-east-1"))
 }
 
 func postRedshiftForm(t *testing.T, h *redshift.Handler, body string) *httptest.ResponseRecorder {

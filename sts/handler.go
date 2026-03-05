@@ -7,7 +7,6 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -39,14 +38,12 @@ const (
 // Handler is the Echo HTTP handler for STS operations.
 type Handler struct {
 	Backend StorageBackend
-	Logger  *slog.Logger
 }
 
 // NewHandler creates a new STS handler with the given backend.
-func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
+func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{
 		Backend: backend,
-		Logger:  log,
 	}
 }
 

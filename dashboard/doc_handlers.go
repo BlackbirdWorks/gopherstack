@@ -6,15 +6,40 @@ import "net/http"
 type docPageData struct {
 	PageData
 
-	DynamoDBOps       []string
-	S3Ops             []string
-	SSMOps            []string
-	SQSOps            []string
-	SNSOps            []string
-	IAMOps            []string
-	STSOps            []string
-	KMSOps            []string
-	SecretsManagerOps []string
+	DynamoDBOps        []string
+	S3Ops              []string
+	SSMOps             []string
+	SQSOps             []string
+	SNSOps             []string
+	IAMOps             []string
+	STSOps             []string
+	KMSOps             []string
+	SecretsManagerOps  []string
+	LambdaOps          []string
+	EventBridgeOps     []string
+	APIGatewayOps      []string
+	CloudWatchLogsOps  []string
+	StepFunctionsOps   []string
+	CloudWatchOps      []string
+	CloudFormationOps  []string
+	KinesisOps         []string
+	ElastiCacheOps     []string
+	Route53Ops         []string
+	SESOps             []string
+	EC2Ops             []string
+	OpenSearchOps      []string
+	ACMOps             []string
+	RedshiftOps        []string
+	RDSOps             []string
+	AWSConfigOps       []string
+	S3ControlOps       []string
+	ResourceGroupsOps  []string
+	SWFOps             []string
+	FirehoseOps        []string
+	SchedulerOps       []string
+	Route53ResolverOps []string
+	TranscribeOps      []string
+	SupportOps         []string
 }
 
 // docIndex renders the documentation page.
@@ -32,70 +57,50 @@ func (h *DashboardHandler) docIndex(w http.ResponseWriter, _ *http.Request) {
 					"client = boto3.client('docs', endpoint_url='http://localhost:8000')",
 			},
 		},
-		DynamoDBOps:       h.DDBOps.GetSupportedOperations(),
-		S3Ops:             h.S3Ops.GetSupportedOperations(),
-		SSMOps:            h.SSMOps.GetSupportedOperations(),
-		SQSOps:            h.sqsOps(),
-		SNSOps:            h.snsOps(),
-		IAMOps:            h.iamOps(),
-		STSOps:            h.stsOps(),
-		KMSOps:            h.kmsOps(),
-		SecretsManagerOps: h.smOps(),
+		DynamoDBOps:        h.getSupportedOps(h.DDBOps),
+		S3Ops:              h.getSupportedOps(h.S3Ops),
+		SSMOps:             h.getSupportedOps(h.SSMOps),
+		SQSOps:             h.getSupportedOps(h.SQSOps),
+		SNSOps:             h.getSupportedOps(h.SNSOps),
+		IAMOps:             h.getSupportedOps(h.IAMOps),
+		STSOps:             h.getSupportedOps(h.STSOps),
+		KMSOps:             h.getSupportedOps(h.KMSOps),
+		SecretsManagerOps:  h.getSupportedOps(h.SecretsManagerOps),
+		LambdaOps:          h.getSupportedOps(h.LambdaOps),
+		EventBridgeOps:     h.getSupportedOps(h.EventBridgeOps),
+		APIGatewayOps:      h.getSupportedOps(h.APIGatewayOps),
+		CloudWatchLogsOps:  h.getSupportedOps(h.CloudWatchLogsOps),
+		StepFunctionsOps:   h.getSupportedOps(h.StepFunctionsOps),
+		CloudWatchOps:      h.getSupportedOps(h.CloudWatchOps),
+		CloudFormationOps:  h.getSupportedOps(h.CloudFormationOps),
+		KinesisOps:         h.getSupportedOps(h.KinesisOps),
+		ElastiCacheOps:     h.getSupportedOps(h.ElastiCacheOps),
+		Route53Ops:         h.getSupportedOps(h.Route53Ops),
+		SESOps:             h.getSupportedOps(h.SESOps),
+		EC2Ops:             h.getSupportedOps(h.EC2Ops),
+		OpenSearchOps:      h.getSupportedOps(h.OpenSearchOps),
+		ACMOps:             h.getSupportedOps(h.ACMOps),
+		RedshiftOps:        h.getSupportedOps(h.RedshiftOps),
+		RDSOps:             h.getSupportedOps(h.RDSOps),
+		AWSConfigOps:       h.getSupportedOps(h.AWSConfigOps),
+		S3ControlOps:       h.getSupportedOps(h.S3ControlOps),
+		ResourceGroupsOps:  h.getSupportedOps(h.ResourceGroupsOps),
+		SWFOps:             h.getSupportedOps(h.SWFOps),
+		FirehoseOps:        h.getSupportedOps(h.FirehoseOps),
+		SchedulerOps:       h.getSupportedOps(h.SchedulerOps),
+		Route53ResolverOps: h.getSupportedOps(h.Route53ResolverOps),
+		TranscribeOps:      h.getSupportedOps(h.TranscribeOps),
+		SupportOps:         h.getSupportedOps(h.SupportOps),
 	}
 
 	h.renderTemplate(w, "doc.html", data)
 }
 
-// sqsOps returns the list of supported SQS operations, or nil if SQSOps is not configured.
-func (h *DashboardHandler) sqsOps() []string {
-	if h.SQSOps == nil {
+// getSupportedOps returns the list of supported operations for a provider.
+func (h *DashboardHandler) getSupportedOps(p OperationsProvider) []string {
+	if p == nil {
 		return nil
 	}
 
-	return h.SQSOps.GetSupportedOperations()
-}
-
-// snsOps returns the list of supported SNS operations, or nil if SNSOps is not configured.
-func (h *DashboardHandler) snsOps() []string {
-	if h.SNSOps == nil {
-		return nil
-	}
-
-	return h.SNSOps.GetSupportedOperations()
-}
-
-// iamOps returns the list of supported IAM operations, or nil if IAMOps is not configured.
-func (h *DashboardHandler) iamOps() []string {
-	if h.IAMOps == nil {
-		return nil
-	}
-
-	return h.IAMOps.GetSupportedOperations()
-}
-
-// stsOps returns the list of supported STS operations, or nil if STSOps is not configured.
-func (h *DashboardHandler) stsOps() []string {
-	if h.STSOps == nil {
-		return nil
-	}
-
-	return h.STSOps.GetSupportedOperations()
-}
-
-// kmsOps returns the list of supported KMS operations, or nil if KMSOps is not configured.
-func (h *DashboardHandler) kmsOps() []string {
-	if h.KMSOps == nil {
-		return nil
-	}
-
-	return h.KMSOps.GetSupportedOperations()
-}
-
-// smOps returns the list of supported Secrets Manager operations, or nil if SecretsManagerOps is not configured.
-func (h *DashboardHandler) smOps() []string {
-	if h.SecretsManagerOps == nil {
-		return nil
-	}
-
-	return h.SecretsManagerOps.GetSupportedOperations()
+	return p.GetSupportedOperations()
 }

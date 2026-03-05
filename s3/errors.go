@@ -1,8 +1,8 @@
 package s3
 
 import (
+	"context"
 	"errors"
-	"log/slog"
 	"net/http"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -39,7 +39,7 @@ type s3ErrorInfo struct {
 }
 
 // WriteError translates a typed Go error to an S3 ErrorResponse XML payload.
-func WriteError(log *slog.Logger, w http.ResponseWriter, r *http.Request, err error) {
+func WriteError(ctx context.Context, w http.ResponseWriter, r *http.Request, err error) {
 	type s3ErrorEntry struct {
 		err  error
 		info s3ErrorInfo
@@ -119,7 +119,7 @@ func WriteError(log *slog.Logger, w http.ResponseWriter, r *http.Request, err er
 	for _, e := range table {
 		if errors.Is(err, e.err) {
 			httputil.WriteS3ErrorResponse(
-				log, w, r,
+				ctx, w, r,
 				ErrorResponse{Code: e.info.code, Message: e.info.message},
 				e.info.status,
 			)
@@ -128,7 +128,7 @@ func WriteError(log *slog.Logger, w http.ResponseWriter, r *http.Request, err er
 		}
 	}
 
-	httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
+	httputil.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
 		Code:    "InternalError",
 		Message: "We encountered an internal error. Please try again.",
 	}, http.StatusInternalServerError)

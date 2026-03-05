@@ -4,7 +4,6 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -12,6 +11,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -24,12 +24,11 @@ const (
 // Handler is the Echo HTTP handler for Redshift operations.
 type Handler struct {
 	Backend *InMemoryBackend
-	Logger  *slog.Logger
 }
 
 // NewHandler creates a new Redshift handler.
-func NewHandler(backend *InMemoryBackend, log *slog.Logger) *Handler {
-	return &Handler{Backend: backend, Logger: log}
+func NewHandler(backend *InMemoryBackend) *Handler {
+	return &Handler{Backend: backend}
 }
 
 // Name returns the service name.
@@ -239,7 +238,7 @@ func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) err
 	default:
 		code = "InternalFailure"
 		statusCode = http.StatusInternalServerError
-		h.Logger.Error("Redshift internal error", "error", opErr, "action", action)
+		logger.Load(c.Request().Context()).Error("Redshift internal error", "error", opErr, "action", action)
 	}
 
 	return h.writeError(c, statusCode, code, opErr.Error())

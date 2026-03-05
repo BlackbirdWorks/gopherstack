@@ -1,7 +1,6 @@
 package scheduler_test
 
 import (
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -92,7 +91,7 @@ func TestSchedulerHandler_Persistence(t *testing.T) {
 	t.Parallel()
 
 	backend := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
-	h := scheduler.NewHandler(backend, slog.Default())
+	h := scheduler.NewHandler(backend)
 
 	_, err := backend.CreateSchedule(
 		"snap-schedule",
@@ -110,7 +109,7 @@ func TestSchedulerHandler_Persistence(t *testing.T) {
 	require.NotNil(t, snap)
 
 	fresh := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
-	freshH := scheduler.NewHandler(fresh, slog.Default())
+	freshH := scheduler.NewHandler(fresh)
 	require.NoError(t, freshH.Restore(snap))
 
 	schedules := fresh.ListSchedules()
@@ -120,7 +119,7 @@ func TestSchedulerHandler_Persistence(t *testing.T) {
 func TestSchedulerHandler_Routing(t *testing.T) {
 	t.Parallel()
 
-	h := scheduler.NewHandler(scheduler.NewInMemoryBackend("000000000000", "us-east-1"), slog.Default())
+	h := scheduler.NewHandler(scheduler.NewInMemoryBackend("000000000000", "us-east-1"))
 
 	assert.Equal(t, "Scheduler", h.Name())
 	assert.Positive(t, h.MatchPriority())
@@ -153,7 +152,7 @@ func TestSchedulerHandler_Routing(t *testing.T) {
 func TestSchedulerHandler_RESTPath(t *testing.T) {
 	t.Parallel()
 
-	h := scheduler.NewHandler(scheduler.NewInMemoryBackend("000000000000", "us-east-1"), slog.Default())
+	h := scheduler.NewHandler(scheduler.NewInMemoryBackend("000000000000", "us-east-1"))
 
 	e := echo.New()
 

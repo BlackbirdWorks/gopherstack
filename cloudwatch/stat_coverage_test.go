@@ -131,7 +131,7 @@ func TestCloudWatchHandler_ExtractOperation_ParseFormError(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := cloudwatch.NewHandler(cloudwatch.NewInMemoryBackend(), nil)
+			h := cloudwatch.NewHandler(cloudwatch.NewInMemoryBackend())
 			e := echo.New()
 			req := httptest.NewRequest(http.MethodPost, tt.rawURL, strings.NewReader("Action=ListMetrics"))
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -163,7 +163,7 @@ func TestCloudWatchHandler_ExtractResource_ParseFormError(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := cloudwatch.NewHandler(cloudwatch.NewInMemoryBackend(), nil)
+			h := cloudwatch.NewHandler(cloudwatch.NewInMemoryBackend())
 			e := echo.New()
 			req := httptest.NewRequest(http.MethodPost, tt.rawURL, strings.NewReader("Namespace=AWS/EC2"))
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -327,7 +327,7 @@ func TestCloudWatchHandler_RouteMatcher_NonPOST(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := cloudwatch.NewHandler(cloudwatch.NewInMemoryBackend(), nil)
+			h := cloudwatch.NewHandler(cloudwatch.NewInMemoryBackend())
 			matcher := h.RouteMatcher()
 			e := echo.New()
 			req := httptest.NewRequest(tt.method, "/", nil)

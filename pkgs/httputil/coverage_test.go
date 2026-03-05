@@ -3,7 +3,6 @@ package httputil_test
 import (
 	"encoding/xml"
 	"errors"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -42,7 +41,7 @@ func TestWriteJSON_WithLogger(t *testing.T) {
 			t.Parallel()
 
 			w := httptest.NewRecorder()
-			httputil.WriteJSON(slog.Default(), w, http.StatusOK, tt.payload)
+			httputil.WriteJSON(t.Context(), w, http.StatusOK, tt.payload)
 			assert.Equal(t, tt.wantCode, w.Code)
 		})
 	}
@@ -78,7 +77,7 @@ func TestWriteXML_WithLogger(t *testing.T) {
 			t.Parallel()
 
 			w := httptest.NewRecorder()
-			httputil.WriteXML(slog.Default(), w, http.StatusOK, tt.payload)
+			httputil.WriteXML(t.Context(), w, http.StatusOK, tt.payload)
 			assert.Equal(t, tt.wantCode, w.Code)
 		})
 	}
@@ -109,7 +108,7 @@ func TestWriteDynamoDBResponse_WithLogger(t *testing.T) {
 			t.Parallel()
 
 			w := httptest.NewRecorder()
-			httputil.WriteDynamoDBResponse(slog.Default(), w, http.StatusOK, tt.payload)
+			httputil.WriteDynamoDBResponse(t.Context(), w, http.StatusOK, tt.payload)
 			assert.Equal(t, tt.wantCode, w.Code)
 		})
 	}
@@ -134,7 +133,7 @@ func TestWriteError_WithLogger(t *testing.T) {
 
 			w := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, "/test", nil)
-			httputil.WriteError(slog.Default(), w, req, errCovTest, tt.wantCode)
+			httputil.WriteError(req.Context(), w, req, errCovTest, tt.wantCode)
 			assert.Equal(t, tt.wantCode, w.Code)
 			assert.Contains(t, w.Body.String(), "coverage test error")
 		})
@@ -179,7 +178,7 @@ func TestEchoError_WithLogger(t *testing.T) {
 			rec := httptest.NewRecorder()
 			c := e.NewContext(req, rec)
 
-			res := httputil.EchoError(slog.Default(), c, tt.code, tt.message, tt.err)
+			res := httputil.EchoError(c.Request().Context(), c, tt.code, tt.message, tt.err)
 			require.NoError(t, res)
 			assert.Equal(t, tt.wantCode, rec.Code)
 			assert.Equal(t, tt.wantBody, rec.Body.String())
@@ -244,7 +243,7 @@ func TestWriteJSON_PreservesContentType(t *testing.T) {
 				w.Header().Set("Content-Type", tt.contentType)
 			}
 
-			httputil.WriteJSON(nil, w, http.StatusOK, map[string]string{"k": "v"})
+			httputil.WriteJSON(t.Context(), w, http.StatusOK, map[string]string{"k": "v"})
 			assert.Equal(t, tt.wantCT, w.Header().Get("Content-Type"))
 		})
 	}
@@ -276,7 +275,7 @@ func TestWriteS3ErrorResponse_WithLogger(t *testing.T) {
 			w := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, "/bucket/key", nil)
 			httputil.WriteS3ErrorResponse(
-				slog.Default(), w, req,
+				req.Context(), w, req,
 				s3Err{Code: "NoSuchKey", Message: "not found"},
 				tt.wantCode,
 			)

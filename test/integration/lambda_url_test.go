@@ -45,15 +45,14 @@ func TestLambdaFunctionURL_CreateGetDelete(t *testing.T) {
 		lambdapkg.DefaultSettings(),
 		"000000000000",
 		"us-east-1",
-		slog.Default(),
 	)
-	handler := lambdapkg.NewHandler(backend, slog.Default())
+	handler := lambdapkg.NewHandler(backend)
 	handler.AccountID = "000000000000"
 	handler.DefaultRegion = "us-east-1"
 
 	e := echo.New()
 	e.Pre(logger.EchoMiddleware(slog.Default()))
-	registry := service.NewRegistry(slog.Default())
+	registry := service.NewRegistry()
 	require.NoError(t, registry.Register(handler))
 	e.Use(service.NewServiceRouter(registry).RouteHandler())
 	server := httptest.NewServer(e)
@@ -144,7 +143,6 @@ func TestLambdaFunctionURL_HTTPEndpoint(t *testing.T) {
 		lambdapkg.DefaultSettings(),
 		"000000000000",
 		"us-east-1",
-		slog.Default(),
 	)
 
 	const fnName = "http-endpoint-fn"

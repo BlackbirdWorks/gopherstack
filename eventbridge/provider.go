@@ -24,10 +24,10 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		backend = NewInMemoryBackend()
 	}
 
-	handler := NewHandler(backend, ctx.Logger)
+	handler := NewHandler(backend)
 
 	// Attach the scheduled-rules scheduler so it runs as a BackgroundWorker.
-	scheduler := NewScheduler(backend, ctx.Logger, 0 /* default tick interval */)
+	scheduler := NewScheduler(backend, 0 /* default tick interval */)
 	handler.SetScheduler(scheduler)
 
 	return handler, nil

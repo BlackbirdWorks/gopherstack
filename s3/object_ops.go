@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -43,7 +42,6 @@ func (h *S3Handler) handleObjectOperation(
 	r *http.Request,
 	bucket, key string,
 ) {
-	log := logger.Load(ctx)
 	switch r.Method {
 	case http.MethodPut:
 		h.routeObjectPut(ctx, w, r, bucket, key)
@@ -58,7 +56,7 @@ func (h *S3Handler) handleObjectOperation(
 	case http.MethodOptions:
 		h.handleCORSPreflight(ctx, w, r, bucket)
 	default:
-		WriteError(log, w, r, ErrMethodNotAllowed)
+		WriteError(ctx, w, r, ErrMethodNotAllowed)
 	}
 }
 
@@ -132,14 +130,13 @@ func (h *S3Handler) routeObjectPost(
 	r *http.Request,
 	bucket, key string,
 ) {
-	log := logger.Load(ctx)
 	switch {
 	case r.URL.Query().Has("uploads"):
 		h.createMultipartUpload(ctx, w, r, bucket, key)
 	case r.URL.Query().Has("uploadId"):
 		h.completeMultipartUpload(ctx, w, r, bucket, key)
 	default:
-		WriteError(log, w, r, ErrMethodNotAllowed)
+		WriteError(ctx, w, r, ErrMethodNotAllowed)
 	}
 }
 
@@ -210,7 +207,7 @@ func (h *S3Handler) headObject(
 }
 
 // validateContentMD5 checks the Content-MD5 header against the data. Returns false and writes error if invalid.
-func validateContentMD5(log *slog.Logger, w http.ResponseWriter, r *http.Request, data []byte) bool {
+func validateContentMD5(ctx context.Context, w http.ResponseWriter, r *http.Request, data []byte) bool {
 	contentMD5Header := r.Header.Get("Content-MD5")
 	if contentMD5Header == "" {
 		return true
@@ -218,7 +215,7 @@ func validateContentMD5(log *slog.Logger, w http.ResponseWriter, r *http.Request
 
 	decoded, decErr := base64.StdEncoding.DecodeString(contentMD5Header)
 	if decErr != nil || len(decoded) != md5.Size {
-		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
+		httputil.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
 			Code:    "BadDigest",
 			Message: "The Content-MD5 you specified did not match what we received.",
 		}, http.StatusBadRequest)
@@ -229,7 +226,7 @@ func validateContentMD5(log *slog.Logger, w http.ResponseWriter, r *http.Request
 	//nolint:gosec // MD5 required for Content-MD5 header validation per S3 spec
 	computed := md5.Sum(data)
 	if !bytes.Equal(computed[:], decoded) {
-		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
+		httputil.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
 			Code:    "BadDigest",
 			Message: "The Content-MD5 you specified did not match what we received.",
 		}, http.StatusBadRequest)
@@ -264,8 +261,7 @@ func (h *S3Handler) putObject(
 	bucketName, key string,
 ) {
 	h.setOperation(ctx, "PutObject")
-	log := logger.Load(ctx)
-	log.DebugContext(
+	logger.Load(ctx).DebugContext(
 		ctx,
 		"S3 putObject input",
 		"bucket",
@@ -278,12 +274,12 @@ func (h *S3Handler) putObject(
 
 	data, err := httputil.ReadBody(r)
 	if err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
 
-	if !validateContentMD5(log, w, r, data) {
+	if !validateContentMD5(ctx, w, r, data) {
 		return
 	}
 
@@ -322,20 +318,20 @@ func (h *S3Handler) putObject(
 		},
 	)
 	if errors.Is(err, ErrNoSuchBucket) {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
 
 	if err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
 
 	h.setPutObjectResponseHeaders(w, ver)
 
-	log.DebugContext(ctx,
+	logger.Load(ctx).DebugContext(ctx,
 		"S3 putObject output",
 		"bucket", bucketName, "key", key, "etag", aws.ToString(ver.ETag),
 		"versionId", aws.ToString(ver.VersionId),
@@ -400,11 +396,10 @@ func (h *S3Handler) copyObject(
 	destBucket, destKey string,
 ) {
 	h.setOperation(ctx, "CopyObject")
-	log := logger.Load(ctx)
 
 	data, srcVer, err := h.copySourceData(ctx, r)
 	if err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
@@ -412,18 +407,18 @@ func (h *S3Handler) copyObject(
 	userMeta := srcVer.Metadata
 	contentType := srcVer.ContentType
 
-	log.DebugContext(ctx, "CopyObject source info",
+	logger.Load(ctx).DebugContext(ctx, "CopyObject source info",
 		"srcBucket", aws.ToString(srcVer.ContentType),
 		"srcContentType", aws.ToString(contentType))
 
 	if r.Header.Get("X-Amz-Metadata-Directive") == "REPLACE" {
 		ct := r.Header.Get("Content-Type")
-		log.DebugContext(ctx, "Metadata directive REPLACE detected", "headerContentType", ct)
+		logger.Load(ctx).DebugContext(ctx, "Metadata directive REPLACE detected", "headerContentType", ct)
 		if ct != "" && !strings.Contains(ct, "form-urlencoded") {
 			contentType = aws.String(ct)
 		}
 		userMeta = parseUserMetadata(r.Header)
-		log.DebugContext(ctx, "Metadata directive REPLACE applied",
+		logger.Load(ctx).DebugContext(ctx, "Metadata directive REPLACE applied",
 			"newContentType", aws.ToString(contentType), "newUserMeta", userMeta)
 	}
 
@@ -437,7 +432,7 @@ func (h *S3Handler) copyObject(
 
 	destVer, err := h.Backend.PutObject(ctx, putInput)
 	if err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
@@ -451,7 +446,7 @@ func (h *S3Handler) copyObject(
 		etag = *destVer.ETag
 	}
 
-	httputil.WriteXML(log, w, http.StatusOK, CopyObjectResult{
+	httputil.WriteXML(ctx, w, http.StatusOK, CopyObjectResult{
 		ETag:         etag,
 		LastModified: time.Now().UTC().Format(time.RFC3339),
 	})
@@ -464,9 +459,8 @@ func (h *S3Handler) getObject(
 	bucketName, key string,
 ) {
 	h.setOperation(ctx, "GetObject")
-	log := logger.Load(ctx)
 	versionID := r.URL.Query().Get("versionId")
-	log.DebugContext(
+	logger.Load(ctx).DebugContext(
 		ctx,
 		"S3 getObject input",
 		"bucket",
@@ -488,13 +482,13 @@ func (h *S3Handler) getObject(
 		VersionId: vid,
 	})
 	if errors.Is(err, ErrNoSuchBucket) || errors.Is(err, ErrNoSuchKey) {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
 
 	if err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
@@ -542,7 +536,7 @@ func (h *S3Handler) getObject(
 		ver.Body = io.NopCloser(bytes.NewReader(data))
 	}
 
-	log.DebugContext(ctx,
+	logger.Load(ctx).DebugContext(ctx,
 		"S3 getObject output",
 		"bucket", bucketName, "key", key, "etag", aws.ToString(ver.ETag),
 		"contentLength", aws.ToInt64(ver.ContentLength),
@@ -551,7 +545,7 @@ func (h *S3Handler) getObject(
 	w.WriteHeader(http.StatusOK)
 
 	if _, copyErr := io.Copy(w, ver.Body); copyErr != nil {
-		log.ErrorContext(ctx, "failed to write object data", "error", copyErr)
+		logger.Load(ctx).ErrorContext(ctx, "failed to write object data", "error", copyErr)
 	}
 }
 
@@ -562,9 +556,8 @@ func (h *S3Handler) deleteObject(
 	bucketName, key string,
 ) {
 	h.setOperation(ctx, "DeleteObject")
-	log := logger.Load(ctx)
 	versionID := r.URL.Query().Get("versionId")
-	log.DebugContext(
+	logger.Load(ctx).DebugContext(
 		ctx,
 		"S3 deleteObject input",
 		"bucket",
@@ -586,19 +579,19 @@ func (h *S3Handler) deleteObject(
 		VersionId: vid,
 	})
 	if errors.Is(err, ErrNoSuchBucket) || errors.Is(err, ErrNoSuchKey) {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
 
 	if errors.Is(err, ErrObjectLocked) {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
 
 	if err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
@@ -610,7 +603,7 @@ func (h *S3Handler) deleteObject(
 		w.Header().Set("X-Amz-Delete-Marker", "true")
 	}
 
-	log.DebugContext(ctx,
+	logger.Load(ctx).DebugContext(ctx,
 		"S3 deleteObject output",
 		"bucket", bucketName, "key", key, "deleteMarker", aws.ToBool(out.DeleteMarker),
 	)
@@ -636,16 +629,15 @@ func (h *S3Handler) deleteObjects(
 	bucketName string,
 ) {
 	h.setOperation(ctx, "DeleteObjects")
-	log := logger.Load(ctx)
 	var req DeleteRequest
 	if err := xml.NewDecoder(r.Body).Decode(&req); err != nil {
-		WriteError(log, w, r, ErrInvalidArgument)
+		WriteError(ctx, w, r, ErrInvalidArgument)
 
 		return
 	}
 
 	if len(req.Objects) > maxDeleteObjects {
-		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
+		httputil.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
 			Code:    "InvalidArgument",
 			Message: "You have attempted to delete more objects than allowed by the service's max-delete limit (1000).",
 		}, http.StatusBadRequest)
@@ -670,7 +662,7 @@ func (h *S3Handler) deleteObjects(
 
 	out, err := h.Backend.DeleteObjects(ctx, input)
 	if err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
@@ -700,7 +692,7 @@ func (h *S3Handler) deleteObjects(
 		})
 	}
 
-	httputil.WriteXML(log, w, http.StatusOK, resp)
+	httputil.WriteXML(ctx, w, http.StatusOK, resp)
 }
 
 func (h *S3Handler) putObjectTagging(
@@ -710,10 +702,9 @@ func (h *S3Handler) putObjectTagging(
 	bucketName, key string,
 ) {
 	h.setOperation(ctx, "PutObjectTagging")
-	log := logger.Load(ctx)
 	var tagging Tagging
 	if err := xml.NewDecoder(r.Body).Decode(&tagging); err != nil {
-		WriteError(log, w, r, ErrInvalidArgument)
+		WriteError(ctx, w, r, ErrInvalidArgument)
 
 		return
 	}
@@ -738,7 +729,7 @@ func (h *S3Handler) putObjectTagging(
 		VersionId: vid,
 		Tagging:   &types.Tagging{TagSet: tags},
 	}); err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
@@ -753,7 +744,6 @@ func (h *S3Handler) getObjectTagging(
 	bucketName, key string,
 ) {
 	h.setOperation(ctx, "GetObjectTagging")
-	log := logger.Load(ctx)
 	versionID := r.URL.Query().Get("versionId")
 	var vid *string
 	if versionID != "" {
@@ -766,7 +756,7 @@ func (h *S3Handler) getObjectTagging(
 		VersionId: vid,
 	})
 	if err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
@@ -781,7 +771,7 @@ func (h *S3Handler) getObjectTagging(
 		}
 	}
 
-	httputil.WriteXML(log, w, http.StatusOK, resp)
+	httputil.WriteXML(ctx, w, http.StatusOK, resp)
 }
 
 func (h *S3Handler) deleteObjectTagging(
@@ -791,7 +781,6 @@ func (h *S3Handler) deleteObjectTagging(
 	bucketName, key string,
 ) {
 	h.setOperation(ctx, "DeleteObjectTagging")
-	log := logger.Load(ctx)
 	versionID := r.URL.Query().Get("versionId")
 	var vid *string
 	if versionID != "" {
@@ -803,7 +792,7 @@ func (h *S3Handler) deleteObjectTagging(
 		Key:       aws.String(key),
 		VersionId: vid,
 	}); err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
@@ -954,7 +943,6 @@ func (h *S3Handler) serveRange(
 	data []byte,
 	rangeHeader string,
 ) bool {
-	log := logger.Load(ctx)
 	total := int64(len(data))
 	start, end, ok := parseRange(rangeHeader, total)
 
@@ -973,7 +961,7 @@ func (h *S3Handler) serveRange(
 
 	// #nosec G705
 	if _, err := w.Write(data[start : end+1]); err != nil {
-		log.ErrorContext(ctx, "failed to write range data", "error", err)
+		logger.Load(ctx).ErrorContext(ctx, "failed to write range data", "error", err)
 	}
 
 	return true
@@ -1072,18 +1060,17 @@ func (h *S3Handler) putObjectRetention(
 	bucketName, key string,
 ) {
 	h.setOperation(ctx, "PutObjectRetention")
-	log := logger.Load(ctx)
 
 	body, err := httputil.ReadBody(r)
 	if err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
 
 	var ret ObjectRetention
 	if xmlErr := xml.NewDecoder(bytes.NewReader(body)).Decode(&ret); xmlErr != nil {
-		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
+		httputil.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
 			Code:    "MalformedXML",
 			Message: "The XML you provided was not well-formed",
 		}, http.StatusBadRequest)
@@ -1096,7 +1083,7 @@ func (h *S3Handler) putObjectRetention(
 		// Try alternative format
 		retainUntil, parseErr = time.Parse("2006-01-02T15:04:05.999Z", ret.RetainUntilDate)
 		if parseErr != nil {
-			httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
+			httputil.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
 				Code:    "InvalidArgument",
 				Message: "Invalid RetainUntilDate format",
 			}, http.StatusBadRequest)
@@ -1112,7 +1099,7 @@ func (h *S3Handler) putObjectRetention(
 	}
 
 	if putErr := h.Backend.PutObjectRetention(ctx, bucketName, key, vid, ret.Mode, retainUntil); putErr != nil {
-		WriteError(log, w, r, putErr)
+		WriteError(ctx, w, r, putErr)
 
 		return
 	}
@@ -1127,7 +1114,6 @@ func (h *S3Handler) getObjectRetention(
 	bucketName, key string,
 ) {
 	h.setOperation(ctx, "GetObjectRetention")
-	log := logger.Load(ctx)
 
 	versionID := r.URL.Query().Get("versionId")
 	var vid *string
@@ -1137,13 +1123,13 @@ func (h *S3Handler) getObjectRetention(
 
 	mode, retainUntil, err := h.Backend.GetObjectRetention(ctx, bucketName, key, vid)
 	if errors.Is(err, ErrNoSuchKey) || errors.Is(err, ErrNoSuchBucket) {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
 
 	if errors.Is(err, ErrNoSuchObjectLockConfig) {
-		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
+		httputil.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
 			Code:    "NoSuchObjectLockConfiguration",
 			Message: "The specified object does not have a ObjectLock configuration",
 		}, http.StatusNotFound)
@@ -1152,7 +1138,7 @@ func (h *S3Handler) getObjectRetention(
 	}
 
 	if err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
@@ -1163,7 +1149,7 @@ func (h *S3Handler) getObjectRetention(
 		RetainUntilDate: retainUntil.UTC().Format(time.RFC3339),
 	}
 
-	httputil.WriteXML(log, w, http.StatusOK, ret)
+	httputil.WriteXML(ctx, w, http.StatusOK, ret)
 }
 
 func (h *S3Handler) putObjectLegalHold(
@@ -1173,18 +1159,17 @@ func (h *S3Handler) putObjectLegalHold(
 	bucketName, key string,
 ) {
 	h.setOperation(ctx, "PutObjectLegalHold")
-	log := logger.Load(ctx)
 
 	body, err := httputil.ReadBody(r)
 	if err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
 
 	var lh ObjectLegalHold
 	if xmlErr := xml.NewDecoder(bytes.NewReader(body)).Decode(&lh); xmlErr != nil {
-		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
+		httputil.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
 			Code:    "MalformedXML",
 			Message: "The XML you provided was not well-formed",
 		}, http.StatusBadRequest)
@@ -1199,7 +1184,7 @@ func (h *S3Handler) putObjectLegalHold(
 	}
 
 	if putErr := h.Backend.PutObjectLegalHold(ctx, bucketName, key, vid, lh.Status); putErr != nil {
-		WriteError(log, w, r, putErr)
+		WriteError(ctx, w, r, putErr)
 
 		return
 	}
@@ -1214,7 +1199,6 @@ func (h *S3Handler) getObjectLegalHold(
 	bucketName, key string,
 ) {
 	h.setOperation(ctx, "GetObjectLegalHold")
-	log := logger.Load(ctx)
 
 	versionID := r.URL.Query().Get("versionId")
 	var vid *string
@@ -1224,13 +1208,13 @@ func (h *S3Handler) getObjectLegalHold(
 
 	status, err := h.Backend.GetObjectLegalHold(ctx, bucketName, key, vid)
 	if errors.Is(err, ErrNoSuchKey) || errors.Is(err, ErrNoSuchBucket) {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
 
 	if err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
@@ -1240,5 +1224,5 @@ func (h *S3Handler) getObjectLegalHold(
 		Status: status,
 	}
 
-	httputil.WriteXML(log, w, http.StatusOK, lh)
+	httputil.WriteXML(ctx, w, http.StatusOK, lh)
 }

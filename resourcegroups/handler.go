@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"net/http"
 	"strings"
 
@@ -71,12 +70,11 @@ func (g *groupNameInput) resolvedName() string {
 // Handler is the Echo HTTP handler for Resource Groups operations.
 type Handler struct {
 	Backend *InMemoryBackend
-	Logger  *slog.Logger
 }
 
 // NewHandler creates a new Resource Groups handler.
-func NewHandler(backend *InMemoryBackend, log *slog.Logger) *Handler {
-	return &Handler{Backend: backend, Logger: log}
+func NewHandler(backend *InMemoryBackend) *Handler {
+	return &Handler{Backend: backend}
 }
 
 // Name returns the service name.

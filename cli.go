@@ -462,29 +462,32 @@ func Run() {
 		kong.Description("In-memory AWS DynamoDB + S3 compatible server."),
 	)
 
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	// rootCtx is cancelled when SIGINT/SIGTERM arrives; all subsystems
+	// (HTTP server, background workers, DNS server) derive their context
+	// from this root so a single signal cleanly unwinds everything.
+	rootCtx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 
 	var err error
 	switch kctx.Command() {
 	case "health":
 		err = root.Health.Run()
 	default:
-		err = run(ctx, root.Serve)
+		err = run(rootCtx, root.Serve)
 	}
 
+	cancel() // release signal-handler goroutine resources
+
 	if err != nil {
-		cancel()
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
-
-	cancel()
 }
 
 // run starts the server with the given CLI configuration.
 // It is separated from Run so it can be exercised in tests without [os.Exit].
 func run(ctx context.Context, cli CLI) error {
 	log := buildLogger(cli.LogLevel)
+	ctx = logger.Save(ctx, log)
 
 	// --- Port allocator ---
 	portAlloc, err := portalloc.New(cli.PortRangeStart, cli.PortRangeEnd)
@@ -501,7 +504,7 @@ func run(ctx context.Context, cli CLI) error {
 	// --- Embedded DNS server ---
 	var dnsSrv *gopherDNS.Server
 	if cli.DNSListenAddr != "" {
-		dnsSrv = startEmbeddedDNS(ctx, log, cli.DNSListenAddr, cli.DNSResolveIP)
+		dnsSrv = startEmbeddedDNS(ctx, cli.DNSListenAddr, cli.DNSResolveIP)
 	}
 
 	inMemMux := http.NewServeMux()
@@ -525,7 +528,7 @@ func run(ctx context.Context, cli CLI) error {
 	defer janitorCancel()
 
 	// --- Persistence ---
-	persistManager, err := initPersistenceManager(ctx, log, &cli)
+	persistManager, err := initPersistenceManager(ctx, &cli)
 	if err != nil {
 		return err
 	}
@@ -548,36 +551,21 @@ func run(ctx context.Context, cli CLI) error {
 
 	setupPersistence(ctx, persistManager, services, cli.Persist)
 
-	// Wire DNS registrar to backends that generate synthetic hostnames.
 	if dnsSrv != nil {
-		wireLambdaDNS(cli.lambdaHandler, dnsSrv)
-		wireRoute53DNS(cli.route53Handler, dnsSrv)
-		wireRDSDNS(cli.rdsHandler, dnsSrv)
-		wireRedshiftDNS(cli.redshiftHandler, dnsSrv)
-		wireOpenSearchDNS(cli.openSearchHandler, dnsSrv)
-		wireElastiCacheDNS(cli.elasticacheHandler, dnsSrv)
+		wireDNSRegistrars(&cli, dnsSrv)
 	}
 
-	e := echo.New()
-	e.Use(httputil.RequestIDMiddleware())
-	e.Use(logger.APIConsoleMiddleware())
-	e.Pre(logger.EchoMiddleware(log))
-	e.GET("/_gopherstack/health", healthHandler)
-
-	// Persist: schedule a debounced snapshot after each mutating request.
-	if cli.Persist {
-		e.Use(persistenceMiddleware(persistManager, services))
-	}
+	e := buildEchoServer(ctx, log, persistManager, services, cli)
 
 	if setupErr := setupRegistry(e, log, services, cli.LatencyMs); setupErr != nil {
 		return setupErr
 	}
 
-	startBackgroundWorkers(janitorCtx, log, services)
+	startBackgroundWorkers(janitorCtx, services)
 	inMemMux.Handle("/", e)
 
 	if cli.Demo {
-		loadDemoData(ctx, log, &cli)
+		loadDemoData(ctx, &cli)
 	}
 
 	// --- Init hooks ---
@@ -586,7 +574,38 @@ func run(ctx context.Context, cli CLI) error {
 		runner.Run(ctx)
 	}
 
-	return startServer(ctx, log, cli.Port, e)
+	return startServer(ctx, cli.Port, e)
+}
+
+// wireDNSRegistrars connects DNS-aware backends to the embedded DNS server.
+func wireDNSRegistrars(cli *CLI, dnsSrv *gopherDNS.Server) {
+	wireLambdaDNS(cli.lambdaHandler, dnsSrv)
+	wireRoute53DNS(cli.route53Handler, dnsSrv)
+	wireRDSDNS(cli.rdsHandler, dnsSrv)
+	wireRedshiftDNS(cli.redshiftHandler, dnsSrv)
+	wireOpenSearchDNS(cli.openSearchHandler, dnsSrv)
+	wireElastiCacheDNS(cli.elasticacheHandler, dnsSrv)
+}
+
+// buildEchoServer creates and configures the Echo HTTP server.
+func buildEchoServer(
+	_ context.Context,
+	log *slog.Logger,
+	persistManager *persistence.Manager,
+	services []service.Registerable,
+	cli CLI,
+) *echo.Echo {
+	e := echo.New()
+	e.Use(httputil.RequestIDMiddleware())
+	e.Use(logger.APIConsoleMiddleware())
+	e.Pre(logger.EchoMiddleware(log))
+	e.GET("/_gopherstack/health", healthHandler)
+
+	if cli.Persist {
+		e.Use(persistenceMiddleware(persistManager, services))
+	}
+
+	return e
 }
 
 // initializeClients configures the AWS SDK clients for DynamoDB, S3, SSM, and STS.
@@ -805,7 +824,9 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 }
 
 // startBackgroundWorkers starts all background workers from services.
-func startBackgroundWorkers(ctx context.Context, log *slog.Logger, services []service.Registerable) {
+func startBackgroundWorkers(ctx context.Context, services []service.Registerable) {
+	log := logger.Load(ctx)
+
 	for _, svc := range services {
 		if worker, ok := svc.(service.BackgroundWorker); ok {
 			if workerErr := worker.StartWorker(ctx); workerErr != nil {
@@ -1016,7 +1037,7 @@ func wireKinesisLambda(kinesisReg, lambdaReg service.Registerable) {
 	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
 		if lambdaBk, bk2Ok := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bk2Ok {
 			adapter := &kinesisReaderAdapter{backend: kinesisBk}
-			lambdaBk.SetKinesisPoller(lambdabackend.NewEventSourcePoller(lambdaBk, adapter, lambdaH.Logger))
+			lambdaBk.SetKinesisPoller(lambdabackend.NewEventSourcePoller(lambdaBk, adapter))
 		}
 	}
 }
@@ -1164,7 +1185,9 @@ func wireSecretsManagerLambda(smReg, lambdaReg service.Registerable) {
 	}
 }
 
-func startServer(ctx context.Context, log *slog.Logger, port string, e *echo.Echo) error {
+func startServer(ctx context.Context, port string, e *echo.Echo) error {
+	log := logger.Load(ctx)
+
 	if port[0] != ':' {
 		port = ":" + port
 	}
@@ -1253,7 +1276,7 @@ func setupRegistry(
 	services []service.Registerable,
 	latencyMs int,
 ) error {
-	registry := service.NewRegistry(log)
+	registry := service.NewRegistry()
 
 	if latencyMs > 0 {
 		registry.SetLatencyMs(latencyMs)
@@ -1276,7 +1299,9 @@ func setupRegistry(
 // startEmbeddedDNS creates and starts the embedded DNS server.
 // Configuration errors and startup failures are logged as warnings; the server
 // continues to run without DNS in those cases.
-func startEmbeddedDNS(ctx context.Context, log *slog.Logger, addr, resolveIP string) *gopherDNS.Server {
+func startEmbeddedDNS(ctx context.Context, addr, resolveIP string) *gopherDNS.Server {
+	log := logger.Load(ctx)
+
 	dnsSrv, err := gopherDNS.New(gopherDNS.Config{
 		ListenAddr: addr,
 		ResolveIP:  resolveIP,
@@ -1425,7 +1450,8 @@ func setupPersistence(ctx context.Context, m *persistence.Manager, services []se
 
 // initPersistenceManager creates and configures a persistence.Manager from the CLI config.
 // If persistence is disabled it returns a manager backed by a NullStore.
-func initPersistenceManager(ctx context.Context, log *slog.Logger, cli *CLI) (*persistence.Manager, error) {
+func initPersistenceManager(ctx context.Context, cli *CLI) (*persistence.Manager, error) {
+	log := logger.Load(ctx)
 	var store persistence.Store = persistence.NullStore{}
 
 	if cli.Persist {
@@ -1438,14 +1464,15 @@ func initPersistenceManager(ctx context.Context, log *slog.Logger, cli *CLI) (*p
 		log.InfoContext(ctx, "Persistence enabled", "data_dir", cli.resolvedDataDir())
 	}
 
-	return persistence.NewManager(store, log), nil
+	return persistence.NewManager(store), nil
 }
 
 // loadDemoData loads demo data into the services.
-func loadDemoData(ctx context.Context, log *slog.Logger, cli *CLI) {
+func loadDemoData(ctx context.Context, cli *CLI) {
+	log := logger.Load(ctx)
 	log.InfoContext(ctx, "Loading demo data...")
 
-	err := demo.LoadData(ctx, log, &demo.Clients{
+	err := demo.LoadData(ctx, &demo.Clients{
 		DynamoDB:       cli.ddbClient,
 		S3:             cli.s3Client,
 		SQS:            cli.sqsClient,

@@ -20,7 +20,7 @@ import (
 func newTestResourceGroupsHandler(t *testing.T) *resourcegroups.Handler {
 	t.Helper()
 
-	return resourcegroups.NewHandler(resourcegroups.NewInMemoryBackend("000000000000", "us-east-1"), slog.Default())
+	return resourcegroups.NewHandler(resourcegroups.NewInMemoryBackend("000000000000", "us-east-1"))
 }
 
 func doResourceGroupsRequest(

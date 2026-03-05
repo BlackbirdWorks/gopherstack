@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -24,9 +23,9 @@ func newRealHandler(t *testing.T) (*lambda.Handler, *lambda.InMemoryBackend) {
 
 	backend := lambda.NewInMemoryBackend(
 		nil, nil, lambda.DefaultSettings(),
-		"000000000000", "us-east-1", slog.Default(),
+		"000000000000", "us-east-1",
 	)
-	handler := lambda.NewHandler(backend, slog.Default())
+	handler := lambda.NewHandler(backend)
 
 	return handler, backend
 }
@@ -244,7 +243,7 @@ func TestLambda_SetKinesisPoller(t *testing.T) {
 
 	// Set up a fake KinesisReader
 	reader := &fakeKinesisReader{}
-	poller := lambda.NewEventSourcePoller(backend, reader, slog.Default())
+	poller := lambda.NewEventSourcePoller(backend, reader)
 	backend.SetKinesisPoller(poller)
 	backend.StartKinesisPoller(ctx)
 
@@ -470,7 +469,7 @@ func TestLambda_Poller_PollWithRecords(t *testing.T) {
 		},
 	}
 
-	poller := lambda.NewEventSourcePoller(backend, reader, slog.Default())
+	poller := lambda.NewEventSourcePoller(backend, reader)
 
 	ctx := t.Context()
 
@@ -503,7 +502,7 @@ func TestLambda_Poller_PollWithDisabledMapping(t *testing.T) {
 		shardIDs: []string{"shardId-000000000000"},
 	}
 
-	poller := lambda.NewEventSourcePoller(backend, reader, slog.Default())
+	poller := lambda.NewEventSourcePoller(backend, reader)
 	ctx := t.Context()
 
 	lambda.PollOnce(ctx, poller)
@@ -537,7 +536,7 @@ func TestLambda_Poller_PollStreamNotFound(t *testing.T) {
 		return assert.AnError
 	}}
 
-	poller := lambda.NewEventSourcePoller(backend, errReader, slog.Default())
+	poller := lambda.NewEventSourcePoller(backend, errReader)
 	ctx := t.Context()
 
 	lambda.PollOnce(ctx, poller)
@@ -553,7 +552,7 @@ func TestLambda_Poller_StartAndStop(t *testing.T) {
 	_, backend := newRealHandler(t)
 
 	reader := &pollingKinesisReader{}
-	poller := lambda.NewEventSourcePoller(backend, reader, slog.Default())
+	poller := lambda.NewEventSourcePoller(backend, reader)
 
 	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 	defer cancel()

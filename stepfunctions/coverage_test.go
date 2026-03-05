@@ -101,7 +101,7 @@ func TestHandler_MatchPriority(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := stepfunctions.NewHandler(stepfunctions.NewInMemoryBackend(), slog.Default())
+			h := stepfunctions.NewHandler(stepfunctions.NewInMemoryBackend())
 			assert.Equal(t, tt.wantPrio, h.MatchPriority())
 		})
 	}
@@ -131,7 +131,7 @@ func TestHandler_RouteMatcher(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := stepfunctions.NewHandler(stepfunctions.NewInMemoryBackend(), slog.Default())
+			h := stepfunctions.NewHandler(stepfunctions.NewInMemoryBackend())
 			matcher := h.RouteMatcher()
 			e := echo.New()
 
@@ -166,7 +166,7 @@ func TestHandler_ExtractOperation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := stepfunctions.NewHandler(stepfunctions.NewInMemoryBackend(), slog.Default())
+			h := stepfunctions.NewHandler(stepfunctions.NewInMemoryBackend())
 			e := echo.New()
 
 			req := httptest.NewRequest(http.MethodPost, "/", nil)
@@ -217,7 +217,7 @@ func TestHandler_ExtractResource(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := stepfunctions.NewHandler(stepfunctions.NewInMemoryBackend(), slog.Default())
+			h := stepfunctions.NewHandler(stepfunctions.NewInMemoryBackend())
 			e := echo.New()
 
 			req := httptest.NewRequest(http.MethodPost, "/", stringReader(tt.body))

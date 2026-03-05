@@ -13,7 +13,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
-	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 func (h *S3Handler) createMultipartUpload(
@@ -23,13 +22,12 @@ func (h *S3Handler) createMultipartUpload(
 	bucketName, key string,
 ) {
 	h.setOperation(ctx, "CreateMultipartUpload")
-	log := logger.Load(ctx)
 	out, err := h.Backend.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
 		Bucket: aws.String(bucketName),
 		Key:    aws.String(key),
 	})
 	if err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
@@ -40,7 +38,7 @@ func (h *S3Handler) createMultipartUpload(
 		UploadID: *out.UploadId,
 	}
 
-	httputil.WriteXML(log, w, http.StatusOK, resp)
+	httputil.WriteXML(ctx, w, http.StatusOK, resp)
 }
 
 func (h *S3Handler) uploadPart(
@@ -50,19 +48,18 @@ func (h *S3Handler) uploadPart(
 	bucketName, key string,
 ) {
 	h.setOperation(ctx, "UploadPart")
-	log := logger.Load(ctx)
 	uploadID := r.URL.Query().Get("uploadId")
 	partNumberStr := r.URL.Query().Get("partNumber")
 	partNumber, err := strconv.Atoi(partNumberStr)
 	if err != nil || partNumber < 1 || partNumber > 10000 {
-		WriteError(log, w, r, ErrInvalidArgument)
+		WriteError(ctx, w, r, ErrInvalidArgument)
 
 		return
 	}
 
 	data, err := httputil.ReadBody(r)
 	if err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
@@ -76,13 +73,13 @@ func (h *S3Handler) uploadPart(
 	})
 	if errors.Is(err, ErrNoSuchBucket) || errors.Is(err, ErrNoSuchKey) ||
 		errors.Is(err, ErrNoSuchUpload) {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
 
 	if err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
@@ -98,12 +95,11 @@ func (h *S3Handler) completeMultipartUpload(
 	bucketName, key string,
 ) {
 	h.setOperation(ctx, "CompleteMultipartUpload")
-	log := logger.Load(ctx)
 	uploadID := r.URL.Query().Get("uploadId")
 
 	var partsReq CompleteMultipartUpload
 	if err := xml.NewDecoder(r.Body).Decode(&partsReq); err != nil {
-		WriteError(log, w, r, ErrInvalidArgument)
+		WriteError(ctx, w, r, ErrInvalidArgument)
 
 		return
 	}
@@ -111,7 +107,7 @@ func (h *S3Handler) completeMultipartUpload(
 	var sdkParts []types.CompletedPart
 	for _, p := range partsReq.Parts {
 		if p.PartNumber < 1 || p.PartNumber > 10000 {
-			WriteError(log, w, r, ErrInvalidPart)
+			WriteError(ctx, w, r, ErrInvalidPart)
 
 			return
 		}
@@ -132,19 +128,19 @@ func (h *S3Handler) completeMultipartUpload(
 	)
 	if errors.Is(err, ErrNoSuchBucket) || errors.Is(err, ErrNoSuchKey) ||
 		errors.Is(err, ErrNoSuchUpload) {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
 
 	if errors.Is(err, ErrInvalidPart) {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
 
 	if err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
@@ -156,7 +152,7 @@ func (h *S3Handler) completeMultipartUpload(
 		ETag:     *out.ETag,
 	}
 
-	httputil.WriteXML(log, w, http.StatusOK, resp)
+	httputil.WriteXML(ctx, w, http.StatusOK, resp)
 }
 
 func (h *S3Handler) abortMultipartUpload(
@@ -165,7 +161,6 @@ func (h *S3Handler) abortMultipartUpload(
 	r *http.Request,
 	bucketName, key string,
 ) {
-	log := logger.Load(ctx)
 	uploadID := r.URL.Query().Get("uploadId")
 
 	if _, err := h.Backend.AbortMultipartUpload(ctx, &s3.AbortMultipartUploadInput{
@@ -173,11 +168,11 @@ func (h *S3Handler) abortMultipartUpload(
 		Key:      aws.String(key),
 		UploadId: aws.String(uploadID),
 	}); errors.Is(err, ErrNoSuchUpload) {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	} else if err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
@@ -192,14 +187,13 @@ func (h *S3Handler) listMultipartUploads(
 	bucketName string,
 ) {
 	h.setOperation(ctx, "ListMultipartUploads")
-	log := logger.Load(ctx)
 
 	out, err := h.Backend.ListMultipartUploads(ctx, &s3.ListMultipartUploadsInput{
 		Bucket: aws.String(bucketName),
 		Prefix: aws.String(r.URL.Query().Get("prefix")),
 	})
 	if err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
@@ -219,7 +213,7 @@ func (h *S3Handler) listMultipartUploads(
 		})
 	}
 
-	httputil.WriteXML(log, w, http.StatusOK, result)
+	httputil.WriteXML(ctx, w, http.StatusOK, result)
 }
 
 func (h *S3Handler) listParts(
@@ -229,7 +223,6 @@ func (h *S3Handler) listParts(
 	bucketName, key string,
 ) {
 	h.setOperation(ctx, "ListParts")
-	log := logger.Load(ctx)
 	uploadID := r.URL.Query().Get("uploadId")
 
 	out, err := h.Backend.ListParts(ctx, &s3.ListPartsInput{
@@ -238,13 +231,13 @@ func (h *S3Handler) listParts(
 		UploadId: aws.String(uploadID),
 	})
 	if errors.Is(err, ErrNoSuchUpload) {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
 
 	if err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
@@ -266,5 +259,5 @@ func (h *S3Handler) listParts(
 		})
 	}
 
-	httputil.WriteXML(log, w, http.StatusOK, result)
+	httputil.WriteXML(ctx, w, http.StatusOK, result)
 }

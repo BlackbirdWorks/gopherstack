@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v5"
+
+	pkglogger "github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // ObservabilityObserver extracts metrics labels from an Echo request.
@@ -20,23 +22,40 @@ type ObservabilityObserver interface {
 // The wrapper extracts operation and resource names via the observer, times
 // the handler execution, records metrics, and logs the result.
 //
+// Per request, it enriches the request context logger with a "service"
+// attribute so that all downstream log lines are automatically tagged.
+// The logger is pulled from the request context via [pkglogger.Load]; callers
+// are expected to inject a logger into the context before requests arrive
+// (e.g. via [pkglogger.EchoMiddleware]).
+//
 // This eliminates boilerplate from service handlers—they focus on business
 // logic while observability is handled automatically.
 func WrapEchoHandler(
 	serviceName string,
 	handler echo.HandlerFunc,
 	observer ObservabilityObserver,
-	logger *slog.Logger,
 ) echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		// Enrich the request-scoped context logger with the service name so
+		// that every log line emitted during this request is tagged with it.
+		// AddAttrs creates a *new* logger derived from the one already in ctx,
+		// leaving the shared root logger untouched.
+		reqCtx := pkglogger.AddAttrs(
+			c.Request().Context(),
+			slog.String("service", serviceName),
+		)
+		c.SetRequest(c.Request().WithContext(reqCtx))
+
+		log := pkglogger.Load(reqCtx)
+
 		// Extract metrics labels from request
 		operation := observer.ExtractOperation(c)
 		resource := observer.ExtractResource(c)
 
 		// Log request start
-		logger.Debug(
+		log.DebugContext(
+			reqCtx,
 			"operation started",
-			"service", serviceName,
 			"operation", operation,
 			"resource", resource,
 			"method", c.Request().Method,
@@ -70,9 +89,9 @@ func WrapEchoHandler(
 
 		// Log result
 		if err != nil {
-			logger.Error(
+			log.ErrorContext(
+				reqCtx,
 				"operation failed",
-				"service", serviceName,
 				"operation", operation,
 				"resource", resource,
 				"duration_seconds", durationSeconds,
@@ -83,18 +102,18 @@ func WrapEchoHandler(
 		}
 
 		if ok && echoResp.Status >= 400 {
-			logger.Warn(
+			log.WarnContext(
+				reqCtx,
 				"operation completed with error status",
-				"service", serviceName,
 				"operation", operation,
 				"resource", resource,
 				"status_code", echoResp.Status,
 				"duration_seconds", durationSeconds,
 			)
 		} else {
-			logger.Debug(
+			log.DebugContext(
+				reqCtx,
 				"operation completed",
-				"service", serviceName,
 				"operation", operation,
 				"resource", resource,
 				"status_code", map[bool]int{true: echoResp.Status}[ok],

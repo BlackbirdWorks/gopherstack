@@ -2,10 +2,10 @@ package eventbridge
 
 import (
 	"context"
-	"log/slog"
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 )
 
@@ -16,19 +16,17 @@ const defaultSchedulerTickInterval = time.Minute
 // for any rule whose next fire time has passed since the last tick.
 type Scheduler struct {
 	backend      *InMemoryBackend
-	logger       *slog.Logger
 	tickInterval time.Duration
 }
 
 // NewScheduler creates a new Scheduler backed by the given InMemoryBackend.
-func NewScheduler(backend *InMemoryBackend, log *slog.Logger, tickInterval time.Duration) *Scheduler {
+func NewScheduler(backend *InMemoryBackend, tickInterval time.Duration) *Scheduler {
 	if tickInterval <= 0 {
 		tickInterval = defaultSchedulerTickInterval
 	}
 
 	return &Scheduler{
 		backend:      backend,
-		logger:       log,
 		tickInterval: tickInterval,
 	}
 }
@@ -94,7 +92,7 @@ func (s *Scheduler) processTick(ctx context.Context, tick time.Time, lastFired m
 		rule := info.rule
 		expr, err := parseScheduleExpression(rule.ScheduleExpression)
 		if err != nil {
-			s.logger.WarnContext(ctx, "EventBridge: failed to parse schedule expression",
+			logger.Load(ctx).WarnContext(ctx, "EventBridge: failed to parse schedule expression",
 				"rule", rule.Name, "expr", rule.ScheduleExpression, "error", err)
 			telemetry.RecordWorkerTask("eventbridge", "Scheduler", "error")
 
@@ -125,7 +123,7 @@ func (s *Scheduler) processTick(ctx context.Context, tick time.Time, lastFired m
 
 // fireRule synthesizes a scheduled event and calls PutEvents.
 func (s *Scheduler) fireRule(ctx context.Context, rule Rule, busName string) {
-	s.logger.DebugContext(ctx, "EventBridge: firing scheduled rule", "rule", rule.Name, "bus", busName)
+	logger.Load(ctx).DebugContext(ctx, "EventBridge: firing scheduled rule", "rule", rule.Name, "bus", busName)
 
 	detail := `{"scheduled":true}`
 	sourceFromExpr := "aws.events"

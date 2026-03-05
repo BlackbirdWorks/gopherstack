@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,7 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/apigateway"
-	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 var (
@@ -63,9 +61,8 @@ func setupProxyAPIViaHandler(
 ) (*apigateway.Handler, *echo.Echo, string) {
 	t.Helper()
 
-	log := logger.NewLogger(slog.LevelDebug)
 	backend := apigateway.NewInMemoryBackend()
-	h := apigateway.NewHandler(backend, log)
+	h := apigateway.NewHandler(backend)
 	e := echo.New()
 
 	// Create REST API.
@@ -233,9 +230,8 @@ func TestHandleAWSProxy(t *testing.T) {
 func setupVTLAPI(t *testing.T) (*apigateway.Handler, *echo.Echo, string) {
 	t.Helper()
 
-	log := logger.NewLogger(slog.LevelDebug)
 	backend := apigateway.NewInMemoryBackend()
-	h := apigateway.NewHandler(backend, log)
+	h := apigateway.NewHandler(backend)
 	e := echo.New()
 
 	createRec := postWithHandler(t, h, e, "CreateRestApi", `{"name":"vtl-api","description":"test"}`)
@@ -410,9 +406,8 @@ func TestHandleStageProxy_InvalidPath(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			log := logger.NewLogger(slog.LevelDebug)
 			backend := apigateway.NewInMemoryBackend()
-			h := apigateway.NewHandler(backend, log)
+			h := apigateway.NewHandler(backend)
 			e := echo.New()
 
 			req := httptest.NewRequest(http.MethodGet, tt.url, nil)

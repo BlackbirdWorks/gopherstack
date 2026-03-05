@@ -32,9 +32,9 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		endpoint = cp.GetS3Endpoint()
 	}
 
-	backend := NewInMemoryBackend(&GzipCompressor{}, ctx.Logger).
+	backend := NewInMemoryBackend(&GzipCompressor{}).
 		WithCompressionMinBytes(settings.CompressionMinBytes)
-	handler := NewHandler(backend, ctx.Logger).WithJanitor(settings)
+	handler := NewHandler(backend).WithJanitor(settings)
 	handler.Endpoint = endpoint
 
 	return handler, nil

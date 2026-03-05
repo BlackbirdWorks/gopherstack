@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"net/http"
 	"strings"
 
@@ -99,16 +98,14 @@ type removeTagsFromCertificateInput struct {
 // Handler is the Echo HTTP handler for ACM operations.
 type Handler struct {
 	Backend *InMemoryBackend
-	Logger  *slog.Logger
 	tags    map[string]*svcTags.Tags
 	tagsMu  *lockmetrics.RWMutex
 }
 
 // NewHandler creates a new ACM handler.
-func NewHandler(backend *InMemoryBackend, log *slog.Logger) *Handler {
+func NewHandler(backend *InMemoryBackend) *Handler {
 	return &Handler{
 		Backend: backend,
-		Logger:  log,
 		tags:    make(map[string]*svcTags.Tags),
 		tagsMu:  lockmetrics.New("acm.tags"),
 	}
@@ -385,7 +382,7 @@ func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) err
 	default:
 		code = "InternalFailure"
 		statusCode = http.StatusInternalServerError
-		h.Logger.Error("ACM internal error", "error", opErr, "action", action)
+		logger.Load(c.Request().Context()).Error("ACM internal error", "error", opErr, "action", action)
 	}
 
 	return h.writeJSONError(c, statusCode, code, opErr.Error())

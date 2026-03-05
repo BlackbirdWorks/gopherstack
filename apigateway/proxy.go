@@ -6,10 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // LambdaInvoker can invoke a Lambda function by name/ARN.
@@ -113,7 +114,6 @@ func BuildProxyEvent(r *http.Request, apiID, stageName, resource, path string) (
 func (h *Handler) handleProxyRequest(apiID, stageName string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
-		log := h.Logger
 
 		if h.lambda == nil {
 			http.Error(w, "Lambda integration not configured", http.StatusServiceUnavailable)
@@ -124,7 +124,7 @@ func (h *Handler) handleProxyRequest(apiID, stageName string) http.HandlerFunc {
 		// Find the resource and integration.
 		resources, _, err := h.Backend.GetResources(apiID, "", 0)
 		if err != nil {
-			log.ErrorContext(ctx, "APIGateway proxy: failed to get resources", "error", err)
+			logger.Load(ctx).ErrorContext(ctx, "APIGateway proxy: failed to get resources", "error", err)
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 
 			return
@@ -152,9 +152,9 @@ func (h *Handler) handleProxyRequest(apiID, stageName string) http.HandlerFunc {
 
 		switch integration.Type {
 		case "AWS_PROXY":
-			h.handleAWSProxy(ctx, w, r, apiID, stageName, resource, integration, log)
+			h.handleAWSProxy(ctx, w, r, apiID, stageName, resource, integration)
 		case "AWS":
-			h.handleAWSIntegration(ctx, w, r, integration, log)
+			h.handleAWSIntegration(ctx, w, r, integration)
 		default:
 			http.Error(w, "Non-proxy integrations not supported on stage URL", http.StatusNotImplemented)
 		}
@@ -169,11 +169,10 @@ func (h *Handler) handleAWSProxy(
 	apiID, stageName string,
 	resource *Resource,
 	integration *Integration,
-	log *slog.Logger,
 ) {
 	event, buildErr := BuildProxyEvent(r, apiID, stageName, resource.Path, r.URL.Path)
 	if buildErr != nil {
-		log.ErrorContext(ctx, "APIGateway proxy: failed to build event", "error", buildErr)
+		logger.Load(ctx).ErrorContext(ctx, "APIGateway proxy: failed to build event", "error", buildErr)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 
 		return
@@ -183,7 +182,7 @@ func (h *Handler) handleAWSProxy(
 
 	respBytes, _, invokeErr := h.lambda.InvokeFunction(ctx, integration.URI, "RequestResponse", payload)
 	if invokeErr != nil {
-		log.WarnContext(ctx, "APIGateway proxy: Lambda invocation failed",
+		logger.Load(ctx).WarnContext(ctx, "APIGateway proxy: Lambda invocation failed",
 			"uri", integration.URI, "error", invokeErr)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 
@@ -229,12 +228,11 @@ func (h *Handler) handleAWSIntegration(
 	w http.ResponseWriter,
 	r *http.Request,
 	integration *Integration,
-	log *slog.Logger,
 ) {
 	// Read the raw request body.
 	rawBody, readErr := io.ReadAll(r.Body)
 	if readErr != nil {
-		log.ErrorContext(ctx, "APIGateway AWS integration: failed to read body", "error", readErr)
+		logger.Load(ctx).ErrorContext(ctx, "APIGateway AWS integration: failed to read body", "error", readErr)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 
 		return
@@ -255,7 +253,7 @@ func (h *Handler) handleAWSIntegration(
 	// Invoke Lambda.
 	respBytes, _, invokeErr := h.lambda.InvokeFunction(ctx, integration.URI, "RequestResponse", payload)
 	if invokeErr != nil {
-		log.WarnContext(ctx, "APIGateway AWS integration: Lambda invocation failed",
+		logger.Load(ctx).WarnContext(ctx, "APIGateway AWS integration: Lambda invocation failed",
 			"uri", integration.URI, "error", invokeErr)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 

@@ -21,7 +21,7 @@ import (
 func newTestFirehoseHandler(t *testing.T) *firehose.Handler {
 	t.Helper()
 
-	return firehose.NewHandler(firehose.NewInMemoryBackend("000000000000", "us-east-1"), slog.Default())
+	return firehose.NewHandler(firehose.NewInMemoryBackend("000000000000", "us-east-1"))
 }
 
 func doFirehoseRequest(t *testing.T, h *firehose.Handler, action string, body any) *httptest.ResponseRecorder {

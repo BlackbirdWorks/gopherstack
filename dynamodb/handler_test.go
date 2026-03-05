@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"hash/crc32"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -228,7 +227,7 @@ func TestHandler_ServeHTTP(t *testing.T) {
 			t.Parallel()
 
 			backend := dynamodb.NewInMemoryDB()
-			handler := dynamodb.NewHandler(backend, slog.Default())
+			handler := dynamodb.NewHandler(backend)
 			if tc.setup != nil {
 				tc.setup(t, backend)
 			}
@@ -268,8 +267,7 @@ func TestHandler_Dispatch_Coverage(t *testing.T) {
 			t.Parallel()
 			// Create a fresh backend for each subtest to avoid race conditions
 			backend := dynamodb.NewInMemoryDB()
-			handler := dynamodb.NewHandler(backend, slog.Default())
-			handler.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+			handler := dynamodb.NewHandler(backend)
 			createTableHelper(t, backend, "DispatchTable", "pk")
 			var body string
 			switch op {
@@ -351,7 +349,7 @@ func TestHandler_CRC32Header(t *testing.T) {
 			t.Parallel()
 
 			backend := dynamodb.NewInMemoryDB()
-			handler := dynamodb.NewHandler(backend, slog.Default())
+			handler := dynamodb.NewHandler(backend)
 			if tc.setup != nil {
 				tc.setup(t, backend)
 			}
@@ -397,7 +395,7 @@ func mustMarshal(t *testing.T, v any) string {
 func TestHandler_TransactOps_Coverage(t *testing.T) {
 	t.Parallel()
 	backend := dynamodb.NewInMemoryDB()
-	handler := dynamodb.NewHandler(backend, slog.Default())
+	handler := dynamodb.NewHandler(backend)
 	createTableHelper(t, backend, "TransactTable", "pk")
 
 	tests := []struct {

@@ -2,7 +2,6 @@ package eventbridge_test
 
 import (
 	"encoding/json"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/eventbridge"
-	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -22,9 +20,8 @@ func makeRequest(t *testing.T, action, body string) *httptest.ResponseRecorder {
 	t.Helper()
 
 	e := echo.New()
-	log := logger.NewLogger(slog.LevelDebug)
 	backend := eventbridge.NewInMemoryBackend()
-	handler := eventbridge.NewHandler(backend, log)
+	handler := eventbridge.NewHandler(backend)
 
 	var req *http.Request
 	if body != "" {
@@ -93,9 +90,8 @@ func TestHandler_GetSupportedOperations(t *testing.T) {
 			t.Parallel()
 
 			e := echo.New()
-			log := logger.NewLogger(slog.LevelDebug)
 			backend := eventbridge.NewInMemoryBackend()
-			handler := eventbridge.NewHandler(backend, log)
+			handler := eventbridge.NewHandler(backend)
 
 			req := httptest.NewRequest(http.MethodGet, "/", nil)
 			rec := httptest.NewRecorder()
@@ -153,8 +149,7 @@ func TestHandler_DispatchErrors(t *testing.T) {
 			t.Parallel()
 
 			e := echo.New()
-			log := logger.NewLogger(slog.LevelDebug)
-			handler := eventbridge.NewHandler(eventbridge.NewInMemoryBackend(), log)
+			handler := eventbridge.NewHandler(eventbridge.NewInMemoryBackend())
 
 			var req *http.Request
 			if tt.body != "" {
@@ -236,9 +231,8 @@ func TestHandler_CreateAndListEventBuses(t *testing.T) {
 			t.Parallel()
 
 			e := echo.New()
-			log := logger.NewLogger(slog.LevelDebug)
 			backend := eventbridge.NewInMemoryBackend()
-			handler := eventbridge.NewHandler(backend, log)
+			handler := eventbridge.NewHandler(backend)
 
 			for _, name := range tt.busNames {
 				makeRequestWithHandler(t, handler, e, "CreateEventBus", `{"Name":"`+name+`"}`)
@@ -288,9 +282,8 @@ func TestHandler_DeleteEventBus(t *testing.T) {
 			t.Parallel()
 
 			e := echo.New()
-			log := logger.NewLogger(slog.LevelDebug)
 			backend := eventbridge.NewInMemoryBackend()
-			handler := eventbridge.NewHandler(backend, log)
+			handler := eventbridge.NewHandler(backend)
 
 			if tt.createBus != "" {
 				makeRequestWithHandler(t, handler, e, "CreateEventBus", `{"Name":"`+tt.createBus+`"}`)
@@ -331,9 +324,8 @@ func TestHandler_PutRuleAndListRules(t *testing.T) {
 			t.Parallel()
 
 			e := echo.New()
-			log := logger.NewLogger(slog.LevelDebug)
 			backend := eventbridge.NewInMemoryBackend()
-			handler := eventbridge.NewHandler(backend, log)
+			handler := eventbridge.NewHandler(backend)
 
 			rec := makeRequestWithHandler(t, handler, e, "PutRule", tt.putBody)
 			assert.Equal(t, http.StatusOK, rec.Code)
@@ -381,9 +373,8 @@ func TestHandler_DescribeRule(t *testing.T) {
 			t.Parallel()
 
 			e := echo.New()
-			log := logger.NewLogger(slog.LevelDebug)
 			backend := eventbridge.NewInMemoryBackend()
-			handler := eventbridge.NewHandler(backend, log)
+			handler := eventbridge.NewHandler(backend)
 
 			makeRequestWithHandler(t, handler, e, "PutRule", tt.putBody)
 
@@ -421,9 +412,8 @@ func TestHandler_EnableDisableRule(t *testing.T) {
 			t.Parallel()
 
 			e := echo.New()
-			log := logger.NewLogger(slog.LevelDebug)
 			backend := eventbridge.NewInMemoryBackend()
-			handler := eventbridge.NewHandler(backend, log)
+			handler := eventbridge.NewHandler(backend)
 
 			makeRequestWithHandler(t, handler, e, "PutRule", `{"Name":"`+tt.ruleName+`","State":"ENABLED"}`)
 
@@ -473,9 +463,8 @@ func TestHandler_PutTargetsListAndRemove(t *testing.T) {
 			t.Parallel()
 
 			e := echo.New()
-			log := logger.NewLogger(slog.LevelDebug)
 			backend := eventbridge.NewInMemoryBackend()
-			handler := eventbridge.NewHandler(backend, log)
+			handler := eventbridge.NewHandler(backend)
 
 			makeRequestWithHandler(t, handler, e, "PutRule", `{"Name":"`+tt.ruleName+`"}`)
 
@@ -537,9 +526,8 @@ func TestHandler_PutEvents(t *testing.T) {
 			t.Parallel()
 
 			e := echo.New()
-			log := logger.NewLogger(slog.LevelDebug)
 			backend := eventbridge.NewInMemoryBackend()
-			handler := eventbridge.NewHandler(backend, log)
+			handler := eventbridge.NewHandler(backend)
 
 			rec := makeRequestWithHandler(t, handler, e, "PutEvents", tt.body)
 			assert.Equal(t, tt.wantCode, rec.Code)
@@ -583,8 +571,7 @@ func TestHandler_RouteMatcher(t *testing.T) {
 			t.Parallel()
 
 			e := echo.New()
-			log := logger.NewLogger(slog.LevelDebug)
-			handler := eventbridge.NewHandler(eventbridge.NewInMemoryBackend(), log)
+			handler := eventbridge.NewHandler(eventbridge.NewInMemoryBackend())
 			matcher := handler.RouteMatcher()
 
 			req := httptest.NewRequest(http.MethodPost, "/", nil)
@@ -615,8 +602,7 @@ func TestHandler_ExtractOperation(t *testing.T) {
 			t.Parallel()
 
 			e := echo.New()
-			log := logger.NewLogger(slog.LevelDebug)
-			handler := eventbridge.NewHandler(eventbridge.NewInMemoryBackend(), log)
+			handler := eventbridge.NewHandler(eventbridge.NewInMemoryBackend())
 
 			req := httptest.NewRequest(http.MethodPost, "/", nil)
 			req.Header.Set("X-Amz-Target", tt.target)
@@ -664,9 +650,8 @@ func TestHandler_TagOperations(t *testing.T) {
 			t.Parallel()
 
 			e := echo.New()
-			log := logger.NewLogger(slog.LevelDebug)
 			backend := eventbridge.NewInMemoryBackend()
-			handler := eventbridge.NewHandler(backend, log)
+			handler := eventbridge.NewHandler(backend)
 
 			if tt.setupTags != "" {
 				rec := makeRequestWithHandler(t, handler, e, "TagResource",

@@ -1,7 +1,6 @@
 package lambda_test
 
 import (
-	"log/slog"
 	"testing"
 
 	"github.com/blackbirdworks/gopherstack/lambda"
@@ -10,7 +9,7 @@ import (
 )
 
 func newLambdaBackend() *lambda.InMemoryBackend {
-	return lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1", slog.Default())
+	return lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
 }
 
 func TestInMemoryBackend_SnapshotRestore(t *testing.T) {

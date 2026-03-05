@@ -2,7 +2,6 @@ package cloudwatch_test
 
 import (
 	"encoding/xml"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -31,7 +30,7 @@ func postForm(t *testing.T, h *cloudwatch.Handler, body string) *httptest.Respon
 }
 
 func newCWHandler() *cloudwatch.Handler {
-	return cloudwatch.NewHandler(cloudwatch.NewInMemoryBackend(), slog.Default())
+	return cloudwatch.NewHandler(cloudwatch.NewInMemoryBackend())
 }
 
 func TestCloudWatchHandler_Name(t *testing.T) {

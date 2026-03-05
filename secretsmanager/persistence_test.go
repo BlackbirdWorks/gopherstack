@@ -1,7 +1,6 @@
 package secretsmanager_test
 
 import (
-	"log/slog"
 	"testing"
 
 	"github.com/blackbirdworks/gopherstack/secretsmanager"
@@ -82,7 +81,7 @@ func TestSecretsManagerHandler_Persistence(t *testing.T) {
 	t.Parallel()
 
 	backend := secretsmanager.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
-	h := secretsmanager.NewHandler(backend, slog.Default())
+	h := secretsmanager.NewHandler(backend)
 
 	_, err := backend.CreateSecret(&secretsmanager.CreateSecretInput{Name: "snap-secret", SecretString: "snap-value"})
 	require.NoError(t, err)
@@ -91,7 +90,7 @@ func TestSecretsManagerHandler_Persistence(t *testing.T) {
 	require.NotNil(t, snap)
 
 	fresh := secretsmanager.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
-	freshH := secretsmanager.NewHandler(fresh, slog.Default())
+	freshH := secretsmanager.NewHandler(fresh)
 	require.NoError(t, freshH.Restore(snap))
 
 	out, err := fresh.DescribeSecret(&secretsmanager.DescribeSecretInput{SecretID: "snap-secret"})

@@ -67,13 +67,13 @@ func TestDashboardProvider_Init(t *testing.T) {
 	t.Parallel()
 
 	ddbBk := ddbbackend.NewInMemoryDB()
-	ddbHndlr := ddbbackend.NewHandler(ddbBk, slog.Default())
-	s3Bk := s3backend.NewInMemoryBackend(nil, nil)
-	s3Hndlr := s3backend.NewHandler(s3Bk, slog.Default())
+	ddbHndlr := ddbbackend.NewHandler(ddbBk)
+	s3Bk := s3backend.NewInMemoryBackend(nil)
+	s3Hndlr := s3backend.NewHandler(s3Bk)
 	ssmBk := ssmbackend.NewInMemoryBackend()
-	ssmHndlr := ssmbackend.NewHandler(ssmBk, slog.Default())
+	ssmHndlr := ssmbackend.NewHandler(ssmBk)
 	stsBk := stsbackend.NewInMemoryBackend()
-	stsHndlr := stsbackend.NewHandler(stsBk, slog.Default())
+	stsHndlr := stsbackend.NewHandler(stsBk)
 
 	tests := []struct {
 		name     string

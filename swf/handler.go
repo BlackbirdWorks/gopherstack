@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"net/http"
 	"strings"
 
@@ -27,12 +26,11 @@ const swfTargetPrefix = "SimpleWorkflowService."
 // Handler is the Echo HTTP handler for SWF operations.
 type Handler struct {
 	Backend *InMemoryBackend
-	Logger  *slog.Logger
 }
 
 // NewHandler creates a new SWF handler.
-func NewHandler(backend *InMemoryBackend, log *slog.Logger) *Handler {
-	return &Handler{Backend: backend, Logger: log}
+func NewHandler(backend *InMemoryBackend) *Handler {
+	return &Handler{Backend: backend}
 }
 
 // Name returns the service name.

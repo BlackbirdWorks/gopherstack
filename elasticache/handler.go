@@ -4,7 +4,6 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"slices"
@@ -58,14 +57,13 @@ type cacheClusterXML struct {
 // Handler is the Echo HTTP handler for ElastiCache operations.
 type Handler struct {
 	Backend   StorageBackend
-	Logger    *slog.Logger
 	AccountID string
 	Region    string
 }
 
 // NewHandler creates a new ElastiCache handler.
-func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
-	return &Handler{Backend: backend, Logger: log}
+func NewHandler(backend StorageBackend) *Handler {
+	return &Handler{Backend: backend}
 }
 
 // Name returns the service name.

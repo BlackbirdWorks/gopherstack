@@ -2,12 +2,10 @@ package eventbridge_test
 
 import (
 	"context"
-	"log/slog"
 	"testing"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/eventbridge"
-	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -88,14 +86,12 @@ func TestScheduler(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			log := logger.NewLogger(slog.LevelDebug)
 			backend := eventbridge.NewInMemoryBackend()
-			backend.SetLogger(log)
 
 			_, err := backend.PutRule(tt.rule)
 			require.NoError(t, err)
 
-			scheduler := eventbridge.NewScheduler(backend, log, 50*time.Millisecond)
+			scheduler := eventbridge.NewScheduler(backend, 50*time.Millisecond)
 			ctx, cancel := context.WithTimeout(t.Context(), tt.ctxTimeout)
 			defer cancel()
 
@@ -129,9 +125,8 @@ func TestNewScheduler_DefaultTickInterval(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			log := logger.NewLogger(slog.LevelDebug)
 			backend := eventbridge.NewInMemoryBackend()
-			scheduler := eventbridge.NewScheduler(backend, log, tt.tickInterval)
+			scheduler := eventbridge.NewScheduler(backend, tt.tickInterval)
 			assert.NotNil(t, scheduler)
 		})
 	}

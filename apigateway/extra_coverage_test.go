@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -145,7 +144,7 @@ func TestHandlerPersistence_NoopBackend(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := apigateway.NewHandler(&noopBackend{}, slog.Default())
+			h := apigateway.NewHandler(&noopBackend{})
 
 			if tt.wantNilSnap {
 				snap := h.Snapshot()
@@ -272,7 +271,7 @@ func TestHandleRESTAPI_Branches(t *testing.T) {
 			t.Parallel()
 
 			backend := apigateway.NewInMemoryBackend()
-			h := apigateway.NewHandler(backend, slog.Default())
+			h := apigateway.NewHandler(backend)
 
 			path := tt.path
 			if tt.setup != nil {
@@ -553,7 +552,7 @@ func TestExtractResource_AdditionalBranches(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := apigateway.NewHandler(apigateway.NewInMemoryBackend(), slog.Default())
+			h := apigateway.NewHandler(apigateway.NewInMemoryBackend())
 			e := echo.New()
 
 			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tt.body))
@@ -616,7 +615,7 @@ func TestRestAPIActions_RESTPathCoverage(t *testing.T) {
 			t.Parallel()
 
 			backend := apigateway.NewInMemoryBackend()
-			h := apigateway.NewHandler(backend, slog.Default())
+			h := apigateway.NewHandler(backend)
 
 			path := tt.path
 			if tt.setup != nil {
@@ -685,7 +684,7 @@ func TestResourceActions_RESTPathCoverage(t *testing.T) {
 			t.Parallel()
 
 			backend := apigateway.NewInMemoryBackend()
-			h := apigateway.NewHandler(backend, slog.Default())
+			h := apigateway.NewHandler(backend)
 
 			_, path := tt.setup(backend)
 
@@ -737,7 +736,7 @@ func TestMethodActions_RESTPathCoverage(t *testing.T) {
 			t.Parallel()
 
 			backend := apigateway.NewInMemoryBackend()
-			h := apigateway.NewHandler(backend, slog.Default())
+			h := apigateway.NewHandler(backend)
 
 			path := tt.setup(backend)
 			rec := restRequest(t, h, tt.method, path, tt.body)
@@ -816,7 +815,7 @@ func TestGetRestAPIs_RESTPath_WithLimit(t *testing.T) {
 			backend := apigateway.NewInMemoryBackend()
 			_, _ = backend.CreateRestAPI("api-x", "", nil)
 
-			h := apigateway.NewHandler(backend, slog.Default())
+			h := apigateway.NewHandler(backend)
 			rec := restRequest(t, h, http.MethodGet, "/restapis", "")
 
 			assert.Equal(t, tt.wantCode, rec.Code)
@@ -905,7 +904,7 @@ func TestParseAPIGWMethodPath_EdgeCases(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := apigateway.NewHandler(apigateway.NewInMemoryBackend(), slog.Default())
+			h := apigateway.NewHandler(apigateway.NewInMemoryBackend())
 			rec := restRequest(t, h, tt.method, tt.path, "")
 			assert.Equal(t, tt.wantCode, rec.Code)
 		})
@@ -975,7 +974,7 @@ func TestHandler_RESTPath_Deployments(t *testing.T) {
 			t.Parallel()
 
 			backend := apigateway.NewInMemoryBackend()
-			h := apigateway.NewHandler(backend, slog.Default())
+			h := apigateway.NewHandler(backend)
 
 			path := tt.setup(backend)
 			rec := restRequest(t, h, tt.method, path, tt.body)
@@ -1024,7 +1023,7 @@ func TestHandler_RESTPath_Stages(t *testing.T) {
 			t.Parallel()
 
 			backend := apigateway.NewInMemoryBackend()
-			h := apigateway.NewHandler(backend, slog.Default())
+			h := apigateway.NewHandler(backend)
 
 			path := tt.setup(backend)
 			rec := restRequest(t, h, tt.method, path, "")
@@ -1083,7 +1082,7 @@ func TestHandler_RESTPath_Integration(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			h := apigateway.NewHandler(backend, slog.Default())
+			h := apigateway.NewHandler(backend)
 			path := fmt.Sprintf("/restapis/%s/resources/%s/methods/GET/integration", api.ID, rootID)
 
 			rec := restRequest(t, h, tt.method, path, tt.body)
@@ -1112,7 +1111,7 @@ func TestHandler_GetSupportedOperations(t *testing.T) {
 			t.Parallel()
 
 			e := echo.New()
-			h := apigateway.NewHandler(apigateway.NewInMemoryBackend(), slog.Default())
+			h := apigateway.NewHandler(apigateway.NewInMemoryBackend())
 
 			req := httptest.NewRequest(http.MethodGet, "/", nil)
 			rec := httptest.NewRecorder()
@@ -1150,7 +1149,7 @@ func TestHandler_InvalidTarget(t *testing.T) {
 			t.Parallel()
 
 			e := echo.New()
-			h := apigateway.NewHandler(apigateway.NewInMemoryBackend(), slog.Default())
+			h := apigateway.NewHandler(apigateway.NewInMemoryBackend())
 
 			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("{}"))
 			req.Header.Set("X-Amz-Target", tt.target)

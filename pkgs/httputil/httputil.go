@@ -8,13 +8,14 @@ import (
 	"encoding/xml"
 	"hash/crc32"
 	"io"
-	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // ReadBody reads the request body and returns it as a byte slice.
@@ -48,12 +49,12 @@ func DrainBody(r *http.Request) {
 
 // WriteJSON marshals the payload to JSON, sets standard headers, and writes the response.
 // Sets Content-Type to "application/json" and Content-Length.
-func WriteJSON(logger *slog.Logger, w http.ResponseWriter, code int, payload any) {
+func WriteJSON(ctx context.Context, w http.ResponseWriter, code int, payload any) {
+	log := logger.Load(ctx)
+
 	body, err := json.Marshal(payload)
 	if err != nil {
-		if logger != nil {
-			logger.Error("failed to marshal JSON response", "error", err)
-		}
+		log.ErrorContext(ctx, "failed to marshal JSON response", "error", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 
 		return
@@ -64,22 +65,22 @@ func WriteJSON(logger *slog.Logger, w http.ResponseWriter, code int, payload any
 	}
 	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 	w.WriteHeader(code)
-	if _, wErr := w.Write(body); wErr != nil && logger != nil {
-		logger.Error("failed to write JSON response", "error", wErr)
+	if _, wErr := w.Write(body); wErr != nil {
+		log.ErrorContext(ctx, "failed to write JSON response", "error", wErr)
 	}
 }
 
 // WriteXML writes an XML response with the given status code.
 // The full body is buffered before writing it to the response.
-func WriteXML(logger *slog.Logger, w http.ResponseWriter, code int, payload any) {
+func WriteXML(ctx context.Context, w http.ResponseWriter, code int, payload any) {
+	log := logger.Load(ctx)
+
 	var buf bytes.Buffer
 	buf.WriteString(xml.Header)
 
 	encoder := xml.NewEncoder(&buf)
 	if err := encoder.Encode(payload); err != nil {
-		if logger != nil {
-			logger.Error("failed to marshal XML response", "error", err)
-		}
+		log.ErrorContext(ctx, "failed to marshal XML response", "error", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 
 		return
@@ -87,19 +88,19 @@ func WriteXML(logger *slog.Logger, w http.ResponseWriter, code int, payload any)
 
 	w.Header().Set("Content-Type", "application/xml")
 	w.WriteHeader(code)
-	if _, err := buf.WriteTo(w); err != nil && logger != nil {
-		logger.Error("failed to write XML response", "error", err)
+	if _, err := buf.WriteTo(w); err != nil {
+		log.ErrorContext(ctx, "failed to write XML response", "error", err)
 	}
 }
 
 // WriteDynamoDBResponse writes a DynamoDB-style JSON response with CRC32 checksum.
 // Sets Content-Type to "application/x-amz-json-1.0" and X-Amz-Crc32.
-func WriteDynamoDBResponse(logger *slog.Logger, w http.ResponseWriter, code int, payload any) {
+func WriteDynamoDBResponse(ctx context.Context, w http.ResponseWriter, code int, payload any) {
+	log := logger.Load(ctx)
+
 	body, err := json.Marshal(payload)
 	if err != nil {
-		if logger != nil {
-			logger.Error("failed to marshal DynamoDB response", "error", err)
-		}
+		log.ErrorContext(ctx, "failed to marshal DynamoDB response", "error", err)
 		http.Error(w,
 			`{"__type":"com.amazonaws.dynamodb.v20120810#InternalServerError","message":"internal server error"}`,
 			http.StatusInternalServerError)
@@ -112,33 +113,33 @@ func WriteDynamoDBResponse(logger *slog.Logger, w http.ResponseWriter, code int,
 	w.Header().Set("Content-Type", "application/x-amz-json-1.0")
 	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 	w.WriteHeader(code)
-	if _, wErr := w.Write(body); wErr != nil && logger != nil {
-		logger.Error("failed to write DynamoDB response", "error", wErr)
+	if _, wErr := w.Write(body); wErr != nil {
+		log.ErrorContext(ctx, "failed to write DynamoDB response", "error", wErr)
 	}
 }
 
 // WriteError writes an error response with structured logging.
-// Uses the logger to record the error with context.
+// Uses the logger from ctx to record the error with context.
 // Drains the request body to ensure connection reuse.
-func WriteError(logger *slog.Logger, w http.ResponseWriter, r *http.Request, err error, code int) {
+func WriteError(ctx context.Context, w http.ResponseWriter, r *http.Request, err error, code int) {
 	DrainBody(r)
-	if err != nil && logger != nil {
-		logger.Error("request failed", "error", err, "code", code, "path", r.URL.Path)
+	if err != nil {
+		logger.Load(ctx).ErrorContext(ctx, "request failed", "error", err, "code", code, "path", r.URL.Path)
 	}
 	http.Error(w, err.Error(), code)
 }
 
 // WriteS3ErrorResponse writes an S3-compatible XML error response.
 // Drains the request body and writes the error as XML.
-func WriteS3ErrorResponse(logger *slog.Logger, w http.ResponseWriter, r *http.Request, s3Err any, code int) {
+func WriteS3ErrorResponse(ctx context.Context, w http.ResponseWriter, r *http.Request, s3Err any, code int) {
 	DrainBody(r)
-	WriteXML(logger, w, code, s3Err)
+	WriteXML(ctx, w, code, s3Err)
 }
 
 // EchoError is a helper for Echo handlers to write errors with proper logging.
-func EchoError(logger *slog.Logger, c *echo.Context, code int, message string, err error) error {
-	if err != nil && logger != nil {
-		logger.DebugContext(c.Request().Context(), message, "error", err)
+func EchoError(ctx context.Context, c *echo.Context, code int, message string, err error) error {
+	if err != nil {
+		logger.Load(ctx).DebugContext(ctx, message, "error", err)
 	}
 
 	return c.String(code, message)

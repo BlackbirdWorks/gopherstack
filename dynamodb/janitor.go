@@ -2,10 +2,10 @@ package dynamodb
 
 import (
 	"context"
-	"log/slog"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/dynamoattr"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 )
 
@@ -15,14 +15,13 @@ const defaultDDBJanitorInterval = 500 * time.Millisecond
 // async deletion and records queue-depth metrics for the live dashboard.
 type Janitor struct {
 	Backend  *InMemoryDB
-	Log      *slog.Logger
 	Interval time.Duration
 }
 
 // NewJanitor creates a new DynamoDB Janitor for the given backend.
 // The janitor interval is taken from the provided settings;
 // if zero, it falls back to defaultDDBJanitorInterval.
-func NewJanitor(backend *InMemoryDB, log *slog.Logger, settings Settings) *Janitor {
+func NewJanitor(backend *InMemoryDB, settings Settings) *Janitor {
 	interval := settings.JanitorInterval
 	if interval == 0 {
 		interval = defaultDDBJanitorInterval
@@ -30,7 +29,6 @@ func NewJanitor(backend *InMemoryDB, log *slog.Logger, settings Settings) *Janit
 
 	return &Janitor{
 		Backend:  backend,
-		Log:      log,
 		Interval: interval,
 	}
 }
@@ -75,7 +73,7 @@ func (j *Janitor) runOnce(ctx context.Context) {
 	telemetry.RecordWorkerItems("dynamodb", "TableCleaner", depth)
 
 	for _, name := range names {
-		j.Log.InfoContext(ctx, "DynamoDB janitor: table deleted", "table", name)
+		logger.Load(ctx).InfoContext(ctx, "DynamoDB janitor: table deleted", "table", name)
 	}
 }
 
@@ -120,7 +118,7 @@ func (j *Janitor) sweepTTL(ctx context.Context) {
 			table.Items = newItems
 			table.rebuildIndexes()
 			totalEvicted += evictedCount
-			j.Log.InfoContext(ctx, "DynamoDB janitor: TTL items evicted",
+			logger.Load(ctx).InfoContext(ctx, "DynamoDB janitor: TTL items evicted",
 				"table", table.Name,
 				"count", evictedCount)
 		}

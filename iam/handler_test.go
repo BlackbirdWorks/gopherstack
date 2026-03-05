@@ -471,7 +471,7 @@ func iamRequest(action string, params map[string]string) *http.Request {
 func newTestHandler(t *testing.T) (*iam.Handler, *iam.InMemoryBackend) {
 	t.Helper()
 	b := iam.NewInMemoryBackend()
-	h := iam.NewHandler(b, logger.NewTestLogger())
+	h := iam.NewHandler(b)
 
 	return h, b
 }
@@ -1515,7 +1515,7 @@ func TestIAMHandler_InternalFailure(t *testing.T) {
 
 	e := echo.New()
 	eb := &errBackend{iam.NewInMemoryBackend()}
-	h := iam.NewHandler(eb, logger.NewTestLogger())
+	h := iam.NewHandler(eb)
 
 	req := iamRequest("CreateUser", map[string]string{"UserName": "alice"})
 	rec := httptest.NewRecorder()

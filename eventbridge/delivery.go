@@ -3,9 +3,10 @@ package eventbridge
 import (
 	"context"
 	"encoding/json"
-	"log/slog"
 	"maps"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // LambdaInvoker can invoke a Lambda function by name/ARN with a payload.
@@ -65,7 +66,7 @@ func (b *InMemoryBackend) deliverEvents(ctx context.Context, entries []EventEntr
 			// Deliver to all targets for this rule.
 			key := b.targetKey(busName, rule.Name)
 			for _, t := range busTargets[key] {
-				deliverToTarget(ctx, b.logger, t, entry, targets)
+				deliverToTarget(ctx, t, entry, targets)
 			}
 		}
 	}
@@ -106,8 +107,9 @@ func buildEventEnvelope(entry EventEntry) string {
 }
 
 // deliverToTarget delivers a single event to a single target.
-func deliverToTarget(ctx context.Context, log *slog.Logger, target *Target, entry EventEntry, dt DeliveryTargets) {
+func deliverToTarget(ctx context.Context, target *Target, entry EventEntry, dt DeliveryTargets) {
 	arn := target.Arn
+	log := logger.Load(ctx)
 
 	payload := buildPayload(target, entry)
 

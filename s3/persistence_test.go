@@ -57,13 +57,13 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			original := s3.NewInMemoryBackend(nil, nil)
+			original := s3.NewInMemoryBackend(nil)
 			id := tt.setup(original)
 
 			snap := original.Snapshot()
 			require.NotNil(t, snap)
 
-			fresh := s3.NewInMemoryBackend(nil, nil)
+			fresh := s3.NewInMemoryBackend(nil)
 			require.NoError(t, fresh.Restore(snap))
 
 			tt.verify(t, fresh, id)
@@ -74,7 +74,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	t.Parallel()
 
-	b := s3.NewInMemoryBackend(nil, nil)
+	b := s3.NewInMemoryBackend(nil)
 	err := b.Restore([]byte("not-valid-json"))
 	require.Error(t, err)
 }

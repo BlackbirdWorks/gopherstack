@@ -14,7 +14,6 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/apigateway"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
-	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -104,7 +103,7 @@ func TestHandler_APIGateway_Metadata(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := apigateway.NewHandler(apigateway.NewInMemoryBackend(), slog.Default())
+			h := apigateway.NewHandler(apigateway.NewInMemoryBackend())
 
 			switch {
 			case tt.wantName != "":
@@ -145,7 +144,7 @@ func TestHandler_APIGateway_RouteMatcher(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := apigateway.NewHandler(apigateway.NewInMemoryBackend(), slog.Default())
+			h := apigateway.NewHandler(apigateway.NewInMemoryBackend())
 			matcher := h.RouteMatcher()
 			e := echo.New()
 
@@ -182,7 +181,7 @@ func TestHandler_APIGateway_ExtractOperation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := apigateway.NewHandler(apigateway.NewInMemoryBackend(), slog.Default())
+			h := apigateway.NewHandler(apigateway.NewInMemoryBackend())
 			e := echo.New()
 
 			req := httptest.NewRequest(http.MethodPost, "/", nil)
@@ -219,7 +218,7 @@ func TestHandler_APIGateway_ExtractResource(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := apigateway.NewHandler(apigateway.NewInMemoryBackend(), slog.Default())
+			h := apigateway.NewHandler(apigateway.NewInMemoryBackend())
 			e := echo.New()
 
 			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tt.body))
@@ -278,8 +277,8 @@ func TestHandler_APIGateway_RequestErrors(t *testing.T) {
 			t.Parallel()
 
 			e := echo.New()
-			log := logger.NewLogger(slog.LevelDebug)
-			h := apigateway.NewHandler(apigateway.NewInMemoryBackend(), log)
+
+			h := apigateway.NewHandler(apigateway.NewInMemoryBackend())
 
 			var req *http.Request
 			if tt.body != "" {

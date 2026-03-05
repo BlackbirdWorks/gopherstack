@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"maps"
 	"net/http"
 	"strings"
@@ -107,17 +106,15 @@ type untagResourceInput struct {
 // Handler is the Echo HTTP service handler for EventBridge operations.
 type Handler struct {
 	Backend   StorageBackend
-	Logger    *slog.Logger
 	scheduler *Scheduler
 	tags      map[string]*svcTags.Tags
 	tagsMu    *lockmetrics.RWMutex
 }
 
 // NewHandler creates a new EventBridge handler.
-func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
+func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{
 		Backend: backend,
-		Logger:  log,
 		tags:    make(map[string]*svcTags.Tags),
 		tagsMu:  lockmetrics.New("eb.tags"),
 	}

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"maps"
 	"net/http"
 	"strings"
@@ -148,13 +147,12 @@ type deleteStageInput struct {
 // Handler is the Echo HTTP service handler for API Gateway operations.
 type Handler struct {
 	Backend StorageBackend
-	Logger  *slog.Logger
 	lambda  LambdaInvoker
 }
 
 // NewHandler creates a new API Gateway handler.
-func NewHandler(backend StorageBackend, log *slog.Logger) *Handler {
-	return &Handler{Backend: backend, Logger: log}
+func NewHandler(backend StorageBackend) *Handler {
+	return &Handler{Backend: backend}
 }
 
 // SetLambdaInvoker configures the Lambda invoker for AWS_PROXY integrations.

@@ -99,3 +99,54 @@ func TestLogger_New(t *testing.T) {
 		})
 	}
 }
+
+func TestLogger_AddAttrs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		initialLogger *slog.Logger
+		attrs         []slog.Attr
+	}{
+		{
+			name:          "adds single attr without mutating parent",
+			initialLogger: logger.NewTestLogger(),
+			attrs:         []slog.Attr{slog.String("service", "DynamoDB")},
+		},
+		{
+			name:          "adds multiple attrs",
+			initialLogger: logger.NewTestLogger(),
+			attrs: []slog.Attr{
+				slog.String("service", "S3"),
+				slog.String("request_id", "abc-123"),
+			},
+		},
+		{
+			name:  "works when no logger saved in ctx (uses default)",
+			attrs: []slog.Attr{slog.String("key", "val")},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := t.Context()
+			if tt.initialLogger != nil {
+				ctx = logger.Save(ctx, tt.initialLogger)
+			}
+
+			parent := logger.Load(ctx)
+
+			enrichedCtx := logger.AddAttrs(ctx, tt.attrs...)
+			child := logger.Load(enrichedCtx)
+
+			// Child must be a distinct pointer so the parent is not mutated.
+			require.NotNil(t, child)
+			assert.NotSame(t, parent, child)
+
+			// Parent logger in original ctx must be unchanged.
+			assert.Same(t, parent, logger.Load(ctx))
+		})
+	}
+}

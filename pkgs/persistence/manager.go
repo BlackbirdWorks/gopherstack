@@ -30,16 +30,14 @@ type entry struct {
 // It restores state on startup and performs debounced async saves on mutation.
 type Manager struct {
 	store   Store
-	log     *slog.Logger
 	entries map[string]*entry
 	mu      sync.RWMutex
 }
 
 // NewManager creates a Manager backed by the given Store.
-func NewManager(store Store, log *slog.Logger) *Manager {
+func NewManager(store Store) *Manager {
 	return &Manager{
 		store:   store,
-		log:     log,
 		entries: make(map[string]*entry),
 	}
 }
@@ -63,18 +61,18 @@ func (m *Manager) RestoreAll(ctx context.Context) {
 		data, err := m.store.Load(name, snapshotKey)
 		if err != nil {
 			if errors.Is(err, ErrKeyNotFound) {
-				m.log.DebugContext(ctx, "persistence: no snapshot found", "service", name)
+				slog.Default().DebugContext(ctx, "persistence: no snapshot found", "service", name)
 			} else {
-				m.log.WarnContext(ctx, "persistence: load failed", "service", name, "error", err)
+				slog.Default().WarnContext(ctx, "persistence: load failed", "service", name, "error", err)
 			}
 
 			continue
 		}
 
 		if restoreErr := e.persistable.Restore(data); restoreErr != nil {
-			m.log.WarnContext(ctx, "persistence: restore failed", "service", name, "error", restoreErr)
+			slog.Default().WarnContext(ctx, "persistence: restore failed", "service", name, "error", restoreErr)
 		} else {
-			m.log.InfoContext(ctx, "persistence: restored", "service", name)
+			slog.Default().InfoContext(ctx, "persistence: restored", "service", name)
 		}
 	}
 }
@@ -127,7 +125,7 @@ func (m *Manager) SaveAll(ctx context.Context) {
 		e.mu.Unlock()
 
 		if saveErr := m.save(e); saveErr != nil {
-			m.log.WarnContext(ctx, "persistence: save failed on shutdown", "service", e.name, "error", saveErr)
+			slog.Default().WarnContext(ctx, "persistence: save failed on shutdown", "service", e.name, "error", saveErr)
 		}
 	}
 }
@@ -150,7 +148,7 @@ func (m *Manager) saveIfCurrent(e *entry, gen uint64) {
 	e.mu.Unlock()
 
 	if err := m.save(e); err != nil {
-		m.log.Warn("persistence: save failed", "service", e.name, "error", err)
+		slog.Default().Warn("persistence: save failed", "service", e.name, "error", err)
 	}
 }
 

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"maps"
 	"net/http"
 	"strings"
@@ -22,14 +21,12 @@ var ErrUnknownOperation = errors.New("UnknownOperationException")
 // Handler is the Echo HTTP service handler for SSM operations.
 type Handler struct {
 	Backend StorageBackend
-	Logger  *slog.Logger
 }
 
 // NewHandler creates a new SSM handler with the given storage backend.
-func NewHandler(backend StorageBackend, logger *slog.Logger) *Handler {
+func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{
 		Backend: backend,
-		Logger:  logger,
 	}
 }
 

@@ -2,7 +2,6 @@ package s3
 
 import (
 	"context"
-	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -64,7 +63,6 @@ const (
 //
 //nolint:revive // Stuttering preferred here for clarity per Plan.md
 type S3Handler struct {
-	Logger        *slog.Logger
 	DefaultRegion string
 	janitor       *Janitor
 	notifier      NotificationDispatcher
@@ -76,10 +74,9 @@ type S3Handler struct {
 }
 
 // NewHandler creates a new S3 Handler with the given backend.
-func NewHandler(backend StorageBackend, logger *slog.Logger) *S3Handler {
+func NewHandler(backend StorageBackend) *S3Handler {
 	return &S3Handler{
 		Backend:       backend,
-		Logger:        logger,
 		DefaultRegion: config.DefaultRegion,
 	}
 }
@@ -92,7 +89,7 @@ func (h *S3Handler) WithJanitor(settings Settings) *S3Handler {
 	}
 	if memBackend, ok := h.Backend.(*InMemoryBackend); ok {
 		memBackend.SetDefaultRegion(h.DefaultRegion)
-		h.janitor = NewJanitor(memBackend, h.Logger, settings)
+		h.janitor = NewJanitor(memBackend, settings)
 	}
 
 	return h
@@ -225,7 +222,7 @@ func (h *S3Handler) Handler() echo.HandlerFunc {
 
 		if bucketName == "" {
 			if requestWithCtx.Method != http.MethodGet {
-				WriteError(log, sw, requestWithCtx, ErrMethodNotAllowed)
+				WriteError(ctx, sw, requestWithCtx, ErrMethodNotAllowed)
 
 				return nil
 			}
@@ -305,7 +302,6 @@ func (h *S3Handler) resolveBucketAndKey(
 	w http.ResponseWriter,
 	r *http.Request,
 ) (string, string, bool) {
-	log := logger.Load(ctx)
 	path := strings.TrimPrefix(r.URL.Path, "/")
 	parts := strings.SplitN(path, "/", pathSplitParts)
 
@@ -314,7 +310,7 @@ func (h *S3Handler) resolveBucketAndKey(
 		bucket := vhBucket
 		key := path
 		if key != "" && !IsValidObjectKey(key) {
-			WriteError(log, w, r, ErrInvalidArgument)
+			WriteError(ctx, w, r, ErrInvalidArgument)
 
 			return "", "", false
 		}
@@ -327,7 +323,7 @@ func (h *S3Handler) resolveBucketAndKey(
 	if path != "" && path != "/" {
 		bucket = parts[0]
 		if !IsValidBucketName(bucket) {
-			WriteError(log, w, r, ErrInvalidBucketName)
+			WriteError(ctx, w, r, ErrInvalidBucketName)
 
 			return "", "", false
 		}
@@ -335,7 +331,7 @@ func (h *S3Handler) resolveBucketAndKey(
 		if len(parts) > 1 {
 			key = parts[1]
 			if key != "" && !IsValidObjectKey(key) {
-				WriteError(log, w, r, ErrInvalidArgument)
+				WriteError(ctx, w, r, ErrInvalidArgument)
 
 				return "", "", false
 			}

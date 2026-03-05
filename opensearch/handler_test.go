@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -20,7 +19,7 @@ import (
 func newTestHandler() *opensearch.Handler {
 	bk := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
 
-	return opensearch.NewHandler(bk, slog.Default())
+	return opensearch.NewHandler(bk)
 }
 
 func doRequest(t *testing.T, h *opensearch.Handler, method, path string, body any) *http.Response {

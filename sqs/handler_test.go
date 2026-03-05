@@ -15,7 +15,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/sqs"
 )
@@ -32,10 +31,9 @@ type jsonErr struct {
 func newTestHandler(t *testing.T) *sqs.Handler {
 	t.Helper()
 
-	log := logger.NewLogger(slog.LevelDebug)
 	backend := sqs.NewInMemoryBackend()
 
-	return sqs.NewHandler(backend, log)
+	return sqs.NewHandler(backend)
 }
 
 // doRequest sends a JSON request to the handler with the given X-Amz-Target action.
@@ -180,9 +178,7 @@ func (e *errorBackend) ListAll() []sqs.QueueInfo { return nil }
 func newErrorHandler(t *testing.T, err error) *sqs.Handler {
 	t.Helper()
 
-	log := logger.NewLogger(slog.LevelDebug)
-
-	return sqs.NewHandler(&errorBackend{err: err}, log)
+	return sqs.NewHandler(&errorBackend{err: err})
 }
 
 // --- Handler action tests ---
@@ -1202,8 +1198,7 @@ func TestProviderNameAndInit(t *testing.T) {
 	p := &sqs.Provider{}
 	assert.Equal(t, "SQS", p.Name())
 
-	log := logger.NewLogger(slog.LevelDebug)
-	appCtx := &service.AppContext{Logger: log}
+	appCtx := &service.AppContext{Logger: slog.Default()}
 
 	svc, err := p.Init(appCtx)
 	require.NoError(t, err)

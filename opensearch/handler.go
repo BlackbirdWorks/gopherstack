@@ -4,13 +4,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -24,14 +24,13 @@ const (
 // Handler is the HTTP handler for OpenSearch operations.
 type Handler struct {
 	Backend   *InMemoryBackend
-	Logger    *slog.Logger
 	AccountID string
 	Region    string
 }
 
 // NewHandler creates a new OpenSearch Handler.
-func NewHandler(backend *InMemoryBackend, log *slog.Logger) *Handler {
-	return &Handler{Backend: backend, Logger: log}
+func NewHandler(backend *InMemoryBackend) *Handler {
+	return &Handler{Backend: backend}
 }
 
 // Name returns the service name.
@@ -200,7 +199,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(rest, "/") && r.Method == http.MethodDelete:
 		h.handleDeleteDomain(w, r, domainNameFromRest(rest))
 	default:
-		h.writeError(w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 	}
 }
 
@@ -248,20 +247,20 @@ func (h *Handler) Handler() echo.HandlerFunc {
 func (h *Handler) handleCreateDomain(w http.ResponseWriter, r *http.Request) {
 	body, err := httputil.ReadBody(r)
 	if err != nil {
-		h.writeError(w, http.StatusBadRequest, "ValidationException", "failed to read body")
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "failed to read body")
 
 		return
 	}
 
 	var req domainJSON
 	if err = json.Unmarshal(body, &req); err != nil {
-		h.writeError(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 
 		return
 	}
 
 	if req.DomainName == "" {
-		h.writeError(w, http.StatusBadRequest, "ValidationException", "DomainName is required")
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "DomainName is required")
 
 		return
 	}
@@ -275,54 +274,54 @@ func (h *Handler) handleCreateDomain(w http.ResponseWriter, r *http.Request) {
 	domain, err := h.Backend.CreateDomain(req.DomainName, req.EngineVersion, cfg)
 	if err != nil {
 		if errors.Is(err, ErrDomainAlreadyExists) {
-			h.writeError(w, http.StatusConflict, "ResourceAlreadyExistsException", err.Error())
+			h.writeError(r, w, http.StatusConflict, "ResourceAlreadyExistsException", err.Error())
 		} else {
-			h.writeError(w, http.StatusBadRequest, "ValidationException", err.Error())
+			h.writeError(r, w, http.StatusBadRequest, "ValidationException", err.Error())
 		}
 
 		return
 	}
 
-	h.writeJSON(w, domainStatusWrapJSON{
+	h.writeJSON(r, w, domainStatusWrapJSON{
 		DomainStatus: toDomainStatusJSON(domain),
 	})
 }
 
-func (h *Handler) handleDescribeDomain(w http.ResponseWriter, _ *http.Request, name string) {
+func (h *Handler) handleDescribeDomain(w http.ResponseWriter, r *http.Request, name string) {
 	domain, err := h.Backend.DescribeDomain(name)
 	if err != nil {
 		if errors.Is(err, ErrDomainNotFound) {
-			h.writeError(w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 		} else {
-			h.writeError(w, http.StatusInternalServerError, "InternalException", err.Error())
+			h.writeError(r, w, http.StatusInternalServerError, "InternalException", err.Error())
 		}
 
 		return
 	}
 
-	h.writeJSON(w, domainStatusWrapJSON{
+	h.writeJSON(r, w, domainStatusWrapJSON{
 		DomainStatus: toDomainStatusJSON(domain),
 	})
 }
 
-func (h *Handler) handleDeleteDomain(w http.ResponseWriter, _ *http.Request, name string) {
+func (h *Handler) handleDeleteDomain(w http.ResponseWriter, r *http.Request, name string) {
 	domain, err := h.Backend.DeleteDomain(name)
 	if err != nil {
 		if errors.Is(err, ErrDomainNotFound) {
-			h.writeError(w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 		} else {
-			h.writeError(w, http.StatusInternalServerError, "InternalException", err.Error())
+			h.writeError(r, w, http.StatusInternalServerError, "InternalException", err.Error())
 		}
 
 		return
 	}
 
-	h.writeJSON(w, domainStatusWrapJSON{
+	h.writeJSON(r, w, domainStatusWrapJSON{
 		DomainStatus: toDomainStatusJSON(domain),
 	})
 }
 
-func (h *Handler) handleListDomainNames(w http.ResponseWriter, _ *http.Request) {
+func (h *Handler) handleListDomainNames(w http.ResponseWriter, r *http.Request) {
 	names := h.Backend.ListDomainNames()
 	entries := make([]domainNameEntry, 0, len(names))
 
@@ -338,7 +337,7 @@ func (h *Handler) handleListDomainNames(w http.ResponseWriter, _ *http.Request) 
 		})
 	}
 
-	h.writeJSON(w, domainListJSON{DomainNames: entries})
+	h.writeJSON(r, w, domainListJSON{DomainNames: entries})
 }
 
 func toDomainStatusJSON(d *Domain) domainStatusJSON {
@@ -365,14 +364,15 @@ type errorResponseJSON struct {
 	Message string `json:"message"`
 }
 
-func (h *Handler) writeError(w http.ResponseWriter, status int, code, message string) {
-	h.Logger.Error("opensearch error", "code", code, "message", message)
+func (h *Handler) writeError(r *http.Request, w http.ResponseWriter, status int, code, message string) {
+	ctx := r.Context()
+	logger.Load(ctx).Error("opensearch error", "code", code, "message", message)
 	w.Header().Set("x-amzn-ErrorType", code)
-	httputil.WriteJSON(h.Logger, w, status, errorResponseJSON{Message: message})
+	httputil.WriteJSON(ctx, w, status, errorResponseJSON{Message: message})
 }
 
-func (h *Handler) writeJSON(w http.ResponseWriter, v any) {
-	httputil.WriteJSON(h.Logger, w, http.StatusOK, v)
+func (h *Handler) writeJSON(r *http.Request, w http.ResponseWriter, v any) {
+	httputil.WriteJSON(r.Context(), w, http.StatusOK, v)
 }
 
 type listTagsOutput struct {
@@ -406,7 +406,7 @@ func (h *Handler) handleListTags(w http.ResponseWriter, r *http.Request) {
 
 	tags, err := h.Backend.ListTags(domainARN)
 	if err != nil {
-		h.writeJSON(w, &listTagsOutput{TagList: []svcTags.KV{}})
+		h.writeJSON(r, w, &listTagsOutput{TagList: []svcTags.KV{}})
 
 		return
 	}
@@ -416,7 +416,7 @@ func (h *Handler) handleListTags(w http.ResponseWriter, r *http.Request) {
 		tagList = append(tagList, svcTags.KV{Key: k, Value: v})
 	}
 
-	h.writeJSON(w, &listTagsOutput{TagList: tagList})
+	h.writeJSON(r, w, &listTagsOutput{TagList: tagList})
 }
 
 type addTagsInput struct {
@@ -427,14 +427,14 @@ type addTagsInput struct {
 func (h *Handler) handleAddTags(w http.ResponseWriter, r *http.Request) {
 	body, err := httputil.ReadBody(r)
 	if err != nil {
-		h.writeError(w, http.StatusBadRequest, "ValidationException", "failed to read body")
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "failed to read body")
 
 		return
 	}
 
 	var req addTagsInput
 	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
-		h.writeError(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 
 		return
 	}
@@ -456,14 +456,14 @@ type removeTagsInput struct {
 func (h *Handler) handleRemoveTags(w http.ResponseWriter, r *http.Request) {
 	body, err := httputil.ReadBody(r)
 	if err != nil {
-		h.writeError(w, http.StatusBadRequest, "ValidationException", "failed to read body")
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "failed to read body")
 
 		return
 	}
 
 	var req removeTagsInput
 	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
-		h.writeError(w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
+		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 
 		return
 	}
@@ -472,14 +472,14 @@ func (h *Handler) handleRemoveTags(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-func (h *Handler) handleDescribeDomainConfig(w http.ResponseWriter, _ *http.Request, name string) {
+func (h *Handler) handleDescribeDomainConfig(w http.ResponseWriter, r *http.Request, name string) {
 	_, err := h.Backend.DescribeDomain(name)
 	if err != nil {
 		if errors.Is(err, ErrDomainNotFound) {
-			h.writeError(w, http.StatusNotFound, "ResourceNotFoundException",
+			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException",
 				fmt.Sprintf("domain %s/config not found", name))
 		} else {
-			h.writeError(w, http.StatusInternalServerError, "InternalException", err.Error())
+			h.writeError(r, w, http.StatusInternalServerError, "InternalException", err.Error())
 		}
 
 		return
@@ -492,5 +492,5 @@ func (h *Handler) handleDescribeDomainConfig(w http.ResponseWriter, _ *http.Requ
 	out.DomainConfig.EBSOptions = opensearchConfigValue{Options: map[string]any{}, Status: activeStatus}
 	out.DomainConfig.AccessPolicies = opensearchConfigValue{Options: "", Status: activeStatus}
 	out.DomainConfig.AdvancedOptions = opensearchConfigValue{Options: map[string]any{}, Status: activeStatus}
-	h.writeJSON(w, &out)
+	h.writeJSON(r, w, &out)
 }

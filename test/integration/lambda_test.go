@@ -148,15 +148,15 @@ func TestLambdaIntegration_Invoke_DockerEchoContainer(t *testing.T) {
 
 	// Wire up the Lambda service with real Docker and portalloc.
 	settings := lambdapkg.DefaultSettings() // DockerHost defaults to 172.17.0.1 (Docker bridge)
-	backend := lambdapkg.NewInMemoryBackend(dc, alloc, settings, "000000000000", "us-east-1", slog.Default())
-	handler := lambdapkg.NewHandler(backend, slog.Default())
+	backend := lambdapkg.NewInMemoryBackend(dc, alloc, settings, "000000000000", "us-east-1")
+	handler := lambdapkg.NewHandler(backend)
 	handler.AccountID = "000000000000"
 	handler.DefaultRegion = "us-east-1"
 
 	// Start an in-process HTTP server with the Lambda handler registered.
 	e := echo.New()
 	e.Pre(logger.EchoMiddleware(slog.Default()))
-	registry := service.NewRegistry(slog.Default())
+	registry := service.NewRegistry()
 	require.NoError(t, registry.Register(handler))
 	e.Use(service.NewServiceRouter(registry).RouteHandler())
 	server := httptest.NewServer(e)

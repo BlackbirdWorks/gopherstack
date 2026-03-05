@@ -54,7 +54,6 @@ func (h *S3Handler) handleBucketOperation(
 	r *http.Request,
 	bucket string,
 ) {
-	log := logger.Load(ctx)
 	switch r.Method {
 	case http.MethodPut:
 		h.routeBucketPut(ctx, w, r, bucket)
@@ -78,7 +77,7 @@ func (h *S3Handler) handleBucketOperation(
 	case http.MethodOptions:
 		h.handleCORSPreflight(ctx, w, r, bucket)
 	default:
-		WriteError(log, w, r, ErrMethodNotAllowed)
+		WriteError(ctx, w, r, ErrMethodNotAllowed)
 	}
 }
 
@@ -88,7 +87,6 @@ func (h *S3Handler) routeBucketPut(
 	r *http.Request,
 	bucket string,
 ) {
-	log := logger.Load(ctx)
 	switch {
 	case r.URL.Query().Has("acl"):
 		h.putBucketACL(ctx, w, r, bucket)
@@ -117,7 +115,7 @@ func (h *S3Handler) routeBucketPut(
 	case r.URL.Query().Has("object-lock"):
 		h.putObjectLockConfiguration(ctx, w, r, bucket)
 	case r.URL.Query().Has("tagging"):
-		WriteError(log, w, r, ErrNotImplemented)
+		WriteError(ctx, w, r, ErrNotImplemented)
 	default:
 		h.createBucket(ctx, w, r, bucket)
 	}
@@ -129,14 +127,13 @@ func (h *S3Handler) routeBucketPost(
 	r *http.Request,
 	bucket string,
 ) {
-	log := logger.Load(ctx)
 	if r.URL.Query().Has("delete") {
 		h.deleteObjects(ctx, w, r, bucket)
 
 		return
 	}
 
-	WriteError(log, w, r, ErrMethodNotAllowed)
+	WriteError(ctx, w, r, ErrMethodNotAllowed)
 }
 
 func (h *S3Handler) routeBucketGet(
@@ -173,8 +170,6 @@ func (h *S3Handler) routeBucketGet(
 		return
 	}
 
-	log := logger.Load(ctx)
-
 	switch {
 	case r.URL.Query().Has("acl"):
 		h.getBucketACL(ctx, w, r, bucket)
@@ -187,7 +182,7 @@ func (h *S3Handler) routeBucketGet(
 	case r.URL.Query().Has("location"):
 		h.getBucketLocation(ctx, w, r, bucket)
 	case r.URL.Query().Has("tagging"):
-		WriteError(log, w, r, ErrNotImplemented)
+		WriteError(ctx, w, r, ErrNotImplemented)
 	case r.URL.Query().Get("list-type") == "2":
 		h.listObjectsV2(ctx, w, r, bucket)
 	default:
@@ -203,48 +198,47 @@ func (h *S3Handler) routeBucketGetStubs(
 	w http.ResponseWriter,
 	r *http.Request,
 ) bool {
-	log := logger.Load(ctx)
 	q := r.URL.Query()
 
 	switch {
 	case q.Has("website"):
 		h.setOperation(ctx, "GetBucketWebsite")
-		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
+		httputil.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
 			Code:    "NoSuchWebsiteConfiguration",
 			Message: "The specified bucket does not have a website configuration",
 		}, http.StatusNotFound)
 	case q.Has("logging"):
 		h.setOperation(ctx, "GetBucketLogging")
 		httputil.WriteXML(
-			log,
+			ctx,
 			w,
 			http.StatusOK,
 			s3BucketLoggingStatus{Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/"},
 		)
 	case q.Has("replication"):
 		h.setOperation(ctx, "GetBucketReplication")
-		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
+		httputil.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
 			Code:    "ReplicationConfigurationNotFoundError",
 			Message: "The replication configuration was not found",
 		}, http.StatusNotFound)
 	case q.Has("request-payment"):
 		h.setOperation(ctx, "GetBucketRequestPayment")
 		httputil.WriteXML(
-			log,
+			ctx,
 			w,
 			http.StatusOK,
 			s3RequestPaymentConfiguration{Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/", Payer: "BucketOwner"},
 		)
 	case q.Has("encryption"):
 		h.setOperation(ctx, "GetBucketEncryption")
-		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
+		httputil.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
 			Code:    "ServerSideEncryptionConfigurationNotFoundError",
 			Message: "The server side encryption configuration was not found",
 		}, http.StatusNotFound)
 	case q.Has("intelligent-tiering"):
 		h.setOperation(ctx, "ListBucketIntelligentTieringConfigurations")
 		httputil.WriteXML(
-			log,
+			ctx,
 			w,
 			http.StatusOK,
 			s3ListIntelligentTieringOutput{Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/"},
@@ -258,10 +252,9 @@ func (h *S3Handler) routeBucketGetStubs(
 
 func (h *S3Handler) listBuckets(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 	h.setOperation(ctx, "ListBuckets")
-	log := logger.Load(ctx)
 	out, err := h.Backend.ListBuckets(ctx, &s3.ListBucketsInput{})
 	if err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
@@ -282,7 +275,7 @@ func (h *S3Handler) listBuckets(ctx context.Context, w http.ResponseWriter, r *h
 		}
 	}
 
-	httputil.WriteXML(log, w, http.StatusOK, resp)
+	httputil.WriteXML(ctx, w, http.StatusOK, resp)
 }
 
 func (h *S3Handler) createBucket(
@@ -292,14 +285,13 @@ func (h *S3Handler) createBucket(
 	bucketName string,
 ) {
 	h.setOperation(ctx, "CreateBucket")
-	log := logger.Load(ctx)
-	log.DebugContext(ctx, "S3 createBucket input", "bucket", bucketName)
+	logger.Load(ctx).DebugContext(ctx, "S3 createBucket input", "bucket", bucketName)
 
 	var region string
 	// Read the body to check for LocationConstraint
 	body, err := httputil.ReadBody(r)
 	if err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
@@ -309,7 +301,7 @@ func (h *S3Handler) createBucket(
 		if xmlErr := xml.Unmarshal(body, &bucketConfig); xmlErr == nil {
 			region = bucketConfig.LocationConstraint
 		} else {
-			log.WarnContext(ctx, "failed to parse CreateBucketConfiguration", "error", xmlErr)
+			logger.Load(ctx).WarnContext(ctx, "failed to parse CreateBucketConfiguration", "error", xmlErr)
 		}
 	}
 
@@ -336,8 +328,9 @@ func (h *S3Handler) createBucket(
 
 	output, err := h.Backend.CreateBucket(ctx, input)
 	if errors.Is(err, ErrBucketAlreadyOwnedByYou) {
-		log.ErrorContext(ctx, "request failed", "error", err, "code", http.StatusConflict, "path", r.URL.Path)
-		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
+		logger.Load(ctx).
+			ErrorContext(ctx, "request failed", "error", err, "code", http.StatusConflict, "path", r.URL.Path)
+		httputil.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
 			Code:     "BucketAlreadyOwnedByYou",
 			Message:  "Your previous request to create the named bucket succeeded and you already own it.",
 			Resource: r.URL.Path,
@@ -347,8 +340,9 @@ func (h *S3Handler) createBucket(
 	}
 
 	if errors.Is(err, ErrBucketAlreadyExists) {
-		log.ErrorContext(ctx, "request failed", "error", err, "code", http.StatusConflict, "path", r.URL.Path)
-		httputil.WriteS3ErrorResponse(log, w, r, ErrorResponse{
+		logger.Load(ctx).
+			ErrorContext(ctx, "request failed", "error", err, "code", http.StatusConflict, "path", r.URL.Path)
+		httputil.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
 			Code: "BucketAlreadyExists",
 			Message: "The requested bucket name is not available. " +
 				"The bucket namespace is shared by all users of the system. " +
@@ -360,12 +354,12 @@ func (h *S3Handler) createBucket(
 	}
 
 	if err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
 
-	log.DebugContext(ctx, "S3 createBucket output", "bucket", bucketName, "region", region)
+	logger.Load(ctx).DebugContext(ctx, "S3 createBucket output", "bucket", bucketName, "region", region)
 
 	// Set Location header from output
 	if output.Location != nil {
@@ -381,29 +375,28 @@ func (h *S3Handler) deleteBucket(
 	bucketName string,
 ) {
 	h.setOperation(ctx, "DeleteBucket")
-	log := logger.Load(ctx)
-	log.DebugContext(ctx, "S3 deleteBucket input", "bucket", bucketName)
+	logger.Load(ctx).DebugContext(ctx, "S3 deleteBucket input", "bucket", bucketName)
 
 	_, err := h.Backend.DeleteBucket(ctx, &s3.DeleteBucketInput{Bucket: aws.String(bucketName)})
 	if errors.Is(err, ErrNoSuchBucket) {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
 
 	if errors.Is(err, ErrBucketNotEmpty) {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
 
 	if err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
 
-	log.DebugContext(ctx, "S3 deleteBucket output", "bucket", bucketName)
+	logger.Load(ctx).DebugContext(ctx, "S3 deleteBucket output", "bucket", bucketName)
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -415,12 +408,11 @@ func (h *S3Handler) listObjects(
 	bucketName string,
 ) {
 	h.setOperation(ctx, "ListObjects")
-	log := logger.Load(ctx)
 	prefix := r.URL.Query().Get("prefix")
 	delimiter := r.URL.Query().Get("delimiter")
 	marker := r.URL.Query().Get("marker")
 
-	log.DebugContext(ctx,
+	logger.Load(ctx).DebugContext(ctx,
 		"S3 listObjects input",
 		"bucket", bucketName, "prefix", prefix, "delimiter", delimiter, "marker", marker,
 	)
@@ -438,13 +430,13 @@ func (h *S3Handler) listObjects(
 		MaxKeys: aws.Int32(maxKeys),
 	})
 	if errors.Is(err, ErrNoSuchBucket) {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
 
 	if err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
@@ -464,7 +456,7 @@ func (h *S3Handler) listObjects(
 		nextMarker = *objects[maxKeys-1].Key
 	}
 
-	log.DebugContext(ctx,
+	logger.Load(ctx).DebugContext(ctx,
 		"S3 listObjects output",
 		"bucket", bucketName, "objectCount", len(objects), "isTruncated", isTruncated,
 	)
@@ -490,7 +482,7 @@ func (h *S3Handler) listObjects(
 	)
 	resp.KeyCount = len(resp.Contents)
 
-	httputil.WriteXML(log, w, http.StatusOK, resp)
+	httputil.WriteXML(ctx, w, http.StatusOK, resp)
 }
 
 func (h *S3Handler) getBucketLocation(
@@ -507,8 +499,7 @@ func (h *S3Handler) getBucketLocation(
 		region = contextRegion
 	}
 
-	log := logger.Load(ctx)
-	httputil.WriteXML(log, w, http.StatusOK, &LocationConstraintResponse{
+	httputil.WriteXML(ctx, w, http.StatusOK, &LocationConstraintResponse{
 		Xmlns:  "http://s3.amazonaws.com/doc/2006-03-01/",
 		Region: region,
 	})
@@ -622,10 +613,9 @@ func (h *S3Handler) putBucketVersioning(
 	bucketName string,
 ) {
 	h.setOperation(ctx, "PutBucketVersioning")
-	log := logger.Load(ctx)
 	var conf VersioningConfiguration
 	if err := xml.NewDecoder(r.Body).Decode(&conf); err != nil {
-		WriteError(log, w, r, ErrInvalidArgument)
+		WriteError(ctx, w, r, ErrInvalidArgument)
 
 		return
 	}
@@ -637,7 +627,7 @@ func (h *S3Handler) putBucketVersioning(
 		},
 	})
 	if err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
@@ -652,13 +642,12 @@ func (h *S3Handler) getBucketVersioning(
 	bucketName string,
 ) {
 	h.setOperation(ctx, "GetBucketVersioning")
-	log := logger.Load(ctx)
 	out, err := h.Backend.GetBucketVersioning(
 		ctx,
 		&s3.GetBucketVersioningInput{Bucket: aws.String(bucketName)},
 	)
 	if err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
@@ -668,7 +657,7 @@ func (h *S3Handler) getBucketVersioning(
 		status = string(out.Status)
 	}
 
-	httputil.WriteXML(log, w, http.StatusOK, VersioningConfiguration{
+	httputil.WriteXML(ctx, w, http.StatusOK, VersioningConfiguration{
 		Status: status,
 	})
 }
@@ -680,7 +669,6 @@ func (h *S3Handler) listObjectVersions(
 	bucketName string,
 ) {
 	h.setOperation(ctx, "ListObjectVersions")
-	log := logger.Load(ctx)
 	prefix := r.URL.Query().Get("prefix")
 
 	out, err := h.Backend.ListObjectVersions(ctx, &s3.ListObjectVersionsInput{
@@ -688,13 +676,13 @@ func (h *S3Handler) listObjectVersions(
 		Prefix: aws.String(prefix),
 	})
 	if errors.Is(err, ErrNoSuchBucket) {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
 
 	if err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
@@ -743,7 +731,7 @@ func (h *S3Handler) listObjectVersions(
 		})
 	}
 
-	httputil.WriteXML(log, w, http.StatusOK, resp)
+	httputil.WriteXML(ctx, w, http.StatusOK, resp)
 }
 
 func (h *S3Handler) putBucketACL(
@@ -753,7 +741,6 @@ func (h *S3Handler) putBucketACL(
 	bucketName string,
 ) {
 	h.setOperation(ctx, "PutBucketAcl")
-	log := logger.Load(ctx)
 
 	acl := r.Header.Get("X-Amz-Acl")
 	if acl == "" {
@@ -761,7 +748,7 @@ func (h *S3Handler) putBucketACL(
 	}
 
 	if err := h.Backend.PutBucketACL(ctx, bucketName, acl); err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
@@ -776,11 +763,10 @@ func (h *S3Handler) getBucketACL(
 	bucketName string,
 ) {
 	h.setOperation(ctx, "GetBucketAcl")
-	log := logger.Load(ctx)
 
 	_, err := h.Backend.GetBucketACL(ctx, bucketName)
 	if err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
@@ -805,21 +791,20 @@ func (h *S3Handler) getBucketACL(
 		},
 	}
 
-	httputil.WriteXML(log, w, http.StatusOK, resp)
+	httputil.WriteXML(ctx, w, http.StatusOK, resp)
 }
 
 func (h *S3Handler) putBucketPolicy(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
 	h.setOperation(ctx, "PutBucketPolicy")
-	log := logger.Load(ctx)
 	body, err := httputil.ReadBody(r)
 	if err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
 	err = h.Backend.PutBucketPolicy(ctx, bucket, string(body))
 	if err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
@@ -828,10 +813,9 @@ func (h *S3Handler) putBucketPolicy(ctx context.Context, w http.ResponseWriter, 
 
 func (h *S3Handler) getBucketPolicy(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
 	h.setOperation(ctx, "GetBucketPolicy")
-	log := logger.Load(ctx)
 	policy, err := h.Backend.GetBucketPolicy(ctx, bucket)
 	if err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
@@ -842,9 +826,8 @@ func (h *S3Handler) getBucketPolicy(ctx context.Context, w http.ResponseWriter, 
 
 func (h *S3Handler) deleteBucketPolicy(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
 	h.setOperation(ctx, "DeleteBucketPolicy")
-	log := logger.Load(ctx)
 	if err := h.Backend.DeleteBucketPolicy(ctx, bucket); err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
@@ -853,16 +836,15 @@ func (h *S3Handler) deleteBucketPolicy(ctx context.Context, w http.ResponseWrite
 
 func (h *S3Handler) putBucketCORS(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
 	h.setOperation(ctx, "PutBucketCors")
-	log := logger.Load(ctx)
 	body, err := httputil.ReadBody(r)
 	if err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
 	err = h.Backend.PutBucketCORS(ctx, bucket, string(body))
 	if err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
@@ -871,10 +853,9 @@ func (h *S3Handler) putBucketCORS(ctx context.Context, w http.ResponseWriter, r 
 
 func (h *S3Handler) getBucketCORS(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
 	h.setOperation(ctx, "GetBucketCors")
-	log := logger.Load(ctx)
 	corsXML, err := h.Backend.GetBucketCORS(ctx, bucket)
 	if err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
@@ -885,9 +866,8 @@ func (h *S3Handler) getBucketCORS(ctx context.Context, w http.ResponseWriter, r 
 
 func (h *S3Handler) deleteBucketCORS(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
 	h.setOperation(ctx, "DeleteBucketCors")
-	log := logger.Load(ctx)
 	if err := h.Backend.DeleteBucketCORS(ctx, bucket); err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
@@ -918,16 +898,15 @@ func (h *S3Handler) putBucketLifecycleConfiguration(
 	bucket string,
 ) {
 	h.setOperation(ctx, "PutBucketLifecycleConfiguration")
-	log := logger.Load(ctx)
 	body, err := httputil.ReadBody(r)
 	if err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
 	err = h.Backend.PutBucketLifecycleConfiguration(ctx, bucket, string(body))
 	if err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
@@ -941,10 +920,9 @@ func (h *S3Handler) getBucketLifecycleConfiguration(
 	bucket string,
 ) {
 	h.setOperation(ctx, "GetBucketLifecycleConfiguration")
-	log := logger.Load(ctx)
 	lifecycleXML, err := h.Backend.GetBucketLifecycleConfiguration(ctx, bucket)
 	if err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
@@ -960,9 +938,8 @@ func (h *S3Handler) deleteBucketLifecycleConfiguration(
 	bucket string,
 ) {
 	h.setOperation(ctx, "DeleteBucketLifecycleConfiguration")
-	log := logger.Load(ctx)
 	if err := h.Backend.DeleteBucketLifecycleConfiguration(ctx, bucket); err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
@@ -976,16 +953,15 @@ func (h *S3Handler) putBucketNotificationConfiguration(
 	bucket string,
 ) {
 	h.setOperation(ctx, "PutBucketNotificationConfiguration")
-	log := logger.Load(ctx)
 	body, err := httputil.ReadBody(r)
 	if err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
 	err = h.Backend.PutBucketNotificationConfiguration(ctx, bucket, string(body))
 	if err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
@@ -999,16 +975,15 @@ func (h *S3Handler) getBucketNotificationConfiguration(
 	bucket string,
 ) {
 	h.setOperation(ctx, "GetBucketNotificationConfiguration")
-	log := logger.Load(ctx)
 	notifXML, err := h.Backend.GetBucketNotificationConfiguration(ctx, bucket)
 	if err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
 	if notifXML == "" {
 		// Return empty notification config
-		httputil.WriteXML(log, w, http.StatusOK, s3NotificationConfiguration{})
+		httputil.WriteXML(ctx, w, http.StatusOK, s3NotificationConfiguration{})
 
 		return
 	}
@@ -1024,16 +999,15 @@ func (h *S3Handler) putObjectLockConfiguration(
 	bucket string,
 ) {
 	h.setOperation(ctx, "PutObjectLockConfiguration")
-	log := logger.Load(ctx)
 	body, err := httputil.ReadBody(r)
 	if err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
 
 	if err = h.Backend.PutObjectLockConfiguration(ctx, bucket, string(body)); err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
@@ -1048,17 +1022,16 @@ func (h *S3Handler) getObjectLockConfiguration(
 	bucket string,
 ) {
 	h.setOperation(ctx, "GetObjectLockConfiguration")
-	log := logger.Load(ctx)
 	configXML, err := h.Backend.GetObjectLockConfiguration(ctx, bucket)
 
 	if errors.Is(err, ErrNoObjectLockConfig) {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}
 
 	if err != nil {
-		WriteError(log, w, r, err)
+		WriteError(ctx, w, r, err)
 
 		return
 	}

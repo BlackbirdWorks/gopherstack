@@ -3,8 +3,6 @@ package persistence_test
 import (
 	"context"
 	"errors"
-	"io"
-	"log/slog"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -134,11 +132,6 @@ func (m *memStore) SaveCount() int {
 	return m.saveCount
 }
 
-// discardLogger returns a [slog.Logger] that discards all output.
-func discardLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(io.Discard, nil))
-}
-
 // --- NewManager ---
 
 func TestNewManager(t *testing.T) {
@@ -156,7 +149,7 @@ func TestNewManager(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			mgr := persistence.NewManager(tt.store, discardLogger())
+			mgr := persistence.NewManager(tt.store)
 			require.NotNil(t, mgr)
 		})
 	}
@@ -219,7 +212,7 @@ func TestManager_Register_RestoreAll(t *testing.T) {
 			p := &mockPersistable{}
 			tt.setup(store, p)
 
-			mgr := persistence.NewManager(store, discardLogger())
+			mgr := persistence.NewManager(store)
 			mgr.Register("svc", p)
 			mgr.RestoreAll(t.Context())
 
@@ -235,7 +228,7 @@ func TestManager_Register_RestoreAll(t *testing.T) {
 func TestManager_RestoreAll_NoServices(t *testing.T) {
 	t.Parallel()
 
-	mgr := persistence.NewManager(newMemStore(), discardLogger())
+	mgr := persistence.NewManager(newMemStore())
 
 	require.NotPanics(t, func() {
 		mgr.RestoreAll(t.Context())
@@ -256,7 +249,7 @@ func TestManager_RestoreAll_MultipleServices(t *testing.T) {
 		persistables[name] = &mockPersistable{}
 	}
 
-	mgr := persistence.NewManager(store, discardLogger())
+	mgr := persistence.NewManager(store)
 
 	for _, name := range services {
 		mgr.Register(name, persistables[name])
@@ -308,7 +301,7 @@ func TestManager_SaveAll(t *testing.T) {
 
 			p := &mockPersistable{data: tt.snapshotData}
 
-			mgr := persistence.NewManager(store, discardLogger())
+			mgr := persistence.NewManager(store)
 			mgr.Register("svc", p)
 			mgr.SaveAll(t.Context())
 
@@ -321,7 +314,7 @@ func TestManager_SaveAll_MultipleServices(t *testing.T) {
 	t.Parallel()
 
 	store := newMemStore()
-	mgr := persistence.NewManager(store, discardLogger())
+	mgr := persistence.NewManager(store)
 
 	for _, name := range []string{"alpha", "beta", "gamma"} {
 		mgr.Register(name, &mockPersistable{data: []byte(`{"ok":true}`)})
@@ -337,7 +330,7 @@ func TestManager_SaveAll_MultipleServices(t *testing.T) {
 func TestManager_Notify_UnknownService(t *testing.T) {
 	t.Parallel()
 
-	mgr := persistence.NewManager(newMemStore(), discardLogger())
+	mgr := persistence.NewManager(newMemStore())
 
 	require.NotPanics(t, func() {
 		mgr.Notify("nonexistent")
@@ -350,7 +343,7 @@ func TestManager_Notify_TriggersDebouncedSave(t *testing.T) {
 	store := newMemStore()
 	p := &mockPersistable{data: []byte(`{"notify":true}`)}
 
-	mgr := persistence.NewManager(store, discardLogger())
+	mgr := persistence.NewManager(store)
 	mgr.Register("svc", p)
 	mgr.Notify("svc")
 
@@ -367,7 +360,7 @@ func TestManager_Notify_SaveAllCancelsPendingTimer(t *testing.T) {
 	store := newMemStore()
 	p := &mockPersistable{data: []byte(`{"cancel":true}`)}
 
-	mgr := persistence.NewManager(store, discardLogger())
+	mgr := persistence.NewManager(store)
 	mgr.Register("svc", p)
 
 	mgr.Notify("svc")
@@ -387,7 +380,7 @@ func TestManager_Notify_ResetTimerOnRapidCalls(t *testing.T) {
 	store := newMemStore()
 	p := &mockPersistable{data: []byte(`{"rapid":true}`)}
 
-	mgr := persistence.NewManager(store, discardLogger())
+	mgr := persistence.NewManager(store)
 	mgr.Register("svc", p)
 
 	// Rapid calls must not create multiple concurrent saves.
@@ -409,7 +402,7 @@ func TestManager_Notify_GenerationSkipsStaleCallback(t *testing.T) {
 	store := newMemStore()
 	p := &mockPersistable{data: []byte(`{"gen":true}`)}
 
-	mgr := persistence.NewManager(store, discardLogger())
+	mgr := persistence.NewManager(store)
 	mgr.Register("svc", p)
 
 	// Trigger a Notify so a timer is created (generation=1, closure captures gen=1).
@@ -436,7 +429,7 @@ func TestManager_Notify_StaleGenerationSkipped(t *testing.T) {
 	store := newMemStore()
 	p := &mockPersistable{data: []byte(`{"gen":true}`)}
 
-	mgr := persistence.NewManager(store, discardLogger())
+	mgr := persistence.NewManager(store)
 	mgr.Register("svc", p)
 
 	// First Notify: generation=1, AfterFunc closure captures gen=1.
@@ -462,7 +455,7 @@ func TestManager_Notify_SaveErrorInCallback(t *testing.T) {
 
 	p := &mockPersistable{data: []byte(`{"err":true}`)}
 
-	mgr := persistence.NewManager(store, discardLogger())
+	mgr := persistence.NewManager(store)
 	mgr.Register("svc", p)
 
 	// Single Notify so generation remains 1; saveIfCurrent will proceed to save.
@@ -485,7 +478,7 @@ func TestManager_Notify_ConcurrentNotify(t *testing.T) {
 	store := newMemStore()
 	p := &mockPersistable{data: []byte(`{"concurrent":true}`)}
 
-	mgr := persistence.NewManager(store, discardLogger())
+	mgr := persistence.NewManager(store)
 	mgr.Register("svc", p)
 
 	const goroutines = 20
@@ -513,7 +506,7 @@ func TestManager_RestoreAll_WithCancelledContext(t *testing.T) {
 	require.NoError(t, store.Save("svc", "snapshot", []byte(`{"x":1}`)))
 
 	p := &mockPersistable{}
-	mgr := persistence.NewManager(store, discardLogger())
+	mgr := persistence.NewManager(store)
 	mgr.Register("svc", p)
 
 	ctx, cancel := context.WithCancel(t.Context())
