@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"io"
 	"strings"
 	"testing"
 
@@ -354,7 +353,7 @@ func TestIntegration_S3_SelectObjectContent_Operators(t *testing.T) {
 	_, err = client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket: aws.String(bucketName),
 		Key:    aws.String("data.csv"),
-		Body:   io.NopCloser(strings.NewReader(csvData)),
+		Body:   strings.NewReader(csvData),
 	})
 	require.NoError(t, err)
 
