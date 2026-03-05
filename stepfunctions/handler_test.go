@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
@@ -14,6 +15,9 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/stepfunctions"
 )
+
+// validPassDef is a minimal valid ASL definition used across handler tests.
+const validPassDef = `{"StartAt":"P","States":{"P":{"Type":"Pass","End":true}}}`
 
 func newSFNHandler(t *testing.T) (*stepfunctions.Handler, *echo.Echo) {
 	t.Helper()
@@ -50,11 +54,28 @@ func sfnPost(
 	return rec
 }
 
+// makeSMBody builds a well-formed CreateStateMachine JSON request body.
+// If smType is empty, the "type" field is omitted.
+func makeSMBody(name, def, smType string) string {
+	input := map[string]any{
+		"name":       name,
+		"definition": def,
+		"roleArn":    "arn:role",
+	}
+	if smType != "" {
+		input["type"] = smType
+	}
+
+	b, _ := json.Marshal(input)
+
+	return string(b)
+}
+
 func createSM(ctx context.Context, t *testing.T, h *stepfunctions.Handler, e *echo.Echo, name string) string {
 	t.Helper()
 
 	rec := sfnPost(ctx, t, h, e, "CreateStateMachine",
-		`{"name":"`+name+`","definition":"{\"StartAt\":\"P\",\"States\":{\"P\":{\"Type\":\"Pass\",\"End\":true}}}","roleArn":"arn:role"}`)
+		makeSMBody(name, validPassDef, ""))
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
@@ -210,7 +231,7 @@ func TestHandler_CreateStateMachine(t *testing.T) {
 	}{
 		{
 			name:     "success returns ARN containing name",
-			body:     `{"name":"test-sm","definition":"{\"StartAt\":\"P\",\"States\":{\"P\":{\"Type\":\"Pass\",\"End\":true}}}","roleArn":"arn:role","type":"STANDARD"}`,
+			body:     makeSMBody("test-sm", validPassDef, "STANDARD"),
 			wantCode: http.StatusOK,
 			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
@@ -226,14 +247,14 @@ func TestHandler_CreateStateMachine(t *testing.T) {
 				t.Helper()
 
 				sfnPost(ctx, t, h, e, "CreateStateMachine",
-					`{"name":"dup","definition":"{\"StartAt\":\"P\",\"States\":{\"P\":{\"Type\":\"Pass\",\"End\":true}}}","roleArn":"arn:role"}`)
+					makeSMBody("dup", validPassDef, ""))
 			},
-			body:     `{"name":"dup","definition":"{\"StartAt\":\"P\",\"States\":{\"P\":{\"Type\":\"Pass\",\"End\":true}}}","roleArn":"arn:role"}`,
+			body:     makeSMBody("dup", validPassDef, ""),
 			wantCode: http.StatusConflict,
 		},
 		{
 			name:     "invalid definition returns bad request",
-			body:     `{"name":"invalid-sm","definition":"{}","roleArn":"arn:role","type":"STANDARD"}`,
+			body:     makeSMBody("invalid-sm", "{}", "STANDARD"),
 			wantCode: http.StatusBadRequest,
 		},
 	}
@@ -364,7 +385,7 @@ func TestHandler_DescribeStateMachine(t *testing.T) {
 				t.Helper()
 
 				rec := sfnPost(ctx, t, h, e, "CreateStateMachine",
-					`{"name":"desc-sm","definition":"{}","roleArn":"arn:role","type":"EXPRESS"}`)
+					makeSMBody("desc-sm", validPassDef, "EXPRESS"))
 				require.Equal(t, http.StatusOK, rec.Code)
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
@@ -652,12 +673,28 @@ func TestHandler_GetExecutionHistory(t *testing.T) {
 				t.Helper()
 
 				smArn := createSM(ctx, t, h, e, "hist-sm")
+				execArn := startExec(ctx, t, h, e, smArn, "hist-exec")
 
-				return startExec(ctx, t, h, e, smArn, "hist-exec")
+				// Wait for the async execution to complete before checking history.
+				require.Eventually(t, func() bool {
+					rec := sfnPost(ctx, t, h, e, "DescribeExecution",
+						`{"executionArn":"`+execArn+`"}`)
+					if rec.Code != http.StatusOK {
+						return false
+					}
+					var resp map[string]any
+					if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+						return false
+					}
+
+					return resp["status"] != "RUNNING"
+				}, 5*time.Second, 50*time.Millisecond)
+
+				return execArn
 			},
 			bodyFn:     func(execArn string) string { return `{"executionArn":"` + execArn + `"}` },
 			wantCode:   http.StatusOK,
-			wantEvents: 2,
+			wantEvents: 4,
 		},
 		{
 			name:     "not found returns 404",
