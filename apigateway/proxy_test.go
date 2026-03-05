@@ -443,9 +443,6 @@ func setupProxyAPIWithResource(
 	listRec := postWithHandler(t, h, e, "GetResources", `{"restApiId":"`+apiID+`"}`)
 	var listResp map[string]any
 	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
-	rootID := listRec.Body.String() // placeholder to compile; re-parsed below
-	_ = rootID
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
 	parentID := listResp["item"].([]any)[0].(map[string]any)["id"].(string)
 
 	// Create each path segment as a nested resource.

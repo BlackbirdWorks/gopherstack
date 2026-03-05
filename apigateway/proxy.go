@@ -343,7 +343,7 @@ func (h *Handler) handleHTTPProxy(
 
 	client := h.getHTTPClient()
 
-	//nolint:gosec // G704: integration URI is configured via the API definition, not raw user input
+	//nolint:gosec // G107: integration URI is configured via the API definition, not raw user input
 	resp, doErr := client.Do(targetReq)
 	if doErr != nil {
 		logger.Load(ctx).WarnContext(ctx, "APIGateway HTTP proxy: upstream request failed",
