@@ -864,3 +864,73 @@ func (b *InMemoryBackend) ListQueueTags(input *ListQueueTagsInput) (*ListQueueTa
 
 	return &ListQueueTagsOutput{Tags: q.Tags}, nil
 }
+
+// TaggedQueueInfo contains a queue's ARN and tag snapshot, for use by the
+// Resource Groups Tagging API cross-service listing.
+type TaggedQueueInfo struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedQueues returns a snapshot of all queues with their ARNs and tags.
+// Intended for use by the Resource Groups Tagging API provider.
+func (b *InMemoryBackend) TaggedQueues() []TaggedQueueInfo {
+	b.mu.RLock("TaggedQueues")
+	defer b.mu.RUnlock()
+
+	result := make([]TaggedQueueInfo, 0, len(b.queues))
+
+	for _, q := range b.queues {
+		var tagMap map[string]string
+		if q.Tags != nil {
+			tagMap = q.Tags.Clone()
+		}
+
+		result = append(result, TaggedQueueInfo{
+			ARN:  q.Attributes[attrQueueArn],
+			Tags: tagMap,
+		})
+	}
+
+	return result
+}
+
+// TagQueueByARN applies tags to the queue identified by its ARN.
+// Returns ErrQueueNotFound if no queue with that ARN exists.
+func (b *InMemoryBackend) TagQueueByARN(queueARN string, newTags map[string]string) error {
+	b.mu.Lock("TagQueueByARN")
+	defer b.mu.Unlock()
+
+	for _, q := range b.queues {
+		if q.Attributes[attrQueueArn] == queueARN {
+			if q.Tags == nil {
+				q.Tags = tags.New("sqs.queue." + q.Name + ".tags")
+			}
+
+			q.Tags.Merge(newTags)
+
+			return nil
+		}
+	}
+
+	return ErrQueueNotFound
+}
+
+// UntagQueueByARN removes the specified tag keys from the queue identified by its ARN.
+// Returns ErrQueueNotFound if no queue with that ARN exists.
+func (b *InMemoryBackend) UntagQueueByARN(queueARN string, tagKeys []string) error {
+	b.mu.Lock("UntagQueueByARN")
+	defer b.mu.Unlock()
+
+	for _, q := range b.queues {
+		if q.Attributes[attrQueueArn] == queueARN {
+			if q.Tags != nil {
+				q.Tags.DeleteKeys(tagKeys)
+			}
+
+			return nil
+		}
+	}
+
+	return ErrQueueNotFound
+}

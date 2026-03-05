@@ -276,3 +276,34 @@ func (db *InMemoryDB) SetDefaultRegion(region string) {
 func (db *InMemoryDB) SetCreateDelay(d time.Duration) {
 	db.createDelay = d
 }
+
+// TaggedTableInfo contains a DynamoDB table's ARN and tag snapshot.
+// Used by the Resource Groups Tagging API cross-service listing.
+type TaggedTableInfo struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedTables returns a snapshot of all DynamoDB tables with their ARNs and tags.
+// Intended for use by the Resource Groups Tagging API provider.
+func (db *InMemoryDB) TaggedTables() []TaggedTableInfo {
+	db.mu.RLock("TaggedTables")
+	defer db.mu.RUnlock()
+
+	var result []TaggedTableInfo
+
+	for _, regionTables := range db.Tables {
+		for _, table := range regionTables {
+			var tagMap map[string]string
+			if table.Tags != nil {
+				table.mu.RLock("TaggedTables.tag")
+				tagMap = table.Tags.Clone()
+				table.mu.RUnlock()
+			}
+
+			result = append(result, TaggedTableInfo{ARN: table.TableArn, Tags: tagMap})
+		}
+	}
+
+	return result
+}
