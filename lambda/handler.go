@@ -33,7 +33,8 @@ const esmPathPrefix = "/2015-03-31/event-source-mappings"
 const lambdaTagsPathPrefix = "/2015-03-31/tags"
 
 // lambdaLayersPathPrefix is the path prefix for Lambda Layers endpoints.
-const lambdaLayersPathPrefix = "/2015-03-31/layers"
+// The Lambda Layers API uses the 2018-10-31 date version.
+const lambdaLayersPathPrefix = "/2018-10-31/layers"
 
 type lambdaTagsInput struct {
 	Tags *tags.Tags `json:"Tags"`
@@ -204,10 +205,83 @@ func (h *Handler) RouteMatcher() service.Matcher {
 // MatchPriority returns the routing priority for the Lambda handler.
 func (h *Handler) MatchPriority() int { return service.PriorityHeaderPartial }
 
+// layerVersionsPath is the segment name for layer version sub-paths.
+const layerVersionsPath = "versions"
+
+// layerPolicyPath is the segment name for layer policy sub-paths.
+const layerPolicyPath = "policy"
+
+// layerOpKey is the lookup key used to map a layer route to an operation name.
+type layerOpKey struct {
+	method   string
+	lastSeg  string
+	numParts int
+}
+
+// Layer path part count constants for lookup table.
+const (
+	// layerRootParts is the number of path parts for the root layers path (no segments after prefix).
+	layerRootParts = 0
+	// layerVersionListParts is the number of path parts for /{layerName}/versions.
+	layerVersionListParts = 2
+	// layerVersionItemParts is the number of path parts for /{layerName}/versions/{version}.
+	layerVersionItemParts = 3
+	// layerPolicyParts is the number of path parts when the policy segment is present.
+	layerPolicyParts = 4
+)
+
+// layerOpTable maps (method, numParts, lastSegment) to an operation name.
+//
+//nolint:gochecknoglobals // intentional package-level lookup table
+var layerOpTable = map[layerOpKey]string{
+	{method: http.MethodGet, numParts: layerRootParts}:                                     "ListLayers",
+	{method: http.MethodGet, numParts: layerVersionListParts, lastSeg: layerVersionsPath}:  "ListLayerVersions",
+	{method: http.MethodPost, numParts: layerVersionListParts, lastSeg: layerVersionsPath}: "PublishLayerVersion",
+	{method: http.MethodGet, numParts: layerVersionItemParts}:                              "GetLayerVersion",
+	{method: http.MethodDelete, numParts: layerVersionItemParts}:                           "DeleteLayerVersion",
+	{method: http.MethodGet, numParts: layerPolicyParts, lastSeg: layerPolicyPath}:         "GetLayerVersionPolicy",
+	{method: http.MethodPost, numParts: layerPolicyParts, lastSeg: layerPolicyPath}:        "AddLayerVersionPermission",
+	{method: http.MethodDelete, numParts: layerPathMaxParts, lastSeg: layerPolicyPath}:     "RemoveLayerVersionPermission",
+}
+
+// extractLayerOperation returns the operation name for a layer path, or "" if not matched.
+func extractLayerOperation(rest, method string) string {
+	if rest == "" {
+		return layerOpTable[layerOpKey{method: method, numParts: layerRootParts}]
+	}
+
+	parts := strings.SplitN(rest, "/", layerPathMaxParts)
+	if len(parts) < layerVersionListParts || parts[1] != layerVersionsPath {
+		return ""
+	}
+
+	n := len(parts)
+
+	// For versioned routes (n>=layerPolicyParts), the relevant discriminating segment is
+	// parts[3] (the "policy" marker); for shorter paths the version number in parts[2] is
+	// not a meaningful key so lastSeg stays empty.
+	lastSeg := ""
+	if n >= layerPolicyParts {
+		lastSeg = parts[layerVersionItemParts]
+	}
+
+	return layerOpTable[layerOpKey{method: method, numParts: n, lastSeg: lastSeg}]
+}
+
 // ExtractOperation returns the Lambda operation name derived from the request method and path.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
-	rest := strings.TrimPrefix(c.Request().URL.Path, lambdaPathPrefix)
+	path := c.Request().URL.Path
 	method := c.Request().Method
+
+	// Identify layer operations first (different path prefix).
+	if after, ok := strings.CutPrefix(path, lambdaLayersPathPrefix); ok {
+		rest := strings.TrimPrefix(after, "/")
+		if op := extractLayerOperation(rest, method); op != "" {
+			return op
+		}
+	}
+
+	rest := strings.TrimPrefix(path, lambdaPathPrefix)
 
 	for _, route := range lambdaOpRoutes {
 		if route.method == method && route.match(rest) {
@@ -1265,7 +1339,7 @@ func (h *Handler) handleDeleteAlias(c *echo.Context, name, aliasName string) err
 const layerPathMaxParts = 5
 
 // handleLayersRoute dispatches Lambda Layers REST API requests.
-// Path format: /2015-03-31/layers[/{layerName}[/versions[/{versionNumber}[/policy[/{statementId}]]]]].
+// Path format: /2018-10-31/layers[/{layerName}[/versions[/{versionNumber}[/policy[/{statementId}]]]]].
 func (h *Handler) handleLayersRoute(c *echo.Context, path, method string) error {
 	lambdaBk, ok := h.Backend.(*InMemoryBackend)
 	if !ok {
@@ -1275,7 +1349,7 @@ func (h *Handler) handleLayersRoute(c *echo.Context, path, method string) error 
 	rest := strings.TrimPrefix(path, lambdaLayersPathPrefix)
 	rest = strings.TrimPrefix(rest, "/")
 
-	// GET /2015-03-31/layers → ListLayers
+	// GET /2018-10-31/layers → ListLayers
 	if rest == "" && method == http.MethodGet {
 		return h.handleListLayers(c, lambdaBk)
 	}
@@ -1284,16 +1358,16 @@ func (h *Handler) handleLayersRoute(c *echo.Context, path, method string) error 
 	parts := strings.SplitN(rest, "/", layerPathMaxParts)
 	layerName := parts[0]
 
-	if len(parts) == 1 || parts[1] != "versions" {
+	if len(parts) == 1 || parts[1] != layerVersionsPath {
 		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 	}
 
-	// GET /2015-03-31/layers/{layerName}/versions → ListLayerVersions
+	// GET /2018-10-31/layers/{layerName}/versions → ListLayerVersions
 	if len(parts) == 2 && method == http.MethodGet {
 		return h.handleListLayerVersions(c, lambdaBk, layerName)
 	}
 
-	// POST /2015-03-31/layers/{layerName}/versions → PublishLayerVersion
+	// POST /2018-10-31/layers/{layerName}/versions → PublishLayerVersion
 	if len(parts) == 2 && method == http.MethodPost {
 		return h.handlePublishLayerVersion(c, lambdaBk, layerName)
 	}
@@ -1314,7 +1388,7 @@ func (h *Handler) handleLayersRoute(c *echo.Context, path, method string) error 
 func (h *Handler) handleLayerVersionedRoutes(
 	c *echo.Context, bk *InMemoryBackend, layerName string, version int64, parts []string, method string,
 ) error {
-	// GET/DELETE /2015-03-31/layers/{layerName}/versions/{versionNumber}
+	// GET/DELETE /2018-10-31/layers/{layerName}/versions/{versionNumber}
 	if len(parts) == 3 { //nolint:mnd // parts: layerName, "versions", versionNum
 		switch method {
 		case http.MethodGet:
@@ -1324,11 +1398,11 @@ func (h *Handler) handleLayerVersionedRoutes(
 		}
 	}
 
-	if len(parts) < 4 || parts[3] != "policy" {
+	if len(parts) < 4 || parts[3] != layerPolicyPath {
 		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 	}
 
-	// GET/POST /2015-03-31/layers/{layerName}/versions/{versionNumber}/policy
+	// GET/POST /2018-10-31/layers/{layerName}/versions/{versionNumber}/policy
 	if len(parts) == 4 { //nolint:mnd // parts: layerName, "versions", versionNum, "policy"
 		switch method {
 		case http.MethodGet:
@@ -1338,7 +1412,7 @@ func (h *Handler) handleLayerVersionedRoutes(
 		}
 	}
 
-	// DELETE /2015-03-31/layers/{layerName}/versions/{versionNumber}/policy/{statementId}
+	// DELETE /2018-10-31/layers/{layerName}/versions/{versionNumber}/policy/{statementId}
 	if len(parts) == layerPathMaxParts && method == http.MethodDelete {
 		return h.handleRemoveLayerVersionPermission(c, bk, layerName, version, parts[4])
 	}
@@ -1399,6 +1473,10 @@ func (h *Handler) handlePublishLayerVersion(c *echo.Context, bk *InMemoryBackend
 
 	out, publishErr := bk.PublishLayerVersion(&input)
 	if publishErr != nil {
+		if errors.Is(publishErr, ErrInvalidParameterValue) {
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", publishErr.Error())
+		}
+
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", publishErr.Error())
 	}
 

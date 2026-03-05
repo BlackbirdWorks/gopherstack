@@ -469,21 +469,21 @@ func TestLayerHTTPHandler(t *testing.T) {
 		{
 			name:       "publish_layer_version",
 			method:     http.MethodPost,
-			path:       "/2015-03-31/layers/my-layer/versions",
+			path:       "/2018-10-31/layers/my-layer/versions",
 			body:       `{"Content":{"ZipFile":""},"Description":"test layer","CompatibleRuntimes":["python3.9"]}`,
 			wantStatus: http.StatusCreated,
 		},
 		{
 			name:       "publish_layer_no_content",
 			method:     http.MethodPost,
-			path:       "/2015-03-31/layers/my-layer/versions",
+			path:       "/2018-10-31/layers/my-layer/versions",
 			body:       `{"Description":"no content"}`,
 			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:   "get_layer_version",
 			method: http.MethodGet,
-			path:   "/2015-03-31/layers/my-layer/versions/1",
+			path:   "/2018-10-31/layers/my-layer/versions/1",
 			setup: func(_ *lambda.Handler, bk *lambda.InMemoryBackend) {
 				_, _ = bk.PublishLayerVersion(publishLayerInput("my-layer", "", []byte("z"), nil))
 			},
@@ -492,19 +492,19 @@ func TestLayerHTTPHandler(t *testing.T) {
 		{
 			name:       "get_layer_version_not_found",
 			method:     http.MethodGet,
-			path:       "/2015-03-31/layers/missing/versions/1",
+			path:       "/2018-10-31/layers/missing/versions/1",
 			wantStatus: http.StatusNotFound,
 		},
 		{
 			name:       "list_layers_empty",
 			method:     http.MethodGet,
-			path:       "/2015-03-31/layers",
+			path:       "/2018-10-31/layers",
 			wantStatus: http.StatusOK,
 		},
 		{
 			name:   "list_layers_with_data",
 			method: http.MethodGet,
-			path:   "/2015-03-31/layers",
+			path:   "/2018-10-31/layers",
 			setup: func(_ *lambda.Handler, bk *lambda.InMemoryBackend) {
 				_, _ = bk.PublishLayerVersion(publishLayerInput("layer-a", "", []byte("z"), nil))
 				_, _ = bk.PublishLayerVersion(publishLayerInput("layer-b", "", []byte("z"), nil))
@@ -514,7 +514,7 @@ func TestLayerHTTPHandler(t *testing.T) {
 		{
 			name:   "list_layer_versions",
 			method: http.MethodGet,
-			path:   "/2015-03-31/layers/my-layer/versions",
+			path:   "/2018-10-31/layers/my-layer/versions",
 			setup: func(_ *lambda.Handler, bk *lambda.InMemoryBackend) {
 				_, _ = bk.PublishLayerVersion(publishLayerInput("my-layer", "", []byte("z"), nil))
 			},
@@ -523,13 +523,13 @@ func TestLayerHTTPHandler(t *testing.T) {
 		{
 			name:       "list_layer_versions_not_found",
 			method:     http.MethodGet,
-			path:       "/2015-03-31/layers/missing/versions",
+			path:       "/2018-10-31/layers/missing/versions",
 			wantStatus: http.StatusNotFound,
 		},
 		{
 			name:   "delete_layer_version",
 			method: http.MethodDelete,
-			path:   "/2015-03-31/layers/my-layer/versions/1",
+			path:   "/2018-10-31/layers/my-layer/versions/1",
 			setup: func(_ *lambda.Handler, bk *lambda.InMemoryBackend) {
 				_, _ = bk.PublishLayerVersion(publishLayerInput("my-layer", "", []byte("z"), nil))
 			},
@@ -538,13 +538,13 @@ func TestLayerHTTPHandler(t *testing.T) {
 		{
 			name:       "delete_layer_version_not_found",
 			method:     http.MethodDelete,
-			path:       "/2015-03-31/layers/missing/versions/1",
+			path:       "/2018-10-31/layers/missing/versions/1",
 			wantStatus: http.StatusNotFound,
 		},
 		{
 			name:   "add_layer_version_permission",
 			method: http.MethodPost,
-			path:   "/2015-03-31/layers/my-layer/versions/1/policy",
+			path:   "/2018-10-31/layers/my-layer/versions/1/policy",
 			body:   `{"StatementId":"stmt-1","Action":"lambda:GetLayerVersion","Principal":"*"}`,
 			setup: func(_ *lambda.Handler, bk *lambda.InMemoryBackend) {
 				_, _ = bk.PublishLayerVersion(publishLayerInput("my-layer", "", []byte("z"), nil))
@@ -554,7 +554,7 @@ func TestLayerHTTPHandler(t *testing.T) {
 		{
 			name:   "get_layer_version_policy",
 			method: http.MethodGet,
-			path:   "/2015-03-31/layers/my-layer/versions/1/policy",
+			path:   "/2018-10-31/layers/my-layer/versions/1/policy",
 			setup: func(_ *lambda.Handler, bk *lambda.InMemoryBackend) {
 				_, _ = bk.PublishLayerVersion(publishLayerInput("my-layer", "", []byte("z"), nil))
 				_, _ = bk.AddLayerVersionPermission("my-layer", 1, &lambda.AddLayerVersionPermissionInput{
@@ -568,7 +568,7 @@ func TestLayerHTTPHandler(t *testing.T) {
 		{
 			name:   "remove_layer_version_permission",
 			method: http.MethodDelete,
-			path:   "/2015-03-31/layers/my-layer/versions/1/policy/stmt-1",
+			path:   "/2018-10-31/layers/my-layer/versions/1/policy/stmt-1",
 			setup: func(_ *lambda.Handler, bk *lambda.InMemoryBackend) {
 				_, _ = bk.PublishLayerVersion(publishLayerInput("my-layer", "", []byte("z"), nil))
 				_, _ = bk.AddLayerVersionPermission("my-layer", 1, &lambda.AddLayerVersionPermissionInput{

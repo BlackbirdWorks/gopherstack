@@ -35,6 +35,8 @@ var (
 	ErrFunctionAlreadyExists = errors.New("ResourceConflictException")
 	// ErrLambdaUnavailable is returned when Lambda cannot invoke (no Docker or no port range).
 	ErrLambdaUnavailable = errors.New("ServiceException")
+	// ErrInvalidParameterValue is returned when a request parameter has an invalid value.
+	ErrInvalidParameterValue = errors.New("InvalidParameterValueException")
 	// ErrESMNotFound is returned when an event source mapping UUID is not found.
 	ErrESMNotFound = errors.New("ResourceNotFoundException")
 	// ErrFunctionURLNotFound is returned when no function URL config exists for the function.
@@ -49,6 +51,8 @@ var (
 	ErrLayerNotFound = errors.New("ResourceNotFoundException")
 	// ErrLayerVersionNotFound is returned when the specified layer version does not exist.
 	ErrLayerVersionNotFound = errors.New("ResourceNotFoundException")
+	// ErrZipSlip is returned when a ZIP archive entry has a path that would escape the target directory.
+	ErrZipSlip = errors.New("zip entry escapes target directory")
 )
 
 // versionLatest is the sentinel qualifier for the live function configuration.
@@ -1152,10 +1156,25 @@ func (b *InMemoryBackend) getOrCreateRuntime(ctx context.Context, fn *FunctionCo
 
 	zipDir, layerDirs, containerErr := b.startContainer(ctx, fn, port)
 	if containerErr != nil {
-		slog.Default().WarnContext(
-			ctx, "lambda: failed to start container",
-			"function", fn.FunctionName, "error", containerErr,
-		)
+		// Container startup failure is fatal: stop the runtime server, release the
+		// port, and surface the error so the caller gets an immediate failure instead
+		// of silently timing out on every subsequent invoke.
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
+		defer cancel()
+		srv.stop(shutdownCtx)
+		_ = b.portAlloc.Release(port)
+
+		for _, d := range layerDirs {
+			_ = os.RemoveAll(d) // #nosec G703
+		}
+
+		if zipDir != "" {
+			_ = os.RemoveAll(zipDir) // #nosec G703
+		}
+
+		rt.startErr = fmt.Errorf("%w: container startup failed: %w", ErrLambdaUnavailable, containerErr)
+
+		return nil, rt.startErr
 	}
 
 	rt.zipDir = zipDir
@@ -1223,16 +1242,34 @@ func extractZip(zipData []byte) (string, error) {
 
 // extractZipFile extracts a single [zip.File] entry into destDir.
 func extractZipFile(destDir string, f *zip.File) error {
-	// Sanitize path to prevent zip-slip attacks.
-	destPath := filepath.Join(destDir, filepath.Clean("/"+f.Name))
-	destPath = filepath.Join(destDir, strings.TrimPrefix(destPath, destDir))
+	// Normalize and validate the entry name to prevent zip-slip.
+	cleanName := filepath.Clean(f.Name)
+	if cleanName == "" || cleanName == "." {
+		return nil // skip empty / current-dir entries
+	}
+
+	if filepath.IsAbs(cleanName) {
+		return fmt.Errorf("%w: %q has absolute path", ErrZipSlip, f.Name)
+	}
+
+	destPath := filepath.Join(destDir, cleanName)
+
+	rel, relErr := filepath.Rel(destDir, destPath)
+	if relErr != nil {
+		return fmt.Errorf("zip entry %q path resolution failed: %w", f.Name, relErr)
+	}
+
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return fmt.Errorf("%w: %q", ErrZipSlip, f.Name)
+	}
 
 	if f.FileInfo().IsDir() {
 		return os.MkdirAll(destPath, f.Mode()) // #nosec G703
 	}
 
-	if err := os.MkdirAll(filepath.Dir(destPath), 0o750); err != nil { // #nosec G703
-		return fmt.Errorf("mkdir %q: %w", filepath.Dir(destPath), err)
+	parentDir := filepath.Dir(destPath)
+	if err := os.MkdirAll(parentDir, 0o750); err != nil { // #nosec G703
+		return fmt.Errorf("mkdir %q: %w", parentDir, err)
 	}
 
 	rc, err := f.Open()
@@ -1404,21 +1441,22 @@ func parseLayerARN(layerVersionARN string) (string, int64) {
 // prepareLayerMount extracts all layers attached to fn into a single merged temp directory
 // and returns the bind-mount string ("{dir}:/opt:ro"), a list of temp dirs (for cleanup),
 // and any error. If the function has no layers with zip data, returns ("", nil, nil).
+// ZIP extraction is performed outside the backend lock to avoid blocking concurrent operations.
 func (b *InMemoryBackend) prepareLayerMount(fn *FunctionConfiguration) (string, []string, error) {
 	if len(fn.Layers) == 0 {
 		return "", nil, nil
 	}
 
-	b.mu.RLock("prepareLayerMount")
-	defer b.mu.RUnlock()
-
-	// Create a single temp directory to merge all layer contents into (matches AWS behaviour).
-	optDir, mkErr := os.MkdirTemp("", "gopherstack-lambda-layers-*")
-	if mkErr != nil {
-		return "", nil, fmt.Errorf("create layer temp dir: %w", mkErr)
+	// Collect the zip bytes under the read lock, then release before doing any I/O.
+	type layerEntry struct {
+		name    string
+		zipData []byte
+		version int64
 	}
 
-	hasContent := false
+	var entries []layerEntry
+
+	b.mu.RLock("prepareLayerMount")
 
 	for _, fl := range fn.Layers {
 		if fl == nil || fl.Arn == "" {
@@ -1430,32 +1468,37 @@ func (b *InMemoryBackend) prepareLayerMount(fn *FunctionConfiguration) (string, 
 			continue
 		}
 
-		versions, ok := b.layers[layerName]
-		if !ok {
-			continue
-		}
+		versions := b.layers[layerName]
 
 		for _, lv := range versions {
-			if lv.Version != layerVersion || len(lv.ZipData) == 0 {
-				continue
+			if lv.Version == layerVersion && len(lv.ZipData) > 0 {
+				data := make([]byte, len(lv.ZipData))
+				copy(data, lv.ZipData)
+				entries = append(entries, layerEntry{name: layerName, version: layerVersion, zipData: data})
+
+				break
 			}
-
-			if extractErr := extractZipIntoDir(optDir, lv.ZipData); extractErr != nil {
-				_ = os.RemoveAll(optDir)
-
-				return "", nil, fmt.Errorf("extract layer %q v%d: %w", layerName, layerVersion, extractErr)
-			}
-
-			hasContent = true
-
-			break
 		}
 	}
 
-	if !hasContent {
-		_ = os.RemoveAll(optDir)
+	b.mu.RUnlock()
 
+	if len(entries) == 0 {
 		return "", nil, nil
+	}
+
+	// Create a single temp directory to merge all layer contents into (matches AWS behaviour).
+	optDir, mkErr := os.MkdirTemp("", "gopherstack-lambda-layers-*")
+	if mkErr != nil {
+		return "", nil, fmt.Errorf("create layer temp dir: %w", mkErr)
+	}
+
+	for _, entry := range entries {
+		if extractErr := extractZipIntoDir(optDir, entry.zipData); extractErr != nil {
+			_ = os.RemoveAll(optDir)
+
+			return "", nil, fmt.Errorf("extract layer %q v%d: %w", entry.name, entry.version, extractErr)
+		}
 	}
 
 	return optDir + ":/opt:ro", []string{optDir}, nil
@@ -1491,6 +1534,10 @@ func (b *InMemoryBackend) buildLayerVersionARN(layerName string, version int64) 
 func (b *InMemoryBackend) PublishLayerVersion(input *PublishLayerVersionInput) (*PublishLayerVersionOutput, error) {
 	if input == nil || input.Content == nil {
 		return nil, fmt.Errorf("%w: Content is required", ErrLambdaUnavailable)
+	}
+
+	if input.LayerName == "" {
+		return nil, fmt.Errorf("%w: LayerName is required", ErrInvalidParameterValue)
 	}
 
 	b.mu.Lock("PublishLayerVersion")
