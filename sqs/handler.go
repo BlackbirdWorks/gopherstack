@@ -844,9 +844,9 @@ func (h *Handler) handleListQueueTags(
 func errorDetails(err error) (string, string, int) {
 	switch {
 	case errors.Is(err, ErrQueueNotFound):
-		// Use the legacy error code that real AWS SQS returns; the AWS SDK v2
-		// maps "AWS.SimpleQueueService.NonExistentQueue" → *types.QueueDoesNotExist.
-		return "AWS.SimpleQueueService.NonExistentQueue",
+		// The AWS SDK v2 maps "com.amazonaws.sqs#QueueDoesNotExist" →
+		// *types.QueueDoesNotExist via SanitizeErrorCode, which strips the namespace prefix.
+		return "com.amazonaws.sqs#QueueDoesNotExist",
 			"The specified queue does not exist.",
 			http.StatusBadRequest
 	case errors.Is(err, ErrQueueAlreadyExists):
@@ -856,6 +856,10 @@ func errorDetails(err error) (string, string, int) {
 	case errors.Is(err, ErrReceiptHandleInvalid):
 		return "com.amazonaws.sqs#ReceiptHandleIsInvalid",
 			"The receipt handle is not valid.",
+			http.StatusBadRequest
+	case errors.Is(err, ErrMessageNotInflight):
+		return "com.amazonaws.sqs#MessageNotInflight",
+			"The message referred to by the receipt handle is not in-flight.",
 			http.StatusBadRequest
 	case errors.Is(err, ErrTooManyEntriesInBatch):
 		return "com.amazonaws.sqs#TooManyEntriesInBatchRequest",

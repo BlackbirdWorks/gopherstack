@@ -27,6 +27,9 @@ var (
 	ErrAliasAlreadyExists = errors.New("AlreadyExistsException")
 	// ErrKeyDisabled is returned when an operation is attempted on a disabled key.
 	ErrKeyDisabled = errors.New("DisabledException")
+	// ErrKeyInvalidState is returned when a key is in a state that does not allow the requested
+	// operation (e.g. PendingDeletion).
+	ErrKeyInvalidState = errors.New("KMSInvalidStateException")
 	// ErrInvalidCiphertext is returned when the ciphertext cannot be decrypted.
 	ErrInvalidCiphertext = errors.New("InvalidCiphertextException")
 	// ErrGrantNotFound is returned when the specified grant does not exist.
@@ -316,7 +319,7 @@ func (b *InMemoryBackend) Encrypt(input *EncryptInput) (*EncryptOutput, error) {
 	}
 
 	if key.KeyState != KeyStateEnabled {
-		return nil, ErrKeyDisabled
+		return nil, keyStateError(key)
 	}
 
 	blob, encErr := encryptData(input.Plaintext, key.KeyID)
@@ -346,7 +349,7 @@ func (b *InMemoryBackend) Decrypt(input *DecryptInput) (*DecryptOutput, error) {
 	}
 
 	if key.KeyState != KeyStateEnabled {
-		return nil, ErrKeyDisabled
+		return nil, keyStateError(key)
 	}
 
 	return &DecryptOutput{
@@ -366,7 +369,7 @@ func (b *InMemoryBackend) GenerateDataKey(input *GenerateDataKeyInput) (*Generat
 	}
 
 	if key.KeyState != KeyStateEnabled {
-		return nil, ErrKeyDisabled
+		return nil, keyStateError(key)
 	}
 
 	// Validate requested data key size to prevent excessive memory allocation.
@@ -411,7 +414,7 @@ func (b *InMemoryBackend) ReEncrypt(input *ReEncryptInput) (*ReEncryptOutput, er
 	}
 
 	if destKey.KeyState != KeyStateEnabled {
-		return nil, ErrKeyDisabled
+		return nil, keyStateError(destKey)
 	}
 
 	blob, encErr := encryptData(plaintext, destKey.KeyID)
@@ -668,6 +671,17 @@ func (b *InMemoryBackend) lookupKey(keyID string) (*Key, error) {
 // lookupKeyWrite finds a key by ID, alias, or ARN. Caller must hold a write lock.
 func (b *InMemoryBackend) lookupKeyWrite(keyID string) (*Key, error) {
 	return b.lookupKey(keyID)
+}
+
+// keyStateError returns the appropriate error for a key that is not in the Enabled state.
+// Disabled keys return ErrKeyDisabled; keys in any other non-enabled state (e.g. PendingDeletion)
+// return ErrKeyInvalidState, matching the KMSInvalidStateException that AWS raises.
+func keyStateError(key *Key) error {
+	if key.KeyState == KeyStateDisabled {
+		return ErrKeyDisabled
+	}
+
+	return ErrKeyInvalidState
 }
 
 // keyToMetadata converts a Key to its KeyMetadata representation.

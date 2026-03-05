@@ -76,7 +76,7 @@ func TestChangeMessageVisibilityBatch(t *testing.T) {
 			},
 			wantSuccessIDs: []string{"good"},
 			wantFailIDs:    []string{"bad"},
-			wantFailCodes:  []string{"ReceiptHandleIsInvalid"},
+			wantFailCodes:  []string{"MessageNotInflight"},
 			wantFailFaults: []bool{true},
 		},
 		{
