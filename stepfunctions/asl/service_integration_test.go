@@ -397,11 +397,10 @@ func TestExecutor_AwsSDKIntegrationPattern(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		mock          any
+		mockClient    any
+		setOnExecutor func(exec *asl.Executor, mockClient any)
 		name          string
 		def           string
-		setOnExecutor func(exec *asl.Executor, mock any)
-		wantError     string
 	}{
 		{
 			name: "sqs_aws-sdk_prefix",
@@ -419,7 +418,7 @@ func TestExecutor_AwsSDKIntegrationPattern(t *testing.T) {
 					}
 				}
 			}`,
-			mock: &mockSQS{returnMsgID: "m1", returnMD5: "md5"},
+			mockClient: &mockSQS{returnMsgID: "m1", returnMD5: "md5"},
 			setOnExecutor: func(exec *asl.Executor, m any) {
 				exec.SetSQSIntegration(m.(*mockSQS))
 			},
@@ -440,7 +439,7 @@ func TestExecutor_AwsSDKIntegrationPattern(t *testing.T) {
 					}
 				}
 			}`,
-			mock: &mockSNS{returnMsgID: "s1"},
+			mockClient: &mockSNS{returnMsgID: "s1"},
 			setOnExecutor: func(exec *asl.Executor, m any) {
 				exec.SetSNSIntegration(m.(*mockSNS))
 			},
@@ -457,7 +456,7 @@ func TestExecutor_AwsSDKIntegrationPattern(t *testing.T) {
 					}
 				}
 			}`,
-			mock: &mockDynamoDB{returnOutput: map[string]any{}},
+			mockClient: &mockDynamoDB{returnOutput: map[string]any{}},
 			setOnExecutor: func(exec *asl.Executor, m any) {
 				exec.SetDynamoDBIntegration(m.(*mockDynamoDB))
 			},
@@ -472,11 +471,11 @@ func TestExecutor_AwsSDKIntegrationPattern(t *testing.T) {
 			require.NoError(t, err)
 
 			exec := asl.NewExecutor(sm, nil, nil)
-			tt.setOnExecutor(exec, tt.mock)
+			tt.setOnExecutor(exec, tt.mockClient)
 
 			result, err := exec.Execute(t.Context(), "exec-1", `{}`)
 			require.NoError(t, err)
-			assert.Equal(t, tt.wantError, result.Error, "execution should succeed via aws-sdk prefix")
+			assert.Empty(t, result.Error, "execution should succeed via aws-sdk prefix")
 		})
 	}
 }
