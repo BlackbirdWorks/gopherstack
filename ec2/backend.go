@@ -22,9 +22,12 @@ var (
 
 // EC2 instance state codes as defined by the AWS EC2 API.
 const (
-	stateCodeRunning    = 16
-	stateCodeTerminated = 48
-	stateCodeStopped    = 80
+	stateCodeRunning      = 16
+	stateCodeTerminated   = 48
+	stateCodeStopped      = 80
+	stateCodePending      = 0
+	stateCodeShuttingDown = 32
+	stateCodeStopping     = 64
 )
 
 // InstanceState represents the state of an EC2 instance.
@@ -37,9 +40,12 @@ type InstanceState struct {
 //
 //nolint:gochecknoglobals // package-level sentinel values, analogous to exported errors
 var (
-	StateRunning    = InstanceState{Code: stateCodeRunning, Name: "running"}
-	StateTerminated = InstanceState{Code: stateCodeTerminated, Name: "terminated"}
-	StateStopped    = InstanceState{Code: stateCodeStopped, Name: "stopped"}
+	StateRunning      = InstanceState{Code: stateCodeRunning, Name: "running"}
+	StateTerminated   = InstanceState{Code: stateCodeTerminated, Name: "terminated"}
+	StateStopped      = InstanceState{Code: stateCodeStopped, Name: "stopped"}
+	StatePending      = InstanceState{Code: stateCodePending, Name: "pending"}
+	StateShuttingDown = InstanceState{Code: stateCodeShuttingDown, Name: "shutting-down"}
+	StateStopping     = InstanceState{Code: stateCodeStopping, Name: "stopping"}
 )
 
 // Instance represents an EC2 instance (metadata only, no actual compute).
@@ -52,6 +58,7 @@ type Instance struct {
 	VPCID          string        `json:"vpcID"`
 	SubnetID       string        `json:"subnetID"`
 	PrivateIP      string        `json:"privateIP"`
+	KeyName        string        `json:"keyName"`
 	SecurityGroups []string      `json:"securityGroups"`
 }
 
@@ -91,25 +98,41 @@ type Subnet struct {
 
 // InMemoryBackend is the in-memory store for EC2 resources.
 type InMemoryBackend struct {
-	instances      map[string]*Instance
-	securityGroups map[string]*SecurityGroup
-	vpcs           map[string]*VPC
-	subnets        map[string]*Subnet
-	mu             *lockmetrics.RWMutex
-	AccountID      string
-	Region         string
+	instances          map[string]*Instance
+	securityGroups     map[string]*SecurityGroup
+	vpcs               map[string]*VPC
+	subnets            map[string]*Subnet
+	keyPairs           map[string]*KeyPair
+	volumes            map[string]*Volume
+	addresses          map[string]*Address
+	internetGateways   map[string]*InternetGateway
+	routeTables        map[string]*RouteTable
+	natGateways        map[string]*NatGateway
+	networkInterfaces  map[string]*NetworkInterface
+	mu                 *lockmetrics.RWMutex
+	AccountID          string
+	Region             string
+	nextPrivateIPIndex int
+	nextElasticIPIndex int
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with a default VPC and subnet.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		instances:      make(map[string]*Instance),
-		securityGroups: make(map[string]*SecurityGroup),
-		vpcs:           make(map[string]*VPC),
-		subnets:        make(map[string]*Subnet),
-		AccountID:      accountID,
-		Region:         region,
-		mu:             lockmetrics.New("ec2"),
+		instances:         make(map[string]*Instance),
+		securityGroups:    make(map[string]*SecurityGroup),
+		vpcs:              make(map[string]*VPC),
+		subnets:           make(map[string]*Subnet),
+		keyPairs:          make(map[string]*KeyPair),
+		volumes:           make(map[string]*Volume),
+		addresses:         make(map[string]*Address),
+		internetGateways:  make(map[string]*InternetGateway),
+		routeTables:       make(map[string]*RouteTable),
+		natGateways:       make(map[string]*NatGateway),
+		networkInterfaces: make(map[string]*NetworkInterface),
+		AccountID:         accountID,
+		Region:            region,
+		mu:                lockmetrics.New("ec2"),
 	}
 
 	b.initDefaults()
@@ -181,6 +204,16 @@ func (b *InMemoryBackend) RunInstances(imageID, instanceType, subnetID string, c
 			VPCID:        vpcID,
 			SubnetID:     subnetID,
 			LaunchTime:   time.Now(),
+		}
+		inst.PrivateIP = b.allocPrivateIP()
+		eniID := "eni-" + uuid.New().String()[:17]
+		b.networkInterfaces[eniID] = &NetworkInterface{
+			ID:         eniID,
+			SubnetID:   subnetID,
+			VPCID:      vpcID,
+			PrivateIP:  inst.PrivateIP,
+			InstanceID: id,
+			Status:     "in-use",
 		}
 		b.instances[id] = inst
 		instances = append(instances, inst)

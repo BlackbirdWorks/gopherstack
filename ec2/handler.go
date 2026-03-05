@@ -45,14 +45,54 @@ func (h *Handler) GetSupportedOperations() []string {
 		"RunInstances",
 		"DescribeInstances",
 		"TerminateInstances",
+		"StartInstances",
+		"StopInstances",
+		"RebootInstances",
+		"DescribeInstanceStatus",
+		"DescribeImages",
+		"DescribeRegions",
+		"DescribeAvailabilityZones",
 		"DescribeSecurityGroups",
 		"CreateSecurityGroup",
 		"DeleteSecurityGroup",
+		"AuthorizeSecurityGroupIngress",
+		"AuthorizeSecurityGroupEgress",
+		"RevokeSecurityGroupIngress",
 		"DescribeVpcs",
 		"DescribeVpcAttribute",
 		"DescribeSubnets",
 		"CreateVpc",
 		"CreateSubnet",
+		"CreateKeyPair",
+		"DescribeKeyPairs",
+		"DeleteKeyPair",
+		"ImportKeyPair",
+		"CreateVolume",
+		"DescribeVolumes",
+		"DeleteVolume",
+		"AttachVolume",
+		"DetachVolume",
+		"AllocateAddress",
+		"AssociateAddress",
+		"DisassociateAddress",
+		"ReleaseAddress",
+		"DescribeAddresses",
+		"CreateInternetGateway",
+		"DeleteInternetGateway",
+		"DescribeInternetGateways",
+		"AttachInternetGateway",
+		"DetachInternetGateway",
+		"CreateRouteTable",
+		"DeleteRouteTable",
+		"DescribeRouteTables",
+		"CreateRoute",
+		"DeleteRoute",
+		"AssociateRouteTable",
+		"DisassociateRouteTable",
+		"CreateNatGateway",
+		"DeleteNatGateway",
+		"DescribeNatGateways",
+		"DescribeNetworkInterfaces",
 	}
 }
 
@@ -172,21 +212,61 @@ type ec2ActionFn func(vals url.Values, reqID string) (any, error)
 
 func (h *Handler) dispatchTable() map[string]ec2ActionFn {
 	return map[string]ec2ActionFn{
-		"RunInstances":              h.handleRunInstances,
-		"DescribeInstances":         h.handleDescribeInstances,
-		"TerminateInstances":        h.handleTerminateInstances,
-		"DescribeSecurityGroups":    h.handleDescribeSecurityGroups,
-		"CreateSecurityGroup":       h.handleCreateSecurityGroup,
-		"DeleteSecurityGroup":       h.handleDeleteSecurityGroup,
-		"RevokeSecurityGroupEgress": h.handleRevokeSecurityGroupEgress,
-		"DescribeVpcs":              h.handleDescribeVpcs,
-		"DescribeVpcAttribute":      h.handleDescribeVpcAttribute,
-		"DescribeSubnets":           h.handleDescribeSubnets,
-		"CreateVpc":                 h.handleCreateVpc,
-		"CreateSubnet":              h.handleCreateSubnet,
-		"DescribeInstanceTypes":     h.handleDescribeInstanceTypes,
-		"DescribeTags":              h.handleDescribeTags,
-		"DescribeInstanceAttribute": h.handleDescribeInstanceAttribute,
+		"RunInstances":                  h.handleRunInstances,
+		"DescribeInstances":             h.handleDescribeInstances,
+		"TerminateInstances":            h.handleTerminateInstances,
+		"DescribeSecurityGroups":        h.handleDescribeSecurityGroups,
+		"CreateSecurityGroup":           h.handleCreateSecurityGroup,
+		"DeleteSecurityGroup":           h.handleDeleteSecurityGroup,
+		"RevokeSecurityGroupEgress":     h.handleRevokeSecurityGroupEgress,
+		"DescribeVpcs":                  h.handleDescribeVpcs,
+		"DescribeVpcAttribute":          h.handleDescribeVpcAttribute,
+		"DescribeSubnets":               h.handleDescribeSubnets,
+		"CreateVpc":                     h.handleCreateVpc,
+		"CreateSubnet":                  h.handleCreateSubnet,
+		"DescribeInstanceTypes":         h.handleDescribeInstanceTypes,
+		"DescribeTags":                  h.handleDescribeTags,
+		"DescribeInstanceAttribute":     h.handleDescribeInstanceAttribute,
+		"StartInstances":                h.handleStartInstances,
+		"StopInstances":                 h.handleStopInstances,
+		"RebootInstances":               h.handleRebootInstances,
+		"DescribeInstanceStatus":        h.handleDescribeInstanceStatus,
+		"DescribeImages":                h.handleDescribeImages,
+		"DescribeRegions":               h.handleDescribeRegions,
+		"DescribeAvailabilityZones":     h.handleDescribeAvailabilityZones,
+		"CreateKeyPair":                 h.handleCreateKeyPair,
+		"DescribeKeyPairs":              h.handleDescribeKeyPairs,
+		"DeleteKeyPair":                 h.handleDeleteKeyPair,
+		"ImportKeyPair":                 h.handleImportKeyPair,
+		"CreateVolume":                  h.handleCreateVolume,
+		"DescribeVolumes":               h.handleDescribeVolumes,
+		"DeleteVolume":                  h.handleDeleteVolume,
+		"AttachVolume":                  h.handleAttachVolume,
+		"DetachVolume":                  h.handleDetachVolume,
+		"AllocateAddress":               h.handleAllocateAddress,
+		"AssociateAddress":              h.handleAssociateAddress,
+		"DisassociateAddress":           h.handleDisassociateAddress,
+		"ReleaseAddress":                h.handleReleaseAddress,
+		"DescribeAddresses":             h.handleDescribeAddresses,
+		"CreateInternetGateway":         h.handleCreateInternetGateway,
+		"DeleteInternetGateway":         h.handleDeleteInternetGateway,
+		"DescribeInternetGateways":      h.handleDescribeInternetGateways,
+		"AttachInternetGateway":         h.handleAttachInternetGateway,
+		"DetachInternetGateway":         h.handleDetachInternetGateway,
+		"CreateRouteTable":              h.handleCreateRouteTable,
+		"DeleteRouteTable":              h.handleDeleteRouteTable,
+		"DescribeRouteTables":           h.handleDescribeRouteTables,
+		"CreateRoute":                   h.handleCreateRoute,
+		"DeleteRoute":                   h.handleDeleteRoute,
+		"AssociateRouteTable":           h.handleAssociateRouteTable,
+		"DisassociateRouteTable":        h.handleDisassociateRouteTable,
+		"CreateNatGateway":              h.handleCreateNatGateway,
+		"DeleteNatGateway":              h.handleDeleteNatGateway,
+		"DescribeNatGateways":           h.handleDescribeNatGateways,
+		"DescribeNetworkInterfaces":     h.handleDescribeNetworkInterfaces,
+		"AuthorizeSecurityGroupIngress": h.handleAuthorizeSecurityGroupIngress,
+		"AuthorizeSecurityGroupEgress":  h.handleAuthorizeSecurityGroupEgress,
+		"RevokeSecurityGroupIngress":    h.handleRevokeSecurityGroupIngress,
 	}
 }
 
@@ -494,27 +574,47 @@ func (h *Handler) handleDescribeInstanceAttribute(vals url.Values, reqID string)
 
 // ---- error handling ----
 
+// errCodeMap maps sentinel errors to their EC2 API error codes.
+//
+//nolint:gochecknoglobals // package-level mapping, analogous to a lookup table
+var errCodeMap = []struct {
+	err  error
+	code string
+}{
+	{ErrInstanceNotFound, "InvalidInstanceID.NotFound"},
+	{ErrSecurityGroupNotFound, "InvalidGroup.NotFound"},
+	{ErrVPCNotFound, "InvalidVpcID.NotFound"},
+	{ErrSubnetNotFound, "InvalidSubnetID.NotFound"},
+	{ErrDuplicateSGName, "InvalidGroup.Duplicate"},
+	{ErrKeyPairNotFound, "InvalidKeyPair.NotFound"},
+	{ErrDuplicateKeyPairName, "InvalidKeyPair.Duplicate"},
+	{ErrVolumeNotFound, "InvalidVolume.NotFound"},
+	{ErrVolumeInUse, "VolumeInUse"},
+	{ErrAddressNotFound, "InvalidAllocationID.NotFound"},
+	{ErrInternetGatewayNotFound, "InvalidInternetGatewayID.NotFound"},
+	{ErrRouteTableNotFound, "InvalidRouteTableID.NotFound"},
+	{ErrNatGatewayNotFound, "InvalidNatGatewayID.NotFound"},
+	{ErrRouteNotFound, "InvalidRoute.NotFound"},
+	{ErrAssociationNotFound, "InvalidAssociationID.NotFound"},
+	{ErrNetworkInterfaceNotFound, "InvalidNetworkInterfaceID.NotFound"},
+	{ErrInvalidParameter, "InvalidParameterValue"},
+}
+
+// opErrCode resolves an error to its EC2 API error code and HTTP status code.
+func opErrCode(opErr error) (string, int) {
+	for _, entry := range errCodeMap {
+		if errors.Is(opErr, entry.err) {
+			return entry.code, http.StatusBadRequest
+		}
+	}
+
+	return "InternalFailure", http.StatusInternalServerError
+}
+
 func (h *Handler) handleOpError(c *echo.Context, reqID, action string, opErr error) error {
-	statusCode := http.StatusBadRequest
+	code, statusCode := opErrCode(opErr)
 
-	var code string
-
-	switch {
-	case errors.Is(opErr, ErrInstanceNotFound):
-		code = "InvalidInstanceID.NotFound"
-	case errors.Is(opErr, ErrSecurityGroupNotFound):
-		code = "InvalidGroup.NotFound"
-	case errors.Is(opErr, ErrVPCNotFound):
-		code = "InvalidVpcID.NotFound"
-	case errors.Is(opErr, ErrSubnetNotFound):
-		code = "InvalidSubnetID.NotFound"
-	case errors.Is(opErr, ErrDuplicateSGName):
-		code = "InvalidGroup.Duplicate"
-	case errors.Is(opErr, ErrInvalidParameter):
-		code = "InvalidParameterValue"
-	default:
-		code = "InternalFailure"
-		statusCode = http.StatusInternalServerError
+	if statusCode == http.StatusInternalServerError {
 		logger.Load(c.Request().Context()).Error("EC2 internal error", "error", opErr, "action", action)
 	}
 
@@ -570,13 +670,14 @@ func newRequestID() string {
 
 func toInstanceItem(inst *Instance) instanceItem {
 	return instanceItem{
-		InstanceID:   inst.ID,
-		ImageID:      inst.ImageID,
-		InstanceType: inst.InstanceType,
-		StateItem:    stateItem{Code: inst.State.Code, Name: inst.State.Name},
-		VPCID:        inst.VPCID,
-		SubnetID:     inst.SubnetID,
-		LaunchTime:   inst.LaunchTime.Format("2006-01-02T15:04:05.000Z"),
+		InstanceID:       inst.ID,
+		ImageID:          inst.ImageID,
+		InstanceType:     inst.InstanceType,
+		StateItem:        stateItem{Code: inst.State.Code, Name: inst.State.Name},
+		VPCID:            inst.VPCID,
+		SubnetID:         inst.SubnetID,
+		LaunchTime:       inst.LaunchTime.Format("2006-01-02T15:04:05.000Z"),
+		PrivateIPAddress: inst.PrivateIP,
 	}
 }
 
@@ -636,13 +737,14 @@ type stateItem struct {
 }
 
 type instanceItem struct {
-	LaunchTime   string    `xml:"launchTime"`
-	InstanceID   string    `xml:"instanceId"`
-	ImageID      string    `xml:"imageId"`
-	InstanceType string    `xml:"instanceType"`
-	VPCID        string    `xml:"vpcId,omitempty"`
-	SubnetID     string    `xml:"subnetId,omitempty"`
-	StateItem    stateItem `xml:"instanceState"`
+	LaunchTime       string    `xml:"launchTime"`
+	InstanceID       string    `xml:"instanceId"`
+	ImageID          string    `xml:"imageId"`
+	InstanceType     string    `xml:"instanceType"`
+	VPCID            string    `xml:"vpcId,omitempty"`
+	SubnetID         string    `xml:"subnetId,omitempty"`
+	PrivateIPAddress string    `xml:"privateIpAddress,omitempty"`
+	StateItem        stateItem `xml:"instanceState"`
 }
 
 type instanceItemSet struct {
