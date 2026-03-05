@@ -225,6 +225,16 @@ func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*
 		return nil, fmt.Errorf("%w: %s", ErrExecutionAlreadyExists, name)
 	}
 
+	// Parse the definition before inserting any state, so a bad definition never
+	// leaves an orphaned RUNNING execution in the store.
+	definition := sm.Definition
+	parsedSM, parseErr := asl.Parse(definition)
+	if parseErr != nil {
+		b.mu.Unlock()
+
+		return nil, fmt.Errorf("%w: %w", ErrInvalidDefinition, parseErr)
+	}
+
 	now := float64(time.Now().Unix())
 	exec := &Execution{
 		StartDate:       now,
@@ -240,19 +250,10 @@ func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*
 		{Timestamp: now, Type: "ExecutionStarted", ID: executionStartedEventID, PreviousEventID: 0},
 	}
 
-	definition := sm.Definition
 	lambdaInvoker := b.lambdaInvoker
 	sqsIntegration := b.sqsIntegration
 	snsIntegration := b.snsIntegration
 	ddbIntegration := b.ddbIntegration
-
-	// Parse the definition — it was validated on CreateStateMachine, so this should not fail.
-	parsedSM, parseErr := asl.Parse(definition)
-	if parseErr != nil {
-		b.mu.Unlock()
-
-		return nil, fmt.Errorf("%w: %w", ErrInvalidDefinition, parseErr)
-	}
 
 	b.mu.Unlock()
 

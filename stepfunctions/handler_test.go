@@ -66,7 +66,10 @@ func makeSMBody(name, def, smType string) string {
 		input["type"] = smType
 	}
 
-	b, _ := json.Marshal(input)
+	b, err := json.Marshal(input)
+	if err != nil {
+		panic(err)
+	}
 
 	return string(b)
 }
