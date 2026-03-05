@@ -135,6 +135,8 @@ func (h *S3Handler) routeObjectPost(
 		h.createMultipartUpload(ctx, w, r, bucket, key)
 	case r.URL.Query().Has("uploadId"):
 		h.completeMultipartUpload(ctx, w, r, bucket, key)
+	case r.URL.Query().Has("select"):
+		h.selectObjectContent(ctx, w, r, bucket, key)
 	default:
 		WriteError(ctx, w, r, ErrMethodNotAllowed)
 	}
