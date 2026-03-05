@@ -92,12 +92,13 @@ type DNSRegistrar interface {
 
 // functionRuntime holds the runtime server and startup state for a single Lambda function.
 type functionRuntime struct {
-	startErr error
-	srv      *runtimeServer
-	mu       *lockmetrics.RWMutex
-	zipDir   string
-	port     int
-	started  bool
+	startErr  error
+	srv       *runtimeServer
+	mu        *lockmetrics.RWMutex
+	zipDir    string
+	layerDirs []string
+	port      int
+	started   bool
 }
 
 // functionURLServer holds a running HTTP listener for a Lambda function URL.
@@ -625,6 +626,10 @@ func (b *InMemoryBackend) DeleteFunction(name string) error {
 			_ = os.RemoveAll(rt.zipDir)
 		}
 
+		for _, d := range rt.layerDirs {
+			_ = os.RemoveAll(d)
+		}
+
 		rt.mu.Close()
 	}
 
@@ -1145,7 +1150,7 @@ func (b *InMemoryBackend) getOrCreateRuntime(ctx context.Context, fn *FunctionCo
 	rt.port = port
 	rt.started = true
 
-	zipDir, containerErr := b.startContainer(ctx, fn, port)
+	zipDir, layerDirs, containerErr := b.startContainer(ctx, fn, port)
 	if containerErr != nil {
 		slog.Default().WarnContext(
 			ctx, "lambda: failed to start container",
@@ -1154,6 +1159,7 @@ func (b *InMemoryBackend) getOrCreateRuntime(ctx context.Context, fn *FunctionCo
 	}
 
 	rt.zipDir = zipDir
+	rt.layerDirs = layerDirs
 
 	return srv, nil
 }
@@ -1250,12 +1256,13 @@ func extractZipFile(destDir string, f *zip.File) error {
 
 // startContainer creates and starts a Lambda container for the given function.
 // For Zip functions it extracts the code to a temp directory and bind-mounts it.
-// Returns the temp directory path (non-empty only for Zip functions) and any error.
+// Returns the temp directory path (non-empty only for Zip functions), a list of
+// layer temp directories, and any error.
 func (b *InMemoryBackend) startContainer(
 	ctx context.Context,
 	fn *FunctionConfiguration,
 	runtimePort int,
-) (string, error) {
+) (string, []string, error) {
 	env := []string{
 		fmt.Sprintf("AWS_LAMBDA_RUNTIME_API=%s:%d", b.settings.DockerHost, runtimePort),
 		"AWS_DEFAULT_REGION=" + b.region,
@@ -1275,8 +1282,17 @@ func (b *InMemoryBackend) startContainer(
 		}
 	}
 
+	// Extract layer zips and prepare the /opt mount for both Zip and Image functions.
+	layerMount, layerDirs, layerErr := b.prepareLayerMount(fn)
+	if layerErr != nil {
+		slog.Default().WarnContext(ctx, "lambda: layer extraction failed",
+			"function", fn.FunctionName, "error", layerErr)
+	}
+
 	if fn.PackageType == PackageTypeZip {
-		return b.startZipContainer(ctx, fn, env)
+		zipDir, err := b.startZipContainer(ctx, fn, env, layerMount)
+
+		return zipDir, layerDirs, err
 	}
 
 	spec := container.Spec{
@@ -1285,18 +1301,24 @@ func (b *InMemoryBackend) startContainer(
 		Env:   env,
 	}
 
+	if layerMount != "" {
+		spec.Mounts = append(spec.Mounts, layerMount)
+	}
+
 	_, err := b.docker.CreateAndStart(ctx, spec)
 
-	return "", err
+	return "", layerDirs, err
 }
 
 // startZipContainer handles container startup for Zip-packaged Lambda functions.
 // It fetches the zip (from inline ZipData or S3), extracts it to a temp directory,
 // and bind-mounts the directory into the appropriate AWS base image container.
+// An optional layerMount bind-mount string (host:/opt:ro) can also be provided.
 func (b *InMemoryBackend) startZipContainer(
 	ctx context.Context,
 	fn *FunctionConfiguration,
 	env []string,
+	layerMount string,
 ) (string, error) {
 	baseImage := baseImageForRuntime(fn.Runtime)
 	if baseImage == "" {
@@ -1327,11 +1349,16 @@ func (b *InMemoryBackend) startZipContainer(
 		return "", fmt.Errorf("%w: zip extraction failed: %w", ErrLambdaUnavailable, extractErr)
 	}
 
+	mounts := []string{zipDir + ":/var/task:ro"}
+	if layerMount != "" {
+		mounts = append(mounts, layerMount)
+	}
+
 	spec := container.Spec{
 		Image:  baseImage,
 		Name:   fmt.Sprintf("gopherstack-lambda-%s-%s", fn.FunctionName, uuid.New().String()[:8]),
 		Env:    env,
-		Mounts: []string{zipDir + ":/var/task:ro"},
+		Mounts: mounts,
 	}
 
 	if fn.Handler != "" {
@@ -1345,6 +1372,109 @@ func (b *InMemoryBackend) startZipContainer(
 	}
 
 	return zipDir, nil
+}
+
+// parseLayerARN extracts the layer name and version number from a layer version ARN.
+// Expected format: arn:aws:lambda:{region}:{account}:layer:{name}:{version}
+// Returns empty name and 0 version if the ARN is not in the expected format.
+func parseLayerARN(layerVersionARN string) (string, int64) {
+	// Split on ":" — the resource part is "layer:{name}:{version}".
+	parts := strings.Split(layerVersionARN, ":")
+	// A valid ARN has exactly 8 colon-separated parts.
+	const layerARNParts = 8
+	if len(parts) != layerARNParts {
+		return "", 0
+	}
+
+	if parts[5] != "layer" {
+		return "", 0
+	}
+
+	layerName := parts[6]
+
+	var v int64
+
+	if _, err := fmt.Sscanf(parts[7], "%d", &v); err != nil {
+		return "", 0
+	}
+
+	return layerName, v
+}
+
+// prepareLayerMount extracts all layers attached to fn into a single merged temp directory
+// and returns the bind-mount string ("{dir}:/opt:ro"), a list of temp dirs (for cleanup),
+// and any error. If the function has no layers with zip data, returns ("", nil, nil).
+func (b *InMemoryBackend) prepareLayerMount(fn *FunctionConfiguration) (string, []string, error) {
+	if len(fn.Layers) == 0 {
+		return "", nil, nil
+	}
+
+	b.mu.RLock("prepareLayerMount")
+	defer b.mu.RUnlock()
+
+	// Create a single temp directory to merge all layer contents into (matches AWS behaviour).
+	optDir, mkErr := os.MkdirTemp("", "gopherstack-lambda-layers-*")
+	if mkErr != nil {
+		return "", nil, fmt.Errorf("create layer temp dir: %w", mkErr)
+	}
+
+	hasContent := false
+
+	for _, fl := range fn.Layers {
+		if fl == nil || fl.Arn == "" {
+			continue
+		}
+
+		layerName, layerVersion := parseLayerARN(fl.Arn)
+		if layerName == "" {
+			continue
+		}
+
+		versions, ok := b.layers[layerName]
+		if !ok {
+			continue
+		}
+
+		for _, lv := range versions {
+			if lv.Version != layerVersion || len(lv.ZipData) == 0 {
+				continue
+			}
+
+			if extractErr := extractZipIntoDir(optDir, lv.ZipData); extractErr != nil {
+				_ = os.RemoveAll(optDir)
+
+				return "", nil, fmt.Errorf("extract layer %q v%d: %w", layerName, layerVersion, extractErr)
+			}
+
+			hasContent = true
+
+			break
+		}
+	}
+
+	if !hasContent {
+		_ = os.RemoveAll(optDir)
+
+		return "", nil, nil
+	}
+
+	return optDir + ":/opt:ro", []string{optDir}, nil
+}
+
+// extractZipIntoDir extracts zip bytes into an existing directory (used for layer extraction).
+func extractZipIntoDir(dir string, zipData []byte) error {
+	r, err := zip.NewReader(bytes.NewReader(zipData), int64(len(zipData)))
+	if err != nil {
+		return fmt.Errorf("open zip: %w", err)
+	}
+
+	for _, f := range r.File {
+		if extractErr := extractZipFile(dir, f); extractErr != nil {
+			return extractErr
+		}
+	}
+
+	return nil
 }
 
 // buildLayerARN constructs a Lambda layer ARN.

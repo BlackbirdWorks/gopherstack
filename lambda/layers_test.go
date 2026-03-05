@@ -1,10 +1,14 @@
 package lambda_test
 
 import (
+	"archive/zip"
+	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -715,4 +719,176 @@ func TestPersistenceLayers(t *testing.T) {
 	// Verify zip data is cleared after restore.
 	_, getErr := bk2.GetLayerVersion("layer-a", 1)
 	require.NoError(t, getErr)
+}
+
+// TestParseLayerARN exercises the internal ARN parser.
+func TestParseLayerARN(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		arn         string
+		wantName    string
+		wantVersion int64
+	}{
+		{
+			name:        "valid_arn",
+			arn:         "arn:aws:lambda:us-east-1:123456789012:layer:my-layer:3",
+			wantName:    "my-layer",
+			wantVersion: 3,
+		},
+		{
+			name:        "version_1",
+			arn:         "arn:aws:lambda:eu-west-1:000000000000:layer:utils:1",
+			wantName:    "utils",
+			wantVersion: 1,
+		},
+		{
+			name:        "invalid_not_layer",
+			arn:         "arn:aws:lambda:us-east-1:123456789012:function:my-fn",
+			wantName:    "",
+			wantVersion: 0,
+		},
+		{
+			name:        "empty",
+			arn:         "",
+			wantName:    "",
+			wantVersion: 0,
+		},
+		{
+			name:        "garbage",
+			arn:         "not-an-arn",
+			wantName:    "",
+			wantVersion: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			gotName, gotVersion := lambda.ParseLayerARN(tt.arn)
+			assert.Equal(t, tt.wantName, gotName)
+			assert.Equal(t, tt.wantVersion, gotVersion)
+		})
+	}
+}
+
+// TestPrepareLayerMount verifies that layer zip contents are extracted to a merged /opt directory.
+func TestPrepareLayerMount(t *testing.T) {
+	t.Parallel()
+
+	// buildLayerZip builds a minimal zip containing one file with the given name and content.
+	// Errors are intentionally ignored — [zip.NewWriter] and in-memory writes do not fail.
+	buildLayerZip := func(filename, content string) []byte {
+		var buf bytes.Buffer
+		w := zip.NewWriter(&buf)
+		f, _ := w.Create(filename)
+		_, _ = f.Write([]byte(content))
+		_ = w.Close()
+
+		return buf.Bytes()
+	}
+
+	tests := []struct {
+		setup         func(*lambda.InMemoryBackend)
+		fn            *lambda.FunctionConfiguration
+		name          string
+		wantFiles     []string
+		wantMountPath bool
+	}{
+		{
+			name: "no_layers",
+			fn: &lambda.FunctionConfiguration{
+				FunctionName: "fn",
+			},
+			wantMountPath: false,
+		},
+		{
+			name: "layer_without_zip_data",
+			setup: func(_ *lambda.InMemoryBackend) {
+				// The layer ARN refers to a layer not published — so no zip data exists.
+			},
+			fn: &lambda.FunctionConfiguration{
+				FunctionName: "fn",
+				Layers:       []*lambda.FunctionLayer{{Arn: "arn:aws:lambda:us-east-1:123456789012:layer:missing:1"}},
+			},
+			wantMountPath: false,
+		},
+		{
+			name: "single_layer_with_zip",
+			setup: func(bk *lambda.InMemoryBackend) {
+				_, _ = bk.PublishLayerVersion(&lambda.PublishLayerVersionInput{
+					LayerName: "my-layer",
+					Content: &lambda.LayerVersionContentInput{
+						ZipFile: buildLayerZip("lib.py", "def handler(): pass"),
+					},
+				})
+			},
+			fn: &lambda.FunctionConfiguration{
+				FunctionName: "fn",
+				Layers:       []*lambda.FunctionLayer{{Arn: "arn:aws:lambda:us-east-1:123456789012:layer:my-layer:1"}},
+			},
+			wantMountPath: true,
+			wantFiles:     []string{"lib.py"},
+		},
+		{
+			name: "two_layers_merged",
+			setup: func(bk *lambda.InMemoryBackend) {
+				_, _ = bk.PublishLayerVersion(&lambda.PublishLayerVersionInput{
+					LayerName: "layer-a",
+					Content:   &lambda.LayerVersionContentInput{ZipFile: buildLayerZip("a.py", "a")},
+				})
+				_, _ = bk.PublishLayerVersion(&lambda.PublishLayerVersionInput{
+					LayerName: "layer-b",
+					Content:   &lambda.LayerVersionContentInput{ZipFile: buildLayerZip("b.py", "b")},
+				})
+			},
+			fn: &lambda.FunctionConfiguration{
+				FunctionName: "fn",
+				Layers: []*lambda.FunctionLayer{
+					{Arn: "arn:aws:lambda:us-east-1:123456789012:layer:layer-a:1"},
+					{Arn: "arn:aws:lambda:us-east-1:123456789012:layer:layer-b:1"},
+				},
+			},
+			wantMountPath: true,
+			wantFiles:     []string{"a.py", "b.py"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			bk := newLayerBackend()
+			if tt.setup != nil {
+				tt.setup(bk)
+			}
+
+			mountStr, dirs, err := lambda.PrepareLayerMount(bk, tt.fn)
+			require.NoError(t, err)
+			t.Cleanup(func() {
+				for _, d := range dirs {
+					_ = os.RemoveAll(d)
+				}
+			})
+
+			if !tt.wantMountPath {
+				assert.Empty(t, mountStr)
+				assert.Empty(t, dirs)
+
+				return
+			}
+
+			assert.Contains(t, mountStr, ":/opt:ro")
+			require.Len(t, dirs, 1)
+
+			// Verify the expected files exist in the merged opt dir.
+			for _, f := range tt.wantFiles {
+				path := filepath.Join(dirs[0], f)
+				_, statErr := os.Stat(path)
+				assert.NoError(t, statErr, "expected file %q to exist in layer dir", f)
+			}
+		})
+	}
 }

@@ -14,7 +14,7 @@ import (
 
 // buildMinimalZip returns a byte slice containing a minimal valid ZIP archive with one file.
 // Errors are intentionally ignored because this is a test helper that produces fixtures;
-// zip.NewWriter and buf.Write do not fail for simple in-memory writes.
+// [zip.NewWriter] and buf.Write do not fail for simple in-memory writes.
 func buildMinimalZip(filename, content string) []byte {
 	var buf bytes.Buffer
 	w := zip.NewWriter(&buf)
