@@ -22,6 +22,7 @@ var (
 	ErrStateMachineDoesNotExist  = errors.New("StateMachineDoesNotExist")
 	ErrExecutionAlreadyExists    = errors.New("ExecutionAlreadyExists")
 	ErrExecutionDoesNotExist     = errors.New("ExecutionDoesNotExist")
+	ErrInvalidDefinition         = errors.New("InvalidDefinition")
 )
 
 const (
@@ -128,6 +129,11 @@ func (b *InMemoryBackend) CreateStateMachine(name, definition, roleArn, smType s
 		smType = "STANDARD"
 	}
 
+	// Validate the definition before storing.
+	if _, err := asl.Parse(definition); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidDefinition, err)
+	}
+
 	arn := b.smARN(name)
 
 	b.mu.Lock("CreateStateMachine")
@@ -201,9 +207,7 @@ func (b *InMemoryBackend) DescribeStateMachine(arn string) (*StateMachine, error
 	return &cp, nil
 }
 
-// StartExecution creates an execution and runs the ASL interpreter.
-// If the state machine definition is a valid ASL, the interpreter runs asynchronously.
-// If the definition cannot be parsed, execution completes synchronously with pass-through output.
+// StartExecution creates an execution and runs the ASL interpreter asynchronously.
 func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*Execution, error) {
 	b.mu.Lock("StartExecution")
 
@@ -242,29 +246,17 @@ func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*
 	snsIntegration := b.snsIntegration
 	ddbIntegration := b.ddbIntegration
 
-	// Try to parse the definition to decide whether to run async.
+	// Parse the definition — it was validated on CreateStateMachine, so this should not fail.
 	parsedSM, parseErr := asl.Parse(definition)
 	if parseErr != nil {
-		// Invalid definition: fall back to synchronous pass-through for backward compatibility.
-		// Intentionally returning nil error — the execution still "succeeds" as a no-op.
-		stopDate := now
-		exec.StopDate = &stopDate
-		exec.Status = "SUCCEEDED"
-		exec.Output = input
-		b.history[execArn] = append(b.history[execArn], &HistoryEvent{
-			Timestamp:       now,
-			Type:            "ExecutionSucceeded",
-			ID:              executionSucceededEventID,
-			PreviousEventID: executionStartedEventID,
-		})
 		b.mu.Unlock()
 
-		return exec, nil //nolint:nilerr // parseErr is an expected condition; caller gets a valid execution
+		return nil, fmt.Errorf("%w: %w", ErrInvalidDefinition, parseErr)
 	}
 
 	b.mu.Unlock()
 
-	// Run the ASL interpreter asynchronously for valid state machine definitions.
+	// Run the ASL interpreter asynchronously.
 	go b.runParsedExecution(
 		context.Background(), execArn, parsedSM, input,
 		lambdaInvoker, sqsIntegration, snsIntegration, ddbIntegration,
@@ -278,6 +270,54 @@ type historyRecorder struct {
 	backend *InMemoryBackend
 }
 
+// stateEnteredEventType returns the AWS event type name for the state-entered event
+// for each state type.
+func stateEnteredEventType(stateType string) string {
+	switch stateType {
+	case "Task":
+		return "TaskStateEntered"
+	case "Pass":
+		return "PassStateEntered"
+	case "Choice":
+		return "ChoiceStateEntered"
+	case "Wait":
+		return "WaitStateEntered"
+	case "Succeed":
+		return "SucceedStateEntered"
+	case "Fail":
+		return "FailStateEntered"
+	case "Parallel":
+		return "ParallelStateEntered"
+	case "Map":
+		return "MapStateEntered"
+	default:
+		return stateType + "StateEntered"
+	}
+}
+
+// stateExitedEventType returns the AWS event type name for the state-exited event
+// for each state type.
+func stateExitedEventType(stateType string) string {
+	switch stateType {
+	case "Task":
+		return "TaskStateExited"
+	case "Pass":
+		return "PassStateExited"
+	case "Choice":
+		return "ChoiceStateExited"
+	case "Wait":
+		return "WaitStateExited"
+	case "Succeed":
+		return "SucceedStateExited"
+	case "Parallel":
+		return "ParallelStateExited"
+	case "Map":
+		return "MapStateExited"
+	default:
+		return stateType + "StateExited"
+	}
+}
+
 func (r *historyRecorder) RecordStateEntered(execARN, stateName, stateType string, _ any) {
 	r.backend.mu.Lock("RecordStateEntered")
 	defer r.backend.mu.Unlock()
@@ -286,11 +326,11 @@ func (r *historyRecorder) RecordStateEntered(execARN, stateName, stateType strin
 	nextID := int64(len(events) + 1)
 	r.backend.history[execARN] = append(events, &HistoryEvent{
 		Timestamp:       float64(time.Now().Unix()),
-		Type:            "TaskStateEntered",
+		Type:            stateEnteredEventType(stateType),
 		ID:              nextID,
 		PreviousEventID: nextID - 1,
 		StateEnteredEventDetails: &StateEnteredEventDetails{
-			Name: stateName + "(" + stateType + ")",
+			Name: stateName,
 		},
 	})
 }
@@ -303,11 +343,11 @@ func (r *historyRecorder) RecordStateExited(execARN, stateName, stateType string
 	nextID := int64(len(events) + 1)
 	r.backend.history[execARN] = append(events, &HistoryEvent{
 		Timestamp:       float64(time.Now().Unix()),
-		Type:            "TaskStateExited",
+		Type:            stateExitedEventType(stateType),
 		ID:              nextID,
 		PreviousEventID: nextID - 1,
 		StateExitedEventDetails: &StateExitedEventDetails{
-			Name: stateName + "(" + stateType + ")",
+			Name: stateName,
 		},
 	})
 }

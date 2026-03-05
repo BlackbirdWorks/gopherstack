@@ -54,7 +54,7 @@ func createSM(ctx context.Context, t *testing.T, h *stepfunctions.Handler, e *ec
 	t.Helper()
 
 	rec := sfnPost(ctx, t, h, e, "CreateStateMachine",
-		`{"name":"`+name+`","definition":"{}","roleArn":"arn:role"}`)
+		`{"name":"`+name+`","definition":"{\"StartAt\":\"P\",\"States\":{\"P\":{\"Type\":\"Pass\",\"End\":true}}}","roleArn":"arn:role"}`)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
@@ -210,7 +210,7 @@ func TestHandler_CreateStateMachine(t *testing.T) {
 	}{
 		{
 			name:     "success returns ARN containing name",
-			body:     `{"name":"test-sm","definition":"{}","roleArn":"arn:role","type":"STANDARD"}`,
+			body:     `{"name":"test-sm","definition":"{\"StartAt\":\"P\",\"States\":{\"P\":{\"Type\":\"Pass\",\"End\":true}}}","roleArn":"arn:role","type":"STANDARD"}`,
 			wantCode: http.StatusOK,
 			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
@@ -226,10 +226,15 @@ func TestHandler_CreateStateMachine(t *testing.T) {
 				t.Helper()
 
 				sfnPost(ctx, t, h, e, "CreateStateMachine",
-					`{"name":"dup","definition":"{}","roleArn":"arn:role"}`)
+					`{"name":"dup","definition":"{\"StartAt\":\"P\",\"States\":{\"P\":{\"Type\":\"Pass\",\"End\":true}}}","roleArn":"arn:role"}`)
 			},
-			body:     `{"name":"dup","definition":"{}","roleArn":"arn:role"}`,
+			body:     `{"name":"dup","definition":"{\"StartAt\":\"P\",\"States\":{\"P\":{\"Type\":\"Pass\",\"End\":true}}}","roleArn":"arn:role"}`,
 			wantCode: http.StatusConflict,
+		},
+		{
+			name:     "invalid definition returns bad request",
+			body:     `{"name":"invalid-sm","definition":"{}","roleArn":"arn:role","type":"STANDARD"}`,
+			wantCode: http.StatusBadRequest,
 		},
 	}
 
