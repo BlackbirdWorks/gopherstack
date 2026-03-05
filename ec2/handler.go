@@ -93,6 +93,11 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteNatGateway",
 		"DescribeNatGateways",
 		"DescribeNetworkInterfaces",
+		"RevokeSecurityGroupEgress",
+		"DescribeInstanceTypes",
+		"DescribeTags",
+		"DescribeInstanceAttribute",
+		"DescribeImageAttribute",
 	}
 }
 
@@ -267,6 +272,7 @@ func (h *Handler) dispatchTable() map[string]ec2ActionFn {
 		"AuthorizeSecurityGroupIngress": h.handleAuthorizeSecurityGroupIngress,
 		"AuthorizeSecurityGroupEgress":  h.handleAuthorizeSecurityGroupEgress,
 		"RevokeSecurityGroupIngress":    h.handleRevokeSecurityGroupIngress,
+		"DescribeImageAttribute":        h.handleDescribeImageAttribute,
 	}
 }
 
@@ -341,17 +347,17 @@ func (h *Handler) handleTerminateInstances(vals url.Values, reqID string) (any, 
 		return nil, fmt.Errorf("%w: at least one InstanceId is required", ErrInvalidParameter)
 	}
 
-	instances, err := h.Backend.TerminateInstances(ids)
+	changes, err := h.Backend.TerminateInstances(ids)
 	if err != nil {
 		return nil, err
 	}
 
-	items := make([]instanceStateChangeItem, 0, len(instances))
-	for _, inst := range instances {
+	items := make([]instanceStateChangeItem, 0, len(changes))
+	for _, ch := range changes {
 		items = append(items, instanceStateChangeItem{
-			InstanceID:    inst.ID,
-			CurrentState:  stateItem{Code: inst.State.Code, Name: inst.State.Name},
-			PreviousState: stateItem(StateRunning),
+			InstanceID:    ch.InstanceID,
+			CurrentState:  stateItem{Code: ch.CurrentState.Code, Name: ch.CurrentState.Name},
+			PreviousState: stateItem{Code: ch.PreviousState.Code, Name: ch.PreviousState.Name},
 		})
 	}
 
@@ -597,6 +603,7 @@ var errCodeLookup = []struct {
 	{ErrRouteNotFound, "InvalidRoute.NotFound"},
 	{ErrAssociationNotFound, "InvalidAssociationID.NotFound"},
 	{ErrNetworkInterfaceNotFound, "InvalidNetworkInterfaceID.NotFound"},
+	{ErrInvalidInstanceState, "IncorrectInstanceState"},
 	{ErrInvalidParameter, "InvalidParameterValue"},
 }
 

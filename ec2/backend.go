@@ -18,6 +18,7 @@ var (
 	ErrSubnetNotFound        = errors.New("InvalidSubnetID.NotFound")
 	ErrInvalidParameter      = errors.New("InvalidParameterValue")
 	ErrDuplicateSGName       = errors.New("InvalidGroup.Duplicate")
+	ErrInvalidInstanceState  = errors.New("IncorrectInstanceState")
 )
 
 // EC2 instance state codes as defined by the AWS EC2 API.
@@ -60,6 +61,15 @@ type Instance struct {
 	PrivateIP      string        `json:"privateIP"`
 	KeyName        string        `json:"keyName"`
 	SecurityGroups []string      `json:"securityGroups"`
+}
+
+// InstanceStateChange records the state transition for a single instance.
+// It is returned by StartInstances, StopInstances, and TerminateInstances so
+// callers have accurate before/after information without hard-coding states.
+type InstanceStateChange struct {
+	InstanceID    string
+	PreviousState InstanceState
+	CurrentState  InstanceState
 }
 
 // SecurityGroupRule represents an inbound or outbound rule.
@@ -200,10 +210,13 @@ func (b *InMemoryBackend) RunInstances(imageID, instanceType, subnetID string, c
 			ID:           id,
 			ImageID:      imageID,
 			InstanceType: instanceType,
-			State:        StateRunning,
-			VPCID:        vpcID,
-			SubnetID:     subnetID,
-			LaunchTime:   time.Now(),
+			// AWS state machine: pending → running.
+			// The mock completes this transition immediately so instances are
+			// always observable as running after RunInstances returns.
+			State:      StateRunning,
+			VPCID:      vpcID,
+			SubnetID:   subnetID,
+			LaunchTime: time.Now(),
 		}
 		inst.PrivateIP = b.allocPrivateIP()
 		eniID := "eni-" + uuid.New().String()[:17]
@@ -262,12 +275,13 @@ func (b *InMemoryBackend) DescribeInstances(ids []string, state string) []*Insta
 	return out
 }
 
-// TerminateInstances sets the state of each instance to terminated.
-func (b *InMemoryBackend) TerminateInstances(ids []string) ([]*Instance, error) {
+// TerminateInstances transitions instances to shutting-down then terminated.
+// Returns the previous and current state for each instance.
+func (b *InMemoryBackend) TerminateInstances(ids []string) ([]*InstanceStateChange, error) {
 	b.mu.Lock("TerminateInstances")
 	defer b.mu.Unlock()
 
-	var result []*Instance
+	var result []*InstanceStateChange
 
 	for _, id := range ids {
 		inst, ok := b.instances[id]
@@ -275,9 +289,15 @@ func (b *InMemoryBackend) TerminateInstances(ids []string) ([]*Instance, error) 
 			return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, id)
 		}
 
+		prev := inst.State
+		// AWS state machine: any state → shutting-down → terminated.
+		// The mock completes this transition immediately.
 		inst.State = StateTerminated
-		cp := *inst
-		result = append(result, &cp)
+		result = append(result, &InstanceStateChange{
+			InstanceID:    id,
+			PreviousState: prev,
+			CurrentState:  inst.State,
+		})
 	}
 
 	return result, nil

@@ -109,6 +109,37 @@ func TestStartStopInstances(t *testing.T) {
 			instanceID: "i-doesnotexist",
 			wantErr:    true,
 		},
+		{
+			// start a running instance must fail
+			name: "start_running_instance",
+			setup: func(b *ec2.InMemoryBackend) string {
+				instances, err := b.RunInstances("ami-123", "t2.micro", "", 1)
+				if err != nil {
+					return ""
+				}
+
+				return instances[0].ID
+			},
+			op:      "start",
+			wantErr: true,
+		},
+		{
+			// stop an already-stopped instance must fail
+			name: "stop_stopped_instance",
+			setup: func(b *ec2.InMemoryBackend) string {
+				instances, err := b.RunInstances("ami-123", "t2.micro", "", 1)
+				if err != nil {
+					return ""
+				}
+
+				id := instances[0].ID
+				_, _ = b.StopInstances([]string{id})
+
+				return id
+			},
+			op:      "stop",
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -123,7 +154,7 @@ func TestStartStopInstances(t *testing.T) {
 			}
 
 			if tt.op == "stop" {
-				instances, err := b.StopInstances([]string{id})
+				changes, err := b.StopInstances([]string{id})
 				if tt.wantErr {
 					require.Error(t, err)
 
@@ -131,10 +162,10 @@ func TestStartStopInstances(t *testing.T) {
 				}
 
 				require.NoError(t, err)
-				require.Len(t, instances, 1)
-				assert.Equal(t, tt.wantState, instances[0].State.Name)
+				require.Len(t, changes, 1)
+				assert.Equal(t, tt.wantState, changes[0].CurrentState.Name)
 			} else {
-				instances, err := b.StartInstances([]string{id})
+				changes, err := b.StartInstances([]string{id})
 				if tt.wantErr {
 					require.Error(t, err)
 
@@ -142,8 +173,8 @@ func TestStartStopInstances(t *testing.T) {
 				}
 
 				require.NoError(t, err)
-				require.Len(t, instances, 1)
-				assert.Equal(t, tt.wantState, instances[0].State.Name)
+				require.Len(t, changes, 1)
+				assert.Equal(t, tt.wantState, changes[0].CurrentState.Name)
 			}
 		})
 	}
@@ -1379,6 +1410,61 @@ func TestHandlerExtOperations(t *testing.T) {
 			},
 			wantCode:     http.StatusOK,
 			wantContains: []string{"RevokeSecurityGroupIngressResponse"},
+		},
+		{
+			// StartInstances on a running instance must fail with IncorrectInstanceState
+			name: "StartInstances_invalid_state",
+			setupFn: func(h *ec2.Handler) string {
+				instances, _ := h.Backend.RunInstances("ami-123", "t2.micro", "", 1)
+
+				return fmt.Sprintf(
+					"Action=StartInstances&Version=2016-11-15&InstanceId.1=%s",
+					url.QueryEscape(instances[0].ID),
+				)
+			},
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"IncorrectInstanceState"},
+		},
+		{
+			// StopInstances on a stopped instance must fail with IncorrectInstanceState
+			name: "StopInstances_invalid_state",
+			setupFn: func(h *ec2.Handler) string {
+				instances, _ := h.Backend.RunInstances("ami-123", "t2.micro", "", 1)
+				_, _ = h.Backend.StopInstances([]string{instances[0].ID})
+
+				return fmt.Sprintf(
+					"Action=StopInstances&Version=2016-11-15&InstanceId.1=%s",
+					url.QueryEscape(instances[0].ID),
+				)
+			},
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"IncorrectInstanceState"},
+		},
+		{
+			name: "DescribeImageAttribute_success",
+			body: "Action=DescribeImageAttribute&Version=2016-11-15" +
+				"&ImageId=ami-0c55b159cbfafe1f0&Attribute=launchPermission",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeImageAttributeResponse", "launchPermission", "all"},
+		},
+		{
+			name:         "DescribeImageAttribute_missing_image_id",
+			body:         "Action=DescribeImageAttribute&Version=2016-11-15&Attribute=launchPermission",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
+		},
+		{
+			name:         "DescribeImageAttribute_missing_attribute",
+			body:         "Action=DescribeImageAttribute&Version=2016-11-15&ImageId=ami-0c55b159cbfafe1f0",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
+		},
+		{
+			// ImportKeyPair without PublicKeyMaterial must fail
+			name:         "ImportKeyPair_missing_material",
+			body:         "Action=ImportKeyPair&Version=2016-11-15&KeyName=no-material-key",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
 		},
 	}
 

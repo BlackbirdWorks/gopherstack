@@ -206,11 +206,12 @@ func keyFingerprint(pubKey *rsa.PublicKey) (string, error) {
 }
 
 // StartInstances transitions stopped instances to running.
-func (b *InMemoryBackend) StartInstances(ids []string) ([]*Instance, error) {
+// Returns ErrInvalidInstanceState if any instance is not in the stopped state.
+func (b *InMemoryBackend) StartInstances(ids []string) ([]*InstanceStateChange, error) {
 	b.mu.Lock("StartInstances")
 	defer b.mu.Unlock()
 
-	var result []*Instance
+	var result []*InstanceStateChange
 
 	for _, id := range ids {
 		inst, ok := b.instances[id]
@@ -218,20 +219,36 @@ func (b *InMemoryBackend) StartInstances(ids []string) ([]*Instance, error) {
 			return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, id)
 		}
 
+		if inst.State != StateStopped {
+			return nil, fmt.Errorf(
+				"%w: instance %s is in state %s, expected stopped",
+				ErrInvalidInstanceState,
+				id,
+				inst.State.Name,
+			)
+		}
+
+		prev := inst.State
+		// AWS state machine: stopped → pending → running.
+		// The mock completes this transition immediately.
 		inst.State = StateRunning
-		cp := *inst
-		result = append(result, &cp)
+		result = append(result, &InstanceStateChange{
+			InstanceID:    id,
+			PreviousState: prev,
+			CurrentState:  inst.State,
+		})
 	}
 
 	return result, nil
 }
 
 // StopInstances transitions running instances to stopped.
-func (b *InMemoryBackend) StopInstances(ids []string) ([]*Instance, error) {
+// Returns ErrInvalidInstanceState if any instance is not in the running state.
+func (b *InMemoryBackend) StopInstances(ids []string) ([]*InstanceStateChange, error) {
 	b.mu.Lock("StopInstances")
 	defer b.mu.Unlock()
 
-	var result []*Instance
+	var result []*InstanceStateChange
 
 	for _, id := range ids {
 		inst, ok := b.instances[id]
@@ -239,9 +256,24 @@ func (b *InMemoryBackend) StopInstances(ids []string) ([]*Instance, error) {
 			return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, id)
 		}
 
+		if inst.State != StateRunning {
+			return nil, fmt.Errorf(
+				"%w: instance %s is in state %s, expected running",
+				ErrInvalidInstanceState,
+				id,
+				inst.State.Name,
+			)
+		}
+
+		prev := inst.State
+		// AWS state machine: running → stopping → stopped.
+		// The mock completes this transition immediately.
 		inst.State = StateStopped
-		cp := *inst
-		result = append(result, &cp)
+		result = append(result, &InstanceStateChange{
+			InstanceID:    id,
+			PreviousState: prev,
+			CurrentState:  inst.State,
+		})
 	}
 
 	return result, nil
@@ -313,10 +345,8 @@ func (b *InMemoryBackend) CreateKeyPair(name string) (*KeyPair, error) {
 	b.mu.Lock("CreateKeyPair")
 	defer b.mu.Unlock()
 
-	for _, kp := range b.keyPairs {
-		if kp.Name == name {
-			return nil, fmt.Errorf("%w: %s", ErrDuplicateKeyPairName, name)
-		}
+	if _, exists := b.keyPairs[name]; exists {
+		return nil, fmt.Errorf("%w: %s", ErrDuplicateKeyPairName, name)
 	}
 
 	privKey, err := rsa.GenerateKey(rand.Reader, rsaKeyBits)
@@ -353,10 +383,8 @@ func (b *InMemoryBackend) ImportKeyPair(name string) (*KeyPair, error) {
 	b.mu.Lock("ImportKeyPair")
 	defer b.mu.Unlock()
 
-	for _, existing := range b.keyPairs {
-		if existing.Name == name {
-			return nil, fmt.Errorf("%w: %s", ErrDuplicateKeyPairName, name)
-		}
+	if _, exists := b.keyPairs[name]; exists {
+		return nil, fmt.Errorf("%w: %s", ErrDuplicateKeyPairName, name)
 	}
 
 	kp := &KeyPair{

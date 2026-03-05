@@ -14,13 +14,16 @@ type Backend interface {
 	DescribeInstances(ids []string, state string) []*Instance
 
 	// TerminateInstances transitions instances to shutting-down / terminated.
-	TerminateInstances(ids []string) ([]*Instance, error)
+	// Returns previous and current state for each instance.
+	TerminateInstances(ids []string) ([]*InstanceStateChange, error)
 
 	// StartInstances transitions stopped instances to pending / running.
-	StartInstances(ids []string) ([]*Instance, error)
+	// Returns ErrInvalidInstanceState if an instance is not stopped.
+	StartInstances(ids []string) ([]*InstanceStateChange, error)
 
 	// StopInstances transitions running instances to stopping / stopped.
-	StopInstances(ids []string) ([]*Instance, error)
+	// Returns ErrInvalidInstanceState if an instance is not running.
+	StopInstances(ids []string) ([]*InstanceStateChange, error)
 
 	// RebootInstances keeps instances running (mock no-op transition).
 	RebootInstances(ids []string) error

@@ -472,17 +472,17 @@ func (h *Handler) handleStartInstances(vals url.Values, reqID string) (any, erro
 		return nil, fmt.Errorf("%w: at least one InstanceId is required", ErrInvalidParameter)
 	}
 
-	instances, err := h.Backend.StartInstances(ids)
+	changes, err := h.Backend.StartInstances(ids)
 	if err != nil {
 		return nil, err
 	}
 
-	items := make([]instanceStateChangeItem, 0, len(instances))
-	for _, inst := range instances {
+	items := make([]instanceStateChangeItem, 0, len(changes))
+	for _, ch := range changes {
 		items = append(items, instanceStateChangeItem{
-			InstanceID:    inst.ID,
-			CurrentState:  stateItem{Code: inst.State.Code, Name: inst.State.Name},
-			PreviousState: stateItem(StateStopped),
+			InstanceID:    ch.InstanceID,
+			CurrentState:  stateItem{Code: ch.CurrentState.Code, Name: ch.CurrentState.Name},
+			PreviousState: stateItem{Code: ch.PreviousState.Code, Name: ch.PreviousState.Name},
 		})
 	}
 
@@ -499,17 +499,17 @@ func (h *Handler) handleStopInstances(vals url.Values, reqID string) (any, error
 		return nil, fmt.Errorf("%w: at least one InstanceId is required", ErrInvalidParameter)
 	}
 
-	instances, err := h.Backend.StopInstances(ids)
+	changes, err := h.Backend.StopInstances(ids)
 	if err != nil {
 		return nil, err
 	}
 
-	items := make([]instanceStateChangeItem, 0, len(instances))
-	for _, inst := range instances {
+	items := make([]instanceStateChangeItem, 0, len(changes))
+	for _, ch := range changes {
 		items = append(items, instanceStateChangeItem{
-			InstanceID:    inst.ID,
-			CurrentState:  stateItem{Code: inst.State.Code, Name: inst.State.Name},
-			PreviousState: stateItem(StateRunning),
+			InstanceID:    ch.InstanceID,
+			CurrentState:  stateItem{Code: ch.CurrentState.Code, Name: ch.CurrentState.Name},
+			PreviousState: stateItem{Code: ch.PreviousState.Code, Name: ch.PreviousState.Name},
 		})
 	}
 
@@ -1338,6 +1338,10 @@ func (h *Handler) handleRevokeSecurityGroupIngress(vals url.Values, reqID string
 func (h *Handler) handleImportKeyPair(vals url.Values, reqID string) (any, error) {
 	name := vals.Get("KeyName")
 
+	if vals.Get("PublicKeyMaterial") == "" {
+		return nil, fmt.Errorf("%w: PublicKeyMaterial is required", ErrInvalidParameter)
+	}
+
 	kp, err := h.Backend.ImportKeyPair(name)
 	if err != nil {
 		return nil, err
@@ -1349,4 +1353,54 @@ func (h *Handler) handleImportKeyPair(vals url.Values, reqID string) (any, error
 		KeyName:        kp.Name,
 		KeyFingerprint: kp.Fingerprint,
 	}, nil
+}
+
+// ---- DescribeImageAttribute ----
+
+type describeImageAttributeResponse struct {
+	XMLName   xml.Name `xml:"DescribeImageAttributeResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	ImageID   string   `xml:"imageId"`
+	// LaunchPermission is the only attribute modelled here; others return empty.
+	LaunchPermission launchPermissionList `xml:"launchPermission"`
+}
+
+type launchPermissionList struct {
+	Items []launchPermissionItem `xml:"item"`
+}
+
+type launchPermissionItem struct {
+	Group  string `xml:"group,omitempty"`
+	UserID string `xml:"userId,omitempty"`
+}
+
+// handleDescribeImageAttribute returns stub launch-permission attributes for
+// the specified image. AWS requires the Attribute parameter; if it is absent
+// we return an error matching real-AWS behaviour.
+func (h *Handler) handleDescribeImageAttribute(vals url.Values, reqID string) (any, error) {
+	imageID := vals.Get("ImageId")
+	if imageID == "" {
+		return nil, fmt.Errorf("%w: ImageId is required", ErrInvalidParameter)
+	}
+
+	attribute := vals.Get("Attribute")
+	if attribute == "" {
+		return nil, fmt.Errorf("%w: Attribute is required", ErrInvalidParameter)
+	}
+
+	// Only launchPermission is modelled; all other attributes return an empty placeholder.
+	resp := &describeImageAttributeResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		ImageID:   imageID,
+	}
+
+	if attribute == "launchPermission" {
+		resp.LaunchPermission = launchPermissionList{
+			Items: []launchPermissionItem{{Group: "all"}},
+		}
+	}
+
+	return resp, nil
 }
