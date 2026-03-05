@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// presignedURL returns a fake presigned URL query string for testing.
+// presignedQuery returns a fake presigned URL query string for testing.
 // dateStr is in "20060102T150405Z" format. expiresSeconds is the lifetime.
 func presignedQuery(dateStr string, expiresSeconds int) string {
 	return fmt.Sprintf(
@@ -27,140 +27,178 @@ func presignedQuery(dateStr string, expiresSeconds int) string {
 	)
 }
 
-func TestHandler_PresignedGet_ValidURL(t *testing.T) {
+func TestHandler_PresignedGet(t *testing.T) {
 	t.Parallel()
 
-	handler, backend := newTestHandler(t)
-	mustCreateBucket(t, backend, "my-bucket")
-	mustPutObject(t, backend, "my-bucket", "file.txt", []byte("hello presigned"))
+	tests := []struct {
+		urlFn       func() string
+		name        string
+		wantBody    string
+		wantContain string
+		wantCode    int
+	}{
+		{
+			name: "valid url still within expiry window",
+			urlFn: func() string {
+				dateStr := time.Now().UTC().Add(-5 * time.Minute).Format("20060102T150405Z")
 
-	// Use a date 5 minutes in the past, with 1 hour expiry → still valid.
-	dateStr := time.Now().UTC().Add(-5 * time.Minute).Format("20060102T150405Z")
-	query := presignedQuery(dateStr, 3600)
+				return "/my-bucket/file.txt" + presignedQuery(dateStr, 3600)
+			},
+			wantCode: http.StatusOK,
+			wantBody: "hello presigned",
+		},
+		{
+			name: "expired url",
+			urlFn: func() string {
+				dateStr := time.Now().UTC().Add(-2 * time.Hour).Format("20060102T150405Z")
 
-	req := httptest.NewRequest(http.MethodGet, "/my-bucket/file.txt"+query, nil)
-	rec := httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
+				return "/my-bucket/file.txt" + presignedQuery(dateStr, 3600)
+			},
+			wantCode:    http.StatusForbidden,
+			wantContain: "AccessDenied",
+		},
+		{
+			name: "missing X-Amz-Date rejected",
+			urlFn: func() string {
+				return "/my-bucket/file.txt?X-Amz-Signature=fakesig&X-Amz-Expires=3600"
+			},
+			wantCode:    http.StatusForbidden,
+			wantContain: "AccessDenied",
+		},
+		{
+			name: "invalid X-Amz-Date rejected",
+			urlFn: func() string {
+				return "/my-bucket/file.txt?X-Amz-Signature=fakesig&X-Amz-Date=NOTADATE&X-Amz-Expires=3600"
+			},
+			wantCode:    http.StatusBadRequest,
+			wantContain: "AuthorizationQueryParametersError",
+		},
+		{
+			name: "non-numeric X-Amz-Expires rejected",
+			urlFn: func() string {
+				dateStr := time.Now().UTC().Format("20060102T150405Z")
 
-	require.Equal(t, http.StatusOK, rec.Code)
+				return fmt.Sprintf(
+					"/my-bucket/file.txt?X-Amz-Signature=fakesig&X-Amz-Date=%s&X-Amz-Expires=notanumber",
+					dateStr,
+				)
+			},
+			wantCode:    http.StatusBadRequest,
+			wantContain: "AuthorizationQueryParametersError",
+		},
+	}
 
-	body, err := io.ReadAll(rec.Body)
-	require.NoError(t, err)
-	assert.Equal(t, "hello presigned", string(body))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, backend := newTestHandler(t)
+			mustCreateBucket(t, backend, "my-bucket")
+			mustPutObject(t, backend, "my-bucket", "file.txt", []byte("hello presigned"))
+
+			req := httptest.NewRequest(http.MethodGet, tt.urlFn(), nil)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+
+			require.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantBody != "" {
+				body, err := io.ReadAll(rec.Body)
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantBody, string(body))
+			}
+
+			if tt.wantContain != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantContain)
+			}
+		})
+	}
 }
 
-func TestHandler_PresignedGet_ExpiredURL(t *testing.T) {
+func TestHandler_PresignedPut(t *testing.T) {
 	t.Parallel()
 
-	handler, backend := newTestHandler(t)
-	mustCreateBucket(t, backend, "my-bucket")
-	mustPutObject(t, backend, "my-bucket", "file.txt", []byte("hello"))
+	tests := []struct {
+		urlFn         func() string
+		name          string
+		verifyGetPath string
+		wantPutCode   int
+		wantGetCode   int
+	}{
+		{
+			name: "valid url uploads object successfully",
+			urlFn: func() string {
+				dateStr := time.Now().UTC().Add(-1 * time.Minute).Format("20060102T150405Z")
 
-	// Use a date 2 hours in the past, with 1 hour expiry → expired.
-	dateStr := time.Now().UTC().Add(-2 * time.Hour).Format("20060102T150405Z")
-	query := presignedQuery(dateStr, 3600)
+				return "/my-bucket/uploaded.txt" + presignedQuery(dateStr, 3600)
+			},
+			wantPutCode:   http.StatusOK,
+			wantGetCode:   http.StatusOK,
+			verifyGetPath: "/my-bucket/uploaded.txt",
+		},
+	}
 
-	req := httptest.NewRequest(http.MethodGet, "/my-bucket/file.txt"+query, nil)
-	rec := httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	assert.Equal(t, http.StatusForbidden, rec.Code)
-	assert.Contains(t, rec.Body.String(), "AccessDenied")
-}
+			handler, backend := newTestHandler(t)
+			mustCreateBucket(t, backend, "my-bucket")
 
-func TestHandler_PresignedPut_ValidURL(t *testing.T) {
-	t.Parallel()
+			req := httptest.NewRequest(http.MethodPut, tt.urlFn(), io.NopCloser(http.NoBody))
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
 
-	handler, backend := newTestHandler(t)
-	mustCreateBucket(t, backend, "my-bucket")
+			require.Equal(t, tt.wantPutCode, rec.Code)
 
-	// Use a date 1 minute in the past, with 1 hour expiry → still valid.
-	dateStr := time.Now().UTC().Add(-1 * time.Minute).Format("20060102T150405Z")
-	query := presignedQuery(dateStr, 3600)
-
-	req := httptest.NewRequest(http.MethodPut, "/my-bucket/uploaded.txt"+query,
-		io.NopCloser(http.NoBody))
-	rec := httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
-
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	// Verify the object exists with a regular (non-presigned) GET.
-	req2 := httptest.NewRequest(http.MethodGet, "/my-bucket/uploaded.txt", nil)
-	rec2 := httptest.NewRecorder()
-	serveS3Handler(handler, rec2, req2)
-	assert.Equal(t, http.StatusOK, rec2.Code)
-}
-
-func TestHandler_PresignedGet_MissingDate(t *testing.T) {
-	t.Parallel()
-
-	handler, backend := newTestHandler(t)
-	mustCreateBucket(t, backend, "my-bucket")
-	mustPutObject(t, backend, "my-bucket", "file.txt", []byte("hello"))
-
-	// Missing X-Amz-Date → should be rejected.
-	req := httptest.NewRequest(http.MethodGet,
-		"/my-bucket/file.txt?X-Amz-Signature=fakesig&X-Amz-Expires=3600", nil)
-	rec := httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
-
-	assert.Equal(t, http.StatusForbidden, rec.Code)
-	assert.Contains(t, rec.Body.String(), "AccessDenied")
-}
-
-func TestHandler_PresignedGet_InvalidDate(t *testing.T) {
-	t.Parallel()
-
-	handler, backend := newTestHandler(t)
-	mustCreateBucket(t, backend, "my-bucket")
-	mustPutObject(t, backend, "my-bucket", "file.txt", []byte("hello"))
-
-	// Malformed X-Amz-Date → should be rejected.
-	req := httptest.NewRequest(http.MethodGet,
-		"/my-bucket/file.txt?X-Amz-Signature=fakesig&X-Amz-Date=NOTADATE&X-Amz-Expires=3600", nil)
-	rec := httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
-
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "AuthorizationQueryParametersError")
-}
-
-func TestHandler_PresignedGet_InvalidExpires(t *testing.T) {
-	t.Parallel()
-
-	handler, backend := newTestHandler(t)
-	mustCreateBucket(t, backend, "my-bucket")
-	mustPutObject(t, backend, "my-bucket", "file.txt", []byte("hello"))
-
-	dateStr := time.Now().UTC().Format("20060102T150405Z")
-
-	// X-Amz-Expires is not a number → should be rejected.
-	req := httptest.NewRequest(http.MethodGet,
-		fmt.Sprintf("/my-bucket/file.txt?X-Amz-Signature=fakesig&X-Amz-Date=%s&X-Amz-Expires=notanumber", dateStr),
-		nil)
-	rec := httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
-
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "AuthorizationQueryParametersError")
+			if tt.verifyGetPath != "" {
+				req2 := httptest.NewRequest(http.MethodGet, tt.verifyGetPath, nil)
+				rec2 := httptest.NewRecorder()
+				serveS3Handler(handler, rec2, req2)
+				assert.Equal(t, tt.wantGetCode, rec2.Code)
+			}
+		})
+	}
 }
 
 func TestHandler_NonPresigned_Unaffected(t *testing.T) {
 	t.Parallel()
 
-	handler, backend := newTestHandler(t)
-	mustCreateBucket(t, backend, "my-bucket")
-	mustPutObject(t, backend, "my-bucket", "file.txt", []byte("regular"))
+	tests := []struct {
+		name     string
+		method   string
+		path     string
+		wantBody string
+		body     []byte
+		wantCode int
+	}{
+		{
+			name:     "regular GET bypasses presign checks",
+			method:   http.MethodGet,
+			path:     "/my-bucket/file.txt",
+			body:     []byte("regular"),
+			wantCode: http.StatusOK,
+			wantBody: "regular",
+		},
+	}
 
-	// Normal (non-presigned) GET should be unaffected.
-	req := httptest.NewRequest(http.MethodGet, "/my-bucket/file.txt", nil)
-	rec := httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	require.Equal(t, http.StatusOK, rec.Code)
+			handler, backend := newTestHandler(t)
+			mustCreateBucket(t, backend, "my-bucket")
+			mustPutObject(t, backend, "my-bucket", "file.txt", tt.body)
 
-	body, err := io.ReadAll(rec.Body)
-	require.NoError(t, err)
-	assert.Equal(t, "regular", string(body))
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+
+			require.Equal(t, tt.wantCode, rec.Code)
+
+			body, err := io.ReadAll(rec.Body)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantBody, string(body))
+		})
+	}
 }

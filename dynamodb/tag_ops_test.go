@@ -1,7 +1,6 @@
 package dynamodb_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -18,171 +17,188 @@ func tableARN(name string) string {
 	return "arn:aws:dynamodb:us-east-1:000000000000:table/" + name
 }
 
-func TestTagResource_AddAndList(t *testing.T) {
+func TestTagResource(t *testing.T) {
 	t.Parallel()
 
-	db := ddb.NewInMemoryDB()
-
-	_, err := db.CreateTable(context.Background(), &dynamodb.CreateTableInput{
-		TableName: aws.String("tag-table"),
-		KeySchema: []types.KeySchemaElement{
-			{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
+	tests := []struct {
+		wantTagValues   map[string]string
+		name            string
+		tableName       string
+		wantErrContains string
+		tagBatches      [][]types.Tag
+		wantTagCount    int
+		createTable     bool
+		wantErr         bool
+	}{
+		{
+			name:        "add_and_list",
+			tableName:   "tag-table",
+			createTable: true,
+			tagBatches: [][]types.Tag{
+				{
+					{Key: aws.String("env"), Value: aws.String("test")},
+					{Key: aws.String("team"), Value: aws.String("platform")},
+				},
+			},
+			wantTagCount:  2,
+			wantTagValues: map[string]string{"env": "test", "team": "platform"},
 		},
-		AttributeDefinitions: []types.AttributeDefinition{
-			{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
+		{
+			name:      "not_found",
+			tableName: "nonexistent",
+			tagBatches: [][]types.Tag{
+				{{Key: aws.String("k"), Value: aws.String("v")}},
+			},
+			wantErr:         true,
+			wantErrContains: "ResourceNotFoundException",
 		},
-		ProvisionedThroughput: &types.ProvisionedThroughput{
-			ReadCapacityUnits:  aws.Int64(5),
-			WriteCapacityUnits: aws.Int64(5),
+		{
+			name:        "overwrite_value",
+			tableName:   "overwrite-tag-table",
+			createTable: true,
+			tagBatches: [][]types.Tag{
+				{{Key: aws.String("env"), Value: aws.String("staging")}},
+				{{Key: aws.String("env"), Value: aws.String("prod")}},
+			},
+			wantTagCount:  1,
+			wantTagValues: map[string]string{"env": "prod"},
 		},
-	})
-	require.NoError(t, err)
-
-	_, err = db.TagResource(context.Background(), &dynamodb.TagResourceInput{
-		ResourceArn: aws.String(tableARN("tag-table")),
-		Tags: []types.Tag{
-			{Key: aws.String("env"), Value: aws.String("test")},
-			{Key: aws.String("team"), Value: aws.String("platform")},
-		},
-	})
-	require.NoError(t, err)
-
-	out, err := db.ListTagsOfResource(context.Background(), &dynamodb.ListTagsOfResourceInput{
-		ResourceArn: aws.String(tableARN("tag-table")),
-	})
-	require.NoError(t, err)
-	require.Len(t, out.Tags, 2)
-
-	tagMap := make(map[string]string)
-	for _, t := range out.Tags {
-		tagMap[aws.ToString(t.Key)] = aws.ToString(t.Value)
 	}
 
-	assert.Equal(t, "test", tagMap["env"])
-	assert.Equal(t, "platform", tagMap["team"])
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			db := ddb.NewInMemoryDB()
+			ctx := t.Context()
+
+			if tt.createTable {
+				createTableHelper(t, db, tt.tableName, "pk")
+			}
+
+			var err error
+			for _, batch := range tt.tagBatches {
+				_, err = db.TagResource(ctx, &dynamodb.TagResourceInput{
+					ResourceArn: aws.String(tableARN(tt.tableName)),
+					Tags:        batch,
+				})
+			}
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorContains(t, err, tt.wantErrContains)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			out, err := db.ListTagsOfResource(ctx, &dynamodb.ListTagsOfResourceInput{
+				ResourceArn: aws.String(tableARN(tt.tableName)),
+			})
+			require.NoError(t, err)
+			require.Len(t, out.Tags, tt.wantTagCount)
+
+			tagMap := make(map[string]string, len(out.Tags))
+			for _, tag := range out.Tags {
+				tagMap[aws.ToString(tag.Key)] = aws.ToString(tag.Value)
+			}
+
+			for k, v := range tt.wantTagValues {
+				assert.Equal(t, v, tagMap[k])
+			}
+		})
+	}
 }
 
 func TestUntagResource(t *testing.T) {
 	t.Parallel()
 
-	db := ddb.NewInMemoryDB()
-
-	_, err := db.CreateTable(context.Background(), &dynamodb.CreateTableInput{
-		TableName: aws.String("untag-table"),
-		KeySchema: []types.KeySchemaElement{
-			{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
+	tests := []struct {
+		name         string
+		tableName    string
+		wantTagKey   string
+		wantTagValue string
+		initialTags  []types.Tag
+		keysToRemove []string
+	}{
+		{
+			name:      "removes_one_tag",
+			tableName: "untag-table",
+			initialTags: []types.Tag{
+				{Key: aws.String("keep"), Value: aws.String("yes")},
+				{Key: aws.String("remove"), Value: aws.String("no")},
+			},
+			keysToRemove: []string{"remove"},
+			wantTagKey:   "keep",
+			wantTagValue: "yes",
 		},
-		AttributeDefinitions: []types.AttributeDefinition{
-			{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
-		},
-		ProvisionedThroughput: &types.ProvisionedThroughput{
-			ReadCapacityUnits:  aws.Int64(5),
-			WriteCapacityUnits: aws.Int64(5),
-		},
-	})
-	require.NoError(t, err)
+	}
 
-	// Add two tags, then remove one.
-	_, err = db.TagResource(context.Background(), &dynamodb.TagResourceInput{
-		ResourceArn: aws.String(tableARN("untag-table")),
-		Tags: []types.Tag{
-			{Key: aws.String("keep"), Value: aws.String("yes")},
-			{Key: aws.String("remove"), Value: aws.String("no")},
-		},
-	})
-	require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	_, err = db.UntagResource(context.Background(), &dynamodb.UntagResourceInput{
-		ResourceArn: aws.String(tableARN("untag-table")),
-		TagKeys:     []string{"remove"},
-	})
-	require.NoError(t, err)
+			db := ddb.NewInMemoryDB()
+			ctx := t.Context()
 
-	out, err := db.ListTagsOfResource(context.Background(), &dynamodb.ListTagsOfResourceInput{
-		ResourceArn: aws.String(tableARN("untag-table")),
-	})
-	require.NoError(t, err)
-	require.Len(t, out.Tags, 1)
-	assert.Equal(t, "keep", aws.ToString(out.Tags[0].Key))
-	assert.Equal(t, "yes", aws.ToString(out.Tags[0].Value))
+			createTableHelper(t, db, tt.tableName, "pk")
+
+			_, err := db.TagResource(ctx, &dynamodb.TagResourceInput{
+				ResourceArn: aws.String(tableARN(tt.tableName)),
+				Tags:        tt.initialTags,
+			})
+			require.NoError(t, err)
+
+			_, err = db.UntagResource(ctx, &dynamodb.UntagResourceInput{
+				ResourceArn: aws.String(tableARN(tt.tableName)),
+				TagKeys:     tt.keysToRemove,
+			})
+			require.NoError(t, err)
+
+			out, err := db.ListTagsOfResource(ctx, &dynamodb.ListTagsOfResourceInput{
+				ResourceArn: aws.String(tableARN(tt.tableName)),
+			})
+			require.NoError(t, err)
+			require.Len(t, out.Tags, 1)
+			assert.Equal(t, tt.wantTagKey, aws.ToString(out.Tags[0].Key))
+			assert.Equal(t, tt.wantTagValue, aws.ToString(out.Tags[0].Value))
+		})
+	}
 }
 
-func TestListTagsOfResource_Empty(t *testing.T) {
+func TestListTagsOfResource(t *testing.T) {
 	t.Parallel()
 
-	db := ddb.NewInMemoryDB()
-
-	_, err := db.CreateTable(context.Background(), &dynamodb.CreateTableInput{
-		TableName: aws.String("empty-tag-table"),
-		KeySchema: []types.KeySchemaElement{
-			{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
+	tests := []struct {
+		name      string
+		tableName string
+		wantEmpty bool
+	}{
+		{
+			name:      "empty",
+			tableName: "empty-tag-table",
+			wantEmpty: true,
 		},
-		AttributeDefinitions: []types.AttributeDefinition{
-			{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
-		},
-		ProvisionedThroughput: &types.ProvisionedThroughput{
-			ReadCapacityUnits:  aws.Int64(5),
-			WriteCapacityUnits: aws.Int64(5),
-		},
-	})
-	require.NoError(t, err)
+	}
 
-	out, err := db.ListTagsOfResource(context.Background(), &dynamodb.ListTagsOfResourceInput{
-		ResourceArn: aws.String(tableARN("empty-tag-table")),
-	})
-	require.NoError(t, err)
-	assert.Empty(t, out.Tags)
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-func TestTagResource_NotFound(t *testing.T) {
-	t.Parallel()
+			db := ddb.NewInMemoryDB()
+			ctx := t.Context()
 
-	db := ddb.NewInMemoryDB()
+			createTableHelper(t, db, tt.tableName, "pk")
 
-	_, err := db.TagResource(context.Background(), &dynamodb.TagResourceInput{
-		ResourceArn: aws.String(tableARN("nonexistent")),
-		Tags:        []types.Tag{{Key: aws.String("k"), Value: aws.String("v")}},
-	})
-	require.Error(t, err)
-	assert.ErrorContains(t, err, "ResourceNotFoundException")
-}
+			out, err := db.ListTagsOfResource(ctx, &dynamodb.ListTagsOfResourceInput{
+				ResourceArn: aws.String(tableARN(tt.tableName)),
+			})
+			require.NoError(t, err)
 
-func TestTagResource_OverwriteValue(t *testing.T) {
-	t.Parallel()
-
-	db := ddb.NewInMemoryDB()
-
-	_, err := db.CreateTable(context.Background(), &dynamodb.CreateTableInput{
-		TableName: aws.String("overwrite-tag-table"),
-		KeySchema: []types.KeySchemaElement{
-			{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
-		},
-		AttributeDefinitions: []types.AttributeDefinition{
-			{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
-		},
-		ProvisionedThroughput: &types.ProvisionedThroughput{
-			ReadCapacityUnits:  aws.Int64(5),
-			WriteCapacityUnits: aws.Int64(5),
-		},
-	})
-	require.NoError(t, err)
-
-	_, err = db.TagResource(context.Background(), &dynamodb.TagResourceInput{
-		ResourceArn: aws.String(tableARN("overwrite-tag-table")),
-		Tags:        []types.Tag{{Key: aws.String("env"), Value: aws.String("staging")}},
-	})
-	require.NoError(t, err)
-
-	_, err = db.TagResource(context.Background(), &dynamodb.TagResourceInput{
-		ResourceArn: aws.String(tableARN("overwrite-tag-table")),
-		Tags:        []types.Tag{{Key: aws.String("env"), Value: aws.String("prod")}},
-	})
-	require.NoError(t, err)
-
-	out, err := db.ListTagsOfResource(context.Background(), &dynamodb.ListTagsOfResourceInput{
-		ResourceArn: aws.String(tableARN("overwrite-tag-table")),
-	})
-	require.NoError(t, err)
-	require.Len(t, out.Tags, 1)
-	assert.Equal(t, "prod", aws.ToString(out.Tags[0].Value))
+			if tt.wantEmpty {
+				assert.Empty(t, out.Tags)
+			}
+		})
+	}
 }

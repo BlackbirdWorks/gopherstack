@@ -37,97 +37,176 @@ func (m *MockService) MatchPriority() int                      { return m.priori
 func TestRegistry(t *testing.T) {
 	t.Parallel()
 
-	logger := slog.Default()
-	reg := service.NewRegistry(logger)
+	tests := []struct {
+		wantErr    error
+		setup      func(*service.Registry)
+		register   *MockService
+		name       string
+		wantByName string
+		wantCount  int
+		wantNonNil bool
+	}{
+		{
+			name:       "register new service",
+			register:   &MockService{name: "S1", priority: 10},
+			wantCount:  1,
+			wantByName: "S1",
+			wantNonNil: true,
+		},
+		{
+			name: "duplicate registration returns error",
+			setup: func(reg *service.Registry) {
+				_ = reg.Register(&MockService{name: "S1", priority: 10})
+			},
+			register:   &MockService{name: "S1", priority: 10},
+			wantCount:  1,
+			wantByName: "S1",
+			wantErr:    service.ErrServiceAlreadyRegistered,
+			wantNonNil: true,
+		},
+	}
 
-	svc := &MockService{name: "S1", priority: 10}
-	err := reg.Register(svc)
-	require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	assert.Equal(t, 1, reg.Count())
-	assert.NotNil(t, reg.GetByName("S1"))
+			reg := service.NewRegistry(slog.Default())
 
-	// Duplicate registration
-	err = reg.Register(svc)
-	assert.ErrorIs(t, err, service.ErrServiceAlreadyRegistered)
+			if tt.setup != nil {
+				tt.setup(reg)
+			}
+
+			err := reg.Register(tt.register)
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+
+			assert.Equal(t, tt.wantCount, reg.Count())
+
+			got := reg.GetByName(tt.wantByName)
+			if tt.wantNonNil {
+				assert.NotNil(t, got)
+			} else {
+				assert.Nil(t, got)
+			}
+		})
+	}
 }
 
 func TestRegistryMiddleware(t *testing.T) {
 	t.Parallel()
 
-	reg := service.NewRegistry(slog.Default())
+	tests := []struct {
+		name        string
+		middlewares []service.Middleware
+		wantCalled  bool
+	}{
+		{
+			name: "middleware is invoked on wrapped handler",
+			middlewares: []service.Middleware{
+				func(next echo.HandlerFunc) echo.HandlerFunc {
+					return func(c *echo.Context) error {
+						c.Set("called", true)
 
-	var called bool
-	mw := func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c *echo.Context) error {
-			called = true
-
-			return next(c)
-		}
+						return next(c)
+					}
+				},
+			},
+			wantCalled: true,
+		},
+		{
+			name:        "no middleware still executes handler",
+			middlewares: nil,
+			wantCalled:  false,
+		},
 	}
 
-	reg.Use(mw)
-	svc := &MockService{name: "S1", matched: true}
-	_ = reg.Register(svc)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	entry := reg.GetByName("S1")
-	e := echo.New()
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	rec := httptest.NewRecorder()
-	c := e.NewContext(req, rec)
+			reg := service.NewRegistry(slog.Default())
 
-	err := entry.WrappedHandler(c)
-	require.NoError(t, err)
-	assert.True(t, called)
+			for _, mw := range tt.middlewares {
+				reg.Use(mw)
+			}
+
+			svc := &MockService{name: "S1", matched: true}
+			require.NoError(t, reg.Register(svc))
+
+			entry := reg.GetByName("S1")
+			require.NotNil(t, entry)
+
+			e := echo.New()
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			err := entry.WrappedHandler(c)
+			require.NoError(t, err)
+
+			if tt.wantCalled {
+				assert.Equal(t, true, c.Get("called"))
+			} else {
+				assert.Nil(t, c.Get("called"))
+			}
+		})
+	}
 }
 
-func TestRouter(t *testing.T) {
+func TestServiceRouter(t *testing.T) {
 	t.Parallel()
 
-	reg := service.NewRegistry(slog.Default())
+	tests := []struct {
+		name     string
+		wantBody string
+		services []*MockService
+	}{
+		{
+			name: "routes to highest priority matching service",
+			services: []*MockService{
+				{name: "S1", priority: 10, matched: false},
+				{name: "S2", priority: 20, matched: true},
+				{name: "S3", priority: 5, matched: true},
+			},
+			wantBody: "S2",
+		},
+		{
+			name: "falls back when no service matches",
+			services: []*MockService{
+				{name: "S1", matched: false},
+			},
+			wantBody: "fallback",
+		},
+	}
 
-	s1 := &MockService{name: "S1", priority: 10, matched: false}
-	s2 := &MockService{name: "S2", priority: 20, matched: true}
-	s3 := &MockService{name: "S3", priority: 5, matched: true}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	_ = reg.Register(s1)
-	_ = reg.Register(s2)
-	_ = reg.Register(s3)
+			reg := service.NewRegistry(slog.Default())
 
-	router := service.NewServiceRouter(reg)
+			for _, svc := range tt.services {
+				require.NoError(t, reg.Register(svc))
+			}
 
-	e := echo.New()
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	rec := httptest.NewRecorder()
-	c := e.NewContext(req, rec)
+			router := service.NewServiceRouter(reg)
 
-	handler := router.RouteHandler()(func(c *echo.Context) error {
-		return c.String(http.StatusOK, "fallback")
-	})
+			e := echo.New()
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
 
-	err := handler(c)
-	require.NoError(t, err)
-	assert.Equal(t, "S2", rec.Body.String()) // S2 matched first by priority
-}
+			handler := router.RouteHandler()(func(c *echo.Context) error {
+				return c.String(http.StatusOK, "fallback")
+			})
 
-func TestRouterFallback(t *testing.T) {
-	t.Parallel()
-
-	reg := service.NewRegistry(slog.Default())
-	s1 := &MockService{name: "S1", matched: false}
-	_ = reg.Register(s1)
-
-	router := service.NewServiceRouter(reg)
-
-	e := echo.New()
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	rec := httptest.NewRecorder()
-	c := e.NewContext(req, rec)
-
-	handler := router.RouteHandler()(func(c *echo.Context) error {
-		return c.String(http.StatusOK, "fallback")
-	})
-
-	_ = handler(c)
-	assert.Equal(t, "fallback", rec.Body.String())
+			err := handler(c)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantBody, rec.Body.String())
+		})
+	}
 }

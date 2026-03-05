@@ -15,331 +15,637 @@ import (
 func TestToSDKCreateTableInput(t *testing.T) {
 	t.Parallel()
 
-	input := &models.CreateTableInput{
-		TableName: "TestTable",
-		KeySchema: []models.KeySchemaElement{
-			{AttributeName: "pk", KeyType: models.KeyTypeHash},
-			{AttributeName: "sk", KeyType: models.KeyTypeRange},
-		},
-		AttributeDefinitions: []models.AttributeDefinition{
-			{AttributeName: "pk", AttributeType: "S"},
-			{AttributeName: "sk", AttributeType: "S"},
-		},
-		ProvisionedThroughput: map[string]any{
-			"ReadCapacityUnits":  int64(5),
-			"WriteCapacityUnits": int64(5),
+	tests := []struct {
+		name               string
+		input              *models.CreateTableInput
+		wantTableName      string
+		wantKeySchemaLen   int
+		wantAttrDefsLen    int
+		wantProvThroughput bool
+	}{
+		{
+			name: "valid_create_table_input",
+			input: &models.CreateTableInput{
+				TableName: "TestTable",
+				KeySchema: []models.KeySchemaElement{
+					{AttributeName: "pk", KeyType: models.KeyTypeHash},
+					{AttributeName: "sk", KeyType: models.KeyTypeRange},
+				},
+				AttributeDefinitions: []models.AttributeDefinition{
+					{AttributeName: "pk", AttributeType: "S"},
+					{AttributeName: "sk", AttributeType: "S"},
+				},
+				ProvisionedThroughput: map[string]any{
+					"ReadCapacityUnits":  int64(5),
+					"WriteCapacityUnits": int64(5),
+				},
+			},
+			wantTableName:      "TestTable",
+			wantKeySchemaLen:   2,
+			wantAttrDefsLen:    2,
+			wantProvThroughput: true,
 		},
 	}
 
-	output := models.ToSDKCreateTableInput(input)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	assert.Equal(t, "TestTable", aws.ToString(output.TableName))
-	assert.Len(t, output.KeySchema, 2)
-	assert.Len(t, output.AttributeDefinitions, 2)
-	assert.NotNil(t, output.ProvisionedThroughput)
+			output := models.ToSDKCreateTableInput(tt.input)
+
+			assert.Equal(t, tt.wantTableName, aws.ToString(output.TableName))
+			assert.Len(t, output.KeySchema, tt.wantKeySchemaLen)
+			assert.Len(t, output.AttributeDefinitions, tt.wantAttrDefsLen)
+			if tt.wantProvThroughput {
+				assert.NotNil(t, output.ProvisionedThroughput)
+			}
+		})
+	}
 }
 
 func TestFromSDKCreateTableOutput(t *testing.T) {
 	t.Parallel()
 
-	output := &dynamodb_sdk.CreateTableOutput{
-		TableDescription: &types.TableDescription{
-			TableName:   aws.String("TestTable"),
-			TableStatus: types.TableStatusCreating,
-			ItemCount:   aws.Int64(0),
-			KeySchema: []types.KeySchemaElement{
-				{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
+	tests := []struct {
+		name            string
+		input           *dynamodb_sdk.CreateTableOutput
+		wantTableName   string
+		wantTableStatus string
+		wantItemCount   int
+	}{
+		{
+			name: "creating_table",
+			input: &dynamodb_sdk.CreateTableOutput{
+				TableDescription: &types.TableDescription{
+					TableName:   aws.String("TestTable"),
+					TableStatus: types.TableStatusCreating,
+					ItemCount:   aws.Int64(0),
+					KeySchema: []types.KeySchemaElement{
+						{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
+					},
+					AttributeDefinitions: []types.AttributeDefinition{
+						{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
+					},
+				},
 			},
-			AttributeDefinitions: []types.AttributeDefinition{
-				{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
-			},
+			wantTableName:   "TestTable",
+			wantTableStatus: "CREATING",
+			wantItemCount:   0,
 		},
 	}
 
-	result := models.FromSDKCreateTableOutput(output)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	assert.NotNil(t, result)
-	assert.Equal(t, "TestTable", result.TableDescription.TableName)
-	assert.Equal(t, "CREATING", result.TableDescription.TableStatus)
-	assert.Equal(t, 0, result.TableDescription.ItemCount)
+			result := models.FromSDKCreateTableOutput(tt.input)
+
+			require.NotNil(t, result)
+			assert.Equal(t, tt.wantTableName, result.TableDescription.TableName)
+			assert.Equal(t, tt.wantTableStatus, result.TableDescription.TableStatus)
+			assert.Equal(t, tt.wantItemCount, result.TableDescription.ItemCount)
+		})
+	}
 }
 
 func TestToSDKDeleteTableInput(t *testing.T) {
 	t.Parallel()
 
-	input := &models.DeleteTableInput{
-		TableName: "TestTable",
+	tests := []struct {
+		name          string
+		input         *models.DeleteTableInput
+		wantTableName string
+	}{
+		{
+			name:          "valid_delete_table_input",
+			input:         &models.DeleteTableInput{TableName: "TestTable"},
+			wantTableName: "TestTable",
+		},
 	}
 
-	output := models.ToSDKDeleteTableInput(input)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	assert.Equal(t, "TestTable", aws.ToString(output.TableName))
+			output := models.ToSDKDeleteTableInput(tt.input)
+
+			assert.Equal(t, tt.wantTableName, aws.ToString(output.TableName))
+		})
+	}
 }
 
 func TestFromSDKDeleteTableOutput(t *testing.T) {
 	t.Parallel()
 
-	output := &dynamodb_sdk.DeleteTableOutput{
-		TableDescription: &types.TableDescription{
-			TableName:   aws.String("TestTable"),
-			TableStatus: types.TableStatusDeleting,
+	tests := []struct {
+		name            string
+		input           *dynamodb_sdk.DeleteTableOutput
+		wantTableName   string
+		wantTableStatus string
+	}{
+		{
+			name: "deleting_table",
+			input: &dynamodb_sdk.DeleteTableOutput{
+				TableDescription: &types.TableDescription{
+					TableName:   aws.String("TestTable"),
+					TableStatus: types.TableStatusDeleting,
+				},
+			},
+			wantTableName:   "TestTable",
+			wantTableStatus: "DELETING",
 		},
 	}
 
-	result := models.FromSDKDeleteTableOutput(output)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	assert.NotNil(t, result)
-	assert.Equal(t, "TestTable", result.TableDescription.TableName)
-	assert.Equal(t, "DELETING", result.TableDescription.TableStatus)
+			result := models.FromSDKDeleteTableOutput(tt.input)
+
+			require.NotNil(t, result)
+			assert.Equal(t, tt.wantTableName, result.TableDescription.TableName)
+			assert.Equal(t, tt.wantTableStatus, result.TableDescription.TableStatus)
+		})
+	}
 }
 
 func TestToSDKDescribeTableInput(t *testing.T) {
 	t.Parallel()
 
-	input := &models.DescribeTableInput{
-		TableName: "TestTable",
+	tests := []struct {
+		name          string
+		input         *models.DescribeTableInput
+		wantTableName string
+	}{
+		{
+			name:          "valid_describe_table_input",
+			input:         &models.DescribeTableInput{TableName: "TestTable"},
+			wantTableName: "TestTable",
+		},
 	}
 
-	output := models.ToSDKDescribeTableInput(input)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	assert.Equal(t, "TestTable", aws.ToString(output.TableName))
+			output := models.ToSDKDescribeTableInput(tt.input)
+
+			assert.Equal(t, tt.wantTableName, aws.ToString(output.TableName))
+		})
+	}
 }
 
 func TestFromSDKDescribeTableOutput(t *testing.T) {
 	t.Parallel()
 
-	output := &dynamodb_sdk.DescribeTableOutput{
-		Table: &types.TableDescription{
-			TableName:   aws.String("TestTable"),
-			TableStatus: types.TableStatusActive,
-			ItemCount:   aws.Int64(100),
+	tests := []struct {
+		name            string
+		input           *dynamodb_sdk.DescribeTableOutput
+		wantTableName   string
+		wantTableStatus string
+		wantItemCount   int
+	}{
+		{
+			name: "active_table",
+			input: &dynamodb_sdk.DescribeTableOutput{
+				Table: &types.TableDescription{
+					TableName:   aws.String("TestTable"),
+					TableStatus: types.TableStatusActive,
+					ItemCount:   aws.Int64(100),
+				},
+			},
+			wantTableName:   "TestTable",
+			wantTableStatus: "ACTIVE",
+			wantItemCount:   100,
 		},
 	}
 
-	result := models.FromSDKDescribeTableOutput(output)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	assert.NotNil(t, result)
-	assert.Equal(t, "TestTable", result.Table.TableName)
-	assert.Equal(t, "ACTIVE", result.Table.TableStatus)
-	assert.Equal(t, 100, result.Table.ItemCount)
+			result := models.FromSDKDescribeTableOutput(tt.input)
+
+			require.NotNil(t, result)
+			assert.Equal(t, tt.wantTableName, result.Table.TableName)
+			assert.Equal(t, tt.wantTableStatus, result.Table.TableStatus)
+			assert.Equal(t, tt.wantItemCount, result.Table.ItemCount)
+		})
+	}
 }
 
 func TestToSDKListTablesInput(t *testing.T) {
 	t.Parallel()
 
-	input := &models.ListTablesInput{Limit: 10}
-	output := models.ToSDKListTablesInput(input)
+	tests := []struct {
+		input     *models.ListTablesInput
+		name      string
+		wantLimit int32
+	}{
+		{
+			name:      "normal_limit",
+			input:     &models.ListTablesInput{Limit: 10},
+			wantLimit: int32(10),
+		},
+		{
+			name:      "limit_larger_than_int32_max_clamped",
+			input:     &models.ListTablesInput{Limit: 3000000000},
+			wantLimit: int32(2147483647),
+		},
+	}
 
-	assert.NotNil(t, output.Limit)
-	assert.Equal(t, int32(10), *output.Limit)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			output := models.ToSDKListTablesInput(tt.input)
+
+			require.NotNil(t, output.Limit)
+			assert.Equal(t, tt.wantLimit, *output.Limit)
+		})
+	}
 }
 
 func TestFromSDKListTablesOutput(t *testing.T) {
 	t.Parallel()
 
-	output := &dynamodb_sdk.ListTablesOutput{
-		TableNames: []string{"table1", "table2", "table3"},
+	tests := []struct {
+		name           string
+		input          *dynamodb_sdk.ListTablesOutput
+		wantTableNames []string
+	}{
+		{
+			name:           "multiple_tables",
+			input:          &dynamodb_sdk.ListTablesOutput{TableNames: []string{"table1", "table2", "table3"}},
+			wantTableNames: []string{"table1", "table2", "table3"},
+		},
 	}
 
-	result := models.FromSDKListTablesOutput(output)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	assert.NotNil(t, result)
-	assert.Equal(t, []string{"table1", "table2", "table3"}, result.TableNames)
-}
+			result := models.FromSDKListTablesOutput(tt.input)
 
-func TestToSDKListTablesInputLarge(t *testing.T) {
-	t.Parallel()
-
-	input := &models.ListTablesInput{Limit: 3000000000} // Larger than int32
-	got := models.ToSDKListTablesInput(input)
-	assert.Equal(t, int32(2147483647), *got.Limit)
+			require.NotNil(t, result)
+			assert.Equal(t, tt.wantTableNames, result.TableNames)
+		})
+	}
 }
 
 func TestFromSDKUpdateTimeToLiveOutput(t *testing.T) {
 	t.Parallel()
 
-	output := &dynamodb_sdk.UpdateTimeToLiveOutput{
-		TimeToLiveSpecification: &types.TimeToLiveSpecification{
-			AttributeName: aws.String("ttl"),
-			Enabled:       aws.Bool(true),
+	tests := []struct {
+		name         string
+		input        *dynamodb_sdk.UpdateTimeToLiveOutput
+		wantAttrName string
+		wantEnabled  bool
+	}{
+		{
+			name: "ttl_enabled",
+			input: &dynamodb_sdk.UpdateTimeToLiveOutput{
+				TimeToLiveSpecification: &types.TimeToLiveSpecification{
+					AttributeName: aws.String("ttl"),
+					Enabled:       aws.Bool(true),
+				},
+			},
+			wantAttrName: "ttl",
+			wantEnabled:  true,
 		},
 	}
 
-	result := models.FromSDKUpdateTimeToLiveOutput(output)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	assert.NotNil(t, result)
-	assert.Equal(t, "ttl", result.TimeToLiveSpecification.AttributeName)
-	assert.True(t, result.TimeToLiveSpecification.Enabled)
+			result := models.FromSDKUpdateTimeToLiveOutput(tt.input)
+
+			require.NotNil(t, result)
+			assert.Equal(t, tt.wantAttrName, result.TimeToLiveSpecification.AttributeName)
+			assert.Equal(t, tt.wantEnabled, result.TimeToLiveSpecification.Enabled)
+		})
+	}
 }
 
 func TestToSDKDescribeTimeToLiveInput(t *testing.T) {
 	t.Parallel()
 
-	input := &models.DescribeTimeToLiveInput{
-		TableName: "TestTable",
+	tests := []struct {
+		name          string
+		input         *models.DescribeTimeToLiveInput
+		wantTableName string
+	}{
+		{
+			name:          "valid_describe_ttl_input",
+			input:         &models.DescribeTimeToLiveInput{TableName: "TestTable"},
+			wantTableName: "TestTable",
+		},
 	}
 
-	output := models.ToSDKDescribeTimeToLiveInput(input)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	assert.Equal(t, "TestTable", aws.ToString(output.TableName))
+			output := models.ToSDKDescribeTimeToLiveInput(tt.input)
+
+			assert.Equal(t, tt.wantTableName, aws.ToString(output.TableName))
+		})
+	}
 }
 
 func TestFromSDKTableDescription(t *testing.T) {
 	t.Parallel()
 
-	td := &types.TableDescription{
-		TableName:   aws.String("TestTable"),
-		TableStatus: types.TableStatusActive,
-		ItemCount:   aws.Int64(50),
-		KeySchema: []types.KeySchemaElement{
-			{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
+	tests := []struct {
+		input            *types.TableDescription
+		name             string
+		wantTableName    string
+		wantTableStatus  string
+		wantItemCount    int
+		wantKeySchemaLen int
+		wantAttrDefsLen  int
+		wantEmpty        bool
+	}{
+		{
+			name: "active_table_with_schema",
+			input: &types.TableDescription{
+				TableName:   aws.String("TestTable"),
+				TableStatus: types.TableStatusActive,
+				ItemCount:   aws.Int64(50),
+				KeySchema: []types.KeySchemaElement{
+					{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
+				},
+				AttributeDefinitions: []types.AttributeDefinition{
+					{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
+				},
+			},
+			wantTableName:    "TestTable",
+			wantTableStatus:  "ACTIVE",
+			wantItemCount:    50,
+			wantKeySchemaLen: 1,
+			wantAttrDefsLen:  1,
 		},
-		AttributeDefinitions: []types.AttributeDefinition{
-			{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
+		{
+			name:      "nil_returns_empty_struct",
+			input:     nil,
+			wantEmpty: true,
 		},
 	}
 
-	result := models.FromSDKTableDescription(td)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	assert.Equal(t, "TestTable", result.TableName)
-	assert.Equal(t, "ACTIVE", result.TableStatus)
-	assert.Equal(t, 50, result.ItemCount)
-	assert.Len(t, result.KeySchema, 1)
-	assert.Len(t, result.AttributeDefinitions, 1)
-}
+			result := models.FromSDKTableDescription(tt.input)
 
-func TestFromSDKTableDescriptionNil(t *testing.T) {
-	t.Parallel()
+			if tt.wantEmpty {
+				assert.Equal(t, models.TableDescription{}, result)
 
-	result := models.FromSDKTableDescription(nil)
+				return
+			}
 
-	assert.Equal(t, models.TableDescription{}, result)
+			assert.Equal(t, tt.wantTableName, result.TableName)
+			assert.Equal(t, tt.wantTableStatus, result.TableStatus)
+			assert.Equal(t, tt.wantItemCount, result.ItemCount)
+			assert.Len(t, result.KeySchema, tt.wantKeySchemaLen)
+			assert.Len(t, result.AttributeDefinitions, tt.wantAttrDefsLen)
+		})
+	}
 }
 
 func TestFromSDKConsumedCapacity(t *testing.T) {
 	t.Parallel()
 
-	cc := &types.ConsumedCapacity{
-		TableName:          aws.String("TestTable"),
-		CapacityUnits:      aws.Float64(1.5),
-		ReadCapacityUnits:  aws.Float64(1.0),
-		WriteCapacityUnits: aws.Float64(0.5),
+	tests := []struct {
+		input             *types.ConsumedCapacity
+		name              string
+		wantTableName     string
+		wantCapacityUnits float64
+		wantNil           bool
+	}{
+		{
+			name: "valid_consumed_capacity",
+			input: &types.ConsumedCapacity{
+				TableName:          aws.String("TestTable"),
+				CapacityUnits:      aws.Float64(1.5),
+				ReadCapacityUnits:  aws.Float64(1.0),
+				WriteCapacityUnits: aws.Float64(0.5),
+			},
+			wantTableName:     "TestTable",
+			wantCapacityUnits: 1.5,
+		},
+		{
+			name:    "nil_returns_nil",
+			input:   nil,
+			wantNil: true,
+		},
 	}
 
-	result := models.FromSDKConsumedCapacity(cc)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	assert.NotNil(t, result)
-	assert.Equal(t, "TestTable", result.TableName)
-	assert.InEpsilon(t, 1.5, result.CapacityUnits, 0.0001)
-}
+			result := models.FromSDKConsumedCapacity(tt.input)
 
-func TestFromSDKConsumedCapacityNil(t *testing.T) {
-	t.Parallel()
+			if tt.wantNil {
+				assert.Nil(t, result)
 
-	result := models.FromSDKConsumedCapacity(nil)
+				return
+			}
 
-	assert.Nil(t, result)
+			require.NotNil(t, result)
+			assert.Equal(t, tt.wantTableName, result.TableName)
+			assert.InEpsilon(t, tt.wantCapacityUnits, result.CapacityUnits, 0.0001)
+		})
+	}
 }
 
 func TestFromSDKItemCollectionMetrics(t *testing.T) {
 	t.Parallel()
 
-	icm := &types.ItemCollectionMetrics{
-		ItemCollectionKey: map[string]types.AttributeValue{
-			"pk": &types.AttributeValueMemberS{Value: "test"},
+	tests := []struct {
+		input                    *types.ItemCollectionMetrics
+		name                     string
+		wantSizeEstimateRangeLen int
+		wantNil                  bool
+	}{
+		{
+			name: "valid_item_collection_metrics",
+			input: &types.ItemCollectionMetrics{
+				ItemCollectionKey: map[string]types.AttributeValue{
+					"pk": &types.AttributeValueMemberS{Value: "test"},
+				},
+				SizeEstimateRangeGB: []float64{0.1, 0.5},
+			},
+			wantSizeEstimateRangeLen: 2,
 		},
-		SizeEstimateRangeGB: []float64{0.1, 0.5},
+		{
+			name:    "nil_returns_nil",
+			input:   nil,
+			wantNil: true,
+		},
 	}
 
-	result := models.FromSDKItemCollectionMetrics(icm)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	assert.NotNil(t, result)
-	assert.NotNil(t, result.ItemCollectionKey)
-	assert.Len(t, result.SizeEstimateRangeGB, 2)
-}
+			result := models.FromSDKItemCollectionMetrics(tt.input)
 
-func TestFromSDKItemCollectionMetricsNil(t *testing.T) {
-	t.Parallel()
+			if tt.wantNil {
+				assert.Nil(t, result)
 
-	result := models.FromSDKItemCollectionMetrics(nil)
+				return
+			}
 
-	assert.Nil(t, result)
+			require.NotNil(t, result)
+			assert.NotNil(t, result.ItemCollectionKey)
+			assert.Len(t, result.SizeEstimateRangeGB, tt.wantSizeEstimateRangeLen)
+		})
+	}
 }
 
 func TestFromSDKGlobalSecondaryIndexDescriptions(t *testing.T) {
 	t.Parallel()
 
-	gsis := []types.GlobalSecondaryIndexDescription{
+	tests := []struct {
+		name            string
+		wantIndexName   string
+		wantIndexStatus string
+		input           []types.GlobalSecondaryIndexDescription
+		wantLen         int
+		wantItemCount   int
+	}{
 		{
-			IndexName:   aws.String("GSI1"),
-			IndexStatus: types.IndexStatusActive,
-			KeySchema: []types.KeySchemaElement{
-				{AttributeName: aws.String("gsi1pk"), KeyType: types.KeyTypeHash},
+			name: "single_active_gsi",
+			input: []types.GlobalSecondaryIndexDescription{
+				{
+					IndexName:   aws.String("GSI1"),
+					IndexStatus: types.IndexStatusActive,
+					KeySchema: []types.KeySchemaElement{
+						{AttributeName: aws.String("gsi1pk"), KeyType: types.KeyTypeHash},
+					},
+					Projection: &types.Projection{
+						ProjectionType: types.ProjectionTypeAll,
+					},
+					ProvisionedThroughput: &types.ProvisionedThroughputDescription{
+						ReadCapacityUnits:  aws.Int64(5),
+						WriteCapacityUnits: aws.Int64(5),
+					},
+					ItemCount: aws.Int64(100),
+				},
 			},
-			Projection: &types.Projection{
-				ProjectionType: types.ProjectionTypeAll,
-			},
-			ProvisionedThroughput: &types.ProvisionedThroughputDescription{
-				ReadCapacityUnits:  aws.Int64(5),
-				WriteCapacityUnits: aws.Int64(5),
-			},
-			ItemCount: aws.Int64(100),
+			wantLen:         1,
+			wantIndexName:   "GSI1",
+			wantIndexStatus: "ACTIVE",
+			wantItemCount:   100,
 		},
 	}
 
-	result := models.FromSDKGlobalSecondaryIndexDescriptions(gsis)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	require.Len(t, result, 1)
-	assert.Equal(t, "GSI1", result[0].IndexName)
-	assert.Equal(t, "ACTIVE", result[0].IndexStatus)
-	assert.Equal(t, 100, result[0].ItemCount)
+			result := models.FromSDKGlobalSecondaryIndexDescriptions(tt.input)
+
+			require.Len(t, result, tt.wantLen)
+			assert.Equal(t, tt.wantIndexName, result[0].IndexName)
+			assert.Equal(t, tt.wantIndexStatus, result[0].IndexStatus)
+			assert.Equal(t, tt.wantItemCount, result[0].ItemCount)
+		})
+	}
 }
 
 func TestFromSDKLocalSecondaryIndexDescriptions(t *testing.T) {
 	t.Parallel()
 
-	lsis := []types.LocalSecondaryIndexDescription{
+	tests := []struct {
+		name               string
+		wantIndexName      string
+		input              []types.LocalSecondaryIndexDescription
+		wantLen            int
+		wantIndexSizeBytes int64
+		wantItemCount      int
+	}{
 		{
-			IndexName: aws.String("LSI1"),
-			KeySchema: []types.KeySchemaElement{
-				{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
-				{AttributeName: aws.String("lsi1sk"), KeyType: types.KeyTypeRange},
+			name: "single_lsi",
+			input: []types.LocalSecondaryIndexDescription{
+				{
+					IndexName: aws.String("LSI1"),
+					KeySchema: []types.KeySchemaElement{
+						{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
+						{AttributeName: aws.String("lsi1sk"), KeyType: types.KeyTypeRange},
+					},
+					Projection: &types.Projection{
+						ProjectionType: types.ProjectionTypeAll,
+					},
+					IndexSizeBytes: aws.Int64(1024),
+					ItemCount:      aws.Int64(50),
+				},
 			},
-			Projection: &types.Projection{
-				ProjectionType: types.ProjectionTypeAll,
-			},
-			IndexSizeBytes: aws.Int64(1024),
-			ItemCount:      aws.Int64(50),
+			wantLen:            1,
+			wantIndexName:      "LSI1",
+			wantIndexSizeBytes: 1024,
+			wantItemCount:      50,
 		},
 	}
 
-	result := models.FromSDKLocalSecondaryIndexDescriptions(lsis)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	require.Len(t, result, 1)
-	assert.Equal(t, "LSI1", result[0].IndexName)
-	assert.Equal(t, int64(1024), result[0].IndexSizeBytes)
-	assert.Equal(t, 50, result[0].ItemCount)
+			result := models.FromSDKLocalSecondaryIndexDescriptions(tt.input)
+
+			require.Len(t, result, tt.wantLen)
+			assert.Equal(t, tt.wantIndexName, result[0].IndexName)
+			assert.Equal(t, tt.wantIndexSizeBytes, result[0].IndexSizeBytes)
+			assert.Equal(t, tt.wantItemCount, result[0].ItemCount)
+		})
+	}
 }
 
 func TestFromSDKProvisionedThroughputDescription(t *testing.T) {
 	t.Parallel()
 
-	ptd := &types.ProvisionedThroughputDescription{
-		ReadCapacityUnits:  aws.Int64(10),
-		WriteCapacityUnits: aws.Int64(5),
+	tests := []struct {
+		input             *types.ProvisionedThroughputDescription
+		name              string
+		wantReadCapacity  int
+		wantWriteCapacity int
+		wantNil           bool
+	}{
+		{
+			name: "valid_throughput_description",
+			input: &types.ProvisionedThroughputDescription{
+				ReadCapacityUnits:  aws.Int64(10),
+				WriteCapacityUnits: aws.Int64(5),
+			},
+			wantReadCapacity:  10,
+			wantWriteCapacity: 5,
+		},
+		{
+			name:    "nil_returns_nil",
+			input:   nil,
+			wantNil: true,
+		},
 	}
 
-	result := models.FromSDKProvisionedThroughputDescription(ptd)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	assert.NotNil(t, result)
-	assert.Equal(t, 10, result.ReadCapacityUnits)
-	assert.Equal(t, 5, result.WriteCapacityUnits)
-}
+			result := models.FromSDKProvisionedThroughputDescription(tt.input)
 
-func TestFromSDKProvisionedThroughputDescriptionNil(t *testing.T) {
-	t.Parallel()
+			if tt.wantNil {
+				assert.Nil(t, result)
 
-	result := models.FromSDKProvisionedThroughputDescription(nil)
+				return
+			}
 
-	assert.Nil(t, result)
+			require.NotNil(t, result)
+			assert.Equal(t, tt.wantReadCapacity, result.ReadCapacityUnits)
+			assert.Equal(t, tt.wantWriteCapacity, result.WriteCapacityUnits)
+		})
+	}
 }

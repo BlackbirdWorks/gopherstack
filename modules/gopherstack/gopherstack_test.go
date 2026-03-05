@@ -19,66 +19,99 @@ import (
 func TestRun(t *testing.T) {
 	t.Parallel()
 
-	if os.Getenv("GOPHERSTACK_MODULE_TESTS") != "1" {
-		t.Skip("skipping: set GOPHERSTACK_MODULE_TESTS=1 to run Docker-based module tests")
+	tests := []struct {
+		name  string
+		image string
+	}{
+		{
+			name:  "default image starts and responds to health check",
+			image: gopherstackmodule.DefaultImage,
+		},
 	}
 
-	testcontainers.SkipIfProviderIsNotHealthy(t)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	ctx := t.Context()
+			if os.Getenv("GOPHERSTACK_MODULE_TESTS") != "1" {
+				t.Skip("skipping: set GOPHERSTACK_MODULE_TESTS=1 to run Docker-based module tests")
+			}
 
-	container, err := gopherstackmodule.Run(ctx, gopherstackmodule.DefaultImage)
-	require.NoError(t, err)
+			testcontainers.SkipIfProviderIsNotHealthy(t)
 
-	defer testcontainers.TerminateContainer(container)
+			ctx := t.Context()
 
-	url, err := container.BaseURL(ctx)
-	require.NoError(t, err)
-	assert.NotEmpty(t, url, "expected non-empty base URL")
+			container, err := gopherstackmodule.Run(ctx, tt.image)
+			require.NoError(t, err)
 
-	// Health endpoint should return 200 OK.
-	resp, err := http.Get(url + "/_gopherstack/health")
-	require.NoError(t, err)
+			defer testcontainers.TerminateContainer(container)
 
-	defer resp.Body.Close()
+			url, err := container.BaseURL(ctx)
+			require.NoError(t, err)
+			assert.NotEmpty(t, url, "expected non-empty base URL")
 
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
+			resp, err := http.Get(url + "/_gopherstack/health")
+			require.NoError(t, err)
+
+			defer resp.Body.Close()
+
+			assert.Equal(t, http.StatusOK, resp.StatusCode)
+		})
+	}
 }
 
-// TestWithEnv verifies that the WithEnv option is applied to the container
-// request without requiring Docker.
+// TestWithEnv verifies that the WithEnv option correctly applies environment
+// variables to the container request, including initializing a nil Env map.
 func TestWithEnv(t *testing.T) {
 	t.Parallel()
 
-	req := testcontainers.GenericContainerRequest{
-		ContainerRequest: testcontainers.ContainerRequest{
-			Image: "dummy",
+	tests := []struct {
+		initial map[string]string
+		input   map[string]string
+		wantEnv map[string]string
+		name    string
+		wantErr bool
+	}{
+		{
+			name:    "applies multiple env vars to existing map",
+			initial: nil,
+			input:   map[string]string{"LOG_LEVEL": "debug", "DEMO": "true"},
+			wantEnv: map[string]string{"LOG_LEVEL": "debug", "DEMO": "true"},
+		},
+		{
+			name:    "initializes nil Env map and sets key",
+			initial: nil,
+			input:   map[string]string{"KEY": "value"},
+			wantEnv: map[string]string{"KEY": "value"},
 		},
 	}
 
-	opt := gopherstackmodule.WithEnv(map[string]string{"LOG_LEVEL": "debug", "DEMO": "true"})
-	err := opt.Customize(&req)
-	require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	assert.Equal(t, "debug", req.Env["LOG_LEVEL"])
-	assert.Equal(t, "true", req.Env["DEMO"])
-}
+			req := testcontainers.GenericContainerRequest{
+				ContainerRequest: testcontainers.ContainerRequest{
+					Image: "dummy",
+					Env:   tt.initial,
+				},
+			}
 
-// TestWithEnvNilMap verifies that WithEnv initializes the Env map when it is nil.
-func TestWithEnvNilMap(t *testing.T) {
-	t.Parallel()
+			opt := gopherstackmodule.WithEnv(tt.input)
+			err := opt.Customize(&req)
 
-	req := testcontainers.GenericContainerRequest{
-		ContainerRequest: testcontainers.ContainerRequest{
-			Image: "dummy",
-			Env:   nil,
-		},
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, req.Env)
+
+			for k, v := range tt.wantEnv {
+				assert.Equal(t, v, req.Env[k])
+			}
+		})
 	}
-
-	opt := gopherstackmodule.WithEnv(map[string]string{"KEY": "value"})
-	err := opt.Customize(&req)
-	require.NoError(t, err)
-
-	require.NotNil(t, req.Env)
-	assert.Equal(t, "value", req.Env["KEY"])
 }

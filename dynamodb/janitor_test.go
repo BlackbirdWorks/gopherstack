@@ -19,71 +19,97 @@ func newFastDDBJanitor(db *dynamodb.InMemoryDB) *dynamodb.Janitor {
 	return dynamodb.NewJanitor(db, logger.NewTestLogger(), dynamodb.Settings{JanitorInterval: 5 * time.Millisecond})
 }
 
-func TestDDBJanitor_DeleteTableMovesToDeletingQueue(t *testing.T) {
+func TestDDBJanitor_DeleteTable(t *testing.T) {
 	t.Parallel()
 
-	db := dynamodb.NewInMemoryDB()
-	createTable(t, db, "queued-table")
+	tests := []struct {
+		name         string
+		deleteTable  string
+		wantGone     string
+		wantPresent  string
+		createTables []string
+	}{
+		{
+			name:         "deleted_table_moves_to_deleting_queue",
+			createTables: []string{"queued-table"},
+			deleteTable:  "queued-table",
+			wantGone:     "queued-table",
+		},
+		{
+			name:         "active_table_unaffected_when_other_deleted",
+			createTables: []string{"keep-table", "drop-table"},
+			deleteTable:  "drop-table",
+			wantGone:     "drop-table",
+			wantPresent:  "keep-table",
+		},
+	}
 
-	_, err := db.DeleteTable(t.Context(), &dynamodb_sdk.DeleteTableInput{
-		TableName: aws.String("queued-table"),
-	})
-	require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	// Table should be invisible to DescribeTable immediately after DeleteTable.
-	_, err = db.DescribeTable(t.Context(), &dynamodb_sdk.DescribeTableInput{
-		TableName: aws.String("queued-table"),
-	})
-	require.Error(t, err, "expected table to be gone from active map")
+			db := dynamodb.NewInMemoryDB()
+			for _, tbl := range tt.createTables {
+				createTable(t, db, tbl)
+			}
+
+			_, err := db.DeleteTable(t.Context(), &dynamodb_sdk.DeleteTableInput{
+				TableName: aws.String(tt.deleteTable),
+			})
+			require.NoError(t, err)
+
+			_, err = db.DescribeTable(t.Context(), &dynamodb_sdk.DescribeTableInput{
+				TableName: aws.String(tt.wantGone),
+			})
+			require.Error(t, err, "expected deleted table to be gone from active map")
+
+			if tt.wantPresent != "" {
+				out, descErr := db.DescribeTable(t.Context(), &dynamodb_sdk.DescribeTableInput{
+					TableName: aws.String(tt.wantPresent),
+				})
+				require.NoError(t, descErr)
+				assert.Equal(t, tt.wantPresent, aws.ToString(out.Table.TableName))
+			}
+		})
+	}
 }
 
-func TestDDBJanitor_JanitorFinallyRemovesTable(t *testing.T) {
+func TestDDBJanitor_RemovesTable(t *testing.T) {
 	t.Parallel()
 
-	db := dynamodb.NewInMemoryDB()
-	createTable(t, db, "delete-me")
+	tests := []struct {
+		name        string
+		createTable string
+	}{
+		{
+			name:        "janitor_finally_removes_deleted_table",
+			createTable: "delete-me",
+		},
+	}
 
-	_, err := db.DeleteTable(t.Context(), &dynamodb_sdk.DeleteTableInput{
-		TableName: aws.String("delete-me"),
-	})
-	require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
+			db := dynamodb.NewInMemoryDB()
+			createTable(t, db, tt.createTable)
 
-	j := newFastDDBJanitor(db)
-	go j.Run(ctx)
+			_, err := db.DeleteTable(t.Context(), &dynamodb_sdk.DeleteTableInput{
+				TableName: aws.String(tt.createTable),
+			})
+			require.NoError(t, err)
 
-	// After the janitor runs, the deleting map should drain.
-	require.Eventually(t, func() bool {
-		listed, listErr := db.ListTables(t.Context(), &dynamodb_sdk.ListTablesInput{})
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
 
-		return listErr == nil && len(listed.TableNames) == 0
-	}, 500*time.Millisecond, 10*time.Millisecond)
-}
+			j := newFastDDBJanitor(db)
+			go j.Run(ctx)
 
-func TestDDBJanitor_ActiveTableUnaffected(t *testing.T) {
-	t.Parallel()
+			require.Eventually(t, func() bool {
+				listed, listErr := db.ListTables(t.Context(), &dynamodb_sdk.ListTablesInput{})
 
-	db := dynamodb.NewInMemoryDB()
-	createTable(t, db, "keep-table")
-	createTable(t, db, "drop-table")
-
-	_, err := db.DeleteTable(t.Context(), &dynamodb_sdk.DeleteTableInput{
-		TableName: aws.String("drop-table"),
-	})
-	require.NoError(t, err)
-
-	// "keep-table" must still be accessible.
-	out, err := db.DescribeTable(t.Context(), &dynamodb_sdk.DescribeTableInput{
-		TableName: aws.String("keep-table"),
-	})
-	require.NoError(t, err)
-	assert.Equal(t, "keep-table", aws.ToString(out.Table.TableName))
-
-	// "drop-table" is gone.
-	_, err = db.DescribeTable(t.Context(), &dynamodb_sdk.DescribeTableInput{
-		TableName: aws.String("drop-table"),
-	})
-	require.Error(t, err)
+				return listErr == nil && len(listed.TableNames) == 0
+			}, 500*time.Millisecond, 10*time.Millisecond)
+		})
+	}
 }

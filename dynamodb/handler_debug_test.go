@@ -17,174 +17,125 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
-// TestDebugLogging verifies that debug logging works correctly with context-based logging.
 func TestDebugLogging(t *testing.T) {
 	t.Parallel()
 
-	// Create a buffer to capture log output
-	var logBuffer bytes.Buffer
-	testLogger := slog.New(slog.NewTextHandler(&logBuffer, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
-	}))
-
-	// Create handler with test logger
-	handler := dynamodb.NewHandler(dynamodb.NewInMemoryDB(), testLogger)
-
-	// Create a test table
-	createTableInput := models.CreateTableInput{
-		TableName: "DebugLogTestTable",
-		KeySchema: []models.KeySchemaElement{
-			{AttributeName: "id", KeyType: "HASH"},
+	tests := []struct {
+		setupInput      any
+		input           any
+		name            string
+		setupTarget     string
+		target          string
+		wantLogContains []string
+		wantStatus      int
+	}{
+		{
+			name:   "create_table_logs_debug_info",
+			target: "DynamoDB_20120810.CreateTable",
+			input: models.CreateTableInput{
+				TableName: "DebugLogTestTable",
+				KeySchema: []models.KeySchemaElement{
+					{AttributeName: "id", KeyType: "HASH"},
+				},
+				AttributeDefinitions: []models.AttributeDefinition{
+					{AttributeName: "id", AttributeType: "S"},
+				},
+			},
+			wantStatus: http.StatusOK,
+			wantLogContains: []string{
+				"DynamoDB request",
+				"CreateTable",
+				"handler input",
+				"handler output",
+				"DebugLogTestTable",
+				"level=DEBUG",
+			},
 		},
-		AttributeDefinitions: []models.AttributeDefinition{
-			{AttributeName: "id", AttributeType: "S"},
-		},
-	}
-
-	// Create an Echo context with logger in context
-	body, err := json.Marshal(createTableInput)
-	require.NoError(t, err)
-
-	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
-	req.Header.Set("X-Amz-Target", "DynamoDB_20120810.CreateTable")
-	rec := httptest.NewRecorder()
-
-	// Add logger to context
-	ctx := logger.Save(req.Context(), testLogger)
-	req = req.WithContext(ctx)
-
-	// Create Echo context and call handler
-	e := echo.New()
-	c := e.NewContext(req, rec)
-	echoHandler := handler.Handler()
-	err = echoHandler(c)
-	require.NoError(t, err)
-
-	// Verify the request succeeded
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	// Verify debug logging was captured
-	logOutput := logBuffer.String()
-	t.Logf("Log output:\n%s", logOutput)
-
-	// Check for expected debug log messages
-	assert.Contains(
-		t,
-		logOutput,
-		"DynamoDB request",
-		"Expected to see 'DynamoDB request' in debug logs",
-	)
-	assert.Contains(
-		t,
-		logOutput,
-		"CreateTable",
-		"Expected to see 'CreateTable' action in debug logs",
-	)
-	assert.Contains(t, logOutput, "handler input", "Expected to see 'handler input' in debug logs")
-	assert.Contains(
-		t,
-		logOutput,
-		"handler output",
-		"Expected to see 'handler output' in debug logs",
-	)
-	assert.Contains(t, logOutput, "DebugLogTestTable", "Expected to see table name in debug logs")
-
-	// Verify debug level is logged
-	assert.Contains(t, logOutput, "level=DEBUG", "Expected to see DEBUG level in logs")
-}
-
-// TestDebugLoggingWithItem verifies debug logging works for item operations.
-func TestDebugLoggingWithItem(t *testing.T) {
-	t.Parallel()
-
-	// Create a buffer to capture log output
-	var logBuffer bytes.Buffer
-	testLogger := slog.New(slog.NewTextHandler(&logBuffer, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
-	}))
-
-	// Create handler with test logger
-	handler := dynamodb.NewHandler(dynamodb.NewInMemoryDB(), testLogger)
-
-	// First create a table
-	createTableInput := models.CreateTableInput{
-		TableName: "ItemLogTestTable",
-		KeySchema: []models.KeySchemaElement{
-			{AttributeName: "pk", KeyType: "HASH"},
-		},
-		AttributeDefinitions: []models.AttributeDefinition{
-			{AttributeName: "pk", AttributeType: "S"},
+		{
+			name:        "put_item_logs_debug_info",
+			setupTarget: "DynamoDB_20120810.CreateTable",
+			setupInput: models.CreateTableInput{
+				TableName: "ItemLogTestTable",
+				KeySchema: []models.KeySchemaElement{
+					{AttributeName: "pk", KeyType: "HASH"},
+				},
+				AttributeDefinitions: []models.AttributeDefinition{
+					{AttributeName: "pk", AttributeType: "S"},
+				},
+			},
+			target: "DynamoDB_20120810.PutItem",
+			input: models.PutItemInput{
+				TableName: "ItemLogTestTable",
+				Item: map[string]any{
+					"pk":   map[string]any{"S": "test-key"},
+					"data": map[string]any{"S": "test-data"},
+				},
+			},
+			wantStatus: http.StatusOK,
+			wantLogContains: []string{
+				"DynamoDB request",
+				"PutItem",
+				"handler input",
+				"handler output",
+				"test-key",
+				"test-data",
+				"level=DEBUG",
+			},
 		},
 	}
 
-	body, err := json.Marshal(createTableInput)
-	require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
-	req.Header.Set("X-Amz-Target", "DynamoDB_20120810.CreateTable")
-	rec := httptest.NewRecorder()
+			var logBuffer bytes.Buffer
+			testLogger := slog.New(slog.NewTextHandler(&logBuffer, &slog.HandlerOptions{
+				Level: slog.LevelDebug,
+			}))
 
-	// Add logger to context and call handler via Echo
-	ctx := logger.Save(req.Context(), testLogger)
-	req = req.WithContext(ctx)
-	e := echo.New()
-	c := e.NewContext(req, rec)
-	echoHandler := handler.Handler()
-	err = echoHandler(c)
-	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, rec.Code)
+			h := dynamodb.NewHandler(dynamodb.NewInMemoryDB(), testLogger)
+			e := echo.New()
+			echoHandler := h.Handler()
 
-	// Clear the log buffer
-	logBuffer.Reset()
+			if tt.setupTarget != "" {
+				setupBody, err := json.Marshal(tt.setupInput)
+				require.NoError(t, err)
 
-	// Now put an item
-	putItemInput := models.PutItemInput{
-		TableName: "ItemLogTestTable",
-		Item: map[string]any{
-			"pk":   map[string]any{"S": "test-key"},
-			"data": map[string]any{"S": "test-data"},
-		},
+				setupReq := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(setupBody))
+				setupReq.Header.Set("X-Amz-Target", tt.setupTarget)
+				setupRec := httptest.NewRecorder()
+
+				setupCtx := logger.Save(setupReq.Context(), testLogger)
+				setupReq = setupReq.WithContext(setupCtx)
+
+				err = echoHandler(e.NewContext(setupReq, setupRec))
+				require.NoError(t, err)
+				require.Equal(t, http.StatusOK, setupRec.Code)
+
+				logBuffer.Reset()
+			}
+
+			body, err := json.Marshal(tt.input)
+			require.NoError(t, err)
+
+			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+			req.Header.Set("X-Amz-Target", tt.target)
+			rec := httptest.NewRecorder()
+
+			ctx := logger.Save(req.Context(), testLogger)
+			req = req.WithContext(ctx)
+
+			err = echoHandler(e.NewContext(req, rec))
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			logOutput := logBuffer.String()
+			t.Logf("Log output:\n%s", logOutput)
+
+			for _, want := range tt.wantLogContains {
+				assert.Contains(t, logOutput, want)
+			}
+		})
 	}
-
-	body, err = json.Marshal(putItemInput)
-	require.NoError(t, err)
-
-	req = httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
-	req.Header.Set("X-Amz-Target", "DynamoDB_20120810.PutItem")
-	rec = httptest.NewRecorder()
-
-	// Add logger to context and call handler via Echo
-	ctx = logger.Save(req.Context(), testLogger)
-	req = req.WithContext(ctx)
-	c = e.NewContext(req, rec)
-	err = echoHandler(c)
-	require.NoError(t, err)
-
-	// Verify the request succeeded
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	// Verify debug logging was captured
-	logOutput := logBuffer.String()
-	t.Logf("PutItem log output:\n%s", logOutput)
-
-	// Check for expected debug log messages
-	assert.Contains(
-		t,
-		logOutput,
-		"DynamoDB request",
-		"Expected to see 'DynamoDB request' in debug logs",
-	)
-	assert.Contains(t, logOutput, "PutItem", "Expected to see 'PutItem' action in debug logs")
-	assert.Contains(t, logOutput, "handler input", "Expected to see 'handler input' in debug logs")
-	assert.Contains(
-		t,
-		logOutput,
-		"handler output",
-		"Expected to see 'handler output' in debug logs",
-	)
-	assert.Contains(t, logOutput, "test-key", "Expected to see item key in debug logs")
-	assert.Contains(t, logOutput, "test-data", "Expected to see item data in debug logs")
-
-	// Verify debug level is logged
-	assert.Contains(t, logOutput, "level=DEBUG", "Expected to see DEBUG level in logs")
 }

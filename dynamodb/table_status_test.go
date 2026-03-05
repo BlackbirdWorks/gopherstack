@@ -1,7 +1,6 @@
 package dynamodb_test
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -31,51 +30,61 @@ func createInput(name string) *sdk.CreateTableInput {
 	}
 }
 
-func TestTableStatus_ImmediatelyActive(t *testing.T) {
+func TestTableStatus(t *testing.T) {
 	t.Parallel()
 
-	// Default: createDelay = 0 → table is ACTIVE immediately.
-	db := ddb.NewInMemoryDB()
+	tests := []struct {
+		name            string
+		tableName       string
+		wantInitStatus  types.TableStatus
+		wantFinalStatus types.TableStatus
+		createDelay     time.Duration
+		finalSleep      time.Duration
+	}{
+		{
+			name:           "immediately_active",
+			tableName:      "status-table",
+			wantInitStatus: types.TableStatusActive,
+		},
+		{
+			name:            "lifecycle_with_delay",
+			tableName:       "lifecycle-table",
+			createDelay:     80 * time.Millisecond,
+			wantInitStatus:  types.TableStatusCreating,
+			wantFinalStatus: types.TableStatusActive,
+			finalSleep:      200 * time.Millisecond,
+		},
+	}
 
-	out, err := db.CreateTable(context.Background(), createInput("status-table"))
-	require.NoError(t, err)
-	assert.Equal(t, types.TableStatusActive, out.TableDescription.TableStatus)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	// DescribeTable should also return ACTIVE.
-	desc, err := db.DescribeTable(context.Background(), &sdk.DescribeTableInput{
-		TableName: aws.String("status-table"),
-	})
-	require.NoError(t, err)
-	assert.Equal(t, types.TableStatusActive, desc.Table.TableStatus)
-}
+			db := ddb.NewInMemoryDB()
+			if tt.createDelay > 0 {
+				db.SetCreateDelay(tt.createDelay)
+			}
 
-func TestTableStatus_LifecycleWithDelay(t *testing.T) {
-	t.Parallel()
+			out, err := db.CreateTable(t.Context(), createInput(tt.tableName))
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantInitStatus, out.TableDescription.TableStatus)
 
-	db := ddb.NewInMemoryDB()
-	db.SetCreateDelay(80 * time.Millisecond)
+			desc, err := db.DescribeTable(t.Context(), &sdk.DescribeTableInput{
+				TableName: aws.String(tt.tableName),
+			})
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantInitStatus, desc.Table.TableStatus)
 
-	out, err := db.CreateTable(context.Background(), createInput("lifecycle-table"))
-	require.NoError(t, err)
+			if tt.finalSleep > 0 {
+				time.Sleep(tt.finalSleep)
 
-	// Immediately after create → CREATING.
-	assert.Equal(t, types.TableStatusCreating, out.TableDescription.TableStatus,
-		"expected CREATING immediately after CreateTable when delay>0")
-
-	// DescribeTable should also return CREATING before delay elapses.
-	desc, err := db.DescribeTable(context.Background(), &sdk.DescribeTableInput{
-		TableName: aws.String("lifecycle-table"),
-	})
-	require.NoError(t, err)
-	assert.Equal(t, types.TableStatusCreating, desc.Table.TableStatus)
-
-	// Wait for the goroutine to transition to ACTIVE.
-	time.Sleep(200 * time.Millisecond)
-
-	desc2, err := db.DescribeTable(context.Background(), &sdk.DescribeTableInput{
-		TableName: aws.String("lifecycle-table"),
-	})
-	require.NoError(t, err)
-	assert.Equal(t, types.TableStatusActive, desc2.Table.TableStatus,
-		"expected ACTIVE after delay elapsed")
+				desc2, err2 := db.DescribeTable(t.Context(), &sdk.DescribeTableInput{
+					TableName: aws.String(tt.tableName),
+				})
+				require.NoError(t, err2)
+				assert.Equal(t, tt.wantFinalStatus, desc2.Table.TableStatus,
+					"expected ACTIVE after delay elapsed")
+			}
+		})
+	}
 }

@@ -25,279 +25,478 @@ func (m *mockAPIGWConfigProvider) GetGlobalConfig() config.GlobalConfig {
 	return config.GlobalConfig{AccountID: "111111111111", Region: "eu-west-1"}
 }
 
-func TestProvider_APIGateway_Name(t *testing.T) {
+func TestProvider_APIGateway(t *testing.T) {
 	t.Parallel()
-	p := &apigateway.Provider{}
-	assert.Equal(t, "APIGateway", p.Name())
-}
 
-func TestProvider_APIGateway_Init_WithConfig(t *testing.T) {
-	t.Parallel()
-	p := &apigateway.Provider{}
-	ctx := &service.AppContext{
-		Logger: slog.Default(),
-		Config: &mockAPIGWConfigProvider{},
+	tests := []struct {
+		ctx         *service.AppContext
+		name        string
+		wantSvcName string
+		wantName    bool
+	}{
+		{
+			name:     "name_returns_APIGateway",
+			wantName: true,
+		},
+		{
+			name: "init_with_config",
+			ctx: &service.AppContext{
+				Logger: slog.Default(),
+				Config: &mockAPIGWConfigProvider{},
+			},
+			wantSvcName: "APIGateway",
+		},
+		{
+			name: "init_without_config",
+			ctx:  &service.AppContext{Logger: slog.Default()},
+		},
 	}
-	svc, err := p.Init(ctx)
-	require.NoError(t, err)
-	require.NotNil(t, svc)
-	assert.Equal(t, "APIGateway", svc.Name())
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := &apigateway.Provider{}
+
+			if tt.wantName {
+				assert.Equal(t, "APIGateway", p.Name())
+
+				return
+			}
+
+			svc, err := p.Init(tt.ctx)
+			require.NoError(t, err)
+			require.NotNil(t, svc)
+
+			if tt.wantSvcName != "" {
+				assert.Equal(t, tt.wantSvcName, svc.Name())
+			}
+		})
+	}
 }
 
-func TestProvider_APIGateway_Init_WithoutConfig(t *testing.T) {
+func TestHandler_APIGateway_Metadata(t *testing.T) {
 	t.Parallel()
-	p := &apigateway.Provider{}
-	ctx := &service.AppContext{Logger: slog.Default()}
-	svc, err := p.Init(ctx)
-	require.NoError(t, err)
-	require.NotNil(t, svc)
-}
 
-func TestHandler_APIGateway_Name(t *testing.T) {
-	t.Parallel()
-	h := apigateway.NewHandler(apigateway.NewInMemoryBackend(), slog.Default())
-	assert.Equal(t, "APIGateway", h.Name())
-}
+	tests := []struct {
+		name          string
+		wantName      string
+		wantOps       []string
+		wantPriority  int
+		checkPriority bool
+	}{
+		{
+			name:     "name",
+			wantName: "APIGateway",
+		},
+		{
+			name:          "match_priority",
+			wantPriority:  100,
+			checkPriority: true,
+		},
+		{
+			name:    "supported_operations",
+			wantOps: []string{"CreateRestApi", "GetRestApis", "PutMethod"},
+		},
+	}
 
-func TestHandler_APIGateway_MatchPriority(t *testing.T) {
-	t.Parallel()
-	h := apigateway.NewHandler(apigateway.NewInMemoryBackend(), slog.Default())
-	assert.Equal(t, 100, h.MatchPriority())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := apigateway.NewHandler(apigateway.NewInMemoryBackend(), slog.Default())
+
+			switch {
+			case tt.wantName != "":
+				assert.Equal(t, tt.wantName, h.Name())
+			case tt.checkPriority:
+				assert.Equal(t, tt.wantPriority, h.MatchPriority())
+			case len(tt.wantOps) > 0:
+				ops := h.GetSupportedOperations()
+				for _, op := range tt.wantOps {
+					assert.Contains(t, ops, op)
+				}
+			}
+		})
+	}
 }
 
 func TestHandler_APIGateway_RouteMatcher(t *testing.T) {
 	t.Parallel()
-	h := apigateway.NewHandler(apigateway.NewInMemoryBackend(), slog.Default())
-	matcher := h.RouteMatcher()
-	e := echo.New()
 
-	reqMatch := httptest.NewRequest(http.MethodPost, "/", nil)
-	reqMatch.Header.Set("X-Amz-Target", "APIGateway.CreateRestApi")
-	assert.True(t, matcher(e.NewContext(reqMatch, httptest.NewRecorder())))
+	tests := []struct {
+		name      string
+		target    string
+		wantMatch bool
+	}{
+		{
+			name:      "matches_APIGateway_target",
+			target:    "APIGateway.CreateRestApi",
+			wantMatch: true,
+		},
+		{
+			name:      "no_match_for_other_service",
+			target:    "AmazonSQS.CreateQueue",
+			wantMatch: false,
+		},
+	}
 
-	reqNoMatch := httptest.NewRequest(http.MethodPost, "/", nil)
-	reqNoMatch.Header.Set("X-Amz-Target", "AmazonSQS.CreateQueue")
-	assert.False(t, matcher(e.NewContext(reqNoMatch, httptest.NewRecorder())))
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-func TestHandler_APIGateway_GetSupportedOperations(t *testing.T) {
-	t.Parallel()
-	h := apigateway.NewHandler(apigateway.NewInMemoryBackend(), slog.Default())
-	ops := h.GetSupportedOperations()
-	assert.Contains(t, ops, "CreateRestApi")
-	assert.Contains(t, ops, "GetRestApis")
-	assert.Contains(t, ops, "PutMethod")
+			h := apigateway.NewHandler(apigateway.NewInMemoryBackend(), slog.Default())
+			matcher := h.RouteMatcher()
+			e := echo.New()
+
+			req := httptest.NewRequest(http.MethodPost, "/", nil)
+			req.Header.Set("X-Amz-Target", tt.target)
+			ctx := e.NewContext(req, httptest.NewRecorder())
+
+			assert.Equal(t, tt.wantMatch, matcher(ctx))
+		})
+	}
 }
 
 func TestHandler_APIGateway_ExtractOperation(t *testing.T) {
 	t.Parallel()
-	h := apigateway.NewHandler(apigateway.NewInMemoryBackend(), slog.Default())
-	e := echo.New()
 
-	req := httptest.NewRequest(http.MethodPost, "/", nil)
-	req.Header.Set("X-Amz-Target", "APIGateway.CreateRestApi")
-	assert.Equal(t, "CreateRestApi", h.ExtractOperation(e.NewContext(req, httptest.NewRecorder())))
+	tests := []struct {
+		name   string
+		target string
+		wantOp string
+	}{
+		{
+			name:   "known_target_extracts_operation",
+			target: "APIGateway.CreateRestApi",
+			wantOp: "CreateRestApi",
+		},
+		{
+			name:   "missing_target_returns_Unknown",
+			target: "",
+			wantOp: "Unknown",
+		},
+	}
 
-	reqUnknown := httptest.NewRequest(http.MethodPost, "/", nil)
-	assert.Equal(t, "Unknown", h.ExtractOperation(e.NewContext(reqUnknown, httptest.NewRecorder())))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := apigateway.NewHandler(apigateway.NewInMemoryBackend(), slog.Default())
+			e := echo.New()
+
+			req := httptest.NewRequest(http.MethodPost, "/", nil)
+			if tt.target != "" {
+				req.Header.Set("X-Amz-Target", tt.target)
+			}
+
+			assert.Equal(t, tt.wantOp, h.ExtractOperation(e.NewContext(req, httptest.NewRecorder())))
+		})
+	}
 }
 
 func TestHandler_APIGateway_ExtractResource(t *testing.T) {
 	t.Parallel()
-	h := apigateway.NewHandler(apigateway.NewInMemoryBackend(), slog.Default())
-	e := echo.New()
 
-	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"restApiId":"abc123"}`))
-	assert.Equal(t, "abc123", h.ExtractResource(e.NewContext(req, httptest.NewRecorder())))
+	tests := []struct {
+		name         string
+		body         string
+		wantResource string
+	}{
+		{
+			name:         "body_with_restApiId",
+			body:         `{"restApiId":"abc123"}`,
+			wantResource: "abc123",
+		},
+		{
+			name:         "body_without_restApiId",
+			body:         `{}`,
+			wantResource: "",
+		},
+	}
 
-	reqEmpty := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`))
-	assert.Empty(t, h.ExtractResource(e.NewContext(reqEmpty, httptest.NewRecorder())))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := apigateway.NewHandler(apigateway.NewInMemoryBackend(), slog.Default())
+			e := echo.New()
+
+			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tt.body))
+			got := h.ExtractResource(e.NewContext(req, httptest.NewRecorder()))
+
+			assert.Equal(t, tt.wantResource, got)
+		})
+	}
 }
 
-func TestHandler_APIGateway_MissingTarget(t *testing.T) {
+func TestHandler_APIGateway_RequestErrors(t *testing.T) {
 	t.Parallel()
-	e := echo.New()
-	log := logger.NewLogger(slog.LevelDebug)
-	h := apigateway.NewHandler(apigateway.NewInMemoryBackend(), log)
 
-	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("{}"))
-	rec := httptest.NewRecorder()
-	c := e.NewContext(req, rec)
-	err := h.Handler()(c)
-	require.NoError(t, err)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
+	tests := []struct {
+		name     string
+		method   string
+		path     string
+		target   string
+		body     string
+		wantCode int
+	}{
+		{
+			name:     "missing_target_returns_400",
+			method:   http.MethodPost,
+			path:     "/",
+			body:     "{}",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "PUT_method_returns_405",
+			method:   http.MethodPut,
+			path:     "/something",
+			target:   "CreateRestApi",
+			wantCode: http.StatusMethodNotAllowed,
+		},
+		{
+			name:     "invalid_JSON_returns_500",
+			method:   http.MethodPost,
+			path:     "/",
+			target:   "CreateRestApi",
+			body:     "not-json",
+			wantCode: http.StatusInternalServerError,
+		},
+		{
+			name:     "missing_required_params_returns_400",
+			method:   http.MethodPost,
+			path:     "/",
+			target:   "CreateRestApi",
+			body:     "{}",
+			wantCode: http.StatusBadRequest,
+		},
+	}
 
-func TestHandler_APIGateway_MethodNotAllowed(t *testing.T) {
-	t.Parallel()
-	e := echo.New()
-	log := logger.NewLogger(slog.LevelDebug)
-	h := apigateway.NewHandler(apigateway.NewInMemoryBackend(), log)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	// A PUT request (not GET "/" or POST) should return 405
-	req := httptest.NewRequest(http.MethodPut, "/something", nil)
-	req.Header.Set("X-Amz-Target", "APIGateway.CreateRestApi")
-	rec := httptest.NewRecorder()
-	c := e.NewContext(req, rec)
-	err := h.Handler()(c)
-	require.NoError(t, err)
-	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
+			e := echo.New()
+			log := logger.NewLogger(slog.LevelDebug)
+			h := apigateway.NewHandler(apigateway.NewInMemoryBackend(), log)
+
+			var req *http.Request
+			if tt.body != "" {
+				req = httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
+			} else {
+				req = httptest.NewRequest(tt.method, tt.path, nil)
+			}
+			if tt.target != "" {
+				req.Header.Set("X-Amz-Target", "APIGateway."+tt.target)
+			}
+
+			rec := httptest.NewRecorder()
+			err := h.Handler()(e.NewContext(req, rec))
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
 }
 
 func TestHandler_APIGateway_NotFoundErrors(t *testing.T) {
 	t.Parallel()
 
-	rec := post(t, "DeleteRestApi", `{"restApiId":"nonexistent"}`)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	tests := []struct {
+		name   string
+		action string
+		body   string
+	}{
+		{
+			name:   "DeleteRestApi_nonexistent",
+			action: "DeleteRestApi",
+			body:   `{"restApiId":"nonexistent"}`,
+		},
+		{
+			name:   "GetRestApi_nonexistent",
+			action: "GetRestApi",
+			body:   `{"restApiId":"nonexistent"}`,
+		},
+		{
+			name:   "GetResources_nonexistent",
+			action: "GetResources",
+			body:   `{"restApiId":"nonexistent"}`,
+		},
+		{
+			name:   "GetResource_nonexistent",
+			action: "GetResource",
+			body:   `{"restApiId":"nonexistent","resourceId":"r1"}`,
+		},
+		{
+			name:   "CreateResource_nonexistent_api",
+			action: "CreateResource",
+			body:   `{"restApiId":"nonexistent","parentId":"r1","pathPart":"pets"}`,
+		},
+		{
+			name:   "DeleteResource_nonexistent",
+			action: "DeleteResource",
+			body:   `{"restApiId":"nonexistent","resourceId":"r1"}`,
+		},
+		{
+			name:   "PutMethod_nonexistent",
+			action: "PutMethod",
+			body:   `{"restApiId":"nonexistent","resourceId":"r1","httpMethod":"GET","authorizationType":"NONE"}`,
+		},
+		{
+			name:   "GetMethod_nonexistent",
+			action: "GetMethod",
+			body:   `{"restApiId":"nonexistent","resourceId":"r1","httpMethod":"GET"}`,
+		},
+		{
+			name:   "DeleteMethod_nonexistent",
+			action: "DeleteMethod",
+			body:   `{"restApiId":"nonexistent","resourceId":"r1","httpMethod":"GET"}`,
+		},
+		{
+			name:   "PutIntegration_nonexistent",
+			action: "PutIntegration",
+			body:   `{"restApiId":"nonexistent","resourceId":"r1","httpMethod":"GET","type":"MOCK"}`,
+		},
+		{
+			name:   "GetIntegration_nonexistent",
+			action: "GetIntegration",
+			body:   `{"restApiId":"nonexistent","resourceId":"r1","httpMethod":"GET"}`,
+		},
+		{
+			name:   "DeleteIntegration_nonexistent",
+			action: "DeleteIntegration",
+			body:   `{"restApiId":"nonexistent","resourceId":"r1","httpMethod":"GET"}`,
+		},
+		{
+			name:   "CreateDeployment_nonexistent",
+			action: "CreateDeployment",
+			body:   `{"restApiId":"nonexistent","stageName":"prod"}`,
+		},
+		{
+			name:   "GetDeployments_nonexistent",
+			action: "GetDeployments",
+			body:   `{"restApiId":"nonexistent"}`,
+		},
+		{
+			name:   "GetStages_nonexistent",
+			action: "GetStages",
+			body:   `{"restApiId":"nonexistent"}`,
+		},
+		{
+			name:   "GetStage_nonexistent",
+			action: "GetStage",
+			body:   `{"restApiId":"nonexistent","stageName":"prod"}`,
+		},
+		{
+			name:   "DeleteStage_nonexistent",
+			action: "DeleteStage",
+			body:   `{"restApiId":"nonexistent","stageName":"prod"}`,
+		},
+	}
 
-	rec = post(t, "GetRestApi", `{"restApiId":"nonexistent"}`)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	rec = post(t, "GetResources", `{"restApiId":"nonexistent"}`)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-
-	rec = post(t, "GetResource", `{"restApiId":"nonexistent","resourceId":"r1"}`)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-
-	rec = post(t, "CreateResource", `{"restApiId":"nonexistent","parentId":"r1","pathPart":"pets"}`)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-
-	rec = post(t, "DeleteResource", `{"restApiId":"nonexistent","resourceId":"r1"}`)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-
-	rec = post(
-		t,
-		"PutMethod",
-		`{"restApiId":"nonexistent","resourceId":"r1","httpMethod":"GET","authorizationType":"NONE"}`,
-	)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-
-	rec = post(t, "GetMethod", `{"restApiId":"nonexistent","resourceId":"r1","httpMethod":"GET"}`)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-
-	rec = post(t, "DeleteMethod", `{"restApiId":"nonexistent","resourceId":"r1","httpMethod":"GET"}`)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-
-	rec = post(t, "PutIntegration",
-		`{"restApiId":"nonexistent","resourceId":"r1","httpMethod":"GET","type":"MOCK"}`)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-
-	rec = post(t, "GetIntegration",
-		`{"restApiId":"nonexistent","resourceId":"r1","httpMethod":"GET"}`)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-
-	rec = post(t, "DeleteIntegration",
-		`{"restApiId":"nonexistent","resourceId":"r1","httpMethod":"GET"}`)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-
-	rec = post(t, "CreateDeployment", `{"restApiId":"nonexistent","stageName":"prod"}`)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-
-	rec = post(t, "GetDeployments", `{"restApiId":"nonexistent"}`)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-
-	rec = post(t, "GetStages", `{"restApiId":"nonexistent"}`)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-
-	rec = post(t, "GetStage", `{"restApiId":"nonexistent","stageName":"prod"}`)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-
-	rec = post(t, "DeleteStage", `{"restApiId":"nonexistent","stageName":"prod"}`)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestHandler_APIGateway_InvalidJSON(t *testing.T) {
-	t.Parallel()
-	rec := post(t, "CreateRestApi", `not-json`)
-	// JSON parse errors map to 500 InternalServerError
-	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+			rec := post(t, tt.action, tt.body)
+			assert.Equal(t, http.StatusNotFound, rec.Code)
+		})
+	}
 }
 
 func TestHandler_APIGateway_FullWorkflow(t *testing.T) {
 	t.Parallel()
-	h, e := sharedSetup()
 
-	// Create REST API
-	createRec := postWithHandler(t, h, e, "CreateRestApi", `{"name":"my-api","description":"Test API"}`)
-	require.Equal(t, http.StatusCreated, createRec.Code)
+	tests := []struct {
+		name        string
+		apiName     string
+		apiDesc     string
+		pathPart    string
+		stageName   string
+		wantCreated int
+	}{
+		{
+			name:        "complete_REST_API_lifecycle",
+			apiName:     "my-api",
+			apiDesc:     "Test API",
+			pathPart:    "pets",
+			stageName:   "prod",
+			wantCreated: http.StatusCreated,
+		},
+	}
 
-	var createResp map[string]any
-	require.NoError(t, parseJSON(createRec, &createResp))
-	apiID := createResp["id"].(string)
-	require.NotEmpty(t, apiID)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	// GetRestApis with position
-	listRec := postWithHandler(t, h, e, "GetRestApis", `{"limit":10,"position":""}`)
-	assert.Equal(t, http.StatusOK, listRec.Code)
+			h, e := sharedSetup()
 
-	// CreateResource
-	var resourcesResp map[string]any
-	resListRec := postWithHandler(t, h, e, "GetResources",
-		`{"restApiId":"`+apiID+`","limit":10}`)
-	require.Equal(t, http.StatusOK, resListRec.Code)
-	require.NoError(t, parseJSON(resListRec, &resourcesResp))
+			createRec := postWithHandler(t, h, e, "CreateRestApi",
+				`{"name":"`+tt.apiName+`","description":"`+tt.apiDesc+`"}`)
+			require.Equal(t, tt.wantCreated, createRec.Code)
 
-	items := resourcesResp["item"].([]any)
-	require.Len(t, items, 1)
-	rootID := items[0].(map[string]any)["id"].(string)
+			var createResp map[string]any
+			require.NoError(t, parseJSON(createRec, &createResp))
+			apiID := createResp["id"].(string)
+			require.NotEmpty(t, apiID)
 
-	childRec := postWithHandler(t, h, e, "CreateResource",
-		`{"restApiId":"`+apiID+`","parentId":"`+rootID+`","pathPart":"pets"}`)
-	require.Equal(t, http.StatusCreated, childRec.Code)
+			listRec := postWithHandler(t, h, e, "GetRestApis", `{"limit":10,"position":""}`)
+			assert.Equal(t, http.StatusOK, listRec.Code)
 
-	var childResp map[string]any
-	require.NoError(t, parseJSON(childRec, &childResp))
-	resourceID := childResp["id"].(string)
+			var resourcesResp map[string]any
+			resListRec := postWithHandler(t, h, e, "GetResources",
+				`{"restApiId":"`+apiID+`","limit":10}`)
+			require.Equal(t, http.StatusOK, resListRec.Code)
+			require.NoError(t, parseJSON(resListRec, &resourcesResp))
 
-	// PutMethod
-	methodRec := postWithHandler(t, h, e, "PutMethod",
-		`{"restApiId":"`+apiID+`","resourceId":"`+resourceID+`","httpMethod":"GET","authorizationType":"NONE"}`)
-	assert.Equal(t, http.StatusCreated, methodRec.Code)
+			items := resourcesResp["item"].([]any)
+			require.Len(t, items, 1)
+			rootID := items[0].(map[string]any)["id"].(string)
 
-	// PutIntegration
-	intRec := postWithHandler(t, h, e, "PutIntegration",
-		`{"restApiId":"`+apiID+`","resourceId":"`+resourceID+`","httpMethod":"GET","type":"MOCK"}`)
-	assert.Equal(t, http.StatusCreated, intRec.Code)
+			childRec := postWithHandler(t, h, e, "CreateResource",
+				`{"restApiId":"`+apiID+`","parentId":"`+rootID+`","pathPart":"`+tt.pathPart+`"}`)
+			require.Equal(t, http.StatusCreated, childRec.Code)
 
-	// CreateDeployment
-	deplRec := postWithHandler(t, h, e, "CreateDeployment",
-		`{"restApiId":"`+apiID+`","stageName":"prod","description":"Initial"}`)
-	assert.Equal(t, http.StatusCreated, deplRec.Code)
+			var childResp map[string]any
+			require.NoError(t, parseJSON(childRec, &childResp))
+			resourceID := childResp["id"].(string)
 
-	// GetDeployments
-	deplListRec := postWithHandler(t, h, e, "GetDeployments",
-		`{"restApiId":"`+apiID+`"}`)
-	assert.Equal(t, http.StatusOK, deplListRec.Code)
+			methodRec := postWithHandler(t, h, e, "PutMethod",
+				`{"restApiId":"`+apiID+`","resourceId":"`+resourceID+`","httpMethod":"GET","authorizationType":"NONE"}`)
+			assert.Equal(t, http.StatusCreated, methodRec.Code)
 
-	// GetStage
-	stageRec := postWithHandler(t, h, e, "GetStage",
-		`{"restApiId":"`+apiID+`","stageName":"prod"}`)
-	assert.Equal(t, http.StatusOK, stageRec.Code)
+			intRec := postWithHandler(t, h, e, "PutIntegration",
+				`{"restApiId":"`+apiID+`","resourceId":"`+resourceID+`","httpMethod":"GET","type":"MOCK"}`)
+			assert.Equal(t, http.StatusCreated, intRec.Code)
 
-	// DeleteStage
-	delStageRec := postWithHandler(t, h, e, "DeleteStage",
-		`{"restApiId":"`+apiID+`","stageName":"prod"}`)
-	assert.Equal(t, http.StatusNoContent, delStageRec.Code)
+			deplRec := postWithHandler(t, h, e, "CreateDeployment",
+				`{"restApiId":"`+apiID+`","stageName":"`+tt.stageName+`","description":"Initial"}`)
+			assert.Equal(t, http.StatusCreated, deplRec.Code)
 
-	// DeleteMethod
-	delMethodRec := postWithHandler(t, h, e, "DeleteMethod",
-		`{"restApiId":"`+apiID+`","resourceId":"`+resourceID+`","httpMethod":"GET"}`)
-	assert.Equal(t, http.StatusNoContent, delMethodRec.Code)
+			deplListRec := postWithHandler(t, h, e, "GetDeployments",
+				`{"restApiId":"`+apiID+`"}`)
+			assert.Equal(t, http.StatusOK, deplListRec.Code)
 
-	// DeleteResource
-	delResRec := postWithHandler(t, h, e, "DeleteResource",
-		`{"restApiId":"`+apiID+`","resourceId":"`+resourceID+`"}`)
-	assert.Equal(t, http.StatusNoContent, delResRec.Code)
+			stageRec := postWithHandler(t, h, e, "GetStage",
+				`{"restApiId":"`+apiID+`","stageName":"`+tt.stageName+`"}`)
+			assert.Equal(t, http.StatusOK, stageRec.Code)
 
-	// DeleteRestApi
-	delRec := postWithHandler(t, h, e, "DeleteRestApi", `{"restApiId":"`+apiID+`"}`)
-	assert.Equal(t, http.StatusAccepted, delRec.Code)
-}
+			delStageRec := postWithHandler(t, h, e, "DeleteStage",
+				`{"restApiId":"`+apiID+`","stageName":"`+tt.stageName+`"}`)
+			assert.Equal(t, http.StatusNoContent, delStageRec.Code)
 
-func TestHandler_APIGateway_MissingParams(t *testing.T) {
-	t.Parallel()
-	rec := post(t, "CreateRestApi", `{}`)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+			delMethodRec := postWithHandler(t, h, e, "DeleteMethod",
+				`{"restApiId":"`+apiID+`","resourceId":"`+resourceID+`","httpMethod":"GET"}`)
+			assert.Equal(t, http.StatusNoContent, delMethodRec.Code)
+
+			delResRec := postWithHandler(t, h, e, "DeleteResource",
+				`{"restApiId":"`+apiID+`","resourceId":"`+resourceID+`"}`)
+			assert.Equal(t, http.StatusNoContent, delResRec.Code)
+
+			delRec := postWithHandler(t, h, e, "DeleteRestApi", `{"restApiId":"`+apiID+`"}`)
+			assert.Equal(t, http.StatusAccepted, delRec.Code)
+		})
+	}
 }
 
 // parseJSON is a helper to decode JSON from a response recorder.

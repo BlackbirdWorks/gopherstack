@@ -82,233 +82,206 @@ func setupDeliveryBackend(t *testing.T, sqs *mockSQSSender, lam *mockLambdaInvok
 	return backend
 }
 
-func TestDelivery_SQSFanout(t *testing.T) {
+func TestDelivery_SQS(t *testing.T) {
 	t.Parallel()
 
-	sqsMock := newMockSQSSender()
-	backend := setupDeliveryBackend(t, sqsMock, nil)
-
-	// Create a rule with event pattern and SQS target.
-	_, err := backend.PutRule(eventbridge.PutRuleInput{
-		Name:         "my-rule",
-		EventPattern: `{"source": ["test.service"]}`,
-		State:        "ENABLED",
-	})
-	require.NoError(t, err)
-
-	queueARN := "arn:aws:sqs:us-east-1:000000000000:my-queue"
-	_, err = backend.PutTargets("my-rule", "default", []eventbridge.Target{
-		{ID: "t1", Arn: queueARN},
-	})
-	require.NoError(t, err)
-
-	// Put events.
-	backend.PutEvents([]eventbridge.EventEntry{
-		{Source: "test.service", DetailType: "MyEvent", Detail: `{"key": "value"}`},
-	})
-
-	// Allow async delivery goroutine to run.
-	require.Eventually(t, func() bool {
-		return len(sqsMock.MessagesFor(queueARN)) > 0
-	}, 2*time.Second, 10*time.Millisecond)
-
-	msgs := sqsMock.MessagesFor(queueARN)
-	assert.Len(t, msgs, 1)
-	assert.Contains(t, msgs[0], "test.service")
-}
-
-func TestDelivery_NoMatchNoDelivery(t *testing.T) {
-	t.Parallel()
-
-	sqsMock := newMockSQSSender()
-	backend := setupDeliveryBackend(t, sqsMock, nil)
-
-	// Create a rule that matches "other.service" only.
-	_, err := backend.PutRule(eventbridge.PutRuleInput{
-		Name:         "other-rule",
-		EventPattern: `{"source": ["other.service"]}`,
-		State:        "ENABLED",
-	})
-	require.NoError(t, err)
-
-	queueARN := "arn:aws:sqs:us-east-1:000000000000:my-queue"
-	_, err = backend.PutTargets("other-rule", "default", []eventbridge.Target{
-		{ID: "t1", Arn: queueARN},
-	})
-	require.NoError(t, err)
-
-	// Put event from "test.service" - should NOT match.
-	backend.PutEvents([]eventbridge.EventEntry{
-		{Source: "test.service", DetailType: "MyEvent", Detail: `{}`},
-	})
-
-	// Wait briefly and confirm no messages.
-	time.Sleep(100 * time.Millisecond)
-	msgs := sqsMock.MessagesFor(queueARN)
-	assert.Empty(t, msgs)
-}
-
-func TestDelivery_DisabledRuleNoDelivery(t *testing.T) {
-	t.Parallel()
-
-	sqsMock := newMockSQSSender()
-	backend := setupDeliveryBackend(t, sqsMock, nil)
-
-	// Create a DISABLED rule.
-	_, err := backend.PutRule(eventbridge.PutRuleInput{
-		Name:         "disabled-rule",
-		EventPattern: `{"source": ["test.service"]}`,
-		State:        "DISABLED",
-	})
-	require.NoError(t, err)
-
-	queueARN := "arn:aws:sqs:us-east-1:000000000000:disabled-queue"
-	_, err = backend.PutTargets("disabled-rule", "default", []eventbridge.Target{
-		{ID: "t1", Arn: queueARN},
-	})
-	require.NoError(t, err)
-
-	backend.PutEvents([]eventbridge.EventEntry{
-		{Source: "test.service", DetailType: "MyEvent", Detail: `{}`},
-	})
-
-	time.Sleep(100 * time.Millisecond)
-	msgs := sqsMock.MessagesFor(queueARN)
-	assert.Empty(t, msgs)
-}
-
-func TestDelivery_LambdaFanout(t *testing.T) {
-	t.Parallel()
-
-	lamMock := newMockLambdaInvoker()
-	backend := setupDeliveryBackend(t, nil, lamMock)
-
-	_, err := backend.PutRule(eventbridge.PutRuleInput{
-		Name:         "lambda-rule",
-		EventPattern: `{"source": ["my.source"]}`,
-		State:        "ENABLED",
-	})
-	require.NoError(t, err)
-
-	lambdaARN := "arn:aws:lambda:us-east-1:000000000000:function:my-fn"
-	_, err = backend.PutTargets("lambda-rule", "default", []eventbridge.Target{
-		{ID: "t1", Arn: lambdaARN},
-	})
-	require.NoError(t, err)
-
-	backend.PutEvents([]eventbridge.EventEntry{
-		{Source: "my.source", DetailType: "Evt", Detail: `{}`},
-	})
-
-	require.Eventually(t, func() bool {
-		return len(lamMock.Invocations()) > 0
-	}, 2*time.Second, 10*time.Millisecond)
-
-	invocations := lamMock.Invocations()
-	assert.Len(t, invocations, 1)
-	assert.Equal(t, lambdaARN, invocations[0].name)
-}
-
-func TestDelivery_InputOverride(t *testing.T) {
-	t.Parallel()
-
-	sqsMock := newMockSQSSender()
-	backend := setupDeliveryBackend(t, sqsMock, nil)
-
-	_, err := backend.PutRule(eventbridge.PutRuleInput{
-		Name:         "override-rule",
-		EventPattern: `{"source": ["svc"]}`,
-		State:        "ENABLED",
-	})
-	require.NoError(t, err)
-
-	queueARN := "arn:aws:sqs:us-east-1:000000000000:override-queue"
-	_, err = backend.PutTargets("override-rule", "default", []eventbridge.Target{
-		{ID: "t1", Arn: queueARN, Input: `{"custom": "payload"}`},
-	})
-	require.NoError(t, err)
-
-	backend.PutEvents([]eventbridge.EventEntry{
-		{Source: "svc", DetailType: "Evt", Detail: `{}`},
-	})
-
-	require.Eventually(t, func() bool {
-		return len(sqsMock.MessagesFor(queueARN)) > 0
-	}, 2*time.Second, 10*time.Millisecond)
-
-	msgs := sqsMock.MessagesFor(queueARN)
-	assert.Len(t, msgs, 1)
-	assert.JSONEq(t, `{"custom": "payload"}`, msgs[0])
-}
-
-func TestDelivery_ResourcesArrayMatching(t *testing.T) {
-	t.Parallel()
-
-	sqsMock := newMockSQSSender()
-	backend := setupDeliveryBackend(t, sqsMock, nil)
-
-	_, err := backend.PutRule(eventbridge.PutRuleInput{
-		Name:         "resources-rule",
-		EventPattern: `{"resources": [{"prefix": "arn:aws:s3:::"}]}`,
-		State:        "ENABLED",
-	})
-	require.NoError(t, err)
-
-	queueARN := "arn:aws:sqs:us-east-1:000000000000:resources-queue"
-	_, err = backend.PutTargets("resources-rule", "default", []eventbridge.Target{
-		{ID: "t1", Arn: queueARN},
-	})
-	require.NoError(t, err)
-
-	// Event with a resources list that contains an S3 ARN — should match.
-	backend.PutEvents([]eventbridge.EventEntry{
+	tests := []struct {
+		name          string
+		ruleName      string
+		eventPattern  string
+		ruleState     string
+		queueARN      string
+		targetInput   string
+		wantContains  string
+		wantJSONEq    string
+		events        []eventbridge.EventEntry
+		wantLen       int
+		wantDelivered bool
+	}{
 		{
-			Source:     "aws.s3",
-			DetailType: "Object Created",
-			Detail:     `{}`,
-			Resources:  []string{"arn:aws:s3:::my-bucket", "arn:aws:iam:::role/myrole"},
+			name:         "fanout_delivers_to_matching_queue",
+			ruleName:     "my-rule",
+			eventPattern: `{"source": ["test.service"]}`,
+			ruleState:    "ENABLED",
+			queueARN:     "arn:aws:sqs:us-east-1:000000000000:my-queue",
+			events: []eventbridge.EventEntry{
+				{Source: "test.service", DetailType: "MyEvent", Detail: `{"key": "value"}`},
+			},
+			wantDelivered: true,
+			wantLen:       1,
+			wantContains:  "test.service",
 		},
-	})
+		{
+			name:         "no_match_no_delivery",
+			ruleName:     "other-rule",
+			eventPattern: `{"source": ["other.service"]}`,
+			ruleState:    "ENABLED",
+			queueARN:     "arn:aws:sqs:us-east-1:000000000000:no-match-queue",
+			events: []eventbridge.EventEntry{
+				{Source: "test.service", DetailType: "MyEvent", Detail: `{}`},
+			},
+			wantDelivered: false,
+		},
+		{
+			name:         "disabled_rule_no_delivery",
+			ruleName:     "disabled-rule",
+			eventPattern: `{"source": ["test.service"]}`,
+			ruleState:    "DISABLED",
+			queueARN:     "arn:aws:sqs:us-east-1:000000000000:disabled-queue",
+			events: []eventbridge.EventEntry{
+				{Source: "test.service", DetailType: "MyEvent", Detail: `{}`},
+			},
+			wantDelivered: false,
+		},
+		{
+			name:         "input_override_sends_custom_payload",
+			ruleName:     "override-rule",
+			eventPattern: `{"source": ["svc"]}`,
+			ruleState:    "ENABLED",
+			queueARN:     "arn:aws:sqs:us-east-1:000000000000:override-queue",
+			targetInput:  `{"custom": "payload"}`,
+			events: []eventbridge.EventEntry{
+				{Source: "svc", DetailType: "Evt", Detail: `{}`},
+			},
+			wantDelivered: true,
+			wantLen:       1,
+			wantJSONEq:    `{"custom": "payload"}`,
+		},
+		{
+			name:         "resources_prefix_match_delivers",
+			ruleName:     "resources-rule",
+			eventPattern: `{"resources": [{"prefix": "arn:aws:s3:::"}]}`,
+			ruleState:    "ENABLED",
+			queueARN:     "arn:aws:sqs:us-east-1:000000000000:resources-queue",
+			events: []eventbridge.EventEntry{
+				{
+					Source:     "aws.s3",
+					DetailType: "Object Created",
+					Detail:     `{}`,
+					Resources:  []string{"arn:aws:s3:::my-bucket", "arn:aws:iam:::role/myrole"},
+				},
+			},
+			wantDelivered: true,
+			wantLen:       1,
+			wantContains:  "aws.s3",
+		},
+		{
+			name:         "resources_no_match_no_delivery",
+			ruleName:     "resources-no-match-rule",
+			eventPattern: `{"resources": ["arn:aws:s3:::specific-bucket"]}`,
+			ruleState:    "ENABLED",
+			queueARN:     "arn:aws:sqs:us-east-1:000000000000:resources-nomatch-queue",
+			events: []eventbridge.EventEntry{
+				{
+					Source:     "aws.s3",
+					DetailType: "Object Created",
+					Detail:     `{}`,
+					Resources:  []string{"arn:aws:s3:::other-bucket"},
+				},
+			},
+			wantDelivered: false,
+		},
+	}
 
-	require.Eventually(t, func() bool {
-		return len(sqsMock.MessagesFor(queueARN)) > 0
-	}, 2*time.Second, 10*time.Millisecond)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	msgs := sqsMock.MessagesFor(queueARN)
-	assert.Len(t, msgs, 1)
-	assert.Contains(t, msgs[0], "aws.s3")
+			sqsMock := newMockSQSSender()
+			backend := setupDeliveryBackend(t, sqsMock, nil)
+
+			_, err := backend.PutRule(eventbridge.PutRuleInput{
+				Name:         tt.ruleName,
+				EventPattern: tt.eventPattern,
+				State:        tt.ruleState,
+			})
+			require.NoError(t, err)
+
+			target := eventbridge.Target{ID: "t1", Arn: tt.queueARN}
+			if tt.targetInput != "" {
+				target.Input = tt.targetInput
+			}
+
+			_, err = backend.PutTargets(tt.ruleName, "default", []eventbridge.Target{target})
+			require.NoError(t, err)
+
+			backend.PutEvents(tt.events)
+
+			if tt.wantDelivered {
+				require.Eventually(t, func() bool {
+					return len(sqsMock.MessagesFor(tt.queueARN)) > 0
+				}, 2*time.Second, 10*time.Millisecond)
+
+				msgs := sqsMock.MessagesFor(tt.queueARN)
+				assert.Len(t, msgs, tt.wantLen)
+
+				if tt.wantContains != "" {
+					assert.Contains(t, msgs[0], tt.wantContains)
+				}
+
+				if tt.wantJSONEq != "" {
+					assert.JSONEq(t, tt.wantJSONEq, msgs[0])
+				}
+			} else {
+				time.Sleep(100 * time.Millisecond)
+				msgs := sqsMock.MessagesFor(tt.queueARN)
+				assert.Empty(t, msgs)
+			}
+		})
+	}
 }
 
-func TestDelivery_ResourcesArrayNoMatch(t *testing.T) {
+func TestDelivery_Lambda(t *testing.T) {
 	t.Parallel()
 
-	sqsMock := newMockSQSSender()
-	backend := setupDeliveryBackend(t, sqsMock, nil)
-
-	_, err := backend.PutRule(eventbridge.PutRuleInput{
-		Name:         "resources-no-match-rule",
-		EventPattern: `{"resources": ["arn:aws:s3:::specific-bucket"]}`,
-		State:        "ENABLED",
-	})
-	require.NoError(t, err)
-
-	queueARN := "arn:aws:sqs:us-east-1:000000000000:resources-nomatch-queue"
-	_, err = backend.PutTargets("resources-no-match-rule", "default", []eventbridge.Target{
-		{ID: "t1", Arn: queueARN},
-	})
-	require.NoError(t, err)
-
-	// Event with a resources list that does NOT contain the specific bucket — should not match.
-	backend.PutEvents([]eventbridge.EventEntry{
+	tests := []struct {
+		name            string
+		ruleName        string
+		eventPattern    string
+		lambdaARN       string
+		events          []eventbridge.EventEntry
+		wantInvocations int
+	}{
 		{
-			Source:     "aws.s3",
-			DetailType: "Object Created",
-			Detail:     `{}`,
-			Resources:  []string{"arn:aws:s3:::other-bucket"},
+			name:         "fanout_invokes_lambda_function",
+			ruleName:     "lambda-rule",
+			eventPattern: `{"source": ["my.source"]}`,
+			lambdaARN:    "arn:aws:lambda:us-east-1:000000000000:function:my-fn",
+			events: []eventbridge.EventEntry{
+				{Source: "my.source", DetailType: "Evt", Detail: `{}`},
+			},
+			wantInvocations: 1,
 		},
-	})
+	}
 
-	time.Sleep(100 * time.Millisecond)
-	msgs := sqsMock.MessagesFor(queueARN)
-	assert.Empty(t, msgs)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			lamMock := newMockLambdaInvoker()
+			backend := setupDeliveryBackend(t, nil, lamMock)
+
+			_, err := backend.PutRule(eventbridge.PutRuleInput{
+				Name:         tt.ruleName,
+				EventPattern: tt.eventPattern,
+				State:        "ENABLED",
+			})
+			require.NoError(t, err)
+
+			_, err = backend.PutTargets(tt.ruleName, "default", []eventbridge.Target{
+				{ID: "t1", Arn: tt.lambdaARN},
+			})
+			require.NoError(t, err)
+
+			backend.PutEvents(tt.events)
+
+			require.Eventually(t, func() bool {
+				return len(lamMock.Invocations()) >= tt.wantInvocations
+			}, 2*time.Second, 10*time.Millisecond)
+
+			invocations := lamMock.Invocations()
+			assert.Len(t, invocations, tt.wantInvocations)
+			assert.Equal(t, tt.lambdaARN, invocations[0].name)
+		})
+	}
 }
