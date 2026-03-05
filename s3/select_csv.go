@@ -103,7 +103,7 @@ func serializeCSVQueryResults(resultRows []map[string]string, out selectOutputSe
 
 	buf := serializeCSVRows(resultRows, out.CSV)
 
-	return buf.Bytes(), nil
+	return buf, nil
 }
 
 func serializeCSVRowsAsJSON(rows []map[string]string, jsonOut *selectJSONOutput) ([]byte, error) {
@@ -128,7 +128,7 @@ func serializeCSVRowsAsJSON(rows []map[string]string, jsonOut *selectJSONOutput)
 }
 
 // serializeCSVRows serializes result rows to CSV format.
-func serializeCSVRows(rows []map[string]string, csvOut *selectCSVOutput) bytes.Buffer {
+func serializeCSVRows(rows []map[string]string, csvOut *selectCSVOutput) []byte {
 	var buf bytes.Buffer
 	w := csv.NewWriter(&buf)
 
@@ -149,7 +149,7 @@ func serializeCSVRows(rows []map[string]string, csvOut *selectCSVOutput) bytes.B
 
 	w.Flush()
 
-	return buf
+	return buf.Bytes()
 }
 
 // mapStringToAny converts map[string]string to map[string]any.

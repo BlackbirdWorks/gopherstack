@@ -1015,8 +1015,8 @@ func TestSQLParser_AdvancedExpressions(t *testing.T) {
 	tests := []struct {
 		name       string
 		body       string
-		want       string
-		absent     string
+		wantResult string
+		wantAbsent string
 		csvData    []byte
 		wantStatus int
 	}{
@@ -1030,8 +1030,8 @@ func TestSQLParser_AdvancedExpressions(t *testing.T) {
 <OutputSerialization><CSV/></OutputSerialization>
 </SelectObjectContentRequest>`,
 			wantStatus: http.StatusOK,
-			want:       "Alice",
-			absent:     "Bob",
+			wantResult: "Alice",
+			wantAbsent: "Bob",
 		},
 		{
 			name:    "complex nested parens with AND",
@@ -1043,8 +1043,8 @@ func TestSQLParser_AdvancedExpressions(t *testing.T) {
 <OutputSerialization><CSV/></OutputSerialization>
 </SelectObjectContentRequest>`,
 			wantStatus: http.StatusOK,
-			want:       "Alice",
-			absent:     "Charlie",
+			wantResult: "Alice",
+			wantAbsent: "Charlie",
 		},
 		{
 			name:    "number literal comparison",
@@ -1056,7 +1056,7 @@ func TestSQLParser_AdvancedExpressions(t *testing.T) {
 <OutputSerialization><CSV/></OutputSerialization>
 </SelectObjectContentRequest>`,
 			wantStatus: http.StatusOK,
-			want:       "30",
+			wantResult: "30",
 		},
 		{
 			name:    "select with AS alias",
@@ -1068,7 +1068,7 @@ func TestSQLParser_AdvancedExpressions(t *testing.T) {
 <OutputSerialization><CSV/></OutputSerialization>
 </SelectObjectContentRequest>`,
 			wantStatus: http.StatusOK,
-			want:       "Alice",
+			wantResult: "Alice",
 		},
 		{
 			name:    "negative number literal",
@@ -1080,8 +1080,8 @@ func TestSQLParser_AdvancedExpressions(t *testing.T) {
 <OutputSerialization><CSV/></OutputSerialization>
 </SelectObjectContentRequest>`,
 			wantStatus: http.StatusOK,
-			want:       "Alice",
-			absent:     "Bob",
+			wantResult: "Alice",
+			wantAbsent: "Bob",
 		},
 		{
 			name:    "multiple comma-separated SELECT columns",
@@ -1093,7 +1093,7 @@ func TestSQLParser_AdvancedExpressions(t *testing.T) {
 <OutputSerialization><CSV/></OutputSerialization>
 </SelectObjectContentRequest>`,
 			wantStatus: http.StatusOK,
-			want:       "Alice",
+			wantResult: "Alice",
 		},
 		{
 			name:    "empty CSV file (header only)",
@@ -1116,7 +1116,7 @@ func TestSQLParser_AdvancedExpressions(t *testing.T) {
 <OutputSerialization><CSV/></OutputSerialization>
 </SelectObjectContentRequest>`,
 			wantStatus: http.StatusOK,
-			want:       "30",
+			wantResult: "30",
 		},
 		{
 			name:    "column reference as truthy condition (isTruthy string path)",
@@ -1128,8 +1128,8 @@ func TestSQLParser_AdvancedExpressions(t *testing.T) {
 <OutputSerialization><CSV/></OutputSerialization>
 </SelectObjectContentRequest>`,
 			wantStatus: http.StatusOK,
-			want:       "Alice",
-			absent:     "Bob",
+			wantResult: "Alice",
+			wantAbsent: "Bob",
 		},
 		{
 			name:    "isTruthy false string (empty value)",
@@ -1141,8 +1141,8 @@ func TestSQLParser_AdvancedExpressions(t *testing.T) {
 <OutputSerialization><CSV/></OutputSerialization>
 </SelectObjectContentRequest>`,
 			wantStatus: http.StatusOK,
-			want:       "Bob",
-			absent:     "Alice",
+			wantResult: "Bob",
+			wantAbsent: "Alice",
 		},
 		{
 			name:    "SELECT star from CSV with NONE header",
@@ -1154,7 +1154,7 @@ func TestSQLParser_AdvancedExpressions(t *testing.T) {
 <OutputSerialization><JSON/></OutputSerialization>
 </SelectObjectContentRequest>`,
 			wantStatus: http.StatusOK,
-			want:       "Alice",
+			wantResult: "Alice",
 		},
 		{
 			name:    "invalid SQL - missing FROM keyword",
@@ -1246,7 +1246,7 @@ func TestSQLParser_AdvancedExpressions(t *testing.T) {
 <OutputSerialization><CSV/></OutputSerialization>
 </SelectObjectContentRequest>`,
 			wantStatus: http.StatusOK,
-			want:       "Alice",
+			wantResult: "Alice",
 		},
 		{
 			name:    "JSON output with number fields",
@@ -1258,7 +1258,7 @@ func TestSQLParser_AdvancedExpressions(t *testing.T) {
 <OutputSerialization><JSON/></OutputSerialization>
 </SelectObjectContentRequest>`,
 			wantStatus: http.StatusOK,
-			want:       "Alice",
+			wantResult: "Alice",
 		},
 	}
 
@@ -1284,12 +1284,12 @@ func TestSQLParser_AdvancedExpressions(t *testing.T) {
 
 			require.Equal(t, tt.wantStatus, rec.Code)
 
-			if tt.want != "" {
-				assert.Contains(t, rec.Body.String(), tt.want)
+			if tt.wantResult != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantResult)
 			}
 
-			if tt.absent != "" {
-				assert.NotContains(t, rec.Body.String(), tt.absent)
+			if tt.wantAbsent != "" {
+				assert.NotContains(t, rec.Body.String(), tt.wantAbsent)
 			}
 		})
 	}

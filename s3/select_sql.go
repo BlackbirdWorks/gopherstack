@@ -1219,30 +1219,49 @@ func sqlLikeMatch(pattern, s string) bool {
 	return likeMatch(pattern, s)
 }
 
+// likeMatch performs SQL LIKE pattern matching in linear time.
+// % matches any sequence of characters, _ matches any single character.
 func likeMatch(pattern, s string) bool {
-	if pattern == "" {
-		return s == ""
-	}
+	pLen := len(pattern)
+	sLen := len(s)
 
-	if pattern[0] == '%' {
-		for i := range len(s) + 1 {
-			if likeMatch(pattern[1:], s[i:]) {
-				return true
-			}
+	p := 0
+	i := 0
+	starIdx := -1
+	match := 0
+
+	for i < sLen {
+		if p < pLen && (pattern[p] == s[i] || pattern[p] == '_') {
+			i++
+			p++
+
+			continue
+		}
+
+		if p < pLen && pattern[p] == '%' {
+			starIdx = p
+			match = i
+			p++
+
+			continue
+		}
+
+		if starIdx != -1 {
+			p = starIdx + 1
+			match++
+			i = match
+
+			continue
 		}
 
 		return false
 	}
 
-	if s == "" {
-		return false
+	for p < pLen && pattern[p] == '%' {
+		p++
 	}
 
-	if pattern[0] == '_' || pattern[0] == s[0] {
-		return likeMatch(pattern[1:], s[1:])
-	}
-
-	return false
+	return p == pLen
 }
 
 // evalQuery applies a parsed sqlQuery to a set of rows.
@@ -1395,13 +1414,48 @@ func (r *jsonRow) field(name string) (string, bool) {
 }
 
 // sortedKeys returns sorted keys of a map for deterministic positional access.
+// Keys of the form "_N" (positional CSV columns) are sorted numerically so that
+// _1, _2, ..., _9, _10 comes before _2 in the positional ordering rather than
+// the lexicographic _1, _10, _2 ordering.
 func sortedKeys(m map[string]string) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
 		keys = append(keys, k)
 	}
 
-	slices.Sort(keys)
+	slices.SortFunc(keys, func(a, b string) int {
+		ai, aok := positionalIndex(a)
+		bi, bok := positionalIndex(b)
+
+		if aok && bok {
+			return ai - bi
+		}
+
+		if aok {
+			return -1
+		}
+
+		if bok {
+			return 1
+		}
+
+		return strings.Compare(a, b)
+	})
 
 	return keys
+}
+
+// positionalIndex returns the numeric index for positional CSV column keys like
+// "_1", "_2", "_10". Returns (0, false) for non-positional keys.
+func positionalIndex(s string) (int, bool) {
+	if len(s) < 2 || s[0] != '_' {
+		return 0, false
+	}
+
+	n, err := strconv.Atoi(s[1:])
+	if err != nil || n < 1 {
+		return 0, false
+	}
+
+	return n, true
 }

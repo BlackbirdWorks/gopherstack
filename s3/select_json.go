@@ -110,7 +110,7 @@ func serializeJSONRowsAsCSV(rows []map[string]any, csvOut *selectCSVOutput) ([]b
 
 	buf := serializeCSVRows(strRows, csvOut)
 
-	return buf.Bytes(), nil
+	return buf, nil
 }
 
 func serializeJSONRows(rows []map[string]any, jsonOut *selectJSONOutput) ([]byte, error) {
