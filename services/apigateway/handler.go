@@ -11,7 +11,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -237,7 +237,7 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 
 // ExtractResource extracts the resource identifier from the request body.
 func (h *Handler) ExtractResource(c *echo.Context) string {
-	body, err := httputil.ReadBody(c.Request())
+	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return ""
 	}
@@ -306,7 +306,7 @@ func (h *Handler) handleJSONProtocol(c *echo.Context) error {
 	}
 	action := parts[1]
 
-	body, err := httputil.ReadBody(c.Request())
+	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		log.ErrorContext(ctx, "failed to read request body", "error", err)
 
@@ -339,7 +339,7 @@ func (h *Handler) handleRESTAPI(c *echo.Context) error {
 		return c.String(http.StatusNotFound, "not found")
 	}
 
-	body, err := httputil.ReadBody(c.Request())
+	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		logger.Load(ctx).ErrorContext(ctx, "failed to read request body", "error", err)
 

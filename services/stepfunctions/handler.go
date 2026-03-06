@@ -12,7 +12,8 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -153,6 +154,23 @@ func (h *Handler) GetSupportedOperations() []string {
 	}
 }
 
+// ChaosServiceName returns the lowercase AWS service name for fault rule matching.
+func (h *Handler) ChaosServiceName() string { return "states" }
+
+// ChaosOperations returns all operations that can be fault-injected.
+func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations() }
+
+// ChaosRegions returns all regions this Step Functions instance handles.
+func (h *Handler) ChaosRegions() []string {
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		if r := b.Region(); r != "" {
+			return []string{r}
+		}
+	}
+
+	return []string{config.DefaultRegion}
+}
+
 // RouteMatcher returns a matcher for Step Functions requests.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
@@ -181,7 +199,7 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 
 // ExtractResource extracts the resource name from the request body.
 func (h *Handler) ExtractResource(c *echo.Context) string {
-	body, err := httputil.ReadBody(c.Request())
+	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return ""
 	}

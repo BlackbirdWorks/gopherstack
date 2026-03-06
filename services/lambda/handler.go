@@ -13,7 +13,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
-	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -186,6 +186,15 @@ func (h *Handler) GetSupportedOperations() []string {
 		"RemoveLayerVersionPermission",
 	}
 }
+
+// ChaosServiceName returns the lowercase AWS service name for fault rule matching.
+func (h *Handler) ChaosServiceName() string { return "lambda" }
+
+// ChaosOperations returns all operations that can be fault-injected.
+func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations() }
+
+// ChaosRegions returns all regions this Lambda instance handles.
+func (h *Handler) ChaosRegions() []string { return []string{h.DefaultRegion} }
 
 // RouteMatcher returns a function that identifies Lambda requests by path prefix.
 func (h *Handler) RouteMatcher() service.Matcher {
@@ -587,7 +596,7 @@ func (h *Handler) handleTagsRoute(c *echo.Context, method string) error {
 	case http.MethodGet:
 		return c.JSON(http.StatusOK, &getTagsOutput{Tags: h.getTags(arn)})
 	case http.MethodPost:
-		body, err := httputil.ReadBody(c.Request())
+		body, err := httputils.ReadBody(c.Request())
 		if err != nil {
 			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
 		}
@@ -645,7 +654,7 @@ type handleCreateESMInput struct {
 // handleCreateESM handles POST /2015-03-31/event-source-mappings/.
 func (h *Handler) handleCreateESM(c *echo.Context) error {
 	if lambdaBk, ok := h.Backend.(*InMemoryBackend); ok {
-		body, err := httputil.ReadBody(c.Request())
+		body, err := httputils.ReadBody(c.Request())
 		if err != nil {
 			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
 		}
@@ -773,7 +782,7 @@ func (h *Handler) validateCreateFunctionInput(c *echo.Context, input *CreateFunc
 }
 
 func (h *Handler) handleCreateFunction(c *echo.Context) error {
-	body, err := httputil.ReadBody(c.Request())
+	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "failed to read request")
 	}
@@ -875,7 +884,7 @@ func (h *Handler) handleDeleteFunction(c *echo.Context, name string) error {
 }
 
 func (h *Handler) handleUpdateFunctionCode(c *echo.Context, name string) error {
-	body, err := httputil.ReadBody(c.Request())
+	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "failed to read request")
 	}
@@ -930,7 +939,7 @@ func (h *Handler) handleUpdateFunctionCode(c *echo.Context, name string) error {
 }
 
 func (h *Handler) handleUpdateFunctionConfiguration(c *echo.Context, name string) error {
-	body, err := httputil.ReadBody(c.Request())
+	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "failed to read request")
 	}
@@ -1003,7 +1012,7 @@ func (h *Handler) handleInvoke(c *echo.Context, name string) error {
 
 	qualifier := c.Request().URL.Query().Get("Qualifier")
 
-	body, err := httputil.ReadBody(c.Request())
+	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "failed to read request")
 	}
@@ -1060,7 +1069,7 @@ func (h *Handler) handleCreateFunctionURLConfig(c *echo.Context, name string) er
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
 	}
 
-	body, err := httputil.ReadBody(c.Request())
+	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
 	}
@@ -1222,7 +1231,7 @@ func (h *Handler) handlePublishVersion(c *echo.Context, name string) error {
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
 	}
 
-	body, err := httputil.ReadBody(c.Request())
+	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
 	}
@@ -1275,7 +1284,7 @@ func (h *Handler) handleCreateAlias(c *echo.Context, name string) error {
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
 	}
 
-	body, err := httputil.ReadBody(c.Request())
+	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
 	}
@@ -1358,7 +1367,7 @@ func (h *Handler) handleUpdateAlias(c *echo.Context, name, aliasName string) err
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
 	}
 
-	body, err := httputil.ReadBody(c.Request())
+	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
 	}
@@ -1578,7 +1587,7 @@ func (h *Handler) handleListLayerVersions(c *echo.Context, bk *InMemoryBackend, 
 }
 
 func (h *Handler) handlePublishLayerVersion(c *echo.Context, bk *InMemoryBackend, layerName string) error {
-	body, err := httputil.ReadBody(c.Request())
+	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
 	}
@@ -1662,7 +1671,7 @@ func (h *Handler) handleGetLayerVersionPolicy(
 func (h *Handler) handleAddLayerVersionPermission(
 	c *echo.Context, bk *InMemoryBackend, layerName string, version int64,
 ) error {
-	body, err := httputil.ReadBody(c.Request())
+	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
 	}

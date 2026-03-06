@@ -80,6 +80,11 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	}
 }
 
+// Region returns the AWS region this backend is configured for.
+func (b *InMemoryBackend) Region() string {
+	return b.region
+}
+
 // SetLambdaInvoker configures the Lambda invoker for Task states.
 func (b *InMemoryBackend) SetLambdaInvoker(invoker asl.LambdaInvoker) {
 	b.mu.Lock("SetLambdaInvoker")

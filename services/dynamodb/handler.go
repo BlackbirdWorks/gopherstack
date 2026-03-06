@@ -15,7 +15,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
-	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
@@ -154,6 +154,22 @@ func (h *DynamoDBHandler) Regions() []string {
 	return []string{}
 }
 
+// ChaosServiceName returns the lowercase AWS service name for fault rule matching.
+func (h *DynamoDBHandler) ChaosServiceName() string { return "dynamodb" }
+
+// ChaosOperations returns all operations that can be fault-injected.
+func (h *DynamoDBHandler) ChaosOperations() []string { return h.GetSupportedOperations() }
+
+// ChaosRegions returns all regions this DynamoDB instance handles.
+func (h *DynamoDBHandler) ChaosRegions() []string {
+	regions := h.Regions()
+	if len(regions) == 0 {
+		return []string{h.DefaultRegion}
+	}
+
+	return regions
+}
+
 // TableNamesByRegion returns table names in the given region (all if empty).
 // Returns an empty slice when not using the in-memory backend.
 func (h *DynamoDBHandler) TableNamesByRegion(region string) []string {
@@ -208,7 +224,7 @@ func (h *DynamoDBHandler) Handler() echo.HandlerFunc {
 		}
 		action := parts[1]
 
-		body, err := httputil.ReadBody(c.Request())
+		body, err := httputils.ReadBody(c.Request())
 		if err != nil {
 			log.ErrorContext(ctx, "failed to read request body", "error", err)
 
@@ -276,7 +292,7 @@ func (h *DynamoDBHandler) ExtractOperation(c *echo.Context) string {
 
 // ExtractResource extracts the table name from the DynamoDB request body.
 func (h *DynamoDBHandler) ExtractResource(c *echo.Context) string {
-	body, err := httputil.ReadBody(c.Request())
+	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return ""
 	}

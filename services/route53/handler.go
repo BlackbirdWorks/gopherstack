@@ -11,7 +11,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -394,7 +394,7 @@ type xmlChangeResourceRecordSetsRequest struct {
 func (h *Handler) createHostedZone(c *echo.Context) error {
 	ctx := c.Request().Context()
 
-	body, err := httputil.ReadBody(c.Request())
+	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to read request body")
 	}
@@ -501,7 +501,7 @@ func (h *Handler) changeResourceRecordSets(c *echo.Context) error {
 	ctx := c.Request().Context()
 	zoneID := extractZoneID(c.Request().URL.Path)
 
-	body, err := httputil.ReadBody(c.Request())
+	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to read request body")
 	}
@@ -689,7 +689,7 @@ type applyTagChangesInput struct {
 // applyTagChanges reads a ChangeTagsForResource XML body and applies the add/remove operations.
 // It returns an error if the body cannot be read or parsed.
 func (h *Handler) applyTagChanges(resourceID string, r *http.Request) error {
-	body, err := httputil.ReadBody(r)
+	body, err := httputils.ReadBody(r)
 	if err != nil {
 		return fmt.Errorf("failed to read request body: %w", err)
 	}

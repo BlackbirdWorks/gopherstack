@@ -9,7 +9,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -56,6 +56,15 @@ func (h *Handler) GetSupportedOperations() []string {
 	}
 }
 
+// ChaosServiceName returns the lowercase AWS service name for fault rule matching.
+func (h *Handler) ChaosServiceName() string { return "sqs" }
+
+// ChaosOperations returns all operations that can be fault-injected.
+func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations() }
+
+// ChaosRegions returns all regions this SQS instance handles.
+func (h *Handler) ChaosRegions() []string { return []string{h.DefaultRegion} }
+
 // RouteMatcher returns a function that matches incoming SQS requests.
 // It matches POST requests whose X-Amz-Target header starts with "AmazonSQS." and whose
 // path is "/" or starts with "/000000000000/" (to avoid capturing Dashboard form POSTs).
@@ -101,7 +110,7 @@ type extractQueueURLInput struct {
 
 // ExtractResource extracts the queue name from the JSON request body's QueueUrl field.
 func (h *Handler) ExtractResource(c *echo.Context) string {
-	body, err := httputil.ReadBody(c.Request())
+	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return ""
 	}
@@ -367,7 +376,7 @@ func (h *Handler) handleCreateQueue(
 		endpoint = r.Host
 	}
 
-	region := httputil.ExtractRegionFromRequest(r, h.DefaultRegion)
+	region := httputils.ExtractRegionFromRequest(r, h.DefaultRegion)
 
 	out, err := h.Backend.CreateQueue(&CreateQueueInput{
 		QueueName:  req.QueueName,

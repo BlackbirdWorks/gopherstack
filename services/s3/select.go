@@ -14,7 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -116,7 +116,7 @@ func (h *S3Handler) selectObjectContent(
 
 	resultData, bytesReturned, evalErr := h.evaluateQuery(ctx, query, objectData, req)
 	if evalErr != nil {
-		httputil.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
+		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
 			Code:    "InternalError",
 			Message: fmt.Sprintf("error evaluating query: %v", evalErr),
 		}, http.StatusInternalServerError)
@@ -134,7 +134,7 @@ func (h *S3Handler) readSelectRequest(
 	r *http.Request,
 	bucketName, key string,
 ) (*selectRequest, []byte, int64, bool) {
-	body, err := httputil.ReadBody(r)
+	body, err := httputils.ReadBody(r)
 	if err != nil {
 		WriteError(ctx, w, r, err)
 
@@ -144,7 +144,7 @@ func (h *S3Handler) readSelectRequest(
 	var req selectRequest
 
 	if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
-		httputil.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
+		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
 			Code:    "MalformedXML",
 			Message: "The XML you provided was not well-formed or did not validate against our published schema.",
 		}, http.StatusBadRequest)
@@ -153,7 +153,7 @@ func (h *S3Handler) readSelectRequest(
 	}
 
 	if !strings.EqualFold(req.ExpressionType, "SQL") {
-		httputil.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
+		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
 			Code:    "InvalidExpressionType",
 			Message: "The ExpressionType is invalid for this request.",
 		}, http.StatusBadRequest)
@@ -162,7 +162,7 @@ func (h *S3Handler) readSelectRequest(
 	}
 
 	if req.Expression == "" {
-		httputil.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
+		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
 			Code:    "MissingRequiredParameter",
 			Message: "The SQL expression is required.",
 		}, http.StatusBadRequest)
@@ -201,7 +201,7 @@ func parseSelectQuery(
 ) (*sqlQuery, bool) {
 	query, err := parseSQL(expression)
 	if err != nil {
-		httputil.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
+		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
 			Code:    "ParseException",
 			Message: fmt.Sprintf("SQL expression is invalid: %v", err),
 		}, http.StatusBadRequest)

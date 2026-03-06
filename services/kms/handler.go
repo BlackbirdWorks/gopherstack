@@ -11,7 +11,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -134,6 +134,15 @@ func (h *Handler) GetSupportedOperations() []string {
 	}
 }
 
+// ChaosServiceName returns the lowercase AWS service name for fault rule matching.
+func (h *Handler) ChaosServiceName() string { return "kms" }
+
+// ChaosOperations returns all operations that can be fault-injected.
+func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations() }
+
+// ChaosRegions returns all regions this KMS instance handles.
+func (h *Handler) ChaosRegions() []string { return []string{h.DefaultRegion} }
+
 // RouteMatcher returns a matcher that identifies KMS requests by the X-Amz-Target header.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
@@ -163,7 +172,7 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 
 // ExtractResource returns the key ID from the request body when present.
 func (h *Handler) ExtractResource(c *echo.Context) string {
-	body, err := httputil.ReadBody(c.Request())
+	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return ""
 	}
@@ -476,7 +485,7 @@ func (h *Handler) buildTagActions() map[string]kmsActionFn {
 
 // dispatch routes the KMS operation to the appropriate backend method.
 func (h *Handler) dispatch(_ context.Context, r *http.Request, action string, body []byte) ([]byte, error) {
-	region := httputil.ExtractRegionFromRequest(r, h.DefaultRegion)
+	region := httputils.ExtractRegionFromRequest(r, h.DefaultRegion)
 
 	fn, ok := h.actions[action]
 	if !ok {

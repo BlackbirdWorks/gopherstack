@@ -10,7 +10,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
-	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -180,6 +180,22 @@ func (h *S3Handler) Regions() []string {
 	return []string{}
 }
 
+// ChaosServiceName returns the lowercase AWS service name for fault rule matching.
+func (h *S3Handler) ChaosServiceName() string { return "s3" }
+
+// ChaosOperations returns all operations that can be fault-injected.
+func (h *S3Handler) ChaosOperations() []string { return h.GetSupportedOperations() }
+
+// ChaosRegions returns all regions this S3 instance handles.
+func (h *S3Handler) ChaosRegions() []string {
+	regions := h.Regions()
+	if len(regions) == 0 {
+		return []string{h.DefaultRegion}
+	}
+
+	return regions
+}
+
 // BucketsByRegion returns buckets in the given region (all if empty).
 // Returns an empty slice when not using the in-memory backend.
 func (h *S3Handler) BucketsByRegion(region string) []types.Bucket {
@@ -204,7 +220,7 @@ func (h *S3Handler) Handler() echo.HandlerFunc {
 		requestWithCtx := c.Request().WithContext(ctx)
 		*c.Request() = *requestWithCtx
 
-		sw := httputil.NewResponseWriter(c.Response())
+		sw := httputils.NewResponseWriter(c.Response())
 
 		log := logger.Load(ctx)
 

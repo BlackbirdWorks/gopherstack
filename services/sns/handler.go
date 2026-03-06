@@ -12,7 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -70,6 +70,15 @@ func (h *Handler) GetSupportedOperations() []string {
 	}
 }
 
+// ChaosServiceName returns the lowercase AWS service name for fault rule matching.
+func (h *Handler) ChaosServiceName() string { return "sns" }
+
+// ChaosOperations returns all operations that can be fault-injected.
+func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations() }
+
+// ChaosRegions returns all regions this SNS instance handles.
+func (h *Handler) ChaosRegions() []string { return []string{h.DefaultRegion} }
+
 // RouteMatcher returns a function that matches SNS requests by Content-Type and body version.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
@@ -78,7 +87,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return false
 		}
 
-		body, err := httputil.ReadBody(c.Request())
+		body, err := httputils.ReadBody(c.Request())
 		if err != nil {
 			return false
 		}
@@ -94,7 +103,7 @@ func (h *Handler) MatchPriority() int {
 
 // ExtractOperation extracts the SNS action from the request form.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
-	body, err := httputil.ReadBody(c.Request())
+	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return unknownOperation
 	}
@@ -114,7 +123,7 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 
 // ExtractResource extracts the primary resource (TopicArn or Name) from the request form.
 func (h *Handler) ExtractResource(c *echo.Context) string {
-	body, err := httputil.ReadBody(c.Request())
+	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return ""
 	}
@@ -189,7 +198,7 @@ func (h *Handler) handleCreateTopic(c *echo.Context) error {
 
 	attrs := extractFormAttributes(c)
 
-	region := httputil.ExtractRegionFromRequest(c.Request(), h.DefaultRegion)
+	region := httputils.ExtractRegionFromRequest(c.Request(), h.DefaultRegion)
 	topic, err := h.Backend.CreateTopicInRegion(name, region, attrs)
 	if err != nil {
 		return h.handleBackendError(c, err)
@@ -530,7 +539,7 @@ func (h *Handler) handleUntagResource(c *echo.Context) error {
 
 // writeXML marshals v to XML and writes an HTTP 200 OK response.
 func (h *Handler) writeXML(c *echo.Context, v any) error {
-	httputil.WriteXML(c.Request().Context(), c.Response(), http.StatusOK, v)
+	httputils.WriteXML(c.Request().Context(), c.Response(), http.StatusOK, v)
 
 	return nil
 }
@@ -542,7 +551,7 @@ func (h *Handler) writeError(c *echo.Context, status int, code, message string) 
 		RequestID: uuid.New().String(),
 	}
 
-	httputil.WriteXML(c.Request().Context(), c.Response(), status, errResp)
+	httputils.WriteXML(c.Request().Context(), c.Response(), status, errResp)
 
 	return nil
 }

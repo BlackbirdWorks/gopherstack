@@ -32,10 +32,11 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
 	"github.com/blackbirdworks/gopherstack/demo"
+	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	gopherDNS "github.com/blackbirdworks/gopherstack/pkgs/dns"
 	snsevents "github.com/blackbirdworks/gopherstack/pkgs/events"
-	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/inithooks"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
@@ -569,16 +570,23 @@ func run(ctx context.Context, cli CLI) error {
 
 	e := buildEchoServer(ctx, log, persistManager, services, cli)
 
-	if setupErr := setupRegistry(
+	faultStore := chaos.NewFaultStore()
+	chaosGroup := e.Group("/_gopherstack/chaos")
+
+	registry, setupErr := setupRegistry(
 		e,
 		log,
 		services,
 		cli.LatencyMs,
 		cli.EnforceIAM,
 		cli.GetGlobalConfig(),
-	); setupErr != nil {
+		faultStore,
+	)
+	if setupErr != nil {
 		return setupErr
 	}
+
+	chaos.RegisterRoutes(chaosGroup, faultStore, registry)
 
 	startBackgroundWorkers(janitorCtx, services)
 	inMemMux.Handle("/", e)
@@ -615,7 +623,7 @@ func buildEchoServer(
 	cli CLI,
 ) *echo.Echo {
 	e := echo.New()
-	e.Use(httputil.RequestIDMiddleware())
+	e.Use(httputils.RequestIDMiddleware())
 	e.Use(logger.APIConsoleMiddleware())
 	e.Pre(logger.EchoMiddleware(log))
 	e.GET("/_gopherstack/health", healthHandler)
@@ -1689,12 +1697,18 @@ func setupRegistry(
 	latencyMs int,
 	enforceIAM bool,
 	globalCfg config.GlobalConfig,
-) error {
+	faultStore *chaos.FaultStore,
+) (*service.Registry, error) {
 	registry := service.NewRegistry()
 
 	if latencyMs > 0 {
 		registry.SetLatencyMs(latencyMs)
 	}
+
+	// Chaos middleware runs outside the telemetry wrapper (as a global middleware).
+	// It extracts service/region/operation directly from the HTTP request headers so
+	// it does not depend on context values that are only set by the telemetry wrapper.
+	registry.Use(chaos.Middleware(faultStore))
 
 	if enforceIAM {
 		iamBackend := findIAMBackend(services)
@@ -1718,14 +1732,14 @@ func setupRegistry(
 		if err := registry.Register(svc); err != nil {
 			log.Error("Failed to register service", "service", svc.Name(), "error", err)
 
-			return err
+			return nil, err
 		}
 	}
 
 	router := service.NewServiceRouter(registry)
 	e.Use(router.RouteHandler())
 
-	return nil
+	return registry, nil
 }
 
 // findIAMBackend locates the IAM EnforcementBackend from the service list.

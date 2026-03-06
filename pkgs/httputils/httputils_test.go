@@ -1,4 +1,4 @@
-package httputil_test
+package httputils_test
 
 import (
 	"bytes"
@@ -9,7 +9,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -26,19 +26,19 @@ func TestReadBody(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(content))
 
 	// First read
-	body, err := httputil.ReadBody(req)
+	body, err := httputils.ReadBody(req)
 	require.NoError(t, err)
 	assert.Equal(t, content, body)
 
 	// Second read (verify re-seeding)
-	body2, err := httputil.ReadBody(req)
+	body2, err := httputils.ReadBody(req)
 	require.NoError(t, err)
 	assert.Equal(t, content, body2)
 
 	// Nil body case
 	reqNil := httptest.NewRequest(http.MethodGet, "/", nil)
 	reqNil.Body = nil
-	bodyNil, err := httputil.ReadBody(reqNil)
+	bodyNil, err := httputils.ReadBody(reqNil)
 	require.NoError(t, err)
 	assert.Nil(t, bodyNil)
 }
@@ -49,7 +49,7 @@ func TestDrainBody(t *testing.T) {
 	content := []byte("some body")
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(content))
 
-	httputil.DrainBody(req)
+	httputils.DrainBody(req)
 
 	body, _ := io.ReadAll(req.Body)
 	assert.Empty(t, body)
@@ -87,7 +87,7 @@ func TestWriteJSON(t *testing.T) {
 			t.Parallel()
 
 			w := httptest.NewRecorder()
-			httputil.WriteJSON(t.Context(), w, tt.status, tt.payload)
+			httputils.WriteJSON(t.Context(), w, tt.status, tt.payload)
 
 			assert.Equal(t, tt.wantCode, w.Code)
 			if tt.wantCT != "" {
@@ -137,7 +137,7 @@ func TestWriteXML(t *testing.T) {
 			t.Parallel()
 
 			w := httptest.NewRecorder()
-			httputil.WriteXML(t.Context(), w, tt.status, tt.payload)
+			httputils.WriteXML(t.Context(), w, tt.status, tt.payload)
 
 			assert.Equal(t, tt.wantCode, w.Code)
 			if tt.wantCT != "" {
@@ -185,7 +185,7 @@ func TestWriteDynamoDBResponse(t *testing.T) {
 			t.Parallel()
 
 			w := httptest.NewRecorder()
-			httputil.WriteDynamoDBResponse(t.Context(), w, tt.status, tt.payload)
+			httputils.WriteDynamoDBResponse(t.Context(), w, tt.status, tt.payload)
 
 			assert.Equal(t, tt.wantCode, w.Code)
 			if tt.wantCT != "" {
@@ -207,7 +207,7 @@ func TestWriteError(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 
-	httputil.WriteError(t.Context(), w, req, errSomethingWentWrong, http.StatusBadRequest)
+	httputils.WriteError(t.Context(), w, req, errSomethingWentWrong, http.StatusBadRequest)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Contains(t, w.Body.String(), "something went wrong")
@@ -217,7 +217,7 @@ func TestResponseWriter(t *testing.T) {
 	t.Parallel()
 
 	inner := httptest.NewRecorder()
-	w := httputil.NewResponseWriter(inner)
+	w := httputils.NewResponseWriter(inner)
 
 	assert.Equal(t, http.StatusOK, w.StatusCode())
 
@@ -233,19 +233,19 @@ func TestContextOperations(t *testing.T) {
 
 	ctx := t.Context()
 
-	assert.Equal(t, "Unknown", httputil.GetOperation(ctx))
-	assert.Empty(t, httputil.GetResource(ctx))
+	assert.Equal(t, "Unknown", httputils.GetOperation(ctx))
+	assert.Empty(t, httputils.GetResource(ctx))
 
-	ctx = httputil.SetOperation(ctx, "GetItem")
-	assert.Equal(t, "GetItem", httputil.GetOperation(ctx))
+	ctx = httputils.SetOperation(ctx, "GetItem")
+	assert.Equal(t, "GetItem", httputils.GetOperation(ctx))
 
-	ctx = httputil.SetResource(ctx, "MyTable")
-	assert.Equal(t, "GetItem", httputil.GetOperation(ctx))
-	assert.Equal(t, "MyTable", httputil.GetResource(ctx))
+	ctx = httputils.SetResource(ctx, "MyTable")
+	assert.Equal(t, "GetItem", httputils.GetOperation(ctx))
+	assert.Equal(t, "MyTable", httputils.GetResource(ctx))
 
-	ctx = httputil.SetOperationAndResource(t.Context(), "PutItem", "AnotherTable")
-	assert.Equal(t, "PutItem", httputil.GetOperation(ctx))
-	assert.Equal(t, "AnotherTable", httputil.GetResource(ctx))
+	ctx = httputils.SetOperationAndResource(t.Context(), "PutItem", "AnotherTable")
+	assert.Equal(t, "PutItem", httputils.GetOperation(ctx))
+	assert.Equal(t, "AnotherTable", httputils.GetResource(ctx))
 }
 
 func TestEchoError(t *testing.T) {
@@ -285,7 +285,7 @@ func TestEchoError(t *testing.T) {
 			rec := httptest.NewRecorder()
 			c := e.NewContext(req, rec)
 
-			res := httputil.EchoError(t.Context(), c, tt.code, tt.message, tt.err)
+			res := httputils.EchoError(t.Context(), c, tt.code, tt.message, tt.err)
 
 			require.NoError(t, res)
 			assert.Equal(t, tt.wantCode, rec.Code)
@@ -298,7 +298,7 @@ func TestRequestIDMiddleware(t *testing.T) {
 	t.Parallel()
 
 	e := echo.New()
-	e.Use(httputil.RequestIDMiddleware())
+	e.Use(httputils.RequestIDMiddleware())
 	e.GET("/", func(c *echo.Context) error {
 		return c.String(http.StatusOK, "ok")
 	})
@@ -354,7 +354,7 @@ func TestExtractRegionFromRequest(t *testing.T) {
 				req.Header.Set("X-Amz-Region", tt.xAmzRegion)
 			}
 
-			region := httputil.ExtractRegionFromRequest(req, tt.defaultRegion)
+			region := httputils.ExtractRegionFromRequest(req, tt.defaultRegion)
 			assert.Equal(t, tt.wantRegion, region)
 		})
 	}
@@ -371,7 +371,7 @@ func TestWriteS3ErrorResponse(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/bucket/key", nil)
-	httputil.WriteS3ErrorResponse(
+	httputils.WriteS3ErrorResponse(
 		t.Context(),
 		w,
 		req,

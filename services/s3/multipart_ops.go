@@ -12,7 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
 func (h *S3Handler) createMultipartUpload(
@@ -38,7 +38,7 @@ func (h *S3Handler) createMultipartUpload(
 		UploadID: *out.UploadId,
 	}
 
-	httputil.WriteXML(ctx, w, http.StatusOK, resp)
+	httputils.WriteXML(ctx, w, http.StatusOK, resp)
 }
 
 func (h *S3Handler) uploadPart(
@@ -57,7 +57,7 @@ func (h *S3Handler) uploadPart(
 		return
 	}
 
-	data, err := httputil.ReadBody(r)
+	data, err := httputils.ReadBody(r)
 	if err != nil {
 		WriteError(ctx, w, r, err)
 
@@ -152,7 +152,7 @@ func (h *S3Handler) completeMultipartUpload(
 		ETag:     *out.ETag,
 	}
 
-	httputil.WriteXML(ctx, w, http.StatusOK, resp)
+	httputils.WriteXML(ctx, w, http.StatusOK, resp)
 }
 
 func (h *S3Handler) abortMultipartUpload(
@@ -213,7 +213,7 @@ func (h *S3Handler) listMultipartUploads(
 		})
 	}
 
-	httputil.WriteXML(ctx, w, http.StatusOK, result)
+	httputils.WriteXML(ctx, w, http.StatusOK, result)
 }
 
 func (h *S3Handler) listParts(
@@ -259,5 +259,5 @@ func (h *S3Handler) listParts(
 		})
 	}
 
-	httputil.WriteXML(ctx, w, http.StatusOK, result)
+	httputils.WriteXML(ctx, w, http.StatusOK, result)
 }

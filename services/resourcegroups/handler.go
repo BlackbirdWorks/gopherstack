@@ -9,7 +9,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -155,7 +155,7 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 // ExtractResource extracts the group name from the request body, checking
 // Name (CreateGroup), GroupName, and Group (REST API) fields.
 func (h *Handler) ExtractResource(c *echo.Context) string {
-	body, err := httputil.ReadBody(c.Request())
+	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return ""
 	}
@@ -206,7 +206,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 func (h *Handler) handleREST(c *echo.Context, action string) error {
 	ctx := c.Request().Context()
 
-	body, err := httputil.ReadBody(c.Request())
+	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		logger.Load(ctx).ErrorContext(ctx, "failed to read request body", "error", err)
 
@@ -386,7 +386,7 @@ func (h *Handler) handleResourceTags(c *echo.Context) error {
 		})
 
 	case http.MethodPut:
-		body, err := httputil.ReadBody(c.Request())
+		body, err := httputils.ReadBody(c.Request())
 		if err != nil {
 			log.ErrorContext(ctx, "failed to read Tag request body", "error", err)
 
@@ -410,7 +410,7 @@ func (h *Handler) handleResourceTags(c *echo.Context) error {
 		})
 
 	case http.MethodPatch:
-		body, err := httputil.ReadBody(c.Request())
+		body, err := httputils.ReadBody(c.Request())
 		if err != nil {
 			log.ErrorContext(ctx, "failed to read Untag request body", "error", err)
 

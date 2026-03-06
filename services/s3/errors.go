@@ -6,7 +6,7 @@ import (
 	"net/http"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
-	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
 var (
@@ -118,7 +118,7 @@ func WriteError(ctx context.Context, w http.ResponseWriter, r *http.Request, err
 
 	for _, e := range table {
 		if errors.Is(err, e.err) {
-			httputil.WriteS3ErrorResponse(
+			httputils.WriteS3ErrorResponse(
 				ctx, w, r,
 				ErrorResponse{Code: e.info.code, Message: e.info.message},
 				e.info.status,
@@ -128,7 +128,7 @@ func WriteError(ctx context.Context, w http.ResponseWriter, r *http.Request, err
 		}
 	}
 
-	httputil.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
+	httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
 		Code:    "InternalError",
 		Message: "We encountered an internal error. Please try again.",
 	}, http.StatusInternalServerError)
