@@ -1400,6 +1400,65 @@ func (h *Handler) handleDeleteAlias(c *echo.Context, name, aliasName string) err
 	return c.NoContent(http.StatusNoContent)
 }
 
+// TaggedFunctionInfo contains a Lambda function's ARN and tag snapshot.
+// Used by the Resource Groups Tagging API cross-service listing.
+type TaggedFunctionInfo struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedFunctions returns a snapshot of all Lambda functions with their ARNs and tags.
+// Intended for use by the Resource Groups Tagging API provider.
+func (h *Handler) TaggedFunctions() []TaggedFunctionInfo {
+	fns := h.Backend.ListFunctions()
+
+	h.tagsMu.RLock("TaggedFunctions")
+	defer h.tagsMu.RUnlock()
+
+	result := make([]TaggedFunctionInfo, 0, len(fns))
+
+	for _, fn := range fns {
+		var tagMap map[string]string
+		if t := h.tags[fn.FunctionArn]; t != nil {
+			tagMap = t.Clone()
+		}
+
+		result = append(result, TaggedFunctionInfo{ARN: fn.FunctionArn, Tags: tagMap})
+	}
+
+	return result
+}
+
+// TagFunctionByARN applies tags to the Lambda function identified by its ARN.
+func (h *Handler) TagFunctionByARN(fnARN string, newTags map[string]string) error {
+	fns := h.Backend.ListFunctions()
+
+	for _, fn := range fns {
+		if fn.FunctionArn == fnARN {
+			h.setTags(fn.FunctionArn, newTags)
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: %s", ErrFunctionNotFound, fnARN)
+}
+
+// UntagFunctionByARN removes the specified tag keys from the Lambda function identified by its ARN.
+func (h *Handler) UntagFunctionByARN(fnARN string, tagKeys []string) error {
+	fns := h.Backend.ListFunctions()
+
+	for _, fn := range fns {
+		if fn.FunctionArn == fnARN {
+			h.removeTags(fn.FunctionArn, tagKeys)
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: %s", ErrFunctionNotFound, fnARN)
+}
+
 // layerPathMaxParts is the maximum number of path segments to split when parsing a layer route.
 // Format: layerName / "versions" / versionNumber / "policy" / statementId.
 const layerPathMaxParts = 5

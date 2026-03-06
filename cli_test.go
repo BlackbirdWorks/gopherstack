@@ -355,3 +355,65 @@ func TestHealthCmd_KongParsing(t *testing.T) {
 	assert.Equal(t, "health", kctx.Command())
 	assert.Equal(t, "9090", root.Health.Port)
 }
+
+func TestARNServiceIs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		arn         string
+		serviceName string
+		want        bool
+	}{
+		{
+			name:        "sqs_match",
+			arn:         "arn:aws:sqs:us-east-1:123456789012:my-queue",
+			serviceName: "sqs",
+			want:        true,
+		},
+		{
+			name:        "sqs_no_match_sns",
+			arn:         "arn:aws:sqs:us-east-1:123456789012:my-queue",
+			serviceName: "sns",
+			want:        false,
+		},
+		{
+			name:        "lambda_match",
+			arn:         "arn:aws:lambda:us-east-1:123456789012:function:my-fn",
+			serviceName: "lambda",
+			want:        true,
+		},
+		{
+			name:        "secretsmanager_match",
+			arn:         "arn:aws:secretsmanager:us-east-1:123456789012:secret:my-secret-ABCDEF",
+			serviceName: "secretsmanager",
+			want:        true,
+		},
+		{
+			name:        "secretsmanager_not_matched_by_sqs",
+			arn:         "arn:aws:secretsmanager:us-east-1:123456789012:secret:my-sqs-secret-ABCDEF",
+			serviceName: "sqs",
+			want:        false,
+		},
+		{
+			name:        "empty_arn",
+			arn:         "",
+			serviceName: "sqs",
+			want:        false,
+		},
+		{
+			name:        "invalid_arn",
+			arn:         "not-an-arn",
+			serviceName: "sqs",
+			want:        false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, arnServiceIs(tt.arn, tt.serviceName))
+		})
+	}
+}

@@ -37,6 +37,7 @@ import (
 	rdsbackend "github.com/blackbirdworks/gopherstack/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/redshift"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/resourcegroups"
+	rgtabackend "github.com/blackbirdworks/gopherstack/resourcegroupstaggingapi"
 	route53backend "github.com/blackbirdworks/gopherstack/route53"
 	route53resolverbackend "github.com/blackbirdworks/gopherstack/route53resolver"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
@@ -63,45 +64,46 @@ const (
 // Stack holds a fully wired in-memory test stack with all services,
 // the Echo router (correctly mounted), AWS SDK clients, and the dashboard handler.
 type Stack struct {
-	Echo                   *echo.Echo
-	S3Backend              *s3backend.InMemoryBackend
-	S3Handler              *s3backend.S3Handler
-	DDBHandler             *ddbbackend.DynamoDBHandler
-	IAMBackend             *iambackend.InMemoryBackend
-	IAMHandler             *iambackend.Handler
-	STSHandler             *stsbackend.Handler
-	SNSHandler             *snsbackend.Handler
-	SQSHandler             *sqsbackend.Handler
-	KMSHandler             *kmsbackend.Handler
-	SecretsManagerHandler  *smbackend.Handler
-	LambdaHandler          *lambdabackend.Handler
-	EventBridgeHandler     *ebbackend.Handler
-	APIGatewayHandler      *apigwbackend.Handler
-	CloudWatchLogsHandler  *cwlogsbackend.Handler
-	StepFunctionsHandler   *sfnbackend.Handler
-	CloudWatchHandler      *cwbackend.Handler
-	CloudFormationHandler  *cfnbackend.Handler
-	KinesisHandler         *kinesisbackend.Handler
-	ElastiCacheHandler     *elasticachebackend.Handler
-	Route53Handler         *route53backend.Handler
-	SESHandler             *sesbackend.Handler
-	EC2Handler             *ec2backend.Handler
-	OpenSearchHandler      *opensearchbackend.Handler
-	ACMHandler             *acmbackend.Handler
-	RedshiftHandler        *redshiftbackend.Handler
-	RDSHandler             *rdsbackend.Handler
-	AWSConfigHandler       *awsconfigbackend.Handler
-	S3ControlHandler       *s3controlbackend.Handler
-	ResourceGroupsHandler  *resourcegroupsbackend.Handler
-	SWFHandler             *swfbackend.Handler
-	FirehoseHandler        *firehosebackend.Handler
-	SchedulerHandler       *schedulerbackend.Handler
-	Route53ResolverHandler *route53resolverbackend.Handler
-	TranscribeHandler      *transcribebackend.Handler
-	SupportHandler         *supportbackend.Handler
-	S3Client               *s3.Client
-	DDBClient              *dynamodb.Client
-	Dashboard              *dashboard.DashboardHandler
+	Echo                         *echo.Echo
+	S3Backend                    *s3backend.InMemoryBackend
+	S3Handler                    *s3backend.S3Handler
+	DDBHandler                   *ddbbackend.DynamoDBHandler
+	IAMBackend                   *iambackend.InMemoryBackend
+	IAMHandler                   *iambackend.Handler
+	STSHandler                   *stsbackend.Handler
+	SNSHandler                   *snsbackend.Handler
+	SQSHandler                   *sqsbackend.Handler
+	KMSHandler                   *kmsbackend.Handler
+	SecretsManagerHandler        *smbackend.Handler
+	LambdaHandler                *lambdabackend.Handler
+	EventBridgeHandler           *ebbackend.Handler
+	APIGatewayHandler            *apigwbackend.Handler
+	CloudWatchLogsHandler        *cwlogsbackend.Handler
+	StepFunctionsHandler         *sfnbackend.Handler
+	CloudWatchHandler            *cwbackend.Handler
+	CloudFormationHandler        *cfnbackend.Handler
+	KinesisHandler               *kinesisbackend.Handler
+	ElastiCacheHandler           *elasticachebackend.Handler
+	Route53Handler               *route53backend.Handler
+	SESHandler                   *sesbackend.Handler
+	EC2Handler                   *ec2backend.Handler
+	OpenSearchHandler            *opensearchbackend.Handler
+	ACMHandler                   *acmbackend.Handler
+	RedshiftHandler              *redshiftbackend.Handler
+	RDSHandler                   *rdsbackend.Handler
+	AWSConfigHandler             *awsconfigbackend.Handler
+	S3ControlHandler             *s3controlbackend.Handler
+	ResourceGroupsHandler        *resourcegroupsbackend.Handler
+	ResourceGroupsTaggingHandler *rgtabackend.Handler
+	SWFHandler                   *swfbackend.Handler
+	FirehoseHandler              *firehosebackend.Handler
+	SchedulerHandler             *schedulerbackend.Handler
+	Route53ResolverHandler       *route53resolverbackend.Handler
+	TranscribeHandler            *transcribebackend.Handler
+	SupportHandler               *supportbackend.Handler
+	S3Client                     *s3.Client
+	DDBClient                    *dynamodb.Client
+	Dashboard                    *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.
@@ -178,6 +180,7 @@ func registerServices(
 	awsconfigHndlr *awsconfigbackend.Handler,
 	s3controlHndlr *s3controlbackend.Handler,
 	resourcegroupsHndlr *resourcegroupsbackend.Handler,
+	rgtaHndlr *rgtabackend.Handler,
 	swfHndlr *swfbackend.Handler,
 	firehoseHndlr *firehosebackend.Handler,
 	schedulerHndlr *schedulerbackend.Handler,
@@ -213,6 +216,7 @@ func registerServices(
 	_ = registry.Register(awsconfigHndlr)
 	_ = registry.Register(s3controlHndlr)
 	_ = registry.Register(resourcegroupsHndlr)
+	_ = registry.Register(rgtaHndlr)
 	_ = registry.Register(swfHndlr)
 	_ = registry.Register(firehoseHndlr)
 	_ = registry.Register(schedulerHndlr)
@@ -251,6 +255,7 @@ type handlers struct {
 	awsconfig       *awsconfigbackend.Handler
 	s3control       *s3controlbackend.Handler
 	resourcegroups  *resourcegroupsbackend.Handler
+	rgtagging       *rgtabackend.Handler
 	swf             *swfbackend.Handler
 	firehose        *firehosebackend.Handler
 	scheduler       *schedulerbackend.Handler
@@ -318,6 +323,9 @@ func newHandlers() handlers {
 		s3control: s3controlbackend.NewHandler(s3controlbackend.NewInMemoryBackend()),
 		resourcegroups: resourcegroupsbackend.NewHandler(
 			resourcegroupsbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+		),
+		rgtagging: rgtabackend.NewHandler(
+			rgtabackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 		),
 		swf: swfbackend.NewHandler(swfbackend.NewInMemoryBackend()),
 		firehose: firehosebackend.NewHandler(
@@ -426,7 +434,7 @@ func New(t *testing.T) *Stack {
 		h.ddb, h.s3, h.ssm, h.iam, h.sts, h.sns, h.sqs, h.kms, h.sm,
 		h.lambda, h.eb, h.apigw, h.cwlogs, h.sfn, h.cw, h.cfn, h.kinesis,
 		h.elasticache, h.route53, h.ses, h.ec2, h.opensearch,
-		h.acm, h.redshift, h.rds, h.awsconfig, h.s3control, h.resourcegroups, h.swf, h.firehose,
+		h.acm, h.redshift, h.rds, h.awsconfig, h.s3control, h.resourcegroups, h.rgtagging, h.swf, h.firehose,
 		h.scheduler, h.route53resolver, h.transcribe, h.support,
 	)
 
@@ -440,45 +448,46 @@ func New(t *testing.T) *Stack {
 	e.Use(router.RouteHandler())
 
 	return &Stack{
-		Echo:                   e,
-		S3Backend:              h.s3Bk,
-		S3Handler:              h.s3,
-		DDBHandler:             h.ddb,
-		IAMBackend:             h.iamBk,
-		IAMHandler:             h.iam,
-		STSHandler:             h.sts,
-		SNSHandler:             h.sns,
-		SQSHandler:             h.sqs,
-		KMSHandler:             h.kms,
-		SecretsManagerHandler:  h.sm,
-		LambdaHandler:          h.lambda,
-		EventBridgeHandler:     h.eb,
-		APIGatewayHandler:      h.apigw,
-		CloudWatchLogsHandler:  h.cwlogs,
-		StepFunctionsHandler:   h.sfn,
-		CloudWatchHandler:      h.cw,
-		CloudFormationHandler:  h.cfn,
-		KinesisHandler:         h.kinesis,
-		ElastiCacheHandler:     h.elasticache,
-		Route53Handler:         h.route53,
-		SESHandler:             h.ses,
-		EC2Handler:             h.ec2,
-		OpenSearchHandler:      h.opensearch,
-		ACMHandler:             h.acm,
-		RedshiftHandler:        h.redshift,
-		RDSHandler:             h.rds,
-		AWSConfigHandler:       h.awsconfig,
-		S3ControlHandler:       h.s3control,
-		ResourceGroupsHandler:  h.resourcegroups,
-		SWFHandler:             h.swf,
-		FirehoseHandler:        h.firehose,
-		SchedulerHandler:       h.scheduler,
-		Route53ResolverHandler: h.route53resolver,
-		TranscribeHandler:      h.transcribe,
-		SupportHandler:         h.support,
-		S3Client:               clients.S3,
-		DDBClient:              clients.DDB,
-		Dashboard:              dashHndlr,
+		Echo:                         e,
+		S3Backend:                    h.s3Bk,
+		S3Handler:                    h.s3,
+		DDBHandler:                   h.ddb,
+		IAMBackend:                   h.iamBk,
+		IAMHandler:                   h.iam,
+		STSHandler:                   h.sts,
+		SNSHandler:                   h.sns,
+		SQSHandler:                   h.sqs,
+		KMSHandler:                   h.kms,
+		SecretsManagerHandler:        h.sm,
+		LambdaHandler:                h.lambda,
+		EventBridgeHandler:           h.eb,
+		APIGatewayHandler:            h.apigw,
+		CloudWatchLogsHandler:        h.cwlogs,
+		StepFunctionsHandler:         h.sfn,
+		CloudWatchHandler:            h.cw,
+		CloudFormationHandler:        h.cfn,
+		KinesisHandler:               h.kinesis,
+		ElastiCacheHandler:           h.elasticache,
+		Route53Handler:               h.route53,
+		SESHandler:                   h.ses,
+		EC2Handler:                   h.ec2,
+		OpenSearchHandler:            h.opensearch,
+		ACMHandler:                   h.acm,
+		RedshiftHandler:              h.redshift,
+		RDSHandler:                   h.rds,
+		AWSConfigHandler:             h.awsconfig,
+		S3ControlHandler:             h.s3control,
+		ResourceGroupsHandler:        h.resourcegroups,
+		ResourceGroupsTaggingHandler: h.rgtagging,
+		SWFHandler:                   h.swf,
+		FirehoseHandler:              h.firehose,
+		SchedulerHandler:             h.scheduler,
+		Route53ResolverHandler:       h.route53resolver,
+		TranscribeHandler:            h.transcribe,
+		SupportHandler:               h.support,
+		S3Client:                     clients.S3,
+		DDBClient:                    clients.DDB,
+		Dashboard:                    dashHndlr,
 	}
 }
 

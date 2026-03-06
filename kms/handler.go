@@ -533,3 +533,71 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 
 	return c.JSONBlob(statusCode, payload)
 }
+
+// TaggedKeyInfo contains a KMS key's ARN and tag snapshot.
+// Used by the Resource Groups Tagging API cross-service listing.
+type TaggedKeyInfo struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedKeys returns a snapshot of all KMS keys with their ARNs and tags.
+// Intended for use by the Resource Groups Tagging API provider.
+func (h *Handler) TaggedKeys() []TaggedKeyInfo {
+	out, err := h.Backend.ListKeys(&ListKeysInput{})
+	if err != nil {
+		return nil
+	}
+
+	h.tagsMu.RLock("TaggedKeys")
+	defer h.tagsMu.RUnlock()
+
+	result := make([]TaggedKeyInfo, 0, len(out.Keys))
+
+	for _, k := range out.Keys {
+		var tagMap map[string]string
+		if t := h.tags[k.KeyID]; t != nil {
+			tagMap = t.Clone()
+		}
+
+		result = append(result, TaggedKeyInfo{ARN: k.KeyArn, Tags: tagMap})
+	}
+
+	return result
+}
+
+// TagKeyByARN applies tags to the KMS key identified by its ARN.
+func (h *Handler) TagKeyByARN(keyARN string, newTags map[string]string) error {
+	out, err := h.Backend.ListKeys(&ListKeysInput{})
+	if err != nil {
+		return err
+	}
+
+	for _, k := range out.Keys {
+		if k.KeyArn == keyARN {
+			h.setTags(k.KeyID, newTags)
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: %s", ErrKeyNotFound, keyARN)
+}
+
+// UntagKeyByARN removes the specified tag keys from the KMS key identified by its ARN.
+func (h *Handler) UntagKeyByARN(keyARN string, tagKeys []string) error {
+	out, err := h.Backend.ListKeys(&ListKeysInput{})
+	if err != nil {
+		return err
+	}
+
+	for _, k := range out.Keys {
+		if k.KeyArn == keyARN {
+			h.removeTags(k.KeyID, tagKeys)
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: %s", ErrKeyNotFound, keyARN)
+}

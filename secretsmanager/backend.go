@@ -581,3 +581,72 @@ func (b *InMemoryBackend) RotateSecret(input *RotateSecretInput) (*RotateSecretO
 		VersionID: versionID,
 	}, nil
 }
+
+// TaggedSecretInfo contains a secret's ARN and tag snapshot.
+// Used by the Resource Groups Tagging API cross-service listing.
+type TaggedSecretInfo struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedSecrets returns a snapshot of all secrets with their ARNs and tags.
+// Intended for use by the Resource Groups Tagging API provider.
+func (b *InMemoryBackend) TaggedSecrets() []TaggedSecretInfo {
+	b.mu.RLock("TaggedSecrets")
+	defer b.mu.RUnlock()
+
+	result := make([]TaggedSecretInfo, 0, len(b.secrets))
+
+	for _, secret := range b.secrets {
+		if secret.DeletedDate != nil {
+			continue
+		}
+
+		var tagMap map[string]string
+		if secret.Tags != nil {
+			tagMap = secret.Tags.Clone()
+		}
+
+		result = append(result, TaggedSecretInfo{ARN: secret.ARN, Tags: tagMap})
+	}
+
+	return result
+}
+
+// TagSecretByARN applies tags to the secret identified by its ARN.
+func (b *InMemoryBackend) TagSecretByARN(secretARN string, newTags map[string]string) error {
+	b.mu.Lock("TagSecretByARN")
+	defer b.mu.Unlock()
+
+	for _, secret := range b.secrets {
+		if secret.ARN == secretARN {
+			if secret.Tags == nil {
+				secret.Tags = tags.New(secret.Name + ".tags")
+			}
+
+			secret.Tags.Merge(newTags)
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: %s", ErrSecretNotFound, secretARN)
+}
+
+// UntagSecretByARN removes the specified tag keys from the secret identified by its ARN.
+func (b *InMemoryBackend) UntagSecretByARN(secretARN string, tagKeys []string) error {
+	b.mu.Lock("UntagSecretByARN")
+	defer b.mu.Unlock()
+
+	for _, secret := range b.secrets {
+		if secret.ARN == secretARN {
+			if secret.Tags != nil {
+				secret.Tags.DeleteKeys(tagKeys)
+			}
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: %s", ErrSecretNotFound, secretARN)
+}
