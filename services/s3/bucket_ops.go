@@ -821,7 +821,7 @@ func (h *S3Handler) getBucketPolicy(ctx context.Context, w http.ResponseWriter, 
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(policy)) //nolint:gosec // G705: writing HTTP response is intentional
+	_, _ = w.Write([]byte(policy))
 }
 
 func (h *S3Handler) deleteBucketPolicy(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
@@ -861,7 +861,7 @@ func (h *S3Handler) getBucketCORS(ctx context.Context, w http.ResponseWriter, r 
 	}
 	w.Header().Set("Content-Type", "application/xml")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(corsXML)) //nolint:gosec // G705: writing HTTP response is intentional
+	_, _ = w.Write([]byte(corsXML))
 }
 
 func (h *S3Handler) deleteBucketCORS(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
@@ -928,7 +928,7 @@ func (h *S3Handler) getBucketLifecycleConfiguration(
 	}
 	w.Header().Set("Content-Type", "application/xml")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(lifecycleXML)) //nolint:gosec // G705: writing HTTP response is intentional
+	_, _ = w.Write([]byte(lifecycleXML))
 }
 
 func (h *S3Handler) deleteBucketLifecycleConfiguration(
@@ -989,7 +989,7 @@ func (h *S3Handler) getBucketNotificationConfiguration(
 	}
 	w.Header().Set("Content-Type", "application/xml")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(notifXML)) //nolint:gosec // G705: writing HTTP response is intentional
+	_, _ = w.Write([]byte(notifXML))
 }
 
 func (h *S3Handler) putObjectLockConfiguration(
@@ -1038,7 +1038,7 @@ func (h *S3Handler) getObjectLockConfiguration(
 
 	w.Header().Set("Content-Type", "application/xml")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(configXML)) //nolint:gosec // G705: writing HTTP response is intentional
+	_, _ = w.Write([]byte(configXML))
 }
 
 // findFirstIndexAfterMarker returns the index of the first object whose key

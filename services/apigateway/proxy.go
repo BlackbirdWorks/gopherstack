@@ -329,6 +329,7 @@ func (h *Handler) handleHTTPProxy(
 	r *http.Request,
 	integration *Integration,
 ) {
+	//nolint:gosec // G704: integration URI is configured via the API definition, not raw user input
 	targetReq, err := http.NewRequestWithContext(
 		ctx,
 		r.Method,
@@ -390,7 +391,7 @@ func (h *Handler) handleMockIntegration(w http.ResponseWriter, integration *Inte
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
-	_, _ = w.Write([]byte(body))
+	_, _ = w.Write([]byte(body)) //nolint:gosec // G705: mock integration body is configured in the API definition
 }
 
 // mockResponse resolves the status code and body for a MOCK integration.
