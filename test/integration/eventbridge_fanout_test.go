@@ -190,3 +190,206 @@ func TestIntegration_EventBridge_FanoutNoMatch(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, msgs.Messages, "expected no messages for non-matching event pattern")
 }
+
+func TestIntegration_EventBridge_InputTransformer(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	ebClient := createEventBridgeClient(t)
+	sqsClient := createSQSClient(t)
+	ctx := t.Context()
+
+	busName := "transformer-bus-" + uuid.NewString()[:8]
+	ruleName := "transformer-rule-" + uuid.NewString()[:8]
+	queueName := "transformer-queue-" + uuid.NewString()[:8]
+
+	// Create SQS queue.
+	queueOut, err := sqsClient.CreateQueue(ctx, &sqssdk.CreateQueueInput{
+		QueueName: aws.String(queueName),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = sqsClient.DeleteQueue(ctx, &sqssdk.DeleteQueueInput{QueueUrl: queueOut.QueueUrl})
+	})
+
+	// Get queue ARN.
+	attrOut, err := sqsClient.GetQueueAttributes(ctx, &sqssdk.GetQueueAttributesInput{
+		QueueUrl:       queueOut.QueueUrl,
+		AttributeNames: []sqstypes.QueueAttributeName{sqstypes.QueueAttributeNameQueueArn},
+	})
+	require.NoError(t, err)
+	queueARN := attrOut.Attributes["QueueArn"]
+
+	// Create event bus.
+	_, err = ebClient.CreateEventBus(ctx, &eventbridgesdk.CreateEventBusInput{
+		Name: aws.String(busName),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = ebClient.DeleteEventBus(ctx, &eventbridgesdk.DeleteEventBusInput{Name: aws.String(busName)})
+	})
+
+	// Create rule.
+	_, err = ebClient.PutRule(ctx, &eventbridgesdk.PutRuleInput{
+		Name:         aws.String(ruleName),
+		EventBusName: aws.String(busName),
+		EventPattern: aws.String(`{"source": ["transform.test"]}`),
+		State:        ebtypes.RuleStateEnabled,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = ebClient.DeleteRule(ctx, &eventbridgesdk.DeleteRuleInput{
+			Name:         aws.String(ruleName),
+			EventBusName: aws.String(busName),
+		})
+	})
+
+	// Add SQS target with InputTransformer.
+	targetsOut, err := ebClient.PutTargets(ctx, &eventbridgesdk.PutTargetsInput{
+		Rule:         aws.String(ruleName),
+		EventBusName: aws.String(busName),
+		Targets: []ebtypes.Target{
+			{
+				Id:  aws.String("t1"),
+				Arn: aws.String(queueARN),
+				InputTransformer: &ebtypes.InputTransformer{
+					InputPathsMap: map[string]string{
+						"src":    "$.source",
+						"detail": "$.detail",
+					},
+					InputTemplate: aws.String(`{"event_source": "<src>", "payload": <detail>}`),
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int32(0), targetsOut.FailedEntryCount)
+
+	// Put a matching event.
+	_, err = ebClient.PutEvents(ctx, &eventbridgesdk.PutEventsInput{
+		Entries: []ebtypes.PutEventsRequestEntry{
+			{
+				Source:       aws.String("transform.test"),
+				DetailType:   aws.String("TransformEvent"),
+				Detail:       aws.String(`{"orderId": "order-123"}`),
+				EventBusName: aws.String(busName),
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	// Poll SQS until message arrives.
+	var received string
+	require.Eventually(t, func() bool {
+		msgs, recvErr := sqsClient.ReceiveMessage(ctx, &sqssdk.ReceiveMessageInput{
+			QueueUrl:            queueOut.QueueUrl,
+			MaxNumberOfMessages: 1,
+			WaitTimeSeconds:     1,
+		})
+		if recvErr != nil || len(msgs.Messages) == 0 {
+			return false
+		}
+		received = aws.ToString(msgs.Messages[0].Body)
+
+		return true
+	}, 10*time.Second, 500*time.Millisecond, "expected SQS message from EventBridge fan-out with InputTransformer")
+
+	assert.Contains(t, received, "transform.test")
+	assert.Contains(t, received, "order-123")
+}
+
+func TestIntegration_EventBridge_InputPath(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	ebClient := createEventBridgeClient(t)
+	sqsClient := createSQSClient(t)
+	ctx := t.Context()
+
+	busName := "inputpath-bus-" + uuid.NewString()[:8]
+	ruleName := "inputpath-rule-" + uuid.NewString()[:8]
+	queueName := "inputpath-queue-" + uuid.NewString()[:8]
+
+	queueOut, err := sqsClient.CreateQueue(ctx, &sqssdk.CreateQueueInput{
+		QueueName: aws.String(queueName),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = sqsClient.DeleteQueue(ctx, &sqssdk.DeleteQueueInput{QueueUrl: queueOut.QueueUrl})
+	})
+
+	attrOut, err := sqsClient.GetQueueAttributes(ctx, &sqssdk.GetQueueAttributesInput{
+		QueueUrl:       queueOut.QueueUrl,
+		AttributeNames: []sqstypes.QueueAttributeName{sqstypes.QueueAttributeNameQueueArn},
+	})
+	require.NoError(t, err)
+	queueARN := attrOut.Attributes["QueueArn"]
+
+	_, err = ebClient.CreateEventBus(ctx, &eventbridgesdk.CreateEventBusInput{
+		Name: aws.String(busName),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = ebClient.DeleteEventBus(ctx, &eventbridgesdk.DeleteEventBusInput{Name: aws.String(busName)})
+	})
+
+	_, err = ebClient.PutRule(ctx, &eventbridgesdk.PutRuleInput{
+		Name:         aws.String(ruleName),
+		EventBusName: aws.String(busName),
+		EventPattern: aws.String(`{"source": ["inputpath.test"]}`),
+		State:        ebtypes.RuleStateEnabled,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = ebClient.DeleteRule(ctx, &eventbridgesdk.DeleteRuleInput{
+			Name:         aws.String(ruleName),
+			EventBusName: aws.String(busName),
+		})
+	})
+
+	inputPath := "$.detail"
+	targetsOut, err := ebClient.PutTargets(ctx, &eventbridgesdk.PutTargetsInput{
+		Rule:         aws.String(ruleName),
+		EventBusName: aws.String(busName),
+		Targets: []ebtypes.Target{
+			{
+				Id:        aws.String("t1"),
+				Arn:       aws.String(queueARN),
+				InputPath: aws.String(inputPath),
+			},
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int32(0), targetsOut.FailedEntryCount)
+
+	_, err = ebClient.PutEvents(ctx, &eventbridgesdk.PutEventsInput{
+		Entries: []ebtypes.PutEventsRequestEntry{
+			{
+				Source:       aws.String("inputpath.test"),
+				DetailType:   aws.String("PathEvent"),
+				Detail:       aws.String(`{"userId": "user-456"}`),
+				EventBusName: aws.String(busName),
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	var received string
+	require.Eventually(t, func() bool {
+		msgs, recvErr := sqsClient.ReceiveMessage(ctx, &sqssdk.ReceiveMessageInput{
+			QueueUrl:            queueOut.QueueUrl,
+			MaxNumberOfMessages: 1,
+			WaitTimeSeconds:     1,
+		})
+		if recvErr != nil || len(msgs.Messages) == 0 {
+			return false
+		}
+		received = aws.ToString(msgs.Messages[0].Body)
+
+		return true
+	}, 10*time.Second, 500*time.Millisecond, "expected SQS message with extracted detail via InputPath")
+
+	// The message should contain only the extracted detail, not the full envelope.
+	assert.Contains(t, received, "user-456")
+	assert.NotContains(t, received, "version")
+}
