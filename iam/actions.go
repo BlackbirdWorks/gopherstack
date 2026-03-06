@@ -35,6 +35,8 @@ var targetServiceMap = map[string]string{
 	"ECS":                      "ecs",
 	"ECR":                      "ecr",
 	"AmazonScheduler":          "scheduler",
+	"APIGateway":               "apigateway",
+	"AWSLambda":                "lambda",
 }
 
 // formVersionServiceMap maps the Version field in form-encoded requests to IAM prefixes.
@@ -47,6 +49,23 @@ var formVersionServiceMap = map[string]string{
 	"2016-11-15": "ec2",
 	"2014-10-31": "rds",
 	"2015-02-02": "elasticache",
+	"2012-12-01": "redshift",
+	"2010-05-15": "cloudformation",
+}
+
+// nonS3RESTPathPrefixes contains path prefixes that belong to other REST-based
+// services and must not be misidentified as S3 paths.
+// These services provide IAM action extraction via ActionExtractor or
+// will be handled by dedicated path-specific extractors added to the list.
+//
+//nolint:gochecknoglobals // read-only package-level lookup table
+var nonS3RESTPathPrefixes = []string{
+	"/2015-03-31/", // Lambda v1
+	"/2020-06-30/", // Lambda v2
+	"/2018-10-31/", // Lambda layers
+	"/2013-04-01/", // Route53
+	"/2021-01-01/", // OpenSearch management
+	"/restapis/",   // API Gateway data-plane
 }
 
 // s3MethodActionMap maps HTTP method to S3 IAM action for object-level requests.
@@ -156,8 +175,20 @@ func formActionToIAMAction(r *http.Request) string {
 }
 
 // extractS3IAMAction determines the S3 IAM action from the HTTP method and URL path.
+// It returns "" for paths that belong to other REST-based services.
 func extractS3IAMAction(r *http.Request) string {
-	path := strings.TrimPrefix(r.URL.Path, "/")
+	path := r.URL.Path
+
+	// Guard: skip known non-S3 REST API paths so they are not misidentified as
+	// S3 bucket/object requests. These services are either handled by the target
+	// map, the form-version map, or an ActionExtractor registered per-service.
+	for _, prefix := range nonS3RESTPathPrefixes {
+		if strings.HasPrefix(path, prefix) {
+			return ""
+		}
+	}
+
+	path = strings.TrimPrefix(path, "/")
 	if path == "" {
 		// ListBuckets
 		if r.Method == http.MethodGet {

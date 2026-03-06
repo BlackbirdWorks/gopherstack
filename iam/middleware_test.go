@@ -234,3 +234,99 @@ func TestExtractAccessKeyIDFromRequest(t *testing.T) {
 		})
 	}
 }
+
+// mockActionExtractor implements iam.ActionExtractor for testing.
+type mockActionExtractor struct {
+	action string
+}
+
+func (m *mockActionExtractor) IAMAction(_ *http.Request) string {
+	return m.action
+}
+
+func TestEnforcementMiddleware_ActionExtractors(t *testing.T) {
+	t.Parallel()
+
+	allowLambda := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"lambda:*","Resource":"*"}]}`
+
+	tests := []struct {
+		setupBackend func(*mockEnforcementBackend)
+		extractor    *mockActionExtractor
+		name         string
+		requestPath  string
+		wantStatus   int
+	}{
+		{
+			name: "extractor_returns_allowed_action",
+			setupBackend: func(b *mockEnforcementBackend) {
+				b.users["alice"] = &iam.User{UserName: "alice"}
+				b.keyMap["AKIAEXT1"] = "alice"
+				b.policies["alice"] = []string{allowLambda}
+			},
+			extractor:   &mockActionExtractor{action: "lambda:InvokeFunction"},
+			requestPath: "/2015-03-31/functions/my-func/invocations",
+			wantStatus:  http.StatusOK,
+		},
+		{
+			name: "extractor_returns_denied_action",
+			setupBackend: func(b *mockEnforcementBackend) {
+				b.users["alice"] = &iam.User{UserName: "alice"}
+				b.keyMap["AKIAEXT2"] = "alice"
+				b.policies["alice"] = []string{allowLambda} // lambda allowed, not s3
+			},
+			extractor:   &mockActionExtractor{action: "s3:GetObject"}, // overrides to s3 → denied
+			requestPath: "/2015-03-31/functions/my-func/invocations",
+			wantStatus:  http.StatusForbidden,
+		},
+		{
+			name: "extractor_returns_empty_passes_through",
+			setupBackend: func(b *mockEnforcementBackend) {
+				b.users["alice"] = &iam.User{UserName: "alice"}
+				b.keyMap["AKIAEXT3"] = "alice"
+				b.policies["alice"] = []string{} // no policies
+			},
+			extractor:   &mockActionExtractor{action: ""},            // empty → no enforcement
+			requestPath: "/2015-03-31/functions/my-func/invocations", // Lambda path excluded from S3 detection
+			wantStatus:  http.StatusOK,                               // passes through when action unknown
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := newMockEnforcementBackend()
+			tt.setupBackend(backend)
+
+			cfg := iam.EnforcementConfig{
+				ActionExtractors: []iam.ActionExtractor{tt.extractor},
+			}
+
+			e := echo.New()
+			e.Use(iam.EnforcementMiddleware(backend, cfg))
+			e.Any("/*", func(c *echo.Context) error {
+				return c.String(http.StatusOK, "ok")
+			})
+
+			req := httptest.NewRequest(http.MethodPost, tt.requestPath, strings.NewReader(""))
+			req.Header.Set(
+				"Authorization",
+				"AWS4-HMAC-SHA256 Credential="+getKey(backend)+"/20230101/us-east-1/lambda/aws4_request",
+			)
+
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+
+			require.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// getKey extracts the access key set by the setup function.
+func getKey(b *mockEnforcementBackend) string {
+	for k := range b.keyMap {
+		return k
+	}
+
+	return "UNKNOWN"
+}

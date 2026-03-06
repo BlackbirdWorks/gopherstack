@@ -207,6 +207,58 @@ func TestExtractIAMAction(t *testing.T) {
 			},
 			want: "",
 		},
+		// APIGateway target-based requests.
+		{
+			name:   "apigateway_create_rest_api",
+			method: http.MethodPost,
+			path:   "/",
+			headers: map[string]string{
+				"X-Amz-Target": "APIGateway.CreateRestApi",
+			},
+			want: "apigateway:CreateRestApi",
+		},
+		// Lambda target-based requests (AWSLambda prefix).
+		{
+			name:   "lambda_invoke_target",
+			method: http.MethodPost,
+			path:   "/",
+			headers: map[string]string{
+				"X-Amz-Target": "AWSLambda.InvokeFunction",
+			},
+			want: "lambda:InvokeFunction",
+		},
+		// Redshift form-encoded requests.
+		{
+			name:        "redshift_describe_clusters",
+			method:      http.MethodPost,
+			path:        "/",
+			contentType: "application/x-www-form-urlencoded",
+			body:        "Action=DescribeClusters&Version=2012-12-01",
+			want:        "redshift:DescribeClusters",
+		},
+		// CloudFormation form-encoded requests.
+		{
+			name:        "cloudformation_create_stack",
+			method:      http.MethodPost,
+			path:        "/",
+			contentType: "application/x-www-form-urlencoded",
+			body:        "Action=CreateStack&Version=2010-05-15&StackName=my-stack",
+			want:        "cloudformation:CreateStack",
+		},
+		// Lambda REST paths must NOT fall through to S3 detection.
+		{
+			name:   "lambda_rest_path_not_s3",
+			method: http.MethodPost,
+			path:   "/2015-03-31/functions/my-func/invocations",
+			want:   "",
+		},
+		// Route53 REST paths must NOT fall through to S3 detection.
+		{
+			name:   "route53_rest_path_not_s3",
+			method: http.MethodGet,
+			path:   "/2013-04-01/hostedzone",
+			want:   "",
+		},
 	}
 
 	for _, tt := range tests {

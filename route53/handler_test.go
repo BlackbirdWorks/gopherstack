@@ -616,3 +616,74 @@ func (m *mockDNSRegistrar) Register(hostname string) {
 func (m *mockDNSRegistrar) Deregister(hostname string) {
 	delete(m.registered, hostname)
 }
+
+func TestHandler_IAMAction(t *testing.T) {
+	t.Parallel()
+
+	h := route53.NewHandler(route53.NewInMemoryBackend())
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		want   string
+	}{
+		{
+			name:   "create_hosted_zone",
+			method: http.MethodPost,
+			path:   "/2013-04-01/hostedzone",
+			want:   "route53:CreateHostedZone",
+		},
+		{
+			name:   "list_hosted_zones",
+			method: http.MethodGet,
+			path:   "/2013-04-01/hostedzone",
+			want:   "route53:ListHostedZones",
+		},
+		{
+			name:   "get_hosted_zone",
+			method: http.MethodGet,
+			path:   "/2013-04-01/hostedzone/ZONE123",
+			want:   "route53:GetHostedZone",
+		},
+		{
+			name:   "delete_hosted_zone",
+			method: http.MethodDelete,
+			path:   "/2013-04-01/hostedzone/ZONE123",
+			want:   "route53:DeleteHostedZone",
+		},
+		{
+			name:   "change_rrset",
+			method: http.MethodPost,
+			path:   "/2013-04-01/hostedzone/ZONE123/rrset",
+			want:   "route53:ChangeResourceRecordSets",
+		},
+		{
+			name:   "list_rrset",
+			method: http.MethodGet,
+			path:   "/2013-04-01/hostedzone/ZONE123/rrset",
+			want:   "route53:ListResourceRecordSets",
+		},
+		{
+			name:   "list_tags",
+			method: http.MethodGet,
+			path:   "/2013-04-01/tags/hostedzone/ZONE123",
+			want:   "route53:ListTagsForResource",
+		},
+		{
+			name:   "change_tags",
+			method: http.MethodPost,
+			path:   "/2013-04-01/tags/hostedzone/ZONE123",
+			want:   "route53:ChangeTagsForResource",
+		},
+		{name: "non_route53_path", method: http.MethodGet, path: "/s3/bucket", want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			assert.Equal(t, tt.want, h.IAMAction(req))
+		})
+	}
+}

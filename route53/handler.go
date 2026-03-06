@@ -137,6 +137,41 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	return ""
 }
 
+// IAMAction returns the IAM action for a Route53 HTTP request.
+// It implements iam.ActionExtractor, providing per-service action extraction
+// for Route53 REST API paths that are not covered by the global action mapper.
+func (h *Handler) IAMAction(r *http.Request) string {
+	path := r.URL.Path
+	if !strings.HasPrefix(path, route53PathPrefix) {
+		return ""
+	}
+
+	method := r.Method
+
+	switch {
+	case path == route53HostedZone && method == http.MethodPost:
+		return "route53:CreateHostedZone"
+	case path == route53HostedZone && method == http.MethodGet:
+		return "route53:ListHostedZones"
+	case strings.HasSuffix(path, route53RRSetSuffix) && method == http.MethodPost:
+		return "route53:ChangeResourceRecordSets"
+	case strings.HasSuffix(path, route53RRSetSuffix) && method == http.MethodGet:
+		return "route53:ListResourceRecordSets"
+	case strings.HasPrefix(path, route53TagsPrefix):
+		if method == http.MethodGet {
+			return "route53:ListTagsForResource"
+		}
+
+		return "route53:ChangeTagsForResource"
+	case method == http.MethodDelete:
+		return "route53:DeleteHostedZone"
+	case method == http.MethodGet:
+		return "route53:GetHostedZone"
+	}
+
+	return "route53:GetChange"
+}
+
 // routeRequest dispatches Route 53 requests to the appropriate handler.
 func (h *Handler) routeRequest(c *echo.Context, path, method string) error {
 	switch {

@@ -49,6 +49,10 @@ type EnforcementConfig struct {
 	// ResourceProviders is a list of backends that can return resource-based
 	// policies (e.g. S3 bucket policies, SQS queue policies).
 	ResourceProviders []ResourcePolicyProvider
+	// ActionExtractors is an optional list of per-service extractors consulted
+	// when the global ExtractIAMAction function cannot determine the IAM action
+	// (e.g. for REST-based services that bypass the standard mappers).
+	ActionExtractors []ActionExtractor
 }
 
 // EnforcementMiddleware returns an Echo middleware that enforces IAM policies on
@@ -116,6 +120,10 @@ func enforceIAMPolicy(c *echo.Context, next echo.HandlerFunc, backend Enforcemen
 
 	action := ExtractIAMAction(r)
 	if action == "" {
+		action = extractActionFromProviders(r, cfg.ActionExtractors)
+	}
+
+	if action == "" {
 		// Cannot determine action — allow to avoid false denials.
 		return next(c)
 	}
@@ -171,6 +179,17 @@ func enforceIAMPolicy(c *echo.Context, next echo.HandlerFunc, backend Enforcemen
 	}
 
 	return next(c)
+}
+
+// extractActionFromProviders calls each action extractor until one returns a non-empty action.
+func extractActionFromProviders(r *http.Request, extractors []ActionExtractor) string {
+	for _, ae := range extractors {
+		if action := ae.IAMAction(r); action != "" {
+			return action
+		}
+	}
+
+	return ""
 }
 
 // collectResourcePolicies queries all registered resource policy providers for

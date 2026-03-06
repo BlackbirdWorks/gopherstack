@@ -14,6 +14,18 @@ type ResourcePolicyProvider interface {
 	GetResourcePolicy(ctx context.Context, resourceARN string) (string, error)
 }
 
+// ActionExtractor is an optional interface that service handlers can implement
+// to provide IAM action extraction for their specific request patterns.
+// It is used by the enforcement middleware as a fallback when the global action
+// mapper cannot determine the IAM action (e.g. for REST-based services like
+// Lambda and Route53 that do not use X-Amz-Target or form-encoded bodies).
+//
+// Each extractor must first check whether the request belongs to its service
+// (e.g. by path prefix) and return "" when the request is not its own.
+type ActionExtractor interface {
+	IAMAction(r *http.Request) string
+}
+
 // extractResourceARN attempts to derive the AWS ARN of the resource being
 // accessed from the HTTP request path and context.
 //

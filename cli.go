@@ -1302,6 +1302,7 @@ func setupRegistry(
 				AccountID:         globalCfg.AccountID,
 				Region:            globalCfg.Region,
 				ResourceProviders: buildResourcePolicyProviders(services),
+				ActionExtractors:  buildActionExtractors(services),
 			}
 
 			registry.Use(service.Middleware(iambackend.EnforcementMiddleware(iamBackend, ecfg)))
@@ -1335,6 +1336,21 @@ func findIAMBackend(services []service.Registerable) iambackend.EnforcementBacke
 	}
 
 	return nil
+}
+
+// buildActionExtractors collects ActionExtractor implementations from all registered
+// services. Services that implement the iam.ActionExtractor interface are automatically
+// included so their REST-API action mappings are used by the enforcement middleware.
+func buildActionExtractors(services []service.Registerable) []iambackend.ActionExtractor {
+	var extractors []iambackend.ActionExtractor
+
+	for _, svc := range services {
+		if ae, ok := svc.(iambackend.ActionExtractor); ok {
+			extractors = append(extractors, ae)
+		}
+	}
+
+	return extractors
 }
 
 // buildResourcePolicyProviders builds a list of ResourcePolicyProvider adapters
