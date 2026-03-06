@@ -3,6 +3,7 @@
 /PLAN.md
 /new.sh
 /**/*.out
+/awsgs
 *.out
 main 
 **/main

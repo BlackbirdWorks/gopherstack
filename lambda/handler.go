@@ -32,6 +32,10 @@ const esmPathPrefix = "/2015-03-31/event-source-mappings"
 // lambdaTagsPathPrefix is the path prefix for Lambda resource tag endpoints.
 const lambdaTagsPathPrefix = "/2015-03-31/tags"
 
+// lambdaLayersPathPrefix is the path prefix for Lambda Layers endpoints.
+// The Lambda Layers API uses the 2018-10-31 date version.
+const lambdaLayersPathPrefix = "/2018-10-31/layers"
+
 type lambdaTagsInput struct {
 	Tags *tags.Tags `json:"Tags"`
 }
@@ -172,6 +176,14 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListTags",
 		"TagResource",
 		"UntagResource",
+		"PublishLayerVersion",
+		"GetLayerVersion",
+		"ListLayers",
+		"ListLayerVersions",
+		"DeleteLayerVersion",
+		"GetLayerVersionPolicy",
+		"AddLayerVersionPermission",
+		"RemoveLayerVersionPermission",
 	}
 }
 
@@ -185,6 +197,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			strings.HasPrefix(path, lambda2020PathPrefix) ||
 			strings.HasPrefix(path, esmPathPrefix) ||
 			strings.HasPrefix(path, lambdaTagsPathPrefix) ||
+			strings.HasPrefix(path, lambdaLayersPathPrefix) ||
 			strings.HasPrefix(target, "AWSLambda")
 	}
 }
@@ -192,10 +205,83 @@ func (h *Handler) RouteMatcher() service.Matcher {
 // MatchPriority returns the routing priority for the Lambda handler.
 func (h *Handler) MatchPriority() int { return service.PriorityHeaderPartial }
 
+// layerVersionsPath is the segment name for layer version sub-paths.
+const layerVersionsPath = "versions"
+
+// layerPolicyPath is the segment name for layer policy sub-paths.
+const layerPolicyPath = "policy"
+
+// layerOpKey is the lookup key used to map a layer route to an operation name.
+type layerOpKey struct {
+	method   string
+	lastSeg  string
+	numParts int
+}
+
+// Layer path part count constants for lookup table.
+const (
+	// layerRootParts is the number of path parts for the root layers path (no segments after prefix).
+	layerRootParts = 0
+	// layerVersionListParts is the number of path parts for /{layerName}/versions.
+	layerVersionListParts = 2
+	// layerVersionItemParts is the number of path parts for /{layerName}/versions/{version}.
+	layerVersionItemParts = 3
+	// layerPolicyParts is the number of path parts when the policy segment is present.
+	layerPolicyParts = 4
+)
+
+// layerOpTable maps (method, numParts, lastSegment) to an operation name.
+//
+//nolint:gochecknoglobals // intentional package-level lookup table
+var layerOpTable = map[layerOpKey]string{
+	{method: http.MethodGet, numParts: layerRootParts}:                                     "ListLayers",
+	{method: http.MethodGet, numParts: layerVersionListParts, lastSeg: layerVersionsPath}:  "ListLayerVersions",
+	{method: http.MethodPost, numParts: layerVersionListParts, lastSeg: layerVersionsPath}: "PublishLayerVersion",
+	{method: http.MethodGet, numParts: layerVersionItemParts}:                              "GetLayerVersion",
+	{method: http.MethodDelete, numParts: layerVersionItemParts}:                           "DeleteLayerVersion",
+	{method: http.MethodGet, numParts: layerPolicyParts, lastSeg: layerPolicyPath}:         "GetLayerVersionPolicy",
+	{method: http.MethodPost, numParts: layerPolicyParts, lastSeg: layerPolicyPath}:        "AddLayerVersionPermission",
+	{method: http.MethodDelete, numParts: layerPathMaxParts, lastSeg: layerPolicyPath}:     "RemoveLayerVersionPermission",
+}
+
+// extractLayerOperation returns the operation name for a layer path, or "" if not matched.
+func extractLayerOperation(rest, method string) string {
+	if rest == "" {
+		return layerOpTable[layerOpKey{method: method, numParts: layerRootParts}]
+	}
+
+	parts := strings.SplitN(rest, "/", layerPathMaxParts)
+	if len(parts) < layerVersionListParts || parts[1] != layerVersionsPath {
+		return ""
+	}
+
+	n := len(parts)
+
+	// For versioned routes (n>=layerPolicyParts), the relevant discriminating segment is
+	// parts[3] (the "policy" marker); for shorter paths the version number in parts[2] is
+	// not a meaningful key so lastSeg stays empty.
+	lastSeg := ""
+	if n >= layerPolicyParts {
+		lastSeg = parts[layerVersionItemParts]
+	}
+
+	return layerOpTable[layerOpKey{method: method, numParts: n, lastSeg: lastSeg}]
+}
+
 // ExtractOperation returns the Lambda operation name derived from the request method and path.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
-	rest := strings.TrimPrefix(c.Request().URL.Path, lambdaPathPrefix)
+	path := c.Request().URL.Path
 	method := c.Request().Method
+
+	// Identify layer operations first (different path prefix).
+	if after, ok := strings.CutPrefix(path, lambdaLayersPathPrefix); ok {
+		rest := strings.TrimPrefix(after, "/")
+		if op := extractLayerOperation(rest, method); op != "" {
+			return op
+		}
+	}
+
+	rest := strings.TrimPrefix(path, lambdaPathPrefix)
 
 	for _, route := range lambdaOpRoutes {
 		if route.method == method && route.match(rest) {
@@ -400,6 +486,11 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		// Handle tags routes
 		if strings.HasPrefix(path, lambdaTagsPathPrefix) {
 			return h.handleTagsRoute(c, method)
+		}
+
+		// Handle layers routes
+		if strings.HasPrefix(path, lambdaLayersPathPrefix) {
+			return h.handleLayersRoute(c, path, method)
 		}
 
 		// Handle 2020-06-30 API routes (e.g. GetFunctionCodeSigningConfig)
@@ -656,6 +747,7 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 		MemorySize:   memorySize,
 		Timeout:      timeout,
 		Environment:  input.Environment,
+		Layers:       layerARNsToFunctionLayers(input.Layers),
 		State:        FunctionStateActive,
 		CreatedAt:    now,
 		LastModified: now.Format(time.RFC3339),
@@ -819,6 +911,10 @@ func (h *Handler) handleUpdateFunctionConfiguration(c *echo.Context, name string
 
 	if input.Handler != "" {
 		fn.Handler = input.Handler
+	}
+
+	if input.Layers != nil {
+		fn.Layers = layerARNsToFunctionLayers(input.Layers)
 	}
 
 	fn.LastModified = time.Now().UTC().Format(time.RFC3339)
@@ -1001,6 +1097,20 @@ func buildCodeLocation(fn *FunctionConfiguration) *FunctionCodeLocation {
 // buildARN constructs a Lambda function ARN.
 func buildARN(region, accountID, functionName string) string {
 	return arn.Build("lambda", region, accountID, "function:"+functionName)
+}
+
+// layerARNsToFunctionLayers converts a list of layer ARN strings to FunctionLayer structs.
+func layerARNsToFunctionLayers(arns []string) []*FunctionLayer {
+	if len(arns) == 0 {
+		return nil
+	}
+
+	layers := make([]*FunctionLayer, len(arns))
+	for i, a := range arns {
+		layers[i] = &FunctionLayer{Arn: a}
+	}
+
+	return layers
 }
 
 // defaultMemorySize is the default Lambda function memory in MB.
@@ -1216,6 +1326,261 @@ func (h *Handler) handleDeleteAlias(c *echo.Context, name, aliasName string) err
 		if errors.Is(err, ErrAliasNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
 				fmt.Sprintf("Alias not found: %s", aliasName))
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+// layerPathMaxParts is the maximum number of path segments to split when parsing a layer route.
+// Format: layerName / "versions" / versionNumber / "policy" / statementId.
+const layerPathMaxParts = 5
+
+// handleLayersRoute dispatches Lambda Layers REST API requests.
+// Path format: /2018-10-31/layers[/{layerName}[/versions[/{versionNumber}[/policy[/{statementId}]]]]].
+func (h *Handler) handleLayersRoute(c *echo.Context, path, method string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	rest := strings.TrimPrefix(path, lambdaLayersPathPrefix)
+	rest = strings.TrimPrefix(rest, "/")
+
+	// GET /2018-10-31/layers → ListLayers
+	if rest == "" && method == http.MethodGet {
+		return h.handleListLayers(c, lambdaBk)
+	}
+
+	// Parse: {layerName}[/versions[/{versionNumber}[/policy[/{statementId}]]]]
+	parts := strings.SplitN(rest, "/", layerPathMaxParts)
+	layerName := parts[0]
+
+	if len(parts) == 1 || parts[1] != layerVersionsPath {
+		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+	}
+
+	// GET /2018-10-31/layers/{layerName}/versions → ListLayerVersions
+	if len(parts) == 2 && method == http.MethodGet {
+		return h.handleListLayerVersions(c, lambdaBk, layerName)
+	}
+
+	// POST /2018-10-31/layers/{layerName}/versions → PublishLayerVersion
+	if len(parts) == 2 && method == http.MethodPost {
+		return h.handlePublishLayerVersion(c, lambdaBk, layerName)
+	}
+
+	if len(parts) < 3 { //nolint:mnd // minimum parts for versioned sub-routes: layerName, "versions", versionNum
+		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+	}
+
+	version, parseErr := parseLayerVersion(parts[2])
+	if parseErr != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid version number")
+	}
+
+	return h.handleLayerVersionedRoutes(c, lambdaBk, layerName, version, parts, method)
+}
+
+// handleLayerVersionedRoutes dispatches routes that require a specific layer version number.
+func (h *Handler) handleLayerVersionedRoutes(
+	c *echo.Context, bk *InMemoryBackend, layerName string, version int64, parts []string, method string,
+) error {
+	// GET/DELETE /2018-10-31/layers/{layerName}/versions/{versionNumber}
+	if len(parts) == 3 { //nolint:mnd // parts: layerName, "versions", versionNum
+		switch method {
+		case http.MethodGet:
+			return h.handleGetLayerVersion(c, bk, layerName, version)
+		case http.MethodDelete:
+			return h.handleDeleteLayerVersion(c, bk, layerName, version)
+		}
+	}
+
+	if len(parts) < 4 || parts[3] != layerPolicyPath {
+		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+	}
+
+	// GET/POST /2018-10-31/layers/{layerName}/versions/{versionNumber}/policy
+	if len(parts) == 4 { //nolint:mnd // parts: layerName, "versions", versionNum, "policy"
+		switch method {
+		case http.MethodGet:
+			return h.handleGetLayerVersionPolicy(c, bk, layerName, version)
+		case http.MethodPost:
+			return h.handleAddLayerVersionPermission(c, bk, layerName, version)
+		}
+	}
+
+	// DELETE /2018-10-31/layers/{layerName}/versions/{versionNumber}/policy/{statementId}
+	if len(parts) == layerPathMaxParts && method == http.MethodDelete {
+		return h.handleRemoveLayerVersionPermission(c, bk, layerName, version, parts[4])
+	}
+
+	return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "route not found")
+}
+
+// parseLayerVersion parses a layer version string to int64.
+func parseLayerVersion(s string) (int64, error) {
+	var v int64
+
+	_, err := fmt.Sscanf(s, "%d", &v)
+	if err != nil {
+		return 0, err
+	}
+
+	return v, nil
+}
+
+func (h *Handler) handleListLayers(c *echo.Context, bk *InMemoryBackend) error {
+	layers := bk.ListLayers()
+
+	return c.JSON(http.StatusOK, &ListLayersOutput{Layers: layers})
+}
+
+func (h *Handler) handleListLayerVersions(c *echo.Context, bk *InMemoryBackend, layerName string) error {
+	versions, err := bk.ListLayerVersions(layerName)
+	if err != nil {
+		if errors.Is(err, ErrLayerNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Layer not found: %s", layerName))
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+	}
+
+	return c.JSON(http.StatusOK, &ListLayerVersionsOutput{LayerVersions: versions})
+}
+
+func (h *Handler) handlePublishLayerVersion(c *echo.Context, bk *InMemoryBackend, layerName string) error {
+	body, err := httputil.ReadBody(c.Request())
+	if err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
+	}
+
+	var input PublishLayerVersionInput
+	if len(body) > 0 {
+		if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
+		}
+	}
+
+	input.LayerName = layerName
+
+	if input.Content == nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "Content is required")
+	}
+
+	out, publishErr := bk.PublishLayerVersion(&input)
+	if publishErr != nil {
+		if errors.Is(publishErr, ErrInvalidParameterValue) {
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", publishErr.Error())
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", publishErr.Error())
+	}
+
+	return c.JSON(http.StatusCreated, out)
+}
+
+func (h *Handler) handleGetLayerVersion(c *echo.Context, bk *InMemoryBackend, layerName string, version int64) error {
+	out, err := bk.GetLayerVersion(layerName, version)
+	if err != nil {
+		if errors.Is(err, ErrLayerNotFound) || errors.Is(err, ErrLayerVersionNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Layer version not found: %s:%d", layerName, version))
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+	}
+
+	return c.JSON(http.StatusOK, out)
+}
+
+func (h *Handler) handleDeleteLayerVersion(
+	c *echo.Context,
+	bk *InMemoryBackend,
+	layerName string,
+	version int64,
+) error {
+	if err := bk.DeleteLayerVersion(layerName, version); err != nil {
+		if errors.Is(err, ErrLayerNotFound) || errors.Is(err, ErrLayerVersionNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Layer version not found: %s:%d", layerName, version))
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *Handler) handleGetLayerVersionPolicy(
+	c *echo.Context,
+	bk *InMemoryBackend,
+	layerName string,
+	version int64,
+) error {
+	policy, err := bk.GetLayerVersionPolicy(layerName, version)
+	if err != nil {
+		if errors.Is(err, ErrLayerNotFound) || errors.Is(err, ErrLayerVersionNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Layer version not found: %s:%d", layerName, version))
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+	}
+
+	return c.JSON(http.StatusOK, policy)
+}
+
+func (h *Handler) handleAddLayerVersionPermission(
+	c *echo.Context, bk *InMemoryBackend, layerName string, version int64,
+) error {
+	body, err := httputil.ReadBody(c.Request())
+	if err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
+	}
+
+	var input AddLayerVersionPermissionInput
+	if len(body) > 0 {
+		if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
+		}
+	}
+
+	if input.StatementID == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "StatementId is required")
+	}
+
+	if input.Action == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "Action is required")
+	}
+
+	if input.Principal == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "Principal is required")
+	}
+
+	out, addErr := bk.AddLayerVersionPermission(layerName, version, &input)
+	if addErr != nil {
+		if errors.Is(addErr, ErrLayerNotFound) || errors.Is(addErr, ErrLayerVersionNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Layer version not found: %s:%d", layerName, version))
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", addErr.Error())
+	}
+
+	return c.JSON(http.StatusCreated, out)
+}
+
+func (h *Handler) handleRemoveLayerVersionPermission(
+	c *echo.Context, bk *InMemoryBackend, layerName string, version int64, statementID string,
+) error {
+	if err := bk.RemoveLayerVersionPermission(layerName, version, statementID); err != nil {
+		if errors.Is(err, ErrLayerNotFound) || errors.Is(err, ErrLayerVersionNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Layer version not found: %s:%d", layerName, version))
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())

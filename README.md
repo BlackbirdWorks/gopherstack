@@ -15,6 +15,22 @@ Gopherstack is a lightweight, in-memory AWS stack implementation for Go. It prov
 > [!IMPORTANT]
 > **This project is vibe coded.** 🚀 It's built for speed, performance, and developer experience.
 
+## Quick Start
+
+The fastest way to get started is to pull and run the Gopherstack Docker image:
+
+```bash
+docker run -p 8000:8000 ghcr.io/blackbirdworks/gopherstack:latest
+```
+
+Once running, open the built-in web dashboard in your browser:
+
+```
+http://localhost:8000/dashboard
+```
+
+The dashboard lets you browse and manage DynamoDB tables, S3 buckets, and more — no AWS credentials required. Point any AWS SDK or CLI at `http://localhost:8000` as the endpoint URL and start building.
+
 ## Features
 
 ### DynamoDB
