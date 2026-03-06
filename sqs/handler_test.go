@@ -215,7 +215,7 @@ func TestHandlerActions_Routing(t *testing.T) {
 				"MessageBody": "hello",
 			},
 			wantCode:        http.StatusBadRequest,
-			wantBodyContain: "NonExistentQueue",
+			wantBodyContain: "QueueDoesNotExist",
 		},
 	}
 
@@ -1017,7 +1017,7 @@ func TestHandlerActions_ErrorBackend(t *testing.T) {
 			action:          "ListQueues",
 			body:            map[string]any{},
 			wantCode:        http.StatusBadRequest,
-			wantBodyContain: "NonExistentQueue",
+			wantBodyContain: "QueueDoesNotExist",
 		},
 		{
 			name:            "invalid attribute",

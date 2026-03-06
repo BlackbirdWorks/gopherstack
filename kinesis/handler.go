@@ -675,7 +675,7 @@ func errorDetails(err error) (string, string, int) {
 			"The requested operation is not recognized.",
 			http.StatusBadRequest
 	default:
-		return "InternalFailure",
+		return "InternalFailureException",
 			"An internal error occurred.",
 			http.StatusInternalServerError
 	}

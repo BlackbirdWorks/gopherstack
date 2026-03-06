@@ -354,3 +354,76 @@ func TestSWFProvider(t *testing.T) {
 		assert.Equal(t, "SWF", svc.Name())
 	})
 }
+
+// TestSWFHandler_ErrorTypes verifies that typed SWF faults include __type in the JSON response
+// so that the AWS SDK v2 can deserialize them to the correct error types.
+func TestSWFHandler_ErrorTypes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body     any
+		name     string
+		action   string
+		wantType string
+		setup    []setupAction
+		wantCode int
+	}{
+		{
+			name:   "DomainAlreadyExistsFault",
+			action: "RegisterDomain",
+			setup: []setupAction{
+				{action: "RegisterDomain", body: map[string]any{"name": "dup-domain"}},
+			},
+			body:     map[string]any{"name": "dup-domain"},
+			wantCode: http.StatusBadRequest,
+			wantType: "DomainAlreadyExistsFault",
+		},
+		{
+			name:   "DomainDeprecatedFault",
+			action: "RegisterDomain",
+			setup: []setupAction{
+				{action: "RegisterDomain", body: map[string]any{"name": "dep-domain"}},
+				{action: "DeprecateDomain", body: map[string]any{"name": "dep-domain"}},
+			},
+			body:     map[string]any{"name": "dep-domain"},
+			wantCode: http.StatusBadRequest,
+			wantType: "DomainDeprecatedFault",
+		},
+		{
+			name:   "TypeAlreadyExistsFault",
+			action: "RegisterWorkflowType",
+			setup: []setupAction{
+				{action: "RegisterWorkflowType", body: map[string]any{"domain": "d1", "name": "wf1", "version": "1.0"}},
+			},
+			body:     map[string]any{"domain": "d1", "name": "wf1", "version": "1.0"},
+			wantCode: http.StatusBadRequest,
+			wantType: "TypeAlreadyExistsFault",
+		},
+		{
+			name:     "UnknownResourceFault",
+			action:   "DeprecateDomain",
+			body:     map[string]any{"name": "nonexistent"},
+			wantCode: http.StatusNotFound,
+			wantType: "UnknownResourceFault",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestSWFHandler(t)
+
+			for _, s := range tt.setup {
+				doSWFRequest(t, h, s.action, s.body)
+			}
+
+			rec := doSWFRequest(t, h, tt.action, tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			var resp map[string]string
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.Equal(t, tt.wantType, resp["__type"])
+		})
+	}
+}

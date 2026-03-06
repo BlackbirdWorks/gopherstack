@@ -134,7 +134,12 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 
 	switch {
 	case errors.Is(err, ErrNotFound):
-		return c.JSON(http.StatusNotFound, map[string]string{"message": err.Error()})
+		payload, _ := json.Marshal(service.JSONErrorResponse{
+			Type:    "ResourceNotFoundException",
+			Message: err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusNotFound, payload)
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})

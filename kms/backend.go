@@ -27,6 +27,12 @@ var (
 	ErrAliasAlreadyExists = errors.New("AlreadyExistsException")
 	// ErrKeyDisabled is returned when an operation is attempted on a disabled key.
 	ErrKeyDisabled = errors.New("DisabledException")
+	// ErrKeyInvalidState is returned when a key is in a state that does not allow the requested
+	// operation (e.g. PendingDeletion).
+	ErrKeyInvalidState = errors.New("KMSInvalidStateException")
+	// ErrInvalidKeyUsage is returned when the key is used for an operation incompatible with its
+	// KeyUsage (e.g. encrypting with a SIGN_VERIFY key).
+	ErrInvalidKeyUsage = errors.New("InvalidKeyUsageException")
 	// ErrInvalidCiphertext is returned when the ciphertext cannot be decrypted.
 	ErrInvalidCiphertext = errors.New("InvalidCiphertextException")
 	// ErrGrantNotFound is returned when the specified grant does not exist.
@@ -236,8 +242,11 @@ func (b *InMemoryBackend) CreateKey(input *CreateKeyInput) (*CreateKeyOutput, er
 		Enabled:      true,
 	}
 
-	if keyUsage == KeyUsageEncryptDecrypt {
+	switch keyUsage {
+	case KeyUsageEncryptDecrypt:
 		key.KeySpec = "SYMMETRIC_DEFAULT"
+	case KeyUsageSignVerify:
+		key.KeySpec = "RSA_2048"
 	}
 
 	b.keys[keyID] = key
@@ -316,7 +325,11 @@ func (b *InMemoryBackend) Encrypt(input *EncryptInput) (*EncryptOutput, error) {
 	}
 
 	if key.KeyState != KeyStateEnabled {
-		return nil, ErrKeyDisabled
+		return nil, keyStateError(key)
+	}
+
+	if key.KeyUsage != KeyUsageEncryptDecrypt {
+		return nil, fmt.Errorf("%w: key %q is not usable for encryption", ErrInvalidKeyUsage, key.KeyID)
 	}
 
 	blob, encErr := encryptData(input.Plaintext, key.KeyID)
@@ -346,7 +359,11 @@ func (b *InMemoryBackend) Decrypt(input *DecryptInput) (*DecryptOutput, error) {
 	}
 
 	if key.KeyState != KeyStateEnabled {
-		return nil, ErrKeyDisabled
+		return nil, keyStateError(key)
+	}
+
+	if key.KeyUsage != KeyUsageEncryptDecrypt {
+		return nil, fmt.Errorf("%w: key %q is not usable for decryption", ErrInvalidKeyUsage, key.KeyID)
 	}
 
 	return &DecryptOutput{
@@ -366,7 +383,11 @@ func (b *InMemoryBackend) GenerateDataKey(input *GenerateDataKeyInput) (*Generat
 	}
 
 	if key.KeyState != KeyStateEnabled {
-		return nil, ErrKeyDisabled
+		return nil, keyStateError(key)
+	}
+
+	if key.KeyUsage != KeyUsageEncryptDecrypt {
+		return nil, fmt.Errorf("%w: key %q is not usable for data key generation", ErrInvalidKeyUsage, key.KeyID)
 	}
 
 	// Validate requested data key size to prevent excessive memory allocation.
@@ -411,7 +432,11 @@ func (b *InMemoryBackend) ReEncrypt(input *ReEncryptInput) (*ReEncryptOutput, er
 	}
 
 	if destKey.KeyState != KeyStateEnabled {
-		return nil, ErrKeyDisabled
+		return nil, keyStateError(destKey)
+	}
+
+	if destKey.KeyUsage != KeyUsageEncryptDecrypt {
+		return nil, fmt.Errorf("%w: destination key %q is not usable for encryption", ErrInvalidKeyUsage, destKey.KeyID)
 	}
 
 	blob, encErr := encryptData(plaintext, destKey.KeyID)
@@ -670,6 +695,17 @@ func (b *InMemoryBackend) lookupKeyWrite(keyID string) (*Key, error) {
 	return b.lookupKey(keyID)
 }
 
+// keyStateError returns the appropriate error for a key that is not in the Enabled state.
+// Disabled keys return ErrKeyDisabled; keys in any other non-enabled state (e.g. PendingDeletion)
+// return ErrKeyInvalidState, matching the KMSInvalidStateException that AWS raises.
+func keyStateError(key *Key) error {
+	if key.KeyState == KeyStateDisabled {
+		return ErrKeyDisabled
+	}
+
+	return ErrKeyInvalidState
+}
+
 // keyToMetadata converts a Key to its KeyMetadata representation.
 func keyToMetadata(k *Key) KeyMetadata {
 	meta := KeyMetadata{
@@ -684,9 +720,12 @@ func keyToMetadata(k *Key) KeyMetadata {
 		MultiRegion:  false,
 	}
 
-	if k.KeyUsage == KeyUsageEncryptDecrypt {
+	switch k.KeyUsage {
+	case KeyUsageEncryptDecrypt:
 		meta.KeySpec = "SYMMETRIC_DEFAULT"
 		meta.EncryptionAlgorithms = []string{"SYMMETRIC_DEFAULT"}
+	case KeyUsageSignVerify:
+		meta.KeySpec = "RSA_2048"
 	}
 
 	return meta

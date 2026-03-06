@@ -234,7 +234,7 @@ func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) err
 	case errors.Is(opErr, ErrClusterAlreadyExists):
 		code = "ClusterAlreadyExists"
 	case errors.Is(opErr, ErrInvalidParameter):
-		code = "InvalidParameterValue"
+		code = "RedshiftInvalidParameter"
 	default:
 		code = "InternalFailure"
 		statusCode = http.StatusInternalServerError

@@ -13,6 +13,7 @@ var (
 	ErrInvalidAttribute      = errors.New("InvalidAttributeValue")
 	ErrInvalidBatchEntry     = errors.New("AWS.SimpleQueueService.EmptyBatchRequest")
 	ErrReceiptHandleInvalid  = errors.New("ReceiptHandleIsInvalid")
+	ErrMessageNotInflight    = errors.New("MessageNotInflight")
 	ErrTooManyEntriesInBatch = errors.New("AWS.SimpleQueueService.TooManyEntriesInBatchRequest")
 	ErrUnknownAction         = errors.New("InvalidAction")
 )

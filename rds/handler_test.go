@@ -375,7 +375,7 @@ func TestRDSHandler_FormActions(t *testing.T) {
 			name:         "DescribeDBSubnetGroups_NotFound",
 			body:         "Action=DescribeDBSubnetGroups&Version=2014-10-31&DBSubnetGroupName=nonexistent",
 			wantCode:     http.StatusBadRequest,
-			wantContains: []string{"DBSubnetGroupNotFound"},
+			wantContains: []string{"DBSubnetGroupNotFoundFault"},
 		},
 		{
 			name:         "DeleteDBSubnetGroup",
@@ -388,7 +388,7 @@ func TestRDSHandler_FormActions(t *testing.T) {
 			name:         "DeleteDBSubnetGroup_NotFound",
 			body:         "Action=DeleteDBSubnetGroup&Version=2014-10-31&DBSubnetGroupName=nonexistent",
 			wantCode:     http.StatusBadRequest,
-			wantContains: []string{"DBSubnetGroupNotFound"},
+			wantContains: []string{"DBSubnetGroupNotFoundFault"},
 		},
 		{
 			name: "ListTagsForResource",

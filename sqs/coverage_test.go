@@ -53,7 +53,7 @@ func TestChangeMessageVisibility_InvalidHandle(t *testing.T) {
 	}{
 		{
 			name:    "invalid_receipt_handle",
-			wantErr: sqs.ErrReceiptHandleInvalid,
+			wantErr: sqs.ErrMessageNotInflight,
 		},
 	}
 
