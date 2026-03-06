@@ -759,6 +759,7 @@ func TestKMSHandlerErrorCases(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup          func(b *kms.InMemoryBackend, defaultKeyID string) string
 		target         string
 		body           string
 		name           string
@@ -780,9 +781,17 @@ func TestKMSHandlerErrorCases(t *testing.T) {
 			expectedErrTyp: "InvalidCiphertextException",
 		},
 		{
-			name:           "AliasAlreadyExists",
-			target:         "TrentService.CreateAlias",
-			body:           `{"AliasName":"alias/dup","TargetKeyId":"PLACEHOLDER"}`,
+			name:   "AliasAlreadyExists",
+			target: "TrentService.CreateAlias",
+			body:   `{"AliasName":"alias/dup","TargetKeyId":"PLACEHOLDER"}`,
+			setup: func(b *kms.InMemoryBackend, keyID string) string {
+				_ = b.CreateAlias(&kms.CreateAliasInput{
+					AliasName:   "alias/dup",
+					TargetKeyID: keyID,
+				})
+
+				return keyID
+			},
 			expectedStatus: http.StatusBadRequest,
 			expectedErrTyp: "AlreadyExistsException",
 		},
@@ -792,6 +801,33 @@ func TestKMSHandlerErrorCases(t *testing.T) {
 			body:           `{"AliasName":"alias/missing-alias"}`,
 			expectedStatus: http.StatusBadRequest,
 			expectedErrTyp: "NotFoundException",
+		},
+		{
+			name:   "InvalidKeyUsageException",
+			target: "TrentService.Encrypt",
+			body:   `{"KeyId":"PLACEHOLDER","Plaintext":"aGVsbG8="}`,
+			setup: func(b *kms.InMemoryBackend, _ string) string {
+				out, _ := b.CreateKey(&kms.CreateKeyInput{KeyUsage: kms.KeyUsageSignVerify})
+
+				return out.KeyMetadata.KeyID
+			},
+			expectedStatus: http.StatusBadRequest,
+			expectedErrTyp: "InvalidKeyUsageException",
+		},
+		{
+			name:   "KMSInvalidStateException",
+			target: "TrentService.Encrypt",
+			body:   `{"KeyId":"PLACEHOLDER","Plaintext":"aGVsbG8="}`,
+			setup: func(b *kms.InMemoryBackend, keyID string) string {
+				_, _ = b.ScheduleKeyDeletion(&kms.ScheduleKeyDeletionInput{
+					KeyID:               keyID,
+					PendingWindowInDays: 7,
+				})
+
+				return keyID
+			},
+			expectedStatus: http.StatusBadRequest,
+			expectedErrTyp: "KMSInvalidStateException",
 		},
 	}
 
@@ -809,16 +845,11 @@ func TestKMSHandlerErrorCases(t *testing.T) {
 			require.NoError(t, err)
 			keyID := created.KeyMetadata.KeyID
 
-			body := strings.ReplaceAll(tt.body, "PLACEHOLDER", keyID)
-
-			if tt.name == "AliasAlreadyExists" {
-				// Pre-create the alias
-				_ = backend.CreateAlias(&kms.CreateAliasInput{
-					AliasName:   "alias/dup",
-					TargetKeyID: keyID,
-				})
-				body = strings.ReplaceAll(tt.body, "PLACEHOLDER", keyID)
+			if tt.setup != nil {
+				keyID = tt.setup(backend, keyID)
 			}
+
+			body := strings.ReplaceAll(tt.body, "PLACEHOLDER", keyID)
 
 			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
 			req.Header.Set("X-Amz-Target", tt.target)
@@ -1450,26 +1481,4 @@ func TestKMSBackendInvalidKeyUsage(t *testing.T) {
 			require.ErrorIs(t, err, kms.ErrInvalidKeyUsage)
 		})
 	}
-}
-
-// TestKMSHandlerInvalidKeyUsageException verifies that the HTTP handler returns the
-// correct "InvalidKeyUsageException" error code when a SIGN_VERIFY key is used for encryption.
-func TestKMSHandlerInvalidKeyUsageException(t *testing.T) {
-	t.Parallel()
-
-	b := kms.NewInMemoryBackend()
-	h := kms.NewHandler(b)
-
-	createOut, err := b.CreateKey(&kms.CreateKeyInput{KeyUsage: kms.KeyUsageSignVerify})
-	require.NoError(t, err)
-	keyID := createOut.KeyMetadata.KeyID
-
-	body, _ := json.Marshal(map[string]any{
-		"KeyId":     keyID,
-		"Plaintext": []byte("hello"),
-	})
-	rec := doKMSHTTPRequest(t, h, "Encrypt", string(body))
-
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "InvalidKeyUsageException")
 }

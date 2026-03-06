@@ -531,6 +531,7 @@ func createRDSClient(t *testing.T) *rdssdk.Client {
 	})
 }
 
+// createSWFClient returns a SWF client pointed at the shared test container.
 func createSWFClient(t *testing.T) *swfsdk.Client {
 	t.Helper()
 
@@ -550,6 +551,7 @@ func createSWFClient(t *testing.T) *swfsdk.Client {
 	})
 }
 
+// createSchedulerClient returns an EventBridge Scheduler client pointed at the shared test container.
 func createSchedulerClient(t *testing.T) *schedulersdk.Client {
 	t.Helper()
 
