@@ -7,15 +7,18 @@ import (
 	"sort"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
 
 // backupARN builds the ARN for a DynamoDB backup.
-// Format: arn:aws:dynamodb:{region}:{account}:table/{table}/backup/{timestamp}.
+// Format: arn:aws:dynamodb:{region}:{account}:table/{table}/backup/{timestamp}-{unique}.
+// The unique suffix prevents ARN collisions when multiple backups are created in the same millisecond.
 func backupARN(region, accountID, tableName string, ts time.Time) string {
-	resource := fmt.Sprintf("table/%s/backup/%016d", tableName, ts.UnixMilli())
+	resource := fmt.Sprintf("table/%s/backup/%016d-%s", tableName, ts.UnixMilli(), uuid.New().String()[:16])
 
 	return arn.Build("dynamodb", region, accountID, resource)
 }
@@ -47,7 +50,9 @@ func (h *DynamoDBHandler) createBackup(ctx context.Context, body []byte) (any, e
 	}
 
 	table.mu.RLock("CreateBackup")
-	rawItems := table.Items
+	// Deep copy items inside the read lock so the snapshot is consistent
+	// and races with concurrent writes are avoided.
+	itemsCopy, err := deepCopyItems(table.Items)
 	keySchema := make([]models.KeySchemaElement, len(table.KeySchema))
 	copy(keySchema, table.KeySchema)
 	attrDefs := make([]models.AttributeDefinition, len(table.AttributeDefinitions))
@@ -56,8 +61,6 @@ func (h *DynamoDBHandler) createBackup(ctx context.Context, body []byte) (any, e
 	tableID := table.TableID
 	table.mu.RUnlock()
 
-	// Deep copy items so the backup snapshot is immutable.
-	itemsCopy, err := deepCopyItems(rawItems)
 	if err != nil {
 		return nil, NewInternalServerError(fmt.Sprintf("failed to snapshot items: %s", err.Error()))
 	}
@@ -116,6 +119,10 @@ func (h *DynamoDBHandler) describeBackup(_ context.Context, body []byte) (any, e
 
 	db.mu.RLock("DescribeBackup")
 	backup, exists := db.Backups[req.BackupArn]
+	var backupCopy Backup
+	if exists {
+		backupCopy = *backup
+	}
 	db.mu.RUnlock()
 
 	if !exists {
@@ -123,7 +130,7 @@ func (h *DynamoDBHandler) describeBackup(_ context.Context, body []byte) (any, e
 	}
 
 	return &models.DescribeBackupOutput{
-		BackupDescription: buildBackupDescription(backup),
+		BackupDescription: buildBackupDescription(&backupCopy),
 	}, nil
 }
 
@@ -150,13 +157,15 @@ func (h *DynamoDBHandler) deleteBackup(_ context.Context, body []byte) (any, err
 		return nil, NewResourceNotFoundException(fmt.Sprintf("backup not found: %s", req.BackupArn))
 	}
 
+	// Copy the struct and set deleted status before releasing lock.
+	backupCopy := *backup
+	backupCopy.BackupStatus = models.BackupStatusDeleted
+
 	delete(db.Backups, req.BackupArn)
 	db.mu.Unlock()
 
-	backup.BackupStatus = models.BackupStatusDeleted
-
 	return &models.DeleteBackupOutput{
-		BackupDescription: buildBackupDescription(backup),
+		BackupDescription: buildBackupDescription(&backupCopy),
 	}, nil
 }
 
@@ -172,14 +181,37 @@ func (h *DynamoDBHandler) listBackups(_ context.Context, body []byte) (any, erro
 	}
 
 	db.mu.RLock("ListBackups")
+	summaries := collectBackupSummaries(db, req.TableName, req.BackupType)
+	db.mu.RUnlock()
+
+	// Sort by creation time (then ARN) for deterministic ordering.
+	sort.Slice(summaries, func(i, j int) bool {
+		if summaries[i].BackupCreationDateTime != summaries[j].BackupCreationDateTime {
+			return summaries[i].BackupCreationDateTime < summaries[j].BackupCreationDateTime
+		}
+
+		return summaries[i].BackupArn < summaries[j].BackupArn
+	})
+
+	page, lastEvaluatedArn := paginateBackupSummaries(summaries, req.ExclusiveStartBackupArn, req.Limit)
+
+	return &models.ListBackupsOutput{
+		BackupSummaries:        page,
+		LastEvaluatedBackupArn: lastEvaluatedArn,
+	}, nil
+}
+
+// collectBackupSummaries gathers matching backup summaries from the in-memory store.
+// Must be called while holding db.mu (read or write lock).
+func collectBackupSummaries(db *InMemoryDB, tableName, backupType string) []models.BackupSummary {
 	summaries := make([]models.BackupSummary, 0, len(db.Backups))
 
 	for _, b := range db.Backups {
-		if req.TableName != "" && b.TableName != req.TableName {
+		if tableName != "" && b.TableName != tableName {
 			continue
 		}
 
-		if req.BackupType != "" && b.BackupType != req.BackupType {
+		if backupType != "" && b.BackupType != backupType {
 			continue
 		}
 
@@ -195,21 +227,42 @@ func (h *DynamoDBHandler) listBackups(_ context.Context, body []byte) (any, erro
 		})
 	}
 
-	db.mu.RUnlock()
+	return summaries
+}
 
-	// Sort by creation time for deterministic ordering.
-	sort.Slice(summaries, func(i, j int) bool {
-		return summaries[i].BackupCreationDateTime < summaries[j].BackupCreationDateTime
-	})
+// paginateBackupSummaries applies cursor-based pagination to a sorted backup summary list.
+// It returns the page and the last-evaluated ARN (empty if no more pages).
+func paginateBackupSummaries(
+	summaries []models.BackupSummary,
+	startArn string,
+	limit int,
+) ([]models.BackupSummary, string) {
+	// Apply ExclusiveStartBackupArn as the starting cursor.
+	start := 0
+	if startArn != "" {
+		for i, s := range summaries {
+			if s.BackupArn == startArn {
+				start = i + 1
 
-	// Apply pagination limit.
-	if req.Limit > 0 && len(summaries) > req.Limit {
-		summaries = summaries[:req.Limit]
+				break
+			}
+		}
 	}
 
-	return &models.ListBackupsOutput{
-		BackupSummaries: summaries,
-	}, nil
+	// Apply pagination limit relative to the starting cursor.
+	end := len(summaries)
+	lastEvaluatedArn := ""
+
+	if limit > 0 && start+limit < len(summaries) {
+		end = start + limit
+		lastEvaluatedArn = summaries[end-1].BackupArn
+	}
+
+	if start >= len(summaries) {
+		return []models.BackupSummary{}, lastEvaluatedArn
+	}
+
+	return summaries[start:end], lastEvaluatedArn
 }
 
 func (h *DynamoDBHandler) restoreTableFromBackup(ctx context.Context, body []byte) (any, error) {
@@ -268,8 +321,10 @@ func (h *DynamoDBHandler) restoreTableFromBackup(ctx context.Context, body []byt
 	copy(attrDefs, backup.AttributeDefinitions)
 
 	now := time.Now()
+	newTableID := uuid.New().String()
 	newTable := &Table{
 		Name:                 req.TargetTableName,
+		TableID:              newTableID,
 		KeySchema:            keySchema,
 		AttributeDefinitions: attrDefs,
 		Items:                itemsCopy,
@@ -295,6 +350,7 @@ func (h *DynamoDBHandler) restoreTableFromBackup(ctx context.Context, body []byt
 			TableName:            req.TargetTableName,
 			TableStatus:          models.TableStatusActive,
 			TableArn:             newTable.TableArn,
+			TableID:              newTableID,
 			KeySchema:            keySchema,
 			AttributeDefinitions: attrDefs,
 			ItemCount:            int(itemCount),
@@ -329,23 +385,22 @@ func (h *DynamoDBHandler) restoreTableToPointInTime(ctx context.Context, body []
 
 	sourceTable.mu.RLock("RestoreTableToPointInTime")
 	pitrEnabled := sourceTable.PITREnabled
-	rawItems := sourceTable.Items
+	// Deep copy items inside the read lock to avoid races with concurrent writes.
+	itemsCopy, err := deepCopyItems(sourceTable.Items)
 	keySchema := make([]models.KeySchemaElement, len(sourceTable.KeySchema))
 	copy(keySchema, sourceTable.KeySchema)
 	attrDefs := make([]models.AttributeDefinition, len(sourceTable.AttributeDefinitions))
 	copy(attrDefs, sourceTable.AttributeDefinitions)
 	sourceTable.mu.RUnlock()
 
+	if err != nil {
+		return nil, NewInternalServerError(fmt.Sprintf("failed to copy items: %s", err.Error()))
+	}
+
 	if !pitrEnabled {
 		return nil, NewValidationException(
 			fmt.Sprintf("point in time recovery is not enabled for table: %s", req.SourceTableName),
 		)
-	}
-
-	// Deep copy items so the restored table is isolated from the source.
-	itemsCopy, err := deepCopyItems(rawItems)
-	if err != nil {
-		return nil, NewInternalServerError(fmt.Sprintf("failed to copy items: %s", err.Error()))
 	}
 
 	region := h.regionFromHandlerContext(ctx)
@@ -364,8 +419,10 @@ func (h *DynamoDBHandler) restoreTableToPointInTime(ctx context.Context, body []
 	}
 
 	now := time.Now()
+	newTableID := uuid.New().String()
 	newTable := &Table{
 		Name:                 req.TargetTableName,
+		TableID:              newTableID,
 		KeySchema:            keySchema,
 		AttributeDefinitions: attrDefs,
 		Items:                itemsCopy,
@@ -389,6 +446,7 @@ func (h *DynamoDBHandler) restoreTableToPointInTime(ctx context.Context, body []
 			TableName:            req.TargetTableName,
 			TableStatus:          models.TableStatusActive,
 			TableArn:             newTable.TableArn,
+			TableID:              newTableID,
 			KeySchema:            keySchema,
 			AttributeDefinitions: attrDefs,
 			ItemCount:            len(itemsCopy),

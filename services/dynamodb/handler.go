@@ -731,6 +731,11 @@ type describeContinuousBackupsOutput struct {
 	ContinuousBackupsDescription continuousBackupsDescriptionFields `json:"ContinuousBackupsDescription"`
 }
 
+const (
+	continuousBackupsStatusEnabled  = "ENABLED"
+	continuousBackupsStatusDisabled = "DISABLED"
+)
+
 type describeContinuousBackupsInput struct {
 	TableName string `json:"TableName"`
 }
@@ -741,7 +746,11 @@ func (h *DynamoDBHandler) describeContinuousBackups(ctx context.Context, body []
 		return nil, err
 	}
 
-	pitrStatus := "DISABLED"
+	if req.TableName == "" {
+		return nil, NewValidationException("TableName is required")
+	}
+
+	pitrEnabled := false
 
 	if db, ok := h.Backend.(*InMemoryDB); ok {
 		table, err := db.getTable(ctx, req.TableName)
@@ -750,15 +759,20 @@ func (h *DynamoDBHandler) describeContinuousBackups(ctx context.Context, body []
 		}
 
 		table.mu.RLock("DescribeContinuousBackups")
-		if table.PITREnabled {
-			pitrStatus = "ENABLED"
-		}
+		pitrEnabled = table.PITREnabled
 		table.mu.RUnlock()
+	}
+
+	continuousStatus := continuousBackupsStatusEnabled
+	pitrStatus := continuousBackupsStatusDisabled
+
+	if pitrEnabled {
+		pitrStatus = continuousBackupsStatusEnabled
 	}
 
 	return &describeContinuousBackupsOutput{
 		ContinuousBackupsDescription: continuousBackupsDescriptionFields{
-			ContinuousBackupsStatus:        "ENABLED",
+			ContinuousBackupsStatus:        continuousStatus,
 			PointInTimeRecoveryDescription: pointInTimeRecoveryDescription{PointInTimeRecoveryStatus: pitrStatus},
 		},
 	}, nil
@@ -780,6 +794,10 @@ func (h *DynamoDBHandler) updateContinuousBackups(ctx context.Context, body []by
 		return nil, err
 	}
 
+	if req.TableName == "" {
+		return nil, NewValidationException("TableName is required")
+	}
+
 	pitrEnabled := req.PointInTimeRecoverySpecification.PointInTimeRecoveryEnabled
 
 	if db, ok := h.Backend.(*InMemoryDB); ok {
@@ -793,15 +811,15 @@ func (h *DynamoDBHandler) updateContinuousBackups(ctx context.Context, body []by
 		table.mu.Unlock()
 	}
 
-	status := "DISABLED"
+	pitrStatus := continuousBackupsStatusDisabled
 	if pitrEnabled {
-		status = "ENABLED"
+		pitrStatus = continuousBackupsStatusEnabled
 	}
 
 	return &describeContinuousBackupsOutput{
 		ContinuousBackupsDescription: continuousBackupsDescriptionFields{
-			ContinuousBackupsStatus:        "ENABLED",
-			PointInTimeRecoveryDescription: pointInTimeRecoveryDescription{PointInTimeRecoveryStatus: status},
+			ContinuousBackupsStatus:        continuousBackupsStatusEnabled,
+			PointInTimeRecoveryDescription: pointInTimeRecoveryDescription{PointInTimeRecoveryStatus: pitrStatus},
 		},
 	}, nil
 }

@@ -2,6 +2,7 @@ package dynamodb
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -14,6 +15,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+)
+
+var (
+	errReplicaCreateRegionRequired = errors.New("RegionName is required for ReplicaUpdates Create action")
+	errReplicaDeleteRegionRequired = errors.New("RegionName is required for ReplicaUpdates Delete action")
 )
 
 // getRegionFromContext extracts the region from the request context.
@@ -412,7 +418,10 @@ func (db *InMemoryDB) UpdateTable(
 	applyUpdateTableAttrDefs(table, input.AttributeDefinitions)
 	applyGSIUpdates(table, input.GlobalSecondaryIndexUpdates)
 	db.applyStreamSpec(table, tableName, input.StreamSpecification)
-	applyReplicaUpdates(table, input.ReplicaUpdates)
+
+	if replicaErr := applyReplicaUpdates(table, input.ReplicaUpdates); replicaErr != nil {
+		return nil, NewValidationException(replicaErr.Error())
+	}
 
 	// Update throttler with the (possibly new) throughput values.
 	region := getRegionFromContext(ctx, db)
@@ -425,14 +434,27 @@ func (db *InMemoryDB) UpdateTable(
 
 // applyReplicaUpdates processes Global Tables v2 replica create/delete actions.
 // Replicas are metadata-only: no actual cross-region sync is performed.
-func applyReplicaUpdates(table *Table, updates []types.ReplicationGroupUpdate) {
+// Returns an error if any update has an empty RegionName.
+func applyReplicaUpdates(table *Table, updates []types.ReplicationGroupUpdate) error {
 	for _, u := range updates {
 		if u.Create != nil {
-			applyReplicaCreate(table, aws.ToString(u.Create.RegionName))
+			regionName := aws.ToString(u.Create.RegionName)
+			if regionName == "" {
+				return errReplicaCreateRegionRequired
+			}
+
+			applyReplicaCreate(table, regionName)
 		} else if u.Delete != nil {
-			applyReplicaDelete(table, aws.ToString(u.Delete.RegionName))
+			regionName := aws.ToString(u.Delete.RegionName)
+			if regionName == "" {
+				return errReplicaDeleteRegionRequired
+			}
+
+			applyReplicaDelete(table, regionName)
 		}
 	}
+
+	return nil
 }
 
 func applyReplicaCreate(table *Table, regionName string) {

@@ -7,6 +7,7 @@ import (
 const (
 	maxKeys            = 1000
 	maxMultipartMemory = 32 << 20 // 32 MB
+	maxFormBodySize    = 10 << 20 // 10 MB: covers item JSON, batch imports, and other form payloads
 	constStrTrue       = "true"
 )
 

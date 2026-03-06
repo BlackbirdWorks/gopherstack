@@ -551,7 +551,7 @@ func deliverHTTP(endpoint, body string) {
 	}
 
 	// HTTP client used for SNS HTTP endpoint delivery, not internet requests
-	resp, err := http.DefaultClient.Do(req) //nolint:gosec // G704: intentional HTTP delivery to SNS subscribers
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return
 	}
