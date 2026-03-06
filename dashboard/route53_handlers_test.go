@@ -125,7 +125,8 @@ func TestDashboard_Route53_DeleteZone(t *testing.T) {
 		require.Equal(t, http.StatusFound, w.Code)
 
 		// Find zone ID.
-		zones, err := stack.Route53Handler.Backend.ListHostedZones()
+		p, err := stack.Route53Handler.Backend.ListHostedZones("", 0)
+		zones := p.Data
 		require.NoError(t, err)
 		require.Len(t, zones, 1)
 		zoneID := zones[0].ID
@@ -167,7 +168,8 @@ func TestDashboard_Route53_ZoneDetail(t *testing.T) {
 		serveHandler(stack.Dashboard, w, req)
 		require.Equal(t, http.StatusFound, w.Code)
 
-		zones, err := stack.Route53Handler.Backend.ListHostedZones()
+		p, err := stack.Route53Handler.Backend.ListHostedZones("", 0)
+		zones := p.Data
 		require.NoError(t, err)
 		require.Len(t, zones, 1)
 		zoneID := zones[0].ID
@@ -219,7 +221,8 @@ func TestDashboard_Route53_CreateRecord(t *testing.T) {
 		serveHandler(stack.Dashboard, w, reqCreate)
 		require.Equal(t, http.StatusFound, w.Code)
 
-		zones, err := stack.Route53Handler.Backend.ListHostedZones()
+		p, err := stack.Route53Handler.Backend.ListHostedZones("", 0)
+		zones := p.Data
 		require.NoError(t, err)
 		require.Len(t, zones, 1)
 		zoneID := zones[0].ID
@@ -265,7 +268,8 @@ func TestDashboard_Route53_DeleteRecord(t *testing.T) {
 		serveHandler(stack.Dashboard, w, reqCreate)
 		require.Equal(t, http.StatusFound, w.Code)
 
-		zones, err := stack.Route53Handler.Backend.ListHostedZones()
+		p, err := stack.Route53Handler.Backend.ListHostedZones("", 0)
+		zones := p.Data
 		require.NoError(t, err)
 		require.Len(t, zones, 1)
 		zoneID := zones[0].ID

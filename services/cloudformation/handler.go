@@ -360,7 +360,13 @@ func (h *Handler) handleDescribeStacks(form url.Values, c *echo.Context) error {
 
 func (h *Handler) handleListStacks(form url.Values, c *echo.Context) error {
 	statusFilter := parseMemberList(form, "StackStatusFilter.")
-	summaries := h.Backend.ListStacks(statusFilter)
+	nextToken := form.Get("NextToken")
+
+	p, err := h.Backend.ListStacks(statusFilter, nextToken)
+	if err != nil {
+		return h.xmlError(c, "ValidationError", err.Error())
+	}
+	summaries := p.Data
 
 	type summaryXML struct {
 		StackID      string `xml:"StackId"`
@@ -379,6 +385,7 @@ func (h *Handler) handleListStacks(form url.Values, c *echo.Context) error {
 	}
 
 	type listResult struct {
+		NextToken      string       `xml:"NextToken,omitempty"`
 		StackSummaries []summaryXML `xml:"StackSummaries>member"`
 	}
 	type response struct {
@@ -390,7 +397,7 @@ func (h *Handler) handleListStacks(form url.Values, c *echo.Context) error {
 
 	return writeXML(c, response{
 		Xmlns:     cfnNS,
-		Result:    listResult{StackSummaries: members},
+		Result:    listResult{StackSummaries: members, NextToken: p.Next},
 		RequestID: uuid.New().String(),
 	})
 }
@@ -586,11 +593,13 @@ func (h *Handler) handleDeleteChangeSet(form url.Values, c *echo.Context) error 
 
 func (h *Handler) handleListChangeSets(form url.Values, c *echo.Context) error {
 	stackName := form.Get("StackName")
+	nextToken := form.Get("NextToken")
 
-	summaries, err := h.Backend.ListChangeSets(stackName)
+	p, err := h.Backend.ListChangeSets(stackName, nextToken)
 	if err != nil {
 		return h.xmlError(c, "ValidationError", err.Error())
 	}
+	summaries := p.Data
 
 	type summaryXML struct {
 		ChangeSetID   string `xml:"ChangeSetId"`
@@ -615,6 +624,7 @@ func (h *Handler) handleListChangeSets(form url.Values, c *echo.Context) error {
 	}
 
 	type listResult struct {
+		NextToken string       `xml:"NextToken,omitempty"`
 		Summaries []summaryXML `xml:"Summaries>member"`
 	}
 	type response struct {
@@ -626,7 +636,7 @@ func (h *Handler) handleListChangeSets(form url.Values, c *echo.Context) error {
 
 	return writeXML(c, response{
 		Xmlns:     cfnNS,
-		Result:    listResult{Summaries: members},
+		Result:    listResult{Summaries: members, NextToken: p.Next},
 		RequestID: uuid.New().String(),
 	})
 }

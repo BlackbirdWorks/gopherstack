@@ -28,7 +28,7 @@ func (h *DashboardHandler) lambdaIndex(c *echo.Context) error {
 
 	var fns []*lambdabackend.FunctionConfiguration
 	if h.LambdaOps != nil {
-		fns = h.LambdaOps.Backend.ListFunctions()
+		fns = h.LambdaOps.Backend.ListFunctions("", 0).Data
 	} else {
 		fns = []*lambdabackend.FunctionConfiguration{}
 	}

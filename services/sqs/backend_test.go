@@ -119,6 +119,48 @@ func TestListQueues(t *testing.T) {
 		require.NoError(t, err)
 		assert.Len(t, out.QueueURLs, 2)
 	})
+
+	t.Run("pagination first page", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := b.ListQueues(&sqs.ListQueuesInput{MaxResults: 2})
+		require.NoError(t, err)
+		assert.Len(t, out.QueueURLs, 2)
+		assert.NotEmpty(t, out.NextToken)
+	})
+
+	t.Run("pagination second page", func(t *testing.T) {
+		t.Parallel()
+
+		first, err := b.ListQueues(&sqs.ListQueuesInput{MaxResults: 2})
+		require.NoError(t, err)
+		require.NotEmpty(t, first.NextToken)
+
+		second, err := b.ListQueues(&sqs.ListQueuesInput{MaxResults: 2, NextToken: first.NextToken})
+		require.NoError(t, err)
+		assert.Len(t, second.QueueURLs, 1)
+		assert.Empty(t, second.NextToken)
+	})
+
+	t.Run("all pages combined equal full list", func(t *testing.T) {
+		t.Parallel()
+
+		var all []string
+		var token string
+
+		for {
+			out, err := b.ListQueues(&sqs.ListQueuesInput{MaxResults: 2, NextToken: token})
+			require.NoError(t, err)
+			all = append(all, out.QueueURLs...)
+			token = out.NextToken
+
+			if token == "" {
+				break
+			}
+		}
+
+		assert.Len(t, all, 3)
+	})
 }
 
 func TestGetQueueURL(t *testing.T) {

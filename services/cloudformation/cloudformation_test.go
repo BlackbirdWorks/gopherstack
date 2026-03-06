@@ -528,8 +528,9 @@ func TestBackend_ListStacks(t *testing.T) {
 			_, err = b.CreateStack(t.Context(), "list-s2", simpleTemplate, nil, nil)
 			require.NoError(t, err)
 
-			result := b.ListStacks(tt.filter)
-			assert.Len(t, result, tt.wantLen)
+			result, err := b.ListStacks(tt.filter, "")
+			require.NoError(t, err)
+			assert.Len(t, result.Data, tt.wantLen)
 		})
 	}
 }
@@ -846,9 +847,9 @@ func TestBackend_ListChangeSets(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			summaries, err := b.ListChangeSets(tt.stackName)
+			summaries, err := b.ListChangeSets(tt.stackName, "")
 			require.NoError(t, err)
-			assert.Len(t, summaries, tt.wantLen)
+			assert.Len(t, summaries.Data, tt.wantLen)
 		})
 	}
 }

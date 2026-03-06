@@ -46,7 +46,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *acm.InMemoryBackend, _ string) {
 				t.Helper()
 
-				certs := b.ListCertificates()
+				certs := b.ListCertificates("", 0).Data
 				assert.Empty(t, certs)
 			},
 		},
@@ -96,7 +96,7 @@ func TestACMHandler_Persistence(t *testing.T) {
 	freshH := acm.NewHandler(fresh)
 	require.NoError(t, freshH.Restore(snap))
 
-	certs := fresh.ListCertificates()
+	certs := fresh.ListCertificates("", 0).Data
 	assert.Len(t, certs, 1)
 }
 

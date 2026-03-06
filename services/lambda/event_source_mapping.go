@@ -59,6 +59,7 @@ type jsonESMResponse struct {
 
 // jsonListESMResponse is the JSON response for ListEventSourceMappings.
 type jsonListESMResponse struct {
+	NextMarker          string            `json:"NextMarker,omitempty"`
 	EventSourceMappings []jsonESMResponse `json:"EventSourceMappings"`
 }
 

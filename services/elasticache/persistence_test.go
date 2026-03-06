@@ -29,7 +29,8 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *elasticache.InMemoryBackend, id string) {
 				t.Helper()
 
-				clusters, err := b.DescribeClusters(id)
+				p, err := b.DescribeClusters(id, "", 0)
+				clusters := p.Data
 				require.NoError(t, err)
 				require.Len(t, clusters, 1)
 				assert.Equal(t, id, clusters[0].ClusterID)

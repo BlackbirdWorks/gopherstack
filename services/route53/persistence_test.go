@@ -41,9 +41,9 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *route53.InMemoryBackend, _ string) {
 				t.Helper()
 
-				zones, err := b.ListHostedZones()
+				zones, err := b.ListHostedZones("", 0)
 				require.NoError(t, err)
-				assert.Empty(t, zones)
+				assert.Empty(t, zones.Data)
 			},
 		},
 	}

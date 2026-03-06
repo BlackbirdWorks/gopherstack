@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	gophercontainer "github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
@@ -65,7 +67,7 @@ func (m *mockBackend) GetFunction(name string) (*lambda.FunctionConfiguration, e
 	return fn, nil
 }
 
-func (m *mockBackend) ListFunctions() []*lambda.FunctionConfiguration {
+func (m *mockBackend) ListFunctions(marker string, maxItems int) page.Page[*lambda.FunctionConfiguration] {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -74,7 +76,11 @@ func (m *mockBackend) ListFunctions() []*lambda.FunctionConfiguration {
 		fns = append(fns, fn)
 	}
 
-	return fns
+	sort.Slice(fns, func(i, j int) bool {
+		return fns[i].FunctionName < fns[j].FunctionName
+	})
+
+	return page.New(fns, marker, maxItems, 50)
 }
 
 func (m *mockBackend) DeleteFunction(name string) error {
@@ -1020,8 +1026,8 @@ func TestBackend_CRUD(t *testing.T) {
 			_, err = bk.GetFunction("nonexistent")
 			require.ErrorIs(t, err, lambda.ErrFunctionNotFound)
 
-			list := bk.ListFunctions()
-			assert.Len(t, list, 1)
+			list := bk.ListFunctions("", 0)
+			assert.Len(t, list.Data, 1)
 
 			fn2 := *fn
 			fn2.Description = "updated"
@@ -1035,7 +1041,7 @@ func TestBackend_CRUD(t *testing.T) {
 			require.ErrorIs(t, bk.UpdateFunction(notExist), lambda.ErrFunctionNotFound)
 
 			require.NoError(t, bk.DeleteFunction("test-func"))
-			assert.Empty(t, bk.ListFunctions())
+			assert.Empty(t, bk.ListFunctions("", 0).Data)
 
 			assert.ErrorIs(t, bk.DeleteFunction("test-func"), lambda.ErrFunctionNotFound)
 		})

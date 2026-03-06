@@ -8,6 +8,7 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -90,7 +91,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DetachRolePolicy",
 		"ListAttachedUserPolicies", "ListAttachedRolePolicies",
 		"ListRolePolicies",
-		"CreateGroup", "DeleteGroup", "AddUserToGroup",
+		"CreateGroup", "DeleteGroup", "AddUserToGroup", "ListGroups",
 		"CreateAccessKey", "DeleteAccessKey", "ListAccessKeys",
 		"CreateInstanceProfile", "DeleteInstanceProfile", "ListInstanceProfiles",
 		"ListRoleTags", "TagRole", "UntagRole",
@@ -305,20 +306,24 @@ func (h *Handler) iamUserDispatchTable() map[string]iamActionFn {
 
 			return &DeleteUserResponse{Xmlns: iamXMLNS, ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
 		},
-		"ListUsers": func(_ url.Values, reqID string) (any, error) {
-			users, err := h.Backend.ListUsers()
+		"ListUsers": func(vals url.Values, reqID string) (any, error) {
+			p, err := h.Backend.ListUsers(vals.Get("Marker"), parseMaxItems(vals.Get("MaxItems")))
 			if err != nil {
 				return nil, err
 			}
 
-			xmlUsers := make([]UserXML, 0, len(users))
-			for i := range users {
-				xmlUsers = append(xmlUsers, toUserXML(&users[i]))
+			xmlUsers := make([]UserXML, 0, len(p.Data))
+			for i := range p.Data {
+				xmlUsers = append(xmlUsers, toUserXML(&p.Data[i]))
 			}
 
 			return &ListUsersResponse{
-				Xmlns:            iamXMLNS,
-				ListUsersResult:  ListUsersResult{Users: xmlUsers},
+				Xmlns: iamXMLNS,
+				ListUsersResult: ListUsersResult{
+					Users:       xmlUsers,
+					IsTruncated: p.Next != "",
+					Marker:      p.Next,
+				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
@@ -360,20 +365,24 @@ func (h *Handler) iamRoleDispatchTable() map[string]iamActionFn {
 
 			return &DeleteRoleResponse{Xmlns: iamXMLNS, ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
 		},
-		"ListRoles": func(_ url.Values, reqID string) (any, error) {
-			roles, err := h.Backend.ListRoles()
+		"ListRoles": func(vals url.Values, reqID string) (any, error) {
+			p, err := h.Backend.ListRoles(vals.Get("Marker"), parseMaxItems(vals.Get("MaxItems")))
 			if err != nil {
 				return nil, err
 			}
 
-			xmlRoles := make([]RoleXML, 0, len(roles))
-			for i := range roles {
-				xmlRoles = append(xmlRoles, toRoleXML(&roles[i]))
+			xmlRoles := make([]RoleXML, 0, len(p.Data))
+			for i := range p.Data {
+				xmlRoles = append(xmlRoles, toRoleXML(&p.Data[i]))
 			}
 
 			return &ListRolesResponse{
-				Xmlns:            iamXMLNS,
-				ListRolesResult:  ListRolesResult{Roles: xmlRoles},
+				Xmlns: iamXMLNS,
+				ListRolesResult: ListRolesResult{
+					Roles:       xmlRoles,
+					IsTruncated: p.Next != "",
+					Marker:      p.Next,
+				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
@@ -403,21 +412,25 @@ func (h *Handler) iamPolicyBasicDispatchTable() map[string]iamActionFn {
 
 			return &DeletePolicyResponse{Xmlns: iamXMLNS, ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
 		},
-		"ListPolicies": func(_ url.Values, reqID string) (any, error) {
-			policies, err := h.Backend.ListPolicies()
+		"ListPolicies": func(vals url.Values, reqID string) (any, error) {
+			p, err := h.Backend.ListPolicies(vals.Get("Marker"), parseMaxItems(vals.Get("MaxItems")))
 			if err != nil {
 				return nil, err
 			}
 
-			xmlPolicies := make([]PolicyXML, 0, len(policies))
-			for i := range policies {
-				xmlPolicies = append(xmlPolicies, toPolicyXML(&policies[i]))
+			xmlPolicies := make([]PolicyXML, 0, len(p.Data))
+			for i := range p.Data {
+				xmlPolicies = append(xmlPolicies, toPolicyXML(&p.Data[i]))
 			}
 
 			return &ListPoliciesResponse{
-				Xmlns:              iamXMLNS,
-				ListPoliciesResult: ListPoliciesResult{Policies: xmlPolicies},
-				ResponseMetadata:   ResponseMetadata{RequestID: reqID},
+				Xmlns: iamXMLNS,
+				ListPoliciesResult: ListPoliciesResult{
+					Policies:    xmlPolicies,
+					IsTruncated: p.Next != "",
+					Marker:      p.Next,
+				},
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
 		"GetPolicy": func(vals url.Values, reqID string) (any, error) {
@@ -603,6 +616,27 @@ func (h *Handler) iamGroupDispatchTable() map[string]iamActionFn {
 
 			return &AddUserToGroupResponse{Xmlns: iamXMLNS, ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
 		},
+		"ListGroups": func(vals url.Values, reqID string) (any, error) {
+			p, err := h.Backend.ListGroups(vals.Get("Marker"), parseMaxItems(vals.Get("MaxItems")))
+			if err != nil {
+				return nil, err
+			}
+
+			xmlGroups := make([]GroupXML, 0, len(p.Data))
+			for i := range p.Data {
+				xmlGroups = append(xmlGroups, toGroupXML(&p.Data[i]))
+			}
+
+			return &ListGroupsResponse{
+				Xmlns: iamXMLNS,
+				ListGroupsResult: ListGroupsResult{
+					Groups:      xmlGroups,
+					IsTruncated: p.Next != "",
+					Marker:      p.Next,
+				},
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
 	}
 }
 
@@ -628,20 +662,28 @@ func (h *Handler) iamAccessKeyDispatchTable() map[string]iamActionFn {
 			return &DeleteAccessKeyResponse{Xmlns: iamXMLNS, ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
 		},
 		"ListAccessKeys": func(vals url.Values, reqID string) (any, error) {
-			keys, err := h.Backend.ListAccessKeys(vals.Get("UserName"))
+			p, err := h.Backend.ListAccessKeys(
+				vals.Get("UserName"),
+				vals.Get("Marker"),
+				parseMaxItems(vals.Get("MaxItems")),
+			)
 			if err != nil {
 				return nil, err
 			}
 
-			xmlKeys := make([]AccessKeyMetadataXML, 0, len(keys))
-			for i := range keys {
-				xmlKeys = append(xmlKeys, toAccessKeyMetadataXML(&keys[i]))
+			xmlKeys := make([]AccessKeyMetadataXML, 0, len(p.Data))
+			for i := range p.Data {
+				xmlKeys = append(xmlKeys, toAccessKeyMetadataXML(&p.Data[i]))
 			}
 
 			return &ListAccessKeysResponse{
-				Xmlns:                iamXMLNS,
-				ListAccessKeysResult: ListAccessKeysResult{AccessKeyMetadata: xmlKeys},
-				ResponseMetadata:     ResponseMetadata{RequestID: reqID},
+				Xmlns: iamXMLNS,
+				ListAccessKeysResult: ListAccessKeysResult{
+					AccessKeyMetadata: xmlKeys,
+					IsTruncated:       p.Next != "",
+					Marker:            p.Next,
+				},
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
 	}
@@ -671,21 +713,25 @@ func (h *Handler) iamInstanceProfileDispatchTable() map[string]iamActionFn {
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
-		"ListInstanceProfiles": func(_ url.Values, reqID string) (any, error) {
-			profiles, err := h.Backend.ListInstanceProfiles()
+		"ListInstanceProfiles": func(vals url.Values, reqID string) (any, error) {
+			p, err := h.Backend.ListInstanceProfiles(vals.Get("Marker"), parseMaxItems(vals.Get("MaxItems")))
 			if err != nil {
 				return nil, err
 			}
 
-			xmlProfiles := make([]InstanceProfileXML, 0, len(profiles))
-			for i := range profiles {
-				xmlProfiles = append(xmlProfiles, toInstanceProfileXML(&profiles[i]))
+			xmlProfiles := make([]InstanceProfileXML, 0, len(p.Data))
+			for i := range p.Data {
+				xmlProfiles = append(xmlProfiles, toInstanceProfileXML(&p.Data[i]))
 			}
 
 			return &ListInstanceProfilesResponse{
-				Xmlns:                      iamXMLNS,
-				ListInstanceProfilesResult: ListInstanceProfilesResult{InstanceProfiles: xmlProfiles},
-				ResponseMetadata:           ResponseMetadata{RequestID: reqID},
+				Xmlns: iamXMLNS,
+				ListInstanceProfilesResult: ListInstanceProfilesResult{
+					InstanceProfiles: xmlProfiles,
+					IsTruncated:      p.Next != "",
+					Marker:           p.Next,
+				},
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
 	}
@@ -993,4 +1039,20 @@ func toInstanceProfileXML(ip *InstanceProfile) InstanceProfileXML {
 		Arn:                 ip.Arn,
 		CreateDate:          isoTime(ip.CreateDate),
 	}
+}
+
+// parseMaxItems converts a query-string MaxItems value to an int.
+// Returns 0 for empty, non-numeric, or non-positive values; returning 0 signals
+// the backend to apply its own default page size.
+func parseMaxItems(s string) int {
+	if s == "" {
+		return 0
+	}
+
+	n, err := strconv.Atoi(s)
+	if err != nil || n <= 0 {
+		return 0
+	}
+
+	return n
 }

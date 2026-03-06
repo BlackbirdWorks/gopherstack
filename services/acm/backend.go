@@ -3,11 +3,12 @@ package acm
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 var (
@@ -87,8 +88,8 @@ func (b *InMemoryBackend) DescribeCertificate(arn string) (*Certificate, error) 
 	return &cp, nil
 }
 
-// ListCertificates returns all certificates.
-func (b *InMemoryBackend) ListCertificates() []Certificate {
+// ListCertificates returns a paginated list of certificates sorted by ARN.
+func (b *InMemoryBackend) ListCertificates(nextToken string, maxItems int) page.Page[Certificate] {
 	b.mu.RLock("ListCertificates")
 	defer b.mu.RUnlock()
 
@@ -97,8 +98,12 @@ func (b *InMemoryBackend) ListCertificates() []Certificate {
 		certs = append(certs, *c)
 	}
 
-	return certs
+	sort.Slice(certs, func(i, j int) bool { return certs[i].ARN < certs[j].ARN })
+
+	return page.New(certs, nextToken, maxItems, acmDefaultMaxItems)
 }
+
+const acmDefaultMaxItems = 100
 
 // DeleteCertificate removes the certificate with the given ARN.
 func (b *InMemoryBackend) DeleteCertificate(arn string) error {

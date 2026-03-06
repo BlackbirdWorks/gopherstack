@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -18,6 +19,11 @@ var ErrAlarmNotFound = errors.New("ResourceNotFoundException")
 // ErrAlarmNameRequired is returned when an alarm name is missing.
 var ErrAlarmNameRequired = errors.New("AlarmName is required")
 
+const (
+	cwDefaultListMetricsLimit    = 500
+	cwDefaultDescribeAlarmsLimit = 100
+)
+
 // StorageBackend is the interface for the CloudWatch in-memory store.
 type StorageBackend interface {
 	PutMetricData(namespace string, data []MetricDatum) error
@@ -28,9 +34,9 @@ type StorageBackend interface {
 		statistics []string,
 	) ([]Datapoint, error)
 	GetMetricData(queries []MetricDataQuery, startTime, endTime time.Time) ([]MetricDataResult, error)
-	ListMetrics(namespace, metricName string) ([]Metric, error)
+	ListMetrics(namespace, metricName, nextToken string, maxResults int) (page.Page[Metric], error)
 	PutMetricAlarm(alarm *MetricAlarm) error
-	DescribeAlarms(alarmNames []string, stateValue string) ([]MetricAlarm, error)
+	DescribeAlarms(alarmNames []string, stateValue, nextToken string, maxRecords int) (page.Page[MetricAlarm], error)
 	DeleteAlarms(alarmNames []string) error
 }
 
@@ -275,8 +281,11 @@ func statValue(dp Datapoint, stat string) float64 {
 	return 0
 }
 
-// ListMetrics returns unique metrics matching optional namespace and metricName filters.
-func (b *InMemoryBackend) ListMetrics(namespace, metricName string) ([]Metric, error) {
+// ListMetrics returns a page of unique metrics matching optional namespace and metricName filters.
+func (b *InMemoryBackend) ListMetrics(
+	namespace, metricName, nextToken string,
+	maxResults int,
+) (page.Page[Metric], error) {
 	b.mu.RLock("ListMetrics")
 	defer b.mu.RUnlock()
 
@@ -301,7 +310,7 @@ func (b *InMemoryBackend) ListMetrics(namespace, metricName string) ([]Metric, e
 		return result[i].MetricName < result[j].MetricName
 	})
 
-	return result, nil
+	return page.New(result, nextToken, maxResults, cwDefaultListMetricsLimit), nil
 }
 
 // PutMetricAlarm creates or updates an alarm.
@@ -329,8 +338,12 @@ func (b *InMemoryBackend) PutMetricAlarm(alarm *MetricAlarm) error {
 	return nil
 }
 
-// DescribeAlarms lists alarms, optionally filtered by name and/or state.
-func (b *InMemoryBackend) DescribeAlarms(alarmNames []string, stateValue string) ([]MetricAlarm, error) {
+// DescribeAlarms lists a page of alarms, optionally filtered by name and/or state.
+func (b *InMemoryBackend) DescribeAlarms(
+	alarmNames []string,
+	stateValue, nextToken string,
+	maxRecords int,
+) (page.Page[MetricAlarm], error) {
 	b.mu.RLock("DescribeAlarms")
 	defer b.mu.RUnlock()
 
@@ -354,7 +367,7 @@ func (b *InMemoryBackend) DescribeAlarms(alarmNames []string, stateValue string)
 		return result[i].AlarmName < result[j].AlarmName
 	})
 
-	return result, nil
+	return page.New(result, nextToken, maxRecords, cwDefaultDescribeAlarmsLimit), nil
 }
 
 // DeleteAlarms removes alarms by name.

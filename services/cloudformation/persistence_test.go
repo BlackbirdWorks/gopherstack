@@ -47,8 +47,9 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *cloudformation.InMemoryBackend, _ string) {
 				t.Helper()
 
-				stacks := b.ListStacks(nil)
-				assert.Empty(t, stacks)
+				stacks, err := b.ListStacks(nil, "")
+				require.NoError(t, err)
+				assert.Empty(t, stacks.Data)
 			},
 		},
 	}

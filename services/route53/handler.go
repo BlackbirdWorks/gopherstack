@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -320,6 +321,7 @@ type xmlListHostedZonesResponse struct {
 	XMLName     xml.Name        `xml:"ListHostedZonesResponse"`
 	Xmlns       string          `xml:"xmlns,attr"`
 	MaxItems    string          `xml:"MaxItems"`
+	NextMarker  string          `xml:"NextMarker,omitempty"`
 	HostedZones []xmlHostedZone `xml:"HostedZones>HostedZone"`
 	IsTruncated bool            `xml:"IsTruncated"`
 }
@@ -477,21 +479,31 @@ func (h *Handler) deleteHostedZone(c *echo.Context) error {
 }
 
 func (h *Handler) listHostedZones(c *echo.Context) error {
-	zones, err := h.Backend.ListHostedZones()
+	q := c.Request().URL.Query()
+	marker := q.Get("marker")
+	maxItems := 0
+	if v := q.Get("maxitems"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			maxItems = n
+		}
+	}
+
+	p, err := h.Backend.ListHostedZones(marker, maxItems)
 	if err != nil {
 		return handleBackendError(c, err)
 	}
 
-	xmlZones := make([]xmlHostedZone, len(zones))
-	for i := range zones {
-		xmlZones[i] = toXMLHostedZone(&zones[i])
+	xmlZones := make([]xmlHostedZone, len(p.Data))
+	for i := range p.Data {
+		xmlZones[i] = toXMLHostedZone(&p.Data[i])
 	}
 
 	resp := xmlListHostedZonesResponse{
 		Xmlns:       route53Namespace,
 		HostedZones: xmlZones,
-		IsTruncated: false,
-		MaxItems:    "100",
+		IsTruncated: p.Next != "",
+		NextMarker:  p.Next,
+		MaxItems:    strconv.Itoa(maxItems),
 	}
 
 	return writeXML(c, http.StatusOK, resp)

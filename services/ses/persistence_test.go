@@ -29,7 +29,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *ses.InMemoryBackend, id string) {
 				t.Helper()
 
-				identities := b.ListIdentities()
+				identities := b.ListIdentities("", 0).Data
 				require.Len(t, identities, 1)
 				assert.Equal(t, id, identities[0])
 			},
@@ -40,7 +40,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *ses.InMemoryBackend, _ string) {
 				t.Helper()
 
-				identities := b.ListIdentities()
+				identities := b.ListIdentities("", 0).Data
 				assert.Empty(t, identities)
 			},
 		},

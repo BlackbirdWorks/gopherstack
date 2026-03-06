@@ -21,8 +21,8 @@ func (h *DashboardHandler) cloudWatchIndex(c *echo.Context) error {
 		return c.NoContent(http.StatusServiceUnavailable)
 	}
 
-	metrics, _ := h.CloudWatchOps.Backend.ListMetrics("", "")
-	alarms, _ := h.CloudWatchOps.Backend.DescribeAlarms(nil, "")
+	metrics, _ := h.CloudWatchOps.Backend.ListMetrics("", "", "", 0)
+	alarms, _ := h.CloudWatchOps.Backend.DescribeAlarms(nil, "", "", 0)
 	data := cloudWatchIndexData{
 		PageData: PageData{Title: "CloudWatch", ActiveTab: "cloudwatch",
 			Snippet: &SnippetData{
@@ -46,8 +46,8 @@ import boto3
 
 client = boto3.client('cloudwatch', endpoint_url='http://localhost:8000')`,
 			}},
-		Metrics: metrics,
-		Alarms:  alarms,
+		Metrics: metrics.Data,
+		Alarms:  alarms.Data,
 	}
 
 	h.renderTemplate(c.Response(), "cloudwatch/index.html", data)

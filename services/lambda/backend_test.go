@@ -201,12 +201,12 @@ func TestInMemoryBackend_ListFunctions(t *testing.T) {
 		require.NoError(t, backend.CreateFunction(&lambda.FunctionConfiguration{FunctionName: name}))
 	}
 
-	fns := backend.ListFunctions()
-	require.Len(t, fns, 3)
+	fns := backend.ListFunctions("", 0)
+	require.Len(t, fns.Data, 3)
 	// Should be sorted alphabetically
-	assert.Equal(t, "fn-a", fns[0].FunctionName)
-	assert.Equal(t, "fn-b", fns[1].FunctionName)
-	assert.Equal(t, "fn-c", fns[2].FunctionName)
+	assert.Equal(t, "fn-a", fns.Data[0].FunctionName)
+	assert.Equal(t, "fn-b", fns.Data[1].FunctionName)
+	assert.Equal(t, "fn-c", fns.Data[2].FunctionName)
 }
 
 func TestInMemoryBackend_UpdateFunctionNotFound(t *testing.T) {

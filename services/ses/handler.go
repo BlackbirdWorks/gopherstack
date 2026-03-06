@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -217,12 +218,18 @@ func (h *Handler) handleDeleteIdentity(vals url.Values, reqID string) (any, erro
 }
 
 func (h *Handler) handleListIdentities(vals url.Values, reqID string) any {
-	_ = vals // no filter params needed for stub
+	nextToken := vals.Get("NextToken")
+	maxItems := 0
+	if s := vals.Get("MaxItems"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil {
+			maxItems = n
+		}
+	}
 
-	identities := h.Backend.ListIdentities()
-	members := make([]xmlMember, 0, len(identities))
+	p := h.Backend.ListIdentities(nextToken, maxItems)
+	members := make([]xmlMember, 0, len(p.Data))
 
-	for _, id := range identities {
+	for _, id := range p.Data {
 		members = append(members, xmlMember{Value: id})
 	}
 
@@ -230,6 +237,7 @@ func (h *Handler) handleListIdentities(vals url.Values, reqID string) any {
 		Xmlns: sesXMLNS,
 		Result: listIdentitiesResult{
 			Identities: xmlMemberList{Members: members},
+			NextToken:  p.Next,
 		},
 		RequestID: reqID,
 	}
@@ -391,6 +399,7 @@ type xmlMemberList struct {
 }
 
 type listIdentitiesResult struct {
+	NextToken  string        `xml:"NextToken,omitempty"`
 	Identities xmlMemberList `xml:"Identities"`
 }
 

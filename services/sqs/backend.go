@@ -17,6 +17,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -49,6 +50,8 @@ type InMemoryBackend struct {
 	accountID string
 	region    string
 }
+
+const sqsDefaultMaxResults = 1000
 
 // NewInMemoryBackend creates a new empty InMemoryBackend with default account/region.
 func NewInMemoryBackend() *InMemoryBackend {
@@ -259,7 +262,11 @@ func (b *InMemoryBackend) ListQueues(input *ListQueuesInput) (*ListQueuesOutput,
 		}
 	}
 
-	return &ListQueuesOutput{QueueURLs: urls}, nil
+	sort.Strings(urls)
+
+	p := page.New(urls, input.NextToken, input.MaxResults, sqsDefaultMaxResults)
+
+	return &ListQueuesOutput{QueueURLs: p.Data, NextToken: p.Next}, nil
 }
 
 // GetQueueURL returns the URL for a queue by name.

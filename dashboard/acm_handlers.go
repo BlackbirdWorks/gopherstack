@@ -60,7 +60,7 @@ client = boto3.client('acm', endpoint_url='http://localhost:8000')`,
 		return nil
 	}
 
-	certs := h.ACMOps.Backend.ListCertificates()
+	certs := h.ACMOps.Backend.ListCertificates("", 0).Data
 	views := make([]acmCertView, 0, len(certs))
 
 	for _, cert := range certs {

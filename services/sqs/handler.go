@@ -199,6 +199,8 @@ type jsonGetQueueURLReq struct {
 
 type jsonListQueuesReq struct {
 	QueueNamePrefix string `json:"QueueNamePrefix"`
+	NextToken       string `json:"NextToken"`
+	MaxResults      int    `json:"MaxResults"`
 }
 
 type jsonQueueURLReq struct {
@@ -423,6 +425,8 @@ func (h *Handler) handleListQueues(
 
 	out, err := h.Backend.ListQueues(&ListQueuesInput{
 		QueueNamePrefix: req.QueueNamePrefix,
+		NextToken:       req.NextToken,
+		MaxResults:      req.MaxResults,
 	})
 	if err != nil {
 		return nil, err
@@ -433,7 +437,7 @@ func (h *Handler) handleListQueues(
 		queueURLs = []string{}
 	}
 
-	return jsonListQueuesResp{QueueURLs: queueURLs}, nil
+	return jsonListQueuesResp{QueueURLs: queueURLs, NextToken: out.NextToken}, nil
 }
 
 func (h *Handler) handleGetQueueURL(

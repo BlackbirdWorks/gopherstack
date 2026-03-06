@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 var (
@@ -26,7 +28,7 @@ type StorageBackend interface {
 	UpdateStack(ctx context.Context, nameOrID, templateBody string, params []Parameter) (*Stack, error)
 	DeleteStack(ctx context.Context, nameOrID string) error
 	DescribeStack(nameOrID string) (*Stack, error)
-	ListStacks(statusFilter []string) []StackSummary
+	ListStacks(statusFilter []string, nextToken string) (page.Page[StackSummary], error)
 	DescribeStackEvents(nameOrID string) ([]StackEvent, error)
 	CreateChangeSet(
 		ctx context.Context,
@@ -36,7 +38,7 @@ type StorageBackend interface {
 	DescribeChangeSet(stackName, changeSetName string) (*ChangeSet, error)
 	ExecuteChangeSet(ctx context.Context, stackName, changeSetName string) error
 	DeleteChangeSet(stackName, changeSetName string) error
-	ListChangeSets(stackName string) ([]ChangeSetSummary, error)
+	ListChangeSets(stackName, nextToken string) (page.Page[ChangeSetSummary], error)
 	GetTemplate(nameOrID string) (string, error)
 	ListAll() []*Stack
 }
@@ -358,8 +360,10 @@ func (b *InMemoryBackend) DescribeStack(nameOrID string) (*Stack, error) {
 	return stack, nil
 }
 
-// ListStacks returns stack summaries, optionally filtered by status.
-func (b *InMemoryBackend) ListStacks(statusFilter []string) []StackSummary {
+const cfnDefaultPageSize = 100
+
+// ListStacks returns paginated stack summaries, optionally filtered by status.
+func (b *InMemoryBackend) ListStacks(statusFilter []string, nextToken string) (page.Page[StackSummary], error) {
 	b.mu.RLock("ListStacks")
 	defer b.mu.RUnlock()
 
@@ -382,7 +386,9 @@ func (b *InMemoryBackend) ListStacks(statusFilter []string) []StackSummary {
 		})
 	}
 
-	return summaries
+	sort.Slice(summaries, func(i, j int) bool { return summaries[i].StackName < summaries[j].StackName })
+
+	return page.New(summaries, nextToken, 0, cfnDefaultPageSize), nil
 }
 
 // DescribeStackEvents returns events for a stack.
@@ -542,8 +548,8 @@ func (b *InMemoryBackend) DeleteChangeSet(stackName, changeSetName string) error
 	return nil
 }
 
-// ListChangeSets returns summaries of change sets for a stack.
-func (b *InMemoryBackend) ListChangeSets(stackName string) ([]ChangeSetSummary, error) {
+// ListChangeSets returns paginated summaries of change sets for a stack.
+func (b *InMemoryBackend) ListChangeSets(stackName, nextToken string) (page.Page[ChangeSetSummary], error) {
 	b.mu.RLock("ListChangeSets")
 	defer b.mu.RUnlock()
 
@@ -561,7 +567,9 @@ func (b *InMemoryBackend) ListChangeSets(stackName string) ([]ChangeSetSummary, 
 		})
 	}
 
-	return summaries, nil
+	sort.Slice(summaries, func(i, j int) bool { return summaries[i].ChangeSetName < summaries[j].ChangeSetName })
+
+	return page.New(summaries, nextToken, 0, cfnDefaultPageSize), nil
 }
 
 // GetTemplate returns the template body for a stack.

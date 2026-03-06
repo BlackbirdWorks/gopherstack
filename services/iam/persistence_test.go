@@ -40,9 +40,9 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *iam.InMemoryBackend, _ string) {
 				t.Helper()
 
-				users, err := b.ListUsers()
+				users, err := b.ListUsers("", 0)
 				require.NoError(t, err)
-				assert.Empty(t, users)
+				assert.Empty(t, users.Data)
 			},
 		},
 	}

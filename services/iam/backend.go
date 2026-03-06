@@ -13,6 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 var (
@@ -51,19 +52,19 @@ type StorageBackend interface {
 	// Users
 	CreateUser(userName, path string) (*User, error)
 	DeleteUser(userName string) error
-	ListUsers() ([]User, error)
+	ListUsers(marker string, maxItems int) (page.Page[User], error)
 	GetUser(userName string) (*User, error)
 
 	// Roles
 	CreateRole(roleName, path, assumeRolePolicyDocument string) (*Role, error)
 	DeleteRole(roleName string) error
-	ListRoles() ([]Role, error)
+	ListRoles(marker string, maxItems int) (page.Page[Role], error)
 	GetRole(roleName string) (*Role, error)
 
 	// Policies
 	CreatePolicy(policyName, path, policyDocument string) (*Policy, error)
 	DeletePolicy(policyArn string) error
-	ListPolicies() ([]Policy, error)
+	ListPolicies(marker string, maxItems int) (page.Page[Policy], error)
 	AttachUserPolicy(userName, policyArn string) error
 	AttachRolePolicy(roleName, policyArn string) error
 	DetachRolePolicy(roleName, policyArn string) error
@@ -75,17 +76,18 @@ type StorageBackend interface {
 	// Groups
 	CreateGroup(groupName, path string) (*Group, error)
 	DeleteGroup(groupName string) error
+	ListGroups(marker string, maxItems int) (page.Page[Group], error)
 	AddUserToGroup(groupName, userName string) error
 
 	// Access Keys
 	CreateAccessKey(userName string) (*AccessKey, error)
 	DeleteAccessKey(userName, accessKeyID string) error
-	ListAccessKeys(userName string) ([]AccessKey, error)
+	ListAccessKeys(userName, marker string, maxItems int) (page.Page[AccessKey], error)
 
 	// Instance Profiles
 	CreateInstanceProfile(name, path string) (*InstanceProfile, error)
 	DeleteInstanceProfile(name string) error
-	ListInstanceProfiles() ([]InstanceProfile, error)
+	ListInstanceProfiles(marker string, maxItems int) (page.Page[InstanceProfile], error)
 
 	// Dashboard helpers
 	ListAllUsers() []User
@@ -99,6 +101,9 @@ type StorageBackend interface {
 	GetUserByAccessKeyID(accessKeyID string) (*User, error)
 	GetPoliciesForUser(userName string) ([]string, error)
 }
+
+// iamDefaultMaxItems is the default page size for IAM list operations.
+const iamDefaultMaxItems = 100
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
@@ -193,12 +198,12 @@ func (b *InMemoryBackend) DeleteUser(userName string) error {
 	return nil
 }
 
-// ListUsers returns all IAM users sorted by name.
-func (b *InMemoryBackend) ListUsers() ([]User, error) {
+// ListUsers returns a paginated list of IAM users sorted by name.
+func (b *InMemoryBackend) ListUsers(marker string, maxItems int) (page.Page[User], error) {
 	b.mu.RLock("ListUsers")
 	defer b.mu.RUnlock()
 
-	return sortedUsers(b.users), nil
+	return page.New(sortedUsers(b.users), marker, maxItems, iamDefaultMaxItems), nil
 }
 
 // GetUser retrieves a single IAM user by name.
@@ -261,8 +266,8 @@ func (b *InMemoryBackend) DeleteRole(roleName string) error {
 	return nil
 }
 
-// ListRoles returns all IAM roles sorted by name.
-func (b *InMemoryBackend) ListRoles() ([]Role, error) {
+// ListRoles returns a paginated list of IAM roles sorted by name.
+func (b *InMemoryBackend) ListRoles(marker string, maxItems int) (page.Page[Role], error) {
 	b.mu.RLock("ListRoles")
 	defer b.mu.RUnlock()
 
@@ -273,7 +278,7 @@ func (b *InMemoryBackend) ListRoles() ([]Role, error) {
 
 	sort.Slice(roles, func(i, j int) bool { return roles[i].RoleName < roles[j].RoleName })
 
-	return roles, nil
+	return page.New(roles, marker, maxItems, iamDefaultMaxItems), nil
 }
 
 // GetRole retrieves a single IAM role by name.
@@ -348,8 +353,8 @@ func (b *InMemoryBackend) DeletePolicy(policyArn string) error {
 	return fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
 }
 
-// ListPolicies returns all IAM policies sorted by name.
-func (b *InMemoryBackend) ListPolicies() ([]Policy, error) {
+// ListPolicies returns a paginated list of IAM policies sorted by name.
+func (b *InMemoryBackend) ListPolicies(marker string, maxItems int) (page.Page[Policy], error) {
 	b.mu.RLock("ListPolicies")
 	defer b.mu.RUnlock()
 
@@ -360,7 +365,7 @@ func (b *InMemoryBackend) ListPolicies() ([]Policy, error) {
 
 	sort.Slice(policies, func(i, j int) bool { return policies[i].PolicyName < policies[j].PolicyName })
 
-	return policies, nil
+	return page.New(policies, marker, maxItems, iamDefaultMaxItems), nil
 }
 
 // AttachUserPolicy attaches a policy to a user.
@@ -474,6 +479,21 @@ func (b *InMemoryBackend) AddUserToGroup(groupName, userName string) error {
 	return nil
 }
 
+// ListGroups returns a paginated list of IAM groups sorted by name.
+func (b *InMemoryBackend) ListGroups(marker string, maxItems int) (page.Page[Group], error) {
+	b.mu.RLock("ListGroups")
+	defer b.mu.RUnlock()
+
+	groups := make([]Group, 0, len(b.groups))
+	for _, g := range b.groups {
+		groups = append(groups, g)
+	}
+
+	sort.Slice(groups, func(i, j int) bool { return groups[i].GroupName < groups[j].GroupName })
+
+	return page.New(groups, marker, maxItems, iamDefaultMaxItems), nil
+}
+
 // ---- Access Keys ----
 
 // CreateAccessKey creates a new access key for an IAM user.
@@ -512,13 +532,13 @@ func (b *InMemoryBackend) DeleteAccessKey(userName, accessKeyID string) error {
 	return nil
 }
 
-// ListAccessKeys returns all access keys for an IAM user.
-func (b *InMemoryBackend) ListAccessKeys(userName string) ([]AccessKey, error) {
+// ListAccessKeys returns a paginated list of access keys for an IAM user.
+func (b *InMemoryBackend) ListAccessKeys(userName, marker string, maxItems int) (page.Page[AccessKey], error) {
 	b.mu.RLock("ListAccessKeys")
 	defer b.mu.RUnlock()
 
 	if _, exists := b.users[userName]; !exists {
-		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
+		return page.Page[AccessKey]{}, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
 	keys := make([]AccessKey, 0)
@@ -530,7 +550,7 @@ func (b *InMemoryBackend) ListAccessKeys(userName string) ([]AccessKey, error) {
 
 	sort.Slice(keys, func(i, j int) bool { return keys[i].AccessKeyID < keys[j].AccessKeyID })
 
-	return keys, nil
+	return page.New(keys, marker, maxItems, iamDefaultMaxItems), nil
 }
 
 // ---- Instance Profiles ----
@@ -572,8 +592,8 @@ func (b *InMemoryBackend) DeleteInstanceProfile(name string) error {
 	return nil
 }
 
-// ListInstanceProfiles returns all IAM instance profiles sorted by name.
-func (b *InMemoryBackend) ListInstanceProfiles() ([]InstanceProfile, error) {
+// ListInstanceProfiles returns a paginated list of IAM instance profiles sorted by name.
+func (b *InMemoryBackend) ListInstanceProfiles(marker string, maxItems int) (page.Page[InstanceProfile], error) {
 	b.mu.RLock("ListInstanceProfiles")
 	defer b.mu.RUnlock()
 
@@ -586,7 +606,7 @@ func (b *InMemoryBackend) ListInstanceProfiles() ([]InstanceProfile, error) {
 		return profiles[i].InstanceProfileName < profiles[j].InstanceProfileName
 	})
 
-	return profiles, nil
+	return page.New(profiles, marker, maxItems, iamDefaultMaxItems), nil
 }
 
 // ---- Dashboard helpers ----

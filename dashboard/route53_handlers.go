@@ -80,10 +80,11 @@ client = boto3.client('route53', endpoint_url='http://localhost:8000')`,
 		return nil
 	}
 
-	zones, err := h.Route53Ops.Backend.ListHostedZones()
+	p, err := h.Route53Ops.Backend.ListHostedZones("", 0)
 	if err != nil {
 		return c.NoContent(http.StatusInternalServerError)
 	}
+	zones := p.Data
 
 	views := make([]route53ZoneView, 0, len(zones))
 
