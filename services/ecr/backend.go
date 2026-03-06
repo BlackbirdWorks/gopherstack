@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
@@ -69,9 +67,6 @@ func (b *InMemoryBackend) CreateRepository(name string) (*Repository, error) {
 	if _, ok := b.repos[name]; ok {
 		return nil, fmt.Errorf("%w: %s", ErrRepositoryAlreadyExists, name)
 	}
-
-	repoID := uuid.New().String()
-	_ = repoID
 
 	endpoint := b.endpoint
 	if endpoint == "" {

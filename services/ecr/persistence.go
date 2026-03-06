@@ -12,7 +12,14 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	snap := backendSnapshot{Repos: b.repos}
+	// Deep-copy the repos map to ensure snapshot isolation.
+	repos := make(map[string]*Repository, len(b.repos))
+	for k, v := range b.repos {
+		cp := *v
+		repos[k] = &cp
+	}
+
+	snap := backendSnapshot{Repos: repos}
 
 	data, err := json.Marshal(snap)
 	if err != nil {
