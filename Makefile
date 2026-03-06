@@ -3,7 +3,7 @@
 BINARY_NAME=gopherstack
 
 build:
-	go build -o bin/$(BINARY_NAME) main.go
+	go build -o bin/$(BINARY_NAME) .
 
 install-deps:
 	@echo "Checking for golangci-lint..."

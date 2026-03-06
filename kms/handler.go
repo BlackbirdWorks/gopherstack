@@ -505,6 +505,10 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		errorType = "NotFoundException"
 	case errors.Is(reqErr, ErrKeyDisabled):
 		errorType = "DisabledException"
+	case errors.Is(reqErr, ErrKeyInvalidState):
+		errorType = "KMSInvalidStateException"
+	case errors.Is(reqErr, ErrInvalidKeyUsage):
+		errorType = "InvalidKeyUsageException"
 	case errors.Is(reqErr, ErrAliasAlreadyExists):
 		errorType = "AlreadyExistsException"
 	case errors.Is(reqErr, ErrInvalidCiphertext), errors.Is(reqErr, ErrCiphertextTooShort):

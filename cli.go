@@ -808,6 +808,9 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	// Wire CloudWatch Logs → Lambda log delivery.
 	wireLambdaCWLogs(byName["Lambda"], byName["CloudWatchLogs"])
 
+	// Wire CloudWatch Logs subscription filter delivery to Lambda, Kinesis, and Firehose.
+	wireCWLogsSubscriptionFilters(byName["CloudWatchLogs"], byName["Lambda"], byName["Kinesis"], byName["Firehose"])
+
 	// Wire Lambda invoker → SecretsManager rotation.
 	wireSecretsManagerLambda(byName["SecretsManager"], byName["Lambda"])
 
@@ -1192,6 +1195,100 @@ func (a *cwLogsAdapter) PutLogLines(groupName, streamName string, messages []str
 	_, err := a.backend.PutLogEvents(groupName, streamName, events)
 
 	return err
+}
+
+// wireCWLogsSubscriptionFilters wires the CloudWatch Logs subscription filter delivery
+// to Lambda, Kinesis, and Firehose backends.
+func wireCWLogsSubscriptionFilters(cwlogsReg, lambdaReg, kinesisReg, firehoseReg service.Registerable) {
+	cwlogsH, ok := cwlogsReg.(*cwlogsbackend.Handler)
+	if !ok {
+		return
+	}
+
+	cwlogsBk, bkOk := cwlogsH.Backend.(*cwlogsbackend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	d := &cwlogsSubscriptionDeliverer{}
+
+	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
+		if lambdaBk, bk2Ok := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bk2Ok {
+			d.lambda = lambdaBk
+		}
+	}
+
+	if kinesisH, kinesisOk := kinesisReg.(*kinesisbackend.Handler); kinesisOk {
+		if kinesisBk, bk2Ok := kinesisH.Backend.(*kinesisbackend.InMemoryBackend); bk2Ok {
+			d.kinesis = kinesisBk
+		}
+	}
+
+	if firehoseH, firehoseOk := firehoseReg.(*firehosebackend.Handler); firehoseOk {
+		d.firehose = firehoseH.Backend
+	}
+
+	cwlogsBk.SetSubscriptionDeliverer(d)
+}
+
+// cwlogsSubscriptionDeliverer delivers CloudWatch Logs subscription filter payloads to
+// Lambda, Kinesis, and Firehose destinations by parsing the destination ARN.
+type cwlogsSubscriptionDeliverer struct {
+	lambda   *lambdabackend.InMemoryBackend
+	kinesis  *kinesisbackend.InMemoryBackend
+	firehose *firehosebackend.InMemoryBackend
+}
+
+func (d *cwlogsSubscriptionDeliverer) DeliverLogEvents(
+	ctx context.Context, destinationArn string, payload []byte,
+) error {
+	// ARN format: arn:aws:<service>:<region>:<account>:<resource>
+	const arnParts = 6
+	parts := strings.SplitN(destinationArn, ":", arnParts)
+	const arnServiceIdx = 2
+	const arnResourceIdx = 5
+
+	if len(parts) < arnParts {
+		return nil
+	}
+
+	service := parts[arnServiceIdx]
+	resource := parts[arnResourceIdx]
+
+	switch service {
+	case "lambda":
+		if d.lambda == nil {
+			return nil
+		}
+		// resource is "function:<name>" or just "<name>"
+		funcName := strings.TrimPrefix(resource, "function:")
+		_, _, err := d.lambda.InvokeFunction(ctx, funcName, lambdabackend.InvocationTypeEvent, payload)
+
+		return err
+	case "kinesis":
+		if d.kinesis == nil {
+			return nil
+		}
+		// resource is "stream/<name>"
+		streamName := strings.TrimPrefix(resource, "stream/")
+		_, err := d.kinesis.PutRecord(&kinesisbackend.PutRecordInput{
+			StreamName:   streamName,
+			PartitionKey: "cwlogs",
+			Data:         payload,
+		})
+
+		return err
+	case "firehose":
+		if d.firehose == nil {
+			return nil
+		}
+		// resource is "deliverystream/<name>"
+		streamName := strings.TrimPrefix(resource, "deliverystream/")
+
+		return d.firehose.PutRecord(streamName, payload)
+	}
+
+	return nil
 }
 
 // wireSecretsManagerLambda wires the Lambda invoker into the SecretsManager handler

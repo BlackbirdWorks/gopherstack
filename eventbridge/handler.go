@@ -588,7 +588,7 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		errType = "ResourceAlreadyExistsException"
 		statusCode = http.StatusConflict
 	case errors.Is(reqErr, ErrCannotDeleteDefaultBus):
-		errType = "IllegalArgumentException"
+		errType = "IllegalStatusException"
 		statusCode = http.StatusBadRequest
 	case errors.Is(reqErr, ErrInvalidParameter):
 		errType = "InvalidParameterException"

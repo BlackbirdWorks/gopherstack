@@ -138,18 +138,32 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	var typeErr *json.UnmarshalTypeError
 
 	code := http.StatusInternalServerError
+	var errType string
 
 	switch {
+	case errors.Is(err, ErrAlreadyExists):
+		code = http.StatusBadRequest
+		errType = "DomainAlreadyExistsFault"
+	case errors.Is(err, ErrDeprecated):
+		code = http.StatusBadRequest
+		errType = "DomainDeprecatedFault"
+	case errors.Is(err, ErrTypeAlreadyExists):
+		code = http.StatusBadRequest
+		errType = "TypeAlreadyExistsFault"
+	case errors.Is(err, ErrNotFound):
+		code = http.StatusNotFound
+		errType = "UnknownResourceFault"
 	case errors.Is(err, errInvalidRequest), errors.Is(err, ErrUnknownOperation),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		code = http.StatusBadRequest
-	case errors.Is(err, ErrAlreadyExists), errors.Is(err, ErrDeprecated), errors.Is(err, ErrTypeAlreadyExists):
-		code = http.StatusBadRequest
-	case errors.Is(err, ErrNotFound):
-		code = http.StatusNotFound
 	}
 
-	return c.JSON(code, map[string]string{"message": err.Error()})
+	resp := map[string]string{"message": err.Error()}
+	if errType != "" {
+		resp["__type"] = errType
+	}
+
+	return c.JSON(code, resp)
 }
 
 type registerDomainOutput struct{}

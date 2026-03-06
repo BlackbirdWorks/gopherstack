@@ -1,7 +1,9 @@
 package cloudwatchlogs_test
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -693,3 +695,296 @@ func TestCloudWatchLogsBackend_PutLogEvents_UpdatesTimestamps(t *testing.T) {
 }
 
 func int64Ptr(v int64) *int64 { return new(v) }
+
+func TestCloudWatchLogsBackend_PutSubscriptionFilter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr        error
+		setup          func(t *testing.T, b *cloudwatchlogs.InMemoryBackend)
+		name           string
+		group          string
+		filterName     string
+		filterPattern  string
+		destinationArn string
+	}{
+		{
+			name: "success",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				_, _ = b.CreateLogGroup("grp")
+			},
+			group:          "grp",
+			filterName:     "my-filter",
+			filterPattern:  "",
+			destinationArn: "arn:aws:lambda:us-east-1:123456789012:function:my-fn",
+		},
+		{
+			name: "update_existing",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				_, _ = b.CreateLogGroup("grp")
+				_ = b.PutSubscriptionFilter("grp", "f", "", "arn:aws:lambda:us-east-1:123456789012:function:old")
+			},
+			group:          "grp",
+			filterName:     "f",
+			filterPattern:  "ERROR",
+			destinationArn: "arn:aws:lambda:us-east-1:123456789012:function:new",
+		},
+		{
+			name:       "group_not_found",
+			group:      "nonexistent",
+			filterName: "f",
+			wantErr:    cloudwatchlogs.ErrLogGroupNotFound,
+		},
+		{
+			name: "limit_exceeded",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				_, _ = b.CreateLogGroup("grp")
+				_ = b.PutSubscriptionFilter("grp", "f1", "", "arn:aws:lambda:us-east-1:123456789012:function:a")
+				_ = b.PutSubscriptionFilter("grp", "f2", "", "arn:aws:lambda:us-east-1:123456789012:function:b")
+			},
+			group:          "grp",
+			filterName:     "f3",
+			destinationArn: "arn:aws:lambda:us-east-1:123456789012:function:c",
+			wantErr:        cloudwatchlogs.ErrSubscriptionFilterLimitExceed,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+			if tt.setup != nil {
+				tt.setup(t, b)
+			}
+
+			err := b.PutSubscriptionFilter(tt.group, tt.filterName, tt.filterPattern, tt.destinationArn)
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			filters, _, err := b.DescribeSubscriptionFilters(tt.group, "", "", 0)
+			require.NoError(t, err)
+
+			found := false
+			for _, f := range filters {
+				if f.FilterName == tt.filterName {
+					found = true
+					assert.Equal(t, tt.destinationArn, f.DestinationArn)
+					assert.Equal(t, tt.filterPattern, f.FilterPattern)
+				}
+			}
+			assert.True(t, found, "filter not found after put")
+		})
+	}
+}
+
+func TestCloudWatchLogsBackend_DescribeSubscriptionFilters(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr       error
+		setup         func(t *testing.T, b *cloudwatchlogs.InMemoryBackend)
+		name          string
+		group         string
+		prefix        string
+		nextToken     string
+		wantFirstName string
+		wantCount     int
+		limit         int
+	}{
+		{
+			name: "all_filters",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				_, _ = b.CreateLogGroup("grp")
+				_ = b.PutSubscriptionFilter("grp", "filter-a", "", "arn:aws:lambda:us-east-1:123456789012:function:a")
+				_ = b.PutSubscriptionFilter("grp", "filter-b", "", "arn:aws:lambda:us-east-1:123456789012:function:b")
+			},
+			group:     "grp",
+			wantCount: 2,
+		},
+		{
+			name: "prefix_filter",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				_, _ = b.CreateLogGroup("grp")
+				_ = b.PutSubscriptionFilter(
+					"grp",
+					"prod-filter",
+					"",
+					"arn:aws:lambda:us-east-1:123456789012:function:a",
+				)
+				_ = b.PutSubscriptionFilter("grp", "dev-filter", "", "arn:aws:lambda:us-east-1:123456789012:function:b")
+			},
+			group:         "grp",
+			prefix:        "prod",
+			wantCount:     1,
+			wantFirstName: "prod-filter",
+		},
+		{
+			name:    "group_not_found",
+			group:   "nonexistent",
+			wantErr: cloudwatchlogs.ErrLogGroupNotFound,
+		},
+		{
+			name: "beyond_end",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				_, _ = b.CreateLogGroup("grp")
+				_ = b.PutSubscriptionFilter("grp", "f", "", "arn:aws:lambda:us-east-1:123456789012:function:a")
+			},
+			group:     "grp",
+			nextToken: "999",
+			wantCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+			if tt.setup != nil {
+				tt.setup(t, b)
+			}
+
+			filters, _, err := b.DescribeSubscriptionFilters(tt.group, tt.prefix, tt.nextToken, tt.limit)
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Len(t, filters, tt.wantCount)
+
+			if tt.wantFirstName != "" && tt.wantCount > 0 {
+				assert.Equal(t, tt.wantFirstName, filters[0].FilterName)
+			}
+		})
+	}
+}
+
+func TestCloudWatchLogsBackend_DeleteSubscriptionFilter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr    error
+		setup      func(t *testing.T, b *cloudwatchlogs.InMemoryBackend)
+		name       string
+		group      string
+		filterName string
+	}{
+		{
+			name: "success",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				_, _ = b.CreateLogGroup("grp")
+				_ = b.PutSubscriptionFilter("grp", "my-filter", "", "arn:aws:lambda:us-east-1:123456789012:function:a")
+			},
+			group:      "grp",
+			filterName: "my-filter",
+		},
+		{
+			name: "not_found",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				_, _ = b.CreateLogGroup("grp")
+			},
+			group:      "grp",
+			filterName: "nonexistent",
+			wantErr:    cloudwatchlogs.ErrSubscriptionFilterNotFound,
+		},
+		{
+			name:       "group_not_found",
+			group:      "nonexistent",
+			filterName: "f",
+			wantErr:    cloudwatchlogs.ErrLogGroupNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+			if tt.setup != nil {
+				tt.setup(t, b)
+			}
+
+			err := b.DeleteSubscriptionFilter(tt.group, tt.filterName)
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			filters, _, ferr := b.DescribeSubscriptionFilters(tt.group, "", "", 0)
+			require.NoError(t, ferr)
+			assert.Empty(t, filters)
+		})
+	}
+}
+
+func TestCloudWatchLogsBackend_PutLogEvents_SubscriptionDelivery(t *testing.T) {
+	t.Parallel()
+
+	type deliveredPayload struct {
+		destinationArn string
+		payload        []byte
+	}
+
+	var delivered []deliveredPayload
+
+	deliverer := cloudwatchlogs.SubscriptionDelivererFunc(func(_ context.Context, dst string, p []byte) error {
+		delivered = append(delivered, deliveredPayload{dst, p})
+
+		return nil
+	})
+
+	b := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	b.SetSubscriptionDeliverer(deliverer)
+
+	_, _ = b.CreateLogGroup("grp")
+	_, _ = b.CreateLogStream("grp", "stream")
+	_ = b.PutSubscriptionFilter("grp", "my-filter", "", "arn:aws:lambda:us-east-1:123456789012:function:target")
+
+	_, err := b.PutLogEvents("grp", "stream", []cloudwatchlogs.InputLogEvent{
+		{Message: "hello", Timestamp: 1000},
+	})
+	require.NoError(t, err)
+
+	// Give the goroutine a moment to deliver.
+	time.Sleep(50 * time.Millisecond)
+
+	assert.Len(t, delivered, 1)
+	assert.Equal(t, "arn:aws:lambda:us-east-1:123456789012:function:target", delivered[0].destinationArn)
+	assert.NotEmpty(t, delivered[0].payload)
+}
+
+func TestCloudWatchLogsBackend_DeleteLogGroup_ClearsSubscriptionFilters(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	_, _ = b.CreateLogGroup("grp")
+	_ = b.PutSubscriptionFilter("grp", "f", "", "arn:aws:lambda:us-east-1:123456789012:function:a")
+	require.NoError(t, b.DeleteLogGroup("grp"))
+
+	_, _ = b.CreateLogGroup("grp")
+	filters, _, err := b.DescribeSubscriptionFilters("grp", "", "", 0)
+	require.NoError(t, err)
+	assert.Empty(t, filters)
+}

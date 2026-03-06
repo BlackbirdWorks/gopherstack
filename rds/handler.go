@@ -450,7 +450,7 @@ func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) err
 	case errors.Is(opErr, ErrSnapshotAlreadyExists):
 		code = "DBSnapshotAlreadyExists"
 	case errors.Is(opErr, ErrSubnetGroupNotFound):
-		code = "DBSubnetGroupNotFound"
+		code = "DBSubnetGroupNotFoundFault"
 	case errors.Is(opErr, ErrSubnetGroupAlreadyExists):
 		code = "DBSubnetGroupAlreadyExists"
 	case errors.Is(opErr, ErrInvalidParameter):

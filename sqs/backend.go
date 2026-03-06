@@ -662,7 +662,7 @@ func changeVisibility(q *Queue, receiptHandle string, visibilityTimeout int) err
 		}
 	}
 
-	return ErrReceiptHandleInvalid
+	return ErrMessageNotInflight
 }
 
 // ChangeMessageVisibilityBatch updates visibility for a batch of in-flight messages.
@@ -685,7 +685,7 @@ func (b *InMemoryBackend) ChangeMessageVisibilityBatch(
 		if err := changeVisibility(q, entry.ReceiptHandle, entry.VisibilityTimeout); err != nil {
 			out.Failed = append(out.Failed, BatchErrorEntry{
 				ID:          entry.ID,
-				Code:        "ReceiptHandleIsInvalid",
+				Code:        "MessageNotInflight",
 				Message:     err.Error(),
 				SenderFault: true,
 			})
