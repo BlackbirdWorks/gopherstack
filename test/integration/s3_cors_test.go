@@ -19,13 +19,13 @@ func TestIntegration_S3_CORS(t *testing.T) {
 	dumpContainerLogsOnFailure(t)
 
 	tests := []struct {
-		setup         func(t *testing.T, client *s3.Client, bucket string)
-		name          string
-		origin        string
-		method        string
-		reqHeaders    string
-		wantAllow     string
-		wantCode      int
+		setup      func(t *testing.T, client *s3.Client, bucket string)
+		name       string
+		origin     string
+		method     string
+		reqHeaders string
+		wantAllow  string
+		wantCode   int
 	}{
 		{
 			name: "matching origin and method returns 200 with allow headers",
