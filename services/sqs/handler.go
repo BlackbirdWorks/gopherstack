@@ -56,6 +56,15 @@ func (h *Handler) GetSupportedOperations() []string {
 	}
 }
 
+// ChaosServiceName returns the lowercase AWS service name for fault rule matching.
+func (h *Handler) ChaosServiceName() string { return "sqs" }
+
+// ChaosOperations returns all operations that can be fault-injected.
+func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations() }
+
+// ChaosRegions returns all regions this SQS instance handles.
+func (h *Handler) ChaosRegions() []string { return []string{h.DefaultRegion} }
+
 // RouteMatcher returns a function that matches incoming SQS requests.
 // It matches POST requests whose X-Amz-Target header starts with "AmazonSQS." and whose
 // path is "/" or starts with "/000000000000/" (to avoid capturing Dashboard form POSTs).

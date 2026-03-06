@@ -147,6 +147,22 @@ func (h *DynamoDBHandler) Regions() []string {
 	return []string{}
 }
 
+// ChaosServiceName returns the lowercase AWS service name for fault rule matching.
+func (h *DynamoDBHandler) ChaosServiceName() string { return "dynamodb" }
+
+// ChaosOperations returns all operations that can be fault-injected.
+func (h *DynamoDBHandler) ChaosOperations() []string { return h.GetSupportedOperations() }
+
+// ChaosRegions returns all regions this DynamoDB instance handles.
+func (h *DynamoDBHandler) ChaosRegions() []string {
+	regions := h.Regions()
+	if len(regions) == 0 {
+		return []string{h.DefaultRegion}
+	}
+
+	return regions
+}
+
 // TableNamesByRegion returns table names in the given region (all if empty).
 // Returns an empty slice when not using the in-memory backend.
 func (h *DynamoDBHandler) TableNamesByRegion(region string) []string {

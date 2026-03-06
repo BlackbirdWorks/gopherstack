@@ -89,6 +89,24 @@ type DashboardProvider interface {
 	)
 }
 
+// ChaosProvider is an optional interface services implement to declare
+// their chaos-injectable surface area. Services that implement this interface
+// are automatically discovered by the Chaos API via the registry.
+type ChaosProvider interface {
+	// ChaosServiceName returns the lowercase AWS-style service name used in
+	// fault rules (e.g. "s3", "dynamodb", "sqs").
+	ChaosServiceName() string
+
+	// ChaosOperations returns all operations that can be fault-injected.
+	// Implementations typically delegate to GetSupportedOperations().
+	ChaosOperations() []string
+
+	// ChaosRegions returns all regions this service instance handles.
+	// Typically returns the configured default region plus any regions
+	// that have active resources.
+	ChaosRegions() []string
+}
+
 // BackgroundWorker is an optional interface that services can implement
 // to start background tasks (e.g. async deletion janitors).
 type BackgroundWorker interface {

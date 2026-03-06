@@ -180,6 +180,22 @@ func (h *S3Handler) Regions() []string {
 	return []string{}
 }
 
+// ChaosServiceName returns the lowercase AWS service name for fault rule matching.
+func (h *S3Handler) ChaosServiceName() string { return "s3" }
+
+// ChaosOperations returns all operations that can be fault-injected.
+func (h *S3Handler) ChaosOperations() []string { return h.GetSupportedOperations() }
+
+// ChaosRegions returns all regions this S3 instance handles.
+func (h *S3Handler) ChaosRegions() []string {
+	regions := h.Regions()
+	if len(regions) == 0 {
+		return []string{h.DefaultRegion}
+	}
+
+	return regions
+}
+
 // BucketsByRegion returns buckets in the given region (all if empty).
 // Returns an empty slice when not using the in-memory backend.
 func (h *S3Handler) BucketsByRegion(region string) []types.Bucket {

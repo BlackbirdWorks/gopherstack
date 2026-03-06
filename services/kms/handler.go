@@ -134,6 +134,15 @@ func (h *Handler) GetSupportedOperations() []string {
 	}
 }
 
+// ChaosServiceName returns the lowercase AWS service name for fault rule matching.
+func (h *Handler) ChaosServiceName() string { return "kms" }
+
+// ChaosOperations returns all operations that can be fault-injected.
+func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations() }
+
+// ChaosRegions returns all regions this KMS instance handles.
+func (h *Handler) ChaosRegions() []string { return []string{h.DefaultRegion} }
+
 // RouteMatcher returns a matcher that identifies KMS requests by the X-Amz-Target header.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
