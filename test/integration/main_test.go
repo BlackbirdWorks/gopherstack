@@ -22,6 +22,7 @@ import (
 	cloudformationsdk "github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	cloudwatchsdk "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cloudwatchlogssdk "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	cognitoidpsdk "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodbstreams"
@@ -754,4 +755,24 @@ func unwrapValue(v any) any {
 	default:
 		return val
 	}
+}
+
+// createCognitoIDPClient returns a Cognito IDP client pointed at the shared test container.
+func createCognitoIDPClient(t *testing.T) *cognitoidpsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return cognitoidpsdk.NewFromConfig(cfg, func(o *cognitoidpsdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
 }

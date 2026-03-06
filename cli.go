@@ -47,6 +47,7 @@ import (
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
+	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
@@ -213,6 +214,13 @@ func (c *CLI) GetS3Endpoint() string {
 	s3Port := strings.TrimPrefix(c.Port, ":")
 
 	return "localhost:" + s3Port
+}
+
+// GetEndpoint returns the base HTTP endpoint URL for this Gopherstack instance.
+func (c *CLI) GetEndpoint() string {
+	port := strings.TrimPrefix(c.Port, ":")
+
+	return "http://localhost:" + port
 }
 
 // GetLambdaSettings returns Lambda settings (lambda.SettingsProvider).
@@ -877,6 +885,7 @@ func getServiceProviders() []service.Provider {
 		&transcribebackend.Provider{},
 		&supportbackend.Provider{},
 		&ecrbackend.Provider{},
+		&cognitoidpbackend.Provider{},
 	}
 }
 
