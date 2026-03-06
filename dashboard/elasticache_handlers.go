@@ -5,7 +5,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	elasticachebackend "github.com/blackbirdworks/gopherstack/elasticache"
+	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 )
 
 // elastiCacheClusterView is the view model for a single cluster in the index listing.

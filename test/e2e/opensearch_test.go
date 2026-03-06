@@ -10,7 +10,7 @@ import (
 	"github.com/playwright-community/playwright-go"
 	"github.com/stretchr/testify/require"
 
-	opensearchbackend "github.com/blackbirdworks/gopherstack/opensearch"
+	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 )
 
 // TestOpenSearchDashboard verifies the OpenSearch dashboard UI renders domains.

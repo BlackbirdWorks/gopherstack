@@ -9,7 +9,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
 // JSONErrorResponse is the standard JSON error envelope for AWS JSON-protocol services.
@@ -102,7 +102,7 @@ func HandleTarget(
 
 	action := parts[1]
 
-	body, err := httputil.ReadBody(c.Request())
+	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		log.ErrorContext(ctx, "failed to read request body", "error", err)
 

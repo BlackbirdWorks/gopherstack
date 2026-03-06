@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
-	"github.com/blackbirdworks/gopherstack/sqs"
-	"github.com/blackbirdworks/gopherstack/ssm"
+	"github.com/blackbirdworks/gopherstack/services/sqs"
+	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
 func TestPersistence_FileStore_RoundTrip_SQS(t *testing.T) {

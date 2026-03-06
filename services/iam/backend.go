@@ -1,0 +1,849 @@
+package iam
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"slices"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
+)
+
+var (
+	// ErrUserNotFound is returned when a requested user does not exist.
+	ErrUserNotFound = errors.New("NoSuchEntity")
+	// ErrUserAlreadyExists is returned when creating a user that already exists.
+	ErrUserAlreadyExists = errors.New("EntityAlreadyExists")
+	// ErrRoleNotFound is returned when a requested role does not exist.
+	ErrRoleNotFound = errors.New("NoSuchEntity")
+	// ErrRoleAlreadyExists is returned when creating a role that already exists.
+	ErrRoleAlreadyExists = errors.New("EntityAlreadyExists")
+	// ErrPolicyNotFound is returned when a requested policy does not exist.
+	ErrPolicyNotFound = errors.New("NoSuchEntity")
+	// ErrPolicyAlreadyExists is returned when creating a policy that already exists.
+	ErrPolicyAlreadyExists = errors.New("EntityAlreadyExists")
+	// ErrGroupNotFound is returned when a requested group does not exist.
+	ErrGroupNotFound = errors.New("NoSuchEntity")
+	// ErrGroupAlreadyExists is returned when creating a group that already exists.
+	ErrGroupAlreadyExists = errors.New("EntityAlreadyExists")
+	// ErrAccessKeyNotFound is returned when a requested access key does not exist.
+	ErrAccessKeyNotFound = errors.New("NoSuchEntity")
+	// ErrInstanceProfileNotFound is returned when a requested instance profile does not exist.
+	ErrInstanceProfileNotFound = errors.New("NoSuchEntity")
+	// ErrInstanceProfileAlreadyExists is returned when creating a profile that already exists.
+	ErrInstanceProfileAlreadyExists = errors.New("EntityAlreadyExists")
+	// ErrInvalidAction is returned when an unknown IAM action is requested.
+	ErrInvalidAction = errors.New("InvalidAction")
+	// ErrMalformedPolicyDocument is returned when a policy document is not valid JSON.
+	ErrMalformedPolicyDocument = errors.New("MalformedPolicyDocument")
+	// ErrDeleteConflict is returned when an entity has attached resources that prevent deletion.
+	ErrDeleteConflict = errors.New("DeleteConflict")
+)
+
+// StorageBackend defines the interface for the IAM in-memory store.
+type StorageBackend interface {
+	// Users
+	CreateUser(userName, path string) (*User, error)
+	DeleteUser(userName string) error
+	ListUsers(marker string, maxItems int) (page.Page[User], error)
+	GetUser(userName string) (*User, error)
+
+	// Roles
+	CreateRole(roleName, path, assumeRolePolicyDocument string) (*Role, error)
+	DeleteRole(roleName string) error
+	ListRoles(marker string, maxItems int) (page.Page[Role], error)
+	GetRole(roleName string) (*Role, error)
+
+	// Policies
+	CreatePolicy(policyName, path, policyDocument string) (*Policy, error)
+	DeletePolicy(policyArn string) error
+	ListPolicies(marker string, maxItems int) (page.Page[Policy], error)
+	AttachUserPolicy(userName, policyArn string) error
+	AttachRolePolicy(roleName, policyArn string) error
+	DetachRolePolicy(roleName, policyArn string) error
+	ListAttachedUserPolicies(userName string) ([]AttachedPolicy, error)
+	ListAttachedRolePolicies(roleName string) ([]AttachedPolicy, error)
+	GetPolicy(policyArn string) (*Policy, error)
+	GetPolicyVersion(policyArn, versionID string) (*Policy, error)
+
+	// Groups
+	CreateGroup(groupName, path string) (*Group, error)
+	DeleteGroup(groupName string) error
+	ListGroups(marker string, maxItems int) (page.Page[Group], error)
+	AddUserToGroup(groupName, userName string) error
+
+	// Access Keys
+	CreateAccessKey(userName string) (*AccessKey, error)
+	DeleteAccessKey(userName, accessKeyID string) error
+	ListAccessKeys(userName, marker string, maxItems int) (page.Page[AccessKey], error)
+
+	// Instance Profiles
+	CreateInstanceProfile(name, path string) (*InstanceProfile, error)
+	DeleteInstanceProfile(name string) error
+	ListInstanceProfiles(marker string, maxItems int) (page.Page[InstanceProfile], error)
+
+	// Dashboard helpers
+	ListAllUsers() []User
+	ListAllRoles() []Role
+	ListAllPolicies() []Policy
+	ListAllGroups() []Group
+	ListAllAccessKeys() []AccessKey
+	ListAllInstanceProfiles() []InstanceProfile
+
+	// Enforcement helpers
+	GetUserByAccessKeyID(accessKeyID string) (*User, error)
+	GetPoliciesForUser(userName string) ([]string, error)
+}
+
+// iamDefaultMaxItems is the default page size for IAM list operations.
+const iamDefaultMaxItems = 100
+
+// InMemoryBackend implements StorageBackend using in-memory maps.
+type InMemoryBackend struct {
+	users            map[string]User
+	roles            map[string]Role
+	policies         map[string]Policy
+	groups           map[string]Group
+	accessKeys       map[string]AccessKey
+	instanceProfiles map[string]InstanceProfile
+	// userPolicies and rolePolicies track attached policy ARNs keyed by entity name.
+	userPolicies map[string][]string // userName → []policyArn
+	rolePolicies map[string][]string // roleName → []policyArn
+	mu           *lockmetrics.RWMutex
+	accountID    string
+}
+
+// NewInMemoryBackend creates a new empty IAM InMemoryBackend with default account ID.
+func NewInMemoryBackend() *InMemoryBackend {
+	return NewInMemoryBackendWithConfig(IAMAccountID)
+}
+
+// NewInMemoryBackendWithConfig creates a new IAM InMemoryBackend with the given account ID.
+func NewInMemoryBackendWithConfig(accountID string) *InMemoryBackend {
+	return &InMemoryBackend{
+		users:            make(map[string]User),
+		roles:            make(map[string]Role),
+		policies:         make(map[string]Policy),
+		groups:           make(map[string]Group),
+		accessKeys:       make(map[string]AccessKey),
+		instanceProfiles: make(map[string]InstanceProfile),
+		userPolicies:     make(map[string][]string),
+		rolePolicies:     make(map[string][]string),
+		accountID:        accountID,
+		mu:               lockmetrics.New("iam"),
+	}
+}
+
+// normPath returns a normalized IAM path, defaulting to "/" if empty.
+// Non-root paths are ensured to end with "/" so that ARN construction
+// produces the correct "resource/path/name" form.
+func normPath(path string) string {
+	if path == "" {
+		return "/"
+	}
+
+	if !strings.HasSuffix(path, "/") {
+		return path + "/"
+	}
+
+	return path
+}
+
+// ---- Users ----
+
+// CreateUser creates a new IAM user.
+func (b *InMemoryBackend) CreateUser(userName, path string) (*User, error) {
+	b.mu.Lock("CreateUser")
+	defer b.mu.Unlock()
+
+	if _, exists := b.users[userName]; exists {
+		return nil, fmt.Errorf("%w: user %q already exists", ErrUserAlreadyExists, userName)
+	}
+
+	p := normPath(path)
+	u := User{
+		UserName:   userName,
+		UserID:     newID("AIDA"),
+		Arn:        arn.Build("iam", "", b.accountID, "user"+p+userName),
+		Path:       p,
+		CreateDate: time.Now().UTC(),
+	}
+	b.users[userName] = u
+
+	return &u, nil
+}
+
+// DeleteUser deletes an IAM user by name.
+func (b *InMemoryBackend) DeleteUser(userName string) error {
+	b.mu.Lock("DeleteUser")
+	defer b.mu.Unlock()
+
+	if _, exists := b.users[userName]; !exists {
+		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
+	}
+
+	if len(b.userPolicies[userName]) > 0 {
+		return fmt.Errorf("%w: user %q has attached policies", ErrDeleteConflict, userName)
+	}
+
+	delete(b.users, userName)
+
+	return nil
+}
+
+// ListUsers returns a paginated list of IAM users sorted by name.
+func (b *InMemoryBackend) ListUsers(marker string, maxItems int) (page.Page[User], error) {
+	b.mu.RLock("ListUsers")
+	defer b.mu.RUnlock()
+
+	return page.New(sortedUsers(b.users), marker, maxItems, iamDefaultMaxItems), nil
+}
+
+// GetUser retrieves a single IAM user by name.
+func (b *InMemoryBackend) GetUser(userName string) (*User, error) {
+	b.mu.RLock("GetUser")
+	defer b.mu.RUnlock()
+
+	u, exists := b.users[userName]
+	if !exists {
+		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
+	}
+
+	return &u, nil
+}
+
+// ---- Roles ----
+
+// CreateRole creates a new IAM role.
+func (b *InMemoryBackend) CreateRole(roleName, path, assumeRolePolicyDocument string) (*Role, error) {
+	b.mu.Lock("CreateRole")
+	defer b.mu.Unlock()
+
+	if _, exists := b.roles[roleName]; exists {
+		return nil, fmt.Errorf("%w: role %q already exists", ErrRoleAlreadyExists, roleName)
+	}
+
+	if assumeRolePolicyDocument != "" && !json.Valid([]byte(assumeRolePolicyDocument)) {
+		return nil, fmt.Errorf("%w: invalid JSON in AssumeRolePolicyDocument", ErrMalformedPolicyDocument)
+	}
+
+	p := normPath(path)
+	r := Role{
+		RoleName:                 roleName,
+		RoleID:                   newID("AROA"),
+		Arn:                      arn.Build("iam", "", b.accountID, "role"+p+roleName),
+		Path:                     p,
+		AssumeRolePolicyDocument: assumeRolePolicyDocument,
+		CreateDate:               time.Now().UTC(),
+	}
+	b.roles[roleName] = r
+
+	return &r, nil
+}
+
+// DeleteRole deletes an IAM role by name.
+func (b *InMemoryBackend) DeleteRole(roleName string) error {
+	b.mu.Lock("DeleteRole")
+	defer b.mu.Unlock()
+
+	if _, exists := b.roles[roleName]; !exists {
+		return fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
+	}
+
+	if len(b.rolePolicies[roleName]) > 0 {
+		return fmt.Errorf("%w: role %q has attached policies", ErrDeleteConflict, roleName)
+	}
+
+	delete(b.roles, roleName)
+
+	return nil
+}
+
+// ListRoles returns a paginated list of IAM roles sorted by name.
+func (b *InMemoryBackend) ListRoles(marker string, maxItems int) (page.Page[Role], error) {
+	b.mu.RLock("ListRoles")
+	defer b.mu.RUnlock()
+
+	roles := make([]Role, 0, len(b.roles))
+	for _, r := range b.roles {
+		roles = append(roles, r)
+	}
+
+	sort.Slice(roles, func(i, j int) bool { return roles[i].RoleName < roles[j].RoleName })
+
+	return page.New(roles, marker, maxItems, iamDefaultMaxItems), nil
+}
+
+// GetRole retrieves a single IAM role by name.
+func (b *InMemoryBackend) GetRole(roleName string) (*Role, error) {
+	b.mu.RLock("GetRole")
+	defer b.mu.RUnlock()
+
+	r, exists := b.roles[roleName]
+	if !exists {
+		return nil, fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
+	}
+
+	return &r, nil
+}
+
+// ---- Policies ----
+
+// CreatePolicy creates a new IAM managed policy.
+func (b *InMemoryBackend) CreatePolicy(policyName, path, policyDocument string) (*Policy, error) {
+	b.mu.Lock("CreatePolicy")
+	defer b.mu.Unlock()
+
+	if _, exists := b.policies[policyName]; exists {
+		return nil, fmt.Errorf("%w: policy %q already exists", ErrPolicyAlreadyExists, policyName)
+	}
+
+	if policyDocument != "" && !json.Valid([]byte(policyDocument)) {
+		return nil, fmt.Errorf("%w: invalid JSON in PolicyDocument", ErrMalformedPolicyDocument)
+	}
+
+	p := normPath(path)
+	pol := Policy{
+		PolicyName:     policyName,
+		PolicyID:       newID("ANPA"),
+		Arn:            arn.Build("iam", "", b.accountID, "policy"+p+policyName),
+		Path:           p,
+		PolicyDocument: policyDocument,
+		CreateDate:     time.Now().UTC(),
+	}
+	b.policies[policyName] = pol
+
+	return &pol, nil
+}
+
+// DeletePolicy deletes an IAM policy by ARN.
+func (b *InMemoryBackend) DeletePolicy(policyArn string) error {
+	b.mu.Lock("DeletePolicy")
+	defer b.mu.Unlock()
+
+	// Check for attachment conflicts before deleting — iterating the policy maps
+	// directly avoids a redundant join through b.users / b.roles.
+	for userName, attached := range b.userPolicies {
+		if slices.Contains(attached, policyArn) {
+			return fmt.Errorf("%w: policy %q is attached to user %q", ErrDeleteConflict, policyArn, userName)
+		}
+	}
+
+	for roleName, attached := range b.rolePolicies {
+		if slices.Contains(attached, policyArn) {
+			return fmt.Errorf("%w: policy %q is attached to role %q", ErrDeleteConflict, policyArn, roleName)
+		}
+	}
+
+	for name, p := range b.policies {
+		if p.Arn == policyArn {
+			delete(b.policies, name)
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
+}
+
+// ListPolicies returns a paginated list of IAM policies sorted by name.
+func (b *InMemoryBackend) ListPolicies(marker string, maxItems int) (page.Page[Policy], error) {
+	b.mu.RLock("ListPolicies")
+	defer b.mu.RUnlock()
+
+	policies := make([]Policy, 0, len(b.policies))
+	for _, p := range b.policies {
+		policies = append(policies, p)
+	}
+
+	sort.Slice(policies, func(i, j int) bool { return policies[i].PolicyName < policies[j].PolicyName })
+
+	return page.New(policies, marker, maxItems, iamDefaultMaxItems), nil
+}
+
+// AttachUserPolicy attaches a policy to a user.
+func (b *InMemoryBackend) AttachUserPolicy(userName, policyArn string) error {
+	b.mu.Lock("AttachUserPolicy")
+	defer b.mu.Unlock()
+
+	if _, exists := b.users[userName]; !exists {
+		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
+	}
+
+	if slices.Contains(b.userPolicies[userName], policyArn) {
+		return nil // already attached
+	}
+
+	b.userPolicies[userName] = append(b.userPolicies[userName], policyArn)
+
+	return nil
+}
+
+// AttachRolePolicy attaches a policy to a role.
+func (b *InMemoryBackend) AttachRolePolicy(roleName, policyArn string) error {
+	b.mu.Lock("AttachRolePolicy")
+	defer b.mu.Unlock()
+
+	if _, exists := b.roles[roleName]; !exists {
+		return fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
+	}
+
+	if slices.Contains(b.rolePolicies[roleName], policyArn) {
+		return nil // already attached
+	}
+
+	b.rolePolicies[roleName] = append(b.rolePolicies[roleName], policyArn)
+
+	return nil
+}
+
+// DetachRolePolicy detaches a policy from a role.
+func (b *InMemoryBackend) DetachRolePolicy(roleName, policyArn string) error {
+	b.mu.Lock("DetachRolePolicy")
+	defer b.mu.Unlock()
+
+	if _, exists := b.roles[roleName]; !exists {
+		return fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
+	}
+
+	policies := b.rolePolicies[roleName]
+	for i, p := range policies {
+		if p == policyArn {
+			b.rolePolicies[roleName] = append(policies[:i], policies[i+1:]...)
+
+			return nil
+		}
+	}
+
+	return nil
+}
+
+// ---- Groups ----
+
+// CreateGroup creates a new IAM group.
+func (b *InMemoryBackend) CreateGroup(groupName, path string) (*Group, error) {
+	b.mu.Lock("CreateGroup")
+	defer b.mu.Unlock()
+
+	if _, exists := b.groups[groupName]; exists {
+		return nil, fmt.Errorf("%w: group %q already exists", ErrGroupAlreadyExists, groupName)
+	}
+
+	p := normPath(path)
+	g := Group{
+		GroupName:  groupName,
+		GroupID:    newID("AGPA"),
+		Arn:        arn.Build("iam", "", b.accountID, "group"+p+groupName),
+		Path:       p,
+		CreateDate: time.Now().UTC(),
+	}
+	b.groups[groupName] = g
+
+	return &g, nil
+}
+
+// DeleteGroup deletes an IAM group by name.
+func (b *InMemoryBackend) DeleteGroup(groupName string) error {
+	b.mu.Lock("DeleteGroup")
+	defer b.mu.Unlock()
+
+	if _, exists := b.groups[groupName]; !exists {
+		return fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
+	}
+
+	delete(b.groups, groupName)
+
+	return nil
+}
+
+// AddUserToGroup adds a user to an IAM group (stub — no membership tracking).
+func (b *InMemoryBackend) AddUserToGroup(groupName, userName string) error {
+	b.mu.RLock("AddUserToGroup")
+	defer b.mu.RUnlock()
+
+	if _, exists := b.groups[groupName]; !exists {
+		return fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
+	}
+
+	if _, exists := b.users[userName]; !exists {
+		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
+	}
+
+	return nil
+}
+
+// ListGroups returns a paginated list of IAM groups sorted by name.
+func (b *InMemoryBackend) ListGroups(marker string, maxItems int) (page.Page[Group], error) {
+	b.mu.RLock("ListGroups")
+	defer b.mu.RUnlock()
+
+	groups := make([]Group, 0, len(b.groups))
+	for _, g := range b.groups {
+		groups = append(groups, g)
+	}
+
+	sort.Slice(groups, func(i, j int) bool { return groups[i].GroupName < groups[j].GroupName })
+
+	return page.New(groups, marker, maxItems, iamDefaultMaxItems), nil
+}
+
+// ---- Access Keys ----
+
+// CreateAccessKey creates a new access key for an IAM user.
+func (b *InMemoryBackend) CreateAccessKey(userName string) (*AccessKey, error) {
+	b.mu.Lock("CreateAccessKey")
+	defer b.mu.Unlock()
+
+	if _, exists := b.users[userName]; !exists {
+		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
+	}
+
+	ak := AccessKey{
+		AccessKeyID:     newAccessKeyID(),
+		SecretAccessKey: uuid.New().String(),
+		UserName:        userName,
+		Status:          "Active",
+		CreateDate:      time.Now().UTC(),
+	}
+	b.accessKeys[ak.AccessKeyID] = ak
+
+	return &ak, nil
+}
+
+// DeleteAccessKey deletes an access key by ID.
+func (b *InMemoryBackend) DeleteAccessKey(userName, accessKeyID string) error {
+	b.mu.Lock("DeleteAccessKey")
+	defer b.mu.Unlock()
+
+	ak, exists := b.accessKeys[accessKeyID]
+	if !exists || ak.UserName != userName {
+		return fmt.Errorf("%w: access key %q not found for user %q", ErrAccessKeyNotFound, accessKeyID, userName)
+	}
+
+	delete(b.accessKeys, accessKeyID)
+
+	return nil
+}
+
+// ListAccessKeys returns a paginated list of access keys for an IAM user.
+func (b *InMemoryBackend) ListAccessKeys(userName, marker string, maxItems int) (page.Page[AccessKey], error) {
+	b.mu.RLock("ListAccessKeys")
+	defer b.mu.RUnlock()
+
+	if _, exists := b.users[userName]; !exists {
+		return page.Page[AccessKey]{}, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
+	}
+
+	keys := make([]AccessKey, 0)
+	for _, ak := range b.accessKeys {
+		if ak.UserName == userName {
+			keys = append(keys, ak)
+		}
+	}
+
+	sort.Slice(keys, func(i, j int) bool { return keys[i].AccessKeyID < keys[j].AccessKeyID })
+
+	return page.New(keys, marker, maxItems, iamDefaultMaxItems), nil
+}
+
+// ---- Instance Profiles ----
+
+// CreateInstanceProfile creates a new IAM instance profile.
+func (b *InMemoryBackend) CreateInstanceProfile(name, path string) (*InstanceProfile, error) {
+	b.mu.Lock("CreateInstanceProfile")
+	defer b.mu.Unlock()
+
+	if _, exists := b.instanceProfiles[name]; exists {
+		return nil, fmt.Errorf("%w: instance profile %q already exists", ErrInstanceProfileAlreadyExists, name)
+	}
+
+	p := normPath(path)
+	ip := InstanceProfile{
+		InstanceProfileName: name,
+		InstanceProfileID:   newID("AIPA"),
+		Arn:                 arn.Build("iam", "", b.accountID, "instance-profile"+p+name),
+		Path:                p,
+		Roles:               []string{},
+		CreateDate:          time.Now().UTC(),
+	}
+	b.instanceProfiles[name] = ip
+
+	return &ip, nil
+}
+
+// DeleteInstanceProfile deletes an IAM instance profile by name.
+func (b *InMemoryBackend) DeleteInstanceProfile(name string) error {
+	b.mu.Lock("DeleteInstanceProfile")
+	defer b.mu.Unlock()
+
+	if _, exists := b.instanceProfiles[name]; !exists {
+		return fmt.Errorf("%w: instance profile %q not found", ErrInstanceProfileNotFound, name)
+	}
+
+	delete(b.instanceProfiles, name)
+
+	return nil
+}
+
+// ListInstanceProfiles returns a paginated list of IAM instance profiles sorted by name.
+func (b *InMemoryBackend) ListInstanceProfiles(marker string, maxItems int) (page.Page[InstanceProfile], error) {
+	b.mu.RLock("ListInstanceProfiles")
+	defer b.mu.RUnlock()
+
+	profiles := make([]InstanceProfile, 0, len(b.instanceProfiles))
+	for _, ip := range b.instanceProfiles {
+		profiles = append(profiles, ip)
+	}
+
+	sort.Slice(profiles, func(i, j int) bool {
+		return profiles[i].InstanceProfileName < profiles[j].InstanceProfileName
+	})
+
+	return page.New(profiles, marker, maxItems, iamDefaultMaxItems), nil
+}
+
+// ---- Dashboard helpers ----
+
+// ListAllUsers returns all users (for dashboard).
+func (b *InMemoryBackend) ListAllUsers() []User {
+	b.mu.RLock("ListAllUsers")
+	defer b.mu.RUnlock()
+
+	return sortedUsers(b.users)
+}
+
+// ListAllRoles returns all roles (for dashboard).
+func (b *InMemoryBackend) ListAllRoles() []Role {
+	b.mu.RLock("ListAllRoles")
+	defer b.mu.RUnlock()
+
+	roles := make([]Role, 0, len(b.roles))
+	for _, r := range b.roles {
+		roles = append(roles, r)
+	}
+
+	sort.Slice(roles, func(i, j int) bool { return roles[i].RoleName < roles[j].RoleName })
+
+	return roles
+}
+
+// ListAllPolicies returns all policies (for dashboard).
+func (b *InMemoryBackend) ListAllPolicies() []Policy {
+	b.mu.RLock("ListAllPolicies")
+	defer b.mu.RUnlock()
+
+	policies := make([]Policy, 0, len(b.policies))
+	for _, p := range b.policies {
+		policies = append(policies, p)
+	}
+
+	sort.Slice(policies, func(i, j int) bool { return policies[i].PolicyName < policies[j].PolicyName })
+
+	return policies
+}
+
+// ListAllGroups returns all groups (for dashboard).
+func (b *InMemoryBackend) ListAllGroups() []Group {
+	b.mu.RLock("ListAllGroups")
+	defer b.mu.RUnlock()
+
+	groups := make([]Group, 0, len(b.groups))
+	for _, g := range b.groups {
+		groups = append(groups, g)
+	}
+
+	sort.Slice(groups, func(i, j int) bool { return groups[i].GroupName < groups[j].GroupName })
+
+	return groups
+}
+
+// ListAllAccessKeys returns all access keys (for dashboard).
+func (b *InMemoryBackend) ListAllAccessKeys() []AccessKey {
+	b.mu.RLock("ListAllAccessKeys")
+	defer b.mu.RUnlock()
+
+	keys := make([]AccessKey, 0, len(b.accessKeys))
+	for _, ak := range b.accessKeys {
+		keys = append(keys, ak)
+	}
+
+	sort.Slice(keys, func(i, j int) bool { return keys[i].AccessKeyID < keys[j].AccessKeyID })
+
+	return keys
+}
+
+// ListAllInstanceProfiles returns all instance profiles (for dashboard).
+func (b *InMemoryBackend) ListAllInstanceProfiles() []InstanceProfile {
+	b.mu.RLock("ListAllInstanceProfiles")
+	defer b.mu.RUnlock()
+
+	profiles := make([]InstanceProfile, 0, len(b.instanceProfiles))
+	for _, ip := range b.instanceProfiles {
+		profiles = append(profiles, ip)
+	}
+
+	sort.Slice(profiles, func(i, j int) bool {
+		return profiles[i].InstanceProfileName < profiles[j].InstanceProfileName
+	})
+
+	return profiles
+}
+
+// ---- Helpers ----
+
+func sortedUsers(m map[string]User) []User {
+	users := make([]User, 0, len(m))
+	for _, u := range m {
+		users = append(users, u)
+	}
+
+	sort.Slice(users, func(i, j int) bool { return users[i].UserName < users[j].UserName })
+
+	return users
+}
+
+// newID generates a short unique identifier with the given prefix.
+func newID(prefix string) string {
+	id := uuid.New().String()
+
+	return prefix + id[:16]
+}
+
+// newAccessKeyID generates a 20-character access key ID.
+func newAccessKeyID() string {
+	return "AKIA" + uuid.New().String()[:16]
+}
+
+// ---- Attached Policy Queries ----
+
+// AttachedPolicy is a simplified representation of an attached managed policy.
+type AttachedPolicy struct {
+	PolicyName string
+	PolicyArn  string
+}
+
+// ListAttachedUserPolicies returns all policy ARNs attached to the named user.
+func (b *InMemoryBackend) ListAttachedUserPolicies(userName string) ([]AttachedPolicy, error) {
+	b.mu.RLock("ListAttachedUserPolicies")
+	defer b.mu.RUnlock()
+
+	if _, exists := b.users[userName]; !exists {
+		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
+	}
+
+	arns := b.userPolicies[userName]
+	result := make([]AttachedPolicy, 0, len(arns))
+
+	for _, arn := range arns {
+		name := policyNameFromARN(arn)
+		result = append(result, AttachedPolicy{PolicyName: name, PolicyArn: arn})
+	}
+
+	return result, nil
+}
+
+// ListAttachedRolePolicies returns all policy ARNs attached to the named role.
+func (b *InMemoryBackend) ListAttachedRolePolicies(roleName string) ([]AttachedPolicy, error) {
+	b.mu.RLock("ListAttachedRolePolicies")
+	defer b.mu.RUnlock()
+
+	if _, exists := b.roles[roleName]; !exists {
+		return nil, fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
+	}
+
+	arns := b.rolePolicies[roleName]
+	result := make([]AttachedPolicy, 0, len(arns))
+
+	for _, arn := range arns {
+		name := policyNameFromARN(arn)
+		result = append(result, AttachedPolicy{PolicyName: name, PolicyArn: arn})
+	}
+
+	return result, nil
+}
+
+// GetPolicy returns the policy metadata for the given ARN.
+func (b *InMemoryBackend) GetPolicy(policyArn string) (*Policy, error) {
+	b.mu.RLock("GetPolicy")
+	defer b.mu.RUnlock()
+
+	for _, p := range b.policies {
+		if p.Arn == policyArn {
+			pol := p
+
+			return &pol, nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: policy %q not found", ErrPolicyNotFound, policyArn)
+}
+
+// GetPolicyVersion returns the default (only) version of a policy document.
+// Gopherstack stores a single version per policy; version ID "v1" is always returned.
+func (b *InMemoryBackend) GetPolicyVersion(policyArn, _ string) (*Policy, error) {
+	return b.GetPolicy(policyArn)
+}
+
+// policyNameFromARN extracts the policy name from an ARN.
+// arn:aws:iam::<account>:policy/<name> → <name>
+func policyNameFromARN(arn string) string {
+	const prefix = "policy/"
+
+	if i := strings.LastIndex(arn, prefix); i >= 0 {
+		return arn[i+len(prefix):]
+	}
+
+	return arn
+}
+
+// GetUserByAccessKeyID returns the User associated with the given access key ID.
+// Returns ErrAccessKeyNotFound if no key with that ID exists.
+func (b *InMemoryBackend) GetUserByAccessKeyID(accessKeyID string) (*User, error) {
+	b.mu.RLock("GetUserByAccessKeyID")
+	defer b.mu.RUnlock()
+
+	ak, exists := b.accessKeys[accessKeyID]
+	if !exists {
+		return nil, fmt.Errorf("%w: access key %q not found", ErrAccessKeyNotFound, accessKeyID)
+	}
+
+	u, exists := b.users[ak.UserName]
+	if !exists {
+		return nil, fmt.Errorf("%w: user %q not found for access key", ErrUserNotFound, ak.UserName)
+	}
+
+	return &u, nil
+}
+
+// GetPoliciesForUser returns the policy documents for all policies attached to the named user.
+// Policies that are referenced but not found in the backend are silently skipped.
+func (b *InMemoryBackend) GetPoliciesForUser(userName string) ([]string, error) {
+	b.mu.RLock("GetPoliciesForUser")
+	defer b.mu.RUnlock()
+
+	if _, exists := b.users[userName]; !exists {
+		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
+	}
+
+	arns := b.userPolicies[userName]
+	docs := make([]string, 0, len(arns))
+
+	for _, policyArn := range arns {
+		for _, p := range b.policies {
+			if p.Arn == policyArn && p.PolicyDocument != "" {
+				docs = append(docs, p.PolicyDocument)
+
+				break
+			}
+		}
+	}
+
+	return docs, nil
+}

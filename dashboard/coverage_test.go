@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -15,7 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	cwlogsbackend "github.com/blackbirdworks/gopherstack/cloudwatchlogs"
+	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 )
 
 // TestDashboard_Metrics covers getMetricsJSON and metricsIndex.
@@ -491,6 +492,9 @@ func TestDashboard_CloudWatchLogs(t *testing.T) {
 	})
 }
 
+// validSFnDef is a minimal valid ASL definition for dashboard tests.
+const validSFnDef = `{"StartAt":"P","States":{"P":{"Type":"Pass","End":true}}}`
+
 // TestDashboard_StepFunctions covers Step Functions dashboard handlers including execution detail.
 func TestDashboard_StepFunctions(t *testing.T) {
 	t.Parallel()
@@ -499,7 +503,7 @@ func TestDashboard_StepFunctions(t *testing.T) {
 		t.Parallel()
 		stack := newStack(t)
 
-		_, err := stack.StepFunctionsHandler.Backend.CreateStateMachine("my-sm", "{}", "arn:role", "STANDARD")
+		_, err := stack.StepFunctionsHandler.Backend.CreateStateMachine("my-sm", validSFnDef, "arn:role", "STANDARD")
 		require.NoError(t, err)
 
 		req := httptest.NewRequest(http.MethodGet, "/dashboard/stepfunctions", nil)
@@ -514,7 +518,7 @@ func TestDashboard_StepFunctions(t *testing.T) {
 		t.Parallel()
 		stack := newStack(t)
 
-		sm, err := stack.StepFunctionsHandler.Backend.CreateStateMachine("link-sm", "{}", "arn:role", "STANDARD")
+		sm, err := stack.StepFunctionsHandler.Backend.CreateStateMachine("link-sm", validSFnDef, "arn:role", "STANDARD")
 		require.NoError(t, err)
 		_, err = stack.StepFunctionsHandler.Backend.StartExecution(sm.StateMachineArn, "exec-1", "{}")
 		require.NoError(t, err)
@@ -534,10 +538,17 @@ func TestDashboard_StepFunctions(t *testing.T) {
 		t.Parallel()
 		stack := newStack(t)
 
-		sm, err := stack.StepFunctionsHandler.Backend.CreateStateMachine("hist-sm", "{}", "arn:role", "STANDARD")
+		sm, err := stack.StepFunctionsHandler.Backend.CreateStateMachine("hist-sm", validSFnDef, "arn:role", "STANDARD")
 		require.NoError(t, err)
 		exec, err := stack.StepFunctionsHandler.Backend.StartExecution(sm.StateMachineArn, "hist-exec", `{"key":"val"}`)
 		require.NoError(t, err)
+
+		// Wait for the async execution to complete before checking the rendered page.
+		require.Eventually(t, func() bool {
+			e, descErr := stack.StepFunctionsHandler.Backend.DescribeExecution(exec.ExecutionArn)
+
+			return descErr == nil && e.Status != "RUNNING"
+		}, 5*time.Second, 50*time.Millisecond)
 
 		req := httptest.NewRequest(http.MethodGet,
 			fmt.Sprintf("/dashboard/stepfunctions/execution?arn=%s", url.QueryEscape(exec.ExecutionArn)), nil)

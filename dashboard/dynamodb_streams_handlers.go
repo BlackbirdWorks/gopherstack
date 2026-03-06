@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strings"
 
-	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 )
 
 // dynamoDBUpdateStreams handles enabling/disabling DynamoDB Streams on a table.
@@ -18,8 +18,12 @@ func (h *DashboardHandler) dynamoDBUpdateStreams(w http.ResponseWriter, r *http.
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxFormBodySize)
+
 	ctx := r.Context()
 	log := logger.Load(ctx)
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxFormBodySize)
 
 	if err := r.ParseForm(); err != nil {
 		log.ErrorContext(ctx, "Failed to parse form", "error", err)

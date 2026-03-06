@@ -110,3 +110,46 @@ func TestSettingsPage_LatencyMs(t *testing.T) {
 		})
 	}
 }
+
+func TestSettingsPage_EnforceIAM(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantText   string
+		enforceIAM bool
+	}{
+		{
+			name:       "enforcement_disabled",
+			enforceIAM: false,
+			wantText:   "disabled",
+		},
+		{
+			name:       "enforcement_enabled",
+			enforceIAM: true,
+			wantText:   "enabled",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := dashboard.NewHandler(dashboard.Config{
+				GlobalConfig: config.GlobalConfig{
+					AccountID:  "000000000000",
+					Region:     "us-east-1",
+					EnforceIAM: tt.enforceIAM,
+				},
+			})
+
+			req := httptest.NewRequest(http.MethodGet, "/dashboard/settings", nil)
+			rec := httptest.NewRecorder()
+			h.SubRouter.ServeHTTP(rec, req)
+
+			require.Equal(t, http.StatusOK, rec.Code)
+			assert.Contains(t, rec.Body.String(), tt.wantText)
+			assert.Contains(t, rec.Body.String(), "IAM Enforcement")
+		})
+	}
+}

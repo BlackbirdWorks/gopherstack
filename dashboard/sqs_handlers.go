@@ -6,7 +6,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	sqsbackend "github.com/blackbirdworks/gopherstack/sqs"
+	sqsbackend "github.com/blackbirdworks/gopherstack/services/sqs"
 )
 
 // maxReceiveMessages is the maximum number of messages to receive in a dashboard peek.

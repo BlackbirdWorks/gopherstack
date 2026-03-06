@@ -24,9 +24,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
-	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
 	"github.com/blackbirdworks/gopherstack/internal/teststack"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 )
 
 func newStack(t *testing.T) *teststack.Stack {

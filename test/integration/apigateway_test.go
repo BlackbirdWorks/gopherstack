@@ -245,3 +245,186 @@ func TestIntegration_APIGateway_UnknownOperation(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode, "body: %s", body)
 }
+
+// apigwDo sends a GET request to the mock server endpoint at the given path.
+func apigwDo(t *testing.T, path string) *http.Response {
+	t.Helper()
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, endpoint+path, nil)
+	require.NoError(t, err)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	return resp
+}
+
+// apigwSetupAPI creates an API Gateway REST API with one resource and returns
+// (apiID, rootResourceID).
+func apigwSetupAPI(t *testing.T, name string) (string, string) {
+	t.Helper()
+
+	resp := apigwPost(t, "CreateRestApi", map[string]any{"name": name})
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	created := apigwReadJSON(t, resp)
+	apiID := created["id"].(string)
+
+	resp = apigwPost(t, "GetResources", map[string]any{"restApiId": apiID})
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	resources := apigwReadJSON(t, resp)
+	items := resources["item"].([]any)
+	rootID := findRootResourceID(t, items)
+
+	return apiID, rootID
+}
+
+func findRootResourceID(t *testing.T, items []any) string {
+	t.Helper()
+
+	for _, item := range items {
+		resource, isMap := item.(map[string]any)
+		require.True(t, isMap, "resource item is not a map")
+
+		path, hasPath := resource["path"].(string)
+		if !hasPath {
+			continue
+		}
+
+		if path == "/" {
+			id, isStr := resource["id"].(string)
+			require.True(t, isStr, "root resource id is not a string")
+
+			return id
+		}
+	}
+
+	require.Fail(t, "root resource with path '/' not found")
+
+	return ""
+}
+
+func TestIntegration_APIGateway_DataPlane_MockIntegration(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	apiID, rootID := apigwSetupAPI(t, "dataplane-mock-test")
+
+	// Create a /ping resource.
+	resp := apigwPost(t, "CreateResource", map[string]any{
+		"restApiId": apiID,
+		"parentId":  rootID,
+		"pathPart":  "ping",
+	})
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	res := apigwReadJSON(t, resp)
+	resID := res["id"].(string)
+
+	// Add GET method.
+	resp = apigwPost(t, "PutMethod", map[string]any{
+		"restApiId":         apiID,
+		"resourceId":        resID,
+		"httpMethod":        "GET",
+		"authorizationType": "NONE",
+	})
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	resp.Body.Close()
+
+	// Add MOCK integration.
+	resp = apigwPost(t, "PutIntegration", map[string]any{
+		"restApiId":  apiID,
+		"resourceId": resID,
+		"httpMethod": "GET",
+		"type":       "MOCK",
+	})
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	resp.Body.Close()
+
+	// Deploy.
+	resp = apigwPost(t, "CreateDeployment", map[string]any{
+		"restApiId": apiID,
+		"stageName": "test",
+	})
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	resp.Body.Close()
+
+	// Invoke via _user_request_.
+	userResp := apigwDo(t,
+		"/restapis/"+apiID+"/test/_user_request_/ping")
+	defer userResp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, userResp.StatusCode)
+}
+
+func TestIntegration_APIGateway_DataPlane_PathVariable(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	apiID, rootID := apigwSetupAPI(t, "dataplane-pathvar-test")
+
+	// Create /items/{id} resource.
+	resp := apigwPost(t, "CreateResource", map[string]any{
+		"restApiId": apiID,
+		"parentId":  rootID,
+		"pathPart":  "items",
+	})
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	itemsRes := apigwReadJSON(t, resp)
+	itemsID := itemsRes["id"].(string)
+
+	resp = apigwPost(t, "CreateResource", map[string]any{
+		"restApiId": apiID,
+		"parentId":  itemsID,
+		"pathPart":  "{id}",
+	})
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	idRes := apigwReadJSON(t, resp)
+	idResID := idRes["id"].(string)
+
+	// Add GET method with MOCK integration.
+	resp = apigwPost(t, "PutMethod", map[string]any{
+		"restApiId":         apiID,
+		"resourceId":        idResID,
+		"httpMethod":        "GET",
+		"authorizationType": "NONE",
+	})
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	resp.Body.Close()
+
+	resp = apigwPost(t, "PutIntegration", map[string]any{
+		"restApiId":  apiID,
+		"resourceId": idResID,
+		"httpMethod": "GET",
+		"type":       "MOCK",
+	})
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	resp.Body.Close()
+
+	// Deploy.
+	resp = apigwPost(t, "CreateDeployment", map[string]any{
+		"restApiId": apiID,
+		"stageName": "test",
+	})
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	resp.Body.Close()
+
+	// Invoke /items/42 — should match {id}.
+	userResp := apigwDo(t,
+		"/restapis/"+apiID+"/test/_user_request_/items/42")
+	defer userResp.Body.Close()
+
+	assert.Equal(t, http.StatusOK, userResp.StatusCode)
+
+	// Invoke /items/99 — should also match.
+	userResp2 := apigwDo(t,
+		"/restapis/"+apiID+"/test/_user_request_/items/99")
+	defer userResp2.Body.Close()
+
+	assert.Equal(t, http.StatusOK, userResp2.StatusCode)
+
+	// Invoke /items/unknown/path — should NOT match (wrong depth).
+	userResp3 := apigwDo(t,
+		"/restapis/"+apiID+"/test/_user_request_/items/99/extra")
+	defer userResp3.Body.Close()
+
+	assert.Equal(t, http.StatusNotFound, userResp3.StatusCode)
+}

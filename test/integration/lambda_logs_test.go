@@ -15,11 +15,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	cwlogspkg "github.com/blackbirdworks/gopherstack/cloudwatchlogs"
-	lambdapkg "github.com/blackbirdworks/gopherstack/lambda"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	cwlogspkg "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
+	lambdapkg "github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
 const (

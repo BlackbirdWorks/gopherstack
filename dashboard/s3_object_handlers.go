@@ -266,8 +266,12 @@ func (h *DashboardHandler) s3Upload(w http.ResponseWriter, r *http.Request, buck
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxMultipartMemory)
+
 	ctx := r.Context()
 	log := logger.Load(ctx)
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxMultipartMemory)
 
 	if err := r.ParseMultipartForm(maxMultipartMemory); err != nil {
 		log.ErrorContext(ctx, "Failed to parse multipart form", "error", err)
@@ -483,7 +487,12 @@ func (h *DashboardHandler) s3UpdateMetadata(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxFormBodySize)
+
 	ctx := r.Context()
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxFormBodySize)
+
 	contentType := r.FormValue("contentType")
 	log := logger.Load(ctx)
 	log.DebugContext(ctx, "s3UpdateMetadata", "bucket", bucketName, "key", key, "newContentType", contentType)
@@ -508,7 +517,12 @@ func (h *DashboardHandler) s3UpdateMetadata(w http.ResponseWriter, r *http.Reque
 
 // s3UpdateTag adds/updates an object tag.
 func (h *DashboardHandler) s3UpdateTag(w http.ResponseWriter, r *http.Request, bucketName, key string) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxFormBodySize)
+
 	ctx := r.Context()
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxFormBodySize)
+
 	tagKey := r.FormValue("key")
 	tagValue := r.FormValue("value")
 

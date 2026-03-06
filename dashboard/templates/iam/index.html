@@ -10,8 +10,20 @@
                 {{template "components/snippet" .Snippet}}
                 {{end}}
             </h1>
-            <p class="mt-2 text-sm text-slate-600 dark:text-slate-400">Resource stubs — policy enforcement is not active
-                (v0.5).</p>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-400">Manage users, roles, policies, and groups.</p>
+        </div>
+        <div class="flex items-center gap-3">
+            {{if .EnforcementActive}}
+            <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
+                <span class="w-2 h-2 rounded-full bg-green-500 dark:bg-green-400"></span>
+                Policy Enforcement Active
+            </span>
+            {{else}}
+            <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200">
+                <span class="w-2 h-2 rounded-full bg-yellow-500 dark:bg-yellow-400"></span>
+                Enforcement Disabled
+            </span>
+            {{end}}
         </div>
     </div>
 

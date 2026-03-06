@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	ebbackend "github.com/blackbirdworks/gopherstack/eventbridge"
+	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 )
 
 // TestEventBridgeDashboard verifies the EventBridge dashboard UI renders event buses.

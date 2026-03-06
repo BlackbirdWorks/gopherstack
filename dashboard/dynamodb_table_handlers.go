@@ -479,8 +479,12 @@ func (h *DashboardHandler) dynamoDBCreateTable(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxFormBodySize)
+
 	ctx := r.Context()
 	log := logger.Load(ctx)
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxFormBodySize)
 
 	if err := r.ParseForm(); err != nil {
 		log.ErrorContext(ctx, "Failed to parse form", "error", err)
@@ -631,8 +635,12 @@ func (h *DashboardHandler) dynamoDBUpdateTTL(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxFormBodySize)
+
 	ctx := r.Context()
 	log := logger.Load(ctx)
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxFormBodySize)
 
 	if err := r.ParseForm(); err != nil {
 		log.ErrorContext(ctx, "Failed to parse form", "error", err)

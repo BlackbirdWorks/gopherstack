@@ -8,7 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ssm/types"
 	"github.com/labstack/echo/v5"
 
-	ssmbackend "github.com/blackbirdworks/gopherstack/ssm"
+	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
 // ssmIndexData is the template data for the SSM Parameter Store list page.

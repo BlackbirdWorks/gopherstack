@@ -12,11 +12,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
-	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
-	s3backend "github.com/blackbirdworks/gopherstack/s3"
-	ssmbackend "github.com/blackbirdworks/gopherstack/ssm"
-	stsbackend "github.com/blackbirdworks/gopherstack/sts"
+	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
+	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
+	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
+	stsbackend "github.com/blackbirdworks/gopherstack/services/sts"
 )
 
 // mockAWSProvider implements dashboard.AWSSDKProvider for provider tests.
