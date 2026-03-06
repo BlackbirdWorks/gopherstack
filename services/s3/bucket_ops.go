@@ -842,6 +842,18 @@ func (h *S3Handler) putBucketCORS(ctx context.Context, w http.ResponseWriter, r 
 
 		return
 	}
+
+	// Validate the CORS XML is well-formed before storing it.
+	var cfg CORSConfiguration
+	if xmlErr := xml.Unmarshal(body, &cfg); xmlErr != nil {
+		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
+			Code:    "MalformedXML",
+			Message: "The XML you provided was not well-formed or did not validate against our published schema.",
+		}, http.StatusBadRequest)
+
+		return
+	}
+
 	err = h.Backend.PutBucketCORS(ctx, bucket, string(body))
 	if err != nil {
 		WriteError(ctx, w, r, err)
@@ -885,13 +897,22 @@ func (h *S3Handler) handleCORSPreflight(ctx context.Context, w http.ResponseWrit
 
 	var cfg CORSConfiguration
 	if unmarshalErr := xml.Unmarshal([]byte(corsXML), &cfg); unmarshalErr != nil {
-		w.WriteHeader(http.StatusForbidden)
+		w.WriteHeader(http.StatusInternalServerError)
 
 		return
 	}
 
 	origin := r.Header.Get("Origin")
 	method := r.Header.Get("Access-Control-Request-Method")
+
+	// Reject structurally invalid preflights: Origin and Access-Control-Request-Method
+	// are required for a well-formed CORS preflight request.
+	if origin == "" || method == "" {
+		w.WriteHeader(http.StatusForbidden)
+
+		return
+	}
+
 	reqHeaders := r.Header.Get("Access-Control-Request-Headers")
 
 	rule := matchCORSRule(cfg.Rules, origin, method, reqHeaders)

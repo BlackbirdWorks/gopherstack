@@ -33,18 +33,21 @@ func isPresignedRequest(r *http.Request) bool {
 func (h *S3Handler) validatePresignedRequest(ctx context.Context, w http.ResponseWriter, r *http.Request) bool {
 	q := r.URL.Query()
 
-	// Verify all required query parameters are present.
+	// Verify all required query parameters are present and non-empty.
 	algorithm := q.Get("X-Amz-Algorithm")
 	credential := q.Get("X-Amz-Credential")
 	dateStr := q.Get("X-Amz-Date")
 	expiresStr := q.Get("X-Amz-Expires")
 	signedHeaders := q.Get("X-Amz-SignedHeaders")
+	signature := q.Get("X-Amz-Signature")
 
-	if algorithm == "" || credential == "" || dateStr == "" || expiresStr == "" || signedHeaders == "" {
+	if algorithm == "" || credential == "" || dateStr == "" || expiresStr == "" || signedHeaders == "" ||
+		signature == "" {
 		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
-			Code:    "AccessDenied",
-			Message: "Request has expired.",
-		}, http.StatusForbidden)
+			Code: "AuthorizationQueryParametersError",
+			Message: "Query-string authentication requires the X-Amz-Algorithm, X-Amz-Credential, " +
+				"X-Amz-Date, X-Amz-Expires, X-Amz-SignedHeaders, and X-Amz-Signature parameters.",
+		}, http.StatusBadRequest)
 
 		return false
 	}

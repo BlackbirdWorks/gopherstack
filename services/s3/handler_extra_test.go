@@ -1341,6 +1341,28 @@ func TestS3CORSPreflightRuleEnforcement(t *testing.T) {
 			wantCode:      http.StatusOK,
 			wantAllowOrig: "https://example.com",
 		},
+		{
+			name: "empty Origin rejected even with wildcard rule",
+			corsXML: `<CORSConfiguration><CORSRule>` +
+				`<AllowedOrigin>*</AllowedOrigin>` +
+				`<AllowedMethod>GET</AllowedMethod>` +
+				`</CORSRule></CORSConfiguration>`,
+			origin:        "",
+			method:        "GET",
+			wantCode:      http.StatusForbidden,
+			wantForbidden: true,
+		},
+		{
+			name: "empty Method rejected even with matching origin",
+			corsXML: `<CORSConfiguration><CORSRule>` +
+				`<AllowedOrigin>https://example.com</AllowedOrigin>` +
+				`<AllowedMethod>GET</AllowedMethod>` +
+				`</CORSRule></CORSConfiguration>`,
+			origin:        "https://example.com",
+			method:        "",
+			wantCode:      http.StatusForbidden,
+			wantForbidden: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -1376,6 +1398,61 @@ func TestS3CORSPreflightRuleEnforcement(t *testing.T) {
 			if !tt.wantForbidden {
 				assert.Equal(t, tt.wantAllowOrig, rec.Header().Get("Access-Control-Allow-Origin"))
 				assert.Equal(t, tt.method, rec.Header().Get("Access-Control-Allow-Methods"))
+			}
+		})
+	}
+}
+
+// TestS3BucketLifecycleCRUD verifies put/get/delete lifecycle configuration.
+func TestS3BucketCORSValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		corsXML     string
+		wantContain string
+		wantCode    int
+	}{
+		{
+			name: "valid CORS XML accepted",
+			corsXML: `<CORSConfiguration><CORSRule>` +
+				`<AllowedOrigin>https://example.com</AllowedOrigin>` +
+				`<AllowedMethod>GET</AllowedMethod>` +
+				`</CORSRule></CORSConfiguration>`,
+			wantCode: http.StatusOK,
+		},
+		{
+			name:        "malformed CORS XML rejected with 400",
+			corsXML:     `<CORSConfiguration><NotClosed>`,
+			wantCode:    http.StatusBadRequest,
+			wantContain: "MalformedXML",
+		},
+		{
+			name:        "completely invalid CORS XML rejected with 400",
+			corsXML:     `this is not xml at all`,
+			wantCode:    http.StatusBadRequest,
+			wantContain: "MalformedXML",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, sdkClient := newTestHandler(t)
+			bucket := "cors-validation-bucket"
+
+			_, err := sdkClient.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{Bucket: &bucket})
+			require.NoError(t, err)
+
+			req := httptest.NewRequest(http.MethodPut, "/"+bucket+"?cors", strings.NewReader(tt.corsXML))
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+
+			require.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantContain != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantContain)
 			}
 		})
 	}
