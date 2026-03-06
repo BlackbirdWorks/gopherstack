@@ -8,13 +8,14 @@ import (
 
 // iamPageData is the template data for the IAM overview page.
 type iamPageData struct {
-	Users            any
-	Roles            any
-	Policies         any
-	Groups           any
-	AccessKeys       any
-	InstanceProfiles any
-	PageData         //nolint:embeddedstructfieldcheck // must be last for backward compatibility
+	Users             any
+	Roles             any
+	Policies          any
+	Groups            any
+	AccessKeys        any
+	InstanceProfiles  any
+	PageData          //nolint:embeddedstructfieldcheck // must be last for backward compatibility
+	EnforcementActive bool
 }
 
 // iamIndex renders the IAM resource overview page.
@@ -22,6 +23,7 @@ func (h *DashboardHandler) iamIndex(c *echo.Context) error {
 	w := c.Response()
 
 	data := iamPageData{
+		EnforcementActive: h.GlobalConfig.EnforceIAM,
 		PageData: PageData{
 			Title:     "IAM",
 			ActiveTab: "iam",

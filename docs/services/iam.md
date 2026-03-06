@@ -1,6 +1,7 @@
 # IAM — Identity and Access Management
 
-In-memory IAM implementation covering users, roles, policies, groups, access keys, and instance profiles. Policies are stored but not evaluated against API calls.
+In-memory IAM implementation covering users, roles, policies, groups, access keys, and instance profiles.
+Optionally enforces policies against every AWS API call when `--enforce-iam` / `GOPHERSTACK_ENFORCE_IAM=true` is set.
 
 ## Supported Operations
 
@@ -71,7 +72,22 @@ aws --endpoint-url http://localhost:8000 iam list-roles
 
 ## Known Limitations
 
-- Policies are stored but **not enforced**. All API operations succeed regardless of attached policies.
 - SCP (Service Control Policies) and permission boundaries are not implemented.
 - MFA devices are not supported.
-- IAM Conditions in policy documents are not evaluated.
+- Cross-account trust and federated identities are not evaluated.
+
+## Policy Enforcement (optional)
+
+Start Gopherstack with `--enforce-iam` (or `GOPHERSTACK_ENFORCE_IAM=true`) to activate policy enforcement.
+Every incoming AWS API call is evaluated against the caller's attached IAM policies before dispatch.
+
+Supported features:
+- **Allow / Deny** effects with explicit deny winning
+- **Action wildcards** — `s3:*`, `dynamodb:Get*`, etc.
+- **Resource wildcards** — `arn:aws:s3:::my-bucket/*`
+- **NotAction / NotResource** — negated action and resource matching
+- **Condition operators** — `StringEquals`, `StringLike`, `IpAddress`, `ArnLike`, `Bool`, `Null`, and more with `...IfExists` variants
+- **Policy variables** — `${aws:username}`, `${aws:userid}`, `${aws:sourceip}`
+- **Resource-based policies** — S3 bucket policies and SQS queue policies are evaluated alongside identity policies
+
+When enforcement is off (default), all API calls succeed regardless of attached policies so existing tooling is unaffected.
