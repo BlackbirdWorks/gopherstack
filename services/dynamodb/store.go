@@ -16,6 +16,7 @@ import (
 type InMemoryDB struct {
 	Tables         map[string]map[string]*Table
 	deletingTables map[string]map[string]*Table
+	Backups        map[string]*Backup  // backupARN → Backup
 	txnTokens      map[string]struct{} // committed idempotency tokens
 	txnPending     map[string]struct{} // in-progress idempotency tokens
 	exprCache      *ExpressionCache
@@ -26,6 +27,22 @@ type InMemoryDB struct {
 	// createDelay is the time to wait before transitioning a new table to ACTIVE.
 	// Zero means immediate ACTIVE (no lifecycle simulation).
 	createDelay time.Duration
+}
+
+// Backup holds the metadata and a point-in-time item snapshot for a DynamoDB on-demand backup.
+type Backup struct {
+	CreationDateTime     time.Time                    `json:"CreationDateTime"`
+	TableArn             string                       `json:"TableArn"`
+	TableID              string                       `json:"TableID"`
+	BackupArn            string                       `json:"BackupArn"`
+	BackupName           string                       `json:"BackupName"`
+	BackupStatus         string                       `json:"BackupStatus"`
+	BackupType           string                       `json:"BackupType"`
+	TableName            string                       `json:"TableName"`
+	Items                []map[string]any             `json:"Items"`
+	KeySchema            []models.KeySchemaElement    `json:"KeySchema"`
+	AttributeDefinitions []models.AttributeDefinition `json:"AttributeDefinitions"`
+	SizeBytes            int64                        `json:"SizeBytes"`
 }
 
 // StreamRecord captures a single item-level change event for DynamoDB Streams.
@@ -58,27 +75,28 @@ const (
 )
 
 type Table struct {
-	pkIndex   map[string]int
-	pkskIndex map[string]map[string]int
-	mu        *lockmetrics.RWMutex
-	Tags      *tags.Tags `json:"Tags,omitempty"`
-	Name      string     `json:"Name"`
-	// Status is the current table status: "CREATING", "ACTIVE", "DELETING", etc.
-	Status                 string                                  `json:"Status"`
+	CreationDateTime       time.Time `json:"CreationDateTime"`
+	pkIndex                map[string]int
+	pkskIndex              map[string]map[string]int
+	mu                     *lockmetrics.RWMutex
+	Tags                   *tags.Tags                              `json:"Tags,omitempty"`
+	TableID                string                                  `json:"TableID"`
 	TTLAttribute           string                                  `json:"TTLAttribute,omitempty"`
 	StreamViewType         string                                  `json:"StreamViewType,omitempty"`
 	StreamARN              string                                  `json:"StreamARN,omitempty"`
 	TableArn               string                                  `json:"TableArn"`
-	TableID                string                                  `json:"TableID"`
-	CreationDateTime       time.Time                               `json:"CreationDateTime"`
-	AttributeDefinitions   []models.AttributeDefinition            `json:"AttributeDefinitions"`
-	GlobalSecondaryIndexes []models.GlobalSecondaryIndex           `json:"GlobalSecondaryIndexes,omitempty"`
+	Status                 string                                  `json:"Status"`
+	Name                   string                                  `json:"Name"`
 	LocalSecondaryIndexes  []models.LocalSecondaryIndex            `json:"LocalSecondaryIndexes,omitempty"`
+	GlobalSecondaryIndexes []models.GlobalSecondaryIndex           `json:"GlobalSecondaryIndexes,omitempty"`
+	AttributeDefinitions   []models.AttributeDefinition            `json:"AttributeDefinitions"`
+	Replicas               []models.ReplicaDescription             `json:"Replicas,omitempty"`
 	Items                  []map[string]any                        `json:"Items"`
 	StreamRecords          []StreamRecord                          `json:"StreamRecords,omitempty"`
 	KeySchema              []models.KeySchemaElement               `json:"KeySchema"`
 	ProvisionedThroughput  models.ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
 	streamSeq              int64
+	PITREnabled            bool `json:"PITREnabled,omitempty"`
 	StreamsEnabled         bool `json:"StreamsEnabled"`
 }
 
@@ -88,6 +106,7 @@ func NewInMemoryDB() *InMemoryDB {
 	return &InMemoryDB{
 		Tables:         make(map[string]map[string]*Table),
 		deletingTables: make(map[string]map[string]*Table),
+		Backups:        make(map[string]*Backup),
 		txnTokens:      make(map[string]struct{}),
 		txnPending:     make(map[string]struct{}),
 		exprCache:      NewExpressionCache(exprCacheSize),

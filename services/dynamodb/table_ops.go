@@ -2,6 +2,7 @@ package dynamodb
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -14,6 +15,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+)
+
+var (
+	errReplicaCreateRegionRequired = errors.New("RegionName is required for ReplicaUpdates Create action")
+	errReplicaDeleteRegionRequired = errors.New("RegionName is required for ReplicaUpdates Delete action")
 )
 
 // getRegionFromContext extracts the region from the request context.
@@ -330,6 +336,8 @@ func (db *InMemoryDB) DescribeTable(
 	copy(gsiList, table.GlobalSecondaryIndexes)
 	lsiList := make([]models.LocalSecondaryIndex, len(table.LocalSecondaryIndexes))
 	copy(lsiList, table.LocalSecondaryIndexes)
+	replicaList := make([]models.ReplicaDescription, len(table.Replicas))
+	copy(replicaList, table.Replicas)
 	itemCount := int64(len(table.Items))
 	pt := table.ProvisionedThroughput
 	tableStatus := types.TableStatus(table.Status)
@@ -365,6 +373,7 @@ func (db *InMemoryDB) DescribeTable(
 		AttributeDefinitions:   sdkAttrDefs,
 		GlobalSecondaryIndexes: sdkGSIs,
 		LocalSecondaryIndexes:  sdkLSIs,
+		Replicas:               toSDKReplicaDescriptions(replicaList),
 		ItemCount:              &itemCount,
 		TableSizeBytes:         &tableSizeBytes,
 		BillingModeSummary:     &types.BillingModeSummary{BillingMode: types.BillingModeProvisioned},
@@ -387,7 +396,7 @@ func (db *InMemoryDB) DescribeTable(
 	return &dynamodb.DescribeTableOutput{Table: tableDesc}, nil
 }
 
-// UpdateTable modifies a DynamoDB table's provisioned throughput, GSI list, and stream spec.
+// UpdateTable modifies a DynamoDB table's provisioned throughput, GSI list, stream spec, and replicas.
 func (db *InMemoryDB) UpdateTable(
 	ctx context.Context,
 	input *dynamodb.UpdateTableInput,
@@ -410,6 +419,10 @@ func (db *InMemoryDB) UpdateTable(
 	applyGSIUpdates(table, input.GlobalSecondaryIndexUpdates)
 	db.applyStreamSpec(table, tableName, input.StreamSpecification)
 
+	if replicaErr := applyReplicaUpdates(table, input.ReplicaUpdates); replicaErr != nil {
+		return nil, NewValidationException(replicaErr.Error())
+	}
+
 	// Update throttler with the (possibly new) throughput values.
 	region := getRegionFromContext(ctx, db)
 	rcu := int64(table.ProvisionedThroughput.ReadCapacityUnits)
@@ -417,6 +430,63 @@ func (db *InMemoryDB) UpdateTable(
 	db.throttler.SetTableCapacity(throttleKey(region, tableName), rcu, wcu)
 
 	return buildUpdateTableOutput(input, table), nil
+}
+
+// applyReplicaUpdates processes Global Tables v2 replica create/delete actions.
+// Replicas are metadata-only: no actual cross-region sync is performed.
+// Returns an error if any update has an empty RegionName.
+func applyReplicaUpdates(table *Table, updates []types.ReplicationGroupUpdate) error {
+	for _, u := range updates {
+		if u.Create != nil {
+			regionName := aws.ToString(u.Create.RegionName)
+			if regionName == "" {
+				return errReplicaCreateRegionRequired
+			}
+
+			applyReplicaCreate(table, regionName)
+		} else if u.Delete != nil {
+			regionName := aws.ToString(u.Delete.RegionName)
+			if regionName == "" {
+				return errReplicaDeleteRegionRequired
+			}
+
+			applyReplicaDelete(table, regionName)
+		}
+	}
+
+	return nil
+}
+
+func applyReplicaCreate(table *Table, regionName string) {
+	if regionName == "" {
+		return
+	}
+
+	for _, r := range table.Replicas {
+		if r.RegionName == regionName {
+			return
+		}
+	}
+
+	table.Replicas = append(table.Replicas, models.ReplicaDescription{
+		RegionName:    regionName,
+		ReplicaStatus: "ACTIVE",
+	})
+}
+
+func applyReplicaDelete(table *Table, regionName string) {
+	if regionName == "" {
+		return
+	}
+
+	updated := make([]models.ReplicaDescription, 0, len(table.Replicas))
+	for _, r := range table.Replicas {
+		if r.RegionName != regionName {
+			updated = append(updated, r)
+		}
+	}
+
+	table.Replicas = updated
 }
 
 // applyUpdateTableThroughput updates provisioned throughput on the table.
@@ -573,12 +643,31 @@ func buildUpdateTableOutput(input *dynamodb.UpdateTableInput, table *Table) *dyn
 			KeySchema:              models.ToSDKKeySchema(table.KeySchema),
 			AttributeDefinitions:   models.ToSDKAttributeDefinitions(table.AttributeDefinitions),
 			GlobalSecondaryIndexes: gsiDescs,
+			Replicas:               toSDKReplicaDescriptions(table.Replicas),
 			ProvisionedThroughput: &types.ProvisionedThroughputDescription{
 				ReadCapacityUnits:  &rcu,
 				WriteCapacityUnits: &wcu,
 			},
 		},
 	}
+}
+
+// toSDKReplicaDescriptions converts internal replica metadata to SDK types.
+func toSDKReplicaDescriptions(replicas []models.ReplicaDescription) []types.ReplicaDescription {
+	if len(replicas) == 0 {
+		return nil
+	}
+
+	out := make([]types.ReplicaDescription, len(replicas))
+	for i, r := range replicas {
+		regionName := r.RegionName
+		out[i] = types.ReplicaDescription{
+			RegionName:    &regionName,
+			ReplicaStatus: types.ReplicaStatus(r.ReplicaStatus),
+		}
+	}
+
+	return out
 }
 
 func (db *InMemoryDB) UpdateTimeToLive(

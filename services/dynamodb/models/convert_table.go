@@ -171,6 +171,24 @@ func ToSDKUpdateTableInput(input *UpdateTableInput) (*dynamodb.UpdateTableInput,
 
 	out.GlobalSecondaryIndexUpdates = gsiUpdates
 
+	// Convert replica updates (Global Tables v2).
+	replicaUpdates := make([]types.ReplicationGroupUpdate, 0, len(input.ReplicaUpdates))
+	for _, ru := range input.ReplicaUpdates {
+		sdkRU := types.ReplicationGroupUpdate{}
+		if ru.Create != nil {
+			sdkRU.Create = &types.CreateReplicationGroupMemberAction{
+				RegionName: &ru.Create.RegionName,
+			}
+		}
+		if ru.Delete != nil {
+			sdkRU.Delete = &types.DeleteReplicationGroupMemberAction{
+				RegionName: &ru.Delete.RegionName,
+			}
+		}
+		replicaUpdates = append(replicaUpdates, sdkRU)
+	}
+	out.ReplicaUpdates = replicaUpdates
+
 	return out, nil
 }
 
@@ -245,15 +263,29 @@ func FromSDKTableDescription(td *types.TableDescription) TableDescription {
 		cnt = int(*td.ItemCount)
 	}
 
+	replicas := make([]ReplicaDescription, len(td.Replicas))
+	for i, r := range td.Replicas {
+		replicas[i] = ReplicaDescription{
+			RegionName:    ptrconv.String(r.RegionName),
+			ReplicaStatus: string(r.ReplicaStatus),
+		}
+	}
+	if len(replicas) == 0 {
+		replicas = nil
+	}
+
 	return TableDescription{
 		TableName:              ptrconv.String(td.TableName),
 		TableStatus:            string(td.TableStatus),
+		TableArn:               ptrconv.String(td.TableArn),
+		TableID:                ptrconv.String(td.TableId),
 		ItemCount:              cnt,
 		KeySchema:              FromSDKKeySchema(td.KeySchema),
 		AttributeDefinitions:   FromSDKAttributeDefinitions(td.AttributeDefinitions),
 		GlobalSecondaryIndexes: FromSDKGlobalSecondaryIndexDescriptions(td.GlobalSecondaryIndexes),
 		LocalSecondaryIndexes:  FromSDKLocalSecondaryIndexDescriptions(td.LocalSecondaryIndexes),
 		ProvisionedThroughput:  FromSDKProvisionedThroughputDescription(td.ProvisionedThroughput),
+		Replicas:               replicas,
 	}
 }
 

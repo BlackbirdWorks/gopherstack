@@ -67,10 +67,13 @@ type TableDescription struct {
 	ProvisionedThroughput  *ProvisionedThroughputDescription `json:"ProvisionedThroughput,omitempty"`
 	TableName              string                            `json:"TableName"`
 	TableStatus            string                            `json:"TableStatus"`
+	TableArn               string                            `json:"TableArn,omitempty"`
+	TableID                string                            `json:"TableId,omitempty"`
 	KeySchema              []KeySchemaElement                `json:"KeySchema"`
 	AttributeDefinitions   []AttributeDefinition             `json:"AttributeDefinitions"`
 	GlobalSecondaryIndexes []GlobalSecondaryIndexDescription `json:"GlobalSecondaryIndexes,omitempty"`
 	LocalSecondaryIndexes  []LocalSecondaryIndexDescription  `json:"LocalSecondaryIndexes,omitempty"`
+	Replicas               []ReplicaDescription              `json:"Replicas,omitempty"`
 	ItemCount              int                               `json:"ItemCount"`
 }
 
@@ -126,6 +129,29 @@ type UpdateTableInput struct {
 	TableName                   string                       `json:"TableName"`
 	AttributeDefinitions        []AttributeDefinition        `json:"AttributeDefinitions,omitempty"`
 	GlobalSecondaryIndexUpdates []GlobalSecondaryIndexUpdate `json:"GlobalSecondaryIndexUpdates,omitempty"`
+	ReplicaUpdates              []ReplicaUpdate              `json:"ReplicaUpdates,omitempty"`
+}
+
+// ReplicaUpdate describes a create or delete action for a Global Tables v2 replica.
+type ReplicaUpdate struct {
+	Create *CreateReplicationGroupMemberAction `json:"Create,omitempty"`
+	Delete *DeleteReplicationGroupMemberAction `json:"Delete,omitempty"`
+}
+
+// CreateReplicationGroupMemberAction specifies parameters for creating a new replica.
+type CreateReplicationGroupMemberAction struct {
+	RegionName string `json:"RegionName"`
+}
+
+// DeleteReplicationGroupMemberAction specifies the region of the replica to delete.
+type DeleteReplicationGroupMemberAction struct {
+	RegionName string `json:"RegionName"`
+}
+
+// ReplicaDescription contains status information about a Global Tables v2 replica.
+type ReplicaDescription struct {
+	RegionName    string `json:"RegionName,omitempty"`
+	ReplicaStatus string `json:"ReplicaStatus,omitempty"`
 }
 
 // GlobalSecondaryIndexUpdate describes a single GSI change.
@@ -443,4 +469,126 @@ type ListTagsOfResourceInput struct {
 type ListTagsOfResourceOutput struct {
 	NextToken string `json:"NextToken,omitempty"`
 	Tags      []Tag  `json:"Tags"`
+}
+
+// --- Backups ---
+
+// BackupStatus values.
+const (
+	BackupStatusCreating  = "CREATING"
+	BackupStatusDeleted   = "DELETED"
+	BackupStatusAvailable = "AVAILABLE"
+)
+
+// BackupType values.
+const (
+	BackupTypeUser      = "USER"
+	BackupTypeSystem    = "SYSTEM"
+	BackupTypeAwsBackup = "AWS_BACKUP"
+)
+
+// CreateBackupInput is the wire format for CreateBackup.
+type CreateBackupInput struct {
+	TableName  string `json:"TableName"`
+	BackupName string `json:"BackupName"`
+}
+
+// CreateBackupOutput is the wire format for CreateBackup response.
+type CreateBackupOutput struct {
+	BackupDetails BackupDetails `json:"BackupDetails"`
+}
+
+// BackupDetails contains details of a backup.
+type BackupDetails struct {
+	BackupArn              string `json:"BackupArn"`
+	BackupName             string `json:"BackupName"`
+	BackupStatus           string `json:"BackupStatus"`
+	BackupType             string `json:"BackupType"`
+	BackupCreationDateTime string `json:"BackupCreationDateTime"`
+	BackupSizeBytes        int64  `json:"BackupSizeBytes,omitempty"`
+}
+
+// BackupDescription contains a full description of a backup.
+type BackupDescription struct {
+	BackupDetails      BackupDetails      `json:"BackupDetails"`
+	SourceTableDetails SourceTableDetails `json:"SourceTableDetails"`
+}
+
+// SourceTableDetails describes the source table at backup creation time.
+type SourceTableDetails struct {
+	TableName string             `json:"TableName"`
+	TableArn  string             `json:"TableArn,omitempty"`
+	TableID   string             `json:"TableId,omitempty"`
+	KeySchema []KeySchemaElement `json:"KeySchema"`
+	ItemCount int64              `json:"ItemCount,omitempty"`
+}
+
+// DescribeBackupInput is the wire format for DescribeBackup.
+type DescribeBackupInput struct {
+	BackupArn string `json:"BackupArn"`
+}
+
+// DescribeBackupOutput is the wire format for DescribeBackup response.
+type DescribeBackupOutput struct {
+	BackupDescription BackupDescription `json:"BackupDescription"`
+}
+
+// DeleteBackupInput is the wire format for DeleteBackup.
+type DeleteBackupInput struct {
+	BackupArn string `json:"BackupArn"`
+}
+
+// DeleteBackupOutput is the wire format for DeleteBackup response.
+type DeleteBackupOutput struct {
+	BackupDescription BackupDescription `json:"BackupDescription"`
+}
+
+// ListBackupsInput is the wire format for ListBackups.
+type ListBackupsInput struct {
+	TableName               string `json:"TableName,omitempty"`
+	ExclusiveStartBackupArn string `json:"ExclusiveStartBackupArn,omitempty"`
+	BackupType              string `json:"BackupType,omitempty"`
+	Limit                   int    `json:"Limit,omitempty"`
+}
+
+// BackupSummary contains summary information about a backup.
+type BackupSummary struct {
+	BackupArn              string `json:"BackupArn"`
+	BackupName             string `json:"BackupName"`
+	BackupStatus           string `json:"BackupStatus"`
+	BackupType             string `json:"BackupType"`
+	BackupCreationDateTime string `json:"BackupCreationDateTime"`
+	TableName              string `json:"TableName"`
+	TableArn               string `json:"TableArn,omitempty"`
+	TableID                string `json:"TableId,omitempty"`
+}
+
+// ListBackupsOutput is the wire format for ListBackups response.
+type ListBackupsOutput struct {
+	LastEvaluatedBackupArn string          `json:"LastEvaluatedBackupArn,omitempty"`
+	BackupSummaries        []BackupSummary `json:"BackupSummaries"`
+}
+
+// RestoreTableFromBackupInput is the wire format for RestoreTableFromBackup.
+type RestoreTableFromBackupInput struct {
+	BackupArn       string `json:"BackupArn"`
+	TargetTableName string `json:"TargetTableName"`
+}
+
+// RestoreTableFromBackupOutput is the wire format for RestoreTableFromBackup response.
+type RestoreTableFromBackupOutput struct {
+	TableDescription TableDescription `json:"TableDescription"`
+}
+
+// RestoreTableToPointInTimeInput is the wire format for RestoreTableToPointInTime.
+type RestoreTableToPointInTimeInput struct {
+	SourceTableName         string `json:"SourceTableName"`
+	TargetTableName         string `json:"TargetTableName"`
+	RestoreDateTime         string `json:"RestoreDateTime,omitempty"`
+	UseLatestRestorableTime bool   `json:"UseLatestRestorableTime,omitempty"`
+}
+
+// RestoreTableToPointInTimeOutput is the wire format for RestoreTableToPointInTime response.
+type RestoreTableToPointInTimeOutput struct {
+	TableDescription TableDescription `json:"TableDescription"`
 }

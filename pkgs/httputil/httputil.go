@@ -1,4 +1,3 @@
-//nolint:revive // Package name conflict with stdlib is intended
 package httputil
 
 import (

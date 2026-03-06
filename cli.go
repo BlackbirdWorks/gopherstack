@@ -448,7 +448,7 @@ func (h *HealthCmd) Run() error {
 		return fmt.Errorf("create health check request: %w", err)
 	}
 
-	resp, err := client.Do(req) //nolint:gosec // health check is always against localhost
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrHealthCheckFailed, err)
 	}

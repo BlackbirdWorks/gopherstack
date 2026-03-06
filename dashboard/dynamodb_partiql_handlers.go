@@ -25,6 +25,8 @@ func (h *DashboardHandler) dynamoDBPartiQL(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxFormBodySize)
+
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "Invalid form", http.StatusBadRequest)
 

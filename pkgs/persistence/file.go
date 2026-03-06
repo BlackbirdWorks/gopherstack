@@ -67,22 +67,22 @@ func (f *FileStore) Save(service, key string, data []byte) error {
 
 	if _, writeErr := tmp.Write(data); writeErr != nil {
 		_ = tmp.Close()
-		_ = os.Remove(tmpName) //nolint:gosec // G703: path from CreateTemp within sanitized dir
+		_ = os.Remove(tmpName)
 
 		return fmt.Errorf("persistence: write %s: %w", tmpName, writeErr)
 	}
 
 	if closeErr := tmp.Close(); closeErr != nil {
-		_ = os.Remove(tmpName) //nolint:gosec // G703: path from CreateTemp within sanitized dir
+		_ = os.Remove(tmpName)
 
 		return fmt.Errorf("persistence: close %s: %w", tmpName, closeErr)
 	}
 
-	if renameErr := os.Rename( //nolint:gosec // G703: path from CreateTemp within sanitized dir
+	if renameErr := os.Rename(
 		tmpName,
 		p,
 	); renameErr != nil {
-		_ = os.Remove(tmpName) //nolint:gosec // G703: path from CreateTemp within sanitized dir
+		_ = os.Remove(tmpName)
 
 		return fmt.Errorf("persistence: rename %s -> %s: %w", tmpName, p, renameErr)
 	}
