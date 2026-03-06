@@ -87,6 +87,14 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 
 // ExtractResource extracts the user pool or user resource from the request.
 func (h *Handler) ExtractResource(c *echo.Context) string {
+	// For JWKS endpoint, extract pool ID from the path.
+	if strings.HasSuffix(c.Request().URL.Path, jwksPathSuffix) {
+		trimmed := strings.TrimPrefix(c.Request().URL.Path, "/")
+		poolID, _, _ := strings.Cut(trimmed, "/")
+
+		return poolID
+	}
+
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return ""
@@ -199,6 +207,11 @@ func resolveErrorType(err error) (string, int) {
 
 	var syntaxErr *json.SyntaxError
 	if errors.As(err, &syntaxErr) {
+		return "InvalidParameterException", http.StatusBadRequest
+	}
+
+	var typeErr *json.UnmarshalTypeError
+	if errors.As(err, &typeErr) {
 		return "InvalidParameterException", http.StatusBadRequest
 	}
 

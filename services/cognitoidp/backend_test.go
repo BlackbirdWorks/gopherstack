@@ -35,12 +35,6 @@ func TestInMemoryBackend_CreateUserPool(t *testing.T) {
 		},
 	}
 
-	backend := newTestBackend()
-
-	// Create the first pool for the duplicate test.
-	_, err := backend.CreateUserPool("my-pool")
-	require.NoError(t, err)
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
@@ -548,6 +542,28 @@ func TestInMemoryBackend_AdminInitiateAuth(t *testing.T) {
 			},
 			wantErr:   true,
 			errTarget: cognitoidp.ErrUserPoolNotFound,
+		},
+		{
+			name: "client_not_found",
+			setup: func(b *cognitoidp.InMemoryBackend) (string, string, string, string) {
+				pool, _ := b.CreateUserPool("p")
+
+				return pool.ID, "invalid-client-id", "user", "pass"
+			},
+			wantErr:   true,
+			errTarget: cognitoidp.ErrClientNotFound,
+		},
+		{
+			name: "client_wrong_pool",
+			setup: func(b *cognitoidp.InMemoryBackend) (string, string, string, string) {
+				pool1, _ := b.CreateUserPool("pool1")
+				pool2, _ := b.CreateUserPool("pool2")
+				client2, _ := b.CreateUserPoolClient(pool2.ID, "c2")
+
+				return pool1.ID, client2.ClientID, "user", "pass"
+			},
+			wantErr:   true,
+			errTarget: cognitoidp.ErrClientNotFound,
 		},
 	}
 

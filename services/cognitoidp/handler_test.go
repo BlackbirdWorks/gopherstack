@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/labstack/echo/v5"
@@ -983,4 +984,87 @@ func TestProvider_Init(t *testing.T) {
 	svc, err := p.Init(&service.AppContext{})
 	require.NoError(t, err)
 	assert.NotNil(t, svc)
+}
+
+func TestHandler_ExtractResource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		path    string
+		target  string
+		body    string
+		wantRes string
+	}{
+		{
+			name:    "jwks_path_extracts_pool_id",
+			path:    "/us-east-1_abc123/.well-known/jwks.json",
+			wantRes: "us-east-1_abc123",
+		},
+		{
+			name:    "body_user_pool_id",
+			path:    "/",
+			target:  "AWSCognitoIdentityProviderService.DescribeUserPool",
+			body:    `{"UserPoolId":"us-east-1_poolXYZ"}`,
+			wantRes: "us-east-1_poolXYZ",
+		},
+		{
+			name:    "body_client_id",
+			path:    "/",
+			target:  "AWSCognitoIdentityProviderService.InitiateAuth",
+			body:    `{"ClientId":"myclient"}`,
+			wantRes: "myclient",
+		},
+		{
+			name:    "body_username",
+			path:    "/",
+			target:  "AWSCognitoIdentityProviderService.SignUp",
+			body:    `{"Username":"alice"}`,
+			wantRes: "alice",
+		},
+		{
+			name:    "empty_body",
+			path:    "/",
+			target:  "AWSCognitoIdentityProviderService.ListUserPools",
+			body:    `{}`,
+			wantRes: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			e := echo.New()
+
+			var req *http.Request
+			if tt.body != "" {
+				req = httptest.NewRequest(http.MethodPost, tt.path, strings.NewReader(tt.body))
+			} else {
+				req = httptest.NewRequest(http.MethodGet, tt.path, nil)
+			}
+
+			if tt.target != "" {
+				req.Header.Set("X-Amz-Target", tt.target)
+			}
+
+			c := e.NewContext(req, httptest.NewRecorder())
+			assert.Equal(t, tt.wantRes, h.ExtractResource(c))
+		})
+	}
+}
+
+func TestHandler_UnmarshalTypeError(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Sending a wrong type (array instead of string for PoolName) should return 400.
+	rec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{
+		"PoolName": []string{"not-a-string"},
+	})
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidParameterException")
 }

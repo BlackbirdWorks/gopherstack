@@ -95,7 +95,7 @@ type TokenResult struct {
 // Issue generates ID, Access, and Refresh tokens for the given user.
 func (t *tokenIssuer) Issue(clientID, username, userSub string) (*TokenResult, error) {
 	now := time.Now()
-	exp := now.Add(time.Hour)
+	exp := now.Add(time.Duration(tokenExpirySeconds) * time.Second)
 
 	idClaims := jwt.MapClaims{
 		"sub":              userSub,

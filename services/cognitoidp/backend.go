@@ -294,6 +294,11 @@ func (b *InMemoryBackend) AdminInitiateAuth(
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
 	}
 
+	client, ok := b.clients[clientID]
+	if !ok || client.UserPoolID != userPoolID {
+		return nil, fmt.Errorf("%w: client %q not found in pool %q", ErrClientNotFound, clientID, userPoolID)
+	}
+
 	poolUsers, ok := b.users[userPoolID]
 	if !ok {
 		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
