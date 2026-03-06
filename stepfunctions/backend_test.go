@@ -43,7 +43,7 @@ func TestCreateStateMachine(t *testing.T) {
 		{
 			name:       "basic",
 			smName:     "my-sm",
-			definition: "{}",
+			definition: passDefinition,
 			roleArn:    "arn:aws:iam::123456789012:role/role",
 			smType:     "STANDARD",
 			wantName:   "my-sm",
@@ -53,7 +53,7 @@ func TestCreateStateMachine(t *testing.T) {
 		{
 			name:       "DefaultType",
 			smName:     "typed-sm",
-			definition: "{}",
+			definition: passDefinition,
 			roleArn:    "arn:role",
 			smType:     "",
 			wantType:   "STANDARD",
@@ -61,11 +61,19 @@ func TestCreateStateMachine(t *testing.T) {
 		{
 			name:       "AlreadyExists",
 			smName:     "dup-sm",
-			definition: "{}",
+			definition: passDefinition,
 			roleArn:    "arn:role",
 			smType:     "STANDARD",
 			preCreate:  true,
 			wantErr:    stepfunctions.ErrStateMachineAlreadyExists,
+		},
+		{
+			name:       "InvalidDefinition",
+			smName:     "invalid-sm",
+			definition: `{}`,
+			roleArn:    "arn:role",
+			smType:     "STANDARD",
+			wantErr:    stepfunctions.ErrInvalidDefinition,
 		},
 	}
 
@@ -118,11 +126,11 @@ func TestDescribeStateMachine(t *testing.T) {
 		{
 			name:       "success",
 			createName: "desc-sm",
-			createDef:  `{"Comment":"test"}`,
+			createDef:  passDefinition,
 			createType: "EXPRESS",
 			wantName:   "desc-sm",
 			wantType:   "EXPRESS",
-			wantDef:    `{"Comment":"test"}`,
+			wantDef:    passDefinition,
 		},
 		{
 			name:    "NotFound",
@@ -187,7 +195,7 @@ func TestListStateMachines(t *testing.T) {
 			b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
 			for _, name := range tt.setupNames {
-				_, _ = b.CreateStateMachine(name, "{}", "arn:role", "STANDARD")
+				_, _ = b.CreateStateMachine(name, passDefinition, "arn:role", "STANDARD")
 			}
 
 			sms, next, err := b.ListStateMachines(tt.token, tt.maxResults)
@@ -207,7 +215,7 @@ func TestListStateMachines(t *testing.T) {
 
 		for i := range 5 {
 			_, _ = b.CreateStateMachine(
-				"sm-"+string(rune('a'+i)), "{}", "arn:role", "STANDARD",
+				"sm-"+string(rune('a'+i)), passDefinition, "arn:role", "STANDARD",
 			)
 		}
 
@@ -255,7 +263,7 @@ func TestDeleteStateMachine(t *testing.T) {
 
 			arn := tt.deleteArn
 			if tt.createSM {
-				sm, err := b.CreateStateMachine("to-delete", "{}", "arn:role", "STANDARD")
+				sm, err := b.CreateStateMachine("to-delete", passDefinition, "arn:role", "STANDARD")
 				require.NoError(t, err)
 				arn = sm.StateMachineArn
 			}
@@ -284,11 +292,8 @@ func TestStartExecution(t *testing.T) {
 		execName        string
 		input           string
 		wantArnContains string
-		wantStatus      string
-		wantOutput      string
 		createSM        bool
 		preCreateExec   bool
-		wantStopDate    bool
 	}{
 		{
 			name:            "basic",
@@ -296,9 +301,6 @@ func TestStartExecution(t *testing.T) {
 			execName:        "exec1",
 			input:           `{"key":"value"}`,
 			wantArnContains: "exec1",
-			wantStatus:      "SUCCEEDED",
-			wantOutput:      `{"key":"value"}`,
-			wantStopDate:    true,
 		},
 		{
 			name:     "SMNotFound",
@@ -322,7 +324,8 @@ func TestStartExecution(t *testing.T) {
 
 			smArn := tt.smArn
 			if tt.createSM {
-				sm, _ := b.CreateStateMachine("exec-sm", "{}", "arn:role", "STANDARD")
+				sm, err := b.CreateStateMachine("exec-sm", passDefinition, "arn:role", "STANDARD")
+				require.NoError(t, err)
 				smArn = sm.StateMachineArn
 			}
 
@@ -341,15 +344,6 @@ func TestStartExecution(t *testing.T) {
 
 			if tt.wantArnContains != "" {
 				assert.Contains(t, exec.ExecutionArn, tt.wantArnContains)
-			}
-			if tt.wantStatus != "" {
-				assert.Equal(t, tt.wantStatus, exec.Status)
-			}
-			if tt.wantOutput != "" {
-				assert.JSONEq(t, tt.wantOutput, exec.Output)
-			}
-			if tt.wantStopDate {
-				assert.NotNil(t, exec.StopDate)
 			}
 		})
 	}
@@ -388,9 +382,17 @@ func TestDescribeExecution(t *testing.T) {
 
 			arn := tt.executionArn
 			if tt.createExec {
-				sm, _ := b.CreateStateMachine("desc-exec-sm", "{}", "arn:role", "STANDARD")
-				exec, _ := b.StartExecution(sm.StateMachineArn, "exec1", tt.input)
+				sm, err := b.CreateStateMachine("desc-exec-sm", passDefinition, "arn:role", "STANDARD")
+				require.NoError(t, err)
+				exec, err := b.StartExecution(sm.StateMachineArn, "exec1", tt.input)
+				require.NoError(t, err)
 				arn = exec.ExecutionArn
+				// Wait for the async executor to finish.
+				require.Eventually(t, func() bool {
+					desc, descErr := b.DescribeExecution(arn)
+
+					return descErr == nil && desc.Status != "RUNNING"
+				}, 5*time.Second, 50*time.Millisecond)
 			}
 
 			got, err := b.DescribeExecution(arn)
@@ -441,10 +443,27 @@ func TestListExecutions(t *testing.T) {
 			t.Parallel()
 			b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-			sm, _ := b.CreateStateMachine("list-exec-sm", "{}", "arn:role", "STANDARD")
+			sm, err := b.CreateStateMachine("list-exec-sm", passDefinition, "arn:role", "STANDARD")
+			require.NoError(t, err)
 			for _, name := range tt.execNames {
-				_, _ = b.StartExecution(sm.StateMachineArn, name, "")
+				_, err = b.StartExecution(sm.StateMachineArn, name, "")
+				require.NoError(t, err)
 			}
+
+			// Wait for async executions to complete before checking status filters.
+			require.Eventually(t, func() bool {
+				execs, _, listErr := b.ListExecutions(sm.StateMachineArn, "", "", 0)
+				if listErr != nil {
+					return false
+				}
+				for _, ex := range execs {
+					if ex.Status == "RUNNING" {
+						return false
+					}
+				}
+
+				return true
+			}, 5*time.Second, 50*time.Millisecond)
 
 			execs, next, err := b.ListExecutions(sm.StateMachineArn, tt.statusFilter, "", 0)
 			require.NoError(t, err)
@@ -470,17 +489,17 @@ func TestGetExecutionHistory(t *testing.T) {
 		{
 			name:       "forward",
 			createExec: true,
-			wantLen:    2,
+			wantLen:    4,
 			wantFirst:  "ExecutionStarted",
-			wantSecond: "ExecutionSucceeded",
+			wantSecond: "PassStateEntered",
 		},
 		{
 			name:       "ReverseOrder",
 			createExec: true,
 			reverse:    true,
-			wantLen:    2,
+			wantLen:    4,
 			wantFirst:  "ExecutionSucceeded",
-			wantSecond: "ExecutionStarted",
+			wantSecond: "PassStateExited",
 		},
 		{
 			name:         "NotFound",
@@ -496,9 +515,17 @@ func TestGetExecutionHistory(t *testing.T) {
 
 			arn := tt.executionArn
 			if tt.createExec {
-				sm, _ := b.CreateStateMachine("hist-sm", "{}", "arn:role", "STANDARD")
-				exec, _ := b.StartExecution(sm.StateMachineArn, "exec-h", "")
+				sm, err := b.CreateStateMachine("hist-sm", passDefinition, "arn:role", "STANDARD")
+				require.NoError(t, err)
+				exec, err := b.StartExecution(sm.StateMachineArn, "exec-h", "")
+				require.NoError(t, err)
 				arn = exec.ExecutionArn
+				// Wait for async execution to complete.
+				require.Eventually(t, func() bool {
+					desc, descErr := b.DescribeExecution(arn)
+
+					return descErr == nil && desc.Status != "RUNNING"
+				}, 5*time.Second, 50*time.Millisecond)
 			}
 
 			events, next, err := b.GetExecutionHistory(arn, "", 0, tt.reverse)
@@ -553,8 +580,10 @@ func TestStopExecution(t *testing.T) {
 
 			arn := tt.executionArn
 			if tt.createExec {
-				sm, _ := b.CreateStateMachine("stop-sm", "{}", "arn:role", "STANDARD")
-				exec, _ := b.StartExecution(sm.StateMachineArn, "exec-stop", "")
+				sm, err := b.CreateStateMachine("stop-sm", passDefinition, "arn:role", "STANDARD")
+				require.NoError(t, err)
+				exec, err := b.StartExecution(sm.StateMachineArn, "exec-stop", "")
+				require.NoError(t, err)
 				arn = exec.ExecutionArn
 			}
 

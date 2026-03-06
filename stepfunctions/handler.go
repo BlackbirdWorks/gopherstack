@@ -531,6 +531,8 @@ func classifyError(reqErr error) (string, int) {
 		return "StateMachineAlreadyExists", http.StatusConflict
 	case errors.Is(reqErr, ErrExecutionAlreadyExists):
 		return "ExecutionAlreadyExists", http.StatusConflict
+	case errors.Is(reqErr, ErrInvalidDefinition):
+		return "InvalidDefinition", http.StatusBadRequest
 	case errors.Is(reqErr, errUnknownOperation):
 		return "UnknownOperationException", http.StatusBadRequest
 	default:
