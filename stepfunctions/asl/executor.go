@@ -1346,19 +1346,23 @@ func catchesError(errorEquals []string, err error) bool {
 // isLambdaResource returns true if the resource ARN is a Lambda function.
 func isLambdaResource(resource string) bool {
 	return strings.Contains(resource, ":lambda:") ||
-		strings.HasPrefix(resource, "arn:aws:lambda:")
+		strings.HasPrefix(resource, "arn:aws:lambda:") ||
+		strings.HasPrefix(resource, "arn:aws:states:::aws-sdk:lambda:")
 }
 
 func isSQSResource(resource string) bool {
-	return strings.HasPrefix(resource, "arn:aws:states:::sqs:")
+	return strings.HasPrefix(resource, "arn:aws:states:::sqs:") ||
+		strings.HasPrefix(resource, "arn:aws:states:::aws-sdk:sqs:")
 }
 
 func isSNSResource(resource string) bool {
-	return strings.HasPrefix(resource, "arn:aws:states:::sns:")
+	return strings.HasPrefix(resource, "arn:aws:states:::sns:") ||
+		strings.HasPrefix(resource, "arn:aws:states:::aws-sdk:sns:")
 }
 
 func isDynamoDBResource(resource string) bool {
-	return strings.HasPrefix(resource, "arn:aws:states:::dynamodb:")
+	return strings.HasPrefix(resource, "arn:aws:states:::dynamodb:") ||
+		strings.HasPrefix(resource, "arn:aws:states:::aws-sdk:dynamodb:")
 }
 
 // resolveItems returns the array of items for a Map state.

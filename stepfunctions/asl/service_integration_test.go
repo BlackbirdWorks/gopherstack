@@ -391,7 +391,94 @@ func TestExecutor_SNS(t *testing.T) {
 	}
 }
 
-// --- DynamoDB tests ---
+// --- aws-sdk integration pattern tests ---
+
+func TestExecutor_AwsSDKIntegrationPattern(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		mockClient    any
+		setOnExecutor func(exec *asl.Executor, mockClient any)
+		name          string
+		def           string
+	}{
+		{
+			name: "sqs_aws-sdk_prefix",
+			def: `{
+				"StartAt": "Send",
+				"States": {
+					"Send": {
+						"Type": "Task",
+						"Resource": "arn:aws:states:::aws-sdk:sqs:sendMessage",
+						"Parameters": {
+							"QueueUrl": "https://sqs.us-east-1.amazonaws.com/123/myqueue",
+							"MessageBody": "hello"
+						},
+						"End": true
+					}
+				}
+			}`,
+			mockClient: &mockSQS{returnMsgID: "m1", returnMD5: "md5"},
+			setOnExecutor: func(exec *asl.Executor, m any) {
+				exec.SetSQSIntegration(m.(*mockSQS))
+			},
+		},
+		{
+			name: "sns_aws-sdk_prefix",
+			def: `{
+				"StartAt": "Pub",
+				"States": {
+					"Pub": {
+						"Type": "Task",
+						"Resource": "arn:aws:states:::aws-sdk:sns:publish",
+						"Parameters": {
+							"TopicArn": "arn:aws:sns:us-east-1:123:MyTopic",
+							"Message": "hello"
+						},
+						"End": true
+					}
+				}
+			}`,
+			mockClient: &mockSNS{returnMsgID: "s1"},
+			setOnExecutor: func(exec *asl.Executor, m any) {
+				exec.SetSNSIntegration(m.(*mockSNS))
+			},
+		},
+		{
+			name: "dynamodb_aws-sdk_prefix",
+			def: `{
+				"StartAt": "Put",
+				"States": {
+					"Put": {
+						"Type": "Task",
+						"Resource": "arn:aws:states:::aws-sdk:dynamodb:putItem",
+						"End": true
+					}
+				}
+			}`,
+			mockClient: &mockDynamoDB{returnOutput: map[string]any{}},
+			setOnExecutor: func(exec *asl.Executor, m any) {
+				exec.SetDynamoDBIntegration(m.(*mockDynamoDB))
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			sm, err := asl.Parse(tt.def)
+			require.NoError(t, err)
+
+			exec := asl.NewExecutor(sm, nil, nil)
+			tt.setOnExecutor(exec, tt.mockClient)
+
+			result, err := exec.Execute(t.Context(), "exec-1", `{}`)
+			require.NoError(t, err)
+			assert.Empty(t, result.Error, "execution should succeed via aws-sdk prefix")
+		})
+	}
+}
 
 func TestExecutor_DynamoDB(t *testing.T) {
 	t.Parallel()

@@ -1715,6 +1715,68 @@ func TestTerraform_APIGateway(t *testing.T) {
 	}
 }
 
+// TestTerraform_APIGateway_DataPlane provisions a REST API with a MOCK integration via Terraform
+// and verifies that a live HTTP request routed through the API Gateway data plane returns HTTP 200.
+// MOCK integration is used so this test runs inside the scratch-based container image (no /tmp or
+// Docker-in-Docker required for Lambda execution).
+func TestTerraform_APIGateway_DataPlane(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "mock_integration",
+			fixture: "apigateway/proxy",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"APIName": "tf-apigw-dp-api-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				// Look up the deployed API ID via the AWS SDK.
+				apiClient := createAPIGatewayClient(t)
+				apis, err := apiClient.GetRestApis(ctx, &apigwsvc.GetRestApisInput{})
+				require.NoError(t, err)
+
+				var apiID string
+				for _, api := range apis.Items {
+					if aws.ToString(api.Name) == vars["APIName"].(string) {
+						apiID = aws.ToString(api.Id)
+
+						break
+					}
+				}
+				require.NotEmpty(t, apiID, "REST API %q should be present", vars["APIName"].(string))
+
+				// Invoke the deployed API through the data-plane endpoint.
+				// The MOCK integration returns HTTP 200 with an empty body by default.
+				url := endpoint + "/restapis/" + apiID + "/prod/_user_request_/items"
+				req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+				require.NoError(t, err)
+
+				resp, err := http.DefaultClient.Do(req)
+				require.NoError(t, err)
+
+				defer resp.Body.Close()
+
+				assert.Equal(t, http.StatusOK, resp.StatusCode,
+					"data-plane request to /restapis/%s/prod/_user_request_/items should return 200", apiID)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
 // TestTerraform_Scheduler provisions an EventBridge Scheduler schedule and verifies it exists.
 func TestTerraform_Scheduler(t *testing.T) {
 	t.Parallel()

@@ -481,7 +481,7 @@ func TestSFNHandler_SnapshotRestore_Delegation(t *testing.T) {
 		{
 			name: "with_state_machine",
 			setup: func(b *stepfunctions.InMemoryBackend) {
-				_, _ = b.CreateStateMachine("snap-sm", `{}`, "arn:role", "STANDARD")
+				_, _ = b.CreateStateMachine("snap-sm", sfnPassDefinition, "arn:role", "STANDARD")
 			},
 			check: func(t *testing.T, b *stepfunctions.InMemoryBackend) {
 				t.Helper()

@@ -6,14 +6,17 @@ import (
 )
 
 type backendSnapshot struct {
-	Functions           map[string]*FunctionConfiguration    `json:"functions"`
-	EventSourceMappings map[string]*EventSourceMapping       `json:"eventSourceMappings"`
-	Aliases             map[string]map[string]*FunctionAlias `json:"aliases"`
-	Versions            map[string][]*FunctionVersion        `json:"versions"`
-	FunctionURLConfigs  map[string]*FunctionURLConfig        `json:"functionURLConfigs"`
-	VersionCounters     map[string]int                       `json:"versionCounters"`
-	AccountID           string                               `json:"accountID"`
-	Region              string                               `json:"region"`
+	Functions            map[string]*FunctionConfiguration                      `json:"functions"`
+	EventSourceMappings  map[string]*EventSourceMapping                         `json:"eventSourceMappings"`
+	Aliases              map[string]map[string]*FunctionAlias                   `json:"aliases"`
+	Versions             map[string][]*FunctionVersion                          `json:"versions"`
+	FunctionURLConfigs   map[string]*FunctionURLConfig                          `json:"functionURLConfigs"`
+	VersionCounters      map[string]int                                         `json:"versionCounters"`
+	Layers               map[string][]*LayerVersion                             `json:"layers"`
+	LayerVersionCounters map[string]int64                                       `json:"layerVersionCounters"`
+	LayerPolicies        map[string]map[int64]map[string]*LayerVersionStatement `json:"layerPolicies"`
+	AccountID            string                                                 `json:"accountID"`
+	Region               string                                                 `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -24,14 +27,17 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Functions:           b.functions,
-		EventSourceMappings: b.eventSourceMappings,
-		Aliases:             b.aliases,
-		Versions:            b.versions,
-		FunctionURLConfigs:  b.functionURLConfigs,
-		VersionCounters:     b.versionCounters,
-		AccountID:           b.accountID,
-		Region:              b.region,
+		Functions:            b.functions,
+		EventSourceMappings:  b.eventSourceMappings,
+		Aliases:              b.aliases,
+		Versions:             b.versions,
+		FunctionURLConfigs:   b.functionURLConfigs,
+		VersionCounters:      b.versionCounters,
+		Layers:               b.layers,
+		LayerVersionCounters: b.layerVersionCounters,
+		LayerPolicies:        b.layerPolicies,
+		AccountID:            b.accountID,
+		Region:               b.region,
 	}
 
 	data, err := json.Marshal(snap)
@@ -81,9 +87,34 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.VersionCounters = make(map[string]int)
 	}
 
+	if snap.Layers == nil {
+		snap.Layers = make(map[string][]*LayerVersion)
+	}
+
+	if snap.LayerVersionCounters == nil {
+		snap.LayerVersionCounters = make(map[string]int64)
+	}
+
+	if snap.LayerPolicies == nil {
+		snap.LayerPolicies = make(map[string]map[int64]map[string]*LayerVersionStatement)
+	}
+
 	// Clear code bytes on restore — code must be re-deployed.
+	// Also normalize LastUpdateStatus so persisted functions are waiter-compatible
+	// after upgrade from a pre-change snapshot.
 	for _, fn := range snap.Functions {
 		fn.ZipData = nil
+
+		if fn.LastUpdateStatus == "" {
+			fn.LastUpdateStatus = LastUpdateStatusSuccessful
+		}
+	}
+
+	// Clear layer zip data on restore — layers must be re-published.
+	for _, versions := range snap.Layers {
+		for _, lv := range versions {
+			lv.ZipData = nil
+		}
 	}
 
 	b.functions = snap.Functions
@@ -92,6 +123,9 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.versions = snap.Versions
 	b.functionURLConfigs = snap.FunctionURLConfigs
 	b.versionCounters = snap.VersionCounters
+	b.layers = snap.Layers
+	b.layerVersionCounters = snap.LayerVersionCounters
+	b.layerPolicies = snap.LayerPolicies
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
