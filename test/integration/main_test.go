@@ -26,6 +26,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodbstreams"
 	ec2sdk "github.com/aws/aws-sdk-go-v2/service/ec2"
+	ecrsdk "github.com/aws/aws-sdk-go-v2/service/ecr"
 	elasticachesdk "github.com/aws/aws-sdk-go-v2/service/elasticache"
 	eventbridgesdk "github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	iamsdk "github.com/aws/aws-sdk-go-v2/service/iam"
@@ -571,6 +572,26 @@ func createEC2Client(t *testing.T) *ec2sdk.Client {
 	}
 
 	return ec2sdk.NewFromConfig(cfg, func(o *ec2sdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createECRClient returns an ECR client pointed at the shared test container.
+func createECRClient(t *testing.T) *ecrsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return ecrsdk.NewFromConfig(cfg, func(o *ecrsdk.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
