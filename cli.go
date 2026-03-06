@@ -559,7 +559,14 @@ func run(ctx context.Context, cli CLI) error {
 
 	e := buildEchoServer(ctx, log, persistManager, services, cli)
 
-	if setupErr := setupRegistry(e, log, services, cli.LatencyMs, cli.EnforceIAM); setupErr != nil {
+	if setupErr := setupRegistry(
+		e,
+		log,
+		services,
+		cli.LatencyMs,
+		cli.EnforceIAM,
+		cli.GetGlobalConfig(),
+	); setupErr != nil {
 		return setupErr
 	}
 
@@ -1278,6 +1285,7 @@ func setupRegistry(
 	services []service.Registerable,
 	latencyMs int,
 	enforceIAM bool,
+	globalCfg config.GlobalConfig,
 ) error {
 	registry := service.NewRegistry()
 
@@ -1289,7 +1297,14 @@ func setupRegistry(
 		iamBackend := findIAMBackend(services)
 		if iamBackend != nil {
 			log.Info("IAM policy enforcement enabled")
-			registry.Use(service.Middleware(iambackend.EnforcementMiddleware(iamBackend)))
+
+			ecfg := iambackend.EnforcementConfig{
+				AccountID:         globalCfg.AccountID,
+				Region:            globalCfg.Region,
+				ResourceProviders: buildResourcePolicyProviders(services),
+			}
+
+			registry.Use(service.Middleware(iambackend.EnforcementMiddleware(iamBackend, ecfg)))
 		} else {
 			log.Warn("IAM enforcement requested but IAM backend not found; enforcement disabled")
 		}
@@ -1320,6 +1335,97 @@ func findIAMBackend(services []service.Registerable) iambackend.EnforcementBacke
 	}
 
 	return nil
+}
+
+// buildResourcePolicyProviders builds a list of ResourcePolicyProvider adapters
+// from the registered service backends that support resource-based policies.
+func buildResourcePolicyProviders(services []service.Registerable) []iambackend.ResourcePolicyProvider {
+	var providers []iambackend.ResourcePolicyProvider
+
+	for _, svc := range services {
+		switch h := svc.(type) {
+		case *s3backend.S3Handler:
+			if b, ok := h.Backend.(s3PolicyBackend); ok {
+				providers = append(providers, &s3PolicyAdapter{backend: b})
+			}
+		case *sqsbackend.Handler:
+			if b, ok := h.Backend.(sqsPolicyBackend); ok {
+				providers = append(providers, &sqsPolicyAdapter{backend: b})
+			}
+		}
+	}
+
+	return providers
+}
+
+// s3PolicyBackend is the minimal S3 backend interface needed for bucket policies.
+type s3PolicyBackend interface {
+	GetBucketPolicy(ctx context.Context, bucketName string) (string, error)
+}
+
+// sqsPolicyBackend is the minimal SQS backend interface needed for queue policies.
+type sqsPolicyBackend interface {
+	GetQueueAttributes(input *sqsbackend.GetQueueAttributesInput) (*sqsbackend.GetQueueAttributesOutput, error)
+}
+
+// s3PolicyAdapter wraps an S3 backend to implement ResourcePolicyProvider.
+// It handles ARNs of the form arn:aws:s3:::bucket or arn:aws:s3:::bucket/key.
+type s3PolicyAdapter struct {
+	backend s3PolicyBackend
+}
+
+func (a *s3PolicyAdapter) GetResourcePolicy(ctx context.Context, resourceARN string) (string, error) {
+	const prefix = "arn:aws:s3:::"
+	if !strings.HasPrefix(resourceARN, prefix) {
+		return "", nil
+	}
+
+	path := strings.TrimPrefix(resourceARN, prefix)
+	bucketName, _, _ := strings.Cut(path, "/")
+
+	if bucketName == "" {
+		return "", nil
+	}
+
+	return a.backend.GetBucketPolicy(ctx, bucketName)
+}
+
+// sqsPolicyAdapter wraps a SQS backend to implement ResourcePolicyProvider.
+// It handles ARNs of the form arn:aws:sqs:region:account:queue-name.
+type sqsPolicyAdapter struct {
+	backend sqsPolicyBackend
+}
+
+func (a *sqsPolicyAdapter) GetResourcePolicy(_ context.Context, resourceARN string) (string, error) {
+	const prefix = "arn:aws:sqs:"
+	if !strings.HasPrefix(resourceARN, prefix) {
+		return "", nil
+	}
+
+	// arn:aws:sqs:region:account:queue-name → extract queue name (last segment)
+	parts := strings.Split(resourceARN, ":")
+	const arnParts = 6
+	if len(parts) < arnParts {
+		return "", nil
+	}
+
+	queueName := parts[len(parts)-1]
+	if queueName == "" {
+		return "", nil
+	}
+
+	accountID := parts[4]
+	queueURL := "http://localhost/" + accountID + "/" + queueName
+
+	out, err := a.backend.GetQueueAttributes(&sqsbackend.GetQueueAttributesInput{
+		QueueURL:       queueURL,
+		AttributeNames: []string{"Policy"},
+	})
+	if err != nil {
+		return "", err
+	}
+
+	return out.Attributes["Policy"], nil
 }
 
 // startEmbeddedDNS creates and starts the embedded DNS server.

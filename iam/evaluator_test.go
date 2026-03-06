@@ -54,7 +54,12 @@ func TestEvaluatePolicies_WildcardPatterns(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := iam.EvaluatePolicies([]string{allowPolicy(tt.policyAction)}, tt.testAction, "*")
+			got := iam.EvaluatePolicies(
+				[]string{allowPolicy(tt.policyAction)},
+				tt.testAction,
+				"*",
+				iam.ConditionContext{},
+			)
 			assert.Equal(t, tt.want, got)
 		})
 	}
@@ -170,7 +175,7 @@ func TestEvaluatePolicies(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := iam.EvaluatePolicies(tt.policyDocs, tt.action, tt.resource)
+			got := iam.EvaluatePolicies(tt.policyDocs, tt.action, tt.resource, iam.ConditionContext{})
 			assert.Equal(t, tt.want, got)
 		})
 	}

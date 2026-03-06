@@ -1,6 +1,7 @@
 package iam
 
 import (
+	"context"
 	"encoding/xml"
 	"net/http"
 	"strings"
@@ -39,6 +40,17 @@ type EnforcementBackend interface {
 	GetPoliciesForUser(userName string) ([]string, error)
 }
 
+// EnforcementConfig carries optional configuration for the enforcement middleware.
+type EnforcementConfig struct {
+	// AccountID is the mock AWS account ID used in resource ARN construction.
+	AccountID string
+	// Region is the default region used in resource ARN construction.
+	Region string
+	// ResourceProviders is a list of backends that can return resource-based
+	// policies (e.g. S3 bucket policies, SQS queue policies).
+	ResourceProviders []ResourcePolicyProvider
+}
+
 // EnforcementMiddleware returns an Echo middleware that enforces IAM policies on
 // every incoming request. It extracts the caller's access key from the
 // SigV4 Authorization header, resolves the associated IAM user, collects all
@@ -49,14 +61,19 @@ type EnforcementBackend interface {
 // not disrupted.
 //
 // Requests to dashboard and internal health-check paths are always allowed.
-func EnforcementMiddleware(backend EnforcementBackend) echo.MiddlewareFunc {
+func EnforcementMiddleware(backend EnforcementBackend, cfg ...EnforcementConfig) echo.MiddlewareFunc {
+	var ecfg EnforcementConfig
+	if len(cfg) > 0 {
+		ecfg = cfg[0]
+	}
+
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
 			if isInternalPath(c.Request().URL.Path) {
 				return next(c)
 			}
 
-			return enforceIAMPolicy(c, next, backend)
+			return enforceIAMPolicy(c, next, backend, ecfg)
 		}
 	}
 }
@@ -73,7 +90,7 @@ func isInternalPath(path string) bool {
 }
 
 // enforceIAMPolicy evaluates IAM policies for the request and either allows or denies it.
-func enforceIAMPolicy(c *echo.Context, next echo.HandlerFunc, backend EnforcementBackend) error {
+func enforceIAMPolicy(c *echo.Context, next echo.HandlerFunc, backend EnforcementBackend, cfg EnforcementConfig) error {
 	r := c.Request()
 	ctx := r.Context()
 	log := logger.Load(ctx)
@@ -103,19 +120,140 @@ func enforceIAMPolicy(c *echo.Context, next echo.HandlerFunc, backend Enforcemen
 		return next(c)
 	}
 
-	result := EvaluatePolicies(policyDocs, action, "*")
-	if result != EvalAllow {
-		log.InfoContext(ctx, "IAM enforcement: access denied",
-			"user", user.UserName,
-			"action", action,
-			"result", result,
-		)
+	resourceARN := extractResourceARN(r, cfg.AccountID, cfg.Region)
+
+	// Collect resource-based policies for the accessed resource.
+	resourceDocs := collectResourcePolicies(ctx, cfg.ResourceProviders, resourceARN)
+
+	// Build condition context from the request and resolved user.
+	condCtx := buildConditionContext(r, user)
+
+	// Determine what resource string to match against policy Resource fields.
+	matchResource := resourceARN
+	if matchResource == "" {
+		matchResource = "*"
+	}
+
+	// Identity-based policies.
+	idResult := EvaluatePolicies(policyDocs, action, matchResource, condCtx)
+
+	// Explicit Deny from identity policy always wins.
+	if idResult == EvalExplicitDeny {
+		log.InfoContext(ctx, "IAM enforcement: access denied (identity policy)",
+			"user", user.UserName, "action", action, "resource", matchResource)
+
+		return writeAccessDenied(c, action)
+	}
+
+	// Resource-based policies: allow if any grants access, deny on explicit deny.
+	if len(resourceDocs) > 0 {
+		resResult := EvaluatePolicies(resourceDocs, action, matchResource, condCtx)
+
+		if resResult == EvalExplicitDeny {
+			log.InfoContext(ctx, "IAM enforcement: access denied (resource policy)",
+				"user", user.UserName, "action", action, "resource", matchResource)
+
+			return writeAccessDenied(c, action)
+		}
+
+		// Resource policy Allow is sufficient even without identity Allow.
+		if resResult == EvalAllow {
+			return next(c)
+		}
+	}
+
+	// No Allow from either identity or resource policy.
+	if idResult != EvalAllow {
+		log.InfoContext(ctx, "IAM enforcement: access denied (implicit deny)",
+			"user", user.UserName, "action", action, "resource", matchResource)
 
 		return writeAccessDenied(c, action)
 	}
 
 	return next(c)
 }
+
+// collectResourcePolicies queries all registered resource policy providers for
+// a policy attached to resourceARN and returns the non-empty policy documents.
+func collectResourcePolicies(ctx context.Context, providers []ResourcePolicyProvider, resourceARN string) []string {
+	if resourceARN == "" || len(providers) == 0 {
+		return nil
+	}
+
+	docs := make([]string, 0, len(providers))
+
+	for _, p := range providers {
+		doc, err := p.GetResourcePolicy(ctx, resourceARN)
+		if err == nil && doc != "" {
+			docs = append(docs, doc)
+		}
+	}
+
+	return docs
+}
+
+// buildConditionContext constructs the per-request condition evaluation context.
+func buildConditionContext(r *http.Request, user *User) ConditionContext {
+	return ConditionContext{
+		SourceIP: extractClientIP(r),
+		Username: user.UserName,
+		UserID:   user.UserID,
+	}
+}
+
+// extractClientIP returns the IP address of the client without the port.
+func extractClientIP(r *http.Request) string {
+	// Prefer X-Forwarded-For when behind a proxy.
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		parts := strings.Split(xff, ",")
+		if len(parts) > 0 {
+			return strings.TrimSpace(parts[0])
+		}
+	}
+
+	host, _, err := splitHostPort(r.RemoteAddr)
+	if err == nil {
+		return host
+	}
+
+	return r.RemoteAddr
+}
+
+// splitHostPort extracts the host portion from an "host:port" address string.
+func splitHostPort(addr string) (string, string, error) {
+	// Handle [::1]:port IPv6 form.
+	if len(addr) > 0 && addr[0] == '[' {
+		end := strings.LastIndex(addr, "]")
+		if end < 0 {
+			return "", "", errNoPort
+		}
+
+		host := addr[1:end]
+		port := ""
+
+		if end+1 < len(addr) && addr[end+1] == ':' {
+			port = addr[end+2:]
+		}
+
+		return host, port, nil
+	}
+
+	// IPv4 / hostname.
+	lastColon := strings.LastIndex(addr, ":")
+	if lastColon < 0 {
+		return addr, "", nil
+	}
+
+	return addr[:lastColon], addr[lastColon+1:], nil
+}
+
+// errNoPort is returned when an IPv6 address is malformed.
+var errNoPort = sentinelError("address has no port")
+
+// sentinelError is a simple string error type.
+type sentinelError string
+
+func (e sentinelError) Error() string { return string(e) }
 
 // ExtractAccessKeyID extracts the AWS access key ID from the SigV4 Authorization header.
 // The expected format is:
