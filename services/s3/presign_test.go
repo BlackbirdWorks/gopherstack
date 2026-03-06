@@ -62,13 +62,16 @@ func TestHandler_PresignedGet(t *testing.T) {
 			urlFn: func() string {
 				return "/my-bucket/file.txt?X-Amz-Signature=fakesig&X-Amz-Expires=3600"
 			},
-			wantCode:    http.StatusForbidden,
-			wantContain: "AccessDenied",
+			wantCode:    http.StatusBadRequest,
+			wantContain: "AuthorizationQueryParametersError",
 		},
 		{
 			name: "invalid X-Amz-Date rejected",
 			urlFn: func() string {
-				return "/my-bucket/file.txt?X-Amz-Signature=fakesig&X-Amz-Date=NOTADATE&X-Amz-Expires=3600"
+				return "/my-bucket/file.txt?X-Amz-Algorithm=AWS4-HMAC-SHA256" +
+					"&X-Amz-Credential=test%2F20240101%2Fus-east-1%2Fs3%2Faws4_request" +
+					"&X-Amz-Signature=fakesig&X-Amz-Date=NOTADATE&X-Amz-Expires=3600" +
+					"&X-Amz-SignedHeaders=host"
 			},
 			wantCode:    http.StatusBadRequest,
 			wantContain: "AuthorizationQueryParametersError",
@@ -79,7 +82,10 @@ func TestHandler_PresignedGet(t *testing.T) {
 				dateStr := time.Now().UTC().Format("20060102T150405Z")
 
 				return fmt.Sprintf(
-					"/my-bucket/file.txt?X-Amz-Signature=fakesig&X-Amz-Date=%s&X-Amz-Expires=notanumber",
+					"/my-bucket/file.txt?X-Amz-Algorithm=AWS4-HMAC-SHA256"+
+						"&X-Amz-Credential=test%%2F20240101%%2Fus-east-1%%2Fs3%%2Faws4_request"+
+						"&X-Amz-Signature=fakesig&X-Amz-Date=%s&X-Amz-Expires=notanumber"+
+						"&X-Amz-SignedHeaders=host",
 					dateStr,
 				)
 			},
@@ -199,6 +205,113 @@ func TestHandler_NonPresigned_Unaffected(t *testing.T) {
 			body, err := io.ReadAll(rec.Body)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantBody, string(body))
+		})
+	}
+}
+
+func TestHandler_PresignedStructuralValidation(t *testing.T) {
+	t.Parallel()
+
+	validDate := time.Now().UTC().Add(-1 * time.Minute).Format("20060102T150405Z")
+
+	tests := []struct {
+		urlFn       func() string
+		name        string
+		wantContain string
+		wantCode    int
+	}{
+		{
+			name: "missing X-Amz-Algorithm rejected",
+			urlFn: func() string {
+				return fmt.Sprintf(
+					"/my-bucket/file.txt?X-Amz-Credential=test%%2F20240101%%2Fus-east-1%%2Fs3%%2Faws4_request"+
+						"&X-Amz-Date=%s&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=fakesig",
+					validDate,
+				)
+			},
+			wantCode:    http.StatusBadRequest,
+			wantContain: "AuthorizationQueryParametersError",
+		},
+		{
+			name: "invalid X-Amz-Algorithm rejected",
+			urlFn: func() string {
+				return fmt.Sprintf(
+					"/my-bucket/file.txt?X-Amz-Algorithm=UNKNOWN-ALG"+
+						"&X-Amz-Credential=test%%2F20240101%%2Fus-east-1%%2Fs3%%2Faws4_request"+
+						"&X-Amz-Date=%s&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=fakesig",
+					validDate,
+				)
+			},
+			wantCode:    http.StatusBadRequest,
+			wantContain: "AuthorizationQueryParametersError",
+		},
+		{
+			name: "missing X-Amz-Credential rejected",
+			urlFn: func() string {
+				return fmt.Sprintf(
+					"/my-bucket/file.txt?X-Amz-Algorithm=AWS4-HMAC-SHA256"+
+						"&X-Amz-Date=%s&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=fakesig",
+					validDate,
+				)
+			},
+			wantCode:    http.StatusBadRequest,
+			wantContain: "AuthorizationQueryParametersError",
+		},
+		{
+			name: "malformed X-Amz-Credential rejected",
+			urlFn: func() string {
+				return fmt.Sprintf(
+					"/my-bucket/file.txt?X-Amz-Algorithm=AWS4-HMAC-SHA256"+
+						"&X-Amz-Credential=ONLYAKID"+
+						"&X-Amz-Date=%s&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=fakesig",
+					validDate,
+				)
+			},
+			wantCode:    http.StatusBadRequest,
+			wantContain: "AuthorizationQueryParametersError",
+		},
+		{
+			name: "missing X-Amz-SignedHeaders rejected",
+			urlFn: func() string {
+				return fmt.Sprintf(
+					"/my-bucket/file.txt?X-Amz-Algorithm=AWS4-HMAC-SHA256"+
+						"&X-Amz-Credential=test%%2F20240101%%2Fus-east-1%%2Fs3%%2Faws4_request"+
+						"&X-Amz-Date=%s&X-Amz-Expires=3600&X-Amz-Signature=fakesig",
+					validDate,
+				)
+			},
+			wantCode:    http.StatusBadRequest,
+			wantContain: "AuthorizationQueryParametersError",
+		},
+		{
+			name: "empty X-Amz-Signature rejected",
+			urlFn: func() string {
+				return fmt.Sprintf(
+					"/my-bucket/file.txt?X-Amz-Algorithm=AWS4-HMAC-SHA256"+
+						"&X-Amz-Credential=test%%2F20240101%%2Fus-east-1%%2Fs3%%2Faws4_request"+
+						"&X-Amz-Date=%s&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=",
+					validDate,
+				)
+			},
+			wantCode:    http.StatusBadRequest,
+			wantContain: "AuthorizationQueryParametersError",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, backend := newTestHandler(t)
+			mustCreateBucket(t, backend, "my-bucket")
+			mustPutObject(t, backend, "my-bucket", "file.txt", []byte("data"))
+
+			req := httptest.NewRequest(http.MethodGet, tt.urlFn(), nil)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+
+			require.Equal(t, tt.wantCode, rec.Code)
+			assert.Contains(t, rec.Body.String(), tt.wantContain)
 		})
 	}
 }
