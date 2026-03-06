@@ -7,6 +7,7 @@ import (
 const (
 	maxKeys            = 1000
 	maxMultipartMemory = 32 << 20 // 32 MB
+	maxFormBodySize    = 1 << 20  // 1 MB
 	constStrTrue       = "true"
 )
 
