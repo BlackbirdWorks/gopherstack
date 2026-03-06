@@ -106,34 +106,48 @@ func TestSyntheticHostname(t *testing.T) {
 }
 
 // startTestServer starts a DNS server on a free port and returns the server and its address.
+// It retries up to 5 times with a fresh random port to avoid TOCTOU port-conflict races in CI.
 func startTestServer(t *testing.T) (*gopherDNS.Server, string) {
 	t.Helper()
 
-	// Find a free UDP port.
-	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
-	require.NoError(t, err)
-	port := pc.LocalAddr().(*net.UDPAddr).Port
-	_ = pc.Close()
+	const maxAttempts = 5
 
-	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	for range maxAttempts {
+		// Find a free UDP port.
+		pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+		require.NoError(t, err)
 
-	srv, err := gopherDNS.New(gopherDNS.Config{
-		ListenAddr: addr,
-		ResolveIP:  "127.0.0.1",
-	})
-	require.NoError(t, err)
+		port := pc.LocalAddr().(*net.UDPAddr).Port
+		_ = pc.Close()
 
-	ctx, cancel := context.WithCancel(t.Context())
+		addr := fmt.Sprintf("127.0.0.1:%d", port)
 
-	err = srv.Start(ctx)
-	require.NoError(t, err)
+		srv, err := gopherDNS.New(gopherDNS.Config{
+			ListenAddr: addr,
+			ResolveIP:  "127.0.0.1",
+		})
+		require.NoError(t, err)
 
-	t.Cleanup(func() {
-		cancel()
-		_ = srv.Stop()
-	})
+		ctx, cancel := context.WithCancel(t.Context())
 
-	return srv, addr
+		if err = srv.Start(ctx); err != nil {
+			cancel()
+			_ = srv.Stop()
+
+			continue
+		}
+
+		t.Cleanup(func() {
+			cancel()
+			_ = srv.Stop()
+		})
+
+		return srv, addr
+	}
+
+	t.Fatal("failed to start DNS test server after retries")
+
+	return nil, ""
 }
 
 // queryA performs a DNS A query and returns the first IP answer.
