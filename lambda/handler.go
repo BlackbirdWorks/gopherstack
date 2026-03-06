@@ -332,13 +332,36 @@ func (h *Handler) IAMAction(r *http.Request) string {
 
 		return ""
 	case strings.HasPrefix(path, esmPathPrefix):
-		return "lambda:CreateEventSourceMapping"
+		rest := strings.TrimPrefix(path, esmPathPrefix)
+
+		return esmIAMAction(method, strings.TrimPrefix(rest, "/"))
 	case strings.HasPrefix(path, lambdaTagsPathPrefix):
 		if method == http.MethodGet {
 			return "lambda:ListTags"
 		}
 
 		return "lambda:TagResource"
+	}
+
+	return ""
+}
+
+// esmIAMAction returns the IAM action for an event source mapping request.
+// rest is the path after the ESM prefix with the leading slash stripped.
+func esmIAMAction(method, rest string) string {
+	switch method {
+	case http.MethodPost:
+		return "lambda:CreateEventSourceMapping"
+	case http.MethodGet:
+		if rest == "" {
+			return "lambda:ListEventSourceMappings"
+		}
+
+		return "lambda:GetEventSourceMapping"
+	case http.MethodDelete:
+		return "lambda:DeleteEventSourceMapping"
+	case http.MethodPut:
+		return "lambda:UpdateEventSourceMapping"
 	}
 
 	return ""

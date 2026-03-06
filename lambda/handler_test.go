@@ -2763,6 +2763,36 @@ func TestHandler_IAMAction(t *testing.T) {
 			want:   "lambda:TagResource",
 		},
 		{name: "non_lambda_path", method: http.MethodGet, path: "/s3/bucket", want: ""},
+		{
+			name:   "esm_create",
+			method: http.MethodPost,
+			path:   "/2015-03-31/event-source-mappings",
+			want:   "lambda:CreateEventSourceMapping",
+		},
+		{
+			name:   "esm_list",
+			method: http.MethodGet,
+			path:   "/2015-03-31/event-source-mappings",
+			want:   "lambda:ListEventSourceMappings",
+		},
+		{
+			name:   "esm_get",
+			method: http.MethodGet,
+			path:   "/2015-03-31/event-source-mappings/uuid-1234",
+			want:   "lambda:GetEventSourceMapping",
+		},
+		{
+			name:   "esm_delete",
+			method: http.MethodDelete,
+			path:   "/2015-03-31/event-source-mappings/uuid-1234",
+			want:   "lambda:DeleteEventSourceMapping",
+		},
+		{
+			name:   "esm_update",
+			method: http.MethodPut,
+			path:   "/2015-03-31/event-source-mappings/uuid-1234",
+			want:   "lambda:UpdateEventSourceMapping",
+		},
 	}
 
 	for _, tt := range tests {
