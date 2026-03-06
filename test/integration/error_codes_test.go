@@ -10,6 +10,10 @@ import (
 	iamtypes "github.com/aws/aws-sdk-go-v2/service/iam/types"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	kmstypes "github.com/aws/aws-sdk-go-v2/service/kms/types"
+	rdssdk "github.com/aws/aws-sdk-go-v2/service/rds"
+	rdstypes "github.com/aws/aws-sdk-go-v2/service/rds/types"
+	route53resolversdk "github.com/aws/aws-sdk-go-v2/service/route53resolver"
+	r53rtypes "github.com/aws/aws-sdk-go-v2/service/route53resolver/types"
 	schedulersdk "github.com/aws/aws-sdk-go-v2/service/scheduler"
 	schedulertypes "github.com/aws/aws-sdk-go-v2/service/scheduler/types"
 	snssdk "github.com/aws/aws-sdk-go-v2/service/sns"
@@ -581,6 +585,104 @@ func TestIntegration_ErrorCodes_Scheduler(t *testing.T) {
 				require.Error(t, err)
 				var notFound *schedulertypes.ResourceNotFoundException
 				assert.ErrorAs(t, err, &notFound, "expected ResourceNotFoundException")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := tt.operation(t)
+			tt.check(t, err)
+		})
+	}
+}
+
+// TestIntegration_ErrorCodes_Route53Resolver verifies that Route53Resolver error responses
+// include a __type field so the SDK can dispatch to typed errors.
+func TestIntegration_ErrorCodes_Route53Resolver(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createRoute53ResolverClient(t)
+	ctx := t.Context()
+
+	tests := []struct {
+		operation func(t *testing.T) error
+		check     func(t *testing.T, err error)
+		name      string
+	}{
+		{
+			name: "ResourceNotFoundException_GetResolverEndpoint",
+			operation: func(t *testing.T) error {
+				t.Helper()
+				_, err := client.GetResolverEndpoint(ctx, &route53resolversdk.GetResolverEndpointInput{
+					ResolverEndpointId: aws.String("nonexistent-endpoint-" + uuid.NewString()[:8]),
+				})
+
+				return err
+			},
+			check: func(t *testing.T, err error) {
+				t.Helper()
+				require.Error(t, err)
+				var notFound *r53rtypes.ResourceNotFoundException
+				assert.ErrorAs(t, err, &notFound, "expected ResourceNotFoundException")
+			},
+		},
+		{
+			name: "ResourceNotFoundException_GetResolverRule",
+			operation: func(t *testing.T) error {
+				t.Helper()
+				_, err := client.GetResolverRule(ctx, &route53resolversdk.GetResolverRuleInput{
+					ResolverRuleId: aws.String("nonexistent-rule-" + uuid.NewString()[:8]),
+				})
+
+				return err
+			},
+			check: func(t *testing.T, err error) {
+				t.Helper()
+				require.Error(t, err)
+				var notFound *r53rtypes.ResourceNotFoundException
+				assert.ErrorAs(t, err, &notFound, "expected ResourceNotFoundException")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := tt.operation(t)
+			tt.check(t, err)
+		})
+	}
+}
+
+// TestIntegration_ErrorCodes_RDS verifies that RDS XML error codes match AWS SDK typed errors.
+func TestIntegration_ErrorCodes_RDS(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createRDSClient(t)
+	ctx := t.Context()
+
+	tests := []struct {
+		operation func(t *testing.T) error
+		check     func(t *testing.T, err error)
+		name      string
+	}{
+		{
+			name: "DBSubnetGroupNotFoundFault_DescribeDBSubnetGroups",
+			operation: func(t *testing.T) error {
+				t.Helper()
+				_, err := client.DescribeDBSubnetGroups(ctx, &rdssdk.DescribeDBSubnetGroupsInput{
+					DBSubnetGroupName: aws.String("nonexistent-sg-" + uuid.NewString()[:8]),
+				})
+
+				return err
+			},
+			check: func(t *testing.T, err error) {
+				t.Helper()
+				require.Error(t, err)
+				var notFound *rdstypes.DBSubnetGroupNotFoundFault
+				assert.ErrorAs(t, err, &notFound, "expected DBSubnetGroupNotFoundFault")
 			},
 		},
 	}

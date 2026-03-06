@@ -34,6 +34,7 @@ import (
 	lambdaclientsdk "github.com/aws/aws-sdk-go-v2/service/lambda"
 	rdssdk "github.com/aws/aws-sdk-go-v2/service/rds"
 	route53sdk "github.com/aws/aws-sdk-go-v2/service/route53"
+	route53resolversdk "github.com/aws/aws-sdk-go-v2/service/route53resolver"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	schedulersdk "github.com/aws/aws-sdk-go-v2/service/scheduler"
 	secretsmanagersdk "github.com/aws/aws-sdk-go-v2/service/secretsmanager"
@@ -630,6 +631,26 @@ func createRoute53Client(t *testing.T) *route53sdk.Client {
 	}
 
 	return route53sdk.NewFromConfig(cfg, func(o *route53sdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createRoute53ResolverClient returns a Route53Resolver client pointed at the shared test container.
+func createRoute53ResolverClient(t *testing.T) *route53resolversdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return route53resolversdk.NewFromConfig(cfg, func(o *route53resolversdk.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
