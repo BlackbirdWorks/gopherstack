@@ -417,6 +417,20 @@ func (b *InMemoryBackend) CreateVpc(cidr string) (*VPC, error) {
 	return v, nil
 }
 
+// DeleteVpc removes a VPC by ID.
+func (b *InMemoryBackend) DeleteVpc(id string) error {
+	b.mu.Lock("DeleteVpc")
+	defer b.mu.Unlock()
+
+	if _, ok := b.vpcs[id]; !ok {
+		return fmt.Errorf("%w: %s", ErrVPCNotFound, id)
+	}
+
+	delete(b.vpcs, id)
+
+	return nil
+}
+
 // DescribeSubnets returns subnets, optionally filtered by IDs.
 func (b *InMemoryBackend) DescribeSubnets(ids []string) []*Subnet {
 	b.mu.RLock("DescribeSubnets")
@@ -472,4 +486,18 @@ func (b *InMemoryBackend) CreateSubnet(vpcID, cidr, az string) (*Subnet, error) 
 	b.subnets[id] = s
 
 	return s, nil
+}
+
+// DeleteSubnet removes a subnet by ID.
+func (b *InMemoryBackend) DeleteSubnet(id string) error {
+	b.mu.Lock("DeleteSubnet")
+	defer b.mu.Unlock()
+
+	if _, ok := b.subnets[id]; !ok {
+		return fmt.Errorf("%w: %s", ErrSubnetNotFound, id)
+	}
+
+	delete(b.subnets, id)
+
+	return nil
 }

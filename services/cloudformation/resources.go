@@ -12,12 +12,19 @@ import (
 	"github.com/google/uuid"
 
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
+	cloudwatchbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
+	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
+	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
+	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
+	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
+	route53backend "github.com/blackbirdworks/gopherstack/services/route53"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
+	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/services/sqs"
@@ -39,6 +46,13 @@ type ServiceBackends struct {
 	StepFunctions  *sfnbackend.Handler
 	CloudWatchLogs *cwlogsbackend.Handler
 	APIGateway     *apigwbackend.Handler
+	IAM            *iambackend.Handler
+	EC2            *ec2backend.Handler
+	Kinesis        *kinesisbackend.Handler
+	CloudWatch     *cloudwatchbackend.Handler
+	Route53        *route53backend.Handler
+	ElastiCache    *elasticachebackend.Handler
+	Scheduler      *schedulerbackend.Handler
 	AccountID      string
 	Region         string
 }
@@ -122,17 +136,217 @@ func (rc *ResourceCreator) createExtendedResource(
 	params map[string]string,
 	physicalIDs map[string]string,
 ) (string, error) {
+	if physID, handled, err := rc.createInfraResource(
+		ctx,
+		logicalID,
+		resourceType,
+		props,
+		params,
+		physicalIDs,
+	); handled {
+		return physID, err
+	}
+
+	return rc.createServiceResource(ctx, logicalID, resourceType, props, params, physicalIDs)
+}
+
+// createInfraResource handles Lambda, EventBridge, StepFunctions, Logs, and APIGateway resources.
+func (rc *ResourceCreator) createInfraResource(
+	ctx context.Context,
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, bool, error) {
+	if physID, handled, err := rc.createLambdaResources(
+		ctx,
+		logicalID,
+		resourceType,
+		props,
+		params,
+		physicalIDs,
+	); handled {
+		return physID, true, err
+	}
+
+	return rc.createPlatformResources(ctx, logicalID, resourceType, props, params, physicalIDs)
+}
+
+// createLambdaResources handles AWS::Lambda::* CloudFormation resource creation.
+func (rc *ResourceCreator) createLambdaResources(
+	ctx context.Context,
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, bool, error) {
 	switch resourceType {
 	case "AWS::Lambda::Function":
-		return rc.createLambdaFunction(ctx, logicalID, props, params, physicalIDs)
+		physID, err := rc.createLambdaFunction(ctx, logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::Lambda::EventSourceMapping":
+		physID, err := rc.createLambdaEventSourceMapping(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::Lambda::Permission":
+		physID, err := rc.createLambdaPermission(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::Lambda::Alias":
+		physID, err := rc.createLambdaAlias(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::Lambda::Version":
+		physID, err := rc.createLambdaVersion(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	default:
+		return "", false, nil
+	}
+}
+
+// createPlatformResources handles EventBridge, StepFunctions, Logs, and APIGateway resource creation.
+func (rc *ResourceCreator) createPlatformResources(
+	ctx context.Context,
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, bool, error) {
+	switch resourceType {
 	case "AWS::Events::Rule":
-		return rc.createEventBridgeRule(ctx, logicalID, props, params, physicalIDs)
+		physID, err := rc.createEventBridgeRule(ctx, logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::Events::EventBus":
+		physID, err := rc.createEventBus(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
 	case "AWS::StepFunctions::StateMachine":
-		return rc.createStepFunctionsStateMachine(ctx, logicalID, props, params, physicalIDs)
+		physID, err := rc.createStepFunctionsStateMachine(ctx, logicalID, props, params, physicalIDs)
+
+		return physID, true, err
 	case "AWS::Logs::LogGroup":
-		return rc.createCloudWatchLogGroup(ctx, logicalID, props, params, physicalIDs)
+		physID, err := rc.createCloudWatchLogGroup(ctx, logicalID, props, params, physicalIDs)
+
+		return physID, true, err
 	case "AWS::ApiGateway::RestApi":
-		return rc.createAPIGatewayRestAPI(ctx, logicalID, props, params, physicalIDs)
+		physID, err := rc.createAPIGatewayRestAPI(ctx, logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::ApiGateway::Resource":
+		physID, err := rc.createAPIGatewayResource(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::ApiGateway::Method":
+		physID, err := rc.createAPIGatewayMethod(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::ApiGateway::Deployment":
+		physID, err := rc.createAPIGatewayDeployment(ctx, logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::ApiGateway::Stage":
+		physID, err := rc.createAPIGatewayStage(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	default:
+		return "", false, nil
+	}
+}
+
+// createServiceResource handles IAM, EC2, Kinesis, CloudWatch, Route53, ElastiCache,
+// SNS/SQS/S3 policies, and Scheduler resources.
+func (rc *ResourceCreator) createServiceResource(
+	ctx context.Context,
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
+	if physID, handled, err := rc.createIAMEC2Resource(logicalID, resourceType, props, params, physicalIDs); handled {
+		return physID, err
+	}
+
+	return rc.createDataPlatformResource(ctx, logicalID, resourceType, props, params, physicalIDs)
+}
+
+// createIAMEC2Resource handles IAM and EC2 CloudFormation resource creation.
+func (rc *ResourceCreator) createIAMEC2Resource(
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, bool, error) {
+	switch resourceType {
+	case "AWS::IAM::Role":
+		physID, err := rc.createIAMRole(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::IAM::Policy":
+		physID, err := rc.createIAMPolicy(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::IAM::ManagedPolicy":
+		physID, err := rc.createIAMManagedPolicy(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::IAM::InstanceProfile":
+		physID, err := rc.createIAMInstanceProfile(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::EC2::SecurityGroup":
+		physID, err := rc.createEC2SecurityGroup(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::EC2::VPC":
+		physID, err := rc.createEC2VPC(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::EC2::Subnet":
+		physID, err := rc.createEC2Subnet(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::EC2::InternetGateway":
+		physID, err := rc.createEC2InternetGateway(logicalID)
+
+		return physID, true, err
+	case "AWS::EC2::RouteTable":
+		physID, err := rc.createEC2RouteTable(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::EC2::Route":
+		physID, err := rc.createEC2Route(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	default:
+		return "", false, nil
+	}
+}
+
+// createDataPlatformResource handles Kinesis, CloudWatch, Route53, ElastiCache,
+// SNS/SQS/S3 policies, and Scheduler CloudFormation resource creation.
+func (rc *ResourceCreator) createDataPlatformResource(
+	ctx context.Context,
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
+	switch resourceType {
+	case "AWS::Kinesis::Stream":
+		return rc.createKinesisStream(logicalID, props, params, physicalIDs)
+	case "AWS::CloudWatch::Alarm":
+		return rc.createCloudWatchAlarm(logicalID, props, params, physicalIDs)
+	case "AWS::Route53::HostedZone":
+		return rc.createRoute53HostedZone(logicalID, props, params, physicalIDs)
+	case "AWS::Route53::RecordSet":
+		return rc.createRoute53RecordSet(logicalID, props, params, physicalIDs)
+	case "AWS::ElastiCache::CacheCluster":
+		return rc.createElastiCacheCacheCluster(logicalID, props, params, physicalIDs)
+	case "AWS::SNS::Subscription":
+		return rc.createSNSSubscription(logicalID, props, params, physicalIDs)
+	case "AWS::SQS::QueuePolicy":
+		return rc.createSQSQueuePolicy(logicalID, props, params, physicalIDs)
+	case "AWS::S3::BucketPolicy":
+		return rc.createS3BucketPolicy(ctx, logicalID, props, params, physicalIDs)
+	case "AWS::Scheduler::Schedule":
+		return rc.createSchedulerSchedule(logicalID, props, params, physicalIDs)
 	default:
 		return logicalID + "-stub", nil
 	}
@@ -179,17 +393,124 @@ func (rc *ResourceCreator) deleteCoreResource(ctx context.Context, resourceType,
 
 // deleteExtendedResource handles deletion of extended AWS resource types (Lambda, EventBridge, etc.).
 func (rc *ResourceCreator) deleteExtendedResource(ctx context.Context, resourceType, physicalID string) error {
+	if handled, err := rc.deleteInfraResource(ctx, resourceType, physicalID); handled {
+		return err
+	}
+
+	return rc.deleteServiceResource(ctx, resourceType, physicalID)
+}
+
+// deleteInfraResource handles Lambda, EventBridge, StepFunctions, Logs, and APIGateway deletions.
+func (rc *ResourceCreator) deleteInfraResource(ctx context.Context, resourceType, physicalID string) (bool, error) {
+	if handled, err := rc.deleteLambdaResource(resourceType, physicalID); handled {
+		return true, err
+	}
+
+	return rc.deletePlatformResource(ctx, resourceType, physicalID)
+}
+
+// deleteLambdaResource handles Lambda and Lambda-adjacent resource deletions.
+func (rc *ResourceCreator) deleteLambdaResource(resourceType, physicalID string) (bool, error) {
 	switch resourceType {
 	case "AWS::Lambda::Function":
-		return rc.deleteLambdaFunction(physicalID)
+		return true, rc.deleteLambdaFunction(physicalID)
+	case "AWS::Lambda::EventSourceMapping":
+		return true, rc.deleteLambdaEventSourceMapping(physicalID)
+	case "AWS::Lambda::Permission":
+		return true, rc.deleteLambdaPermission(physicalID)
+	case "AWS::Lambda::Alias":
+		return true, rc.deleteLambdaAlias(physicalID)
+	case "AWS::Lambda::Version":
+		return true, nil // versions are immutable; deletion is a no-op
+	default:
+		return false, nil
+	}
+}
+
+// deletePlatformResource handles EventBridge, StepFunctions, Logs, and APIGateway deletions.
+func (rc *ResourceCreator) deletePlatformResource(ctx context.Context, resourceType, physicalID string) (bool, error) {
+	switch resourceType {
 	case "AWS::Events::Rule":
-		return rc.deleteEventBridgeRule(ctx, physicalID)
+		return true, rc.deleteEventBridgeRule(ctx, physicalID)
+	case "AWS::Events::EventBus":
+		return true, rc.deleteEventBus(physicalID)
 	case "AWS::StepFunctions::StateMachine":
-		return rc.deleteStepFunctionsStateMachine(ctx, physicalID)
+		return true, rc.deleteStepFunctionsStateMachine(ctx, physicalID)
 	case "AWS::Logs::LogGroup":
-		return rc.deleteCloudWatchLogGroup(physicalID)
+		return true, rc.deleteCloudWatchLogGroup(physicalID)
 	case "AWS::ApiGateway::RestApi":
-		return rc.deleteAPIGatewayRestAPI(ctx, physicalID)
+		return true, rc.deleteAPIGatewayRestAPI(ctx, physicalID)
+	case "AWS::ApiGateway::Resource":
+		return true, rc.deleteAPIGatewayResource(physicalID)
+	case "AWS::ApiGateway::Method":
+		return true, rc.deleteAPIGatewayMethod(physicalID)
+	case "AWS::ApiGateway::Deployment":
+		return true, rc.deleteAPIGatewayDeployment(physicalID)
+	case "AWS::ApiGateway::Stage":
+		return true, rc.deleteAPIGatewayStage(physicalID)
+	default:
+		return false, nil
+	}
+}
+
+// deleteServiceResource handles IAM, EC2, Kinesis, CloudWatch, Route53, ElastiCache,
+// SNS/SQS/S3 policies, and Scheduler resource deletions.
+func (rc *ResourceCreator) deleteServiceResource(ctx context.Context, resourceType, physicalID string) error {
+	if handled, err := rc.deleteIAMEC2Resource(resourceType, physicalID); handled {
+		return err
+	}
+
+	return rc.deleteDataPlatformResource(ctx, resourceType, physicalID)
+}
+
+// deleteIAMEC2Resource handles IAM and EC2 resource deletions.
+func (rc *ResourceCreator) deleteIAMEC2Resource(resourceType, physicalID string) (bool, error) {
+	switch resourceType {
+	case "AWS::IAM::Role":
+		return true, rc.deleteIAMRole(physicalID)
+	case "AWS::IAM::Policy", "AWS::IAM::ManagedPolicy":
+		return true, rc.deleteIAMPolicy(physicalID)
+	case "AWS::IAM::InstanceProfile":
+		return true, rc.deleteIAMInstanceProfile(physicalID)
+	case "AWS::EC2::SecurityGroup":
+		return true, rc.deleteEC2SecurityGroup(physicalID)
+	case "AWS::EC2::VPC":
+		return true, rc.deleteEC2VPC(physicalID)
+	case "AWS::EC2::Subnet":
+		return true, rc.deleteEC2Subnet(physicalID)
+	case "AWS::EC2::InternetGateway":
+		return true, rc.deleteEC2InternetGateway(physicalID)
+	case "AWS::EC2::RouteTable":
+		return true, rc.deleteEC2RouteTable(physicalID)
+	case "AWS::EC2::Route":
+		return true, nil // routes are deleted with their route table
+	default:
+		return false, nil
+	}
+}
+
+// deleteDataPlatformResource handles Kinesis, CloudWatch, Route53, ElastiCache,
+// SNS/SQS/S3 policies, and Scheduler resource deletions.
+func (rc *ResourceCreator) deleteDataPlatformResource(ctx context.Context, resourceType, physicalID string) error {
+	switch resourceType {
+	case "AWS::Kinesis::Stream":
+		return rc.deleteKinesisStream(physicalID)
+	case "AWS::CloudWatch::Alarm":
+		return rc.deleteCloudWatchAlarm(physicalID)
+	case "AWS::Route53::HostedZone":
+		return rc.deleteRoute53HostedZone(physicalID)
+	case "AWS::Route53::RecordSet":
+		return nil // record sets are deleted with the hosted zone
+	case "AWS::ElastiCache::CacheCluster":
+		return rc.deleteElastiCacheCacheCluster(ctx, physicalID)
+	case "AWS::SNS::Subscription":
+		return rc.deleteSNSSubscription(physicalID)
+	case "AWS::SQS::QueuePolicy":
+		return nil // queue policies are soft resources; deletion is a no-op
+	case "AWS::S3::BucketPolicy":
+		return rc.deleteS3BucketPolicy(ctx, physicalID)
+	case "AWS::Scheduler::Schedule":
+		return rc.deleteSchedulerSchedule(physicalID)
 	default:
 		return nil
 	}
@@ -591,10 +912,8 @@ func (rc *ResourceCreator) deleteLambdaFunction(name string) error {
 	if rc.backends.Lambda == nil {
 		return nil
 	}
-	// Ignore not-found errors on delete
-	_ = rc.backends.Lambda.Backend.DeleteFunction(name)
 
-	return nil
+	return rc.backends.Lambda.Backend.DeleteFunction(name)
 }
 
 // createEventBridgeRule creates an EventBridge rule from CloudFormation template properties.
@@ -648,9 +967,8 @@ func (rc *ResourceCreator) deleteEventBridgeRule(_ context.Context, physicalID s
 	// physicalID is the rule ARN; extract name from it
 	parts := strings.Split(physicalID, "/")
 	name := parts[len(parts)-1]
-	_ = rc.backends.EventBridge.Backend.DeleteRule(name, "default")
 
-	return nil
+	return rc.backends.EventBridge.Backend.DeleteRule(name, "default")
 }
 
 // createStepFunctionsStateMachine creates a Step Functions state machine.
@@ -688,9 +1006,8 @@ func (rc *ResourceCreator) deleteStepFunctionsStateMachine(_ context.Context, ar
 	if rc.backends.StepFunctions == nil {
 		return nil
 	}
-	_ = rc.backends.StepFunctions.Backend.DeleteStateMachine(arn)
 
-	return nil
+	return rc.backends.StepFunctions.Backend.DeleteStateMachine(arn)
 }
 
 // createCloudWatchLogGroup creates a CloudWatch Logs log group.
@@ -721,9 +1038,8 @@ func (rc *ResourceCreator) deleteCloudWatchLogGroup(name string) error {
 	if rc.backends.CloudWatchLogs == nil {
 		return nil
 	}
-	_ = rc.backends.CloudWatchLogs.Backend.DeleteLogGroup(name)
 
-	return nil
+	return rc.backends.CloudWatchLogs.Backend.DeleteLogGroup(name)
 }
 
 // createAPIGatewayRestAPI creates an API Gateway REST API.
@@ -756,7 +1072,6 @@ func (rc *ResourceCreator) deleteAPIGatewayRestAPI(_ context.Context, apiID stri
 	if rc.backends.APIGateway == nil {
 		return nil
 	}
-	_ = rc.backends.APIGateway.Backend.DeleteRestAPI(apiID)
 
-	return nil
+	return rc.backends.APIGateway.Backend.DeleteRestAPI(apiID)
 }

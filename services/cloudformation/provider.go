@@ -5,12 +5,19 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
+	cloudwatchbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
+	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
+	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
+	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
+	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
+	route53backend "github.com/blackbirdworks/gopherstack/services/route53"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
+	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/services/sqs"
@@ -32,6 +39,13 @@ type BackendsProvider interface {
 	GetStepFunctionsHandler() service.Registerable
 	GetCloudWatchLogsHandler() service.Registerable
 	GetAPIGatewayHandler() service.Registerable
+	GetIAMHandler() service.Registerable
+	GetEC2Handler() service.Registerable
+	GetKinesisHandler() service.Registerable
+	GetCloudWatchHandler() service.Registerable
+	GetRoute53Handler() service.Registerable
+	GetElastiCacheHandler() service.Registerable
+	GetSchedulerHandler() service.Registerable
 	GetGlobalConfig() config.GlobalConfig
 }
 
@@ -49,6 +63,14 @@ func extractBackends(bp BackendsProvider) *ServiceBackends {
 		Region:    cfg.Region,
 	}
 
+	extractCoreBackends(bp, backends)
+	extractExtendedBackends(bp, backends)
+
+	return backends
+}
+
+// extractCoreBackends populates the core service backends (DynamoDB, S3, SQS, etc.).
+func extractCoreBackends(bp BackendsProvider, backends *ServiceBackends) {
 	if h := bp.GetDynamoDBHandler(); h != nil {
 		backends.DynamoDB, _ = h.(*ddbbackend.DynamoDBHandler)
 	}
@@ -76,7 +98,10 @@ func extractBackends(bp BackendsProvider) *ServiceBackends {
 	if h := bp.GetSecretsManagerHandler(); h != nil {
 		backends.SecretsManager, _ = h.(*secretsmanagerbackend.Handler)
 	}
+}
 
+// extractExtendedBackends populates the extended service backends (Lambda, IAM, EC2, etc.).
+func extractExtendedBackends(bp BackendsProvider, backends *ServiceBackends) {
 	if h := bp.GetLambdaHandler(); h != nil {
 		backends.Lambda, _ = h.(*lambdabackend.Handler)
 	}
@@ -97,7 +122,33 @@ func extractBackends(bp BackendsProvider) *ServiceBackends {
 		backends.APIGateway, _ = h.(*apigwbackend.Handler)
 	}
 
-	return backends
+	if h := bp.GetIAMHandler(); h != nil {
+		backends.IAM, _ = h.(*iambackend.Handler)
+	}
+
+	if h := bp.GetEC2Handler(); h != nil {
+		backends.EC2, _ = h.(*ec2backend.Handler)
+	}
+
+	if h := bp.GetKinesisHandler(); h != nil {
+		backends.Kinesis, _ = h.(*kinesisbackend.Handler)
+	}
+
+	if h := bp.GetCloudWatchHandler(); h != nil {
+		backends.CloudWatch, _ = h.(*cloudwatchbackend.Handler)
+	}
+
+	if h := bp.GetRoute53Handler(); h != nil {
+		backends.Route53, _ = h.(*route53backend.Handler)
+	}
+
+	if h := bp.GetElastiCacheHandler(); h != nil {
+		backends.ElastiCache, _ = h.(*elasticachebackend.Handler)
+	}
+
+	if h := bp.GetSchedulerHandler(); h != nil {
+		backends.Scheduler, _ = h.(*schedulerbackend.Handler)
+	}
 }
 
 // Init initializes the CloudFormation service backend and handler.

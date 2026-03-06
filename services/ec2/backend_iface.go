@@ -72,6 +72,9 @@ type Backend interface {
 	// CreateVpc creates a new VPC with the given CIDR block.
 	CreateVpc(cidr string) (*VPC, error)
 
+	// DeleteVpc removes a VPC by ID.
+	DeleteVpc(id string) error
+
 	// ---- subnets ----
 
 	// DescribeSubnets returns subnets, optionally filtered by IDs.
@@ -79,6 +82,9 @@ type Backend interface {
 
 	// CreateSubnet creates a new subnet in the given VPC.
 	CreateSubnet(vpcID, cidr, az string) (*Subnet, error)
+
+	// DeleteSubnet removes a subnet by ID.
+	DeleteSubnet(id string) error
 
 	// ---- key pairs ----
 
