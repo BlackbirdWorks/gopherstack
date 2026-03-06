@@ -439,11 +439,29 @@ func setupProxyAPIWithResource(
 	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
 	apiID := createResp["id"].(string)
 
-	// Get root resource ID.
+	// Get root resource ID by finding the resource with path "/".
 	listRec := postWithHandler(t, h, e, "GetResources", `{"restApiId":"`+apiID+`"}`)
+	require.Equal(t, http.StatusOK, listRec.Code)
 	var listResp map[string]any
 	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
-	parentID := listResp["item"].([]any)[0].(map[string]any)["id"].(string)
+
+	items, _ := listResp["item"].([]any)
+	var parentID string
+
+	for _, item := range items {
+		res, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		if path, _ := res["path"].(string); path == "/" {
+			parentID, _ = res["id"].(string)
+
+			break
+		}
+	}
+
+	require.NotEmpty(t, parentID, "root resource with path '/' not found")
 
 	// Create each path segment as a nested resource.
 	if resourcePath != "" {
@@ -461,17 +479,20 @@ func setupProxyAPIWithResource(
 	childID := parentID
 
 	// PutMethod.
-	postWithHandler(t, h, e, "PutMethod",
+	methodRec := postWithHandler(t, h, e, "PutMethod",
 		`{"restApiId":"`+apiID+`","resourceId":"`+childID+`","httpMethod":"GET","authorizationType":"NONE"}`)
+	require.Equal(t, http.StatusCreated, methodRec.Code)
 
 	// PutIntegration.
 	integBody := `{"restApiId":"` + apiID + `","resourceId":"` + childID + `","httpMethod":"GET","type":"` +
 		integrationType + `","uri":"` + uri + `"}`
-	postWithHandler(t, h, e, "PutIntegration", integBody)
+	integRec := postWithHandler(t, h, e, "PutIntegration", integBody)
+	require.Equal(t, http.StatusCreated, integRec.Code)
 
 	// CreateDeployment.
-	postWithHandler(t, h, e, "CreateDeployment",
+	deployRec := postWithHandler(t, h, e, "CreateDeployment",
 		`{"restApiId":"`+apiID+`","stageName":"prod","description":"v1"}`)
+	require.Equal(t, http.StatusCreated, deployRec.Code)
 
 	return h, e, apiID
 }
@@ -720,6 +741,52 @@ func TestHTTPProxyIntegration_BadURI(t *testing.T) {
 			h, e, apiID := setupProxyAPIWithResource(t, "items", "HTTP_PROXY", tt.uri)
 			rec := userReq(t, h, e, apiID, "/items")
 			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestExtractLambdaFunctionName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		uri    string
+		wantFn string
+	}{
+		{
+			name:   "plain_name",
+			uri:    "my-function",
+			wantFn: "my-function",
+		},
+		{
+			name:   "lambda_arn",
+			uri:    "arn:aws:lambda:us-east-1:123456789012:function:my-function",
+			wantFn: "my-function",
+		},
+		{
+			name:   "lambda_arn_with_qualifier",
+			uri:    "arn:aws:lambda:us-east-1:123456789012:function:my-function:prod",
+			wantFn: "my-function:prod",
+		},
+		{
+			name: "apigateway_invoke_uri",
+			uri: "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/" +
+				"arn:aws:lambda:us-east-1:123456789012:function:my-function/invocations",
+			wantFn: "my-function",
+		},
+		{
+			name: "apigateway_invoke_uri_with_qualifier",
+			uri: "arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/" +
+				"arn:aws:lambda:us-east-1:123456789012:function:my-function:prod/invocations",
+			wantFn: "my-function:prod",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := apigateway.ExtractLambdaFunctionName(tt.uri)
+			assert.Equal(t, tt.wantFn, got)
 		})
 	}
 }

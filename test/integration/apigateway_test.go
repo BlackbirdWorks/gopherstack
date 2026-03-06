@@ -273,9 +273,34 @@ func apigwSetupAPI(t *testing.T, name string) (string, string) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	resources := apigwReadJSON(t, resp)
 	items := resources["item"].([]any)
-	rootID := items[0].(map[string]any)["id"].(string)
+	rootID := findRootResourceID(t, items)
 
 	return apiID, rootID
+}
+
+func findRootResourceID(t *testing.T, items []any) string {
+	t.Helper()
+
+	for _, item := range items {
+		resource, isMap := item.(map[string]any)
+		require.True(t, isMap, "resource item is not a map")
+
+		path, hasPath := resource["path"].(string)
+		if !hasPath {
+			continue
+		}
+
+		if path == "/" {
+			id, isStr := resource["id"].(string)
+			require.True(t, isStr, "root resource id is not a string")
+
+			return id
+		}
+	}
+
+	require.Fail(t, "root resource with path '/' not found")
+
+	return ""
 }
 
 func TestIntegration_APIGateway_DataPlane_MockIntegration(t *testing.T) {

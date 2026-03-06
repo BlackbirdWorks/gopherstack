@@ -161,7 +161,7 @@ func (h *Handler) handleProxyRequest(apiID, stageName string) http.HandlerFunc {
 		case "MOCK":
 			h.handleMockIntegration(w, integration)
 		default:
-			http.Error(w, "Non-proxy integrations not supported on stage URL", http.StatusNotImplemented)
+			http.Error(w, "Unsupported or unknown integration type for stage URL", http.StatusNotImplemented)
 		}
 	}
 }
@@ -192,7 +192,12 @@ func (h *Handler) handleAWSProxy(
 
 	payload, _ := json.Marshal(event)
 
-	respBytes, _, invokeErr := h.lambda.InvokeFunction(ctx, integration.URI, "RequestResponse", payload)
+	respBytes, _, invokeErr := h.lambda.InvokeFunction(
+		ctx,
+		ExtractLambdaFunctionName(integration.URI),
+		"RequestResponse",
+		payload,
+	)
 	if invokeErr != nil {
 		logger.Load(ctx).WarnContext(ctx, "APIGateway proxy: Lambda invocation failed",
 			"uri", integration.URI, "error", invokeErr)
@@ -269,7 +274,12 @@ func (h *Handler) handleAWSIntegration(
 	}
 
 	// Invoke Lambda.
-	respBytes, _, invokeErr := h.lambda.InvokeFunction(ctx, integration.URI, "RequestResponse", payload)
+	respBytes, _, invokeErr := h.lambda.InvokeFunction(
+		ctx,
+		ExtractLambdaFunctionName(integration.URI),
+		"RequestResponse",
+		payload,
+	)
 	if invokeErr != nil {
 		logger.Load(ctx).WarnContext(ctx, "APIGateway AWS integration: Lambda invocation failed",
 			"uri", integration.URI, "error", invokeErr)
@@ -333,8 +343,15 @@ func (h *Handler) handleHTTPProxy(
 		return
 	}
 
-	// Forward query string and headers.
-	targetReq.URL.RawQuery = r.URL.RawQuery
+	// Merge query parameters from the integration URI with the incoming request's query string.
+	// This preserves any required query params baked into the integration URI.
+	mergedQuery := targetReq.URL.Query()
+	for key, values := range r.URL.Query() {
+		for _, value := range values {
+			mergedQuery.Add(key, value)
+		}
+	}
+	targetReq.URL.RawQuery = mergedQuery.Encode()
 	for k, vs := range r.Header {
 		for _, v := range vs {
 			targetReq.Header.Add(k, v)
@@ -523,6 +540,11 @@ func matchResourcePath(pattern, urlPath string) (map[string]string, bool) {
 	for i, seg := range patternSegs {
 		// Greedy variable {param+} must be the last pattern segment.
 		if strings.HasPrefix(seg, "{") && strings.HasSuffix(seg, "+}") {
+			// If the greedy segment is not the last, the pattern is malformed — treat as non-matching.
+			if i != len(patternSegs)-1 {
+				return nil, false
+			}
+
 			if i >= len(urlSegs) {
 				return nil, false
 			}
@@ -553,4 +575,39 @@ func matchResourcePath(pattern, urlPath string) (map[string]string, bool) {
 	}
 
 	return params, true
+}
+
+// ExtractLambdaFunctionName extracts a Lambda function name (or short ARN) from either:
+//   - A plain function name: "my-function"
+//   - A Lambda ARN: "arn:aws:lambda:region:account:function:my-function"
+//   - An API Gateway invoke URI containing
+//     "arn:aws:apigateway:region:lambda:path/.../functions/{lambdaArn}/invocations"
+//
+// Returns the input unchanged if it does not match any known pattern.
+func ExtractLambdaFunctionName(uri string) string {
+	// API Gateway integration URI: extract the Lambda ARN embedded in the path.
+	// Format: arn:aws:apigateway:...:lambda:path/2015-03-31/functions/{lambdaArn}/invocations
+	const invocations = "/invocations"
+	if idx := strings.LastIndex(uri, invocations); idx != -1 {
+		// Everything before "/invocations" is the Lambda ARN.
+		lambdaARN := uri[:idx]
+		// The Lambda ARN may itself be within a path like ".../functions/{arn}"
+		const functionsPrefix = "/functions/"
+		if fi := strings.LastIndex(lambdaARN, functionsPrefix); fi != -1 {
+			lambdaARN = lambdaARN[fi+len(functionsPrefix):]
+		}
+
+		return ExtractLambdaFunctionName(lambdaARN)
+	}
+
+	// Lambda ARN: "arn:aws:lambda:{region}:{account}:function:{name}" (with optional qualifier).
+	// Extract the name (and optional qualifier) after ":function:".
+	// Use ":function:" (with leading colon) to avoid matching "function:" inside a function name.
+	const functionSegment = ":function:"
+	if fi := strings.LastIndex(uri, functionSegment); fi != -1 {
+		return uri[fi+len(functionSegment):]
+	}
+
+	// Plain name or already-resolved value — return as-is.
+	return uri
 }
