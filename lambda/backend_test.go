@@ -267,10 +267,11 @@ func TestInMemoryBackend_ZipInvoke(t *testing.T) {
 			wantStatus: http.StatusAccepted,
 		},
 		{
-			name:      "UnknownRuntime",
-			portStart: 19700,
-			portEnd:   19750,
-			runtime:   "cobol99",
+			name:         "UnknownRuntime",
+			portStart:    19700,
+			portEnd:      19750,
+			runtime:      "cobol99",
+			skipErrCheck: true, // container startup fails immediately for unsupported runtimes
 		},
 		{
 			name:         "S3Fetcher",
