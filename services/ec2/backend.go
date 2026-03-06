@@ -494,7 +494,7 @@ func (b *InMemoryBackend) DeleteSubnet(id string) error {
 	defer b.mu.Unlock()
 
 	if _, ok := b.subnets[id]; !ok {
-		return fmt.Errorf("%w: subnet %s not found", ErrInvalidParameter, id)
+		return fmt.Errorf("%w: %s", ErrSubnetNotFound, id)
 	}
 
 	delete(b.subnets, id)
