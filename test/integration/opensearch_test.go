@@ -113,3 +113,47 @@ func TestIntegration_OpenSearch_DomainLifecycle(t *testing.T) {
 	notFoundCode, _ := doOpenSearchRequest(t, http.MethodGet, fmt.Sprintf("%s/%s", basePath, domainName), nil)
 	assert.Equal(t, http.StatusNotFound, notFoundCode)
 }
+
+// TestIntegration_OpenSearch_ProcessingFieldWaiterCompatibility verifies that the
+// Processing field is false immediately after domain creation, enabling waiter-style
+// polling to complete without waiting. AWS SDK users poll Processing==false to know
+// the domain is ready.
+func TestIntegration_OpenSearch_ProcessingFieldWaiterCompatibility(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	domainName := "waiter-compat-domain"
+	basePath := "/2021-01-01/opensearch/domain"
+
+	// CreateDomain
+	statusCode, body := doOpenSearchRequest(t, http.MethodPost, basePath, map[string]any{
+		"DomainName":    domainName,
+		"EngineVersion": "OpenSearch_2.11",
+	})
+	require.Equal(t, http.StatusOK, statusCode)
+
+	t.Cleanup(func() {
+		doOpenSearchRequest(t, http.MethodDelete, fmt.Sprintf("%s/%s", basePath, domainName), nil)
+	})
+
+	status, ok := body["DomainStatus"].(map[string]any)
+	require.True(t, ok, "expected DomainStatus key")
+
+	// Processing should be false (domain is immediately ready in the mock)
+	processing, _ := status["Processing"].(bool)
+	assert.False(t, processing, "Processing should be false (domain ready) immediately after creation")
+
+	// DomainProcessingStatus should be Active
+	processingStatus, _ := status["DomainProcessingStatus"].(string)
+	assert.Equal(t, "Active", processingStatus, "DomainProcessingStatus should be Active")
+
+	// DescribeDomain should also return Processing: false
+	descCode, descBody := doOpenSearchRequest(t, http.MethodGet, fmt.Sprintf("%s/%s", basePath, domainName), nil)
+	require.Equal(t, http.StatusOK, descCode)
+
+	descStatus, ok := descBody["DomainStatus"].(map[string]any)
+	require.True(t, ok)
+
+	descProcessing, _ := descStatus["Processing"].(bool)
+	assert.False(t, descProcessing, "DescribeDomain should also return Processing: false")
+}

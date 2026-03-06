@@ -8,6 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -56,4 +57,47 @@ func TestIntegration_DDB_TableDeletionWaiter(t *testing.T) {
 	// The waiter should complete quickly (< 2 seconds) since the table is already deleted
 	// If it takes close to the full 30 seconds, the waiter isn't recognizing the deletion
 	require.Less(t, elapsed, 2*time.Second, "Waiter should complete quickly, but took %v", elapsed)
+}
+
+// TestIntegration_DDB_TableExistsWaiter verifies that TableExistsWaiter succeeds
+// immediately after CreateTable because the table is directly ACTIVE.
+func TestIntegration_DDB_TableExistsWaiter(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createDynamoDBClient(t)
+
+	tableName := "WaiterExistsTable-" + uuid.NewString()
+	ctx := t.Context()
+
+	// Create a table
+	createOut, err := client.CreateTable(ctx, &dynamodb.CreateTableInput{
+		TableName: aws.String(tableName),
+		KeySchema: []types.KeySchemaElement{
+			{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
+		},
+		AttributeDefinitions: []types.AttributeDefinition{
+			{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
+		},
+		BillingMode: types.BillingModePayPerRequest,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, createOut.TableDescription)
+	assert.Equal(t, types.TableStatusActive, createOut.TableDescription.TableStatus)
+
+	t.Cleanup(func() {
+		_, _ = client.DeleteTable(ctx, &dynamodb.DeleteTableInput{TableName: aws.String(tableName)})
+	})
+
+	// Use TableExistsWaiter — the table should already be ACTIVE so this completes immediately
+	waiter := dynamodb.NewTableExistsWaiter(client)
+
+	start := time.Now()
+	err = waiter.Wait(ctx, &dynamodb.DescribeTableInput{
+		TableName: aws.String(tableName),
+	}, 30*time.Second)
+	elapsed := time.Since(start)
+
+	t.Logf("TableExistsWaiter completed in %v", elapsed)
+	require.NoError(t, err, "TableExistsWaiter should succeed because table is ACTIVE")
+	assert.Less(t, elapsed, 2*time.Second, "TableExistsWaiter should complete quickly, took %v", elapsed)
 }

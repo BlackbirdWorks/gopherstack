@@ -184,41 +184,44 @@ func TestCreateFunction(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup            func(*mockBackend)
-		name             string
-		body             string
-		wantErrType      string
-		wantFunctionName string
-		wantFunctionArn  string
-		wantPackageType  string
-		wantState        lambda.FunctionState
-		wantCode         int
-		wantMemorySize   int
-		wantTimeout      int
-		wantRevisionID   bool
+		setup                func(*mockBackend)
+		name                 string
+		body                 string
+		wantErrType          string
+		wantFunctionName     string
+		wantFunctionArn      string
+		wantPackageType      string
+		wantState            lambda.FunctionState
+		wantLastUpdateStatus lambda.LastUpdateStatus
+		wantCode             int
+		wantMemorySize       int
+		wantTimeout          int
+		wantRevisionID       bool
 	}{
 		{
 			name: "success",
 			body: `{"FunctionName":"my-func","PackageType":"Image",` +
 				`"Code":{"ImageUri":"123456789012.dkr.ecr.us-east-1.amazonaws.com/myimage:latest"},` +
 				`"Role":"arn:aws:iam::000000000000:role/myrole"}`,
-			wantCode:         http.StatusCreated,
-			wantFunctionName: "my-func",
-			wantFunctionArn:  "arn:aws:lambda:us-east-1:000000000000:function:my-func",
-			wantPackageType:  lambda.PackageTypeImage,
-			wantState:        lambda.FunctionStateActive,
-			wantMemorySize:   128,
-			wantTimeout:      3,
-			wantRevisionID:   true,
+			wantCode:             http.StatusCreated,
+			wantFunctionName:     "my-func",
+			wantFunctionArn:      "arn:aws:lambda:us-east-1:000000000000:function:my-func",
+			wantPackageType:      lambda.PackageTypeImage,
+			wantState:            lambda.FunctionStateActive,
+			wantLastUpdateStatus: lambda.LastUpdateStatusSuccessful,
+			wantMemorySize:       128,
+			wantTimeout:          3,
+			wantRevisionID:       true,
 		},
 		{
 			name: "defaults_applied",
 			body: `{"FunctionName":"defaults-func","PackageType":"Image",` +
 				`"Code":{"ImageUri":"myimage:latest"},"MemorySize":256,"Timeout":60}`,
-			wantCode:         http.StatusCreated,
-			wantFunctionName: "defaults-func",
-			wantMemorySize:   256,
-			wantTimeout:      60,
+			wantCode:             http.StatusCreated,
+			wantFunctionName:     "defaults-func",
+			wantLastUpdateStatus: lambda.LastUpdateStatusSuccessful,
+			wantMemorySize:       256,
+			wantTimeout:          60,
 		},
 		{
 			name:        "missing_function_name",
@@ -289,6 +292,9 @@ func TestCreateFunction(t *testing.T) {
 			}
 			if tt.wantState != "" {
 				assert.Equal(t, tt.wantState, fn.State)
+			}
+			if tt.wantLastUpdateStatus != "" {
+				assert.Equal(t, tt.wantLastUpdateStatus, fn.LastUpdateStatus)
 			}
 			if tt.wantMemorySize > 0 {
 				assert.Equal(t, tt.wantMemorySize, fn.MemorySize)
@@ -472,12 +478,13 @@ func TestUpdateFunctionCode(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup        func(*mockBackend)
-		name         string
-		funcName     string
-		body         string
-		wantImageURI string
-		wantCode     int
+		setup                func(*mockBackend)
+		name                 string
+		funcName             string
+		body                 string
+		wantImageURI         string
+		wantLastUpdateStatus lambda.LastUpdateStatus
+		wantCode             int
 	}{
 		{
 			name: "success",
@@ -487,10 +494,11 @@ func TestUpdateFunctionCode(t *testing.T) {
 					ImageURI:     "old-image:v1",
 				}
 			},
-			funcName:     "code-func",
-			body:         `{"ImageUri":"new-image:v2"}`,
-			wantCode:     http.StatusOK,
-			wantImageURI: "new-image:v2",
+			funcName:             "code-func",
+			body:                 `{"ImageUri":"new-image:v2"}`,
+			wantCode:             http.StatusOK,
+			wantImageURI:         "new-image:v2",
+			wantLastUpdateStatus: lambda.LastUpdateStatusSuccessful,
 		},
 		{
 			name:     "not_found",
@@ -535,6 +543,9 @@ func TestUpdateFunctionCode(t *testing.T) {
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &fn))
 				assert.Equal(t, tt.wantImageURI, fn.ImageURI)
 				assert.NotEmpty(t, fn.RevisionID)
+				if tt.wantLastUpdateStatus != "" {
+					assert.Equal(t, tt.wantLastUpdateStatus, fn.LastUpdateStatus)
+				}
 			}
 		})
 	}
@@ -546,17 +557,18 @@ func TestUpdateFunctionConfiguration(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup           func(*mockBackend)
-		name            string
-		funcName        string
-		body            string
-		wantDescription string
-		wantRole        string
-		wantEnvKey      string
-		wantEnvValue    string
-		wantCode        int
-		wantMemorySize  int
-		wantTimeout     int
+		setup                func(*mockBackend)
+		name                 string
+		funcName             string
+		body                 string
+		wantDescription      string
+		wantRole             string
+		wantEnvKey           string
+		wantEnvValue         string
+		wantLastUpdateStatus lambda.LastUpdateStatus
+		wantCode             int
+		wantMemorySize       int
+		wantTimeout          int
 	}{
 		{
 			name: "success",
@@ -568,24 +580,26 @@ func TestUpdateFunctionConfiguration(t *testing.T) {
 					Description:  "old description",
 				}
 			},
-			funcName:        "cfg-func",
-			body:            `{"Description":"new description","MemorySize":512,"Timeout":30,"Role":"new-role"}`,
-			wantCode:        http.StatusOK,
-			wantDescription: "new description",
-			wantMemorySize:  512,
-			wantTimeout:     30,
-			wantRole:        "new-role",
+			funcName:             "cfg-func",
+			body:                 `{"Description":"new description","MemorySize":512,"Timeout":30,"Role":"new-role"}`,
+			wantCode:             http.StatusOK,
+			wantDescription:      "new description",
+			wantMemorySize:       512,
+			wantTimeout:          30,
+			wantRole:             "new-role",
+			wantLastUpdateStatus: lambda.LastUpdateStatusSuccessful,
 		},
 		{
 			name: "update_environment",
 			setup: func(bk *mockBackend) {
 				bk.functions["env-func"] = &lambda.FunctionConfiguration{FunctionName: "env-func"}
 			},
-			funcName:     "env-func",
-			body:         `{"Environment":{"Variables":{"KEY":"VALUE"}}}`,
-			wantCode:     http.StatusOK,
-			wantEnvKey:   "KEY",
-			wantEnvValue: "VALUE",
+			funcName:             "env-func",
+			body:                 `{"Environment":{"Variables":{"KEY":"VALUE"}}}`,
+			wantCode:             http.StatusOK,
+			wantEnvKey:           "KEY",
+			wantEnvValue:         "VALUE",
+			wantLastUpdateStatus: lambda.LastUpdateStatusSuccessful,
 		},
 		{
 			name:     "not_found",
@@ -644,6 +658,9 @@ func TestUpdateFunctionConfiguration(t *testing.T) {
 			if tt.wantEnvKey != "" {
 				require.NotNil(t, fn.Environment)
 				assert.Equal(t, tt.wantEnvValue, fn.Environment.Variables[tt.wantEnvKey])
+			}
+			if tt.wantLastUpdateStatus != "" {
+				assert.Equal(t, tt.wantLastUpdateStatus, fn.LastUpdateStatus)
 			}
 		})
 	}
