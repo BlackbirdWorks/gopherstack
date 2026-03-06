@@ -82,6 +82,21 @@ type Tagging struct {
 	TagSet  TagSet   `xml:"TagSet"`
 }
 
+// CORSConfiguration is the XML structure for a bucket's CORS configuration.
+type CORSConfiguration struct {
+	XMLName xml.Name   `xml:"CORSConfiguration"`
+	Rules   []CORSRule `xml:"CORSRule"`
+}
+
+// CORSRule represents a single CORS rule within a CORSConfiguration.
+type CORSRule struct {
+	AllowedOrigins []string `xml:"AllowedOrigin"`
+	AllowedMethods []string `xml:"AllowedMethod"`
+	AllowedHeaders []string `xml:"AllowedHeader"`
+	ExposeHeaders  []string `xml:"ExposeHeader"`
+	MaxAgeSeconds  int      `xml:"MaxAgeSeconds,omitempty"`
+}
+
 type TagSet struct {
 	Tags []Tag `xml:"Tag"`
 }
