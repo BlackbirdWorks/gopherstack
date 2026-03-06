@@ -330,6 +330,8 @@ func (db *InMemoryDB) DescribeTable(
 	copy(gsiList, table.GlobalSecondaryIndexes)
 	lsiList := make([]models.LocalSecondaryIndex, len(table.LocalSecondaryIndexes))
 	copy(lsiList, table.LocalSecondaryIndexes)
+	replicaList := make([]models.ReplicaDescription, len(table.Replicas))
+	copy(replicaList, table.Replicas)
 	itemCount := int64(len(table.Items))
 	pt := table.ProvisionedThroughput
 	tableStatus := types.TableStatus(table.Status)
@@ -365,6 +367,7 @@ func (db *InMemoryDB) DescribeTable(
 		AttributeDefinitions:   sdkAttrDefs,
 		GlobalSecondaryIndexes: sdkGSIs,
 		LocalSecondaryIndexes:  sdkLSIs,
+		Replicas:               toSDKReplicaDescriptions(replicaList),
 		ItemCount:              &itemCount,
 		TableSizeBytes:         &tableSizeBytes,
 		BillingModeSummary:     &types.BillingModeSummary{BillingMode: types.BillingModeProvisioned},
@@ -387,7 +390,7 @@ func (db *InMemoryDB) DescribeTable(
 	return &dynamodb.DescribeTableOutput{Table: tableDesc}, nil
 }
 
-// UpdateTable modifies a DynamoDB table's provisioned throughput, GSI list, and stream spec.
+// UpdateTable modifies a DynamoDB table's provisioned throughput, GSI list, stream spec, and replicas.
 func (db *InMemoryDB) UpdateTable(
 	ctx context.Context,
 	input *dynamodb.UpdateTableInput,
@@ -409,6 +412,7 @@ func (db *InMemoryDB) UpdateTable(
 	applyUpdateTableAttrDefs(table, input.AttributeDefinitions)
 	applyGSIUpdates(table, input.GlobalSecondaryIndexUpdates)
 	db.applyStreamSpec(table, tableName, input.StreamSpecification)
+	applyReplicaUpdates(table, input.ReplicaUpdates)
 
 	// Update throttler with the (possibly new) throughput values.
 	region := getRegionFromContext(ctx, db)
@@ -417,6 +421,50 @@ func (db *InMemoryDB) UpdateTable(
 	db.throttler.SetTableCapacity(throttleKey(region, tableName), rcu, wcu)
 
 	return buildUpdateTableOutput(input, table), nil
+}
+
+// applyReplicaUpdates processes Global Tables v2 replica create/delete actions.
+// Replicas are metadata-only: no actual cross-region sync is performed.
+func applyReplicaUpdates(table *Table, updates []types.ReplicationGroupUpdate) {
+	for _, u := range updates {
+		if u.Create != nil {
+			applyReplicaCreate(table, aws.ToString(u.Create.RegionName))
+		} else if u.Delete != nil {
+			applyReplicaDelete(table, aws.ToString(u.Delete.RegionName))
+		}
+	}
+}
+
+func applyReplicaCreate(table *Table, regionName string) {
+	if regionName == "" {
+		return
+	}
+
+	for _, r := range table.Replicas {
+		if r.RegionName == regionName {
+			return
+		}
+	}
+
+	table.Replicas = append(table.Replicas, models.ReplicaDescription{
+		RegionName:    regionName,
+		ReplicaStatus: "ACTIVE",
+	})
+}
+
+func applyReplicaDelete(table *Table, regionName string) {
+	if regionName == "" {
+		return
+	}
+
+	updated := make([]models.ReplicaDescription, 0, len(table.Replicas))
+	for _, r := range table.Replicas {
+		if r.RegionName != regionName {
+			updated = append(updated, r)
+		}
+	}
+
+	table.Replicas = updated
 }
 
 // applyUpdateTableThroughput updates provisioned throughput on the table.
@@ -573,12 +621,31 @@ func buildUpdateTableOutput(input *dynamodb.UpdateTableInput, table *Table) *dyn
 			KeySchema:              models.ToSDKKeySchema(table.KeySchema),
 			AttributeDefinitions:   models.ToSDKAttributeDefinitions(table.AttributeDefinitions),
 			GlobalSecondaryIndexes: gsiDescs,
+			Replicas:               toSDKReplicaDescriptions(table.Replicas),
 			ProvisionedThroughput: &types.ProvisionedThroughputDescription{
 				ReadCapacityUnits:  &rcu,
 				WriteCapacityUnits: &wcu,
 			},
 		},
 	}
+}
+
+// toSDKReplicaDescriptions converts internal replica metadata to SDK types.
+func toSDKReplicaDescriptions(replicas []models.ReplicaDescription) []types.ReplicaDescription {
+	if len(replicas) == 0 {
+		return nil
+	}
+
+	out := make([]types.ReplicaDescription, len(replicas))
+	for i, r := range replicas {
+		regionName := r.RegionName
+		out[i] = types.ReplicaDescription{
+			RegionName:    &regionName,
+			ReplicaStatus: types.ReplicaStatus(r.ReplicaStatus),
+		}
+	}
+
+	return out
 }
 
 func (db *InMemoryDB) UpdateTimeToLive(

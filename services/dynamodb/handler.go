@@ -105,24 +105,31 @@ func (h *DynamoDBHandler) GetSupportedOperations() []string {
 	return []string{
 		"BatchGetItem",
 		"BatchWriteItem",
+		"CreateBackup",
 		"CreateTable",
+		"DeleteBackup",
 		"DeleteItem",
 		"DeleteTable",
+		"DescribeBackup",
 		"DescribeContinuousBackups",
 		"DescribeExport",
 		"DescribeStream",
 		"DescribeTable",
+		"DescribeTableReplicaAutoScaling",
 		"DescribeTimeToLive",
 		"ExportTableToPointInTime",
 		"GetItem",
 		"GetRecords",
 		"GetShardIterator",
+		"ListBackups",
 		"ListExports",
 		"ListStreams",
 		"ListTables",
 		"ListTagsOfResource",
 		"PutItem",
 		"Query",
+		"RestoreTableFromBackup",
+		"RestoreTableToPointInTime",
 		"Scan",
 		"TagResource",
 		"TransactGetItems",
@@ -318,16 +325,47 @@ func (h *DynamoDBHandler) dispatch(ctx context.Context, action string, body []by
 		return h.handleExecuteStatement(ctx, body)
 	case "BatchExecuteStatement":
 		return h.handleBatchExecuteStatement(ctx, body)
-	case "DescribeContinuousBackups":
-		return h.describeContinuousBackups(ctx, body)
-	case "UpdateContinuousBackups":
-		return h.updateContinuousBackups(ctx, body)
+	case "DescribeContinuousBackups",
+		"UpdateContinuousBackups",
+		"CreateBackup",
+		"DescribeBackup",
+		"DeleteBackup",
+		"ListBackups",
+		"RestoreTableFromBackup",
+		"RestoreTableToPointInTime",
+		"DescribeTableReplicaAutoScaling":
+		return h.dispatchBackupOps(ctx, action, body)
 	case "ExportTableToPointInTime":
 		return h.exportTableToPointInTime(ctx, body)
 	case "DescribeExport":
 		return h.describeExport(ctx, body)
 	case "ListExports":
 		return &listExportsOutput{ExportSummaries: []exportDescriptionFields{}}, nil
+	default:
+		return nil, fmt.Errorf("%w:%s", ErrUnknownOperation, action)
+	}
+}
+
+func (h *DynamoDBHandler) dispatchBackupOps(ctx context.Context, action string, body []byte) (any, error) {
+	switch action {
+	case "DescribeContinuousBackups":
+		return h.describeContinuousBackups(ctx, body)
+	case "UpdateContinuousBackups":
+		return h.updateContinuousBackups(ctx, body)
+	case "CreateBackup":
+		return h.createBackup(ctx, body)
+	case "DescribeBackup":
+		return h.describeBackup(ctx, body)
+	case "DeleteBackup":
+		return h.deleteBackup(ctx, body)
+	case "ListBackups":
+		return h.listBackups(ctx, body)
+	case "RestoreTableFromBackup":
+		return h.restoreTableFromBackup(ctx, body)
+	case "RestoreTableToPointInTime":
+		return h.restoreTableToPointInTime(ctx, body)
+	case "DescribeTableReplicaAutoScaling":
+		return h.describeTableReplicaAutoScaling(ctx, body)
 	default:
 		return nil, fmt.Errorf("%w:%s", ErrUnknownOperation, action)
 	}
@@ -697,16 +735,31 @@ type describeContinuousBackupsInput struct {
 	TableName string `json:"TableName"`
 }
 
-func (h *DynamoDBHandler) describeContinuousBackups(_ context.Context, body []byte) (any, error) {
+func (h *DynamoDBHandler) describeContinuousBackups(ctx context.Context, body []byte) (any, error) {
 	var req describeContinuousBackupsInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
 	}
 
+	pitrStatus := "DISABLED"
+
+	if db, ok := h.Backend.(*InMemoryDB); ok {
+		table, err := db.getTable(ctx, req.TableName)
+		if err != nil {
+			return nil, err
+		}
+
+		table.mu.RLock("DescribeContinuousBackups")
+		if table.PITREnabled {
+			pitrStatus = "ENABLED"
+		}
+		table.mu.RUnlock()
+	}
+
 	return &describeContinuousBackupsOutput{
 		ContinuousBackupsDescription: continuousBackupsDescriptionFields{
 			ContinuousBackupsStatus:        "ENABLED",
-			PointInTimeRecoveryDescription: pointInTimeRecoveryDescription{PointInTimeRecoveryStatus: "DISABLED"},
+			PointInTimeRecoveryDescription: pointInTimeRecoveryDescription{PointInTimeRecoveryStatus: pitrStatus},
 		},
 	}, nil
 }
@@ -721,14 +774,27 @@ type updateContinuousBackupsInput struct {
 	PointInTimeRecoverySpecification pointInTimeRecoverySpec `json:"PointInTimeRecoverySpecification"`
 }
 
-func (h *DynamoDBHandler) updateContinuousBackups(_ context.Context, body []byte) (any, error) {
+func (h *DynamoDBHandler) updateContinuousBackups(ctx context.Context, body []byte) (any, error) {
 	var req updateContinuousBackupsInput
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
 	}
 
+	pitrEnabled := req.PointInTimeRecoverySpecification.PointInTimeRecoveryEnabled
+
+	if db, ok := h.Backend.(*InMemoryDB); ok {
+		table, err := db.getTable(ctx, req.TableName)
+		if err != nil {
+			return nil, err
+		}
+
+		table.mu.Lock("UpdateContinuousBackups")
+		table.PITREnabled = pitrEnabled
+		table.mu.Unlock()
+	}
+
 	status := "DISABLED"
-	if req.PointInTimeRecoverySpecification.PointInTimeRecoveryEnabled {
+	if pitrEnabled {
 		status = "ENABLED"
 	}
 
@@ -793,6 +859,62 @@ func (h *DynamoDBHandler) describeExport(_ context.Context, body []byte) (any, e
 		ExportDescription: exportDescriptionFields{
 			ExportArn:    req.ExportArn,
 			ExportStatus: "COMPLETED",
+		},
+	}, nil
+}
+
+type describeTableReplicaAutoScalingInput struct {
+	TableName string `json:"TableName"`
+}
+
+type replicaAutoScalingDescription struct {
+	RegionName    string `json:"RegionName"`
+	ReplicaStatus string `json:"ReplicaStatus"`
+}
+
+type tableAutoScalingDescription struct {
+	TableName   string                          `json:"TableName"`
+	TableStatus string                          `json:"TableStatus"`
+	Replicas    []replicaAutoScalingDescription `json:"Replicas,omitempty"`
+}
+
+type describeTableReplicaAutoScalingOutput struct {
+	TableAutoScalingDescription tableAutoScalingDescription `json:"TableAutoScalingDescription"`
+}
+
+func (h *DynamoDBHandler) describeTableReplicaAutoScaling(ctx context.Context, body []byte) (any, error) {
+	var req describeTableReplicaAutoScalingInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, err
+	}
+
+	if req.TableName == "" {
+		return nil, NewValidationException("TableName is required")
+	}
+
+	var replicas []replicaAutoScalingDescription
+
+	if db, ok := h.Backend.(*InMemoryDB); ok {
+		table, err := db.getTable(ctx, req.TableName)
+		if err != nil {
+			return nil, err
+		}
+
+		table.mu.RLock("DescribeTableReplicaAutoScaling")
+		for _, r := range table.Replicas {
+			replicas = append(replicas, replicaAutoScalingDescription{
+				RegionName:    r.RegionName,
+				ReplicaStatus: r.ReplicaStatus,
+			})
+		}
+		table.mu.RUnlock()
+	}
+
+	return &describeTableReplicaAutoScalingOutput{
+		TableAutoScalingDescription: tableAutoScalingDescription{
+			TableName:   req.TableName,
+			TableStatus: models.TableStatusActive,
+			Replicas:    replicas,
 		},
 	}, nil
 }
