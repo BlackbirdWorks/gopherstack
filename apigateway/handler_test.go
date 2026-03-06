@@ -635,7 +635,7 @@ func TestBuildProxyEvent(t *testing.T) {
 				req.Header.Set("Content-Type", tt.contentType)
 			}
 
-			event, err := apigateway.BuildProxyEvent(req, tt.apiID, tt.stageName, tt.resource, tt.requestPath)
+			event, err := apigateway.BuildProxyEvent(req, tt.apiID, tt.stageName, tt.resource, tt.requestPath, nil)
 			require.NoError(t, err)
 
 			if tt.wantHTTPMethod != "" {

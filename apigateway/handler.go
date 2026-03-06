@@ -146,8 +146,9 @@ type deleteStageInput struct {
 
 // Handler is the Echo HTTP service handler for API Gateway operations.
 type Handler struct {
-	Backend StorageBackend
-	lambda  LambdaInvoker
+	Backend    StorageBackend
+	lambda     LambdaInvoker
+	httpClient *http.Client
 }
 
 // NewHandler creates a new API Gateway handler.
@@ -158,6 +159,21 @@ func NewHandler(backend StorageBackend) *Handler {
 // SetLambdaInvoker configures the Lambda invoker for AWS_PROXY integrations.
 func (h *Handler) SetLambdaInvoker(lambda LambdaInvoker) {
 	h.lambda = lambda
+}
+
+// SetHTTPClient configures the HTTP client used for HTTP/HTTP_PROXY integrations.
+// If not set, [http.DefaultClient] is used.
+func (h *Handler) SetHTTPClient(c *http.Client) {
+	h.httpClient = c
+}
+
+// getHTTPClient returns the configured HTTP client, falling back to [http.DefaultClient].
+func (h *Handler) getHTTPClient() *http.Client {
+	if h.httpClient != nil {
+		return h.httpClient
+	}
+
+	return http.DefaultClient
 }
 
 // Name returns the service name.
@@ -243,9 +259,6 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function for API Gateway requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		ctx := c.Request().Context()
-		log := logger.Load(ctx)
-
 		if c.Request().Method == http.MethodGet && c.Request().URL.Path == "/" {
 			return c.JSON(http.StatusOK, h.GetSupportedOperations())
 		}
@@ -256,49 +269,63 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.handleStageProxyEcho(c)
 		}
 
+		// Handle data-plane invocations via the standard AWS endpoint format.
+		// Path format: /restapis/{apiId}/{stageName}/_user_request_/{resourcePath}
+		if isUserRequestPath(c.Request().URL.Path) {
+			return h.handleUserRequestEcho(c)
+		}
+
 		// REST API paths: /restapis/...
 		if strings.HasPrefix(c.Request().URL.Path, "/restapis") &&
 			!strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), "APIGateway.") {
 			return h.handleRESTAPI(c)
 		}
 
-		if c.Request().Method != http.MethodPost {
-			return c.String(http.StatusMethodNotAllowed, "Method not allowed")
-		}
-
-		target := c.Request().Header.Get("X-Amz-Target")
-		if target == "" {
-			return c.String(http.StatusBadRequest, "Missing X-Amz-Target")
-		}
-
-		parts := strings.Split(target, ".")
-		const targetParts = 2
-		if len(parts) != targetParts {
-			return c.String(http.StatusBadRequest, "Invalid X-Amz-Target")
-		}
-		action := parts[1]
-
-		body, err := httputil.ReadBody(c.Request())
-		if err != nil {
-			log.ErrorContext(ctx, "failed to read request body", "error", err)
-
-			return c.String(http.StatusInternalServerError, "internal server error")
-		}
-
-		log.DebugContext(ctx, "APIGateway request", "action", action)
-
-		statusCode, response, reqErr := h.dispatch(ctx, action, body)
-		if reqErr != nil {
-			return h.handleError(ctx, c, action, reqErr)
-		}
-
-		c.Response().Header().Set("Content-Type", "application/x-amz-json-1.1")
-		if statusCode == http.StatusNoContent {
-			return c.NoContent(http.StatusNoContent)
-		}
-
-		return c.JSONBlob(statusCode, response)
+		return h.handleJSONProtocol(c)
 	}
+}
+
+// handleJSONProtocol handles requests using the JSON protocol (X-Amz-Target header).
+func (h *Handler) handleJSONProtocol(c *echo.Context) error {
+	ctx := c.Request().Context()
+	log := logger.Load(ctx)
+
+	if c.Request().Method != http.MethodPost {
+		return c.String(http.StatusMethodNotAllowed, "Method not allowed")
+	}
+
+	target := c.Request().Header.Get("X-Amz-Target")
+	if target == "" {
+		return c.String(http.StatusBadRequest, "Missing X-Amz-Target")
+	}
+
+	parts := strings.Split(target, ".")
+	const targetParts = 2
+	if len(parts) != targetParts {
+		return c.String(http.StatusBadRequest, "Invalid X-Amz-Target")
+	}
+	action := parts[1]
+
+	body, err := httputil.ReadBody(c.Request())
+	if err != nil {
+		log.ErrorContext(ctx, "failed to read request body", "error", err)
+
+		return c.String(http.StatusInternalServerError, "internal server error")
+	}
+
+	log.DebugContext(ctx, "APIGateway request", "action", action)
+
+	statusCode, response, reqErr := h.dispatch(ctx, action, body)
+	if reqErr != nil {
+		return h.handleError(ctx, c, action, reqErr)
+	}
+
+	c.Response().Header().Set("Content-Type", "application/x-amz-json-1.1")
+	if statusCode == http.StatusNoContent {
+		return c.NoContent(http.StatusNoContent)
+	}
+
+	return c.JSONBlob(statusCode, response)
 }
 
 // handleRESTAPI handles REST-style API Gateway calls (e.g. from the AWS SDK v2).
@@ -502,6 +529,44 @@ func (h *Handler) handleStageProxyEcho(c *echo.Context) error {
 		resourcePath = "/" + parts[2]
 	}
 
+	r := c.Request().Clone(c.Request().Context())
+	r.URL.Path = "/" + stageName + resourcePath
+
+	fn := h.handleProxyRequest(apiID, stageName)
+	fn(c.Response(), r)
+
+	return nil
+}
+
+// isUserRequestPath reports whether the path follows the data-plane format:
+// /restapis/{apiId}/{stageName}/_user_request_/{resourcePath...}.
+func isUserRequestPath(path string) bool {
+	segs := strings.Split(strings.TrimPrefix(path, "/"), "/")
+	const minSegs = 4 // restapis, apiId, stageName, _user_request_
+
+	return len(segs) >= minSegs && segs[0] == "restapis" && segs[3] == "_user_request_"
+}
+
+// handleUserRequestEcho handles data-plane invocations at the standard AWS endpoint:
+// /restapis/{apiId}/{stageName}/_user_request_/{resourcePath...}.
+func (h *Handler) handleUserRequestEcho(c *echo.Context) error {
+	segs := strings.Split(strings.TrimPrefix(c.Request().URL.Path, "/"), "/")
+	// segs: [restapis, {apiId}, {stageName}, _user_request_, {path...}]
+	const (
+		idxAPIID     = 1
+		idxStageName = 2
+		idxPathStart = 4
+	)
+
+	apiID := segs[idxAPIID]
+	stageName := segs[idxStageName]
+
+	resourcePath := "/"
+	if len(segs) > idxPathStart && segs[idxPathStart] != "" {
+		resourcePath = "/" + strings.Join(segs[idxPathStart:], "/")
+	}
+
+	// Rewrite the URL so handleProxyRequest sees "/{stageName}/{resourcePath}".
 	r := c.Request().Clone(c.Request().Context())
 	r.URL.Path = "/" + stageName + resourcePath
 
