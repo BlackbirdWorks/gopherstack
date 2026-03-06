@@ -35,6 +35,8 @@ var (
 	ErrFunctionAlreadyExists = errors.New("ResourceConflictException")
 	// ErrLambdaUnavailable is returned when Lambda cannot invoke (no Docker or no port range).
 	ErrLambdaUnavailable = errors.New("ServiceException")
+	// ErrInvalidParameterValue is returned when a request parameter has an invalid value.
+	ErrInvalidParameterValue = errors.New("InvalidParameterValueException")
 	// ErrESMNotFound is returned when an event source mapping UUID is not found.
 	ErrESMNotFound = errors.New("ResourceNotFoundException")
 	// ErrFunctionURLNotFound is returned when no function URL config exists for the function.
@@ -45,6 +47,12 @@ var (
 	ErrAliasNotFound = errors.New("ResourceNotFoundException")
 	// ErrAliasAlreadyExists is returned when creating an alias that already exists.
 	ErrAliasAlreadyExists = errors.New("ResourceConflictException")
+	// ErrLayerNotFound is returned when the specified layer does not exist.
+	ErrLayerNotFound = errors.New("ResourceNotFoundException")
+	// ErrLayerVersionNotFound is returned when the specified layer version does not exist.
+	ErrLayerVersionNotFound = errors.New("ResourceNotFoundException")
+	// ErrZipSlip is returned when a ZIP archive entry has a path that would escape the target directory.
+	ErrZipSlip = errors.New("zip entry escapes target directory")
 )
 
 // versionLatest is the sentinel qualifier for the live function configuration.
@@ -88,12 +96,13 @@ type DNSRegistrar interface {
 
 // functionRuntime holds the runtime server and startup state for a single Lambda function.
 type functionRuntime struct {
-	startErr error
-	srv      *runtimeServer
-	mu       *lockmetrics.RWMutex
-	zipDir   string
-	port     int
-	started  bool
+	startErr  error
+	srv       *runtimeServer
+	mu        *lockmetrics.RWMutex
+	zipDir    string
+	layerDirs []string
+	port      int
+	started   bool
 }
 
 // functionURLServer holds a running HTTP listener for a Lambda function URL.
@@ -117,12 +126,19 @@ type InMemoryBackend struct {
 	functionURLServers  map[string]*functionURLServer
 	functionURLConfigs  map[string]*FunctionURLConfig
 	versions            map[string][]*FunctionVersion
-	portAlloc           *portalloc.Allocator
-	runtimes            map[string]*functionRuntime
-	mu                  *lockmetrics.RWMutex
-	region              string
-	accountID           string
-	settings            Settings
+	// layers stores layer versions keyed by layerName → []LayerVersion (ordered by version).
+	layers map[string][]*LayerVersion
+	// layerVersionCounters tracks the next version number per layer.
+	layerVersionCounters map[string]int64
+	// layerPolicies stores per-version resource policy statements keyed by
+	// layerName → versionNumber → statementID → LayerVersionStatement.
+	layerPolicies map[string]map[int64]map[string]*LayerVersionStatement
+	portAlloc     *portalloc.Allocator
+	runtimes      map[string]*functionRuntime
+	mu            *lockmetrics.RWMutex
+	region        string
+	accountID     string
+	settings      Settings
 }
 
 // NewInMemoryBackend creates a new Lambda in-memory backend.
@@ -133,20 +149,23 @@ func NewInMemoryBackend(
 	accountID, region string,
 ) *InMemoryBackend {
 	return &InMemoryBackend{
-		functions:           make(map[string]*FunctionConfiguration),
-		runtimes:            make(map[string]*functionRuntime),
-		eventSourceMappings: make(map[string]*EventSourceMapping),
-		functionURLConfigs:  make(map[string]*FunctionURLConfig),
-		functionURLServers:  make(map[string]*functionURLServer),
-		versions:            make(map[string][]*FunctionVersion),
-		aliases:             make(map[string]map[string]*FunctionAlias),
-		versionCounters:     make(map[string]int),
-		docker:              dockerClient,
-		portAlloc:           portAlloc,
-		settings:            settings,
-		accountID:           accountID,
-		region:              region,
-		mu:                  lockmetrics.New("lambda"),
+		functions:            make(map[string]*FunctionConfiguration),
+		runtimes:             make(map[string]*functionRuntime),
+		eventSourceMappings:  make(map[string]*EventSourceMapping),
+		functionURLConfigs:   make(map[string]*FunctionURLConfig),
+		functionURLServers:   make(map[string]*functionURLServer),
+		versions:             make(map[string][]*FunctionVersion),
+		aliases:              make(map[string]map[string]*FunctionAlias),
+		versionCounters:      make(map[string]int),
+		layers:               make(map[string][]*LayerVersion),
+		layerVersionCounters: make(map[string]int64),
+		layerPolicies:        make(map[string]map[int64]map[string]*LayerVersionStatement),
+		docker:               dockerClient,
+		portAlloc:            portAlloc,
+		settings:             settings,
+		accountID:            accountID,
+		region:               region,
+		mu:                   lockmetrics.New("lambda"),
 	}
 }
 
@@ -611,6 +630,10 @@ func (b *InMemoryBackend) DeleteFunction(name string) error {
 			_ = os.RemoveAll(rt.zipDir)
 		}
 
+		for _, d := range rt.layerDirs {
+			_ = os.RemoveAll(d)
+		}
+
 		rt.mu.Close()
 	}
 
@@ -657,6 +680,7 @@ func (b *InMemoryBackend) PublishVersion(name, description string) (*FunctionVer
 		PackageType:  fn.PackageType,
 		ImageURI:     fn.ImageURI,
 		Environment:  deepCopyEnvironment(fn.Environment),
+		Layers:       deepCopyFunctionLayers(fn.Layers),
 		CodeSize:     fn.CodeSize,
 		RevisionID:   uuid.New().String(),
 		CreatedAt:    fn.LastModified,
@@ -902,6 +926,25 @@ func deepCopyEnvironment(src *EnvironmentConfig) *EnvironmentConfig {
 	return &EnvironmentConfig{Variables: vars}
 }
 
+// deepCopyFunctionLayers returns a shallow copy of a FunctionLayer slice.
+func deepCopyFunctionLayers(src []*FunctionLayer) []*FunctionLayer {
+	if len(src) == 0 {
+		return nil
+	}
+
+	dst := make([]*FunctionLayer, len(src))
+	for i, l := range src {
+		if l == nil {
+			continue
+		}
+
+		cp := *l
+		dst[i] = &cp
+	}
+
+	return dst
+}
+
 // fnToVersion converts a live FunctionConfiguration to a $LATEST FunctionVersion.
 func fnToVersion(fn *FunctionConfiguration) *FunctionVersion {
 	return &FunctionVersion{
@@ -917,6 +960,7 @@ func fnToVersion(fn *FunctionConfiguration) *FunctionVersion {
 		PackageType:  fn.PackageType,
 		ImageURI:     fn.ImageURI,
 		Environment:  fn.Environment,
+		Layers:       fn.Layers,
 		CodeSize:     fn.CodeSize,
 		RevisionID:   fn.RevisionID,
 		CreatedAt:    fn.LastModified,
@@ -1110,15 +1154,31 @@ func (b *InMemoryBackend) getOrCreateRuntime(ctx context.Context, fn *FunctionCo
 	rt.port = port
 	rt.started = true
 
-	zipDir, containerErr := b.startContainer(ctx, fn, port)
+	zipDir, layerDirs, containerErr := b.startContainer(ctx, fn, port)
 	if containerErr != nil {
-		slog.Default().WarnContext(
-			ctx, "lambda: failed to start container",
-			"function", fn.FunctionName, "error", containerErr,
-		)
+		// Container startup failure is fatal: stop the runtime server, release the
+		// port, and surface the error so the caller gets an immediate failure instead
+		// of silently timing out on every subsequent invoke.
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
+		defer cancel()
+		srv.stop(shutdownCtx)
+		_ = b.portAlloc.Release(port)
+
+		for _, d := range layerDirs {
+			_ = os.RemoveAll(d) // #nosec G703
+		}
+
+		if zipDir != "" {
+			_ = os.RemoveAll(zipDir) // #nosec G703
+		}
+
+		rt.startErr = fmt.Errorf("%w: container startup failed: %w", ErrLambdaUnavailable, containerErr)
+
+		return nil, rt.startErr
 	}
 
 	rt.zipDir = zipDir
+	rt.layerDirs = layerDirs
 
 	return srv, nil
 }
@@ -1182,16 +1242,34 @@ func extractZip(zipData []byte) (string, error) {
 
 // extractZipFile extracts a single [zip.File] entry into destDir.
 func extractZipFile(destDir string, f *zip.File) error {
-	// Sanitize path to prevent zip-slip attacks.
-	destPath := filepath.Join(destDir, filepath.Clean("/"+f.Name))
-	destPath = filepath.Join(destDir, strings.TrimPrefix(destPath, destDir))
+	// Normalize and validate the entry name to prevent zip-slip.
+	cleanName := filepath.Clean(f.Name)
+	if cleanName == "" || cleanName == "." {
+		return nil // skip empty / current-dir entries
+	}
+
+	if filepath.IsAbs(cleanName) {
+		return fmt.Errorf("%w: %q has absolute path", ErrZipSlip, f.Name)
+	}
+
+	destPath := filepath.Join(destDir, cleanName)
+
+	rel, relErr := filepath.Rel(destDir, destPath)
+	if relErr != nil {
+		return fmt.Errorf("zip entry %q path resolution failed: %w", f.Name, relErr)
+	}
+
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return fmt.Errorf("%w: %q", ErrZipSlip, f.Name)
+	}
 
 	if f.FileInfo().IsDir() {
 		return os.MkdirAll(destPath, f.Mode()) // #nosec G703
 	}
 
-	if err := os.MkdirAll(filepath.Dir(destPath), 0o750); err != nil { // #nosec G703
-		return fmt.Errorf("mkdir %q: %w", filepath.Dir(destPath), err)
+	parentDir := filepath.Dir(destPath)
+	if err := os.MkdirAll(parentDir, 0o750); err != nil { // #nosec G703
+		return fmt.Errorf("mkdir %q: %w", parentDir, err)
 	}
 
 	rc, err := f.Open()
@@ -1215,12 +1293,13 @@ func extractZipFile(destDir string, f *zip.File) error {
 
 // startContainer creates and starts a Lambda container for the given function.
 // For Zip functions it extracts the code to a temp directory and bind-mounts it.
-// Returns the temp directory path (non-empty only for Zip functions) and any error.
+// Returns the temp directory path (non-empty only for Zip functions), a list of
+// layer temp directories, and any error.
 func (b *InMemoryBackend) startContainer(
 	ctx context.Context,
 	fn *FunctionConfiguration,
 	runtimePort int,
-) (string, error) {
+) (string, []string, error) {
 	env := []string{
 		fmt.Sprintf("AWS_LAMBDA_RUNTIME_API=%s:%d", b.settings.DockerHost, runtimePort),
 		"AWS_DEFAULT_REGION=" + b.region,
@@ -1240,8 +1319,17 @@ func (b *InMemoryBackend) startContainer(
 		}
 	}
 
+	// Extract layer zips and prepare the /opt mount for both Zip and Image functions.
+	layerMount, layerDirs, layerErr := b.prepareLayerMount(fn)
+	if layerErr != nil {
+		slog.Default().WarnContext(ctx, "lambda: layer extraction failed",
+			"function", fn.FunctionName, "error", layerErr)
+	}
+
 	if fn.PackageType == PackageTypeZip {
-		return b.startZipContainer(ctx, fn, env)
+		zipDir, err := b.startZipContainer(ctx, fn, env, layerMount)
+
+		return zipDir, layerDirs, err
 	}
 
 	spec := container.Spec{
@@ -1250,18 +1338,24 @@ func (b *InMemoryBackend) startContainer(
 		Env:   env,
 	}
 
+	if layerMount != "" {
+		spec.Mounts = append(spec.Mounts, layerMount)
+	}
+
 	_, err := b.docker.CreateAndStart(ctx, spec)
 
-	return "", err
+	return "", layerDirs, err
 }
 
 // startZipContainer handles container startup for Zip-packaged Lambda functions.
 // It fetches the zip (from inline ZipData or S3), extracts it to a temp directory,
 // and bind-mounts the directory into the appropriate AWS base image container.
+// An optional layerMount bind-mount string (host:/opt:ro) can also be provided.
 func (b *InMemoryBackend) startZipContainer(
 	ctx context.Context,
 	fn *FunctionConfiguration,
 	env []string,
+	layerMount string,
 ) (string, error) {
 	baseImage := baseImageForRuntime(fn.Runtime)
 	if baseImage == "" {
@@ -1292,11 +1386,16 @@ func (b *InMemoryBackend) startZipContainer(
 		return "", fmt.Errorf("%w: zip extraction failed: %w", ErrLambdaUnavailable, extractErr)
 	}
 
+	mounts := []string{zipDir + ":/var/task:ro"}
+	if layerMount != "" {
+		mounts = append(mounts, layerMount)
+	}
+
 	spec := container.Spec{
 		Image:  baseImage,
 		Name:   fmt.Sprintf("gopherstack-lambda-%s-%s", fn.FunctionName, uuid.New().String()[:8]),
 		Env:    env,
-		Mounts: []string{zipDir + ":/var/task:ro"},
+		Mounts: mounts,
 	}
 
 	if fn.Handler != "" {
@@ -1310,4 +1409,453 @@ func (b *InMemoryBackend) startZipContainer(
 	}
 
 	return zipDir, nil
+}
+
+// parseLayerARN extracts the layer name and version number from a layer version ARN.
+// Expected format: arn:aws:lambda:{region}:{account}:layer:{name}:{version}
+// Returns empty name and 0 version if the ARN is not in the expected format.
+func parseLayerARN(layerVersionARN string) (string, int64) {
+	// Split on ":" — the resource part is "layer:{name}:{version}".
+	parts := strings.Split(layerVersionARN, ":")
+	// A valid ARN has exactly 8 colon-separated parts.
+	const layerARNParts = 8
+	if len(parts) != layerARNParts {
+		return "", 0
+	}
+
+	if parts[5] != "layer" {
+		return "", 0
+	}
+
+	layerName := parts[6]
+
+	var v int64
+
+	if _, err := fmt.Sscanf(parts[7], "%d", &v); err != nil {
+		return "", 0
+	}
+
+	return layerName, v
+}
+
+// prepareLayerMount extracts all layers attached to fn into a single merged temp directory
+// and returns the bind-mount string ("{dir}:/opt:ro"), a list of temp dirs (for cleanup),
+// and any error. If the function has no layers with zip data, returns ("", nil, nil).
+// ZIP extraction is performed outside the backend lock to avoid blocking concurrent operations.
+func (b *InMemoryBackend) prepareLayerMount(fn *FunctionConfiguration) (string, []string, error) {
+	if len(fn.Layers) == 0 {
+		return "", nil, nil
+	}
+
+	// Collect the zip bytes under the read lock, then release before doing any I/O.
+	type layerEntry struct {
+		name    string
+		zipData []byte
+		version int64
+	}
+
+	var entries []layerEntry
+
+	b.mu.RLock("prepareLayerMount")
+
+	for _, fl := range fn.Layers {
+		if fl == nil || fl.Arn == "" {
+			continue
+		}
+
+		layerName, layerVersion := parseLayerARN(fl.Arn)
+		if layerName == "" {
+			continue
+		}
+
+		versions := b.layers[layerName]
+
+		for _, lv := range versions {
+			if lv.Version == layerVersion && len(lv.ZipData) > 0 {
+				data := make([]byte, len(lv.ZipData))
+				copy(data, lv.ZipData)
+				entries = append(entries, layerEntry{name: layerName, version: layerVersion, zipData: data})
+
+				break
+			}
+		}
+	}
+
+	b.mu.RUnlock()
+
+	if len(entries) == 0 {
+		return "", nil, nil
+	}
+
+	// Create a single temp directory to merge all layer contents into (matches AWS behaviour).
+	optDir, mkErr := os.MkdirTemp("", "gopherstack-lambda-layers-*")
+	if mkErr != nil {
+		return "", nil, fmt.Errorf("create layer temp dir: %w", mkErr)
+	}
+
+	for _, entry := range entries {
+		if extractErr := extractZipIntoDir(optDir, entry.zipData); extractErr != nil {
+			_ = os.RemoveAll(optDir)
+
+			return "", nil, fmt.Errorf("extract layer %q v%d: %w", entry.name, entry.version, extractErr)
+		}
+	}
+
+	return optDir + ":/opt:ro", []string{optDir}, nil
+}
+
+// extractZipIntoDir extracts zip bytes into an existing directory (used for layer extraction).
+func extractZipIntoDir(dir string, zipData []byte) error {
+	r, err := zip.NewReader(bytes.NewReader(zipData), int64(len(zipData)))
+	if err != nil {
+		return fmt.Errorf("open zip: %w", err)
+	}
+
+	for _, f := range r.File {
+		if extractErr := extractZipFile(dir, f); extractErr != nil {
+			return extractErr
+		}
+	}
+
+	return nil
+}
+
+// buildLayerARN constructs a Lambda layer ARN.
+func (b *InMemoryBackend) buildLayerARN(layerName string) string {
+	return arn.Build("lambda", b.region, b.accountID, "layer:"+layerName)
+}
+
+// buildLayerVersionARN constructs a Lambda layer version ARN.
+func (b *InMemoryBackend) buildLayerVersionARN(layerName string, version int64) string {
+	return fmt.Sprintf("%s:%d", b.buildLayerARN(layerName), version)
+}
+
+// PublishLayerVersion creates a new immutable version of the named layer.
+func (b *InMemoryBackend) PublishLayerVersion(input *PublishLayerVersionInput) (*PublishLayerVersionOutput, error) {
+	if input == nil || input.Content == nil {
+		return nil, fmt.Errorf("%w: Content is required", ErrLambdaUnavailable)
+	}
+
+	if input.LayerName == "" {
+		return nil, fmt.Errorf("%w: LayerName is required", ErrInvalidParameterValue)
+	}
+
+	b.mu.Lock("PublishLayerVersion")
+	defer b.mu.Unlock()
+
+	b.layerVersionCounters[input.LayerName]++
+	version := b.layerVersionCounters[input.LayerName]
+
+	zipData := input.Content.ZipFile
+	codeSize := int64(len(zipData))
+
+	lv := &LayerVersion{
+		LayerVersionArn:    b.buildLayerVersionARN(input.LayerName, version),
+		Description:        input.Description,
+		CreatedDate:        time.Now().UTC().Format(time.RFC3339),
+		Version:            version,
+		CompatibleRuntimes: input.CompatibleRuntimes,
+		LicenseInfo:        input.LicenseInfo,
+		ZipData:            zipData,
+		Content: &LayerVersionContent{
+			CodeSize: codeSize,
+		},
+	}
+
+	b.layers[input.LayerName] = append(b.layers[input.LayerName], lv)
+
+	return &PublishLayerVersionOutput{
+		LayerVersionArn:    lv.LayerVersionArn,
+		LayerArn:           b.buildLayerARN(input.LayerName),
+		Description:        lv.Description,
+		CreatedDate:        lv.CreatedDate,
+		Content:            lv.Content,
+		CompatibleRuntimes: lv.CompatibleRuntimes,
+		LicenseInfo:        lv.LicenseInfo,
+		Version:            lv.Version,
+	}, nil
+}
+
+// GetLayerVersion retrieves metadata for a specific layer version.
+func (b *InMemoryBackend) GetLayerVersion(layerName string, version int64) (*GetLayerVersionOutput, error) {
+	b.mu.RLock("GetLayerVersion")
+	defer b.mu.RUnlock()
+
+	versions, ok := b.layers[layerName]
+	if !ok || len(versions) == 0 {
+		return nil, ErrLayerNotFound
+	}
+
+	for _, lv := range versions {
+		if lv.Version == version {
+			return &GetLayerVersionOutput{
+				LayerVersionArn:    lv.LayerVersionArn,
+				LayerArn:           b.buildLayerARN(layerName),
+				Description:        lv.Description,
+				CreatedDate:        lv.CreatedDate,
+				Content:            lv.Content,
+				CompatibleRuntimes: lv.CompatibleRuntimes,
+				LicenseInfo:        lv.LicenseInfo,
+				Version:            lv.Version,
+			}, nil
+		}
+	}
+
+	return nil, ErrLayerVersionNotFound
+}
+
+// ListLayers returns a summary of all layers with their latest version.
+func (b *InMemoryBackend) ListLayers() []*Layer {
+	b.mu.RLock("ListLayers")
+	defer b.mu.RUnlock()
+
+	result := make([]*Layer, 0, len(b.layers))
+
+	names := make([]string, 0, len(b.layers))
+	for name := range b.layers {
+		names = append(names, name)
+	}
+
+	sort.Strings(names)
+
+	for _, name := range names {
+		versions := b.layers[name]
+		if len(versions) == 0 {
+			continue
+		}
+
+		latest := versions[len(versions)-1]
+
+		result = append(result, &Layer{
+			LayerArn:  b.buildLayerARN(name),
+			LayerName: name,
+			LatestMatchingVersion: &LayerVersion{
+				LayerVersionArn:    latest.LayerVersionArn,
+				Description:        latest.Description,
+				CreatedDate:        latest.CreatedDate,
+				Content:            latest.Content,
+				CompatibleRuntimes: latest.CompatibleRuntimes,
+				LicenseInfo:        latest.LicenseInfo,
+				Version:            latest.Version,
+			},
+		})
+	}
+
+	return result
+}
+
+// ListLayerVersions returns all versions of a specific layer in descending order.
+func (b *InMemoryBackend) ListLayerVersions(layerName string) ([]*LayerVersion, error) {
+	b.mu.RLock("ListLayerVersions")
+	defer b.mu.RUnlock()
+
+	versions, ok := b.layers[layerName]
+	if !ok {
+		return nil, ErrLayerNotFound
+	}
+
+	// Return a copy in reverse order (newest first).
+	result := make([]*LayerVersion, len(versions))
+	for i, lv := range versions {
+		result[len(versions)-1-i] = &LayerVersion{
+			LayerVersionArn:    lv.LayerVersionArn,
+			Description:        lv.Description,
+			CreatedDate:        lv.CreatedDate,
+			Content:            lv.Content,
+			CompatibleRuntimes: lv.CompatibleRuntimes,
+			LicenseInfo:        lv.LicenseInfo,
+			Version:            lv.Version,
+		}
+	}
+
+	return result, nil
+}
+
+// DeleteLayerVersion removes an immutable layer version.
+func (b *InMemoryBackend) DeleteLayerVersion(layerName string, version int64) error {
+	b.mu.Lock("DeleteLayerVersion")
+	defer b.mu.Unlock()
+
+	versions, ok := b.layers[layerName]
+	if !ok || len(versions) == 0 {
+		return ErrLayerNotFound
+	}
+
+	for i, lv := range versions {
+		if lv.Version == version {
+			b.layers[layerName] = append(versions[:i], versions[i+1:]...)
+
+			// Clean up policy entries for deleted version.
+			if b.layerPolicies[layerName] != nil {
+				delete(b.layerPolicies[layerName], version)
+			}
+
+			return nil
+		}
+	}
+
+	return ErrLayerVersionNotFound
+}
+
+// GetLayerVersionPolicy returns the resource policy for a layer version.
+func (b *InMemoryBackend) GetLayerVersionPolicy(layerName string, version int64) (*LayerVersionPolicy, error) {
+	b.mu.RLock("GetLayerVersionPolicy")
+	defer b.mu.RUnlock()
+
+	// Verify the version exists.
+	versions, ok := b.layers[layerName]
+	if !ok || len(versions) == 0 {
+		return nil, ErrLayerNotFound
+	}
+
+	found := false
+
+	for _, lv := range versions {
+		if lv.Version == version {
+			found = true
+
+			break
+		}
+	}
+
+	if !found {
+		return nil, ErrLayerVersionNotFound
+	}
+
+	stmts := b.layerPolicies[layerName][version]
+
+	policy, marshalErr := buildLayerPolicy(stmts)
+	if marshalErr != nil {
+		return nil, marshalErr
+	}
+
+	return &LayerVersionPolicy{
+		Policy:     policy,
+		RevisionID: "1",
+	}, nil
+}
+
+// AddLayerVersionPermission adds a permission statement to a layer version's resource policy.
+func (b *InMemoryBackend) AddLayerVersionPermission(
+	layerName string, version int64, input *AddLayerVersionPermissionInput,
+) (*AddLayerVersionPermissionOutput, error) {
+	b.mu.Lock("AddLayerVersionPermission")
+	defer b.mu.Unlock()
+
+	versions, ok := b.layers[layerName]
+	if !ok || len(versions) == 0 {
+		return nil, ErrLayerNotFound
+	}
+
+	found := false
+
+	for _, lv := range versions {
+		if lv.Version == version {
+			found = true
+
+			break
+		}
+	}
+
+	if !found {
+		return nil, ErrLayerVersionNotFound
+	}
+
+	if b.layerPolicies[layerName] == nil {
+		b.layerPolicies[layerName] = make(map[int64]map[string]*LayerVersionStatement)
+	}
+
+	if b.layerPolicies[layerName][version] == nil {
+		b.layerPolicies[layerName][version] = make(map[string]*LayerVersionStatement)
+	}
+
+	stmt := &LayerVersionStatement{
+		StatementID: input.StatementID,
+		Action:      input.Action,
+		Principal:   input.Principal,
+	}
+
+	b.layerPolicies[layerName][version][input.StatementID] = stmt
+
+	stmtJSON, marshalErr := json.Marshal(stmt)
+	if marshalErr != nil {
+		return nil, marshalErr
+	}
+
+	return &AddLayerVersionPermissionOutput{
+		Statement:  string(stmtJSON),
+		RevisionID: "1",
+	}, nil
+}
+
+// RemoveLayerVersionPermission removes a permission statement from a layer version's resource policy.
+func (b *InMemoryBackend) RemoveLayerVersionPermission(layerName string, version int64, statementID string) error {
+	b.mu.Lock("RemoveLayerVersionPermission")
+	defer b.mu.Unlock()
+
+	versions, ok := b.layers[layerName]
+	if !ok || len(versions) == 0 {
+		return ErrLayerNotFound
+	}
+
+	found := false
+
+	for _, lv := range versions {
+		if lv.Version == version {
+			found = true
+
+			break
+		}
+	}
+
+	if !found {
+		return ErrLayerVersionNotFound
+	}
+
+	if b.layerPolicies[layerName] == nil || b.layerPolicies[layerName][version] == nil {
+		return nil
+	}
+
+	delete(b.layerPolicies[layerName][version], statementID)
+
+	return nil
+}
+
+// buildLayerPolicy serialises a map of statements to a JSON IAM policy document string.
+func buildLayerPolicy(stmts map[string]*LayerVersionStatement) (string, error) {
+	type policyDocument struct {
+		Version   string              `json:"Version"`
+		Statement []map[string]string `json:"Statement"`
+	}
+
+	statements := make([]map[string]string, 0, len(stmts))
+
+	stmtIDs := make([]string, 0, len(stmts))
+	for sid := range stmts {
+		stmtIDs = append(stmtIDs, sid)
+	}
+
+	sort.Strings(stmtIDs)
+
+	for _, sid := range stmtIDs {
+		s := stmts[sid]
+		statements = append(statements, map[string]string{
+			"Sid":       s.StatementID,
+			"Effect":    "Allow",
+			"Principal": s.Principal,
+			"Action":    s.Action,
+		})
+	}
+
+	doc := policyDocument{
+		Version:   "2012-10-17",
+		Statement: statements,
+	}
+
+	data, err := json.Marshal(doc)
+	if err != nil {
+		return "", err
+	}
+
+	return string(data), nil
 }
