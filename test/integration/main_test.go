@@ -32,12 +32,14 @@ import (
 	lambdaclientsdk "github.com/aws/aws-sdk-go-v2/service/lambda"
 	rdssdk "github.com/aws/aws-sdk-go-v2/service/rds"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	schedulersdk "github.com/aws/aws-sdk-go-v2/service/scheduler"
 	secretsmanagersdk "github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	sfnsdk "github.com/aws/aws-sdk-go-v2/service/sfn"
 	snssdk "github.com/aws/aws-sdk-go-v2/service/sns"
 	sqssdk "github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	stssdk "github.com/aws/aws-sdk-go-v2/service/sts"
+	swfsdk "github.com/aws/aws-sdk-go-v2/service/swf"
 	"github.com/docker/docker/api/types/build"
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"
@@ -525,6 +527,44 @@ func createRDSClient(t *testing.T) *rdssdk.Client {
 	}
 
 	return rdssdk.NewFromConfig(cfg, func(o *rdssdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+func createSWFClient(t *testing.T) *swfsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return swfsdk.NewFromConfig(cfg, func(o *swfsdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+func createSchedulerClient(t *testing.T) *schedulersdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return schedulersdk.NewFromConfig(cfg, func(o *schedulersdk.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

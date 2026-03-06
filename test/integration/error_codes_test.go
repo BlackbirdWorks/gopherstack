@@ -4,14 +4,20 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	eventbridgesdk "github.com/aws/aws-sdk-go-v2/service/eventbridge"
+	ebtypes "github.com/aws/aws-sdk-go-v2/service/eventbridge/types"
 	iamsdk "github.com/aws/aws-sdk-go-v2/service/iam"
 	iamtypes "github.com/aws/aws-sdk-go-v2/service/iam/types"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	kmstypes "github.com/aws/aws-sdk-go-v2/service/kms/types"
+	schedulersdk "github.com/aws/aws-sdk-go-v2/service/scheduler"
+	schedulertypes "github.com/aws/aws-sdk-go-v2/service/scheduler/types"
 	snssdk "github.com/aws/aws-sdk-go-v2/service/sns"
 	snstypes "github.com/aws/aws-sdk-go-v2/service/sns/types"
 	sqssdk "github.com/aws/aws-sdk-go-v2/service/sqs"
 	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
+	swfsdk "github.com/aws/aws-sdk-go-v2/service/swf"
+	swftypes "github.com/aws/aws-sdk-go-v2/service/swf/types"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -430,6 +436,151 @@ func TestIntegration_ErrorCodes_SQS(t *testing.T) {
 				require.Error(t, err)
 				var notInflight *sqstypes.MessageNotInflight
 				assert.ErrorAs(t, err, &notInflight, "expected MessageNotInflight")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := tt.operation(t)
+			tt.check(t, err)
+		})
+	}
+}
+
+// TestIntegration_ErrorCodes_EventBridge verifies EventBridge error codes match AWS SDK types.
+func TestIntegration_ErrorCodes_EventBridge(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createEventBridgeClient(t)
+	ctx := t.Context()
+
+	tests := []struct {
+		operation func(t *testing.T) error
+		check     func(t *testing.T, err error)
+		name      string
+	}{
+		{
+			name: "IllegalStatusException_DeleteDefaultEventBus",
+			operation: func(t *testing.T) error {
+				t.Helper()
+				_, err := client.DeleteEventBus(ctx, &eventbridgesdk.DeleteEventBusInput{
+					Name: aws.String("default"),
+				})
+
+				return err
+			},
+			check: func(t *testing.T, err error) {
+				t.Helper()
+				require.Error(t, err)
+				var illegalStatus *ebtypes.IllegalStatusException
+				assert.ErrorAs(t, err, &illegalStatus, "expected IllegalStatusException")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := tt.operation(t)
+			tt.check(t, err)
+		})
+	}
+}
+
+// TestIntegration_ErrorCodes_SWF verifies SWF error codes match AWS SDK types.
+func TestIntegration_ErrorCodes_SWF(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createSWFClient(t)
+	ctx := t.Context()
+
+	tests := []struct {
+		operation func(t *testing.T) error
+		check     func(t *testing.T, err error)
+		name      string
+	}{
+		{
+			name: "DomainAlreadyExistsFault_RegisterDomain",
+			operation: func(t *testing.T) error {
+				t.Helper()
+				domainName := "dup-domain-" + uuid.NewString()[:8]
+				_, err := client.RegisterDomain(ctx, &swfsdk.RegisterDomainInput{
+					Name:                                   aws.String(domainName),
+					WorkflowExecutionRetentionPeriodInDays: aws.String("1"),
+				})
+				require.NoError(t, err)
+
+				_, err = client.RegisterDomain(ctx, &swfsdk.RegisterDomainInput{
+					Name:                                   aws.String(domainName),
+					WorkflowExecutionRetentionPeriodInDays: aws.String("1"),
+				})
+
+				return err
+			},
+			check: func(t *testing.T, err error) {
+				t.Helper()
+				require.Error(t, err)
+				var domainAlreadyExists *swftypes.DomainAlreadyExistsFault
+				assert.ErrorAs(t, err, &domainAlreadyExists, "expected DomainAlreadyExistsFault")
+			},
+		},
+		{
+			name: "UnknownResourceFault_DeprecateDomain",
+			operation: func(t *testing.T) error {
+				t.Helper()
+				_, err := client.DeprecateDomain(ctx, &swfsdk.DeprecateDomainInput{
+					Name: aws.String("nonexistent-domain-" + uuid.NewString()[:8]),
+				})
+
+				return err
+			},
+			check: func(t *testing.T, err error) {
+				t.Helper()
+				require.Error(t, err)
+				var unknownResource *swftypes.UnknownResourceFault
+				assert.ErrorAs(t, err, &unknownResource, "expected UnknownResourceFault")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := tt.operation(t)
+			tt.check(t, err)
+		})
+	}
+}
+
+// TestIntegration_ErrorCodes_Scheduler verifies Scheduler error codes match AWS SDK types.
+func TestIntegration_ErrorCodes_Scheduler(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createSchedulerClient(t)
+	ctx := t.Context()
+
+	tests := []struct {
+		operation func(t *testing.T) error
+		check     func(t *testing.T, err error)
+		name      string
+	}{
+		{
+			name: "ResourceNotFoundException_GetSchedule",
+			operation: func(t *testing.T) error {
+				t.Helper()
+				_, err := client.GetSchedule(ctx, &schedulersdk.GetScheduleInput{
+					Name: aws.String("nonexistent-schedule-" + uuid.NewString()[:8]),
+				})
+
+				return err
+			},
+			check: func(t *testing.T, err error) {
+				t.Helper()
+				require.Error(t, err)
+				var notFound *schedulertypes.ResourceNotFoundException
+				assert.ErrorAs(t, err, &notFound, "expected ResourceNotFoundException")
 			},
 		},
 	}
