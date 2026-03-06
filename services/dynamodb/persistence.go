@@ -8,6 +8,7 @@ import (
 
 type dbSnapshot struct {
 	Tables        map[string]map[string]*Table `json:"Tables"`
+	Backups       map[string]*Backup           `json:"Backups,omitempty"`
 	DefaultRegion string                       `json:"DefaultRegion"`
 	AccountID     string                       `json:"AccountID"`
 }
@@ -23,6 +24,7 @@ func (db *InMemoryDB) Snapshot() []byte {
 
 	snap := dbSnapshot{
 		Tables:        db.Tables,
+		Backups:       db.Backups,
 		DefaultRegion: db.defaultRegion,
 		AccountID:     db.accountID,
 	}
@@ -51,6 +53,10 @@ func (db *InMemoryDB) Restore(data []byte) error {
 		snap.Tables = make(map[string]map[string]*Table)
 	}
 
+	if snap.Backups == nil {
+		snap.Backups = make(map[string]*Backup)
+	}
+
 	// Reinitialise per-table mutexes and rebuild indexes.
 	for _, regionTables := range snap.Tables {
 		for _, t := range regionTables {
@@ -63,6 +69,7 @@ func (db *InMemoryDB) Restore(data []byte) error {
 	}
 
 	db.Tables = snap.Tables
+	db.Backups = snap.Backups
 	db.defaultRegion = snap.DefaultRegion
 	db.accountID = snap.AccountID
 

@@ -479,6 +479,8 @@ func (h *DashboardHandler) dynamoDBCreateTable(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxFormBodySize)
+
 	ctx := r.Context()
 	log := logger.Load(ctx)
 
@@ -632,6 +634,8 @@ func (h *DashboardHandler) dynamoDBUpdateTTL(w http.ResponseWriter, r *http.Requ
 
 		return
 	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxFormBodySize)
 
 	ctx := r.Context()
 	log := logger.Load(ctx)

@@ -218,6 +218,8 @@ func (h *DashboardHandler) s3Versioning(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxFormBodySize)
+
 	ctx := r.Context()
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxFormBodySize)
@@ -254,6 +256,8 @@ func (h *DashboardHandler) s3CreateBucket(w http.ResponseWriter, r *http.Request
 
 		return
 	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxFormBodySize)
 
 	ctx := r.Context()
 	log := logger.Load(ctx)

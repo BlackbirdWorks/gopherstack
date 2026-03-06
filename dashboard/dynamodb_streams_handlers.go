@@ -18,6 +18,8 @@ func (h *DashboardHandler) dynamoDBUpdateStreams(w http.ResponseWriter, r *http.
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxFormBodySize)
+
 	ctx := r.Context()
 	log := logger.Load(ctx)
 
