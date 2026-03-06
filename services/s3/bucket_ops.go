@@ -821,7 +821,6 @@ func (h *S3Handler) getBucketPolicy(ctx context.Context, w http.ResponseWriter, 
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	//nolint:gosec // G705: policy is stored in the backend from PutBucketPolicy
 	_, _ = w.Write([]byte(policy))
 }
 
@@ -862,7 +861,6 @@ func (h *S3Handler) getBucketCORS(ctx context.Context, w http.ResponseWriter, r 
 	}
 	w.Header().Set("Content-Type", "application/xml")
 	w.WriteHeader(http.StatusOK)
-	//nolint:gosec // G705: corsXML is stored in the backend from PutBucketCORS
 	_, _ = w.Write([]byte(corsXML))
 }
 
@@ -930,7 +928,6 @@ func (h *S3Handler) getBucketLifecycleConfiguration(
 	}
 	w.Header().Set("Content-Type", "application/xml")
 	w.WriteHeader(http.StatusOK)
-	//nolint:gosec // G705: lifecycleXML is stored in the backend
 	_, _ = w.Write([]byte(lifecycleXML))
 }
 
@@ -992,7 +989,6 @@ func (h *S3Handler) getBucketNotificationConfiguration(
 	}
 	w.Header().Set("Content-Type", "application/xml")
 	w.WriteHeader(http.StatusOK)
-	//nolint:gosec // G705: notifXML is stored in the backend
 	_, _ = w.Write([]byte(notifXML))
 }
 
@@ -1042,7 +1038,6 @@ func (h *S3Handler) getObjectLockConfiguration(
 
 	w.Header().Set("Content-Type", "application/xml")
 	w.WriteHeader(http.StatusOK)
-	//nolint:gosec // G705: configXML is stored in the backend
 	_, _ = w.Write([]byte(configXML))
 }
 

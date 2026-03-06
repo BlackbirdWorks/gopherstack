@@ -449,7 +449,6 @@ func (h *HealthCmd) Run() error {
 		return fmt.Errorf("create health check request: %w", err)
 	}
 
-	//nolint:gosec // G704: targetURL is constructed from local Port and fixed path
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrHealthCheckFailed, err)
