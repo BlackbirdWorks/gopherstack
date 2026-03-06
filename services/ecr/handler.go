@@ -65,6 +65,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeRepositories",
 		"DeleteRepository",
 		"GetAuthorizationToken",
+		"ListTagsForResource",
+		"TagResource",
+		"UntagResource",
 	}
 }
 
@@ -193,6 +196,9 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 		"DescribeRepositories":  service.WrapOp(h.handleDescribeRepositories),
 		"DeleteRepository":      service.WrapOp(h.handleDeleteRepository),
 		"GetAuthorizationToken": service.WrapOp(h.handleGetAuthorizationToken),
+		"ListTagsForResource":   service.WrapOp(h.handleListTagsForResource),
+		"TagResource":           service.WrapOp(h.handleTagResource),
+		"UntagResource":         service.WrapOp(h.handleUntagResource),
 	}
 }
 
@@ -365,4 +371,56 @@ func (h *Handler) handleGetAuthorizationToken(
 			},
 		},
 	}, nil
+}
+
+// listTagsForResourceInput is the request body for ListTagsForResource.
+type listTagsForResourceInput struct {
+	ResourceArn string `json:"resourceArn"`
+}
+
+// tagView is a key-value tag pair.
+type tagView struct {
+	Key   string `json:"Key"`
+	Value string `json:"Value"`
+}
+
+type listTagsForResourceOutput struct {
+	Tags []tagView `json:"tags"`
+}
+
+func (h *Handler) handleListTagsForResource(
+	_ context.Context,
+	_ *listTagsForResourceInput,
+) (*listTagsForResourceOutput, error) {
+	return &listTagsForResourceOutput{Tags: []tagView{}}, nil
+}
+
+// tagResourceInput is the request body for TagResource.
+type tagResourceInput struct {
+	ResourceArn string            `json:"resourceArn"`
+	Tags        map[string]string `json:"tags"`
+}
+
+type tagResourceOutput struct{}
+
+func (h *Handler) handleTagResource(
+	_ context.Context,
+	_ *tagResourceInput,
+) (*tagResourceOutput, error) {
+	return &tagResourceOutput{}, nil
+}
+
+// untagResourceInput is the request body for UntagResource.
+type untagResourceInput struct {
+	ResourceArn string   `json:"resourceArn"`
+	TagKeys     []string `json:"tagKeys"`
+}
+
+type untagResourceOutput struct{}
+
+func (h *Handler) handleUntagResource(
+	_ context.Context,
+	_ *untagResourceInput,
+) (*untagResourceOutput, error) {
+	return &untagResourceOutput{}, nil
 }

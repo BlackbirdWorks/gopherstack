@@ -644,3 +644,52 @@ func TestECR_RouteMatcher_V2Strict(t *testing.T) {
 		})
 	}
 }
+
+func TestECR_ListTagsForResource(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create a repo first so we have an ARN.
+	rec := doECRRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "tag-repo"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+
+	repo := createResp["repository"].(map[string]any)
+	arn := repo["repositoryArn"].(string)
+
+	rec = doECRRequest(t, h, "ListTagsForResource", map[string]any{"resourceArn": arn})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	tags, ok := out["tags"]
+	require.True(t, ok, "response should contain 'tags' field")
+	assert.IsType(t, []any{}, tags, "tags should be an array")
+}
+
+func TestECR_TagResource(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doECRRequest(t, h, "TagResource", map[string]any{
+		"resourceArn": "arn:aws:ecr:us-east-1:000000000000:repository/my-repo",
+		"tags":        map[string]string{"Env": "test"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestECR_UntagResource(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doECRRequest(t, h, "UntagResource", map[string]any{
+		"resourceArn": "arn:aws:ecr:us-east-1:000000000000:repository/my-repo",
+		"tagKeys":     []string{"Env"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+}
