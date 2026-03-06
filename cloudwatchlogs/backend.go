@@ -1,8 +1,14 @@
 package cloudwatchlogs
 
 import (
+	"bytes"
+	"compress/gzip"
+	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strconv"
 	"strings"
@@ -12,19 +18,38 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/google/uuid"
 )
 
 var (
-	ErrLogGroupNotFound      = errors.New("ResourceNotFoundException")
-	ErrLogGroupAlreadyExists = errors.New("ResourceAlreadyExistsException")
-	ErrLogStreamNotFound     = errors.New("ResourceNotFoundException")
-	ErrLogStreamAlreadyExist = errors.New("ResourceAlreadyExistsException")
+	ErrLogGroupNotFound              = errors.New("ResourceNotFoundException")
+	ErrLogGroupAlreadyExists         = errors.New("ResourceAlreadyExistsException")
+	ErrLogStreamNotFound             = errors.New("ResourceNotFoundException")
+	ErrLogStreamAlreadyExist         = errors.New("ResourceAlreadyExistsException")
+	ErrSubscriptionFilterNotFound    = errors.New("ResourceNotFoundException")
+	ErrSubscriptionFilterLimitExceed = errors.New("LimitExceededException")
 )
 
 const (
 	defaultDescribeLimit = 50
 	defaultEventLimit    = 10000
+	// maxSubscriptionFilters is the AWS-imposed limit per log group.
+	maxSubscriptionFilters = 2
 )
+
+// SubscriptionDeliverer delivers encoded log event payloads to a subscription filter destination.
+type SubscriptionDeliverer interface {
+	// DeliverLogEvents delivers a gzipped, base64-encoded CloudWatch Logs payload to destinationArn.
+	DeliverLogEvents(ctx context.Context, destinationArn string, payload []byte) error
+}
+
+// SubscriptionDelivererFunc is a function adapter for SubscriptionDeliverer.
+type SubscriptionDelivererFunc func(ctx context.Context, destinationArn string, payload []byte) error
+
+// DeliverLogEvents implements SubscriptionDeliverer.
+func (f SubscriptionDelivererFunc) DeliverLogEvents(ctx context.Context, destinationArn string, payload []byte) error {
+	return f(ctx, destinationArn, payload)
+}
 
 // StorageBackend is the interface for a CloudWatch Logs in-memory store.
 type StorageBackend interface {
@@ -38,16 +63,22 @@ type StorageBackend interface {
 		[]OutputLogEvent, string, string, error)
 	FilterLogEvents(groupName string, streamNames []string, filterPattern string,
 		startTime, endTime *int64, limit int, nextToken string) ([]OutputLogEvent, string, error)
+	PutSubscriptionFilter(groupName, filterName, filterPattern, destinationArn string) error
+	DescribeSubscriptionFilters(groupName, filterNamePrefix, nextToken string, limit int) (
+		[]SubscriptionFilter, string, error)
+	DeleteSubscriptionFilter(groupName, filterName string) error
 }
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	groups    map[string]*LogGroup
-	streams   map[string]map[string]*LogStream
-	events    map[string]map[string][]*OutputLogEvent
-	mu        *lockmetrics.RWMutex
-	accountID string
-	region    string
+	groups              map[string]*LogGroup
+	streams             map[string]map[string]*LogStream
+	events              map[string]map[string][]*OutputLogEvent
+	subscriptionFilters map[string][]*SubscriptionFilter
+	deliverer           SubscriptionDeliverer
+	mu                  *lockmetrics.RWMutex
+	accountID           string
+	region              string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with default configuration.
@@ -58,13 +89,21 @@ func NewInMemoryBackend() *InMemoryBackend {
 // NewInMemoryBackendWithConfig creates a new InMemoryBackend with given account and region.
 func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		accountID: accountID,
-		region:    region,
-		groups:    make(map[string]*LogGroup),
-		streams:   make(map[string]map[string]*LogStream),
-		events:    make(map[string]map[string][]*OutputLogEvent),
-		mu:        lockmetrics.New("cloudwatchlogs"),
+		accountID:           accountID,
+		region:              region,
+		groups:              make(map[string]*LogGroup),
+		streams:             make(map[string]map[string]*LogStream),
+		events:              make(map[string]map[string][]*OutputLogEvent),
+		subscriptionFilters: make(map[string][]*SubscriptionFilter),
+		mu:                  lockmetrics.New("cloudwatchlogs"),
 	}
+}
+
+// SetSubscriptionDeliverer sets the deliverer used to forward log events to subscription filter destinations.
+func (b *InMemoryBackend) SetSubscriptionDeliverer(d SubscriptionDeliverer) {
+	b.mu.Lock("SetSubscriptionDeliverer")
+	defer b.mu.Unlock()
+	b.deliverer = d
 }
 
 func (b *InMemoryBackend) groupARN(name string) string {
@@ -108,6 +147,7 @@ func (b *InMemoryBackend) DeleteLogGroup(name string) error {
 	delete(b.groups, name)
 	delete(b.streams, name)
 	delete(b.events, name)
+	delete(b.subscriptionFilters, name)
 
 	return nil
 }
@@ -217,6 +257,15 @@ func (b *InMemoryBackend) PutLogEvents(groupName, streamName string, events []In
 	stream.LastIngestionTime = &now
 	nextToken := strconv.FormatInt(int64(len(b.events[groupName][streamName])), 10)
 
+	// Collect matching subscription filters for async delivery (while holding the lock).
+	filters := b.matchingFilters(groupName, events)
+	deliverer := b.deliverer
+	accountID := b.accountID
+
+	if len(filters) > 0 && deliverer != nil {
+		go b.deliverToFilters(context.Background(), groupName, streamName, accountID, events, filters, deliverer)
+	}
+
 	return nextToken, nil
 }
 
@@ -310,6 +359,211 @@ func (b *InMemoryBackend) FilterLogEvents(groupName string, streamNames []string
 	}
 
 	return result, outToken, nil
+}
+
+// PutSubscriptionFilter creates or updates a subscription filter for a log group.
+func (b *InMemoryBackend) PutSubscriptionFilter(groupName, filterName, filterPattern, destinationArn string) error {
+	b.mu.Lock("PutSubscriptionFilter")
+	defer b.mu.Unlock()
+
+	if _, exists := b.groups[groupName]; !exists {
+		return fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, groupName)
+	}
+
+	existing := b.subscriptionFilters[groupName]
+
+	// Check for a filter with the same name (update).
+	for i, f := range existing {
+		if f.FilterName == filterName {
+			existing[i].FilterPattern = filterPattern
+			existing[i].DestinationArn = destinationArn
+
+			return nil
+		}
+	}
+
+	// Enforce AWS limit of 2 subscription filters per log group.
+	if len(existing) >= maxSubscriptionFilters {
+		return fmt.Errorf("%w: log group %s already has the maximum number of subscription filters",
+			ErrSubscriptionFilterLimitExceed, groupName)
+	}
+
+	b.subscriptionFilters[groupName] = append(existing, &SubscriptionFilter{
+		FilterName:     filterName,
+		FilterPattern:  filterPattern,
+		LogGroupName:   groupName,
+		DestinationArn: destinationArn,
+		CreationTime:   time.Now().UnixMilli(),
+	})
+
+	return nil
+}
+
+// DescribeSubscriptionFilters returns subscription filters for a log group with optional prefix and pagination.
+func (b *InMemoryBackend) DescribeSubscriptionFilters(groupName, filterNamePrefix, nextToken string, limit int) (
+	[]SubscriptionFilter, string, error,
+) {
+	b.mu.RLock("DescribeSubscriptionFilters")
+	defer b.mu.RUnlock()
+
+	if _, exists := b.groups[groupName]; !exists {
+		return nil, "", fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, groupName)
+	}
+
+	all := make([]SubscriptionFilter, 0)
+	for _, f := range b.subscriptionFilters[groupName] {
+		if filterNamePrefix == "" || strings.HasPrefix(f.FilterName, filterNamePrefix) {
+			all = append(all, *f)
+		}
+	}
+
+	sort.Slice(all, func(i, j int) bool { return all[i].FilterName < all[j].FilterName })
+
+	startIdx := parseNextToken(nextToken)
+	if startIdx >= len(all) {
+		return []SubscriptionFilter{}, "", nil
+	}
+
+	if limit <= 0 {
+		limit = defaultDescribeLimit
+	}
+
+	end := startIdx + limit
+	var outToken string
+	if end < len(all) {
+		outToken = strconv.Itoa(end)
+	} else {
+		end = len(all)
+	}
+
+	return all[startIdx:end], outToken, nil
+}
+
+// DeleteSubscriptionFilter removes a subscription filter from a log group.
+func (b *InMemoryBackend) DeleteSubscriptionFilter(groupName, filterName string) error {
+	b.mu.Lock("DeleteSubscriptionFilter")
+	defer b.mu.Unlock()
+
+	if _, exists := b.groups[groupName]; !exists {
+		return fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, groupName)
+	}
+
+	filters := b.subscriptionFilters[groupName]
+	for i, f := range filters {
+		if f.FilterName == filterName {
+			b.subscriptionFilters[groupName] = append(filters[:i], filters[i+1:]...)
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: subscription filter %s not found in log group %s",
+		ErrSubscriptionFilterNotFound, filterName, groupName)
+}
+
+// matchingFilters returns subscription filters whose pattern matches any of the given events.
+// Must be called with the write lock held (called from PutLogEvents before Unlock).
+func (b *InMemoryBackend) matchingFilters(groupName string, events []InputLogEvent) []*SubscriptionFilter {
+	filters := b.subscriptionFilters[groupName]
+	if len(filters) == 0 {
+		return nil
+	}
+
+	var matched []*SubscriptionFilter
+	for _, f := range filters {
+		if filterMatches(f.FilterPattern, events) {
+			matched = append(matched, f)
+		}
+	}
+
+	return matched
+}
+
+// filterMatches returns true when the filter pattern matches at least one event.
+// An empty pattern matches all events.
+func filterMatches(pattern string, events []InputLogEvent) bool {
+	if pattern == "" {
+		return len(events) > 0
+	}
+
+	for _, ev := range events {
+		if strings.Contains(ev.Message, pattern) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// deliverToFilters builds the subscription payload and delivers it to each matched filter destination.
+func (b *InMemoryBackend) deliverToFilters(
+	ctx context.Context,
+	groupName, streamName, accountID string,
+	events []InputLogEvent,
+	filters []*SubscriptionFilter,
+	deliverer SubscriptionDeliverer,
+) {
+	filterNames := make([]string, len(filters))
+	for i, f := range filters {
+		filterNames[i] = f.FilterName
+	}
+
+	logEvts := make([]subscriptionLogEvent, len(events))
+	for i, ev := range events {
+		logEvts[i] = subscriptionLogEvent{
+			ID:        uuid.New().String(),
+			Timestamp: ev.Timestamp,
+			Message:   ev.Message,
+		}
+	}
+
+	payload := subscriptionPayload{
+		MessageType:         "DATA_MESSAGE",
+		Owner:               accountID,
+		LogGroup:            groupName,
+		LogStream:           streamName,
+		SubscriptionFilters: filterNames,
+		LogEvents:           logEvts,
+	}
+
+	encoded, err := encodeSubscriptionPayload(payload)
+	if err != nil {
+		slog.Default().WarnContext(ctx, "cloudwatchlogs: failed to encode subscription payload",
+			"logGroup", groupName, "error", err)
+
+		return
+	}
+
+	for _, f := range filters {
+		deliverErr := deliverer.DeliverLogEvents(ctx, f.DestinationArn, encoded)
+		if deliverErr != nil {
+			slog.Default().WarnContext(ctx, "cloudwatchlogs: failed to deliver log events to subscription filter",
+				"logGroup", groupName, "filterName", f.FilterName, "destination", f.DestinationArn, "error", deliverErr)
+		}
+	}
+}
+
+// encodeSubscriptionPayload gzips the JSON payload and base64-encodes it.
+func encodeSubscriptionPayload(payload subscriptionPayload) ([]byte, error) {
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+
+	if _, err = gz.Write(raw); err != nil {
+		return nil, err
+	}
+
+	if err = gz.Close(); err != nil {
+		return nil, err
+	}
+
+	encoded := base64.StdEncoding.EncodeToString(buf.Bytes())
+
+	return []byte(encoded), nil
 }
 
 func filterByTime(events []*OutputLogEvent, startTime, endTime *int64) []*OutputLogEvent {
