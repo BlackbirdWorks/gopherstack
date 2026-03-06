@@ -224,3 +224,218 @@ func TestGetPolicyVersion(t *testing.T) {
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"Version":"2012-10-17","Statement":[]}`, got.PolicyDocument)
 }
+
+func TestDeleteConflict_UserWithAttachedPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr      error
+		name         string
+		attachPolicy bool
+	}{
+		{
+			name:         "user_with_attached_policy",
+			attachPolicy: true,
+			wantErr:      iam.ErrDeleteConflict,
+		},
+		{
+			name:         "user_without_policies",
+			attachPolicy: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newIAMBackend(t)
+
+			_, err := b.CreateUser("alice", "/")
+			require.NoError(t, err)
+
+			if tt.attachPolicy {
+				pol, pErr := b.CreatePolicy("MyPolicy", "/", `{"Version":"2012-10-17","Statement":[]}`)
+				require.NoError(t, pErr)
+				require.NoError(t, b.AttachUserPolicy("alice", pol.Arn))
+			}
+
+			err = b.DeleteUser("alice")
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestDeleteConflict_RoleWithAttachedPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr      error
+		name         string
+		attachPolicy bool
+	}{
+		{
+			name:         "role_with_attached_policy",
+			attachPolicy: true,
+			wantErr:      iam.ErrDeleteConflict,
+		},
+		{
+			name:         "role_without_policies",
+			attachPolicy: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newIAMBackend(t)
+
+			_, err := b.CreateRole("MyRole", "/", `{"Version":"2012-10-17","Statement":[]}`)
+			require.NoError(t, err)
+
+			if tt.attachPolicy {
+				pol, pErr := b.CreatePolicy("RolePolicy", "/", `{"Version":"2012-10-17","Statement":[]}`)
+				require.NoError(t, pErr)
+				require.NoError(t, b.AttachRolePolicy("MyRole", pol.Arn))
+			}
+
+			err = b.DeleteRole("MyRole")
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestDeleteConflict_PolicyAttachedToEntity(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr      error
+		name         string
+		attachToUser bool
+	}{
+		{
+			name:         "policy_attached_to_user",
+			attachToUser: true,
+			wantErr:      iam.ErrDeleteConflict,
+		},
+		{
+			name:         "policy_not_attached",
+			attachToUser: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newIAMBackend(t)
+
+			pol, err := b.CreatePolicy("StuckPolicy", "/", `{"Version":"2012-10-17","Statement":[]}`)
+			require.NoError(t, err)
+
+			if tt.attachToUser {
+				_, uErr := b.CreateUser("bob", "/")
+				require.NoError(t, uErr)
+				require.NoError(t, b.AttachUserPolicy("bob", pol.Arn))
+			}
+
+			err = b.DeletePolicy(pol.Arn)
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestMalformedPolicyDocument(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr error
+		name    string
+		doc     string
+	}{
+		{
+			name:    "invalid_json_create_policy",
+			doc:     "not-json",
+			wantErr: iam.ErrMalformedPolicyDocument,
+		},
+		{
+			name: "valid_json_create_policy",
+			doc:  `{"Version":"2012-10-17","Statement":[]}`,
+		},
+		{
+			name: "empty_doc_allowed",
+			doc:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newIAMBackend(t)
+
+			_, err := b.CreatePolicy("TestPolicy", "/", tt.doc)
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestMalformedPolicyDocument_CreateRole(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr  error
+		name     string
+		trustDoc string
+	}{
+		{
+			name:     "invalid_json_trust_policy",
+			trustDoc: "not-json",
+			wantErr:  iam.ErrMalformedPolicyDocument,
+		},
+		{
+			name:     "valid_json_trust_policy",
+			trustDoc: `{"Version":"2012-10-17","Statement":[]}`,
+		},
+		{
+			name:     "empty_trust_policy_allowed",
+			trustDoc: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newIAMBackend(t)
+
+			_, err := b.CreateRole("TestRole", "/", tt.trustDoc)
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}

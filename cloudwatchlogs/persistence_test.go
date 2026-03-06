@@ -46,6 +46,31 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 				assert.Empty(t, groups)
 			},
 		},
+		{
+			name: "round_trip_preserves_subscription_filters",
+			setup: func(b *cloudwatchlogs.InMemoryBackend) string {
+				_, err := b.CreateLogGroup("sub-grp")
+				if err != nil {
+					return ""
+				}
+				_ = b.PutSubscriptionFilter(
+					"sub-grp", "my-filter", "ERROR",
+					"arn:aws:lambda:us-east-1:123456789012:function:target",
+				)
+
+				return "sub-grp"
+			},
+			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend, id string) {
+				t.Helper()
+
+				filters, _, err := b.DescribeSubscriptionFilters(id, "", "", 100)
+				require.NoError(t, err)
+				require.Len(t, filters, 1)
+				assert.Equal(t, "my-filter", filters[0].FilterName)
+				assert.Equal(t, "ERROR", filters[0].FilterPattern)
+				assert.Equal(t, "arn:aws:lambda:us-east-1:123456789012:function:target", filters[0].DestinationArn)
+			},
+		},
 	}
 
 	for _, tt := range tests {

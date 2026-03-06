@@ -89,6 +89,25 @@ type untagLogGroupInput struct {
 	Tags         []string `json:"tags"`
 }
 
+type putSubscriptionFilterInput struct {
+	FilterPattern  string `json:"filterPattern"`
+	FilterName     string `json:"filterName"`
+	LogGroupName   string `json:"logGroupName"`
+	DestinationArn string `json:"destinationArn"`
+}
+
+type describeSubscriptionFiltersInput struct {
+	FilterNamePrefix string `json:"filterNamePrefix"`
+	LogGroupName     string `json:"logGroupName"`
+	NextToken        string `json:"nextToken"`
+	Limit            int    `json:"limit"`
+}
+
+type deleteSubscriptionFilterInput struct {
+	FilterName   string `json:"filterName"`
+	LogGroupName string `json:"logGroupName"`
+}
+
 // Handler is the Echo HTTP service handler for CloudWatch Logs operations.
 type Handler struct {
 	Backend StorageBackend
@@ -154,6 +173,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		"UntagLogGroup",
 		"PutRetentionPolicy",
 		"DeleteRetentionPolicy",
+		"PutSubscriptionFilter",
+		"DescribeSubscriptionFilters",
+		"DeleteSubscriptionFilter",
 	}
 }
 
@@ -265,6 +287,15 @@ type untagLogGroupOutput struct{}
 type putRetentionPolicyOutput struct{}
 
 type deleteRetentionPolicyOutput struct{}
+
+type putSubscriptionFilterOutput struct{}
+
+type describeSubscriptionFiltersOutput struct {
+	NextToken           string               `json:"nextToken,omitempty"`
+	SubscriptionFilters []SubscriptionFilter `json:"subscriptionFilters"`
+}
+
+type deleteSubscriptionFilterOutput struct{}
 
 func (h *Handler) logGroupActions() map[string]actionFn {
 	return map[string]actionFn{
@@ -433,12 +464,56 @@ func (h *Handler) logTagActions() map[string]actionFn {
 	}
 }
 
+func (h *Handler) subscriptionFilterActions() map[string]actionFn {
+	return map[string]actionFn{
+		"PutSubscriptionFilter": func(b []byte) (any, error) {
+			var input putSubscriptionFilterInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			if err := h.Backend.PutSubscriptionFilter(
+				input.LogGroupName, input.FilterName, input.FilterPattern, input.DestinationArn,
+			); err != nil {
+				return nil, err
+			}
+
+			return &putSubscriptionFilterOutput{}, nil
+		},
+		"DescribeSubscriptionFilters": func(b []byte) (any, error) {
+			var input describeSubscriptionFiltersInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			filters, next, err := h.Backend.DescribeSubscriptionFilters(
+				input.LogGroupName, input.FilterNamePrefix, input.NextToken, input.Limit,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			return &describeSubscriptionFiltersOutput{SubscriptionFilters: filters, NextToken: next}, nil
+		},
+		"DeleteSubscriptionFilter": func(b []byte) (any, error) {
+			var input deleteSubscriptionFilterInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			if err := h.Backend.DeleteSubscriptionFilter(input.LogGroupName, input.FilterName); err != nil {
+				return nil, err
+			}
+
+			return &deleteSubscriptionFilterOutput{}, nil
+		},
+	}
+}
+
 func (h *Handler) dispatchTable() map[string]actionFn {
 	table := make(map[string]actionFn)
 	maps.Copy(table, h.logGroupActions())
 	maps.Copy(table, h.logStreamActions())
 	maps.Copy(table, h.logEventActions())
 	maps.Copy(table, h.logTagActions())
+	maps.Copy(table, h.subscriptionFilterActions())
 
 	return table
 }
@@ -467,12 +542,16 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 	var statusCode int
 
 	switch {
-	case errors.Is(reqErr, ErrLogGroupNotFound), errors.Is(reqErr, ErrLogStreamNotFound):
+	case errors.Is(reqErr, ErrLogGroupNotFound), errors.Is(reqErr, ErrLogStreamNotFound),
+		errors.Is(reqErr, ErrSubscriptionFilterNotFound):
 		errType = "ResourceNotFoundException"
 		statusCode = http.StatusNotFound
 	case errors.Is(reqErr, ErrLogGroupAlreadyExists), errors.Is(reqErr, ErrLogStreamAlreadyExist):
 		errType = "ResourceAlreadyExistsException"
 		statusCode = http.StatusConflict
+	case errors.Is(reqErr, ErrSubscriptionFilterLimitExceed):
+		errType = "LimitExceededException"
+		statusCode = http.StatusBadRequest
 	case errors.Is(reqErr, errUnknownOperation):
 		errType = "UnknownOperationException"
 		statusCode = http.StatusBadRequest

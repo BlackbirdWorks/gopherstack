@@ -142,6 +142,14 @@ func TestHandler_DispatchErrors(t *testing.T) {
 			wantCode:      http.StatusBadRequest,
 			wantErrorType: "UnknownOperationException",
 		},
+		{
+			name:          "delete default event bus returns IllegalStatusException",
+			method:        http.MethodPost,
+			target:        "AmazonEventBridge.DeleteEventBus",
+			body:          `{"Name":"default"}`,
+			wantCode:      http.StatusBadRequest,
+			wantErrorType: "IllegalStatusException",
+		},
 	}
 
 	for _, tt := range tests {

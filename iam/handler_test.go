@@ -1535,10 +1535,10 @@ func TestIAMHandler_InternalFailure(t *testing.T) {
 func TestIAMHandler_DispatchErrors(t *testing.T) {
 	t.Parallel()
 
-	// helper to assert a 400 NoSuchEntity or EntityAlreadyExists error XML response
-	assertErrorCode := func(t *testing.T, rec *httptest.ResponseRecorder, wantCode string) {
+	// helper to assert the correct error code in the XML response
+	assertErrorCode := func(t *testing.T, rec *httptest.ResponseRecorder, wantStatus int, wantCode string) {
 		t.Helper()
-		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Equal(t, wantStatus, rec.Code)
 
 		var errResp iam.ErrorResponse
 		require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
@@ -1546,17 +1546,19 @@ func TestIAMHandler_DispatchErrors(t *testing.T) {
 	}
 
 	for _, tc := range []struct {
-		name     string
-		action   string
-		params   map[string]string
-		setup    func(*iam.InMemoryBackend)
-		wantCode string
+		name       string
+		action     string
+		params     map[string]string
+		setup      func(*iam.InMemoryBackend)
+		wantCode   string
+		wantStatus int
 	}{
 		{
-			name:     "DeleteUser_NotFound",
-			action:   "DeleteUser",
-			params:   map[string]string{"UserName": "nobody"},
-			wantCode: "NoSuchEntity",
+			name:       "DeleteUser_NotFound",
+			action:     "DeleteUser",
+			params:     map[string]string{"UserName": "nobody"},
+			wantCode:   "NoSuchEntity",
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:   "CreateRole_AlreadyExists",
@@ -1565,20 +1567,23 @@ func TestIAMHandler_DispatchErrors(t *testing.T) {
 			setup: func(b *iam.InMemoryBackend) {
 				_, _ = b.CreateRole("MyRole", "/", "")
 			},
-			wantCode: "EntityAlreadyExists",
+			wantCode:   "EntityAlreadyExists",
+			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:     "GetRole_NotFound",
-			action:   "GetRole",
-			params:   map[string]string{"RoleName": "ghost"},
-			wantCode: "NoSuchEntity",
+			name:       "GetRole_NotFound",
+			action:     "GetRole",
+			params:     map[string]string{"RoleName": "ghost"},
+			wantCode:   "NoSuchEntity",
+			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:     "DeleteRole_NotFound",
-			action:   "DeleteRole",
-			params:   map[string]string{"RoleName": "ghost"},
-			setup:    func(_ *iam.InMemoryBackend) {},
-			wantCode: "NoSuchEntity",
+			name:       "DeleteRole_NotFound",
+			action:     "DeleteRole",
+			params:     map[string]string{"RoleName": "ghost"},
+			setup:      func(_ *iam.InMemoryBackend) {},
+			wantCode:   "NoSuchEntity",
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:   "CreatePolicy_AlreadyExists",
@@ -1587,25 +1592,29 @@ func TestIAMHandler_DispatchErrors(t *testing.T) {
 			setup: func(b *iam.InMemoryBackend) {
 				_, _ = b.CreatePolicy("MyPolicy", "/", "")
 			},
-			wantCode: "EntityAlreadyExists",
+			wantCode:   "EntityAlreadyExists",
+			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:     "DeletePolicy_NotFound",
-			action:   "DeletePolicy",
-			params:   map[string]string{"PolicyArn": "arn:aws:iam::000000000000:policy/ghost"},
-			wantCode: "NoSuchEntity",
+			name:       "DeletePolicy_NotFound",
+			action:     "DeletePolicy",
+			params:     map[string]string{"PolicyArn": "arn:aws:iam::000000000000:policy/ghost"},
+			wantCode:   "NoSuchEntity",
+			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:     "AttachUserPolicy_UserNotFound",
-			action:   "AttachUserPolicy",
-			params:   map[string]string{"UserName": "nobody", "PolicyArn": "arn:aws:iam::000000000000:policy/P"},
-			wantCode: "NoSuchEntity",
+			name:       "AttachUserPolicy_UserNotFound",
+			action:     "AttachUserPolicy",
+			params:     map[string]string{"UserName": "nobody", "PolicyArn": "arn:aws:iam::000000000000:policy/P"},
+			wantCode:   "NoSuchEntity",
+			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:     "AttachRolePolicy_RoleNotFound",
-			action:   "AttachRolePolicy",
-			params:   map[string]string{"RoleName": "ghost", "PolicyArn": "arn:aws:iam::000000000000:policy/P"},
-			wantCode: "NoSuchEntity",
+			name:       "AttachRolePolicy_RoleNotFound",
+			action:     "AttachRolePolicy",
+			params:     map[string]string{"RoleName": "ghost", "PolicyArn": "arn:aws:iam::000000000000:policy/P"},
+			wantCode:   "NoSuchEntity",
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:   "CreateGroup_AlreadyExists",
@@ -1614,25 +1623,29 @@ func TestIAMHandler_DispatchErrors(t *testing.T) {
 			setup: func(b *iam.InMemoryBackend) {
 				_, _ = b.CreateGroup("Admins", "/")
 			},
-			wantCode: "EntityAlreadyExists",
+			wantCode:   "EntityAlreadyExists",
+			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:     "DeleteGroup_NotFound",
-			action:   "DeleteGroup",
-			params:   map[string]string{"GroupName": "ghost"},
-			wantCode: "NoSuchEntity",
+			name:       "DeleteGroup_NotFound",
+			action:     "DeleteGroup",
+			params:     map[string]string{"GroupName": "ghost"},
+			wantCode:   "NoSuchEntity",
+			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:     "AddUserToGroup_GroupNotFound",
-			action:   "AddUserToGroup",
-			params:   map[string]string{"GroupName": "ghost", "UserName": "alice"},
-			wantCode: "NoSuchEntity",
+			name:       "AddUserToGroup_GroupNotFound",
+			action:     "AddUserToGroup",
+			params:     map[string]string{"GroupName": "ghost", "UserName": "alice"},
+			wantCode:   "NoSuchEntity",
+			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:     "CreateAccessKey_UserNotFound",
-			action:   "CreateAccessKey",
-			params:   map[string]string{"UserName": "nobody"},
-			wantCode: "NoSuchEntity",
+			name:       "CreateAccessKey_UserNotFound",
+			action:     "CreateAccessKey",
+			params:     map[string]string{"UserName": "nobody"},
+			wantCode:   "NoSuchEntity",
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:   "DeleteAccessKey_NotFound",
@@ -1641,13 +1654,15 @@ func TestIAMHandler_DispatchErrors(t *testing.T) {
 			setup: func(b *iam.InMemoryBackend) {
 				_, _ = b.CreateUser("alice", "/")
 			},
-			wantCode: "NoSuchEntity",
+			wantCode:   "NoSuchEntity",
+			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:     "ListAccessKeys_UserNotFound",
-			action:   "ListAccessKeys",
-			params:   map[string]string{"UserName": "nobody"},
-			wantCode: "NoSuchEntity",
+			name:       "ListAccessKeys_UserNotFound",
+			action:     "ListAccessKeys",
+			params:     map[string]string{"UserName": "nobody"},
+			wantCode:   "NoSuchEntity",
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:   "CreateInstanceProfile_AlreadyExists",
@@ -1656,13 +1671,59 @@ func TestIAMHandler_DispatchErrors(t *testing.T) {
 			setup: func(b *iam.InMemoryBackend) {
 				_, _ = b.CreateInstanceProfile("MyProfile", "/")
 			},
-			wantCode: "EntityAlreadyExists",
+			wantCode:   "EntityAlreadyExists",
+			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:     "DeleteInstanceProfile_NotFound",
-			action:   "DeleteInstanceProfile",
-			params:   map[string]string{"InstanceProfileName": "ghost"},
-			wantCode: "NoSuchEntity",
+			name:       "DeleteInstanceProfile_NotFound",
+			action:     "DeleteInstanceProfile",
+			params:     map[string]string{"InstanceProfileName": "ghost"},
+			wantCode:   "NoSuchEntity",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:   "DeleteUser_DeleteConflict",
+			action: "DeleteUser",
+			params: map[string]string{"UserName": "alice"},
+			setup: func(b *iam.InMemoryBackend) {
+				_, _ = b.CreateUser("alice", "/")
+				pol, _ := b.CreatePolicy("StuckPolicy", "/", "")
+				_ = b.AttachUserPolicy("alice", pol.Arn)
+			},
+			wantCode:   "DeleteConflict",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:   "DeleteRole_DeleteConflict",
+			action: "DeleteRole",
+			params: map[string]string{"RoleName": "MyRole"},
+			setup: func(b *iam.InMemoryBackend) {
+				_, _ = b.CreateRole("MyRole", "/", "")
+				pol, _ := b.CreatePolicy("RolePolicy", "/", "")
+				_ = b.AttachRolePolicy("MyRole", pol.Arn)
+			},
+			wantCode:   "DeleteConflict",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:   "CreateRole_MalformedPolicyDocument",
+			action: "CreateRole",
+			params: map[string]string{
+				"RoleName":                 "BadRole",
+				"AssumeRolePolicyDocument": "not-json",
+			},
+			wantCode:   "MalformedPolicyDocument",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:   "CreatePolicy_MalformedPolicyDocument",
+			action: "CreatePolicy",
+			params: map[string]string{
+				"PolicyName":     "BadPolicy",
+				"PolicyDocument": "not-json",
+			},
+			wantCode:   "MalformedPolicyDocument",
+			wantStatus: http.StatusBadRequest,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1679,7 +1740,7 @@ func TestIAMHandler_DispatchErrors(t *testing.T) {
 
 			err := h.Handler()(c)
 			require.NoError(t, err)
-			assertErrorCode(t, rec, tc.wantCode)
+			assertErrorCode(t, rec, tc.wantStatus, tc.wantCode)
 		})
 	}
 }
