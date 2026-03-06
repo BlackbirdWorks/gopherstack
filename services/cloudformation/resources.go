@@ -1075,3 +1075,69 @@ func (rc *ResourceCreator) deleteAPIGatewayRestAPI(_ context.Context, apiID stri
 
 	return rc.backends.APIGateway.Backend.DeleteRestAPI(apiID)
 }
+
+// NewDynamicRefResolver returns a DynamicRefResolver backed by the SSM and SecretsManager
+// handlers in the given ServiceBackends. Returns nil when backends is nil.
+func NewDynamicRefResolver(backends *ServiceBackends) DynamicRefResolver {
+	if backends == nil {
+		return nil
+	}
+
+	return &serviceBackendsResolver{
+		ssm: backends.SSM,
+		sm:  backends.SecretsManager,
+	}
+}
+
+// serviceBackendsResolver implements DynamicRefResolver using real service backends.
+type serviceBackendsResolver struct {
+	ssm *ssmbackend.Handler
+	sm  *secretsmanagerbackend.Handler
+}
+
+// ResolveSSMParameter retrieves a plain-text (String / StringList) SSM parameter.
+func (r *serviceBackendsResolver) ResolveSSMParameter(name string) (string, error) {
+	if r.ssm == nil {
+		return "", fmt.Errorf("%w: SSM backend is not available", ErrDynamicRefFailed)
+	}
+
+	out, err := r.ssm.Backend.GetParameter(&ssmbackend.GetParameterInput{Name: name})
+	if err != nil {
+		return "", err
+	}
+
+	return out.Parameter.Value, nil
+}
+
+// ResolveSSMSecureParameter retrieves a SecureString SSM parameter with decryption.
+func (r *serviceBackendsResolver) ResolveSSMSecureParameter(name string) (string, error) {
+	if r.ssm == nil {
+		return "", fmt.Errorf("%w: SSM backend is not available", ErrDynamicRefFailed)
+	}
+
+	out, err := r.ssm.Backend.GetParameter(&ssmbackend.GetParameterInput{Name: name, WithDecryption: true})
+	if err != nil {
+		return "", err
+	}
+
+	return out.Parameter.Value, nil
+}
+
+// ResolveSecret retrieves a Secrets Manager secret value.
+// When jsonKey is non-empty the secret string is parsed as JSON and the key is extracted.
+func (r *serviceBackendsResolver) ResolveSecret(secretID, jsonKey string) (string, error) {
+	if r.sm == nil {
+		return "", fmt.Errorf("%w: SecretsManager backend is not available", ErrDynamicRefFailed)
+	}
+
+	out, err := r.sm.Backend.GetSecretValue(&secretsmanagerbackend.GetSecretValueInput{SecretID: secretID})
+	if err != nil {
+		return "", err
+	}
+
+	if jsonKey == "" {
+		return out.SecretString, nil
+	}
+
+	return resolveJSONKey(out.SecretString, jsonKey)
+}
