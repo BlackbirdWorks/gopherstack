@@ -72,3 +72,13 @@ func WriteFunctionURLResponse(w http.ResponseWriter, result []byte) {
 func SetDNSRegistrarExported(b *InMemoryBackend, dns DNSRegistrar) {
 	b.SetDNSRegistrar(dns)
 }
+
+// ParseLayerARN exports parseLayerARN for testing.
+func ParseLayerARN(layerVersionARN string) (string, int64) {
+	return parseLayerARN(layerVersionARN)
+}
+
+// PrepareLayerMount exports prepareLayerMount for testing.
+func PrepareLayerMount(b *InMemoryBackend, fn *FunctionConfiguration) (string, []string, error) {
+	return b.prepareLayerMount(fn)
+}
