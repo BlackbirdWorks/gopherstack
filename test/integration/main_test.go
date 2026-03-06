@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/dynamodb/models"
 	"github.com/blackbirdworks/gopherstack/pkgs/dynamoattr"
+	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 
 	"log/slog"
 

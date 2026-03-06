@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strings"
 
-	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 )
 
 // dynamoDBUpdateStreams handles enabling/disabling DynamoDB Streams on a table.

@@ -5,7 +5,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	ebbackend "github.com/blackbirdworks/gopherstack/eventbridge"
+	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 )
 
 // eventBridgeIndexData is the template data for the EventBridge buses list page.

@@ -3,7 +3,7 @@ package dashboard
 import (
 	"net/http"
 
-	"github.com/blackbirdworks/gopherstack/s3control"
+	"github.com/blackbirdworks/gopherstack/services/s3control"
 	"github.com/labstack/echo/v5"
 )
 

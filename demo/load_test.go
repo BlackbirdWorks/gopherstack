@@ -21,17 +21,17 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
 	"github.com/blackbirdworks/gopherstack/demo"
-	ddbbackend "github.com/blackbirdworks/gopherstack/dynamodb"
-	iambackend "github.com/blackbirdworks/gopherstack/iam"
-	kmsbackend "github.com/blackbirdworks/gopherstack/kms"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
-	s3backend "github.com/blackbirdworks/gopherstack/s3"
-	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/secretsmanager"
-	snsbackend "github.com/blackbirdworks/gopherstack/sns"
-	sqsbackend "github.com/blackbirdworks/gopherstack/sqs"
-	ssmbackend "github.com/blackbirdworks/gopherstack/ssm"
-	stsbackend "github.com/blackbirdworks/gopherstack/sts"
+	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
+	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
+	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
+	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
+	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
+	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
+	sqsbackend "github.com/blackbirdworks/gopherstack/services/sqs"
+	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
+	stsbackend "github.com/blackbirdworks/gopherstack/services/sts"
 )
 
 func TestLoadData(t *testing.T) {

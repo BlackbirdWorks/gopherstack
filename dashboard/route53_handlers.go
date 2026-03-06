@@ -8,7 +8,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	route53backend "github.com/blackbirdworks/gopherstack/route53"
+	route53backend "github.com/blackbirdworks/gopherstack/services/route53"
 )
 
 const (

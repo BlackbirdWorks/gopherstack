@@ -15,9 +15,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	lambdapkg "github.com/blackbirdworks/gopherstack/lambda"
 	pkglogger "github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	lambdapkg "github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
 // makeZipPayload builds an in-memory zip archive with a single handler file.

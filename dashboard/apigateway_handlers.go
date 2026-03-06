@@ -5,7 +5,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	apigwbackend "github.com/blackbirdworks/gopherstack/apigateway"
+	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
 )
 
 // apiGatewayIndexData is the template data for the API Gateway list page.

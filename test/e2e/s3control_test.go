@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	s3controlbackend "github.com/blackbirdworks/gopherstack/s3control"
+	s3controlbackend "github.com/blackbirdworks/gopherstack/services/s3control"
 )
 
 // TestS3ControlDashboard verifies the S3 Control dashboard UI renders public access block configs.

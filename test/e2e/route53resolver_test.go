@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	route53resolverbackend "github.com/blackbirdworks/gopherstack/route53resolver"
+	route53resolverbackend "github.com/blackbirdworks/gopherstack/services/route53resolver"
 )
 
 // TestRoute53ResolverDashboard verifies the Route53 Resolver dashboard UI renders endpoints.

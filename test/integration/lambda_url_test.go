@@ -16,10 +16,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	lambdapkg "github.com/blackbirdworks/gopherstack/lambda"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	lambdapkg "github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
 const (

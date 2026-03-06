@@ -6,7 +6,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	lambdabackend "github.com/blackbirdworks/gopherstack/lambda"
+	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
 // lambdaIndexData is the template data for the Lambda functions list page.

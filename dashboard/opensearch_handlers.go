@@ -5,7 +5,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	opensearchbackend "github.com/blackbirdworks/gopherstack/opensearch"
+	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 )
 
 // opensearchDomainView is the view model for a single OpenSearch domain.

@@ -5,7 +5,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/secretsmanager"
+	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
 )
 
 // secretsManagerView is the view model for a single secret in the dashboard.
