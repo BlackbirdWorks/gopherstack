@@ -66,6 +66,31 @@ func (m *mockLambdaInvoker) Invocations() []lambdaInvocation {
 	return append([]lambdaInvocation{}, m.invocations...)
 }
 
+// mockSNSPublisher records messages published to topics.
+type mockSNSPublisher struct {
+	messages map[string][]string
+	mu       sync.Mutex
+}
+
+func newMockSNSPublisher() *mockSNSPublisher {
+	return &mockSNSPublisher{messages: make(map[string][]string)}
+}
+
+func (m *mockSNSPublisher) PublishToTopic(_ context.Context, topicARN, message string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.messages[topicARN] = append(m.messages[topicARN], message)
+
+	return nil
+}
+
+func (m *mockSNSPublisher) MessagesFor(topicARN string) []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return append([]string{}, m.messages[topicARN]...)
+}
+
 // setupDeliveryBackend creates a backend wired with a mock SQS sender.
 func setupDeliveryBackend(t *testing.T, sqs *mockSQSSender, lam *mockLambdaInvoker) *eventbridge.InMemoryBackend {
 	t.Helper()
@@ -73,6 +98,24 @@ func setupDeliveryBackend(t *testing.T, sqs *mockSQSSender, lam *mockLambdaInvok
 	backend.SetDeliveryTargets(&eventbridge.DeliveryTargets{
 		SQS:    sqs,
 		Lambda: lam,
+	})
+
+	return backend
+}
+
+// setupDeliveryBackendFull creates a backend wired with mock SQS, Lambda, and SNS.
+func setupDeliveryBackendFull(
+	t *testing.T,
+	sqs *mockSQSSender,
+	lam *mockLambdaInvoker,
+	sns *mockSNSPublisher,
+) *eventbridge.InMemoryBackend {
+	t.Helper()
+	backend := eventbridge.NewInMemoryBackend()
+	backend.SetDeliveryTargets(&eventbridge.DeliveryTargets{
+		SQS:    sqs,
+		Lambda: lam,
+		SNS:    sns,
 	})
 
 	return backend
@@ -278,6 +321,405 @@ func TestDelivery_Lambda(t *testing.T) {
 			invocations := lamMock.Invocations()
 			assert.Len(t, invocations, tt.wantInvocations)
 			assert.Equal(t, tt.lambdaARN, invocations[0].name)
+		})
+	}
+}
+
+func TestDelivery_FullEnvelope(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		events        []eventbridge.EventEntry
+		wantFields    []string
+		wantNotFields []string
+	}{
+		{
+			name: "full_envelope_includes_standard_fields",
+			events: []eventbridge.EventEntry{
+				{Source: "test.service", DetailType: "MyEvent", Detail: `{"key": "value"}`},
+			},
+			wantFields: []string{
+				"version",
+				"id",
+				"source",
+				"account",
+				"time",
+				"region",
+				"detail-type",
+				"detail",
+				"resources",
+			},
+		},
+		{
+			name: "detail_is_parsed_as_object_not_string",
+			events: []eventbridge.EventEntry{
+				{Source: "test.service", DetailType: "MyEvent", Detail: `{"nested": {"key": "value"}}`},
+			},
+			wantFields: []string{`"nested"`},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			sqsMock := newMockSQSSender()
+			backend := setupDeliveryBackend(t, sqsMock, nil)
+			queueARN := "arn:aws:sqs:us-east-1:000000000000:envelope-queue-" + tt.name
+
+			_, err := backend.PutRule(eventbridge.PutRuleInput{
+				Name:         "envelope-rule-" + tt.name,
+				EventPattern: `{"source": ["test.service"]}`,
+				State:        "ENABLED",
+			})
+			require.NoError(t, err)
+
+			_, err = backend.PutTargets("envelope-rule-"+tt.name, "default", []eventbridge.Target{
+				{ID: "t1", Arn: queueARN},
+			})
+			require.NoError(t, err)
+
+			backend.PutEvents(tt.events)
+
+			require.Eventually(t, func() bool {
+				return len(sqsMock.MessagesFor(queueARN)) > 0
+			}, 2*time.Second, 10*time.Millisecond)
+
+			msgs := sqsMock.MessagesFor(queueARN)
+			require.Len(t, msgs, 1)
+
+			for _, field := range tt.wantFields {
+				assert.Contains(t, msgs[0], field, "expected field %q in payload", field)
+			}
+		})
+	}
+}
+
+func TestDelivery_InputPath(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		inputPath    string
+		wantContains string
+		wantJSONEq   string
+		events       []eventbridge.EventEntry
+	}{
+		{
+			name:      "input_path_extracts_source",
+			inputPath: "$.source",
+			events: []eventbridge.EventEntry{
+				{Source: "path.service", DetailType: "Evt", Detail: `{}`},
+			},
+			wantJSONEq: `"path.service"`,
+		},
+		{
+			name:      "input_path_extracts_detail_field",
+			inputPath: "$.detail",
+			events: []eventbridge.EventEntry{
+				{Source: "path.service", DetailType: "Evt", Detail: `{"key": "extracted"}`},
+			},
+			wantJSONEq: `{"key":"extracted"}`,
+		},
+		{
+			name:      "input_path_extracts_nested_field",
+			inputPath: "$.detail.key",
+			events: []eventbridge.EventEntry{
+				{Source: "path.service", DetailType: "Evt", Detail: `{"key": "nested-value"}`},
+			},
+			wantJSONEq: `"nested-value"`,
+		},
+		{
+			name:      "input_path_root_returns_full_envelope",
+			inputPath: "$",
+			events: []eventbridge.EventEntry{
+				{Source: "path.service", DetailType: "Evt", Detail: `{}`},
+			},
+			wantContains: "path.service",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			sqsMock := newMockSQSSender()
+			backend := setupDeliveryBackend(t, sqsMock, nil)
+			queueARN := "arn:aws:sqs:us-east-1:000000000000:path-queue-" + tt.name
+			ruleName := "path-rule-" + tt.name
+
+			_, err := backend.PutRule(eventbridge.PutRuleInput{
+				Name:         ruleName,
+				EventPattern: `{"source": ["path.service"]}`,
+				State:        "ENABLED",
+			})
+			require.NoError(t, err)
+
+			_, err = backend.PutTargets(ruleName, "default", []eventbridge.Target{
+				{ID: "t1", Arn: queueARN, InputPath: tt.inputPath},
+			})
+			require.NoError(t, err)
+
+			backend.PutEvents(tt.events)
+
+			require.Eventually(t, func() bool {
+				return len(sqsMock.MessagesFor(queueARN)) > 0
+			}, 2*time.Second, 10*time.Millisecond)
+
+			msgs := sqsMock.MessagesFor(queueARN)
+			require.Len(t, msgs, 1)
+
+			if tt.wantJSONEq != "" {
+				assert.JSONEq(t, tt.wantJSONEq, msgs[0])
+			}
+
+			if tt.wantContains != "" {
+				assert.Contains(t, msgs[0], tt.wantContains)
+			}
+		})
+	}
+}
+
+func TestDelivery_InputTransformer(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		inputTransformer *eventbridge.InputTransformer
+		name             string
+		wantJSONEq       string
+		wantContains     string
+		events           []eventbridge.EventEntry
+	}{
+		{
+			name: "input_transformer_simple_variable_substitution",
+			inputTransformer: &eventbridge.InputTransformer{
+				InputPathsMap: map[string]string{
+					"src":  "$.source",
+					"type": "$.detail-type",
+				},
+				InputTemplate: `{"event_source": "<src>", "event_type": "<type>"}`,
+			},
+			events: []eventbridge.EventEntry{
+				{Source: "transform.service", DetailType: "TransformEvent", Detail: `{}`},
+			},
+			wantJSONEq: `{"event_source": "transform.service", "event_type": "TransformEvent"}`,
+		},
+		{
+			name: "input_transformer_extracts_detail_field",
+			inputTransformer: &eventbridge.InputTransformer{
+				InputPathsMap: map[string]string{
+					"orderID": "$.detail.orderId",
+				},
+				InputTemplate: `{"orderId": "<orderID>"}`,
+			},
+			events: []eventbridge.EventEntry{
+				{Source: "order.service", DetailType: "OrderPlaced", Detail: `{"orderId": "abc-123"}`},
+			},
+			wantJSONEq: `{"orderId": "abc-123"}`,
+		},
+		{
+			name: "input_transformer_missing_path_uses_empty_string",
+			inputTransformer: &eventbridge.InputTransformer{
+				InputPathsMap: map[string]string{
+					"missing": "$.detail.nonexistent",
+				},
+				InputTemplate: `{"val": "<missing>"}`,
+			},
+			events: []eventbridge.EventEntry{
+				{Source: "transform.service", DetailType: "Evt", Detail: `{"other": "field"}`},
+			},
+			wantJSONEq: `{"val": ""}`,
+		},
+		{
+			name: "input_transformer_plain_text_template",
+			inputTransformer: &eventbridge.InputTransformer{
+				InputPathsMap: map[string]string{
+					"src": "$.source",
+				},
+				InputTemplate: `"Event from <src>"`,
+			},
+			events: []eventbridge.EventEntry{
+				{Source: "text.service", DetailType: "Evt", Detail: `{}`},
+			},
+			wantContains: "text.service",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			sqsMock := newMockSQSSender()
+			backend := setupDeliveryBackend(t, sqsMock, nil)
+			queueARN := "arn:aws:sqs:us-east-1:000000000000:transform-queue-" + tt.name
+			ruleName := "transform-rule-" + tt.name
+
+			_, err := backend.PutRule(eventbridge.PutRuleInput{
+				Name:         ruleName,
+				EventPattern: `{"source": ["transform.service", "order.service", "text.service"]}`,
+				State:        "ENABLED",
+			})
+			require.NoError(t, err)
+
+			_, err = backend.PutTargets(ruleName, "default", []eventbridge.Target{
+				{ID: "t1", Arn: queueARN, InputTransformer: tt.inputTransformer},
+			})
+			require.NoError(t, err)
+
+			backend.PutEvents(tt.events)
+
+			require.Eventually(t, func() bool {
+				return len(sqsMock.MessagesFor(queueARN)) > 0
+			}, 2*time.Second, 10*time.Millisecond)
+
+			msgs := sqsMock.MessagesFor(queueARN)
+			require.Len(t, msgs, 1)
+
+			if tt.wantJSONEq != "" {
+				assert.JSONEq(t, tt.wantJSONEq, msgs[0])
+			}
+
+			if tt.wantContains != "" {
+				assert.Contains(t, msgs[0], tt.wantContains)
+			}
+		})
+	}
+}
+
+func TestDelivery_SNS(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		ruleName      string
+		eventPattern  string
+		topicARN      string
+		wantContains  string
+		events        []eventbridge.EventEntry
+		wantLen       int
+		wantDelivered bool
+	}{
+		{
+			name:         "fanout_delivers_to_matching_topic",
+			ruleName:     "sns-rule",
+			eventPattern: `{"source": ["sns.test.service"]}`,
+			topicARN:     "arn:aws:sns:us-east-1:000000000000:my-topic",
+			events: []eventbridge.EventEntry{
+				{Source: "sns.test.service", DetailType: "SnsEvent", Detail: `{"msg": "hello"}`},
+			},
+			wantDelivered: true,
+			wantLen:       1,
+			wantContains:  "sns.test.service",
+		},
+		{
+			name:         "disabled_rule_no_sns_delivery",
+			ruleName:     "sns-disabled-rule",
+			eventPattern: `{"source": ["sns.test.service"]}`,
+			topicARN:     "arn:aws:sns:us-east-1:000000000000:disabled-topic",
+			events: []eventbridge.EventEntry{
+				{Source: "sns.test.service", DetailType: "SnsEvent", Detail: `{}`},
+			},
+			wantDelivered: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			snsMock := newMockSNSPublisher()
+			backend := setupDeliveryBackendFull(t, nil, nil, snsMock)
+
+			state := "ENABLED"
+			if !tt.wantDelivered {
+				state = "DISABLED"
+			}
+
+			_, err := backend.PutRule(eventbridge.PutRuleInput{
+				Name:         tt.ruleName,
+				EventPattern: tt.eventPattern,
+				State:        state,
+			})
+			require.NoError(t, err)
+
+			_, err = backend.PutTargets(tt.ruleName, "default", []eventbridge.Target{
+				{ID: "t1", Arn: tt.topicARN},
+			})
+			require.NoError(t, err)
+
+			backend.PutEvents(tt.events)
+
+			if tt.wantDelivered {
+				require.Eventually(t, func() bool {
+					return len(snsMock.MessagesFor(tt.topicARN)) > 0
+				}, 2*time.Second, 10*time.Millisecond)
+
+				msgs := snsMock.MessagesFor(tt.topicARN)
+				assert.Len(t, msgs, tt.wantLen)
+
+				if tt.wantContains != "" {
+					assert.Contains(t, msgs[0], tt.wantContains)
+				}
+			} else {
+				require.Never(t, func() bool {
+					return len(snsMock.MessagesFor(tt.topicARN)) > 0
+				}, 100*time.Millisecond, 10*time.Millisecond, "expected no messages for disabled rule")
+			}
+		})
+	}
+}
+
+func TestDelivery_UnsupportedARN(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		targets []eventbridge.Target
+		events  []eventbridge.EventEntry
+	}{
+		{
+			name: "unsupported_arn_logs_warning_no_panic",
+			targets: []eventbridge.Target{
+				{ID: "t1", Arn: "arn:aws:firehose:us-east-1:000000000000:deliverystream/my-stream"},
+			},
+			events: []eventbridge.EventEntry{
+				{Source: "warn.test.service", DetailType: "Evt", Detail: `{}`},
+			},
+		},
+		{
+			name: "nil_sqs_target_does_not_panic",
+			targets: []eventbridge.Target{
+				{ID: "t1", Arn: "arn:aws:sqs:us-east-1:000000000000:no-sqs-backend"},
+			},
+			events: []eventbridge.EventEntry{
+				{Source: "warn.test.service", DetailType: "Evt", Detail: `{}`},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			// No SQS/SNS/Lambda configured - targets get dropped gracefully.
+			backend := eventbridge.NewInMemoryBackend()
+			backend.SetDeliveryTargets(&eventbridge.DeliveryTargets{})
+
+			_, err := backend.PutRule(eventbridge.PutRuleInput{
+				Name:         "warn-rule-" + tt.name,
+				EventPattern: `{"source": ["warn.test.service"]}`,
+				State:        "ENABLED",
+			})
+			require.NoError(t, err)
+
+			_, err = backend.PutTargets("warn-rule-"+tt.name, "default", tt.targets)
+			require.NoError(t, err)
+
+			// Should not panic even with no backend configured.
+			require.NotPanics(t, func() {
+				backend.PutEvents(tt.events)
+			})
 		})
 	}
 }
