@@ -19,6 +19,7 @@ import (
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	ddbsdktypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -58,6 +59,7 @@ import (
 	rdsbackend "github.com/blackbirdworks/gopherstack/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/redshift"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/resourcegroups"
+	resourcegroupstaggingapibackend "github.com/blackbirdworks/gopherstack/resourcegroupstaggingapi"
 	route53backend "github.com/blackbirdworks/gopherstack/route53"
 	route53resolverbackend "github.com/blackbirdworks/gopherstack/route53resolver"
 	s3backend "github.com/blackbirdworks/gopherstack/s3"
@@ -87,75 +89,76 @@ const (
 
 // CLI holds all command-line / environment-variable configuration for Gopherstack.
 type CLI struct {
-	SSM                    struct{}            `embed:"" prefix:"ssm-"`
-	SecretsManager         struct{}            `embed:"" prefix:"secretsmanager-"`
-	KMS                    struct{}            `embed:"" prefix:"kms-"`
-	SQS                    sqsbackend.Settings `embed:"" prefix:"sqs-"`
-	SNS                    struct{}            `embed:"" prefix:"sns-"`
-	STS                    struct{}            `embed:"" prefix:"sts-"`
-	IAM                    struct{}            `embed:"" prefix:"iam-"`
-	kinesisHandler         service.Registerable
-	elasticacheHandler     service.Registerable
-	secretsManagerHandler  service.Registerable
-	ddbHandler             service.Registerable
-	s3Handler              service.Registerable
-	ssmHandler             service.Registerable
-	iamHandler             service.Registerable
-	stsHandler             service.Registerable
-	snsHandler             service.Registerable
-	sqsHandler             service.Registerable
-	lambdaHandler          service.Registerable
-	eventBridgeHandler     service.Registerable
-	apiGatewayHandler      service.Registerable
-	cloudWatchLogsHandler  service.Registerable
-	stepFunctionsHandler   service.Registerable
-	cloudWatchHandler      service.Registerable
-	cloudFormationHandler  service.Registerable
-	kmsHandler             service.Registerable
-	route53Handler         service.Registerable
-	sesHandler             service.Registerable
-	ec2Handler             service.Registerable
-	openSearchHandler      service.Registerable
-	acmHandler             service.Registerable
-	redshiftHandler        service.Registerable
-	rdsHandler             service.Registerable
-	awsconfigHandler       service.Registerable
-	s3controlHandler       service.Registerable
-	resourcegroupsHandler  service.Registerable
-	swfHandler             service.Registerable
-	firehoseHandler        service.Registerable
-	schedulerHandler       service.Registerable
-	route53resolverHandler service.Registerable
-	transcribeHandler      service.Registerable
-	supportHandler         service.Registerable
-	snsClient              *sns.Client
-	kmsClient              *kms.Client
-	iamClient              *iam.Client
-	s3Client               *s3.Client
-	ssmClient              *ssmsdk.Client
-	ddbClient              *dynamodb.Client
-	stsClient              *stssdk.Client
-	sqsClient              *sqssdk.Client
-	secretsManagerClient   *secretsmanager.Client
-	AccountID              string                 `                                  name:"account-id"         env:"ACCOUNT_ID"           default:"000000000000" help:"Mock AWS account ID used in ARNs."`                                                            //nolint:lll // config struct tags are intentionally verbose
-	Port                   string                 `                                  name:"port"               env:"PORT"                 default:"8000"         help:"HTTP server port."`                                                                            //nolint:lll // config struct tags are intentionally verbose
-	ElastiCacheEngine      string                 `                                  name:"elasticache-engine" env:"ELASTICACHE_ENGINE"   default:"embedded"     help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`                              //nolint:lll // config struct tags are intentionally verbose
-	OpenSearchEngine       string                 `                                  name:"opensearch-engine"  env:"OPENSEARCH_ENGINE"    default:"stub"         help:"OpenSearch engine mode: stub (API-only) or docker."`                                           //nolint:lll // config struct tags are intentionally verbose
-	Region                 string                 `                                  name:"region"             env:"REGION"               default:"us-east-1"    help:"AWS region."`                                                                                  //nolint:lll // config struct tags are intentionally verbose
-	LogLevel               string                 `                                  name:"log-level"          env:"LOG_LEVEL"            default:"info"         help:"Log level (debug|info|warn|error)."`                                                           //nolint:lll // config struct tags are intentionally verbose
-	DNSListenAddr          string                 `                                  name:"dns-addr"           env:"DNS_ADDR"             default:""             help:"Address for embedded DNS server (e.g. :10053). Empty = disabled."`                             //nolint:lll // config struct tags are intentionally verbose
-	DNSResolveIP           string                 `                                  name:"dns-resolve-ip"     env:"DNS_RESOLVE_IP"       default:"127.0.0.1"    help:"IP address synthetic hostnames resolve to."`                                                   //nolint:lll // config struct tags are intentionally verbose
-	DataDir                string                 `                                  name:"data-dir"           env:"GOPHERSTACK_DATA_DIR" default:""             help:"Directory for persistence data files (default: ~/.gopherstack/data, or /data in containers)."` //nolint:lll // config struct tags are intentionally verbose
-	S3                     s3backend.Settings     `embed:"" prefix:"s3-"`
-	InitScripts            []string               `                                  name:"init-script"        env:"INIT_SCRIPTS"                                help:"Shell scripts to run on startup (may be specified multiple times)."` //nolint:lll // config struct tags are intentionally verbose
-	Lambda                 lambdabackend.Settings `embed:"" prefix:"lambda-"`
-	DynamoDB               ddbbackend.Settings    `embed:"" prefix:"dynamodb-"`
-	PortRangeStart         int                    `                                  name:"port-range-start"   env:"PORT_RANGE_START"     default:"10000"        help:"Start of the port range for resource endpoints."`                                                                            //nolint:lll // config struct tags are intentionally verbose
-	PortRangeEnd           int                    `                                  name:"port-range-end"     env:"PORT_RANGE_END"       default:"10100"        help:"End (exclusive) of the port range for resource endpoints."`                                                                  //nolint:lll // config struct tags are intentionally verbose
-	InitScriptTimeout      time.Duration          `                                  name:"init-timeout"       env:"INIT_TIMEOUT"         default:"30s"          help:"Per-script timeout for init hooks."`                                                                                         //nolint:lll // config struct tags are intentionally verbose
-	Demo                   bool                   `                                  name:"demo"               env:"DEMO"                 default:"false"        help:"Load demo data on startup."`                                                                                                 //nolint:lll // config struct tags are intentionally verbose
-	Persist                bool                   `                                  name:"persist"            env:"PERSIST"              default:"false"        help:"Enable snapshot-based persistence across restarts."`                                                                         //nolint:lll // config struct tags are intentionally verbose
-	LatencyMs              int                    `                                  name:"latency-ms"         env:"LATENCY_MS"           default:"0"            help:"Inject random latency [0,N) ms per request (0 = disabled). Values near the 30 s write timeout may cause connection errors."` //nolint:lll // config struct tags are intentionally verbose
+	SSM                          struct{}            `embed:"" prefix:"ssm-"`
+	SecretsManager               struct{}            `embed:"" prefix:"secretsmanager-"`
+	KMS                          struct{}            `embed:"" prefix:"kms-"`
+	SQS                          sqsbackend.Settings `embed:"" prefix:"sqs-"`
+	SNS                          struct{}            `embed:"" prefix:"sns-"`
+	STS                          struct{}            `embed:"" prefix:"sts-"`
+	IAM                          struct{}            `embed:"" prefix:"iam-"`
+	kinesisHandler               service.Registerable
+	elasticacheHandler           service.Registerable
+	secretsManagerHandler        service.Registerable
+	ddbHandler                   service.Registerable
+	s3Handler                    service.Registerable
+	ssmHandler                   service.Registerable
+	iamHandler                   service.Registerable
+	stsHandler                   service.Registerable
+	snsHandler                   service.Registerable
+	sqsHandler                   service.Registerable
+	lambdaHandler                service.Registerable
+	eventBridgeHandler           service.Registerable
+	apiGatewayHandler            service.Registerable
+	cloudWatchLogsHandler        service.Registerable
+	stepFunctionsHandler         service.Registerable
+	cloudWatchHandler            service.Registerable
+	cloudFormationHandler        service.Registerable
+	kmsHandler                   service.Registerable
+	route53Handler               service.Registerable
+	sesHandler                   service.Registerable
+	ec2Handler                   service.Registerable
+	openSearchHandler            service.Registerable
+	acmHandler                   service.Registerable
+	redshiftHandler              service.Registerable
+	rdsHandler                   service.Registerable
+	awsconfigHandler             service.Registerable
+	s3controlHandler             service.Registerable
+	resourcegroupsHandler        service.Registerable
+	resourcegroupstaggingHandler service.Registerable
+	swfHandler                   service.Registerable
+	firehoseHandler              service.Registerable
+	schedulerHandler             service.Registerable
+	route53resolverHandler       service.Registerable
+	transcribeHandler            service.Registerable
+	supportHandler               service.Registerable
+	snsClient                    *sns.Client
+	kmsClient                    *kms.Client
+	iamClient                    *iam.Client
+	s3Client                     *s3.Client
+	ssmClient                    *ssmsdk.Client
+	ddbClient                    *dynamodb.Client
+	stsClient                    *stssdk.Client
+	sqsClient                    *sqssdk.Client
+	secretsManagerClient         *secretsmanager.Client
+	AccountID                    string                 `                                  name:"account-id"         env:"ACCOUNT_ID"           default:"000000000000" help:"Mock AWS account ID used in ARNs."`                                                            //nolint:lll // config struct tags are intentionally verbose
+	Port                         string                 `                                  name:"port"               env:"PORT"                 default:"8000"         help:"HTTP server port."`                                                                            //nolint:lll // config struct tags are intentionally verbose
+	ElastiCacheEngine            string                 `                                  name:"elasticache-engine" env:"ELASTICACHE_ENGINE"   default:"embedded"     help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`                              //nolint:lll // config struct tags are intentionally verbose
+	OpenSearchEngine             string                 `                                  name:"opensearch-engine"  env:"OPENSEARCH_ENGINE"    default:"stub"         help:"OpenSearch engine mode: stub (API-only) or docker."`                                           //nolint:lll // config struct tags are intentionally verbose
+	Region                       string                 `                                  name:"region"             env:"REGION"               default:"us-east-1"    help:"AWS region."`                                                                                  //nolint:lll // config struct tags are intentionally verbose
+	LogLevel                     string                 `                                  name:"log-level"          env:"LOG_LEVEL"            default:"info"         help:"Log level (debug|info|warn|error)."`                                                           //nolint:lll // config struct tags are intentionally verbose
+	DNSListenAddr                string                 `                                  name:"dns-addr"           env:"DNS_ADDR"             default:""             help:"Address for embedded DNS server (e.g. :10053). Empty = disabled."`                             //nolint:lll // config struct tags are intentionally verbose
+	DNSResolveIP                 string                 `                                  name:"dns-resolve-ip"     env:"DNS_RESOLVE_IP"       default:"127.0.0.1"    help:"IP address synthetic hostnames resolve to."`                                                   //nolint:lll // config struct tags are intentionally verbose
+	DataDir                      string                 `                                  name:"data-dir"           env:"GOPHERSTACK_DATA_DIR" default:""             help:"Directory for persistence data files (default: ~/.gopherstack/data, or /data in containers)."` //nolint:lll // config struct tags are intentionally verbose
+	S3                           s3backend.Settings     `embed:"" prefix:"s3-"`
+	InitScripts                  []string               `                                  name:"init-script"        env:"INIT_SCRIPTS"                                help:"Shell scripts to run on startup (may be specified multiple times)."` //nolint:lll // config struct tags are intentionally verbose
+	Lambda                       lambdabackend.Settings `embed:"" prefix:"lambda-"`
+	DynamoDB                     ddbbackend.Settings    `embed:"" prefix:"dynamodb-"`
+	PortRangeStart               int                    `                                  name:"port-range-start"   env:"PORT_RANGE_START"     default:"10000"        help:"Start of the port range for resource endpoints."`                                                                            //nolint:lll // config struct tags are intentionally verbose
+	PortRangeEnd                 int                    `                                  name:"port-range-end"     env:"PORT_RANGE_END"       default:"10100"        help:"End (exclusive) of the port range for resource endpoints."`                                                                  //nolint:lll // config struct tags are intentionally verbose
+	InitScriptTimeout            time.Duration          `                                  name:"init-timeout"       env:"INIT_TIMEOUT"         default:"30s"          help:"Per-script timeout for init hooks."`                                                                                         //nolint:lll // config struct tags are intentionally verbose
+	Demo                         bool                   `                                  name:"demo"               env:"DEMO"                 default:"false"        help:"Load demo data on startup."`                                                                                                 //nolint:lll // config struct tags are intentionally verbose
+	Persist                      bool                   `                                  name:"persist"            env:"PERSIST"              default:"false"        help:"Enable snapshot-based persistence across restarts."`                                                                         //nolint:lll // config struct tags are intentionally verbose
+	LatencyMs                    int                    `                                  name:"latency-ms"         env:"LATENCY_MS"           default:"0"            help:"Inject random latency [0,N) ms per request (0 = disabled). Values near the 30 s write timeout may cause connection errors."` //nolint:lll // config struct tags are intentionally verbose
 }
 
 // GetGlobalConfig returns the centralised account ID and region (config.Provider).
@@ -372,6 +375,13 @@ func (c *CLI) GetS3ControlHandler() service.Registerable { return c.s3controlHan
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetResourceGroupsHandler() service.Registerable { return c.resourcegroupsHandler }
+
+// GetResourceGroupsTaggingHandler returns the Resource Groups Tagging API handler.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetResourceGroupsTaggingHandler() service.Registerable {
+	return c.resourcegroupstaggingHandler
+}
 
 // GetSWFHandler returns the SWF handler (dashboard.AWSSDKProvider).
 //
@@ -707,6 +717,7 @@ func storeCLIHandlers(cli *CLI, services []service.Registerable) {
 	cli.awsconfigHandler = byName["AWSConfig"]
 	cli.s3controlHandler = byName["S3Control"]
 	cli.resourcegroupsHandler = byName["ResourceGroups"]
+	cli.resourcegroupstaggingHandler = byName["ResourceGroupsTaggingAPI"]
 	cli.swfHandler = byName["SWF"]
 	cli.firehoseHandler = byName["Firehose"]
 	cli.schedulerHandler = byName["Scheduler"]
@@ -719,43 +730,8 @@ func storeCLIHandlers(cli *CLI, services []service.Registerable) {
 // initializeServices initializes all service providers.
 func initializeServices(appCtx *service.AppContext) ([]service.Registerable, error) {
 	var services []service.Registerable
-	serviceProviders := []service.Provider{
-		&ddbbackend.Provider{},
-		&s3backend.Provider{},
-		&ssmbackend.Provider{},
-		&iambackend.Provider{},
-		&stsbackend.Provider{},
-		&snsbackend.Provider{},
-		&sqsbackend.Provider{},
-		&kmsbackend.Provider{},
-		&secretsmanagerbackend.Provider{},
-		&lambdabackend.Provider{},
-		&ebbackend.Provider{},
-		&apigwbackend.Provider{},
-		&cwlogsbackend.Provider{},
-		&sfnbackend.Provider{},
-		&cwbackend.Provider{},
-		&kinesisbackend.Provider{},
-		&elasticachebackend.Provider{},
-		&route53backend.Provider{},
-		&sesbackend.Provider{},
-		&ec2backend.Provider{},
-		&opensearchbackend.Provider{},
-		&acmbackend.Provider{},
-		&redshiftbackend.Provider{},
-		&awsconfigbackend.Provider{},
-		&s3controlbackend.Provider{},
-		&resourcegroupsbackend.Provider{},
-		&swfbackend.Provider{},
-		&firehosebackend.Provider{},
-		&schedulerbackend.Provider{},
-		&route53resolverbackend.Provider{},
-		&rdsbackend.Provider{},
-		&transcribebackend.Provider{},
-		&supportbackend.Provider{},
-	}
 
-	for _, provider := range serviceProviders {
+	for _, provider := range getServiceProviders() {
 		svc, err := provider.Init(appCtx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to init %s: %w", provider.Name(), err)
@@ -802,6 +778,18 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	// Wire Lambda invoker → SecretsManager rotation.
 	wireSecretsManagerLambda(byName["SecretsManager"], byName["Lambda"])
 
+	// Wire Resource Groups Tagging API → service backends so GetResources, TagResources, etc.
+	// aggregate and mutate tags across all services.
+	wireResourceGroupsTagging(
+		byName["ResourceGroupsTaggingAPI"],
+		byName["DynamoDB"],
+		byName["SQS"],
+		byName["SNS"],
+		byName["Lambda"],
+		byName["KMS"],
+		byName["SecretsManager"],
+	)
+
 	// Init CloudFormation after core handlers are stored so it can access their backends.
 	cfnSvc, err := (&cfnbackend.Provider{}).Init(appCtx)
 	if err != nil {
@@ -824,6 +812,46 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	// The router sorts services by MatchPriority() at startup, so registration order
 	// does not affect routing correctness.
 	return services, nil
+}
+
+// getServiceProviders returns the list of all available service providers.
+func getServiceProviders() []service.Provider {
+	return []service.Provider{
+		&ddbbackend.Provider{},
+		&s3backend.Provider{},
+		&ssmbackend.Provider{},
+		&iambackend.Provider{},
+		&stsbackend.Provider{},
+		&snsbackend.Provider{},
+		&sqsbackend.Provider{},
+		&kmsbackend.Provider{},
+		&secretsmanagerbackend.Provider{},
+		&lambdabackend.Provider{},
+		&ebbackend.Provider{},
+		&apigwbackend.Provider{},
+		&cwlogsbackend.Provider{},
+		&sfnbackend.Provider{},
+		&cwbackend.Provider{},
+		&kinesisbackend.Provider{},
+		&elasticachebackend.Provider{},
+		&route53backend.Provider{},
+		&sesbackend.Provider{},
+		&ec2backend.Provider{},
+		&opensearchbackend.Provider{},
+		&acmbackend.Provider{},
+		&redshiftbackend.Provider{},
+		&awsconfigbackend.Provider{},
+		&s3controlbackend.Provider{},
+		&resourcegroupsbackend.Provider{},
+		&resourcegroupstaggingapibackend.Provider{},
+		&swfbackend.Provider{},
+		&firehosebackend.Provider{},
+		&schedulerbackend.Provider{},
+		&route53resolverbackend.Provider{},
+		&rdsbackend.Provider{},
+		&transcribebackend.Provider{},
+		&supportbackend.Provider{},
+	}
 }
 
 // startBackgroundWorkers starts all background workers from services.
@@ -1280,6 +1308,284 @@ func wireSecretsManagerLambda(smReg, lambdaReg service.Registerable) {
 			smH.SetLambdaInvoker(lambdaBk)
 		}
 	}
+}
+
+// arnServiceIs returns true if the ARN's service segment (the third colon-delimited field)
+// matches the given service name exactly. This is more precise than a substring search since
+// ARN format is "arn:aws:SERVICE:REGION:ACCOUNT:RESOURCE".
+func arnServiceIs(a, serviceName string) bool {
+	// Fast path: ARN must start with "arn:aws:" (or "arn:aws-cn:", "arn:aws-us-gov:", etc.)
+	// We split on ":" up to 3 parts to extract just the service field.
+	start := strings.Index(a, ":")
+	if start < 0 {
+		return false
+	}
+
+	start++ // skip past first ":"
+
+	next := strings.Index(a[start:], ":")
+	if next < 0 {
+		return false
+	}
+
+	start += next + 1 // skip past second ":"
+
+	end := strings.Index(a[start:], ":")
+	if end < 0 {
+		return false
+	}
+
+	return a[start:start+end] == serviceName
+}
+
+// registerTaggingService wires a single service's provider, ARN tagger, and ARN untagger into
+// the Resource Groups Tagging API backend. arnService is the AWS service name used to match
+// the service segment of an ARN (e.g., "sqs", "sns", "lambda").
+func registerTaggingService(
+	bk *resourcegroupstaggingapibackend.InMemoryBackend,
+	provider resourcegroupstaggingapibackend.ResourceProvider,
+	arnService string,
+	tagger func(string, map[string]string) error,
+	untagger func(string, []string) error,
+) {
+	bk.RegisterProvider(provider)
+	bk.RegisterARNTagger(func(arn string, newTags map[string]string) (bool, error) {
+		if !arnServiceIs(arn, arnService) {
+			return false, nil
+		}
+
+		return true, tagger(arn, newTags)
+	})
+	bk.RegisterARNUntagger(func(arn string, keys []string) (bool, error) {
+		if !arnServiceIs(arn, arnService) {
+			return false, nil
+		}
+
+		return true, untagger(arn, keys)
+	})
+}
+
+// wireResourceGroupsTagging connects the Resource Groups Tagging API backend to all
+// service backends so that GetResources, GetTagKeys, GetTagValues, TagResources, and
+// UntagResources work cross-service.
+func wireResourceGroupsTagging(
+	taggingReg service.Registerable,
+	ddbReg service.Registerable,
+	sqsReg service.Registerable,
+	snsReg service.Registerable,
+	lambdaReg service.Registerable,
+	kmsReg service.Registerable,
+	smReg service.Registerable,
+) {
+	taggingH, ok := taggingReg.(*resourcegroupstaggingapibackend.Handler)
+	if !ok {
+		return
+	}
+
+	bk := taggingH.Backend
+
+	wireTaggingDDB(bk, ddbReg)
+	wireTaggingSQS(bk, sqsReg)
+	wireTaggingSNS(bk, snsReg)
+	wireTaggingLambda(bk, lambdaReg)
+	wireTaggingKMS(bk, kmsReg)
+	wireTaggingSM(bk, smReg)
+}
+
+func wireTaggingDDB(bk *resourcegroupstaggingapibackend.InMemoryBackend, ddbReg service.Registerable) {
+	ddbH, ok := ddbReg.(*ddbbackend.DynamoDBHandler)
+	if !ok {
+		return
+	}
+
+	ddbBk, ok := ddbH.Backend.(*ddbbackend.InMemoryDB)
+	if !ok {
+		return
+	}
+
+	registerTaggingService(bk,
+		func() []resourcegroupstaggingapibackend.TaggedResource {
+			tables := ddbBk.TaggedTables()
+			out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(tables))
+			for _, t := range tables {
+				out = append(out, resourcegroupstaggingapibackend.TaggedResource{
+					ResourceARN:  t.ARN,
+					ResourceType: "dynamodb:table",
+					Tags:         t.Tags,
+				})
+			}
+
+			return out
+		},
+		"dynamodb",
+		func(arn string, newTags map[string]string) error {
+			sdkTags := make([]ddbsdktypes.Tag, 0, len(newTags))
+			for k, v := range newTags {
+				tagKey, tagValue := k, v
+				sdkTags = append(sdkTags, ddbsdktypes.Tag{Key: &tagKey, Value: &tagValue})
+			}
+
+			_, err := ddbBk.TagResource(context.Background(), &dynamodb.TagResourceInput{
+				ResourceArn: aws.String(arn),
+				Tags:        sdkTags,
+			})
+
+			return err
+		},
+		func(arn string, keys []string) error {
+			_, err := ddbBk.UntagResource(context.Background(), &dynamodb.UntagResourceInput{
+				ResourceArn: aws.String(arn),
+				TagKeys:     keys,
+			})
+
+			return err
+		},
+	)
+}
+
+func wireTaggingSQS(bk *resourcegroupstaggingapibackend.InMemoryBackend, sqsReg service.Registerable) {
+	sqsH, ok := sqsReg.(*sqsbackend.Handler)
+	if !ok {
+		return
+	}
+
+	sqsBk, ok := sqsH.Backend.(*sqsbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	registerTaggingService(bk,
+		func() []resourcegroupstaggingapibackend.TaggedResource {
+			queues := sqsBk.TaggedQueues()
+			out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(queues))
+			for _, q := range queues {
+				out = append(out, resourcegroupstaggingapibackend.TaggedResource{
+					ResourceARN:  q.ARN,
+					ResourceType: "sqs:queue",
+					Tags:         q.Tags,
+				})
+			}
+
+			return out
+		},
+		"sqs",
+		sqsBk.TagQueueByARN,
+		sqsBk.UntagQueueByARN,
+	)
+}
+
+func wireTaggingSNS(bk *resourcegroupstaggingapibackend.InMemoryBackend, snsReg service.Registerable) {
+	snsH, ok := snsReg.(*snsbackend.Handler)
+	if !ok {
+		return
+	}
+
+	snsBk, ok := snsH.Backend.(*snsbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	registerTaggingService(bk,
+		func() []resourcegroupstaggingapibackend.TaggedResource {
+			topics := snsBk.TaggedTopics()
+			out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(topics))
+			for _, t := range topics {
+				out = append(out, resourcegroupstaggingapibackend.TaggedResource{
+					ResourceARN:  t.ARN,
+					ResourceType: "sns:topic",
+					Tags:         t.Tags,
+				})
+			}
+
+			return out
+		},
+		"sns",
+		snsBk.TagTopicByARN,
+		snsBk.UntagTopicByARN,
+	)
+}
+
+func wireTaggingLambda(bk *resourcegroupstaggingapibackend.InMemoryBackend, lambdaReg service.Registerable) {
+	lambdaH, ok := lambdaReg.(*lambdabackend.Handler)
+	if !ok {
+		return
+	}
+
+	registerTaggingService(bk,
+		func() []resourcegroupstaggingapibackend.TaggedResource {
+			fns := lambdaH.TaggedFunctions()
+			out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(fns))
+			for _, f := range fns {
+				out = append(out, resourcegroupstaggingapibackend.TaggedResource{
+					ResourceARN:  f.ARN,
+					ResourceType: "lambda:function",
+					Tags:         f.Tags,
+				})
+			}
+
+			return out
+		},
+		"lambda",
+		lambdaH.TagFunctionByARN,
+		lambdaH.UntagFunctionByARN,
+	)
+}
+
+func wireTaggingKMS(bk *resourcegroupstaggingapibackend.InMemoryBackend, kmsReg service.Registerable) {
+	kmsH, ok := kmsReg.(*kmsbackend.Handler)
+	if !ok {
+		return
+	}
+
+	registerTaggingService(bk,
+		func() []resourcegroupstaggingapibackend.TaggedResource {
+			keys := kmsH.TaggedKeys()
+			out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(keys))
+			for _, k := range keys {
+				out = append(out, resourcegroupstaggingapibackend.TaggedResource{
+					ResourceARN:  k.ARN,
+					ResourceType: "kms:key",
+					Tags:         k.Tags,
+				})
+			}
+
+			return out
+		},
+		"kms",
+		kmsH.TagKeyByARN,
+		kmsH.UntagKeyByARN,
+	)
+}
+
+func wireTaggingSM(bk *resourcegroupstaggingapibackend.InMemoryBackend, smReg service.Registerable) {
+	smH, ok := smReg.(*secretsmanagerbackend.Handler)
+	if !ok {
+		return
+	}
+
+	smBk, ok := smH.Backend.(*secretsmanagerbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	registerTaggingService(bk,
+		func() []resourcegroupstaggingapibackend.TaggedResource {
+			secrets := smBk.TaggedSecrets()
+			out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(secrets))
+			for _, s := range secrets {
+				out = append(out, resourcegroupstaggingapibackend.TaggedResource{
+					ResourceARN:  s.ARN,
+					ResourceType: "secretsmanager:secret",
+					Tags:         s.Tags,
+				})
+			}
+
+			return out
+		},
+		"secretsmanager",
+		smBk.TagSecretByARN,
+		smBk.UntagSecretByARN,
+	)
 }
 
 func startServer(ctx context.Context, port string, e *echo.Echo) error {

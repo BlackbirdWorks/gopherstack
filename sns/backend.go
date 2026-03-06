@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"maps"
 	"net/http"
@@ -633,4 +634,65 @@ func (b *InMemoryBackend) RemoveTopicTags(arn string, keys []string) {
 	if b.topicTags[arn] != nil {
 		b.topicTags[arn].DeleteKeys(keys)
 	}
+}
+
+// TaggedTopicInfo contains a topic's ARN and tag snapshot.
+// Used by the Resource Groups Tagging API cross-service listing.
+type TaggedTopicInfo struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedTopics returns a snapshot of all SNS topics with their tags.
+// Intended for use by the Resource Groups Tagging API provider.
+func (b *InMemoryBackend) TaggedTopics() []TaggedTopicInfo {
+	b.mu.RLock("TaggedTopics")
+	defer b.mu.RUnlock()
+
+	result := make([]TaggedTopicInfo, 0, len(b.topics))
+
+	for topicARN := range b.topics {
+		var tagMap map[string]string
+		if b.topicTags[topicARN] != nil {
+			tagMap = b.topicTags[topicARN].Clone()
+		}
+
+		result = append(result, TaggedTopicInfo{ARN: topicARN, Tags: tagMap})
+	}
+
+	return result
+}
+
+// TagTopicByARN applies tags to the SNS topic identified by its ARN.
+func (b *InMemoryBackend) TagTopicByARN(topicARN string, newTags map[string]string) error {
+	b.mu.Lock("TagTopicByARN")
+	defer b.mu.Unlock()
+
+	if _, ok := b.topics[topicARN]; !ok {
+		return fmt.Errorf("%w: topic %s", ErrTopicNotFound, topicARN)
+	}
+
+	if b.topicTags[topicARN] == nil {
+		b.topicTags[topicARN] = svcTags.New("sns." + topicARN + ".tags")
+	}
+
+	b.topicTags[topicARN].Merge(newTags)
+
+	return nil
+}
+
+// UntagTopicByARN removes the specified tag keys from the SNS topic identified by its ARN.
+func (b *InMemoryBackend) UntagTopicByARN(topicARN string, tagKeys []string) error {
+	b.mu.Lock("UntagTopicByARN")
+	defer b.mu.Unlock()
+
+	if _, ok := b.topics[topicARN]; !ok {
+		return fmt.Errorf("%w: topic %s", ErrTopicNotFound, topicARN)
+	}
+
+	if b.topicTags[topicARN] != nil {
+		b.topicTags[topicARN].DeleteKeys(tagKeys)
+	}
+
+	return nil
 }
