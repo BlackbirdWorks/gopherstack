@@ -132,10 +132,6 @@ func TestIntegration_OpenSearch_ProcessingFieldWaiterCompatibility(t *testing.T)
 	})
 	require.Equal(t, http.StatusOK, statusCode)
 
-	t.Cleanup(func() {
-		doOpenSearchRequest(t, http.MethodDelete, fmt.Sprintf("%s/%s", basePath, domainName), nil)
-	})
-
 	status, ok := body["DomainStatus"].(map[string]any)
 	require.True(t, ok, "expected DomainStatus key")
 
@@ -159,4 +155,8 @@ func TestIntegration_OpenSearch_ProcessingFieldWaiterCompatibility(t *testing.T)
 	descProcessing, ok := descStatus["Processing"].(bool)
 	require.True(t, ok, "Processing field must be a boolean in DescribeDomain DomainStatus")
 	assert.False(t, descProcessing, "DescribeDomain should also return Processing: false")
+
+	// Cleanup: delete the domain (using the still-valid test context)
+	delCode, _ := doOpenSearchRequest(t, http.MethodDelete, fmt.Sprintf("%s/%s", basePath, domainName), nil)
+	assert.Equal(t, http.StatusOK, delCode)
 }
