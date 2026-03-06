@@ -54,7 +54,7 @@ type AssumedRoleUser struct {
 type Credentials struct {
 	AccessKeyID     string `xml:"AccessKeyId"`
 	SecretAccessKey string `xml:"SecretAccessKey"`
-	SessionToken    string `xml:"SessionToken"`
+	SessionToken    string `xml:"SessionToken"` //nolint:gosec // G117: SessionToken is a standard AWS name
 	Expiration      string `xml:"Expiration"`
 }
 

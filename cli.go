@@ -36,7 +36,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	gopherDNS "github.com/blackbirdworks/gopherstack/pkgs/dns"
 	snsevents "github.com/blackbirdworks/gopherstack/pkgs/events"
-	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/inithooks"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
@@ -449,6 +449,7 @@ func (h *HealthCmd) Run() error {
 		return fmt.Errorf("create health check request: %w", err)
 	}
 
+	//nolint:gosec // G704: targetURL is constructed from local Port and fixed path
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrHealthCheckFailed, err)
@@ -623,7 +624,7 @@ func buildEchoServer(
 	cli CLI,
 ) *echo.Echo {
 	e := echo.New()
-	e.Use(httputil.RequestIDMiddleware())
+	e.Use(httputils.RequestIDMiddleware())
 	e.Use(logger.APIConsoleMiddleware())
 	e.Pre(logger.EchoMiddleware(log))
 	e.GET("/_gopherstack/health", healthHandler)

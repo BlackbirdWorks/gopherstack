@@ -9,7 +9,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -245,7 +245,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 }
 
 func (h *Handler) handleCreateDomain(w http.ResponseWriter, r *http.Request) {
-	body, err := httputil.ReadBody(r)
+	body, err := httputils.ReadBody(r)
 	if err != nil {
 		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "failed to read body")
 
@@ -368,11 +368,11 @@ func (h *Handler) writeError(r *http.Request, w http.ResponseWriter, status int,
 	ctx := r.Context()
 	logger.Load(ctx).Error("opensearch error", "code", code, "message", message)
 	w.Header().Set("x-amzn-ErrorType", code)
-	httputil.WriteJSON(ctx, w, status, errorResponseJSON{Message: message})
+	httputils.WriteJSON(ctx, w, status, errorResponseJSON{Message: message})
 }
 
 func (h *Handler) writeJSON(r *http.Request, w http.ResponseWriter, v any) {
-	httputil.WriteJSON(r.Context(), w, http.StatusOK, v)
+	httputils.WriteJSON(r.Context(), w, http.StatusOK, v)
 }
 
 type listTagsOutput struct {
@@ -425,7 +425,7 @@ type addTagsInput struct {
 }
 
 func (h *Handler) handleAddTags(w http.ResponseWriter, r *http.Request) {
-	body, err := httputil.ReadBody(r)
+	body, err := httputils.ReadBody(r)
 	if err != nil {
 		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "failed to read body")
 
@@ -454,7 +454,7 @@ type removeTagsInput struct {
 }
 
 func (h *Handler) handleRemoveTags(w http.ResponseWriter, r *http.Request) {
-	body, err := httputil.ReadBody(r)
+	body, err := httputils.ReadBody(r)
 	if err != nil {
 		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "failed to read body")
 

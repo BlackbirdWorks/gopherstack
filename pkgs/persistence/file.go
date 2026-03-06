@@ -67,21 +67,25 @@ func (f *FileStore) Save(service, key string, data []byte) error {
 
 	if _, writeErr := tmp.Write(data); writeErr != nil {
 		_ = tmp.Close()
+		//nolint:gosec // G703: tmpName is derived from os.CreateTemp and not user-supplied
 		_ = os.Remove(tmpName)
 
 		return fmt.Errorf("persistence: write %s: %w", tmpName, writeErr)
 	}
 
 	if closeErr := tmp.Close(); closeErr != nil {
+		//nolint:gosec // G703: tmpName is derived from os.CreateTemp and not user-supplied
 		_ = os.Remove(tmpName)
 
 		return fmt.Errorf("persistence: close %s: %w", tmpName, closeErr)
 	}
 
+	//nolint:gosec // G703: tmpName is derived from os.CreateTemp and not user-supplied
 	if renameErr := os.Rename(
 		tmpName,
 		p,
 	); renameErr != nil {
+		//nolint:gosec // G703: tmpName is derived from os.CreateTemp and not user-supplied
 		_ = os.Remove(tmpName)
 
 		return fmt.Errorf("persistence: rename %s -> %s: %w", tmpName, p, renameErr)

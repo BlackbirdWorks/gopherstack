@@ -12,7 +12,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -117,7 +117,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return false
 		}
 
-		body, err := httputil.ReadBody(r)
+		body, err := httputils.ReadBody(r)
 		if err != nil {
 			return false
 		}
@@ -134,7 +134,7 @@ func (h *Handler) MatchPriority() int {
 
 // ExtractOperation extracts the IAM action from the request body.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
-	body, err := httputil.ReadBody(c.Request())
+	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return unknownOp
 	}
@@ -154,7 +154,7 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 
 // ExtractResource extracts the primary resource name from the IAM request.
 func (h *Handler) ExtractResource(c *echo.Context) string {
-	body, err := httputil.ReadBody(c.Request())
+	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return ""
 	}
@@ -187,7 +187,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return c.String(http.StatusMethodNotAllowed, "Method not allowed")
 		}
 
-		body, err := httputil.ReadBody(c.Request())
+		body, err := httputils.ReadBody(c.Request())
 		if err != nil {
 			log.ErrorContext(ctx, "failed to read IAM request body", "error", err)
 

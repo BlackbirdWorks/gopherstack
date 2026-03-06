@@ -651,7 +651,7 @@ func (r errReader) Read(_ []byte) (int, error) {
 }
 func (r errReader) Close() error { return nil }
 
-// TestExtractOperation_ReadBodyError covers the httputil.ReadBody error path
+// TestExtractOperation_ReadBodyError covers the httputils.ReadBody error path
 // in ExtractOperation (returns "Unknown" when the request body cannot be read).
 func TestExtractOperation_ReadBodyError(t *testing.T) {
 	t.Parallel()
@@ -665,7 +665,7 @@ func TestExtractOperation_ReadBodyError(t *testing.T) {
 	assert.Equal(t, "Unknown", h.ExtractOperation(c))
 }
 
-// TestExtractResource_ReadBodyError covers the httputil.ReadBody error path
+// TestExtractResource_ReadBodyError covers the httputils.ReadBody error path
 // in ExtractResource (returns "" when the request body cannot be read).
 func TestExtractResource_ReadBodyError(t *testing.T) {
 	t.Parallel()

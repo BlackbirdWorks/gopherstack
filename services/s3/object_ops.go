@@ -19,7 +19,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -217,7 +217,7 @@ func validateContentMD5(ctx context.Context, w http.ResponseWriter, r *http.Requ
 
 	decoded, decErr := base64.StdEncoding.DecodeString(contentMD5Header)
 	if decErr != nil || len(decoded) != md5.Size {
-		httputil.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
+		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
 			Code:    "BadDigest",
 			Message: "The Content-MD5 you specified did not match what we received.",
 		}, http.StatusBadRequest)
@@ -228,7 +228,7 @@ func validateContentMD5(ctx context.Context, w http.ResponseWriter, r *http.Requ
 	//nolint:gosec // MD5 required for Content-MD5 header validation per S3 spec
 	computed := md5.Sum(data)
 	if !bytes.Equal(computed[:], decoded) {
-		httputil.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
+		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
 			Code:    "BadDigest",
 			Message: "The Content-MD5 you specified did not match what we received.",
 		}, http.StatusBadRequest)
@@ -274,7 +274,7 @@ func (h *S3Handler) putObject(
 		r.Header.Get("Content-Type"),
 	)
 
-	data, err := httputil.ReadBody(r)
+	data, err := httputils.ReadBody(r)
 	if err != nil {
 		WriteError(ctx, w, r, err)
 
@@ -448,7 +448,7 @@ func (h *S3Handler) copyObject(
 		etag = *destVer.ETag
 	}
 
-	httputil.WriteXML(ctx, w, http.StatusOK, CopyObjectResult{
+	httputils.WriteXML(ctx, w, http.StatusOK, CopyObjectResult{
 		ETag:         etag,
 		LastModified: time.Now().UTC().Format(time.RFC3339),
 	})
@@ -639,7 +639,7 @@ func (h *S3Handler) deleteObjects(
 	}
 
 	if len(req.Objects) > maxDeleteObjects {
-		httputil.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
+		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
 			Code:    "InvalidArgument",
 			Message: "You have attempted to delete more objects than allowed by the service's max-delete limit (1000).",
 		}, http.StatusBadRequest)
@@ -694,7 +694,7 @@ func (h *S3Handler) deleteObjects(
 		})
 	}
 
-	httputil.WriteXML(ctx, w, http.StatusOK, resp)
+	httputils.WriteXML(ctx, w, http.StatusOK, resp)
 }
 
 func (h *S3Handler) putObjectTagging(
@@ -773,7 +773,7 @@ func (h *S3Handler) getObjectTagging(
 		}
 	}
 
-	httputil.WriteXML(ctx, w, http.StatusOK, resp)
+	httputils.WriteXML(ctx, w, http.StatusOK, resp)
 }
 
 func (h *S3Handler) deleteObjectTagging(
@@ -1063,7 +1063,7 @@ func (h *S3Handler) putObjectRetention(
 ) {
 	h.setOperation(ctx, "PutObjectRetention")
 
-	body, err := httputil.ReadBody(r)
+	body, err := httputils.ReadBody(r)
 	if err != nil {
 		WriteError(ctx, w, r, err)
 
@@ -1072,7 +1072,7 @@ func (h *S3Handler) putObjectRetention(
 
 	var ret ObjectRetention
 	if xmlErr := xml.NewDecoder(bytes.NewReader(body)).Decode(&ret); xmlErr != nil {
-		httputil.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
+		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
 			Code:    "MalformedXML",
 			Message: "The XML you provided was not well-formed",
 		}, http.StatusBadRequest)
@@ -1085,7 +1085,7 @@ func (h *S3Handler) putObjectRetention(
 		// Try alternative format
 		retainUntil, parseErr = time.Parse("2006-01-02T15:04:05.999Z", ret.RetainUntilDate)
 		if parseErr != nil {
-			httputil.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
+			httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
 				Code:    "InvalidArgument",
 				Message: "Invalid RetainUntilDate format",
 			}, http.StatusBadRequest)
@@ -1131,7 +1131,7 @@ func (h *S3Handler) getObjectRetention(
 	}
 
 	if errors.Is(err, ErrNoSuchObjectLockConfig) {
-		httputil.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
+		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
 			Code:    "NoSuchObjectLockConfiguration",
 			Message: "The specified object does not have a ObjectLock configuration",
 		}, http.StatusNotFound)
@@ -1151,7 +1151,7 @@ func (h *S3Handler) getObjectRetention(
 		RetainUntilDate: retainUntil.UTC().Format(time.RFC3339),
 	}
 
-	httputil.WriteXML(ctx, w, http.StatusOK, ret)
+	httputils.WriteXML(ctx, w, http.StatusOK, ret)
 }
 
 func (h *S3Handler) putObjectLegalHold(
@@ -1162,7 +1162,7 @@ func (h *S3Handler) putObjectLegalHold(
 ) {
 	h.setOperation(ctx, "PutObjectLegalHold")
 
-	body, err := httputil.ReadBody(r)
+	body, err := httputils.ReadBody(r)
 	if err != nil {
 		WriteError(ctx, w, r, err)
 
@@ -1171,7 +1171,7 @@ func (h *S3Handler) putObjectLegalHold(
 
 	var lh ObjectLegalHold
 	if xmlErr := xml.NewDecoder(bytes.NewReader(body)).Decode(&lh); xmlErr != nil {
-		httputil.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
+		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
 			Code:    "MalformedXML",
 			Message: "The XML you provided was not well-formed",
 		}, http.StatusBadRequest)
@@ -1226,5 +1226,5 @@ func (h *S3Handler) getObjectLegalHold(
 		Status: status,
 	}
 
-	httputil.WriteXML(ctx, w, http.StatusOK, lh)
+	httputils.WriteXML(ctx, w, http.StatusOK, lh)
 }

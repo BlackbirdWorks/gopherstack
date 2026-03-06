@@ -10,7 +10,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -61,7 +61,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		if !strings.Contains(ct, "application/x-www-form-urlencoded") {
 			return false
 		}
-		body, err := httputil.ReadBody(r)
+		body, err := httputils.ReadBody(r)
 		if err != nil {
 			return false
 		}

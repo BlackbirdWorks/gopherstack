@@ -10,7 +10,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
-	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -220,7 +220,7 @@ func (h *S3Handler) Handler() echo.HandlerFunc {
 		requestWithCtx := c.Request().WithContext(ctx)
 		*c.Request() = *requestWithCtx
 
-		sw := httputil.NewResponseWriter(c.Response())
+		sw := httputils.NewResponseWriter(c.Response())
 
 		log := logger.Load(ctx)
 

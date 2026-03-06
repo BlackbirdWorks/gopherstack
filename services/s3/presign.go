@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
 // presignedDateFormat is the AWS SigV4 date-time format used in X-Amz-Date.
@@ -29,7 +29,7 @@ func (h *S3Handler) validatePresignedRequest(ctx context.Context, w http.Respons
 	expiresStr := q.Get("X-Amz-Expires")
 
 	if dateStr == "" || expiresStr == "" {
-		httputil.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
+		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
 			Code:    "AccessDenied",
 			Message: "Request has expired.",
 		}, http.StatusForbidden)
@@ -39,7 +39,7 @@ func (h *S3Handler) validatePresignedRequest(ctx context.Context, w http.Respons
 
 	signedAt, err := time.Parse(presignedDateFormat, dateStr)
 	if err != nil {
-		httputil.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
+		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
 			Code:    "AuthorizationQueryParametersError",
 			Message: "X-Amz-Date must be in the ISO 8601 basic format.",
 		}, http.StatusBadRequest)
@@ -49,7 +49,7 @@ func (h *S3Handler) validatePresignedRequest(ctx context.Context, w http.Respons
 
 	expires, err := strconv.ParseInt(expiresStr, 10, 64)
 	if err != nil || expires <= 0 {
-		httputil.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
+		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
 			Code:    "AuthorizationQueryParametersError",
 			Message: "X-Amz-Expires must be a positive integer.",
 		}, http.StatusBadRequest)
@@ -60,7 +60,7 @@ func (h *S3Handler) validatePresignedRequest(ctx context.Context, w http.Respons
 	expiresAt := signedAt.Add(time.Duration(expires) * time.Second)
 
 	if time.Now().UTC().After(expiresAt) {
-		httputil.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
+		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
 			Code:    "AccessDenied",
 			Message: "Request has expired.",
 		}, http.StatusForbidden)

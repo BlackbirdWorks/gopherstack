@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"strconv"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -123,7 +123,7 @@ func (h *S3Handler) renderListObjectsV2Response(
 	)
 	resp.KeyCount = len(resp.Contents) + len(resp.CommonPrefixes)
 
-	httputil.WriteXML(ctx, w, http.StatusOK, resp)
+	httputils.WriteXML(ctx, w, http.StatusOK, resp)
 }
 
 // applyStartCursor advances objects past all keys that are <= startCursor,

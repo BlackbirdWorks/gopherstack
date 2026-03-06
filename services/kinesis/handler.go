@@ -9,7 +9,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -129,7 +129,7 @@ type extractStreamNameInput struct {
 
 // ExtractResource extracts the stream name from the JSON request body.
 func (h *Handler) ExtractResource(c *echo.Context) string {
-	body, err := httputil.ReadBody(c.Request())
+	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return ""
 	}
@@ -370,7 +370,7 @@ func (h *Handler) handleCreateStream(
 		return nil, ErrInvalidArgument
 	}
 
-	region := httputil.ExtractRegionFromRequest(r, h.DefaultRegion)
+	region := httputils.ExtractRegionFromRequest(r, h.DefaultRegion)
 
 	err := h.Backend.CreateStream(&CreateStreamInput{
 		StreamName: req.StreamName,

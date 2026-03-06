@@ -1,4 +1,4 @@
-package httputil_test
+package httputils_test
 
 import (
 	"encoding/xml"
@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/httputil"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
 var errCovTest = errors.New("coverage test error")
@@ -41,7 +41,7 @@ func TestWriteJSON_WithLogger(t *testing.T) {
 			t.Parallel()
 
 			w := httptest.NewRecorder()
-			httputil.WriteJSON(t.Context(), w, http.StatusOK, tt.payload)
+			httputils.WriteJSON(t.Context(), w, http.StatusOK, tt.payload)
 			assert.Equal(t, tt.wantCode, w.Code)
 		})
 	}
@@ -77,7 +77,7 @@ func TestWriteXML_WithLogger(t *testing.T) {
 			t.Parallel()
 
 			w := httptest.NewRecorder()
-			httputil.WriteXML(t.Context(), w, http.StatusOK, tt.payload)
+			httputils.WriteXML(t.Context(), w, http.StatusOK, tt.payload)
 			assert.Equal(t, tt.wantCode, w.Code)
 		})
 	}
@@ -108,7 +108,7 @@ func TestWriteDynamoDBResponse_WithLogger(t *testing.T) {
 			t.Parallel()
 
 			w := httptest.NewRecorder()
-			httputil.WriteDynamoDBResponse(t.Context(), w, http.StatusOK, tt.payload)
+			httputils.WriteDynamoDBResponse(t.Context(), w, http.StatusOK, tt.payload)
 			assert.Equal(t, tt.wantCode, w.Code)
 		})
 	}
@@ -133,7 +133,7 @@ func TestWriteError_WithLogger(t *testing.T) {
 
 			w := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, "/test", nil)
-			httputil.WriteError(req.Context(), w, req, errCovTest, tt.wantCode)
+			httputils.WriteError(req.Context(), w, req, errCovTest, tt.wantCode)
 			assert.Equal(t, tt.wantCode, w.Code)
 			assert.Contains(t, w.Body.String(), "coverage test error")
 		})
@@ -178,7 +178,7 @@ func TestEchoError_WithLogger(t *testing.T) {
 			rec := httptest.NewRecorder()
 			c := e.NewContext(req, rec)
 
-			res := httputil.EchoError(c.Request().Context(), c, tt.code, tt.message, tt.err)
+			res := httputils.EchoError(c.Request().Context(), c, tt.code, tt.message, tt.err)
 			require.NoError(t, res)
 			assert.Equal(t, tt.wantCode, rec.Code)
 			assert.Equal(t, tt.wantBody, rec.Body.String())
@@ -205,7 +205,7 @@ func TestResponseWriter_WriteWithZeroStatus(t *testing.T) {
 
 			inner := httptest.NewRecorder()
 			// Create ResponseWriter without NewResponseWriter so statusCode is 0.
-			w := &httputil.ResponseWriter{ResponseWriter: inner}
+			w := &httputils.ResponseWriter{ResponseWriter: inner}
 
 			n, err := w.Write([]byte("hello"))
 			require.NoError(t, err)
@@ -243,7 +243,7 @@ func TestWriteJSON_PreservesContentType(t *testing.T) {
 				w.Header().Set("Content-Type", tt.contentType)
 			}
 
-			httputil.WriteJSON(t.Context(), w, http.StatusOK, map[string]string{"k": "v"})
+			httputils.WriteJSON(t.Context(), w, http.StatusOK, map[string]string{"k": "v"})
 			assert.Equal(t, tt.wantCT, w.Header().Get("Content-Type"))
 		})
 	}
@@ -274,7 +274,7 @@ func TestWriteS3ErrorResponse_WithLogger(t *testing.T) {
 
 			w := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, "/bucket/key", nil)
-			httputil.WriteS3ErrorResponse(
+			httputils.WriteS3ErrorResponse(
 				req.Context(), w, req,
 				s3Err{Code: "NoSuchKey", Message: "not found"},
 				tt.wantCode,
