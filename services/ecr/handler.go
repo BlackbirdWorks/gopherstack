@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -23,7 +24,8 @@ const (
 	dummyPassword     = "dummy-password"
 	dummyUser         = "AWS"
 	tokenTTL          = 12 * time.Hour
-	v2PathPrefix      = "/v2"
+	v2Root            = "/v2"
+	v2Prefix          = "/v2/"
 	unknownActionName = "Unknown"
 )
 
@@ -36,6 +38,7 @@ var (
 type Handler struct {
 	Backend         Backend
 	registryHandler http.Handler
+	setEndpointOnce sync.Once
 	registryEnabled bool
 }
 
@@ -65,10 +68,16 @@ func (h *Handler) GetSupportedOperations() []string {
 	}
 }
 
+// isRegistryPath returns true when path is exactly "/v2" or starts with "/v2/".
+// This prevents false matches against unrelated paths like "/v20180820/..." (S3Control).
+func isRegistryPath(path string) bool {
+	return path == v2Root || strings.HasPrefix(path, v2Prefix)
+}
+
 // RouteMatcher returns a function that matches ECR requests.
 // It matches on:
 //   - X-Amz-Target header with AmazonEC2ContainerRegistry_V20150921. prefix (control plane)
-//   - /v2/ path prefix (Docker registry v2 API, when local registry is enabled)
+//   - /v2 or /v2/ path prefix (Docker registry v2 API, when local registry is enabled)
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		target := c.Request().Header.Get("X-Amz-Target")
@@ -76,7 +85,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return true
 		}
 
-		if h.registryEnabled && strings.HasPrefix(c.Request().URL.Path, v2PathPrefix) {
+		if h.registryEnabled && isRegistryPath(c.Request().URL.Path) {
 			return true
 		}
 
@@ -95,7 +104,7 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	action := strings.TrimPrefix(target, ecrTargetPrefix)
 
 	if action == "" || action == target {
-		if h.registryEnabled && strings.HasPrefix(c.Request().URL.Path, v2PathPrefix) {
+		if h.registryEnabled && isRegistryPath(c.Request().URL.Path) {
 			return "RegistryV2"
 		}
 
@@ -106,7 +115,24 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 }
 
 // ExtractResource extracts the repository name from the request.
+// For registry v2 paths (/v2/<name>/...) the name is taken from the URL to
+// avoid buffering potentially large binary upload bodies.
 func (h *Handler) ExtractResource(c *echo.Context) string {
+	path := c.Request().URL.Path
+
+	if h.registryEnabled && isRegistryPath(path) {
+		// /v2 alone (root ping) has no repository component.
+		if path == v2Root {
+			return ""
+		}
+
+		// Extract name from /v2/<name>/...
+		trimmed := strings.TrimPrefix(path, v2Prefix)
+		name, _, _ := strings.Cut(trimmed, "/")
+
+		return name
+	}
+
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
 		return ""
@@ -133,8 +159,19 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function for ECR requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		// Lazily set the proxy endpoint from the first request's Host header so
+		// that repository URIs and authorization tokens reflect the local server
+		// address rather than a default AWS-style endpoint.
+		h.setEndpointOnce.Do(func() {
+			if h.Backend.ProxyEndpoint() == "" {
+				if host := c.Request().Host; host != "" {
+					h.Backend.SetEndpoint(host)
+				}
+			}
+		})
+
 		// Docker registry v2 requests are proxied to the embedded registry.
-		if h.registryEnabled && strings.HasPrefix(c.Request().URL.Path, v2PathPrefix) {
+		if h.registryEnabled && isRegistryPath(c.Request().URL.Path) {
 			h.registryHandler.ServeHTTP(c.Response(), c.Request())
 
 			return nil
@@ -188,7 +225,12 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 			http.StatusBadRequest,
 			map[string]string{"__type": "RepositoryAlreadyExistsException", "message": err.Error()},
 		)
-	case errors.Is(err, ErrInvalidRepositoryName), errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
+	case errors.Is(err, errUnknownAction):
+		return c.JSON(
+			http.StatusBadRequest,
+			map[string]string{"__type": "UnknownOperationException", "message": err.Error()},
+		)
+	case errors.Is(err, ErrInvalidRepositoryName), errors.Is(err, errInvalidRequest),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		return c.JSON(
 			http.StatusBadRequest,

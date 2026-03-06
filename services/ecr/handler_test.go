@@ -103,6 +103,12 @@ func TestECR_RouteMatcher(t *testing.T) {
 			path:      "/v2/",
 			wantMatch: false,
 		},
+		{
+			name:      "v2 prefix path should not match s3control-like paths",
+			target:    "",
+			path:      "/v20180820/bucket",
+			wantMatch: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -425,6 +431,7 @@ func TestECR_UnknownAction(t *testing.T) {
 	h := newTestHandler(t)
 	rec := doECRRequest(t, h, "UnknownAction", map[string]any{})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "UnknownOperationException")
 }
 
 func TestECR_Provider_Init(t *testing.T) {
@@ -539,4 +546,101 @@ func TestECR_Persistence(t *testing.T) {
 	repos, ok := resp["repositories"].([]any)
 	require.True(t, ok)
 	assert.Len(t, repos, 1)
+}
+
+// TestECR_LazyEndpointInit verifies that a Handler with an empty backend
+// endpoint sets it from the first request's Host header.
+func TestECR_LazyEndpointInit(t *testing.T) {
+	t.Parallel()
+
+	backend := ecr.NewInMemoryBackend(testAccountID, testRegion, "")
+	h := ecr.NewHandler(backend, nil)
+
+	// First request — Host header provides the server address.
+	bodyBytes, err := json.Marshal(map[string]any{"repositoryName": "lazy-repo"})
+	require.NoError(t, err)
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(bodyBytes))
+	req.Host = "localhost:9999"
+	req.Header.Set("X-Amz-Target", "AmazonEC2ContainerRegistry_V20150921.CreateRepository")
+	rec := httptest.NewRecorder()
+
+	require.NoError(t, h.Handler()(e.NewContext(req, rec)))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	repo, ok := resp["repository"].(map[string]any)
+	require.True(t, ok)
+	// RepositoryURI must use the lazily-set endpoint from the Host header.
+	assert.Contains(t, repo["repositoryUri"].(string), "localhost:9999")
+}
+
+// TestECR_ExtractResource_V2Path checks that ExtractResource extracts the
+// repository name from the URL path instead of reading the request body.
+func TestECR_ExtractResource_V2Path(t *testing.T) {
+	t.Parallel()
+
+	backend := ecr.NewInMemoryBackend(testAccountID, testRegion, testEndpoint)
+	// Pass a no-op http.Handler to enable registry mode.
+	h := ecr.NewHandler(backend, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	tests := []struct {
+		path string
+		want string
+	}{
+		{path: "/v2/my-repo/manifests/latest", want: "my-repo"},
+		{path: "/v2/org/app/blobs/sha256:abc", want: "org"},
+		{path: "/v2/", want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			t.Parallel()
+
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			c := e.NewContext(req, httptest.NewRecorder())
+			assert.Equal(t, tt.want, h.ExtractResource(c))
+		})
+	}
+}
+
+// TestECR_RouteMatcher_V2Strict checks that the route matcher does not match
+// paths that start with "/v2" but are not the Docker registry v2 API
+// (e.g. S3Control's "/v20180820/..." paths).
+func TestECR_RouteMatcher_V2Strict(t *testing.T) {
+	t.Parallel()
+
+	backend := ecr.NewInMemoryBackend(testAccountID, testRegion, testEndpoint)
+	// Pass a no-op http.Handler to enable registry mode.
+	h := ecr.NewHandler(backend, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	tests := []struct {
+		path      string
+		wantMatch bool
+	}{
+		{path: "/v2/", wantMatch: true},
+		{path: "/v2/my-repo/manifests/latest", wantMatch: true},
+		{path: "/v2", wantMatch: true},
+		{path: "/v20180820/bucket", wantMatch: false},
+		{path: "/v2abc/something", wantMatch: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			t.Parallel()
+
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			c := e.NewContext(req, httptest.NewRecorder())
+			assert.Equal(t, tt.wantMatch, h.RouteMatcher()(c))
+		})
+	}
 }

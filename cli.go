@@ -1703,7 +1703,7 @@ func healthHandler(c *echo.Context) error {
 		Services: []string{
 			"DynamoDB", "S3", "SSM", "IAM", "STS", "SNS", "SQS", "KMS", "SecretsManager", "Lambda",
 			"EventBridge", "APIGateway", "CloudWatchLogs", "StepFunctions", "CloudWatch", "CloudFormation",
-			"Kinesis", "Route53", "SES",
+			"Kinesis", "Route53", "SES", "ECR",
 		},
 	})
 }
