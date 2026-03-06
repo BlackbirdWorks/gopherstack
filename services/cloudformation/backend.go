@@ -50,6 +50,7 @@ type InMemoryBackend struct {
 	resources  map[string]map[string]*StackResource
 	changeSets map[string]map[string]*ChangeSet
 	creator    *ResourceCreator
+	resolver   DynamicRefResolver
 	mu         *lockmetrics.RWMutex
 	accountID  string
 	region     string
@@ -80,12 +81,18 @@ func NewInMemoryBackend() *InMemoryBackend {
 
 // NewInMemoryBackendWithConfig creates a new backend with the given config and resource creator.
 func NewInMemoryBackendWithConfig(accountID, region string, creator *ResourceCreator) *InMemoryBackend {
+	var resolver DynamicRefResolver
+	if creator != nil {
+		resolver = NewDynamicRefResolver(creator.backends)
+	}
+
 	return &InMemoryBackend{
 		stacks:     make(map[string]*Stack),
 		events:     make(map[string][]StackEvent),
 		resources:  make(map[string]map[string]*StackResource),
 		changeSets: make(map[string]map[string]*ChangeSet),
 		creator:    creator,
+		resolver:   resolver,
 		accountID:  accountID,
 		region:     region,
 		mu:         lockmetrics.New("cloudformation"),
@@ -172,6 +179,14 @@ func (b *InMemoryBackend) CreateStack(
 			return stack, nil
 		}
 		stack.Description = tmpl.Description
+
+		if dynErr := ResolveDynamicRefsInTemplate(tmpl, b.resolver); dynErr != nil {
+			stack.StackStatus = statusCreateFailed
+			stack.StackStatusReason = dynErr.Error()
+			b.addEvent(arn, name, name, arn, cfnStackType, statusCreateFailed, dynErr.Error())
+
+			return stack, nil
+		}
 
 		resolvedParams := ResolveParameters(tmpl, params)
 		physicalIDs := make(map[string]string)
@@ -267,6 +282,17 @@ func (b *InMemoryBackend) applyTemplateToStack(ctx context.Context, stack *Stack
 	}
 
 	stack.Description = tmpl.Description
+
+	if dynErr := ResolveDynamicRefsInTemplate(tmpl, b.resolver); dynErr != nil {
+		stack.StackStatus = statusUpdateFailed
+		stack.StackStatusReason = dynErr.Error()
+		b.addEvent(
+			stack.StackID, stack.StackName, stack.StackName, stack.StackID,
+			cfnStackType, statusUpdateFailed, dynErr.Error(),
+		)
+
+		return false
+	}
 
 	resolvedParams := ResolveParameters(tmpl, stack.Parameters)
 	physicalIDs := make(map[string]string)
