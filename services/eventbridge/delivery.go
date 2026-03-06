@@ -67,10 +67,14 @@ func (b *InMemoryBackend) deliverEvents(ctx context.Context, entries []EventEntr
 				continue
 			}
 
+			// Build the delivery envelope once per matched rule so all targets
+			// for this rule share the same event id, matching AWS behaviour.
+			deliveryEnvelope := buildDeliveryEnvelope(entry, accountID, region)
+
 			// Deliver to all targets for this rule.
 			key := b.targetKey(busName, rule.Name)
 			for _, t := range busTargets[key] {
-				deliverToTarget(ctx, t, entry, targets, accountID, region)
+				deliverToTarget(ctx, t, deliveryEnvelope, targets)
 			}
 		}
 	}
@@ -111,17 +115,11 @@ func buildEventEnvelope(entry EventEntry) string {
 }
 
 // deliverToTarget delivers a single event to a single target.
-func deliverToTarget(
-	ctx context.Context,
-	target *Target,
-	entry EventEntry,
-	dt DeliveryTargets,
-	accountID, region string,
-) {
+func deliverToTarget(ctx context.Context, target *Target, envelope map[string]any, dt DeliveryTargets) {
 	arn := target.Arn
 	log := logger.Load(ctx)
 
-	payload := buildPayload(target, entry, accountID, region)
+	payload := buildPayload(target, envelope)
 
 	switch {
 	case isLambdaARN(arn):
@@ -154,14 +152,12 @@ func deliverToTarget(
 	}
 }
 
-// buildPayload constructs the message payload for a target.
+// buildPayload constructs the message payload for a target from a pre-built event envelope.
 // Priority: Input override → InputPath → InputTransformer → full event envelope.
-func buildPayload(target *Target, entry EventEntry, accountID, region string) string {
+func buildPayload(target *Target, envelope map[string]any) string {
 	if target.Input != "" {
 		return target.Input
 	}
-
-	envelope := buildDeliveryEnvelope(entry, accountID, region)
 
 	if target.InputPath != "" {
 		return applyInputPath(target.InputPath, envelope)
@@ -194,6 +190,11 @@ func buildDeliveryEnvelope(entry EventEntry, accountID, region string) map[strin
 		}
 	}
 
+	resources := entry.Resources
+	if resources == nil {
+		resources = []string{}
+	}
+
 	return map[string]any{
 		"version":     "0",
 		"id":          uuid.New().String(),
@@ -201,7 +202,7 @@ func buildDeliveryEnvelope(entry EventEntry, accountID, region string) map[strin
 		"account":     accountID,
 		"time":        eventTime.UTC().Format(time.RFC3339),
 		"region":      region,
-		"resources":   entry.Resources,
+		"resources":   resources,
 		"detail-type": entry.DetailType,
 		"detail":      detail,
 	}

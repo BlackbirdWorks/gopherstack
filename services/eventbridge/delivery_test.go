@@ -2,6 +2,7 @@ package eventbridge_test
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 	"testing"
 	"time"
@@ -329,10 +330,9 @@ func TestDelivery_FullEnvelope(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
-		events        []eventbridge.EventEntry
-		wantFields    []string
-		wantNotFields []string
+		name       string
+		events     []eventbridge.EventEntry
+		wantFields []string
 	}{
 		{
 			name: "full_envelope_includes_standard_fields",
@@ -357,6 +357,13 @@ func TestDelivery_FullEnvelope(t *testing.T) {
 				{Source: "test.service", DetailType: "MyEvent", Detail: `{"nested": {"key": "value"}}`},
 			},
 			wantFields: []string{`"nested"`},
+		},
+		{
+			name: "nil_resources_serializes_as_empty_array",
+			events: []eventbridge.EventEntry{
+				{Source: "test.service", DetailType: "MyEvent", Detail: `{}`, Resources: nil},
+			},
+			wantFields: []string{`"resources":[]`},
 		},
 	}
 
@@ -394,6 +401,68 @@ func TestDelivery_FullEnvelope(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDelivery_SharedEventIDAcrossTargets(t *testing.T) {
+	t.Parallel()
+
+	sqsMock1 := newMockSQSSender()
+	sqsMock2 := newMockSQSSender()
+
+	backend := eventbridge.NewInMemoryBackend()
+	backend.SetDeliveryTargets(&eventbridge.DeliveryTargets{
+		SQS: &multiQueueSender{senders: map[string]*mockSQSSender{
+			"arn:aws:sqs:us-east-1:000000000000:queue-a": sqsMock1,
+			"arn:aws:sqs:us-east-1:000000000000:queue-b": sqsMock2,
+		}},
+	})
+
+	_, err := backend.PutRule(eventbridge.PutRuleInput{
+		Name:         "shared-id-rule",
+		EventPattern: `{"source": ["shared.id.service"]}`,
+		State:        "ENABLED",
+	})
+	require.NoError(t, err)
+
+	_, err = backend.PutTargets("shared-id-rule", "default", []eventbridge.Target{
+		{ID: "t1", Arn: "arn:aws:sqs:us-east-1:000000000000:queue-a"},
+		{ID: "t2", Arn: "arn:aws:sqs:us-east-1:000000000000:queue-b"},
+	})
+	require.NoError(t, err)
+
+	backend.PutEvents([]eventbridge.EventEntry{
+		{Source: "shared.id.service", DetailType: "Evt", Detail: `{}`},
+	})
+
+	require.Eventually(t, func() bool {
+		return len(sqsMock1.MessagesFor("arn:aws:sqs:us-east-1:000000000000:queue-a")) > 0 &&
+			len(sqsMock2.MessagesFor("arn:aws:sqs:us-east-1:000000000000:queue-b")) > 0
+	}, 2*time.Second, 10*time.Millisecond)
+
+	var id1, id2 struct {
+		ID string `json:"id"`
+	}
+
+	msg1 := sqsMock1.MessagesFor("arn:aws:sqs:us-east-1:000000000000:queue-a")[0]
+	msg2 := sqsMock2.MessagesFor("arn:aws:sqs:us-east-1:000000000000:queue-b")[0]
+
+	require.NoError(t, json.Unmarshal([]byte(msg1), &id1))
+	require.NoError(t, json.Unmarshal([]byte(msg2), &id2))
+	assert.NotEmpty(t, id1.ID)
+	assert.Equal(t, id1.ID, id2.ID, "all targets for the same rule+event must share the same event id")
+}
+
+// multiQueueSender routes SendMessageToQueue calls to the matching mockSQSSender by ARN.
+type multiQueueSender struct {
+	senders map[string]*mockSQSSender
+}
+
+func (m *multiQueueSender) SendMessageToQueue(ctx context.Context, queueARN, messageBody string) error {
+	if s, ok := m.senders[queueARN]; ok {
+		return s.SendMessageToQueue(ctx, queueARN, messageBody)
+	}
+
+	return nil
 }
 
 func TestDelivery_InputPath(t *testing.T) {
